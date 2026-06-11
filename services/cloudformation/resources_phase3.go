@@ -987,7 +987,9 @@ func (rc *ResourceCreator) createMSKCluster(
 		brokerInfo.InstanceType = "kafka.m5.large"
 	}
 
-	cluster, err := rc.backends.Kafka.Backend.CreateCluster(name, kafkaVersion, numBrokers, brokerInfo, nil, nil)
+	cluster, err := rc.backends.Kafka.Backend.CreateCluster(
+		context.Background(), name, kafkaVersion, numBrokers, brokerInfo, nil, nil,
+	)
 	if err != nil {
 		return "", fmt.Errorf("create MSK cluster %s: %w", name, err)
 	}
@@ -1000,7 +1002,7 @@ func (rc *ResourceCreator) deleteMSKCluster(arn string) error {
 		return nil
 	}
 
-	return rc.backends.Kafka.Backend.DeleteCluster(arn)
+	return rc.backends.Kafka.Backend.DeleteCluster(context.Background(), arn)
 }
 
 // ---- Transfer ----

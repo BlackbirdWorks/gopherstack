@@ -4,6 +4,7 @@
 package e2e_test
 
 import (
+	"context"
 	"net/http/httptest"
 	"testing"
 
@@ -20,6 +21,7 @@ func TestKafkaDashboard(t *testing.T) {
 
 	// Seed a cluster via the backend.
 	_, err := stack.KafkaHandler.Backend.CreateCluster(
+		context.Background(),
 		"my-test-cluster",
 		"3.5.1",
 		1,

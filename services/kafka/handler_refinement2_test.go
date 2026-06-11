@@ -1,6 +1,7 @@
 package kafka_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/url"
@@ -28,7 +29,7 @@ func TestRefinement2_ClusterTypeProvisioned(t *testing.T) {
 		{
 			name: "CreateCluster",
 			create: func(b *kafka.InMemoryBackend) *kafka.Cluster {
-				c, err := b.CreateCluster("c1", "3.5.1", 3, kafka.BrokerNodeGroupInfo{
+				c, err := b.CreateCluster(context.Background(), "c1", "3.5.1", 3, kafka.BrokerNodeGroupInfo{
 					InstanceType:  "kafka.m5.large",
 					ClientSubnets: []string{"subnet-1"},
 				}, nil, nil)
@@ -56,7 +57,7 @@ func TestRefinement2_ClusterTypeProvisioned(t *testing.T) {
 			assert.Equal(t, tt.wantTyp, cl.ClusterType)
 
 			// Round-trip via DescribeCluster.
-			described, err := b.DescribeCluster(cl.ClusterArn)
+			described, err := b.DescribeCluster(context.Background(), cl.ClusterArn)
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantTyp, described.ClusterType)
 		})
@@ -107,7 +108,7 @@ func TestRefinement2_CreateServerlessCluster(t *testing.T) {
 			t.Parallel()
 
 			b := kafka.NewInMemoryBackend(testAccountID, testRegion)
-			cl, err := b.CreateServerlessCluster(tt.clName, tt.serverless, nil)
+			cl, err := b.CreateServerlessCluster(context.Background(), tt.clName, tt.serverless, nil)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -130,10 +131,10 @@ func TestRefinement2_CreateServerlessCluster_NoDuplicate(t *testing.T) {
 	t.Parallel()
 
 	b := kafka.NewInMemoryBackend(testAccountID, testRegion)
-	_, err := b.CreateServerlessCluster("srv", &kafka.ServerlessClusterInfo{}, nil)
+	_, err := b.CreateServerlessCluster(context.Background(), "srv", &kafka.ServerlessClusterInfo{}, nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateServerlessCluster("srv", &kafka.ServerlessClusterInfo{}, nil)
+	_, err = b.CreateServerlessCluster(context.Background(), "srv", &kafka.ServerlessClusterInfo{}, nil)
 	require.ErrorIs(t, err, kafka.ErrAlreadyExists)
 }
 
@@ -154,10 +155,10 @@ func TestRefinement2_ServerlessCluster_Roundtrip(t *testing.T) {
 	}
 
 	b := kafka.NewInMemoryBackend(testAccountID, testRegion)
-	cl, err := b.CreateServerlessCluster("srv-rt", srv, nil)
+	cl, err := b.CreateServerlessCluster(context.Background(), "srv-rt", srv, nil)
 	require.NoError(t, err)
 
-	described, err := b.DescribeCluster(cl.ClusterArn)
+	described, err := b.DescribeCluster(context.Background(), cl.ClusterArn)
 	require.NoError(t, err)
 	require.NotNil(t, described.Serverless)
 	require.Len(t, described.Serverless.VpcConfigs, 1)
@@ -258,7 +259,7 @@ func TestRefinement2_DescribeClusterV2_ServerlessArm(t *testing.T) {
 			{SubnetIDs: []string{"subnet-x"}},
 		},
 	}
-	cl, err := backend.CreateServerlessCluster("srv-v2", srv, nil)
+	cl, err := backend.CreateServerlessCluster(context.Background(), "srv-v2", srv, nil)
 	require.NoError(t, err)
 
 	rec := doKafkaRequest(t, h, http.MethodGet, "/api/v2/clusters/"+url.PathEscape(cl.ClusterArn), nil)
@@ -340,7 +341,7 @@ func TestRefinement2_EncryptionInfo_Roundtrip(t *testing.T) {
 			stored := kafka.GetStoredCluster(b, cl.ClusterArn)
 			stored.EncryptionInfo = tt.encIn
 
-			described, err := b.DescribeCluster(cl.ClusterArn)
+			described, err := b.DescribeCluster(context.Background(), cl.ClusterArn)
 			require.NoError(t, err)
 
 			if tt.encIn == nil {
@@ -477,7 +478,7 @@ func TestRefinement2_OpenMonitoring_Roundtrip(t *testing.T) {
 			stored := kafka.GetStoredCluster(b, cl.ClusterArn)
 			stored.OpenMonitoring = tt.om
 
-			described, err := b.DescribeCluster(cl.ClusterArn)
+			described, err := b.DescribeCluster(context.Background(), cl.ClusterArn)
 			require.NoError(t, err)
 
 			if tt.om == nil {
@@ -555,7 +556,7 @@ func TestRefinement2_LoggingInfo_Roundtrip(t *testing.T) {
 			stored := kafka.GetStoredCluster(b, cl.ClusterArn)
 			stored.LoggingInfo = tt.li
 
-			described, err := b.DescribeCluster(cl.ClusterArn)
+			described, err := b.DescribeCluster(context.Background(), cl.ClusterArn)
 			require.NoError(t, err)
 
 			if tt.li == nil {
@@ -598,13 +599,13 @@ func TestRefinement2_ClientAuthentication_Unauthenticated(t *testing.T) {
 	auth := &kafka.ClientAuthentication{
 		Unauthenticated: &kafka.UnauthenticatedSettings{Enabled: true},
 	}
-	cl, err := b.CreateCluster("ua-cluster", "3.5.1", 3, kafka.BrokerNodeGroupInfo{
+	cl, err := b.CreateCluster(context.Background(), "ua-cluster", "3.5.1", 3, kafka.BrokerNodeGroupInfo{
 		InstanceType:  "kafka.m5.large",
 		ClientSubnets: []string{"subnet-1"},
 	}, auth, nil)
 	require.NoError(t, err)
 
-	described, err := b.DescribeCluster(cl.ClusterArn)
+	described, err := b.DescribeCluster(context.Background(), cl.ClusterArn)
 	require.NoError(t, err)
 	require.NotNil(t, described.ClientAuthentication)
 	require.NotNil(t, described.ClientAuthentication.Unauthenticated)
@@ -627,13 +628,13 @@ func TestRefinement2_ClientAuthentication_TLSWithCAArns(t *testing.T) {
 			CertificateAuthorityArnList: caArns,
 		},
 	}
-	cl, err := b.CreateCluster("tls-ca-cluster", "3.5.1", 3, kafka.BrokerNodeGroupInfo{
+	cl, err := b.CreateCluster(context.Background(), "tls-ca-cluster", "3.5.1", 3, kafka.BrokerNodeGroupInfo{
 		InstanceType:  "kafka.m5.large",
 		ClientSubnets: []string{"subnet-1"},
 	}, auth, nil)
 	require.NoError(t, err)
 
-	described, err := b.DescribeCluster(cl.ClusterArn)
+	described, err := b.DescribeCluster(context.Background(), cl.ClusterArn)
 	require.NoError(t, err)
 	require.NotNil(t, described.ClientAuthentication)
 	require.NotNil(t, described.ClientAuthentication.TLS)
@@ -653,7 +654,7 @@ func TestRefinement2_ClientAuthentication_TLS_NoAlias(t *testing.T) {
 			CertificateAuthorityArnList: caArns,
 		},
 	}
-	cl, err := b.CreateCluster("alias-test", "3.5.1", 3, kafka.BrokerNodeGroupInfo{
+	cl, err := b.CreateCluster(context.Background(), "alias-test", "3.5.1", 3, kafka.BrokerNodeGroupInfo{
 		InstanceType:  "kafka.m5.large",
 		ClientSubnets: []string{"subnet-1"},
 	}, auth, nil)
@@ -662,7 +663,7 @@ func TestRefinement2_ClientAuthentication_TLS_NoAlias(t *testing.T) {
 	// Mutate original slice — should not affect stored cluster.
 	caArns[0] = "mutated"
 
-	described, err := b.DescribeCluster(cl.ClusterArn)
+	described, err := b.DescribeCluster(context.Background(), cl.ClusterArn)
 	require.NoError(t, err)
 	assert.Equal(t, "arn:aws:acm-pca:us-east-1:123:ca/x",
 		described.ClientAuthentication.TLS.CertificateAuthorityArnList[0])
@@ -673,7 +674,7 @@ func TestRefinement2_BrokerNodeGroupInfo_ZoneIds(t *testing.T) {
 	t.Parallel()
 
 	b := kafka.NewInMemoryBackend(testAccountID, testRegion)
-	cl, err := b.CreateCluster("zone-cl", "3.5.1", 3, kafka.BrokerNodeGroupInfo{
+	cl, err := b.CreateCluster(context.Background(), "zone-cl", "3.5.1", 3, kafka.BrokerNodeGroupInfo{
 		InstanceType:         "kafka.m5.large",
 		ClientSubnets:        []string{"subnet-1", "subnet-2", "subnet-3"},
 		ZoneIDs:              []string{"use1-az1", "use1-az2", "use1-az3"},
@@ -681,7 +682,7 @@ func TestRefinement2_BrokerNodeGroupInfo_ZoneIds(t *testing.T) {
 	}, nil, nil)
 	require.NoError(t, err)
 
-	described, err := b.DescribeCluster(cl.ClusterArn)
+	described, err := b.DescribeCluster(context.Background(), cl.ClusterArn)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"use1-az1", "use1-az2", "use1-az3"},
 		described.BrokerNodeGroupInfo.ZoneIDs)
@@ -692,7 +693,7 @@ func TestRefinement2_BrokerNodeGroupInfo_ProvisionedThroughput(t *testing.T) {
 	t.Parallel()
 
 	b := kafka.NewInMemoryBackend(testAccountID, testRegion)
-	cl, err := b.CreateCluster("pt-cl", "3.5.1", 3, kafka.BrokerNodeGroupInfo{
+	cl, err := b.CreateCluster(context.Background(), "pt-cl", "3.5.1", 3, kafka.BrokerNodeGroupInfo{
 		InstanceType:  "kafka.m5.large",
 		ClientSubnets: []string{"subnet-1"},
 		StorageInfo: &kafka.StorageInfo{
@@ -707,7 +708,7 @@ func TestRefinement2_BrokerNodeGroupInfo_ProvisionedThroughput(t *testing.T) {
 	}, nil, nil)
 	require.NoError(t, err)
 
-	described, err := b.DescribeCluster(cl.ClusterArn)
+	described, err := b.DescribeCluster(context.Background(), cl.ClusterArn)
 	require.NoError(t, err)
 	require.NotNil(t, described.BrokerNodeGroupInfo.StorageInfo)
 	require.NotNil(t, described.BrokerNodeGroupInfo.StorageInfo.EbsStorageInfo)
@@ -766,14 +767,14 @@ func TestRefinement2_BrokerNodeGroupInfo_ConnectivityInfo(t *testing.T) {
 			t.Parallel()
 
 			b := kafka.NewInMemoryBackend(testAccountID, testRegion)
-			cl, err := b.CreateCluster("ci-cl", "3.5.1", 3, kafka.BrokerNodeGroupInfo{
+			cl, err := b.CreateCluster(context.Background(), "ci-cl", "3.5.1", 3, kafka.BrokerNodeGroupInfo{
 				InstanceType:     "kafka.m5.large",
 				ClientSubnets:    []string{"subnet-1"},
 				ConnectivityInfo: tt.ci,
 			}, nil, nil)
 			require.NoError(t, err)
 
-			described, err := b.DescribeCluster(cl.ClusterArn)
+			described, err := b.DescribeCluster(context.Background(), cl.ClusterArn)
 			require.NoError(t, err)
 			require.NotNil(t, described.BrokerNodeGroupInfo.ConnectivityInfo)
 
@@ -811,7 +812,7 @@ func TestRefinement2_GetClusterPolicy_NotFoundException(t *testing.T) {
 		{
 			name: "policy_set",
 			setup: func(b *kafka.InMemoryBackend, clusterArn string) {
-				err := b.PutClusterPolicy(clusterArn, `{"Version":"2012-10-17"}`)
+				err := b.PutClusterPolicy(context.Background(), clusterArn, `{"Version":"2012-10-17"}`)
 				require.NoError(t, err)
 			},
 			wantErr:   false,
@@ -820,8 +821,8 @@ func TestRefinement2_GetClusterPolicy_NotFoundException(t *testing.T) {
 		{
 			name: "policy_put_then_deleted",
 			setup: func(b *kafka.InMemoryBackend, clusterArn string) {
-				_ = b.PutClusterPolicy(clusterArn, `{"Version":"2012-10-17"}`)
-				_ = b.DeleteClusterPolicy(clusterArn)
+				_ = b.PutClusterPolicy(context.Background(), clusterArn, `{"Version":"2012-10-17"}`)
+				_ = b.DeleteClusterPolicy(context.Background(), clusterArn)
 			},
 			wantErr:   true,
 			wantFound: false,
@@ -837,7 +838,7 @@ func TestRefinement2_GetClusterPolicy_NotFoundException(t *testing.T) {
 
 			tt.setup(b, cl.ClusterArn)
 
-			_, err := b.GetClusterPolicy(cl.ClusterArn)
+			_, err := b.GetClusterPolicy(context.Background(), cl.ClusterArn)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -923,12 +924,12 @@ func TestRefinement2_UpdateClusterConfiguration_PersistsConfig(t *testing.T) {
 			b := kafka.NewInMemoryBackend(testAccountID, testRegion)
 			cl := b.AddClusterInternal("cfg-update-cl", "3.5.1")
 
-			op, err := b.UpdateClusterConfiguration(cl.ClusterArn, tt.configArn, tt.revision)
+			op, err := b.UpdateClusterConfiguration(context.Background(), cl.ClusterArn, tt.configArn, tt.revision)
 			require.NoError(t, err)
 			require.NotNil(t, op)
 			assert.Equal(t, "UPDATE_CLUSTER_CONFIGURATION", op.OperationType)
 
-			described, err := b.DescribeCluster(cl.ClusterArn)
+			described, err := b.DescribeCluster(context.Background(), cl.ClusterArn)
 			require.NoError(t, err)
 
 			if tt.wantArnSet {
@@ -946,7 +947,7 @@ func TestRefinement2_ListKafkaVersions_IncludesKRaft(t *testing.T) {
 	t.Parallel()
 
 	b := kafka.NewInMemoryBackend(testAccountID, testRegion)
-	versions := b.ListKafkaVersions()
+	versions := b.ListKafkaVersions(context.Background())
 
 	versionMap := make(map[string]string, len(versions))
 	for _, v := range versions {
@@ -1015,7 +1016,7 @@ func TestRefinement2_GetCompatibleKafkaVersions_KRaftOnly(t *testing.T) {
 	b := kafka.NewInMemoryBackend(testAccountID, testRegion)
 	cl := b.AddClusterInternal("kraft-cl", "3.7.x.kraft")
 
-	versions, err := b.GetCompatibleKafkaVersions(cl.ClusterArn)
+	versions, err := b.GetCompatibleKafkaVersions(context.Background(), cl.ClusterArn)
 	require.NoError(t, err)
 
 	versionStrs := make([]string, 0, len(versions))
@@ -1039,7 +1040,7 @@ func TestRefinement2_GetCompatibleKafkaVersions_ZooKeeperNoKRaft(t *testing.T) {
 	b := kafka.NewInMemoryBackend(testAccountID, testRegion)
 	cl := b.AddClusterInternal("zk-cl", "2.8.1")
 
-	versions, err := b.GetCompatibleKafkaVersions(cl.ClusterArn)
+	versions, err := b.GetCompatibleKafkaVersions(context.Background(), cl.ClusterArn)
 	require.NoError(t, err)
 	require.NotEmpty(t, versions)
 
@@ -1054,7 +1055,7 @@ func TestRefinement2_GetCompatibleKafkaVersions_NotFound(t *testing.T) {
 	t.Parallel()
 
 	b := kafka.NewInMemoryBackend(testAccountID, testRegion)
-	_, err := b.GetCompatibleKafkaVersions("arn:aws:kafka:us-east-1:123:cluster/nonexistent/abc")
+	_, err := b.GetCompatibleKafkaVersions(context.Background(), "arn:aws:kafka:us-east-1:123:cluster/nonexistent/abc")
 	require.ErrorIs(t, err, kafka.ErrNotFound)
 }
 
@@ -1140,7 +1141,7 @@ func TestRefinement2_GetBootstrapBrokers_Variants(t *testing.T) {
 			t.Parallel()
 
 			h, backend := newTestHandlerWithBackend(t)
-			cl, err := backend.CreateCluster("bs-cl", "3.5.1", 3,
+			cl, err := backend.CreateCluster(context.Background(), "bs-cl", "3.5.1", 3,
 				kafka.BrokerNodeGroupInfo{
 					InstanceType:     "kafka.m5.large",
 					ClientSubnets:    []string{"subnet-1"},
@@ -1220,7 +1221,7 @@ func TestRefinement2_StateInfo_Roundtrip(t *testing.T) {
 		Message: "EBS volume ran out of space",
 	}
 
-	described, err := b.DescribeCluster(cl.ClusterArn)
+	described, err := b.DescribeCluster(context.Background(), cl.ClusterArn)
 	require.NoError(t, err)
 	assert.Equal(t, kafka.ClusterStateFailed, described.State)
 	require.NotNil(t, described.StateInfo)
@@ -1309,7 +1310,7 @@ func TestRefinement2_StorageMode_Roundtrip(t *testing.T) {
 			stored := kafka.GetStoredCluster(b, cl.ClusterArn)
 			stored.StorageMode = tt.mode
 
-			described, err := b.DescribeCluster(cl.ClusterArn)
+			described, err := b.DescribeCluster(context.Background(), cl.ClusterArn)
 			require.NoError(t, err)
 			assert.Equal(t, tt.mode, described.StorageMode)
 		})
@@ -1340,7 +1341,7 @@ func TestRefinement2_EnhancedMonitoring_Roundtrip(t *testing.T) {
 			stored := kafka.GetStoredCluster(b, cl.ClusterArn)
 			stored.EnhancedMonitoring = tt.level
 
-			described, err := b.DescribeCluster(cl.ClusterArn)
+			described, err := b.DescribeCluster(context.Background(), cl.ClusterArn)
 			require.NoError(t, err)
 			assert.Equal(t, tt.level, described.EnhancedMonitoring)
 		})
@@ -1354,13 +1355,13 @@ func TestRefinement2_ListClustersV2_ClusterType(t *testing.T) {
 	h, backend := newTestHandlerWithBackend(t)
 
 	// Create one provisioned and one serverless.
-	_, err := backend.CreateCluster("prov-list", "3.5.1", 3, kafka.BrokerNodeGroupInfo{
+	_, err := backend.CreateCluster(context.Background(), "prov-list", "3.5.1", 3, kafka.BrokerNodeGroupInfo{
 		InstanceType:  "kafka.m5.large",
 		ClientSubnets: []string{"subnet-1"},
 	}, nil, nil)
 	require.NoError(t, err)
 
-	_, err = backend.CreateServerlessCluster("srv-list", &kafka.ServerlessClusterInfo{
+	_, err = backend.CreateServerlessCluster(context.Background(), "srv-list", &kafka.ServerlessClusterInfo{
 		VpcConfigs: []kafka.ServerlessVpcConfig{{SubnetIDs: []string{"subnet-2"}}},
 	}, nil)
 	require.NoError(t, err)
@@ -1389,7 +1390,7 @@ func TestRefinement2_ListClustersV2_ServerlessHasNoProvisionedArm(t *testing.T) 
 	t.Parallel()
 
 	h, backend := newTestHandlerWithBackend(t)
-	_, err := backend.CreateServerlessCluster("srv-noarm", &kafka.ServerlessClusterInfo{
+	_, err := backend.CreateServerlessCluster(context.Background(), "srv-noarm", &kafka.ServerlessClusterInfo{
 		VpcConfigs: []kafka.ServerlessVpcConfig{{SubnetIDs: []string{"subnet-1"}}},
 	}, nil)
 	require.NoError(t, err)
@@ -1418,7 +1419,7 @@ func TestRefinement2_Persistence_ServerlessCluster(t *testing.T) {
 			{SubnetIDs: []string{"subnet-1"}, SecurityGroupIDs: []string{"sg-1"}},
 		},
 	}
-	cl, err := b.CreateServerlessCluster("srv-persist", srv, map[string]string{"env": "test"})
+	cl, err := b.CreateServerlessCluster(context.Background(), "srv-persist", srv, map[string]string{"env": "test"})
 	require.NoError(t, err)
 
 	snap := b.Snapshot()
@@ -1427,7 +1428,7 @@ func TestRefinement2_Persistence_ServerlessCluster(t *testing.T) {
 	b2 := kafka.NewInMemoryBackend("other", "eu-west-1")
 	require.NoError(t, b2.Restore(snap))
 
-	described, err := b2.DescribeCluster(cl.ClusterArn)
+	described, err := b2.DescribeCluster(context.Background(), cl.ClusterArn)
 	require.NoError(t, err)
 	assert.Equal(t, kafka.ClusterTypeServerless, described.ClusterType)
 	require.NotNil(t, described.Serverless)
@@ -1457,7 +1458,7 @@ func TestRefinement2_Persistence_EncryptionInfo(t *testing.T) {
 	b2 := kafka.NewInMemoryBackend("other", "eu-west-1")
 	require.NoError(t, b2.Restore(snap))
 
-	described, err := b2.DescribeCluster(cl.ClusterArn)
+	described, err := b2.DescribeCluster(context.Background(), cl.ClusterArn)
 	require.NoError(t, err)
 	require.NotNil(t, described.EncryptionInfo)
 	require.NotNil(t, described.EncryptionInfo.EncryptionAtRest)
@@ -1472,7 +1473,7 @@ func TestRefinement2_Persistence_ConfigurationInfo(t *testing.T) {
 	b := kafka.NewInMemoryBackend(testAccountID, testRegion)
 	cl := b.AddClusterInternal("cfginfo-persist", "3.5.1")
 
-	_, err := b.UpdateClusterConfiguration(cl.ClusterArn,
+	_, err := b.UpdateClusterConfiguration(context.Background(), cl.ClusterArn,
 		"arn:aws:kafka:us-east-1:123:configuration/my-cfg/xyz",
 		3)
 	require.NoError(t, err)
@@ -1481,7 +1482,7 @@ func TestRefinement2_Persistence_ConfigurationInfo(t *testing.T) {
 	b2 := kafka.NewInMemoryBackend("other", "eu-west-1")
 	require.NoError(t, b2.Restore(snap))
 
-	described, err := b2.DescribeCluster(cl.ClusterArn)
+	described, err := b2.DescribeCluster(context.Background(), cl.ClusterArn)
 	require.NoError(t, err)
 	require.NotNil(t, described.ConfigurationInfo)
 	assert.Equal(t, "arn:aws:kafka:us-east-1:123:configuration/my-cfg/xyz",
@@ -1494,7 +1495,7 @@ func TestRefinement2_DeepCopy_ProvisionedThroughput(t *testing.T) {
 	t.Parallel()
 
 	b := kafka.NewInMemoryBackend(testAccountID, testRegion)
-	cl, err := b.CreateCluster("pt-alias", "3.5.1", 3, kafka.BrokerNodeGroupInfo{
+	cl, err := b.CreateCluster(context.Background(), "pt-alias", "3.5.1", 3, kafka.BrokerNodeGroupInfo{
 		InstanceType:  "kafka.m5.large",
 		ClientSubnets: []string{"subnet-1"},
 		StorageInfo: &kafka.StorageInfo{
@@ -1512,7 +1513,7 @@ func TestRefinement2_DeepCopy_ProvisionedThroughput(t *testing.T) {
 	// Mutate returned cluster's ProvisionedThroughput — should not affect stored.
 	cl.BrokerNodeGroupInfo.StorageInfo.EbsStorageInfo.ProvisionedThroughput.VolumeThroughput = 999
 
-	described, err := b.DescribeCluster(cl.ClusterArn)
+	described, err := b.DescribeCluster(context.Background(), cl.ClusterArn)
 	require.NoError(t, err)
 	assert.Equal(t, int32(250),
 		described.BrokerNodeGroupInfo.StorageInfo.EbsStorageInfo.ProvisionedThroughput.VolumeThroughput)
@@ -1524,7 +1525,7 @@ func TestRefinement2_DeepCopy_ZoneIds(t *testing.T) {
 
 	b := kafka.NewInMemoryBackend(testAccountID, testRegion)
 	zones := []string{"us-east-1a", "us-east-1b"}
-	cl, err := b.CreateCluster("zone-alias", "3.5.1", 3, kafka.BrokerNodeGroupInfo{
+	cl, err := b.CreateCluster(context.Background(), "zone-alias", "3.5.1", 3, kafka.BrokerNodeGroupInfo{
 		InstanceType:  "kafka.m5.large",
 		ClientSubnets: []string{"subnet-1"},
 		ZoneIDs:       zones,
@@ -1535,7 +1536,7 @@ func TestRefinement2_DeepCopy_ZoneIds(t *testing.T) {
 	zones[0] = "mutated"
 	cl.BrokerNodeGroupInfo.ZoneIDs[0] = "also-mutated"
 
-	described, err := b.DescribeCluster(cl.ClusterArn)
+	described, err := b.DescribeCluster(context.Background(), cl.ClusterArn)
 	require.NoError(t, err)
 	assert.Equal(t, "us-east-1a", described.BrokerNodeGroupInfo.ZoneIDs[0])
 }
@@ -1636,7 +1637,7 @@ func TestRefinement2_CreateCluster_AllAuthModes(t *testing.T) {
 			t.Parallel()
 
 			b := kafka.NewInMemoryBackend(testAccountID, testRegion)
-			cl, err := b.CreateCluster("auth-cl", "3.5.1", 3, kafka.BrokerNodeGroupInfo{
+			cl, err := b.CreateCluster(context.Background(), "auth-cl", "3.5.1", 3, kafka.BrokerNodeGroupInfo{
 				InstanceType:  "kafka.m5.large",
 				ClientSubnets: []string{"subnet-1"},
 			}, tt.auth, nil)
@@ -1644,7 +1645,7 @@ func TestRefinement2_CreateCluster_AllAuthModes(t *testing.T) {
 			require.NotNil(t, cl)
 
 			// Verify round-trip.
-			described, err := b.DescribeCluster(cl.ClusterArn)
+			described, err := b.DescribeCluster(context.Background(), cl.ClusterArn)
 			require.NoError(t, err)
 
 			if tt.auth == nil {
@@ -1766,7 +1767,7 @@ func TestRefinement2_UpdateClusterConfiguration_HTTP(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Verify via DescribeCluster.
-	described, err := backend.DescribeCluster(cl.ClusterArn)
+	described, err := backend.DescribeCluster(context.Background(), cl.ClusterArn)
 	require.NoError(t, err)
 	require.NotNil(t, described.ConfigurationInfo)
 	assert.Equal(t, configArn, described.ConfigurationInfo.Arn)
@@ -1778,7 +1779,7 @@ func TestRefinement2_GetBootstrapBrokers_ScramPublic(t *testing.T) {
 	t.Parallel()
 
 	h, backend := newTestHandlerWithBackend(t)
-	cl, err := backend.CreateCluster("scram-pub", "3.5.1", 3,
+	cl, err := backend.CreateCluster(context.Background(), "scram-pub", "3.5.1", 3,
 		kafka.BrokerNodeGroupInfo{
 			InstanceType:  "kafka.m5.large",
 			ClientSubnets: []string{"subnet-1"},
