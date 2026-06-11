@@ -1,6 +1,7 @@
 package codepipeline_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -51,21 +52,25 @@ func TestListActionExecutions_TracksExecutions(t *testing.T) {
 			b := codepipeline.NewInMemoryBackend("000000000000", "us-east-1")
 
 			if tt.unknownPipe {
-				_, err := b.ListActionExecutions("missing", "")
+				_, err := b.ListActionExecutions(context.Background(), "missing", "")
 				require.Error(t, err)
 
 				return
 			}
 
-			_, err := b.CreatePipeline(samplePipeline("ae-pipeline"), nil)
+			_, err := b.CreatePipeline(context.Background(), samplePipeline("ae-pipeline"), nil)
 			require.NoError(t, err)
 
-			exec1, err := b.StartPipelineExecution("ae-pipeline")
+			exec1, err := b.StartPipelineExecution(context.Background(), "ae-pipeline")
 			require.NoError(t, err)
-			_, err = b.StartPipelineExecution("ae-pipeline")
+			_, err = b.StartPipelineExecution(context.Background(), "ae-pipeline")
 			require.NoError(t, err)
 
-			items, err := b.ListActionExecutions("ae-pipeline", tt.filterFn(exec1.PipelineExecutionID))
+			items, err := b.ListActionExecutions(
+				context.Background(),
+				"ae-pipeline",
+				tt.filterFn(exec1.PipelineExecutionID),
+			)
 			require.NoError(t, err)
 			assert.Len(t, items, tt.wantCount)
 
@@ -105,13 +110,13 @@ func TestListRuleExecutions_KnownAndUnknownPipeline(t *testing.T) {
 
 	b := codepipeline.NewInMemoryBackend("000000000000", "us-east-1")
 
-	_, err := b.ListRuleExecutions("missing")
+	_, err := b.ListRuleExecutions(context.Background(), "missing")
 	require.Error(t, err)
 
-	_, err = b.CreatePipeline(samplePipeline("re-pipeline"), nil)
+	_, err = b.CreatePipeline(context.Background(), samplePipeline("re-pipeline"), nil)
 	require.NoError(t, err)
 
-	items, err := b.ListRuleExecutions("re-pipeline")
+	items, err := b.ListRuleExecutions(context.Background(), "re-pipeline")
 	require.NoError(t, err)
 	assert.Empty(t, items)
 }
@@ -122,13 +127,13 @@ func TestListDeployActionExecutionTargets_KnownAndUnknown(t *testing.T) {
 
 	b := codepipeline.NewInMemoryBackend("000000000000", "us-east-1")
 
-	_, err := b.ListDeployActionExecutionTargets("missing", "exec-1")
+	_, err := b.ListDeployActionExecutionTargets(context.Background(), "missing", "exec-1")
 	require.Error(t, err)
 
-	_, err = b.CreatePipeline(samplePipeline("dt-pipeline"), nil)
+	_, err = b.CreatePipeline(context.Background(), samplePipeline("dt-pipeline"), nil)
 	require.NoError(t, err)
 
-	items, err := b.ListDeployActionExecutionTargets("dt-pipeline", "exec-1")
+	items, err := b.ListDeployActionExecutionTargets(context.Background(), "dt-pipeline", "exec-1")
 	require.NoError(t, err)
 	assert.Empty(t, items)
 }

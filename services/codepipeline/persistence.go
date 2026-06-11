@@ -8,6 +8,7 @@ import (
 // customActionTypeEntry is the JSON-serialisable representation of a custom action type entry.
 type customActionTypeEntry struct {
 	Value    *CustomActionType `json:"value"`
+	Region   string            `json:"region"`
 	Category string            `json:"category"`
 	Provider string            `json:"provider"`
 	Version  string            `json:"version"`
@@ -16,6 +17,7 @@ type customActionTypeEntry struct {
 // stageTransitionEntry is the JSON-serialisable representation of a stage transition entry.
 type stageTransitionEntry struct {
 	Value          *StageTransitionState `json:"value"`
+	Region         string                `json:"region"`
 	PipelineName   string                `json:"pipelineName"`
 	StageName      string                `json:"stageName"`
 	TransitionType string                `json:"transitionType"`
@@ -23,45 +25,74 @@ type stageTransitionEntry struct {
 
 // executionEntry is the JSON-serialisable list of executions per pipeline.
 type executionEntry struct {
+	Region       string               `json:"region"`
 	PipelineName string               `json:"pipelineName"`
 	Executions   []*PipelineExecution `json:"executions"`
 }
 
 // backendSnapshot is the JSON-serialisable snapshot of InMemoryBackend state.
+//
+// Region-scoped resource maps are nested by region (outer key = region) so that
+// same-named resources in different regions round-trip without collision.
 type backendSnapshot struct {
-	Pipelines         map[string]*Pipeline    `json:"pipelines"`
-	PipelineARNIndex  map[string]string       `json:"pipelineARNIndex"`
-	Jobs              map[string]*Job         `json:"jobs"`
-	Webhooks          map[string]*Webhook     `json:"webhooks"`
-	WebhookARNIndex   map[string]string       `json:"webhookARNIndex"`
-	AccountID         string                  `json:"accountID"`
-	Region            string                  `json:"region"`
-	CustomActionTypes []customActionTypeEntry `json:"customActionTypes"`
-	StageTransitions  []stageTransitionEntry  `json:"stageTransitions"`
-	Executions        []executionEntry        `json:"executions"`
+	Pipelines         map[string]map[string]*Pipeline `json:"pipelines"`
+	PipelineARNIndex  map[string]map[string]string    `json:"pipelineARNIndex"`
+	Jobs              map[string]map[string]*Job      `json:"jobs"`
+	Webhooks          map[string]map[string]*Webhook  `json:"webhooks"`
+	WebhookARNIndex   map[string]map[string]string    `json:"webhookARNIndex"`
+	AccountID         string                          `json:"accountID"`
+	Region            string                          `json:"region"`
+	CustomActionTypes []customActionTypeEntry         `json:"customActionTypes"`
+	StageTransitions  []stageTransitionEntry          `json:"stageTransitions"`
+	Executions        []executionEntry                `json:"executions"`
 }
 
 // ensureNonNil initialises any nil maps so callers do not need to guard after Restore.
 func (s *backendSnapshot) ensureNonNil() {
 	if s.Pipelines == nil {
-		s.Pipelines = make(map[string]*Pipeline)
+		s.Pipelines = make(map[string]map[string]*Pipeline)
 	}
 
 	if s.PipelineARNIndex == nil {
-		s.PipelineARNIndex = make(map[string]string)
+		s.PipelineARNIndex = make(map[string]map[string]string)
 	}
 
 	if s.Jobs == nil {
-		s.Jobs = make(map[string]*Job)
+		s.Jobs = make(map[string]map[string]*Job)
 	}
 
 	if s.Webhooks == nil {
-		s.Webhooks = make(map[string]*Webhook)
+		s.Webhooks = make(map[string]map[string]*Webhook)
 	}
 
 	if s.WebhookARNIndex == nil {
-		s.WebhookARNIndex = make(map[string]string)
+		s.WebhookARNIndex = make(map[string]map[string]string)
 	}
+}
+
+// copyNestedPtr deep-copies the outer region map of a region-nested pointer map,
+// cloning each inner map so the snapshot owns its data independently of the backend.
+func copyNestedPtr[T any](src map[string]map[string]*T) map[string]map[string]*T {
+	out := make(map[string]map[string]*T, len(src))
+	for region, inner := range src {
+		cp := make(map[string]*T, len(inner))
+		maps.Copy(cp, inner)
+		out[region] = cp
+	}
+
+	return out
+}
+
+// copyNestedStr deep-copies the outer region map of a region-nested string map.
+func copyNestedStr(src map[string]map[string]string) map[string]map[string]string {
+	out := make(map[string]map[string]string, len(src))
+	for region, inner := range src {
+		cp := make(map[string]string, len(inner))
+		maps.Copy(cp, inner)
+		out[region] = cp
+	}
+
+	return out
 }
 
 // customActionTypeKey.String returns a unique string for use in sorted output.
@@ -74,57 +105,49 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	// Flatten struct-keyed maps into slices for JSON serialization.
-	cats := make([]customActionTypeEntry, 0, len(b.customActionTypes))
-	for k, v := range b.customActionTypes {
-		cats = append(cats, customActionTypeEntry{
-			Category: k.Category, Provider: k.Provider, Version: k.Version, Value: v,
-		})
-	}
-
-	transitions := make([]stageTransitionEntry, 0, len(b.stageTransitions))
-	for k, v := range b.stageTransitions {
-		transitions = append(transitions, stageTransitionEntry{
-			PipelineName:   k.PipelineName,
-			StageName:      k.StageName,
-			TransitionType: k.TransitionType,
-			Value:          v,
-		})
-	}
-
-	execs := make([]executionEntry, 0, len(b.executions))
-	for pName, list := range b.executions {
-		if len(list) == 0 {
-			continue
+	// Flatten struct-keyed maps into region-tagged slices for JSON serialization.
+	cats := make([]customActionTypeEntry, 0)
+	for region, inner := range b.customActionTypes {
+		for k, v := range inner {
+			cats = append(cats, customActionTypeEntry{
+				Region: region, Category: k.Category, Provider: k.Provider, Version: k.Version, Value: v,
+			})
 		}
+	}
 
-		execs = append(execs, executionEntry{PipelineName: pName, Executions: list})
+	transitions := make([]stageTransitionEntry, 0)
+	for region, inner := range b.stageTransitions {
+		for k, v := range inner {
+			transitions = append(transitions, stageTransitionEntry{
+				Region:         region,
+				PipelineName:   k.PipelineName,
+				StageName:      k.StageName,
+				TransitionType: k.TransitionType,
+				Value:          v,
+			})
+		}
+	}
+
+	execs := make([]executionEntry, 0)
+	for region, inner := range b.executions {
+		for pName, list := range inner {
+			if len(list) == 0 {
+				continue
+			}
+
+			execs = append(execs, executionEntry{Region: region, PipelineName: pName, Executions: list})
+		}
 	}
 
 	// Defensive copies for snapshot: the snapshot owns the data, not the backend.
-	pipelinesCopy := make(map[string]*Pipeline, len(b.pipelines))
-	maps.Copy(pipelinesCopy, b.pipelines)
-
-	arnIndexCopy := make(map[string]string, len(b.pipelineARNIndex))
-	maps.Copy(arnIndexCopy, b.pipelineARNIndex)
-
-	webhooksCopy := make(map[string]*Webhook, len(b.webhooks))
-	maps.Copy(webhooksCopy, b.webhooks)
-
-	webhookARNCopy := make(map[string]string, len(b.webhookARNIndex))
-	maps.Copy(webhookARNCopy, b.webhookARNIndex)
-
-	jobsCopy := make(map[string]*Job, len(b.jobs))
-	maps.Copy(jobsCopy, b.jobs)
-
 	snap := backendSnapshot{
-		Pipelines:         pipelinesCopy,
-		PipelineARNIndex:  arnIndexCopy,
+		Pipelines:         copyNestedPtr(b.pipelines),
+		PipelineARNIndex:  copyNestedStr(b.pipelineARNIndex),
 		CustomActionTypes: cats,
 		StageTransitions:  transitions,
-		Jobs:              jobsCopy,
-		Webhooks:          webhooksCopy,
-		WebhookARNIndex:   webhookARNCopy,
+		Jobs:              copyNestedPtr(b.jobs),
+		Webhooks:          copyNestedPtr(b.webhooks),
+		WebhookARNIndex:   copyNestedStr(b.webhookARNIndex),
 		Executions:        execs,
 		AccountID:         b.accountID,
 		Region:            b.region,
@@ -147,43 +170,46 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 
 	snap.ensureNonNil()
 
-	// Rebuild struct-keyed maps from slices.
-	cats := make(map[customActionTypeKey]*CustomActionType, len(snap.CustomActionTypes))
+	// Rebuild region-nested struct-keyed maps from region-tagged slices.
+	cats := make(map[string]map[customActionTypeKey]*CustomActionType)
 	for _, entry := range snap.CustomActionTypes {
+		if cats[entry.Region] == nil {
+			cats[entry.Region] = make(map[customActionTypeKey]*CustomActionType)
+		}
+
 		key := customActionTypeKey{Category: entry.Category, Provider: entry.Provider, Version: entry.Version}
-		cats[key] = entry.Value
+		cats[entry.Region][key] = entry.Value
 	}
 
-	transitions := make(map[stageTransitionKey]*StageTransitionState, len(snap.StageTransitions))
+	transitions := make(map[string]map[stageTransitionKey]*StageTransitionState)
 	for _, entry := range snap.StageTransitions {
+		if transitions[entry.Region] == nil {
+			transitions[entry.Region] = make(map[stageTransitionKey]*StageTransitionState)
+		}
+
 		key := stageTransitionKey{
 			PipelineName:   entry.PipelineName,
 			StageName:      entry.StageName,
 			TransitionType: entry.TransitionType,
 		}
-		transitions[key] = entry.Value
+		transitions[entry.Region][key] = entry.Value
 	}
 
-	executions := make(map[string][]*PipelineExecution, len(snap.Executions))
+	executions := make(map[string]map[string][]*PipelineExecution)
 	for _, entry := range snap.Executions {
-		executions[entry.PipelineName] = entry.Executions
+		if executions[entry.Region] == nil {
+			executions[entry.Region] = make(map[string][]*PipelineExecution)
+		}
+
+		executions[entry.Region][entry.PipelineName] = entry.Executions
 	}
 
 	// Defensive copies: the backend owns these maps independently of the snapshot.
-	pipelinesCopy := make(map[string]*Pipeline, len(snap.Pipelines))
-	maps.Copy(pipelinesCopy, snap.Pipelines)
-
-	arnIndexCopy := make(map[string]string, len(snap.PipelineARNIndex))
-	maps.Copy(arnIndexCopy, snap.PipelineARNIndex)
-
-	webhooksCopy := make(map[string]*Webhook, len(snap.Webhooks))
-	maps.Copy(webhooksCopy, snap.Webhooks)
-
-	webhookARNCopy := make(map[string]string, len(snap.WebhookARNIndex))
-	maps.Copy(webhookARNCopy, snap.WebhookARNIndex)
-
-	jobsCopy := make(map[string]*Job, len(snap.Jobs))
-	maps.Copy(jobsCopy, snap.Jobs)
+	pipelinesCopy := copyNestedPtr(snap.Pipelines)
+	arnIndexCopy := copyNestedStr(snap.PipelineARNIndex)
+	webhooksCopy := copyNestedPtr(snap.Webhooks)
+	webhookARNCopy := copyNestedStr(snap.WebhookARNIndex)
+	jobsCopy := copyNestedPtr(snap.Jobs)
 
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
@@ -198,6 +224,10 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.executions = executions
 	b.accountID = snap.AccountID
 	b.region = snap.Region
+
+	// actionExecutions are derived state (rebuilt on StartPipelineExecution) and
+	// are not persisted; ensure the map is initialised after a restore.
+	b.actionExecutions = make(map[string]map[string][]*ActionExecution)
 
 	return nil
 }

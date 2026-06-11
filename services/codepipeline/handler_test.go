@@ -2,6 +2,7 @@ package codepipeline_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -273,7 +274,7 @@ func TestHandler_GetPipeline(t *testing.T) {
 		{
 			name: "success",
 			pipelineFn: func(h *codepipeline.Handler) {
-				_, err := h.Backend.CreatePipeline(samplePipeline("get-pipeline"), nil)
+				_, err := h.Backend.CreatePipeline(context.Background(), samplePipeline("get-pipeline"), nil)
 				require.NoError(t, err)
 			},
 			input:      map[string]any{"name": "get-pipeline"},
@@ -323,7 +324,7 @@ func TestHandler_UpdatePipeline(t *testing.T) {
 		{
 			name: "success",
 			setup: func(h *codepipeline.Handler) {
-				_, err := h.Backend.CreatePipeline(samplePipeline("update-pipeline"), nil)
+				_, err := h.Backend.CreatePipeline(context.Background(), samplePipeline("update-pipeline"), nil)
 				require.NoError(t, err)
 			},
 			input: map[string]any{
@@ -377,7 +378,7 @@ func TestHandler_DeletePipeline(t *testing.T) {
 		{
 			name: "success",
 			setup: func(h *codepipeline.Handler) {
-				_, err := h.Backend.CreatePipeline(samplePipeline("delete-pipeline"), nil)
+				_, err := h.Backend.CreatePipeline(context.Background(), samplePipeline("delete-pipeline"), nil)
 				require.NoError(t, err)
 			},
 			input:      map[string]any{"name": "delete-pipeline"},
@@ -426,9 +427,9 @@ func TestHandler_ListPipelines(t *testing.T) {
 		{
 			name: "with pipelines",
 			setup: func(h *codepipeline.Handler) {
-				_, err := h.Backend.CreatePipeline(samplePipeline("pipeline-1"), nil)
+				_, err := h.Backend.CreatePipeline(context.Background(), samplePipeline("pipeline-1"), nil)
 				require.NoError(t, err)
-				_, err = h.Backend.CreatePipeline(samplePipeline("pipeline-2"), nil)
+				_, err = h.Backend.CreatePipeline(context.Background(), samplePipeline("pipeline-2"), nil)
 				require.NoError(t, err)
 			},
 			wantStatus: http.StatusOK,
@@ -476,7 +477,7 @@ func TestHandler_TaggingOperations(t *testing.T) {
 			name:   "list tags - empty",
 			action: "ListTagsForResource",
 			setup: func(h *codepipeline.Handler) string {
-				p, err := h.Backend.CreatePipeline(samplePipeline("list-empty-pipeline"), nil)
+				p, err := h.Backend.CreatePipeline(context.Background(), samplePipeline("list-empty-pipeline"), nil)
 				require.NoError(t, err)
 
 				return p.Metadata.PipelineArn
@@ -490,7 +491,7 @@ func TestHandler_TaggingOperations(t *testing.T) {
 			name:   "tag resource",
 			action: "TagResource",
 			setup: func(h *codepipeline.Handler) string {
-				p, err := h.Backend.CreatePipeline(samplePipeline("tag-resource-pipeline"), nil)
+				p, err := h.Backend.CreatePipeline(context.Background(), samplePipeline("tag-resource-pipeline"), nil)
 				require.NoError(t, err)
 
 				return p.Metadata.PipelineArn
@@ -507,7 +508,7 @@ func TestHandler_TaggingOperations(t *testing.T) {
 			name:   "untag resource",
 			action: "UntagResource",
 			setup: func(h *codepipeline.Handler) string {
-				p, err := h.Backend.CreatePipeline(
+				p, err := h.Backend.CreatePipeline(context.Background(),
 					samplePipeline("untag-resource-pipeline"),
 					map[string]string{"Env": "test"},
 				)
@@ -623,10 +624,14 @@ func TestInMemoryBackend_CreatePipeline_WithTags(t *testing.T) {
 
 	backend := codepipeline.NewInMemoryBackend("000000000000", "us-east-1")
 
-	p, err := backend.CreatePipeline(samplePipeline("tagged-pipeline"), map[string]string{"Env": "prod"})
+	p, err := backend.CreatePipeline(
+		context.Background(),
+		samplePipeline("tagged-pipeline"),
+		map[string]string{"Env": "prod"},
+	)
 	require.NoError(t, err)
 
-	tags, err := backend.ListTagsForResource(p.Metadata.PipelineArn)
+	tags, err := backend.ListTagsForResource(context.Background(), p.Metadata.PipelineArn)
 	require.NoError(t, err)
 
 	tagMap := make(map[string]string, len(tags))
@@ -642,10 +647,10 @@ func TestInMemoryBackend_UpdatePipeline_IncrementsVersion(t *testing.T) {
 
 	backend := codepipeline.NewInMemoryBackend("000000000000", "us-east-1")
 
-	_, err := backend.CreatePipeline(samplePipeline("versioned-pipeline"), nil)
+	_, err := backend.CreatePipeline(context.Background(), samplePipeline("versioned-pipeline"), nil)
 	require.NoError(t, err)
 
-	updated, err := backend.UpdatePipeline(samplePipeline("versioned-pipeline"))
+	updated, err := backend.UpdatePipeline(context.Background(), samplePipeline("versioned-pipeline"))
 	require.NoError(t, err)
 	assert.Equal(t, 2, updated.Declaration.Version)
 }
@@ -671,7 +676,7 @@ func TestHandler_ErrorEnvelopes(t *testing.T) {
 		{
 			name: "duplicate create returns PipelineNameInUseException",
 			setup: func(h *codepipeline.Handler) {
-				_, err := h.Backend.CreatePipeline(samplePipeline("duplicate-pipeline"), nil)
+				_, err := h.Backend.CreatePipeline(context.Background(), samplePipeline("duplicate-pipeline"), nil)
 				require.NoError(t, err)
 			},
 			action:     "CreatePipeline",
@@ -744,7 +749,7 @@ func TestHandler_GetPipeline_VersionHandling(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			_, err := h.Backend.CreatePipeline(samplePipeline("ver-pipeline"), nil)
+			_, err := h.Backend.CreatePipeline(context.Background(), samplePipeline("ver-pipeline"), nil)
 			require.NoError(t, err)
 
 			rec := doRequest(t, h, "GetPipeline", map[string]any{
@@ -764,14 +769,14 @@ func TestInMemoryBackend_DeepCopy(t *testing.T) {
 	decl := samplePipeline("deep-copy-pipeline")
 	decl.Stages[0].Actions[0].Configuration = map[string]string{"key": "original"}
 
-	p, err := backend.CreatePipeline(decl, nil)
+	p, err := backend.CreatePipeline(context.Background(), decl, nil)
 	require.NoError(t, err)
 
 	// Mutate the returned pipeline's nested data.
 	p.Declaration.Stages[0].Actions[0].Configuration["key"] = "mutated"
 
 	// The backend should still have the original value.
-	stored, err := backend.GetPipeline("deep-copy-pipeline")
+	stored, err := backend.GetPipeline(context.Background(), "deep-copy-pipeline")
 	require.NoError(t, err)
 	assert.Equal(t, "original", stored.Declaration.Stages[0].Actions[0].Configuration["key"])
 }
@@ -1283,7 +1288,7 @@ func TestHandler_DisableEnableStageTransition(t *testing.T) {
 			name:   "disable_success",
 			action: "DisableStageTransition",
 			setup: func(h *codepipeline.Handler) {
-				_, err := h.Backend.CreatePipeline(samplePipeline("trans-pipeline"), nil)
+				_, err := h.Backend.CreatePipeline(context.Background(), samplePipeline("trans-pipeline"), nil)
 				require.NoError(t, err)
 			},
 			input: map[string]any{
@@ -1323,7 +1328,7 @@ func TestHandler_DisableEnableStageTransition(t *testing.T) {
 			name:   "enable_success",
 			action: "EnableStageTransition",
 			setup: func(h *codepipeline.Handler) {
-				_, err := h.Backend.CreatePipeline(samplePipeline("enable-pipeline"), nil)
+				_, err := h.Backend.CreatePipeline(context.Background(), samplePipeline("enable-pipeline"), nil)
 				require.NoError(t, err)
 			},
 			input: map[string]any{
@@ -1378,7 +1383,7 @@ func TestHandler_DisableEnableStageTransition_RoundTrip(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	_, err := h.Backend.CreatePipeline(samplePipeline("rt-pipeline"), nil)
+	_, err := h.Backend.CreatePipeline(context.Background(), samplePipeline("rt-pipeline"), nil)
 	require.NoError(t, err)
 
 	// Disable the transition.
@@ -1431,7 +1436,7 @@ func TestRefinement1_Reset(t *testing.T) {
 	h := newTestHandler(t)
 
 	// Create a pipeline so there is state to reset.
-	_, err := h.Backend.CreatePipeline(samplePipeline("reset-pl"), nil)
+	_, err := h.Backend.CreatePipeline(context.Background(), samplePipeline("reset-pl"), nil)
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, h.Backend.PipelineCount())
@@ -1461,7 +1466,7 @@ func TestRefinement1_SortedListPipelines(t *testing.T) {
 	h := newTestHandler(t)
 
 	for _, name := range []string{"zebra-pl", "apple-pl", "mango-pl"} {
-		_, err := h.Backend.CreatePipeline(samplePipeline(name), nil)
+		_, err := h.Backend.CreatePipeline(context.Background(), samplePipeline(name), nil)
 		require.NoError(t, err)
 	}
 
@@ -1506,7 +1511,7 @@ func TestRefinement1_ListPipelines_IncludesARN(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	_, err := h.Backend.CreatePipeline(samplePipeline("arn-pl"), nil)
+	_, err := h.Backend.CreatePipeline(context.Background(), samplePipeline("arn-pl"), nil)
 	require.NoError(t, err)
 
 	rec := doRequest(t, h, "ListPipelines", map[string]any{})
@@ -1528,13 +1533,13 @@ func TestRefinement1_SortedListTagsForResource(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	_, err := h.Backend.CreatePipeline(samplePipeline("tag-pl"), map[string]string{
+	_, err := h.Backend.CreatePipeline(context.Background(), samplePipeline("tag-pl"), map[string]string{
 		"zzz": "last", "aaa": "first", "mmm": "mid",
 	})
 	require.NoError(t, err)
 
 	// Get the ARN by listing pipelines.
-	summaries := h.Backend.ListPipelines()
+	summaries := h.Backend.ListPipelines(context.Background())
 	require.Len(t, summaries, 1)
 	pipelineARN := summaries[0].PipelineArn
 	require.NotEmpty(t, pipelineARN)
@@ -1561,10 +1566,10 @@ func TestRefinement1_ListTagsForResource_EmptySlice(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	_, err := h.Backend.CreatePipeline(samplePipeline("notag-pl"), nil)
+	_, err := h.Backend.CreatePipeline(context.Background(), samplePipeline("notag-pl"), nil)
 	require.NoError(t, err)
 
-	summaries := h.Backend.ListPipelines()
+	summaries := h.Backend.ListPipelines(context.Background())
 	pipelineARN := summaries[0].PipelineArn
 
 	rec := doRequest(t, h, "ListTagsForResource", map[string]any{"resourceArn": pipelineARN})
@@ -1582,7 +1587,7 @@ func TestRefinement1_DeletePipeline_CascadeStageTransitions(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	_, err := h.Backend.CreatePipeline(samplePipeline("cascade-pl"), nil)
+	_, err := h.Backend.CreatePipeline(context.Background(), samplePipeline("cascade-pl"), nil)
 	require.NoError(t, err)
 
 	// Disable a stage transition.
@@ -1650,7 +1655,7 @@ func TestRefinement1_TransitionTypeValidation(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			_, err := h.Backend.CreatePipeline(samplePipeline("enum-pl"), nil)
+			_, err := h.Backend.CreatePipeline(context.Background(), samplePipeline("enum-pl"), nil)
 			require.NoError(t, err)
 
 			var input map[string]any
@@ -1791,17 +1796,17 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	require.NoError(t, b2.Restore(snap))
 
 	// Verify pipeline.
-	p, err := b2.GetPipeline("persist-pl")
+	p, err := b2.GetPipeline(context.Background(), "persist-pl")
 	require.NoError(t, err)
 	assert.Equal(t, "persist-pl", p.Declaration.Name)
 
 	// Verify custom action type.
-	cat, err := b2.GetActionType("Deploy", "Custom", "MyDeploy", "2")
+	cat, err := b2.GetActionType(context.Background(), "Deploy", "Custom", "MyDeploy", "2")
 	require.NoError(t, err)
 	assert.Equal(t, "Deploy", cat.Category)
 
 	// Verify job.
-	job, err := b2.GetJobDetails("persist-job")
+	job, err := b2.GetJobDetails(context.Background(), "persist-job")
 	require.NoError(t, err)
 	assert.Equal(t, "persist-job", job.ID)
 
@@ -1815,7 +1820,7 @@ func TestRefinement1_PersistenceWithStageTransitions(t *testing.T) {
 	b := codepipeline.NewInMemoryBackend("000000000000", "us-east-1")
 	b.AddPipelineInternal(samplePipeline("trans-pl"), nil)
 
-	err := b.DisableStageTransition("trans-pl", "Source", "Inbound", "test reason")
+	err := b.DisableStageTransition(context.Background(), "trans-pl", "Source", "Inbound", "test reason")
 	require.NoError(t, err)
 	assert.Equal(t, 1, b.StageTransitionCount())
 
@@ -1827,7 +1832,7 @@ func TestRefinement1_PersistenceWithStageTransitions(t *testing.T) {
 
 	// Verify stage transition was restored.
 	assert.Equal(t, 1, b2.StageTransitionCount())
-	state := b2.GetStageTransitionState("trans-pl", "Source", "Inbound")
+	state := b2.GetStageTransitionState(context.Background(), "trans-pl", "Source", "Inbound")
 	require.NotNil(t, state)
 	assert.Equal(t, "test reason", state.Reason)
 	assert.True(t, state.Disabled)
@@ -1838,11 +1843,11 @@ func TestRefinement1_GetStageTransitionState(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	_, err := h.Backend.CreatePipeline(samplePipeline("state-pl"), nil)
+	_, err := h.Backend.CreatePipeline(context.Background(), samplePipeline("state-pl"), nil)
 	require.NoError(t, err)
 
 	// Initially enabled (nil).
-	state := h.Backend.GetStageTransitionState("state-pl", "Source", "Inbound")
+	state := h.Backend.GetStageTransitionState(context.Background(), "state-pl", "Source", "Inbound")
 	assert.Nil(t, state)
 
 	// Disable it.
@@ -1854,7 +1859,7 @@ func TestRefinement1_GetStageTransitionState(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	state = h.Backend.GetStageTransitionState("state-pl", "Source", "Inbound")
+	state = h.Backend.GetStageTransitionState(context.Background(), "state-pl", "Source", "Inbound")
 	require.NotNil(t, state)
 	assert.Equal(t, "blocked", state.Reason)
 	assert.True(t, state.Disabled)
@@ -1867,7 +1872,7 @@ func TestRefinement1_GetStageTransitionState(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	state = h.Backend.GetStageTransitionState("state-pl", "Source", "Inbound")
+	state = h.Backend.GetStageTransitionState(context.Background(), "state-pl", "Source", "Inbound")
 	assert.Nil(t, state)
 }
 
@@ -1904,7 +1909,7 @@ func TestRefinement1_AddCustomActionTypeInternal_DeepCopy(t *testing.T) {
 	// Mutate original - backend should not be affected.
 	cat.Tags["original"] = "mutated"
 
-	retrieved, err := b.GetActionType("Build", "Custom", "CopyTest", "1")
+	retrieved, err := b.GetActionType(context.Background(), "Build", "Custom", "CopyTest", "1")
 	require.NoError(t, err)
 	assert.Equal(t, "value", retrieved.Tags["original"])
 }
