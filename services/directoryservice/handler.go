@@ -10,6 +10,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -40,6 +41,8 @@ const (
 
 	keyDirectoryID = "DirectoryId"
 	keySnapshotID  = "SnapshotId"
+	keyLaunchTime  = "LaunchTime"
+	keyStartTime   = "StartTime"
 )
 
 // Handler handles DirectoryService HTTP requests.
@@ -704,7 +707,7 @@ func directoryToJSON(d *Directory) map[string]any {
 		"Size":         string(d.Size),
 		"Edition":      string(d.Edition),
 		"SsoEnabled":   d.SsoEnabled,
-		"LaunchTime":   d.LaunchTime.Format("2006-01-02T15:04:05.000Z"), //nolint:goconst // existing issue.
+		keyLaunchTime:  awstime.Epoch(d.LaunchTime),
 	}
 }
 
@@ -715,7 +718,7 @@ func snapshotToJSON(s *Snapshot) map[string]any {
 		"Name":         s.Name,
 		"Status":       string(s.Status), //nolint:goconst // existing issue.
 		"Type":         string(s.Type),
-		"StartTime":    s.StartTime.Format("2006-01-02T15:04:05.000Z"), //nolint:goconst // existing issue.
+		keyStartTime:   awstime.Epoch(s.StartTime),
 	}
 }
 

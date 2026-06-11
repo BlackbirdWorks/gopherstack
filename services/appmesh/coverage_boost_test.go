@@ -600,9 +600,7 @@ func TestAppMesh_UpdateVirtualRouter(t *testing.T) {
 				body := getBody(t, rec)
 				assert.Equal(t, tt.wantCode, body["code"])
 			} else if tt.wantStatus == http.StatusOK {
-				body := getBody(t, rec)
-				vr, ok := body["virtualRouter"].(map[string]any)
-				require.True(t, ok)
+				vr := getBody(t, rec)
 				assert.Equal(t, tt.vrName, vr["virtualRouterName"])
 			}
 		})

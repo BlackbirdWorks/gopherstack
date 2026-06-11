@@ -273,6 +273,30 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	}
 }
 
+// Reset clears all in-memory Personalize state for the /_gopherstack/reset
+// test hook so suites start from a clean slate.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.datasetGroups = make(map[string]*DatasetGroup)
+	b.datasets = make(map[string]*Dataset)
+	b.schemas = make(map[string]*Schema)
+	b.solutions = make(map[string]*Solution)
+	b.solutionVersions = make(map[string]*SolutionVersion)
+	b.campaigns = make(map[string]*Campaign)
+	b.datasetImportJobs = make(map[string]*DatasetImportJob)
+	b.datasetExportJobs = make(map[string]*DatasetExportJob)
+	b.batchInferenceJobs = make(map[string]*BatchInferenceJob)
+	b.batchSegmentJobs = make(map[string]*BatchSegmentJob)
+	b.eventTrackers = make(map[string]*EventTracker)
+	b.filters = make(map[string]*Filter)
+	b.recommenders = make(map[string]*Recommender)
+	b.metricAttributions = make(map[string]*MetricAttribution)
+	b.dataDeletionJobs = make(map[string]*DataDeletionJob)
+	b.tags = make(map[string]map[string]string)
+}
+
 // Region returns the configured region.
 func (b *InMemoryBackend) Region() string { return b.region }
 

@@ -59,7 +59,7 @@ func TestIpGroupCRUD(t *testing.T) { //nolint:paralleltest // existing issue.
 		{
 			name:      "simple group",
 			groupName: "test-group",
-			rules:     []map[string]string{{"IpRule": "10.0.0.0/8", "RuleDesc": "internal"}},
+			rules:     []map[string]string{{"ipRule": "10.0.0.0/8", "ruleDesc": "internal"}},
 		},
 		{
 			name:      "empty rules group",
@@ -110,7 +110,7 @@ func TestIpGroupCRUD(t *testing.T) { //nolint:paralleltest // existing issue.
 			// Authorize rules
 			rec3 := doTargetRequest(t, h, "AuthorizeIpRules", map[string]any{
 				"GroupId":   groupID,
-				"UserRules": []map[string]string{{"IpRule": "192.168.0.0/16", "RuleDesc": "extra"}},
+				"UserRules": []map[string]string{{"ipRule": "192.168.0.0/16", "ruleDesc": "extra"}},
 			})
 			if rec3.Code != http.StatusOK {
 				t.Fatalf("authorize: expected 200, got %d", rec3.Code)
@@ -119,7 +119,7 @@ func TestIpGroupCRUD(t *testing.T) { //nolint:paralleltest // existing issue.
 			// Update rules
 			rec4 := doTargetRequest(t, h, "UpdateRulesOfIpGroup", map[string]any{
 				"GroupId":   groupID,
-				"UserRules": []map[string]string{{"IpRule": "172.16.0.0/12", "RuleDesc": "new"}},
+				"UserRules": []map[string]string{{"ipRule": "172.16.0.0/12", "ruleDesc": "new"}},
 			})
 			if rec4.Code != http.StatusOK {
 				t.Fatalf("update rules: expected 200, got %d", rec4.Code)

@@ -13,6 +13,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -400,8 +401,10 @@ func (h *Handler) stopJob(spec jobSpec) operation {
 func jobMap(job *Job) map[string]any {
 	return map[string]any{
 		fieldJobID: job.JobID, "JobArn": job.JobArn, "JobName": job.JobName, fieldJobStatus: job.JobStatus,
-		fieldLanguageCode: job.LanguageCode, "SubmitTime": job.SubmitTime, "EndTime": job.EndTime,
-		"FailureReason": job.FailureReason, "InputDataConfig": job.InputDataConfig,
+		fieldLanguageCode: job.LanguageCode,
+		"SubmitTime":      awstime.Epoch(job.SubmitTime),
+		"EndTime":         awstime.Epoch(job.EndTime),
+		"FailureReason":   job.FailureReason, "InputDataConfig": job.InputDataConfig,
 		"OutputDataConfig": job.OutputDataConfig, "DataAccessRoleArn": job.DataAccessRoleArn,
 		fieldDocumentClassifierARN: job.DocumentClassifierArn, fieldEntityRecognizerARN: job.EntityRecognizerArn,
 		"TargetEventTypes": job.TargetEventTypes,
@@ -465,8 +468,8 @@ func resourceMap(resource *Resource, spec resourceSpec) map[string]any {
 	out := cloneMap(resource.Configuration)
 	out[spec.arnField] = resource.Arn
 	out["Status"] = resource.Status
-	out["SubmitTime"] = resource.CreatedAt
-	out["EndTime"] = resource.UpdatedAt
+	out["SubmitTime"] = awstime.Epoch(resource.CreatedAt)
+	out["EndTime"] = awstime.Epoch(resource.UpdatedAt)
 	if resource.VersionName != "" {
 		out["VersionName"] = resource.VersionName
 	}
@@ -504,9 +507,12 @@ func (h *Handler) listIterations(input map[string]any) (map[string]any, error) {
 
 func iterationMap(iteration *FlywheelIteration) map[string]any {
 	return map[string]any{
-		fieldFlywheelARN: iteration.FlywheelArn, "FlywheelIterationId": iteration.FlywheelIterationID,
-		"FlywheelIterationStatus": iteration.FlywheelIterationStatus, "CreationTime": iteration.CreationTime,
-		"EndTime": iteration.EndTime, "Message": iteration.Message,
+		fieldFlywheelARN:          iteration.FlywheelArn,
+		"FlywheelIterationId":     iteration.FlywheelIterationID,
+		"FlywheelIterationStatus": iteration.FlywheelIterationStatus,
+		"CreationTime":            awstime.Epoch(iteration.CreationTime),
+		"EndTime":                 awstime.Epoch(iteration.EndTime),
+		"Message":                 iteration.Message,
 	}
 }
 
@@ -818,8 +824,8 @@ func (h *Handler) describeResourcePolicy(input map[string]any) (map[string]any, 
 
 	return map[string]any{
 		"ResourcePolicy":   policy,
-		"CreationTime":     time.Now().UTC(),
-		"LastModifiedTime": time.Now().UTC(),
+		"CreationTime":     awstime.Epoch(time.Now().UTC()),
+		"LastModifiedTime": awstime.Epoch(time.Now().UTC()),
 		"PolicyRevisionId": revision,
 	}, nil
 }
@@ -866,7 +872,7 @@ func (h *Handler) listDocumentClassifierSummaries(_ map[string]any) (map[string]
 		items = append(items, map[string]any{
 			"DocumentClassifierName": resource.Name,
 			"NumberOfVersions":       1,
-			"LatestVersionCreatedAt": resource.CreatedAt,
+			"LatestVersionCreatedAt": awstime.Epoch(resource.CreatedAt),
 			"LatestVersionName":      resource.VersionName,
 			"LatestVersionStatus":    resource.Status,
 		})
@@ -884,7 +890,7 @@ func (h *Handler) listEntityRecognizerSummaries(_ map[string]any) (map[string]an
 		items = append(items, map[string]any{
 			"RecognizerName":         resource.Name,
 			"NumberOfVersions":       1,
-			"LatestVersionCreatedAt": resource.CreatedAt,
+			"LatestVersionCreatedAt": awstime.Epoch(resource.CreatedAt),
 			"LatestVersionName":      resource.VersionName,
 			"LatestVersionStatus":    resource.Status,
 		})

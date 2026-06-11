@@ -136,8 +136,7 @@ func TestAppMesh_VirtualNodeCRUD(t *testing.T) {
 	rec := doRequest(t, h, http.MethodPut, "/meshes/m1/virtualNodes",
 		map[string]any{"virtualNodeName": "vn1"})
 	assert.Equal(t, http.StatusOK, rec.Code)
-	body := getBody(t, rec)
-	vn := body["virtualNode"].(map[string]any)
+	vn := getBody(t, rec)
 	assert.Equal(t, "vn1", vn["virtualNodeName"])
 	assert.Contains(t, vn["metadata"].(map[string]any)["arn"].(string), "virtualNode/vn1")
 
@@ -148,7 +147,7 @@ func TestAppMesh_VirtualNodeCRUD(t *testing.T) {
 	// List
 	rec = doRequest(t, h, http.MethodGet, "/meshes/m1/virtualNodes", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
-	body = getBody(t, rec)
+	body := getBody(t, rec)
 	assert.Len(t, body["virtualNodes"].([]any), 1)
 
 	// Update
@@ -177,16 +176,14 @@ func TestAppMesh_VirtualRouterAndRouteCRUD(t *testing.T) {
 	rec := doRequest(t, h, http.MethodPut, "/meshes/m1/virtualRouters",
 		map[string]any{"virtualRouterName": "vr1"})
 	assert.Equal(t, http.StatusOK, rec.Code)
-	body := getBody(t, rec)
-	vr := body["virtualRouter"].(map[string]any)
+	vr := getBody(t, rec)
 	assert.Equal(t, "vr1", vr["virtualRouterName"])
 
 	// Create route (note singular /virtualRouter/ in path)
 	rec = doRequest(t, h, http.MethodPut, "/meshes/m1/virtualRouter/vr1/routes",
 		map[string]any{"routeName": "r1"})
 	assert.Equal(t, http.StatusOK, rec.Code)
-	body = getBody(t, rec)
-	route := body["route"].(map[string]any)
+	route := getBody(t, rec)
 	assert.Equal(t, "r1", route["routeName"])
 	assert.Equal(t, "vr1", route["virtualRouterName"])
 	assert.Contains(t, route["metadata"].(map[string]any)["arn"].(string), "route/r1")
@@ -194,7 +191,7 @@ func TestAppMesh_VirtualRouterAndRouteCRUD(t *testing.T) {
 	// List routes
 	rec = doRequest(t, h, http.MethodGet, "/meshes/m1/virtualRouter/vr1/routes", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
-	body = getBody(t, rec)
+	body := getBody(t, rec)
 	assert.Len(t, body["routes"].([]any), 1)
 
 	// DeleteRouter with routes → conflict
@@ -221,13 +218,12 @@ func TestAppMesh_VirtualServiceCRUD(t *testing.T) {
 	rec := doRequest(t, h, http.MethodPut, "/meshes/m1/virtualServices",
 		map[string]any{"virtualServiceName": "svc.local"})
 	assert.Equal(t, http.StatusOK, rec.Code)
-	body := getBody(t, rec)
-	vs := body["virtualService"].(map[string]any)
+	vs := getBody(t, rec)
 	assert.Equal(t, "svc.local", vs["virtualServiceName"])
 
 	rec = doRequest(t, h, http.MethodGet, "/meshes/m1/virtualServices", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
-	body = getBody(t, rec)
+	body := getBody(t, rec)
 	assert.Len(t, body["virtualServices"].([]any), 1)
 
 	rec = doRequest(t, h, http.MethodDelete, "/meshes/m1/virtualServices/svc.local", nil)
@@ -246,23 +242,21 @@ func TestAppMesh_VirtualGatewayAndGatewayRouteCRUD(t *testing.T) {
 	rec := doRequest(t, h, http.MethodPut, "/meshes/m1/virtualGateways",
 		map[string]any{"virtualGatewayName": "gw1"})
 	assert.Equal(t, http.StatusOK, rec.Code)
-	body := getBody(t, rec)
-	vg := body["virtualGateway"].(map[string]any)
+	vg := getBody(t, rec)
 	assert.Equal(t, "gw1", vg["virtualGatewayName"])
 
 	// Create gateway route (singular /virtualGateway/ in path)
 	rec = doRequest(t, h, http.MethodPut, "/meshes/m1/virtualGateway/gw1/gatewayRoutes",
 		map[string]any{"gatewayRouteName": "gr1"})
 	assert.Equal(t, http.StatusOK, rec.Code)
-	body = getBody(t, rec)
-	gr := body["gatewayRoute"].(map[string]any)
+	gr := getBody(t, rec)
 	assert.Equal(t, "gr1", gr["gatewayRouteName"])
 	assert.Equal(t, "gw1", gr["virtualGatewayName"])
 
 	// List gateway routes
 	rec = doRequest(t, h, http.MethodGet, "/meshes/m1/virtualGateway/gw1/gatewayRoutes", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
-	body = getBody(t, rec)
+	body := getBody(t, rec)
 	assert.Len(t, body["gatewayRoutes"].([]any), 1)
 
 	// Delete gateway with routes → conflict

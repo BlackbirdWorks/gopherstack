@@ -109,6 +109,7 @@ import (
 	datasyncbackend "github.com/blackbirdworks/gopherstack/services/datasync"
 	daxbackend "github.com/blackbirdworks/gopherstack/services/dax"
 	detectivebackend "github.com/blackbirdworks/gopherstack/services/detective"
+	directoryservicebackend "github.com/blackbirdworks/gopherstack/services/directoryservice"
 	dmsbackend "github.com/blackbirdworks/gopherstack/services/dms"
 	docdbbackend "github.com/blackbirdworks/gopherstack/services/docdb"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
@@ -151,9 +152,11 @@ import (
 	macie2backend "github.com/blackbirdworks/gopherstack/services/macie2"
 	managedblockchainbackend "github.com/blackbirdworks/gopherstack/services/managedblockchain"
 	mediaconvertbackend "github.com/blackbirdworks/gopherstack/services/mediaconvert"
+	medialivebackend "github.com/blackbirdworks/gopherstack/services/medialive"
 	mediapackagebackend "github.com/blackbirdworks/gopherstack/services/mediapackage"
 	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
 	mediastoredatabackend "github.com/blackbirdworks/gopherstack/services/mediastoredata"
+	mediatailorbackend "github.com/blackbirdworks/gopherstack/services/mediatailor"
 	memorydbbackend "github.com/blackbirdworks/gopherstack/services/memorydb"
 	mqbackend "github.com/blackbirdworks/gopherstack/services/mq"
 	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
@@ -183,6 +186,7 @@ import (
 	sagemakerruntimebackend "github.com/blackbirdworks/gopherstack/services/sagemakerruntime"
 	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
+	securityhubbackend "github.com/blackbirdworks/gopherstack/services/securityhub"
 	serverlessrepobackend "github.com/blackbirdworks/gopherstack/services/serverlessrepo"
 	servicediscoverybackend "github.com/blackbirdworks/gopherstack/services/servicediscovery"
 	sesbackend "github.com/blackbirdworks/gopherstack/services/ses"
@@ -2805,6 +2809,10 @@ func getMostRecentServiceProviders() []service.Provider {
 		&quicksightbackend.Provider{},
 		&rekognitionbackend.Provider{},
 		&translatebackend.Provider{},
+		&securityhubbackend.Provider{},
+		&mediatailorbackend.Provider{},
+		&medialivebackend.Provider{},
+		&directoryservicebackend.Provider{},
 	}
 }
 

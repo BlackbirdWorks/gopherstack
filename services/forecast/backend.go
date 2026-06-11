@@ -108,6 +108,17 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	}
 }
 
+// Reset clears all in-memory Forecast state. It supports the
+// /_gopherstack/reset test hook so suites start from a clean slate.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.resources = make(map[resourceKind]map[string]*Resource)
+	b.evaluations = make(map[string][]MonitorEvaluation)
+	b.tags = make(map[string]map[string]string)
+}
+
 // Region returns backend region.
 func (b *InMemoryBackend) Region() string { return b.region }
 

@@ -411,9 +411,10 @@ type InputSecurityGroup struct {
 
 // InputSecurityGroupSummary is a security group in a list response.
 type InputSecurityGroupSummary struct {
-	ARN   string
-	ID    string
-	State string
+	ARN            string
+	ID             string
+	State          string
+	WhitelistRules []WhitelistRule
 }
 
 // WhitelistRule is a CIDR-based whitelist entry.

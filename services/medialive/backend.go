@@ -180,10 +180,14 @@ func (g *storedInputSecurityGroup) toGroup() *InputSecurityGroup {
 }
 
 func (g *storedInputSecurityGroup) toSummary() *InputSecurityGroupSummary {
+	rules := make([]WhitelistRule, len(g.WhitelistRules))
+	copy(rules, g.WhitelistRules)
+
 	return &InputSecurityGroupSummary{
-		ARN:   g.ARN,
-		ID:    g.ID,
-		State: g.State,
+		ARN:            g.ARN,
+		ID:             g.ID,
+		State:          g.State,
+		WhitelistRules: rules,
 	}
 }
 

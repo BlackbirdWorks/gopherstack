@@ -410,8 +410,8 @@ func (h *Handler) handleDescribeRegions(c *echo.Context) error {
 			keyDirectoryID: r.DirectoryID,
 			"RegionName":   r.RegionName,
 			"RegionType":   r.RegionType,
-			"Status":       r.Status,                                        //nolint:goconst // existing issue.
-			"LaunchTime":   r.LaunchTime.Format("2006-01-02T15:04:05.000Z"), //nolint:goconst // existing issue.
+			"Status":       r.Status, //nolint:goconst // existing issue.
+			keyLaunchTime:  r.LaunchTime.Format("2006-01-02T15:04:05.000Z"),
 		})
 	}
 
@@ -891,7 +891,7 @@ func (h *Handler) handleDescribeDomainControllers(c *echo.Context) error {
 			keyDirectoryID:       dc.DirectoryID,
 			"Status":             dc.Status,
 			"AvailabilityZone":   dc.AvailabilityZone,
-			"LaunchTime":         dc.LaunchTime.Format("2006-01-02T15:04:05.000Z"),
+			keyLaunchTime:        dc.LaunchTime.Format("2006-01-02T15:04:05.000Z"),
 		})
 	}
 
@@ -2011,8 +2011,8 @@ func (h *Handler) handleDescribeADAssessment(c *echo.Context) error {
 			keyDirectoryID:   a.DirectoryID,
 			"Status":         a.Status,
 			"AssessmentType": a.AssessType,
-			"Region":         a.Region,                                       //nolint:goconst // existing issue.
-			"StartTime":      a.StartTime.Format("2006-01-02T15:04:05.000Z"), //nolint:goconst // existing issue.
+			"Region":         a.Region, //nolint:goconst // existing issue.
+			keyStartTime:     a.StartTime.Format("2006-01-02T15:04:05.000Z"),
 		},
 	})
 }
@@ -2048,7 +2048,7 @@ func (h *Handler) handleListADAssessments(c *echo.Context) error {
 			"Status":         a.Status,
 			"AssessmentType": a.AssessType,
 			"Region":         a.Region,
-			"StartTime":      a.StartTime.Format("2006-01-02T15:04:05.000Z"),
+			keyStartTime:     a.StartTime.Format("2006-01-02T15:04:05.000Z"),
 		})
 	}
 
@@ -2360,7 +2360,7 @@ func (h *Handler) handleDescribeUpdateDirectory(c *echo.Context) error {
 			"PreviousValue":       e.PreviousValue,
 			"InitiatedBy":         e.InitiatedBy,
 			"Region":              e.Region,
-			"StartTime":           e.StartTime.Format("2006-01-02T15:04:05.000Z"),
+			keyStartTime:          e.StartTime.Format("2006-01-02T15:04:05.000Z"),
 			"LastUpdatedDateTime": e.LastUpdatedDateTime.Format("2006-01-02T15:04:05.000Z"),
 		})
 	}

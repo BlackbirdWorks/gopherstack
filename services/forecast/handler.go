@@ -10,6 +10,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -47,6 +48,9 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 
 // Name returns service registry name.
 func (h *Handler) Name() string { return "Forecast" }
+
+// Reset clears all backend state for the /_gopherstack/reset test hook.
+func (h *Handler) Reset() { h.Backend.Reset() }
 
 // ChaosServiceName returns fault injection service identifier.
 func (h *Handler) ChaosServiceName() string { return "forecast" }
@@ -298,8 +302,8 @@ func resourceOutput(spec operationSpec, resource *Resource) map[string]any {
 	output[spec.nameField] = resource.Name
 	output[spec.arnField] = resource.ARN
 	output["Status"] = resource.Status
-	output["CreationTime"] = resource.CreatedAt
-	output["LastModificationTime"] = resource.UpdatedAt
+	output["CreationTime"] = awstime.Epoch(resource.CreatedAt)
+	output["LastModificationTime"] = awstime.Epoch(resource.UpdatedAt)
 
 	return output
 }
