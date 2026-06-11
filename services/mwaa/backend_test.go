@@ -1,6 +1,7 @@
 package mwaa_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -70,11 +71,11 @@ func TestBackend_CreateEnvironment(t *testing.T) {
 			b := newTestBackend()
 
 			if tt.name == "duplicate_returns_error" {
-				_, err := b.CreateEnvironment("us-east-1", "123456789012", tt.envName, newCreateReq())
+				_, err := b.CreateEnvironment(context.Background(), tt.envName, newCreateReq())
 				require.NoError(t, err)
 			}
 
-			env, err := b.CreateEnvironment("us-east-1", "123456789012", tt.envName, tt.req)
+			env, err := b.CreateEnvironment(context.Background(), tt.envName, tt.req)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -122,11 +123,11 @@ func TestBackend_GetEnvironment(t *testing.T) {
 			b := newTestBackend()
 
 			if tt.seed {
-				_, err := b.CreateEnvironment("us-east-1", "123456789012", tt.envName, newCreateReq())
+				_, err := b.CreateEnvironment(context.Background(), tt.envName, newCreateReq())
 				require.NoError(t, err)
 			}
 
-			env, err := b.GetEnvironment(tt.envName)
+			env, err := b.GetEnvironment(context.Background(), tt.envName)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -169,11 +170,11 @@ func TestBackend_DeleteEnvironment(t *testing.T) {
 			b := newTestBackend()
 
 			if tt.seed {
-				_, err := b.CreateEnvironment("us-east-1", "123456789012", tt.envName, newCreateReq())
+				_, err := b.CreateEnvironment(context.Background(), tt.envName, newCreateReq())
 				require.NoError(t, err)
 			}
 
-			deleted, err := b.DeleteEnvironment(tt.envName)
+			deleted, err := b.DeleteEnvironment(context.Background(), tt.envName)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -184,7 +185,7 @@ func TestBackend_DeleteEnvironment(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tt.envName, deleted.Name)
 
-			_, err = b.GetEnvironment(tt.envName)
+			_, err = b.GetEnvironment(context.Background(), tt.envName)
 			require.Error(t, err, "environment should be gone after delete")
 		})
 	}
@@ -217,11 +218,11 @@ func TestBackend_ListEnvironments(t *testing.T) {
 			b := newTestBackend()
 
 			for _, n := range tt.seedNames {
-				_, err := b.CreateEnvironment("us-east-1", "123456789012", n, newCreateReq())
+				_, err := b.CreateEnvironment(context.Background(), n, newCreateReq())
 				require.NoError(t, err)
 			}
 
-			names, err := b.ListEnvironments()
+			names, err := b.ListEnvironments(context.Background())
 			require.NoError(t, err)
 			assert.Len(t, names, tt.wantCount)
 		})
@@ -264,12 +265,12 @@ func TestBackend_UpdateEnvironment(t *testing.T) {
 			b := newTestBackend()
 
 			if tt.seed {
-				_, err := b.CreateEnvironment("us-east-1", "123456789012", tt.envName, newCreateReq())
+				_, err := b.CreateEnvironment(context.Background(), tt.envName, newCreateReq())
 				require.NoError(t, err)
-				_, _ = b.GetEnvironment(tt.envName)
+				_, _ = b.GetEnvironment(context.Background(), tt.envName)
 			}
 
-			env, err := b.UpdateEnvironment(tt.envName, tt.update)
+			env, err := b.UpdateEnvironment(context.Background(), tt.envName, tt.update)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -315,18 +316,18 @@ func TestBackend_Tags(t *testing.T) {
 
 			b := newTestBackend()
 
-			env, err := b.CreateEnvironment("us-east-1", "123456789012", tt.envName, newCreateReq())
+			env, err := b.CreateEnvironment(context.Background(), tt.envName, newCreateReq())
 			require.NoError(t, err)
 
-			err = b.TagResource(env.ARN, tt.tagsToAdd)
+			err = b.TagResource(context.Background(), env.ARN, tt.tagsToAdd)
 			require.NoError(t, err)
 
 			if len(tt.keysToRemove) > 0 {
-				err = b.UntagResource(env.ARN, tt.keysToRemove)
+				err = b.UntagResource(context.Background(), env.ARN, tt.keysToRemove)
 				require.NoError(t, err)
 			}
 
-			tags, err := b.ListTagsForResource(env.ARN)
+			tags, err := b.ListTagsForResource(context.Background(), env.ARN)
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantTags, tags)
 		})

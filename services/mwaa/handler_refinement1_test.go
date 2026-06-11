@@ -1,6 +1,7 @@
 package mwaa_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -47,13 +48,13 @@ func makeEchoContextWithAuth(t *testing.T, method, path, svcName string) *echo.C
 func seedEnv(t *testing.T, b *mwaa.InMemoryBackend, name string) {
 	t.Helper()
 
-	_, err := b.CreateEnvironment("us-east-1", testAccountID, name, &mwaa.ExportedCreateEnvironmentRequest{
+	_, err := b.CreateEnvironment(context.Background(), name, &mwaa.ExportedCreateEnvironmentRequest{
 		DagS3Path:        "dags/",
 		ExecutionRoleArn: "arn:aws:iam::123456789012:role/role",
 		SourceBucketArn:  "arn:aws:s3:::bucket",
 	})
 	require.NoError(t, err)
-	_, _ = b.GetEnvironment(name)
+	_, _ = b.GetEnvironment(context.Background(), name)
 }
 
 // ----------------------------------------
@@ -165,7 +166,7 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	assert.Equal(t, 1, mwaa.EnvironmentCount(b2))
 	assert.Equal(t, 1, mwaa.ARNIndexSize(b2))
 
-	env, err := b2.GetEnvironment("persist-env")
+	env, err := b2.GetEnvironment(context.Background(), "persist-env")
 	require.NoError(t, err)
 	assert.Equal(t, "persist-env", env.Name)
 }
@@ -209,7 +210,7 @@ func TestRefinement1_CreateEnvironment_RequiredFields(t *testing.T) {
 			t.Parallel()
 
 			b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-			_, err := b.CreateEnvironment(testRegion, testAccountID, "env", tt.req)
+			_, err := b.CreateEnvironment(context.Background(), "env", tt.req)
 
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.wantMsg)
@@ -236,7 +237,7 @@ func TestRefinement1_CreateEnvironment_WebserverAccessMode(t *testing.T) {
 			t.Parallel()
 
 			b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-			_, err := b.CreateEnvironment(testRegion, testAccountID, "env", &mwaa.ExportedCreateEnvironmentRequest{
+			_, err := b.CreateEnvironment(context.Background(), "env", &mwaa.ExportedCreateEnvironmentRequest{
 				DagS3Path:           "dags/",
 				ExecutionRoleArn:    "arn:aws:iam::123456789012:role/role",
 				SourceBucketArn:     "arn:aws:s3:::bucket",
@@ -274,7 +275,7 @@ func TestRefinement1_CreateEnvironment_EnvironmentClass(t *testing.T) {
 			t.Parallel()
 
 			b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-			_, err := b.CreateEnvironment(testRegion, testAccountID, "env", &mwaa.ExportedCreateEnvironmentRequest{
+			_, err := b.CreateEnvironment(context.Background(), "env", &mwaa.ExportedCreateEnvironmentRequest{
 				DagS3Path:        "dags/",
 				ExecutionRoleArn: "arn:aws:iam::123456789012:role/role",
 				SourceBucketArn:  "arn:aws:s3:::bucket",
@@ -296,7 +297,7 @@ func TestRefinement1_CreateEnvironment_Duplicate(t *testing.T) {
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	seedEnv(t, b, "dup-env")
 
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "dup-env", &mwaa.ExportedCreateEnvironmentRequest{
+	_, err := b.CreateEnvironment(context.Background(), "dup-env", &mwaa.ExportedCreateEnvironmentRequest{
 		DagS3Path:        "dags/",
 		ExecutionRoleArn: "arn:aws:iam::123456789012:role/role",
 		SourceBucketArn:  "arn:aws:s3:::bucket",
@@ -312,7 +313,7 @@ func TestRefinement1_GetEnvironment_DeepCopy(t *testing.T) {
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	seedEnv(t, b, "deep-copy-env")
 
-	env1, err := b.GetEnvironment("deep-copy-env")
+	env1, err := b.GetEnvironment(context.Background(), "deep-copy-env")
 	require.NoError(t, err)
 
 	// Mutate the returned copy.
@@ -320,7 +321,7 @@ func TestRefinement1_GetEnvironment_DeepCopy(t *testing.T) {
 	env1.Tags["injected"] = "value"
 
 	// Re-fetch should have original name.
-	env2, err := b.GetEnvironment("deep-copy-env")
+	env2, err := b.GetEnvironment(context.Background(), "deep-copy-env")
 	require.NoError(t, err)
 
 	assert.Equal(t, "deep-copy-env", env2.Name)
@@ -334,7 +335,7 @@ func TestRefinement1_DeleteEnvironment_CleansUpMetrics(t *testing.T) {
 	seedEnv(t, b, "metrics-env")
 
 	v := float64(1.0)
-	err := b.PublishMetrics("metrics-env", &mwaa.ExportedPublishMetricsRequest{
+	err := b.PublishMetrics(context.Background(), "metrics-env", &mwaa.ExportedPublishMetricsRequest{
 		MetricData: []mwaa.ExportedMetricDatum{
 			{MetricName: "Workers", Value: &v},
 		},
@@ -342,7 +343,7 @@ func TestRefinement1_DeleteEnvironment_CleansUpMetrics(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, mwaa.MetricsCount(b, "metrics-env"))
 
-	_, err = b.DeleteEnvironment("metrics-env")
+	_, err = b.DeleteEnvironment(context.Background(), "metrics-env")
 	require.NoError(t, err)
 
 	assert.Equal(t, 0, mwaa.MetricsCount(b, "metrics-env"))
@@ -352,7 +353,7 @@ func TestRefinement1_PublishMetrics_EnvNotFound(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	err := b.PublishMetrics("nonexistent", &mwaa.ExportedPublishMetricsRequest{})
+	err := b.PublishMetrics(context.Background(), "nonexistent", &mwaa.ExportedPublishMetricsRequest{})
 
 	require.Error(t, err)
 	require.ErrorIs(t, err, mwaa.ErrEnvironmentNotFound)
@@ -362,7 +363,7 @@ func TestRefinement1_CreateCliToken_NotFound(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateCliToken("missing-env")
+	_, err := b.CreateCliToken(context.Background(), "missing-env")
 
 	require.Error(t, err)
 	require.ErrorIs(t, err, mwaa.ErrEnvironmentNotFound)
@@ -372,7 +373,7 @@ func TestRefinement1_CreateWebLoginToken_NotFound(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateWebLoginToken("missing-env")
+	_, err := b.CreateWebLoginToken(context.Background(), "missing-env")
 
 	require.Error(t, err)
 	require.ErrorIs(t, err, mwaa.ErrEnvironmentNotFound)
@@ -384,7 +385,7 @@ func TestRefinement1_CreateCliToken_HappyPath(t *testing.T) {
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	seedEnv(t, b, "cli-env")
 
-	token, err := b.CreateCliToken("cli-env")
+	token, err := b.CreateCliToken(context.Background(), "cli-env")
 
 	require.NoError(t, err)
 	assert.NotEmpty(t, token)
@@ -399,7 +400,7 @@ func TestRefinement1_CreateWebLoginToken_HappyPath(t *testing.T) {
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	seedEnv(t, b, "web-env")
 
-	token, err := b.CreateWebLoginToken("web-env")
+	token, err := b.CreateWebLoginToken(context.Background(), "web-env")
 
 	require.NoError(t, err)
 	assert.NotEmpty(t, token)
@@ -501,7 +502,7 @@ func TestRefinement1_UpdateEnvironment_MinMaxWorkers(t *testing.T) {
 			b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 			seedEnv(t, b, "worker-env")
 
-			_, err := b.UpdateEnvironment("worker-env", tt.update)
+			_, err := b.UpdateEnvironment(context.Background(), "worker-env", tt.update)
 
 			if tt.wantErr {
 				require.Error(t, err)

@@ -1,6 +1,7 @@
 package mwaa_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -32,20 +33,20 @@ func TestUpdateEnvironment_StatusTransitionsToUpdatingThenAvailable(t *testing.T
 
 	b := newLifecycleBackend(t)
 
-	_, err := b.CreateEnvironment("us-east-1", "123456789012", "lc-env", newLifecycleCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "lc-env", newLifecycleCreateReq())
 	require.NoError(t, err)
-	_, _ = b.GetEnvironment("lc-env") // promote CREATING → AVAILABLE
+	_, _ = b.GetEnvironment(context.Background(), "lc-env") // promote CREATING → AVAILABLE
 
-	_, err = b.UpdateEnvironment("lc-env", &mwaa.ExportedUpdateEnvironmentRequest{
+	_, err = b.UpdateEnvironment(context.Background(), "lc-env", &mwaa.ExportedUpdateEnvironmentRequest{
 		EnvironmentClass: "mw1.medium",
 	})
 	require.NoError(t, err)
 
-	first, err := b.GetEnvironment("lc-env")
+	first, err := b.GetEnvironment(context.Background(), "lc-env")
 	require.NoError(t, err)
 	assert.Equal(t, "UPDATING", first.Status)
 
-	second, err := b.GetEnvironment("lc-env")
+	second, err := b.GetEnvironment(context.Background(), "lc-env")
 	require.NoError(t, err)
 	assert.Equal(t, "AVAILABLE", second.Status)
 }
@@ -55,11 +56,11 @@ func TestUpdateEnvironment_RejectsEmptyNetworkConfig(t *testing.T) {
 
 	b := newLifecycleBackend(t)
 
-	_, err := b.CreateEnvironment("us-east-1", "123456789012", "nc-env", newLifecycleCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "nc-env", newLifecycleCreateReq())
 	require.NoError(t, err)
-	_, _ = b.GetEnvironment("nc-env") // promote CREATING → AVAILABLE
+	_, _ = b.GetEnvironment(context.Background(), "nc-env") // promote CREATING → AVAILABLE
 
-	_, err = b.UpdateEnvironment("nc-env", &mwaa.ExportedUpdateEnvironmentRequest{
+	_, err = b.UpdateEnvironment(context.Background(), "nc-env", &mwaa.ExportedUpdateEnvironmentRequest{
 		NetworkConfiguration: &mwaa.NetworkConfig{},
 	})
 	require.Error(t, err)

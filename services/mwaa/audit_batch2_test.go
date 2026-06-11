@@ -12,6 +12,7 @@ package mwaa_test
 // consistency, and ListEnvironments MaxResults validation.
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -50,7 +51,7 @@ func TestAuditB2_WeeklyMaint_Create_ValidValues(t *testing.T) {
 			b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 			req := newCreateReq()
 			req.WeeklyMaintenanceWindowStart = tt.value
-			_, err := b.CreateEnvironment(testRegion, testAccountID, "wmw-ok-env", req)
+			_, err := b.CreateEnvironment(context.Background(), "wmw-ok-env", req)
 			require.NoError(t, err)
 		})
 	}
@@ -78,7 +79,7 @@ func TestAuditB2_WeeklyMaint_Create_InvalidValues(t *testing.T) {
 			b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 			req := newCreateReq()
 			req.WeeklyMaintenanceWindowStart = tt.value
-			_, err := b.CreateEnvironment(testRegion, testAccountID, "wmw-inv-env", req)
+			_, err := b.CreateEnvironment(context.Background(), "wmw-inv-env", req)
 
 			if tt.value == "" {
 				require.NoError(t, err)
@@ -95,10 +96,10 @@ func TestAuditB2_WeeklyMaint_Create_Persisted(t *testing.T) {
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	req := newCreateReq()
 	req.WeeklyMaintenanceWindowStart = "FRI:03:30"
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "wmw-persist-env", req)
+	_, err := b.CreateEnvironment(context.Background(), "wmw-persist-env", req)
 	require.NoError(t, err)
 
-	env, err := b.GetEnvironment("wmw-persist-env")
+	env, err := b.GetEnvironment(context.Background(), "wmw-persist-env")
 	require.NoError(t, err)
 	assert.Equal(t, "FRI:03:30", env.WeeklyMaintenanceWindowStart)
 }
@@ -143,7 +144,7 @@ func TestAuditB2_Create_MinWorkersExceedsMax(t *testing.T) {
 			req := newCreateReq()
 			req.MinWorkers = tt.min
 			req.MaxWorkers = tt.max
-			_, err := b.CreateEnvironment(testRegion, testAccountID, "worker-range-env", req)
+			_, err := b.CreateEnvironment(context.Background(), "worker-range-env", req)
 			if tt.wantErr {
 				require.Error(t, err)
 			} else {
@@ -161,10 +162,10 @@ func TestAuditB2_Defaults_WorkersStoredOnCreate(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "defaults-env", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "defaults-env", newCreateReq())
 	require.NoError(t, err)
 
-	env, err := b.GetEnvironment("defaults-env")
+	env, err := b.GetEnvironment(context.Background(), "defaults-env")
 	require.NoError(t, err)
 
 	assert.Equal(t, int32(10), env.MaxWorkers, "default MaxWorkers should be 10")
@@ -175,10 +176,10 @@ func TestAuditB2_Defaults_WebserversStoredOnCreate(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "ws-defaults-env", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "ws-defaults-env", newCreateReq())
 	require.NoError(t, err)
 
-	env, err := b.GetEnvironment("ws-defaults-env")
+	env, err := b.GetEnvironment(context.Background(), "ws-defaults-env")
 	require.NoError(t, err)
 
 	assert.Equal(t, int32(2), env.MaxWebservers, "default MaxWebservers should be 2")
@@ -191,10 +192,10 @@ func TestAuditB2_Defaults_SchedulersV2OnCreate(t *testing.T) {
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	req := newCreateReq()
 	req.AirflowVersion = "2.9.2"
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "sched-v2-defaults-env", req)
+	_, err := b.CreateEnvironment(context.Background(), "sched-v2-defaults-env", req)
 	require.NoError(t, err)
 
-	env, err := b.GetEnvironment("sched-v2-defaults-env")
+	env, err := b.GetEnvironment(context.Background(), "sched-v2-defaults-env")
 	require.NoError(t, err)
 
 	assert.Equal(t, int32(2), env.Schedulers, "default Schedulers for v2 should be 2")
@@ -206,10 +207,10 @@ func TestAuditB2_Defaults_SchedulersV1OnCreate(t *testing.T) {
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	req := newCreateReq()
 	req.AirflowVersion = "1.10.12"
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "sched-v1-defaults-env", req)
+	_, err := b.CreateEnvironment(context.Background(), "sched-v1-defaults-env", req)
 	require.NoError(t, err)
 
-	env, err := b.GetEnvironment("sched-v1-defaults-env")
+	env, err := b.GetEnvironment(context.Background(), "sched-v1-defaults-env")
 	require.NoError(t, err)
 
 	assert.Equal(t, int32(1), env.Schedulers, "default Schedulers for v1 should be 1")
@@ -239,11 +240,11 @@ func TestAuditB2_Schedulers_Update_V2Boundaries(t *testing.T) {
 			t.Parallel()
 
 			b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-			_, err := b.CreateEnvironment(testRegion, testAccountID, "sched-upd-env", newCreateReq())
+			_, err := b.CreateEnvironment(context.Background(), "sched-upd-env", newCreateReq())
 			require.NoError(t, err)
-			_, _ = b.GetEnvironment("sched-upd-env")
+			_, _ = b.GetEnvironment(context.Background(), "sched-upd-env")
 
-			_, err = b.UpdateEnvironment("sched-upd-env", &mwaa.ExportedUpdateEnvironmentRequest{
+			_, err = b.UpdateEnvironment(context.Background(), "sched-upd-env", &mwaa.ExportedUpdateEnvironmentRequest{
 				Schedulers:     tt.schedulers,
 				AirflowVersion: "2.10.3",
 			})
@@ -260,17 +261,17 @@ func TestAuditB2_Schedulers_Update_Persisted(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "sched-persist-env", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "sched-persist-env", newCreateReq())
 	require.NoError(t, err)
-	_, _ = b.GetEnvironment("sched-persist-env")
+	_, _ = b.GetEnvironment(context.Background(), "sched-persist-env")
 
-	_, err = b.UpdateEnvironment("sched-persist-env", &mwaa.ExportedUpdateEnvironmentRequest{
+	_, err = b.UpdateEnvironment(context.Background(), "sched-persist-env", &mwaa.ExportedUpdateEnvironmentRequest{
 		Schedulers:     4,
 		AirflowVersion: "2.10.3",
 	})
 	require.NoError(t, err)
 
-	env, err := b.GetEnvironment("sched-persist-env")
+	env, err := b.GetEnvironment(context.Background(), "sched-persist-env")
 	require.NoError(t, err)
 	assert.Equal(t, int32(4), env.Schedulers)
 }
@@ -283,10 +284,10 @@ func TestAuditB2_Webservers_Update_MinExceedsMax(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "ws-upd-env", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "ws-upd-env", newCreateReq())
 	require.NoError(t, err)
 
-	_, err = b.UpdateEnvironment("ws-upd-env", &mwaa.ExportedUpdateEnvironmentRequest{
+	_, err = b.UpdateEnvironment(context.Background(), "ws-upd-env", &mwaa.ExportedUpdateEnvironmentRequest{
 		MinWebservers: 4,
 		MaxWebservers: 2,
 	})
@@ -297,17 +298,17 @@ func TestAuditB2_Webservers_Update_ValidRange(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "ws-upd-ok-env", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "ws-upd-ok-env", newCreateReq())
 	require.NoError(t, err)
-	_, _ = b.GetEnvironment("ws-upd-ok-env")
+	_, _ = b.GetEnvironment(context.Background(), "ws-upd-ok-env")
 
-	_, err = b.UpdateEnvironment("ws-upd-ok-env", &mwaa.ExportedUpdateEnvironmentRequest{
+	_, err = b.UpdateEnvironment(context.Background(), "ws-upd-ok-env", &mwaa.ExportedUpdateEnvironmentRequest{
 		MinWebservers: 1,
 		MaxWebservers: 5,
 	})
 	require.NoError(t, err)
 
-	env, err := b.GetEnvironment("ws-upd-ok-env")
+	env, err := b.GetEnvironment(context.Background(), "ws-upd-ok-env")
 	require.NoError(t, err)
 	assert.Equal(t, int32(1), env.MinWebservers)
 	assert.Equal(t, int32(5), env.MaxWebservers)
@@ -317,10 +318,10 @@ func TestAuditB2_Webservers_Update_MaxExceeds5_Rejected(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "ws-upd-over-env", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "ws-upd-over-env", newCreateReq())
 	require.NoError(t, err)
 
-	_, err = b.UpdateEnvironment("ws-upd-over-env", &mwaa.ExportedUpdateEnvironmentRequest{
+	_, err = b.UpdateEnvironment(context.Background(), "ws-upd-over-env", &mwaa.ExportedUpdateEnvironmentRequest{
 		MinWebservers: 1,
 		MaxWebservers: 6,
 	})
@@ -338,11 +339,11 @@ func TestAuditB2_Status_CreatingSnapshot_PromotedOnGet(t *testing.T) {
 	env := b.AddEnvironmentInternal("snapshot-env")
 	env.Status = "CREATING_SNAPSHOT"
 
-	got, err := b.GetEnvironment("snapshot-env")
+	got, err := b.GetEnvironment(context.Background(), "snapshot-env")
 	require.NoError(t, err)
 	assert.Equal(t, "CREATING_SNAPSHOT", got.Status, "first Get returns the transient status")
 
-	got2, err := b.GetEnvironment("snapshot-env")
+	got2, err := b.GetEnvironment(context.Background(), "snapshot-env")
 	require.NoError(t, err)
 	assert.Equal(t, "AVAILABLE", got2.Status, "second Get promotes to AVAILABLE")
 }
@@ -354,11 +355,11 @@ func TestAuditB2_Status_UpdateRollingBack_PromotedOnGet(t *testing.T) {
 	env := b.AddEnvironmentInternal("rollback-env")
 	env.Status = "UPDATE_ROLLING_BACK"
 
-	got, err := b.GetEnvironment("rollback-env")
+	got, err := b.GetEnvironment(context.Background(), "rollback-env")
 	require.NoError(t, err)
 	assert.Equal(t, "UPDATE_ROLLING_BACK", got.Status)
 
-	got2, err := b.GetEnvironment("rollback-env")
+	got2, err := b.GetEnvironment(context.Background(), "rollback-env")
 	require.NoError(t, err)
 	assert.Equal(t, "AVAILABLE", got2.Status)
 }
@@ -370,11 +371,11 @@ func TestAuditB2_Status_Pending_PromotedOnGet(t *testing.T) {
 	env := b.AddEnvironmentInternal("pending-env")
 	env.Status = "PENDING"
 
-	got, err := b.GetEnvironment("pending-env")
+	got, err := b.GetEnvironment(context.Background(), "pending-env")
 	require.NoError(t, err)
 	assert.Equal(t, "PENDING", got.Status)
 
-	got2, err := b.GetEnvironment("pending-env")
+	got2, err := b.GetEnvironment(context.Background(), "pending-env")
 	require.NoError(t, err)
 	assert.Equal(t, "AVAILABLE", got2.Status)
 }
@@ -393,11 +394,11 @@ func TestAuditB2_Status_Terminal_NotPromoted(t *testing.T) {
 			env := b.AddEnvironmentInternal("terminal-env-" + status)
 			env.Status = status
 
-			got, err := b.GetEnvironment("terminal-env-" + status)
+			got, err := b.GetEnvironment(context.Background(), "terminal-env-"+status)
 			require.NoError(t, err)
 			assert.Equal(t, status, got.Status, "terminal status %q must not be promoted", status)
 
-			got2, err := b.GetEnvironment("terminal-env-" + status)
+			got2, err := b.GetEnvironment(context.Background(), "terminal-env-"+status)
 			require.NoError(t, err)
 			assert.Equal(t, status, got2.Status, "terminal status %q must not be promoted on second Get", status)
 		})
@@ -414,18 +415,18 @@ func TestAuditB2_GetMetrics_IsolatedBetweenEnvironments(t *testing.T) {
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 
 	for _, name := range []string{"metrics-env-a", "metrics-env-b"} {
-		_, err := b.CreateEnvironment(testRegion, testAccountID, name, newCreateReq())
+		_, err := b.CreateEnvironment(context.Background(), name, newCreateReq())
 		require.NoError(t, err)
 	}
 
-	err := b.PublishMetrics("metrics-env-a", &mwaa.ExportedPublishMetricsRequest{
+	err := b.PublishMetrics(context.Background(), "metrics-env-a", &mwaa.ExportedPublishMetricsRequest{
 		MetricData: []mwaa.ExportedMetricDatum{
 			{MetricName: "OnlyForA"},
 		},
 	})
 	require.NoError(t, err)
 
-	dataB, err := b.GetMetrics("metrics-env-b")
+	dataB, err := b.GetMetrics(context.Background(), "metrics-env-b")
 	require.NoError(t, err)
 	assert.Empty(t, dataB, "metrics for env-b must not contain env-a's metrics")
 }
@@ -434,10 +435,10 @@ func TestAuditB2_GetMetrics_EmptyBeforePublish(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "no-metrics-env", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "no-metrics-env", newCreateReq())
 	require.NoError(t, err)
 
-	data, err := b.GetMetrics("no-metrics-env")
+	data, err := b.GetMetrics(context.Background(), "no-metrics-env")
 	require.NoError(t, err)
 	assert.Empty(t, data)
 }
@@ -553,10 +554,10 @@ func TestAuditB2_LoggingConfig_Enabled_RoundTrip(t *testing.T) {
 					Enabled:  tt.enabled,
 				},
 			}
-			_, err := b.CreateEnvironment(testRegion, testAccountID, "logging-enabled-env", req)
+			_, err := b.CreateEnvironment(context.Background(), "logging-enabled-env", req)
 			require.NoError(t, err)
 
-			env, err := b.GetEnvironment("logging-enabled-env")
+			env, err := b.GetEnvironment(context.Background(), "logging-enabled-env")
 			require.NoError(t, err)
 			require.NotNil(t, env.LoggingConfiguration)
 			require.NotNil(t, env.LoggingConfiguration.SchedulerLogs)
@@ -582,16 +583,16 @@ func TestAuditB2_Tags_MutationDoesNotAffectStoredEnv(t *testing.T) {
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	req := newCreateReq()
 	req.Tags = map[string]string{"original": "value"}
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "deep-copy-env", req)
+	_, err := b.CreateEnvironment(context.Background(), "deep-copy-env", req)
 	require.NoError(t, err)
 
-	env1, err := b.GetEnvironment("deep-copy-env")
+	env1, err := b.GetEnvironment(context.Background(), "deep-copy-env")
 	require.NoError(t, err)
 
 	// Mutate the returned tags.
 	env1.Tags["injected"] = "malicious"
 
-	env2, err := b.GetEnvironment("deep-copy-env")
+	env2, err := b.GetEnvironment(context.Background(), "deep-copy-env")
 	require.NoError(t, err)
 	assert.NotContains(t, env2.Tags, "injected",
 		"mutation of returned tags must not affect the stored environment")
@@ -606,16 +607,16 @@ func TestAuditB2_NetworkConfig_MutationDoesNotAffectStoredEnv(t *testing.T) {
 		SubnetIDs:        []string{"subnet-aaa"},
 		SecurityGroupIDs: []string{"sg-111"},
 	}
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "nc-copy-env", req)
+	_, err := b.CreateEnvironment(context.Background(), "nc-copy-env", req)
 	require.NoError(t, err)
 
-	env1, err := b.GetEnvironment("nc-copy-env")
+	env1, err := b.GetEnvironment(context.Background(), "nc-copy-env")
 	require.NoError(t, err)
 
 	// Replace the pointer entirely.
 	env1.NetworkConfiguration = nil
 
-	env2, err := b.GetEnvironment("nc-copy-env")
+	env2, err := b.GetEnvironment(context.Background(), "nc-copy-env")
 	require.NoError(t, err)
 	require.NotNil(t, env2.NetworkConfiguration,
 		"stored NetworkConfiguration must survive mutation of returned copy")
@@ -633,7 +634,7 @@ func TestAuditB2_ARNIndex_GrowsOnCreate(t *testing.T) {
 	assert.Equal(t, 0, mwaa.ARNIndexSize(b))
 
 	for i := range 3 {
-		_, err := b.CreateEnvironment(testRegion, testAccountID,
+		_, err := b.CreateEnvironment(context.Background(),
 			fmt.Sprintf("arn-env-%d", i), newCreateReq())
 		require.NoError(t, err)
 	}
@@ -646,11 +647,11 @@ func TestAuditB2_ARNIndex_ShrinksOnDelete(t *testing.T) {
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "arn-del-env", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "arn-del-env", newCreateReq())
 	require.NoError(t, err)
 	assert.Equal(t, 1, mwaa.ARNIndexSize(b))
 
-	_, err = b.DeleteEnvironment("arn-del-env")
+	_, err = b.DeleteEnvironment(context.Background(), "arn-del-env")
 	require.NoError(t, err)
 	assert.Equal(t, 0, mwaa.ARNIndexSize(b))
 }
@@ -755,7 +756,11 @@ func TestAuditB2_UntagResource_NotFound(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	err := b.UntagResource("arn:aws:airflow:us-east-1:123456789012:environment/ghost", []string{"k"})
+	err := b.UntagResource(
+		context.Background(),
+		"arn:aws:airflow:us-east-1:123456789012:environment/ghost",
+		[]string{"k"},
+	)
 	require.Error(t, err)
 }
 
@@ -763,16 +768,16 @@ func TestAuditB2_UntagResource_MultipleKeys(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	env, err := b.CreateEnvironment(testRegion, testAccountID, "multi-untag-env", newCreateReq())
+	env, err := b.CreateEnvironment(context.Background(), "multi-untag-env", newCreateReq())
 	require.NoError(t, err)
 
-	err = b.TagResource(env.ARN, map[string]string{"a": "1", "b": "2", "c": "3"})
+	err = b.TagResource(context.Background(), env.ARN, map[string]string{"a": "1", "b": "2", "c": "3"})
 	require.NoError(t, err)
 
-	err = b.UntagResource(env.ARN, []string{"a", "c"})
+	err = b.UntagResource(context.Background(), env.ARN, []string{"a", "c"})
 	require.NoError(t, err)
 
-	tags, err := b.ListTagsForResource(env.ARN)
+	tags, err := b.ListTagsForResource(context.Background(), env.ARN)
 	require.NoError(t, err)
 	assert.Equal(t, map[string]string{"b": "2"}, tags)
 }
@@ -787,15 +792,15 @@ func TestAuditB2_EnvironmentCount_CreateDelete(t *testing.T) {
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	assert.Equal(t, 0, mwaa.EnvironmentCount(b))
 
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "count-env-1", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "count-env-1", newCreateReq())
 	require.NoError(t, err)
 	assert.Equal(t, 1, mwaa.EnvironmentCount(b))
 
-	_, err = b.CreateEnvironment(testRegion, testAccountID, "count-env-2", newCreateReq())
+	_, err = b.CreateEnvironment(context.Background(), "count-env-2", newCreateReq())
 	require.NoError(t, err)
 	assert.Equal(t, 2, mwaa.EnvironmentCount(b))
 
-	_, err = b.DeleteEnvironment("count-env-1")
+	_, err = b.DeleteEnvironment(context.Background(), "count-env-1")
 	require.NoError(t, err)
 	assert.Equal(t, 1, mwaa.EnvironmentCount(b))
 }

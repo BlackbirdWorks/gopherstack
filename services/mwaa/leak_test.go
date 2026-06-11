@@ -1,6 +1,7 @@
 package mwaa_test
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -29,14 +30,14 @@ func TestPublishMetrics_TrimDoesNotRetainOversizedArray(t *testing.T) {
 			t.Parallel()
 
 			b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-			_, err := b.CreateEnvironment(testRegion, testAccountID, "leak-env", newCreateReq())
+			_, err := b.CreateEnvironment(context.Background(), "leak-env", newCreateReq())
 			require.NoError(t, err)
 
 			data := make([]mwaa.ExportedMetricDatum, tc.publish)
 			for i := range data {
 				data[i] = mwaa.ExportedMetricDatum{MetricName: fmt.Sprintf("M%d", i)}
 			}
-			require.NoError(t, b.PublishMetrics("leak-env",
+			require.NoError(t, b.PublishMetrics(context.Background(), "leak-env",
 				&mwaa.ExportedPublishMetricsRequest{MetricData: data}))
 
 			// len is capped...
