@@ -4,6 +4,7 @@
 package e2e_test
 
 import (
+	"context"
 	"net/http/httptest"
 	"testing"
 
@@ -18,7 +19,7 @@ import (
 func TestEFSDashboard(t *testing.T) {
 	stack := newStack(t)
 
-	_, err := stack.EFSHandler.Backend.CreateFileSystem(efsbackend.CreateFileSystemRequest{
+	_, err := stack.EFSHandler.Backend.CreateFileSystem(context.Background(), efsbackend.CreateFileSystemRequest{
 		CreationToken:   "e2e-test-token",
 		PerformanceMode: "generalPurpose",
 		ThroughputMode:  "bursting",
