@@ -1,6 +1,7 @@
 package neptune_test
 
 import (
+	"context"
 	"net/http"
 	"net/url"
 	"testing"
@@ -483,7 +484,7 @@ func TestBatch1_Backend_CreateDBCluster_ServerlessV2(t *testing.T) {
 
 	b := neptune.NewInMemoryBackend("000000000000", "us-east-1")
 	sv2 := &neptune.ServerlessV2ScalingConfiguration{MinCapacity: 1.0, MaxCapacity: 64.0}
-	cluster, err := b.CreateDBCluster("sv2-unit", "", 0, neptune.DBClusterCreateOptions{
+	cluster, err := b.CreateDBCluster(context.Background(), "sv2-unit", "", 0, neptune.DBClusterCreateOptions{
 		ServerlessV2ScalingConfig: sv2,
 		EngineMode:                "serverless",
 	})
@@ -498,7 +499,7 @@ func TestBatch1_Backend_CreateDBCluster_IAMAuth(t *testing.T) {
 	t.Parallel()
 
 	b := neptune.NewInMemoryBackend("000000000000", "us-east-1")
-	cluster, err := b.CreateDBCluster("iam-unit", "", 0, neptune.DBClusterCreateOptions{
+	cluster, err := b.CreateDBCluster(context.Background(), "iam-unit", "", 0, neptune.DBClusterCreateOptions{
 		EnableIAMDatabaseAuthentication: true,
 	})
 	require.NoError(t, err)
@@ -509,7 +510,7 @@ func TestBatch1_Backend_CreateDBCluster_ManageMasterUserPassword(t *testing.T) {
 	t.Parallel()
 
 	b := neptune.NewInMemoryBackend("000000000000", "us-east-1")
-	cluster, err := b.CreateDBCluster("mup-unit", "", 0, neptune.DBClusterCreateOptions{
+	cluster, err := b.CreateDBCluster(context.Background(), "mup-unit", "", 0, neptune.DBClusterCreateOptions{
 		ManageMasterUserPassword: true,
 	})
 	require.NoError(t, err)
@@ -522,23 +523,23 @@ func TestBatch1_Backend_ModifyDBCluster_IamAuth_SetAndUnset(t *testing.T) {
 	t.Parallel()
 
 	b := neptune.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.CreateDBCluster("iam-mod-unit", "", 0, neptune.DBClusterCreateOptions{
+	_, err := b.CreateDBCluster(context.Background(), "iam-mod-unit", "", 0, neptune.DBClusterCreateOptions{
 		EnableIAMDatabaseAuthentication: true,
 	})
 	require.NoError(t, err)
 
 	// Verify enabled
-	clusters, err := b.DescribeDBClusters("iam-mod-unit")
+	clusters, err := b.DescribeDBClusters(context.Background(), "iam-mod-unit")
 	require.NoError(t, err)
 	assert.True(t, clusters[0].EnableIAMDatabaseAuthentication)
 
 	// Disable via modify
-	_, err = b.ModifyDBCluster("iam-mod-unit", "", neptune.DBClusterModifyOptions{
+	_, err = b.ModifyDBCluster(context.Background(), "iam-mod-unit", "", neptune.DBClusterModifyOptions{
 		EnableIAMDatabaseAuthentication: false,
 		IamAuthSet:                      true,
 	})
 	require.NoError(t, err)
-	clusters, err = b.DescribeDBClusters("iam-mod-unit")
+	clusters, err = b.DescribeDBClusters(context.Background(), "iam-mod-unit")
 	require.NoError(t, err)
 	assert.False(t, clusters[0].EnableIAMDatabaseAuthentication)
 }
@@ -547,18 +548,18 @@ func TestBatch1_Backend_ModifyDBCluster_IamAuth_NotSet_NoChange(t *testing.T) {
 	t.Parallel()
 
 	b := neptune.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.CreateDBCluster("iam-nochange", "", 0, neptune.DBClusterCreateOptions{
+	_, err := b.CreateDBCluster(context.Background(), "iam-nochange", "", 0, neptune.DBClusterCreateOptions{
 		EnableIAMDatabaseAuthentication: true,
 	})
 	require.NoError(t, err)
 
 	// Modify without IamAuthSet - should not change IAM auth
-	_, err = b.ModifyDBCluster("iam-nochange", "", neptune.DBClusterModifyOptions{
+	_, err = b.ModifyDBCluster(context.Background(), "iam-nochange", "", neptune.DBClusterModifyOptions{
 		EnableIAMDatabaseAuthentication: false,
 		IamAuthSet:                      false,
 	})
 	require.NoError(t, err)
-	clusters, err := b.DescribeDBClusters("iam-nochange")
+	clusters, err := b.DescribeDBClusters(context.Background(), "iam-nochange")
 	require.NoError(t, err)
 	assert.True(t, clusters[0].EnableIAMDatabaseAuthentication)
 }
@@ -567,11 +568,11 @@ func TestBatch1_Backend_ModifyDBCluster_ServerlessV2(t *testing.T) {
 	t.Parallel()
 
 	b := neptune.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.CreateDBCluster("sv2-modify-unit", "", 0, neptune.DBClusterCreateOptions{})
+	_, err := b.CreateDBCluster(context.Background(), "sv2-modify-unit", "", 0, neptune.DBClusterCreateOptions{})
 	require.NoError(t, err)
 
 	sv2 := &neptune.ServerlessV2ScalingConfiguration{MinCapacity: 4.0, MaxCapacity: 32.0}
-	cluster, err := b.ModifyDBCluster("sv2-modify-unit", "", neptune.DBClusterModifyOptions{
+	cluster, err := b.ModifyDBCluster(context.Background(), "sv2-modify-unit", "", neptune.DBClusterModifyOptions{
 		ServerlessV2ScalingConfig: sv2,
 	})
 	require.NoError(t, err)
@@ -584,17 +585,17 @@ func TestBatch1_Backend_ModifyDBCluster_DeletionProtection(t *testing.T) {
 	t.Parallel()
 
 	b := neptune.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.CreateDBCluster("dp-unit", "", 0, neptune.DBClusterCreateOptions{})
+	_, err := b.CreateDBCluster(context.Background(), "dp-unit", "", 0, neptune.DBClusterCreateOptions{})
 	require.NoError(t, err)
 
-	cluster, err := b.ModifyDBCluster("dp-unit", "", neptune.DBClusterModifyOptions{
+	cluster, err := b.ModifyDBCluster(context.Background(), "dp-unit", "", neptune.DBClusterModifyOptions{
 		DeletionProtection:    true,
 		DeletionProtectionSet: true,
 	})
 	require.NoError(t, err)
 	assert.True(t, cluster.DeletionProtection)
 
-	cluster, err = b.ModifyDBCluster("dp-unit", "", neptune.DBClusterModifyOptions{
+	cluster, err = b.ModifyDBCluster(context.Background(), "dp-unit", "", neptune.DBClusterModifyOptions{
 		DeletionProtection:    false,
 		DeletionProtectionSet: true,
 	})
@@ -606,13 +607,13 @@ func TestBatch1_Backend_ModifyDBCluster_DeletionProtection_NotSet_NoChange(t *te
 	t.Parallel()
 
 	b := neptune.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.CreateDBCluster("dp-nochange", "", 0, neptune.DBClusterCreateOptions{
+	_, err := b.CreateDBCluster(context.Background(), "dp-nochange", "", 0, neptune.DBClusterCreateOptions{
 		DeletionProtection: true,
 	})
 	require.NoError(t, err)
 
 	// No DeletionProtectionSet - should not change
-	cluster, err := b.ModifyDBCluster("dp-nochange", "", neptune.DBClusterModifyOptions{
+	cluster, err := b.ModifyDBCluster(context.Background(), "dp-nochange", "", neptune.DBClusterModifyOptions{
 		DeletionProtection:    false,
 		DeletionProtectionSet: false,
 	})
@@ -624,7 +625,7 @@ func TestBatch1_Backend_CreateDBCluster_DefaultEngineMode(t *testing.T) {
 	t.Parallel()
 
 	b := neptune.NewInMemoryBackend("000000000000", "us-east-1")
-	cluster, err := b.CreateDBCluster("default-mode", "", 0, neptune.DBClusterCreateOptions{})
+	cluster, err := b.CreateDBCluster(context.Background(), "default-mode", "", 0, neptune.DBClusterCreateOptions{})
 	require.NoError(t, err)
 	assert.Equal(t, "provisioned", cluster.EngineMode)
 }
@@ -633,7 +634,7 @@ func TestBatch1_Backend_CloneCluster_ServerlessV2_NilSafe(t *testing.T) {
 	t.Parallel()
 
 	b := neptune.NewInMemoryBackend("000000000000", "us-east-1")
-	cluster, err := b.CreateDBCluster("no-sv2", "", 0, neptune.DBClusterCreateOptions{})
+	cluster, err := b.CreateDBCluster(context.Background(), "no-sv2", "", 0, neptune.DBClusterCreateOptions{})
 	require.NoError(t, err)
 	assert.Nil(t, cluster.ServerlessV2ScalingConfig)
 	assert.Nil(t, cluster.MasterUserManagedSecret)
@@ -643,13 +644,13 @@ func TestBatch1_Backend_ModifyDBCluster_ManageMasterUserPassword_Idempotent(t *t
 	t.Parallel()
 
 	b := neptune.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.CreateDBCluster("mup-idem", "", 0, neptune.DBClusterCreateOptions{
+	_, err := b.CreateDBCluster(context.Background(), "mup-idem", "", 0, neptune.DBClusterCreateOptions{
 		ManageMasterUserPassword: true,
 	})
 	require.NoError(t, err)
 
 	// Enable again - should not create a second secret
-	cluster, err := b.ModifyDBCluster("mup-idem", "", neptune.DBClusterModifyOptions{
+	cluster, err := b.ModifyDBCluster(context.Background(), "mup-idem", "", neptune.DBClusterModifyOptions{
 		ManageMasterUserPassword: true,
 	})
 	require.NoError(t, err)
@@ -663,7 +664,7 @@ func TestBatch1_Persistence_ServerlessV2(t *testing.T) {
 
 	b := neptune.NewInMemoryBackend("000000000000", "us-east-1")
 	sv2 := &neptune.ServerlessV2ScalingConfiguration{MinCapacity: 2.0, MaxCapacity: 16.0}
-	_, err := b.CreateDBCluster("sv2-persist", "", 0, neptune.DBClusterCreateOptions{
+	_, err := b.CreateDBCluster(context.Background(), "sv2-persist", "", 0, neptune.DBClusterCreateOptions{
 		ServerlessV2ScalingConfig:       sv2,
 		EngineMode:                      "serverless",
 		EnableIAMDatabaseAuthentication: true,
@@ -679,7 +680,7 @@ func TestBatch1_Persistence_ServerlessV2(t *testing.T) {
 	err = b2.Restore(snap)
 	require.NoError(t, err)
 
-	clusters, err := b2.DescribeDBClusters("sv2-persist")
+	clusters, err := b2.DescribeDBClusters(context.Background(), "sv2-persist")
 	require.NoError(t, err)
 	require.Len(t, clusters, 1)
 	c := clusters[0]
