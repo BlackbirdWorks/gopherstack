@@ -21,6 +21,7 @@
 		ListConnectorsCommand,
 		CreateConnectorCommand,
 		DeleteConnectorCommand,
+		TestConnectionCommand,
 		ListProfilesCommand,
 		CreateProfileCommand,
 		DeleteProfileCommand,
@@ -63,7 +64,8 @@
 		FileKey,
 		Globe,
 		GitBranch,
-		ShieldCheck
+		ShieldCheck,
+		Plug
 	} from 'lucide-svelte';
 
 	type TabName = 'servers' | 'access' | 'agreements' | 'connectors' | 'profiles' | 'webapps' | 'workflows' | 'certificates';
@@ -146,6 +148,8 @@
 	let creatingConnector = $state(false);
 	let newConnectorUrl = $state('');
 	let newConnectorAccessRole = $state('');
+	let testingConnector = $state<string | null>(null);
+	let connectorTestResults = $state<Record<string, { status?: string; message?: string }>>({});
 
 	// Profiles
 	let profiles = $state<ListedProfile[]>([]);
@@ -529,6 +533,23 @@
 			toast.error(`Failed to create connector: ${e instanceof Error ? e.message : String(e)}`);
 		} finally {
 			creatingConnector = false;
+		}
+	}
+
+	async function testConnector(connector: ListedConnector) {
+		if (!connector.ConnectorId) return;
+		const id = connector.ConnectorId;
+		testingConnector = id;
+		try {
+			const res = await transfer.send(new TestConnectionCommand({ ConnectorId: id }));
+			connectorTestResults[id] = { status: res.Status, message: res.StatusMessage };
+			if (res.Status === 'OK') toast.success(`Connection OK for ${id}`);
+			else toast.error(`Connection ${res.Status ?? 'failed'} for ${id}`);
+		} catch (e) {
+			connectorTestResults[id] = { status: 'ERROR', message: e instanceof Error ? e.message : String(e) };
+			toast.error(`Test failed: ${e instanceof Error ? e.message : String(e)}`);
+		} finally {
+			testingConnector = null;
 		}
 	}
 
@@ -1144,15 +1165,29 @@
 						<tr>
 							<th class="px-4 py-3 text-left font-medium">Connector ID</th>
 							<th class="px-4 py-3 text-left font-medium">URL</th>
+								<th class="px-4 py-3 text-left font-medium">Connection</th>
 							<th class="px-4 py-3 text-right font-medium">Actions</th>
 						</tr>
 					</thead>
 					<tbody class="divide-y">
 						{#each connectors as connector}
+								{@const test = connectorTestResults[connector.ConnectorId ?? '']}
 							<tr>
 								<td class="px-4 py-3 font-mono text-xs">{connector.ConnectorId ?? '—'}</td>
 								<td class="px-4 py-3 text-muted-foreground">{connector.Url ?? '—'}</td>
-								<td class="px-4 py-3 text-right">
+								<td class="px-4 py-3">
+									{#if testingConnector === connector.ConnectorId}
+										<span class="text-xs text-muted-foreground">Testing…</span>
+									{:else if test}
+										<span class="text-xs {test.status === 'OK' ? 'text-green-600' : 'text-red-500'}" title={test.message}>{test.status}{test.message ? `: ${test.message}` : ''}</span>
+									{:else}
+										<span class="text-xs text-muted-foreground">—</span>
+									{/if}
+								</td>
+								<td class="px-4 py-3 text-right flex justify-end gap-1">
+									<button onclick={() => testConnector(connector)} disabled={testingConnector === connector.ConnectorId} class="rounded p-1 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-950 disabled:opacity-50" title="Test connection">
+										<Plug class="h-4 w-4" />
+									</button>
 									<button onclick={() => deleteConnector(connector)} class="rounded p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-950">
 										<Trash2 class="h-4 w-4" />
 									</button>

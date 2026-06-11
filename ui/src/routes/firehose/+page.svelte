@@ -8,6 +8,7 @@
 		CreateDeliveryStreamCommand,
 		DeleteDeliveryStreamCommand,
 		PutRecordCommand,
+		PutRecordBatchCommand,
 		StartDeliveryStreamEncryptionCommand,
 		StopDeliveryStreamEncryptionCommand,
 		type DeliveryStreamDescription,
@@ -38,9 +39,14 @@
 	let newBufferInterval = $state(300);
 
 	// Put Record
+	let putMode = $state<'single' | 'batch'>('single');
 	let putData = $state('{"key": "value"}');
+	let batchData = $state('{"id": 1, "event": "click"}\n{"id": 2, "event": "view"}\n{"id": 3, "event": "purchase"}');
 	let puttingRecord = $state(false);
 	let putResult = $state('');
+	let batchResult = $state<{ failed: number; total: number; errors: { index: number; code?: string; message?: string }[] } | null>(null);
+
+	const batchLines = $derived(batchData.split('\n').map((l) => l.trim()).filter((l) => l.length > 0));
 
 	// Encryption
 	let managingEncryption = $state(false);
@@ -148,6 +154,33 @@
 		} catch (e) {
 			putResult = 'Error: ' + String(e);
 			toast.error('Failed to put record: ' + String(e));
+		} finally {
+			puttingRecord = false;
+		}
+	}
+
+	async function putRecordBatch() {
+		if (!selectedStream?.DeliveryStreamName || batchLines.length === 0) return;
+		if (batchLines.length > 500) {
+			toast.error('PutRecordBatch accepts at most 500 records per call');
+			return;
+		}
+		puttingRecord = true;
+		batchResult = null;
+		try {
+			const resp = await firehose.send(new PutRecordBatchCommand({
+				DeliveryStreamName: selectedStream.DeliveryStreamName,
+				Records: batchLines.map((line) => ({ Data: new TextEncoder().encode(line) }))
+			}));
+			const responses = resp.RequestResponses ?? [];
+			const errors = responses
+				.map((r, index) => ({ index, code: r.ErrorCode, message: r.ErrorMessage }))
+				.filter((r) => r.code);
+			batchResult = { failed: resp.FailedPutCount ?? errors.length, total: batchLines.length, errors };
+			if ((resp.FailedPutCount ?? 0) === 0) toast.success(`${batchLines.length} records delivered`);
+			else toast.error(`${resp.FailedPutCount} of ${batchLines.length} records failed`);
+		} catch (e) {
+			toast.error('Failed to put record batch: ' + String(e));
 		} finally {
 			puttingRecord = false;
 		}
@@ -448,17 +481,62 @@
 
 		{#if activeTab === 'put'}
 			<div class="max-w-lg space-y-4">
-				<div>
-					<label for="put-data" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Record Data (plain text or JSON)</label>
-					<textarea id="put-data" bind:value={putData} rows={8} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm font-mono"></textarea>
+				<div class="flex gap-2">
+					{#each [['single', 'Single Record'], ['batch', 'Batch (PutRecordBatch)']] as [mode, label]}
+						<button onclick={() => (putMode = mode as 'single' | 'batch')}
+							class="px-3 py-1.5 rounded-lg text-sm font-medium {putMode === mode ? 'bg-red-600 text-white' : 'bg-gray-100 dark:bg-slate-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-slate-600'}">
+							{label}
+						</button>
+					{/each}
 				</div>
-				<button onclick={putRecord} disabled={puttingRecord || !putData.trim()} class="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 text-sm font-medium disabled:opacity-50">
-					<Send class="w-4 h-4" /> {puttingRecord ? 'Sending...' : 'Put Record'}
-				</button>
-				{#if putResult}
-					<div class={`text-sm p-3 rounded-lg ${putResult.startsWith('Record') ? 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400' : 'bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400'}`}>
-						{putResult}
+
+				{#if putMode === 'single'}
+					<div>
+						<label for="put-data" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Record Data (plain text or JSON)</label>
+						<textarea id="put-data" bind:value={putData} rows={8} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm font-mono"></textarea>
 					</div>
+					<button onclick={putRecord} disabled={puttingRecord || !putData.trim()} class="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 text-sm font-medium disabled:opacity-50">
+						<Send class="w-4 h-4" /> {puttingRecord ? 'Sending...' : 'Put Record'}
+					</button>
+					{#if putResult}
+						<div class={`text-sm p-3 rounded-lg ${putResult.startsWith('Record') ? 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400' : 'bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400'}`}>
+							{putResult}
+						</div>
+					{/if}
+				{:else}
+					<div>
+						<label for="batch-data" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Records (one per line, max 500)</label>
+						<textarea id="batch-data" bind:value={batchData} rows={8} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm font-mono"></textarea>
+					</div>
+					<div class="bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-3">
+						<div class="text-xs font-medium text-gray-500 mb-2">Preview — {batchLines.length} record(s){batchLines.length > 500 ? ' (over limit)' : ''}</div>
+						<div class="space-y-1 max-h-40 overflow-y-auto">
+							{#each batchLines.slice(0, 20) as line, i}
+								<div class="flex gap-2 text-xs font-mono">
+									<span class="text-gray-400 w-6 text-right">{i + 1}</span>
+									<span class="text-gray-700 dark:text-gray-300 truncate">{line}</span>
+								</div>
+							{/each}
+							{#if batchLines.length > 20}
+								<div class="text-xs text-gray-400 pl-8">…and {batchLines.length - 20} more</div>
+							{/if}
+						</div>
+					</div>
+					<button onclick={putRecordBatch} disabled={puttingRecord || batchLines.length === 0} class="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 text-sm font-medium disabled:opacity-50">
+						<Send class="w-4 h-4" /> {puttingRecord ? 'Sending...' : `Put ${batchLines.length} Record(s)`}
+					</button>
+					{#if batchResult}
+						<div class={`text-sm p-3 rounded-lg ${batchResult.failed === 0 ? 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400' : 'bg-orange-50 text-orange-700 dark:bg-orange-900/20 dark:text-orange-400'}`}>
+							{batchResult.total - batchResult.failed} of {batchResult.total} delivered, {batchResult.failed} failed.
+							{#if batchResult.errors.length > 0}
+								<ul class="mt-2 space-y-1">
+									{#each batchResult.errors as err}
+										<li class="text-xs font-mono">#{err.index + 1}: {err.code} — {err.message}</li>
+									{/each}
+								</ul>
+							{/if}
+						</div>
+					{/if}
 				{/if}
 			</div>
 		{/if}
