@@ -363,7 +363,7 @@ func TestLoadCodePipeline(t *testing.T) {
 			err = demo.LoadData(t.Context(), loadClients)
 			require.NoError(t, err)
 
-			pipelines := cpHandler.Backend.ListPipelines()
+			pipelines := cpHandler.Backend.ListPipelines(t.Context())
 			assert.Len(t, pipelines, tt.wantPipelineLen)
 		})
 	}

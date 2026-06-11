@@ -1132,7 +1132,7 @@ func (rc *ResourceCreator) createCodePipelinePipeline(
 		decl.Name = name
 	}
 
-	pipeline, err := rc.backends.CodePipeline.Backend.CreatePipeline(decl, nil)
+	pipeline, err := rc.backends.CodePipeline.Backend.CreatePipeline(context.Background(), decl, nil)
 	if err != nil {
 		return "", fmt.Errorf("create CodePipeline pipeline %s: %w", name, err)
 	}
@@ -1147,7 +1147,7 @@ func (rc *ResourceCreator) deleteCodePipelinePipeline(arn string) error {
 
 	name := resourceNameFromARN(arn)
 
-	return rc.backends.CodePipeline.Backend.DeletePipeline(name)
+	return rc.backends.CodePipeline.Backend.DeletePipeline(context.Background(), name)
 }
 
 // ---- IoT ----
