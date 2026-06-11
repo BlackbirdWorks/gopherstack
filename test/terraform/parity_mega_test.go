@@ -39,7 +39,7 @@ provider "aws" {
   secret_key                  = "test"
   skip_credentials_validation = true
   skip_metadata_api_check     = true
-  skip_requesting_account_id  = true
+  skip_requesting_account_id  = false
   s3_use_path_style           = true
 
   endpoints {
@@ -48,6 +48,7 @@ provider "aws" {
     fsx         = %[1]q
     guardduty   = %[1]q
     securityhub = %[1]q
+    sts         = %[1]q
     waf         = %[1]q
     workspaces  = %[1]q
   }

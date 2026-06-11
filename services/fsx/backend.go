@@ -24,6 +24,11 @@ const (
 	lifecycleDeleted        = "DELETED"
 	backupTypeUserInitiated = "USER_INITIATED"
 
+	fileSystemTypeLustre            = "LUSTRE"
+	dataRepositoryLifecycleDisabled = "DISABLED"
+	lustreDeploymentTypeScratch1    = "SCRATCH_1"
+	lustreMountNameLen              = 8
+
 	maxResultsDefault  = 2147483647
 	maxTagKeyLen       = 128
 	maxTagValueLen     = 256
@@ -61,31 +66,54 @@ var (
 // storedFileSystem is the persisted form of a FileSystem.
 // time.Time is first: non-pointer prefix (wall, ext) reduces GC pointer bytes.
 type storedFileSystem struct {
-	CreationTime       time.Time         `json:"creationTime"`
-	Tags               map[string]string `json:"tags"`
-	FileSystemID       string            `json:"fileSystemId"`
-	FileSystemType     string            `json:"fileSystemType"`
-	Lifecycle          string            `json:"lifecycle"`
-	ResourceARN        string            `json:"resourceArn"`
-	StorageType        string            `json:"storageType,omitempty"`
-	VpcID              string            `json:"vpcId,omitempty"`
-	OwnerID            string            `json:"ownerId,omitempty"`
-	StorageCapacityGiB int32             `json:"storageCapacity,omitempty"`
+	CreationTime        time.Time         `json:"creationTime"`
+	Tags                map[string]string `json:"tags"`
+	FileSystemID        string            `json:"fileSystemId"`
+	FileSystemType      string            `json:"fileSystemType"`
+	Lifecycle           string            `json:"lifecycle"`
+	ResourceARN         string            `json:"resourceArn"`
+	DNSName             string            `json:"dnsName,omitempty"`
+	StorageType         string            `json:"storageType,omitempty"`
+	VpcID               string            `json:"vpcId,omitempty"`
+	OwnerID             string            `json:"ownerId,omitempty"`
+	DeploymentType      string            `json:"deploymentType,omitempty"`
+	MountName           string            `json:"mountName,omitempty"`
+	SubnetIDs           []string          `json:"subnetIds,omitempty"`
+	NetworkInterfaceIDs []string          `json:"networkInterfaceIds,omitempty"`
+	StorageCapacityGiB  int32             `json:"storageCapacity,omitempty"`
 }
 
 func (s *storedFileSystem) toFileSystem() *FileSystem {
-	return &FileSystem{
-		CreationTime:       epochTime(s.CreationTime),
-		Tags:               tagsMapToSlice(s.Tags),
-		FileSystemID:       s.FileSystemID,
-		FileSystemType:     s.FileSystemType,
-		Lifecycle:          s.Lifecycle,
-		ResourceARN:        s.ResourceARN,
-		StorageCapacityGiB: s.StorageCapacityGiB,
-		StorageType:        s.StorageType,
-		VpcID:              s.VpcID,
-		OwnersID:           s.OwnerID,
+	fs := &FileSystem{
+		CreationTime:        epochTime(s.CreationTime),
+		Tags:                tagsMapToSlice(s.Tags),
+		FileSystemID:        s.FileSystemID,
+		FileSystemType:      s.FileSystemType,
+		Lifecycle:           s.Lifecycle,
+		ResourceARN:         s.ResourceARN,
+		DNSName:             s.DNSName,
+		StorageCapacityGiB:  s.StorageCapacityGiB,
+		StorageType:         s.StorageType,
+		VpcID:               s.VpcID,
+		OwnersID:            s.OwnerID,
+		SubnetIDs:           s.SubnetIDs,
+		NetworkInterfaceIDs: s.NetworkInterfaceIDs,
 	}
+
+	// AWS always returns a LustreConfiguration block for Lustre file systems.
+	// The terraform-provider-aws Read path treats a nil LustreConfiguration as
+	// an empty result, so a Lustre file system must echo this back.
+	if s.FileSystemType == fileSystemTypeLustre {
+		fs.LustreConfiguration = &LustreConfiguration{
+			DeploymentType: s.DeploymentType,
+			MountName:      s.MountName,
+			DataRepositoryConfiguration: &DataRepositoryConfiguration{
+				Lifecycle: dataRepositoryLifecycleDisabled,
+			},
+		}
+	}
+
+	return fs
 }
 
 // storedBackup is the persisted form of a Backup.
@@ -248,11 +276,19 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 
 // createFileSystemInput holds parameters for CreateFileSystem.
 type createFileSystemInput struct {
-	FileSystemType     string `json:"FileSystemType"`
-	StorageType        string `json:"StorageType,omitempty"`
-	VpcID              string `json:"VpcId,omitempty"`
-	Tags               []Tag  `json:"Tags,omitempty"`
-	StorageCapacityGiB int32  `json:"StorageCapacity,omitempty"`
+	LustreConfiguration *createLustreConfiguration `json:"LustreConfiguration,omitempty"`
+	FileSystemType      string                     `json:"FileSystemType"`
+	StorageType         string                     `json:"StorageType,omitempty"`
+	VpcID               string                     `json:"VpcId,omitempty"`
+	Tags                []Tag                      `json:"Tags,omitempty"`
+	SubnetIDs           []string                   `json:"SubnetIds,omitempty"`
+	StorageCapacityGiB  int32                      `json:"StorageCapacity,omitempty"`
+}
+
+// createLustreConfiguration mirrors the CreateFileSystemLustreConfiguration
+// block sent by the AWS provider for Lustre file systems.
+type createLustreConfiguration struct {
+	DeploymentType string `json:"DeploymentType,omitempty"`
 }
 
 // CreateFileSystem creates a new file system.
@@ -272,16 +308,30 @@ func (b *InMemoryBackend) CreateFileSystem(input *createFileSystemInput) (*FileS
 	tags := tagsSliceToMap(input.Tags)
 
 	fs := &storedFileSystem{
-		CreationTime:       now,
-		Tags:               tags,
-		FileSystemID:       id,
-		FileSystemType:     input.FileSystemType,
-		Lifecycle:          lifecycleAvailable,
-		ResourceARN:        arn,
-		StorageCapacityGiB: input.StorageCapacityGiB,
-		StorageType:        input.StorageType,
-		VpcID:              input.VpcID,
-		OwnerID:            b.accountID,
+		CreationTime:        now,
+		Tags:                tags,
+		FileSystemID:        id,
+		FileSystemType:      input.FileSystemType,
+		Lifecycle:           lifecycleAvailable,
+		ResourceARN:         arn,
+		DNSName:             fmt.Sprintf("%s.fsx.%s.amazonaws.com", id, b.region),
+		StorageCapacityGiB:  input.StorageCapacityGiB,
+		StorageType:         input.StorageType,
+		VpcID:               input.VpcID,
+		OwnerID:             b.accountID,
+		SubnetIDs:           input.SubnetIDs,
+		NetworkInterfaceIDs: networkInterfaceIDsForSubnets(input.SubnetIDs),
+	}
+
+	if input.FileSystemType == fileSystemTypeLustre {
+		fs.MountName = generateLustreMountName()
+		if input.LustreConfiguration != nil {
+			fs.DeploymentType = input.LustreConfiguration.DeploymentType
+		}
+
+		if fs.DeploymentType == "" {
+			fs.DeploymentType = lustreDeploymentTypeScratch1
+		}
 	}
 
 	b.mu.Lock("CreateFileSystem")
@@ -291,6 +341,32 @@ func (b *InMemoryBackend) CreateFileSystem(input *createFileSystemInput) (*FileS
 	b.tags[arn] = tags
 
 	return fs.toFileSystem(), nil
+}
+
+// generateLustreMountName returns a short, lowercase alphanumeric mount name in
+// the style AWS assigns to Lustre file systems (e.g. "abcd1234").
+func generateLustreMountName() string {
+	raw := strings.ReplaceAll(uuid.New().String(), "-", "")
+	if len(raw) > lustreMountNameLen {
+		raw = raw[:lustreMountNameLen]
+	}
+
+	return raw
+}
+
+// networkInterfaceIDsForSubnets returns one synthetic ENI ID per subnet, as AWS
+// attaches an elastic network interface to the file system in each subnet.
+func networkInterfaceIDsForSubnets(subnetIDs []string) []string {
+	if len(subnetIDs) == 0 {
+		return nil
+	}
+
+	enis := make([]string, 0, len(subnetIDs))
+	for range subnetIDs {
+		enis = append(enis, "eni-"+strings.ReplaceAll(uuid.New().String(), "-", "")[:17])
+	}
+
+	return enis
 }
 
 // DescribeFileSystems returns file systems, optionally filtered by IDs.

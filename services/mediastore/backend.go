@@ -23,32 +23,32 @@ import (
 var (
 	// ErrContainerNotFound is returned when a container does not exist.
 	ErrContainerNotFound = awserr.New(
-		"ResourceNotFoundException: container not found",
+		"container not found",
 		awserr.ErrNotFound,
 	)
 	// ErrContainerAlreadyExists is returned when a container already exists.
 	ErrContainerAlreadyExists = awserr.New(
-		"ContainerInUseException: container already exists",
+		"container already exists",
 		awserr.ErrAlreadyExists,
 	)
 	// ErrPolicyNotFound is returned when no container policy has been set.
 	ErrPolicyNotFound = awserr.New(
-		"PolicyNotFoundException: no policy found for container",
+		"no policy found for container",
 		awserr.ErrNotFound,
 	)
 	// ErrCorsPolicyNotFound is returned when no CORS policy has been set.
 	ErrCorsPolicyNotFound = awserr.New(
-		"CorsPolicyNotFoundException: no CORS policy found for container",
+		"no CORS policy found for container",
 		awserr.ErrNotFound,
 	)
 	// ErrLifecyclePolicyNotFound is returned when no lifecycle policy has been set.
 	ErrLifecyclePolicyNotFound = awserr.New(
-		"PolicyNotFoundException: no lifecycle policy found for container",
+		"no lifecycle policy found for container",
 		awserr.ErrNotFound,
 	)
 	// ErrMetricPolicyNotFound is returned when no metric policy has been set.
 	ErrMetricPolicyNotFound = awserr.New(
-		"PolicyNotFoundException: no metric policy found for container",
+		"no metric policy found for container",
 		awserr.ErrNotFound,
 	)
 	// ErrMissingContainerName is returned when the container name is missing.
