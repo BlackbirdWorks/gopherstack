@@ -103,6 +103,7 @@ func TestBatchJanitor_SweepOnce_WithTaskTimeout(t *testing.T) {
 	b := batch.NewInMemoryBackend("000000000000", "us-east-1")
 
 	_, err := b.RegisterJobDefinition(
+		context.Background(),
 		"sweep-timeout-test",
 		"container",
 		nil,
@@ -119,7 +120,7 @@ func TestBatchJanitor_SweepOnce_WithTaskTimeout(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	require.NoError(t, b.DeregisterJobDefinition("sweep-timeout-test:1"))
+	require.NoError(t, b.DeregisterJobDefinition(context.Background(), "sweep-timeout-test:1"))
 
 	// Set DeregisteredAt in the past so it will be swept.
 	b.SetJobDefinitionDeregisteredAt("sweep-timeout-test:1", time.Now().Add(-25*time.Hour))
@@ -182,10 +183,11 @@ func TestBatchJanitor_SweepCompletedJobs(t *testing.T) {
 
 			b := batch.NewInMemoryBackend("000000000000", "us-east-1")
 
-			queue, err := b.CreateJobQueue("test-queue", 1, "ENABLED", nil, nil, "", nil)
+			queue, err := b.CreateJobQueue(context.Background(), "test-queue", 1, "ENABLED", nil, nil, "", nil)
 			require.NoError(t, err)
 
 			_, err = b.RegisterJobDefinition(
+				context.Background(),
 				"test-jd",
 				"container",
 				nil,
@@ -203,6 +205,7 @@ func TestBatchJanitor_SweepCompletedJobs(t *testing.T) {
 			require.NoError(t, err)
 
 			job, err := b.SubmitJob(
+				context.Background(),
 				"test-job",
 				queue.JobQueueName,
 				"test-jd:1",
@@ -226,7 +229,7 @@ func TestBatchJanitor_SweepCompletedJobs(t *testing.T) {
 			j := batch.NewJanitor(b, time.Minute, 24*time.Hour, tt.ttl)
 			j.SweepOnce(t.Context())
 
-			jobs, _, err := b.ListJobs(queue.JobQueueName, tt.status, "", 0)
+			jobs, _, err := b.ListJobs(context.Background(), queue.JobQueueName, tt.status, "", 0)
 			require.NoError(t, err)
 
 			if tt.wantEvicted {

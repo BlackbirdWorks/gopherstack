@@ -37,6 +37,7 @@ func TestDeregisterJobDefinition_MarksInactive(t *testing.T) {
 			backend := batch.NewInMemoryBackend("123456789012", "us-east-1")
 
 			jd, err := backend.RegisterJobDefinition(
+				context.Background(),
 				"my-job",
 				"container",
 				nil,
@@ -54,13 +55,20 @@ func TestDeregisterJobDefinition_MarksInactive(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, "ACTIVE", jd.Status)
 
-			err = backend.DeregisterJobDefinition(tt.deregisterWith(jd))
+			err = backend.DeregisterJobDefinition(context.Background(), tt.deregisterWith(jd))
 			require.NoError(t, err)
 
 			// Definition should still exist (AWS behavior) but be INACTIVE.
 			assert.Equal(t, 1, backend.JobDefinitionCount(), "definition should remain visible after deregister")
 
-			defs, _ := backend.DescribeJobDefinitions([]string{jd.JobDefinitionName}, "", "", 0, "")
+			defs, _ := backend.DescribeJobDefinitions(
+				context.Background(),
+				[]string{jd.JobDefinitionName},
+				"",
+				"",
+				0,
+				"",
+			)
 			require.Len(t, defs, 1)
 			assert.Equal(t, "INACTIVE", defs[0].Status)
 		})
@@ -75,6 +83,7 @@ func TestDeregisterJobDefinition_RevisionCounterPreserved(t *testing.T) {
 	backend := batch.NewInMemoryBackend("123456789012", "us-east-1")
 
 	jd1, err := backend.RegisterJobDefinition(
+		context.Background(),
 		"my-job",
 		"container",
 		nil,
@@ -92,11 +101,12 @@ func TestDeregisterJobDefinition_RevisionCounterPreserved(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int32(1), jd1.Revision)
 
-	err = backend.DeregisterJobDefinition(jd1.JobDefinitionArn)
+	err = backend.DeregisterJobDefinition(context.Background(), jd1.JobDefinitionArn)
 	require.NoError(t, err)
 
 	// Re-register: should get revision 2.
 	jd2, err := backend.RegisterJobDefinition(
+		context.Background(),
 		"my-job",
 		"container",
 		nil,
@@ -125,7 +135,10 @@ func TestDeregisterJobDefinition_NotFound(t *testing.T) {
 
 	backend := batch.NewInMemoryBackend("123456789012", "us-east-1")
 
-	err := backend.DeregisterJobDefinition("arn:aws:batch:us-east-1:123456789012:job-definition/missing:1")
+	err := backend.DeregisterJobDefinition(
+		context.Background(),
+		"arn:aws:batch:us-east-1:123456789012:job-definition/missing:1",
+	)
 	assert.ErrorIs(t, err, batch.ErrNotFound)
 }
 
@@ -171,6 +184,7 @@ func TestBatchJanitor_SweepInactiveJobDefinitions(t *testing.T) {
 			backend := batch.NewInMemoryBackend("123456789012", "us-east-1")
 
 			jd, err := backend.RegisterJobDefinition(
+				context.Background(),
 				"sweep-job",
 				"container",
 				nil,
@@ -189,7 +203,7 @@ func TestBatchJanitor_SweepInactiveJobDefinitions(t *testing.T) {
 
 			if tt.deregisteredDelay != 0 {
 				// Deregister the definition.
-				err = backend.DeregisterJobDefinition(jd.JobDefinitionArn)
+				err = backend.DeregisterJobDefinition(context.Background(), jd.JobDefinitionArn)
 				require.NoError(t, err)
 
 				// Override DeregisteredAt for TTL testing.
@@ -200,7 +214,14 @@ func TestBatchJanitor_SweepInactiveJobDefinitions(t *testing.T) {
 			janitor := batch.NewJanitor(backend, time.Hour, tt.ttl, 24*time.Hour)
 			janitor.SweepOnce(t.Context())
 
-			defs, _ := backend.DescribeJobDefinitions([]string{jd.JobDefinitionName}, "", "", 0, "")
+			defs, _ := backend.DescribeJobDefinitions(
+				context.Background(),
+				[]string{jd.JobDefinitionName},
+				"",
+				"",
+				0,
+				"",
+			)
 
 			if tt.wantEvicted {
 				assert.Empty(t, defs, "definition should be evicted after TTL")

@@ -220,6 +220,7 @@ func (rc *ResourceCreator) createBatchComputeEnvironment(
 	}
 
 	ce, err := rc.backends.Batch.Backend.CreateComputeEnvironment(
+		context.Background(),
 		name,
 		ceType,
 		"ENABLED",
@@ -242,11 +243,14 @@ func (rc *ResourceCreator) deleteBatchComputeEnvironment(arnOrName string) error
 	}
 
 	// AWS requires DISABLED state before deletion.
-	if _, err := rc.backends.Batch.Backend.UpdateComputeEnvironment(arnOrName, "DISABLED", "", nil, nil); err != nil {
+	_, err := rc.backends.Batch.Backend.UpdateComputeEnvironment(
+		context.Background(), arnOrName, "DISABLED", "", nil, nil,
+	)
+	if err != nil {
 		return fmt.Errorf("disable Batch compute environment %s: %w", arnOrName, err)
 	}
 
-	return rc.backends.Batch.Backend.DeleteComputeEnvironment(arnOrName)
+	return rc.backends.Batch.Backend.DeleteComputeEnvironment(context.Background(), arnOrName)
 }
 
 func (rc *ResourceCreator) createBatchJobQueue(
@@ -289,7 +293,16 @@ func (rc *ResourceCreator) createBatchJobQueue(
 		}
 	}
 
-	jq, err := rc.backends.Batch.Backend.CreateJobQueue(name, priority, "ENABLED", ceOrder, nil, "", nil)
+	jq, err := rc.backends.Batch.Backend.CreateJobQueue(
+		context.Background(),
+		name,
+		priority,
+		"ENABLED",
+		ceOrder,
+		nil,
+		"",
+		nil,
+	)
 	if err != nil {
 		return "", fmt.Errorf("create Batch job queue %s: %w", name, err)
 	}
@@ -304,11 +317,13 @@ func (rc *ResourceCreator) deleteBatchJobQueue(arnOrName string) error {
 
 	// AWS requires DISABLED state before deletion.
 	disabled := "DISABLED"
-	if _, err := rc.backends.Batch.Backend.UpdateJobQueue(arnOrName, nil, disabled, nil, nil); err != nil {
+	if _, err := rc.backends.Batch.Backend.UpdateJobQueue(
+		context.Background(), arnOrName, nil, disabled, nil, nil,
+	); err != nil {
 		return fmt.Errorf("disable Batch job queue %s: %w", arnOrName, err)
 	}
 
-	return rc.backends.Batch.Backend.DeleteJobQueue(arnOrName)
+	return rc.backends.Batch.Backend.DeleteJobQueue(context.Background(), arnOrName)
 }
 
 func (rc *ResourceCreator) createBatchJobDefinition(
@@ -331,6 +346,7 @@ func (rc *ResourceCreator) createBatchJobDefinition(
 	}
 
 	jd, err := rc.backends.Batch.Backend.RegisterJobDefinition(
+		context.Background(),
 		name,
 		defType,
 		nil,
@@ -357,7 +373,7 @@ func (rc *ResourceCreator) deleteBatchJobDefinition(arnOrNameRev string) error {
 		return nil
 	}
 
-	return rc.backends.Batch.Backend.DeregisterJobDefinition(arnOrNameRev)
+	return rc.backends.Batch.Backend.DeregisterJobDefinition(context.Background(), arnOrNameRev)
 }
 
 // ---- CloudFront ----
