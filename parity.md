@@ -1942,3 +1942,89 @@ earlier passes; changing them would add nothing:
   §N EC2 structural items (IMDSv2 endpoint, SG traffic eval, routing/NAT/IGW,
   EBS/Spot data, Lambda SnapStart, S3 SigV4-presign verify / requester-pays)**:
   large structural emulation, unchanged this pass.
+
+---
+
+# §N structural + deferred CFN intrinsic — implementation status (pass-8, 2026-06-10)
+
+Closed the achievable §N structural items plus the long-deferred CFN
+intrinsic-error propagation. All changes are scoped to `services/*`; the build,
+`go vet`, `-race` tests, and `golangci-lint` are clean on every touched package.
+
+## Implemented (with table-driven tests)
+
+- **CFN intrinsic error-propagation (the deferred high-value item)**
+  (`services/cloudformation/intrinsics_validate.go`, wired in
+  `backend.go::createStackFromTemplate` + `applyTemplateToStack`): instead of the
+  high-risk approach of threading `error` through the recursive string-returning
+  resolver, a pre-flight validation pass (mirroring the existing
+  `validateImportValues`) walks the parsed template before any resource is
+  provisioned and fails the stack (→ `ROLLBACK_COMPLETE` + `CREATE_FAILED`
+  event + accurate `StackStatusReason`, the engine's established pre-flight
+  convention) for: (1) `Fn::GetAtt` referencing an **undefined logical
+  resource**; (2) `Fn::Sub` `${Logical.Attr}` referencing an undefined resource
+  (parameters, two-arg local vars and pseudo-params are recognized and allowed);
+  (3) an **unsupported resource type** — defined as a `Type` string that is not a
+  syntactically valid AWS identifier (`AWS::Svc::Res`, `Custom::*`,
+  `Alexa::ASK::*`). Attribute names are deliberately NOT validated (the resolver
+  falls back to the physical ID for unmodeled attrs and existing templates rely
+  on that), and a well-formed-but-unmodeled type still falls through to the stub
+  creator — so none of the ~120 working templates regress. The same pass runs on
+  `UpdateStack` (→ `UPDATE_ROLLBACK_COMPLETE`). Tests:
+  `intrinsics_validate_test.go` (failing templates fail correctly; valid +
+  Custom + unmodeled-type templates still succeed; update rollback).
+- **S3 requester-pays enforcement** (`services/s3/requester_pays.go`, wired in
+  `handler.go` before object dispatch): object requests against a bucket whose
+  request-payment config is `Requester` must carry `x-amz-request-payer:
+  requester`; absent it, the request is rejected `403 AccessDenied` (AWS-accurate
+  for a non-owner requester), and when present the response echoes
+  `x-amz-request-charged: requester`. The payer config was already stored
+  (`extra_backend.go`); this closes the *honoring* gap. Tests:
+  `requester_pays_presign_test.go`.
+- **S3 SigV4 presigned-URL signature verification (opt-in)**
+  (`services/s3/presign.go`, `S3Handler.WithPresignValidation`): when enabled,
+  the handler recomputes the SigV4 query-auth signature (canonical query with
+  `X-Amz-Signature` excluded, `UNSIGNED-PAYLOAD` body hash, signed-header
+  canonicalisation) and rejects a mismatch with `403`. OFF by default (empty
+  secret) so presigned URLs remain accepted on structure+expiry alone — no
+  behaviour change unless opted in, mirroring the platform `--validate-sigv4`
+  posture. Exceeds LocalStack's open tier. Tests cover good/tampered/wrong-secret
+  and the validation-off pass-through.
+- **Lambda SnapStart on published versions + ApplyOn validation**
+  (`services/lambda/models.go`, `backend.go`, `handler.go`): `FunctionVersion`
+  now carries a `SnapStart` field populated by `PublishVersion` and `$LATEST`
+  views; `CreateFunction` validates `SnapStart.ApplyOn` against the AWS enum
+  (`None` / `PublishedVersions`), rejecting other values with
+  `InvalidParameterValueException`. (Function-level create/update/get SnapStart
+  was already present and its existing test contract is preserved — config-level
+  `OptimizationStatus` reporting is unchanged.) No actual snapshot/restore is
+  performed (state only). Tests: `snapstart_extra_test.go`.
+- **EC2 security-group rule validation** (`services/ec2/sg_rule_validate.go`,
+  wired into `AuthorizeSecurityGroupIngress`/`Egress`): `Authorize*` now
+  validates each rule's protocol (tcp/udp/icmp/icmpv6/-1/numeric), port ranges
+  (0–65535, FromPort ≤ ToPort; ICMP type/code −1–255) and CIDR, and rejects a
+  rule that duplicates an existing or in-batch rule with
+  `InvalidPermission.Duplicate`. This is the validation/`IsValid` layer the audit
+  cited; it does NOT attempt packet-path emulation. Tests:
+  `sg_rule_validate_test.go`.
+
+## Deferred — confirmed out of scope (no half-working code added)
+
+These §N items require structural network-path emulation or cross-cutting
+re-architecture and are explicitly left as standalone follow-ups:
+
+- **EC2 IMDSv2 enforcement**: needs a live `169.254.169.254` metadata endpoint
+  with token TTL issuance/enforcement — a new in-instance HTTP surface, not a
+  validation tweak. Standalone follow-up.
+- **EC2 security-group *traffic* evaluation** (as opposed to rule validation,
+  done above): emulating allow/deny on a simulated packet path requires an
+  instance-to-instance network model that does not exist; would be a networking
+  subsystem, not an op fix. Standalone follow-up.
+- **EC2 routing / NAT / IGW packet routing, EBS snapshot data capture, Spot
+  market price + interruption**: each is a structural data-plane simulation.
+  Standalone follow-ups.
+- **Multi-account / multi-region isolation**: cross-cutting re-architecture of
+  every backend's keying — see the §L platform finding; deferred by design.
+
+No stubs, no `//nolint`, no regressions: every previously-green test still
+passes alongside the new table-driven suites.

@@ -1161,6 +1161,10 @@ func (b *InMemoryBackend) AuthorizeSecurityGroupIngress(
 		return fmt.Errorf("%w: %s", ErrSecurityGroupNotFound, groupID)
 	}
 
+	if err := validateSecurityGroupRules(sg.IngressRules, rules); err != nil {
+		return err
+	}
+
 	sg.IngressRules = append(sg.IngressRules, rules...)
 
 	return nil
@@ -1177,6 +1181,10 @@ func (b *InMemoryBackend) AuthorizeSecurityGroupEgress(
 	sg, ok := b.securityGroups[groupID]
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrSecurityGroupNotFound, groupID)
+	}
+
+	if err := validateSecurityGroupRules(sg.EgressRules, rules); err != nil {
+		return err
 	}
 
 	sg.EgressRules = append(sg.EgressRules, rules...)
