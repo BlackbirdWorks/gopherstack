@@ -892,7 +892,9 @@ func (rc *ResourceCreator) createNeptuneCluster(
 
 	paramGroupName := strProp(props, "DBClusterParameterGroupName", params, physicalIDs)
 
-	cluster, err := rc.backends.Neptune.Backend.CreateDBCluster(id, paramGroupName, 0, neptune.DBClusterCreateOptions{})
+	cluster, err := rc.backends.Neptune.Backend.CreateDBCluster(
+		context.Background(), id, paramGroupName, 0, neptune.DBClusterCreateOptions{},
+	)
 	if err != nil {
 		return "", fmt.Errorf("create Neptune cluster %s: %w", id, err)
 	}
@@ -907,7 +909,7 @@ func (rc *ResourceCreator) deleteNeptuneCluster(arn string) error {
 
 	id := resourceNameFromARN(arn)
 
-	_, err := rc.backends.Neptune.Backend.DeleteDBCluster(id)
+	_, err := rc.backends.Neptune.Backend.DeleteDBCluster(context.Background(), id)
 
 	return err
 }
@@ -930,7 +932,7 @@ func (rc *ResourceCreator) createNeptuneInstance(
 	instanceClass := strProp(props, "DBInstanceClass", params, physicalIDs)
 
 	instance, err := rc.backends.Neptune.Backend.CreateDBInstance(
-		id, clusterID, instanceClass, neptune.DBInstanceCreateOptions{},
+		context.Background(), id, clusterID, instanceClass, neptune.DBInstanceCreateOptions{},
 	)
 	if err != nil {
 		return "", fmt.Errorf("create Neptune instance %s: %w", id, err)
@@ -946,7 +948,7 @@ func (rc *ResourceCreator) deleteNeptuneInstance(arn string) error {
 
 	id := resourceNameFromARN(arn)
 
-	_, err := rc.backends.Neptune.Backend.DeleteDBInstance(id)
+	_, err := rc.backends.Neptune.Backend.DeleteDBInstance(context.Background(), id)
 
 	return err
 }
