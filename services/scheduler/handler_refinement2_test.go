@@ -2,6 +2,7 @@ package scheduler_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -477,7 +478,7 @@ func TestRefinement2_DeleteScheduleGroupCascade(t *testing.T) {
 	h := scheduler.NewHandler(b)
 
 	// Create a group and schedules within it.
-	_, err := b.CreateScheduleGroup("grp-cascade", "", nil)
+	_, err := b.CreateScheduleGroup(context.Background(), "grp-cascade", "", nil)
 	require.NoError(t, err)
 
 	createScheduleViaHandler(t, h, "s1", "grp-cascade", "rate(1 minute)")
@@ -590,6 +591,7 @@ func TestRefinement2_Persistence_NewFields(t *testing.T) {
 	kmsARN := "arn:aws:kms:us-east-1:000000000000:key/abc"
 
 	_, err := b.CreateSchedule(
+		context.Background(),
 		"persist-sched", "", "rate(1 minute)", "desc", "",
 		scheduler.Target{ARN: "arn:aws:sqs:us-east-1:0:q", RoleARN: "arn:aws:iam::0:role/r"},
 		"ENABLED",
@@ -605,7 +607,7 @@ func TestRefinement2_Persistence_NewFields(t *testing.T) {
 	b2 := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
 	require.NoError(t, b2.Restore(snap))
 
-	s, err := b2.GetSchedule("persist-sched", "default")
+	s, err := b2.GetSchedule(context.Background(), "persist-sched", "default")
 	require.NoError(t, err)
 	assert.Equal(t, "DELETE", s.ActionAfterCompletion)
 	assert.Equal(t, kmsARN, s.KmsKeyArn)

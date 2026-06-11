@@ -1,6 +1,7 @@
 package secretsmanager_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -43,9 +44,15 @@ func TestBatchGetSecretValue(t *testing.T) {
 			name: "by_secret_id_list",
 			setup: func(t *testing.T, b *secretsmanager.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "batch-s1", SecretString: "val1"})
+				_, err := b.CreateSecret(
+					context.Background(),
+					&secretsmanager.CreateSecretInput{Name: "batch-s1", SecretString: "val1"},
+				)
 				require.NoError(t, err)
-				_, err = b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "batch-s2", SecretString: "val2"})
+				_, err = b.CreateSecret(
+					context.Background(),
+					&secretsmanager.CreateSecretInput{Name: "batch-s2", SecretString: "val2"},
+				)
 				require.NoError(t, err)
 			},
 			body:           `{"SecretIdList":["batch-s1","batch-s2"]}`,
@@ -62,7 +69,10 @@ func TestBatchGetSecretValue(t *testing.T) {
 			name: "partial_errors",
 			setup: func(t *testing.T, b *secretsmanager.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "batch-ok", SecretString: "v"})
+				_, err := b.CreateSecret(
+					context.Background(),
+					&secretsmanager.CreateSecretInput{Name: "batch-ok", SecretString: "v"},
+				)
 				require.NoError(t, err)
 			},
 			body:           `{"SecretIdList":["batch-ok","batch-missing"]}`,
@@ -81,9 +91,15 @@ func TestBatchGetSecretValue(t *testing.T) {
 			name: "all_secrets_when_no_id_list",
 			setup: func(t *testing.T, b *secretsmanager.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "batch-all-1", SecretString: "a"})
+				_, err := b.CreateSecret(
+					context.Background(),
+					&secretsmanager.CreateSecretInput{Name: "batch-all-1", SecretString: "a"},
+				)
 				require.NoError(t, err)
-				_, err = b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "batch-all-2", SecretString: "b"})
+				_, err = b.CreateSecret(
+					context.Background(),
+					&secretsmanager.CreateSecretInput{Name: "batch-all-2", SecretString: "b"},
+				)
 				require.NoError(t, err)
 			},
 			body:           `{}`,
@@ -138,10 +154,13 @@ func TestCancelRotateSecret(t *testing.T) {
 			name: "cancels_rotation",
 			setup: func(t *testing.T, b *secretsmanager.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "cancel-rot", SecretString: "v1"})
+				_, err := b.CreateSecret(
+					context.Background(),
+					&secretsmanager.CreateSecretInput{Name: "cancel-rot", SecretString: "v1"},
+				)
 				require.NoError(t, err)
 				// Rotate to create a pending version.
-				_, err = b.RotateSecret(&secretsmanager.RotateSecretInput{SecretID: "cancel-rot"})
+				_, err = b.RotateSecret(context.Background(), &secretsmanager.RotateSecretInput{SecretID: "cancel-rot"})
 				require.NoError(t, err)
 			},
 			body:           `{"SecretId":"cancel-rot"}`,
@@ -163,9 +182,12 @@ func TestCancelRotateSecret(t *testing.T) {
 			name: "deleted_secret",
 			setup: func(t *testing.T, b *secretsmanager.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "cancel-del", SecretString: "v"})
+				_, err := b.CreateSecret(
+					context.Background(),
+					&secretsmanager.CreateSecretInput{Name: "cancel-del", SecretString: "v"},
+				)
 				require.NoError(t, err)
-				_, err = b.DeleteSecret(&secretsmanager.DeleteSecretInput{SecretID: "cancel-del"})
+				_, err = b.DeleteSecret(context.Background(), &secretsmanager.DeleteSecretInput{SecretID: "cancel-del"})
 				require.NoError(t, err)
 			},
 			body:           `{"SecretId":"cancel-del"}`,
@@ -215,7 +237,10 @@ func TestResourcePolicyCycle(t *testing.T) {
 			name: "put_resource_policy",
 			setup: func(t *testing.T, b *secretsmanager.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "policy-secret", SecretString: "v"})
+				_, err := b.CreateSecret(
+					context.Background(),
+					&secretsmanager.CreateSecretInput{Name: "policy-secret", SecretString: "v"},
+				)
 				require.NoError(t, err)
 			},
 			target:         "secretsmanager.PutResourcePolicy",
@@ -233,9 +258,12 @@ func TestResourcePolicyCycle(t *testing.T) {
 			name: "get_resource_policy_after_put",
 			setup: func(t *testing.T, b *secretsmanager.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "get-policy", SecretString: "v"})
+				_, err := b.CreateSecret(
+					context.Background(),
+					&secretsmanager.CreateSecretInput{Name: "get-policy", SecretString: "v"},
+				)
 				require.NoError(t, err)
-				_, err = b.PutResourcePolicy(&secretsmanager.PutResourcePolicyInput{
+				_, err = b.PutResourcePolicy(context.Background(), &secretsmanager.PutResourcePolicyInput{
 					SecretID:       "get-policy",
 					ResourcePolicy: `{"Version":"2012-10-17"}`,
 				})
@@ -256,9 +284,12 @@ func TestResourcePolicyCycle(t *testing.T) {
 			name: "delete_resource_policy",
 			setup: func(t *testing.T, b *secretsmanager.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "del-policy", SecretString: "v"})
+				_, err := b.CreateSecret(
+					context.Background(),
+					&secretsmanager.CreateSecretInput{Name: "del-policy", SecretString: "v"},
+				)
 				require.NoError(t, err)
-				_, err = b.PutResourcePolicy(&secretsmanager.PutResourcePolicyInput{
+				_, err = b.PutResourcePolicy(context.Background(), &secretsmanager.PutResourcePolicyInput{
 					SecretID:       "del-policy",
 					ResourcePolicy: `{"Version":"2012-10-17"}`,
 				})
@@ -350,7 +381,10 @@ func TestReplicationOperations(t *testing.T) {
 			name: "replicate_to_regions",
 			setup: func(t *testing.T, b *secretsmanager.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "rep-secret", SecretString: "v"})
+				_, err := b.CreateSecret(
+					context.Background(),
+					&secretsmanager.CreateSecretInput{Name: "rep-secret", SecretString: "v"},
+				)
 				require.NoError(t, err)
 			},
 			target:         "secretsmanager.ReplicateSecretToRegions",
@@ -370,9 +404,12 @@ func TestReplicationOperations(t *testing.T) {
 			name: "remove_regions_from_replication",
 			setup: func(t *testing.T, b *secretsmanager.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "rem-rep", SecretString: "v"})
+				_, err := b.CreateSecret(
+					context.Background(),
+					&secretsmanager.CreateSecretInput{Name: "rem-rep", SecretString: "v"},
+				)
 				require.NoError(t, err)
-				_, err = b.ReplicateSecretToRegions(&secretsmanager.ReplicateSecretToRegionsInput{
+				_, err = b.ReplicateSecretToRegions(context.Background(), &secretsmanager.ReplicateSecretToRegionsInput{
 					SecretID:          "rem-rep",
 					AddReplicaRegions: []secretsmanager.ReplicaRegion{{Region: "eu-west-1"}, {Region: "ap-east-1"}},
 				})
@@ -393,9 +430,12 @@ func TestReplicationOperations(t *testing.T) {
 			name: "stop_replication_to_replica",
 			setup: func(t *testing.T, b *secretsmanager.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "stop-rep", SecretString: "v"})
+				_, err := b.CreateSecret(
+					context.Background(),
+					&secretsmanager.CreateSecretInput{Name: "stop-rep", SecretString: "v"},
+				)
 				require.NoError(t, err)
-				_, err = b.ReplicateSecretToRegions(&secretsmanager.ReplicateSecretToRegionsInput{
+				_, err = b.ReplicateSecretToRegions(context.Background(), &secretsmanager.ReplicateSecretToRegionsInput{
 					SecretID:          "stop-rep",
 					AddReplicaRegions: []secretsmanager.ReplicaRegion{{Region: "eu-west-1"}},
 				})
@@ -485,9 +525,12 @@ func TestUpdateSecretVersionStage(t *testing.T) {
 			name: "move_label_to_new_version",
 			setup: func(t *testing.T, b *secretsmanager.InMemoryBackend) string {
 				t.Helper()
-				_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "stage-secret", SecretString: "v1"})
+				_, err := b.CreateSecret(
+					context.Background(),
+					&secretsmanager.CreateSecretInput{Name: "stage-secret", SecretString: "v1"},
+				)
 				require.NoError(t, err)
-				out, err := b.PutSecretValue(&secretsmanager.PutSecretValueInput{
+				out, err := b.PutSecretValue(context.Background(), &secretsmanager.PutSecretValueInput{
 					SecretID:     "stage-secret",
 					SecretString: "v2",
 				})
@@ -511,11 +554,14 @@ func TestUpdateSecretVersionStage(t *testing.T) {
 			name: "remove_label_from_version",
 			setup: func(t *testing.T, b *secretsmanager.InMemoryBackend) string {
 				t.Helper()
-				out, err := b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "stage-remove", SecretString: "v1"})
+				out, err := b.CreateSecret(
+					context.Background(),
+					&secretsmanager.CreateSecretInput{Name: "stage-remove", SecretString: "v1"},
+				)
 				require.NoError(t, err)
 				// Add a custom label first so we can remove it.
 				// AWSCURRENT cannot be removed without MoveToVersionId (AWS constraint).
-				_, err = b.UpdateSecretVersionStage(&secretsmanager.UpdateSecretVersionStageInput{
+				_, err = b.UpdateSecretVersionStage(context.Background(), &secretsmanager.UpdateSecretVersionStageInput{
 					SecretID:        "stage-remove",
 					VersionStage:    "AWSCUSTOM",
 					MoveToVersionID: out.VersionID,
@@ -599,9 +645,12 @@ func TestListSecretVersionIds(t *testing.T) {
 			name: "lists_versions",
 			setup: func(t *testing.T, b *secretsmanager.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "lsvi-secret", SecretString: "v1"})
+				_, err := b.CreateSecret(
+					context.Background(),
+					&secretsmanager.CreateSecretInput{Name: "lsvi-secret", SecretString: "v1"},
+				)
 				require.NoError(t, err)
-				_, err = b.PutSecretValue(&secretsmanager.PutSecretValueInput{
+				_, err = b.PutSecretValue(context.Background(), &secretsmanager.PutSecretValueInput{
 					SecretID:     "lsvi-secret",
 					SecretString: "v2",
 				})
@@ -658,12 +707,15 @@ func TestNewOpsBackend(t *testing.T) {
 		t.Parallel()
 
 		b := secretsmanager.NewInMemoryBackend()
-		_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "del-batch", SecretString: "v"})
+		_, err := b.CreateSecret(
+			context.Background(),
+			&secretsmanager.CreateSecretInput{Name: "del-batch", SecretString: "v"},
+		)
 		require.NoError(t, err)
-		_, err = b.DeleteSecret(&secretsmanager.DeleteSecretInput{SecretID: "del-batch"})
+		_, err = b.DeleteSecret(context.Background(), &secretsmanager.DeleteSecretInput{SecretID: "del-batch"})
 		require.NoError(t, err)
 
-		out, err := b.BatchGetSecretValue(&secretsmanager.BatchGetSecretValueInput{
+		out, err := b.BatchGetSecretValue(context.Background(), &secretsmanager.BatchGetSecretValueInput{
 			SecretIDList: []string{"del-batch"},
 		})
 		require.NoError(t, err)
@@ -676,16 +728,22 @@ func TestNewOpsBackend(t *testing.T) {
 		t.Parallel()
 
 		b := secretsmanager.NewInMemoryBackend()
-		_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "rot-cancel", SecretString: "v"})
+		_, err := b.CreateSecret(
+			context.Background(),
+			&secretsmanager.CreateSecretInput{Name: "rot-cancel", SecretString: "v"},
+		)
 		require.NoError(t, err)
-		_, err = b.RotateSecret(&secretsmanager.RotateSecretInput{SecretID: "rot-cancel"})
+		_, err = b.RotateSecret(context.Background(), &secretsmanager.RotateSecretInput{SecretID: "rot-cancel"})
 		require.NoError(t, err)
 
-		out, err := b.CancelRotateSecret(&secretsmanager.CancelRotateSecretInput{SecretID: "rot-cancel"})
+		out, err := b.CancelRotateSecret(
+			context.Background(),
+			&secretsmanager.CancelRotateSecretInput{SecretID: "rot-cancel"},
+		)
 		require.NoError(t, err)
 		assert.Equal(t, "rot-cancel", out.Name)
 
-		desc, err := b.DescribeSecret(&secretsmanager.DescribeSecretInput{SecretID: "rot-cancel"})
+		desc, err := b.DescribeSecret(context.Background(), &secretsmanager.DescribeSecretInput{SecretID: "rot-cancel"})
 		require.NoError(t, err)
 		assert.False(t, desc.RotationEnabled)
 	})
@@ -694,7 +752,10 @@ func TestNewOpsBackend(t *testing.T) {
 		t.Parallel()
 
 		b := secretsmanager.NewInMemoryBackend()
-		_, err := b.CancelRotateSecret(&secretsmanager.CancelRotateSecretInput{SecretID: "nonexistent"})
+		_, err := b.CancelRotateSecret(
+			context.Background(),
+			&secretsmanager.CancelRotateSecretInput{SecretID: "nonexistent"},
+		)
 		require.ErrorIs(t, err, secretsmanager.ErrSecretNotFound)
 	})
 
@@ -702,10 +763,16 @@ func TestNewOpsBackend(t *testing.T) {
 		t.Parallel()
 
 		b := secretsmanager.NewInMemoryBackend()
-		_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "no-policy", SecretString: "v"})
+		_, err := b.CreateSecret(
+			context.Background(),
+			&secretsmanager.CreateSecretInput{Name: "no-policy", SecretString: "v"},
+		)
 		require.NoError(t, err)
 
-		out, err := b.GetResourcePolicy(&secretsmanager.GetResourcePolicyInput{SecretID: "no-policy"})
+		out, err := b.GetResourcePolicy(
+			context.Background(),
+			&secretsmanager.GetResourcePolicyInput{SecretID: "no-policy"},
+		)
 		require.NoError(t, err)
 		assert.Empty(t, out.ResourcePolicy)
 		assert.Equal(t, "no-policy", out.Name)
@@ -715,12 +782,15 @@ func TestNewOpsBackend(t *testing.T) {
 		t.Parallel()
 
 		b := secretsmanager.NewInMemoryBackend()
-		_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "put-del-policy", SecretString: "v"})
+		_, err := b.CreateSecret(
+			context.Background(),
+			&secretsmanager.CreateSecretInput{Name: "put-del-policy", SecretString: "v"},
+		)
 		require.NoError(t, err)
-		_, err = b.DeleteSecret(&secretsmanager.DeleteSecretInput{SecretID: "put-del-policy"})
+		_, err = b.DeleteSecret(context.Background(), &secretsmanager.DeleteSecretInput{SecretID: "put-del-policy"})
 		require.NoError(t, err)
 
-		_, err = b.PutResourcePolicy(&secretsmanager.PutResourcePolicyInput{
+		_, err = b.PutResourcePolicy(context.Background(), &secretsmanager.PutResourcePolicyInput{
 			SecretID:       "put-del-policy",
 			ResourcePolicy: "{}",
 		})
@@ -731,12 +801,18 @@ func TestNewOpsBackend(t *testing.T) {
 		t.Parallel()
 
 		b := secretsmanager.NewInMemoryBackend()
-		_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "del-del-policy", SecretString: "v"})
+		_, err := b.CreateSecret(
+			context.Background(),
+			&secretsmanager.CreateSecretInput{Name: "del-del-policy", SecretString: "v"},
+		)
 		require.NoError(t, err)
-		_, err = b.DeleteSecret(&secretsmanager.DeleteSecretInput{SecretID: "del-del-policy"})
+		_, err = b.DeleteSecret(context.Background(), &secretsmanager.DeleteSecretInput{SecretID: "del-del-policy"})
 		require.NoError(t, err)
 
-		_, err = b.DeleteResourcePolicy(&secretsmanager.DeleteResourcePolicyInput{SecretID: "del-del-policy"})
+		_, err = b.DeleteResourcePolicy(
+			context.Background(),
+			&secretsmanager.DeleteResourcePolicyInput{SecretID: "del-del-policy"},
+		)
 		require.ErrorIs(t, err, secretsmanager.ErrSecretDeleted)
 	})
 
@@ -744,18 +820,21 @@ func TestNewOpsBackend(t *testing.T) {
 		t.Parallel()
 
 		b := secretsmanager.NewInMemoryBackend()
-		_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "rep-idem", SecretString: "v"})
+		_, err := b.CreateSecret(
+			context.Background(),
+			&secretsmanager.CreateSecretInput{Name: "rep-idem", SecretString: "v"},
+		)
 		require.NoError(t, err)
 
 		// Add us-east-2.
-		_, err = b.ReplicateSecretToRegions(&secretsmanager.ReplicateSecretToRegionsInput{
+		_, err = b.ReplicateSecretToRegions(context.Background(), &secretsmanager.ReplicateSecretToRegionsInput{
 			SecretID:          "rep-idem",
 			AddReplicaRegions: []secretsmanager.ReplicaRegion{{Region: "us-east-2"}},
 		})
 		require.NoError(t, err)
 
 		// Add us-east-2 again (should update, not duplicate).
-		out, err := b.ReplicateSecretToRegions(&secretsmanager.ReplicateSecretToRegionsInput{
+		out, err := b.ReplicateSecretToRegions(context.Background(), &secretsmanager.ReplicateSecretToRegionsInput{
 			SecretID:          "rep-idem",
 			AddReplicaRegions: []secretsmanager.ReplicaRegion{{Region: "us-east-2", KmsKeyID: "key-123"}},
 		})
@@ -768,10 +847,13 @@ func TestNewOpsBackend(t *testing.T) {
 		t.Parallel()
 
 		b := secretsmanager.NewInMemoryBackend()
-		_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "stage-ver-nf", SecretString: "v"})
+		_, err := b.CreateSecret(
+			context.Background(),
+			&secretsmanager.CreateSecretInput{Name: "stage-ver-nf", SecretString: "v"},
+		)
 		require.NoError(t, err)
 
-		_, err = b.UpdateSecretVersionStage(&secretsmanager.UpdateSecretVersionStageInput{
+		_, err = b.UpdateSecretVersionStage(context.Background(), &secretsmanager.UpdateSecretVersionStageInput{
 			SecretID:            "stage-ver-nf",
 			VersionStage:        "AWSCUSTOM",
 			RemoveFromVersionID: "no-such-version",
@@ -783,10 +865,13 @@ func TestNewOpsBackend(t *testing.T) {
 		t.Parallel()
 
 		b := secretsmanager.NewInMemoryBackend()
-		_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "stage-mov-nf", SecretString: "v"})
+		_, err := b.CreateSecret(
+			context.Background(),
+			&secretsmanager.CreateSecretInput{Name: "stage-mov-nf", SecretString: "v"},
+		)
 		require.NoError(t, err)
 
-		_, err = b.UpdateSecretVersionStage(&secretsmanager.UpdateSecretVersionStageInput{
+		_, err = b.UpdateSecretVersionStage(context.Background(), &secretsmanager.UpdateSecretVersionStageInput{
 			SecretID:        "stage-mov-nf",
 			VersionStage:    "AWSCUSTOM",
 			MoveToVersionID: "no-such-version",

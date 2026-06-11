@@ -461,7 +461,7 @@ func TestBackend_CreateStack_DynamicRefs_SecretsManager(t *testing.T) {
 		{
 			name: "secretsmanager_ref_resolved",
 			setupSM: func(b *secretsmanager.InMemoryBackend) {
-				_, _ = b.CreateSecret(&secretsmanager.CreateSecretInput{
+				_, _ = b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 					Name:         "my-db-secret",
 					SecretString: "db-password-value",
 				})
@@ -652,12 +652,12 @@ func TestNewDynamicRefResolver_RealSecretsManager(t *testing.T) {
 	t.Parallel()
 
 	smBackend := secretsmanager.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
-	_, _ = smBackend.CreateSecret(&secretsmanager.CreateSecretInput{
+	_, _ = smBackend.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:         "my-secret",
 		SecretString: "top-secret",
 	})
 
-	_, _ = smBackend.CreateSecret(&secretsmanager.CreateSecretInput{
+	_, _ = smBackend.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:         "json-secret",
 		SecretString: `{"password":"p@ss","user":"admin"}`,
 	})

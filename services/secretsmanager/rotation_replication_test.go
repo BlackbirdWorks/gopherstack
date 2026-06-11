@@ -1,6 +1,7 @@
 package secretsmanager_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -52,25 +53,32 @@ func TestRotateSecretRulesAndScheduler(t *testing.T) {
 			t.Parallel()
 
 			backend := secretsmanager.NewInMemoryBackend()
-			_, err := backend.CreateSecret(&secretsmanager.CreateSecretInput{
+			_, err := backend.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 				Name:         "sched-secret",
 				SecretString: "initial",
 			})
 			require.NoError(t, err)
 
-			before, err := backend.GetSecretValue(&secretsmanager.GetSecretValueInput{SecretID: "sched-secret"})
+			before, err := backend.GetSecretValue(
+				context.Background(),
+				&secretsmanager.GetSecretValueInput{SecretID: "sched-secret"},
+			)
 			require.NoError(t, err)
 
-			out, err := backend.RotateSecret(&tt.rotateInput)
+			out, err := backend.RotateSecret(context.Background(), &tt.rotateInput)
 			require.NoError(t, err)
 
-			desc, err := backend.DescribeSecret(&secretsmanager.DescribeSecretInput{SecretID: "sched-secret"})
+			desc, err := backend.DescribeSecret(
+				context.Background(),
+				&secretsmanager.DescribeSecretInput{SecretID: "sched-secret"},
+			)
 			require.NoError(t, err)
 			require.NotNil(t, desc.RotationRules)
 
 			if tt.wantImmediateEmpty {
 				assert.Empty(t, out.VersionID)
 				current, currentErr := backend.GetSecretValue(
+					context.Background(),
 					&secretsmanager.GetSecretValueInput{SecretID: "sched-secret"},
 				)
 				require.NoError(t, currentErr)
@@ -92,6 +100,7 @@ func TestRotateSecretRulesAndScheduler(t *testing.T) {
 
 			for time.Now().Before(deadline) {
 				current, currentErr := backend.GetSecretValue(
+					context.Background(),
 					&secretsmanager.GetSecretValueInput{SecretID: "sched-secret"},
 				)
 				require.NoError(t, currentErr)
@@ -134,19 +143,22 @@ func TestReplicationStatusSync(t *testing.T) {
 			t.Parallel()
 
 			backend := secretsmanager.NewInMemoryBackend()
-			_, err := backend.CreateSecret(&secretsmanager.CreateSecretInput{
+			_, err := backend.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 				Name:         "replication-secret",
 				SecretString: tt.initialSecretString,
 			})
 			require.NoError(t, err)
 
-			_, err = backend.ReplicateSecretToRegions(&secretsmanager.ReplicateSecretToRegionsInput{
-				SecretID:          "replication-secret",
-				AddReplicaRegions: []secretsmanager.ReplicaRegion{{Region: "us-west-2"}},
-			})
+			_, err = backend.ReplicateSecretToRegions(
+				context.Background(),
+				&secretsmanager.ReplicateSecretToRegionsInput{
+					SecretID:          "replication-secret",
+					AddReplicaRegions: []secretsmanager.ReplicaRegion{{Region: "us-west-2"}},
+				},
+			)
 			require.NoError(t, err)
 
-			desc, err := backend.DescribeSecret(&secretsmanager.DescribeSecretInput{
+			desc, err := backend.DescribeSecret(context.Background(), &secretsmanager.DescribeSecretInput{
 				SecretID: "replication-secret",
 			})
 			require.NoError(t, err)
@@ -159,27 +171,33 @@ func TestReplicationStatusSync(t *testing.T) {
 				return
 			}
 
-			initialCurrent, currentErr := backend.GetSecretValue(&secretsmanager.GetSecretValueInput{
-				SecretID: "replication-secret",
-			})
+			initialCurrent, currentErr := backend.GetSecretValue(
+				context.Background(),
+				&secretsmanager.GetSecretValueInput{
+					SecretID: "replication-secret",
+				},
+			)
 			require.NoError(t, currentErr)
 			assert.Contains(t, desc.ReplicationStatus[0].StatusMessage, initialCurrent.VersionID)
 
-			_, err = backend.PutSecretValue(&secretsmanager.PutSecretValueInput{
+			_, err = backend.PutSecretValue(context.Background(), &secretsmanager.PutSecretValueInput{
 				SecretID:     "replication-secret",
 				SecretString: "v2",
 			})
 			require.NoError(t, err)
 
-			nextCurrent, nextErr := backend.GetSecretValue(&secretsmanager.GetSecretValueInput{
+			nextCurrent, nextErr := backend.GetSecretValue(context.Background(), &secretsmanager.GetSecretValueInput{
 				SecretID: "replication-secret",
 			})
 			require.NoError(t, nextErr)
 			assert.NotEqual(t, initialCurrent.VersionID, nextCurrent.VersionID)
 
-			descAfterPut, describeErr := backend.DescribeSecret(&secretsmanager.DescribeSecretInput{
-				SecretID: "replication-secret",
-			})
+			descAfterPut, describeErr := backend.DescribeSecret(
+				context.Background(),
+				&secretsmanager.DescribeSecretInput{
+					SecretID: "replication-secret",
+				},
+			)
 			require.NoError(t, describeErr)
 			require.Len(t, descAfterPut.ReplicationStatus, 1)
 			assert.Equal(t, "InSync", descAfterPut.ReplicationStatus[0].Status)

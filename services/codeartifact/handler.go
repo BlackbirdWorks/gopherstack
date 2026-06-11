@@ -1,6 +1,7 @@
 package codeartifact
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -481,7 +483,13 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function for CodeArtifact requests.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
-		log := logger.Load(c.Request().Context())
+		// Attach the resolved region to the request context so backend operations
+		// are routed to the correct region.
+		region := httputils.ExtractRegionFromRequest(c.Request(), h.Backend.Region())
+		ctx := context.WithValue(c.Request().Context(), regionContextKey{}, region)
+		c.SetRequest(c.Request().WithContext(ctx))
+
+		log := logger.Load(ctx)
 		path := c.Request().URL.Path
 		route := parseCodeArtifactPath(c.Request().Method, path)
 
@@ -875,7 +883,7 @@ func (h *Handler) handleCreateDomain(c *echo.Context, name string, body []byte) 
 		}
 	}
 
-	d, err := h.Backend.CreateDomain(name, in.EncryptionKey, tagsFromSlice(in.Tags))
+	d, err := h.Backend.CreateDomain(c.Request().Context(), name, in.EncryptionKey, tagsFromSlice(in.Tags))
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -890,12 +898,12 @@ func (h *Handler) handleDescribeDomain(c *echo.Context, name string) error {
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain name is required"))
 	}
 
-	d, err := h.Backend.DescribeDomain(name)
+	d, err := h.Backend.DescribeDomain(c.Request().Context(), name)
 	if err != nil {
 		return h.handleError(c, err)
 	}
 
-	repoCount := h.Backend.CountRepositoriesInDomain(name)
+	repoCount := h.Backend.CountRepositoriesInDomain(c.Request().Context(), name)
 
 	return c.JSON(http.StatusOK, map[string]any{
 		keyDomain: domainToMap(d, repoCount),
@@ -903,7 +911,7 @@ func (h *Handler) handleDescribeDomain(c *echo.Context, name string) error {
 }
 
 func (h *Handler) handleListDomains(c *echo.Context) error {
-	domains := h.Backend.ListDomains()
+	domains := h.Backend.ListDomains(c.Request().Context())
 	items := make([]map[string]any, 0, len(domains))
 
 	for _, d := range domains {
@@ -920,9 +928,9 @@ func (h *Handler) handleDeleteDomain(c *echo.Context, name string) error {
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain name is required"))
 	}
 
-	repoCount := h.Backend.CountRepositoriesInDomain(name)
+	repoCount := h.Backend.CountRepositoriesInDomain(c.Request().Context(), name)
 
-	d, err := h.Backend.DeleteDomain(name)
+	d, err := h.Backend.DeleteDomain(c.Request().Context(), name)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -979,13 +987,19 @@ func (h *Handler) handleCreateRepository(c *echo.Context, domainName, repoName s
 		}
 	}
 
-	r, err := h.Backend.CreateRepository(domainName, repoName, in.Description, tagsFromSlice(in.Tags))
+	r, err := h.Backend.CreateRepository(
+		c.Request().Context(),
+		domainName,
+		repoName,
+		in.Description,
+		tagsFromSlice(in.Tags),
+	)
 	if err != nil {
 		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		keyRepository: repoToMap(r, h.Backend.GetExternalConnections(domainName, repoName)),
+		keyRepository: repoToMap(r, h.Backend.GetExternalConnections(c.Request().Context(), domainName, repoName)),
 	})
 }
 
@@ -997,13 +1011,13 @@ func (h *Handler) handleDescribeRepository(c *echo.Context, domainName, repoName
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "repository is required"))
 	}
 
-	r, err := h.Backend.DescribeRepository(domainName, repoName)
+	r, err := h.Backend.DescribeRepository(c.Request().Context(), domainName, repoName)
 	if err != nil {
 		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		keyRepository: repoToMap(r, h.Backend.GetExternalConnections(domainName, repoName)),
+		keyRepository: repoToMap(r, h.Backend.GetExternalConnections(c.Request().Context(), domainName, repoName)),
 	})
 }
 
@@ -1015,9 +1029,9 @@ func (h *Handler) handleDeleteRepository(c *echo.Context, domainName, repoName s
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "repository is required"))
 	}
 
-	conns := h.Backend.GetExternalConnections(domainName, repoName)
+	conns := h.Backend.GetExternalConnections(c.Request().Context(), domainName, repoName)
 
-	r, err := h.Backend.DeleteRepository(domainName, repoName)
+	r, err := h.Backend.DeleteRepository(c.Request().Context(), domainName, repoName)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1032,7 +1046,7 @@ func (h *Handler) handleListRepositoriesInDomain(c *echo.Context, domainName str
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
 	}
 
-	repos, err := h.Backend.ListRepositoriesInDomain(domainName)
+	repos, err := h.Backend.ListRepositoriesInDomain(c.Request().Context(), domainName)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1054,7 +1068,7 @@ func (h *Handler) handleListRepositoriesInDomain(c *echo.Context, domainName str
 }
 
 func (h *Handler) handleListRepositories(c *echo.Context) error {
-	repos := h.Backend.ListRepositories()
+	repos := h.Backend.ListRepositories(c.Request().Context())
 	items := make([]map[string]any, 0, len(repos))
 
 	for _, r := range repos {
@@ -1082,7 +1096,7 @@ func (h *Handler) handleGetRepositoryEndpoint(c *echo.Context, domainName, repoN
 		format = "generic"
 	}
 
-	_, err := h.Backend.DescribeRepository(domainName, repoName)
+	_, err := h.Backend.DescribeRepository(c.Request().Context(), domainName, repoName)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1102,7 +1116,7 @@ func (h *Handler) handleGetAuthorizationToken(c *echo.Context, domainName string
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
 	}
 
-	_, err := h.Backend.DescribeDomain(domainName)
+	_, err := h.Backend.DescribeDomain(c.Request().Context(), domainName)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1129,7 +1143,7 @@ func (h *Handler) handleListTagsForResource(c *echo.Context, resourceARN string)
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "resourceArn is required"))
 	}
 
-	kv, err := h.Backend.ListTagsForResource(resourceARN)
+	kv, err := h.Backend.ListTagsForResource(c.Request().Context(), resourceARN)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1157,7 +1171,7 @@ func (h *Handler) handleTagResource(c *echo.Context, resourceARN string, body []
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
 	}
 
-	if err := h.Backend.TagResource(resourceARN, tagsFromSlice(in.Tags)); err != nil {
+	if err := h.Backend.TagResource(c.Request().Context(), resourceARN, tagsFromSlice(in.Tags)); err != nil {
 		return h.handleError(c, err)
 	}
 
@@ -1174,7 +1188,7 @@ func (h *Handler) handleUntagResource(c *echo.Context, resourceARN string, body 
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
 	}
 
-	if err := h.Backend.UntagResource(resourceARN, in.TagKeys); err != nil {
+	if err := h.Backend.UntagResource(c.Request().Context(), resourceARN, in.TagKeys); err != nil {
 		return h.handleError(c, err)
 	}
 
@@ -1188,7 +1202,7 @@ func (h *Handler) handleGetDomainPermissionsPolicy(c *echo.Context, domainName s
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
 	}
 
-	pol, err := h.Backend.GetDomainPermissionsPolicy(domainName)
+	pol, err := h.Backend.GetDomainPermissionsPolicy(c.Request().Context(), domainName)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1222,7 +1236,7 @@ func (h *Handler) handlePutDomainPermissionsPolicy(c *echo.Context, domainName s
 		in.PolicyDocument = `{"Version":"2012-10-17","Statement":[]}`
 	}
 
-	pol, err := h.Backend.PutDomainPermissionsPolicy(domainName, in.PolicyDocument)
+	pol, err := h.Backend.PutDomainPermissionsPolicy(c.Request().Context(), domainName, in.PolicyDocument)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1241,7 +1255,7 @@ func (h *Handler) handleDeleteDomainPermissionsPolicy(c *echo.Context, domainNam
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
 	}
 
-	pol, err := h.Backend.DeleteDomainPermissionsPolicy(domainName)
+	pol, err := h.Backend.DeleteDomainPermissionsPolicy(c.Request().Context(), domainName)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1298,7 +1312,14 @@ func (h *Handler) handleCreatePackageGroup(c *echo.Context, domainName string, b
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "pattern is required"))
 	}
 
-	pg, err := h.Backend.CreatePackageGroup(domainName, pattern, in.Description, in.ContactInfo, tagsFromSlice(in.Tags))
+	pg, err := h.Backend.CreatePackageGroup(
+		c.Request().Context(),
+		domainName,
+		pattern,
+		in.Description,
+		in.ContactInfo,
+		tagsFromSlice(in.Tags),
+	)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1316,7 +1337,7 @@ func (h *Handler) handleDescribePackageGroup(c *echo.Context, domainName, patter
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "packageGroup is required"))
 	}
 
-	pg, err := h.Backend.DescribePackageGroup(domainName, pattern)
+	pg, err := h.Backend.DescribePackageGroup(c.Request().Context(), domainName, pattern)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1334,7 +1355,7 @@ func (h *Handler) handleDeletePackageGroup(c *echo.Context, domainName, pattern 
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "packageGroup is required"))
 	}
 
-	pg, err := h.Backend.DeletePackageGroup(domainName, pattern)
+	pg, err := h.Backend.DeletePackageGroup(c.Request().Context(), domainName, pattern)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1375,7 +1396,7 @@ func (h *Handler) handleDescribePackage(c *echo.Context, domainName, repoName, f
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "package is required"))
 	}
 
-	pkg, err := h.Backend.DescribePackage(domainName, repoName, format, namespace, name)
+	pkg, err := h.Backend.DescribePackage(c.Request().Context(), domainName, repoName, format, namespace, name)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1399,7 +1420,7 @@ func (h *Handler) handleDeletePackage(c *echo.Context, domainName, repoName, for
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "package is required"))
 	}
 
-	pkg, err := h.Backend.DeletePackage(domainName, repoName, format, namespace, name)
+	pkg, err := h.Backend.DeletePackage(c.Request().Context(), domainName, repoName, format, namespace, name)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1446,7 +1467,15 @@ func (h *Handler) handleDescribePackageVersion(
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "version is required"))
 	}
 
-	pv, err := h.Backend.DescribePackageVersion(domainName, repoName, format, namespace, name, version)
+	pv, err := h.Backend.DescribePackageVersion(
+		c.Request().Context(),
+		domainName,
+		repoName,
+		format,
+		namespace,
+		name,
+		version,
+	)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1485,7 +1514,15 @@ func (h *Handler) handleDeletePackageVersions(
 		}
 	}
 
-	failed, err := h.Backend.DeletePackageVersions(domainName, repoName, format, namespace, name, in.Versions)
+	failed, err := h.Backend.DeletePackageVersions(
+		c.Request().Context(),
+		domainName,
+		repoName,
+		format,
+		namespace,
+		name,
+		in.Versions,
+	)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1540,7 +1577,16 @@ func (h *Handler) handleCopyPackageVersions(
 		}
 	}
 
-	failed, err := h.Backend.CopyPackageVersions(domainName, srcRepo, dstRepo, format, namespace, name, in.Versions)
+	failed, err := h.Backend.CopyPackageVersions(
+		c.Request().Context(),
+		domainName,
+		srcRepo,
+		dstRepo,
+		format,
+		namespace,
+		name,
+		in.Versions,
+	)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1579,13 +1625,13 @@ func (h *Handler) handleAssociateExternalConnection(
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "externalConnection is required"))
 	}
 
-	r, err := h.Backend.AssociateExternalConnection(domainName, repoName, connectionName)
+	r, err := h.Backend.AssociateExternalConnection(c.Request().Context(), domainName, repoName, connectionName)
 	if err != nil {
 		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		keyRepository: repoToMap(r, h.Backend.GetExternalConnections(domainName, repoName)),
+		keyRepository: repoToMap(r, h.Backend.GetExternalConnections(c.Request().Context(), domainName, repoName)),
 	})
 }
 
@@ -1599,7 +1645,7 @@ func (h *Handler) handleGetRepositoryPermissionsPolicy(c *echo.Context, domainNa
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "repository is required"))
 	}
 
-	pol, err := h.Backend.GetRepositoryPermissionsPolicy(domainName, repoName)
+	pol, err := h.Backend.GetRepositoryPermissionsPolicy(c.Request().Context(), domainName, repoName)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1640,7 +1686,7 @@ func (h *Handler) handlePutRepositoryPermissionsPolicy(
 		in.PolicyDocument = `{"Version":"2012-10-17","Statement":[]}`
 	}
 
-	pol, err := h.Backend.PutRepositoryPermissionsPolicy(domainName, repoName, in.PolicyDocument)
+	pol, err := h.Backend.PutRepositoryPermissionsPolicy(c.Request().Context(), domainName, repoName, in.PolicyDocument)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1662,7 +1708,7 @@ func (h *Handler) handleDeleteRepositoryPermissionsPolicy(c *echo.Context, domai
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "repository is required"))
 	}
 
-	pol, err := h.Backend.DeleteRepositoryPermissionsPolicy(domainName, repoName)
+	pol, err := h.Backend.DeleteRepositoryPermissionsPolicy(c.Request().Context(), domainName, repoName)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1691,12 +1737,12 @@ func (h *Handler) handleDisassociateExternalConnection(
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "externalConnection is required"))
 	}
 
-	r, err := h.Backend.DisassociateExternalConnection(domainName, repoName, connectionName)
+	r, err := h.Backend.DisassociateExternalConnection(c.Request().Context(), domainName, repoName, connectionName)
 	if err != nil {
 		return h.handleError(c, err)
 	}
 
-	extConns := h.Backend.GetExternalConnections(domainName, repoName)
+	extConns := h.Backend.GetExternalConnections(c.Request().Context(), domainName, repoName)
 
 	return c.JSON(http.StatusOK, map[string]any{keyRepository: repoToMap(r, extConns)})
 }
@@ -1726,7 +1772,15 @@ func (h *Handler) handleDisposePackageVersions(
 		_ = json.Unmarshal(body, &in)
 	}
 
-	results, err := h.Backend.DisposePackageVersions(domainName, repoName, format, namespace, name, in.Versions)
+	results, err := h.Backend.DisposePackageVersions(
+		c.Request().Context(),
+		domainName,
+		repoName,
+		format,
+		namespace,
+		name,
+		in.Versions,
+	)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1745,7 +1799,7 @@ func (h *Handler) handleGetAssociatedPackageGroup(c *echo.Context, domainName, f
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "package is required"))
 	}
 
-	pg, err := h.Backend.GetAssociatedPackageGroup(domainName, format, namespace, name)
+	pg, err := h.Backend.GetAssociatedPackageGroup(c.Request().Context(), domainName, format, namespace, name)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1779,7 +1833,16 @@ func (h *Handler) handleGetPackageVersionAsset(
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "asset is required"))
 	}
 
-	data, err := h.Backend.GetPackageVersionAsset(domainName, repoName, format, namespace, name, version, asset)
+	data, err := h.Backend.GetPackageVersionAsset(
+		c.Request().Context(),
+		domainName,
+		repoName,
+		format,
+		namespace,
+		name,
+		version,
+		asset,
+	)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1817,7 +1880,15 @@ func (h *Handler) handleGetPackageVersionReadme(
 		return err
 	}
 
-	readme, err := h.Backend.GetPackageVersionReadme(domainName, repoName, format, namespace, name, version)
+	readme, err := h.Backend.GetPackageVersionReadme(
+		c.Request().Context(),
+		domainName,
+		repoName,
+		format,
+		namespace,
+		name,
+		version,
+	)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1833,7 +1904,7 @@ func (h *Handler) handleListAllowedRepositoriesForGroup(c *echo.Context, domainN
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "packageGroup is required"))
 	}
 
-	repos, err := h.Backend.ListAllowedRepositoriesForGroup(domainName, pattern)
+	repos, err := h.Backend.ListAllowedRepositoriesForGroup(c.Request().Context(), domainName, pattern)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1849,7 +1920,7 @@ func (h *Handler) handleListAssociatedPackages(c *echo.Context, domainName, patt
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "packageGroup is required"))
 	}
 
-	pkgs, err := h.Backend.ListAssociatedPackages(domainName, pattern)
+	pkgs, err := h.Backend.ListAssociatedPackages(c.Request().Context(), domainName, pattern)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1867,7 +1938,7 @@ func (h *Handler) handleListPackageGroups(c *echo.Context, domainName, prefix st
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
 	}
 
-	groups, err := h.Backend.ListPackageGroups(domainName, prefix)
+	groups, err := h.Backend.ListPackageGroups(c.Request().Context(), domainName, prefix)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1887,7 +1958,15 @@ func (h *Handler) handleListPackageVersionAssets(
 		return err
 	}
 
-	assets, err := h.Backend.ListPackageVersionAssets(domainName, repoName, format, namespace, name, version)
+	assets, err := h.Backend.ListPackageVersionAssets(
+		c.Request().Context(),
+		domainName,
+		repoName,
+		format,
+		namespace,
+		name,
+		version,
+	)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1902,7 +1981,15 @@ func (h *Handler) handleListPackageVersionDependencies(
 		return err
 	}
 
-	deps, err := h.Backend.ListPackageVersionDependencies(domainName, repoName, format, namespace, name, version)
+	deps, err := h.Backend.ListPackageVersionDependencies(
+		c.Request().Context(),
+		domainName,
+		repoName,
+		format,
+		namespace,
+		name,
+		version,
+	)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1926,7 +2013,7 @@ func (h *Handler) handleListPackageVersions(
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "package is required"))
 	}
 
-	versions, err := h.Backend.ListPackageVersions(domainName, repoName, format, namespace, name)
+	versions, err := h.Backend.ListPackageVersions(c.Request().Context(), domainName, repoName, format, namespace, name)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1947,7 +2034,7 @@ func (h *Handler) handleListPackages(c *echo.Context, domainName, repoName, form
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "repository is required"))
 	}
 
-	pkgs, err := h.Backend.ListPackages(domainName, repoName, format, namespace)
+	pkgs, err := h.Backend.ListPackages(c.Request().Context(), domainName, repoName, format, namespace)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1968,7 +2055,7 @@ func (h *Handler) handleListSubPackageGroups(c *echo.Context, domainName, patter
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "packageGroup is required"))
 	}
 
-	groups, err := h.Backend.ListSubPackageGroups(domainName, pattern)
+	groups, err := h.Backend.ListSubPackageGroups(c.Request().Context(), domainName, pattern)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -2000,7 +2087,15 @@ func (h *Handler) handlePublishPackageVersion(
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "version is required"))
 	}
 
-	pv, err := h.Backend.PublishPackageVersion(domainName, repoName, format, namespace, name, version)
+	pv, err := h.Backend.PublishPackageVersion(
+		c.Request().Context(),
+		domainName,
+		repoName,
+		format,
+		namespace,
+		name,
+		version,
+	)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -2024,7 +2119,14 @@ func (h *Handler) handlePutPackageOriginConfiguration(
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "package is required"))
 	}
 
-	pkg, err := h.Backend.PutPackageOriginConfiguration(domainName, repoName, format, namespace, name)
+	pkg, err := h.Backend.PutPackageOriginConfiguration(
+		c.Request().Context(),
+		domainName,
+		repoName,
+		format,
+		namespace,
+		name,
+	)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -2053,7 +2155,7 @@ func (h *Handler) handleUpdatePackageGroup(c *echo.Context, domainName string, b
 		pattern = in.PackageGroup
 	}
 
-	pg, err := h.Backend.UpdatePackageGroup(domainName, pattern, in.Description, in.ContactInfo)
+	pg, err := h.Backend.UpdatePackageGroup(c.Request().Context(), domainName, pattern, in.Description, in.ContactInfo)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -2069,7 +2171,7 @@ func (h *Handler) handleUpdatePackageGroupOriginConfiguration(c *echo.Context, d
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "packageGroup is required"))
 	}
 
-	pg, err := h.Backend.UpdatePackageGroupOriginConfiguration(domainName, pattern)
+	pg, err := h.Backend.UpdatePackageGroupOriginConfiguration(c.Request().Context(), domainName, pattern)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -2108,7 +2210,7 @@ func (h *Handler) handleUpdatePackageVersionsStatus(
 	}
 
 	results, err := h.Backend.UpdatePackageVersionsStatus(
-		domainName, repoName, format, namespace, name, in.TargetStatus, in.Versions,
+		c.Request().Context(), domainName, repoName, format, namespace, name, in.TargetStatus, in.Versions,
 	)
 	if err != nil {
 		return h.handleError(c, err)
@@ -2134,12 +2236,12 @@ func (h *Handler) handleUpdateRepository(c *echo.Context, domainName, repoName s
 		_ = json.Unmarshal(body, &in)
 	}
 
-	r, err := h.Backend.UpdateRepository(domainName, repoName, in.Description)
+	r, err := h.Backend.UpdateRepository(c.Request().Context(), domainName, repoName, in.Description)
 	if err != nil {
 		return h.handleError(c, err)
 	}
 
-	extConns := h.Backend.GetExternalConnections(domainName, repoName)
+	extConns := h.Backend.GetExternalConnections(c.Request().Context(), domainName, repoName)
 
 	return c.JSON(http.StatusOK, map[string]any{keyRepository: repoToMap(r, extConns)})
 }

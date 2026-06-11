@@ -2,6 +2,7 @@ package acmpca_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -54,9 +55,13 @@ func parseACMPCAResponse(t *testing.T, rec *httptest.ResponseRecorder) map[strin
 func createHandlerCA(t *testing.T, h *acmpca.Handler) string {
 	t.Helper()
 
-	ca, err := h.Backend.CreateCertificateAuthority("ROOT", acmpca.CertificateAuthorityConfiguration{
-		Subject: acmpca.CertificateAuthoritySubject{CommonName: "Handler CA"},
-	})
+	ca, err := h.Backend.CreateCertificateAuthority(
+		context.Background(),
+		"ROOT",
+		acmpca.CertificateAuthorityConfiguration{
+			Subject: acmpca.CertificateAuthoritySubject{CommonName: "Handler CA"},
+		},
+	)
 	require.NoError(t, err)
 
 	return ca.ARN
@@ -154,8 +159,8 @@ func TestACMPCAHandler_MissingOperations(t *testing.T) {
 				describeResp := parseACMPCAResponse(t, describeAuditRec)
 				assert.Equal(t, "SUCCESS", describeResp["AuditReportStatus"])
 
-				require.NoError(t, h.Backend.UpdateCertificateAuthority(caARN, "DISABLED"))
-				require.NoError(t, h.Backend.DeleteCertificateAuthority(caARN, 0))
+				require.NoError(t, h.Backend.UpdateCertificateAuthority(context.Background(), caARN, "DISABLED"))
+				require.NoError(t, h.Backend.DeleteCertificateAuthority(context.Background(), caARN, 0))
 
 				restoreRec := doACMPCARequest(t, h, "RestoreCertificateAuthority", map[string]any{
 					"CertificateAuthorityArn": caARN,
@@ -294,6 +299,7 @@ func TestACMPCAHandler_TagValidationAndCertificateChain(t *testing.T) {
 				caARN := createHandlerCA(t, h)
 
 				subCA, err := h.Backend.CreateCertificateAuthority(
+					context.Background(),
 					"SUBORDINATE",
 					acmpca.CertificateAuthorityConfiguration{
 						Subject: acmpca.CertificateAuthoritySubject{CommonName: "Sub CA"},
@@ -301,7 +307,7 @@ func TestACMPCAHandler_TagValidationAndCertificateChain(t *testing.T) {
 				)
 				require.NoError(t, err)
 
-				csr, err := h.Backend.GetCertificateAuthorityCsr(subCA.ARN)
+				csr, err := h.Backend.GetCertificateAuthorityCsr(context.Background(), subCA.ARN)
 				require.NoError(t, err)
 
 				rec := doACMPCARequest(t, h, "IssueCertificate", map[string]any{
@@ -323,6 +329,7 @@ func TestACMPCAHandler_TagValidationAndCertificateChain(t *testing.T) {
 				caARN := createHandlerCA(t, h)
 
 				subCA, err := h.Backend.CreateCertificateAuthority(
+					context.Background(),
 					"SUBORDINATE",
 					acmpca.CertificateAuthorityConfiguration{
 						Subject: acmpca.CertificateAuthoritySubject{CommonName: "Sub CA"},
@@ -330,10 +337,10 @@ func TestACMPCAHandler_TagValidationAndCertificateChain(t *testing.T) {
 				)
 				require.NoError(t, err)
 
-				csr, err := h.Backend.GetCertificateAuthorityCsr(subCA.ARN)
+				csr, err := h.Backend.GetCertificateAuthorityCsr(context.Background(), subCA.ARN)
 				require.NoError(t, err)
 
-				cert, err := h.Backend.IssueCertificate(caARN, csr, 365)
+				cert, err := h.Backend.IssueCertificate(context.Background(), caARN, csr, 365)
 				require.NoError(t, err)
 
 				rec := doACMPCARequest(t, h, "GetCertificate", map[string]any{

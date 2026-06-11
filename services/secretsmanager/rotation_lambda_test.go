@@ -56,7 +56,7 @@ func TestRotation_StagingLabels_PendingBeforeFinish(t *testing.T) {
 			}
 			h.SetLambdaInvoker(mock)
 
-			_, err := backend.CreateSecret(&secretsmanager.CreateSecretInput{
+			_, err := backend.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 				Name:         "pending-test",
 				SecretString: "v1",
 			})
@@ -75,7 +75,10 @@ func TestRotation_StagingLabels_PendingBeforeFinish(t *testing.T) {
 
 			// New version must be AWSCURRENT after all steps succeed.
 			if tt.wantCurrent {
-				curr, getErr := backend.GetSecretValue(&secretsmanager.GetSecretValueInput{SecretID: "pending-test"})
+				curr, getErr := backend.GetSecretValue(
+					context.Background(),
+					&secretsmanager.GetSecretValueInput{SecretID: "pending-test"},
+				)
 				require.NoError(t, getErr)
 				assert.Contains(t, curr.VersionStages, "AWSCURRENT")
 				assert.NotContains(t, curr.VersionStages, "AWSPENDING",
@@ -132,7 +135,7 @@ func TestRotation_LambdaFailure_AbortsRotation(t *testing.T) {
 			}
 			h.SetLambdaInvoker(mock)
 
-			out0, err := backend.CreateSecret(&secretsmanager.CreateSecretInput{
+			out0, err := backend.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 				Name:         "abort-test",
 				SecretString: "original",
 			})
@@ -150,7 +153,10 @@ func TestRotation_LambdaFailure_AbortsRotation(t *testing.T) {
 			assert.NotEqual(t, 200, rec.Code, "Lambda failure must cause non-200 response")
 
 			// Original AWSCURRENT must be unchanged.
-			curr, err := backend.GetSecretValue(&secretsmanager.GetSecretValueInput{SecretID: "abort-test"})
+			curr, err := backend.GetSecretValue(
+				context.Background(),
+				&secretsmanager.GetSecretValueInput{SecretID: "abort-test"},
+			)
 			require.NoError(t, err)
 			assert.Equal(t, originalVersion, curr.VersionID,
 				"original AWSCURRENT version must be intact after Lambda failure")
@@ -197,7 +203,7 @@ func TestRotation_ScheduledRotation_InvokesLambda(t *testing.T) {
 			}
 			h.SetLambdaInvoker(mock)
 
-			_, err := backend.CreateSecret(&secretsmanager.CreateSecretInput{
+			_, err := backend.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 				Name:         "sched-lambda",
 				SecretString: "v0",
 			})
@@ -205,7 +211,7 @@ func TestRotation_ScheduledRotation_InvokesLambda(t *testing.T) {
 
 			days := int64(1)
 			rotateImmediately := false
-			_, err = backend.RotateSecret(&secretsmanager.RotateSecretInput{
+			_, err = backend.RotateSecret(context.Background(), &secretsmanager.RotateSecretInput{
 				SecretID:          "sched-lambda",
 				RotationLambdaARN: testLambdaARN,
 				RotationRules: &secretsmanager.RotationRulesType{
@@ -225,7 +231,10 @@ func TestRotation_ScheduledRotation_InvokesLambda(t *testing.T) {
 				"scheduler must invoke Lambda rotation steps in order")
 
 			// New version must be AWSCURRENT.
-			curr, getErr := backend.GetSecretValue(&secretsmanager.GetSecretValueInput{SecretID: "sched-lambda"})
+			curr, getErr := backend.GetSecretValue(
+				context.Background(),
+				&secretsmanager.GetSecretValueInput{SecretID: "sched-lambda"},
+			)
 			require.NoError(t, getErr)
 			assert.Contains(t, curr.VersionStages, "AWSCURRENT")
 		})

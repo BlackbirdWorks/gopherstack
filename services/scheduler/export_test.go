@@ -25,20 +25,30 @@ func LastFiredAtLen(r *Runner) int {
 	return len(r.lastFiredAt)
 }
 
-// ScheduleCount returns the number of schedules in the backend.
+// ScheduleCount returns the total number of schedules in the backend across all regions.
 func ScheduleCount(b *InMemoryBackend) int {
 	b.mu.RLock("ScheduleCount")
 	defer b.mu.RUnlock()
 
-	return len(b.schedules)
+	total := 0
+	for _, regionSchedules := range b.schedules {
+		total += len(regionSchedules)
+	}
+
+	return total
 }
 
-// ScheduleGroupCount returns the number of schedule groups in the backend.
+// ScheduleGroupCount returns the total number of schedule groups across all regions.
 func ScheduleGroupCount(b *InMemoryBackend) int {
 	b.mu.RLock("ScheduleGroupCount")
 	defer b.mu.RUnlock()
 
-	return len(b.scheduleGroups)
+	total := 0
+	for _, regionGroups := range b.scheduleGroups {
+		total += len(regionGroups)
+	}
+
+	return total
 }
 
 // HandlerOpsLen returns the number of operations in the handler's dispatch table.

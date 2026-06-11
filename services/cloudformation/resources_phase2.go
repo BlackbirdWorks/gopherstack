@@ -1056,6 +1056,7 @@ func (rc *ResourceCreator) createACMCertificate(
 	}
 
 	cert, err := rc.backends.ACM.Backend.RequestCertificate(
+		context.Background(),
 		domainName,
 		"AMAZON_ISSUED",
 		validationMethod,
@@ -1077,7 +1078,7 @@ func (rc *ResourceCreator) deleteACMCertificate(arn string) error {
 		return nil
 	}
 
-	return rc.backends.ACM.Backend.DeleteCertificate(arn)
+	return rc.backends.ACM.Backend.DeleteCertificate(context.Background(), arn)
 }
 
 // ---- Cognito ----

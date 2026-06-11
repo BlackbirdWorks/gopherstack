@@ -14,6 +14,7 @@ package secretsmanager_test
 //     staging label without moving it to another version.
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -48,9 +49,12 @@ func TestBatch2B_CreateSecret_DeletedNameCollision(t *testing.T) {
 			newName: "cs-del-collision",
 			setup: func(t *testing.T, b *sm.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateSecret(&sm.CreateSecretInput{Name: "cs-del-collision", SecretString: "v"})
+				_, err := b.CreateSecret(
+					context.Background(),
+					&sm.CreateSecretInput{Name: "cs-del-collision", SecretString: "v"},
+				)
 				require.NoError(t, err)
-				_, err = b.DeleteSecret(&sm.DeleteSecretInput{SecretID: "cs-del-collision"})
+				_, err = b.DeleteSecret(context.Background(), &sm.DeleteSecretInput{SecretID: "cs-del-collision"})
 				require.NoError(t, err)
 			},
 			wantFn: func(t *testing.T, err error) {
@@ -66,7 +70,10 @@ func TestBatch2B_CreateSecret_DeletedNameCollision(t *testing.T) {
 			newName: "cs-active-collision",
 			setup: func(t *testing.T, b *sm.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateSecret(&sm.CreateSecretInput{Name: "cs-active-collision", SecretString: "v"})
+				_, err := b.CreateSecret(
+					context.Background(),
+					&sm.CreateSecretInput{Name: "cs-active-collision", SecretString: "v"},
+				)
 				require.NoError(t, err)
 			},
 			wantFn: func(t *testing.T, err error) {
@@ -80,9 +87,12 @@ func TestBatch2B_CreateSecret_DeletedNameCollision(t *testing.T) {
 			newName: "cs-force-del",
 			setup: func(t *testing.T, b *sm.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateSecret(&sm.CreateSecretInput{Name: "cs-force-del", SecretString: "v"})
+				_, err := b.CreateSecret(
+					context.Background(),
+					&sm.CreateSecretInput{Name: "cs-force-del", SecretString: "v"},
+				)
 				require.NoError(t, err)
-				_, err = b.DeleteSecret(&sm.DeleteSecretInput{
+				_, err = b.DeleteSecret(context.Background(), &sm.DeleteSecretInput{
 					SecretID:                   "cs-force-del",
 					ForceDeleteWithoutRecovery: true,
 				})
@@ -102,7 +112,7 @@ func TestBatch2B_CreateSecret_DeletedNameCollision(t *testing.T) {
 			b := sm.NewInMemoryBackend()
 			tt.setup(t, b)
 
-			_, err := b.CreateSecret(&sm.CreateSecretInput{Name: tt.newName, SecretString: "new"})
+			_, err := b.CreateSecret(context.Background(), &sm.CreateSecretInput{Name: tt.newName, SecretString: "new"})
 			tt.wantFn(t, err)
 		})
 	}
@@ -124,9 +134,12 @@ func TestBatch2B_CreateSecret_DeletedNameCollision_HTTP(t *testing.T) {
 			name: "deleted_name_returns_400_InvalidRequestException",
 			setup: func(t *testing.T, b *sm.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateSecret(&sm.CreateSecretInput{Name: "cs-http-del", SecretString: "v"})
+				_, err := b.CreateSecret(
+					context.Background(),
+					&sm.CreateSecretInput{Name: "cs-http-del", SecretString: "v"},
+				)
 				require.NoError(t, err)
-				_, err = b.DeleteSecret(&sm.DeleteSecretInput{SecretID: "cs-http-del"})
+				_, err = b.DeleteSecret(context.Background(), &sm.DeleteSecretInput{SecretID: "cs-http-del"})
 				require.NoError(t, err)
 			},
 			body:        `{"Name":"cs-http-del","SecretString":"new"}`,
@@ -137,7 +150,10 @@ func TestBatch2B_CreateSecret_DeletedNameCollision_HTTP(t *testing.T) {
 			name: "active_name_returns_400_ResourceExistsException",
 			setup: func(t *testing.T, b *sm.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateSecret(&sm.CreateSecretInput{Name: "cs-http-active", SecretString: "v"})
+				_, err := b.CreateSecret(
+					context.Background(),
+					&sm.CreateSecretInput{Name: "cs-http-active", SecretString: "v"},
+				)
 				require.NoError(t, err)
 			},
 			body:        `{"Name":"cs-http-active","SecretString":"new"}`,
@@ -216,7 +232,7 @@ func TestBatch2B_BatchGetSecretValue_SecretIDListTooLong(t *testing.T) {
 			t.Parallel()
 
 			b := sm.NewInMemoryBackend()
-			_, err := b.BatchGetSecretValue(&sm.BatchGetSecretValueInput{SecretIDList: tt.ids})
+			_, err := b.BatchGetSecretValue(context.Background(), &sm.BatchGetSecretValueInput{SecretIDList: tt.ids})
 
 			if tt.wantErr {
 				require.ErrorIs(t, err, sm.ErrInvalidParameter,
@@ -301,7 +317,10 @@ func TestBatch2B_UpdateSecretVersionStage_CannotRemoveAWSCURRENT(t *testing.T) {
 			name: "remove_awscurrent_without_move_rejected",
 			setup: func(t *testing.T, b *sm.InMemoryBackend) string {
 				t.Helper()
-				out, err := b.CreateSecret(&sm.CreateSecretInput{Name: "usvs-cur-1", SecretString: "v"})
+				out, err := b.CreateSecret(
+					context.Background(),
+					&sm.CreateSecretInput{Name: "usvs-cur-1", SecretString: "v"},
+				)
 				require.NoError(t, err)
 
 				return out.VersionID
@@ -316,10 +335,13 @@ func TestBatch2B_UpdateSecretVersionStage_CannotRemoveAWSCURRENT(t *testing.T) {
 			name: "remove_non_current_label_allowed",
 			setup: func(t *testing.T, b *sm.InMemoryBackend) string {
 				t.Helper()
-				out, err := b.CreateSecret(&sm.CreateSecretInput{Name: "usvs-noncur-1", SecretString: "v"})
+				out, err := b.CreateSecret(
+					context.Background(),
+					&sm.CreateSecretInput{Name: "usvs-noncur-1", SecretString: "v"},
+				)
 				require.NoError(t, err)
 				// Add a custom label to the version.
-				_, err = b.UpdateSecretVersionStage(&sm.UpdateSecretVersionStageInput{
+				_, err = b.UpdateSecretVersionStage(context.Background(), &sm.UpdateSecretVersionStageInput{
 					SecretID:        "usvs-noncur-1",
 					VersionStage:    "CUSTOM-LABEL",
 					MoveToVersionID: out.VersionID,
@@ -337,9 +359,15 @@ func TestBatch2B_UpdateSecretVersionStage_CannotRemoveAWSCURRENT(t *testing.T) {
 			name: "move_awscurrent_to_new_version_allowed",
 			setup: func(t *testing.T, b *sm.InMemoryBackend) string {
 				t.Helper()
-				_, err := b.CreateSecret(&sm.CreateSecretInput{Name: "usvs-move-1", SecretString: "v1"})
+				_, err := b.CreateSecret(
+					context.Background(),
+					&sm.CreateSecretInput{Name: "usvs-move-1", SecretString: "v1"},
+				)
 				require.NoError(t, err)
-				out2, err := b.PutSecretValue(&sm.PutSecretValueInput{SecretID: "usvs-move-1", SecretString: "v2"})
+				out2, err := b.PutSecretValue(
+					context.Background(),
+					&sm.PutSecretValueInput{SecretID: "usvs-move-1", SecretString: "v2"},
+				)
 				require.NoError(t, err)
 
 				return out2.VersionID
@@ -381,7 +409,7 @@ func TestBatch2B_UpdateSecretVersionStage_CannotRemoveAWSCURRENT(t *testing.T) {
 				}
 			}
 
-			_, err := b.UpdateSecretVersionStage(input)
+			_, err := b.UpdateSecretVersionStage(context.Background(), input)
 			tt.wantFn(t, err)
 		})
 	}
@@ -402,7 +430,10 @@ func TestBatch2B_UpdateSecretVersionStage_CannotRemoveAWSCURRENT_HTTP(t *testing
 			name: "remove_awscurrent_returns_400",
 			setup: func(t *testing.T, b *sm.InMemoryBackend) string {
 				t.Helper()
-				out, err := b.CreateSecret(&sm.CreateSecretInput{Name: "usvs-http-cur", SecretString: "v"})
+				out, err := b.CreateSecret(
+					context.Background(),
+					&sm.CreateSecretInput{Name: "usvs-http-cur", SecretString: "v"},
+				)
 				require.NoError(t, err)
 
 				return out.VersionID

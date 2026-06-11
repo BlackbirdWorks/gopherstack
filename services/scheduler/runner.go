@@ -153,7 +153,7 @@ func (r *Runner) run(ctx context.Context) {
 }
 
 func (r *Runner) checkAndFireSchedules(ctx context.Context, now time.Time) {
-	schedules, _ := r.backend.ListSchedules("", "", "", "", 0)
+	schedules, _ := r.backend.ListSchedules(ctx, "", "", "", "", 0)
 
 	activeKeys := make(map[string]struct{}, len(schedules))
 	activeExprs := make(map[string]struct{}, len(schedules))
@@ -430,7 +430,11 @@ func (r *Runner) handleActionAfterCompletion(ctx context.Context, s *Schedule, l
 
 	switch strings.ToUpper(action) {
 	case "DELETE":
-		if err := r.backend.DeleteSchedule(s.Name, s.GroupName); err != nil {
+		delCtx := ctx
+		if s.Region != "" {
+			delCtx = context.WithValue(ctx, regionContextKey{}, s.Region)
+		}
+		if err := r.backend.DeleteSchedule(delCtx, s.Name, s.GroupName); err != nil {
 			log.WarnContext(ctx, "scheduler: ActionAfterCompletion=DELETE failed", "schedule", s.Name, "error", err)
 		} else {
 			log.DebugContext(ctx, "scheduler: deleted schedule after completion", "schedule", s.Name)

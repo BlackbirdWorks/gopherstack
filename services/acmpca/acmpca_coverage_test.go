@@ -1,6 +1,7 @@
 package acmpca_test
 
 import (
+	"context"
 	"net/http"
 	"testing"
 
@@ -137,13 +138,13 @@ func TestACMPCAHandler_IssueCertAndRevoke(t *testing.T) {
 	h := acmpca.NewHandler(b)
 
 	// Create CA
-	ca, err := b.CreateCertificateAuthority("ROOT", acmpca.CertificateAuthorityConfiguration{
+	ca, err := b.CreateCertificateAuthority(context.Background(), "ROOT", acmpca.CertificateAuthorityConfiguration{
 		Subject: acmpca.CertificateAuthoritySubject{CommonName: "Test Issue CA"},
 	})
 	require.NoError(t, err)
 
 	// Get CSR from backend
-	csrPEM, err := b.GetCertificateAuthorityCsr(ca.ARN)
+	csrPEM, err := b.GetCertificateAuthorityCsr(context.Background(), ca.ARN)
 	require.NoError(t, err)
 
 	// IssueCertificate using the actual CSR
@@ -160,7 +161,7 @@ func TestACMPCAHandler_IssueCertAndRevoke(t *testing.T) {
 	require.NotEmpty(t, certARN)
 
 	// GetCertificate via backend
-	cert, err := b.GetCertificate(ca.ARN, certARN)
+	cert, err := b.GetCertificate(context.Background(), ca.ARN, certARN)
 	require.NoError(t, err)
 	assert.NotEmpty(t, cert.ARN)
 
@@ -172,7 +173,7 @@ func TestACMPCAHandler_IssueCertAndRevoke(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	// RevokeCertificate - cert exists but serial lookup uses backend directly
-	issuedCert, err := b.GetCertificate(ca.ARN, certARN)
+	issuedCert, err := b.GetCertificate(context.Background(), ca.ARN, certARN)
 	require.NoError(t, err)
 
 	rec = doACMPCARequest(t, h, "RevokeCertificate", map[string]any{
@@ -371,18 +372,22 @@ func TestACMPCAHandler_ToCAOutput(t *testing.T) {
 	h := newACMPCAHandler()
 
 	// Create CA with full subject
-	ca, err := h.Backend.CreateCertificateAuthority("ROOT", acmpca.CertificateAuthorityConfiguration{
-		Subject: acmpca.CertificateAuthoritySubject{
-			CommonName:         "Full CA",
-			Country:            "US",
-			Organization:       "Test Org",
-			OrganizationalUnit: "Test Unit",
-			State:              "CA",
-			Locality:           "SF",
+	ca, err := h.Backend.CreateCertificateAuthority(
+		context.Background(),
+		"ROOT",
+		acmpca.CertificateAuthorityConfiguration{
+			Subject: acmpca.CertificateAuthoritySubject{
+				CommonName:         "Full CA",
+				Country:            "US",
+				Organization:       "Test Org",
+				OrganizationalUnit: "Test Unit",
+				State:              "CA",
+				Locality:           "SF",
+			},
+			KeyAlgorithm:     "RSA_2048",
+			SigningAlgorithm: "SHA256WITHRSA",
 		},
-		KeyAlgorithm:     "RSA_2048",
-		SigningAlgorithm: "SHA256WITHRSA",
-	})
+	)
 	require.NoError(t, err)
 
 	// Describe - exercises toCAOutput

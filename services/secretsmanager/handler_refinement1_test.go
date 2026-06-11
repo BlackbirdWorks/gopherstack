@@ -1,6 +1,7 @@
 package secretsmanager_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -67,11 +68,11 @@ func TestRefinement1_SecretCount(t *testing.T) {
 	b := secretsmanager.NewInMemoryBackend()
 	require.Equal(t, 0, secretsmanager.SecretCount(b))
 
-	_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "a", SecretString: "v"})
+	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{Name: "a", SecretString: "v"})
 	require.NoError(t, err)
 	assert.Equal(t, 1, secretsmanager.SecretCount(b))
 
-	_, err = b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "b", SecretString: "v"})
+	_, err = b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{Name: "b", SecretString: "v"})
 	require.NoError(t, err)
 	assert.Equal(t, 2, secretsmanager.SecretCount(b))
 }
@@ -81,18 +82,24 @@ func TestRefinement1_ResourcePolicyCount(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
-	_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "pol-secret", SecretString: "v"})
+	_, err := b.CreateSecret(
+		context.Background(),
+		&secretsmanager.CreateSecretInput{Name: "pol-secret", SecretString: "v"},
+	)
 	require.NoError(t, err)
 	require.Equal(t, 0, secretsmanager.ResourcePolicyCount(b))
 
-	_, err = b.PutResourcePolicy(&secretsmanager.PutResourcePolicyInput{
+	_, err = b.PutResourcePolicy(context.Background(), &secretsmanager.PutResourcePolicyInput{
 		SecretID:       "pol-secret",
 		ResourcePolicy: `{"Version":"2012-10-17"}`,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, 1, secretsmanager.ResourcePolicyCount(b))
 
-	_, err = b.DeleteResourcePolicy(&secretsmanager.DeleteResourcePolicyInput{SecretID: "pol-secret"})
+	_, err = b.DeleteResourcePolicy(
+		context.Background(),
+		&secretsmanager.DeleteResourcePolicyInput{SecretID: "pol-secret"},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, 0, secretsmanager.ResourcePolicyCount(b))
 }
@@ -102,18 +109,24 @@ func TestRefinement1_ReplicationConfigCount(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
-	_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "rep-cnt", SecretString: "v"})
+	_, err := b.CreateSecret(
+		context.Background(),
+		&secretsmanager.CreateSecretInput{Name: "rep-cnt", SecretString: "v"},
+	)
 	require.NoError(t, err)
 	require.Equal(t, 0, secretsmanager.ReplicationConfigCount(b))
 
-	_, err = b.ReplicateSecretToRegions(&secretsmanager.ReplicateSecretToRegionsInput{
+	_, err = b.ReplicateSecretToRegions(context.Background(), &secretsmanager.ReplicateSecretToRegionsInput{
 		SecretID:          "rep-cnt",
 		AddReplicaRegions: []secretsmanager.ReplicaRegion{{Region: "us-west-2"}},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, 1, secretsmanager.ReplicationConfigCount(b))
 
-	_, err = b.StopReplicationToReplica(&secretsmanager.StopReplicationToReplicaInput{SecretID: "rep-cnt"})
+	_, err = b.StopReplicationToReplica(
+		context.Background(),
+		&secretsmanager.StopReplicationToReplicaInput{SecretID: "rep-cnt"},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, 0, secretsmanager.ReplicationConfigCount(b))
 }
@@ -129,7 +142,7 @@ func TestRefinement1_AddSecretInternal(t *testing.T) {
 	})
 	assert.Equal(t, 1, secretsmanager.SecretCount(b))
 
-	got, err := b.DescribeSecret(&secretsmanager.DescribeSecretInput{SecretID: "my-seed"})
+	got, err := b.DescribeSecret(context.Background(), &secretsmanager.DescribeSecretInput{SecretID: "my-seed"})
 	require.NoError(t, err)
 	assert.Equal(t, "my-seed", got.Name)
 }
@@ -140,10 +153,13 @@ func TestRefinement1_UpdateSecretVersionStageAutoStrip(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
-	_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "vs-strip", SecretString: "v1"})
+	_, err := b.CreateSecret(
+		context.Background(),
+		&secretsmanager.CreateSecretInput{Name: "vs-strip", SecretString: "v1"},
+	)
 	require.NoError(t, err)
 
-	desc1, err := b.DescribeSecret(&secretsmanager.DescribeSecretInput{SecretID: "vs-strip"})
+	desc1, err := b.DescribeSecret(context.Background(), &secretsmanager.DescribeSecretInput{SecretID: "vs-strip"})
 	require.NoError(t, err)
 	v1ID := desc1.VersionIDsToStages
 	var v1 string
@@ -152,7 +168,7 @@ func TestRefinement1_UpdateSecretVersionStageAutoStrip(t *testing.T) {
 	}
 
 	// Create second version.
-	put, err := b.PutSecretValue(&secretsmanager.PutSecretValueInput{
+	put, err := b.PutSecretValue(context.Background(), &secretsmanager.PutSecretValueInput{
 		SecretID:     "vs-strip",
 		SecretString: "v2",
 	})
@@ -160,7 +176,7 @@ func TestRefinement1_UpdateSecretVersionStageAutoStrip(t *testing.T) {
 	v2 := put.VersionID
 
 	// Move AWSPREVIOUS label to v2 (stripping from v1 where it may be).
-	_, err = b.UpdateSecretVersionStage(&secretsmanager.UpdateSecretVersionStageInput{
+	_, err = b.UpdateSecretVersionStage(context.Background(), &secretsmanager.UpdateSecretVersionStageInput{
 		SecretID:        "vs-strip",
 		VersionStage:    secretsmanager.StagingLabelPrevious,
 		MoveToVersionID: v2,
@@ -168,7 +184,7 @@ func TestRefinement1_UpdateSecretVersionStageAutoStrip(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify v1 no longer has AWSPREVIOUS.
-	desc2, err := b.DescribeSecret(&secretsmanager.DescribeSecretInput{SecretID: "vs-strip"})
+	desc2, err := b.DescribeSecret(context.Background(), &secretsmanager.DescribeSecretInput{SecretID: "vs-strip"})
 	require.NoError(t, err)
 
 	for _, lbl := range desc2.VersionIDsToStages[v1] {
@@ -184,10 +200,13 @@ func TestRefinement1_UpdateSecretVersionStageAWSCURRENT(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
-	_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "vs-curr", SecretString: "v1"})
+	_, err := b.CreateSecret(
+		context.Background(),
+		&secretsmanager.CreateSecretInput{Name: "vs-curr", SecretString: "v1"},
+	)
 	require.NoError(t, err)
 
-	put, err := b.PutSecretValue(&secretsmanager.PutSecretValueInput{
+	put, err := b.PutSecretValue(context.Background(), &secretsmanager.PutSecretValueInput{
 		SecretID:     "vs-curr",
 		SecretString: "v2",
 	})
@@ -195,7 +214,7 @@ func TestRefinement1_UpdateSecretVersionStageAWSCURRENT(t *testing.T) {
 	v2 := put.VersionID
 
 	// Move AWSCURRENT back to the original v1.
-	desc1, err := b.DescribeSecret(&secretsmanager.DescribeSecretInput{SecretID: "vs-curr"})
+	desc1, err := b.DescribeSecret(context.Background(), &secretsmanager.DescribeSecretInput{SecretID: "vs-curr"})
 	require.NoError(t, err)
 	var v1 string
 	for id, labels := range desc1.VersionIDsToStages {
@@ -207,7 +226,7 @@ func TestRefinement1_UpdateSecretVersionStageAWSCURRENT(t *testing.T) {
 	}
 	require.NotEmpty(t, v1)
 
-	_, err = b.UpdateSecretVersionStage(&secretsmanager.UpdateSecretVersionStageInput{
+	_, err = b.UpdateSecretVersionStage(context.Background(), &secretsmanager.UpdateSecretVersionStageInput{
 		SecretID:            "vs-curr",
 		VersionStage:        secretsmanager.StagingLabelCurrent,
 		MoveToVersionID:     v1,
@@ -216,7 +235,7 @@ func TestRefinement1_UpdateSecretVersionStageAWSCURRENT(t *testing.T) {
 	require.NoError(t, err)
 
 	// v1 should now be AWSCURRENT.
-	got, err := b.GetSecretValue(&secretsmanager.GetSecretValueInput{
+	got, err := b.GetSecretValue(context.Background(), &secretsmanager.GetSecretValueInput{
 		SecretID:     "vs-curr",
 		VersionStage: secretsmanager.StagingLabelCurrent,
 	})
@@ -229,16 +248,19 @@ func TestRefinement1_DeleteSecretCascade(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
-	_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "cascade", SecretString: "v"})
+	_, err := b.CreateSecret(
+		context.Background(),
+		&secretsmanager.CreateSecretInput{Name: "cascade", SecretString: "v"},
+	)
 	require.NoError(t, err)
 
-	_, err = b.PutResourcePolicy(&secretsmanager.PutResourcePolicyInput{
+	_, err = b.PutResourcePolicy(context.Background(), &secretsmanager.PutResourcePolicyInput{
 		SecretID:       "cascade",
 		ResourcePolicy: `{"Version":"2012-10-17"}`,
 	})
 	require.NoError(t, err)
 
-	_, err = b.ReplicateSecretToRegions(&secretsmanager.ReplicateSecretToRegionsInput{
+	_, err = b.ReplicateSecretToRegions(context.Background(), &secretsmanager.ReplicateSecretToRegionsInput{
 		SecretID:          "cascade",
 		AddReplicaRegions: []secretsmanager.ReplicaRegion{{Region: "us-west-2"}},
 	})
@@ -247,7 +269,7 @@ func TestRefinement1_DeleteSecretCascade(t *testing.T) {
 	require.Equal(t, 1, secretsmanager.ResourcePolicyCount(b))
 	require.Equal(t, 1, secretsmanager.ReplicationConfigCount(b))
 
-	_, err = b.DeleteSecret(&secretsmanager.DeleteSecretInput{
+	_, err = b.DeleteSecret(context.Background(), &secretsmanager.DeleteSecretInput{
 		SecretID:                   "cascade",
 		ForceDeleteWithoutRecovery: true,
 	})
@@ -263,10 +285,13 @@ func TestRefinement1_PutResourcePolicyEmptyRejects(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
-	_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "ep-secret", SecretString: "v"})
+	_, err := b.CreateSecret(
+		context.Background(),
+		&secretsmanager.CreateSecretInput{Name: "ep-secret", SecretString: "v"},
+	)
 	require.NoError(t, err)
 
-	_, err = b.PutResourcePolicy(&secretsmanager.PutResourcePolicyInput{
+	_, err = b.PutResourcePolicy(context.Background(), &secretsmanager.PutResourcePolicyInput{
 		SecretID:       "ep-secret",
 		ResourcePolicy: "",
 	})
@@ -278,7 +303,10 @@ func TestRefinement1_PutResourcePolicyEmptyHTTP(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
-	_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "ep-http", SecretString: "v"})
+	_, err := b.CreateSecret(
+		context.Background(),
+		&secretsmanager.CreateSecretInput{Name: "ep-http", SecretString: "v"},
+	)
 	require.NoError(t, err)
 
 	h := secretsmanager.NewHandler(b)
@@ -292,14 +320,14 @@ func TestRefinement1_KmsKeyIdRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
-	_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{
+	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:         "kms-test",
 		SecretString: "v",
 		KmsKeyID:     "alias/my-key",
 	})
 	require.NoError(t, err)
 
-	desc, err := b.DescribeSecret(&secretsmanager.DescribeSecretInput{SecretID: "kms-test"})
+	desc, err := b.DescribeSecret(context.Background(), &secretsmanager.DescribeSecretInput{SecretID: "kms-test"})
 	require.NoError(t, err)
 	assert.Equal(t, "alias/my-key", desc.KmsKeyID)
 }
@@ -309,16 +337,19 @@ func TestRefinement1_RotationLambdaARNStored(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
-	_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "rla-test", SecretString: "v"})
+	_, err := b.CreateSecret(
+		context.Background(),
+		&secretsmanager.CreateSecretInput{Name: "rla-test", SecretString: "v"},
+	)
 	require.NoError(t, err)
 
-	_, err = b.RotateSecret(&secretsmanager.RotateSecretInput{
+	_, err = b.RotateSecret(context.Background(), &secretsmanager.RotateSecretInput{
 		SecretID:          "rla-test",
 		RotationLambdaARN: "arn:aws:lambda:us-east-1:123:function:my-rotator",
 	})
 	require.NoError(t, err)
 
-	desc, err := b.DescribeSecret(&secretsmanager.DescribeSecretInput{SecretID: "rla-test"})
+	desc, err := b.DescribeSecret(context.Background(), &secretsmanager.DescribeSecretInput{SecretID: "rla-test"})
 	require.NoError(t, err)
 	assert.Equal(t, "arn:aws:lambda:us-east-1:123:function:my-rotator", desc.RotationLambdaARN)
 }
@@ -328,17 +359,20 @@ func TestRefinement1_LastRotatedDate(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
-	_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "lrd-test", SecretString: "v"})
+	_, err := b.CreateSecret(
+		context.Background(),
+		&secretsmanager.CreateSecretInput{Name: "lrd-test", SecretString: "v"},
+	)
 	require.NoError(t, err)
 
-	desc0, err := b.DescribeSecret(&secretsmanager.DescribeSecretInput{SecretID: "lrd-test"})
+	desc0, err := b.DescribeSecret(context.Background(), &secretsmanager.DescribeSecretInput{SecretID: "lrd-test"})
 	require.NoError(t, err)
 	assert.Nil(t, desc0.LastRotatedDate)
 
-	_, err = b.RotateSecret(&secretsmanager.RotateSecretInput{SecretID: "lrd-test"})
+	_, err = b.RotateSecret(context.Background(), &secretsmanager.RotateSecretInput{SecretID: "lrd-test"})
 	require.NoError(t, err)
 
-	desc1, err := b.DescribeSecret(&secretsmanager.DescribeSecretInput{SecretID: "lrd-test"})
+	desc1, err := b.DescribeSecret(context.Background(), &secretsmanager.DescribeSecretInput{SecretID: "lrd-test"})
 	require.NoError(t, err)
 	require.NotNil(t, desc1.LastRotatedDate)
 	assert.Greater(t, *desc1.LastRotatedDate, float64(0))
@@ -349,16 +383,19 @@ func TestRefinement1_DescribeSecretReplicationStatus(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
-	_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "rep-desc", SecretString: "v"})
+	_, err := b.CreateSecret(
+		context.Background(),
+		&secretsmanager.CreateSecretInput{Name: "rep-desc", SecretString: "v"},
+	)
 	require.NoError(t, err)
 
-	_, err = b.ReplicateSecretToRegions(&secretsmanager.ReplicateSecretToRegionsInput{
+	_, err = b.ReplicateSecretToRegions(context.Background(), &secretsmanager.ReplicateSecretToRegionsInput{
 		SecretID:          "rep-desc",
 		AddReplicaRegions: []secretsmanager.ReplicaRegion{{Region: "ap-northeast-1"}},
 	})
 	require.NoError(t, err)
 
-	desc, err := b.DescribeSecret(&secretsmanager.DescribeSecretInput{SecretID: "rep-desc"})
+	desc, err := b.DescribeSecret(context.Background(), &secretsmanager.DescribeSecretInput{SecretID: "rep-desc"})
 	require.NoError(t, err)
 	require.Len(t, desc.ReplicationStatus, 1)
 	assert.Equal(t, "ap-northeast-1", desc.ReplicationStatus[0].Region)
@@ -371,11 +408,11 @@ func TestRefinement1_ListSecretsFilterByName(t *testing.T) {
 	b := secretsmanager.NewInMemoryBackend()
 
 	for _, name := range []string{"alpha-1", "alpha-2", "beta-1"} {
-		_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{Name: name, SecretString: "v"})
+		_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{Name: name, SecretString: "v"})
 		require.NoError(t, err)
 	}
 
-	out, err := b.ListSecrets(&secretsmanager.ListSecretsInput{
+	out, err := b.ListSecrets(context.Background(), &secretsmanager.ListSecretsInput{
 		Filters: []secretsmanager.SecretFilter{{Key: "name", Values: []string{"alpha"}}},
 	})
 	require.NoError(t, err)
@@ -389,20 +426,20 @@ func TestRefinement1_ListSecretsFilterByDescription(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
-	_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{
+	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:         "desc-a",
 		SecretString: "v",
 		Description:  "production secret",
 	})
 	require.NoError(t, err)
-	_, err = b.CreateSecret(&secretsmanager.CreateSecretInput{
+	_, err = b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:         "desc-b",
 		SecretString: "v",
 		Description:  "staging secret",
 	})
 	require.NoError(t, err)
 
-	out, err := b.ListSecrets(&secretsmanager.ListSecretsInput{
+	out, err := b.ListSecrets(context.Background(), &secretsmanager.ListSecretsInput{
 		Filters: []secretsmanager.SecretFilter{{Key: "description", Values: []string{"prod"}}},
 	})
 	require.NoError(t, err)
@@ -415,19 +452,19 @@ func TestRefinement1_ListSecretsFilterByTagKey(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
-	_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{
+	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:         "tagged",
 		SecretString: "v",
 		Tags:         []secretsmanager.Tag{{Key: "env", Value: "prod"}},
 	})
 	require.NoError(t, err)
-	_, err = b.CreateSecret(&secretsmanager.CreateSecretInput{
+	_, err = b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:         "untagged",
 		SecretString: "v",
 	})
 	require.NoError(t, err)
 
-	out, err := b.ListSecrets(&secretsmanager.ListSecretsInput{
+	out, err := b.ListSecrets(context.Background(), &secretsmanager.ListSecretsInput{
 		Filters: []secretsmanager.SecretFilter{{Key: "tag-key", Values: []string{"env"}}},
 	})
 	require.NoError(t, err)
@@ -440,20 +477,20 @@ func TestRefinement1_ListSecretsFilterByTagValue(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
-	_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{
+	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:         "tv-a",
 		SecretString: "v",
 		Tags:         []secretsmanager.Tag{{Key: "env", Value: "prod"}},
 	})
 	require.NoError(t, err)
-	_, err = b.CreateSecret(&secretsmanager.CreateSecretInput{
+	_, err = b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:         "tv-b",
 		SecretString: "v",
 		Tags:         []secretsmanager.Tag{{Key: "env", Value: "dev"}},
 	})
 	require.NoError(t, err)
 
-	out, err := b.ListSecrets(&secretsmanager.ListSecretsInput{
+	out, err := b.ListSecrets(context.Background(), &secretsmanager.ListSecretsInput{
 		Filters: []secretsmanager.SecretFilter{{Key: "tag-value", Values: []string{"prod"}}},
 	})
 	require.NoError(t, err)
@@ -466,16 +503,19 @@ func TestRefinement1_BatchGetFilterTagKey(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
-	_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{
+	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:         "batch-tag",
 		SecretString: "v",
 		Tags:         []secretsmanager.Tag{{Key: "class", Value: "database"}},
 	})
 	require.NoError(t, err)
-	_, err = b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "batch-notag", SecretString: "v"})
+	_, err = b.CreateSecret(
+		context.Background(),
+		&secretsmanager.CreateSecretInput{Name: "batch-notag", SecretString: "v"},
+	)
 	require.NoError(t, err)
 
-	out, err := b.BatchGetSecretValue(&secretsmanager.BatchGetSecretValueInput{
+	out, err := b.BatchGetSecretValue(context.Background(), &secretsmanager.BatchGetSecretValueInput{
 		Filters: []secretsmanager.BatchGetSecretValueFilter{{Key: "tag-key", Values: []string{"class"}}},
 	})
 	require.NoError(t, err)
@@ -490,7 +530,7 @@ func TestRefinement1_BatchGetPagination(t *testing.T) {
 	b := secretsmanager.NewInMemoryBackend()
 
 	for i := range 5 {
-		_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{
+		_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 			Name:         fmt.Sprintf("pag-%02d", i),
 			SecretString: "v",
 		})
@@ -498,14 +538,14 @@ func TestRefinement1_BatchGetPagination(t *testing.T) {
 	}
 
 	maxResults := int32(2)
-	out1, err := b.BatchGetSecretValue(&secretsmanager.BatchGetSecretValueInput{
+	out1, err := b.BatchGetSecretValue(context.Background(), &secretsmanager.BatchGetSecretValueInput{
 		MaxResults: &maxResults,
 	})
 	require.NoError(t, err)
 	require.Len(t, out1.SecretValues, 2)
 	assert.NotEmpty(t, out1.NextToken)
 
-	out2, err := b.BatchGetSecretValue(&secretsmanager.BatchGetSecretValueInput{
+	out2, err := b.BatchGetSecretValue(context.Background(), &secretsmanager.BatchGetSecretValueInput{
 		MaxResults: &maxResults,
 		NextToken:  out1.NextToken,
 	})
@@ -513,7 +553,7 @@ func TestRefinement1_BatchGetPagination(t *testing.T) {
 	require.Len(t, out2.SecretValues, 2)
 	assert.NotEmpty(t, out2.NextToken)
 
-	out3, err := b.BatchGetSecretValue(&secretsmanager.BatchGetSecretValueInput{
+	out3, err := b.BatchGetSecretValue(context.Background(), &secretsmanager.BatchGetSecretValueInput{
 		MaxResults: &maxResults,
 		NextToken:  out2.NextToken,
 	})
@@ -527,13 +567,19 @@ func TestRefinement1_ListSecretVersionsDeleted(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
-	_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "del-ver", SecretString: "v"})
+	_, err := b.CreateSecret(
+		context.Background(),
+		&secretsmanager.CreateSecretInput{Name: "del-ver", SecretString: "v"},
+	)
 	require.NoError(t, err)
 
-	_, err = b.DeleteSecret(&secretsmanager.DeleteSecretInput{SecretID: "del-ver"})
+	_, err = b.DeleteSecret(context.Background(), &secretsmanager.DeleteSecretInput{SecretID: "del-ver"})
 	require.NoError(t, err)
 
-	out, err := b.ListSecretVersionIDs(&secretsmanager.ListSecretVersionIDsInput{SecretID: "del-ver"})
+	out, err := b.ListSecretVersionIDs(
+		context.Background(),
+		&secretsmanager.ListSecretVersionIDsInput{SecretID: "del-ver"},
+	)
 	require.NoError(t, err)
 	assert.Len(t, out.Versions, 1)
 }
@@ -545,7 +591,7 @@ func TestRefinement1_CreateSecretClientRequestToken(t *testing.T) {
 	b := secretsmanager.NewInMemoryBackend()
 	token := "11111111-2222-3333-4444-555555555555"
 
-	out, err := b.CreateSecret(&secretsmanager.CreateSecretInput{
+	out, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:               "crt-test",
 		SecretString:       "v",
 		ClientRequestToken: token,
@@ -559,13 +605,16 @@ func TestRefinement1_GenerateVersionID(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
-	_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "uuid-ver", SecretString: "v"})
+	_, err := b.CreateSecret(
+		context.Background(),
+		&secretsmanager.CreateSecretInput{Name: "uuid-ver", SecretString: "v"},
+	)
 	require.NoError(t, err)
 
-	_, err = b.RotateSecret(&secretsmanager.RotateSecretInput{SecretID: "uuid-ver"})
+	_, err = b.RotateSecret(context.Background(), &secretsmanager.RotateSecretInput{SecretID: "uuid-ver"})
 	require.NoError(t, err)
 
-	desc, err := b.DescribeSecret(&secretsmanager.DescribeSecretInput{SecretID: "uuid-ver"})
+	desc, err := b.DescribeSecret(context.Background(), &secretsmanager.DescribeSecretInput{SecretID: "uuid-ver"})
 	require.NoError(t, err)
 
 	uuidRE := regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
@@ -579,14 +628,14 @@ func TestRefinement1_Snapshot_Restore(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
-	_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{
+	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:         "snap-test",
 		SecretString: "v",
 		KmsKeyID:     "alias/snap-key",
 	})
 	require.NoError(t, err)
 
-	_, err = b.RotateSecret(&secretsmanager.RotateSecretInput{
+	_, err = b.RotateSecret(context.Background(), &secretsmanager.RotateSecretInput{
 		SecretID:          "snap-test",
 		RotationLambdaARN: "arn:aws:lambda:us-east-1:123:function:rotator",
 	})
@@ -598,7 +647,7 @@ func TestRefinement1_Snapshot_Restore(t *testing.T) {
 	b2 := secretsmanager.NewInMemoryBackend()
 	require.NoError(t, b2.Restore(snap))
 
-	desc, err := b2.DescribeSecret(&secretsmanager.DescribeSecretInput{SecretID: "snap-test"})
+	desc, err := b2.DescribeSecret(context.Background(), &secretsmanager.DescribeSecretInput{SecretID: "snap-test"})
 	require.NoError(t, err)
 	assert.Equal(t, "alias/snap-key", desc.KmsKeyID)
 	assert.Equal(t, "arn:aws:lambda:us-east-1:123:function:rotator", desc.RotationLambdaARN)
@@ -610,14 +659,17 @@ func TestRefinement1_ResetCleansAllMaps(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
-	_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "reset-s", SecretString: "v"})
+	_, err := b.CreateSecret(
+		context.Background(),
+		&secretsmanager.CreateSecretInput{Name: "reset-s", SecretString: "v"},
+	)
 	require.NoError(t, err)
-	_, err = b.PutResourcePolicy(&secretsmanager.PutResourcePolicyInput{
+	_, err = b.PutResourcePolicy(context.Background(), &secretsmanager.PutResourcePolicyInput{
 		SecretID:       "reset-s",
 		ResourcePolicy: `{}`,
 	})
 	require.NoError(t, err)
-	_, err = b.ReplicateSecretToRegions(&secretsmanager.ReplicateSecretToRegionsInput{
+	_, err = b.ReplicateSecretToRegions(context.Background(), &secretsmanager.ReplicateSecretToRegionsInput{
 		SecretID:          "reset-s",
 		AddReplicaRegions: []secretsmanager.ReplicaRegion{{Region: "us-west-2"}},
 	})
@@ -636,11 +688,11 @@ func TestRefinement1_CancelRotateSecretNoRotation(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
-	_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "norot", SecretString: "v"})
+	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{Name: "norot", SecretString: "v"})
 	require.NoError(t, err)
 
 	// CancelRotate on a non-rotating secret should succeed (idempotent).
-	out, err := b.CancelRotateSecret(&secretsmanager.CancelRotateSecretInput{SecretID: "norot"})
+	out, err := b.CancelRotateSecret(context.Background(), &secretsmanager.CancelRotateSecretInput{SecretID: "norot"})
 	require.NoError(t, err)
 	assert.Equal(t, "norot", out.Name)
 }
@@ -654,7 +706,10 @@ func TestRefinement1_RestoreEnsuresNonNilMaps(t *testing.T) {
 	err := b.Restore([]byte(`{"accountID":"acct","region":"us-east-1"}`))
 	require.NoError(t, err)
 	// Should be able to create secrets without panics.
-	_, err = b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "post-restore", SecretString: "v"})
+	_, err = b.CreateSecret(
+		context.Background(),
+		&secretsmanager.CreateSecretInput{Name: "post-restore", SecretString: "v"},
+	)
 	require.NoError(t, err)
 }
 
@@ -665,11 +720,11 @@ func TestRefinement1_ListSecretsNoFilter(t *testing.T) {
 	b := secretsmanager.NewInMemoryBackend()
 
 	for _, name := range []string{"x", "y", "z"} {
-		_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{Name: name, SecretString: "v"})
+		_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{Name: name, SecretString: "v"})
 		require.NoError(t, err)
 	}
 
-	out, err := b.ListSecrets(&secretsmanager.ListSecretsInput{})
+	out, err := b.ListSecrets(context.Background(), &secretsmanager.ListSecretsInput{})
 	require.NoError(t, err)
 	assert.Len(t, out.SecretList, 3)
 }
@@ -679,7 +734,7 @@ func TestRefinement1_DescribeSecretHTTP(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
-	_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{
+	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 		Name:         "http-kms",
 		SecretString: "v",
 		KmsKeyID:     "alias/http-key",
@@ -703,7 +758,7 @@ func TestRefinement1_ListSecretsHTTPFilter(t *testing.T) {
 	b := secretsmanager.NewInMemoryBackend()
 
 	for _, name := range []string{"http-flt-a", "http-flt-b", "other"} {
-		_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{Name: name, SecretString: "v"})
+		_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{Name: name, SecretString: "v"})
 		require.NoError(t, err)
 	}
 

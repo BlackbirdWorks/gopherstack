@@ -87,6 +87,7 @@ func newTestBackendWithSchedule(t *testing.T, name, expr, targetARN, state strin
 
 	backend := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
 	_, err := backend.CreateSchedule(
+		context.Background(),
 		name,
 		"",
 		expr,
@@ -419,6 +420,7 @@ func TestScheduler_Runner_TargetInput(t *testing.T) {
 
 			backend := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
 			_, err := backend.CreateSchedule(
+				context.Background(),
 				"custom-input-sched",
 				"",
 				"rate(1 second)",
@@ -489,6 +491,7 @@ func TestScheduler_Runner_CronRangeAndStep(t *testing.T) {
 
 			backend := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
 			_, err := backend.CreateSchedule(
+				context.Background(),
 				tt.scheduleName,
 				"",
 				tt.cronExpr,
@@ -535,7 +538,7 @@ func TestScheduler_Runner_LastFiredAtCleanup(t *testing.T) {
 	assert.Equal(t, 1, scheduler.LastFiredAtLen(runner), "lastFiredAt should have one entry")
 
 	// Delete the schedule.
-	require.NoError(t, backend.DeleteSchedule("sweep-sched", ""))
+	require.NoError(t, backend.DeleteSchedule(context.Background(), "sweep-sched", ""))
 
 	// Fire again: the stale entry should be swept.
 	scheduler.CheckAndFireSchedules(t.Context(), runner, now.Add(2*time.Second))
@@ -662,7 +665,7 @@ func TestScheduler_Runner_CronCacheEviction(t *testing.T) {
 			name: "delete schedule removes cache entry",
 			setup: func(t *testing.T, b *scheduler.InMemoryBackend) {
 				t.Helper()
-				require.NoError(t, b.DeleteSchedule("evict-sched", ""))
+				require.NoError(t, b.DeleteSchedule(context.Background(), "evict-sched", ""))
 			},
 			wantSize: 0,
 		},
@@ -670,9 +673,10 @@ func TestScheduler_Runner_CronCacheEviction(t *testing.T) {
 			name: "update schedule to different expression removes old entry",
 			setup: func(t *testing.T, b *scheduler.InMemoryBackend) {
 				t.Helper()
-				require.NoError(t, b.DeleteSchedule("evict-sched", ""))
+				require.NoError(t, b.DeleteSchedule(context.Background(), "evict-sched", ""))
 
 				_, err := b.CreateSchedule(
+					context.Background(),
 					"evict-sched", "", "cron(0 6 * * ? *)", "", "",
 					scheduler.Target{ARN: lambdaARN, RoleARN: role},
 					"ENABLED", scheduler.FlexibleTimeWindow{Mode: "OFF"},
@@ -690,6 +694,7 @@ func TestScheduler_Runner_CronCacheEviction(t *testing.T) {
 
 			backend := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
 			_, err := backend.CreateSchedule(
+				context.Background(),
 				"evict-sched", "", "cron(0 12 * * ? *)", "", "",
 				scheduler.Target{ARN: lambdaARN, RoleARN: role},
 				"ENABLED", scheduler.FlexibleTimeWindow{Mode: "OFF"},
@@ -744,6 +749,7 @@ func TestScheduler_Runner_CronMonthAliases(t *testing.T) {
 
 			backend := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
 			_, err := backend.CreateSchedule(
+				context.Background(),
 				tt.name+"-sched",
 				"",
 				tt.cronExpr,
@@ -796,6 +802,7 @@ func TestScheduler_Runner_CronDOWAliases(t *testing.T) {
 
 			backend := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
 			_, err := backend.CreateSchedule(
+				context.Background(),
 				tt.name+"-sched",
 				"",
 				tt.cronExpr,
