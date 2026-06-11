@@ -21,10 +21,7 @@
 		DeleteBackupCommand,
 		DescribeContinuousBackupsCommand,
 		UpdateContinuousBackupsCommand,
-<<<<<<< HEAD
 		DescribeTableReplicaAutoScalingCommand,
-=======
->>>>>>> 3ed0e7e6 (dashboard: §F second pass — popular-services UI features)
 		type TableDescription,
 		type ContinuousBackupsDescription,
 		type KeySchemaElement,
@@ -92,7 +89,6 @@
 	let backupsLoading = $state(false);
 	let newBackupName = $state('');
 
-<<<<<<< HEAD
 	// PITR State
 	let pitrStatus = $state<'ENABLED' | 'DISABLED' | 'ENABLING' | 'DISABLING' | null>(null);
 	let pitrLoading = $state(false);
@@ -102,12 +98,10 @@
 	let tableReplicas = $state<{ RegionName?: string; ReplicaStatus?: string }[]>([]);
 	let replicasLoading = $state(false);
 	let newReplicaRegion = $state('');
-=======
+
 	// Point-In-Time Recovery (PITR) state
 	let continuousBackups = $state<ContinuousBackupsDescription | null>(null);
-	let pitrLoading = $state(false);
 	let pitrUpdating = $state(false);
->>>>>>> 3ed0e7e6 (dashboard: §F second pass — popular-services UI features)
 
 	// PartiQL State
 	let partiqlStatement = $state('');

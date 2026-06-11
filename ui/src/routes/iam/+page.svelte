@@ -13,16 +13,11 @@ CreateAccessKeyCommand, DeleteAccessKeyCommand, ListAccessKeysCommand, UpdateAcc
 ListAccountAliasesCommand, GetAccountSummaryCommand,
 ListAccessKeysCommand as ListAccessKeysCmd,
 ListUserPoliciesCommand, GetUserPolicyCommand, PutUserPolicyCommand, DeleteUserPolicyCommand,
-<<<<<<< HEAD
-ListGroupsForUserCommand,
+ListGroupsForUserCommand, AddUserToGroupCommand, RemoveUserFromGroupCommand,
 GetLoginProfileCommand, CreateLoginProfileCommand, UpdateLoginProfileCommand, DeleteLoginProfileCommand,
 ListVirtualMFADevicesCommand, DeactivateMFADeviceCommand,
 type User, type Role, type Group, type Policy as ManagedPolicy, type AccessKeyMetadata,
 type VirtualMFADevice
-=======
-ListGroupsForUserCommand, AddUserToGroupCommand, RemoveUserFromGroupCommand,
-type User, type Role, type Group, type Policy as ManagedPolicy, type AccessKeyMetadata
->>>>>>> 3ed0e7e6 (dashboard: §F second pass — popular-services UI features)
 } from '@aws-sdk/client-iam';
 import { toast } from 'svelte-sonner';
 import {
@@ -74,12 +69,7 @@ let editingInlinePolicy = $state<string | null>(null);
 let savingInlinePolicy = $state(false);
 let addToGroupName = $state('');
 
-// Inline policy state
-let userInlinePolicies = $state<string[]>([]);
-let inlinePolicyName = $state('');
-let inlinePolicyDoc = $state('{\n  "Version": "2012-10-17",\n  "Statement": [{\n    "Effect": "Allow",\n    "Action": "*",\n    "Resource": "*"\n  }]\n}');
 let showInlinePolicyEditor = $state(false);
-let savingInlinePolicy = $state(false);
 
 // Group membership
 let userGroups = $state<{ GroupName?: string; GroupId?: string }[]>([]);
@@ -191,26 +181,20 @@ summary = (data.SummaryMap as AccountSummary) || {};
 async function loadUserDetail(user: User) {
 if (!user.UserName) return;
 detailLoading = true;
-<<<<<<< HEAD
 userInlinePolicies = [];
 userGroups = [];
 loginProfileExists = null;
 userMFADevices = [];
-try {
-const [pol, keys, inlinePol, groupsRes, mfaRes] = await Promise.all([
-=======
 inlinePolicyName = '';
 inlinePolicyDoc = '';
 editingInlinePolicy = null;
 addToGroupName = '';
 try {
-const [pol, keys, inline, grps] = await Promise.all([
->>>>>>> 3ed0e7e6 (dashboard: §F second pass — popular-services UI features)
+const [pol, keys, inlinePol, groupsRes, mfaRes] = await Promise.all([
 iam.send(new ListAttachedUserPoliciesCommand({ UserName: user.UserName })),
 iam.send(new ListAccessKeysCommand({ UserName: user.UserName })),
 iam.send(new ListUserPoliciesCommand({ UserName: user.UserName })),
 iam.send(new ListGroupsForUserCommand({ UserName: user.UserName })),
-<<<<<<< HEAD
 iam.send(new ListVirtualMFADevicesCommand({ AssignmentStatus: 'Assigned' })),
 ]);
 userAttachedPolicies = pol.AttachedPolicies || [];
@@ -218,13 +202,7 @@ userAccessKeys = keys.AccessKeyMetadata || [];
 userInlinePolicies = inlinePol.PolicyNames || [];
 userGroups = (groupsRes.Groups || []).map(g => ({ GroupName: g.GroupName, GroupId: g.GroupId }));
 userMFADevices = (mfaRes.VirtualMFADevices || []).filter(d => d.User?.UserName === user.UserName);
-=======
-]);
-userAttachedPolicies = pol.AttachedPolicies || [];
-userAccessKeys = keys.AccessKeyMetadata || [];
-userInlinePolicies = inline.PolicyNames || [];
-userGroupMemberships = (grps.Groups || []).map((g) => g.GroupName ?? '').filter(Boolean);
->>>>>>> 3ed0e7e6 (dashboard: §F second pass — popular-services UI features)
+userGroupMemberships = (groupsRes.Groups || []).map((g) => g.GroupName ?? '').filter(Boolean);
 } catch {
 		// non-critical
 		} finally {

@@ -19,24 +19,14 @@
 		CreateEventSourceMappingCommand,
 		UpdateEventSourceMappingCommand,
 		DeleteEventSourceMappingCommand,
-		ListVersionsByFunctionCommand,
-		PublishVersionCommand,
-		ListAliasesCommand,
-		CreateAliasCommand,
-		DeleteAliasCommand,
 		PutFunctionConcurrencyCommand,
 		DeleteFunctionConcurrencyCommand,
 		GetFunctionConcurrencyCommand,
 		type FunctionConfiguration,
 		type InvocationResponse,
 		type LayersListItem,
-<<<<<<< HEAD
-		type AliasConfiguration,
-		type EventSourceMappingConfiguration
-=======
 		type EventSourceMappingConfiguration,
 		type AliasConfiguration
->>>>>>> 3ed0e7e6 (dashboard: §F second pass — popular-services UI features)
 	} from '@aws-sdk/client-lambda';
 	import { toast } from 'svelte-sonner';
 	import {
@@ -77,24 +67,17 @@
 	let fnDetailTab = $state<'config' | 'versions' | 'aliases' | 'triggers' | 'code'>('config');
 
 	// Versions
-	let fnVersions = $state<FunctionConfiguration[]>([]);
-	let versionsLoading = $state(false);
 	let publishDesc = $state('');
 	let publishing = $state(false);
 
 	// Aliases
-	let fnAliases = $state<AliasConfiguration[]>([]);
 	let aliasesLoading = $state(false);
-	let newAliasName = $state('');
 	let newAliasFnVersion = $state('$LATEST');
-	let creatingAlias = $state(false);
 
 	// Event Source Mappings
 	let fnEsms = $state<EventSourceMappingConfiguration[]>([]);
 	let esmsLoading = $state(false);
 	let newEsmEventArn = $state('');
-	let newEsmBatchSize = $state(10);
-	let creatingEsm = $state(false);
 
 	// Code Update
 	let updateCodeImageUri = $state('');
@@ -967,8 +950,6 @@
 							{/if}
 						</div>
 
-<<<<<<< HEAD
-=======
 						<!-- Versions / Aliases / Concurrency -->
 						<div>
 							<div class="flex items-center justify-between mb-3">
@@ -1036,7 +1017,6 @@
 								{/if}
 							{/if}
 						</div>
->>>>>>> 3ed0e7e6 (dashboard: §F second pass — popular-services UI features)
 
 						<button
 							onclick={() => showInvokeModal = true}

@@ -27,22 +27,16 @@ import {
 	DeleteSnapshotCommand,
 	CreateLaunchTemplateCommand,
 	RunInstancesCommand,
-<<<<<<< HEAD
+	CreateSecurityGroupCommand,
+	DeleteSecurityGroupCommand,
 	AuthorizeSecurityGroupIngressCommand,
 	AuthorizeSecurityGroupEgressCommand,
 	RevokeSecurityGroupIngressCommand,
 	RevokeSecurityGroupEgressCommand,
-	type IpPermission,
-=======
-	CreateSecurityGroupCommand,
-	DeleteSecurityGroupCommand,
-	AuthorizeSecurityGroupIngressCommand,
-	RevokeSecurityGroupIngressCommand,
 	AllocateAddressCommand,
 	ReleaseAddressCommand,
 	AssociateAddressCommand,
 	DisassociateAddressCommand,
->>>>>>> 3ed0e7e6 (dashboard: §F second pass — popular-services UI features)
 	type SecurityGroup,
 	type IpPermission,
 	type KeyPairInfo,
@@ -110,7 +104,6 @@ let internetGateways = $state<InternetGateway[]>([]);
 let routeTables = $state<RouteTable[]>([]);
 let natGateways = $state<NatGateway[]>([]);
 let sgSearch = $state('');
-<<<<<<< HEAD
 let selectedSg = $state<SecurityGroup | null>(null);
 let showSgRules = $state(false);
 let addRuleDirection = $state<'inbound' | 'outbound'>('inbound');
@@ -118,8 +111,6 @@ let newRuleProtocol = $state('tcp');
 let newRuleFromPort = $state('80');
 let newRuleToPort = $state('80');
 let newRuleCidr = $state('0.0.0.0/0');
-let addingRule = $state(false);
-=======
 // Security group rule editor state
 let expandedSG = $state<string | null>(null);
 let showCreateSG = $state(false);
@@ -136,7 +127,6 @@ let addingRule = $state(false);
 let showAllocateEIP = $state(false);
 let allocatingEIP = $state(false);
 let eipAssociateInstance = $state<Record<string, string>>({});
->>>>>>> 3ed0e7e6 (dashboard: §F second pass — popular-services UI features)
 let kpSearch = $state('');
 let amiSearch = $state('');
 let ltSearch = $state('');
@@ -180,7 +170,6 @@ async function loadSecurityGroups() {
 	}
 }
 
-<<<<<<< HEAD
 async function addSgRule() {
 	if (!selectedSg?.GroupId) return;
 	addingRule = true;
@@ -200,7 +189,13 @@ async function addSgRule() {
 		const data = await ec2.send(new DescribeSecurityGroupsCommand({ GroupIds: [selectedSg.GroupId] }));
 		selectedSg = data.SecurityGroups?.[0] ?? selectedSg;
 		securityGroups = securityGroups.map(sg => sg.GroupId === selectedSg?.GroupId ? selectedSg! : sg);
-=======
+	} catch (e) {
+		toast.error(e instanceof Error ? e.message : 'Failed to add rule');
+	} finally {
+		addingRule = false;
+	}
+}
+
 async function createSecurityGroup() {
 	if (!newSGName.trim() || !newSGDescription.trim()) {
 		toast.error('Name and description are required');
@@ -249,7 +244,6 @@ async function addIngressRule(groupId: string) {
 		await ec2.send(new AuthorizeSecurityGroupIngressCommand({ GroupId: groupId, IpPermissions: [perm] }));
 		toast.success('Ingress rule added');
 		await loadSecurityGroups();
->>>>>>> 3ed0e7e6 (dashboard: §F second pass — popular-services UI features)
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to add rule');
 	} finally {
@@ -257,7 +251,6 @@ async function addIngressRule(groupId: string) {
 	}
 }
 
-<<<<<<< HEAD
 async function revokeSgRule(direction: 'inbound' | 'outbound', perm: IpPermission) {
 	if (!selectedSg?.GroupId) return;
 	try {
@@ -281,7 +274,8 @@ function formatIpPerm(perm: IpPermission): string {
 	const cidrs = perm.IpRanges?.map(r => r.CidrIp).join(', ') ?? '';
 	const sg = perm.UserIdGroupPairs?.map(p => p.GroupId).join(', ') ?? '';
 	return `${proto} ${ports} ${cidrs || sg}`;
-=======
+}
+
 async function revokeIngressRule(groupId: string, perm: IpPermission) {
 	if (!await confirmDestructive({ title: 'Revoke Rule', message: 'Remove this inbound rule?', confirmLabel: 'Revoke' })) return;
 	try {
@@ -341,7 +335,6 @@ async function disassociateEIP(addr: Address) {
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to disassociate Elastic IP');
 	}
->>>>>>> 3ed0e7e6 (dashboard: §F second pass — popular-services UI features)
 }
 
 async function loadKeyPairs() {
@@ -976,11 +969,7 @@ class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 round
 </thead>
 <tbody class="divide-y divide-slate-100 dark:divide-slate-700">
 {#each filteredSGs as sg}
-<<<<<<< HEAD
-<tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer {selectedSg?.GroupId === sg.GroupId ? 'bg-blue-50 dark:bg-blue-900/20' : ''}" onclick={() => { selectedSg = sg; showSgRules = true; }}>
-=======
-<tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer" onclick={() => { expandedSG = expandedSG === sg.GroupId ? null : (sg.GroupId ?? null); }}>
->>>>>>> 3ed0e7e6 (dashboard: §F second pass — popular-services UI features)
+<tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer {selectedSg?.GroupId === sg.GroupId ? 'bg-blue-50 dark:bg-blue-900/20' : ''}" onclick={() => { expandedSG = expandedSG === sg.GroupId ? null : (sg.GroupId ?? null); selectedSg = sg; showSgRules = true; }}>
 <td class="px-4 py-3">
 <p class="font-medium text-slate-900 dark:text-white">{sg.GroupName}</p>
 {#if sg.Description}<p class="text-xs text-slate-500 dark:text-slate-400">{sg.Description}</p>{/if}
