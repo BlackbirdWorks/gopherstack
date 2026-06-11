@@ -16,6 +16,11 @@
 		ListNotebookMetadataCommand,
 		CreateNotebookCommand,
 		ListPreparedStatementsCommand,
+		ListNamedQueriesCommand,
+		BatchGetNamedQueryCommand,
+		CreateNamedQueryCommand,
+		DeleteNamedQueryCommand,
+		type NamedQuery,
 		type WorkGroupSummary,
 		type DataCatalogSummary,
 		type QueryExecution,
@@ -26,7 +31,7 @@
 		type PreparedStatementSummary
 	} from '@aws-sdk/client-athena';
 	import { toast } from 'svelte-sonner';
-	import { Search, RefreshCw, Play, XCircle, Database, Clock, ChevronRight, Table, BookOpen, Terminal, Download, Save, Trash2, BarChart2 } from 'lucide-svelte';
+	import { Search, RefreshCw, Play, XCircle, Database, Clock, ChevronRight, Table, BookOpen, Terminal, Save, Trash2, Bookmark } from 'lucide-svelte';
 
 	const athena = getAthenaClient();
 
@@ -74,61 +79,13 @@
 	let preparedStatements = $state<PreparedStatementSummary[]>([]);
 	let loadingPrepared = $state(false);
 
-	// Saved Queries
-	interface SavedQuery {
-		id: string;
-		name: string;
-		query: string;
-		workgroup: string;
-		database: string;
-		savedAt: string;
-	}
-	let savedQueries = $state<SavedQuery[]>([]);
+	// Saved (Named) Queries
+	let savedQueries = $state<NamedQuery[]>([]);
+	let loadingSaved = $state(false);
+	let showSaveQuery = $state(false);
+	let savingQuery = $state(false);
 	let saveQueryName = $state('');
-	let showSaveDialog = $state(false);
-
-	function loadSavedQueriesFromStorage() {
-		try {
-			const raw = localStorage.getItem('athena-saved-queries');
-			savedQueries = raw ? JSON.parse(raw) : [];
-		} catch {
-			savedQueries = [];
-		}
-	}
-
-	function persistSavedQueries() {
-		localStorage.setItem('athena-saved-queries', JSON.stringify(savedQueries));
-	}
-
-	function saveCurrentQuery() {
-		if (!saveQueryName.trim() || !queryText.trim()) return;
-		const entry: SavedQuery = {
-			id: crypto.randomUUID(),
-			name: saveQueryName.trim(),
-			query: queryText.trim(),
-			workgroup: queryWorkgroup,
-			database: queryDatabase,
-			savedAt: new Date().toISOString()
-		};
-		savedQueries = [entry, ...savedQueries];
-		persistSavedQueries();
-		saveQueryName = '';
-		showSaveDialog = false;
-		toast.success(`Query "${entry.name}" saved`);
-	}
-
-	function deleteSavedQuery(id: string) {
-		savedQueries = savedQueries.filter((q) => q.id !== id);
-		persistSavedQueries();
-	}
-
-	function loadSavedQuery(q: SavedQuery) {
-		queryText = q.query;
-		queryWorkgroup = q.workgroup;
-		queryDatabase = q.database;
-		activeTab = 'query';
-		toast.success(`Loaded "${q.name}"`);
-	}
+	let saveQueryDescription = $state('');
 
 	const statusColor = (state: string | undefined) => {
 		if (!state) return 'gray';
@@ -372,7 +329,67 @@
 		}
 	}
 
-	async function handleTabChange(tab: typeof activeTab) {
+	async function loadSavedQueries() {
+		loadingSaved = true;
+		try {
+			const list = await athena.send(new ListNamedQueriesCommand({ WorkGroup: queryWorkgroup || 'primary' }));
+			const ids = list.NamedQueryIds ?? [];
+			if (ids.length === 0) {
+				savedQueries = [];
+			} else {
+				const detail = await athena.send(new BatchGetNamedQueryCommand({ NamedQueryIds: ids }));
+				savedQueries = detail.NamedQueries ?? [];
+			}
+		} catch (e) {
+			toast.error('Failed to load saved queries: ' + String(e));
+		} finally {
+			loadingSaved = false;
+		}
+	}
+
+	async function createNamedQuery() {
+		if (!saveQueryName.trim() || !queryText.trim()) return;
+		savingQuery = true;
+		try {
+			await athena.send(new CreateNamedQueryCommand({
+				Name: saveQueryName.trim(),
+				Description: saveQueryDescription.trim() || undefined,
+				Database: queryDatabase || 'default',
+				QueryString: queryText.trim(),
+				WorkGroup: queryWorkgroup || 'primary'
+			}));
+			toast.success(`Saved query "${saveQueryName}" created`);
+			showSaveQuery = false;
+			saveQueryName = '';
+			saveQueryDescription = '';
+			if (activeTab === 'saved') await loadSavedQueries();
+		} catch (e) {
+			toast.error('Failed to save query: ' + String(e));
+		} finally {
+			savingQuery = false;
+		}
+	}
+
+	async function deleteNamedQuery(id: string | undefined) {
+		if (!id) return;
+		try {
+			await athena.send(new DeleteNamedQueryCommand({ NamedQueryId: id }));
+			toast.success('Saved query deleted');
+			await loadSavedQueries();
+		} catch (e) {
+			toast.error('Failed to delete saved query: ' + String(e));
+		}
+	}
+
+	function loadSavedIntoEditor(q: NamedQuery) {
+		queryText = q.QueryString ?? '';
+		if (q.Database) queryDatabase = q.Database;
+		if (q.WorkGroup) queryWorkgroup = q.WorkGroup;
+		activeTab = 'query';
+		toast.success(`Loaded "${q.Name}" into editor`);
+	}
+
+	async function handleTabChange(tab: 'query' | 'workgroups' | 'catalogs' | 'history' | 'sessions' | 'notebooks' | 'prepared' | 'saved') {
 		activeTab = tab;
 		if (tab === 'workgroups' && workgroups.length === 0) await loadWorkgroups();
 		if (tab === 'catalogs' && catalogs.length === 0) await loadCatalogs();
@@ -380,7 +397,7 @@
 		if (tab === 'sessions') await loadSessions();
 		if (tab === 'notebooks') await loadNotebooks();
 		if (tab === 'prepared') await loadPreparedStatements();
-		if (tab === 'saved') loadSavedQueriesFromStorage();
+		if (tab === 'saved') await loadSavedQueries();
 	}
 
 	function formatDate(d: Date | undefined): string {
@@ -437,9 +454,9 @@
 
 	<!-- Tabs -->
 	<div class="flex gap-1 border-b border-gray-200 dark:border-gray-700 flex-wrap">
-		{#each [['query', 'Query Editor'], ['workgroups', 'Workgroups'], ['catalogs', 'Data Catalogs'], ['history', 'Query History'], ['sessions', 'Sessions'], ['notebooks', 'Notebooks'], ['prepared', 'Prepared Statements'], ['saved', 'Saved Queries']] as [tab, label]}
+		{#each [['query', 'Query Editor'], ['saved', 'Saved Queries'], ['workgroups', 'Workgroups'], ['catalogs', 'Data Catalogs'], ['history', 'Query History'], ['sessions', 'Sessions'], ['notebooks', 'Notebooks'], ['prepared', 'Prepared Statements']] as [tab, label]}
 			<button
-				onclick={() => handleTabChange(tab as typeof activeTab)}
+				onclick={() => handleTabChange(tab as 'query' | 'workgroups' | 'catalogs' | 'history' | 'sessions' | 'notebooks' | 'prepared' | 'saved')}
 				class={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab === tab ? 'border-teal-500 text-teal-600 dark:text-teal-400' : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700'}`}
 			>
 				{label}
@@ -499,6 +516,9 @@
 							<XCircle class="w-4 h-4" /> Stop
 						</button>
 					{:else}
+						<button onclick={() => (showSaveQuery = true)} disabled={!queryText.trim()} class="flex items-center gap-2 px-4 py-2 rounded-lg border border-teal-300 dark:border-teal-700 text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-900/20 text-sm font-medium disabled:opacity-50">
+							<Save class="w-4 h-4" /> Save Query
+						</button>
 						<button onclick={executeQuery} disabled={!queryText.trim()} class="flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 text-white hover:bg-teal-700 text-sm font-medium disabled:opacity-50">
 							<Play class="w-4 h-4" /> Run Query
 						</button>
@@ -846,6 +866,43 @@
 		{/if}
 	{/if}
 
+	<!-- SAVED QUERIES -->
+	{#if activeTab === 'saved'}
+		<div class="flex justify-between items-center mb-4">
+			<p class="text-sm text-gray-500">Named queries in workgroup "{queryWorkgroup || 'primary'}"</p>
+			<button onclick={loadSavedQueries} class="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm hover:bg-gray-50 dark:hover:bg-gray-800">
+				<RefreshCw class="w-4 h-4" /> Refresh
+			</button>
+		</div>
+		{#if loadingSaved}
+			<div class="flex justify-center py-12"><div class="animate-spin w-8 h-8 border-4 border-teal-600 border-t-transparent rounded-full"></div></div>
+		{:else if savedQueries.length === 0}
+			<div class="text-center py-12 text-gray-500"><Bookmark class="w-10 h-10 mx-auto mb-2 opacity-40" /><p>No saved queries. Use "Save Query" in the editor to create one.</p></div>
+		{:else}
+			<div class="space-y-3">
+				{#each savedQueries as q}
+					<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+						<div class="flex items-start justify-between gap-4">
+							<div class="flex-1 min-w-0">
+								<div class="flex items-center gap-2">
+									<Bookmark class="w-4 h-4 text-teal-500" />
+									<span class="font-medium text-gray-900 dark:text-white">{q.Name}</span>
+									{#if q.Database}<span class="text-xs px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500">{q.Database}</span>{/if}
+								</div>
+								{#if q.Description}<p class="text-xs text-gray-500 mt-1">{q.Description}</p>{/if}
+								<code class="text-xs text-gray-600 dark:text-gray-400 truncate block mt-2 font-mono">{q.QueryString}</code>
+							</div>
+							<div class="flex items-center gap-2 flex-shrink-0">
+								<button onclick={() => loadSavedIntoEditor(q)} class="px-2.5 py-1 text-xs rounded bg-teal-100 text-teal-700 hover:bg-teal-200 dark:bg-teal-900 dark:text-teal-300">Load</button>
+								<button onclick={() => deleteNamedQuery(q.NamedQueryId)} class="p-1.5 rounded text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30" title="Delete"><Trash2 class="w-4 h-4" /></button>
+							</div>
+						</div>
+					</div>
+				{/each}
+			</div>
+		{/if}
+	{/if}
+
 	<!-- QUERY HISTORY -->
 	{#if activeTab === 'history'}
 		<div class="flex justify-end">
@@ -920,3 +977,27 @@
 		{/if}
 	{/if}
 </div>
+
+<!-- Save Query Modal -->
+{#if showSaveQuery}
+	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+		<div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
+			<h2 class="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2"><Save class="w-5 h-5 text-teal-500" /> Save Query</h2>
+			<div>
+				<label for="save-name" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Name</label>
+				<input id="save-name" bind:value={saveQueryName} type="text" placeholder="my-saved-query" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+			</div>
+			<div>
+				<label for="save-desc" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description (optional)</label>
+				<input id="save-desc" bind:value={saveQueryDescription} type="text" placeholder="What this query does" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+			</div>
+			<div class="text-xs text-gray-500">Database: <span class="font-mono">{queryDatabase || 'default'}</span> · Workgroup: <span class="font-mono">{queryWorkgroup || 'primary'}</span></div>
+			<div class="flex gap-3 pt-2">
+				<button onclick={() => (showSaveQuery = false)} class="flex-1 px-4 py-2 rounded-lg border text-sm hover:bg-gray-50 dark:hover:bg-gray-800">Cancel</button>
+				<button onclick={createNamedQuery} disabled={savingQuery || !saveQueryName.trim()} class="flex-1 px-4 py-2 rounded-lg bg-teal-600 text-white text-sm font-medium hover:bg-teal-700 disabled:opacity-50">
+					{savingQuery ? 'Saving...' : 'Save'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
