@@ -1,6 +1,7 @@
 package elasticsearch_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -23,7 +24,7 @@ func TestElasticsearch_PersistenceSnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *elasticsearch.InMemoryBackend) {
 				t.Helper()
 
-				names := b.ListDomainNames()
+				names := b.ListDomainNames(context.Background())
 				assert.Empty(t, names)
 			},
 		},
@@ -33,6 +34,7 @@ func TestElasticsearch_PersistenceSnapshotRestore(t *testing.T) {
 				t.Helper()
 
 				_, err := b.CreateDomain(
+					context.Background(),
 					"my-domain",
 					"7.10",
 					elasticsearch.ClusterConfig{InstanceType: "t3.small.elasticsearch", InstanceCount: 1},
@@ -43,11 +45,11 @@ func TestElasticsearch_PersistenceSnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *elasticsearch.InMemoryBackend) {
 				t.Helper()
 
-				names := b.ListDomainNames()
+				names := b.ListDomainNames(context.Background())
 				require.Len(t, names, 1)
 				assert.Equal(t, "my-domain", names[0])
 
-				d, err := b.DescribeDomain("my-domain")
+				d, err := b.DescribeDomain(context.Background(), "my-domain")
 				require.NoError(t, err)
 				assert.Equal(t, "7.10", d.ElasticsearchVersion)
 				assert.Equal(t, "Active", d.Status)
@@ -60,6 +62,7 @@ func TestElasticsearch_PersistenceSnapshotRestore(t *testing.T) {
 				t.Helper()
 
 				d, err := b.CreateDomain(
+					context.Background(),
 					"tagged-domain",
 					"",
 					elasticsearch.ClusterConfig{},
@@ -67,20 +70,20 @@ func TestElasticsearch_PersistenceSnapshotRestore(t *testing.T) {
 				)
 				require.NoError(t, err)
 
-				require.NoError(t, b.AddTags(d.ARN, map[string]string{"team": "platform"}))
+				require.NoError(t, b.AddTags(context.Background(), d.ARN, map[string]string{"team": "platform"}))
 			},
 			verify: func(t *testing.T, b *elasticsearch.InMemoryBackend) {
 				t.Helper()
 
-				d, err := b.DescribeDomain("tagged-domain")
+				d, err := b.DescribeDomain(context.Background(), "tagged-domain")
 				require.NoError(t, err)
 
-				tagMap, err := b.ListTags(d.ARN)
+				tagMap, err := b.ListTags(context.Background(), d.ARN)
 				require.NoError(t, err)
 				assert.Equal(t, "platform", tagMap["team"])
 
 				// ARN index must be rebuilt: ARN lookup must work.
-				tagMap2, err := b.ListTags(d.ARN)
+				tagMap2, err := b.ListTags(context.Background(), d.ARN)
 				require.NoError(t, err)
 				assert.Equal(t, tagMap, tagMap2)
 			},
