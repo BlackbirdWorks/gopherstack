@@ -2,11 +2,20 @@ package main
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"log/slog"
 	"math"
+	"math/big"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -207,6 +216,15 @@ const (
 	configDirPerm            = 0o700
 	configFilePerm           = 0o600
 
+	// selfSignedValidity is how long a generated self-signed TLS cert is valid.
+	selfSignedValidity = 365 * 24 * time.Hour
+	// selfSignedSerialBits is the bit-length of the random certificate serial.
+	selfSignedSerialBits = 128
+	// localhostName is the hostname the self-signed dev certificate is issued for.
+	localhostName = "localhost"
+	// loopbackIPv4Octet is the first octet of the IPv4 loopback address (127.x).
+	loopbackIPv4Octet = 127
+
 	keyMessageField      = "message"
 	logLevelDebug        = "debug"
 	demoAppName          = "demo-app"
@@ -377,6 +395,9 @@ type CLI struct {
 	ElasticsearchEngine           string                    `                                  name:"elasticsearch-engine"    env:"ELASTICSEARCH_ENGINE"    default:"stub"          help:"Elasticsearch engine mode: stub (API-only) or docker."`                                                //nolint:lll // config struct tags are intentionally verbose
 	DNSResolveIP                  string                    `                                  name:"dns-resolve-ip"          env:"DNS_RESOLVE_IP"          default:"127.0.0.1"     help:"IP address synthetic hostnames resolve to."`                                                           //nolint:lll // config struct tags are intentionally verbose
 	AccountID                     string                    `                                  name:"account-id"              env:"ACCOUNT_ID"              default:"000000000000"  help:"Mock AWS account ID used in ARNs."`                                                                    //nolint:lll // config struct tags are intentionally verbose
+	TLSCertFile                   string                    `                                  name:"tls-cert"                env:"TLS_CERT"                default:""              help:"Path to a TLS certificate (PEM). Enables an HTTPS listener; requires --tls-key. Empty = HTTP only."`   //nolint:lll // config struct tags are intentionally verbose
+	TLSKeyFile                    string                    `                                  name:"tls-key"                 env:"TLS_KEY"                 default:""              help:"Path to a TLS private key (PEM). Required with --tls-cert."`                                           //nolint:lll // config struct tags are intentionally verbose
+	SigV4Secret                   string                    `                                  name:"sigv4-secret"            env:"SIGV4_SECRET"            default:"test"          help:"Secret access key SigV4 validation signs against (used only when --validate-sigv4 is set)."`           //nolint:lll // config struct tags are intentionally verbose
 	InitScripts                   []string                  `                                  name:"init-script"             env:"INIT_SCRIPTS"                                    help:"Shell scripts to run on startup (may be specified multiple times)."`                                   //nolint:lll // config struct tags are intentionally verbose
 	S3InitBuckets                 []string                  `                                  name:"s3-bucket"               env:"S3_BUCKETS"                                      help:"S3 bucket names to create on startup (may be specified multiple times or as a comma-separated list)."` //nolint:lll // config struct tags are intentionally verbose
 	S3                            s3backend.Settings        `embed:"" prefix:"s3-"`
@@ -408,6 +429,8 @@ type CLI struct {
 	EnforceIAM                    bool                      `                                  name:"enforce-iam"             env:"GOPHERSTACK_ENFORCE_IAM" default:"false"         help:"Enable IAM policy enforcement. When true, every AWS API request is evaluated against attached IAM policies."`                                                                                  //nolint:lll // config struct tags are intentionally verbose
 	Persist                       bool                      `                                  name:"persist"                 env:"PERSIST"                 default:"false"         help:"Enable snapshot-based persistence across restarts."`                                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
 	Demo                          bool                      `                                  name:"demo"                    env:"DEMO"                    default:"false"         help:"Load demo data on startup."`                                                                                                                                                                   //nolint:lll // config struct tags are intentionally verbose
+	TLS                           bool                      `                                  name:"tls"                     env:"TLS"                     default:"false"         help:"Serve over HTTPS. With --tls-cert/--tls-key uses those files; otherwise a self-signed certificate is generated on demand."`                                                                    //nolint:lll // config struct tags are intentionally verbose
+	ValidateSigV4                 bool                      `                                  name:"validate-sigv4"          env:"VALIDATE_SIGV4"          default:"false"         help:"Cryptographically validate AWS SigV4 request signatures (opt-in). Signed requests whose signature does not match --sigv4-secret are rejected."`                                                //nolint:lll // config struct tags are intentionally verbose
 }
 
 // GetGlobalConfig returns the centralised account ID and region (config.Provider).
@@ -1847,7 +1870,29 @@ func run(ctx context.Context, cli CLI) error {
 	createS3InitBuckets(ctx, &cli, log)
 	defer shutdownBackends(janitorCancel, cli.lambdaHandler, services)
 
-	return startServer(ctx, cli.Port, e)
+	return startServer(ctx, cli.Port, e, tlsConfigFromCLI(&cli))
+}
+
+// tlsSettings carries the resolved TLS configuration for the listener.
+type tlsSettings struct {
+	// certFile / keyFile point to PEM files; when both empty (and enabled), a
+	// self-signed certificate is generated in-memory on startup.
+	certFile string
+	keyFile  string
+	// enabled is true when the server should serve HTTPS.
+	enabled bool
+}
+
+// tlsConfigFromCLI derives the TLS listener settings from CLI flags. TLS is
+// enabled when --tls is set or when an explicit cert/key pair is supplied.
+func tlsConfigFromCLI(cli *CLI) tlsSettings {
+	enabled := cli.TLS || (cli.TLSCertFile != "" && cli.TLSKeyFile != "")
+
+	return tlsSettings{
+		enabled:  enabled,
+		certFile: cli.TLSCertFile,
+		keyFile:  cli.TLSKeyFile,
+	}
 }
 
 // runInitHooks runs init scripts after all services are ready, if any are configured.
@@ -1976,7 +2021,7 @@ func wireDNSRegistrars(cli *CLI, dnsSrv *gopherDNS.Server) {
 
 // buildEchoServer creates and configures the Echo HTTP server.
 func buildEchoServer(
-	_ context.Context,
+	ctx context.Context,
 	log *slog.Logger,
 	persistManager *persistence.Manager,
 	services []service.Registerable,
@@ -1988,6 +2033,13 @@ func buildEchoServer(
 	e.Use(logger.APIConsoleMiddleware())
 	e.Use(telemetry.MemoryStatsMiddleware)
 	e.Pre(logger.EchoMiddleware(log))
+
+	// Optional, opt-in SigV4 signature validation. Off by default so existing
+	// clients (which sign with dummy creds) are not rejected.
+	if cli.ValidateSigV4 {
+		log.InfoContext(ctx, "SigV4 request-signature validation ENABLED")
+		e.Use(httputils.NewSigV4Validator(cli.SigV4Secret).EchoMiddleware())
+	}
 
 	e.HTTPErrorHandler = buildHTTPErrorHandler()
 	e.GET("/_gopherstack/health", buildHealthHandler(services))
@@ -4288,26 +4340,28 @@ func wireTaggingSM(bk resourcegroupstaggingapibackend.StorageBackend, smReg serv
 	)
 }
 
-func startServer(ctx context.Context, port string, e *echo.Echo) error {
+func startServer(ctx context.Context, port string, e *echo.Echo, tlsCfg tlsSettings) error {
 	log := logger.Load(ctx)
 
 	if port[0] != ':' {
 		port = ":" + port
 	}
 
-	log.InfoContext(ctx, "Starting Gopherstack (DynamoDB + S3)", "port", port)
-	log.InfoContext(ctx, "  DynamoDB endpoint", "url", "http://localhost"+port)
-	log.InfoContext(ctx, "  S3 endpoint      ", "url", "http://localhost"+port+" (path-style)")
-	log.InfoContext(ctx, "  Dashboard        ", "url", "http://localhost"+port+"/dashboard")
+	scheme := "http"
+	if tlsCfg.enabled {
+		scheme = "https"
+	}
 
-	protocols := new(http.Protocols)
-	protocols.SetHTTP1(true)
-	protocols.SetUnencryptedHTTP2(true)
+	log.InfoContext(ctx, "Starting Gopherstack (DynamoDB + S3)", "port", port, "scheme", scheme)
+	log.InfoContext(ctx, "  DynamoDB endpoint", "url", scheme+"://localhost"+port)
+	log.InfoContext(ctx, "  S3 endpoint      ", "url", scheme+"://localhost"+port+" (path-style)")
+	log.InfoContext(ctx, "  Dashboard        ", "url", scheme+"://localhost"+port+"/dashboard")
 
 	server := &http.Server{
-		Addr:              port,
-		Handler:           e,
-		Protocols:         protocols,
+		Addr:    port,
+		Handler: e,
+		// Protocols set below; under TLS we omit the unencrypted-h2 setting so
+		// the standard h2 ALPN negotiation applies.
 		ReadTimeout:       defaultTimeout,
 		ReadHeaderTimeout: defaultReadHeaderTimeout, // Security best practice
 		// WriteTimeout intentionally 0: long-lived ConnectRPC streams
@@ -4320,9 +4374,16 @@ func startServer(ctx context.Context, port string, e *echo.Echo) error {
 		IdleTimeout:  defaultTimeout,
 	}
 
+	if !tlsCfg.enabled {
+		protocols := new(http.Protocols)
+		protocols.SetHTTP1(true)
+		protocols.SetUnencryptedHTTP2(true)
+		server.Protocols = protocols
+	}
+
 	errChan := make(chan error, 1)
 	go func() {
-		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := serveHTTP(server, tlsCfg); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errChan <- err
 		}
 	}()
@@ -4345,6 +4406,74 @@ func startServer(ctx context.Context, port string, e *echo.Echo) error {
 
 		return err
 	}
+}
+
+// serveHTTP starts the server, choosing HTTP, file-based TLS, or self-signed TLS
+// based on tlsCfg. It blocks until the server stops.
+func serveHTTP(server *http.Server, tlsCfg tlsSettings) error {
+	if !tlsCfg.enabled {
+		return server.ListenAndServe()
+	}
+
+	if tlsCfg.certFile != "" && tlsCfg.keyFile != "" {
+		return server.ListenAndServeTLS(tlsCfg.certFile, tlsCfg.keyFile)
+	}
+
+	// No cert supplied: generate a self-signed certificate in memory.
+	cert, err := generateSelfSignedCert()
+	if err != nil {
+		return fmt.Errorf("generate self-signed certificate: %w", err)
+	}
+
+	server.TLSConfig = &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		MinVersion:   tls.VersionTLS12,
+	}
+
+	// Empty cert/key paths => server uses TLSConfig.Certificates.
+	return server.ListenAndServeTLS("", "")
+}
+
+// generateSelfSignedCert creates an in-memory self-signed certificate valid for
+// localhost / 127.0.0.1 / ::1, suitable for an opt-in dev HTTPS listener.
+func generateSelfSignedCert() (tls.Certificate, error) {
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return tls.Certificate{}, fmt.Errorf("generate key: %w", err)
+	}
+
+	serialLimit := new(big.Int).Lsh(big.NewInt(1), selfSignedSerialBits)
+	serial, err := rand.Int(rand.Reader, serialLimit)
+	if err != nil {
+		return tls.Certificate{}, fmt.Errorf("generate serial: %w", err)
+	}
+
+	template := x509.Certificate{
+		SerialNumber:          serial,
+		Subject:               pkix.Name{CommonName: "gopherstack", Organization: []string{"gopherstack"}},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(selfSignedValidity),
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+		DNSNames:              []string{localhostName},
+		IPAddresses:           []net.IP{net.IPv4(loopbackIPv4Octet, 0, 0, 1), net.IPv6loopback},
+	}
+
+	der, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
+	if err != nil {
+		return tls.Certificate{}, fmt.Errorf("create certificate: %w", err)
+	}
+
+	keyDER, err := x509.MarshalPKCS8PrivateKey(priv)
+	if err != nil {
+		return tls.Certificate{}, fmt.Errorf("marshal key: %w", err)
+	}
+
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})
+
+	return tls.X509KeyPair(certPEM, keyPEM)
 }
 
 // buildLogger converts the CLI log-level string to a [slog.Logger].

@@ -1030,25 +1030,33 @@ file:line:
   `init/ready.d`.
 - ✅ **Embedded DNS** — `--dns-addr` resolves Lambda/Route53/RDS/Redshift/OpenSearch/ElastiCache/EC2
   hostnames (`pkgs/dns/dns.go`, `cli.go:1966-1974`).
-- ❌ **SigV4 request-signature validation** — auth headers are parsed for region/service routing
-  only, never cryptographically verified (`pkgs/httputils/httputils.go:306-326`). Any credentials
-  are accepted. (LocalStack Pro can enforce IAM; even an *opt-in* validation mode would exceed the
-  open tier.)
+- ✅ **SigV4 request-signature validation** *(opt-in)* — full AWS Signature V4 verification
+  (canonical request → string-to-sign → derived signing key → HMAC compare) is available behind
+  `--validate-sigv4` / `VALIDATE_SIGV4` with a configurable `--sigv4-secret`
+  (`pkgs/httputils/sigv4.go`, wired in `cli.go` `buildEchoServer`). **Off by default** so existing
+  clients (which sign with dummy creds) are not affected. When enabled, signed requests whose
+  recomputed signature does not match are rejected with the AWS-accurate `InvalidSignatureException`
+  / `IncompleteSignatureException`; unsigned requests (health/dashboard/anonymous) pass through.
 - ❌ **Multi-account / multi-region isolation** — a single fixed `--account-id`/`--region`; the
   account/region in the request is ignored, so state is not partitioned per account or region
   (`pkgs/config/config.go`). This is a significant parity gap — LocalStack keys stores by
-  account+region.
+  account+region. **Deferred by design** (cross-cutting re-architecture of every backend's
+  state-keying + persistence format + wiring); the current model, full requirements, and an
+  incremental migration path are documented in `MULTI_ACCOUNT.md`.
 - ◑ **Protocol coverage** — query/EC2, JSON (`x-amz-target`), rest-JSON, rest-XML all handled
   (`pkgs/service/jsondisp.go`, `priorities.go`). **Missing: CBOR** (used by newer DynamoDB/Kinesis
   SDKs and timestream) — not implemented.
-- ❌ **HTTPS/TLS listener** — HTTP only; no `ListenAndServeTLS`/cert flags (`cli.go:4307-4311`).
-  Some SDKs/tools default to HTTPS endpoints.
+- ✅ **HTTPS/TLS listener** *(opt-in)* — an HTTPS listener is available via `--tls` (generates an
+  in-memory self-signed cert for localhost on demand) or `--tls-cert`/`--tls-key` for a supplied
+  PEM pair (`cli.go` `serveHTTP` / `generateSelfSignedCert`). **HTTP remains the default**; TLS is
+  opt-in so nothing regresses.
 - ◑ **Single edge-port multiplexing** — services share one HTTP listener via a priority router
   (`pkgs/service/router.go`), but there's no LocalStack-style `:4566` edge with host/SNI-based
   service routing + TLS.
 
-Highest-leverage platform gaps to close: **multi-account/region isolation**, **optional SigV4/IAM
-enforcement mode**, **CBOR**, **TLS**, and a **persistence save/load API**.
+Highest-leverage platform gaps remaining: **multi-account/region isolation** (deferred, see
+`MULTI_ACCOUNT.md`), **CBOR**, and a **persistence save/load API**. *(Optional SigV4 validation and
+an opt-in TLS listener are now implemented — see above.)*
 
 ## M. Cross-service event/integration wiring (largely a strength)
 
@@ -1069,12 +1077,19 @@ matches or beats LocalStack's open tier. Confirmed working (file:line):
 - **Step Functions task → Lambda/SNS/SQS/DynamoDB** integrations (`services/stepfunctions/integrations.go`).
 
 Remaining wiring gaps:
-- ◑ **CloudWatch Logs subscription filter → Lambda/Kinesis/Firehose** — `deliverToFilters` hands the
-  encoded batch to an external `SubscriptionDeliverer` but does **no destination-ARN type routing in
-  the backend itself** (`services/cloudwatchlogs/backend.go:1548-1602`); verify all three
-  destination types actually deliver end-to-end (and add an integration test).
-- **SNS → HTTP/HTTPS and email/email-json** delivery — confirm these subscription protocols deliver
-  (only SQS/Lambda/Firehose were positively traced).
+- ✅ **CloudWatch Logs subscription filter → Lambda/Kinesis/Firehose** — `deliverToFilters`
+  (`services/cloudwatchlogs/backend.go`) encodes the gzipped/base64 batch and hands it to the
+  `cwlogsSubscriptionDeliverer` (`cli.go`), which **routes by the destination-ARN service
+  component**: `lambda` → `InvokeFunction` (Event), `kinesis` → `PutRecord`, `firehose` →
+  `PutRecord`. Routing for all three destination types is covered by
+  `TestCWLogsSubscriptionDeliverer_Routing` (`cwlogs_subscription_delivery_test.go`), in addition to
+  the backend-level delivery tests.
+- ✅ **SNS → HTTP/HTTPS and email/email-json** delivery — HTTP/HTTPS subscriptions perform a real
+  HTTP POST with the standard SNS notification envelope and headers
+  (`services/sns/backend.go` `dispatchHTTPDeliveries` / `deliverHTTPWithMeta`). Email and email-json
+  deliveries (which have no network sink in a simulator) are now recorded per published message and
+  exposed via `DrainEmailDeliveries`, skipping pending/unconfirmed subscriptions to match AWS; see
+  `TestEmailDelivery` (`services/sns/email_delivery_test.go`).
 - **DLQ/RedrivePolicy on the SNS subscription and EventBridge target paths** — see §B; failed HTTP/
   Lambda deliveries should land in a DLQ.
 
