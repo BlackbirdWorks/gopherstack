@@ -1,6 +1,7 @@
 package directoryservice
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"maps"
@@ -172,6 +173,16 @@ func (h *Handler) doDispatch(c *echo.Context) error {
 	return c.JSON(http.StatusBadRequest, errResp("InvalidRequestException", "unrecognized operation: "+op))
 }
 
+// contextWithRegion returns the request context with the resolved AWS region attached
+// under regionContextKey so that backend operations are routed to the correct region.
+// The SigV4 credential-scope region in the Authorization header (extracted by
+// httputils.ExtractRegionFromRequest) takes precedence over the backend default.
+func (h *Handler) contextWithRegion(c *echo.Context) context.Context {
+	region := httputils.ExtractRegionFromRequest(c.Request(), h.Backend.Region())
+
+	return context.WithValue(c.Request().Context(), regionContextKey{}, region)
+}
+
 func (h *Handler) handleCreateDirectory(c *echo.Context) error { //nolint:dupl // existing issue.
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
@@ -201,6 +212,7 @@ func (h *Handler) handleCreateDirectory(c *echo.Context) error { //nolint:dupl /
 	tags := reqTagsToTags(req.Tags)
 
 	d, createErr := h.Backend.CreateDirectory(
+		h.contextWithRegion(c),
 		req.Name,
 		req.ShortName,
 		req.Description,
@@ -250,7 +262,15 @@ func (h *Handler) handleCreateMicrosoftAD(c *echo.Context) error {
 
 	tags := reqTagsToTags(req.Tags)
 
-	d, createErr := h.Backend.CreateMicrosoftAD(req.Name, req.ShortName, req.Description, req.Password, edition, tags)
+	d, createErr := h.Backend.CreateMicrosoftAD(
+		h.contextWithRegion(c),
+		req.Name,
+		req.ShortName,
+		req.Description,
+		req.Password,
+		edition,
+		tags,
+	)
 	if createErr != nil {
 		return h.mapError(c, createErr)
 	}
@@ -278,7 +298,7 @@ func (h *Handler) handleDeleteDirectory(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
 	}
 
-	if delErr := h.Backend.DeleteDirectory(req.DirectoryID); delErr != nil {
+	if delErr := h.Backend.DeleteDirectory(h.contextWithRegion(c), req.DirectoryID); delErr != nil {
 		return h.mapError(c, delErr)
 	}
 
@@ -305,7 +325,12 @@ func (h *Handler) handleDescribeDirectories(c *echo.Context) error {
 		}
 	}
 
-	dirs, nextToken, listErr := h.Backend.DescribeDirectories(req.DirectoryIDs, req.Limit, req.NextToken)
+	dirs, nextToken, listErr := h.Backend.DescribeDirectories(
+		h.contextWithRegion(c),
+		req.DirectoryIDs,
+		req.Limit,
+		req.NextToken,
+	)
 	if listErr != nil {
 		return h.mapError(c, listErr)
 	}
@@ -344,7 +369,7 @@ func (h *Handler) handleCreateAlias(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId and Alias are required"))
 	}
 
-	if aliasErr := h.Backend.CreateAlias(req.DirectoryID, req.Alias); aliasErr != nil {
+	if aliasErr := h.Backend.CreateAlias(h.contextWithRegion(c), req.DirectoryID, req.Alias); aliasErr != nil {
 		return h.mapError(c, aliasErr)
 	}
 
@@ -372,7 +397,7 @@ func (h *Handler) handleEnableSso(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
 	}
 
-	if ssoErr := h.Backend.EnableSso(req.DirectoryID); ssoErr != nil {
+	if ssoErr := h.Backend.EnableSso(h.contextWithRegion(c), req.DirectoryID); ssoErr != nil {
 		return h.mapError(c, ssoErr)
 	}
 
@@ -397,7 +422,7 @@ func (h *Handler) handleDisableSso(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
 	}
 
-	if ssoErr := h.Backend.DisableSso(req.DirectoryID); ssoErr != nil {
+	if ssoErr := h.Backend.DisableSso(h.contextWithRegion(c), req.DirectoryID); ssoErr != nil {
 		return h.mapError(c, ssoErr)
 	}
 
@@ -405,7 +430,7 @@ func (h *Handler) handleDisableSso(c *echo.Context) error {
 }
 
 func (h *Handler) handleGetDirectoryLimits(c *echo.Context) error {
-	limits := h.Backend.GetDirectoryLimits()
+	limits := h.Backend.GetDirectoryLimits(h.contextWithRegion(c))
 
 	return c.JSON(http.StatusOK, map[string]any{
 		"DirectoryLimits": map[string]any{
@@ -441,7 +466,7 @@ func (h *Handler) handleCreateSnapshot(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
 	}
 
-	snap, snapErr := h.Backend.CreateSnapshot(req.DirectoryID, req.Name)
+	snap, snapErr := h.Backend.CreateSnapshot(h.contextWithRegion(c), req.DirectoryID, req.Name)
 	if snapErr != nil {
 		return h.mapError(c, snapErr)
 	}
@@ -469,7 +494,7 @@ func (h *Handler) handleDeleteSnapshot(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "SnapshotId is required"))
 	}
 
-	if delErr := h.Backend.DeleteSnapshot(req.SnapshotID); delErr != nil {
+	if delErr := h.Backend.DeleteSnapshot(h.contextWithRegion(c), req.SnapshotID); delErr != nil {
 		return h.mapError(c, delErr)
 	}
 
@@ -497,7 +522,13 @@ func (h *Handler) handleDescribeSnapshots(c *echo.Context) error {
 		}
 	}
 
-	snaps, nextToken, listErr := h.Backend.DescribeSnapshots(req.DirectoryID, req.SnapshotIDs, req.Limit, req.NextToken)
+	snaps, nextToken, listErr := h.Backend.DescribeSnapshots(
+		h.contextWithRegion(c),
+		req.DirectoryID,
+		req.SnapshotIDs,
+		req.Limit,
+		req.NextToken,
+	)
 	if listErr != nil {
 		return h.mapError(c, listErr)
 	}
@@ -535,7 +566,7 @@ func (h *Handler) handleGetSnapshotLimits(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
 	}
 
-	limits, limErr := h.Backend.GetSnapshotLimits(req.DirectoryID)
+	limits, limErr := h.Backend.GetSnapshotLimits(h.contextWithRegion(c), req.DirectoryID)
 	if limErr != nil {
 		return h.mapError(c, limErr)
 	}
@@ -567,7 +598,7 @@ func (h *Handler) handleRestoreFromSnapshot(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "SnapshotId is required"))
 	}
 
-	if restoreErr := h.Backend.RestoreFromSnapshot(req.SnapshotID); restoreErr != nil {
+	if restoreErr := h.Backend.RestoreFromSnapshot(h.contextWithRegion(c), req.SnapshotID); restoreErr != nil {
 		return h.mapError(c, restoreErr)
 	}
 
@@ -598,7 +629,7 @@ func (h *Handler) handleAddTagsToResource(c *echo.Context) error {
 
 	tags := reqTagsToTags(req.Tags)
 
-	if tagErr := h.Backend.AddTagsToResource(req.ResourceID, tags); tagErr != nil {
+	if tagErr := h.Backend.AddTagsToResource(h.contextWithRegion(c), req.ResourceID, tags); tagErr != nil {
 		return h.mapError(c, tagErr)
 	}
 
@@ -624,7 +655,8 @@ func (h *Handler) handleRemoveTagsFromResource(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "ResourceId is required"))
 	}
 
-	if untagErr := h.Backend.RemoveTagsFromResource(req.ResourceID, req.TagKeys); untagErr != nil {
+	untagErr := h.Backend.RemoveTagsFromResource(h.contextWithRegion(c), req.ResourceID, req.TagKeys)
+	if untagErr != nil {
 		return h.mapError(c, untagErr)
 	}
 
@@ -651,7 +683,12 @@ func (h *Handler) handleListTagsForResource(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "ResourceId is required"))
 	}
 
-	tags, nextToken, listErr := h.Backend.ListTagsForResource(req.ResourceID, req.Limit, req.NextToken)
+	tags, nextToken, listErr := h.Backend.ListTagsForResource(
+		h.contextWithRegion(c),
+		req.ResourceID,
+		req.Limit,
+		req.NextToken,
+	)
 	if listErr != nil {
 		return h.mapError(c, listErr)
 	}
