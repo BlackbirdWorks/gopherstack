@@ -1,6 +1,7 @@
 package kinesis_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -120,7 +121,7 @@ func TestAudit2_TagResource_KeyTooLong(t *testing.T) {
 	doRequest(t, h, "CreateStream", map[string]any{"StreamName": "tagres-kv-stream", "ShardCount": 1})
 
 	b := h.Backend.(*kinesis.InMemoryBackend)
-	desc, err := b.DescribeStream(&kinesis.DescribeStreamInput{StreamName: "tagres-kv-stream"})
+	desc, err := b.DescribeStream(context.Background(), &kinesis.DescribeStreamInput{StreamName: "tagres-kv-stream"})
 	require.NoError(t, err)
 
 	longKey := strings.Repeat("k", 129)
@@ -145,7 +146,7 @@ func TestAudit2_TagResource_ValueTooLong(t *testing.T) {
 	doRequest(t, h, "CreateStream", map[string]any{"StreamName": "tagres-val-stream", "ShardCount": 1})
 
 	b := h.Backend.(*kinesis.InMemoryBackend)
-	desc, err := b.DescribeStream(&kinesis.DescribeStreamInput{StreamName: "tagres-val-stream"})
+	desc, err := b.DescribeStream(context.Background(), &kinesis.DescribeStreamInput{StreamName: "tagres-val-stream"})
 	require.NoError(t, err)
 
 	longVal := strings.Repeat("v", 257)
@@ -336,7 +337,7 @@ func TestAudit2_MergeShards_ProvisionedAllowed(t *testing.T) {
 	doRequest(t, h, "CreateStream", map[string]any{"StreamName": "prov-merge", "ShardCount": 2})
 
 	b := h.Backend.(*kinesis.InMemoryBackend)
-	out, err := b.ListShards(&kinesis.ListShardsInput{StreamName: "prov-merge"})
+	out, err := b.ListShards(context.Background(), &kinesis.ListShardsInput{StreamName: "prov-merge"})
 	require.NoError(t, err)
 	require.Len(t, out.Shards, 2)
 
@@ -374,7 +375,10 @@ func TestAudit2_RegisterStreamConsumer_InvalidName(t *testing.T) {
 			doRequest(t, h, "CreateStream", map[string]any{"StreamName": "consumer-name-stream", "ShardCount": 1})
 
 			b := h.Backend.(*kinesis.InMemoryBackend)
-			desc, err := b.DescribeStream(&kinesis.DescribeStreamInput{StreamName: "consumer-name-stream"})
+			desc, err := b.DescribeStream(
+				context.Background(),
+				&kinesis.DescribeStreamInput{StreamName: "consumer-name-stream"},
+			)
 			require.NoError(t, err)
 
 			rec := doRequest(t, h, "RegisterStreamConsumer", map[string]any{
@@ -412,7 +416,10 @@ func TestAudit2_RegisterStreamConsumer_ValidNames(t *testing.T) {
 			doRequest(t, h, "CreateStream", map[string]any{"StreamName": "valid-consumer-stream", "ShardCount": 1})
 
 			b := h.Backend.(*kinesis.InMemoryBackend)
-			desc, err := b.DescribeStream(&kinesis.DescribeStreamInput{StreamName: "valid-consumer-stream"})
+			desc, err := b.DescribeStream(
+				context.Background(),
+				&kinesis.DescribeStreamInput{StreamName: "valid-consumer-stream"},
+			)
 			require.NoError(t, err)
 
 			rec := doRequest(t, h, "RegisterStreamConsumer", map[string]any{
@@ -436,7 +443,10 @@ func TestAudit2_ListStreamConsumers_MaxResultsPagination(t *testing.T) {
 	doRequest(t, h, "CreateStream", map[string]any{"StreamName": "consumer-page-stream", "ShardCount": 1})
 
 	b := h.Backend.(*kinesis.InMemoryBackend)
-	desc, err := b.DescribeStream(&kinesis.DescribeStreamInput{StreamName: "consumer-page-stream"})
+	desc, err := b.DescribeStream(
+		context.Background(),
+		&kinesis.DescribeStreamInput{StreamName: "consumer-page-stream"},
+	)
 	require.NoError(t, err)
 
 	// Register 5 consumers.
@@ -523,7 +533,7 @@ func TestAudit2_ListStreamConsumers_NoMaxResults_ReturnsAll(t *testing.T) {
 	doRequest(t, h, "CreateStream", map[string]any{"StreamName": "consumer-all-stream", "ShardCount": 1})
 
 	b := h.Backend.(*kinesis.InMemoryBackend)
-	desc, err := b.DescribeStream(&kinesis.DescribeStreamInput{StreamName: "consumer-all-stream"})
+	desc, err := b.DescribeStream(context.Background(), &kinesis.DescribeStreamInput{StreamName: "consumer-all-stream"})
 	require.NoError(t, err)
 
 	for i := range 3 {

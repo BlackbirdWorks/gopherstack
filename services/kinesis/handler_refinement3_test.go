@@ -1,6 +1,7 @@
 package kinesis_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -23,7 +24,7 @@ func TestRefinement3_GetRecords_10MBCap_StopsAtLimit(t *testing.T) {
 	h := newTestHandler(t)
 	b := h.Backend.(*kinesis.InMemoryBackend)
 
-	require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: "big-records-stream",
 		ShardCount: 1,
 	}))
@@ -33,7 +34,7 @@ func TestRefinement3_GetRecords_10MBCap_StopsAtLimit(t *testing.T) {
 
 	// Put 12 records (12 MiB total, well above the 10 MiB cap).
 	for i := range 12 {
-		_, err := b.PutRecord(&kinesis.PutRecordInput{
+		_, err := b.PutRecord(context.Background(), &kinesis.PutRecordInput{
 			StreamName:   "big-records-stream",
 			PartitionKey: fmt.Sprintf("pk%d", i),
 			Data:         oneMiB,
@@ -41,14 +42,14 @@ func TestRefinement3_GetRecords_10MBCap_StopsAtLimit(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	out, err := b.GetShardIterator(&kinesis.GetShardIteratorInput{
+	out, err := b.GetShardIterator(context.Background(), &kinesis.GetShardIteratorInput{
 		StreamName:        "big-records-stream",
 		ShardID:           "shardId-000000000000",
 		ShardIteratorType: "TRIM_HORIZON",
 	})
 	require.NoError(t, err)
 
-	rec, err := b.GetRecords(&kinesis.GetRecordsInput{
+	rec, err := b.GetRecords(context.Background(), &kinesis.GetRecordsInput{
 		ShardIterator: out.ShardIterator,
 		Limit:         10000,
 	})
@@ -65,19 +66,19 @@ func TestRefinement3_GetRecords_10MBCap_SingleLargeRecordAllowed(t *testing.T) {
 	h := newTestHandler(t)
 	b := h.Backend.(*kinesis.InMemoryBackend)
 
-	require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: "single-big-record",
 		ShardCount: 1,
 	}))
 
 	// Increase the record size limit to 10 MiB first.
-	require.NoError(t, b.UpdateMaxRecordSize(&kinesis.UpdateMaxRecordSizeInput{
+	require.NoError(t, b.UpdateMaxRecordSize(context.Background(), &kinesis.UpdateMaxRecordSizeInput{
 		StreamName:         "single-big-record",
 		MaxRecordSizeBytes: 10_485_760,
 	}))
 
 	tenMiB := make([]byte, 10_485_760)
-	_, err := b.PutRecord(&kinesis.PutRecordInput{
+	_, err := b.PutRecord(context.Background(), &kinesis.PutRecordInput{
 		StreamName:   "single-big-record",
 		PartitionKey: "pk",
 		Data:         tenMiB,
@@ -85,21 +86,21 @@ func TestRefinement3_GetRecords_10MBCap_SingleLargeRecordAllowed(t *testing.T) {
 	require.NoError(t, err)
 
 	// Put a second record so we can verify MillisBehindLatest.
-	_, err = b.PutRecord(&kinesis.PutRecordInput{
+	_, err = b.PutRecord(context.Background(), &kinesis.PutRecordInput{
 		StreamName:   "single-big-record",
 		PartitionKey: "pk2",
 		Data:         []byte("small"),
 	})
 	require.NoError(t, err)
 
-	out, err := b.GetShardIterator(&kinesis.GetShardIteratorInput{
+	out, err := b.GetShardIterator(context.Background(), &kinesis.GetShardIteratorInput{
 		StreamName:        "single-big-record",
 		ShardID:           "shardId-000000000000",
 		ShardIteratorType: "TRIM_HORIZON",
 	})
 	require.NoError(t, err)
 
-	rec, err := b.GetRecords(&kinesis.GetRecordsInput{
+	rec, err := b.GetRecords(context.Background(), &kinesis.GetRecordsInput{
 		ShardIterator: out.ShardIterator,
 		Limit:         10000,
 	})
@@ -116,13 +117,13 @@ func TestRefinement3_GetRecords_10MBCap_IteratorAdvancesCorrectly(t *testing.T) 
 	h := newTestHandler(t)
 	b := h.Backend.(*kinesis.InMemoryBackend)
 
-	require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: "cap-advance-stream",
 		ShardCount: 1,
 	}))
 
 	// Use UpdateMaxRecordSize to allow 6 MiB records (> default 1 MiB limit).
-	require.NoError(t, b.UpdateMaxRecordSize(&kinesis.UpdateMaxRecordSizeInput{
+	require.NoError(t, b.UpdateMaxRecordSize(context.Background(), &kinesis.UpdateMaxRecordSizeInput{
 		StreamName:         "cap-advance-stream",
 		MaxRecordSizeBytes: 10_485_760,
 	}))
@@ -130,7 +131,7 @@ func TestRefinement3_GetRecords_10MBCap_IteratorAdvancesCorrectly(t *testing.T) 
 	// 4 MiB records × 3 = 12 MiB total: first call gets 2 (8MB), second call gets 1.
 	fourMiB := make([]byte, 4_194_304)
 	for i := range 3 {
-		_, err := b.PutRecord(&kinesis.PutRecordInput{
+		_, err := b.PutRecord(context.Background(), &kinesis.PutRecordInput{
 			StreamName:   "cap-advance-stream",
 			PartitionKey: fmt.Sprintf("pk%d", i),
 			Data:         fourMiB,
@@ -138,14 +139,14 @@ func TestRefinement3_GetRecords_10MBCap_IteratorAdvancesCorrectly(t *testing.T) 
 		require.NoError(t, err)
 	}
 
-	iterOut, err := b.GetShardIterator(&kinesis.GetShardIteratorInput{
+	iterOut, err := b.GetShardIterator(context.Background(), &kinesis.GetShardIteratorInput{
 		StreamName:        "cap-advance-stream",
 		ShardID:           "shardId-000000000000",
 		ShardIteratorType: "TRIM_HORIZON",
 	})
 	require.NoError(t, err)
 
-	first, err := b.GetRecords(&kinesis.GetRecordsInput{
+	first, err := b.GetRecords(context.Background(), &kinesis.GetRecordsInput{
 		ShardIterator: iterOut.ShardIterator,
 		Limit:         10000,
 	})
@@ -154,7 +155,7 @@ func TestRefinement3_GetRecords_10MBCap_IteratorAdvancesCorrectly(t *testing.T) 
 	require.NotEmpty(t, first.NextShardIterator)
 
 	// Second call should return the remaining records.
-	second, err := b.GetRecords(&kinesis.GetRecordsInput{
+	second, err := b.GetRecords(context.Background(), &kinesis.GetRecordsInput{
 		ShardIterator: first.NextShardIterator,
 		Limit:         10000,
 	})
@@ -174,13 +175,13 @@ func TestRefinement3_CreateStream_OnDemandLimitEnforced(t *testing.T) {
 	b := h.Backend.(*kinesis.InMemoryBackend)
 
 	// Set a tight limit of 2 ON_DEMAND streams.
-	require.NoError(t, b.UpdateAccountSettings(&kinesis.UpdateAccountSettingsInput{
+	require.NoError(t, b.UpdateAccountSettings(context.Background(), &kinesis.UpdateAccountSettingsInput{
 		OnDemandStreamCountLimit: 2,
 	}))
 
 	// Create 2 ON_DEMAND streams (should succeed).
 	for i := range 2 {
-		require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+		require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 			StreamName: fmt.Sprintf("od-limit-stream-%d", i),
 			ShardCount: 1,
 			StreamMode: "ON_DEMAND",
@@ -188,7 +189,7 @@ func TestRefinement3_CreateStream_OnDemandLimitEnforced(t *testing.T) {
 	}
 
 	// Third ON_DEMAND stream should fail with LimitExceededException.
-	err := b.CreateStream(&kinesis.CreateStreamInput{
+	err := b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: "od-limit-stream-overflow",
 		ShardCount: 1,
 		StreamMode: "ON_DEMAND",
@@ -202,7 +203,7 @@ func TestRefinement3_CreateStream_OnDemandLimit_ViaHandler(t *testing.T) {
 	h := newTestHandler(t)
 	b := h.Backend.(*kinesis.InMemoryBackend)
 
-	require.NoError(t, b.UpdateAccountSettings(&kinesis.UpdateAccountSettingsInput{
+	require.NoError(t, b.UpdateAccountSettings(context.Background(), &kinesis.UpdateAccountSettingsInput{
 		OnDemandStreamCountLimit: 1,
 	}))
 
@@ -233,12 +234,12 @@ func TestRefinement3_CreateStream_ProvisionedNotAffectedByOnDemandLimit(t *testi
 	h := newTestHandler(t)
 	b := h.Backend.(*kinesis.InMemoryBackend)
 
-	require.NoError(t, b.UpdateAccountSettings(&kinesis.UpdateAccountSettingsInput{
+	require.NoError(t, b.UpdateAccountSettings(context.Background(), &kinesis.UpdateAccountSettingsInput{
 		OnDemandStreamCountLimit: 1,
 	}))
 
 	// Fill the ON_DEMAND quota.
-	require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: "od-quota-stream",
 		ShardCount: 1,
 		StreamMode: "ON_DEMAND",
@@ -259,28 +260,28 @@ func TestRefinement3_CreateStream_OnDemandLimit_DeleteFreesSlot(t *testing.T) {
 	h := newTestHandler(t)
 	b := h.Backend.(*kinesis.InMemoryBackend)
 
-	require.NoError(t, b.UpdateAccountSettings(&kinesis.UpdateAccountSettingsInput{
+	require.NoError(t, b.UpdateAccountSettings(context.Background(), &kinesis.UpdateAccountSettingsInput{
 		OnDemandStreamCountLimit: 1,
 	}))
 
-	require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: "od-del-stream",
 		ShardCount: 1,
 		StreamMode: "ON_DEMAND",
 	}))
 
 	// Limit reached.
-	require.Error(t, b.CreateStream(&kinesis.CreateStreamInput{
+	require.Error(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: "od-del-stream-2",
 		ShardCount: 1,
 		StreamMode: "ON_DEMAND",
 	}))
 
 	// Delete the first stream to free the slot.
-	require.NoError(t, b.DeleteStream(&kinesis.DeleteStreamInput{StreamName: "od-del-stream"}))
+	require.NoError(t, b.DeleteStream(context.Background(), &kinesis.DeleteStreamInput{StreamName: "od-del-stream"}))
 
 	// Now the second stream should succeed.
-	require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: "od-del-stream-2",
 		ShardCount: 1,
 		StreamMode: "ON_DEMAND",
@@ -417,13 +418,13 @@ func TestRefinement3_IncreaseRetention_BelowMinRejected(t *testing.T) {
 	h := newTestHandler(t)
 	b := h.Backend.(*kinesis.InMemoryBackend)
 
-	require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: "retention-min-stream",
 		ShardCount: 1,
 	}))
 
 	// Attempting to set retention to 0 (below minimum 24h) should fail.
-	err := b.IncreaseStreamRetentionPeriod(&kinesis.IncreaseStreamRetentionPeriodInput{
+	err := b.IncreaseStreamRetentionPeriod(context.Background(), &kinesis.IncreaseStreamRetentionPeriodInput{
 		StreamName:           "retention-min-stream",
 		RetentionPeriodHours: 0,
 	})
@@ -436,13 +437,13 @@ func TestRefinement3_IncreaseRetention_AboveMaxRejected(t *testing.T) {
 	h := newTestHandler(t)
 	b := h.Backend.(*kinesis.InMemoryBackend)
 
-	require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: "retention-max-stream",
 		ShardCount: 1,
 	}))
 
 	// 8761 hours > maxRetentionHours (8760) should fail.
-	err := b.IncreaseStreamRetentionPeriod(&kinesis.IncreaseStreamRetentionPeriodInput{
+	err := b.IncreaseStreamRetentionPeriod(context.Background(), &kinesis.IncreaseStreamRetentionPeriodInput{
 		StreamName:           "retention-max-stream",
 		RetentionPeriodHours: 8761,
 	})
@@ -455,19 +456,22 @@ func TestRefinement3_IncreaseRetention_ValidRangeAccepted(t *testing.T) {
 	h := newTestHandler(t)
 	b := h.Backend.(*kinesis.InMemoryBackend)
 
-	require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: "retention-valid-stream",
 		ShardCount: 1,
 	}))
 
 	// 168 h (7 days) is within valid range [24, 8760].
-	err := b.IncreaseStreamRetentionPeriod(&kinesis.IncreaseStreamRetentionPeriodInput{
+	err := b.IncreaseStreamRetentionPeriod(context.Background(), &kinesis.IncreaseStreamRetentionPeriodInput{
 		StreamName:           "retention-valid-stream",
 		RetentionPeriodHours: 168,
 	})
 	require.NoError(t, err)
 
-	out, err := b.DescribeStream(&kinesis.DescribeStreamInput{StreamName: "retention-valid-stream"})
+	out, err := b.DescribeStream(
+		context.Background(),
+		&kinesis.DescribeStreamInput{StreamName: "retention-valid-stream"},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, 168, out.RetentionPeriodHours)
 }
@@ -478,13 +482,13 @@ func TestRefinement3_IncreaseRetention_MaxBoundaryAccepted(t *testing.T) {
 	h := newTestHandler(t)
 	b := h.Backend.(*kinesis.InMemoryBackend)
 
-	require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: "retention-boundary-stream",
 		ShardCount: 1,
 	}))
 
 	// Exactly maxRetentionHours (8760) should succeed.
-	err := b.IncreaseStreamRetentionPeriod(&kinesis.IncreaseStreamRetentionPeriodInput{
+	err := b.IncreaseStreamRetentionPeriod(context.Background(), &kinesis.IncreaseStreamRetentionPeriodInput{
 		StreamName:           "retention-boundary-stream",
 		RetentionPeriodHours: 8760,
 	})
@@ -501,13 +505,13 @@ func TestRefinement3_ListShards_MaxResults(t *testing.T) {
 	h := newTestHandler(t)
 	b := h.Backend.(*kinesis.InMemoryBackend)
 
-	require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: "list-shards-paginated",
 		ShardCount: 5,
 	}))
 
 	// Request only 2 shards.
-	out, err := b.ListShards(&kinesis.ListShardsInput{
+	out, err := b.ListShards(context.Background(), &kinesis.ListShardsInput{
 		StreamName: "list-shards-paginated",
 		MaxResults: 2,
 	})
@@ -522,7 +526,7 @@ func TestRefinement3_ListShards_NextToken_Pagination(t *testing.T) {
 	h := newTestHandler(t)
 	b := h.Backend.(*kinesis.InMemoryBackend)
 
-	require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: "list-shards-nexttoken",
 		ShardCount: 5,
 	}))
@@ -531,7 +535,7 @@ func TestRefinement3_ListShards_NextToken_Pagination(t *testing.T) {
 	var nextToken string
 
 	for {
-		out, err := b.ListShards(&kinesis.ListShardsInput{
+		out, err := b.ListShards(context.Background(), &kinesis.ListShardsInput{
 			StreamName: "list-shards-nexttoken",
 			MaxResults: 2,
 			NextToken:  nextToken,
@@ -560,12 +564,12 @@ func TestRefinement3_ListShards_NoMaxResults_ReturnsAll(t *testing.T) {
 	h := newTestHandler(t)
 	b := h.Backend.(*kinesis.InMemoryBackend)
 
-	require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: "list-shards-nomax",
 		ShardCount: 4,
 	}))
 
-	out, err := b.ListShards(&kinesis.ListShardsInput{StreamName: "list-shards-nomax"})
+	out, err := b.ListShards(context.Background(), &kinesis.ListShardsInput{StreamName: "list-shards-nomax"})
 	require.NoError(t, err)
 	assert.Len(t, out.Shards, 4)
 	assert.Empty(t, out.NextToken)
@@ -618,12 +622,12 @@ func TestRefinement3_ListShards_MaxResults_ExactlyFits(t *testing.T) {
 	h := newTestHandler(t)
 	b := h.Backend.(*kinesis.InMemoryBackend)
 
-	require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: "list-shards-exact",
 		ShardCount: 3,
 	}))
 
-	out, err := b.ListShards(&kinesis.ListShardsInput{
+	out, err := b.ListShards(context.Background(), &kinesis.ListShardsInput{
 		StreamName: "list-shards-exact",
 		MaxResults: 3,
 	})
@@ -642,14 +646,14 @@ func TestRefinement3_GetRecords_MillisBehindLatest_UsesLastRecord(t *testing.T) 
 	h := newTestHandler(t)
 	b := h.Backend.(*kinesis.InMemoryBackend)
 
-	require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: "millis-behind-stream",
 		ShardCount: 1,
 	}))
 
 	// Put 3 records and introduce a small delay so their timestamps are in the past.
 	for i := range 3 {
-		_, err := b.PutRecord(&kinesis.PutRecordInput{
+		_, err := b.PutRecord(context.Background(), &kinesis.PutRecordInput{
 			StreamName:   "millis-behind-stream",
 			PartitionKey: fmt.Sprintf("pk%d", i),
 			Data:         []byte("d"),
@@ -660,7 +664,7 @@ func TestRefinement3_GetRecords_MillisBehindLatest_UsesLastRecord(t *testing.T) 
 	// Wait briefly so the records have a measurable age.
 	time.Sleep(5 * time.Millisecond)
 
-	iterOut, err := b.GetShardIterator(&kinesis.GetShardIteratorInput{
+	iterOut, err := b.GetShardIterator(context.Background(), &kinesis.GetShardIteratorInput{
 		StreamName:        "millis-behind-stream",
 		ShardID:           "shardId-000000000000",
 		ShardIteratorType: "TRIM_HORIZON",
@@ -668,7 +672,7 @@ func TestRefinement3_GetRecords_MillisBehindLatest_UsesLastRecord(t *testing.T) 
 	require.NoError(t, err)
 
 	// Get only 1 record (leaving 2 unread).
-	rec, err := b.GetRecords(&kinesis.GetRecordsInput{
+	rec, err := b.GetRecords(context.Background(), &kinesis.GetRecordsInput{
 		ShardIterator: iterOut.ShardIterator,
 		Limit:         1,
 	})
@@ -685,19 +689,19 @@ func TestRefinement3_GetRecords_MillisBehindLatest_ZeroWhenCaughtUp(t *testing.T
 	h := newTestHandler(t)
 	b := h.Backend.(*kinesis.InMemoryBackend)
 
-	require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: "millis-caught-up",
 		ShardCount: 1,
 	}))
 
-	_, err := b.PutRecord(&kinesis.PutRecordInput{
+	_, err := b.PutRecord(context.Background(), &kinesis.PutRecordInput{
 		StreamName:   "millis-caught-up",
 		PartitionKey: "pk",
 		Data:         []byte("d"),
 	})
 	require.NoError(t, err)
 
-	iterOut, err := b.GetShardIterator(&kinesis.GetShardIteratorInput{
+	iterOut, err := b.GetShardIterator(context.Background(), &kinesis.GetShardIteratorInput{
 		StreamName:        "millis-caught-up",
 		ShardID:           "shardId-000000000000",
 		ShardIteratorType: "TRIM_HORIZON",
@@ -705,7 +709,7 @@ func TestRefinement3_GetRecords_MillisBehindLatest_ZeroWhenCaughtUp(t *testing.T
 	require.NoError(t, err)
 
 	// Consume all records.
-	rec, err := b.GetRecords(&kinesis.GetRecordsInput{
+	rec, err := b.GetRecords(context.Background(), &kinesis.GetRecordsInput{
 		ShardIterator: iterOut.ShardIterator,
 		Limit:         10000,
 	})
@@ -726,17 +730,20 @@ func TestRefinement3_UpdateShardCount_OldShardsMarkedClosed(t *testing.T) {
 	h := newTestHandler(t)
 	b := h.Backend.(*kinesis.InMemoryBackend)
 
-	require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: "update-shardcount-closed",
 		ShardCount: 2,
 	}))
 
-	out, err := b.DescribeStream(&kinesis.DescribeStreamInput{StreamName: "update-shardcount-closed"})
+	out, err := b.DescribeStream(
+		context.Background(),
+		&kinesis.DescribeStreamInput{StreamName: "update-shardcount-closed"},
+	)
 	require.NoError(t, err)
 	require.Len(t, out.Shards, 2)
 
 	// Scale up to 4.
-	_, err = b.UpdateShardCount(&kinesis.UpdateShardCountInput{
+	_, err = b.UpdateShardCount(context.Background(), &kinesis.UpdateShardCountInput{
 		StreamName:       "update-shardcount-closed",
 		TargetShardCount: 4,
 		ScalingType:      "UNIFORM_SCALING",
@@ -744,7 +751,10 @@ func TestRefinement3_UpdateShardCount_OldShardsMarkedClosed(t *testing.T) {
 	require.NoError(t, err)
 
 	// DescribeStream must include old closed shards + new open ones.
-	out2, err := b.DescribeStream(&kinesis.DescribeStreamInput{StreamName: "update-shardcount-closed"})
+	out2, err := b.DescribeStream(
+		context.Background(),
+		&kinesis.DescribeStreamInput{StreamName: "update-shardcount-closed"},
+	)
 	require.NoError(t, err)
 
 	openCount := 0
@@ -768,12 +778,12 @@ func TestRefinement3_UpdateShardCount_ListShardsOnlyReturnsOpenShards(t *testing
 	h := newTestHandler(t)
 	b := h.Backend.(*kinesis.InMemoryBackend)
 
-	require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: "update-listshard-stream",
 		ShardCount: 2,
 	}))
 
-	_, err := b.UpdateShardCount(&kinesis.UpdateShardCountInput{
+	_, err := b.UpdateShardCount(context.Background(), &kinesis.UpdateShardCountInput{
 		StreamName:       "update-listshard-stream",
 		TargetShardCount: 3,
 		ScalingType:      "UNIFORM_SCALING",
@@ -781,7 +791,7 @@ func TestRefinement3_UpdateShardCount_ListShardsOnlyReturnsOpenShards(t *testing
 	require.NoError(t, err)
 
 	// ListShards default = open shards only.
-	list, err := b.ListShards(&kinesis.ListShardsInput{StreamName: "update-listshard-stream"})
+	list, err := b.ListShards(context.Background(), &kinesis.ListShardsInput{StreamName: "update-listshard-stream"})
 	require.NoError(t, err)
 	assert.Len(t, list.Shards, 3, "ListShards should return only the 3 new open shards")
 }
@@ -792,12 +802,12 @@ func TestRefinement3_UpdateShardCount_CurrentCountIsOpenShards(t *testing.T) {
 	h := newTestHandler(t)
 	b := h.Backend.(*kinesis.InMemoryBackend)
 
-	require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: "update-currentcount-stream",
 		ShardCount: 4,
 	}))
 
-	out, err := b.UpdateShardCount(&kinesis.UpdateShardCountInput{
+	out, err := b.UpdateShardCount(context.Background(), &kinesis.UpdateShardCountInput{
 		StreamName:       "update-currentcount-stream",
 		TargetShardCount: 2,
 		ScalingType:      "UNIFORM_SCALING",
@@ -815,12 +825,12 @@ func TestRefinement3_UpdateShardCount_UniqueShardIDs(t *testing.T) {
 	h := newTestHandler(t)
 	b := h.Backend.(*kinesis.InMemoryBackend)
 
-	require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: "update-uniqueids-stream",
 		ShardCount: 2,
 	}))
 
-	_, err := b.UpdateShardCount(&kinesis.UpdateShardCountInput{
+	_, err := b.UpdateShardCount(context.Background(), &kinesis.UpdateShardCountInput{
 		StreamName:       "update-uniqueids-stream",
 		TargetShardCount: 3,
 		ScalingType:      "UNIFORM_SCALING",
@@ -828,14 +838,17 @@ func TestRefinement3_UpdateShardCount_UniqueShardIDs(t *testing.T) {
 	require.NoError(t, err)
 
 	// Scale again.
-	_, err = b.UpdateShardCount(&kinesis.UpdateShardCountInput{
+	_, err = b.UpdateShardCount(context.Background(), &kinesis.UpdateShardCountInput{
 		StreamName:       "update-uniqueids-stream",
 		TargetShardCount: 1,
 		ScalingType:      "UNIFORM_SCALING",
 	})
 	require.NoError(t, err)
 
-	out, err := b.DescribeStream(&kinesis.DescribeStreamInput{StreamName: "update-uniqueids-stream"})
+	out, err := b.DescribeStream(
+		context.Background(),
+		&kinesis.DescribeStreamInput{StreamName: "update-uniqueids-stream"},
+	)
 	require.NoError(t, err)
 
 	seen := make(map[string]struct{})
@@ -964,14 +977,14 @@ func TestRefinement3_PutRecord_ExplicitHashKey_AboveMaxRejected(t *testing.T) {
 	h := newTestHandler(t)
 	b := h.Backend.(*kinesis.InMemoryBackend)
 
-	require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: "hashkey-bound-stream",
 		ShardCount: 1,
 	}))
 
 	// 2^128 is one above the maximum valid hash key.
 	twoTo128 := "340282366920938463463374607431768211456"
-	_, err := b.PutRecord(&kinesis.PutRecordInput{
+	_, err := b.PutRecord(context.Background(), &kinesis.PutRecordInput{
 		StreamName:      "hashkey-bound-stream",
 		PartitionKey:    "pk",
 		ExplicitHashKey: twoTo128,
@@ -986,12 +999,12 @@ func TestRefinement3_PutRecord_ExplicitHashKey_NegativeRejected(t *testing.T) {
 	h := newTestHandler(t)
 	b := h.Backend.(*kinesis.InMemoryBackend)
 
-	require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: "hashkey-negative-stream",
 		ShardCount: 1,
 	}))
 
-	_, err := b.PutRecord(&kinesis.PutRecordInput{
+	_, err := b.PutRecord(context.Background(), &kinesis.PutRecordInput{
 		StreamName:      "hashkey-negative-stream",
 		PartitionKey:    "pk",
 		ExplicitHashKey: "-1",
@@ -1006,12 +1019,12 @@ func TestRefinement3_PutRecord_ExplicitHashKey_ZeroAccepted(t *testing.T) {
 	h := newTestHandler(t)
 	b := h.Backend.(*kinesis.InMemoryBackend)
 
-	require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: "hashkey-zero-stream",
 		ShardCount: 1,
 	}))
 
-	_, err := b.PutRecord(&kinesis.PutRecordInput{
+	_, err := b.PutRecord(context.Background(), &kinesis.PutRecordInput{
 		StreamName:      "hashkey-zero-stream",
 		PartitionKey:    "pk",
 		ExplicitHashKey: "0",
@@ -1026,14 +1039,14 @@ func TestRefinement3_PutRecord_ExplicitHashKey_MaxAccepted(t *testing.T) {
 	h := newTestHandler(t)
 	b := h.Backend.(*kinesis.InMemoryBackend)
 
-	require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: "hashkey-maxval-stream",
 		ShardCount: 1,
 	}))
 
 	// 2^128-1 is the maximum valid hash key.
 	maxKey := "340282366920938463463374607431768211455"
-	_, err := b.PutRecord(&kinesis.PutRecordInput{
+	_, err := b.PutRecord(context.Background(), &kinesis.PutRecordInput{
 		StreamName:      "hashkey-maxval-stream",
 		PartitionKey:    "pk",
 		ExplicitHashKey: maxKey,
@@ -1073,14 +1086,14 @@ func TestRefinement3_GetRecords_SmallRecords_NoCap(t *testing.T) {
 	h := newTestHandler(t)
 	b := h.Backend.(*kinesis.InMemoryBackend)
 
-	require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: "small-records-stream",
 		ShardCount: 1,
 	}))
 
 	// Put 100 small records (well under 10 MiB).
 	for i := range 100 {
-		_, err := b.PutRecord(&kinesis.PutRecordInput{
+		_, err := b.PutRecord(context.Background(), &kinesis.PutRecordInput{
 			StreamName:   "small-records-stream",
 			PartitionKey: fmt.Sprintf("pk%d", i),
 			Data:         []byte("hello"),
@@ -1088,14 +1101,14 @@ func TestRefinement3_GetRecords_SmallRecords_NoCap(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	iterOut, err := b.GetShardIterator(&kinesis.GetShardIteratorInput{
+	iterOut, err := b.GetShardIterator(context.Background(), &kinesis.GetShardIteratorInput{
 		StreamName:        "small-records-stream",
 		ShardID:           "shardId-000000000000",
 		ShardIteratorType: "TRIM_HORIZON",
 	})
 	require.NoError(t, err)
 
-	rec, err := b.GetRecords(&kinesis.GetRecordsInput{
+	rec, err := b.GetRecords(context.Background(), &kinesis.GetRecordsInput{
 		ShardIterator: iterOut.ShardIterator,
 		Limit:         10000,
 	})
@@ -1110,23 +1123,26 @@ func TestRefinement3_ListShards_WithMaxResults_PlusClosedShards(t *testing.T) {
 	h := newTestHandler(t)
 	b := h.Backend.(*kinesis.InMemoryBackend)
 
-	require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: "listshards-closed-paged",
 		ShardCount: 2,
 	}))
 
-	out, err := b.DescribeStream(&kinesis.DescribeStreamInput{StreamName: "listshards-closed-paged"})
+	out, err := b.DescribeStream(
+		context.Background(),
+		&kinesis.DescribeStreamInput{StreamName: "listshards-closed-paged"},
+	)
 	require.NoError(t, err)
 
 	// Merge to produce 1 open + 2 closed = 3 total.
-	require.NoError(t, b.MergeShards(&kinesis.MergeShardsInput{
+	require.NoError(t, b.MergeShards(context.Background(), &kinesis.MergeShardsInput{
 		StreamName:           "listshards-closed-paged",
 		ShardToMerge:         out.Shards[0].ShardID,
 		AdjacentShardToMerge: out.Shards[1].ShardID,
 	}))
 
 	// FROM_TRIM_HORIZON includes all shards; MaxResults=2 → page 1 of 2.
-	list, err := b.ListShards(&kinesis.ListShardsInput{
+	list, err := b.ListShards(context.Background(), &kinesis.ListShardsInput{
 		StreamName:  "listshards-closed-paged",
 		ShardFilter: "FROM_TRIM_HORIZON",
 		MaxResults:  2,
@@ -1136,7 +1152,7 @@ func TestRefinement3_ListShards_WithMaxResults_PlusClosedShards(t *testing.T) {
 	assert.NotEmpty(t, list.NextToken)
 
 	// Page 2.
-	list2, err := b.ListShards(&kinesis.ListShardsInput{
+	list2, err := b.ListShards(context.Background(), &kinesis.ListShardsInput{
 		StreamName:  "listshards-closed-paged",
 		ShardFilter: "FROM_TRIM_HORIZON",
 		MaxResults:  2,
@@ -1153,20 +1169,20 @@ func TestRefinement3_DescribeAccountSettings_OnDemandCount(t *testing.T) {
 	h := newTestHandler(t)
 	b := h.Backend.(*kinesis.InMemoryBackend)
 
-	require.NoError(t, b.UpdateAccountSettings(&kinesis.UpdateAccountSettingsInput{
+	require.NoError(t, b.UpdateAccountSettings(context.Background(), &kinesis.UpdateAccountSettingsInput{
 		OnDemandStreamCountLimit: 5,
 	}))
 
 	// Create 2 ON_DEMAND streams.
 	for i := range 2 {
-		require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+		require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 			StreamName: fmt.Sprintf("acct-od-stream-%d", i),
 			ShardCount: 1,
 			StreamMode: "ON_DEMAND",
 		}))
 	}
 
-	out, err := b.DescribeAccountSettings()
+	out, err := b.DescribeAccountSettings(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, 2, out.OnDemandStreamCount)
 	assert.Equal(t, 5, out.OnDemandStreamCountLimit)
@@ -1272,12 +1288,12 @@ func TestRefinement3_GetRecords_10MBCap_ExactlyAtLimit(t *testing.T) {
 	h := newTestHandler(t)
 	b := h.Backend.(*kinesis.InMemoryBackend)
 
-	require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: "exact-cap-stream",
 		ShardCount: 1,
 	}))
 
-	require.NoError(t, b.UpdateMaxRecordSize(&kinesis.UpdateMaxRecordSizeInput{
+	require.NoError(t, b.UpdateMaxRecordSize(context.Background(), &kinesis.UpdateMaxRecordSizeInput{
 		StreamName:         "exact-cap-stream",
 		MaxRecordSizeBytes: 10_485_760,
 	}))
@@ -1285,7 +1301,7 @@ func TestRefinement3_GetRecords_10MBCap_ExactlyAtLimit(t *testing.T) {
 	// Two 5 MiB records = exactly 10 MiB; both should fit in one response.
 	fiveMiB := make([]byte, 5_242_880)
 	for i := range 2 {
-		_, err := b.PutRecord(&kinesis.PutRecordInput{
+		_, err := b.PutRecord(context.Background(), &kinesis.PutRecordInput{
 			StreamName:   "exact-cap-stream",
 			PartitionKey: fmt.Sprintf("pk%d", i),
 			Data:         fiveMiB,
@@ -1293,21 +1309,21 @@ func TestRefinement3_GetRecords_10MBCap_ExactlyAtLimit(t *testing.T) {
 		require.NoError(t, err)
 	}
 	// Third 1-byte record (so we can check lag).
-	_, err := b.PutRecord(&kinesis.PutRecordInput{
+	_, err := b.PutRecord(context.Background(), &kinesis.PutRecordInput{
 		StreamName:   "exact-cap-stream",
 		PartitionKey: "extra",
 		Data:         []byte("x"),
 	})
 	require.NoError(t, err)
 
-	iterOut, err := b.GetShardIterator(&kinesis.GetShardIteratorInput{
+	iterOut, err := b.GetShardIterator(context.Background(), &kinesis.GetShardIteratorInput{
 		StreamName:        "exact-cap-stream",
 		ShardID:           "shardId-000000000000",
 		ShardIteratorType: "TRIM_HORIZON",
 	})
 	require.NoError(t, err)
 
-	rec, err := b.GetRecords(&kinesis.GetRecordsInput{
+	rec, err := b.GetRecords(context.Background(), &kinesis.GetRecordsInput{
 		ShardIterator: iterOut.ShardIterator,
 		Limit:         10000,
 	})
@@ -1324,14 +1340,14 @@ func TestRefinement3_GetRecords_ZeroLimitUsesDefault(t *testing.T) {
 	h := newTestHandler(t)
 	b := h.Backend.(*kinesis.InMemoryBackend)
 
-	require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: "default-limit-stream",
 		ShardCount: 1,
 	}))
 
 	// Put more than defaultGetRecordsLimit records.
 	for i := range 5 {
-		_, err := b.PutRecord(&kinesis.PutRecordInput{
+		_, err := b.PutRecord(context.Background(), &kinesis.PutRecordInput{
 			StreamName:   "default-limit-stream",
 			PartitionKey: fmt.Sprintf("pk%d", i),
 			Data:         []byte("d"),
@@ -1339,7 +1355,7 @@ func TestRefinement3_GetRecords_ZeroLimitUsesDefault(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	iterOut, err := b.GetShardIterator(&kinesis.GetShardIteratorInput{
+	iterOut, err := b.GetShardIterator(context.Background(), &kinesis.GetShardIteratorInput{
 		StreamName:        "default-limit-stream",
 		ShardID:           "shardId-000000000000",
 		ShardIteratorType: "TRIM_HORIZON",
@@ -1347,7 +1363,7 @@ func TestRefinement3_GetRecords_ZeroLimitUsesDefault(t *testing.T) {
 	require.NoError(t, err)
 
 	// Limit=0 uses the default (1000).
-	rec, err := b.GetRecords(&kinesis.GetRecordsInput{
+	rec, err := b.GetRecords(context.Background(), &kinesis.GetRecordsInput{
 		ShardIterator: iterOut.ShardIterator,
 		Limit:         0,
 	})
@@ -1361,7 +1377,7 @@ func TestRefinement3_OnDemandLimit_DefaultLimitIsPositive(t *testing.T) {
 	h := newTestHandler(t)
 	b := h.Backend.(*kinesis.InMemoryBackend)
 
-	out, err := b.DescribeAccountSettings()
+	out, err := b.DescribeAccountSettings(context.Background())
 	require.NoError(t, err)
 	assert.Positive(t, out.OnDemandStreamCountLimit, "default ON_DEMAND limit should be positive")
 }
@@ -1372,12 +1388,12 @@ func TestRefinement3_CreateStream_OnDemandLimit_AtBoundary(t *testing.T) {
 	h := newTestHandler(t)
 	b := h.Backend.(*kinesis.InMemoryBackend)
 
-	require.NoError(t, b.UpdateAccountSettings(&kinesis.UpdateAccountSettingsInput{
+	require.NoError(t, b.UpdateAccountSettings(context.Background(), &kinesis.UpdateAccountSettingsInput{
 		OnDemandStreamCountLimit: 3,
 	}))
 
 	for i := range 3 {
-		require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+		require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 			StreamName: fmt.Sprintf("od-boundary-%d", i),
 			ShardCount: 1,
 			StreamMode: "ON_DEMAND",
@@ -1385,7 +1401,7 @@ func TestRefinement3_CreateStream_OnDemandLimit_AtBoundary(t *testing.T) {
 	}
 
 	// The 4th should fail.
-	err := b.CreateStream(&kinesis.CreateStreamInput{
+	err := b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: "od-boundary-overflow",
 		ShardCount: 1,
 		StreamMode: "ON_DEMAND",
@@ -1399,13 +1415,13 @@ func TestRefinement3_ListShards_NextToken_SinglePage(t *testing.T) {
 	h := newTestHandler(t)
 	b := h.Backend.(*kinesis.InMemoryBackend)
 
-	require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: "listshards-single-page",
 		ShardCount: 2,
 	}))
 
 	// MaxResults > total shards → single page, no NextToken.
-	out, err := b.ListShards(&kinesis.ListShardsInput{
+	out, err := b.ListShards(context.Background(), &kinesis.ListShardsInput{
 		StreamName: "listshards-single-page",
 		MaxResults: 10,
 	})
@@ -1420,7 +1436,7 @@ func TestRefinement3_ListShards_NextToken_OddPageSize(t *testing.T) {
 	h := newTestHandler(t)
 	b := h.Backend.(*kinesis.InMemoryBackend)
 
-	require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: "listshards-odd-page",
 		ShardCount: 7,
 	}))
@@ -1429,7 +1445,7 @@ func TestRefinement3_ListShards_NextToken_OddPageSize(t *testing.T) {
 	nextToken := ""
 
 	for {
-		out, err := b.ListShards(&kinesis.ListShardsInput{
+		out, err := b.ListShards(context.Background(), &kinesis.ListShardsInput{
 			StreamName: "listshards-odd-page",
 			MaxResults: 3,
 			NextToken:  nextToken,
@@ -1481,19 +1497,19 @@ func TestRefinement3_UpdateShardCount_SecondScaleStillWorks(t *testing.T) {
 	h := newTestHandler(t)
 	b := h.Backend.(*kinesis.InMemoryBackend)
 
-	require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: "double-scale-stream",
 		ShardCount: 1,
 	}))
 
-	_, err := b.UpdateShardCount(&kinesis.UpdateShardCountInput{
+	_, err := b.UpdateShardCount(context.Background(), &kinesis.UpdateShardCountInput{
 		StreamName:       "double-scale-stream",
 		TargetShardCount: 3,
 		ScalingType:      "UNIFORM_SCALING",
 	})
 	require.NoError(t, err)
 
-	out2, err := b.UpdateShardCount(&kinesis.UpdateShardCountInput{
+	out2, err := b.UpdateShardCount(context.Background(), &kinesis.UpdateShardCountInput{
 		StreamName:       "double-scale-stream",
 		TargetShardCount: 2,
 		ScalingType:      "UNIFORM_SCALING",
@@ -1509,14 +1525,14 @@ func TestRefinement3_ExplicitHashKey_PartitionKeyOverride(t *testing.T) {
 	h := newTestHandler(t)
 	b := h.Backend.(*kinesis.InMemoryBackend)
 
-	require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: "explicit-hash-override",
 		ShardCount: 2,
 	}))
 
 	// Use a hash key in the upper half to target the second shard.
 	upperHalfKey := "255211775190703847597592248818726428672"
-	out, err := b.PutRecord(&kinesis.PutRecordInput{
+	out, err := b.PutRecord(context.Background(), &kinesis.PutRecordInput{
 		StreamName:      "explicit-hash-override",
 		PartitionKey:    "ignored-partition-key",
 		ExplicitHashKey: upperHalfKey,
@@ -1530,14 +1546,14 @@ func TestRefinement3_PutRecord_ExplicitHashKey_OneAboveMax(t *testing.T) {
 	t.Parallel()
 
 	b := kinesis.NewInMemoryBackend()
-	require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: "above-max-hash",
 		ShardCount: 1,
 	}))
 
 	// 2^128 is one above max (2^128-1).
 	oneAboveMax := "340282366920938463463374607431768211456"
-	_, err := b.PutRecord(&kinesis.PutRecordInput{
+	_, err := b.PutRecord(context.Background(), &kinesis.PutRecordInput{
 		StreamName:      "above-max-hash",
 		PartitionKey:    "pk",
 		ExplicitHashKey: oneAboveMax,
@@ -1550,24 +1566,30 @@ func TestRefinement3_RetentionPeriod_IdempotentIncrease(t *testing.T) {
 	t.Parallel()
 
 	b := kinesis.NewInMemoryBackend()
-	require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: "idempotent-retention",
 		ShardCount: 1,
 	}))
 
 	// Set retention to 48 hours.
-	require.NoError(t, b.IncreaseStreamRetentionPeriod(&kinesis.IncreaseStreamRetentionPeriodInput{
-		StreamName:           "idempotent-retention",
-		RetentionPeriodHours: 48,
-	}))
+	require.NoError(
+		t,
+		b.IncreaseStreamRetentionPeriod(context.Background(), &kinesis.IncreaseStreamRetentionPeriodInput{
+			StreamName:           "idempotent-retention",
+			RetentionPeriodHours: 48,
+		}),
+	)
 
 	// Set it to the same value again — should be a no-op.
-	require.NoError(t, b.IncreaseStreamRetentionPeriod(&kinesis.IncreaseStreamRetentionPeriodInput{
-		StreamName:           "idempotent-retention",
-		RetentionPeriodHours: 48,
-	}))
+	require.NoError(
+		t,
+		b.IncreaseStreamRetentionPeriod(context.Background(), &kinesis.IncreaseStreamRetentionPeriodInput{
+			StreamName:           "idempotent-retention",
+			RetentionPeriodHours: 48,
+		}),
+	)
 
-	out, err := b.DescribeStream(&kinesis.DescribeStreamInput{StreamName: "idempotent-retention"})
+	out, err := b.DescribeStream(context.Background(), &kinesis.DescribeStreamInput{StreamName: "idempotent-retention"})
 	require.NoError(t, err)
 	assert.Equal(t, 48, out.RetentionPeriodHours)
 }
@@ -1576,22 +1598,28 @@ func TestRefinement3_RetentionPeriod_DecreaseStillWorks(t *testing.T) {
 	t.Parallel()
 
 	b := kinesis.NewInMemoryBackend()
-	require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: "decrease-retention",
 		ShardCount: 1,
 	}))
 
-	require.NoError(t, b.IncreaseStreamRetentionPeriod(&kinesis.IncreaseStreamRetentionPeriodInput{
-		StreamName:           "decrease-retention",
-		RetentionPeriodHours: 168,
-	}))
+	require.NoError(
+		t,
+		b.IncreaseStreamRetentionPeriod(context.Background(), &kinesis.IncreaseStreamRetentionPeriodInput{
+			StreamName:           "decrease-retention",
+			RetentionPeriodHours: 168,
+		}),
+	)
 
-	require.NoError(t, b.DecreaseStreamRetentionPeriod(&kinesis.DecreaseStreamRetentionPeriodInput{
-		StreamName:           "decrease-retention",
-		RetentionPeriodHours: 48,
-	}))
+	require.NoError(
+		t,
+		b.DecreaseStreamRetentionPeriod(context.Background(), &kinesis.DecreaseStreamRetentionPeriodInput{
+			StreamName:           "decrease-retention",
+			RetentionPeriodHours: 48,
+		}),
+	)
 
-	out, err := b.DescribeStream(&kinesis.DescribeStreamInput{StreamName: "decrease-retention"})
+	out, err := b.DescribeStream(context.Background(), &kinesis.DescribeStreamInput{StreamName: "decrease-retention"})
 	require.NoError(t, err)
 	assert.Equal(t, 48, out.RetentionPeriodHours)
 }
@@ -1600,14 +1628,14 @@ func TestRefinement3_PutRecords_MixedOversizeAndValid(t *testing.T) {
 	t.Parallel()
 
 	b := kinesis.NewInMemoryBackend()
-	require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: "putrecords-mixed",
 		ShardCount: 1,
 	}))
 
 	// 3 records: valid, oversize, valid.
 	oversize := make([]byte, 1_048_577) // 1 MiB + 1 byte
-	out, err := b.PutRecords(&kinesis.PutRecordsInput{
+	out, err := b.PutRecords(context.Background(), &kinesis.PutRecordsInput{
 		StreamName: "putrecords-mixed",
 		Records: []kinesis.PutRecordsEntry{
 			{PartitionKey: "pk1", Data: []byte("ok1")},
@@ -1627,27 +1655,30 @@ func TestRefinement3_ListShards_ClosedShards_IncludedWithFilter(t *testing.T) {
 	t.Parallel()
 
 	b := kinesis.NewInMemoryBackend()
-	require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: "listshards-closed-filter",
 		ShardCount: 2,
 	}))
 
-	ds, err := b.DescribeStream(&kinesis.DescribeStreamInput{StreamName: "listshards-closed-filter"})
+	ds, err := b.DescribeStream(
+		context.Background(),
+		&kinesis.DescribeStreamInput{StreamName: "listshards-closed-filter"},
+	)
 	require.NoError(t, err)
 
-	require.NoError(t, b.MergeShards(&kinesis.MergeShardsInput{
+	require.NoError(t, b.MergeShards(context.Background(), &kinesis.MergeShardsInput{
 		StreamName:           "listshards-closed-filter",
 		ShardToMerge:         ds.Shards[0].ShardID,
 		AdjacentShardToMerge: ds.Shards[1].ShardID,
 	}))
 
 	// Default: only open shards.
-	open, err := b.ListShards(&kinesis.ListShardsInput{StreamName: "listshards-closed-filter"})
+	open, err := b.ListShards(context.Background(), &kinesis.ListShardsInput{StreamName: "listshards-closed-filter"})
 	require.NoError(t, err)
 	assert.Len(t, open.Shards, 1)
 
 	// FROM_TRIM_HORIZON: all shards.
-	all, err := b.ListShards(&kinesis.ListShardsInput{
+	all, err := b.ListShards(context.Background(), &kinesis.ListShardsInput{
 		StreamName:  "listshards-closed-filter",
 		ShardFilter: "FROM_TRIM_HORIZON",
 	})
@@ -1659,12 +1690,12 @@ func TestRefinement3_UpdateShardCount_LargeScale(t *testing.T) {
 	t.Parallel()
 
 	b := kinesis.NewInMemoryBackend()
-	require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: "large-scale-stream",
 		ShardCount: 1,
 	}))
 
-	out, err := b.UpdateShardCount(&kinesis.UpdateShardCountInput{
+	out, err := b.UpdateShardCount(context.Background(), &kinesis.UpdateShardCountInput{
 		StreamName:       "large-scale-stream",
 		TargetShardCount: 10,
 		ScalingType:      "UNIFORM_SCALING",
@@ -1674,7 +1705,7 @@ func TestRefinement3_UpdateShardCount_LargeScale(t *testing.T) {
 	assert.Equal(t, 10, out.TargetShardCount)
 
 	// Verify 10 open shards via ListShards.
-	list, err := b.ListShards(&kinesis.ListShardsInput{StreamName: "large-scale-stream"})
+	list, err := b.ListShards(context.Background(), &kinesis.ListShardsInput{StreamName: "large-scale-stream"})
 	require.NoError(t, err)
 	assert.Len(t, list.Shards, 10)
 }
@@ -1683,19 +1714,19 @@ func TestRefinement3_GetRecords_EmptyShard_MillisBehindZero(t *testing.T) {
 	t.Parallel()
 
 	b := kinesis.NewInMemoryBackend()
-	require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: "empty-shard-millis",
 		ShardCount: 1,
 	}))
 
-	iterOut, err := b.GetShardIterator(&kinesis.GetShardIteratorInput{
+	iterOut, err := b.GetShardIterator(context.Background(), &kinesis.GetShardIteratorInput{
 		StreamName:        "empty-shard-millis",
 		ShardID:           "shardId-000000000000",
 		ShardIteratorType: "TRIM_HORIZON",
 	})
 	require.NoError(t, err)
 
-	rec, err := b.GetRecords(&kinesis.GetRecordsInput{
+	rec, err := b.GetRecords(context.Background(), &kinesis.GetRecordsInput{
 		ShardIterator: iterOut.ShardIterator,
 		Limit:         100,
 	})
@@ -1767,14 +1798,14 @@ func TestRefinement3_ExplicitHashKey_ValidMidRange(t *testing.T) {
 	t.Parallel()
 
 	b := kinesis.NewInMemoryBackend()
-	require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: "midrange-hash",
 		ShardCount: 2,
 	}))
 
 	// Hash key exactly at the midpoint of 2^128 space.
 	midpoint := "170141183460469231731687303715884105728"
-	_, err := b.PutRecord(&kinesis.PutRecordInput{
+	_, err := b.PutRecord(context.Background(), &kinesis.PutRecordInput{
 		StreamName:      "midrange-hash",
 		PartitionKey:    "pk",
 		ExplicitHashKey: midpoint,
@@ -1787,13 +1818,13 @@ func TestRefinement3_PutRecords_EmptyBatch(t *testing.T) {
 	t.Parallel()
 
 	b := kinesis.NewInMemoryBackend()
-	require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: "empty-batch-stream",
 		ShardCount: 1,
 	}))
 
 	// Empty records slice.
-	out, err := b.PutRecords(&kinesis.PutRecordsInput{
+	out, err := b.PutRecords(context.Background(), &kinesis.PutRecordsInput{
 		StreamName: "empty-batch-stream",
 		Records:    []kinesis.PutRecordsEntry{},
 	})
@@ -1806,13 +1837,13 @@ func TestRefinement3_ListShards_ExclusiveStart_WithMaxResults(t *testing.T) {
 	t.Parallel()
 
 	b := kinesis.NewInMemoryBackend()
-	require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: "listshards-start-max",
 		ShardCount: 5,
 	}))
 
 	// Start after shard 1 (exclusive), take 2.
-	out, err := b.ListShards(&kinesis.ListShardsInput{
+	out, err := b.ListShards(context.Background(), &kinesis.ListShardsInput{
 		StreamName:            "listshards-start-max",
 		ExclusiveStartShardID: "shardId-000000000001",
 		MaxResults:            2,
@@ -1829,19 +1860,19 @@ func TestRefinement3_GetRecords_10MBCap_RecordsBeforeCapNotDropped(t *testing.T)
 	t.Parallel()
 
 	b := kinesis.NewInMemoryBackend()
-	require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: "precap-records",
 		ShardCount: 1,
 	}))
 
-	require.NoError(t, b.UpdateMaxRecordSize(&kinesis.UpdateMaxRecordSizeInput{
+	require.NoError(t, b.UpdateMaxRecordSize(context.Background(), &kinesis.UpdateMaxRecordSizeInput{
 		StreamName:         "precap-records",
 		MaxRecordSizeBytes: 10_485_760,
 	}))
 
 	// Put 3 small + 1 huge record (order matters for iteration).
 	for i := range 3 {
-		_, err := b.PutRecord(&kinesis.PutRecordInput{
+		_, err := b.PutRecord(context.Background(), &kinesis.PutRecordInput{
 			StreamName:   "precap-records",
 			PartitionKey: fmt.Sprintf("small%d", i),
 			Data:         []byte("tiny"),
@@ -1850,21 +1881,21 @@ func TestRefinement3_GetRecords_10MBCap_RecordsBeforeCapNotDropped(t *testing.T)
 	}
 
 	bigData := make([]byte, 9_000_000)
-	_, err := b.PutRecord(&kinesis.PutRecordInput{
+	_, err := b.PutRecord(context.Background(), &kinesis.PutRecordInput{
 		StreamName:   "precap-records",
 		PartitionKey: "big",
 		Data:         bigData,
 	})
 	require.NoError(t, err)
 
-	iterOut, err := b.GetShardIterator(&kinesis.GetShardIteratorInput{
+	iterOut, err := b.GetShardIterator(context.Background(), &kinesis.GetShardIteratorInput{
 		StreamName:        "precap-records",
 		ShardID:           "shardId-000000000000",
 		ShardIteratorType: "TRIM_HORIZON",
 	})
 	require.NoError(t, err)
 
-	rec, err := b.GetRecords(&kinesis.GetRecordsInput{
+	rec, err := b.GetRecords(context.Background(), &kinesis.GetRecordsInput{
 		ShardIterator: iterOut.ShardIterator,
 		Limit:         10000,
 	})

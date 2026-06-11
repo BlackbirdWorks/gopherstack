@@ -21,19 +21,24 @@ func (b *InMemoryBackend) InjectExpiredThroughputFaultForTest(streamName string)
 	b.faultsMu.Lock("InjectExpiredThroughputFaultForTest")
 	defer b.faultsMu.Unlock()
 
-	b.fisThroughputFaults[streamName] = &kinesisThrottleFault{
+	b.faultsStore(b.region)[streamName] = &kinesisThrottleFault{
 		expiry:      time.Now().Add(-time.Hour), // already expired
 		probability: 1.0,
 	}
 }
 
 // ScheduleThroughputFaultCleanupForTest exposes scheduleThroughputFaultCleanup for tests.
+// Names are resolved against the backend's default region.
 func (b *InMemoryBackend) ScheduleThroughputFaultCleanupForTest(
 	ctx context.Context,
 	names []string,
 	dur time.Duration,
 ) {
-	b.scheduleThroughputFaultCleanup(ctx, names, dur)
+	targets := make([]regionStreamTarget, len(names))
+	for i, n := range names {
+		targets[i] = regionStreamTarget{region: b.region, name: n}
+	}
+	b.scheduleThroughputFaultCleanup(ctx, targets, dur)
 }
 
 // InjectFaultForTest inserts an active (non-expired) throughput fault for testing.
@@ -41,7 +46,7 @@ func (b *InMemoryBackend) InjectFaultForTest(streamName string) {
 	b.faultsMu.Lock("InjectFaultForTest")
 	defer b.faultsMu.Unlock()
 
-	b.fisThroughputFaults[streamName] = &kinesisThrottleFault{
+	b.faultsStore(b.region)[streamName] = &kinesisThrottleFault{
 		probability: 1.0,
 	}
 }
@@ -51,7 +56,7 @@ func (b *InMemoryBackend) HasFaultForTest(streamName string) bool {
 	b.faultsMu.RLock("HasFaultForTest")
 	defer b.faultsMu.RUnlock()
 
-	_, ok := b.fisThroughputFaults[streamName]
+	_, ok := b.fisThroughputFaults[b.region][streamName]
 
 	return ok
 }
@@ -60,7 +65,7 @@ func (b *InMemoryBackend) HasFaultForTest(streamName string) bool {
 func (b *InMemoryBackend) ShardRecordCountForTest(streamName string, shardIdx int) int {
 	b.mu.RLock("ShardRecordCountForTest")
 
-	stream, ok := b.streams[streamName]
+	stream, ok := b.streamsView(b.region)[streamName]
 	if !ok || shardIdx >= len(stream.Shards) {
 		b.mu.RUnlock()
 
@@ -88,7 +93,7 @@ func (b *InMemoryBackend) SetRetentionPeriodForTest(streamName string, hours int
 	b.mu.Lock("SetRetentionPeriodForTest")
 	defer b.mu.Unlock()
 
-	stream, ok := b.streams[streamName]
+	stream, ok := b.streamsView(b.region)[streamName]
 	if !ok {
 		return ErrStreamNotFound
 	}
@@ -106,7 +111,7 @@ func (b *InMemoryBackend) PushOldRecordForTest(streamName string, shardIdx int, 
 	b.mu.Lock("PushOldRecordForTest")
 	defer b.mu.Unlock()
 
-	stream, ok := b.streams[streamName]
+	stream, ok := b.streamsView(b.region)[streamName]
 	if !ok {
 		return ErrStreamNotFound
 	}
@@ -150,20 +155,31 @@ func (h *Handler) GetJanitorTaskTimeout() time.Duration {
 	return h.janitor.TaskTimeout
 }
 
-// StreamCount returns the number of streams in the backend.
+// StreamCount returns the total number of streams in the backend across all regions.
 func (b *InMemoryBackend) StreamCount() int {
 	b.mu.RLock("StreamCount")
 	defer b.mu.RUnlock()
 
-	return len(b.streams)
+	count := 0
+	for _, regionStreams := range b.streams {
+		count += len(regionStreams)
+	}
+
+	return count
 }
 
-// ResourcePolicyCount returns the number of resource policies in the backend.
+// ResourcePolicyCount returns the total number of resource policies in the backend
+// across all regions.
 func (b *InMemoryBackend) ResourcePolicyCount() int {
 	b.mu.RLock("ResourcePolicyCount")
 	defer b.mu.RUnlock()
 
-	return len(b.resourcePolicies)
+	count := 0
+	for _, regionPolicies := range b.resourcePolicies {
+		count += len(regionPolicies)
+	}
+
+	return count
 }
 
 // HandlerOpsLen returns the number of pre-built handler ops.

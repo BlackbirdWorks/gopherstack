@@ -1,6 +1,7 @@
 package kinesis_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -252,12 +253,12 @@ func TestRefinement2_UpdateStreamMode_InvalidMode(t *testing.T) {
 			h := newTestHandler(t)
 			b := h.Backend.(*kinesis.InMemoryBackend)
 
-			require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+			require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 				StreamName: "inv-mode-stream",
 				ShardCount: 1,
 			}))
 
-			err := b.UpdateStreamMode(&kinesis.UpdateStreamModeInput{
+			err := b.UpdateStreamMode(context.Background(), &kinesis.UpdateStreamModeInput{
 				StreamARN:         "arn:aws:kinesis:us-east-1:123456789012:stream/inv-mode-stream",
 				StreamModeDetails: kinesis.StreamModeDetails{StreamMode: tt.mode},
 			})
@@ -293,7 +294,7 @@ func TestRefinement2_UpdateStreamMode_NotFound(t *testing.T) {
 			h := newTestHandler(t)
 			b := h.Backend.(*kinesis.InMemoryBackend)
 
-			err := b.UpdateStreamMode(&kinesis.UpdateStreamModeInput{
+			err := b.UpdateStreamMode(context.Background(), &kinesis.UpdateStreamModeInput{
 				StreamARN:         tt.streamARN,
 				StreamModeDetails: kinesis.StreamModeDetails{StreamMode: kinesis.StreamModeOnDemand},
 			})
@@ -526,22 +527,22 @@ func TestRefinement2_MergeShards_KeepsClosedShards(t *testing.T) {
 			h := newTestHandler(t)
 			b := h.Backend.(*kinesis.InMemoryBackend)
 
-			require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+			require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 				StreamName: tt.streamName,
 				ShardCount: tt.shardCount,
 			}))
 
-			out, err := b.DescribeStream(&kinesis.DescribeStreamInput{StreamName: tt.streamName})
+			out, err := b.DescribeStream(context.Background(), &kinesis.DescribeStreamInput{StreamName: tt.streamName})
 			require.NoError(t, err)
 			require.Len(t, out.Shards, 2)
 
-			require.NoError(t, b.MergeShards(&kinesis.MergeShardsInput{
+			require.NoError(t, b.MergeShards(context.Background(), &kinesis.MergeShardsInput{
 				StreamName:           tt.streamName,
 				ShardToMerge:         out.Shards[0].ShardID,
 				AdjacentShardToMerge: out.Shards[1].ShardID,
 			}))
 
-			out2, err := b.DescribeStream(&kinesis.DescribeStreamInput{StreamName: tt.streamName})
+			out2, err := b.DescribeStream(context.Background(), &kinesis.DescribeStreamInput{StreamName: tt.streamName})
 			require.NoError(t, err)
 
 			assert.Len(t, out2.Shards, tt.wantTotalShards)
@@ -581,24 +582,24 @@ func TestRefinement2_SplitShard_KeepsClosedShards(t *testing.T) {
 			h := newTestHandler(t)
 			b := h.Backend.(*kinesis.InMemoryBackend)
 
-			require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+			require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 				StreamName: tt.streamName,
 				ShardCount: 1,
 			}))
 
-			out, err := b.DescribeStream(&kinesis.DescribeStreamInput{StreamName: tt.streamName})
+			out, err := b.DescribeStream(context.Background(), &kinesis.DescribeStreamInput{StreamName: tt.streamName})
 			require.NoError(t, err)
 			require.Len(t, out.Shards, 1)
 
 			newHashKey := "170141183460469231731687303715884105727"
 
-			require.NoError(t, b.SplitShard(&kinesis.SplitShardInput{
+			require.NoError(t, b.SplitShard(context.Background(), &kinesis.SplitShardInput{
 				StreamName:         tt.streamName,
 				ShardToSplit:       out.Shards[0].ShardID,
 				NewStartingHashKey: newHashKey,
 			}))
 
-			out2, err := b.DescribeStream(&kinesis.DescribeStreamInput{StreamName: tt.streamName})
+			out2, err := b.DescribeStream(context.Background(), &kinesis.DescribeStreamInput{StreamName: tt.streamName})
 			require.NoError(t, err)
 
 			assert.Len(t, out2.Shards, tt.wantTotalShards)
@@ -635,22 +636,25 @@ func TestRefinement2_CountOpenShards_ExcludesClosedShards(t *testing.T) {
 			h := newTestHandler(t)
 			b := h.Backend.(*kinesis.InMemoryBackend)
 
-			require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+			require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 				StreamName: tt.streamName,
 				ShardCount: tt.shardCount,
 			}))
 
 			if tt.doMerge {
-				out, err := b.DescribeStream(&kinesis.DescribeStreamInput{StreamName: tt.streamName})
+				out, err := b.DescribeStream(
+					context.Background(),
+					&kinesis.DescribeStreamInput{StreamName: tt.streamName},
+				)
 				require.NoError(t, err)
-				require.NoError(t, b.MergeShards(&kinesis.MergeShardsInput{
+				require.NoError(t, b.MergeShards(context.Background(), &kinesis.MergeShardsInput{
 					StreamName:           tt.streamName,
 					ShardToMerge:         out.Shards[0].ShardID,
 					AdjacentShardToMerge: out.Shards[1].ShardID,
 				}))
 			}
 
-			assert.Equal(t, tt.wantCount, b.CountOpenShards())
+			assert.Equal(t, tt.wantCount, b.CountOpenShards(context.Background()))
 		})
 	}
 }
@@ -677,21 +681,21 @@ func TestRefinement2_DescribeAccountSettings_OnDemandCount(t *testing.T) {
 			b := h.Backend.(*kinesis.InMemoryBackend)
 
 			for i := range tt.provisionedCount {
-				require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+				require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 					StreamName: "prov-acct-" + tt.name + "-" + string(rune('a'+i)),
 					ShardCount: 1,
 					StreamMode: kinesis.StreamModeProvisioned,
 				}))
 			}
 			for i := range tt.onDemandCount {
-				require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+				require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 					StreamName: "od-acct-" + tt.name + "-" + string(rune('a'+i)),
 					ShardCount: 1,
 					StreamMode: kinesis.StreamModeOnDemand,
 				}))
 			}
 
-			out, err := b.DescribeAccountSettings()
+			out, err := b.DescribeAccountSettings(context.Background())
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantOnDemandCount, out.OnDemandStreamCount)
 		})
@@ -722,12 +726,12 @@ func TestRefinement2_PutRecord_ExplicitHashKey(t *testing.T) {
 			h := newTestHandler(t)
 			b := h.Backend.(*kinesis.InMemoryBackend)
 
-			require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+			require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 				StreamName: "ehk-stream-" + tt.name,
 				ShardCount: tt.shardCount,
 			}))
 
-			out, err := b.PutRecord(&kinesis.PutRecordInput{
+			out, err := b.PutRecord(context.Background(), &kinesis.PutRecordInput{
 				StreamName:      "ehk-stream-" + tt.name,
 				PartitionKey:    "some-key",
 				ExplicitHashKey: tt.explicitHashKey,
@@ -760,12 +764,12 @@ func TestRefinement2_ListShards_ExclusiveStartShardId(t *testing.T) {
 			h := newTestHandler(t)
 			b := h.Backend.(*kinesis.InMemoryBackend)
 
-			require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+			require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 				StreamName: "list-shards-excl-" + tt.name,
 				ShardCount: tt.shardCount,
 			}))
 
-			out, err := b.ListShards(&kinesis.ListShardsInput{
+			out, err := b.ListShards(context.Background(), &kinesis.ListShardsInput{
 				StreamName:            "list-shards-excl-" + tt.name,
 				ExclusiveStartShardID: tt.exclusiveStartShardID,
 			})
@@ -794,22 +798,22 @@ func TestRefinement2_ListShards_IncludesClosedShards(t *testing.T) {
 			h := newTestHandler(t)
 			b := h.Backend.(*kinesis.InMemoryBackend)
 
-			require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+			require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 				StreamName: tt.streamName,
 				ShardCount: tt.shardCount,
 			}))
 
-			ds, err := b.DescribeStream(&kinesis.DescribeStreamInput{StreamName: tt.streamName})
+			ds, err := b.DescribeStream(context.Background(), &kinesis.DescribeStreamInput{StreamName: tt.streamName})
 			require.NoError(t, err)
 
-			require.NoError(t, b.MergeShards(&kinesis.MergeShardsInput{
+			require.NoError(t, b.MergeShards(context.Background(), &kinesis.MergeShardsInput{
 				StreamName:           tt.streamName,
 				ShardToMerge:         ds.Shards[0].ShardID,
 				AdjacentShardToMerge: ds.Shards[1].ShardID,
 			}))
 
 			// Use FROM_TRIM_HORIZON filter to retrieve all shards including closed ones.
-			out, err := b.ListShards(&kinesis.ListShardsInput{
+			out, err := b.ListShards(context.Background(), &kinesis.ListShardsInput{
 				StreamName:  tt.streamName,
 				ShardFilter: "FROM_TRIM_HORIZON",
 			})
@@ -817,7 +821,7 @@ func TestRefinement2_ListShards_IncludesClosedShards(t *testing.T) {
 			assert.Len(t, out.Shards, tt.wantTotalShards)
 
 			// Without a filter, only open shards are returned (matching AWS default behavior).
-			openOut, err := b.ListShards(&kinesis.ListShardsInput{StreamName: tt.streamName})
+			openOut, err := b.ListShards(context.Background(), &kinesis.ListShardsInput{StreamName: tt.streamName})
 			require.NoError(t, err)
 			assert.Len(t, openOut.Shards, 1, "expected only the 1 open (merged) shard without filter")
 		})
@@ -841,24 +845,24 @@ func TestRefinement2_ShardDescription_ParentShardId(t *testing.T) {
 			h := newTestHandler(t)
 			b := h.Backend.(*kinesis.InMemoryBackend)
 
-			require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+			require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 				StreamName: tt.streamName,
 				ShardCount: 2,
 			}))
 
-			ds, err := b.DescribeStream(&kinesis.DescribeStreamInput{StreamName: tt.streamName})
+			ds, err := b.DescribeStream(context.Background(), &kinesis.DescribeStreamInput{StreamName: tt.streamName})
 			require.NoError(t, err)
 
 			shard0ID := ds.Shards[0].ShardID
 			shard1ID := ds.Shards[1].ShardID
 
-			require.NoError(t, b.MergeShards(&kinesis.MergeShardsInput{
+			require.NoError(t, b.MergeShards(context.Background(), &kinesis.MergeShardsInput{
 				StreamName:           tt.streamName,
 				ShardToMerge:         shard0ID,
 				AdjacentShardToMerge: shard1ID,
 			}))
 
-			ds2, err := b.DescribeStream(&kinesis.DescribeStreamInput{StreamName: tt.streamName})
+			ds2, err := b.DescribeStream(context.Background(), &kinesis.DescribeStreamInput{StreamName: tt.streamName})
 			require.NoError(t, err)
 
 			var mergedShard *kinesis.ShardDescription
@@ -891,12 +895,12 @@ func TestRefinement2_NextSeq_Serialized(t *testing.T) {
 			t.Parallel()
 
 			b := kinesis.NewInMemoryBackend()
-			require.NoError(t, b.CreateStream(&kinesis.CreateStreamInput{
+			require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 				StreamName: tt.streamName,
 				ShardCount: 1,
 			}))
 
-			out, err := b.PutRecord(&kinesis.PutRecordInput{
+			out, err := b.PutRecord(context.Background(), &kinesis.PutRecordInput{
 				StreamName:   tt.streamName,
 				PartitionKey: "key",
 				Data:         []byte("data"),
@@ -910,7 +914,7 @@ func TestRefinement2_NextSeq_Serialized(t *testing.T) {
 			b2 := kinesis.NewInMemoryBackend()
 			require.NoError(t, b2.Restore(snapshot))
 
-			out2, err := b2.PutRecord(&kinesis.PutRecordInput{
+			out2, err := b2.PutRecord(context.Background(), &kinesis.PutRecordInput{
 				StreamName:   tt.streamName,
 				PartitionKey: "key2",
 				Data:         []byte("data2"),
@@ -952,7 +956,7 @@ func TestRefinement2_AddStreamInternal_DefaultsStreamMode(t *testing.T) {
 				StreamMode: tt.streamMode,
 			})
 
-			out, err := b.DescribeStream(&kinesis.DescribeStreamInput{StreamName: tt.streamName})
+			out, err := b.DescribeStream(context.Background(), &kinesis.DescribeStreamInput{StreamName: tt.streamName})
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantMode, out.StreamMode)
 		})

@@ -2,6 +2,7 @@ package kinesis_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -510,13 +511,13 @@ func TestListAll(t *testing.T) {
 	bk := kinesis.NewInMemoryBackend()
 
 	// Empty
-	assert.Empty(t, bk.ListAll())
+	assert.Empty(t, bk.ListAll(context.Background()))
 
 	// Create some streams
-	require.NoError(t, bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "s1"}))
-	require.NoError(t, bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "s2"}))
+	require.NoError(t, bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{StreamName: "s1"}))
+	require.NoError(t, bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{StreamName: "s2"}))
 
-	all := bk.ListAll()
+	all := bk.ListAll(context.Background())
 	assert.Len(t, all, 2)
 
 	names := make([]string, len(all))
@@ -533,9 +534,9 @@ func TestBackendWithConfig(t *testing.T) {
 	t.Parallel()
 
 	bk := kinesis.NewInMemoryBackendWithConfig("123456789012", "eu-west-1")
-	require.NoError(t, bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "regional-stream"}))
+	require.NoError(t, bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{StreamName: "regional-stream"}))
 
-	all := bk.ListAll()
+	all := bk.ListAll(context.Background())
 	require.Len(t, all, 1)
 	assert.Contains(t, all[0].ARN, "eu-west-1")
 	assert.Contains(t, all[0].ARN, "123456789012")

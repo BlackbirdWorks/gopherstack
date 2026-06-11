@@ -738,14 +738,17 @@ func (rc *ResourceCreator) createKinesisStream(
 		return "", fmt.Errorf("create Kinesis stream %s (got %d): %w", name, shardCount, ErrShardCountOutOfRange)
 	}
 
-	if err := rc.backends.Kinesis.Backend.CreateStream(&kinesisbackend.CreateStreamInput{
+	if err := rc.backends.Kinesis.Backend.CreateStream(context.Background(), &kinesisbackend.CreateStreamInput{
 		StreamName: name,
 		ShardCount: shardCount,
 	}); err != nil {
 		return "", fmt.Errorf("create Kinesis stream %s: %w", name, err)
 	}
 
-	out, err := rc.backends.Kinesis.Backend.DescribeStream(&kinesisbackend.DescribeStreamInput{StreamName: name})
+	out, err := rc.backends.Kinesis.Backend.DescribeStream(
+		context.Background(),
+		&kinesisbackend.DescribeStreamInput{StreamName: name},
+	)
 	if err != nil {
 		// Fall back to stream name if describe fails; ARN may not be available yet.
 		return name, nil //nolint:nilerr // describe can fail; stream was created, return name
@@ -761,7 +764,10 @@ func (rc *ResourceCreator) deleteKinesisStream(arn string) error {
 
 	name := streamNameFromARN(arn)
 
-	return rc.backends.Kinesis.Backend.DeleteStream(&kinesisbackend.DeleteStreamInput{StreamName: name})
+	return rc.backends.Kinesis.Backend.DeleteStream(
+		context.Background(),
+		&kinesisbackend.DeleteStreamInput{StreamName: name},
+	)
 }
 
 // ---- CloudWatch ----
