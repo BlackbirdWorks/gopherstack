@@ -297,6 +297,25 @@ type SMSDelivery struct {
 	MessageID   string
 }
 
+// EmailDelivery records a single message delivered to an email or email-json
+// subscription. AWS sends these to a mailbox; gopherstack has no SMTP sink, so
+// the delivery is recorded here and exposed via DrainEmailDeliveries for
+// inspection/testing — the simulator equivalent of "the email was sent".
+type EmailDelivery struct {
+	// EndpointEmail is the subscriber's email address.
+	EndpointEmail string
+	// Protocol is "email" or "email-json".
+	Protocol string
+	// Subject is the optional message subject.
+	Subject string
+	// Message is the (per-protocol resolved) message body.
+	Message string
+	// MessageID is the publish MessageId.
+	MessageID string
+	// TopicARN is the originating topic.
+	TopicARN string
+}
+
 // ArchivedMessage stores a published message in the per-topic archive.
 // Messages are archived when the topic has an ArchivePolicy attribute set.
 // They are replayed to subscriptions that have a ReplayPolicy set.
@@ -437,6 +456,7 @@ type InMemoryBackend struct {
 	accountID            string
 	region               string
 	smsDeliveries        []SMSDelivery
+	emailDeliveries      []EmailDelivery
 	deliveryWg           sync.WaitGroup
 	closing              atomic.Bool
 }
@@ -1156,8 +1176,9 @@ type httpDelivery struct {
 
 // publishTargets holds the subscription snapshots and HTTP deliveries collected for a publish call.
 type publishTargets struct {
-	subs           []events.SNSSubscriptionSnapshot
-	httpDeliveries []httpDelivery
+	subs            []events.SNSSubscriptionSnapshot
+	httpDeliveries  []httpDelivery
+	emailDeliveries []EmailDelivery
 }
 
 type parsedFilterPolicy map[string][]json.RawMessage
@@ -1511,6 +1532,20 @@ func (b *InMemoryBackend) collectPublishTargets(
 			})
 		}
 
+		// Email and email-json subscriptions have no network sink in a simulator;
+		// record the delivery so it is observable (AWS would place it in an inbox).
+		// Pending (unconfirmed) subscriptions are skipped, matching AWS which does
+		// not deliver until the recipient confirms.
+		if (sub.Protocol == protocolEmail || sub.Protocol == protocolEmailJSON) &&
+			!sub.PendingConfirmation {
+			out.emailDeliveries = append(out.emailDeliveries, EmailDelivery{
+				EndpointEmail: sub.Endpoint,
+				Protocol:      sub.Protocol,
+				Subject:       subject,
+				Message:       msg,
+			})
+		}
+
 		out.subs = append(out.subs, events.SNSSubscriptionSnapshot{
 			SubscriptionARN:    sub.SubscriptionArn,
 			Protocol:           sub.Protocol,
@@ -1782,6 +1817,8 @@ func (b *InMemoryBackend) Publish(
 
 	b.dispatchHTTPDeliveries(targets.httpDeliveries, client)
 
+	b.recordEmailDeliveries(targets.emailDeliveries, messageID, topicArn)
+
 	b.emitPublishedEvent(topicArn, messageID, message, subject, attrs, targets.subs)
 
 	ev := &events.SNSPublishedEvent{
@@ -1870,6 +1907,36 @@ func (b *InMemoryBackend) DrainSMSDeliveries() []SMSDelivery {
 
 	deliveries := b.smsDeliveries
 	b.smsDeliveries = nil
+
+	return deliveries
+}
+
+// recordEmailDeliveries annotates and stores email/email-json deliveries produced
+// by a publish so they can later be drained for inspection.
+func (b *InMemoryBackend) recordEmailDeliveries(deliveries []EmailDelivery, messageID, topicArn string) {
+	if len(deliveries) == 0 {
+		return
+	}
+
+	b.mu.Lock("recordEmailDeliveries")
+	defer b.mu.Unlock()
+
+	for i := range deliveries {
+		deliveries[i].MessageID = messageID
+		deliveries[i].TopicARN = topicArn
+		b.emailDeliveries = append(b.emailDeliveries, deliveries[i])
+	}
+}
+
+// DrainEmailDeliveries returns and clears all recorded email/email-json deliveries.
+// AWS delivers these to a mailbox; gopherstack records them here so tests and the
+// dashboard can confirm the message was delivered.
+func (b *InMemoryBackend) DrainEmailDeliveries() []EmailDelivery {
+	b.mu.Lock("DrainEmailDeliveries")
+	defer b.mu.Unlock()
+
+	deliveries := b.emailDeliveries
+	b.emailDeliveries = nil
 
 	return deliveries
 }
@@ -3466,6 +3533,7 @@ func (b *InMemoryBackend) Reset() {
 	b.optedOutPhoneNumbers = make(map[string]bool)
 	b.smsAttributes = make(map[string]string)
 	b.smsDeliveries = nil
+	b.emailDeliveries = nil
 }
 
 func (b *InMemoryBackend) archivePublishedMessage(
