@@ -32,7 +32,14 @@ import { toast } from 'svelte-sonner';
 import { Box, Search, RefreshCw, Plus, Trash2, Play, XCircle, Layers, FileCode, Server, BookOpen, Terminal } from 'lucide-svelte';
 
 const batch = getBatchClient();
-const cwl = getCloudWatchLogsClient();
+
+// Lazily constructed CloudWatch Logs client for streaming container logs.
+// Created only when the user opens a job's logs so component init never
+// depends on the CloudWatch Logs SDK being available (e.g. under test mocks).
+let cwl: ReturnType<typeof getCloudWatchLogsClient> | null = null;
+function cwlClient() {
+return (cwl ??= getCloudWatchLogsClient());
+}
 
 type ActiveTab = 'queues' | 'compute-environments' | 'service-environments' | 'jobs' | 'definitions' | 'metrics' | 'docs';
 
@@ -372,7 +379,7 @@ return;
 loadingJobLogs = true;
 jobLogError = '';
 try {
-const resp = await cwl.send(
+const resp = await cwlClient().send(
 new GetLogEventsCommand({
 logGroupName: '/aws/batch/job',
 logStreamName: stream,
