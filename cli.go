@@ -78,6 +78,7 @@ import (
 	appconfigdatabackend "github.com/blackbirdworks/gopherstack/services/appconfigdata"
 	applicationautoscalingbackend "github.com/blackbirdworks/gopherstack/services/applicationautoscaling"
 	appmeshbackend "github.com/blackbirdworks/gopherstack/services/appmesh"
+	apprunnerbackend "github.com/blackbirdworks/gopherstack/services/apprunner"
 	appstreambackend "github.com/blackbirdworks/gopherstack/services/appstream"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
@@ -106,6 +107,7 @@ import (
 	comprehendbackend "github.com/blackbirdworks/gopherstack/services/comprehend"
 	databrewbackend "github.com/blackbirdworks/gopherstack/services/databrew"
 	datasyncbackend "github.com/blackbirdworks/gopherstack/services/datasync"
+	daxbackend "github.com/blackbirdworks/gopherstack/services/dax"
 	detectivebackend "github.com/blackbirdworks/gopherstack/services/detective"
 	dmsbackend "github.com/blackbirdworks/gopherstack/services/dms"
 	docdbbackend "github.com/blackbirdworks/gopherstack/services/docdb"
@@ -149,6 +151,7 @@ import (
 	macie2backend "github.com/blackbirdworks/gopherstack/services/macie2"
 	managedblockchainbackend "github.com/blackbirdworks/gopherstack/services/managedblockchain"
 	mediaconvertbackend "github.com/blackbirdworks/gopherstack/services/mediaconvert"
+	mediapackagebackend "github.com/blackbirdworks/gopherstack/services/mediapackage"
 	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
 	mediastoredatabackend "github.com/blackbirdworks/gopherstack/services/mediastoredata"
 	memorydbbackend "github.com/blackbirdworks/gopherstack/services/memorydb"
@@ -157,14 +160,17 @@ import (
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
+	personalizebackend "github.com/blackbirdworks/gopherstack/services/personalize"
 	pinpointbackend "github.com/blackbirdworks/gopherstack/services/pinpoint"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
 	pollybackend "github.com/blackbirdworks/gopherstack/services/polly"
+	quicksightbackend "github.com/blackbirdworks/gopherstack/services/quicksight"
 	rambackend "github.com/blackbirdworks/gopherstack/services/ram"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	rdsdatabackend "github.com/blackbirdworks/gopherstack/services/rdsdata"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 	redshiftdatabackend "github.com/blackbirdworks/gopherstack/services/redshiftdata"
+	rekognitionbackend "github.com/blackbirdworks/gopherstack/services/rekognition"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
 	resourcegroupstaggingapibackend "github.com/blackbirdworks/gopherstack/services/resourcegroupstaggingapi"
 	rolesanywherebackend "github.com/blackbirdworks/gopherstack/services/rolesanywhere"
@@ -195,6 +201,7 @@ import (
 	timestreamwritebackend "github.com/blackbirdworks/gopherstack/services/timestreamwrite"
 	transcribebackend "github.com/blackbirdworks/gopherstack/services/transcribe"
 	transferbackend "github.com/blackbirdworks/gopherstack/services/transfer"
+	translatebackend "github.com/blackbirdworks/gopherstack/services/translate"
 	verifiedpermissionsbackend "github.com/blackbirdworks/gopherstack/services/verifiedpermissions"
 	wafbackend "github.com/blackbirdworks/gopherstack/services/waf"
 	wafv2backend "github.com/blackbirdworks/gopherstack/services/wafv2"
@@ -2791,6 +2798,13 @@ func getMostRecentServiceProviders() []service.Provider {
 		&detectivebackend.Provider{},
 		&datasyncbackend.Provider{},
 		&fsxbackend.Provider{},
+		&apprunnerbackend.Provider{},
+		&daxbackend.Provider{},
+		&mediapackagebackend.Provider{},
+		&personalizebackend.Provider{},
+		&quicksightbackend.Provider{},
+		&rekognitionbackend.Provider{},
+		&translatebackend.Provider{},
 	}
 }
 

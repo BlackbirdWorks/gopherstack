@@ -1,6 +1,21 @@
 package fsx
 
-import "time"
+import (
+	"strconv"
+	"time"
+)
+
+// epochTime marshals to a JSON number of epoch seconds (with fractional
+// milliseconds), matching the AWS JSON-RPC timestamp wire format that the
+// FSx SDK deserializer expects.
+type epochTime time.Time
+
+// MarshalJSON renders the time as epoch seconds.
+func (t epochTime) MarshalJSON() ([]byte, error) {
+	ms := time.Time(t).UnixMilli()
+
+	return []byte(strconv.FormatFloat(float64(ms)/1000.0, 'f', -1, 64)), nil
+}
 
 // StorageBackend is the interface for FSx storage operations.
 type StorageBackend interface {
@@ -92,7 +107,7 @@ type StorageBackend interface {
 // FileSystem represents an Amazon FSx file system.
 // CreationTime is first so its non-pointer prefix reduces GC pointer bytes.
 type FileSystem struct {
-	CreationTime       time.Time `json:"CreationTime"`
+	CreationTime       epochTime `json:"CreationTime"`
 	FileSystemID       string    `json:"FileSystemId"`
 	FileSystemType     string    `json:"FileSystemType"`
 	Lifecycle          string    `json:"Lifecycle"`
@@ -107,7 +122,7 @@ type FileSystem struct {
 // Backup represents an Amazon FSx backup.
 // CreationTime is first so its non-pointer prefix reduces GC pointer bytes.
 type Backup struct {
-	CreationTime time.Time   `json:"CreationTime"`
+	CreationTime epochTime   `json:"CreationTime"`
 	FileSystem   *FileSystem `json:"FileSystem,omitempty"`
 	BackupID     string      `json:"BackupId"`
 	BackupType   string      `json:"Type"`

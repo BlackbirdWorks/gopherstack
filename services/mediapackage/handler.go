@@ -336,22 +336,22 @@ func (h *Handler) mapError(c *echo.Context, err error) error {
 // --- channel output helpers ---
 
 type ingestEndpointOutput struct {
-	ID       string `json:"Id"`
-	URL      string `json:"Url"`
-	Username string `json:"Username"`
-	Password string `json:"Password"`
+	ID       string `json:"id"`
+	URL      string `json:"url"`
+	Username string `json:"username"`
+	Password string `json:"password"`
 }
 
 type hlsIngestOutput struct {
-	IngestEndpoints []ingestEndpointOutput `json:"IngestEndpoints"`
+	IngestEndpoints []ingestEndpointOutput `json:"ingestEndpoints"`
 }
 
 type channelOutput struct {
-	Tags        map[string]any  `json:"Tags"`
-	Arn         string          `json:"Arn"`
-	ID          string          `json:"Id"`
-	Description string          `json:"Description"`
-	HlsIngest   hlsIngestOutput `json:"HlsIngest"`
+	Tags        map[string]any  `json:"tags"`
+	Arn         string          `json:"arn"`
+	ID          string          `json:"id"`
+	Description string          `json:"description"`
+	HlsIngest   hlsIngestOutput `json:"hlsIngest"`
 }
 
 func toChannelOutput(ch *Channel) channelOutput {
@@ -382,17 +382,17 @@ func toChannelOutput(ch *Channel) channelOutput {
 // --- origin endpoint output helper ---
 
 type originEndpointOutput struct {
-	Tags                   map[string]any `json:"Tags"`
-	Arn                    string         `json:"Arn"`
-	ChannelID              string         `json:"ChannelId"`
-	ID                     string         `json:"Id"`
-	Description            string         `json:"Description"`
-	ManifestName           string         `json:"ManifestName"`
-	URL                    string         `json:"Url"`
-	Origination            string         `json:"Origination"`
-	Whitelist              []string       `json:"Whitelist"`
-	StartoverWindowSeconds int            `json:"StartoverWindowSeconds"`
-	TimeDelaySeconds       int            `json:"TimeDelaySeconds"`
+	Tags                   map[string]any `json:"tags"`
+	Arn                    string         `json:"arn"`
+	ChannelID              string         `json:"channelId"`
+	ID                     string         `json:"id"`
+	Description            string         `json:"description"`
+	ManifestName           string         `json:"manifestName"`
+	URL                    string         `json:"url"`
+	Origination            string         `json:"origination"`
+	Whitelist              []string       `json:"whitelist"`
+	StartoverWindowSeconds int            `json:"startoverWindowSeconds"`
+	TimeDelaySeconds       int            `json:"timeDelaySeconds"`
 }
 
 func toOriginEndpointOutput(ep *OriginEndpoint) originEndpointOutput {
@@ -424,8 +424,8 @@ func toOriginEndpointOutput(ep *OriginEndpoint) originEndpointOutput {
 // --- channel handlers ---
 
 func (h *Handler) handleCreateChannel(c *echo.Context, body map[string]any) error {
-	id, _ := body["Id"].(string)
-	description, _ := body["Description"].(string)
+	id, _ := body["id"].(string)
+	description, _ := body["description"].(string)
 	tags := extractTags(body)
 
 	ch, err := h.Backend.CreateChannel(id, description, tags)
@@ -446,7 +446,7 @@ func (h *Handler) handleDescribeChannel(c *echo.Context, id string) error {
 }
 
 func (h *Handler) handleUpdateChannel(c *echo.Context, id string, body map[string]any) error {
-	description, _ := body["Description"].(string)
+	description, _ := body["description"].(string)
 
 	ch, err := h.Backend.UpdateChannel(id, description)
 	if err != nil {
@@ -476,9 +476,9 @@ func (h *Handler) handleListChannels(c *echo.Context) error {
 		out = append(out, toChannelOutput(ch))
 	}
 
-	resp := map[string]any{"Channels": out}
+	resp := map[string]any{"channels": out}
 	if nextToken != "" {
-		resp["NextToken"] = nextToken
+		resp["nextToken"] = nextToken
 	}
 
 	return c.JSON(http.StatusOK, resp)
@@ -487,12 +487,12 @@ func (h *Handler) handleListChannels(c *echo.Context) error {
 func (h *Handler) handleConfigureLogs(c *echo.Context, id string, body map[string]any) error {
 	var egressLogGroup, ingressLogGroup string
 
-	if egress, ok := body["EgressAccessLogs"].(map[string]any); ok {
-		egressLogGroup, _ = egress["LogGroupName"].(string)
+	if egress, ok := body["egressAccessLogs"].(map[string]any); ok {
+		egressLogGroup, _ = egress["logGroupName"].(string)
 	}
 
-	if ingress, ok := body["IngressAccessLogs"].(map[string]any); ok {
-		ingressLogGroup, _ = ingress["LogGroupName"].(string)
+	if ingress, ok := body["ingressAccessLogs"].(map[string]any); ok {
+		ingressLogGroup, _ = ingress["logGroupName"].(string)
 	}
 
 	ch, err := h.Backend.ConfigureLogs(id, egressLogGroup, ingressLogGroup)
@@ -515,14 +515,14 @@ func (h *Handler) handleRotateChannelCredentials(c *echo.Context, id string) err
 // --- origin endpoint handlers ---
 
 func (h *Handler) handleCreateOriginEndpoint(c *echo.Context, body map[string]any) error {
-	channelID, _ := body["ChannelId"].(string)
-	id, _ := body["Id"].(string)
-	description, _ := body["Description"].(string)
-	manifestName, _ := body["ManifestName"].(string)
-	origination, _ := body["Origination"].(string)
-	startover := intFromBody(body, "StartoverWindowSeconds")
-	timeDelay := intFromBody(body, "TimeDelaySeconds")
-	whitelist := stringsFromBody(body, "Whitelist")
+	channelID, _ := body["channelId"].(string)
+	id, _ := body["id"].(string)
+	description, _ := body["description"].(string)
+	manifestName, _ := body["manifestName"].(string)
+	origination, _ := body["origination"].(string)
+	startover := intFromBody(body, "startoverWindowSeconds")
+	timeDelay := intFromBody(body, "timeDelaySeconds")
+	whitelist := stringsFromBody(body, "whitelist")
 	tags := extractTags(body)
 
 	ep, err := h.Backend.CreateOriginEndpoint(
@@ -553,12 +553,12 @@ func (h *Handler) handleDescribeOriginEndpoint(c *echo.Context, id string) error
 }
 
 func (h *Handler) handleUpdateOriginEndpoint(c *echo.Context, id string, body map[string]any) error {
-	description, _ := body["Description"].(string)
-	manifestName, _ := body["ManifestName"].(string)
-	origination, _ := body["Origination"].(string)
-	startover := intFromBody(body, "StartoverWindowSeconds")
-	timeDelay := intFromBody(body, "TimeDelaySeconds")
-	whitelist := stringsFromBody(body, "Whitelist")
+	description, _ := body["description"].(string)
+	manifestName, _ := body["manifestName"].(string)
+	origination, _ := body["origination"].(string)
+	startover := intFromBody(body, "startoverWindowSeconds")
+	timeDelay := intFromBody(body, "timeDelaySeconds")
+	whitelist := stringsFromBody(body, "whitelist")
 
 	ep, err := h.Backend.UpdateOriginEndpoint(
 		id,
@@ -598,9 +598,9 @@ func (h *Handler) handleListOriginEndpoints(c *echo.Context) error {
 		out = append(out, toOriginEndpointOutput(ep))
 	}
 
-	resp := map[string]any{"OriginEndpoints": out}
+	resp := map[string]any{"originEndpoints": out}
 	if nextToken != "" {
-		resp["NextToken"] = nextToken
+		resp["nextToken"] = nextToken
 	}
 
 	return c.JSON(http.StatusOK, resp)
@@ -647,27 +647,27 @@ func (h *Handler) handleListTagsForResource(c *echo.Context, resourceARN string)
 		out[k] = tags[k]
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"Tags": out})
+	return c.JSON(http.StatusOK, map[string]any{"tags": out})
 }
 
 // --- harvest job handlers ---
 
 type s3DestinationOutput struct {
-	BucketName  string `json:"BucketName"`
-	ManifestKey string `json:"ManifestKey"`
-	RoleArn     string `json:"RoleArn"`
+	BucketName  string `json:"bucketName"`
+	ManifestKey string `json:"manifestKey"`
+	RoleArn     string `json:"roleArn"`
 }
 
 type harvestJobOutput struct {
-	S3Destination    *s3DestinationOutput `json:"S3Destination"`
-	Arn              string               `json:"Arn"`
-	ChannelId        string               `json:"ChannelId"` //nolint:revive,staticcheck // existing issue.
-	CreatedAt        string               `json:"CreatedAt"`
-	EndTime          string               `json:"EndTime"`
-	Id               string               `json:"Id"`               //nolint:revive,staticcheck // existing issue.
-	OriginEndpointId string               `json:"OriginEndpointId"` //nolint:revive,staticcheck // existing issue.
-	StartTime        string               `json:"StartTime"`
-	Status           string               `json:"Status"`
+	S3Destination    *s3DestinationOutput `json:"s3Destination"`
+	Arn              string               `json:"arn"`
+	ChannelId        string               `json:"channelId"` //nolint:revive,staticcheck // existing issue.
+	CreatedAt        string               `json:"createdAt"`
+	EndTime          string               `json:"endTime"`
+	Id               string               `json:"id"`               //nolint:revive,staticcheck // existing issue.
+	OriginEndpointId string               `json:"originEndpointId"` //nolint:revive,staticcheck // existing issue.
+	StartTime        string               `json:"startTime"`
+	Status           string               `json:"status"`
 }
 
 func toHarvestJobOutput(j *HarvestJob) harvestJobOutput {
@@ -694,17 +694,17 @@ func toHarvestJobOutput(j *HarvestJob) harvestJobOutput {
 }
 
 func (h *Handler) handleCreateHarvestJob(c *echo.Context, body map[string]any) error {
-	id, _ := body["Id"].(string)
-	originEndpointID, _ := body["OriginEndpointId"].(string)
-	startTime, _ := body["StartTime"].(string)
-	endTime, _ := body["EndTime"].(string)
+	id, _ := body["id"].(string)
+	originEndpointID, _ := body["originEndpointId"].(string)
+	startTime, _ := body["startTime"].(string)
+	endTime, _ := body["endTime"].(string)
 
 	var s3Dest S3Destination
 
-	if raw, ok := body["S3Destination"].(map[string]any); ok {
-		s3Dest.BucketName, _ = raw["BucketName"].(string)
-		s3Dest.ManifestKey, _ = raw["ManifestKey"].(string)
-		s3Dest.RoleArn, _ = raw["RoleArn"].(string)
+	if raw, ok := body["s3Destination"].(map[string]any); ok {
+		s3Dest.BucketName, _ = raw["bucketName"].(string)
+		s3Dest.ManifestKey, _ = raw["manifestKey"].(string)
+		s3Dest.RoleArn, _ = raw["roleArn"].(string)
 	}
 
 	job, err := h.Backend.CreateHarvestJob(id, originEndpointID, startTime, endTime, s3Dest)
@@ -738,9 +738,9 @@ func (h *Handler) handleListHarvestJobs(c *echo.Context) error {
 		out = append(out, toHarvestJobOutput(j))
 	}
 
-	resp := map[string]any{"HarvestJobs": out}
+	resp := map[string]any{"harvestJobs": out}
 	if nextToken != "" {
-		resp["NextToken"] = nextToken
+		resp["nextToken"] = nextToken
 	}
 
 	return c.JSON(http.StatusOK, resp)
@@ -765,7 +765,7 @@ func (h *Handler) handleRotateIngestEndpointCredentials(c *echo.Context, path st
 // --- body helpers ---
 
 func extractTags(body map[string]any) map[string]string {
-	raw, ok := body["Tags"].(map[string]any)
+	raw, ok := body["tags"].(map[string]any)
 	if !ok {
 		return nil
 	}

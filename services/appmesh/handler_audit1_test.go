@@ -61,8 +61,7 @@ func TestAppMesh_MeshCRUD(t *testing.T) {
 	// CreateMesh
 	rec := doRequest(t, h, http.MethodPut, "/meshes", map[string]any{"meshName": "my-mesh"})
 	assert.Equal(t, http.StatusOK, rec.Code)
-	body := getBody(t, rec)
-	mesh := body["mesh"].(map[string]any)
+	mesh := getBody(t, rec)
 	assert.Equal(t, "my-mesh", mesh["meshName"])
 	assert.Equal(t, "ACTIVE", mesh["status"].(map[string]any)["status"])
 	meta := mesh["metadata"].(map[string]any)
@@ -74,13 +73,13 @@ func TestAppMesh_MeshCRUD(t *testing.T) {
 	// DescribeMesh
 	rec = doRequest(t, h, http.MethodGet, "/meshes/my-mesh", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
-	body = getBody(t, rec)
-	assert.Equal(t, "my-mesh", body["mesh"].(map[string]any)["meshName"])
+	mesh = getBody(t, rec)
+	assert.Equal(t, "my-mesh", mesh["meshName"])
 
 	// ListMeshes
 	rec = doRequest(t, h, http.MethodGet, "/meshes", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
-	body = getBody(t, rec)
+	body := getBody(t, rec)
 	meshes := body["meshes"].([]any)
 	assert.Len(t, meshes, 1)
 
@@ -88,8 +87,7 @@ func TestAppMesh_MeshCRUD(t *testing.T) {
 	rec = doRequest(t, h, http.MethodPut, "/meshes/my-mesh",
 		map[string]any{"spec": map[string]any{"egressFilter": map[string]any{"type": "ALLOW_ALL"}}})
 	assert.Equal(t, http.StatusOK, rec.Code)
-	body = getBody(t, rec)
-	mesh = body["mesh"].(map[string]any)
+	mesh = getBody(t, rec)
 	assert.Equal(t, int64(2), int64(mesh["metadata"].(map[string]any)["version"].(float64)))
 
 	// DeleteMesh
@@ -293,7 +291,7 @@ func TestAppMesh_TagOperations(t *testing.T) {
 	// Get mesh ARN
 	rec := doRequest(t, h, http.MethodGet, "/meshes/tagged-mesh", nil)
 	body := getBody(t, rec)
-	arn := body["mesh"].(map[string]any)["metadata"].(map[string]any)["arn"].(string)
+	arn := body["metadata"].(map[string]any)["arn"].(string)
 
 	// ListTags
 	rec = doRequest(t, h, http.MethodGet, fmt.Sprintf("/tags?resourceArn=%s", arn), nil)

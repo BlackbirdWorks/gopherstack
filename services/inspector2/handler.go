@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -431,8 +432,8 @@ func (h *Handler) handleListFilters(c *echo.Context) error {
 			"name":      f.Name,
 			"action":    f.Action,
 			"ownerId":   f.OwnerID,
-			"createdAt": f.CreatedAt,
-			"updatedAt": f.UpdatedAt,
+			"createdAt": epochSeconds(f.CreatedAt),
+			"updatedAt": epochSeconds(f.UpdatedAt),
 		}
 
 		if f.Description != "" {
@@ -674,4 +675,10 @@ func (h *Handler) mapError(c *echo.Context, err error) error {
 
 		return c.JSON(http.StatusInternalServerError, errorResponse("InternalServerException", "internal error"))
 	}
+}
+
+// epochSeconds renders a timestamp as AWS JSON epoch seconds (with fractional
+// nanoseconds), matching what the Inspector2 SDK deserializer expects.
+func epochSeconds(t time.Time) float64 {
+	return float64(t.Unix()) + float64(t.Nanosecond())/1e9
 }

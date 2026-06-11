@@ -75,7 +75,7 @@ type storedFileSystem struct {
 
 func (s *storedFileSystem) toFileSystem() *FileSystem {
 	return &FileSystem{
-		CreationTime:       s.CreationTime,
+		CreationTime:       epochTime(s.CreationTime),
 		Tags:               tagsMapToSlice(s.Tags),
 		FileSystemID:       s.FileSystemID,
 		FileSystemType:     s.FileSystemType,
@@ -104,7 +104,7 @@ func (b *storedBackup) toBackup(fs *storedFileSystem) *Backup {
 	bk := &Backup{
 		BackupID:     b.BackupID,
 		BackupType:   b.BackupType,
-		CreationTime: b.CreationTime,
+		CreationTime: epochTime(b.CreationTime),
 		Lifecycle:    b.Lifecycle,
 		ResourceARN:  b.ResourceARN,
 		Tags:         tagsMapToSlice(b.Tags),

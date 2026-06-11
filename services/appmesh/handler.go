@@ -36,7 +36,6 @@ const (
 
 	defaultMaxResults = 100
 
-	keyMesh               = "mesh"
 	keyVirtualNode        = "virtualNode"
 	keyRoute              = "route"
 	keyVirtualService     = "virtualService"
@@ -478,7 +477,7 @@ func (h *Handler) handleCreateMesh(c *echo.Context) error {
 		return h.mapErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyMesh: meshToWire(m)})
+	return c.JSON(http.StatusOK, meshToWire(m))
 }
 
 func (h *Handler) handleDescribeMesh(c *echo.Context, meshName string) error {
@@ -487,7 +486,7 @@ func (h *Handler) handleDescribeMesh(c *echo.Context, meshName string) error {
 		return h.mapErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyMesh: meshToWire(m)})
+	return c.JSON(http.StatusOK, meshToWire(m))
 }
 
 func (h *Handler) handleUpdateMesh(c *echo.Context, meshName string) error {
@@ -503,7 +502,7 @@ func (h *Handler) handleUpdateMesh(c *echo.Context, meshName string) error {
 		return h.mapErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyMesh: meshToWire(m)})
+	return c.JSON(http.StatusOK, meshToWire(m))
 }
 
 func (h *Handler) handleDeleteMesh(c *echo.Context, meshName string) error {
@@ -512,7 +511,7 @@ func (h *Handler) handleDeleteMesh(c *echo.Context, meshName string) error {
 		return h.mapErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyMesh: meshToWire(m)})
+	return c.JSON(http.StatusOK, meshToWire(m))
 }
 
 func (h *Handler) handleListMeshes(c *echo.Context) error {
