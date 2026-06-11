@@ -1595,3 +1595,80 @@ New `parity_mega_test.go` (own provider block with the §H endpoints) + fixtures
   `BatchGetAutomationRules`/`GetFindingStatistics`, Inspector2 `ListFindings`, and Macie2
   `DescribeBuckets` remain empty-stub; the added tests deliberately target the stateful ops that
   do round-trip and avoid asserting on those known-empty paths.
+
+---
+
+# Q/R implementation status (pass-5/6 line-level fixes)
+
+Implemented genuine items from §Q (pass 5) and §R (pass 6). Each was verified against current
+code first; many flagged items were confirmed false-positives and skipped (applying them would have
+regressed fidelity).
+
+## Implemented (with table-driven tests)
+
+- **Cognito IDP** (`tokens.go`, `backend.go`): enforce `token_use=="access"` in `ParseAccessToken`
+  (rejects an ID token at GetUser/GlobalSignOut); preserve original `auth_time` across
+  `REFRESH_TOKEN_AUTH` (stored on `refreshTokenEntry`); `ConfirmSignUp` rejects an empty/cleared
+  stored code for an unconfirmed user while keeping re-confirm idempotent.
+- **Cognito Identity** (`backend.go`): `GetCredentialsForIdentity` rejects an empty `Logins` map for
+  an authenticated identity (closes the auth-bypass) with `NotAuthorized`.
+- **CloudFormation** (`handler.go`, `backend.go`, `dynamic_refs.go`): CreateStack/UpdateStack map
+  backend errors to distinct AWS codes (AlreadyExistsException / InsufficientCapabilitiesException /
+  ValidationError); empty change set → `FAILED` / `UNAVAILABLE`; DescribeStacks always serializes
+  `DisableRollback`; `resolveDynamicRef` off-by-one fixed (exactly-limit refs now resolve).
+- **RolesAnywhere** (`backend.go`, `handler.go`): fixed `nextTokenFromSlice` (always returned ""),
+  so pagination advances; `parsePageParams` returns ValidationException for non-numeric maxResults.
+- **OpsWorks** (`handler.go`): unknown action → HTTP 400 ValidationException (was 501).
+- **VerifiedPermissions** (`handler.go`): CreatePolicyStore bounds description at 150 chars.
+- **EMR Serverless** (`handler.go`): ListApplications/ListJobRuns/ListJobRunAttempts bound
+  maxResults to 1-50.
+- **MediaStore Data** (`handler.go`): ListItems bounds MaxResults to 1-1000.
+- **Identity Store** (`handler.go`): ListUsers bounds MaxResults to 1-100.
+- **Batch** (`handler.go`): ListJobs requires `jobQueue` (jobStatus stays optional).
+- **Polly** (`handler.go`): ListSpeechSynthesisTasks/ListLexicons omit NextToken when empty.
+- **API Gateway Management** (`handler.go`): GoneException returned in rest-json shape
+  (`X-Amzn-Errortype` header + body `__type`, human-readable `message`).
+- **S3 Control** (`backend.go`): CreateJob rejects a negative Priority.
+- **Account** (`handler.go`): PutAlternateContact validates the five required fields.
+
+## Verified false-positives (skipped — applying would regress fidelity)
+
+- **AccessAnalyzer `ListFindings` / Detective `ListGraphs`,`ListMembers` off-by-one**: the page
+  token is the *first item of the next page*, so `start = i` is correct; `start = i+1` would skip an
+  item.
+- **DocDB / Neptune marker upper-bounds**: both `applyDocDBMarker`/`applyNeptuneMarker` already
+  guard `start >= len(items)`.
+- **CFN `ListStacks` MaxItems**: AWS ListStacks has no MaxItems parameter (NextToken-only).
+- **CFN Capabilities case-insensitivity**: AWS capabilities are case-sensitive; lowercasing would be
+  less accurate.
+- **VerifiedPermissions `nextToken`/`maxResults` casing**: the whole service uses camelCase
+  (awsjson1_0); PascalCase would break consistency.
+- **CloudControl `ResourceNotFoundException` 404→400**: the modeled error carries `@httpError(404)`.
+- **DynamoDB Streams `MillisBeforeExpiration`**: no such field on DDB Streams GetRecords (that is
+  Kinesis `MillisBehindLatest`).
+- **Scheduler `MaximumWindowInMinutes` omitempty**: it already has `omitempty`.
+- **Support `RecentCommunications` omitempty**: it already has `omitempty`.
+- **Account `ListRegions` maxResults**: already reads the query param; **Account `Details.Id`
+  casing**: PascalCase is consistent and AWS-accurate.
+- **Glacier `ListJobs` lower bound**: already validated (`n < minListLimit`).
+- **MediaStore unrecognized X-Amz-Target → UnrecognizedClientException**: that exception is for
+  invalid credentials, not a bad target; BadRequestException is more defensible.
+
+## Deferred (genuine but invasive / lower-confidence — not done here)
+
+- **CFN `Fn::GetAtt`/`Fn::Sub`/`Fn::ImportValue` error propagation** and **unsupported-resource-type
+  failure**: require threading `error` through the entire string-returning intrinsic resolver and
+  reclassifying intentionally-stubbed (valid-but-unimplemented) resource types vs. true unknowns —
+  large refactor with high regression risk against the existing stub fallbacks.
+- **Inspector2 `CreateFilter` requires `filterCriteria`** and **RedshiftData `ExecuteStatement`
+  exactly-one of ClusterIdentifier/WorkgroupName**: both are AWS-accurate but the existing test
+  suites create these resources without those fields as ubiquitous fixtures, so enforcing the
+  constraint cascades into dozens of unrelated test updates.
+- **ApplicationAutoScaling / SSO Admin / Macie2 / MediaConvert / MediaPackage / Forecast NextToken
+  population**: real token pagination needs deterministic ordering (lists are built from map
+  iteration) plus backend signature changes across many ops — sizeable, deferred.
+- **AppConfig/Amplify/Glacier/MWAA/Cost Explorer/Elasticsearch/OpenSearch bounds & shape "verify"
+  items**: shared paginate helpers return no error (ripples to many callers) or have ambiguous exact
+  bounds (AppConfig 1-50 vs the note's 1-100); left for a focused follow-up.
+- **DAX `ClusterDiscoveryEndpoint` omitempty**, **Support CaseIdNotFound 400/`__type`**: ambiguous
+  vs. the codebase's established 404/`{"message":...}` convention; low value.
