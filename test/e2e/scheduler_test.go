@@ -4,6 +4,7 @@
 package e2e_test
 
 import (
+	"context"
 	"net/http/httptest"
 	"testing"
 
@@ -19,6 +20,7 @@ func TestSchedulerDashboard(t *testing.T) {
 	stack := newStack(t)
 
 	_, err := stack.SchedulerHandler.Backend.CreateSchedule(
+		context.Background(),
 		"test-schedule",
 		"",
 		"rate(5 minutes)",
@@ -36,11 +38,11 @@ func TestSchedulerDashboard(t *testing.T) {
 	server := httptest.NewServer(stack.Echo)
 	defer server.Close()
 
-	context, err := browser.NewContext()
+	bctx, err := browser.NewContext()
 	require.NoError(t, err)
-	defer context.Close()
+	defer bctx.Close()
 
-	page, err := context.NewPage()
+	page, err := bctx.NewPage()
 	require.NoError(t, err)
 	defer page.Close()
 
@@ -71,11 +73,11 @@ func TestSchedulerDashboard_Empty(t *testing.T) {
 	server := httptest.NewServer(stack.Echo)
 	defer server.Close()
 
-	context, err := browser.NewContext()
+	bctx, err := browser.NewContext()
 	require.NoError(t, err)
-	defer context.Close()
+	defer bctx.Close()
 
-	page, err := context.NewPage()
+	page, err := bctx.NewPage()
 	require.NoError(t, err)
 	defer page.Close()
 
@@ -105,11 +107,11 @@ func TestSchedulerDashboard_CreateAndDelete(t *testing.T) {
 	server := httptest.NewServer(stack.Echo)
 	defer server.Close()
 
-	context, err := browser.NewContext()
+	bctx, err := browser.NewContext()
 	require.NoError(t, err)
-	defer context.Close()
+	defer bctx.Close()
 
-	page, err := context.NewPage()
+	page, err := bctx.NewPage()
 	require.NoError(t, err)
 	defer page.Close()
 
