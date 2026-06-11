@@ -66,6 +66,8 @@
 	let editingResolver = $state<Resolver | null>(null);
 	let resolverRequestVTL = $state('');
 	let resolverResponseVTL = $state('');
+	let resolverKind = $state<'UNIT' | 'PIPELINE'>('UNIT');
+	let resolverPipelineFns = $state<string[]>([]);
 	let savingResolver = $state(false);
 
 	// GraphQL executor
@@ -300,16 +302,40 @@
 		editingResolver = resolver;
 		resolverRequestVTL = resolver.requestMappingTemplate ?? '';
 		resolverResponseVTL = resolver.responseMappingTemplate ?? '';
+		resolverKind = resolver.kind === 'PIPELINE' ? 'PIPELINE' : 'UNIT';
+		resolverPipelineFns = [...(resolver.pipelineConfig?.functions ?? [])];
+		// Ensure pipeline-function list is populated for the picker.
+		if (functions.length === 0) loadFunctions();
 	}
 
 	function closeResolverEditor() {
 		editingResolver = null;
 		resolverRequestVTL = '';
 		resolverResponseVTL = '';
+		resolverKind = 'UNIT';
+		resolverPipelineFns = [];
+	}
+
+	function togglePipelineFn(functionId: string) {
+		resolverPipelineFns = resolverPipelineFns.includes(functionId)
+			? resolverPipelineFns.filter((f) => f !== functionId)
+			: [...resolverPipelineFns, functionId];
+	}
+
+	function movePipelineFn(index: number, dir: -1 | 1) {
+		const target = index + dir;
+		if (target < 0 || target >= resolverPipelineFns.length) return;
+		const next = [...resolverPipelineFns];
+		[next[index], next[target]] = [next[target], next[index]];
+		resolverPipelineFns = next;
 	}
 
 	async function saveResolver() {
 		if (!editingResolver || !selectedApiId) return;
+		if (resolverKind === 'PIPELINE' && resolverPipelineFns.length === 0) {
+			toast.error('A pipeline resolver needs at least one function');
+			return;
+		}
 		savingResolver = true;
 		try {
 			await appsync.send(
@@ -317,7 +343,11 @@
 					apiId: selectedApiId,
 					typeName: editingResolver.typeName,
 					fieldName: editingResolver.fieldName,
-					dataSourceName: editingResolver.dataSourceName,
+					kind: resolverKind,
+					// UNIT resolvers bind a data source; PIPELINE resolvers run a function list.
+					dataSourceName: resolverKind === 'UNIT' ? editingResolver.dataSourceName : undefined,
+					pipelineConfig:
+						resolverKind === 'PIPELINE' ? { functions: resolverPipelineFns } : undefined,
 					requestMappingTemplate: resolverRequestVTL || undefined,
 					responseMappingTemplate: resolverResponseVTL || undefined
 				})
@@ -330,6 +360,10 @@
 		} finally {
 			savingResolver = false;
 		}
+	}
+
+	function fnName(id: string): string {
+		return functions.find((f) => f.functionId === id)?.name ?? id;
 	}
 
 	async function executeGraphQL() {
@@ -775,6 +809,51 @@
 									</button>
 								</div>
 							</div>
+
+							<div>
+								<label for="resolver-kind" class="block text-xs font-medium mb-1 text-muted-foreground">Resolver Kind</label>
+								<select
+									id="resolver-kind"
+									bind:value={resolverKind}
+									class="rounded-md border bg-background px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-primary"
+								>
+									<option value="UNIT">UNIT (single data source)</option>
+									<option value="PIPELINE">PIPELINE (function chain)</option>
+								</select>
+							</div>
+
+							{#if resolverKind === 'PIPELINE'}
+								<div class="rounded-md border p-3 space-y-3">
+									<p class="text-xs font-medium text-muted-foreground">Pipeline functions (executed in order)</p>
+									{#if resolverPipelineFns.length > 0}
+										<ol class="space-y-1.5">
+											{#each resolverPipelineFns as fnId, idx}
+												<li class="flex items-center gap-2 rounded-md bg-muted/50 px-2 py-1.5 text-xs">
+													<span class="font-mono text-muted-foreground">{idx + 1}.</span>
+													<span class="flex-1 truncate">{fnName(fnId)}</span>
+													<button onclick={() => movePipelineFn(idx, -1)} disabled={idx === 0} class="px-1 text-muted-foreground hover:text-foreground disabled:opacity-30" aria-label="Move up">↑</button>
+													<button onclick={() => movePipelineFn(idx, 1)} disabled={idx === resolverPipelineFns.length - 1} class="px-1 text-muted-foreground hover:text-foreground disabled:opacity-30" aria-label="Move down">↓</button>
+													<button onclick={() => togglePipelineFn(fnId)} class="px-1 text-red-500 hover:text-red-600" aria-label="Remove">✕</button>
+												</li>
+											{/each}
+										</ol>
+									{:else}
+										<p class="text-xs text-muted-foreground italic">No functions added yet.</p>
+									{/if}
+									{#if functions.filter((f) => f.functionId && !resolverPipelineFns.includes(f.functionId)).length > 0}
+										<div class="flex flex-wrap gap-1.5 pt-1 border-t">
+											{#each functions.filter((f) => f.functionId && !resolverPipelineFns.includes(f.functionId)) as fn}
+												<button
+													onclick={() => fn.functionId && togglePipelineFn(fn.functionId)}
+													class="rounded-md border px-2 py-1 text-xs hover:bg-accent"
+												>+ {fn.name}</button>
+											{/each}
+										</div>
+									{:else if functions.length === 0}
+										<p class="text-xs text-muted-foreground">No functions available. Create one in the Functions tab.</p>
+									{/if}
+								</div>
+							{/if}
 
 							<div>
 								<label class="block text-xs font-medium mb-1 text-muted-foreground">Request Mapping Template (VTL)</label>

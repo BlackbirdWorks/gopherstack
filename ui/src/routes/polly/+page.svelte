@@ -6,13 +6,16 @@
 		ListLexiconsCommand,
 		ListSpeechSynthesisTasksCommand,
 		SynthesizeSpeechCommand,
+		GetLexiconCommand,
+		PutLexiconCommand,
+		DeleteLexiconCommand,
 			type VoiceId,
 		type Voice,
 		type LexiconDescription,
 		type SynthesisTask
 	} from '@aws-sdk/client-polly';
 	import { toast } from 'svelte-sonner';
-	import { Mic, RefreshCw, Search, BookOpen, Activity, Play } from 'lucide-svelte';
+	import { Mic, RefreshCw, Search, BookOpen, Activity, Play, Plus, Pencil, Trash2, X } from 'lucide-svelte';
 
 	const polly = getPollyClient();
 
@@ -132,6 +135,86 @@
 		}
 	}
 
+	// ── Lexicon editor (PutLexicon / GetLexicon / DeleteLexicon) ────────────
+	const SAMPLE_LEXICON = `<?xml version="1.0" encoding="UTF-8"?>
+<lexicon version="1.0"
+      xmlns="http://www.w3.org/2005/01/pronunciation-lexicon"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://www.w3.org/2005/01/pronunciation-lexicon
+        http://www.w3.org/TR/2007/CR-pronunciation-lexicon-20071212/pls.xsd"
+      alphabet="ipa" xml:lang="en-US">
+  <lexeme>
+    <grapheme>W3C</grapheme>
+    <alias>World Wide Web Consortium</alias>
+  </lexeme>
+</lexicon>`;
+
+	let showLexiconModal = $state(false);
+	let lexiconModalMode = $state<'create' | 'edit'>('create');
+	let lexiconName = $state('');
+	let lexiconContent = $state('');
+	let savingLexicon = $state(false);
+	let loadingLexicon = $state(false);
+	let deletingLexicon = $state<string | null>(null);
+
+	function openCreateLexicon() {
+		lexiconModalMode = 'create';
+		lexiconName = '';
+		lexiconContent = SAMPLE_LEXICON;
+		showLexiconModal = true;
+	}
+
+	async function openEditLexicon(name: string) {
+		lexiconModalMode = 'edit';
+		lexiconName = name;
+		lexiconContent = '';
+		loadingLexicon = true;
+		showLexiconModal = true;
+		try {
+			const resp = await polly.send(new GetLexiconCommand({ Name: name }));
+			lexiconContent = resp.Lexicon?.Content ?? '';
+		} catch (e) {
+			toast.error('Failed to load lexicon: ' + String(e));
+		} finally {
+			loadingLexicon = false;
+		}
+	}
+
+	async function saveLexicon() {
+		if (!lexiconName.trim()) {
+			toast.error('Lexicon name is required');
+			return;
+		}
+		if (!lexiconContent.trim()) {
+			toast.error('Lexicon content is required');
+			return;
+		}
+		savingLexicon = true;
+		try {
+			await polly.send(new PutLexiconCommand({ Name: lexiconName.trim(), Content: lexiconContent }));
+			toast.success(`Lexicon "${lexiconName.trim()}" saved`);
+			showLexiconModal = false;
+			await loadData();
+		} catch (e) {
+			toast.error('Failed to save lexicon: ' + String(e));
+		} finally {
+			savingLexicon = false;
+		}
+	}
+
+	async function deleteLexicon(name: string) {
+		deletingLexicon = name;
+		try {
+			await polly.send(new DeleteLexiconCommand({ Name: name }));
+			toast.success(`Lexicon "${name}" deleted`);
+			await loadData();
+		} catch (e) {
+			toast.error('Failed to delete lexicon: ' + String(e));
+		} finally {
+			deletingLexicon = null;
+		}
+	}
+
 	onMount(loadData);
 </script>
 
@@ -214,6 +297,13 @@
 						{/each}
 					</select>
 				{/if}
+				{#if activeTab === 'lexicons'}
+					<button onclick={openCreateLexicon}
+						class="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-white bg-teal-600 hover:bg-teal-700 rounded-lg transition-colors">
+						<Plus class="w-4 h-4" />
+						New Lexicon
+					</button>
+				{/if}
 				<div class="relative">
 					<Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
 					<input bind:value={searchQuery} placeholder="Search..." class="pl-9 pr-4 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white w-full sm:w-48" />
@@ -252,11 +342,30 @@
 				{:else}
 					<div class="space-y-2">
 						{#each filteredLexicons as lexicon}
-							<div class="flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-slate-700/50">
-								<BookOpen class="w-5 h-5 text-blue-500" />
-								<div>
-									<p class="font-medium text-gray-900 dark:text-white">{lexicon.Name}</p>
-									<p class="text-xs text-gray-500 dark:text-gray-400">{lexicon.Attributes?.LexiconArn}</p>
+							<div class="flex items-center justify-between gap-3 p-3 rounded-lg bg-gray-50 dark:bg-slate-700/50">
+								<div class="flex items-center gap-3 min-w-0">
+									<BookOpen class="w-5 h-5 text-blue-500 flex-shrink-0" />
+									<div class="min-w-0">
+										<p class="font-medium text-gray-900 dark:text-white truncate">{lexicon.Name}</p>
+										<p class="text-xs text-gray-500 dark:text-gray-400 truncate">{lexicon.Attributes?.Alphabet ?? ''} · {lexicon.Attributes?.LanguageCode ?? ''} · {lexicon.Attributes?.LexemesCount ?? 0} lexemes</p>
+									</div>
+								</div>
+								<div class="flex items-center gap-1.5 flex-shrink-0">
+									<button onclick={() => lexicon.Name && openEditLexicon(lexicon.Name)}
+										class="p-1.5 text-gray-400 hover:text-teal-600 dark:hover:text-teal-400 transition-colors"
+										title="View / edit lexicon" aria-label="View / edit lexicon">
+										<Pencil class="w-4 h-4" />
+									</button>
+									<button onclick={() => lexicon.Name && deleteLexicon(lexicon.Name)}
+										disabled={deletingLexicon === lexicon.Name}
+										class="p-1.5 text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition-colors disabled:opacity-50"
+										title="Delete lexicon" aria-label="Delete lexicon">
+										{#if deletingLexicon === lexicon.Name}
+											<div class="w-4 h-4 animate-spin rounded-full border-b-2 border-red-500"></div>
+										{:else}
+											<Trash2 class="w-4 h-4" />
+										{/if}
+									</button>
 								</div>
 							</div>
 						{/each}
@@ -282,3 +391,39 @@
 		</div>
 	</div>
 </div>
+
+<!-- Lexicon Editor Modal -->
+{#if showLexiconModal}
+<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" tabindex="-1" onclick={(e) => { if (e.target === e.currentTarget) showLexiconModal = false; }} onkeydown={(e) => e.key === 'Escape' && (showLexiconModal = false)} role="dialog" aria-modal="true">
+<div class="relative w-full max-w-2xl" role="document">
+<div class="relative bg-white rounded-lg shadow dark:bg-slate-800">
+<div class="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-700">
+<h3 class="text-xl font-semibold text-slate-900 dark:text-white">{lexiconModalMode === 'create' ? 'New Lexicon' : `Edit Lexicon: ${lexiconName}`}</h3>
+<button aria-label="Close" onclick={() => { showLexiconModal = false; }} class="text-slate-400 bg-transparent hover:bg-slate-200 hover:text-slate-900 rounded-lg text-sm w-8 h-8 inline-flex justify-center items-center dark:hover:bg-slate-700 dark:hover:text-white"><X class="w-4 h-4" /></button>
+</div>
+<div class="p-4 space-y-4">
+<form class="space-y-4" onsubmit={(e) => { e.preventDefault(); saveLexicon(); }}>
+<div>
+<label for="lexicon-name" class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Name</label>
+<input type="text" id="lexicon-name" bind:value={lexiconName} disabled={lexiconModalMode === 'edit'} placeholder="myLexicon" required class="bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-teal-500 focus:border-teal-500 block w-full p-2.5 dark:bg-slate-700 dark:border-slate-600 dark:placeholder-slate-400 dark:text-white disabled:opacity-60" />
+</div>
+<div>
+<label for="lexicon-content" class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">PLS Content <span class="text-slate-400 font-normal">(Pronunciation Lexicon Specification XML)</span></label>
+{#if loadingLexicon}
+<div class="text-center py-8 text-gray-500 dark:text-gray-400">Loading lexicon...</div>
+{:else}
+<textarea id="lexicon-content" bind:value={lexiconContent} rows="14" spellcheck="false" class="bg-slate-50 border border-slate-300 text-slate-900 text-xs font-mono rounded-lg focus:ring-teal-500 focus:border-teal-500 block w-full p-2.5 dark:bg-slate-900 dark:border-slate-600 dark:text-slate-200"></textarea>
+{/if}
+</div>
+<div class="flex gap-3 justify-end pt-2">
+<button type="button" onclick={() => { showLexiconModal = false; }} class="py-2 px-4 text-sm font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-600 dark:hover:bg-slate-700">Cancel</button>
+<button type="submit" disabled={savingLexicon || loadingLexicon} class="text-white bg-teal-600 hover:bg-teal-700 focus:ring-4 focus:ring-teal-300 font-medium rounded-lg text-sm px-4 py-2 disabled:opacity-50">
+{savingLexicon ? 'Saving...' : 'Save Lexicon'}
+</button>
+</div>
+</form>
+</div>
+</div>
+</div>
+</div>
+{/if}

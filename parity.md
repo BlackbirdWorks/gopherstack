@@ -497,6 +497,44 @@ Also missing at the platform level:
 >   recommendation + affected resources) with **workflow-status** update
 >   (`BatchUpdateFindings`: NEW / NOTIFIED / RESOLVED / SUPPRESSED).
 >
+> **Fifth pass (branch `parity/mega-v2`)** — per-service leftovers within
+> already-touched pages, plus correction of two stale "not wirable" notes (all
+> wired to the live AWS JS SDK, matching each page's existing patterns, no
+> placeholders):
+>
+> - **MQ** and **AppConfig/AppConfigData** — the earlier "not wirable" claim was
+>   **wrong**: `services/mq` exposes REST-style ops (ListBrokers, DescribeBroker,
+>   CreateBroker, UpdateBroker, DeleteBroker, RebootBroker, ListConfigurations,
+>   ListUsers/CreateUser/UpdateUser/DeleteUser, …) and `services/appconfig`
+>   exposes the full Applications/Environments/Profiles/Deployments/Strategies/
+>   Extensions surface. **Both UI pages are already fully built and SDK-wired**
+>   (`ui/src/routes/mq/+page.svelte`: broker CRUD + reboot + update + user
+>   management + configurations; `ui/src/routes/appconfig/+page.svelte`:
+>   applications/strategies/extensions/associations/settings tabs with create/
+>   delete + deployment start/stop), with passing `page.test.ts` for each.
+>   No further work was needed beyond confirming this.
+> - **Polly** (ML/AI/media) — **lexicon editor**: New-Lexicon and per-lexicon
+>   view/edit (`GetLexicon` → PLS-XML textarea) + save (`PutLexicon`) + delete
+>   (`DeleteLexicon`); lexicon rows now show alphabet / language / lexeme count.
+> - **GuardDuty** (Security/identity) — detector **finding-publishing-frequency**
+>   selector (FIFTEEN_MINUTES / ONE_HOUR / SIX_HOURS) wired to `UpdateDetector`,
+>   inline on each detector row.
+> - **SecurityHub** (Security/identity) — **custom-insight creation**
+>   (`CreateInsight` with name + group-by-attribute + severity/active filter) and
+>   per-insight **delete** (`DeleteInsight`); insights now show their group-by
+>   attribute.
+> - **X-Ray** (Messaging/misc) — segment **annotations & metadata inspection**:
+>   each trace-detail segment with annotations or (namespaced) metadata is
+>   clickable to expand a key/value panel (parsed from the segment documents
+>   already fetched via `BatchGetTraces`).
+> - **AppSync** (API/app-integration) — resolver **pipeline-function config**:
+>   the resolver editor now has a UNIT/PIPELINE kind toggle; PIPELINE mode adds an
+>   ordered function picker (add/remove/reorder) saved through `UpdateResolver`
+>   `pipelineConfig.functions` (UNIT keeps `dataSourceName`).
+> - **CodeBuild** (Compute) — project-detail **cache & artifacts info** cells
+>   (cache type/location/modes; artifact type/location/packaging) read from the
+>   `BatchGetProjects` data already loaded.
+>
 > **§F remaining** (still outstanding, for follow-up agents):
 >
 > - **Popular-services leftovers** (lower-value within the already-touched
@@ -519,18 +557,19 @@ Also missing at the platform level:
 >   SecurityHub (pass 4). **Already-complete on inspection** (no work needed):
 >   Glacier already displays job/inventory output via `GetJobOutput`; AutoScaling
 >   already wires instance-protection toggle + lifecycle-hook view/create/delete.
->   Still-outstanding enhancement candidates within partially-touched services:
->   Comprehend training-accuracy/F1 + model-version compare; Polly lexicon XML
->   editor; Transcribe/Textract upload + transcript/result download; WorkSpaces
+>   Still-outstanding enhancement candidates within partially-touched services
+>   (pass 5 cleared Polly lexicon, X-Ray annotations/metadata, AppSync pipeline
+>   config, GuardDuty publishing-frequency, SecurityHub custom-insight, CodeBuild
+>   cache/artifact info — see fifth pass above):
+>   Comprehend training-accuracy/F1 + model-version compare;
+>   Transcribe/Textract upload + transcript/result download; WorkSpaces
 >   bundle selector + connection diagnostics; CloudTrail attribute-filter builder
 >   + delivery timeline; Transfer transfer/connection logs + SSH-key fingerprint;
 >   Firehose throughput charts + test-delivery; ApplicationAutoScaling
 >   step-scaling threshold editor + policy adjustment history; CodeBuild build-log
 >   streaming (logs land in CloudWatch — same pattern as the Batch log viewer
->   shipped in pass 4) + cache/artifact info; X-Ray segment annotations/metadata
->   inspection + trace comparison; AppSync resolver field-mapping builder +
->   pipeline-function config; GuardDuty detector publishing-frequency/SNS config +
->   finding export; SecurityHub custom-insight creation. Untouched groups with
+>   shipped in pass 4); X-Ray trace comparison; AppSync resolver field-mapping
+>   visual builder; GuardDuty SNS-config + finding export. Untouched groups with
 >   open items: Data/analytics (Glue, EMR, Kinesis monitoring, KinesisAnalytics
 >   code editor, RedshiftData result-grid, LakeFormation permission-matrix),
 >   Storage/database (FSx create, Neptune query console, DocDB/MemoryDB param
@@ -541,9 +580,9 @@ Also missing at the platform level:
 >   A/B split, Rekognition face detail, MediaConvert settings editor), and
 >   Messaging (SES receipt-rule actions, Pinpoint journey builder, SWF payload
 >   viewer, IoT rule tester, the Code* suite, Amplify, MWAA, S3Control/S3Tables).
->   **MQ is not wirable** (the `services/mq` backend registers no operations) and
->   **AppConfig/AppConfigData** likewise expose no backend operations, so their
->   §F editors cannot be wired to real data yet.
+>   (Correction: the earlier note that **MQ** and **AppConfig/AppConfigData** are
+>   "not wirable" was wrong — both have full backend operations and their UI
+>   pages are already built and SDK-wired; see the fifth pass above.)
 
 ### Popular services
 

@@ -32,7 +32,7 @@
 		Code, Server, Terminal, Workflow,
 		Play, CheckCircle2, XCircle, AlertCircle,
 		Timer, BarChart3, Database, Layers,
-		ArrowRight, ExternalLink, Shield, History
+		ArrowRight, ExternalLink, Shield, History, Package
 	} from 'lucide-svelte';
 
 	const codebuild = getCodeBuildClient();
@@ -459,6 +459,26 @@
 										</div>
 										<div class="text-[11px] font-black text-slate-800 dark:text-white uppercase">{selectedProject.source?.type}</div>
 										<div class="text-[8px] text-slate-500 uppercase font-bold tracking-tighter mt-1 italic text-rose-500 truncate">{selectedProject.source?.location || 'DIRECT_UPLOAD'}</div>
+									</div>
+									<div class="p-6 bg-white/60 dark:bg-slate-900/60 rounded-[2rem] border border-slate-100 dark:border-slate-700/50 shadow-sm group/info">
+										<div class="flex items-center gap-2 mb-2">
+											<Database class="w-3.5 h-3.5 text-emerald-500" />
+											<span class="text-[9px] font-black text-slate-400 uppercase tracking-widest italic">Cache</span>
+										</div>
+										<div class="text-[11px] font-black text-slate-800 dark:text-white uppercase">{selectedProject.cache?.type || 'NO_CACHE'}</div>
+										<div class="text-[8px] text-slate-500 uppercase font-bold tracking-tighter mt-1 italic truncate">
+											{#if selectedProject.cache?.location}{selectedProject.cache.location}{:else if (selectedProject.cache?.modes ?? []).length > 0}{(selectedProject.cache?.modes ?? []).join(', ')}{:else}Caching disabled{/if}
+										</div>
+									</div>
+									<div class="p-6 bg-white/60 dark:bg-slate-900/60 rounded-[2rem] border border-slate-100 dark:border-slate-700/50 shadow-sm group/info">
+										<div class="flex items-center gap-2 mb-2">
+											<Package class="w-3.5 h-3.5 text-amber-500" />
+											<span class="text-[9px] font-black text-slate-400 uppercase tracking-widest italic">Artifacts</span>
+										</div>
+										<div class="text-[11px] font-black text-slate-800 dark:text-white uppercase">{selectedProject.artifacts?.type || 'NO_ARTIFACTS'}</div>
+										<div class="text-[8px] text-slate-500 uppercase font-bold tracking-tighter mt-1 italic truncate">
+											{#if selectedProject.artifacts?.location}{selectedProject.artifacts.location}{:else}{selectedProject.artifacts?.packaging || 'No output packaging'}{/if}
+										</div>
 									</div>
 								</div>
 
