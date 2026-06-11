@@ -9,16 +9,78 @@
 		ListPipelinesCommand,
 		CreateEndpointCommand,
 		CreateTrainingJobCommand,
+		DescribeEndpointCommand,
+		UpdateEndpointWeightsAndCapacitiesCommand,
+		type SageMakerClient,
 		type NotebookInstanceSummary,
 		type TrainingJobSummary,
 		type ModelSummary,
 		type EndpointSummary,
-		type PipelineSummary
+		type PipelineSummary,
+		type ProductionVariantSummary
 	} from '@aws-sdk/client-sagemaker';
 	import { toast } from 'svelte-sonner';
-	import { Brain, RefreshCw, Search, Server, Activity, Box, BookOpen, Plus, X, GitBranch } from 'lucide-svelte';
+	import { Brain, RefreshCw, Search, Server, Activity, Box, BookOpen, Plus, X, GitBranch, ChevronDown, ChevronRight, Save } from 'lucide-svelte';
 
-	const sm = getSageMakerClient();
+	let sm: SageMakerClient | undefined;
+	function client(): SageMakerClient {
+		return (sm ??= getSageMakerClient());
+	}
+
+	// Endpoint A/B traffic-split: variant weight editor.
+	let expandedEndpoint = $state<string | null>(null);
+	let variants = $state<ProductionVariantSummary[]>([]);
+	let variantWeights = $state<Record<string, number>>({});
+	let loadingVariants = $state(false);
+	let savingWeights = $state(false);
+
+	async function toggleEndpointVariants(name: string) {
+		if (expandedEndpoint === name) {
+			expandedEndpoint = null;
+			return;
+		}
+		expandedEndpoint = name;
+		variants = [];
+		variantWeights = {};
+		loadingVariants = true;
+		try {
+			const resp = await client().send(new DescribeEndpointCommand({ EndpointName: name }));
+			variants = resp.ProductionVariants ?? [];
+			const w: Record<string, number> = {};
+			for (const v of variants) {
+				if (v.VariantName) w[v.VariantName] = v.CurrentWeight ?? 1;
+			}
+			variantWeights = w;
+		} catch (e) {
+			toast.error('Failed to load endpoint variants: ' + String(e));
+		} finally {
+			loadingVariants = false;
+		}
+	}
+
+	async function saveVariantWeights(name: string) {
+		savingWeights = true;
+		try {
+			await client().send(
+				new UpdateEndpointWeightsAndCapacitiesCommand({
+					EndpointName: name,
+					DesiredWeightsAndCapacities: variants.map((v) => ({
+						VariantName: v.VariantName ?? '',
+						DesiredWeight: variantWeights[v.VariantName ?? ''] ?? v.CurrentWeight ?? 1
+					}))
+				})
+			);
+			toast.success('Variant weights updated');
+			await toggleEndpointVariants(name);
+			expandedEndpoint = name;
+		} catch (e) {
+			toast.error('Failed to update weights: ' + String(e));
+		} finally {
+			savingWeights = false;
+		}
+	}
+
+	const totalWeight = $derived(Object.values(variantWeights).reduce((a, b) => a + (Number(b) || 0), 0));
 
 	let loading = $state(false);
 	let activeTab = $state<'notebooks' | 'training' | 'models' | 'endpoints' | 'pipelines'>('notebooks');
@@ -77,11 +139,11 @@
 		loading = true;
 		try {
 			const [nb, tj, mo, ep, pl] = await Promise.all([
-				sm.send(new ListNotebookInstancesCommand({})),
-				sm.send(new ListTrainingJobsCommand({})),
-				sm.send(new ListModelsCommand({})),
-				sm.send(new ListEndpointsCommand({})),
-				sm.send(new ListPipelinesCommand({}))
+				client().send(new ListNotebookInstancesCommand({})),
+				client().send(new ListTrainingJobsCommand({})),
+				client().send(new ListModelsCommand({})),
+				client().send(new ListEndpointsCommand({})),
+				client().send(new ListPipelinesCommand({}))
 			]);
 			notebooks = nb.NotebookInstances ?? [];
 			trainingJobs = tj.TrainingJobSummaries ?? [];
@@ -102,7 +164,7 @@
 		}
 		creatingEndpoint = true;
 		try {
-			await sm.send(
+			await client().send(
 				new CreateEndpointCommand({
 					EndpointName: newEndpointName.trim(),
 					EndpointConfigName: newEndpointConfigName.trim()
@@ -127,7 +189,7 @@
 		}
 		creatingTraining = true;
 		try {
-			await sm.send(
+			await client().send(
 				new CreateTrainingJobCommand({
 					TrainingJobName: newTrainingJobName.trim(),
 					RoleArn: newTrainingRoleArn.trim() || undefined,
@@ -504,25 +566,56 @@
 				{:else}
 					<div class="space-y-2">
 						{#each filteredEndpoints as ep}
-							<div
-								class="flex items-center justify-between p-3 rounded-lg bg-gray-50 dark:bg-slate-700/50"
-							>
-								<div class="flex items-center gap-3">
-									<Server class="w-5 h-5 text-green-500" />
-									<div>
-										<p class="font-medium text-gray-900 dark:text-white">{ep.EndpointName}</p>
-										<p class="text-xs text-gray-500 dark:text-gray-400">{ep.EndpointArn}</p>
-									</div>
+							{@const epn = ep.EndpointName ?? ''}
+							<div class="rounded-lg bg-gray-50 dark:bg-slate-700/50">
+								<div class="flex items-center justify-between p-3">
+									<button onclick={() => toggleEndpointVariants(epn)} class="flex items-center gap-3 min-w-0 text-left">
+										{#if expandedEndpoint === epn}<ChevronDown class="w-4 h-4 text-gray-400 flex-shrink-0" />{:else}<ChevronRight class="w-4 h-4 text-gray-400 flex-shrink-0" />{/if}
+										<Server class="w-5 h-5 text-green-500 flex-shrink-0" />
+										<div class="min-w-0">
+											<p class="font-medium text-gray-900 dark:text-white truncate">{ep.EndpointName}</p>
+											<p class="text-xs text-gray-500 dark:text-gray-400 truncate">{ep.EndpointArn}</p>
+										</div>
+									</button>
+									<span
+										class="text-xs px-2 py-1 rounded-full flex-shrink-0 {ep.EndpointStatus === 'InService'
+											? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
+											: ep.EndpointStatus === 'Failed'
+												? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
+												: 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'}"
+									>
+										{ep.EndpointStatus}
+									</span>
 								</div>
-								<span
-									class="text-xs px-2 py-1 rounded-full {ep.EndpointStatus === 'InService'
-										? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
-										: ep.EndpointStatus === 'Failed'
-											? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
-											: 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'}"
-								>
-									{ep.EndpointStatus}
-								</span>
+								{#if expandedEndpoint === epn}
+									<div class="px-3 pb-3 border-t border-slate-200 dark:border-slate-600 pt-3">
+										<p class="text-sm font-semibold text-gray-900 dark:text-white mb-2">A/B Traffic Split — Variant Weights</p>
+										{#if loadingVariants}
+											<p class="text-sm text-gray-500 dark:text-gray-400">Loading variants…</p>
+										{:else if variants.length === 0}
+											<p class="text-sm text-gray-500 dark:text-gray-400">No production variants found.</p>
+										{:else}
+											<div class="space-y-2">
+												{#each variants as v}
+													{@const vn = v.VariantName ?? ''}
+													<div class="flex items-center gap-3">
+														<span class="text-sm font-medium text-gray-900 dark:text-white w-40 truncate" title={vn}>{vn}</span>
+														<input type="number" min="0" step="0.1" bind:value={variantWeights[vn]} class="w-24 px-2 py-1 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white" />
+														<div class="flex-1 h-2 bg-gray-200 dark:bg-slate-600 rounded-full overflow-hidden">
+															<div class="h-full bg-teal-500" style="width: {totalWeight > 0 ? ((Number(variantWeights[vn]) || 0) / totalWeight) * 100 : 0}%"></div>
+														</div>
+														<span class="text-xs font-mono text-gray-500 dark:text-gray-400 w-14 text-right">{totalWeight > 0 ? (((Number(variantWeights[vn]) || 0) / totalWeight) * 100).toFixed(1) : '0.0'}%</span>
+														<span class="text-xs text-gray-400 w-24 truncate" title={v.CurrentInstanceCount != null ? v.CurrentInstanceCount + ' inst' : ''}>{v.CurrentInstanceCount != null ? v.CurrentInstanceCount + ' inst' : ''}</span>
+													</div>
+												{/each}
+											</div>
+											<button onclick={() => saveVariantWeights(epn)} disabled={savingWeights}
+												class="mt-3 flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-50">
+												<Save class="w-4 h-4" /> {savingWeights ? 'Saving…' : 'Update Weights'}
+											</button>
+										{/if}
+									</div>
+								{/if}
 							</div>
 						{/each}
 					</div>

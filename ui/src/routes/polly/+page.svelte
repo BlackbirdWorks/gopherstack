@@ -12,12 +12,24 @@
 			type VoiceId,
 		type Voice,
 		type LexiconDescription,
-		type SynthesisTask
+		type SynthesisTask,
+		type PollyClient
 	} from '@aws-sdk/client-polly';
 	import { toast } from 'svelte-sonner';
 	import { Mic, RefreshCw, Search, BookOpen, Activity, Play, Plus, Pencil, Trash2, X } from 'lucide-svelte';
 
-	const polly = getPollyClient();
+	let pollyClient: PollyClient | undefined;
+	function polly(): PollyClient {
+		return (pollyClient ??= getPollyClient());
+	}
+
+	// Lexicons applied to the synthesize demo ("test pronunciation").
+	let selectedLexicons = $state<string[]>([]);
+	function toggleSynthLexicon(name: string) {
+		selectedLexicons = selectedLexicons.includes(name)
+			? selectedLexicons.filter((n) => n !== name)
+			: [...selectedLexicons, name];
+	}
 
 	let loading = $state(false);
 	let activeTab = $state<'voices' | 'lexicons' | 'tasks'>('voices');
@@ -48,9 +60,9 @@
 		loading = true;
 		try {
 			const [voiceResp, lexResp, taskResp] = await Promise.all([
-				polly.send(new DescribeVoicesCommand({})),
-				polly.send(new ListLexiconsCommand({})),
-				polly.send(new ListSpeechSynthesisTasksCommand({}))
+				polly().send(new DescribeVoicesCommand({})),
+				polly().send(new ListLexiconsCommand({})),
+				polly().send(new ListSpeechSynthesisTasksCommand({}))
 			]);
 			voices = voiceResp.Voices ?? [];
 			lexicons = lexResp.Lexicons ?? [];
@@ -96,10 +108,12 @@
 		}
 		synthesizing = true;
 		try {
-			const resp = await polly.send(new SynthesizeSpeechCommand({
+			const resp = await polly().send(new SynthesizeSpeechCommand({
 				Text: textToSynthesize,
 				VoiceId: selectedVoiceId,
 				OutputFormat: outputFormat,
+				// Apply selected pronunciation lexicons (test pronunciation).
+				LexiconNames: selectedLexicons.length > 0 ? selectedLexicons : undefined,
 				// PCM stream is 16-bit signed little-endian; default sample rate 16000 for pcm.
 				SampleRate: outputFormat === 'pcm' ? '16000' : undefined
 			}));
@@ -171,7 +185,7 @@
 		loadingLexicon = true;
 		showLexiconModal = true;
 		try {
-			const resp = await polly.send(new GetLexiconCommand({ Name: name }));
+			const resp = await polly().send(new GetLexiconCommand({ Name: name }));
 			lexiconContent = resp.Lexicon?.Content ?? '';
 		} catch (e) {
 			toast.error('Failed to load lexicon: ' + String(e));
@@ -191,7 +205,7 @@
 		}
 		savingLexicon = true;
 		try {
-			await polly.send(new PutLexiconCommand({ Name: lexiconName.trim(), Content: lexiconContent }));
+			await polly().send(new PutLexiconCommand({ Name: lexiconName.trim(), Content: lexiconContent }));
 			toast.success(`Lexicon "${lexiconName.trim()}" saved`);
 			showLexiconModal = false;
 			await loadData();
@@ -205,7 +219,7 @@
 	async function deleteLexicon(name: string) {
 		deletingLexicon = name;
 		try {
-			await polly.send(new DeleteLexiconCommand({ Name: name }));
+			await polly().send(new DeleteLexiconCommand({ Name: name }));
 			toast.success(`Lexicon "${name}" deleted`);
 			await loadData();
 		} catch (e) {
@@ -272,6 +286,19 @@
 				<label for="polly-text" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Text</label>
 				<textarea id="polly-text" bind:value={textToSynthesize} rows={2} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white text-sm resize-none"></textarea>
 			</div>
+			{#if lexicons.length > 0}
+				<div class="sm:col-span-2">
+					<span class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Apply Lexicons (test pronunciation)</span>
+					<div class="flex flex-wrap gap-2">
+						{#each lexicons as lex}
+							<button type="button" onclick={() => lex.Name && toggleSynthLexicon(lex.Name)}
+								class="px-2.5 py-1 text-xs rounded-full border {selectedLexicons.includes(lex.Name ?? '') ? 'bg-teal-600 text-white border-teal-600' : 'bg-gray-100 dark:bg-slate-700 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-slate-600'}">
+								{lex.Name}
+							</button>
+						{/each}
+					</div>
+				</div>
+			{/if}
 		</div>
 		<button onclick={synthesizeSpeech} disabled={synthesizing} class="flex items-center gap-2 px-4 py-2 bg-teal-500 hover:bg-teal-600 disabled:opacity-50 text-white rounded-lg text-sm font-medium">
 			<Play class="w-4 h-4" /> {synthesizing ? 'Synthesizing...' : 'Synthesize & Play'}

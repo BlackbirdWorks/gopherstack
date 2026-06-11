@@ -535,6 +535,47 @@ Also missing at the platform level:
 >   (cache type/location/modes; artifact type/location/packaging) read from the
 >   `BatchGetProjects` data already loaded.
 >
+> **Sixth pass (branch `parity/mega-v2`)** — ML/AI/media group features now
+> shipped (all wired to the live AWS JS SDK through the gopherstack endpoint,
+> matching each page's existing tab/list/detail patterns, no placeholders; all
+> AWS clients constructed lazily inside handlers):
+>
+> - **Bedrock** (ML/AI/media) — **model invoke/test playground** tab
+>   (`InvokeModel` via `@aws-sdk/client-bedrock-runtime`): model-id picker
+>   (populated from `ListFoundationModels`) + sample prompts + max-tokens /
+>   temperature controls; request body is built per-provider (Anthropic Claude
+>   Messages, Titan/Nova, Llama/Meta, Cohere/Mistral generic) and the response
+>   text is extracted from the common Bedrock response shapes with a raw-JSON
+>   disclosure.
+> - **SageMaker** (ML/AI/media) — endpoint **A/B traffic-split / variant-weight
+>   editor**: each endpoint row expands to `DescribeEndpoint` production variants
+>   with per-variant weight inputs, live normalized %-share bars, and a save via
+>   `UpdateEndpointWeightsAndCapacities`.
+> - **Comprehend** (ML/AI/media) — classifier/recognizer **training-metrics**
+>   expansion (Accuracy / Precision / Recall / F1 / Micro-F1 / Hamming-loss bars
+>   from `ClassifierMetadata`/`RecognizerMetadata.EvaluationMetrics`) plus a
+>   **model-version comparison** table (multi-select classifiers → side-by-side
+>   metrics by version).
+> - **Rekognition** (ML/AI/media) — **face-detail** tab (`DetectFaces` with
+>   `Attributes: ALL` on an S3 image → per-face confidence, age range, gender,
+>   smile, eyeglasses, eyes-open, top emotion) plus stream-processor
+>   **start/stop** (`StartStreamProcessor`/`StopStreamProcessor`).
+> - **Polly** (ML/AI/media) — synthesize-demo **lexicon selector** ("test
+>   pronunciation"): chosen lexicons are passed as `LexiconNames` to
+>   `SynthesizeSpeech`. (Output-format selector + lexicon editor already shipped
+>   passes 3/5.)
+> - **Transcribe** (ML/AI/media) — **transcript download** on COMPLETED jobs:
+>   `GetTranscriptionJob` → fetch `Transcript.TranscriptFileUri` → save the
+>   transcript JSON locally.
+> - **Textract** (ML/AI/media) — **local document upload** (synchronous
+>   `AnalyzeDocument` on file bytes) alongside the S3-object mode, selectable
+>   **feature types** (TABLES / FORMS / SIGNATURES / LAYOUT — was hard-coded), and
+>   **result JSON export**.
+> - **MediaConvert** (ML/AI/media) — Create-Job **input/output settings editor**:
+>   S3 input file + output destination, container (MP4/MOV/M3U8/WEBM/MKV) and
+>   video/audio codec selectors building real `Settings.Inputs` + `OutputGroups`,
+>   or apply an existing **preset** by name (overrides inline codec choices).
+>
 > **§F remaining** (still outstanding, for follow-up agents):
 >
 > - **Popular-services leftovers** (lower-value within the already-touched
@@ -560,9 +601,13 @@ Also missing at the platform level:
 >   Still-outstanding enhancement candidates within partially-touched services
 >   (pass 5 cleared Polly lexicon, X-Ray annotations/metadata, AppSync pipeline
 >   config, GuardDuty publishing-frequency, SecurityHub custom-insight, CodeBuild
->   cache/artifact info — see fifth pass above):
->   Comprehend training-accuracy/F1 + model-version compare;
->   Transcribe/Textract upload + transcript/result download; WorkSpaces
+>   cache/artifact info — see fifth pass above; **pass 6 cleared the whole
+>   ML/AI/media group**: Bedrock playground, SageMaker A/B variant weights,
+>   Comprehend training-accuracy/F1 + model-version compare, Rekognition face
+>   detail, Polly lexicon test-pronunciation, Transcribe transcript download,
+>   Textract local upload + feature-types + result export, MediaConvert
+>   input/output settings editor — see sixth pass above):
+>   WorkSpaces
 >   bundle selector + connection diagnostics; CloudTrail attribute-filter builder
 >   + delivery timeline; Transfer transfer/connection logs + SSH-key fingerprint;
 >   Firehose throughput charts + test-delivery; ApplicationAutoScaling
@@ -576,8 +621,10 @@ Also missing at the platform level:
 >   editors), Networking/edge (CloudFront cache-behaviour editor, ELBv2
 >   listener-rule reorder, OpenSearch/Elasticsearch config), Security/identity
 >   (Cognito user drill-down, Organizations move-account, SSOAdmin inline policy,
->   VerifiedPermissions Cedar linter), ML/AI/media (Bedrock playground, SageMaker
->   A/B split, Rekognition face detail, MediaConvert settings editor), and
+>   VerifiedPermissions Cedar linter), ML/AI/media (**all primary §F items shipped
+>   in pass 6** — see above; remaining nice-to-haves: BedrockRuntime token
+>   streaming, SageMaker training curves / HPO dashboard, SageMakerRuntime async
+>   poller, MediaStore metrics), and
 >   Messaging (SES receipt-rule actions, Pinpoint journey builder, SWF payload
 >   viewer, IoT rule tester, the Code* suite, Amplify, MWAA, S3Control/S3Tables).
 >   (Correction: the earlier note that **MQ** and **AppConfig/AppConfigData** are
