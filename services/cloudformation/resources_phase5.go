@@ -1107,7 +1107,7 @@ func (rc *ResourceCreator) createSecretsManagerResourcePolicy(
 	secretID := strProp(props, "SecretId", params, physicalIDs)
 	policy := strProp(props, "ResourcePolicy", params, physicalIDs)
 
-	if _, err := rc.backends.SecretsManager.Backend.PutResourcePolicy(&secretsmanagerbackend.PutResourcePolicyInput{
+	if _, err := rc.backends.SecretsManager.Backend.PutResourcePolicy(context.Background(), &secretsmanagerbackend.PutResourcePolicyInput{
 		SecretID:       secretID,
 		ResourcePolicy: policy,
 	}); err != nil {
@@ -1122,7 +1122,7 @@ func (rc *ResourceCreator) deleteSecretsManagerResourcePolicy(secretID string) e
 		return nil
 	}
 
-	_, err := rc.backends.SecretsManager.Backend.DeleteResourcePolicy(&secretsmanagerbackend.DeleteResourcePolicyInput{
+	_, err := rc.backends.SecretsManager.Backend.DeleteResourcePolicy(context.Background(), &secretsmanagerbackend.DeleteResourcePolicyInput{
 		SecretID: secretID,
 	})
 
