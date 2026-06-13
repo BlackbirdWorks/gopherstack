@@ -8,7 +8,7 @@ package sns_test
 import (
 	"crypto"
 	"crypto/rsa"
-	"crypto/sha1" // AWS SNS SignatureVersion=1 mandates SHA-1
+	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
@@ -123,15 +123,15 @@ func TestIssue4_NotificationSignatureNotMock(t *testing.T) {
 		env := parseNotificationEnvelope(t, raw)
 		assert.NotEqual(t, "MOCK-SIGNATURE", env.Signature, "Signature must not be the placeholder")
 		assert.NotEmpty(t, env.Signature, "Signature must be non-empty")
-		assert.Equal(t, "1", env.SignatureVersion)
+		assert.Equal(t, "2", env.SignatureVersion)
 	case <-time.After(2 * time.Second):
 		t.Fatal("HTTP delivery did not arrive")
 	}
 }
 
-// TestIssue4_SignatureIsValidRSASHA1 verifies that the Signature field in an
+// TestIssue4_SignatureIsValidRSASHA256 verifies that the Signature field in an
 // HTTP notification can be verified using the backend's signing certificate.
-func TestIssue4_SignatureIsValidRSASHA1(t *testing.T) {
+func TestIssue4_SignatureIsValidRSASHA256(t *testing.T) {
 	t.Parallel()
 
 	received := make(chan string, 1)
@@ -182,8 +182,8 @@ func TestIssue4_SignatureIsValidRSASHA1(t *testing.T) {
 	sigBytes, err := base64.StdEncoding.DecodeString(env.Signature)
 	require.NoError(t, err, "Signature must be valid base64")
 
-	h := sha1.Sum([]byte(canonical)) // AWS SNS SignatureVersion=1 mandates SHA-1
-	err = rsa.VerifyPKCS1v15(rsaPub, crypto.SHA1, h[:], sigBytes)
+	h := sha256.Sum256([]byte(canonical))
+	err = rsa.VerifyPKCS1v15(rsaPub, crypto.SHA256, h[:], sigBytes)
 	assert.NoError(t, err, "notification signature must verify with the signing cert")
 }
 
@@ -230,8 +230,8 @@ func TestIssue4_SubjectIncludedInSignature(t *testing.T) {
 	)
 
 	sigBytes, _ := base64.StdEncoding.DecodeString(env.Signature)
-	h := sha1.Sum([]byte(canonical)) // AWS SNS SignatureVersion=1 mandates SHA-1
-	assert.NoError(t, rsa.VerifyPKCS1v15(rsaPub, crypto.SHA1, h[:], sigBytes))
+	h := sha256.Sum256([]byte(canonical))
+	assert.NoError(t, rsa.VerifyPKCS1v15(rsaPub, crypto.SHA256, h[:], sigBytes))
 }
 
 // TestIssue4_CertServedAtPEMEndpoint verifies the Handler serves the signing
@@ -1532,7 +1532,7 @@ func TestNotificationEnvelopeFields(t *testing.T) {
 		assert.NotEmpty(t, env.TopicArn)
 		assert.NotEmpty(t, env.Message)
 		assert.NotEmpty(t, env.Timestamp)
-		assert.Equal(t, "1", env.SignatureVersion)
+		assert.Equal(t, "2", env.SignatureVersion)
 		assert.NotEmpty(t, env.Signature)
 		assert.NotEmpty(t, env.SigningCertURL)
 		assert.NotEmpty(t, env.UnsubscribeURL)
