@@ -1,6 +1,7 @@
 package ec2_test
 
 import (
+	"context"
 	"encoding/xml"
 	"log/slog"
 	"net/http"
@@ -455,6 +456,7 @@ func TestEC2Provider_Init(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, reg)
 	assert.Equal(t, "EC2", reg.Name())
+	t.Cleanup(func() { reg.(*ec2.Handler).Shutdown(context.Background()) })
 }
 
 func TestEC2Handler_NameAndOperations(t *testing.T) {
