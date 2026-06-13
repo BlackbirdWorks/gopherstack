@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -97,14 +98,36 @@ type Filter struct {
 	OwnerID     string            `json:"ownerId"`
 }
 
-// Finding represents an Inspector2 finding (minimal stub for list support).
+// Finding represents an Inspector2 finding.
 type Finding struct {
-	FindingArn  string `json:"findingArn"`
-	AccountID   string `json:"awsAccountId"`
-	Type        string `json:"type"`
-	Severity    string `json:"severity"`
-	Status      string `json:"status"`
-	Description string `json:"description"`
+	FindingArn          string         `json:"findingArn"`
+	AccountID           string         `json:"awsAccountId"`
+	Type                string         `json:"type"`
+	Severity            FindingSeverity `json:"severity"`
+	Status              string         `json:"status"`
+	Description         string         `json:"description"`
+	Title               string         `json:"title,omitempty"`
+	FirstObservedAt     time.Time      `json:"firstObservedAt"`
+	LastObservedAt      time.Time      `json:"lastObservedAt"`
+	UpdatedAt           time.Time      `json:"updatedAt"`
+	Resources           []FindingResource `json:"resources,omitempty"`
+}
+
+// FindingSeverity holds severity details for a finding.
+type FindingSeverity struct {
+	Label  string  `json:"label"`
+	Score  float64 `json:"score,omitempty"`
+}
+
+// FindingResource describes a resource associated with a finding.
+type FindingResource struct {
+	Type string `json:"type"`
+	ID   string `json:"id"`
+}
+
+// storedFinding wraps Finding for internal storage.
+type storedFinding struct {
+	Finding
 }
 
 // Configuration holds Inspector2 scan configuration.
@@ -126,6 +149,7 @@ type AccountStatusResponse struct {
 type InMemoryBackend struct {
 	mu        *lockmetrics.RWMutex
 	filters   map[string]*Filter
+	findings  map[string]*storedFinding
 	tags      map[string]map[string]string
 	ax        *appendixAState
 	config    Configuration
@@ -137,10 +161,11 @@ type InMemoryBackend struct {
 // NewInMemoryBackend creates a new backend for the given account and region.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		mu:      lockmetrics.New("inspector2"),
-		filters: make(map[string]*Filter),
-		tags:    make(map[string]map[string]string),
-		ax:      newAppendixAState(),
+		mu:       lockmetrics.New("inspector2"),
+		filters:  make(map[string]*Filter),
+		findings: make(map[string]*storedFinding),
+		tags:     make(map[string]map[string]string),
+		ax:       newAppendixAState(),
 		config: Configuration{
 			Ec2ScanMode:       ec2ScanModeEC2SSMAgentBased,
 			EcrRescanDuration: ecrRescanDurationLifetime,
@@ -352,12 +377,182 @@ func (b *InMemoryBackend) ListFilters(arns []string, action string) ([]*Filter, 
 	return result, nil
 }
 
-// ListFindings returns a page of findings (stub — always empty in this implementation).
-func (b *InMemoryBackend) ListFindings(_ int32, _ string) ([]*Finding, string, error) {
+// AddFinding stores a finding and returns its ARN. Used to seed test state.
+func (b *InMemoryBackend) AddFinding(
+	findingType, severityLabel, status, title, description string,
+	resources []FindingResource,
+) string {
+	b.mu.Lock("AddFinding")
+	defer b.mu.Unlock()
+
+	id := uuid.New().String()
+	findingARN := arn.Build(inspector2Service, b.region, b.accountID, "finding/"+id)
+	now := time.Now().UTC()
+
+	score := severityScore(severityLabel)
+
+	b.findings[findingARN] = &storedFinding{
+		Finding: Finding{
+			FindingArn:      findingARN,
+			AccountID:       b.accountID,
+			Type:            findingType,
+			Severity:        FindingSeverity{Label: severityLabel, Score: score},
+			Status:          status,
+			Description:     description,
+			Title:           title,
+			FirstObservedAt: now,
+			LastObservedAt:  now,
+			UpdatedAt:       now,
+			Resources:       resources,
+		},
+	}
+
+	return findingARN
+}
+
+// severityScore returns a numeric score for a severity label.
+func severityScore(label string) float64 {
+	switch label {
+	case "CRITICAL":
+		return 9.0
+	case "HIGH":
+		return 7.0
+	case "MEDIUM":
+		return 5.0
+	case "LOW":
+		return 3.0
+	default:
+		return 0.0
+	}
+}
+
+// ListFindings returns a page of findings, optionally filtered by severity or status.
+func (b *InMemoryBackend) ListFindings(filterCriteria map[string]any, maxResults int32, nextToken string) ([]*Finding, string, error) {
 	b.mu.RLock("ListFindings")
 	defer b.mu.RUnlock()
 
-	return []*Finding{}, "", nil
+	all := make([]*Finding, 0, len(b.findings))
+
+	for _, f := range b.findings {
+		if !matchesFindingCriteria(&f.Finding, filterCriteria) {
+			continue
+		}
+
+		cp := f.Finding
+		all = append(all, &cp)
+	}
+
+	sort.Slice(all, func(i, j int) bool {
+		return all[i].FindingArn < all[j].FindingArn
+	})
+
+	limit := int(maxResults)
+	if limit <= 0 {
+		limit = 100
+	}
+
+	start := decodeFindingToken(nextToken)
+	if start >= len(all) {
+		return []*Finding{}, "", nil
+	}
+
+	end := start + limit
+	var next string
+
+	if end < len(all) {
+		next = encodeFindingToken(end)
+	} else {
+		end = len(all)
+	}
+
+	return all[start:end], next, nil
+}
+
+// matchesFindingCriteria returns true if the finding matches all filter criteria.
+// Supports filtering by severityLabel and findingStatus arrays.
+func matchesFindingCriteria(f *Finding, criteria map[string]any) bool {
+	if len(criteria) == 0 {
+		return true
+	}
+
+	if severities, ok := extractStringComparisons(criteria, "severity"); ok {
+		matched := false
+
+		for _, s := range severities {
+			if strings.EqualFold(f.Severity.Label, s) {
+				matched = true
+
+				break
+			}
+		}
+
+		if !matched {
+			return false
+		}
+	}
+
+	if statuses, ok := extractStringComparisons(criteria, "findingStatus"); ok {
+		matched := false
+
+		for _, s := range statuses {
+			if strings.EqualFold(f.Status, s) {
+				matched = true
+
+				break
+			}
+		}
+
+		if !matched {
+			return false
+		}
+	}
+
+	return true
+}
+
+// extractStringComparisons extracts EQUALS comparison values for a filter field.
+func extractStringComparisons(criteria map[string]any, key string) ([]string, bool) {
+	raw, ok := criteria[key]
+	if !ok {
+		return nil, false
+	}
+
+	items, ok := raw.([]any)
+	if !ok {
+		return nil, false
+	}
+
+	var vals []string
+
+	for _, item := range items {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		if v, ok := m["value"].(string); ok {
+			vals = append(vals, v)
+		}
+	}
+
+	return vals, len(vals) > 0
+}
+
+func encodeFindingToken(idx int) string {
+	return fmt.Sprintf("%d", idx)
+}
+
+func decodeFindingToken(token string) int {
+	if token == "" {
+		return 0
+	}
+
+	var idx int
+	if _, err := fmt.Sscanf(token, "%d", &idx); err != nil || idx < 0 {
+		return 0
+	}
+
+	return idx
 }
 
 // GetConfiguration returns the current configuration.
@@ -479,6 +674,7 @@ func (b *InMemoryBackend) Reset() {
 	defer b.mu.Unlock()
 
 	b.filters = make(map[string]*Filter)
+	b.findings = make(map[string]*storedFinding)
 	b.tags = make(map[string]map[string]string)
 	b.config = Configuration{
 		Ec2ScanMode:       ec2ScanModeEC2SSMAgentBased,
@@ -489,6 +685,7 @@ func (b *InMemoryBackend) Reset() {
 
 type backendSnapshot struct {
 	Filters   map[string]*Filter           `json:"filters"`
+	Findings  map[string]*storedFinding    `json:"findings"`
 	Tags      map[string]map[string]string `json:"tags"`
 	Config    Configuration                `json:"config"`
 	AccountID string                       `json:"accountId"`
@@ -503,6 +700,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 
 	snap := backendSnapshot{
 		Filters:   b.filters,
+		Findings:  b.findings,
 		Tags:      b.tags,
 		Config:    b.config,
 		Enabled:   b.enabled,
@@ -526,11 +724,16 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	}
 
 	b.filters = snap.Filters
+	b.findings = snap.Findings
 	b.tags = snap.Tags
 	b.config = snap.Config
 	b.enabled = snap.Enabled
 	b.accountID = snap.AccountID
 	b.region = snap.Region
+
+	if b.findings == nil {
+		b.findings = make(map[string]*storedFinding)
+	}
 
 	return nil
 }

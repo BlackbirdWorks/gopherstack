@@ -465,8 +465,9 @@ func (h *Handler) handleListFindings(c *echo.Context) error {
 	}
 
 	var req struct {
-		NextToken  string `json:"nextToken"`
-		MaxResults int32  `json:"maxResults"`
+		FilterCriteria map[string]any `json:"filterCriteria"`
+		NextToken      string         `json:"nextToken"`
+		MaxResults     int32          `json:"maxResults"`
 	}
 
 	if len(body) > 0 {
@@ -475,7 +476,7 @@ func (h *Handler) handleListFindings(c *echo.Context) error {
 		}
 	}
 
-	findings, nextToken, findErr := h.Backend.ListFindings(req.MaxResults, req.NextToken)
+	findings, nextToken, findErr := h.Backend.ListFindings(req.FilterCriteria, req.MaxResults, req.NextToken)
 	if findErr != nil {
 		return h.mapError(c, findErr)
 	}

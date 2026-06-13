@@ -16,7 +16,7 @@ type StorageBackend interface {
 	DeleteFilter(arn string) error
 	ListFilters(arns []string, action string) ([]*Filter, error)
 
-	ListFindings(maxResults int32, nextToken string) ([]*Finding, string, error)
+	ListFindings(filterCriteria map[string]any, maxResults int32, nextToken string) ([]*Finding, string, error)
 
 	GetConfiguration() *Configuration
 	UpdateConfiguration(ec2ScanMode, ecrRescanDuration string) error

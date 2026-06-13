@@ -3,6 +3,7 @@ package macie2
 import (
 	"maps"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -538,21 +539,138 @@ func (b *InMemoryBackend) BatchUpdateAutomatedDiscoveryAccounts(updates []AutoDi
 
 // --- buckets ---
 
-// DescribeBuckets returns S3 bucket metadata (always empty — no real S3 scanning).
-func (b *InMemoryBackend) DescribeBuckets(_ map[string]any) ([]map[string]any, error) {
-	return []map[string]any{}, nil
+// AddS3Bucket seeds an S3 bucket into the backend for DescribeBuckets.
+func (b *InMemoryBackend) AddS3Bucket(bucket S3BucketMetadata) {
+	b.mu.Lock("AddS3Bucket")
+	defer b.mu.Unlock()
+
+	cp := bucket
+	b.s3Buckets[bucket.BucketArn] = &cp
 }
 
-// GetBucketStatistics returns aggregate S3 statistics (all zeros).
-func (b *InMemoryBackend) GetBucketStatistics(_ string) (map[string]any, error) {
+// DescribeBuckets returns S3 bucket metadata, filtered by criteria.
+func (b *InMemoryBackend) DescribeBuckets(criteria map[string]any) ([]map[string]any, error) {
+	b.mu.RLock("DescribeBuckets")
+	defer b.mu.RUnlock()
+
+	all := make([]*S3BucketMetadata, 0, len(b.s3Buckets))
+
+	for _, bkt := range b.s3Buckets {
+		if !matchesBucketCriteria(bkt, criteria) {
+			continue
+		}
+
+		cp := *bkt
+		all = append(all, &cp)
+	}
+
+	sort.Slice(all, func(i, j int) bool {
+		return all[i].BucketName < all[j].BucketName
+	})
+
+	out := make([]map[string]any, 0, len(all))
+
+	for _, bkt := range all {
+		out = append(out, bucketToMap(bkt))
+	}
+
+	return out, nil
+}
+
+// matchesBucketCriteria returns true when the bucket matches all filter criteria.
+func matchesBucketCriteria(bkt *S3BucketMetadata, criteria map[string]any) bool {
+	if len(criteria) == 0 {
+		return true
+	}
+
+	if nameFilter, ok := criteria["bucketName"]; ok {
+		if m, ok := nameFilter.(map[string]any); ok {
+			if v, ok := m["value"].(string); ok && !strings.Contains(bkt.BucketName, v) {
+				return false
+			}
+		}
+	}
+
+	if regionFilter, ok := criteria["region"]; ok {
+		if m, ok := regionFilter.(map[string]any); ok {
+			if v, ok := m["value"].(string); ok && bkt.Region != v {
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
+// bucketToMap converts S3BucketMetadata to the wire format for DescribeBuckets.
+func bucketToMap(bkt *S3BucketMetadata) map[string]any {
 	return map[string]any{
-		"bucketCount":                              int64(0),
-		"bucketCountByEffectivePermission":         map[string]any{},
-		"bucketCountByEncryptionType":              map[string]any{},
+		"accountId":               bkt.AccountID,
+		"bucketArn":               bkt.BucketArn,
+		"bucketName":              bkt.BucketName,
+		"region":                  bkt.Region,
+		"classifiableObjectCount": bkt.ClassifiableObjectCount,
+		"classifiableSizeInBytes": bkt.ClassifiableSizeInBytes,
+		"objectCount":             bkt.ObjectCount,
+		"sizeInBytes":             bkt.SizeInBytes,
+		"publicAccess": map[string]any{
+			"effectivePermission": bkt.PublicAccess,
+		},
+		"serverSideEncryption": map[string]any{
+			"type": bkt.EncryptionType,
+		},
+		"sharedAccess": bkt.SharedAccess,
+		"tags":         bkt.Tags,
+	}
+}
+
+// GetBucketStatistics returns aggregate S3 statistics computed from stored buckets.
+func (b *InMemoryBackend) GetBucketStatistics(_ string) (map[string]any, error) {
+	b.mu.RLock("GetBucketStatistics")
+	defer b.mu.RUnlock()
+
+	bucketCount := int64(len(b.s3Buckets))
+
+	var classifiableBucketCount int64
+	var classifiableSizeInBytes int64
+
+	permCounts := map[string]int64{"PUBLIC": 0, "NOT_PUBLIC": 0, "UNKNOWN": 0}
+	encCounts := map[string]int64{"AES256": 0, "aws:kms": 0, "NONE": 0}
+
+	for _, bkt := range b.s3Buckets {
+		if bkt.ClassifiableObjectCount > 0 {
+			classifiableBucketCount++
+		}
+
+		classifiableSizeInBytes += bkt.ClassifiableSizeInBytes
+
+		switch bkt.PublicAccess {
+		case "PUBLIC":
+			permCounts["PUBLIC"]++
+		case "NOT_PUBLIC":
+			permCounts["NOT_PUBLIC"]++
+		default:
+			permCounts["UNKNOWN"]++
+		}
+
+		switch bkt.EncryptionType {
+		case "AES256":
+			encCounts["AES256"]++
+		case "aws:kms":
+			encCounts["aws:kms"]++
+		default:
+			encCounts["NONE"]++
+		}
+	}
+
+	return map[string]any{
+		"bucketCount":                              bucketCount,
+		"bucketCountByEffectivePermission":         permCounts,
+		"bucketCountByEncryptionType":              encCounts,
 		"bucketCountByObjectEncryptionRequirement": map[string]any{},
 		"bucketCountBySharedAccessType":            map[string]any{},
-		"classifiableBucketCount":                  int64(0),
-		"classifiableSizeInBytes":                  int64(0),
+		"classifiableBucketCount":                  classifiableBucketCount,
+		"classifiableSizeInBytes":                  classifiableSizeInBytes,
 		"unclassifiableObjectCount":                map[string]any{},
 		"unclassifiableObjectSizeInBytes":          map[string]any{},
 	}, nil

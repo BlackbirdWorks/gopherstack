@@ -530,6 +530,22 @@ type UsageByAccount struct {
 	Type          string         `json:"type,omitempty"`
 }
 
+// S3BucketMetadata holds Macie's view of an S3 bucket for DescribeBuckets.
+type S3BucketMetadata struct {
+	AccountID                string            `json:"accountId"`
+	BucketArn                string            `json:"bucketArn"`
+	BucketName               string            `json:"bucketName"`
+	Region                   string            `json:"region"`
+	ClassifiableObjectCount  int64             `json:"classifiableObjectCount"`
+	ClassifiableSizeInBytes  int64             `json:"classifiableSizeInBytes"`
+	ObjectCount              int64             `json:"objectCount"`
+	SizeInBytes              int64             `json:"sizeInBytes"`
+	PublicAccess             string            `json:"publicAccess"`
+	EncryptionType           string            `json:"encryptionType"`
+	SharedAccess             string            `json:"sharedAccess"`
+	Tags                     []map[string]any  `json:"tags,omitempty"`
+}
+
 // UsageTotal holds aggregated usage totals.
 type UsageTotal struct {
 	Currency      string `json:"currency,omitempty"`
