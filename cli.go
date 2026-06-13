@@ -120,6 +120,7 @@ import (
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
 	forecastbackend "github.com/blackbirdworks/gopherstack/services/forecast"
 	fsxbackend "github.com/blackbirdworks/gopherstack/services/fsx"
+	omicsbackend "github.com/blackbirdworks/gopherstack/services/omics"
 	glacierbackend "github.com/blackbirdworks/gopherstack/services/glacier"
 	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
 	guarddutybackend "github.com/blackbirdworks/gopherstack/services/guardduty"
@@ -2739,6 +2740,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&detectivebackend.Provider{},
 		&datasyncbackend.Provider{},
 		&fsxbackend.Provider{},
+		&omicsbackend.Provider{},
 	}
 }
 

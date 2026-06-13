@@ -198,17 +198,6 @@ func copyTags(tags map[string]string) map[string]string {
 	return maps.Clone(tags)
 }
 
-func sortedKeys(m map[string]string) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
-
-	return keys
-}
-
 func paginateStrings(ids []string, nextToken string, maxResults int) ([]string, string) {
 	if maxResults <= 0 || maxResults > maxPageSize {
 		maxResults = maxPageSize
@@ -1807,7 +1796,7 @@ func (b *InMemoryBackend) ListAnnotationStores(maxResults int, nextToken string)
 	defer b.mu.RUnlock()
 
 	st := b.region(b.defaultRegion)
-	names := sortedKeys(st.annotationStores)
+	names := sortedKeys2(st.annotationStores)
 	page, outToken := paginateStrings(names, nextToken, maxResults)
 
 	result := make([]*AnnotationStore, 0, len(page))
@@ -2032,7 +2021,7 @@ func (b *InMemoryBackend) ListAnnotationStoreVersions(name string, maxResults in
 	}
 
 	versions := st.annotationVersions[name]
-	names := sortedKeys(versions)
+	names := sortedKeys2(versions)
 	page, outToken := paginateStrings(names, nextToken, maxResults)
 
 	result := make([]*AnnotationStoreVersion, 0, len(page))
@@ -2156,7 +2145,7 @@ func (b *InMemoryBackend) ListVariantStores(maxResults int, nextToken string) ([
 	defer b.mu.RUnlock()
 
 	st := b.region(b.defaultRegion)
-	names := sortedKeys(st.variantStores)
+	names := sortedKeys2(st.variantStores)
 	page, outToken := paginateStrings(names, nextToken, maxResults)
 
 	result := make([]*VariantStore, 0, len(page))
@@ -2690,7 +2679,7 @@ func (b *InMemoryBackend) ListConfigurations(maxResults int, nextToken string) (
 	defer b.mu.RUnlock()
 
 	st := b.region(b.defaultRegion)
-	names := sortedKeys(st.configurations)
+	names := sortedKeys2(st.configurations)
 	page, outToken := paginateStrings(names, nextToken, maxResults)
 
 	result := make([]*Configuration, 0, len(page))
