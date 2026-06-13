@@ -17,95 +17,95 @@ import (
 const (
 	cleanroomsHostPrefix = "cleanrooms."
 
-	opBatchGetCollaborationAnalysisTemplate         = "BatchGetCollaborationAnalysisTemplate"
-	opBatchGetSchema                                = "BatchGetSchema"
-	opBatchGetSchemaAnalysisRule                    = "BatchGetSchemaAnalysisRule"
-	opCreateAnalysisTemplate                        = "CreateAnalysisTemplate"
-	opCreateCollaboration                           = "CreateCollaboration"
-	opCreateCollaborationChangeRequest              = "CreateCollaborationChangeRequest"
-	opCreateConfiguredAudienceModelAssociation      = "CreateConfiguredAudienceModelAssociation"
-	opCreateConfiguredTable                         = "CreateConfiguredTable"
-	opCreateConfiguredTableAnalysisRule             = "CreateConfiguredTableAnalysisRule"
-	opCreateConfiguredTableAssociation              = "CreateConfiguredTableAssociation"
-	opCreateConfiguredTableAssociationAnalysisRule  = "CreateConfiguredTableAssociationAnalysisRule"
-	opCreateIdMappingTable                          = "CreateIdMappingTable"
-	opCreateIdNamespaceAssociation                  = "CreateIdNamespaceAssociation"
-	opCreateMembership                              = "CreateMembership"
-	opCreatePrivacyBudgetTemplate                   = "CreatePrivacyBudgetTemplate"
-	opDeleteAnalysisTemplate                        = "DeleteAnalysisTemplate"
-	opDeleteCollaboration                           = "DeleteCollaboration"
-	opDeleteConfiguredAudienceModelAssociation      = "DeleteConfiguredAudienceModelAssociation"
-	opDeleteConfiguredTable                         = "DeleteConfiguredTable"
-	opDeleteConfiguredTableAnalysisRule             = "DeleteConfiguredTableAnalysisRule"
-	opDeleteConfiguredTableAssociation              = "DeleteConfiguredTableAssociation"
-	opDeleteConfiguredTableAssociationAnalysisRule  = "DeleteConfiguredTableAssociationAnalysisRule"
-	opDeleteIdMappingTable                          = "DeleteIdMappingTable"
-	opDeleteIdNamespaceAssociation                  = "DeleteIdNamespaceAssociation"
-	opDeleteMember                                  = "DeleteMember"
-	opDeleteMembership                              = "DeleteMembership"
-	opDeletePrivacyBudgetTemplate                   = "DeletePrivacyBudgetTemplate"
-	opGetAnalysisTemplate                           = "GetAnalysisTemplate"
-	opGetCollaboration                              = "GetCollaboration"
-	opGetCollaborationAnalysisTemplate              = "GetCollaborationAnalysisTemplate"
-	opGetCollaborationChangeRequest                 = "GetCollaborationChangeRequest"
-	opGetCollaborationConfiguredAudienceModelAssociation = "GetCollaborationConfiguredAudienceModelAssociation"
-	opGetCollaborationIdNamespaceAssociation        = "GetCollaborationIdNamespaceAssociation"
-	opGetCollaborationPrivacyBudgetTemplate         = "GetCollaborationPrivacyBudgetTemplate"
-	opGetConfiguredAudienceModelAssociation         = "GetConfiguredAudienceModelAssociation"
-	opGetConfiguredTable                            = "GetConfiguredTable"
-	opGetConfiguredTableAnalysisRule                = "GetConfiguredTableAnalysisRule"
-	opGetConfiguredTableAssociation                 = "GetConfiguredTableAssociation"
-	opGetConfiguredTableAssociationAnalysisRule     = "GetConfiguredTableAssociationAnalysisRule"
-	opGetIdMappingTable                             = "GetIdMappingTable"
-	opGetIdNamespaceAssociation                     = "GetIdNamespaceAssociation"
-	opGetMembership                                 = "GetMembership"
-	opGetPrivacyBudgetTemplate                      = "GetPrivacyBudgetTemplate"
-	opGetProtectedJob                               = "GetProtectedJob"
-	opGetProtectedQuery                             = "GetProtectedQuery"
-	opGetSchema                                     = "GetSchema"
-	opGetSchemaAnalysisRule                         = "GetSchemaAnalysisRule"
-	opListAnalysisTemplates                         = "ListAnalysisTemplates"
-	opListCollaborationAnalysisTemplates            = "ListCollaborationAnalysisTemplates"
-	opListCollaborationChangeRequests               = "ListCollaborationChangeRequests"
+	opBatchGetCollaborationAnalysisTemplate                = "BatchGetCollaborationAnalysisTemplate"
+	opBatchGetSchema                                       = "BatchGetSchema"
+	opBatchGetSchemaAnalysisRule                           = "BatchGetSchemaAnalysisRule"
+	opCreateAnalysisTemplate                               = "CreateAnalysisTemplate"
+	opCreateCollaboration                                  = "CreateCollaboration"
+	opCreateCollaborationChangeRequest                     = "CreateCollaborationChangeRequest"
+	opCreateConfiguredAudienceModelAssociation             = "CreateConfiguredAudienceModelAssociation"
+	opCreateConfiguredTable                                = "CreateConfiguredTable"
+	opCreateConfiguredTableAnalysisRule                    = "CreateConfiguredTableAnalysisRule"
+	opCreateConfiguredTableAssociation                     = "CreateConfiguredTableAssociation"
+	opCreateConfiguredTableAssociationAnalysisRule         = "CreateConfiguredTableAssociationAnalysisRule"
+	opCreateIdMappingTable                                 = "CreateIdMappingTable"
+	opCreateIdNamespaceAssociation                         = "CreateIdNamespaceAssociation"
+	opCreateMembership                                     = "CreateMembership"
+	opCreatePrivacyBudgetTemplate                          = "CreatePrivacyBudgetTemplate"
+	opDeleteAnalysisTemplate                               = "DeleteAnalysisTemplate"
+	opDeleteCollaboration                                  = "DeleteCollaboration"
+	opDeleteConfiguredAudienceModelAssociation             = "DeleteConfiguredAudienceModelAssociation"
+	opDeleteConfiguredTable                                = "DeleteConfiguredTable"
+	opDeleteConfiguredTableAnalysisRule                    = "DeleteConfiguredTableAnalysisRule"
+	opDeleteConfiguredTableAssociation                     = "DeleteConfiguredTableAssociation"
+	opDeleteConfiguredTableAssociationAnalysisRule         = "DeleteConfiguredTableAssociationAnalysisRule"
+	opDeleteIdMappingTable                                 = "DeleteIdMappingTable"
+	opDeleteIdNamespaceAssociation                         = "DeleteIdNamespaceAssociation"
+	opDeleteMember                                         = "DeleteMember"
+	opDeleteMembership                                     = "DeleteMembership"
+	opDeletePrivacyBudgetTemplate                          = "DeletePrivacyBudgetTemplate"
+	opGetAnalysisTemplate                                  = "GetAnalysisTemplate"
+	opGetCollaboration                                     = "GetCollaboration"
+	opGetCollaborationAnalysisTemplate                     = "GetCollaborationAnalysisTemplate"
+	opGetCollaborationChangeRequest                        = "GetCollaborationChangeRequest"
+	opGetCollaborationConfiguredAudienceModelAssociation   = "GetCollaborationConfiguredAudienceModelAssociation"
+	opGetCollaborationIdNamespaceAssociation               = "GetCollaborationIdNamespaceAssociation"
+	opGetCollaborationPrivacyBudgetTemplate                = "GetCollaborationPrivacyBudgetTemplate"
+	opGetConfiguredAudienceModelAssociation                = "GetConfiguredAudienceModelAssociation"
+	opGetConfiguredTable                                   = "GetConfiguredTable"
+	opGetConfiguredTableAnalysisRule                       = "GetConfiguredTableAnalysisRule"
+	opGetConfiguredTableAssociation                        = "GetConfiguredTableAssociation"
+	opGetConfiguredTableAssociationAnalysisRule            = "GetConfiguredTableAssociationAnalysisRule"
+	opGetIdMappingTable                                    = "GetIdMappingTable"
+	opGetIdNamespaceAssociation                            = "GetIdNamespaceAssociation"
+	opGetMembership                                        = "GetMembership"
+	opGetPrivacyBudgetTemplate                             = "GetPrivacyBudgetTemplate"
+	opGetProtectedJob                                      = "GetProtectedJob"
+	opGetProtectedQuery                                    = "GetProtectedQuery"
+	opGetSchema                                            = "GetSchema"
+	opGetSchemaAnalysisRule                                = "GetSchemaAnalysisRule"
+	opListAnalysisTemplates                                = "ListAnalysisTemplates"
+	opListCollaborationAnalysisTemplates                   = "ListCollaborationAnalysisTemplates"
+	opListCollaborationChangeRequests                      = "ListCollaborationChangeRequests"
 	opListCollaborationConfiguredAudienceModelAssociations = "ListCollaborationConfiguredAudienceModelAssociations"
-	opListCollaborationIdNamespaceAssociations      = "ListCollaborationIdNamespaceAssociations"
-	opListCollaborationPrivacyBudgets               = "ListCollaborationPrivacyBudgets"
-	opListCollaborationPrivacyBudgetTemplates       = "ListCollaborationPrivacyBudgetTemplates"
-	opListCollaborations                            = "ListCollaborations"
-	opListConfiguredAudienceModelAssociations       = "ListConfiguredAudienceModelAssociations"
-	opListConfiguredTableAssociations               = "ListConfiguredTableAssociations"
-	opListConfiguredTables                          = "ListConfiguredTables"
-	opListIdMappingTables                           = "ListIdMappingTables"
-	opListIdNamespaceAssociations                   = "ListIdNamespaceAssociations"
-	opListMembers                                   = "ListMembers"
-	opListMemberships                               = "ListMemberships"
-	opListPrivacyBudgets                            = "ListPrivacyBudgets"
-	opListPrivacyBudgetTemplates                    = "ListPrivacyBudgetTemplates"
-	opListProtectedJobs                             = "ListProtectedJobs"
-	opListProtectedQueries                          = "ListProtectedQueries"
-	opListSchemas                                   = "ListSchemas"
-	opListTagsForResource                           = "ListTagsForResource"
-	opPopulateIdMappingTable                        = "PopulateIdMappingTable"
-	opPreviewPrivacyImpact                          = "PreviewPrivacyImpact"
-	opStartProtectedJob                             = "StartProtectedJob"
-	opStartProtectedQuery                           = "StartProtectedQuery"
-	opTagResource                                   = "TagResource"
-	opUntagResource                                 = "UntagResource"
-	opUpdateAnalysisTemplate                        = "UpdateAnalysisTemplate"
-	opUpdateCollaboration                           = "UpdateCollaboration"
-	opUpdateCollaborationChangeRequest              = "UpdateCollaborationChangeRequest"
-	opUpdateConfiguredAudienceModelAssociation      = "UpdateConfiguredAudienceModelAssociation"
-	opUpdateConfiguredTable                         = "UpdateConfiguredTable"
-	opUpdateConfiguredTableAnalysisRule             = "UpdateConfiguredTableAnalysisRule"
-	opUpdateConfiguredTableAssociation              = "UpdateConfiguredTableAssociation"
-	opUpdateConfiguredTableAssociationAnalysisRule  = "UpdateConfiguredTableAssociationAnalysisRule"
-	opUpdateIdMappingTable                          = "UpdateIdMappingTable"
-	opUpdateIdNamespaceAssociation                  = "UpdateIdNamespaceAssociation"
-	opUpdateMembership                              = "UpdateMembership"
-	opUpdatePrivacyBudgetTemplate                   = "UpdatePrivacyBudgetTemplate"
-	opUpdateProtectedJob                            = "UpdateProtectedJob"
-	opUpdateProtectedQuery                          = "UpdateProtectedQuery"
-	opUnknown                                       = ""
+	opListCollaborationIdNamespaceAssociations             = "ListCollaborationIdNamespaceAssociations"
+	opListCollaborationPrivacyBudgets                      = "ListCollaborationPrivacyBudgets"
+	opListCollaborationPrivacyBudgetTemplates              = "ListCollaborationPrivacyBudgetTemplates"
+	opListCollaborations                                   = "ListCollaborations"
+	opListConfiguredAudienceModelAssociations              = "ListConfiguredAudienceModelAssociations"
+	opListConfiguredTableAssociations                      = "ListConfiguredTableAssociations"
+	opListConfiguredTables                                 = "ListConfiguredTables"
+	opListIdMappingTables                                  = "ListIdMappingTables"
+	opListIdNamespaceAssociations                          = "ListIdNamespaceAssociations"
+	opListMembers                                          = "ListMembers"
+	opListMemberships                                      = "ListMemberships"
+	opListPrivacyBudgets                                   = "ListPrivacyBudgets"
+	opListPrivacyBudgetTemplates                           = "ListPrivacyBudgetTemplates"
+	opListProtectedJobs                                    = "ListProtectedJobs"
+	opListProtectedQueries                                 = "ListProtectedQueries"
+	opListSchemas                                          = "ListSchemas"
+	opListTagsForResource                                  = "ListTagsForResource"
+	opPopulateIdMappingTable                               = "PopulateIdMappingTable"
+	opPreviewPrivacyImpact                                 = "PreviewPrivacyImpact"
+	opStartProtectedJob                                    = "StartProtectedJob"
+	opStartProtectedQuery                                  = "StartProtectedQuery"
+	opTagResource                                          = "TagResource"
+	opUntagResource                                        = "UntagResource"
+	opUpdateAnalysisTemplate                               = "UpdateAnalysisTemplate"
+	opUpdateCollaboration                                  = "UpdateCollaboration"
+	opUpdateCollaborationChangeRequest                     = "UpdateCollaborationChangeRequest"
+	opUpdateConfiguredAudienceModelAssociation             = "UpdateConfiguredAudienceModelAssociation"
+	opUpdateConfiguredTable                                = "UpdateConfiguredTable"
+	opUpdateConfiguredTableAnalysisRule                    = "UpdateConfiguredTableAnalysisRule"
+	opUpdateConfiguredTableAssociation                     = "UpdateConfiguredTableAssociation"
+	opUpdateConfiguredTableAssociationAnalysisRule         = "UpdateConfiguredTableAssociationAnalysisRule"
+	opUpdateIdMappingTable                                 = "UpdateIdMappingTable"
+	opUpdateIdNamespaceAssociation                         = "UpdateIdNamespaceAssociation"
+	opUpdateMembership                                     = "UpdateMembership"
+	opUpdatePrivacyBudgetTemplate                          = "UpdatePrivacyBudgetTemplate"
+	opUpdateProtectedJob                                   = "UpdateProtectedJob"
+	opUpdateProtectedQuery                                 = "UpdateProtectedQuery"
+	opUnknown                                              = ""
 )
 
 var errUnknownAction = errors.New("unknown action")
@@ -295,8 +295,8 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 
 // pathRouteEntry holds a parsed path classification.
 type pathRouteEntry struct {
-	op      string
-	seg     []string
+	op  string
+	seg []string
 }
 
 // classifyPath maps (method, path) to an operation name and primary resource.
@@ -1167,7 +1167,7 @@ func (h *Handler) handleBatchGetSchema(_ context.Context, body []byte) ([]byte, 
 
 func (h *Handler) handleBatchGetSchemaAnalysisRule(_ context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		CollaborationIdentifier string   `json:"collaborationIdentifier"`
+		CollaborationIdentifier    string `json:"collaborationIdentifier"`
 		SchemaAnalysisRuleRequests []struct {
 			Name string `json:"name"`
 			Type string `json:"type"`
@@ -1457,12 +1457,12 @@ func (h *Handler) handleDeleteMembership(_ context.Context, body []byte) ([]byte
 
 func (h *Handler) handleCreateConfiguredTable(_ context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		Name             string            `json:"name"`
-		Description      string            `json:"description"`
-		TableReference   map[string]any    `json:"tableReference"`
-		AllowedColumns   []string          `json:"allowedColumns"`
-		AnalysisMethod   string            `json:"analysisMethod"`
-		Tags             map[string]string `json:"tags"`
+		Name           string            `json:"name"`
+		Description    string            `json:"description"`
+		TableReference map[string]any    `json:"tableReference"`
+		AllowedColumns []string          `json:"allowedColumns"`
+		AnalysisMethod string            `json:"analysisMethod"`
+		Tags           map[string]string `json:"tags"`
 	}
 	_ = json.Unmarshal(body, &req)
 	ct, err := h.Backend.CreateConfiguredTable(req.Name, req.Description, req.TableReference, req.AllowedColumns, req.AnalysisMethod, req.Tags)
@@ -1792,7 +1792,7 @@ func (h *Handler) handleStartProtectedQuery(_ context.Context, body []byte) ([]b
 
 func (h *Handler) handleGetProtectedQuery(_ context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		MembershipIdentifier   string `json:"membershipIdentifier"`
+		MembershipIdentifier     string `json:"membershipIdentifier"`
 		ProtectedQueryIdentifier string `json:"protectedQueryIdentifier"`
 	}
 	_ = json.Unmarshal(body, &req)
@@ -1821,9 +1821,9 @@ func (h *Handler) handleListProtectedQueries(_ context.Context, body []byte, c *
 
 func (h *Handler) handleUpdateProtectedQuery(_ context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		MembershipIdentifier   string `json:"membershipIdentifier"`
+		MembershipIdentifier     string `json:"membershipIdentifier"`
 		ProtectedQueryIdentifier string `json:"protectedQueryIdentifier"`
-		TargetStatus           string `json:"targetStatus"`
+		TargetStatus             string `json:"targetStatus"`
 	}
 	_ = json.Unmarshal(body, &req)
 	q, err := h.Backend.UpdateProtectedQuery(req.MembershipIdentifier, req.ProtectedQueryIdentifier, req.TargetStatus)
@@ -1852,7 +1852,7 @@ func (h *Handler) handleStartProtectedJob(_ context.Context, body []byte) ([]byt
 
 func (h *Handler) handleGetProtectedJob(_ context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		MembershipIdentifier  string `json:"membershipIdentifier"`
+		MembershipIdentifier   string `json:"membershipIdentifier"`
 		ProtectedJobIdentifier string `json:"protectedJobIdentifier"`
 	}
 	_ = json.Unmarshal(body, &req)
@@ -1881,9 +1881,9 @@ func (h *Handler) handleListProtectedJobs(_ context.Context, body []byte, c *ech
 
 func (h *Handler) handleUpdateProtectedJob(_ context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		MembershipIdentifier  string `json:"membershipIdentifier"`
+		MembershipIdentifier   string `json:"membershipIdentifier"`
 		ProtectedJobIdentifier string `json:"protectedJobIdentifier"`
-		TargetStatus          string `json:"targetStatus"`
+		TargetStatus           string `json:"targetStatus"`
 	}
 	_ = json.Unmarshal(body, &req)
 	j, err := h.Backend.UpdateProtectedJob(req.MembershipIdentifier, req.ProtectedJobIdentifier, req.TargetStatus)
@@ -2154,12 +2154,12 @@ func (h *Handler) handleDeleteIdNamespaceAssociation(_ context.Context, body []b
 
 func (h *Handler) handleCreateConfiguredAudienceModelAssociation(_ context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		MembershipIdentifier           string            `json:"membershipIdentifier"`
-		ConfiguredAudienceModelArn     string            `json:"configuredAudienceModelArn"`
-		Name                           string            `json:"name"`
-		Description                    string            `json:"description"`
-		ManageResourcePolicies         bool              `json:"manageResourcePolicies"`
-		Tags                           map[string]string `json:"tags"`
+		MembershipIdentifier       string            `json:"membershipIdentifier"`
+		ConfiguredAudienceModelArn string            `json:"configuredAudienceModelArn"`
+		Name                       string            `json:"name"`
+		Description                string            `json:"description"`
+		ManageResourcePolicies     bool              `json:"manageResourcePolicies"`
+		Tags                       map[string]string `json:"tags"`
 	}
 	_ = json.Unmarshal(body, &req)
 	a, err := h.Backend.CreateConfiguredAudienceModelAssociation(req.MembershipIdentifier, req.ConfiguredAudienceModelArn, req.Name, req.Description, req.ManageResourcePolicies, req.Tags)

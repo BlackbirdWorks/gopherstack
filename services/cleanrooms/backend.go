@@ -25,19 +25,19 @@ var (
 // ---- types ----
 
 type MemberSpec struct {
-	AccountID       string            `json:"accountId"`
-	DisplayName     string            `json:"displayName"`
-	Abilities       []string          `json:"memberAbilities"`
-	PaymentConfig   map[string]any    `json:"paymentConfiguration,omitempty"`
+	AccountID     string         `json:"accountId"`
+	DisplayName   string         `json:"displayName"`
+	Abilities     []string       `json:"memberAbilities"`
+	PaymentConfig map[string]any `json:"paymentConfiguration,omitempty"`
 }
 
 type MemberSummary struct {
-	AccountID       string  `json:"accountId"`
-	DisplayName     string  `json:"displayName"`
-	Abilities       []string `json:"abilities"`
-	Status          string  `json:"status"`
-	CreateTime      float64 `json:"createTime,omitempty"`
-	UpdateTime      float64 `json:"updateTime,omitempty"`
+	AccountID   string   `json:"accountId"`
+	DisplayName string   `json:"displayName"`
+	Abilities   []string `json:"abilities"`
+	Status      string   `json:"status"`
+	CreateTime  float64  `json:"createTime,omitempty"`
+	UpdateTime  float64  `json:"updateTime,omitempty"`
 }
 
 type Collaboration struct {
@@ -67,34 +67,34 @@ type CollaborationSummary struct {
 }
 
 type Membership struct {
-	MembershipIdentifier            string            `json:"membershipIdentifier"`
-	Arn                             string            `json:"arn"`
-	CollaborationIdentifier         string            `json:"collaborationIdentifier"`
-	CollaborationArn                string            `json:"collaborationArn"`
-	CollaborationCreatorAccountId   string            `json:"collaborationCreatorAccountId"`
-	CollaborationCreatorDisplayName string            `json:"collaborationCreatorDisplayName"`
-	CollaborationName               string            `json:"collaborationName"`
-	Status                          string            `json:"status"`
-	MemberAbilities                 []string          `json:"memberAbilities,omitempty"`
-	QueryLogStatus                  string            `json:"queryLogStatus,omitempty"`
-	DefaultResultConfiguration      map[string]any    `json:"defaultResultConfiguration,omitempty"`
-	PaymentConfiguration            map[string]any    `json:"paymentConfiguration,omitempty"`
-	CreateTime                      float64           `json:"createTime,omitempty"`
-	UpdateTime                      float64           `json:"updateTime,omitempty"`
+	MembershipIdentifier            string         `json:"membershipIdentifier"`
+	Arn                             string         `json:"arn"`
+	CollaborationIdentifier         string         `json:"collaborationIdentifier"`
+	CollaborationArn                string         `json:"collaborationArn"`
+	CollaborationCreatorAccountId   string         `json:"collaborationCreatorAccountId"`
+	CollaborationCreatorDisplayName string         `json:"collaborationCreatorDisplayName"`
+	CollaborationName               string         `json:"collaborationName"`
+	Status                          string         `json:"status"`
+	MemberAbilities                 []string       `json:"memberAbilities,omitempty"`
+	QueryLogStatus                  string         `json:"queryLogStatus,omitempty"`
+	DefaultResultConfiguration      map[string]any `json:"defaultResultConfiguration,omitempty"`
+	PaymentConfiguration            map[string]any `json:"paymentConfiguration,omitempty"`
+	CreateTime                      float64        `json:"createTime,omitempty"`
+	UpdateTime                      float64        `json:"updateTime,omitempty"`
 }
 
 type MembershipSummary struct {
-	MembershipIdentifier            string  `json:"membershipIdentifier"`
-	Arn                             string  `json:"arn"`
-	CollaborationIdentifier         string  `json:"collaborationIdentifier"`
-	CollaborationArn                string  `json:"collaborationArn"`
-	CollaborationCreatorAccountId   string  `json:"collaborationCreatorAccountId"`
-	CollaborationCreatorDisplayName string  `json:"collaborationCreatorDisplayName"`
-	CollaborationName               string  `json:"collaborationName"`
-	Status                          string  `json:"status"`
+	MembershipIdentifier            string   `json:"membershipIdentifier"`
+	Arn                             string   `json:"arn"`
+	CollaborationIdentifier         string   `json:"collaborationIdentifier"`
+	CollaborationArn                string   `json:"collaborationArn"`
+	CollaborationCreatorAccountId   string   `json:"collaborationCreatorAccountId"`
+	CollaborationCreatorDisplayName string   `json:"collaborationCreatorDisplayName"`
+	CollaborationName               string   `json:"collaborationName"`
+	Status                          string   `json:"status"`
 	MemberAbilities                 []string `json:"memberAbilities,omitempty"`
-	CreateTime                      float64 `json:"createTime,omitempty"`
-	UpdateTime                      float64 `json:"updateTime,omitempty"`
+	CreateTime                      float64  `json:"createTime,omitempty"`
+	UpdateTime                      float64  `json:"updateTime,omitempty"`
 }
 
 type ConfiguredTable struct {
@@ -112,13 +112,13 @@ type ConfiguredTable struct {
 }
 
 type ConfiguredTableSummary struct {
-	ConfiguredTableIdentifier string  `json:"configuredTableIdentifier"`
-	Arn                       string  `json:"arn"`
-	Name                      string  `json:"name"`
-	AnalysisMethod            string  `json:"analysisMethod,omitempty"`
+	ConfiguredTableIdentifier string   `json:"configuredTableIdentifier"`
+	Arn                       string   `json:"arn"`
+	Name                      string   `json:"name"`
+	AnalysisMethod            string   `json:"analysisMethod,omitempty"`
 	AnalysisRuleTypes         []string `json:"analysisRuleTypes,omitempty"`
-	CreateTime                float64 `json:"createTime,omitempty"`
-	UpdateTime                float64 `json:"updateTime,omitempty"`
+	CreateTime                float64  `json:"createTime,omitempty"`
+	UpdateTime                float64  `json:"updateTime,omitempty"`
 }
 
 type ConfiguredTableAnalysisRule struct {
@@ -206,17 +206,17 @@ type BatchError struct {
 }
 
 type Schema struct {
-	CollaborationArn        string         `json:"collaborationArn"`
-	CollaborationIdentifier string         `json:"collaborationIdentifier"`
-	CreatorAccountId        string         `json:"creatorAccountId"`
-	Name                    string         `json:"name"`
-	Type                    string         `json:"type"`
+	CollaborationArn        string           `json:"collaborationArn"`
+	CollaborationIdentifier string           `json:"collaborationIdentifier"`
+	CreatorAccountId        string           `json:"creatorAccountId"`
+	Name                    string           `json:"name"`
+	Type                    string           `json:"type"`
 	Columns                 []map[string]any `json:"columns,omitempty"`
 	PartitionKeys           []map[string]any `json:"partitionKeys,omitempty"`
-	AnalysisRuleTypes       []string       `json:"analysisRuleTypes,omitempty"`
-	AnalysisMethod          string         `json:"analysisMethod,omitempty"`
-	CreateTime              float64        `json:"createTime,omitempty"`
-	UpdateTime              float64        `json:"updateTime,omitempty"`
+	AnalysisRuleTypes       []string         `json:"analysisRuleTypes,omitempty"`
+	AnalysisMethod          string           `json:"analysisMethod,omitempty"`
+	CreateTime              float64          `json:"createTime,omitempty"`
+	UpdateTime              float64          `json:"updateTime,omitempty"`
 }
 
 type SchemaSummary struct {
@@ -430,23 +430,23 @@ type InMemoryBackend struct {
 	accountID string
 	region    string
 
-	collaborations               map[string]*Collaboration
-	memberships                  map[string]*Membership
-	configuredTables             map[string]*ConfiguredTable
-	ctAnalysisRules              map[string]map[string]*ConfiguredTableAnalysisRule
-	ctAssociations               map[string]map[string]*ConfiguredTableAssociation
-	ctaAnalysisRules             map[string]map[string]*ConfiguredTableAssociationAnalysisRule
-	analysisTemplates            map[string]map[string]*AnalysisTemplate
-	protectedQueries             map[string]map[string]*ProtectedQuery
-	protectedJobs                map[string]map[string]*ProtectedJob
-	privacyBudgetTemplates       map[string]map[string]*PrivacyBudgetTemplate
-	idMappingTables              map[string]map[string]*IdMappingTable
-	idNamespaceAssociations      map[string]map[string]*IdNamespaceAssociation
-	camaAssociations             map[string]map[string]*ConfiguredAudienceModelAssociation
-	changeRequests               map[string]map[string]*CollaborationChangeRequest
-	schemas                      map[string]map[string]*Schema
-	schemaAnalysisRules          map[string]map[string]map[string]*SchemaAnalysisRule
-	tagsByArn                    map[string]map[string]string
+	collaborations          map[string]*Collaboration
+	memberships             map[string]*Membership
+	configuredTables        map[string]*ConfiguredTable
+	ctAnalysisRules         map[string]map[string]*ConfiguredTableAnalysisRule
+	ctAssociations          map[string]map[string]*ConfiguredTableAssociation
+	ctaAnalysisRules        map[string]map[string]*ConfiguredTableAssociationAnalysisRule
+	analysisTemplates       map[string]map[string]*AnalysisTemplate
+	protectedQueries        map[string]map[string]*ProtectedQuery
+	protectedJobs           map[string]map[string]*ProtectedJob
+	privacyBudgetTemplates  map[string]map[string]*PrivacyBudgetTemplate
+	idMappingTables         map[string]map[string]*IdMappingTable
+	idNamespaceAssociations map[string]map[string]*IdNamespaceAssociation
+	camaAssociations        map[string]map[string]*ConfiguredAudienceModelAssociation
+	changeRequests          map[string]map[string]*CollaborationChangeRequest
+	schemas                 map[string]map[string]*Schema
+	schemaAnalysisRules     map[string]map[string]map[string]*SchemaAnalysisRule
+	tagsByArn               map[string]map[string]string
 }
 
 // NewInMemoryBackendWithContext creates a backend tied to svcCtx (ignored; no lifecycle goroutines).
@@ -2144,18 +2144,18 @@ func (b *InMemoryBackend) CreateConfiguredAudienceModelAssociation(membershipID,
 	}
 	assoc := &ConfiguredAudienceModelAssociation{
 		ConfiguredAudienceModelAssociationIdentifier: id,
-		Arn:                                          b.camaARN(membershipID, id),
-		CollaborationArn:                             collabArn,
-		CollaborationIdentifier:                      mem.CollaborationIdentifier,
-		MembershipArn:                                mem.Arn,
-		MembershipIdentifier:                         membershipID,
-		ConfiguredAudienceModelArn:                   configuredAudienceModelArn,
-		Name:                                         name,
-		Description:                                  description,
-		ManageResourcePolicies:                       manageResourcePolicies,
-		CreateTime:                                   ts,
-		UpdateTime:                                   ts,
-		Tags:                                         tags,
+		Arn:                        b.camaARN(membershipID, id),
+		CollaborationArn:           collabArn,
+		CollaborationIdentifier:    mem.CollaborationIdentifier,
+		MembershipArn:              mem.Arn,
+		MembershipIdentifier:       membershipID,
+		ConfiguredAudienceModelArn: configuredAudienceModelArn,
+		Name:                       name,
+		Description:                description,
+		ManageResourcePolicies:     manageResourcePolicies,
+		CreateTime:                 ts,
+		UpdateTime:                 ts,
+		Tags:                       tags,
 	}
 	b.camaAssociations[membershipID][id] = assoc
 	if len(tags) > 0 {
