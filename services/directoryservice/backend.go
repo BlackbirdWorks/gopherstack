@@ -35,9 +35,9 @@ var (
 
 // storedVpcSettings holds VPC settings for serialization.
 type storedVpcSettings struct {
-	VpcID            string   `json:"vpcId"`
-	SubnetIDs        []string `json:"subnetIds"`
-	SecurityGroupIDs []string `json:"securityGroupIds"`
+	VpcID             string   `json:"vpcId"`
+	SubnetIDs         []string `json:"subnetIds"`
+	SecurityGroupIDs  []string `json:"securityGroupIds"`
 	AvailabilityZones []string `json:"availabilityZones"`
 }
 
@@ -76,12 +76,13 @@ func (d *storedDirectory) toDirectory() Directory {
 	}
 	if d.VpcSettings != nil {
 		dir.VpcSettings = &DirectoryVpcSettings{
-			VpcID:            d.VpcSettings.VpcID,
-			SubnetIDs:        d.VpcSettings.SubnetIDs,
-			SecurityGroupIDs: d.VpcSettings.SecurityGroupIDs,
+			VpcID:             d.VpcSettings.VpcID,
+			SubnetIDs:         d.VpcSettings.SubnetIDs,
+			SecurityGroupIDs:  d.VpcSettings.SecurityGroupIDs,
 			AvailabilityZones: d.VpcSettings.AvailabilityZones,
 		}
 	}
+
 	return dir
 }
 
@@ -216,12 +217,13 @@ func (b *InMemoryBackend) newStoredDirectory(
 	}
 	if vpcSettings != nil {
 		d.VpcSettings = &storedVpcSettings{
-			VpcID:            vpcSettings.VpcID,
-			SubnetIDs:        vpcSettings.SubnetIDs,
-			SecurityGroupIDs: vpcSettings.SecurityGroupIDs,
+			VpcID:             vpcSettings.VpcID,
+			SubnetIDs:         vpcSettings.SubnetIDs,
+			SecurityGroupIDs:  vpcSettings.SecurityGroupIDs,
 			AvailabilityZones: vpcSettings.AvailabilityZones,
 		}
 	}
+
 	return d
 }
 

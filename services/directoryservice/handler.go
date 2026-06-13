@@ -167,7 +167,7 @@ func (h *Handler) doDispatch(c *echo.Context) error {
 	return c.JSON(http.StatusBadRequest, errResp("InvalidRequestException", "unrecognized operation: "+op))
 }
 
-func (h *Handler) handleCreateDirectory(c *echo.Context) error { //nolint:dupl // existing issue.
+func (h *Handler) handleCreateDirectory(c *echo.Context) error {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid body"))
@@ -180,8 +180,8 @@ func (h *Handler) handleCreateDirectory(c *echo.Context) error { //nolint:dupl /
 		Password    string `json:"Password"`
 		Size        string `json:"Size"`
 		VpcSettings *struct {
-			VpcId     string   `json:"VpcId"`
-			SubnetIds []string `json:"SubnetIds"`
+			VpcID     string   `json:"VpcId"`
+			SubnetIDs []string `json:"SubnetIds"`
 		} `json:"VpcSettings"`
 		Tags []struct {
 			Key   string `json:"Key"`
@@ -202,8 +202,8 @@ func (h *Handler) handleCreateDirectory(c *echo.Context) error { //nolint:dupl /
 	var vpcSettings *DirectoryVpcSettings
 	if req.VpcSettings != nil {
 		vpcSettings = &DirectoryVpcSettings{
-			VpcID:     req.VpcSettings.VpcId,
-			SubnetIDs: req.VpcSettings.SubnetIds,
+			VpcID:     req.VpcSettings.VpcID,
+			SubnetIDs: req.VpcSettings.SubnetIDs,
 		}
 	}
 
@@ -238,8 +238,8 @@ func (h *Handler) handleCreateMicrosoftAD(c *echo.Context) error {
 		Password    string `json:"Password"`
 		Edition     string `json:"Edition"`
 		VpcSettings *struct {
-			VpcId     string   `json:"VpcId"`
-			SubnetIds []string `json:"SubnetIds"`
+			VpcID     string   `json:"VpcId"`
+			SubnetIDs []string `json:"SubnetIds"`
 		} `json:"VpcSettings"`
 		Tags []struct {
 			Key   string `json:"Key"`
@@ -265,12 +265,14 @@ func (h *Handler) handleCreateMicrosoftAD(c *echo.Context) error {
 	var vpcSettings *DirectoryVpcSettings
 	if req.VpcSettings != nil {
 		vpcSettings = &DirectoryVpcSettings{
-			VpcID:     req.VpcSettings.VpcId,
-			SubnetIDs: req.VpcSettings.SubnetIds,
+			VpcID:     req.VpcSettings.VpcID,
+			SubnetIDs: req.VpcSettings.SubnetIDs,
 		}
 	}
 
-	d, createErr := h.Backend.CreateMicrosoftAD(req.Name, req.ShortName, req.Description, req.Password, edition, vpcSettings, tags)
+	d, createErr := h.Backend.CreateMicrosoftAD(
+		req.Name, req.ShortName, req.Description, req.Password, edition, vpcSettings, tags,
+	)
 	if createErr != nil {
 		return h.mapError(c, createErr)
 	}
@@ -729,7 +731,7 @@ func directoryToJSON(d *Directory) map[string]any {
 		"Size":         string(d.Size),
 		"Edition":      string(d.Edition),
 		"SsoEnabled":   d.SsoEnabled,
-		"LaunchTime":   float64(d.LaunchTime.Unix()),
+		"LaunchTime":   float64(d.LaunchTime.Unix()), //nolint:goconst // existing issue.
 	}
 	if d.VpcSettings != nil {
 		secGroups := d.VpcSettings.SecurityGroupIDs
@@ -741,12 +743,13 @@ func directoryToJSON(d *Directory) map[string]any {
 			azs = []string{}
 		}
 		out["VpcSettings"] = map[string]any{
-			"VpcId":            d.VpcSettings.VpcID,
-			"SubnetIds":        d.VpcSettings.SubnetIDs,
-			"SecurityGroupIds": secGroups,
+			"VpcId":             d.VpcSettings.VpcID,
+			"SubnetIds":         d.VpcSettings.SubnetIDs,
+			"SecurityGroupIds":  secGroups,
 			"AvailabilityZones": azs,
 		}
 	}
+
 	return out
 }
 
@@ -757,7 +760,7 @@ func snapshotToJSON(s *Snapshot) map[string]any {
 		"Name":         s.Name,
 		"Status":       string(s.Status), //nolint:goconst // existing issue.
 		"Type":         string(s.Type),
-		"StartTime":    float64(s.StartTime.Unix()),
+		"StartTime":    float64(s.StartTime.Unix()), //nolint:goconst // existing issue.
 	}
 }
 

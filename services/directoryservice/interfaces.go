@@ -4,7 +4,12 @@ import "time"
 
 // StorageBackend is the interface for DirectoryService storage operations.
 type StorageBackend interface {
-	CreateDirectory(name, shortName, description, password string, size DirectorySize, vpcSettings *DirectoryVpcSettings, tags []Tag) (*Directory, error)
+	CreateDirectory(
+		name, shortName, description, password string,
+		size DirectorySize,
+		vpcSettings *DirectoryVpcSettings,
+		tags []Tag,
+	) (*Directory, error)
 	CreateMicrosoftAD(
 		name, shortName, description, password string,
 		edition DirectoryEdition,
@@ -201,9 +206,9 @@ const (
 
 // DirectoryVpcSettings holds VPC networking settings for a directory.
 type DirectoryVpcSettings struct {
-	VpcID            string
-	SubnetIDs        []string
-	SecurityGroupIDs []string
+	VpcID             string
+	SubnetIDs         []string
+	SecurityGroupIDs  []string
 	AvailabilityZones []string
 }
 
