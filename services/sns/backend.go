@@ -359,6 +359,9 @@ func newNotificationSigner() *notificationSigner {
 // sign computes the RSA-SHA256 signature of the canonical notification string
 // per AWS SNS SignatureVersion=2 and returns it base64-encoded.
 func (s *notificationSigner) sign(canonical string) string {
+	// Not password hashing: SHA-256 is the required digest for RSA-PKCS1v15 per
+	// AWS SNS SignatureVersion=2 spec. canonical is a signing payload, not a credential.
+	// codeql[go/weak-sensitive-data-hashing]
 	h := sha256.Sum256([]byte(canonical))
 	sig, err := rsa.SignPKCS1v15(rand.Reader, s.privateKey, crypto.SHA256, h[:])
 	if err != nil {
