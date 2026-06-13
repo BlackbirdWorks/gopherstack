@@ -2692,7 +2692,6 @@ func getServiceProviders() []service.Provider {
 		&mediaconvertbackend.Provider{},
 		&mqbackend.Provider{},
 		&mediastorebackend.Provider{},
-		&mediastoredatabackend.Provider{},
 	}, getLatestServiceProviders()...)
 }
 
@@ -2700,6 +2699,7 @@ func getServiceProviders() []service.Provider {
 // Extracted from getServiceProviders to satisfy the funlen limit.
 func getLatestServiceProviders() []service.Provider {
 	return append([]service.Provider{
+		&mediastoredatabackend.Provider{},
 		&memorydbbackend.Provider{},
 	}, getNewestServiceProviders()...)
 }
