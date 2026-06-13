@@ -906,7 +906,7 @@ func TestTerraform_RolesAnywhere(t *testing.T) {
 
 				return map[string]any{
 					"TrustAnchorName": "tf-rolesanywhere-" + id,
-					"CAName":          "tf-ca-" + id + ".example.com",
+					"RoleName":        "tf-rolesanywhere-role-" + id,
 				}
 			},
 			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
