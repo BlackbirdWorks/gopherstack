@@ -6,6 +6,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -103,6 +104,7 @@ func TestTerraform_AppRunner(t *testing.T) {
 				for _, s := range out.ServiceSummaryList {
 					if aws.ToString(s.ServiceName) == serviceName {
 						found = true
+
 						break
 					}
 				}
@@ -147,14 +149,22 @@ func TestTerraform_Comprehend(t *testing.T) {
 				client := createComprehendClient(t)
 				name := vars["ClassifierName"].(string)
 
-				out, err := client.ListDocumentClassifiers(ctx, &comprehendsvc.ListDocumentClassifiersInput{})
-				require.NoError(t, err, "ListDocumentClassifiers should succeed after terraform apply")
+				out, err := client.ListDocumentClassifiers(
+					ctx,
+					&comprehendsvc.ListDocumentClassifiersInput{},
+				)
+				require.NoError(
+					t,
+					err,
+					"ListDocumentClassifiers should succeed after terraform apply",
+				)
 
 				found := false
 				for _, c := range out.DocumentClassifierPropertiesList {
 					arn := aws.ToString(c.DocumentClassifierArn)
 					if strings.HasSuffix(arn, "/"+name) || strings.Contains(arn, name) {
 						found = true
+
 						break
 					}
 				}
@@ -205,6 +215,7 @@ func TestTerraform_DataBrew(t *testing.T) {
 				for _, d := range out.Datasets {
 					if aws.ToString(d.Name) == datasetName {
 						found = true
+
 						break
 					}
 				}
@@ -243,7 +254,7 @@ func TestTerraform_DataSync(t *testing.T) {
 					"BucketName": "tf-datasync-data-" + id,
 				}
 			},
-			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
 				t.Helper()
 				client := createDataSyncClient(t)
 
@@ -290,17 +301,26 @@ func TestTerraform_DirectoryService(t *testing.T) {
 				client := createDirectoryServiceClient(t)
 				domainName := vars["DomainName"].(string)
 
-				out, err := client.DescribeDirectories(ctx, &directoryservicesvc.DescribeDirectoriesInput{})
+				out, err := client.DescribeDirectories(
+					ctx,
+					&directoryservicesvc.DescribeDirectoriesInput{},
+				)
 				require.NoError(t, err, "DescribeDirectories should succeed after terraform apply")
 
 				found := false
 				for _, d := range out.DirectoryDescriptions {
 					if aws.ToString(d.Name) == domainName {
 						found = true
+
 						break
 					}
 				}
-				assert.True(t, found, "directory %q should appear in DescribeDirectories", domainName)
+				assert.True(
+					t,
+					found,
+					"directory %q should appear in DescribeDirectories",
+					domainName,
+				)
 			},
 		},
 	}
@@ -347,10 +367,16 @@ func TestTerraform_DLM(t *testing.T) {
 				for _, p := range out.Policies {
 					if aws.ToString(p.Description) == policyName {
 						found = true
+
 						break
 					}
 				}
-				assert.True(t, found, "lifecycle policy %q should appear in GetLifecyclePolicies", policyName)
+				assert.True(
+					t,
+					found,
+					"lifecycle policy %q should appear in GetLifecyclePolicies",
+					policyName,
+				)
 			},
 		},
 	}
@@ -384,7 +410,7 @@ func TestTerraform_Detective(t *testing.T) {
 					"GraphName": "tf-detective-" + id,
 				}
 			},
-			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
 				t.Helper()
 				client := createDetectiveClient(t)
 
@@ -436,6 +462,7 @@ func TestTerraform_Forecast(t *testing.T) {
 				for _, g := range out.DatasetGroups {
 					if aws.ToString(g.DatasetGroupName) == name {
 						found = true
+
 						break
 					}
 				}
@@ -467,9 +494,10 @@ func TestTerraform_Macie2(t *testing.T) {
 			fixture: "macie2/account",
 			setup: func(t *testing.T, _ string) map[string]any {
 				t.Helper()
+
 				return map[string]any{}
 			},
-			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
 				t.Helper()
 				client := createMacie2Client(t)
 
@@ -521,6 +549,7 @@ func TestTerraform_MediaLive(t *testing.T) {
 				for _, inp := range out.Inputs {
 					if aws.ToString(inp.Name) == inputName {
 						found = true
+
 						break
 					}
 				}
@@ -570,6 +599,7 @@ func TestTerraform_MediaPackage(t *testing.T) {
 				for _, ch := range out.Channels {
 					if aws.ToString(ch.Id) == channelID {
 						found = true
+
 						break
 					}
 				}
@@ -660,17 +690,30 @@ func TestTerraform_MediaTailor(t *testing.T) {
 				client := createMediaTailorClient(t)
 				configName := vars["ConfigName"].(string)
 
-				out, err := client.ListPlaybackConfigurations(ctx, &mediatailorsvc.ListPlaybackConfigurationsInput{})
-				require.NoError(t, err, "ListPlaybackConfigurations should succeed after terraform apply")
+				out, err := client.ListPlaybackConfigurations(
+					ctx,
+					&mediatailorsvc.ListPlaybackConfigurationsInput{},
+				)
+				require.NoError(
+					t,
+					err,
+					"ListPlaybackConfigurations should succeed after terraform apply",
+				)
 
 				found := false
 				for _, c := range out.Items {
 					if aws.ToString(c.Name) == configName {
 						found = true
+
 						break
 					}
 				}
-				assert.True(t, found, "playback configuration %q should appear in ListPlaybackConfigurations", configName)
+				assert.True(
+					t,
+					found,
+					"playback configuration %q should appear in ListPlaybackConfigurations",
+					configName,
+				)
 			},
 		},
 	}
@@ -716,6 +759,7 @@ func TestTerraform_Personalize(t *testing.T) {
 				for _, g := range out.DatasetGroups {
 					if aws.ToString(g.Name) == name {
 						found = true
+
 						break
 					}
 				}
@@ -770,6 +814,7 @@ func TestTerraform_Polly(t *testing.T) {
 				for _, l := range out.Lexicons {
 					if aws.ToString(l.Name) == lexiconName {
 						found = true
+
 						break
 					}
 				}
@@ -822,6 +867,7 @@ func TestTerraform_QuickSight(t *testing.T) {
 				for _, g := range out.GroupList {
 					if aws.ToString(g.GroupName) == groupName {
 						found = true
+
 						break
 					}
 				}
@@ -867,14 +913,12 @@ func TestTerraform_Rekognition(t *testing.T) {
 				out, err := client.ListCollections(ctx, &rekognitionsvc.ListCollectionsInput{})
 				require.NoError(t, err, "ListCollections should succeed after terraform apply")
 
-				found := false
-				for _, cid := range out.CollectionIds {
-					if cid == collectionID {
-						found = true
-						break
-					}
-				}
-				assert.True(t, found, "collection %q should appear in ListCollections", collectionID)
+				assert.True(
+					t,
+					slices.Contains(out.CollectionIds, collectionID),
+					"collection %q should appear in ListCollections",
+					collectionID,
+				)
 			},
 		},
 	}
@@ -921,10 +965,16 @@ func TestTerraform_RolesAnywhere(t *testing.T) {
 				for _, a := range out.TrustAnchors {
 					if aws.ToString(a.Name) == anchorName {
 						found = true
+
 						break
 					}
 				}
-				assert.True(t, found, "trust anchor %q should appear in ListTrustAnchors", anchorName)
+				assert.True(
+					t,
+					found,
+					"trust anchor %q should appear in ListTrustAnchors",
+					anchorName,
+				)
 			},
 		},
 	}
@@ -970,6 +1020,7 @@ func TestTerraform_Transcribe(t *testing.T) {
 				for _, v := range out.Vocabularies {
 					if aws.ToString(v.VocabularyName) == vocabName {
 						found = true
+
 						break
 					}
 				}
@@ -1019,6 +1070,7 @@ func TestTerraform_Translate(t *testing.T) {
 				for _, term := range out.TerminologyPropertiesList {
 					if aws.ToString(term.Name) == name {
 						found = true
+
 						break
 					}
 				}
@@ -1068,10 +1120,16 @@ func TestTerraform_WorkMail(t *testing.T) {
 				for _, o := range out.OrganizationSummaries {
 					if aws.ToString(o.Alias) == alias {
 						found = true
+
 						break
 					}
 				}
-				assert.True(t, found, "organization with alias %q should appear in ListOrganizations", alias)
+				assert.True(
+					t,
+					found,
+					"organization with alias %q should appear in ListOrganizations",
+					alias,
+				)
 			},
 		},
 	}
@@ -1123,17 +1181,23 @@ func TestTerraform_CloudWatchLogsComprehensive(t *testing.T) {
 
 				// Verify metric filters on /app log group.
 				appLG := "/" + prefix + "/app"
-				mfOut, err := logsClient.DescribeMetricFilters(ctx, &cwlogssvc.DescribeMetricFiltersInput{
-					LogGroupName: aws.String(appLG),
-				})
+				mfOut, err := logsClient.DescribeMetricFilters(
+					ctx,
+					&cwlogssvc.DescribeMetricFiltersInput{
+						LogGroupName: aws.String(appLG),
+					},
+				)
 				require.NoError(t, err, "DescribeMetricFilters should succeed")
 				assert.GreaterOrEqual(t, len(mfOut.MetricFilters), 2,
 					"at least 2 metric filters should exist on %q", appLG)
 
 				// Verify subscription filter on /app log group.
-				sfOut, err := logsClient.DescribeSubscriptionFilters(ctx, &cwlogssvc.DescribeSubscriptionFiltersInput{
-					LogGroupName: aws.String(appLG),
-				})
+				sfOut, err := logsClient.DescribeSubscriptionFilters(
+					ctx,
+					&cwlogssvc.DescribeSubscriptionFiltersInput{
+						LogGroupName: aws.String(appLG),
+					},
+				)
 				require.NoError(t, err, "DescribeSubscriptionFilters should succeed")
 				assert.NotEmpty(t, sfOut.SubscriptionFilters,
 					"at least one subscription filter should exist on %q", appLG)
@@ -1186,6 +1250,7 @@ func TestTerraform_CognitoComprehensive(t *testing.T) {
 				for _, p := range poolsOut.UserPools {
 					if aws.ToString(p.Name) == poolName {
 						poolID = aws.ToString(p.Id)
+
 						break
 					}
 				}
@@ -1193,25 +1258,32 @@ func TestTerraform_CognitoComprehensive(t *testing.T) {
 
 				if poolID != "" {
 					// Verify User Pool Client exists.
-					clientsOut, err := idpClient.ListUserPoolClients(ctx, &cognitoidpsvc.ListUserPoolClientsInput{
-						UserPoolId: aws.String(poolID),
-					})
-					require.NoError(t, err, "ListUserPoolClients should succeed")
+					clientsOut, cliErr := idpClient.ListUserPoolClients(
+						ctx,
+						&cognitoidpsvc.ListUserPoolClientsInput{
+							UserPoolId: aws.String(poolID),
+						},
+					)
+					require.NoError(t, cliErr, "ListUserPoolClients should succeed")
 					assert.NotEmpty(t, clientsOut.UserPoolClients, "user pool client should exist")
 				}
 
 				// Verify Identity Pool.
 				identClient := createCognitoIdentityClient(t)
 				identityPoolName := prefix + "_identity_pool"
-				identPoolsOut, err := identClient.ListIdentityPools(ctx, &cognitoidentitysvc.ListIdentityPoolsInput{
-					MaxResults: aws.Int32(60),
-				})
+				identPoolsOut, err := identClient.ListIdentityPools(
+					ctx,
+					&cognitoidentitysvc.ListIdentityPoolsInput{
+						MaxResults: aws.Int32(60),
+					},
+				)
 				require.NoError(t, err, "ListIdentityPools should succeed")
 
 				found := false
 				for _, ip := range identPoolsOut.IdentityPools {
 					if aws.ToString(ip.IdentityPoolName) == identityPoolName {
 						found = true
+
 						break
 					}
 				}
@@ -1332,6 +1404,7 @@ func TestTerraform_AppSyncComprehensive(t *testing.T) {
 				for _, api := range apisOut.GraphqlApis {
 					if aws.ToString(api.Name) == apiName {
 						apiID = aws.ToString(api.ApiId)
+
 						break
 					}
 				}
@@ -1447,7 +1520,11 @@ func TestTerraform_APIGatewayV2FullStackViaCFN(t *testing.T) {
 			setup: func(t *testing.T, dir string) map[string]any {
 				t.Helper()
 				id := uuid.NewString()[:8]
-				zipPath := makePyZip(t, dir, "def handler(event, context):\n    return {'statusCode': 200, 'body': 'ok'}\n")
+				zipPath := makePyZip(
+					t,
+					dir,
+					"def handler(event, context):\n    return {'statusCode': 200, 'body': 'ok'}\n",
+				)
 
 				return map[string]any{
 					"FuncName":  "tf-apigwv2cfn-" + id,
@@ -1481,10 +1558,16 @@ func TestTerraform_APIGatewayV2FullStackViaCFN(t *testing.T) {
 				for _, api := range apisOut.Items {
 					if aws.ToString(api.Name) == apiName {
 						apiID = aws.ToString(api.ApiId)
+
 						break
 					}
 				}
-				assert.NotEmpty(t, apiID, "API %q should be listed after CFN stack deploys", apiName)
+				assert.NotEmpty(
+					t,
+					apiID,
+					"API %q should be listed after CFN stack deploys",
+					apiName,
+				)
 
 				if apiID == "" {
 					return
@@ -1507,7 +1590,12 @@ func TestTerraform_APIGatewayV2FullStackViaCFN(t *testing.T) {
 				for _, s := range stagesOut.Items {
 					if aws.ToString(s.StageName) == "$default" {
 						foundDefault = true
-						assert.True(t, aws.ToBool(s.AutoDeploy), "$default stage should have AutoDeploy=true")
+						assert.True(
+							t,
+							aws.ToBool(s.AutoDeploy),
+							"$default stage should have AutoDeploy=true",
+						)
+
 						break
 					}
 				}
