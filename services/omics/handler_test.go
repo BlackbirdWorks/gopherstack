@@ -604,3 +604,35 @@ func TestOmics_Tags(t *testing.T) {
 	tags := tagsResp["tags"].(map[string]any)
 	assert.Equal(t, "test", tags["env"])
 }
+
+func TestOmics_RouteMatcher_TagPaths(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		path      string
+		wantMatch bool
+	}{
+		{name: "omics_tag_path", path: "/tags/arn:aws:omics:us-east-1:000000000000:workflow/12345", wantMatch: true},
+		{name: "fis_tag_path", path: "/tags/arn:aws:fis:us-east-1:000000000000:experiment-template/EXTabcdef0123456", wantMatch: false},
+		{name: "fis_tag_path_nonexistent", path: "/tags/arn:aws:fis:us-east-1:000000000000:experiment-template/EXTdoesnotexist00000000", wantMatch: false},
+		{name: "other_tag_path", path: "/tags/arn:aws:s3:::my-bucket", wantMatch: false},
+		{name: "tags_root", path: "/tags", wantMatch: false},
+		{name: "workflow_path", path: "/workflow", wantMatch: true},
+		{name: "referencestore_path", path: "/referencestore", wantMatch: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+			matcher := h.RouteMatcher()
+			assert.Equal(t, tt.wantMatch, matcher(c), "path: %s", tt.path)
+		})
+	}
+}
