@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -10,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -18,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -807,4 +810,538 @@ func TestCustomHTTPErrorHandler_LogsServerErrors(t *testing.T) {
 			assert.Equal(t, tt.wantStatusCode, rec.Code)
 		})
 	}
+}
+
+// --- snapshot / load handler test helpers ---
+
+// testPersistable is a minimal Persistable + Resettable for snapshot handler tests.
+type testPersistable struct {
+	restoreErr error
+	data       []byte
+	mu         sync.Mutex
+}
+
+func (p *testPersistable) Snapshot() []byte {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	cp := make([]byte, len(p.data))
+	copy(cp, p.data)
+
+	return cp
+}
+
+func (p *testPersistable) Restore(data []byte) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.restoreErr != nil {
+		return p.restoreErr
+	}
+
+	cp := make([]byte, len(data))
+	copy(cp, data)
+	p.data = cp
+
+	return nil
+}
+
+func (p *testPersistable) Reset() {
+	p.mu.Lock()
+	p.data = nil
+	p.mu.Unlock()
+}
+
+func (p *testPersistable) Data() []byte {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	cp := make([]byte, len(p.data))
+	copy(cp, p.data)
+
+	return cp
+}
+
+// newTestManager creates a persistence.Manager with a NullStore (no disk I/O).
+func newTestManager(services map[string]*testPersistable) *persistence.Manager {
+	mgr := persistence.NewManager(persistence.NullStore{})
+	for name, svc := range services {
+		mgr.Register(name, svc)
+	}
+
+	return mgr
+}
+
+// postJSON issues a POST to handler via httptest and returns the recorder.
+func postJSON(t *testing.T, handler echo.HandlerFunc, body []byte) *httptest.ResponseRecorder {
+	t.Helper()
+
+	e := echo.New()
+
+	var bodyReader *bytes.Reader
+	if body == nil {
+		bodyReader = bytes.NewReader([]byte{})
+	} else {
+		bodyReader = bytes.NewReader(body)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/", bodyReader)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	_ = handler(c)
+
+	return rec
+}
+
+// --- buildSnapshotHandler ---
+
+func TestBuildSnapshotHandler_EmptyManager(t *testing.T) {
+	t.Parallel()
+
+	mgr := newTestManager(nil)
+	handler := buildSnapshotHandler(mgr)
+	rec := postJSON(t, handler, []byte(`{}`))
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var resp snapshotResponse
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	assert.Equal(t, snapshotBundleFormat, resp.Format)
+	assert.Equal(t, 0, resp.Exported)
+	assert.Empty(t, resp.Services)
+	assert.Equal(t, "ok", resp.Status)
+}
+
+func TestBuildSnapshotHandler(t *testing.T) {
+	t.Parallel()
+
+	snap := []byte(`{"key":"value"}`)
+
+	tests := []struct {
+		services     map[string]*testPersistable
+		name         string
+		wantExported int
+		wantKeys     []string
+	}{
+		{
+			name:         "single_service_with_data",
+			services:     map[string]*testPersistable{"alpha": {data: snap}},
+			wantExported: 1,
+			wantKeys:     []string{"alpha"},
+		},
+		{
+			name: "multiple_services",
+			services: map[string]*testPersistable{
+				"alpha": {data: []byte(`{"a":1}`)},
+				"beta":  {data: []byte(`{"b":2}`)},
+			},
+			wantExported: 2,
+			wantKeys:     []string{"alpha", "beta"},
+		},
+		{
+			name:         "service_with_nil_snapshot_excluded",
+			services:     map[string]*testPersistable{"empty": {data: nil}},
+			wantExported: 0,
+			wantKeys:     nil,
+		},
+		{
+			name: "mix_empty_and_non_empty",
+			services: map[string]*testPersistable{
+				"present": {data: snap},
+				"absent":  {data: nil},
+			},
+			wantExported: 1,
+			wantKeys:     []string{"present"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			mgr := newTestManager(tt.services)
+			handler := buildSnapshotHandler(mgr)
+			rec := postJSON(t, handler, []byte(`{}`))
+
+			assert.Equal(t, http.StatusOK, rec.Code)
+
+			var resp snapshotResponse
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+
+			assert.Equal(t, snapshotBundleFormat, resp.Format)
+			assert.Equal(t, "ok", resp.Status)
+			assert.Equal(t, tt.wantExported, resp.Exported)
+
+			for _, key := range tt.wantKeys {
+				assert.Contains(t, resp.Services, key, "snapshot must include service %s", key)
+			}
+		})
+	}
+}
+
+func TestBuildSnapshotHandler_ResponseIsValidJSON(t *testing.T) {
+	t.Parallel()
+
+	snap := []byte(`{"items":[1,2,3],"active":true}`)
+	mgr := newTestManager(map[string]*testPersistable{"svc": {data: snap}})
+	handler := buildSnapshotHandler(mgr)
+	rec := postJSON(t, handler, []byte(`{}`))
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp snapshotResponse
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+
+	// Service snapshot must be embedded as raw JSON, not base64.
+	rawSvc, ok := resp.Services["svc"]
+	require.True(t, ok, "svc key must be present")
+
+	var parsed map[string]any
+	require.NoError(t, json.Unmarshal(rawSvc, &parsed))
+	assert.Equal(t, []any{float64(1), float64(2), float64(3)}, parsed["items"])
+}
+
+// --- buildLoadHandler ---
+
+func TestBuildLoadHandler_EmptyBundle(t *testing.T) {
+	t.Parallel()
+
+	mgr := newTestManager(map[string]*testPersistable{"svc": {data: nil}})
+	handler := buildLoadHandler(mgr)
+
+	body, _ := json.Marshal(snapshotBundle{
+		Format:   snapshotBundleFormat,
+		Services: map[string]json.RawMessage{},
+	})
+	rec := postJSON(t, handler, body)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var resp loadResponse
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	assert.Equal(t, "ok", resp.Status)
+	assert.Equal(t, 0, resp.Loaded)
+}
+
+func TestBuildLoadHandler(t *testing.T) {
+	t.Parallel()
+
+	snap := json.RawMessage(`{"restored":true}`)
+
+	tests := []struct {
+		setupErr       error
+		name           string
+		bundle         snapshotBundle
+		wantStatusCode int
+		wantLoaded     int
+	}{
+		{
+			name: "single_service_loaded",
+			bundle: snapshotBundle{
+				Format:   snapshotBundleFormat,
+				Services: map[string]json.RawMessage{"svc": snap},
+			},
+			wantStatusCode: http.StatusOK,
+			wantLoaded:     1,
+		},
+		{
+			name: "unknown_service_skipped",
+			bundle: snapshotBundle{
+				Format:   snapshotBundleFormat,
+				Services: map[string]json.RawMessage{"unknown": snap},
+			},
+			wantStatusCode: http.StatusOK,
+			wantLoaded:     1,
+		},
+		{
+			name:     "restore_error_returns_500",
+			setupErr: errors.New("restore failure"),
+			bundle: snapshotBundle{
+				Format:   snapshotBundleFormat,
+				Services: map[string]json.RawMessage{"svc": snap},
+			},
+			wantStatusCode: http.StatusInternalServerError,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			svc := &testPersistable{restoreErr: tt.setupErr}
+			mgr := newTestManager(map[string]*testPersistable{"svc": svc})
+			handler := buildLoadHandler(mgr)
+
+			e := echo.New()
+			e.HTTPErrorHandler = buildHTTPErrorHandler()
+
+			body, marshalErr := json.Marshal(tt.bundle)
+			require.NoError(t, marshalErr)
+
+			req := httptest.NewRequest(http.MethodPost, "/_gopherstack/load", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+
+			// Echo needs the route registered to dispatch.
+			rec2 := httptest.NewRecorder()
+			req2 := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
+			req2.Header.Set("Content-Type", "application/json")
+			c2 := e.NewContext(req2, rec2)
+			_ = handler(c2)
+
+			if tt.wantStatusCode == http.StatusOK {
+				assert.Equal(t, http.StatusOK, rec2.Code)
+
+				var resp loadResponse
+				require.NoError(t, json.NewDecoder(rec2.Body).Decode(&resp))
+				assert.Equal(t, "ok", resp.Status)
+				assert.Equal(t, tt.wantLoaded, resp.Loaded)
+			} else {
+				assert.NotEqual(t, http.StatusOK, rec2.Code)
+			}
+		})
+	}
+}
+
+func TestBuildLoadHandler_InvalidJSON(t *testing.T) {
+	t.Parallel()
+
+	mgr := newTestManager(nil)
+	handler := buildLoadHandler(mgr)
+
+	e := echo.New()
+	e.HTTPErrorHandler = buildHTTPErrorHandler()
+
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader([]byte(`not-json`)))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	err := handler(c)
+
+	var httpErr *echo.HTTPError
+	require.True(t, errors.As(err, &httpErr))
+	assert.Equal(t, http.StatusBadRequest, httpErr.Code)
+}
+
+// --- snapshot → reset → load round-trip via HTTP handlers ---
+
+func TestSnapshotLoadRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		initial  map[string][]byte
+		resetSvc []string
+	}{
+		{
+			name:     "single_service_round_trip",
+			initial:  map[string][]byte{"svc": []byte(`{"items":["a","b","c"]}`)},
+			resetSvc: []string{"svc"},
+		},
+		{
+			name: "multiple_services_round_trip",
+			initial: map[string][]byte{
+				"s3":      []byte(`{"buckets":["my-bucket"]}`),
+				"dynamo":  []byte(`{"tables":["users"]}`),
+				"kinesis": []byte(`{"streams":["events"]}`),
+			},
+			resetSvc: []string{"s3", "dynamo", "kinesis"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			services := make(map[string]*testPersistable, len(tt.initial))
+			for name, data := range tt.initial {
+				services[name] = &testPersistable{data: data}
+			}
+
+			mgr := newTestManager(services)
+
+			snapshotHandler := buildSnapshotHandler(mgr)
+			loadHandler := buildLoadHandler(mgr)
+
+			e := echo.New()
+
+			// Step 1: POST /_gopherstack/snapshot to export state.
+			snapReq := httptest.NewRequest(http.MethodPost, "/_gopherstack/snapshot", http.NoBody)
+			snapRec := httptest.NewRecorder()
+			snapCtx := e.NewContext(snapReq, snapRec)
+
+			require.NoError(t, snapshotHandler(snapCtx))
+			require.Equal(t, http.StatusOK, snapRec.Code)
+
+			var snapResp snapshotResponse
+			require.NoError(t, json.NewDecoder(snapRec.Body).Decode(&snapResp))
+			assert.Equal(t, len(tt.initial), snapResp.Exported)
+
+			// Step 2: Reset all services.
+			for _, name := range tt.resetSvc {
+				services[name].Reset()
+			}
+
+			for name, svc := range services {
+				assert.Nil(t, svc.Data(), "service %s must be empty after reset", name)
+			}
+
+			// Step 3: POST /_gopherstack/load with the exported snapshot.
+			loadBody, err := json.Marshal(snapResp.snapshotBundle)
+			require.NoError(t, err)
+
+			loadReq := httptest.NewRequest(http.MethodPost, "/_gopherstack/load", bytes.NewReader(loadBody))
+			loadReq.Header.Set("Content-Type", "application/json")
+			loadRec := httptest.NewRecorder()
+			loadCtx := e.NewContext(loadReq, loadRec)
+
+			require.NoError(t, loadHandler(loadCtx))
+			require.Equal(t, http.StatusOK, loadRec.Code)
+
+			var loadResp loadResponse
+			require.NoError(t, json.NewDecoder(loadRec.Body).Decode(&loadResp))
+			assert.Equal(t, "ok", loadResp.Status)
+			assert.Equal(t, len(tt.initial), loadResp.Loaded)
+
+			// Step 4: Verify each service has its original state.
+			for name, want := range tt.initial {
+				assert.Equal(t, want, services[name].Data(),
+					"service %s state must match original after load", name)
+			}
+		})
+	}
+}
+
+func TestSnapshotLoadRoundTrip_CrossManagerLoad(t *testing.T) {
+	t.Parallel()
+
+	// Snapshot from managerA, load into managerB (same service names).
+	snapData := []byte(`{"value":"transferred"}`)
+	svcA := &testPersistable{data: snapData}
+	svcB := &testPersistable{data: nil}
+
+	mgrA := newTestManager(map[string]*testPersistable{"svc": svcA})
+	mgrB := newTestManager(map[string]*testPersistable{"svc": svcB})
+
+	e := echo.New()
+
+	// Export from mgrA.
+	snapReq := httptest.NewRequest(http.MethodPost, "/", http.NoBody)
+	snapRec := httptest.NewRecorder()
+	require.NoError(t, buildSnapshotHandler(mgrA)(e.NewContext(snapReq, snapRec)))
+	require.Equal(t, http.StatusOK, snapRec.Code)
+
+	var snapResp snapshotResponse
+	require.NoError(t, json.NewDecoder(snapRec.Body).Decode(&snapResp))
+
+	// Load into mgrB.
+	loadBody, err := json.Marshal(snapResp.snapshotBundle)
+	require.NoError(t, err)
+
+	loadReq := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(loadBody))
+	loadReq.Header.Set("Content-Type", "application/json")
+	loadRec := httptest.NewRecorder()
+	require.NoError(t, buildLoadHandler(mgrB)(e.NewContext(loadReq, loadRec)))
+	require.Equal(t, http.StatusOK, loadRec.Code)
+
+	assert.Equal(t, snapData, svcB.Data(), "svcB must receive svcA's state")
+	assert.Equal(t, snapData, svcA.Data(), "svcA must be unchanged")
+}
+
+func TestSnapshotLoadRoundTrip_EmptyServicesProduceEmptyBundle(t *testing.T) {
+	t.Parallel()
+
+	svc := &testPersistable{data: nil}
+	mgr := newTestManager(map[string]*testPersistable{"svc": svc})
+
+	e := echo.New()
+
+	snapReq := httptest.NewRequest(http.MethodPost, "/", http.NoBody)
+	snapRec := httptest.NewRecorder()
+	require.NoError(t, buildSnapshotHandler(mgr)(e.NewContext(snapReq, snapRec)))
+	require.Equal(t, http.StatusOK, snapRec.Code)
+
+	var snapResp snapshotResponse
+	require.NoError(t, json.NewDecoder(snapRec.Body).Decode(&snapResp))
+	assert.Equal(t, 0, snapResp.Exported, "nil-snapshot service must not be exported")
+	assert.Empty(t, snapResp.Services)
+}
+
+// TestBuildEchoServer_SnapshotLoadRoutes verifies that the snapshot and load
+// routes are registered on the Echo server returned by buildEchoServer.
+func TestBuildEchoServer_SnapshotLoadRoutes(t *testing.T) {
+	t.Parallel()
+
+	cli := parseCLI(t, nil)
+	mgr := persistence.NewManager(persistence.NullStore{})
+	var svcs []service.Registerable
+
+	e := buildEchoServer(t.Context(), nil, mgr, svcs, cli)
+
+	routes := make(map[string]bool)
+	for _, r := range e.Routes() {
+		routes[r.Method+":"+r.Path] = true
+	}
+
+	assert.True(t, routes["POST:/_gopherstack/snapshot"], "snapshot route must be registered")
+	assert.True(t, routes["POST:/_gopherstack/load"], "load route must be registered")
+}
+
+func TestBuildSnapshotHandler_MultipleServices_StatePreservedIndependently(t *testing.T) {
+	t.Parallel()
+
+	// Each service has distinct JSON data; verify each survives the round-trip intact.
+	services := map[string]*testPersistable{
+		"kinesis": {data: []byte(`{"streams":["stream-a","stream-b"],"shards":4}`)},
+		"sqs":     {data: []byte(`{"queues":{"my-queue":{"messages":10}}}`)},
+		"sns":     {data: []byte(`{"topics":["arn:aws:sns:us-east-1:000000000000:alerts"]}`)},
+	}
+
+	mgr := newTestManager(services)
+	e := echo.New()
+
+	// Snapshot.
+	snapRec := httptest.NewRecorder()
+	require.NoError(t, buildSnapshotHandler(mgr)(
+		e.NewContext(httptest.NewRequest(http.MethodPost, "/", http.NoBody), snapRec),
+	))
+	require.Equal(t, http.StatusOK, snapRec.Code)
+
+	var snapResp snapshotResponse
+	require.NoError(t, json.NewDecoder(snapRec.Body).Decode(&snapResp))
+	assert.Equal(t, 3, snapResp.Exported)
+
+	// Reset.
+	for _, svc := range services {
+		svc.Reset()
+	}
+
+	// Load.
+	loadBody, err := json.Marshal(snapResp.snapshotBundle)
+	require.NoError(t, err)
+
+	loadRec := httptest.NewRecorder()
+	loadReq := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(loadBody))
+	loadReq.Header.Set("Content-Type", "application/json")
+
+	require.NoError(t, buildLoadHandler(mgr)(e.NewContext(loadReq, loadRec)))
+	require.Equal(t, http.StatusOK, loadRec.Code)
+
+	// Verify each service individually.
+	assert.Equal(t,
+		[]byte(`{"streams":["stream-a","stream-b"],"shards":4}`),
+		services["kinesis"].Data(),
+	)
+	assert.Equal(t,
+		[]byte(`{"queues":{"my-queue":{"messages":10}}}`),
+		services["sqs"].Data(),
+	)
+	assert.Equal(t,
+		[]byte(`{"topics":["arn:aws:sns:us-east-1:000000000000:alerts"]}`),
+		services["sns"].Data(),
+	)
 }

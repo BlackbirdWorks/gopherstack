@@ -2001,6 +2001,8 @@ func buildEchoServer(
 	e.HTTPErrorHandler = buildHTTPErrorHandler()
 	e.GET("/_gopherstack/health", buildHealthHandler(services))
 	e.POST("/_gopherstack/reset", buildResetHandler(services))
+	e.POST("/_gopherstack/snapshot", buildSnapshotHandler(persistManager))
+	e.POST("/_gopherstack/load", buildLoadHandler(persistManager))
 
 	registerWebsiteRoutes(e, services)
 
@@ -2084,6 +2086,108 @@ func buildResetHandler(services []service.Registerable) echo.HandlerFunc {
 			"reset":         reset,
 			keyMessageField: fmt.Sprintf("reset %d service(s)", reset),
 		})
+	}
+}
+
+// snapshotBundle is the JSON envelope returned by POST /_gopherstack/snapshot
+// and accepted by POST /_gopherstack/load.
+//
+// Each value in Services is a raw JSON blob produced by the service's
+// Snapshot() method, embedded verbatim so that round-trips are lossless and the
+// payload stays human-readable without an extra base64 layer.
+type snapshotBundle struct {
+	// Format is a fixed version tag; currently "gopherstack-snapshot/v1".
+	Format string `json:"format"`
+	// Services maps each registered service name to its raw JSON snapshot.
+	Services map[string]json.RawMessage `json:"services"`
+}
+
+// snapshotResponse is the JSON body returned by POST /_gopherstack/snapshot.
+type snapshotResponse struct {
+	snapshotBundle
+	// Exported is the number of services whose snapshots were included.
+	Exported int    `json:"exported"`
+	Status   string `json:"status"`
+}
+
+// loadResponse is the JSON body returned by POST /_gopherstack/load.
+type loadResponse struct {
+	// Loaded is the number of services successfully restored.
+	Loaded  int    `json:"loaded"`
+	Status  string `json:"status"`
+	Message string `json:"message"`
+}
+
+// snapshotBundleFormat is the format identifier embedded in every snapshot bundle.
+const snapshotBundleFormat = "gopherstack-snapshot/v1"
+
+// buildSnapshotHandler returns the POST /_gopherstack/snapshot handler.
+//
+// It calls ExportAll on the persistence manager to collect the current
+// in-memory state of every registered service, wraps the snapshots in a
+// snapshotBundle envelope, and returns it as the response body. The caller
+// can store the blob and later replay it via POST /_gopherstack/load to
+// restore state (Cloud-Pods style).
+//
+// The handler does not write to the underlying Store; if the caller also
+// wants on-disk persistence they should use --persist/--data-dir together
+// with the debounced auto-snapshot that fires after every mutation.
+func buildSnapshotHandler(m *persistence.Manager) echo.HandlerFunc {
+	return func(c *echo.Context) error {
+		raw := m.ExportAll()
+
+		services := make(map[string]json.RawMessage, len(raw))
+		for name, data := range raw {
+			services[name] = json.RawMessage(data)
+		}
+
+		resp := snapshotResponse{
+			snapshotBundle: snapshotBundle{
+				Format:   snapshotBundleFormat,
+				Services: services,
+			},
+			Exported: len(services),
+			Status:   "ok",
+		}
+
+		return c.JSON(http.StatusOK, resp)
+	}
+}
+
+// buildLoadHandler returns the POST /_gopherstack/load handler.
+//
+// It reads a snapshotBundle from the request body and restores each service's
+// state by calling ImportAll on the persistence manager. Services present in
+// the bundle but not registered with the manager are warned and skipped.
+// Returns 400 for malformed input and 500 if any restore fails.
+func buildLoadHandler(m *persistence.Manager) echo.HandlerFunc {
+	return func(c *echo.Context) error {
+		var bundle snapshotBundle
+
+		if err := json.NewDecoder(c.Request().Body).Decode(&bundle); err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest,
+				fmt.Sprintf("invalid snapshot bundle: %s", err.Error()))
+		}
+
+		snapshots := make(map[string][]byte, len(bundle.Services))
+		for name, raw := range bundle.Services {
+			snapshots[name] = []byte(raw)
+		}
+
+		ctx := c.Request().Context()
+
+		if err := m.ImportAll(ctx, snapshots); err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError,
+				fmt.Sprintf("restore failed: %s", err.Error()))
+		}
+
+		resp := loadResponse{
+			Status:  "ok",
+			Loaded:  len(snapshots),
+			Message: fmt.Sprintf("restored %d service(s)", len(snapshots)),
+		}
+
+		return c.JSON(http.StatusOK, resp)
 	}
 }
 
