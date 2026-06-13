@@ -467,7 +467,7 @@ func (b *InMemoryBackend) ListComplianceItems(
 
 	var all []ComplianceItem
 
-	for _, items := range b.complianceStore(region) {
+	for _, items := range b.compliance[region] {
 		for _, item := range items {
 			if input.ResourceID != "" && item.ResourceID != input.ResourceID {
 				continue
@@ -558,7 +558,7 @@ func (b *InMemoryBackend) ListComplianceSummaries(
 	b.mu.RLock("ListComplianceSummaries")
 	defer b.mu.RUnlock()
 
-	tallies := buildComplianceTallies(b.complianceStore(region))
+	tallies := buildComplianceTallies(b.compliance[region])
 
 	summaries := make([]any, 0, len(tallies))
 	for ct, t := range tallies {
@@ -622,7 +622,7 @@ func (b *InMemoryBackend) ListResourceComplianceSummaries(
 	b.mu.RLock("ListResourceComplianceSummaries")
 	defer b.mu.RUnlock()
 
-	store := b.complianceStore(region)
+	store := b.compliance[region]
 	summaries := make([]any, 0, len(store))
 
 	for resourceID, items := range store {
