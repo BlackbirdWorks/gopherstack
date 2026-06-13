@@ -1,5 +1,18 @@
 package opsworks
 
+import "sort"
+
+// HandlerDispatchKeys returns the sorted operation keys from the handler's dispatch table.
+func HandlerDispatchKeys(h *Handler) []string {
+	keys := make([]string, 0, len(h.ops))
+	for k := range h.ops {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	return keys
+}
+
 // StackCount returns the number of stored stacks.
 func StackCount(b *InMemoryBackend) int {
 	b.mu.RLock("StackCount")
