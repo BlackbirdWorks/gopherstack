@@ -1076,31 +1076,25 @@ func TestBuildLoadHandler(t *testing.T) {
 
 			e := echo.New()
 			e.HTTPErrorHandler = buildHTTPErrorHandler()
+			e.POST("/", handler)
 
 			body, marshalErr := json.Marshal(tt.bundle)
 			require.NoError(t, marshalErr)
 
-			req := httptest.NewRequest(http.MethodPost, "/_gopherstack/load", bytes.NewReader(body))
+			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
 			req.Header.Set("Content-Type", "application/json")
 			rec := httptest.NewRecorder()
 			e.ServeHTTP(rec, req)
 
-			// Echo needs the route registered to dispatch.
-			rec2 := httptest.NewRecorder()
-			req2 := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
-			req2.Header.Set("Content-Type", "application/json")
-			c2 := e.NewContext(req2, rec2)
-			_ = handler(c2)
-
 			if tt.wantStatusCode == http.StatusOK {
-				assert.Equal(t, http.StatusOK, rec2.Code)
+				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var resp loadResponse
-				require.NoError(t, json.NewDecoder(rec2.Body).Decode(&resp))
+				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
 				assert.Equal(t, "ok", resp.Status)
 				assert.Equal(t, tt.wantLoaded, resp.Loaded)
 			} else {
-				assert.NotEqual(t, http.StatusOK, rec2.Code)
+				assert.Equal(t, tt.wantStatusCode, rec.Code)
 			}
 		})
 	}
@@ -1187,7 +1181,7 @@ func TestSnapshotLoadRoundTrip(t *testing.T) {
 			}
 
 			for name, svc := range services {
-				assert.Nil(t, svc.Data(), "service %s must be empty after reset", name)
+				assert.Empty(t, svc.Data(), "service %s must be empty after reset", name)
 			}
 
 			// Step 3: POST /_gopherstack/load with the exported snapshot.
@@ -1282,13 +1276,17 @@ func TestBuildEchoServer_SnapshotLoadRoutes(t *testing.T) {
 
 	e := buildEchoServer(t.Context(), nil, mgr, svcs, cli)
 
-	routes := make(map[string]bool)
-	for _, r := range e.Routes() {
-		routes[r.Method+":"+r.Path] = true
-	}
+	snapshotReq := httptest.NewRequest(http.MethodPost, "/_gopherstack/snapshot", http.NoBody)
+	snapshotRec := httptest.NewRecorder()
+	e.ServeHTTP(snapshotRec, snapshotReq)
+	assert.NotEqual(t, http.StatusNotFound, snapshotRec.Code, "snapshot route must be registered")
 
-	assert.True(t, routes["POST:/_gopherstack/snapshot"], "snapshot route must be registered")
-	assert.True(t, routes["POST:/_gopherstack/load"], "load route must be registered")
+	loadBody, _ := json.Marshal(snapshotBundle{Format: snapshotBundleFormat, Services: nil})
+	loadReq := httptest.NewRequest(http.MethodPost, "/_gopherstack/load", bytes.NewReader(loadBody))
+	loadReq.Header.Set("Content-Type", "application/json")
+	loadRec := httptest.NewRecorder()
+	e.ServeHTTP(loadRec, loadReq)
+	assert.NotEqual(t, http.StatusNotFound, loadRec.Code, "load route must be registered")
 }
 
 func TestBuildSnapshotHandler_MultipleServices_StatePreservedIndependently(t *testing.T) {
