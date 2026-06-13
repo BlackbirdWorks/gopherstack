@@ -94,6 +94,7 @@ import (
 	mqbackend "github.com/blackbirdworks/gopherstack/services/mq"
 	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
+	networkmonitorbackend "github.com/blackbirdworks/gopherstack/services/networkmonitor"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
 	pinpointbackend "github.com/blackbirdworks/gopherstack/services/pinpoint"
@@ -189,6 +190,7 @@ type Stack struct {
 	ResourceGroupsTaggingHandler   *rgtabackend.Handler
 	SWFHandler                     *swfbackend.Handler
 	FirehoseHandler                *firehosebackend.Handler
+	NetworkMonitorHandler          *networkmonitorbackend.Handler
 	SchedulerHandler               *schedulerbackend.Handler
 	Route53ResolverHandler         *route53resolverbackend.Handler
 	TranscribeHandler              *transcribebackend.Handler
@@ -562,6 +564,7 @@ func registerLatestServices(registry *service.Registry, h handlers) {
 	_ = registry.Register(h.wafv2)
 	_ = registry.Register(h.xray)
 	_ = registry.Register(h.s3tables)
+	_ = registry.Register(h.networkmonitor)
 }
 
 // handlers bundles all service handlers created for a test stack.
@@ -606,6 +609,7 @@ type handlers struct {
 	rgtagging           *rgtabackend.Handler
 	swf                 *swfbackend.Handler
 	firehose            *firehosebackend.Handler
+	networkmonitor      *networkmonitorbackend.Handler
 	scheduler           *schedulerbackend.Handler
 	route53resolver     *route53resolverbackend.Handler
 	transcribe          *transcribebackend.Handler
@@ -788,6 +792,11 @@ func populateExtendedHandlers(h *handlers) {
 	h.firehose = firehosebackend.NewHandler(
 		firehosebackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
+	h.networkmonitor = networkmonitorbackend.NewHandler(
+		networkmonitorbackend.NewInMemoryBackend(config.DefaultRegion, config.DefaultAccountID),
+	)
+	h.networkmonitor.AccountID = config.DefaultAccountID
+	h.networkmonitor.DefaultRegion = config.DefaultRegion
 	h.scheduler = schedulerbackend.NewHandler(
 		schedulerbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
@@ -1231,6 +1240,7 @@ func buildStack(
 		ResourceGroupsTaggingHandler:   h.rgtagging,
 		SWFHandler:                     h.swf,
 		FirehoseHandler:                h.firehose,
+		NetworkMonitorHandler:          h.networkmonitor,
 		SchedulerHandler:               h.scheduler,
 		Route53ResolverHandler:         h.route53resolver,
 		TranscribeHandler:              h.transcribe,
