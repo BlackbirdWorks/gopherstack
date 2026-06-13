@@ -8,53 +8,123 @@ type StorageBackend interface {
 	CreateReferenceStore(name, description string, tags map[string]string) (*ReferenceStore, error)
 	DeleteReferenceStore(id string) error
 	GetReferenceStore(id string) (*ReferenceStore, error)
-	ListReferenceStores(filter *ReferenceStoreFilter, maxResults int, nextToken string) ([]*ReferenceStore, string, error)
+	ListReferenceStores(
+		filter *ReferenceStoreFilter,
+		maxResults int,
+		nextToken string,
+	) ([]*ReferenceStore, string, error)
 
 	// Reference
 	DeleteReference(referenceStoreID, id string) error
 	GetReferenceMetadata(referenceStoreID, id string) (*ReferenceMetadata, error)
-	ListReferences(referenceStoreID string, filter *ReferenceFilter, maxResults int, nextToken string) ([]*ReferenceMetadata, string, error)
-	StartReferenceImportJob(referenceStoreID, roleARN string, sources []ReferenceImportJobSource) (*ReferenceImportJob, error)
+	ListReferences(
+		referenceStoreID string,
+		filter *ReferenceFilter,
+		maxResults int,
+		nextToken string,
+	) ([]*ReferenceMetadata, string, error)
+	StartReferenceImportJob(
+		referenceStoreID, roleARN string,
+		sources []ReferenceImportJobSource,
+	) (*ReferenceImportJob, error)
 	GetReferenceImportJob(referenceStoreID, jobID string) (*ReferenceImportJob, error)
-	ListReferenceImportJobs(referenceStoreID string, maxResults int, nextToken string) ([]*ReferenceImportJob, string, error)
+	ListReferenceImportJobs(
+		referenceStoreID string,
+		maxResults int,
+		nextToken string,
+	) ([]*ReferenceImportJob, string, error)
 
 	// SequenceStore
 	CreateSequenceStore(name, description string, tags map[string]string) (*SequenceStore, error)
 	DeleteSequenceStore(id string) error
 	GetSequenceStore(id string) (*SequenceStore, error)
-	ListSequenceStores(filter *SequenceStoreFilter, maxResults int, nextToken string) ([]*SequenceStore, string, error)
+	ListSequenceStores(
+		filter *SequenceStoreFilter,
+		maxResults int,
+		nextToken string,
+	) ([]*SequenceStore, string, error)
 	UpdateSequenceStore(id, name, description string) (*SequenceStore, error)
 
 	// ReadSet
 	BatchDeleteReadSet(sequenceStoreID string, ids []string) ([]ReadSetBatchError, error)
 	GetReadSetMetadata(sequenceStoreID, id string) (*ReadSetMetadata, error)
-	ListReadSets(sequenceStoreID string, filter *ReadSetFilter, maxResults int, nextToken string) ([]*ReadSetMetadata, string, error)
-	StartReadSetActivationJob(sequenceStoreID string, sources []ReadSetActivationJobSource) (*ReadSetActivationJob, error)
+	ListReadSets(
+		sequenceStoreID string,
+		filter *ReadSetFilter,
+		maxResults int,
+		nextToken string,
+	) ([]*ReadSetMetadata, string, error)
+	StartReadSetActivationJob(
+		sequenceStoreID string,
+		sources []ReadSetActivationJobSource,
+	) (*ReadSetActivationJob, error)
 	GetReadSetActivationJob(sequenceStoreID, jobID string) (*ReadSetActivationJob, error)
-	ListReadSetActivationJobs(sequenceStoreID string, maxResults int, nextToken string) ([]*ReadSetActivationJob, string, error)
-	StartReadSetExportJob(sequenceStoreID, destination string, sources []ReadSetExportJobSource) (*ReadSetExportJob, error)
+	ListReadSetActivationJobs(
+		sequenceStoreID string,
+		maxResults int,
+		nextToken string,
+	) ([]*ReadSetActivationJob, string, error)
+	StartReadSetExportJob(
+		sequenceStoreID, destination string,
+		sources []ReadSetExportJobSource,
+	) (*ReadSetExportJob, error)
 	GetReadSetExportJob(sequenceStoreID, jobID string) (*ReadSetExportJob, error)
-	ListReadSetExportJobs(sequenceStoreID string, maxResults int, nextToken string) ([]*ReadSetExportJob, string, error)
-	StartReadSetImportJob(sequenceStoreID, roleARN string, sources []ReadSetImportJobSource) (*ReadSetImportJob, error)
+	ListReadSetExportJobs(
+		sequenceStoreID string,
+		maxResults int,
+		nextToken string,
+	) ([]*ReadSetExportJob, string, error)
+	StartReadSetImportJob(
+		sequenceStoreID, roleARN string,
+		sources []ReadSetImportJobSource,
+	) (*ReadSetImportJob, error)
 	GetReadSetImportJob(sequenceStoreID, jobID string) (*ReadSetImportJob, error)
-	ListReadSetImportJobs(sequenceStoreID string, maxResults int, nextToken string) ([]*ReadSetImportJob, string, error)
+	ListReadSetImportJobs(
+		sequenceStoreID string,
+		maxResults int,
+		nextToken string,
+	) ([]*ReadSetImportJob, string, error)
 
 	// Multipart ReadSet Upload
-	CreateMultipartReadSetUpload(sequenceStoreID, name, sequenceType string, tags map[string]string) (*MultipartReadSetUpload, error)
+	CreateMultipartReadSetUpload(
+		sequenceStoreID, name, sequenceType string,
+		tags map[string]string,
+	) (*MultipartReadSetUpload, error)
 	AbortMultipartReadSetUpload(sequenceStoreID, uploadID string) error
 	CompleteMultipartReadSetUpload(sequenceStoreID, uploadID string) (*ReadSetMetadata, error)
-	ListMultipartReadSetUploads(sequenceStoreID string, maxResults int, nextToken string) ([]*MultipartReadSetUpload, string, error)
-	ListReadSetUploadParts(sequenceStoreID, uploadID string, maxResults int, nextToken string) ([]*ReadSetUploadPart, string, error)
+	ListMultipartReadSetUploads(
+		sequenceStoreID string,
+		maxResults int,
+		nextToken string,
+	) ([]*MultipartReadSetUpload, string, error)
+	ListReadSetUploadParts(
+		sequenceStoreID, uploadID string,
+		maxResults int,
+		nextToken string,
+	) ([]*ReadSetUploadPart, string, error)
 
 	// RunGroup
-	CreateRunGroup(name string, maxCPUs, maxRuns, maxDuration int, maxGPUs int, tags map[string]string) (*RunGroup, error)
+	CreateRunGroup(
+		name string,
+		maxCPUs, maxRuns, maxDuration int,
+		maxGPUs int,
+		tags map[string]string,
+	) (*RunGroup, error)
 	DeleteRunGroup(id string) error
 	GetRunGroup(id string) (*RunGroup, error)
 	ListRunGroups(maxResults int, nextToken string) ([]*RunGroup, string, error)
-	UpdateRunGroup(id, name string, maxCPUs, maxRuns, maxDuration int, maxGPUs int) (*RunGroup, error)
+	UpdateRunGroup(
+		id, name string,
+		maxCPUs, maxRuns, maxDuration int,
+		maxGPUs int,
+	) (*RunGroup, error)
 
 	// Run
-	StartRun(workflowID, roleARN, name string, params map[string]any, tags map[string]string) (*Run, error)
+	StartRun(
+		workflowID, roleARN, name string,
+		params map[string]any,
+		tags map[string]string,
+	) (*Run, error)
 	CancelRun(id string) error
 	DeleteRun(id string) error
 	GetRun(id string) (*Run, error)
@@ -63,29 +133,50 @@ type StorageBackend interface {
 	ListRunTasks(runID string, maxResults int, nextToken string) ([]*RunTask, string, error)
 
 	// Workflow
-	CreateWorkflow(name, description, definitionZip, engine string, tags map[string]string) (*Workflow, error)
+	CreateWorkflow(
+		name, description, definitionZip, engine string,
+		tags map[string]string,
+	) (*Workflow, error)
 	DeleteWorkflow(id string) error
 	GetWorkflow(id string) (*Workflow, error)
 	ListWorkflows(maxResults int, nextToken string) ([]*Workflow, string, error)
 	UpdateWorkflow(id, name, description string) error
 
 	// AnnotationStore
-	CreateAnnotationStore(name, storeFormat string, tags map[string]string) (*AnnotationStore, error)
+	CreateAnnotationStore(
+		name, storeFormat string,
+		tags map[string]string,
+	) (*AnnotationStore, error)
 	DeleteAnnotationStore(name string) (*AnnotationStore, error)
 	GetAnnotationStore(name string) (*AnnotationStore, error)
 	ListAnnotationStores(maxResults int, nextToken string) ([]*AnnotationStore, string, error)
 	UpdateAnnotationStore(name, description string) (*AnnotationStore, error)
-	StartAnnotationImportJob(destinationName, roleARN string, items []AnnotationImportItem) (*AnnotationImportJob, error)
+	StartAnnotationImportJob(
+		destinationName, roleARN string,
+		items []AnnotationImportItem,
+	) (*AnnotationImportJob, error)
 	GetAnnotationImportJob(jobID string) (*AnnotationImportJob, error)
-	ListAnnotationImportJobs(maxResults int, nextToken string) ([]*AnnotationImportJob, string, error)
+	ListAnnotationImportJobs(
+		maxResults int,
+		nextToken string,
+	) ([]*AnnotationImportJob, string, error)
 	CancelAnnotationImportJob(jobID string) error
 
 	// AnnotationStoreVersion
-	CreateAnnotationStoreVersion(name, versionName, description string, tags map[string]string) (*AnnotationStoreVersion, error)
+	CreateAnnotationStoreVersion(
+		name, versionName, description string,
+		tags map[string]string,
+	) (*AnnotationStoreVersion, error)
 	DeleteAnnotationStoreVersions(name string, versionNames []string) ([]VersionDeleteError, error)
 	GetAnnotationStoreVersion(name, versionName string) (*AnnotationStoreVersion, error)
-	ListAnnotationStoreVersions(name string, maxResults int, nextToken string) ([]*AnnotationStoreVersion, string, error)
-	UpdateAnnotationStoreVersion(name, versionName, description string) (*AnnotationStoreVersion, error)
+	ListAnnotationStoreVersions(
+		name string,
+		maxResults int,
+		nextToken string,
+	) ([]*AnnotationStoreVersion, string, error)
+	UpdateAnnotationStoreVersion(
+		name, versionName, description string,
+	) (*AnnotationStoreVersion, error)
 
 	// VariantStore
 	CreateVariantStore(name string, tags map[string]string) (*VariantStore, error)
@@ -93,7 +184,10 @@ type StorageBackend interface {
 	GetVariantStore(name string) (*VariantStore, error)
 	ListVariantStores(maxResults int, nextToken string) ([]*VariantStore, string, error)
 	UpdateVariantStore(name, description string) (*VariantStore, error)
-	StartVariantImportJob(destinationName, roleARN string, items []VariantImportItem) (*VariantImportJob, error)
+	StartVariantImportJob(
+		destinationName, roleARN string,
+		items []VariantImportItem,
+	) (*VariantImportJob, error)
 	GetVariantImportJob(jobID string) (*VariantImportJob, error)
 	ListVariantImportJobs(maxResults int, nextToken string) ([]*VariantImportJob, string, error)
 	CancelVariantImportJob(jobID string) error
@@ -128,10 +222,17 @@ type StorageBackend interface {
 	ListConfigurations(maxResults int, nextToken string) ([]*Configuration, string, error)
 
 	// WorkflowVersion
-	CreateWorkflowVersion(workflowID, versionName, description string, tags map[string]string) (*WorkflowVersion, error)
+	CreateWorkflowVersion(
+		workflowID, versionName, description string,
+		tags map[string]string,
+	) (*WorkflowVersion, error)
 	DeleteWorkflowVersion(workflowID, versionName string) error
 	GetWorkflowVersion(workflowID, versionName string) (*WorkflowVersion, error)
-	ListWorkflowVersions(workflowID string, maxResults int, nextToken string) ([]*WorkflowVersion, string, error)
+	ListWorkflowVersions(
+		workflowID string,
+		maxResults int,
+		nextToken string,
+	) ([]*WorkflowVersion, string, error)
 	UpdateWorkflowVersion(workflowID, versionName, description string) error
 
 	// S3 Access Policy
@@ -220,18 +321,18 @@ type SequenceStoreFilter struct {
 
 // ReadSetMetadata holds metadata for a read set.
 type ReadSetMetadata struct {
-	CreationTime     time.Time         `json:"creationTime"`
-	Tags             map[string]string `json:"tags"`
-	Arn              string            `json:"arn"`
-	ID               string            `json:"id"`
-	SequenceStoreID  string            `json:"sequenceStoreId"`
-	Name             string            `json:"name"`
-	Description      string            `json:"description"`
-	Status           string            `json:"status"`
-	SequenceType     string            `json:"sequenceType"`
-	SubjectID        string            `json:"subjectId"`
-	SampleID         string            `json:"sampleId"`
-	ReferenceARN     string            `json:"referenceArn"`
+	CreationTime    time.Time         `json:"creationTime"`
+	Tags            map[string]string `json:"tags"`
+	Arn             string            `json:"arn"`
+	ID              string            `json:"id"`
+	SequenceStoreID string            `json:"sequenceStoreId"`
+	Name            string            `json:"name"`
+	Description     string            `json:"description"`
+	Status          string            `json:"status"`
+	SequenceType    string            `json:"sequenceType"`
+	SubjectID       string            `json:"subjectId"`
+	SampleID        string            `json:"sampleId"`
+	ReferenceARN    string            `json:"referenceArn"`
 }
 
 // ReadSetFilter is filter criteria for listing read sets.

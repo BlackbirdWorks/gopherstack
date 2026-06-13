@@ -62,32 +62,32 @@ var (
 
 // regionState holds all HealthOmics resources for a single region.
 type regionState struct {
-	referenceStores      map[string]*ReferenceStore
-	references           map[string]map[string]*ReferenceMetadata
-	referenceImportJobs  map[string]map[string]*ReferenceImportJob
-	sequenceStores       map[string]*SequenceStore
-	readSets             map[string]map[string]*ReadSetMetadata
+	referenceStores       map[string]*ReferenceStore
+	references            map[string]map[string]*ReferenceMetadata
+	referenceImportJobs   map[string]map[string]*ReferenceImportJob
+	sequenceStores        map[string]*SequenceStore
+	readSets              map[string]map[string]*ReadSetMetadata
 	readSetActivationJobs map[string]map[string]*ReadSetActivationJob
-	readSetExportJobs    map[string]map[string]*ReadSetExportJob
-	readSetImportJobs    map[string]map[string]*ReadSetImportJob
-	multipartUploads     map[string]map[string]*MultipartReadSetUpload
-	uploadParts          map[string]map[string][]*ReadSetUploadPart
-	runGroups            map[string]*RunGroup
-	runs                 map[string]*Run
-	runTasks             map[string]map[string]*RunTask
-	workflows            map[string]*Workflow
-	workflowVersions     map[string]map[string]*WorkflowVersion
-	annotationStores     map[string]*AnnotationStore
-	annotationVersions   map[string]map[string]*AnnotationStoreVersion
-	annotationImportJobs map[string]*AnnotationImportJob
-	variantStores        map[string]*VariantStore
-	variantImportJobs    map[string]*VariantImportJob
-	shares               map[string]*Share
-	runCaches            map[string]*RunCache
-	runBatches           map[string]*RunBatch
-	configurations       map[string]*Configuration
-	s3AccessPolicies     map[string]*S3AccessPolicy
-	tags                 map[string]map[string]string
+	readSetExportJobs     map[string]map[string]*ReadSetExportJob
+	readSetImportJobs     map[string]map[string]*ReadSetImportJob
+	multipartUploads      map[string]map[string]*MultipartReadSetUpload
+	uploadParts           map[string]map[string][]*ReadSetUploadPart
+	runGroups             map[string]*RunGroup
+	runs                  map[string]*Run
+	runTasks              map[string]map[string]*RunTask
+	workflows             map[string]*Workflow
+	workflowVersions      map[string]map[string]*WorkflowVersion
+	annotationStores      map[string]*AnnotationStore
+	annotationVersions    map[string]map[string]*AnnotationStoreVersion
+	annotationImportJobs  map[string]*AnnotationImportJob
+	variantStores         map[string]*VariantStore
+	variantImportJobs     map[string]*VariantImportJob
+	shares                map[string]*Share
+	runCaches             map[string]*RunCache
+	runBatches            map[string]*RunBatch
+	configurations        map[string]*Configuration
+	s3AccessPolicies      map[string]*S3AccessPolicy
+	tags                  map[string]map[string]string
 }
 
 func newRegionState() *regionState {
@@ -123,10 +123,10 @@ func newRegionState() *regionState {
 
 // InMemoryBackend is the in-memory backend for HealthOmics.
 type InMemoryBackend struct {
-	mu            sync.RWMutex
 	regions       map[string]*regionState
 	accountID     string
 	defaultRegion string
+	mu            sync.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -231,7 +231,10 @@ func paginateStrings(ids []string, nextToken string, maxResults int) ([]string, 
 // ────────────────────────────────────────────────────────────────────────────
 
 // CreateReferenceStore creates a new reference store.
-func (b *InMemoryBackend) CreateReferenceStore(name, description string, tags map[string]string) (*ReferenceStore, error) {
+func (b *InMemoryBackend) CreateReferenceStore(
+	name, description string,
+	tags map[string]string,
+) (*ReferenceStore, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: name is required", ErrValidation)
 	}
@@ -300,7 +303,11 @@ func (b *InMemoryBackend) GetReferenceStore(id string) (*ReferenceStore, error) 
 }
 
 // ListReferenceStores lists reference stores with optional name filter.
-func (b *InMemoryBackend) ListReferenceStores(filter *ReferenceStoreFilter, maxResults int, nextToken string) ([]*ReferenceStore, string, error) {
+func (b *InMemoryBackend) ListReferenceStores(
+	filter *ReferenceStoreFilter,
+	maxResults int,
+	nextToken string,
+) ([]*ReferenceStore, string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -357,7 +364,9 @@ func (b *InMemoryBackend) DeleteReference(referenceStoreID, id string) error {
 }
 
 // GetReferenceMetadata retrieves reference metadata.
-func (b *InMemoryBackend) GetReferenceMetadata(referenceStoreID, id string) (*ReferenceMetadata, error) {
+func (b *InMemoryBackend) GetReferenceMetadata(
+	referenceStoreID, id string,
+) (*ReferenceMetadata, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -379,14 +388,23 @@ func (b *InMemoryBackend) GetReferenceMetadata(referenceStoreID, id string) (*Re
 }
 
 // ListReferences lists references in a reference store.
-func (b *InMemoryBackend) ListReferences(referenceStoreID string, filter *ReferenceFilter, maxResults int, nextToken string) ([]*ReferenceMetadata, string, error) {
+func (b *InMemoryBackend) ListReferences(
+	referenceStoreID string,
+	filter *ReferenceFilter,
+	maxResults int,
+	nextToken string,
+) ([]*ReferenceMetadata, string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
 	st := b.region(b.defaultRegion)
 
 	if _, ok := st.referenceStores[referenceStoreID]; !ok {
-		return nil, "", fmt.Errorf("%w: reference store %s not found", ErrNotFound, referenceStoreID)
+		return nil, "", fmt.Errorf(
+			"%w: reference store %s not found",
+			ErrNotFound,
+			referenceStoreID,
+		)
 	}
 
 	refs := st.references[referenceStoreID]
@@ -414,7 +432,10 @@ func (b *InMemoryBackend) ListReferences(referenceStoreID string, filter *Refere
 }
 
 // StartReferenceImportJob creates a reference import job.
-func (b *InMemoryBackend) StartReferenceImportJob(referenceStoreID, roleARN string, sources []ReferenceImportJobSource) (*ReferenceImportJob, error) {
+func (b *InMemoryBackend) StartReferenceImportJob(
+	referenceStoreID, roleARN string,
+	sources []ReferenceImportJobSource,
+) (*ReferenceImportJob, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -441,12 +462,17 @@ func (b *InMemoryBackend) StartReferenceImportJob(referenceStoreID, roleARN stri
 		ref := &ReferenceMetadata{
 			ID:               refID,
 			ReferenceStoreID: referenceStoreID,
-			Arn:              arn.Build("omics", b.defaultRegion, b.accountID, fmt.Sprintf("referenceStore/%s/reference/%s", referenceStoreID, refID)),
-			Name:             src.Name,
-			Description:      src.Description,
-			Status:           statusActive,
-			CreationTime:     time.Now().UTC(),
-			UpdateTime:       time.Now().UTC(),
+			Arn: arn.Build(
+				"omics",
+				b.defaultRegion,
+				b.accountID,
+				fmt.Sprintf("referenceStore/%s/reference/%s", referenceStoreID, refID),
+			),
+			Name:         src.Name,
+			Description:  src.Description,
+			Status:       statusActive,
+			CreationTime: time.Now().UTC(),
+			UpdateTime:   time.Now().UTC(),
 		}
 		st.references[referenceStoreID][refID] = ref
 	}
@@ -459,7 +485,9 @@ func (b *InMemoryBackend) StartReferenceImportJob(referenceStoreID, roleARN stri
 }
 
 // GetReferenceImportJob retrieves a reference import job.
-func (b *InMemoryBackend) GetReferenceImportJob(referenceStoreID, jobID string) (*ReferenceImportJob, error) {
+func (b *InMemoryBackend) GetReferenceImportJob(
+	referenceStoreID, jobID string,
+) (*ReferenceImportJob, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -481,14 +509,22 @@ func (b *InMemoryBackend) GetReferenceImportJob(referenceStoreID, jobID string) 
 }
 
 // ListReferenceImportJobs lists reference import jobs for a store.
-func (b *InMemoryBackend) ListReferenceImportJobs(referenceStoreID string, maxResults int, nextToken string) ([]*ReferenceImportJob, string, error) {
+func (b *InMemoryBackend) ListReferenceImportJobs(
+	referenceStoreID string,
+	maxResults int,
+	nextToken string,
+) ([]*ReferenceImportJob, string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
 	st := b.region(b.defaultRegion)
 
 	if _, ok := st.referenceStores[referenceStoreID]; !ok {
-		return nil, "", fmt.Errorf("%w: reference store %s not found", ErrNotFound, referenceStoreID)
+		return nil, "", fmt.Errorf(
+			"%w: reference store %s not found",
+			ErrNotFound,
+			referenceStoreID,
+		)
 	}
 
 	jobs := st.referenceImportJobs[referenceStoreID]
@@ -516,7 +552,10 @@ func (b *InMemoryBackend) ListReferenceImportJobs(referenceStoreID string, maxRe
 // ────────────────────────────────────────────────────────────────────────────
 
 // CreateSequenceStore creates a new sequence store.
-func (b *InMemoryBackend) CreateSequenceStore(name, description string, tags map[string]string) (*SequenceStore, error) {
+func (b *InMemoryBackend) CreateSequenceStore(
+	name, description string,
+	tags map[string]string,
+) (*SequenceStore, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: name is required", ErrValidation)
 	}
@@ -593,7 +632,11 @@ func (b *InMemoryBackend) GetSequenceStore(id string) (*SequenceStore, error) {
 }
 
 // ListSequenceStores lists sequence stores.
-func (b *InMemoryBackend) ListSequenceStores(filter *SequenceStoreFilter, maxResults int, nextToken string) ([]*SequenceStore, string, error) {
+func (b *InMemoryBackend) ListSequenceStores(
+	filter *SequenceStoreFilter,
+	maxResults int,
+	nextToken string,
+) ([]*SequenceStore, string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -622,7 +665,9 @@ func (b *InMemoryBackend) ListSequenceStores(filter *SequenceStoreFilter, maxRes
 }
 
 // UpdateSequenceStore updates a sequence store's name and description.
-func (b *InMemoryBackend) UpdateSequenceStore(id, name, description string) (*SequenceStore, error) {
+func (b *InMemoryBackend) UpdateSequenceStore(
+	id, name, description string,
+) (*SequenceStore, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -651,7 +696,10 @@ func (b *InMemoryBackend) UpdateSequenceStore(id, name, description string) (*Se
 // ────────────────────────────────────────────────────────────────────────────
 
 // BatchDeleteReadSet deletes multiple read sets.
-func (b *InMemoryBackend) BatchDeleteReadSet(sequenceStoreID string, ids []string) ([]ReadSetBatchError, error) {
+func (b *InMemoryBackend) BatchDeleteReadSet(
+	sequenceStoreID string,
+	ids []string,
+) ([]ReadSetBatchError, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -706,7 +754,12 @@ func (b *InMemoryBackend) GetReadSetMetadata(sequenceStoreID, id string) (*ReadS
 }
 
 // ListReadSets lists read sets in a sequence store.
-func (b *InMemoryBackend) ListReadSets(sequenceStoreID string, filter *ReadSetFilter, maxResults int, nextToken string) ([]*ReadSetMetadata, string, error) {
+func (b *InMemoryBackend) ListReadSets(
+	sequenceStoreID string,
+	filter *ReadSetFilter,
+	maxResults int,
+	nextToken string,
+) ([]*ReadSetMetadata, string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -747,7 +800,10 @@ func (b *InMemoryBackend) ListReadSets(sequenceStoreID string, filter *ReadSetFi
 }
 
 // StartReadSetActivationJob creates a read set activation job.
-func (b *InMemoryBackend) StartReadSetActivationJob(sequenceStoreID string, sources []ReadSetActivationJobSource) (*ReadSetActivationJob, error) {
+func (b *InMemoryBackend) StartReadSetActivationJob(
+	sequenceStoreID string,
+	sources []ReadSetActivationJobSource,
+) (*ReadSetActivationJob, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -774,7 +830,9 @@ func (b *InMemoryBackend) StartReadSetActivationJob(sequenceStoreID string, sour
 }
 
 // GetReadSetActivationJob retrieves a read set activation job.
-func (b *InMemoryBackend) GetReadSetActivationJob(sequenceStoreID, jobID string) (*ReadSetActivationJob, error) {
+func (b *InMemoryBackend) GetReadSetActivationJob(
+	sequenceStoreID, jobID string,
+) (*ReadSetActivationJob, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -796,7 +854,11 @@ func (b *InMemoryBackend) GetReadSetActivationJob(sequenceStoreID, jobID string)
 }
 
 // ListReadSetActivationJobs lists read set activation jobs.
-func (b *InMemoryBackend) ListReadSetActivationJobs(sequenceStoreID string, maxResults int, nextToken string) ([]*ReadSetActivationJob, string, error) {
+func (b *InMemoryBackend) ListReadSetActivationJobs(
+	sequenceStoreID string,
+	maxResults int,
+	nextToken string,
+) ([]*ReadSetActivationJob, string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -821,7 +883,10 @@ func (b *InMemoryBackend) ListReadSetActivationJobs(sequenceStoreID string, maxR
 }
 
 // StartReadSetExportJob creates a read set export job.
-func (b *InMemoryBackend) StartReadSetExportJob(sequenceStoreID, destination string, sources []ReadSetExportJobSource) (*ReadSetExportJob, error) {
+func (b *InMemoryBackend) StartReadSetExportJob(
+	sequenceStoreID, destination string,
+	sources []ReadSetExportJobSource,
+) (*ReadSetExportJob, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -849,7 +914,9 @@ func (b *InMemoryBackend) StartReadSetExportJob(sequenceStoreID, destination str
 }
 
 // GetReadSetExportJob retrieves a read set export job.
-func (b *InMemoryBackend) GetReadSetExportJob(sequenceStoreID, jobID string) (*ReadSetExportJob, error) {
+func (b *InMemoryBackend) GetReadSetExportJob(
+	sequenceStoreID, jobID string,
+) (*ReadSetExportJob, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -871,7 +938,11 @@ func (b *InMemoryBackend) GetReadSetExportJob(sequenceStoreID, jobID string) (*R
 }
 
 // ListReadSetExportJobs lists read set export jobs.
-func (b *InMemoryBackend) ListReadSetExportJobs(sequenceStoreID string, maxResults int, nextToken string) ([]*ReadSetExportJob, string, error) {
+func (b *InMemoryBackend) ListReadSetExportJobs(
+	sequenceStoreID string,
+	maxResults int,
+	nextToken string,
+) ([]*ReadSetExportJob, string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -896,7 +967,10 @@ func (b *InMemoryBackend) ListReadSetExportJobs(sequenceStoreID string, maxResul
 }
 
 // StartReadSetImportJob creates a read set import job.
-func (b *InMemoryBackend) StartReadSetImportJob(sequenceStoreID, roleARN string, sources []ReadSetImportJobSource) (*ReadSetImportJob, error) {
+func (b *InMemoryBackend) StartReadSetImportJob(
+	sequenceStoreID, roleARN string,
+	sources []ReadSetImportJobSource,
+) (*ReadSetImportJob, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -923,15 +997,20 @@ func (b *InMemoryBackend) StartReadSetImportJob(sequenceStoreID, roleARN string,
 		rs := &ReadSetMetadata{
 			ID:              rsID,
 			SequenceStoreID: sequenceStoreID,
-			Arn:             arn.Build("omics", b.defaultRegion, b.accountID, fmt.Sprintf("sequenceStore/%s/readSet/%s", sequenceStoreID, rsID)),
-			Name:            src.Name,
-			Description:     src.Description,
-			SequenceType:    src.SourceFileType,
-			SubjectID:       src.SubjectID,
-			SampleID:        src.SampleID,
-			ReferenceARN:    src.ReferenceARN,
-			Status:          statusActive,
-			CreationTime:    time.Now().UTC(),
+			Arn: arn.Build(
+				"omics",
+				b.defaultRegion,
+				b.accountID,
+				fmt.Sprintf("sequenceStore/%s/readSet/%s", sequenceStoreID, rsID),
+			),
+			Name:         src.Name,
+			Description:  src.Description,
+			SequenceType: src.SourceFileType,
+			SubjectID:    src.SubjectID,
+			SampleID:     src.SampleID,
+			ReferenceARN: src.ReferenceARN,
+			Status:       statusActive,
+			CreationTime: time.Now().UTC(),
 		}
 		st.readSets[sequenceStoreID][rsID] = rs
 	}
@@ -944,7 +1023,9 @@ func (b *InMemoryBackend) StartReadSetImportJob(sequenceStoreID, roleARN string,
 }
 
 // GetReadSetImportJob retrieves a read set import job.
-func (b *InMemoryBackend) GetReadSetImportJob(sequenceStoreID, jobID string) (*ReadSetImportJob, error) {
+func (b *InMemoryBackend) GetReadSetImportJob(
+	sequenceStoreID, jobID string,
+) (*ReadSetImportJob, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -966,7 +1047,11 @@ func (b *InMemoryBackend) GetReadSetImportJob(sequenceStoreID, jobID string) (*R
 }
 
 // ListReadSetImportJobs lists read set import jobs.
-func (b *InMemoryBackend) ListReadSetImportJobs(sequenceStoreID string, maxResults int, nextToken string) ([]*ReadSetImportJob, string, error) {
+func (b *InMemoryBackend) ListReadSetImportJobs(
+	sequenceStoreID string,
+	maxResults int,
+	nextToken string,
+) ([]*ReadSetImportJob, string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -995,7 +1080,10 @@ func (b *InMemoryBackend) ListReadSetImportJobs(sequenceStoreID string, maxResul
 // ────────────────────────────────────────────────────────────────────────────
 
 // CreateMultipartReadSetUpload creates a multipart read set upload.
-func (b *InMemoryBackend) CreateMultipartReadSetUpload(sequenceStoreID, name, sequenceType string, tags map[string]string) (*MultipartReadSetUpload, error) {
+func (b *InMemoryBackend) CreateMultipartReadSetUpload(
+	sequenceStoreID, name, sequenceType string,
+	tags map[string]string,
+) (*MultipartReadSetUpload, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -1044,7 +1132,9 @@ func (b *InMemoryBackend) AbortMultipartReadSetUpload(sequenceStoreID, uploadID 
 }
 
 // CompleteMultipartReadSetUpload completes a multipart read set upload.
-func (b *InMemoryBackend) CompleteMultipartReadSetUpload(sequenceStoreID, uploadID string) (*ReadSetMetadata, error) {
+func (b *InMemoryBackend) CompleteMultipartReadSetUpload(
+	sequenceStoreID, uploadID string,
+) (*ReadSetMetadata, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -1064,12 +1154,17 @@ func (b *InMemoryBackend) CompleteMultipartReadSetUpload(sequenceStoreID, upload
 	rs := &ReadSetMetadata{
 		ID:              rsID,
 		SequenceStoreID: sequenceStoreID,
-		Arn:             arn.Build("omics", b.defaultRegion, b.accountID, fmt.Sprintf("sequenceStore/%s/readSet/%s", sequenceStoreID, rsID)),
-		Name:            upload.Name,
-		SequenceType:    upload.SequenceType,
-		Status:          statusActive,
-		CreationTime:    time.Now().UTC(),
-		Tags:            maps.Clone(upload.Tags),
+		Arn: arn.Build(
+			"omics",
+			b.defaultRegion,
+			b.accountID,
+			fmt.Sprintf("sequenceStore/%s/readSet/%s", sequenceStoreID, rsID),
+		),
+		Name:         upload.Name,
+		SequenceType: upload.SequenceType,
+		Status:       statusActive,
+		CreationTime: time.Now().UTC(),
+		Tags:         maps.Clone(upload.Tags),
 	}
 	st.readSets[sequenceStoreID][rsID] = rs
 	delete(st.multipartUploads[sequenceStoreID], uploadID)
@@ -1081,7 +1176,11 @@ func (b *InMemoryBackend) CompleteMultipartReadSetUpload(sequenceStoreID, upload
 }
 
 // ListMultipartReadSetUploads lists in-progress multipart uploads.
-func (b *InMemoryBackend) ListMultipartReadSetUploads(sequenceStoreID string, maxResults int, nextToken string) ([]*MultipartReadSetUpload, string, error) {
+func (b *InMemoryBackend) ListMultipartReadSetUploads(
+	sequenceStoreID string,
+	maxResults int,
+	nextToken string,
+) ([]*MultipartReadSetUpload, string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -1106,7 +1205,11 @@ func (b *InMemoryBackend) ListMultipartReadSetUploads(sequenceStoreID string, ma
 }
 
 // ListReadSetUploadParts lists parts for a multipart read set upload.
-func (b *InMemoryBackend) ListReadSetUploadParts(sequenceStoreID, uploadID string, maxResults int, nextToken string) ([]*ReadSetUploadPart, string, error) {
+func (b *InMemoryBackend) ListReadSetUploadParts(
+	sequenceStoreID, uploadID string,
+	maxResults int,
+	nextToken string,
+) ([]*ReadSetUploadPart, string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -1161,7 +1264,12 @@ func (b *InMemoryBackend) ListReadSetUploadParts(sequenceStoreID, uploadID strin
 // ────────────────────────────────────────────────────────────────────────────
 
 // CreateRunGroup creates a new run group.
-func (b *InMemoryBackend) CreateRunGroup(name string, maxCPUs, maxRuns, maxDuration int, maxGPUs int, tags map[string]string) (*RunGroup, error) {
+func (b *InMemoryBackend) CreateRunGroup(
+	name string,
+	maxCPUs, maxRuns, maxDuration int,
+	maxGPUs int,
+	tags map[string]string,
+) (*RunGroup, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -1226,7 +1334,10 @@ func (b *InMemoryBackend) GetRunGroup(id string) (*RunGroup, error) {
 }
 
 // ListRunGroups lists run groups.
-func (b *InMemoryBackend) ListRunGroups(maxResults int, nextToken string) ([]*RunGroup, string, error) {
+func (b *InMemoryBackend) ListRunGroups(
+	maxResults int,
+	nextToken string,
+) ([]*RunGroup, string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -1245,7 +1356,11 @@ func (b *InMemoryBackend) ListRunGroups(maxResults int, nextToken string) ([]*Ru
 }
 
 // UpdateRunGroup updates a run group.
-func (b *InMemoryBackend) UpdateRunGroup(id, name string, maxCPUs, maxRuns, maxDuration int, maxGPUs int) (*RunGroup, error) {
+func (b *InMemoryBackend) UpdateRunGroup(
+	id, name string,
+	maxCPUs, maxRuns, maxDuration int,
+	maxGPUs int,
+) (*RunGroup, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -1286,7 +1401,11 @@ func (b *InMemoryBackend) UpdateRunGroup(id, name string, maxCPUs, maxRuns, maxD
 // ────────────────────────────────────────────────────────────────────────────
 
 // StartRun starts a new workflow run.
-func (b *InMemoryBackend) StartRun(workflowID, roleARN, name string, params map[string]any, tags map[string]string) (*Run, error) {
+func (b *InMemoryBackend) StartRun(
+	workflowID, roleARN, name string,
+	params map[string]any,
+	tags map[string]string,
+) (*Run, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -1426,7 +1545,11 @@ func (b *InMemoryBackend) GetRunTask(runID, taskID string) (*RunTask, error) {
 }
 
 // ListRunTasks lists tasks within a run.
-func (b *InMemoryBackend) ListRunTasks(runID string, maxResults int, nextToken string) ([]*RunTask, string, error) {
+func (b *InMemoryBackend) ListRunTasks(
+	runID string,
+	maxResults int,
+	nextToken string,
+) ([]*RunTask, string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -1455,7 +1578,10 @@ func (b *InMemoryBackend) ListRunTasks(runID string, maxResults int, nextToken s
 // ────────────────────────────────────────────────────────────────────────────
 
 // CreateWorkflow creates a new workflow.
-func (b *InMemoryBackend) CreateWorkflow(name, description, definitionZip, engine string, tags map[string]string) (*Workflow, error) {
+func (b *InMemoryBackend) CreateWorkflow(
+	name, description, definitionZip, engine string,
+	tags map[string]string,
+) (*Workflow, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: name is required", ErrValidation)
 	}
@@ -1525,7 +1651,10 @@ func (b *InMemoryBackend) GetWorkflow(id string) (*Workflow, error) {
 }
 
 // ListWorkflows lists workflows.
-func (b *InMemoryBackend) ListWorkflows(maxResults int, nextToken string) ([]*Workflow, string, error) {
+func (b *InMemoryBackend) ListWorkflows(
+	maxResults int,
+	nextToken string,
+) ([]*Workflow, string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -1571,7 +1700,10 @@ func (b *InMemoryBackend) UpdateWorkflow(id, name, description string) error {
 // ────────────────────────────────────────────────────────────────────────────
 
 // CreateWorkflowVersion creates a new workflow version.
-func (b *InMemoryBackend) CreateWorkflowVersion(workflowID, versionName, description string, tags map[string]string) (*WorkflowVersion, error) {
+func (b *InMemoryBackend) CreateWorkflowVersion(
+	workflowID, versionName, description string,
+	tags map[string]string,
+) (*WorkflowVersion, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -1583,7 +1715,11 @@ func (b *InMemoryBackend) CreateWorkflowVersion(workflowID, versionName, descrip
 	}
 
 	if _, exists := st.workflowVersions[workflowID][versionName]; exists {
-		return nil, fmt.Errorf("%w: workflow version %s already exists", ErrAlreadyExists, versionName)
+		return nil, fmt.Errorf(
+			"%w: workflow version %s already exists",
+			ErrAlreadyExists,
+			versionName,
+		)
 	}
 
 	wv := &WorkflowVersion{
@@ -1594,7 +1730,12 @@ func (b *InMemoryBackend) CreateWorkflowVersion(workflowID, versionName, descrip
 		Tags:         copyTags(tags),
 		CreationTime: time.Now().UTC(),
 	}
-	wv.Arn = arn.Build("omics", b.defaultRegion, b.accountID, fmt.Sprintf("workflow/%s/version/%s", workflowID, versionName))
+	wv.Arn = arn.Build(
+		"omics",
+		b.defaultRegion,
+		b.accountID,
+		fmt.Sprintf("workflow/%s/version/%s", workflowID, versionName),
+	)
 
 	_ = wf
 
@@ -1633,7 +1774,9 @@ func (b *InMemoryBackend) DeleteWorkflowVersion(workflowID, versionName string) 
 }
 
 // GetWorkflowVersion retrieves a workflow version.
-func (b *InMemoryBackend) GetWorkflowVersion(workflowID, versionName string) (*WorkflowVersion, error) {
+func (b *InMemoryBackend) GetWorkflowVersion(
+	workflowID, versionName string,
+) (*WorkflowVersion, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -1655,7 +1798,11 @@ func (b *InMemoryBackend) GetWorkflowVersion(workflowID, versionName string) (*W
 }
 
 // ListWorkflowVersions lists versions of a workflow.
-func (b *InMemoryBackend) ListWorkflowVersions(workflowID string, maxResults int, nextToken string) ([]*WorkflowVersion, string, error) {
+func (b *InMemoryBackend) ListWorkflowVersions(
+	workflowID string,
+	maxResults int,
+	nextToken string,
+) ([]*WorkflowVersion, string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -1714,7 +1861,10 @@ func (b *InMemoryBackend) UpdateWorkflowVersion(workflowID, versionName, descrip
 // ────────────────────────────────────────────────────────────────────────────
 
 // CreateAnnotationStore creates a new annotation store.
-func (b *InMemoryBackend) CreateAnnotationStore(name, storeFormat string, tags map[string]string) (*AnnotationStore, error) {
+func (b *InMemoryBackend) CreateAnnotationStore(
+	name, storeFormat string,
+	tags map[string]string,
+) (*AnnotationStore, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: name is required", ErrValidation)
 	}
@@ -1791,7 +1941,10 @@ func (b *InMemoryBackend) GetAnnotationStore(name string) (*AnnotationStore, err
 }
 
 // ListAnnotationStores lists annotation stores.
-func (b *InMemoryBackend) ListAnnotationStores(maxResults int, nextToken string) ([]*AnnotationStore, string, error) {
+func (b *InMemoryBackend) ListAnnotationStores(
+	maxResults int,
+	nextToken string,
+) ([]*AnnotationStore, string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -1810,7 +1963,9 @@ func (b *InMemoryBackend) ListAnnotationStores(maxResults int, nextToken string)
 }
 
 // UpdateAnnotationStore updates an annotation store.
-func (b *InMemoryBackend) UpdateAnnotationStore(name, description string) (*AnnotationStore, error) {
+func (b *InMemoryBackend) UpdateAnnotationStore(
+	name, description string,
+) (*AnnotationStore, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -1832,7 +1987,10 @@ func (b *InMemoryBackend) UpdateAnnotationStore(name, description string) (*Anno
 }
 
 // StartAnnotationImportJob starts an annotation import job.
-func (b *InMemoryBackend) StartAnnotationImportJob(destinationName, roleARN string, items []AnnotationImportItem) (*AnnotationImportJob, error) {
+func (b *InMemoryBackend) StartAnnotationImportJob(
+	destinationName, roleARN string,
+	items []AnnotationImportItem,
+) (*AnnotationImportJob, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -1877,7 +2035,10 @@ func (b *InMemoryBackend) GetAnnotationImportJob(jobID string) (*AnnotationImpor
 }
 
 // ListAnnotationImportJobs lists annotation import jobs.
-func (b *InMemoryBackend) ListAnnotationImportJobs(maxResults int, nextToken string) ([]*AnnotationImportJob, string, error) {
+func (b *InMemoryBackend) ListAnnotationImportJobs(
+	maxResults int,
+	nextToken string,
+) ([]*AnnotationImportJob, string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -1917,7 +2078,10 @@ func (b *InMemoryBackend) CancelAnnotationImportJob(jobID string) error {
 // ────────────────────────────────────────────────────────────────────────────
 
 // CreateAnnotationStoreVersion creates a version of an annotation store.
-func (b *InMemoryBackend) CreateAnnotationStoreVersion(name, versionName, description string, tags map[string]string) (*AnnotationStoreVersion, error) {
+func (b *InMemoryBackend) CreateAnnotationStoreVersion(
+	name, versionName, description string,
+	tags map[string]string,
+) (*AnnotationStoreVersion, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -1929,7 +2093,11 @@ func (b *InMemoryBackend) CreateAnnotationStoreVersion(name, versionName, descri
 	}
 
 	if _, exists := st.annotationVersions[name][versionName]; exists {
-		return nil, fmt.Errorf("%w: annotation store version %s already exists", ErrAlreadyExists, versionName)
+		return nil, fmt.Errorf(
+			"%w: annotation store version %s already exists",
+			ErrAlreadyExists,
+			versionName,
+		)
 	}
 
 	now := time.Now().UTC()
@@ -1943,7 +2111,12 @@ func (b *InMemoryBackend) CreateAnnotationStoreVersion(name, versionName, descri
 		CreationTime: now,
 		UpdateTime:   now,
 	}
-	v.Arn = arn.Build("omics", b.defaultRegion, b.accountID, fmt.Sprintf("annotationStore/%s/version/%s", name, versionName))
+	v.Arn = arn.Build(
+		"omics",
+		b.defaultRegion,
+		b.accountID,
+		fmt.Sprintf("annotationStore/%s/version/%s", name, versionName),
+	)
 	st.annotationVersions[name][versionName] = v
 
 	if tags != nil {
@@ -1956,7 +2129,10 @@ func (b *InMemoryBackend) CreateAnnotationStoreVersion(name, versionName, descri
 }
 
 // DeleteAnnotationStoreVersions deletes one or more annotation store versions.
-func (b *InMemoryBackend) DeleteAnnotationStoreVersions(name string, versionNames []string) ([]VersionDeleteError, error) {
+func (b *InMemoryBackend) DeleteAnnotationStoreVersions(
+	name string,
+	versionNames []string,
+) ([]VersionDeleteError, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -1988,7 +2164,9 @@ func (b *InMemoryBackend) DeleteAnnotationStoreVersions(name string, versionName
 }
 
 // GetAnnotationStoreVersion retrieves an annotation store version.
-func (b *InMemoryBackend) GetAnnotationStoreVersion(name, versionName string) (*AnnotationStoreVersion, error) {
+func (b *InMemoryBackend) GetAnnotationStoreVersion(
+	name, versionName string,
+) (*AnnotationStoreVersion, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -2001,7 +2179,11 @@ func (b *InMemoryBackend) GetAnnotationStoreVersion(name, versionName string) (*
 	v, ok := st.annotationVersions[name][versionName]
 
 	if !ok {
-		return nil, fmt.Errorf("%w: annotation store version %s not found", ErrNotFound, versionName)
+		return nil, fmt.Errorf(
+			"%w: annotation store version %s not found",
+			ErrNotFound,
+			versionName,
+		)
 	}
 
 	result := *v
@@ -2010,7 +2192,11 @@ func (b *InMemoryBackend) GetAnnotationStoreVersion(name, versionName string) (*
 }
 
 // ListAnnotationStoreVersions lists versions of an annotation store.
-func (b *InMemoryBackend) ListAnnotationStoreVersions(name string, maxResults int, nextToken string) ([]*AnnotationStoreVersion, string, error) {
+func (b *InMemoryBackend) ListAnnotationStoreVersions(
+	name string,
+	maxResults int,
+	nextToken string,
+) ([]*AnnotationStoreVersion, string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -2035,7 +2221,9 @@ func (b *InMemoryBackend) ListAnnotationStoreVersions(name string, maxResults in
 }
 
 // UpdateAnnotationStoreVersion updates an annotation store version.
-func (b *InMemoryBackend) UpdateAnnotationStoreVersion(name, versionName, description string) (*AnnotationStoreVersion, error) {
+func (b *InMemoryBackend) UpdateAnnotationStoreVersion(
+	name, versionName, description string,
+) (*AnnotationStoreVersion, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -2048,7 +2236,11 @@ func (b *InMemoryBackend) UpdateAnnotationStoreVersion(name, versionName, descri
 	v, ok := st.annotationVersions[name][versionName]
 
 	if !ok {
-		return nil, fmt.Errorf("%w: annotation store version %s not found", ErrNotFound, versionName)
+		return nil, fmt.Errorf(
+			"%w: annotation store version %s not found",
+			ErrNotFound,
+			versionName,
+		)
 	}
 
 	if description != "" {
@@ -2066,7 +2258,10 @@ func (b *InMemoryBackend) UpdateAnnotationStoreVersion(name, versionName, descri
 // ────────────────────────────────────────────────────────────────────────────
 
 // CreateVariantStore creates a new variant store.
-func (b *InMemoryBackend) CreateVariantStore(name string, tags map[string]string) (*VariantStore, error) {
+func (b *InMemoryBackend) CreateVariantStore(
+	name string,
+	tags map[string]string,
+) (*VariantStore, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: name is required", ErrValidation)
 	}
@@ -2140,7 +2335,10 @@ func (b *InMemoryBackend) GetVariantStore(name string) (*VariantStore, error) {
 }
 
 // ListVariantStores lists variant stores.
-func (b *InMemoryBackend) ListVariantStores(maxResults int, nextToken string) ([]*VariantStore, string, error) {
+func (b *InMemoryBackend) ListVariantStores(
+	maxResults int,
+	nextToken string,
+) ([]*VariantStore, string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -2181,7 +2379,10 @@ func (b *InMemoryBackend) UpdateVariantStore(name, description string) (*Variant
 }
 
 // StartVariantImportJob starts a variant import job.
-func (b *InMemoryBackend) StartVariantImportJob(destinationName, roleARN string, items []VariantImportItem) (*VariantImportJob, error) {
+func (b *InMemoryBackend) StartVariantImportJob(
+	destinationName, roleARN string,
+	items []VariantImportItem,
+) (*VariantImportJob, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -2226,7 +2427,10 @@ func (b *InMemoryBackend) GetVariantImportJob(jobID string) (*VariantImportJob, 
 }
 
 // ListVariantImportJobs lists variant import jobs.
-func (b *InMemoryBackend) ListVariantImportJobs(maxResults int, nextToken string) ([]*VariantImportJob, string, error) {
+func (b *InMemoryBackend) ListVariantImportJobs(
+	maxResults int,
+	nextToken string,
+) ([]*VariantImportJob, string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -2266,7 +2470,9 @@ func (b *InMemoryBackend) CancelVariantImportJob(jobID string) error {
 // ────────────────────────────────────────────────────────────────────────────
 
 // CreateShare creates a new resource share.
-func (b *InMemoryBackend) CreateShare(resourceARN, principalSubscriber, name string) (*Share, error) {
+func (b *InMemoryBackend) CreateShare(
+	resourceARN, principalSubscriber, name string,
+) (*Share, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -2345,7 +2551,11 @@ func (b *InMemoryBackend) GetShare(shareID string) (*Share, error) {
 }
 
 // ListShares lists shares by resource owner.
-func (b *InMemoryBackend) ListShares(resourceOwner string, maxResults int, nextToken string) ([]*Share, string, error) {
+func (b *InMemoryBackend) ListShares(
+	resourceOwner string,
+	maxResults int,
+	nextToken string,
+) ([]*Share, string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -2368,7 +2578,10 @@ func (b *InMemoryBackend) ListShares(resourceOwner string, maxResults int, nextT
 // ────────────────────────────────────────────────────────────────────────────
 
 // CreateRunCache creates a new run cache.
-func (b *InMemoryBackend) CreateRunCache(name, cacheS3Location string, tags map[string]string) (*RunCache, error) {
+func (b *InMemoryBackend) CreateRunCache(
+	name, cacheS3Location string,
+	tags map[string]string,
+) (*RunCache, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -2431,7 +2644,10 @@ func (b *InMemoryBackend) GetRunCache(id string) (*RunCache, error) {
 }
 
 // ListRunCaches lists run caches.
-func (b *InMemoryBackend) ListRunCaches(maxResults int, nextToken string) ([]*RunCache, string, error) {
+func (b *InMemoryBackend) ListRunCaches(
+	maxResults int,
+	nextToken string,
+) ([]*RunCache, string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -2550,7 +2766,10 @@ func (b *InMemoryBackend) GetRunBatch(id string) (*RunBatch, error) {
 }
 
 // ListRunBatches lists run batches.
-func (b *InMemoryBackend) ListRunBatches(maxResults int, nextToken string) ([]*RunBatch, string, error) {
+func (b *InMemoryBackend) ListRunBatches(
+	maxResults int,
+	nextToken string,
+) ([]*RunBatch, string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -2596,7 +2815,11 @@ func (b *InMemoryBackend) DeleteRunBatches(ids []string) ([]RunBatchDeleteError,
 }
 
 // ListRunsInBatch lists runs that belong to a run batch.
-func (b *InMemoryBackend) ListRunsInBatch(batchID string, maxResults int, nextToken string) ([]*Run, string, error) {
+func (b *InMemoryBackend) ListRunsInBatch(
+	batchID string,
+	maxResults int,
+	nextToken string,
+) ([]*Run, string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -2674,7 +2897,10 @@ func (b *InMemoryBackend) GetConfiguration(name string) (*Configuration, error) 
 }
 
 // ListConfigurations lists configurations.
-func (b *InMemoryBackend) ListConfigurations(maxResults int, nextToken string) ([]*Configuration, string, error) {
+func (b *InMemoryBackend) ListConfigurations(
+	maxResults int,
+	nextToken string,
+) ([]*Configuration, string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -2719,7 +2945,11 @@ func (b *InMemoryBackend) GetS3AccessPolicy(s3AccessPointARN string) (*S3AccessP
 	p, ok := st.s3AccessPolicies[s3AccessPointARN]
 
 	if !ok {
-		return nil, fmt.Errorf("%w: S3 access policy for %s not found", ErrNotFound, s3AccessPointARN)
+		return nil, fmt.Errorf(
+			"%w: S3 access policy for %s not found",
+			ErrNotFound,
+			s3AccessPointARN,
+		)
 	}
 
 	result := *p

@@ -18,17 +18,17 @@ import (
 const (
 	matchPriority = service.PriorityPathVersioned
 
-	// Operation name constants
-	opCreateReferenceStore   = "CreateReferenceStore"
-	opDeleteReferenceStore   = "DeleteReferenceStore"
-	opGetReferenceStore      = "GetReferenceStore"
-	opListReferenceStores    = "ListReferenceStores"
-	opDeleteReference        = "DeleteReference"
-	opGetReference           = "GetReference"
-	opGetReferenceMetadata   = "GetReferenceMetadata"
-	opListReferences         = "ListReferences"
+	// Operation name constants.
+	opCreateReferenceStore    = "CreateReferenceStore"
+	opDeleteReferenceStore    = "DeleteReferenceStore"
+	opGetReferenceStore       = "GetReferenceStore"
+	opListReferenceStores     = "ListReferenceStores"
+	opDeleteReference         = "DeleteReference"
+	opGetReference            = "GetReference"
+	opGetReferenceMetadata    = "GetReferenceMetadata"
+	opListReferences          = "ListReferences"
 	opStartReferenceImportJob = "StartReferenceImportJob"
-	opGetReferenceImportJob  = "GetReferenceImportJob"
+	opGetReferenceImportJob   = "GetReferenceImportJob"
 	opListReferenceImportJobs = "ListReferenceImportJobs"
 
 	opCreateSequenceStore = "CreateSequenceStore"
@@ -37,19 +37,19 @@ const (
 	opListSequenceStores  = "ListSequenceStores"
 	opUpdateSequenceStore = "UpdateSequenceStore"
 
-	opBatchDeleteReadSet          = "BatchDeleteReadSet"
-	opGetReadSet                  = "GetReadSet"
-	opGetReadSetMetadata          = "GetReadSetMetadata"
-	opListReadSets                = "ListReadSets"
-	opStartReadSetActivationJob   = "StartReadSetActivationJob"
-	opGetReadSetActivationJob     = "GetReadSetActivationJob"
-	opListReadSetActivationJobs   = "ListReadSetActivationJobs"
-	opStartReadSetExportJob       = "StartReadSetExportJob"
-	opGetReadSetExportJob         = "GetReadSetExportJob"
-	opListReadSetExportJobs       = "ListReadSetExportJobs"
-	opStartReadSetImportJob       = "StartReadSetImportJob"
-	opGetReadSetImportJob         = "GetReadSetImportJob"
-	opListReadSetImportJobs       = "ListReadSetImportJobs"
+	opBatchDeleteReadSet        = "BatchDeleteReadSet"
+	opGetReadSet                = "GetReadSet"
+	opGetReadSetMetadata        = "GetReadSetMetadata"
+	opListReadSets              = "ListReadSets"
+	opStartReadSetActivationJob = "StartReadSetActivationJob"
+	opGetReadSetActivationJob   = "GetReadSetActivationJob"
+	opListReadSetActivationJobs = "ListReadSetActivationJobs"
+	opStartReadSetExportJob     = "StartReadSetExportJob"
+	opGetReadSetExportJob       = "GetReadSetExportJob"
+	opListReadSetExportJobs     = "ListReadSetExportJobs"
+	opStartReadSetImportJob     = "StartReadSetImportJob"
+	opGetReadSetImportJob       = "GetReadSetImportJob"
+	opListReadSetImportJobs     = "ListReadSetImportJobs"
 
 	opCreateMultipartReadSetUpload   = "CreateMultipartReadSetUpload"
 	opAbortMultipartReadSetUpload    = "AbortMultipartReadSetUpload"
@@ -64,12 +64,12 @@ const (
 	opListRunGroups  = "ListRunGroups"
 	opUpdateRunGroup = "UpdateRunGroup"
 
-	opStartRun    = "StartRun"
-	opCancelRun   = "CancelRun"
-	opDeleteRun   = "DeleteRun"
-	opGetRun      = "GetRun"
-	opListRuns    = "ListRuns"
-	opGetRunTask  = "GetRunTask"
+	opStartRun     = "StartRun"
+	opCancelRun    = "CancelRun"
+	opDeleteRun    = "DeleteRun"
+	opGetRun       = "GetRun"
+	opListRuns     = "ListRuns"
+	opGetRunTask   = "GetRunTask"
 	opListRunTasks = "ListRunTasks"
 
 	opCreateWorkflow = "CreateWorkflow"
@@ -84,20 +84,20 @@ const (
 	opListWorkflowVersions  = "ListWorkflowVersions"
 	opUpdateWorkflowVersion = "UpdateWorkflowVersion"
 
-	opCreateAnnotationStore        = "CreateAnnotationStore"
-	opDeleteAnnotationStore        = "DeleteAnnotationStore"
-	opGetAnnotationStore           = "GetAnnotationStore"
-	opListAnnotationStores         = "ListAnnotationStores"
-	opUpdateAnnotationStore        = "UpdateAnnotationStore"
-	opStartAnnotationImportJob     = "StartAnnotationImportJob"
-	opGetAnnotationImportJob       = "GetAnnotationImportJob"
-	opListAnnotationImportJobs     = "ListAnnotationImportJobs"
-	opCancelAnnotationImportJob    = "CancelAnnotationImportJob"
-	opCreateAnnotationStoreVersion = "CreateAnnotationStoreVersion"
+	opCreateAnnotationStore         = "CreateAnnotationStore"
+	opDeleteAnnotationStore         = "DeleteAnnotationStore"
+	opGetAnnotationStore            = "GetAnnotationStore"
+	opListAnnotationStores          = "ListAnnotationStores"
+	opUpdateAnnotationStore         = "UpdateAnnotationStore"
+	opStartAnnotationImportJob      = "StartAnnotationImportJob"
+	opGetAnnotationImportJob        = "GetAnnotationImportJob"
+	opListAnnotationImportJobs      = "ListAnnotationImportJobs"
+	opCancelAnnotationImportJob     = "CancelAnnotationImportJob"
+	opCreateAnnotationStoreVersion  = "CreateAnnotationStoreVersion"
 	opDeleteAnnotationStoreVersions = "DeleteAnnotationStoreVersions"
-	opGetAnnotationStoreVersion    = "GetAnnotationStoreVersion"
-	opListAnnotationStoreVersions  = "ListAnnotationStoreVersions"
-	opUpdateAnnotationStoreVersion = "UpdateAnnotationStoreVersion"
+	opGetAnnotationStoreVersion     = "GetAnnotationStoreVersion"
+	opListAnnotationStoreVersions   = "ListAnnotationStoreVersions"
+	opUpdateAnnotationStoreVersion  = "UpdateAnnotationStoreVersion"
 
 	opCreateVariantStore     = "CreateVariantStore"
 	opDeleteVariantStore     = "DeleteVariantStore"
@@ -121,12 +121,12 @@ const (
 	opListRunCaches  = "ListRunCaches"
 	opUpdateRunCache = "UpdateRunCache"
 
-	opStartRunBatch  = "StartRunBatch"
-	opCancelRunBatch = "CancelRunBatch"
-	opDeleteRunBatch = "DeleteRunBatch"
-	opGetRunBatch    = "GetBatch"
-	opListRunBatches = "ListBatch"
-	opDeleteBatch    = "DeleteBatch"
+	opStartRunBatch   = "StartRunBatch"
+	opCancelRunBatch  = "CancelRunBatch"
+	opDeleteRunBatch  = "DeleteRunBatch"
+	opGetRunBatch     = "GetBatch"
+	opListRunBatches  = "ListBatch"
+	opDeleteBatch     = "DeleteBatch"
 	opListRunsInBatch = "ListRunsInBatch"
 
 	opCreateConfiguration = "CreateConfiguration"
@@ -143,6 +143,19 @@ const (
 	opListTagsForResource = "ListTagsForResource"
 
 	opUnknown = "Unknown"
+
+	// path prefix constants used in routing.
+	pathRunGroup      = "/runGroup"
+	pathRun           = "/run"
+	pathRunCache      = "/runCache"
+	pathRunBatch      = "/runBatch"
+	pathWorkflow      = "/workflow"
+	pathConfiguration = "/configuration"
+
+	// response key constants.
+	keyNextToken  = "nextToken"
+	keyImportJobs = "importJobs"
+	keyErrors     = "errors"
 )
 
 // Handler handles HealthOmics HTTP requests.
@@ -162,7 +175,7 @@ func (h *Handler) Name() string { return "Omics" }
 func (h *Handler) Reset() { h.Backend.Reset() }
 
 // GetSupportedOperations returns all supported operation names.
-func (h *Handler) GetSupportedOperations() []string {
+func (h *Handler) GetSupportedOperations() []string { //nolint:funlen // long but complete list
 	return []string{
 		opCreateReferenceStore,
 		opDeleteReferenceStore,
@@ -308,11 +321,11 @@ func isOmicsPath(path string) bool {
 		"/referencestores",
 		"/sequencestore",
 		"/sequencestores",
-		"/runGroup",
-		"/run",
-		"/runCache",
-		"/runBatch",
-		"/workflow",
+		pathRunGroup,
+		pathRun,
+		pathRunCache,
+		pathRunBatch,
+		pathWorkflow,
 		"/annotationStore",
 		"/annotationStores",
 		"/variantStore",
@@ -324,7 +337,7 @@ func isOmicsPath(path string) bool {
 		"/import/variant",
 		"/import/variants",
 		"/tags/",
-		"/configuration",
+		pathConfiguration,
 		"/s3accesspolicy/",
 	}
 
@@ -337,7 +350,10 @@ func isOmicsPath(path string) bool {
 	return false
 }
 
-func (h *Handler) handleREST(c *echo.Context) error { //nolint:cyclop,funlen // large dispatch table
+//nolint:cyclop,funlen,gocyclo // large dispatch table
+func (h *Handler) handleREST(
+	c *echo.Context,
+) error {
 	method := c.Request().Method
 	path := c.Request().URL.Path
 
@@ -610,7 +626,10 @@ func (h *Handler) handleREST(c *echo.Context) error { //nolint:cyclop,funlen // 
 		return h.handleListTagsForResource(c, strings.TrimPrefix(path, "/tags/"))
 
 	default:
-		return c.JSON(http.StatusNotImplemented, errResp("NotImplementedException", "operation not implemented"))
+		return c.JSON(
+			http.StatusNotImplemented,
+			errResp("NotImplementedException", "operation not implemented"),
+		)
 	}
 }
 
@@ -661,7 +680,8 @@ func classifyPath(method, path string) string { //nolint:cyclop,funlen // large 
 
 		return opUnknown
 	case http.MethodPut:
-		if strings.HasPrefix(path, "/sequencestore/") && strings.Contains(path, "/upload/") && strings.HasSuffix(path, "/part") {
+		if strings.HasPrefix(path, "/sequencestore/") && strings.Contains(path, "/upload/") &&
+			strings.HasSuffix(path, "/part") {
 			return opUploadReadSetPart
 		}
 
@@ -671,7 +691,7 @@ func classifyPath(method, path string) string { //nolint:cyclop,funlen // large 
 	return opUnknown
 }
 
-func classifyPOST(path string) string { //nolint:cyclop,funlen // large routing table
+func classifyPOST(path string) string { //nolint:cyclop,funlen,gocognit,gocyclo // large routing table
 	// Static paths first
 	switch path {
 	case "/referencestore":
@@ -682,19 +702,19 @@ func classifyPOST(path string) string { //nolint:cyclop,funlen // large routing 
 		return opCreateSequenceStore
 	case "/sequencestores":
 		return opListSequenceStores
-	case "/runGroup":
+	case pathRunGroup:
 		return opCreateRunGroup
-	case "/run":
+	case pathRun:
 		return opStartRun
-	case "/runCache":
+	case pathRunCache:
 		return opCreateRunCache
-	case "/runBatch":
+	case pathRunBatch:
 		return opStartRunBatch
-	case "/runBatch/cancel":
+	case pathRunBatch + "/cancel":
 		return opCancelRunBatch
-	case "/runBatch/delete":
+	case pathRunBatch + "/delete":
 		return opDeleteBatch
-	case "/workflow":
+	case pathWorkflow:
 		return opCreateWorkflow
 	case "/annotationStore":
 		return opCreateAnnotationStore
@@ -716,42 +736,43 @@ func classifyPOST(path string) string { //nolint:cyclop,funlen // large routing 
 		return opStartVariantImportJob
 	case "/import/variants":
 		return opListVariantImportJobs
-	case "/configuration":
+	case pathConfiguration:
 		return opCreateConfiguration
 	}
 
 	// /runGroup/{id} → UpdateRunGroup
-	if matchPattern(path, "/runGroup/", "") {
+	if matchPattern(path, pathRunGroup+"/", "") {
 		return opUpdateRunGroup
 	}
 
 	// /run/{id}/cancel → CancelRun
-	if strings.HasSuffix(path, "/cancel") && strings.HasPrefix(path, "/run/") {
+	if strings.HasSuffix(path, "/cancel") && strings.HasPrefix(path, pathRun+"/") {
 		return opCancelRun
 	}
 
 	// /runCache/{id} → UpdateRunCache
-	if matchPattern(path, "/runCache/", "") {
+	if matchPattern(path, pathRunCache+"/", "") {
 		return opUpdateRunCache
 	}
 
 	// /runBatch/{batchId}/run
-	if strings.HasPrefix(path, "/runBatch/") && strings.HasSuffix(path, "/run") {
+	if strings.HasPrefix(path, pathRunBatch+"/") && strings.HasSuffix(path, "/run") {
 		return opListRunsInBatch
 	}
 
 	// /workflow/{id} → UpdateWorkflow (POST with id but no subpath)
-	if matchPattern(path, "/workflow/", "") && !strings.Contains(path[len("/workflow/"):], "/") {
+	if matchPattern(path, pathWorkflow+"/", "") &&
+		!strings.Contains(path[len(pathWorkflow+"/"):], "/") {
 		return opUpdateWorkflow
 	}
 
 	// /workflow/{workflowId}/version → CreateWorkflowVersion
-	if strings.HasPrefix(path, "/workflow/") && strings.HasSuffix(path, "/version") {
+	if strings.HasPrefix(path, pathWorkflow+"/") && strings.HasSuffix(path, "/version") {
 		return opCreateWorkflowVersion
 	}
 
 	// /workflow/{workflowId}/version/{versionName} → UpdateWorkflowVersion
-	if strings.HasPrefix(path, "/workflow/") && strings.Contains(path, "/version/") {
+	if strings.HasPrefix(path, pathWorkflow+"/") && strings.Contains(path, "/version/") {
 		return opUpdateWorkflowVersion
 	}
 
@@ -783,7 +804,7 @@ func classifyPOST(path string) string { //nolint:cyclop,funlen // large routing 
 		return opAcceptShare
 	}
 
-	// /import/annotation/{jobId} — (already handled in list above, this catches DELETE which is CancelAnnotationImportJob handled elsewhere)
+	// /import/annotation/{jobId} — DELETE is CancelAnnotationImportJob handled elsewhere.
 	// /import/variant/{jobId}
 
 	// /referencestore/{id}/importjob → StartReferenceImportJob
@@ -835,25 +856,25 @@ func classifyPOST(path string) string { //nolint:cyclop,funlen // large routing 
 	return opUnknown
 }
 
-func classifyGET(path string) string { //nolint:cyclop,funlen // large routing table
+func classifyGET(path string) string { //nolint:cyclop,funlen,gocognit,gocyclo // large routing table
 	switch path {
-	case "/runGroup":
+	case pathRunGroup:
 		return opListRunGroups
-	case "/run":
+	case pathRun:
 		return opListRuns
-	case "/runCache":
+	case pathRunCache:
 		return opListRunCaches
-	case "/runBatch":
+	case pathRunBatch:
 		return opListRunBatches
-	case "/workflow":
+	case pathWorkflow:
 		return opListWorkflows
-	case "/configuration":
+	case pathConfiguration:
 		return opListConfigurations
 	}
 
 	// /runBatch/{batchId}
-	if strings.HasPrefix(path, "/runBatch/") {
-		rest := path[len("/runBatch/"):]
+	if strings.HasPrefix(path, pathRunBatch+"/") {
+		rest := path[len(pathRunBatch+"/"):]
 
 		if !strings.Contains(rest, "/") {
 			return opGetRunBatch
@@ -861,42 +882,42 @@ func classifyGET(path string) string { //nolint:cyclop,funlen // large routing t
 	}
 
 	// /runGroup/{id}
-	if matchPattern(path, "/runGroup/", "") {
+	if matchPattern(path, pathRunGroup+"/", "") {
 		return opGetRunGroup
 	}
 
 	// /runCache/{id}
-	if matchPattern(path, "/runCache/", "") {
+	if matchPattern(path, pathRunCache+"/", "") {
 		return opGetRunCache
 	}
 
 	// /run/{id}/task/{taskId}
-	if strings.HasPrefix(path, "/run/") && strings.Contains(path, "/task/") {
+	if strings.HasPrefix(path, pathRun+"/") && strings.Contains(path, "/task/") {
 		return opGetRunTask
 	}
 
 	// /run/{id}/task
-	if strings.HasPrefix(path, "/run/") && strings.HasSuffix(path, "/task") {
+	if strings.HasPrefix(path, pathRun+"/") && strings.HasSuffix(path, "/task") {
 		return opListRunTasks
 	}
 
 	// /run/{id}
-	if matchPattern(path, "/run/", "") {
+	if matchPattern(path, pathRun+"/", "") {
 		return opGetRun
 	}
 
 	// /workflow/{workflowId}/version/{versionName}
-	if strings.HasPrefix(path, "/workflow/") && strings.Contains(path, "/version/") {
+	if strings.HasPrefix(path, pathWorkflow+"/") && strings.Contains(path, "/version/") {
 		return opGetWorkflowVersion
 	}
 
 	// /workflow/{workflowId}/version
-	if strings.HasPrefix(path, "/workflow/") && strings.HasSuffix(path, "/version") {
+	if strings.HasPrefix(path, pathWorkflow+"/") && strings.HasSuffix(path, "/version") {
 		return opListWorkflowVersions
 	}
 
 	// /workflow/{id}
-	if matchPattern(path, "/workflow/", "") {
+	if matchPattern(path, pathWorkflow+"/", "") {
 		return opGetWorkflow
 	}
 
@@ -931,7 +952,8 @@ func classifyGET(path string) string { //nolint:cyclop,funlen // large routing t
 	}
 
 	// /referencestore/{referenceStoreId}/reference/{id}/metadata
-	if strings.HasPrefix(path, "/referencestore/") && strings.Contains(path, "/reference/") && strings.HasSuffix(path, "/metadata") {
+	if strings.HasPrefix(path, "/referencestore/") && strings.Contains(path, "/reference/") &&
+		strings.HasSuffix(path, "/metadata") {
 		return opGetReferenceMetadata
 	}
 
@@ -951,7 +973,8 @@ func classifyGET(path string) string { //nolint:cyclop,funlen // large routing t
 	}
 
 	// /sequencestore/{sequenceStoreId}/readset/{id}/metadata
-	if strings.HasPrefix(path, "/sequencestore/") && strings.Contains(path, "/readset/") && strings.HasSuffix(path, "/metadata") {
+	if strings.HasPrefix(path, "/sequencestore/") && strings.Contains(path, "/readset/") &&
+		strings.HasSuffix(path, "/metadata") {
 		return opGetReadSetMetadata
 	}
 
@@ -1003,22 +1026,22 @@ func classifyDELETE(path string) string { //nolint:cyclop // large routing table
 	case matchPattern(path, "/sequencestore/", ""):
 		return opDeleteSequenceStore
 	// /runGroup/{id}
-	case matchPattern(path, "/runGroup/", ""):
+	case matchPattern(path, pathRunGroup+"/", ""):
 		return opDeleteRunGroup
 	// /run/{id}
-	case matchPattern(path, "/run/", ""):
+	case matchPattern(path, pathRun+"/", ""):
 		return opDeleteRun
 	// /runCache/{id}
-	case matchPattern(path, "/runCache/", ""):
+	case matchPattern(path, pathRunCache+"/", ""):
 		return opDeleteRunCache
 	// /runBatch/{batchId}
-	case matchPattern(path, "/runBatch/", ""):
+	case matchPattern(path, pathRunBatch+"/", ""):
 		return opDeleteRunBatch
 	// /workflow/{workflowId}/version/{versionName}
-	case strings.HasPrefix(path, "/workflow/") && strings.Contains(path, "/version/"):
+	case strings.HasPrefix(path, pathWorkflow+"/") && strings.Contains(path, "/version/"):
 		return opDeleteWorkflowVersion
 	// /workflow/{id}
-	case matchPattern(path, "/workflow/", ""):
+	case matchPattern(path, pathWorkflow+"/", ""):
 		return opDeleteWorkflow
 	// /annotationStore/{name}
 	case matchPattern(path, "/annotationStore/", ""):
@@ -1036,7 +1059,7 @@ func classifyDELETE(path string) string { //nolint:cyclop // large routing table
 	case strings.HasPrefix(path, "/import/variant/"):
 		return opCancelVariantImportJob
 	// /configuration/{name}
-	case matchPattern(path, "/configuration/", ""):
+	case matchPattern(path, pathConfiguration+"/", ""):
 		return opDeleteConfiguration
 	}
 
@@ -1126,9 +1149,9 @@ func extractUploadIDs(path string) (string, string) {
 
 func (h *Handler) handleCreateReferenceStore(c *echo.Context) error {
 	var req struct {
+		Tags        map[string]string `json:"tags"`
 		Name        string            `json:"name"`
 		Description string            `json:"description"`
-		Tags        map[string]string `json:"tags"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
@@ -1163,8 +1186,8 @@ func (h *Handler) handleGetReferenceStore(c *echo.Context, id string) error {
 func (h *Handler) handleListReferenceStores(c *echo.Context) error {
 	var req struct {
 		Filter     *ReferenceStoreFilter `json:"filter"`
-		MaxResults int                   `json:"maxResults"`
 		NextToken  string                `json:"nextToken"`
+		MaxResults int                   `json:"maxResults"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
@@ -1178,7 +1201,7 @@ func (h *Handler) handleListReferenceStores(c *echo.Context) error {
 
 	return c.JSON(http.StatusOK, map[string]any{
 		"referenceStores": stores,
-		"nextToken":       next,
+		keyNextToken:      next,
 	})
 }
 
@@ -1211,8 +1234,8 @@ func (h *Handler) handleGetReferenceMetadata(c *echo.Context, storeID, id string
 func (h *Handler) handleListReferences(c *echo.Context, storeID string) error {
 	var req struct {
 		Filter     *ReferenceFilter `json:"filter"`
-		MaxResults int              `json:"maxResults"`
 		NextToken  string           `json:"nextToken"`
+		MaxResults int              `json:"maxResults"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
@@ -1226,7 +1249,7 @@ func (h *Handler) handleListReferences(c *echo.Context, storeID string) error {
 
 	return c.JSON(http.StatusOK, map[string]any{
 		"references": refs,
-		"nextToken":  next,
+		keyNextToken: next,
 	})
 }
 
@@ -1259,8 +1282,8 @@ func (h *Handler) handleGetReferenceImportJob(c *echo.Context, storeID, jobID st
 
 func (h *Handler) handleListReferenceImportJobs(c *echo.Context, storeID string) error {
 	var req struct {
-		MaxResults int    `json:"maxResults"`
 		NextToken  string `json:"nextToken"`
+		MaxResults int    `json:"maxResults"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
@@ -1273,16 +1296,16 @@ func (h *Handler) handleListReferenceImportJobs(c *echo.Context, storeID string)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"importJobs": jobs,
-		"nextToken":  next,
+		keyImportJobs: jobs,
+		keyNextToken:  next,
 	})
 }
 
 func (h *Handler) handleCreateSequenceStore(c *echo.Context) error {
 	var req struct {
+		Tags        map[string]string `json:"tags"`
 		Name        string            `json:"name"`
 		Description string            `json:"description"`
-		Tags        map[string]string `json:"tags"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
@@ -1317,8 +1340,8 @@ func (h *Handler) handleGetSequenceStore(c *echo.Context, id string) error {
 func (h *Handler) handleListSequenceStores(c *echo.Context) error {
 	var req struct {
 		Filter     *SequenceStoreFilter `json:"filter"`
-		MaxResults int                  `json:"maxResults"`
 		NextToken  string               `json:"nextToken"`
+		MaxResults int                  `json:"maxResults"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
@@ -1332,7 +1355,7 @@ func (h *Handler) handleListSequenceStores(c *echo.Context) error {
 
 	return c.JSON(http.StatusOK, map[string]any{
 		"sequenceStores": stores,
-		"nextToken":      next,
+		keyNextToken:     next,
 	})
 }
 
@@ -1368,7 +1391,7 @@ func (h *Handler) handleBatchDeleteReadSet(c *echo.Context, storeID string) erro
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"errors": errs})
+	return c.JSON(http.StatusOK, map[string]any{keyErrors: errs})
 }
 
 func (h *Handler) handleGetReadSet(c *echo.Context, storeID, id string) error {
@@ -1392,22 +1415,27 @@ func (h *Handler) handleGetReadSetMetadata(c *echo.Context, storeID, id string) 
 func (h *Handler) handleListReadSets(c *echo.Context, storeID string) error {
 	var req struct {
 		Filter     *ReadSetFilter `json:"filter"`
-		MaxResults int            `json:"maxResults"`
 		NextToken  string         `json:"nextToken"`
+		MaxResults int            `json:"maxResults"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
 		return err
 	}
 
-	readSets, next, err := h.Backend.ListReadSets(storeID, req.Filter, req.MaxResults, req.NextToken)
+	readSets, next, err := h.Backend.ListReadSets(
+		storeID,
+		req.Filter,
+		req.MaxResults,
+		req.NextToken,
+	)
 	if err != nil {
 		return h.mapError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"readSets":  readSets,
-		"nextToken": next,
+		"readSets":   readSets,
+		keyNextToken: next,
 	})
 }
 
@@ -1439,8 +1467,8 @@ func (h *Handler) handleGetReadSetActivationJob(c *echo.Context, storeID, jobID 
 
 func (h *Handler) handleListReadSetActivationJobs(c *echo.Context, storeID string) error {
 	var req struct {
-		MaxResults int    `json:"maxResults"`
 		NextToken  string `json:"nextToken"`
+		MaxResults int    `json:"maxResults"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
@@ -1452,12 +1480,12 @@ func (h *Handler) handleListReadSetActivationJobs(c *echo.Context, storeID strin
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"activationJobs": jobs, "nextToken": next})
+	return c.JSON(http.StatusOK, map[string]any{"activationJobs": jobs, keyNextToken: next})
 }
 
 func (h *Handler) handleStartReadSetExportJob(c *echo.Context, storeID string) error {
 	var req struct {
-		Destination string                  `json:"destination"`
+		Destination string                   `json:"destination"`
 		Sources     []ReadSetExportJobSource `json:"sources"`
 	}
 
@@ -1484,8 +1512,8 @@ func (h *Handler) handleGetReadSetExportJob(c *echo.Context, storeID, jobID stri
 
 func (h *Handler) handleListReadSetExportJobs(c *echo.Context, storeID string) error {
 	var req struct {
-		MaxResults int    `json:"maxResults"`
 		NextToken  string `json:"nextToken"`
+		MaxResults int    `json:"maxResults"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
@@ -1497,12 +1525,12 @@ func (h *Handler) handleListReadSetExportJobs(c *echo.Context, storeID string) e
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"exportJobs": jobs, "nextToken": next})
+	return c.JSON(http.StatusOK, map[string]any{"exportJobs": jobs, keyNextToken: next})
 }
 
 func (h *Handler) handleStartReadSetImportJob(c *echo.Context, storeID string) error {
 	var req struct {
-		RoleArn string                  `json:"roleArn"`
+		RoleArn string                   `json:"roleArn"`
 		Sources []ReadSetImportJobSource `json:"sources"`
 	}
 
@@ -1529,8 +1557,8 @@ func (h *Handler) handleGetReadSetImportJob(c *echo.Context, storeID, jobID stri
 
 func (h *Handler) handleListReadSetImportJobs(c *echo.Context, storeID string) error {
 	var req struct {
-		MaxResults int    `json:"maxResults"`
 		NextToken  string `json:"nextToken"`
+		MaxResults int    `json:"maxResults"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
@@ -1542,21 +1570,26 @@ func (h *Handler) handleListReadSetImportJobs(c *echo.Context, storeID string) e
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"importJobs": jobs, "nextToken": next})
+	return c.JSON(http.StatusOK, map[string]any{keyImportJobs: jobs, keyNextToken: next})
 }
 
 func (h *Handler) handleCreateMultipartReadSetUpload(c *echo.Context, storeID string) error {
 	var req struct {
+		Tags         map[string]string `json:"tags"`
 		Name         string            `json:"name"`
 		SequenceType string            `json:"sequenceType"`
-		Tags         map[string]string `json:"tags"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
 		return err
 	}
 
-	upload, err := h.Backend.CreateMultipartReadSetUpload(storeID, req.Name, req.SequenceType, req.Tags)
+	upload, err := h.Backend.CreateMultipartReadSetUpload(
+		storeID,
+		req.Name,
+		req.SequenceType,
+		req.Tags,
+	)
 	if err != nil {
 		return h.mapError(c, err)
 	}
@@ -1564,7 +1597,10 @@ func (h *Handler) handleCreateMultipartReadSetUpload(c *echo.Context, storeID st
 	return c.JSON(http.StatusCreated, upload)
 }
 
-func (h *Handler) handleAbortMultipartReadSetUpload(c *echo.Context, storeID, uploadID string) error {
+func (h *Handler) handleAbortMultipartReadSetUpload(
+	c *echo.Context,
+	storeID, uploadID string,
+) error {
 	if err := h.Backend.AbortMultipartReadSetUpload(storeID, uploadID); err != nil {
 		return h.mapError(c, err)
 	}
@@ -1572,7 +1608,10 @@ func (h *Handler) handleAbortMultipartReadSetUpload(c *echo.Context, storeID, up
 	return c.JSON(http.StatusOK, map[string]any{})
 }
 
-func (h *Handler) handleCompleteMultipartReadSetUpload(c *echo.Context, storeID, uploadID string) error {
+func (h *Handler) handleCompleteMultipartReadSetUpload(
+	c *echo.Context,
+	storeID, uploadID string,
+) error {
 	rs, err := h.Backend.CompleteMultipartReadSetUpload(storeID, uploadID)
 	if err != nil {
 		return h.mapError(c, err)
@@ -1583,38 +1622,47 @@ func (h *Handler) handleCompleteMultipartReadSetUpload(c *echo.Context, storeID,
 
 func (h *Handler) handleListMultipartReadSetUploads(c *echo.Context, storeID string) error {
 	var req struct {
-		MaxResults int    `json:"maxResults"`
 		NextToken  string `json:"nextToken"`
+		MaxResults int    `json:"maxResults"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
 		return err
 	}
 
-	uploads, next, err := h.Backend.ListMultipartReadSetUploads(storeID, req.MaxResults, req.NextToken)
+	uploads, next, err := h.Backend.ListMultipartReadSetUploads(
+		storeID,
+		req.MaxResults,
+		req.NextToken,
+	)
 	if err != nil {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"uploads": uploads, "nextToken": next})
+	return c.JSON(http.StatusOK, map[string]any{"uploads": uploads, keyNextToken: next})
 }
 
 func (h *Handler) handleListReadSetUploadParts(c *echo.Context, storeID, uploadID string) error {
 	var req struct {
-		MaxResults int    `json:"maxResults"`
 		NextToken  string `json:"nextToken"`
+		MaxResults int    `json:"maxResults"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
 		return err
 	}
 
-	parts, next, err := h.Backend.ListReadSetUploadParts(storeID, uploadID, req.MaxResults, req.NextToken)
+	parts, next, err := h.Backend.ListReadSetUploadParts(
+		storeID,
+		uploadID,
+		req.MaxResults,
+		req.NextToken,
+	)
 	if err != nil {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"parts": parts, "nextToken": next})
+	return c.JSON(http.StatusOK, map[string]any{"parts": parts, keyNextToken: next})
 }
 
 func (h *Handler) handleUploadReadSetPart(c *echo.Context, storeID, uploadID string) error {
@@ -1630,19 +1678,26 @@ func (h *Handler) handleUploadReadSetPart(c *echo.Context, storeID, uploadID str
 
 func (h *Handler) handleCreateRunGroup(c *echo.Context) error {
 	var req struct {
+		Tags        map[string]string `json:"tags"`
 		Name        string            `json:"name"`
 		MaxCpus     int               `json:"maxCpus"`
 		MaxRuns     int               `json:"maxRuns"`
 		MaxDuration int               `json:"maxDuration"`
 		MaxGpus     int               `json:"maxGpus"`
-		Tags        map[string]string `json:"tags"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
 		return err
 	}
 
-	rg, err := h.Backend.CreateRunGroup(req.Name, req.MaxCpus, req.MaxRuns, req.MaxDuration, req.MaxGpus, req.Tags)
+	rg, err := h.Backend.CreateRunGroup(
+		req.Name,
+		req.MaxCpus,
+		req.MaxRuns,
+		req.MaxDuration,
+		req.MaxGpus,
+		req.Tags,
+	)
 	if err != nil {
 		return h.mapError(c, err)
 	}
@@ -1675,7 +1730,7 @@ func (h *Handler) handleListRunGroups(c *echo.Context) error {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"runGroups": groups, "nextToken": next})
+	return c.JSON(http.StatusOK, map[string]any{"runGroups": groups, keyNextToken: next})
 }
 
 func (h *Handler) handleUpdateRunGroup(c *echo.Context, id string) error {
@@ -1691,7 +1746,14 @@ func (h *Handler) handleUpdateRunGroup(c *echo.Context, id string) error {
 		return err
 	}
 
-	rg, err := h.Backend.UpdateRunGroup(id, req.Name, req.MaxCpus, req.MaxRuns, req.MaxDuration, req.MaxGpus)
+	rg, err := h.Backend.UpdateRunGroup(
+		id,
+		req.Name,
+		req.MaxCpus,
+		req.MaxRuns,
+		req.MaxDuration,
+		req.MaxGpus,
+	)
 	if err != nil {
 		return h.mapError(c, err)
 	}
@@ -1701,11 +1763,11 @@ func (h *Handler) handleUpdateRunGroup(c *echo.Context, id string) error {
 
 func (h *Handler) handleStartRun(c *echo.Context) error {
 	var req struct {
+		Parameters map[string]any    `json:"parameters"`
+		Tags       map[string]string `json:"tags"`
 		WorkflowId string            `json:"workflowId"`
 		RoleArn    string            `json:"roleArn"`
 		Name       string            `json:"name"`
-		Parameters map[string]any    `json:"parameters"`
-		Tags       map[string]string `json:"tags"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
@@ -1753,7 +1815,7 @@ func (h *Handler) handleListRuns(c *echo.Context) error {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"runs": runs, "nextToken": next})
+	return c.JSON(http.StatusOK, map[string]any{"runs": runs, keyNextToken: next})
 }
 
 func (h *Handler) handleGetRunTask(c *echo.Context, runID, taskID string) error {
@@ -1773,23 +1835,29 @@ func (h *Handler) handleListRunTasks(c *echo.Context, runID string) error {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"tasks": tasks, "nextToken": next})
+	return c.JSON(http.StatusOK, map[string]any{"tasks": tasks, keyNextToken: next})
 }
 
 func (h *Handler) handleCreateWorkflow(c *echo.Context) error {
 	var req struct {
+		Tags          map[string]string `json:"tags"`
 		Name          string            `json:"name"`
 		Description   string            `json:"description"`
-		DefinitionZip []byte            `json:"definitionZip"`
 		Engine        string            `json:"engine"`
-		Tags          map[string]string `json:"tags"`
+		DefinitionZip []byte            `json:"definitionZip"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
 		return err
 	}
 
-	wf, err := h.Backend.CreateWorkflow(req.Name, req.Description, string(req.DefinitionZip), req.Engine, req.Tags)
+	wf, err := h.Backend.CreateWorkflow(
+		req.Name,
+		req.Description,
+		string(req.DefinitionZip),
+		req.Engine,
+		req.Tags,
+	)
 	if err != nil {
 		return h.mapError(c, err)
 	}
@@ -1822,7 +1890,7 @@ func (h *Handler) handleListWorkflows(c *echo.Context) error {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"workflows": workflows, "nextToken": next})
+	return c.JSON(http.StatusOK, map[string]any{"workflows": workflows, keyNextToken: next})
 }
 
 func (h *Handler) handleUpdateWorkflow(c *echo.Context, id string) error {
@@ -1844,16 +1912,21 @@ func (h *Handler) handleUpdateWorkflow(c *echo.Context, id string) error {
 
 func (h *Handler) handleCreateWorkflowVersion(c *echo.Context, workflowID string) error {
 	var req struct {
+		Tags        map[string]string `json:"tags"`
 		VersionName string            `json:"versionName"`
 		Description string            `json:"description"`
-		Tags        map[string]string `json:"tags"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
 		return err
 	}
 
-	wv, err := h.Backend.CreateWorkflowVersion(workflowID, req.VersionName, req.Description, req.Tags)
+	wv, err := h.Backend.CreateWorkflowVersion(
+		workflowID,
+		req.VersionName,
+		req.Description,
+		req.Tags,
+	)
 	if err != nil {
 		return h.mapError(c, err)
 	}
@@ -1861,7 +1934,10 @@ func (h *Handler) handleCreateWorkflowVersion(c *echo.Context, workflowID string
 	return c.JSON(http.StatusCreated, wv)
 }
 
-func (h *Handler) handleDeleteWorkflowVersion(c *echo.Context, workflowID, versionName string) error {
+func (h *Handler) handleDeleteWorkflowVersion(
+	c *echo.Context,
+	workflowID, versionName string,
+) error {
 	if err := h.Backend.DeleteWorkflowVersion(workflowID, versionName); err != nil {
 		return h.mapError(c, err)
 	}
@@ -1886,10 +1962,13 @@ func (h *Handler) handleListWorkflowVersions(c *echo.Context, workflowID string)
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"workflowVersions": versions, "nextToken": next})
+	return c.JSON(http.StatusOK, map[string]any{"workflowVersions": versions, keyNextToken: next})
 }
 
-func (h *Handler) handleUpdateWorkflowVersion(c *echo.Context, workflowID, versionName string) error {
+func (h *Handler) handleUpdateWorkflowVersion(
+	c *echo.Context,
+	workflowID, versionName string,
+) error {
 	var req struct {
 		Description string `json:"description"`
 	}
@@ -1907,9 +1986,9 @@ func (h *Handler) handleUpdateWorkflowVersion(c *echo.Context, workflowID, versi
 
 func (h *Handler) handleCreateAnnotationStore(c *echo.Context) error {
 	var req struct {
+		Tags        map[string]string `json:"tags"`
 		Name        string            `json:"name"`
 		StoreFormat string            `json:"storeFormat"`
-		Tags        map[string]string `json:"tags"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
@@ -1944,8 +2023,8 @@ func (h *Handler) handleGetAnnotationStore(c *echo.Context, name string) error {
 
 func (h *Handler) handleListAnnotationStores(c *echo.Context) error {
 	var req struct {
-		MaxResults int    `json:"maxResults"`
 		NextToken  string `json:"nextToken"`
+		MaxResults int    `json:"maxResults"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
@@ -1957,7 +2036,7 @@ func (h *Handler) handleListAnnotationStores(c *echo.Context) error {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"annotationStores": stores, "nextToken": next})
+	return c.JSON(http.StatusOK, map[string]any{"annotationStores": stores, keyNextToken: next})
 }
 
 func (h *Handler) handleUpdateAnnotationStore(c *echo.Context, name string) error {
@@ -2007,8 +2086,8 @@ func (h *Handler) handleGetAnnotationImportJob(c *echo.Context, jobID string) er
 
 func (h *Handler) handleListAnnotationImportJobs(c *echo.Context) error {
 	var req struct {
-		MaxResults int    `json:"maxResults"`
 		NextToken  string `json:"nextToken"`
+		MaxResults int    `json:"maxResults"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
@@ -2020,7 +2099,7 @@ func (h *Handler) handleListAnnotationImportJobs(c *echo.Context) error {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"importJobs": jobs, "nextToken": next})
+	return c.JSON(http.StatusOK, map[string]any{keyImportJobs: jobs, keyNextToken: next})
 }
 
 func (h *Handler) handleCancelAnnotationImportJob(c *echo.Context, jobID string) error {
@@ -2033,16 +2112,21 @@ func (h *Handler) handleCancelAnnotationImportJob(c *echo.Context, jobID string)
 
 func (h *Handler) handleCreateAnnotationStoreVersion(c *echo.Context, name string) error {
 	var req struct {
+		Tags        map[string]string `json:"tags"`
 		VersionName string            `json:"versionName"`
 		Description string            `json:"description"`
-		Tags        map[string]string `json:"tags"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
 		return err
 	}
 
-	v, err := h.Backend.CreateAnnotationStoreVersion(name, req.VersionName, req.Description, req.Tags)
+	v, err := h.Backend.CreateAnnotationStoreVersion(
+		name,
+		req.VersionName,
+		req.Description,
+		req.Tags,
+	)
 	if err != nil {
 		return h.mapError(c, err)
 	}
@@ -2064,7 +2148,7 @@ func (h *Handler) handleDeleteAnnotationStoreVersions(c *echo.Context, name stri
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"errors": errs})
+	return c.JSON(http.StatusOK, map[string]any{keyErrors: errs})
 }
 
 func (h *Handler) handleGetAnnotationStoreVersion(c *echo.Context, name, versionName string) error {
@@ -2078,23 +2162,33 @@ func (h *Handler) handleGetAnnotationStoreVersion(c *echo.Context, name, version
 
 func (h *Handler) handleListAnnotationStoreVersions(c *echo.Context, name string) error {
 	var req struct {
-		MaxResults int    `json:"maxResults"`
 		NextToken  string `json:"nextToken"`
+		MaxResults int    `json:"maxResults"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
 		return err
 	}
 
-	versions, next, err := h.Backend.ListAnnotationStoreVersions(name, req.MaxResults, req.NextToken)
+	versions, next, err := h.Backend.ListAnnotationStoreVersions(
+		name,
+		req.MaxResults,
+		req.NextToken,
+	)
 	if err != nil {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"annotationStoreVersions": versions, "nextToken": next})
+	return c.JSON(
+		http.StatusOK,
+		map[string]any{"annotationStoreVersions": versions, keyNextToken: next},
+	)
 }
 
-func (h *Handler) handleUpdateAnnotationStoreVersion(c *echo.Context, name, versionName string) error {
+func (h *Handler) handleUpdateAnnotationStoreVersion(
+	c *echo.Context,
+	name, versionName string,
+) error {
 	var req struct {
 		Description string `json:"description"`
 	}
@@ -2113,8 +2207,8 @@ func (h *Handler) handleUpdateAnnotationStoreVersion(c *echo.Context, name, vers
 
 func (h *Handler) handleCreateVariantStore(c *echo.Context) error {
 	var req struct {
-		Name string            `json:"name"`
 		Tags map[string]string `json:"tags"`
+		Name string            `json:"name"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
@@ -2149,8 +2243,8 @@ func (h *Handler) handleGetVariantStore(c *echo.Context, name string) error {
 
 func (h *Handler) handleListVariantStores(c *echo.Context) error {
 	var req struct {
-		MaxResults int    `json:"maxResults"`
 		NextToken  string `json:"nextToken"`
+		MaxResults int    `json:"maxResults"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
@@ -2162,7 +2256,7 @@ func (h *Handler) handleListVariantStores(c *echo.Context) error {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"variantStores": stores, "nextToken": next})
+	return c.JSON(http.StatusOK, map[string]any{"variantStores": stores, keyNextToken: next})
 }
 
 func (h *Handler) handleUpdateVariantStore(c *echo.Context, name string) error {
@@ -2212,8 +2306,8 @@ func (h *Handler) handleGetVariantImportJob(c *echo.Context, jobID string) error
 
 func (h *Handler) handleListVariantImportJobs(c *echo.Context) error {
 	var req struct {
-		MaxResults int    `json:"maxResults"`
 		NextToken  string `json:"nextToken"`
+		MaxResults int    `json:"maxResults"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
@@ -2225,7 +2319,7 @@ func (h *Handler) handleListVariantImportJobs(c *echo.Context) error {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"importJobs": jobs, "nextToken": next})
+	return c.JSON(http.StatusOK, map[string]any{keyImportJobs: jobs, keyNextToken: next})
 }
 
 func (h *Handler) handleCancelVariantImportJob(c *echo.Context, jobID string) error {
@@ -2285,8 +2379,8 @@ func (h *Handler) handleGetShare(c *echo.Context, shareID string) error {
 func (h *Handler) handleListShares(c *echo.Context) error {
 	var req struct {
 		ResourceOwner string `json:"resourceOwner"`
-		MaxResults    int    `json:"maxResults"`
 		NextToken     string `json:"nextToken"`
+		MaxResults    int    `json:"maxResults"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
@@ -2298,7 +2392,7 @@ func (h *Handler) handleListShares(c *echo.Context) error {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"shares": shares, "nextToken": next})
+	return c.JSON(http.StatusOK, map[string]any{"shares": shares, keyNextToken: next})
 }
 
 func (h *Handler) handleCreateRunCache(c *echo.Context) error {
@@ -2345,7 +2439,7 @@ func (h *Handler) handleListRunCaches(c *echo.Context) error {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"runCaches": caches, "nextToken": next})
+	return c.JSON(http.StatusOK, map[string]any{"runCaches": caches, keyNextToken: next})
 }
 
 func (h *Handler) handleUpdateRunCache(c *echo.Context, id string) error {
@@ -2425,7 +2519,7 @@ func (h *Handler) handleListRunBatches(c *echo.Context) error {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"runBatches": batches, "nextToken": next})
+	return c.JSON(http.StatusOK, map[string]any{"runBatches": batches, keyNextToken: next})
 }
 
 func (h *Handler) handleDeleteBatch(c *echo.Context) error {
@@ -2442,7 +2536,7 @@ func (h *Handler) handleDeleteBatch(c *echo.Context) error {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"errors": errs})
+	return c.JSON(http.StatusOK, map[string]any{keyErrors: errs})
 }
 
 func (h *Handler) handleListRunsInBatch(c *echo.Context, batchID string) error {
@@ -2453,7 +2547,7 @@ func (h *Handler) handleListRunsInBatch(c *echo.Context, batchID string) error {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"runs": runs, "nextToken": next})
+	return c.JSON(http.StatusOK, map[string]any{"runs": runs, keyNextToken: next})
 }
 
 func (h *Handler) handleCreateConfiguration(c *echo.Context) error {
@@ -2499,7 +2593,7 @@ func (h *Handler) handleListConfigurations(c *echo.Context) error {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"configurations": cfgs, "nextToken": next})
+	return c.JSON(http.StatusOK, map[string]any{"configurations": cfgs, keyNextToken: next})
 }
 
 func (h *Handler) handlePutS3AccessPolicy(c *echo.Context, arn string) error {
@@ -2585,7 +2679,10 @@ func (h *Handler) mapError(c *echo.Context, err error) error {
 	case errors.Is(err, awserr.ErrInvalidParameter):
 		return c.JSON(http.StatusBadRequest, errResp(errValidation, err.Error()))
 	default:
-		return c.JSON(http.StatusInternalServerError, errResp("InternalServerException", err.Error()))
+		return c.JSON(
+			http.StatusInternalServerError,
+			errResp("InternalServerException", err.Error()),
+		)
 	}
 }
 
