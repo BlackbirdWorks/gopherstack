@@ -15,6 +15,20 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
+// regionContextKey is the context key under which the per-request AWS region is stored.
+type regionContextKey struct{}
+
+// getRegion extracts the region from ctx, falling back to defaultRegion when unset.
+// KinesisAnalytics resources are isolated per region: every backend operation resolves the
+// caller's region from the request context and operates only on that region's nested store.
+func getRegion(ctx context.Context, defaultRegion string) string {
+	if r, ok := ctx.Value(regionContextKey{}).(string); ok && r != "" {
+		return r
+	}
+
+	return defaultRegion
+}
+
 var (
 	// ErrNotFound is returned when an application does not exist.
 	ErrNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
@@ -72,43 +86,71 @@ var appNameRegexp = regexp.MustCompile(`^[a-zA-Z0-9_.\-]+$`)
 
 // StorageBackend is the interface for the Kinesis Analytics in-memory backend.
 type StorageBackend interface {
-	CreateApplication(region, accountID, name, description, code, serviceRole string,
+	CreateApplication(ctx context.Context, name, description, code, serviceRole string,
 		inputs []InputDescription, outputs []OutputDescription,
 		cwlOptions []CloudWatchLoggingOptionDesc, tags map[string]string) (*Application, error)
-	DeleteApplication(name string, createTimestamp *time.Time) error
-	DescribeApplication(name string) (*Application, error)
-	ListApplications(exclusiveStart string, limit int) ([]*Application, bool, error)
-	StartApplication(name string, inputConfigs []inputConfiguration) error
-	StopApplication(name string) error
-	UpdateApplication(name string, currentVersionID int64, update *applicationUpdate) (*Application, error)
-	ListTagsForResource(resourceARN string) (map[string]string, error)
-	TagResource(resourceARN string, tags map[string]string) error
-	UntagResource(resourceARN string, tagKeys []string) error
-	AddApplicationCloudWatchLoggingOption(name string, versionID int64, option CloudWatchLoggingOptionDesc) error
-	AddApplicationInput(name string, versionID int64, input InputDescription) error
+	DeleteApplication(ctx context.Context, name string, createTimestamp *time.Time) error
+	DescribeApplication(ctx context.Context, name string) (*Application, error)
+	ListApplications(ctx context.Context, exclusiveStart string, limit int) ([]*Application, bool, error)
+	StartApplication(ctx context.Context, name string, inputConfigs []inputConfiguration) error
+	StopApplication(ctx context.Context, name string) error
+	UpdateApplication(
+		ctx context.Context,
+		name string,
+		currentVersionID int64,
+		update *applicationUpdate,
+	) (*Application, error)
+	ListTagsForResource(ctx context.Context, resourceARN string) (map[string]string, error)
+	TagResource(ctx context.Context, resourceARN string, tags map[string]string) error
+	UntagResource(ctx context.Context, resourceARN string, tagKeys []string) error
+	AddApplicationCloudWatchLoggingOption(
+		ctx context.Context,
+		name string,
+		versionID int64,
+		option CloudWatchLoggingOptionDesc,
+	) error
+	AddApplicationInput(ctx context.Context, name string, versionID int64, input InputDescription) error
 	AddApplicationInputProcessingConfiguration(
+		ctx context.Context,
 		name string,
 		versionID int64,
 		inputID string,
 		config *InputProcessingConfigurationDesc,
 	) error
-	AddApplicationOutput(name string, versionID int64, output OutputDescription) error
-	AddApplicationReferenceDataSource(name string, versionID int64, ref ReferenceDataSourceDescription) error
-	DeleteApplicationCloudWatchLoggingOption(name string, versionID int64, loggingOptionID string) error
-	DeleteApplicationInputProcessingConfiguration(name string, versionID int64, inputID string) error
-	DeleteApplicationOutput(name string, versionID int64, outputID string) error
-	DeleteApplicationReferenceDataSource(name string, versionID int64, referenceID string) error
+	AddApplicationOutput(ctx context.Context, name string, versionID int64, output OutputDescription) error
+	AddApplicationReferenceDataSource(
+		ctx context.Context,
+		name string,
+		versionID int64,
+		ref ReferenceDataSourceDescription,
+	) error
+	DeleteApplicationCloudWatchLoggingOption(
+		ctx context.Context,
+		name string,
+		versionID int64,
+		loggingOptionID string,
+	) error
+	DeleteApplicationInputProcessingConfiguration(
+		ctx context.Context,
+		name string,
+		versionID int64,
+		inputID string,
+	) error
+	DeleteApplicationOutput(ctx context.Context, name string, versionID int64, outputID string) error
+	DeleteApplicationReferenceDataSource(ctx context.Context, name string, versionID int64, referenceID string) error
 }
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
+// All resource maps are nested by region (outer key = region) so that
+// same-named resources are isolated across regions.
 type InMemoryBackend struct {
-	apps        map[string]*Application
-	appsByARN   map[string]*Application       // application ARN → Application
-	cancelFuncs map[string]context.CancelFunc // application name → lifecycle goroutine cancel
-	region      string
-	accountID   string
-	nextID      int64
-	mu          sync.RWMutex
+	apps          map[string]map[string]*Application // region → name → app
+	appsByARN     map[string]map[string]*Application // region → arn → app
+	cancelFuncs   map[string]context.CancelFunc      // "region:name" → cancel
+	defaultRegion string
+	accountID     string
+	nextID        int64
+	mu            sync.RWMutex
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)
@@ -116,12 +158,17 @@ var _ StorageBackend = (*InMemoryBackend)(nil)
 // NewInMemoryBackend creates a new in-memory Kinesis Analytics backend.
 func NewInMemoryBackend(region, accountID string) *InMemoryBackend {
 	return &InMemoryBackend{
-		apps:        make(map[string]*Application),
-		appsByARN:   make(map[string]*Application),
-		cancelFuncs: make(map[string]context.CancelFunc),
-		region:      region,
-		accountID:   accountID,
+		apps:          make(map[string]map[string]*Application),
+		appsByARN:     make(map[string]map[string]*Application),
+		cancelFuncs:   make(map[string]context.CancelFunc),
+		defaultRegion: region,
+		accountID:     accountID,
 	}
+}
+
+// cancelKey returns the composite key used for the cancelFuncs map.
+func cancelKey(region, name string) string {
+	return region + ":" + name
 }
 
 // Reset clears all state and resets the ID counter.
@@ -133,10 +180,30 @@ func (b *InMemoryBackend) Reset() {
 		cancel()
 	}
 
-	b.apps = make(map[string]*Application)
-	b.appsByARN = make(map[string]*Application)
+	b.apps = make(map[string]map[string]*Application)
+	b.appsByARN = make(map[string]map[string]*Application)
 	b.cancelFuncs = make(map[string]context.CancelFunc)
 	b.nextID = 0
+}
+
+// appsStore returns (and lazily initialises) the per-region application map.
+// Must be called under b.mu held for writing.
+func (b *InMemoryBackend) appsStore(region string) map[string]*Application {
+	if b.apps[region] == nil {
+		b.apps[region] = make(map[string]*Application)
+	}
+
+	return b.apps[region]
+}
+
+// appsByARNStore returns (and lazily initialises) the per-region ARN map.
+// Must be called under b.mu held for writing.
+func (b *InMemoryBackend) appsByARNStore(region string) map[string]*Application {
+	if b.appsByARN[region] == nil {
+		b.appsByARN[region] = make(map[string]*Application)
+	}
+
+	return b.appsByARN[region]
 }
 
 // applicationARN builds the ARN for a Kinesis Analytics application.
@@ -226,7 +293,7 @@ func validateAndMergeTags(existing, incoming map[string]string) error {
 
 // validateARNShape verifies that an ARN refers to a kinesisanalytics application in this backend.
 // ARN format: arn:{partition}:kinesisanalytics:{region}:{accountID}:application/{name}.
-func (b *InMemoryBackend) validateARNShape(resourceARN string) error {
+func (b *InMemoryBackend) validateARNShape(resourceARN, region string) error {
 	const arnFieldCount = 6
 
 	parts := strings.SplitN(resourceARN, ":", arnFieldCount)
@@ -237,7 +304,7 @@ func (b *InMemoryBackend) validateARNShape(resourceARN string) error {
 		return fmt.Errorf("%w: ResourceARN is not a valid kinesisanalytics application ARN", ErrValidation)
 	}
 
-	if parts[3] != b.region || parts[4] != b.accountID {
+	if parts[3] != region || parts[4] != b.accountID {
 		return fmt.Errorf("%w: ResourceARN region/account does not match this endpoint", ErrValidation)
 	}
 
@@ -411,7 +478,8 @@ func convertSourceSchema(s *sourceSchemaInput) SourceSchema {
 
 // CreateApplication creates a new Kinesis Analytics application.
 func (b *InMemoryBackend) CreateApplication(
-	region, accountID, name, description, code, serviceRole string,
+	ctx context.Context,
+	name, description, code, serviceRole string,
 	inputs []InputDescription,
 	outputs []OutputDescription,
 	cwlOptions []CloudWatchLoggingOptionDesc,
@@ -429,17 +497,21 @@ func (b *InMemoryBackend) CreateApplication(
 		return nil, err
 	}
 
+	region := getRegion(ctx, b.defaultRegion)
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if len(b.apps) >= maxApplicationsPerRegion {
+	regionApps := b.appsStore(region)
+
+	if len(regionApps) >= maxApplicationsPerRegion {
 		return nil, fmt.Errorf(
 			"%w: maximum of %d applications per account/region",
 			ErrLimitExceeded, maxApplicationsPerRegion,
 		)
 	}
 
-	if _, exists := b.apps[name]; exists {
+	if _, exists := regionApps[name]; exists {
 		return nil, ErrAlreadyExists
 	}
 
@@ -449,7 +521,7 @@ func (b *InMemoryBackend) CreateApplication(
 
 	app := &Application{
 		ApplicationName:          name,
-		ApplicationARN:           applicationARN(region, accountID, name),
+		ApplicationARN:           applicationARN(region, b.accountID, name),
 		ApplicationDescription:   description,
 		ApplicationCode:          code,
 		ApplicationStatus:        statusReady,
@@ -480,22 +552,26 @@ func (b *InMemoryBackend) CreateApplication(
 		app.Outputs = append(app.Outputs, out)
 	}
 
-	b.apps[name] = app
-	b.appsByARN[app.ApplicationARN] = app
+	regionApps[name] = app
+	b.appsByARNStore(region)[app.ApplicationARN] = app
 
 	return appCopy(app), nil
 }
 
 // DeleteApplication marks an application for deletion (DELETING state) then removes it after a delay.
-func (b *InMemoryBackend) DeleteApplication(name string, createTimestamp *time.Time) error {
+func (b *InMemoryBackend) DeleteApplication(ctx context.Context, name string, createTimestamp *time.Time) error {
 	if createTimestamp == nil {
 		return fmt.Errorf("%w: CreateTimestamp is required", ErrValidation)
 	}
 
+	region := getRegion(ctx, b.defaultRegion)
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	app, exists := b.apps[name]
+	regionApps := b.appsStore(region)
+
+	app, exists := regionApps[name]
 	if !exists {
 		return ErrNotFound
 	}
@@ -508,9 +584,10 @@ func (b *InMemoryBackend) DeleteApplication(name string, createTimestamp *time.T
 	}
 
 	// Cancel any in-flight lifecycle goroutine.
-	if cancel, ok := b.cancelFuncs[name]; ok {
+	key := cancelKey(region, name)
+	if cancel, ok := b.cancelFuncs[key]; ok {
 		cancel()
-		delete(b.cancelFuncs, name)
+		delete(b.cancelFuncs, key)
 	}
 
 	now := time.Now().UTC()
@@ -518,14 +595,14 @@ func (b *InMemoryBackend) DeleteApplication(name string, createTimestamp *time.T
 	app.LastUpdateTimestamp = &now
 
 	appARN := app.ApplicationARN
-	ctx, cancel := context.WithCancel(context.Background())
-	b.cancelFuncs[name] = cancel
+	cancelCtx, cancel := context.WithCancel(context.Background())
+	b.cancelFuncs[key] = cancel
 
 	go func() {
 		defer cancel()
 
 		select {
-		case <-ctx.Done():
+		case <-cancelCtx.Done():
 			return
 		case <-time.After(transitionDelay):
 		}
@@ -533,20 +610,33 @@ func (b *InMemoryBackend) DeleteApplication(name string, createTimestamp *time.T
 		b.mu.Lock()
 		defer b.mu.Unlock()
 
-		delete(b.cancelFuncs, name)
-		delete(b.apps, name)
-		delete(b.appsByARN, appARN)
+		delete(b.cancelFuncs, key)
+
+		if b.apps[region] != nil {
+			delete(b.apps[region], name)
+		}
+
+		if b.appsByARN[region] != nil {
+			delete(b.appsByARN[region], appARN)
+		}
 	}()
 
 	return nil
 }
 
 // DescribeApplication returns a copy of the details for a Kinesis Analytics application.
-func (b *InMemoryBackend) DescribeApplication(name string) (*Application, error) {
+func (b *InMemoryBackend) DescribeApplication(ctx context.Context, name string) (*Application, error) {
+	region := getRegion(ctx, b.defaultRegion)
+
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	app, exists := b.apps[name]
+	regionApps := b.apps[region]
+	if regionApps == nil {
+		return nil, ErrNotFound
+	}
+
+	app, exists := regionApps[name]
 	if !exists {
 		return nil, ErrNotFound
 	}
@@ -555,7 +645,11 @@ func (b *InMemoryBackend) DescribeApplication(name string) (*Application, error)
 }
 
 // ListApplications returns paginated applications.
-func (b *InMemoryBackend) ListApplications(exclusiveStart string, limit int) ([]*Application, bool, error) {
+func (b *InMemoryBackend) ListApplications(
+	ctx context.Context,
+	exclusiveStart string,
+	limit int,
+) ([]*Application, bool, error) {
 	if limit < 0 {
 		return nil, false, fmt.Errorf("%w: Limit must be >= 0", ErrValidation)
 	}
@@ -568,12 +662,16 @@ func (b *InMemoryBackend) ListApplications(exclusiveStart string, limit int) ([]
 		limit = maxApplicationsPerRegion
 	}
 
+	region := getRegion(ctx, b.defaultRegion)
+
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	all := make([]*Application, 0, len(b.apps))
+	regionApps := b.apps[region]
 
-	for _, app := range b.apps {
+	all := make([]*Application, 0, len(regionApps))
+
+	for _, app := range regionApps {
 		all = append(all, app)
 	}
 
@@ -637,11 +735,15 @@ func findInputIndex(inputs []InputDescription, inputID string) int {
 }
 
 // StartApplication transitions an application to RUNNING via a STARTING transient state.
-func (b *InMemoryBackend) StartApplication(name string, inputConfigs []inputConfiguration) error {
+func (b *InMemoryBackend) StartApplication(ctx context.Context, name string, inputConfigs []inputConfiguration) error {
+	region := getRegion(ctx, b.defaultRegion)
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	app, exists := b.apps[name]
+	regionApps := b.appsStore(region)
+
+	app, exists := regionApps[name]
 	if !exists {
 		return ErrNotFound
 	}
@@ -659,17 +761,21 @@ func (b *InMemoryBackend) StartApplication(name string, inputConfigs []inputConf
 	app.ApplicationStatus = statusStarting
 	app.LastUpdateTimestamp = &now
 
-	b.launchTransition(name, statusRunning)
+	b.launchTransition(region, name, statusRunning)
 
 	return nil
 }
 
 // StopApplication transitions an application to READY via a STOPPING transient state.
-func (b *InMemoryBackend) StopApplication(name string) error {
+func (b *InMemoryBackend) StopApplication(ctx context.Context, name string) error {
+	region := getRegion(ctx, b.defaultRegion)
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	app, exists := b.apps[name]
+	regionApps := b.appsStore(region)
+
+	app, exists := regionApps[name]
 	if !exists {
 		return ErrNotFound
 	}
@@ -683,20 +789,22 @@ func (b *InMemoryBackend) StopApplication(name string) error {
 	app.ApplicationStatus = statusStopping
 	app.LastUpdateTimestamp = &now
 
-	b.launchTransition(name, statusReady)
+	b.launchTransition(region, name, statusReady)
 
 	return nil
 }
 
 // launchTransition starts a goroutine that moves app to targetStatus after transitionDelay.
 // Must be called under b.mu.
-func (b *InMemoryBackend) launchTransition(name, targetStatus string) {
-	if cancel, ok := b.cancelFuncs[name]; ok {
+func (b *InMemoryBackend) launchTransition(region, name, targetStatus string) {
+	key := cancelKey(region, name)
+
+	if cancel, ok := b.cancelFuncs[key]; ok {
 		cancel()
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	b.cancelFuncs[name] = cancel
+	b.cancelFuncs[key] = cancel
 
 	go func() {
 		defer cancel()
@@ -710,7 +818,11 @@ func (b *InMemoryBackend) launchTransition(name, targetStatus string) {
 		b.mu.Lock()
 		defer b.mu.Unlock()
 
-		app, exists := b.apps[name]
+		if b.apps[region] == nil {
+			return
+		}
+
+		app, exists := b.apps[region][name]
 		if !exists {
 			return
 		}
@@ -718,7 +830,7 @@ func (b *InMemoryBackend) launchTransition(name, targetStatus string) {
 		now := time.Now().UTC()
 		app.ApplicationStatus = targetStatus
 		app.LastUpdateTimestamp = &now
-		delete(b.cancelFuncs, name)
+		delete(b.cancelFuncs, key)
 	}()
 }
 
@@ -971,14 +1083,19 @@ func applyUpdate(app *Application, update *applicationUpdate) error {
 
 // UpdateApplication updates the application with the full update payload and bumps the version.
 func (b *InMemoryBackend) UpdateApplication(
+	ctx context.Context,
 	name string,
 	currentVersionID int64,
 	update *applicationUpdate,
 ) (*Application, error) {
+	region := getRegion(ctx, b.defaultRegion)
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	app, exists := b.apps[name]
+	regionApps := b.appsStore(region)
+
+	app, exists := regionApps[name]
 	if !exists {
 		return nil, ErrNotFound
 	}
@@ -1006,15 +1123,22 @@ func (b *InMemoryBackend) UpdateApplication(
 }
 
 // ListTagsForResource returns tags for a resource identified by ARN.
-func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]string, error) {
-	if err := b.validateARNShape(resourceARN); err != nil {
+func (b *InMemoryBackend) ListTagsForResource(ctx context.Context, resourceARN string) (map[string]string, error) {
+	region := getRegion(ctx, b.defaultRegion)
+
+	if err := b.validateARNShape(resourceARN, region); err != nil {
 		return nil, err
 	}
 
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	app, ok := b.appsByARN[resourceARN]
+	regionByARN := b.appsByARN[region]
+	if regionByARN == nil {
+		return nil, ErrNotFound
+	}
+
+	app, ok := regionByARN[resourceARN]
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -1026,15 +1150,22 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 }
 
 // TagResource adds or updates tags on a resource.
-func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string) error {
-	if err := b.validateARNShape(resourceARN); err != nil {
+func (b *InMemoryBackend) TagResource(ctx context.Context, resourceARN string, tags map[string]string) error {
+	region := getRegion(ctx, b.defaultRegion)
+
+	if err := b.validateARNShape(resourceARN, region); err != nil {
 		return err
 	}
 
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	app, ok := b.appsByARN[resourceARN]
+	regionByARN := b.appsByARN[region]
+	if regionByARN == nil {
+		return ErrNotFound
+	}
+
+	app, ok := regionByARN[resourceARN]
 	if !ok {
 		return ErrNotFound
 	}
@@ -1053,15 +1184,22 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 }
 
 // UntagResource removes tags from a resource.
-func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) error {
-	if err := b.validateARNShape(resourceARN); err != nil {
+func (b *InMemoryBackend) UntagResource(ctx context.Context, resourceARN string, tagKeys []string) error {
+	region := getRegion(ctx, b.defaultRegion)
+
+	if err := b.validateARNShape(resourceARN, region); err != nil {
 		return err
 	}
 
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	app, ok := b.appsByARN[resourceARN]
+	regionByARN := b.appsByARN[region]
+	if regionByARN == nil {
+		return ErrNotFound
+	}
+
+	app, ok := regionByARN[resourceARN]
 	if !ok {
 		return ErrNotFound
 	}
@@ -1232,18 +1370,30 @@ func checkAndBumpVersion(app *Application, currentVersionID int64) error {
 }
 
 // AddApplicationInternal is a test-only seed helper that stores an application directly.
+// The region is extracted from the application ARN.
 func (b *InMemoryBackend) AddApplicationInternal(app *Application) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	cp := appCopy(app)
-	b.apps[cp.ApplicationName] = cp
-	b.appsByARN[cp.ApplicationARN] = cp
+
+	// Extract region from ARN (format: arn:partition:service:region:account:resource).
+	region := b.defaultRegion
+	const arnFieldCount = 6
+
+	parts := strings.SplitN(cp.ApplicationARN, ":", arnFieldCount)
+
+	if len(parts) == arnFieldCount && parts[3] != "" {
+		region = parts[3]
+	}
+
+	b.appsStore(region)[cp.ApplicationName] = cp
+	b.appsByARNStore(region)[cp.ApplicationARN] = cp
 }
 
 // AddApplicationCloudWatchLoggingOption adds a CloudWatch logging option to an application.
 func (b *InMemoryBackend) AddApplicationCloudWatchLoggingOption(
-	name string, versionID int64, option CloudWatchLoggingOptionDesc,
+	ctx context.Context, name string, versionID int64, option CloudWatchLoggingOptionDesc,
 ) error {
 	if option.LogStreamARN == "" {
 		return fmt.Errorf("%w: CloudWatchLoggingOption.LogStreamARN is required", ErrValidation)
@@ -1253,10 +1403,12 @@ func (b *InMemoryBackend) AddApplicationCloudWatchLoggingOption(
 		return fmt.Errorf("%w: CloudWatchLoggingOption.RoleARN is required", ErrValidation)
 	}
 
+	region := getRegion(ctx, b.defaultRegion)
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	app, exists := b.apps[name]
+	app, exists := b.appsStore(region)[name]
 	if !exists {
 		return ErrNotFound
 	}
@@ -1281,12 +1433,14 @@ func (b *InMemoryBackend) AddApplicationCloudWatchLoggingOption(
 
 // AddApplicationInput adds an input configuration to an application.
 func (b *InMemoryBackend) AddApplicationInput(
-	name string, versionID int64, input InputDescription,
+	ctx context.Context, name string, versionID int64, input InputDescription,
 ) error {
+	region := getRegion(ctx, b.defaultRegion)
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	app, exists := b.apps[name]
+	app, exists := b.appsStore(region)[name]
 	if !exists {
 		return ErrNotFound
 	}
@@ -1307,12 +1461,14 @@ func (b *InMemoryBackend) AddApplicationInput(
 
 // AddApplicationInputProcessingConfiguration sets a processing configuration on an existing input.
 func (b *InMemoryBackend) AddApplicationInputProcessingConfiguration(
-	name string, versionID int64, inputID string, config *InputProcessingConfigurationDesc,
+	ctx context.Context, name string, versionID int64, inputID string, config *InputProcessingConfigurationDesc,
 ) error {
+	region := getRegion(ctx, b.defaultRegion)
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	app, exists := b.apps[name]
+	app, exists := b.appsStore(region)[name]
 	if !exists {
 		return ErrNotFound
 	}
@@ -1343,12 +1499,14 @@ func (b *InMemoryBackend) AddApplicationInputProcessingConfiguration(
 
 // AddApplicationOutput adds an output configuration to an application.
 func (b *InMemoryBackend) AddApplicationOutput(
-	name string, versionID int64, output OutputDescription,
+	ctx context.Context, name string, versionID int64, output OutputDescription,
 ) error {
+	region := getRegion(ctx, b.defaultRegion)
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	app, exists := b.apps[name]
+	app, exists := b.appsStore(region)[name]
 	if !exists {
 		return ErrNotFound
 	}
@@ -1369,12 +1527,14 @@ func (b *InMemoryBackend) AddApplicationOutput(
 
 // AddApplicationReferenceDataSource adds a reference data source to an application.
 func (b *InMemoryBackend) AddApplicationReferenceDataSource(
-	name string, versionID int64, ref ReferenceDataSourceDescription,
+	ctx context.Context, name string, versionID int64, ref ReferenceDataSourceDescription,
 ) error {
+	region := getRegion(ctx, b.defaultRegion)
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	app, exists := b.apps[name]
+	app, exists := b.appsStore(region)[name]
 	if !exists {
 		return ErrNotFound
 	}
@@ -1395,12 +1555,14 @@ func (b *InMemoryBackend) AddApplicationReferenceDataSource(
 
 // DeleteApplicationCloudWatchLoggingOption removes a CloudWatch logging option from an application.
 func (b *InMemoryBackend) DeleteApplicationCloudWatchLoggingOption(
-	name string, versionID int64, loggingOptionID string,
+	ctx context.Context, name string, versionID int64, loggingOptionID string,
 ) error {
+	region := getRegion(ctx, b.defaultRegion)
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	app, exists := b.apps[name]
+	app, exists := b.appsStore(region)[name]
 	if !exists {
 		return ErrNotFound
 	}
@@ -1434,12 +1596,14 @@ func (b *InMemoryBackend) DeleteApplicationCloudWatchLoggingOption(
 
 // DeleteApplicationInputProcessingConfiguration removes the processing config from an input.
 func (b *InMemoryBackend) DeleteApplicationInputProcessingConfiguration(
-	name string, versionID int64, inputID string,
+	ctx context.Context, name string, versionID int64, inputID string,
 ) error {
+	region := getRegion(ctx, b.defaultRegion)
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	app, exists := b.apps[name]
+	app, exists := b.appsStore(region)[name]
 	if !exists {
 		return ErrNotFound
 	}
@@ -1470,12 +1634,14 @@ func (b *InMemoryBackend) DeleteApplicationInputProcessingConfiguration(
 
 // DeleteApplicationOutput removes an output configuration from an application.
 func (b *InMemoryBackend) DeleteApplicationOutput(
-	name string, versionID int64, outputID string,
+	ctx context.Context, name string, versionID int64, outputID string,
 ) error {
+	region := getRegion(ctx, b.defaultRegion)
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	app, exists := b.apps[name]
+	app, exists := b.appsStore(region)[name]
 	if !exists {
 		return ErrNotFound
 	}
@@ -1506,12 +1672,14 @@ func (b *InMemoryBackend) DeleteApplicationOutput(
 
 // DeleteApplicationReferenceDataSource removes a reference data source from an application.
 func (b *InMemoryBackend) DeleteApplicationReferenceDataSource(
-	name string, versionID int64, referenceID string,
+	ctx context.Context, name string, versionID int64, referenceID string,
 ) error {
+	region := getRegion(ctx, b.defaultRegion)
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	app, exists := b.apps[name]
+	app, exists := b.appsStore(region)[name]
 	if !exists {
 		return ErrNotFound
 	}
@@ -1539,3 +1707,6 @@ func (b *InMemoryBackend) DeleteApplicationReferenceDataSource(
 
 	return nil
 }
+
+// Region returns the default region for this backend.
+func (b *InMemoryBackend) Region() string { return b.defaultRegion }

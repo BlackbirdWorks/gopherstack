@@ -1,6 +1,7 @@
 package kinesisanalytics_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -170,7 +171,7 @@ func TestRefinement1_SeedHelper_AddApplicationInternal(t *testing.T) {
 
 	assert.Equal(t, 1, kinesisanalytics.ApplicationCount(b))
 
-	app, err := b.DescribeApplication("seeded-app")
+	app, err := b.DescribeApplication(context.Background(), "seeded-app")
 	require.NoError(t, err)
 	assert.Equal(t, "seeded-app", app.ApplicationName)
 }
@@ -210,14 +211,14 @@ func TestRefinement1_DescribeApplication_ReturnsCopy(t *testing.T) {
 	b := newBackend()
 	_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "copy-app", "", "", map[string]string{"k": "v"})
 
-	app1, err := b.DescribeApplication("copy-app")
+	app1, err := b.DescribeApplication(context.Background(), "copy-app")
 	require.NoError(t, err)
 
 	// Mutating the returned copy must not affect the stored application.
 	app1.ApplicationName = "mutated"
 	app1.Tags["k"] = "mutated"
 
-	app2, err := b.DescribeApplication("copy-app")
+	app2, err := b.DescribeApplication(context.Background(), "copy-app")
 	require.NoError(t, err)
 
 	assert.Equal(t, "copy-app", app2.ApplicationName)
@@ -260,11 +261,11 @@ func TestRefinement1_VersionNotBumpedOnDeleteCWLNotFound(t *testing.T) {
 	_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "bump-test", "", "", nil)
 
 	// Try to delete a non-existent CWL option — version 1 passed.
-	err := b.DeleteApplicationCloudWatchLoggingOption("bump-test", 1, "nonexistent-cwl-id")
+	err := b.DeleteApplicationCloudWatchLoggingOption(context.Background(), "bump-test", 1, "nonexistent-cwl-id")
 	require.ErrorIs(t, err, kinesisanalytics.ErrNotFound)
 
 	// Version should still be 1 (not bumped) so the next version-1 call succeeds.
-	app, err := b.DescribeApplication("bump-test")
+	app, err := b.DescribeApplication(context.Background(), "bump-test")
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), app.ApplicationVersionID)
 }
@@ -276,10 +277,10 @@ func TestRefinement1_VersionNotBumpedOnDeleteOutputNotFound(t *testing.T) {
 	b := newBackend()
 	_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "out-bump", "", "", nil)
 
-	err := b.DeleteApplicationOutput("out-bump", 1, "nonexistent-output-id")
+	err := b.DeleteApplicationOutput(context.Background(), "out-bump", 1, "nonexistent-output-id")
 	require.ErrorIs(t, err, kinesisanalytics.ErrNotFound)
 
-	app, _ := b.DescribeApplication("out-bump")
+	app, _ := b.DescribeApplication(context.Background(), "out-bump")
 	assert.Equal(t, int64(1), app.ApplicationVersionID)
 }
 
@@ -290,10 +291,10 @@ func TestRefinement1_VersionNotBumpedOnDeleteRefNotFound(t *testing.T) {
 	b := newBackend()
 	_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "ref-bump", "", "", nil)
 
-	err := b.DeleteApplicationReferenceDataSource("ref-bump", 1, "nonexistent-ref-id")
+	err := b.DeleteApplicationReferenceDataSource(context.Background(), "ref-bump", 1, "nonexistent-ref-id")
 	require.ErrorIs(t, err, kinesisanalytics.ErrNotFound)
 
-	app, _ := b.DescribeApplication("ref-bump")
+	app, _ := b.DescribeApplication(context.Background(), "ref-bump")
 	assert.Equal(t, int64(1), app.ApplicationVersionID)
 }
 
@@ -304,10 +305,16 @@ func TestRefinement1_VersionNotBumpedOnAddInputProcConfigNotFound(t *testing.T) 
 	b := newBackend()
 	_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "ipc-bump", "", "", nil)
 
-	err := b.AddApplicationInputProcessingConfiguration("ipc-bump", 1, "nonexistent-input-id", nil)
+	err := b.AddApplicationInputProcessingConfiguration(
+		context.Background(),
+		"ipc-bump",
+		1,
+		"nonexistent-input-id",
+		nil,
+	)
 	require.ErrorIs(t, err, kinesisanalytics.ErrNotFound)
 
-	app, _ := b.DescribeApplication("ipc-bump")
+	app, _ := b.DescribeApplication(context.Background(), "ipc-bump")
 	assert.Equal(t, int64(1), app.ApplicationVersionID)
 }
 
@@ -331,7 +338,7 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 				app, _ := kinesisanalytics.CreateApp(b, testRegion, testAccountID, "persist-1", "desc", "SELECT 1",
 					map[string]string{"env": "test"})
 				// Add a sub-resource to exercise nextID persistence.
-				_ = b.AddApplicationCloudWatchLoggingOption("persist-1", app.ApplicationVersionID,
+				_ = b.AddApplicationCloudWatchLoggingOption(context.Background(), "persist-1", app.ApplicationVersionID,
 					kinesisanalytics.CloudWatchLoggingOptionDesc{
 						LogStreamARN: "arn:aws:logs:us-east-1:000:log-group:x:log-stream:y",
 						RoleARN:      "arn:aws:iam::000000000000:role/r",
@@ -358,18 +365,22 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 			assert.Equal(t, tt.wantLen, kinesisanalytics.ApplicationCount(b2))
 
 			if tt.wantLen > 0 {
-				app, err := b2.DescribeApplication("persist-1")
+				app, err := b2.DescribeApplication(context.Background(), "persist-1")
 				require.NoError(t, err)
 				assert.Equal(t, "test", app.Tags["env"])
 				assert.Len(t, app.CloudWatchLoggingOptions, 1)
 
 				// nextID is preserved: next allocation should not collide with existing IDs.
-				_ = b2.AddApplicationCloudWatchLoggingOption("persist-1", app.ApplicationVersionID,
+				_ = b2.AddApplicationCloudWatchLoggingOption(
+					context.Background(),
+					"persist-1",
+					app.ApplicationVersionID,
 					kinesisanalytics.CloudWatchLoggingOptionDesc{
 						LogStreamARN: "arn:aws:logs:us-east-1:000000000000:log-group:g2:log-stream:s2",
 						RoleARN:      "arn:aws:iam::000000000000:role/r",
-					})
-				app2, _ := b2.DescribeApplication("persist-1")
+					},
+				)
+				app2, _ := b2.DescribeApplication(context.Background(), "persist-1")
 				// The new option must have a different ID from the restored one.
 				assert.NotEqual(t, app.CloudWatchLoggingOptions[0].CloudWatchLoggingOptionID,
 					app2.CloudWatchLoggingOptions[1].CloudWatchLoggingOptionID)
@@ -551,21 +562,26 @@ func TestRefinement1_DeleteCWLRoundTrip(t *testing.T) {
 	app, _ := kinesisanalytics.CreateApp(b, testRegion, testAccountID, "del-cwl-app", "", "", nil)
 
 	// Add a CWL option.
-	_ = b.AddApplicationCloudWatchLoggingOption(app.ApplicationName, app.ApplicationVersionID,
+	_ = b.AddApplicationCloudWatchLoggingOption(context.Background(), app.ApplicationName, app.ApplicationVersionID,
 		kinesisanalytics.CloudWatchLoggingOptionDesc{
 			LogStreamARN: "arn:aws:logs:us-east-1:000:log-group:g:log-stream:s",
 			RoleARN:      "arn:aws:iam::000000000000:role/r",
 		})
 
-	app2, _ := b.DescribeApplication(app.ApplicationName)
+	app2, _ := b.DescribeApplication(context.Background(), app.ApplicationName)
 	require.Len(t, app2.CloudWatchLoggingOptions, 1)
 	cwlID := app2.CloudWatchLoggingOptions[0].CloudWatchLoggingOptionID
 
 	// Delete it.
-	err := b.DeleteApplicationCloudWatchLoggingOption(app.ApplicationName, app2.ApplicationVersionID, cwlID)
+	err := b.DeleteApplicationCloudWatchLoggingOption(
+		context.Background(),
+		app.ApplicationName,
+		app2.ApplicationVersionID,
+		cwlID,
+	)
 	require.NoError(t, err)
 
-	app3, _ := b.DescribeApplication(app.ApplicationName)
+	app3, _ := b.DescribeApplication(context.Background(), app.ApplicationName)
 	assert.Empty(t, app3.CloudWatchLoggingOptions)
 }
 
@@ -630,7 +646,7 @@ func TestRefinement1_ListApplications_Pagination(t *testing.T) {
 	_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "page-c", "", "", nil)
 
 	// Request page 2 starting after "page-a".
-	apps, hasMore, _ := b.ListApplications("page-a", 1)
+	apps, hasMore, _ := b.ListApplications(context.Background(), "page-a", 1)
 	assert.Len(t, apps, 1)
 	assert.Equal(t, "page-b", apps[0].ApplicationName)
 	assert.True(t, hasMore)
@@ -663,7 +679,7 @@ func TestRefinement1_UpdateApplication_BumpsVersion(t *testing.T) {
 	_, err := kinesisanalytics.UpdateAppCode(b, "ver-bump", 1, "SELECT 2")
 	require.NoError(t, err)
 
-	app2, _ := b.DescribeApplication("ver-bump")
+	app2, _ := b.DescribeApplication(context.Background(), "ver-bump")
 	assert.Equal(t, int64(2), app2.ApplicationVersionID)
 	assert.Equal(t, "SELECT 2", app2.ApplicationCode)
 }
@@ -712,32 +728,42 @@ func TestRefinement1_DeepCopyInput(t *testing.T) {
 	app, _ := kinesisanalytics.CreateApp(b, testRegion, testAccountID, "dc-input-app", "", "", nil)
 
 	// Add input.
-	_ = b.AddApplicationInput("dc-input-app", app.ApplicationVersionID, kinesisanalytics.InputDescription{
-		NamePrefix: "src_",
-		KinesisStreamsInputDescription: &kinesisanalytics.KinesisStreamsInputDesc{
-			ResourceARN: "arn:aws:kinesis:us-east-1:000:stream/st",
+	_ = b.AddApplicationInput(
+		context.Background(),
+		"dc-input-app",
+		app.ApplicationVersionID,
+		kinesisanalytics.InputDescription{
+			NamePrefix: "src_",
+			KinesisStreamsInputDescription: &kinesisanalytics.KinesisStreamsInputDesc{
+				ResourceARN: "arn:aws:kinesis:us-east-1:000:stream/st",
+			},
 		},
-	})
+	)
 
 	// Add processing config to the input.
-	app2, _ := b.DescribeApplication("dc-input-app")
+	app2, _ := b.DescribeApplication(context.Background(), "dc-input-app")
 	inputID := app2.Inputs[0].InputID
 
-	_ = b.AddApplicationInputProcessingConfiguration("dc-input-app", app2.ApplicationVersionID, inputID,
+	_ = b.AddApplicationInputProcessingConfiguration(
+		context.Background(),
+		"dc-input-app",
+		app2.ApplicationVersionID,
+		inputID,
 		&kinesisanalytics.InputProcessingConfigurationDesc{
 			InputLambdaProcessor: &kinesisanalytics.LambdaProcessorDesc{
 				ResourceARN: "arn:aws:lambda:us-east-1:000:function:fn",
 			},
-		})
+		},
+	)
 
-	app3, _ := b.DescribeApplication("dc-input-app")
+	app3, _ := b.DescribeApplication(context.Background(), "dc-input-app")
 	require.Len(t, app3.Inputs, 1)
 	require.NotNil(t, app3.Inputs[0].InputProcessingConfigurationDescription)
 
 	// Mutate the copy — original must be unaffected.
 	app3.Inputs[0].InputProcessingConfigurationDescription.InputLambdaProcessor.ResourceARN = "mutated"
 
-	app4, _ := b.DescribeApplication("dc-input-app")
+	app4, _ := b.DescribeApplication(context.Background(), "dc-input-app")
 	assert.Equal(
 		t,
 		"arn:aws:lambda:us-east-1:000:function:fn",

@@ -1,6 +1,7 @@
 package kinesisanalytics_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -116,7 +117,7 @@ func TestInMemoryBackend_DeleteApplication(t *testing.T) {
 				ts = app.CreateTimestamp
 			}
 
-			err := b.DeleteApplication(tt.appName, ts)
+			err := b.DeleteApplication(context.Background(), tt.appName, ts)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -136,7 +137,7 @@ func TestInMemoryBackend_DeleteApplication_NilTimestamp(t *testing.T) {
 	_, err := kinesisanalytics.CreateApp(b, testRegion, testAccountID, "del-nil-ts", "", "", nil)
 	require.NoError(t, err)
 
-	err = b.DeleteApplication("del-nil-ts", nil)
+	err = b.DeleteApplication(context.Background(), "del-nil-ts", nil)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, awserr.ErrInvalidParameter)
 }
@@ -176,7 +177,7 @@ func TestInMemoryBackend_DescribeApplication(t *testing.T) {
 				tt.setup(b)
 			}
 
-			app, err := b.DescribeApplication(tt.appName)
+			app, err := b.DescribeApplication(context.Background(), tt.appName)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -234,7 +235,7 @@ func TestInMemoryBackend_ListApplications(t *testing.T) {
 			b := newBackend()
 			tt.setup(b)
 
-			apps, hasMore, err := b.ListApplications(tt.exclusiveStart, tt.limit)
+			apps, hasMore, err := b.ListApplications(context.Background(), tt.exclusiveStart, tt.limit)
 			require.NoError(t, err)
 			assert.Len(t, apps, tt.wantCount)
 			assert.Equal(t, tt.wantHasMore, hasMore)
@@ -315,7 +316,7 @@ func TestInMemoryBackend_StopApplication(t *testing.T) {
 			b := newBackend()
 			tt.setup(t, b)
 
-			err := b.StopApplication(tt.appName)
+			err := b.StopApplication(context.Background(), tt.appName)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -459,7 +460,7 @@ func TestInMemoryBackend_TagOperations(t *testing.T) {
 
 			switch tt.op {
 			case "list":
-				tags, listErr := b.ListTagsForResource(resourceARN)
+				tags, listErr := b.ListTagsForResource(context.Background(), resourceARN)
 				err = listErr
 
 				if !tt.wantErr {
@@ -467,19 +468,19 @@ func TestInMemoryBackend_TagOperations(t *testing.T) {
 					assert.Equal(t, tt.wantTags, tags)
 				}
 			case "tag":
-				err = b.TagResource(resourceARN, tt.tags)
+				err = b.TagResource(context.Background(), resourceARN, tt.tags)
 
 				if !tt.wantErr {
 					require.NoError(t, err)
-					tags, _ := b.ListTagsForResource(resourceARN)
+					tags, _ := b.ListTagsForResource(context.Background(), resourceARN)
 					assert.Equal(t, tt.wantTags, tags)
 				}
 			case "untag":
-				err = b.UntagResource(resourceARN, tt.tagKeys)
+				err = b.UntagResource(context.Background(), resourceARN, tt.tagKeys)
 
 				if !tt.wantErr {
 					require.NoError(t, err)
-					tags, _ := b.ListTagsForResource(resourceARN)
+					tags, _ := b.ListTagsForResource(context.Background(), resourceARN)
 					assert.Equal(t, tt.wantTags, tags)
 				}
 			}
@@ -531,7 +532,7 @@ func TestInMemoryBackend_ListApplications_ExclusiveStart(t *testing.T) {
 			b := newBackend()
 			tt.setup(b)
 
-			apps, _, err := b.ListApplications(tt.exclusiveStart, 0)
+			apps, _, err := b.ListApplications(context.Background(), tt.exclusiveStart, 0)
 			require.NoError(t, err)
 			assert.GreaterOrEqual(t, len(apps), tt.wantCountMin)
 		})
@@ -545,10 +546,10 @@ func TestInMemoryBackend_TagResource_InitNil(t *testing.T) {
 	app, err := kinesisanalytics.CreateApp(b, testRegion, testAccountID, "nil-tag-app", "", "", nil)
 	require.NoError(t, err)
 
-	err = b.TagResource(app.ApplicationARN, map[string]string{"key": "val"})
+	err = b.TagResource(context.Background(), app.ApplicationARN, map[string]string{"key": "val"})
 	require.NoError(t, err)
 
-	tags, err := b.ListTagsForResource(app.ApplicationARN)
+	tags, err := b.ListTagsForResource(context.Background(), app.ApplicationARN)
 	require.NoError(t, err)
 	assert.Equal(t, "val", tags["key"])
 }
@@ -593,19 +594,19 @@ func TestInMemoryBackend_PersistenceSnapshotRestore(t *testing.T) {
 			b2 := newBackend()
 			require.NoError(t, b2.Restore(snap))
 
-			apps, _, err := b2.ListApplications("", 0)
+			apps, _, err := b2.ListApplications(context.Background(), "", 0)
 			require.NoError(t, err)
 			require.Len(t, apps, tt.wantLen)
 
 			// Verify appsByARN index is rebuilt: tag operations should work via ARN.
 			if tt.wantLen > 0 {
-				descApp, descErr := b2.DescribeApplication("persist-app-1")
+				descApp, descErr := b2.DescribeApplication(context.Background(), "persist-app-1")
 				require.NoError(t, descErr)
 
-				tagErr := b2.TagResource(descApp.ApplicationARN, map[string]string{"new": "tag"})
+				tagErr := b2.TagResource(context.Background(), descApp.ApplicationARN, map[string]string{"new": "tag"})
 				require.NoError(t, tagErr)
 
-				tags, listErr := b2.ListTagsForResource(descApp.ApplicationARN)
+				tags, listErr := b2.ListTagsForResource(context.Background(), descApp.ApplicationARN)
 				require.NoError(t, listErr)
 				assert.Equal(t, "tag", tags["new"])
 				assert.Equal(t, "test", tags["env"])
@@ -654,7 +655,7 @@ func TestInMemoryBackend_ApplicationLimits(t *testing.T) {
 			t.Parallel()
 
 			b := newBackend()
-			_, _, err := b.ListApplications("", tt.limit)
+			_, _, err := b.ListApplications(context.Background(), "", tt.limit)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -712,7 +713,7 @@ func TestInMemoryBackend_ARNValidation(t *testing.T) {
 			t.Parallel()
 
 			b := newBackend()
-			_, err := b.ListTagsForResource(tt.arn)
+			_, err := b.ListTagsForResource(context.Background(), tt.arn)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -795,7 +796,7 @@ func TestInMemoryBackend_TagKeyValidation(t *testing.T) {
 			app, err := kinesisanalytics.CreateApp(b, testRegion, testAccountID, "tag-valid-app", "", "", nil)
 			require.NoError(t, err)
 
-			err = b.TagResource(app.ApplicationARN, tt.tags)
+			err = b.TagResource(context.Background(), app.ApplicationARN, tt.tags)
 
 			if tt.wantErr {
 				require.Error(t, err)
