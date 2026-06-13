@@ -1,6 +1,7 @@
 package ec2_test
 
 import (
+	"context"
 	"log/slog"
 	"testing"
 	"time"
@@ -61,6 +62,7 @@ func TestEC2Provider_Init_WithConfigProvider(t *testing.T) {
 
 			h, ok := svc.(*ec2.Handler)
 			require.True(t, ok)
+			t.Cleanup(func() { h.Shutdown(context.Background()) })
 			assert.Equal(t, tt.wantInterval, h.GetJanitorInterval())
 			assert.Equal(t, tt.wantTerminatedTTL, h.GetJanitorTerminatedTTL())
 			assert.Equal(t, tt.wantCancelledSpotTTL, h.GetJanitorCancelledSpotTTL())

@@ -173,11 +173,17 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		// Resolve the per-request region (from SigV4 / X-Amz-Region) and attach
+		// it to the context so backend operations are region-scoped.
+		region := httputils.ExtractRegionFromRequest(c.Request(), h.DefaultRegion)
+
 		return service.HandleTarget(
 			c, logger.Load(c.Request().Context()),
 			"KinesisAnalytics", "application/x-amz-json-1.1",
 			h.GetSupportedOperations(),
-			h.dispatch,
+			func(ctx context.Context, action string, body []byte) ([]byte, error) {
+				return h.dispatch(context.WithValue(ctx, regionContextKey{}, region), action, body)
+			},
 			h.handleError,
 		)
 	}
@@ -244,7 +250,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 }
 
 func (h *Handler) handleCreateApplication(
-	_ context.Context,
+	ctx context.Context,
 	in *createApplicationInput,
 ) (*createApplicationOutput, error) {
 	if in.ApplicationName == "" {
@@ -297,8 +303,7 @@ func (h *Handler) handleCreateApplication(
 	}
 
 	app, err := h.Backend.CreateApplication(
-		h.DefaultRegion,
-		h.AccountID,
+		ctx,
 		in.ApplicationName,
 		in.ApplicationDescription,
 		in.ApplicationCode,
@@ -322,7 +327,7 @@ func (h *Handler) handleCreateApplication(
 }
 
 func (h *Handler) handleDeleteApplication(
-	_ context.Context,
+	ctx context.Context,
 	in *deleteApplicationInput,
 ) (*struct{}, error) {
 	if in.ApplicationName == "" {
@@ -335,7 +340,7 @@ func (h *Handler) handleDeleteApplication(
 
 	ts := time.Unix(int64(in.CreateTimestamp), 0).UTC()
 
-	if err := h.Backend.DeleteApplication(in.ApplicationName, &ts); err != nil {
+	if err := h.Backend.DeleteApplication(ctx, in.ApplicationName, &ts); err != nil {
 		return nil, err
 	}
 
@@ -343,14 +348,14 @@ func (h *Handler) handleDeleteApplication(
 }
 
 func (h *Handler) handleDescribeApplication(
-	_ context.Context,
+	ctx context.Context,
 	in *describeApplicationInput,
 ) (*describeApplicationOutput, error) {
 	if in.ApplicationName == "" {
 		return nil, errApplicationName
 	}
 
-	app, err := h.Backend.DescribeApplication(in.ApplicationName)
+	app, err := h.Backend.DescribeApplication(ctx, in.ApplicationName)
 	if err != nil {
 		return nil, err
 	}
@@ -361,10 +366,10 @@ func (h *Handler) handleDescribeApplication(
 }
 
 func (h *Handler) handleListApplications(
-	_ context.Context,
+	ctx context.Context,
 	in *listApplicationsInput,
 ) (*listApplicationsOutput, error) {
-	apps, hasMore, err := h.Backend.ListApplications(in.ExclusiveStartApplicationName, in.Limit)
+	apps, hasMore, err := h.Backend.ListApplications(ctx, in.ExclusiveStartApplicationName, in.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -386,14 +391,14 @@ func (h *Handler) handleListApplications(
 }
 
 func (h *Handler) handleStartApplication(
-	_ context.Context,
+	ctx context.Context,
 	in *startApplicationInput,
 ) (*struct{}, error) {
 	if in.ApplicationName == "" {
 		return nil, errApplicationName
 	}
 
-	if err := h.Backend.StartApplication(in.ApplicationName, in.InputConfigurations); err != nil {
+	if err := h.Backend.StartApplication(ctx, in.ApplicationName, in.InputConfigurations); err != nil {
 		return nil, err
 	}
 
@@ -401,14 +406,14 @@ func (h *Handler) handleStartApplication(
 }
 
 func (h *Handler) handleStopApplication(
-	_ context.Context,
+	ctx context.Context,
 	in *stopApplicationInput,
 ) (*struct{}, error) {
 	if in.ApplicationName == "" {
 		return nil, errApplicationName
 	}
 
-	if err := h.Backend.StopApplication(in.ApplicationName); err != nil {
+	if err := h.Backend.StopApplication(ctx, in.ApplicationName); err != nil {
 		return nil, err
 	}
 
@@ -416,7 +421,7 @@ func (h *Handler) handleStopApplication(
 }
 
 func (h *Handler) handleUpdateApplication(
-	_ context.Context,
+	ctx context.Context,
 	in *updateApplicationInput,
 ) (*struct{}, error) {
 	if in.ApplicationName == "" {
@@ -424,6 +429,7 @@ func (h *Handler) handleUpdateApplication(
 	}
 
 	if _, err := h.Backend.UpdateApplication(
+		ctx,
 		in.ApplicationName,
 		in.CurrentApplicationVersionID,
 		in.ApplicationUpdate,
@@ -435,14 +441,14 @@ func (h *Handler) handleUpdateApplication(
 }
 
 func (h *Handler) handleListTagsForResource(
-	_ context.Context,
+	ctx context.Context,
 	in *listTagsForResourceInput,
 ) (*listTagsForResourceOutput, error) {
 	if in.ResourceARN == "" {
 		return nil, errResourceARN
 	}
 
-	tagMap, err := h.Backend.ListTagsForResource(in.ResourceARN)
+	tagMap, err := h.Backend.ListTagsForResource(ctx, in.ResourceARN)
 	if err != nil {
 		return nil, err
 	}
@@ -465,7 +471,7 @@ func (h *Handler) handleListTagsForResource(
 }
 
 func (h *Handler) handleTagResource(
-	_ context.Context,
+	ctx context.Context,
 	in *tagResourceInput,
 ) (*struct{}, error) {
 	if in.ResourceARN == "" {
@@ -478,7 +484,7 @@ func (h *Handler) handleTagResource(
 		tagMap[t.Key] = t.Value
 	}
 
-	if err := h.Backend.TagResource(in.ResourceARN, tagMap); err != nil {
+	if err := h.Backend.TagResource(ctx, in.ResourceARN, tagMap); err != nil {
 		return nil, err
 	}
 
@@ -486,14 +492,14 @@ func (h *Handler) handleTagResource(
 }
 
 func (h *Handler) handleUntagResource(
-	_ context.Context,
+	ctx context.Context,
 	in *untagResourceInput,
 ) (*struct{}, error) {
 	if in.ResourceARN == "" {
 		return nil, errResourceARN
 	}
 
-	if err := h.Backend.UntagResource(in.ResourceARN, in.TagKeys); err != nil {
+	if err := h.Backend.UntagResource(ctx, in.ResourceARN, in.TagKeys); err != nil {
 		return nil, err
 	}
 
@@ -530,7 +536,7 @@ func toApplicationDetail(app *Application) applicationDetail {
 }
 
 func (h *Handler) handleAddApplicationCloudWatchLoggingOption(
-	_ context.Context,
+	ctx context.Context,
 	in *addApplicationCloudWatchLoggingOptionInput,
 ) (*struct{}, error) {
 	if in.ApplicationName == "" {
@@ -555,7 +561,7 @@ func (h *Handler) handleAddApplicationCloudWatchLoggingOption(
 	}
 
 	if err := h.Backend.AddApplicationCloudWatchLoggingOption(
-		in.ApplicationName, in.CurrentApplicationVersionID, opt,
+		ctx, in.ApplicationName, in.CurrentApplicationVersionID, opt,
 	); err != nil {
 		return nil, err
 	}
@@ -564,7 +570,7 @@ func (h *Handler) handleAddApplicationCloudWatchLoggingOption(
 }
 
 func (h *Handler) handleAddApplicationInput(
-	_ context.Context,
+	ctx context.Context,
 	in *addApplicationInputInput,
 ) (*struct{}, error) {
 	if in.ApplicationName == "" {
@@ -581,7 +587,7 @@ func (h *Handler) handleAddApplicationInput(
 	}
 
 	if addErr := h.Backend.AddApplicationInput(
-		in.ApplicationName, in.CurrentApplicationVersionID, desc,
+		ctx, in.ApplicationName, in.CurrentApplicationVersionID, desc,
 	); addErr != nil {
 		return nil, addErr
 	}
@@ -590,7 +596,7 @@ func (h *Handler) handleAddApplicationInput(
 }
 
 func (h *Handler) handleAddApplicationInputProcessingConfiguration(
-	_ context.Context,
+	ctx context.Context,
 	in *addApplicationInputProcessingConfigurationInput,
 ) (*struct{}, error) {
 	if in.ApplicationName == "" {
@@ -608,7 +614,7 @@ func (h *Handler) handleAddApplicationInputProcessingConfiguration(
 	}
 
 	if err := h.Backend.AddApplicationInputProcessingConfiguration(
-		in.ApplicationName, in.CurrentApplicationVersionID, in.InputID, cfg,
+		ctx, in.ApplicationName, in.CurrentApplicationVersionID, in.InputID, cfg,
 	); err != nil {
 		return nil, err
 	}
@@ -617,7 +623,7 @@ func (h *Handler) handleAddApplicationInputProcessingConfiguration(
 }
 
 func (h *Handler) handleAddApplicationOutput(
-	_ context.Context,
+	ctx context.Context,
 	in *addApplicationOutputInput,
 ) (*struct{}, error) {
 	if in.ApplicationName == "" {
@@ -630,7 +636,7 @@ func (h *Handler) handleAddApplicationOutput(
 	}
 
 	if addErr := h.Backend.AddApplicationOutput(
-		in.ApplicationName, in.CurrentApplicationVersionID, desc,
+		ctx, in.ApplicationName, in.CurrentApplicationVersionID, desc,
 	); addErr != nil {
 		return nil, addErr
 	}
@@ -639,7 +645,7 @@ func (h *Handler) handleAddApplicationOutput(
 }
 
 func (h *Handler) handleAddApplicationReferenceDataSource(
-	_ context.Context,
+	ctx context.Context,
 	in *addApplicationReferenceDataSourceInput,
 ) (*struct{}, error) {
 	if in.ApplicationName == "" {
@@ -689,7 +695,7 @@ func (h *Handler) handleAddApplicationReferenceDataSource(
 	ref.ReferenceSchema = &schema
 
 	if err := h.Backend.AddApplicationReferenceDataSource(
-		in.ApplicationName, in.CurrentApplicationVersionID, ref,
+		ctx, in.ApplicationName, in.CurrentApplicationVersionID, ref,
 	); err != nil {
 		return nil, err
 	}
@@ -698,7 +704,7 @@ func (h *Handler) handleAddApplicationReferenceDataSource(
 }
 
 func (h *Handler) handleDeleteApplicationCloudWatchLoggingOption(
-	_ context.Context,
+	ctx context.Context,
 	in *deleteApplicationCloudWatchLoggingOptionInput,
 ) (*struct{}, error) {
 	if in.ApplicationName == "" {
@@ -710,7 +716,7 @@ func (h *Handler) handleDeleteApplicationCloudWatchLoggingOption(
 	}
 
 	if err := h.Backend.DeleteApplicationCloudWatchLoggingOption(
-		in.ApplicationName, in.CurrentApplicationVersionID, in.CloudWatchLoggingOptionID,
+		ctx, in.ApplicationName, in.CurrentApplicationVersionID, in.CloudWatchLoggingOptionID,
 	); err != nil {
 		return nil, err
 	}
@@ -719,7 +725,7 @@ func (h *Handler) handleDeleteApplicationCloudWatchLoggingOption(
 }
 
 func (h *Handler) handleDeleteApplicationInputProcessingConfiguration(
-	_ context.Context,
+	ctx context.Context,
 	in *deleteApplicationInputProcessingConfigurationInput,
 ) (*struct{}, error) {
 	if in.ApplicationName == "" {
@@ -731,7 +737,7 @@ func (h *Handler) handleDeleteApplicationInputProcessingConfiguration(
 	}
 
 	if err := h.Backend.DeleteApplicationInputProcessingConfiguration(
-		in.ApplicationName, in.CurrentApplicationVersionID, in.InputID,
+		ctx, in.ApplicationName, in.CurrentApplicationVersionID, in.InputID,
 	); err != nil {
 		return nil, err
 	}
@@ -740,7 +746,7 @@ func (h *Handler) handleDeleteApplicationInputProcessingConfiguration(
 }
 
 func (h *Handler) handleDeleteApplicationOutput(
-	_ context.Context,
+	ctx context.Context,
 	in *deleteApplicationOutputInput,
 ) (*struct{}, error) {
 	if in.ApplicationName == "" {
@@ -752,7 +758,7 @@ func (h *Handler) handleDeleteApplicationOutput(
 	}
 
 	if err := h.Backend.DeleteApplicationOutput(
-		in.ApplicationName, in.CurrentApplicationVersionID, in.OutputID,
+		ctx, in.ApplicationName, in.CurrentApplicationVersionID, in.OutputID,
 	); err != nil {
 		return nil, err
 	}
@@ -761,7 +767,7 @@ func (h *Handler) handleDeleteApplicationOutput(
 }
 
 func (h *Handler) handleDeleteApplicationReferenceDataSource(
-	_ context.Context,
+	ctx context.Context,
 	in *deleteApplicationReferenceDataSourceInput,
 ) (*struct{}, error) {
 	if in.ApplicationName == "" {
@@ -773,7 +779,7 @@ func (h *Handler) handleDeleteApplicationReferenceDataSource(
 	}
 
 	if err := h.Backend.DeleteApplicationReferenceDataSource(
-		in.ApplicationName, in.CurrentApplicationVersionID, in.ReferenceID,
+		ctx, in.ApplicationName, in.CurrentApplicationVersionID, in.ReferenceID,
 	); err != nil {
 		return nil, err
 	}
