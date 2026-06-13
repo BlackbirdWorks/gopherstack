@@ -2096,26 +2096,26 @@ func buildResetHandler(services []service.Registerable) echo.HandlerFunc {
 // Snapshot() method, embedded verbatim so that round-trips are lossless and the
 // payload stays human-readable without an extra base64 layer.
 type snapshotBundle struct {
-	// Format is a fixed version tag; currently "gopherstack-snapshot/v1".
-	Format string `json:"format"`
 	// Services maps each registered service name to its raw JSON snapshot.
 	Services map[string]json.RawMessage `json:"services"`
+	// Format is a fixed version tag; currently "gopherstack-snapshot/v1".
+	Format string `json:"format"`
 }
 
 // snapshotResponse is the JSON body returned by POST /_gopherstack/snapshot.
 type snapshotResponse struct {
 	snapshotBundle
+	Status string `json:"status"`
 	// Exported is the number of services whose snapshots were included.
-	Exported int    `json:"exported"`
-	Status   string `json:"status"`
+	Exported int `json:"exported"`
 }
 
 // loadResponse is the JSON body returned by POST /_gopherstack/load.
 type loadResponse struct {
-	// Loaded is the number of services successfully restored.
-	Loaded  int    `json:"loaded"`
 	Status  string `json:"status"`
 	Message string `json:"message"`
+	// Loaded is the number of services successfully restored.
+	Loaded int `json:"loaded"`
 }
 
 // snapshotBundleFormat is the format identifier embedded in every snapshot bundle.
