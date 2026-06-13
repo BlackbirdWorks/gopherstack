@@ -1,5 +1,11 @@
 package bedrockagent
 
 // Exported for testing.
-var NewTestBackend = NewInMemoryBackend
-var NewTestHandler = NewHandler
+
+func NewTestBackend(region, accountID string) *InMemoryBackend {
+	return NewInMemoryBackend(region, accountID)
+}
+
+func NewTestHandler(b StorageBackend) *Handler {
+	return NewHandler(b)
+}

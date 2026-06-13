@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -22,81 +23,81 @@ import (
 // ---------------------------------------------------------------------------
 
 const (
-	opCreateAgent                  = "CreateAgent"
-	opGetAgent                     = "GetAgent"
-	opUpdateAgent                  = "UpdateAgent"
-	opDeleteAgent                  = "DeleteAgent"
-	opListAgents                   = "ListAgents"
-	opPrepareAgent                 = "PrepareAgent"
-	opCreateAgentVersion           = "CreateAgentVersion"
-	opGetAgentVersion              = "GetAgentVersion"
-	opDeleteAgentVersion           = "DeleteAgentVersion"
-	opListAgentVersions            = "ListAgentVersions"
-	opCreateAgentActionGroup       = "CreateAgentActionGroup"
-	opGetAgentActionGroup          = "GetAgentActionGroup"
-	opUpdateAgentActionGroup       = "UpdateAgentActionGroup"
-	opDeleteAgentActionGroup       = "DeleteAgentActionGroup"
-	opListAgentActionGroups        = "ListAgentActionGroups"
-	opCreateAgentAlias             = "CreateAgentAlias"
-	opGetAgentAlias                = "GetAgentAlias"
-	opUpdateAgentAlias             = "UpdateAgentAlias"
-	opDeleteAgentAlias             = "DeleteAgentAlias"
-	opListAgentAliases             = "ListAgentAliases"
-	opAssociateAgentCollaborator   = "AssociateAgentCollaborator"
-	opGetAgentCollaborator         = "GetAgentCollaborator"
-	opUpdateAgentCollaborator      = "UpdateAgentCollaborator"
-	opDisassociateAgentCollaborator = "DisassociateAgentCollaborator"
-	opListAgentCollaborators       = "ListAgentCollaborators"
-	opCreateKnowledgeBase          = "CreateKnowledgeBase"
-	opGetKnowledgeBase             = "GetKnowledgeBase"
-	opUpdateKnowledgeBase          = "UpdateKnowledgeBase"
-	opDeleteKnowledgeBase          = "DeleteKnowledgeBase"
-	opListKnowledgeBases           = "ListKnowledgeBases"
-	opAssociateAgentKnowledgeBase  = "AssociateAgentKnowledgeBase"
-	opGetAgentKnowledgeBase        = "GetAgentKnowledgeBase"
-	opUpdateAgentKnowledgeBase     = "UpdateAgentKnowledgeBase"
+	opCreateAgent                    = "CreateAgent"
+	opGetAgent                       = "GetAgent"
+	opUpdateAgent                    = "UpdateAgent"
+	opDeleteAgent                    = "DeleteAgent"
+	opListAgents                     = "ListAgents"
+	opPrepareAgent                   = "PrepareAgent"
+	opCreateAgentVersion             = "CreateAgentVersion"
+	opGetAgentVersion                = "GetAgentVersion"
+	opDeleteAgentVersion             = "DeleteAgentVersion"
+	opListAgentVersions              = "ListAgentVersions"
+	opCreateAgentActionGroup         = "CreateAgentActionGroup"
+	opGetAgentActionGroup            = "GetAgentActionGroup"
+	opUpdateAgentActionGroup         = "UpdateAgentActionGroup"
+	opDeleteAgentActionGroup         = "DeleteAgentActionGroup"
+	opListAgentActionGroups          = "ListAgentActionGroups"
+	opCreateAgentAlias               = "CreateAgentAlias"
+	opGetAgentAlias                  = "GetAgentAlias"
+	opUpdateAgentAlias               = "UpdateAgentAlias"
+	opDeleteAgentAlias               = "DeleteAgentAlias"
+	opListAgentAliases               = "ListAgentAliases"
+	opAssociateAgentCollaborator     = "AssociateAgentCollaborator"
+	opGetAgentCollaborator           = "GetAgentCollaborator"
+	opUpdateAgentCollaborator        = "UpdateAgentCollaborator"
+	opDisassociateAgentCollaborator  = "DisassociateAgentCollaborator"
+	opListAgentCollaborators         = "ListAgentCollaborators"
+	opCreateKnowledgeBase            = "CreateKnowledgeBase"
+	opGetKnowledgeBase               = "GetKnowledgeBase"
+	opUpdateKnowledgeBase            = "UpdateKnowledgeBase"
+	opDeleteKnowledgeBase            = "DeleteKnowledgeBase"
+	opListKnowledgeBases             = "ListKnowledgeBases"
+	opAssociateAgentKnowledgeBase    = "AssociateAgentKnowledgeBase"
+	opGetAgentKnowledgeBase          = "GetAgentKnowledgeBase"
+	opUpdateAgentKnowledgeBase       = "UpdateAgentKnowledgeBase"
 	opDisassociateAgentKnowledgeBase = "DisassociateAgentKnowledgeBase"
-	opListAgentKnowledgeBases      = "ListAgentKnowledgeBases"
-	opCreateDataSource             = "CreateDataSource"
-	opGetDataSource                = "GetDataSource"
-	opUpdateDataSource             = "UpdateDataSource"
-	opDeleteDataSource             = "DeleteDataSource"
-	opListDataSources              = "ListDataSources"
-	opStartIngestionJob            = "StartIngestionJob"
-	opGetIngestionJob              = "GetIngestionJob"
-	opStopIngestionJob             = "StopIngestionJob"
-	opListIngestionJobs            = "ListIngestionJobs"
-	opCreateFlow                   = "CreateFlow"
-	opGetFlow                      = "GetFlow"
-	opUpdateFlow                   = "UpdateFlow"
-	opDeleteFlow                   = "DeleteFlow"
-	opListFlows                    = "ListFlows"
-	opPrepareFlow                  = "PrepareFlow"
-	opValidateFlowDefinition       = "ValidateFlowDefinition"
-	opCreateFlowVersion            = "CreateFlowVersion"
-	opGetFlowVersion               = "GetFlowVersion"
-	opDeleteFlowVersion            = "DeleteFlowVersion"
-	opListFlowVersions             = "ListFlowVersions"
-	opCreateFlowAlias              = "CreateFlowAlias"
-	opGetFlowAlias                 = "GetFlowAlias"
-	opUpdateFlowAlias              = "UpdateFlowAlias"
-	opDeleteFlowAlias              = "DeleteFlowAlias"
-	opListFlowAliases              = "ListFlowAliases"
-	opCreatePrompt                 = "CreatePrompt"
-	opGetPrompt                    = "GetPrompt"
-	opUpdatePrompt                 = "UpdatePrompt"
-	opDeletePrompt                 = "DeletePrompt"
-	opListPrompts                  = "ListPrompts"
-	opCreatePromptVersion          = "CreatePromptVersion"
-	opGetPromptVersion             = "GetPromptVersion"
-	opDeletePromptVersion          = "DeletePromptVersion"
-	opIngestKnowledgeBaseDocuments = "IngestKnowledgeBaseDocuments"
-	opGetKnowledgeBaseDocuments    = "GetKnowledgeBaseDocuments"
-	opDeleteKnowledgeBaseDocuments = "DeleteKnowledgeBaseDocuments"
-	opListKnowledgeBaseDocuments   = "ListKnowledgeBaseDocuments"
-	opListTagsForResource          = "ListTagsForResource"
-	opTagResource                  = "TagResource"
-	opUntagResource                = "UntagResource"
+	opListAgentKnowledgeBases        = "ListAgentKnowledgeBases"
+	opCreateDataSource               = "CreateDataSource"
+	opGetDataSource                  = "GetDataSource"
+	opUpdateDataSource               = "UpdateDataSource"
+	opDeleteDataSource               = "DeleteDataSource"
+	opListDataSources                = "ListDataSources"
+	opStartIngestionJob              = "StartIngestionJob"
+	opGetIngestionJob                = "GetIngestionJob"
+	opStopIngestionJob               = "StopIngestionJob"
+	opListIngestionJobs              = "ListIngestionJobs"
+	opCreateFlow                     = "CreateFlow"
+	opGetFlow                        = "GetFlow"
+	opUpdateFlow                     = "UpdateFlow"
+	opDeleteFlow                     = "DeleteFlow"
+	opListFlows                      = "ListFlows"
+	opPrepareFlow                    = "PrepareFlow"
+	opValidateFlowDefinition         = "ValidateFlowDefinition"
+	opCreateFlowVersion              = "CreateFlowVersion"
+	opGetFlowVersion                 = "GetFlowVersion"
+	opDeleteFlowVersion              = "DeleteFlowVersion"
+	opListFlowVersions               = "ListFlowVersions"
+	opCreateFlowAlias                = "CreateFlowAlias"
+	opGetFlowAlias                   = "GetFlowAlias"
+	opUpdateFlowAlias                = "UpdateFlowAlias"
+	opDeleteFlowAlias                = "DeleteFlowAlias"
+	opListFlowAliases                = "ListFlowAliases"
+	opCreatePrompt                   = "CreatePrompt"
+	opGetPrompt                      = "GetPrompt"
+	opUpdatePrompt                   = "UpdatePrompt"
+	opDeletePrompt                   = "DeletePrompt"
+	opListPrompts                    = "ListPrompts"
+	opCreatePromptVersion            = "CreatePromptVersion"
+	opGetPromptVersion               = "GetPromptVersion"
+	opDeletePromptVersion            = "DeletePromptVersion"
+	opIngestKnowledgeBaseDocuments   = "IngestKnowledgeBaseDocuments"
+	opGetKnowledgeBaseDocuments      = "GetKnowledgeBaseDocuments"
+	opDeleteKnowledgeBaseDocuments   = "DeleteKnowledgeBaseDocuments"
+	opListKnowledgeBaseDocuments     = "ListKnowledgeBaseDocuments"
+	opListTagsForResource            = "ListTagsForResource"
+	opTagResource                    = "TagResource"
+	opUntagResource                  = "UntagResource"
 )
 
 // ---------------------------------------------------------------------------
@@ -104,20 +105,40 @@ const (
 // ---------------------------------------------------------------------------
 
 const (
-	agentsBase    = "/agents"
-	kbBase        = "/knowledgebases"
-	flowsBase     = "/flows"
-	promptsBase   = "/prompts"
-	tagsBase      = "/tags/"
-	baService     = "bedrock-agent"
-	baPriority    = 87
-	splitTwo      = 2
-	splitThree    = 3
-	splitFour     = 4
+	agentsBase     = "/agents"
+	kbBase         = "/knowledgebases"
+	flowsBase      = "/flows"
+	promptsBase    = "/prompts"
+	tagsBase       = "/tags/"
+	baService      = "bedrock-agent"
+	baPriority     = 87
+	splitTwo       = 2
+	splitThree     = 3
+	splitFour      = 4
 	maxPageDefault = 100
 )
 
-var errUnknown = errors.New("unknown operation")
+// ---------------------------------------------------------------------------
+// Goconst string constants
+// ---------------------------------------------------------------------------
+
+const (
+	keyAgent             = "agent"
+	keyAgentID           = keyAgentID
+	keyAgentVersion      = "agentVersion"
+	keyAgentActionGroup  = "agentActionGroup"
+	keyAgentAlias        = "agentAlias"
+	keyAgentCollaborator = "agentCollaborator"
+	keyKnowledgeBase     = "knowledgeBase"
+	keyAgentKB           = "agentKnowledgeBase"
+	keyDataSource        = "dataSource"
+	keyIngestionJob      = "ingestionJob"
+	keyDocumentDetails   = "documentDetails"
+	keyNextToken         = "nextToken"
+	keyStatus            = "status"
+	statusDeleting       = "DELETING"
+	opUnknown            = "Unknown"
+)
 
 // ---------------------------------------------------------------------------
 // Handler
@@ -240,7 +261,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return c.JSON(http.StatusInternalServerError, errResp("InternalFailure", "internal server error"))
 		}
 
-		return h.dispatch(c, ctx, path, method, query, body)
+		return h.dispatch(ctx, c, path, method, query, body)
 	}
 }
 
@@ -249,19 +270,19 @@ func (h *Handler) Handler() echo.HandlerFunc {
 // ---------------------------------------------------------------------------
 
 func (h *Handler) dispatch(
-	c *echo.Context, ctx context.Context, path, method string, query url.Values, body []byte,
+	ctx context.Context, c *echo.Context, path, method string, query url.Values, body []byte,
 ) error {
 	switch {
 	case strings.HasPrefix(path, agentsBase):
-		return h.dispatchAgents(c, ctx, path, method, body)
+		return h.dispatchAgents(ctx, c, path, method, body)
 	case strings.HasPrefix(path, kbBase):
-		return h.dispatchKB(c, ctx, path, method, body)
+		return h.dispatchKB(ctx, c, path, method, body)
 	case strings.HasPrefix(path, flowsBase):
-		return h.dispatchFlows(c, ctx, path, method, body)
+		return h.dispatchFlows(ctx, c, path, method, body)
 	case strings.HasPrefix(path, promptsBase):
-		return h.dispatchPrompts(c, ctx, path, method, body)
+		return h.dispatchPrompts(ctx, c, path, method, body)
 	case strings.HasPrefix(path, tagsBase):
-		return h.dispatchTags(c, ctx, path, method, query, body)
+		return h.dispatchTags(ctx, c, path, method, query, body)
 	}
 
 	return c.JSON(http.StatusNotFound, errResp("UnknownOperationException", "unknown: "+path))
@@ -272,10 +293,10 @@ func (h *Handler) dispatch(
 // ---------------------------------------------------------------------------
 
 func (h *Handler) dispatchAgents(
-	c *echo.Context, ctx context.Context, path, method string, body []byte,
+	ctx context.Context, c *echo.Context, path, method string, body []byte,
 ) error {
 	if path == agentsBase {
-		return h.dispatchAgentRoot(c, ctx, method, body)
+		return h.dispatchAgentRoot(ctx, c, method, body)
 	}
 
 	rest, _ := strings.CutPrefix(path, agentsBase+"/")
@@ -287,54 +308,54 @@ func (h *Handler) dispatchAgents(
 		suffix = "/" + parts[1]
 	}
 
-	return h.dispatchAgentID(c, ctx, agentID, suffix, method, body)
+	return h.dispatchAgentID(ctx, c, agentID, suffix, method, body)
 }
 
 func (h *Handler) dispatchAgentRoot(
-	c *echo.Context, ctx context.Context, method string, body []byte,
+	ctx context.Context, c *echo.Context, method string, body []byte,
 ) error {
 	switch method {
 	case http.MethodPut, http.MethodPost:
-		return h.handleCreateAgent(c, ctx, body)
+		return h.handleCreateAgent(ctx, c, body)
 	case http.MethodGet:
-		return h.handleListAgents(c, ctx)
+		return h.handleListAgents(ctx, c)
 	}
 
 	return c.JSON(http.StatusMethodNotAllowed, errResp("MethodNotAllowedException", method))
 }
 
 func (h *Handler) dispatchAgentID(
-	c *echo.Context, ctx context.Context, agentID, suffix, method string, body []byte,
+	ctx context.Context, c *echo.Context, agentID, suffix, method string, body []byte,
 ) error {
 	switch {
 	case suffix == "" && method == http.MethodGet:
-		return h.handleGetAgent(c, ctx, agentID)
+		return h.handleGetAgent(ctx, c, agentID)
 	case suffix == "" && method == http.MethodPut:
-		return h.handleUpdateAgent(c, ctx, agentID, body)
+		return h.handleUpdateAgent(ctx, c, agentID, body)
 	case suffix == "" && method == http.MethodDelete:
-		return h.handleDeleteAgent(c, ctx, agentID)
+		return h.handleDeleteAgent(ctx, c, agentID)
 	case suffix == "/prepare" && method == http.MethodPost:
-		return h.handlePrepareAgent(c, ctx, agentID)
+		return h.handlePrepareAgent(ctx, c, agentID)
 	case strings.HasPrefix(suffix, "/agentversions"):
-		return h.dispatchAgentVersions(c, ctx, agentID, suffix, method, body)
+		return h.dispatchAgentVersions(ctx, c, agentID, suffix, method, body)
 	case strings.HasPrefix(suffix, "/agentaliases"):
-		return h.dispatchAgentAliases(c, ctx, agentID, suffix, method, body)
+		return h.dispatchAgentAliases(ctx, c, agentID, suffix, method, body)
 	}
 
 	return c.JSON(http.StatusNotFound, errResp("UnknownOperationException", "unknown agent op"))
 }
 
 func (h *Handler) dispatchAgentVersions(
-	c *echo.Context, ctx context.Context, agentID, suffix, method string, body []byte,
+	ctx context.Context, c *echo.Context, agentID, suffix, method string, body []byte,
 ) error {
 	rest, _ := strings.CutPrefix(suffix, "/agentversions")
 
 	if rest == "" {
 		switch method {
 		case http.MethodPost:
-			return h.handleCreateAgentVersion(c, ctx, agentID, body)
+			return h.handleCreateAgentVersion(ctx, c, agentID, body)
 		case http.MethodGet:
-			return h.handleListAgentVersions(c, ctx, agentID)
+			return h.handleListAgentVersions(ctx, c, agentID)
 		}
 
 		return c.JSON(http.StatusMethodNotAllowed, errResp("MethodNotAllowedException", method))
@@ -348,39 +369,39 @@ func (h *Handler) dispatchAgentVersions(
 		vSuffix = "/" + parts[1]
 	}
 
-	return h.dispatchAgentVersionSuffix(c, ctx, agentID, agentVersion, vSuffix, method, body)
+	return h.dispatchAgentVersionSuffix(ctx, c, agentID, agentVersion, vSuffix, method, body)
 }
 
 func (h *Handler) dispatchAgentVersionSuffix(
-	c *echo.Context, ctx context.Context, agentID, agentVersion, vSuffix, method string, body []byte,
+	ctx context.Context, c *echo.Context, agentID, agentVersion, vSuffix, method string, body []byte,
 ) error {
 	switch {
 	case vSuffix == "" && method == http.MethodGet:
-		return h.handleGetAgentVersion(c, ctx, agentID, agentVersion)
+		return h.handleGetAgentVersion(ctx, c, agentID, agentVersion)
 	case vSuffix == "" && method == http.MethodDelete:
-		return h.handleDeleteAgentVersion(c, ctx, agentID, agentVersion)
+		return h.handleDeleteAgentVersion(ctx, c, agentID, agentVersion)
 	case strings.HasPrefix(vSuffix, "/actiongroups"):
-		return h.dispatchActionGroups(c, ctx, agentID, agentVersion, vSuffix, method, body)
+		return h.dispatchActionGroups(ctx, c, agentID, agentVersion, vSuffix, method, body)
 	case strings.HasPrefix(vSuffix, "/agentcollaborators"):
-		return h.dispatchCollaborators(c, ctx, agentID, agentVersion, vSuffix, method, body)
+		return h.dispatchCollaborators(ctx, c, agentID, agentVersion, vSuffix, method, body)
 	case strings.HasPrefix(vSuffix, "/knowledgebases"):
-		return h.dispatchAgentKBs(c, ctx, agentID, agentVersion, vSuffix, method, body)
+		return h.dispatchAgentKBs(ctx, c, agentID, agentVersion, vSuffix, method, body)
 	}
 
 	return c.JSON(http.StatusNotFound, errResp("UnknownOperationException", "unknown version op"))
 }
 
 func (h *Handler) dispatchActionGroups(
-	c *echo.Context, ctx context.Context, agentID, agentVersion, suffix, method string, body []byte,
+	ctx context.Context, c *echo.Context, agentID, agentVersion, suffix, method string, body []byte,
 ) error {
 	rest, _ := strings.CutPrefix(suffix, "/actiongroups")
 
 	if rest == "" {
 		switch method {
 		case http.MethodPut, http.MethodPost:
-			return h.handleCreateAgentActionGroup(c, ctx, agentID, body)
+			return h.handleCreateAgentActionGroup(ctx, c, agentID, body)
 		case http.MethodGet:
-			return h.handleListAgentActionGroups(c, ctx, agentID, agentVersion)
+			return h.handleListAgentActionGroups(ctx, c, agentID, agentVersion)
 		}
 	}
 
@@ -388,27 +409,27 @@ func (h *Handler) dispatchActionGroups(
 
 	switch method {
 	case http.MethodGet:
-		return h.handleGetAgentActionGroup(c, ctx, agentID, agentVersion, agID)
+		return h.handleGetAgentActionGroup(ctx, c, agentID, agentVersion, agID)
 	case http.MethodPut:
-		return h.handleUpdateAgentActionGroup(c, ctx, agentID, agentVersion, agID, body)
+		return h.handleUpdateAgentActionGroup(ctx, c, agentID, agentVersion, agID, body)
 	case http.MethodDelete:
-		return h.handleDeleteAgentActionGroup(c, ctx, agentID, agentVersion, agID)
+		return h.handleDeleteAgentActionGroup(ctx, c, agentID, agentVersion, agID)
 	}
 
 	return c.JSON(http.StatusNotFound, errResp("UnknownOperationException", "unknown action group op"))
 }
 
 func (h *Handler) dispatchCollaborators(
-	c *echo.Context, ctx context.Context, agentID, agentVersion, suffix, method string, body []byte,
+	ctx context.Context, c *echo.Context, agentID, agentVersion, suffix, method string, body []byte,
 ) error {
 	rest, _ := strings.CutPrefix(suffix, "/agentcollaborators")
 
 	if rest == "" {
 		switch method {
 		case http.MethodPut:
-			return h.handleAssociateCollaborator(c, ctx, agentID, agentVersion, body)
+			return h.handleAssociateCollaborator(ctx, c, agentID, agentVersion, body)
 		case http.MethodGet:
-			return h.handleListCollaborators(c, ctx, agentID, agentVersion)
+			return h.handleListCollaborators(ctx, c, agentID, agentVersion)
 		}
 	}
 
@@ -416,27 +437,27 @@ func (h *Handler) dispatchCollaborators(
 
 	switch method {
 	case http.MethodGet:
-		return h.handleGetCollaborator(c, ctx, agentID, agentVersion, collaboratorID)
+		return h.handleGetCollaborator(ctx, c, agentID, agentVersion, collaboratorID)
 	case http.MethodPut:
-		return h.handleUpdateCollaborator(c, ctx, agentID, agentVersion, collaboratorID, body)
+		return h.handleUpdateCollaborator(ctx, c, agentID, agentVersion, collaboratorID, body)
 	case http.MethodDelete:
-		return h.handleDisassociateCollaborator(c, ctx, agentID, agentVersion, collaboratorID)
+		return h.handleDisassociateCollaborator(ctx, c, agentID, agentVersion, collaboratorID)
 	}
 
 	return c.JSON(http.StatusNotFound, errResp("UnknownOperationException", "unknown collab op"))
 }
 
 func (h *Handler) dispatchAgentKBs(
-	c *echo.Context, ctx context.Context, agentID, agentVersion, suffix, method string, body []byte,
+	ctx context.Context, c *echo.Context, agentID, agentVersion, suffix, method string, body []byte,
 ) error {
 	rest, _ := strings.CutPrefix(suffix, "/knowledgebases")
 
 	if rest == "" {
 		switch method {
 		case http.MethodPut:
-			return h.handleAssociateAgentKB(c, ctx, agentID, agentVersion, body)
+			return h.handleAssociateAgentKB(ctx, c, agentID, agentVersion, body)
 		case http.MethodGet:
-			return h.handleListAgentKBs(c, ctx, agentID, agentVersion)
+			return h.handleListAgentKBs(ctx, c, agentID, agentVersion)
 		}
 	}
 
@@ -444,27 +465,27 @@ func (h *Handler) dispatchAgentKBs(
 
 	switch method {
 	case http.MethodGet:
-		return h.handleGetAgentKB(c, ctx, agentID, agentVersion, kbID)
+		return h.handleGetAgentKB(ctx, c, agentID, agentVersion, kbID)
 	case http.MethodPut:
-		return h.handleUpdateAgentKB(c, ctx, agentID, agentVersion, kbID, body)
+		return h.handleUpdateAgentKB(ctx, c, agentID, agentVersion, kbID, body)
 	case http.MethodDelete:
-		return h.handleDisassociateAgentKB(c, ctx, agentID, agentVersion, kbID)
+		return h.handleDisassociateAgentKB(ctx, c, agentID, agentVersion, kbID)
 	}
 
 	return c.JSON(http.StatusNotFound, errResp("UnknownOperationException", "unknown agent-kb op"))
 }
 
 func (h *Handler) dispatchAgentAliases(
-	c *echo.Context, ctx context.Context, agentID, suffix, method string, body []byte,
+	ctx context.Context, c *echo.Context, agentID, suffix, method string, body []byte,
 ) error {
 	rest, _ := strings.CutPrefix(suffix, "/agentaliases")
 
 	if rest == "" {
 		switch method {
 		case http.MethodPost, http.MethodPut:
-			return h.handleCreateAgentAlias(c, ctx, agentID, body)
+			return h.handleCreateAgentAlias(ctx, c, agentID, body)
 		case http.MethodGet:
-			return h.handleListAgentAliases(c, ctx, agentID)
+			return h.handleListAgentAliases(ctx, c, agentID)
 		}
 	}
 
@@ -472,11 +493,11 @@ func (h *Handler) dispatchAgentAliases(
 
 	switch method {
 	case http.MethodGet:
-		return h.handleGetAgentAlias(c, ctx, agentID, aliasID)
+		return h.handleGetAgentAlias(ctx, c, agentID, aliasID)
 	case http.MethodPut:
-		return h.handleUpdateAgentAlias(c, ctx, agentID, aliasID, body)
+		return h.handleUpdateAgentAlias(ctx, c, agentID, aliasID, body)
 	case http.MethodDelete:
-		return h.handleDeleteAgentAlias(c, ctx, agentID, aliasID)
+		return h.handleDeleteAgentAlias(ctx, c, agentID, aliasID)
 	}
 
 	return c.JSON(http.StatusNotFound, errResp("UnknownOperationException", "unknown alias op"))
@@ -487,14 +508,14 @@ func (h *Handler) dispatchAgentAliases(
 // ---------------------------------------------------------------------------
 
 func (h *Handler) dispatchKB(
-	c *echo.Context, ctx context.Context, path, method string, body []byte,
+	ctx context.Context, c *echo.Context, path, method string, body []byte,
 ) error {
 	if path == kbBase {
 		switch method {
 		case http.MethodPut, http.MethodPost:
-			return h.handleCreateKB(c, ctx, body)
+			return h.handleCreateKB(ctx, c, body)
 		case http.MethodGet:
-			return h.handleListKBs(c, ctx)
+			return h.handleListKBs(ctx, c)
 		}
 	}
 
@@ -507,37 +528,37 @@ func (h *Handler) dispatchKB(
 		suffix = "/" + parts[1]
 	}
 
-	return h.dispatchKBID(c, ctx, kbID, suffix, method, body)
+	return h.dispatchKBID(ctx, c, kbID, suffix, method, body)
 }
 
 func (h *Handler) dispatchKBID(
-	c *echo.Context, ctx context.Context, kbID, suffix, method string, body []byte,
+	ctx context.Context, c *echo.Context, kbID, suffix, method string, body []byte,
 ) error {
 	switch {
 	case suffix == "" && method == http.MethodGet:
-		return h.handleGetKB(c, ctx, kbID)
+		return h.handleGetKB(ctx, c, kbID)
 	case suffix == "" && method == http.MethodPut:
-		return h.handleUpdateKB(c, ctx, kbID, body)
+		return h.handleUpdateKB(ctx, c, kbID, body)
 	case suffix == "" && method == http.MethodDelete:
-		return h.handleDeleteKB(c, ctx, kbID)
+		return h.handleDeleteKB(ctx, c, kbID)
 	case strings.HasPrefix(suffix, "/datasources"):
-		return h.dispatchDataSources(c, ctx, kbID, suffix, method, body)
+		return h.dispatchDataSources(ctx, c, kbID, suffix, method, body)
 	}
 
 	return c.JSON(http.StatusNotFound, errResp("UnknownOperationException", "unknown kb op"))
 }
 
 func (h *Handler) dispatchDataSources(
-	c *echo.Context, ctx context.Context, kbID, suffix, method string, body []byte,
+	ctx context.Context, c *echo.Context, kbID, suffix, method string, body []byte,
 ) error {
 	rest, _ := strings.CutPrefix(suffix, "/datasources")
 
 	if rest == "" {
 		switch method {
 		case http.MethodPut, http.MethodPost:
-			return h.handleCreateDS(c, ctx, kbID, body)
+			return h.handleCreateDS(ctx, c, kbID, body)
 		case http.MethodGet:
-			return h.handleListDS(c, ctx, kbID)
+			return h.handleListDS(ctx, c, kbID)
 		}
 	}
 
@@ -549,39 +570,39 @@ func (h *Handler) dispatchDataSources(
 		dsSuffix = "/" + parts[1]
 	}
 
-	return h.dispatchDSID(c, ctx, kbID, dsID, dsSuffix, method, body)
+	return h.dispatchDSID(ctx, c, kbID, dsID, dsSuffix, method, body)
 }
 
 func (h *Handler) dispatchDSID(
-	c *echo.Context, ctx context.Context, kbID, dsID, suffix, method string, body []byte,
+	ctx context.Context, c *echo.Context, kbID, dsID, suffix, method string, body []byte,
 ) error {
 	switch {
 	case suffix == "" && method == http.MethodGet:
-		return h.handleGetDS(c, ctx, kbID, dsID)
+		return h.handleGetDS(ctx, c, kbID, dsID)
 	case suffix == "" && method == http.MethodPut:
-		return h.handleUpdateDS(c, ctx, kbID, dsID, body)
+		return h.handleUpdateDS(ctx, c, kbID, dsID, body)
 	case suffix == "" && method == http.MethodDelete:
-		return h.handleDeleteDS(c, ctx, kbID, dsID)
+		return h.handleDeleteDS(ctx, c, kbID, dsID)
 	case strings.HasPrefix(suffix, "/ingestionjobs"):
-		return h.dispatchIngestionJobs(c, ctx, kbID, dsID, suffix, method, body)
+		return h.dispatchIngestionJobs(ctx, c, kbID, dsID, suffix, method, body)
 	case strings.HasPrefix(suffix, "/documents"):
-		return h.dispatchKBDocuments(c, ctx, kbID, dsID, suffix, method, body)
+		return h.dispatchKBDocuments(ctx, c, kbID, dsID, suffix, method, body)
 	}
 
 	return c.JSON(http.StatusNotFound, errResp("UnknownOperationException", "unknown ds op"))
 }
 
 func (h *Handler) dispatchIngestionJobs(
-	c *echo.Context, ctx context.Context, kbID, dsID, suffix, method string, body []byte,
+	ctx context.Context, c *echo.Context, kbID, dsID, suffix, method string, body []byte,
 ) error {
 	rest, _ := strings.CutPrefix(suffix, "/ingestionjobs")
 
 	if rest == "" {
 		switch method {
 		case http.MethodPut, http.MethodPost:
-			return h.handleStartIngestionJob(c, ctx, kbID, dsID, body)
+			return h.handleStartIngestionJob(ctx, c, kbID, dsID, body)
 		case http.MethodGet:
-			return h.handleListIngestionJobs(c, ctx, kbID, dsID)
+			return h.handleListIngestionJobs(ctx, c, kbID, dsID)
 		}
 	}
 
@@ -589,30 +610,30 @@ func (h *Handler) dispatchIngestionJobs(
 	jobID := parts[0]
 
 	if len(parts) == splitTwo && parts[1] == "stop" {
-		return h.handleStopIngestionJob(c, ctx, kbID, dsID, jobID)
+		return h.handleStopIngestionJob(ctx, c, kbID, dsID, jobID)
 	}
 
 	if method == http.MethodGet {
-		return h.handleGetIngestionJob(c, ctx, kbID, dsID, jobID)
+		return h.handleGetIngestionJob(ctx, c, kbID, dsID, jobID)
 	}
 
 	return c.JSON(http.StatusNotFound, errResp("UnknownOperationException", "unknown ingestion op"))
 }
 
 func (h *Handler) dispatchKBDocuments(
-	c *echo.Context, ctx context.Context, kbID, dsID, suffix, method string, body []byte,
+	ctx context.Context, c *echo.Context, kbID, dsID, suffix, method string, body []byte,
 ) error {
 	rest, _ := strings.CutPrefix(suffix, "/documents")
 
 	switch {
 	case rest == "" && method == http.MethodPost:
-		return h.handleIngestKBDocs(c, ctx, kbID, dsID, body)
+		return h.handleIngestKBDocs(ctx, c, kbID, dsID, body)
 	case rest == "" && method == http.MethodGet:
-		return h.handleListKBDocs(c, ctx, kbID, dsID)
+		return h.handleListKBDocs(ctx, c, kbID, dsID)
 	case rest == "/deleteDocuments":
-		return h.handleDeleteKBDocs(c, ctx, kbID, dsID, body)
+		return h.handleDeleteKBDocs(ctx, c, kbID, dsID, body)
 	case rest == "/getDocuments":
-		return h.handleGetKBDocs(c, ctx, kbID, dsID, body)
+		return h.handleGetKBDocs(ctx, c, kbID, dsID, body)
 	}
 
 	return c.JSON(http.StatusNotFound, errResp("UnknownOperationException", "unknown kb docs op"))
@@ -623,19 +644,19 @@ func (h *Handler) dispatchKBDocuments(
 // ---------------------------------------------------------------------------
 
 func (h *Handler) dispatchFlows(
-	c *echo.Context, ctx context.Context, path, method string, body []byte,
+	ctx context.Context, c *echo.Context, path, method string, body []byte,
 ) error {
 	if path == flowsBase {
 		switch method {
 		case http.MethodPost:
-			return h.handleCreateFlow(c, ctx, body)
+			return h.handleCreateFlow(ctx, c, body)
 		case http.MethodGet:
-			return h.handleListFlows(c, ctx)
+			return h.handleListFlows(ctx, c)
 		}
 	}
 
 	if path == flowsBase+"/validate-definition" {
-		return h.handleValidateFlowDef(c, ctx, body)
+		return h.handleValidateFlowDef(ctx, c, body)
 	}
 
 	rest, _ := strings.CutPrefix(path, flowsBase+"/")
@@ -647,41 +668,49 @@ func (h *Handler) dispatchFlows(
 		suffix = "/" + parts[1]
 	}
 
-	return h.dispatchFlowID(c, ctx, flowID, suffix, method, body)
+	return h.dispatchFlowID(ctx, c, flowID, suffix, method, body)
 }
 
 func (h *Handler) dispatchFlowID(
-	c *echo.Context, ctx context.Context, flowID, suffix, method string, body []byte,
+	ctx context.Context, c *echo.Context, flowID, suffix, method string, body []byte,
 ) error {
-	switch {
-	case suffix == "" && method == http.MethodGet:
-		return h.handleGetFlow(c, ctx, flowID)
-	case suffix == "" && method == http.MethodPut:
-		return h.handleUpdateFlow(c, ctx, flowID, body)
-	case suffix == "" && method == http.MethodDelete:
-		return h.handleDeleteFlow(c, ctx, flowID)
-	case suffix == "/prepare" && method == http.MethodPost:
-		return h.handlePrepareFlow(c, ctx, flowID)
-	case strings.HasPrefix(suffix, "/versions"):
-		return h.dispatchFlowVersions(c, ctx, flowID, suffix, method, body)
-	case strings.HasPrefix(suffix, "/aliases"):
-		return h.dispatchFlowAliases(c, ctx, flowID, suffix, method, body)
+	if suffix == "" {
+		switch method {
+		case http.MethodGet:
+			return h.handleGetFlow(ctx, c, flowID)
+		case http.MethodPut:
+			return h.handleUpdateFlow(ctx, c, flowID, body)
+		case http.MethodDelete:
+			return h.handleDeleteFlow(ctx, c, flowID)
+		}
+	}
+
+	if suffix == "/prepare" && method == http.MethodPost {
+		return h.handlePrepareFlow(ctx, c, flowID)
+	}
+
+	if strings.HasPrefix(suffix, "/versions") {
+		return h.dispatchFlowVersions(ctx, c, flowID, suffix, method, body)
+	}
+
+	if strings.HasPrefix(suffix, "/aliases") {
+		return h.dispatchFlowAliases(ctx, c, flowID, suffix, method, body)
 	}
 
 	return c.JSON(http.StatusNotFound, errResp("UnknownOperationException", "unknown flow op"))
 }
 
 func (h *Handler) dispatchFlowVersions(
-	c *echo.Context, ctx context.Context, flowID, suffix, method string, body []byte,
+	ctx context.Context, c *echo.Context, flowID, suffix, method string, body []byte,
 ) error {
 	rest, _ := strings.CutPrefix(suffix, "/versions")
 
 	if rest == "" {
 		switch method {
 		case http.MethodPost:
-			return h.handleCreateFlowVersion(c, ctx, flowID, body)
+			return h.handleCreateFlowVersion(ctx, c, flowID, body)
 		case http.MethodGet:
-			return h.handleListFlowVersions(c, ctx, flowID)
+			return h.handleListFlowVersions(ctx, c, flowID)
 		}
 	}
 
@@ -689,25 +718,25 @@ func (h *Handler) dispatchFlowVersions(
 
 	switch method {
 	case http.MethodGet:
-		return h.handleGetFlowVersion(c, ctx, flowID, flowVersion)
+		return h.handleGetFlowVersion(ctx, c, flowID, flowVersion)
 	case http.MethodDelete:
-		return h.handleDeleteFlowVersion(c, ctx, flowID, flowVersion)
+		return h.handleDeleteFlowVersion(ctx, c, flowID, flowVersion)
 	}
 
 	return c.JSON(http.StatusNotFound, errResp("UnknownOperationException", "unknown flow version op"))
 }
 
 func (h *Handler) dispatchFlowAliases(
-	c *echo.Context, ctx context.Context, flowID, suffix, method string, body []byte,
+	ctx context.Context, c *echo.Context, flowID, suffix, method string, body []byte,
 ) error {
 	rest, _ := strings.CutPrefix(suffix, "/aliases")
 
 	if rest == "" {
 		switch method {
 		case http.MethodPost:
-			return h.handleCreateFlowAlias(c, ctx, flowID, body)
+			return h.handleCreateFlowAlias(ctx, c, flowID, body)
 		case http.MethodGet:
-			return h.handleListFlowAliases(c, ctx, flowID)
+			return h.handleListFlowAliases(ctx, c, flowID)
 		}
 	}
 
@@ -715,11 +744,11 @@ func (h *Handler) dispatchFlowAliases(
 
 	switch method {
 	case http.MethodGet:
-		return h.handleGetFlowAlias(c, ctx, flowID, aliasID)
+		return h.handleGetFlowAlias(ctx, c, flowID, aliasID)
 	case http.MethodPut:
-		return h.handleUpdateFlowAlias(c, ctx, flowID, aliasID, body)
+		return h.handleUpdateFlowAlias(ctx, c, flowID, aliasID, body)
 	case http.MethodDelete:
-		return h.handleDeleteFlowAlias(c, ctx, flowID, aliasID)
+		return h.handleDeleteFlowAlias(ctx, c, flowID, aliasID)
 	}
 
 	return c.JSON(http.StatusNotFound, errResp("UnknownOperationException", "unknown flow alias op"))
@@ -730,14 +759,14 @@ func (h *Handler) dispatchFlowAliases(
 // ---------------------------------------------------------------------------
 
 func (h *Handler) dispatchPrompts(
-	c *echo.Context, ctx context.Context, path, method string, body []byte,
+	ctx context.Context, c *echo.Context, path, method string, body []byte,
 ) error {
 	if path == promptsBase {
 		switch method {
 		case http.MethodPost:
-			return h.handleCreatePrompt(c, ctx, body)
+			return h.handleCreatePrompt(ctx, c, body)
 		case http.MethodGet:
-			return h.handleListPrompts(c, ctx)
+			return h.handleListPrompts(ctx, c)
 		}
 	}
 
@@ -750,42 +779,42 @@ func (h *Handler) dispatchPrompts(
 		suffix = "/" + parts[1]
 	}
 
-	return h.dispatchPromptID(c, ctx, promptID, suffix, method, body)
+	return h.dispatchPromptID(ctx, c, promptID, suffix, method, body)
 }
 
 func (h *Handler) dispatchPromptID(
-	c *echo.Context, ctx context.Context, promptID, suffix, method string, body []byte,
+	ctx context.Context, c *echo.Context, promptID, suffix, method string, body []byte,
 ) error {
 	switch {
 	case suffix == "" && method == http.MethodGet:
-		return h.handleGetPrompt(c, ctx, promptID)
+		return h.handleGetPrompt(ctx, c, promptID)
 	case suffix == "" && method == http.MethodPut:
-		return h.handleUpdatePrompt(c, ctx, promptID, body)
+		return h.handleUpdatePrompt(ctx, c, promptID, body)
 	case suffix == "" && method == http.MethodDelete:
-		return h.handleDeletePrompt(c, ctx, promptID)
+		return h.handleDeletePrompt(ctx, c, promptID)
 	case strings.HasPrefix(suffix, "/versions"):
-		return h.dispatchPromptVersions(c, ctx, promptID, suffix, method, body)
+		return h.dispatchPromptVersions(ctx, c, promptID, suffix, method, body)
 	}
 
 	return c.JSON(http.StatusNotFound, errResp("UnknownOperationException", "unknown prompt op"))
 }
 
 func (h *Handler) dispatchPromptVersions(
-	c *echo.Context, ctx context.Context, promptID, suffix, method string, body []byte,
+	ctx context.Context, c *echo.Context, promptID, suffix, method string, body []byte,
 ) error {
 	rest, _ := strings.CutPrefix(suffix, "/versions")
 
 	if rest == "" && method == http.MethodPost {
-		return h.handleCreatePromptVersion(c, ctx, promptID, body)
+		return h.handleCreatePromptVersion(ctx, c, promptID, body)
 	}
 
 	versionID := strings.TrimPrefix(rest, "/")
 
 	switch method {
 	case http.MethodGet:
-		return h.handleGetPromptVersion(c, ctx, promptID, versionID)
+		return h.handleGetPromptVersion(ctx, c, promptID, versionID)
 	case http.MethodDelete:
-		return h.handleDeletePromptVersion(c, ctx, promptID, versionID)
+		return h.handleDeletePromptVersion(ctx, c, promptID, versionID)
 	}
 
 	return c.JSON(http.StatusNotFound, errResp("UnknownOperationException", "unknown prompt version op"))
@@ -796,17 +825,17 @@ func (h *Handler) dispatchPromptVersions(
 // ---------------------------------------------------------------------------
 
 func (h *Handler) dispatchTags(
-	c *echo.Context, ctx context.Context, path, method string, query url.Values, body []byte,
+	ctx context.Context, c *echo.Context, path, method string, query url.Values, body []byte,
 ) error {
 	resourceARN, _ := strings.CutPrefix(path, tagsBase)
 
 	switch method {
 	case http.MethodGet:
-		return h.handleListTags(c, ctx, resourceARN)
+		return h.handleListTags(ctx, c, resourceARN)
 	case http.MethodPost:
-		return h.handleTagResource(c, ctx, resourceARN, body)
+		return h.handleTagResource(ctx, c, resourceARN, body)
 	case http.MethodDelete:
-		return h.handleUntagResource(c, ctx, resourceARN, query)
+		return h.handleUntagResource(ctx, c, resourceARN, query)
 	}
 
 	return c.JSON(http.StatusMethodNotAllowed, errResp("MethodNotAllowedException", method))
@@ -816,7 +845,7 @@ func (h *Handler) dispatchTags(
 // Agent handlers
 // ---------------------------------------------------------------------------
 
-func (h *Handler) handleCreateAgent(c *echo.Context, ctx context.Context, body []byte) error {
+func (h *Handler) handleCreateAgent(ctx context.Context, c *echo.Context, body []byte) error {
 	var req struct {
 		Tags            map[string]string `json:"tags"`
 		Guardrail       map[string]any    `json:"guardrailConfiguration"`
@@ -848,20 +877,20 @@ func (h *Handler) handleCreateAgent(c *echo.Context, ctx context.Context, body [
 		return handleErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"agent": agent})
+	return c.JSON(http.StatusOK, map[string]any{keyAgent: agent})
 }
 
-func (h *Handler) handleGetAgent(c *echo.Context, ctx context.Context, agentID string) error {
+func (h *Handler) handleGetAgent(ctx context.Context, c *echo.Context, agentID string) error {
 	agent, err := h.Backend.GetAgent(ctx, agentID)
 	if err != nil {
 		return handleErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"agent": agent})
+	return c.JSON(http.StatusOK, map[string]any{keyAgent: agent})
 }
 
 func (h *Handler) handleUpdateAgent(
-	c *echo.Context, ctx context.Context, agentID string, body []byte,
+	ctx context.Context, c *echo.Context, agentID string, body []byte,
 ) error {
 	var req struct {
 		Tags            map[string]string `json:"tags"`
@@ -894,18 +923,18 @@ func (h *Handler) handleUpdateAgent(
 		return handleErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"agent": agent})
+	return c.JSON(http.StatusOK, map[string]any{keyAgent: agent})
 }
 
-func (h *Handler) handleDeleteAgent(c *echo.Context, ctx context.Context, agentID string) error {
+func (h *Handler) handleDeleteAgent(ctx context.Context, c *echo.Context, agentID string) error {
 	if err := h.Backend.DeleteAgent(ctx, agentID); err != nil {
 		return handleErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"agentId": agentID, "agentStatus": "DELETING"})
+	return c.JSON(http.StatusOK, map[string]any{keyAgentID: agentID, "agentStatus": statusDeleting})
 }
 
-func (h *Handler) handleListAgents(c *echo.Context, ctx context.Context) error {
+func (h *Handler) handleListAgents(ctx context.Context, c *echo.Context) error {
 	maxResults, nextToken := pageParams(c.Request().URL.Query())
 
 	agents, outToken, err := h.Backend.ListAgents(ctx, maxResults, nextToken)
@@ -913,19 +942,19 @@ func (h *Handler) handleListAgents(c *echo.Context, ctx context.Context) error {
 		return handleErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"agentSummaries": agents, "nextToken": outToken})
+	return c.JSON(http.StatusOK, map[string]any{"agentSummaries": agents, keyNextToken: outToken})
 }
 
-func (h *Handler) handlePrepareAgent(c *echo.Context, ctx context.Context, agentID string) error {
+func (h *Handler) handlePrepareAgent(ctx context.Context, c *echo.Context, agentID string) error {
 	agent, err := h.Backend.PrepareAgent(ctx, agentID)
 	if err != nil {
 		return handleErr(c, err)
 	}
 
 	return c.JSON(http.StatusAccepted, map[string]any{
-		"agentId":      agent.AgentID,
-		"agentStatus":  agent.AgentStatus,
-		"agentVersion": agent.AgentVersion,
+		keyAgentID:       agent.AgentID,
+		"agentStatus":   agent.AgentStatus,
+		keyAgentVersion: agent.AgentVersion,
 	})
 }
 
@@ -934,7 +963,7 @@ func (h *Handler) handlePrepareAgent(c *echo.Context, ctx context.Context, agent
 // ---------------------------------------------------------------------------
 
 func (h *Handler) handleCreateAgentVersion(
-	c *echo.Context, ctx context.Context, agentID string, body []byte,
+	ctx context.Context, c *echo.Context, agentID string, body []byte,
 ) error {
 	var req struct {
 		Description string `json:"description"`
@@ -947,32 +976,36 @@ func (h *Handler) handleCreateAgentVersion(
 		return handleErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"agentVersion": av})
+	return c.JSON(http.StatusOK, map[string]any{keyAgentVersion: av})
 }
 
 func (h *Handler) handleGetAgentVersion(
-	c *echo.Context, ctx context.Context, agentID, version string,
+	ctx context.Context, c *echo.Context, agentID, version string,
 ) error {
 	av, err := h.Backend.GetAgentVersion(ctx, agentID, version)
 	if err != nil {
 		return handleErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"agentVersion": av})
+	return c.JSON(http.StatusOK, map[string]any{keyAgentVersion: av})
 }
 
 func (h *Handler) handleDeleteAgentVersion(
-	c *echo.Context, ctx context.Context, agentID, version string,
+	ctx context.Context, c *echo.Context, agentID, version string,
 ) error {
 	if err := h.Backend.DeleteAgentVersion(ctx, agentID, version); err != nil {
 		return handleErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"agentId": agentID, "agentVersion": version, "agentStatus": "DELETING"})
+	return c.JSON(http.StatusOK, map[string]any{
+		keyAgentID:       agentID,
+		keyAgentVersion: version,
+		"agentStatus":   statusDeleting,
+	})
 }
 
 func (h *Handler) handleListAgentVersions(
-	c *echo.Context, ctx context.Context, agentID string,
+	ctx context.Context, c *echo.Context, agentID string,
 ) error {
 	maxResults, nextToken := pageParams(c.Request().URL.Query())
 
@@ -983,7 +1016,7 @@ func (h *Handler) handleListAgentVersions(
 
 	return c.JSON(http.StatusOK, map[string]any{
 		"agentVersionSummaries": summaries,
-		"nextToken":             outToken,
+		keyNextToken:            outToken,
 	})
 }
 
@@ -992,7 +1025,7 @@ func (h *Handler) handleListAgentVersions(
 // ---------------------------------------------------------------------------
 
 func (h *Handler) handleCreateAgentActionGroup(
-	c *echo.Context, ctx context.Context, agentID string, body []byte,
+	ctx context.Context, c *echo.Context, agentID string, body []byte,
 ) error {
 	var req struct {
 		ActionGroupExecutor map[string]any `json:"actionGroupExecutor"`
@@ -1019,22 +1052,22 @@ func (h *Handler) handleCreateAgentActionGroup(
 		return handleErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"agentActionGroup": ag})
+	return c.JSON(http.StatusOK, map[string]any{keyAgentActionGroup: ag})
 }
 
 func (h *Handler) handleGetAgentActionGroup(
-	c *echo.Context, ctx context.Context, agentID, agentVersion, agID string,
+	ctx context.Context, c *echo.Context, agentID, agentVersion, agID string,
 ) error {
 	ag, err := h.Backend.GetAgentActionGroup(ctx, agentID, agentVersion, agID)
 	if err != nil {
 		return handleErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"agentActionGroup": ag})
+	return c.JSON(http.StatusOK, map[string]any{keyAgentActionGroup: ag})
 }
 
 func (h *Handler) handleUpdateAgentActionGroup(
-	c *echo.Context, ctx context.Context, agentID, agentVersion, agID string, body []byte,
+	ctx context.Context, c *echo.Context, agentID, agentVersion, agID string, body []byte,
 ) error {
 	var req struct {
 		ActionGroupExecutor map[string]any `json:"actionGroupExecutor"`
@@ -1061,11 +1094,11 @@ func (h *Handler) handleUpdateAgentActionGroup(
 		return handleErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"agentActionGroup": ag})
+	return c.JSON(http.StatusOK, map[string]any{keyAgentActionGroup: ag})
 }
 
 func (h *Handler) handleDeleteAgentActionGroup(
-	c *echo.Context, ctx context.Context, agentID, agentVersion, agID string,
+	ctx context.Context, c *echo.Context, agentID, agentVersion, agID string,
 ) error {
 	if err := h.Backend.DeleteAgentActionGroup(ctx, agentID, agentVersion, agID); err != nil {
 		return handleErr(c, err)
@@ -1075,7 +1108,7 @@ func (h *Handler) handleDeleteAgentActionGroup(
 }
 
 func (h *Handler) handleListAgentActionGroups(
-	c *echo.Context, ctx context.Context, agentID, agentVersion string,
+	ctx context.Context, c *echo.Context, agentID, agentVersion string,
 ) error {
 	maxResults, nextToken := pageParams(c.Request().URL.Query())
 
@@ -1086,7 +1119,7 @@ func (h *Handler) handleListAgentActionGroups(
 
 	return c.JSON(http.StatusOK, map[string]any{
 		"actionGroupSummaries": summaries,
-		"nextToken":            outToken,
+		keyNextToken:           outToken,
 	})
 }
 
@@ -1095,13 +1128,13 @@ func (h *Handler) handleListAgentActionGroups(
 // ---------------------------------------------------------------------------
 
 func (h *Handler) handleCreateAgentAlias(
-	c *echo.Context, ctx context.Context, agentID string, body []byte,
+	ctx context.Context, c *echo.Context, agentID string, body []byte,
 ) error {
 	var req struct {
 		Tags                 map[string]string `json:"tags"`
-		RoutingConfiguration []AliasRouting    `json:"routingConfiguration"`
 		AgentAliasName       string            `json:"agentAliasName"`
 		Description          string            `json:"description"`
+		RoutingConfiguration []AliasRouting    `json:"routingConfiguration"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -1118,28 +1151,28 @@ func (h *Handler) handleCreateAgentAlias(
 		return handleErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"agentAlias": al})
+	return c.JSON(http.StatusOK, map[string]any{keyAgentAlias: al})
 }
 
 func (h *Handler) handleGetAgentAlias(
-	c *echo.Context, ctx context.Context, agentID, aliasID string,
+	ctx context.Context, c *echo.Context, agentID, aliasID string,
 ) error {
 	al, err := h.Backend.GetAgentAlias(ctx, agentID, aliasID)
 	if err != nil {
 		return handleErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"agentAlias": al})
+	return c.JSON(http.StatusOK, map[string]any{keyAgentAlias: al})
 }
 
 func (h *Handler) handleUpdateAgentAlias(
-	c *echo.Context, ctx context.Context, agentID, aliasID string, body []byte,
+	ctx context.Context, c *echo.Context, agentID, aliasID string, body []byte,
 ) error {
 	var req struct {
 		Tags                 map[string]string `json:"tags"`
-		RoutingConfiguration []AliasRouting    `json:"routingConfiguration"`
 		AgentAliasName       string            `json:"agentAliasName"`
 		Description          string            `json:"description"`
+		RoutingConfiguration []AliasRouting    `json:"routingConfiguration"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -1156,21 +1189,25 @@ func (h *Handler) handleUpdateAgentAlias(
 		return handleErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"agentAlias": al})
+	return c.JSON(http.StatusOK, map[string]any{keyAgentAlias: al})
 }
 
 func (h *Handler) handleDeleteAgentAlias(
-	c *echo.Context, ctx context.Context, agentID, aliasID string,
+	ctx context.Context, c *echo.Context, agentID, aliasID string,
 ) error {
 	if err := h.Backend.DeleteAgentAlias(ctx, agentID, aliasID); err != nil {
 		return handleErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"agentId": agentID, "agentAliasId": aliasID, "agentAliasStatus": "DELETING"})
+	return c.JSON(http.StatusOK, map[string]any{
+		keyAgentID:          agentID,
+		"agentAliasId":     aliasID,
+		"agentAliasStatus": statusDeleting,
+	})
 }
 
 func (h *Handler) handleListAgentAliases(
-	c *echo.Context, ctx context.Context, agentID string,
+	ctx context.Context, c *echo.Context, agentID string,
 ) error {
 	maxResults, nextToken := pageParams(c.Request().URL.Query())
 
@@ -1181,7 +1218,7 @@ func (h *Handler) handleListAgentAliases(
 
 	return c.JSON(http.StatusOK, map[string]any{
 		"agentAliasSummaries": summaries,
-		"nextToken":           outToken,
+		keyNextToken:          outToken,
 	})
 }
 
@@ -1190,7 +1227,7 @@ func (h *Handler) handleListAgentAliases(
 // ---------------------------------------------------------------------------
 
 func (h *Handler) handleAssociateCollaborator(
-	c *echo.Context, ctx context.Context, agentID, agentVersion string, body []byte,
+	ctx context.Context, c *echo.Context, agentID, agentVersion string, body []byte,
 ) error {
 	var req struct {
 		AgentDescriptor          map[string]any `json:"agentDescriptor"`
@@ -1213,22 +1250,22 @@ func (h *Handler) handleAssociateCollaborator(
 		return handleErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"agentCollaborator": collab})
+	return c.JSON(http.StatusOK, map[string]any{keyAgentCollaborator: collab})
 }
 
 func (h *Handler) handleGetCollaborator(
-	c *echo.Context, ctx context.Context, agentID, agentVersion, collaboratorID string,
+	ctx context.Context, c *echo.Context, agentID, agentVersion, collaboratorID string,
 ) error {
 	collab, err := h.Backend.GetAgentCollaborator(ctx, agentID, agentVersion, collaboratorID)
 	if err != nil {
 		return handleErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"agentCollaborator": collab})
+	return c.JSON(http.StatusOK, map[string]any{keyAgentCollaborator: collab})
 }
 
 func (h *Handler) handleUpdateCollaborator(
-	c *echo.Context, ctx context.Context, agentID, agentVersion, collaboratorID string, body []byte,
+	ctx context.Context, c *echo.Context, agentID, agentVersion, collaboratorID string, body []byte,
 ) error {
 	var req struct {
 		AgentDescriptor          map[string]any `json:"agentDescriptor"`
@@ -1251,11 +1288,11 @@ func (h *Handler) handleUpdateCollaborator(
 		return handleErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"agentCollaborator": collab})
+	return c.JSON(http.StatusOK, map[string]any{keyAgentCollaborator: collab})
 }
 
 func (h *Handler) handleDisassociateCollaborator(
-	c *echo.Context, ctx context.Context, agentID, agentVersion, collaboratorID string,
+	ctx context.Context, c *echo.Context, agentID, agentVersion, collaboratorID string,
 ) error {
 	if err := h.Backend.DisassociateAgentCollaborator(ctx, agentID, agentVersion, collaboratorID); err != nil {
 		return handleErr(c, err)
@@ -1265,7 +1302,7 @@ func (h *Handler) handleDisassociateCollaborator(
 }
 
 func (h *Handler) handleListCollaborators(
-	c *echo.Context, ctx context.Context, agentID, agentVersion string,
+	ctx context.Context, c *echo.Context, agentID, agentVersion string,
 ) error {
 	maxResults, nextToken := pageParams(c.Request().URL.Query())
 
@@ -1276,7 +1313,7 @@ func (h *Handler) handleListCollaborators(
 
 	return c.JSON(http.StatusOK, map[string]any{
 		"agentCollaboratorSummaries": collabs,
-		"nextToken":                  outToken,
+		keyNextToken:                 outToken,
 	})
 }
 
@@ -1284,7 +1321,7 @@ func (h *Handler) handleListCollaborators(
 // Knowledge base handlers
 // ---------------------------------------------------------------------------
 
-func (h *Handler) handleCreateKB(c *echo.Context, ctx context.Context, body []byte) error {
+func (h *Handler) handleCreateKB(ctx context.Context, c *echo.Context, body []byte) error {
 	var req struct {
 		Tags                 map[string]string `json:"tags"`
 		KBConfiguration      map[string]any    `json:"knowledgeBaseConfiguration"`
@@ -1310,19 +1347,19 @@ func (h *Handler) handleCreateKB(c *echo.Context, ctx context.Context, body []by
 		return handleErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"knowledgeBase": kb})
+	return c.JSON(http.StatusOK, map[string]any{keyKnowledgeBase: kb})
 }
 
-func (h *Handler) handleGetKB(c *echo.Context, ctx context.Context, kbID string) error {
+func (h *Handler) handleGetKB(ctx context.Context, c *echo.Context, kbID string) error {
 	kb, err := h.Backend.GetKnowledgeBase(ctx, kbID)
 	if err != nil {
 		return handleErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"knowledgeBase": kb})
+	return c.JSON(http.StatusOK, map[string]any{keyKnowledgeBase: kb})
 }
 
-func (h *Handler) handleUpdateKB(c *echo.Context, ctx context.Context, kbID string, body []byte) error {
+func (h *Handler) handleUpdateKB(ctx context.Context, c *echo.Context, kbID string, body []byte) error {
 	var req struct {
 		Tags                 map[string]string `json:"tags"`
 		KBConfiguration      map[string]any    `json:"knowledgeBaseConfiguration"`
@@ -1348,18 +1385,18 @@ func (h *Handler) handleUpdateKB(c *echo.Context, ctx context.Context, kbID stri
 		return handleErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"knowledgeBase": kb})
+	return c.JSON(http.StatusOK, map[string]any{keyKnowledgeBase: kb})
 }
 
-func (h *Handler) handleDeleteKB(c *echo.Context, ctx context.Context, kbID string) error {
+func (h *Handler) handleDeleteKB(ctx context.Context, c *echo.Context, kbID string) error {
 	if err := h.Backend.DeleteKnowledgeBase(ctx, kbID); err != nil {
 		return handleErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"knowledgeBaseId": kbID, "status": "DELETING"})
+	return c.JSON(http.StatusOK, map[string]any{"knowledgeBaseId": kbID, keyStatus: statusDeleting})
 }
 
-func (h *Handler) handleListKBs(c *echo.Context, ctx context.Context) error {
+func (h *Handler) handleListKBs(ctx context.Context, c *echo.Context) error {
 	maxResults, nextToken := pageParams(c.Request().URL.Query())
 
 	summaries, outToken, err := h.Backend.ListKnowledgeBases(ctx, maxResults, nextToken)
@@ -1369,7 +1406,7 @@ func (h *Handler) handleListKBs(c *echo.Context, ctx context.Context) error {
 
 	return c.JSON(http.StatusOK, map[string]any{
 		"knowledgeBaseSummaries": summaries,
-		"nextToken":              outToken,
+		keyNextToken:             outToken,
 	})
 }
 
@@ -1378,7 +1415,7 @@ func (h *Handler) handleListKBs(c *echo.Context, ctx context.Context) error {
 // ---------------------------------------------------------------------------
 
 func (h *Handler) handleAssociateAgentKB(
-	c *echo.Context, ctx context.Context, agentID, agentVersion string, body []byte,
+	ctx context.Context, c *echo.Context, agentID, agentVersion string, body []byte,
 ) error {
 	var req struct {
 		KnowledgeBaseID    string `json:"knowledgeBaseId"`
@@ -1397,22 +1434,22 @@ func (h *Handler) handleAssociateAgentKB(
 		return handleErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"agentKnowledgeBase": assoc})
+	return c.JSON(http.StatusOK, map[string]any{keyAgentKB: assoc})
 }
 
 func (h *Handler) handleGetAgentKB(
-	c *echo.Context, ctx context.Context, agentID, agentVersion, kbID string,
+	ctx context.Context, c *echo.Context, agentID, agentVersion, kbID string,
 ) error {
 	assoc, err := h.Backend.GetAgentKnowledgeBase(ctx, agentID, agentVersion, kbID)
 	if err != nil {
 		return handleErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"agentKnowledgeBase": assoc})
+	return c.JSON(http.StatusOK, map[string]any{keyAgentKB: assoc})
 }
 
 func (h *Handler) handleUpdateAgentKB(
-	c *echo.Context, ctx context.Context, agentID, agentVersion, kbID string, body []byte,
+	ctx context.Context, c *echo.Context, agentID, agentVersion, kbID string, body []byte,
 ) error {
 	var req struct {
 		Description        string `json:"description"`
@@ -1430,11 +1467,11 @@ func (h *Handler) handleUpdateAgentKB(
 		return handleErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"agentKnowledgeBase": assoc})
+	return c.JSON(http.StatusOK, map[string]any{keyAgentKB: assoc})
 }
 
 func (h *Handler) handleDisassociateAgentKB(
-	c *echo.Context, ctx context.Context, agentID, agentVersion, kbID string,
+	ctx context.Context, c *echo.Context, agentID, agentVersion, kbID string,
 ) error {
 	if err := h.Backend.DisassociateAgentKnowledgeBase(ctx, agentID, agentVersion, kbID); err != nil {
 		return handleErr(c, err)
@@ -1444,7 +1481,7 @@ func (h *Handler) handleDisassociateAgentKB(
 }
 
 func (h *Handler) handleListAgentKBs(
-	c *echo.Context, ctx context.Context, agentID, agentVersion string,
+	ctx context.Context, c *echo.Context, agentID, agentVersion string,
 ) error {
 	maxResults, nextToken := pageParams(c.Request().URL.Query())
 
@@ -1455,7 +1492,7 @@ func (h *Handler) handleListAgentKBs(
 
 	return c.JSON(http.StatusOK, map[string]any{
 		"agentKnowledgeBaseSummaries": assocs,
-		"nextToken":                   outToken,
+		keyNextToken:                  outToken,
 	})
 }
 
@@ -1463,7 +1500,7 @@ func (h *Handler) handleListAgentKBs(
 // Data source handlers
 // ---------------------------------------------------------------------------
 
-func (h *Handler) handleCreateDS(c *echo.Context, ctx context.Context, kbID string, body []byte) error {
+func (h *Handler) handleCreateDS(ctx context.Context, c *echo.Context, kbID string, body []byte) error {
 	var req struct {
 		DataSourceConfiguration map[string]any `json:"dataSourceConfiguration"`
 		VectorIngestionConfig   map[string]any `json:"vectorIngestionConfiguration"`
@@ -1487,20 +1524,20 @@ func (h *Handler) handleCreateDS(c *echo.Context, ctx context.Context, kbID stri
 		return handleErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"dataSource": ds})
+	return c.JSON(http.StatusOK, map[string]any{keyDataSource: ds})
 }
 
-func (h *Handler) handleGetDS(c *echo.Context, ctx context.Context, kbID, dsID string) error {
+func (h *Handler) handleGetDS(ctx context.Context, c *echo.Context, kbID, dsID string) error {
 	ds, err := h.Backend.GetDataSource(ctx, kbID, dsID)
 	if err != nil {
 		return handleErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"dataSource": ds})
+	return c.JSON(http.StatusOK, map[string]any{keyDataSource: ds})
 }
 
 func (h *Handler) handleUpdateDS(
-	c *echo.Context, ctx context.Context, kbID, dsID string, body []byte,
+	ctx context.Context, c *echo.Context, kbID, dsID string, body []byte,
 ) error {
 	var req struct {
 		DataSourceConfiguration map[string]any `json:"dataSourceConfiguration"`
@@ -1525,10 +1562,10 @@ func (h *Handler) handleUpdateDS(
 		return handleErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"dataSource": ds})
+	return c.JSON(http.StatusOK, map[string]any{keyDataSource: ds})
 }
 
-func (h *Handler) handleDeleteDS(c *echo.Context, ctx context.Context, kbID, dsID string) error {
+func (h *Handler) handleDeleteDS(ctx context.Context, c *echo.Context, kbID, dsID string) error {
 	if err := h.Backend.DeleteDataSource(ctx, kbID, dsID); err != nil {
 		return handleErr(c, err)
 	}
@@ -1536,11 +1573,11 @@ func (h *Handler) handleDeleteDS(c *echo.Context, ctx context.Context, kbID, dsI
 	return c.JSON(http.StatusOK, map[string]any{
 		"dataSourceId":    dsID,
 		"knowledgeBaseId": kbID,
-		"status":          "DELETING",
+		keyStatus:         statusDeleting,
 	})
 }
 
-func (h *Handler) handleListDS(c *echo.Context, ctx context.Context, kbID string) error {
+func (h *Handler) handleListDS(ctx context.Context, c *echo.Context, kbID string) error {
 	maxResults, nextToken := pageParams(c.Request().URL.Query())
 
 	summaries, outToken, err := h.Backend.ListDataSources(ctx, kbID, maxResults, nextToken)
@@ -1550,7 +1587,7 @@ func (h *Handler) handleListDS(c *echo.Context, ctx context.Context, kbID string
 
 	return c.JSON(http.StatusOK, map[string]any{
 		"dataSourceSummaries": summaries,
-		"nextToken":           outToken,
+		keyNextToken:          outToken,
 	})
 }
 
@@ -1559,7 +1596,7 @@ func (h *Handler) handleListDS(c *echo.Context, ctx context.Context, kbID string
 // ---------------------------------------------------------------------------
 
 func (h *Handler) handleStartIngestionJob(
-	c *echo.Context, ctx context.Context, kbID, dsID string, body []byte,
+	ctx context.Context, c *echo.Context, kbID, dsID string, body []byte,
 ) error {
 	var req struct {
 		Description string `json:"description"`
@@ -1572,33 +1609,33 @@ func (h *Handler) handleStartIngestionJob(
 		return handleErr(c, err)
 	}
 
-	return c.JSON(http.StatusAccepted, map[string]any{"ingestionJob": job})
+	return c.JSON(http.StatusAccepted, map[string]any{keyIngestionJob: job})
 }
 
 func (h *Handler) handleGetIngestionJob(
-	c *echo.Context, ctx context.Context, kbID, dsID, jobID string,
+	ctx context.Context, c *echo.Context, kbID, dsID, jobID string,
 ) error {
 	job, err := h.Backend.GetIngestionJob(ctx, kbID, dsID, jobID)
 	if err != nil {
 		return handleErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"ingestionJob": job})
+	return c.JSON(http.StatusOK, map[string]any{keyIngestionJob: job})
 }
 
 func (h *Handler) handleStopIngestionJob(
-	c *echo.Context, ctx context.Context, kbID, dsID, jobID string,
+	ctx context.Context, c *echo.Context, kbID, dsID, jobID string,
 ) error {
 	job, err := h.Backend.StopIngestionJob(ctx, kbID, dsID, jobID)
 	if err != nil {
 		return handleErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"ingestionJob": job})
+	return c.JSON(http.StatusOK, map[string]any{keyIngestionJob: job})
 }
 
 func (h *Handler) handleListIngestionJobs(
-	c *echo.Context, ctx context.Context, kbID, dsID string,
+	ctx context.Context, c *echo.Context, kbID, dsID string,
 ) error {
 	maxResults, nextToken := pageParams(c.Request().URL.Query())
 
@@ -1609,7 +1646,7 @@ func (h *Handler) handleListIngestionJobs(
 
 	return c.JSON(http.StatusOK, map[string]any{
 		"ingestionJobSummaries": jobs,
-		"nextToken":             outToken,
+		keyNextToken:            outToken,
 	})
 }
 
@@ -1617,7 +1654,7 @@ func (h *Handler) handleListIngestionJobs(
 // Flow handlers
 // ---------------------------------------------------------------------------
 
-func (h *Handler) handleCreateFlow(c *echo.Context, ctx context.Context, body []byte) error {
+func (h *Handler) handleCreateFlow(ctx context.Context, c *echo.Context, body []byte) error {
 	var req struct {
 		Tags        map[string]string `json:"tags"`
 		Definition  map[string]any    `json:"definition"`
@@ -1644,7 +1681,7 @@ func (h *Handler) handleCreateFlow(c *echo.Context, ctx context.Context, body []
 	return c.JSON(http.StatusCreated, f)
 }
 
-func (h *Handler) handleGetFlow(c *echo.Context, ctx context.Context, flowID string) error {
+func (h *Handler) handleGetFlow(ctx context.Context, c *echo.Context, flowID string) error {
 	f, err := h.Backend.GetFlow(ctx, flowID)
 	if err != nil {
 		return handleErr(c, err)
@@ -1654,7 +1691,7 @@ func (h *Handler) handleGetFlow(c *echo.Context, ctx context.Context, flowID str
 }
 
 func (h *Handler) handleUpdateFlow(
-	c *echo.Context, ctx context.Context, flowID string, body []byte,
+	ctx context.Context, c *echo.Context, flowID string, body []byte,
 ) error {
 	var req struct {
 		Tags        map[string]string `json:"tags"`
@@ -1682,15 +1719,15 @@ func (h *Handler) handleUpdateFlow(
 	return c.JSON(http.StatusOK, f)
 }
 
-func (h *Handler) handleDeleteFlow(c *echo.Context, ctx context.Context, flowID string) error {
+func (h *Handler) handleDeleteFlow(ctx context.Context, c *echo.Context, flowID string) error {
 	if err := h.Backend.DeleteFlow(ctx, flowID); err != nil {
 		return handleErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"id": flowID, "status": "Deleting"})
+	return c.JSON(http.StatusOK, map[string]any{"id": flowID, keyStatus: "Deleting"})
 }
 
-func (h *Handler) handleListFlows(c *echo.Context, ctx context.Context) error {
+func (h *Handler) handleListFlows(ctx context.Context, c *echo.Context) error {
 	maxResults, nextToken := pageParams(c.Request().URL.Query())
 
 	summaries, outToken, err := h.Backend.ListFlows(ctx, maxResults, nextToken)
@@ -1698,10 +1735,10 @@ func (h *Handler) handleListFlows(c *echo.Context, ctx context.Context) error {
 		return handleErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"flowSummaries": summaries, "nextToken": outToken})
+	return c.JSON(http.StatusOK, map[string]any{"flowSummaries": summaries, keyNextToken: outToken})
 }
 
-func (h *Handler) handlePrepareFlow(c *echo.Context, ctx context.Context, flowID string) error {
+func (h *Handler) handlePrepareFlow(ctx context.Context, c *echo.Context, flowID string) error {
 	f, err := h.Backend.PrepareFlow(ctx, flowID)
 	if err != nil {
 		return handleErr(c, err)
@@ -1710,7 +1747,7 @@ func (h *Handler) handlePrepareFlow(c *echo.Context, ctx context.Context, flowID
 	return c.JSON(http.StatusAccepted, f)
 }
 
-func (h *Handler) handleValidateFlowDef(c *echo.Context, ctx context.Context, body []byte) error {
+func (h *Handler) handleValidateFlowDef(ctx context.Context, c *echo.Context, body []byte) error {
 	var req struct {
 		Definition map[string]any `json:"definition"`
 	}
@@ -1730,7 +1767,7 @@ func (h *Handler) handleValidateFlowDef(c *echo.Context, ctx context.Context, bo
 // ---------------------------------------------------------------------------
 
 func (h *Handler) handleCreateFlowVersion(
-	c *echo.Context, ctx context.Context, flowID string, body []byte,
+	ctx context.Context, c *echo.Context, flowID string, body []byte,
 ) error {
 	var req struct {
 		Description string `json:"description"`
@@ -1747,7 +1784,7 @@ func (h *Handler) handleCreateFlowVersion(
 }
 
 func (h *Handler) handleGetFlowVersion(
-	c *echo.Context, ctx context.Context, flowID, flowVersion string,
+	ctx context.Context, c *echo.Context, flowID, flowVersion string,
 ) error {
 	fv, err := h.Backend.GetFlowVersion(ctx, flowID, flowVersion)
 	if err != nil {
@@ -1758,17 +1795,17 @@ func (h *Handler) handleGetFlowVersion(
 }
 
 func (h *Handler) handleDeleteFlowVersion(
-	c *echo.Context, ctx context.Context, flowID, flowVersion string,
+	ctx context.Context, c *echo.Context, flowID, flowVersion string,
 ) error {
 	if err := h.Backend.DeleteFlowVersion(ctx, flowID, flowVersion); err != nil {
 		return handleErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"id": flowID, "version": flowVersion, "status": "Deleting"})
+	return c.JSON(http.StatusOK, map[string]any{"id": flowID, "version": flowVersion, keyStatus: "Deleting"})
 }
 
 func (h *Handler) handleListFlowVersions(
-	c *echo.Context, ctx context.Context, flowID string,
+	ctx context.Context, c *echo.Context, flowID string,
 ) error {
 	maxResults, nextToken := pageParams(c.Request().URL.Query())
 
@@ -1777,7 +1814,7 @@ func (h *Handler) handleListFlowVersions(
 		return handleErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"flowVersionSummaries": summaries, "nextToken": outToken})
+	return c.JSON(http.StatusOK, map[string]any{"flowVersionSummaries": summaries, keyNextToken: outToken})
 }
 
 // ---------------------------------------------------------------------------
@@ -1785,13 +1822,13 @@ func (h *Handler) handleListFlowVersions(
 // ---------------------------------------------------------------------------
 
 func (h *Handler) handleCreateFlowAlias(
-	c *echo.Context, ctx context.Context, flowID string, body []byte,
+	ctx context.Context, c *echo.Context, flowID string, body []byte,
 ) error {
 	var req struct {
 		Tags                 map[string]string  `json:"tags"`
-		RoutingConfiguration []FlowAliasRouting `json:"routingConfiguration"`
 		Name                 string             `json:"name"`
 		Description          string             `json:"description"`
+		RoutingConfiguration []FlowAliasRouting `json:"routingConfiguration"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -1812,7 +1849,7 @@ func (h *Handler) handleCreateFlowAlias(
 }
 
 func (h *Handler) handleGetFlowAlias(
-	c *echo.Context, ctx context.Context, flowID, aliasID string,
+	ctx context.Context, c *echo.Context, flowID, aliasID string,
 ) error {
 	al, err := h.Backend.GetFlowAlias(ctx, flowID, aliasID)
 	if err != nil {
@@ -1823,13 +1860,13 @@ func (h *Handler) handleGetFlowAlias(
 }
 
 func (h *Handler) handleUpdateFlowAlias(
-	c *echo.Context, ctx context.Context, flowID, aliasID string, body []byte,
+	ctx context.Context, c *echo.Context, flowID, aliasID string, body []byte,
 ) error {
 	var req struct {
 		Tags                 map[string]string  `json:"tags"`
-		RoutingConfiguration []FlowAliasRouting `json:"routingConfiguration"`
 		Name                 string             `json:"name"`
 		Description          string             `json:"description"`
+		RoutingConfiguration []FlowAliasRouting `json:"routingConfiguration"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -1850,7 +1887,7 @@ func (h *Handler) handleUpdateFlowAlias(
 }
 
 func (h *Handler) handleDeleteFlowAlias(
-	c *echo.Context, ctx context.Context, flowID, aliasID string,
+	ctx context.Context, c *echo.Context, flowID, aliasID string,
 ) error {
 	if err := h.Backend.DeleteFlowAlias(ctx, flowID, aliasID); err != nil {
 		return handleErr(c, err)
@@ -1860,7 +1897,7 @@ func (h *Handler) handleDeleteFlowAlias(
 }
 
 func (h *Handler) handleListFlowAliases(
-	c *echo.Context, ctx context.Context, flowID string,
+	ctx context.Context, c *echo.Context, flowID string,
 ) error {
 	maxResults, nextToken := pageParams(c.Request().URL.Query())
 
@@ -1869,20 +1906,20 @@ func (h *Handler) handleListFlowAliases(
 		return handleErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"flowAliasSummaries": summaries, "nextToken": outToken})
+	return c.JSON(http.StatusOK, map[string]any{"flowAliasSummaries": summaries, keyNextToken: outToken})
 }
 
 // ---------------------------------------------------------------------------
 // Prompt handlers
 // ---------------------------------------------------------------------------
 
-func (h *Handler) handleCreatePrompt(c *echo.Context, ctx context.Context, body []byte) error {
+func (h *Handler) handleCreatePrompt(ctx context.Context, c *echo.Context, body []byte) error {
 	var req struct {
 		Tags           map[string]string `json:"tags"`
-		Variants       []map[string]any  `json:"variants"`
 		Name           string            `json:"name"`
 		Description    string            `json:"description"`
 		DefaultVariant string            `json:"defaultVariant"`
+		Variants       []map[string]any  `json:"variants"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -1903,7 +1940,7 @@ func (h *Handler) handleCreatePrompt(c *echo.Context, ctx context.Context, body 
 	return c.JSON(http.StatusCreated, p)
 }
 
-func (h *Handler) handleGetPrompt(c *echo.Context, ctx context.Context, promptID string) error {
+func (h *Handler) handleGetPrompt(ctx context.Context, c *echo.Context, promptID string) error {
 	p, err := h.Backend.GetPrompt(ctx, promptID)
 	if err != nil {
 		return handleErr(c, err)
@@ -1913,14 +1950,14 @@ func (h *Handler) handleGetPrompt(c *echo.Context, ctx context.Context, promptID
 }
 
 func (h *Handler) handleUpdatePrompt(
-	c *echo.Context, ctx context.Context, promptID string, body []byte,
+	ctx context.Context, c *echo.Context, promptID string, body []byte,
 ) error {
 	var req struct {
 		Tags           map[string]string `json:"tags"`
-		Variants       []map[string]any  `json:"variants"`
 		Name           string            `json:"name"`
 		Description    string            `json:"description"`
 		DefaultVariant string            `json:"defaultVariant"`
+		Variants       []map[string]any  `json:"variants"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -1941,7 +1978,7 @@ func (h *Handler) handleUpdatePrompt(
 	return c.JSON(http.StatusOK, p)
 }
 
-func (h *Handler) handleDeletePrompt(c *echo.Context, ctx context.Context, promptID string) error {
+func (h *Handler) handleDeletePrompt(ctx context.Context, c *echo.Context, promptID string) error {
 	if err := h.Backend.DeletePrompt(ctx, promptID); err != nil {
 		return handleErr(c, err)
 	}
@@ -1949,7 +1986,7 @@ func (h *Handler) handleDeletePrompt(c *echo.Context, ctx context.Context, promp
 	return c.JSON(http.StatusOK, map[string]any{"id": promptID})
 }
 
-func (h *Handler) handleListPrompts(c *echo.Context, ctx context.Context) error {
+func (h *Handler) handleListPrompts(ctx context.Context, c *echo.Context) error {
 	maxResults, nextToken := pageParams(c.Request().URL.Query())
 
 	summaries, outToken, err := h.Backend.ListPrompts(ctx, maxResults, nextToken)
@@ -1957,7 +1994,7 @@ func (h *Handler) handleListPrompts(c *echo.Context, ctx context.Context) error 
 		return handleErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"promptSummaries": summaries, "nextToken": outToken})
+	return c.JSON(http.StatusOK, map[string]any{"promptSummaries": summaries, keyNextToken: outToken})
 }
 
 // ---------------------------------------------------------------------------
@@ -1965,7 +2002,7 @@ func (h *Handler) handleListPrompts(c *echo.Context, ctx context.Context) error 
 // ---------------------------------------------------------------------------
 
 func (h *Handler) handleCreatePromptVersion(
-	c *echo.Context, ctx context.Context, promptID string, body []byte,
+	ctx context.Context, c *echo.Context, promptID string, body []byte,
 ) error {
 	var req struct {
 		Description string `json:"description"`
@@ -1982,7 +2019,7 @@ func (h *Handler) handleCreatePromptVersion(
 }
 
 func (h *Handler) handleGetPromptVersion(
-	c *echo.Context, ctx context.Context, promptID, version string,
+	ctx context.Context, c *echo.Context, promptID, version string,
 ) error {
 	pv, err := h.Backend.GetPromptVersion(ctx, promptID, version)
 	if err != nil {
@@ -1993,7 +2030,7 @@ func (h *Handler) handleGetPromptVersion(
 }
 
 func (h *Handler) handleDeletePromptVersion(
-	c *echo.Context, ctx context.Context, promptID, version string,
+	ctx context.Context, c *echo.Context, promptID, version string,
 ) error {
 	if err := h.Backend.DeletePromptVersion(ctx, promptID, version); err != nil {
 		return handleErr(c, err)
@@ -2007,7 +2044,7 @@ func (h *Handler) handleDeletePromptVersion(
 // ---------------------------------------------------------------------------
 
 func (h *Handler) handleIngestKBDocs(
-	c *echo.Context, ctx context.Context, kbID, dsID string, body []byte,
+	ctx context.Context, c *echo.Context, kbID, dsID string, body []byte,
 ) error {
 	var req struct {
 		Documents []struct {
@@ -2036,11 +2073,11 @@ func (h *Handler) handleIngestKBDocs(
 		return handleErr(c, err)
 	}
 
-	return c.JSON(http.StatusAccepted, map[string]any{"documentDetails": details})
+	return c.JSON(http.StatusAccepted, map[string]any{keyDocumentDetails: details})
 }
 
 func (h *Handler) handleGetKBDocs(
-	c *echo.Context, ctx context.Context, kbID, dsID string, body []byte,
+	ctx context.Context, c *echo.Context, kbID, dsID string, body []byte,
 ) error {
 	var req struct {
 		DocumentIDs []string `json:"documentIds"`
@@ -2055,11 +2092,11 @@ func (h *Handler) handleGetKBDocs(
 		return handleErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"documentDetails": details})
+	return c.JSON(http.StatusOK, map[string]any{keyDocumentDetails: details})
 }
 
 func (h *Handler) handleDeleteKBDocs(
-	c *echo.Context, ctx context.Context, kbID, dsID string, body []byte,
+	ctx context.Context, c *echo.Context, kbID, dsID string, body []byte,
 ) error {
 	var req struct {
 		DocumentIDs []string `json:"documentIds"`
@@ -2074,11 +2111,11 @@ func (h *Handler) handleDeleteKBDocs(
 		return handleErr(c, err)
 	}
 
-	return c.JSON(http.StatusAccepted, map[string]any{"documentDetails": details})
+	return c.JSON(http.StatusAccepted, map[string]any{keyDocumentDetails: details})
 }
 
 func (h *Handler) handleListKBDocs(
-	c *echo.Context, ctx context.Context, kbID, dsID string,
+	ctx context.Context, c *echo.Context, kbID, dsID string,
 ) error {
 	maxResults, nextToken := pageParams(c.Request().URL.Query())
 
@@ -2088,8 +2125,8 @@ func (h *Handler) handleListKBDocs(
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"documentDetails": details,
-		"nextToken":       outToken,
+		keyDocumentDetails: details,
+		keyNextToken:       outToken,
 	})
 }
 
@@ -2098,7 +2135,7 @@ func (h *Handler) handleListKBDocs(
 // ---------------------------------------------------------------------------
 
 func (h *Handler) handleListTags(
-	c *echo.Context, ctx context.Context, resourceARN string,
+	ctx context.Context, c *echo.Context, resourceARN string,
 ) error {
 	tags, err := h.Backend.ListTagsForResource(ctx, resourceARN)
 	if err != nil {
@@ -2109,7 +2146,7 @@ func (h *Handler) handleListTags(
 }
 
 func (h *Handler) handleTagResource(
-	c *echo.Context, ctx context.Context, resourceARN string, body []byte,
+	ctx context.Context, c *echo.Context, resourceARN string, body []byte,
 ) error {
 	var req struct {
 		Tags map[string]string `json:"tags"`
@@ -2127,7 +2164,7 @@ func (h *Handler) handleTagResource(
 }
 
 func (h *Handler) handleUntagResource(
-	c *echo.Context, ctx context.Context, resourceARN string, query url.Values,
+	ctx context.Context, c *echo.Context, resourceARN string, query url.Values,
 ) error {
 	tagKeys := query["tagKeys"]
 
@@ -2177,7 +2214,7 @@ func errResp(code, msg string) map[string]any {
 
 func pageParams(query url.Values) (int, string) {
 	maxResults := maxPageDefault
-	nextToken := query.Get("nextToken")
+	nextToken := query.Get(keyNextToken)
 
 	if mr := query.Get("maxResults"); mr != "" {
 		_, _ = fmt.Sscanf(mr, "%d", &maxResults)
@@ -2226,7 +2263,21 @@ func classifySubPath(method, path string) string {
 		return classifyTagPath(method)
 	}
 
-	return "Unknown"
+	return opUnknown
+}
+
+// classifyAgentVersionedSubPath handles the collaborator, agentKB, alias, and actiongroup cases.
+func classifyAgentVersionedSubPath(method string, segs []string) string {
+	switch {
+	case containsSeg(segs, "actiongroups"):
+		return classifyActionGroupPath(method, segs)
+	case containsSeg(segs, "agentcollaborators"):
+		return classifyCollabPath(method, segs)
+	case containsSeg(segs, "knowledgebases"):
+		return classifyAgentKBPath(method, segs)
+	default:
+		return classifyAgentVersionPath(method, segs)
+	}
 }
 
 func classifyAgentPath(method, path string) string {
@@ -2242,19 +2293,13 @@ func classifyAgentPath(method, path string) string {
 		return opDeleteAgent
 	case len(segs) == 2 && segs[1] == "prepare":
 		return opPrepareAgent
-	case containsSeg(segs, "agentversions") && containsSeg(segs, "actiongroups"):
-		return classifyActionGroupPath(method, segs)
-	case containsSeg(segs, "agentversions") && containsSeg(segs, "agentcollaborators"):
-		return classifyCollabPath(method, segs)
-	case containsSeg(segs, "agentversions") && containsSeg(segs, "knowledgebases"):
-		return classifyAgentKBPath(method, segs)
 	case containsSeg(segs, "agentversions"):
-		return classifyAgentVersionPath(method, segs)
+		return classifyAgentVersionedSubPath(method, segs)
 	case containsSeg(segs, "agentaliases"):
 		return classifyAliasPath(method, segs)
 	}
 
-	return "Unknown"
+	return opUnknown
 }
 
 func classifyActionGroupPath(method string, segs []string) string {
@@ -2279,7 +2324,7 @@ func classifyActionGroupPath(method string, segs []string) string {
 		return opDeleteAgentActionGroup
 	}
 
-	return "Unknown"
+	return opUnknown
 }
 
 func classifyCollabPath(method string, segs []string) string {
@@ -2304,7 +2349,7 @@ func classifyCollabPath(method string, segs []string) string {
 		return opDisassociateAgentCollaborator
 	}
 
-	return "Unknown"
+	return opUnknown
 }
 
 func classifyAgentKBPath(method string, segs []string) string {
@@ -2329,7 +2374,7 @@ func classifyAgentKBPath(method string, segs []string) string {
 		return opDisassociateAgentKnowledgeBase
 	}
 
-	return "Unknown"
+	return opUnknown
 }
 
 func classifyAgentVersionPath(method string, segs []string) string {
@@ -2352,7 +2397,7 @@ func classifyAgentVersionPath(method string, segs []string) string {
 		return opDeleteAgentVersion
 	}
 
-	return "Unknown"
+	return opUnknown
 }
 
 func classifyAliasPath(method string, segs []string) string {
@@ -2377,7 +2422,7 @@ func classifyAliasPath(method string, segs []string) string {
 		return opDeleteAgentAlias
 	}
 
-	return "Unknown"
+	return opUnknown
 }
 
 func classifyKBPath(method, path string) string {
@@ -2395,7 +2440,7 @@ func classifyKBPath(method, path string) string {
 		return classifyDSPath(method, segs)
 	}
 
-	return "Unknown"
+	return opUnknown
 }
 
 func classifyDSPath(method string, segs []string) string {
@@ -2437,7 +2482,7 @@ func classifyDSSuffix(method, _, suffix string, segs []string) string {
 		}
 	}
 
-	return "Unknown"
+	return opUnknown
 }
 
 func classifyJobPath(method string, segs []string) string {
@@ -2479,7 +2524,7 @@ func classifyDocPath(method string, segs []string) string {
 		return opListKnowledgeBaseDocuments
 	}
 
-	return "Unknown"
+	return opUnknown
 }
 
 func classifyFlowPath(method, path string) string {
@@ -2501,7 +2546,7 @@ func classifyFlowPath(method, path string) string {
 		return classifyFlowAliasPath(method, segs)
 	}
 
-	return "Unknown"
+	return opUnknown
 }
 
 func classifyFlowVersionPath(method string, segs []string) string {
@@ -2524,7 +2569,7 @@ func classifyFlowVersionPath(method string, segs []string) string {
 		return opDeleteFlowVersion
 	}
 
-	return "Unknown"
+	return opUnknown
 }
 
 func classifyFlowAliasPath(method string, segs []string) string {
@@ -2549,7 +2594,7 @@ func classifyFlowAliasPath(method string, segs []string) string {
 		return opDeleteFlowAlias
 	}
 
-	return "Unknown"
+	return opUnknown
 }
 
 func classifyPromptPath(method, path string) string {
@@ -2567,7 +2612,7 @@ func classifyPromptPath(method, path string) string {
 		return classifyPromptVersionPath(method, segs)
 	}
 
-	return "Unknown"
+	return opUnknown
 }
 
 func classifyPromptVersionPath(method string, segs []string) string {
@@ -2585,7 +2630,7 @@ func classifyPromptVersionPath(method string, segs []string) string {
 		return opDeletePromptVersion
 	}
 
-	return "Unknown"
+	return opUnknown
 }
 
 func classifyTagPath(method string) string {
@@ -2598,7 +2643,7 @@ func classifyTagPath(method string) string {
 		return opUntagResource
 	}
 
-	return "Unknown"
+	return opUnknown
 }
 
 func isWrite(method string) bool {
@@ -2606,13 +2651,7 @@ func isWrite(method string) bool {
 }
 
 func containsSeg(segs []string, seg string) bool {
-	for _, s := range segs {
-		if s == seg {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(segs, seg)
 }
 
 func indexOf(segs []string, seg string) int {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 
@@ -91,28 +92,28 @@ type ActionGroupConfig struct {
 
 // AliasConfig holds fields for creating or updating an AgentAlias.
 type AliasConfig struct {
-	Tags                map[string]string
+	Tags                 map[string]string
+	AliasName            string
+	Description          string
 	RoutingConfiguration []AliasRouting
-	AliasName           string
-	Description         string
 }
 
 // CollaboratorConfig holds fields for an AgentCollaborator.
 type CollaboratorConfig struct {
-	AgentDescriptor    map[string]any
-	CollaboratorName   string
+	AgentDescriptor          map[string]any
+	CollaboratorName         string
 	CollaborationInstruction string
 	RelayConversationHistory string
 }
 
 // KnowledgeBaseConfig holds fields for creating or updating a KnowledgeBase.
 type KnowledgeBaseConfig struct {
-	Tags                    map[string]string
-	KBConfiguration         map[string]any
-	StorageConfiguration    map[string]any
-	Name                    string
-	Description             string
-	RoleARN                 string
+	Tags                 map[string]string
+	KBConfiguration      map[string]any
+	StorageConfiguration map[string]any
+	Name                 string
+	Description          string
+	RoleARN              string
 }
 
 // DataSourceConfig holds fields for creating or updating a DataSource.
@@ -135,19 +136,19 @@ type FlowConfig struct {
 
 // FlowAliasConfig holds fields for creating or updating a FlowAlias.
 type FlowAliasConfig struct {
-	Tags                map[string]string
+	Tags                 map[string]string
+	Name                 string
+	Description          string
 	RoutingConfiguration []FlowAliasRouting
-	Name                string
-	Description         string
 }
 
 // PromptConfig holds fields for creating or updating a Prompt.
 type PromptConfig struct {
-	Tags            map[string]string
-	Variants        []map[string]any
-	Name            string
-	Description     string
-	DefaultVariant  string
+	Tags           map[string]string
+	Name           string
+	Description    string
+	DefaultVariant string
+	Variants       []map[string]any
 }
 
 // KBDocument is a knowledge base document for ingestion.
@@ -243,16 +244,16 @@ type AliasRouting struct {
 
 // AgentAlias routes traffic to a specific agent version.
 type AgentAlias struct {
-	CreatedAt            time.Time    `json:"createdAt"`
-	UpdatedAt            time.Time    `json:"updatedAt"`
+	CreatedAt            time.Time         `json:"createdAt"`
+	UpdatedAt            time.Time         `json:"updatedAt"`
 	Tags                 map[string]string `json:"tags,omitempty"`
-	RoutingConfiguration []AliasRouting `json:"routingConfiguration"`
-	AgentAliasID         string       `json:"agentAliasId"`
-	AgentAliasARN        string       `json:"agentAliasArn"`
-	AgentAliasName       string       `json:"agentAliasName"`
-	AgentAliasStatus     string       `json:"agentAliasStatus"`
-	AgentID              string       `json:"agentId"`
-	Description          string       `json:"description,omitempty"`
+	AgentAliasID         string            `json:"agentAliasId"`
+	AgentAliasARN        string            `json:"agentAliasArn"`
+	AgentAliasName       string            `json:"agentAliasName"`
+	AgentAliasStatus     string            `json:"agentAliasStatus"`
+	AgentID              string            `json:"agentId"`
+	Description          string            `json:"description,omitempty"`
+	RoutingConfiguration []AliasRouting    `json:"routingConfiguration"`
 }
 
 // AgentAliasSummary is used in list responses.
@@ -338,13 +339,13 @@ type DataSourceSummary struct {
 
 // IngestionJob is a knowledge base data ingestion job.
 type IngestionJob struct {
-	StartedAt      time.Time `json:"startedAt"`
-	UpdatedAt      time.Time `json:"updatedAt"`
-	IngestionJobID string    `json:"ingestionJobId"`
-	KnowledgeBaseID string   `json:"knowledgeBaseId"`
-	DataSourceID   string    `json:"dataSourceId"`
-	Status         string    `json:"status"`
-	Description    string    `json:"description,omitempty"`
+	StartedAt       time.Time `json:"startedAt"`
+	UpdatedAt       time.Time `json:"updatedAt"`
+	IngestionJobID  string    `json:"ingestionJobId"`
+	KnowledgeBaseID string    `json:"knowledgeBaseId"`
+	DataSourceID    string    `json:"dataSourceId"`
+	Status          string    `json:"status"`
+	Description     string    `json:"description,omitempty"`
 }
 
 // Flow is a Bedrock prompt flow.
@@ -402,15 +403,15 @@ type FlowAliasRouting struct {
 
 // FlowAlias routes traffic to a specific flow version.
 type FlowAlias struct {
-	CreatedAt            time.Time         `json:"createdAt"`
-	UpdatedAt            time.Time         `json:"updatedAt"`
-	Tags                 map[string]string `json:"tags,omitempty"`
+	CreatedAt            time.Time          `json:"createdAt"`
+	UpdatedAt            time.Time          `json:"updatedAt"`
+	Tags                 map[string]string  `json:"tags,omitempty"`
+	AliasID              string             `json:"id"`
+	AliasARN             string             `json:"arn"`
+	FlowID               string             `json:"flowId"`
+	Name                 string             `json:"name"`
+	Description          string             `json:"description,omitempty"`
 	RoutingConfiguration []FlowAliasRouting `json:"routingConfiguration,omitempty"`
-	AliasID              string            `json:"id"`
-	AliasARN             string            `json:"arn"`
-	FlowID               string            `json:"flowId"`
-	Name                 string            `json:"name"`
-	Description          string            `json:"description,omitempty"`
 }
 
 // FlowAliasSummary is used in list responses.
@@ -435,13 +436,13 @@ type Prompt struct {
 	CreatedAt      time.Time         `json:"createdAt"`
 	UpdatedAt      time.Time         `json:"updatedAt"`
 	Tags           map[string]string `json:"tags,omitempty"`
-	Variants       []map[string]any  `json:"variants,omitempty"`
 	PromptID       string            `json:"id"`
 	PromptARN      string            `json:"arn"`
 	Name           string            `json:"name"`
 	Description    string            `json:"description,omitempty"`
 	DefaultVariant string            `json:"defaultVariant,omitempty"`
 	Version        string            `json:"version"`
+	Variants       []map[string]any  `json:"variants,omitempty"`
 }
 
 // PromptSummary is used in list responses.
@@ -458,12 +459,12 @@ type PromptSummary struct {
 // PromptVersion is an immutable snapshot of a prompt.
 type PromptVersion struct {
 	CreatedAt   time.Time        `json:"createdAt"`
-	Variants    []map[string]any `json:"variants,omitempty"`
 	PromptARN   string           `json:"arn"`
 	PromptID    string           `json:"id"`
 	Name        string           `json:"name"`
 	Version     string           `json:"version"`
 	Description string           `json:"description,omitempty"`
+	Variants    []map[string]any `json:"variants,omitempty"`
 }
 
 // KBDocumentDetail is the status of a knowledge base document operation.
@@ -480,7 +481,7 @@ type KBDocumentDetail struct {
 
 // InMemoryBackend implements StorageBackend with in-memory maps, isolated by region.
 type InMemoryBackend struct {
-	agents             map[string]*Agent
+	kbDocuments        map[string]*KBDocumentDetail
 	agentsByName       map[string]string
 	agentVersions      map[string]map[string]*AgentVersion
 	actionGroups       map[string]*AgentActionGroup
@@ -496,25 +497,25 @@ type InMemoryBackend struct {
 	flowVersions       map[string]map[string]*FlowVersion
 	flowAliases        map[string]*FlowAlias
 	prompts            map[string]*Prompt
-	promptsByName      map[string]string
 	promptVersions     map[string]map[string]*PromptVersion
-	kbDocuments        map[string]*KBDocumentDetail
+	promptsByName      map[string]string
+	promptVersionCtrs  map[string]int
 	tags               map[string]map[string]string
-	defaultRegion      string
-	accountID          string
-	agentCounter       int
+	flowVersionCtrs    map[string]int
+	agents             map[string]*Agent
 	agentVersionCtrs   map[string]int
-	actionGroupCounter int
-	aliasCounter       int
+	accountID          string
+	defaultRegion      string
+	dsCounter          int
 	collabCounter      int
 	kbCounter          int
-	dsCounter          int
-	jobCounter         int
 	flowCounter        int
-	flowVersionCtrs    map[string]int
+	aliasCounter       int
+	agentCounter       int
+	actionGroupCounter int
 	flowAliasCounter   int
 	promptCounter      int
-	promptVersionCtrs  map[string]int
+	jobCounter         int
 	mu                 sync.RWMutex
 }
 
@@ -778,7 +779,7 @@ func (b *InMemoryBackend) ListAgents(
 	defer b.mu.RUnlock()
 
 	ids := sortedKeys(b.agents)
-	ids, outToken := paginate(ids, nextToken, maxResults, defaultPageSize)
+	ids, outToken := paginate(ids, nextToken, maxResults)
 
 	out := make([]*AgentSummary, 0, len(ids))
 
@@ -830,7 +831,7 @@ func (b *InMemoryBackend) CreateAgentVersion(
 
 	b.agentVersionCtrs[agentID]++
 	versionNum := b.agentVersionCtrs[agentID]
-	version := fmt.Sprintf("%d", versionNum)
+	version := strconv.Itoa(versionNum)
 
 	if b.agentVersions[agentID] == nil {
 		b.agentVersions[agentID] = make(map[string]*AgentVersion)
@@ -888,7 +889,7 @@ func (b *InMemoryBackend) DeleteAgentVersion(
 		return fmt.Errorf("%w: agent %q not found", ErrNotFound, agentID)
 	}
 
-	if _, ok := versions[agentVersion]; !ok {
+	if _, exists := versions[agentVersion]; !exists {
 		return fmt.Errorf("%w: agent version %q not found", ErrNotFound, agentVersion)
 	}
 
@@ -910,7 +911,7 @@ func (b *InMemoryBackend) ListAgentVersions(
 
 	versions := b.agentVersions[agentID]
 	keys := sortedKeys(versions)
-	keys, outToken := paginate(keys, nextToken, maxResults, defaultPageSize)
+	keys, outToken := paginate(keys, nextToken, maxResults)
 
 	out := make([]*AgentVersionSummary, 0, len(keys))
 
@@ -1075,7 +1076,7 @@ func (b *InMemoryBackend) ListAgentActionGroups(
 	}
 
 	sort.Strings(ids)
-	ids, outToken := paginate(ids, nextToken, maxResults, defaultPageSize)
+	ids, outToken := paginate(ids, nextToken, maxResults)
 
 	out := make([]*ActionGroupSummary, 0, len(ids))
 
@@ -1214,7 +1215,7 @@ func (b *InMemoryBackend) ListAgentAliases(
 	}
 
 	sort.Strings(ids)
-	ids, outToken := paginate(ids, nextToken, maxResults, defaultPageSize)
+	ids, outToken := paginate(ids, nextToken, maxResults)
 
 	out := make([]*AgentAliasSummary, 0, len(ids))
 
@@ -1234,10 +1235,6 @@ func (b *InMemoryBackend) ListAgentAliases(
 // ---------------------------------------------------------------------------
 // Agent collaborator CRUD
 // ---------------------------------------------------------------------------
-
-func collabKey(agentID, agentVersion, collaboratorID string) string {
-	return agentID + "/" + agentVersion + "/" + collaboratorID
-}
 
 // AssociateAgentCollaborator creates a collaborator association.
 func (b *InMemoryBackend) AssociateAgentCollaborator(
@@ -1345,7 +1342,7 @@ func (b *InMemoryBackend) DisassociateAgentCollaborator(
 		return fmt.Errorf("%w: collaborator %q not found", ErrNotFound, collaboratorID)
 	}
 
-	if _, ok := group[collaboratorID]; !ok {
+	if _, exists := group[collaboratorID]; !exists {
 		return fmt.Errorf("%w: collaborator %q not found", ErrNotFound, collaboratorID)
 	}
 
@@ -1364,7 +1361,7 @@ func (b *InMemoryBackend) ListAgentCollaborators(
 	group := b.agentCollaborators[agentID+"/"+agentVersion]
 
 	ids := sortedKeys(group)
-	ids, outToken := paginate(ids, nextToken, maxResults, defaultPageSize)
+	ids, outToken := paginate(ids, nextToken, maxResults)
 
 	out := make([]*AgentCollaborator, 0, len(ids))
 
@@ -1494,7 +1491,7 @@ func (b *InMemoryBackend) ListKnowledgeBases(
 	defer b.mu.RUnlock()
 
 	ids := sortedKeys(b.knowledgeBases)
-	ids, outToken := paginate(ids, nextToken, maxResults, defaultPageSize)
+	ids, outToken := paginate(ids, nextToken, maxResults)
 
 	out := make([]*KnowledgeBaseSummary, 0, len(ids))
 
@@ -1635,7 +1632,7 @@ func (b *InMemoryBackend) ListAgentKnowledgeBases(
 	}
 
 	sort.Strings(ids)
-	ids, outToken := paginate(ids, nextToken, maxResults, defaultPageSize)
+	ids, outToken := paginate(ids, nextToken, maxResults)
 
 	out := make([]*AgentKnowledgeBase, 0, len(ids))
 
@@ -1770,7 +1767,7 @@ func (b *InMemoryBackend) ListDataSources(
 	}
 
 	sort.Strings(ids)
-	ids, outToken := paginate(ids, nextToken, maxResults, defaultPageSize)
+	ids, outToken := paginate(ids, nextToken, maxResults)
 
 	out := make([]*DataSourceSummary, 0, len(ids))
 
@@ -1875,7 +1872,7 @@ func (b *InMemoryBackend) ListIngestionJobs(
 	}
 
 	sort.Strings(ids)
-	ids, outToken := paginate(ids, nextToken, maxResults, defaultPageSize)
+	ids, outToken := paginate(ids, nextToken, maxResults)
 
 	out := make([]*IngestionJob, 0, len(ids))
 
@@ -2006,7 +2003,7 @@ func (b *InMemoryBackend) ListFlows(
 	defer b.mu.RUnlock()
 
 	ids := sortedKeys(b.flows)
-	ids, outToken := paginate(ids, nextToken, maxResults, defaultPageSize)
+	ids, outToken := paginate(ids, nextToken, maxResults)
 
 	out := make([]*FlowSummary, 0, len(ids))
 
@@ -2066,7 +2063,7 @@ func (b *InMemoryBackend) CreateFlowVersion(
 
 	b.flowVersionCtrs[flowID]++
 	vNum := b.flowVersionCtrs[flowID]
-	version := fmt.Sprintf("%d", vNum)
+	version := strconv.Itoa(vNum)
 
 	if b.flowVersions[flowID] == nil {
 		b.flowVersions[flowID] = make(map[string]*FlowVersion)
@@ -2118,7 +2115,7 @@ func (b *InMemoryBackend) DeleteFlowVersion(_ context.Context, flowID, flowVersi
 		return fmt.Errorf("%w: flow %q not found", ErrNotFound, flowID)
 	}
 
-	if _, ok := versions[flowVersion]; !ok {
+	if _, exists := versions[flowVersion]; !exists {
 		return fmt.Errorf("%w: flow version %q not found", ErrNotFound, flowVersion)
 	}
 
@@ -2140,7 +2137,7 @@ func (b *InMemoryBackend) ListFlowVersions(
 
 	versions := b.flowVersions[flowID]
 	keys := sortedKeys(versions)
-	keys, outToken := paginate(keys, nextToken, maxResults, defaultPageSize)
+	keys, outToken := paginate(keys, nextToken, maxResults)
 
 	out := make([]*FlowVersionSummary, 0, len(keys))
 
@@ -2281,7 +2278,7 @@ func (b *InMemoryBackend) ListFlowAliases(
 	}
 
 	sort.Strings(ids)
-	ids, outToken := paginate(ids, nextToken, maxResults, defaultPageSize)
+	ids, outToken := paginate(ids, nextToken, maxResults)
 
 	out := make([]*FlowAliasSummary, 0, len(ids))
 
@@ -2419,7 +2416,7 @@ func (b *InMemoryBackend) ListPrompts(
 	defer b.mu.RUnlock()
 
 	ids := sortedKeys(b.prompts)
-	ids, outToken := paginate(ids, nextToken, maxResults, defaultPageSize)
+	ids, outToken := paginate(ids, nextToken, maxResults)
 
 	out := make([]*PromptSummary, 0, len(ids))
 
@@ -2457,7 +2454,7 @@ func (b *InMemoryBackend) CreatePromptVersion(
 
 	b.promptVersionCtrs[promptID]++
 	vNum := b.promptVersionCtrs[promptID]
-	version := fmt.Sprintf("%d", vNum)
+	version := strconv.Itoa(vNum)
 
 	if b.promptVersions[promptID] == nil {
 		b.promptVersions[promptID] = make(map[string]*PromptVersion)
@@ -2510,7 +2507,7 @@ func (b *InMemoryBackend) DeletePromptVersion(
 		return fmt.Errorf("%w: prompt %q not found", ErrNotFound, promptID)
 	}
 
-	if _, ok := versions[version]; !ok {
+	if _, exists := versions[version]; !exists {
 		return fmt.Errorf("%w: prompt version %q not found", ErrNotFound, version)
 	}
 
@@ -2625,7 +2622,7 @@ func (b *InMemoryBackend) ListKnowledgeBaseDocuments(
 	}
 
 	sort.Strings(keys)
-	keys, outToken := paginate(keys, nextToken, maxResults, defaultPageSize)
+	keys, outToken := paginate(keys, nextToken, maxResults)
 
 	out := make([]KBDocumentDetail, 0, len(keys))
 
@@ -2693,7 +2690,7 @@ func (b *InMemoryBackend) UntagResource(
 
 const defaultPageSize = 100
 
-func paginate(ids []string, nextToken string, maxResults, dflt int) ([]string, string) {
+func paginate(ids []string, nextToken string, maxResults int) ([]string, string) {
 	start := 0
 
 	if nextToken != "" {
@@ -2706,16 +2703,13 @@ func paginate(ids []string, nextToken string, maxResults, dflt int) ([]string, s
 		}
 	}
 
-	size := dflt
+	size := defaultPageSize
 
-	if maxResults > 0 && maxResults < dflt {
+	if maxResults > 0 && maxResults < defaultPageSize {
 		size = maxResults
 	}
 
-	end := start + size
-	if end > len(ids) {
-		end = len(ids)
-	}
+	end := min(start+size, len(ids))
 
 	page := ids[start:end]
 

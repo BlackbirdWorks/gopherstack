@@ -143,9 +143,15 @@ type StorageBackend interface {
 	DeletePromptVersion(ctx context.Context, promptID, version string) error
 
 	// Knowledge base document operations.
-	IngestKnowledgeBaseDocuments(ctx context.Context, kbID, dataSourceID string, docs []KBDocument) ([]KBDocumentDetail, error)
-	GetKnowledgeBaseDocuments(ctx context.Context, kbID, dataSourceID string, docIDs []string) ([]KBDocumentDetail, error)
-	DeleteKnowledgeBaseDocuments(ctx context.Context, kbID, dataSourceID string, docIDs []string) ([]KBDocumentDetail, error)
+	IngestKnowledgeBaseDocuments(
+		ctx context.Context, kbID, dataSourceID string, docs []KBDocument,
+	) ([]KBDocumentDetail, error)
+	GetKnowledgeBaseDocuments(
+		ctx context.Context, kbID, dataSourceID string, docIDs []string,
+	) ([]KBDocumentDetail, error)
+	DeleteKnowledgeBaseDocuments(
+		ctx context.Context, kbID, dataSourceID string, docIDs []string,
+	) ([]KBDocumentDetail, error)
 	ListKnowledgeBaseDocuments(
 		ctx context.Context, kbID, dataSourceID string, maxResults int, nextToken string,
 	) ([]KBDocumentDetail, string, error)

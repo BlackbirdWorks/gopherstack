@@ -59,19 +59,19 @@ func TestHandlerAgentCRUD(t *testing.T) {
 	t.Parallel()
 
 	type tc struct {
+		body           any
 		name           string
 		method         string
 		path           string
-		body           any
 		expectedStatus int
 	}
 
 	h, e := setupHandler(t)
 
 	createBody := map[string]any{
-		"agentName":             "test-agent",
-		"foundationModel":       "anthropic.claude-v2",
-		"agentResourceRoleArn":  "arn:aws:iam::123456789012:role/AmazonBedrockRole",
+		"agentName":            "test-agent",
+		"foundationModel":      "anthropic.claude-v2",
+		"agentResourceRoleArn": "arn:aws:iam::123456789012:role/AmazonBedrockRole",
 	}
 
 	rec := doRequest(t, h, e, http.MethodPut, "/agents", createBody)
@@ -90,14 +90,25 @@ func TestHandlerAgentCRUD(t *testing.T) {
 	}
 
 	cases := []tc{
-		{"list agents", http.MethodGet, "/agents", nil, http.StatusOK},
-		{"get agent", http.MethodGet, "/agents/" + agentID, nil, http.StatusOK},
-		{"update agent", http.MethodPut, "/agents/" + agentID, map[string]any{
-			"agentName":            "updated-agent",
-			"foundationModel":      "anthropic.claude-v2",
-			"agentResourceRoleArn": "arn:aws:iam::123456789012:role/AmazonBedrockRole",
-		}, http.StatusOK},
-		{"prepare agent", http.MethodPost, "/agents/" + agentID + "/prepare", nil, http.StatusAccepted},
+		{name: "list agents", method: http.MethodGet, path: "/agents", expectedStatus: http.StatusOK},
+		{name: "get agent", method: http.MethodGet, path: "/agents/" + agentID, expectedStatus: http.StatusOK},
+		{
+			name:   "update agent",
+			method: http.MethodPut,
+			path:   "/agents/" + agentID,
+			body: map[string]any{
+				"agentName":            "updated-agent",
+				"foundationModel":      "anthropic.claude-v2",
+				"agentResourceRoleArn": "arn:aws:iam::123456789012:role/AmazonBedrockRole",
+			},
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:           "prepare agent",
+			method:         http.MethodPost,
+			path:           "/agents/" + agentID + "/prepare",
+			expectedStatus: http.StatusAccepted,
+		},
 	}
 
 	for _, tc := range cases {
@@ -224,7 +235,7 @@ func TestHandlerFlowCRUD(t *testing.T) {
 		"name":             "test-flow",
 		"executionRoleArn": "arn:aws:iam::123456789012:role/FlowRole",
 		"definition": map[string]any{
-			"nodes": []any{},
+			"nodes":       []any{},
 			"connections": []any{},
 		},
 	}
@@ -401,8 +412,8 @@ func TestHandlerDataSourceAndIngestion(t *testing.T) {
 	h, e := setupHandler(t)
 
 	kbBody := map[string]any{
-		"name":    "ingestion-kb",
-		"roleArn": "arn:aws:iam::123456789012:role/KBRole",
+		"name":                       "ingestion-kb",
+		"roleArn":                    "arn:aws:iam::123456789012:role/KBRole",
 		"knowledgeBaseConfiguration": map[string]any{"type": "VECTOR"},
 		"storageConfiguration":       map[string]any{"type": "OPENSEARCH_SERVERLESS"},
 	}
@@ -417,7 +428,7 @@ func TestHandlerDataSourceAndIngestion(t *testing.T) {
 	kbID := kbResp["knowledgeBase"]["knowledgeBaseId"].(string)
 
 	dsBody := map[string]any{
-		"name": "test-ds",
+		"name":                    "test-ds",
 		"dataSourceConfiguration": map[string]any{"type": "S3"},
 	}
 
