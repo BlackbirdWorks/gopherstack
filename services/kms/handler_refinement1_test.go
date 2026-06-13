@@ -584,19 +584,19 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	b2 := newTestBackend()
 	require.NoError(t, b2.Restore(snap))
 
-	desc, err := b2.DescribeKey(&kms.DescribeKeyInput{KeyID: key.KeyMetadata.KeyID})
+	desc, err := b2.DescribeKey(context.Background(), &kms.DescribeKeyInput{KeyID: key.KeyMetadata.KeyID})
 	require.NoError(t, err)
 	assert.Equal(t, key.KeyMetadata.KeyID, desc.KeyMetadata.KeyID)
 	assert.True(t, desc.KeyMetadata.Enabled)
 
 	// Encryption should still work after restore.
-	encOut, err := b2.Encrypt(&kms.EncryptInput{
+	encOut, err := b2.Encrypt(context.Background(), &kms.EncryptInput{
 		KeyID:     key.KeyMetadata.KeyID,
 		Plaintext: []byte("after restore"),
 	})
 	require.NoError(t, err)
 
-	decOut, err := b2.Decrypt(&kms.DecryptInput{CiphertextBlob: encOut.CiphertextBlob})
+	decOut, err := b2.Decrypt(context.Background(), &kms.DecryptInput{CiphertextBlob: encOut.CiphertextBlob})
 	require.NoError(t, err)
 	assert.Equal(t, []byte("after restore"), decOut.Plaintext)
 }

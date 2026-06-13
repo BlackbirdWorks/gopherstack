@@ -1689,22 +1689,22 @@ func TestKMSSnapshotRestoreWithKeyMaterials(t *testing.T) {
 	original := kms.NewInMemoryBackend()
 
 	// Create symmetric key and encrypt something
-	symKey, err := original.CreateKey(&kms.CreateKeyInput{})
+	symKey, err := original.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 	plaintext := []byte("persistence test data")
-	encOut, err := original.Encrypt(&kms.EncryptInput{
+	encOut, err := original.Encrypt(context.Background(), &kms.EncryptInput{
 		KeyID:     symKey.KeyMetadata.KeyID,
 		Plaintext: plaintext,
 	})
 	require.NoError(t, err)
 
 	// Create asymmetric key and sign something
-	asymKey, err := original.CreateKey(&kms.CreateKeyInput{
+	asymKey, err := original.CreateKey(context.Background(), &kms.CreateKeyInput{
 		KeyUsage: kms.KeyUsageSignVerify,
 		KeySpec:  "ECC_NIST_P256",
 	})
 	require.NoError(t, err)
-	signOut, err := original.Sign(&kms.SignInput{
+	signOut, err := original.Sign(context.Background(), &kms.SignInput{
 		KeyID:            asymKey.KeyMetadata.KeyID,
 		Message:          plaintext,
 		MessageType:      "RAW",
@@ -1720,12 +1720,12 @@ func TestKMSSnapshotRestoreWithKeyMaterials(t *testing.T) {
 	require.NoError(t, restored.Restore(snap))
 
 	// Decrypt using restored backend — must use same per-key material
-	decOut, err := restored.Decrypt(&kms.DecryptInput{CiphertextBlob: encOut.CiphertextBlob})
+	decOut, err := restored.Decrypt(context.Background(), &kms.DecryptInput{CiphertextBlob: encOut.CiphertextBlob})
 	require.NoError(t, err)
 	assert.Equal(t, plaintext, decOut.Plaintext)
 
 	// Verify using restored backend — must use same per-key material
-	verifyOut, err := restored.Verify(&kms.VerifyInput{
+	verifyOut, err := restored.Verify(context.Background(), &kms.VerifyInput{
 		KeyID:            asymKey.KeyMetadata.KeyID,
 		Message:          plaintext,
 		MessageType:      "RAW",
@@ -1927,14 +1927,14 @@ func TestKMSSnapshotRestoreRSA3072(t *testing.T) {
 	t.Parallel()
 
 	original := kms.NewInMemoryBackend()
-	keyOut, err := original.CreateKey(&kms.CreateKeyInput{
+	keyOut, err := original.CreateKey(context.Background(), &kms.CreateKeyInput{
 		KeyUsage: kms.KeyUsageSignVerify,
 		KeySpec:  "RSA_3072",
 	})
 	require.NoError(t, err)
 
 	msg := []byte("rsa-3072-persistence-test")
-	signOut, err := original.Sign(&kms.SignInput{
+	signOut, err := original.Sign(context.Background(), &kms.SignInput{
 		KeyID:            keyOut.KeyMetadata.KeyID,
 		Message:          msg,
 		MessageType:      "RAW",
@@ -1948,7 +1948,7 @@ func TestKMSSnapshotRestoreRSA3072(t *testing.T) {
 	restored := kms.NewInMemoryBackend()
 	require.NoError(t, restored.Restore(snap))
 
-	verifyOut, err := restored.Verify(&kms.VerifyInput{
+	verifyOut, err := restored.Verify(context.Background(), &kms.VerifyInput{
 		KeyID:            keyOut.KeyMetadata.KeyID,
 		Message:          msg,
 		MessageType:      "RAW",
@@ -2164,7 +2164,7 @@ func TestKMSHandlerSnapshotRestore(t *testing.T) {
 	require.NoError(t, h2.Restore(snap))
 
 	// Decrypt with restored handler's backend
-	decOut, err := backend2.Decrypt(&kms.DecryptInput{CiphertextBlob: encOut.CiphertextBlob})
+	decOut, err := backend2.Decrypt(context.Background(), &kms.DecryptInput{CiphertextBlob: encOut.CiphertextBlob})
 	require.NoError(t, err)
 	assert.Equal(t, []byte("snap-data"), decOut.Plaintext)
 }
@@ -2174,14 +2174,14 @@ func TestKMSBackendSnapshotRestoreECDSA(t *testing.T) {
 	t.Parallel()
 
 	orig := kms.NewInMemoryBackend()
-	keyOut, err := orig.CreateKey(&kms.CreateKeyInput{
+	keyOut, err := orig.CreateKey(context.Background(), &kms.CreateKeyInput{
 		KeyUsage: kms.KeyUsageSignVerify,
 		KeySpec:  "ECC_NIST_P384",
 	})
 	require.NoError(t, err)
 
 	msg := []byte("ecdsa-snapshot-test")
-	signOut, err := orig.Sign(&kms.SignInput{
+	signOut, err := orig.Sign(context.Background(), &kms.SignInput{
 		KeyID:            keyOut.KeyMetadata.KeyID,
 		Message:          msg,
 		MessageType:      "RAW",
@@ -2195,7 +2195,7 @@ func TestKMSBackendSnapshotRestoreECDSA(t *testing.T) {
 	restored := kms.NewInMemoryBackend()
 	require.NoError(t, restored.Restore(snap))
 
-	verifyOut, err := restored.Verify(&kms.VerifyInput{
+	verifyOut, err := restored.Verify(context.Background(), &kms.VerifyInput{
 		KeyID:            keyOut.KeyMetadata.KeyID,
 		Message:          msg,
 		MessageType:      "RAW",
@@ -2577,9 +2577,9 @@ func TestKMSKeyMaterialUnavailableAfterManualRestore(t *testing.T) {
 	t.Parallel()
 
 	orig := kms.NewInMemoryBackend()
-	symKey, err := orig.CreateKey(&kms.CreateKeyInput{})
+	symKey, err := orig.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
-	asymKey, err := orig.CreateKey(&kms.CreateKeyInput{
+	asymKey, err := orig.CreateKey(context.Background(), &kms.CreateKeyInput{
 		KeyUsage: kms.KeyUsageSignVerify,
 		KeySpec:  "ECC_NIST_P256",
 	})
@@ -2596,14 +2596,14 @@ func TestKMSKeyMaterialUnavailableAfterManualRestore(t *testing.T) {
 	require.NoError(t, restored.Restore([]byte(stripped)))
 
 	// Encrypt should fail with ErrKeyMaterialUnavailable.
-	_, encErr := restored.Encrypt(&kms.EncryptInput{
+	_, encErr := restored.Encrypt(context.Background(), &kms.EncryptInput{
 		KeyID:     symKey.KeyMetadata.KeyID,
 		Plaintext: []byte("test"),
 	})
 	require.ErrorIs(t, encErr, kms.ErrKeyMaterialUnavailable)
 
 	// Sign should fail with ErrKeyMaterialUnavailable.
-	_, signErr := restored.Sign(&kms.SignInput{
+	_, signErr := restored.Sign(context.Background(), &kms.SignInput{
 		KeyID:            asymKey.KeyMetadata.KeyID,
 		Message:          []byte("test"),
 		MessageType:      "RAW",
@@ -2648,12 +2648,12 @@ func TestKMSBackendReEncryptKeyMaterialUnavailable(t *testing.T) {
 	t.Parallel()
 
 	orig := kms.NewInMemoryBackend()
-	srcKey, err := orig.CreateKey(&kms.CreateKeyInput{})
+	srcKey, err := orig.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
-	dstKey, err := orig.CreateKey(&kms.CreateKeyInput{})
+	dstKey, err := orig.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 
-	encOut, err := orig.Encrypt(&kms.EncryptInput{
+	encOut, err := orig.Encrypt(context.Background(), &kms.EncryptInput{
 		KeyID:     srcKey.KeyMetadata.KeyID,
 		Plaintext: []byte("test"),
 	})
@@ -2667,7 +2667,7 @@ func TestKMSBackendReEncryptKeyMaterialUnavailable(t *testing.T) {
 	restored := kms.NewInMemoryBackend()
 	require.NoError(t, restored.Restore([]byte(stripped)))
 
-	_, err = restored.ReEncrypt(&kms.ReEncryptInput{
+	_, err = restored.ReEncrypt(context.Background(), &kms.ReEncryptInput{
 		CiphertextBlob:   encOut.CiphertextBlob,
 		DestinationKeyID: dstKey.KeyMetadata.KeyID,
 	})
@@ -2680,10 +2680,10 @@ func TestKMSBackendDecryptKeyMaterialUnavailable(t *testing.T) {
 	t.Parallel()
 
 	orig := kms.NewInMemoryBackend()
-	key, err := orig.CreateKey(&kms.CreateKeyInput{})
+	key, err := orig.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 
-	encOut, err := orig.Encrypt(&kms.EncryptInput{
+	encOut, err := orig.Encrypt(context.Background(), &kms.EncryptInput{
 		KeyID:     key.KeyMetadata.KeyID,
 		Plaintext: []byte("test"),
 	})
@@ -2696,7 +2696,7 @@ func TestKMSBackendDecryptKeyMaterialUnavailable(t *testing.T) {
 	restored := kms.NewInMemoryBackend()
 	require.NoError(t, restored.Restore([]byte(stripped)))
 
-	_, err = restored.Decrypt(&kms.DecryptInput{CiphertextBlob: encOut.CiphertextBlob})
+	_, err = restored.Decrypt(context.Background(), &kms.DecryptInput{CiphertextBlob: encOut.CiphertextBlob})
 	require.ErrorIs(t, err, kms.ErrKeyMaterialUnavailable)
 }
 
@@ -2706,7 +2706,7 @@ func TestKMSBackendGetPublicKeyMaterialUnavailable(t *testing.T) {
 	t.Parallel()
 
 	orig := kms.NewInMemoryBackend()
-	key, err := orig.CreateKey(&kms.CreateKeyInput{
+	key, err := orig.CreateKey(context.Background(), &kms.CreateKeyInput{
 		KeyUsage: kms.KeyUsageSignVerify,
 		KeySpec:  "ECC_NIST_P256",
 	})
@@ -2719,7 +2719,7 @@ func TestKMSBackendGetPublicKeyMaterialUnavailable(t *testing.T) {
 	restored := kms.NewInMemoryBackend()
 	require.NoError(t, restored.Restore([]byte(stripped)))
 
-	_, err = restored.GetPublicKey(&kms.GetPublicKeyInput{KeyID: key.KeyMetadata.KeyID})
+	_, err = restored.GetPublicKey(context.Background(), &kms.GetPublicKeyInput{KeyID: key.KeyMetadata.KeyID})
 	require.ErrorIs(t, err, kms.ErrKeyMaterialUnavailable)
 }
 

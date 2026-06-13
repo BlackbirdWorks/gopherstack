@@ -1289,7 +1289,7 @@ func TestSnapshotRestoreRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	// Decryption must succeed on the restored backend.
-	dec, err := b2.Decrypt(&kms.DecryptInput{CiphertextBlob: enc.CiphertextBlob})
+	dec, err := b2.Decrypt(context.Background(), &kms.DecryptInput{CiphertextBlob: enc.CiphertextBlob})
 	require.NoError(t, err)
 	assert.Equal(t, []byte("before-snap"), dec.Plaintext)
 }

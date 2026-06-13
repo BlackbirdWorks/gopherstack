@@ -1775,6 +1775,15 @@ func (b *InMemoryBackend) lookupKey(ctx context.Context, keyID string) (*Key, er
 
 	key, ok := b.keysStore(region)[resolved]
 	if !ok {
+		// For plain UUID lookups (not ARN or alias), fall back to searching all regions.
+		// This preserves mock compatibility: multi-region tests create replicas in a target
+		// region and look them up without specifying the target region in ctx.
+		if !strings.HasPrefix(keyID, "arn:") && !strings.HasPrefix(keyID, "alias/") {
+			if key = b.findKeyInAnyRegion(resolved); key != nil {
+				return key, nil
+			}
+		}
+
 		return nil, ErrKeyNotFound
 	}
 

@@ -370,20 +370,20 @@ func TestKMSKeyRotationSnapshotRestorePreservesHistory(t *testing.T) {
 	t.Parallel()
 
 	orig := kms.NewInMemoryBackend()
-	key, err := orig.CreateKey(&kms.CreateKeyInput{})
+	key, err := orig.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 
 	// Encrypt before rotation.
-	encBefore, err := orig.Encrypt(&kms.EncryptInput{
+	encBefore, err := orig.Encrypt(context.Background(), &kms.EncryptInput{
 		KeyID:     key.KeyMetadata.KeyID,
 		Plaintext: []byte("before-rotation"),
 	})
 	require.NoError(t, err)
 
-	require.NoError(t, orig.EnableKeyRotation(&kms.EnableKeyRotationInput{KeyID: key.KeyMetadata.KeyID}))
+	require.NoError(t, orig.EnableKeyRotation(context.Background(), &kms.EnableKeyRotationInput{KeyID: key.KeyMetadata.KeyID}))
 
 	// Encrypt after rotation.
-	encAfter, err := orig.Encrypt(&kms.EncryptInput{
+	encAfter, err := orig.Encrypt(context.Background(), &kms.EncryptInput{
 		KeyID:     key.KeyMetadata.KeyID,
 		Plaintext: []byte("after-rotation"),
 	})
@@ -396,11 +396,11 @@ func TestKMSKeyRotationSnapshotRestorePreservesHistory(t *testing.T) {
 	require.NoError(t, fresh.Restore(snap))
 
 	// Both ciphertexts must decrypt on the restored backend.
-	decBefore, err := fresh.Decrypt(&kms.DecryptInput{CiphertextBlob: encBefore.CiphertextBlob})
+	decBefore, err := fresh.Decrypt(context.Background(), &kms.DecryptInput{CiphertextBlob: encBefore.CiphertextBlob})
 	require.NoError(t, err)
 	assert.Equal(t, []byte("before-rotation"), decBefore.Plaintext)
 
-	decAfter, err := fresh.Decrypt(&kms.DecryptInput{CiphertextBlob: encAfter.CiphertextBlob})
+	decAfter, err := fresh.Decrypt(context.Background(), &kms.DecryptInput{CiphertextBlob: encAfter.CiphertextBlob})
 	require.NoError(t, err)
 	assert.Equal(t, []byte("after-rotation"), decAfter.Plaintext)
 }
@@ -713,7 +713,7 @@ func TestKMSImportKeyMaterialSnapshotRestore(t *testing.T) {
 	t.Parallel()
 
 	orig := kms.NewInMemoryBackend()
-	key, err := orig.CreateKey(&kms.CreateKeyInput{Origin: kms.KeyOriginExternal})
+	key, err := orig.CreateKey(context.Background(), &kms.CreateKeyInput{Origin: kms.KeyOriginExternal})
 	require.NoError(t, err)
 	assert.Equal(t, kms.KeyStatePendingImport, key.KeyMetadata.KeyState)
 
@@ -722,7 +722,7 @@ func TestKMSImportKeyMaterialSnapshotRestore(t *testing.T) {
 		mat[i] = byte(i + 5)
 	}
 
-	require.NoError(t, orig.ImportKeyMaterial(&kms.ImportKeyMaterialInput{
+	require.NoError(t, orig.ImportKeyMaterial(context.Background(), &kms.ImportKeyMaterialInput{
 		KeyID:       key.KeyMetadata.KeyID,
 		KeyMaterial: mat,
 	}))
@@ -733,19 +733,19 @@ func TestKMSImportKeyMaterialSnapshotRestore(t *testing.T) {
 	fresh := kms.NewInMemoryBackendWithConfig(kms.MockAccountID, kms.MockRegion)
 	require.NoError(t, fresh.Restore(snap))
 
-	desc, err := fresh.DescribeKey(&kms.DescribeKeyInput{KeyID: key.KeyMetadata.KeyID})
+	desc, err := fresh.DescribeKey(context.Background(), &kms.DescribeKeyInput{KeyID: key.KeyMetadata.KeyID})
 	require.NoError(t, err)
 	assert.Equal(t, kms.KeyStateEnabled, desc.KeyMetadata.KeyState)
 	assert.Equal(t, kms.KeyOriginExternal, desc.KeyMetadata.Origin)
 
 	// Encrypt on original, decrypt on restored.
-	encOut, err := orig.Encrypt(&kms.EncryptInput{
+	encOut, err := orig.Encrypt(context.Background(), &kms.EncryptInput{
 		KeyID:     key.KeyMetadata.KeyID,
 		Plaintext: []byte("external"),
 	})
 	require.NoError(t, err)
 
-	decOut, err := fresh.Decrypt(&kms.DecryptInput{CiphertextBlob: encOut.CiphertextBlob})
+	decOut, err := fresh.Decrypt(context.Background(), &kms.DecryptInput{CiphertextBlob: encOut.CiphertextBlob})
 	require.NoError(t, err)
 	assert.Equal(t, []byte("external"), decOut.Plaintext)
 }

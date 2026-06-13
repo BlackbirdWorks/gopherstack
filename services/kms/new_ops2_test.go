@@ -210,13 +210,13 @@ func TestDeriveSharedSecret(t *testing.T) {
 
 				// We also need a peer ECC key for its public key.
 				peerB := kms.NewInMemoryBackend()
-				peerOut, err := peerB.CreateKey(&kms.CreateKeyInput{
+				peerOut, err := peerB.CreateKey(context.Background(), &kms.CreateKeyInput{
 					KeySpec:  "ECC_NIST_P256",
 					KeyUsage: kms.KeyUsageKeyAgreement,
 				})
 				require.NoError(t, err)
 
-				pubOut, err := peerB.GetPublicKey(&kms.GetPublicKeyInput{KeyID: peerOut.KeyMetadata.KeyID})
+				pubOut, err := peerB.GetPublicKey(context.Background(), &kms.GetPublicKeyInput{KeyID: peerOut.KeyMetadata.KeyID})
 				require.NoError(t, err)
 
 				_, err = b.DeriveSharedSecret(context.Background(), &kms.DeriveSharedSecretInput{
@@ -238,7 +238,7 @@ func TestDeriveSharedSecret(t *testing.T) {
 
 			// Create a KEY_AGREEMENT ECC key in backend B (peer).
 			bPeer := kms.NewInMemoryBackend()
-			keyB, err := bPeer.CreateKey(&kms.CreateKeyInput{
+			keyB, err := bPeer.CreateKey(context.Background(), &kms.CreateKeyInput{
 				KeySpec:  tt.keySpec,
 				KeyUsage: kms.KeyUsageKeyAgreement,
 			})
@@ -248,7 +248,7 @@ func TestDeriveSharedSecret(t *testing.T) {
 			pubA, err := b.GetPublicKey(context.Background(), &kms.GetPublicKeyInput{KeyID: keyA.KeyMetadata.KeyID})
 			require.NoError(t, err)
 
-			pubB, err := bPeer.GetPublicKey(&kms.GetPublicKeyInput{KeyID: keyB.KeyMetadata.KeyID})
+			pubB, err := bPeer.GetPublicKey(context.Background(), &kms.GetPublicKeyInput{KeyID: keyB.KeyMetadata.KeyID})
 			require.NoError(t, err)
 
 			// Derive shared secret from A's perspective (using B's public key).
@@ -262,7 +262,7 @@ func TestDeriveSharedSecret(t *testing.T) {
 			assert.Equal(t, "ECDH", outA.KeyAgreementAlgorithm)
 
 			// Derive shared secret from B's perspective (using A's public key).
-			outB, err := bPeer.DeriveSharedSecret(&kms.DeriveSharedSecretInput{
+			outB, err := bPeer.DeriveSharedSecret(context.Background(), &kms.DeriveSharedSecretInput{
 				KeyID:                 keyB.KeyMetadata.KeyID,
 				KeyAgreementAlgorithm: "ECDH",
 				PublicKey:             pubA.PublicKey,
@@ -736,11 +736,11 @@ func buildBodyFromResourceID(operation, resourceID string) string {
 	case "DeriveSharedSecret":
 		// Need a peer public key; generate one in a fresh backend.
 		peerBackend := kms.NewInMemoryBackend()
-		peerKey, _ := peerBackend.CreateKey(&kms.CreateKeyInput{
+		peerKey, _ := peerBackend.CreateKey(context.Background(), &kms.CreateKeyInput{
 			KeySpec:  "ECC_NIST_P256",
 			KeyUsage: kms.KeyUsageKeyAgreement,
 		})
-		pubOut, _ := peerBackend.GetPublicKey(&kms.GetPublicKeyInput{
+		pubOut, _ := peerBackend.GetPublicKey(context.Background(), &kms.GetPublicKeyInput{
 			KeyID: peerKey.KeyMetadata.KeyID,
 		})
 		body, _ := json.Marshal(map[string]any{
@@ -776,7 +776,7 @@ func TestCustomKeyStorePersistence(t *testing.T) {
 	b2 := kms.NewInMemoryBackend()
 	require.NoError(t, b2.Restore(snap))
 
-	desc, err := b2.DescribeCustomKeyStores(&kms.DescribeCustomKeyStoresInput{
+	desc, err := b2.DescribeCustomKeyStores(context.Background(), &kms.DescribeCustomKeyStoresInput{
 		CustomKeyStoreID: out.CustomKeyStoreID,
 	})
 	require.NoError(t, err)
