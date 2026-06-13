@@ -223,7 +223,6 @@ type ServiceNetworkServiceAssociationSummary struct {
 
 // ServiceNetworkVpcAssociation is a VPC-to-service-network association.
 type ServiceNetworkVpcAssociation struct {
-	SecurityGroupIDs   []string
 	CreatedAt          time.Time
 	LastUpdatedAt      time.Time
 	ARN                string
@@ -234,6 +233,7 @@ type ServiceNetworkVpcAssociation struct {
 	ServiceNetworkName string
 	Status             string
 	CreatedBy          string
+	SecurityGroupIDs   []string
 }
 
 // ServiceNetworkVpcAssociationSummary is a summary for list responses.
@@ -336,10 +336,10 @@ type WeightedTargetGroup struct {
 
 // RuleMatch is the match conditions for a listener rule.
 type RuleMatch struct {
-	HeaderMatches  []*HeaderMatch `json:"headerMatches,omitempty"`
 	HTTPMethod     string         `json:"httpMethod,omitempty"`
 	PathMatchType  string         `json:"pathMatchType,omitempty"`
 	PathMatchValue string         `json:"pathMatchValue,omitempty"`
+	HeaderMatches  []*HeaderMatch `json:"headerMatches,omitempty"`
 }
 
 // HeaderMatch is an HTTP header match condition.
@@ -365,7 +365,6 @@ type TargetGroup struct {
 
 // TargetGroupSummary is a target group entry for list responses.
 type TargetGroupSummary struct {
-	ServiceARNs []string
 	CreatedAt   time.Time
 	ARN         string
 	ID          string
@@ -374,6 +373,7 @@ type TargetGroupSummary struct {
 	Status      string
 	Protocol    string
 	VpcID       string
+	ServiceARNs []string
 	Port        int32
 }
 

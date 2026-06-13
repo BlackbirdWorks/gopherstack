@@ -64,7 +64,7 @@ func parseBody(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
 func TestService_CRUD(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
+	tests := []struct { //nolint:govet // readability: name first
 		name     string
 		body     map[string]any
 		wantCode int
@@ -543,7 +543,7 @@ func TestTargetGroup_CRUD(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler(t)
 
-	tests := []struct {
+	tests := []struct { //nolint:govet // readability: name first
 		name     string
 		body     map[string]any
 		wantCode int
