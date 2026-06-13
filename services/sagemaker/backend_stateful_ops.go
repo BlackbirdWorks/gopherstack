@@ -363,30 +363,9 @@ func (b *InMemoryBackend) ListDomains(ctx context.Context, nextToken string) ([]
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.domainsStore(region)
-	list := make([]*Domain, 0, len(store))
 
-	for _, d := range store {
-		list = append(list, cloneDomain(d))
-	}
-
-	sort.Slice(list, func(i, j int) bool { return list[i].DomainName < list[j].DomainName })
-
-	startIdx := parseNextToken(nextToken)
-	if startIdx >= len(list) {
-		return []*Domain{}, ""
-	}
-
-	end := startIdx + sagemakerDefaultPageSize
-	var outToken string
-
-	if end < len(list) {
-		outToken = strconv.Itoa(end)
-	} else {
-		end = len(list)
-	}
-
-	return list[startIdx:end], outToken
+	return sagemakerListPaged(b.domainsStore(region), nextToken, cloneDomain,
+		func(a, b *Domain) bool { return a.DomainName < b.DomainName })
 }
 
 // DeleteDomain deletes a domain by ID or name.
@@ -749,33 +728,9 @@ func (b *InMemoryBackend) ListFeatureGroups(ctx context.Context, nextToken strin
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.featureGroupsStore(region)
-	list := make([]*FeatureGroup, 0, len(store))
 
-	for _, fg := range store {
-		list = append(list, cloneFeatureGroup(fg))
-	}
-
-	sort.Slice(
-		list,
-		func(i, j int) bool { return list[i].FeatureGroupName < list[j].FeatureGroupName },
-	)
-
-	startIdx := parseNextToken(nextToken)
-	if startIdx >= len(list) {
-		return []*FeatureGroup{}, ""
-	}
-
-	end := startIdx + sagemakerDefaultPageSize
-	var outToken string
-
-	if end < len(list) {
-		outToken = strconv.Itoa(end)
-	} else {
-		end = len(list)
-	}
-
-	return list[startIdx:end], outToken
+	return sagemakerListPaged(b.featureGroupsStore(region), nextToken, cloneFeatureGroup,
+		func(a, b *FeatureGroup) bool { return a.FeatureGroupName < b.FeatureGroupName })
 }
 
 // DeleteFeatureGroup deletes a feature group.
@@ -853,30 +808,9 @@ func (b *InMemoryBackend) ListPipelines(ctx context.Context, nextToken string) (
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.pipelinesStore(region)
-	list := make([]*Pipeline, 0, len(store))
 
-	for _, p := range store {
-		list = append(list, clonePipeline(p))
-	}
-
-	sort.Slice(list, func(i, j int) bool { return list[i].PipelineName < list[j].PipelineName })
-
-	startIdx := parseNextToken(nextToken)
-	if startIdx >= len(list) {
-		return []*Pipeline{}, ""
-	}
-
-	end := startIdx + sagemakerDefaultPageSize
-	var outToken string
-
-	if end < len(list) {
-		outToken = strconv.Itoa(end)
-	} else {
-		end = len(list)
-	}
-
-	return list[startIdx:end], outToken
+	return sagemakerListPaged(b.pipelinesStore(region), nextToken, clonePipeline,
+		func(a, b *Pipeline) bool { return a.PipelineName < b.PipelineName })
 }
 
 // UpdatePipeline updates a pipeline definition.
@@ -1062,30 +996,9 @@ func (b *InMemoryBackend) ListExperiments(ctx context.Context, nextToken string)
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.experimentsStore(region)
-	list := make([]*Experiment, 0, len(store))
 
-	for _, e := range store {
-		list = append(list, cloneExperiment(e))
-	}
-
-	sort.Slice(list, func(i, j int) bool { return list[i].ExperimentName < list[j].ExperimentName })
-
-	startIdx := parseNextToken(nextToken)
-	if startIdx >= len(list) {
-		return []*Experiment{}, ""
-	}
-
-	end := startIdx + sagemakerDefaultPageSize
-	var outToken string
-
-	if end < len(list) {
-		outToken = strconv.Itoa(end)
-	} else {
-		end = len(list)
-	}
-
-	return list[startIdx:end], outToken
+	return sagemakerListPaged(b.experimentsStore(region), nextToken, cloneExperiment,
+		func(a, b *Experiment) bool { return a.ExperimentName < b.ExperimentName })
 }
 
 // DeleteExperiment deletes an experiment.
@@ -1163,30 +1076,9 @@ func (b *InMemoryBackend) ListTrials(ctx context.Context, nextToken string) ([]*
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.trialsStore(region)
-	list := make([]*Trial, 0, len(store))
 
-	for _, t := range store {
-		list = append(list, cloneTrial(t))
-	}
-
-	sort.Slice(list, func(i, j int) bool { return list[i].TrialName < list[j].TrialName })
-
-	startIdx := parseNextToken(nextToken)
-	if startIdx >= len(list) {
-		return []*Trial{}, ""
-	}
-
-	end := startIdx + sagemakerDefaultPageSize
-	var outToken string
-
-	if end < len(list) {
-		outToken = strconv.Itoa(end)
-	} else {
-		end = len(list)
-	}
-
-	return list[startIdx:end], outToken
+	return sagemakerListPaged(b.trialsStore(region), nextToken, cloneTrial,
+		func(a, b *Trial) bool { return a.TrialName < b.TrialName })
 }
 
 // DeleteTrial deletes a trial.

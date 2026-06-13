@@ -211,25 +211,8 @@ func (b *InMemoryBackend) ListNotebookInstanceLifecycleConfigs(
 
 	region := getRegion(ctx, b.region)
 
-	list := make([]*NotebookInstanceLifecycleConfig, 0, len(b.notebookLifecycleConfigsStore(region)))
-	for _, lc := range b.notebookLifecycleConfigsStore(region) {
-		list = append(list, cloneNotebookLifecycleConfig(lc))
-	}
-	sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
-
-	startIdx := parseNextToken(nextToken)
-	if startIdx >= len(list) {
-		return []*NotebookInstanceLifecycleConfig{}, ""
-	}
-	end := startIdx + sagemakerDefaultPageSize
-	var outToken string
-	if end < len(list) {
-		outToken = strconv.Itoa(end)
-	} else {
-		end = len(list)
-	}
-
-	return list[startIdx:end], outToken
+	return sagemakerListPaged(b.notebookLifecycleConfigsStore(region), nextToken, cloneNotebookLifecycleConfig,
+		func(a, b *NotebookInstanceLifecycleConfig) bool { return a.Name < b.Name })
 }
 
 // ---------------------------------------------------------------------------

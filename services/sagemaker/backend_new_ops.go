@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -241,28 +239,8 @@ func (b *InMemoryBackend) ListEndpoints(ctx context.Context, nextToken string) (
 
 	region := getRegion(ctx, b.region)
 
-	store := b.endpointsStore(region)
-	list := make([]*Endpoint, 0, len(store))
-	for _, ep := range store {
-		list = append(list, cloneEndpoint(ep))
-	}
-	sort.Slice(list, func(i, j int) bool {
-		return list[i].EndpointName < list[j].EndpointName
-	})
-
-	startIdx := parseNextToken(nextToken)
-	if startIdx >= len(list) {
-		return []*Endpoint{}, ""
-	}
-	end := startIdx + sagemakerDefaultPageSize
-	var outToken string
-	if end < len(list) {
-		outToken = strconv.Itoa(end)
-	} else {
-		end = len(list)
-	}
-
-	return list[startIdx:end], outToken
+	return sagemakerListPaged(b.endpointsStore(region), nextToken, cloneEndpoint,
+		func(a, b *Endpoint) bool { return a.EndpointName < b.EndpointName })
 }
 
 // DeleteEndpoint deletes an endpoint by name.
@@ -351,28 +329,8 @@ func (b *InMemoryBackend) ListTrainingJobs(ctx context.Context, nextToken string
 
 	region := getRegion(ctx, b.region)
 
-	store := b.trainingJobsStore(region)
-	list := make([]*TrainingJob, 0, len(store))
-	for _, tj := range store {
-		list = append(list, cloneTrainingJob(tj))
-	}
-	sort.Slice(list, func(i, j int) bool {
-		return list[i].TrainingJobName < list[j].TrainingJobName
-	})
-
-	startIdx := parseNextToken(nextToken)
-	if startIdx >= len(list) {
-		return []*TrainingJob{}, ""
-	}
-	end := startIdx + sagemakerDefaultPageSize
-	var outToken string
-	if end < len(list) {
-		outToken = strconv.Itoa(end)
-	} else {
-		end = len(list)
-	}
-
-	return list[startIdx:end], outToken
+	return sagemakerListPaged(b.trainingJobsStore(region), nextToken, cloneTrainingJob,
+		func(a, b *TrainingJob) bool { return a.TrainingJobName < b.TrainingJobName })
 }
 
 // StopTrainingJob marks a training job as Stopping.
@@ -709,28 +667,10 @@ func (b *InMemoryBackend) ListHyperParameterTuningJobs(
 
 	region := getRegion(ctx, b.region)
 
-	store := b.hpTuningJobsStore(region)
-	list := make([]*HyperParameterTuningJob, 0, len(store))
-	for _, j := range store {
-		list = append(list, cloneHPTuningJob(j))
-	}
-	sort.Slice(list, func(i, j int) bool {
-		return list[i].HyperParameterTuningJobName < list[j].HyperParameterTuningJobName
-	})
-
-	startIdx := parseNextToken(nextToken)
-	if startIdx >= len(list) {
-		return []*HyperParameterTuningJob{}, ""
-	}
-	end := startIdx + sagemakerDefaultPageSize
-	var outToken string
-	if end < len(list) {
-		outToken = strconv.Itoa(end)
-	} else {
-		end = len(list)
-	}
-
-	return list[startIdx:end], outToken
+	return sagemakerListPaged(b.hpTuningJobsStore(region), nextToken, cloneHPTuningJob,
+		func(a, b *HyperParameterTuningJob) bool {
+			return a.HyperParameterTuningJobName < b.HyperParameterTuningJobName
+		})
 }
 
 // StopHyperParameterTuningJob marks an HP tuning job as Stopping.

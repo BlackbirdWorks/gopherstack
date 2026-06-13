@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"maps"
-	"sort"
 	"strconv"
 	"sync"
 	"time"
@@ -1268,29 +1267,9 @@ func (b *InMemoryBackend) ListModels(ctx context.Context, nextToken string) ([]*
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	list := make([]*Model, 0, len(b.modelsStore(region)))
 
-	for _, m := range b.modelsStore(region) {
-		list = append(list, cloneModel(m))
-	}
-
-	sort.Slice(list, func(i, j int) bool {
-		return list[i].ModelName < list[j].ModelName
-	})
-
-	startIdx := parseNextToken(nextToken)
-	if startIdx >= len(list) {
-		return []*Model{}, ""
-	}
-	end := startIdx + sagemakerDefaultPageSize
-	var outToken string
-	if end < len(list) {
-		outToken = strconv.Itoa(end)
-	} else {
-		end = len(list)
-	}
-
-	return list[startIdx:end], outToken
+	return sagemakerListPaged(b.modelsStore(region), nextToken, cloneModel,
+		func(a, b *Model) bool { return a.ModelName < b.ModelName })
 }
 
 // DeleteModel deletes a model by name.
@@ -1413,29 +1392,9 @@ func (b *InMemoryBackend) ListEndpointConfigs(ctx context.Context, nextToken str
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	list := make([]*EndpointConfig, 0, len(b.endpointConfigsStore(region)))
 
-	for _, ec := range b.endpointConfigsStore(region) {
-		list = append(list, cloneEndpointConfig(ec))
-	}
-
-	sort.Slice(list, func(i, j int) bool {
-		return list[i].EndpointConfigName < list[j].EndpointConfigName
-	})
-
-	startIdx := parseNextToken(nextToken)
-	if startIdx >= len(list) {
-		return []*EndpointConfig{}, ""
-	}
-	end := startIdx + sagemakerDefaultPageSize
-	var outToken string
-	if end < len(list) {
-		outToken = strconv.Itoa(end)
-	} else {
-		end = len(list)
-	}
-
-	return list[startIdx:end], outToken
+	return sagemakerListPaged(b.endpointConfigsStore(region), nextToken, cloneEndpointConfig,
+		func(a, b *EndpointConfig) bool { return a.EndpointConfigName < b.EndpointConfigName })
 }
 
 // DeleteEndpointConfig deletes an endpoint configuration by name.
