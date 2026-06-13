@@ -34,17 +34,21 @@ var (
 		"stack set is not empty: delete all stack instances before deleting the stack set",
 	)
 	ErrStackInstanceNotFound      = errors.New("stack instance not found")
-	ErrStackInstanceAlreadyExists = errors.New("stack instance already exists in this account/region")
-	ErrGeneratedTemplateNotFound  = errors.New("generated template not found")
-	ErrResourceScanNotFound       = errors.New("resource scan not found")
-	ErrOperationNotFound          = errors.New("operation not found in stack set")
-	ErrOperationNotRunning        = errors.New("operation is not in RUNNING state")
-	ErrTypeNotFound               = errors.New("type not found")
-	ErrTypeVersionNotFound        = errors.New("type version not found")
-	ErrRegistrationTokenNotFound  = errors.New("registration token not found")
-	ErrPublisherNotFound          = errors.New("publisher not found")
-	ErrInvalidRoleARN             = errors.New("invalid IAM role ARN format")
-	ErrInsufficientCapabilities   = errors.New("requires capabilities: CAPABILITY_IAM or CAPABILITY_NAMED_IAM")
+	ErrStackInstanceAlreadyExists = errors.New(
+		"stack instance already exists in this account/region",
+	)
+	ErrGeneratedTemplateNotFound = errors.New("generated template not found")
+	ErrResourceScanNotFound      = errors.New("resource scan not found")
+	ErrOperationNotFound         = errors.New("operation not found in stack set")
+	ErrOperationNotRunning       = errors.New("operation is not in RUNNING state")
+	ErrTypeNotFound              = errors.New("type not found")
+	ErrTypeVersionNotFound       = errors.New("type version not found")
+	ErrRegistrationTokenNotFound = errors.New("registration token not found")
+	ErrPublisherNotFound         = errors.New("publisher not found")
+	ErrInvalidRoleARN            = errors.New("invalid IAM role ARN format")
+	ErrInsufficientCapabilities  = errors.New(
+		"requires capabilities: CAPABILITY_IAM or CAPABILITY_NAMED_IAM",
+	)
 )
 
 // StackOptions carries optional attributes for CreateStack and UpdateStack.
@@ -62,7 +66,12 @@ type StackOptions struct {
 // StorageBackend defines the interface for the CloudFormation in-memory backend.
 
 type StorageBackend interface {
-	CreateStack(ctx context.Context, name, templateBody string, params []Parameter, opts StackOptions) (*Stack, error)
+	CreateStack(
+		ctx context.Context,
+		name, templateBody string,
+		params []Parameter,
+		opts StackOptions,
+	) (*Stack, error)
 	UpdateStack(
 		ctx context.Context,
 		nameOrID, templateBody string,
@@ -119,10 +128,14 @@ type StorageBackend interface {
 	ListStackSetOperations(stackSetName, nextToken string) ([]string, error)
 	DescribeStackSetOperation(stackSetName, operationID string) (*StackSetOperation, error)
 	StopStackSetOperation(stackSetName, operationID string) error
-	ListStackSetOperationResults(stackSetName, operationID, nextToken string) ([]StackSetOperationResult, error)
+	ListStackSetOperationResults(
+		stackSetName, operationID, nextToken string,
+	) ([]StackSetOperationResult, error)
 	ListStackSetAutoDeploymentTargets(stackSetName string) ([]string, error)
 	ImportStacksToStackSet(stackSetName string, stackIDs []string) error
-	ListStackInstanceResourceDrifts(stackSetName, operationID, account, region string) ([]string, error)
+	ListStackInstanceResourceDrifts(
+		stackSetName, operationID, account, region string,
+	) ([]string, error)
 	// Generated templates
 	CreateGeneratedTemplate(name string, resources []string) (*GeneratedTemplate, error)
 	UpdateGeneratedTemplate(id, name string) error
@@ -236,7 +249,10 @@ func NewInMemoryBackend() *InMemoryBackend {
 }
 
 // NewInMemoryBackendWithConfig creates a new backend with the given config and resource creator.
-func NewInMemoryBackendWithConfig(accountID, region string, creator *ResourceCreator) *InMemoryBackend {
+func NewInMemoryBackendWithConfig(
+	accountID, region string,
+	creator *ResourceCreator,
+) *InMemoryBackend {
 	var resolver DynamicRefResolver
 	if creator != nil {
 		resolver = NewDynamicRefResolver(creator.backends)
@@ -326,9 +342,25 @@ func (b *InMemoryBackend) deleteStackLocked(ctx context.Context, nameOrID string
 	)
 
 	for logicalID, res := range b.resources[stack.StackID] {
-		b.addEvent(stack.StackID, stack.StackName, logicalID, res.PhysicalID, res.Type, statusDeleteInProgress, "")
+		b.addEvent(
+			stack.StackID,
+			stack.StackName,
+			logicalID,
+			res.PhysicalID,
+			res.Type,
+			statusDeleteInProgress,
+			"",
+		)
 		_ = b.creator.Delete(ctx, res.Type, res.PhysicalID, res.Properties)
-		b.addEvent(stack.StackID, stack.StackName, logicalID, res.PhysicalID, res.Type, statusDeleteComplete, "")
+		b.addEvent(
+			stack.StackID,
+			stack.StackName,
+			logicalID,
+			res.PhysicalID,
+			res.Type,
+			statusDeleteComplete,
+			"",
+		)
 	}
 
 	now := time.Now()
@@ -363,7 +395,9 @@ func (b *InMemoryBackend) resolveStack(nameOrID string) (*Stack, bool) {
 }
 
 // addEvent appends an event to the stack's event history.
-func (b *InMemoryBackend) addEvent(stackID, stackName, logicalID, physicalID, resourceType, status, reason string) {
+func (b *InMemoryBackend) addEvent(
+	stackID, stackName, logicalID, physicalID, resourceType, status, reason string,
+) {
 	evt := StackEvent{
 		EventID:              uuid.New().String(),
 		StackID:              stackID,
@@ -478,7 +512,11 @@ func (b *InMemoryBackend) createStackLocked(
 
 // createStackFromTemplate parses and applies a template during CreateStack.
 // It updates stack.StackStatus on failure.
-func (b *InMemoryBackend) createStackFromTemplate(ctx context.Context, stack *Stack, params []Parameter) {
+func (b *InMemoryBackend) createStackFromTemplate(
+	ctx context.Context,
+	stack *Stack,
+	params []Parameter,
+) {
 	arn := stack.StackID
 	name := stack.StackName
 
@@ -585,6 +623,10 @@ func (b *InMemoryBackend) provisionResources(
 	name := stack.StackName
 	physicalIDs := make(map[string]string)
 
+	// Inject stack metadata for custom resource event payloads.
+	physicalIDs["_StackId"] = arn
+	physicalIDs["_StackName"] = name
+
 	ordered := topoSortResources(tmpl.Resources)
 
 	created := make([]string, 0, len(ordered))
@@ -592,7 +634,14 @@ func (b *InMemoryBackend) provisionResources(
 	for _, logicalID := range ordered {
 		res := tmpl.Resources[logicalID]
 		b.addEvent(arn, name, logicalID, "", res.Type, statusCreateInProgress, "")
-		physicalID, cerr := b.creator.Create(ctx, logicalID, res.Type, res.Properties, resolvedParams, physicalIDs)
+		physicalID, cerr := b.creator.Create(
+			ctx,
+			logicalID,
+			res.Type,
+			res.Properties,
+			resolvedParams,
+			physicalIDs,
+		)
 		if cerr != nil {
 			stack.StackStatusReason = fmt.Sprintf("resource %s: %v", logicalID, cerr)
 			b.addEvent(arn, name, logicalID, "", res.Type, statusCreateFailed, cerr.Error())
@@ -623,7 +672,11 @@ func (b *InMemoryBackend) provisionResources(
 
 // rollbackCreateResources deletes all resources that were created during a
 // failed CreateStack provisioning pass, in reverse order.
-func (b *InMemoryBackend) rollbackCreateResources(ctx context.Context, stack *Stack, created []string) {
+func (b *InMemoryBackend) rollbackCreateResources(
+	ctx context.Context,
+	stack *Stack,
+	created []string,
+) {
 	for _, v := range slices.Backward(created) {
 		logicalID := v
 		res, ok := b.resources[stack.StackID][logicalID]
@@ -631,9 +684,25 @@ func (b *InMemoryBackend) rollbackCreateResources(ctx context.Context, stack *St
 			continue
 		}
 
-		b.addEvent(stack.StackID, stack.StackName, logicalID, res.PhysicalID, res.Type, statusDeleteInProgress, "")
+		b.addEvent(
+			stack.StackID,
+			stack.StackName,
+			logicalID,
+			res.PhysicalID,
+			res.Type,
+			statusDeleteInProgress,
+			"",
+		)
 		_ = b.creator.Delete(ctx, res.Type, res.PhysicalID, res.Properties)
-		b.addEvent(stack.StackID, stack.StackName, logicalID, res.PhysicalID, res.Type, statusDeleteComplete, "")
+		b.addEvent(
+			stack.StackID,
+			stack.StackName,
+			logicalID,
+			res.PhysicalID,
+			res.Type,
+			statusDeleteComplete,
+			"",
+		)
 		delete(b.resources[stack.StackID], logicalID)
 	}
 }
@@ -888,23 +957,10 @@ func (b *InMemoryBackend) updateResources(
 	var created []string
 
 	for logicalID, res := range tmpl.Resources {
-		if existing, exists := b.resources[stack.StackID][logicalID]; exists {
-			existing.Status = statusUpdateComplete
-			existing.Timestamp = time.Now()
-			b.addEvent(
-				stack.StackID,
-				stack.StackName,
-				logicalID,
-				existing.PhysicalID,
-				res.Type,
-				statusUpdateComplete,
-				"",
-			)
-		} else {
-			b.addEvent(stack.StackID, stack.StackName, logicalID, "", res.Type, statusCreateInProgress, "")
-			physicalID, cerr := b.creator.Create(ctx, logicalID, res.Type, res.Properties, resolvedParams, physicalIDs)
+		existing, exists := b.resources[stack.StackID][logicalID]
+		if !exists {
+			physicalID, cerr := b.createUpdateResource(ctx, stack, logicalID, res, resolvedParams, physicalIDs)
 			if cerr != nil {
-				b.addEvent(stack.StackID, stack.StackName, logicalID, "", res.Type, statusCreateFailed, cerr.Error())
 				b.rollbackUpdateResources(ctx, stack, prevResources, created)
 				stack.StackStatusReason = fmt.Sprintf("resource %s: %v", logicalID, cerr)
 
@@ -912,24 +968,88 @@ func (b *InMemoryBackend) updateResources(
 			}
 
 			physicalIDs[logicalID] = physicalID
-			b.resources[stack.StackID][logicalID] = &StackResource{
-				Timestamp:  time.Now(),
-				LogicalID:  logicalID,
-				PhysicalID: physicalID,
-				Type:       res.Type,
-				Status:     statusCreateComplete,
-				Properties: res.Properties,
-				StackID:    stack.StackID,
-				StackName:  stack.StackName,
-			}
-			b.addEvent(stack.StackID, stack.StackName, logicalID, physicalID, res.Type, statusCreateComplete, "")
 			created = append(created, logicalID)
+
+			continue
+		}
+
+		if uerr := b.updateExistingResource(ctx, stack, logicalID, res, existing); uerr != nil {
+			b.rollbackUpdateResources(ctx, stack, prevResources, created)
+			stack.StackStatusReason = fmt.Sprintf("resource %s update: %v", logicalID, uerr)
+
+			return false
 		}
 	}
 
-	// Delete stale resources — logical IDs present in the stack before the
-	// update but absent from the new template. This matches real AWS behavior
-	// where UpdateStack removes resources that are no longer in the template.
+	b.deleteStaleResources(ctx, stack, tmpl)
+
+	return true
+}
+
+// createUpdateResource creates a new resource during a stack update and registers it.
+func (b *InMemoryBackend) createUpdateResource(
+	ctx context.Context,
+	stack *Stack,
+	logicalID string,
+	res TemplateResource,
+	resolvedParams, physicalIDs map[string]string,
+) (string, error) {
+	b.addEvent(stack.StackID, stack.StackName, logicalID, "", res.Type, statusCreateInProgress, "")
+	physicalID, cerr := b.creator.Create(ctx, logicalID, res.Type, res.Properties, resolvedParams, physicalIDs)
+	if cerr != nil {
+		b.addEvent(stack.StackID, stack.StackName, logicalID, "", res.Type, statusCreateFailed, cerr.Error())
+
+		return "", cerr
+	}
+
+	b.resources[stack.StackID][logicalID] = &StackResource{
+		Timestamp:  time.Now(),
+		LogicalID:  logicalID,
+		PhysicalID: physicalID,
+		Type:       res.Type,
+		Status:     statusCreateComplete,
+		Properties: res.Properties,
+		StackID:    stack.StackID,
+		StackName:  stack.StackName,
+	}
+	b.addEvent(stack.StackID, stack.StackName, logicalID, physicalID, res.Type, statusCreateComplete, "")
+
+	return physicalID, nil
+}
+
+// updateExistingResource processes an existing resource during a stack update.
+// For CFN extensibility types it sends an Update event to the backing Lambda/SNS.
+func (b *InMemoryBackend) updateExistingResource(
+	ctx context.Context,
+	stack *Stack,
+	logicalID string,
+	res TemplateResource,
+	existing *StackResource,
+) error {
+	if isCFNExtensibilityType(res.Type) {
+		b.addEvent(stack.StackID, stack.StackName, logicalID, existing.PhysicalID, res.Type, statusUpdateInProgress, "")
+		uerr := b.creator.Update(ctx, logicalID, res.Type, existing.PhysicalID, res.Properties, existing.Properties)
+		if uerr != nil {
+			b.addEvent(
+				stack.StackID, stack.StackName, logicalID,
+				existing.PhysicalID, res.Type, statusUpdateFailed, uerr.Error(),
+			)
+
+			return uerr
+		}
+
+		existing.Properties = res.Properties
+	}
+
+	existing.Status = statusUpdateComplete
+	existing.Timestamp = time.Now()
+	b.addEvent(stack.StackID, stack.StackName, logicalID, existing.PhysicalID, res.Type, statusUpdateComplete, "")
+
+	return nil
+}
+
+// deleteStaleResources removes logical IDs present in the stack but absent from the new template.
+func (b *InMemoryBackend) deleteStaleResources(ctx context.Context, stack *Stack, tmpl *Template) {
 	var stale []string
 	for logicalID := range b.resources[stack.StackID] {
 		if _, inTemplate := tmpl.Resources[logicalID]; !inTemplate {
@@ -946,8 +1066,6 @@ func (b *InMemoryBackend) updateResources(
 		b.addEvent(stack.StackID, stack.StackName, logicalID, res.PhysicalID, res.Type, statusDeleteComplete, "")
 		delete(b.resources[stack.StackID], logicalID)
 	}
-
-	return true
 }
 
 // rollbackUpdateResources undoes a partially-applied update: it deletes every
@@ -972,9 +1090,25 @@ func (b *InMemoryBackend) rollbackUpdateResources(
 			continue
 		}
 
-		b.addEvent(stack.StackID, stack.StackName, logicalID, res.PhysicalID, res.Type, statusDeleteInProgress, "")
+		b.addEvent(
+			stack.StackID,
+			stack.StackName,
+			logicalID,
+			res.PhysicalID,
+			res.Type,
+			statusDeleteInProgress,
+			"",
+		)
 		_ = b.creator.Delete(ctx, res.Type, res.PhysicalID, res.Properties)
-		b.addEvent(stack.StackID, stack.StackName, logicalID, res.PhysicalID, res.Type, statusDeleteComplete, "")
+		b.addEvent(
+			stack.StackID,
+			stack.StackName,
+			logicalID,
+			res.PhysicalID,
+			res.Type,
+			statusDeleteComplete,
+			"",
+		)
 		delete(b.resources[stack.StackID], logicalID)
 	}
 
@@ -1025,7 +1159,10 @@ func (b *InMemoryBackend) DescribeStack(nameOrID string) (*Stack, error) {
 const cfnDefaultPageSize = 100
 
 // ListStacks returns paginated stack summaries, optionally filtered by status.
-func (b *InMemoryBackend) ListStacks(statusFilter []string, nextToken string) (page.Page[StackSummary], error) {
+func (b *InMemoryBackend) ListStacks(
+	statusFilter []string,
+	nextToken string,
+) (page.Page[StackSummary], error) {
 	b.mu.RLock("ListStacks")
 	defer b.mu.RUnlock()
 
@@ -1048,7 +1185,10 @@ func (b *InMemoryBackend) ListStacks(statusFilter []string, nextToken string) (p
 		})
 	}
 
-	sort.Slice(summaries, func(i, j int) bool { return summaries[i].StackName < summaries[j].StackName })
+	sort.Slice(
+		summaries,
+		func(i, j int) bool { return summaries[i].StackName < summaries[j].StackName },
+	)
 
 	return page.New(summaries, nextToken, 0, cfnDefaultPageSize), nil
 }
@@ -1101,7 +1241,12 @@ func (b *InMemoryBackend) CreateChangeSet(
 	}
 
 	cs := &ChangeSet{
-		ChangeSetID:     arn.Build("cloudformation", b.region, b.accountID, "changeSet/"+changeSetName+"/"+csID),
+		ChangeSetID: arn.Build(
+			"cloudformation",
+			b.region,
+			b.accountID,
+			"changeSet/"+changeSetName+"/"+csID,
+		),
 		ChangeSetName:   changeSetName,
 		StackID:         stackID,
 		StackName:       stackName,
@@ -1173,7 +1318,10 @@ func (b *InMemoryBackend) DescribeChangeSet(stackName, changeSetName string) (*C
 }
 
 // ExecuteChangeSet applies a change set to a stack.
-func (b *InMemoryBackend) ExecuteChangeSet(ctx context.Context, stackName, changeSetName string) error {
+func (b *InMemoryBackend) ExecuteChangeSet(
+	ctx context.Context,
+	stackName, changeSetName string,
+) error {
 	b.mu.Lock("ExecuteChangeSet")
 	cs, ok := b.changeSets[stackName][changeSetName]
 	if ok {
@@ -1225,7 +1373,9 @@ func (b *InMemoryBackend) DeleteChangeSet(stackName, changeSetName string) error
 }
 
 // ListChangeSets returns paginated summaries of change sets for a stack.
-func (b *InMemoryBackend) ListChangeSets(stackName, nextToken string) (page.Page[ChangeSetSummary], error) {
+func (b *InMemoryBackend) ListChangeSets(
+	stackName, nextToken string,
+) (page.Page[ChangeSetSummary], error) {
 	b.mu.RLock("ListChangeSets")
 	defer b.mu.RUnlock()
 
@@ -1243,7 +1393,10 @@ func (b *InMemoryBackend) ListChangeSets(stackName, nextToken string) (page.Page
 		})
 	}
 
-	sort.Slice(summaries, func(i, j int) bool { return summaries[i].ChangeSetName < summaries[j].ChangeSetName })
+	sort.Slice(
+		summaries,
+		func(i, j int) bool { return summaries[i].ChangeSetName < summaries[j].ChangeSetName },
+	)
 
 	return page.New(summaries, nextToken, 0, cfnDefaultPageSize), nil
 }
@@ -1275,7 +1428,9 @@ func (b *InMemoryBackend) ListAll() []*Stack {
 }
 
 // DescribeStackResource returns details for a single resource in a stack.
-func (b *InMemoryBackend) DescribeStackResource(nameOrID, logicalID string) (*StackResource, error) {
+func (b *InMemoryBackend) DescribeStackResource(
+	nameOrID, logicalID string,
+) (*StackResource, error) {
 	b.mu.RLock("DescribeStackResource")
 	defer b.mu.RUnlock()
 
@@ -1293,7 +1448,9 @@ func (b *InMemoryBackend) DescribeStackResource(nameOrID, logicalID string) (*St
 }
 
 // ListStackResources returns paginated summaries of all resources in a stack.
-func (b *InMemoryBackend) ListStackResources(nameOrID, nextToken string) (page.Page[StackResourceSummary], error) {
+func (b *InMemoryBackend) ListStackResources(
+	nameOrID, nextToken string,
+) (page.Page[StackResourceSummary], error) {
 	b.mu.RLock("ListStackResources")
 	defer b.mu.RUnlock()
 

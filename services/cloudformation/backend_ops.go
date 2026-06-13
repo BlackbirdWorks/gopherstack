@@ -405,7 +405,7 @@ type cfnTemplate struct {
 func parseResourceIDs(resourceIDs []string) map[string]cfnResource {
 	resources := make(map[string]cfnResource)
 	for i, rid := range resourceIDs {
-		resType := "AWS::CloudFormation::WaitConditionHandle"
+		resType := cfnTypeWaitConditionHandle
 		logicalID := fmt.Sprintf("GeneratedResource%d", i+1)
 		if idx := strings.Index(rid, "/"); idx > 0 {
 			resType = rid[:idx]
