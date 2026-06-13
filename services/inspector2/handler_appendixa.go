@@ -168,6 +168,9 @@ const (
 	pathFreeTrialInfoBatchGet  = "/freetrialinfo/batchget"
 
 	pathClusterGet = "/cluster/get"
+
+	keyScanConfigurationArn = "scanConfigurationArn"
+	keyReportID             = "reportId"
 )
 
 // appendixAOps returns all appendix A operation names.
@@ -401,8 +404,11 @@ func classifyAppendixAPath(method, path string) string { //nolint:gocognit,funle
 	return opUnknown
 }
 
+//
 //nolint:cyclop,gocyclo // dispatch table for 62 ops
-func (h *Handler) handleAppendixA(c *echo.Context) (bool, error) { //nolint:funlen // existing issue.
+func (h *Handler) handleAppendixA(
+	c *echo.Context,
+) (bool, error) { //nolint:funlen // existing issue.
 	op := classifyAppendixAPath(c.Request().Method, c.Request().URL.Path)
 	if op == opUnknown {
 		return false, nil
@@ -589,7 +595,10 @@ func (h *Handler) handleAssociateMember(c *echo.Context) error {
 		return h.mapError(c, assocErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"accountId": req.AccountID}) //nolint:goconst // existing issue.
+	return c.JSON(
+		http.StatusOK,
+		map[string]any{keyAccountID: req.AccountID},
+	)
 }
 
 func (h *Handler) handleDisassociateMember(c *echo.Context) error {
@@ -647,7 +656,10 @@ func (h *Handler) handleListMembers(c *echo.Context) error {
 
 	if len(body) > 0 {
 		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
+			return c.JSON(
+				http.StatusBadRequest,
+				errorResponse("ValidationException", "invalid JSON"),
+			)
 		}
 	}
 
@@ -754,7 +766,10 @@ func (h *Handler) handleUpdateOrganizationConfiguration(c *echo.Context) error {
 
 	if len(body) > 0 {
 		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
+			return c.JSON(
+				http.StatusBadRequest,
+				errorResponse("ValidationException", "invalid JSON"),
+			)
 		}
 	}
 
@@ -802,7 +817,10 @@ func (h *Handler) handleUpdateEc2DeepInspectionConfiguration(c *echo.Context) er
 
 	if len(body) > 0 {
 		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
+			return c.JSON(
+				http.StatusBadRequest,
+				errorResponse("ValidationException", "invalid JSON"),
+			)
 		}
 	}
 
@@ -834,7 +852,10 @@ func (h *Handler) handleUpdateOrgEc2DeepInspectionConfiguration(c *echo.Context)
 
 	if len(body) > 0 {
 		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
+			return c.JSON(
+				http.StatusBadRequest,
+				errorResponse("ValidationException", "invalid JSON"),
+			)
 		}
 	}
 
@@ -857,7 +878,10 @@ func (h *Handler) handleBatchGetMemberEc2DeepInspectionStatus(c *echo.Context) e
 
 	if len(body) > 0 {
 		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
+			return c.JSON(
+				http.StatusBadRequest,
+				errorResponse("ValidationException", "invalid JSON"),
+			)
 		}
 	}
 
@@ -881,11 +905,16 @@ func (h *Handler) handleBatchUpdateMemberEc2DeepInspectionStatus(c *echo.Context
 
 	if len(body) > 0 {
 		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
+			return c.JSON(
+				http.StatusBadRequest,
+				errorResponse("ValidationException", "invalid JSON"),
+			)
 		}
 	}
 
-	updated := h.Backend.BatchUpdateMemberEc2DeepInspectionStatus(req.AccountEc2DeepInspectionStatuses)
+	updated := h.Backend.BatchUpdateMemberEc2DeepInspectionStatus(
+		req.AccountEc2DeepInspectionStatuses,
+	)
 
 	return c.JSON(http.StatusOK, map[string]any{
 		"accounts":         updated,
@@ -922,7 +951,10 @@ func (h *Handler) handleResetEncryptionKey(c *echo.Context) error {
 
 	if len(body) > 0 {
 		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
+			return c.JSON(
+				http.StatusBadRequest,
+				errorResponse("ValidationException", "invalid JSON"),
+			)
 		}
 	}
 
@@ -973,12 +1005,20 @@ func (h *Handler) handleCreateCisScanConfiguration(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 	}
 
-	cfg, createErr := h.Backend.CreateCisScanConfiguration(req.ScanName, req.Schedule, req.Targets, req.Tags)
+	cfg, createErr := h.Backend.CreateCisScanConfiguration(
+		req.ScanName,
+		req.Schedule,
+		req.Targets,
+		req.Tags,
+	)
 	if createErr != nil {
 		return h.mapError(c, createErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"scanConfigurationArn": cfg.Arn}) //nolint:goconst // existing issue.
+	return c.JSON(
+		http.StatusOK,
+		map[string]any{keyScanConfigurationArn: cfg.Arn},
+	) //nolint:goconst // existing issue.
 }
 
 func (h *Handler) handleDeleteCisScanConfiguration(c *echo.Context) error {
@@ -999,7 +1039,7 @@ func (h *Handler) handleDeleteCisScanConfiguration(c *echo.Context) error {
 		return h.mapError(c, deleteErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"scanConfigurationArn": req.ScanConfigurationArn})
+	return c.JSON(http.StatusOK, map[string]any{keyScanConfigurationArn: req.ScanConfigurationArn})
 }
 
 func (h *Handler) handleUpdateCisScanConfiguration(c *echo.Context) error {
@@ -1029,7 +1069,7 @@ func (h *Handler) handleUpdateCisScanConfiguration(c *echo.Context) error {
 		return h.mapError(c, updateErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"scanConfigurationArn": cfg.Arn})
+	return c.JSON(http.StatusOK, map[string]any{keyScanConfigurationArn: cfg.Arn})
 }
 
 func (h *Handler) handleListCisScanConfigurations(c *echo.Context) error {
@@ -1107,7 +1147,10 @@ func (h *Handler) handleSendCisSessionHealth(c *echo.Context) error {
 
 	if len(body) > 0 {
 		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
+			return c.JSON(
+				http.StatusBadRequest,
+				errorResponse("ValidationException", "invalid JSON"),
+			)
 		}
 	}
 
@@ -1131,7 +1174,10 @@ func (h *Handler) handleSendCisSessionTelemetry(c *echo.Context) error {
 
 	if len(body) > 0 {
 		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
+			return c.JSON(
+				http.StatusBadRequest,
+				errorResponse("ValidationException", "invalid JSON"),
+			)
 		}
 	}
 
@@ -1256,7 +1302,12 @@ func (h *Handler) handleCreateCodeSecurityIntegration(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 	}
 
-	integ, createErr := h.Backend.CreateCodeSecurityIntegration(req.Name, req.Type, req.Tags, req.Details)
+	integ, createErr := h.Backend.CreateCodeSecurityIntegration(
+		req.Name,
+		req.Type,
+		req.Tags,
+		req.Details,
+	)
 	if createErr != nil {
 		return h.mapError(c, createErr)
 	}
@@ -1373,7 +1424,7 @@ func (h *Handler) handleCreateCodeSecurityScanConfiguration(c *echo.Context) err
 		return h.mapError(c, createErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"scanConfigurationArn": cfg.Arn})
+	return c.JSON(http.StatusOK, map[string]any{keyScanConfigurationArn: cfg.Arn})
 }
 
 func (h *Handler) handleDeleteCodeSecurityScanConfiguration(c *echo.Context) error {
@@ -1442,7 +1493,7 @@ func (h *Handler) handleUpdateCodeSecurityScanConfiguration(c *echo.Context) err
 		return h.mapError(c, updateErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"scanConfigurationArn": cfg.Arn})
+	return c.JSON(http.StatusOK, map[string]any{keyScanConfigurationArn: cfg.Arn})
 }
 
 func (h *Handler) handleListCodeSecurityScanConfigurations(c *echo.Context) error {
@@ -1482,7 +1533,10 @@ func (h *Handler) handleBatchAssociateCodeSecurityScanConfiguration( //nolint:du
 		}
 	}
 
-	failed, assocErr := h.Backend.BatchAssociateCodeSecurityScanConfiguration(req.ScanConfigurationArn, resources)
+	failed, assocErr := h.Backend.BatchAssociateCodeSecurityScanConfiguration(
+		req.ScanConfigurationArn,
+		resources,
+	)
 	if assocErr != nil {
 		return h.mapError(c, assocErr)
 	}
@@ -1514,7 +1568,10 @@ func (h *Handler) handleBatchDisassociateCodeSecurityScanConfiguration( //nolint
 		}
 	}
 
-	failed, disErr := h.Backend.BatchDisassociateCodeSecurityScanConfiguration(req.ScanConfigurationArn, resources)
+	failed, disErr := h.Backend.BatchDisassociateCodeSecurityScanConfiguration(
+		req.ScanConfigurationArn,
+		resources,
+	)
 	if disErr != nil {
 		return h.mapError(c, disErr)
 	}
@@ -1536,7 +1593,9 @@ func (h *Handler) handleListCodeSecurityScanConfigurationAssociations(c *echo.Co
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 	}
 
-	assocs, listErr := h.Backend.ListCodeSecurityScanConfigurationAssociations(req.ScanConfigurationArn)
+	assocs, listErr := h.Backend.ListCodeSecurityScanConfigurationAssociations(
+		req.ScanConfigurationArn,
+	)
 	if listErr != nil {
 		return h.mapError(c, listErr)
 	}
@@ -1605,7 +1664,10 @@ func (h *Handler) handleCreateFindingsReport(c *echo.Context) error {
 
 	if len(body) > 0 {
 		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
+			return c.JSON(
+				http.StatusBadRequest,
+				errorResponse("ValidationException", "invalid JSON"),
+			)
 		}
 	}
 
@@ -1614,7 +1676,10 @@ func (h *Handler) handleCreateFindingsReport(c *echo.Context) error {
 		return h.mapError(c, createErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"reportId": report.ReportID}) //nolint:goconst // existing issue.
+	return c.JSON(
+		http.StatusOK,
+		map[string]any{keyReportID: report.ReportID},
+	) //nolint:goconst // existing issue.
 }
 
 func (h *Handler) handleCancelFindingsReport(c *echo.Context) error {
@@ -1635,7 +1700,7 @@ func (h *Handler) handleCancelFindingsReport(c *echo.Context) error {
 		return h.mapError(c, cancelErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"reportId": req.ReportID})
+	return c.JSON(http.StatusOK, map[string]any{keyReportID: req.ReportID})
 }
 
 func (h *Handler) handleGetFindingsReportStatus(c *echo.Context) error {
@@ -1650,7 +1715,10 @@ func (h *Handler) handleGetFindingsReportStatus(c *echo.Context) error {
 
 	if len(body) > 0 {
 		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
+			return c.JSON(
+				http.StatusBadRequest,
+				errorResponse("ValidationException", "invalid JSON"),
+			)
 		}
 	}
 
@@ -1679,7 +1747,10 @@ func (h *Handler) handleCreateSbomExport(c *echo.Context) error {
 
 	if len(body) > 0 {
 		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
+			return c.JSON(
+				http.StatusBadRequest,
+				errorResponse("ValidationException", "invalid JSON"),
+			)
 		}
 	}
 
@@ -1688,7 +1759,7 @@ func (h *Handler) handleCreateSbomExport(c *echo.Context) error {
 		return h.mapError(c, createErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"reportId": export.ReportID})
+	return c.JSON(http.StatusOK, map[string]any{keyReportID: export.ReportID})
 }
 
 func (h *Handler) handleCancelSbomExport(c *echo.Context) error {
@@ -1709,7 +1780,7 @@ func (h *Handler) handleCancelSbomExport(c *echo.Context) error {
 		return h.mapError(c, cancelErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"reportId": req.ReportID})
+	return c.JSON(http.StatusOK, map[string]any{keyReportID: req.ReportID})
 }
 
 func (h *Handler) handleGetSbomExport(c *echo.Context) error {
@@ -1739,24 +1810,16 @@ func (h *Handler) handleGetSbomExport(c *echo.Context) error {
 }
 
 func (h *Handler) handleListCoverage(c *echo.Context) error {
-	body, err := httputils.ReadBody(c.Request())
+	req, err := parseFilterListRequest(c)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid body"))
+		return err
 	}
 
-	var req struct {
-		FilterCriteria map[string]any `json:"filterCriteria"`
-		NextToken      string         `json:"nextToken"`
-		MaxResults     int32          `json:"maxResults"`
-	}
-
-	if len(body) > 0 {
-		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
-		}
-	}
-
-	entries, nextToken, listErr := h.Backend.ListCoverage(req.FilterCriteria, req.MaxResults, req.NextToken)
+	entries, nextToken, listErr := h.Backend.ListCoverage(
+		req.FilterCriteria,
+		req.MaxResults,
+		req.NextToken,
+	)
 	if listErr != nil {
 		return h.mapError(c, listErr)
 	}
@@ -1781,7 +1844,10 @@ func (h *Handler) handleListCoverageStatistics(c *echo.Context) error {
 
 	if len(body) > 0 {
 		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
+			return c.JSON(
+				http.StatusBadRequest,
+				errorResponse("ValidationException", "invalid JSON"),
+			)
 		}
 	}
 
@@ -1806,7 +1872,10 @@ func (h *Handler) handleListFindingAggregations(c *echo.Context) error {
 
 	if len(body) > 0 {
 		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
+			return c.JSON(
+				http.StatusBadRequest,
+				errorResponse("ValidationException", "invalid JSON"),
+			)
 		}
 	}
 
@@ -1830,7 +1899,10 @@ func (h *Handler) handleListUsageTotals(c *echo.Context) error {
 
 	if len(body) > 0 {
 		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
+			return c.JSON(
+				http.StatusBadRequest,
+				errorResponse("ValidationException", "invalid JSON"),
+			)
 		}
 	}
 
@@ -1854,7 +1926,10 @@ func (h *Handler) handleListAccountPermissions(c *echo.Context) error {
 
 	if len(body) > 0 {
 		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
+			return c.JSON(
+				http.StatusBadRequest,
+				errorResponse("ValidationException", "invalid JSON"),
+			)
 		}
 	}
 
@@ -1883,11 +1958,17 @@ func (h *Handler) handleSearchVulnerabilities(c *echo.Context) error {
 
 	if len(body) > 0 {
 		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
+			return c.JSON(
+				http.StatusBadRequest,
+				errorResponse("ValidationException", "invalid JSON"),
+			)
 		}
 	}
 
-	vulns, nextToken, searchErr := h.Backend.SearchVulnerabilities(req.FilterCriteria, req.NextToken)
+	vulns, nextToken, searchErr := h.Backend.SearchVulnerabilities(
+		req.FilterCriteria,
+		req.NextToken,
+	)
 	if searchErr != nil {
 		return h.mapError(c, searchErr)
 	}
@@ -1978,7 +2059,10 @@ func (h *Handler) handleGetClustersForImage(c *echo.Context) error {
 
 	if len(body) > 0 {
 		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
+			return c.JSON(
+				http.StatusBadRequest,
+				errorResponse("ValidationException", "invalid JSON"),
+			)
 		}
 	}
 

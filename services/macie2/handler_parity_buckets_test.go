@@ -43,7 +43,10 @@ func newBucketHandlerAndBackend(t *testing.T) (*macie2.Handler, *macie2.InMemory
 	return macie2.NewHandler(b), b
 }
 
-func makeBucket(name, region, access, enc string, objectCount, sizeBytes int64) macie2.S3BucketMetadata {
+func makeBucket(
+	name, region, access, enc string,
+	objectCount, sizeBytes int64,
+) macie2.S3BucketMetadata {
 	return macie2.S3BucketMetadata{
 		AccountID:               "000000000000",
 		BucketArn:               fmt.Sprintf("arn:aws:s3:::%s", name),
@@ -59,7 +62,12 @@ func makeBucket(name, region, access, enc string, objectCount, sizeBytes int64) 
 	}
 }
 
-func seedBucket(t *testing.T, b *macie2.InMemoryBackend, name, region, access, enc string, objectCount, sizeBytes int64) {
+func seedBucket(
+	t *testing.T,
+	b *macie2.InMemoryBackend,
+	name, region, access, enc string,
+	objectCount, sizeBytes int64,
+) {
 	t.Helper()
 	macie2.SeedS3Bucket(b, makeBucket(name, region, access, enc, objectCount, sizeBytes))
 }
@@ -104,8 +112,8 @@ func TestParityBuckets_DescribeBuckets_Empty(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
 		criteria map[string]any
+		name     string
 	}{
 		{name: "no_criteria", criteria: nil},
 		{name: "empty_criteria", criteria: map[string]any{}},
@@ -131,13 +139,13 @@ func TestParityBuckets_DescribeBuckets_SingleRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name           string
-		bucketName     string
-		region         string
-		access         string
-		enc            string
-		objectCount    int64
-		sizeBytes      int64
+		name        string
+		bucketName  string
+		region      string
+		access      string
+		enc         string
+		objectCount int64
+		sizeBytes   int64
 	}{
 		{
 			name:        "public_aes256",
@@ -173,7 +181,16 @@ func TestParityBuckets_DescribeBuckets_SingleRoundTrip(t *testing.T) {
 			t.Parallel()
 
 			h, b := newBucketHandlerAndBackend(t)
-			seedBucket(t, b, tc.bucketName, tc.region, tc.access, tc.enc, tc.objectCount, tc.sizeBytes)
+			seedBucket(
+				t,
+				b,
+				tc.bucketName,
+				tc.region,
+				tc.access,
+				tc.enc,
+				tc.objectCount,
+				tc.sizeBytes,
+			)
 
 			buckets := describeBuckets(t, h, nil)
 			require.Len(t, buckets, 1)
@@ -183,8 +200,8 @@ func TestParityBuckets_DescribeBuckets_SingleRoundTrip(t *testing.T) {
 			assert.Equal(t, tc.bucketName, bkt["bucketName"])
 			assert.Equal(t, tc.region, bkt["region"])
 			assert.Equal(t, "000000000000", bkt["accountId"])
-			assert.Equal(t, float64(tc.objectCount), bkt["objectCount"])
-			assert.Equal(t, float64(tc.sizeBytes), bkt["sizeInBytes"])
+			assert.InDelta(t, float64(tc.objectCount), bkt["objectCount"], 1e-9)
+			assert.InDelta(t, float64(tc.sizeBytes), bkt["sizeInBytes"], 1e-9)
 
 			publicAccess, ok := bkt["publicAccess"].(map[string]any)
 			require.True(t, ok)
@@ -255,8 +272,8 @@ func TestParityBuckets_DescribeBuckets_FilterByName(t *testing.T) {
 	tests := []struct {
 		name      string
 		filter    string
-		wantCount int
 		wantNames []string
+		wantCount int
 	}{
 		{
 			name:      "exact_match",
@@ -382,9 +399,9 @@ func TestParityBuckets_GetBucketStatistics_Empty(t *testing.T) {
 	h, _ := newBucketHandlerAndBackend(t)
 	stats := getBucketStatistics(t, h)
 
-	assert.Equal(t, float64(0), stats["bucketCount"])
-	assert.Equal(t, float64(0), stats["classifiableBucketCount"])
-	assert.Equal(t, float64(0), stats["classifiableSizeInBytes"])
+	assert.InDelta(t, float64(0), stats["bucketCount"], 1e-9)
+	assert.InDelta(t, float64(0), stats["classifiableBucketCount"], 1e-9)
+	assert.InDelta(t, float64(0), stats["classifiableSizeInBytes"], 1e-9)
 }
 
 // --- GetBucketStatistics: aggregation ---
@@ -393,11 +410,11 @@ func TestParityBuckets_GetBucketStatistics_Aggregation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name                    string
-		buckets                 []macie2.S3BucketMetadata
-		wantBucketCount         float64
-		wantClassifiable        float64
-		wantClassifiableSize    float64
+		name                 string
+		buckets              []macie2.S3BucketMetadata
+		wantBucketCount      float64
+		wantClassifiable     float64
+		wantClassifiableSize float64
 	}{
 		{
 			name: "all_classifiable",
@@ -443,9 +460,9 @@ func TestParityBuckets_GetBucketStatistics_Aggregation(t *testing.T) {
 			}
 
 			stats := getBucketStatistics(t, h)
-			assert.Equal(t, tc.wantBucketCount, stats["bucketCount"])
-			assert.Equal(t, tc.wantClassifiable, stats["classifiableBucketCount"])
-			assert.Equal(t, tc.wantClassifiableSize, stats["classifiableSizeInBytes"])
+			assert.InDelta(t, tc.wantBucketCount, stats["bucketCount"], 1e-9)
+			assert.InDelta(t, tc.wantClassifiable, stats["classifiableBucketCount"], 1e-9)
+			assert.InDelta(t, tc.wantClassifiableSize, stats["classifiableSizeInBytes"], 1e-9)
 		})
 	}
 }
@@ -456,11 +473,11 @@ func TestParityBuckets_GetBucketStatistics_PermissionCounts(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name           string
-		access         string
-		wantPublic     float64
-		wantNotPublic  float64
-		wantUnknown    float64
+		name          string
+		access        string
+		wantPublic    float64
+		wantNotPublic float64
+		wantUnknown   float64
 	}{
 		{
 			name:          "public_only",
@@ -496,9 +513,9 @@ func TestParityBuckets_GetBucketStatistics_PermissionCounts(t *testing.T) {
 
 			permCounts, ok := stats["bucketCountByEffectivePermission"].(map[string]any)
 			require.True(t, ok)
-			assert.Equal(t, tc.wantPublic, permCounts["PUBLIC"])
-			assert.Equal(t, tc.wantNotPublic, permCounts["NOT_PUBLIC"])
-			assert.Equal(t, tc.wantUnknown, permCounts["UNKNOWN"])
+			assert.InDelta(t, tc.wantPublic, permCounts["PUBLIC"], 1e-9)
+			assert.InDelta(t, tc.wantNotPublic, permCounts["NOT_PUBLIC"], 1e-9)
+			assert.InDelta(t, tc.wantUnknown, permCounts["UNKNOWN"], 1e-9)
 		})
 	}
 }
@@ -509,11 +526,11 @@ func TestParityBuckets_GetBucketStatistics_EncryptionCounts(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		enc        string
-		wantAES    float64
-		wantKMS    float64
-		wantNone   float64
+		name     string
+		enc      string
+		wantAES  float64
+		wantKMS  float64
+		wantNone float64
 	}{
 		{
 			name:     "aes256",
@@ -549,9 +566,9 @@ func TestParityBuckets_GetBucketStatistics_EncryptionCounts(t *testing.T) {
 
 			encCounts, ok := stats["bucketCountByEncryptionType"].(map[string]any)
 			require.True(t, ok)
-			assert.Equal(t, tc.wantAES, encCounts["AES256"])
-			assert.Equal(t, tc.wantKMS, encCounts["aws:kms"])
-			assert.Equal(t, tc.wantNone, encCounts["NONE"])
+			assert.InDelta(t, tc.wantAES, encCounts["AES256"], 1e-9)
+			assert.InDelta(t, tc.wantKMS, encCounts["aws:kms"], 1e-9)
+			assert.InDelta(t, tc.wantNone, encCounts["NONE"], 1e-9)
 		})
 	}
 }
@@ -570,17 +587,17 @@ func TestParityBuckets_GetBucketStatistics_Mixed(t *testing.T) {
 
 	stats := getBucketStatistics(t, h)
 
-	assert.Equal(t, float64(4), stats["bucketCount"])
-	assert.Equal(t, float64(3), stats["classifiableBucketCount"])
-	assert.Equal(t, float64(3500), stats["classifiableSizeInBytes"])
+	assert.InDelta(t, float64(4), stats["bucketCount"], 1e-9)
+	assert.InDelta(t, float64(3), stats["classifiableBucketCount"], 1e-9)
+	assert.InDelta(t, float64(3500), stats["classifiableSizeInBytes"], 1e-9)
 
 	permCounts := stats["bucketCountByEffectivePermission"].(map[string]any)
-	assert.Equal(t, float64(2), permCounts["PUBLIC"])
-	assert.Equal(t, float64(2), permCounts["NOT_PUBLIC"])
+	assert.InDelta(t, float64(2), permCounts["PUBLIC"], 1e-9)
+	assert.InDelta(t, float64(2), permCounts["NOT_PUBLIC"], 1e-9)
 
 	encCounts := stats["bucketCountByEncryptionType"].(map[string]any)
-	assert.Equal(t, float64(3), encCounts["AES256"])
-	assert.Equal(t, float64(1), encCounts["aws:kms"])
+	assert.InDelta(t, float64(3), encCounts["AES256"], 1e-9)
+	assert.InDelta(t, float64(1), encCounts["aws:kms"], 1e-9)
 }
 
 // --- Snapshot/Restore preserves buckets ---
@@ -629,7 +646,7 @@ func TestParityBuckets_Reset(t *testing.T) {
 	assert.Empty(t, buckets)
 
 	stats := getBucketStatistics(t, h)
-	assert.Equal(t, float64(0), stats["bucketCount"])
+	assert.InDelta(t, float64(0), stats["bucketCount"], 1e-9)
 }
 
 // --- DescribeBuckets response structure ---

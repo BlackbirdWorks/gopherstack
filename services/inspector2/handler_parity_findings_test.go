@@ -133,8 +133,8 @@ func TestParityFindings_Empty(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		body map[string]any
+		name string
 	}{
 		{
 			name: "no_body",
@@ -658,7 +658,7 @@ func TestParityFindings_SeverityScores(t *testing.T) {
 			sev := f["severity"].(map[string]any)
 
 			score, _ := sev["score"].(float64)
-			assert.Equal(t, tc.wantScore, score)
+			assert.InDelta(t, tc.wantScore, score, 1e-9)
 		})
 	}
 }

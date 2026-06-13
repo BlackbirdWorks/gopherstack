@@ -584,16 +584,16 @@ func matchesBucketCriteria(bkt *S3BucketMetadata, criteria map[string]any) bool 
 	}
 
 	if nameFilter, ok := criteria["bucketName"]; ok {
-		if m, ok := nameFilter.(map[string]any); ok {
-			if v, ok := m["value"].(string); ok && !strings.Contains(bkt.BucketName, v) {
+		if m, mOk := nameFilter.(map[string]any); mOk {
+			if v, vOk := m["value"].(string); vOk && !strings.Contains(bkt.BucketName, v) {
 				return false
 			}
 		}
 	}
 
 	if regionFilter, ok := criteria["region"]; ok {
-		if m, ok := regionFilter.(map[string]any); ok {
-			if v, ok := m["value"].(string); ok && bkt.Region != v {
+		if m, mOk := regionFilter.(map[string]any); mOk {
+			if v, vOk := m["value"].(string); vOk && bkt.Region != v {
 				return false
 			}
 		}

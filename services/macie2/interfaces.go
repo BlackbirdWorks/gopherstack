@@ -35,7 +35,11 @@ type StorageBackend interface {
 	UpdateMemberSession(accountID, status string) error
 
 	// Invitation operations
-	CreateInvitations(accountIDs []string, message string, disableEmail bool) ([]UnprocessedAccount, error)
+	CreateInvitations(
+		accountIDs []string,
+		message string,
+		disableEmail bool,
+	) ([]UnprocessedAccount, error)
 	AcceptInvitation(administratorAccountID, invitationID string) error
 	DeclineInvitations(accountIDs []string) ([]UnprocessedAccount, error)
 	DeleteInvitations(accountIDs []string) ([]UnprocessedAccount, error)
@@ -88,7 +92,10 @@ type StorageBackend interface {
 	UpdateResourceProfile(resourceARN string, sensitivityScore int32) error
 	ListResourceProfileArtifacts(resourceARN string) ([]ResourceProfileArtifact, error)
 	ListResourceProfileDetections(resourceARN string) ([]ResourceProfileDetection, error)
-	UpdateResourceProfileDetections(resourceARN string, suppressDataIdentifiers []map[string]any) error
+	UpdateResourceProfileDetections(
+		resourceARN string,
+		suppressDataIdentifiers []map[string]any,
+	) error
 
 	// Reveal configuration
 	GetRevealConfiguration() (*RevealConfiguration, error)
@@ -101,7 +108,10 @@ type StorageBackend interface {
 	// Sensitivity inspection template operations
 	GetSensitivityInspectionTemplate(templateID string) (*SensitivityInspectionTemplate, error)
 	ListSensitivityInspectionTemplates() ([]*SensitivityInspectionTemplateSummary, error)
-	UpdateSensitivityInspectionTemplate(templateID, name, description string, excludes, includes map[string]any) error
+	UpdateSensitivityInspectionTemplate(
+		templateID, name, description string,
+		excludes, includes map[string]any,
+	) error
 
 	// Usage operations
 	GetUsageStatistics(
@@ -115,7 +125,11 @@ type StorageBackend interface {
 	ListManagedDataIdentifiers() ([]ManagedDataIdentifier, error)
 
 	// Search resources
-	SearchResources(bucketCriteria map[string]any, maxResults int, nextToken string) ([]map[string]any, string, error)
+	SearchResources(
+		bucketCriteria map[string]any,
+		maxResults int,
+		nextToken string,
+	) ([]map[string]any, string, error)
 
 	// Allow list operations
 	CreateAllowList(
@@ -124,7 +138,10 @@ type StorageBackend interface {
 		tags map[string]string,
 	) (*AllowListSummary, error)
 	GetAllowList(id string) (*AllowListDetail, error)
-	UpdateAllowList(id, name, description string, criteria AllowListCriteria) (*AllowListSummary, error)
+	UpdateAllowList(
+		id, name, description string,
+		criteria AllowListCriteria,
+	) (*AllowListSummary, error)
 	DeleteAllowList(id string) error
 	ListAllowLists() ([]*AllowListSummary, error)
 
@@ -163,7 +180,11 @@ type StorageBackend interface {
 
 	// Finding operations
 	GetFindings(findingIDs []string) ([]*Finding, error)
-	ListFindings(criteria map[string]any, maxResults int, nextToken string) ([]string, string, error)
+	ListFindings(
+		criteria map[string]any,
+		maxResults int,
+		nextToken string,
+	) ([]string, string, error)
 	CreateSampleFindings(findingTypes []string) error
 	GetFindingStatistics(groupBy string, criteria map[string]any) ([]FindingStatisticsGroup, error)
 
@@ -233,16 +254,16 @@ type AllowListDetail struct {
 }
 
 // CustomDataIdentifier represents a custom data identifier.
-type CustomDataIdentifier struct { //nolint:govet // fieldalignment: readability over padding
-	Tags                 map[string]string `json:"tags,omitempty"`
-	IgnoreWords          []string          `json:"ignoreWords,omitempty"`
-	Keywords             []string          `json:"keywords,omitempty"`
+type CustomDataIdentifier struct {
 	CreatedAt            time.Time         `json:"createdAt"`
+	Tags                 map[string]string `json:"tags,omitempty"`
 	Arn                  string            `json:"arn"`
 	Description          string            `json:"description,omitempty"`
 	ID                   string            `json:"id"`
 	Name                 string            `json:"name"`
 	Regex                string            `json:"regex"`
+	IgnoreWords          []string          `json:"ignoreWords,omitempty"`
+	Keywords             []string          `json:"keywords,omitempty"`
 	MaximumMatchDistance int32             `json:"maximumMatchDistance"`
 }
 
@@ -282,18 +303,18 @@ type FindingsFilterSummary struct {
 type FindingType string
 
 // Finding represents a Macie finding.
-type Finding struct { //nolint:govet // fieldalignment: readability over padding
-	AccountID   string    `json:"accountId"`
-	Archived    bool      `json:"archived"`
-	Category    string    `json:"category"`
+type Finding struct {
 	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+	AccountID   string    `json:"accountId"`
+	Category    string    `json:"category"`
 	Description string    `json:"description"`
 	ID          string    `json:"id"`
 	Region      string    `json:"region"`
-	Severity    Severity  `json:"severity"`
 	Title       string    `json:"title"`
 	Type        string    `json:"type"`
-	UpdatedAt   time.Time `json:"updatedAt"`
+	Severity    Severity  `json:"severity"`
+	Archived    bool      `json:"archived"`
 }
 
 // Severity holds finding severity details.
@@ -532,18 +553,18 @@ type UsageByAccount struct {
 
 // S3BucketMetadata holds Macie's view of an S3 bucket for DescribeBuckets.
 type S3BucketMetadata struct {
-	AccountID                string            `json:"accountId"`
-	BucketArn                string            `json:"bucketArn"`
-	BucketName               string            `json:"bucketName"`
-	Region                   string            `json:"region"`
-	ClassifiableObjectCount  int64             `json:"classifiableObjectCount"`
-	ClassifiableSizeInBytes  int64             `json:"classifiableSizeInBytes"`
-	ObjectCount              int64             `json:"objectCount"`
-	SizeInBytes              int64             `json:"sizeInBytes"`
-	PublicAccess             string            `json:"publicAccess"`
-	EncryptionType           string            `json:"encryptionType"`
-	SharedAccess             string            `json:"sharedAccess"`
-	Tags                     []map[string]any  `json:"tags,omitempty"`
+	AccountID               string           `json:"accountId"`
+	BucketArn               string           `json:"bucketArn"`
+	BucketName              string           `json:"bucketName"`
+	Region                  string           `json:"region"`
+	PublicAccess            string           `json:"publicAccess"`
+	EncryptionType          string           `json:"encryptionType"`
+	SharedAccess            string           `json:"sharedAccess"`
+	Tags                    []map[string]any `json:"tags,omitempty"`
+	ClassifiableObjectCount int64            `json:"classifiableObjectCount"`
+	ClassifiableSizeInBytes int64            `json:"classifiableSizeInBytes"`
+	ObjectCount             int64            `json:"objectCount"`
+	SizeInBytes             int64            `json:"sizeInBytes"`
 }
 
 // UsageTotal holds aggregated usage totals.

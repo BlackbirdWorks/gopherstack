@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,6 +32,11 @@ const (
 	maxTagKeyLen   = 128
 	maxTagValueLen = 256
 	maxTagCount    = 50
+
+	severityScoreCritical = 9.0
+	severityScoreHigh     = 7.0
+	severityScoreMedium   = 5.0
+	severityScoreLow      = 3.0
 )
 
 var (
@@ -100,23 +106,23 @@ type Filter struct {
 
 // Finding represents an Inspector2 finding.
 type Finding struct {
-	FindingArn          string         `json:"findingArn"`
-	AccountID           string         `json:"awsAccountId"`
-	Type                string         `json:"type"`
-	Severity            FindingSeverity `json:"severity"`
-	Status              string         `json:"status"`
-	Description         string         `json:"description"`
-	Title               string         `json:"title,omitempty"`
-	FirstObservedAt     time.Time      `json:"firstObservedAt"`
-	LastObservedAt      time.Time      `json:"lastObservedAt"`
-	UpdatedAt           time.Time      `json:"updatedAt"`
-	Resources           []FindingResource `json:"resources,omitempty"`
+	FindingArn      string            `json:"findingArn"`
+	AccountID       string            `json:"awsAccountId"`
+	Type            string            `json:"type"`
+	Severity        FindingSeverity   `json:"severity"`
+	Status          string            `json:"status"`
+	Description     string            `json:"description"`
+	Title           string            `json:"title,omitempty"`
+	FirstObservedAt time.Time         `json:"firstObservedAt"`
+	LastObservedAt  time.Time         `json:"lastObservedAt"`
+	UpdatedAt       time.Time         `json:"updatedAt"`
+	Resources       []FindingResource `json:"resources,omitempty"`
 }
 
 // FindingSeverity holds severity details for a finding.
 type FindingSeverity struct {
-	Label  string  `json:"label"`
-	Score  float64 `json:"score,omitempty"`
+	Label string  `json:"label"`
+	Score float64 `json:"score,omitempty"`
 }
 
 // FindingResource describes a resource associated with a finding.
@@ -414,20 +420,24 @@ func (b *InMemoryBackend) AddFinding(
 func severityScore(label string) float64 {
 	switch label {
 	case "CRITICAL":
-		return 9.0
+		return severityScoreCritical
 	case "HIGH":
-		return 7.0
+		return severityScoreHigh
 	case "MEDIUM":
-		return 5.0
+		return severityScoreMedium
 	case "LOW":
-		return 3.0
+		return severityScoreLow
 	default:
 		return 0.0
 	}
 }
 
 // ListFindings returns a page of findings, optionally filtered by severity or status.
-func (b *InMemoryBackend) ListFindings(filterCriteria map[string]any, maxResults int32, nextToken string) ([]*Finding, string, error) {
+func (b *InMemoryBackend) ListFindings(
+	filterCriteria map[string]any,
+	maxResults int32,
+	nextToken string,
+) ([]*Finding, string, error) {
 	b.mu.RLock("ListFindings")
 	defer b.mu.RUnlock()
 
@@ -525,12 +535,12 @@ func extractStringComparisons(criteria map[string]any, key string) ([]string, bo
 	var vals []string
 
 	for _, item := range items {
-		m, ok := item.(map[string]any)
-		if !ok {
+		m, mOk := item.(map[string]any)
+		if !mOk {
 			continue
 		}
 
-		if v, ok := m["value"].(string); ok {
+		if v, vOk := m["value"].(string); vOk {
 			vals = append(vals, v)
 		}
 	}
@@ -539,7 +549,7 @@ func extractStringComparisons(criteria map[string]any, key string) ([]string, bo
 }
 
 func encodeFindingToken(idx int) string {
-	return fmt.Sprintf("%d", idx)
+	return strconv.Itoa(idx)
 }
 
 func decodeFindingToken(token string) int {
