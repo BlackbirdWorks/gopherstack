@@ -6,8 +6,8 @@ import (
 )
 
 type backendSnapshot struct {
-	Apps   map[string]*Application `json:"apps"`
-	NextID int64                   `json:"next_id"`
+	Apps   map[string]map[string]*Application `json:"apps"`
+	NextID int64                              `json:"next_id"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -16,9 +16,14 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	appsCopy := make(map[string]*Application, len(b.apps))
-	for k, v := range b.apps {
-		appsCopy[k] = appCopy(v)
+	appsCopy := make(map[string]map[string]*Application, len(b.apps))
+
+	for region, regionApps := range b.apps {
+		appsCopy[region] = make(map[string]*Application, len(regionApps))
+
+		for k, v := range regionApps {
+			appsCopy[region][k] = appCopy(v)
+		}
 	}
 
 	snap := backendSnapshot{
@@ -49,16 +54,23 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	defer b.mu.Unlock()
 
 	if snap.Apps == nil {
-		snap.Apps = make(map[string]*Application)
+		snap.Apps = make(map[string]map[string]*Application)
 	}
 
 	b.apps = snap.Apps
 	b.nextID = snap.NextID
 
 	// Rebuild ARN index from restored applications.
-	b.appsByARN = make(map[string]*Application, len(b.apps))
-	for _, app := range b.apps {
-		b.appsByARN[app.ApplicationARN] = app
+	b.appsByARN = make(map[string]map[string]*Application, len(b.apps))
+
+	for region, regionApps := range b.apps {
+		for _, app := range regionApps {
+			if b.appsByARN[region] == nil {
+				b.appsByARN[region] = make(map[string]*Application)
+			}
+
+			b.appsByARN[region][app.ApplicationARN] = app
+		}
 	}
 
 	return nil

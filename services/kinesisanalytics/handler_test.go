@@ -2,6 +2,7 @@ package kinesisanalytics_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -702,7 +703,7 @@ func TestHandler_AddApplicationCloudWatchLoggingOption(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantStatus == http.StatusOK {
-				app, err := b.DescribeApplication("cwl-app")
+				app, err := b.DescribeApplication(context.Background(), "cwl-app")
 				require.NoError(t, err)
 				assert.NotEmpty(t, app.CloudWatchLoggingOptions)
 			}
@@ -783,7 +784,7 @@ func TestHandler_AddApplicationInput(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantStatus == http.StatusOK {
-				app, err := b.DescribeApplication("input-app")
+				app, err := b.DescribeApplication(context.Background(), "input-app")
 				require.NoError(t, err)
 				assert.NotEmpty(t, app.Inputs)
 			}
@@ -806,8 +807,13 @@ func TestHandler_AddApplicationInputProcessingConfiguration(t *testing.T) {
 			appName: "proc-app",
 			setup: func(b *kinesisanalytics.InMemoryBackend) string {
 				_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "proc-app", "", "", nil)
-				_ = b.AddApplicationInput("proc-app", 1, kinesisanalytics.InputDescription{NamePrefix: "PREFIX"})
-				app, _ := b.DescribeApplication("proc-app")
+				_ = b.AddApplicationInput(
+					context.Background(),
+					"proc-app",
+					1,
+					kinesisanalytics.InputDescription{NamePrefix: "PREFIX"},
+				)
+				app, _ := b.DescribeApplication(context.Background(), "proc-app")
 
 				return app.Inputs[0].InputID
 			},
@@ -862,7 +868,7 @@ func TestHandler_AddApplicationInputProcessingConfiguration(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantStatus == http.StatusOK {
-				app, err := b.DescribeApplication(tt.appName)
+				app, err := b.DescribeApplication(context.Background(), tt.appName)
 				require.NoError(t, err)
 				require.NotEmpty(t, app.Inputs)
 				assert.NotNil(t, app.Inputs[0].InputProcessingConfigurationDescription)
@@ -946,7 +952,7 @@ func TestHandler_AddApplicationOutput(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantStatus == http.StatusOK {
-				app, err := b.DescribeApplication("output-app")
+				app, err := b.DescribeApplication(context.Background(), "output-app")
 				require.NoError(t, err)
 				assert.NotEmpty(t, app.Outputs)
 			}
@@ -1037,7 +1043,7 @@ func TestHandler_AddApplicationReferenceDataSource(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantStatus == http.StatusOK {
-				app, err := b.DescribeApplication("ref-app")
+				app, err := b.DescribeApplication(context.Background(), "ref-app")
 				require.NoError(t, err)
 				assert.NotEmpty(t, app.ReferenceDataSources)
 			}
@@ -1059,6 +1065,7 @@ func TestHandler_DeleteApplicationCloudWatchLoggingOption(t *testing.T) {
 			setup: func(b *kinesisanalytics.InMemoryBackend) string {
 				_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "del-cwl-app", "", "", nil)
 				_ = b.AddApplicationCloudWatchLoggingOption(
+					context.Background(),
 					"del-cwl-app",
 					1,
 					kinesisanalytics.CloudWatchLoggingOptionDesc{
@@ -1066,7 +1073,7 @@ func TestHandler_DeleteApplicationCloudWatchLoggingOption(t *testing.T) {
 						RoleARN:      "arn:aws:iam::000000000000:role/r",
 					},
 				)
-				app, _ := b.DescribeApplication("del-cwl-app")
+				app, _ := b.DescribeApplication(context.Background(), "del-cwl-app")
 
 				return app.CloudWatchLoggingOptions[0].CloudWatchLoggingOptionID
 			},
@@ -1115,7 +1122,7 @@ func TestHandler_DeleteApplicationCloudWatchLoggingOption(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantStatus == http.StatusOK {
-				app, err := b.DescribeApplication("del-cwl-app")
+				app, err := b.DescribeApplication(context.Background(), "del-cwl-app")
 				require.NoError(t, err)
 				assert.Empty(t, app.CloudWatchLoggingOptions)
 			}
@@ -1138,13 +1145,18 @@ func TestHandler_DeleteApplicationInputProcessingConfiguration(t *testing.T) {
 			appName: "del-proc-app",
 			setup: func(b *kinesisanalytics.InMemoryBackend) string {
 				_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "del-proc-app", "", "", nil)
-				_ = b.AddApplicationInput("del-proc-app", 1, kinesisanalytics.InputDescription{NamePrefix: "STREAM"})
-				app, _ := b.DescribeApplication("del-proc-app")
+				_ = b.AddApplicationInput(
+					context.Background(),
+					"del-proc-app",
+					1,
+					kinesisanalytics.InputDescription{NamePrefix: "STREAM"},
+				)
+				app, _ := b.DescribeApplication(context.Background(), "del-proc-app")
 				inputID := app.Inputs[0].InputID
 				cfg := &kinesisanalytics.InputProcessingConfigurationDesc{
 					InputLambdaProcessor: &kinesisanalytics.LambdaProcessorDesc{ResourceARN: "arn:aws:lambda::fn"},
 				}
-				_ = b.AddApplicationInputProcessingConfiguration("del-proc-app", 2, inputID, cfg)
+				_ = b.AddApplicationInputProcessingConfiguration(context.Background(), "del-proc-app", 2, inputID, cfg)
 
 				return inputID
 			},
@@ -1193,7 +1205,7 @@ func TestHandler_DeleteApplicationInputProcessingConfiguration(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantStatus == http.StatusOK {
-				app, err := b.DescribeApplication(tt.appName)
+				app, err := b.DescribeApplication(context.Background(), tt.appName)
 				require.NoError(t, err)
 				require.NotEmpty(t, app.Inputs)
 				assert.Nil(t, app.Inputs[0].InputProcessingConfigurationDescription)
@@ -1215,8 +1227,13 @@ func TestHandler_DeleteApplicationOutput(t *testing.T) {
 			name: "deletes existing output",
 			setup: func(b *kinesisanalytics.InMemoryBackend) string {
 				_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "del-out-app", "", "", nil)
-				_ = b.AddApplicationOutput("del-out-app", 1, kinesisanalytics.OutputDescription{Name: "STREAM_OUT"})
-				app, _ := b.DescribeApplication("del-out-app")
+				_ = b.AddApplicationOutput(
+					context.Background(),
+					"del-out-app",
+					1,
+					kinesisanalytics.OutputDescription{Name: "STREAM_OUT"},
+				)
+				app, _ := b.DescribeApplication(context.Background(), "del-out-app")
 
 				return app.Outputs[0].OutputID
 			},
@@ -1265,7 +1282,7 @@ func TestHandler_DeleteApplicationOutput(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantStatus == http.StatusOK {
-				app, err := b.DescribeApplication("del-out-app")
+				app, err := b.DescribeApplication(context.Background(), "del-out-app")
 				require.NoError(t, err)
 				assert.Empty(t, app.Outputs)
 			}
@@ -1287,11 +1304,12 @@ func TestHandler_DeleteApplicationReferenceDataSource(t *testing.T) {
 			setup: func(b *kinesisanalytics.InMemoryBackend) string {
 				_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "del-ref-app", "", "", nil)
 				_ = b.AddApplicationReferenceDataSource(
+					context.Background(),
 					"del-ref-app",
 					1,
 					kinesisanalytics.ReferenceDataSourceDescription{TableName: "REF_TBL"},
 				)
-				app, _ := b.DescribeApplication("del-ref-app")
+				app, _ := b.DescribeApplication(context.Background(), "del-ref-app")
 
 				return app.ReferenceDataSources[0].ReferenceID
 			},
@@ -1340,7 +1358,7 @@ func TestHandler_DeleteApplicationReferenceDataSource(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantStatus == http.StatusOK {
-				app, err := b.DescribeApplication("del-ref-app")
+				app, err := b.DescribeApplication(context.Background(), "del-ref-app")
 				require.NoError(t, err)
 				assert.Empty(t, app.ReferenceDataSources)
 			}
