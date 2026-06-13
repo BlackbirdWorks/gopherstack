@@ -1505,6 +1505,7 @@ func parseDDBKeySchema(props map[string]any, params, physicalIDs map[string]stri
 
 const (
 	defaultCapacityUnits     = int64(5)
+	defaultEventBusName      = "default"
 	kmsMinDeletionWindowDays = 7
 	boolTrue                 = "true"
 )
@@ -1777,7 +1778,7 @@ func (rc *ResourceCreator) createEventBridgeRule(
 
 	eventBusName := strProp(props, "EventBusName", params, physicalIDs)
 	if eventBusName == "" {
-		eventBusName = "default"
+		eventBusName = defaultEventBusName
 	}
 
 	pattern := strProp(props, "EventPattern", params, physicalIDs)
@@ -1811,7 +1812,7 @@ func (rc *ResourceCreator) deleteEventBridgeRule(_ context.Context, physicalID s
 	parts := strings.Split(physicalID, "/")
 	name := parts[len(parts)-1]
 
-	return rc.backends.EventBridge.Backend.DeleteRule(context.Background(), name, "default")
+	return rc.backends.EventBridge.Backend.DeleteRule(context.Background(), name, defaultEventBusName)
 }
 
 // createStepFunctionsStateMachine creates a Step Functions state machine.

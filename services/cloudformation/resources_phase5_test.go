@@ -1,6 +1,7 @@
 package cloudformation_test
 
 import (
+	"maps"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -531,11 +532,11 @@ func TestResourceCreator_AppSync_Supplemental_CreateDelete(t *testing.T) {
 
 	// First create a GraphQL API to use as parent.
 	rc := cloudformation.NewResourceCreator(backends)
-	apiPhysID, err := rc.Create(t.Context(), "MyAPI", "AWS::AppSync::GraphQLApi", map[string]any{
+	apiPhysID, setupErr := rc.Create(t.Context(), "MyAPI", "AWS::AppSync::GraphQLApi", map[string]any{
 		"Name":               "cfn-test-api",
 		"AuthenticationType": "API_KEY",
 	}, nil, nil)
-	require.NoError(t, err)
+	require.NoError(t, setupErr)
 	require.NotEmpty(t, apiPhysID)
 
 	tests := []struct {
@@ -567,9 +568,10 @@ func TestResourceCreator_AppSync_Supplemental_CreateDelete(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Note: not parallel — shares API ID created above
+			t.Parallel()
+
 			backends2 := newPhase5ServiceBackends()
-			// Re-create API in this backend
+			// Re-create API in this backend so each subtest is independent.
 			rc2 := cloudformation.NewResourceCreator(backends2)
 			api2PhysID, err := rc2.Create(t.Context(), "MyAPI2", "AWS::AppSync::GraphQLApi", map[string]any{
 				"Name":               "cfn-test-api-2-" + tt.name,
@@ -577,10 +579,7 @@ func TestResourceCreator_AppSync_Supplemental_CreateDelete(t *testing.T) {
 			}, nil, nil)
 			require.NoError(t, err)
 
-			props2 := make(map[string]any)
-			for k, v := range tt.props {
-				props2[k] = v
-			}
+			props2 := maps.Clone(tt.props)
 			props2["ApiId"] = api2PhysID
 
 			physID, err := rc2.Create(t.Context(), tt.logicalID, tt.resourceType, props2, nil, nil)
