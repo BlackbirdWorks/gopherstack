@@ -77,16 +77,16 @@ func validateFilterAction(action string) error {
 
 // Filter represents an Inspector2 findings filter.
 type Filter struct { //nolint:govet // fieldalignment: map fields after scalars for readability
+	CreatedAt   time.Time         `json:"createdAt"`
+	UpdatedAt   time.Time         `json:"updatedAt"`
+	Criteria    map[string]any    `json:"filterCriteria,omitempty"`
+	Tags        map[string]string `json:"tags,omitempty"`
 	Arn         string            `json:"arn"`
 	Name        string            `json:"name"`
 	Action      string            `json:"action"`
 	Description string            `json:"description,omitempty"`
 	Reason      string            `json:"reason,omitempty"`
 	OwnerID     string            `json:"ownerId"`
-	CreatedAt   time.Time         `json:"createdAt"`
-	UpdatedAt   time.Time         `json:"updatedAt"`
-	Criteria    map[string]any    `json:"filterCriteria,omitempty"`
-	Tags        map[string]string `json:"tags,omitempty"`
 }
 
 // Finding represents an Inspector2 finding (minimal stub for list support).
@@ -121,9 +121,9 @@ type InMemoryBackend struct { //nolint:govet // fieldalignment: bool before poin
 	tags      map[string]map[string]string
 	ax        *appendixAState
 	config    Configuration
-	enabled   bool
 	accountID string
 	region    string
+	enabled   bool
 }
 
 // NewInMemoryBackend creates a new backend for the given account and region.
@@ -476,9 +476,9 @@ type backendSnapshot struct { //nolint:govet // fieldalignment: readability over
 	Filters   map[string]*Filter           `json:"filters"`
 	Tags      map[string]map[string]string `json:"tags"`
 	Config    Configuration                `json:"config"`
-	Enabled   bool                         `json:"enabled"`
 	AccountID string                       `json:"accountId"`
 	Region    string                       `json:"region"`
+	Enabled   bool                         `json:"enabled"`
 }
 
 // Snapshot serializes the backend state.
