@@ -466,6 +466,7 @@ func TestIntegration_FIS_InjectAPIErrorViaExperiment(t *testing.T) {
 
 // TestIntegration_FIS_TagResource_NotFound verifies that tagging a non-existent resource returns 404.
 func TestIntegration_FIS_TagResource_NotFound(t *testing.T) {
+	t.Parallel()
 	// QUARANTINED (go-9b08): flaky only under the full parallel CI suite — passes
 	// standalone and alongside the new-service tests. A concurrent test corrupts
 	// shared dispatch/routing state so POST /tags/{fis-arn} resolves to a 200

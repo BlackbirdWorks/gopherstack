@@ -6857,7 +6857,7 @@ func TestTerraform_MegaBatch4(t *testing.T) {
 
 				return map[string]any{}
 			},
-			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
 				t.Helper()
 				client := createBedrockAgentClient(t)
 

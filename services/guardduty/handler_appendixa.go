@@ -1277,7 +1277,6 @@ func (h *Handler) handleListTrustedEntitySets(detectorID string) (any, int, erro
 	return map[string]any{"trustedEntitySetIds": ids}, http.StatusOK, nil
 }
 func (h *Handler) handleUpdateTrustedEntitySet(detectorID, setID string, body []byte) (int, error) {
-
 	var req struct {
 		Activate *bool  `json:"activate"`
 		Name     string `json:"name"`
