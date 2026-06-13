@@ -14,6 +14,46 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
+// Path sub-resource name constants (goconst).
+const (
+	subAnalysisTemplates  = "analysistemplates"
+	subCAMAAssociations   = "configuredaudiencemodelassociations"
+	subIDNamespaceAssocs  = "idnamespaceassociations"
+	subPrivacyBudgetTmpls = "privacybudgettemplates"
+	subSchemas            = "schemas"
+	subAnalysisRule       = "analysisRule"
+	subProtectedJobs      = "protectedJobs"
+	subProtectedQueries   = "protectedQueries"
+	subTags               = "tags"
+)
+
+// Response key constants (goconst).
+const (
+	keyCollaboration              = "collaboration"
+	keyAnalysisTemplate           = "analysisTemplate"
+	keyErrors                     = "errors"
+	keyCollaborationChangeRequest = "collaborationChangeRequest"
+	keyCAMAAssociation            = "configuredAudienceModelAssociation"
+	keyIDNamespaceAssociation     = "idNamespaceAssociation"
+	keyPrivacyBudgetTemplate      = "privacyBudgetTemplate"
+	keyMembership                 = "membership"
+	keyConfiguredTable            = "configuredTable"
+	keyConfiguredTableAssociation = "configuredTableAssociation"
+	keyProtectedQuery             = "protectedQuery"
+	keyProtectedJob               = "protectedJob"
+	keyIDMappingTable             = "idMappingTable"
+)
+
+// Path segment count constants (mnd).
+const (
+	segsRoot         = 1 // just the resource name
+	segsWithID       = 2 // resource + ID
+	segsWithSub      = 3 // resource + ID + sub
+	segsWithSubID    = 4 // resource + ID + sub + subID
+	segsWithSubSub   = 5 // 5 segments
+	segsWithSubSubID = 6 // 6 segments
+)
+
 const (
 	cleanroomsHostPrefix = "cleanrooms."
 
@@ -28,8 +68,8 @@ const (
 	opCreateConfiguredTableAnalysisRule                    = "CreateConfiguredTableAnalysisRule"
 	opCreateConfiguredTableAssociation                     = "CreateConfiguredTableAssociation"
 	opCreateConfiguredTableAssociationAnalysisRule         = "CreateConfiguredTableAssociationAnalysisRule"
-	opCreateIdMappingTable                                 = "CreateIdMappingTable"
-	opCreateIdNamespaceAssociation                         = "CreateIdNamespaceAssociation"
+	opCreateIDMappingTable                                 = "CreateIdMappingTable"
+	opCreateIDNamespaceAssociation                         = "CreateIdNamespaceAssociation"
 	opCreateMembership                                     = "CreateMembership"
 	opCreatePrivacyBudgetTemplate                          = "CreatePrivacyBudgetTemplate"
 	opDeleteAnalysisTemplate                               = "DeleteAnalysisTemplate"
@@ -39,8 +79,8 @@ const (
 	opDeleteConfiguredTableAnalysisRule                    = "DeleteConfiguredTableAnalysisRule"
 	opDeleteConfiguredTableAssociation                     = "DeleteConfiguredTableAssociation"
 	opDeleteConfiguredTableAssociationAnalysisRule         = "DeleteConfiguredTableAssociationAnalysisRule"
-	opDeleteIdMappingTable                                 = "DeleteIdMappingTable"
-	opDeleteIdNamespaceAssociation                         = "DeleteIdNamespaceAssociation"
+	opDeleteIDMappingTable                                 = "DeleteIdMappingTable"
+	opDeleteIDNamespaceAssociation                         = "DeleteIdNamespaceAssociation"
 	opDeleteMember                                         = "DeleteMember"
 	opDeleteMembership                                     = "DeleteMembership"
 	opDeletePrivacyBudgetTemplate                          = "DeletePrivacyBudgetTemplate"
@@ -49,15 +89,15 @@ const (
 	opGetCollaborationAnalysisTemplate                     = "GetCollaborationAnalysisTemplate"
 	opGetCollaborationChangeRequest                        = "GetCollaborationChangeRequest"
 	opGetCollaborationConfiguredAudienceModelAssociation   = "GetCollaborationConfiguredAudienceModelAssociation"
-	opGetCollaborationIdNamespaceAssociation               = "GetCollaborationIdNamespaceAssociation"
+	opGetCollaborationIDNamespaceAssociation               = "GetCollaborationIdNamespaceAssociation"
 	opGetCollaborationPrivacyBudgetTemplate                = "GetCollaborationPrivacyBudgetTemplate"
 	opGetConfiguredAudienceModelAssociation                = "GetConfiguredAudienceModelAssociation"
 	opGetConfiguredTable                                   = "GetConfiguredTable"
 	opGetConfiguredTableAnalysisRule                       = "GetConfiguredTableAnalysisRule"
 	opGetConfiguredTableAssociation                        = "GetConfiguredTableAssociation"
 	opGetConfiguredTableAssociationAnalysisRule            = "GetConfiguredTableAssociationAnalysisRule"
-	opGetIdMappingTable                                    = "GetIdMappingTable"
-	opGetIdNamespaceAssociation                            = "GetIdNamespaceAssociation"
+	opGetIDMappingTable                                    = "GetIdMappingTable"
+	opGetIDNamespaceAssociation                            = "GetIdNamespaceAssociation"
 	opGetMembership                                        = "GetMembership"
 	opGetPrivacyBudgetTemplate                             = "GetPrivacyBudgetTemplate"
 	opGetProtectedJob                                      = "GetProtectedJob"
@@ -68,15 +108,15 @@ const (
 	opListCollaborationAnalysisTemplates                   = "ListCollaborationAnalysisTemplates"
 	opListCollaborationChangeRequests                      = "ListCollaborationChangeRequests"
 	opListCollaborationConfiguredAudienceModelAssociations = "ListCollaborationConfiguredAudienceModelAssociations"
-	opListCollaborationIdNamespaceAssociations             = "ListCollaborationIdNamespaceAssociations"
+	opListCollaborationIDNamespaceAssociations             = "ListCollaborationIdNamespaceAssociations"
 	opListCollaborationPrivacyBudgets                      = "ListCollaborationPrivacyBudgets"
 	opListCollaborationPrivacyBudgetTemplates              = "ListCollaborationPrivacyBudgetTemplates"
 	opListCollaborations                                   = "ListCollaborations"
 	opListConfiguredAudienceModelAssociations              = "ListConfiguredAudienceModelAssociations"
 	opListConfiguredTableAssociations                      = "ListConfiguredTableAssociations"
 	opListConfiguredTables                                 = "ListConfiguredTables"
-	opListIdMappingTables                                  = "ListIdMappingTables"
-	opListIdNamespaceAssociations                          = "ListIdNamespaceAssociations"
+	opListIDMappingTables                                  = "ListIdMappingTables"
+	opListIDNamespaceAssociations                          = "ListIdNamespaceAssociations"
 	opListMembers                                          = "ListMembers"
 	opListMemberships                                      = "ListMemberships"
 	opListPrivacyBudgets                                   = "ListPrivacyBudgets"
@@ -85,7 +125,7 @@ const (
 	opListProtectedQueries                                 = "ListProtectedQueries"
 	opListSchemas                                          = "ListSchemas"
 	opListTagsForResource                                  = "ListTagsForResource"
-	opPopulateIdMappingTable                               = "PopulateIdMappingTable"
+	opPopulateIDMappingTable                               = "PopulateIdMappingTable"
 	opPreviewPrivacyImpact                                 = "PreviewPrivacyImpact"
 	opStartProtectedJob                                    = "StartProtectedJob"
 	opStartProtectedQuery                                  = "StartProtectedQuery"
@@ -99,8 +139,8 @@ const (
 	opUpdateConfiguredTableAnalysisRule                    = "UpdateConfiguredTableAnalysisRule"
 	opUpdateConfiguredTableAssociation                     = "UpdateConfiguredTableAssociation"
 	opUpdateConfiguredTableAssociationAnalysisRule         = "UpdateConfiguredTableAssociationAnalysisRule"
-	opUpdateIdMappingTable                                 = "UpdateIdMappingTable"
-	opUpdateIdNamespaceAssociation                         = "UpdateIdNamespaceAssociation"
+	opUpdateIDMappingTable                                 = "UpdateIdMappingTable"
+	opUpdateIDNamespaceAssociation                         = "UpdateIdNamespaceAssociation"
 	opUpdateMembership                                     = "UpdateMembership"
 	opUpdatePrivacyBudgetTemplate                          = "UpdatePrivacyBudgetTemplate"
 	opUpdateProtectedJob                                   = "UpdateProtectedJob"
@@ -143,8 +183,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		opCreateConfiguredTableAnalysisRule,
 		opCreateConfiguredTableAssociation,
 		opCreateConfiguredTableAssociationAnalysisRule,
-		opCreateIdMappingTable,
-		opCreateIdNamespaceAssociation,
+		opCreateIDMappingTable,
+		opCreateIDNamespaceAssociation,
 		opCreateMembership,
 		opCreatePrivacyBudgetTemplate,
 		opDeleteAnalysisTemplate,
@@ -154,8 +194,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		opDeleteConfiguredTableAnalysisRule,
 		opDeleteConfiguredTableAssociation,
 		opDeleteConfiguredTableAssociationAnalysisRule,
-		opDeleteIdMappingTable,
-		opDeleteIdNamespaceAssociation,
+		opDeleteIDMappingTable,
+		opDeleteIDNamespaceAssociation,
 		opDeleteMember,
 		opDeleteMembership,
 		opDeletePrivacyBudgetTemplate,
@@ -164,15 +204,15 @@ func (h *Handler) GetSupportedOperations() []string {
 		opGetCollaborationAnalysisTemplate,
 		opGetCollaborationChangeRequest,
 		opGetCollaborationConfiguredAudienceModelAssociation,
-		opGetCollaborationIdNamespaceAssociation,
+		opGetCollaborationIDNamespaceAssociation,
 		opGetCollaborationPrivacyBudgetTemplate,
 		opGetConfiguredAudienceModelAssociation,
 		opGetConfiguredTable,
 		opGetConfiguredTableAnalysisRule,
 		opGetConfiguredTableAssociation,
 		opGetConfiguredTableAssociationAnalysisRule,
-		opGetIdMappingTable,
-		opGetIdNamespaceAssociation,
+		opGetIDMappingTable,
+		opGetIDNamespaceAssociation,
 		opGetMembership,
 		opGetPrivacyBudgetTemplate,
 		opGetProtectedJob,
@@ -183,15 +223,15 @@ func (h *Handler) GetSupportedOperations() []string {
 		opListCollaborationAnalysisTemplates,
 		opListCollaborationChangeRequests,
 		opListCollaborationConfiguredAudienceModelAssociations,
-		opListCollaborationIdNamespaceAssociations,
+		opListCollaborationIDNamespaceAssociations,
 		opListCollaborationPrivacyBudgets,
 		opListCollaborationPrivacyBudgetTemplates,
 		opListCollaborations,
 		opListConfiguredAudienceModelAssociations,
 		opListConfiguredTableAssociations,
 		opListConfiguredTables,
-		opListIdMappingTables,
-		opListIdNamespaceAssociations,
+		opListIDMappingTables,
+		opListIDNamespaceAssociations,
 		opListMembers,
 		opListMemberships,
 		opListPrivacyBudgets,
@@ -200,7 +240,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		opListProtectedQueries,
 		opListSchemas,
 		opListTagsForResource,
-		opPopulateIdMappingTable,
+		opPopulateIDMappingTable,
 		opPreviewPrivacyImpact,
 		opStartProtectedJob,
 		opStartProtectedQuery,
@@ -214,8 +254,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		opUpdateConfiguredTableAnalysisRule,
 		opUpdateConfiguredTableAssociation,
 		opUpdateConfiguredTableAssociationAnalysisRule,
-		opUpdateIdMappingTable,
-		opUpdateIdNamespaceAssociation,
+		opUpdateIDMappingTable,
+		opUpdateIDNamespaceAssociation,
 		opUpdateMembership,
 		opUpdatePrivacyBudgetTemplate,
 		opUpdateProtectedJob,
@@ -298,12 +338,6 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	}
 }
 
-// pathRouteEntry holds a parsed path classification.
-type pathRouteEntry struct {
-	op  string
-	seg []string
-}
-
 // classifyPath maps (method, path) to an operation name and primary resource.
 func classifyPath(method, path string) (string, string) {
 	// Trim leading slash and split
@@ -331,7 +365,7 @@ func classifyPath(method, path string) (string, string) {
 
 func classifyCollaborations(method string, segs []string) (string, string) {
 	// /collaborations
-	if len(segs) == 1 {
+	if len(segs) == segsRoot {
 		switch method {
 		case http.MethodPost:
 			return opCreateCollaboration, ""
@@ -340,7 +374,7 @@ func classifyCollaborations(method string, segs []string) (string, string) {
 		}
 	}
 	// /collaborations/{id}
-	if len(segs) == 2 {
+	if len(segs) == segsWithID {
 		id := segs[1]
 		switch method {
 		case http.MethodGet:
@@ -351,114 +385,99 @@ func classifyCollaborations(method string, segs []string) (string, string) {
 			return opUpdateCollaboration, id
 		}
 	}
-	// /collaborations/{id}/{sub}
-	if len(segs) >= 3 {
+	// /collaborations/{id}/{sub}[/...]
+	if len(segs) >= segsWithSub {
 		id := segs[1]
 		sub := segs[2]
-		switch sub {
-		case "analysistemplates":
-			if len(segs) == 3 {
-				if method == http.MethodGet {
-					return opListCollaborationAnalysisTemplates, id
-				}
+		return classifyCollaboration(method, id, sub, segs)
+	}
+
+	return opUnknown, ""
+}
+
+// classifyCollaboration handles sub-resource routing for /collaborations/{id}/{sub}[/...].
+func classifyCollaboration(method, id, sub string, segs []string) (string, string) {
+	switch sub {
+	case subAnalysisTemplates:
+		if len(segs) == segsWithSub && method == http.MethodGet {
+			return opListCollaborationAnalysisTemplates, id
+		}
+		if len(segs) == segsWithSubID && method == http.MethodGet {
+			return opGetCollaborationAnalysisTemplate, id
+		}
+	case "batch-analysistemplates":
+		if method == http.MethodPost {
+			return opBatchGetCollaborationAnalysisTemplate, id
+		}
+	case "batch-schema":
+		if method == http.MethodPost {
+			return opBatchGetSchema, id
+		}
+	case "batch-schema-analysis-rule":
+		if method == http.MethodPost {
+			return opBatchGetSchemaAnalysisRule, id
+		}
+	case "changeRequests":
+		if len(segs) == segsWithSub {
+			switch method {
+			case http.MethodPost:
+				return opCreateCollaborationChangeRequest, id
+			case http.MethodGet:
+				return opListCollaborationChangeRequests, id
 			}
-			if len(segs) == 4 {
-				if method == http.MethodGet {
-					return opGetCollaborationAnalysisTemplate, id
-				}
+		}
+		if len(segs) == segsWithSubID {
+			switch method {
+			case http.MethodGet:
+				return opGetCollaborationChangeRequest, id
+			case http.MethodPatch:
+				return opUpdateCollaborationChangeRequest, id
 			}
-		case "batch-analysistemplates":
-			if method == http.MethodPost {
-				return opBatchGetCollaborationAnalysisTemplate, id
-			}
-		case "batch-schema":
-			if method == http.MethodPost {
-				return opBatchGetSchema, id
-			}
-		case "batch-schema-analysis-rule":
-			if method == http.MethodPost {
-				return opBatchGetSchemaAnalysisRule, id
-			}
-		case "changeRequests":
-			if len(segs) == 3 {
-				switch method {
-				case http.MethodPost:
-					return opCreateCollaborationChangeRequest, id
-				case http.MethodGet:
-					return opListCollaborationChangeRequests, id
-				}
-			}
-			if len(segs) == 4 {
-				switch method {
-				case http.MethodGet:
-					return opGetCollaborationChangeRequest, id
-				case http.MethodPatch:
-					return opUpdateCollaborationChangeRequest, id
-				}
-			}
-		case "configuredaudiencemodelassociations":
-			if len(segs) == 3 {
-				if method == http.MethodGet {
-					return opListCollaborationConfiguredAudienceModelAssociations, id
-				}
-			}
-			if len(segs) == 4 {
-				if method == http.MethodGet {
-					return opGetCollaborationConfiguredAudienceModelAssociation, id
-				}
-			}
-		case "idnamespaceassociations":
-			if len(segs) == 3 {
-				if method == http.MethodGet {
-					return opListCollaborationIdNamespaceAssociations, id
-				}
-			}
-			if len(segs) == 4 {
-				if method == http.MethodGet {
-					return opGetCollaborationIdNamespaceAssociation, id
-				}
-			}
-		case "member":
-			// /collaborations/{id}/member/{accountId}
-			if len(segs) == 4 && method == http.MethodDelete {
-				return opDeleteMember, id
-			}
-		case "members":
-			if method == http.MethodGet {
-				return opListMembers, id
-			}
-		case "privacybudgettemplates":
-			if len(segs) == 3 {
-				if method == http.MethodGet {
-					return opListCollaborationPrivacyBudgetTemplates, id
-				}
-			}
-			if len(segs) == 4 {
-				if method == http.MethodGet {
-					return opGetCollaborationPrivacyBudgetTemplate, id
-				}
-			}
-		case "privacybudgets":
-			if method == http.MethodGet {
-				return opListCollaborationPrivacyBudgets, id
-			}
-		case "schemas":
-			if len(segs) == 3 {
-				if method == http.MethodGet {
-					return opListSchemas, id
-				}
-			}
-			if len(segs) == 4 {
-				if method == http.MethodGet {
-					return opGetSchema, id
-				}
-			}
-			// /collaborations/{id}/schemas/{name}/analysisRule/{type}
-			if len(segs) == 6 && segs[4] == "analysisRule" {
-				if method == http.MethodGet {
-					return opGetSchemaAnalysisRule, id
-				}
-			}
+		}
+	case subCAMAAssociations:
+		if len(segs) == segsWithSub && method == http.MethodGet {
+			return opListCollaborationConfiguredAudienceModelAssociations, id
+		}
+		if len(segs) == segsWithSubID && method == http.MethodGet {
+			return opGetCollaborationConfiguredAudienceModelAssociation, id
+		}
+	case subIDNamespaceAssocs:
+		if len(segs) == segsWithSub && method == http.MethodGet {
+			return opListCollaborationIDNamespaceAssociations, id
+		}
+		if len(segs) == segsWithSubID && method == http.MethodGet {
+			return opGetCollaborationIDNamespaceAssociation, id
+		}
+	case "member":
+		// /collaborations/{id}/member/{accountId}
+		if len(segs) == segsWithSubID && method == http.MethodDelete {
+			return opDeleteMember, id
+		}
+	case "members":
+		if method == http.MethodGet {
+			return opListMembers, id
+		}
+	case subPrivacyBudgetTmpls:
+		if len(segs) == segsWithSub && method == http.MethodGet {
+			return opListCollaborationPrivacyBudgetTemplates, id
+		}
+		if len(segs) == segsWithSubID && method == http.MethodGet {
+			return opGetCollaborationPrivacyBudgetTemplate, id
+		}
+	case "privacybudgets":
+		if method == http.MethodGet {
+			return opListCollaborationPrivacyBudgets, id
+		}
+	case subSchemas:
+		if len(segs) == segsWithSub && method == http.MethodGet {
+			return opListSchemas, id
+		}
+		if len(segs) == segsWithSubID && method == http.MethodGet {
+			return opGetSchema, id
+		}
+		// /collaborations/{id}/schemas/{name}/analysisRule/{type}
+		if len(segs) == segsWithSubSubID && segs[4] == subAnalysisRule && method == http.MethodGet {
+			return opGetSchemaAnalysisRule, id
 		}
 	}
 
@@ -467,7 +486,7 @@ func classifyCollaborations(method string, segs []string) (string, string) {
 
 func classifyConfiguredTables(method string, segs []string) (string, string) {
 	// /configuredTables
-	if len(segs) == 1 {
+	if len(segs) == segsRoot {
 		switch method {
 		case http.MethodPost:
 			return opCreateConfiguredTable, ""
@@ -476,7 +495,7 @@ func classifyConfiguredTables(method string, segs []string) (string, string) {
 		}
 	}
 	// /configuredTables/{id}
-	if len(segs) == 2 {
+	if len(segs) == segsWithID {
 		id := segs[1]
 		switch method {
 		case http.MethodGet:
@@ -488,7 +507,7 @@ func classifyConfiguredTables(method string, segs []string) (string, string) {
 		}
 	}
 	// /configuredTables/{id}/analysisRule[/{type}]
-	if len(segs) >= 3 && segs[2] == "analysisRule" {
+	if len(segs) >= segsWithSub && segs[2] == subAnalysisRule {
 		return classifyConfiguredTableAnalysisRule(method, segs)
 	}
 
@@ -497,10 +516,10 @@ func classifyConfiguredTables(method string, segs []string) (string, string) {
 
 func classifyConfiguredTableAnalysisRule(method string, segs []string) (string, string) {
 	id := segs[1]
-	if len(segs) == 3 && method == http.MethodPost {
+	if len(segs) == segsWithSub && method == http.MethodPost {
 		return opCreateConfiguredTableAnalysisRule, id
 	}
-	if len(segs) == 4 {
+	if len(segs) == segsWithSubID {
 		switch method {
 		case http.MethodGet:
 			return opGetConfiguredTableAnalysisRule, id
@@ -516,7 +535,7 @@ func classifyConfiguredTableAnalysisRule(method string, segs []string) (string, 
 
 func classifyMemberships(method string, segs []string) (string, string) {
 	// /memberships
-	if len(segs) == 1 {
+	if len(segs) == segsRoot {
 		switch method {
 		case http.MethodPost:
 			return opCreateMembership, ""
@@ -525,7 +544,7 @@ func classifyMemberships(method string, segs []string) (string, string) {
 		}
 	}
 	// /memberships/{id}
-	if len(segs) == 2 {
+	if len(segs) == segsWithID {
 		id := segs[1]
 		switch method {
 		case http.MethodGet:
@@ -536,14 +555,19 @@ func classifyMemberships(method string, segs []string) (string, string) {
 			return opUpdateMembership, id
 		}
 	}
-	if len(segs) < 3 {
+	if len(segs) < segsWithSub {
 		return opUnknown, ""
 	}
 	membershipID := segs[1]
 	sub := segs[2]
+	return classifyMembership(method, membershipID, sub, segs)
+}
+
+// classifyMembership handles sub-resource routing for /memberships/{id}/{sub}[/...].
+func classifyMembership(method, membershipID, sub string, segs []string) (string, string) {
 	switch sub {
-	case "analysistemplates":
-		if len(segs) == 3 {
+	case subAnalysisTemplates:
+		if len(segs) == segsWithSub {
 			switch method {
 			case http.MethodPost:
 				return opCreateAnalysisTemplate, membershipID
@@ -551,7 +575,7 @@ func classifyMemberships(method string, segs []string) (string, string) {
 				return opListAnalysisTemplates, membershipID
 			}
 		}
-		if len(segs) == 4 {
+		if len(segs) == segsWithSubID {
 			switch method {
 			case http.MethodGet:
 				return opGetAnalysisTemplate, membershipID
@@ -562,7 +586,7 @@ func classifyMemberships(method string, segs []string) (string, string) {
 			}
 		}
 	case "configuredTableAssociations":
-		if len(segs) == 3 {
+		if len(segs) == segsWithSub {
 			switch method {
 			case http.MethodPost:
 				return opCreateConfiguredTableAssociation, membershipID
@@ -570,7 +594,7 @@ func classifyMemberships(method string, segs []string) (string, string) {
 				return opListConfiguredTableAssociations, membershipID
 			}
 		}
-		if len(segs) == 4 {
+		if len(segs) == segsWithSubID {
 			switch method {
 			case http.MethodGet:
 				return opGetConfiguredTableAssociation, membershipID
@@ -581,13 +605,11 @@ func classifyMemberships(method string, segs []string) (string, string) {
 			}
 		}
 		// /memberships/{id}/configuredTableAssociations/{assocId}/analysisRule
-		if len(segs) == 5 && segs[4] == "analysisRule" {
-			if method == http.MethodPost {
-				return opCreateConfiguredTableAssociationAnalysisRule, membershipID
-			}
+		if len(segs) == segsWithSubSub && segs[4] == subAnalysisRule && method == http.MethodPost {
+			return opCreateConfiguredTableAssociationAnalysisRule, membershipID
 		}
 		// /memberships/{id}/configuredTableAssociations/{assocId}/analysisRule/{type}
-		if len(segs) == 6 && segs[4] == "analysisRule" {
+		if len(segs) == segsWithSubSubID && segs[4] == subAnalysisRule {
 			switch method {
 			case http.MethodGet:
 				return opGetConfiguredTableAssociationAnalysisRule, membershipID
@@ -597,8 +619,8 @@ func classifyMemberships(method string, segs []string) (string, string) {
 				return opUpdateConfiguredTableAssociationAnalysisRule, membershipID
 			}
 		}
-	case "configuredaudiencemodelassociations":
-		if len(segs) == 3 {
+	case subCAMAAssociations:
+		if len(segs) == segsWithSub {
 			switch method {
 			case http.MethodPost:
 				return opCreateConfiguredAudienceModelAssociation, membershipID
@@ -606,7 +628,7 @@ func classifyMemberships(method string, segs []string) (string, string) {
 				return opListConfiguredAudienceModelAssociations, membershipID
 			}
 		}
-		if len(segs) == 4 {
+		if len(segs) == segsWithSubID {
 			switch method {
 			case http.MethodGet:
 				return opGetConfiguredAudienceModelAssociation, membershipID
@@ -617,47 +639,45 @@ func classifyMemberships(method string, segs []string) (string, string) {
 			}
 		}
 	case "idmappingtables":
-		if len(segs) == 3 {
+		if len(segs) == segsWithSub {
 			switch method {
 			case http.MethodPost:
-				return opCreateIdMappingTable, membershipID
+				return opCreateIDMappingTable, membershipID
 			case http.MethodGet:
-				return opListIdMappingTables, membershipID
+				return opListIDMappingTables, membershipID
 			}
 		}
-		if len(segs) == 4 {
+		if len(segs) == segsWithSubID {
 			switch method {
 			case http.MethodGet:
-				return opGetIdMappingTable, membershipID
+				return opGetIDMappingTable, membershipID
 			case http.MethodDelete:
-				return opDeleteIdMappingTable, membershipID
+				return opDeleteIDMappingTable, membershipID
 			case http.MethodPatch:
-				return opUpdateIdMappingTable, membershipID
+				return opUpdateIDMappingTable, membershipID
 			}
 		}
 		// /memberships/{id}/idmappingtables/{tableId}/populate
-		if len(segs) == 5 && segs[4] == "populate" {
-			if method == http.MethodPost {
-				return opPopulateIdMappingTable, membershipID
-			}
+		if len(segs) == segsWithSubSub && segs[4] == "populate" && method == http.MethodPost {
+			return opPopulateIDMappingTable, membershipID
 		}
-	case "idnamespaceassociations":
-		if len(segs) == 3 {
+	case subIDNamespaceAssocs:
+		if len(segs) == segsWithSub {
 			switch method {
 			case http.MethodPost:
-				return opCreateIdNamespaceAssociation, membershipID
+				return opCreateIDNamespaceAssociation, membershipID
 			case http.MethodGet:
-				return opListIdNamespaceAssociations, membershipID
+				return opListIDNamespaceAssociations, membershipID
 			}
 		}
-		if len(segs) == 4 {
+		if len(segs) == segsWithSubID {
 			switch method {
 			case http.MethodGet:
-				return opGetIdNamespaceAssociation, membershipID
+				return opGetIDNamespaceAssociation, membershipID
 			case http.MethodDelete:
-				return opDeleteIdNamespaceAssociation, membershipID
+				return opDeleteIDNamespaceAssociation, membershipID
 			case http.MethodPatch:
-				return opUpdateIdNamespaceAssociation, membershipID
+				return opUpdateIDNamespaceAssociation, membershipID
 			}
 		}
 	case "previewprivacyimpact":
@@ -668,8 +688,8 @@ func classifyMemberships(method string, segs []string) (string, string) {
 		if method == http.MethodGet {
 			return opListPrivacyBudgets, membershipID
 		}
-	case "privacybudgettemplates":
-		if len(segs) == 3 {
+	case subPrivacyBudgetTmpls:
+		if len(segs) == segsWithSub {
 			switch method {
 			case http.MethodPost:
 				return opCreatePrivacyBudgetTemplate, membershipID
@@ -677,7 +697,7 @@ func classifyMemberships(method string, segs []string) (string, string) {
 				return opListPrivacyBudgetTemplates, membershipID
 			}
 		}
-		if len(segs) == 4 {
+		if len(segs) == segsWithSubID {
 			switch method {
 			case http.MethodGet:
 				return opGetPrivacyBudgetTemplate, membershipID
@@ -687,8 +707,8 @@ func classifyMemberships(method string, segs []string) (string, string) {
 				return opUpdatePrivacyBudgetTemplate, membershipID
 			}
 		}
-	case "protectedJobs":
-		if len(segs) == 3 {
+	case subProtectedJobs:
+		if len(segs) == segsWithSub {
 			switch method {
 			case http.MethodPost:
 				return opStartProtectedJob, membershipID
@@ -696,7 +716,7 @@ func classifyMemberships(method string, segs []string) (string, string) {
 				return opListProtectedJobs, membershipID
 			}
 		}
-		if len(segs) == 4 {
+		if len(segs) == segsWithSubID {
 			switch method {
 			case http.MethodGet:
 				return opGetProtectedJob, membershipID
@@ -704,8 +724,8 @@ func classifyMemberships(method string, segs []string) (string, string) {
 				return opUpdateProtectedJob, membershipID
 			}
 		}
-	case "protectedQueries":
-		if len(segs) == 3 {
+	case subProtectedQueries:
+		if len(segs) == segsWithSub {
 			switch method {
 			case http.MethodPost:
 				return opStartProtectedQuery, membershipID
@@ -713,7 +733,7 @@ func classifyMemberships(method string, segs []string) (string, string) {
 				return opListProtectedQueries, membershipID
 			}
 		}
-		if len(segs) == 4 {
+		if len(segs) == segsWithSubID {
 			switch method {
 			case http.MethodGet:
 				return opGetProtectedQuery, membershipID
@@ -727,7 +747,7 @@ func classifyMemberships(method string, segs []string) (string, string) {
 }
 
 func classifyTags(method string, segs []string) (string, string) {
-	if len(segs) < 2 {
+	if len(segs) < segsWithID {
 		return opUnknown, ""
 	}
 	resourceArn := strings.Join(segs[1:], "/")
@@ -744,7 +764,7 @@ func classifyTags(method string, segs []string) (string, string) {
 }
 
 // injectPathParams merges URL path segments into the request body JSON.
-func injectPathParams(path, op string, body []byte) []byte {
+func injectPathParams(path, _ string, body []byte) []byte {
 	path = strings.TrimPrefix(path, "/")
 	segs := strings.Split(path, "/")
 
@@ -764,60 +784,16 @@ func injectPathParams(path, op string, body []byte) []byte {
 	}
 
 	switch {
-	case len(segs) >= 2 && segs[0] == "collaborations":
-		setStr("collaborationIdentifier", segs[1])
-		if len(segs) >= 4 {
-			switch segs[2] {
-			case "analysistemplates":
-				setStr("analysisTemplateArn", segs[3])
-			case "changeRequests":
-				setStr("changeRequestIdentifier", segs[3])
-			case "configuredaudiencemodelassociations":
-				setStr("configuredAudienceModelAssociationIdentifier", segs[3])
-			case "idnamespaceassociations":
-				setStr("idNamespaceAssociationIdentifier", segs[3])
-			case "member":
-				setStr("accountId", segs[3])
-			case "privacybudgettemplates":
-				setStr("privacyBudgetTemplateIdentifier", segs[3])
-			case "schemas":
-				setStr("name", segs[3])
-				if len(segs) == 6 && segs[4] == "analysisRule" {
-					setStr("type", segs[5])
-				}
-			}
-		}
-	case len(segs) >= 2 && segs[0] == "configuredTables":
+	case len(segs) >= segsWithID && segs[0] == "collaborations":
+		injectCollaborationParams(segs, setStr)
+	case len(segs) >= segsWithID && segs[0] == "configuredTables":
 		setStr("configuredTableIdentifier", segs[1])
-		if len(segs) == 4 && segs[2] == "analysisRule" {
+		if len(segs) == segsWithSubID && segs[2] == subAnalysisRule {
 			setStr("analysisRuleType", segs[3])
 		}
-	case len(segs) >= 2 && segs[0] == "memberships":
-		setStr("membershipIdentifier", segs[1])
-		if len(segs) >= 4 {
-			switch segs[2] {
-			case "analysistemplates":
-				setStr("analysisTemplateIdentifier", segs[3])
-			case "configuredTableAssociations":
-				setStr("configuredTableAssociationIdentifier", segs[3])
-				if len(segs) == 6 && segs[4] == "analysisRule" {
-					setStr("analysisRuleType", segs[5])
-				}
-			case "configuredaudiencemodelassociations":
-				setStr("configuredAudienceModelAssociationIdentifier", segs[3])
-			case "idmappingtables":
-				setStr("idMappingTableIdentifier", segs[3])
-			case "idnamespaceassociations":
-				setStr("idNamespaceAssociationIdentifier", segs[3])
-			case "privacybudgettemplates":
-				setStr("privacyBudgetTemplateIdentifier", segs[3])
-			case "protectedJobs":
-				setStr("protectedJobIdentifier", segs[3])
-			case "protectedQueries":
-				setStr("protectedQueryIdentifier", segs[3])
-			}
-		}
-	case len(segs) >= 2 && segs[0] == "tags":
+	case len(segs) >= segsWithID && segs[0] == "memberships":
+		injectMembershipParams(segs, setStr)
+	case len(segs) >= segsWithID && segs[0] == subTags:
 		arnVal := strings.Join(segs[1:], "/")
 		setStr("resourceArn", arnVal)
 	}
@@ -825,6 +801,60 @@ func injectPathParams(path, op string, body []byte) []byte {
 	out, _ := json.Marshal(m)
 
 	return out
+}
+
+// injectCollaborationParams injects path parameters for /collaborations/... routes.
+func injectCollaborationParams(segs []string, setStr func(string, string)) {
+	setStr("collaborationIdentifier", segs[1])
+	if len(segs) >= segsWithSubID {
+		switch segs[2] {
+		case subAnalysisTemplates:
+			setStr("analysisTemplateArn", segs[3])
+		case "changeRequests":
+			setStr("changeRequestIdentifier", segs[3])
+		case subCAMAAssociations:
+			setStr("configuredAudienceModelAssociationIdentifier", segs[3])
+		case subIDNamespaceAssocs:
+			setStr("idNamespaceAssociationIdentifier", segs[3])
+		case "member":
+			setStr("accountId", segs[3])
+		case subPrivacyBudgetTmpls:
+			setStr("privacyBudgetTemplateIdentifier", segs[3])
+		case subSchemas:
+			setStr("name", segs[3])
+			if len(segs) == segsWithSubSubID && segs[4] == subAnalysisRule {
+				setStr("type", segs[5])
+			}
+		}
+	}
+}
+
+// injectMembershipParams injects path parameters for /memberships/... routes.
+func injectMembershipParams(segs []string, setStr func(string, string)) {
+	setStr("membershipIdentifier", segs[1])
+	if len(segs) >= segsWithSubID {
+		switch segs[2] {
+		case subAnalysisTemplates:
+			setStr("analysisTemplateIdentifier", segs[3])
+		case "configuredTableAssociations":
+			setStr("configuredTableAssociationIdentifier", segs[3])
+			if len(segs) == segsWithSubSubID && segs[4] == subAnalysisRule {
+				setStr("analysisRuleType", segs[5])
+			}
+		case subCAMAAssociations:
+			setStr("configuredAudienceModelAssociationIdentifier", segs[3])
+		case "idmappingtables":
+			setStr("idMappingTableIdentifier", segs[3])
+		case subIDNamespaceAssocs:
+			setStr("idNamespaceAssociationIdentifier", segs[3])
+		case subPrivacyBudgetTmpls:
+			setStr("privacyBudgetTemplateIdentifier", segs[3])
+		case subProtectedJobs:
+			setStr("protectedJobIdentifier", segs[3])
+		case subProtectedQueries:
+			setStr("protectedQueryIdentifier", segs[3])
+		}
+	}
 }
 
 // ---- dispatch ----
@@ -835,192 +865,23 @@ func (h *Handler) dispatch(
 	body []byte,
 	c *echo.Context,
 ) ([]byte, error) {
-	switch op {
-	// Collaboration
-	case opCreateCollaboration:
-		return h.handleCreateCollaboration(ctx, body)
-	case opGetCollaboration:
-		return h.handleGetCollaboration(ctx, body)
-	case opListCollaborations:
-		return h.handleListCollaborations(ctx, body, c)
-	case opUpdateCollaboration:
-		return h.handleUpdateCollaboration(ctx, body)
-	case opDeleteCollaboration:
-		return h.handleDeleteCollaboration(ctx, body)
-	case opListMembers:
-		return h.handleListMembers(ctx, body, c)
-	case opDeleteMember:
-		return h.handleDeleteMember(ctx, body)
-	// Collaboration sub-resources
-	case opGetCollaborationAnalysisTemplate:
-		return h.handleGetCollaborationAnalysisTemplate(ctx, body)
-	case opListCollaborationAnalysisTemplates:
-		return h.handleListCollaborationAnalysisTemplates(ctx, body, c)
-	case opBatchGetCollaborationAnalysisTemplate:
-		return h.handleBatchGetCollaborationAnalysisTemplate(ctx, body)
-	case opBatchGetSchema:
-		return h.handleBatchGetSchema(ctx, body)
-	case opBatchGetSchemaAnalysisRule:
-		return h.handleBatchGetSchemaAnalysisRule(ctx, body)
-	case opGetSchema:
-		return h.handleGetSchema(ctx, body)
-	case opListSchemas:
-		return h.handleListSchemas(ctx, body, c)
-	case opGetSchemaAnalysisRule:
-		return h.handleGetSchemaAnalysisRule(ctx, body)
-	case opCreateCollaborationChangeRequest:
-		return h.handleCreateCollaborationChangeRequest(ctx, body)
-	case opGetCollaborationChangeRequest:
-		return h.handleGetCollaborationChangeRequest(ctx, body)
-	case opListCollaborationChangeRequests:
-		return h.handleListCollaborationChangeRequests(ctx, body, c)
-	case opUpdateCollaborationChangeRequest:
-		return h.handleUpdateCollaborationChangeRequest(ctx, body)
-	case opGetCollaborationConfiguredAudienceModelAssociation:
-		return h.handleGetCollaborationConfiguredAudienceModelAssociation(ctx, body)
-	case opListCollaborationConfiguredAudienceModelAssociations:
-		return h.handleListCollaborationConfiguredAudienceModelAssociations(ctx, body, c)
-	case opGetCollaborationIdNamespaceAssociation:
-		return h.handleGetCollaborationIdNamespaceAssociation(ctx, body)
-	case opListCollaborationIdNamespaceAssociations:
-		return h.handleListCollaborationIdNamespaceAssociations(ctx, body, c)
-	case opGetCollaborationPrivacyBudgetTemplate:
-		return h.handleGetCollaborationPrivacyBudgetTemplate(ctx, body)
-	case opListCollaborationPrivacyBudgetTemplates:
-		return h.handleListCollaborationPrivacyBudgetTemplates(ctx, body, c)
-	case opListCollaborationPrivacyBudgets:
-		return h.handleListCollaborationPrivacyBudgets(ctx, body, c)
-	// Membership
-	case opCreateMembership:
-		return h.handleCreateMembership(ctx, body)
-	case opGetMembership:
-		return h.handleGetMembership(ctx, body)
-	case opListMemberships:
-		return h.handleListMemberships(ctx, body, c)
-	case opUpdateMembership:
-		return h.handleUpdateMembership(ctx, body)
-	case opDeleteMembership:
-		return h.handleDeleteMembership(ctx, body)
-	// ConfiguredTable
-	case opCreateConfiguredTable:
-		return h.handleCreateConfiguredTable(ctx, body)
-	case opGetConfiguredTable:
-		return h.handleGetConfiguredTable(ctx, body)
-	case opListConfiguredTables:
-		return h.handleListConfiguredTables(ctx, body, c)
-	case opUpdateConfiguredTable:
-		return h.handleUpdateConfiguredTable(ctx, body)
-	case opDeleteConfiguredTable:
-		return h.handleDeleteConfiguredTable(ctx, body)
-	// ConfiguredTableAnalysisRule
-	case opCreateConfiguredTableAnalysisRule:
-		return h.handleCreateConfiguredTableAnalysisRule(ctx, body)
-	case opGetConfiguredTableAnalysisRule:
-		return h.handleGetConfiguredTableAnalysisRule(ctx, body)
-	case opUpdateConfiguredTableAnalysisRule:
-		return h.handleUpdateConfiguredTableAnalysisRule(ctx, body)
-	case opDeleteConfiguredTableAnalysisRule:
-		return h.handleDeleteConfiguredTableAnalysisRule(ctx, body)
-	// ConfiguredTableAssociation
-	case opCreateConfiguredTableAssociation:
-		return h.handleCreateConfiguredTableAssociation(ctx, body)
-	case opGetConfiguredTableAssociation:
-		return h.handleGetConfiguredTableAssociation(ctx, body)
-	case opListConfiguredTableAssociations:
-		return h.handleListConfiguredTableAssociations(ctx, body, c)
-	case opUpdateConfiguredTableAssociation:
-		return h.handleUpdateConfiguredTableAssociation(ctx, body)
-	case opDeleteConfiguredTableAssociation:
-		return h.handleDeleteConfiguredTableAssociation(ctx, body)
-	// ConfiguredTableAssociationAnalysisRule
-	case opCreateConfiguredTableAssociationAnalysisRule:
-		return h.handleCreateConfiguredTableAssociationAnalysisRule(ctx, body)
-	case opGetConfiguredTableAssociationAnalysisRule:
-		return h.handleGetConfiguredTableAssociationAnalysisRule(ctx, body)
-	case opUpdateConfiguredTableAssociationAnalysisRule:
-		return h.handleUpdateConfiguredTableAssociationAnalysisRule(ctx, body)
-	case opDeleteConfiguredTableAssociationAnalysisRule:
-		return h.handleDeleteConfiguredTableAssociationAnalysisRule(ctx, body)
-	// AnalysisTemplate
-	case opCreateAnalysisTemplate:
-		return h.handleCreateAnalysisTemplate(ctx, body)
-	case opGetAnalysisTemplate:
-		return h.handleGetAnalysisTemplate(ctx, body)
-	case opListAnalysisTemplates:
-		return h.handleListAnalysisTemplates(ctx, body, c)
-	case opUpdateAnalysisTemplate:
-		return h.handleUpdateAnalysisTemplate(ctx, body)
-	case opDeleteAnalysisTemplate:
-		return h.handleDeleteAnalysisTemplate(ctx, body)
-	// ProtectedQuery
-	case opStartProtectedQuery:
-		return h.handleStartProtectedQuery(ctx, body)
-	case opGetProtectedQuery:
-		return h.handleGetProtectedQuery(ctx, body)
-	case opListProtectedQueries:
-		return h.handleListProtectedQueries(ctx, body, c)
-	case opUpdateProtectedQuery:
-		return h.handleUpdateProtectedQuery(ctx, body)
-	// ProtectedJob
-	case opStartProtectedJob:
-		return h.handleStartProtectedJob(ctx, body)
-	case opGetProtectedJob:
-		return h.handleGetProtectedJob(ctx, body)
-	case opListProtectedJobs:
-		return h.handleListProtectedJobs(ctx, body, c)
-	case opUpdateProtectedJob:
-		return h.handleUpdateProtectedJob(ctx, body)
-	// PrivacyBudgetTemplate
-	case opCreatePrivacyBudgetTemplate:
-		return h.handleCreatePrivacyBudgetTemplate(ctx, body)
-	case opGetPrivacyBudgetTemplate:
-		return h.handleGetPrivacyBudgetTemplate(ctx, body)
-	case opListPrivacyBudgetTemplates:
-		return h.handleListPrivacyBudgetTemplates(ctx, body, c)
-	case opUpdatePrivacyBudgetTemplate:
-		return h.handleUpdatePrivacyBudgetTemplate(ctx, body)
-	case opDeletePrivacyBudgetTemplate:
-		return h.handleDeletePrivacyBudgetTemplate(ctx, body)
-	case opListPrivacyBudgets:
-		return h.handleListPrivacyBudgets(ctx, body, c)
-	case opPreviewPrivacyImpact:
-		return h.handlePreviewPrivacyImpact(ctx, body)
-	// IdMappingTable
-	case opCreateIdMappingTable:
-		return h.handleCreateIdMappingTable(ctx, body)
-	case opGetIdMappingTable:
-		return h.handleGetIdMappingTable(ctx, body)
-	case opListIdMappingTables:
-		return h.handleListIdMappingTables(ctx, body, c)
-	case opUpdateIdMappingTable:
-		return h.handleUpdateIdMappingTable(ctx, body)
-	case opDeleteIdMappingTable:
-		return h.handleDeleteIdMappingTable(ctx, body)
-	case opPopulateIdMappingTable:
-		return h.handlePopulateIdMappingTable(ctx, body)
-	// IdNamespaceAssociation
-	case opCreateIdNamespaceAssociation:
-		return h.handleCreateIdNamespaceAssociation(ctx, body)
-	case opGetIdNamespaceAssociation:
-		return h.handleGetIdNamespaceAssociation(ctx, body)
-	case opListIdNamespaceAssociations:
-		return h.handleListIdNamespaceAssociations(ctx, body, c)
-	case opUpdateIdNamespaceAssociation:
-		return h.handleUpdateIdNamespaceAssociation(ctx, body)
-	case opDeleteIdNamespaceAssociation:
-		return h.handleDeleteIdNamespaceAssociation(ctx, body)
-	// ConfiguredAudienceModelAssociation
-	case opCreateConfiguredAudienceModelAssociation:
-		return h.handleCreateConfiguredAudienceModelAssociation(ctx, body)
-	case opGetConfiguredAudienceModelAssociation:
-		return h.handleGetConfiguredAudienceModelAssociation(ctx, body)
-	case opListConfiguredAudienceModelAssociations:
-		return h.handleListConfiguredAudienceModelAssociations(ctx, body, c)
-	case opUpdateConfiguredAudienceModelAssociation:
-		return h.handleUpdateConfiguredAudienceModelAssociation(ctx, body)
-	case opDeleteConfiguredAudienceModelAssociation:
-		return h.handleDeleteConfiguredAudienceModelAssociation(ctx, body)
+	if ok, result, err := h.dispatchCollaboration(ctx, op, body, c); ok {
+		return result, err
+	}
+	if ok, result, err := h.dispatchMembership(ctx, op, body, c); ok {
+		return result, err
+	}
+	if ok, result, err := h.dispatchConfiguredTable(ctx, op, body, c); ok {
+		return result, err
+	}
+	if ok, result, err := h.dispatchIDResources(ctx, op, body, c); ok {
+		return result, err
+	}
+	if ok, result, err := h.dispatchPrivacy(ctx, op, body, c); ok {
+		return result, err
+	}
 	// Tags
+	switch op {
 	case opListTagsForResource:
 		return h.handleListTagsForResource(ctx, body)
 	case opTagResource:
@@ -1030,6 +891,406 @@ func (h *Handler) dispatch(
 	}
 
 	return nil, errUnknownAction
+}
+
+// dispatchCollaboration handles Collaboration and collaboration sub-resource operations.
+func (h *Handler) dispatchCollaboration(
+	ctx context.Context,
+	op string,
+	body []byte,
+	c *echo.Context,
+) (bool, []byte, error) {
+	switch op {
+	case opCreateCollaboration:
+		r, e := h.handleCreateCollaboration(ctx, body)
+
+		return true, r, e
+	case opGetCollaboration:
+		r, e := h.handleGetCollaboration(ctx, body)
+
+		return true, r, e
+	case opListCollaborations:
+		r, e := h.handleListCollaborations(ctx, c)
+
+		return true, r, e
+	case opUpdateCollaboration:
+		r, e := h.handleUpdateCollaboration(ctx, body)
+
+		return true, r, e
+	case opDeleteCollaboration:
+		r, e := h.handleDeleteCollaboration(ctx, body)
+
+		return true, r, e
+	case opListMembers:
+		r, e := h.handleListMembers(ctx, body, c)
+
+		return true, r, e
+	case opDeleteMember:
+		r, e := h.handleDeleteMember(ctx, body)
+
+		return true, r, e
+	case opGetCollaborationAnalysisTemplate:
+		r, e := h.handleGetCollaborationAnalysisTemplate(ctx, body)
+
+		return true, r, e
+	case opListCollaborationAnalysisTemplates:
+		r, e := h.handleListCollaborationAnalysisTemplates(ctx, body, c)
+
+		return true, r, e
+	case opBatchGetCollaborationAnalysisTemplate:
+		r, e := h.handleBatchGetCollaborationAnalysisTemplate(ctx, body)
+
+		return true, r, e
+	case opBatchGetSchema:
+		r, e := h.handleBatchGetSchema(ctx, body)
+
+		return true, r, e
+	case opBatchGetSchemaAnalysisRule:
+		r, e := h.handleBatchGetSchemaAnalysisRule(ctx, body)
+
+		return true, r, e
+	case opGetSchema:
+		r, e := h.handleGetSchema(ctx, body)
+
+		return true, r, e
+	case opListSchemas:
+		r, e := h.handleListSchemas(ctx, body, c)
+
+		return true, r, e
+	case opGetSchemaAnalysisRule:
+		r, e := h.handleGetSchemaAnalysisRule(ctx, body)
+
+		return true, r, e
+	case opCreateCollaborationChangeRequest:
+		r, e := h.handleCreateCollaborationChangeRequest(ctx, body)
+
+		return true, r, e
+	case opGetCollaborationChangeRequest:
+		r, e := h.handleGetCollaborationChangeRequest(ctx, body)
+
+		return true, r, e
+	case opListCollaborationChangeRequests:
+		r, e := h.handleListCollaborationChangeRequests(ctx, body, c)
+
+		return true, r, e
+	case opUpdateCollaborationChangeRequest:
+		r, e := h.handleUpdateCollaborationChangeRequest(ctx, body)
+
+		return true, r, e
+	case opGetCollaborationConfiguredAudienceModelAssociation:
+		r, e := h.handleGetCollaborationConfiguredAudienceModelAssociation(ctx, body)
+
+		return true, r, e
+	case opListCollaborationConfiguredAudienceModelAssociations:
+		r, e := h.handleListCollaborationConfiguredAudienceModelAssociations(ctx, body, c)
+
+		return true, r, e
+	case opGetCollaborationIDNamespaceAssociation:
+		r, e := h.handleGetCollaborationIDNamespaceAssociation(ctx, body)
+
+		return true, r, e
+	case opListCollaborationIDNamespaceAssociations:
+		r, e := h.handleListCollaborationIDNamespaceAssociations(ctx, body, c)
+
+		return true, r, e
+	case opGetCollaborationPrivacyBudgetTemplate:
+		r, e := h.handleGetCollaborationPrivacyBudgetTemplate(ctx, body)
+
+		return true, r, e
+	case opListCollaborationPrivacyBudgetTemplates:
+		r, e := h.handleListCollaborationPrivacyBudgetTemplates(ctx, body, c)
+
+		return true, r, e
+	case opListCollaborationPrivacyBudgets:
+		r, e := h.handleListCollaborationPrivacyBudgets(ctx, body, c)
+
+		return true, r, e
+	}
+	return false, nil, nil
+}
+
+// dispatchMembership handles Membership and membership sub-resource operations.
+func (h *Handler) dispatchMembership(
+	ctx context.Context,
+	op string,
+	body []byte,
+	c *echo.Context,
+) (bool, []byte, error) {
+	switch op {
+	case opCreateMembership:
+		r, e := h.handleCreateMembership(ctx, body)
+
+		return true, r, e
+	case opGetMembership:
+		r, e := h.handleGetMembership(ctx, body)
+
+		return true, r, e
+	case opListMemberships:
+		r, e := h.handleListMemberships(ctx, c)
+
+		return true, r, e
+	case opUpdateMembership:
+		r, e := h.handleUpdateMembership(ctx, body)
+
+		return true, r, e
+	case opDeleteMembership:
+		r, e := h.handleDeleteMembership(ctx, body)
+
+		return true, r, e
+	case opCreateAnalysisTemplate:
+		r, e := h.handleCreateAnalysisTemplate(ctx, body)
+
+		return true, r, e
+	case opGetAnalysisTemplate:
+		r, e := h.handleGetAnalysisTemplate(ctx, body)
+
+		return true, r, e
+	case opListAnalysisTemplates:
+		r, e := h.handleListAnalysisTemplates(ctx, body, c)
+
+		return true, r, e
+	case opUpdateAnalysisTemplate:
+		r, e := h.handleUpdateAnalysisTemplate(ctx, body)
+
+		return true, r, e
+	case opDeleteAnalysisTemplate:
+		r, e := h.handleDeleteAnalysisTemplate(ctx, body)
+
+		return true, r, e
+	case opStartProtectedQuery:
+		r, e := h.handleStartProtectedQuery(ctx, body)
+
+		return true, r, e
+	case opGetProtectedQuery:
+		r, e := h.handleGetProtectedQuery(ctx, body)
+
+		return true, r, e
+	case opListProtectedQueries:
+		r, e := h.handleListProtectedQueries(ctx, body, c)
+
+		return true, r, e
+	case opUpdateProtectedQuery:
+		r, e := h.handleUpdateProtectedQuery(ctx, body)
+
+		return true, r, e
+	case opStartProtectedJob:
+		r, e := h.handleStartProtectedJob(ctx, body)
+
+		return true, r, e
+	case opGetProtectedJob:
+		r, e := h.handleGetProtectedJob(ctx, body)
+
+		return true, r, e
+	case opListProtectedJobs:
+		r, e := h.handleListProtectedJobs(ctx, body, c)
+
+		return true, r, e
+	case opUpdateProtectedJob:
+		r, e := h.handleUpdateProtectedJob(ctx, body)
+
+		return true, r, e
+	}
+	return false, nil, nil
+}
+
+// dispatchConfiguredTable handles ConfiguredTable and related operations.
+func (h *Handler) dispatchConfiguredTable(
+	ctx context.Context,
+	op string,
+	body []byte,
+	c *echo.Context,
+) (bool, []byte, error) {
+	switch op {
+	case opCreateConfiguredTable:
+		r, e := h.handleCreateConfiguredTable(ctx, body)
+
+		return true, r, e
+	case opGetConfiguredTable:
+		r, e := h.handleGetConfiguredTable(ctx, body)
+
+		return true, r, e
+	case opListConfiguredTables:
+		r, e := h.handleListConfiguredTables(ctx, c)
+
+		return true, r, e
+	case opUpdateConfiguredTable:
+		r, e := h.handleUpdateConfiguredTable(ctx, body)
+
+		return true, r, e
+	case opDeleteConfiguredTable:
+		r, e := h.handleDeleteConfiguredTable(ctx, body)
+
+		return true, r, e
+	case opCreateConfiguredTableAnalysisRule:
+		r, e := h.handleCreateConfiguredTableAnalysisRule(ctx, body)
+
+		return true, r, e
+	case opGetConfiguredTableAnalysisRule:
+		r, e := h.handleGetConfiguredTableAnalysisRule(ctx, body)
+
+		return true, r, e
+	case opUpdateConfiguredTableAnalysisRule:
+		r, e := h.handleUpdateConfiguredTableAnalysisRule(ctx, body)
+
+		return true, r, e
+	case opDeleteConfiguredTableAnalysisRule:
+		r, e := h.handleDeleteConfiguredTableAnalysisRule(ctx, body)
+
+		return true, r, e
+	case opCreateConfiguredTableAssociation:
+		r, e := h.handleCreateConfiguredTableAssociation(ctx, body)
+
+		return true, r, e
+	case opGetConfiguredTableAssociation:
+		r, e := h.handleGetConfiguredTableAssociation(ctx, body)
+
+		return true, r, e
+	case opListConfiguredTableAssociations:
+		r, e := h.handleListConfiguredTableAssociations(ctx, body, c)
+
+		return true, r, e
+	case opUpdateConfiguredTableAssociation:
+		r, e := h.handleUpdateConfiguredTableAssociation(ctx, body)
+
+		return true, r, e
+	case opDeleteConfiguredTableAssociation:
+		r, e := h.handleDeleteConfiguredTableAssociation(ctx, body)
+
+		return true, r, e
+	case opCreateConfiguredTableAssociationAnalysisRule:
+		r, e := h.handleCreateConfiguredTableAssociationAnalysisRule(ctx, body)
+
+		return true, r, e
+	case opGetConfiguredTableAssociationAnalysisRule:
+		r, e := h.handleGetConfiguredTableAssociationAnalysisRule(ctx, body)
+
+		return true, r, e
+	case opUpdateConfiguredTableAssociationAnalysisRule:
+		r, e := h.handleUpdateConfiguredTableAssociationAnalysisRule(ctx, body)
+
+		return true, r, e
+	case opDeleteConfiguredTableAssociationAnalysisRule:
+		r, e := h.handleDeleteConfiguredTableAssociationAnalysisRule(ctx, body)
+
+		return true, r, e
+	}
+	return false, nil, nil
+}
+
+// dispatchIDResources handles IDMappingTable, IDNamespaceAssociation, and CAMA operations.
+func (h *Handler) dispatchIDResources(
+	ctx context.Context,
+	op string,
+	body []byte,
+	c *echo.Context,
+) (bool, []byte, error) {
+	switch op {
+	case opCreateIDMappingTable:
+		r, e := h.handleCreateIDMappingTable(ctx, body)
+
+		return true, r, e
+	case opGetIDMappingTable:
+		r, e := h.handleGetIDMappingTable(ctx, body)
+
+		return true, r, e
+	case opListIDMappingTables:
+		r, e := h.handleListIDMappingTables(ctx, body, c)
+
+		return true, r, e
+	case opUpdateIDMappingTable:
+		r, e := h.handleUpdateIDMappingTable(ctx, body)
+
+		return true, r, e
+	case opDeleteIDMappingTable:
+		r, e := h.handleDeleteIDMappingTable(ctx, body)
+
+		return true, r, e
+	case opPopulateIDMappingTable:
+		r, e := h.handlePopulateIDMappingTable(ctx, body)
+
+		return true, r, e
+	case opCreateIDNamespaceAssociation:
+		r, e := h.handleCreateIDNamespaceAssociation(ctx, body)
+
+		return true, r, e
+	case opGetIDNamespaceAssociation:
+		r, e := h.handleGetIDNamespaceAssociation(ctx, body)
+
+		return true, r, e
+	case opListIDNamespaceAssociations:
+		r, e := h.handleListIDNamespaceAssociations(ctx, body, c)
+
+		return true, r, e
+	case opUpdateIDNamespaceAssociation:
+		r, e := h.handleUpdateIDNamespaceAssociation(ctx, body)
+
+		return true, r, e
+	case opDeleteIDNamespaceAssociation:
+		r, e := h.handleDeleteIDNamespaceAssociation(ctx, body)
+
+		return true, r, e
+	case opCreateConfiguredAudienceModelAssociation:
+		r, e := h.handleCreateConfiguredAudienceModelAssociation(ctx, body)
+
+		return true, r, e
+	case opGetConfiguredAudienceModelAssociation:
+		r, e := h.handleGetConfiguredAudienceModelAssociation(ctx, body)
+
+		return true, r, e
+	case opListConfiguredAudienceModelAssociations:
+		r, e := h.handleListConfiguredAudienceModelAssociations(ctx, body, c)
+
+		return true, r, e
+	case opUpdateConfiguredAudienceModelAssociation:
+		r, e := h.handleUpdateConfiguredAudienceModelAssociation(ctx, body)
+
+		return true, r, e
+	case opDeleteConfiguredAudienceModelAssociation:
+		r, e := h.handleDeleteConfiguredAudienceModelAssociation(ctx, body)
+
+		return true, r, e
+	}
+	return false, nil, nil
+}
+
+// dispatchPrivacy handles PrivacyBudgetTemplate and related operations.
+func (h *Handler) dispatchPrivacy(
+	ctx context.Context,
+	op string,
+	body []byte,
+	c *echo.Context,
+) (bool, []byte, error) {
+	switch op {
+	case opCreatePrivacyBudgetTemplate:
+		r, e := h.handleCreatePrivacyBudgetTemplate(ctx, body)
+
+		return true, r, e
+	case opGetPrivacyBudgetTemplate:
+		r, e := h.handleGetPrivacyBudgetTemplate(ctx, body)
+
+		return true, r, e
+	case opListPrivacyBudgetTemplates:
+		r, e := h.handleListPrivacyBudgetTemplates(ctx, body, c)
+
+		return true, r, e
+	case opUpdatePrivacyBudgetTemplate:
+		r, e := h.handleUpdatePrivacyBudgetTemplate(ctx, body)
+
+		return true, r, e
+	case opDeletePrivacyBudgetTemplate:
+		r, e := h.handleDeletePrivacyBudgetTemplate(ctx, body)
+
+		return true, r, e
+	case opListPrivacyBudgets:
+		r, e := h.handleListPrivacyBudgets(ctx, body, c)
+
+		return true, r, e
+	case opPreviewPrivacyImpact:
+		r, e := h.handlePreviewPrivacyImpact(ctx, body)
+
+		return true, r, e
+	}
+	return false, nil, nil
 }
 
 // ---- handler helpers ----
@@ -1070,7 +1331,7 @@ func (h *Handler) handleCreateCollaboration(_ context.Context, body []byte) ([]b
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{"collaboration": c}), nil
+	return mustJSON(map[string]any{keyCollaboration: c}), nil
 }
 
 func (h *Handler) handleGetCollaboration(_ context.Context, body []byte) ([]byte, error) {
@@ -1083,12 +1344,11 @@ func (h *Handler) handleGetCollaboration(_ context.Context, body []byte) ([]byte
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{"collaboration": c}), nil
+	return mustJSON(map[string]any{keyCollaboration: c}), nil
 }
 
 func (h *Handler) handleListCollaborations(
 	_ context.Context,
-	body []byte,
 	c *echo.Context,
 ) ([]byte, error) {
 	items, next := h.Backend.ListCollaborations(
@@ -1120,7 +1380,7 @@ func (h *Handler) handleUpdateCollaboration(_ context.Context, body []byte) ([]b
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{"collaboration": col}), nil
+	return mustJSON(map[string]any{keyCollaboration: col}), nil
 }
 
 func (h *Handler) handleDeleteCollaboration(_ context.Context, body []byte) ([]byte, error) {
@@ -1160,11 +1420,11 @@ func (h *Handler) handleListMembers(
 func (h *Handler) handleDeleteMember(_ context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		CollaborationIdentifier string `json:"collaborationIdentifier"`
-		AccountId               string `json:"accountId"`
+		AccountID               string `json:"accountId"`
 	}
 	_ = json.Unmarshal(body, &req)
 
-	return nil, h.Backend.DeleteMember(req.CollaborationIdentifier, req.AccountId)
+	return nil, h.Backend.DeleteMember(req.CollaborationIdentifier, req.AccountID)
 }
 
 func (h *Handler) handleGetCollaborationAnalysisTemplate(
@@ -1184,7 +1444,7 @@ func (h *Handler) handleGetCollaborationAnalysisTemplate(
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{"analysisTemplate": t}), nil
+	return mustJSON(map[string]any{keyAnalysisTemplate: t}), nil
 }
 
 func (h *Handler) handleListCollaborationAnalysisTemplates(
@@ -1229,7 +1489,7 @@ func (h *Handler) handleBatchGetCollaborationAnalysisTemplate(
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{"analysisTemplates": items, "errors": errs}), nil
+	return mustJSON(map[string]any{"analysisTemplates": items, keyErrors: errs}), nil
 }
 
 func (h *Handler) handleBatchGetSchema(_ context.Context, body []byte) ([]byte, error) {
@@ -1243,7 +1503,7 @@ func (h *Handler) handleBatchGetSchema(_ context.Context, body []byte) ([]byte, 
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{"schemas": items, "errors": errs}), nil
+	return mustJSON(map[string]any{"schemas": items, keyErrors: errs}), nil
 }
 
 func (h *Handler) handleBatchGetSchemaAnalysisRule(_ context.Context, body []byte) ([]byte, error) {
@@ -1272,7 +1532,7 @@ func (h *Handler) handleBatchGetSchemaAnalysisRule(_ context.Context, body []byt
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{"analysisRules": items, "errors": errs}), nil
+	return mustJSON(map[string]any{"analysisRules": items, keyErrors: errs}), nil
 }
 
 func (h *Handler) handleGetSchema(_ context.Context, body []byte) ([]byte, error) {
@@ -1349,7 +1609,7 @@ func (h *Handler) handleCreateCollaborationChangeRequest(
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{"collaborationChangeRequest": r}), nil
+	return mustJSON(map[string]any{keyCollaborationChangeRequest: r}), nil
 }
 
 func (h *Handler) handleGetCollaborationChangeRequest(
@@ -1369,7 +1629,7 @@ func (h *Handler) handleGetCollaborationChangeRequest(
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{"collaborationChangeRequest": r}), nil
+	return mustJSON(map[string]any{keyCollaborationChangeRequest: r}), nil
 }
 
 func (h *Handler) handleListCollaborationChangeRequests(
@@ -1416,7 +1676,7 @@ func (h *Handler) handleUpdateCollaborationChangeRequest(
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{"collaborationChangeRequest": r}), nil
+	return mustJSON(map[string]any{keyCollaborationChangeRequest: r}), nil
 }
 
 func (h *Handler) handleGetCollaborationConfiguredAudienceModelAssociation(
@@ -1436,7 +1696,7 @@ func (h *Handler) handleGetCollaborationConfiguredAudienceModelAssociation(
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{"configuredAudienceModelAssociation": a}), nil
+	return mustJSON(map[string]any{keyCAMAAssociation: a}), nil
 }
 
 func (h *Handler) handleListCollaborationConfiguredAudienceModelAssociations(
@@ -1464,27 +1724,27 @@ func (h *Handler) handleListCollaborationConfiguredAudienceModelAssociations(
 	return mustJSON(resp), nil
 }
 
-func (h *Handler) handleGetCollaborationIdNamespaceAssociation(
+func (h *Handler) handleGetCollaborationIDNamespaceAssociation(
 	_ context.Context,
 	body []byte,
 ) ([]byte, error) {
 	var req struct {
 		CollaborationIdentifier          string `json:"collaborationIdentifier"`
-		IdNamespaceAssociationIdentifier string `json:"idNamespaceAssociationIdentifier"`
+		IDNamespaceAssociationIdentifier string `json:"idNamespaceAssociationIdentifier"`
 	}
 	_ = json.Unmarshal(body, &req)
-	a, err := h.Backend.GetCollaborationIdNamespaceAssociation(
+	a, err := h.Backend.GetCollaborationIDNamespaceAssociation(
 		req.CollaborationIdentifier,
-		req.IdNamespaceAssociationIdentifier,
+		req.IDNamespaceAssociationIdentifier,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{"idNamespaceAssociation": a}), nil
+	return mustJSON(map[string]any{keyIDNamespaceAssociation: a}), nil
 }
 
-func (h *Handler) handleListCollaborationIdNamespaceAssociations(
+func (h *Handler) handleListCollaborationIDNamespaceAssociations(
 	_ context.Context,
 	body []byte,
 	c *echo.Context,
@@ -1493,7 +1753,7 @@ func (h *Handler) handleListCollaborationIdNamespaceAssociations(
 		CollaborationIdentifier string `json:"collaborationIdentifier"`
 	}
 	_ = json.Unmarshal(body, &req)
-	items, next, err := h.Backend.ListCollaborationIdNamespaceAssociations(
+	items, next, err := h.Backend.ListCollaborationIDNamespaceAssociations(
 		req.CollaborationIdentifier,
 		qp(c, "maxResults"),
 		qp(c, "nextToken"),
@@ -1526,7 +1786,7 @@ func (h *Handler) handleGetCollaborationPrivacyBudgetTemplate(
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{"privacyBudgetTemplate": t}), nil
+	return mustJSON(map[string]any{keyPrivacyBudgetTemplate: t}), nil
 }
 
 func (h *Handler) handleListCollaborationPrivacyBudgetTemplates(
@@ -1602,7 +1862,7 @@ func (h *Handler) handleCreateMembership(_ context.Context, body []byte) ([]byte
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{"membership": m}), nil
+	return mustJSON(map[string]any{keyMembership: m}), nil
 }
 
 func (h *Handler) handleGetMembership(_ context.Context, body []byte) ([]byte, error) {
@@ -1615,12 +1875,11 @@ func (h *Handler) handleGetMembership(_ context.Context, body []byte) ([]byte, e
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{"membership": m}), nil
+	return mustJSON(map[string]any{keyMembership: m}), nil
 }
 
 func (h *Handler) handleListMemberships(
 	_ context.Context,
-	body []byte,
 	c *echo.Context,
 ) ([]byte, error) {
 	items, next := h.Backend.ListMemberships(
@@ -1652,7 +1911,7 @@ func (h *Handler) handleUpdateMembership(_ context.Context, body []byte) ([]byte
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{"membership": m}), nil
+	return mustJSON(map[string]any{keyMembership: m}), nil
 }
 
 func (h *Handler) handleDeleteMembership(_ context.Context, body []byte) ([]byte, error) {
@@ -1688,7 +1947,7 @@ func (h *Handler) handleCreateConfiguredTable(_ context.Context, body []byte) ([
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{"configuredTable": ct}), nil
+	return mustJSON(map[string]any{keyConfiguredTable: ct}), nil
 }
 
 func (h *Handler) handleGetConfiguredTable(_ context.Context, body []byte) ([]byte, error) {
@@ -1701,12 +1960,11 @@ func (h *Handler) handleGetConfiguredTable(_ context.Context, body []byte) ([]by
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{"configuredTable": ct}), nil
+	return mustJSON(map[string]any{keyConfiguredTable: ct}), nil
 }
 
 func (h *Handler) handleListConfiguredTables(
 	_ context.Context,
-	body []byte,
 	c *echo.Context,
 ) ([]byte, error) {
 	items, next := h.Backend.ListConfiguredTables(qp(c, "maxResults"), qp(c, "nextToken"))
@@ -1734,7 +1992,7 @@ func (h *Handler) handleUpdateConfiguredTable(_ context.Context, body []byte) ([
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{"configuredTable": ct}), nil
+	return mustJSON(map[string]any{keyConfiguredTable: ct}), nil
 }
 
 func (h *Handler) handleDeleteConfiguredTable(_ context.Context, body []byte) ([]byte, error) {
@@ -1855,7 +2113,7 @@ func (h *Handler) handleCreateConfiguredTableAssociation(
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{"configuredTableAssociation": a}), nil
+	return mustJSON(map[string]any{keyConfiguredTableAssociation: a}), nil
 }
 
 func (h *Handler) handleGetConfiguredTableAssociation(
@@ -1875,7 +2133,7 @@ func (h *Handler) handleGetConfiguredTableAssociation(
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{"configuredTableAssociation": a}), nil
+	return mustJSON(map[string]any{keyConfiguredTableAssociation: a}), nil
 }
 
 func (h *Handler) handleListConfiguredTableAssociations(
@@ -1924,7 +2182,7 @@ func (h *Handler) handleUpdateConfiguredTableAssociation(
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{"configuredTableAssociation": a}), nil
+	return mustJSON(map[string]any{keyConfiguredTableAssociation: a}), nil
 }
 
 func (h *Handler) handleDeleteConfiguredTableAssociation(
@@ -2059,7 +2317,7 @@ func (h *Handler) handleCreateAnalysisTemplate(_ context.Context, body []byte) (
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{"analysisTemplate": t}), nil
+	return mustJSON(map[string]any{keyAnalysisTemplate: t}), nil
 }
 
 func (h *Handler) handleGetAnalysisTemplate(_ context.Context, body []byte) ([]byte, error) {
@@ -2076,7 +2334,7 @@ func (h *Handler) handleGetAnalysisTemplate(_ context.Context, body []byte) ([]b
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{"analysisTemplate": t}), nil
+	return mustJSON(map[string]any{keyAnalysisTemplate: t}), nil
 }
 
 func (h *Handler) handleListAnalysisTemplates(
@@ -2120,7 +2378,7 @@ func (h *Handler) handleUpdateAnalysisTemplate(_ context.Context, body []byte) (
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{"analysisTemplate": t}), nil
+	return mustJSON(map[string]any{keyAnalysisTemplate: t}), nil
 }
 
 func (h *Handler) handleDeleteAnalysisTemplate(_ context.Context, body []byte) ([]byte, error) {
@@ -2140,15 +2398,15 @@ func (h *Handler) handleDeleteAnalysisTemplate(_ context.Context, body []byte) (
 
 func (h *Handler) handleStartProtectedQuery(_ context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		SqlParameters        map[string]any `json:"sqlParameters"`
+		SQLParameters        map[string]any `json:"sqlParameters"`
 		ResultConfiguration  map[string]any `json:"resultConfiguration"`
 		ComputeConfiguration map[string]any `json:"computeConfiguration"`
 		MembershipIdentifier string         `json:"membershipIdentifier"`
 	}
 	_ = json.Unmarshal(body, &req)
 	var sqlText string
-	if req.SqlParameters != nil {
-		if v, ok := req.SqlParameters["queryString"].(string); ok {
+	if req.SQLParameters != nil {
+		if v, ok := req.SQLParameters["queryString"].(string); ok {
 			sqlText = v
 		}
 	}
@@ -2162,7 +2420,7 @@ func (h *Handler) handleStartProtectedQuery(_ context.Context, body []byte) ([]b
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{"protectedQuery": q}), nil
+	return mustJSON(map[string]any{keyProtectedQuery: q}), nil
 }
 
 func (h *Handler) handleGetProtectedQuery(_ context.Context, body []byte) ([]byte, error) {
@@ -2176,7 +2434,7 @@ func (h *Handler) handleGetProtectedQuery(_ context.Context, body []byte) ([]byt
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{"protectedQuery": q}), nil
+	return mustJSON(map[string]any{keyProtectedQuery: q}), nil
 }
 
 func (h *Handler) handleListProtectedQueries(
@@ -2221,7 +2479,7 @@ func (h *Handler) handleUpdateProtectedQuery(_ context.Context, body []byte) ([]
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{"protectedQuery": q}), nil
+	return mustJSON(map[string]any{keyProtectedQuery: q}), nil
 }
 
 // ---- ProtectedJob handlers ----
@@ -2244,7 +2502,7 @@ func (h *Handler) handleStartProtectedJob(_ context.Context, body []byte) ([]byt
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{"protectedJob": j}), nil
+	return mustJSON(map[string]any{keyProtectedJob: j}), nil
 }
 
 func (h *Handler) handleGetProtectedJob(_ context.Context, body []byte) ([]byte, error) {
@@ -2258,7 +2516,7 @@ func (h *Handler) handleGetProtectedJob(_ context.Context, body []byte) ([]byte,
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{"protectedJob": j}), nil
+	return mustJSON(map[string]any{keyProtectedJob: j}), nil
 }
 
 func (h *Handler) handleListProtectedJobs(
@@ -2303,7 +2561,7 @@ func (h *Handler) handleUpdateProtectedJob(_ context.Context, body []byte) ([]by
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{"protectedJob": j}), nil
+	return mustJSON(map[string]any{keyProtectedJob: j}), nil
 }
 
 // ---- PrivacyBudgetTemplate handlers ----
@@ -2331,7 +2589,7 @@ func (h *Handler) handleCreatePrivacyBudgetTemplate(
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{"privacyBudgetTemplate": t}), nil
+	return mustJSON(map[string]any{keyPrivacyBudgetTemplate: t}), nil
 }
 
 func (h *Handler) handleGetPrivacyBudgetTemplate(_ context.Context, body []byte) ([]byte, error) {
@@ -2348,7 +2606,7 @@ func (h *Handler) handleGetPrivacyBudgetTemplate(_ context.Context, body []byte)
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{"privacyBudgetTemplate": t}), nil
+	return mustJSON(map[string]any{keyPrivacyBudgetTemplate: t}), nil
 }
 
 func (h *Handler) handleListPrivacyBudgetTemplates(
@@ -2398,7 +2656,7 @@ func (h *Handler) handleUpdatePrivacyBudgetTemplate(
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{"privacyBudgetTemplate": t}), nil
+	return mustJSON(map[string]any{keyPrivacyBudgetTemplate: t}), nil
 }
 
 func (h *Handler) handleDeletePrivacyBudgetTemplate(
@@ -2459,7 +2717,7 @@ func (h *Handler) handlePreviewPrivacyImpact(_ context.Context, body []byte) ([]
 
 // ---- IdMappingTable handlers ----
 
-func (h *Handler) handleCreateIdMappingTable(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleCreateIDMappingTable(_ context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		InputReferenceConfig map[string]any    `json:"inputReferenceConfig"`
 		Tags                 map[string]string `json:"tags"`
@@ -2469,7 +2727,7 @@ func (h *Handler) handleCreateIdMappingTable(_ context.Context, body []byte) ([]
 		KmsKeyArn            string            `json:"kmsKeyArn"`
 	}
 	_ = json.Unmarshal(body, &req)
-	t, err := h.Backend.CreateIdMappingTable(
+	t, err := h.Backend.CreateIDMappingTable(
 		req.MembershipIdentifier,
 		req.Name,
 		req.Description,
@@ -2481,24 +2739,24 @@ func (h *Handler) handleCreateIdMappingTable(_ context.Context, body []byte) ([]
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{"idMappingTable": t}), nil
+	return mustJSON(map[string]any{keyIDMappingTable: t}), nil
 }
 
-func (h *Handler) handleGetIdMappingTable(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleGetIDMappingTable(_ context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		MembershipIdentifier     string `json:"membershipIdentifier"`
-		IdMappingTableIdentifier string `json:"idMappingTableIdentifier"`
+		IDMappingTableIdentifier string `json:"idMappingTableIdentifier"`
 	}
 	_ = json.Unmarshal(body, &req)
-	t, err := h.Backend.GetIdMappingTable(req.MembershipIdentifier, req.IdMappingTableIdentifier)
+	t, err := h.Backend.GetIDMappingTable(req.MembershipIdentifier, req.IDMappingTableIdentifier)
 	if err != nil {
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{"idMappingTable": t}), nil
+	return mustJSON(map[string]any{keyIDMappingTable: t}), nil
 }
 
-func (h *Handler) handleListIdMappingTables(
+func (h *Handler) handleListIDMappingTables(
 	_ context.Context,
 	body []byte,
 	c *echo.Context,
@@ -2507,7 +2765,7 @@ func (h *Handler) handleListIdMappingTables(
 		MembershipIdentifier string `json:"membershipIdentifier"`
 	}
 	_ = json.Unmarshal(body, &req)
-	items, next, err := h.Backend.ListIdMappingTables(
+	items, next, err := h.Backend.ListIDMappingTables(
 		req.MembershipIdentifier,
 		qp(c, "maxResults"),
 		qp(c, "nextToken"),
@@ -2523,17 +2781,17 @@ func (h *Handler) handleListIdMappingTables(
 	return mustJSON(resp), nil
 }
 
-func (h *Handler) handleUpdateIdMappingTable(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleUpdateIDMappingTable(_ context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		MembershipIdentifier     string `json:"membershipIdentifier"`
-		IdMappingTableIdentifier string `json:"idMappingTableIdentifier"`
+		IDMappingTableIdentifier string `json:"idMappingTableIdentifier"`
 		Description              string `json:"description"`
 		KmsKeyArn                string `json:"kmsKeyArn"`
 	}
 	_ = json.Unmarshal(body, &req)
-	t, err := h.Backend.UpdateIdMappingTable(
+	t, err := h.Backend.UpdateIDMappingTable(
 		req.MembershipIdentifier,
-		req.IdMappingTableIdentifier,
+		req.IDMappingTableIdentifier,
 		req.Description,
 		req.KmsKeyArn,
 	)
@@ -2541,31 +2799,31 @@ func (h *Handler) handleUpdateIdMappingTable(_ context.Context, body []byte) ([]
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{"idMappingTable": t}), nil
+	return mustJSON(map[string]any{keyIDMappingTable: t}), nil
 }
 
-func (h *Handler) handleDeleteIdMappingTable(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleDeleteIDMappingTable(_ context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		MembershipIdentifier     string `json:"membershipIdentifier"`
-		IdMappingTableIdentifier string `json:"idMappingTableIdentifier"`
+		IDMappingTableIdentifier string `json:"idMappingTableIdentifier"`
 	}
 	_ = json.Unmarshal(body, &req)
 
-	return nil, h.Backend.DeleteIdMappingTable(
+	return nil, h.Backend.DeleteIDMappingTable(
 		req.MembershipIdentifier,
-		req.IdMappingTableIdentifier,
+		req.IDMappingTableIdentifier,
 	)
 }
 
-func (h *Handler) handlePopulateIdMappingTable(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handlePopulateIDMappingTable(_ context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		MembershipIdentifier     string `json:"membershipIdentifier"`
-		IdMappingTableIdentifier string `json:"idMappingTableIdentifier"`
+		IDMappingTableIdentifier string `json:"idMappingTableIdentifier"`
 	}
 	_ = json.Unmarshal(body, &req)
-	result, err := h.Backend.PopulateIdMappingTable(
+	result, err := h.Backend.PopulateIDMappingTable(
 		req.MembershipIdentifier,
-		req.IdMappingTableIdentifier,
+		req.IDMappingTableIdentifier,
 	)
 	if err != nil {
 		return nil, err
@@ -2576,52 +2834,52 @@ func (h *Handler) handlePopulateIdMappingTable(_ context.Context, body []byte) (
 
 // ---- IdNamespaceAssociation handlers ----
 
-func (h *Handler) handleCreateIdNamespaceAssociation(
+func (h *Handler) handleCreateIDNamespaceAssociation(
 	_ context.Context,
 	body []byte,
 ) ([]byte, error) {
 	var req struct {
 		InputReferenceConfig map[string]any    `json:"inputReferenceConfig"`
-		IdMappingConfig      map[string]any    `json:"idMappingConfig"`
+		IDMappingConfig      map[string]any    `json:"idMappingConfig"`
 		Tags                 map[string]string `json:"tags"`
 		MembershipIdentifier string            `json:"membershipIdentifier"`
 		Name                 string            `json:"name"`
 		Description          string            `json:"description"`
 	}
 	_ = json.Unmarshal(body, &req)
-	a, err := h.Backend.CreateIdNamespaceAssociation(
+	a, err := h.Backend.CreateIDNamespaceAssociation(
 		req.MembershipIdentifier,
 		req.Name,
 		req.Description,
 		req.InputReferenceConfig,
-		req.IdMappingConfig,
+		req.IDMappingConfig,
 		req.Tags,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{"idNamespaceAssociation": a}), nil
+	return mustJSON(map[string]any{keyIDNamespaceAssociation: a}), nil
 }
 
-func (h *Handler) handleGetIdNamespaceAssociation(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleGetIDNamespaceAssociation(_ context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		MembershipIdentifier             string `json:"membershipIdentifier"`
-		IdNamespaceAssociationIdentifier string `json:"idNamespaceAssociationIdentifier"`
+		IDNamespaceAssociationIdentifier string `json:"idNamespaceAssociationIdentifier"`
 	}
 	_ = json.Unmarshal(body, &req)
-	a, err := h.Backend.GetIdNamespaceAssociation(
+	a, err := h.Backend.GetIDNamespaceAssociation(
 		req.MembershipIdentifier,
-		req.IdNamespaceAssociationIdentifier,
+		req.IDNamespaceAssociationIdentifier,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{"idNamespaceAssociation": a}), nil
+	return mustJSON(map[string]any{keyIDNamespaceAssociation: a}), nil
 }
 
-func (h *Handler) handleListIdNamespaceAssociations(
+func (h *Handler) handleListIDNamespaceAssociations(
 	_ context.Context,
 	body []byte,
 	c *echo.Context,
@@ -2630,7 +2888,7 @@ func (h *Handler) handleListIdNamespaceAssociations(
 		MembershipIdentifier string `json:"membershipIdentifier"`
 	}
 	_ = json.Unmarshal(body, &req)
-	items, next, err := h.Backend.ListIdNamespaceAssociations(
+	items, next, err := h.Backend.ListIDNamespaceAssociations(
 		req.MembershipIdentifier,
 		qp(c, "maxResults"),
 		qp(c, "nextToken"),
@@ -2646,43 +2904,43 @@ func (h *Handler) handleListIdNamespaceAssociations(
 	return mustJSON(resp), nil
 }
 
-func (h *Handler) handleUpdateIdNamespaceAssociation(
+func (h *Handler) handleUpdateIDNamespaceAssociation(
 	_ context.Context,
 	body []byte,
 ) ([]byte, error) {
 	var req struct {
-		IdMappingConfig                  map[string]any `json:"idMappingConfig"`
+		IDMappingConfig                  map[string]any `json:"idMappingConfig"`
 		MembershipIdentifier             string         `json:"membershipIdentifier"`
-		IdNamespaceAssociationIdentifier string         `json:"idNamespaceAssociationIdentifier"`
+		IDNamespaceAssociationIdentifier string         `json:"idNamespaceAssociationIdentifier"`
 		Description                      string         `json:"description"`
 	}
 	_ = json.Unmarshal(body, &req)
-	a, err := h.Backend.UpdateIdNamespaceAssociation(
+	a, err := h.Backend.UpdateIDNamespaceAssociation(
 		req.MembershipIdentifier,
-		req.IdNamespaceAssociationIdentifier,
+		req.IDNamespaceAssociationIdentifier,
 		req.Description,
-		req.IdMappingConfig,
+		req.IDMappingConfig,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{"idNamespaceAssociation": a}), nil
+	return mustJSON(map[string]any{keyIDNamespaceAssociation: a}), nil
 }
 
-func (h *Handler) handleDeleteIdNamespaceAssociation(
+func (h *Handler) handleDeleteIDNamespaceAssociation(
 	_ context.Context,
 	body []byte,
 ) ([]byte, error) {
 	var req struct {
 		MembershipIdentifier             string `json:"membershipIdentifier"`
-		IdNamespaceAssociationIdentifier string `json:"idNamespaceAssociationIdentifier"`
+		IDNamespaceAssociationIdentifier string `json:"idNamespaceAssociationIdentifier"`
 	}
 	_ = json.Unmarshal(body, &req)
 
-	return nil, h.Backend.DeleteIdNamespaceAssociation(
+	return nil, h.Backend.DeleteIDNamespaceAssociation(
 		req.MembershipIdentifier,
-		req.IdNamespaceAssociationIdentifier,
+		req.IDNamespaceAssociationIdentifier,
 	)
 }
 
@@ -2713,7 +2971,7 @@ func (h *Handler) handleCreateConfiguredAudienceModelAssociation(
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{"configuredAudienceModelAssociation": a}), nil
+	return mustJSON(map[string]any{keyCAMAAssociation: a}), nil
 }
 
 func (h *Handler) handleGetConfiguredAudienceModelAssociation(
@@ -2733,7 +2991,7 @@ func (h *Handler) handleGetConfiguredAudienceModelAssociation(
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{"configuredAudienceModelAssociation": a}), nil
+	return mustJSON(map[string]any{keyCAMAAssociation: a}), nil
 }
 
 func (h *Handler) handleListConfiguredAudienceModelAssociations(
@@ -2782,7 +3040,7 @@ func (h *Handler) handleUpdateConfiguredAudienceModelAssociation(
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{"configuredAudienceModelAssociation": a}), nil
+	return mustJSON(map[string]any{keyCAMAAssociation: a}), nil
 }
 
 func (h *Handler) handleDeleteConfiguredAudienceModelAssociation(

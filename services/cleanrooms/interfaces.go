@@ -186,45 +186,45 @@ type StorageBackend interface {
 	) ([]*PrivacyBudgetTemplateSummary, string, error)
 	PreviewPrivacyImpact(membershipID string, parameters map[string]any) (map[string]any, error)
 
-	// IdMappingTable operations.
-	CreateIdMappingTable(
+	// IDMappingTable operations.
+	CreateIDMappingTable(
 		membershipID, name, description string,
 		inputReferenceConfig map[string]any,
 		kmsKeyArn string,
 		tags map[string]string,
-	) (*IdMappingTable, error)
-	GetIdMappingTable(membershipID, tableID string) (*IdMappingTable, error)
-	ListIdMappingTables(
+	) (*IDMappingTable, error)
+	GetIDMappingTable(membershipID, tableID string) (*IDMappingTable, error)
+	ListIDMappingTables(
 		membershipID, maxResults, nextToken string,
-	) ([]*IdMappingTableSummary, string, error)
-	UpdateIdMappingTable(
+	) ([]*IDMappingTableSummary, string, error)
+	UpdateIDMappingTable(
 		membershipID, tableID, description, kmsKeyArn string,
-	) (*IdMappingTable, error)
-	DeleteIdMappingTable(membershipID, tableID string) error
-	PopulateIdMappingTable(membershipID, tableID string) (map[string]any, error)
+	) (*IDMappingTable, error)
+	DeleteIDMappingTable(membershipID, tableID string) error
+	PopulateIDMappingTable(membershipID, tableID string) (map[string]any, error)
 
-	// IdNamespaceAssociation operations.
-	CreateIdNamespaceAssociation(
+	// IDNamespaceAssociation operations.
+	CreateIDNamespaceAssociation(
 		membershipID, name, description string,
 		inputReferenceConfig map[string]any,
 		idMappingConfig map[string]any,
 		tags map[string]string,
-	) (*IdNamespaceAssociation, error)
-	GetIdNamespaceAssociation(membershipID, assocID string) (*IdNamespaceAssociation, error)
-	ListIdNamespaceAssociations(
+	) (*IDNamespaceAssociation, error)
+	GetIDNamespaceAssociation(membershipID, assocID string) (*IDNamespaceAssociation, error)
+	ListIDNamespaceAssociations(
 		membershipID, maxResults, nextToken string,
-	) ([]*IdNamespaceAssociationSummary, string, error)
-	UpdateIdNamespaceAssociation(
+	) ([]*IDNamespaceAssociationSummary, string, error)
+	UpdateIDNamespaceAssociation(
 		membershipID, assocID, description string,
 		idMappingConfig map[string]any,
-	) (*IdNamespaceAssociation, error)
-	DeleteIdNamespaceAssociation(membershipID, assocID string) error
-	GetCollaborationIdNamespaceAssociation(
+	) (*IDNamespaceAssociation, error)
+	DeleteIDNamespaceAssociation(membershipID, assocID string) error
+	GetCollaborationIDNamespaceAssociation(
 		collaborationID, assocID string,
-	) (*IdNamespaceAssociation, error)
-	ListCollaborationIdNamespaceAssociations(
+	) (*IDNamespaceAssociation, error)
+	ListCollaborationIDNamespaceAssociations(
 		collaborationID, maxResults, nextToken string,
-	) ([]*IdNamespaceAssociationSummary, string, error)
+	) ([]*IDNamespaceAssociationSummary, string, error)
 
 	// ConfiguredAudienceModelAssociation operations.
 	CreateConfiguredAudienceModelAssociation(

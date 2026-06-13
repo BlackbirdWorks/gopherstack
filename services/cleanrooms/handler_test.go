@@ -138,7 +138,13 @@ func TestConfiguredTableCRUD(t *testing.T) {
 	}
 
 	// Update configured table
-	rec = doRequest(t, e, http.MethodPatch, "/configuredTables/"+ctID, map[string]any{"name": "new-name"})
+	rec = doRequest(
+		t,
+		e,
+		http.MethodPatch,
+		"/configuredTables/"+ctID,
+		map[string]any{"name": "new-name"},
+	)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("update: status %d: %s", rec.Code, rec.Body.String())
 	}
@@ -211,7 +217,13 @@ func TestTagOperations(t *testing.T) {
 	const testARN = "arn:aws:cleanrooms:us-east-1:123456789012:collaboration/abc123"
 
 	// Tag resource
-	rec := doRequest(t, e, http.MethodPost, "/tags/"+testARN, map[string]any{"tags": map[string]string{"env": "test"}})
+	rec := doRequest(
+		t,
+		e,
+		http.MethodPost,
+		"/tags/"+testARN,
+		map[string]any{"tags": map[string]string{"env": "test"}},
+	)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("tag: status %d want %d: %s", rec.Code, http.StatusOK, rec.Body.String())
 	}
