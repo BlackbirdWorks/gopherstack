@@ -18,5 +18,10 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := networkmonitor.NewInMemoryBackend("us-east-1", "000000000000")
 	h := networkmonitor.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &networkmonitorsdk.Client{}, h.GetSupportedOperations(), []string{})
+	sdkcheck.CheckCompleteness(
+		t,
+		&networkmonitorsdk.Client{},
+		h.GetSupportedOperations(),
+		[]string{},
+	)
 }

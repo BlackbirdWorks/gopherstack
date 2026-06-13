@@ -18,18 +18,18 @@ import (
 )
 
 const (
-	opCreateMonitor         = "CreateMonitor"
-	opDeleteMonitor         = "DeleteMonitor"
-	opGetMonitor            = "GetMonitor"
-	opUpdateMonitor         = "UpdateMonitor"
-	opListMonitors          = "ListMonitors"
-	opCreateProbe           = "CreateProbe"
-	opDeleteProbe           = "DeleteProbe"
-	opGetProbe              = "GetProbe"
-	opUpdateProbe           = "UpdateProbe"
-	opListTagsForResource   = "ListTagsForResource"
-	opTagResource           = "TagResource"
-	opUntagResource         = "UntagResource"
+	opCreateMonitor       = "CreateMonitor"
+	opDeleteMonitor       = "DeleteMonitor"
+	opGetMonitor          = "GetMonitor"
+	opUpdateMonitor       = "UpdateMonitor"
+	opListMonitors        = "ListMonitors"
+	opCreateProbe         = "CreateProbe"
+	opDeleteProbe         = "DeleteProbe"
+	opGetProbe            = "GetProbe"
+	opUpdateProbe         = "UpdateProbe"
+	opListTagsForResource = "ListTagsForResource"
+	opTagResource         = "TagResource"
+	opUntagResource       = "UntagResource"
 )
 
 const (
@@ -38,15 +38,9 @@ const (
 	nmPathMonitors  = "/monitors"
 	nmPathTags      = "/tags/"
 	opUnknown       = "Unknown"
-
-	// arnSplitParts is the expected number of parts in an AWS ARN when split on ":".
-	arnSplitParts = 6
-	// splitTwo splits a string into at most 2 parts.
-	splitTwo = 2
-	// splitThree splits a string into at most 3 parts.
-	splitThree = 3
-	// splitFour splits a string into at most 4 parts.
-	splitFour = 4
+	splitTwo        = 2
+	splitThree      = 3
+	splitFour       = 4
 )
 
 var errUnknownAction = errors.New("unknown action")
@@ -367,7 +361,13 @@ func (h *Handler) handleCreateMonitor(ctx context.Context, body []byte) ([]byte,
 		return nil, fmt.Errorf("%w: monitorName is required", ErrValidation)
 	}
 
-	m, err := h.Backend.CreateMonitor(ctx, req.MonitorName, req.AggregationPeriod, req.Probes, req.Tags)
+	m, err := h.Backend.CreateMonitor(
+		ctx,
+		req.MonitorName,
+		req.AggregationPeriod,
+		req.Probes,
+		req.Tags,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -422,7 +422,11 @@ func (h *Handler) handleGetMonitor(ctx context.Context, path string) ([]byte, er
 	return json.Marshal(resp)
 }
 
-func (h *Handler) handleUpdateMonitor(ctx context.Context, path string, body []byte) ([]byte, error) {
+func (h *Handler) handleUpdateMonitor(
+	ctx context.Context,
+	path string,
+	body []byte,
+) ([]byte, error) {
 	name := extractMonitorName(path)
 	if name == "" {
 		return nil, fmt.Errorf("%w: monitorName is required", ErrValidation)
@@ -597,7 +601,11 @@ func (h *Handler) handleTagResource(ctx context.Context, path string, body []byt
 	return nil, nil
 }
 
-func (h *Handler) handleUntagResource(ctx context.Context, path string, query url.Values) ([]byte, error) {
+func (h *Handler) handleUntagResource(
+	ctx context.Context,
+	path string,
+	query url.Values,
+) ([]byte, error) {
 	resourceARN := extractTagResourceARN(path)
 	if resourceARN == "" {
 		return nil, fmt.Errorf("%w: resourceArn is required", ErrValidation)

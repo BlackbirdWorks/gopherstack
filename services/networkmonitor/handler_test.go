@@ -23,7 +23,12 @@ func newTestHandler(t *testing.T) *networkmonitor.Handler {
 	return h
 }
 
-func doNMRequest(t *testing.T, h *networkmonitor.Handler, method, path string, body any) *httptest.ResponseRecorder {
+func doNMRequest(
+	t *testing.T,
+	h *networkmonitor.Handler,
+	method, path string,
+	body any,
+) *httptest.ResponseRecorder {
 	t.Helper()
 
 	var bodyBytes []byte
@@ -39,7 +44,10 @@ func doNMRequest(t *testing.T, h *networkmonitor.Handler, method, path string, b
 	e := echo.New()
 	req := httptest.NewRequest(method, path, bytes.NewReader(bodyBytes))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential=AKID/20240101/us-east-1/networkmonitor/aws4_request")
+	req.Header.Set(
+		"Authorization",
+		"AWS4-HMAC-SHA256 Credential=AKID/20240101/us-east-1/networkmonitor/aws4_request",
+	)
 
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
@@ -85,7 +93,12 @@ func TestHandlerCreateMonitor(t *testing.T) {
 			rr := doNMRequest(t, h, http.MethodPost, "/monitors", tc.body)
 
 			if rr.Code != tc.wantStatus {
-				t.Errorf("status: got %d, want %d — body: %s", rr.Code, tc.wantStatus, rr.Body.String())
+				t.Errorf(
+					"status: got %d, want %d — body: %s",
+					rr.Code,
+					tc.wantStatus,
+					rr.Body.String(),
+				)
 			}
 		})
 	}
@@ -121,7 +134,13 @@ func TestHandlerGetMonitor(t *testing.T) {
 			h := newTestHandler(t)
 
 			if tc.create {
-				rr := doNMRequest(t, h, http.MethodPost, "/monitors", map[string]any{"monitorName": tc.monName})
+				rr := doNMRequest(
+					t,
+					h,
+					http.MethodPost,
+					"/monitors",
+					map[string]any{"monitorName": tc.monName},
+				)
 				if rr.Code != http.StatusOK {
 					t.Fatalf("create: status %d", rr.Code)
 				}
@@ -130,7 +149,12 @@ func TestHandlerGetMonitor(t *testing.T) {
 			rr := doNMRequest(t, h, http.MethodGet, "/monitors/"+tc.monName, nil)
 
 			if rr.Code != tc.wantStatus {
-				t.Errorf("status: got %d, want %d — body: %s", rr.Code, tc.wantStatus, rr.Body.String())
+				t.Errorf(
+					"status: got %d, want %d — body: %s",
+					rr.Code,
+					tc.wantStatus,
+					rr.Body.String(),
+				)
 			}
 		})
 	}
@@ -166,7 +190,13 @@ func TestHandlerDeleteMonitor(t *testing.T) {
 			h := newTestHandler(t)
 
 			if tc.create {
-				rr := doNMRequest(t, h, http.MethodPost, "/monitors", map[string]any{"monitorName": tc.monName})
+				rr := doNMRequest(
+					t,
+					h,
+					http.MethodPost,
+					"/monitors",
+					map[string]any{"monitorName": tc.monName},
+				)
 				if rr.Code != http.StatusOK {
 					t.Fatalf("create: status %d", rr.Code)
 				}
@@ -175,7 +205,12 @@ func TestHandlerDeleteMonitor(t *testing.T) {
 			rr := doNMRequest(t, h, http.MethodDelete, "/monitors/"+tc.monName, nil)
 
 			if rr.Code != tc.wantStatus {
-				t.Errorf("status: got %d, want %d — body: %s", rr.Code, tc.wantStatus, rr.Body.String())
+				t.Errorf(
+					"status: got %d, want %d — body: %s",
+					rr.Code,
+					tc.wantStatus,
+					rr.Body.String(),
+				)
 			}
 		})
 	}
@@ -239,16 +274,33 @@ func TestHandlerUpdateMonitor(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			rr := doNMRequest(t, h, http.MethodPost, "/monitors", map[string]any{"monitorName": "upd-mon"})
+			rr := doNMRequest(
+				t,
+				h,
+				http.MethodPost,
+				"/monitors",
+				map[string]any{"monitorName": "upd-mon"},
+			)
 
 			if rr.Code != http.StatusOK {
 				t.Fatalf("create: status %d", rr.Code)
 			}
 
-			rr = doNMRequest(t, h, http.MethodPatch, "/monitors/upd-mon", map[string]any{"aggregationPeriod": tc.period})
+			rr = doNMRequest(
+				t,
+				h,
+				http.MethodPatch,
+				"/monitors/upd-mon",
+				map[string]any{"aggregationPeriod": tc.period},
+			)
 
 			if rr.Code != tc.wantStatus {
-				t.Errorf("status: got %d, want %d — body: %s", rr.Code, tc.wantStatus, rr.Body.String())
+				t.Errorf(
+					"status: got %d, want %d — body: %s",
+					rr.Code,
+					tc.wantStatus,
+					rr.Body.String(),
+				)
 			}
 		})
 	}
@@ -259,7 +311,13 @@ func TestHandlerProbeLifecycle(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	rr := doNMRequest(t, h, http.MethodPost, "/monitors", map[string]any{"monitorName": "probe-mon"})
+	rr := doNMRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/monitors",
+		map[string]any{"monitorName": "probe-mon"},
+	)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("create monitor: status %d", rr.Code)
 	}

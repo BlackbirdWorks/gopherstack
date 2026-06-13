@@ -13,7 +13,12 @@ func newTestBackend(t *testing.T) *networkmonitor.InMemoryBackend {
 	return networkmonitor.NewInMemoryBackend("us-east-1", "000000000000")
 }
 
-func ptr[T any](v T) *T { return &v }
+func ptr[T any](v T) *T {
+	p := new(T)
+	*p = v
+
+	return p
+}
 
 func TestCreateMonitor(t *testing.T) {
 	t.Parallel()
@@ -69,7 +74,13 @@ func TestCreateMonitor(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend(t)
-			m, err := b.CreateMonitor(context.Background(), tc.monitorName, tc.aggregationPeriod, nil, nil)
+			m, err := b.CreateMonitor(
+				context.Background(),
+				tc.monitorName,
+				tc.aggregationPeriod,
+				nil,
+				nil,
+			)
 
 			if tc.wantErr {
 				if err == nil {
@@ -222,7 +233,7 @@ func TestDeleteMonitor(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 
-			if _, err := b.GetMonitor(ctx, tc.monitorName); err == nil {
+			if _, getErr := b.GetMonitor(ctx, tc.monitorName); getErr == nil {
 				t.Fatal("expected not-found after delete, got nil")
 			}
 		})
@@ -385,11 +396,11 @@ func TestProbeLifecycle(t *testing.T) {
 		t.Errorf("destination: got %q, want 10.0.0.1", got.Destination)
 	}
 
-	if err := b.DeleteProbe(ctx, "probe-mon", probe.ProbeID); err != nil {
-		t.Fatalf("delete probe: %v", err)
+	if delErr := b.DeleteProbe(ctx, "probe-mon", probe.ProbeID); delErr != nil {
+		t.Fatalf("delete probe: %v", delErr)
 	}
 
-	if _, err := b.GetProbe(ctx, "probe-mon", probe.ProbeID); err == nil {
+	if _, getErr := b.GetProbe(ctx, "probe-mon", probe.ProbeID); getErr == nil {
 		t.Fatal("expected not-found after delete")
 	}
 }
@@ -435,8 +446,8 @@ func TestTagging(t *testing.T) {
 		t.Errorf("tag env: got %q, want test", tags["env"])
 	}
 
-	if err := b.TagResource(ctx, m.MonitorArn, map[string]string{"team": "sre"}); err != nil {
-		t.Fatalf("tag resource: %v", err)
+	if tagErr := b.TagResource(ctx, m.MonitorArn, map[string]string{"team": "sre"}); tagErr != nil {
+		t.Fatalf("tag resource: %v", tagErr)
 	}
 
 	tags, err = b.ListTagsForResource(ctx, m.MonitorArn)
@@ -448,8 +459,8 @@ func TestTagging(t *testing.T) {
 		t.Errorf("tag team: got %q, want sre", tags["team"])
 	}
 
-	if err := b.UntagResource(ctx, m.MonitorArn, []string{"env"}); err != nil {
-		t.Fatalf("untag: %v", err)
+	if untagErr := b.UntagResource(ctx, m.MonitorArn, []string{"env"}); untagErr != nil {
+		t.Fatalf("untag: %v", untagErr)
 	}
 
 	tags, err = b.ListTagsForResource(ctx, m.MonitorArn)

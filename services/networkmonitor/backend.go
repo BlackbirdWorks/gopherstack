@@ -47,21 +47,43 @@ const (
 	minAggregationPeriod     = int64(30)
 
 	networkmonitorService = "networkmonitor"
+
+	arnColonParts  = 6
+	probePathParts = 2
 )
 
 var monitorNameRE = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,200}$`)
 
 // StorageBackend is the interface for the Network Monitor in-memory backend.
 type StorageBackend interface {
-	CreateMonitor(ctx context.Context, name string, aggregationPeriod *int64, probes []createMonitorProbeInput, tags map[string]string) (*Monitor, error)
+	CreateMonitor(
+		ctx context.Context,
+		name string,
+		aggregationPeriod *int64,
+		probes []createMonitorProbeInput,
+		tags map[string]string,
+	) (*Monitor, error)
 	DeleteMonitor(ctx context.Context, name string) error
 	GetMonitor(ctx context.Context, name string) (*Monitor, error)
 	UpdateMonitor(ctx context.Context, name string, aggregationPeriod int64) (*Monitor, error)
-	ListMonitors(ctx context.Context, state, nextToken string, maxResults int) ([]monitorSummary, string, error)
-	CreateProbe(ctx context.Context, monitorName string, probe *probeInput, tags map[string]string) (*Probe, error)
+	ListMonitors(
+		ctx context.Context,
+		state, nextToken string,
+		maxResults int,
+	) ([]monitorSummary, string, error)
+	CreateProbe(
+		ctx context.Context,
+		monitorName string,
+		probe *probeInput,
+		tags map[string]string,
+	) (*Probe, error)
 	DeleteProbe(ctx context.Context, monitorName, probeID string) error
 	GetProbe(ctx context.Context, monitorName, probeID string) (*Probe, error)
-	UpdateProbe(ctx context.Context, monitorName, probeID string, req *updateProbeRequest) (*Probe, error)
+	UpdateProbe(
+		ctx context.Context,
+		monitorName, probeID string,
+		req *updateProbeRequest,
+	) (*Probe, error)
 	ListTagsForResource(ctx context.Context, resourceARN string) (map[string]string, error)
 	TagResource(ctx context.Context, resourceARN string, tags map[string]string) error
 	UntagResource(ctx context.Context, resourceARN string, tagKeys []string) error
@@ -121,7 +143,12 @@ func (b *InMemoryBackend) buildMonitorARN(region, monitorName string) string {
 }
 
 func (b *InMemoryBackend) buildProbeARN(region, monitorName, probeID string) string {
-	return arn.Build(networkmonitorService, region, b.accountID, fmt.Sprintf("probe/%s/%s", monitorName, probeID))
+	return arn.Build(
+		networkmonitorService,
+		region,
+		b.accountID,
+		fmt.Sprintf("probe/%s/%s", monitorName, probeID),
+	)
 }
 
 func (b *InMemoryBackend) nextProbeID() string {
@@ -253,7 +280,11 @@ func (b *InMemoryBackend) GetMonitor(ctx context.Context, name string) (*Monitor
 }
 
 // UpdateMonitor updates a monitor's aggregation period.
-func (b *InMemoryBackend) UpdateMonitor(ctx context.Context, name string, aggregationPeriod int64) (*Monitor, error) {
+func (b *InMemoryBackend) UpdateMonitor(
+	ctx context.Context,
+	name string,
+	aggregationPeriod int64,
+) (*Monitor, error) {
 	if aggregationPeriod != 30 && aggregationPeriod != 60 {
 		return nil, fmt.Errorf("%w: aggregationPeriod must be 30 or 60", ErrValidation)
 	}
@@ -431,7 +462,10 @@ func (b *InMemoryBackend) DeleteProbe(ctx context.Context, monitorName, probeID 
 }
 
 // GetProbe returns a probe from a monitor.
-func (b *InMemoryBackend) GetProbe(ctx context.Context, monitorName, probeID string) (*Probe, error) {
+func (b *InMemoryBackend) GetProbe(
+	ctx context.Context,
+	monitorName, probeID string,
+) (*Probe, error) {
 	region := getRegion(ctx, b.defaultRegion)
 
 	b.mu.RLock()
@@ -446,7 +480,12 @@ func (b *InMemoryBackend) GetProbe(ctx context.Context, monitorName, probeID str
 
 	idx := findProbeIndex(m.Probes, probeID)
 	if idx < 0 {
-		return nil, fmt.Errorf("%w: probe %q not found in monitor %q", ErrNotFound, probeID, monitorName)
+		return nil, fmt.Errorf(
+			"%w: probe %q not found in monitor %q",
+			ErrNotFound,
+			probeID,
+			monitorName,
+		)
 	}
 
 	return probeCopy(m.Probes[idx]), nil
@@ -476,7 +515,12 @@ func (b *InMemoryBackend) UpdateProbe(
 
 	idx := findProbeIndex(m.Probes, probeID)
 	if idx < 0 {
-		return nil, fmt.Errorf("%w: probe %q not found in monitor %q", ErrNotFound, probeID, monitorName)
+		return nil, fmt.Errorf(
+			"%w: probe %q not found in monitor %q",
+			ErrNotFound,
+			probeID,
+			monitorName,
+		)
 	}
 
 	probe := m.Probes[idx]
@@ -514,7 +558,10 @@ func (b *InMemoryBackend) UpdateProbe(
 }
 
 // ListTagsForResource returns tags for a monitor or probe by ARN.
-func (b *InMemoryBackend) ListTagsForResource(ctx context.Context, resourceARN string) (map[string]string, error) {
+func (b *InMemoryBackend) ListTagsForResource(
+	ctx context.Context,
+	resourceARN string,
+) (map[string]string, error) {
 	region := getRegion(ctx, b.defaultRegion)
 
 	b.mu.RLock()
@@ -524,7 +571,11 @@ func (b *InMemoryBackend) ListTagsForResource(ctx context.Context, resourceARN s
 }
 
 // TagResource adds or updates tags on a monitor or probe.
-func (b *InMemoryBackend) TagResource(ctx context.Context, resourceARN string, tags map[string]string) error {
+func (b *InMemoryBackend) TagResource(
+	ctx context.Context,
+	resourceARN string,
+	tags map[string]string,
+) error {
 	region := getRegion(ctx, b.defaultRegion)
 
 	b.mu.Lock()
@@ -553,7 +604,11 @@ func (b *InMemoryBackend) TagResource(ctx context.Context, resourceARN string, t
 }
 
 // UntagResource removes tags from a monitor or probe.
-func (b *InMemoryBackend) UntagResource(ctx context.Context, resourceARN string, tagKeys []string) error {
+func (b *InMemoryBackend) UntagResource(
+	ctx context.Context,
+	resourceARN string,
+	tagKeys []string,
+) error {
 	region := getRegion(ctx, b.defaultRegion)
 
 	b.mu.Lock()
@@ -596,17 +651,15 @@ func (b *InMemoryBackend) findResourceByARN(region, resourceARN string) (*Monito
 	// ARN formats:
 	//   monitor: arn:aws:networkmonitor:{region}:{acct}:monitor/{name}
 	//   probe:   arn:aws:networkmonitor:{region}:{acct}:probe/{monitorName}/{probeId}
-	parts := strings.SplitN(resourceARN, ":", 6)
-	if len(parts) < 6 {
+	parts := strings.SplitN(resourceARN, ":", arnColonParts)
+	if len(parts) < arnColonParts {
 		return nil, nil, fmt.Errorf("%w: invalid resource ARN", ErrNotFound)
 	}
 
-	resource := parts[5]
+	resource := parts[arnColonParts-1]
 	rm := b.monitors[region]
 
-	if strings.HasPrefix(resource, "monitor/") {
-		monitorName := strings.TrimPrefix(resource, "monitor/")
-
+	if monitorName, ok := strings.CutPrefix(resource, "monitor/"); ok {
 		m, exists := rm[monitorName]
 		if !exists {
 			return nil, nil, fmt.Errorf("%w: resource %q not found", ErrNotFound, resourceARN)
@@ -615,9 +668,9 @@ func (b *InMemoryBackend) findResourceByARN(region, resourceARN string) (*Monito
 		return m, nil, nil
 	}
 
-	if strings.HasPrefix(resource, "probe/") {
-		segments := strings.SplitN(strings.TrimPrefix(resource, "probe/"), "/", 2)
-		if len(segments) != 2 {
+	if rest, ok := strings.CutPrefix(resource, "probe/"); ok {
+		segments := strings.SplitN(rest, "/", probePathParts)
+		if len(segments) != probePathParts {
 			return nil, nil, fmt.Errorf("%w: invalid probe ARN", ErrNotFound)
 		}
 
