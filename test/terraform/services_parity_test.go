@@ -214,8 +214,13 @@ func TestTerraform_DataBrew(t *testing.T) {
 				bucketName := vars["BucketName"].(string)
 
 				_, createErr := client.CreateDataset(ctx, &databrewsvc.CreateDatasetInput{
-					Name:   aws.String(datasetName),
-					Input:  &databrewtypes.Input{S3InputDefinition: &databrewtypes.S3Location{Bucket: aws.String(bucketName), Key: aws.String("data.csv")}},
+					Name: aws.String(datasetName),
+					Input: &databrewtypes.Input{
+						S3InputDefinition: &databrewtypes.S3Location{
+							Bucket: aws.String(bucketName),
+							Key:    aws.String("data.csv"),
+						},
+					},
 					Format: databrewtypes.InputFormatCsv,
 				})
 				require.NoError(t, createErr, "CreateDataset should succeed")
@@ -713,9 +718,9 @@ func TestTerraform_MediaTailor(t *testing.T) {
 				configName := vars["ConfigName"].(string)
 
 				_, createErr := client.PutPlaybackConfiguration(ctx, &mediatailorsvc.PutPlaybackConfigurationInput{
-					Name:                   aws.String(configName),
-					AdDecisionServerUrl:    aws.String("https://ads.example.com/vast"),
-					VideoContentSourceUrl:  aws.String("https://example.com/hls/manifest.m3u8"),
+					Name:                  aws.String(configName),
+					AdDecisionServerUrl:   aws.String("https://ads.example.com/vast"),
+					VideoContentSourceUrl: aws.String("https://example.com/hls/manifest.m3u8"),
 				})
 				require.NoError(t, createErr, "PutPlaybackConfiguration should succeed")
 
