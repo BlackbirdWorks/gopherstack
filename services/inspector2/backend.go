@@ -51,11 +51,19 @@ func validateTags(tags map[string]string) error {
 
 	for k, v := range tags {
 		if k == "" || len(k) > maxTagKeyLen {
-			return fmt.Errorf("%w: tag key must be between 1 and %d characters", ErrValidation, maxTagKeyLen)
+			return fmt.Errorf(
+				"%w: tag key must be between 1 and %d characters",
+				ErrValidation,
+				maxTagKeyLen,
+			)
 		}
 
 		if len(v) > maxTagValueLen {
-			return fmt.Errorf("%w: tag value must be at most %d characters", ErrValidation, maxTagValueLen)
+			return fmt.Errorf(
+				"%w: tag value must be at most %d characters",
+				ErrValidation,
+				maxTagValueLen,
+			)
 		}
 	}
 
@@ -76,17 +84,17 @@ func validateFilterAction(action string) error {
 }
 
 // Filter represents an Inspector2 findings filter.
-type Filter struct { //nolint:govet // fieldalignment: map fields after scalars for readability
+type Filter struct {
+	CreatedAt   time.Time         `json:"createdAt"`
+	UpdatedAt   time.Time         `json:"updatedAt"`
+	Criteria    map[string]any    `json:"filterCriteria,omitempty"`
+	Tags        map[string]string `json:"tags,omitempty"`
 	Arn         string            `json:"arn"`
 	Name        string            `json:"name"`
 	Action      string            `json:"action"`
 	Description string            `json:"description,omitempty"`
 	Reason      string            `json:"reason,omitempty"`
 	OwnerID     string            `json:"ownerId"`
-	CreatedAt   time.Time         `json:"createdAt"`
-	UpdatedAt   time.Time         `json:"updatedAt"`
-	Criteria    map[string]any    `json:"filterCriteria,omitempty"`
-	Tags        map[string]string `json:"tags,omitempty"`
 }
 
 // Finding represents an Inspector2 finding (minimal stub for list support).
@@ -115,15 +123,15 @@ type AccountStatusResponse struct {
 }
 
 // InMemoryBackend is the in-memory implementation of Inspector2.
-type InMemoryBackend struct { //nolint:govet // fieldalignment: bool before pointer is intentional
+type InMemoryBackend struct {
 	mu        *lockmetrics.RWMutex
 	filters   map[string]*Filter
 	tags      map[string]map[string]string
 	ax        *appendixAState
 	config    Configuration
-	enabled   bool
 	accountID string
 	region    string
+	enabled   bool
 }
 
 // NewInMemoryBackend creates a new backend for the given account and region.
@@ -393,7 +401,11 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 
 	existing := b.tags[resourceARN]
 	if len(existing)+len(tags) > maxTagCount {
-		return fmt.Errorf("%w: resource would exceed maximum of %d tags", ErrValidation, maxTagCount)
+		return fmt.Errorf(
+			"%w: resource would exceed maximum of %d tags",
+			ErrValidation,
+			maxTagCount,
+		)
 	}
 
 	if b.tags[resourceARN] == nil {
@@ -468,17 +480,20 @@ func (b *InMemoryBackend) Reset() {
 
 	b.filters = make(map[string]*Filter)
 	b.tags = make(map[string]map[string]string)
-	b.config = Configuration{Ec2ScanMode: ec2ScanModeEC2SSMAgentBased, EcrRescanDuration: ecrRescanDurationLifetime}
+	b.config = Configuration{
+		Ec2ScanMode:       ec2ScanModeEC2SSMAgentBased,
+		EcrRescanDuration: ecrRescanDurationLifetime,
+	}
 	b.enabled = false
 }
 
-type backendSnapshot struct { //nolint:govet // fieldalignment: readability over padding
+type backendSnapshot struct {
 	Filters   map[string]*Filter           `json:"filters"`
 	Tags      map[string]map[string]string `json:"tags"`
 	Config    Configuration                `json:"config"`
-	Enabled   bool                         `json:"enabled"`
 	AccountID string                       `json:"accountId"`
 	Region    string                       `json:"region"`
+	Enabled   bool                         `json:"enabled"`
 }
 
 // Snapshot serializes the backend state.
