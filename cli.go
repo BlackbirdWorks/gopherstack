@@ -77,6 +77,7 @@ import (
 	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
 	bedrockbackend "github.com/blackbirdworks/gopherstack/services/bedrock"
+	bedrockagentbackend "github.com/blackbirdworks/gopherstack/services/bedrockagent"
 	bedrockruntimebackend "github.com/blackbirdworks/gopherstack/services/bedrockruntime"
 	cebackend "github.com/blackbirdworks/gopherstack/services/ce"
 	cloudcontrolbackend "github.com/blackbirdworks/gopherstack/services/cloudcontrol"
@@ -2767,6 +2768,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&fsxbackend.Provider{},
 		&vpclatticebackend.Provider{},
 		&omicsbackend.Provider{},
+		&bedrockagentbackend.Provider{},
 	}
 }
 
