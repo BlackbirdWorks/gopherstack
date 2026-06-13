@@ -1162,7 +1162,11 @@ func TestHandler_MultipartUpload(t *testing.T) {
 			var initResp s3.InitiateMultipartUploadResult
 			require.NoError(t, xml.NewDecoder(rec.Body).Decode(&initResp))
 
-			wantInit := s3.InitiateMultipartUploadResult{Bucket: "bkt", Key: "mp", UploadID: initResp.UploadID}
+			wantInit := s3.InitiateMultipartUploadResult{
+				Bucket:   "bkt",
+				Key:      "mp",
+				UploadID: initResp.UploadID,
+			}
 			initDiff := cmp.Diff(
 				wantInit, initResp,
 				cmpopts.IgnoreFields(s3.InitiateMultipartUploadResult{}, "UploadID", "XMLName"),
@@ -1521,7 +1525,11 @@ func TestHandler_NotificationDispatch_PutObject(t *testing.T) {
 		`<Queue>arn:aws:sqs:us-east-1:000000000000:my-queue</Queue>` +
 		`<Event>s3:ObjectCreated:*</Event></QueueConfiguration>` +
 		`</NotificationConfiguration>`
-	req := httptest.NewRequest(http.MethodPut, "/notif-put?notification", strings.NewReader(notifXML))
+	req := httptest.NewRequest(
+		http.MethodPut,
+		"/notif-put?notification",
+		strings.NewReader(notifXML),
+	)
 	rec := httptest.NewRecorder()
 	serveS3Handler(handler, rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -1559,7 +1567,11 @@ func TestHandler_NotificationDispatch_DeleteObject(t *testing.T) {
 		`<Queue>arn:aws:sqs:us-east-1:000000000000:my-queue</Queue>` +
 		`<Event>s3:ObjectRemoved:*</Event></QueueConfiguration>` +
 		`</NotificationConfiguration>`
-	putNotifReq := httptest.NewRequest(http.MethodPut, "/notif-del?notification", strings.NewReader(notifXML))
+	putNotifReq := httptest.NewRequest(
+		http.MethodPut,
+		"/notif-del?notification",
+		strings.NewReader(notifXML),
+	)
 	rec := httptest.NewRecorder()
 	serveS3Handler(handler, rec, putNotifReq)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -1618,7 +1630,11 @@ func TestHandler_NotificationDispatch_CopyObject(t *testing.T) {
 		`<Queue>arn:aws:sqs:us-east-1:000000000000:copy-queue</Queue>` +
 		`<Event>s3:ObjectCreated:*</Event></QueueConfiguration>` +
 		`</NotificationConfiguration>`
-	req := httptest.NewRequest(http.MethodPut, "/notif-copy?notification", strings.NewReader(notifXML))
+	req := httptest.NewRequest(
+		http.MethodPut,
+		"/notif-copy?notification",
+		strings.NewReader(notifXML),
+	)
 	rec := httptest.NewRecorder()
 	serveS3Handler(handler, rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -1656,7 +1672,11 @@ func TestHandler_NotificationDispatch_CompleteMultipartUpload(t *testing.T) {
 		`<Queue>arn:aws:sqs:us-east-1:000000000000:mpu-queue</Queue>` +
 		`<Event>s3:ObjectCreated:*</Event></QueueConfiguration>` +
 		`</NotificationConfiguration>`
-	req := httptest.NewRequest(http.MethodPut, "/notif-mpu?notification", strings.NewReader(notifXML))
+	req := httptest.NewRequest(
+		http.MethodPut,
+		"/notif-mpu?notification",
+		strings.NewReader(notifXML),
+	)
 	rec := httptest.NewRecorder()
 	serveS3Handler(handler, rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -1690,7 +1710,11 @@ func TestHandler_NotificationDispatch_CompleteMultipartUpload(t *testing.T) {
 		`<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>%s</ETag></Part></CompleteMultipartUpload>`,
 		etag1,
 	)
-	req = httptest.NewRequest(http.MethodPost, "/notif-mpu/mp-key?uploadId="+uploadID, strings.NewReader(completeXML))
+	req = httptest.NewRequest(
+		http.MethodPost,
+		"/notif-mpu/mp-key?uploadId="+uploadID,
+		strings.NewReader(completeXML),
+	)
 	rec = httptest.NewRecorder()
 	serveS3Handler(handler, rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -1721,7 +1745,11 @@ func TestHandler_NotificationDispatch_DeleteObjects(t *testing.T) {
 		`<Queue>arn:aws:sqs:us-east-1:000000000000:del-queue</Queue>` +
 		`<Event>s3:ObjectRemoved:*</Event></QueueConfiguration>` +
 		`</NotificationConfiguration>`
-	req := httptest.NewRequest(http.MethodPut, "/notif-delobj?notification", strings.NewReader(notifXML))
+	req := httptest.NewRequest(
+		http.MethodPut,
+		"/notif-delobj?notification",
+		strings.NewReader(notifXML),
+	)
 	rec := httptest.NewRecorder()
 	serveS3Handler(handler, rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -1758,7 +1786,11 @@ func TestObjectLock_PutGetConfiguration(t *testing.T) {
 
 	configXML := `<ObjectLockConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/">` +
 		`<ObjectLockEnabled>Enabled</ObjectLockEnabled></ObjectLockConfiguration>`
-	req := httptest.NewRequest(http.MethodPut, "/lock-bucket?object-lock", strings.NewReader(configXML))
+	req := httptest.NewRequest(
+		http.MethodPut,
+		"/lock-bucket?object-lock",
+		strings.NewReader(configXML),
+	)
 	rec := httptest.NewRecorder()
 	serveS3Handler(handler, rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -1792,7 +1824,11 @@ func TestObjectLock_LegalHold_BlocksDelete(t *testing.T) {
 
 	// Put legal hold ON
 	lhXML := `<LegalHold xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Status>ON</Status></LegalHold>`
-	req := httptest.NewRequest(http.MethodPut, "/lh-bucket/mykey?legal-hold", strings.NewReader(lhXML))
+	req := httptest.NewRequest(
+		http.MethodPut,
+		"/lh-bucket/mykey?legal-hold",
+		strings.NewReader(lhXML),
+	)
 	rec := httptest.NewRecorder()
 	serveS3Handler(handler, rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -1806,7 +1842,11 @@ func TestObjectLock_LegalHold_BlocksDelete(t *testing.T) {
 
 	// Remove legal hold
 	lhXML = `<LegalHold xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Status>OFF</Status></LegalHold>`
-	req = httptest.NewRequest(http.MethodPut, "/lh-bucket/mykey?legal-hold", strings.NewReader(lhXML))
+	req = httptest.NewRequest(
+		http.MethodPut,
+		"/lh-bucket/mykey?legal-hold",
+		strings.NewReader(lhXML),
+	)
 	rec = httptest.NewRecorder()
 	serveS3Handler(handler, rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -1829,7 +1869,11 @@ func TestObjectLock_Retention_BlocksDelete(t *testing.T) {
 	future := time.Now().Add(24 * time.Hour).UTC().Format(time.RFC3339)
 	retXML := `<Retention xmlns="http://s3.amazonaws.com/doc/2006-03-01/">` +
 		`<Mode>GOVERNANCE</Mode><RetainUntilDate>` + future + `</RetainUntilDate></Retention>`
-	req := httptest.NewRequest(http.MethodPut, "/ret-bucket/mykey?retention", strings.NewReader(retXML))
+	req := httptest.NewRequest(
+		http.MethodPut,
+		"/ret-bucket/mykey?retention",
+		strings.NewReader(retXML),
+	)
 	rec := httptest.NewRecorder()
 	serveS3Handler(handler, rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -1858,7 +1902,11 @@ func TestObjectLock_GetLegalHold(t *testing.T) {
 
 	// Set ON
 	lhXML := `<LegalHold xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Status>ON</Status></LegalHold>`
-	req = httptest.NewRequest(http.MethodPut, "/get-lh-bucket/mykey?legal-hold", strings.NewReader(lhXML))
+	req = httptest.NewRequest(
+		http.MethodPut,
+		"/get-lh-bucket/mykey?legal-hold",
+		strings.NewReader(lhXML),
+	)
 	rec = httptest.NewRecorder()
 	serveS3Handler(handler, rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -1882,7 +1930,11 @@ func TestObjectLock_GetRetention(t *testing.T) {
 	future := time.Now().Add(24 * time.Hour).UTC().Format(time.RFC3339)
 	retXML := `<Retention xmlns="http://s3.amazonaws.com/doc/2006-03-01/">` +
 		`<Mode>COMPLIANCE</Mode><RetainUntilDate>` + future + `</RetainUntilDate></Retention>`
-	req := httptest.NewRequest(http.MethodPut, "/get-ret-bucket/mykey?retention", strings.NewReader(retXML))
+	req := httptest.NewRequest(
+		http.MethodPut,
+		"/get-ret-bucket/mykey?retention",
+		strings.NewReader(retXML),
+	)
 	rec := httptest.NewRecorder()
 	serveS3Handler(handler, rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -1902,7 +1954,11 @@ func TestObjectLock_PutObjectLockConfiguration_BucketNotFound(t *testing.T) {
 
 	configXML := `<ObjectLockConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/">` +
 		`<ObjectLockEnabled>Enabled</ObjectLockEnabled></ObjectLockConfiguration>`
-	req := httptest.NewRequest(http.MethodPut, "/nonexistent-bucket?object-lock", strings.NewReader(configXML))
+	req := httptest.NewRequest(
+		http.MethodPut,
+		"/nonexistent-bucket?object-lock",
+		strings.NewReader(configXML),
+	)
 	rec := httptest.NewRecorder()
 	serveS3Handler(handler, rec, req)
 	require.Equal(t, http.StatusNotFound, rec.Code)

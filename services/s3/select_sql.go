@@ -180,7 +180,12 @@ func (t *sqlTokeniser) readOperator(ch byte) (sqlToken, error) {
 		return sqlToken{typ: tokGt, val: ">"}, nil
 	}
 
-	return sqlToken{}, fmt.Errorf("unexpected character %q at position %d: %w", ch, t.pos, errUnexpectedChar)
+	return sqlToken{}, fmt.Errorf(
+		"unexpected character %q at position %d: %w",
+		ch,
+		t.pos,
+		errUnexpectedChar,
+	)
 }
 
 func (t *sqlTokeniser) readString() (sqlToken, error) {
@@ -1376,7 +1381,11 @@ func evalQuery(q *sqlQuery, rows []map[string]string) ([]map[string]string, erro
 	)
 }
 
-func projectStringRow(q *sqlQuery, row sqlRow, rawRow map[string]string) (map[string]string, error) {
+func projectStringRow(
+	q *sqlQuery,
+	row sqlRow,
+	rawRow map[string]string,
+) (map[string]string, error) {
 	if q.selectAll {
 		return rawRow, nil
 	}

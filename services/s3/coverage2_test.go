@@ -196,8 +196,14 @@ func TestListMultipartUploads_KeyMarkerPlusUploadIDMarker(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	// Use key-marker + upload-id-marker to skip the first upload for "same-key".
-	req := httptest.NewRequest(http.MethodGet,
-		fmt.Sprintf("/smm2-bucket?uploads&key-marker=same-key&upload-id-marker=%s", uploadIDs[0]), nil)
+	req := httptest.NewRequest(
+		http.MethodGet,
+		fmt.Sprintf(
+			"/smm2-bucket?uploads&key-marker=same-key&upload-id-marker=%s",
+			uploadIDs[0],
+		),
+		nil,
+	)
 	rec := httptest.NewRecorder()
 	serveS3Handler(handler, rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -255,7 +261,12 @@ func checksumB64SHA256(data []byte) string {
 	return base64.StdEncoding.EncodeToString(h.Sum(nil))
 }
 
-func doMultipartUpload(t *testing.T, handler *s3.S3Handler, backend s3.StorageBackend, bucket string) string {
+func doMultipartUpload(
+	t *testing.T,
+	handler *s3.S3Handler,
+	backend s3.StorageBackend,
+	bucket string,
+) string {
 	t.Helper()
 	mustCreateBucket(t, backend, bucket)
 
@@ -577,7 +588,10 @@ func TestSSE_KMS_ResponseHeaders(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPut, "/sse-kms-hdr/obj",
 		strings.NewReader("hello kms"))
 	req.Header.Set("X-Amz-Server-Side-Encryption", "aws:kms")
-	req.Header.Set("X-Amz-Server-Side-Encryption-Aws-Kms-Key-Id", "arn:aws:kms:us-east-1:123456789012:key/test-key")
+	req.Header.Set(
+		"X-Amz-Server-Side-Encryption-Aws-Kms-Key-Id",
+		"arn:aws:kms:us-east-1:123456789012:key/test-key",
+	)
 	rec := httptest.NewRecorder()
 	serveS3Handler(handler, rec, req)
 

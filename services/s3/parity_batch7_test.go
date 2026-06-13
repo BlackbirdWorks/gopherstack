@@ -119,20 +119,17 @@ func TestS3BucketReplication_PrefixFilter(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 	}
 
-	time.Sleep(200 * time.Millisecond) // let goroutines finish
+	// Wait for the replicated key to appear, then verify the non-replicated one is absent.
+	imgKey := "images/photo.jpg"
+	require.Eventually(t, func() bool {
+		_, err := bk.GetObject(t.Context(), &sdk_s3.GetObjectInput{Bucket: &dst, Key: &imgKey})
 
-	for _, tt := range tests {
-		ttKey := tt.key
-		_, err := bk.GetObject(t.Context(), &sdk_s3.GetObjectInput{
-			Bucket: &dst,
-			Key:    &ttKey,
-		})
-		if tt.wantRepl {
-			assert.NoError(t, err, "key %q should be replicated", tt.key)
-		} else {
-			assert.Error(t, err, "key %q should NOT be replicated", tt.key)
-		}
-	}
+		return err == nil
+	}, 3*time.Second, 50*time.Millisecond, "images/photo.jpg should be replicated to destination")
+
+	docKey := "documents/report.pdf"
+	_, err := bk.GetObject(t.Context(), &sdk_s3.GetObjectInput{Bucket: &dst, Key: &docKey})
+	assert.Error(t, err, "documents/report.pdf should NOT be replicated (prefix filter)")
 }
 
 func TestS3BucketReplication_DeleteMarker(t *testing.T) {
@@ -159,16 +156,18 @@ func TestS3BucketReplication_DeleteMarker(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 	}
 
-	// Put the object into both buckets BEFORE enabling replication. Doing the
-	// PUTs first ensures the source PUT does not spawn an object-replication
-	// goroutine that would otherwise race with (and re-create the object after)
-	// the delete-marker replication we are exercising below.
+	// Put the object into both buckets BEFORE enabling replication so that the
+	// replication goroutines spawned by these PUTs see an empty config and
+	// return immediately. DrainReplicationGoroutines ensures those goroutines
+	// finish before we set the config, preventing a race where a stale
+	// goroutine replicates the live object on top of a later delete marker.
 	for _, b := range []string{src, dst} {
 		req := httptest.NewRequest(http.MethodPut, "/"+b+"/note.txt", strings.NewReader("content"))
 		rec := httptest.NewRecorder()
 		serveS3Handler(handler, rec, req)
 		require.Equal(t, http.StatusOK, rec.Code)
 	}
+	bk.DrainReplicationGoroutines()
 
 	cfgXML := fmt.Sprintf(`<ReplicationConfiguration>
 <Role>arn:aws:iam::123456789012:role/repl</Role>
@@ -301,7 +300,11 @@ type captureLambdaB7 struct {
 	mu    sync.Mutex
 }
 
-func (c *captureLambdaB7) InvokeFunction(_ context.Context, name, _ string, _ []byte) ([]byte, int, error) {
+func (c *captureLambdaB7) InvokeFunction(
+	_ context.Context,
+	name, _ string,
+	_ []byte,
+) ([]byte, int, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.calls = append(c.calls, name)
@@ -328,7 +331,11 @@ func TestS3ObjectLambda_WriteGetObjectResponse(t *testing.T) {
 	serveS3Handler(handler, rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	req = httptest.NewRequest(http.MethodPut, "/"+bucket+"/"+key, strings.NewReader("original content"))
+	req = httptest.NewRequest(
+		http.MethodPut,
+		"/"+bucket+"/"+key,
+		strings.NewReader("original content"),
+	)
 	rec = httptest.NewRecorder()
 	serveS3Handler(handler, rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -346,7 +353,10 @@ func TestS3ObjectLambda_WriteGetObjectResponse(t *testing.T) {
 
 	// The lambda ignores the original object and writes back a hardcoded body.
 	// This tests the full WriteGetObjectResponse pipeline without recursive GetObject.
-	lambdaFn := &staticObjectLambda{serverURL: srv.URL, responseBody: objectLambdaTransformedContent}
+	lambdaFn := &staticObjectLambda{
+		serverURL:    srv.URL,
+		responseBody: objectLambdaTransformedContent,
+	}
 	targets := &s3.NotificationTargets{LambdaInvoker: lambdaFn}
 	handler.SetNotificationDispatcher(s3.NewNotificationDispatcher(targets, "us-east-1"))
 
@@ -366,7 +376,11 @@ type staticObjectLambda struct {
 	responseBody string
 }
 
-func (l *staticObjectLambda) InvokeFunction(_ context.Context, _, _ string, payload []byte) ([]byte, int, error) {
+func (l *staticObjectLambda) InvokeFunction(
+	_ context.Context,
+	_, _ string,
+	payload []byte,
+) ([]byte, int, error) {
 	var event struct {
 		GetObjectContext struct {
 			OutputToken string `json:"outputToken"`

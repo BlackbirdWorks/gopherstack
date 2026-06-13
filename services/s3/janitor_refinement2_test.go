@@ -98,7 +98,12 @@ func TestRefinement2_Lifecycle_SkipsLockedObjects(t *testing.T) {
 		keys = append(keys, aws.ToString(obj.Key))
 	}
 
-	assert.Contains(t, keys, "locked.txt", "retention-locked object must not be deleted by lifecycle")
+	assert.Contains(
+		t,
+		keys,
+		"locked.txt",
+		"retention-locked object must not be deleted by lifecycle",
+	)
 	assert.NotContains(t, keys, "free.txt", "unlocked object should be evicted")
 }
 

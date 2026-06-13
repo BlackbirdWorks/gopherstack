@@ -92,9 +92,12 @@ func TestHandler_AccessLogDispatch(t *testing.T) {
 
 			if !tt.wantLog {
 				require.Never(t, func() bool {
-					out, err := backend.ListObjectsV2(context.Background(), &sdk_s3.ListObjectsV2Input{
-						Bucket: aws.String(tt.bucket),
-					})
+					out, err := backend.ListObjectsV2(
+						context.Background(),
+						&sdk_s3.ListObjectsV2Input{
+							Bucket: aws.String(tt.bucket),
+						},
+					)
 
 					return err == nil && len(out.Contents) != tt.wantObjects
 				}, 100*time.Millisecond, 20*time.Millisecond)

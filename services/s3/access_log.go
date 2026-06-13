@@ -56,7 +56,10 @@ func (h *S3Handler) dispatchAccessLog(
 	logKey := buildAccessLogKey(prefix)
 
 	go func() {
-		dispatchCtx, cancel := context.WithTimeout(h.notificationDispatchContext(), accessLogDispatchTimeout)
+		dispatchCtx, cancel := context.WithTimeout(
+			h.notificationDispatchContext(),
+			accessLogDispatchTimeout,
+		)
 		defer cancel()
 
 		if _, putErr := h.Backend.PutObject(dispatchCtx, &awss3.PutObjectInput{

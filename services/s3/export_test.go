@@ -130,7 +130,10 @@ func BackdateObjectForTest(b *InMemoryBackend, bucketName, key string, t time.Ti
 
 // StorageClassTransitionsForObject returns the StorageClassTransitions history
 // for the latest version of an object. Used in janitor transition tests.
-func StorageClassTransitionsForObject(b *InMemoryBackend, bucketName, key string) []StorageClassTransition {
+func StorageClassTransitionsForObject(
+	b *InMemoryBackend,
+	bucketName, key string,
+) []StorageClassTransition {
 	b.mu.RLock("StorageClassTransitionsForObject")
 	region, ok := b.bucketIndex[bucketName]
 	if !ok {

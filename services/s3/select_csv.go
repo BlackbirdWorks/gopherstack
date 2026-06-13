@@ -12,7 +12,12 @@ import (
 
 // evaluateCSVQuery reads all CSV rows from data, applies the SQL query, and streams results.
 // All rows are collected before evaluation so that ORDER BY and aggregate functions work correctly.
-func evaluateCSVQuery(w io.Writer, query *sqlQuery, data []byte, req *selectRequest) (int64, error) {
+func evaluateCSVQuery(
+	w io.Writer,
+	query *sqlQuery,
+	data []byte,
+	req *selectRequest,
+) (int64, error) {
 	csvIn := req.InputSerialization.CSV
 	fileHeaderInfo := csvFileHeaderInfo(csvIn)
 	r := newCSVReader(csvIn, data)
@@ -128,7 +133,10 @@ func prepareCSVHeaders(fileHeaderInfo string, firstRecord []string) []string {
 	return headers
 }
 
-func serializeCSVQueryResults(resultRows []map[string]string, out selectOutputSerialization) ([]byte, error) {
+func serializeCSVQueryResults(
+	resultRows []map[string]string,
+	out selectOutputSerialization,
+) ([]byte, error) {
 	if out.JSON != nil {
 		return serializeCSVRowsAsJSON(resultRows, out.JSON)
 	}
