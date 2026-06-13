@@ -1200,12 +1200,12 @@ func (rc *ResourceCreator) createLambdaEventInvokeConfig(
 		return logicalID + "-stub", nil
 	}
 
-	cfg, err := ib.PutFunctionEventInvokeConfig(functionName, input)
+	_, err := ib.PutFunctionEventInvokeConfig(functionName, input)
 	if err != nil {
 		return "", fmt.Errorf("create Lambda EventInvokeConfig for %s: %w", functionName, err)
 	}
 
-	return cfg.FunctionArn, nil
+	return functionName, nil
 }
 
 func (rc *ResourceCreator) deleteLambdaEventInvokeConfig(physicalID string) error {
