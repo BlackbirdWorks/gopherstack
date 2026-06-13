@@ -476,11 +476,9 @@ func (b *InMemoryBackend) PutObject(
 		"versionId", newVersionID)
 
 	// Async replication to configured destination buckets.
-	b.replicationWg.Add(1)
-	go func() {
-		defer b.replicationWg.Done()
+	b.replicationWg.Go(func() {
 		b.triggerReplication(ctx, bucketName, key, finalQuotedETag)
-	}()
+	})
 
 	return &s3.PutObjectOutput{
 		ETag:              aws.String(finalQuotedETag),
@@ -863,11 +861,9 @@ func (b *InMemoryBackend) DeleteObject(
 
 	// Async delete-marker replication when versioning created a delete marker.
 	if out.DeleteMarker != nil && aws.ToBool(out.DeleteMarker) {
-		b.replicationWg.Add(1)
-		go func() {
-			defer b.replicationWg.Done()
+		b.replicationWg.Go(func() {
 			b.triggerDeleteMarkerReplication(ctx, bucketName, *input.Key)
-		}()
+		})
 	}
 
 	return out, nil

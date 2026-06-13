@@ -142,13 +142,21 @@ func TestHandler_DeleteObjects_BulkOps(t *testing.T) {
 			mustCreateBucket(t, backend, tt.bucket)
 
 			for _, key := range tt.setupObjects {
-				putReq := httptest.NewRequest(http.MethodPut, "/"+tt.bucket+"/"+key, strings.NewReader("data"))
+				putReq := httptest.NewRequest(
+					http.MethodPut,
+					"/"+tt.bucket+"/"+key,
+					strings.NewReader("data"),
+				)
 				putRec := httptest.NewRecorder()
 				serveS3Handler(handler, putRec, putReq)
 				require.Equal(t, http.StatusOK, putRec.Code)
 			}
 
-			req := httptest.NewRequest(http.MethodPost, "/"+tt.bucket+"?delete", strings.NewReader(tt.deleteBody))
+			req := httptest.NewRequest(
+				http.MethodPost,
+				"/"+tt.bucket+"?delete",
+				strings.NewReader(tt.deleteBody),
+			)
 			rec := httptest.NewRecorder()
 			serveS3Handler(handler, rec, req)
 
@@ -186,7 +194,11 @@ func TestHandler_DeleteObjectTagging(t *testing.T) {
 			handler, backend := newTestHandler(t)
 			mustCreateBucket(t, backend, tt.bucket)
 
-			putReq := httptest.NewRequest(http.MethodPut, "/"+tt.bucket+"/"+tt.key, strings.NewReader("data"))
+			putReq := httptest.NewRequest(
+				http.MethodPut,
+				"/"+tt.bucket+"/"+tt.key,
+				strings.NewReader("data"),
+			)
 			putRec := httptest.NewRecorder()
 			serveS3Handler(handler, putRec, putReq)
 			require.Equal(t, http.StatusOK, putRec.Code)
@@ -200,7 +212,11 @@ func TestHandler_DeleteObjectTagging(t *testing.T) {
 			serveS3Handler(handler, tagRec, tagReq)
 			require.Equal(t, http.StatusOK, tagRec.Code)
 
-			delReq := httptest.NewRequest(http.MethodDelete, "/"+tt.bucket+"/"+tt.key+"?tagging", nil)
+			delReq := httptest.NewRequest(
+				http.MethodDelete,
+				"/"+tt.bucket+"/"+tt.key+"?tagging",
+				nil,
+			)
 			delRec := httptest.NewRecorder()
 			serveS3Handler(handler, delRec, delReq)
 
@@ -267,7 +283,11 @@ func TestHandler_GetObject_WithChecksumMode(t *testing.T) {
 			handler, backend := newTestHandler(t)
 			mustCreateBucket(t, backend, tt.bucket)
 
-			putReq := httptest.NewRequest(http.MethodPut, "/"+tt.bucket+"/"+tt.key, strings.NewReader(tt.body))
+			putReq := httptest.NewRequest(
+				http.MethodPut,
+				"/"+tt.bucket+"/"+tt.key,
+				strings.NewReader(tt.body),
+			)
 			putReq.Header.Set("X-Amz-Checksum-Algorithm", "SHA256")
 			putRec := httptest.NewRecorder()
 			serveS3Handler(handler, putRec, putReq)
@@ -359,7 +379,11 @@ func TestHandler_DeleteObject_Versioned(t *testing.T) {
 			handler, backend := newTestHandler(t)
 			mustCreateBucket(t, backend, tt.bucket)
 
-			putReq := httptest.NewRequest(http.MethodPut, "/"+tt.bucket+"/"+tt.key, strings.NewReader("data"))
+			putReq := httptest.NewRequest(
+				http.MethodPut,
+				"/"+tt.bucket+"/"+tt.key,
+				strings.NewReader("data"),
+			)
 			putRec := httptest.NewRecorder()
 			serveS3Handler(handler, putRec, putReq)
 			require.Equal(t, http.StatusOK, putRec.Code)
@@ -428,7 +452,11 @@ func TestHandler_DeleteBucket_NotEmpty(t *testing.T) {
 			handler, backend := newTestHandler(t)
 			mustCreateBucket(t, backend, tt.bucket)
 
-			putReq := httptest.NewRequest(http.MethodPut, "/"+tt.bucket+"/"+tt.objectKey, strings.NewReader("data"))
+			putReq := httptest.NewRequest(
+				http.MethodPut,
+				"/"+tt.bucket+"/"+tt.objectKey,
+				strings.NewReader("data"),
+			)
 			putRec := httptest.NewRecorder()
 			serveS3Handler(handler, putRec, putReq)
 			require.Equal(t, http.StatusOK, putRec.Code)

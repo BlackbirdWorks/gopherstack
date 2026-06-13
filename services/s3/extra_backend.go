@@ -36,7 +36,10 @@ func newStoredObject(key string) *StoredObject {
 // Reuses ErrNoSuchKey from errors.go via the s3 package.
 
 // PutBucketAccelerateConfiguration stores the accelerate status ("Enabled"/"Suspended") for a bucket.
-func (b *InMemoryBackend) PutBucketAccelerateConfiguration(_ context.Context, bucketName, status string) error {
+func (b *InMemoryBackend) PutBucketAccelerateConfiguration(
+	_ context.Context,
+	bucketName, status string,
+) error {
 	b.mu.RLock("PutBucketAccelerateConfiguration")
 	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
@@ -55,7 +58,10 @@ func (b *InMemoryBackend) PutBucketAccelerateConfiguration(_ context.Context, bu
 
 // GetBucketAccelerateConfiguration returns the bucket's accelerate status.
 // When unset the AWS default of "Suspended" is returned.
-func (b *InMemoryBackend) GetBucketAccelerateConfiguration(_ context.Context, bucketName string) (string, error) {
+func (b *InMemoryBackend) GetBucketAccelerateConfiguration(
+	_ context.Context,
+	bucketName string,
+) (string, error) {
 	b.mu.RLock("GetBucketAccelerateConfiguration")
 	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
@@ -75,7 +81,10 @@ func (b *InMemoryBackend) GetBucketAccelerateConfiguration(_ context.Context, bu
 }
 
 // PutBucketRequestPayment stores the request-payment payer ("BucketOwner" or "Requester").
-func (b *InMemoryBackend) PutBucketRequestPayment(_ context.Context, bucketName, payer string) error {
+func (b *InMemoryBackend) PutBucketRequestPayment(
+	_ context.Context,
+	bucketName, payer string,
+) error {
 	b.mu.RLock("PutBucketRequestPayment")
 	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
@@ -93,7 +102,10 @@ func (b *InMemoryBackend) PutBucketRequestPayment(_ context.Context, bucketName,
 }
 
 // GetBucketRequestPayment returns the request-payment payer; defaults to "BucketOwner".
-func (b *InMemoryBackend) GetBucketRequestPayment(_ context.Context, bucketName string) (string, error) {
+func (b *InMemoryBackend) GetBucketRequestPayment(
+	_ context.Context,
+	bucketName string,
+) (string, error) {
 	b.mu.RLock("GetBucketRequestPayment")
 	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
@@ -228,7 +240,10 @@ func (b *InMemoryBackend) RestoreObject(_ context.Context, bucketName, key strin
 
 // UpdateObjectEncryption updates the SSE algorithm (and optional KMS key id)
 // of the latest version of the named object.
-func (b *InMemoryBackend) UpdateObjectEncryption(_ context.Context, bucketName, key, algorithm, kmsKeyID string) error {
+func (b *InMemoryBackend) UpdateObjectEncryption(
+	_ context.Context,
+	bucketName, key, algorithm, kmsKeyID string,
+) error {
 	b.mu.RLock("UpdateObjectEncryption")
 	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
@@ -261,7 +276,10 @@ func (b *InMemoryBackend) UpdateObjectEncryption(_ context.Context, bucketName, 
 
 // PutObjectACL stores the ACL XML/canned-ACL header on the latest object version.
 // versionID may be empty to target the latest version.
-func (b *InMemoryBackend) PutObjectACL(_ context.Context, bucketName, key, versionID, acl string) error {
+func (b *InMemoryBackend) PutObjectACL(
+	_ context.Context,
+	bucketName, key, versionID, acl string,
+) error {
 	b.mu.RLock("PutObjectACL")
 	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
@@ -299,7 +317,10 @@ func (b *InMemoryBackend) PutObjectACL(_ context.Context, bucketName, key, versi
 // GetObjectACL returns the persisted ACL XML for the targeted version, or
 // "" when no explicit ACL has been set (caller should synthesise the default
 // owner-FULL_CONTROL grant in that case).
-func (b *InMemoryBackend) GetObjectACL(_ context.Context, bucketName, key, versionID string) (string, error) {
+func (b *InMemoryBackend) GetObjectACL(
+	_ context.Context,
+	bucketName, key, versionID string,
+) (string, error) {
 	b.mu.RLock("GetObjectACL")
 	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
@@ -334,7 +355,10 @@ func (b *InMemoryBackend) GetObjectACL(_ context.Context, bucketName, key, versi
 
 // RenameObject performs an atomic copy+delete of the source key into a new key.
 // The target key is taken from `targetKey` (relative to the same bucket).
-func (b *InMemoryBackend) RenameObject(_ context.Context, bucketName, sourceKey, targetKey string) error {
+func (b *InMemoryBackend) RenameObject(
+	_ context.Context,
+	bucketName, sourceKey, targetKey string,
+) error {
 	if targetKey == "" || targetKey == sourceKey {
 		return ErrRenameTargetSameAsSource
 	}

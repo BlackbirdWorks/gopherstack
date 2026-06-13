@@ -1555,11 +1555,18 @@ func TestS3CORSPreflightRuleEnforcement(t *testing.T) {
 			handler, sdkClient := newTestHandler(t)
 			bucket := "cors-enforce-bucket"
 
-			_, err := sdkClient.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{Bucket: &bucket})
+			_, err := sdkClient.CreateBucket(
+				t.Context(),
+				&sdk_s3.CreateBucketInput{Bucket: &bucket},
+			)
 			require.NoError(t, err)
 
 			// Put CORS config
-			req := httptest.NewRequest(http.MethodPut, "/"+bucket+"?cors", strings.NewReader(tt.corsXML))
+			req := httptest.NewRequest(
+				http.MethodPut,
+				"/"+bucket+"?cors",
+				strings.NewReader(tt.corsXML),
+			)
 			rec := httptest.NewRecorder()
 			serveS3Handler(handler, rec, req)
 			require.Equal(t, http.StatusOK, rec.Code)
@@ -1625,10 +1632,17 @@ func TestS3BucketCORSValidation(t *testing.T) {
 			handler, sdkClient := newTestHandler(t)
 			bucket := "cors-validation-bucket"
 
-			_, err := sdkClient.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{Bucket: &bucket})
+			_, err := sdkClient.CreateBucket(
+				t.Context(),
+				&sdk_s3.CreateBucketInput{Bucket: &bucket},
+			)
 			require.NoError(t, err)
 
-			req := httptest.NewRequest(http.MethodPut, "/"+bucket+"?cors", strings.NewReader(tt.corsXML))
+			req := httptest.NewRequest(
+				http.MethodPut,
+				"/"+bucket+"?cors",
+				strings.NewReader(tt.corsXML),
+			)
 			rec := httptest.NewRecorder()
 			serveS3Handler(handler, rec, req)
 
@@ -1654,7 +1668,11 @@ func TestS3BucketLifecycleCRUD(t *testing.T) {
 		`<Status>Enabled</Status><Expiration><Days>30</Days></Expiration></Rule></LifecycleConfiguration>`
 
 	// PutBucketLifecycleConfiguration
-	req := httptest.NewRequest(http.MethodPut, "/"+bucket+"?lifecycle", strings.NewReader(lifecycleXML))
+	req := httptest.NewRequest(
+		http.MethodPut,
+		"/"+bucket+"?lifecycle",
+		strings.NewReader(lifecycleXML),
+	)
 	rec := httptest.NewRecorder()
 	serveS3Handler(handler, rec, req)
 	assert.Equal(t, http.StatusNoContent, rec.Code)
@@ -1693,7 +1711,11 @@ func TestS3BucketNotificationCRUD(t *testing.T) {
 		`<Event>s3:ObjectCreated:*</Event></TopicConfiguration></NotificationConfiguration>`
 
 	// PutBucketNotificationConfiguration
-	req := httptest.NewRequest(http.MethodPut, "/"+bucket+"?notification", strings.NewReader(notifXML))
+	req := httptest.NewRequest(
+		http.MethodPut,
+		"/"+bucket+"?notification",
+		strings.NewReader(notifXML),
+	)
 	rec := httptest.NewRecorder()
 	serveS3Handler(handler, rec, req)
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -1707,7 +1729,10 @@ func TestS3BucketNotificationCRUD(t *testing.T) {
 
 	// GetBucketNotificationConfiguration on bucket without notifications
 	bucket2 := "notif-empty-bucket"
-	_, err = sdkClient.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{Bucket: aws.String(bucket2)})
+	_, err = sdkClient.CreateBucket(
+		t.Context(),
+		&sdk_s3.CreateBucketInput{Bucket: aws.String(bucket2)},
+	)
 	require.NoError(t, err)
 
 	req = httptest.NewRequest(http.MethodGet, "/"+bucket2+"?notification", nil)
@@ -1775,7 +1800,11 @@ func TestS3BucketWebsite_MalformedXML(t *testing.T) {
 	_, err := sdkClient.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{Bucket: &bucket})
 	require.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodPut, "/"+bucket+"?website", strings.NewReader("not-valid-xml"))
+	req := httptest.NewRequest(
+		http.MethodPut,
+		"/"+bucket+"?website",
+		strings.NewReader("not-valid-xml"),
+	)
 	rec := httptest.NewRecorder()
 	serveS3Handler(handler, rec, req)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
@@ -1828,7 +1857,10 @@ func TestS3PublicAccessBlockCRUD(t *testing.T) {
 			handler, sdkClient := newTestHandler(t)
 			bucket := "pab-test-" + tt.name
 
-			_, err := sdkClient.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{Bucket: &bucket})
+			_, err := sdkClient.CreateBucket(
+				t.Context(),
+				&sdk_s3.CreateBucketInput{Bucket: &bucket},
+			)
 			require.NoError(t, err)
 
 			// GetPublicAccessBlock before put → 404
@@ -1838,7 +1870,11 @@ func TestS3PublicAccessBlockCRUD(t *testing.T) {
 			assert.Equal(t, http.StatusNotFound, rec.Code)
 
 			// PutPublicAccessBlock
-			req = httptest.NewRequest(http.MethodPut, "/"+bucket+"?publicAccessBlock", strings.NewReader(tt.configXML))
+			req = httptest.NewRequest(
+				http.MethodPut,
+				"/"+bucket+"?publicAccessBlock",
+				strings.NewReader(tt.configXML),
+			)
 			rec = httptest.NewRecorder()
 			serveS3Handler(handler, rec, req)
 			assert.Equal(t, tt.wantPut, rec.Code)
@@ -1874,7 +1910,11 @@ func TestS3PublicAccessBlock_MalformedXML(t *testing.T) {
 	_, err := sdkClient.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{Bucket: &bucket})
 	require.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodPut, "/"+bucket+"?publicAccessBlock", strings.NewReader("not-valid-xml"))
+	req := httptest.NewRequest(
+		http.MethodPut,
+		"/"+bucket+"?publicAccessBlock",
+		strings.NewReader("not-valid-xml"),
+	)
 	rec := httptest.NewRecorder()
 	serveS3Handler(handler, rec, req)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
@@ -1921,7 +1961,10 @@ func TestS3BucketOwnershipControlsCRUD(t *testing.T) {
 			handler, sdkClient := newTestHandler(t)
 			bucket := "ownership-test-" + tt.name
 
-			_, err := sdkClient.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{Bucket: &bucket})
+			_, err := sdkClient.CreateBucket(
+				t.Context(),
+				&sdk_s3.CreateBucketInput{Bucket: &bucket},
+			)
 			require.NoError(t, err)
 
 			// GetBucketOwnershipControls before put → 404
@@ -1931,7 +1974,11 @@ func TestS3BucketOwnershipControlsCRUD(t *testing.T) {
 			assert.Equal(t, http.StatusNotFound, rec.Code)
 
 			// PutBucketOwnershipControls
-			req = httptest.NewRequest(http.MethodPut, "/"+bucket+"?ownershipControls", strings.NewReader(tt.configXML))
+			req = httptest.NewRequest(
+				http.MethodPut,
+				"/"+bucket+"?ownershipControls",
+				strings.NewReader(tt.configXML),
+			)
 			rec = httptest.NewRecorder()
 			serveS3Handler(handler, rec, req)
 			assert.Equal(t, tt.wantPut, rec.Code)
@@ -1967,7 +2014,11 @@ func TestS3BucketOwnershipControls_MalformedXML(t *testing.T) {
 	_, err := sdkClient.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{Bucket: &bucket})
 	require.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodPut, "/"+bucket+"?ownershipControls", strings.NewReader("not-valid-xml"))
+	req := httptest.NewRequest(
+		http.MethodPut,
+		"/"+bucket+"?ownershipControls",
+		strings.NewReader("not-valid-xml"),
+	)
 	rec := httptest.NewRecorder()
 	serveS3Handler(handler, rec, req)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
@@ -2013,7 +2064,10 @@ func TestS3BucketLoggingCRUD(t *testing.T) {
 			handler, sdkClient := newTestHandler(t)
 			bucket := "logging-test-" + tt.name
 
-			_, err := sdkClient.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{Bucket: &bucket})
+			_, err := sdkClient.CreateBucket(
+				t.Context(),
+				&sdk_s3.CreateBucketInput{Bucket: &bucket},
+			)
 			require.NoError(t, err)
 
 			// GetBucketLogging before put → empty BucketLoggingStatus (not an error)
@@ -2024,7 +2078,11 @@ func TestS3BucketLoggingCRUD(t *testing.T) {
 			assert.Contains(t, rec.Body.String(), "BucketLoggingStatus")
 
 			// PutBucketLogging
-			req = httptest.NewRequest(http.MethodPut, "/"+bucket+"?logging", strings.NewReader(tt.configXML))
+			req = httptest.NewRequest(
+				http.MethodPut,
+				"/"+bucket+"?logging",
+				strings.NewReader(tt.configXML),
+			)
 			rec = httptest.NewRecorder()
 			serveS3Handler(handler, rec, req)
 			assert.Equal(t, tt.wantPut, rec.Code)
@@ -2048,7 +2106,11 @@ func TestS3BucketLogging_MalformedXML(t *testing.T) {
 	_, err := sdkClient.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{Bucket: &bucket})
 	require.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodPut, "/"+bucket+"?logging", strings.NewReader("not-valid-xml"))
+	req := httptest.NewRequest(
+		http.MethodPut,
+		"/"+bucket+"?logging",
+		strings.NewReader("not-valid-xml"),
+	)
 	rec := httptest.NewRecorder()
 	serveS3Handler(handler, rec, req)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
@@ -2093,7 +2155,10 @@ func TestS3BucketReplicationCRUD(t *testing.T) {
 			handler, sdkClient := newTestHandler(t)
 			bucket := "replication-test-" + tt.name
 
-			_, err := sdkClient.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{Bucket: &bucket})
+			_, err := sdkClient.CreateBucket(
+				t.Context(),
+				&sdk_s3.CreateBucketInput{Bucket: &bucket},
+			)
 			require.NoError(t, err)
 
 			// GetBucketReplication before put → 404
@@ -2104,7 +2169,11 @@ func TestS3BucketReplicationCRUD(t *testing.T) {
 			assert.Contains(t, rec.Body.String(), "ReplicationConfigurationNotFoundError")
 
 			// PutBucketReplication
-			req = httptest.NewRequest(http.MethodPut, "/"+bucket+"?replication", strings.NewReader(tt.configXML))
+			req = httptest.NewRequest(
+				http.MethodPut,
+				"/"+bucket+"?replication",
+				strings.NewReader(tt.configXML),
+			)
 			rec = httptest.NewRecorder()
 			serveS3Handler(handler, rec, req)
 			assert.Equal(t, tt.wantPut, rec.Code)
@@ -2140,7 +2209,11 @@ func TestS3BucketReplication_MalformedXML(t *testing.T) {
 	_, err := sdkClient.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{Bucket: &bucket})
 	require.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodPut, "/"+bucket+"?replication", strings.NewReader("not-valid-xml"))
+	req := httptest.NewRequest(
+		http.MethodPut,
+		"/"+bucket+"?replication",
+		strings.NewReader("not-valid-xml"),
+	)
 	rec := httptest.NewRecorder()
 	serveS3Handler(handler, rec, req)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
@@ -2208,24 +2281,45 @@ func TestS3NewOperations_NonExistentBucket(t *testing.T) {
 		path   string
 		body   string
 	}{
-		{name: "GetPublicAccessBlock_NoSuchBucket", method: http.MethodGet, path: "/missing?publicAccessBlock"},
+		{
+			name:   "GetPublicAccessBlock_NoSuchBucket",
+			method: http.MethodGet,
+			path:   "/missing?publicAccessBlock",
+		},
 		{
 			name:   "PutPublicAccessBlock_NoSuchBucket",
 			method: http.MethodPut,
 			path:   "/missing?publicAccessBlock",
 			body:   publicAccessXML,
 		},
-		{name: "DeletePublicAccessBlock_NoSuchBucket", method: http.MethodDelete, path: "/missing?publicAccessBlock"},
-		{name: "GetOwnershipControls_NoSuchBucket", method: http.MethodGet, path: "/missing?ownershipControls"},
+		{
+			name:   "DeletePublicAccessBlock_NoSuchBucket",
+			method: http.MethodDelete,
+			path:   "/missing?publicAccessBlock",
+		},
+		{
+			name:   "GetOwnershipControls_NoSuchBucket",
+			method: http.MethodGet,
+			path:   "/missing?ownershipControls",
+		},
 		{
 			name:   "PutOwnershipControls_NoSuchBucket",
 			method: http.MethodPut,
 			path:   "/missing?ownershipControls",
 			body:   ownershipXML,
 		},
-		{name: "DeleteOwnershipControls_NoSuchBucket", method: http.MethodDelete, path: "/missing?ownershipControls"},
+		{
+			name:   "DeleteOwnershipControls_NoSuchBucket",
+			method: http.MethodDelete,
+			path:   "/missing?ownershipControls",
+		},
 		{name: "GetLogging_NoSuchBucket", method: http.MethodGet, path: "/missing?logging"},
-		{name: "PutLogging_NoSuchBucket", method: http.MethodPut, path: "/missing?logging", body: loggingXML},
+		{
+			name:   "PutLogging_NoSuchBucket",
+			method: http.MethodPut,
+			path:   "/missing?logging",
+			body:   loggingXML,
+		},
 		{name: "GetReplication_NoSuchBucket", method: http.MethodGet, path: "/missing?replication"},
 		{
 			name:   "PutReplication_NoSuchBucket",
@@ -2233,7 +2327,11 @@ func TestS3NewOperations_NonExistentBucket(t *testing.T) {
 			path:   "/missing?replication",
 			body:   replicationXML,
 		},
-		{name: "DeleteReplication_NoSuchBucket", method: http.MethodDelete, path: "/missing?replication"},
+		{
+			name:   "DeleteReplication_NoSuchBucket",
+			method: http.MethodDelete,
+			path:   "/missing?replication",
+		},
 	}
 
 	for _, tt := range tests {
@@ -2339,7 +2437,11 @@ func TestHandler_ServeWebsite(t *testing.T) {
 			}
 
 			e := echo.New()
-			req := httptest.NewRequest(http.MethodGet, "/_gopherstack/website/"+tt.bucket+"/"+tt.key, nil)
+			req := httptest.NewRequest(
+				http.MethodGet,
+				"/_gopherstack/website/"+tt.bucket+"/"+tt.key,
+				nil,
+			)
 			logCtx := logger.Save(req.Context(), slog.Default())
 			req = req.WithContext(logCtx)
 			rec := httptest.NewRecorder()
@@ -2406,7 +2508,9 @@ func TestS3_BucketAnalyticsConfig(t *testing.T) {
 				t.Helper()
 				mustCreateBucket(t, backend, "analytics-bucket")
 				req := httptest.NewRequest(
-					http.MethodPut, "/analytics-bucket?analytics&id=test-analytics", strings.NewReader(analyticsXML),
+					http.MethodPut,
+					"/analytics-bucket?analytics&id=test-analytics",
+					strings.NewReader(analyticsXML),
 				)
 				rec := httptest.NewRecorder()
 				serveS3Handler(handler, rec, req)
@@ -2445,7 +2549,9 @@ func TestS3_BucketAnalyticsConfig(t *testing.T) {
 				t.Helper()
 				mustCreateBucket(t, backend, "analytics-bucket")
 				req := httptest.NewRequest(
-					http.MethodPut, "/analytics-bucket?analytics&id=cfg1", strings.NewReader(analyticsXML),
+					http.MethodPut,
+					"/analytics-bucket?analytics&id=cfg1",
+					strings.NewReader(analyticsXML),
 				)
 				rec := httptest.NewRecorder()
 				serveS3Handler(handler, rec, req)
@@ -2558,7 +2664,9 @@ func TestS3_BucketIntelligentTieringConfig(t *testing.T) {
 				t.Helper()
 				mustCreateBucket(t, backend, "it-bucket")
 				req := httptest.NewRequest(
-					http.MethodPut, "/it-bucket?intelligent-tiering&id=tier-config", strings.NewReader(tieringXML),
+					http.MethodPut,
+					"/it-bucket?intelligent-tiering&id=tier-config",
+					strings.NewReader(tieringXML),
 				)
 				rec := httptest.NewRecorder()
 				serveS3Handler(handler, rec, req)
@@ -2682,7 +2790,9 @@ func TestS3_BucketInventoryConfig(t *testing.T) {
 				t.Helper()
 				mustCreateBucket(t, backend, "inventory-bucket")
 				req := httptest.NewRequest(
-					http.MethodPut, "/inventory-bucket?inventory&id=inv-config", strings.NewReader(inventoryXML),
+					http.MethodPut,
+					"/inventory-bucket?inventory&id=inv-config",
+					strings.NewReader(inventoryXML),
 				)
 				rec := httptest.NewRecorder()
 				serveS3Handler(handler, rec, req)
@@ -2710,7 +2820,9 @@ func TestS3_BucketInventoryConfig(t *testing.T) {
 				t.Helper()
 				mustCreateBucket(t, backend, "inventory-bucket")
 				req := httptest.NewRequest(
-					http.MethodPut, "/inventory-bucket?inventory&id=cfg1", strings.NewReader(inventoryXML),
+					http.MethodPut,
+					"/inventory-bucket?inventory&id=cfg1",
+					strings.NewReader(inventoryXML),
 				)
 				rec := httptest.NewRecorder()
 				serveS3Handler(handler, rec, req)
@@ -3095,7 +3207,9 @@ func TestS3_BucketMetricsConfig(t *testing.T) {
 				t.Helper()
 				mustCreateBucket(t, backend, "metrics-bucket")
 				req := httptest.NewRequest(
-					http.MethodPut, "/metrics-bucket?metrics&id=metrics-config", strings.NewReader(metricsXML),
+					http.MethodPut,
+					"/metrics-bucket?metrics&id=metrics-config",
+					strings.NewReader(metricsXML),
 				)
 				rec := httptest.NewRecorder()
 				serveS3Handler(handler, rec, req)
@@ -3238,19 +3352,46 @@ func TestS3_NewOperations_SupportedOperations(t *testing.T) {
 		name string
 		want string
 	}{
-		{name: "includes CreateBucketMetadataConfiguration", want: "CreateBucketMetadataConfiguration"},
+		{
+			name: "includes CreateBucketMetadataConfiguration",
+			want: "CreateBucketMetadataConfiguration",
+		},
 		{name: "includes GetBucketMetadataConfiguration", want: "GetBucketMetadataConfiguration"},
-		{name: "includes DeleteBucketMetadataConfiguration", want: "DeleteBucketMetadataConfiguration"},
-		{name: "includes CreateBucketMetadataTableConfiguration", want: "CreateBucketMetadataTableConfiguration"},
-		{name: "includes GetBucketMetadataTableConfiguration", want: "GetBucketMetadataTableConfiguration"},
-		{name: "includes DeleteBucketMetadataTableConfiguration", want: "DeleteBucketMetadataTableConfiguration"},
+		{
+			name: "includes DeleteBucketMetadataConfiguration",
+			want: "DeleteBucketMetadataConfiguration",
+		},
+		{
+			name: "includes CreateBucketMetadataTableConfiguration",
+			want: "CreateBucketMetadataTableConfiguration",
+		},
+		{
+			name: "includes GetBucketMetadataTableConfiguration",
+			want: "GetBucketMetadataTableConfiguration",
+		},
+		{
+			name: "includes DeleteBucketMetadataTableConfiguration",
+			want: "DeleteBucketMetadataTableConfiguration",
+		},
 		{name: "includes CreateSession", want: "CreateSession"},
 		{name: "includes PutBucketAnalyticsConfiguration", want: "PutBucketAnalyticsConfiguration"},
 		{name: "includes GetBucketAnalyticsConfiguration", want: "GetBucketAnalyticsConfiguration"},
-		{name: "includes DeleteBucketAnalyticsConfiguration", want: "DeleteBucketAnalyticsConfiguration"},
-		{name: "includes ListBucketAnalyticsConfigurations", want: "ListBucketAnalyticsConfigurations"},
-		{name: "includes PutBucketIntelligentTieringConfiguration", want: "PutBucketIntelligentTieringConfiguration"},
-		{name: "includes GetBucketIntelligentTieringConfiguration", want: "GetBucketIntelligentTieringConfiguration"},
+		{
+			name: "includes DeleteBucketAnalyticsConfiguration",
+			want: "DeleteBucketAnalyticsConfiguration",
+		},
+		{
+			name: "includes ListBucketAnalyticsConfigurations",
+			want: "ListBucketAnalyticsConfigurations",
+		},
+		{
+			name: "includes PutBucketIntelligentTieringConfiguration",
+			want: "PutBucketIntelligentTieringConfiguration",
+		},
+		{
+			name: "includes GetBucketIntelligentTieringConfiguration",
+			want: "GetBucketIntelligentTieringConfiguration",
+		},
 		{
 			name: "includes DeleteBucketIntelligentTieringConfiguration",
 			want: "DeleteBucketIntelligentTieringConfiguration",
@@ -3261,12 +3402,21 @@ func TestS3_NewOperations_SupportedOperations(t *testing.T) {
 		},
 		{name: "includes PutBucketInventoryConfiguration", want: "PutBucketInventoryConfiguration"},
 		{name: "includes GetBucketInventoryConfiguration", want: "GetBucketInventoryConfiguration"},
-		{name: "includes DeleteBucketInventoryConfiguration", want: "DeleteBucketInventoryConfiguration"},
-		{name: "includes ListBucketInventoryConfigurations", want: "ListBucketInventoryConfigurations"},
+		{
+			name: "includes DeleteBucketInventoryConfiguration",
+			want: "DeleteBucketInventoryConfiguration",
+		},
+		{
+			name: "includes ListBucketInventoryConfigurations",
+			want: "ListBucketInventoryConfigurations",
+		},
 		{name: "includes DeleteBucketLifecycle", want: "DeleteBucketLifecycle"},
 		{name: "includes PutBucketMetricsConfiguration", want: "PutBucketMetricsConfiguration"},
 		{name: "includes GetBucketMetricsConfiguration", want: "GetBucketMetricsConfiguration"},
-		{name: "includes DeleteBucketMetricsConfiguration", want: "DeleteBucketMetricsConfiguration"},
+		{
+			name: "includes DeleteBucketMetricsConfiguration",
+			want: "DeleteBucketMetricsConfiguration",
+		},
 		{name: "includes ListBucketMetricsConfigurations", want: "ListBucketMetricsConfigurations"},
 	}
 
@@ -3412,7 +3562,12 @@ func TestHandler_MultipartUpload_ETagFormat(t *testing.T) {
 	require.Equal(t, http.StatusOK, recGet.Code)
 
 	etag := recGet.Header().Get("ETag")
-	assert.True(t, strings.HasSuffix(etag, "-2\""), "multipart ETag should end with -2\" got: %s", etag)
+	assert.True(
+		t,
+		strings.HasSuffix(etag, "-2\""),
+		"multipart ETag should end with -2\" got: %s",
+		etag,
+	)
 	assert.True(t, strings.HasPrefix(etag, "\""), "ETag should start with quote, got: %s", etag)
 }
 
@@ -3430,8 +3585,18 @@ func TestHandler_GetObject_ExpirationHeader(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	// x-amz-expiration is not always present (only with lifecycle), but
 	// we verify the handler completes without error for both HEAD and GET.
-	assert.Equal(t, "bytes", rec.Header().Get("Accept-Ranges"), "Accept-Ranges should be set on GET")
-	assert.Equal(t, "STANDARD", rec.Header().Get("X-Amz-Storage-Class"), "X-Amz-Storage-Class should be STANDARD")
+	assert.Equal(
+		t,
+		"bytes",
+		rec.Header().Get("Accept-Ranges"),
+		"Accept-Ranges should be set on GET",
+	)
+	assert.Equal(
+		t,
+		"STANDARD",
+		rec.Header().Get("X-Amz-Storage-Class"),
+		"X-Amz-Storage-Class should be STANDARD",
+	)
 }
 
 func TestHandler_HeadObject_StorageClassAndAcceptRanges(t *testing.T) {
@@ -3463,7 +3628,12 @@ func TestHandler_GetObject_RangeContentLength(t *testing.T) {
 	serveS3Handler(handler, rec, req)
 
 	require.Equal(t, http.StatusPartialContent, rec.Code)
-	assert.Equal(t, "4", rec.Header().Get("Content-Length"), "range response should have correct Content-Length")
+	assert.Equal(
+		t,
+		"4",
+		rec.Header().Get("Content-Length"),
+		"range response should have correct Content-Length",
+	)
 	assert.Equal(t, "bytes 2-5/10", rec.Header().Get("Content-Range"))
 	assert.Equal(t, "2345", rec.Body.String())
 }
@@ -3491,7 +3661,11 @@ func TestHandler_ListMultipartUploads_MaxUploads(t *testing.T) {
 	// Create 5 multipart uploads
 	uploadIDs := make([]string, 5)
 	for i := range uploadIDs {
-		req := httptest.NewRequest(http.MethodPost, "/bkt/obj"+strings.Repeat(string(rune('a'+i)), 1)+"?uploads", nil)
+		req := httptest.NewRequest(
+			http.MethodPost,
+			"/bkt/obj"+strings.Repeat(string(rune('a'+i)), 1)+"?uploads",
+			nil,
+		)
 		rec := httptest.NewRecorder()
 		serveS3Handler(handler, rec, req)
 		require.Equal(t, http.StatusOK, rec.Code)

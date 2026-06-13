@@ -75,8 +75,18 @@ func errorTable() []s3ErrorEntry {
 
 func coreErrorTable() []s3ErrorEntry {
 	return []s3ErrorEntry{
-		{ErrNoSuchBucket, s3ErrorInfo{"NoSuchBucket", "The specified bucket does not exist.", http.StatusNotFound}},
-		{ErrNoSuchKey, s3ErrorInfo{"NoSuchKey", "The specified key does not exist.", http.StatusNotFound}},
+		{
+			ErrNoSuchBucket,
+			s3ErrorInfo{
+				"NoSuchBucket",
+				"The specified bucket does not exist.",
+				http.StatusNotFound,
+			},
+		},
+		{
+			ErrNoSuchKey,
+			s3ErrorInfo{"NoSuchKey", "The specified key does not exist.", http.StatusNotFound},
+		},
 		{ErrBucketAlreadyOwnedByYou, s3ErrorInfo{
 			"BucketAlreadyOwnedByYou",
 			"Your previous request to create the named bucket succeeded and you already own it.",
@@ -117,7 +127,10 @@ func coreErrorTable() []s3ErrorEntry {
 			"You must specify at least one part",
 			http.StatusBadRequest,
 		}},
-		{ErrInvalidArgument, s3ErrorInfo{errInvalidArgument, "Invalid Argument.", http.StatusBadRequest}},
+		{
+			ErrInvalidArgument,
+			s3ErrorInfo{errInvalidArgument, "Invalid Argument.", http.StatusBadRequest},
+		},
 		{ErrMethodNotAllowed, s3ErrorInfo{
 			"MethodNotAllowed",
 			"The specified method is not allowed against this resource.",

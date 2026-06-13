@@ -163,7 +163,11 @@ func TestHandler_ListParts(t *testing.T) {
 			uploadID := "nonexistent"
 
 			if !tt.useNonexistentID {
-				req := httptest.NewRequest(http.MethodPost, "/"+tt.bucket+"/"+tt.key+"?uploads", nil)
+				req := httptest.NewRequest(
+					http.MethodPost,
+					"/"+tt.bucket+"/"+tt.key+"?uploads",
+					nil,
+				)
 				rec := httptest.NewRecorder()
 				serveS3Handler(handler, rec, req)
 				require.Equal(t, http.StatusOK, rec.Code)
@@ -185,7 +189,11 @@ func TestHandler_ListParts(t *testing.T) {
 				}
 			}
 
-			req := httptest.NewRequest(http.MethodGet, "/"+tt.bucket+"/"+tt.key+"?uploadId="+uploadID, nil)
+			req := httptest.NewRequest(
+				http.MethodGet,
+				"/"+tt.bucket+"/"+tt.key+"?uploadId="+uploadID,
+				nil,
+			)
 			rec := httptest.NewRecorder()
 			serveS3Handler(handler, rec, req)
 

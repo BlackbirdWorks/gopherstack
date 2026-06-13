@@ -123,6 +123,7 @@ func TestS3BucketReplication_PrefixFilter(t *testing.T) {
 	imgKey := "images/photo.jpg"
 	require.Eventually(t, func() bool {
 		_, err := bk.GetObject(t.Context(), &sdk_s3.GetObjectInput{Bucket: &dst, Key: &imgKey})
+
 		return err == nil
 	}, 3*time.Second, 50*time.Millisecond, "images/photo.jpg should be replicated to destination")
 
@@ -299,7 +300,11 @@ type captureLambdaB7 struct {
 	mu    sync.Mutex
 }
 
-func (c *captureLambdaB7) InvokeFunction(_ context.Context, name, _ string, _ []byte) ([]byte, int, error) {
+func (c *captureLambdaB7) InvokeFunction(
+	_ context.Context,
+	name, _ string,
+	_ []byte,
+) ([]byte, int, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.calls = append(c.calls, name)
@@ -326,7 +331,11 @@ func TestS3ObjectLambda_WriteGetObjectResponse(t *testing.T) {
 	serveS3Handler(handler, rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	req = httptest.NewRequest(http.MethodPut, "/"+bucket+"/"+key, strings.NewReader("original content"))
+	req = httptest.NewRequest(
+		http.MethodPut,
+		"/"+bucket+"/"+key,
+		strings.NewReader("original content"),
+	)
 	rec = httptest.NewRecorder()
 	serveS3Handler(handler, rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -344,7 +353,10 @@ func TestS3ObjectLambda_WriteGetObjectResponse(t *testing.T) {
 
 	// The lambda ignores the original object and writes back a hardcoded body.
 	// This tests the full WriteGetObjectResponse pipeline without recursive GetObject.
-	lambdaFn := &staticObjectLambda{serverURL: srv.URL, responseBody: objectLambdaTransformedContent}
+	lambdaFn := &staticObjectLambda{
+		serverURL:    srv.URL,
+		responseBody: objectLambdaTransformedContent,
+	}
 	targets := &s3.NotificationTargets{LambdaInvoker: lambdaFn}
 	handler.SetNotificationDispatcher(s3.NewNotificationDispatcher(targets, "us-east-1"))
 
@@ -364,7 +376,11 @@ type staticObjectLambda struct {
 	responseBody string
 }
 
-func (l *staticObjectLambda) InvokeFunction(_ context.Context, _, _ string, payload []byte) ([]byte, int, error) {
+func (l *staticObjectLambda) InvokeFunction(
+	_ context.Context,
+	_, _ string,
+	payload []byte,
+) ([]byte, int, error) {
 	var event struct {
 		GetObjectContext struct {
 			OutputToken string `json:"outputToken"`

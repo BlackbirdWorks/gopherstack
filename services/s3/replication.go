@@ -56,7 +56,8 @@ func (b *InMemoryBackend) triggerReplication(ctx context.Context, bucketName, ke
 
 	var cfg ReplicationConfiguration
 	if xmlErr := xml.Unmarshal([]byte(cfgXML), &cfg); xmlErr != nil {
-		logger.Load(ctx).WarnContext(ctx, "replication: failed to parse config", "bucket", bucketName, "error", xmlErr)
+		logger.Load(ctx).
+			WarnContext(ctx, "replication: failed to parse config", "bucket", bucketName, "error", xmlErr)
 
 		return
 	}
@@ -115,7 +116,10 @@ func (b *InMemoryBackend) triggerReplication(ctx context.Context, bucketName, ke
 
 // triggerDeleteMarkerReplication asynchronously replicates a delete-marker to
 // destination buckets whose rules have DeleteMarkerReplication.Status = statusEnabled.
-func (b *InMemoryBackend) triggerDeleteMarkerReplication(ctx context.Context, bucketName, key string) {
+func (b *InMemoryBackend) triggerDeleteMarkerReplication(
+	ctx context.Context,
+	bucketName, key string,
+) {
 	b.mu.RLock("triggerDeleteMarkerReplication.readConfig")
 	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
