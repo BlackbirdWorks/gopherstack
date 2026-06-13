@@ -29,6 +29,59 @@ const (
 	opUnknown = "Unknown"
 
 	keyMessage = "message"
+
+	opBatchUpdateRule = "BatchUpdateRule"
+	opCreateALS       = "CreateAccessLogSubscription"
+	opCreateListener  = "CreateListener"
+	opCreateRule      = "CreateRule"
+	opCreateService   = "CreateService"
+	opCreateSN        = "CreateServiceNetwork"
+	opCreateSNSA      = "CreateServiceNetworkServiceAssociation"
+	opCreateSNVA      = "CreateServiceNetworkVpcAssociation"
+	opCreateTG        = "CreateTargetGroup"
+	opDeleteALS       = "DeleteAccessLogSubscription"
+	opDeleteAuthPolicy      = "DeleteAuthPolicy"
+	opDeleteListener        = "DeleteListener"
+	opDeleteResourcePolicy  = "DeleteResourcePolicy"
+	opDeleteRule            = "DeleteRule"
+	opDeleteService         = "DeleteService"
+	opDeleteSN              = "DeleteServiceNetwork"
+	opDeleteSNSA            = "DeleteServiceNetworkServiceAssociation"
+	opDeleteSNVA            = "DeleteServiceNetworkVpcAssociation"
+	opDeleteTG              = "DeleteTargetGroup"
+	opDeregisterTargets     = "DeregisterTargets"
+	opGetALS                = "GetAccessLogSubscription"
+	opGetAuthPolicy         = "GetAuthPolicy"
+	opGetListener           = "GetListener"
+	opGetResourcePolicy     = "GetResourcePolicy"
+	opGetRule               = "GetRule"
+	opGetService            = "GetService"
+	opGetSN                 = "GetServiceNetwork"
+	opGetSNSA               = "GetServiceNetworkServiceAssociation"
+	opGetSNVA               = "GetServiceNetworkVpcAssociation"
+	opGetTG                 = "GetTargetGroup"
+	opListALSs              = "ListAccessLogSubscriptions"
+	opListListeners         = "ListListeners"
+	opListRules             = "ListRules"
+	opListSNSAs             = "ListServiceNetworkServiceAssociations"
+	opListSNVAs             = "ListServiceNetworkVpcAssociations"
+	opListSNs               = "ListServiceNetworks"
+	opListServices          = "ListServices"
+	opListTagsForResource   = "ListTagsForResource"
+	opListTGs               = "ListTargetGroups"
+	opListTargets           = "ListTargets"
+	opPutAuthPolicy         = "PutAuthPolicy"
+	opPutResourcePolicy     = "PutResourcePolicy"
+	opRegisterTargets       = "RegisterTargets"
+	opTagResource           = "TagResource"
+	opUntagResource         = "UntagResource"
+	opUpdateALS             = "UpdateAccessLogSubscription"
+	opUpdateListener        = "UpdateListener"
+	opUpdateRule            = "UpdateRule"
+	opUpdateService         = "UpdateService"
+	opUpdateSN              = "UpdateServiceNetwork"
+	opUpdateSNVA            = "UpdateServiceNetworkVpcAssociation"
+	opUpdateTG              = "UpdateTargetGroup"
 )
 
 // Handler handles VPC Lattice HTTP requests.
@@ -50,58 +103,58 @@ func (h *Handler) Reset() { h.Backend.Reset() }
 // GetSupportedOperations returns all supported operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"BatchUpdateRule",
-		"CreateAccessLogSubscription",
-		"CreateListener",
-		"CreateRule",
-		"CreateService",
-		"CreateServiceNetwork",
-		"CreateServiceNetworkServiceAssociation",
-		"CreateServiceNetworkVpcAssociation",
-		"CreateTargetGroup",
-		"DeleteAccessLogSubscription",
-		"DeleteAuthPolicy",
-		"DeleteListener",
-		"DeleteResourcePolicy",
-		"DeleteRule",
-		"DeleteService",
-		"DeleteServiceNetwork",
-		"DeleteServiceNetworkServiceAssociation",
-		"DeleteServiceNetworkVpcAssociation",
-		"DeleteTargetGroup",
-		"DeregisterTargets",
-		"GetAccessLogSubscription",
-		"GetAuthPolicy",
-		"GetListener",
-		"GetResourcePolicy",
-		"GetRule",
-		"GetService",
-		"GetServiceNetwork",
-		"GetServiceNetworkServiceAssociation",
-		"GetServiceNetworkVpcAssociation",
-		"GetTargetGroup",
-		"ListAccessLogSubscriptions",
-		"ListListeners",
-		"ListRules",
-		"ListServiceNetworkServiceAssociations",
-		"ListServiceNetworkVpcAssociations",
-		"ListServiceNetworks",
-		"ListServices",
-		"ListTagsForResource",
-		"ListTargetGroups",
-		"ListTargets",
-		"PutAuthPolicy",
-		"PutResourcePolicy",
-		"RegisterTargets",
-		"TagResource",
-		"UntagResource",
-		"UpdateAccessLogSubscription",
-		"UpdateListener",
-		"UpdateRule",
-		"UpdateService",
-		"UpdateServiceNetwork",
-		"UpdateServiceNetworkVpcAssociation",
-		"UpdateTargetGroup",
+		opBatchUpdateRule,
+		opCreateALS,
+		opCreateListener,
+		opCreateRule,
+		opCreateService,
+		opCreateSN,
+		opCreateSNSA,
+		opCreateSNVA,
+		opCreateTG,
+		opDeleteALS,
+		opDeleteAuthPolicy,
+		opDeleteListener,
+		opDeleteResourcePolicy,
+		opDeleteRule,
+		opDeleteService,
+		opDeleteSN,
+		opDeleteSNSA,
+		opDeleteSNVA,
+		opDeleteTG,
+		opDeregisterTargets,
+		opGetALS,
+		opGetAuthPolicy,
+		opGetListener,
+		opGetResourcePolicy,
+		opGetRule,
+		opGetService,
+		opGetSN,
+		opGetSNSA,
+		opGetSNVA,
+		opGetTG,
+		opListALSs,
+		opListListeners,
+		opListRules,
+		opListSNSAs,
+		opListSNVAs,
+		opListSNs,
+		opListServices,
+		opListTagsForResource,
+		opListTGs,
+		opListTargets,
+		opPutAuthPolicy,
+		opPutResourcePolicy,
+		opRegisterTargets,
+		opTagResource,
+		opUntagResource,
+		opUpdateALS,
+		opUpdateListener,
+		opUpdateRule,
+		opUpdateService,
+		opUpdateSN,
+		opUpdateSNVA,
+		opUpdateTG,
 	}
 }
 
@@ -112,8 +165,10 @@ func (h *Handler) RouteMatcher() service.Matcher {
 
 		return path == pathServices || strings.HasPrefix(path, pathServices+"/") ||
 			path == pathServiceNetworks || strings.HasPrefix(path, pathServiceNetworks+"/") ||
-			path == pathServiceNetworkServiceAssociations || strings.HasPrefix(path, pathServiceNetworkServiceAssociations+"/") ||
-			path == pathServiceNetworkVpcAssociations || strings.HasPrefix(path, pathServiceNetworkVpcAssociations+"/") ||
+			path == pathServiceNetworkServiceAssociations ||
+			strings.HasPrefix(path, pathServiceNetworkServiceAssociations+"/") ||
+			path == pathServiceNetworkVpcAssociations ||
+			strings.HasPrefix(path, pathServiceNetworkVpcAssociations+"/") ||
 			path == pathTargetGroups || strings.HasPrefix(path, pathTargetGroups+"/") ||
 			path == pathAccessLogSubscriptions || strings.HasPrefix(path, pathAccessLogSubscriptions+"/") ||
 			strings.HasPrefix(path, pathAuthPolicy+"/") ||
@@ -133,14 +188,14 @@ func (h *Handler) MatchPriority() int { return matchPriority }
 
 // ExtractOperation classifies the request into an operation name.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
-	op, _, _, _, _ := classifyPath(c.Request().Method, c.Request().URL.Path)
+	op, _, _, _ := classifyPath(c.Request().Method, c.Request().URL.Path)
 
 	return op
 }
 
 // ExtractResource returns the primary resource identifier.
 func (h *Handler) ExtractResource(c *echo.Context) string {
-	_, id, _, _, _ := classifyPath(c.Request().Method, c.Request().URL.Path)
+	_, id, _, _ := classifyPath(c.Request().Method, c.Request().URL.Path)
 
 	return id
 }
@@ -152,8 +207,8 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) handleREST(c *echo.Context) error {
-	op, id1, id2, id3, _ := classifyPath(c.Request().Method, c.Request().URL.Path)
+func (h *Handler) handleREST(c *echo.Context) error { //nolint:gocognit,gocyclo // large routing dispatch is expected
+	op, id1, id2, id3 := classifyPath(c.Request().Method, c.Request().URL.Path)
 
 	var body map[string]any
 	if c.Request().ContentLength != 0 {
@@ -168,109 +223,109 @@ func (h *Handler) handleREST(c *echo.Context) error {
 	}
 
 	switch op {
-	case "CreateService":
+	case opCreateService:
 		return h.handleCreateService(c, body)
-	case "GetService":
+	case opGetService:
 		return h.handleGetService(c, id1)
-	case "UpdateService":
+	case opUpdateService:
 		return h.handleUpdateService(c, id1, body)
-	case "DeleteService":
+	case opDeleteService:
 		return h.handleDeleteService(c, id1)
-	case "ListServices":
+	case opListServices:
 		return h.handleListServices(c)
-	case "CreateServiceNetwork":
+	case opCreateSN:
 		return h.handleCreateServiceNetwork(c, body)
-	case "GetServiceNetwork":
+	case opGetSN:
 		return h.handleGetServiceNetwork(c, id1)
-	case "UpdateServiceNetwork":
+	case opUpdateSN:
 		return h.handleUpdateServiceNetwork(c, id1, body)
-	case "DeleteServiceNetwork":
+	case opDeleteSN:
 		return h.handleDeleteServiceNetwork(c, id1)
-	case "ListServiceNetworks":
+	case opListSNs:
 		return h.handleListServiceNetworks(c)
-	case "CreateServiceNetworkServiceAssociation":
+	case opCreateSNSA:
 		return h.handleCreateSNSA(c, body)
-	case "GetServiceNetworkServiceAssociation":
+	case opGetSNSA:
 		return h.handleGetSNSA(c, id1)
-	case "DeleteServiceNetworkServiceAssociation":
+	case opDeleteSNSA:
 		return h.handleDeleteSNSA(c, id1)
-	case "ListServiceNetworkServiceAssociations":
+	case opListSNSAs:
 		return h.handleListSNSAs(c)
-	case "CreateServiceNetworkVpcAssociation":
+	case opCreateSNVA:
 		return h.handleCreateSNVA(c, body)
-	case "GetServiceNetworkVpcAssociation":
+	case opGetSNVA:
 		return h.handleGetSNVA(c, id1)
-	case "UpdateServiceNetworkVpcAssociation":
+	case opUpdateSNVA:
 		return h.handleUpdateSNVA(c, id1, body)
-	case "DeleteServiceNetworkVpcAssociation":
+	case opDeleteSNVA:
 		return h.handleDeleteSNVA(c, id1)
-	case "ListServiceNetworkVpcAssociations":
+	case opListSNVAs:
 		return h.handleListSNVAs(c)
-	case "CreateListener":
+	case opCreateListener:
 		return h.handleCreateListener(c, id1, body)
-	case "GetListener":
+	case opGetListener:
 		return h.handleGetListener(c, id1, id2)
-	case "UpdateListener":
+	case opUpdateListener:
 		return h.handleUpdateListener(c, id1, id2, body)
-	case "DeleteListener":
+	case opDeleteListener:
 		return h.handleDeleteListener(c, id1, id2)
-	case "ListListeners":
+	case opListListeners:
 		return h.handleListListeners(c, id1)
-	case "CreateRule":
+	case opCreateRule:
 		return h.handleCreateRule(c, id1, id2, body)
-	case "GetRule":
+	case opGetRule:
 		return h.handleGetRule(c, id1, id2, id3)
-	case "UpdateRule":
+	case opUpdateRule:
 		return h.handleUpdateRule(c, id1, id2, id3, body)
-	case "DeleteRule":
+	case opDeleteRule:
 		return h.handleDeleteRule(c, id1, id2, id3)
-	case "ListRules":
+	case opListRules:
 		return h.handleListRules(c, id1, id2)
-	case "BatchUpdateRule":
+	case opBatchUpdateRule:
 		return h.handleBatchUpdateRule(c, id1, id2, body)
-	case "CreateTargetGroup":
+	case opCreateTG:
 		return h.handleCreateTargetGroup(c, body)
-	case "GetTargetGroup":
+	case opGetTG:
 		return h.handleGetTargetGroup(c, id1)
-	case "UpdateTargetGroup":
+	case opUpdateTG:
 		return h.handleUpdateTargetGroup(c, id1, body)
-	case "DeleteTargetGroup":
+	case opDeleteTG:
 		return h.handleDeleteTargetGroup(c, id1)
-	case "ListTargetGroups":
+	case opListTGs:
 		return h.handleListTargetGroups(c)
-	case "RegisterTargets":
+	case opRegisterTargets:
 		return h.handleRegisterTargets(c, id1, body)
-	case "DeregisterTargets":
+	case opDeregisterTargets:
 		return h.handleDeregisterTargets(c, id1, body)
-	case "ListTargets":
+	case opListTargets:
 		return h.handleListTargets(c, id1, body)
-	case "CreateAccessLogSubscription":
+	case opCreateALS:
 		return h.handleCreateALS(c, body)
-	case "GetAccessLogSubscription":
+	case opGetALS:
 		return h.handleGetALS(c, id1)
-	case "UpdateAccessLogSubscription":
+	case opUpdateALS:
 		return h.handleUpdateALS(c, id1, body)
-	case "DeleteAccessLogSubscription":
+	case opDeleteALS:
 		return h.handleDeleteALS(c, id1)
-	case "ListAccessLogSubscriptions":
+	case opListALSs:
 		return h.handleListALSs(c)
-	case "PutAuthPolicy":
+	case opPutAuthPolicy:
 		return h.handlePutAuthPolicy(c, id1, body)
-	case "GetAuthPolicy":
+	case opGetAuthPolicy:
 		return h.handleGetAuthPolicy(c, id1)
-	case "DeleteAuthPolicy":
+	case opDeleteAuthPolicy:
 		return h.handleDeleteAuthPolicy(c, id1)
-	case "PutResourcePolicy":
+	case opPutResourcePolicy:
 		return h.handlePutResourcePolicy(c, id1, body)
-	case "GetResourcePolicy":
+	case opGetResourcePolicy:
 		return h.handleGetResourcePolicy(c, id1)
-	case "DeleteResourcePolicy":
+	case opDeleteResourcePolicy:
 		return h.handleDeleteResourcePolicy(c, id1)
-	case "TagResource":
+	case opTagResource:
 		return h.handleTagResource(c, id1, body)
-	case "UntagResource":
+	case opUntagResource:
 		return h.handleUntagResource(c, id1)
-	case "ListTagsForResource":
+	case opListTagsForResource:
 		return h.handleListTagsForResource(c, id1)
 	default:
 		return c.JSON(http.StatusNotFound, map[string]any{keyMessage: "unknown operation"})
@@ -343,7 +398,7 @@ func (h *Handler) handleDeleteService(c *echo.Context, id string) error {
 }
 
 func (h *Handler) handleListServices(c *echo.Context) error {
-	maxResults := queryInt32(c, "maxResults", 0)
+	maxResults := queryInt32(c, 0)
 	nextToken := c.QueryParam("nextToken")
 
 	items, next, err := h.Backend.ListServices(maxResults, nextToken)
@@ -416,7 +471,7 @@ func (h *Handler) handleDeleteServiceNetwork(c *echo.Context, id string) error {
 }
 
 func (h *Handler) handleListServiceNetworks(c *echo.Context) error {
-	maxResults := queryInt32(c, "maxResults", 0)
+	maxResults := queryInt32(c, 0)
 	nextToken := c.QueryParam("nextToken")
 
 	items, next, err := h.Backend.ListServiceNetworks(maxResults, nextToken)
@@ -480,7 +535,7 @@ func (h *Handler) handleDeleteSNSA(c *echo.Context, id string) error {
 }
 
 func (h *Handler) handleListSNSAs(c *echo.Context) error {
-	maxResults := queryInt32(c, "maxResults", 0)
+	maxResults := queryInt32(c, 0)
 	nextToken := c.QueryParam("nextToken")
 	snID := c.QueryParam("serviceNetworkIdentifier")
 	svcID := c.QueryParam("serviceIdentifier")
@@ -524,7 +579,7 @@ func (h *Handler) handleCreateSNVA(c *echo.Context, body map[string]any) error {
 	var sgs []string
 	if sgRaw, ok := body["securityGroupIds"].([]any); ok {
 		for _, v := range sgRaw {
-			if s, ok := v.(string); ok {
+			if s, ok2 := v.(string); ok2 {
 				sgs = append(sgs, s)
 			}
 		}
@@ -553,7 +608,7 @@ func (h *Handler) handleUpdateSNVA(c *echo.Context, id string, body map[string]a
 	var sgs []string
 	if sgRaw, ok := body["securityGroupIds"].([]any); ok {
 		for _, v := range sgRaw {
-			if s, ok := v.(string); ok {
+			if s, ok2 := v.(string); ok2 {
 				sgs = append(sgs, s)
 			}
 		}
@@ -576,7 +631,7 @@ func (h *Handler) handleDeleteSNVA(c *echo.Context, id string) error {
 }
 
 func (h *Handler) handleListSNVAs(c *echo.Context) error {
-	maxResults := queryInt32(c, "maxResults", 0)
+	maxResults := queryInt32(c, 0)
 	nextToken := c.QueryParam("nextToken")
 	snID := c.QueryParam("serviceNetworkIdentifier")
 	vpcID := c.QueryParam("vpcIdentifier")
@@ -666,7 +721,7 @@ func (h *Handler) handleDeleteListener(c *echo.Context, serviceID, listenerID st
 }
 
 func (h *Handler) handleListListeners(c *echo.Context, serviceID string) error {
-	maxResults := queryInt32(c, "maxResults", 0)
+	maxResults := queryInt32(c, 0)
 	nextToken := c.QueryParam("nextToken")
 
 	items, next, err := h.Backend.ListListeners(serviceID, maxResults, nextToken)
@@ -747,7 +802,7 @@ func (h *Handler) handleDeleteRule(c *echo.Context, serviceID, listenerID, ruleI
 }
 
 func (h *Handler) handleListRules(c *echo.Context, serviceID, listenerID string) error {
-	maxResults := queryInt32(c, "maxResults", 0)
+	maxResults := queryInt32(c, 0)
 	nextToken := c.QueryParam("nextToken")
 
 	items, next, err := h.Backend.ListRules(serviceID, listenerID, maxResults, nextToken)
@@ -777,7 +832,7 @@ func (h *Handler) handleBatchUpdateRule(
 
 	if rawUpdates, ok := body["rules"].([]any); ok {
 		for _, raw := range rawUpdates {
-			if m, ok := raw.(map[string]any); ok {
+			if m, ok2 := raw.(map[string]any); ok2 {
 				u := &RuleUpdate{}
 				u.RuleIdentifier, _ = m["ruleIdentifier"].(string)
 				u.Priority = bodyInt32(m, "priority")
@@ -869,7 +924,7 @@ func (h *Handler) handleDeleteTargetGroup(c *echo.Context, id string) error {
 }
 
 func (h *Handler) handleListTargetGroups(c *echo.Context) error {
-	maxResults := queryInt32(c, "maxResults", 0)
+	maxResults := queryInt32(c, 0)
 	nextToken := c.QueryParam("nextToken")
 	tgType := c.QueryParam("targetGroupType")
 	svcArn := c.QueryParam("serviceArn")
@@ -924,8 +979,8 @@ func (h *Handler) handleDeregisterTargets(c *echo.Context, tgID string, body map
 	return c.JSON(http.StatusOK, map[string]any{"unsuccessful": failureList})
 }
 
-func (h *Handler) handleListTargets(c *echo.Context, tgID string, body map[string]any) error {
-	maxResults := queryInt32(c, "maxResults", 0)
+func (h *Handler) handleListTargets(c *echo.Context, tgID string, _ map[string]any) error {
+	maxResults := queryInt32(c, 0)
 	nextToken := c.QueryParam("nextToken")
 
 	items, next, err := h.Backend.ListTargets(tgID, maxResults, nextToken)
@@ -999,7 +1054,7 @@ func (h *Handler) handleDeleteALS(c *echo.Context, id string) error {
 }
 
 func (h *Handler) handleListALSs(c *echo.Context) error {
-	maxResults := queryInt32(c, "maxResults", 0)
+	maxResults := queryInt32(c, 0)
 	nextToken := c.QueryParam("nextToken")
 	resourceID := c.QueryParam("resourceIdentifier")
 
@@ -1102,7 +1157,7 @@ func (h *Handler) handleTagResource(
 	tags := make(map[string]string)
 	if t, ok := body["tags"].(map[string]any); ok {
 		for k, v := range t {
-			if s, ok := v.(string); ok {
+			if s, ok2 := v.(string); ok2 {
 				tags[k] = s
 			}
 		}
@@ -1136,63 +1191,63 @@ func (h *Handler) handleListTagsForResource(c *echo.Context, resourceArn string)
 
 // ------- Path classification -------
 
-// classifyPath maps (method, path) → (op, id1, id2, id3, extra).
+// classifyPath maps (method, path) → (op, id1, id2, id3).
 // id1..id3 are path segments in order (service, listener, rule etc.).
-func classifyPath(
+func classifyPath( //nolint:gocognit,gocyclo // large routing dispatch is expected
 	method, path string,
-) (op, id1, id2, id3, extra string) { //nolint:cyclop,nonamedreturns
+) (op, id1, id2, id3 string) { //nolint:nonamedreturns // path dispatch needs named returns for clarity
 	switch {
 	case path == pathServices:
 		if method == http.MethodPost {
-			return "CreateService", "", "", "", ""
+			return opCreateService, "", "", ""
 		}
 
-		return "ListServices", "", "", "", ""
+		return opListServices, "", "", ""
 	case strings.HasPrefix(path, pathServices+"/"):
 		return classifyServicePath(method, path)
 
 	case path == pathServiceNetworks:
 		if method == http.MethodPost {
-			return "CreateServiceNetwork", "", "", "", ""
+			return opCreateSN, "", "", ""
 		}
 
-		return "ListServiceNetworks", "", "", "", ""
+		return opListSNs, "", "", ""
 	case strings.HasPrefix(path, pathServiceNetworks+"/"):
 		return classifyServiceNetworkPath(method, path)
 
 	case path == pathServiceNetworkServiceAssociations:
 		if method == http.MethodPost {
-			return "CreateServiceNetworkServiceAssociation", "", "", "", ""
+			return opCreateSNSA, "", "", ""
 		}
 
-		return "ListServiceNetworkServiceAssociations", "", "", "", ""
+		return opListSNSAs, "", "", ""
 	case strings.HasPrefix(path, pathServiceNetworkServiceAssociations+"/"):
 		return classifySNSAPath(method, path)
 
 	case path == pathServiceNetworkVpcAssociations:
 		if method == http.MethodPost {
-			return "CreateServiceNetworkVpcAssociation", "", "", "", ""
+			return opCreateSNVA, "", "", ""
 		}
 
-		return "ListServiceNetworkVpcAssociations", "", "", "", ""
+		return opListSNVAs, "", "", ""
 	case strings.HasPrefix(path, pathServiceNetworkVpcAssociations+"/"):
 		return classifySNVAPath(method, path)
 
 	case path == pathTargetGroups:
 		if method == http.MethodPost {
-			return "CreateTargetGroup", "", "", "", ""
+			return opCreateTG, "", "", ""
 		}
 
-		return "ListTargetGroups", "", "", "", ""
+		return opListTGs, "", "", ""
 	case strings.HasPrefix(path, pathTargetGroups+"/"):
 		return classifyTargetGroupPath(method, path)
 
 	case path == pathAccessLogSubscriptions:
 		if method == http.MethodPost {
-			return "CreateAccessLogSubscription", "", "", "", ""
+			return opCreateALS, "", "", ""
 		}
 
-		return "ListAccessLogSubscriptions", "", "", "", ""
+		return opListALSs, "", "", ""
 	case strings.HasPrefix(path, pathAccessLogSubscriptions+"/"):
 		return classifyALSPath(method, path)
 
@@ -1200,209 +1255,207 @@ func classifyPath(
 		resourceID := strings.TrimPrefix(path, pathAuthPolicy+"/")
 		switch method {
 		case http.MethodPut:
-			return "PutAuthPolicy", resourceID, "", "", ""
+			return opPutAuthPolicy, resourceID, "", ""
 		case http.MethodGet:
-			return "GetAuthPolicy", resourceID, "", "", ""
+			return opGetAuthPolicy, resourceID, "", ""
 		case http.MethodDelete:
-			return "DeleteAuthPolicy", resourceID, "", "", ""
+			return opDeleteAuthPolicy, resourceID, "", ""
 		}
 
 	case strings.HasPrefix(path, pathResourcePolicy+"/"):
 		resourceArn := strings.TrimPrefix(path, pathResourcePolicy+"/")
 		switch method {
 		case http.MethodPut:
-			return "PutResourcePolicy", resourceArn, "", "", ""
+			return opPutResourcePolicy, resourceArn, "", ""
 		case http.MethodGet:
-			return "GetResourcePolicy", resourceArn, "", "", ""
+			return opGetResourcePolicy, resourceArn, "", ""
 		case http.MethodDelete:
-			return "DeleteResourcePolicy", resourceArn, "", "", ""
+			return opDeleteResourcePolicy, resourceArn, "", ""
 		}
 
 	case strings.HasPrefix(path, pathTags+"/"):
 		resourceArn := strings.TrimPrefix(path, pathTags+"/")
 		switch method {
 		case http.MethodPost:
-			return "TagResource", resourceArn, "", "", ""
+			return opTagResource, resourceArn, "", ""
 		case http.MethodDelete:
-			return "UntagResource", resourceArn, "", "", ""
+			return opUntagResource, resourceArn, "", ""
 		case http.MethodGet:
-			return "ListTagsForResource", resourceArn, "", "", ""
+			return opListTagsForResource, resourceArn, "", ""
 		}
 	}
 
-	return opUnknown, "", "", "", ""
+	return opUnknown, "", "", ""
 }
 
-// classifyServicePath handles /services/{serviceID}[/listeners[/...]]
-func classifyServicePath(
+// classifyServicePath handles /services/{serviceID}[/listeners[/...]].
+func classifyServicePath( //nolint:gocognit,gocyclo // large routing dispatch is expected
 	method, path string,
-) (op, id1, id2, id3, extra string) { //nolint:cyclop,nonamedreturns
+) (op, id1, id2, id3 string) { //nolint:nonamedreturns // path dispatch needs named returns for clarity
 	rest := strings.TrimPrefix(path, pathServices+"/")
 	serviceID, sub, hasSub := strings.Cut(rest, "/")
 
 	if !hasSub {
 		switch method {
 		case http.MethodGet:
-			return "GetService", serviceID, "", "", ""
+			return opGetService, serviceID, "", ""
 		case http.MethodPatch:
-			return "UpdateService", serviceID, "", "", ""
+			return opUpdateService, serviceID, "", ""
 		case http.MethodDelete:
-			return "DeleteService", serviceID, "", "", ""
+			return opDeleteService, serviceID, "", ""
 		}
 
-		return opUnknown, serviceID, "", "", ""
+		return opUnknown, serviceID, "", ""
 	}
 
 	// sub = listeners[/{listenerID}[/rules[/{ruleID}]]]
 	if sub == "listeners" {
 		if method == http.MethodPost {
-			return "CreateListener", serviceID, "", "", ""
+			return opCreateListener, serviceID, "", ""
 		}
 
-		return "ListListeners", serviceID, "", "", ""
+		return opListListeners, serviceID, "", ""
 	}
 
-	if strings.HasPrefix(sub, "listeners/") {
-		listenerRest := strings.TrimPrefix(sub, "listeners/")
+	if listenerRest, ok := strings.CutPrefix(sub, "listeners/"); ok {
 		listenerID, listenerSub, hasListenerSub := strings.Cut(listenerRest, "/")
 
 		if !hasListenerSub {
 			switch method {
 			case http.MethodGet:
-				return "GetListener", serviceID, listenerID, "", ""
+				return opGetListener, serviceID, listenerID, ""
 			case http.MethodPatch:
-				return "UpdateListener", serviceID, listenerID, "", ""
+				return opUpdateListener, serviceID, listenerID, ""
 			case http.MethodDelete:
-				return "DeleteListener", serviceID, listenerID, "", ""
+				return opDeleteListener, serviceID, listenerID, ""
 			}
 
-			return opUnknown, serviceID, listenerID, "", ""
+			return opUnknown, serviceID, listenerID, ""
 		}
 
 		if listenerSub == "rules" {
 			if method == http.MethodPost {
-				return "CreateRule", serviceID, listenerID, "", ""
+				return opCreateRule, serviceID, listenerID, ""
 			}
 
 			if method == http.MethodPatch {
-				return "BatchUpdateRule", serviceID, listenerID, "", ""
+				return opBatchUpdateRule, serviceID, listenerID, ""
 			}
 
-			return "ListRules", serviceID, listenerID, "", ""
+			return opListRules, serviceID, listenerID, ""
 		}
 
-		if strings.HasPrefix(listenerSub, "rules/") {
-			ruleID := strings.TrimPrefix(listenerSub, "rules/")
+		if ruleID, ok2 := strings.CutPrefix(listenerSub, "rules/"); ok2 {
 			switch method {
 			case http.MethodGet:
-				return "GetRule", serviceID, listenerID, ruleID, ""
+				return opGetRule, serviceID, listenerID, ruleID
 			case http.MethodPatch:
-				return "UpdateRule", serviceID, listenerID, ruleID, ""
+				return opUpdateRule, serviceID, listenerID, ruleID
 			case http.MethodDelete:
-				return "DeleteRule", serviceID, listenerID, ruleID, ""
+				return opDeleteRule, serviceID, listenerID, ruleID
 			}
 		}
 	}
 
-	return opUnknown, serviceID, "", "", ""
+	return opUnknown, serviceID, "", ""
 }
 
-// classifyServiceNetworkPath handles /servicenetworks/{id}
+// classifyServiceNetworkPath handles /servicenetworks/{id}.
 func classifyServiceNetworkPath(
 	method, path string,
-) (op, id1, id2, id3, extra string) { //nolint:nonamedreturns
+) (op, id1, id2, id3 string) { //nolint:nonamedreturns // path dispatch needs named returns for clarity
 	id := strings.TrimPrefix(path, pathServiceNetworks+"/")
 	switch method {
 	case http.MethodGet:
-		return "GetServiceNetwork", id, "", "", ""
+		return opGetSN, id, "", ""
 	case http.MethodPatch:
-		return "UpdateServiceNetwork", id, "", "", ""
+		return opUpdateSN, id, "", ""
 	case http.MethodDelete:
-		return "DeleteServiceNetwork", id, "", "", ""
+		return opDeleteSN, id, "", ""
 	}
 
-	return opUnknown, id, "", "", ""
+	return opUnknown, id, "", ""
 }
 
-// classifySNSAPath handles /servicenetworkserviceassociations/{id}
+// classifySNSAPath handles /servicenetworkserviceassociations/{id}.
 func classifySNSAPath(
 	method, path string,
-) (op, id1, id2, id3, extra string) { //nolint:nonamedreturns
+) (op, id1, id2, id3 string) { //nolint:nonamedreturns // path dispatch needs named returns for clarity
 	id := strings.TrimPrefix(path, pathServiceNetworkServiceAssociations+"/")
 	switch method {
 	case http.MethodGet:
-		return "GetServiceNetworkServiceAssociation", id, "", "", ""
+		return opGetSNSA, id, "", ""
 	case http.MethodDelete:
-		return "DeleteServiceNetworkServiceAssociation", id, "", "", ""
+		return opDeleteSNSA, id, "", ""
 	}
 
-	return opUnknown, id, "", "", ""
+	return opUnknown, id, "", ""
 }
 
-// classifySNVAPath handles /servicenetworkvpcassociations/{id}
+// classifySNVAPath handles /servicenetworkvpcassociations/{id}.
 func classifySNVAPath(
 	method, path string,
-) (op, id1, id2, id3, extra string) { //nolint:nonamedreturns
+) (op, id1, id2, id3 string) { //nolint:nonamedreturns // path dispatch needs named returns for clarity
 	id := strings.TrimPrefix(path, pathServiceNetworkVpcAssociations+"/")
 	switch method {
 	case http.MethodGet:
-		return "GetServiceNetworkVpcAssociation", id, "", "", ""
+		return opGetSNVA, id, "", ""
 	case http.MethodPatch:
-		return "UpdateServiceNetworkVpcAssociation", id, "", "", ""
+		return opUpdateSNVA, id, "", ""
 	case http.MethodDelete:
-		return "DeleteServiceNetworkVpcAssociation", id, "", "", ""
+		return opDeleteSNVA, id, "", ""
 	}
 
-	return opUnknown, id, "", "", ""
+	return opUnknown, id, "", ""
 }
 
-// classifyTargetGroupPath handles /targetgroups/{id}[/registertargets|deregistertargets|listtargets]
+// classifyTargetGroupPath handles /targetgroups/{id}[/registertargets|deregistertargets|listtargets].
 func classifyTargetGroupPath(
 	method, path string,
-) (op, id1, id2, id3, extra string) { //nolint:nonamedreturns
+) (op, id1, id2, id3 string) { //nolint:nonamedreturns // path dispatch needs named returns for clarity
 	rest := strings.TrimPrefix(path, pathTargetGroups+"/")
 	tgID, sub, hasSub := strings.Cut(rest, "/")
 
 	if !hasSub {
 		switch method {
 		case http.MethodGet:
-			return "GetTargetGroup", tgID, "", "", ""
+			return opGetTG, tgID, "", ""
 		case http.MethodPatch:
-			return "UpdateTargetGroup", tgID, "", "", ""
+			return opUpdateTG, tgID, "", ""
 		case http.MethodDelete:
-			return "DeleteTargetGroup", tgID, "", "", ""
+			return opDeleteTG, tgID, "", ""
 		}
 
-		return opUnknown, tgID, "", "", ""
+		return opUnknown, tgID, "", ""
 	}
 
 	switch sub {
 	case "registertargets":
-		return "RegisterTargets", tgID, "", "", ""
+		return opRegisterTargets, tgID, "", ""
 	case "deregistertargets":
-		return "DeregisterTargets", tgID, "", "", ""
+		return opDeregisterTargets, tgID, "", ""
 	case "listtargets":
-		return "ListTargets", tgID, "", "", ""
+		return opListTargets, tgID, "", ""
 	}
 
-	return opUnknown, tgID, "", "", ""
+	return opUnknown, tgID, "", ""
 }
 
-// classifyALSPath handles /accesslogsubscriptions/{id}
+// classifyALSPath handles /accesslogsubscriptions/{id}.
 func classifyALSPath(
 	method, path string,
-) (op, id1, id2, id3, extra string) { //nolint:nonamedreturns
+) (op, id1, id2, id3 string) { //nolint:nonamedreturns // path dispatch needs named returns for clarity
 	id := strings.TrimPrefix(path, pathAccessLogSubscriptions+"/")
 	switch method {
 	case http.MethodGet:
-		return "GetAccessLogSubscription", id, "", "", ""
+		return opGetALS, id, "", ""
 	case http.MethodPatch:
-		return "UpdateAccessLogSubscription", id, "", "", ""
+		return opUpdateALS, id, "", ""
 	case http.MethodDelete:
-		return "DeleteAccessLogSubscription", id, "", "", ""
+		return opDeleteALS, id, "", ""
 	}
 
-	return opUnknown, id, "", "", ""
+	return opUnknown, id, "", ""
 }
 
 // ------- JSON serialization helpers -------
@@ -1789,7 +1842,7 @@ func extractTags(body map[string]any) map[string]string {
 
 	if t, ok := body["tags"].(map[string]any); ok {
 		for k, v := range t {
-			if s, ok := v.(string); ok {
+			if s, ok2 := v.(string); ok2 {
 				tags[k] = s
 			}
 		}
@@ -1801,13 +1854,13 @@ func extractTags(body map[string]any) map[string]string {
 func bodyInt32(body map[string]any, key string) int32 {
 	switch v := body[key].(type) {
 	case float64:
-		return int32(v)
+		return int32(v) //nolint:gosec // value is bounded by JSON number range
 	case int:
-		return int32(v)
+		return int32(v) //nolint:gosec // value is bounded, overflow not possible
 	case int32:
 		return v
 	case int64:
-		return int32(v)
+		return int32(v) //nolint:gosec // value is bounded, overflow not possible
 	}
 
 	return 0
@@ -1821,17 +1874,17 @@ func extractRuleAction(body map[string]any, key string) *RuleAction {
 
 	action := &RuleAction{}
 
-	if fr, ok := raw["fixedResponse"].(map[string]any); ok {
+	if fr, ok2 := raw["fixedResponse"].(map[string]any); ok2 {
 		action.IsFixedResponse = true
 		action.FixedResponseStatusCode = bodyInt32(fr, "statusCode")
 
 		return action
 	}
 
-	if fwd, ok := raw["forward"].(map[string]any); ok {
-		if tgs, ok := fwd["targetGroups"].([]any); ok {
+	if fwd, ok2 := raw["forward"].(map[string]any); ok2 {
+		if tgs, ok3 := fwd["targetGroups"].([]any); ok3 {
 			for _, tgRaw := range tgs {
-				if tgMap, ok := tgRaw.(map[string]any); ok {
+				if tgMap, ok4 := tgRaw.(map[string]any); ok4 {
 					wt := &WeightedTargetGroup{}
 					wt.TargetGroupID, _ = tgMap["targetGroupIdentifier"].(string)
 					wt.Weight = bodyInt32(tgMap, "weight")
@@ -1844,7 +1897,7 @@ func extractRuleAction(body map[string]any, key string) *RuleAction {
 	return action
 }
 
-func extractRuleMatch(body map[string]any, key string) *RuleMatch {
+func extractRuleMatch(body map[string]any, key string) *RuleMatch { //nolint:gocognit // nested JSON extraction
 	raw, ok := body[key].(map[string]any)
 	if !ok {
 		return nil
@@ -1852,13 +1905,13 @@ func extractRuleMatch(body map[string]any, key string) *RuleMatch {
 
 	match := &RuleMatch{}
 
-	if httpMatch, ok := raw["httpMatch"].(map[string]any); ok {
+	if httpMatch, ok2 := raw["httpMatch"].(map[string]any); ok2 {
 		match.HTTPMethod, _ = httpMatch["method"].(string)
 
-		if pathRaw, ok := httpMatch["path"].(map[string]any); ok {
-			if matchRaw, ok := pathRaw["match"].(map[string]any); ok {
+		if pathRaw, ok3 := httpMatch["path"].(map[string]any); ok3 {
+			if matchRaw, ok4 := pathRaw["match"].(map[string]any); ok4 {
 				for k, v := range matchRaw {
-					if s, ok := v.(string); ok {
+					if s, ok5 := v.(string); ok5 {
 						match.PathMatchType = k
 						match.PathMatchValue = s
 					}
@@ -1866,14 +1919,14 @@ func extractRuleMatch(body map[string]any, key string) *RuleMatch {
 			}
 		}
 
-		if headersRaw, ok := httpMatch["headerMatches"].([]any); ok {
+		if headersRaw, ok3 := httpMatch["headerMatches"].([]any); ok3 {
 			for _, hRaw := range headersRaw {
-				if hMap, ok := hRaw.(map[string]any); ok {
+				if hMap, ok4 := hRaw.(map[string]any); ok4 {
 					hm := &HeaderMatch{}
 					hm.Name, _ = hMap["name"].(string)
-					if matchRaw, ok := hMap["match"].(map[string]any); ok {
+					if matchRaw, ok5 := hMap["match"].(map[string]any); ok5 {
 						for k, v := range matchRaw {
-							if s, ok := v.(string); ok {
+							if s, ok6 := v.(string); ok6 {
 								hm.MatchType = k
 								hm.MatchValue = s
 							}
@@ -1903,7 +1956,7 @@ func extractTargetGroupConfig(body map[string]any) *TargetGroupConfig {
 	cfg.IPAddressType, _ = raw["ipAddressType"].(string)
 	cfg.LambdaEventStructureVersion, _ = raw["lambdaEventStructureVersion"].(string)
 
-	if hcRaw, ok := raw["healthCheck"].(map[string]any); ok {
+	if hcRaw, ok2 := raw["healthCheck"].(map[string]any); ok2 {
 		cfg.HealthCheck = extractHealthCheckConfig(hcRaw)
 	}
 
@@ -1933,7 +1986,7 @@ func extractTargets(body map[string]any) []*Target {
 
 	if raw, ok := body["targets"].([]any); ok {
 		for _, tRaw := range raw {
-			if tMap, ok := tRaw.(map[string]any); ok {
+			if tMap, ok2 := tRaw.(map[string]any); ok2 {
 				t := &Target{}
 				t.ID, _ = tMap["id"].(string)
 				t.Port = bodyInt32(tMap, "port")
@@ -1945,8 +1998,8 @@ func extractTargets(body map[string]any) []*Target {
 	return targets
 }
 
-func queryInt32(c *echo.Context, key string, fallback int32) int32 {
-	v := c.QueryParam(key)
+func queryInt32(c *echo.Context, fallback int32) int32 {
+	v := c.QueryParam("maxResults")
 	if v == "" {
 		return fallback
 	}
@@ -1956,5 +2009,5 @@ func queryInt32(c *echo.Context, key string, fallback int32) int32 {
 		return fallback
 	}
 
-	return int32(n)
+	return int32(n) //nolint:gosec // value is bounded by ParseInt with bitSize=32
 }
