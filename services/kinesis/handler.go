@@ -230,7 +230,8 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			log := logger.Load(ctx)
 			target := c.Request().Header.Get("X-Amz-Target")
 			action := strings.TrimPrefix(target, kinesisTargetPrefix)
-			return h.handleCBORRequest(c, ctx, log, action)
+
+			return h.handleCBORRequest(ctx, c, log, action)
 		}
 
 		return service.HandleTarget(

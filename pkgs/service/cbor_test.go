@@ -29,10 +29,10 @@ func TestCBORToJSON(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
 		input   cbor.Value
+		wantVal any
+		name    string
 		wantKey string
-		wantVal interface{}
 	}{
 		{
 			name:    "string value",
@@ -105,7 +105,7 @@ func TestCBORToJSON(t *testing.T) {
 				return
 			}
 
-			var got map[string]interface{}
+			var got map[string]any
 			if err := json.Unmarshal(jsonBytes, &got); err != nil {
 				t.Fatalf("unmarshal result: %v", err)
 			}
@@ -119,6 +119,7 @@ func TestCBORToJSON(t *testing.T) {
 				if gotVal != nil {
 					t.Errorf("got %v, want nil", gotVal)
 				}
+
 				return
 			}
 
@@ -138,8 +139,8 @@ func TestJSONToCBOR(t *testing.T) {
 		name      string
 		jsonInput string
 		binaryKey string
-		wantSlice bool
 		wantStr   string
+		wantSlice bool
 	}{
 		{
 			name:      "plain string stays string",
@@ -195,12 +196,14 @@ func TestJSONToCBOR(t *testing.T) {
 				if _, isSlice := inner.(cbor.Slice); !isSlice {
 					t.Errorf("expected cbor.Slice for key %q, got %T", tc.binaryKey, inner)
 				}
+
 				return
 			}
 
 			s, isStr := inner.(cbor.String)
 			if !isStr {
 				t.Errorf("expected cbor.String for key %q, got %T", tc.binaryKey, inner)
+
 				return
 			}
 
@@ -265,12 +268,12 @@ func TestCBORRoundTrip(t *testing.T) {
 				t.Fatalf("CBORToJSON: %v", err)
 			}
 
-			var orig, got map[string]interface{}
-			if err := json.Unmarshal([]byte(tc.jsonInput), &orig); err != nil {
-				t.Fatalf("unmarshal orig: %v", err)
+			var orig, got map[string]any
+			if e := json.Unmarshal([]byte(tc.jsonInput), &orig); e != nil {
+				t.Fatalf("unmarshal orig: %v", e)
 			}
-			if err := json.Unmarshal(jsonOut, &got); err != nil {
-				t.Fatalf("unmarshal got: %v", err)
+			if e := json.Unmarshal(jsonOut, &got); e != nil {
+				t.Fatalf("unmarshal got: %v", e)
 			}
 
 			origJSON, _ := json.Marshal(orig)
@@ -308,13 +311,13 @@ func TestCBORBinaryRoundTrip(t *testing.T) {
 		t.Fatalf("CBORToJSON: %v", err)
 	}
 
-	var jsonMap map[string]interface{}
-	if err := json.Unmarshal(jsonBytes, &jsonMap); err != nil {
+	var jsonMap map[string]any
+	if err = json.Unmarshal(jsonBytes, &jsonMap); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
-	item := jsonMap["Item"].(map[string]interface{})
-	dataAttr := item["data"].(map[string]interface{})
+	item := jsonMap["Item"].(map[string]any)
+	dataAttr := item["data"].(map[string]any)
 	gotB64 := dataAttr["B"].(string)
 
 	if gotB64 != b64 {
@@ -365,7 +368,7 @@ func TestIsCBORRequest(t *testing.T) {
 		t.Run(tc.contentType, func(t *testing.T) {
 			t.Parallel()
 
-			req, _ := http.NewRequest("POST", "/", nil) //nolint:noctx
+			req, _ := http.NewRequest(http.MethodPost, "/", nil)
 			if tc.contentType != "" {
 				req.Header.Set("Content-Type", tc.contentType)
 			}

@@ -17,6 +17,7 @@ const ContentTypeCBOR = "application/x-amz-cbor-1.1"
 // IsCBORRequest returns true when the request carries an AWS CBOR-encoded body.
 func IsCBORRequest(r *http.Request) bool {
 	ct := r.Header.Get("Content-Type")
+
 	return strings.HasPrefix(ct, ContentTypeCBOR)
 }
 
@@ -54,7 +55,7 @@ func CBORToJSON(data []byte) ([]byte, error) {
 // For array values the parent key is inherited, so {"BS": ["abc","def"]}
 // produces a CBOR list of byte strings when "BS" is in binaryKeys.
 func JSONToCBOR(data []byte, binaryKeys map[string]bool) ([]byte, error) {
-	var generic interface{}
+	var generic any
 	if err := json.Unmarshal(data, &generic); err != nil {
 		return nil, fmt.Errorf("json unmarshal: %w", err)
 	}
@@ -64,29 +65,21 @@ func JSONToCBOR(data []byte, binaryKeys map[string]bool) ([]byte, error) {
 	return cbor.Encode(val), nil
 }
 
-// cborToInterface converts a cbor.Value to a Go interface{} value suitable for
+// cborToInterface converts a cbor.Value to a Go any value suitable for
 // json.Marshal. CBOR byte strings are converted to []byte, which json.Marshal
 // encodes as standard base64 — matching the JSON wire format for binary DynamoDB
 // attribute values.
-func cborToInterface(v cbor.Value) interface{} {
+func cborToInterface(v cbor.Value) any {
 	if v == nil {
 		return nil
 	}
 
 	switch vv := v.(type) {
 	case cbor.Map:
-		m := make(map[string]interface{}, len(vv))
-		for k, e := range vv {
-			m[k] = cborToInterface(e)
-		}
-		return m
+		return cborMapToInterface(vv)
 
 	case cbor.List:
-		l := make([]interface{}, len(vv))
-		for i, e := range vv {
-			l[i] = cborToInterface(e)
-		}
-		return l
+		return cborListToInterface(vv)
 
 	case cbor.String:
 		return string(vv)
@@ -99,12 +92,7 @@ func cborToInterface(v cbor.Value) interface{} {
 		return uint64(vv)
 
 	case cbor.NegInt:
-		// NegInt stores the magnitude; the true value is -(magnitude).
-		if vv == 0 {
-			// Represents -2^64, which overflows int64. Use the largest negative float64.
-			return -math.MaxFloat64
-		}
-		return -int64(vv)
+		return cborNegIntToAny(vv)
 
 	case cbor.Float32:
 		return float32(vv)
@@ -131,28 +119,58 @@ func cborToInterface(v cbor.Value) interface{} {
 	}
 }
 
-// interfaceToCBOR converts a Go interface{} (as produced by json.Unmarshal) to a
+func cborMapToInterface(vv cbor.Map) any {
+	m := make(map[string]any, len(vv))
+	for k, e := range vv {
+		m[k] = cborToInterface(e)
+	}
+
+	return m
+}
+
+func cborListToInterface(vv cbor.List) any {
+	l := make([]any, len(vv))
+	for i, e := range vv {
+		l[i] = cborToInterface(e)
+	}
+
+	return l
+}
+
+// cborNegIntToAny converts a cbor.NegInt (unsigned magnitude) to its signed numeric form.
+// Values that overflow int64 are returned as float64.
+func cborNegIntToAny(vv cbor.NegInt) any {
+	if vv > math.MaxInt64 {
+		return -float64(vv)
+	}
+
+	return -int64(vv) // #nosec G115 -- vv <= math.MaxInt64 guarded above
+}
+
+// interfaceToCBOR converts a Go any (as produced by json.Unmarshal) to a
 // cbor.Value. key is the parent object key for the current value; it is used to
 // look up binaryKeys so that base64 string values are encoded as CBOR byte strings.
-func interfaceToCBOR(v interface{}, key string, binaryKeys map[string]bool) cbor.Value {
+func interfaceToCBOR(v any, key string, binaryKeys map[string]bool) cbor.Value {
 	if v == nil {
 		return (*cbor.Nil)(nil)
 	}
 
 	switch vv := v.(type) {
-	case map[string]interface{}:
+	case map[string]any:
 		m := make(cbor.Map, len(vv))
 		for k, e := range vv {
 			m[k] = interfaceToCBOR(e, k, binaryKeys)
 		}
+
 		return m
 
-	case []interface{}:
+	case []any:
 		l := make(cbor.List, len(vv))
 		for i, e := range vv {
 			// Array elements inherit the parent key for binary detection.
 			l[i] = interfaceToCBOR(e, key, binaryKeys)
 		}
+
 		return l
 
 	case string:
@@ -163,6 +181,7 @@ func interfaceToCBOR(v interface{}, key string, binaryKeys map[string]bool) cbor
 			}
 			// Fall through if the string isn't valid base64.
 		}
+
 		return cbor.String(vv)
 
 	case float64:
@@ -173,6 +192,7 @@ func interfaceToCBOR(v interface{}, key string, binaryKeys map[string]bool) cbor
 		if isExactNegInt(vv) {
 			return cbor.NegInt(uint64(-vv))
 		}
+
 		return cbor.Float64(vv)
 
 	case bool:

@@ -31,6 +31,7 @@ func cborKinesisRequest(t *testing.T, action string, body cbor.Value) *http.Requ
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(raw))
 	req.Header.Set("Content-Type", service.ContentTypeCBOR)
 	req.Header.Set("X-Amz-Target", kinesisPrefix+action)
+
 	return req
 }
 
@@ -43,6 +44,7 @@ func serveCBOR(t *testing.T, h *kinesis.Handler, req *http.Request) *httptest.Re
 	c := e.NewContext(req, rec)
 	err := h.Handler()(c)
 	require.NoError(t, err)
+
 	return rec
 }
 
@@ -56,6 +58,7 @@ func decodeCBORKinesisResponse(t *testing.T, rr *httptest.ResponseRecorder) cbor
 
 	m, ok := val.(cbor.Map)
 	require.True(t, ok, "expected cbor.Map, got %T", val)
+
 	return m
 }
 
@@ -64,9 +67,9 @@ func TestKinesisCBOR_PutRecord(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		data        []byte
-		partKey     string
+		name    string
+		partKey string
+		data    []byte
 	}{
 		{
 			name:    "small binary payload",
@@ -406,5 +409,6 @@ func mustMarshalBytes(t *testing.T, v any) []byte {
 	t.Helper()
 	b, err := json.Marshal(v)
 	require.NoError(t, err)
+
 	return b
 }

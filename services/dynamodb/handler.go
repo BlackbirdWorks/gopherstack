@@ -365,7 +365,7 @@ func (h *DynamoDBHandler) Handler() echo.HandlerFunc {
 		ctx = context.WithValue(ctx, regionContextKey{}, region)
 
 		if service.IsCBORRequest(c.Request()) {
-			return h.handleCBORRequest(c, ctx, log, action)
+			return h.handleCBORRequest(ctx, c, log, action)
 		}
 
 		body, err := httputils.ReadBody(c.Request())

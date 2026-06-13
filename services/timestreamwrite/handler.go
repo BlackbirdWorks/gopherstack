@@ -398,6 +398,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		if service.IsCBORRequest(c.Request()) {
 			return h.handleCBOR(c)
 		}
+
 		return service.HandleTarget(
 			c, logger.Load(c.Request().Context()),
 			"TimestreamWrite", "application/x-amz-json-1.1",
@@ -416,9 +417,11 @@ func (h *Handler) handleCBOR(c *echo.Context) error {
 		return c.String(http.StatusMethodNotAllowed, "Method not allowed")
 	}
 
+	const targetParts = 2
+
 	target := c.Request().Header.Get("X-Amz-Target")
-	parts := strings.SplitN(target, ".", 2)
-	if len(parts) != 2 || parts[1] == "" {
+	parts := strings.SplitN(target, ".", targetParts)
+	if len(parts) != targetParts || parts[1] == "" {
 		return c.String(http.StatusBadRequest, "Missing or invalid X-Amz-Target")
 	}
 	action := parts[1]
@@ -426,12 +429,14 @@ func (h *Handler) handleCBOR(c *echo.Context) error {
 	raw, err := readBodyBytes(c)
 	if err != nil {
 		log.ErrorContext(ctx, "failed to read CBOR body", "error", err)
+
 		return c.String(http.StatusInternalServerError, "internal server error")
 	}
 
 	jsonBody, err := service.CBORToJSON(raw)
 	if err != nil {
 		log.ErrorContext(ctx, "failed to decode CBOR body", "error", err)
+
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			keyTypeField:    "SerializationException",
 			keyMessageField: "invalid CBOR body: " + err.Error(),
@@ -448,6 +453,7 @@ func (h *Handler) handleCBOR(c *echo.Context) error {
 	cborPayload, err := service.JSONToCBOR(jsonResp, nil)
 	if err != nil {
 		log.ErrorContext(ctx, "failed to encode CBOR response", "error", err)
+
 		return c.String(http.StatusInternalServerError, "internal server error")
 	}
 
@@ -462,6 +468,7 @@ func readBodyBytes(c *echo.Context) ([]byte, error) {
 	defer r.Body.Close()
 
 	const maxBody = 10 << 20 // 10 MiB
+
 	return io.ReadAll(io.LimitReader(r.Body, maxBody))
 }
 

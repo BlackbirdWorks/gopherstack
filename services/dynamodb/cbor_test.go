@@ -47,16 +47,18 @@ func decodeCBORResponse(t *testing.T, rr *httptest.ResponseRecorder) cbor.Map {
 }
 
 // setupCBORTable creates a table via the JSON path (no CBOR needed for setup).
-func setupCBORTable(t *testing.T, handler *dynamodb.DynamoDBHandler, tableName, pk string) {
+func setupCBORTable(t *testing.T, handler *dynamodb.DynamoDBHandler, tableName string) {
 	t.Helper()
+
+	const pkAttr = "pk"
 
 	body := mustMarshal(t, map[string]any{
 		"TableName": tableName,
 		"KeySchema": []map[string]any{
-			{"AttributeName": pk, "KeyType": "HASH"},
+			{"AttributeName": pkAttr, "KeyType": "HASH"},
 		},
 		"AttributeDefinitions": []map[string]any{
-			{"AttributeName": pk, "AttributeType": "S"},
+			{"AttributeName": pkAttr, "AttributeType": "S"},
 		},
 		"BillingMode": "PAY_PER_REQUEST",
 	})
@@ -176,7 +178,7 @@ func TestDynamoDBCBOR_PutItemGetItem(t *testing.T) {
 
 			backend := dynamodb.NewInMemoryDB()
 			handler := dynamodb.NewHandler(backend)
-			setupCBORTable(t, handler, "CBORTest", "pk")
+			setupCBORTable(t, handler, "CBORTest")
 
 			// PutItem via CBOR
 			putBody := cbor.Map{
@@ -214,7 +216,9 @@ func TestDynamoDBCBOR_PutItemGetItem(t *testing.T) {
 			require.True(t, ok, "field %q must be a cbor.Map AttributeValue", tc.checkField)
 
 			_, ok = attrMap[tc.checkType]
-			assert.True(t, ok, "attribute %q must have type key %q, got keys %v", tc.checkField, tc.checkType, cborMapKeys(attrMap))
+			assert.True(t, ok,
+				"attribute %q must have type key %q, got keys %v",
+				tc.checkField, tc.checkType, cborMapKeys(attrMap))
 		})
 	}
 }
@@ -226,7 +230,7 @@ func TestDynamoDBCBOR_BinaryAttribute(t *testing.T) {
 
 	backend := dynamodb.NewInMemoryDB()
 	handler := dynamodb.NewHandler(backend)
-	setupCBORTable(t, handler, "CBORBin", "pk")
+	setupCBORTable(t, handler, "CBORBin")
 
 	payload := []byte{0xDE, 0xAD, 0xBE, 0xEF}
 
@@ -275,7 +279,7 @@ func TestDynamoDBCBOR_BinarySetAttribute(t *testing.T) {
 
 	backend := dynamodb.NewInMemoryDB()
 	handler := dynamodb.NewHandler(backend)
-	setupCBORTable(t, handler, "CBORBinSet", "pk")
+	setupCBORTable(t, handler, "CBORBinSet")
 
 	payloads := [][]byte{
 		{0x01, 0x02},
@@ -322,8 +326,8 @@ func TestDynamoDBCBOR_BinarySetAttribute(t *testing.T) {
 	assert.Len(t, bsList2, len(payloads))
 
 	for _, el := range bsList2 {
-		_, ok := el.(cbor.Slice)
-		assert.True(t, ok, "each BS element must be cbor.Slice, got %T", el)
+		_, isSlice := el.(cbor.Slice)
+		assert.True(t, isSlice, "each BS element must be cbor.Slice, got %T", el)
 	}
 }
 
@@ -333,7 +337,7 @@ func TestDynamoDBCBOR_MissingItem(t *testing.T) {
 
 	backend := dynamodb.NewInMemoryDB()
 	handler := dynamodb.NewHandler(backend)
-	setupCBORTable(t, handler, "CBORMiss", "pk")
+	setupCBORTable(t, handler, "CBORMiss")
 
 	getBody := cbor.Map{
 		"TableName": cbor.String("CBORMiss"),
@@ -391,7 +395,7 @@ func TestDynamoDBCBOR_CRC32Header(t *testing.T) {
 
 	backend := dynamodb.NewInMemoryDB()
 	handler := dynamodb.NewHandler(backend)
-	setupCBORTable(t, handler, "CBORCRC", "pk")
+	setupCBORTable(t, handler, "CBORCRC")
 
 	putBody := cbor.Map{
 		"TableName": cbor.String("CBORCRC"),
@@ -411,7 +415,7 @@ func TestDynamoDBCBOR_JSONAndCBORCoexist(t *testing.T) {
 
 	backend := dynamodb.NewInMemoryDB()
 	handler := dynamodb.NewHandler(backend)
-	setupCBORTable(t, handler, "CoexistTable", "pk")
+	setupCBORTable(t, handler, "CoexistTable")
 
 	// Write via JSON.
 	jsonPut := mustMarshal(t, map[string]any{
@@ -483,7 +487,7 @@ func TestDynamoDBCBOR_Base64RoundTrip(t *testing.T) {
 
 	backend := dynamodb.NewInMemoryDB()
 	handler := dynamodb.NewHandler(backend)
-	setupCBORTable(t, handler, "B64Table", "pk")
+	setupCBORTable(t, handler, "B64Table")
 
 	rawBytes := []byte{0x01, 0x02, 0x03, 0x04, 0x05}
 	b64 := base64.StdEncoding.EncodeToString(rawBytes)
@@ -530,5 +534,6 @@ func cborMapKeys(m cbor.Map) []string {
 	for k := range m {
 		keys = append(keys, k)
 	}
+
 	return keys
 }

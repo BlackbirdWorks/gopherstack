@@ -11,32 +11,28 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
-// kinesisBinaryKeys lists Kinesis request/response fields whose string values
-// are standard base64-encoded binary data and must be re-encoded as CBOR byte
-// strings in responses.
-//
-// "Data" – Record payload in PutRecord / PutRecords / GetRecords.
-var kinesisBinaryKeys = map[string]bool{
-	"Data": true,
-}
-
 // handleCBORRequest handles a Kinesis request that arrived with
 // Content-Type: application/x-amz-cbor-1.1.
 func (h *Handler) handleCBORRequest(
-	c *echo.Context,
 	ctx context.Context,
+	c *echo.Context,
 	log *slog.Logger,
 	action string,
 ) error {
+	// "Data" – Record payload in PutRecord / PutRecords / GetRecords.
+	binaryKeys := map[string]bool{"Data": true}
+
 	raw, err := httputils.ReadBody(c.Request())
 	if err != nil {
 		log.ErrorContext(ctx, "failed to read CBOR request body", "error", err)
+
 		return c.String(http.StatusInternalServerError, "internal server error")
 	}
 
 	jsonBody, err := service.CBORToJSON(raw)
 	if err != nil {
 		log.ErrorContext(ctx, "failed to decode CBOR body", "error", err, "action", action)
+
 		return c.JSON(http.StatusBadRequest, service.JSONErrorResponse{
 			Type:    "SerializationException",
 			Message: "invalid CBOR body: " + err.Error(),
@@ -50,9 +46,10 @@ func (h *Handler) handleCBORRequest(
 		return h.handleError(ctx, c, action, reqErr)
 	}
 
-	cborPayload, err := service.JSONToCBOR(jsonResponse, kinesisBinaryKeys)
+	cborPayload, err := service.JSONToCBOR(jsonResponse, binaryKeys)
 	if err != nil {
 		log.ErrorContext(ctx, "failed to encode CBOR response", "error", err)
+
 		return c.String(http.StatusInternalServerError, "internal server error")
 	}
 
