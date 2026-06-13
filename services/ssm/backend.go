@@ -863,7 +863,11 @@ func (b *InMemoryBackend) GetParameterHistory(
 	}
 
 	maxResults := int64(maxHistoryResults)
-	if input.MaxResults != nil && *input.MaxResults > 0 && *input.MaxResults < maxHistoryResults {
+	if input.MaxResults != nil {
+		if *input.MaxResults < 1 || *input.MaxResults > maxHistoryResults {
+			return nil, fmt.Errorf("%w: MaxResults must be between 1 and %d", ErrValidationException, maxHistoryResults)
+		}
+
 		maxResults = *input.MaxResults
 	}
 
@@ -1003,7 +1007,11 @@ func (b *InMemoryBackend) GetParametersByPath(
 	startIdx := parseNextToken(input.NextToken)
 
 	maxResults := int64(defaultPathMaxResults)
-	if input.MaxResults != nil && *input.MaxResults > 0 {
+	if input.MaxResults != nil {
+		if *input.MaxResults < 1 || *input.MaxResults > defaultPathMaxResults {
+			return nil, fmt.Errorf("%w: MaxResults must be between 1 and %d", ErrValidationException, defaultPathMaxResults)
+		}
+
 		maxResults = *input.MaxResults
 	}
 
@@ -1090,7 +1098,11 @@ func (b *InMemoryBackend) DescribeParameters(
 	startIdx := parseNextToken(input.NextToken)
 
 	maxResults := int64(defaultDescribeMaxResults)
-	if input.MaxResults != nil && *input.MaxResults > 0 {
+	if input.MaxResults != nil {
+		if *input.MaxResults < 1 || *input.MaxResults > defaultDescribeMaxResults {
+			return nil, fmt.Errorf("%w: MaxResults must be between 1 and %d", ErrValidationException, defaultDescribeMaxResults)
+		}
+
 		maxResults = *input.MaxResults
 	}
 

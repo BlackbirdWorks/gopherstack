@@ -709,6 +709,13 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
+	case errors.Is(err, ErrInvalidParameter):
+		payload, _ := json.Marshal(map[string]string{
+			keyTypeField:    "InvalidParameterException",
+			keyMessageField: err.Error(),
+		})
+
+		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, ErrValidation):
 		payload, _ := json.Marshal(map[string]string{
 			keyTypeField:    "MalformedQueryStringException",
@@ -731,6 +738,54 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 // as required by the AWS REST-JSON protocol for timestamp fields.
 func epochSeconds(t time.Time) float64 {
 	return float64(t.Unix())
+}
+
+const ramMaxResults = 100
+
+// ramParseNextToken converts an opaque NextToken string to a slice start index.
+func ramParseNextToken(token string) int {
+	if token == "" {
+		return 0
+	}
+
+	idx, err := strconv.Atoi(token)
+	if err != nil || idx < 0 {
+		return 0
+	}
+
+	return idx
+}
+
+// ramPaginate applies MaxResults/NextToken pagination to a slice.
+// Returns the page, the next opaque token (empty when last page), and a validation error.
+func ramPaginate[T any](items []T, nextToken string, maxResults *int32) ([]T, string, error) {
+	limit := int32(ramMaxResults)
+
+	if maxResults != nil {
+		if *maxResults < 1 || *maxResults > ramMaxResults {
+			return nil, "", fmt.Errorf("%w: maxResults must be between 1 and %d", ErrInvalidParameter, ramMaxResults)
+		}
+
+		limit = *maxResults
+	}
+
+	start := ramParseNextToken(nextToken)
+
+	if start >= len(items) {
+		return items[:0], "", nil
+	}
+
+	end := start + int(limit)
+
+	var outToken string
+
+	if end < len(items) {
+		outToken = strconv.Itoa(end)
+	} else {
+		end = len(items)
+	}
+
+	return items[start:end], outToken, nil
 }
 
 // tagObject represents a RAM tag in the JSON API format.
@@ -932,6 +987,7 @@ type getResourceSharesRequest struct {
 	NextToken           string   `json:"nextToken"`
 	ResourceShareStatus string   `json:"resourceShareStatus"`
 	ResourceShareArns   []string `json:"resourceShareArns"`
+	MaxResults          *int32   `json:"maxResults,omitempty"`
 }
 
 type getResourceSharesResponse struct {
@@ -974,7 +1030,12 @@ func (h *Handler) handleGetResourceShares(_ context.Context, body []byte) ([]byt
 		shares = append(shares, toResourceShareObject(rs))
 	}
 
-	return json.Marshal(getResourceSharesResponse{ResourceShares: shares})
+	page, nextToken, err := ramPaginate(shares, req.NextToken, req.MaxResults)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(getResourceSharesResponse{NextToken: nextToken, ResourceShares: page})
 }
 
 type updateResourceShareRequest struct {
@@ -1113,6 +1174,7 @@ type getResourceShareAssociationsRequest struct {
 	ResourceArn       string   `json:"resourceArn"`
 	NextToken         string   `json:"nextToken"`
 	ResourceShareArns []string `json:"resourceShareArns"`
+	MaxResults        *int32   `json:"maxResults,omitempty"`
 }
 
 type getResourceShareAssociationsResponse struct {
@@ -1149,7 +1211,12 @@ func (h *Handler) handleGetResourceShareAssociations(
 		filtered = append(filtered, toAssociationObject(a))
 	}
 
-	return json.Marshal(getResourceShareAssociationsResponse{ResourceShareAssociations: filtered})
+	page, nextToken, err := ramPaginate(filtered, req.NextToken, req.MaxResults)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(getResourceShareAssociationsResponse{NextToken: nextToken, ResourceShareAssociations: page})
 }
 
 type tagResourceRequest struct {
@@ -1243,6 +1310,7 @@ func (h *Handler) handleListTagsForResource(_ context.Context, body []byte) ([]b
 type listResourceSharePermissionsRequest struct {
 	ResourceShareArn string `json:"resourceShareArn"`
 	NextToken        string `json:"nextToken"`
+	MaxResults       *int32 `json:"maxResults,omitempty"`
 }
 
 type listResourceSharePermissionsResponse struct {
@@ -1271,7 +1339,12 @@ func (h *Handler) handleListResourceSharePermissions(
 		objs = append(objs, toPermissionSummaryObject(p))
 	}
 
-	return json.Marshal(listResourceSharePermissionsResponse{Permissions: objs})
+	page, nextToken, err := ramPaginate(objs, req.NextToken, req.MaxResults)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(listResourceSharePermissionsResponse{NextToken: nextToken, Permissions: page})
 }
 
 type enableSharingWithAwsOrganizationResponse struct {
@@ -1678,6 +1751,7 @@ type getResourceShareInvitationsRequest struct {
 	NextToken                   string   `json:"nextToken"`
 	ResourceShareInvitationArns []string `json:"resourceShareInvitationArns"`
 	ResourceShareArns           []string `json:"resourceShareArns"`
+	MaxResults                  *int32   `json:"maxResults,omitempty"`
 }
 
 type getResourceShareInvitationsResponse struct {
@@ -1704,7 +1778,12 @@ func (h *Handler) handleGetResourceShareInvitations(
 		objs = append(objs, toInvitationObject(inv))
 	}
 
-	return json.Marshal(getResourceShareInvitationsResponse{ResourceShareInvitations: objs})
+	page, nextToken, err := ramPaginate(objs, req.NextToken, req.MaxResults)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(getResourceShareInvitationsResponse{NextToken: nextToken, ResourceShareInvitations: page})
 }
 
 // --- GetResourcePolicies ---
@@ -1712,6 +1791,7 @@ func (h *Handler) handleGetResourceShareInvitations(
 type getResourcePoliciesRequest struct {
 	NextToken    string   `json:"nextToken"`
 	ResourceArns []string `json:"resourceArns"`
+	MaxResults   *int32   `json:"maxResults,omitempty"`
 }
 
 type getResourcePoliciesResponse struct {
@@ -1727,7 +1807,12 @@ func (h *Handler) handleGetResourcePolicies(_ context.Context, body []byte) ([]b
 
 	policies := h.Backend.GetResourcePolicies(req.ResourceArns)
 
-	return json.Marshal(getResourcePoliciesResponse{Policies: policies})
+	page, nextToken, err := ramPaginate(policies, req.NextToken, req.MaxResults)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(getResourcePoliciesResponse{NextToken: nextToken, Policies: page})
 }
 
 // --- RejectResourceShareInvitation ---
@@ -1922,6 +2007,7 @@ type listPermissionsRequest struct {
 	PermissionType string `json:"permissionType"`
 	ResourceType   string `json:"resourceType"`
 	NextToken      string `json:"nextToken"`
+	MaxResults     *int32 `json:"maxResults,omitempty"`
 }
 
 type listPermissionsResponse struct {
@@ -1946,7 +2032,12 @@ func (h *Handler) handleListPermissions(_ context.Context, body []byte) ([]byte,
 		objs = append(objs, toPermissionSummaryObject(p))
 	}
 
-	return json.Marshal(listPermissionsResponse{Permissions: objs})
+	page, nextToken, err := ramPaginate(objs, req.NextToken, req.MaxResults)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(listPermissionsResponse{NextToken: nextToken, Permissions: page})
 }
 
 // --- ListPermissionVersions ---
@@ -1954,6 +2045,7 @@ func (h *Handler) handleListPermissions(_ context.Context, body []byte) ([]byte,
 type listPermissionVersionsRequest struct {
 	PermissionArn string `json:"permissionArn"`
 	NextToken     string `json:"nextToken"`
+	MaxResults    *int32 `json:"maxResults,omitempty"`
 }
 
 type listPermissionVersionsResponse struct {
@@ -1987,7 +2079,12 @@ func (h *Handler) handleListPermissionVersions(_ context.Context, body []byte) (
 		objs = append(objs, toPermissionDetailObject(p, pv))
 	}
 
-	return json.Marshal(listPermissionVersionsResponse{Permissions: objs})
+	paged, nextToken, pErr2 := ramPaginate(objs, req.NextToken, req.MaxResults)
+	if pErr2 != nil {
+		return nil, pErr2
+	}
+
+	return json.Marshal(listPermissionVersionsResponse{NextToken: nextToken, Permissions: paged})
 }
 
 // --- ListPermissionAssociations ---
@@ -2002,6 +2099,7 @@ type listPermissionAssociationsRequest struct {
 	PermissionArn     string `json:"permissionArn"`
 	PermissionVersion *int32 `json:"permissionVersion,omitempty"`
 	NextToken         string `json:"nextToken"`
+	MaxResults        *int32 `json:"maxResults,omitempty"`
 }
 
 type listPermissionAssociationsResponse struct {
@@ -2026,7 +2124,12 @@ func (h *Handler) handleListPermissionAssociations(_ context.Context, body []byt
 		})
 	}
 
-	return json.Marshal(listPermissionAssociationsResponse{Permissions: objs})
+	page, nextToken, err := ramPaginate(objs, req.NextToken, req.MaxResults)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(listPermissionAssociationsResponse{NextToken: nextToken, Permissions: page})
 }
 
 // --- ListResources ---
@@ -2061,6 +2164,7 @@ type listResourcesRequest struct {
 	ResourceShareArn string `json:"resourceShareArn"`
 	ResourceType     string `json:"resourceType"`
 	NextToken        string `json:"nextToken"`
+	MaxResults       *int32 `json:"maxResults,omitempty"`
 }
 
 type listResourcesResponse struct {
@@ -2081,7 +2185,12 @@ func (h *Handler) handleListResources(_ context.Context, body []byte) ([]byte, e
 		objs = append(objs, toResourceObject(a))
 	}
 
-	return json.Marshal(listResourcesResponse{Resources: objs})
+	page, nextToken, err := ramPaginate(objs, req.NextToken, req.MaxResults)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(listResourcesResponse{NextToken: nextToken, Resources: page})
 }
 
 // --- ListPrincipals ---
@@ -2108,6 +2217,7 @@ type listPrincipalsRequest struct {
 	ResourceOwner    string `json:"resourceOwner"`
 	ResourceShareArn string `json:"resourceShareArn"`
 	NextToken        string `json:"nextToken"`
+	MaxResults       *int32 `json:"maxResults,omitempty"`
 }
 
 type listPrincipalsResponse struct {
@@ -2128,7 +2238,12 @@ func (h *Handler) handleListPrincipals(_ context.Context, body []byte) ([]byte, 
 		objs = append(objs, toPrincipalObject(a))
 	}
 
-	return json.Marshal(listPrincipalsResponse{Principals: objs})
+	page, nextToken, err := ramPaginate(objs, req.NextToken, req.MaxResults)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(listPrincipalsResponse{NextToken: nextToken, Principals: page})
 }
 
 // --- ListPendingInvitationResources ---
@@ -2136,6 +2251,7 @@ func (h *Handler) handleListPrincipals(_ context.Context, body []byte) ([]byte, 
 type listPendingInvitationResourcesRequest struct {
 	ResourceShareInvitationArn string `json:"resourceShareInvitationArn"`
 	NextToken                  string `json:"nextToken"`
+	MaxResults                 *int32 `json:"maxResults,omitempty"`
 }
 
 type listPendingInvitationResourcesResponse struct {
@@ -2167,7 +2283,12 @@ func (h *Handler) handleListPendingInvitationResources(
 		objs = append(objs, toResourceObject(a))
 	}
 
-	return json.Marshal(listPendingInvitationResourcesResponse{Resources: objs})
+	page, nextToken, pErr := ramPaginate(objs, req.NextToken, req.MaxResults)
+	if pErr != nil {
+		return nil, pErr
+	}
+
+	return json.Marshal(listPendingInvitationResourcesResponse{NextToken: nextToken, Resources: page})
 }
 
 // --- ListResourceTypes ---

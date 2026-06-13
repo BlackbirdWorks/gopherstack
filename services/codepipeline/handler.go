@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -36,6 +37,52 @@ var (
 
 // validArtifactStoreType returns true if t is a valid ArtifactStore type.
 func validArtifactStoreType(t string) bool { return t == "S3" }
+
+// cpParseNextToken converts an opaque NextToken string to a slice start index.
+func cpParseNextToken(token string) int {
+	if token == "" {
+		return 0
+	}
+
+	idx, err := strconv.Atoi(token)
+	if err != nil || idx < 0 {
+		return 0
+	}
+
+	return idx
+}
+
+// cpPaginate applies MaxResults/NextToken pagination to a slice.
+// maxResultsCap is the per-operation maximum. A zero maxResults means "use cap".
+func cpPaginate[T any](items []T, nextToken string, maxResults int32, maxResultsCap int32) ([]T, string, error) {
+	limit := maxResultsCap
+
+	if maxResults > 0 {
+		if maxResults > maxResultsCap {
+			return nil, "", fmt.Errorf("%w: maxResults must be between 1 and %d", errInvalidRequest, maxResultsCap)
+		}
+
+		limit = maxResults
+	}
+
+	start := cpParseNextToken(nextToken)
+
+	if start >= len(items) {
+		return items[:0], "", nil
+	}
+
+	end := start + int(limit)
+
+	var outToken string
+
+	if end < len(items) {
+		outToken = strconv.Itoa(end)
+	} else {
+		end = len(items)
+	}
+
+	return items[start:end], outToken, nil
+}
 
 // validPipelineType returns true if t is a valid PipelineType value.
 func validPipelineType(t string) bool {
@@ -1042,6 +1089,7 @@ type listPipelineExecutionsInput struct {
 }
 
 type listPipelineExecutionsOutput struct {
+	NextToken                  string           `json:"nextToken,omitempty"`
 	PipelineExecutionSummaries []map[string]any `json:"pipelineExecutionSummaries"`
 }
 
@@ -1068,7 +1116,12 @@ func (h *Handler) handleListPipelineExecutions(
 		}
 	}
 
-	return &listPipelineExecutionsOutput{PipelineExecutionSummaries: items}, nil
+	page, nextToken, err := cpPaginate(items, in.NextToken, in.MaxResults, 100)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listPipelineExecutionsOutput{NextToken: nextToken, PipelineExecutionSummaries: page}, nil
 }
 
 // --- Pipeline state ---
@@ -1223,12 +1276,13 @@ type webhookListEntry struct {
 }
 
 type listWebhooksOutput struct {
-	Webhooks []webhookListEntry `json:"webhooks"`
+	NextToken string             `json:"NextToken,omitempty"`
+	Webhooks  []webhookListEntry `json:"webhooks"`
 }
 
 func (h *Handler) handleListWebhooks(
 	_ context.Context,
-	_ *listWebhooksInput,
+	in *listWebhooksInput,
 ) (*listWebhooksOutput, error) {
 	webhooks := h.Backend.ListWebhooks()
 	entries := make([]webhookListEntry, len(webhooks))
@@ -1255,7 +1309,12 @@ func (h *Handler) handleListWebhooks(
 		}
 	}
 
-	return &listWebhooksOutput{Webhooks: entries}, nil
+	page, nextToken, err := cpPaginate(entries, in.NextToken, in.MaxResults, 60)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listWebhooksOutput{NextToken: nextToken, Webhooks: page}, nil
 }
 
 type putWebhookInput struct {
@@ -1569,6 +1628,7 @@ type listActionExecutionsInput struct {
 }
 
 type listActionExecutionsOutput struct {
+	NextToken              string           `json:"nextToken,omitempty"`
 	ActionExecutionDetails []map[string]any `json:"actionExecutionDetails"`
 }
 
@@ -1590,7 +1650,12 @@ func (h *Handler) handleListActionExecutions(
 		return nil, err
 	}
 
-	return &listActionExecutionsOutput{ActionExecutionDetails: items}, nil
+	page, nextToken, pErr := cpPaginate(items, in.NextToken, in.MaxResults, 100)
+	if pErr != nil {
+		return nil, pErr
+	}
+
+	return &listActionExecutionsOutput{NextToken: nextToken, ActionExecutionDetails: page}, nil
 }
 
 type listActionTypesInput struct {
@@ -1600,6 +1665,7 @@ type listActionTypesInput struct {
 }
 
 type listActionTypesOutput struct {
+	NextToken   string           `json:"nextToken,omitempty"`
 	ActionTypes []map[string]any `json:"actionTypes"`
 }
 
@@ -1648,7 +1714,12 @@ func (h *Handler) handleListActionTypes(
 		items = append(items, item)
 	}
 
-	return &listActionTypesOutput{ActionTypes: items}, nil
+	page, nextToken, err := cpPaginate(items, in.NextToken, 0, 25)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listActionTypesOutput{NextToken: nextToken, ActionTypes: page}, nil
 }
 
 type updateActionTypeInputBody struct {
@@ -1713,6 +1784,7 @@ type listRuleExecutionsInput struct {
 }
 
 type listRuleExecutionsOutput struct {
+	NextToken            string           `json:"nextToken,omitempty"`
 	RuleExecutionDetails []map[string]any `json:"ruleExecutionDetails"`
 }
 
@@ -1729,7 +1801,12 @@ func (h *Handler) handleListRuleExecutions(
 		return nil, err
 	}
 
-	return &listRuleExecutionsOutput{RuleExecutionDetails: items}, nil
+	page, nextToken, pErr := cpPaginate(items, in.NextToken, in.MaxResults, 100)
+	if pErr != nil {
+		return nil, pErr
+	}
+
+	return &listRuleExecutionsOutput{NextToken: nextToken, RuleExecutionDetails: page}, nil
 }
 
 type listRuleTypesInput struct {

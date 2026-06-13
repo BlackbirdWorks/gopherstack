@@ -220,7 +220,11 @@ func (b *InMemoryBackend) GetInventory(ctx context.Context, input *GetInventoryI
 	const defaultMaxResults = 50
 
 	maxResults := int64(defaultMaxResults)
-	if input.MaxResults != nil && *input.MaxResults > 0 {
+	if input.MaxResults != nil {
+		if *input.MaxResults < 1 || *input.MaxResults > defaultMaxResults {
+			return nil, fmt.Errorf("%w: MaxResults must be between 1 and %d", ErrValidationException, defaultMaxResults)
+		}
+
 		maxResults = *input.MaxResults
 	}
 
@@ -317,10 +321,44 @@ func (b *InMemoryBackend) ListInventoryEntries(
 		entries = []map[string]string{}
 	}
 
+	const maxInventoryEntries = 50
+
+	if input.MaxResults != nil {
+		if *input.MaxResults < 1 || *input.MaxResults > maxInventoryEntries {
+			return nil, fmt.Errorf("%w: MaxResults must be between 1 and %d", ErrValidationException, maxInventoryEntries)
+		}
+	}
+
+	startIdx := parseNextToken(input.NextToken)
+	limit := int64(maxInventoryEntries)
+
+	if input.MaxResults != nil {
+		limit = *input.MaxResults
+	}
+
+	if startIdx >= len(entries) {
+		return &ListInventoryEntriesOutput{
+			InstanceID: input.InstanceID,
+			TypeName:   input.TypeName,
+			Entries:    []map[string]string{},
+		}, nil
+	}
+
+	end := startIdx + int(limit)
+
+	var nextToken string
+
+	if end < len(entries) {
+		nextToken = strconv.Itoa(end)
+	} else {
+		end = len(entries)
+	}
+
 	return &ListInventoryEntriesOutput{
 		InstanceID: input.InstanceID,
 		TypeName:   input.TypeName,
-		Entries:    entries,
+		NextToken:  nextToken,
+		Entries:    entries[startIdx:end],
 	}, nil
 }
 
@@ -427,13 +465,42 @@ func (b *InMemoryBackend) ListComplianceItems(
 		all = []ComplianceItem{}
 	}
 
-	return &ListComplianceItemsOutput{ComplianceItems: all}, nil
+	const maxComplianceItems = 50
+
+	if input.MaxResults != nil {
+		if *input.MaxResults < 1 || *input.MaxResults > maxComplianceItems {
+			return nil, fmt.Errorf("%w: MaxResults must be between 1 and %d", ErrValidationException, maxComplianceItems)
+		}
+	}
+
+	startIdx := parseNextToken(input.NextToken)
+	limit := int64(maxComplianceItems)
+
+	if input.MaxResults != nil {
+		limit = *input.MaxResults
+	}
+
+	if startIdx >= len(all) {
+		return &ListComplianceItemsOutput{ComplianceItems: []ComplianceItem{}}, nil
+	}
+
+	end := startIdx + int(limit)
+
+	var nextToken string
+
+	if end < len(all) {
+		nextToken = strconv.Itoa(end)
+	} else {
+		end = len(all)
+	}
+
+	return &ListComplianceItemsOutput{NextToken: nextToken, ComplianceItems: all[startIdx:end]}, nil
 }
 
 // ListComplianceSummaries aggregates stored compliance items by ComplianceType.
 func (b *InMemoryBackend) ListComplianceSummaries(
 	ctx context.Context,
-	_ *ListComplianceSummariesInput,
+	input *ListComplianceSummariesInput,
 ) (*ListComplianceSummariesOutput, error) {
 	region := getRegion(ctx)
 	b.mu.RLock("ListComplianceSummaries")
@@ -479,14 +546,43 @@ func (b *InMemoryBackend) ListComplianceSummaries(
 		})
 	}
 
-	return &ListComplianceSummariesOutput{ComplianceSummaryItems: summaries}, nil
+	const maxComplianceSummaries = 50
+
+	if input.MaxResults != nil {
+		if *input.MaxResults < 1 || *input.MaxResults > maxComplianceSummaries {
+			return nil, fmt.Errorf("%w: MaxResults must be between 1 and %d", ErrValidationException, maxComplianceSummaries)
+		}
+	}
+
+	startIdx := parseNextToken(input.NextToken)
+	limit := int64(maxComplianceSummaries)
+
+	if input.MaxResults != nil {
+		limit = *input.MaxResults
+	}
+
+	if startIdx >= len(summaries) {
+		return &ListComplianceSummariesOutput{ComplianceSummaryItems: []any{}}, nil
+	}
+
+	end := startIdx + int(limit)
+
+	var nextToken string
+
+	if end < len(summaries) {
+		nextToken = strconv.Itoa(end)
+	} else {
+		end = len(summaries)
+	}
+
+	return &ListComplianceSummariesOutput{NextToken: nextToken, ComplianceSummaryItems: summaries[startIdx:end]}, nil
 }
 
 // ListResourceComplianceSummaries returns per-resource compliance summaries
 // derived from stored compliance items.
 func (b *InMemoryBackend) ListResourceComplianceSummaries(
 	ctx context.Context,
-	_ *ListResourceComplianceSummariesInput,
+	input *ListResourceComplianceSummariesInput,
 ) (*ListResourceComplianceSummariesOutput, error) {
 	region := getRegion(ctx)
 	b.mu.RLock("ListResourceComplianceSummaries")
@@ -531,7 +627,36 @@ func (b *InMemoryBackend) ListResourceComplianceSummaries(
 		})
 	}
 
-	return &ListResourceComplianceSummariesOutput{ResourceComplianceSummaryItems: summaries}, nil
+	const maxResourceComplianceSummaries = 50
+
+	if input.MaxResults != nil {
+		if *input.MaxResults < 1 || *input.MaxResults > maxResourceComplianceSummaries {
+			return nil, fmt.Errorf("%w: MaxResults must be between 1 and %d", ErrValidationException, maxResourceComplianceSummaries)
+		}
+	}
+
+	startIdx := parseNextToken(input.NextToken)
+	limit := int64(maxResourceComplianceSummaries)
+
+	if input.MaxResults != nil {
+		limit = *input.MaxResults
+	}
+
+	if startIdx >= len(summaries) {
+		return &ListResourceComplianceSummariesOutput{ResourceComplianceSummaryItems: []any{}}, nil
+	}
+
+	end := startIdx + int(limit)
+
+	var nextToken string
+
+	if end < len(summaries) {
+		nextToken = strconv.Itoa(end)
+	} else {
+		end = len(summaries)
+	}
+
+	return &ListResourceComplianceSummariesOutput{NextToken: nextToken, ResourceComplianceSummaryItems: summaries[startIdx:end]}, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -679,10 +804,17 @@ func (b *InMemoryBackend) DescribePatchGroups(
 
 	startIdx := parseNextToken(input.NextToken)
 
-	const defaultMaxResults = 50
+	const (
+		defaultPatchGroupsMaxResults = 50
+		maxPatchGroupsMaxResults     = 100
+	)
 
-	maxResults := int64(defaultMaxResults)
-	if input.MaxResults != nil && *input.MaxResults > 0 {
+	maxResults := int64(defaultPatchGroupsMaxResults)
+	if input.MaxResults != nil {
+		if *input.MaxResults < 1 || *input.MaxResults > maxPatchGroupsMaxResults {
+			return nil, fmt.Errorf("%w: MaxResults must be between 1 and %d", ErrValidationException, maxPatchGroupsMaxResults)
+		}
+
 		maxResults = *input.MaxResults
 	}
 
@@ -843,8 +975,41 @@ func (b *InMemoryBackend) DescribeMaintenanceWindowsForTarget(
 		}
 	}
 
+	const (
+		defaultMWTargetMaxResults = 20
+		maxMWTargetMaxResults     = 100
+	)
+
+	if input.MaxResults != nil {
+		if *input.MaxResults < 1 || *input.MaxResults > maxMWTargetMaxResults {
+			return nil, fmt.Errorf("%w: MaxResults must be between 1 and %d", ErrValidationException, maxMWTargetMaxResults)
+		}
+	}
+
+	startIdx := parseNextToken(input.NextToken)
+	limit := int64(defaultMWTargetMaxResults)
+
+	if input.MaxResults != nil {
+		limit = *input.MaxResults
+	}
+
+	if startIdx >= len(identities) {
+		return &DescribeMaintenanceWindowsForTargetOutput{WindowIdentities: []MaintenanceWindowIdentity{}}, nil
+	}
+
+	end := startIdx + int(limit)
+
+	var nextToken string
+
+	if end < len(identities) {
+		nextToken = strconv.Itoa(end)
+	} else {
+		end = len(identities)
+	}
+
 	return &DescribeMaintenanceWindowsForTargetOutput{
-		WindowIdentities: identities,
+		NextToken:        nextToken,
+		WindowIdentities: identities[startIdx:end],
 	}, nil
 }
 
@@ -1057,7 +1222,36 @@ func (b *InMemoryBackend) ListOpsItemRelatedItems(
 		all = []OpsItemRelatedItem{}
 	}
 
-	return &ListOpsItemRelatedItemsOutput{Summaries: all}, nil
+	const maxOpsItemRelatedItems = 50
+
+	if input.MaxResults != nil {
+		if *input.MaxResults < 1 || *input.MaxResults > maxOpsItemRelatedItems {
+			return nil, fmt.Errorf("%w: MaxResults must be between 1 and %d", ErrValidationException, maxOpsItemRelatedItems)
+		}
+	}
+
+	startIdx := parseNextToken(input.NextToken)
+	limit := int64(maxOpsItemRelatedItems)
+
+	if input.MaxResults != nil {
+		limit = *input.MaxResults
+	}
+
+	if startIdx >= len(all) {
+		return &ListOpsItemRelatedItemsOutput{Summaries: []OpsItemRelatedItem{}}, nil
+	}
+
+	end := startIdx + int(limit)
+
+	var nextToken string
+
+	if end < len(all) {
+		nextToken = strconv.Itoa(end)
+	} else {
+		end = len(all)
+	}
+
+	return &ListOpsItemRelatedItemsOutput{NextToken: nextToken, Summaries: all[startIdx:end]}, nil
 }
 
 // ListOpsItemEvents returns tracked events for OpsItems, optionally filtered by OpsItemID.
@@ -1084,7 +1278,36 @@ func (b *InMemoryBackend) ListOpsItemEvents(
 		summaries = []OpsItemEventSummary{}
 	}
 
-	return &ListOpsItemEventsOutput{Summaries: summaries}, nil
+	const maxOpsItemEvents = 50
+
+	if input.MaxResults != nil {
+		if *input.MaxResults < 1 || *input.MaxResults > maxOpsItemEvents {
+			return nil, fmt.Errorf("%w: MaxResults must be between 1 and %d", ErrValidationException, maxOpsItemEvents)
+		}
+	}
+
+	startIdx := parseNextToken(input.NextToken)
+	limit := int64(maxOpsItemEvents)
+
+	if input.MaxResults != nil {
+		limit = *input.MaxResults
+	}
+
+	if startIdx >= len(summaries) {
+		return &ListOpsItemEventsOutput{Summaries: []OpsItemEventSummary{}}, nil
+	}
+
+	end := startIdx + int(limit)
+
+	var nextToken string
+
+	if end < len(summaries) {
+		nextToken = strconv.Itoa(end)
+	} else {
+		end = len(summaries)
+	}
+
+	return &ListOpsItemEventsOutput{NextToken: nextToken, Summaries: summaries[startIdx:end]}, nil
 }
 
 // DeleteOpsMetadata removes OpsMetadata by ARN.
