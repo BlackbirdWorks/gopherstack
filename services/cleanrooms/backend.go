@@ -515,30 +515,6 @@ func (b *InMemoryBackend) Reset() {
 	b.tagsByArn = make(map[string]map[string]string)
 }
 
-// membershipCtx holds common values computed when creating a resource within a membership.
-type membershipCtx struct {
-	id               string
-	ts               float64
-	membershipArn    string
-	collaborationID  string
-	collaborationArn string
-}
-
-func (b *InMemoryBackend) newMembershipCtx(mem *Membership) membershipCtx {
-	collab := b.collaborations[mem.CollaborationIdentifier]
-	var collabArn string
-	if collab != nil {
-		collabArn = collab.Arn
-	}
-	return membershipCtx{
-		id:               uuid.NewString(),
-		ts:               b.now(),
-		membershipArn:    mem.Arn,
-		collaborationID:  mem.CollaborationIdentifier,
-		collaborationArn: collabArn,
-	}
-}
-
 // ---- ARN helpers ----
 
 func (b *InMemoryBackend) collaborationARN(id string) string {
@@ -737,7 +713,9 @@ func toIdNamespaceAssociationSummary(a *IdNamespaceAssociation) *IdNamespaceAsso
 	}
 }
 
-func toConfiguredAudienceModelAssociationSummary(a *ConfiguredAudienceModelAssociation) *ConfiguredAudienceModelAssociationSummary {
+func toConfiguredAudienceModelAssociationSummary(
+	a *ConfiguredAudienceModelAssociation,
+) *ConfiguredAudienceModelAssociationSummary {
 	return &ConfiguredAudienceModelAssociationSummary{
 		ConfiguredAudienceModelAssociationIdentifier: a.ConfiguredAudienceModelAssociationIdentifier,
 		Arn:                     a.Arn,
@@ -2126,23 +2104,29 @@ func (b *InMemoryBackend) CreateIdMappingTable(
 	if b.idMappingTables[membershipID] == nil {
 		b.idMappingTables[membershipID] = make(map[string]*IdMappingTable)
 	}
-	ctx := b.newMembershipCtx(mem)
+	id := uuid.NewString()
+	ts := b.now()
+	collab := b.collaborations[mem.CollaborationIdentifier]
+	var collabArn string
+	if collab != nil {
+		collabArn = collab.Arn
+	}
 	t := &IdMappingTable{
-		IdMappingTableIdentifier: ctx.id,
-		Arn:                      b.idMappingTableARN(membershipID, ctx.id),
-		CollaborationArn:         ctx.collaborationArn,
-		CollaborationIdentifier:  ctx.collaborationID,
-		MembershipArn:            ctx.membershipArn,
+		IdMappingTableIdentifier: id,
+		Arn:                      b.idMappingTableARN(membershipID, id),
+		CollaborationArn:         collabArn,
+		CollaborationIdentifier:  mem.CollaborationIdentifier,
+		MembershipArn:            mem.Arn,
 		MembershipIdentifier:     membershipID,
 		Name:                     name,
 		Description:              description,
 		InputReferenceConfig:     inputReferenceConfig,
 		KmsKeyArn:                kmsKeyArn,
-		CreateTime:               ctx.ts,
-		UpdateTime:               ctx.ts,
+		CreateTime:               ts,
+		UpdateTime:               ts,
 		Tags:                     tags,
 	}
-	b.idMappingTables[membershipID][ctx.id] = t
+	b.idMappingTables[membershipID][id] = t
 	if len(tags) > 0 {
 		b.tagsByArn[t.Arn] = maps.Clone(tags)
 	}
@@ -2253,23 +2237,29 @@ func (b *InMemoryBackend) CreateIdNamespaceAssociation(
 	if b.idNamespaceAssociations[membershipID] == nil {
 		b.idNamespaceAssociations[membershipID] = make(map[string]*IdNamespaceAssociation)
 	}
-	ctx := b.newMembershipCtx(mem)
+	id := uuid.NewString()
+	ts := b.now()
+	collab := b.collaborations[mem.CollaborationIdentifier]
+	var collabArn string
+	if collab != nil {
+		collabArn = collab.Arn
+	}
 	assoc := &IdNamespaceAssociation{
-		IdNamespaceAssociationIdentifier: ctx.id,
-		Arn:                              b.idNamespaceAssocARN(membershipID, ctx.id),
-		CollaborationArn:                 ctx.collaborationArn,
-		CollaborationIdentifier:          ctx.collaborationID,
-		MembershipArn:                    ctx.membershipArn,
+		IdNamespaceAssociationIdentifier: id,
+		Arn:                              b.idNamespaceAssocARN(membershipID, id),
+		CollaborationArn:                 collabArn,
+		CollaborationIdentifier:          mem.CollaborationIdentifier,
+		MembershipArn:                    mem.Arn,
 		MembershipIdentifier:             membershipID,
 		Name:                             name,
 		Description:                      description,
 		InputReferenceConfig:             inputReferenceConfig,
 		IdMappingConfig:                  idMappingConfig,
-		CreateTime:                       ctx.ts,
-		UpdateTime:                       ctx.ts,
+		CreateTime:                       ts,
+		UpdateTime:                       ts,
 		Tags:                             tags,
 	}
-	b.idNamespaceAssociations[membershipID][ctx.id] = assoc
+	b.idNamespaceAssociations[membershipID][id] = assoc
 	if len(tags) > 0 {
 		b.tagsByArn[assoc.Arn] = maps.Clone(tags)
 	}
@@ -2383,18 +2373,15 @@ func (b *InMemoryBackend) ListCollaborationIdNamespaceAssociations(
 		func(a, c *IdNamespaceAssociationSummary) bool {
 			return a.IdNamespaceAssociationIdentifier < c.IdNamespaceAssociationIdentifier
 		},
-		maxResults, nextToken,
+		maxResults,
+		nextToken,
 	)
 	return page, next, nil
 }
 
 // ---- ConfiguredAudienceModelAssociation ----
 
-func (b *InMemoryBackend) CreateConfiguredAudienceModelAssociation(
-	membershipID, configuredAudienceModelArn, name, description string,
-	manageResourcePolicies bool,
-	tags map[string]string,
-) (*ConfiguredAudienceModelAssociation, error) {
+func (b *InMemoryBackend) CreateConfiguredAudienceModelAssociation(membershipID, configuredAudienceModelArn, name, description string, manageResourcePolicies bool, tags map[string]string) (*ConfiguredAudienceModelAssociation, error) {
 	b.mu.Lock("CreateConfiguredAudienceModelAssociation")
 	defer b.mu.Unlock()
 	mem, ok := b.memberships[membershipID]
