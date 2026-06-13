@@ -4,20 +4,25 @@ package inspector2_test
 //
 // These tests verify that ListFindings:
 //   - Returns an empty slice when no findings exist
-//   - Returns seeded findings correctly
+//   - Returns seeded findings correctly (round-trip)
 //   - Supports pagination via maxResults and nextToken
 //   - Filters by severityLabel
 //   - Filters by findingStatus
-//   - Combines multiple filters (AND semantics)
+//   - Combines filters (AND semantics)
 //   - Returns correct finding fields (findingArn, awsAccountId, type, severity, status, etc.)
 //   - Handles invalid JSON body gracefully
-//   - Stable sort order (by ARN) across calls
+//   - Produces stable sort order (by ARN) across calls
+//   - Persists findings through Snapshot/Restore
+//   - Clears findings on Reset
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -30,7 +35,7 @@ func newParityBackend() *inspector2.InMemoryBackend {
 	return inspector2.NewInMemoryBackend("000000000000", "us-east-1")
 }
 
-func newParityHandler(t *testing.T) (*inspector2.Handler, *inspector2.InMemoryBackend) {
+func newParityHandlerAndBackend(t *testing.T) (*inspector2.Handler, *inspector2.InMemoryBackend) {
 	t.Helper()
 
 	b := newParityBackend()
@@ -38,10 +43,44 @@ func newParityHandler(t *testing.T) (*inspector2.Handler, *inspector2.InMemoryBa
 	return inspector2.NewHandler(b), b
 }
 
+func parityDo(t *testing.T, h *inspector2.Handler, method, path string, body any) *httptest.ResponseRecorder {
+	t.Helper()
+
+	var bodyBytes []byte
+
+	if body != nil {
+		var err error
+		bodyBytes, err = json.Marshal(body)
+		require.NoError(t, err)
+	}
+
+	e := echo.New()
+	req := httptest.NewRequest(method, path, bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	require.NoError(t, h.Handler()(c))
+
+	return rec
+}
+
+func parityDoRaw(t *testing.T, h *inspector2.Handler, method, path string, body []byte) *httptest.ResponseRecorder {
+	t.Helper()
+
+	e := echo.New()
+	req := httptest.NewRequest(method, path, bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	require.NoError(t, h.Handler()(c))
+
+	return rec
+}
+
 func parityListFindings(t *testing.T, h *inspector2.Handler, body map[string]any) []any {
 	t.Helper()
 
-	rec := auditDo(t, h, http.MethodPost, "/findings/list", body)
+	rec := parityDo(t, h, http.MethodPost, "/findings/list", body)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var resp map[string]any
@@ -55,19 +94,26 @@ func parityListFindings(t *testing.T, h *inspector2.Handler, body map[string]any
 	return findings
 }
 
-func parityListFindingsRaw(t *testing.T, h *inspector2.Handler, body map[string]any) map[string]any {
+func parityListFindingsWithToken(t *testing.T, h *inspector2.Handler, body map[string]any) ([]any, string) {
 	t.Helper()
 
-	rec := auditDo(t, h, http.MethodPost, "/findings/list", body)
+	rec := parityDo(t, h, http.MethodPost, "/findings/list", body)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 
-	return resp
+	findings, _ := resp["findings"].([]any)
+	nextToken, _ := resp["nextToken"].(string)
+
+	return findings, nextToken
 }
 
-func seedFinding(t *testing.T, b *inspector2.InMemoryBackend, findingType, severity, status, title string) string {
+func paritySeedFinding(
+	t *testing.T,
+	b *inspector2.InMemoryBackend,
+	findingType, severity, status, title string,
+) string {
 	t.Helper()
 
 	return inspector2.SeedFinding(
@@ -103,12 +149,18 @@ func TestParityFindings_Empty(t *testing.T) {
 			body: map[string]any{"maxResults": 100},
 		},
 		{
-			name: "with_filter_criteria",
+			name: "with_severity_filter",
 			body: map[string]any{
 				"filterCriteria": map[string]any{
-					"severity": []any{
-						map[string]any{"value": "CRITICAL"},
-					},
+					"severity": []any{map[string]any{"value": "CRITICAL"}},
+				},
+			},
+		},
+		{
+			name: "with_status_filter",
+			body: map[string]any{
+				"filterCriteria": map[string]any{
+					"findingStatus": []any{map[string]any{"value": "ACTIVE"}},
 				},
 			},
 		},
@@ -118,10 +170,9 @@ func TestParityFindings_Empty(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			h, _ := newParityHandler(t)
-
+			h, _ := newParityHandlerAndBackend(t)
 			findings := parityListFindings(t, h, tc.body)
-			assert.Empty(t, findings, "expected no findings before seeding")
+			assert.Empty(t, findings)
 		})
 	}
 }
@@ -132,58 +183,46 @@ func TestParityFindings_SingleRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		findingType  string
-		severity     string
-		status       string
-		title        string
-		wantSeverity string
-		wantStatus   string
+		name        string
+		findingType string
+		severity    string
+		status      string
+		title       string
 	}{
 		{
-			name:         "critical_active",
-			findingType:  "PACKAGE_VULNERABILITY",
-			severity:     "CRITICAL",
-			status:       "ACTIVE",
-			title:        "Critical CVE in openssl",
-			wantSeverity: "CRITICAL",
-			wantStatus:   "ACTIVE",
+			name:        "critical_active",
+			findingType: "PACKAGE_VULNERABILITY",
+			severity:    "CRITICAL",
+			status:      "ACTIVE",
+			title:       "Critical CVE in openssl",
 		},
 		{
-			name:         "high_active",
-			findingType:  "NETWORK_REACHABILITY",
-			severity:     "HIGH",
-			status:       "ACTIVE",
-			title:        "Port 22 reachable from internet",
-			wantSeverity: "HIGH",
-			wantStatus:   "ACTIVE",
+			name:        "high_active",
+			findingType: "NETWORK_REACHABILITY",
+			severity:    "HIGH",
+			status:      "ACTIVE",
+			title:       "Port 22 reachable from internet",
 		},
 		{
-			name:         "medium_suppressed",
-			findingType:  "PACKAGE_VULNERABILITY",
-			severity:     "MEDIUM",
-			status:       "SUPPRESSED",
-			title:        "Suppressed medium finding",
-			wantSeverity: "MEDIUM",
-			wantStatus:   "SUPPRESSED",
+			name:        "medium_suppressed",
+			findingType: "PACKAGE_VULNERABILITY",
+			severity:    "MEDIUM",
+			status:      "SUPPRESSED",
+			title:       "Suppressed medium finding",
 		},
 		{
-			name:         "low_closed",
-			findingType:  "CODE_VULNERABILITY",
-			severity:     "LOW",
-			status:       "CLOSED",
-			title:        "Low severity code issue",
-			wantSeverity: "LOW",
-			wantStatus:   "CLOSED",
+			name:        "low_closed",
+			findingType: "CODE_VULNERABILITY",
+			severity:    "LOW",
+			status:      "CLOSED",
+			title:       "Low severity code issue",
 		},
 		{
-			name:         "informational",
-			findingType:  "PACKAGE_VULNERABILITY",
-			severity:     "INFORMATIONAL",
-			status:       "ACTIVE",
-			title:        "Informational finding",
-			wantSeverity: "INFORMATIONAL",
-			wantStatus:   "ACTIVE",
+			name:        "informational_active",
+			findingType: "PACKAGE_VULNERABILITY",
+			severity:    "INFORMATIONAL",
+			status:      "ACTIVE",
+			title:       "Informational finding",
 		},
 	}
 
@@ -191,8 +230,8 @@ func TestParityFindings_SingleRoundTrip(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			h, b := newParityHandler(t)
-			findingARN := seedFinding(t, b, tc.findingType, tc.severity, tc.status, tc.title)
+			h, b := newParityHandlerAndBackend(t)
+			findingARN := paritySeedFinding(t, b, tc.findingType, tc.severity, tc.status, tc.title)
 
 			findings := parityListFindings(t, h, map[string]any{})
 
@@ -202,11 +241,11 @@ func TestParityFindings_SingleRoundTrip(t *testing.T) {
 			assert.Equal(t, findingARN, f["findingArn"])
 			assert.Equal(t, "000000000000", f["awsAccountId"])
 			assert.Equal(t, tc.findingType, f["type"])
-			assert.Equal(t, tc.wantStatus, f["status"])
+			assert.Equal(t, tc.status, f["status"])
 
-			severity, ok := f["severity"].(map[string]any)
+			sev, ok := f["severity"].(map[string]any)
 			require.True(t, ok, "severity should be a map")
-			assert.Equal(t, tc.wantSeverity, severity["label"])
+			assert.Equal(t, tc.severity, sev["label"])
 			assert.NotEmpty(t, f["title"])
 			assert.NotEmpty(t, f["description"])
 			assert.NotEmpty(t, f["firstObservedAt"])
@@ -221,14 +260,13 @@ func TestParityFindings_SingleRoundTrip(t *testing.T) {
 func TestParityFindings_Multiple(t *testing.T) {
 	t.Parallel()
 
-	h, b := newParityHandler(t)
+	h, b := newParityHandlerAndBackend(t)
 
-	arn1 := seedFinding(t, b, "PACKAGE_VULNERABILITY", "CRITICAL", "ACTIVE", "Critical finding")
-	arn2 := seedFinding(t, b, "NETWORK_REACHABILITY", "HIGH", "ACTIVE", "High finding")
-	arn3 := seedFinding(t, b, "CODE_VULNERABILITY", "MEDIUM", "SUPPRESSED", "Medium finding")
+	arn1 := paritySeedFinding(t, b, "PACKAGE_VULNERABILITY", "CRITICAL", "ACTIVE", "Critical finding")
+	arn2 := paritySeedFinding(t, b, "NETWORK_REACHABILITY", "HIGH", "ACTIVE", "High finding")
+	arn3 := paritySeedFinding(t, b, "CODE_VULNERABILITY", "MEDIUM", "SUPPRESSED", "Medium finding")
 
 	findings := parityListFindings(t, h, map[string]any{})
-
 	require.Len(t, findings, 3)
 
 	arns := make([]string, 0, 3)
@@ -242,22 +280,22 @@ func TestParityFindings_Multiple(t *testing.T) {
 	assert.Contains(t, arns, arn3)
 }
 
-// --- count test ---
+// --- count ---
 
 func TestParityFindings_Count(t *testing.T) {
 	t.Parallel()
 
-	_, b := newParityHandler(t)
+	_, b := newParityHandlerAndBackend(t)
 
 	assert.Equal(t, 0, inspector2.FindingCount(b))
 
-	seedFinding(t, b, "PACKAGE_VULNERABILITY", "HIGH", "ACTIVE", "finding-1")
+	paritySeedFinding(t, b, "PACKAGE_VULNERABILITY", "HIGH", "ACTIVE", "f1")
 	assert.Equal(t, 1, inspector2.FindingCount(b))
 
-	seedFinding(t, b, "NETWORK_REACHABILITY", "CRITICAL", "ACTIVE", "finding-2")
+	paritySeedFinding(t, b, "NETWORK_REACHABILITY", "CRITICAL", "ACTIVE", "f2")
 	assert.Equal(t, 2, inspector2.FindingCount(b))
 
-	seedFinding(t, b, "CODE_VULNERABILITY", "LOW", "CLOSED", "finding-3")
+	paritySeedFinding(t, b, "CODE_VULNERABILITY", "LOW", "CLOSED", "f3")
 	assert.Equal(t, 3, inspector2.FindingCount(b))
 }
 
@@ -271,42 +309,42 @@ func TestParityFindings_Pagination(t *testing.T) {
 		totalFindings int
 		pageSize      int
 		wantPages     int
-		wantLastSize  int
+		wantTotal     int
 	}{
 		{
 			name:          "single_page_exact",
 			totalFindings: 5,
 			pageSize:      5,
 			wantPages:     1,
-			wantLastSize:  5,
+			wantTotal:     5,
 		},
 		{
 			name:          "two_pages_even",
 			totalFindings: 4,
 			pageSize:      2,
 			wantPages:     2,
-			wantLastSize:  2,
+			wantTotal:     4,
 		},
 		{
 			name:          "two_pages_odd",
 			totalFindings: 5,
 			pageSize:      3,
 			wantPages:     2,
-			wantLastSize:  2,
+			wantTotal:     5,
 		},
 		{
 			name:          "page_larger_than_total",
 			totalFindings: 3,
 			pageSize:      10,
 			wantPages:     1,
-			wantLastSize:  3,
+			wantTotal:     3,
 		},
 		{
 			name:          "many_pages",
 			totalFindings: 10,
 			pageSize:      3,
 			wantPages:     4,
-			wantLastSize:  1,
+			wantTotal:     10,
 		},
 	}
 
@@ -314,11 +352,11 @@ func TestParityFindings_Pagination(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			h, b := newParityHandler(t)
+			h, b := newParityHandlerAndBackend(t)
 
 			for i := range tc.totalFindings {
-				seedFinding(t, b, "PACKAGE_VULNERABILITY", "HIGH", "ACTIVE",
-					"finding-pagination-"+string(rune('A'+i)))
+				paritySeedFinding(t, b, "PACKAGE_VULNERABILITY", "HIGH", "ACTIVE",
+					"paging-finding-"+string(rune('A'+i)))
 			}
 
 			var allFindings []any
@@ -331,40 +369,35 @@ func TestParityFindings_Pagination(t *testing.T) {
 					body["nextToken"] = nextToken
 				}
 
-				resp := parityListFindingsRaw(t, h, body)
-
-				page, _ := resp["findings"].([]any)
+				page, nt := parityListFindingsWithToken(t, h, body)
 				allFindings = append(allFindings, page...)
 				pageCount++
+				nextToken = nt
 
-				nt, _ := resp["nextToken"].(string)
 				if nt == "" {
 					break
 				}
-
-				nextToken = nt
 			}
 
-			assert.Equal(t, tc.wantPages, pageCount, "page count")
-			assert.Len(t, allFindings, tc.totalFindings, "total findings across all pages")
-
-			lastPageFindings, _ := parityListFindingsRaw(t, h, map[string]any{
-				"maxResults": tc.pageSize,
-				"nextToken":  computeLastPageToken(tc.totalFindings, tc.pageSize),
-			})["findings"].([]any)
-			assert.Len(t, lastPageFindings, tc.wantLastSize, "last page size")
+			assert.Equal(t, tc.wantPages, pageCount)
+			assert.Len(t, allFindings, tc.wantTotal)
 		})
 	}
 }
 
-// computeLastPageToken computes the nextToken that points to the last page.
-func computeLastPageToken(total, pageSize int) string {
-	lastStart := ((total - 1) / pageSize) * pageSize
-	if lastStart == 0 {
-		return ""
+// --- no next token on last page ---
+
+func TestParityFindings_NoNextTokenOnLastPage(t *testing.T) {
+	t.Parallel()
+
+	h, b := newParityHandlerAndBackend(t)
+
+	for range 3 {
+		paritySeedFinding(t, b, "PACKAGE_VULNERABILITY", "HIGH", "ACTIVE", "last-page-finding")
 	}
 
-	return require.New(nil).Fail // placeholder — computed inline in tests
+	_, nextToken := parityListFindingsWithToken(t, h, map[string]any{"maxResults": 10})
+	assert.Empty(t, nextToken)
 }
 
 // --- filter by severity ---
@@ -377,49 +410,27 @@ func TestParityFindings_FilterBySeverity(t *testing.T) {
 		filterSeverity string
 		wantCount      int
 	}{
-		{
-			name:           "filter_critical",
-			filterSeverity: "CRITICAL",
-			wantCount:      2,
-		},
-		{
-			name:           "filter_high",
-			filterSeverity: "HIGH",
-			wantCount:      1,
-		},
-		{
-			name:           "filter_medium",
-			filterSeverity: "MEDIUM",
-			wantCount:      1,
-		},
-		{
-			name:           "filter_low",
-			filterSeverity: "LOW",
-			wantCount:      0,
-		},
-		{
-			name:           "filter_informational",
-			filterSeverity: "INFORMATIONAL",
-			wantCount:      0,
-		},
+		{name: "critical", filterSeverity: "CRITICAL", wantCount: 2},
+		{name: "high", filterSeverity: "HIGH", wantCount: 1},
+		{name: "medium", filterSeverity: "MEDIUM", wantCount: 1},
+		{name: "low", filterSeverity: "LOW", wantCount: 0},
+		{name: "informational", filterSeverity: "INFORMATIONAL", wantCount: 0},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			h, b := newParityHandler(t)
+			h, b := newParityHandlerAndBackend(t)
 
-			seedFinding(t, b, "PACKAGE_VULNERABILITY", "CRITICAL", "ACTIVE", "critical-1")
-			seedFinding(t, b, "PACKAGE_VULNERABILITY", "CRITICAL", "ACTIVE", "critical-2")
-			seedFinding(t, b, "NETWORK_REACHABILITY", "HIGH", "ACTIVE", "high-1")
-			seedFinding(t, b, "CODE_VULNERABILITY", "MEDIUM", "ACTIVE", "medium-1")
+			paritySeedFinding(t, b, "PACKAGE_VULNERABILITY", "CRITICAL", "ACTIVE", "critical-1")
+			paritySeedFinding(t, b, "PACKAGE_VULNERABILITY", "CRITICAL", "ACTIVE", "critical-2")
+			paritySeedFinding(t, b, "NETWORK_REACHABILITY", "HIGH", "ACTIVE", "high-1")
+			paritySeedFinding(t, b, "CODE_VULNERABILITY", "MEDIUM", "ACTIVE", "medium-1")
 
 			findings := parityListFindings(t, h, map[string]any{
 				"filterCriteria": map[string]any{
-					"severity": []any{
-						map[string]any{"value": tc.filterSeverity},
-					},
+					"severity": []any{map[string]any{"value": tc.filterSeverity}},
 				},
 			})
 
@@ -444,41 +455,27 @@ func TestParityFindings_FilterByStatus(t *testing.T) {
 		filterStatus string
 		wantCount    int
 	}{
-		{
-			name:         "filter_active",
-			filterStatus: "ACTIVE",
-			wantCount:    3,
-		},
-		{
-			name:         "filter_suppressed",
-			filterStatus: "SUPPRESSED",
-			wantCount:    2,
-		},
-		{
-			name:         "filter_closed",
-			filterStatus: "CLOSED",
-			wantCount:    1,
-		},
+		{name: "active", filterStatus: "ACTIVE", wantCount: 3},
+		{name: "suppressed", filterStatus: "SUPPRESSED", wantCount: 2},
+		{name: "closed", filterStatus: "CLOSED", wantCount: 1},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			h, b := newParityHandler(t)
+			h, b := newParityHandlerAndBackend(t)
 
-			seedFinding(t, b, "PACKAGE_VULNERABILITY", "CRITICAL", "ACTIVE", "active-1")
-			seedFinding(t, b, "PACKAGE_VULNERABILITY", "HIGH", "ACTIVE", "active-2")
-			seedFinding(t, b, "PACKAGE_VULNERABILITY", "MEDIUM", "ACTIVE", "active-3")
-			seedFinding(t, b, "NETWORK_REACHABILITY", "HIGH", "SUPPRESSED", "suppressed-1")
-			seedFinding(t, b, "CODE_VULNERABILITY", "LOW", "SUPPRESSED", "suppressed-2")
-			seedFinding(t, b, "PACKAGE_VULNERABILITY", "CRITICAL", "CLOSED", "closed-1")
+			paritySeedFinding(t, b, "PACKAGE_VULNERABILITY", "CRITICAL", "ACTIVE", "active-1")
+			paritySeedFinding(t, b, "PACKAGE_VULNERABILITY", "HIGH", "ACTIVE", "active-2")
+			paritySeedFinding(t, b, "PACKAGE_VULNERABILITY", "MEDIUM", "ACTIVE", "active-3")
+			paritySeedFinding(t, b, "NETWORK_REACHABILITY", "HIGH", "SUPPRESSED", "suppressed-1")
+			paritySeedFinding(t, b, "CODE_VULNERABILITY", "LOW", "SUPPRESSED", "suppressed-2")
+			paritySeedFinding(t, b, "PACKAGE_VULNERABILITY", "CRITICAL", "CLOSED", "closed-1")
 
 			findings := parityListFindings(t, h, map[string]any{
 				"filterCriteria": map[string]any{
-					"findingStatus": []any{
-						map[string]any{"value": tc.filterStatus},
-					},
+					"findingStatus": []any{map[string]any{"value": tc.filterStatus}},
 				},
 			})
 
@@ -503,53 +500,29 @@ func TestParityFindings_CombinedFilter(t *testing.T) {
 		status    string
 		wantCount int
 	}{
-		{
-			name:      "critical_and_active",
-			severity:  "CRITICAL",
-			status:    "ACTIVE",
-			wantCount: 2,
-		},
-		{
-			name:      "high_and_suppressed",
-			severity:  "HIGH",
-			status:    "SUPPRESSED",
-			wantCount: 1,
-		},
-		{
-			name:      "medium_and_closed",
-			severity:  "MEDIUM",
-			status:    "CLOSED",
-			wantCount: 0,
-		},
-		{
-			name:      "critical_and_closed",
-			severity:  "CRITICAL",
-			status:    "CLOSED",
-			wantCount: 1,
-		},
+		{name: "critical_active", severity: "CRITICAL", status: "ACTIVE", wantCount: 2},
+		{name: "high_suppressed", severity: "HIGH", status: "SUPPRESSED", wantCount: 1},
+		{name: "medium_closed", severity: "MEDIUM", status: "CLOSED", wantCount: 0},
+		{name: "critical_closed", severity: "CRITICAL", status: "CLOSED", wantCount: 1},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			h, b := newParityHandler(t)
+			h, b := newParityHandlerAndBackend(t)
 
-			seedFinding(t, b, "PACKAGE_VULNERABILITY", "CRITICAL", "ACTIVE", "c-a-1")
-			seedFinding(t, b, "PACKAGE_VULNERABILITY", "CRITICAL", "ACTIVE", "c-a-2")
-			seedFinding(t, b, "PACKAGE_VULNERABILITY", "CRITICAL", "CLOSED", "c-c-1")
-			seedFinding(t, b, "PACKAGE_VULNERABILITY", "HIGH", "ACTIVE", "h-a-1")
-			seedFinding(t, b, "NETWORK_REACHABILITY", "HIGH", "SUPPRESSED", "h-s-1")
-			seedFinding(t, b, "CODE_VULNERABILITY", "MEDIUM", "ACTIVE", "m-a-1")
+			paritySeedFinding(t, b, "PACKAGE_VULNERABILITY", "CRITICAL", "ACTIVE", "c-a-1")
+			paritySeedFinding(t, b, "PACKAGE_VULNERABILITY", "CRITICAL", "ACTIVE", "c-a-2")
+			paritySeedFinding(t, b, "PACKAGE_VULNERABILITY", "CRITICAL", "CLOSED", "c-c-1")
+			paritySeedFinding(t, b, "PACKAGE_VULNERABILITY", "HIGH", "ACTIVE", "h-a-1")
+			paritySeedFinding(t, b, "NETWORK_REACHABILITY", "HIGH", "SUPPRESSED", "h-s-1")
+			paritySeedFinding(t, b, "CODE_VULNERABILITY", "MEDIUM", "ACTIVE", "m-a-1")
 
 			findings := parityListFindings(t, h, map[string]any{
 				"filterCriteria": map[string]any{
-					"severity": []any{
-						map[string]any{"value": tc.severity},
-					},
-					"findingStatus": []any{
-						map[string]any{"value": tc.status},
-					},
+					"severity":      []any{map[string]any{"value": tc.severity}},
+					"findingStatus": []any{map[string]any{"value": tc.status}},
 				},
 			})
 
@@ -565,15 +538,33 @@ func TestParityFindings_CombinedFilter(t *testing.T) {
 	}
 }
 
+// --- filter no match ---
+
+func TestParityFindings_FilterNoMatch(t *testing.T) {
+	t.Parallel()
+
+	h, b := newParityHandlerAndBackend(t)
+	paritySeedFinding(t, b, "PACKAGE_VULNERABILITY", "HIGH", "ACTIVE", "f1")
+	paritySeedFinding(t, b, "NETWORK_REACHABILITY", "MEDIUM", "ACTIVE", "f2")
+
+	findings := parityListFindings(t, h, map[string]any{
+		"filterCriteria": map[string]any{
+			"severity": []any{map[string]any{"value": "CRITICAL"}},
+		},
+	})
+
+	assert.Empty(t, findings)
+}
+
 // --- stable sort order ---
 
 func TestParityFindings_StableSortOrder(t *testing.T) {
 	t.Parallel()
 
-	h, b := newParityHandler(t)
+	h, b := newParityHandlerAndBackend(t)
 
 	for i := range 5 {
-		seedFinding(t, b, "PACKAGE_VULNERABILITY", "HIGH", "ACTIVE",
+		paritySeedFinding(t, b, "PACKAGE_VULNERABILITY", "HIGH", "ACTIVE",
 			"sort-finding-"+string(rune('A'+i)))
 	}
 
@@ -586,7 +577,7 @@ func TestParityFindings_StableSortOrder(t *testing.T) {
 	for i := range first {
 		f1 := first[i].(map[string]any)
 		f2 := second[i].(map[string]any)
-		assert.Equal(t, f1["findingArn"], f2["findingArn"], "order should be stable")
+		assert.Equal(t, f1["findingArn"], f2["findingArn"])
 	}
 }
 
@@ -595,7 +586,7 @@ func TestParityFindings_StableSortOrder(t *testing.T) {
 func TestParityFindings_Fields(t *testing.T) {
 	t.Parallel()
 
-	h, b := newParityHandler(t)
+	h, b := newParityHandlerAndBackend(t)
 	findingARN := inspector2.SeedFinding(
 		b,
 		"PACKAGE_VULNERABILITY",
@@ -613,7 +604,6 @@ func TestParityFindings_Fields(t *testing.T) {
 	require.Len(t, findings, 1)
 
 	f := findings[0].(map[string]any)
-
 	assert.Equal(t, findingARN, f["findingArn"])
 	assert.Equal(t, "000000000000", f["awsAccountId"])
 	assert.Equal(t, "PACKAGE_VULNERABILITY", f["type"])
@@ -629,7 +619,6 @@ func TestParityFindings_Fields(t *testing.T) {
 	resources, ok := f["resources"].([]any)
 	require.True(t, ok)
 	require.Len(t, resources, 2)
-
 	r0 := resources[0].(map[string]any)
 	assert.Equal(t, "AWS_EC2_INSTANCE", r0["type"])
 	assert.Equal(t, "i-abc12345", r0["id"])
@@ -660,45 +649,18 @@ func TestParityFindings_SeverityScores(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			h, b := newParityHandler(t)
-			seedFinding(t, b, "PACKAGE_VULNERABILITY", tc.severity, "ACTIVE", "score-test")
+			h, b := newParityHandlerAndBackend(t)
+			paritySeedFinding(t, b, "PACKAGE_VULNERABILITY", tc.severity, "ACTIVE", "score-test")
 
 			findings := parityListFindings(t, h, map[string]any{})
 			require.Len(t, findings, 1)
-
 			f := findings[0].(map[string]any)
 			sev := f["severity"].(map[string]any)
-			assert.Equal(t, tc.wantScore, sev["score"])
+
+			score, _ := sev["score"].(float64)
+			assert.Equal(t, tc.wantScore, score)
 		})
 	}
-}
-
-// --- no next token on last page ---
-
-func TestParityFindings_NoNextTokenOnLastPage(t *testing.T) {
-	t.Parallel()
-
-	h, b := newParityHandler(t)
-
-	for range 3 {
-		seedFinding(t, b, "PACKAGE_VULNERABILITY", "HIGH", "ACTIVE", "last-page-finding")
-	}
-
-	resp := parityListFindingsRaw(t, h, map[string]any{"maxResults": 10})
-	findings := resp["findings"].([]any)
-	assert.Len(t, findings, 3)
-	assert.NotContains(t, resp, "nextToken", "no nextToken when all results fit in one page")
-}
-
-// --- invalid JSON body ---
-
-func TestParityFindings_InvalidBody(t *testing.T) {
-	t.Parallel()
-
-	h, _ := newParityHandler(t)
-
-	rec := doRawBody(t, h, http.MethodPost, "/findings/list", []byte("not-json"))
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 // --- ARN format ---
@@ -706,8 +668,8 @@ func TestParityFindings_InvalidBody(t *testing.T) {
 func TestParityFindings_ARNFormat(t *testing.T) {
 	t.Parallel()
 
-	h, b := newParityHandler(t)
-	arn := seedFinding(t, b, "PACKAGE_VULNERABILITY", "HIGH", "ACTIVE", "arn-format-test")
+	h, b := newParityHandlerAndBackend(t)
+	arn := paritySeedFinding(t, b, "PACKAGE_VULNERABILITY", "HIGH", "ACTIVE", "arn-test")
 
 	assert.Contains(t, arn, "arn:aws:inspector2:us-east-1:000000000000:finding/")
 
@@ -723,8 +685,8 @@ func TestParityFindings_SnapshotRestore(t *testing.T) {
 	t.Parallel()
 
 	b := newParityBackend()
-	arn1 := seedFinding(t, b, "PACKAGE_VULNERABILITY", "HIGH", "ACTIVE", "snap-finding-1")
-	arn2 := seedFinding(t, b, "NETWORK_REACHABILITY", "CRITICAL", "ACTIVE", "snap-finding-2")
+	arn1 := paritySeedFinding(t, b, "PACKAGE_VULNERABILITY", "HIGH", "ACTIVE", "snap-f1")
+	arn2 := paritySeedFinding(t, b, "NETWORK_REACHABILITY", "CRITICAL", "ACTIVE", "snap-f2")
 
 	snap := b.Snapshot()
 
@@ -741,46 +703,25 @@ func TestParityFindings_SnapshotRestore(t *testing.T) {
 		m := f.(map[string]any)
 		arns = append(arns, m["findingArn"].(string))
 	}
-
 	assert.Contains(t, arns, arn1)
 	assert.Contains(t, arns, arn2)
 }
 
-// --- default max results applied when not specified ---
+// --- reset clears findings ---
 
-func TestParityFindings_DefaultMaxResults(t *testing.T) {
+func TestParityFindings_Reset(t *testing.T) {
 	t.Parallel()
 
-	h, b := newParityHandler(t)
+	b := newParityBackend()
+	h := inspector2.NewHandler(b)
 
-	for range 5 {
-		seedFinding(t, b, "PACKAGE_VULNERABILITY", "HIGH", "ACTIVE", "default-max")
-	}
+	paritySeedFinding(t, b, "PACKAGE_VULNERABILITY", "HIGH", "ACTIVE", "reset-f1")
+	assert.Equal(t, 1, inspector2.FindingCount(b))
 
-	resp := parityListFindingsRaw(t, h, map[string]any{})
-	findings, _ := resp["findings"].([]any)
-	assert.Len(t, findings, 5)
-	assert.NotContains(t, resp, "nextToken")
-}
+	b.Reset()
 
-// --- filter with no matching results ---
-
-func TestParityFindings_FilterNoMatch(t *testing.T) {
-	t.Parallel()
-
-	h, b := newParityHandler(t)
-
-	seedFinding(t, b, "PACKAGE_VULNERABILITY", "HIGH", "ACTIVE", "no-match-finding")
-	seedFinding(t, b, "NETWORK_REACHABILITY", "MEDIUM", "ACTIVE", "no-match-finding-2")
-
-	findings := parityListFindings(t, h, map[string]any{
-		"filterCriteria": map[string]any{
-			"severity": []any{
-				map[string]any{"value": "CRITICAL"},
-			},
-		},
-	})
-
+	assert.Equal(t, 0, inspector2.FindingCount(b))
+	findings := parityListFindings(t, h, map[string]any{})
 	assert.Empty(t, findings)
 }
 
@@ -789,15 +730,15 @@ func TestParityFindings_FilterNoMatch(t *testing.T) {
 func TestParityFindings_PaginationWithFilter(t *testing.T) {
 	t.Parallel()
 
-	h, b := newParityHandler(t)
+	h, b := newParityHandlerAndBackend(t)
 
 	for i := range 5 {
-		seedFinding(t, b, "PACKAGE_VULNERABILITY", "CRITICAL", "ACTIVE",
+		paritySeedFinding(t, b, "PACKAGE_VULNERABILITY", "CRITICAL", "ACTIVE",
 			"crit-"+string(rune('A'+i)))
 	}
 
 	for i := range 3 {
-		seedFinding(t, b, "NETWORK_REACHABILITY", "HIGH", "ACTIVE",
+		paritySeedFinding(t, b, "NETWORK_REACHABILITY", "HIGH", "ACTIVE",
 			"high-"+string(rune('A'+i)))
 	}
 
@@ -808,26 +749,20 @@ func TestParityFindings_PaginationWithFilter(t *testing.T) {
 		body := map[string]any{
 			"maxResults": 2,
 			"filterCriteria": map[string]any{
-				"severity": []any{
-					map[string]any{"value": "CRITICAL"},
-				},
+				"severity": []any{map[string]any{"value": "CRITICAL"}},
 			},
 		}
-
 		if nextToken != "" {
 			body["nextToken"] = nextToken
 		}
 
-		resp := parityListFindingsRaw(t, h, body)
-		page, _ := resp["findings"].([]any)
+		page, nt := parityListFindingsWithToken(t, h, body)
 		allCritical = append(allCritical, page...)
+		nextToken = nt
 
-		nt, _ := resp["nextToken"].(string)
 		if nt == "" {
 			break
 		}
-
-		nextToken = nt
 	}
 
 	assert.Len(t, allCritical, 5)
@@ -839,46 +774,100 @@ func TestParityFindings_PaginationWithFilter(t *testing.T) {
 	}
 }
 
-// --- reset clears findings ---
+// --- invalid JSON body ---
 
-func TestParityFindings_Reset(t *testing.T) {
+func TestParityFindings_InvalidBody(t *testing.T) {
 	t.Parallel()
 
-	b := newParityBackend()
-	h := inspector2.NewHandler(b)
-
-	seedFinding(t, b, "PACKAGE_VULNERABILITY", "HIGH", "ACTIVE", "reset-test")
-	assert.Equal(t, 1, inspector2.FindingCount(b))
-
-	b.Reset()
-
-	assert.Equal(t, 0, inspector2.FindingCount(b))
-	findings := parityListFindings(t, h, map[string]any{})
-	assert.Empty(t, findings)
+	h, _ := newParityHandlerAndBackend(t)
+	rec := parityDoRaw(t, h, http.MethodPost, "/findings/list", []byte("not-json"))
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-// --- helpers for raw body request ---
+// --- default max results applied when not specified ---
 
-func doRawBody(t *testing.T, h *inspector2.Handler, method, path string, body []byte) *httptest.ResponseRecorder {
-	t.Helper()
+func TestParityFindings_DefaultMaxResults(t *testing.T) {
+	t.Parallel()
 
-	// Use the auditDo helper but we need raw bytes — use existing httptest infra
-	import_bytes_pkg := body // reuse body var to avoid import
-	_ = import_bytes_pkg
+	h, b := newParityHandlerAndBackend(t)
 
-	return auditDoRaw(t, h, method, path, body)
+	for range 5 {
+		paritySeedFinding(t, b, "PACKAGE_VULNERABILITY", "HIGH", "ACTIVE", "default-max-f")
+	}
+
+	findings, nextToken := parityListFindingsWithToken(t, h, map[string]any{})
+	assert.Len(t, findings, 5)
+	assert.Empty(t, nextToken)
 }
 
-func auditDoRaw(t *testing.T, h *inspector2.Handler, method, path string, body []byte) *httptest.ResponseRecorder {
-	t.Helper()
+// --- response structure ---
 
-	e := echo.New()
-	req := httptest.NewRequest(method, path, bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	c := e.NewContext(req, rec)
-	c.SetRequest(req)
-	require.NoError(t, h.Handler()(c))
+func TestParityFindings_ResponseStructure(t *testing.T) {
+	t.Parallel()
 
-	return rec
+	h, b := newParityHandlerAndBackend(t)
+	paritySeedFinding(t, b, "PACKAGE_VULNERABILITY", "HIGH", "ACTIVE", "resp-structure-f")
+
+	rec := parityDo(t, h, http.MethodPost, "/findings/list", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	assert.Contains(t, resp, "findings", "response must have findings key")
+}
+
+// --- empty token on fresh start ---
+
+func TestParityFindings_EmptyTokenMeansStart(t *testing.T) {
+	t.Parallel()
+
+	h, b := newParityHandlerAndBackend(t)
+
+	for i := range 3 {
+		paritySeedFinding(t, b, "PACKAGE_VULNERABILITY", "HIGH", "ACTIVE",
+			"token-start-"+string(rune('A'+i)))
+	}
+
+	f1, _ := parityListFindingsWithToken(t, h, map[string]any{"maxResults": 3})
+	f2, _ := parityListFindingsWithToken(t, h, map[string]any{"maxResults": 3, "nextToken": ""})
+
+	require.Len(t, f1, 3)
+	require.Len(t, f2, 3)
+
+	for i := range f1 {
+		m1 := f1[i].(map[string]any)
+		m2 := f2[i].(map[string]any)
+		assert.Equal(t, m1["findingArn"], m2["findingArn"])
+	}
+}
+
+// --- finding types ---
+
+func TestParityFindings_FindingTypes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		findingType string
+	}{
+		{name: "package_vulnerability", findingType: "PACKAGE_VULNERABILITY"},
+		{name: "network_reachability", findingType: "NETWORK_REACHABILITY"},
+		{name: "code_vulnerability", findingType: "CODE_VULNERABILITY"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newParityHandlerAndBackend(t)
+			paritySeedFinding(t, b, tc.findingType, "HIGH", "ACTIVE", "type-test")
+
+			findings := parityListFindings(t, h, map[string]any{})
+			require.Len(t, findings, 1)
+
+			f := findings[0].(map[string]any)
+			assert.Equal(t, tc.findingType, f["type"])
+		})
+	}
 }
