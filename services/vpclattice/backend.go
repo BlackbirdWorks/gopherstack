@@ -203,10 +203,10 @@ func (s *storedSNSA) toSummary() *ServiceNetworkServiceAssociationSummary {
 
 // storedSNVA holds a service network VPC association.
 type storedSNVA struct {
-	CreatedAt          time.Time         `json:"createdAt"`
-	LastUpdatedAt      time.Time         `json:"lastUpdatedAt"`
 	Tags               map[string]string `json:"tags"`
 	SecurityGroupIDs   []string          `json:"securityGroupIds"`
+	CreatedAt          time.Time         `json:"createdAt"`
+	LastUpdatedAt      time.Time         `json:"lastUpdatedAt"`
 	ARN                string            `json:"arn"`
 	ID                 string            `json:"id"`
 	VpcID              string            `json:"vpcId"`
@@ -251,9 +251,10 @@ func (s *storedSNVA) toSummary() *ServiceNetworkVpcAssociationSummary {
 
 // storedListener holds a listener.
 type storedListener struct {
+	Tags          map[string]string `json:"tags"`
+	DefaultAction *RuleAction       `json:"defaultAction"`
 	CreatedAt     time.Time         `json:"createdAt"`
 	LastUpdatedAt time.Time         `json:"lastUpdatedAt"`
-	Tags          map[string]string `json:"tags"`
 	ARN           string            `json:"arn"`
 	ID            string            `json:"id"`
 	ServiceARN    string            `json:"serviceArn"`
@@ -261,7 +262,6 @@ type storedListener struct {
 	Name          string            `json:"name"`
 	Protocol      string            `json:"protocol"`
 	Port          int32             `json:"port"`
-	DefaultAction *RuleAction       `json:"defaultAction"`
 }
 
 func (l *storedListener) toListener() *Listener {
@@ -293,17 +293,17 @@ func (l *storedListener) toSummary() *ListenerSummary {
 
 // storedRule holds a listener rule.
 type storedRule struct {
+	Tags          map[string]string `json:"tags"`
+	Action        *RuleAction       `json:"action"`
+	Match         *RuleMatch        `json:"match"`
 	CreatedAt     time.Time         `json:"createdAt"`
 	LastUpdatedAt time.Time         `json:"lastUpdatedAt"`
-	Tags          map[string]string `json:"tags"`
 	ARN           string            `json:"arn"`
 	ID            string            `json:"id"`
 	ListenerID    string            `json:"listenerId"`
 	ServiceID     string            `json:"serviceId"`
 	Name          string            `json:"name"`
 	Priority      int32             `json:"priority"`
-	Action        *RuleAction       `json:"action"`
-	Match         *RuleMatch        `json:"match"`
 	IsDefault     bool              `json:"isDefault"`
 }
 
@@ -333,16 +333,16 @@ func (r *storedRule) toSummary() *RuleSummary {
 
 // storedTargetGroup holds a target group.
 type storedTargetGroup struct {
+	Tags          map[string]string  `json:"tags"`
+	Config        *TargetGroupConfig `json:"config"`
+	ServiceARNs   []string           `json:"serviceArns"`
 	CreatedAt     time.Time          `json:"createdAt"`
 	LastUpdatedAt time.Time          `json:"lastUpdatedAt"`
-	Tags          map[string]string  `json:"tags"`
-	ServiceARNs   []string           `json:"serviceArns"`
 	ARN           string             `json:"arn"`
 	ID            string             `json:"id"`
 	Name          string             `json:"name"`
 	Type          string             `json:"type"`
 	Status        string             `json:"status"`
-	Config        *TargetGroupConfig `json:"config"`
 }
 
 func (tg *storedTargetGroup) toTargetGroup() *TargetGroup {
@@ -386,8 +386,8 @@ func (tg *storedTargetGroup) toSummary() *TargetGroupSummary {
 // storedTarget holds a registered target.
 type storedTarget struct {
 	ID     string `json:"id"`
-	Port   int32  `json:"port"`
 	Status string `json:"status"`
+	Port   int32  `json:"port"`
 }
 
 // storedALS holds an access log subscription.
@@ -1905,7 +1905,7 @@ func (b *InMemoryBackend) RegisterTargets(
 }
 
 // DeregisterTargets deregisters targets from a target group.
-func (b *InMemoryBackend) DeregisterTargets(
+func (b *InMemoryBackend) DeregisterTargets( //nolint:gocognit // target deregistration logic is inherently complex
 	tgID string,
 	targets []*Target,
 ) ([]*TargetFailure, error) {

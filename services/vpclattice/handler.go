@@ -30,6 +30,25 @@ const (
 
 	keyMessage = "message"
 
+	keyARN                = "arn"
+	keyName               = "name"
+	keyItems              = "items"
+	keyCreatedAt          = "createdAt"
+	keyLastUpdatedAt      = "lastUpdatedAt"
+	keyServiceARN         = "serviceArn"
+	keyServiceID          = "serviceId"
+	keyServiceNetworkARN  = "serviceNetworkArn"
+	keyServiceNetworkID   = "serviceNetworkId"
+	keyServiceNetworkName = "serviceNetworkName"
+	keyVPCID              = "vpcId"
+	keyProtocol           = "protocol"
+	keyPort               = "port"
+	keyPriority           = "priority"
+	keyIsDefault          = "isDefault"
+	keyPolicy             = "policy"
+	keyUnsuccessful       = "unsuccessful"
+	keyNameRequired       = "name is required"
+
 	opBatchUpdateRule = "BatchUpdateRule"
 	opCreateALS       = "CreateAccessLogSubscription"
 	opCreateListener  = "CreateListener"
@@ -207,7 +226,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) handleREST(c *echo.Context) error { //nolint:gocognit,gocyclo // large routing dispatch is expected
+func (h *Handler) handleREST(c *echo.Context) error { //nolint:gocognit,gocyclo,cyclop // large routing dispatch is expected
 	op, id1, id2, id3 := classifyPath(c.Request().Method, c.Request().URL.Path)
 
 	var body map[string]any
@@ -349,9 +368,9 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 // ------- Service handlers -------
 
 func (h *Handler) handleCreateService(c *echo.Context, body map[string]any) error {
-	name, _ := body["name"].(string)
+	name, _ := body[keyName].(string)
 	if name == "" {
-		return c.JSON(http.StatusBadRequest, map[string]any{keyMessage: "name is required"})
+		return c.JSON(http.StatusBadRequest, map[string]any{keyMessage: keyNameRequired})
 	}
 
 	authType, _ := body["authType"].(string)
@@ -398,7 +417,7 @@ func (h *Handler) handleDeleteService(c *echo.Context, id string) error {
 }
 
 func (h *Handler) handleListServices(c *echo.Context) error {
-	maxResults := queryInt32(c, 0)
+	maxResults := queryInt32(c)
 	nextToken := c.QueryParam("nextToken")
 
 	items, next, err := h.Backend.ListServices(maxResults, nextToken)
@@ -411,7 +430,7 @@ func (h *Handler) handleListServices(c *echo.Context) error {
 		summaries = append(summaries, serviceSummaryToJSON(s))
 	}
 
-	resp := map[string]any{"items": summaries}
+	resp := map[string]any{keyItems: summaries}
 	if next != "" {
 		resp["nextToken"] = next
 	}
@@ -422,9 +441,9 @@ func (h *Handler) handleListServices(c *echo.Context) error {
 // ------- ServiceNetwork handlers -------
 
 func (h *Handler) handleCreateServiceNetwork(c *echo.Context, body map[string]any) error {
-	name, _ := body["name"].(string)
+	name, _ := body[keyName].(string)
 	if name == "" {
-		return c.JSON(http.StatusBadRequest, map[string]any{keyMessage: "name is required"})
+		return c.JSON(http.StatusBadRequest, map[string]any{keyMessage: keyNameRequired})
 	}
 
 	authType, _ := body["authType"].(string)
@@ -471,7 +490,7 @@ func (h *Handler) handleDeleteServiceNetwork(c *echo.Context, id string) error {
 }
 
 func (h *Handler) handleListServiceNetworks(c *echo.Context) error {
-	maxResults := queryInt32(c, 0)
+	maxResults := queryInt32(c)
 	nextToken := c.QueryParam("nextToken")
 
 	items, next, err := h.Backend.ListServiceNetworks(maxResults, nextToken)
@@ -484,7 +503,7 @@ func (h *Handler) handleListServiceNetworks(c *echo.Context) error {
 		summaries = append(summaries, serviceNetworkSummaryToJSON(s))
 	}
 
-	resp := map[string]any{"items": summaries}
+	resp := map[string]any{keyItems: summaries}
 	if next != "" {
 		resp["nextToken"] = next
 	}
@@ -531,11 +550,11 @@ func (h *Handler) handleDeleteSNSA(c *echo.Context, id string) error {
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"status": "DELETE_IN_PROGRESS"})
+	return c.JSON(http.StatusOK, map[string]any{"status": statusDeleteInProgress})
 }
 
 func (h *Handler) handleListSNSAs(c *echo.Context) error {
-	maxResults := queryInt32(c, 0)
+	maxResults := queryInt32(c)
 	nextToken := c.QueryParam("nextToken")
 	snID := c.QueryParam("serviceNetworkIdentifier")
 	svcID := c.QueryParam("serviceIdentifier")
@@ -555,7 +574,7 @@ func (h *Handler) handleListSNSAs(c *echo.Context) error {
 		summaries = append(summaries, snsaSummaryToJSON(s))
 	}
 
-	resp := map[string]any{"items": summaries}
+	resp := map[string]any{keyItems: summaries}
 	if next != "" {
 		resp["nextToken"] = next
 	}
@@ -627,11 +646,11 @@ func (h *Handler) handleDeleteSNVA(c *echo.Context, id string) error {
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"status": "DELETE_IN_PROGRESS"})
+	return c.JSON(http.StatusOK, map[string]any{"status": statusDeleteInProgress})
 }
 
 func (h *Handler) handleListSNVAs(c *echo.Context) error {
-	maxResults := queryInt32(c, 0)
+	maxResults := queryInt32(c)
 	nextToken := c.QueryParam("nextToken")
 	snID := c.QueryParam("serviceNetworkIdentifier")
 	vpcID := c.QueryParam("vpcIdentifier")
@@ -651,7 +670,7 @@ func (h *Handler) handleListSNVAs(c *echo.Context) error {
 		summaries = append(summaries, snvaSummaryToJSON(s))
 	}
 
-	resp := map[string]any{"items": summaries}
+	resp := map[string]any{keyItems: summaries}
 	if next != "" {
 		resp["nextToken"] = next
 	}
@@ -666,8 +685,8 @@ func (h *Handler) handleCreateListener(
 	serviceID string,
 	body map[string]any,
 ) error {
-	name, _ := body["name"].(string)
-	protocol, _ := body["protocol"].(string)
+	name, _ := body[keyName].(string)
+	protocol, _ := body[keyProtocol].(string)
 
 	if name == "" || protocol == "" {
 		return c.JSON(
@@ -676,7 +695,7 @@ func (h *Handler) handleCreateListener(
 		)
 	}
 
-	port := bodyInt32(body, "port")
+	port := bodyInt32(body, keyPort)
 	defaultAction := extractRuleAction(body, "defaultAction")
 	tags := extractTags(body)
 
@@ -721,7 +740,7 @@ func (h *Handler) handleDeleteListener(c *echo.Context, serviceID, listenerID st
 }
 
 func (h *Handler) handleListListeners(c *echo.Context, serviceID string) error {
-	maxResults := queryInt32(c, 0)
+	maxResults := queryInt32(c)
 	nextToken := c.QueryParam("nextToken")
 
 	items, next, err := h.Backend.ListListeners(serviceID, maxResults, nextToken)
@@ -734,7 +753,7 @@ func (h *Handler) handleListListeners(c *echo.Context, serviceID string) error {
 		summaries = append(summaries, listenerSummaryToJSON(l))
 	}
 
-	resp := map[string]any{"items": summaries}
+	resp := map[string]any{keyItems: summaries}
 	if next != "" {
 		resp["nextToken"] = next
 	}
@@ -749,12 +768,12 @@ func (h *Handler) handleCreateRule(
 	serviceID, listenerID string,
 	body map[string]any,
 ) error {
-	name, _ := body["name"].(string)
+	name, _ := body[keyName].(string)
 	if name == "" {
-		return c.JSON(http.StatusBadRequest, map[string]any{keyMessage: "name is required"})
+		return c.JSON(http.StatusBadRequest, map[string]any{keyMessage: keyNameRequired})
 	}
 
-	priority := bodyInt32(body, "priority")
+	priority := bodyInt32(body, keyPriority)
 	action := extractRuleAction(body, "action")
 	match := extractRuleMatch(body, "match")
 	tags := extractTags(body)
@@ -781,7 +800,7 @@ func (h *Handler) handleUpdateRule(
 	serviceID, listenerID, ruleID string,
 	body map[string]any,
 ) error {
-	priority := bodyInt32(body, "priority")
+	priority := bodyInt32(body, keyPriority)
 	action := extractRuleAction(body, "action")
 	match := extractRuleMatch(body, "match")
 
@@ -802,7 +821,7 @@ func (h *Handler) handleDeleteRule(c *echo.Context, serviceID, listenerID, ruleI
 }
 
 func (h *Handler) handleListRules(c *echo.Context, serviceID, listenerID string) error {
-	maxResults := queryInt32(c, 0)
+	maxResults := queryInt32(c)
 	nextToken := c.QueryParam("nextToken")
 
 	items, next, err := h.Backend.ListRules(serviceID, listenerID, maxResults, nextToken)
@@ -815,7 +834,7 @@ func (h *Handler) handleListRules(c *echo.Context, serviceID, listenerID string)
 		summaries = append(summaries, ruleSummaryToJSON(r))
 	}
 
-	resp := map[string]any{"items": summaries}
+	resp := map[string]any{keyItems: summaries}
 	if next != "" {
 		resp["nextToken"] = next
 	}
@@ -835,7 +854,7 @@ func (h *Handler) handleBatchUpdateRule(
 			if m, ok2 := raw.(map[string]any); ok2 {
 				u := &RuleUpdate{}
 				u.RuleIdentifier, _ = m["ruleIdentifier"].(string)
-				u.Priority = bodyInt32(m, "priority")
+				u.Priority = bodyInt32(m, keyPriority)
 				u.Action = extractRuleAction(m, "action")
 				u.Match = extractRuleMatch(m, "match")
 				updates = append(updates, u)
@@ -863,15 +882,15 @@ func (h *Handler) handleBatchUpdateRule(
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"successful":   successList,
-		"unsuccessful": failureList,
+		"successful":    successList,
+		keyUnsuccessful: failureList,
 	})
 }
 
 // ------- TargetGroup handlers -------
 
 func (h *Handler) handleCreateTargetGroup(c *echo.Context, body map[string]any) error {
-	name, _ := body["name"].(string)
+	name, _ := body[keyName].(string)
 	tgType, _ := body["type"].(string)
 
 	if name == "" || tgType == "" {
@@ -920,11 +939,11 @@ func (h *Handler) handleDeleteTargetGroup(c *echo.Context, id string) error {
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"id": id, "status": "DELETE_IN_PROGRESS"})
+	return c.JSON(http.StatusOK, map[string]any{"id": id, "status": statusDeleteInProgress})
 }
 
 func (h *Handler) handleListTargetGroups(c *echo.Context) error {
-	maxResults := queryInt32(c, 0)
+	maxResults := queryInt32(c)
 	nextToken := c.QueryParam("nextToken")
 	tgType := c.QueryParam("targetGroupType")
 	svcArn := c.QueryParam("serviceArn")
@@ -939,7 +958,7 @@ func (h *Handler) handleListTargetGroups(c *echo.Context) error {
 		summaries = append(summaries, targetGroupSummaryToJSON(tg))
 	}
 
-	resp := map[string]any{"items": summaries}
+	resp := map[string]any{keyItems: summaries}
 	if next != "" {
 		resp["nextToken"] = next
 	}
@@ -960,7 +979,7 @@ func (h *Handler) handleRegisterTargets(c *echo.Context, tgID string, body map[s
 		failureList = append(failureList, targetFailureToJSON(f))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"unsuccessful": failureList})
+	return c.JSON(http.StatusOK, map[string]any{keyUnsuccessful: failureList})
 }
 
 func (h *Handler) handleDeregisterTargets(c *echo.Context, tgID string, body map[string]any) error {
@@ -976,11 +995,11 @@ func (h *Handler) handleDeregisterTargets(c *echo.Context, tgID string, body map
 		failureList = append(failureList, targetFailureToJSON(f))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"unsuccessful": failureList})
+	return c.JSON(http.StatusOK, map[string]any{keyUnsuccessful: failureList})
 }
 
 func (h *Handler) handleListTargets(c *echo.Context, tgID string, _ map[string]any) error {
-	maxResults := queryInt32(c, 0)
+	maxResults := queryInt32(c)
 	nextToken := c.QueryParam("nextToken")
 
 	items, next, err := h.Backend.ListTargets(tgID, maxResults, nextToken)
@@ -993,7 +1012,7 @@ func (h *Handler) handleListTargets(c *echo.Context, tgID string, _ map[string]a
 		summaries = append(summaries, targetSummaryToJSON(t))
 	}
 
-	resp := map[string]any{"items": summaries}
+	resp := map[string]any{keyItems: summaries}
 	if next != "" {
 		resp["nextToken"] = next
 	}
@@ -1054,7 +1073,7 @@ func (h *Handler) handleDeleteALS(c *echo.Context, id string) error {
 }
 
 func (h *Handler) handleListALSs(c *echo.Context) error {
-	maxResults := queryInt32(c, 0)
+	maxResults := queryInt32(c)
 	nextToken := c.QueryParam("nextToken")
 	resourceID := c.QueryParam("resourceIdentifier")
 
@@ -1068,7 +1087,7 @@ func (h *Handler) handleListALSs(c *echo.Context) error {
 		summaries = append(summaries, alsSummaryToJSON(a))
 	}
 
-	resp := map[string]any{"items": summaries}
+	resp := map[string]any{keyItems: summaries}
 	if next != "" {
 		resp["nextToken"] = next
 	}
@@ -1083,7 +1102,7 @@ func (h *Handler) handlePutAuthPolicy(
 	resourceID string,
 	body map[string]any,
 ) error {
-	policy, _ := body["policy"].(string)
+	policy, _ := body[keyPolicy].(string)
 
 	ap, err := h.Backend.PutAuthPolicy(resourceID, policy)
 	if err != nil {
@@ -1091,8 +1110,8 @@ func (h *Handler) handlePutAuthPolicy(
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"policy": ap.Policy,
-		"state":  ap.State,
+		keyPolicy: ap.Policy,
+		"state":   ap.State,
 	})
 }
 
@@ -1103,8 +1122,8 @@ func (h *Handler) handleGetAuthPolicy(c *echo.Context, resourceID string) error 
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"policy": ap.Policy,
-		"state":  ap.State,
+		keyPolicy: ap.Policy,
+		"state":   ap.State,
 	})
 }
 
@@ -1121,7 +1140,7 @@ func (h *Handler) handlePutResourcePolicy(
 	resourceArn string,
 	body map[string]any,
 ) error {
-	policy, _ := body["policy"].(string)
+	policy, _ := body[keyPolicy].(string)
 
 	if err := h.Backend.PutResourcePolicy(resourceArn, policy); err != nil {
 		return h.handleError(c, err)
@@ -1136,7 +1155,7 @@ func (h *Handler) handleGetResourcePolicy(c *echo.Context, resourceArn string) e
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"policy": policy})
+	return c.JSON(http.StatusOK, map[string]any{keyPolicy: policy})
 }
 
 func (h *Handler) handleDeleteResourcePolicy(c *echo.Context, resourceArn string) error {
@@ -1193,9 +1212,9 @@ func (h *Handler) handleListTagsForResource(c *echo.Context, resourceArn string)
 
 // classifyPath maps (method, path) → (op, id1, id2, id3).
 // id1..id3 are path segments in order (service, listener, rule etc.).
-func classifyPath( //nolint:gocognit,gocyclo // large routing dispatch is expected
+func classifyPath( //nolint:gocognit,gocyclo,cyclop // large routing dispatch is expected
 	method, path string,
-) (op, id1, id2, id3 string) { //nolint:nonamedreturns // path dispatch needs named returns for clarity
+) (op, id1, id2, id3 string) {
 	switch {
 	case path == pathServices:
 		if method == http.MethodPost {
@@ -1289,9 +1308,9 @@ func classifyPath( //nolint:gocognit,gocyclo // large routing dispatch is expect
 }
 
 // classifyServicePath handles /services/{serviceID}[/listeners[/...]].
-func classifyServicePath( //nolint:gocognit,gocyclo // large routing dispatch is expected
+func classifyServicePath( //nolint:gocognit,gocyclo,cyclop,nestif // large routing dispatch is expected
 	method, path string,
-) (op, id1, id2, id3 string) { //nolint:nonamedreturns // path dispatch needs named returns for clarity
+) (op, id1, id2, id3 string) {
 	rest := strings.TrimPrefix(path, pathServices+"/")
 	serviceID, sub, hasSub := strings.Cut(rest, "/")
 
@@ -1363,7 +1382,7 @@ func classifyServicePath( //nolint:gocognit,gocyclo // large routing dispatch is
 // classifyServiceNetworkPath handles /servicenetworks/{id}.
 func classifyServiceNetworkPath(
 	method, path string,
-) (op, id1, id2, id3 string) { //nolint:nonamedreturns // path dispatch needs named returns for clarity
+) (string, string, string, string) {
 	id := strings.TrimPrefix(path, pathServiceNetworks+"/")
 	switch method {
 	case http.MethodGet:
@@ -1380,7 +1399,7 @@ func classifyServiceNetworkPath(
 // classifySNSAPath handles /servicenetworkserviceassociations/{id}.
 func classifySNSAPath(
 	method, path string,
-) (op, id1, id2, id3 string) { //nolint:nonamedreturns // path dispatch needs named returns for clarity
+) (string, string, string, string) {
 	id := strings.TrimPrefix(path, pathServiceNetworkServiceAssociations+"/")
 	switch method {
 	case http.MethodGet:
@@ -1395,7 +1414,7 @@ func classifySNSAPath(
 // classifySNVAPath handles /servicenetworkvpcassociations/{id}.
 func classifySNVAPath(
 	method, path string,
-) (op, id1, id2, id3 string) { //nolint:nonamedreturns // path dispatch needs named returns for clarity
+) (string, string, string, string) {
 	id := strings.TrimPrefix(path, pathServiceNetworkVpcAssociations+"/")
 	switch method {
 	case http.MethodGet:
@@ -1412,7 +1431,7 @@ func classifySNVAPath(
 // classifyTargetGroupPath handles /targetgroups/{id}[/registertargets|deregistertargets|listtargets].
 func classifyTargetGroupPath(
 	method, path string,
-) (op, id1, id2, id3 string) { //nolint:nonamedreturns // path dispatch needs named returns for clarity
+) (string, string, string, string) {
 	rest := strings.TrimPrefix(path, pathTargetGroups+"/")
 	tgID, sub, hasSub := strings.Cut(rest, "/")
 
@@ -1444,7 +1463,7 @@ func classifyTargetGroupPath(
 // classifyALSPath handles /accesslogsubscriptions/{id}.
 func classifyALSPath(
 	method, path string,
-) (op, id1, id2, id3 string) { //nolint:nonamedreturns // path dispatch needs named returns for clarity
+) (string, string, string, string) {
 	id := strings.TrimPrefix(path, pathAccessLogSubscriptions+"/")
 	switch method {
 	case http.MethodGet:
@@ -1462,14 +1481,14 @@ func classifyALSPath(
 
 func serviceToJSON(s *Service) map[string]any {
 	m := map[string]any{
-		"arn":           s.ARN,
-		"id":            s.ID,
-		"name":          s.Name,
-		"authType":      s.AuthType,
-		"status":        s.Status,
-		"createdAt":     s.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
-		"lastUpdatedAt": s.LastUpdatedAt.Format("2006-01-02T15:04:05.000Z"),
-		"dnsEntry":      map[string]any{"domainName": s.DNSName},
+		keyARN:           s.ARN,
+		"id":             s.ID,
+		keyName:          s.Name,
+		"authType":       s.AuthType,
+		"status":         s.Status,
+		keyCreatedAt:     s.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyLastUpdatedAt: s.LastUpdatedAt.Format("2006-01-02T15:04:05.000Z"),
+		"dnsEntry":       map[string]any{"domainName": s.DNSName},
 	}
 
 	if s.CertificateArn != "" {
@@ -1485,11 +1504,11 @@ func serviceToJSON(s *Service) map[string]any {
 
 func serviceSummaryToJSON(s *ServiceSummary) map[string]any {
 	m := map[string]any{
-		"arn":       s.ARN,
-		"id":        s.ID,
-		"name":      s.Name,
-		"status":    s.Status,
-		"createdAt": s.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyARN:       s.ARN,
+		"id":         s.ID,
+		keyName:      s.Name,
+		"status":     s.Status,
+		keyCreatedAt: s.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
 	}
 
 	if s.DNSName != "" {
@@ -1505,56 +1524,56 @@ func serviceSummaryToJSON(s *ServiceSummary) map[string]any {
 
 func serviceNetworkToJSON(s *ServiceNetwork) map[string]any {
 	return map[string]any{
-		"arn":                        s.ARN,
-		"id":                         s.ID,
-		"name":                       s.Name,
-		"authType":                   s.AuthType,
-		"numberOfAssociatedServices": s.NumberOfAssociatedServices,
-		"numberOfAssociatedVPCs":     s.NumberOfAssociatedVPCs,
-		"createdAt":                  s.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
-		"lastUpdatedAt":              s.LastUpdatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyARN:                         s.ARN,
+		"id":                           s.ID,
+		keyName:                        s.Name,
+		"authType":                     s.AuthType,
+		"numberOfAssociatedServices":   s.NumberOfAssociatedServices,
+		"numberOfAssociatedVPCs":       s.NumberOfAssociatedVPCs,
+		keyCreatedAt:                   s.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyLastUpdatedAt:               s.LastUpdatedAt.Format("2006-01-02T15:04:05.000Z"),
 	}
 }
 
 func serviceNetworkSummaryToJSON(s *ServiceNetworkSummary) map[string]any {
 	return map[string]any{
-		"arn":                        s.ARN,
-		"id":                         s.ID,
-		"name":                       s.Name,
-		"numberOfAssociatedServices": s.NumberOfAssociatedServices,
-		"numberOfAssociatedVPCs":     s.NumberOfAssociatedVPCs,
-		"createdAt":                  s.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyARN:                         s.ARN,
+		"id":                           s.ID,
+		keyName:                        s.Name,
+		"numberOfAssociatedServices":   s.NumberOfAssociatedServices,
+		"numberOfAssociatedVPCs":       s.NumberOfAssociatedVPCs,
+		keyCreatedAt:                   s.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
 	}
 }
 
 func snsaToJSON(s *ServiceNetworkServiceAssociation) map[string]any {
 	return map[string]any{
-		"arn":                s.ARN,
-		"id":                 s.ID,
-		"serviceArn":         s.ServiceARN,
-		"serviceId":          s.ServiceID,
-		"serviceName":        s.ServiceName,
-		"serviceNetworkArn":  s.ServiceNetworkARN,
-		"serviceNetworkId":   s.ServiceNetworkID,
-		"serviceNetworkName": s.ServiceNetworkName,
-		"status":             s.Status,
-		"createdBy":          s.CreatedBy,
-		"createdAt":          s.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyARN:                s.ARN,
+		"id":                  s.ID,
+		keyServiceARN:         s.ServiceARN,
+		keyServiceID:          s.ServiceID,
+		"serviceName":         s.ServiceName,
+		keyServiceNetworkARN:  s.ServiceNetworkARN,
+		keyServiceNetworkID:   s.ServiceNetworkID,
+		keyServiceNetworkName: s.ServiceNetworkName,
+		"status":              s.Status,
+		"createdBy":           s.CreatedBy,
+		keyCreatedAt:          s.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
 	}
 }
 
 func snsaSummaryToJSON(s *ServiceNetworkServiceAssociationSummary) map[string]any {
 	return map[string]any{
-		"arn":                s.ARN,
-		"id":                 s.ID,
-		"serviceArn":         s.ServiceARN,
-		"serviceId":          s.ServiceID,
-		"serviceName":        s.ServiceName,
-		"serviceNetworkArn":  s.ServiceNetworkARN,
-		"serviceNetworkId":   s.ServiceNetworkID,
-		"serviceNetworkName": s.ServiceNetworkName,
-		"status":             s.Status,
-		"createdAt":          s.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyARN:                s.ARN,
+		"id":                  s.ID,
+		keyServiceARN:         s.ServiceARN,
+		keyServiceID:          s.ServiceID,
+		"serviceName":         s.ServiceName,
+		keyServiceNetworkARN:  s.ServiceNetworkARN,
+		keyServiceNetworkID:   s.ServiceNetworkID,
+		keyServiceNetworkName: s.ServiceNetworkName,
+		"status":              s.Status,
+		keyCreatedAt:          s.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
 	}
 }
 
@@ -1563,44 +1582,44 @@ func snvaToJSON(s *ServiceNetworkVpcAssociation) map[string]any {
 	copy(sgs, s.SecurityGroupIDs)
 
 	return map[string]any{
-		"arn":                s.ARN,
-		"id":                 s.ID,
-		"vpcId":              s.VpcID,
-		"serviceNetworkArn":  s.ServiceNetworkARN,
-		"serviceNetworkId":   s.ServiceNetworkID,
-		"serviceNetworkName": s.ServiceNetworkName,
-		"securityGroupIds":   sgs,
-		"status":             s.Status,
-		"createdBy":          s.CreatedBy,
-		"createdAt":          s.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
-		"lastUpdatedAt":      s.LastUpdatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyARN:                s.ARN,
+		"id":                  s.ID,
+		keyVPCID:              s.VpcID,
+		keyServiceNetworkARN:  s.ServiceNetworkARN,
+		keyServiceNetworkID:   s.ServiceNetworkID,
+		keyServiceNetworkName: s.ServiceNetworkName,
+		"securityGroupIds":    sgs,
+		"status":              s.Status,
+		"createdBy":           s.CreatedBy,
+		keyCreatedAt:          s.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyLastUpdatedAt:      s.LastUpdatedAt.Format("2006-01-02T15:04:05.000Z"),
 	}
 }
 
 func snvaSummaryToJSON(s *ServiceNetworkVpcAssociationSummary) map[string]any {
 	return map[string]any{
-		"arn":                s.ARN,
-		"id":                 s.ID,
-		"vpcId":              s.VpcID,
-		"serviceNetworkArn":  s.ServiceNetworkARN,
-		"serviceNetworkId":   s.ServiceNetworkID,
-		"serviceNetworkName": s.ServiceNetworkName,
-		"status":             s.Status,
-		"createdAt":          s.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyARN:                s.ARN,
+		"id":                  s.ID,
+		keyVPCID:              s.VpcID,
+		keyServiceNetworkARN:  s.ServiceNetworkARN,
+		keyServiceNetworkID:   s.ServiceNetworkID,
+		keyServiceNetworkName: s.ServiceNetworkName,
+		"status":              s.Status,
+		keyCreatedAt:          s.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
 	}
 }
 
 func listenerToJSON(l *Listener) map[string]any {
 	m := map[string]any{
-		"arn":           l.ARN,
-		"id":            l.ID,
-		"serviceArn":    l.ServiceARN,
-		"serviceId":     l.ServiceID,
-		"name":          l.Name,
-		"protocol":      l.Protocol,
-		"port":          l.Port,
-		"createdAt":     l.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
-		"lastUpdatedAt": l.LastUpdatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyARN:           l.ARN,
+		"id":             l.ID,
+		keyServiceARN:    l.ServiceARN,
+		keyServiceID:     l.ServiceID,
+		keyName:          l.Name,
+		keyProtocol:      l.Protocol,
+		keyPort:          l.Port,
+		keyCreatedAt:     l.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyLastUpdatedAt: l.LastUpdatedAt.Format("2006-01-02T15:04:05.000Z"),
 	}
 
 	if l.DefaultAction != nil {
@@ -1612,25 +1631,25 @@ func listenerToJSON(l *Listener) map[string]any {
 
 func listenerSummaryToJSON(l *ListenerSummary) map[string]any {
 	return map[string]any{
-		"arn":           l.ARN,
-		"id":            l.ID,
-		"name":          l.Name,
-		"protocol":      l.Protocol,
-		"port":          l.Port,
-		"createdAt":     l.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
-		"lastUpdatedAt": l.LastUpdatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyARN:           l.ARN,
+		"id":             l.ID,
+		keyName:          l.Name,
+		keyProtocol:      l.Protocol,
+		keyPort:          l.Port,
+		keyCreatedAt:     l.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyLastUpdatedAt: l.LastUpdatedAt.Format("2006-01-02T15:04:05.000Z"),
 	}
 }
 
 func ruleToJSON(r *Rule) map[string]any {
 	m := map[string]any{
-		"arn":           r.ARN,
-		"id":            r.ID,
-		"name":          r.Name,
-		"priority":      r.Priority,
-		"isDefault":     r.IsDefault,
-		"createdAt":     r.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
-		"lastUpdatedAt": r.LastUpdatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyARN:           r.ARN,
+		"id":             r.ID,
+		keyName:          r.Name,
+		keyPriority:      r.Priority,
+		keyIsDefault:     r.IsDefault,
+		keyCreatedAt:     r.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyLastUpdatedAt: r.LastUpdatedAt.Format("2006-01-02T15:04:05.000Z"),
 	}
 
 	if r.Action != nil {
@@ -1646,21 +1665,21 @@ func ruleToJSON(r *Rule) map[string]any {
 
 func ruleSummaryToJSON(r *RuleSummary) map[string]any {
 	return map[string]any{
-		"arn":       r.ARN,
-		"id":        r.ID,
-		"name":      r.Name,
-		"priority":  r.Priority,
-		"isDefault": r.IsDefault,
+		keyARN:       r.ARN,
+		"id":         r.ID,
+		keyName:      r.Name,
+		keyPriority:  r.Priority,
+		keyIsDefault: r.IsDefault,
 	}
 }
 
 func ruleUpdateSuccessToJSON(r *RuleUpdateSuccess) map[string]any {
 	m := map[string]any{
-		"arn":       r.ARN,
-		"id":        r.ID,
-		"name":      r.Name,
-		"priority":  r.Priority,
-		"isDefault": r.IsDefault,
+		keyARN:       r.ARN,
+		"id":         r.ID,
+		keyName:      r.Name,
+		keyPriority:  r.Priority,
+		keyIsDefault: r.IsDefault,
 	}
 
 	if r.Action != nil {
@@ -1721,7 +1740,7 @@ func ruleMatchToJSON(m *RuleMatch) map[string]any {
 		headers := make([]any, 0, len(m.HeaderMatches))
 		for _, h := range m.HeaderMatches {
 			headers = append(headers, map[string]any{
-				"name":  h.Name,
+				keyName: h.Name,
 				"match": map[string]any{h.MatchType: h.MatchValue},
 			})
 		}
@@ -1734,14 +1753,14 @@ func ruleMatchToJSON(m *RuleMatch) map[string]any {
 
 func targetGroupToJSON(tg *TargetGroup) map[string]any {
 	m := map[string]any{
-		"arn":           tg.ARN,
-		"id":            tg.ID,
-		"name":          tg.Name,
-		"type":          tg.Type,
-		"status":        tg.Status,
-		"serviceArns":   tg.ServiceARNs,
-		"createdAt":     tg.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
-		"lastUpdatedAt": tg.LastUpdatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyARN:           tg.ARN,
+		"id":             tg.ID,
+		keyName:          tg.Name,
+		"type":           tg.Type,
+		"status":         tg.Status,
+		"serviceArns":    tg.ServiceARNs,
+		keyCreatedAt:     tg.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyLastUpdatedAt: tg.LastUpdatedAt.Format("2006-01-02T15:04:05.000Z"),
 	}
 
 	if tg.Config != nil {
@@ -1753,25 +1772,25 @@ func targetGroupToJSON(tg *TargetGroup) map[string]any {
 
 func targetGroupSummaryToJSON(tg *TargetGroupSummary) map[string]any {
 	return map[string]any{
-		"arn":         tg.ARN,
-		"id":          tg.ID,
-		"name":        tg.Name,
-		"type":        tg.Type,
-		"status":      tg.Status,
-		"port":        tg.Port,
-		"protocol":    tg.Protocol,
-		"vpcId":       tg.VpcID,
+		keyARN:       tg.ARN,
+		"id":         tg.ID,
+		keyName:      tg.Name,
+		"type":       tg.Type,
+		"status":     tg.Status,
+		keyPort:      tg.Port,
+		keyProtocol:  tg.Protocol,
+		keyVPCID:     tg.VpcID,
 		"serviceArns": tg.ServiceARNs,
-		"createdAt":   tg.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyCreatedAt: tg.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
 	}
 }
 
 func targetGroupConfigToJSON(c *TargetGroupConfig) map[string]any {
 	m := map[string]any{
-		"port":            c.Port,
-		"protocol":        c.Protocol,
+		keyPort:         c.Port,
+		keyProtocol:     c.Protocol,
 		"protocolVersion": c.ProtocolVersion,
-		"vpcIdentifier":   c.VpcID,
+		"vpcIdentifier": c.VpcID,
 	}
 
 	if c.HealthCheck != nil {
@@ -1784,9 +1803,9 @@ func targetGroupConfigToJSON(c *TargetGroupConfig) map[string]any {
 func healthCheckToJSON(hc *HealthCheckConfig) map[string]any {
 	return map[string]any{
 		"enabled":                    hc.Enabled,
-		"protocol":                   hc.Protocol,
+		keyProtocol:                  hc.Protocol,
 		"path":                       hc.Path,
-		"port":                       hc.Port,
+		keyPort:                      hc.Port,
 		"healthyThresholdCount":      hc.HealthyThresholdCount,
 		"unhealthyThresholdCount":    hc.UnhealthyThresholdCount,
 		"healthCheckIntervalSeconds": hc.HealthCheckIntervalSeconds,
@@ -1797,7 +1816,7 @@ func healthCheckToJSON(hc *HealthCheckConfig) map[string]any {
 func targetSummaryToJSON(t *TargetSummary) map[string]any {
 	return map[string]any{
 		"id":         t.ID,
-		"port":       t.Port,
+		keyPort:      t.Port,
 		"status":     t.Status,
 		"reasonCode": t.ReasonCode,
 	}
@@ -1806,7 +1825,7 @@ func targetSummaryToJSON(t *TargetSummary) map[string]any {
 func targetFailureToJSON(f *TargetFailure) map[string]any {
 	return map[string]any{
 		"id":      f.ID,
-		"port":    f.Port,
+		keyPort:   f.Port,
 		"code":    f.Code,
 		"message": f.Message,
 	}
@@ -1814,24 +1833,24 @@ func targetFailureToJSON(f *TargetFailure) map[string]any {
 
 func alsToJSON(a *AccessLogSubscription) map[string]any {
 	return map[string]any{
-		"arn":            a.ARN,
+		keyARN:           a.ARN,
 		"id":             a.ID,
 		"resourceArn":    a.ResourceARN,
 		"resourceId":     a.ResourceID,
 		"destinationArn": a.DestinationARN,
-		"createdAt":      a.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
-		"lastUpdatedAt":  a.LastUpdatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyCreatedAt:     a.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyLastUpdatedAt: a.LastUpdatedAt.Format("2006-01-02T15:04:05.000Z"),
 	}
 }
 
 func alsSummaryToJSON(a *AccessLogSubscriptionSummary) map[string]any {
 	return map[string]any{
-		"arn":            a.ARN,
+		keyARN:           a.ARN,
 		"id":             a.ID,
 		"resourceArn":    a.ResourceARN,
 		"resourceId":     a.ResourceID,
 		"destinationArn": a.DestinationARN,
-		"createdAt":      a.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyCreatedAt:     a.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
 	}
 }
 
@@ -1897,7 +1916,7 @@ func extractRuleAction(body map[string]any, key string) *RuleAction {
 	return action
 }
 
-func extractRuleMatch(body map[string]any, key string) *RuleMatch { //nolint:gocognit // nested JSON extraction
+func extractRuleMatch(body map[string]any, key string) *RuleMatch { //nolint:gocognit,nestif // nested JSON extraction
 	raw, ok := body[key].(map[string]any)
 	if !ok {
 		return nil
@@ -1923,7 +1942,7 @@ func extractRuleMatch(body map[string]any, key string) *RuleMatch { //nolint:goc
 			for _, hRaw := range headersRaw {
 				if hMap, ok4 := hRaw.(map[string]any); ok4 {
 					hm := &HeaderMatch{}
-					hm.Name, _ = hMap["name"].(string)
+					hm.Name, _ = hMap[keyName].(string)
 					if matchRaw, ok5 := hMap["match"].(map[string]any); ok5 {
 						for k, v := range matchRaw {
 							if s, ok6 := v.(string); ok6 {
@@ -1949,8 +1968,8 @@ func extractTargetGroupConfig(body map[string]any) *TargetGroupConfig {
 	}
 
 	cfg := &TargetGroupConfig{}
-	cfg.Port = bodyInt32(raw, "port")
-	cfg.Protocol, _ = raw["protocol"].(string)
+	cfg.Port = bodyInt32(raw, keyPort)
+	cfg.Protocol, _ = raw[keyProtocol].(string)
 	cfg.ProtocolVersion, _ = raw["protocolVersion"].(string)
 	cfg.VpcID, _ = raw["vpcIdentifier"].(string)
 	cfg.IPAddressType, _ = raw["ipAddressType"].(string)
@@ -1969,10 +1988,10 @@ func extractHealthCheckConfig(raw map[string]any) *HealthCheckConfig {
 		hc.Enabled = v
 	}
 
-	hc.Protocol, _ = raw["protocol"].(string)
+	hc.Protocol, _ = raw[keyProtocol].(string)
 	hc.ProtocolVersion, _ = raw["protocolVersion"].(string)
 	hc.Path, _ = raw["path"].(string)
-	hc.Port = bodyInt32(raw, "port")
+	hc.Port = bodyInt32(raw, keyPort)
 	hc.HealthyThresholdCount = bodyInt32(raw, "healthyThresholdCount")
 	hc.UnhealthyThresholdCount = bodyInt32(raw, "unhealthyThresholdCount")
 	hc.HealthCheckIntervalSeconds = bodyInt32(raw, "healthCheckIntervalSeconds")
@@ -1989,7 +2008,7 @@ func extractTargets(body map[string]any) []*Target {
 			if tMap, ok2 := tRaw.(map[string]any); ok2 {
 				t := &Target{}
 				t.ID, _ = tMap["id"].(string)
-				t.Port = bodyInt32(tMap, "port")
+				t.Port = bodyInt32(tMap, keyPort)
 				targets = append(targets, t)
 			}
 		}
@@ -1998,15 +2017,15 @@ func extractTargets(body map[string]any) []*Target {
 	return targets
 }
 
-func queryInt32(c *echo.Context, fallback int32) int32 {
+func queryInt32(c *echo.Context) int32 {
 	v := c.QueryParam("maxResults")
 	if v == "" {
-		return fallback
+		return 0
 	}
 
 	n, err := strconv.ParseInt(v, 10, 32)
 	if err != nil {
-		return fallback
+		return 0
 	}
 
 	return int32(n) //nolint:gosec // value is bounded by ParseInt with bitSize=32

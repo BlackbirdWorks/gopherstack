@@ -223,6 +223,7 @@ type ServiceNetworkServiceAssociationSummary struct {
 
 // ServiceNetworkVpcAssociation is a VPC-to-service-network association.
 type ServiceNetworkVpcAssociation struct {
+	SecurityGroupIDs   []string
 	CreatedAt          time.Time
 	LastUpdatedAt      time.Time
 	ARN                string
@@ -231,7 +232,6 @@ type ServiceNetworkVpcAssociation struct {
 	ServiceNetworkARN  string
 	ServiceNetworkID   string
 	ServiceNetworkName string
-	SecurityGroupIDs   []string
 	Status             string
 	CreatedBy          string
 }
@@ -250,6 +250,7 @@ type ServiceNetworkVpcAssociationSummary struct {
 
 // Listener represents a VPC Lattice listener.
 type Listener struct {
+	DefaultAction *RuleAction
 	CreatedAt     time.Time
 	LastUpdatedAt time.Time
 	ARN           string
@@ -259,7 +260,6 @@ type Listener struct {
 	Name          string
 	Protocol      string
 	Port          int32
-	DefaultAction *RuleAction
 }
 
 // ListenerSummary is a listener entry for list responses.
@@ -275,14 +275,14 @@ type ListenerSummary struct {
 
 // Rule represents a VPC Lattice listener rule.
 type Rule struct {
+	Action        *RuleAction
+	Match         *RuleMatch
 	CreatedAt     time.Time
 	LastUpdatedAt time.Time
 	ARN           string
 	ID            string
 	Name          string
 	Priority      int32
-	Action        *RuleAction
-	Match         *RuleMatch
 	IsDefault     bool
 }
 
@@ -297,21 +297,21 @@ type RuleSummary struct {
 
 // RuleUpdate is an update spec for BatchUpdateRule.
 type RuleUpdate struct {
-	RuleIdentifier string
-	Priority       int32
 	Action         *RuleAction
 	Match          *RuleMatch
+	RuleIdentifier string
+	Priority       int32
 }
 
 // RuleUpdateSuccess is a successful rule update result.
 type RuleUpdateSuccess struct {
+	Action    *RuleAction
+	Match     *RuleMatch
 	ARN       string
 	ID        string
 	Name      string
 	Priority  int32
 	IsDefault bool
-	Action    *RuleAction
-	Match     *RuleMatch
 }
 
 // RuleUpdateFailure is a failed rule update result.
@@ -365,16 +365,16 @@ type TargetGroup struct {
 
 // TargetGroupSummary is a target group entry for list responses.
 type TargetGroupSummary struct {
+	ServiceARNs []string
 	CreatedAt   time.Time
 	ARN         string
 	ID          string
 	Name        string
 	Type        string
 	Status      string
-	Port        int32
 	Protocol    string
 	VpcID       string
-	ServiceARNs []string
+	Port        int32
 }
 
 // TargetGroupConfig is the configuration for a target group.
@@ -411,17 +411,17 @@ type Target struct {
 // TargetSummary is a target entry for list responses.
 type TargetSummary struct {
 	ID         string
-	Port       int32
 	Status     string
 	ReasonCode string
+	Port       int32
 }
 
 // TargetFailure is a target registration/deregistration failure.
 type TargetFailure struct {
 	ID      string
-	Port    int32
 	Code    string
 	Message string
+	Port    int32
 }
 
 // AccessLogSubscription represents a VPC Lattice access log subscription.
