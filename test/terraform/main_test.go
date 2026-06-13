@@ -80,9 +80,30 @@ import (
 	kinesisanalyticsv2svc "github.com/aws/aws-sdk-go-v2/service/kinesisanalyticsv2"
 	kmssvc "github.com/aws/aws-sdk-go-v2/service/kms"
 	lakeformationsvc "github.com/aws/aws-sdk-go-v2/service/lakeformation"
+	apprunnersdkv2 "github.com/aws/aws-sdk-go-v2/service/apprunner"
+	comprehendsvc "github.com/aws/aws-sdk-go-v2/service/comprehend"
+	databrewsvc "github.com/aws/aws-sdk-go-v2/service/databrew"
+	datasyncsvc "github.com/aws/aws-sdk-go-v2/service/datasync"
+	detectivesvc "github.com/aws/aws-sdk-go-v2/service/detective"
+	directoryservicesvc "github.com/aws/aws-sdk-go-v2/service/directoryservice"
+	dlmsvc "github.com/aws/aws-sdk-go-v2/service/dlm"
+	forecastsvc "github.com/aws/aws-sdk-go-v2/service/forecast"
 	lambdasvc "github.com/aws/aws-sdk-go-v2/service/lambda"
+	macie2svc "github.com/aws/aws-sdk-go-v2/service/macie2"
 	mediaconvertsvc "github.com/aws/aws-sdk-go-v2/service/mediaconvert"
+	medialivesvcc "github.com/aws/aws-sdk-go-v2/service/medialive"
+	mediapackagesvc "github.com/aws/aws-sdk-go-v2/service/mediapackage"
+	mediastoredatasvc "github.com/aws/aws-sdk-go-v2/service/mediastoredata"
 	mediastoresvc "github.com/aws/aws-sdk-go-v2/service/mediastore"
+	mediatailorsvc "github.com/aws/aws-sdk-go-v2/service/mediatailor"
+	personalizesvc "github.com/aws/aws-sdk-go-v2/service/personalize"
+	pollysvc "github.com/aws/aws-sdk-go-v2/service/polly"
+	quicksightsvc "github.com/aws/aws-sdk-go-v2/service/quicksight"
+	rekognitionsvc "github.com/aws/aws-sdk-go-v2/service/rekognition"
+	rolesanywheresvc "github.com/aws/aws-sdk-go-v2/service/rolesanywhere"
+	transcribesvc "github.com/aws/aws-sdk-go-v2/service/transcribe"
+	translatesvc "github.com/aws/aws-sdk-go-v2/service/translate"
+	workmailsvc "github.com/aws/aws-sdk-go-v2/service/workmail"
 	memorydbsvc "github.com/aws/aws-sdk-go-v2/service/memorydb"
 	mqsvc "github.com/aws/aws-sdk-go-v2/service/mq"
 	mwaasvc "github.com/aws/aws-sdk-go-v2/service/mwaa"
@@ -2367,4 +2388,112 @@ func createS3TablesClient(t *testing.T) *s3tablessvc.Client {
 	return s3tablessvc.NewFromConfig(cfg, func(o *s3tablessvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
+}
+
+func createAppRunnerClient(t *testing.T) *apprunnersdkv2.Client {
+	t.Helper()
+	return createClientWithEndpoint(t, apprunnersdkv2.NewFromConfig, endpoint)
+}
+
+func createComprehendClient(t *testing.T) *comprehendsvc.Client {
+	t.Helper()
+	return createClientWithEndpoint(t, comprehendsvc.NewFromConfig, endpoint)
+}
+
+func createDataBrewClient(t *testing.T) *databrewsvc.Client {
+	t.Helper()
+	return createClientWithEndpoint(t, databrewsvc.NewFromConfig, endpoint)
+}
+
+func createDataSyncClient(t *testing.T) *datasyncsvc.Client {
+	t.Helper()
+	return createClientWithEndpoint(t, datasyncsvc.NewFromConfig, endpoint)
+}
+
+func createDetectiveClient(t *testing.T) *detectivesvc.Client {
+	t.Helper()
+	return createClientWithEndpoint(t, detectivesvc.NewFromConfig, endpoint)
+}
+
+func createDirectoryServiceClient(t *testing.T) *directoryservicesvc.Client {
+	t.Helper()
+	return createClientWithEndpoint(t, directoryservicesvc.NewFromConfig, endpoint)
+}
+
+func createDLMClient(t *testing.T) *dlmsvc.Client {
+	t.Helper()
+	return createClientWithEndpoint(t, dlmsvc.NewFromConfig, endpoint)
+}
+
+func createForecastClient(t *testing.T) *forecastsvc.Client {
+	t.Helper()
+	return createClientWithEndpoint(t, forecastsvc.NewFromConfig, endpoint)
+}
+
+func createMacie2Client(t *testing.T) *macie2svc.Client {
+	t.Helper()
+	return createClientWithEndpoint(t, macie2svc.NewFromConfig, endpoint)
+}
+
+func createMediaLiveClient(t *testing.T) *medialivesvcc.Client {
+	t.Helper()
+	return createClientWithEndpoint(t, medialivesvcc.NewFromConfig, endpoint)
+}
+
+func createMediaPackageClient(t *testing.T) *mediapackagesvc.Client {
+	t.Helper()
+	return createClientWithEndpoint(t, mediapackagesvc.NewFromConfig, endpoint)
+}
+
+// createMediaStoreDataClient returns a mediastoredata client. In gopherstack the
+// container data-plane is served at the same base endpoint as all other services,
+// so we ignore the container name and point directly at endpoint.
+func createMediaStoreDataClient(t *testing.T, _ string) *mediastoredatasvc.Client {
+	t.Helper()
+	return createClientWithEndpoint(t, mediastoredatasvc.NewFromConfig, endpoint)
+}
+
+func createMediaTailorClient(t *testing.T) *mediatailorsvc.Client {
+	t.Helper()
+	return createClientWithEndpoint(t, mediatailorsvc.NewFromConfig, endpoint)
+}
+
+func createPersonalizeClient(t *testing.T) *personalizesvc.Client {
+	t.Helper()
+	return createClientWithEndpoint(t, personalizesvc.NewFromConfig, endpoint)
+}
+
+func createPollyClient(t *testing.T) *pollysvc.Client {
+	t.Helper()
+	return createClientWithEndpoint(t, pollysvc.NewFromConfig, endpoint)
+}
+
+func createQuickSightClient(t *testing.T) *quicksightsvc.Client {
+	t.Helper()
+	return createClientWithEndpoint(t, quicksightsvc.NewFromConfig, endpoint)
+}
+
+func createRekognitionClient(t *testing.T) *rekognitionsvc.Client {
+	t.Helper()
+	return createClientWithEndpoint(t, rekognitionsvc.NewFromConfig, endpoint)
+}
+
+func createRolesAnywhereClient(t *testing.T) *rolesanywheresvc.Client {
+	t.Helper()
+	return createClientWithEndpoint(t, rolesanywheresvc.NewFromConfig, endpoint)
+}
+
+func createTranscribeClient(t *testing.T) *transcribesvc.Client {
+	t.Helper()
+	return createClientWithEndpoint(t, transcribesvc.NewFromConfig, endpoint)
+}
+
+func createTranslateClient(t *testing.T) *translatesvc.Client {
+	t.Helper()
+	return createClientWithEndpoint(t, translatesvc.NewFromConfig, endpoint)
+}
+
+func createWorkMailClient(t *testing.T) *workmailsvc.Client {
+	t.Helper()
+	return createClientWithEndpoint(t, workmailsvc.NewFromConfig, endpoint)
 }

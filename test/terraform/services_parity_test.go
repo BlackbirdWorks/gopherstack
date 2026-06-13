@@ -1,13 +1,22 @@
 package terraform_test
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	apigwv2svc "github.com/aws/aws-sdk-go-v2/service/apigatewayv2"
 	apprunnersdkv2 "github.com/aws/aws-sdk-go-v2/service/apprunner"
+	appsyncsdkv2 "github.com/aws/aws-sdk-go-v2/service/appsync"
+	cfnsvc "github.com/aws/aws-sdk-go-v2/service/cloudformation"
+	cwlogssvc "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
+	cognitoidentitysvc "github.com/aws/aws-sdk-go-v2/service/cognitoidentity"
+	cognitoidpsvc "github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
 	comprehendsvc "github.com/aws/aws-sdk-go-v2/service/comprehend"
 	databrewsvc "github.com/aws/aws-sdk-go-v2/service/databrew"
 	datasyncsvc "github.com/aws/aws-sdk-go-v2/service/datasync"
@@ -15,6 +24,7 @@ import (
 	directoryservicesvc "github.com/aws/aws-sdk-go-v2/service/directoryservice"
 	dlmsvc "github.com/aws/aws-sdk-go-v2/service/dlm"
 	forecastsvc "github.com/aws/aws-sdk-go-v2/service/forecast"
+	gluesvc "github.com/aws/aws-sdk-go-v2/service/glue"
 	macie2svc "github.com/aws/aws-sdk-go-v2/service/macie2"
 	medialivesvcc "github.com/aws/aws-sdk-go-v2/service/medialive"
 	mediapackagesvc "github.com/aws/aws-sdk-go-v2/service/mediapackage"
@@ -25,6 +35,7 @@ import (
 	quicksightsvc "github.com/aws/aws-sdk-go-v2/service/quicksight"
 	rekognitionsvc "github.com/aws/aws-sdk-go-v2/service/rekognition"
 	rolesanywheresvc "github.com/aws/aws-sdk-go-v2/service/rolesanywhere"
+	s3svc "github.com/aws/aws-sdk-go-v2/service/s3"
 	transcribesvc "github.com/aws/aws-sdk-go-v2/service/transcribe"
 	translatesvc "github.com/aws/aws-sdk-go-v2/service/translate"
 	workmailsvc "github.com/aws/aws-sdk-go-v2/service/workmail"
@@ -33,10 +44,38 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// makePyZip creates a minimal Lambda zip in dir with the provided Python source,
+// writes it to function.zip, and returns the path.
+func makePyZip(t *testing.T, dir, src string) string {
+	t.Helper()
+
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	f, err := zw.Create("index.py")
+	require.NoError(t, err)
+	_, err = f.Write([]byte(src))
+	require.NoError(t, err)
+	require.NoError(t, zw.Close())
+
+	zipPath := filepath.Join(dir, "function.zip")
+	require.NoError(t, writeBytes(t, zipPath, buf.Bytes()))
+
+	return zipPath
+}
+
+// writeBytes writes b to path. Used by makePyZip to avoid importing os directly.
+func writeBytes(t *testing.T, path string, b []byte) error {
+	t.Helper()
+
+	return os.WriteFile(path, b, 0o644)
+}
+
 // ---------------------------------------------------------------------------
 // AppRunner
 // ---------------------------------------------------------------------------
 
+// TestTerraform_AppRunner provisions an App Runner service via Terraform and
+// verifies it appears in ListServices.
 func TestTerraform_AppRunner(t *testing.T) {
 	t.Parallel()
 
@@ -84,6 +123,8 @@ func TestTerraform_AppRunner(t *testing.T) {
 // Comprehend
 // ---------------------------------------------------------------------------
 
+// TestTerraform_Comprehend provisions a document classifier via Terraform and
+// verifies it appears in ListDocumentClassifiers.
 func TestTerraform_Comprehend(t *testing.T) {
 	t.Parallel()
 
@@ -134,6 +175,8 @@ func TestTerraform_Comprehend(t *testing.T) {
 // DataBrew
 // ---------------------------------------------------------------------------
 
+// TestTerraform_DataBrew provisions a Glue DataBrew dataset via Terraform and
+// verifies it appears in ListDatasets.
 func TestTerraform_DataBrew(t *testing.T) {
 	t.Parallel()
 
@@ -182,6 +225,8 @@ func TestTerraform_DataBrew(t *testing.T) {
 // DataSync
 // ---------------------------------------------------------------------------
 
+// TestTerraform_DataSync provisions a DataSync S3 location via Terraform and
+// verifies it appears in ListLocations.
 func TestTerraform_DataSync(t *testing.T) {
 	t.Parallel()
 
@@ -221,6 +266,8 @@ func TestTerraform_DataSync(t *testing.T) {
 // Directory Service
 // ---------------------------------------------------------------------------
 
+// TestTerraform_DirectoryService provisions a Simple AD directory via Terraform
+// and verifies it appears in DescribeDirectories.
 func TestTerraform_DirectoryService(t *testing.T) {
 	t.Parallel()
 
@@ -270,6 +317,8 @@ func TestTerraform_DirectoryService(t *testing.T) {
 // DLM (Data Lifecycle Manager)
 // ---------------------------------------------------------------------------
 
+// TestTerraform_DLM provisions a DLM lifecycle policy via Terraform and verifies
+// it appears in GetLifecyclePolicies.
 func TestTerraform_DLM(t *testing.T) {
 	t.Parallel()
 
@@ -318,6 +367,8 @@ func TestTerraform_DLM(t *testing.T) {
 // Detective
 // ---------------------------------------------------------------------------
 
+// TestTerraform_Detective provisions a Detective graph via Terraform and verifies
+// it appears in ListGraphs.
 func TestTerraform_Detective(t *testing.T) {
 	t.Parallel()
 
@@ -356,6 +407,8 @@ func TestTerraform_Detective(t *testing.T) {
 // Forecast
 // ---------------------------------------------------------------------------
 
+// TestTerraform_Forecast provisions a Forecast dataset group via Terraform and
+// verifies it appears in ListDatasetGroups.
 func TestTerraform_Forecast(t *testing.T) {
 	t.Parallel()
 
@@ -403,6 +456,8 @@ func TestTerraform_Forecast(t *testing.T) {
 // Macie2
 // ---------------------------------------------------------------------------
 
+// TestTerraform_Macie2 enables Macie via Terraform and verifies GetMacieSession
+// returns ENABLED.
 func TestTerraform_Macie2(t *testing.T) {
 	t.Parallel()
 
@@ -437,6 +492,8 @@ func TestTerraform_Macie2(t *testing.T) {
 // MediaLive
 // ---------------------------------------------------------------------------
 
+// TestTerraform_MediaLive provisions a MediaLive RTMP_PUSH input via Terraform
+// and verifies it appears in ListInputs.
 func TestTerraform_MediaLive(t *testing.T) {
 	t.Parallel()
 
@@ -484,6 +541,8 @@ func TestTerraform_MediaLive(t *testing.T) {
 // MediaPackage
 // ---------------------------------------------------------------------------
 
+// TestTerraform_MediaPackage provisions a MediaPackage channel via Terraform and
+// verifies it appears in ListChannels.
 func TestTerraform_MediaPackage(t *testing.T) {
 	t.Parallel()
 
@@ -531,6 +590,8 @@ func TestTerraform_MediaPackage(t *testing.T) {
 // MediaStoreData (data plane — exercises PutObject/ListItems on a container)
 // ---------------------------------------------------------------------------
 
+// TestTerraform_MediaStoreData provisions a MediaStore container via Terraform
+// and exercises the mediastoredata SDK data-plane (PutObject, ListItems).
 func TestTerraform_MediaStoreData(t *testing.T) {
 	t.Parallel()
 
@@ -549,9 +610,6 @@ func TestTerraform_MediaStoreData(t *testing.T) {
 			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
 				t.Helper()
 				containerName := vars["ContainerName"].(string)
-
-				// Build a data-plane client pointing at the container endpoint.
-				// In gopherstack the container endpoint is the same base URL.
 				dataClient := createMediaStoreDataClient(t, containerName)
 
 				_, err := dataClient.PutObject(ctx, &mediastoredatasvc.PutObjectInput{
@@ -580,6 +638,8 @@ func TestTerraform_MediaStoreData(t *testing.T) {
 // MediaTailor
 // ---------------------------------------------------------------------------
 
+// TestTerraform_MediaTailor provisions a MediaTailor playback configuration via
+// Terraform and verifies it appears in ListPlaybackConfigurations.
 func TestTerraform_MediaTailor(t *testing.T) {
 	t.Parallel()
 
@@ -627,6 +687,8 @@ func TestTerraform_MediaTailor(t *testing.T) {
 // Personalize
 // ---------------------------------------------------------------------------
 
+// TestTerraform_Personalize provisions a Personalize dataset group via Terraform
+// and verifies it appears in ListDatasetGroups.
 func TestTerraform_Personalize(t *testing.T) {
 	t.Parallel()
 
@@ -674,6 +736,8 @@ func TestTerraform_Personalize(t *testing.T) {
 // Polly
 // ---------------------------------------------------------------------------
 
+// TestTerraform_Polly provisions a Polly lexicon via Terraform and verifies it
+// appears in ListLexicons.
 func TestTerraform_Polly(t *testing.T) {
 	t.Parallel()
 
@@ -684,7 +748,7 @@ func TestTerraform_Polly(t *testing.T) {
 			setup: func(t *testing.T, _ string) map[string]any {
 				t.Helper()
 				id := uuid.NewString()[:8]
-				// Lexicon names must be alphanumeric, start with a letter, max 20 chars.
+				// Lexicon names must start with a letter, be alphanumeric, max 20 chars.
 				name := "Lex" + strings.ReplaceAll(id, "-", "")
 				if len(name) > 20 {
 					name = name[:20]
@@ -726,6 +790,8 @@ func TestTerraform_Polly(t *testing.T) {
 // QuickSight
 // ---------------------------------------------------------------------------
 
+// TestTerraform_QuickSight provisions a QuickSight group via Terraform and
+// verifies it appears in ListGroups.
 func TestTerraform_QuickSight(t *testing.T) {
 	t.Parallel()
 
@@ -776,6 +842,8 @@ func TestTerraform_QuickSight(t *testing.T) {
 // Rekognition
 // ---------------------------------------------------------------------------
 
+// TestTerraform_Rekognition provisions a Rekognition collection via Terraform
+// and verifies it appears in ListCollections.
 func TestTerraform_Rekognition(t *testing.T) {
 	t.Parallel()
 
@@ -800,8 +868,8 @@ func TestTerraform_Rekognition(t *testing.T) {
 				require.NoError(t, err, "ListCollections should succeed after terraform apply")
 
 				found := false
-				for _, id := range out.CollectionIds {
-					if id == collectionID {
+				for _, cid := range out.CollectionIds {
+					if cid == collectionID {
 						found = true
 						break
 					}
@@ -823,6 +891,8 @@ func TestTerraform_Rekognition(t *testing.T) {
 // RolesAnywhere
 // ---------------------------------------------------------------------------
 
+// TestTerraform_RolesAnywhere provisions a RolesAnywhere trust anchor backed by
+// an ACM PCA root CA via Terraform and verifies it appears in ListTrustAnchors.
 func TestTerraform_RolesAnywhere(t *testing.T) {
 	t.Parallel()
 
@@ -871,6 +941,8 @@ func TestTerraform_RolesAnywhere(t *testing.T) {
 // Transcribe
 // ---------------------------------------------------------------------------
 
+// TestTerraform_Transcribe provisions a Transcribe vocabulary via Terraform and
+// verifies it appears in ListVocabularies.
 func TestTerraform_Transcribe(t *testing.T) {
 	t.Parallel()
 
@@ -918,6 +990,8 @@ func TestTerraform_Transcribe(t *testing.T) {
 // Translate
 // ---------------------------------------------------------------------------
 
+// TestTerraform_Translate provisions a Translate terminology via Terraform and
+// verifies it appears in ListTerminologies.
 func TestTerraform_Translate(t *testing.T) {
 	t.Parallel()
 
@@ -965,6 +1039,8 @@ func TestTerraform_Translate(t *testing.T) {
 // WorkMail
 // ---------------------------------------------------------------------------
 
+// TestTerraform_WorkMail provisions a WorkMail organization via Terraform and
+// verifies it appears in ListOrganizations.
 func TestTerraform_WorkMail(t *testing.T) {
 	t.Parallel()
 
@@ -1012,6 +1088,9 @@ func TestTerraform_WorkMail(t *testing.T) {
 // §O: CloudWatch Logs comprehensive (MetricFilter + SubscriptionFilter)
 // ---------------------------------------------------------------------------
 
+// TestTerraform_CloudWatchLogsComprehensive provisions a set of CloudWatch Logs
+// resources (log groups, metric filters, subscription filters) and verifies the
+// full stack using the CloudWatch Logs SDK.
 func TestTerraform_CloudWatchLogsComprehensive(t *testing.T) {
 	t.Parallel()
 
@@ -1032,7 +1111,7 @@ func TestTerraform_CloudWatchLogsComprehensive(t *testing.T) {
 				prefix := vars["Prefix"].(string)
 				logsClient := createCloudWatchLogsClient(t)
 
-				// Verify both log groups.
+				// Verify both log groups exist.
 				for _, suffix := range []string{"/app", "/audit"} {
 					lgName := "/" + prefix + suffix
 					out, err := logsClient.DescribeLogGroups(ctx, &cwlogssvc.DescribeLogGroupsInput{
@@ -1051,7 +1130,7 @@ func TestTerraform_CloudWatchLogsComprehensive(t *testing.T) {
 				assert.GreaterOrEqual(t, len(mfOut.MetricFilters), 2,
 					"at least 2 metric filters should exist on %q", appLG)
 
-				// Verify subscription filters on /app log group.
+				// Verify subscription filter on /app log group.
 				sfOut, err := logsClient.DescribeSubscriptionFilters(ctx, &cwlogssvc.DescribeSubscriptionFiltersInput{
 					LogGroupName: aws.String(appLG),
 				})
@@ -1074,6 +1153,8 @@ func TestTerraform_CloudWatchLogsComprehensive(t *testing.T) {
 // §O: Cognito comprehensive (UserPool + IdentityPool + role attachment)
 // ---------------------------------------------------------------------------
 
+// TestTerraform_CognitoComprehensive provisions a Cognito UserPool, IdentityPool,
+// app client, and IAM role attachment, then verifies all resources via SDK.
 func TestTerraform_CognitoComprehensive(t *testing.T) {
 	t.Parallel()
 
@@ -1097,7 +1178,7 @@ func TestTerraform_CognitoComprehensive(t *testing.T) {
 				idpClient := createCognitoIDPClient(t)
 				poolName := prefix + "-pool"
 				poolsOut, err := idpClient.ListUserPools(ctx, &cognitoidpsvc.ListUserPoolsInput{
-					MaxResults: 60,
+					MaxResults: aws.Int32(60),
 				})
 				require.NoError(t, err, "ListUserPools should succeed")
 
@@ -1111,7 +1192,7 @@ func TestTerraform_CognitoComprehensive(t *testing.T) {
 				assert.NotEmpty(t, poolID, "user pool %q should be listed", poolName)
 
 				if poolID != "" {
-					// Verify User Pool Client.
+					// Verify User Pool Client exists.
 					clientsOut, err := idpClient.ListUserPoolClients(ctx, &cognitoidpsvc.ListUserPoolClientsInput{
 						UserPoolId: aws.String(poolID),
 					})
@@ -1123,7 +1204,7 @@ func TestTerraform_CognitoComprehensive(t *testing.T) {
 				identClient := createCognitoIdentityClient(t)
 				identityPoolName := prefix + "_identity_pool"
 				identPoolsOut, err := identClient.ListIdentityPools(ctx, &cognitoidentitysvc.ListIdentityPoolsInput{
-					MaxResults: 60,
+					MaxResults: aws.Int32(60),
 				})
 				require.NoError(t, err, "ListIdentityPools should succeed")
 
@@ -1151,6 +1232,8 @@ func TestTerraform_CognitoComprehensive(t *testing.T) {
 // §O: Glue comprehensive (Crawler + Table + Trigger)
 // ---------------------------------------------------------------------------
 
+// TestTerraform_GlueComprehensive provisions a Glue catalog database, external
+// table, crawler, ETL job, and scheduled trigger, then verifies via Glue SDK.
 func TestTerraform_GlueComprehensive(t *testing.T) {
 	t.Parallel()
 
@@ -1179,7 +1262,7 @@ func TestTerraform_GlueComprehensive(t *testing.T) {
 				require.NoError(t, err, "GetDatabase should succeed")
 				assert.Equal(t, dbName, aws.ToString(dbOut.Database.Name))
 
-				// Verify Glue catalog table.
+				// Verify catalog table.
 				tableOut, err := client.GetTable(ctx, &gluesvc.GetTableInput{
 					DatabaseName: aws.String(dbName),
 					Name:         aws.String("orders"),
@@ -1218,6 +1301,8 @@ func TestTerraform_GlueComprehensive(t *testing.T) {
 // §O: AppSync comprehensive (GraphQL API + DataSource + Resolver)
 // ---------------------------------------------------------------------------
 
+// TestTerraform_AppSyncComprehensive provisions an AppSync GraphQL API with a
+// DynamoDB data source and resolvers, then verifies all components via SDK.
 func TestTerraform_AppSyncComprehensive(t *testing.T) {
 	t.Parallel()
 
@@ -1263,7 +1348,7 @@ func TestTerraform_AppSyncComprehensive(t *testing.T) {
 				require.NoError(t, err, "ListDataSources should succeed")
 				assert.NotEmpty(t, dsOut.DataSources, "at least one data source should exist")
 
-				// Verify Resolver.
+				// Verify Resolvers on Query type.
 				resOut, err := client.ListResolvers(ctx, &appsyncsdkv2.ListResolversInput{
 					ApiId:    aws.String(apiID),
 					TypeName: aws.String("Query"),
@@ -1283,9 +1368,12 @@ func TestTerraform_AppSyncComprehensive(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// §O: S3→Lambda event receipt assertion (e2e)
+// §O: S3 → Lambda event receipt assertion (e2e)
 // ---------------------------------------------------------------------------
 
+// TestTerraform_S3LambdaEventReceipt provisions S3 + Lambda + SQS via Terraform
+// with an S3 bucket notification wired to Lambda. It then PUTs an object and
+// asserts the notification configuration is in place.
 func TestTerraform_S3LambdaEventReceipt(t *testing.T) {
 	t.Parallel()
 
@@ -1296,18 +1384,9 @@ func TestTerraform_S3LambdaEventReceipt(t *testing.T) {
 			setup: func(t *testing.T, dir string) map[string]any {
 				t.Helper()
 				id := uuid.NewString()[:8]
-				zipPath := makePyLambdaZip(t, dir, `
-import json, os, urllib3
 
-def handler(event, context):
-    queue_url = os.environ["QUEUE_URL"]
-    http = urllib3.PoolManager()
-    body = json.dumps({"received": True, "records": len(event.get("Records", []))})
-    http.request("POST", queue_url.replace("sqs.", "").replace(".amazonaws.com", "") + "/",
-                 fields={"Action": "SendMessage", "MessageBody": body,
-                         "Version": "2012-11-05"})
-    return {"statusCode": 200}
-`)
+				src := "def handler(event, context):\n    return {'statusCode': 200}\n"
+				zipPath := makePyZip(t, dir, src)
 
 				return map[string]any{
 					"FuncName":   "tf-s3lambda-" + id,
@@ -1331,12 +1410,11 @@ def handler(event, context):
 				})
 				require.NoError(t, err, "PutObject should succeed to trigger S3 notification")
 
-				// Verify the S3 bucket notification is configured (notification
-				// delivery timing depends on async Lambda invocation; we assert
-				// configuration rather than polling for message delivery).
-				notifOut, err := s3c.GetBucketNotificationConfiguration(ctx, &s3svc.GetBucketNotificationConfigurationInput{
-					Bucket: aws.String(bucketName),
-				})
+				// Assert the bucket notification configuration is wired up.
+				notifOut, err := s3c.GetBucketNotificationConfiguration(ctx,
+					&s3svc.GetBucketNotificationConfigurationInput{
+						Bucket: aws.String(bucketName),
+					})
 				require.NoError(t, err, "GetBucketNotificationConfiguration should succeed")
 				assert.NotEmpty(t, notifOut.LambdaFunctionConfigurations,
 					"S3 bucket should have a Lambda notification configured")
@@ -1356,6 +1434,9 @@ def handler(event, context):
 // §O: API Gateway v2 full-stack via CloudFormation
 // ---------------------------------------------------------------------------
 
+// TestTerraform_APIGatewayV2FullStackViaCFN deploys a complete HTTP API
+// (Api + Integration + Route + Stage) via a CloudFormation stack and verifies
+// all resources are reachable via the API Gateway v2 SDK.
 func TestTerraform_APIGatewayV2FullStackViaCFN(t *testing.T) {
 	t.Parallel()
 
@@ -1366,10 +1447,7 @@ func TestTerraform_APIGatewayV2FullStackViaCFN(t *testing.T) {
 			setup: func(t *testing.T, dir string) map[string]any {
 				t.Helper()
 				id := uuid.NewString()[:8]
-				zipPath := makePyLambdaZip(t, dir, `
-def handler(event, context):
-    return {"statusCode": 200, "body": "ok"}
-`)
+				zipPath := makePyZip(t, dir, "def handler(event, context):\n    return {'statusCode': 200, 'body': 'ok'}\n")
 
 				return map[string]any{
 					"FuncName":  "tf-apigwv2cfn-" + id,
@@ -1382,7 +1460,7 @@ def handler(event, context):
 			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
 				t.Helper()
 
-				// Verify the CFN stack reached CREATE_COMPLETE.
+				// Verify CFN stack reached CREATE_COMPLETE.
 				cfnClient := createCloudFormationClient(t)
 				stackName := vars["StackName"].(string)
 				stackOut, err := cfnClient.DescribeStacks(ctx, &cfnsvc.DescribeStacksInput{
@@ -1393,7 +1471,7 @@ def handler(event, context):
 				assert.Equal(t, "CREATE_COMPLETE", string(stackOut.Stacks[0].StackStatus),
 					"stack should reach CREATE_COMPLETE")
 
-				// Verify the API Gateway v2 API was created.
+				// Verify the HTTP API was created.
 				apigwClient := createAPIGatewayV2Client(t)
 				apiName := vars["APIName"].(string)
 				apisOut, err := apigwClient.GetApis(ctx, &apigwv2svc.GetApisInput{})
@@ -1412,14 +1490,14 @@ def handler(event, context):
 					return
 				}
 
-				// Verify routes were created.
+				// Verify at least one route exists.
 				routesOut, err := apigwClient.GetRoutes(ctx, &apigwv2svc.GetRoutesInput{
 					ApiId: aws.String(apiID),
 				})
 				require.NoError(t, err, "GetRoutes should succeed")
 				assert.NotEmpty(t, routesOut.Items, "at least one route should exist in the API")
 
-				// Verify the stage was deployed.
+				// Verify $default stage with AutoDeploy.
 				stagesOut, err := apigwClient.GetStages(ctx, &apigwv2svc.GetStagesInput{
 					ApiId: aws.String(apiID),
 				})
@@ -1429,14 +1507,6 @@ def handler(event, context):
 				for _, s := range stagesOut.Items {
 					if aws.ToString(s.StageName) == "$default" {
 						foundDefault = true
-						// Allow up to 5s for auto-deploy to complete.
-						deadline := time.Now().Add(5 * time.Second)
-						for time.Now().Before(deadline) {
-							if aws.ToBool(s.AutoDeploy) {
-								break
-							}
-							time.Sleep(200 * time.Millisecond)
-						}
 						assert.True(t, aws.ToBool(s.AutoDeploy), "$default stage should have AutoDeploy=true")
 						break
 					}
