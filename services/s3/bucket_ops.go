@@ -519,7 +519,8 @@ func (h *S3Handler) createBucket(
 		return
 	}
 
-	logger.Load(ctx).DebugContext(ctx, "S3 createBucket output", "bucket", bucketName, "region", region)
+	logger.Load(ctx).
+		DebugContext(ctx, "S3 createBucket output", "bucket", bucketName, "region", region)
 
 	// Set Location header from output
 	if output.Location != nil {
@@ -905,7 +906,10 @@ func (h *S3Handler) listObjectVersions(
 	}
 
 	for _, cp := range out.CommonPrefixes {
-		resp.CommonPrefixes = append(resp.CommonPrefixes, CommonPrefixXML{Prefix: aws.ToString(cp.Prefix)})
+		resp.CommonPrefixes = append(
+			resp.CommonPrefixes,
+			CommonPrefixXML{Prefix: aws.ToString(cp.Prefix)},
+		)
 	}
 
 	httputils.WriteXML(ctx, w, http.StatusOK, resp)
@@ -995,7 +999,12 @@ func (h *S3Handler) getBucketACL(
 	httputils.WriteXML(ctx, w, http.StatusOK, resp)
 }
 
-func (h *S3Handler) putBucketPolicy(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
+func (h *S3Handler) putBucketPolicy(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
+) {
 	h.setOperation(ctx, "PutBucketPolicy")
 	body, err := httputils.ReadBody(r)
 	if err != nil {
@@ -1018,7 +1027,12 @@ func (h *S3Handler) putBucketPolicy(ctx context.Context, w http.ResponseWriter, 
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *S3Handler) getBucketPolicy(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
+func (h *S3Handler) getBucketPolicy(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
+) {
 	h.setOperation(ctx, "GetBucketPolicy")
 	policy, err := h.Backend.GetBucketPolicy(ctx, bucket)
 	if err != nil {
@@ -1031,7 +1045,12 @@ func (h *S3Handler) getBucketPolicy(ctx context.Context, w http.ResponseWriter, 
 	_, _ = w.Write([]byte(policy))
 }
 
-func (h *S3Handler) deleteBucketPolicy(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
+func (h *S3Handler) deleteBucketPolicy(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
+) {
 	h.setOperation(ctx, "DeleteBucketPolicy")
 	if err := h.Backend.DeleteBucketPolicy(ctx, bucket); err != nil {
 		WriteError(ctx, w, r, err)
@@ -1041,7 +1060,12 @@ func (h *S3Handler) deleteBucketPolicy(ctx context.Context, w http.ResponseWrite
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *S3Handler) putBucketCORS(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
+func (h *S3Handler) putBucketCORS(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
+) {
 	h.setOperation(ctx, "PutBucketCors")
 	body, err := httputils.ReadBody(r)
 	if err != nil {
@@ -1070,7 +1094,12 @@ func (h *S3Handler) putBucketCORS(ctx context.Context, w http.ResponseWriter, r 
 	w.WriteHeader(http.StatusOK)
 }
 
-func (h *S3Handler) getBucketCORS(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
+func (h *S3Handler) getBucketCORS(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
+) {
 	h.setOperation(ctx, "GetBucketCors")
 	corsXML, err := h.Backend.GetBucketCORS(ctx, bucket)
 	if err != nil {
@@ -1083,7 +1112,12 @@ func (h *S3Handler) getBucketCORS(ctx context.Context, w http.ResponseWriter, r 
 	_, _ = w.Write([]byte(corsXML))
 }
 
-func (h *S3Handler) deleteBucketCORS(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
+func (h *S3Handler) deleteBucketCORS(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
+) {
 	h.setOperation(ctx, "DeleteBucketCors")
 	if err := h.Backend.DeleteBucketCORS(ctx, bucket); err != nil {
 		WriteError(ctx, w, r, err)
@@ -1093,7 +1127,12 @@ func (h *S3Handler) deleteBucketCORS(ctx context.Context, w http.ResponseWriter,
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *S3Handler) putBucketWebsite(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
+func (h *S3Handler) putBucketWebsite(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
+) {
 	h.setOperation(ctx, "PutBucketWebsite")
 	body, err := httputils.ReadBody(r)
 	if err != nil {
@@ -1121,7 +1160,12 @@ func (h *S3Handler) putBucketWebsite(ctx context.Context, w http.ResponseWriter,
 	w.WriteHeader(http.StatusOK)
 }
 
-func (h *S3Handler) getBucketWebsite(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
+func (h *S3Handler) getBucketWebsite(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
+) {
 	h.setOperation(ctx, "GetBucketWebsite")
 	websiteXML, err := h.Backend.GetBucketWebsite(ctx, bucket)
 	if err != nil {
@@ -1134,7 +1178,12 @@ func (h *S3Handler) getBucketWebsite(ctx context.Context, w http.ResponseWriter,
 	_, _ = w.Write([]byte(websiteXML))
 }
 
-func (h *S3Handler) deleteBucketWebsite(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
+func (h *S3Handler) deleteBucketWebsite(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
+) {
 	h.setOperation(ctx, "DeleteBucketWebsite")
 	if err := h.Backend.DeleteBucketWebsite(ctx, bucket); err != nil {
 		WriteError(ctx, w, r, err)
@@ -1144,7 +1193,12 @@ func (h *S3Handler) deleteBucketWebsite(ctx context.Context, w http.ResponseWrit
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *S3Handler) putBucketEncryption(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
+func (h *S3Handler) putBucketEncryption(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
+) {
 	h.setOperation(ctx, "PutBucketEncryption")
 	body, err := httputils.ReadBody(r)
 	if err != nil {
@@ -1172,7 +1226,12 @@ func (h *S3Handler) putBucketEncryption(ctx context.Context, w http.ResponseWrit
 	w.WriteHeader(http.StatusOK)
 }
 
-func (h *S3Handler) getBucketEncryption(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
+func (h *S3Handler) getBucketEncryption(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
+) {
 	h.setOperation(ctx, "GetBucketEncryption")
 	encryptionXML, err := h.Backend.GetBucketEncryption(ctx, bucket)
 	if err != nil {
@@ -1185,7 +1244,12 @@ func (h *S3Handler) getBucketEncryption(ctx context.Context, w http.ResponseWrit
 	_, _ = w.Write([]byte(encryptionXML))
 }
 
-func (h *S3Handler) deleteBucketEncryption(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
+func (h *S3Handler) deleteBucketEncryption(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
+) {
 	h.setOperation(ctx, "DeleteBucketEncryption")
 	if err := h.Backend.DeleteBucketEncryption(ctx, bucket); err != nil {
 		WriteError(ctx, w, r, err)
@@ -1195,7 +1259,12 @@ func (h *S3Handler) deleteBucketEncryption(ctx context.Context, w http.ResponseW
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *S3Handler) putPublicAccessBlock(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
+func (h *S3Handler) putPublicAccessBlock(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
+) {
 	h.setOperation(ctx, "PutPublicAccessBlock")
 	body, err := httputils.ReadBody(r)
 	if err != nil {
@@ -1223,7 +1292,12 @@ func (h *S3Handler) putPublicAccessBlock(ctx context.Context, w http.ResponseWri
 	w.WriteHeader(http.StatusOK)
 }
 
-func (h *S3Handler) getPublicAccessBlock(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
+func (h *S3Handler) getPublicAccessBlock(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
+) {
 	h.setOperation(ctx, "GetPublicAccessBlock")
 	configXML, err := h.Backend.GetPublicAccessBlock(ctx, bucket)
 	if err != nil {
@@ -1317,7 +1391,12 @@ func (h *S3Handler) deleteBucketOwnershipControls(
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *S3Handler) putBucketLogging(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
+func (h *S3Handler) putBucketLogging(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
+) {
 	h.setOperation(ctx, "PutBucketLogging")
 	body, err := httputils.ReadBody(r)
 	if err != nil {
@@ -1345,7 +1424,12 @@ func (h *S3Handler) putBucketLogging(ctx context.Context, w http.ResponseWriter,
 	w.WriteHeader(http.StatusOK)
 }
 
-func (h *S3Handler) getBucketLogging(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
+func (h *S3Handler) getBucketLogging(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
+) {
 	h.setOperation(ctx, "GetBucketLogging")
 	loggingXML, err := h.Backend.GetBucketLogging(ctx, bucket)
 	if err != nil {
@@ -1370,7 +1454,12 @@ func (h *S3Handler) getBucketLogging(ctx context.Context, w http.ResponseWriter,
 	_, _ = w.Write([]byte(loggingXML))
 }
 
-func (h *S3Handler) putBucketReplication(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
+func (h *S3Handler) putBucketReplication(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
+) {
 	h.setOperation(ctx, "PutBucketReplication")
 	body, err := httputils.ReadBody(r)
 	if err != nil {
@@ -1398,7 +1487,12 @@ func (h *S3Handler) putBucketReplication(ctx context.Context, w http.ResponseWri
 	w.WriteHeader(http.StatusOK)
 }
 
-func (h *S3Handler) getBucketReplication(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
+func (h *S3Handler) getBucketReplication(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
+) {
 	h.setOperation(ctx, "GetBucketReplication")
 	replicationXML, err := h.Backend.GetBucketReplication(ctx, bucket)
 	if err != nil {
@@ -1426,7 +1520,12 @@ func (h *S3Handler) deleteBucketReplication(
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *S3Handler) putBucketTagging(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
+func (h *S3Handler) putBucketTagging(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
+) {
 	h.setOperation(ctx, "PutBucketTagging")
 
 	body, err := httputils.ReadBody(r)
@@ -1463,7 +1562,12 @@ func (h *S3Handler) putBucketTagging(ctx context.Context, w http.ResponseWriter,
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *S3Handler) getBucketTagging(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
+func (h *S3Handler) getBucketTagging(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
+) {
 	h.setOperation(ctx, "GetBucketTagging")
 
 	tags, err := h.Backend.GetBucketTagging(ctx, bucket)
@@ -1484,7 +1588,12 @@ func (h *S3Handler) getBucketTagging(ctx context.Context, w http.ResponseWriter,
 	httputils.WriteXML(ctx, w, http.StatusOK, tagging)
 }
 
-func (h *S3Handler) deleteBucketTagging(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
+func (h *S3Handler) deleteBucketTagging(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
+) {
 	h.setOperation(ctx, "DeleteBucketTagging")
 
 	if err := h.Backend.DeleteBucketTagging(ctx, bucket); err != nil {
@@ -1496,7 +1605,12 @@ func (h *S3Handler) deleteBucketTagging(ctx context.Context, w http.ResponseWrit
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *S3Handler) handleCORSPreflight(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
+func (h *S3Handler) handleCORSPreflight(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
+) {
 	h.setOperation(ctx, "CORSPreflight")
 	corsXML, err := h.Backend.GetBucketCORS(ctx, bucket)
 	if err != nil {
@@ -1970,7 +2084,12 @@ func (h *S3Handler) deleteBucketMetadataTableConfiguration(
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *S3Handler) createSession(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
+func (h *S3Handler) createSession(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
+) {
 	h.setOperation(ctx, "CreateSession")
 	sessionXML, err := h.Backend.CreateSession(ctx, bucket)
 	if err != nil {
@@ -2047,7 +2166,12 @@ func (h *S3Handler) listBucketAnalyticsConfigurations(
 
 		return
 	}
-	writeConfigListXML(w, "ListBucketAnalyticsConfigurationResult", "AnalyticsConfiguration", configs)
+	writeConfigListXML(
+		w,
+		"ListBucketAnalyticsConfigurationResult",
+		"AnalyticsConfiguration",
+		configs,
+	)
 }
 
 func (h *S3Handler) putBucketIntelligentTieringConfiguration(

@@ -352,11 +352,26 @@ func (h *S3Handler) putObject(
 		); ncErr == nil && notifXML != "" {
 			etag := aws.ToString(ver.ETag)
 			size := aws.ToInt64(ver.Size)
-			go h.notifier.DispatchObjectCreated(h.notificationDispatchContext(), bucketName, key, etag, size, notifXML)
+			go h.notifier.DispatchObjectCreated(
+				h.notificationDispatchContext(),
+				bucketName,
+				key,
+				etag,
+				size,
+				notifXML,
+			)
 		}
 	}
 
-	h.dispatchAccessLog(ctx, r, bucketName, "REST.PUT.OBJECT", key, http.StatusOK, aws.ToInt64(ver.Size))
+	h.dispatchAccessLog(
+		ctx,
+		r,
+		bucketName,
+		"REST.PUT.OBJECT",
+		key,
+		http.StatusOK,
+		aws.ToInt64(ver.Size),
+	)
 
 	w.WriteHeader(http.StatusOK)
 }
@@ -430,7 +445,11 @@ func (h *S3Handler) copySourceData(
 	return srcVer, nil
 }
 
-func (h *S3Handler) dispatchCopyNotification(ctx context.Context, bucket, key, etag string, size int64) {
+func (h *S3Handler) dispatchCopyNotification(
+	ctx context.Context,
+	bucket, key, etag string,
+	size int64,
+) {
 	if h.notifier == nil {
 		return
 	}
@@ -811,7 +830,12 @@ func (h *S3Handler) deleteObject(
 			bucketName,
 		); ncErr == nil &&
 			notifXML != "" {
-			go h.notifier.DispatchObjectDeleted(h.notificationDispatchContext(), bucketName, key, notifXML)
+			go h.notifier.DispatchObjectDeleted(
+				h.notificationDispatchContext(),
+				bucketName,
+				key,
+				notifXML,
+			)
 		}
 	}
 
@@ -900,7 +924,12 @@ func (h *S3Handler) deleteObjects(
 		); ncErr == nil && notifXML != "" {
 			for _, d := range out.Deleted {
 				key := aws.ToString(d.Key)
-				go h.notifier.DispatchObjectDeleted(h.notificationDispatchContext(), bucketName, key, notifXML)
+				go h.notifier.DispatchObjectDeleted(
+					h.notificationDispatchContext(),
+					bucketName,
+					key,
+					notifXML,
+				)
 			}
 		}
 	}

@@ -37,10 +37,16 @@ func TestS3Janitor_BucketDeletion(t *testing.T) {
 			},
 			act: func(t *testing.T, b *s3.InMemoryBackend) {
 				t.Helper()
-				_, err := b.DeleteBucket(t.Context(), &sdk_s3.DeleteBucketInput{Bucket: aws.String("bucket-a")})
+				_, err := b.DeleteBucket(
+					t.Context(),
+					&sdk_s3.DeleteBucketInput{Bucket: aws.String("bucket-a")},
+				)
 				require.NoError(t, err)
 
-				_, err = b.HeadBucket(t.Context(), &sdk_s3.HeadBucketInput{Bucket: aws.String("bucket-a")})
+				_, err = b.HeadBucket(
+					t.Context(),
+					&sdk_s3.HeadBucketInput{Bucket: aws.String("bucket-a")},
+				)
 				require.ErrorIs(t, err, s3.ErrNoSuchBucket)
 			},
 			verify: func(t *testing.T, b *s3.InMemoryBackend) {
@@ -68,7 +74,10 @@ func TestS3Janitor_BucketDeletion(t *testing.T) {
 			},
 			act: func(t *testing.T, b *s3.InMemoryBackend) {
 				t.Helper()
-				_, err := b.DeleteBucket(t.Context(), &sdk_s3.DeleteBucketInput{Bucket: aws.String("full-bucket")})
+				_, err := b.DeleteBucket(
+					t.Context(),
+					&sdk_s3.DeleteBucketInput{Bucket: aws.String("full-bucket")},
+				)
 				require.NoError(t, err)
 
 				_, err = b.GetObject(t.Context(), &sdk_s3.GetObjectInput{
@@ -99,10 +108,16 @@ func TestS3Janitor_BucketDeletion(t *testing.T) {
 			},
 			act: func(t *testing.T, b *s3.InMemoryBackend) {
 				t.Helper()
-				_, err := b.DeleteBucket(t.Context(), &sdk_s3.DeleteBucketInput{Bucket: aws.String("idem-bucket")})
+				_, err := b.DeleteBucket(
+					t.Context(),
+					&sdk_s3.DeleteBucketInput{Bucket: aws.String("idem-bucket")},
+				)
 				require.NoError(t, err)
 
-				_, err = b.DeleteBucket(t.Context(), &sdk_s3.DeleteBucketInput{Bucket: aws.String("idem-bucket")})
+				_, err = b.DeleteBucket(
+					t.Context(),
+					&sdk_s3.DeleteBucketInput{Bucket: aws.String("idem-bucket")},
+				)
 				require.NoError(t, err)
 			},
 			verify: func(_ *testing.T, _ *s3.InMemoryBackend) {},
@@ -140,7 +155,10 @@ func TestS3Janitor_BucketDeletion(t *testing.T) {
 			},
 			act: func(t *testing.T, b *s3.InMemoryBackend) {
 				t.Helper()
-				_, err := b.DeleteBucket(t.Context(), &sdk_s3.DeleteBucketInput{Bucket: aws.String("cleanup-bucket")})
+				_, err := b.DeleteBucket(
+					t.Context(),
+					&sdk_s3.DeleteBucketInput{Bucket: aws.String("cleanup-bucket")},
+				)
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *s3.InMemoryBackend) {
@@ -166,7 +184,10 @@ func TestS3Janitor_BucketDeletion(t *testing.T) {
 			},
 			act: func(t *testing.T, b *s3.InMemoryBackend) {
 				t.Helper()
-				_, err := b.DeleteBucket(t.Context(), &sdk_s3.DeleteBucketInput{Bucket: aws.String("gone")})
+				_, err := b.DeleteBucket(
+					t.Context(),
+					&sdk_s3.DeleteBucketInput{Bucket: aws.String("gone")},
+				)
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *s3.InMemoryBackend) {
@@ -379,9 +400,12 @@ func TestS3Janitor_NoncurrentVersionExpiration(t *testing.T) {
 
 			if tt.wantGone {
 				require.Eventually(t, func() bool {
-					out, listErr := backend.ListObjectVersions(t.Context(), &sdk_s3.ListObjectVersionsInput{
-						Bucket: aws.String(tt.bucket),
-					})
+					out, listErr := backend.ListObjectVersions(
+						t.Context(),
+						&sdk_s3.ListObjectVersionsInput{
+							Bucket: aws.String(tt.bucket),
+						},
+					)
 
 					return listErr == nil && len(out.Versions) <= 1
 				}, 500*time.Millisecond, 10*time.Millisecond)

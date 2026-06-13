@@ -110,7 +110,12 @@ func TestHandler_PostObject(t *testing.T) {
 // buildPostForm writes a multipart/form-data body with the supplied form
 // fields followed by a "file" part. AWS requires "file" to be last; we
 // preserve that ordering so the body looks identical to a real browser POST.
-func buildPostForm(t *testing.T, fields map[string]string, filename string, contents []byte) (io.Reader, string) {
+func buildPostForm(
+	t *testing.T,
+	fields map[string]string,
+	filename string,
+	contents []byte,
+) (io.Reader, string) {
 	t.Helper()
 
 	buf := &bytes.Buffer{}

@@ -135,7 +135,8 @@ func (h *S3Handler) selectObjectContent(
 
 	bytesReturned, evalErr := h.evaluateQuery(ctx, w, query, objectData, req)
 	if evalErr != nil {
-		logger.Load(ctx).ErrorContext(ctx, "error evaluating query during streaming", "error", evalErr)
+		logger.Load(ctx).
+			ErrorContext(ctx, "error evaluating query during streaming", "error", evalErr)
 		// Emit an exception event so the SDK receives a well-formed error
 		// rather than a truncated stream, which it would otherwise treat as success.
 		writeSelectErrorEvent(w, "InternalError", evalErr.Error())
@@ -236,7 +237,10 @@ func parseSelectQuery(
 }
 
 // writeSelectStatsAndEnd sends the final Stats and End events.
-func (h *S3Handler) writeSelectStatsAndEnd(w http.ResponseWriter, bytesScanned, bytesReturned int64) {
+func (h *S3Handler) writeSelectStatsAndEnd(
+	w http.ResponseWriter,
+	bytesScanned, bytesReturned int64,
+) {
 	statsPayload, _ := xml.Marshal(selectStatsXML{
 		BytesScanned:   bytesScanned,
 		BytesProcessed: bytesScanned,
@@ -294,7 +298,12 @@ func (h *S3Handler) evaluateQuery(
 // SDK receives a structured error rather than a silently truncated stream.
 func writeSelectErrorEvent(w io.Writer, code, message string) {
 	headers := encodeSelectExceptionHeaders(code)
-	payload := fmt.Appendf(nil, `<Error><Code>%s</Code><Message>%s</Message></Error>`, code, message)
+	payload := fmt.Appendf(
+		nil,
+		`<Error><Code>%s</Code><Message>%s</Message></Error>`,
+		code,
+		message,
+	)
 
 	msg, err := buildEventStreamMessageRaw(headers, payload)
 	if err != nil {

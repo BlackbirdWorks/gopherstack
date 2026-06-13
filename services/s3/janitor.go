@@ -446,7 +446,14 @@ func (j *Janitor) sweepLifecycle(ctx context.Context) {
 	b.mu.RUnlock()
 
 	for _, snap := range snapshots {
-		evicted := j.applyLifecycleRules(ctx, snap.bucket, snap.name, snap.lcXML, snap.tagsByKey, now)
+		evicted := j.applyLifecycleRules(
+			ctx,
+			snap.bucket,
+			snap.name,
+			snap.lcXML,
+			snap.tagsByKey,
+			now,
+		)
 		totalEvicted += evicted
 	}
 
@@ -509,24 +516,42 @@ func (j *Janitor) applyLifecycleRule(
 
 	if rule.Expiration.Days != nil && rule.Expiration.Date == "" {
 		expireBefore := now.Add(-time.Duration(*rule.Expiration.Days) * 24 * time.Hour)
-		evicted += j.evictExpiredObjects(bucket, bucketName, prefix, tagFilters, tagsByKey, expireBefore)
+		evicted += j.evictExpiredObjects(
+			bucket,
+			bucketName,
+			prefix,
+			tagFilters,
+			tagsByKey,
+			expireBefore,
+		)
 	}
 
 	if rule.Expiration.Date != "" {
 		expireDate, parseErr := parseLifecycleDate(rule.Expiration.Date)
 		if parseErr == nil && now.After(expireDate) {
-			evicted += j.evictExpiredObjects(bucket, bucketName, prefix, tagFilters, tagsByKey, expireDate)
+			evicted += j.evictExpiredObjects(
+				bucket,
+				bucketName,
+				prefix,
+				tagFilters,
+				tagsByKey,
+				expireDate,
+			)
 		}
 	}
 
 	if rule.NoncurrentVersionExpiration.NoncurrentDays != nil {
-		noncurrentBefore := now.Add(-time.Duration(*rule.NoncurrentVersionExpiration.NoncurrentDays) * 24 * time.Hour)
+		noncurrentBefore := now.Add(
+			-time.Duration(*rule.NoncurrentVersionExpiration.NoncurrentDays) * 24 * time.Hour,
+		)
 		evicted += j.evictNoncurrentVersions(bucket, prefix, noncurrentBefore)
 	}
 
 	if rule.AbortIncompleteMultipartUpload.DaysAfterInitiation != nil {
 		abortBefore := now.Add(
-			-time.Duration(*rule.AbortIncompleteMultipartUpload.DaysAfterInitiation) * 24 * time.Hour,
+			-time.Duration(
+				*rule.AbortIncompleteMultipartUpload.DaysAfterInitiation,
+			) * 24 * time.Hour,
 		)
 		j.abortStaleMultipartUploads(bucketName, abortBefore)
 	}
@@ -689,7 +714,8 @@ func isLatestVersionLocked(obj *StoredObject) bool {
 		if ver.LegalHold {
 			return true
 		}
-		if ver.RetentionMode != "" && !ver.RetainUntil.IsZero() && time.Now().Before(ver.RetainUntil) {
+		if ver.RetentionMode != "" && !ver.RetainUntil.IsZero() &&
+			time.Now().Before(ver.RetainUntil) {
 			return true
 		}
 	}
@@ -762,7 +788,10 @@ func tagMatchesFilter(t types.Tag, f lifecycleTag) bool {
 
 // findBucketAcrossRegions returns the bucket and its region for the given bucket name,
 // or nil and an empty string if not found. Must be called with b.mu held.
-func findBucketAcrossRegions(buckets map[string]map[string]*StoredBucket, name string) (*StoredBucket, string) {
+func findBucketAcrossRegions(
+	buckets map[string]map[string]*StoredBucket,
+	name string,
+) (*StoredBucket, string) {
 	for region, regionBuckets := range buckets {
 		if bkt, exists := regionBuckets[name]; exists {
 			return bkt, region
@@ -774,7 +803,12 @@ func findBucketAcrossRegions(buckets map[string]map[string]*StoredBucket, name s
 
 // GetExpirationHeader calculates the x-amz-expiration header for an object
 // based on the bucket's lifecycle configuration.
-func (j *Janitor) GetExpirationHeader(lcXML string, key string, tags []types.Tag, lastModified time.Time) string {
+func (j *Janitor) GetExpirationHeader(
+	lcXML string,
+	key string,
+	tags []types.Tag,
+	lastModified time.Time,
+) string {
 	if lcXML == "" {
 		return ""
 	}
@@ -851,13 +885,18 @@ func isNoncurrentVersionLocked(ver *StoredObjectVersion) bool {
 		return true
 	}
 
-	return ver.RetentionMode != "" && !ver.RetainUntil.IsZero() && time.Now().Before(ver.RetainUntil)
+	return ver.RetentionMode != "" && !ver.RetainUntil.IsZero() &&
+		time.Now().Before(ver.RetainUntil)
 }
 
 // evictNoncurrentVersions deletes non-latest object versions (noncurrent versions)
 // from the bucket that match the prefix and were superseded before noncurrentBefore.
 // Returns the number of noncurrent versions deleted.
-func (j *Janitor) evictNoncurrentVersions(bucket *StoredBucket, prefix string, noncurrentBefore time.Time) int {
+func (j *Janitor) evictNoncurrentVersions(
+	bucket *StoredBucket,
+	prefix string,
+	noncurrentBefore time.Time,
+) int {
 	bucket.mu.Lock("S3Janitor.evictNoncurrentVersions")
 	defer bucket.mu.Unlock()
 
@@ -975,12 +1014,15 @@ func (j *Janitor) applyStorageClassTransitions(
 
 		if fromClass != targetClass {
 			ver.StorageClass = targetClass
-			ver.StorageClassTransitions = append(ver.StorageClassTransitions, StorageClassTransition{
-				TransitionedAt: now,
-				FromClass:      fromClass,
-				ToClass:        targetClass,
-				RuleID:         ruleID,
-			})
+			ver.StorageClassTransitions = append(
+				ver.StorageClassTransitions,
+				StorageClassTransition{
+					TransitionedAt: now,
+					FromClass:      fromClass,
+					ToClass:        targetClass,
+					RuleID:         ruleID,
+				},
+			)
 		}
 
 		obj.mu.Unlock()
@@ -1021,12 +1063,15 @@ func (j *Janitor) applyNoncurrentStorageClassTransitions(
 
 			if fromClass != targetClass {
 				ver.StorageClass = targetClass
-				ver.StorageClassTransitions = append(ver.StorageClassTransitions, StorageClassTransition{
-					TransitionedAt: now,
-					FromClass:      fromClass,
-					ToClass:        targetClass,
-					RuleID:         ruleID,
-				})
+				ver.StorageClassTransitions = append(
+					ver.StorageClassTransitions,
+					StorageClassTransition{
+						TransitionedAt: now,
+						FromClass:      fromClass,
+						ToClass:        targetClass,
+						RuleID:         ruleID,
+					},
+				)
 			}
 		}
 

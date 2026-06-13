@@ -330,7 +330,8 @@ func (h *S3Handler) Handler() echo.HandlerFunc {
 		log := logger.Load(ctx)
 
 		// Validate presigned URL expiry before processing.
-		if isPresignedRequest(requestWithCtx) && !h.validatePresignedRequest(ctx, sw, requestWithCtx) {
+		if isPresignedRequest(requestWithCtx) &&
+			!h.validatePresignedRequest(ctx, sw, requestWithCtx) {
 			return nil
 		}
 
@@ -340,7 +341,16 @@ func (h *S3Handler) Handler() echo.HandlerFunc {
 			return nil
 		}
 
-		log.DebugContext(ctx, "S3 request", "method", requestWithCtx.Method, "bucket", bucketName, "key", key)
+		log.DebugContext(
+			ctx,
+			"S3 request",
+			"method",
+			requestWithCtx.Method,
+			"bucket",
+			bucketName,
+			"key",
+			key,
+		)
 
 		if bucketName == "" {
 			h.handleRootRequest(ctx, sw, requestWithCtx)
@@ -422,7 +432,11 @@ func (h *S3Handler) Name() string {
 // bucket name: ListBuckets, ListDirectoryBuckets, or WriteGetObjectResponse.
 // Pulled out of Handler so its cognitive complexity stays below the linter
 // cap.
-func (h *S3Handler) handleRootRequest(ctx context.Context, sw http.ResponseWriter, r *http.Request) {
+func (h *S3Handler) handleRootRequest(
+	ctx context.Context,
+	sw http.ResponseWriter,
+	r *http.Request,
+) {
 	if r.Method != http.MethodGet {
 		if r.Method == http.MethodPost && isWriteGetObjectResponseRequest(r) {
 			h.handleWriteGetObjectResponse(ctx, sw, r)
@@ -671,7 +685,10 @@ func (h *S3Handler) ServeWebsite(c *echo.Context) error {
 	}
 
 	if cfg.RedirectAllRequestsTo != nil {
-		return c.Redirect(http.StatusMovedPermanently, websiteRedirectAllURL(cfg.RedirectAllRequestsTo, key))
+		return c.Redirect(
+			http.StatusMovedPermanently,
+			websiteRedirectAllURL(cfg.RedirectAllRequestsTo, key),
+		)
 	}
 
 	if loc, code, ok := applyWebsiteRoutingRules(cfg.RoutingRules, key, c.Request().Host); ok {
@@ -719,7 +736,8 @@ func websiteRedirectAllURL(redir *WebsiteRedirectAll, key string) string {
 func applyWebsiteRoutingRules(rules []WebsiteRoutingRule, key, reqHost string) (string, int, bool) {
 	for _, rule := range rules {
 		cond := rule.Condition
-		if cond != nil && cond.KeyPrefixEquals != "" && !strings.HasPrefix(key, cond.KeyPrefixEquals) {
+		if cond != nil && cond.KeyPrefixEquals != "" &&
+			!strings.HasPrefix(key, cond.KeyPrefixEquals) {
 			continue
 		}
 
@@ -748,7 +766,8 @@ func applyWebsiteRoutingRules(rules []WebsiteRoutingRule, key, reqHost string) (
 
 // websiteRuleHasRedirect reports whether a routing rule redirect spec is non-empty.
 func websiteRuleHasRedirect(r WebsiteRoutingRuleRedirect) bool {
-	return r.HostName != "" || r.Protocol != "" || r.ReplaceKeyWith != "" || r.ReplaceKeyPrefixWith != ""
+	return r.HostName != "" || r.Protocol != "" || r.ReplaceKeyWith != "" ||
+		r.ReplaceKeyPrefixWith != ""
 }
 
 // websiteRedirectCode converts an HTTP redirect code string to an int status code.
@@ -761,7 +780,11 @@ func websiteRedirectCode(code string) int {
 }
 
 // websiteTargetKey computes the effective target key for a routing rule redirect.
-func websiteTargetKey(redir WebsiteRoutingRuleRedirect, cond *WebsiteRoutingRuleCondition, key string) string {
+func websiteTargetKey(
+	redir WebsiteRoutingRuleRedirect,
+	cond *WebsiteRoutingRuleCondition,
+	key string,
+) string {
 	if redir.ReplaceKeyWith != "" {
 		return redir.ReplaceKeyWith
 	}
