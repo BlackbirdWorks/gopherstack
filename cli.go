@@ -146,6 +146,7 @@ import (
 	mqbackend "github.com/blackbirdworks/gopherstack/services/mq"
 	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
+	networkmonitorbackend "github.com/blackbirdworks/gopherstack/services/networkmonitor"
 	omicsbackend "github.com/blackbirdworks/gopherstack/services/omics"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
@@ -272,6 +273,7 @@ type CLI struct {
 	resourcegroupstaggingHandler  service.Registerable
 	swfHandler                    service.Registerable
 	firehoseHandler               service.Registerable
+	networkmonitorHandler         service.Registerable
 	schedulerHandler              service.Registerable
 	servicediscoveryHandler       service.Registerable
 	transcribeHandler             service.Registerable
@@ -1145,6 +1147,11 @@ func (c *CLI) GetSWFHandler() service.Registerable { return c.swfHandler }
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetFirehoseHandler() service.Registerable { return c.firehoseHandler }
+
+// GetNetworkMonitorHandler returns the NetworkMonitor handler.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetNetworkMonitorHandler() service.Registerable { return c.networkmonitorHandler }
 
 // GetSchedulerHandler returns the Scheduler handler (dashboard.AWSSDKProvider).
 //
@@ -2259,6 +2266,7 @@ func storeCLIHandlers(cli *CLI, services []service.Registerable) {
 	cli.resourcegroupstaggingHandler = byName["ResourceGroupsTaggingAPI"]
 	cli.swfHandler = byName["SWF"]
 	cli.firehoseHandler = byName["Firehose"]
+	cli.networkmonitorHandler = byName["NetworkMonitor"]
 	cli.schedulerHandler = byName["Scheduler"]
 	cli.route53resolverHandler = byName["Route53Resolver"]
 	cli.rdsHandler = byName["RDS"]
@@ -2635,6 +2643,7 @@ func getRemainingServiceProviders() []service.Provider {
 		&resourcegroupstaggingapibackend.Provider{},
 		&swfbackend.Provider{},
 		&firehosebackend.Provider{},
+		&networkmonitorbackend.Provider{},
 		&schedulerbackend.Provider{},
 		&route53resolverbackend.Provider{},
 		&rdsbackend.Provider{},
@@ -2700,7 +2709,6 @@ func getRemainingServiceProviders() []service.Provider {
 		&mediaconvertbackend.Provider{},
 		&mqbackend.Provider{},
 		&mediastorebackend.Provider{},
-		&mediastoredatabackend.Provider{},
 	}, getLatestServiceProviders()...)
 }
 
@@ -2708,6 +2716,7 @@ func getRemainingServiceProviders() []service.Provider {
 // Extracted from getServiceProviders to satisfy the funlen limit.
 func getLatestServiceProviders() []service.Provider {
 	return append([]service.Provider{
+		&mediastoredatabackend.Provider{},
 		&memorydbbackend.Provider{},
 	}, getNewestServiceProviders()...)
 }

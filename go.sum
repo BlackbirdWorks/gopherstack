@@ -246,6 +246,8 @@ github.com/aws/aws-sdk-go-v2/service/mwaa v1.40.1 h1:fVJ6uZsjHWiMbT4tPsNPmA5VEln
 github.com/aws/aws-sdk-go-v2/service/mwaa v1.40.1/go.mod h1:O2kdYrYDkdHdUpvYcrWQoYaJgPJCGHdaLF06ep3HzKI=
 github.com/aws/aws-sdk-go-v2/service/neptune v1.44.1 h1:Akp3PA62O+s8Tze5/4f3YthrAT6OHhay9QhUPv7zw6Y=
 github.com/aws/aws-sdk-go-v2/service/neptune v1.44.1/go.mod h1:YNCq3tFuuD8sxXKR9NC7n8gdafguPzxp+WFKuivplTw=
+github.com/aws/aws-sdk-go-v2/service/networkmonitor v1.14.6 h1:SE8N02CtLWVY/3UM+mqAA5tcnmC6fKhUg3R9gVyk120=
+github.com/aws/aws-sdk-go-v2/service/networkmonitor v1.14.6/go.mod h1:0OibDBxn2Uj3XhWpXkqAQkom2usZf200CpfV2K1PirI=
 github.com/aws/aws-sdk-go-v2/service/omics v1.45.0 h1:eYMKiWBNj6Q61yQCN25B0SLfb1VFLV0axyrrB6rXW9w=
 github.com/aws/aws-sdk-go-v2/service/omics v1.45.0/go.mod h1:czP0k4tesyOIDgyiUY0jP8AxVtxCy9keGlLm1IheCmQ=
 github.com/aws/aws-sdk-go-v2/service/opensearch v1.59.0 h1:rhlLa2SwSeKva0DEUrbRc5DN2bAsIPvcmW7N/c2MUgI=
