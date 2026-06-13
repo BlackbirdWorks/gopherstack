@@ -6,20 +6,20 @@ import (
 )
 
 type backendSnapshot struct {
-	Clusters                   map[string]map[string]*Cluster                `json:"clusters"`
-	ACLs                       map[string]map[string]*ACL                   `json:"acls"`
-	SubnetGroups               map[string]map[string]*SubnetGroup           `json:"subnetGroups"`
-	Users                      map[string]map[string]*User                  `json:"users"`
-	ParameterGroups            map[string]map[string]*ParameterGroup        `json:"parameterGroups"`
-	Snapshots                  map[string]map[string]*Snapshot              `json:"snapshots"`
-	MultiRegionClusters        map[string]*MultiRegionCluster               `json:"multiRegionClusters"`
-	MultiRegionParameterGroups map[string]*MultiRegionParameterGroup        `json:"multiRegionParameterGroups"`
-	ReservedNodes              map[string]map[string]*ReservedNode          `json:"reservedNodes"`
-	ARNToResource              map[string]map[string]resourceRef            `json:"arnToResource"`
-	ServiceUpdates             map[string]*ServiceUpdate                    `json:"serviceUpdates"`
-	Events                     map[string][]*Event                          `json:"events"`
-	AccountID                  string                                       `json:"accountID"`
-	DefaultRegion              string                                       `json:"defaultRegion"`
+	Clusters                   map[string]map[string]*Cluster        `json:"clusters"`
+	ACLs                       map[string]map[string]*ACL            `json:"acls"`
+	SubnetGroups               map[string]map[string]*SubnetGroup    `json:"subnetGroups"`
+	Users                      map[string]map[string]*User           `json:"users"`
+	ParameterGroups            map[string]map[string]*ParameterGroup `json:"parameterGroups"`
+	Snapshots                  map[string]map[string]*Snapshot       `json:"snapshots"`
+	MultiRegionClusters        map[string]*MultiRegionCluster        `json:"multiRegionClusters"`
+	MultiRegionParameterGroups map[string]*MultiRegionParameterGroup `json:"multiRegionParameterGroups"`
+	ReservedNodes              map[string]map[string]*ReservedNode   `json:"reservedNodes"`
+	ARNToResource              map[string]map[string]resourceRef     `json:"arnToResource"`
+	ServiceUpdates             map[string]*ServiceUpdate             `json:"serviceUpdates"`
+	Events                     map[string][]*Event                   `json:"events"`
+	AccountID                  string                                `json:"accountID"`
+	DefaultRegion              string                                `json:"defaultRegion"`
 }
 
 func (b *InMemoryBackend) Snapshot() []byte {
@@ -121,72 +121,48 @@ func ensureNonNilMaps(snap *backendSnapshot) {
 	}
 }
 
+func fixNestedMemoryDBTags[V any](nested map[string]map[string]V, fix func(V)) {
+	for _, region := range nested {
+		for _, item := range region {
+			fix(item)
+		}
+	}
+}
+
+func ensureMemoryDBMap(m map[string]string) map[string]string {
+	if m == nil {
+		return make(map[string]string)
+	}
+
+	return m
+}
+
 func fixNilTagsInSnapshot(snap *backendSnapshot) {
 	fixCoreResourceTags(snap)
 	fixExtendedResourceTags(snap)
 }
 
 func fixCoreResourceTags(snap *backendSnapshot) {
-	for _, regionClusters := range snap.Clusters {
-		for _, c := range regionClusters {
-			if c.Tags == nil {
-				c.Tags = make(map[string]string)
-			}
-		}
-	}
-	for _, regionACLs := range snap.ACLs {
-		for _, a := range regionACLs {
-			if a.Tags == nil {
-				a.Tags = make(map[string]string)
-			}
-		}
-	}
-	for _, regionSGs := range snap.SubnetGroups {
-		for _, sg := range regionSGs {
-			if sg.Tags == nil {
-				sg.Tags = make(map[string]string)
-			}
-		}
-	}
-	for _, regionUsers := range snap.Users {
-		for _, u := range regionUsers {
-			if u.Tags == nil {
-				u.Tags = make(map[string]string)
-			}
-		}
-	}
+	fixNestedMemoryDBTags(snap.Clusters, func(c *Cluster) { c.Tags = ensureMemoryDBMap(c.Tags) })
+	fixNestedMemoryDBTags(snap.ACLs, func(a *ACL) { a.Tags = ensureMemoryDBMap(a.Tags) })
+	fixNestedMemoryDBTags(snap.SubnetGroups, func(sg *SubnetGroup) { sg.Tags = ensureMemoryDBMap(sg.Tags) })
+	fixNestedMemoryDBTags(snap.Users, func(u *User) { u.Tags = ensureMemoryDBMap(u.Tags) })
 }
 
 func fixExtendedResourceTags(snap *backendSnapshot) {
-	for _, regionPGs := range snap.ParameterGroups {
-		for _, pg := range regionPGs {
-			if pg.Tags == nil {
-				pg.Tags = make(map[string]string)
-			}
-			if pg.Parameters == nil {
-				pg.Parameters = make(map[string]string)
-			}
-		}
-	}
-	for _, regionSnaps := range snap.Snapshots {
-		for _, s := range regionSnaps {
-			if s.Tags == nil {
-				s.Tags = make(map[string]string)
-			}
-		}
-	}
+	fixNestedMemoryDBTags(snap.ParameterGroups, func(pg *ParameterGroup) {
+		pg.Tags = ensureMemoryDBMap(pg.Tags)
+		pg.Parameters = ensureMemoryDBMap(pg.Parameters)
+	})
+	fixNestedMemoryDBTags(snap.Snapshots, func(s *Snapshot) { s.Tags = ensureMemoryDBMap(s.Tags) })
+
 	for _, mrc := range snap.MultiRegionClusters {
-		if mrc.Tags == nil {
-			mrc.Tags = make(map[string]string)
-		}
+		mrc.Tags = ensureMemoryDBMap(mrc.Tags)
 	}
+
 	for _, mrpg := range snap.MultiRegionParameterGroups {
-		if mrpg.Tags == nil {
-			mrpg.Tags = make(map[string]string)
-		}
-		if mrpg.Parameters == nil {
-			mrpg.Parameters = make(map[string]string)
-		}
+		mrpg.Tags = ensureMemoryDBMap(mrpg.Tags)
+		mrpg.Parameters = ensureMemoryDBMap(mrpg.Parameters)
 	}
 }
 

@@ -687,14 +687,20 @@ func TestBackend_NewOps_Lifecycle(t *testing.T) {
 				require.Error(t, err)
 
 			case "engine_versions":
-				versions, err := b.DescribeEngineVersions(context.Background(), &memorydb.ExportedDescribeEngineVersionsRequest{})
+				versions, err := b.DescribeEngineVersions(
+					context.Background(),
+					&memorydb.ExportedDescribeEngineVersionsRequest{},
+				)
 				require.NoError(t, err)
 				assert.NotEmpty(t, versions)
 
 				// filter by family
-				redis7, err := b.DescribeEngineVersions(context.Background(), &memorydb.ExportedDescribeEngineVersionsRequest{
-					ParameterGroupFamily: "memorydb_redis7",
-				})
+				redis7, err := b.DescribeEngineVersions(
+					context.Background(),
+					&memorydb.ExportedDescribeEngineVersionsRequest{
+						ParameterGroupFamily: "memorydb_redis7",
+					},
+				)
 				require.NoError(t, err)
 
 				for _, ev := range redis7 {
@@ -702,9 +708,12 @@ func TestBackend_NewOps_Lifecycle(t *testing.T) {
 				}
 
 				// filter unknown family
-				none, err := b.DescribeEngineVersions(context.Background(), &memorydb.ExportedDescribeEngineVersionsRequest{
-					ParameterGroupFamily: "memorydb_redis99",
-				})
+				none, err := b.DescribeEngineVersions(
+					context.Background(),
+					&memorydb.ExportedDescribeEngineVersionsRequest{
+						ParameterGroupFamily: "memorydb_redis99",
+					},
+				)
 				require.NoError(t, err)
 				assert.Empty(t, none)
 

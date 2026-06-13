@@ -1001,6 +1001,15 @@ type tagCandidate struct {
 // It iterates over all regions so that ARN-addressed operations find the correct resource.
 func (b *InMemoryBackend) collectTagCandidatesLocked() []tagCandidate {
 	candidates := make([]tagCandidate, 0, tagCandidateInitCap)
+	candidates = b.appendClusterTagCandidates(candidates)
+	candidates = b.appendNetworkTagCandidates(candidates)
+	candidates = b.appendServerlessTagCandidates(candidates)
+	candidates = b.appendUserTagCandidates(candidates)
+
+	return candidates
+}
+
+func (b *InMemoryBackend) appendClusterTagCandidates(candidates []tagCandidate) []tagCandidate {
 	for _, regionClusters := range b.clusters {
 		for _, c := range regionClusters {
 			candidates = append(candidates,
@@ -1019,12 +1028,6 @@ func (b *InMemoryBackend) collectTagCandidatesLocked() []tagCandidate {
 				tagCandidate{pg.ARN, tagEntry{&pg.Tags, "elasticache.pg." + pg.Name + ".tags"}})
 		}
 	}
-	for _, regionSGs := range b.subnetGroups {
-		for _, sg := range regionSGs {
-			candidates = append(candidates,
-				tagCandidate{sg.ARN, tagEntry{&sg.Tags, "elasticache.sg." + sg.Name + ".tags"}})
-		}
-	}
 	for _, regionSnaps := range b.snapshots {
 		for _, snap := range regionSnaps {
 			candidates = append(candidates,
@@ -1041,6 +1044,22 @@ func (b *InMemoryBackend) collectTagCandidatesLocked() []tagCandidate {
 		candidates = append(candidates,
 			tagCandidate{grg.ARN, tagEntry{&grg.Tags, "elasticache.grg." + grg.GlobalReplicationGroupID + ".tags"}})
 	}
+
+	return candidates
+}
+
+func (b *InMemoryBackend) appendNetworkTagCandidates(candidates []tagCandidate) []tagCandidate {
+	for _, regionSGs := range b.subnetGroups {
+		for _, sg := range regionSGs {
+			candidates = append(candidates,
+				tagCandidate{sg.ARN, tagEntry{&sg.Tags, "elasticache.sg." + sg.Name + ".tags"}})
+		}
+	}
+
+	return candidates
+}
+
+func (b *InMemoryBackend) appendServerlessTagCandidates(candidates []tagCandidate) []tagCandidate {
 	for _, regionSCs := range b.serverlessCaches {
 		for _, sc := range regionSCs {
 			candidates = append(candidates,
@@ -1053,6 +1072,11 @@ func (b *InMemoryBackend) collectTagCandidatesLocked() []tagCandidate {
 				tagCandidate{snap.ARN, tagEntry{&snap.Tags, "elasticache.serverlesssnap." + snap.Name + ".tags"}})
 		}
 	}
+
+	return candidates
+}
+
+func (b *InMemoryBackend) appendUserTagCandidates(candidates []tagCandidate) []tagCandidate {
 	for _, regionUsers := range b.users {
 		for _, u := range regionUsers {
 			candidates = append(candidates,

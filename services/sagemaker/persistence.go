@@ -172,6 +172,7 @@ func restoreUserProfiles(snap *backendSnapshot) map[string]map[userProfileKey]*U
 			result[region][key] = &cp
 		}
 	}
+
 	return result
 }
 
@@ -180,11 +181,17 @@ func restoreApps(snap *backendSnapshot) map[string]map[appKey]*App {
 	for region, regionApps := range snap.Apps {
 		result[region] = make(map[appKey]*App, len(regionApps))
 		for _, v := range regionApps {
-			key := appKey{DomainID: v.DomainID, UserProfileName: v.UserProfileName, AppType: v.AppType, AppName: v.AppName}
+			key := appKey{
+				DomainID:        v.DomainID,
+				UserProfileName: v.UserProfileName,
+				AppType:         v.AppType,
+				AppName:         v.AppName,
+			}
 			cp := *v
 			result[region][key] = &cp
 		}
 	}
+
 	return result
 }
 
@@ -211,6 +218,7 @@ func restoreClusters(snap *backendSnapshot) map[string]map[string]*Cluster {
 			result[region][k] = c
 		}
 	}
+
 	return result
 }
 
@@ -246,103 +254,67 @@ func (b *InMemoryBackend) restoreFields(snap *backendSnapshot) {
 	b.clusters = restoreClusters(snap)
 }
 
+func buildARNIndex[V any](src map[string]map[string]V, arnFn func(string, V) string) map[string]map[string]string {
+	idx := make(map[string]map[string]string, len(src))
+	for region, regionItems := range src {
+		regionIdx := make(map[string]string, len(regionItems))
+		for name, item := range regionItems {
+			regionIdx[arnFn(name, item)] = name
+		}
+		idx[region] = regionIdx
+	}
+
+	return idx
+}
+
+func fixNestedTagsSage[V any](nested map[string]map[string]V, fix func(V)) {
+	for _, region := range nested {
+		for _, item := range region {
+			fix(item)
+		}
+	}
+}
+
+func ensureSageTagMap(m map[string]string) map[string]string {
+	if m == nil {
+		return make(map[string]string)
+	}
+
+	return m
+}
+
 // rebuildARNIndexes reconstructs all ARN-to-name indexes after a restore (called with lock held).
 func (b *InMemoryBackend) rebuildARNIndexes() {
-	b.modelARNIndex = make(map[string]map[string]string, len(b.models))
-	for region, regionModels := range b.models {
-		b.modelARNIndex[region] = make(map[string]string, len(regionModels))
-		for name, m := range regionModels {
-			b.modelARNIndex[region][m.ModelARN] = name
-		}
-	}
-
-	b.endpointConfigARNIndex = make(map[string]map[string]string, len(b.endpointConfigs))
-	for region, regionECs := range b.endpointConfigs {
-		b.endpointConfigARNIndex[region] = make(map[string]string, len(regionECs))
-		for name, ec := range regionECs {
-			b.endpointConfigARNIndex[region][ec.EndpointConfigARN] = name
-		}
-	}
-
-	b.actionARNIndex = make(map[string]map[string]string, len(b.actions))
-	for region, regionActions := range b.actions {
-		b.actionARNIndex[region] = make(map[string]string, len(regionActions))
-		for name, a := range regionActions {
-			b.actionARNIndex[region][a.ActionArn] = name
-		}
-	}
-
-	b.algorithmARNIndex = make(map[string]map[string]string, len(b.algorithms))
-	for region, regionAlgorithms := range b.algorithms {
-		b.algorithmARNIndex[region] = make(map[string]string, len(regionAlgorithms))
-		for name, al := range regionAlgorithms {
-			b.algorithmARNIndex[region][al.AlgorithmArn] = name
-		}
-	}
-
-	b.clusterARNIndex = make(map[string]map[string]string, len(b.clusters))
-	for region, regionClusters := range b.clusters {
-		b.clusterARNIndex[region] = make(map[string]string, len(regionClusters))
-		for name, c := range regionClusters {
-			b.clusterARNIndex[region][c.ClusterArn] = name
-		}
-	}
-
-	b.modelPackageARNIndex = make(map[string]map[string]string, len(b.modelPackages))
-	for region, regionMPs := range b.modelPackages {
-		b.modelPackageARNIndex[region] = make(map[string]string, len(regionMPs))
-		for arnStr := range regionMPs {
-			b.modelPackageARNIndex[region][arnStr] = arnStr
-		}
-	}
-
-	b.endpointARNIndex = make(map[string]map[string]string, len(b.endpoints))
-	for region, regionEPs := range b.endpoints {
-		b.endpointARNIndex[region] = make(map[string]string, len(regionEPs))
-		for name, ep := range regionEPs {
-			b.endpointARNIndex[region][ep.EndpointArn] = name
-		}
-	}
-
-	b.trainingJobARNIndex = make(map[string]map[string]string, len(b.trainingJobs))
-	for region, regionJobs := range b.trainingJobs {
-		b.trainingJobARNIndex[region] = make(map[string]string, len(regionJobs))
-		for name, tj := range regionJobs {
-			b.trainingJobARNIndex[region][tj.TrainingJobArn] = name
-		}
-	}
-
-	b.notebookARNIndex = make(map[string]map[string]string, len(b.notebooks))
-	for region, regionNBs := range b.notebooks {
-		b.notebookARNIndex[region] = make(map[string]string, len(regionNBs))
-		for name, nb := range regionNBs {
-			b.notebookARNIndex[region][nb.NotebookInstanceArn] = name
-		}
-	}
-
-	b.hpTuningJobARNIndex = make(map[string]map[string]string, len(b.hpTuningJobs))
-	for region, regionJobs := range b.hpTuningJobs {
-		b.hpTuningJobARNIndex[region] = make(map[string]string, len(regionJobs))
-		for name, j := range regionJobs {
-			b.hpTuningJobARNIndex[region][j.HyperParameterTuningJobArn] = name
-		}
-	}
-
-	b.processingJobARNIndex = make(map[string]map[string]string, len(b.processingJobs))
-	for region, regionJobs := range b.processingJobs {
-		b.processingJobARNIndex[region] = make(map[string]string, len(regionJobs))
-		for name, pj := range regionJobs {
-			b.processingJobARNIndex[region][pj.ProcessingJobArn] = name
-		}
-	}
-
-	b.transformJobARNIndex = make(map[string]map[string]string, len(b.transformJobs))
-	for region, regionJobs := range b.transformJobs {
-		b.transformJobARNIndex[region] = make(map[string]string, len(regionJobs))
-		for name, tj := range regionJobs {
-			b.transformJobARNIndex[region][tj.TransformJobArn] = name
-		}
-	}
+	b.modelARNIndex = buildARNIndex(b.models, func(_ string, m *Model) string { return m.ModelARN })
+	b.endpointConfigARNIndex = buildARNIndex(
+		b.endpointConfigs,
+		func(_ string, ec *EndpointConfig) string { return ec.EndpointConfigARN },
+	)
+	b.actionARNIndex = buildARNIndex(b.actions, func(_ string, a *Action) string { return a.ActionArn })
+	b.algorithmARNIndex = buildARNIndex(b.algorithms, func(_ string, al *Algorithm) string { return al.AlgorithmArn })
+	b.clusterARNIndex = buildARNIndex(b.clusters, func(_ string, c *Cluster) string { return c.ClusterArn })
+	b.modelPackageARNIndex = buildARNIndex(b.modelPackages, func(name string, _ *ModelPackage) string { return name })
+	b.endpointARNIndex = buildARNIndex(b.endpoints, func(_ string, ep *Endpoint) string { return ep.EndpointArn })
+	b.trainingJobARNIndex = buildARNIndex(
+		b.trainingJobs,
+		func(_ string, tj *TrainingJob) string { return tj.TrainingJobArn },
+	)
+	b.notebookARNIndex = buildARNIndex(
+		b.notebooks,
+		func(_ string, nb *NotebookInstance) string { return nb.NotebookInstanceArn },
+	)
+	b.hpTuningJobARNIndex = buildARNIndex(
+		b.hpTuningJobs,
+		func(_ string, j *HyperParameterTuningJob) string { return j.HyperParameterTuningJobArn },
+	)
+	b.processingJobARNIndex = buildARNIndex(
+		b.processingJobs,
+		func(_ string, pj *ProcessingJob) string { return pj.ProcessingJobArn },
+	)
+	b.transformJobARNIndex = buildARNIndex(
+		b.transformJobs,
+		func(_ string, tj *TransformJob) string { return tj.TransformJobArn },
+	)
 }
 
 func ensureNonNilMaps(snap *backendSnapshot) {
@@ -451,79 +423,18 @@ func fixNilTagMaps(snap *backendSnapshot) {
 }
 
 func fixNilTagMapsCoreResources(snap *backendSnapshot) {
-	for _, regionModels := range snap.Models {
-		for _, m := range regionModels {
-			if m.Tags == nil {
-				m.Tags = make(map[string]string)
-			}
-		}
-	}
-
-	for _, regionECs := range snap.EndpointConfigs {
-		for _, ec := range regionECs {
-			if ec.Tags == nil {
-				ec.Tags = make(map[string]string)
-			}
-		}
-	}
-
-	for _, regionActions := range snap.Actions {
-		for _, a := range regionActions {
-			if a.Tags == nil {
-				a.Tags = make(map[string]string)
-			}
-		}
-	}
-
-	for _, regionAlgorithms := range snap.Algorithms {
-		for _, al := range regionAlgorithms {
-			if al.Tags == nil {
-				al.Tags = make(map[string]string)
-			}
-		}
-	}
-
-	for _, regionMPs := range snap.ModelPackages {
-		for _, mp := range regionMPs {
-			if mp.Tags == nil {
-				mp.Tags = make(map[string]string)
-			}
-		}
-	}
+	fixNestedTagsSage(snap.Models, func(m *Model) { m.Tags = ensureSageTagMap(m.Tags) })
+	fixNestedTagsSage(snap.EndpointConfigs, func(ec *EndpointConfig) { ec.Tags = ensureSageTagMap(ec.Tags) })
+	fixNestedTagsSage(snap.Actions, func(a *Action) { a.Tags = ensureSageTagMap(a.Tags) })
+	fixNestedTagsSage(snap.Algorithms, func(al *Algorithm) { al.Tags = ensureSageTagMap(al.Tags) })
+	fixNestedTagsSage(snap.ModelPackages, func(mp *ModelPackage) { mp.Tags = ensureSageTagMap(mp.Tags) })
 }
 
 func fixNilTagMapsNewResources(snap *backendSnapshot) {
-	for _, regionEPs := range snap.Endpoints {
-		for _, ep := range regionEPs {
-			if ep.Tags == nil {
-				ep.Tags = make(map[string]string)
-			}
-		}
-	}
-
-	for _, regionJobs := range snap.TrainingJobs {
-		for _, tj := range regionJobs {
-			if tj.Tags == nil {
-				tj.Tags = make(map[string]string)
-			}
-		}
-	}
-
-	for _, regionNBs := range snap.Notebooks {
-		for _, nb := range regionNBs {
-			if nb.Tags == nil {
-				nb.Tags = make(map[string]string)
-			}
-		}
-	}
-
-	for _, regionJobs := range snap.HPTuningJobs {
-		for _, j := range regionJobs {
-			if j.Tags == nil {
-				j.Tags = make(map[string]string)
-			}
-		}
-	}
+	fixNestedTagsSage(snap.Endpoints, func(ep *Endpoint) { ep.Tags = ensureSageTagMap(ep.Tags) })
+	fixNestedTagsSage(snap.TrainingJobs, func(tj *TrainingJob) { tj.Tags = ensureSageTagMap(tj.Tags) })
+	fixNestedTagsSage(snap.Notebooks, func(nb *NotebookInstance) { nb.Tags = ensureSageTagMap(nb.Tags) })
+	fixNestedTagsSage(snap.HPTuningJobs, func(j *HyperParameterTuningJob) { j.Tags = ensureSageTagMap(j.Tags) })
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.

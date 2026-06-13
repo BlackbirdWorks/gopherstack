@@ -271,13 +271,21 @@ type StorageBackend interface {
 	UpdateMultiRegionCluster(ctx context.Context, req *updateMultiRegionClusterRequest) (*MultiRegionCluster, error)
 	DescribeMultiRegionParameterGroups(ctx context.Context, name string) ([]*MultiRegionParameterGroup, error)
 	DescribeParameters(ctx context.Context, parameterGroupName string) (map[string]string, error)
-	ResetParameterGroup(ctx context.Context, name string, parameterNames []string, allParameters bool) (*ParameterGroup, error)
+	ResetParameterGroup(
+		ctx context.Context,
+		name string,
+		parameterNames []string,
+		allParameters bool,
+	) (*ParameterGroup, error)
 	FailoverShard(ctx context.Context, clusterName, shardConfiguration string) (*Cluster, error)
 	ListAllowedNodeTypeUpdates(ctx context.Context, clusterName string) ([]string, error)
 	ListAllowedMultiRegionClusterUpdates(ctx context.Context, clusterName string) ([]string, error)
 	BatchUpdateCluster(ctx context.Context, clusterNames []string) map[string]*Cluster
 	DescribeReservedNodes(ctx context.Context, req *describeReservedNodesRequest) ([]*ReservedNode, error)
-	DescribeReservedNodesOfferings(ctx context.Context, req *describeReservedNodesOfferingsRequest) ([]*ReservedNodesOffering, error)
+	DescribeReservedNodesOfferings(
+		ctx context.Context,
+		req *describeReservedNodesOfferingsRequest,
+	) ([]*ReservedNodesOffering, error)
 	PurchaseReservedNodesOffering(ctx context.Context, req *purchaseReservedNodesOfferingRequest) (*ReservedNode, error)
 	DescribeMultiRegionParameters(ctx context.Context, parameterGroupName string) (map[string]string, error)
 	DescribeServiceUpdates(ctx context.Context, req *describeServiceUpdatesRequest) ([]*ServiceUpdate, error)
@@ -936,7 +944,10 @@ func (b *InMemoryBackend) DeleteCluster(ctx context.Context, name string) (*Clus
 }
 
 // DeleteClusterWithSnapshot removes a cluster, first creating a snapshot with the given name.
-func (b *InMemoryBackend) DeleteClusterWithSnapshot(ctx context.Context, clusterName, snapshotName string) (*Cluster, error) {
+func (b *InMemoryBackend) DeleteClusterWithSnapshot(
+	ctx context.Context,
+	clusterName, snapshotName string,
+) (*Cluster, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -1523,7 +1534,10 @@ func (b *InMemoryBackend) UpdateUser(ctx context.Context, req *updateUserRequest
 // -- ParameterGroup operations ---------------------------------------------------
 
 // CreateParameterGroup creates a new parameter group.
-func (b *InMemoryBackend) CreateParameterGroup(ctx context.Context, req *createParameterGroupRequest) (*ParameterGroup, error) {
+func (b *InMemoryBackend) CreateParameterGroup(
+	ctx context.Context,
+	req *createParameterGroupRequest,
+) (*ParameterGroup, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -1606,7 +1620,10 @@ func (b *InMemoryBackend) DeleteParameterGroup(ctx context.Context, name string)
 }
 
 // UpdateParameterGroup modifies parameter values in a parameter group.
-func (b *InMemoryBackend) UpdateParameterGroup(ctx context.Context, req *updateParameterGroupRequest) (*ParameterGroup, error) {
+func (b *InMemoryBackend) UpdateParameterGroup(
+	ctx context.Context,
+	req *updateParameterGroupRequest,
+) (*ParameterGroup, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -1879,7 +1896,10 @@ func (b *InMemoryBackend) CreateSnapshot(ctx context.Context, req *createSnapsho
 }
 
 // DescribeSnapshots returns snapshots, optionally filtered by name, cluster name, snapshot type, or source.
-func (b *InMemoryBackend) DescribeSnapshots(ctx context.Context, name, clusterName, snapshotType, source string) ([]*Snapshot, error) {
+func (b *InMemoryBackend) DescribeSnapshots(
+	ctx context.Context,
+	name, clusterName, snapshotType, source string,
+) ([]*Snapshot, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -2082,7 +2102,10 @@ func defaultEngineVersions() []*EngineVersion {
 }
 
 // DescribeEngineVersions returns supported engine versions, optionally filtered.
-func (b *InMemoryBackend) DescribeEngineVersions(_ context.Context, req *describeEngineVersionsRequest) ([]*EngineVersion, error) {
+func (b *InMemoryBackend) DescribeEngineVersions(
+	_ context.Context,
+	req *describeEngineVersionsRequest,
+) ([]*EngineVersion, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -2132,43 +2155,57 @@ func (b *InMemoryBackend) appendEventLocked(region string, ev *Event) {
 }
 
 // DescribeEvents returns events, optionally filtered by source name and type.
-func (b *InMemoryBackend) DescribeEvents(ctx context.Context, req *describeEventsRequest) ([]*Event, error) {
+func (b *InMemoryBackend) DescribeEvents(_ context.Context, req *describeEventsRequest) ([]*Event, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	var startTime *time.Time
-	if req.StartTime != nil {
-		startTime = req.StartTime
-	} else if req.Duration != nil {
-		t := time.Now().Add(-time.Duration(*req.Duration) * time.Minute)
-		startTime = &t
-	}
+	startTime := resolveEventStartTime(req)
 
 	var result []*Event
 
 	for _, evs := range b.events {
 		for _, ev := range evs {
-			if req.SourceName != "" && ev.SourceName != req.SourceName {
-				continue
+			if eventMatchesFilter(ev, req, startTime) {
+				result = append(result, cloneEvent(ev))
 			}
-
-			if req.SourceType != "" && ev.SourceType != req.SourceType {
-				continue
-			}
-
-			if startTime != nil && ev.Date.Before(*startTime) {
-				continue
-			}
-
-			if req.EndTime != nil && ev.Date.After(*req.EndTime) {
-				continue
-			}
-
-			result = append(result, cloneEvent(ev))
 		}
 	}
 
 	return result, nil
+}
+
+func resolveEventStartTime(req *describeEventsRequest) *time.Time {
+	if req.StartTime != nil {
+		return req.StartTime
+	}
+
+	if req.Duration != nil {
+		t := time.Now().Add(-time.Duration(*req.Duration) * time.Minute)
+
+		return &t
+	}
+
+	return nil
+}
+
+func eventMatchesFilter(ev *Event, req *describeEventsRequest, startTime *time.Time) bool {
+	if req.SourceName != "" && ev.SourceName != req.SourceName {
+		return false
+	}
+
+	if req.SourceType != "" && ev.SourceType != req.SourceType {
+		return false
+	}
+
+	if startTime != nil && ev.Date.Before(*startTime) {
+		return false
+	}
+
+	if req.EndTime != nil && ev.Date.After(*req.EndTime) {
+		return false
+	}
+
+	return true
 }
 
 // cloneEvent returns a shallow copy of an Event.
@@ -2181,7 +2218,10 @@ func cloneEvent(e *Event) *Event {
 // -- MultiRegionCluster operations ----------------------------------------------
 
 // CreateMultiRegionCluster creates a new multi-region cluster.
-func (b *InMemoryBackend) CreateMultiRegionCluster(ctx context.Context, req *createMultiRegionClusterRequest) (*MultiRegionCluster, error) {
+func (b *InMemoryBackend) CreateMultiRegionCluster(
+	ctx context.Context,
+	req *createMultiRegionClusterRequest,
+) (*MultiRegionCluster, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -2268,7 +2308,10 @@ func (b *InMemoryBackend) DescribeMultiRegionClusters(_ context.Context, name st
 }
 
 // UpdateMultiRegionCluster modifies an existing multi-region cluster.
-func (b *InMemoryBackend) UpdateMultiRegionCluster(_ context.Context, req *updateMultiRegionClusterRequest) (*MultiRegionCluster, error) {
+func (b *InMemoryBackend) UpdateMultiRegionCluster(
+	_ context.Context,
+	req *updateMultiRegionClusterRequest,
+) (*MultiRegionCluster, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -2298,7 +2341,10 @@ func (b *InMemoryBackend) UpdateMultiRegionCluster(_ context.Context, req *updat
 // -- MultiRegionParameterGroup operations ----------------------------------------
 
 // DescribeMultiRegionParameterGroups returns multi-region parameter groups, optionally filtered by name.
-func (b *InMemoryBackend) DescribeMultiRegionParameterGroups(_ context.Context, name string) ([]*MultiRegionParameterGroup, error) {
+func (b *InMemoryBackend) DescribeMultiRegionParameterGroups(
+	_ context.Context,
+	name string,
+) ([]*MultiRegionParameterGroup, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -2325,7 +2371,10 @@ func (b *InMemoryBackend) DescribeMultiRegionParameterGroups(_ context.Context, 
 // -- ParameterGroup parameter operations -----------------------------------------
 
 // DescribeParameters returns the parameters map for a given parameter group.
-func (b *InMemoryBackend) DescribeParameters(ctx context.Context, parameterGroupName string) (map[string]string, error) {
+func (b *InMemoryBackend) DescribeParameters(
+	ctx context.Context,
+	parameterGroupName string,
+) (map[string]string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -2346,7 +2395,12 @@ func (b *InMemoryBackend) DescribeParameters(ctx context.Context, parameterGroup
 // ResetParameterGroup resets parameters in a parameter group back to family defaults.
 // If parameterNames is non-empty and allParameters is false, only those keys are reset.
 // If allParameters is true or parameterNames is empty, all parameters are reset.
-func (b *InMemoryBackend) ResetParameterGroup(ctx context.Context, name string, parameterNames []string, allParameters bool) (*ParameterGroup, error) {
+func (b *InMemoryBackend) ResetParameterGroup(
+	ctx context.Context,
+	name string,
+	parameterNames []string,
+	allParameters bool,
+) (*ParameterGroup, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -2433,7 +2487,10 @@ func (b *InMemoryBackend) ListAllowedNodeTypeUpdates(ctx context.Context, cluste
 }
 
 // ListAllowedMultiRegionClusterUpdates returns the set of node types a multi-region cluster can be updated to.
-func (b *InMemoryBackend) ListAllowedMultiRegionClusterUpdates(_ context.Context, clusterName string) ([]string, error) {
+func (b *InMemoryBackend) ListAllowedMultiRegionClusterUpdates(
+	_ context.Context,
+	clusterName string,
+) ([]string, error) {
 	b.mu.RLock()
 
 	defer b.mu.RUnlock()
@@ -2501,7 +2558,10 @@ func defaultReservedNodesOfferings() []*ReservedNodesOffering {
 }
 
 // DescribeReservedNodes returns reserved nodes, optionally filtered by reservation ID or node type.
-func (b *InMemoryBackend) DescribeReservedNodes(ctx context.Context, req *describeReservedNodesRequest) ([]*ReservedNode, error) {
+func (b *InMemoryBackend) DescribeReservedNodes(
+	ctx context.Context,
+	req *describeReservedNodesRequest,
+) ([]*ReservedNode, error) {
 	b.mu.RLock()
 
 	defer b.mu.RUnlock()
@@ -2534,7 +2594,10 @@ func (b *InMemoryBackend) DescribeReservedNodes(ctx context.Context, req *descri
 }
 
 // DescribeReservedNodesOfferings returns available reserved node offerings.
-func (b *InMemoryBackend) DescribeReservedNodesOfferings(_ context.Context, req *describeReservedNodesOfferingsRequest) ([]*ReservedNodesOffering, error) {
+func (b *InMemoryBackend) DescribeReservedNodesOfferings(
+	_ context.Context,
+	req *describeReservedNodesOfferingsRequest,
+) ([]*ReservedNodesOffering, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -2577,7 +2640,10 @@ func parseDurationToSeconds(d string) int32 {
 }
 
 // PurchaseReservedNodesOffering creates a new reserved node from an offering.
-func (b *InMemoryBackend) PurchaseReservedNodesOffering(ctx context.Context, req *purchaseReservedNodesOfferingRequest) (*ReservedNode, error) {
+func (b *InMemoryBackend) PurchaseReservedNodesOffering(
+	ctx context.Context,
+	req *purchaseReservedNodesOfferingRequest,
+) (*ReservedNode, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -2641,7 +2707,10 @@ func (b *InMemoryBackend) PurchaseReservedNodesOffering(ctx context.Context, req
 // -- DescribeMultiRegionParameters operation ------------------------------------
 
 // DescribeMultiRegionParameters returns the parameters for a multi-region parameter group.
-func (b *InMemoryBackend) DescribeMultiRegionParameters(_ context.Context, parameterGroupName string) (map[string]string, error) {
+func (b *InMemoryBackend) DescribeMultiRegionParameters(
+	_ context.Context,
+	parameterGroupName string,
+) (map[string]string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -2658,7 +2727,10 @@ func (b *InMemoryBackend) DescribeMultiRegionParameters(_ context.Context, param
 }
 
 // DescribeServiceUpdates returns service updates, optionally filtered.
-func (b *InMemoryBackend) DescribeServiceUpdates(_ context.Context, req *describeServiceUpdatesRequest) ([]*ServiceUpdate, error) {
+func (b *InMemoryBackend) DescribeServiceUpdates(
+	_ context.Context,
+	req *describeServiceUpdatesRequest,
+) ([]*ServiceUpdate, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 

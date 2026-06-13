@@ -79,7 +79,6 @@ func SnapshotCount(b *InMemoryBackend) int {
 	defer b.mu.RUnlock()
 	total := 0
 	for _, m := range b.snapshots {
-
 		total += len(m)
 	}
 
@@ -127,7 +126,6 @@ func ParameterGroupCount(b *InMemoryBackend) int {
 
 // EventCount returns the number of events in the backend.
 func EventCount(b *InMemoryBackend) int {
-
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	total := 0

@@ -263,7 +263,12 @@ func (h *Handler) dispatchNewOps(ctx context.Context, c *echo.Context, op string
 }
 
 // dispatchSnapshotAndEngineOps handles snapshot, engine-version, and event operations.
-func (h *Handler) dispatchSnapshotAndEngineOps(ctx context.Context, c *echo.Context, op string, body []byte) (bool, error) {
+func (h *Handler) dispatchSnapshotAndEngineOps(
+	ctx context.Context,
+	c *echo.Context,
+	op string,
+	body []byte,
+) (bool, error) {
 	switch op {
 	case "CreateSnapshot":
 
@@ -321,7 +326,12 @@ func (h *Handler) dispatchMultiRegionOps(ctx context.Context, c *echo.Context, o
 }
 
 // dispatchParameterAndShardOps handles parameter group and shard operations.
-func (h *Handler) dispatchParameterAndShardOps(ctx context.Context, c *echo.Context, op string, body []byte) (bool, error) {
+func (h *Handler) dispatchParameterAndShardOps(
+	ctx context.Context,
+	c *echo.Context,
+	op string,
+	body []byte,
+) (bool, error) {
 	switch op {
 	case "DescribeParameters":
 
