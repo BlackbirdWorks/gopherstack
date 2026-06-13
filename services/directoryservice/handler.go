@@ -704,7 +704,7 @@ func directoryToJSON(d *Directory) map[string]any {
 		"Size":         string(d.Size),
 		"Edition":      string(d.Edition),
 		"SsoEnabled":   d.SsoEnabled,
-		"LaunchTime":   d.LaunchTime.Format("2006-01-02T15:04:05.000Z"), //nolint:goconst // existing issue.
+		"LaunchTime":   float64(d.LaunchTime.Unix()),
 	}
 }
 
@@ -715,7 +715,7 @@ func snapshotToJSON(s *Snapshot) map[string]any {
 		"Name":         s.Name,
 		"Status":       string(s.Status), //nolint:goconst // existing issue.
 		"Type":         string(s.Type),
-		"StartTime":    s.StartTime.Format("2006-01-02T15:04:05.000Z"), //nolint:goconst // existing issue.
+		"StartTime":    float64(s.StartTime.Unix()),
 	}
 }
 
