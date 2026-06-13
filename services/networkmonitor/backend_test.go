@@ -19,12 +19,12 @@ func TestCreateMonitor(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		aggregationPeriod *int64
 		name              string
 		monitorName       string
-		aggregationPeriod *int64
-		wantErr           bool
 		wantState         string
 		wantPeriod        int64
+		wantErr           bool
 	}{
 		{
 			name:        "valid monitor no period",
@@ -122,8 +122,8 @@ func TestGetMonitor(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		create      bool
 		monitorName string
+		create      bool
 		wantErr     bool
 	}{
 		{
@@ -178,8 +178,8 @@ func TestDeleteMonitor(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		create      bool
 		monitorName string
+		create      bool
 		wantErr     bool
 	}{
 		{
@@ -372,11 +372,11 @@ func TestProbeLifecycle(t *testing.T) {
 		t.Fatalf("create probe: %v", err)
 	}
 
-	if probe.ProbeId == "" {
-		t.Error("expected non-empty ProbeId")
+	if probe.ProbeID == "" {
+		t.Error("expected non-empty ProbeID")
 	}
 
-	got, err := b.GetProbe(ctx, "probe-mon", probe.ProbeId)
+	got, err := b.GetProbe(ctx, "probe-mon", probe.ProbeID)
 	if err != nil {
 		t.Fatalf("get probe: %v", err)
 	}
@@ -385,11 +385,11 @@ func TestProbeLifecycle(t *testing.T) {
 		t.Errorf("destination: got %q, want 10.0.0.1", got.Destination)
 	}
 
-	if err := b.DeleteProbe(ctx, "probe-mon", probe.ProbeId); err != nil {
+	if err := b.DeleteProbe(ctx, "probe-mon", probe.ProbeID); err != nil {
 		t.Fatalf("delete probe: %v", err)
 	}
 
-	if _, err := b.GetProbe(ctx, "probe-mon", probe.ProbeId); err == nil {
+	if _, err := b.GetProbe(ctx, "probe-mon", probe.ProbeID); err == nil {
 		t.Fatal("expected not-found after delete")
 	}
 }

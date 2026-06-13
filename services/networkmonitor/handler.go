@@ -37,6 +37,16 @@ const (
 	nmMatchPriority = 88
 	nmPathMonitors  = "/monitors"
 	nmPathTags      = "/tags/"
+	opUnknown       = "Unknown"
+
+	// arnSplitParts is the expected number of parts in an AWS ARN when split on ":".
+	arnSplitParts = 6
+	// splitTwo splits a string into at most 2 parts.
+	splitTwo = 2
+	// splitThree splits a string into at most 3 parts.
+	splitThree = 3
+	// splitFour splits a string into at most 4 parts.
+	splitFour = 4
 )
 
 var errUnknownAction = errors.New("unknown action")
@@ -112,71 +122,87 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 	path := c.Request().URL.Path
 
 	if strings.HasPrefix(path, nmPathTags) {
-		switch method {
-		case http.MethodGet:
-			return opListTagsForResource
-		case http.MethodPost:
-			return opTagResource
-		case http.MethodDelete:
-			return opUntagResource
-		}
-
-		return "Unknown"
+		return extractTagOp(method)
 	}
 
-	// Path: /monitors[/{name}[/probes[/{probeId}]]]
-	trimmed := strings.TrimPrefix(path, "/monitors")
-	trimmed = strings.TrimSuffix(trimmed, "/")
-	segments := strings.SplitN(strings.TrimPrefix(trimmed, "/"), "/", 4)
+	return extractMonitorOp(method, path)
+}
 
-	// /monitors → [""] or []
+func extractTagOp(method string) string {
+	switch method {
+	case http.MethodGet:
+		return opListTagsForResource
+	case http.MethodPost:
+		return opTagResource
+	case http.MethodDelete:
+		return opUntagResource
+	}
+
+	return opUnknown
+}
+
+func extractMonitorOp(method, path string) string {
+	trimmed := strings.TrimSuffix(strings.TrimPrefix(path, "/monitors"), "/")
+	segments := strings.SplitN(strings.TrimPrefix(trimmed, "/"), "/", splitFour)
+
 	if trimmed == "" || (len(segments) == 1 && segments[0] == "") {
-		switch method {
-		case http.MethodPost:
-			return opCreateMonitor
-		case http.MethodGet:
-			return opListMonitors
-		}
-
-		return "Unknown"
+		return extractMonitorListOp(method)
 	}
 
-	// /monitors/{name}
 	if len(segments) == 1 {
-		switch method {
-		case http.MethodGet:
-			return opGetMonitor
-		case http.MethodDelete:
-			return opDeleteMonitor
-		case http.MethodPatch:
-			return opUpdateMonitor
-		}
-
-		return "Unknown"
+		return extractMonitorCRUDOp(method)
 	}
 
-	// /monitors/{name}/probes or /monitors/{name}/probes/{probeId}
 	if len(segments) >= 2 && segments[1] == "probes" {
-		if len(segments) == 2 || segments[2] == "" {
-			if method == http.MethodPost {
-				return opCreateProbe
-			}
-
-			return "Unknown"
-		}
-
-		// /monitors/{name}/probes/{probeId}
-		switch method {
-		case http.MethodGet:
-			return opGetProbe
-		case http.MethodDelete:
-			return opDeleteProbe
-		case http.MethodPatch:
-			return opUpdateProbe
-		}
+		return extractProbeOp(method, segments)
 	}
 
-	return "Unknown"
+	return opUnknown
+}
+
+func extractMonitorListOp(method string) string {
+	switch method {
+	case http.MethodPost:
+		return opCreateMonitor
+	case http.MethodGet:
+		return opListMonitors
+	}
+
+	return opUnknown
+}
+
+func extractMonitorCRUDOp(method string) string {
+	switch method {
+	case http.MethodGet:
+		return opGetMonitor
+	case http.MethodDelete:
+		return opDeleteMonitor
+	case http.MethodPatch:
+		return opUpdateMonitor
+	}
+
+	return opUnknown
+}
+
+func extractProbeOp(method string, segments []string) string {
+	if len(segments) == 2 || segments[2] == "" {
+		if method == http.MethodPost {
+			return opCreateProbe
+		}
+
+		return opUnknown
+	}
+
+	switch method {
+	case http.MethodGet:
+		return opGetProbe
+	case http.MethodDelete:
+		return opDeleteProbe
+	case http.MethodPatch:
+		return opUpdateProbe
+	}
+
+	return opUnknown
 }
 
 // ExtractResource extracts the monitor name from the request path.
@@ -188,7 +214,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		return ""
 	}
 
-	parts := strings.SplitN(trimmed, "/", 2)
+	parts := strings.SplitN(trimmed, "/", splitTwo)
 
 	return parts[0]
 }
@@ -300,7 +326,7 @@ func extractMonitorName(path string) string {
 		return ""
 	}
 
-	parts := strings.SplitN(trimmed, "/", 2)
+	parts := strings.SplitN(trimmed, "/", splitTwo)
 
 	return parts[0]
 }
@@ -313,7 +339,7 @@ func extractProbeID(path string) string {
 		return ""
 	}
 
-	parts := strings.SplitN(trimmed, "/", 3)
+	parts := strings.SplitN(trimmed, "/", splitThree)
 	if len(parts) < 3 || parts[1] != "probes" {
 		return ""
 	}
@@ -430,7 +456,9 @@ func (h *Handler) handleListMonitors(ctx context.Context, query url.Values) ([]b
 	maxResults := 0
 
 	if mr := query.Get("maxResults"); mr != "" {
-		fmt.Sscanf(mr, "%d", &maxResults) //nolint:errcheck // best-effort parse
+		if _, err := fmt.Sscanf(mr, "%d", &maxResults); err != nil {
+			maxResults = 0
+		}
 	}
 
 	summaries, outToken, err := h.Backend.ListMonitors(ctx, state, nextToken, maxResults)

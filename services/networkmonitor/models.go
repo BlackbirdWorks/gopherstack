@@ -19,53 +19,53 @@ type Probe struct {
 	CreatedAt       *time.Time        `json:"createdAt,omitempty"`
 	ModifiedAt      *time.Time        `json:"modifiedAt,omitempty"`
 	Tags            map[string]string `json:"tags,omitempty"`
-	ProbeArn        string            `json:"probeArn,omitempty"`
-	ProbeId         string            `json:"probeId,omitempty"`
-	SourceArn       string            `json:"sourceArn"`
+	PacketSize      *int32            `json:"packetSize,omitempty"`
+	DestinationPort *int32            `json:"destinationPort,omitempty"`
 	Destination     string            `json:"destination"`
+	SourceArn       string            `json:"sourceArn"`
 	Protocol        string            `json:"protocol"`
 	State           string            `json:"state"`
 	AddressFamily   string            `json:"addressFamily,omitempty"`
-	VpcId           string            `json:"vpcId,omitempty"`
-	DestinationPort *int32            `json:"destinationPort,omitempty"`
-	PacketSize      *int32            `json:"packetSize,omitempty"`
+	VpcID           string            `json:"vpcId,omitempty"`
+	ProbeID         string            `json:"probeId,omitempty"`
+	ProbeArn        string            `json:"probeArn,omitempty"`
 }
 
 // monitorSummary is the short form returned by ListMonitors.
 type monitorSummary struct {
 	Tags              map[string]string `json:"tags,omitempty"`
+	AggregationPeriod *int64            `json:"aggregationPeriod,omitempty"`
 	MonitorArn        string            `json:"monitorArn"`
 	MonitorName       string            `json:"monitorName"`
 	State             string            `json:"state"`
-	AggregationPeriod *int64            `json:"aggregationPeriod,omitempty"`
 }
 
 // createMonitorProbeInput is the probe input nested in CreateMonitor.
 type createMonitorProbeInput struct {
 	Tags            map[string]string `json:"probeTags,omitempty"`
+	DestinationPort *int32            `json:"destinationPort,omitempty"`
+	PacketSize      *int32            `json:"packetSize,omitempty"`
 	Destination     string            `json:"destination"`
 	Protocol        string            `json:"protocol"`
 	SourceArn       string            `json:"sourceArn"`
-	DestinationPort *int32            `json:"destinationPort,omitempty"`
-	PacketSize      *int32            `json:"packetSize,omitempty"`
 }
 
 // createMonitorRequest is the request body for POST /monitors.
 type createMonitorRequest struct {
 	Tags              map[string]string         `json:"tags,omitempty"`
+	AggregationPeriod *int64                    `json:"aggregationPeriod,omitempty"`
 	MonitorName       string                    `json:"monitorName"`
 	ClientToken       string                    `json:"clientToken,omitempty"`
 	Probes            []createMonitorProbeInput `json:"probes,omitempty"`
-	AggregationPeriod *int64                    `json:"aggregationPeriod,omitempty"`
 }
 
 // createMonitorResponse is the response body for POST /monitors.
 type createMonitorResponse struct {
 	Tags              map[string]string `json:"tags,omitempty"`
+	AggregationPeriod *int64            `json:"aggregationPeriod,omitempty"`
 	MonitorArn        string            `json:"monitorArn"`
 	MonitorName       string            `json:"monitorName"`
 	State             string            `json:"state"`
-	AggregationPeriod *int64            `json:"aggregationPeriod,omitempty"`
 }
 
 // updateMonitorRequest is the request body for PATCH /monitors/{monitorName}.
@@ -76,43 +76,43 @@ type updateMonitorRequest struct {
 // updateMonitorResponse is the response body for PATCH /monitors/{monitorName}.
 type updateMonitorResponse struct {
 	Tags              map[string]string `json:"tags,omitempty"`
+	AggregationPeriod *int64            `json:"aggregationPeriod,omitempty"`
 	MonitorArn        string            `json:"monitorArn"`
 	MonitorName       string            `json:"monitorName"`
 	State             string            `json:"state"`
-	AggregationPeriod *int64            `json:"aggregationPeriod,omitempty"`
 }
 
 // listMonitorsResponse is the response body for GET /monitors.
 type listMonitorsResponse struct {
-	Monitors  []monitorSummary `json:"monitors"`
 	NextToken string           `json:"nextToken,omitempty"`
+	Monitors  []monitorSummary `json:"monitors"`
 }
 
 // probeInput is the probe input for CreateProbe.
 type probeInput struct {
 	Tags            map[string]string `json:"tags,omitempty"`
+	DestinationPort *int32            `json:"destinationPort,omitempty"`
+	PacketSize      *int32            `json:"packetSize,omitempty"`
 	Destination     string            `json:"destination"`
 	Protocol        string            `json:"protocol"`
 	SourceArn       string            `json:"sourceArn"`
-	DestinationPort *int32            `json:"destinationPort,omitempty"`
-	PacketSize      *int32            `json:"packetSize,omitempty"`
 }
 
 // createProbeRequest is the request body for POST /monitors/{monitorName}/probes.
 type createProbeRequest struct {
 	Tags        map[string]string `json:"tags,omitempty"`
-	ClientToken string            `json:"clientToken,omitempty"`
 	Probe       *probeInput       `json:"probe"`
+	ClientToken string            `json:"clientToken,omitempty"`
 }
 
 // updateProbeRequest is the request body for PATCH /monitors/{monitorName}/probes/{probeId}.
 type updateProbeRequest struct {
 	Tags            map[string]string `json:"tags,omitempty"`
+	DestinationPort *int32            `json:"destinationPort,omitempty"`
+	PacketSize      *int32            `json:"packetSize,omitempty"`
 	Destination     string            `json:"destination,omitempty"`
 	Protocol        string            `json:"protocol,omitempty"`
 	State           string            `json:"state,omitempty"`
-	DestinationPort *int32            `json:"destinationPort,omitempty"`
-	PacketSize      *int32            `json:"packetSize,omitempty"`
 }
 
 // getMonitorResponse is the response body for GET /monitors/{monitorName}.
@@ -135,11 +135,6 @@ type listTagsForResourceResponse struct {
 // tagResourceRequest is the request body for POST /tags/{resourceArn}.
 type tagResourceRequest struct {
 	Tags map[string]string `json:"tags"`
-}
-
-// untagResourceQuery holds query parameters for DELETE /tags/{resourceArn}.
-type untagResourceQuery struct {
-	TagKeys []string
 }
 
 // errorResponse is the standard error response body.

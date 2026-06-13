@@ -70,14 +70,12 @@ type StorageBackend interface {
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 // Resources are nested by region for isolation.
 type InMemoryBackend struct {
-	// monitors: region → monitorName → *Monitor
-	monitors map[string]map[string]*Monitor
-	// arnIndex: region → arn → monitorName
-	arnIndex map[string]map[string]string
-	mu           sync.RWMutex
-	accountID    string
+	monitors      map[string]map[string]*Monitor
+	arnIndex      map[string]map[string]string
+	accountID     string
 	defaultRegion string
-	nextProbeSeq int64
+	nextProbeSeq  int64
+	mu            sync.RWMutex
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)
@@ -182,7 +180,7 @@ func (b *InMemoryBackend) CreateMonitor(
 		maps.Copy(probeTags, pi.Tags)
 
 		probes = append(probes, &Probe{
-			ProbeId:         probeID,
+			ProbeID:         probeID,
 			ProbeArn:        probeARN,
 			SourceArn:       pi.SourceArn,
 			Destination:     pi.Destination,
@@ -386,7 +384,7 @@ func (b *InMemoryBackend) CreateProbe(
 	maps.Copy(tagsCopy, tags)
 
 	probe := &Probe{
-		ProbeId:         probeID,
+		ProbeID:         probeID,
 		ProbeArn:        probeARN,
 		SourceArn:       pi.SourceArn,
 		Destination:     pi.Destination,
@@ -643,7 +641,7 @@ func (b *InMemoryBackend) findResourceByARN(region, resourceARN string) (*Monito
 
 func findProbeIndex(probes []*Probe, probeID string) int {
 	for i, p := range probes {
-		if p.ProbeId == probeID {
+		if p.ProbeID == probeID {
 			return i
 		}
 	}

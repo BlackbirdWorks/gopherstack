@@ -56,8 +56,8 @@ func TestHandlerCreateMonitor(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		body       map[string]any
+		name       string
 		wantStatus int
 	}{
 		{
@@ -96,9 +96,9 @@ func TestHandlerGetMonitor(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		create     bool
 		monName    string
 		wantStatus int
+		create     bool
 	}{
 		{
 			name:       "existing monitor",
@@ -141,9 +141,9 @@ func TestHandlerDeleteMonitor(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		create     bool
 		monName    string
 		wantStatus int
+		create     bool
 	}{
 		{
 			name:       "delete existing",
