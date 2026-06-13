@@ -1,6 +1,7 @@
 package cognitoidentity_test
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -50,11 +51,29 @@ func TestInMemoryBackend_CreateIdentityPool(t *testing.T) {
 			b := newTestBackend()
 
 			if tt.name == "duplicate_name" {
-				_, setupErr := b.CreateIdentityPool("my-pool", true, false, "", nil, nil, nil)
+				_, setupErr := b.CreateIdentityPool(
+					context.Background(),
+					"my-pool",
+					true,
+					false,
+					"",
+					nil,
+					nil,
+					nil,
+				)
 				require.NoError(t, setupErr)
 			}
 
-			pool, err := b.CreateIdentityPool(tt.poolName, tt.allowUnauth, false, "", nil, nil, nil)
+			pool, err := b.CreateIdentityPool(
+				context.Background(),
+				tt.poolName,
+				tt.allowUnauth,
+				false,
+				"",
+				nil,
+				nil,
+				nil,
+			)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -101,14 +120,23 @@ func TestInMemoryBackend_DeleteIdentityPool(t *testing.T) {
 			var realPoolID string
 
 			if tt.name == "success" {
-				pool, setupErr := b.CreateIdentityPool("delete-pool", true, false, "", nil, nil, nil)
+				pool, setupErr := b.CreateIdentityPool(
+					context.Background(),
+					"delete-pool",
+					true,
+					false,
+					"",
+					nil,
+					nil,
+					nil,
+				)
 				require.NoError(t, setupErr)
 				realPoolID = pool.IdentityPoolID
 			} else {
 				realPoolID = tt.poolID
 			}
 
-			err := b.DeleteIdentityPool(realPoolID)
+			err := b.DeleteIdentityPool(context.Background(), realPoolID)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -119,7 +147,7 @@ func TestInMemoryBackend_DeleteIdentityPool(t *testing.T) {
 
 			require.NoError(t, err)
 
-			_, descErr := b.DescribeIdentityPool(realPoolID)
+			_, descErr := b.DescribeIdentityPool(context.Background(), realPoolID)
 			require.Error(t, descErr)
 		})
 	}
@@ -155,14 +183,23 @@ func TestInMemoryBackend_DescribeIdentityPool(t *testing.T) {
 			var poolID string
 
 			if tt.name == "success" {
-				pool, setupErr := b.CreateIdentityPool("describe-pool", true, false, "", nil, nil, nil)
+				pool, setupErr := b.CreateIdentityPool(
+					context.Background(),
+					"describe-pool",
+					true,
+					false,
+					"",
+					nil,
+					nil,
+					nil,
+				)
 				require.NoError(t, setupErr)
 				poolID = pool.IdentityPoolID
 			} else {
 				poolID = tt.poolID
 			}
 
-			pool, err := b.DescribeIdentityPool(poolID)
+			pool, err := b.DescribeIdentityPool(context.Background(), poolID)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -183,16 +220,16 @@ func TestInMemoryBackend_ListIdentityPools(t *testing.T) {
 
 	b := newTestBackend()
 
-	_, err1 := b.CreateIdentityPool("pool-a", true, false, "", nil, nil, nil)
+	_, err1 := b.CreateIdentityPool(context.Background(), "pool-a", true, false, "", nil, nil, nil)
 	require.NoError(t, err1)
 
-	_, err2 := b.CreateIdentityPool("pool-b", false, false, "", nil, nil, nil)
+	_, err2 := b.CreateIdentityPool(context.Background(), "pool-b", false, false, "", nil, nil, nil)
 	require.NoError(t, err2)
 
-	pools, _ := b.ListIdentityPools(0, "")
+	pools, _ := b.ListIdentityPools(context.Background(), 0, "")
 	assert.Len(t, pools, 2)
 
-	limited, _ := b.ListIdentityPools(1, "")
+	limited, _ := b.ListIdentityPools(context.Background(), 1, "")
 	assert.Len(t, limited, 1)
 }
 
@@ -221,14 +258,33 @@ func TestInMemoryBackend_UpdateIdentityPool(t *testing.T) {
 			var poolID string
 
 			if tt.name == "success" {
-				pool, setupErr := b.CreateIdentityPool("update-pool", true, false, "", nil, nil, nil)
+				pool, setupErr := b.CreateIdentityPool(
+					context.Background(),
+					"update-pool",
+					true,
+					false,
+					"",
+					nil,
+					nil,
+					nil,
+				)
 				require.NoError(t, setupErr)
 				poolID = pool.IdentityPoolID
 			} else {
 				poolID = "nonexistent"
 			}
 
-			updated, err := b.UpdateIdentityPool(poolID, "update-pool", false, true, "", nil, nil, nil)
+			updated, err := b.UpdateIdentityPool(
+				context.Background(),
+				poolID,
+				"update-pool",
+				false,
+				true,
+				"",
+				nil,
+				nil,
+				nil,
+			)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -270,15 +326,26 @@ func TestInMemoryBackend_GetID(t *testing.T) {
 			var poolID string
 
 			if tt.name != "pool_not_found" {
-				pool, setupErr := b.CreateIdentityPool("get-id-pool", true, false, "", nil, nil, nil)
+				pool, setupErr := b.CreateIdentityPool(
+					context.Background(),
+					"get-id-pool",
+					true,
+					false,
+					"",
+					nil,
+					nil,
+					nil,
+				)
 				require.NoError(t, setupErr)
 				poolID = pool.IdentityPoolID
 			} else {
 				poolID = "nonexistent"
 			}
 
-			logins := map[string]string{"cognito-idp.us-east-1.amazonaws.com/us-east-1_xxx": "token123"}
-			identity, err := b.GetID(poolID, "000000000000", logins)
+			logins := map[string]string{
+				"cognito-idp.us-east-1.amazonaws.com/us-east-1_xxx": "token123",
+			}
+			identity, err := b.GetID(context.Background(), poolID, "000000000000", logins)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -292,7 +359,7 @@ func TestInMemoryBackend_GetID(t *testing.T) {
 			assert.Contains(t, identity.IdentityID, "us-east-1:")
 
 			if tt.name == "success_existing_identity" {
-				identity2, err2 := b.GetID(poolID, "000000000000", logins)
+				identity2, err2 := b.GetID(context.Background(), poolID, "000000000000", logins)
 				require.NoError(t, err2)
 				assert.Equal(t, identity.IdentityID, identity2.IdentityID)
 			}
@@ -325,17 +392,31 @@ func TestInMemoryBackend_GetCredentialsForIdentity(t *testing.T) {
 			var identityID string
 
 			if tt.name == "success" {
-				pool, poolErr := b.CreateIdentityPool("creds-pool", true, false, "", nil, nil, nil)
+				pool, poolErr := b.CreateIdentityPool(
+					context.Background(),
+					"creds-pool",
+					true,
+					false,
+					"",
+					nil,
+					nil,
+					nil,
+				)
 				require.NoError(t, poolErr)
 
-				identity, idErr := b.GetID(pool.IdentityPoolID, "000000000000", nil)
+				identity, idErr := b.GetID(
+					context.Background(),
+					pool.IdentityPoolID,
+					"000000000000",
+					nil,
+				)
 				require.NoError(t, idErr)
 				identityID = identity.IdentityID
 			} else {
 				identityID = "us-east-1:nonexistent"
 			}
 
-			creds, err := b.GetCredentialsForIdentity(identityID, nil)
+			creds, err := b.GetCredentialsForIdentity(context.Background(), identityID, nil)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -378,17 +459,31 @@ func TestInMemoryBackend_GetOpenIDToken(t *testing.T) {
 			var identityID string
 
 			if tt.name == "success" {
-				pool, poolErr := b.CreateIdentityPool("oidc-pool", true, false, "", nil, nil, nil)
+				pool, poolErr := b.CreateIdentityPool(
+					context.Background(),
+					"oidc-pool",
+					true,
+					false,
+					"",
+					nil,
+					nil,
+					nil,
+				)
 				require.NoError(t, poolErr)
 
-				identity, idErr := b.GetID(pool.IdentityPoolID, "000000000000", nil)
+				identity, idErr := b.GetID(
+					context.Background(),
+					pool.IdentityPoolID,
+					"000000000000",
+					nil,
+				)
 				require.NoError(t, idErr)
 				identityID = identity.IdentityID
 			} else {
 				identityID = "us-east-1:nonexistent"
 			}
 
-			token, err := b.GetOpenIDToken(identityID, nil)
+			token, err := b.GetOpenIDToken(context.Background(), identityID, nil)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -429,7 +524,16 @@ func TestInMemoryBackend_SetGetIdentityPoolRoles(t *testing.T) {
 			var poolID string
 
 			if tt.name == "success" {
-				pool, setupErr := b.CreateIdentityPool("roles-pool", true, false, "", nil, nil, nil)
+				pool, setupErr := b.CreateIdentityPool(
+					context.Background(),
+					"roles-pool",
+					true,
+					false,
+					"",
+					nil,
+					nil,
+					nil,
+				)
 				require.NoError(t, setupErr)
 				poolID = pool.IdentityPoolID
 			} else {
@@ -439,7 +543,13 @@ func TestInMemoryBackend_SetGetIdentityPoolRoles(t *testing.T) {
 			authRoleARN := "arn:aws:iam::000000000000:role/CognitoAuthRole"
 			unauthRoleARN := "arn:aws:iam::000000000000:role/CognitoUnauthRole"
 
-			setErr := b.SetIdentityPoolRoles(poolID, authRoleARN, unauthRoleARN, nil)
+			setErr := b.SetIdentityPoolRoles(
+				context.Background(),
+				poolID,
+				authRoleARN,
+				unauthRoleARN,
+				nil,
+			)
 
 			if tt.wantErr {
 				require.Error(t, setErr)
@@ -450,7 +560,7 @@ func TestInMemoryBackend_SetGetIdentityPoolRoles(t *testing.T) {
 
 			require.NoError(t, setErr)
 
-			roles, getErr := b.GetIdentityPoolRoles(poolID)
+			roles, getErr := b.GetIdentityPoolRoles(context.Background(), poolID)
 			require.NoError(t, getErr)
 			assert.Equal(t, authRoleARN, roles.AuthenticatedRoleARN)
 			assert.Equal(t, unauthRoleARN, roles.UnauthenticatedRoleARN)
@@ -463,10 +573,19 @@ func TestInMemoryBackend_GetIdentityPoolRoles_NoRoles(t *testing.T) {
 
 	b := newTestBackend()
 
-	pool, err := b.CreateIdentityPool("no-roles-pool", true, false, "", nil, nil, nil)
+	pool, err := b.CreateIdentityPool(
+		context.Background(),
+		"no-roles-pool",
+		true,
+		false,
+		"",
+		nil,
+		nil,
+		nil,
+	)
 	require.NoError(t, err)
 
-	roles, err := b.GetIdentityPoolRoles(pool.IdentityPoolID)
+	roles, err := b.GetIdentityPoolRoles(context.Background(), pool.IdentityPoolID)
 	require.NoError(t, err)
 	assert.Empty(t, roles.AuthenticatedRoleARN)
 	assert.Empty(t, roles.UnauthenticatedRoleARN)
@@ -484,14 +603,33 @@ func TestInMemoryBackend_UpdateIdentityPool_RenameConflict(t *testing.T) {
 
 	b := newTestBackend()
 
-	pool1, err := b.CreateIdentityPool("pool-one", true, false, "", nil, nil, nil)
+	pool1, err := b.CreateIdentityPool(
+		context.Background(),
+		"pool-one",
+		true,
+		false,
+		"",
+		nil,
+		nil,
+		nil,
+	)
 	require.NoError(t, err)
 
-	_, err = b.CreateIdentityPool("pool-two", true, false, "", nil, nil, nil)
+	_, err = b.CreateIdentityPool(context.Background(), "pool-two", true, false, "", nil, nil, nil)
 	require.NoError(t, err)
 
 	// Attempt to rename pool-one to pool-two (conflict).
-	_, err = b.UpdateIdentityPool(pool1.IdentityPoolID, "pool-two", true, false, "", nil, nil, nil)
+	_, err = b.UpdateIdentityPool(
+		context.Background(),
+		pool1.IdentityPoolID,
+		"pool-two",
+		true,
+		false,
+		"",
+		nil,
+		nil,
+		nil,
+	)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, cognitoidentity.ErrIdentityPoolAlreadyExists)
 }
@@ -501,23 +639,32 @@ func TestInMemoryBackend_DeleteIdentityPool_CleansIdentities(t *testing.T) {
 
 	b := newTestBackend()
 
-	pool, err := b.CreateIdentityPool("clean-pool", true, false, "", nil, nil, nil)
+	pool, err := b.CreateIdentityPool(
+		context.Background(),
+		"clean-pool",
+		true,
+		false,
+		"",
+		nil,
+		nil,
+		nil,
+	)
 	require.NoError(t, err)
 
 	// Create an identity inside the pool.
-	identity, err := b.GetID(pool.IdentityPoolID, "000000000000", nil)
+	identity, err := b.GetID(context.Background(), pool.IdentityPoolID, "000000000000", nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, identity.IdentityID)
 
 	// Delete the pool.
-	require.NoError(t, b.DeleteIdentityPool(pool.IdentityPoolID))
+	require.NoError(t, b.DeleteIdentityPool(context.Background(), pool.IdentityPoolID))
 
 	// Pool should be gone.
-	_, err = b.DescribeIdentityPool(pool.IdentityPoolID)
+	_, err = b.DescribeIdentityPool(context.Background(), pool.IdentityPoolID)
 	require.ErrorIs(t, err, cognitoidentity.ErrIdentityPoolNotFound)
 
 	// Identity from the deleted pool should no longer be usable.
-	_, err = b.GetCredentialsForIdentity(identity.IdentityID, nil)
+	_, err = b.GetCredentialsForIdentity(context.Background(), identity.IdentityID, nil)
 	require.ErrorIs(t, err, cognitoidentity.ErrIdentityPoolNotFound)
 }
 
@@ -526,7 +673,7 @@ func TestInMemoryBackend_GetIdentityPoolRoles_NotFound(t *testing.T) {
 
 	b := newTestBackend()
 
-	_, err := b.GetIdentityPoolRoles("us-east-1:nonexistent")
+	_, err := b.GetIdentityPoolRoles(context.Background(), "us-east-1:nonexistent")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, cognitoidentity.ErrIdentityPoolNotFound)
 }
@@ -536,7 +683,13 @@ func TestInMemoryBackend_SetIdentityPoolRoles_NotFound(t *testing.T) {
 
 	b := newTestBackend()
 
-	err := b.SetIdentityPoolRoles("us-east-1:nonexistent", "arn:aws:iam::000000000000:role/Auth", "", nil)
+	err := b.SetIdentityPoolRoles(
+		context.Background(),
+		"us-east-1:nonexistent",
+		"arn:aws:iam::000000000000:role/Auth",
+		"",
+		nil,
+	)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, cognitoidentity.ErrIdentityPoolNotFound)
 }
@@ -554,9 +707,18 @@ func TestInMemoryBackend_CreateIdentityPool_WithProviders(t *testing.T) {
 		},
 	}
 
-	pool, err := b.CreateIdentityPool("provider-pool", true, false, "", providers, map[string]string{
-		"graph.facebook.com": "123456789",
-	}, map[string]string{"env": "test"})
+	pool, err := b.CreateIdentityPool(
+		context.Background(),
+		"provider-pool",
+		true,
+		false,
+		"",
+		providers,
+		map[string]string{
+			"graph.facebook.com": "123456789",
+		},
+		map[string]string{"env": "test"},
+	)
 	require.NoError(t, err)
 	assert.Len(t, pool.IdentityProviders, 1)
 	assert.Equal(t, "client123", pool.IdentityProviders[0].ClientID)
@@ -569,17 +731,26 @@ func TestInMemoryBackend_PersistenceRoundTrip(t *testing.T) {
 
 	b := newTestBackend()
 
-	pool, err := b.CreateIdentityPool("persist-pool", true, false, "", nil, nil, map[string]string{
-		"env": "prod",
-	})
+	pool, err := b.CreateIdentityPool(
+		context.Background(),
+		"persist-pool",
+		true,
+		false,
+		"",
+		nil,
+		nil,
+		map[string]string{
+			"env": "prod",
+		},
+	)
 	require.NoError(t, err)
 
-	_, err = b.GetID(pool.IdentityPoolID, "000000000000", map[string]string{
+	_, err = b.GetID(context.Background(), pool.IdentityPoolID, "000000000000", map[string]string{
 		"accounts.google.com": "google-token",
 	})
 	require.NoError(t, err)
 
-	_, err = b.SetPrincipalTagAttributeMap(
+	_, err = b.SetPrincipalTagAttributeMap(context.Background(),
 		pool.IdentityPoolID,
 		"cognito-idp.us-east-1.amazonaws.com/us-east-1_xxx",
 		false,
@@ -593,16 +764,16 @@ func TestInMemoryBackend_PersistenceRoundTrip(t *testing.T) {
 	b2 := cognitoidentity.NewInMemoryBackend("000000000000", "us-east-1")
 	require.NoError(t, b2.Restore(snap))
 
-	restored, err := b2.DescribeIdentityPool(pool.IdentityPoolID)
+	restored, err := b2.DescribeIdentityPool(context.Background(), pool.IdentityPoolID)
 	require.NoError(t, err)
 	assert.Equal(t, "persist-pool", restored.IdentityPoolName)
 	assert.Equal(t, "prod", restored.Tags["env"])
 
-	result, err := b2.ListIdentities(pool.IdentityPoolID, 10, false, "")
+	result, err := b2.ListIdentities(context.Background(), pool.IdentityPoolID, 10, false, "")
 	require.NoError(t, err)
 	assert.Len(t, result.Identities, 1)
 
-	mapping, err := b2.GetPrincipalTagAttributeMap(
+	mapping, err := b2.GetPrincipalTagAttributeMap(context.Background(),
 		pool.IdentityPoolID,
 		"cognito-idp.us-east-1.amazonaws.com/us-east-1_xxx",
 	)
@@ -616,7 +787,16 @@ func TestHandler_PersistenceRoundTrip(t *testing.T) {
 	b := cognitoidentity.NewInMemoryBackend("000000000000", "us-east-1")
 	h := cognitoidentity.NewHandler(b, "us-east-1")
 
-	_, err := b.CreateIdentityPool("handler-persist-pool", true, false, "", nil, nil, nil)
+	_, err := b.CreateIdentityPool(
+		context.Background(),
+		"handler-persist-pool",
+		true,
+		false,
+		"",
+		nil,
+		nil,
+		nil,
+	)
 	require.NoError(t, err)
 
 	snap := h.Snapshot()
@@ -627,7 +807,7 @@ func TestHandler_PersistenceRoundTrip(t *testing.T) {
 
 	require.NoError(t, h2.Restore(snap))
 
-	pools, _ := b2.ListIdentityPools(0, "")
+	pools, _ := b2.ListIdentityPools(context.Background(), 0, "")
 	assert.Len(t, pools, 1)
 	assert.Equal(t, "handler-persist-pool", pools[0].IdentityPoolName)
 }
@@ -637,17 +817,26 @@ func TestInMemoryBackend_DeleteIdentities_UnprocessedNil(t *testing.T) {
 
 	b := newTestBackend()
 
-	pool, err := b.CreateIdentityPool("del-id-pool", true, false, "", nil, nil, nil)
+	pool, err := b.CreateIdentityPool(
+		context.Background(),
+		"del-id-pool",
+		true,
+		false,
+		"",
+		nil,
+		nil,
+		nil,
+	)
 	require.NoError(t, err)
 
-	identity, err := b.GetID(pool.IdentityPoolID, "000000000000", nil)
+	identity, err := b.GetID(context.Background(), pool.IdentityPoolID, "000000000000", nil)
 	require.NoError(t, err)
 
-	unprocessed, err := b.DeleteIdentities([]string{identity.IdentityID})
+	unprocessed, err := b.DeleteIdentities(context.Background(), []string{identity.IdentityID})
 	require.NoError(t, err)
 	assert.Empty(t, unprocessed)
 
-	_, descErr := b.GetCredentialsForIdentity(identity.IdentityID, nil)
+	_, descErr := b.GetCredentialsForIdentity(context.Background(), identity.IdentityID, nil)
 	require.Error(t, descErr)
 }
 
@@ -656,10 +845,19 @@ func TestInMemoryBackend_DeveloperLoginsFrom_EmptyProviderName(t *testing.T) {
 
 	b := newTestBackend()
 
-	pool, err := b.CreateIdentityPool("dev-logins-pool", true, false, "", nil, nil, nil)
+	pool, err := b.CreateIdentityPool(
+		context.Background(),
+		"dev-logins-pool",
+		true,
+		false,
+		"",
+		nil,
+		nil,
+		nil,
+	)
 	require.NoError(t, err)
 
-	devRec, err := b.GetOpenIDTokenForDeveloperIdentity(
+	devRec, err := b.GetOpenIDTokenForDeveloperIdentity(context.Background(),
 		pool.IdentityPoolID,
 		"",
 		map[string]string{"developer.example.com": "user-001"},
@@ -669,7 +867,7 @@ func TestInMemoryBackend_DeveloperLoginsFrom_EmptyProviderName(t *testing.T) {
 	assert.NotEmpty(t, devRec.IdentityID)
 
 	// LookupDeveloperIdentity with empty provider name returns all dev user IDs.
-	result, err := b.LookupDeveloperIdentity(
+	result, err := b.LookupDeveloperIdentity(context.Background(),
 		pool.IdentityPoolID,
 		devRec.IdentityID,
 		"",
@@ -744,13 +942,27 @@ func TestInMemoryBackend_UnlinkIdentity(t *testing.T) {
 
 			b := newTestBackend()
 
-			pool, err := b.CreateIdentityPool("unlink-identity-pool-"+tt.name, true, false, "", nil, nil, nil)
+			pool, err := b.CreateIdentityPool(
+				context.Background(),
+				"unlink-identity-pool-"+tt.name,
+				true,
+				false,
+				"",
+				nil,
+				nil,
+				nil,
+			)
 			require.NoError(t, err)
 
-			identity, err := b.GetID(pool.IdentityPoolID, "000000000000", map[string]string{
-				"accounts.google.com": "google-token",
-				"graph.facebook.com":  "facebook-token",
-			})
+			identity, err := b.GetID(
+				context.Background(),
+				pool.IdentityPoolID,
+				"000000000000",
+				map[string]string{
+					"accounts.google.com": "google-token",
+					"graph.facebook.com":  "facebook-token",
+				},
+			)
 			require.NoError(t, err)
 
 			identityID := tt.identityID
@@ -758,7 +970,7 @@ func TestInMemoryBackend_UnlinkIdentity(t *testing.T) {
 				identityID = identity.IdentityID
 			}
 
-			err = b.UnlinkIdentity(identityID, tt.logins, tt.loginsToRemove)
+			err = b.UnlinkIdentity(context.Background(), identityID, tt.logins, tt.loginsToRemove)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -769,7 +981,7 @@ func TestInMemoryBackend_UnlinkIdentity(t *testing.T) {
 
 			require.NoError(t, err)
 
-			desc, err := b.DescribeIdentity(identity.IdentityID)
+			desc, err := b.DescribeIdentity(context.Background(), identity.IdentityID)
 			require.NoError(t, err)
 			assert.NotContains(t, desc.Logins, tt.wantProviderRemoved)
 		})
@@ -838,10 +1050,19 @@ func TestInMemoryBackend_UnlinkDeveloperIdentity(t *testing.T) {
 
 			b := newTestBackend()
 
-			pool, err := b.CreateIdentityPool("unlink-dev-pool-"+tt.name, true, false, "", nil, nil, nil)
+			pool, err := b.CreateIdentityPool(
+				context.Background(),
+				"unlink-dev-pool-"+tt.name,
+				true,
+				false,
+				"",
+				nil,
+				nil,
+				nil,
+			)
 			require.NoError(t, err)
 
-			devToken, err := b.GetOpenIDTokenForDeveloperIdentity(
+			devToken, err := b.GetOpenIDTokenForDeveloperIdentity(context.Background(),
 				pool.IdentityPoolID,
 				"",
 				map[string]string{"developer.example.com": "user-001"},
@@ -859,7 +1080,7 @@ func TestInMemoryBackend_UnlinkDeveloperIdentity(t *testing.T) {
 				poolID = pool.IdentityPoolID
 			}
 
-			err = b.UnlinkDeveloperIdentity(
+			err = b.UnlinkDeveloperIdentity(context.Background(),
 				identityID,
 				poolID,
 				tt.developerProviderName,
@@ -875,7 +1096,7 @@ func TestInMemoryBackend_UnlinkDeveloperIdentity(t *testing.T) {
 
 			require.NoError(t, err)
 
-			result, err := b.LookupDeveloperIdentity(
+			result, err := b.LookupDeveloperIdentity(context.Background(),
 				pool.IdentityPoolID,
 				devToken.IdentityID,
 				"",
@@ -891,7 +1112,7 @@ func TestInMemoryBackend_Refinement1_GetCredentialsForIdentity_EmptyID(t *testin
 	t.Parallel()
 
 	b := newTestBackend()
-	_, err := b.GetCredentialsForIdentity("", nil)
+	_, err := b.GetCredentialsForIdentity(context.Background(), "", nil)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, cognitoidentity.ErrInvalidParameter)
 }
@@ -900,7 +1121,7 @@ func TestInMemoryBackend_Refinement1_GetOpenIDToken_EmptyID(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	_, err := b.GetOpenIDToken("", nil)
+	_, err := b.GetOpenIDToken(context.Background(), "", nil)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, cognitoidentity.ErrInvalidParameter)
 }
@@ -909,7 +1130,13 @@ func TestInMemoryBackend_Refinement1_LookupDeveloperIdentity_EmptyPoolID(t *test
 	t.Parallel()
 
 	b := newTestBackend()
-	_, err := b.LookupDeveloperIdentity("", "", "user-001", "developer.example.com")
+	_, err := b.LookupDeveloperIdentity(
+		context.Background(),
+		"",
+		"",
+		"user-001",
+		"developer.example.com",
+	)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, cognitoidentity.ErrInvalidParameter)
 }
@@ -969,7 +1196,13 @@ func TestInMemoryBackend_Refinement1_MergeDeveloperIdentities_Validation(t *test
 			t.Parallel()
 
 			b := newTestBackend()
-			_, err := b.MergeDeveloperIdentities(tt.sourceUserID, tt.destUserID, tt.developerProviderName, tt.poolID)
+			_, err := b.MergeDeveloperIdentities(
+				context.Background(),
+				tt.sourceUserID,
+				tt.destUserID,
+				tt.developerProviderName,
+				tt.poolID,
+			)
 			require.Error(t, err)
 			assert.ErrorIs(t, err, tt.errTarget)
 		})
@@ -980,7 +1213,7 @@ func TestInMemoryBackend_Refinement1_TagResource_Validation(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	err := b.TagResource("", map[string]string{"k": "v"})
+	err := b.TagResource(context.Background(), "", map[string]string{"k": "v"})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, cognitoidentity.ErrInvalidParameter)
 }
@@ -1013,7 +1246,7 @@ func TestInMemoryBackend_Refinement1_UntagResource_Validation(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend()
-			err := b.UntagResource(tt.resourceARN, tt.tagKeys)
+			err := b.UntagResource(context.Background(), tt.resourceARN, tt.tagKeys)
 			require.Error(t, err)
 			assert.ErrorIs(t, err, tt.errTarget)
 		})
@@ -1024,10 +1257,19 @@ func TestInMemoryBackend_Refinement1_GetPrincipalTagAttributeMap_EmptyProvider(t
 	t.Parallel()
 
 	b := newTestBackend()
-	pool, err := b.CreateIdentityPool("ptag-pool", true, false, "", nil, nil, nil)
+	pool, err := b.CreateIdentityPool(
+		context.Background(),
+		"ptag-pool",
+		true,
+		false,
+		"",
+		nil,
+		nil,
+		nil,
+	)
 	require.NoError(t, err)
 
-	_, err = b.GetPrincipalTagAttributeMap(pool.IdentityPoolID, "")
+	_, err = b.GetPrincipalTagAttributeMap(context.Background(), pool.IdentityPoolID, "")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, cognitoidentity.ErrInvalidParameter)
 }
@@ -1036,10 +1278,25 @@ func TestInMemoryBackend_Refinement1_SetPrincipalTagAttributeMap_EmptyProvider(t
 	t.Parallel()
 
 	b := newTestBackend()
-	pool, err := b.CreateIdentityPool("ptag-pool2", true, false, "", nil, nil, nil)
+	pool, err := b.CreateIdentityPool(
+		context.Background(),
+		"ptag-pool2",
+		true,
+		false,
+		"",
+		nil,
+		nil,
+		nil,
+	)
 	require.NoError(t, err)
 
-	_, err = b.SetPrincipalTagAttributeMap(pool.IdentityPoolID, "", false, nil)
+	_, err = b.SetPrincipalTagAttributeMap(
+		context.Background(),
+		pool.IdentityPoolID,
+		"",
+		false,
+		nil,
+	)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, cognitoidentity.ErrInvalidParameter)
 }
@@ -1048,16 +1305,27 @@ func TestInMemoryBackend_Refinement1_ListIdentities_EmptyPoolID(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	_, err := b.ListIdentities("", 10, false, "")
+	_, err := b.ListIdentities(context.Background(), "", 10, false, "")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, cognitoidentity.ErrInvalidParameter)
 }
 
-func TestInMemoryBackend_Refinement1_GetOpenIDTokenForDeveloperIdentity_InvalidDuration(t *testing.T) {
+func TestInMemoryBackend_Refinement1_GetOpenIDTokenForDeveloperIdentity_InvalidDuration(
+	t *testing.T,
+) {
 	t.Parallel()
 
 	b := newTestBackend()
-	pool, err := b.CreateIdentityPool("dur-pool", true, false, "", nil, nil, nil)
+	pool, err := b.CreateIdentityPool(
+		context.Background(),
+		"dur-pool",
+		true,
+		false,
+		"",
+		nil,
+		nil,
+		nil,
+	)
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -1075,7 +1343,7 @@ func TestInMemoryBackend_Refinement1_GetOpenIDTokenForDeveloperIdentity_InvalidD
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, tokenErr := b.GetOpenIDTokenForDeveloperIdentity(
+			_, tokenErr := b.GetOpenIDTokenForDeveloperIdentity(context.Background(),
 				pool.IdentityPoolID,
 				"",
 				map[string]string{"developer.example.com": "user-" + tt.name},
@@ -1092,20 +1360,36 @@ func TestInMemoryBackend_Refinement1_GetOpenIDTokenForDeveloperIdentity_InvalidD
 	}
 }
 
-func TestInMemoryBackend_Refinement1_UnlinkIdentity_ProviderNotLinked_Returns_NotAuthorized(t *testing.T) {
+func TestInMemoryBackend_Refinement1_UnlinkIdentity_ProviderNotLinked_Returns_NotAuthorized(
+	t *testing.T,
+) {
 	t.Parallel()
 
 	b := newTestBackend()
-	pool, err := b.CreateIdentityPool("unlink-pool", true, false, "", nil, nil, nil)
+	pool, err := b.CreateIdentityPool(
+		context.Background(),
+		"unlink-pool",
+		true,
+		false,
+		"",
+		nil,
+		nil,
+		nil,
+	)
 	require.NoError(t, err)
 
-	identity, err := b.GetID(pool.IdentityPoolID, "000000000000", map[string]string{
-		"graph.facebook.com": "fb-token",
-	})
+	identity, err := b.GetID(
+		context.Background(),
+		pool.IdentityPoolID,
+		"000000000000",
+		map[string]string{
+			"graph.facebook.com": "fb-token",
+		},
+	)
 	require.NoError(t, err)
 
 	// Try to unlink a provider that isn't linked (google was never linked).
-	err = b.UnlinkIdentity(
+	err = b.UnlinkIdentity(context.Background(),
 		identity.IdentityID,
 		map[string]string{"accounts.google.com": "some-token"},
 		[]string{"accounts.google.com"},
@@ -1118,11 +1402,20 @@ func TestInMemoryBackend_Refinement1_DeveloperProviderName_RoundTrip(t *testing.
 	t.Parallel()
 
 	b := newTestBackend()
-	pool, err := b.CreateIdentityPool("dev-pool", true, false, "developer.myapp.com", nil, nil, nil)
+	pool, err := b.CreateIdentityPool(
+		context.Background(),
+		"dev-pool",
+		true,
+		false,
+		"developer.myapp.com",
+		nil,
+		nil,
+		nil,
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "developer.myapp.com", pool.DeveloperProviderName)
 
-	described, err := b.DescribeIdentityPool(pool.IdentityPoolID)
+	described, err := b.DescribeIdentityPool(context.Background(), pool.IdentityPoolID)
 	require.NoError(t, err)
 	assert.Equal(t, "developer.myapp.com", described.DeveloperProviderName)
 }
@@ -1131,21 +1424,35 @@ func TestInMemoryBackend_Refinement1_LastModifiedDate_UpdatedOnUnlink(t *testing
 	t.Parallel()
 
 	b := newTestBackend()
-	pool, err := b.CreateIdentityPool("lmd-pool", true, false, "", nil, nil, nil)
+	pool, err := b.CreateIdentityPool(
+		context.Background(),
+		"lmd-pool",
+		true,
+		false,
+		"",
+		nil,
+		nil,
+		nil,
+	)
 	require.NoError(t, err)
 
-	identity, err := b.GetID(pool.IdentityPoolID, "000000000000", map[string]string{
-		"accounts.google.com": "google-token",
-	})
+	identity, err := b.GetID(
+		context.Background(),
+		pool.IdentityPoolID,
+		"000000000000",
+		map[string]string{
+			"accounts.google.com": "google-token",
+		},
+	)
 	require.NoError(t, err)
 
 	// Describe before unlink.
-	desc1, err := b.DescribeIdentity(identity.IdentityID)
+	desc1, err := b.DescribeIdentity(context.Background(), identity.IdentityID)
 	require.NoError(t, err)
 	createdAt := desc1.CreationDate
 
 	// Unlink the google login.
-	err = b.UnlinkIdentity(
+	err = b.UnlinkIdentity(context.Background(),
 		identity.IdentityID,
 		map[string]string{"accounts.google.com": "google-token"},
 		[]string{"accounts.google.com"},
@@ -1153,20 +1460,33 @@ func TestInMemoryBackend_Refinement1_LastModifiedDate_UpdatedOnUnlink(t *testing
 	require.NoError(t, err)
 
 	// Describe after unlink.
-	desc2, err := b.DescribeIdentity(identity.IdentityID)
+	desc2, err := b.DescribeIdentity(context.Background(), identity.IdentityID)
 	require.NoError(t, err)
-	assert.False(t, desc2.LastModifiedDate.Before(createdAt), "LastModifiedDate should not be before CreatedAt")
+	assert.False(
+		t,
+		desc2.LastModifiedDate.Before(createdAt),
+		"LastModifiedDate should not be before CreatedAt",
+	)
 }
 
 func TestInMemoryBackend_Refinement1_UpdateIdentityPool_WithTags(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	pool, err := b.CreateIdentityPool("tag-update-pool", true, false, "", nil, nil, map[string]string{"env": "dev"})
+	pool, err := b.CreateIdentityPool(
+		context.Background(),
+		"tag-update-pool",
+		true,
+		false,
+		"",
+		nil,
+		nil,
+		map[string]string{"env": "dev"},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "dev", pool.Tags["env"])
 
-	updated, err := b.UpdateIdentityPool(
+	updated, err := b.UpdateIdentityPool(context.Background(),
 		pool.IdentityPoolID,
 		"tag-update-pool",
 		true,
@@ -1186,13 +1506,27 @@ func TestInMemoryBackend_Refinement2_ListIdentities_LastModifiedDate(t *testing.
 	t.Parallel()
 
 	b := newTestBackend()
-	pool, err := b.CreateIdentityPool("lmd-pool", true, false, "", nil, nil, nil)
+	pool, err := b.CreateIdentityPool(
+		context.Background(),
+		"lmd-pool",
+		true,
+		false,
+		"",
+		nil,
+		nil,
+		nil,
+	)
 	require.NoError(t, err)
 
-	_, err = b.GetID(pool.IdentityPoolID, "", map[string]string{"accounts.google.com": "tok1"})
+	_, err = b.GetID(
+		context.Background(),
+		pool.IdentityPoolID,
+		"",
+		map[string]string{"accounts.google.com": "tok1"},
+	)
 	require.NoError(t, err)
 
-	result, err := b.ListIdentities(pool.IdentityPoolID, 10, false, "")
+	result, err := b.ListIdentities(context.Background(), pool.IdentityPoolID, 10, false, "")
 	require.NoError(t, err)
 	require.Len(t, result.Identities, 1)
 
@@ -1205,32 +1539,56 @@ func TestInMemoryBackend_Refinement2_GetID_ProviderMatching(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	pool, err := b.CreateIdentityPool("pm-pool", true, false, "", nil, nil, nil)
+	pool, err := b.CreateIdentityPool(
+		context.Background(),
+		"pm-pool",
+		true,
+		false,
+		"",
+		nil,
+		nil,
+		nil,
+	)
 	require.NoError(t, err)
 
 	// Create an identity with only google.
-	id1, err := b.GetID(pool.IdentityPoolID, "", map[string]string{"accounts.google.com": "g-token"})
+	id1, err := b.GetID(
+		context.Background(),
+		pool.IdentityPoolID,
+		"",
+		map[string]string{"accounts.google.com": "g-token"},
+	)
 	require.NoError(t, err)
 
 	// Call GetId again with google + facebook: should return the same identity (not create new).
-	id2, err := b.GetID(pool.IdentityPoolID, "", map[string]string{
+	id2, err := b.GetID(context.Background(), pool.IdentityPoolID, "", map[string]string{
 		"accounts.google.com": "g-token",
 		"graph.facebook.com":  "fb-token",
 	})
 	require.NoError(t, err)
-	assert.Equal(t, id1.IdentityID, id2.IdentityID, "should find existing identity by provider match")
+	assert.Equal(
+		t,
+		id1.IdentityID,
+		id2.IdentityID,
+		"should find existing identity by provider match",
+	)
 
 	// And the facebook login should now be merged in.
-	desc, err := b.DescribeIdentity(id2.IdentityID)
+	desc, err := b.DescribeIdentity(context.Background(), id2.IdentityID)
 	require.NoError(t, err)
-	assert.Contains(t, desc.Logins, "graph.facebook.com", "new provider should be merged into existing identity")
+	assert.Contains(
+		t,
+		desc.Logins,
+		"graph.facebook.com",
+		"new provider should be merged into existing identity",
+	)
 }
 
 func TestInMemoryBackend_Refinement2_GetID_EmptyPoolID(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	_, err := b.GetID("", "", nil)
+	_, err := b.GetID(context.Background(), "", "", nil)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, cognitoidentity.ErrInvalidParameter)
 }
@@ -1239,13 +1597,22 @@ func TestInMemoryBackend_Refinement2_SetIdentityPoolRoles_MergePreservesExisting
 	t.Parallel()
 
 	b := newTestBackend()
-	pool, err := b.CreateIdentityPool("role-merge-pool", true, false, "", nil, nil, nil)
+	pool, err := b.CreateIdentityPool(
+		context.Background(),
+		"role-merge-pool",
+		true,
+		false,
+		"",
+		nil,
+		nil,
+		nil,
+	)
 	require.NoError(t, err)
 
 	// Set both roles initially.
 	require.NoError(
 		t,
-		b.SetIdentityPoolRoles(
+		b.SetIdentityPoolRoles(context.Background(),
 			pool.IdentityPoolID,
 			"arn:aws:iam::000000000000:role/Auth",
 			"arn:aws:iam::000000000000:role/Unauth",
@@ -1254,9 +1621,18 @@ func TestInMemoryBackend_Refinement2_SetIdentityPoolRoles_MergePreservesExisting
 	)
 
 	// Update only the authenticated role – the unauthenticated role must be preserved.
-	require.NoError(t, b.SetIdentityPoolRoles(pool.IdentityPoolID, "arn:aws:iam::000000000000:role/AuthV2", "", nil))
+	require.NoError(
+		t,
+		b.SetIdentityPoolRoles(
+			context.Background(),
+			pool.IdentityPoolID,
+			"arn:aws:iam::000000000000:role/AuthV2",
+			"",
+			nil,
+		),
+	)
 
-	roles, err := b.GetIdentityPoolRoles(pool.IdentityPoolID)
+	roles, err := b.GetIdentityPoolRoles(context.Background(), pool.IdentityPoolID)
 	require.NoError(t, err)
 	assert.Equal(t, "arn:aws:iam::000000000000:role/AuthV2", roles.AuthenticatedRoleARN)
 	assert.Equal(
@@ -1271,7 +1647,7 @@ func TestInMemoryBackend_Refinement2_DescribeIdentityPool_EmptyID(t *testing.T) 
 	t.Parallel()
 
 	b := newTestBackend()
-	_, err := b.DescribeIdentityPool("")
+	_, err := b.DescribeIdentityPool(context.Background(), "")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, cognitoidentity.ErrInvalidParameter)
 }
@@ -1280,7 +1656,7 @@ func TestInMemoryBackend_Refinement2_DeleteIdentityPool_EmptyID(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	err := b.DeleteIdentityPool("")
+	err := b.DeleteIdentityPool(context.Background(), "")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, cognitoidentity.ErrInvalidParameter)
 }
@@ -1289,7 +1665,7 @@ func TestInMemoryBackend_Refinement2_UpdateIdentityPool_EmptyID(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	_, err := b.UpdateIdentityPool("", "name", true, false, "", nil, nil, nil)
+	_, err := b.UpdateIdentityPool(context.Background(), "", "name", true, false, "", nil, nil, nil)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, cognitoidentity.ErrInvalidParameter)
 }
@@ -1298,7 +1674,7 @@ func TestInMemoryBackend_Refinement2_GetIdentityPoolRoles_EmptyID(t *testing.T) 
 	t.Parallel()
 
 	b := newTestBackend()
-	_, err := b.GetIdentityPoolRoles("")
+	_, err := b.GetIdentityPoolRoles(context.Background(), "")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, cognitoidentity.ErrInvalidParameter)
 }
@@ -1309,17 +1685,17 @@ func TestInMemoryBackend_Refinement2_ListIdentityPools_NextToken(t *testing.T) {
 	b := newTestBackend()
 
 	for _, name := range []string{"pool-a", "pool-b", "pool-c"} {
-		_, err := b.CreateIdentityPool(name, true, false, "", nil, nil, nil)
+		_, err := b.CreateIdentityPool(context.Background(), name, true, false, "", nil, nil, nil)
 		require.NoError(t, err)
 	}
 
 	// First page of 2.
-	page1, token := b.ListIdentityPools(2, "")
+	page1, token := b.ListIdentityPools(context.Background(), 2, "")
 	require.Len(t, page1, 2)
 	assert.NotEmpty(t, token, "nextToken must be returned when there are more pages")
 
 	// Second page.
-	page2, token2 := b.ListIdentityPools(2, token)
+	page2, token2 := b.ListIdentityPools(context.Background(), 2, token)
 	require.Len(t, page2, 1)
 	assert.Empty(t, token2, "no further pages expected")
 
@@ -1332,22 +1708,37 @@ func TestInMemoryBackend_Refinement2_ListIdentities_NextToken(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	pool, err := b.CreateIdentityPool("page-pool", true, false, "", nil, nil, nil)
+	pool, err := b.CreateIdentityPool(
+		context.Background(),
+		"page-pool",
+		true,
+		false,
+		"",
+		nil,
+		nil,
+		nil,
+	)
 	require.NoError(t, err)
 
 	for i := range 3 {
-		_, err = b.GetID(pool.IdentityPoolID, "", map[string]string{
+		_, err = b.GetID(context.Background(), pool.IdentityPoolID, "", map[string]string{
 			"accounts.google.com": fmt.Sprintf("tok-%d", i),
 		})
 		require.NoError(t, err)
 	}
 
-	page1, err := b.ListIdentities(pool.IdentityPoolID, 2, false, "")
+	page1, err := b.ListIdentities(context.Background(), pool.IdentityPoolID, 2, false, "")
 	require.NoError(t, err)
 	require.Len(t, page1.Identities, 2)
 	require.NotEmpty(t, page1.NextToken, "nextToken must be populated when more pages exist")
 
-	page2, err := b.ListIdentities(pool.IdentityPoolID, 2, false, page1.NextToken)
+	page2, err := b.ListIdentities(
+		context.Background(),
+		pool.IdentityPoolID,
+		2,
+		false,
+		page1.NextToken,
+	)
 	require.NoError(t, err)
 	require.Len(t, page2.Identities, 1)
 	assert.Empty(t, page2.NextToken)

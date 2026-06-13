@@ -1,6 +1,7 @@
 package elasticache
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"slices"
@@ -54,11 +55,16 @@ type ServerlessModifyOpts struct {
 // ----------------------------------------
 
 // CreateServerlessCacheFull creates a serverless cache with the full set of options.
-func (b *InMemoryBackend) CreateServerlessCacheFull(opts ServerlessCreateOpts) (*ServerlessCache, error) {
+func (b *InMemoryBackend) CreateServerlessCacheFull(
+	ctx context.Context,
+	opts ServerlessCreateOpts,
+) (*ServerlessCache, error) {
 	b.mu.Lock("CreateServerlessCacheFull")
 	defer b.mu.Unlock()
 
-	if _, exists := b.serverlessCaches[opts.Name]; exists {
+	region := getRegion(ctx, b.region)
+	store := b.serverlessCachesStore(region)
+	if _, exists := store[opts.Name]; exists {
 		return nil, ErrServerlessCacheAlreadyExists
 	}
 
@@ -68,8 +74,8 @@ func (b *InMemoryBackend) CreateServerlessCacheFull(opts ServerlessCreateOpts) (
 	}
 
 	suffix := randomSuffix()
-	host := fmt.Sprintf("%s.serverless.%s.%s.cache.amazonaws.com", opts.Name, suffix, b.region)
-	readerHost := fmt.Sprintf("%s.serverless.%s.%s.cache.amazonaws.com", opts.Name+"-ro", suffix, b.region)
+	host := fmt.Sprintf("%s.serverless.%s.%s.cache.amazonaws.com", opts.Name, suffix, region)
+	readerHost := fmt.Sprintf("%s.serverless.%s.%s.cache.amazonaws.com", opts.Name+"-ro", suffix, region)
 	port := 6379
 	if engine == engineMemcached {
 		port = 11211
@@ -87,7 +93,7 @@ func (b *InMemoryBackend) CreateServerlessCacheFull(opts ServerlessCreateOpts) (
 		Name:                   opts.Name,
 		Description:            opts.Description,
 		Status:                 statusServerlessAvailable,
-		ARN:                    b.serverlessCacheARN(opts.Name),
+		ARN:                    b.serverlessCacheARN(region, opts.Name),
 		Engine:                 engine,
 		KmsKeyID:               opts.KmsKeyID,
 		UserGroupID:            opts.UserGroupID,
@@ -109,7 +115,7 @@ func (b *InMemoryBackend) CreateServerlessCacheFull(opts ServerlessCreateOpts) (
 		}
 	}
 
-	b.serverlessCaches[opts.Name] = sc
+	store[opts.Name] = sc
 	b.appendEventLocked(opts.Name, "serverless-cache", "serverless cache created")
 
 	cp := *sc
@@ -134,11 +140,16 @@ func majorVersionStr(engine string) string {
 // ----------------------------------------
 
 // ModifyServerlessCacheFull modifies a serverless cache with the full set of options.
-func (b *InMemoryBackend) ModifyServerlessCacheFull(name string, opts ServerlessModifyOpts) (*ServerlessCache, error) {
+func (b *InMemoryBackend) ModifyServerlessCacheFull(
+	ctx context.Context,
+	name string,
+	opts ServerlessModifyOpts,
+) (*ServerlessCache, error) {
 	b.mu.Lock("ModifyServerlessCacheFull")
 	defer b.mu.Unlock()
 
-	sc, ok := b.serverlessCaches[name]
+	region := getRegion(ctx, b.region)
+	sc, ok := b.serverlessCachesStore(region)[name]
 	if !ok {
 		return nil, ErrServerlessCacheNotFound
 	}
@@ -176,13 +187,16 @@ func (b *InMemoryBackend) ModifyServerlessCacheFull(name string, opts Serverless
 
 // CreateSubnetGroupFull creates a cache subnet group with an explicit VPC ID.
 func (b *InMemoryBackend) CreateSubnetGroupFull(
+	ctx context.Context,
 	name, description, vpcID string,
 	subnetIDs []string,
 ) (*CacheSubnetGroup, error) {
 	b.mu.Lock("CreateSubnetGroupFull")
 	defer b.mu.Unlock()
 
-	if _, exists := b.subnetGroups[name]; exists {
+	region := getRegion(ctx, b.region)
+	store := b.subnetGroupsStore(region)
+	if _, exists := store[name]; exists {
 		return nil, ErrSubnetGroupAlreadyExists
 	}
 
@@ -191,10 +205,10 @@ func (b *InMemoryBackend) CreateSubnetGroupFull(
 		Description: description,
 		VpcID:       vpcID,
 		SubnetIDs:   subnetIDs,
-		ARN:         b.subnetGroupARN(name),
+		ARN:         b.subnetGroupARN(region, name),
 		Tags:        tags.New("elasticache.sg." + name + ".tags"),
 	}
-	b.subnetGroups[name] = sg
+	store[name] = sg
 
 	cp := *sg
 
@@ -207,23 +221,27 @@ func (b *InMemoryBackend) CreateSubnetGroupFull(
 
 // CopySnapshotFull copies a snapshot and optionally re-encrypts with a different KMS key.
 func (b *InMemoryBackend) CopySnapshotFull(
+	ctx context.Context,
 	sourceSnapshotName, targetSnapshotName, kmsKeyID string,
 ) (*CacheSnapshot, error) {
 	b.mu.Lock("CopySnapshotFull")
 	defer b.mu.Unlock()
 
-	src, ok := b.snapshots[sourceSnapshotName]
+	region := getRegion(ctx, b.region)
+	store := b.snapshotsStore(region)
+
+	src, ok := store[sourceSnapshotName]
 	if !ok {
 		return nil, ErrSnapshotNotFound
 	}
 
-	if _, exists := b.snapshots[targetSnapshotName]; exists {
+	if _, exists := store[targetSnapshotName]; exists {
 		return nil, ErrSnapshotAlreadyExists
 	}
 
 	cp := *src
 	cp.SnapshotName = targetSnapshotName
-	cp.ARN = b.snapshotARN(targetSnapshotName)
+	cp.ARN = b.snapshotARN(region, targetSnapshotName)
 	cp.CreatedAt = time.Now()
 	cp.SnapshotSource = snapshotSourceManual
 	cp.Tags = tags.New("elasticache.snapshot." + targetSnapshotName + ".tags")
@@ -232,7 +250,7 @@ func (b *InMemoryBackend) CopySnapshotFull(
 		cp.KmsKeyID = kmsKeyID
 	}
 
-	b.snapshots[targetSnapshotName] = &cp
+	store[targetSnapshotName] = &cp
 	b.appendEventLocked(targetSnapshotName, "snapshot", "snapshot copied from "+sourceSnapshotName)
 
 	result := cp
@@ -246,18 +264,22 @@ func (b *InMemoryBackend) CopySnapshotFull(
 
 // CreateUserGroupValidated creates a user group, validating that all specified user IDs exist.
 func (b *InMemoryBackend) CreateUserGroupValidated(
+	ctx context.Context,
 	groupID, description, engine string,
 	userIDs []string,
 ) (*UserGroup, error) {
 	b.mu.Lock("CreateUserGroupValidated")
 	defer b.mu.Unlock()
 
-	if _, exists := b.userGroups[groupID]; exists {
+	region := getRegion(ctx, b.region)
+	ugStore := b.userGroupsStore(region)
+	if _, exists := ugStore[groupID]; exists {
 		return nil, ErrUserGroupAlreadyExists
 	}
 
+	userStore := b.usersStore(region)
 	for _, uid := range userIDs {
-		if _, ok := b.users[uid]; !ok {
+		if _, ok := userStore[uid]; !ok {
 			return nil, fmt.Errorf("user %q: %w", uid, ErrGroupUserNotFound)
 		}
 	}
@@ -270,13 +292,13 @@ func (b *InMemoryBackend) CreateUserGroupValidated(
 		UserGroupID: groupID,
 		Description: description,
 		Status:      statusActive,
-		ARN:         b.userGroupARN(groupID),
+		ARN:         b.userGroupARN(region, groupID),
 		Engine:      engine,
 		UserIDs:     userIDs,
 		CreatedAt:   time.Now(),
 		Tags:        tags.New("elasticache.usergroup." + groupID + ".tags"),
 	}
-	b.userGroups[groupID] = ug
+	ugStore[groupID] = ug
 	b.appendEventLocked(groupID, "user-group", "user group created")
 
 	cp := *ug
@@ -289,23 +311,25 @@ func (b *InMemoryBackend) CreateUserGroupValidated(
 // ----------------------------------------
 
 // DeleteUserSafe deletes a user, but returns an error if the user is still a member of any user group.
-func (b *InMemoryBackend) DeleteUserSafe(userID string) (*User, error) {
+func (b *InMemoryBackend) DeleteUserSafe(ctx context.Context, userID string) (*User, error) {
 	b.mu.Lock("DeleteUserSafe")
 	defer b.mu.Unlock()
 
-	u, ok := b.users[userID]
+	region := getRegion(ctx, b.region)
+	store := b.usersStore(region)
+	u, ok := store[userID]
 	if !ok {
 		return nil, ErrUserNotFound
 	}
 
-	for _, ug := range b.userGroups {
+	for _, ug := range b.userGroupsStore(region) {
 		if slices.Contains(ug.UserIDs, userID) {
 			return nil, fmt.Errorf("user %q belongs to group %q: %w", userID, ug.UserGroupID, ErrUserNotInGroup)
 		}
 	}
 
 	result := *u
-	delete(b.users, userID)
+	delete(store, userID)
 	b.appendEventLocked(userID, "user", "user deleted")
 
 	return &result, nil

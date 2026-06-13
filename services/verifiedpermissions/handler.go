@@ -21,6 +21,10 @@ const (
 	targetPrefix    = "VerifiedPermissions."
 	keyTypeField    = "__type"
 	keyMessageField = "message"
+
+	// maxPolicyStoreDescriptionLen is the AWS upper bound on a policy store
+	// description (PolicyStoreDescription: max length 150).
+	maxPolicyStoreDescriptionLen = 150
 )
 
 var (
@@ -266,6 +270,14 @@ func (h *Handler) handleCreatePolicyStore(
 		return nil, fmt.Errorf(
 			"%w: validationSettings.mode must be %q or %q",
 			errInvalidRequest, ValidationModeOff, ValidationModeStrict,
+		)
+	}
+
+	// AWS bounds PolicyStoreDescription at 150 characters.
+	if len(in.Description) > maxPolicyStoreDescriptionLen {
+		return nil, fmt.Errorf(
+			"%w: description must be %d characters or fewer",
+			errInvalidRequest, maxPolicyStoreDescriptionLen,
 		)
 	}
 

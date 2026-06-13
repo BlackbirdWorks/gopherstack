@@ -1139,6 +1139,7 @@ func (b *InMemoryBackend) PublishVersion(name, description string) (*FunctionVer
 		RevisionID:        uuid.New().String(),
 		CreatedAt:         fn.LastModified,
 		State:             fn.State,
+		SnapStart:         copySnapStart(fn.SnapStart),
 	}
 
 	b.versions[name] = append(b.versions[name], ver)
@@ -1477,7 +1478,21 @@ func fnToVersion(fn *FunctionConfiguration) *FunctionVersion {
 		CreatedAt:         fn.LastModified,
 		State:             fn.State,
 		CodeSha256:        fn.CodeSha256,
+		SnapStart:         copySnapStart(fn.SnapStart),
 	}
+}
+
+// copySnapStart returns a copy of the SnapStart response so version snapshots do
+// not alias the live function's configuration. Returns nil for an unset config
+// (field omitted from responses).
+func copySnapStart(cfg *SnapStartResponse) *SnapStartResponse {
+	if cfg == nil {
+		return nil
+	}
+
+	dup := *cfg
+
+	return &dup
 }
 
 // versionToFn synthesises a FunctionConfiguration from an immutable version snapshot.
@@ -1499,6 +1514,7 @@ func versionToFn(v *FunctionVersion) *FunctionConfiguration {
 		RevisionID:   v.RevisionID,
 		LastModified: v.CreatedAt,
 		State:        v.State,
+		SnapStart:    v.SnapStart,
 	}
 }
 

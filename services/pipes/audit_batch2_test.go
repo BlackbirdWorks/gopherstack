@@ -610,7 +610,7 @@ func TestAudit2_ECS_FullParams(t *testing.T) {
 			t.Parallel()
 
 			b := b2Backend()
-			_, err := b.CreatePipe(pipes.CreatePipeInput{
+			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 				Name:   tt.name,
 				Source: b2SQSSource,
 				Target: b2ECSTarget,
@@ -650,7 +650,7 @@ func TestAudit2_ECS_FullParams(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			p, err := b.GetPipe(tt.name)
+			p, err := b.GetPipe(context.Background(), tt.name)
 			require.NoError(t, err)
 
 			ecs := p.TargetParameters.EcsTaskParameters
@@ -909,7 +909,7 @@ func TestAudit2_Batch_FullParams(t *testing.T) {
 			t.Parallel()
 
 			b := b2Backend()
-			_, err := b.CreatePipe(pipes.CreatePipeInput{
+			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 				Name:   tt.name,
 				Source: b2SQSSource,
 				Target: "arn:aws:batch:us-east-1:123456789012:job-queue/q",
@@ -933,7 +933,7 @@ func TestAudit2_Batch_FullParams(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			p, err := b.GetPipe(tt.name)
+			p, err := b.GetPipe(context.Background(), tt.name)
 			require.NoError(t, err)
 
 			batch := p.TargetParameters.BatchJobParameters
@@ -1380,7 +1380,7 @@ func TestAudit2_SelfManagedKafka_StartingPosition(t *testing.T) {
 			t.Parallel()
 
 			b := b2Backend()
-			_, err := b.CreatePipe(pipes.CreatePipeInput{
+			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 				Name:   tt.name,
 				Source: "arn:aws:kafka:us-east-1:123456789012:cluster/c/t",
 				Target: b2LambdaTarget,
@@ -1394,7 +1394,7 @@ func TestAudit2_SelfManagedKafka_StartingPosition(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			p, err := b.GetPipe(tt.name)
+			p, err := b.GetPipe(context.Background(), tt.name)
 			require.NoError(t, err)
 			assert.Equal(t, tt.startingPosition,
 				p.SourceParameters.SelfManagedKafkaParameters.StartingPosition)
@@ -1533,7 +1533,7 @@ func TestAudit2_MSK_StartingPositionAndConsumerGroup(t *testing.T) {
 			t.Parallel()
 
 			b := b2Backend()
-			_, err := b.CreatePipe(pipes.CreatePipeInput{
+			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 				Name:   tt.name,
 				Source: "arn:aws:kafka:us-east-1:123456789012:cluster/msk",
 				Target: b2LambdaTarget,
@@ -1547,7 +1547,7 @@ func TestAudit2_MSK_StartingPositionAndConsumerGroup(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			p, err := b.GetPipe(tt.name)
+			p, err := b.GetPipe(context.Background(), tt.name)
 			require.NoError(t, err)
 
 			msk := p.SourceParameters.ManagedStreamingKafkaParameters
@@ -1728,7 +1728,7 @@ func TestAudit2_RabbitMQ_VirtualHost(t *testing.T) {
 			t.Parallel()
 
 			b := b2Backend()
-			_, err := b.CreatePipe(pipes.CreatePipeInput{
+			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 				Name:   tt.name,
 				Source: "arn:aws:mq:us-east-1:123456789012:broker:rmq:b-abc",
 				Target: b2LambdaTarget,
@@ -1744,7 +1744,7 @@ func TestAudit2_RabbitMQ_VirtualHost(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			p, err := b.GetPipe(tt.name)
+			p, err := b.GetPipe(context.Background(), tt.name)
 			require.NoError(t, err)
 			assert.Equal(t, tt.virtualHost, p.SourceParameters.RabbitMQBrokerParameters.VirtualHost)
 		})
@@ -1806,7 +1806,7 @@ func TestAudit2_FilterCriteria_MultiplePatterns(t *testing.T) {
 
 			b := b2Backend()
 			pipeName := tt.name + "-pipe"
-			_, err := b.CreatePipe(pipes.CreatePipeInput{
+			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 				Name:   pipeName,
 				Source: b2SQSSource,
 				Target: b2LambdaTarget,
@@ -1997,7 +1997,7 @@ func TestAudit2_Clone_ECSNetworkIsolation(t *testing.T) {
 			t.Parallel()
 
 			b := b2Backend()
-			_, err := b.CreatePipe(pipes.CreatePipeInput{
+			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 				Name:   tt.name,
 				Source: b2SQSSource,
 				Target: b2ECSTarget,
@@ -2024,7 +2024,7 @@ func TestAudit2_Clone_ECSNetworkIsolation(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			p1, err := b.GetPipe(tt.name)
+			p1, err := b.GetPipe(context.Background(), tt.name)
 			require.NoError(t, err)
 
 			p1.TargetParameters.EcsTaskParameters.NetworkConfiguration.
@@ -2033,7 +2033,7 @@ func TestAudit2_Clone_ECSNetworkIsolation(t *testing.T) {
 			p1.TargetParameters.EcsTaskParameters.PlacementConstraints[0].Type = "mutated"
 			p1.TargetParameters.EcsTaskParameters.PlacementStrategy[0].Type = "mutated"
 
-			p2, err := b.GetPipe(tt.name)
+			p2, err := b.GetPipe(context.Background(), tt.name)
 			require.NoError(t, err)
 			assert.Equal(t, "subnet-aaa",
 				p2.TargetParameters.EcsTaskParameters.NetworkConfiguration.AwsvpcConfiguration.Subnets[0])
@@ -2063,7 +2063,7 @@ func TestAudit2_Clone_BatchDependsOnIsolation(t *testing.T) {
 			t.Parallel()
 
 			b := b2Backend()
-			_, err := b.CreatePipe(pipes.CreatePipeInput{
+			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 				Name:   tt.name,
 				Source: b2SQSSource,
 				Target: "arn:aws:batch:us-east-1:123456789012:job-queue/q",
@@ -2083,14 +2083,14 @@ func TestAudit2_Clone_BatchDependsOnIsolation(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			p1, err := b.GetPipe(tt.name)
+			p1, err := b.GetPipe(context.Background(), tt.name)
 			require.NoError(t, err)
 
 			p1.TargetParameters.BatchJobParameters.DependsOn[0].JobID = "mutated"
 			p1.TargetParameters.BatchJobParameters.ContainerOverrides.Command[0] = "mutated"
 			p1.TargetParameters.BatchJobParameters.ContainerOverrides.Environment["K"] = "mutated"
 
-			p2, err := b.GetPipe(tt.name)
+			p2, err := b.GetPipe(context.Background(), tt.name)
 			require.NoError(t, err)
 			assert.Equal(t, "original-job",
 				p2.TargetParameters.BatchJobParameters.DependsOn[0].JobID)
@@ -2118,7 +2118,7 @@ func TestAudit2_Clone_SelfManagedKafkaVpcIsolation(t *testing.T) {
 			t.Parallel()
 
 			b := b2Backend()
-			_, err := b.CreatePipe(pipes.CreatePipeInput{
+			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 				Name:   tt.name,
 				Source: "arn:aws:kafka:us-east-1:123456789012:cluster/c/t",
 				Target: b2LambdaTarget,
@@ -2137,14 +2137,14 @@ func TestAudit2_Clone_SelfManagedKafkaVpcIsolation(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			p1, err := b.GetPipe(tt.name)
+			p1, err := b.GetPipe(context.Background(), tt.name)
 			require.NoError(t, err)
 
 			p1.SourceParameters.SelfManagedKafkaParameters.Vpc.SecurityGroup[0] = "mutated"
 			p1.SourceParameters.SelfManagedKafkaParameters.Vpc.Subnets[0] = "mutated"
 			p1.SourceParameters.SelfManagedKafkaParameters.Credentials.BasicAuth = "mutated"
 
-			p2, err := b.GetPipe(tt.name)
+			p2, err := b.GetPipe(context.Background(), tt.name)
 			require.NoError(t, err)
 			assert.Equal(t, "sg-original",
 				p2.SourceParameters.SelfManagedKafkaParameters.Vpc.SecurityGroup[0])
@@ -2172,7 +2172,7 @@ func TestAudit2_Clone_MSKCredentialsIsolation(t *testing.T) {
 			t.Parallel()
 
 			b := b2Backend()
-			_, err := b.CreatePipe(pipes.CreatePipeInput{
+			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 				Name:   tt.name,
 				Source: "arn:aws:kafka:us-east-1:123456789012:cluster/msk",
 				Target: b2LambdaTarget,
@@ -2187,11 +2187,11 @@ func TestAudit2_Clone_MSKCredentialsIsolation(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			p1, err := b.GetPipe(tt.name)
+			p1, err := b.GetPipe(context.Background(), tt.name)
 			require.NoError(t, err)
 			p1.SourceParameters.ManagedStreamingKafkaParameters.Credentials.SaslScram512Auth = "mutated"
 
-			p2, err := b.GetPipe(tt.name)
+			p2, err := b.GetPipe(context.Background(), tt.name)
 			require.NoError(t, err)
 			assert.Equal(t,
 				"arn:aws:secretsmanager:us-east-1:123456789012:secret:orig",
@@ -2216,7 +2216,7 @@ func TestAudit2_Clone_ActiveMQCredentialsIsolation(t *testing.T) {
 			t.Parallel()
 
 			b := b2Backend()
-			_, err := b.CreatePipe(pipes.CreatePipeInput{
+			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 				Name:   tt.name,
 				Source: "arn:aws:mq:us-east-1:123456789012:broker:b:b-abc",
 				Target: b2LambdaTarget,
@@ -2231,11 +2231,11 @@ func TestAudit2_Clone_ActiveMQCredentialsIsolation(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			p1, err := b.GetPipe(tt.name)
+			p1, err := b.GetPipe(context.Background(), tt.name)
 			require.NoError(t, err)
 			p1.SourceParameters.ActiveMQBrokerParameters.Credentials.BasicAuth = "mutated"
 
-			p2, err := b.GetPipe(tt.name)
+			p2, err := b.GetPipe(context.Background(), tt.name)
 			require.NoError(t, err)
 			assert.Equal(t,
 				"arn:aws:secretsmanager:us-east-1:123456789012:secret:amq-orig",
@@ -2260,7 +2260,7 @@ func TestAudit2_Clone_RabbitMQCredentialsIsolation(t *testing.T) {
 			t.Parallel()
 
 			b := b2Backend()
-			_, err := b.CreatePipe(pipes.CreatePipeInput{
+			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 				Name:   tt.name,
 				Source: "arn:aws:mq:us-east-1:123456789012:broker:rmq:b-xyz",
 				Target: b2LambdaTarget,
@@ -2275,11 +2275,11 @@ func TestAudit2_Clone_RabbitMQCredentialsIsolation(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			p1, err := b.GetPipe(tt.name)
+			p1, err := b.GetPipe(context.Background(), tt.name)
 			require.NoError(t, err)
 			p1.SourceParameters.RabbitMQBrokerParameters.Credentials.BasicAuth = "mutated"
 
-			p2, err := b.GetPipe(tt.name)
+			p2, err := b.GetPipe(context.Background(), tt.name)
 			require.NoError(t, err)
 			assert.Equal(t,
 				"arn:aws:secretsmanager:us-east-1:123456789012:secret:rmq-orig",
@@ -2712,7 +2712,7 @@ func TestAudit2_Lifecycle_StartStop(t *testing.T) {
 			t.Parallel()
 
 			b := b2Backend()
-			_, err := b.CreatePipe(pipes.CreatePipeInput{
+			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 				Name:         tt.name,
 				Source:       b2SQSSource,
 				Target:       b2ECSTarget,
@@ -2732,27 +2732,27 @@ func TestAudit2_Lifecycle_StartStop(t *testing.T) {
 			require.NoError(t, err)
 			pipes.WaitPipeRunning(t, b, tt.name)
 
-			stopped, err := b.StopPipe(tt.name)
+			stopped, err := b.StopPipe(context.Background(), tt.name)
 			require.NoError(t, err)
 			assert.Equal(t, "STOPPING", stopped.CurrentState)
 
 			require.Eventually(t, func() bool {
-				p, e := b.GetPipe(tt.name)
+				p, e := b.GetPipe(context.Background(), tt.name)
 
 				return e == nil && p.CurrentState == "STOPPED"
 			}, 500e6, 5e6)
 
-			started, err := b.StartPipe(tt.name)
+			started, err := b.StartPipe(context.Background(), tt.name)
 			require.NoError(t, err)
 			assert.Equal(t, "STARTING", started.CurrentState)
 
 			require.Eventually(t, func() bool {
-				p, e := b.GetPipe(tt.name)
+				p, e := b.GetPipe(context.Background(), tt.name)
 
 				return e == nil && p.CurrentState == "RUNNING"
 			}, 500e6, 5e6)
 
-			p, err := b.GetPipe(tt.name)
+			p, err := b.GetPipe(context.Background(), tt.name)
 			require.NoError(t, err)
 			ecs := p.TargetParameters.EcsTaskParameters
 			require.NotNil(t, ecs.NetworkConfiguration)
@@ -2778,7 +2778,7 @@ func TestAudit2_Lifecycle_Delete(t *testing.T) {
 			t.Parallel()
 
 			b := b2Backend()
-			_, err := b.CreatePipe(pipes.CreatePipeInput{
+			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 				Name:   tt.name,
 				Source: b2SQSSource,
 				Target: "arn:aws:batch:us-east-1:123456789012:job-queue/q",
@@ -2794,14 +2794,14 @@ func TestAudit2_Lifecycle_Delete(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			deleted, err := b.DeletePipe(tt.name)
+			deleted, err := b.DeletePipe(context.Background(), tt.name)
 			require.NoError(t, err)
 			assert.Equal(t, "DELETING", deleted.CurrentState)
 			assert.Equal(t, "parent-job",
 				deleted.TargetParameters.BatchJobParameters.DependsOn[0].JobID)
 
 			require.Eventually(t, func() bool {
-				_, e := b.GetPipe(tt.name)
+				_, e := b.GetPipe(context.Background(), tt.name)
 
 				return e != nil
 			}, 500e6, 5e6)

@@ -1,5 +1,6 @@
 <script lang="ts">
 import { onMount } from 'svelte';
+import { confirmDestructive } from '$lib/confirm-dialog';
 import { getIAMClient } from '$lib/aws-client';
 import {
 ListUsersCommand, ListRolesCommand, ListGroupsCommand, ListPoliciesCommand,
@@ -12,7 +13,12 @@ ListAttachedGroupPoliciesCommand,
 CreateAccessKeyCommand, DeleteAccessKeyCommand, ListAccessKeysCommand, UpdateAccessKeyCommand,
 ListAccountAliasesCommand, GetAccountSummaryCommand,
 ListAccessKeysCommand as ListAccessKeysCmd,
-type User, type Role, type Group, type Policy as ManagedPolicy, type AccessKeyMetadata
+ListUserPoliciesCommand, GetUserPolicyCommand, PutUserPolicyCommand, DeleteUserPolicyCommand,
+ListGroupsForUserCommand, AddUserToGroupCommand, RemoveUserFromGroupCommand,
+GetLoginProfileCommand, CreateLoginProfileCommand, UpdateLoginProfileCommand, DeleteLoginProfileCommand,
+ListMFADevicesCommand, DeactivateMFADeviceCommand,
+type IAMClient,
+type User, type Role, type Group, type Policy as ManagedPolicy, type AccessKeyMetadata, type MFADevice
 } from '@aws-sdk/client-iam';
 import { toast } from 'svelte-sonner';
 import {
@@ -20,7 +26,10 @@ Users, Shield, RefreshCw, Search, UserCircle, ChevronRight, FileText,
 Copy, Plus, Trash2, Key, BarChart3, BookOpen, X, Eye, EyeOff
 } from 'lucide-svelte';
 
-const iam = getIAMClient();
+let iamClient: IAMClient | undefined;
+function iam(): IAMClient {
+	return (iamClient ??= getIAMClient());
+}
 
 // ─── Types ───
 type MainTab = 'users' | 'roles' | 'groups' | 'policies' | 'metrics' | 'docs';
@@ -55,6 +64,21 @@ let roleAttachedPolicies = $state<{PolicyName?: string; PolicyArn?: string}[]>([
 let groupAttachedPolicies = $state<{PolicyName?: string; PolicyArn?: string}[]>([]);
 let userAccessKeys = $state<AccessKeyMetadata[]>([]);
 let detailLoading = $state(false);
+// Inline policies + group membership for user detail
+let userInlinePolicies = $state<string[]>([]);
+let userGroupMemberships = $state<string[]>([]);
+let inlinePolicyName = $state('');
+let inlinePolicyDoc = $state('');
+let editingInlinePolicy = $state<string | null>(null);
+let savingInlinePolicy = $state(false);
+let addToGroupName = $state('');
+// Login profile + MFA
+let userHasLoginProfile = $state(false);
+let userMfaDevices = $state<MFADevice[]>([]);
+let showLoginProfileModal = $state(false);
+let loginProfilePassword = $state('');
+let loginProfileResetRequired = $state(true);
+let savingLoginProfile = $state(false);
 
 // Create modals
 let showCreateUser = $state(false);
@@ -88,7 +112,7 @@ await Promise.all([loadUsers(), loadAccountAlias(), loadSummary()]);
 async function loadUsers() {
 try {
 loading = true;
-const data = await iam.send(new ListUsersCommand({}));
+const data = await iam().send(new ListUsersCommand({}));
 users = data.Users || [];
 } catch (e) {
 toast.error(e instanceof Error ? e.message : 'Failed to load users');
@@ -100,7 +124,7 @@ loading = false;
 async function loadRoles() {
 try {
 loading = true;
-const data = await iam.send(new ListRolesCommand({}));
+const data = await iam().send(new ListRolesCommand({}));
 roles = data.Roles || [];
 } catch (e) {
 toast.error(e instanceof Error ? e.message : 'Failed to load roles');
@@ -112,7 +136,7 @@ loading = false;
 async function loadGroups() {
 try {
 loading = true;
-const data = await iam.send(new ListGroupsCommand({}));
+const data = await iam().send(new ListGroupsCommand({}));
 groups = data.Groups || [];
 } catch (e) {
 toast.error(e instanceof Error ? e.message : 'Failed to load groups');
@@ -124,7 +148,7 @@ loading = false;
 async function loadPolicies() {
 try {
 loading = true;
-const data = await iam.send(new ListPoliciesCommand({ Scope: policyScope }));
+const data = await iam().send(new ListPoliciesCommand({ Scope: policyScope }));
 policies = data.Policies || [];
 } catch (e) {
 toast.error(e instanceof Error ? e.message : 'Failed to load policies');
@@ -135,7 +159,7 @@ loading = false;
 
 async function loadAccountAlias() {
 try {
-const data = await iam.send(new ListAccountAliasesCommand({}));
+const data = await iam().send(new ListAccountAliasesCommand({}));
 accountAlias = (data.AccountAliases || [])[0] || '';
 } catch {
 		// non-critical
@@ -144,7 +168,7 @@ accountAlias = (data.AccountAliases || [])[0] || '';
 
 async function loadSummary() {
 try {
-const data = await iam.send(new GetAccountSummaryCommand({}));
+const data = await iam().send(new GetAccountSummaryCommand({}));
 summary = (data.SummaryMap as AccountSummary) || {};
 } catch {
 		// non-critical
@@ -154,13 +178,32 @@ summary = (data.SummaryMap as AccountSummary) || {};
 async function loadUserDetail(user: User) {
 if (!user.UserName) return;
 detailLoading = true;
+inlinePolicyName = '';
+inlinePolicyDoc = '';
+editingInlinePolicy = null;
+addToGroupName = '';
+userHasLoginProfile = false;
+userMfaDevices = [];
 try {
-const [pol, keys] = await Promise.all([
-iam.send(new ListAttachedUserPoliciesCommand({ UserName: user.UserName })),
-iam.send(new ListAccessKeysCommand({ UserName: user.UserName })),
+const [pol, keys, inline, grps, mfa] = await Promise.all([
+iam().send(new ListAttachedUserPoliciesCommand({ UserName: user.UserName })),
+iam().send(new ListAccessKeysCommand({ UserName: user.UserName })),
+iam().send(new ListUserPoliciesCommand({ UserName: user.UserName })),
+iam().send(new ListGroupsForUserCommand({ UserName: user.UserName })),
+iam().send(new ListMFADevicesCommand({ UserName: user.UserName })),
 ]);
 userAttachedPolicies = pol.AttachedPolicies || [];
 userAccessKeys = keys.AccessKeyMetadata || [];
+userInlinePolicies = inline.PolicyNames || [];
+userGroupMemberships = (grps.Groups || []).map((g) => g.GroupName ?? '').filter(Boolean);
+userMfaDevices = mfa.MFADevices || [];
+// GetLoginProfile throws NoSuchEntity when the user has no console password.
+try {
+await iam().send(new GetLoginProfileCommand({ UserName: user.UserName }));
+userHasLoginProfile = true;
+} catch {
+userHasLoginProfile = false;
+}
 } catch {
 		// non-critical
 		} finally {
@@ -168,11 +211,151 @@ detailLoading = false;
 }
 }
 
+async function editInlinePolicy(name: string) {
+if (!selectedUser?.UserName) return;
+try {
+const res = await iam().send(new GetUserPolicyCommand({ UserName: selectedUser.UserName, PolicyName: name }));
+const doc = res.PolicyDocument ? decodeURIComponent(res.PolicyDocument) : '';
+inlinePolicyName = name;
+editingInlinePolicy = name;
+try {
+inlinePolicyDoc = JSON.stringify(JSON.parse(doc), null, 2);
+} catch {
+inlinePolicyDoc = doc;
+}
+} catch (e) {
+toast.error(`Failed to load inline policy: ${e instanceof Error ? e.message : String(e)}`);
+}
+}
+
+async function saveInlinePolicy() {
+if (!selectedUser?.UserName || !inlinePolicyName.trim()) {
+toast.error('Policy name is required');
+return;
+}
+let doc = inlinePolicyDoc;
+try {
+doc = JSON.stringify(JSON.parse(inlinePolicyDoc));
+} catch {
+toast.error('Policy document is not valid JSON');
+return;
+}
+savingInlinePolicy = true;
+try {
+await iam().send(new PutUserPolicyCommand({ UserName: selectedUser.UserName, PolicyName: inlinePolicyName.trim(), PolicyDocument: doc }));
+toast.success(`Inline policy "${inlinePolicyName.trim()}" saved`);
+inlinePolicyName = '';
+inlinePolicyDoc = '';
+editingInlinePolicy = null;
+await loadUserDetail(selectedUser);
+} catch (e) {
+toast.error(`Failed to save inline policy: ${e instanceof Error ? e.message : String(e)}`);
+} finally {
+savingInlinePolicy = false;
+}
+}
+
+async function deleteInlinePolicy(name: string) {
+if (!selectedUser?.UserName) return;
+try {
+await iam().send(new DeleteUserPolicyCommand({ UserName: selectedUser.UserName, PolicyName: name }));
+toast.success('Inline policy deleted');
+await loadUserDetail(selectedUser);
+} catch (e) {
+toast.error(`Failed to delete inline policy: ${e instanceof Error ? e.message : String(e)}`);
+}
+}
+
+// ─── Login profile (console password) ───
+function openLoginProfileModal() {
+loginProfilePassword = '';
+loginProfileResetRequired = true;
+showLoginProfileModal = true;
+}
+
+async function saveLoginProfile() {
+if (!selectedUser?.UserName || !loginProfilePassword.trim()) return;
+savingLoginProfile = true;
+try {
+if (userHasLoginProfile) {
+await iam().send(new UpdateLoginProfileCommand({
+UserName: selectedUser.UserName,
+Password: loginProfilePassword,
+PasswordResetRequired: loginProfileResetRequired
+}));
+toast.success('Console password updated');
+} else {
+await iam().send(new CreateLoginProfileCommand({
+UserName: selectedUser.UserName,
+Password: loginProfilePassword,
+PasswordResetRequired: loginProfileResetRequired
+}));
+toast.success('Console password created');
+}
+showLoginProfileModal = false;
+await loadUserDetail(selectedUser);
+} catch (e) {
+toast.error(`Failed to set console password: ${e instanceof Error ? e.message : String(e)}`);
+} finally {
+savingLoginProfile = false;
+}
+}
+
+async function deleteLoginProfile() {
+if (!selectedUser?.UserName) return;
+if (!(await confirmDestructive({ title: 'Remove Console Access', message: 'Remove console access (delete login profile) for this user?' }))) return;
+try {
+await iam().send(new DeleteLoginProfileCommand({ UserName: selectedUser.UserName }));
+toast.success('Login profile deleted');
+await loadUserDetail(selectedUser);
+} catch (e) {
+toast.error(`Failed to delete login profile: ${e instanceof Error ? e.message : String(e)}`);
+}
+}
+
+async function deactivateMfa(serialNumber: string) {
+if (!selectedUser?.UserName) return;
+if (!(await confirmDestructive({ title: 'Deactivate MFA', message: `Deactivate MFA device ${serialNumber}?` }))) return;
+try {
+await iam().send(new DeactivateMFADeviceCommand({ UserName: selectedUser.UserName, SerialNumber: serialNumber }));
+toast.success('MFA device deactivated');
+await loadUserDetail(selectedUser);
+} catch (e) {
+toast.error(`Failed to deactivate MFA: ${e instanceof Error ? e.message : String(e)}`);
+}
+}
+
+async function addUserToGroup() {
+if (!selectedUser?.UserName || !addToGroupName.trim()) {
+toast.error('Group name is required');
+return;
+}
+try {
+await iam().send(new AddUserToGroupCommand({ UserName: selectedUser.UserName, GroupName: addToGroupName.trim() }));
+toast.success(`Added to group "${addToGroupName.trim()}"`);
+addToGroupName = '';
+await loadUserDetail(selectedUser);
+} catch (e) {
+toast.error(`Failed to add to group: ${e instanceof Error ? e.message : String(e)}`);
+}
+}
+
+async function removeUserFromGroup(groupName: string) {
+if (!selectedUser?.UserName) return;
+try {
+await iam().send(new RemoveUserFromGroupCommand({ UserName: selectedUser.UserName, GroupName: groupName }));
+toast.success(`Removed from group "${groupName}"`);
+await loadUserDetail(selectedUser);
+} catch (e) {
+toast.error(`Failed to remove from group: ${e instanceof Error ? e.message : String(e)}`);
+}
+}
+
 async function loadRoleDetail(role: Role) {
 if (!role.RoleName) return;
 detailLoading = true;
 try {
-const pol = await iam.send(new ListAttachedRolePoliciesCommand({ RoleName: role.RoleName }));
+const pol = await iam().send(new ListAttachedRolePoliciesCommand({ RoleName: role.RoleName }));
 roleAttachedPolicies = pol.AttachedPolicies || [];
 } catch {
 		// non-critical
@@ -185,7 +368,7 @@ async function loadGroupDetail(group: Group) {
 if (!group.GroupName) return;
 detailLoading = true;
 try {
-const pol = await iam.send(new ListAttachedGroupPoliciesCommand({ GroupName: group.GroupName }));
+const pol = await iam().send(new ListAttachedGroupPoliciesCommand({ GroupName: group.GroupName }));
 groupAttachedPolicies = pol.AttachedPolicies || [];
 } catch {
 		// non-critical
@@ -223,7 +406,7 @@ async function createUser() {
 if (!newUserName.trim()) { toast.error('User name is required'); return; }
 creating = true;
 try {
-await iam.send(new CreateUserCommand({ UserName: newUserName.trim(), Path: newUserPath || '/' }));
+await iam().send(new CreateUserCommand({ UserName: newUserName.trim(), Path: newUserPath || '/' }));
 toast.success(`User "${newUserName}" created`);
 showCreateUser = false; newUserName = ''; newUserPath = '/';
 users = []; await loadUsers();
@@ -238,7 +421,7 @@ creating = false;
 async function deleteUser(user: User) {
 if (!user.UserName) return;
 try {
-await iam.send(new DeleteUserCommand({ UserName: user.UserName }));
+await iam().send(new DeleteUserCommand({ UserName: user.UserName }));
 toast.success(`User "${user.UserName}" deleted`);
 if (selectedUser?.UserName === user.UserName) { selectedUser = null; userAttachedPolicies = []; userAccessKeys = []; }
 users = users.filter(u => u.UserName !== user.UserName);
@@ -252,7 +435,7 @@ async function createRole() {
 if (!newRoleName.trim()) { toast.error('Role name is required'); return; }
 creating = true;
 try {
-await iam.send(new CreateRoleCommand({ RoleName: newRoleName.trim(), Path: newRolePath || '/', AssumeRolePolicyDocument: newRoleTrustPolicy }));
+await iam().send(new CreateRoleCommand({ RoleName: newRoleName.trim(), Path: newRolePath || '/', AssumeRolePolicyDocument: newRoleTrustPolicy }));
 toast.success(`Role "${newRoleName}" created`);
 showCreateRole = false; newRoleName = ''; newRolePath = '/';
 roles = []; await loadRoles();
@@ -267,7 +450,7 @@ creating = false;
 async function deleteRole(role: Role) {
 if (!role.RoleName) return;
 try {
-await iam.send(new DeleteRoleCommand({ RoleName: role.RoleName }));
+await iam().send(new DeleteRoleCommand({ RoleName: role.RoleName }));
 toast.success(`Role "${role.RoleName}" deleted`);
 if (selectedRole?.RoleName === role.RoleName) { selectedRole = null; roleAttachedPolicies = []; }
 roles = roles.filter(r => r.RoleName !== role.RoleName);
@@ -281,7 +464,7 @@ async function createGroup() {
 if (!newGroupName.trim()) { toast.error('Group name is required'); return; }
 creating = true;
 try {
-await iam.send(new CreateGroupCommand({ GroupName: newGroupName.trim(), Path: newGroupPath || '/' }));
+await iam().send(new CreateGroupCommand({ GroupName: newGroupName.trim(), Path: newGroupPath || '/' }));
 toast.success(`Group "${newGroupName}" created`);
 showCreateGroup = false; newGroupName = ''; newGroupPath = '/';
 groups = []; await loadGroups();
@@ -296,7 +479,7 @@ creating = false;
 async function deleteGroup(group: Group) {
 if (!group.GroupName) return;
 try {
-await iam.send(new DeleteGroupCommand({ GroupName: group.GroupName }));
+await iam().send(new DeleteGroupCommand({ GroupName: group.GroupName }));
 toast.success(`Group "${group.GroupName}" deleted`);
 if (selectedGroup?.GroupName === group.GroupName) { selectedGroup = null; groupAttachedPolicies = []; }
 groups = groups.filter(g => g.GroupName !== group.GroupName);
@@ -310,7 +493,7 @@ async function createPolicy() {
 if (!newPolicyName.trim()) { toast.error('Policy name is required'); return; }
 creating = true;
 try {
-await iam.send(new CreatePolicyCommand({ PolicyName: newPolicyName.trim(), Path: newPolicyPath || '/', PolicyDocument: newPolicyDoc }));
+await iam().send(new CreatePolicyCommand({ PolicyName: newPolicyName.trim(), Path: newPolicyPath || '/', PolicyDocument: newPolicyDoc }));
 toast.success(`Policy "${newPolicyName}" created`);
 showCreatePolicy = false; newPolicyName = ''; newPolicyPath = '/';
 policies = []; await loadPolicies();
@@ -325,7 +508,7 @@ creating = false;
 async function deletePolicy(policy: ManagedPolicy) {
 if (!policy.Arn) return;
 try {
-await iam.send(new DeletePolicyCommand({ PolicyArn: policy.Arn }));
+await iam().send(new DeletePolicyCommand({ PolicyArn: policy.Arn }));
 toast.success(`Policy "${policy.PolicyName}" deleted`);
 if (selectedPolicy?.Arn === policy.Arn) selectedPolicy = null;
 policies = policies.filter(p => p.Arn !== policy.Arn);
@@ -340,12 +523,12 @@ toast.error(e instanceof Error ? e.message : 'Failed to delete policy');
 async function createAccessKey(user: User) {
 if (!user.UserName) return;
 try {
-const resp = await iam.send(new CreateAccessKeyCommand({ UserName: user.UserName }));
+const resp = await iam().send(new CreateAccessKeyCommand({ UserName: user.UserName }));
 createdKey = resp.AccessKey ?? null;
 showCreateKey = true;
 showSecret = true;
 // refresh keys list
-const keys = await iam.send(new ListAccessKeysCmd({ UserName: user.UserName }));
+const keys = await iam().send(new ListAccessKeysCmd({ UserName: user.UserName }));
 userAccessKeys = keys.AccessKeyMetadata || [];
 toast.success('Access key created');
 } catch (e) {
@@ -356,7 +539,7 @@ toast.error(e instanceof Error ? e.message : 'Failed to create access key');
 async function deleteAccessKey(user: User, keyId: string) {
 if (!user.UserName) return;
 try {
-await iam.send(new DeleteAccessKeyCommand({ UserName: user.UserName, AccessKeyId: keyId }));
+await iam().send(new DeleteAccessKeyCommand({ UserName: user.UserName, AccessKeyId: keyId }));
 userAccessKeys = userAccessKeys.filter(k => k.AccessKeyId !== keyId);
 toast.success('Access key deleted');
 } catch (e) {
@@ -368,7 +551,7 @@ async function toggleAccessKey(user: User, key: AccessKeyMetadata) {
 if (!user.UserName || !key.AccessKeyId) return;
 const newStatus = key.Status === 'Active' ? 'Inactive' : 'Active';
 try {
-await iam.send(new UpdateAccessKeyCommand({ UserName: user.UserName, AccessKeyId: key.AccessKeyId, Status: newStatus }));
+await iam().send(new UpdateAccessKeyCommand({ UserName: user.UserName, AccessKeyId: key.AccessKeyId, Status: newStatus }));
 userAccessKeys = userAccessKeys.map(k => k.AccessKeyId === key.AccessKeyId ? { ...k, Status: newStatus } : k);
 toast.success(`Access key ${newStatus.toLowerCase()}`);
 } catch (e) {
@@ -727,6 +910,100 @@ else deleteGroup(item as Group);
 {/if}
 </div>
 
+<!-- Console Access & MFA -->
+<div>
+<p class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-2">Console Access &amp; MFA</p>
+{#if detailLoading}
+<p class="text-xs text-slate-400 animate-pulse">Loading...</p>
+{:else}
+<div class="flex flex-wrap items-center gap-2 mb-2">
+<span class="rounded px-2 py-0.5 text-xs {userHasLoginProfile ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-slate-100 text-slate-500 dark:bg-slate-700'}">
+{userHasLoginProfile ? 'Console password set' : 'No console password'}
+</span>
+<button onclick={openLoginProfileModal} class="rounded border border-slate-300 px-2 py-1 text-xs hover:bg-slate-50 dark:border-slate-600 dark:hover:bg-slate-700">
+{userHasLoginProfile ? 'Reset password' : 'Create password'}
+</button>
+{#if userHasLoginProfile}
+<button onclick={deleteLoginProfile} class="rounded border border-red-300 px-2 py-1 text-xs text-red-600 hover:bg-red-50 dark:border-red-700 dark:text-red-400">
+Remove access
+</button>
+{/if}
+</div>
+<p class="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">MFA Devices</p>
+{#if userMfaDevices.length === 0}
+<p class="text-xs text-slate-400">No MFA devices</p>
+{:else}
+<ul class="space-y-1">
+{#each userMfaDevices as dev}
+<li class="flex items-center justify-between rounded bg-slate-50 px-2 py-1 text-xs dark:bg-slate-700/50">
+<span class="font-mono truncate">{dev.SerialNumber}</span>
+<button onclick={() => deactivateMfa(dev.SerialNumber ?? '')} class="text-red-500 hover:text-red-700">Deactivate</button>
+</li>
+{/each}
+</ul>
+{/if}
+{/if}
+</div>
+
+<!-- Group Membership -->
+<div>
+<p class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-2">Group Membership</p>
+{#if detailLoading}
+<p class="text-xs text-slate-400 animate-pulse">Loading...</p>
+{:else}
+{#if userGroupMemberships.length === 0}
+<p class="text-xs text-slate-400">Not a member of any group</p>
+{:else}
+<ul class="space-y-1 mb-2">
+{#each userGroupMemberships as g}
+<li class="flex items-center justify-between gap-1">
+<span class="text-xs font-mono text-slate-700 dark:text-slate-300 truncate">{g}</span>
+<button onclick={() => removeUserFromGroup(g)} class="p-0.5 text-red-400 hover:text-red-600" title="Remove from group"><Trash2 class="w-3 h-3" /></button>
+</li>
+{/each}
+</ul>
+{/if}
+<div class="flex items-center gap-1">
+<input type="text" bind:value={addToGroupName} placeholder="group name" class="flex-1 min-w-0 px-2 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white" />
+<button onclick={addUserToGroup} class="px-2 py-1 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700">Add</button>
+</div>
+{/if}
+</div>
+
+<!-- Inline Policies -->
+<div>
+<p class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-2">Inline Policies</p>
+{#if detailLoading}
+<p class="text-xs text-slate-400 animate-pulse">Loading...</p>
+{:else}
+{#if userInlinePolicies.length === 0}
+<p class="text-xs text-slate-400 mb-2">None</p>
+{:else}
+<ul class="space-y-1 mb-2">
+{#each userInlinePolicies as p}
+<li class="flex items-center justify-between gap-1">
+<span class="text-xs font-mono text-indigo-700 dark:text-indigo-300 truncate">{p}</span>
+<div class="flex items-center gap-1">
+<button onclick={() => editInlinePolicy(p)} class="p-0.5 text-slate-400 hover:text-slate-600" title="Edit"><FileText class="w-3 h-3" /></button>
+<button onclick={() => deleteInlinePolicy(p)} class="p-0.5 text-red-400 hover:text-red-600" title="Delete"><Trash2 class="w-3 h-3" /></button>
+</div>
+</li>
+{/each}
+</ul>
+{/if}
+<div class="space-y-1.5">
+<input type="text" bind:value={inlinePolicyName} disabled={editingInlinePolicy !== null} placeholder="policy name" class="w-full px-2 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white disabled:opacity-60" />
+<textarea bind:value={inlinePolicyDoc} rows="5" placeholder={'{\n  "Version": "2012-10-17",\n  "Statement": []\n}'} class="w-full px-2 py-1 text-xs font-mono border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white"></textarea>
+<div class="flex gap-1">
+<button disabled={savingInlinePolicy} onclick={saveInlinePolicy} class="flex-1 py-1 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50">{savingInlinePolicy ? 'Saving...' : (editingInlinePolicy ? 'Update Policy' : 'Add Policy')}</button>
+{#if editingInlinePolicy}
+<button onclick={() => { editingInlinePolicy = null; inlinePolicyName = ''; inlinePolicyDoc = ''; }} class="px-2 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded text-slate-600 dark:text-slate-400">Cancel</button>
+{/if}
+</div>
+</div>
+{/if}
+</div>
+
 <!-- Access Keys -->
 <div>
 <div class="flex items-center justify-between mb-2">
@@ -1009,6 +1286,29 @@ This is the only time you can view the secret access key. Store it securely.
 </div>
 </div>
 <button onclick={() => { showCreateKey = false; createdKey = null; }} class="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium">Done</button>
+</div>
+</div>
+{/if}
+
+{#if showLoginProfileModal && selectedUser}
+<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+<div class="w-full max-w-md rounded-lg bg-white p-6 shadow-xl dark:bg-slate-800 space-y-4">
+<h2 class="text-lg font-semibold">{userHasLoginProfile ? 'Reset' : 'Create'} Console Password</h2>
+<p class="text-sm text-slate-500">User: {selectedUser.UserName}</p>
+<div>
+<label for="lp-pass" class="block text-sm font-medium mb-1">Password</label>
+<input id="lp-pass" type="text" bind:value={loginProfilePassword} placeholder="Temp password" class="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900" />
+</div>
+<label class="flex items-center gap-2 text-sm">
+<input type="checkbox" bind:checked={loginProfileResetRequired} />
+Require password reset at next sign-in
+</label>
+<div class="flex justify-end gap-2">
+<button onclick={() => (showLoginProfileModal = false)} class="rounded border border-slate-300 px-4 py-2 text-sm hover:bg-slate-50 dark:border-slate-600 dark:hover:bg-slate-700">Cancel</button>
+<button onclick={saveLoginProfile} disabled={savingLoginProfile || !loginProfilePassword.trim()} class="rounded bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700 disabled:opacity-50">
+{savingLoginProfile ? 'Saving…' : 'Save'}
+</button>
+</div>
 </div>
 </div>
 {/if}

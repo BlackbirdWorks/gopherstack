@@ -1,6 +1,7 @@
 package codepipeline_test
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
@@ -257,7 +258,7 @@ func TestHandler_JobOperations(t *testing.T) {
 		Version:  "1",
 	}
 
-	_, err := h.Backend.CreateCustomActionType(cat)
+	_, err := h.Backend.CreateCustomActionType(context.Background(), cat)
 	require.NoError(t, err)
 
 	job := &codepipeline.Job{
@@ -462,7 +463,7 @@ func TestHandler_ActionTypeOperations(t *testing.T) {
 		Provider: "MyCIProvider",
 		Version:  "1",
 	}
-	_, err := h.Backend.CreateCustomActionType(cat)
+	_, err := h.Backend.CreateCustomActionType(context.Background(), cat)
 	require.NoError(t, err)
 
 	// List action types
@@ -562,7 +563,7 @@ func TestCPBackend_PersistenceString(t *testing.T) {
 	t.Parallel()
 
 	b := codepipeline.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.CreatePipeline(samplePipeline("snap-pipe"), nil)
+	_, err := b.CreatePipeline(context.Background(), samplePipeline("snap-pipe"), nil)
 	require.NoError(t, err)
 
 	snap := b.Snapshot()

@@ -19,6 +19,7 @@ func TestSageMakerDashboard(t *testing.T) {
 	stack := newStack(t)
 
 	_, err := stack.SageMakerHandler.Backend.CreateModel(
+		t.Context(),
 		"e2e-test-model",
 		"arn:aws:iam::000000000000:role/test-sagemaker-role",
 		&sagemakerbackend.ContainerDefinition{

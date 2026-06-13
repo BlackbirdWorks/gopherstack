@@ -5,6 +5,7 @@ package rolesanywhere_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -1409,9 +1410,9 @@ func TestBackend_SnapshotRestore(t *testing.T) {
 
 			b := newBackend(t)
 			src := rolesanywhere.TrustAnchorSource{SourceType: "CERTIFICATE_BUNDLE"}
-			_, err := b.CreateTrustAnchor(tt.anchorName, src, nil)
+			_, err := b.CreateTrustAnchor(context.Background(), tt.anchorName, src, nil)
 			require.NoError(t, err)
-			_, err = b.CreateProfile(tt.profileName, nil, nil, nil, nil, "", false)
+			_, err = b.CreateProfile(context.Background(), tt.profileName, nil, nil, nil, nil, "", false)
 			require.NoError(t, err)
 
 			snap := b.Snapshot()
@@ -1421,11 +1422,11 @@ func TestBackend_SnapshotRestore(t *testing.T) {
 			b2 := rolesanywhere.NewInMemoryBackend("000000000000", "us-east-1")
 			require.NoError(t, b2.Restore(snap))
 
-			anchors, _, err := b2.ListTrustAnchors("", 0)
+			anchors, _, err := b2.ListTrustAnchors(context.Background(), "", 0)
 			require.NoError(t, err)
 			assert.Len(t, anchors, tt.expectAnchorCount)
 
-			profiles, _, err := b2.ListProfiles("", 0)
+			profiles, _, err := b2.ListProfiles(context.Background(), "", 0)
 			require.NoError(t, err)
 			assert.Len(t, profiles, tt.expectProfileCnt)
 		})
@@ -1479,7 +1480,7 @@ func TestBackend_CreateTrustAnchor_EmptyName(t *testing.T) {
 
 			b := newBackend(t)
 			src := rolesanywhere.TrustAnchorSource{SourceType: "CERTIFICATE_BUNDLE"}
-			_, err := b.CreateTrustAnchor(tt.taName, src, nil)
+			_, err := b.CreateTrustAnchor(context.Background(), tt.taName, src, nil)
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {
@@ -1506,7 +1507,7 @@ func TestBackend_CreateProfile_EmptyName(t *testing.T) {
 			t.Parallel()
 
 			b := newBackend(t)
-			_, err := b.CreateProfile(tt.profileName, nil, nil, nil, nil, "", false)
+			_, err := b.CreateProfile(context.Background(), tt.profileName, nil, nil, nil, nil, "", false)
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {
@@ -1533,7 +1534,7 @@ func TestBackend_ImportCrl_EmptyName(t *testing.T) {
 			t.Parallel()
 
 			b := newBackend(t)
-			_, err := b.ImportCrl(tt.crlName, []byte("data"), "arn:ta", true, nil)
+			_, err := b.ImportCrl(context.Background(), tt.crlName, []byte("data"), "arn:ta", true, nil)
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {
@@ -1583,10 +1584,10 @@ func TestBackend_TagResource_Upsert(t *testing.T) {
 
 			b := newBackend(t)
 			arn := "arn:aws:test::" + tt.name
-			require.NoError(t, b.TagResource(arn, tt.initial))
-			require.NoError(t, b.TagResource(arn, tt.updates))
+			require.NoError(t, b.TagResource(context.Background(), arn, tt.initial))
+			require.NoError(t, b.TagResource(context.Background(), arn, tt.updates))
 
-			got, err := b.ListTagsForResource(arn)
+			got, err := b.ListTagsForResource(context.Background(), arn)
 			require.NoError(t, err)
 
 			found := make(map[string]string)
@@ -1628,7 +1629,7 @@ func TestBackend_UpdateProfile_AllFields(t *testing.T) {
 			t.Parallel()
 
 			b := newBackend(t)
-			p, _ := b.CreateProfile(
+			p, _ := b.CreateProfile(context.Background(),
 				"base-profile",
 				[]string{"arn:aws:iam::123:role/OldRole"},
 				nil,
@@ -1638,7 +1639,7 @@ func TestBackend_UpdateProfile_AllFields(t *testing.T) {
 				false,
 			)
 
-			updated, err := b.UpdateProfile(
+			updated, err := b.UpdateProfile(context.Background(),
 				p.ProfileID,
 				tt.newName,
 				tt.roleArns,

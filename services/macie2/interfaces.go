@@ -233,16 +233,16 @@ type AllowListDetail struct {
 }
 
 // CustomDataIdentifier represents a custom data identifier.
-type CustomDataIdentifier struct { //nolint:govet // fieldalignment: readability over padding
-	Tags                 map[string]string `json:"tags,omitempty"`
-	IgnoreWords          []string          `json:"ignoreWords,omitempty"`
-	Keywords             []string          `json:"keywords,omitempty"`
+type CustomDataIdentifier struct {
 	CreatedAt            time.Time         `json:"createdAt"`
+	Tags                 map[string]string `json:"tags,omitempty"`
 	Arn                  string            `json:"arn"`
 	Description          string            `json:"description,omitempty"`
 	ID                   string            `json:"id"`
 	Name                 string            `json:"name"`
 	Regex                string            `json:"regex"`
+	IgnoreWords          []string          `json:"ignoreWords,omitempty"`
+	Keywords             []string          `json:"keywords,omitempty"`
 	MaximumMatchDistance int32             `json:"maximumMatchDistance"`
 }
 
@@ -282,18 +282,18 @@ type FindingsFilterSummary struct {
 type FindingType string
 
 // Finding represents a Macie finding.
-type Finding struct { //nolint:govet // fieldalignment: readability over padding
-	AccountID   string    `json:"accountId"`
-	Archived    bool      `json:"archived"`
-	Category    string    `json:"category"`
+type Finding struct {
 	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+	AccountID   string    `json:"accountId"`
+	Category    string    `json:"category"`
 	Description string    `json:"description"`
 	ID          string    `json:"id"`
 	Region      string    `json:"region"`
-	Severity    Severity  `json:"severity"`
 	Title       string    `json:"title"`
 	Type        string    `json:"type"`
-	UpdatedAt   time.Time `json:"updatedAt"`
+	Severity    Severity  `json:"severity"`
+	Archived    bool      `json:"archived"`
 }
 
 // Severity holds finding severity details.

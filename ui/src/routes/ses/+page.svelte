@@ -19,6 +19,8 @@
 		CreateReceiptRuleSetCommand,
 		DeleteReceiptRuleSetCommand,
 		DescribeReceiptRuleSetCommand,
+		TestRenderTemplateCommand,
+		type SESClient,
 		type IdentityVerificationAttributes
 	} from '@aws-sdk/client-ses';
 	import { toast } from 'svelte-sonner';
@@ -38,7 +40,10 @@
 		Filter
 	} from 'lucide-svelte';
 
-	const ses = getSESClient();
+	let sesClient: SESClient | undefined;
+	function ses(): SESClient {
+		return (sesClient ??= getSESClient());
+	}
 
 	let loading = $state(false);
 	let activeTab = $state<'identities' | 'templates' | 'send' | 'configsets' | 'receiptrules' | 'emails'>('identities');
@@ -65,6 +70,11 @@
 	let newTemplateSubject = $state('');
 	let newTemplateHtml = $state('');
 	let newTemplateText = $state('');
+
+	// Template test-render (send-test) state
+	let testRenderData = $state('{\n  "name": "World"\n}');
+	let testRenderResult = $state('');
+	let testingRender = $state(false);
 
 	// Send Email
 	let sendFrom = $state('');
@@ -150,11 +160,11 @@
 	async function loadIdentities() {
 		loading = true;
 		try {
-			const res = await ses.send(new ListIdentitiesCommand({ IdentityType: 'EmailAddress' }));
+			const res = await ses().send(new ListIdentitiesCommand({ IdentityType: 'EmailAddress' }));
 			const ids = res.Identities ?? [];
 			identities = ids;
 			if (ids.length > 0) {
-				const attrs = await ses.send(
+				const attrs = await ses().send(
 					new GetIdentityVerificationAttributesCommand({ Identities: ids })
 				);
 				verificationAttrs = attrs.VerificationAttributes ?? {};
@@ -169,7 +179,7 @@
 	async function loadTemplates() {
 		loading = true;
 		try {
-			const res = await ses.send(new ListTemplatesCommand({ MaxItems: 100 }));
+			const res = await ses().send(new ListTemplatesCommand({ MaxItems: 100 }));
 			templates = (res.TemplatesMetadata ?? []).map((t) => ({
 				Name: t.Name,
 				CreatedTimestamp: t.CreatedTimestamp
@@ -184,7 +194,7 @@
 	async function loadConfigSets() {
 		loading = true;
 		try {
-			const res = await ses.send(new ListConfigurationSetsCommand({ MaxItems: 100 }));
+			const res = await ses().send(new ListConfigurationSetsCommand({ MaxItems: 100 }));
 			configSets = (res.ConfigurationSets ?? []).map((cs) => cs.Name ?? '');
 		} catch (e) {
 			toast.error(`Failed to load configuration sets: ${e}`);
@@ -196,7 +206,7 @@
 	async function loadReceiptRuleSets() {
 		loading = true;
 		try {
-			const res = await ses.send(new ListReceiptRuleSetsCommand({}));
+			const res = await ses().send(new ListReceiptRuleSetsCommand({}));
 			receiptRuleSets = (res.RuleSets ?? []).map((rs) => ({
 				RuleSetName: rs.Name,
 				CreatedTimestamp: rs.CreatedTimestamp
@@ -233,7 +243,7 @@
 		if (!newIdentity.trim()) return;
 		verifying = true;
 		try {
-			await ses.send(new VerifyEmailIdentityCommand({ EmailAddress: newIdentity.trim() }));
+			await ses().send(new VerifyEmailIdentityCommand({ EmailAddress: newIdentity.trim() }));
 			toast.success(`Verification email sent to ${newIdentity}`);
 			showVerifyModal = false;
 			newIdentity = '';
@@ -248,7 +258,7 @@
 	async function deleteIdentity(identity: string) {
 		if (!await confirmDestructive({ title: 'Delete Identity', message: `Delete SES identity "${identity}"? Email sending from this identity will be disabled.` })) return;
 		try {
-			await ses.send(new DeleteIdentityCommand({ Identity: identity }));
+			await ses().send(new DeleteIdentityCommand({ Identity: identity }));
 			toast.success(`Deleted ${identity}`);
 			await loadIdentities();
 		} catch (e) {
@@ -260,7 +270,7 @@
 		if (!newTemplateName.trim() || !newTemplateSubject.trim()) return;
 		creatingTemplate = true;
 		try {
-			await ses.send(
+			await ses().send(
 				new CreateTemplateCommand({
 					Template: {
 						TemplateName: newTemplateName.trim(),
@@ -287,7 +297,7 @@
 	async function deleteTemplate(name: string) {
 		if (!await confirmDestructive({ title: 'Delete Email Template', message: `Delete template "${name}"? Any integrations referencing this template will stop working.` })) return;
 		try {
-			await ses.send(new DeleteTemplateCommand({ TemplateName: name }));
+			await ses().send(new DeleteTemplateCommand({ TemplateName: name }));
 			toast.success(`Template "${name}" deleted`);
 			await loadTemplates();
 		} catch (e) {
@@ -296,8 +306,9 @@
 	}
 
 	async function viewTemplate(name: string) {
+		testRenderResult = '';
 		try {
-			const res = await ses.send(new GetTemplateCommand({ TemplateName: name }));
+			const res = await ses().send(new GetTemplateCommand({ TemplateName: name }));
 			selectedTemplate = res.Template
 				? {
 						TemplateName: res.Template.TemplateName,
@@ -311,6 +322,35 @@
 		}
 	}
 
+	// Render the selected template against sample data (TestRenderTemplate) so the
+	// operator can preview substitution output before sending.
+	async function testRenderTemplate() {
+		if (!selectedTemplate?.TemplateName) return;
+		let parsed: Record<string, unknown>;
+		try {
+			parsed = JSON.parse(testRenderData || '{}');
+		} catch {
+			toast.error('Template data must be valid JSON');
+			return;
+		}
+		testingRender = true;
+		testRenderResult = '';
+		try {
+			const res = await ses().send(
+				new TestRenderTemplateCommand({
+					TemplateName: selectedTemplate.TemplateName,
+					TemplateData: JSON.stringify(parsed)
+				})
+			);
+			testRenderResult = res.RenderedTemplate ?? '(empty render result)';
+			toast.success('Template rendered');
+		} catch (e) {
+			toast.error(`Failed to render template: ${e}`);
+		} finally {
+			testingRender = false;
+		}
+	}
+
 	async function sendEmail() {
 		if (!sendFrom.trim() || !sendTo.trim() || !sendSubject.trim()) {
 			toast.error('From, To, and Subject are required');
@@ -318,7 +358,7 @@
 		}
 		sending = true;
 		try {
-			await ses.send(
+			await ses().send(
 				new SendEmailCommand({
 					Source: sendFrom.trim(),
 					Destination: { ToAddresses: sendTo.split(',').map((s) => s.trim()) },
@@ -343,7 +383,7 @@
 		if (!newConfigSetName.trim()) return;
 		creatingConfigSet = true;
 		try {
-			await ses.send(
+			await ses().send(
 				new CreateConfigurationSetCommand({
 					ConfigurationSet: { Name: newConfigSetName.trim() }
 				})
@@ -362,7 +402,7 @@
 	async function deleteConfigSet(name: string) {
 		if (!await confirmDestructive({ title: 'Delete Configuration Set', message: `Delete configuration set "${name}"?` })) return;
 		try {
-			await ses.send(new DeleteConfigurationSetCommand({ ConfigurationSetName: name }));
+			await ses().send(new DeleteConfigurationSetCommand({ ConfigurationSetName: name }));
 			toast.success(`Configuration set "${name}" deleted`);
 			await loadConfigSets();
 		} catch (e) {
@@ -374,7 +414,7 @@
 		if (!newRuleSetName.trim()) return;
 		creatingRuleSet = true;
 		try {
-			await ses.send(new CreateReceiptRuleSetCommand({ RuleSetName: newRuleSetName.trim() }));
+			await ses().send(new CreateReceiptRuleSetCommand({ RuleSetName: newRuleSetName.trim() }));
 			toast.success(`Receipt rule set "${newRuleSetName}" created`);
 			showCreateRuleSetModal = false;
 			newRuleSetName = '';
@@ -389,7 +429,7 @@
 	async function deleteReceiptRuleSet(name: string) {
 		if (!await confirmDestructive({ title: 'Delete Receipt Rule Set', message: `Delete receipt rule set "${name}" and all its rules?` })) return;
 		try {
-			await ses.send(new DeleteReceiptRuleSetCommand({ RuleSetName: name }));
+			await ses().send(new DeleteReceiptRuleSetCommand({ RuleSetName: name }));
 			toast.success(`Receipt rule set "${name}" deleted`);
 			if (selectedRuleSet?.name === name) selectedRuleSet = null;
 			await loadReceiptRuleSets();
@@ -400,7 +440,7 @@
 
 	async function viewRuleSet(name: string) {
 		try {
-			const res = await ses.send(new DescribeReceiptRuleSetCommand({ RuleSetName: name }));
+			const res = await ses().send(new DescribeReceiptRuleSetCommand({ RuleSetName: name }));
 			selectedRuleSet = {
 				name,
 				rules: (res.Rules ?? []).map((r) => ({
@@ -662,6 +702,34 @@
 								<pre class="mt-1 rounded bg-muted p-3 text-xs overflow-auto max-h-48">{selectedTemplate.TextPart}</pre>
 							</div>
 						{/if}
+
+						<!-- Test Render / Send-Test -->
+						<div class="border-t pt-4">
+							<p class="text-sm font-medium flex items-center gap-2">
+								<Send class="h-4 w-4 text-orange-500" /> Test Render
+							</p>
+							<p class="text-xs text-muted-foreground mb-2">
+								Preview the rendered template with sample template data (JSON).
+							</p>
+							<textarea
+								bind:value={testRenderData}
+								rows={5}
+								class="w-full rounded-md border bg-background px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-primary"
+							></textarea>
+							<button
+								onclick={testRenderTemplate}
+								disabled={testingRender}
+								class="mt-2 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+							>
+								{testingRender ? 'Rendering…' : 'Render Template'}
+							</button>
+							{#if testRenderResult}
+								<div class="mt-3">
+									<p class="text-sm font-medium text-muted-foreground">Rendered Output</p>
+									<pre class="mt-1 rounded bg-muted p-3 text-xs overflow-auto max-h-64">{testRenderResult}</pre>
+								</div>
+							{/if}
+						</div>
 					</div>
 				</div>
 			</div>

@@ -4,17 +4,18 @@ import (
 	"encoding/json"
 )
 
+// backendSnapshot mirrors the region-nested backend maps (outer key = region).
 type backendSnapshot struct {
-	Domains             map[string]*Domain                      `json:"domains"`
-	Repositories        map[string]*Repository                  `json:"repositories"`
-	PackageGroups       map[string]*PackageGroup                `json:"packageGroups"`
-	Packages            map[string]*Package                     `json:"packages"`
-	PackageVersions     map[string]*PackageVersion              `json:"packageVersions"`
-	ExternalConnections map[string][]ExternalConnection         `json:"externalConnections"`
-	RepositoryPolicies  map[string]*RepositoryPermissionsPolicy `json:"repositoryPolicies"`
-	DomainPolicies      map[string]*DomainPermissionsPolicy     `json:"domainPolicies"`
-	AccountID           string                                  `json:"accountID"`
-	Region              string                                  `json:"region"`
+	Domains             map[string]map[string]*Domain                      `json:"domains"`
+	Repositories        map[string]map[string]*Repository                  `json:"repositories"`
+	PackageGroups       map[string]map[string]*PackageGroup                `json:"packageGroups"`
+	Packages            map[string]map[string]*Package                     `json:"packages"`
+	PackageVersions     map[string]map[string]*PackageVersion              `json:"packageVersions"`
+	ExternalConnections map[string]map[string][]ExternalConnection         `json:"externalConnections"`
+	RepositoryPolicies  map[string]map[string]*RepositoryPermissionsPolicy `json:"repositoryPolicies"`
+	DomainPolicies      map[string]map[string]*DomainPermissionsPolicy     `json:"domainPolicies"`
+	AccountID           string                                             `json:"accountID"`
+	Region              string                                             `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -57,28 +58,28 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	defer b.mu.Unlock()
 
 	if snap.Domains == nil {
-		snap.Domains = make(map[string]*Domain)
+		snap.Domains = make(map[string]map[string]*Domain)
 	}
 	if snap.Repositories == nil {
-		snap.Repositories = make(map[string]*Repository)
+		snap.Repositories = make(map[string]map[string]*Repository)
 	}
 	if snap.PackageGroups == nil {
-		snap.PackageGroups = make(map[string]*PackageGroup)
+		snap.PackageGroups = make(map[string]map[string]*PackageGroup)
 	}
 	if snap.Packages == nil {
-		snap.Packages = make(map[string]*Package)
+		snap.Packages = make(map[string]map[string]*Package)
 	}
 	if snap.PackageVersions == nil {
-		snap.PackageVersions = make(map[string]*PackageVersion)
+		snap.PackageVersions = make(map[string]map[string]*PackageVersion)
 	}
 	if snap.ExternalConnections == nil {
-		snap.ExternalConnections = make(map[string][]ExternalConnection)
+		snap.ExternalConnections = make(map[string]map[string][]ExternalConnection)
 	}
 	if snap.RepositoryPolicies == nil {
-		snap.RepositoryPolicies = make(map[string]*RepositoryPermissionsPolicy)
+		snap.RepositoryPolicies = make(map[string]map[string]*RepositoryPermissionsPolicy)
 	}
 	if snap.DomainPolicies == nil {
-		snap.DomainPolicies = make(map[string]*DomainPermissionsPolicy)
+		snap.DomainPolicies = make(map[string]map[string]*DomainPermissionsPolicy)
 	}
 
 	b.domains = snap.Domains

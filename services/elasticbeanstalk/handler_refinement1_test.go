@@ -1,6 +1,7 @@
 package elasticbeanstalk_test
 
 import (
+	"context"
 	"encoding/json"
 	"encoding/xml"
 	"net/http"
@@ -24,11 +25,13 @@ func TestRefinement1_Reset(t *testing.T) {
 
 	b := elasticbeanstalk.NewInMemoryBackend("123456789012", "us-east-1")
 
-	_, err := b.CreateApplication("app1", "desc", nil)
+	_, err := b.CreateApplication(context.Background(), "app1", "desc", nil)
 	require.NoError(t, err)
-	_, err = b.CreateEnvironment("app1", "env1", "64bit", "desc", nil, elasticbeanstalk.CreateEnvironmentParams{})
+	_, err = b.CreateEnvironment(
+		context.Background(), "app1", "env1", "64bit", "desc", nil, elasticbeanstalk.CreateEnvironmentParams{},
+	)
 	require.NoError(t, err)
-	_, err = b.CreateApplicationVersion("app1", "v1", "desc", "", "", nil)
+	_, err = b.CreateApplicationVersion(context.Background(), "app1", "v1", "desc", "", "", nil)
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, b.ApplicationCount())
@@ -51,7 +54,7 @@ func TestRefinement1_MultipleResetCycle(t *testing.T) {
 	b := elasticbeanstalk.NewInMemoryBackend("123456789012", "us-east-1")
 
 	for range 3 {
-		_, err := b.CreateApplication("app", "desc", nil)
+		_, err := b.CreateApplication(context.Background(), "app", "desc", nil)
 		require.NoError(t, err)
 		assert.Equal(t, 1, b.ApplicationCount())
 		b.Reset()
@@ -374,7 +377,7 @@ func TestRefinement1_AssociateOperationsRole_StoresRole(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Now retrieve the environment and verify it has the role stored.
-	envs := h.Backend.DescribeEnvironments("app", []string{"my-env"}, nil)
+	envs := h.Backend.DescribeEnvironments(context.Background(), "app", []string{"my-env"}, nil)
 	require.Len(t, envs, 1)
 	assert.Equal(t, "arn:aws:iam::123:role/MyRole", envs[0].OperationsRole)
 }
@@ -495,7 +498,7 @@ func TestRefinement1_SeedHelpers_DeepCopy(t *testing.T) {
 	tags["key"] = "mutated"
 
 	// The stored application should still have the original value.
-	apps := b.DescribeApplications(nil)
+	apps := b.DescribeApplications(context.Background(), nil)
 	require.Len(t, apps, 1)
 	assert.Equal(t, "original", apps[0].Tags["key"])
 }

@@ -708,7 +708,7 @@ func (h *DashboardHandler) setupSubRouter() {
 		}
 
 		return c.JSON(http.StatusOK, map[string]any{
-			"connections": h.config.CodeStarConnectionsOps.Backend.ListConnections("", ""),
+			"connections": h.config.CodeStarConnectionsOps.Backend.ListConnections(c.Request().Context(), "", ""),
 		})
 	})
 
@@ -797,6 +797,7 @@ func (h *DashboardHandler) setupSubRouter() {
 		}
 
 		conn, err := h.config.CodeStarConnectionsOps.Backend.CreateConnection(
+			c.Request().Context(),
 			req.ConnectionName,
 			req.ProviderType,
 			req.HostArn,
@@ -816,7 +817,7 @@ func (h *DashboardHandler) setupSubRouter() {
 		}
 
 		return c.JSON(http.StatusOK, map[string]any{
-			"hosts": h.config.CodeStarConnectionsOps.Backend.ListHosts(),
+			"hosts": h.config.CodeStarConnectionsOps.Backend.ListHosts(c.Request().Context()),
 		})
 	})
 
@@ -839,6 +840,7 @@ func (h *DashboardHandler) setupSubRouter() {
 		}
 
 		host, err := h.config.CodeStarConnectionsOps.Backend.CreateHost(
+			c.Request().Context(),
 			req.Name,
 			req.ProviderType,
 			req.ProviderEndpoint,
@@ -1422,7 +1424,7 @@ func (h *DashboardHandler) setupSubRouter() {
 		}
 
 		prefix := strings.TrimSpace(c.QueryParam("prefix"))
-		items := backend.ListAllObjects(prefix)
+		items := backend.ListAllObjects(c.Request().Context(), prefix)
 		entries := make([]msdObjectEntry, 0, len(items))
 
 		for _, item := range items {
@@ -1451,7 +1453,7 @@ func (h *DashboardHandler) setupSubRouter() {
 			return c.JSON(http.StatusOK, map[string]any{"objectCount": 0, "totalBytes": 0})
 		}
 
-		s := backend.Stats()
+		s := backend.Stats(c.Request().Context())
 
 		return c.JSON(http.StatusOK, map[string]any{
 			"objectCount": s.ObjectCount,
@@ -1498,7 +1500,14 @@ func (h *DashboardHandler) setupSubRouter() {
 		storageClass := r.FormValue("storage_class")
 
 		obj, putErr := backend.PutObject(
-			"/"+strings.TrimPrefix(objPath, "/"), body, contentType, cacheControl, storageClass, "",
+			c.Request().
+				Context(),
+			"/"+strings.TrimPrefix(objPath, "/"),
+			body,
+			contentType,
+			cacheControl,
+			storageClass,
+			"",
 		)
 		if putErr != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{keyError: putErr.Error()})
@@ -1531,6 +1540,7 @@ func (h *DashboardHandler) setupSubRouter() {
 		}
 
 		if err := backend.UpdateObjectMetadata(
+			c.Request().Context(),
 			"/"+strings.TrimPrefix(objPath, "/"),
 			body.ContentType,
 			body.CacheControl,
@@ -1552,7 +1562,7 @@ func (h *DashboardHandler) setupSubRouter() {
 			return c.JSON(http.StatusBadRequest, map[string]string{keyError: msdErrPathRequired})
 		}
 
-		obj, err := backend.GetObject("/" + strings.TrimPrefix(objPath, "/"))
+		obj, err := backend.GetObject(c.Request().Context(), "/"+strings.TrimPrefix(objPath, "/"))
 		if err != nil {
 			return c.JSON(http.StatusNotFound, map[string]string{keyError: msdErrObjectNotFound})
 		}
@@ -1584,7 +1594,7 @@ func (h *DashboardHandler) setupSubRouter() {
 			return c.JSON(http.StatusBadRequest, map[string]string{keyError: msdErrPathRequired})
 		}
 
-		if err := backend.DeleteObject("/" + strings.TrimPrefix(objPath, "/")); err != nil {
+		if err := backend.DeleteObject(c.Request().Context(), "/"+strings.TrimPrefix(objPath, "/")); err != nil {
 			return c.JSON(http.StatusNotFound, map[string]string{keyError: msdErrObjectNotFound})
 		}
 

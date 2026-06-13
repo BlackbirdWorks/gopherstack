@@ -315,7 +315,7 @@ type tagResourceOutput struct{}
 type untagResourceOutput struct{}
 
 type listStateMachinesOutput struct {
-	NextToken     string         `json:"nextToken"`
+	NextToken     string         `json:"nextToken,omitempty"`
 	StateMachines []StateMachine `json:"stateMachines"`
 }
 
@@ -333,12 +333,12 @@ type stopExecutionOutput struct {
 }
 
 type listExecutionsOutput struct {
-	NextToken  string      `json:"nextToken"`
+	NextToken  string      `json:"nextToken,omitempty"`
 	Executions []Execution `json:"executions"`
 }
 
 type getExecutionHistoryOutput struct {
-	NextToken string         `json:"nextToken"`
+	NextToken string         `json:"nextToken,omitempty"`
 	Events    []HistoryEvent `json:"events"`
 }
 
@@ -372,7 +372,7 @@ type listActivitiesInput struct {
 }
 
 type listActivitiesOutput struct {
-	NextToken  string     `json:"nextToken"`
+	NextToken  string     `json:"nextToken,omitempty"`
 	Activities []Activity `json:"activities"`
 }
 

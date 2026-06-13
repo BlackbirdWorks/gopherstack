@@ -1,6 +1,7 @@
 package memorydb_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -297,15 +298,15 @@ func TestRefinement3_DescribeServiceUpdates(t *testing.T) {
 func TestRefinement3_DescribeParameters_Backend(t *testing.T) {
 	t.Parallel()
 
-	b := memorydb.NewInMemoryBackend()
+	b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
 
-	_, err := b.CreateParameterGroup("us-east-1", "123456789012", &memorydb.ExportedCreateParameterGroupRequest{
+	_, err := b.CreateParameterGroup(context.Background(), &memorydb.ExportedCreateParameterGroupRequest{
 		ParameterGroupName: "test-pg",
 		Family:             "memorydb_redis7",
 	})
 	require.NoError(t, err)
 
-	params, err := b.DescribeParameters("test-pg")
+	params, err := b.DescribeParameters(context.Background(), "test-pg")
 	require.NoError(t, err)
 	assert.NotNil(t, params)
 }
@@ -314,9 +315,9 @@ func TestRefinement3_DescribeParameters_Backend(t *testing.T) {
 func TestRefinement3_DescribeParameters_Backend_NotFound(t *testing.T) {
 	t.Parallel()
 
-	b := memorydb.NewInMemoryBackend()
+	b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
 
-	_, err := b.DescribeParameters("no-such-group")
+	_, err := b.DescribeParameters(context.Background(), "no-such-group")
 	require.Error(t, err)
 }
 
@@ -324,15 +325,15 @@ func TestRefinement3_DescribeParameters_Backend_NotFound(t *testing.T) {
 func TestRefinement3_ResetParameterGroup_Backend(t *testing.T) {
 	t.Parallel()
 
-	b := memorydb.NewInMemoryBackend()
+	b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
 
-	_, err := b.CreateParameterGroup("us-east-1", "123456789012", &memorydb.ExportedCreateParameterGroupRequest{
+	_, err := b.CreateParameterGroup(context.Background(), &memorydb.ExportedCreateParameterGroupRequest{
 		ParameterGroupName: "reset-pg",
 		Family:             "memorydb_redis7",
 	})
 	require.NoError(t, err)
 
-	pg, err := b.ResetParameterGroup("reset-pg", nil, true)
+	pg, err := b.ResetParameterGroup(context.Background(), "reset-pg", nil, true)
 	require.NoError(t, err)
 	assert.Equal(t, "reset-pg", pg.Name)
 }
@@ -341,10 +342,10 @@ func TestRefinement3_ResetParameterGroup_Backend(t *testing.T) {
 func TestRefinement3_FailoverShard_Backend(t *testing.T) {
 	t.Parallel()
 
-	b := memorydb.NewInMemoryBackend()
+	b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
 	b.AddClusterInternal("fs-cluster", "db.r6g.large")
 
-	cl, err := b.FailoverShard("fs-cluster", "")
+	cl, err := b.FailoverShard(context.Background(), "fs-cluster", "")
 	require.NoError(t, err)
 	assert.Equal(t, "fs-cluster", cl.Name)
 }
@@ -353,10 +354,10 @@ func TestRefinement3_FailoverShard_Backend(t *testing.T) {
 func TestRefinement3_ListAllowedNodeTypeUpdates_Backend(t *testing.T) {
 	t.Parallel()
 
-	b := memorydb.NewInMemoryBackend()
+	b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
 	b.AddClusterInternal("nt-cluster", "db.r6g.large")
 
-	types, err := b.ListAllowedNodeTypeUpdates("nt-cluster")
+	types, err := b.ListAllowedNodeTypeUpdates(context.Background(), "nt-cluster")
 	require.NoError(t, err)
 	assert.NotEmpty(t, types)
 }
@@ -365,15 +366,15 @@ func TestRefinement3_ListAllowedNodeTypeUpdates_Backend(t *testing.T) {
 func TestRefinement3_ListAllowedMultiRegionClusterUpdates_Backend(t *testing.T) {
 	t.Parallel()
 
-	b := memorydb.NewInMemoryBackend()
+	b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
 
-	_, err := b.CreateMultiRegionCluster("us-east-1", "123456789012", &memorydb.ExportedCreateMultiRegionClusterRequest{
+	_, err := b.CreateMultiRegionCluster(context.Background(), &memorydb.ExportedCreateMultiRegionClusterRequest{
 		MultiRegionClusterNameSuffix: "mrc-test",
 		NodeType:                     "db.r6g.large",
 	})
 	require.NoError(t, err)
 
-	types, err := b.ListAllowedMultiRegionClusterUpdates("virv-mrc-test")
+	types, err := b.ListAllowedMultiRegionClusterUpdates(context.Background(), "virv-mrc-test")
 	require.NoError(t, err)
 	assert.NotEmpty(t, types)
 }
@@ -382,9 +383,9 @@ func TestRefinement3_ListAllowedMultiRegionClusterUpdates_Backend(t *testing.T) 
 func TestRefinement3_ListAllowedMultiRegionClusterUpdates_Backend_NotFound(t *testing.T) {
 	t.Parallel()
 
-	b := memorydb.NewInMemoryBackend()
+	b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
 
-	_, err := b.ListAllowedMultiRegionClusterUpdates("no-such-mrc")
+	_, err := b.ListAllowedMultiRegionClusterUpdates(context.Background(), "no-such-mrc")
 	require.Error(t, err)
 }
 
@@ -392,15 +393,15 @@ func TestRefinement3_ListAllowedMultiRegionClusterUpdates_Backend_NotFound(t *te
 func TestRefinement3_UpdateMultiRegionCluster_Backend(t *testing.T) {
 	t.Parallel()
 
-	b := memorydb.NewInMemoryBackend()
+	b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
 
-	_, err := b.CreateMultiRegionCluster("us-east-1", "123456789012", &memorydb.ExportedCreateMultiRegionClusterRequest{
+	_, err := b.CreateMultiRegionCluster(context.Background(), &memorydb.ExportedCreateMultiRegionClusterRequest{
 		MultiRegionClusterNameSuffix: "upd-test",
 		NodeType:                     "db.r6g.large",
 	})
 	require.NoError(t, err)
 
-	mrc, err := b.UpdateMultiRegionCluster(&memorydb.ExportedUpdateMultiRegionClusterRequest{
+	mrc, err := b.UpdateMultiRegionCluster(context.Background(), &memorydb.ExportedUpdateMultiRegionClusterRequest{
 		MultiRegionClusterName: "virv-upd-test",
 		Description:            "updated",
 		NodeType:               "db.r6g.xlarge",
@@ -414,9 +415,9 @@ func TestRefinement3_UpdateMultiRegionCluster_Backend(t *testing.T) {
 func TestRefinement3_UpdateMultiRegionCluster_Backend_NotFound(t *testing.T) {
 	t.Parallel()
 
-	b := memorydb.NewInMemoryBackend()
+	b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
 
-	_, err := b.UpdateMultiRegionCluster(&memorydb.ExportedUpdateMultiRegionClusterRequest{
+	_, err := b.UpdateMultiRegionCluster(context.Background(), &memorydb.ExportedUpdateMultiRegionClusterRequest{
 		MultiRegionClusterName: "no-such-mrc",
 	})
 	require.Error(t, err)
@@ -426,10 +427,10 @@ func TestRefinement3_UpdateMultiRegionCluster_Backend_NotFound(t *testing.T) {
 func TestRefinement3_DeepCopyOnDescribeClusters(t *testing.T) {
 	t.Parallel()
 
-	b := memorydb.NewInMemoryBackend()
+	b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
 	b.AddClusterInternal("copy-cluster", "db.r6g.large")
 
-	clusters1, err := b.DescribeClusters("")
+	clusters1, err := b.DescribeClusters(context.Background(), "")
 	require.NoError(t, err)
 	require.Len(t, clusters1, 1)
 
@@ -437,7 +438,7 @@ func TestRefinement3_DeepCopyOnDescribeClusters(t *testing.T) {
 	clusters1[0].Name = "mutated"
 
 	// Original should be unchanged
-	clusters2, err := b.DescribeClusters("")
+	clusters2, err := b.DescribeClusters(context.Background(), "")
 	require.NoError(t, err)
 	require.Len(t, clusters2, 1)
 	assert.Equal(t, "copy-cluster", clusters2[0].Name)
@@ -447,9 +448,9 @@ func TestRefinement3_DeepCopyOnDescribeClusters(t *testing.T) {
 func TestRefinement3_DescribeParameters_Sorted(t *testing.T) {
 	t.Parallel()
 
-	b := memorydb.NewInMemoryBackend()
+	b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
 
-	_, err := b.CreateParameterGroup("us-east-1", "123456789012", &memorydb.ExportedCreateParameterGroupRequest{
+	_, err := b.CreateParameterGroup(context.Background(), &memorydb.ExportedCreateParameterGroupRequest{
 		ParameterGroupName: "sort-pg",
 		Family:             "memorydb_redis7",
 	})
@@ -477,15 +478,15 @@ func TestRefinement3_DescribeParameters_Sorted(t *testing.T) {
 func TestRefinement3_UpdateMultiRegionCluster_NodeType(t *testing.T) {
 	t.Parallel()
 
-	b := memorydb.NewInMemoryBackend()
+	b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
 
-	_, err := b.CreateMultiRegionCluster("us-east-1", "123456789012", &memorydb.ExportedCreateMultiRegionClusterRequest{
+	_, err := b.CreateMultiRegionCluster(context.Background(), &memorydb.ExportedCreateMultiRegionClusterRequest{
 		MultiRegionClusterNameSuffix: "nt-test",
 		NodeType:                     "db.r6g.large",
 	})
 	require.NoError(t, err)
 
-	mrc, err := b.UpdateMultiRegionCluster(&memorydb.ExportedUpdateMultiRegionClusterRequest{
+	mrc, err := b.UpdateMultiRegionCluster(context.Background(), &memorydb.ExportedUpdateMultiRegionClusterRequest{
 		MultiRegionClusterName: "virv-nt-test",
 		NodeType:               "db.r6g.2xlarge",
 	})
@@ -497,7 +498,7 @@ func TestRefinement3_UpdateMultiRegionCluster_NodeType(t *testing.T) {
 func TestRefinement3_ARNIndex_NewOps(t *testing.T) {
 	t.Parallel()
 
-	b := memorydb.NewInMemoryBackend()
+	b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
 
 	initialSize := memorydb.ARNIndexSize(b)
 

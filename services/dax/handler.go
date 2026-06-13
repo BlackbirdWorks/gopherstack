@@ -429,9 +429,7 @@ type subnetGroupResponse struct {
 
 type subnetItem struct {
 	SubnetIdentifier       string `json:"SubnetIdentifier"`
-	SubnetAvailabilityZone struct {
-		Name string `json:"Name"`
-	} `json:"SubnetAvailabilityZone"`
+	SubnetAvailabilityZone string `json:"SubnetAvailabilityZone"`
 }
 
 type eventResponse struct {
@@ -517,9 +515,9 @@ func toSubnetGroupResponse(sg *SubnetGroup) subnetGroupResponse {
 
 	for _, entry := range sg.Subnets {
 		item := subnetItem{
-			SubnetIdentifier: entry.SubnetID,
+			SubnetIdentifier:       entry.SubnetID,
+			SubnetAvailabilityZone: entry.AvailabilityZone,
 		}
-		item.SubnetAvailabilityZone.Name = entry.AvailabilityZone
 
 		items = append(items, item)
 	}

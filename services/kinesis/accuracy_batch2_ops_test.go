@@ -1,6 +1,7 @@
 package kinesis_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -112,7 +113,7 @@ func TestAccuracyBatch2_DescribeStream_ByARN(t *testing.T) {
 	doRequest(t, h, "CreateStream", map[string]any{"StreamName": "arn-describe-stream", "ShardCount": 1})
 
 	b := h.Backend.(*kinesis.InMemoryBackend)
-	desc, err := b.DescribeStream(&kinesis.DescribeStreamInput{StreamName: "arn-describe-stream"})
+	desc, err := b.DescribeStream(context.Background(), &kinesis.DescribeStreamInput{StreamName: "arn-describe-stream"})
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -157,7 +158,7 @@ func TestAccuracyBatch2_DescribeStreamSummary_ByARN(t *testing.T) {
 	doRequest(t, h, "CreateStream", map[string]any{"StreamName": "arn-summary-stream", "ShardCount": 1})
 
 	b := h.Backend.(*kinesis.InMemoryBackend)
-	desc, err := b.DescribeStream(&kinesis.DescribeStreamInput{StreamName: "arn-summary-stream"})
+	desc, err := b.DescribeStream(context.Background(), &kinesis.DescribeStreamInput{StreamName: "arn-summary-stream"})
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -334,7 +335,7 @@ func TestAccuracyBatch2_DeleteStream_ByARN(t *testing.T) {
 			doRequest(t, h, "CreateStream", map[string]any{"StreamName": streamName, "ShardCount": 1})
 
 			b := h.Backend.(*kinesis.InMemoryBackend)
-			desc, err := b.DescribeStream(&kinesis.DescribeStreamInput{StreamName: streamName})
+			desc, err := b.DescribeStream(context.Background(), &kinesis.DescribeStreamInput{StreamName: streamName})
 			require.NoError(t, err)
 
 			var deleteBody map[string]any
@@ -369,7 +370,10 @@ func TestAccuracyBatch2_PutRecord_ByARN(t *testing.T) {
 	doRequest(t, h, "CreateStream", map[string]any{"StreamName": "put-record-arn-stream", "ShardCount": 1})
 
 	b := h.Backend.(*kinesis.InMemoryBackend)
-	desc, err := b.DescribeStream(&kinesis.DescribeStreamInput{StreamName: "put-record-arn-stream"})
+	desc, err := b.DescribeStream(
+		context.Background(),
+		&kinesis.DescribeStreamInput{StreamName: "put-record-arn-stream"},
+	)
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -419,7 +423,10 @@ func TestAccuracyBatch2_PutRecords_ByARN(t *testing.T) {
 	doRequest(t, h, "CreateStream", map[string]any{"StreamName": "put-records-arn-stream", "ShardCount": 1})
 
 	b := h.Backend.(*kinesis.InMemoryBackend)
-	desc, err := b.DescribeStream(&kinesis.DescribeStreamInput{StreamName: "put-records-arn-stream"})
+	desc, err := b.DescribeStream(
+		context.Background(),
+		&kinesis.DescribeStreamInput{StreamName: "put-records-arn-stream"},
+	)
 	require.NoError(t, err)
 
 	records := []map[string]any{
@@ -477,7 +484,7 @@ func TestAccuracyBatch2_GetShardIterator_ByARN(t *testing.T) {
 	doRequest(t, h, "CreateStream", map[string]any{"StreamName": "gsi-arn-stream", "ShardCount": 1})
 
 	b := h.Backend.(*kinesis.InMemoryBackend)
-	desc, err := b.DescribeStream(&kinesis.DescribeStreamInput{StreamName: "gsi-arn-stream"})
+	desc, err := b.DescribeStream(context.Background(), &kinesis.DescribeStreamInput{StreamName: "gsi-arn-stream"})
 	require.NoError(t, err)
 	require.NotEmpty(t, desc.Shards)
 	shardID := desc.Shards[0].ShardID

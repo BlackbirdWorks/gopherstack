@@ -204,11 +204,17 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function for EMR requests.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		// Resolve the per-request region (from SigV4 / X-Amz-Region) and attach
+		// it to the context so backend operations are region-scoped.
+		region := httputils.ExtractRegionFromRequest(c.Request(), h.Backend.Region())
+
 		return service.HandleTarget(
 			c, logger.Load(c.Request().Context()),
 			"EMR", "application/x-amz-json-1.1",
 			h.GetSupportedOperations(),
-			h.dispatch,
+			func(ctx context.Context, action string, body []byte) ([]byte, error) {
+				return h.dispatch(context.WithValue(ctx, regionContextKey{}, region), action, body)
+			},
 			h.handleError,
 		)
 	}
@@ -342,8 +348,8 @@ type runJobFlowOutput struct {
 	ClusterArn string `json:"ClusterArn"`
 }
 
-func (h *Handler) handleRunJobFlow(_ context.Context, in *runJobFlowInput) (*runJobFlowOutput, error) {
-	cluster, err := h.Backend.RunJobFlow(RunJobFlowParams{
+func (h *Handler) handleRunJobFlow(ctx context.Context, in *runJobFlowInput) (*runJobFlowOutput, error) {
+	cluster, err := h.Backend.RunJobFlow(ctx, RunJobFlowParams{
 		Name:                    in.Name,
 		ReleaseLabel:            in.ReleaseLabel,
 		OSReleaseLabel:          in.OSReleaseLabel,
@@ -384,8 +390,8 @@ type describeClusterOutput struct {
 	Cluster *Cluster `json:"Cluster"`
 }
 
-func (h *Handler) handleDescribeCluster(_ context.Context, in *describeClusterInput) (*describeClusterOutput, error) {
-	cluster, err := h.Backend.DescribeCluster(in.ClusterID)
+func (h *Handler) handleDescribeCluster(ctx context.Context, in *describeClusterInput) (*describeClusterOutput, error) {
+	cluster, err := h.Backend.DescribeCluster(ctx, in.ClusterID)
 	if err != nil {
 		return nil, err
 	}
@@ -407,7 +413,7 @@ type listClustersOutput struct {
 	Clusters []ClusterSummary `json:"Clusters"`
 }
 
-func (h *Handler) handleListClusters(_ context.Context, in *listClustersInput) (*listClustersOutput, error) {
+func (h *Handler) handleListClusters(ctx context.Context, in *listClustersInput) (*listClustersOutput, error) {
 	params := ListClustersParams{
 		ClusterStates: in.ClusterStates,
 		Marker:        in.Marker,
@@ -423,7 +429,7 @@ func (h *Handler) handleListClusters(_ context.Context, in *listClustersInput) (
 		params.CreatedBefore = &t
 	}
 
-	clusters, nextMarker := h.Backend.ListClusters(params)
+	clusters, nextMarker := h.Backend.ListClusters(ctx, params)
 
 	return &listClustersOutput{Clusters: clusters, Marker: nextMarker}, nil
 }
@@ -437,10 +443,10 @@ type terminateJobFlowsInput struct {
 type emptyOutput struct{}
 
 func (h *Handler) handleTerminateJobFlows(
-	_ context.Context,
+	ctx context.Context,
 	in *terminateJobFlowsInput,
 ) (*emptyOutput, error) {
-	if err := h.Backend.TerminateJobFlows(in.JobFlowIDs); err != nil {
+	if err := h.Backend.TerminateJobFlows(ctx, in.JobFlowIDs); err != nil {
 		return nil, err
 	}
 
@@ -454,8 +460,8 @@ type addTagsInput struct {
 	Tags       []Tag  `json:"Tags"`
 }
 
-func (h *Handler) handleAddTags(_ context.Context, in *addTagsInput) (*emptyOutput, error) {
-	if err := h.Backend.AddTags(in.ResourceID, in.Tags); err != nil {
+func (h *Handler) handleAddTags(ctx context.Context, in *addTagsInput) (*emptyOutput, error) {
+	if err := h.Backend.AddTags(ctx, in.ResourceID, in.Tags); err != nil {
 		return nil, err
 	}
 
@@ -469,8 +475,8 @@ type removeTagsInput struct {
 	TagKeys    []string `json:"TagKeys"`
 }
 
-func (h *Handler) handleRemoveTags(_ context.Context, in *removeTagsInput) (*emptyOutput, error) {
-	if err := h.Backend.RemoveTags(in.ResourceID, in.TagKeys); err != nil {
+func (h *Handler) handleRemoveTags(ctx context.Context, in *removeTagsInput) (*emptyOutput, error) {
+	if err := h.Backend.RemoveTags(ctx, in.ResourceID, in.TagKeys); err != nil {
 		return nil, err
 	}
 
@@ -488,10 +494,10 @@ type listTagsForResourceOutput struct {
 }
 
 func (h *Handler) handleListTagsForResource(
-	_ context.Context,
+	ctx context.Context,
 	in *listTagsForResourceInput,
 ) (*listTagsForResourceOutput, error) {
-	tags, err := h.Backend.ListTagsForResource(in.ResourceID)
+	tags, err := h.Backend.ListTagsForResource(ctx, in.ResourceID)
 	if err != nil {
 		return nil, err
 	}
@@ -513,8 +519,8 @@ type listStepsOutput struct {
 	Steps  []Step `json:"Steps"`
 }
 
-func (h *Handler) handleListSteps(_ context.Context, in *listStepsInput) (*listStepsOutput, error) {
-	steps, nextMarker := h.Backend.ListSteps(in.ClusterID, in.StepStates, in.StepIDs, in.Marker)
+func (h *Handler) handleListSteps(ctx context.Context, in *listStepsInput) (*listStepsOutput, error) {
+	steps, nextMarker := h.Backend.ListSteps(ctx, in.ClusterID, in.StepStates, in.StepIDs, in.Marker)
 
 	return &listStepsOutput{Steps: steps, Marker: nextMarker}, nil
 }
@@ -531,10 +537,10 @@ type addJobFlowStepsOutput struct {
 }
 
 func (h *Handler) handleAddJobFlowSteps(
-	_ context.Context,
+	ctx context.Context,
 	in *addJobFlowStepsInput,
 ) (*addJobFlowStepsOutput, error) {
-	ids, err := h.Backend.AddJobFlowSteps(in.JobFlowID, in.Steps)
+	ids, err := h.Backend.AddJobFlowSteps(ctx, in.JobFlowID, in.Steps)
 	if err != nil {
 		return nil, err
 	}
@@ -553,10 +559,10 @@ type listInstanceGroupsOutput struct {
 }
 
 func (h *Handler) handleListInstanceGroups(
-	_ context.Context,
+	ctx context.Context,
 	in *listInstanceGroupsInput,
 ) (*listInstanceGroupsOutput, error) {
-	groups, err := h.Backend.ListInstanceGroups(in.ClusterID)
+	groups, err := h.Backend.ListInstanceGroups(ctx, in.ClusterID)
 	if err != nil {
 		return nil, err
 	}
@@ -575,10 +581,10 @@ type listInstanceFleetsOutput struct {
 }
 
 func (h *Handler) handleListInstanceFleets(
-	_ context.Context,
+	ctx context.Context,
 	in *listInstanceFleetsInput,
 ) (*listInstanceFleetsOutput, error) {
-	fleets, err := h.Backend.ListInstanceFleets(in.ClusterID)
+	fleets, err := h.Backend.ListInstanceFleets(ctx, in.ClusterID)
 	if err != nil {
 		return nil, err
 	}
@@ -614,10 +620,10 @@ type getAutoTerminationPolicyOutput struct {
 }
 
 func (h *Handler) handleGetAutoTerminationPolicy(
-	_ context.Context,
+	ctx context.Context,
 	in *getAutoTerminationPolicyInput,
 ) (*getAutoTerminationPolicyOutput, error) {
-	policy, err := h.Backend.GetAutoTerminationPolicy(in.ClusterID)
+	policy, err := h.Backend.GetAutoTerminationPolicy(ctx, in.ClusterID)
 	if err != nil {
 		return nil, err
 	}
@@ -640,10 +646,10 @@ type getManagedScalingPolicyOutput struct {
 }
 
 func (h *Handler) handleGetManagedScalingPolicy(
-	_ context.Context,
+	ctx context.Context,
 	in *getManagedScalingPolicyInput,
 ) (*getManagedScalingPolicyOutput, error) {
-	policy, err := h.Backend.GetManagedScalingPolicy(in.ClusterID)
+	policy, err := h.Backend.GetManagedScalingPolicy(ctx, in.ClusterID)
 	if err != nil {
 		return nil, err
 	}
@@ -669,10 +675,10 @@ type addInstanceFleetOutput struct {
 }
 
 func (h *Handler) handleAddInstanceFleet(
-	_ context.Context,
+	ctx context.Context,
 	in *addInstanceFleetInput,
 ) (*addInstanceFleetOutput, error) {
-	fleet, clusterARN, err := h.Backend.AddInstanceFleet(in.ClusterID, in.InstanceFleet)
+	fleet, clusterARN, err := h.Backend.AddInstanceFleet(ctx, in.ClusterID, in.InstanceFleet)
 	if err != nil {
 		return nil, err
 	}
@@ -698,10 +704,10 @@ type addInstanceGroupsOutput struct {
 }
 
 func (h *Handler) handleAddInstanceGroups(
-	_ context.Context,
+	ctx context.Context,
 	in *addInstanceGroupsInput,
 ) (*addInstanceGroupsOutput, error) {
-	groupIDs, clusterARN, err := h.Backend.AddInstanceGroups(in.JobFlowID, in.InstanceGroups)
+	groupIDs, clusterARN, err := h.Backend.AddInstanceGroups(ctx, in.JobFlowID, in.InstanceGroups)
 	if err != nil {
 		return nil, err
 	}
@@ -725,10 +731,10 @@ type cancelStepsOutput struct {
 }
 
 func (h *Handler) handleCancelSteps(
-	_ context.Context,
+	ctx context.Context,
 	in *cancelStepsInput,
 ) (*cancelStepsOutput, error) {
-	if err := h.Backend.CancelSteps(in.ClusterID, in.StepIDs); err != nil {
+	if err := h.Backend.CancelSteps(ctx, in.ClusterID, in.StepIDs); err != nil {
 		return nil, err
 	}
 
@@ -747,10 +753,10 @@ type createPersistentAppUIOutput struct {
 }
 
 func (h *Handler) handleCreatePersistentAppUI(
-	_ context.Context,
+	ctx context.Context,
 	in *createPersistentAppUIInput,
 ) (*createPersistentAppUIOutput, error) {
-	ui, err := h.Backend.CreatePersistentAppUI(in.TargetResourceArn)
+	ui, err := h.Backend.CreatePersistentAppUI(ctx, in.TargetResourceArn)
 	if err != nil {
 		return nil, err
 	}
@@ -774,10 +780,10 @@ type createSecurityConfigurationOutput struct {
 }
 
 func (h *Handler) handleCreateSecurityConfiguration(
-	_ context.Context,
+	ctx context.Context,
 	in *createSecurityConfigurationInput,
 ) (*createSecurityConfigurationOutput, error) {
-	sc, err := h.Backend.CreateSecurityConfiguration(in.Name, in.SecurityConfiguration)
+	sc, err := h.Backend.CreateSecurityConfiguration(ctx, in.Name, in.SecurityConfiguration)
 	if err != nil {
 		return nil, err
 	}
@@ -795,10 +801,10 @@ type deleteSecurityConfigurationInput struct {
 }
 
 func (h *Handler) handleDeleteSecurityConfiguration(
-	_ context.Context,
+	ctx context.Context,
 	in *deleteSecurityConfigurationInput,
 ) (*emptyOutput, error) {
-	if err := h.Backend.DeleteSecurityConfiguration(in.Name); err != nil {
+	if err := h.Backend.DeleteSecurityConfiguration(ctx, in.Name); err != nil {
 		return nil, err
 	}
 
@@ -825,11 +831,10 @@ type createStudioOutput struct {
 }
 
 func (h *Handler) handleCreateStudio(
-	_ context.Context,
+	ctx context.Context,
 	in *createStudioInput,
 ) (*createStudioOutput, error) {
-	studio, err := h.Backend.CreateStudio(
-		in.Name,
+	studio, err := h.Backend.CreateStudio(ctx, in.Name,
 		in.AuthMode,
 		in.DefaultS3Location,
 		in.EngineSecurityGroupID,
@@ -856,10 +861,10 @@ type deleteStudioInput struct {
 }
 
 func (h *Handler) handleDeleteStudio(
-	_ context.Context,
+	ctx context.Context,
 	in *deleteStudioInput,
 ) (*emptyOutput, error) {
-	if err := h.Backend.DeleteStudio(in.StudioID); err != nil {
+	if err := h.Backend.DeleteStudio(ctx, in.StudioID); err != nil {
 		return nil, err
 	}
 
@@ -877,11 +882,10 @@ type createStudioSessionMappingInput struct {
 }
 
 func (h *Handler) handleCreateStudioSessionMapping(
-	_ context.Context,
+	ctx context.Context,
 	in *createStudioSessionMappingInput,
 ) (*emptyOutput, error) {
-	if err := h.Backend.CreateStudioSessionMapping(
-		in.StudioID,
+	if err := h.Backend.CreateStudioSessionMapping(ctx, in.StudioID,
 		in.IdentityType,
 		in.IdentityID,
 		in.IdentityName,
@@ -903,11 +907,10 @@ type deleteStudioSessionMappingInput struct {
 }
 
 func (h *Handler) handleDeleteStudioSessionMapping(
-	_ context.Context,
+	ctx context.Context,
 	in *deleteStudioSessionMappingInput,
 ) (*emptyOutput, error) {
-	if err := h.Backend.DeleteStudioSessionMapping(
-		in.StudioID,
+	if err := h.Backend.DeleteStudioSessionMapping(ctx, in.StudioID,
 		in.IdentityType,
 		in.IdentityID,
 		in.IdentityName,
@@ -931,10 +934,10 @@ type describeSecurityConfigurationOutput struct {
 }
 
 func (h *Handler) handleDescribeSecurityConfiguration(
-	_ context.Context,
+	ctx context.Context,
 	in *describeSecurityConfigurationInput,
 ) (*describeSecurityConfigurationOutput, error) {
-	sc, err := h.Backend.DescribeSecurityConfiguration(in.Name)
+	sc, err := h.Backend.DescribeSecurityConfiguration(ctx, in.Name)
 	if err != nil {
 		return nil, err
 	}

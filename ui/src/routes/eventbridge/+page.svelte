@@ -19,10 +19,16 @@
 		CreateConnectionCommand,
 		DeleteConnectionCommand,
 		TestEventPatternCommand,
+		ListTargetsByRuleCommand,
+		PutTargetsCommand,
+		RemoveTargetsCommand,
+		StartReplayCommand,
+		DescribeArchiveCommand,
 		type EventBus,
 		type Rule,
 		type Archive,
 		type Connection,
+		type Target,
 		type PutRuleCommandInput,
 		ConnectionAuthorizationType
 	} from '@aws-sdk/client-eventbridge';
@@ -37,6 +43,20 @@
 	let selectedBus = $state<EventBus | null>(null);
 	let rules = $state<Rule[]>([]);
 	let loadingRules = $state(false);
+	// Rule targets editor
+	let expandedRule = $state<string | null>(null);
+	let ruleTargets = $state<Target[]>([]);
+	let loadingTargets = $state(false);
+	let newTargetArn = $state('');
+	let newTargetId = $state('');
+	let addingTarget = $state(false);
+	// Archive replay
+	let replayArchive = $state<string | null>(null);
+	let replayName = $state('');
+	let replayStart = $state('');
+	let replayEnd = $state('');
+	let replayBusArn = $state('');
+	let startingReplay = $state(false);
 	let activeTab = $state<Tab>('buses');
 	let archives = $state<Archive[]>([]);
 	let loadingArchives = $state(false);
@@ -113,6 +133,82 @@
 		try { const res = await eb.send(new ListRulesCommand({ EventBusName: busName, Limit: 100 })); rules = res.Rules ?? []; }
 		catch (err: unknown) { toast.error(`Failed to load rules: ${(err as Error).message}`); }
 		finally { loadingRules = false; }
+	}
+	async function toggleRuleTargets(rule: Rule) {
+		if (expandedRule === rule.Name) { expandedRule = null; return; }
+		expandedRule = rule.Name ?? null;
+		ruleTargets = [];
+		newTargetArn = '';
+		newTargetId = '';
+		loadingTargets = true;
+		try {
+			const res = await eb.send(new ListTargetsByRuleCommand({ Rule: rule.Name, EventBusName: selectedBus?.Name }));
+			ruleTargets = res.Targets ?? [];
+		} catch (err: unknown) { toast.error(`Failed to load targets: ${(err as Error).message}`); }
+		finally { loadingTargets = false; }
+	}
+	async function addTarget(ruleName: string) {
+		if (!newTargetArn.trim()) { toast.error('Target ARN is required'); return; }
+		addingTarget = true;
+		try {
+			const id = newTargetId.trim() || `target-${Date.now()}`;
+			const res = await eb.send(new PutTargetsCommand({ Rule: ruleName, EventBusName: selectedBus?.Name, Targets: [{ Id: id, Arn: newTargetArn.trim() }] }));
+			if ((res.FailedEntryCount ?? 0) > 0) {
+				toast.error(`Failed: ${res.FailedEntries?.[0]?.ErrorMessage ?? 'unknown error'}`);
+			} else {
+				toast.success('Target added');
+				newTargetArn = '';
+				newTargetId = '';
+				await toggleRuleTargets({ Name: ruleName });
+				expandedRule = ruleName;
+			}
+		} catch (err: unknown) { toast.error(`Add target failed: ${(err as Error).message}`); }
+		finally { addingTarget = false; }
+	}
+	async function removeTarget(ruleName: string, id: string) {
+		try {
+			await eb.send(new RemoveTargetsCommand({ Rule: ruleName, EventBusName: selectedBus?.Name, Ids: [id] }));
+			toast.success('Target removed');
+			ruleTargets = ruleTargets.filter((t) => t.Id !== id);
+		} catch (err: unknown) { toast.error(`Remove target failed: ${(err as Error).message}`); }
+	}
+	let replayArchiveArn = $state('');
+	async function openReplay(archive: Archive) {
+		replayArchive = archive.ArchiveName ?? null;
+		replayName = `${archive.ArchiveName}-replay-${Date.now()}`.replaceAll(/[^A-Za-z0-9._-]/g, '-');
+		replayBusArn = archive.EventSourceArn ?? '';
+		replayArchiveArn = '';
+		const now = new Date();
+		replayEnd = now.toISOString().slice(0, 16);
+		replayStart = new Date(now.getTime() - 24 * 3600 * 1000).toISOString().slice(0, 16);
+		try {
+			const res = await eb.send(new DescribeArchiveCommand({ ArchiveName: archive.ArchiveName }));
+			replayArchiveArn = res.ArchiveArn ?? '';
+		} catch {
+			// fall back to manual entry
+		}
+	}
+	async function startReplay() {
+		if (!replayArchive || !replayName.trim() || !replayBusArn.trim() || !replayArchiveArn.trim() || !replayStart || !replayEnd) {
+			toast.error('All replay fields (including archive ARN) are required');
+			return;
+		}
+		startingReplay = true;
+		try {
+			await eb.send(new StartReplayCommand({
+				ReplayName: replayName.trim(),
+				EventSourceArn: replayArchiveArn.trim(),
+				Destination: { Arn: replayBusArn.trim() },
+				EventStartTime: new Date(replayStart),
+				EventEndTime: new Date(replayEnd)
+			}));
+			toast.success(`Replay "${replayName.trim()}" started`);
+			replayArchive = null;
+		} catch (err: unknown) {
+			toast.error(`Start replay failed: ${(err as Error).message}`);
+		} finally {
+			startingReplay = false;
+		}
 	}
 	async function createRule() {
 		if (!newRuleName.trim() || !selectedBus) return;
@@ -346,22 +442,56 @@
 			{:else}
 				<div class="grid gap-3">
 					{#each rules as rule}
-						<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 flex items-start justify-between">
-							<div class="min-w-0 flex-1">
-								<div class="flex items-center gap-2 mb-1">
-									<p class="font-medium text-slate-900 dark:text-white">{rule.Name}</p>
-									<span class="px-2 py-0.5 text-xs rounded-full {rule.State === 'ENABLED' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400'}">{rule.State}</span>
+						<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4">
+							<div class="flex items-start justify-between">
+								<div class="min-w-0 flex-1">
+									<div class="flex items-center gap-2 mb-1">
+										<p class="font-medium text-slate-900 dark:text-white">{rule.Name}</p>
+										<span class="px-2 py-0.5 text-xs rounded-full {rule.State === 'ENABLED' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400'}">{rule.State}</span>
+									</div>
+									{#if rule.Description}<p class="text-xs text-slate-500 dark:text-slate-400 mb-1">{rule.Description}</p>{/if}
+									{#if rule.ScheduleExpression}<p class="text-sm text-slate-600 dark:text-slate-400 font-mono">Schedule: {rule.ScheduleExpression}</p>{/if}
+									{#if rule.EventPattern}<p class="text-xs text-slate-500 dark:text-slate-400 font-mono truncate">Pattern: {rule.EventPattern}</p>{/if}
 								</div>
-								{#if rule.Description}<p class="text-xs text-slate-500 dark:text-slate-400 mb-1">{rule.Description}</p>{/if}
-								{#if rule.ScheduleExpression}<p class="text-sm text-slate-600 dark:text-slate-400 font-mono">Schedule: {rule.ScheduleExpression}</p>{/if}
-								{#if rule.EventPattern}<p class="text-xs text-slate-500 dark:text-slate-400 font-mono truncate">Pattern: {rule.EventPattern}</p>{/if}
+								<div class="flex items-center gap-2 ml-3">
+									<button onclick={() => toggleRuleTargets(rule)} class="text-xs px-2 py-1 rounded border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700">{expandedRule === rule.Name ? 'Hide Targets' : 'Targets'}</button>
+									<button onclick={() => toggleRule(rule)} class="p-1.5 text-slate-400 hover:text-indigo-500" title={rule.State === 'ENABLED' ? 'Disable rule' : 'Enable rule'}>
+										{#if rule.State === 'ENABLED'}<Pause class="w-4 h-4" />{:else}<Play class="w-4 h-4" />{/if}
+									</button>
+									<button onclick={() => deleteRule(rule.Name ?? '')} class="p-1.5 text-slate-400 hover:text-red-500"><Trash2 class="w-4 h-4" /></button>
+								</div>
 							</div>
-							<div class="flex items-center gap-2 ml-3">
-								<button onclick={() => toggleRule(rule)} class="p-1.5 text-slate-400 hover:text-indigo-500" title={rule.State === 'ENABLED' ? 'Disable rule' : 'Enable rule'}>
-									{#if rule.State === 'ENABLED'}<Pause class="w-4 h-4" />{:else}<Play class="w-4 h-4" />{/if}
-								</button>
-								<button onclick={() => deleteRule(rule.Name ?? '')} class="p-1.5 text-slate-400 hover:text-red-500"><Trash2 class="w-4 h-4" /></button>
-							</div>
+							{#if expandedRule === rule.Name}
+								<div class="mt-3 pt-3 border-t border-slate-200 dark:border-slate-700">
+									{#if loadingTargets}
+										<p class="text-xs text-slate-500">Loading targets...</p>
+									{:else}
+										{#if ruleTargets.length === 0}
+											<p class="text-xs text-slate-500 mb-2">No targets configured.</p>
+										{:else}
+											<div class="space-y-1 mb-2">
+												{#each ruleTargets as t}
+													<div class="flex items-center justify-between gap-2 text-xs bg-slate-50 dark:bg-slate-700/40 rounded p-2">
+														<span class="font-mono text-slate-700 dark:text-slate-300 truncate flex-1">{t.Id}: {t.Arn}</span>
+														<button onclick={() => removeTarget(rule.Name ?? '', t.Id ?? '')} class="shrink-0 text-red-500 hover:text-red-700">Remove</button>
+													</div>
+												{/each}
+											</div>
+										{/if}
+										<div class="flex flex-wrap items-end gap-2">
+											<div class="flex-1 min-w-[12rem]">
+												<label class="block text-xs text-slate-500 dark:text-slate-400 mb-1" for="tgt-arn-{rule.Name}">Target ARN (Lambda/SQS/SNS/etc.)</label>
+												<input id="tgt-arn-{rule.Name}" type="text" bind:value={newTargetArn} placeholder="arn:aws:..." class="w-full px-2 py-1 text-xs font-mono border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white" />
+											</div>
+											<div>
+												<label class="block text-xs text-slate-500 dark:text-slate-400 mb-1" for="tgt-id-{rule.Name}">Target ID</label>
+												<input id="tgt-id-{rule.Name}" type="text" bind:value={newTargetId} placeholder="auto" class="w-28 px-2 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white" />
+											</div>
+											<button disabled={addingTarget} onclick={() => addTarget(rule.Name ?? '')} class="px-3 py-1 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50">{addingTarget ? 'Adding...' : 'Add Target'}</button>
+										</div>
+									{/if}
+								</div>
+							{/if}
 						</div>
 					{/each}
 				</div>
@@ -380,16 +510,50 @@
 		{:else}
 			<div class="grid gap-3">
 				{#each archives as archive}
-					<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 flex items-start justify-between">
-						<div class="min-w-0 flex-1">
-							<div class="flex items-center gap-2 mb-1">
-								<p class="font-medium text-slate-900 dark:text-white">{archive.ArchiveName}</p>
-								<span class="px-2 py-0.5 text-xs rounded-full {archive.State === 'ENABLED' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400'}">{archive.State}</span>
+					<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4">
+						<div class="flex items-start justify-between">
+							<div class="min-w-0 flex-1">
+								<div class="flex items-center gap-2 mb-1">
+									<p class="font-medium text-slate-900 dark:text-white">{archive.ArchiveName}</p>
+									<span class="px-2 py-0.5 text-xs rounded-full {archive.State === 'ENABLED' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400'}">{archive.State}</span>
+								</div>
+								<p class="text-xs text-slate-500 dark:text-slate-400 font-mono truncate">Source: {archive.EventSourceArn}</p>
+								<p class="text-xs text-slate-400 dark:text-slate-500">Retention: {archive.RetentionDays ? `${archive.RetentionDays} days` : 'Indefinite'} · Events: {archive.EventCount ?? 0}</p>
 							</div>
-							<p class="text-xs text-slate-500 dark:text-slate-400 font-mono truncate">Source: {archive.EventSourceArn}</p>
-							<p class="text-xs text-slate-400 dark:text-slate-500">Retention: {archive.RetentionDays ? `${archive.RetentionDays} days` : 'Indefinite'} · Events: {archive.EventCount ?? 0}</p>
+							<div class="flex items-center gap-2 ml-3">
+								<button onclick={() => replayArchive === archive.ArchiveName ? (replayArchive = null) : openReplay(archive)} class="text-xs px-2 py-1 rounded border border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20">{replayArchive === archive.ArchiveName ? 'Cancel' : 'Replay'}</button>
+								<button onclick={() => deleteArchive(archive.ArchiveName ?? '')} class="p-1.5 text-slate-400 hover:text-red-500"><Trash2 class="w-4 h-4" /></button>
+							</div>
 						</div>
-						<button onclick={() => deleteArchive(archive.ArchiveName ?? '')} class="ml-3 p-1.5 text-slate-400 hover:text-red-500"><Trash2 class="w-4 h-4" /></button>
+						{#if replayArchive === archive.ArchiveName}
+							<div class="mt-3 pt-3 border-t border-slate-200 dark:border-slate-700 space-y-2">
+								<div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+									<div>
+										<label class="block text-xs text-slate-500 dark:text-slate-400 mb-1" for="rp-name">Replay name</label>
+										<input id="rp-name" type="text" bind:value={replayName} class="w-full px-2 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white" />
+									</div>
+									<div>
+										<label class="block text-xs text-slate-500 dark:text-slate-400 mb-1" for="rp-arn">Archive ARN</label>
+										<input id="rp-arn" type="text" bind:value={replayArchiveArn} placeholder="arn:aws:events:...:archive/..." class="w-full px-2 py-1 text-xs font-mono border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white" />
+									</div>
+									<div>
+										<label class="block text-xs text-slate-500 dark:text-slate-400 mb-1" for="rp-dest">Destination bus ARN</label>
+										<input id="rp-dest" type="text" bind:value={replayBusArn} class="w-full px-2 py-1 text-xs font-mono border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white" />
+									</div>
+									<div class="grid grid-cols-2 gap-2">
+										<div>
+											<label class="block text-xs text-slate-500 dark:text-slate-400 mb-1" for="rp-start">Start</label>
+											<input id="rp-start" type="datetime-local" bind:value={replayStart} class="w-full px-2 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white" />
+										</div>
+										<div>
+											<label class="block text-xs text-slate-500 dark:text-slate-400 mb-1" for="rp-end">End</label>
+											<input id="rp-end" type="datetime-local" bind:value={replayEnd} class="w-full px-2 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white" />
+										</div>
+									</div>
+								</div>
+								<button disabled={startingReplay} onclick={startReplay} class="px-3 py-1.5 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50">{startingReplay ? 'Starting...' : 'Start Replay'}</button>
+							</div>
+						{/if}
 					</div>
 				{/each}
 			</div>

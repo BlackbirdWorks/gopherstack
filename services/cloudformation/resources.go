@@ -596,6 +596,12 @@ func (rc *ResourceCreator) createNewServiceResource(
 		return physID, err
 	}
 
+	if physID, handled, err := rc.createPhase5Resource(
+		ctx, logicalID, resourceType, props, params, physicalIDs,
+	); handled {
+		return physID, err
+	}
+
 	return rc.createMiscServiceResource(logicalID, resourceType, props, params, physicalIDs)
 }
 
@@ -1203,6 +1209,9 @@ func (rc *ResourceCreator) deleteDataPlatformResource(ctx context.Context, resou
 
 		return rc.deleteSchedulerSchedule(physicalID)
 	default:
+		if handled, err := rc.deletePhase5Resource(ctx, resourceType, physicalID); handled {
+			return err
+		}
 
 		return rc.deleteNewServiceResource(physicalID, resourceType)
 	}
@@ -1641,11 +1650,13 @@ func (rc *ResourceCreator) createSecretsManagerSecret(
 	}
 	description := strProp(props, "Description", params, physicalIDs)
 	secretString := strProp(props, "SecretString", params, physicalIDs)
-	out, err := rc.backends.SecretsManager.Backend.CreateSecret(&secretsmanagerbackend.CreateSecretInput{
-		Name:         name,
-		Description:  description,
-		SecretString: secretString,
-	})
+	out, err := rc.backends.SecretsManager.Backend.CreateSecret(
+		context.Background(),
+		&secretsmanagerbackend.CreateSecretInput{
+			Name:         name,
+			Description:  description,
+			SecretString: secretString,
+		})
 	if err != nil {
 		return "", fmt.Errorf("failed to create secret %s: %w", name, err)
 	}
@@ -1657,10 +1668,12 @@ func (rc *ResourceCreator) deleteSecretsManagerSecret(_ context.Context, physica
 	if rc.backends.SecretsManager == nil {
 		return nil
 	}
-	_, err := rc.backends.SecretsManager.Backend.DeleteSecret(&secretsmanagerbackend.DeleteSecretInput{
-		SecretID:                   physicalID,
-		ForceDeleteWithoutRecovery: true,
-	})
+	_, err := rc.backends.SecretsManager.Backend.DeleteSecret(
+		context.Background(),
+		&secretsmanagerbackend.DeleteSecretInput{
+			SecretID:                   physicalID,
+			ForceDeleteWithoutRecovery: true,
+		})
 
 	return err
 }
@@ -1933,7 +1946,9 @@ func (r *serviceBackendsResolver) ResolveSecret(secretID, jsonKey string) (strin
 		return "", fmt.Errorf("%w: SecretsManager backend is not available", ErrDynamicRefFailed)
 	}
 
-	out, err := r.sm.Backend.GetSecretValue(&secretsmanagerbackend.GetSecretValueInput{SecretID: secretID})
+	out, err := r.sm.Backend.GetSecretValue(
+		context.Background(),
+		&secretsmanagerbackend.GetSecretValueInput{SecretID: secretID})
 	if err != nil {
 		return "", err
 	}

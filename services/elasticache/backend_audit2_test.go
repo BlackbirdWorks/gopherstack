@@ -1,6 +1,7 @@
 package elasticache_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -19,7 +20,17 @@ func TestBackend_CreateCluster_DefaultEngine(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	cl, err := b.CreateClusterWithOptions("default-cluster", "", "cache.t3.micro", "", "", "", 1, 0)
+	cl, err := b.CreateClusterWithOptions(
+		context.Background(),
+		"default-cluster",
+		"",
+		"cache.t3.micro",
+		"",
+		"",
+		"",
+		1,
+		0,
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "default-cluster", cl.ClusterID)
 	assert.Equal(t, "available", cl.Status)
@@ -32,7 +43,17 @@ func TestBackend_CreateCluster_Redis(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	cl, err := b.CreateClusterWithOptions("redis-cluster", "redis", "cache.r6g.large", "", "", "", 1, 0)
+	cl, err := b.CreateClusterWithOptions(
+		context.Background(),
+		"redis-cluster",
+		"redis",
+		"cache.r6g.large",
+		"",
+		"",
+		"",
+		1,
+		0,
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "redis", cl.Engine)
 }
@@ -42,7 +63,17 @@ func TestBackend_CreateCluster_Memcached(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	cl, err := b.CreateClusterWithOptions("memcached-cluster", "memcached", "cache.t3.micro", "", "", "", 3, 0)
+	cl, err := b.CreateClusterWithOptions(
+		context.Background(),
+		"memcached-cluster",
+		"memcached",
+		"cache.t3.micro",
+		"",
+		"",
+		"",
+		3,
+		0,
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "memcached", cl.Engine)
 	assert.Equal(t, 3, cl.NumCacheNodes)
@@ -53,10 +84,30 @@ func TestBackend_CreateCluster_AlreadyExists(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	_, err := b.CreateClusterWithOptions("dup-cluster", "redis", "cache.t3.micro", "", "", "", 1, 0)
+	_, err := b.CreateClusterWithOptions(
+		context.Background(),
+		"dup-cluster",
+		"redis",
+		"cache.t3.micro",
+		"",
+		"",
+		"",
+		1,
+		0,
+	)
 	require.NoError(t, err)
 
-	_, err = b.CreateClusterWithOptions("dup-cluster", "redis", "cache.t3.micro", "", "", "", 1, 0)
+	_, err = b.CreateClusterWithOptions(
+		context.Background(),
+		"dup-cluster",
+		"redis",
+		"cache.t3.micro",
+		"",
+		"",
+		"",
+		1,
+		0,
+	)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, elasticache.ErrClusterAlreadyExists)
 }
@@ -66,7 +117,7 @@ func TestBackend_DeleteCluster_NotFound(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	err := b.DeleteCluster("nonexistent")
+	err := b.DeleteCluster(context.Background(), "nonexistent")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, elasticache.ErrClusterNotFound)
 }
@@ -77,18 +128,18 @@ func TestBackend_DescribeClusters_Pagination(t *testing.T) {
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
 	for i := range 5 {
-		_, err := b.CreateClusterWithOptions(
+		_, err := b.CreateClusterWithOptions(context.Background(),
 			"cl-"+string(rune('a'+i)), "redis", "cache.t3.micro", "", "", "", 1, 0,
 		)
 		require.NoError(t, err)
 	}
 
-	p1, err := b.DescribeClusters("", "", 3)
+	p1, err := b.DescribeClusters(context.Background(), "", "", 3)
 	require.NoError(t, err)
 	assert.Len(t, p1.Data, 3)
 	assert.NotEmpty(t, p1.Next)
 
-	p2, err := b.DescribeClusters("", p1.Next, 3)
+	p2, err := b.DescribeClusters(context.Background(), "", p1.Next, 3)
 	require.NoError(t, err)
 	assert.Len(t, p2.Data, 2)
 	assert.Empty(t, p2.Next)
@@ -99,10 +150,10 @@ func TestBackend_ModifyCluster_EngineVersion(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	_, err := b.CreateClusterWithOptions("mod-cl", "redis", "cache.t3.micro", "", "", "", 1, 0)
+	_, err := b.CreateClusterWithOptions(context.Background(), "mod-cl", "redis", "cache.t3.micro", "", "", "", 1, 0)
 	require.NoError(t, err)
 
-	cl, err := b.ModifyCluster("mod-cl", "", "", "7.1.0", "", "", 0)
+	cl, err := b.ModifyCluster(context.Background(), "mod-cl", "", "", "7.1.0", "", "", 0)
 	require.NoError(t, err)
 	assert.Equal(t, "7.1.0", cl.EngineVersion)
 }
@@ -112,10 +163,10 @@ func TestBackend_ModifyCluster_NodeType(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	_, err := b.CreateClusterWithOptions("node-cl", "redis", "cache.t3.micro", "", "", "", 1, 0)
+	_, err := b.CreateClusterWithOptions(context.Background(), "node-cl", "redis", "cache.t3.micro", "", "", "", 1, 0)
 	require.NoError(t, err)
 
-	cl, err := b.ModifyCluster("node-cl", "cache.r6g.large", "", "", "", "", 0)
+	cl, err := b.ModifyCluster(context.Background(), "node-cl", "cache.r6g.large", "", "", "", "", 0)
 	require.NoError(t, err)
 	assert.Equal(t, "cache.r6g.large", cl.NodeType)
 }
@@ -129,7 +180,7 @@ func TestBackend_CreateParameterGroup_Redis7(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	pg, err := b.CreateParameterGroup("redis7-pg", "redis7", "Redis 7 group")
+	pg, err := b.CreateParameterGroup(context.Background(), "redis7-pg", "redis7", "Redis 7 group")
 	require.NoError(t, err)
 	assert.Equal(t, "redis7-pg", pg.Name)
 	assert.Equal(t, "redis7", pg.Family)
@@ -141,7 +192,7 @@ func TestBackend_CreateParameterGroup_Valkey(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	pg, err := b.CreateParameterGroup("valkey8-pg", "valkey8", "Valkey 8 group")
+	pg, err := b.CreateParameterGroup(context.Background(), "valkey8-pg", "valkey8", "Valkey 8 group")
 	require.NoError(t, err)
 	assert.Equal(t, "valkey8", pg.Family)
 }
@@ -151,12 +202,12 @@ func TestBackend_DescribeParameterGroups_FilterByName(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	_, err := b.CreateParameterGroup("pg-1", "redis7", "group 1")
+	_, err := b.CreateParameterGroup(context.Background(), "pg-1", "redis7", "group 1")
 	require.NoError(t, err)
-	_, err = b.CreateParameterGroup("pg-2", "redis7", "group 2")
+	_, err = b.CreateParameterGroup(context.Background(), "pg-2", "redis7", "group 2")
 	require.NoError(t, err)
 
-	p, err := b.DescribeParameterGroups("pg-1", "", 0)
+	p, err := b.DescribeParameterGroups(context.Background(), "pg-1", "", 0)
 	require.NoError(t, err)
 	require.Len(t, p.Data, 1)
 	assert.Equal(t, "pg-1", p.Data[0].Name)
@@ -167,10 +218,10 @@ func TestBackend_ModifyParameterGroup_SetValue(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	_, err := b.CreateParameterGroup("mod-pg", "redis7", "param group to modify")
+	_, err := b.CreateParameterGroup(context.Background(), "mod-pg", "redis7", "param group to modify")
 	require.NoError(t, err)
 
-	pg, err := b.ModifyParameterGroup("mod-pg", map[string]string{
+	pg, err := b.ModifyParameterGroup(context.Background(), "mod-pg", map[string]string{
 		"maxmemory-policy": "allkeys-lru",
 	})
 	require.NoError(t, err)
@@ -182,15 +233,15 @@ func TestBackend_ResetParameterGroup_All(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	_, err := b.CreateParameterGroup("reset-all-pg", "redis7", "for reset")
+	_, err := b.CreateParameterGroup(context.Background(), "reset-all-pg", "redis7", "for reset")
 	require.NoError(t, err)
 
-	_, err = b.ModifyParameterGroup("reset-all-pg", map[string]string{
+	_, err = b.ModifyParameterGroup(context.Background(), "reset-all-pg", map[string]string{
 		"maxmemory-policy": "volatile-lru",
 	})
 	require.NoError(t, err)
 
-	pg, err := b.ResetParameterGroup("reset-all-pg", nil, true)
+	pg, err := b.ResetParameterGroup(context.Background(), "reset-all-pg", nil, true)
 	require.NoError(t, err)
 	assert.Equal(t, "reset-all-pg", pg.Name)
 	// After reset, the custom parameter should be cleared.
@@ -202,19 +253,19 @@ func TestBackend_ResetParameterGroup_Specific(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	_, err := b.CreateParameterGroup("reset-spec-pg", "redis7", "for selective reset")
+	_, err := b.CreateParameterGroup(context.Background(), "reset-spec-pg", "redis7", "for selective reset")
 	require.NoError(t, err)
 
-	_, err = b.ModifyParameterGroup("reset-spec-pg", map[string]string{
+	_, err = b.ModifyParameterGroup(context.Background(), "reset-spec-pg", map[string]string{
 		"maxmemory-policy": "allkeys-lru",
 		"activerehashing":  "yes",
 	})
 	require.NoError(t, err)
 
-	_, err = b.ResetParameterGroup("reset-spec-pg", []string{"maxmemory-policy"}, false)
+	_, err = b.ResetParameterGroup(context.Background(), "reset-spec-pg", []string{"maxmemory-policy"}, false)
 	require.NoError(t, err)
 
-	p, err := b.DescribeParameters("reset-spec-pg", "", 0)
+	p, err := b.DescribeParameters(context.Background(), "reset-spec-pg", "", 0)
 	require.NoError(t, err)
 	// maxmemory-policy should be reset; activerehashing should remain.
 	paramMap := make(map[string]string)
@@ -236,7 +287,7 @@ func TestBackend_CreateSubnetGroup(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	sg, err := b.CreateSubnetGroup("my-sng", "my subnet group", []string{"subnet-1", "subnet-2"})
+	sg, err := b.CreateSubnetGroup(context.Background(), "my-sng", "my subnet group", []string{"subnet-1", "subnet-2"})
 	require.NoError(t, err)
 	assert.Equal(t, "my-sng", sg.Name)
 	assert.Len(t, sg.SubnetIDs, 2)
@@ -248,10 +299,15 @@ func TestBackend_ModifySubnetGroup_AddSubnet(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	_, err := b.CreateSubnetGroup("add-sng", "original", []string{"subnet-1"})
+	_, err := b.CreateSubnetGroup(context.Background(), "add-sng", "original", []string{"subnet-1"})
 	require.NoError(t, err)
 
-	sg, err := b.ModifySubnetGroup("add-sng", "updated", []string{"subnet-1", "subnet-2", "subnet-3"})
+	sg, err := b.ModifySubnetGroup(
+		context.Background(),
+		"add-sng",
+		"updated",
+		[]string{"subnet-1", "subnet-2", "subnet-3"},
+	)
 	require.NoError(t, err)
 	assert.Len(t, sg.SubnetIDs, 3)
 	assert.Equal(t, "updated", sg.Description)
@@ -262,7 +318,7 @@ func TestBackend_DeleteSubnetGroup_NotFound(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	err := b.DeleteSubnetGroup("nonexistent-sng")
+	err := b.DeleteSubnetGroup(context.Background(), "nonexistent-sng")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, elasticache.ErrSubnetGroupNotFound)
 }
@@ -276,10 +332,20 @@ func TestBackend_CreateSnapshot_FromCluster(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	_, err := b.CreateClusterWithOptions("snap-src-cluster", "redis", "cache.t3.micro", "", "", "", 1, 0)
+	_, err := b.CreateClusterWithOptions(
+		context.Background(),
+		"snap-src-cluster",
+		"redis",
+		"cache.t3.micro",
+		"",
+		"",
+		"",
+		1,
+		0,
+	)
 	require.NoError(t, err)
 
-	snap, err := b.CreateSnapshot("my-snapshot", "snap-src-cluster", "")
+	snap, err := b.CreateSnapshot(context.Background(), "my-snapshot", "snap-src-cluster", "")
 	require.NoError(t, err)
 	assert.Equal(t, "my-snapshot", snap.SnapshotName)
 	assert.Equal(t, "snap-src-cluster", snap.CacheClusterID)
@@ -292,13 +358,13 @@ func TestBackend_CreateSnapshot_FromReplicationGroup(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	_, err := b.CreateReplicationGroupFull(elasticache.ReplicationGroupCreateOpts{
+	_, err := b.CreateReplicationGroupFull(context.Background(), elasticache.ReplicationGroupCreateOpts{
 		ID:          "snap-rg-src",
 		Description: "for snapshot",
 	})
 	require.NoError(t, err)
 
-	snap, err := b.CreateSnapshot("rg-snapshot", "", "snap-rg-src")
+	snap, err := b.CreateSnapshot(context.Background(), "rg-snapshot", "", "snap-rg-src")
 	require.NoError(t, err)
 	assert.Equal(t, "snap-rg-src", snap.ReplicationGroupID)
 }
@@ -308,7 +374,7 @@ func TestBackend_CreateSnapshot_InvalidSource(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	_, err := b.CreateSnapshot("bad-snap", "", "")
+	_, err := b.CreateSnapshot(context.Background(), "bad-snap", "", "")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, elasticache.ErrInvalidSnapshotSource)
 }
@@ -318,15 +384,25 @@ func TestBackend_DescribeSnapshots_FilterByName(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	_, err := b.CreateClusterWithOptions("desc-snap-cl", "redis", "cache.t3.micro", "", "", "", 1, 0)
+	_, err := b.CreateClusterWithOptions(
+		context.Background(),
+		"desc-snap-cl",
+		"redis",
+		"cache.t3.micro",
+		"",
+		"",
+		"",
+		1,
+		0,
+	)
 	require.NoError(t, err)
 
 	for i := range 3 {
-		_, err = b.CreateSnapshot("snap-"+string(rune('a'+i)), "desc-snap-cl", "")
+		_, err = b.CreateSnapshot(context.Background(), "snap-"+string(rune('a'+i)), "desc-snap-cl", "")
 		require.NoError(t, err)
 	}
 
-	p, err := b.DescribeSnapshots("snap-a", "", "", "", 0)
+	p, err := b.DescribeSnapshots(context.Background(), "snap-a", "", "", "", 0)
 	require.NoError(t, err)
 	require.Len(t, p.Data, 1)
 	assert.Equal(t, "snap-a", p.Data[0].SnapshotName)
@@ -337,18 +413,28 @@ func TestBackend_DeleteSnapshot(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	_, err := b.CreateClusterWithOptions("del-snap-cl", "redis", "cache.t3.micro", "", "", "", 1, 0)
+	_, err := b.CreateClusterWithOptions(
+		context.Background(),
+		"del-snap-cl",
+		"redis",
+		"cache.t3.micro",
+		"",
+		"",
+		"",
+		1,
+		0,
+	)
 	require.NoError(t, err)
 
-	_, err = b.CreateSnapshot("to-delete-snap", "del-snap-cl", "")
+	_, err = b.CreateSnapshot(context.Background(), "to-delete-snap", "del-snap-cl", "")
 	require.NoError(t, err)
 
-	deleted, err := b.DeleteSnapshot("to-delete-snap")
+	deleted, err := b.DeleteSnapshot(context.Background(), "to-delete-snap")
 	require.NoError(t, err)
 	assert.Equal(t, "to-delete-snap", deleted.SnapshotName)
 
 	// Should be gone now.
-	_, err = b.DescribeSnapshots("to-delete-snap", "", "", "", 0)
+	_, err = b.DescribeSnapshots(context.Background(), "to-delete-snap", "", "", "", 0)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, elasticache.ErrSnapshotNotFound)
 }
@@ -358,18 +444,28 @@ func TestBackend_CopySnapshot(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	_, err := b.CreateClusterWithOptions("copy-snap-src-cl", "redis", "cache.t3.micro", "", "", "", 1, 0)
+	_, err := b.CreateClusterWithOptions(
+		context.Background(),
+		"copy-snap-src-cl",
+		"redis",
+		"cache.t3.micro",
+		"",
+		"",
+		"",
+		1,
+		0,
+	)
 	require.NoError(t, err)
 
-	_, err = b.CreateSnapshot("copy-src-snap", "copy-snap-src-cl", "")
+	_, err = b.CreateSnapshot(context.Background(), "copy-src-snap", "copy-snap-src-cl", "")
 	require.NoError(t, err)
 
-	copied, err := b.CopySnapshot("copy-src-snap", "copy-dst-snap")
+	copied, err := b.CopySnapshot(context.Background(), "copy-src-snap", "copy-dst-snap")
 	require.NoError(t, err)
 	assert.Equal(t, "copy-dst-snap", copied.SnapshotName)
 
 	// Both exist.
-	p, err := b.DescribeSnapshots("", "", "", "", 0)
+	p, err := b.DescribeSnapshots(context.Background(), "", "", "", "", 0)
 	require.NoError(t, err)
 	assert.Len(t, p.Data, 2)
 }
@@ -383,7 +479,7 @@ func TestBackend_CreateUser_Redis6ACL(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	u, err := b.CreateUser("acl-user1", "acl-user1", "on ~* +@all", "redis", false)
+	u, err := b.CreateUser(context.Background(), "acl-user1", "acl-user1", "on ~* +@all", "redis", false)
 	require.NoError(t, err)
 	assert.Equal(t, "acl-user1", u.UserID)
 	assert.Equal(t, "on ~* +@all", u.AccessString)
@@ -398,7 +494,7 @@ func TestBackend_CreateUser_Valkey(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	u, err := b.CreateUser("valkey-user", "valkey-user", "on ~cache:* +get", "valkey", false)
+	u, err := b.CreateUser(context.Background(), "valkey-user", "valkey-user", "on ~cache:* +get", "valkey", false)
 	require.NoError(t, err)
 	assert.Equal(t, "valkey", u.Engine)
 }
@@ -408,10 +504,10 @@ func TestBackend_CreateUser_AlreadyExists(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	_, err := b.CreateUser("dup-user", "dup-user", "on ~* +@all", "redis", false)
+	_, err := b.CreateUser(context.Background(), "dup-user", "dup-user", "on ~* +@all", "redis", false)
 	require.NoError(t, err)
 
-	_, err = b.CreateUser("dup-user", "dup-user", "on ~* +@all", "redis", false)
+	_, err = b.CreateUser(context.Background(), "dup-user", "dup-user", "on ~* +@all", "redis", false)
 	require.Error(t, err)
 }
 
@@ -420,7 +516,7 @@ func TestBackend_DeleteUser_NotFound(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	_, err := b.DeleteUser("nonexistent-user")
+	_, err := b.DeleteUser(context.Background(), "nonexistent-user")
 	require.Error(t, err)
 }
 
@@ -429,10 +525,10 @@ func TestBackend_ModifyUser_AccessString(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	_, err := b.CreateUser("mod-user", "mod-user", "on ~* +@all", "redis", false)
+	_, err := b.CreateUser(context.Background(), "mod-user", "mod-user", "on ~* +@all", "redis", false)
 	require.NoError(t, err)
 
-	u, err := b.ModifyUser("mod-user", "on ~limited:* +get", false)
+	u, err := b.ModifyUser(context.Background(), "mod-user", "on ~limited:* +get", false)
 	require.NoError(t, err)
 	assert.Equal(t, "on ~limited:* +get", u.AccessString)
 }
@@ -443,7 +539,7 @@ func TestBackend_DescribeUsers_All(t *testing.T) {
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
 	for i := range 3 {
-		_, err := b.CreateUser(
+		_, err := b.CreateUser(context.Background(),
 			"list-user-"+string(rune('a'+i)),
 			"list-user-"+string(rune('a'+i)),
 			"on ~* +@all",
@@ -453,7 +549,7 @@ func TestBackend_DescribeUsers_All(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	p, err := b.DescribeUsers("", "", 0)
+	p, err := b.DescribeUsers(context.Background(), "", "", 0)
 	require.NoError(t, err)
 	assert.Len(t, p.Data, 3)
 }
@@ -463,12 +559,12 @@ func TestBackend_DescribeUsers_FilterByID(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	_, err := b.CreateUser("filter-user", "filter-user", "on ~* +@all", "redis", false)
+	_, err := b.CreateUser(context.Background(), "filter-user", "filter-user", "on ~* +@all", "redis", false)
 	require.NoError(t, err)
-	_, err = b.CreateUser("other-user", "other-user", "on ~* +@all", "redis", false)
+	_, err = b.CreateUser(context.Background(), "other-user", "other-user", "on ~* +@all", "redis", false)
 	require.NoError(t, err)
 
-	p, err := b.DescribeUsers("filter-user", "", 0)
+	p, err := b.DescribeUsers(context.Background(), "filter-user", "", 0)
 	require.NoError(t, err)
 	require.Len(t, p.Data, 1)
 	assert.Equal(t, "filter-user", p.Data[0].UserID)
@@ -483,12 +579,12 @@ func TestBackend_CreateUserGroup(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	_, err := b.CreateUser("u-a", "u-a", "on ~* +@all", "redis", false)
+	_, err := b.CreateUser(context.Background(), "u-a", "u-a", "on ~* +@all", "redis", false)
 	require.NoError(t, err)
-	_, err = b.CreateUser("u-b", "u-b", "on ~* +@all", "redis", false)
+	_, err = b.CreateUser(context.Background(), "u-b", "u-b", "on ~* +@all", "redis", false)
 	require.NoError(t, err)
 
-	ug, err := b.CreateUserGroup("group-ab", "Group AB", "redis", []string{"u-a", "u-b"})
+	ug, err := b.CreateUserGroup(context.Background(), "group-ab", "Group AB", "redis", []string{"u-a", "u-b"})
 	require.NoError(t, err)
 	assert.Equal(t, "group-ab", ug.UserGroupID)
 	assert.ElementsMatch(t, []string{"u-a", "u-b"}, ug.UserIDs)
@@ -500,10 +596,10 @@ func TestBackend_CreateUserGroup_AlreadyExists(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	_, err := b.CreateUserGroup("dup-group", "first", "redis", nil)
+	_, err := b.CreateUserGroup(context.Background(), "dup-group", "first", "redis", nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateUserGroup("dup-group", "second", "redis", nil)
+	_, err = b.CreateUserGroup(context.Background(), "dup-group", "second", "redis", nil)
 	require.Error(t, err)
 }
 
@@ -512,16 +608,16 @@ func TestBackend_ModifyUserGroup_AddUsers(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	_, err := b.CreateUser("gu-1", "gu-1", "on ~* +@all", "redis", false)
+	_, err := b.CreateUser(context.Background(), "gu-1", "gu-1", "on ~* +@all", "redis", false)
 	require.NoError(t, err)
-	_, err = b.CreateUser("gu-2", "gu-2", "on ~* +@all", "redis", false)
+	_, err = b.CreateUser(context.Background(), "gu-2", "gu-2", "on ~* +@all", "redis", false)
 	require.NoError(t, err)
 
-	ug, err := b.CreateUserGroup("mod-grp", "modify test", "redis", []string{"gu-1"})
+	ug, err := b.CreateUserGroup(context.Background(), "mod-grp", "modify test", "redis", []string{"gu-1"})
 	require.NoError(t, err)
 	assert.Len(t, ug.UserIDs, 1)
 
-	modified, err := b.ModifyUserGroup("mod-grp", []string{"gu-2"}, nil)
+	modified, err := b.ModifyUserGroup(context.Background(), "mod-grp", []string{"gu-2"}, nil)
 	require.NoError(t, err)
 	assert.Contains(t, modified.UserIDs, "gu-1")
 	assert.Contains(t, modified.UserIDs, "gu-2")
@@ -532,15 +628,15 @@ func TestBackend_ModifyUserGroup_RemoveUsers(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	_, err := b.CreateUser("rm-u1", "rm-u1", "on ~* +@all", "redis", false)
+	_, err := b.CreateUser(context.Background(), "rm-u1", "rm-u1", "on ~* +@all", "redis", false)
 	require.NoError(t, err)
-	_, err = b.CreateUser("rm-u2", "rm-u2", "on ~* +@all", "redis", false)
-	require.NoError(t, err)
-
-	_, err = b.CreateUserGroup("remove-grp", "remove test", "redis", []string{"rm-u1", "rm-u2"})
+	_, err = b.CreateUser(context.Background(), "rm-u2", "rm-u2", "on ~* +@all", "redis", false)
 	require.NoError(t, err)
 
-	modified, err := b.ModifyUserGroup("remove-grp", nil, []string{"rm-u1"})
+	_, err = b.CreateUserGroup(context.Background(), "remove-grp", "remove test", "redis", []string{"rm-u1", "rm-u2"})
+	require.NoError(t, err)
+
+	modified, err := b.ModifyUserGroup(context.Background(), "remove-grp", nil, []string{"rm-u1"})
 	require.NoError(t, err)
 	assert.NotContains(t, modified.UserIDs, "rm-u1")
 	assert.Contains(t, modified.UserIDs, "rm-u2")
@@ -551,12 +647,12 @@ func TestBackend_DescribeUserGroups_FilterByID(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	_, err := b.CreateUserGroup("grp-x", "group x", "redis", nil)
+	_, err := b.CreateUserGroup(context.Background(), "grp-x", "group x", "redis", nil)
 	require.NoError(t, err)
-	_, err = b.CreateUserGroup("grp-y", "group y", "redis", nil)
+	_, err = b.CreateUserGroup(context.Background(), "grp-y", "group y", "redis", nil)
 	require.NoError(t, err)
 
-	p, err := b.DescribeUserGroups("grp-x", "", 0)
+	p, err := b.DescribeUserGroups(context.Background(), "grp-x", "", 0)
 	require.NoError(t, err)
 	require.Len(t, p.Data, 1)
 	assert.Equal(t, "grp-x", p.Data[0].UserGroupID)
@@ -571,13 +667,13 @@ func TestBackend_CreateGlobalReplicationGroup_FullFlow(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	_, err := b.CreateReplicationGroupFull(elasticache.ReplicationGroupCreateOpts{
+	_, err := b.CreateReplicationGroupFull(context.Background(), elasticache.ReplicationGroupCreateOpts{
 		ID:          "global-primary",
 		Description: "primary for global RG",
 	})
 	require.NoError(t, err)
 
-	grg, err := b.CreateGlobalReplicationGroup("test-global", "test global", "global-primary")
+	grg, err := b.CreateGlobalReplicationGroup(context.Background(), "test-global", "test global", "global-primary")
 	require.NoError(t, err)
 
 	assert.Equal(t, "ldgnf-test-global", grg.GlobalReplicationGroupID)
@@ -595,18 +691,18 @@ func TestBackend_DescribeGlobalReplicationGroups_FilterByID(t *testing.T) {
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
 	for _, id := range []string{"rg-primary-1", "rg-primary-2"} {
-		_, err := b.CreateReplicationGroupFull(elasticache.ReplicationGroupCreateOpts{
+		_, err := b.CreateReplicationGroupFull(context.Background(), elasticache.ReplicationGroupCreateOpts{
 			ID: id, Description: "primary",
 		})
 		require.NoError(t, err)
 	}
 
-	_, err := b.CreateGlobalReplicationGroup("g1", "global 1", "rg-primary-1")
+	_, err := b.CreateGlobalReplicationGroup(context.Background(), "g1", "global 1", "rg-primary-1")
 	require.NoError(t, err)
-	_, err = b.CreateGlobalReplicationGroup("g2", "global 2", "rg-primary-2")
+	_, err = b.CreateGlobalReplicationGroup(context.Background(), "g2", "global 2", "rg-primary-2")
 	require.NoError(t, err)
 
-	p, err := b.DescribeGlobalReplicationGroups("ldgnf-g1", "", 0)
+	p, err := b.DescribeGlobalReplicationGroups(context.Background(), "ldgnf-g1", "", 0)
 	require.NoError(t, err)
 	require.Len(t, p.Data, 1)
 	assert.Equal(t, "ldgnf-g1", p.Data[0].GlobalReplicationGroupID)
@@ -617,16 +713,16 @@ func TestBackend_DeleteGlobalReplicationGroup(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	_, err := b.CreateReplicationGroupFull(elasticache.ReplicationGroupCreateOpts{
+	_, err := b.CreateReplicationGroupFull(context.Background(), elasticache.ReplicationGroupCreateOpts{
 		ID: "del-grg-primary", Description: "for deletion",
 	})
 	require.NoError(t, err)
 
-	grg, err := b.CreateGlobalReplicationGroup("to-del", "to delete", "del-grg-primary")
+	grg, err := b.CreateGlobalReplicationGroup(context.Background(), "to-del", "to delete", "del-grg-primary")
 	require.NoError(t, err)
 	assert.Equal(t, "ldgnf-to-del", grg.GlobalReplicationGroupID)
 
-	deleted, err := b.DeleteGlobalReplicationGroup("ldgnf-to-del", true)
+	deleted, err := b.DeleteGlobalReplicationGroup(context.Background(), "ldgnf-to-del", true)
 	require.NoError(t, err)
 	assert.Equal(t, "ldgnf-to-del", deleted.GlobalReplicationGroupID)
 }
@@ -636,15 +732,15 @@ func TestBackend_ModifyGlobalReplicationGroup(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	_, err := b.CreateReplicationGroupFull(elasticache.ReplicationGroupCreateOpts{
+	_, err := b.CreateReplicationGroupFull(context.Background(), elasticache.ReplicationGroupCreateOpts{
 		ID: "mod-grg-primary", Description: "for modification",
 	})
 	require.NoError(t, err)
 
-	_, err = b.CreateGlobalReplicationGroup("mod", "original desc", "mod-grg-primary")
+	_, err = b.CreateGlobalReplicationGroup(context.Background(), "mod", "original desc", "mod-grg-primary")
 	require.NoError(t, err)
 
-	grg, err := b.ModifyGlobalReplicationGroup("ldgnf-mod", "updated description", "", false)
+	grg, err := b.ModifyGlobalReplicationGroup(context.Background(), "ldgnf-mod", "updated description", "", false)
 	require.NoError(t, err)
 	assert.Equal(t, "updated description", grg.Description)
 }
@@ -658,7 +754,7 @@ func TestBackend_CreateServerlessCache(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	sc, err := b.CreateServerlessCache("my-sc", "my serverless cache", "redis")
+	sc, err := b.CreateServerlessCache(context.Background(), "my-sc", "my serverless cache", "redis")
 	require.NoError(t, err)
 	assert.Equal(t, "my-sc", sc.Name)
 	assert.Equal(t, "redis", sc.Engine)
@@ -672,7 +768,7 @@ func TestBackend_CreateServerlessCache_Valkey(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	sc, err := b.CreateServerlessCache("valkey-sc", "valkey serverless", "valkey")
+	sc, err := b.CreateServerlessCache(context.Background(), "valkey-sc", "valkey serverless", "valkey")
 	require.NoError(t, err)
 	assert.Equal(t, "valkey", sc.Engine)
 }
@@ -682,10 +778,10 @@ func TestBackend_CreateServerlessCache_AlreadyExists(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	_, err := b.CreateServerlessCache("dup-sc", "first", "redis")
+	_, err := b.CreateServerlessCache(context.Background(), "dup-sc", "first", "redis")
 	require.NoError(t, err)
 
-	_, err = b.CreateServerlessCache("dup-sc", "second", "redis")
+	_, err = b.CreateServerlessCache(context.Background(), "dup-sc", "second", "redis")
 	require.Error(t, err)
 }
 
@@ -695,11 +791,11 @@ func TestBackend_DescribeServerlessCaches_FilterByName(t *testing.T) {
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
 	for _, name := range []string{"sc-a", "sc-b", "sc-c"} {
-		_, err := b.CreateServerlessCache(name, "cache "+name, "redis")
+		_, err := b.CreateServerlessCache(context.Background(), name, "cache "+name, "redis")
 		require.NoError(t, err)
 	}
 
-	p, err := b.DescribeServerlessCaches("sc-b", "", 0)
+	p, err := b.DescribeServerlessCaches(context.Background(), "sc-b", "", 0)
 	require.NoError(t, err)
 	require.Len(t, p.Data, 1)
 	assert.Equal(t, "sc-b", p.Data[0].Name)
@@ -710,10 +806,10 @@ func TestBackend_ModifyServerlessCache(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	_, err := b.CreateServerlessCache("mod-sc", "original", "redis")
+	_, err := b.CreateServerlessCache(context.Background(), "mod-sc", "original", "redis")
 	require.NoError(t, err)
 
-	sc, err := b.ModifyServerlessCache("mod-sc", "modified description")
+	sc, err := b.ModifyServerlessCache(context.Background(), "mod-sc", "modified description")
 	require.NoError(t, err)
 	assert.Equal(t, "modified description", sc.Description)
 }
@@ -723,14 +819,14 @@ func TestBackend_DeleteServerlessCache(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	_, err := b.CreateServerlessCache("del-sc", "to be deleted", "redis")
+	_, err := b.CreateServerlessCache(context.Background(), "del-sc", "to be deleted", "redis")
 	require.NoError(t, err)
 
-	sc, err := b.DeleteServerlessCache("del-sc")
+	sc, err := b.DeleteServerlessCache(context.Background(), "del-sc")
 	require.NoError(t, err)
 	assert.Equal(t, "del-sc", sc.Name)
 
-	_, err = b.DescribeServerlessCaches("del-sc", "", 0)
+	_, err = b.DescribeServerlessCaches(context.Background(), "del-sc", "", 0)
 	require.Error(t, err)
 }
 
@@ -743,10 +839,10 @@ func TestBackend_CreateServerlessCacheSnapshot(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	_, err := b.CreateServerlessCache("snap-sc", "cache for snapshot", "redis")
+	_, err := b.CreateServerlessCache(context.Background(), "snap-sc", "cache for snapshot", "redis")
 	require.NoError(t, err)
 
-	snap, err := b.CreateServerlessCacheSnapshot("sc-snap-1", "snap-sc")
+	snap, err := b.CreateServerlessCacheSnapshot(context.Background(), "sc-snap-1", "snap-sc")
 	require.NoError(t, err)
 	assert.Equal(t, "sc-snap-1", snap.Name)
 	assert.Equal(t, "snap-sc", snap.ServerlessCacheName)
@@ -759,12 +855,12 @@ func TestBackend_CopyServerlessCacheSnapshot(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	_, err := b.CreateServerlessCache("copy-sc-snap-cache", "cache", "redis")
+	_, err := b.CreateServerlessCache(context.Background(), "copy-sc-snap-cache", "cache", "redis")
 	require.NoError(t, err)
-	_, err = b.CreateServerlessCacheSnapshot("copy-sc-src", "copy-sc-snap-cache")
+	_, err = b.CreateServerlessCacheSnapshot(context.Background(), "copy-sc-src", "copy-sc-snap-cache")
 	require.NoError(t, err)
 
-	copied, err := b.CopyServerlessCacheSnapshot("copy-sc-src", "copy-sc-dst")
+	copied, err := b.CopyServerlessCacheSnapshot(context.Background(), "copy-sc-src", "copy-sc-dst")
 	require.NoError(t, err)
 	assert.Equal(t, "copy-sc-dst", copied.Name)
 }
@@ -774,12 +870,12 @@ func TestBackend_ExportServerlessCacheSnapshot(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	_, err := b.CreateServerlessCache("export-sc", "cache for export", "redis")
+	_, err := b.CreateServerlessCache(context.Background(), "export-sc", "cache for export", "redis")
 	require.NoError(t, err)
-	_, err = b.CreateServerlessCacheSnapshot("export-sc-snap", "export-sc")
+	_, err = b.CreateServerlessCacheSnapshot(context.Background(), "export-sc-snap", "export-sc")
 	require.NoError(t, err)
 
-	snap, err := b.ExportServerlessCacheSnapshot("export-sc-snap", "my-s3-bucket")
+	snap, err := b.ExportServerlessCacheSnapshot(context.Background(), "export-sc-snap", "my-s3-bucket")
 	require.NoError(t, err)
 	assert.Equal(t, "export-sc-snap", snap.Name)
 }
@@ -789,12 +885,12 @@ func TestBackend_DeleteServerlessCacheSnapshot(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	_, err := b.CreateServerlessCache("del-sc-snap-cache", "cache", "redis")
+	_, err := b.CreateServerlessCache(context.Background(), "del-sc-snap-cache", "cache", "redis")
 	require.NoError(t, err)
-	_, err = b.CreateServerlessCacheSnapshot("del-sc-snap", "del-sc-snap-cache")
+	_, err = b.CreateServerlessCacheSnapshot(context.Background(), "del-sc-snap", "del-sc-snap-cache")
 	require.NoError(t, err)
 
-	snap, err := b.DeleteServerlessCacheSnapshot("del-sc-snap")
+	snap, err := b.DeleteServerlessCacheSnapshot(context.Background(), "del-sc-snap")
 	require.NoError(t, err)
 	assert.Equal(t, "del-sc-snap", snap.Name)
 }
@@ -808,7 +904,7 @@ func TestBackend_DescribeServiceUpdates_Empty(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	p, err := b.DescribeServiceUpdates("", "", 0, nil)
+	p, err := b.DescribeServiceUpdates(context.Background(), "", "", 0, nil)
 	require.NoError(t, err)
 	assert.NotNil(t, p.Data)
 }
@@ -818,7 +914,7 @@ func TestBackend_DescribeUpdateActions_Empty(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	p, err := b.DescribeUpdateActions("", "", 0)
+	p, err := b.DescribeUpdateActions(context.Background(), "", "", 0)
 	require.NoError(t, err)
 	assert.NotNil(t, p.Data)
 }
@@ -828,12 +924,12 @@ func TestBackend_BatchApplyUpdateAction_Processed(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	_, err := b.CreateReplicationGroupFull(elasticache.ReplicationGroupCreateOpts{
+	_, err := b.CreateReplicationGroupFull(context.Background(), elasticache.ReplicationGroupCreateOpts{
 		ID: "batch-rg-1", Description: "batch apply test",
 	})
 	require.NoError(t, err)
 
-	result, err := b.BatchApplyUpdateAction(
+	result, err := b.BatchApplyUpdateAction(context.Background(),
 		[]string{"batch-rg-1"},
 		[]string{"missing-cluster"},
 		"update-20260101",
@@ -848,10 +944,20 @@ func TestBackend_BatchStopUpdateAction(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	_, err := b.CreateClusterWithOptions("batch-stop-cl", "redis", "cache.t3.micro", "", "", "", 1, 0)
+	_, err := b.CreateClusterWithOptions(
+		context.Background(),
+		"batch-stop-cl",
+		"redis",
+		"cache.t3.micro",
+		"",
+		"",
+		"",
+		1,
+		0,
+	)
 	require.NoError(t, err)
 
-	result, err := b.BatchStopUpdateAction(
+	result, err := b.BatchStopUpdateAction(context.Background(),
 		[]string{"missing-rg"},
 		[]string{"batch-stop-cl"},
 		"update-20260101",
@@ -870,24 +976,34 @@ func TestBackend_Tags_ClusterCRUD(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	cl, err := b.CreateClusterWithOptions("tag-test-cl", "redis", "cache.t3.micro", "", "", "", 1, 0)
+	cl, err := b.CreateClusterWithOptions(
+		context.Background(),
+		"tag-test-cl",
+		"redis",
+		"cache.t3.micro",
+		"",
+		"",
+		"",
+		1,
+		0,
+	)
 	require.NoError(t, err)
 
-	err = b.AddTagsToResource(cl.ARN, map[string]string{
+	err = b.AddTagsToResource(context.Background(), cl.ARN, map[string]string{
 		"env":  "test",
 		"team": "platform",
 	})
 	require.NoError(t, err)
 
-	tags, err := b.ListTagsForResource(cl.ARN)
+	tags, err := b.ListTagsForResource(context.Background(), cl.ARN)
 	require.NoError(t, err)
 	assert.Equal(t, "test", tags["env"])
 	assert.Equal(t, "platform", tags["team"])
 
-	err = b.RemoveTagsFromResource(cl.ARN, []string{"env"})
+	err = b.RemoveTagsFromResource(context.Background(), cl.ARN, []string{"env"})
 	require.NoError(t, err)
 
-	tags, err = b.ListTagsForResource(cl.ARN)
+	tags, err = b.ListTagsForResource(context.Background(), cl.ARN)
 	require.NoError(t, err)
 	assert.NotContains(t, tags, "env")
 	assert.Equal(t, "platform", tags["team"])
@@ -898,15 +1014,15 @@ func TestBackend_Tags_ReplicationGroupCRUD(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	rg, err := b.CreateReplicationGroupFull(elasticache.ReplicationGroupCreateOpts{
+	rg, err := b.CreateReplicationGroupFull(context.Background(), elasticache.ReplicationGroupCreateOpts{
 		ID: "tag-rg", Description: "tag test rg",
 	})
 	require.NoError(t, err)
 
-	err = b.AddTagsToResource(rg.ARN, map[string]string{"stage": "prod"})
+	err = b.AddTagsToResource(context.Background(), rg.ARN, map[string]string{"stage": "prod"})
 	require.NoError(t, err)
 
-	tags, err := b.ListTagsForResource(rg.ARN)
+	tags, err := b.ListTagsForResource(context.Background(), rg.ARN)
 	require.NoError(t, err)
 	assert.Equal(t, "prod", tags["stage"])
 }
@@ -916,13 +1032,13 @@ func TestBackend_Tags_UserCRUD(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	u, err := b.CreateUser("tag-user", "tag-user", "on ~* +@all", "redis", false)
+	u, err := b.CreateUser(context.Background(), "tag-user", "tag-user", "on ~* +@all", "redis", false)
 	require.NoError(t, err)
 
-	err = b.AddTagsToResource(u.ARN, map[string]string{"owner": "alice"})
+	err = b.AddTagsToResource(context.Background(), u.ARN, map[string]string{"owner": "alice"})
 	require.NoError(t, err)
 
-	tags, err := b.ListTagsForResource(u.ARN)
+	tags, err := b.ListTagsForResource(context.Background(), u.ARN)
 	require.NoError(t, err)
 	assert.Equal(t, "alice", tags["owner"])
 }
@@ -932,16 +1048,26 @@ func TestBackend_Tags_SnapshotCRUD(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	_, err := b.CreateClusterWithOptions("tag-snap-cl", "redis", "cache.t3.micro", "", "", "", 1, 0)
+	_, err := b.CreateClusterWithOptions(
+		context.Background(),
+		"tag-snap-cl",
+		"redis",
+		"cache.t3.micro",
+		"",
+		"",
+		"",
+		1,
+		0,
+	)
 	require.NoError(t, err)
 
-	snap, err := b.CreateSnapshot("tag-snap", "tag-snap-cl", "")
+	snap, err := b.CreateSnapshot(context.Background(), "tag-snap", "tag-snap-cl", "")
 	require.NoError(t, err)
 
-	err = b.AddTagsToResource(snap.ARN, map[string]string{"retention": "30days"})
+	err = b.AddTagsToResource(context.Background(), snap.ARN, map[string]string{"retention": "30days"})
 	require.NoError(t, err)
 
-	tags, err := b.ListTagsForResource(snap.ARN)
+	tags, err := b.ListTagsForResource(context.Background(), snap.ARN)
 	require.NoError(t, err)
 	assert.Equal(t, "30days", tags["retention"])
 }
@@ -955,15 +1081,15 @@ func TestBackend_Events_AfterMultipleOps(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	_, err := b.CreateClusterWithOptions("event-cl", "redis", "cache.t3.micro", "", "", "", 1, 0)
+	_, err := b.CreateClusterWithOptions(context.Background(), "event-cl", "redis", "cache.t3.micro", "", "", "", 1, 0)
 	require.NoError(t, err)
 
-	_, err = b.CreateReplicationGroupFull(elasticache.ReplicationGroupCreateOpts{
+	_, err = b.CreateReplicationGroupFull(context.Background(), elasticache.ReplicationGroupCreateOpts{
 		ID: "event-rg", Description: "event test",
 	})
 	require.NoError(t, err)
 
-	p, err := b.DescribeEvents("", "", "", time.Time{}, time.Time{}, 0, 100)
+	p, err := b.DescribeEvents(context.Background(), "", "", "", time.Time{}, time.Time{}, 0, 100)
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, len(p.Data), 2)
 }
@@ -977,7 +1103,7 @@ func TestBackend_DescribeReservedCacheNodes_Empty(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	p, err := b.DescribeReservedCacheNodes("", "", "", "", 0)
+	p, err := b.DescribeReservedCacheNodes(context.Background(), "", "", "", "", 0)
 	require.NoError(t, err)
 	assert.NotNil(t, p.Data)
 }
@@ -987,7 +1113,7 @@ func TestBackend_DescribeReservedCacheNodesOfferings_NonEmpty(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	p, err := b.DescribeReservedCacheNodesOfferings("", "", "", "", 0)
+	p, err := b.DescribeReservedCacheNodesOfferings(context.Background(), "", "", "", "", 0)
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, len(p.Data), 1)
 }
@@ -997,12 +1123,12 @@ func TestBackend_PurchaseReservedCacheNodesOffering(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	offerings, err := b.DescribeReservedCacheNodesOfferings("", "", "", "", 0)
+	offerings, err := b.DescribeReservedCacheNodesOfferings(context.Background(), "", "", "", "", 0)
 	require.NoError(t, err)
 	require.NotEmpty(t, offerings.Data)
 
 	offeringID := offerings.Data[0].OfferingID
-	rcn, err := b.PurchaseReservedCacheNodesOffering(offeringID, "my-reserved-node-id", 1)
+	rcn, err := b.PurchaseReservedCacheNodesOffering(context.Background(), offeringID, "my-reserved-node-id", 1)
 	require.NoError(t, err)
 	assert.Equal(t, "my-reserved-node-id", rcn.ReservedCacheNodeID)
 	assert.Equal(t, int32(1), rcn.CacheNodeCount)
@@ -1017,10 +1143,20 @@ func TestBackend_ListAllowedNodeTypeModifications_ForCluster(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	_, err := b.CreateClusterWithOptions("nodemods-cl", "redis", "cache.t3.micro", "", "", "", 1, 0)
+	_, err := b.CreateClusterWithOptions(
+		context.Background(),
+		"nodemods-cl",
+		"redis",
+		"cache.t3.micro",
+		"",
+		"",
+		"",
+		1,
+		0,
+	)
 	require.NoError(t, err)
 
-	mods, err := b.ListAllowedNodeTypeModifications("nodemods-cl", "")
+	mods, err := b.ListAllowedNodeTypeModifications(context.Background(), "nodemods-cl", "")
 	require.NoError(t, err)
 	assert.NotNil(t, mods)
 }
@@ -1030,12 +1166,12 @@ func TestBackend_ListAllowedNodeTypeModifications_ForRG(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	_, err := b.CreateReplicationGroupFull(elasticache.ReplicationGroupCreateOpts{
+	_, err := b.CreateReplicationGroupFull(context.Background(), elasticache.ReplicationGroupCreateOpts{
 		ID: "nodemods-rg", Description: "node mods test",
 	})
 	require.NoError(t, err)
 
-	mods, err := b.ListAllowedNodeTypeModifications("", "nodemods-rg")
+	mods, err := b.ListAllowedNodeTypeModifications(context.Background(), "", "nodemods-rg")
 	require.NoError(t, err)
 	assert.NotNil(t, mods)
 }
@@ -1049,7 +1185,7 @@ func TestBackend_DescribeEngineDefaultParameters_Redis7(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	p, err := b.DescribeEngineDefaultParameters("redis7", "", 0)
+	p, err := b.DescribeEngineDefaultParameters(context.Background(), "redis7", "", 0)
 	require.NoError(t, err)
 	assert.NotNil(t, p.Data)
 }
@@ -1059,7 +1195,7 @@ func TestBackend_DescribeEngineDefaultParameters_Valkey8(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	p, err := b.DescribeEngineDefaultParameters("valkey8", "", 0)
+	p, err := b.DescribeEngineDefaultParameters(context.Background(), "valkey8", "", 0)
 	require.NoError(t, err)
 	assert.NotNil(t, p.Data)
 }
@@ -1073,7 +1209,7 @@ func TestBackend_DescribeCacheEngineVersions_Redis(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	p, err := b.DescribeCacheEngineVersions("redis", "", "", "", 0)
+	p, err := b.DescribeCacheEngineVersions(context.Background(), "redis", "", "", "", 0)
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, len(p.Data), 2)
 	for _, v := range p.Data {
@@ -1086,7 +1222,7 @@ func TestBackend_DescribeCacheEngineVersions_Memcached(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	p, err := b.DescribeCacheEngineVersions("memcached", "", "", "", 0)
+	p, err := b.DescribeCacheEngineVersions(context.Background(), "memcached", "", "", "", 0)
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, len(p.Data), 1)
 	for _, v := range p.Data {
@@ -1099,7 +1235,7 @@ func TestBackend_DescribeCacheEngineVersions_Valkey(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	p, err := b.DescribeCacheEngineVersions("valkey", "", "", "", 0)
+	p, err := b.DescribeCacheEngineVersions(context.Background(), "valkey", "", "", "", 0)
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, len(p.Data), 2)
 	for _, v := range p.Data {
@@ -1112,7 +1248,7 @@ func TestBackend_DescribeCacheEngineVersions_FilterByFamily(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	p, err := b.DescribeCacheEngineVersions("", "valkey8", "", "", 0)
+	p, err := b.DescribeCacheEngineVersions(context.Background(), "", "valkey8", "", "", 0)
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, len(p.Data), 1)
 	for _, v := range p.Data {
@@ -1129,28 +1265,28 @@ func TestBackend_CacheSecurityGroup_CRUD(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	sg, err := b.CreateCacheSecurityGroup("my-sg", "My security group")
+	sg, err := b.CreateCacheSecurityGroup(context.Background(), "my-sg", "My security group")
 	require.NoError(t, err)
 	assert.Equal(t, "my-sg", sg.Name)
 	assert.Contains(t, sg.ARN, "arn:aws:elasticache:")
 
-	auth, err := b.AuthorizeCacheSecurityGroupIngress("my-sg", "ec2-sg", "123456789012")
+	auth, err := b.AuthorizeCacheSecurityGroupIngress(context.Background(), "my-sg", "ec2-sg", "123456789012")
 	require.NoError(t, err)
 	assert.NotNil(t, auth)
 
-	p, err := b.DescribeCacheSecurityGroups("my-sg", "", 0)
+	p, err := b.DescribeCacheSecurityGroups(context.Background(), "my-sg", "", 0)
 	require.NoError(t, err)
 	require.Len(t, p.Data, 1)
 
-	revoked, err := b.RevokeCacheSecurityGroupIngress("my-sg", "ec2-sg", "123456789012")
+	revoked, err := b.RevokeCacheSecurityGroupIngress(context.Background(), "my-sg", "ec2-sg", "123456789012")
 	require.NoError(t, err)
 	assert.NotNil(t, revoked)
 
-	err = b.DeleteCacheSecurityGroup("my-sg")
+	err = b.DeleteCacheSecurityGroup(context.Background(), "my-sg")
 	require.NoError(t, err)
 
 	// After delete, lookup by name returns not-found error.
-	_, err = b.DescribeCacheSecurityGroups("my-sg", "", 0)
+	_, err = b.DescribeCacheSecurityGroups(context.Background(), "my-sg", "", 0)
 	require.Error(t, err)
 }
 
@@ -1163,29 +1299,29 @@ func TestBackend_Reset_ClearsAll(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	_, err := b.CreateClusterWithOptions("reset-cl", "redis", "cache.t3.micro", "", "", "", 1, 0)
+	_, err := b.CreateClusterWithOptions(context.Background(), "reset-cl", "redis", "cache.t3.micro", "", "", "", 1, 0)
 	require.NoError(t, err)
 
-	_, err = b.CreateReplicationGroupFull(elasticache.ReplicationGroupCreateOpts{
+	_, err = b.CreateReplicationGroupFull(context.Background(), elasticache.ReplicationGroupCreateOpts{
 		ID: "reset-rg", Description: "for reset",
 	})
 	require.NoError(t, err)
 
-	_, err = b.CreateUser("reset-user", "reset-user", "on ~* +@all", "redis", false)
+	_, err = b.CreateUser(context.Background(), "reset-user", "reset-user", "on ~* +@all", "redis", false)
 	require.NoError(t, err)
 
 	b.Reset()
 
 	// All resources should be gone.
-	p1, err := b.DescribeClusters("", "", 0)
+	p1, err := b.DescribeClusters(context.Background(), "", "", 0)
 	require.NoError(t, err)
 	assert.Empty(t, p1.Data)
 
-	p2, err := b.DescribeReplicationGroups("", "", 0)
+	p2, err := b.DescribeReplicationGroups(context.Background(), "", "", 0)
 	require.NoError(t, err)
 	assert.Empty(t, p2.Data)
 
-	p3, err := b.DescribeUsers("", "", 0)
+	p3, err := b.DescribeUsers(context.Background(), "", "", 0)
 	require.NoError(t, err)
 	assert.Empty(t, p3.Data)
 }

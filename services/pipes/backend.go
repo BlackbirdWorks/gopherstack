@@ -51,6 +51,21 @@ var (
 	pipeNameRE = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 )
 
+// regionContextKey is the context key under which the per-request AWS region is stored.
+type regionContextKey struct{}
+
+// getRegion extracts the region from ctx, falling back to defaultRegion when unset.
+// Pipes resources are isolated per region: every backend operation resolves the
+// caller's region from the request context and operates only on that region's
+// nested store.
+func getRegion(ctx context.Context, defaultRegion string) string {
+	if r, ok := ctx.Value(regionContextKey{}).(string); ok && r != "" {
+		return r
+	}
+
+	return defaultRegion
+}
+
 // FilterCriteria holds event filter patterns applied before forwarding to the target.
 type FilterCriteria struct {
 	Filters []Filter `json:"Filters,omitempty"`
@@ -817,11 +832,16 @@ func clonePipe(p *Pipe) *Pipe {
 }
 
 // InMemoryBackend is the in-memory store for pipes.
+//
+// All resource maps are nested by region (outer key = region) so that
+// same-named pipes are isolated across regions. The per-region inner maps
+// are created lazily via the *Store helpers. Callers must hold b.mu while
+// accessing the inner maps.
 type InMemoryBackend struct {
 	svcCtx              context.Context
-	pipes               map[string]*Pipe
-	pipeARNIndex        map[string]string
-	enrichmentCallCount map[string]int64
+	pipes               map[string]map[string]*Pipe  // region → name → pipe
+	pipeARNIndex        map[string]map[string]string // region → arn → name
+	enrichmentCallCount map[string]map[string]int64  // region → name → count
 	mu                  *lockmetrics.RWMutex
 	cancel              context.CancelFunc
 	accountID           string
@@ -847,15 +867,41 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 	ctx, cancel := context.WithCancel(svcCtx)
 
 	return &InMemoryBackend{
-		pipes:               make(map[string]*Pipe),
-		pipeARNIndex:        make(map[string]string),
-		enrichmentCallCount: make(map[string]int64),
+		pipes:               make(map[string]map[string]*Pipe),
+		pipeARNIndex:        make(map[string]map[string]string),
+		enrichmentCallCount: make(map[string]map[string]int64),
 		accountID:           accountID,
 		region:              region,
 		mu:                  lockmetrics.New("pipes"),
 		svcCtx:              ctx,
 		cancel:              cancel,
 	}
+}
+
+// --- Per-region store accessors (callers must hold b.mu) ---
+
+func (b *InMemoryBackend) pipesStore(region string) map[string]*Pipe {
+	if b.pipes[region] == nil {
+		b.pipes[region] = make(map[string]*Pipe)
+	}
+
+	return b.pipes[region]
+}
+
+func (b *InMemoryBackend) pipeARNIndexStore(region string) map[string]string {
+	if b.pipeARNIndex[region] == nil {
+		b.pipeARNIndex[region] = make(map[string]string)
+	}
+
+	return b.pipeARNIndex[region]
+}
+
+func (b *InMemoryBackend) enrichmentCallCountStore(region string) map[string]int64 {
+	if b.enrichmentCallCount[region] == nil {
+		b.enrichmentCallCount[region] = make(map[string]int64)
+	}
+
+	return b.enrichmentCallCount[region]
 }
 
 // runDelayed runs fn after delay, unless the backend's lifecycle context is
@@ -895,18 +941,18 @@ func (b *InMemoryBackend) Shutdown(ctx context.Context) {
 }
 
 // RecordEnrichmentCall increments the enrichment invocation counter for a pipe.
-func (b *InMemoryBackend) RecordEnrichmentCall(pipeName string) {
+func (b *InMemoryBackend) RecordEnrichmentCall(ctx context.Context, pipeName string) {
 	b.mu.Lock("RecordEnrichmentCall")
 	defer b.mu.Unlock()
-	b.enrichmentCallCount[pipeName]++
+	b.enrichmentCallCountStore(getRegion(ctx, b.region))[pipeName]++
 }
 
 // GetEnrichmentCallCount returns the number of enrichment calls for a pipe.
-func (b *InMemoryBackend) GetEnrichmentCallCount(pipeName string) int64 {
+func (b *InMemoryBackend) GetEnrichmentCallCount(ctx context.Context, pipeName string) int64 {
 	b.mu.RLock("GetEnrichmentCallCount")
 	defer b.mu.RUnlock()
 
-	return b.enrichmentCallCount[pipeName]
+	return b.enrichmentCallCountStore(getRegion(ctx, b.region))[pipeName]
 }
 
 func (b *InMemoryBackend) Region() string { return b.region }
@@ -930,7 +976,7 @@ type CreatePipeInput struct {
 	DesiredState            string
 }
 
-func (b *InMemoryBackend) CreatePipe(in CreatePipeInput) (*Pipe, error) {
+func (b *InMemoryBackend) CreatePipe(ctx context.Context, in CreatePipeInput) (*Pipe, error) {
 	if err := validatePipeName(in.Name); err != nil {
 		return nil, err
 	}
@@ -953,14 +999,18 @@ func (b *InMemoryBackend) CreatePipe(in CreatePipeInput) (*Pipe, error) {
 	b.mu.Lock("CreatePipe")
 	defer b.mu.Unlock()
 
-	if len(b.pipes) >= maxPipesPerAcct {
+	region := getRegion(ctx, b.region)
+	store := b.pipesStore(region)
+	arnIndex := b.pipeARNIndexStore(region)
+
+	if len(store) >= maxPipesPerAcct {
 		return nil, fmt.Errorf(
 			"%w: account has reached the maximum number of pipes (%d)",
 			ErrValidation,
 			maxPipesPerAcct,
 		)
 	}
-	if _, ok := b.pipes[in.Name]; ok {
+	if _, ok := store[in.Name]; ok {
 		return nil, fmt.Errorf("%w: pipe %s already exists", ErrAlreadyExists, in.Name)
 	}
 	if in.DesiredState == "" {
@@ -968,13 +1018,13 @@ func (b *InMemoryBackend) CreatePipe(in CreatePipeInput) (*Pipe, error) {
 	}
 
 	now := time.Now()
-	pipeARN := arn.Build("pipes", b.region, b.accountID, "pipe/"+in.Name)
+	pipeARN := arn.Build("pipes", region, b.accountID, "pipe/"+in.Name)
 	p := &Pipe{
 		Name: in.Name, ARN: pipeARN, RoleARN: in.RoleARN,
 		Source: in.Source, Target: in.Target, Description: in.Description,
 		Enrichment: in.Enrichment, KmsKeyIdentifier: in.KmsKeyIdentifier,
 		DesiredState: in.DesiredState, CurrentState: stateCreating,
-		AccountID: b.accountID, Region: b.region,
+		AccountID: b.accountID, Region: region,
 		CreationTime: now, LastModifiedTime: now,
 		Tags:                    mergeTags(nil, in.Tags),
 		SourceParameters:        in.SourceParameters,
@@ -984,22 +1034,22 @@ func (b *InMemoryBackend) CreatePipe(in CreatePipeInput) (*Pipe, error) {
 		EnrichmentParameters:    in.EnrichmentParameters,
 		RuntimeMetricsStreaming: in.RuntimeMetricsStreaming,
 	}
-	b.pipes[in.Name] = p
-	b.pipeARNIndex[pipeARN] = in.Name
+	store[in.Name] = p
+	arnIndex[pipeARN] = in.Name
 
 	cp := clonePipe(p)
 	b.runDelayed(func() {
-		b.completeCreateTransition(in.Name, in.DesiredState)
+		b.completeCreateTransition(region, in.Name, in.DesiredState)
 	})
 
 	return cp, nil
 }
 
 // completeCreateTransition moves a pipe from CREATING to its desired state.
-func (b *InMemoryBackend) completeCreateTransition(name, desiredState string) {
+func (b *InMemoryBackend) completeCreateTransition(region, name, desiredState string) {
 	b.mu.Lock("completeCreateTransition")
 	defer b.mu.Unlock()
-	p, ok := b.pipes[name]
+	p, ok := b.pipesStore(region)[name]
 	if !ok {
 		return
 	}
@@ -1009,10 +1059,10 @@ func (b *InMemoryBackend) completeCreateTransition(name, desiredState string) {
 	}
 }
 
-func (b *InMemoryBackend) GetPipe(name string) (*Pipe, error) {
+func (b *InMemoryBackend) GetPipe(ctx context.Context, name string) (*Pipe, error) {
 	b.mu.RLock("GetPipe")
 	defer b.mu.RUnlock()
-	p, ok := b.pipes[name]
+	p, ok := b.pipesStore(getRegion(ctx, b.region))[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: pipe %s not found", ErrNotFound, name)
 	}
@@ -1037,26 +1087,47 @@ type ListPipesResult struct {
 	Pipes     []*Pipe
 }
 
-func (b *InMemoryBackend) ListPipes(f ListPipesFilter) ListPipesResult {
+func (b *InMemoryBackend) ListPipes(ctx context.Context, f ListPipesFilter) ListPipesResult {
 	b.mu.RLock("ListPipes")
 	defer b.mu.RUnlock()
+
+	store := b.pipesStore(getRegion(ctx, b.region))
 
 	limit := f.Limit
 	if limit <= 0 || limit > 1000 {
 		limit = 1000
 	}
 
-	names := b.sortedPipeNames()
-	startIdx := b.resolveStartIndex(names, f.NextToken)
-	result, lastIncluded := b.collectMatchingPipes(names, startIdx, limit, f)
-	nextToken := b.buildNextToken(names, startIdx, len(result), limit, lastIncluded, f)
+	names := sortedPipeNames(store)
+	startIdx := resolveStartIndex(names, f.NextToken)
+	result, lastIncluded := collectMatchingPipes(store, names, startIdx, limit, f)
+	nextToken := buildNextToken(store, names, startIdx, len(result), limit, lastIncluded, f)
 
 	return ListPipesResult{Pipes: result, NextToken: nextToken}
 }
 
-func (b *InMemoryBackend) sortedPipeNames() []string {
-	names := make([]string, 0, len(b.pipes))
-	for name := range b.pipes {
+// allRunningPipes returns all RUNNING pipes across every region. Used by the
+// background runner which must poll all regions without a request context.
+func (b *InMemoryBackend) allRunningPipes() []*Pipe {
+	b.mu.RLock("allRunningPipes")
+	defer b.mu.RUnlock()
+
+	var result []*Pipe
+
+	for _, regionStore := range b.pipes {
+		for _, p := range regionStore {
+			if p.CurrentState == stateRunning {
+				result = append(result, clonePipe(p))
+			}
+		}
+	}
+
+	return result
+}
+
+func sortedPipeNames(store map[string]*Pipe) []string {
+	names := make([]string, 0, len(store))
+	for name := range store {
 		names = append(names, name)
 	}
 	for i := 0; i < len(names); i++ {
@@ -1070,7 +1141,7 @@ func (b *InMemoryBackend) sortedPipeNames() []string {
 	return names
 }
 
-func (b *InMemoryBackend) resolveStartIndex(names []string, nextToken string) int {
+func resolveStartIndex(names []string, nextToken string) int {
 	if nextToken == "" {
 		return 0
 	}
@@ -1091,7 +1162,8 @@ func (b *InMemoryBackend) resolveStartIndex(names []string, nextToken string) in
 	return startIdx
 }
 
-func (b *InMemoryBackend) collectMatchingPipes(
+func collectMatchingPipes(
+	store map[string]*Pipe,
 	names []string, startIdx, limit int, f ListPipesFilter,
 ) ([]*Pipe, string) {
 	var result []*Pipe
@@ -1100,7 +1172,7 @@ func (b *InMemoryBackend) collectMatchingPipes(
 		if len(result) >= limit {
 			break
 		}
-		p := b.pipes[names[i]]
+		p := store[names[i]]
 		if !matchesFilter(p, f) {
 			continue
 		}
@@ -1111,14 +1183,15 @@ func (b *InMemoryBackend) collectMatchingPipes(
 	return result, lastIncluded
 }
 
-func (b *InMemoryBackend) buildNextToken(
+func buildNextToken(
+	store map[string]*Pipe,
 	names []string, startIdx, resultLen, limit int, lastIncluded string, f ListPipesFilter,
 ) string {
 	if resultLen < limit || lastIncluded == "" {
 		return ""
 	}
 	for i := startIdx + resultLen; i < len(names); i++ {
-		if matchesFilter(b.pipes[names[i]], f) {
+		if matchesFilter(store[names[i]], f) {
 			return base64.StdEncoding.EncodeToString([]byte(lastIncluded + nextTokenSep))
 		}
 	}
@@ -1202,7 +1275,7 @@ func applyUpdateFields(p *Pipe, in UpdatePipeInput) {
 	}
 }
 
-func (b *InMemoryBackend) UpdatePipe(name string, in UpdatePipeInput) (*Pipe, error) {
+func (b *InMemoryBackend) UpdatePipe(ctx context.Context, name string, in UpdatePipeInput) (*Pipe, error) {
 	if err := validateDesiredState(in.DesiredState); err != nil {
 		return nil, err
 	}
@@ -1213,7 +1286,8 @@ func (b *InMemoryBackend) UpdatePipe(name string, in UpdatePipeInput) (*Pipe, er
 	b.mu.Lock("UpdatePipe")
 	defer b.mu.Unlock()
 
-	p, ok := b.pipes[name]
+	region := getRegion(ctx, b.region)
+	p, ok := b.pipesStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: pipe %s not found", ErrNotFound, name)
 	}
@@ -1229,17 +1303,17 @@ func (b *InMemoryBackend) UpdatePipe(name string, in UpdatePipeInput) (*Pipe, er
 	cp := clonePipe(p)
 
 	b.runDelayed(func() {
-		b.completeUpdateTransition(name, prevDesiredState)
+		b.completeUpdateTransition(region, name, prevDesiredState)
 	})
 
 	return cp, nil
 }
 
 // completeUpdateTransition moves a pipe from UPDATING to its desired state.
-func (b *InMemoryBackend) completeUpdateTransition(name, desiredState string) {
+func (b *InMemoryBackend) completeUpdateTransition(region, name, desiredState string) {
 	b.mu.Lock("completeUpdateTransition")
 	defer b.mu.Unlock()
-	p, ok := b.pipes[name]
+	p, ok := b.pipesStore(region)[name]
 	if !ok {
 		return
 	}
@@ -1249,10 +1323,12 @@ func (b *InMemoryBackend) completeUpdateTransition(name, desiredState string) {
 	}
 }
 
-func (b *InMemoryBackend) DeletePipe(name string) (*Pipe, error) {
+func (b *InMemoryBackend) DeletePipe(ctx context.Context, name string) (*Pipe, error) {
 	b.mu.Lock("DeletePipe")
 	defer b.mu.Unlock()
-	p, ok := b.pipes[name]
+
+	region := getRegion(ctx, b.region)
+	p, ok := b.pipesStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: pipe %s not found", ErrNotFound, name)
 	}
@@ -1261,30 +1337,33 @@ func (b *InMemoryBackend) DeletePipe(name string) (*Pipe, error) {
 	cp := clonePipe(p)
 
 	b.runDelayed(func() {
-		b.completeDeleteTransition(name)
+		b.completeDeleteTransition(region, name)
 	})
 
 	return cp, nil
 }
 
 // completeDeleteTransition removes the pipe after it has been marked DELETING.
-func (b *InMemoryBackend) completeDeleteTransition(name string) {
+func (b *InMemoryBackend) completeDeleteTransition(region, name string) {
 	b.mu.Lock("completeDeleteTransition")
 	defer b.mu.Unlock()
-	p, ok := b.pipes[name]
+	store := b.pipesStore(region)
+	p, ok := store[name]
 	if !ok {
 		return
 	}
 	if p.CurrentState == stateDeleting {
-		delete(b.pipeARNIndex, p.ARN)
-		delete(b.pipes, name)
+		delete(b.pipeARNIndexStore(region), p.ARN)
+		delete(store, name)
 	}
 }
 
-func (b *InMemoryBackend) StartPipe(name string) (*Pipe, error) {
+func (b *InMemoryBackend) StartPipe(ctx context.Context, name string) (*Pipe, error) {
 	b.mu.Lock("StartPipe")
 	defer b.mu.Unlock()
-	p, ok := b.pipes[name]
+
+	region := getRegion(ctx, b.region)
+	p, ok := b.pipesStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: pipe %s not found", ErrNotFound, name)
 	}
@@ -1300,17 +1379,17 @@ func (b *InMemoryBackend) StartPipe(name string) (*Pipe, error) {
 
 	// Complete the transition to RUNNING asynchronously.
 	b.runDelayed(func() {
-		b.completeStartTransition(name)
+		b.completeStartTransition(region, name)
 	})
 
 	return cp, nil
 }
 
 // completeStartTransition moves a pipe from STARTING to RUNNING.
-func (b *InMemoryBackend) completeStartTransition(name string) {
+func (b *InMemoryBackend) completeStartTransition(region, name string) {
 	b.mu.Lock("completeStartTransition")
 	defer b.mu.Unlock()
-	p, ok := b.pipes[name]
+	p, ok := b.pipesStore(region)[name]
 	if !ok {
 		return
 	}
@@ -1320,10 +1399,12 @@ func (b *InMemoryBackend) completeStartTransition(name string) {
 	}
 }
 
-func (b *InMemoryBackend) StopPipe(name string) (*Pipe, error) {
+func (b *InMemoryBackend) StopPipe(ctx context.Context, name string) (*Pipe, error) {
 	b.mu.Lock("StopPipe")
 	defer b.mu.Unlock()
-	p, ok := b.pipes[name]
+
+	region := getRegion(ctx, b.region)
+	p, ok := b.pipesStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: pipe %s not found", ErrNotFound, name)
 	}
@@ -1339,17 +1420,17 @@ func (b *InMemoryBackend) StopPipe(name string) (*Pipe, error) {
 
 	// Complete the transition to STOPPED asynchronously.
 	b.runDelayed(func() {
-		b.completeStopTransition(name)
+		b.completeStopTransition(region, name)
 	})
 
 	return cp, nil
 }
 
 // completeStopTransition moves a pipe from STOPPING to STOPPED.
-func (b *InMemoryBackend) completeStopTransition(name string) {
+func (b *InMemoryBackend) completeStopTransition(region, name string) {
 	b.mu.Lock("completeStopTransition")
 	defer b.mu.Unlock()
-	p, ok := b.pipes[name]
+	p, ok := b.pipesStore(region)[name]
 	if !ok {
 		return
 	}
@@ -1360,29 +1441,36 @@ func (b *InMemoryBackend) completeStopTransition(name string) {
 }
 
 // MarkPipeFailed updates a pipe to a failed state with a reason message.
+// It searches all regions for the named pipe.
 func (b *InMemoryBackend) MarkPipeFailed(name, state, reason string) {
 	b.mu.Lock("MarkPipeFailed")
 	defer b.mu.Unlock()
-	p, ok := b.pipes[name]
-	if !ok {
-		return
+
+	for _, regionStore := range b.pipes {
+		if p, ok := regionStore[name]; ok {
+			p.CurrentState = state
+			p.StateReason = reason
+			p.LastModifiedTime = time.Now()
+
+			return
+		}
 	}
-	p.CurrentState = state
-	p.StateReason = reason
-	p.LastModifiedTime = time.Now()
 }
 
-func (b *InMemoryBackend) TagResource(resourceARN string, kv map[string]string) error {
+func (b *InMemoryBackend) TagResource(ctx context.Context, resourceARN string, kv map[string]string) error {
 	if err := validateTags(kv); err != nil {
 		return err
 	}
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
-	name, ok := b.pipeARNIndex[resourceARN]
+
+	region := getRegion(ctx, b.region)
+	arnIndex := b.pipeARNIndexStore(region)
+	name, ok := arnIndex[resourceARN]
 	if !ok {
 		return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 	}
-	p := b.pipes[name]
+	p := b.pipesStore(region)[name]
 	merged := mergeTags(p.Tags, kv)
 	if len(merged) > maxTagsPerPipe {
 		return fmt.Errorf("%w: pipe would exceed %d tags limit", ErrValidation, maxTagsPerPipe)
@@ -1392,14 +1480,17 @@ func (b *InMemoryBackend) TagResource(resourceARN string, kv map[string]string) 
 	return nil
 }
 
-func (b *InMemoryBackend) UntagResource(resourceARN string, keys []string) error {
+func (b *InMemoryBackend) UntagResource(ctx context.Context, resourceARN string, keys []string) error {
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
-	name, ok := b.pipeARNIndex[resourceARN]
+
+	region := getRegion(ctx, b.region)
+	arnIndex := b.pipeARNIndexStore(region)
+	name, ok := arnIndex[resourceARN]
 	if !ok {
 		return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 	}
-	p := b.pipes[name]
+	p := b.pipesStore(region)[name]
 	for _, k := range keys {
 		delete(p.Tags, k)
 	}
@@ -1407,14 +1498,17 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, keys []string) error
 	return nil
 }
 
-func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]string, error) {
+func (b *InMemoryBackend) ListTagsForResource(ctx context.Context, resourceARN string) (map[string]string, error) {
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
-	name, ok := b.pipeARNIndex[resourceARN]
+
+	region := getRegion(ctx, b.region)
+	arnIndex := b.pipeARNIndexStore(region)
+	name, ok := arnIndex[resourceARN]
 	if !ok {
 		return nil, fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 	}
-	p := b.pipes[name]
+	p := b.pipesStore(region)[name]
 	result := make(map[string]string, len(p.Tags))
 	maps.Copy(result, p.Tags)
 
@@ -1432,9 +1526,9 @@ func mergeTags(existing, incoming map[string]string) map[string]string {
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
-	b.pipes = make(map[string]*Pipe)
-	b.pipeARNIndex = make(map[string]string)
-	b.enrichmentCallCount = make(map[string]int64)
+	b.pipes = make(map[string]map[string]*Pipe)
+	b.pipeARNIndex = make(map[string]map[string]string)
+	b.enrichmentCallCount = make(map[string]map[string]int64)
 }
 
 func validatePipeName(name string) error {
@@ -1497,10 +1591,10 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 	type snap struct {
-		Pipes               map[string]*Pipe `json:"pipes"`
-		EnrichmentCallCount map[string]int64 `json:"enrichmentCallCount,omitempty"`
-		AccountID           string           `json:"accountID"`
-		Region              string           `json:"region"`
+		Pipes               map[string]map[string]*Pipe `json:"pipes"`
+		EnrichmentCallCount map[string]map[string]int64 `json:"enrichmentCallCount,omitempty"`
+		AccountID           string                      `json:"accountID"`
+		Region              string                      `json:"region"`
 	}
 	s := snap{
 		Pipes:               b.pipes,
@@ -1518,10 +1612,10 @@ func (b *InMemoryBackend) Snapshot() []byte {
 
 func (b *InMemoryBackend) Restore(data []byte) error {
 	type snap struct {
-		Pipes               map[string]*Pipe `json:"pipes"`
-		EnrichmentCallCount map[string]int64 `json:"enrichmentCallCount,omitempty"`
-		AccountID           string           `json:"accountID"`
-		Region              string           `json:"region"`
+		Pipes               map[string]map[string]*Pipe `json:"pipes"`
+		EnrichmentCallCount map[string]map[string]int64 `json:"enrichmentCallCount,omitempty"`
+		AccountID           string                      `json:"accountID"`
+		Region              string                      `json:"region"`
 	}
 	var s snap
 	if err := json.Unmarshal(data, &s); err != nil {
@@ -1530,19 +1624,30 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 	if s.Pipes == nil {
-		s.Pipes = make(map[string]*Pipe)
+		s.Pipes = make(map[string]map[string]*Pipe)
 	}
 	b.pipes = s.Pipes
 	b.accountID = s.AccountID
 	b.region = s.Region
-	b.pipeARNIndex = make(map[string]string, len(b.pipes))
-	for name, p := range b.pipes {
-		b.pipeARNIndex[p.ARN] = name
+
+	// Rebuild pipeARNIndex from the restored pipe data.
+	b.pipeARNIndex = make(map[string]map[string]string)
+	for region, regionStore := range b.pipes {
+		if regionStore == nil {
+			continue
+		}
+		for name, p := range regionStore {
+			if b.pipeARNIndex[region] == nil {
+				b.pipeARNIndex[region] = make(map[string]string)
+			}
+			b.pipeARNIndex[region][p.ARN] = name
+		}
 	}
+
 	if s.EnrichmentCallCount != nil {
 		b.enrichmentCallCount = s.EnrichmentCallCount
 	} else {
-		b.enrichmentCallCount = make(map[string]int64)
+		b.enrichmentCallCount = make(map[string]map[string]int64)
 	}
 
 	return nil

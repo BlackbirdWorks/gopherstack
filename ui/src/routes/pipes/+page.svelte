@@ -243,7 +243,8 @@
 					Target: editTarget || undefined,
 					RoleArn: editRoleArn || undefined,
 					Description: editDescription,
-					DesiredState: editDesiredState as 'RUNNING' | 'STOPPED' | undefined
+					// eslint-disable-next-line @typescript-eslint/no-explicit-any
+					DesiredState: editDesiredState as any
 				})
 			);
 			toast.success('Pipe updated');
@@ -344,6 +345,10 @@
 		} catch (err: unknown) {
 			toast.error(`Remove tag failed: ${(err as Error).message}`);
 		}
+	}
+
+	function setTab(tab: string) {
+		activeDetailTab = tab as 'overview' | 'tags' | 'config';
 	}
 
 	function closeModalOnBackdrop(e: MouseEvent) {
@@ -626,7 +631,7 @@
 					<div class="flex border-b border-slate-100 dark:border-slate-700/50">
 						{#each [['overview', 'Overview'], ['tags', 'Tags'], ['config', 'Config']] as [tab, label]}
 							<button
-								onclick={() => { activeDetailTab = tab as 'overview' | 'tags' | 'config'; }}
+								onclick={() => setTab(tab)}
 								class="px-6 py-3 text-xs font-black uppercase tracking-widest transition-all {activeDetailTab === tab ? 'text-rose-600 border-b-2 border-rose-500' : 'text-slate-400 hover:text-slate-600'}"
 							>
 								{label}
@@ -642,7 +647,7 @@
 								<div class="flex items-stretch gap-2">
 									<div class="flex-1 p-4 bg-white/60 dark:bg-slate-900/60 rounded-2xl border border-slate-100 dark:border-slate-700/50 shadow-sm">
 										<div class="flex items-center gap-1.5 mb-2">
-											<svelte:component this={serviceIcon(selectedPipe.Source)} class="w-3.5 h-3.5 text-rose-500" />
+											<Database class="w-3.5 h-3.5 text-rose-500" />
 											<div class="text-[8px] font-black text-slate-400 uppercase tracking-widest">Source</div>
 										</div>
 										<div class="text-xs font-mono text-slate-700 dark:text-slate-300 break-all leading-relaxed">{arnLabel(selectedPipe.Source)}</div>
@@ -665,7 +670,7 @@
 									{/if}
 									<div class="flex-1 p-4 bg-white/60 dark:bg-slate-900/60 rounded-2xl border border-slate-100 dark:border-slate-700/50 shadow-sm">
 										<div class="flex items-center gap-1.5 mb-2">
-											<svelte:component this={serviceIcon(selectedPipe.Target)} class="w-3.5 h-3.5 text-emerald-500" />
+											<Zap class="w-3.5 h-3.5 text-emerald-500" />
 											<div class="text-[8px] font-black text-slate-400 uppercase tracking-widest">Target</div>
 										</div>
 										<div class="text-xs font-mono text-slate-700 dark:text-slate-300 break-all leading-relaxed">{arnLabel(selectedPipe.Target)}</div>
@@ -863,7 +868,7 @@
 				</div>
 				<div>
 					<label class="block text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1.5" for="pipe-template">Input Template (optional)</label>
-					<input id="pipe-template" type="text" bind:value={newPipeInputTemplate} placeholder='eg. input template JSON'
+					<input id="pipe-template" type="text" bind:value={newPipeInputTemplate} placeholder="e.g. Static JSON or $.path expression"
 						class="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-mono focus:ring-2 focus:ring-rose-500 outline-none transition-all" />
 				</div>
 				<div class="grid grid-cols-2 gap-3">

@@ -147,7 +147,7 @@ func TestRefinement1_AddScheduledQueryInternal(t *testing.T) {
 	backend.AddScheduledQueryInternal(sq)
 	assert.Equal(t, 1, timestreamquery.ScheduledQueryCount(backend))
 
-	result, err := backend.DescribeScheduledQuery(sq.Arn)
+	result, err := backend.DescribeScheduledQuery(t.Context(), sq.Arn)
 	require.NoError(t, err)
 	assert.Equal(t, "seeded-query", result.Name)
 }
@@ -283,12 +283,12 @@ func TestRefinement1_DescribeScheduledQuery_DeepCopy(t *testing.T) {
 	arn := parseResponse(t, rec)["Arn"].(string)
 
 	// Get a copy and mutate its Tags.
-	sq, err := backend.DescribeScheduledQuery(arn)
+	sq, err := backend.DescribeScheduledQuery(t.Context(), arn)
 	require.NoError(t, err)
 	sq.Tags["env"] = "mutated"
 
 	// The stored query should be unaffected.
-	sq2, err := backend.DescribeScheduledQuery(arn)
+	sq2, err := backend.DescribeScheduledQuery(t.Context(), arn)
 	require.NoError(t, err)
 	assert.Equal(t, "prod", sq2.Tags["env"], "mutation of returned copy must not affect stored state")
 }
@@ -418,11 +418,11 @@ func TestRefinement1_Persistence_SnapshotRestore(t *testing.T) {
 
 	assert.Equal(t, 1, timestreamquery.ScheduledQueryCount(backend2))
 
-	settings := backend2.DescribeAccountSettings()
+	settings := backend2.DescribeAccountSettings(t.Context())
 	assert.Equal(t, "COMPUTE_UNITS", settings.QueryPricingModel)
 
 	// Restored query should have its tags.
-	queries := backend2.ListScheduledQueriesFull()
+	queries := backend2.ListScheduledQueriesFull(t.Context())
 	require.Len(t, queries, 1)
 	assert.Equal(t, "v", queries[0].Tags["k"])
 }

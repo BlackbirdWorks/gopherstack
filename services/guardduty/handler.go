@@ -1214,13 +1214,12 @@ func (h *Handler) handleGetFindingsStatistics(detectorID string) (any, int, erro
 
 	return stats, http.StatusOK, nil
 }
-
 func (h *Handler) handleUpdateFindingsFeedback(detectorID string, body []byte) (int, error) {
-	//nolint:govet // fieldalignment: logical order preferred for readability
+
 	var req struct {
-		FindingIDs []string `json:"findingIds"`
 		Feedback   string   `json:"feedback"`
 		Comments   string   `json:"comments"`
+		FindingIDs []string `json:"findingIds"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -1238,13 +1237,13 @@ func (h *Handler) handleUpdateFindingsFeedback(detectorID string, body []byte) (
 
 //nolint:dupl // IPSet and ThreatIntelSet have identical handler patterns
 func (h *Handler) handleCreateIPSet(detectorID string, body []byte) (any, int, error) {
-	//nolint:govet // fieldalignment: logical order preferred for readability
+
 	var req struct {
 		Tags     map[string]string `json:"tags"`
+		Activate *bool             `json:"activate"`
 		Name     string            `json:"name"`
 		Format   string            `json:"format"`
 		Location string            `json:"location"`
-		Activate *bool             `json:"activate"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -1282,13 +1281,12 @@ func (h *Handler) handleGetIPSet(detectorID, ipSetID string) (any, int, error) {
 		keyTags:    tagsOrEmpty(s.Tags),
 	}, http.StatusOK, nil
 }
-
 func (h *Handler) handleUpdateIPSet(detectorID, ipSetID string, body []byte) (int, error) {
-	//nolint:govet // fieldalignment: logical order preferred for readability
+
 	var req struct {
+		Activate *bool  `json:"activate"`
 		Name     string `json:"name"`
 		Location string `json:"location"`
-		Activate *bool  `json:"activate"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -1323,13 +1321,13 @@ func (h *Handler) handleListIPSets(detectorID string) (any, int, error) {
 
 //nolint:dupl // IPSet and ThreatIntelSet have identical handler patterns
 func (h *Handler) handleCreateThreatIntelSet(detectorID string, body []byte) (any, int, error) {
-	//nolint:govet // fieldalignment: logical order preferred for readability
+
 	var req struct {
 		Tags     map[string]string `json:"tags"`
+		Activate *bool             `json:"activate"`
 		Name     string            `json:"name"`
 		Format   string            `json:"format"`
 		Location string            `json:"location"`
-		Activate *bool             `json:"activate"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -1367,13 +1365,12 @@ func (h *Handler) handleGetThreatIntelSet(detectorID, setID string) (any, int, e
 		keyTags:    tagsOrEmpty(s.Tags),
 	}, http.StatusOK, nil
 }
-
 func (h *Handler) handleUpdateThreatIntelSet(detectorID, setID string, body []byte) (int, error) {
-	//nolint:govet // fieldalignment: logical order preferred for readability
+
 	var req struct {
+		Activate *bool  `json:"activate"`
 		Name     string `json:"name"`
 		Location string `json:"location"`
-		Activate *bool  `json:"activate"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {

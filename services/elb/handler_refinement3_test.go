@@ -1,6 +1,7 @@
 package elb_test
 
 import (
+	"context"
 	"encoding/xml"
 	"net/http"
 	"net/url"
@@ -101,7 +102,7 @@ func TestRefinement3_PersistenceRoundTrip(t *testing.T) {
 			require.NoError(t, restored.Restore(snap))
 
 			// Verify the LB can be described on the restored backend.
-			lbs, err := restored.DescribeLoadBalancers([]string{tt.lbName})
+			lbs, err := restored.DescribeLoadBalancers(context.Background(), []string{tt.lbName})
 			require.NoError(t, err)
 			require.Len(t, lbs, 1)
 

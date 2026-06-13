@@ -1,6 +1,7 @@
 package kinesis_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -20,7 +21,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 		{
 			name: "round_trip_preserves_state",
 			setup: func(b *kinesis.InMemoryBackend) string {
-				err := b.CreateStream(&kinesis.CreateStreamInput{
+				err := b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 					StreamName: "test-stream",
 					ShardCount: 1,
 				})
@@ -33,7 +34,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *kinesis.InMemoryBackend, id string) {
 				t.Helper()
 
-				out, err := b.DescribeStream(&kinesis.DescribeStreamInput{StreamName: id})
+				out, err := b.DescribeStream(context.Background(), &kinesis.DescribeStreamInput{StreamName: id})
 				require.NoError(t, err)
 				assert.Equal(t, id, out.StreamName)
 			},
@@ -44,7 +45,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *kinesis.InMemoryBackend, _ string) {
 				t.Helper()
 
-				out, err := b.ListStreams(&kinesis.ListStreamsInput{})
+				out, err := b.ListStreams(context.Background(), &kinesis.ListStreamsInput{})
 				require.NoError(t, err)
 				assert.Empty(t, out.StreamNames)
 			},
@@ -83,7 +84,10 @@ func TestSnapshot_EmptyShardRecords_NoNull(t *testing.T) {
 	t.Parallel()
 
 	bk := kinesis.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
-	require.NoError(t, bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "empty-shard-stream"}))
+	require.NoError(
+		t,
+		bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{StreamName: "empty-shard-stream"}),
+	)
 
 	snap := bk.Snapshot()
 	require.NotNil(t, snap)
@@ -99,10 +103,10 @@ func TestSnapshot_RestoreClearsOldPointers(t *testing.T) {
 
 	// Create a backend with records in it.
 	bk := kinesis.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
-	require.NoError(t, bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "ptr-stream"}))
+	require.NoError(t, bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{StreamName: "ptr-stream"}))
 
 	for range 5 {
-		_, err := bk.PutRecord(&kinesis.PutRecordInput{
+		_, err := bk.PutRecord(context.Background(), &kinesis.PutRecordInput{
 			StreamName:   "ptr-stream",
 			PartitionKey: "pk",
 			Data:         []byte("data"),
@@ -117,7 +121,7 @@ func TestSnapshot_RestoreClearsOldPointers(t *testing.T) {
 	// Now restore into the same backend (simulating an in-place restore).
 	require.NoError(t, bk.Restore(snap))
 
-	desc, err := bk.DescribeStream(&kinesis.DescribeStreamInput{StreamName: "ptr-stream"})
+	desc, err := bk.DescribeStream(context.Background(), &kinesis.DescribeStreamInput{StreamName: "ptr-stream"})
 	require.NoError(t, err)
 	assert.Len(t, desc.Shards, 1)
 }

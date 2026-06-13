@@ -17,7 +17,13 @@
 		PutSuppressedDestinationCommand,
 		DeleteSuppressedDestinationCommand,
 		ListSuppressedDestinationsCommand,
-		GetAccountCommand
+		GetAccountCommand,
+		ListContactsCommand,
+		CreateContactCommand,
+		DeleteContactCommand,
+		UpdateContactCommand,
+		type SESv2Client,
+		type Contact
 	} from '@aws-sdk/client-sesv2';
 	import { toast } from 'svelte-sonner';
 	import {
@@ -32,10 +38,15 @@
 		XCircle,
 		Shield,
 		Users,
-		BarChart2
+		BarChart2,
+		ChevronRight,
+		Pencil
 	} from 'lucide-svelte';
 
-	const sesv2 = getSESv2Client();
+	let sesv2Client: SESv2Client | undefined;
+	function sesv2(): SESv2Client {
+		return (sesv2Client ??= getSESv2Client());
+	}
 
 	type Tab = 'identities' | 'contact-lists' | 'suppression' | 'templates' | 'send' | 'account';
 
@@ -111,7 +122,7 @@
 	async function loadIdentities() {
 		loading = true;
 		try {
-			const res = await sesv2.send(new ListEmailIdentitiesCommand({}));
+			const res = await sesv2().send(new ListEmailIdentitiesCommand({}));
 			identities = (res.EmailIdentities ?? []).map((id) => ({
 				IdentityName: id.IdentityName,
 				IdentityType: id.IdentityType,
@@ -127,7 +138,7 @@
 	async function loadContactLists() {
 		loading = true;
 		try {
-			const res = await sesv2.send(new ListContactListsCommand({}));
+			const res = await sesv2().send(new ListContactListsCommand({}));
 			contactLists = (res.ContactLists ?? []).map((cl) => ({
 				ContactListName: cl.ContactListName,
 				Description: undefined
@@ -142,7 +153,7 @@
 	async function loadSuppressedAddresses() {
 		loading = true;
 		try {
-			const res = await sesv2.send(new ListSuppressedDestinationsCommand({}));
+			const res = await sesv2().send(new ListSuppressedDestinationsCommand({}));
 			suppressedAddresses = (res.SuppressedDestinationSummaries ?? []).map((s) => ({
 				EmailAddress: s.EmailAddress,
 				Reason: s.Reason
@@ -157,7 +168,7 @@
 	async function loadTemplates() {
 		loading = true;
 		try {
-			const res = await sesv2.send(new ListEmailTemplatesCommand({}));
+			const res = await sesv2().send(new ListEmailTemplatesCommand({}));
 			templates = (res.TemplatesMetadata ?? []).map((t) => ({
 				TemplateName: t.TemplateName
 			}));
@@ -171,7 +182,7 @@
 	async function loadAccount() {
 		loading = true;
 		try {
-			const res = await sesv2.send(new GetAccountCommand({}));
+			const res = await sesv2().send(new GetAccountCommand({}));
 			accountInfo = res;
 		} catch (e) {
 			toast.error(`Failed to load account info: ${e}`);
@@ -184,7 +195,7 @@
 		if (!newIdentity.trim()) return;
 		addingIdentity = true;
 		try {
-			await sesv2.send(
+			await sesv2().send(
 				new CreateEmailIdentityCommand({ EmailIdentity: newIdentity.trim() })
 			);
 			toast.success(`Identity "${newIdentity}" created`);
@@ -207,7 +218,7 @@
 		)
 			return;
 		try {
-			await sesv2.send(new DeleteEmailIdentityCommand({ EmailIdentity: name }));
+			await sesv2().send(new DeleteEmailIdentityCommand({ EmailIdentity: name }));
 			toast.success(`Deleted "${name}"`);
 			await loadIdentities();
 		} catch (e) {
@@ -219,7 +230,7 @@
 		if (!newContactListName.trim()) return;
 		addingContactList = true;
 		try {
-			await sesv2.send(
+			await sesv2().send(
 				new CreateContactListCommand({
 					ContactListName: newContactListName.trim(),
 					Description: newContactListDesc.trim() || undefined
@@ -246,19 +257,129 @@
 		)
 			return;
 		try {
-			await sesv2.send(new DeleteContactListCommand({ ContactListName: name }));
+			await sesv2().send(new DeleteContactListCommand({ ContactListName: name }));
 			toast.success(`Deleted "${name}"`);
+			if (selectedContactList === name) selectedContactList = null;
 			await loadContactLists();
 		} catch (e) {
 			toast.error(`Failed to delete contact list: ${e}`);
 		}
 	}
 
+	// Contact-list member management
+	let selectedContactList = $state<string | null>(null);
+	let contacts = $state<Contact[]>([]);
+	let loadingContacts = $state(false);
+	let showAddContactModal = $state(false);
+	let contactEmail = $state('');
+	let contactUnsubscribed = $state(false);
+	let savingContact = $state(false);
+	let editingContactEmail = $state<string | null>(null);
+
+	async function openContactList(name: string) {
+		selectedContactList = name;
+		await loadContacts();
+	}
+
+	async function loadContacts() {
+		if (!selectedContactList) return;
+		loadingContacts = true;
+		try {
+			const res = await sesv2().send(
+				new ListContactsCommand({ ContactListName: selectedContactList })
+			);
+			contacts = res.Contacts ?? [];
+		} catch (e) {
+			toast.error(`Failed to load contacts: ${e}`);
+		} finally {
+			loadingContacts = false;
+		}
+	}
+
+	function openAddContact() {
+		editingContactEmail = null;
+		contactEmail = '';
+		contactUnsubscribed = false;
+		showAddContactModal = true;
+	}
+
+	function openEditContact(c: Contact) {
+		editingContactEmail = c.EmailAddress ?? null;
+		contactEmail = c.EmailAddress ?? '';
+		contactUnsubscribed = !!c.UnsubscribeAll;
+		showAddContactModal = true;
+	}
+
+	async function saveContact() {
+		if (!selectedContactList || !contactEmail.trim()) return;
+		savingContact = true;
+		try {
+			if (editingContactEmail) {
+				await sesv2().send(
+					new UpdateContactCommand({
+						ContactListName: selectedContactList,
+						EmailAddress: editingContactEmail,
+						UnsubscribeAll: contactUnsubscribed
+					})
+				);
+				toast.success(`Contact "${editingContactEmail}" updated`);
+			} else {
+				await sesv2().send(
+					new CreateContactCommand({
+						ContactListName: selectedContactList,
+						EmailAddress: contactEmail.trim(),
+						UnsubscribeAll: contactUnsubscribed
+					})
+				);
+				toast.success(`Contact "${contactEmail}" added`);
+			}
+			showAddContactModal = false;
+			await loadContacts();
+		} catch (e) {
+			toast.error(`Failed to save contact: ${e}`);
+		} finally {
+			savingContact = false;
+		}
+	}
+
+	async function deleteContact(email: string) {
+		if (!selectedContactList) return;
+		if (!(await confirmDestructive({ title: 'Remove Contact', message: `Remove contact "${email}" from the list?` }))) return;
+		try {
+			await sesv2().send(
+				new DeleteContactCommand({ ContactListName: selectedContactList, EmailAddress: email })
+			);
+			toast.success(`Removed "${email}"`);
+			await loadContacts();
+		} catch (e) {
+			toast.error(`Failed to remove contact: ${e}`);
+		}
+	}
+
+	// CSV export of the current contact list's members.
+	function exportContactsCsv() {
+		if (contacts.length === 0) return;
+		const header = 'EmailAddress,UnsubscribeAll,TopicPreferences';
+		const rows = contacts.map((c) => {
+			const prefs = (c.TopicPreferences ?? [])
+				.map((p) => `${p.TopicName}=${p.SubscriptionStatus}`)
+				.join('|');
+			return `${c.EmailAddress ?? ''},${c.UnsubscribeAll ? 'true' : 'false'},"${prefs}"`;
+		});
+		const blob = new Blob([[header, ...rows].join('\n')], { type: 'text/csv' });
+		const url = URL.createObjectURL(blob);
+		const a = document.createElement('a');
+		a.href = url;
+		a.download = `${selectedContactList}-contacts.csv`;
+		a.click();
+		URL.revokeObjectURL(url);
+	}
+
 	async function addSuppressedAddress() {
 		if (!suppressEmail.trim()) return;
 		addingSuppressionEntry = true;
 		try {
-			await sesv2.send(
+			await sesv2().send(
 				new PutSuppressedDestinationCommand({
 					EmailAddress: suppressEmail.trim(),
 					Reason: suppressReason
@@ -285,7 +406,7 @@
 		)
 			return;
 		try {
-			await sesv2.send(new DeleteSuppressedDestinationCommand({ EmailAddress: email }));
+			await sesv2().send(new DeleteSuppressedDestinationCommand({ EmailAddress: email }));
 			toast.success(`Removed "${email}" from suppression list`);
 			await loadSuppressedAddresses();
 		} catch (e) {
@@ -297,7 +418,7 @@
 		if (!newTemplateName.trim() || !newTemplateSubject.trim()) return;
 		creatingTemplate = true;
 		try {
-			await sesv2.send(
+			await sesv2().send(
 				new CreateEmailTemplateCommand({
 					TemplateName: newTemplateName.trim(),
 					TemplateContent: {
@@ -330,7 +451,7 @@
 		)
 			return;
 		try {
-			await sesv2.send(new DeleteEmailTemplateCommand({ TemplateName: name }));
+			await sesv2().send(new DeleteEmailTemplateCommand({ TemplateName: name }));
 			toast.success(`Template "${name}" deleted`);
 			await loadTemplates();
 		} catch (e) {
@@ -345,7 +466,7 @@
 		}
 		sending = true;
 		try {
-			await sesv2.send(
+			await sesv2().send(
 				new SendEmailCommand({
 					FromEmailAddress: sendFrom.trim(),
 					Destination: { ToAddresses: sendTo.split(',').map((s) => s.trim()) },
@@ -568,10 +689,17 @@
 							<tr class="hover:bg-muted/30">
 								<td class="px-4 py-3 font-medium">{list.ContactListName}</td>
 								<td class="px-4 py-3 text-muted-foreground">{list.Description ?? '—'}</td>
-								<td class="px-4 py-3 text-right">
+								<td class="px-4 py-3 text-right whitespace-nowrap">
+									<button
+										onclick={() => openContactList(list.ContactListName ?? '')}
+										class="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs hover:bg-accent"
+										title="Manage members"
+									>
+										<Users class="h-3.5 w-3.5" /> Members
+									</button>
 									<button
 										onclick={() => deleteContactList(list.ContactListName ?? '')}
-										class="rounded p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-950"
+										class="ml-1 rounded p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-950"
 										title="Delete contact list"
 									>
 										<Trash2 class="h-4 w-4" />
@@ -581,6 +709,66 @@
 						{/each}
 					</tbody>
 				</table>
+			</div>
+		{/if}
+
+		<!-- Contact-list members -->
+		{#if selectedContactList}
+			<div class="mt-4 rounded-lg border p-4 space-y-3">
+				<div class="flex items-center justify-between">
+					<h3 class="font-semibold flex items-center gap-2">
+						<ChevronRight class="h-4 w-4 text-muted-foreground" />
+						Members of {selectedContactList}
+					</h3>
+					<div class="flex items-center gap-2">
+						<button onclick={openAddContact} class="inline-flex items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-xs text-primary-foreground hover:bg-primary/90">
+							<Plus class="h-3.5 w-3.5" /> Add Contact
+						</button>
+						<button onclick={exportContactsCsv} disabled={contacts.length === 0} class="rounded-md border px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-50">
+							Export CSV
+						</button>
+						<button onclick={() => (selectedContactList = null)} class="text-xs text-muted-foreground hover:text-foreground">Close</button>
+					</div>
+				</div>
+				{#if loadingContacts}
+					<div class="flex justify-center py-6"><RefreshCw class="h-6 w-6 animate-spin text-muted-foreground" /></div>
+				{:else if contacts.length === 0}
+					<p class="text-sm text-muted-foreground">No contacts in this list.</p>
+				{:else}
+					<div class="rounded border overflow-hidden">
+						<table class="w-full text-sm">
+							<thead class="bg-muted/50">
+								<tr>
+									<th class="px-4 py-2 text-left font-medium">Email</th>
+									<th class="px-4 py-2 text-left font-medium">Unsubscribed (All)</th>
+									<th class="px-4 py-2 text-right font-medium">Actions</th>
+								</tr>
+							</thead>
+							<tbody class="divide-y">
+								{#each contacts as c}
+									<tr class="hover:bg-muted/30">
+										<td class="px-4 py-2">{c.EmailAddress}</td>
+										<td class="px-4 py-2">
+											{#if c.UnsubscribeAll}
+												<span class="rounded-full bg-red-100 px-2 py-0.5 text-xs text-red-700 dark:bg-red-900 dark:text-red-300">Yes</span>
+											{:else}
+												<span class="rounded-full bg-green-100 px-2 py-0.5 text-xs text-green-700 dark:bg-green-900 dark:text-green-300">No</span>
+											{/if}
+										</td>
+										<td class="px-4 py-2 text-right whitespace-nowrap">
+											<button onclick={() => openEditContact(c)} class="rounded p-1 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-950" title="Edit contact">
+												<Pencil class="h-4 w-4" />
+											</button>
+											<button onclick={() => deleteContact(c.EmailAddress ?? '')} class="ml-1 rounded p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-950" title="Remove contact">
+												<Trash2 class="h-4 w-4" />
+											</button>
+										</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
+				{/if}
 			</div>
 		{/if}
 	{/if}
@@ -990,6 +1178,42 @@
 					class="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
 				>
 					{creatingTemplate ? 'Creating...' : 'Create Template'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Add / Edit Contact Modal -->
+{#if showAddContactModal}
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+		<div class="w-full max-w-md rounded-lg bg-background p-6 shadow-xl">
+			<h2 class="text-lg font-semibold mb-4">{editingContactEmail ? 'Edit Contact' : 'Add Contact'}</h2>
+			<div class="space-y-3">
+				<div>
+					<label for="contact-email" class="block text-sm font-medium mb-1">Email Address *</label>
+					<input
+						id="contact-email"
+						type="email"
+						bind:value={contactEmail}
+						disabled={!!editingContactEmail}
+						placeholder="subscriber@example.com"
+						class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-60"
+					/>
+				</div>
+				<label class="flex items-center gap-2 text-sm">
+					<input type="checkbox" bind:checked={contactUnsubscribed} />
+					Unsubscribe from all topics
+				</label>
+			</div>
+			<div class="mt-4 flex justify-end gap-2">
+				<button onclick={() => (showAddContactModal = false)} class="rounded-md border px-4 py-2 text-sm hover:bg-accent">Cancel</button>
+				<button
+					onclick={saveContact}
+					disabled={savingContact || !contactEmail.trim()}
+					class="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+				>
+					{savingContact ? 'Saving…' : editingContactEmail ? 'Update' : 'Add'}
 				</button>
 			</div>
 		</div>

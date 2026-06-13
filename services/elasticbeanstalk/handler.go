@@ -1,6 +1,7 @@
 package elasticbeanstalk
 
 import (
+	"context"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -43,7 +44,7 @@ const (
 )
 
 // formOpFunc is the function type for a dispatched form-encoded operation.
-type formOpFunc func(url.Values) (any, error)
+type formOpFunc func(context.Context, url.Values) (any, error)
 
 // Handler is the Echo HTTP handler for Elastic Beanstalk operations.
 type Handler struct {
@@ -288,7 +289,11 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		log := logger.Load(r.Context())
 		log.Debug("elasticbeanstalk request", "action", action)
 
-		resp, opErr := h.dispatch(action, vals)
+		ctx := r.Context()
+		region := httputils.ExtractRegionFromRequest(r, h.Backend.Region())
+		ctx = context.WithValue(ctx, regionContextKey{}, region)
+
+		resp, opErr := h.dispatch(ctx, action, vals)
 		if opErr != nil {
 			return h.handleOpError(c, opErr)
 		}
@@ -308,9 +313,9 @@ func (h *Handler) Handler() echo.HandlerFunc {
 }
 
 // dispatch routes the Elastic Beanstalk action to the appropriate handler.
-func (h *Handler) dispatch(action string, vals url.Values) (any, error) {
+func (h *Handler) dispatch(ctx context.Context, action string, vals url.Values) (any, error) {
 	if fn, ok := h.ops[action]; ok {
-		return fn(vals)
+		return fn(ctx, vals)
 	}
 
 	return nil, fmt.Errorf("%w: %s", ErrUnknownAction, action)
@@ -359,7 +364,7 @@ type createApplicationResponse struct {
 	ResponseMetadata        responseMetadata        `xml:"ResponseMetadata"`
 }
 
-func (h *Handler) handleCreateApplication(vals url.Values) (any, error) {
+func (h *Handler) handleCreateApplication(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("ApplicationName")
 	if name == "" {
 		return nil, fmt.Errorf("%w: ApplicationName is required", ErrInvalidParameter)
@@ -369,7 +374,7 @@ func (h *Handler) handleCreateApplication(vals url.Values) (any, error) {
 
 	tags := parseTagList(vals, "Tags.member")
 
-	app, err := h.Backend.CreateApplication(name, description, tags)
+	app, err := h.Backend.CreateApplication(ctx, name, description, tags)
 	if err != nil {
 		return nil, err
 	}
@@ -392,14 +397,14 @@ type describeApplicationsResponse struct {
 	DescribeApplicationsResult describeApplicationsResult `xml:"DescribeApplicationsResult"`
 }
 
-func (h *Handler) handleDescribeApplications(vals url.Values) (any, error) {
+func (h *Handler) handleDescribeApplications(ctx context.Context, vals url.Values) (any, error) {
 	names := parseMembers(vals, "ApplicationNames.member")
-	apps := h.Backend.DescribeApplications(names)
+	apps := h.Backend.DescribeApplications(ctx, names)
 
 	members := make([]applicationDescType, 0, len(apps))
 
 	for _, app := range apps {
-		templates := h.Backend.DescribeConfigurationTemplates(app.ApplicationName)
+		templates := h.Backend.DescribeConfigurationTemplates(ctx, app.ApplicationName)
 		templateNames := make([]string, 0, len(templates))
 
 		for _, tmpl := range templates {
@@ -427,7 +432,7 @@ type updateApplicationResponse struct {
 	ResponseMetadata        responseMetadata        `xml:"ResponseMetadata"`
 }
 
-func (h *Handler) handleUpdateApplication(vals url.Values) (any, error) {
+func (h *Handler) handleUpdateApplication(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("ApplicationName")
 	if name == "" {
 		return nil, fmt.Errorf("%w: ApplicationName is required", ErrInvalidParameter)
@@ -435,7 +440,7 @@ func (h *Handler) handleUpdateApplication(vals url.Values) (any, error) {
 
 	description := vals.Get("Description")
 
-	app, err := h.Backend.UpdateApplication(name, description)
+	app, err := h.Backend.UpdateApplication(ctx, name, description)
 	if err != nil {
 		return nil, err
 	}
@@ -453,13 +458,13 @@ type deleteApplicationResponse struct {
 	ResponseMetadata responseMetadata `xml:"ResponseMetadata"`
 }
 
-func (h *Handler) handleDeleteApplication(vals url.Values) (any, error) {
+func (h *Handler) handleDeleteApplication(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("ApplicationName")
 	if name == "" {
 		return nil, fmt.Errorf("%w: ApplicationName is required", ErrInvalidParameter)
 	}
 
-	if err := h.Backend.DeleteApplication(name); err != nil {
+	if err := h.Backend.DeleteApplication(ctx, name); err != nil {
 		return nil, err
 	}
 
@@ -495,10 +500,10 @@ type environmentDescType struct {
 	EndpointURL       string              `xml:"EndpointURL"`
 }
 
-func toEnvironmentDesc(env *Environment, region string) environmentDescType {
+func toEnvironmentDesc(env *Environment) environmentDescType {
 	cname := env.CNAME
 	if cname == "" {
-		cname = env.EnvironmentName + "." + region + ".elasticbeanstalk.com"
+		cname = env.EnvironmentName + "." + env.Region + ".elasticbeanstalk.com"
 	}
 
 	tierName := env.TierName
@@ -550,7 +555,7 @@ type createEnvironmentResponse struct {
 	ResponseMetadata        responseMetadata    `xml:"ResponseMetadata"`
 }
 
-func (h *Handler) handleCreateEnvironment(vals url.Values) (any, error) {
+func (h *Handler) handleCreateEnvironment(ctx context.Context, vals url.Values) (any, error) {
 	appName := vals.Get("ApplicationName")
 	envName := vals.Get("EnvironmentName")
 
@@ -605,14 +610,14 @@ func (h *Handler) handleCreateEnvironment(vals url.Values) (any, error) {
 		OptionSettings:   optionSettings,
 	}
 
-	env, err := h.Backend.CreateEnvironment(appName, envName, solutionStack, description, tags, params)
+	env, err := h.Backend.CreateEnvironment(ctx, appName, envName, solutionStack, description, tags, params)
 	if err != nil {
 		return nil, err
 	}
 
 	return &createEnvironmentResponse{
 		Xmlns:                   ebXMLNS,
-		CreateEnvironmentResult: toEnvironmentDesc(env, h.Backend.Region()),
+		CreateEnvironmentResult: toEnvironmentDesc(env),
 		ResponseMetadata:        responseMetadata{RequestID: "eb-create-env"},
 	}, nil
 }
@@ -628,16 +633,16 @@ type describeEnvironmentsResponse struct {
 	DescribeEnvironmentsResult describeEnvironmentsResult `xml:"DescribeEnvironmentsResult"`
 }
 
-func (h *Handler) handleDescribeEnvironments(vals url.Values) (any, error) {
+func (h *Handler) handleDescribeEnvironments(ctx context.Context, vals url.Values) (any, error) {
 	appName := vals.Get("ApplicationName")
 	envNames := parseMembers(vals, "EnvironmentNames.member")
 	envIDs := parseMembers(vals, "EnvironmentIds.member")
-	envs := h.Backend.DescribeEnvironments(appName, envNames, envIDs)
+	envs := h.Backend.DescribeEnvironments(ctx, appName, envNames, envIDs)
 
 	members := make([]environmentDescType, 0, len(envs))
 
 	for _, env := range envs {
-		members = append(members, toEnvironmentDesc(env, h.Backend.Region()))
+		members = append(members, toEnvironmentDesc(env))
 	}
 
 	return &describeEnvironmentsResponse{
@@ -654,7 +659,7 @@ type updateEnvironmentResponse struct {
 	ResponseMetadata        responseMetadata    `xml:"ResponseMetadata"`
 }
 
-func (h *Handler) handleUpdateEnvironment(vals url.Values) (any, error) {
+func (h *Handler) handleUpdateEnvironment(ctx context.Context, vals url.Values) (any, error) {
 	envName := vals.Get("EnvironmentName")
 	if envName == "" {
 		return nil, fmt.Errorf("%w: EnvironmentName is required", ErrInvalidParameter)
@@ -665,7 +670,7 @@ func (h *Handler) handleUpdateEnvironment(vals url.Values) (any, error) {
 
 	// If no app name provided, search across all environments for this name.
 	if appName == "" {
-		envs := h.Backend.DescribeEnvironments("", []string{envName}, nil)
+		envs := h.Backend.DescribeEnvironments(ctx, "", []string{envName}, nil)
 
 		if len(envs) == 1 {
 			appName = envs[0].ApplicationName
@@ -679,7 +684,7 @@ func (h *Handler) handleUpdateEnvironment(vals url.Values) (any, error) {
 		// len(envs) == 0: let the backend return a not-found error below.
 	}
 
-	env, err := h.Backend.UpdateEnvironmentWithParams(appName, envName, UpdateEnvironmentParams{
+	env, err := h.Backend.UpdateEnvironmentWithParams(ctx, appName, envName, UpdateEnvironmentParams{
 		Description:       description,
 		SolutionStackName: vals.Get("SolutionStackName"),
 		PlatformARN:       vals.Get("PlatformArn"),
@@ -697,7 +702,7 @@ func (h *Handler) handleUpdateEnvironment(vals url.Values) (any, error) {
 
 	return &updateEnvironmentResponse{
 		Xmlns:                   ebXMLNS,
-		UpdateEnvironmentResult: toEnvironmentDesc(env, h.Backend.Region()),
+		UpdateEnvironmentResult: toEnvironmentDesc(env),
 		ResponseMetadata:        responseMetadata{RequestID: "eb-update-env"},
 	}, nil
 }
@@ -709,7 +714,7 @@ type terminateEnvironmentResponse struct {
 	ResponseMetadata           responseMetadata    `xml:"ResponseMetadata"`
 }
 
-func (h *Handler) handleTerminateEnvironment(vals url.Values) (any, error) {
+func (h *Handler) handleTerminateEnvironment(ctx context.Context, vals url.Values) (any, error) {
 	envName := vals.Get("EnvironmentName")
 	if envName == "" {
 		return nil, fmt.Errorf("%w: EnvironmentName is required", ErrInvalidParameter)
@@ -719,7 +724,7 @@ func (h *Handler) handleTerminateEnvironment(vals url.Values) (any, error) {
 
 	// If no app name provided, search across all environments for this name.
 	if appName == "" {
-		envs := h.Backend.DescribeEnvironments("", []string{envName}, nil)
+		envs := h.Backend.DescribeEnvironments(ctx, "", []string{envName}, nil)
 		switch len(envs) {
 		case 0:
 			// No matching environments; let the backend handle the not-found case.
@@ -734,14 +739,14 @@ func (h *Handler) handleTerminateEnvironment(vals url.Values) (any, error) {
 		}
 	}
 
-	env, err := h.Backend.TerminateEnvironment(appName, envName)
+	env, err := h.Backend.TerminateEnvironment(ctx, appName, envName)
 	if err != nil {
 		return nil, err
 	}
 
 	return &terminateEnvironmentResponse{
 		Xmlns:                      ebXMLNS,
-		TerminateEnvironmentResult: toEnvironmentDesc(env, h.Backend.Region()),
+		TerminateEnvironmentResult: toEnvironmentDesc(env),
 		ResponseMetadata:           responseMetadata{RequestID: "eb-terminate-env"},
 	}, nil
 }
@@ -804,7 +809,7 @@ type createApplicationVersionResponse struct {
 	ResponseMetadata               responseMetadata               `xml:"ResponseMetadata"`
 }
 
-func (h *Handler) handleCreateApplicationVersion(vals url.Values) (any, error) {
+func (h *Handler) handleCreateApplicationVersion(ctx context.Context, vals url.Values) (any, error) {
 	appName := vals.Get("ApplicationName")
 	versionLabel := vals.Get("VersionLabel")
 
@@ -823,7 +828,7 @@ func (h *Handler) handleCreateApplicationVersion(vals url.Values) (any, error) {
 	s3Bucket := vals.Get("SourceBundle.S3Bucket")
 	s3Key := vals.Get("SourceBundle.S3Key")
 
-	ver, err := h.Backend.CreateApplicationVersionWithParams(appName, versionLabel, ApplicationVersionParams{
+	ver, err := h.Backend.CreateApplicationVersionWithParams(ctx, appName, versionLabel, ApplicationVersionParams{
 		Description:            description,
 		S3Bucket:               s3Bucket,
 		S3Key:                  s3Key,
@@ -856,10 +861,10 @@ type describeApplicationVersionsResponse struct {
 	DescribeApplicationVersionsResult describeApplicationVersionsResult `xml:"DescribeApplicationVersionsResult"`
 }
 
-func (h *Handler) handleDescribeApplicationVersions(vals url.Values) (any, error) {
+func (h *Handler) handleDescribeApplicationVersions(ctx context.Context, vals url.Values) (any, error) {
 	appName := vals.Get("ApplicationName")
 	versionLabels := parseMembers(vals, "VersionLabels.member")
-	vers := h.Backend.DescribeApplicationVersions(appName, versionLabels)
+	vers := h.Backend.DescribeApplicationVersions(ctx, appName, versionLabels)
 
 	members := make([]appVersionDescType, 0, len(vers))
 
@@ -882,7 +887,7 @@ type deleteApplicationVersionResponse struct {
 	ResponseMetadata responseMetadata `xml:"ResponseMetadata"`
 }
 
-func (h *Handler) handleDeleteApplicationVersion(vals url.Values) (any, error) {
+func (h *Handler) handleDeleteApplicationVersion(ctx context.Context, vals url.Values) (any, error) {
 	appName := vals.Get("ApplicationName")
 	versionLabel := vals.Get("VersionLabel")
 
@@ -894,7 +899,7 @@ func (h *Handler) handleDeleteApplicationVersion(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: VersionLabel is required", ErrInvalidParameter)
 	}
 
-	if err := h.Backend.DeleteApplicationVersion(appName, versionLabel); err != nil {
+	if err := h.Backend.DeleteApplicationVersion(ctx, appName, versionLabel); err != nil {
 		return nil, err
 	}
 
@@ -923,13 +928,13 @@ type listTagsForResourceResponse struct {
 	ListTagsForResourceResult listTagsForResourceResult `xml:"ListTagsForResourceResult"`
 }
 
-func (h *Handler) handleListTagsForResource(vals url.Values) (any, error) {
+func (h *Handler) handleListTagsForResource(ctx context.Context, vals url.Values) (any, error) {
 	resourceARN := vals.Get("ResourceArn")
 	if resourceARN == "" {
 		return nil, fmt.Errorf("%w: ResourceArn is required", ErrInvalidParameter)
 	}
 
-	tags, err := h.Backend.ListTagsForResource(resourceARN)
+	tags, err := h.Backend.ListTagsForResource(ctx, resourceARN)
 	if err != nil {
 		return nil, err
 	}
@@ -957,7 +962,7 @@ type updateTagsForResourceResponse struct {
 	ResponseMetadata responseMetadata `xml:"ResponseMetadata"`
 }
 
-func (h *Handler) handleUpdateTagsForResource(vals url.Values) (any, error) {
+func (h *Handler) handleUpdateTagsForResource(ctx context.Context, vals url.Values) (any, error) {
 	resourceARN := vals.Get("ResourceArn")
 	if resourceARN == "" {
 		return nil, fmt.Errorf("%w: ResourceArn is required", ErrInvalidParameter)
@@ -972,7 +977,7 @@ func (h *Handler) handleUpdateTagsForResource(vals url.Values) (any, error) {
 		removeTags[k] = ""
 	}
 
-	if err := h.Backend.UpdateTagsForResource(resourceARN, addTags, removeTags); err != nil {
+	if err := h.Backend.UpdateTagsForResource(ctx, resourceARN, addTags, removeTags); err != nil {
 		return nil, err
 	}
 
@@ -1006,13 +1011,13 @@ type describeEventsResponse struct {
 // handleDescribeEvents returns stored events, filtered by ApplicationName, EnvironmentName,
 // EnvironmentId, Severity, and StartTime. The Terraform provider calls DescribeEvents with
 // Severity=ERROR and StartTime to poll for errors after environment creation/update.
-func (h *Handler) handleDescribeEvents(vals url.Values) (any, error) {
+func (h *Handler) handleDescribeEvents(ctx context.Context, vals url.Values) (any, error) {
 	appName := vals.Get("ApplicationName")
 	envName := vals.Get("EnvironmentName")
 
 	// EnvironmentId filter: resolve to app/env name for backend lookup.
 	if envID := vals.Get("EnvironmentId"); envID != "" {
-		envs := h.Backend.DescribeEnvironments("", nil, []string{envID})
+		envs := h.Backend.DescribeEnvironments(ctx, "", nil, []string{envID})
 		if len(envs) > 0 {
 			appName = envs[0].ApplicationName
 			envName = envs[0].EnvironmentName
@@ -1030,7 +1035,7 @@ func (h *Handler) handleDescribeEvents(vals url.Values) (any, error) {
 		}
 	}
 
-	records := h.Backend.DescribeEvents(appName, envName)
+	records := h.Backend.DescribeEvents(ctx, appName, envName)
 	members := make([]eventDescType, 0, len(records))
 
 	for _, r := range records {
@@ -1084,18 +1089,18 @@ type describeEnvironmentResourcesResponse struct {
 	DescribeEnvironmentResourcesResult describeEnvironmentResourcesResult `xml:"DescribeEnvironmentResourcesResult"`
 }
 
-func (h *Handler) handleDescribeEnvironmentResources(vals url.Values) (any, error) {
+func (h *Handler) handleDescribeEnvironmentResources(ctx context.Context, vals url.Values) (any, error) {
 	envName := vals.Get("EnvironmentName")
 	envID := vals.Get("EnvironmentId")
 	if envName == "" && envID == "" {
 		return nil, fmt.Errorf("%w: EnvironmentName or EnvironmentId is required", ErrInvalidParameter)
 	}
 
-	envs := h.Backend.DescribeEnvironments("", []string{envName}, []string{envID})
+	envs := h.Backend.DescribeEnvironments(ctx, "", []string{envName}, []string{envID})
 	if envName == "" {
-		envs = h.Backend.DescribeEnvironments("", nil, []string{envID})
+		envs = h.Backend.DescribeEnvironments(ctx, "", nil, []string{envID})
 	} else if envID == "" {
-		envs = h.Backend.DescribeEnvironments("", []string{envName}, nil)
+		envs = h.Backend.DescribeEnvironments(ctx, "", []string{envName}, nil)
 	}
 	if len(envs) == 0 {
 		return nil, fmt.Errorf("%w: environment not found", ErrNotFound)
@@ -1108,7 +1113,7 @@ func (h *Handler) handleDescribeEnvironmentResources(vals url.Values) (any, erro
 		LaunchConfigurations: []string{env.EnvironmentName + "-lc"},
 	}
 	if env.TierName == "Worker" {
-		resources.Queues = []string{"https://sqs." + h.Backend.Region() + ".amazonaws.com/" + env.EnvironmentName}
+		resources.Queues = []string{"https://sqs." + env.Region + ".amazonaws.com/" + env.EnvironmentName}
 	} else {
 		resources.LoadBalancers = []string{env.EnvironmentName + "-lb"}
 	}
@@ -1153,7 +1158,7 @@ type describeConfigurationSettingsResponse struct {
 // or a configuration template. The Terraform provider calls this after environment creation
 // to populate all_settings. SolutionStackName must be populated to prevent the provider
 // from dereferencing a nil pointer.
-func (h *Handler) handleDescribeConfigurationSettings(vals url.Values) (any, error) {
+func (h *Handler) handleDescribeConfigurationSettings(ctx context.Context, vals url.Values) (any, error) {
 	appName := vals.Get("ApplicationName")
 	envName := vals.Get("EnvironmentName")
 	templateName := vals.Get("TemplateName")
@@ -1161,7 +1166,7 @@ func (h *Handler) handleDescribeConfigurationSettings(vals url.Values) (any, err
 	settings := make([]configurationSettingsDescType, 0)
 
 	if envName != "" {
-		envs := h.Backend.DescribeEnvironments(appName, []string{envName}, nil)
+		envs := h.Backend.DescribeEnvironments(ctx, appName, []string{envName}, nil)
 
 		if len(envs) > 0 {
 			env := envs[0]
@@ -1181,7 +1186,7 @@ func (h *Handler) handleDescribeConfigurationSettings(vals url.Values) (any, err
 			})
 		}
 	} else if templateName != "" {
-		templates := h.Backend.DescribeConfigurationTemplates(appName)
+		templates := h.Backend.DescribeConfigurationTemplates(ctx, appName)
 
 		for _, tmpl := range templates {
 			if tmpl.TemplateName == templateName {
@@ -1392,7 +1397,7 @@ type restartAppServerResponse struct {
 
 // handleRestartAppServer signals a restart of the application servers for an environment.
 // Real AWS triggers an in-place rolling restart; the stub is a no-op that returns 200.
-func (h *Handler) handleRestartAppServer(_ url.Values) (any, error) {
+func (h *Handler) handleRestartAppServer(_ context.Context, _ url.Values) (any, error) {
 	return &restartAppServerResponse{
 		Xmlns:            ebXMLNS,
 		ResponseMetadata: responseMetadata{RequestID: "eb-restart-app-server"},
@@ -1408,7 +1413,7 @@ type rebuildEnvironmentResponse struct {
 
 // handleRebuildEnvironment triggers a full environment rebuild.
 // Real AWS terminates and relaunches the environment; the stub is a no-op that returns 200.
-func (h *Handler) handleRebuildEnvironment(_ url.Values) (any, error) {
+func (h *Handler) handleRebuildEnvironment(_ context.Context, _ url.Values) (any, error) {
 	return &rebuildEnvironmentResponse{
 		Xmlns:            ebXMLNS,
 		ResponseMetadata: responseMetadata{RequestID: "eb-rebuild-environment"},
@@ -1425,7 +1430,7 @@ type abortEnvironmentUpdateResponse struct {
 }
 
 // handleAbortEnvironmentUpdate aborts an in-progress environment configuration update.
-func (h *Handler) handleAbortEnvironmentUpdate(_ url.Values) (any, error) {
+func (h *Handler) handleAbortEnvironmentUpdate(_ context.Context, _ url.Values) (any, error) {
 	return &abortEnvironmentUpdateResponse{
 		Xmlns:            ebXMLNS,
 		ResponseMetadata: responseMetadata{RequestID: "eb-abort-env-update"},
@@ -1448,13 +1453,13 @@ type applyEnvironmentManagedActionResponse struct {
 }
 
 // handleApplyEnvironmentManagedAction applies a scheduled managed action immediately.
-func (h *Handler) handleApplyEnvironmentManagedAction(vals url.Values) (any, error) {
+func (h *Handler) handleApplyEnvironmentManagedAction(ctx context.Context, vals url.Values) (any, error) {
 	actionID := vals.Get("ActionId")
 	if actionID == "" {
 		return nil, fmt.Errorf("%w: ActionId is required", ErrInvalidParameter)
 	}
 
-	_ = h.Backend.ApplyEnvironmentManagedAction(vals.Get("EnvironmentName"), actionID)
+	_ = h.Backend.ApplyEnvironmentManagedAction(ctx, vals.Get("EnvironmentName"), actionID)
 
 	return &applyEnvironmentManagedActionResponse{
 		Xmlns: ebXMLNS,
@@ -1476,7 +1481,7 @@ type associateEnvironmentOperationsRoleResponse struct {
 }
 
 // handleAssociateEnvironmentOperationsRole associates an operations role with an environment.
-func (h *Handler) handleAssociateEnvironmentOperationsRole(vals url.Values) (any, error) {
+func (h *Handler) handleAssociateEnvironmentOperationsRole(ctx context.Context, vals url.Values) (any, error) {
 	envName := vals.Get("EnvironmentName")
 	if envName == "" {
 		return nil, fmt.Errorf("%w: EnvironmentName is required", ErrInvalidParameter)
@@ -1487,7 +1492,7 @@ func (h *Handler) handleAssociateEnvironmentOperationsRole(vals url.Values) (any
 		return nil, fmt.Errorf("%w: OperationsRole is required", ErrInvalidParameter)
 	}
 
-	if err := h.Backend.AssociateEnvironmentOperationsRole(envName, operationsRole); err != nil {
+	if err := h.Backend.AssociateEnvironmentOperationsRole(ctx, envName, operationsRole); err != nil {
 		return nil, err
 	}
 
@@ -1512,13 +1517,13 @@ type checkDNSAvailabilityResponse struct {
 }
 
 // handleCheckDNSAvailability checks whether a CNAME prefix is available.
-func (h *Handler) handleCheckDNSAvailability(vals url.Values) (any, error) {
+func (h *Handler) handleCheckDNSAvailability(ctx context.Context, vals url.Values) (any, error) {
 	cnamePrefix := vals.Get("CNAMEPrefix")
 	if cnamePrefix == "" {
 		return nil, fmt.Errorf("%w: CNAMEPrefix is required", ErrInvalidParameter)
 	}
 
-	available, fqcname := h.Backend.CheckDNSAvailability(cnamePrefix)
+	available, fqcname := h.Backend.CheckDNSAvailability(ctx, cnamePrefix)
 
 	return &checkDNSAvailabilityResponse{
 		Xmlns: ebXMLNS,
@@ -1544,18 +1549,18 @@ type composeEnvironmentsResponse struct {
 }
 
 // handleComposeEnvironments composes a group of environments for an application.
-func (h *Handler) handleComposeEnvironments(vals url.Values) (any, error) {
+func (h *Handler) handleComposeEnvironments(ctx context.Context, vals url.Values) (any, error) {
 	appName := vals.Get("ApplicationName")
 	if appName == "" {
 		return nil, fmt.Errorf("%w: ApplicationName is required", ErrInvalidParameter)
 	}
 
-	envs := h.Backend.ComposeEnvironments(appName)
+	envs := h.Backend.ComposeEnvironments(ctx, appName)
 
 	members := make([]environmentDescType, 0, len(envs))
 
 	for _, env := range envs {
-		members = append(members, toEnvironmentDesc(env, h.Backend.Region()))
+		members = append(members, toEnvironmentDesc(env))
 	}
 
 	return &composeEnvironmentsResponse{
@@ -1574,7 +1579,7 @@ type cloneEnvironmentResponse struct {
 }
 
 // handleCloneEnvironment clones an existing environment into a new environment.
-func (h *Handler) handleCloneEnvironment(vals url.Values) (any, error) {
+func (h *Handler) handleCloneEnvironment(ctx context.Context, vals url.Values) (any, error) {
 	srcEnvName := vals.Get("SourceEnvironmentName")
 	if srcEnvName == "" {
 		return nil, fmt.Errorf("%w: SourceEnvironmentName is required", ErrInvalidParameter)
@@ -1589,7 +1594,7 @@ func (h *Handler) handleCloneEnvironment(vals url.Values) (any, error) {
 
 	// Resolve app name from the source environment if not provided.
 	if appName == "" {
-		envs := h.Backend.DescribeEnvironments("", []string{srcEnvName}, nil)
+		envs := h.Backend.DescribeEnvironments(ctx, "", []string{srcEnvName}, nil)
 		if len(envs) == 1 {
 			appName = envs[0].ApplicationName
 		} else {
@@ -1601,14 +1606,14 @@ func (h *Handler) handleCloneEnvironment(vals url.Values) (any, error) {
 		}
 	}
 
-	env, err := h.Backend.CloneEnvironment(appName, srcEnvName, newEnvName)
+	env, err := h.Backend.CloneEnvironment(ctx, appName, srcEnvName, newEnvName)
 	if err != nil {
 		return nil, err
 	}
 
 	return &cloneEnvironmentResponse{
 		Xmlns:                  ebXMLNS,
-		CloneEnvironmentResult: toEnvironmentDesc(env, h.Backend.Region()),
+		CloneEnvironmentResult: toEnvironmentDesc(env),
 		ResponseMetadata:       responseMetadata{RequestID: "eb-clone-env"},
 	}, nil
 }
@@ -1639,7 +1644,7 @@ type createConfigurationTemplateResponse struct {
 }
 
 // handleCreateConfigurationTemplate creates a new configuration template.
-func (h *Handler) handleCreateConfigurationTemplate(vals url.Values) (any, error) {
+func (h *Handler) handleCreateConfigurationTemplate(ctx context.Context, vals url.Values) (any, error) {
 	appName := vals.Get("ApplicationName")
 	if appName == "" {
 		return nil, fmt.Errorf("%w: ApplicationName is required", ErrInvalidParameter)
@@ -1655,6 +1660,7 @@ func (h *Handler) handleCreateConfigurationTemplate(vals url.Values) (any, error
 	tags := parseTagList(vals, "Tags.member")
 
 	tmpl, err := h.Backend.CreateConfigurationTemplate(
+		ctx,
 		appName,
 		templateName,
 		description,
@@ -1703,7 +1709,7 @@ type createPlatformVersionResponse struct {
 }
 
 // handleCreatePlatformVersion creates a new custom platform version.
-func (h *Handler) handleCreatePlatformVersion(vals url.Values) (any, error) {
+func (h *Handler) handleCreatePlatformVersion(ctx context.Context, vals url.Values) (any, error) {
 	platformName := vals.Get("PlatformName")
 	if platformName == "" {
 		return nil, fmt.Errorf("%w: PlatformName is required", ErrInvalidParameter)
@@ -1716,7 +1722,7 @@ func (h *Handler) handleCreatePlatformVersion(vals url.Values) (any, error) {
 
 	tags := parseTagList(vals, "Tags.member")
 
-	pv, err := h.Backend.CreatePlatformVersion(platformName, platformVersion, tags)
+	pv, err := h.Backend.CreatePlatformVersion(ctx, platformName, platformVersion, tags)
 	if err != nil {
 		return nil, err
 	}
@@ -1744,8 +1750,8 @@ type createStorageLocationResponse struct {
 }
 
 // handleCreateStorageLocation creates (or returns) the S3 storage bucket.
-func (h *Handler) handleCreateStorageLocation(_ url.Values) (any, error) {
-	bucket := h.Backend.CreateStorageLocation()
+func (h *Handler) handleCreateStorageLocation(ctx context.Context, _ url.Values) (any, error) {
+	bucket := h.Backend.CreateStorageLocation(ctx)
 
 	return &createStorageLocationResponse{
 		Xmlns:                       ebXMLNS,
@@ -1762,7 +1768,7 @@ type deleteConfigurationTemplateResponse struct {
 }
 
 // handleDeleteConfigurationTemplate deletes a configuration template.
-func (h *Handler) handleDeleteConfigurationTemplate(vals url.Values) (any, error) {
+func (h *Handler) handleDeleteConfigurationTemplate(ctx context.Context, vals url.Values) (any, error) {
 	appName := vals.Get("ApplicationName")
 	if appName == "" {
 		return nil, fmt.Errorf("%w: ApplicationName is required", ErrInvalidParameter)
@@ -1773,7 +1779,7 @@ func (h *Handler) handleDeleteConfigurationTemplate(vals url.Values) (any, error
 		return nil, fmt.Errorf("%w: TemplateName is required", ErrInvalidParameter)
 	}
 
-	if err := h.Backend.DeleteConfigurationTemplate(appName, templateName); err != nil {
+	if err := h.Backend.DeleteConfigurationTemplate(ctx, appName, templateName); err != nil {
 		return nil, err
 	}
 
@@ -1791,7 +1797,7 @@ type deleteEnvironmentConfigurationResponse struct {
 }
 
 // handleDeleteEnvironmentConfiguration deletes the draft configuration for an environment.
-func (h *Handler) handleDeleteEnvironmentConfiguration(vals url.Values) (any, error) {
+func (h *Handler) handleDeleteEnvironmentConfiguration(ctx context.Context, vals url.Values) (any, error) {
 	appName := vals.Get("ApplicationName")
 	if appName == "" {
 		return nil, fmt.Errorf("%w: ApplicationName is required", ErrInvalidParameter)
@@ -1802,7 +1808,7 @@ func (h *Handler) handleDeleteEnvironmentConfiguration(vals url.Values) (any, er
 		return nil, fmt.Errorf("%w: EnvironmentName is required", ErrInvalidParameter)
 	}
 
-	_ = h.Backend.DeleteEnvironmentConfiguration(appName, envName)
+	_ = h.Backend.DeleteEnvironmentConfiguration(ctx, appName, envName)
 
 	return &deleteEnvironmentConfigurationResponse{
 		Xmlns:            ebXMLNS,
@@ -1824,13 +1830,13 @@ type deletePlatformVersionResponse struct {
 	ResponseMetadata            responseMetadata            `xml:"ResponseMetadata"`
 }
 
-func (h *Handler) handleDeletePlatformVersion(vals url.Values) (any, error) {
+func (h *Handler) handleDeletePlatformVersion(ctx context.Context, vals url.Values) (any, error) {
 	platformARN := vals.Get("PlatformArn")
 	if platformARN == "" {
 		return nil, fmt.Errorf("%w: PlatformArn is required", ErrInvalidParameter)
 	}
 
-	pv, err := h.Backend.DeletePlatformVersion(platformARN)
+	pv, err := h.Backend.DeletePlatformVersion(ctx, platformARN)
 	if err != nil {
 		return nil, err
 	}
@@ -1868,7 +1874,7 @@ type describeAccountAttributesResponse struct {
 	DescribeAccountAttributesResult describeAccountAttributesResult `xml:"DescribeAccountAttributesResult"`
 }
 
-func (h *Handler) handleDescribeAccountAttributes(_ url.Values) (any, error) {
+func (h *Handler) handleDescribeAccountAttributes(_ context.Context, _ url.Values) (any, error) {
 	return &describeAccountAttributesResponse{
 		Xmlns: ebXMLNS,
 		DescribeAccountAttributesResult: describeAccountAttributesResult{
@@ -1902,7 +1908,7 @@ type describeConfigurationOptionsResponse struct {
 	DescribeConfigurationOptionsResult describeConfigurationOptionsResult `xml:"DescribeConfigurationOptionsResult"`
 }
 
-func (h *Handler) handleDescribeConfigurationOptions(_ url.Values) (any, error) {
+func (h *Handler) handleDescribeConfigurationOptions(_ context.Context, _ url.Values) (any, error) {
 	return &describeConfigurationOptionsResponse{
 		Xmlns: ebXMLNS,
 		DescribeConfigurationOptionsResult: describeConfigurationOptionsResult{
@@ -1944,13 +1950,13 @@ type describeEnvironmentHealthResponse struct {
 	ResponseMetadata                responseMetadata                `xml:"ResponseMetadata"`
 }
 
-func (h *Handler) handleDescribeEnvironmentHealth(vals url.Values) (any, error) {
+func (h *Handler) handleDescribeEnvironmentHealth(ctx context.Context, vals url.Values) (any, error) {
 	envName := vals.Get("EnvironmentName")
 	if envName == "" {
 		return nil, fmt.Errorf("%w: EnvironmentName is required", ErrInvalidParameter)
 	}
 
-	health, status := h.Backend.DescribeEnvironmentHealth(envName)
+	health, status := h.Backend.DescribeEnvironmentHealth(ctx, envName)
 
 	return &describeEnvironmentHealthResponse{
 		Xmlns: ebXMLNS,
@@ -1985,11 +1991,11 @@ type describeEnvironmentManagedActionHistoryResponse struct { //nolint:lll // AW
 	DescribeEnvironmentManagedActionHistoryResult describeEnvironmentManagedActionHistoryResult `xml:"DescribeEnvironmentManagedActionHistoryResult"` //nolint:lll // AWS XML operation name is inherently long
 }
 
-func (h *Handler) handleDescribeEnvironmentManagedActionHistory(vals url.Values) (any, error) {
+func (h *Handler) handleDescribeEnvironmentManagedActionHistory(ctx context.Context, vals url.Values) (any, error) {
 	envName := vals.Get("EnvironmentName")
 
 	// Return real stored history (improvement #4)
-	historyItems := h.Backend.DescribeEnvironmentManagedActionHistory(envName)
+	historyItems := h.Backend.DescribeEnvironmentManagedActionHistory(ctx, envName)
 	members := make([]managedActionHistoryItem, 0, len(historyItems))
 
 	for _, item := range historyItems {
@@ -2031,7 +2037,7 @@ type describeEnvironmentManagedActionsResponse struct { //nolint:lll // AWS XML 
 	DescribeEnvironmentManagedActionsResult describeEnvironmentManagedActionsResult `xml:"DescribeEnvironmentManagedActionsResult"` //nolint:lll // AWS XML operation name is inherently long
 }
 
-func (h *Handler) handleDescribeEnvironmentManagedActions(_ url.Values) (any, error) {
+func (h *Handler) handleDescribeEnvironmentManagedActions(_ context.Context, _ url.Values) (any, error) {
 	return &describeEnvironmentManagedActionsResponse{
 		Xmlns: ebXMLNS,
 		DescribeEnvironmentManagedActionsResult: describeEnvironmentManagedActionsResult{
@@ -2059,7 +2065,7 @@ type describeInstancesHealthResponse struct {
 	DescribeInstancesHealthResult describeInstancesHealthResult `xml:"DescribeInstancesHealthResult"`
 }
 
-func (h *Handler) handleDescribeInstancesHealth(_ url.Values) (any, error) {
+func (h *Handler) handleDescribeInstancesHealth(_ context.Context, _ url.Values) (any, error) {
 	return &describeInstancesHealthResponse{
 		Xmlns: ebXMLNS,
 		DescribeInstancesHealthResult: describeInstancesHealthResult{
@@ -2081,13 +2087,13 @@ type describePlatformVersionResponse struct {
 	ResponseMetadata              responseMetadata              `xml:"ResponseMetadata"`
 }
 
-func (h *Handler) handleDescribePlatformVersion(vals url.Values) (any, error) {
+func (h *Handler) handleDescribePlatformVersion(ctx context.Context, vals url.Values) (any, error) {
 	platformARN := vals.Get("PlatformArn")
 	if platformARN == "" {
 		return nil, fmt.Errorf("%w: PlatformArn is required", ErrInvalidParameter)
 	}
 
-	pv, err := h.Backend.DescribePlatformVersion(platformARN)
+	pv, err := h.Backend.DescribePlatformVersion(ctx, platformARN)
 	if err != nil {
 		return nil, err
 	}
@@ -2108,13 +2114,13 @@ type disassociateEnvironmentOperationsRoleResponse struct {
 	ResponseMetadata responseMetadata `xml:"ResponseMetadata"`
 }
 
-func (h *Handler) handleDisassociateEnvironmentOperationsRole(vals url.Values) (any, error) {
+func (h *Handler) handleDisassociateEnvironmentOperationsRole(ctx context.Context, vals url.Values) (any, error) {
 	envName := vals.Get("EnvironmentName")
 	if envName == "" {
 		return nil, fmt.Errorf("%w: EnvironmentName is required", ErrInvalidParameter)
 	}
 
-	if err := h.Backend.DisassociateEnvironmentOperationsRole(envName); err != nil {
+	if err := h.Backend.DisassociateEnvironmentOperationsRole(ctx, envName); err != nil {
 		return nil, err
 	}
 
@@ -2147,7 +2153,7 @@ var availableSolutionStacks = []string{ //nolint:gochecknoglobals // package-lev
 	"64bit Amazon Linux 2023 v4.3.0 running Docker",
 }
 
-func (h *Handler) handleListAvailableSolutionStacks(_ url.Values) (any, error) {
+func (h *Handler) handleListAvailableSolutionStacks(_ context.Context, _ url.Values) (any, error) {
 	return &listAvailableSolutionStacksResponse{
 		Xmlns: ebXMLNS,
 		ListAvailableSolutionStacksResult: listAvailableSolutionStacksResult{
@@ -2217,7 +2223,7 @@ var allPlatformBranches = []platformBranchSummary{
 }
 
 // handleListPlatformBranches lists platform branches with optional filtering (improvement #3).
-func (h *Handler) handleListPlatformBranches(vals url.Values) (any, error) {
+func (h *Handler) handleListPlatformBranches(_ context.Context, vals url.Values) (any, error) {
 	// Collect filters: Filters.member.N.Attribute / Value
 	type filterEntry struct{ attribute, value string }
 
@@ -2282,8 +2288,8 @@ type listPlatformVersionsResponse struct {
 	ListPlatformVersionsResult listPlatformVersionsResult `xml:"ListPlatformVersionsResult"`
 }
 
-func (h *Handler) handleListPlatformVersions(_ url.Values) (any, error) {
-	pvs := h.Backend.ListPlatformVersions()
+func (h *Handler) handleListPlatformVersions(ctx context.Context, _ url.Values) (any, error) {
+	pvs := h.Backend.ListPlatformVersions(ctx)
 
 	summaries := make([]platformSummary, 0, len(pvs))
 	for _, pv := range pvs {
@@ -2309,7 +2315,7 @@ type requestEnvironmentInfoResponse struct {
 	ResponseMetadata responseMetadata `xml:"ResponseMetadata"`
 }
 
-func (h *Handler) handleRequestEnvironmentInfo(_ url.Values) (any, error) {
+func (h *Handler) handleRequestEnvironmentInfo(_ context.Context, _ url.Values) (any, error) {
 	return &requestEnvironmentInfoResponse{
 		Xmlns:            ebXMLNS,
 		ResponseMetadata: responseMetadata{RequestID: "eb-request-env-info"},
@@ -2335,7 +2341,7 @@ type retrieveEnvironmentInfoResponse struct {
 	RetrieveEnvironmentInfoResult retrieveEnvironmentInfoResult `xml:"RetrieveEnvironmentInfoResult"`
 }
 
-func (h *Handler) handleRetrieveEnvironmentInfo(_ url.Values) (any, error) {
+func (h *Handler) handleRetrieveEnvironmentInfo(_ context.Context, _ url.Values) (any, error) {
 	return &retrieveEnvironmentInfoResponse{
 		Xmlns: ebXMLNS,
 		RetrieveEnvironmentInfoResult: retrieveEnvironmentInfoResult{
@@ -2352,7 +2358,7 @@ type swapEnvironmentCNAMEsResponse struct {
 	ResponseMetadata responseMetadata `xml:"ResponseMetadata"`
 }
 
-func (h *Handler) handleSwapEnvironmentCNAMEs(vals url.Values) (any, error) {
+func (h *Handler) handleSwapEnvironmentCNAMEs(ctx context.Context, vals url.Values) (any, error) {
 	sourceEnv := vals.Get("SourceEnvironmentName")
 	destEnv := vals.Get("DestinationEnvironmentName")
 
@@ -2373,7 +2379,7 @@ func (h *Handler) handleSwapEnvironmentCNAMEs(vals url.Values) (any, error) {
 	// Resolve env names from IDs if names not provided
 	if sourceEnv == "" {
 		srcID := vals.Get("SourceEnvironmentId")
-		envs := h.Backend.DescribeEnvironments("", nil, []string{srcID})
+		envs := h.Backend.DescribeEnvironments(ctx, "", nil, []string{srcID})
 
 		if len(envs) > 0 {
 			sourceEnv = envs[0].EnvironmentName
@@ -2382,7 +2388,7 @@ func (h *Handler) handleSwapEnvironmentCNAMEs(vals url.Values) (any, error) {
 
 	if destEnv == "" {
 		dstID := vals.Get("DestinationEnvironmentId")
-		envs := h.Backend.DescribeEnvironments("", nil, []string{dstID})
+		envs := h.Backend.DescribeEnvironments(ctx, "", nil, []string{dstID})
 
 		if len(envs) > 0 {
 			destEnv = envs[0].EnvironmentName
@@ -2390,7 +2396,7 @@ func (h *Handler) handleSwapEnvironmentCNAMEs(vals url.Values) (any, error) {
 	}
 
 	// Actually swap CNAMEs (improvement #10)
-	if err := h.Backend.SwapEnvironmentCNAMEs(sourceEnv, destEnv); err != nil {
+	if err := h.Backend.SwapEnvironmentCNAMEs(ctx, sourceEnv, destEnv); err != nil {
 		return nil, err
 	}
 
@@ -2417,7 +2423,7 @@ type updateApplicationResourceLifecycleResponse struct { //nolint:lll // AWS XML
 	ResponseMetadata                         responseMetadata                         `xml:"ResponseMetadata"`
 }
 
-func (h *Handler) handleUpdateApplicationResourceLifecycle(vals url.Values) (any, error) {
+func (h *Handler) handleUpdateApplicationResourceLifecycle(ctx context.Context, vals url.Values) (any, error) {
 	appName := vals.Get("ApplicationName")
 	if appName == "" {
 		return nil, fmt.Errorf("%w: ApplicationName is required", ErrInvalidParameter)
@@ -2426,7 +2432,7 @@ func (h *Handler) handleUpdateApplicationResourceLifecycle(vals url.Values) (any
 	serviceRole := vals.Get("ResourceLifecycleConfig.ServiceRole")
 
 	// Store lifecycle service role in the application (improvement #7)
-	if _, err := h.Backend.UpdateApplicationResourceLifecycle(appName, serviceRole); err != nil {
+	if _, err := h.Backend.UpdateApplicationResourceLifecycle(ctx, appName, serviceRole); err != nil {
 		return nil, err
 	}
 
@@ -2450,7 +2456,7 @@ type updateApplicationVersionResponse struct {
 	ResponseMetadata               responseMetadata               `xml:"ResponseMetadata"`
 }
 
-func (h *Handler) handleUpdateApplicationVersion(vals url.Values) (any, error) {
+func (h *Handler) handleUpdateApplicationVersion(ctx context.Context, vals url.Values) (any, error) {
 	appName := vals.Get("ApplicationName")
 	if appName == "" {
 		return nil, fmt.Errorf("%w: ApplicationName is required", ErrInvalidParameter)
@@ -2463,7 +2469,7 @@ func (h *Handler) handleUpdateApplicationVersion(vals url.Values) (any, error) {
 
 	description := vals.Get("Description")
 
-	ver, err := h.Backend.UpdateApplicationVersion(appName, versionLabel, description)
+	ver, err := h.Backend.UpdateApplicationVersion(ctx, appName, versionLabel, description)
 	if err != nil {
 		return nil, err
 	}
@@ -2485,7 +2491,7 @@ type updateConfigurationTemplateResponse struct {
 	ResponseMetadata                  responseMetadata              `xml:"ResponseMetadata"`
 }
 
-func (h *Handler) handleUpdateConfigurationTemplate(vals url.Values) (any, error) {
+func (h *Handler) handleUpdateConfigurationTemplate(ctx context.Context, vals url.Values) (any, error) {
 	appName := vals.Get("ApplicationName")
 	if appName == "" {
 		return nil, fmt.Errorf("%w: ApplicationName is required", ErrInvalidParameter)
@@ -2498,7 +2504,7 @@ func (h *Handler) handleUpdateConfigurationTemplate(vals url.Values) (any, error
 
 	description := vals.Get("Description")
 
-	tmpl, err := h.Backend.UpdateConfigurationTemplate(appName, templateName, description)
+	tmpl, err := h.Backend.UpdateConfigurationTemplate(ctx, appName, templateName, description)
 	if err != nil {
 		return nil, err
 	}
@@ -2551,7 +2557,7 @@ var knownNamespaces = map[string]bool{
 	"aws:rds:dbinstance":                          true,
 }
 
-func (h *Handler) handleValidateConfigurationSettings(vals url.Values) (any, error) {
+func (h *Handler) handleValidateConfigurationSettings(_ context.Context, vals url.Values) (any, error) {
 	messages := make([]validationMessage, 0)
 
 	// Validate option settings namespaces (improvement #13)

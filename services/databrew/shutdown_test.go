@@ -26,9 +26,9 @@ func TestBackendShutdown(t *testing.T) {
 			build: func(t *testing.T) (*databrew.InMemoryBackend, string) {
 				t.Helper()
 				b := databrew.NewInMemoryBackendWithContext(t.Context(), "123456789012", "us-east-1")
-				_, err := b.CreateJob("sd-job", "PROFILE", "ds", "", "", "", nil, nil)
+				_, err := b.CreateJob(context.Background(), "sd-job", "PROFILE", "ds", "", "", "", nil, nil)
 				require.NoError(t, err)
-				_, err = b.StartJobRun("sd-job")
+				_, err = b.StartJobRun(context.Background(), "sd-job")
 				require.NoError(t, err)
 				// Cancel immediately so the 100ms transition never fires.
 				b.Shutdown(t.Context())
@@ -53,9 +53,9 @@ func TestBackendShutdown(t *testing.T) {
 			build: func(t *testing.T) (*databrew.InMemoryBackend, string) {
 				t.Helper()
 				b := databrew.NewInMemoryBackendWithContext(t.Context(), "123456789012", "us-east-1")
-				_, err := b.CreateJob("sd-job2", "PROFILE", "ds", "", "", "", nil, nil)
+				_, err := b.CreateJob(context.Background(), "sd-job2", "PROFILE", "ds", "", "", "", nil, nil)
 				require.NoError(t, err)
-				_, err = b.StartJobRun("sd-job2")
+				_, err = b.StartJobRun(context.Background(), "sd-job2")
 				require.NoError(t, err)
 
 				// An already-cancelled ctx must not block Shutdown.
@@ -89,7 +89,7 @@ func TestBackendShutdown(t *testing.T) {
 			// Give any (incorrectly) leaked goroutine time to fire so a
 			// false negative would surface.
 			require.Never(t, func() bool {
-				runs, _, err := b.ListJobRuns(job, 100, "")
+				runs, _, err := b.ListJobRuns(context.Background(), job, 100, "")
 
 				return err == nil && len(runs) == 1 && runs[0].State == "SUCCEEDED"
 			}, 250*time.Millisecond, 25*time.Millisecond)
@@ -105,13 +105,13 @@ func TestResetDoesNotStopTransitions(t *testing.T) {
 	b := databrew.NewInMemoryBackendWithContext(t.Context(), "123456789012", "us-east-1")
 	b.Reset()
 
-	_, err := b.CreateJob("post-reset", "PROFILE", "ds", "", "", "", nil, nil)
+	_, err := b.CreateJob(context.Background(), "post-reset", "PROFILE", "ds", "", "", "", nil, nil)
 	require.NoError(t, err)
-	_, err = b.StartJobRun("post-reset")
+	_, err = b.StartJobRun(context.Background(), "post-reset")
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool {
-		runs, _, listErr := b.ListJobRuns("post-reset", 100, "")
+		runs, _, listErr := b.ListJobRuns(context.Background(), "post-reset", 100, "")
 
 		return listErr == nil && len(runs) == 1 && runs[0].State == "SUCCEEDED"
 	}, 3*time.Second, 25*time.Millisecond)

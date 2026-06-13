@@ -24,8 +24,8 @@ const (
 
 type StreamConsoleRequest struct {
 	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *StreamConsoleRequest) Reset() {
@@ -50,8 +50,10 @@ func (x *StreamConsoleRequest) ProtoReflect() protoreflect.Message {
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
 		}
+
 		return ms
 	}
+
 	return mi.MessageOf(x)
 }
 
@@ -62,10 +64,9 @@ func (*StreamConsoleRequest) Descriptor() ([]byte, []int) {
 
 type StreamConsoleResponse struct {
 	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	Request       *CapturedRequest `protobuf:"bytes,1,opt,name=request,proto3" json:"request,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	Request *CapturedRequest `protobuf:"bytes,1,opt,name=request,proto3" json:"request,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *StreamConsoleResponse) Reset() {
@@ -90,8 +91,10 @@ func (x *StreamConsoleResponse) ProtoReflect() protoreflect.Message {
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
 		}
+
 		return ms
 	}
+
 	return mi.MessageOf(x)
 }
 
@@ -104,22 +107,22 @@ func (x *StreamConsoleResponse) GetRequest() *CapturedRequest {
 	if x != nil {
 		return x.Request
 	}
+
 	return nil
 }
 
 type CapturedRequest struct {
 	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	Headers       map[string]string      `protobuf:"bytes,4,rep,name=headers,proto3"                      json:"headers,omitempty"     protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
+	Timestamp     *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=timestamp,proto3"                    json:"timestamp,omitempty"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3"                           json:"id,omitempty"`
+	Method        string                 `protobuf:"bytes,2,opt,name=method,proto3"                       json:"method,omitempty"`
+	Path          string                 `protobuf:"bytes,3,opt,name=path,proto3"                         json:"path,omitempty"`
+	Body          string                 `protobuf:"bytes,5,opt,name=body,proto3"                         json:"body,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	Id         string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Method     string                 `protobuf:"bytes,2,opt,name=method,proto3" json:"method,omitempty"`
-	Path       string                 `protobuf:"bytes,3,opt,name=path,proto3" json:"path,omitempty"`
-	Headers    map[string]string      `protobuf:"bytes,4,rep,name=headers,proto3" json:"headers,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
-	Body       string                 `protobuf:"bytes,5,opt,name=body,proto3" json:"body,omitempty"`
-	Status     int32                  `protobuf:"varint,6,opt,name=status,proto3" json:"status,omitempty"`
-	DurationMs int64                  `protobuf:"varint,7,opt,name=duration_ms,json=durationMs,proto3" json:"duration_ms,omitempty"`
-	Timestamp  *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	DurationMs    int64 `protobuf:"varint,7,opt,name=duration_ms,json=durationMs,proto3" json:"duration_ms,omitempty"`
+	sizeCache     protoimpl.SizeCache
+	Status        int32 `protobuf:"varint,6,opt,name=status,proto3"                      json:"status,omitempty"`
 }
 
 func (x *CapturedRequest) Reset() {
@@ -144,8 +147,10 @@ func (x *CapturedRequest) ProtoReflect() protoreflect.Message {
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
 		}
+
 		return ms
 	}
+
 	return mi.MessageOf(x)
 }
 
@@ -158,6 +163,7 @@ func (x *CapturedRequest) GetId() string {
 	if x != nil {
 		return x.Id
 	}
+
 	return ""
 }
 
@@ -165,6 +171,7 @@ func (x *CapturedRequest) GetMethod() string {
 	if x != nil {
 		return x.Method
 	}
+
 	return ""
 }
 
@@ -172,6 +179,7 @@ func (x *CapturedRequest) GetPath() string {
 	if x != nil {
 		return x.Path
 	}
+
 	return ""
 }
 
@@ -179,6 +187,7 @@ func (x *CapturedRequest) GetHeaders() map[string]string {
 	if x != nil {
 		return x.Headers
 	}
+
 	return nil
 }
 
@@ -186,6 +195,7 @@ func (x *CapturedRequest) GetBody() string {
 	if x != nil {
 		return x.Body
 	}
+
 	return ""
 }
 
@@ -193,6 +203,7 @@ func (x *CapturedRequest) GetStatus() int32 {
 	if x != nil {
 		return x.Status
 	}
+
 	return 0
 }
 
@@ -200,6 +211,7 @@ func (x *CapturedRequest) GetDurationMs() int64 {
 	if x != nil {
 		return x.DurationMs
 	}
+
 	return 0
 }
 
@@ -207,13 +219,14 @@ func (x *CapturedRequest) GetTimestamp() *timestamppb.Timestamp {
 	if x != nil {
 		return x.Timestamp
 	}
+
 	return nil
 }
 
 type StreamMetricsRequest struct {
 	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *StreamMetricsRequest) Reset() {
@@ -238,8 +251,10 @@ func (x *StreamMetricsRequest) ProtoReflect() protoreflect.Message {
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
 		}
+
 		return ms
 	}
+
 	return mi.MessageOf(x)
 }
 
@@ -250,10 +265,9 @@ func (*StreamMetricsRequest) Descriptor() ([]byte, []int) {
 
 type StreamMetricsResponse struct {
 	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	Dashboard     *DashboardMetrics `protobuf:"bytes,1,opt,name=dashboard,proto3" json:"dashboard,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	Dashboard *DashboardMetrics `protobuf:"bytes,1,opt,name=dashboard,proto3" json:"dashboard,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *StreamMetricsResponse) Reset() {
@@ -278,8 +292,10 @@ func (x *StreamMetricsResponse) ProtoReflect() protoreflect.Message {
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
 		}
+
 		return ms
 	}
+
 	return mi.MessageOf(x)
 }
 
@@ -292,18 +308,18 @@ func (x *StreamMetricsResponse) GetDashboard() *DashboardMetrics {
 	if x != nil {
 		return x.Dashboard
 	}
+
 	return nil
 }
 
 type DashboardMetrics struct {
 	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	Runtime       *RuntimeMetrics `protobuf:"bytes,1,opt,name=runtime,proto3"    json:"runtime,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	Runtime    *RuntimeMetrics     `protobuf:"bytes,1,opt,name=runtime,proto3" json:"runtime,omitempty"`
-	Operations []*OperationSummary `protobuf:"bytes,2,rep,name=operations,proto3" json:"operations,omitempty"`
-	Deadlocks  []*DeadlockInfo     `protobuf:"bytes,3,rep,name=deadlocks,proto3" json:"deadlocks,omitempty"`
-	Workers    []*WorkerStats      `protobuf:"bytes,4,rep,name=workers,proto3" json:"workers,omitempty"`
+	Operations    []*OperationSummary `protobuf:"bytes,2,rep,name=operations,proto3" json:"operations,omitempty"`
+	Deadlocks     []*DeadlockInfo     `protobuf:"bytes,3,rep,name=deadlocks,proto3"  json:"deadlocks,omitempty"`
+	Workers       []*WorkerStats      `protobuf:"bytes,4,rep,name=workers,proto3"    json:"workers,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *DashboardMetrics) Reset() {
@@ -328,8 +344,10 @@ func (x *DashboardMetrics) ProtoReflect() protoreflect.Message {
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
 		}
+
 		return ms
 	}
+
 	return mi.MessageOf(x)
 }
 
@@ -342,6 +360,7 @@ func (x *DashboardMetrics) GetRuntime() *RuntimeMetrics {
 	if x != nil {
 		return x.Runtime
 	}
+
 	return nil
 }
 
@@ -349,6 +368,7 @@ func (x *DashboardMetrics) GetOperations() []*OperationSummary {
 	if x != nil {
 		return x.Operations
 	}
+
 	return nil
 }
 
@@ -356,6 +376,7 @@ func (x *DashboardMetrics) GetDeadlocks() []*DeadlockInfo {
 	if x != nil {
 		return x.Deadlocks
 	}
+
 	return nil
 }
 
@@ -363,22 +384,22 @@ func (x *DashboardMetrics) GetWorkers() []*WorkerStats {
 	if x != nil {
 		return x.Workers
 	}
+
 	return nil
 }
 
 type RuntimeMetrics struct {
 	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
-
-	Goroutines    int32   `protobuf:"varint,1,opt,name=goroutines,proto3" json:"goroutines,omitempty"`
-	HeapAllocMb   float64 `protobuf:"fixed64,2,opt,name=heap_alloc_mb,json=heapAllocMb,proto3" json:"heap_alloc_mb,omitempty"`
-	HeapInuseMb   float64 `protobuf:"fixed64,3,opt,name=heap_inuse_mb,json=heapInuseMb,proto3" json:"heap_inuse_mb,omitempty"`
-	HeapSysMb     float64 `protobuf:"fixed64,4,opt,name=heap_sys_mb,json=heapSysMb,proto3" json:"heap_sys_mb,omitempty"`
-	NumGc         uint32  `protobuf:"varint,5,opt,name=num_gc,json=numGc,proto3" json:"num_gc,omitempty"`
+	HeapAllocMb   float64 `protobuf:"fixed64,2,opt,name=heap_alloc_mb,json=heapAllocMb,proto3"      json:"heap_alloc_mb,omitempty"`
+	HeapInuseMb   float64 `protobuf:"fixed64,3,opt,name=heap_inuse_mb,json=heapInuseMb,proto3"      json:"heap_inuse_mb,omitempty"`
+	HeapSysMb     float64 `protobuf:"fixed64,4,opt,name=heap_sys_mb,json=heapSysMb,proto3"          json:"heap_sys_mb,omitempty"`
 	LastGcPauseMs float64 `protobuf:"fixed64,6,opt,name=last_gc_pause_ms,json=lastGcPauseMs,proto3" json:"last_gc_pause_ms,omitempty"`
-	TotalAllocMb  float64 `protobuf:"fixed64,7,opt,name=total_alloc_mb,json=totalAllocMb,proto3" json:"total_alloc_mb,omitempty"`
-	NumServices   int32   `protobuf:"varint,8,opt,name=num_services,json=numServices,proto3" json:"num_services,omitempty"`
+	TotalAllocMb  float64 `protobuf:"fixed64,7,opt,name=total_alloc_mb,json=totalAllocMb,proto3"    json:"total_alloc_mb,omitempty"`
+	sizeCache     protoimpl.SizeCache
+	Goroutines    int32  `protobuf:"varint,1,opt,name=goroutines,proto3"                           json:"goroutines,omitempty"`
+	NumGc         uint32 `protobuf:"varint,5,opt,name=num_gc,json=numGc,proto3"                    json:"num_gc,omitempty"`
+	NumServices   int32  `protobuf:"varint,8,opt,name=num_services,json=numServices,proto3"        json:"num_services,omitempty"`
 }
 
 func (x *RuntimeMetrics) Reset() {
@@ -403,8 +424,10 @@ func (x *RuntimeMetrics) ProtoReflect() protoreflect.Message {
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
 		}
+
 		return ms
 	}
+
 	return mi.MessageOf(x)
 }
 
@@ -417,6 +440,7 @@ func (x *RuntimeMetrics) GetGoroutines() int32 {
 	if x != nil {
 		return x.Goroutines
 	}
+
 	return 0
 }
 
@@ -424,6 +448,7 @@ func (x *RuntimeMetrics) GetHeapAllocMb() float64 {
 	if x != nil {
 		return x.HeapAllocMb
 	}
+
 	return 0
 }
 
@@ -431,6 +456,7 @@ func (x *RuntimeMetrics) GetHeapInuseMb() float64 {
 	if x != nil {
 		return x.HeapInuseMb
 	}
+
 	return 0
 }
 
@@ -438,6 +464,7 @@ func (x *RuntimeMetrics) GetHeapSysMb() float64 {
 	if x != nil {
 		return x.HeapSysMb
 	}
+
 	return 0
 }
 
@@ -445,6 +472,7 @@ func (x *RuntimeMetrics) GetNumGc() uint32 {
 	if x != nil {
 		return x.NumGc
 	}
+
 	return 0
 }
 
@@ -452,6 +480,7 @@ func (x *RuntimeMetrics) GetLastGcPauseMs() float64 {
 	if x != nil {
 		return x.LastGcPauseMs
 	}
+
 	return 0
 }
 
@@ -459,6 +488,7 @@ func (x *RuntimeMetrics) GetTotalAllocMb() float64 {
 	if x != nil {
 		return x.TotalAllocMb
 	}
+
 	return 0
 }
 
@@ -466,22 +496,22 @@ func (x *RuntimeMetrics) GetNumServices() int32 {
 	if x != nil {
 		return x.NumServices
 	}
+
 	return 0
 }
 
 type OperationSummary struct {
 	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	Operation     string `protobuf:"bytes,1,opt,name=operation,proto3"                    json:"operation,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	Operation  string  `protobuf:"bytes,1,opt,name=operation,proto3" json:"operation,omitempty"`
-	Count      int64   `protobuf:"varint,2,opt,name=count,proto3" json:"count,omitempty"`
-	ErrorCount int64   `protobuf:"varint,3,opt,name=error_count,json=errorCount,proto3" json:"error_count,omitempty"`
-	P50Ms      float64 `protobuf:"fixed64,4,opt,name=p50_ms,json=p50Ms,proto3" json:"p50_ms,omitempty"`
-	P95Ms      float64 `protobuf:"fixed64,5,opt,name=p95_ms,json=p95Ms,proto3" json:"p95_ms,omitempty"`
-	P99Ms      float64 `protobuf:"fixed64,6,opt,name=p99_ms,json=p99Ms,proto3" json:"p99_ms,omitempty"`
-	AvgMs      float64 `protobuf:"fixed64,7,opt,name=avg_ms,json=avgMs,proto3" json:"avg_ms,omitempty"`
-	MaxMs      float64 `protobuf:"fixed64,8,opt,name=max_ms,json=maxMs,proto3" json:"max_ms,omitempty"`
+	Count         int64   `protobuf:"varint,2,opt,name=count,proto3"                       json:"count,omitempty"`
+	ErrorCount    int64   `protobuf:"varint,3,opt,name=error_count,json=errorCount,proto3" json:"error_count,omitempty"`
+	P50Ms         float64 `protobuf:"fixed64,4,opt,name=p50_ms,json=p50Ms,proto3"          json:"p50_ms,omitempty"`
+	P95Ms         float64 `protobuf:"fixed64,5,opt,name=p95_ms,json=p95Ms,proto3"          json:"p95_ms,omitempty"`
+	P99Ms         float64 `protobuf:"fixed64,6,opt,name=p99_ms,json=p99Ms,proto3"          json:"p99_ms,omitempty"`
+	AvgMs         float64 `protobuf:"fixed64,7,opt,name=avg_ms,json=avgMs,proto3"          json:"avg_ms,omitempty"`
+	MaxMs         float64 `protobuf:"fixed64,8,opt,name=max_ms,json=maxMs,proto3"          json:"max_ms,omitempty"`
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *OperationSummary) Reset() {
@@ -506,8 +536,10 @@ func (x *OperationSummary) ProtoReflect() protoreflect.Message {
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
 		}
+
 		return ms
 	}
+
 	return mi.MessageOf(x)
 }
 
@@ -520,6 +552,7 @@ func (x *OperationSummary) GetOperation() string {
 	if x != nil {
 		return x.Operation
 	}
+
 	return ""
 }
 
@@ -527,6 +560,7 @@ func (x *OperationSummary) GetCount() int64 {
 	if x != nil {
 		return x.Count
 	}
+
 	return 0
 }
 
@@ -534,6 +568,7 @@ func (x *OperationSummary) GetErrorCount() int64 {
 	if x != nil {
 		return x.ErrorCount
 	}
+
 	return 0
 }
 
@@ -541,6 +576,7 @@ func (x *OperationSummary) GetP50Ms() float64 {
 	if x != nil {
 		return x.P50Ms
 	}
+
 	return 0
 }
 
@@ -548,6 +584,7 @@ func (x *OperationSummary) GetP95Ms() float64 {
 	if x != nil {
 		return x.P95Ms
 	}
+
 	return 0
 }
 
@@ -555,6 +592,7 @@ func (x *OperationSummary) GetP99Ms() float64 {
 	if x != nil {
 		return x.P99Ms
 	}
+
 	return 0
 }
 
@@ -562,6 +600,7 @@ func (x *OperationSummary) GetAvgMs() float64 {
 	if x != nil {
 		return x.AvgMs
 	}
+
 	return 0
 }
 
@@ -569,18 +608,18 @@ func (x *OperationSummary) GetMaxMs() float64 {
 	if x != nil {
 		return x.MaxMs
 	}
+
 	return 0
 }
 
 type DeadlockInfo struct {
 	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
+	Lock          string `protobuf:"bytes,1,opt,name=lock,proto3"                    json:"lock,omitempty"`
+	Operation     string `protobuf:"bytes,2,opt,name=operation,proto3"               json:"operation,omitempty"`
 	unknownFields protoimpl.UnknownFields
-
-	Lock      string  `protobuf:"bytes,1,opt,name=lock,proto3" json:"lock,omitempty"`
-	Operation string  `protobuf:"bytes,2,opt,name=operation,proto3" json:"operation,omitempty"`
-	HeldSec   float64 `protobuf:"fixed64,3,opt,name=held_sec,json=heldSec,proto3" json:"held_sec,omitempty"`
-	Waiters   int32   `protobuf:"varint,4,opt,name=waiters,proto3" json:"waiters,omitempty"`
+	HeldSec       float64 `protobuf:"fixed64,3,opt,name=held_sec,json=heldSec,proto3" json:"held_sec,omitempty"`
+	sizeCache     protoimpl.SizeCache
+	Waiters       int32 `protobuf:"varint,4,opt,name=waiters,proto3"                json:"waiters,omitempty"`
 }
 
 func (x *DeadlockInfo) Reset() {
@@ -605,8 +644,10 @@ func (x *DeadlockInfo) ProtoReflect() protoreflect.Message {
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
 		}
+
 		return ms
 	}
+
 	return mi.MessageOf(x)
 }
 
@@ -619,6 +660,7 @@ func (x *DeadlockInfo) GetLock() string {
 	if x != nil {
 		return x.Lock
 	}
+
 	return ""
 }
 
@@ -626,6 +668,7 @@ func (x *DeadlockInfo) GetOperation() string {
 	if x != nil {
 		return x.Operation
 	}
+
 	return ""
 }
 
@@ -633,6 +676,7 @@ func (x *DeadlockInfo) GetHeldSec() float64 {
 	if x != nil {
 		return x.HeldSec
 	}
+
 	return 0
 }
 
@@ -640,20 +684,20 @@ func (x *DeadlockInfo) GetWaiters() int32 {
 	if x != nil {
 		return x.Waiters
 	}
+
 	return 0
 }
 
 type WorkerStats struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
-
-	Service             string `protobuf:"bytes,1,opt,name=service,proto3" json:"service,omitempty"`
-	Worker              string `protobuf:"bytes,2,opt,name=worker,proto3" json:"worker,omitempty"`
-	QueueDepth          int32  `protobuf:"varint,3,opt,name=queue_depth,json=queueDepth,proto3" json:"queue_depth,omitempty"`
-	TasksTotal          int64  `protobuf:"varint,4,opt,name=tasks_total,json=tasksTotal,proto3" json:"tasks_total,omitempty"`
-	ErrorsTotal         int64  `protobuf:"varint,5,opt,name=errors_total,json=errorsTotal,proto3" json:"errors_total,omitempty"`
-	ItemsProcessedTotal int64  `protobuf:"varint,6,opt,name=items_processed_total,json=itemsProcessedTotal,proto3" json:"items_processed_total,omitempty"`
+	state               protoimpl.MessageState
+	Service             string `protobuf:"bytes,1,opt,name=service,proto3"                                         json:"service,omitempty"`
+	Worker              string `protobuf:"bytes,2,opt,name=worker,proto3"                                          json:"worker,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	TasksTotal          int64 `protobuf:"varint,4,opt,name=tasks_total,json=tasksTotal,proto3"                    json:"tasks_total,omitempty"`
+	ErrorsTotal         int64 `protobuf:"varint,5,opt,name=errors_total,json=errorsTotal,proto3"                  json:"errors_total,omitempty"`
+	ItemsProcessedTotal int64 `protobuf:"varint,6,opt,name=items_processed_total,json=itemsProcessedTotal,proto3" json:"items_processed_total,omitempty"`
+	sizeCache           protoimpl.SizeCache
+	QueueDepth          int32 `protobuf:"varint,3,opt,name=queue_depth,json=queueDepth,proto3"                    json:"queue_depth,omitempty"`
 }
 
 func (x *WorkerStats) Reset() {
@@ -678,8 +722,10 @@ func (x *WorkerStats) ProtoReflect() protoreflect.Message {
 		if ms.LoadMessageInfo() == nil {
 			ms.StoreMessageInfo(mi)
 		}
+
 		return ms
 	}
+
 	return mi.MessageOf(x)
 }
 
@@ -692,6 +738,7 @@ func (x *WorkerStats) GetService() string {
 	if x != nil {
 		return x.Service
 	}
+
 	return ""
 }
 
@@ -699,6 +746,7 @@ func (x *WorkerStats) GetWorker() string {
 	if x != nil {
 		return x.Worker
 	}
+
 	return ""
 }
 
@@ -706,6 +754,7 @@ func (x *WorkerStats) GetQueueDepth() int32 {
 	if x != nil {
 		return x.QueueDepth
 	}
+
 	return 0
 }
 
@@ -713,6 +762,7 @@ func (x *WorkerStats) GetTasksTotal() int64 {
 	if x != nil {
 		return x.TasksTotal
 	}
+
 	return 0
 }
 
@@ -720,6 +770,7 @@ func (x *WorkerStats) GetErrorsTotal() int64 {
 	if x != nil {
 		return x.ErrorsTotal
 	}
+
 	return 0
 }
 
@@ -727,6 +778,7 @@ func (x *WorkerStats) GetItemsProcessedTotal() int64 {
 	if x != nil {
 		return x.ItemsProcessedTotal
 	}
+
 	return 0
 }
 
@@ -879,13 +931,16 @@ var (
 
 func file_gopherstack_dashboard_v1_dashboard_proto_rawDescGZIP() []byte {
 	file_gopherstack_dashboard_v1_dashboard_proto_rawDescOnce.Do(func() {
-		file_gopherstack_dashboard_v1_dashboard_proto_rawDescData = protoimpl.X.CompressGZIP(file_gopherstack_dashboard_v1_dashboard_proto_rawDescData)
+		file_gopherstack_dashboard_v1_dashboard_proto_rawDescData = protoimpl.X.CompressGZIP(
+			file_gopherstack_dashboard_v1_dashboard_proto_rawDescData,
+		)
 	})
+
 	return file_gopherstack_dashboard_v1_dashboard_proto_rawDescData
 }
 
 var file_gopherstack_dashboard_v1_dashboard_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
-var file_gopherstack_dashboard_v1_dashboard_proto_goTypes = []interface{}{
+var file_gopherstack_dashboard_v1_dashboard_proto_goTypes = []any{
 	(*StreamConsoleRequest)(nil),  // 0: gopherstack.dashboard.v1.StreamConsoleRequest
 	(*StreamConsoleResponse)(nil), // 1: gopherstack.dashboard.v1.StreamConsoleResponse
 	(*CapturedRequest)(nil),       // 2: gopherstack.dashboard.v1.CapturedRequest
@@ -925,7 +980,7 @@ func file_gopherstack_dashboard_v1_dashboard_proto_init() {
 		return
 	}
 	if !protoimpl.UnsafeEnabled {
-		file_gopherstack_dashboard_v1_dashboard_proto_msgTypes[0].Exporter = func(v interface{}, i int) interface{} {
+		file_gopherstack_dashboard_v1_dashboard_proto_msgTypes[0].Exporter = func(v any, i int) any {
 			switch v := v.(*StreamConsoleRequest); i {
 			case 0:
 				return &v.state
@@ -937,7 +992,7 @@ func file_gopherstack_dashboard_v1_dashboard_proto_init() {
 				return nil
 			}
 		}
-		file_gopherstack_dashboard_v1_dashboard_proto_msgTypes[1].Exporter = func(v interface{}, i int) interface{} {
+		file_gopherstack_dashboard_v1_dashboard_proto_msgTypes[1].Exporter = func(v any, i int) any {
 			switch v := v.(*StreamConsoleResponse); i {
 			case 0:
 				return &v.state
@@ -949,7 +1004,7 @@ func file_gopherstack_dashboard_v1_dashboard_proto_init() {
 				return nil
 			}
 		}
-		file_gopherstack_dashboard_v1_dashboard_proto_msgTypes[2].Exporter = func(v interface{}, i int) interface{} {
+		file_gopherstack_dashboard_v1_dashboard_proto_msgTypes[2].Exporter = func(v any, i int) any {
 			switch v := v.(*CapturedRequest); i {
 			case 0:
 				return &v.state
@@ -961,7 +1016,7 @@ func file_gopherstack_dashboard_v1_dashboard_proto_init() {
 				return nil
 			}
 		}
-		file_gopherstack_dashboard_v1_dashboard_proto_msgTypes[3].Exporter = func(v interface{}, i int) interface{} {
+		file_gopherstack_dashboard_v1_dashboard_proto_msgTypes[3].Exporter = func(v any, i int) any {
 			switch v := v.(*StreamMetricsRequest); i {
 			case 0:
 				return &v.state
@@ -973,7 +1028,7 @@ func file_gopherstack_dashboard_v1_dashboard_proto_init() {
 				return nil
 			}
 		}
-		file_gopherstack_dashboard_v1_dashboard_proto_msgTypes[4].Exporter = func(v interface{}, i int) interface{} {
+		file_gopherstack_dashboard_v1_dashboard_proto_msgTypes[4].Exporter = func(v any, i int) any {
 			switch v := v.(*StreamMetricsResponse); i {
 			case 0:
 				return &v.state
@@ -985,7 +1040,7 @@ func file_gopherstack_dashboard_v1_dashboard_proto_init() {
 				return nil
 			}
 		}
-		file_gopherstack_dashboard_v1_dashboard_proto_msgTypes[5].Exporter = func(v interface{}, i int) interface{} {
+		file_gopherstack_dashboard_v1_dashboard_proto_msgTypes[5].Exporter = func(v any, i int) any {
 			switch v := v.(*DashboardMetrics); i {
 			case 0:
 				return &v.state
@@ -997,7 +1052,7 @@ func file_gopherstack_dashboard_v1_dashboard_proto_init() {
 				return nil
 			}
 		}
-		file_gopherstack_dashboard_v1_dashboard_proto_msgTypes[6].Exporter = func(v interface{}, i int) interface{} {
+		file_gopherstack_dashboard_v1_dashboard_proto_msgTypes[6].Exporter = func(v any, i int) any {
 			switch v := v.(*RuntimeMetrics); i {
 			case 0:
 				return &v.state
@@ -1009,7 +1064,7 @@ func file_gopherstack_dashboard_v1_dashboard_proto_init() {
 				return nil
 			}
 		}
-		file_gopherstack_dashboard_v1_dashboard_proto_msgTypes[7].Exporter = func(v interface{}, i int) interface{} {
+		file_gopherstack_dashboard_v1_dashboard_proto_msgTypes[7].Exporter = func(v any, i int) any {
 			switch v := v.(*OperationSummary); i {
 			case 0:
 				return &v.state
@@ -1021,7 +1076,7 @@ func file_gopherstack_dashboard_v1_dashboard_proto_init() {
 				return nil
 			}
 		}
-		file_gopherstack_dashboard_v1_dashboard_proto_msgTypes[8].Exporter = func(v interface{}, i int) interface{} {
+		file_gopherstack_dashboard_v1_dashboard_proto_msgTypes[8].Exporter = func(v any, i int) any {
 			switch v := v.(*DeadlockInfo); i {
 			case 0:
 				return &v.state
@@ -1033,7 +1088,7 @@ func file_gopherstack_dashboard_v1_dashboard_proto_init() {
 				return nil
 			}
 		}
-		file_gopherstack_dashboard_v1_dashboard_proto_msgTypes[9].Exporter = func(v interface{}, i int) interface{} {
+		file_gopherstack_dashboard_v1_dashboard_proto_msgTypes[9].Exporter = func(v any, i int) any {
 			switch v := v.(*WorkerStats); i {
 			case 0:
 				return &v.state
@@ -1049,7 +1104,7 @@ func file_gopherstack_dashboard_v1_dashboard_proto_init() {
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
-			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
+			GoPackagePath: reflect.TypeFor[x]().PkgPath(),
 			RawDescriptor: file_gopherstack_dashboard_v1_dashboard_proto_rawDesc,
 			NumEnums:      0,
 			NumMessages:   11,

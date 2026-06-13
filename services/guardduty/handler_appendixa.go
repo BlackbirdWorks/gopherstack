@@ -1140,13 +1140,13 @@ func (h *Handler) handleCreateThreatEntitySet( //nolint:dupl // existing issue.
 	detectorID string,
 	body []byte,
 ) (any, int, error) {
-	//nolint:govet // fieldalignment: logical order preferred for readability
+
 	var req struct {
 		Tags     map[string]string `json:"tags"`
+		Activate *bool             `json:"activate"`
 		Name     string            `json:"name"`
 		Format   string            `json:"format"`
 		Location string            `json:"location"`
-		Activate *bool             `json:"activate"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -1193,13 +1193,12 @@ func (h *Handler) handleListThreatEntitySets(detectorID string) (any, int, error
 
 	return map[string]any{"threatEntitySetIds": ids}, http.StatusOK, nil
 }
-
 func (h *Handler) handleUpdateThreatEntitySet(detectorID, setID string, body []byte) (int, error) {
-	//nolint:govet // fieldalignment: logical order preferred for readability
+
 	var req struct {
+		Activate *bool  `json:"activate"`
 		Name     string `json:"name"`
 		Location string `json:"location"`
-		Activate *bool  `json:"activate"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -1227,13 +1226,13 @@ func (h *Handler) handleCreateTrustedEntitySet( //nolint:dupl // existing issue.
 	detectorID string,
 	body []byte,
 ) (any, int, error) {
-	//nolint:govet // fieldalignment: logical order preferred for readability
+
 	var req struct {
 		Tags     map[string]string `json:"tags"`
+		Activate *bool             `json:"activate"`
 		Name     string            `json:"name"`
 		Format   string            `json:"format"`
 		Location string            `json:"location"`
-		Activate *bool             `json:"activate"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -1280,13 +1279,12 @@ func (h *Handler) handleListTrustedEntitySets(detectorID string) (any, int, erro
 
 	return map[string]any{"trustedEntitySetIds": ids}, http.StatusOK, nil
 }
-
 func (h *Handler) handleUpdateTrustedEntitySet(detectorID, setID string, body []byte) (int, error) {
-	//nolint:govet // fieldalignment: logical order preferred for readability
+
 	var req struct {
+		Activate *bool  `json:"activate"`
 		Name     string `json:"name"`
 		Location string `json:"location"`
-		Activate *bool  `json:"activate"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {

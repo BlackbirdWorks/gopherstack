@@ -1,6 +1,7 @@
 package identitystore
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -135,6 +136,12 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		ctx := c.Request().Context()
+
+		// Resolve per-request region from SigV4 credential scope or X-Amz-Region,
+		// then attach it to the context so backend operations are region-scoped.
+		region := httputils.ExtractRegionFromRequest(c.Request(), h.Backend.Region())
+		ctx = context.WithValue(ctx, regionContextKey{}, region)
+
 		log := logger.Load(ctx)
 
 		target := c.Request().Header.Get("X-Amz-Target")
@@ -152,7 +159,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		log.DebugContext(ctx, "identitystore request", "op", op)
 
-		return h.dispatch(c, op, body)
+		return h.dispatch(ctx, c, op, body)
 	}
 }
 
@@ -225,16 +232,6 @@ type updateGroupRequest struct {
 	IdentityStoreID string               `json:"IdentityStoreId"`
 	GroupID         string               `json:"GroupId"`
 	Operations      []attributeOperation `json:"Operations"`
-}
-
-type getUserIDRequest struct {
-	AlternateIdentifier alternateIdentifier `json:"AlternateIdentifier"`
-	IdentityStoreID     string              `json:"IdentityStoreId"`
-}
-
-type getGroupIDRequest struct {
-	AlternateIdentifier alternateIdentifier `json:"AlternateIdentifier"`
-	IdentityStoreID     string              `json:"IdentityStoreId"`
 }
 
 type getGroupMembershipIDRequest struct {
@@ -333,7 +330,7 @@ type deleteGroupRequest struct {
 // identityStoreDispatch maps operation names to their handler functions.
 //
 //nolint:gochecknoglobals // read-only dispatch table initialized once at startup
-var identityStoreDispatch = map[string]func(*Handler, *echo.Context, []byte) error{
+var identityStoreDispatch = map[string]func(*Handler, context.Context, *echo.Context, []byte) error{
 	// User operations
 	opCreateUser:   (*Handler).handleCreateUser,
 	opDescribeUser: (*Handler).handleDescribeUser,
@@ -358,9 +355,9 @@ var identityStoreDispatch = map[string]func(*Handler, *echo.Context, []byte) err
 	isMemberInGroupsOp:              (*Handler).handleIsMemberInGroups,
 }
 
-func (h *Handler) dispatch(c *echo.Context, op string, body []byte) error {
+func (h *Handler) dispatch(ctx context.Context, c *echo.Context, op string, body []byte) error {
 	if fn, ok := identityStoreDispatch[op]; ok {
-		return fn(h, c, body)
+		return fn(h, ctx, c, body)
 	}
 
 	return h.writeError(c, http.StatusBadRequest, "UnrecognizedClientException",
@@ -371,7 +368,7 @@ func (h *Handler) dispatch(c *echo.Context, op string, body []byte) error {
 // User handlers
 // ----------------------------------------
 
-func (h *Handler) handleCreateUser(c *echo.Context, body []byte) error {
+func (h *Handler) handleCreateUser(ctx context.Context, c *echo.Context, body []byte) error {
 	var req createUserRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
@@ -381,7 +378,7 @@ func (h *Handler) handleCreateUser(c *echo.Context, body []byte) error {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "IdentityStoreId is required")
 	}
 
-	user, err := h.Backend.CreateUser(req.IdentityStoreID, &CreateUserRequest{
+	user, err := h.Backend.CreateUser(ctx, req.IdentityStoreID, &CreateUserRequest{
 		UserName:      req.UserName,
 		DisplayName:   req.DisplayName,
 		NickName:      req.NickName,
@@ -411,7 +408,7 @@ func (h *Handler) handleCreateUser(c *echo.Context, body []byte) error {
 	})
 }
 
-func (h *Handler) handleDescribeUser(c *echo.Context, body []byte) error {
+func (h *Handler) handleDescribeUser(ctx context.Context, c *echo.Context, body []byte) error {
 	var req describeUserRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
@@ -425,7 +422,7 @@ func (h *Handler) handleDescribeUser(c *echo.Context, body []byte) error {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "UserId is required")
 	}
 
-	user, err := h.Backend.DescribeUser(req.IdentityStoreID, req.UserID)
+	user, err := h.Backend.DescribeUser(ctx, req.IdentityStoreID, req.UserID)
 	if err != nil {
 		return h.handleBackendError(c, err)
 	}
@@ -433,7 +430,25 @@ func (h *Handler) handleDescribeUser(c *echo.Context, body []byte) error {
 	return c.JSON(http.StatusOK, user)
 }
 
-func (h *Handler) handleListUsers(c *echo.Context, body []byte) error {
+// errMaxResultsOutOfRange is returned when a list MaxResults value falls
+// outside the AWS-permitted 1-100 range.
+var errMaxResultsOutOfRange = fmt.Errorf("MaxResults must be between 1 and %d", maxListPageSize)
+
+// validateMaxResults enforces the AWS Identity Store list MaxResults bound.
+// MaxResults is optional (0 = unset); when supplied it must be 1-100.
+func validateMaxResults(maxResults int32) error {
+	if maxResults == 0 {
+		return nil
+	}
+
+	if maxResults < 1 || maxResults > maxListPageSize {
+		return errMaxResultsOutOfRange
+	}
+
+	return nil
+}
+
+func (h *Handler) handleListUsers(ctx context.Context, c *echo.Context, body []byte) error {
 	var req listUsersRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
@@ -443,7 +458,11 @@ func (h *Handler) handleListUsers(c *echo.Context, body []byte) error {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "IdentityStoreId is required")
 	}
 
-	all := h.Backend.ListUsers(req.IdentityStoreID)
+	if err := validateMaxResults(req.MaxResults); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "ValidationException", err.Error())
+	}
+
+	all := h.Backend.ListUsers(ctx, req.IdentityStoreID)
 	filtered := applyUserFilters(all, req.Filters)
 	page, nextToken := paginateSlice(filtered, req.MaxResults, req.NextToken)
 
@@ -453,7 +472,7 @@ func (h *Handler) handleListUsers(c *echo.Context, body []byte) error {
 	})
 }
 
-func (h *Handler) handleUpdateUser(c *echo.Context, body []byte) error {
+func (h *Handler) handleUpdateUser(ctx context.Context, c *echo.Context, body []byte) error {
 	var req updateUserRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
@@ -467,14 +486,14 @@ func (h *Handler) handleUpdateUser(c *echo.Context, body []byte) error {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "UserId is required")
 	}
 
-	if err := h.Backend.UpdateUser(req.IdentityStoreID, req.UserID, req.Operations); err != nil {
+	if err := h.Backend.UpdateUser(ctx, req.IdentityStoreID, req.UserID, req.Operations); err != nil {
 		return h.handleBackendError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{})
 }
 
-func (h *Handler) handleDeleteUser(c *echo.Context, body []byte) error {
+func (h *Handler) handleDeleteUser(ctx context.Context, c *echo.Context, body []byte) error {
 	var req deleteUserRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
@@ -488,36 +507,64 @@ func (h *Handler) handleDeleteUser(c *echo.Context, body []byte) error {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "UserId is required")
 	}
 
-	if err := h.Backend.DeleteUser(req.IdentityStoreID, req.UserID); err != nil {
+	if err := h.Backend.DeleteUser(ctx, req.IdentityStoreID, req.UserID); err != nil {
 		return h.handleBackendError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{})
 }
 
-func (h *Handler) handleGetUserID(c *echo.Context, body []byte) error {
-	var req getUserIDRequest
+// alternateIDResult holds the parsed fields from an alternate-identifier request.
+type alternateIDResult struct {
+	storeID   string
+	attrPath  string
+	attrValue string
+}
+
+// parseAlternateIDRequest decodes a request body that contains IdentityStoreId and
+// AlternateIdentifier, validates both are present, and returns the parsed values.
+func (h *Handler) parseAlternateIDRequest(c *echo.Context, body []byte) (alternateIDResult, error) {
+	var req struct {
+		AlternateIdentifier alternateIdentifier `json:"AlternateIdentifier"`
+		IdentityStoreID     string              `json:"IdentityStoreId"`
+	}
+
 	if err := json.Unmarshal(body, &req); err != nil {
-		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+		return alternateIDResult{}, h.writeError(
+			c, http.StatusBadRequest, "ValidationException", "invalid request body",
+		)
 	}
 
 	if strings.TrimSpace(req.IdentityStoreID) == "" {
-		return h.writeError(c, http.StatusBadRequest, "ValidationException", "IdentityStoreId is required")
+		return alternateIDResult{}, h.writeError(
+			c, http.StatusBadRequest, "ValidationException", "IdentityStoreId is required",
+		)
 	}
 
 	attrPath, attrValue := extractAlternateIdentifier(req.AlternateIdentifier)
 	if attrPath == "" {
-		return h.writeError(c, http.StatusBadRequest, "ValidationException", "AlternateIdentifier is required")
+		return alternateIDResult{}, h.writeError(
+			c, http.StatusBadRequest, "ValidationException", "AlternateIdentifier is required",
+		)
 	}
 
-	userID, err := h.Backend.GetUserID(req.IdentityStoreID, attrPath, attrValue)
+	return alternateIDResult{storeID: req.IdentityStoreID, attrPath: attrPath, attrValue: attrValue}, nil
+}
+
+func (h *Handler) handleGetUserID(ctx context.Context, c *echo.Context, body []byte) error {
+	parsed, err := h.parseAlternateIDRequest(c, body)
 	if err != nil {
-		return h.handleBackendError(c, err)
+		return err
+	}
+
+	userID, backendErr := h.Backend.GetUserID(ctx, parsed.storeID, parsed.attrPath, parsed.attrValue)
+	if backendErr != nil {
+		return h.handleBackendError(c, backendErr)
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{
 		"UserId":           userID,
-		keyIdentityStoreID: req.IdentityStoreID,
+		keyIdentityStoreID: parsed.storeID,
 	})
 }
 
@@ -525,7 +572,7 @@ func (h *Handler) handleGetUserID(c *echo.Context, body []byte) error {
 // Group handlers
 // ----------------------------------------
 
-func (h *Handler) handleCreateGroup(c *echo.Context, body []byte) error {
+func (h *Handler) handleCreateGroup(ctx context.Context, c *echo.Context, body []byte) error {
 	var req createGroupRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
@@ -539,7 +586,7 @@ func (h *Handler) handleCreateGroup(c *echo.Context, body []byte) error {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "DisplayName is required")
 	}
 
-	group, err := h.Backend.CreateGroup(req.IdentityStoreID, &CreateGroupRequest{
+	group, err := h.Backend.CreateGroup(ctx, req.IdentityStoreID, &CreateGroupRequest{
 		DisplayName: req.DisplayName,
 		Description: req.Description,
 		ExternalIDs: req.ExternalIDs,
@@ -554,7 +601,7 @@ func (h *Handler) handleCreateGroup(c *echo.Context, body []byte) error {
 	})
 }
 
-func (h *Handler) handleDescribeGroup(c *echo.Context, body []byte) error {
+func (h *Handler) handleDescribeGroup(ctx context.Context, c *echo.Context, body []byte) error {
 	var req describeGroupRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
@@ -568,7 +615,7 @@ func (h *Handler) handleDescribeGroup(c *echo.Context, body []byte) error {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "GroupId is required")
 	}
 
-	group, err := h.Backend.DescribeGroup(req.IdentityStoreID, req.GroupID)
+	group, err := h.Backend.DescribeGroup(ctx, req.IdentityStoreID, req.GroupID)
 	if err != nil {
 		return h.handleBackendError(c, err)
 	}
@@ -576,7 +623,7 @@ func (h *Handler) handleDescribeGroup(c *echo.Context, body []byte) error {
 	return c.JSON(http.StatusOK, group)
 }
 
-func (h *Handler) handleListGroups(c *echo.Context, body []byte) error {
+func (h *Handler) handleListGroups(ctx context.Context, c *echo.Context, body []byte) error {
 	var req listGroupsRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
@@ -586,7 +633,7 @@ func (h *Handler) handleListGroups(c *echo.Context, body []byte) error {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "IdentityStoreId is required")
 	}
 
-	all := h.Backend.ListGroups(req.IdentityStoreID)
+	all := h.Backend.ListGroups(ctx, req.IdentityStoreID)
 	filtered := applyGroupFilters(all, req.Filters)
 	page, nextToken := paginateSlice(filtered, req.MaxResults, req.NextToken)
 
@@ -596,7 +643,7 @@ func (h *Handler) handleListGroups(c *echo.Context, body []byte) error {
 	})
 }
 
-func (h *Handler) handleUpdateGroup(c *echo.Context, body []byte) error {
+func (h *Handler) handleUpdateGroup(ctx context.Context, c *echo.Context, body []byte) error {
 	var req updateGroupRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
@@ -610,14 +657,14 @@ func (h *Handler) handleUpdateGroup(c *echo.Context, body []byte) error {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "GroupId is required")
 	}
 
-	if err := h.Backend.UpdateGroup(req.IdentityStoreID, req.GroupID, req.Operations); err != nil {
+	if err := h.Backend.UpdateGroup(ctx, req.IdentityStoreID, req.GroupID, req.Operations); err != nil {
 		return h.handleBackendError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{})
 }
 
-func (h *Handler) handleDeleteGroup(c *echo.Context, body []byte) error {
+func (h *Handler) handleDeleteGroup(ctx context.Context, c *echo.Context, body []byte) error {
 	var req deleteGroupRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
@@ -631,36 +678,27 @@ func (h *Handler) handleDeleteGroup(c *echo.Context, body []byte) error {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "GroupId is required")
 	}
 
-	if err := h.Backend.DeleteGroup(req.IdentityStoreID, req.GroupID); err != nil {
+	if err := h.Backend.DeleteGroup(ctx, req.IdentityStoreID, req.GroupID); err != nil {
 		return h.handleBackendError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{})
 }
 
-func (h *Handler) handleGetGroupID(c *echo.Context, body []byte) error {
-	var req getGroupIDRequest
-	if err := json.Unmarshal(body, &req); err != nil {
-		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
-	}
-
-	if strings.TrimSpace(req.IdentityStoreID) == "" {
-		return h.writeError(c, http.StatusBadRequest, "ValidationException", "IdentityStoreId is required")
-	}
-
-	attrPath, attrValue := extractAlternateIdentifier(req.AlternateIdentifier)
-	if attrPath == "" {
-		return h.writeError(c, http.StatusBadRequest, "ValidationException", "AlternateIdentifier is required")
-	}
-
-	groupID, err := h.Backend.GetGroupID(req.IdentityStoreID, attrPath, attrValue)
+func (h *Handler) handleGetGroupID(ctx context.Context, c *echo.Context, body []byte) error {
+	parsed, err := h.parseAlternateIDRequest(c, body)
 	if err != nil {
-		return h.handleBackendError(c, err)
+		return err
+	}
+
+	groupID, backendErr := h.Backend.GetGroupID(ctx, parsed.storeID, parsed.attrPath, parsed.attrValue)
+	if backendErr != nil {
+		return h.handleBackendError(c, backendErr)
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{
 		"GroupId":          groupID,
-		keyIdentityStoreID: req.IdentityStoreID,
+		keyIdentityStoreID: parsed.storeID,
 	})
 }
 
@@ -668,7 +706,7 @@ func (h *Handler) handleGetGroupID(c *echo.Context, body []byte) error {
 // Membership handlers
 // ----------------------------------------
 
-func (h *Handler) handleCreateGroupMembership(c *echo.Context, body []byte) error {
+func (h *Handler) handleCreateGroupMembership(ctx context.Context, c *echo.Context, body []byte) error {
 	var req createGroupMembershipRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
@@ -686,7 +724,7 @@ func (h *Handler) handleCreateGroupMembership(c *echo.Context, body []byte) erro
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "MemberId.UserId is required")
 	}
 
-	membership, err := h.Backend.CreateGroupMembership(req.IdentityStoreID, req.GroupID, req.MemberID)
+	membership, err := h.Backend.CreateGroupMembership(ctx, req.IdentityStoreID, req.GroupID, req.MemberID)
 	if err != nil {
 		return h.handleBackendError(c, err)
 	}
@@ -697,7 +735,7 @@ func (h *Handler) handleCreateGroupMembership(c *echo.Context, body []byte) erro
 	})
 }
 
-func (h *Handler) handleDescribeGroupMembership(c *echo.Context, body []byte) error {
+func (h *Handler) handleDescribeGroupMembership(ctx context.Context, c *echo.Context, body []byte) error {
 	var req describeGroupMembershipRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
@@ -711,7 +749,7 @@ func (h *Handler) handleDescribeGroupMembership(c *echo.Context, body []byte) er
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "MembershipId is required")
 	}
 
-	m, err := h.Backend.DescribeGroupMembership(req.IdentityStoreID, req.MembershipID)
+	m, err := h.Backend.DescribeGroupMembership(ctx, req.IdentityStoreID, req.MembershipID)
 	if err != nil {
 		return h.handleBackendError(c, err)
 	}
@@ -719,7 +757,7 @@ func (h *Handler) handleDescribeGroupMembership(c *echo.Context, body []byte) er
 	return c.JSON(http.StatusOK, m)
 }
 
-func (h *Handler) handleListGroupMemberships(c *echo.Context, body []byte) error {
+func (h *Handler) handleListGroupMemberships(ctx context.Context, c *echo.Context, body []byte) error {
 	var req listGroupMembershipsRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
@@ -733,7 +771,7 @@ func (h *Handler) handleListGroupMemberships(c *echo.Context, body []byte) error
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "GroupId is required")
 	}
 
-	all := h.Backend.ListGroupMemberships(req.IdentityStoreID, req.GroupID)
+	all := h.Backend.ListGroupMemberships(ctx, req.IdentityStoreID, req.GroupID)
 	page, nextToken := paginateSlice(all, req.MaxResults, req.NextToken)
 
 	return c.JSON(http.StatusOK, map[string]any{
@@ -742,7 +780,7 @@ func (h *Handler) handleListGroupMemberships(c *echo.Context, body []byte) error
 	})
 }
 
-func (h *Handler) handleDeleteGroupMembership(c *echo.Context, body []byte) error {
+func (h *Handler) handleDeleteGroupMembership(ctx context.Context, c *echo.Context, body []byte) error {
 	var req deleteGroupMembershipRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
@@ -756,14 +794,14 @@ func (h *Handler) handleDeleteGroupMembership(c *echo.Context, body []byte) erro
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "MembershipId is required")
 	}
 
-	if err := h.Backend.DeleteGroupMembership(req.IdentityStoreID, req.MembershipID); err != nil {
+	if err := h.Backend.DeleteGroupMembership(ctx, req.IdentityStoreID, req.MembershipID); err != nil {
 		return h.handleBackendError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{})
 }
 
-func (h *Handler) handleGetGroupMembershipID(c *echo.Context, body []byte) error {
+func (h *Handler) handleGetGroupMembershipID(ctx context.Context, c *echo.Context, body []byte) error {
 	var req getGroupMembershipIDRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
@@ -781,7 +819,7 @@ func (h *Handler) handleGetGroupMembershipID(c *echo.Context, body []byte) error
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "MemberId.UserId is required")
 	}
 
-	membershipID, err := h.Backend.GetGroupMembershipID(req.IdentityStoreID, req.GroupID, req.MemberID)
+	membershipID, err := h.Backend.GetGroupMembershipID(ctx, req.IdentityStoreID, req.GroupID, req.MemberID)
 	if err != nil {
 		return h.handleBackendError(c, err)
 	}
@@ -792,7 +830,7 @@ func (h *Handler) handleGetGroupMembershipID(c *echo.Context, body []byte) error
 	})
 }
 
-func (h *Handler) handleListGroupMembershipsForMember(c *echo.Context, body []byte) error {
+func (h *Handler) handleListGroupMembershipsForMember(ctx context.Context, c *echo.Context, body []byte) error {
 	var req listGroupMembershipsForMemberRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
@@ -806,7 +844,7 @@ func (h *Handler) handleListGroupMembershipsForMember(c *echo.Context, body []by
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "MemberId.UserId is required")
 	}
 
-	all := h.Backend.ListGroupMembershipsForMember(req.IdentityStoreID, req.MemberID)
+	all := h.Backend.ListGroupMembershipsForMember(ctx, req.IdentityStoreID, req.MemberID)
 	page, nextToken := paginateSlice(all, req.MaxResults, req.NextToken)
 
 	return c.JSON(http.StatusOK, map[string]any{
@@ -815,7 +853,7 @@ func (h *Handler) handleListGroupMembershipsForMember(c *echo.Context, body []by
 	})
 }
 
-func (h *Handler) handleIsMemberInGroups(c *echo.Context, body []byte) error {
+func (h *Handler) handleIsMemberInGroups(ctx context.Context, c *echo.Context, body []byte) error {
 	var req isMemberInGroupsRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
@@ -838,7 +876,7 @@ func (h *Handler) handleIsMemberInGroups(c *echo.Context, body []byte) error {
 			fmt.Sprintf("GroupIds must not exceed %d items", maxIsMemberInGroupsIDs))
 	}
 
-	results := h.Backend.IsMemberInGroups(req.IdentityStoreID, req.MemberID, req.GroupIDs)
+	results := h.Backend.IsMemberInGroups(ctx, req.IdentityStoreID, req.MemberID, req.GroupIDs)
 
 	return c.JSON(http.StatusOK, isMemberInGroupsResponse{Results: results})
 }

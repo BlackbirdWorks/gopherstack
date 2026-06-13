@@ -1,6 +1,7 @@
 package elasticache
 
 import (
+	"context"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -31,11 +32,11 @@ func cacheSecurityGroupToXML(sg *CacheSecurityGroup) cacheSecurityGroupXML {
 	}
 }
 
-func (h *Handler) createCacheSecurityGroup(c *echo.Context, form url.Values) error {
+func (h *Handler) createCacheSecurityGroup(ctx context.Context, c *echo.Context, form url.Values) error {
 	name := form.Get("CacheSecurityGroupName")
 	description := form.Get("Description")
 
-	sg, err := h.Backend.CreateCacheSecurityGroup(name, description)
+	sg, err := h.Backend.CreateCacheSecurityGroup(ctx, name, description)
 	if err != nil {
 		if errors.Is(err, ErrCacheSecurityGroupAlreadyExists) {
 			return xmlError(
@@ -65,12 +66,12 @@ func (h *Handler) createCacheSecurityGroup(c *echo.Context, form url.Values) err
 // AuthorizeCacheSecurityGroupIngress
 // ----------------------------------------
 
-func (h *Handler) authorizeCacheSecurityGroupIngress(c *echo.Context, form url.Values) error {
+func (h *Handler) authorizeCacheSecurityGroupIngress(ctx context.Context, c *echo.Context, form url.Values) error {
 	name := form.Get("CacheSecurityGroupName")
 	ec2SecurityGroupName := form.Get("EC2SecurityGroupName")
 	ec2SecurityGroupOwnerID := form.Get("EC2SecurityGroupOwnerId")
 
-	sg, err := h.Backend.AuthorizeCacheSecurityGroupIngress(name, ec2SecurityGroupName, ec2SecurityGroupOwnerID)
+	sg, err := h.Backend.AuthorizeCacheSecurityGroupIngress(ctx, name, ec2SecurityGroupName, ec2SecurityGroupOwnerID)
 	if err != nil {
 		if errors.Is(err, ErrCacheSecurityGroupNotFound) {
 			return xmlError(c, http.StatusBadRequest, "CacheSecurityGroupNotFound", "Cache security group not found")
@@ -117,12 +118,12 @@ func globalRGToXML(grg *GlobalReplicationGroup) globalReplicationGroupXML {
 	}
 }
 
-func (h *Handler) createGlobalReplicationGroup(c *echo.Context, form url.Values) error {
+func (h *Handler) createGlobalReplicationGroup(ctx context.Context, c *echo.Context, form url.Values) error {
 	suffix := form.Get("GlobalReplicationGroupIdSuffix")
 	description := form.Get("GlobalReplicationGroupDescription")
 	primaryReplicationGroupID := form.Get("PrimaryReplicationGroupId")
 
-	grg, err := h.Backend.CreateGlobalReplicationGroup(suffix, description, primaryReplicationGroupID)
+	grg, err := h.Backend.CreateGlobalReplicationGroup(ctx, suffix, description, primaryReplicationGroupID)
 	if err != nil {
 		if errors.Is(err, ErrGlobalReplicationGroupExists) {
 			return xmlError(
@@ -185,12 +186,12 @@ func serverlessCacheToXML(sc *ServerlessCache) serverlessCacheXML {
 	return x
 }
 
-func (h *Handler) createServerlessCache(c *echo.Context, form url.Values) error {
+func (h *Handler) createServerlessCache(ctx context.Context, c *echo.Context, form url.Values) error {
 	name := form.Get("ServerlessCacheName")
 	description := form.Get("Description")
 	engine := form.Get("Engine")
 
-	sc, err := h.Backend.CreateServerlessCache(name, description, engine)
+	sc, err := h.Backend.CreateServerlessCache(ctx, name, description, engine)
 	if err != nil {
 		if errors.Is(err, ErrServerlessCacheAlreadyExists) {
 			return xmlError(
@@ -238,11 +239,11 @@ func serverlessCacheSnapshotToXML(snap *ServerlessCacheSnapshot) serverlessCache
 	}
 }
 
-func (h *Handler) createServerlessCacheSnapshot(c *echo.Context, form url.Values) error {
+func (h *Handler) createServerlessCacheSnapshot(ctx context.Context, c *echo.Context, form url.Values) error {
 	snapshotName := form.Get("ServerlessCacheSnapshotName")
 	serverlessCacheName := form.Get("ServerlessCacheName")
 
-	snap, err := h.Backend.CreateServerlessCacheSnapshot(snapshotName, serverlessCacheName)
+	snap, err := h.Backend.CreateServerlessCacheSnapshot(ctx, snapshotName, serverlessCacheName)
 	if err != nil {
 		if errors.Is(err, ErrServerlessCacheSnapshotExists) {
 			return xmlError(
@@ -275,11 +276,11 @@ func (h *Handler) createServerlessCacheSnapshot(c *echo.Context, form url.Values
 // CopyServerlessCacheSnapshot
 // ----------------------------------------
 
-func (h *Handler) copyServerlessCacheSnapshot(c *echo.Context, form url.Values) error {
+func (h *Handler) copyServerlessCacheSnapshot(ctx context.Context, c *echo.Context, form url.Values) error {
 	sourceSnapshotName := form.Get("SourceServerlessCacheSnapshotName")
 	targetSnapshotName := form.Get("TargetServerlessCacheSnapshotName")
 
-	snap, err := h.Backend.CopyServerlessCacheSnapshot(sourceSnapshotName, targetSnapshotName)
+	snap, err := h.Backend.CopyServerlessCacheSnapshot(ctx, sourceSnapshotName, targetSnapshotName)
 	if err != nil {
 		if errors.Is(err, ErrServerlessCacheSnapshotNotFound) {
 			return xmlError(
@@ -317,14 +318,14 @@ func (h *Handler) copyServerlessCacheSnapshot(c *echo.Context, form url.Values) 
 // CreateUser
 // ----------------------------------------
 
-func (h *Handler) createUser(c *echo.Context, form url.Values) error {
+func (h *Handler) createUser(ctx context.Context, c *echo.Context, form url.Values) error {
 	userID := form.Get("UserId")
 	userName := form.Get("UserName")
 	accessString := form.Get("AccessString")
 	engine := form.Get("Engine")
 	noPasswordRequired := strings.EqualFold(form.Get("NoPasswordRequired"), "true")
 
-	u, err := h.Backend.CreateUser(userID, userName, accessString, engine, noPasswordRequired)
+	u, err := h.Backend.CreateUser(ctx, userID, userName, accessString, engine, noPasswordRequired)
 	if err != nil {
 		if errors.Is(err, ErrUserAlreadyExists) {
 			return xmlError(c, http.StatusBadRequest, "UserAlreadyExists", "User already exists")
@@ -397,12 +398,12 @@ func toBatchUpdateActionXMLLists(result *BatchUpdateResult) (processedUpdateActi
 // BatchApplyUpdateAction
 // ----------------------------------------
 
-func (h *Handler) batchApplyUpdateAction(c *echo.Context, form url.Values) error {
+func (h *Handler) batchApplyUpdateAction(ctx context.Context, c *echo.Context, form url.Values) error {
 	serviceUpdateName := form.Get("ServiceUpdateName")
 	replicationGroupIDs := parseRepeatedField(form, "ReplicationGroupIds.member")
 	cacheClusterIDs := parseRepeatedField(form, "CacheClusterIds.member")
 
-	result, err := h.Backend.BatchApplyUpdateAction(replicationGroupIDs, cacheClusterIDs, serviceUpdateName)
+	result, err := h.Backend.BatchApplyUpdateAction(ctx, replicationGroupIDs, cacheClusterIDs, serviceUpdateName)
 	if err != nil {
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
@@ -427,12 +428,12 @@ func (h *Handler) batchApplyUpdateAction(c *echo.Context, form url.Values) error
 // BatchStopUpdateAction
 // ----------------------------------------
 
-func (h *Handler) batchStopUpdateAction(c *echo.Context, form url.Values) error {
+func (h *Handler) batchStopUpdateAction(ctx context.Context, c *echo.Context, form url.Values) error {
 	serviceUpdateName := form.Get("ServiceUpdateName")
 	replicationGroupIDs := parseRepeatedField(form, "ReplicationGroupIds.member")
 	cacheClusterIDs := parseRepeatedField(form, "CacheClusterIds.member")
 
-	result, err := h.Backend.BatchStopUpdateAction(replicationGroupIDs, cacheClusterIDs, serviceUpdateName)
+	result, err := h.Backend.BatchStopUpdateAction(ctx, replicationGroupIDs, cacheClusterIDs, serviceUpdateName)
 	if err != nil {
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
@@ -457,11 +458,11 @@ func (h *Handler) batchStopUpdateAction(c *echo.Context, form url.Values) error 
 // CompleteMigration
 // ----------------------------------------
 
-func (h *Handler) completeMigration(c *echo.Context, form url.Values) error {
+func (h *Handler) completeMigration(ctx context.Context, c *echo.Context, form url.Values) error {
 	replicationGroupID := form.Get("ReplicationGroupId")
 	force := strings.EqualFold(form.Get("Force"), "true")
 
-	rg, err := h.Backend.CompleteMigration(replicationGroupID, force)
+	rg, err := h.Backend.CompleteMigration(ctx, replicationGroupID, force)
 	if err != nil {
 		if errors.Is(err, ErrReplicationGroupNotFound) {
 			return xmlError(c, http.StatusBadRequest, "ReplicationGroupNotFound", "Replication group not found")

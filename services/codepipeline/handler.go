@@ -10,6 +10,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -158,11 +159,17 @@ func (h *Handler) ExtractResource(_ *echo.Context) string {
 // Handler returns the Echo handler function for CodePipeline requests.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		// Resolve the per-request region (from SigV4 / X-Amz-Region) and attach
+		// it to the context so backend operations are region-scoped.
+		region := httputils.ExtractRegionFromRequest(c.Request(), h.Backend.Region())
+
 		return service.HandleTarget(
 			c, logger.Load(c.Request().Context()),
 			"CodePipeline", "application/x-amz-json-1.1",
 			h.GetSupportedOperations(),
-			h.dispatch,
+			func(ctx context.Context, action string, body []byte) ([]byte, error) {
+				return h.dispatch(context.WithValue(ctx, regionContextKey{}, region), action, body)
+			},
 			h.handleError,
 		)
 	}
@@ -293,7 +300,7 @@ type createPipelineOutput struct {
 }
 
 func (h *Handler) handleCreatePipeline(
-	_ context.Context,
+	ctx context.Context,
 	in *createPipelineInput,
 ) (*createPipelineOutput, error) {
 	if in.Pipeline == nil {
@@ -326,7 +333,7 @@ func (h *Handler) handleCreatePipeline(
 
 	tagMap := tagsToMap(in.Tags)
 
-	p, err := h.Backend.CreatePipeline(*in.Pipeline, tagMap)
+	p, err := h.Backend.CreatePipeline(ctx, *in.Pipeline, tagMap)
 	if err != nil {
 		return nil, err
 	}
@@ -348,14 +355,14 @@ type getPipelineOutput struct {
 }
 
 func (h *Handler) handleGetPipeline(
-	_ context.Context,
+	ctx context.Context,
 	in *getPipelineInput,
 ) (*getPipelineOutput, error) {
 	if in.Name == "" {
 		return nil, fmt.Errorf("%w: name is required", errInvalidRequest)
 	}
 
-	p, err := h.Backend.GetPipeline(in.Name)
+	p, err := h.Backend.GetPipeline(ctx, in.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -380,7 +387,7 @@ type updatePipelineOutput struct {
 }
 
 func (h *Handler) handleUpdatePipeline(
-	_ context.Context,
+	ctx context.Context,
 	in *updatePipelineInput,
 ) (*updatePipelineOutput, error) {
 	if in.Pipeline == nil {
@@ -391,7 +398,7 @@ func (h *Handler) handleUpdatePipeline(
 		return nil, fmt.Errorf("%w: pipeline name is required", errInvalidRequest)
 	}
 
-	p, err := h.Backend.UpdatePipeline(*in.Pipeline)
+	p, err := h.Backend.UpdatePipeline(ctx, *in.Pipeline)
 	if err != nil {
 		return nil, err
 	}
@@ -406,14 +413,14 @@ type deletePipelineInput struct {
 type deletePipelineOutput struct{}
 
 func (h *Handler) handleDeletePipeline(
-	_ context.Context,
+	ctx context.Context,
 	in *deletePipelineInput,
 ) (*deletePipelineOutput, error) {
 	if in.Name == "" {
 		return nil, fmt.Errorf("%w: name is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.DeletePipeline(in.Name); err != nil {
+	if err := h.Backend.DeletePipeline(ctx, in.Name); err != nil {
 		return nil, err
 	}
 
@@ -431,10 +438,10 @@ type listPipelinesOutput struct {
 }
 
 func (h *Handler) handleListPipelines(
-	_ context.Context,
+	ctx context.Context,
 	_ *listPipelinesInput,
 ) (*listPipelinesOutput, error) {
-	summaries := h.Backend.ListPipelines()
+	summaries := h.Backend.ListPipelines(ctx)
 	if summaries == nil {
 		summaries = []PipelineSummary{}
 	}
@@ -453,14 +460,14 @@ type listTagsForResourceOutput struct {
 }
 
 func (h *Handler) handleListTagsForResource(
-	_ context.Context,
+	ctx context.Context,
 	in *listTagsForResourceInput,
 ) (*listTagsForResourceOutput, error) {
 	if in.ResourceArn == "" {
 		return nil, fmt.Errorf("%w: resourceArn is required", errInvalidRequest)
 	}
 
-	tags, err := h.Backend.ListTagsForResource(in.ResourceArn)
+	tags, err := h.Backend.ListTagsForResource(ctx, in.ResourceArn)
 	if err != nil {
 		return nil, err
 	}
@@ -480,14 +487,14 @@ type tagResourceInput struct {
 type tagResourceOutput struct{}
 
 func (h *Handler) handleTagResource(
-	_ context.Context,
+	ctx context.Context,
 	in *tagResourceInput,
 ) (*tagResourceOutput, error) {
 	if in.ResourceArn == "" {
 		return nil, fmt.Errorf("%w: resourceArn is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.TagResource(in.ResourceArn, in.Tags); err != nil {
+	if err := h.Backend.TagResource(ctx, in.ResourceArn, in.Tags); err != nil {
 		return nil, err
 	}
 
@@ -502,14 +509,14 @@ type untagResourceInput struct {
 type untagResourceOutput struct{}
 
 func (h *Handler) handleUntagResource(
-	_ context.Context,
+	ctx context.Context,
 	in *untagResourceInput,
 ) (*untagResourceOutput, error) {
 	if in.ResourceArn == "" {
 		return nil, fmt.Errorf("%w: resourceArn is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.UntagResource(in.ResourceArn, in.TagKeys); err != nil {
+	if err := h.Backend.UntagResource(ctx, in.ResourceArn, in.TagKeys); err != nil {
 		return nil, err
 	}
 
@@ -552,7 +559,7 @@ type acknowledgeJobOutput struct {
 }
 
 func (h *Handler) handleAcknowledgeJob(
-	_ context.Context,
+	ctx context.Context,
 	in *acknowledgeJobInput,
 ) (*acknowledgeJobOutput, error) {
 	if in.JobID == "" {
@@ -563,7 +570,7 @@ func (h *Handler) handleAcknowledgeJob(
 		return nil, fmt.Errorf("%w: nonce is required", errInvalidRequest)
 	}
 
-	status, err := h.Backend.AcknowledgeJob(in.JobID, in.Nonce)
+	status, err := h.Backend.AcknowledgeJob(ctx, in.JobID, in.Nonce)
 	if err != nil {
 		return nil, err
 	}
@@ -584,7 +591,7 @@ type acknowledgeThirdPartyJobOutput struct {
 }
 
 func (h *Handler) handleAcknowledgeThirdPartyJob(
-	_ context.Context,
+	ctx context.Context,
 	in *acknowledgeThirdPartyJobInput,
 ) (*acknowledgeThirdPartyJobOutput, error) {
 	if in.JobID == "" {
@@ -599,7 +606,7 @@ func (h *Handler) handleAcknowledgeThirdPartyJob(
 		return nil, fmt.Errorf("%w: clientToken is required", errInvalidRequest)
 	}
 
-	status, err := h.Backend.AcknowledgeThirdPartyJob(in.JobID, in.Nonce, in.ClientToken)
+	status, err := h.Backend.AcknowledgeThirdPartyJob(ctx, in.JobID, in.Nonce, in.ClientToken)
 	if err != nil {
 		return nil, err
 	}
@@ -634,7 +641,7 @@ type createCustomActionTypeOutput struct {
 }
 
 func (h *Handler) handleCreateCustomActionType(
-	_ context.Context,
+	ctx context.Context,
 	in *createCustomActionTypeInput,
 ) (*createCustomActionTypeOutput, error) {
 	if in.Category == "" {
@@ -664,7 +671,7 @@ func (h *Handler) handleCreateCustomActionType(
 		Tags:                    tagsToMap(in.Tags),
 	}
 
-	created, err := h.Backend.CreateCustomActionType(cat)
+	created, err := h.Backend.CreateCustomActionType(ctx, cat)
 	if err != nil {
 		return nil, err
 	}
@@ -702,7 +709,7 @@ type deleteCustomActionTypeInput struct {
 type deleteCustomActionTypeOutput struct{}
 
 func (h *Handler) handleDeleteCustomActionType(
-	_ context.Context,
+	ctx context.Context,
 	in *deleteCustomActionTypeInput,
 ) (*deleteCustomActionTypeOutput, error) {
 	if in.Category == "" {
@@ -721,7 +728,7 @@ func (h *Handler) handleDeleteCustomActionType(
 		return nil, fmt.Errorf("%w: version is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.DeleteCustomActionType(in.Category, in.Provider, in.Version); err != nil {
+	if err := h.Backend.DeleteCustomActionType(ctx, in.Category, in.Provider, in.Version); err != nil {
 		return nil, err
 	}
 
@@ -742,7 +749,7 @@ type getActionTypeOutput struct {
 }
 
 func (h *Handler) handleGetActionType(
-	_ context.Context,
+	ctx context.Context,
 	in *getActionTypeInput,
 ) (*getActionTypeOutput, error) {
 	if in.Category == "" {
@@ -761,7 +768,7 @@ func (h *Handler) handleGetActionType(
 		return nil, fmt.Errorf("%w: version is required", errInvalidRequest)
 	}
 
-	cat, err := h.Backend.GetActionType(in.Category, in.Owner, in.Provider, in.Version)
+	cat, err := h.Backend.GetActionType(ctx, in.Category, in.Owner, in.Provider, in.Version)
 	if err != nil {
 		return nil, err
 	}
@@ -808,14 +815,14 @@ type getJobDetailsOutput struct {
 }
 
 func (h *Handler) handleGetJobDetails(
-	_ context.Context,
+	ctx context.Context,
 	in *getJobDetailsInput,
 ) (*getJobDetailsOutput, error) {
 	if in.JobID == "" {
 		return nil, fmt.Errorf("%w: jobId is required", errInvalidRequest)
 	}
 
-	job, err := h.Backend.GetJobDetails(in.JobID)
+	job, err := h.Backend.GetJobDetails(ctx, in.JobID)
 	if err != nil {
 		return nil, err
 	}
@@ -838,14 +845,14 @@ type deleteWebhookInput struct {
 type deleteWebhookOutput struct{}
 
 func (h *Handler) handleDeleteWebhook(
-	_ context.Context,
+	ctx context.Context,
 	in *deleteWebhookInput,
 ) (*deleteWebhookOutput, error) {
 	if in.Name == "" {
 		return nil, fmt.Errorf("%w: name is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.DeleteWebhook(in.Name); err != nil {
+	if err := h.Backend.DeleteWebhook(ctx, in.Name); err != nil {
 		return nil, err
 	}
 
@@ -861,10 +868,10 @@ type deregisterWebhookWithThirdPartyInput struct {
 type deregisterWebhookWithThirdPartyOutput struct{}
 
 func (h *Handler) handleDeregisterWebhookWithThirdParty(
-	_ context.Context,
+	ctx context.Context,
 	in *deregisterWebhookWithThirdPartyInput,
 ) (*deregisterWebhookWithThirdPartyOutput, error) {
-	if err := h.Backend.DeregisterWebhookWithThirdParty(in.WebhookName); err != nil {
+	if err := h.Backend.DeregisterWebhookWithThirdParty(ctx, in.WebhookName); err != nil {
 		return nil, err
 	}
 
@@ -883,7 +890,7 @@ type disableStageTransitionInput struct {
 type disableStageTransitionOutput struct{}
 
 func (h *Handler) handleDisableStageTransition(
-	_ context.Context,
+	ctx context.Context,
 	in *disableStageTransitionInput,
 ) (*disableStageTransitionOutput, error) {
 	if in.PipelineName == "" {
@@ -908,7 +915,7 @@ func (h *Handler) handleDisableStageTransition(
 	}
 
 	if err := h.Backend.DisableStageTransition(
-		in.PipelineName, in.StageName, in.TransitionType, in.Reason,
+		ctx, in.PipelineName, in.StageName, in.TransitionType, in.Reason,
 	); err != nil {
 		return nil, err
 	}
@@ -927,7 +934,7 @@ type enableStageTransitionInput struct {
 type enableStageTransitionOutput struct{}
 
 func (h *Handler) handleEnableStageTransition(
-	_ context.Context,
+	ctx context.Context,
 	in *enableStageTransitionInput,
 ) (*enableStageTransitionOutput, error) {
 	if in.PipelineName == "" {
@@ -947,7 +954,7 @@ func (h *Handler) handleEnableStageTransition(
 			ErrValidation, in.TransitionType, transitionTypeInbound, transitionTypeOutbound)
 	}
 
-	if err := h.Backend.EnableStageTransition(in.PipelineName, in.StageName, in.TransitionType); err != nil {
+	if err := h.Backend.EnableStageTransition(ctx, in.PipelineName, in.StageName, in.TransitionType); err != nil {
 		return nil, err
 	}
 
@@ -965,14 +972,14 @@ type pipelineExecutionOutput struct {
 }
 
 func (h *Handler) handleStartPipelineExecution(
-	_ context.Context,
+	ctx context.Context,
 	in *startPipelineExecutionInput,
 ) (*pipelineExecutionOutput, error) {
 	if in.Name == "" {
 		return nil, fmt.Errorf("%w: name is required", errInvalidRequest)
 	}
 
-	exec, err := h.Backend.StartPipelineExecution(in.Name)
+	exec, err := h.Backend.StartPipelineExecution(ctx, in.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -990,14 +997,14 @@ type getPipelineExecutionOutput struct {
 }
 
 func (h *Handler) handleGetPipelineExecution(
-	_ context.Context,
+	ctx context.Context,
 	in *getPipelineExecutionInput,
 ) (*getPipelineExecutionOutput, error) {
 	if in.PipelineName == "" {
 		return nil, fmt.Errorf("%w: pipelineName is required", errInvalidRequest)
 	}
 
-	exec, err := h.Backend.GetPipelineExecution(in.PipelineName, in.PipelineExecutionID)
+	exec, err := h.Backend.GetPipelineExecution(ctx, in.PipelineName, in.PipelineExecutionID)
 	if err != nil {
 		return nil, err
 	}
@@ -1020,14 +1027,14 @@ type stopPipelineExecutionInput struct {
 }
 
 func (h *Handler) handleStopPipelineExecution(
-	_ context.Context,
+	ctx context.Context,
 	in *stopPipelineExecutionInput,
 ) (*pipelineExecutionOutput, error) {
 	if in.PipelineName == "" {
 		return nil, fmt.Errorf("%w: pipelineName is required", errInvalidRequest)
 	}
 
-	exec, err := h.Backend.StopPipelineExecution(in.PipelineName, in.PipelineExecutionID, in.Reason)
+	exec, err := h.Backend.StopPipelineExecution(ctx, in.PipelineName, in.PipelineExecutionID, in.Reason)
 	if err != nil {
 		return nil, err
 	}
@@ -1042,20 +1049,51 @@ type listPipelineExecutionsInput struct {
 }
 
 type listPipelineExecutionsOutput struct {
+	NextToken                  string           `json:"nextToken,omitempty"`
 	PipelineExecutionSummaries []map[string]any `json:"pipelineExecutionSummaries"`
 }
 
+// maxPipelineExecutionResults is the AWS upper bound (and default) for the
+// MaxResults parameter on ListPipelineExecutions.
+const maxPipelineExecutionResults int32 = 100
+
 func (h *Handler) handleListPipelineExecutions(
-	_ context.Context,
+	ctx context.Context,
 	in *listPipelineExecutionsInput,
 ) (*listPipelineExecutionsOutput, error) {
 	if in.PipelineName == "" {
 		return nil, fmt.Errorf("%w: pipelineName is required", errInvalidRequest)
 	}
 
-	execs, err := h.Backend.ListPipelineExecutions(in.PipelineName)
+	execs, err := h.Backend.ListPipelineExecutions(ctx, in.PipelineName)
 	if err != nil {
 		return nil, err
+	}
+
+	limit := int(maxPipelineExecutionResults)
+	if in.MaxResults > 0 && int(in.MaxResults) < limit {
+		limit = int(in.MaxResults)
+	}
+
+	// nextToken is the pipelineExecutionId of the first item to return on this
+	// page (the first un-returned item from the previous page).
+	start := 0
+	if in.NextToken != "" {
+		for i, e := range execs {
+			if e.PipelineExecutionID == in.NextToken {
+				start = i
+
+				break
+			}
+		}
+	}
+
+	execs = execs[start:]
+
+	nextToken := ""
+	if len(execs) > limit {
+		nextToken = execs[limit].PipelineExecutionID
+		execs = execs[:limit]
 	}
 
 	items := make([]map[string]any, len(execs))
@@ -1068,7 +1106,10 @@ func (h *Handler) handleListPipelineExecutions(
 		}
 	}
 
-	return &listPipelineExecutionsOutput{PipelineExecutionSummaries: items}, nil
+	return &listPipelineExecutionsOutput{
+		PipelineExecutionSummaries: items,
+		NextToken:                  nextToken,
+	}, nil
 }
 
 // --- Pipeline state ---
@@ -1084,14 +1125,14 @@ type getPipelineStateOutput struct {
 }
 
 func (h *Handler) handleGetPipelineState(
-	_ context.Context,
+	ctx context.Context,
 	in *getPipelineStateInput,
 ) (*getPipelineStateOutput, error) {
 	if in.Name == "" {
 		return nil, fmt.Errorf("%w: name is required", errInvalidRequest)
 	}
 
-	states, err := h.Backend.GetPipelineState(in.Name)
+	states, err := h.Backend.GetPipelineState(ctx, in.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -1135,14 +1176,14 @@ type retryStageExecutionInput struct {
 }
 
 func (h *Handler) handleRetryStageExecution(
-	_ context.Context,
+	ctx context.Context,
 	in *retryStageExecutionInput,
 ) (*pipelineExecutionOutput, error) {
 	if in.PipelineName == "" {
 		return nil, fmt.Errorf("%w: pipelineName is required", errInvalidRequest)
 	}
 
-	exec, err := h.Backend.RetryStageExecution(in.PipelineName, in.StageName, in.PipelineExecutionID)
+	exec, err := h.Backend.RetryStageExecution(ctx, in.PipelineName, in.StageName, in.PipelineExecutionID)
 	if err != nil {
 		return nil, err
 	}
@@ -1157,14 +1198,14 @@ type rollbackStageInput struct {
 }
 
 func (h *Handler) handleRollbackStage(
-	_ context.Context,
+	ctx context.Context,
 	in *rollbackStageInput,
 ) (*pipelineExecutionOutput, error) {
 	if in.PipelineName == "" {
 		return nil, fmt.Errorf("%w: pipelineName is required", errInvalidRequest)
 	}
 
-	exec, err := h.Backend.RollbackStage(in.PipelineName, in.StageName, in.TargetPipelineExecutionID)
+	exec, err := h.Backend.RollbackStage(ctx, in.PipelineName, in.StageName, in.TargetPipelineExecutionID)
 	if err != nil {
 		return nil, err
 	}
@@ -1182,14 +1223,14 @@ type overrideStageConditionInput struct {
 type emptyOut struct{}
 
 func (h *Handler) handleOverrideStageCondition(
-	_ context.Context,
+	ctx context.Context,
 	in *overrideStageConditionInput,
 ) (*emptyOut, error) {
 	if in.PipelineName == "" {
 		return nil, fmt.Errorf("%w: pipelineName is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.OverrideStageCondition(in.PipelineName, in.StageName, in.PipelineExecutionID); err != nil {
+	if err := h.Backend.OverrideStageCondition(ctx, in.PipelineName, in.StageName, in.PipelineExecutionID); err != nil {
 		return nil, err
 	}
 
@@ -1223,14 +1264,15 @@ type webhookListEntry struct {
 }
 
 type listWebhooksOutput struct {
-	Webhooks []webhookListEntry `json:"webhooks"`
+	NextToken string             `json:"NextToken,omitempty"`
+	Webhooks  []webhookListEntry `json:"webhooks"`
 }
 
 func (h *Handler) handleListWebhooks(
-	_ context.Context,
+	ctx context.Context,
 	_ *listWebhooksInput,
 ) (*listWebhooksOutput, error) {
-	webhooks := h.Backend.ListWebhooks()
+	webhooks := h.Backend.ListWebhooks(ctx)
 	entries := make([]webhookListEntry, len(webhooks))
 
 	for i, wh := range webhooks {
@@ -1275,7 +1317,7 @@ type putWebhookOutput struct {
 }
 
 func (h *Handler) handlePutWebhook(
-	_ context.Context,
+	ctx context.Context,
 	in *putWebhookInput,
 ) (*putWebhookOutput, error) {
 	if in.Webhook.Name == "" {
@@ -1288,7 +1330,7 @@ func (h *Handler) handlePutWebhook(
 			WebhookAuthGitHubHMAC, WebhookAuthIP, WebhookAuthUnauthenticated)
 	}
 
-	wh, err := h.Backend.PutWebhook(&Webhook{
+	wh, err := h.Backend.PutWebhook(ctx, &Webhook{
 		Name:                        in.Webhook.Name,
 		TargetPipeline:              in.Webhook.TargetPipeline,
 		TargetAction:                in.Webhook.TargetAction,
@@ -1327,10 +1369,10 @@ type registerWebhookInput struct {
 }
 
 func (h *Handler) handleRegisterWebhookWithThirdParty(
-	_ context.Context,
+	ctx context.Context,
 	in *registerWebhookInput,
 ) (*emptyOut, error) {
-	if err := h.Backend.RegisterWebhookWithThirdParty(in.WebhookName); err != nil {
+	if err := h.Backend.RegisterWebhookWithThirdParty(ctx, in.WebhookName); err != nil {
 		return nil, err
 	}
 
@@ -1354,11 +1396,11 @@ type pollForJobsOutput struct {
 }
 
 func (h *Handler) handlePollForJobs(
-	_ context.Context,
+	ctx context.Context,
 	in *pollForJobsInput,
 ) (*pollForJobsOutput, error) {
 	jobs, err := h.Backend.PollForJobs(
-		in.ActionTypeID.Category, in.ActionTypeID.Owner,
+		ctx, in.ActionTypeID.Category, in.ActionTypeID.Owner,
 		in.ActionTypeID.Provider, in.ActionTypeID.Version,
 	)
 	if err != nil {
@@ -1388,11 +1430,11 @@ type pollForThirdPartyJobsOutput struct {
 }
 
 func (h *Handler) handlePollForThirdPartyJobs(
-	_ context.Context,
+	ctx context.Context,
 	in *pollForThirdPartyJobsInput,
 ) (*pollForThirdPartyJobsOutput, error) {
 	jobs, err := h.Backend.PollForThirdPartyJobs(
-		in.ActionTypeID.Category, in.ActionTypeID.Provider, in.ActionTypeID.Version,
+		ctx, in.ActionTypeID.Category, in.ActionTypeID.Provider, in.ActionTypeID.Version,
 	)
 	if err != nil {
 		return nil, err
@@ -1416,14 +1458,14 @@ type getThirdPartyJobDetailsOutput struct {
 }
 
 func (h *Handler) handleGetThirdPartyJobDetails(
-	_ context.Context,
+	ctx context.Context,
 	in *getThirdPartyJobDetailsInput,
 ) (*getThirdPartyJobDetailsOutput, error) {
 	if in.JobID == "" {
 		return nil, fmt.Errorf("%w: jobId is required", errInvalidRequest)
 	}
 
-	job, err := h.Backend.GetThirdPartyJobDetails(in.JobID, in.ClientToken)
+	job, err := h.Backend.GetThirdPartyJobDetails(ctx, in.JobID, in.ClientToken)
 	if err != nil {
 		return nil, err
 	}
@@ -1438,14 +1480,14 @@ type putJobSuccessResultInput struct {
 }
 
 func (h *Handler) handlePutJobSuccessResult(
-	_ context.Context,
+	ctx context.Context,
 	in *putJobSuccessResultInput,
 ) (*emptyOut, error) {
 	if in.JobID == "" {
 		return nil, fmt.Errorf("%w: jobId is required", errInvalidRequest)
 	}
 
-	return &emptyOut{}, h.Backend.PutJobSuccessResult(in.JobID)
+	return &emptyOut{}, h.Backend.PutJobSuccessResult(ctx, in.JobID)
 }
 
 type putJobFailureResultInput struct {
@@ -1456,14 +1498,14 @@ type putJobFailureResultInput struct {
 }
 
 func (h *Handler) handlePutJobFailureResult(
-	_ context.Context,
+	ctx context.Context,
 	in *putJobFailureResultInput,
 ) (*emptyOut, error) {
 	if in.JobID == "" {
 		return nil, fmt.Errorf("%w: jobId is required", errInvalidRequest)
 	}
 
-	return &emptyOut{}, h.Backend.PutJobFailureResult(in.JobID, in.FailureDetails.Message)
+	return &emptyOut{}, h.Backend.PutJobFailureResult(ctx, in.JobID, in.FailureDetails.Message)
 }
 
 type putThirdPartyJobSuccessResultInput struct {
@@ -1472,10 +1514,10 @@ type putThirdPartyJobSuccessResultInput struct {
 }
 
 func (h *Handler) handlePutThirdPartyJobSuccessResult(
-	_ context.Context,
+	ctx context.Context,
 	in *putThirdPartyJobSuccessResultInput,
 ) (*emptyOut, error) {
-	return &emptyOut{}, h.Backend.PutThirdPartyJobSuccessResult(in.JobID, in.ClientToken)
+	return &emptyOut{}, h.Backend.PutThirdPartyJobSuccessResult(ctx, in.JobID, in.ClientToken)
 }
 
 type putThirdPartyJobFailureResultInput struct {
@@ -1487,10 +1529,15 @@ type putThirdPartyJobFailureResultInput struct {
 }
 
 func (h *Handler) handlePutThirdPartyJobFailureResult(
-	_ context.Context,
+	ctx context.Context,
 	in *putThirdPartyJobFailureResultInput,
 ) (*emptyOut, error) {
-	return &emptyOut{}, h.Backend.PutThirdPartyJobFailureResult(in.JobID, in.ClientToken, in.FailureDetails.Message)
+	return &emptyOut{}, h.Backend.PutThirdPartyJobFailureResult(
+		ctx,
+		in.JobID,
+		in.ClientToken,
+		in.FailureDetails.Message,
+	)
 }
 
 // --- Action operations ---
@@ -1511,14 +1558,14 @@ type putActionRevisionOutput struct {
 }
 
 func (h *Handler) handlePutActionRevision(
-	_ context.Context,
+	ctx context.Context,
 	in *putActionRevisionInput,
 ) (*putActionRevisionOutput, error) {
 	if in.PipelineName == "" {
 		return nil, fmt.Errorf("%w: pipelineName is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.PutActionRevision(in.PipelineName, in.StageName, in.ActionName); err != nil {
+	if err := h.Backend.PutActionRevision(ctx, in.PipelineName, in.StageName, in.ActionName); err != nil {
 		return nil, err
 	}
 
@@ -1540,7 +1587,7 @@ type putApprovalResultOutput struct {
 }
 
 func (h *Handler) handlePutApprovalResult(
-	_ context.Context,
+	ctx context.Context,
 	in *putApprovalResultInput,
 ) (*putApprovalResultOutput, error) {
 	if in.PipelineName == "" {
@@ -1548,7 +1595,7 @@ func (h *Handler) handlePutApprovalResult(
 	}
 
 	if err := h.Backend.PutApprovalResult(
-		in.PipelineName, in.StageName, in.ActionName,
+		ctx, in.PipelineName, in.StageName, in.ActionName,
 		in.ApprovalResult.Status, in.ApprovalResult.Summary,
 	); err != nil {
 		return nil, err
@@ -1569,11 +1616,12 @@ type listActionExecutionsInput struct {
 }
 
 type listActionExecutionsOutput struct {
+	NextToken              string           `json:"nextToken,omitempty"`
 	ActionExecutionDetails []map[string]any `json:"actionExecutionDetails"`
 }
 
 func (h *Handler) handleListActionExecutions(
-	_ context.Context,
+	ctx context.Context,
 	in *listActionExecutionsInput,
 ) (*listActionExecutionsOutput, error) {
 	if in.PipelineName == "" {
@@ -1585,7 +1633,7 @@ func (h *Handler) handleListActionExecutions(
 		execFilter = in.Filter.PipelineExecutionID
 	}
 
-	items, err := h.Backend.ListActionExecutions(in.PipelineName, execFilter)
+	items, err := h.Backend.ListActionExecutions(ctx, in.PipelineName, execFilter)
 	if err != nil {
 		return nil, err
 	}
@@ -1600,14 +1648,15 @@ type listActionTypesInput struct {
 }
 
 type listActionTypesOutput struct {
+	NextToken   string           `json:"nextToken,omitempty"`
 	ActionTypes []map[string]any `json:"actionTypes"`
 }
 
 func (h *Handler) handleListActionTypes(
-	_ context.Context,
+	ctx context.Context,
 	in *listActionTypesInput,
 ) (*listActionTypesOutput, error) {
-	types := h.Backend.ListActionTypes()
+	types := h.Backend.ListActionTypes(ctx)
 	items := make([]map[string]any, 0, len(types))
 
 	for _, at := range types {
@@ -1664,7 +1713,7 @@ type updateActionTypeInput struct {
 }
 
 func (h *Handler) handleUpdateActionType(
-	_ context.Context,
+	ctx context.Context,
 	in *updateActionTypeInput,
 ) (*emptyOut, error) {
 	id := in.ActionType.ID
@@ -1697,7 +1746,7 @@ func (h *Handler) handleUpdateActionType(
 		OutputArtifactDetails:   in.ActionType.OutputArtifactDetails,
 	}
 
-	if err := h.Backend.UpdateActionType(cat); err != nil {
+	if err := h.Backend.UpdateActionType(ctx, cat); err != nil {
 		return nil, err
 	}
 
@@ -1713,18 +1762,19 @@ type listRuleExecutionsInput struct {
 }
 
 type listRuleExecutionsOutput struct {
+	NextToken            string           `json:"nextToken,omitempty"`
 	RuleExecutionDetails []map[string]any `json:"ruleExecutionDetails"`
 }
 
 func (h *Handler) handleListRuleExecutions(
-	_ context.Context,
+	ctx context.Context,
 	in *listRuleExecutionsInput,
 ) (*listRuleExecutionsOutput, error) {
 	if in.PipelineName == "" {
 		return nil, fmt.Errorf("%w: pipelineName is required", errInvalidRequest)
 	}
 
-	items, err := h.Backend.ListRuleExecutions(in.PipelineName)
+	items, err := h.Backend.ListRuleExecutions(ctx, in.PipelineName)
 	if err != nil {
 		return nil, err
 	}
@@ -1759,14 +1809,14 @@ type listDeployActionExecutionTargetsOutput struct {
 }
 
 func (h *Handler) handleListDeployActionExecutionTargets(
-	_ context.Context,
+	ctx context.Context,
 	in *listDeployActionExecutionTargetsInput,
 ) (*listDeployActionExecutionTargetsOutput, error) {
 	if in.PipelineName == "" {
 		return nil, fmt.Errorf("%w: pipelineName is required", errInvalidRequest)
 	}
 
-	items, err := h.Backend.ListDeployActionExecutionTargets(in.PipelineName, in.ActionExecutionID)
+	items, err := h.Backend.ListDeployActionExecutionTargets(ctx, in.PipelineName, in.ActionExecutionID)
 	if err != nil {
 		return nil, err
 	}

@@ -1,6 +1,7 @@
 package mediastoredata
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -32,6 +33,23 @@ var (
 	ErrInvalidStorageClass = awserr.New("InvalidStorageClassException", awserr.ErrInvalidParameter)
 )
 
+// regionContextKey is the context key under which the per-request AWS region is stored.
+type regionContextKey struct{}
+
+// getRegion extracts the region from ctx, falling back to defaultRegion when unset.
+// MediaStore Data objects are isolated per region: every backend operation resolves
+// the caller's region from the request context and operates only on that region's
+// nested store. Object paths carry no region component, so the region is always
+// taken from the request context (falling back to the backend default).
+// Cross-region references never occur and isolation is always safe.
+func getRegion(ctx context.Context, defaultRegion string) string {
+	if r, ok := ctx.Value(regionContextKey{}).(string); ok && r != "" {
+		return r
+	}
+
+	return defaultRegion
+}
+
 // isValidStorageClass reports whether sc is a known MediaStore Data storage class.
 func isValidStorageClass(sc string) bool {
 	return sc == "TEMPORAL" || sc == "STANDARD"
@@ -50,18 +68,53 @@ type Object struct {
 	ContentLength      int64
 }
 
-// InMemoryBackend is the in-memory store for MediaStore Data objects.
-type InMemoryBackend struct {
+// regionState holds all objects for a single AWS region.
+type regionState struct {
 	objects map[string]*Object
-	mu      *lockmetrics.RWMutex
+}
+
+func newRegionState() *regionState {
+	return &regionState{
+		objects: make(map[string]*Object),
+	}
+}
+
+// InMemoryBackend is the in-memory store for MediaStore Data objects, nested per region.
+type InMemoryBackend struct {
+	states        map[string]*regionState // region → state
+	mu            *lockmetrics.RWMutex
+	defaultRegion string
 }
 
 // NewInMemoryBackend creates a new in-memory MediaStore Data backend.
-func NewInMemoryBackend() *InMemoryBackend {
+func NewInMemoryBackend(region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		objects: make(map[string]*Object),
-		mu:      lockmetrics.New("mediastoredata"),
+		states:        make(map[string]*regionState),
+		mu:            lockmetrics.New("mediastoredata"),
+		defaultRegion: region,
 	}
+}
+
+// Region returns the backend's default region.
+func (b *InMemoryBackend) Region() string { return b.defaultRegion }
+
+// state returns the per-region state for region, lazily creating it.
+// Must be called while holding a write lock.
+func (b *InMemoryBackend) state(region string) *regionState {
+	st, ok := b.states[region]
+	if !ok {
+		st = newRegionState()
+		b.states[region] = st
+	}
+
+	return st
+}
+
+// stateRO returns the per-region state for read-only access.
+// Returns nil if the region has no state yet.
+// Must be called while holding at least a read lock.
+func (b *InMemoryBackend) stateRO(region string) *regionState {
+	return b.states[region]
 }
 
 // normalizePath normalises an object path (strips leading slash).
@@ -107,6 +160,7 @@ func cloneObject(obj *Object) *Object {
 // Returns ErrInvalidPath if path is malformed or ErrInvalidStorageClass if
 // storageClass is unrecognised.
 func (b *InMemoryBackend) PutObject(
+	ctx context.Context,
 	path string, body []byte, contentType, cacheControl, storageClass, uploadAvailability string,
 ) (*Object, error) {
 	if err := ValidatePath(path); err != nil {
@@ -122,6 +176,7 @@ func (b *InMemoryBackend) PutObject(
 	b.mu.Lock("PutObject")
 	defer b.mu.Unlock()
 
+	region := getRegion(ctx, b.defaultRegion)
 	key := normalizePath(path)
 
 	// Clone the input body to prevent callers mutating the stored slice.
@@ -138,13 +193,13 @@ func (b *InMemoryBackend) PutObject(
 		ContentLength:      int64(len(stored)),
 		UploadAvailability: uploadAvailability,
 	}
-	b.objects[key] = obj
+	b.state(region).objects[key] = obj
 
 	return cloneObject(obj), nil
 }
 
 // GetObject retrieves an object by path.
-func (b *InMemoryBackend) GetObject(path string) (*Object, error) {
+func (b *InMemoryBackend) GetObject(ctx context.Context, path string) (*Object, error) {
 	if err := ValidatePath(path); err != nil {
 		return nil, err
 	}
@@ -152,8 +207,15 @@ func (b *InMemoryBackend) GetObject(path string) (*Object, error) {
 	b.mu.RLock("GetObject")
 	defer b.mu.RUnlock()
 
+	region := getRegion(ctx, b.defaultRegion)
+	st := b.stateRO(region)
+
+	if st == nil {
+		return nil, fmt.Errorf("%w: object %q not found", ErrNotFound, path)
+	}
+
 	key := normalizePath(path)
-	obj, ok := b.objects[key]
+	obj, ok := st.objects[key]
 
 	if !ok {
 		return nil, fmt.Errorf("%w: object %q not found", ErrNotFound, path)
@@ -163,7 +225,7 @@ func (b *InMemoryBackend) GetObject(path string) (*Object, error) {
 }
 
 // DeleteObject removes an object by path.
-func (b *InMemoryBackend) DeleteObject(path string) error {
+func (b *InMemoryBackend) DeleteObject(ctx context.Context, path string) error {
 	if err := ValidatePath(path); err != nil {
 		return err
 	}
@@ -171,19 +233,26 @@ func (b *InMemoryBackend) DeleteObject(path string) error {
 	b.mu.Lock("DeleteObject")
 	defer b.mu.Unlock()
 
-	key := normalizePath(path)
-	if _, ok := b.objects[key]; !ok {
+	region := getRegion(ctx, b.defaultRegion)
+	st := b.stateRO(region)
+
+	if st == nil {
 		return fmt.Errorf("%w: object %q not found", ErrNotFound, path)
 	}
 
-	delete(b.objects, key)
+	key := normalizePath(path)
+	if _, ok := st.objects[key]; !ok {
+		return fmt.Errorf("%w: object %q not found", ErrNotFound, path)
+	}
+
+	delete(st.objects, key)
 
 	return nil
 }
 
 // UpdateObjectMetadata updates content-type and cache-control on an existing
 // object without re-uploading the body. Returns ErrNotFound if path is absent.
-func (b *InMemoryBackend) UpdateObjectMetadata(path, contentType, cacheControl string) error {
+func (b *InMemoryBackend) UpdateObjectMetadata(ctx context.Context, path, contentType, cacheControl string) error {
 	if err := ValidatePath(path); err != nil {
 		return err
 	}
@@ -191,8 +260,15 @@ func (b *InMemoryBackend) UpdateObjectMetadata(path, contentType, cacheControl s
 	b.mu.Lock("UpdateObjectMetadata")
 	defer b.mu.Unlock()
 
+	region := getRegion(ctx, b.defaultRegion)
+	st := b.stateRO(region)
+
+	if st == nil {
+		return fmt.Errorf("%w: object %q not found", ErrNotFound, path)
+	}
+
 	key := normalizePath(path)
-	obj, ok := b.objects[key]
+	obj, ok := st.objects[key]
 
 	if !ok {
 		return fmt.Errorf("%w: object %q not found", ErrNotFound, path)
@@ -232,19 +308,27 @@ type ListItemsOutput struct {
 }
 
 // ListItems returns items at the given folder path with optional pagination.
-func (b *InMemoryBackend) ListItems(in ListItemsInput) *ListItemsOutput {
+func (b *InMemoryBackend) ListItems(ctx context.Context, in ListItemsInput) *ListItemsOutput {
 	b.mu.RLock("ListItems")
 	defer b.mu.RUnlock()
+
+	region := getRegion(ctx, b.defaultRegion)
+	st := b.stateRO(region)
 
 	prefix := normalizePath(in.FolderPath)
 	if prefix != "" && !strings.HasSuffix(prefix, "/") {
 		prefix += "/"
 	}
 
-	seen := make(map[string]bool)
-	all := make([]*Item, 0, len(b.objects))
+	var objects map[string]*Object
+	if st != nil {
+		objects = st.objects
+	}
 
-	for key, obj := range b.objects {
+	seen := make(map[string]bool)
+	all := make([]*Item, 0, len(objects))
+
+	for key, obj := range objects {
 		if !strings.HasPrefix(key, prefix) {
 			continue
 		}
@@ -313,29 +397,43 @@ type Stats struct {
 	TotalBytes  int64
 }
 
-// Stats returns aggregate object count and total stored bytes.
-func (b *InMemoryBackend) Stats() Stats {
+// Stats returns aggregate object count and total stored bytes for the request region.
+func (b *InMemoryBackend) Stats(ctx context.Context) Stats {
 	b.mu.RLock("Stats")
 	defer b.mu.RUnlock()
 
-	var s Stats
-	s.ObjectCount = len(b.objects)
+	region := getRegion(ctx, b.defaultRegion)
+	st := b.stateRO(region)
 
-	for _, obj := range b.objects {
+	var s Stats
+	if st == nil {
+		return s
+	}
+
+	s.ObjectCount = len(st.objects)
+
+	for _, obj := range st.objects {
 		s.TotalBytes += obj.ContentLength
 	}
 
 	return s
 }
 
-// ListAllObjects returns all stored objects for dashboard display.
-func (b *InMemoryBackend) ListAllObjects(prefix string) []*Item {
+// ListAllObjects returns all stored objects for the request region for dashboard display.
+func (b *InMemoryBackend) ListAllObjects(ctx context.Context, prefix string) []*Item {
 	b.mu.RLock("ListAllObjects")
 	defer b.mu.RUnlock()
 
-	items := make([]*Item, 0, len(b.objects))
+	region := getRegion(ctx, b.defaultRegion)
+	st := b.stateRO(region)
 
-	for key, obj := range b.objects {
+	if st == nil {
+		return nil
+	}
+
+	items := make([]*Item, 0, len(st.objects))
+
+	for key, obj := range st.objects {
 		if prefix != "" && !strings.HasPrefix(key, prefix) {
 			continue
 		}

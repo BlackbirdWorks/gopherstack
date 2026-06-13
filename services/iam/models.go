@@ -313,8 +313,8 @@ type PolicyXML struct {
 type CreatePolicyResponse struct {
 	XMLName            xml.Name           `xml:"CreatePolicyResponse"`
 	Xmlns              string             `xml:"xmlns,attr"`
-	CreatePolicyResult CreatePolicyResult `xml:"CreatePolicyResult"`
 	ResponseMetadata   ResponseMetadata   `xml:"ResponseMetadata"`
+	CreatePolicyResult CreatePolicyResult `xml:"CreatePolicyResult"`
 }
 
 // CreatePolicyResult wraps the created policy.
@@ -609,8 +609,8 @@ type PolicyVersionXML struct {
 type GetPolicyResponse struct {
 	XMLName          xml.Name         `xml:"GetPolicyResponse"`
 	Xmlns            string           `xml:"xmlns,attr"`
-	GetPolicyResult  GetPolicyResult  `xml:"GetPolicyResult"`
 	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
+	GetPolicyResult  GetPolicyResult  `xml:"GetPolicyResult"`
 }
 
 // GetPolicyResult contains the policy details.

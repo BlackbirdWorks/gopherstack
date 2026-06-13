@@ -4,6 +4,7 @@ package codepipeline_test
 // All tests use table-driven format.
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -1001,7 +1002,11 @@ func TestHandler_ListTagsForResource_WebhookARN(t *testing.T) {
 		{
 			name: "pipeline ARN returns tags",
 			setup: func(h *codepipeline.Handler) string {
-				p, err := h.Backend.CreatePipeline(samplePipeline("tags-pl"), map[string]string{"Env": "prod"})
+				p, err := h.Backend.CreatePipeline(
+					context.Background(),
+					samplePipeline("tags-pl"),
+					map[string]string{"Env": "prod"},
+				)
 				require.NoError(t, err)
 
 				return p.Metadata.PipelineArn
@@ -1054,7 +1059,7 @@ func TestHandler_DisableStageTransition_StageValidation(t *testing.T) {
 		{
 			name: "existing stage disabled ok",
 			setup: func(h *codepipeline.Handler) {
-				_, err := h.Backend.CreatePipeline(samplePipeline("stage-exists"), nil)
+				_, err := h.Backend.CreatePipeline(context.Background(), samplePipeline("stage-exists"), nil)
 				require.NoError(t, err)
 			},
 			input: map[string]any{
@@ -1068,7 +1073,7 @@ func TestHandler_DisableStageTransition_StageValidation(t *testing.T) {
 		{
 			name: "non-existent stage rejected",
 			setup: func(h *codepipeline.Handler) {
-				_, err := h.Backend.CreatePipeline(samplePipeline("stage-missing"), nil)
+				_, err := h.Backend.CreatePipeline(context.Background(), samplePipeline("stage-missing"), nil)
 				require.NoError(t, err)
 			},
 			input: map[string]any{
@@ -1132,7 +1137,7 @@ func TestInMemoryBackend_Restore_DefensiveCopy(t *testing.T) {
 				t.Helper()
 
 				b := codepipeline.NewInMemoryBackend("000000000000", "us-east-1")
-				_, err := b.CreatePipeline(samplePipeline("snap-pl"), nil)
+				_, err := b.CreatePipeline(context.Background(), samplePipeline("snap-pl"), nil)
 				require.NoError(t, err)
 
 				snap := b.Snapshot()
@@ -1147,7 +1152,7 @@ func TestInMemoryBackend_Restore_DefensiveCopy(t *testing.T) {
 				}
 
 				// b2 should still have the pipeline.
-				p, err := b2.GetPipeline("snap-pl")
+				p, err := b2.GetPipeline(context.Background(), "snap-pl")
 				require.NoError(t, err)
 				assert.Equal(t, "snap-pl", p.Declaration.Name)
 			},
@@ -1158,7 +1163,7 @@ func TestInMemoryBackend_Restore_DefensiveCopy(t *testing.T) {
 				t.Helper()
 
 				b := codepipeline.NewInMemoryBackend("000000000000", "us-east-1")
-				_, err := b.CreatePipeline(samplePipeline("old-pl"), nil)
+				_, err := b.CreatePipeline(context.Background(), samplePipeline("old-pl"), nil)
 				require.NoError(t, err)
 
 				// Take snapshot of empty state.
@@ -1177,10 +1182,10 @@ func TestInMemoryBackend_Restore_DefensiveCopy(t *testing.T) {
 				t.Helper()
 
 				b := codepipeline.NewInMemoryBackend("000000000000", "us-east-1")
-				_, err := b.CreatePipeline(samplePipeline("exec-snap"), nil)
+				_, err := b.CreatePipeline(context.Background(), samplePipeline("exec-snap"), nil)
 				require.NoError(t, err)
 
-				exec, err := b.StartPipelineExecution("exec-snap")
+				exec, err := b.StartPipelineExecution(context.Background(), "exec-snap")
 				require.NoError(t, err)
 
 				snap := b.Snapshot()
@@ -1188,7 +1193,7 @@ func TestInMemoryBackend_Restore_DefensiveCopy(t *testing.T) {
 				b2 := codepipeline.NewInMemoryBackend("000000000000", "us-east-1")
 				require.NoError(t, b2.Restore(snap))
 
-				execs, err := b2.ListPipelineExecutions("exec-snap")
+				execs, err := b2.ListPipelineExecutions(context.Background(), "exec-snap")
 				require.NoError(t, err)
 				require.Len(t, execs, 1)
 				assert.Equal(t, exec.PipelineExecutionID, execs[0].PipelineExecutionID)
@@ -1241,7 +1246,7 @@ func TestHandler_UpdatePipeline_VersionConflict(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			_, err := h.Backend.CreatePipeline(samplePipeline("ver-conflict"), nil)
+			_, err := h.Backend.CreatePipeline(context.Background(), samplePipeline("ver-conflict"), nil)
 			require.NoError(t, err)
 
 			p := samplePipeline("ver-conflict")
@@ -1287,7 +1292,7 @@ func TestHandler_DeleteCustomActionType_InUse(t *testing.T) {
 				p.Stages[0].Actions[0].ActionTypeID = codepipeline.ActionTypeID{
 					Category: "Build", Owner: "Custom", Provider: "InUseBuilder", Version: "1",
 				}
-				_, err := h.Backend.CreatePipeline(p, nil)
+				_, err := h.Backend.CreatePipeline(context.Background(), p, nil)
 				require.NoError(t, err)
 			},
 			input: map[string]any{
@@ -1348,7 +1353,7 @@ func TestHandler_GetPipelineState_ActionStates(t *testing.T) {
 		{
 			name: "actionStates included per stage",
 			setup: func(h *codepipeline.Handler) {
-				_, err := h.Backend.CreatePipeline(samplePipeline("state-pl"), nil)
+				_, err := h.Backend.CreatePipeline(context.Background(), samplePipeline("state-pl"), nil)
 				require.NoError(t, err)
 			},
 			wantStatus: http.StatusOK,
@@ -1403,7 +1408,7 @@ func TestHandler_ListPipelineExecutions_StoresAndReturns(t *testing.T) {
 		{
 			name: "two starts gives two entries in reverse order",
 			setup: func(h *codepipeline.Handler) string {
-				_, err := h.Backend.CreatePipeline(samplePipeline("list-execs"), nil)
+				_, err := h.Backend.CreatePipeline(context.Background(), samplePipeline("list-execs"), nil)
 				require.NoError(t, err)
 
 				rec := doRequest(t, h, "StartPipelineExecution", map[string]any{"name": "list-execs"})
@@ -1420,7 +1425,7 @@ func TestHandler_ListPipelineExecutions_StoresAndReturns(t *testing.T) {
 		{
 			name: "empty pipeline returns empty list",
 			setup: func(h *codepipeline.Handler) string {
-				_, err := h.Backend.CreatePipeline(samplePipeline("empty-execs"), nil)
+				_, err := h.Backend.CreatePipeline(context.Background(), samplePipeline("empty-execs"), nil)
 				require.NoError(t, err)
 
 				return "empty-execs"
@@ -1478,7 +1483,7 @@ func TestHandler_ListPipelines_IncludesPipelineType(t *testing.T) {
 				p := samplePipeline("v2-list-pl")
 				p.PipelineType = codepipeline.PipelineTypeV2
 				p.ExecutionMode = codepipeline.ExecutionModeParallel
-				_, err := h.Backend.CreatePipeline(p, nil)
+				_, err := h.Backend.CreatePipeline(context.Background(), p, nil)
 				require.NoError(t, err)
 			},
 			wantType:   "V2",
@@ -1639,15 +1644,15 @@ func TestInMemoryBackend_DeletePipeline_ClearsExecutions(t *testing.T) {
 				t.Helper()
 
 				b := codepipeline.NewInMemoryBackend("000000000000", "us-east-1")
-				_, err := b.CreatePipeline(samplePipeline("del-exec-pl"), nil)
+				_, err := b.CreatePipeline(context.Background(), samplePipeline("del-exec-pl"), nil)
 				require.NoError(t, err)
 
-				_, err = b.StartPipelineExecution("del-exec-pl")
+				_, err = b.StartPipelineExecution(context.Background(), "del-exec-pl")
 				require.NoError(t, err)
 
-				require.NoError(t, b.DeletePipeline("del-exec-pl"))
+				require.NoError(t, b.DeletePipeline(context.Background(), "del-exec-pl"))
 
-				_, err = b.ListPipelineExecutions("del-exec-pl")
+				_, err = b.ListPipelineExecutions(context.Background(), "del-exec-pl")
 				assert.Error(t, err, "should not find executions for deleted pipeline")
 			},
 		},

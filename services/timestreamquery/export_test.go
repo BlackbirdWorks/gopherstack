@@ -5,13 +5,18 @@ func ExportBackend(h *Handler) *InMemoryBackend {
 	return h.Backend.(*InMemoryBackend)
 }
 
-// ScheduledQueryCount returns the number of scheduled queries stored in the backend.
+// ScheduledQueryCount returns the total number of scheduled queries across all regions.
 // This is exported for use in tests only.
 func ScheduledQueryCount(b *InMemoryBackend) int {
 	b.mu.RLock("ScheduledQueryCount")
 	defer b.mu.RUnlock()
 
-	return len(b.scheduledQueries)
+	total := 0
+	for _, regionMap := range b.scheduledQueries {
+		total += len(regionMap)
+	}
+
+	return total
 }
 
 // QueryCount returns the number of active query results stored in the backend.

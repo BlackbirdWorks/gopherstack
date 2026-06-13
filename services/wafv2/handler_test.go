@@ -2,6 +2,7 @@ package wafv2_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -428,7 +429,7 @@ func TestHandler_GetIPSet(t *testing.T) {
 		{
 			name: "existing",
 			setup: func(h *wafv2.Handler) string {
-				s, _ := h.Backend.CreateIPSet("my-ipset", "REGIONAL", "", "IPV4", nil, nil)
+				s, _ := h.Backend.CreateIPSet(context.Background(), "my-ipset", "REGIONAL", "", "IPV4", nil, nil)
 
 				return s.ID
 			},
@@ -473,7 +474,7 @@ func TestHandler_UpdateIPSet(t *testing.T) {
 		{
 			name: "existing",
 			setup: func(h *wafv2.Handler) string {
-				s, _ := h.Backend.CreateIPSet("my-ipset", "REGIONAL", "", "IPV4", nil, nil)
+				s, _ := h.Backend.CreateIPSet(context.Background(), "my-ipset", "REGIONAL", "", "IPV4", nil, nil)
 
 				return s.ID
 			},
@@ -536,7 +537,7 @@ func TestHandler_DeleteIPSet(t *testing.T) {
 		{
 			name: "existing",
 			setup: func(h *wafv2.Handler) string {
-				s, _ := h.Backend.CreateIPSet("my-ipset", "REGIONAL", "", "IPV4", nil, nil)
+				s, _ := h.Backend.CreateIPSet(context.Background(), "my-ipset", "REGIONAL", "", "IPV4", nil, nil)
 
 				return s.ID
 			},
@@ -585,8 +586,8 @@ func TestHandler_ListIPSets(t *testing.T) {
 		{
 			name: "with_items",
 			setup: func(h *wafv2.Handler) {
-				_, _ = h.Backend.CreateIPSet("set1", "REGIONAL", "", "IPV4", nil, nil)
-				_, _ = h.Backend.CreateIPSet("set2", "REGIONAL", "", "IPV6", nil, nil)
+				_, _ = h.Backend.CreateIPSet(context.Background(), "set1", "REGIONAL", "", "IPV4", nil, nil)
+				_, _ = h.Backend.CreateIPSet(context.Background(), "set2", "REGIONAL", "", "IPV6", nil, nil)
 			},
 			wantCount: 2,
 		},
@@ -772,13 +773,13 @@ func TestBackend_Reset(t *testing.T) {
 
 	_, err := wafv2.CreateWebACLSimple(b, "acl1", "REGIONAL", "", "ALLOW", nil)
 	require.NoError(t, err)
-	_, err = b.CreateIPSet("set1", "REGIONAL", "", "IPV4", nil, nil)
+	_, err = b.CreateIPSet(context.Background(), "set1", "REGIONAL", "", "IPV4", nil, nil)
 	require.NoError(t, err)
 
 	b.Reset()
 
-	assert.Empty(t, b.ListWebACLs())
-	assert.Empty(t, b.ListIPSets())
+	assert.Empty(t, b.ListWebACLs(context.Background()))
+	assert.Empty(t, b.ListIPSets(context.Background()))
 }
 
 func TestHandler_AssociateWebACL(t *testing.T) {
@@ -863,7 +864,7 @@ func TestHandler_DisassociateWebACL(t *testing.T) {
 				w, _ := wafv2.CreateWebACLSimple(h.Backend, "my-acl", "REGIONAL", "", "ALLOW", nil)
 				webACLARN := h.Backend.WebACLARN(w.Name, w.ID, w.Scope)
 				resourceARN := "arn:aws:elasticloadbalancing:us-east-1:000000000000:loadbalancer/app/my-lb/abc"
-				require.NoError(t, h.Backend.AssociateWebACL(webACLARN, resourceARN))
+				require.NoError(t, h.Backend.AssociateWebACL(context.Background(), webACLARN, resourceARN))
 
 				return resourceARN
 			},
@@ -919,7 +920,7 @@ func TestHandler_GetWebACLForResource(t *testing.T) {
 				w, _ := wafv2.CreateWebACLSimple(h.Backend, "my-acl", "REGIONAL", "", "ALLOW", nil)
 				webACLARN := h.Backend.WebACLARN(w.Name, w.ID, w.Scope)
 				resourceARN := "arn:aws:elasticloadbalancing:us-east-1:000000000000:loadbalancer/app/my-lb/abc"
-				require.NoError(t, h.Backend.AssociateWebACL(webACLARN, resourceARN))
+				require.NoError(t, h.Backend.AssociateWebACL(context.Background(), webACLARN, resourceARN))
 
 				return resourceARN
 			},
@@ -1015,6 +1016,7 @@ func TestHandler_UntagResource(t *testing.T) {
 			name: "ipset_success",
 			setup: func(h *wafv2.Handler) string {
 				s, _ := h.Backend.CreateIPSet(
+					context.Background(),
 					"tagged-set",
 					"REGIONAL",
 					"",
@@ -1315,8 +1317,8 @@ func TestHandler_ListIPSets_Scope_Filter(t *testing.T) {
 		{
 			name: "filter_cloudfront",
 			setup: func(h *wafv2.Handler) {
-				_, _ = h.Backend.CreateIPSet("regional-set", "REGIONAL", "", "IPV4", nil, nil)
-				_, _ = h.Backend.CreateIPSet("cf-set", "CLOUDFRONT", "", "IPV4", nil, nil)
+				_, _ = h.Backend.CreateIPSet(context.Background(), "regional-set", "REGIONAL", "", "IPV4", nil, nil)
+				_, _ = h.Backend.CreateIPSet(context.Background(), "cf-set", "CLOUDFRONT", "", "IPV4", nil, nil)
 			},
 			scope:     "CLOUDFRONT",
 			wantCount: 1,
@@ -1324,8 +1326,8 @@ func TestHandler_ListIPSets_Scope_Filter(t *testing.T) {
 		{
 			name: "no_filter_returns_all",
 			setup: func(h *wafv2.Handler) {
-				_, _ = h.Backend.CreateIPSet("regional-set", "REGIONAL", "", "IPV4", nil, nil)
-				_, _ = h.Backend.CreateIPSet("cf-set", "CLOUDFRONT", "", "IPV4", nil, nil)
+				_, _ = h.Backend.CreateIPSet(context.Background(), "regional-set", "REGIONAL", "", "IPV4", nil, nil)
+				_, _ = h.Backend.CreateIPSet(context.Background(), "cf-set", "CLOUDFRONT", "", "IPV4", nil, nil)
 			},
 			scope:     "",
 			wantCount: 2,
@@ -1462,7 +1464,9 @@ func TestBackend_Snapshot_And_Restore(t *testing.T) {
 			name: "with_webacls_and_ipsets",
 			setup: func(b *wafv2.InMemoryBackend) {
 				_, _ = wafv2.CreateWebACLSimple(b, "acl1", "REGIONAL", "desc", "ALLOW", nil)
-				_, _ = b.CreateIPSet("set1", "REGIONAL", "desc", "IPV4", []string{"1.2.3.4/32"}, nil)
+				_, _ = b.CreateIPSet(
+					context.Background(), "set1", "REGIONAL", "desc", "IPV4", []string{"1.2.3.4/32"}, nil,
+				)
 			},
 			wantIDs: 1,
 		},
@@ -1481,11 +1485,11 @@ func TestBackend_Snapshot_And_Restore(t *testing.T) {
 			b2 := wafv2.NewInMemoryBackend("123456789012", "us-east-1")
 			require.NoError(t, b2.Restore(snap))
 
-			acls := b2.ListWebACLs()
-			sets := b2.ListIPSets()
+			acls := b2.ListWebACLs(context.Background())
+			sets := b2.ListIPSets(context.Background())
 
-			assert.Len(t, acls, len(b.ListWebACLs()))
-			assert.Len(t, sets, len(b.ListIPSets()))
+			assert.Len(t, acls, len(b.ListWebACLs(context.Background())))
+			assert.Len(t, sets, len(b.ListIPSets(context.Background())))
 		})
 	}
 }
@@ -1503,7 +1507,7 @@ func TestHandler_Snapshot_And_Restore(t *testing.T) {
 	h2 := newTestHandler(t)
 	require.NoError(t, h2.Restore(snap))
 
-	acls := h2.Backend.ListWebACLs()
+	acls := h2.Backend.ListWebACLs(context.Background())
 	require.Len(t, acls, 1)
 	assert.Equal(t, "my-acl", acls[0].Name)
 }
@@ -1572,7 +1576,7 @@ func TestHandler_GetWebACLForResource_WithVisibilityConfig(t *testing.T) {
 
 	webACLARN := h.Backend.WebACLARN(w.Name, w.ID, w.Scope)
 	resourceARN := "arn:aws:elasticloadbalancing:us-east-1:000000000000:loadbalancer/app/my-lb/xyz"
-	require.NoError(t, h.Backend.AssociateWebACL(webACLARN, resourceARN))
+	require.NoError(t, h.Backend.AssociateWebACL(context.Background(), webACLARN, resourceARN))
 
 	rec := doWafv2Request(t, h, "GetWebACLForResource", map[string]any{
 		"ResourceArn": resourceARN,
@@ -1593,13 +1597,13 @@ func TestBackend_TagResource_IPSet(t *testing.T) {
 	t.Parallel()
 
 	b := wafv2.NewInMemoryBackend("000000000000", "us-east-1")
-	s, err := b.CreateIPSet("my-set", "REGIONAL", "", "IPV4", nil, nil)
+	s, err := b.CreateIPSet(context.Background(), "my-set", "REGIONAL", "", "IPV4", nil, nil)
 	require.NoError(t, err)
 
 	arnStr := b.IPSetARN(s.Name, s.ID, s.Scope)
-	require.NoError(t, b.TagResource(arnStr, map[string]string{"env": "test"}))
+	require.NoError(t, b.TagResource(context.Background(), arnStr, map[string]string{"env": "test"}))
 
-	tags, err := b.ListTagsForResource(arnStr)
+	tags, err := b.ListTagsForResource(context.Background(), arnStr)
 	require.NoError(t, err)
 	assert.Equal(t, "test", tags["env"])
 }
@@ -1780,7 +1784,7 @@ func TestHandler_CreateRegexPatternSet(t *testing.T) {
 			h := newTestHandler(t)
 
 			if tt.name == "duplicate" {
-				_, _ = h.Backend.CreateRegexPatternSet("dup-regex", "REGIONAL", "", nil, nil)
+				_, _ = h.Backend.CreateRegexPatternSet(context.Background(), "dup-regex", "REGIONAL", "", nil, nil)
 			}
 
 			rec := doWafv2Request(t, h, "CreateRegexPatternSet", tt.body)
@@ -1818,7 +1822,7 @@ func TestHandler_DeleteRegexPatternSet(t *testing.T) {
 		{
 			name: "existing",
 			setup: func(h *wafv2.Handler) string {
-				rps, _ := h.Backend.CreateRegexPatternSet("my-regex", "REGIONAL", "", nil, nil)
+				rps, _ := h.Backend.CreateRegexPatternSet(context.Background(), "my-regex", "REGIONAL", "", nil, nil)
 
 				return rps.ID
 			},
@@ -2011,10 +2015,11 @@ func TestHandler_DeleteLoggingConfiguration(t *testing.T) {
 			setup: func(h *wafv2.Handler) string {
 				w, _ := wafv2.CreateWebACLSimple(h.Backend, "my-acl", "REGIONAL", "", "ALLOW", nil)
 				arnStr := h.Backend.WebACLARN(w.Name, w.ID, w.Scope)
-				require.NoError(
-					t,
-					h.Backend.PutLoggingConfiguration(arnStr, json.RawMessage(`{"ResourceArn":"`+arnStr+`"}`)),
-				)
+				require.NoError(t, h.Backend.PutLoggingConfiguration(
+					context.Background(),
+					arnStr,
+					json.RawMessage(`{"ResourceArn":"`+arnStr+`"}`),
+				))
 
 				return arnStr
 			},
@@ -2069,9 +2074,11 @@ func TestHandler_DeletePermissionPolicy(t *testing.T) {
 		{
 			name: "success",
 			setup: func(h *wafv2.Handler) string {
-				rg, _ := h.Backend.CreateRuleGroup("my-rg", "REGIONAL", "", "", 10, nil, nil)
+				rg, _ := h.Backend.CreateRuleGroup(context.Background(), "my-rg", "REGIONAL", "", "", 10, nil, nil)
 				arnStr := h.Backend.RuleGroupARN(rg.Name, rg.ID, rg.Scope)
-				require.NoError(t, h.Backend.PutPermissionPolicy(arnStr, `{"Version":"2012-10-17"}`))
+				require.NoError(t, h.Backend.PutPermissionPolicy(
+					context.Background(), arnStr, `{"Version":"2012-10-17"}`,
+				))
 
 				return arnStr
 			},
@@ -2165,13 +2172,15 @@ func TestBackend_Snapshot_WithNewResources(t *testing.T) {
 
 	b := wafv2.NewInMemoryBackend("123456789012", "us-east-1")
 
-	_, err := b.CreateRegexPatternSet("my-regex", "REGIONAL", "", []wafv2.RegexEntry{{RegexString: "^foo"}}, nil)
+	_, err := b.CreateRegexPatternSet(
+		context.Background(), "my-regex", "REGIONAL", "", []wafv2.RegexEntry{{RegexString: "^foo"}}, nil,
+	)
 	require.NoError(t, err)
 
-	_, err = b.CreateRuleGroup("my-rg", "REGIONAL", "", "", 10, nil, nil)
+	_, err = b.CreateRuleGroup(context.Background(), "my-rg", "REGIONAL", "", "", 10, nil, nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateAPIKey("REGIONAL", []string{"example.com"})
+	_, err = b.CreateAPIKey(context.Background(), "REGIONAL", []string{"example.com"})
 	require.NoError(t, err)
 
 	snap := b.Snapshot()
@@ -2181,7 +2190,7 @@ func TestBackend_Snapshot_WithNewResources(t *testing.T) {
 	require.NoError(t, b2.Restore(snap))
 
 	// Verify regex pattern sets are restored (via delete which requires lookup).
-	rps2, err := b.CreateRegexPatternSet("another-regex", "REGIONAL", "", nil, nil)
+	rps2, err := b.CreateRegexPatternSet(context.Background(), "another-regex", "REGIONAL", "", nil, nil)
 	require.NoError(t, err)
-	require.NoError(t, b.DeleteRegexPatternSet(rps2.ID, ""))
+	require.NoError(t, b.DeleteRegexPatternSet(context.Background(), rps2.ID, ""))
 }

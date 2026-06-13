@@ -956,7 +956,7 @@ func TestAudit2b_TagOperations(t *testing.T) {
 func TestAudit2b_Reset_ReseededDefaultGroups(t *testing.T) {
 	t.Parallel()
 
-	b := memorydb.NewInMemoryBackend()
+	b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
 
 	// Count default parameter groups before reset.
 	initialCount := memorydb.ParameterGroupCount(b)

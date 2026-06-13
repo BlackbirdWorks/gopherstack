@@ -3,6 +3,7 @@ package cognitoidentity_test
 // accuracy_test.go covers the 11 AWS-accuracy gaps from issue #1701.
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -21,10 +22,10 @@ func TestAccuracy_GetID_UnauthDisabled_EmptyLogins(t *testing.T) {
 
 	b := cognitoidentity.NewInMemoryBackend("000000000000", "us-east-1")
 
-	pool, err := b.CreateIdentityPool("no-unauth-pool", false, false, "", nil, nil, nil)
+	pool, err := b.CreateIdentityPool(context.Background(), "no-unauth-pool", false, false, "", nil, nil, nil)
 	require.NoError(t, err)
 
-	_, err = b.GetID(pool.IdentityPoolID, "000000000000", nil)
+	_, err = b.GetID(context.Background(), pool.IdentityPoolID, "000000000000", nil)
 	require.Error(t, err)
 	assert.ErrorIs(
 		t,
@@ -39,10 +40,10 @@ func TestAccuracy_GetID_UnauthEnabled_EmptyLogins(t *testing.T) {
 
 	b := cognitoidentity.NewInMemoryBackend("000000000000", "us-east-1")
 
-	pool, err := b.CreateIdentityPool("unauth-pool", true, false, "", nil, nil, nil)
+	pool, err := b.CreateIdentityPool(context.Background(), "unauth-pool", true, false, "", nil, nil, nil)
 	require.NoError(t, err)
 
-	identity, err := b.GetID(pool.IdentityPoolID, "000000000000", nil)
+	identity, err := b.GetID(context.Background(), pool.IdentityPoolID, "000000000000", nil)
 	require.NoError(t, err)
 	assert.NotEmpty(t, identity.IdentityID)
 }
@@ -52,11 +53,11 @@ func TestAccuracy_GetID_UnauthDisabled_WithLogins(t *testing.T) {
 
 	b := cognitoidentity.NewInMemoryBackend("000000000000", "us-east-1")
 
-	pool, err := b.CreateIdentityPool("no-unauth-with-logins", false, false, "", nil, nil, nil)
+	pool, err := b.CreateIdentityPool(context.Background(), "no-unauth-with-logins", false, false, "", nil, nil, nil)
 	require.NoError(t, err)
 
 	logins := map[string]string{"accounts.google.com": "google-token-abc"}
-	identity, err := b.GetID(pool.IdentityPoolID, "000000000000", logins)
+	identity, err := b.GetID(context.Background(), pool.IdentityPoolID, "000000000000", logins)
 	require.NoError(t, err, "authenticated GetId must succeed even when AllowUnauthenticated=false")
 	assert.NotEmpty(t, identity.IdentityID)
 }
@@ -89,14 +90,14 @@ func TestAccuracy_GetCredentials_LoginMismatch(t *testing.T) {
 
 	b := cognitoidentity.NewInMemoryBackend("000000000000", "us-east-1")
 
-	pool, err := b.CreateIdentityPool("creds-pool", true, false, "", nil, nil, nil)
+	pool, err := b.CreateIdentityPool(context.Background(), "creds-pool", true, false, "", nil, nil, nil)
 	require.NoError(t, err)
 
 	logins := map[string]string{"accounts.google.com": "real-token"}
-	identity, err := b.GetID(pool.IdentityPoolID, "000000000000", logins)
+	identity, err := b.GetID(context.Background(), pool.IdentityPoolID, "000000000000", logins)
 	require.NoError(t, err)
 
-	_, err = b.GetCredentialsForIdentity(identity.IdentityID, map[string]string{
+	_, err = b.GetCredentialsForIdentity(context.Background(), identity.IdentityID, map[string]string{
 		"accounts.google.com": "wrong-token",
 	})
 	require.Error(t, err)
@@ -113,14 +114,14 @@ func TestAccuracy_GetCredentials_LoginProviderAbsent(t *testing.T) {
 
 	b := cognitoidentity.NewInMemoryBackend("000000000000", "us-east-1")
 
-	pool, err := b.CreateIdentityPool("creds-pool-2", true, false, "", nil, nil, nil)
+	pool, err := b.CreateIdentityPool(context.Background(), "creds-pool-2", true, false, "", nil, nil, nil)
 	require.NoError(t, err)
 
 	logins := map[string]string{"accounts.google.com": "real-token"}
-	identity, err := b.GetID(pool.IdentityPoolID, "000000000000", logins)
+	identity, err := b.GetID(context.Background(), pool.IdentityPoolID, "000000000000", logins)
 	require.NoError(t, err)
 
-	_, err = b.GetCredentialsForIdentity(identity.IdentityID, map[string]string{
+	_, err = b.GetCredentialsForIdentity(context.Background(), identity.IdentityID, map[string]string{
 		"login.facebook.com": "fb-token",
 	})
 	require.Error(t, err)
@@ -132,14 +133,14 @@ func TestAccuracy_GetCredentials_MatchingLogins(t *testing.T) {
 
 	b := cognitoidentity.NewInMemoryBackend("000000000000", "us-east-1")
 
-	pool, err := b.CreateIdentityPool("creds-pool-3", true, false, "", nil, nil, nil)
+	pool, err := b.CreateIdentityPool(context.Background(), "creds-pool-3", true, false, "", nil, nil, nil)
 	require.NoError(t, err)
 
 	logins := map[string]string{"accounts.google.com": "real-token"}
-	identity, err := b.GetID(pool.IdentityPoolID, "000000000000", logins)
+	identity, err := b.GetID(context.Background(), pool.IdentityPoolID, "000000000000", logins)
 	require.NoError(t, err)
 
-	creds, err := b.GetCredentialsForIdentity(identity.IdentityID, logins)
+	creds, err := b.GetCredentialsForIdentity(context.Background(), identity.IdentityID, logins)
 	require.NoError(t, err, "matching login tokens must succeed")
 	assert.NotEmpty(t, creds.AccessKeyID)
 }
@@ -149,13 +150,13 @@ func TestAccuracy_GetCredentials_NilLogins(t *testing.T) {
 
 	b := cognitoidentity.NewInMemoryBackend("000000000000", "us-east-1")
 
-	pool, err := b.CreateIdentityPool("creds-pool-nil", true, false, "", nil, nil, nil)
+	pool, err := b.CreateIdentityPool(context.Background(), "creds-pool-nil", true, false, "", nil, nil, nil)
 	require.NoError(t, err)
 
-	identity, err := b.GetID(pool.IdentityPoolID, "000000000000", nil)
+	identity, err := b.GetID(context.Background(), pool.IdentityPoolID, "000000000000", nil)
 	require.NoError(t, err)
 
-	creds, err := b.GetCredentialsForIdentity(identity.IdentityID, nil)
+	creds, err := b.GetCredentialsForIdentity(context.Background(), identity.IdentityID, nil)
 	require.NoError(t, err, "nil logins must succeed (unauthenticated identity)")
 	assert.NotEmpty(t, creds.AccessKeyID)
 }
@@ -167,18 +168,18 @@ func TestAccuracy_ListIdentities_HideDisabled(t *testing.T) {
 
 	b := cognitoidentity.NewInMemoryBackend("000000000000", "us-east-1")
 
-	pool, err := b.CreateIdentityPool("hide-disabled-pool", true, false, "", nil, nil, nil)
+	pool, err := b.CreateIdentityPool(context.Background(), "hide-disabled-pool", true, false, "", nil, nil, nil)
 	require.NoError(t, err)
 
-	id1, err := b.GetID(pool.IdentityPoolID, "", map[string]string{"p1": "t1"})
+	id1, err := b.GetID(context.Background(), pool.IdentityPoolID, "", map[string]string{"p1": "t1"})
 	require.NoError(t, err)
 
-	id2, err := b.GetID(pool.IdentityPoolID, "", map[string]string{"p2": "t2"})
+	id2, err := b.GetID(context.Background(), pool.IdentityPoolID, "", map[string]string{"p2": "t2"})
 	require.NoError(t, err)
 
 	b.SetIdentityEnabled(id2.IdentityID, false)
 
-	result, err := b.ListIdentities(pool.IdentityPoolID, 10, true, "")
+	result, err := b.ListIdentities(context.Background(), pool.IdentityPoolID, 10, true, "")
 	require.NoError(t, err)
 	require.Len(t, result.Identities, 1)
 	assert.Equal(
@@ -194,18 +195,18 @@ func TestAccuracy_ListIdentities_ShowDisabled(t *testing.T) {
 
 	b := cognitoidentity.NewInMemoryBackend("000000000000", "us-east-1")
 
-	pool, err := b.CreateIdentityPool("show-disabled-pool", true, false, "", nil, nil, nil)
+	pool, err := b.CreateIdentityPool(context.Background(), "show-disabled-pool", true, false, "", nil, nil, nil)
 	require.NoError(t, err)
 
-	id1, err := b.GetID(pool.IdentityPoolID, "", map[string]string{"p1": "t1"})
+	id1, err := b.GetID(context.Background(), pool.IdentityPoolID, "", map[string]string{"p1": "t1"})
 	require.NoError(t, err)
 
-	_, err = b.GetID(pool.IdentityPoolID, "", map[string]string{"p2": "t2"})
+	_, err = b.GetID(context.Background(), pool.IdentityPoolID, "", map[string]string{"p2": "t2"})
 	require.NoError(t, err)
 
 	b.SetIdentityEnabled(id1.IdentityID, false)
 
-	result, err := b.ListIdentities(pool.IdentityPoolID, 10, false, "")
+	result, err := b.ListIdentities(context.Background(), pool.IdentityPoolID, 10, false, "")
 	require.NoError(t, err)
 	assert.Len(t, result.Identities, 2, "HideDisabled=false must include disabled identities")
 }
@@ -215,13 +216,13 @@ func TestAccuracy_NewIdentity_EnabledByDefault(t *testing.T) {
 
 	b := cognitoidentity.NewInMemoryBackend("000000000000", "us-east-1")
 
-	pool, err := b.CreateIdentityPool("enabled-default-pool", true, false, "", nil, nil, nil)
+	pool, err := b.CreateIdentityPool(context.Background(), "enabled-default-pool", true, false, "", nil, nil, nil)
 	require.NoError(t, err)
 
-	identity, err := b.GetID(pool.IdentityPoolID, "", nil)
+	identity, err := b.GetID(context.Background(), pool.IdentityPoolID, "", nil)
 	require.NoError(t, err)
 
-	result, err := b.ListIdentities(pool.IdentityPoolID, 10, true, "")
+	result, err := b.ListIdentities(context.Background(), pool.IdentityPoolID, 10, true, "")
 	require.NoError(t, err)
 	require.Len(t, result.Identities, 1, "new identity must be enabled by default")
 	assert.Equal(t, identity.IdentityID, result.Identities[0].IdentityID)
@@ -288,10 +289,10 @@ func TestAccuracy_ListIdentities_MaxResultsZero(t *testing.T) {
 
 	b := cognitoidentity.NewInMemoryBackend("000000000000", "us-east-1")
 
-	pool, err := b.CreateIdentityPool("maxresults-pool", true, false, "", nil, nil, nil)
+	pool, err := b.CreateIdentityPool(context.Background(), "maxresults-pool", true, false, "", nil, nil, nil)
 	require.NoError(t, err)
 
-	_, err = b.ListIdentities(pool.IdentityPoolID, 0, false, "")
+	_, err = b.ListIdentities(context.Background(), pool.IdentityPoolID, 0, false, "")
 	require.Error(t, err)
 	assert.ErrorIs(
 		t,
@@ -329,7 +330,7 @@ func TestAccuracy_SetGetIdentityPoolRoles_WithRoleMappings(t *testing.T) {
 
 	b := cognitoidentity.NewInMemoryBackend("000000000000", "us-east-1")
 
-	pool, err := b.CreateIdentityPool("role-mappings-pool", true, false, "", nil, nil, nil)
+	pool, err := b.CreateIdentityPool(context.Background(), "role-mappings-pool", true, false, "", nil, nil, nil)
 	require.NoError(t, err)
 
 	roleMappings := map[string]cognitoidentity.RoleMapping{
@@ -349,7 +350,7 @@ func TestAccuracy_SetGetIdentityPoolRoles_WithRoleMappings(t *testing.T) {
 		},
 	}
 
-	err = b.SetIdentityPoolRoles(
+	err = b.SetIdentityPoolRoles(context.Background(),
 		pool.IdentityPoolID,
 		"arn:aws:iam::000000000000:role/Auth",
 		"arn:aws:iam::000000000000:role/Unauth",
@@ -357,7 +358,7 @@ func TestAccuracy_SetGetIdentityPoolRoles_WithRoleMappings(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	roles, err := b.GetIdentityPoolRoles(pool.IdentityPoolID)
+	roles, err := b.GetIdentityPoolRoles(context.Background(), pool.IdentityPoolID)
 	require.NoError(t, err)
 
 	assert.Equal(t, "arn:aws:iam::000000000000:role/Auth", roles.AuthenticatedRoleARN)
@@ -434,14 +435,14 @@ func TestAccuracy_SetIdentityPoolRoles_RoleMappingsNilPreservesExisting(t *testi
 
 	b := cognitoidentity.NewInMemoryBackend("000000000000", "us-east-1")
 
-	pool, err := b.CreateIdentityPool("role-preserve-pool", true, false, "", nil, nil, nil)
+	pool, err := b.CreateIdentityPool(context.Background(), "role-preserve-pool", true, false, "", nil, nil, nil)
 	require.NoError(t, err)
 
 	roleMappings := map[string]cognitoidentity.RoleMapping{
 		"accounts.google.com": {Type: "Token", AmbiguousRoleResolution: "AuthenticatedRole"},
 	}
 
-	err = b.SetIdentityPoolRoles(
+	err = b.SetIdentityPoolRoles(context.Background(),
 		pool.IdentityPoolID,
 		"arn:aws:iam::000000000000:role/Auth",
 		"",
@@ -450,7 +451,7 @@ func TestAccuracy_SetIdentityPoolRoles_RoleMappingsNilPreservesExisting(t *testi
 	require.NoError(t, err)
 
 	// Update with nil roleMappings — existing mappings must be preserved.
-	err = b.SetIdentityPoolRoles(
+	err = b.SetIdentityPoolRoles(context.Background(),
 		pool.IdentityPoolID,
 		"arn:aws:iam::000000000000:role/AuthV2",
 		"",
@@ -458,7 +459,7 @@ func TestAccuracy_SetIdentityPoolRoles_RoleMappingsNilPreservesExisting(t *testi
 	)
 	require.NoError(t, err)
 
-	roles, err := b.GetIdentityPoolRoles(pool.IdentityPoolID)
+	roles, err := b.GetIdentityPoolRoles(context.Background(), pool.IdentityPoolID)
 	require.NoError(t, err)
 	assert.Equal(t, "arn:aws:iam::000000000000:role/AuthV2", roles.AuthenticatedRoleARN)
 	assert.Contains(

@@ -738,14 +738,17 @@ func (rc *ResourceCreator) createKinesisStream(
 		return "", fmt.Errorf("create Kinesis stream %s (got %d): %w", name, shardCount, ErrShardCountOutOfRange)
 	}
 
-	if err := rc.backends.Kinesis.Backend.CreateStream(&kinesisbackend.CreateStreamInput{
+	if err := rc.backends.Kinesis.Backend.CreateStream(context.Background(), &kinesisbackend.CreateStreamInput{
 		StreamName: name,
 		ShardCount: shardCount,
 	}); err != nil {
 		return "", fmt.Errorf("create Kinesis stream %s: %w", name, err)
 	}
 
-	out, err := rc.backends.Kinesis.Backend.DescribeStream(&kinesisbackend.DescribeStreamInput{StreamName: name})
+	out, err := rc.backends.Kinesis.Backend.DescribeStream(
+		context.Background(),
+		&kinesisbackend.DescribeStreamInput{StreamName: name},
+	)
 	if err != nil {
 		// Fall back to stream name if describe fails; ARN may not be available yet.
 		return name, nil //nolint:nilerr // describe can fail; stream was created, return name
@@ -761,7 +764,10 @@ func (rc *ResourceCreator) deleteKinesisStream(arn string) error {
 
 	name := streamNameFromARN(arn)
 
-	return rc.backends.Kinesis.Backend.DeleteStream(&kinesisbackend.DeleteStreamInput{StreamName: name})
+	return rc.backends.Kinesis.Backend.DeleteStream(
+		context.Background(),
+		&kinesisbackend.DeleteStreamInput{StreamName: name},
+	)
 }
 
 // ---- CloudWatch ----
@@ -939,7 +945,7 @@ func (rc *ResourceCreator) createElastiCacheCacheCluster(
 		nodeType = "cache.t3.micro"
 	}
 
-	cluster, err := rc.backends.ElastiCache.Backend.CreateCluster(clusterID, engine, nodeType, 0)
+	cluster, err := rc.backends.ElastiCache.Backend.CreateCluster(context.Background(), clusterID, engine, nodeType, 0)
 	if err != nil {
 		return "", fmt.Errorf("create ElastiCache cluster %s: %w", clusterID, err)
 	}
@@ -952,7 +958,7 @@ func (rc *ResourceCreator) deleteElastiCacheCacheCluster(_ context.Context, id s
 		return nil
 	}
 
-	return rc.backends.ElastiCache.Backend.DeleteCluster(id)
+	return rc.backends.ElastiCache.Backend.DeleteCluster(context.Background(), id)
 }
 
 // ---- SNS Subscription ----
@@ -1077,6 +1083,7 @@ func (rc *ResourceCreator) createSchedulerSchedule(
 	}
 
 	sched, err := rc.backends.Scheduler.Backend.CreateSchedule(
+		context.Background(),
 		name,
 		"",
 		scheduleExpression,
@@ -1100,7 +1107,7 @@ func (rc *ResourceCreator) deleteSchedulerSchedule(arn string) error {
 
 	name := resourceNameFromARN(arn)
 
-	return rc.backends.Scheduler.Backend.DeleteSchedule(name, "")
+	return rc.backends.Scheduler.Backend.DeleteSchedule(context.Background(), name, "")
 }
 
 // ---- helpers ----

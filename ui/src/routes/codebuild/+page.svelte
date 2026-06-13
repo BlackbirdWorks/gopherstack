@@ -9,6 +9,8 @@
 		BatchGetBuildsCommand,
 		CreateProjectCommand,
 		DeleteProjectCommand,
+		StartBuildCommand,
+		StopBuildCommand,
 		ListFleetsCommand,
 		BatchGetFleetsCommand,
 		ListReportGroupsCommand,
@@ -30,7 +32,7 @@
 		Code, Server, Terminal, Workflow,
 		Play, CheckCircle2, XCircle, AlertCircle,
 		Timer, BarChart3, Database, Layers,
-		ArrowRight, ExternalLink, Shield, History
+		ArrowRight, ExternalLink, Shield, History, Package
 	} from 'lucide-svelte';
 
 	const codebuild = getCodeBuildClient();
@@ -121,6 +123,33 @@
 			toast.error(`Creation failed: ${(err as Error).message}`);
 		} finally {
 			creating = false;
+		}
+	}
+
+	let startingBuild = $state(false);
+
+	async function startBuild() {
+		if (!selectedProject?.name) return;
+		startingBuild = true;
+		try {
+			const res = await codebuild.send(new StartBuildCommand({ projectName: selectedProject.name }));
+			toast.success(`Build started: ${res.build?.id?.split(':').pop() ?? 'OK'}`);
+			await selectProject(selectedProject);
+		} catch (err: unknown) {
+			toast.error(`Failed to start build: ${(err as Error).message}`);
+		} finally {
+			startingBuild = false;
+		}
+	}
+
+	async function stopBuild(id: string | undefined) {
+		if (!id) return;
+		try {
+			await codebuild.send(new StopBuildCommand({ id }));
+			toast.success('Build stopped');
+			if (selectedProject) await selectProject(selectedProject);
+		} catch (err: unknown) {
+			toast.error(`Failed to stop build: ${(err as Error).message}`);
 		}
 	}
 
@@ -392,13 +421,24 @@
 										</div>
 									</div>
 								</div>
-								<button 
-									onclick={() => deleteProject(selectedProject?.name)}
-									class="p-2.5 bg-slate-900 dark:bg-black text-rose-500 hover:bg-rose-500/10 rounded-2xl transition-all border border-rose-500/20 shadow-xl"
-									title="Explode Project"
-								>
-									<Trash2 class="w-4 h-4" />
-								</button>
+								<div class="flex items-center gap-2">
+									<button
+										onclick={startBuild}
+										disabled={startingBuild}
+										class="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl transition-all shadow-lg shadow-emerald-600/20 active:scale-95 disabled:opacity-50 text-[10px] font-black uppercase tracking-widest"
+										title="Start a build"
+									>
+										{#if startingBuild}<RefreshCw class="w-4 h-4 animate-spin" />{:else}<Play class="w-4 h-4" />{/if}
+										Start Build
+									</button>
+									<button
+										onclick={() => deleteProject(selectedProject?.name)}
+										class="p-2.5 bg-slate-900 dark:bg-black text-rose-500 hover:bg-rose-500/10 rounded-2xl transition-all border border-rose-500/20 shadow-xl"
+										title="Explode Project"
+									>
+										<Trash2 class="w-4 h-4" />
+									</button>
+								</div>
 							</div>
 
 							<div class="p-8 space-y-8">
@@ -419,6 +459,26 @@
 										</div>
 										<div class="text-[11px] font-black text-slate-800 dark:text-white uppercase">{selectedProject.source?.type}</div>
 										<div class="text-[8px] text-slate-500 uppercase font-bold tracking-tighter mt-1 italic text-rose-500 truncate">{selectedProject.source?.location || 'DIRECT_UPLOAD'}</div>
+									</div>
+									<div class="p-6 bg-white/60 dark:bg-slate-900/60 rounded-[2rem] border border-slate-100 dark:border-slate-700/50 shadow-sm group/info">
+										<div class="flex items-center gap-2 mb-2">
+											<Database class="w-3.5 h-3.5 text-emerald-500" />
+											<span class="text-[9px] font-black text-slate-400 uppercase tracking-widest italic">Cache</span>
+										</div>
+										<div class="text-[11px] font-black text-slate-800 dark:text-white uppercase">{selectedProject.cache?.type || 'NO_CACHE'}</div>
+										<div class="text-[8px] text-slate-500 uppercase font-bold tracking-tighter mt-1 italic truncate">
+											{#if selectedProject.cache?.location}{selectedProject.cache.location}{:else if (selectedProject.cache?.modes ?? []).length > 0}{(selectedProject.cache?.modes ?? []).join(', ')}{:else}Caching disabled{/if}
+										</div>
+									</div>
+									<div class="p-6 bg-white/60 dark:bg-slate-900/60 rounded-[2rem] border border-slate-100 dark:border-slate-700/50 shadow-sm group/info">
+										<div class="flex items-center gap-2 mb-2">
+											<Package class="w-3.5 h-3.5 text-amber-500" />
+											<span class="text-[9px] font-black text-slate-400 uppercase tracking-widest italic">Artifacts</span>
+										</div>
+										<div class="text-[11px] font-black text-slate-800 dark:text-white uppercase">{selectedProject.artifacts?.type || 'NO_ARTIFACTS'}</div>
+										<div class="text-[8px] text-slate-500 uppercase font-bold tracking-tighter mt-1 italic truncate">
+											{#if selectedProject.artifacts?.location}{selectedProject.artifacts.location}{:else}{selectedProject.artifacts?.packaging || 'No output packaging'}{/if}
+										</div>
 									</div>
 								</div>
 
@@ -470,11 +530,18 @@
 														<span class="text-[10px] font-black text-white uppercase tracking-widest">{build.buildStatus}</span>
 													</div>
 												</div>
-												<div class="text-right">
-													<div class="text-[8px] font-black text-slate-600 uppercase">Duration</div>
-													<span class="text-[10px] font-black text-slate-400 tabular-nums italic">
-														{Math.round(((build.endTime?.getTime() || 0) - (build.startTime?.getTime() || 0)) / 1000)}s
-													</span>
+												<div class="flex items-center gap-3">
+													<div class="text-right">
+														<div class="text-[8px] font-black text-slate-600 uppercase">Duration</div>
+														<span class="text-[10px] font-black text-slate-400 tabular-nums italic">
+															{Math.round(((build.endTime?.getTime() || 0) - (build.startTime?.getTime() || 0)) / 1000)}s
+														</span>
+													</div>
+													{#if build.buildStatus === 'IN_PROGRESS'}
+														<button onclick={() => stopBuild(build.id)} class="p-2 bg-rose-500/10 text-rose-500 hover:bg-rose-500/20 rounded-xl transition-all" title="Stop build">
+															<XCircle class="w-4 h-4" />
+														</button>
+													{/if}
 												</div>
 											</div>
 											<div class="flex items-center justify-between pt-4 border-t border-white/5">

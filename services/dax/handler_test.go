@@ -653,8 +653,7 @@ func TestHandlerSubnetGroups(t *testing.T) {
 				require.Len(t, subnets, 1)
 				subnet := subnets[0].(map[string]any)
 				assert.Equal(t, "subnet-abc123", subnet["SubnetIdentifier"])
-				az := subnet["SubnetAvailabilityZone"].(map[string]any)
-				assert.Equal(t, "us-east-1a", az["Name"])
+				assert.Equal(t, "us-east-1a", subnet["SubnetAvailabilityZone"])
 			},
 		},
 		{

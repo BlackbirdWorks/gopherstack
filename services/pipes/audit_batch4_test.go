@@ -83,7 +83,7 @@ func b4Describe(t *testing.T, h *pipes.Handler, name string) map[string]any {
 
 func b4CreatePipe(t *testing.T, b *pipes.InMemoryBackend, name, target string) {
 	t.Helper()
-	_, err := b.CreatePipe(pipes.CreatePipeInput{
+	_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 		Name:         name,
 		RoleARN:      "arn:aws:iam::111122223333:role/r",
 		Source:       b4SQSSource,
@@ -220,7 +220,7 @@ func TestBatch4_TargetParams_Timestream(t *testing.T) {
 			t.Parallel()
 
 			b := b4Backend()
-			_, err := b.CreatePipe(pipes.CreatePipeInput{
+			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 				Name:    tt.name + "-ts-pipe",
 				RoleARN: "arn:aws:iam::111122223333:role/r",
 				Source:  b4SQSSource,
@@ -231,7 +231,7 @@ func TestBatch4_TargetParams_Timestream(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			p, err := b.GetPipe(tt.name + "-ts-pipe")
+			p, err := b.GetPipe(context.Background(), tt.name+"-ts-pipe")
 			require.NoError(t, err)
 			require.NotNil(t, p.TargetParameters)
 			require.NotNil(t, p.TargetParameters.TimestreamParameters)
@@ -288,7 +288,7 @@ func TestBatch4_TargetParams_Timestream_Update(t *testing.T) {
 			t.Parallel()
 
 			b := b4Backend()
-			_, err := b.CreatePipe(pipes.CreatePipeInput{
+			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 				Name:    tt.name + "-pipe",
 				RoleARN: "arn:aws:iam::111122223333:role/r",
 				Source:  b4SQSSource,
@@ -299,14 +299,14 @@ func TestBatch4_TargetParams_Timestream_Update(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			_, err = b.UpdatePipe(tt.name+"-pipe", pipes.UpdatePipeInput{
+			_, err = b.UpdatePipe(context.Background(), tt.name+"-pipe", pipes.UpdatePipeInput{
 				TargetParameters: &pipes.TargetParameters{
 					TimestreamParameters: tt.updateParams,
 				},
 			})
 			require.NoError(t, err)
 
-			p, err := b.GetPipe(tt.name + "-pipe")
+			p, err := b.GetPipe(context.Background(), tt.name+"-pipe")
 			require.NoError(t, err)
 			require.NotNil(t, p.TargetParameters.TimestreamParameters)
 			assert.Equal(t, tt.wantTimeValue, p.TargetParameters.TimestreamParameters.TimeValue)
@@ -331,7 +331,7 @@ func TestBatch4_Clone_TimestreamIsolation(t *testing.T) {
 			t.Parallel()
 
 			b := b4Backend()
-			_, err := b.CreatePipe(pipes.CreatePipeInput{
+			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 				Name:    tt.name + "-pipe",
 				RoleARN: "arn:aws:iam::111122223333:role/r",
 				Source:  b4SQSSource,
@@ -349,13 +349,13 @@ func TestBatch4_Clone_TimestreamIsolation(t *testing.T) {
 			require.NoError(t, err)
 
 			// GetPipe returns a clone; mutate the clone's dimension mapping.
-			clone, err := b.GetPipe(tt.name + "-pipe")
+			clone, err := b.GetPipe(context.Background(), tt.name+"-pipe")
 			require.NoError(t, err)
 			require.NotNil(t, clone.TargetParameters.TimestreamParameters)
 			clone.TargetParameters.TimestreamParameters.DimensionMappings[0].DimensionName = "mutated"
 
 			// Re-read from backend; original should be unchanged.
-			orig, err := b.GetPipe(tt.name + "-pipe")
+			orig, err := b.GetPipe(context.Background(), tt.name+"-pipe")
 			require.NoError(t, err)
 			assert.Equal(t, "region",
 				orig.TargetParameters.TimestreamParameters.DimensionMappings[0].DimensionName,
@@ -402,7 +402,7 @@ func TestBatch4_TargetParams_HTTP(t *testing.T) {
 			t.Parallel()
 
 			b := b4Backend()
-			_, err := b.CreatePipe(pipes.CreatePipeInput{
+			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 				Name:    tt.name + "-pipe",
 				RoleARN: "arn:aws:iam::111122223333:role/r",
 				Source:  b4SQSSource,
@@ -413,7 +413,7 @@ func TestBatch4_TargetParams_HTTP(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			p, err := b.GetPipe(tt.name + "-pipe")
+			p, err := b.GetPipe(context.Background(), tt.name+"-pipe")
 			require.NoError(t, err)
 			require.NotNil(t, p.TargetParameters)
 			require.NotNil(t, p.TargetParameters.HTTPParameters)
@@ -443,7 +443,7 @@ func TestBatch4_Clone_HTTPParamsIsolation(t *testing.T) {
 			t.Parallel()
 
 			b := b4Backend()
-			_, err := b.CreatePipe(pipes.CreatePipeInput{
+			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 				Name:    tt.name + "-pipe",
 				RoleARN: "arn:aws:iam::111122223333:role/r",
 				Source:  b4SQSSource,
@@ -457,12 +457,12 @@ func TestBatch4_Clone_HTTPParamsIsolation(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			clone, err := b.GetPipe(tt.name + "-pipe")
+			clone, err := b.GetPipe(context.Background(), tt.name+"-pipe")
 			require.NoError(t, err)
 			clone.TargetParameters.HTTPParameters.HeaderParameters["X-Original"] = "mutated"
 			clone.TargetParameters.HTTPParameters.PathParameterValues[0] = "mutated"
 
-			orig, err := b.GetPipe(tt.name + "-pipe")
+			orig, err := b.GetPipe(context.Background(), tt.name+"-pipe")
 			require.NoError(t, err)
 			assert.Equal(t, "yes", orig.TargetParameters.HTTPParameters.HeaderParameters["X-Original"],
 				"mutating clone headers should not affect stored pipe")
@@ -605,7 +605,7 @@ func TestBatch4_Target_Firehose_InputTemplate(t *testing.T) {
 			if tt.inputTemplate != "" {
 				tp = &pipes.TargetParameters{InputTemplate: tt.inputTemplate}
 			}
-			_, err := b.CreatePipe(pipes.CreatePipeInput{
+			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 				Name:             tt.name + "-pipe",
 				RoleARN:          "arn:aws:iam::111122223333:role/r",
 				Source:           b4SQSSource,

@@ -29,7 +29,8 @@ var errUnknownOperation = errors.New("UnknownOperationException")
 
 // Handler handles HTTP requests for DynamoDB Streams operations.
 type Handler struct {
-	Streams ddbbackend.StreamsBackend
+	Streams       ddbbackend.StreamsBackend
+	DefaultRegion string
 }
 
 // NewHandler creates a new DynamoDB Streams handler with the given backend.
@@ -96,14 +97,25 @@ func (h *Handler) ChaosServiceName() string { return "dynamodbstreams" }
 // ChaosOperations returns all operations that can be fault-injected.
 func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations() }
 
-// ChaosRegions returns all regions (DynamoDB Streams shares the DynamoDB backend region).
-func (h *Handler) ChaosRegions() []string { return []string{} }
+// ChaosRegions returns all regions this DynamoDB Streams handler handles.
+func (h *Handler) ChaosRegions() []string {
+	if h.DefaultRegion != "" {
+		return []string{h.DefaultRegion}
+	}
+
+	return []string{}
+}
 
 // Handler returns the Echo handler function for DynamoDB Streams requests.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		ctx := c.Request().Context()
 		log := logger.Load(ctx)
+
+		// Inject the per-request AWS region (from SigV4 credential scope) so that
+		// backend operations are correctly scoped to the request's region.
+		region := httputils.ExtractRegionFromRequest(c.Request(), h.DefaultRegion)
+		ctx = ddbbackend.WithRegion(ctx, region)
 
 		operation := h.ExtractOperation(c)
 

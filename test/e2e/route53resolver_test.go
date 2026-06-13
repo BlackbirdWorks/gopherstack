@@ -20,6 +20,7 @@ func TestRoute53ResolverDashboard(t *testing.T) {
 	stack := newStack(t)
 
 	_, err := stack.Route53ResolverHandler.Backend.CreateResolverEndpoint(
+		t.Context(),
 		"test-endpoint",
 		"INBOUND",
 		"vpc-12345",
@@ -122,6 +123,7 @@ func TestRoute53ResolverDashboard_CreateAndDelete(t *testing.T) {
 	require.NoError(t, err)
 
 	createdEndpoint, err := stack.Route53ResolverHandler.Backend.CreateResolverEndpoint(
+		t.Context(),
 		"ui-test-endpoint",
 		"OUTBOUND",
 		"vpc-12345",
@@ -164,7 +166,7 @@ func TestRoute53ResolverDashboard_CreateAndDelete(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.NoError(t, stack.Route53ResolverHandler.Backend.DeleteResolverEndpoint(createdEndpoint.ID))
+	require.NoError(t, stack.Route53ResolverHandler.Backend.DeleteResolverEndpoint(t.Context(), createdEndpoint.ID))
 
 	err = page.Locator("button:has-text('Refresh')").Click()
 	require.NoError(t, err)

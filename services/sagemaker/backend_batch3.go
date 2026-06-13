@@ -1,6 +1,7 @@
 package sagemaker
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"time"
@@ -68,11 +69,14 @@ func cloneJobDefinition(j *JobDefinition) *JobDefinition {
 }
 
 func (b *InMemoryBackend) createJobDefinition(
+	ctx context.Context,
 	store map[string]*JobDefinition,
 	defType, name, roleArn string,
 	tags map[string]string,
 	resourceType string,
 ) (*JobDefinition, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("createJobDefinition")
 	defer b.mu.Unlock()
 
@@ -84,7 +88,7 @@ func (b *InMemoryBackend) createJobDefinition(
 		return nil, fmt.Errorf("%w: %s job definition %q already exists", ErrValidation, defType, name)
 	}
 
-	defARN := arn.Build("sagemaker", b.region, b.accountID, resourceType+"/"+name)
+	defARN := arn.Build("sagemaker", region, b.accountID, resourceType+"/"+name)
 
 	j := &JobDefinition{
 		JobDefinitionName: name,
@@ -100,6 +104,7 @@ func (b *InMemoryBackend) createJobDefinition(
 }
 
 func (b *InMemoryBackend) describeJobDefinition(
+	_ context.Context,
 	store map[string]*JobDefinition,
 	name string,
 	notFound error,
@@ -116,6 +121,7 @@ func (b *InMemoryBackend) describeJobDefinition(
 }
 
 func (b *InMemoryBackend) deleteJobDefinition(
+	_ context.Context,
 	store map[string]*JobDefinition,
 	name string,
 	notFound error,
@@ -138,22 +144,30 @@ func (b *InMemoryBackend) deleteJobDefinition(
 
 // CreateDataQualityJobDefinition creates a data quality job definition.
 func (b *InMemoryBackend) CreateDataQualityJobDefinition(
+	ctx context.Context,
 	name, roleArn string,
 	tags map[string]string,
 ) (*JobDefinition, error) {
+	region := getRegion(ctx, b.region)
+
 	return b.createJobDefinition(
-		b.dataQualityJobDefs, "DataQuality", name, roleArn, tags, "data-quality-job-definition",
+		ctx,
+		b.dataQualityJobDefsStore(region), "DataQuality", name, roleArn, tags, "data-quality-job-definition",
 	)
 }
 
 // DescribeDataQualityJobDefinition returns a data quality job definition by name.
-func (b *InMemoryBackend) DescribeDataQualityJobDefinition(name string) (*JobDefinition, error) {
-	return b.describeJobDefinition(b.dataQualityJobDefs, name, ErrDataQualityJobDefNotFound)
+func (b *InMemoryBackend) DescribeDataQualityJobDefinition(ctx context.Context, name string) (*JobDefinition, error) {
+	region := getRegion(ctx, b.region)
+
+	return b.describeJobDefinition(ctx, b.dataQualityJobDefsStore(region), name, ErrDataQualityJobDefNotFound)
 }
 
 // DeleteDataQualityJobDefinition removes a data quality job definition by name.
-func (b *InMemoryBackend) DeleteDataQualityJobDefinition(name string) error {
-	return b.deleteJobDefinition(b.dataQualityJobDefs, name, ErrDataQualityJobDefNotFound)
+func (b *InMemoryBackend) DeleteDataQualityJobDefinition(ctx context.Context, name string) error {
+	region := getRegion(ctx, b.region)
+
+	return b.deleteJobDefinition(ctx, b.dataQualityJobDefsStore(region), name, ErrDataQualityJobDefNotFound)
 }
 
 // ---------------------------------------------------------------------------
@@ -162,22 +176,30 @@ func (b *InMemoryBackend) DeleteDataQualityJobDefinition(name string) error {
 
 // CreateModelBiasJobDefinition creates a model bias job definition.
 func (b *InMemoryBackend) CreateModelBiasJobDefinition(
+	ctx context.Context,
 	name, roleArn string,
 	tags map[string]string,
 ) (*JobDefinition, error) {
+	region := getRegion(ctx, b.region)
+
 	return b.createJobDefinition(
-		b.modelBiasJobDefs, "ModelBias", name, roleArn, tags, "model-bias-job-definition",
+		ctx,
+		b.modelBiasJobDefsStore(region), "ModelBias", name, roleArn, tags, "model-bias-job-definition",
 	)
 }
 
 // DescribeModelBiasJobDefinition returns a model bias job definition by name.
-func (b *InMemoryBackend) DescribeModelBiasJobDefinition(name string) (*JobDefinition, error) {
-	return b.describeJobDefinition(b.modelBiasJobDefs, name, ErrModelBiasJobDefNotFound)
+func (b *InMemoryBackend) DescribeModelBiasJobDefinition(ctx context.Context, name string) (*JobDefinition, error) {
+	region := getRegion(ctx, b.region)
+
+	return b.describeJobDefinition(ctx, b.modelBiasJobDefsStore(region), name, ErrModelBiasJobDefNotFound)
 }
 
 // DeleteModelBiasJobDefinition removes a model bias job definition by name.
-func (b *InMemoryBackend) DeleteModelBiasJobDefinition(name string) error {
-	return b.deleteJobDefinition(b.modelBiasJobDefs, name, ErrModelBiasJobDefNotFound)
+func (b *InMemoryBackend) DeleteModelBiasJobDefinition(ctx context.Context, name string) error {
+	region := getRegion(ctx, b.region)
+
+	return b.deleteJobDefinition(ctx, b.modelBiasJobDefsStore(region), name, ErrModelBiasJobDefNotFound)
 }
 
 // ---------------------------------------------------------------------------
@@ -186,22 +208,30 @@ func (b *InMemoryBackend) DeleteModelBiasJobDefinition(name string) error {
 
 // CreateModelQualityJobDefinition creates a model quality job definition.
 func (b *InMemoryBackend) CreateModelQualityJobDefinition(
+	ctx context.Context,
 	name, roleArn string,
 	tags map[string]string,
 ) (*JobDefinition, error) {
+	region := getRegion(ctx, b.region)
+
 	return b.createJobDefinition(
-		b.modelQualityJobDefs, "ModelQuality", name, roleArn, tags, "model-quality-job-definition",
+		ctx,
+		b.modelQualityJobDefsStore(region), "ModelQuality", name, roleArn, tags, "model-quality-job-definition",
 	)
 }
 
 // DescribeModelQualityJobDefinition returns a model quality job definition by name.
-func (b *InMemoryBackend) DescribeModelQualityJobDefinition(name string) (*JobDefinition, error) {
-	return b.describeJobDefinition(b.modelQualityJobDefs, name, ErrModelQualityJobDefNotFound)
+func (b *InMemoryBackend) DescribeModelQualityJobDefinition(ctx context.Context, name string) (*JobDefinition, error) {
+	region := getRegion(ctx, b.region)
+
+	return b.describeJobDefinition(ctx, b.modelQualityJobDefsStore(region), name, ErrModelQualityJobDefNotFound)
 }
 
 // DeleteModelQualityJobDefinition removes a model quality job definition by name.
-func (b *InMemoryBackend) DeleteModelQualityJobDefinition(name string) error {
-	return b.deleteJobDefinition(b.modelQualityJobDefs, name, ErrModelQualityJobDefNotFound)
+func (b *InMemoryBackend) DeleteModelQualityJobDefinition(ctx context.Context, name string) error {
+	region := getRegion(ctx, b.region)
+
+	return b.deleteJobDefinition(ctx, b.modelQualityJobDefsStore(region), name, ErrModelQualityJobDefNotFound)
 }
 
 // ---------------------------------------------------------------------------
@@ -210,11 +240,15 @@ func (b *InMemoryBackend) DeleteModelQualityJobDefinition(name string) error {
 
 // CreateModelExplainabilityJobDefinition creates a model explainability job definition.
 func (b *InMemoryBackend) CreateModelExplainabilityJobDefinition(
+	ctx context.Context,
 	name, roleArn string,
 	tags map[string]string,
 ) (*JobDefinition, error) {
+	region := getRegion(ctx, b.region)
+
 	return b.createJobDefinition(
-		b.modelExplainJobDefs,
+		ctx,
+		b.modelExplainJobDefsStore(region),
 		"ModelExplainability",
 		name,
 		roleArn,
@@ -224,13 +258,20 @@ func (b *InMemoryBackend) CreateModelExplainabilityJobDefinition(
 }
 
 // DescribeModelExplainabilityJobDefinition returns a model explainability job definition by name.
-func (b *InMemoryBackend) DescribeModelExplainabilityJobDefinition(name string) (*JobDefinition, error) {
-	return b.describeJobDefinition(b.modelExplainJobDefs, name, ErrModelExplainJobDefNotFound)
+func (b *InMemoryBackend) DescribeModelExplainabilityJobDefinition(
+	ctx context.Context,
+	name string,
+) (*JobDefinition, error) {
+	region := getRegion(ctx, b.region)
+
+	return b.describeJobDefinition(ctx, b.modelExplainJobDefsStore(region), name, ErrModelExplainJobDefNotFound)
 }
 
 // DeleteModelExplainabilityJobDefinition removes a model explainability job definition by name.
-func (b *InMemoryBackend) DeleteModelExplainabilityJobDefinition(name string) error {
-	return b.deleteJobDefinition(b.modelExplainJobDefs, name, ErrModelExplainJobDefNotFound)
+func (b *InMemoryBackend) DeleteModelExplainabilityJobDefinition(ctx context.Context, name string) error {
+	region := getRegion(ctx, b.region)
+
+	return b.deleteJobDefinition(ctx, b.modelExplainJobDefsStore(region), name, ErrModelExplainJobDefNotFound)
 }
 
 // ---------------------------------------------------------------------------
@@ -255,9 +296,12 @@ func cloneHumanTaskUI(h *HumanTaskUI) *HumanTaskUI {
 
 // CreateHumanTaskUI creates a human task UI.
 func (b *InMemoryBackend) CreateHumanTaskUI(
+	ctx context.Context,
 	name string,
 	tags map[string]string,
 ) (*HumanTaskUI, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("CreateHumanTaskUI")
 	defer b.mu.Unlock()
 
@@ -265,11 +309,13 @@ func (b *InMemoryBackend) CreateHumanTaskUI(
 		return nil, fmt.Errorf("%w: HumanTaskUiName is required", ErrValidation)
 	}
 
-	if _, ok := b.humanTaskUis[name]; ok {
+	store := b.humanTaskUisStore(region)
+
+	if _, ok := store[name]; ok {
 		return nil, fmt.Errorf("%w: human task UI %q already exists", ErrValidation, name)
 	}
 
-	uiARN := arn.Build("sagemaker", b.region, b.accountID, "human-task-ui/"+name)
+	uiARN := arn.Build("sagemaker", region, b.accountID, "human-task-ui/"+name)
 
 	ui := &HumanTaskUI{
 		HumanTaskUIName:   name,
@@ -278,17 +324,19 @@ func (b *InMemoryBackend) CreateHumanTaskUI(
 		Tags:              mergeTags(nil, tags),
 		CreationTime:      time.Now(),
 	}
-	b.humanTaskUis[name] = ui
+	store[name] = ui
 
 	return cloneHumanTaskUI(ui), nil
 }
 
 // DescribeHumanTaskUI returns a human task UI by name.
-func (b *InMemoryBackend) DescribeHumanTaskUI(name string) (*HumanTaskUI, error) {
+func (b *InMemoryBackend) DescribeHumanTaskUI(ctx context.Context, name string) (*HumanTaskUI, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("DescribeHumanTaskUI")
 	defer b.mu.RUnlock()
 
-	ui, ok := b.humanTaskUis[name]
+	ui, ok := b.humanTaskUisStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: human task UI %q not found", ErrHumanTaskUINotFound, name)
 	}
@@ -297,15 +345,19 @@ func (b *InMemoryBackend) DescribeHumanTaskUI(name string) (*HumanTaskUI, error)
 }
 
 // DeleteHumanTaskUI removes a human task UI by name.
-func (b *InMemoryBackend) DeleteHumanTaskUI(name string) error {
+func (b *InMemoryBackend) DeleteHumanTaskUI(ctx context.Context, name string) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("DeleteHumanTaskUI")
 	defer b.mu.Unlock()
 
-	if _, ok := b.humanTaskUis[name]; !ok {
+	store := b.humanTaskUisStore(region)
+
+	if _, ok := store[name]; !ok {
 		return fmt.Errorf("%w: human task UI %q not found", ErrHumanTaskUINotFound, name)
 	}
 
-	delete(b.humanTaskUis, name)
+	delete(store, name)
 
 	return nil
 }
@@ -332,9 +384,12 @@ func cloneWorkforce(w *Workforce) *Workforce {
 
 // CreateWorkforce creates a workforce.
 func (b *InMemoryBackend) CreateWorkforce(
+	ctx context.Context,
 	name string,
 	tags map[string]string,
 ) (*Workforce, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("CreateWorkforce")
 	defer b.mu.Unlock()
 
@@ -342,11 +397,13 @@ func (b *InMemoryBackend) CreateWorkforce(
 		return nil, fmt.Errorf("%w: WorkforceName is required", ErrValidation)
 	}
 
-	if _, ok := b.workforces[name]; ok {
+	store := b.workforcesStore(region)
+
+	if _, ok := store[name]; ok {
 		return nil, fmt.Errorf("%w: workforce %q already exists", ErrValidation, name)
 	}
 
-	workforceARN := arn.Build("sagemaker", b.region, b.accountID, "workforce/"+name)
+	workforceARN := arn.Build("sagemaker", region, b.accountID, "workforce/"+name)
 
 	w := &Workforce{
 		WorkforceName:    name,
@@ -355,17 +412,19 @@ func (b *InMemoryBackend) CreateWorkforce(
 		Tags:             mergeTags(nil, tags),
 		LastModifiedTime: time.Now(),
 	}
-	b.workforces[name] = w
+	store[name] = w
 
 	return cloneWorkforce(w), nil
 }
 
 // DescribeWorkforce returns a workforce by name.
-func (b *InMemoryBackend) DescribeWorkforce(name string) (*Workforce, error) {
+func (b *InMemoryBackend) DescribeWorkforce(ctx context.Context, name string) (*Workforce, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("DescribeWorkforce")
 	defer b.mu.RUnlock()
 
-	w, ok := b.workforces[name]
+	w, ok := b.workforcesStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: workforce %q not found", ErrWorkforceNotFound, name)
 	}
@@ -374,11 +433,13 @@ func (b *InMemoryBackend) DescribeWorkforce(name string) (*Workforce, error) {
 }
 
 // UpdateWorkforce updates a workforce (marks it modified).
-func (b *InMemoryBackend) UpdateWorkforce(name string) (*Workforce, error) {
+func (b *InMemoryBackend) UpdateWorkforce(ctx context.Context, name string) (*Workforce, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("UpdateWorkforce")
 	defer b.mu.Unlock()
 
-	w, ok := b.workforces[name]
+	w, ok := b.workforcesStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: workforce %q not found", ErrWorkforceNotFound, name)
 	}
@@ -411,9 +472,12 @@ func cloneFlowDefinition(f *FlowDefinition) *FlowDefinition {
 
 // CreateFlowDefinition creates a flow definition.
 func (b *InMemoryBackend) CreateFlowDefinition(
+	ctx context.Context,
 	name, roleArn string,
 	tags map[string]string,
 ) (*FlowDefinition, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("CreateFlowDefinition")
 	defer b.mu.Unlock()
 
@@ -421,11 +485,13 @@ func (b *InMemoryBackend) CreateFlowDefinition(
 		return nil, fmt.Errorf("%w: FlowDefinitionName is required", ErrValidation)
 	}
 
-	if _, ok := b.flowDefinitions[name]; ok {
+	store := b.flowDefinitionsStore(region)
+
+	if _, ok := store[name]; ok {
 		return nil, fmt.Errorf("%w: flow definition %q already exists", ErrValidation, name)
 	}
 
-	flowARN := arn.Build("sagemaker", b.region, b.accountID, "flow-definition/"+name)
+	flowARN := arn.Build("sagemaker", region, b.accountID, "flow-definition/"+name)
 
 	f := &FlowDefinition{
 		FlowDefinitionName:   name,
@@ -435,17 +501,19 @@ func (b *InMemoryBackend) CreateFlowDefinition(
 		Tags:                 mergeTags(nil, tags),
 		CreationTime:         time.Now(),
 	}
-	b.flowDefinitions[name] = f
+	store[name] = f
 
 	return cloneFlowDefinition(f), nil
 }
 
 // DescribeFlowDefinition returns a flow definition by name.
-func (b *InMemoryBackend) DescribeFlowDefinition(name string) (*FlowDefinition, error) {
+func (b *InMemoryBackend) DescribeFlowDefinition(ctx context.Context, name string) (*FlowDefinition, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("DescribeFlowDefinition")
 	defer b.mu.RUnlock()
 
-	f, ok := b.flowDefinitions[name]
+	f, ok := b.flowDefinitionsStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: flow definition %q not found", ErrFlowDefinitionNotFound, name)
 	}
@@ -454,15 +522,19 @@ func (b *InMemoryBackend) DescribeFlowDefinition(name string) (*FlowDefinition, 
 }
 
 // DeleteFlowDefinition removes a flow definition by name.
-func (b *InMemoryBackend) DeleteFlowDefinition(name string) error {
+func (b *InMemoryBackend) DeleteFlowDefinition(ctx context.Context, name string) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("DeleteFlowDefinition")
 	defer b.mu.Unlock()
 
-	if _, ok := b.flowDefinitions[name]; !ok {
+	store := b.flowDefinitionsStore(region)
+
+	if _, ok := store[name]; !ok {
 		return fmt.Errorf("%w: flow definition %q not found", ErrFlowDefinitionNotFound, name)
 	}
 
-	delete(b.flowDefinitions, name)
+	delete(store, name)
 
 	return nil
 }
@@ -489,9 +561,12 @@ func cloneAppImageConfig(a *AppImageConfig) *AppImageConfig {
 
 // CreateAppImageConfig creates an app image config.
 func (b *InMemoryBackend) CreateAppImageConfig(
+	ctx context.Context,
 	name string,
 	tags map[string]string,
 ) (*AppImageConfig, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("CreateAppImageConfig")
 	defer b.mu.Unlock()
 
@@ -499,11 +574,13 @@ func (b *InMemoryBackend) CreateAppImageConfig(
 		return nil, fmt.Errorf("%w: AppImageConfigName is required", ErrValidation)
 	}
 
-	if _, ok := b.appImageConfigs[name]; ok {
+	store := b.appImageConfigsStore(region)
+
+	if _, ok := store[name]; ok {
 		return nil, fmt.Errorf("%w: app image config %q already exists", ErrValidation, name)
 	}
 
-	configARN := arn.Build("sagemaker", b.region, b.accountID, "app-image-config/"+name)
+	configARN := arn.Build("sagemaker", region, b.accountID, "app-image-config/"+name)
 	now := time.Now()
 
 	a := &AppImageConfig{
@@ -513,17 +590,19 @@ func (b *InMemoryBackend) CreateAppImageConfig(
 		CreationTime:       now,
 		LastModifiedTime:   now,
 	}
-	b.appImageConfigs[name] = a
+	store[name] = a
 
 	return cloneAppImageConfig(a), nil
 }
 
 // DescribeAppImageConfig returns an app image config by name.
-func (b *InMemoryBackend) DescribeAppImageConfig(name string) (*AppImageConfig, error) {
+func (b *InMemoryBackend) DescribeAppImageConfig(ctx context.Context, name string) (*AppImageConfig, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("DescribeAppImageConfig")
 	defer b.mu.RUnlock()
 
-	a, ok := b.appImageConfigs[name]
+	a, ok := b.appImageConfigsStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: app image config %q not found", ErrAppImageConfigNotFound, name)
 	}
@@ -532,11 +611,13 @@ func (b *InMemoryBackend) DescribeAppImageConfig(name string) (*AppImageConfig, 
 }
 
 // UpdateAppImageConfig updates an app image config (marks it modified).
-func (b *InMemoryBackend) UpdateAppImageConfig(name string) (*AppImageConfig, error) {
+func (b *InMemoryBackend) UpdateAppImageConfig(ctx context.Context, name string) (*AppImageConfig, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("UpdateAppImageConfig")
 	defer b.mu.Unlock()
 
-	a, ok := b.appImageConfigs[name]
+	a, ok := b.appImageConfigsStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: app image config %q not found", ErrAppImageConfigNotFound, name)
 	}
@@ -547,15 +628,19 @@ func (b *InMemoryBackend) UpdateAppImageConfig(name string) (*AppImageConfig, er
 }
 
 // DeleteAppImageConfig removes an app image config by name.
-func (b *InMemoryBackend) DeleteAppImageConfig(name string) error {
+func (b *InMemoryBackend) DeleteAppImageConfig(ctx context.Context, name string) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("DeleteAppImageConfig")
 	defer b.mu.Unlock()
 
-	if _, ok := b.appImageConfigs[name]; !ok {
+	store := b.appImageConfigsStore(region)
+
+	if _, ok := store[name]; !ok {
 		return fmt.Errorf("%w: app image config %q not found", ErrAppImageConfigNotFound, name)
 	}
 
-	delete(b.appImageConfigs, name)
+	delete(store, name)
 
 	return nil
 }
@@ -585,9 +670,12 @@ func cloneInferenceExperiment(e *InferenceExperiment) *InferenceExperiment {
 
 // CreateInferenceExperiment creates an inference experiment.
 func (b *InMemoryBackend) CreateInferenceExperiment(
+	ctx context.Context,
 	name, expType, roleArn string,
 	tags map[string]string,
 ) (*InferenceExperiment, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("CreateInferenceExperiment")
 	defer b.mu.Unlock()
 
@@ -595,11 +683,13 @@ func (b *InMemoryBackend) CreateInferenceExperiment(
 		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
 	}
 
-	if _, ok := b.inferenceExperiments[name]; ok {
+	store := b.inferenceExperimentsStore(region)
+
+	if _, ok := store[name]; ok {
 		return nil, fmt.Errorf("%w: inference experiment %q already exists", ErrValidation, name)
 	}
 
-	expARN := arn.Build("sagemaker", b.region, b.accountID, "inference-experiment/"+name)
+	expARN := arn.Build("sagemaker", region, b.accountID, "inference-experiment/"+name)
 	now := time.Now()
 
 	e := &InferenceExperiment{
@@ -612,17 +702,19 @@ func (b *InMemoryBackend) CreateInferenceExperiment(
 		CreationTime:     now,
 		LastModifiedTime: now,
 	}
-	b.inferenceExperiments[name] = e
+	store[name] = e
 
 	return cloneInferenceExperiment(e), nil
 }
 
 // DescribeInferenceExperiment returns an inference experiment by name.
-func (b *InMemoryBackend) DescribeInferenceExperiment(name string) (*InferenceExperiment, error) {
+func (b *InMemoryBackend) DescribeInferenceExperiment(ctx context.Context, name string) (*InferenceExperiment, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("DescribeInferenceExperiment")
 	defer b.mu.RUnlock()
 
-	e, ok := b.inferenceExperiments[name]
+	e, ok := b.inferenceExperimentsStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: inference experiment %q not found", ErrInferenceExperimentNotFound, name)
 	}
@@ -631,11 +723,13 @@ func (b *InMemoryBackend) DescribeInferenceExperiment(name string) (*InferenceEx
 }
 
 // StopInferenceExperiment sets an inference experiment status to "Cancelled".
-func (b *InMemoryBackend) StopInferenceExperiment(name string) error {
+func (b *InMemoryBackend) StopInferenceExperiment(ctx context.Context, name string) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("StopInferenceExperiment")
 	defer b.mu.Unlock()
 
-	e, ok := b.inferenceExperiments[name]
+	e, ok := b.inferenceExperimentsStore(region)[name]
 	if !ok {
 		return fmt.Errorf("%w: inference experiment %q not found", ErrInferenceExperimentNotFound, name)
 	}
@@ -647,15 +741,19 @@ func (b *InMemoryBackend) StopInferenceExperiment(name string) error {
 }
 
 // DeleteInferenceExperiment removes an inference experiment by name.
-func (b *InMemoryBackend) DeleteInferenceExperiment(name string) error {
+func (b *InMemoryBackend) DeleteInferenceExperiment(ctx context.Context, name string) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("DeleteInferenceExperiment")
 	defer b.mu.Unlock()
 
-	if _, ok := b.inferenceExperiments[name]; !ok {
+	store := b.inferenceExperimentsStore(region)
+
+	if _, ok := store[name]; !ok {
 		return fmt.Errorf("%w: inference experiment %q not found", ErrInferenceExperimentNotFound, name)
 	}
 
-	delete(b.inferenceExperiments, name)
+	delete(store, name)
 
 	return nil
 }
@@ -685,9 +783,12 @@ func cloneMlflowTrackingServer(s *MlflowTrackingServer) *MlflowTrackingServer {
 
 // CreateMlflowTrackingServer creates an MLflow tracking server.
 func (b *InMemoryBackend) CreateMlflowTrackingServer(
+	ctx context.Context,
 	name, roleArn, mlflowVersion string,
 	tags map[string]string,
 ) (*MlflowTrackingServer, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("CreateMlflowTrackingServer")
 	defer b.mu.Unlock()
 
@@ -695,11 +796,13 @@ func (b *InMemoryBackend) CreateMlflowTrackingServer(
 		return nil, fmt.Errorf("%w: TrackingServerName is required", ErrValidation)
 	}
 
-	if _, ok := b.mlflowTrackingServers[name]; ok {
+	store := b.mlflowTrackingServersStore(region)
+
+	if _, ok := store[name]; ok {
 		return nil, fmt.Errorf("%w: MLflow tracking server %q already exists", ErrValidation, name)
 	}
 
-	serverARN := arn.Build("sagemaker", b.region, b.accountID, "mlflow-tracking-server/"+name)
+	serverARN := arn.Build("sagemaker", region, b.accountID, "mlflow-tracking-server/"+name)
 	now := time.Now()
 
 	s := &MlflowTrackingServer{
@@ -712,17 +815,22 @@ func (b *InMemoryBackend) CreateMlflowTrackingServer(
 		CreationTime:         now,
 		LastModifiedTime:     now,
 	}
-	b.mlflowTrackingServers[name] = s
+	store[name] = s
 
 	return cloneMlflowTrackingServer(s), nil
 }
 
 // DescribeMlflowTrackingServer returns an MLflow tracking server by name.
-func (b *InMemoryBackend) DescribeMlflowTrackingServer(name string) (*MlflowTrackingServer, error) {
+func (b *InMemoryBackend) DescribeMlflowTrackingServer(
+	ctx context.Context,
+	name string,
+) (*MlflowTrackingServer, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("DescribeMlflowTrackingServer")
 	defer b.mu.RUnlock()
 
-	s, ok := b.mlflowTrackingServers[name]
+	s, ok := b.mlflowTrackingServersStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: MLflow tracking server %q not found", ErrMlflowTrackingServerNotFound, name)
 	}
@@ -731,25 +839,31 @@ func (b *InMemoryBackend) DescribeMlflowTrackingServer(name string) (*MlflowTrac
 }
 
 // DeleteMlflowTrackingServer removes an MLflow tracking server by name.
-func (b *InMemoryBackend) DeleteMlflowTrackingServer(name string) error {
+func (b *InMemoryBackend) DeleteMlflowTrackingServer(ctx context.Context, name string) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("DeleteMlflowTrackingServer")
 	defer b.mu.Unlock()
 
-	if _, ok := b.mlflowTrackingServers[name]; !ok {
+	store := b.mlflowTrackingServersStore(region)
+
+	if _, ok := store[name]; !ok {
 		return fmt.Errorf("%w: MLflow tracking server %q not found", ErrMlflowTrackingServerNotFound, name)
 	}
 
-	delete(b.mlflowTrackingServers, name)
+	delete(store, name)
 
 	return nil
 }
 
 // StartMlflowTrackingServer sets an MLflow tracking server status to "Running".
-func (b *InMemoryBackend) StartMlflowTrackingServer(name string) error {
+func (b *InMemoryBackend) StartMlflowTrackingServer(ctx context.Context, name string) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("StartMlflowTrackingServer")
 	defer b.mu.Unlock()
 
-	s, ok := b.mlflowTrackingServers[name]
+	s, ok := b.mlflowTrackingServersStore(region)[name]
 	if !ok {
 		return fmt.Errorf("%w: MLflow tracking server %q not found", ErrMlflowTrackingServerNotFound, name)
 	}
@@ -761,11 +875,13 @@ func (b *InMemoryBackend) StartMlflowTrackingServer(name string) error {
 }
 
 // StopMlflowTrackingServer sets an MLflow tracking server status to "Stopped".
-func (b *InMemoryBackend) StopMlflowTrackingServer(name string) error {
+func (b *InMemoryBackend) StopMlflowTrackingServer(ctx context.Context, name string) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("StopMlflowTrackingServer")
 	defer b.mu.Unlock()
 
-	s, ok := b.mlflowTrackingServers[name]
+	s, ok := b.mlflowTrackingServersStore(region)[name]
 	if !ok {
 		return fmt.Errorf("%w: MLflow tracking server %q not found", ErrMlflowTrackingServerNotFound, name)
 	}
@@ -801,9 +917,12 @@ func cloneModelCard(c *ModelCard) *ModelCard {
 
 // CreateModelCard creates a model card.
 func (b *InMemoryBackend) CreateModelCard(
+	ctx context.Context,
 	name, content string,
 	tags map[string]string,
 ) (*ModelCard, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("CreateModelCard")
 	defer b.mu.Unlock()
 
@@ -811,11 +930,13 @@ func (b *InMemoryBackend) CreateModelCard(
 		return nil, fmt.Errorf("%w: ModelCardName is required", ErrValidation)
 	}
 
-	if _, ok := b.modelCards[name]; ok {
+	store := b.modelCardsStore(region)
+
+	if _, ok := store[name]; ok {
 		return nil, fmt.Errorf("%w: model card %q already exists", ErrValidation, name)
 	}
 
-	cardARN := arn.Build("sagemaker", b.region, b.accountID, "model-card/"+name)
+	cardARN := arn.Build("sagemaker", region, b.accountID, "model-card/"+name)
 	now := time.Now()
 
 	c := &ModelCard{
@@ -828,17 +949,19 @@ func (b *InMemoryBackend) CreateModelCard(
 		CreationTime:     now,
 		LastModifiedTime: now,
 	}
-	b.modelCards[name] = c
+	store[name] = c
 
 	return cloneModelCard(c), nil
 }
 
 // DescribeModelCard returns a model card by name.
-func (b *InMemoryBackend) DescribeModelCard(name string) (*ModelCard, error) {
+func (b *InMemoryBackend) DescribeModelCard(ctx context.Context, name string) (*ModelCard, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("DescribeModelCard")
 	defer b.mu.RUnlock()
 
-	c, ok := b.modelCards[name]
+	c, ok := b.modelCardsStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: model card %q not found", ErrModelCardNotFound, name)
 	}
@@ -847,11 +970,13 @@ func (b *InMemoryBackend) DescribeModelCard(name string) (*ModelCard, error) {
 }
 
 // UpdateModelCard updates a model card content and increments its version.
-func (b *InMemoryBackend) UpdateModelCard(name, content string) (*ModelCard, error) {
+func (b *InMemoryBackend) UpdateModelCard(ctx context.Context, name, content string) (*ModelCard, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("UpdateModelCard")
 	defer b.mu.Unlock()
 
-	c, ok := b.modelCards[name]
+	c, ok := b.modelCardsStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: model card %q not found", ErrModelCardNotFound, name)
 	}
@@ -864,15 +989,19 @@ func (b *InMemoryBackend) UpdateModelCard(name, content string) (*ModelCard, err
 }
 
 // DeleteModelCard removes a model card by name.
-func (b *InMemoryBackend) DeleteModelCard(name string) error {
+func (b *InMemoryBackend) DeleteModelCard(ctx context.Context, name string) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("DeleteModelCard")
 	defer b.mu.Unlock()
 
-	if _, ok := b.modelCards[name]; !ok {
+	store := b.modelCardsStore(region)
+
+	if _, ok := store[name]; !ok {
 		return fmt.Errorf("%w: model card %q not found", ErrModelCardNotFound, name)
 	}
 
-	delete(b.modelCards, name)
+	delete(store, name)
 
 	return nil
 }
@@ -901,9 +1030,12 @@ func cloneOptimizationJob(j *OptimizationJob) *OptimizationJob {
 
 // CreateOptimizationJob creates an optimization job.
 func (b *InMemoryBackend) CreateOptimizationJob(
+	ctx context.Context,
 	name, roleArn string,
 	tags map[string]string,
 ) (*OptimizationJob, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("CreateOptimizationJob")
 	defer b.mu.Unlock()
 
@@ -911,11 +1043,13 @@ func (b *InMemoryBackend) CreateOptimizationJob(
 		return nil, fmt.Errorf("%w: OptimizationJobName is required", ErrValidation)
 	}
 
-	if _, ok := b.optimizationJobs[name]; ok {
+	store := b.optimizationJobsStore(region)
+
+	if _, ok := store[name]; ok {
 		return nil, fmt.Errorf("%w: optimization job %q already exists", ErrValidation, name)
 	}
 
-	jobARN := arn.Build("sagemaker", b.region, b.accountID, "optimization-job/"+name)
+	jobARN := arn.Build("sagemaker", region, b.accountID, "optimization-job/"+name)
 	now := time.Now()
 
 	j := &OptimizationJob{
@@ -927,17 +1061,19 @@ func (b *InMemoryBackend) CreateOptimizationJob(
 		CreationTime:          now,
 		LastModifiedTime:      now,
 	}
-	b.optimizationJobs[name] = j
+	store[name] = j
 
 	return cloneOptimizationJob(j), nil
 }
 
 // DescribeOptimizationJob returns an optimization job by name.
-func (b *InMemoryBackend) DescribeOptimizationJob(name string) (*OptimizationJob, error) {
+func (b *InMemoryBackend) DescribeOptimizationJob(ctx context.Context, name string) (*OptimizationJob, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("DescribeOptimizationJob")
 	defer b.mu.RUnlock()
 
-	j, ok := b.optimizationJobs[name]
+	j, ok := b.optimizationJobsStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: optimization job %q not found", ErrOptimizationJobNotFound, name)
 	}
@@ -946,25 +1082,31 @@ func (b *InMemoryBackend) DescribeOptimizationJob(name string) (*OptimizationJob
 }
 
 // DeleteOptimizationJob removes an optimization job by name.
-func (b *InMemoryBackend) DeleteOptimizationJob(name string) error {
+func (b *InMemoryBackend) DeleteOptimizationJob(ctx context.Context, name string) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("DeleteOptimizationJob")
 	defer b.mu.Unlock()
 
-	if _, ok := b.optimizationJobs[name]; !ok {
+	store := b.optimizationJobsStore(region)
+
+	if _, ok := store[name]; !ok {
 		return fmt.Errorf("%w: optimization job %q not found", ErrOptimizationJobNotFound, name)
 	}
 
-	delete(b.optimizationJobs, name)
+	delete(store, name)
 
 	return nil
 }
 
 // StopOptimizationJob sets an optimization job status to "STOPPED".
-func (b *InMemoryBackend) StopOptimizationJob(name string) error {
+func (b *InMemoryBackend) StopOptimizationJob(ctx context.Context, name string) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("StopOptimizationJob")
 	defer b.mu.Unlock()
 
-	j, ok := b.optimizationJobs[name]
+	j, ok := b.optimizationJobsStore(region)[name]
 	if !ok {
 		return fmt.Errorf("%w: optimization job %q not found", ErrOptimizationJobNotFound, name)
 	}
@@ -998,9 +1140,12 @@ func cloneStudioLifecycleConfig(s *StudioLifecycleConfig) *StudioLifecycleConfig
 
 // CreateStudioLifecycleConfig creates a Studio lifecycle configuration.
 func (b *InMemoryBackend) CreateStudioLifecycleConfig(
+	ctx context.Context,
 	name, appType string,
 	tags map[string]string,
 ) (*StudioLifecycleConfig, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("CreateStudioLifecycleConfig")
 	defer b.mu.Unlock()
 
@@ -1008,11 +1153,13 @@ func (b *InMemoryBackend) CreateStudioLifecycleConfig(
 		return nil, fmt.Errorf("%w: StudioLifecycleConfigName is required", ErrValidation)
 	}
 
-	if _, ok := b.studioLifecycleConfigs[name]; ok {
+	store := b.studioLifecycleConfigsStore(region)
+
+	if _, ok := store[name]; ok {
 		return nil, fmt.Errorf("%w: Studio lifecycle config %q already exists", ErrValidation, name)
 	}
 
-	configARN := arn.Build("sagemaker", b.region, b.accountID, "studio-lifecycle-config/"+name)
+	configARN := arn.Build("sagemaker", region, b.accountID, "studio-lifecycle-config/"+name)
 	now := time.Now()
 
 	s := &StudioLifecycleConfig{
@@ -1023,17 +1170,22 @@ func (b *InMemoryBackend) CreateStudioLifecycleConfig(
 		CreationTime:                 now,
 		LastModifiedTime:             now,
 	}
-	b.studioLifecycleConfigs[name] = s
+	store[name] = s
 
 	return cloneStudioLifecycleConfig(s), nil
 }
 
 // DescribeStudioLifecycleConfig returns a Studio lifecycle configuration by name.
-func (b *InMemoryBackend) DescribeStudioLifecycleConfig(name string) (*StudioLifecycleConfig, error) {
+func (b *InMemoryBackend) DescribeStudioLifecycleConfig(
+	ctx context.Context,
+	name string,
+) (*StudioLifecycleConfig, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("DescribeStudioLifecycleConfig")
 	defer b.mu.RUnlock()
 
-	s, ok := b.studioLifecycleConfigs[name]
+	s, ok := b.studioLifecycleConfigsStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: Studio lifecycle config %q not found", ErrStudioLifecycleConfigNotFound, name)
 	}
@@ -1042,15 +1194,19 @@ func (b *InMemoryBackend) DescribeStudioLifecycleConfig(name string) (*StudioLif
 }
 
 // DeleteStudioLifecycleConfig removes a Studio lifecycle configuration by name.
-func (b *InMemoryBackend) DeleteStudioLifecycleConfig(name string) error {
+func (b *InMemoryBackend) DeleteStudioLifecycleConfig(ctx context.Context, name string) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("DeleteStudioLifecycleConfig")
 	defer b.mu.Unlock()
 
-	if _, ok := b.studioLifecycleConfigs[name]; !ok {
+	store := b.studioLifecycleConfigsStore(region)
+
+	if _, ok := store[name]; !ok {
 		return fmt.Errorf("%w: Studio lifecycle config %q not found", ErrStudioLifecycleConfigNotFound, name)
 	}
 
-	delete(b.studioLifecycleConfigs, name)
+	delete(store, name)
 
 	return nil
 }
@@ -1078,9 +1234,12 @@ func clonePartnerApp(p *PartnerApp) *PartnerApp {
 
 // CreatePartnerApp creates a partner app. Stores by ARN; returns both name and ARN.
 func (b *InMemoryBackend) CreatePartnerApp(
+	ctx context.Context,
 	name, appType string,
 	tags map[string]string,
 ) (*PartnerApp, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("CreatePartnerApp")
 	defer b.mu.Unlock()
 
@@ -1088,9 +1247,11 @@ func (b *InMemoryBackend) CreatePartnerApp(
 		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
 	}
 
-	appARN := arn.Build("sagemaker", b.region, b.accountID, "partner-app/"+name)
+	appARN := arn.Build("sagemaker", region, b.accountID, "partner-app/"+name)
 
-	if _, ok := b.partnerApps[appARN]; ok {
+	store := b.partnerAppsStore(region)
+
+	if _, ok := store[appARN]; ok {
 		return nil, fmt.Errorf("%w: partner app %q already exists", ErrValidation, name)
 	}
 
@@ -1102,17 +1263,19 @@ func (b *InMemoryBackend) CreatePartnerApp(
 		Tags:         mergeTags(nil, tags),
 		CreationTime: time.Now(),
 	}
-	b.partnerApps[appARN] = p
+	store[appARN] = p
 
 	return clonePartnerApp(p), nil
 }
 
 // DescribePartnerApp returns a partner app by ARN.
-func (b *InMemoryBackend) DescribePartnerApp(arnStr string) (*PartnerApp, error) {
+func (b *InMemoryBackend) DescribePartnerApp(ctx context.Context, arnStr string) (*PartnerApp, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("DescribePartnerApp")
 	defer b.mu.RUnlock()
 
-	p, ok := b.partnerApps[arnStr]
+	p, ok := b.partnerAppsStore(region)[arnStr]
 	if !ok {
 		return nil, fmt.Errorf("%w: partner app %q not found", ErrPartnerAppNotFound, arnStr)
 	}
@@ -1121,15 +1284,19 @@ func (b *InMemoryBackend) DescribePartnerApp(arnStr string) (*PartnerApp, error)
 }
 
 // DeletePartnerApp removes a partner app by ARN.
-func (b *InMemoryBackend) DeletePartnerApp(arnStr string) error {
+func (b *InMemoryBackend) DeletePartnerApp(ctx context.Context, arnStr string) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("DeletePartnerApp")
 	defer b.mu.Unlock()
 
-	if _, ok := b.partnerApps[arnStr]; !ok {
+	store := b.partnerAppsStore(region)
+
+	if _, ok := store[arnStr]; !ok {
 		return fmt.Errorf("%w: partner app %q not found", ErrPartnerAppNotFound, arnStr)
 	}
 
-	delete(b.partnerApps, arnStr)
+	delete(store, arnStr)
 
 	return nil
 }
@@ -1156,9 +1323,12 @@ func cloneTrainingPlan(t *TrainingPlan) *TrainingPlan {
 
 // CreateTrainingPlan creates a training plan.
 func (b *InMemoryBackend) CreateTrainingPlan(
+	ctx context.Context,
 	name string,
 	tags map[string]string,
 ) (*TrainingPlan, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("CreateTrainingPlan")
 	defer b.mu.Unlock()
 
@@ -1166,11 +1336,13 @@ func (b *InMemoryBackend) CreateTrainingPlan(
 		return nil, fmt.Errorf("%w: TrainingPlanName is required", ErrValidation)
 	}
 
-	if _, ok := b.trainingPlans[name]; ok {
+	store := b.trainingPlansStore(region)
+
+	if _, ok := store[name]; ok {
 		return nil, fmt.Errorf("%w: training plan %q already exists", ErrValidation, name)
 	}
 
-	planARN := arn.Build("sagemaker", b.region, b.accountID, "training-plan/"+name)
+	planARN := arn.Build("sagemaker", region, b.accountID, "training-plan/"+name)
 
 	t := &TrainingPlan{
 		TrainingPlanName: name,
@@ -1179,17 +1351,19 @@ func (b *InMemoryBackend) CreateTrainingPlan(
 		Tags:             mergeTags(nil, tags),
 		CreationTime:     time.Now(),
 	}
-	b.trainingPlans[name] = t
+	store[name] = t
 
 	return cloneTrainingPlan(t), nil
 }
 
 // DescribeTrainingPlan returns a training plan by name.
-func (b *InMemoryBackend) DescribeTrainingPlan(name string) (*TrainingPlan, error) {
+func (b *InMemoryBackend) DescribeTrainingPlan(ctx context.Context, name string) (*TrainingPlan, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("DescribeTrainingPlan")
 	defer b.mu.RUnlock()
 
-	t, ok := b.trainingPlans[name]
+	t, ok := b.trainingPlansStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: training plan %q not found", ErrTrainingPlanNotFound, name)
 	}

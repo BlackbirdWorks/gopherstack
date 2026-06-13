@@ -1,6 +1,7 @@
 package resourcegroupstaggingapi_test
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"net/http"
@@ -46,7 +47,7 @@ func TestAudit1_GetResources_ExcludeCompliant_RequiresIncludeDetails(t *testing.
 
 	b := newBackend(t)
 
-	_, err := b.GetResources(&resourcegroupstaggingapi.GetResourcesInput{
+	_, err := b.GetResources(context.Background(), &resourcegroupstaggingapi.GetResourcesInput{
 		ExcludeCompliantResources: true,
 		IncludeComplianceDetails:  false,
 	})
@@ -61,7 +62,7 @@ func TestAudit1_GetResources_ExcludeCompliant_WithIncludeDetails(t *testing.T) {
 	b := newBackend(t)
 	seedResources(b, makeResources(3))
 
-	out, err := b.GetResources(&resourcegroupstaggingapi.GetResourcesInput{
+	out, err := b.GetResources(context.Background(), &resourcegroupstaggingapi.GetResourcesInput{
 		ExcludeCompliantResources: true,
 		IncludeComplianceDetails:  true,
 	})
@@ -76,7 +77,7 @@ func TestAudit1_GetResources_TagFilter_EmptyKey(t *testing.T) {
 
 	b := newBackend(t)
 
-	_, err := b.GetResources(&resourcegroupstaggingapi.GetResourcesInput{
+	_, err := b.GetResources(context.Background(), &resourcegroupstaggingapi.GetResourcesInput{
 		TagFilters: []resourcegroupstaggingapi.TagFilter{{Key: ""}},
 	})
 
@@ -89,7 +90,7 @@ func TestAudit1_GetResources_TagFilter_KeyTooLong(t *testing.T) {
 
 	b := newBackend(t)
 
-	_, err := b.GetResources(&resourcegroupstaggingapi.GetResourcesInput{
+	_, err := b.GetResources(context.Background(), &resourcegroupstaggingapi.GetResourcesInput{
 		TagFilters: []resourcegroupstaggingapi.TagFilter{
 			{Key: strings.Repeat("k", 129)},
 		},
@@ -104,7 +105,7 @@ func TestAudit1_GetResources_TagFilter_KeyExactlyMaxLength(t *testing.T) {
 
 	b := newBackend(t)
 
-	_, err := b.GetResources(&resourcegroupstaggingapi.GetResourcesInput{
+	_, err := b.GetResources(context.Background(), &resourcegroupstaggingapi.GetResourcesInput{
 		TagFilters: []resourcegroupstaggingapi.TagFilter{
 			{Key: strings.Repeat("k", 128)},
 		},
@@ -122,7 +123,7 @@ func TestAudit1_GetResources_TagFilter_TooManyValues(t *testing.T) {
 		values[i] = fmt.Sprintf("v%d", i)
 	}
 
-	_, err := b.GetResources(&resourcegroupstaggingapi.GetResourcesInput{
+	_, err := b.GetResources(context.Background(), &resourcegroupstaggingapi.GetResourcesInput{
 		TagFilters: []resourcegroupstaggingapi.TagFilter{
 			{Key: "env", Values: values},
 		},
@@ -141,7 +142,7 @@ func TestAudit1_GetResources_TagFilter_ExactlyMaxValues(t *testing.T) {
 		values[i] = fmt.Sprintf("v%d", i)
 	}
 
-	_, err := b.GetResources(&resourcegroupstaggingapi.GetResourcesInput{
+	_, err := b.GetResources(context.Background(), &resourcegroupstaggingapi.GetResourcesInput{
 		TagFilters: []resourcegroupstaggingapi.TagFilter{
 			{Key: "env", Values: values},
 		},
@@ -155,7 +156,7 @@ func TestAudit1_GetResources_TagFilter_ValueTooLong(t *testing.T) {
 
 	b := newBackend(t)
 
-	_, err := b.GetResources(&resourcegroupstaggingapi.GetResourcesInput{
+	_, err := b.GetResources(context.Background(), &resourcegroupstaggingapi.GetResourcesInput{
 		TagFilters: []resourcegroupstaggingapi.TagFilter{
 			{Key: "env", Values: []string{strings.Repeat("v", 257)}},
 		},
@@ -170,7 +171,7 @@ func TestAudit1_GetResources_TagFilter_DuplicateKeys(t *testing.T) {
 
 	b := newBackend(t)
 
-	_, err := b.GetResources(&resourcegroupstaggingapi.GetResourcesInput{
+	_, err := b.GetResources(context.Background(), &resourcegroupstaggingapi.GetResourcesInput{
 		TagFilters: []resourcegroupstaggingapi.TagFilter{
 			{Key: "env", Values: []string{"prod"}},
 			{Key: "env", Values: []string{"dev"}},
@@ -186,7 +187,7 @@ func TestAudit1_GetResources_TagFilter_UniqueKeys_OK(t *testing.T) {
 
 	b := newBackend(t)
 
-	_, err := b.GetResources(&resourcegroupstaggingapi.GetResourcesInput{
+	_, err := b.GetResources(context.Background(), &resourcegroupstaggingapi.GetResourcesInput{
 		TagFilters: []resourcegroupstaggingapi.TagFilter{
 			{Key: "env", Values: []string{"prod"}},
 			{Key: "owner", Values: []string{"alice"}},
@@ -205,7 +206,7 @@ func TestAudit1_GetResources_TagFilter_50Unique_OK(t *testing.T) {
 		filters[i] = resourcegroupstaggingapi.TagFilter{Key: fmt.Sprintf("key%d", i)}
 	}
 
-	_, err := b.GetResources(&resourcegroupstaggingapi.GetResourcesInput{TagFilters: filters})
+	_, err := b.GetResources(context.Background(), &resourcegroupstaggingapi.GetResourcesInput{TagFilters: filters})
 
 	require.NoError(t, err)
 }
@@ -219,7 +220,7 @@ func TestAudit1_GetResources_TagsPerPage_TooSmall(t *testing.T) {
 
 	b := newBackend(t)
 
-	_, err := b.GetResources(&resourcegroupstaggingapi.GetResourcesInput{
+	_, err := b.GetResources(context.Background(), &resourcegroupstaggingapi.GetResourcesInput{
 		TagsPerPage: ptr(int32(99)),
 	})
 
@@ -232,7 +233,7 @@ func TestAudit1_GetResources_TagsPerPage_TooLarge(t *testing.T) {
 
 	b := newBackend(t)
 
-	_, err := b.GetResources(&resourcegroupstaggingapi.GetResourcesInput{
+	_, err := b.GetResources(context.Background(), &resourcegroupstaggingapi.GetResourcesInput{
 		TagsPerPage: ptr(int32(501)),
 	})
 
@@ -245,7 +246,7 @@ func TestAudit1_GetResources_TagsPerPage_MinValid(t *testing.T) {
 
 	b := newBackend(t)
 
-	_, err := b.GetResources(&resourcegroupstaggingapi.GetResourcesInput{
+	_, err := b.GetResources(context.Background(), &resourcegroupstaggingapi.GetResourcesInput{
 		TagsPerPage: ptr(int32(100)),
 	})
 
@@ -257,7 +258,7 @@ func TestAudit1_GetResources_TagsPerPage_MaxValid(t *testing.T) {
 
 	b := newBackend(t)
 
-	_, err := b.GetResources(&resourcegroupstaggingapi.GetResourcesInput{
+	_, err := b.GetResources(context.Background(), &resourcegroupstaggingapi.GetResourcesInput{
 		TagsPerPage: ptr(int32(500)),
 	})
 
@@ -269,7 +270,7 @@ func TestAudit1_GetResources_TagsPerPage_Nil_OK(t *testing.T) {
 
 	b := newBackend(t)
 
-	_, err := b.GetResources(&resourcegroupstaggingapi.GetResourcesInput{})
+	_, err := b.GetResources(context.Background(), &resourcegroupstaggingapi.GetResourcesInput{})
 
 	require.NoError(t, err)
 }
@@ -304,7 +305,7 @@ func TestAudit1_ResourceTypeFilter_Validation(t *testing.T) {
 			t.Parallel()
 
 			b := newBackend(t)
-			_, err := b.GetResources(&resourcegroupstaggingapi.GetResourcesInput{
+			_, err := b.GetResources(context.Background(), &resourcegroupstaggingapi.GetResourcesInput{
 				ResourceTypeFilters: []string{tt.filter},
 			})
 
@@ -378,7 +379,7 @@ func TestAudit1_ResourceTypeFilter_CaseSensitiveMatch(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			out, err := b.GetResources(&resourcegroupstaggingapi.GetResourcesInput{
+			out, err := b.GetResources(context.Background(), &resourcegroupstaggingapi.GetResourcesInput{
 				ResourceTypeFilters: tt.typeFilters,
 			})
 
@@ -442,7 +443,7 @@ func TestAudit1_TagResources_ARN_Validation(t *testing.T) {
 			t.Parallel()
 
 			b := newBackend(t)
-			_, err := b.TagResources(&resourcegroupstaggingapi.TagResourcesInput{
+			_, err := b.TagResources(context.Background(), &resourcegroupstaggingapi.TagResourcesInput{
 				ResourceARNList: tt.arns,
 				Tags:            map[string]string{"env": "test"},
 			})
@@ -487,7 +488,7 @@ func TestAudit1_UntagResources_ARN_Validation(t *testing.T) {
 			t.Parallel()
 
 			b := newBackend(t)
-			_, err := b.UntagResources(&resourcegroupstaggingapi.UntagResourcesInput{
+			_, err := b.UntagResources(context.Background(), &resourcegroupstaggingapi.UntagResourcesInput{
 				ResourceARNList: tt.arns,
 				TagKeys:         []string{"env"},
 			})
@@ -553,7 +554,7 @@ func TestAudit1_UntagResources_TagKeys_Validation(t *testing.T) {
 			t.Parallel()
 
 			b := newBackend(t)
-			_, err := b.UntagResources(&resourcegroupstaggingapi.UntagResourcesInput{
+			_, err := b.UntagResources(context.Background(), &resourcegroupstaggingapi.UntagResourcesInput{
 				ResourceARNList: []string{validARN},
 				TagKeys:         tt.keys,
 			})
@@ -587,7 +588,7 @@ func TestAudit1_GetResources_Dedup_AcrossProviders(t *testing.T) {
 	b := newBackend(t)
 
 	// Both providers return the same ARN; last writer wins.
-	b.RegisterProvider(func() []resourcegroupstaggingapi.TaggedResource {
+	b.RegisterProvider(func(_ context.Context) []resourcegroupstaggingapi.TaggedResource {
 		return []resourcegroupstaggingapi.TaggedResource{
 			{
 				ResourceARN:  "arn:aws:sqs:us-east-1:000000000000:q1",
@@ -596,7 +597,7 @@ func TestAudit1_GetResources_Dedup_AcrossProviders(t *testing.T) {
 			},
 		}
 	})
-	b.RegisterProvider(func() []resourcegroupstaggingapi.TaggedResource {
+	b.RegisterProvider(func(_ context.Context) []resourcegroupstaggingapi.TaggedResource {
 		return []resourcegroupstaggingapi.TaggedResource{
 			{
 				ResourceARN:  "arn:aws:sqs:us-east-1:000000000000:q1",
@@ -606,7 +607,7 @@ func TestAudit1_GetResources_Dedup_AcrossProviders(t *testing.T) {
 		}
 	})
 
-	out, err := b.GetResources(&resourcegroupstaggingapi.GetResourcesInput{})
+	out, err := b.GetResources(context.Background(), &resourcegroupstaggingapi.GetResourcesInput{})
 
 	require.NoError(t, err)
 	require.Len(t, out.ResourceTagMappingList, 1, "duplicate ARN must appear exactly once")
@@ -622,7 +623,7 @@ func TestAudit1_GetResources_Dedup_UniqueARNs_AllAppear(t *testing.T) {
 
 	b := newBackend(t)
 
-	b.RegisterProvider(func() []resourcegroupstaggingapi.TaggedResource {
+	b.RegisterProvider(func(_ context.Context) []resourcegroupstaggingapi.TaggedResource {
 		return []resourcegroupstaggingapi.TaggedResource{
 			{
 				ResourceARN:  "arn:aws:sqs:us-east-1:000000000000:q1",
@@ -631,7 +632,7 @@ func TestAudit1_GetResources_Dedup_UniqueARNs_AllAppear(t *testing.T) {
 			},
 		}
 	})
-	b.RegisterProvider(func() []resourcegroupstaggingapi.TaggedResource {
+	b.RegisterProvider(func(_ context.Context) []resourcegroupstaggingapi.TaggedResource {
 		return []resourcegroupstaggingapi.TaggedResource{
 			{
 				ResourceARN:  "arn:aws:sqs:us-east-1:000000000000:q2",
@@ -641,7 +642,7 @@ func TestAudit1_GetResources_Dedup_UniqueARNs_AllAppear(t *testing.T) {
 		}
 	})
 
-	out, err := b.GetResources(&resourcegroupstaggingapi.GetResourcesInput{})
+	out, err := b.GetResources(context.Background(), &resourcegroupstaggingapi.GetResourcesInput{})
 
 	require.NoError(t, err)
 	assert.Len(t, out.ResourceTagMappingList, 2)
@@ -720,7 +721,10 @@ func TestAudit1_GetResources_MultiKeyTagFilter_AND(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			out, err := b.GetResources(&resourcegroupstaggingapi.GetResourcesInput{TagFilters: tt.filters})
+			out, err := b.GetResources(
+				context.Background(),
+				&resourcegroupstaggingapi.GetResourcesInput{TagFilters: tt.filters},
+			)
 			require.NoError(t, err)
 
 			gotARNs := make([]string, len(out.ResourceTagMappingList))
@@ -788,7 +792,7 @@ func TestAudit1_GetResources_Pagination_FullCoverage(t *testing.T) {
 					input.PaginationToken = token
 				}
 
-				out, err := b.GetResources(input)
+				out, err := b.GetResources(context.Background(), input)
 				require.NoError(t, err)
 
 				pages = append(pages, len(out.ResourceTagMappingList))
@@ -838,7 +842,7 @@ func TestAudit1_GetResources_ComplianceDetails_TableDriven(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			out, err := b.GetResources(&resourcegroupstaggingapi.GetResourcesInput{
+			out, err := b.GetResources(context.Background(), &resourcegroupstaggingapi.GetResourcesInput{
 				IncludeComplianceDetails: tt.includeCompliance,
 			})
 
@@ -906,7 +910,10 @@ func TestAudit1_GetTagKeys_TableDriven(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			out := b.GetTagKeys(&resourcegroupstaggingapi.GetTagKeysInput{PaginationToken: tt.token})
+			out := b.GetTagKeys(
+				context.Background(),
+				&resourcegroupstaggingapi.GetTagKeysInput{PaginationToken: tt.token},
+			)
 			require.NotNil(t, out)
 
 			if len(tt.wantKeys) == 0 {
@@ -977,7 +984,7 @@ func TestAudit1_GetTagValues_TableDriven(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			out := b.GetTagValues(&resourcegroupstaggingapi.GetTagValuesInput{
+			out := b.GetTagValues(context.Background(), &resourcegroupstaggingapi.GetTagValuesInput{
 				Key:             tt.key,
 				PaginationToken: tt.token,
 			})
@@ -1004,7 +1011,7 @@ func TestAudit1_TagResources_Batch(t *testing.T) {
 
 	taggedState := make(map[string]map[string]string)
 
-	b.RegisterARNTagger(func(arn string, tags map[string]string) (bool, error) {
+	b.RegisterARNTagger(func(_ context.Context, arn string, tags map[string]string) (bool, error) {
 		if !strings.Contains(arn, "sqs") {
 			return false, nil
 		}
@@ -1020,7 +1027,7 @@ func TestAudit1_TagResources_Batch(t *testing.T) {
 		"arn:aws:sqs:us-east-1:000000000000:q3",
 	}
 
-	out, err := b.TagResources(&resourcegroupstaggingapi.TagResourcesInput{
+	out, err := b.TagResources(context.Background(), &resourcegroupstaggingapi.TagResourcesInput{
 		ResourceARNList: arns,
 		Tags:            map[string]string{"env": "prod", "owner": "team-a"},
 	})
@@ -1042,7 +1049,7 @@ func TestAudit1_UntagResources_Batch(t *testing.T) {
 
 	untaggedState := make(map[string][]string)
 
-	b.RegisterARNUntagger(func(arn string, keys []string) (bool, error) {
+	b.RegisterARNUntagger(func(_ context.Context, arn string, keys []string) (bool, error) {
 		if !strings.Contains(arn, "sqs") {
 			return false, nil
 		}
@@ -1057,7 +1064,7 @@ func TestAudit1_UntagResources_Batch(t *testing.T) {
 		"arn:aws:sqs:us-east-1:000000000000:q2",
 	}
 
-	out, err := b.UntagResources(&resourcegroupstaggingapi.UntagResourcesInput{
+	out, err := b.UntagResources(context.Background(), &resourcegroupstaggingapi.UntagResourcesInput{
 		ResourceARNList: arns,
 		TagKeys:         []string{"env", "owner"},
 	})
@@ -1152,7 +1159,7 @@ func TestAudit1_GetComplianceSummary_WithFilters(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			out := b.GetComplianceSummary(tt.input)
+			out := b.GetComplianceSummary(context.Background(), tt.input)
 
 			require.NotNil(t, out)
 			// Mock has no tag policy → always returns 0 non-compliant resources.
@@ -1194,7 +1201,7 @@ func TestAudit1_ReportCreation_FullLifecycle(t *testing.T) {
 			t.Parallel()
 
 			b := newBackend(t)
-			_, err := b.StartReportCreation(&resourcegroupstaggingapi.StartReportCreationInput{
+			_, err := b.StartReportCreation(context.Background(), &resourcegroupstaggingapi.StartReportCreationInput{
 				S3Bucket: tt.bucket,
 			})
 
@@ -1206,7 +1213,7 @@ func TestAudit1_ReportCreation_FullLifecycle(t *testing.T) {
 
 			require.NoError(t, err)
 
-			desc := b.DescribeReportCreation()
+			desc := b.DescribeReportCreation(context.Background())
 			require.NotNil(t, desc.Status)
 			assert.Equal(t, tt.wantStatus, *desc.Status)
 			require.NotNil(t, desc.S3Location)
@@ -1399,7 +1406,7 @@ func TestAudit1_GetResources_CrossService_Aggregation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			out, err := b.GetResources(&resourcegroupstaggingapi.GetResourcesInput{
+			out, err := b.GetResources(context.Background(), &resourcegroupstaggingapi.GetResourcesInput{
 				TagFilters:          tt.tagFilters,
 				ResourceTypeFilters: tt.typeFilters,
 			})
@@ -1420,7 +1427,7 @@ func TestAudit1_GetComplianceSummary_RegionFilter_FiltersResources(t *testing.T)
 	b := newBackend(t)
 
 	// Only call GetComplianceSummary to ensure it doesn't panic with various filter combos.
-	out := b.GetComplianceSummary(&resourcegroupstaggingapi.GetComplianceSummaryInput{
+	out := b.GetComplianceSummary(context.Background(), &resourcegroupstaggingapi.GetComplianceSummaryInput{
 		RegionFilters:       []string{"us-east-1", "eu-west-1"},
 		ResourceTypeFilters: []string{"ec2:instance"},
 		TagKeyFilters:       []string{"env"},
@@ -1440,9 +1447,9 @@ func TestAudit1_SnapshotRestore_ProvidersClearedTaggersCleared(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	b.RegisterProvider(func() []resourcegroupstaggingapi.TaggedResource { return nil })
-	b.RegisterARNTagger(func(_ string, _ map[string]string) (bool, error) { return false, nil })
-	b.RegisterARNUntagger(func(_ string, _ []string) (bool, error) { return false, nil })
+	b.RegisterProvider(func(_ context.Context) []resourcegroupstaggingapi.TaggedResource { return nil })
+	b.RegisterARNTagger(func(_ context.Context, _ string, _ map[string]string) (bool, error) { return false, nil })
+	b.RegisterARNUntagger(func(_ context.Context, _ string, _ []string) (bool, error) { return false, nil })
 
 	require.Equal(t, 1, resourcegroupstaggingapi.ProviderCount(b))
 	require.Equal(t, 1, resourcegroupstaggingapi.TaggerCount(b))

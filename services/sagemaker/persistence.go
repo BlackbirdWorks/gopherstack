@@ -16,36 +16,39 @@ type persistedCluster struct {
 }
 
 // backendSnapshot holds the serialisable state of InMemoryBackend.
+// All resource maps are nested by region (outer key = region).
 type backendSnapshot struct {
-	Models                     map[string]*Model                           `json:"models"`
-	EndpointConfigs            map[string]*EndpointConfig                  `json:"endpointConfigs"`
-	Endpoints                  map[string]*Endpoint                        `json:"endpoints"`
-	TrainingJobs               map[string]*TrainingJob                     `json:"trainingJobs"`
-	Notebooks                  map[string]*NotebookInstance                `json:"notebooks"`
-	HPTuningJobs               map[string]*HyperParameterTuningJob         `json:"hpTuningJobs"`
-	Associations               map[string]*Association                     `json:"associations"`
-	TrialComponentAssociations map[string]*TrialComponentAssociation       `json:"trialComponentAssociations"`
-	Actions                    map[string]*Action                          `json:"actions"`
-	Algorithms                 map[string]*Algorithm                       `json:"algorithms"`
-	Clusters                   map[string]*persistedCluster                `json:"clusters"`
-	ModelPackages              map[string]*ModelPackage                    `json:"modelPackages"`
-	Domains                    map[string]*Domain                          `json:"domains"`
-	UserProfiles               map[string]*UserProfile                     `json:"userProfiles"`
-	Apps                       map[string]*App                             `json:"apps"`
-	FeatureGroups              map[string]*FeatureGroup                    `json:"featureGroups"`
-	Pipelines                  map[string]*Pipeline                        `json:"pipelines"`
-	PipelineExecutions         map[string]*PipelineExecution               `json:"pipelineExecutions"`
-	PipelineExecSteps          map[string]*PipelineExecutionStep           `json:"pipelineExecSteps"`
-	Experiments                map[string]*Experiment                      `json:"experiments"`
-	Trials                     map[string]*Trial                           `json:"trials"`
-	TrialComponents            map[string]*TrialComponent                  `json:"trialComponents"`
-	NotebookLifecycleConfigs   map[string]*NotebookInstanceLifecycleConfig `json:"notebookLifecycleConfigs"`
-	ProcessingJobs             map[string]*ProcessingJob                   `json:"processingJobs"`
-	TransformJobs              map[string]*TransformJob                    `json:"transformJobs"`
-	FeatureRecords             map[string]*FeatureRecord                   `json:"featureRecords"`
-	FeatureMetadata            map[string]*FeatureMetadata                 `json:"featureMetadata"`
-	AccountID                  string                                      `json:"accountID"`
-	Region                     string                                      `json:"region"`
+	Models                     map[string]map[string]*Model                     `json:"models"`
+	EndpointConfigs            map[string]map[string]*EndpointConfig            `json:"endpointConfigs"`
+	Endpoints                  map[string]map[string]*Endpoint                  `json:"endpoints"`
+	TrainingJobs               map[string]map[string]*TrainingJob               `json:"trainingJobs"`
+	Notebooks                  map[string]map[string]*NotebookInstance          `json:"notebooks"`
+	HPTuningJobs               map[string]map[string]*HyperParameterTuningJob   `json:"hpTuningJobs"`
+	Associations               map[string]map[string]*Association               `json:"associations"`
+	TrialComponentAssociations map[string]map[string]*TrialComponentAssociation `json:"trialComponentAssociations"`
+	Actions                    map[string]map[string]*Action                    `json:"actions"`
+	Algorithms                 map[string]map[string]*Algorithm                 `json:"algorithms"`
+	Clusters                   map[string]map[string]*persistedCluster          `json:"clusters"`
+	ModelPackages              map[string]map[string]*ModelPackage              `json:"modelPackages"`
+	Domains                    map[string]map[string]*Domain                    `json:"domains"`
+	// UserProfiles is stored as region → "domainID|profileName" → UserProfile.
+	UserProfiles map[string]map[string]*UserProfile `json:"userProfiles"`
+	// Apps is stored as region → "domainID|userProfileName|appType|appName" → App.
+	Apps                     map[string]map[string]*App                             `json:"apps"`
+	FeatureGroups            map[string]map[string]*FeatureGroup                    `json:"featureGroups"`
+	Pipelines                map[string]map[string]*Pipeline                        `json:"pipelines"`
+	PipelineExecutions       map[string]map[string]*PipelineExecution               `json:"pipelineExecutions"`
+	PipelineExecSteps        map[string]map[string]*PipelineExecutionStep           `json:"pipelineExecSteps"`
+	Experiments              map[string]map[string]*Experiment                      `json:"experiments"`
+	Trials                   map[string]map[string]*Trial                           `json:"trials"`
+	TrialComponents          map[string]map[string]*TrialComponent                  `json:"trialComponents"`
+	NotebookLifecycleConfigs map[string]map[string]*NotebookInstanceLifecycleConfig `json:"notebookLifecycleConfigs"`
+	ProcessingJobs           map[string]map[string]*ProcessingJob                   `json:"processingJobs"`
+	TransformJobs            map[string]map[string]*TransformJob                    `json:"transformJobs"`
+	FeatureRecords           map[string]map[string]*FeatureRecord                   `json:"featureRecords"`
+	FeatureMetadata          map[string]map[string]*FeatureMetadata                 `json:"featureMetadata"`
+	AccountID                string                                                 `json:"accountID"`
+	Region                   string                                                 `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -53,35 +56,46 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	clusters := make(map[string]*persistedCluster, len(b.clusters))
-
-	for k, c := range b.clusters {
-		pc := &persistedCluster{
-			CreationTime:  c.CreationTime.Format("2006-01-02T15:04:05Z07:00"),
-			ClusterArn:    c.ClusterArn,
-			ClusterName:   c.ClusterName,
-			ClusterStatus: c.ClusterStatus,
-			Nodes:         make(map[string]*ClusterNode, len(c.Nodes)),
+	// Convert clusters: map[string]map[string]*Cluster → map[string]map[string]*persistedCluster
+	clusters := make(map[string]map[string]*persistedCluster, len(b.clusters))
+	for region, regionClusters := range b.clusters {
+		clusters[region] = make(map[string]*persistedCluster, len(regionClusters))
+		for k, c := range regionClusters {
+			pc := &persistedCluster{
+				CreationTime:  c.CreationTime.Format("2006-01-02T15:04:05Z07:00"),
+				ClusterArn:    c.ClusterArn,
+				ClusterName:   c.ClusterName,
+				ClusterStatus: c.ClusterStatus,
+				Nodes:         make(map[string]*ClusterNode, len(c.Nodes)),
+			}
+			for nk, nv := range c.Nodes {
+				nodeCopy := *nv
+				pc.Nodes[nk] = &nodeCopy
+			}
+			clusters[region][k] = pc
 		}
-
-		for nk, nv := range c.Nodes {
-			nodeCopy := *nv
-			pc.Nodes[nk] = &nodeCopy
-		}
-
-		clusters[k] = pc
 	}
 
-	// Serialise userProfiles and apps maps (composite key → string key).
-	userProfiles := make(map[string]*UserProfile, len(b.userProfiles))
-	for k, v := range b.userProfiles {
-		cp := *v
-		userProfiles[k.DomainID+"|"+k.UserProfileName] = &cp
+	// Convert userProfiles: map[string]map[userProfileKey]*UserProfile
+	// → map[string]map[string]*UserProfile (inner key = "domainID|profileName")
+	userProfiles := make(map[string]map[string]*UserProfile, len(b.userProfiles))
+	for region, regionProfiles := range b.userProfiles {
+		userProfiles[region] = make(map[string]*UserProfile, len(regionProfiles))
+		for k, v := range regionProfiles {
+			cp := *v
+			userProfiles[region][k.DomainID+"|"+k.UserProfileName] = &cp
+		}
 	}
-	apps := make(map[string]*App, len(b.apps))
-	for k, v := range b.apps {
-		cp := *v
-		apps[k.DomainID+"|"+k.UserProfileName+"|"+k.AppType+"|"+k.AppName] = &cp
+
+	// Convert apps: map[string]map[appKey]*App
+	// → map[string]map[string]*App (inner key = "domainID|userProfileName|appType|appName")
+	apps := make(map[string]map[string]*App, len(b.apps))
+	for region, regionApps := range b.apps {
+		apps[region] = make(map[string]*App, len(regionApps))
+		for k, v := range regionApps {
+			cp := *v
+			apps[region][k.DomainID+"|"+k.UserProfileName+"|"+k.AppType+"|"+k.AppName] = &cp
+		}
 	}
 
 	snap := backendSnapshot{
@@ -148,6 +162,58 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 }
 
 // restoreFields assigns deserialized maps to backend fields (called with lock held).
+func restoreUserProfiles(snap *backendSnapshot) map[string]map[userProfileKey]*UserProfile {
+	result := make(map[string]map[userProfileKey]*UserProfile, len(snap.UserProfiles))
+	for region, regionProfiles := range snap.UserProfiles {
+		result[region] = make(map[userProfileKey]*UserProfile, len(regionProfiles))
+		for _, v := range regionProfiles {
+			key := userProfileKey{DomainID: v.DomainID, UserProfileName: v.UserProfileName}
+			cp := *v
+			result[region][key] = &cp
+		}
+	}
+	return result
+}
+
+func restoreApps(snap *backendSnapshot) map[string]map[appKey]*App {
+	result := make(map[string]map[appKey]*App, len(snap.Apps))
+	for region, regionApps := range snap.Apps {
+		result[region] = make(map[appKey]*App, len(regionApps))
+		for _, v := range regionApps {
+			key := appKey{DomainID: v.DomainID, UserProfileName: v.UserProfileName, AppType: v.AppType, AppName: v.AppName}
+			cp := *v
+			result[region][key] = &cp
+		}
+	}
+	return result
+}
+
+func restoreClusters(snap *backendSnapshot) map[string]map[string]*Cluster {
+	result := make(map[string]map[string]*Cluster, len(snap.Clusters))
+	for region, regionClusters := range snap.Clusters {
+		result[region] = make(map[string]*Cluster, len(regionClusters))
+		for k, pc := range regionClusters {
+			t, err := time.Parse("2006-01-02T15:04:05Z07:00", pc.CreationTime)
+			if err != nil {
+				slog.Default().Warn("sagemaker: failed to parse cluster creation time", "cluster", k, "error", err)
+			}
+			c := &Cluster{
+				ClusterArn:    pc.ClusterArn,
+				ClusterName:   pc.ClusterName,
+				ClusterStatus: pc.ClusterStatus,
+				CreationTime:  t,
+				Nodes:         make(map[string]*ClusterNode, len(pc.Nodes)),
+			}
+			for nk, nv := range pc.Nodes {
+				nodeCopy := *nv
+				c.Nodes[nk] = &nodeCopy
+			}
+			result[region][k] = c
+		}
+	}
+	return result
+}
+
 func (b *InMemoryBackend) restoreFields(snap *backendSnapshot) {
 	b.models = snap.Models
 	b.endpointConfigs = snap.EndpointConfigs
@@ -175,125 +241,107 @@ func (b *InMemoryBackend) restoreFields(snap *backendSnapshot) {
 	b.featureMetadata = snap.FeatureMetadata
 	b.accountID = snap.AccountID
 	b.region = snap.Region
-
-	// Restore composite-key maps (string key → composite key).
-	b.userProfiles = make(map[userProfileKey]*UserProfile, len(snap.UserProfiles))
-	for _, v := range snap.UserProfiles {
-		key := userProfileKey{DomainID: v.DomainID, UserProfileName: v.UserProfileName}
-		cp := *v
-		b.userProfiles[key] = &cp
-	}
-	b.apps = make(map[appKey]*App, len(snap.Apps))
-	for _, v := range snap.Apps {
-		key := appKey{
-			DomainID:        v.DomainID,
-			UserProfileName: v.UserProfileName,
-			AppType:         v.AppType,
-			AppName:         v.AppName,
-		}
-		cp := *v
-		b.apps[key] = &cp
-	}
-
-	// Restore clusters, converting persistedCluster back to Cluster.
-	b.clusters = make(map[string]*Cluster, len(snap.Clusters))
-
-	for k, pc := range snap.Clusters {
-		t, err := time.Parse("2006-01-02T15:04:05Z07:00", pc.CreationTime)
-		if err != nil {
-			slog.Default().
-				Warn("sagemaker: failed to parse cluster creation time", "cluster", k, "error", err)
-		}
-
-		c := &Cluster{
-			ClusterArn:    pc.ClusterArn,
-			ClusterName:   pc.ClusterName,
-			ClusterStatus: pc.ClusterStatus,
-			CreationTime:  t,
-			Nodes:         make(map[string]*ClusterNode, len(pc.Nodes)),
-		}
-
-		for nk, nv := range pc.Nodes {
-			nodeCopy := *nv
-			c.Nodes[nk] = &nodeCopy
-		}
-
-		b.clusters[k] = c
-	}
+	b.userProfiles = restoreUserProfiles(snap)
+	b.apps = restoreApps(snap)
+	b.clusters = restoreClusters(snap)
 }
 
 // rebuildARNIndexes reconstructs all ARN-to-name indexes after a restore (called with lock held).
 func (b *InMemoryBackend) rebuildARNIndexes() {
-	b.modelARNIndex = make(map[string]string, len(b.models))
-
-	for name, m := range b.models {
-		b.modelARNIndex[m.ModelARN] = name
+	b.modelARNIndex = make(map[string]map[string]string, len(b.models))
+	for region, regionModels := range b.models {
+		b.modelARNIndex[region] = make(map[string]string, len(regionModels))
+		for name, m := range regionModels {
+			b.modelARNIndex[region][m.ModelARN] = name
+		}
 	}
 
-	b.endpointConfigARNIndex = make(map[string]string, len(b.endpointConfigs))
-
-	for name, ec := range b.endpointConfigs {
-		b.endpointConfigARNIndex[ec.EndpointConfigARN] = name
+	b.endpointConfigARNIndex = make(map[string]map[string]string, len(b.endpointConfigs))
+	for region, regionECs := range b.endpointConfigs {
+		b.endpointConfigARNIndex[region] = make(map[string]string, len(regionECs))
+		for name, ec := range regionECs {
+			b.endpointConfigARNIndex[region][ec.EndpointConfigARN] = name
+		}
 	}
 
-	b.actionARNIndex = make(map[string]string, len(b.actions))
-
-	for name, a := range b.actions {
-		b.actionARNIndex[a.ActionArn] = name
+	b.actionARNIndex = make(map[string]map[string]string, len(b.actions))
+	for region, regionActions := range b.actions {
+		b.actionARNIndex[region] = make(map[string]string, len(regionActions))
+		for name, a := range regionActions {
+			b.actionARNIndex[region][a.ActionArn] = name
+		}
 	}
 
-	b.algorithmARNIndex = make(map[string]string, len(b.algorithms))
-
-	for name, al := range b.algorithms {
-		b.algorithmARNIndex[al.AlgorithmArn] = name
+	b.algorithmARNIndex = make(map[string]map[string]string, len(b.algorithms))
+	for region, regionAlgorithms := range b.algorithms {
+		b.algorithmARNIndex[region] = make(map[string]string, len(regionAlgorithms))
+		for name, al := range regionAlgorithms {
+			b.algorithmARNIndex[region][al.AlgorithmArn] = name
+		}
 	}
 
-	b.clusterARNIndex = make(map[string]string, len(b.clusters))
-
-	for name, c := range b.clusters {
-		b.clusterARNIndex[c.ClusterArn] = name
+	b.clusterARNIndex = make(map[string]map[string]string, len(b.clusters))
+	for region, regionClusters := range b.clusters {
+		b.clusterARNIndex[region] = make(map[string]string, len(regionClusters))
+		for name, c := range regionClusters {
+			b.clusterARNIndex[region][c.ClusterArn] = name
+		}
 	}
 
-	b.modelPackageARNIndex = make(map[string]string, len(b.modelPackages))
-
-	for arnStr := range b.modelPackages {
-		b.modelPackageARNIndex[arnStr] = arnStr
+	b.modelPackageARNIndex = make(map[string]map[string]string, len(b.modelPackages))
+	for region, regionMPs := range b.modelPackages {
+		b.modelPackageARNIndex[region] = make(map[string]string, len(regionMPs))
+		for arnStr := range regionMPs {
+			b.modelPackageARNIndex[region][arnStr] = arnStr
+		}
 	}
 
-	b.endpointARNIndex = make(map[string]string, len(b.endpoints))
-
-	for name, ep := range b.endpoints {
-		b.endpointARNIndex[ep.EndpointArn] = name
+	b.endpointARNIndex = make(map[string]map[string]string, len(b.endpoints))
+	for region, regionEPs := range b.endpoints {
+		b.endpointARNIndex[region] = make(map[string]string, len(regionEPs))
+		for name, ep := range regionEPs {
+			b.endpointARNIndex[region][ep.EndpointArn] = name
+		}
 	}
 
-	b.trainingJobARNIndex = make(map[string]string, len(b.trainingJobs))
-
-	for name, tj := range b.trainingJobs {
-		b.trainingJobARNIndex[tj.TrainingJobArn] = name
+	b.trainingJobARNIndex = make(map[string]map[string]string, len(b.trainingJobs))
+	for region, regionJobs := range b.trainingJobs {
+		b.trainingJobARNIndex[region] = make(map[string]string, len(regionJobs))
+		for name, tj := range regionJobs {
+			b.trainingJobARNIndex[region][tj.TrainingJobArn] = name
+		}
 	}
 
-	b.notebookARNIndex = make(map[string]string, len(b.notebooks))
-
-	for name, nb := range b.notebooks {
-		b.notebookARNIndex[nb.NotebookInstanceArn] = name
+	b.notebookARNIndex = make(map[string]map[string]string, len(b.notebooks))
+	for region, regionNBs := range b.notebooks {
+		b.notebookARNIndex[region] = make(map[string]string, len(regionNBs))
+		for name, nb := range regionNBs {
+			b.notebookARNIndex[region][nb.NotebookInstanceArn] = name
+		}
 	}
 
-	b.hpTuningJobARNIndex = make(map[string]string, len(b.hpTuningJobs))
-
-	for name, j := range b.hpTuningJobs {
-		b.hpTuningJobARNIndex[j.HyperParameterTuningJobArn] = name
+	b.hpTuningJobARNIndex = make(map[string]map[string]string, len(b.hpTuningJobs))
+	for region, regionJobs := range b.hpTuningJobs {
+		b.hpTuningJobARNIndex[region] = make(map[string]string, len(regionJobs))
+		for name, j := range regionJobs {
+			b.hpTuningJobARNIndex[region][j.HyperParameterTuningJobArn] = name
+		}
 	}
 
-	b.processingJobARNIndex = make(map[string]string, len(b.processingJobs))
-
-	for name, pj := range b.processingJobs {
-		b.processingJobARNIndex[pj.ProcessingJobArn] = name
+	b.processingJobARNIndex = make(map[string]map[string]string, len(b.processingJobs))
+	for region, regionJobs := range b.processingJobs {
+		b.processingJobARNIndex[region] = make(map[string]string, len(regionJobs))
+		for name, pj := range regionJobs {
+			b.processingJobARNIndex[region][pj.ProcessingJobArn] = name
+		}
 	}
 
-	b.transformJobARNIndex = make(map[string]string, len(b.transformJobs))
-
-	for name, tj := range b.transformJobs {
-		b.transformJobARNIndex[tj.TransformJobArn] = name
+	b.transformJobARNIndex = make(map[string]map[string]string, len(b.transformJobs))
+	for region, regionJobs := range b.transformJobs {
+		b.transformJobARNIndex[region] = make(map[string]string, len(regionJobs))
+		for name, tj := range regionJobs {
+			b.transformJobARNIndex[region][tj.TransformJobArn] = name
+		}
 	}
 }
 
@@ -306,94 +354,94 @@ func ensureNonNilMaps(snap *backendSnapshot) {
 
 func ensureCoreResourceMaps(snap *backendSnapshot) {
 	if snap.Models == nil {
-		snap.Models = make(map[string]*Model)
+		snap.Models = make(map[string]map[string]*Model)
 	}
 	if snap.EndpointConfigs == nil {
-		snap.EndpointConfigs = make(map[string]*EndpointConfig)
+		snap.EndpointConfigs = make(map[string]map[string]*EndpointConfig)
 	}
 	if snap.Endpoints == nil {
-		snap.Endpoints = make(map[string]*Endpoint)
+		snap.Endpoints = make(map[string]map[string]*Endpoint)
 	}
 	if snap.Actions == nil {
-		snap.Actions = make(map[string]*Action)
+		snap.Actions = make(map[string]map[string]*Action)
 	}
 	if snap.Algorithms == nil {
-		snap.Algorithms = make(map[string]*Algorithm)
+		snap.Algorithms = make(map[string]map[string]*Algorithm)
 	}
 	if snap.ModelPackages == nil {
-		snap.ModelPackages = make(map[string]*ModelPackage)
+		snap.ModelPackages = make(map[string]map[string]*ModelPackage)
 	}
 }
 
 func ensureJobMaps(snap *backendSnapshot) {
 	if snap.TrainingJobs == nil {
-		snap.TrainingJobs = make(map[string]*TrainingJob)
+		snap.TrainingJobs = make(map[string]map[string]*TrainingJob)
 	}
 	if snap.Notebooks == nil {
-		snap.Notebooks = make(map[string]*NotebookInstance)
+		snap.Notebooks = make(map[string]map[string]*NotebookInstance)
 	}
 	if snap.HPTuningJobs == nil {
-		snap.HPTuningJobs = make(map[string]*HyperParameterTuningJob)
+		snap.HPTuningJobs = make(map[string]map[string]*HyperParameterTuningJob)
 	}
 	if snap.ProcessingJobs == nil {
-		snap.ProcessingJobs = make(map[string]*ProcessingJob)
+		snap.ProcessingJobs = make(map[string]map[string]*ProcessingJob)
 	}
 	if snap.TransformJobs == nil {
-		snap.TransformJobs = make(map[string]*TransformJob)
+		snap.TransformJobs = make(map[string]map[string]*TransformJob)
 	}
 	if snap.FeatureRecords == nil {
-		snap.FeatureRecords = make(map[string]*FeatureRecord)
+		snap.FeatureRecords = make(map[string]map[string]*FeatureRecord)
 	}
 	if snap.FeatureMetadata == nil {
-		snap.FeatureMetadata = make(map[string]*FeatureMetadata)
+		snap.FeatureMetadata = make(map[string]map[string]*FeatureMetadata)
 	}
 }
 
 func ensureConfigMaps(snap *backendSnapshot) {
 	if snap.Domains == nil {
-		snap.Domains = make(map[string]*Domain)
+		snap.Domains = make(map[string]map[string]*Domain)
 	}
 	if snap.UserProfiles == nil {
-		snap.UserProfiles = make(map[string]*UserProfile)
+		snap.UserProfiles = make(map[string]map[string]*UserProfile)
 	}
 	if snap.Apps == nil {
-		snap.Apps = make(map[string]*App)
+		snap.Apps = make(map[string]map[string]*App)
 	}
 	if snap.FeatureGroups == nil {
-		snap.FeatureGroups = make(map[string]*FeatureGroup)
+		snap.FeatureGroups = make(map[string]map[string]*FeatureGroup)
 	}
 	if snap.NotebookLifecycleConfigs == nil {
-		snap.NotebookLifecycleConfigs = make(map[string]*NotebookInstanceLifecycleConfig)
+		snap.NotebookLifecycleConfigs = make(map[string]map[string]*NotebookInstanceLifecycleConfig)
 	}
 	if snap.Clusters == nil {
-		snap.Clusters = make(map[string]*persistedCluster)
+		snap.Clusters = make(map[string]map[string]*persistedCluster)
 	}
 }
 
 func ensureMetadataMaps(snap *backendSnapshot) {
 	if snap.Pipelines == nil {
-		snap.Pipelines = make(map[string]*Pipeline)
+		snap.Pipelines = make(map[string]map[string]*Pipeline)
 	}
 	if snap.PipelineExecutions == nil {
-		snap.PipelineExecutions = make(map[string]*PipelineExecution)
+		snap.PipelineExecutions = make(map[string]map[string]*PipelineExecution)
 	}
 	if snap.PipelineExecSteps == nil {
-		snap.PipelineExecSteps = make(map[string]*PipelineExecutionStep)
+		snap.PipelineExecSteps = make(map[string]map[string]*PipelineExecutionStep)
 	}
 	if snap.Experiments == nil {
-		snap.Experiments = make(map[string]*Experiment)
+		snap.Experiments = make(map[string]map[string]*Experiment)
 	}
 	if snap.Trials == nil {
-		snap.Trials = make(map[string]*Trial)
+		snap.Trials = make(map[string]map[string]*Trial)
 	}
 	if snap.TrialComponents == nil {
-		snap.TrialComponents = make(map[string]*TrialComponent)
+		snap.TrialComponents = make(map[string]map[string]*TrialComponent)
 	}
 	if snap.Associations == nil {
-		snap.Associations = make(map[string]*Association)
+		snap.Associations = make(map[string]map[string]*Association)
 	}
 	if snap.TrialComponentAssociations == nil {
-		snap.TrialComponentAssociations = make(map[string]*TrialComponentAssociation)
+		snap.TrialComponentAssociations = make(map[string]map[string]*TrialComponentAssociation)
 	}
 }
 
@@ -403,59 +451,77 @@ func fixNilTagMaps(snap *backendSnapshot) {
 }
 
 func fixNilTagMapsCoreResources(snap *backendSnapshot) {
-	for _, m := range snap.Models {
-		if m.Tags == nil {
-			m.Tags = make(map[string]string)
+	for _, regionModels := range snap.Models {
+		for _, m := range regionModels {
+			if m.Tags == nil {
+				m.Tags = make(map[string]string)
+			}
 		}
 	}
 
-	for _, ec := range snap.EndpointConfigs {
-		if ec.Tags == nil {
-			ec.Tags = make(map[string]string)
+	for _, regionECs := range snap.EndpointConfigs {
+		for _, ec := range regionECs {
+			if ec.Tags == nil {
+				ec.Tags = make(map[string]string)
+			}
 		}
 	}
 
-	for _, a := range snap.Actions {
-		if a.Tags == nil {
-			a.Tags = make(map[string]string)
+	for _, regionActions := range snap.Actions {
+		for _, a := range regionActions {
+			if a.Tags == nil {
+				a.Tags = make(map[string]string)
+			}
 		}
 	}
 
-	for _, al := range snap.Algorithms {
-		if al.Tags == nil {
-			al.Tags = make(map[string]string)
+	for _, regionAlgorithms := range snap.Algorithms {
+		for _, al := range regionAlgorithms {
+			if al.Tags == nil {
+				al.Tags = make(map[string]string)
+			}
 		}
 	}
 
-	for _, mp := range snap.ModelPackages {
-		if mp.Tags == nil {
-			mp.Tags = make(map[string]string)
+	for _, regionMPs := range snap.ModelPackages {
+		for _, mp := range regionMPs {
+			if mp.Tags == nil {
+				mp.Tags = make(map[string]string)
+			}
 		}
 	}
 }
 
 func fixNilTagMapsNewResources(snap *backendSnapshot) {
-	for _, ep := range snap.Endpoints {
-		if ep.Tags == nil {
-			ep.Tags = make(map[string]string)
+	for _, regionEPs := range snap.Endpoints {
+		for _, ep := range regionEPs {
+			if ep.Tags == nil {
+				ep.Tags = make(map[string]string)
+			}
 		}
 	}
 
-	for _, tj := range snap.TrainingJobs {
-		if tj.Tags == nil {
-			tj.Tags = make(map[string]string)
+	for _, regionJobs := range snap.TrainingJobs {
+		for _, tj := range regionJobs {
+			if tj.Tags == nil {
+				tj.Tags = make(map[string]string)
+			}
 		}
 	}
 
-	for _, nb := range snap.Notebooks {
-		if nb.Tags == nil {
-			nb.Tags = make(map[string]string)
+	for _, regionNBs := range snap.Notebooks {
+		for _, nb := range regionNBs {
+			if nb.Tags == nil {
+				nb.Tags = make(map[string]string)
+			}
 		}
 	}
 
-	for _, j := range snap.HPTuningJobs {
-		if j.Tags == nil {
-			j.Tags = make(map[string]string)
+	for _, regionJobs := range snap.HPTuningJobs {
+		for _, j := range regionJobs {
+			if j.Tags == nil {
+				j.Tags = make(map[string]string)
+			}
 		}
 	}
 }

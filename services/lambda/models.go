@@ -274,6 +274,7 @@ type FunctionVersion struct {
 	FileSystemConfigs []*FileSystemConfig `json:"FileSystemConfigs,omitempty"`
 	DeadLetterConfig  *DeadLetterConfig   `json:"DeadLetterConfig,omitempty"`
 	ImageConfig       *ImageConfig        `json:"ImageConfig,omitempty"`
+	SnapStart         *SnapStartResponse  `json:"SnapStart,omitempty"`
 	FunctionArn       string              `json:"FunctionArn"`
 	FunctionName      string              `json:"FunctionName"`
 	RevisionID        string              `json:"RevisionId"`

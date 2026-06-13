@@ -1,21 +1,23 @@
 package resourcegroupstaggingapi
 
+import "context"
+
 // StorageBackend is the interface for the Resource Groups Tagging API backend.
 type StorageBackend interface {
 	// Tag/resource operations
-	GetResources(input *GetResourcesInput) (*GetResourcesOutput, error)
-	GetTagKeys(input *GetTagKeysInput) *GetTagKeysOutput
-	GetTagValues(input *GetTagValuesInput) *GetTagValuesOutput
-	TagResources(input *TagResourcesInput) (*TagResourcesOutput, error)
-	UntagResources(input *UntagResourcesInput) (*UntagResourcesOutput, error)
+	GetResources(ctx context.Context, input *GetResourcesInput) (*GetResourcesOutput, error)
+	GetTagKeys(ctx context.Context, input *GetTagKeysInput) *GetTagKeysOutput
+	GetTagValues(ctx context.Context, input *GetTagValuesInput) *GetTagValuesOutput
+	TagResources(ctx context.Context, input *TagResourcesInput) (*TagResourcesOutput, error)
+	UntagResources(ctx context.Context, input *UntagResourcesInput) (*UntagResourcesOutput, error)
 
 	// Report creation operations
-	StartReportCreation(input *StartReportCreationInput) (*StartReportCreationOutput, error)
-	DescribeReportCreation() *DescribeReportCreationOutput
+	StartReportCreation(ctx context.Context, input *StartReportCreationInput) (*StartReportCreationOutput, error)
+	DescribeReportCreation(ctx context.Context) *DescribeReportCreationOutput
 
 	// Compliance and policy operations
-	GetComplianceSummary(input *GetComplianceSummaryInput) *GetComplianceSummaryOutput
-	ListRequiredTags(input *ListRequiredTagsInput) *ListRequiredTagsOutput
+	GetComplianceSummary(ctx context.Context, input *GetComplianceSummaryInput) *GetComplianceSummaryOutput
+	ListRequiredTags(ctx context.Context, input *ListRequiredTagsInput) *ListRequiredTagsOutput
 
 	// Provider registration
 	RegisterProvider(p ResourceProvider)

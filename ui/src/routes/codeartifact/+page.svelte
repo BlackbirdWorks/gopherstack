@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { getCodeArtifactClient } from '$lib/aws-client';
 	import {
 		ListDomainsCommand,
@@ -8,17 +9,23 @@
 		ListPackageVersionsCommand,
 		ListPackageVersionDependenciesCommand,
 		ListPackageGroupsCommand,
+		UpdatePackageVersionsStatusCommand,
+		type CodeartifactClient,
 		type DomainSummary,
 		type RepositorySummary,
 		type PackageSummary,
 		type PackageVersionSummary,
 		type PackageDependency,
-		type PackageGroupSummary
+		type PackageGroupSummary,
+		type PackageVersionStatus
 	} from '@aws-sdk/client-codeartifact';
 	import { toast } from 'svelte-sonner';
-	import { Package, RefreshCw, Search, Database, Archive, ChevronRight, GitBranch, Layers } from 'lucide-svelte';
+	import { Package, RefreshCw, Search, Database, Archive, ChevronRight, GitBranch, Layers, CheckCircle2, Trash2 } from 'lucide-svelte';
 
-	const ca = getCodeArtifactClient();
+	let caClient: CodeartifactClient | undefined;
+	function ca(): CodeartifactClient {
+		return (caClient ??= getCodeArtifactClient());
+	}
 
 	let loading = $state(false);
 	let activeTab = $state<'domains' | 'repositories' | 'packages' | 'versions' | 'groups'>('domains');
@@ -44,8 +51,8 @@
 		loading = true;
 		try {
 			const [domainsResp, reposResp] = await Promise.all([
-				ca.send(new ListDomainsCommand({})),
-				ca.send(new ListRepositoriesCommand({}))
+				ca().send(new ListDomainsCommand({})),
+				ca().send(new ListRepositoriesCommand({}))
 			]);
 			domains = domainsResp.domains ?? [];
 			repositories = reposResp.repositories ?? [];
@@ -53,7 +60,7 @@
 			// Load package groups for the first domain
 			if (domains.length > 0 && domains[0].name) {
 				try {
-					const groupResp = await ca.send(new ListPackageGroupsCommand({ domain: domains[0].name }));
+					const groupResp = await ca().send(new ListPackageGroupsCommand({ domain: domains[0].name }));
 					packageGroups = groupResp.packageGroups ?? [];
 				} catch {
 					packageGroups = [];
@@ -70,7 +77,7 @@
 		currentDomain = domain;
 		currentRepo = repository;
 		try {
-			const resp = await ca.send(new ListPackagesCommand({ domain, repository }));
+			const resp = await ca().send(new ListPackagesCommand({ domain, repository }));
 			packages = resp.packages ?? [];
 			activeTab = 'packages';
 			selectedPackage = null;
@@ -88,7 +95,7 @@
 		loadingVersions = true;
 		activeTab = 'versions';
 		try {
-			const resp = await ca.send(
+			const resp = await ca().send(
 				new ListPackageVersionsCommand({
 					domain: currentDomain,
 					repository: currentRepo,
@@ -111,7 +118,7 @@
 		loadingDeps = true;
 		dependencies = [];
 		try {
-			const resp = await ca.send(
+			const resp = await ca().send(
 				new ListPackageVersionDependenciesCommand({
 					domain: currentDomain,
 					repository: currentRepo,
@@ -126,6 +133,48 @@
 			toast.error('Failed to load dependencies: ' + String(e));
 		} finally {
 			loadingDeps = false;
+		}
+	}
+
+	let updatingVersion = $state<string | null>(null);
+
+	// Promote (Published) or dispose (Disposed) a specific package version via
+	// UpdatePackageVersionsStatus.
+	async function updateVersionStatus(version: PackageVersionSummary, targetStatus: PackageVersionStatus) {
+		if (!selectedPackage || !version.version) return;
+		if (
+			targetStatus === 'Disposed' &&
+			!(await confirmDestructive({
+				title: 'Dispose Version',
+				message: `Dispose version ${version.version}? Its assets will be permanently deleted.`,
+				confirmLabel: 'Dispose'
+			}))
+		)
+			return;
+		updatingVersion = version.version;
+		try {
+			const resp = await ca().send(
+				new UpdatePackageVersionsStatusCommand({
+					domain: currentDomain,
+					repository: currentRepo,
+					format: selectedPackage.format,
+					namespace: selectedPackage.namespace,
+					package: selectedPackage.package,
+					versions: [version.version],
+					targetStatus
+				})
+			);
+			const failed = resp.failedVersions?.[version.version];
+			if (failed) {
+				toast.error(`Failed: ${failed.errorMessage ?? failed.errorCode}`);
+			} else {
+				toast.success(`Version ${version.version} → ${targetStatus}`);
+			}
+			await loadVersions(selectedPackage);
+		} catch (e) {
+			toast.error('Failed to update version status: ' + String(e));
+		} finally {
+			updatingVersion = null;
 		}
 	}
 
@@ -275,11 +324,28 @@
 							{:else}
 								<div class="space-y-2 max-h-80 overflow-y-auto">
 									{#each versions as ver}
-										<button onclick={() => loadDependencies(ver)}
-											class="w-full flex items-center justify-between p-2 rounded bg-gray-50 dark:bg-slate-700/50 hover:bg-gray-100 dark:hover:bg-slate-700 text-left {selectedVersion?.version === ver.version ? 'ring-1 ring-indigo-400' : ''}">
-											<span class="text-sm font-mono text-gray-900 dark:text-white">{ver.version}</span>
-											<span class="text-xs px-2 py-0.5 rounded-full {statusBadge(ver.status)}">{ver.status}</span>
-										</button>
+										<div class="flex items-center gap-2 p-2 rounded bg-gray-50 dark:bg-slate-700/50 {selectedVersion?.version === ver.version ? 'ring-1 ring-indigo-400' : ''}">
+											<button onclick={() => loadDependencies(ver)} class="flex flex-1 items-center justify-between text-left">
+												<span class="text-sm font-mono text-gray-900 dark:text-white">{ver.version}</span>
+												<span class="text-xs px-2 py-0.5 rounded-full {statusBadge(ver.status)}">{ver.status}</span>
+											</button>
+											<button
+												onclick={() => updateVersionStatus(ver, 'Published')}
+												disabled={updatingVersion === ver.version || ver.status === 'Published'}
+												title="Promote to Published"
+												class="rounded p-1 text-green-600 hover:bg-green-100 disabled:opacity-30 dark:hover:bg-green-900/30"
+											>
+												<CheckCircle2 class="w-4 h-4" />
+											</button>
+											<button
+												onclick={() => updateVersionStatus(ver, 'Disposed')}
+												disabled={updatingVersion === ver.version || ver.status === 'Disposed'}
+												title="Dispose (delete assets)"
+												class="rounded p-1 text-red-600 hover:bg-red-100 disabled:opacity-30 dark:hover:bg-red-900/30"
+											>
+												<Trash2 class="w-4 h-4" />
+											</button>
+										</div>
 									{/each}
 								</div>
 							{/if}

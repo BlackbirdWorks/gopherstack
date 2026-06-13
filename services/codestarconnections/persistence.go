@@ -5,15 +5,42 @@ import (
 	"log/slog"
 )
 
+// backendSnapshot mirrors the region-nested backend maps (outer key = region).
 type backendSnapshot struct {
-	Connections        map[string]*Connection        `json:"connections"`
-	ConnectionsByName  map[string]string             `json:"connectionsByName"`
-	Hosts              map[string]*Host              `json:"hosts"`
-	HostsByName        map[string]string             `json:"hostsByName"`
-	RepositoryLinks    map[string]*RepositoryLink    `json:"repositoryLinks"`
-	SyncConfigurations map[string]*SyncConfiguration `json:"syncConfigurations"`
-	AccountID          string                        `json:"accountID"`
-	Region             string                        `json:"region"`
+	Connections        map[string]map[string]*Connection        `json:"connections"`
+	ConnectionsByName  map[string]map[string]string             `json:"connectionsByName"`
+	Hosts              map[string]map[string]*Host              `json:"hosts"`
+	HostsByName        map[string]map[string]string             `json:"hostsByName"`
+	RepositoryLinks    map[string]map[string]*RepositoryLink    `json:"repositoryLinks"`
+	SyncConfigurations map[string]map[string]*SyncConfiguration `json:"syncConfigurations"`
+	AccountID          string                                   `json:"accountID"`
+	Region             string                                   `json:"region"`
+}
+
+func (s *backendSnapshot) ensureNonNil() {
+	if s.Connections == nil {
+		s.Connections = make(map[string]map[string]*Connection)
+	}
+
+	if s.ConnectionsByName == nil {
+		s.ConnectionsByName = make(map[string]map[string]string)
+	}
+
+	if s.Hosts == nil {
+		s.Hosts = make(map[string]map[string]*Host)
+	}
+
+	if s.HostsByName == nil {
+		s.HostsByName = make(map[string]map[string]string)
+	}
+
+	if s.RepositoryLinks == nil {
+		s.RepositoryLinks = make(map[string]map[string]*RepositoryLink)
+	}
+
+	if s.SyncConfigurations == nil {
+		s.SyncConfigurations = make(map[string]map[string]*SyncConfiguration)
+	}
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -30,7 +57,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		RepositoryLinks:    b.repositoryLinks,
 		SyncConfigurations: b.syncConfigurations,
 		AccountID:          b.accountID,
-		Region:             b.region,
+		Region:             b.defaultRegion,
 	}
 
 	data, err := json.Marshal(snap)
@@ -52,32 +79,10 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		return err
 	}
 
+	snap.ensureNonNil()
+
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
-
-	if snap.Connections == nil {
-		snap.Connections = make(map[string]*Connection)
-	}
-
-	if snap.ConnectionsByName == nil {
-		snap.ConnectionsByName = make(map[string]string)
-	}
-
-	if snap.Hosts == nil {
-		snap.Hosts = make(map[string]*Host)
-	}
-
-	if snap.HostsByName == nil {
-		snap.HostsByName = make(map[string]string)
-	}
-
-	if snap.RepositoryLinks == nil {
-		snap.RepositoryLinks = make(map[string]*RepositoryLink)
-	}
-
-	if snap.SyncConfigurations == nil {
-		snap.SyncConfigurations = make(map[string]*SyncConfiguration)
-	}
 
 	b.connections = snap.Connections
 	b.connectionsByName = snap.ConnectionsByName
@@ -86,7 +91,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.repositoryLinks = snap.RepositoryLinks
 	b.syncConfigurations = snap.SyncConfigurations
 	b.accountID = snap.AccountID
-	b.region = snap.Region
+	b.defaultRegion = snap.Region
 
 	return nil
 }

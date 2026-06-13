@@ -14,6 +14,7 @@ package mwaa_test
 // DELETING status on delete response).
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -44,7 +45,7 @@ func TestAudit_LoggingConfig_ValidLogLevels_Create(t *testing.T) {
 			req.LoggingConfiguration = &mwaa.LoggingConfiguration{
 				SchedulerLogs: &mwaa.ModuleLoggingConfiguration{LogLevel: level},
 			}
-			_, err := b.CreateEnvironment(testRegion, testAccountID, "log-level-env", req)
+			_, err := b.CreateEnvironment(context.Background(), "log-level-env", req)
 			require.NoError(t, err)
 		})
 	}
@@ -74,7 +75,7 @@ func TestAudit_LoggingConfig_InvalidLogLevel_Create(t *testing.T) {
 			req.LoggingConfiguration = &mwaa.LoggingConfiguration{
 				SchedulerLogs: &mwaa.ModuleLoggingConfiguration{LogLevel: tt.logLevel},
 			}
-			_, err := b.CreateEnvironment(testRegion, testAccountID, "inv-log-env", req)
+			_, err := b.CreateEnvironment(context.Background(), "inv-log-env", req)
 			require.Error(t, err)
 		})
 	}
@@ -96,12 +97,12 @@ func TestAudit_LoggingConfig_AllFiveModules_Create(t *testing.T) {
 	req := newCreateReq()
 	req.LoggingConfiguration = lc
 
-	env, err := b.CreateEnvironment(testRegion, testAccountID, "all-modules-env", req)
+	env, err := b.CreateEnvironment(context.Background(), "all-modules-env", req)
 	require.NoError(t, err)
 
 	// Fetch (second call to get AVAILABLE, first would be CREATING)
-	b.GetEnvironment("all-modules-env")
-	got, err := b.GetEnvironment("all-modules-env")
+	b.GetEnvironment(context.Background(), "all-modules-env")
+	got, err := b.GetEnvironment(context.Background(), "all-modules-env")
 	require.NoError(t, err)
 	require.NotNil(t, got.LoggingConfiguration)
 	require.NotNil(t, got.LoggingConfiguration.DagProcessingLogs)
@@ -119,7 +120,7 @@ func TestAudit_LoggingConfig_InvalidLevel_OnDagProcessingLogs(t *testing.T) {
 	req.LoggingConfiguration = &mwaa.LoggingConfiguration{
 		DagProcessingLogs: &mwaa.ModuleLoggingConfiguration{LogLevel: "TRACE"},
 	}
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "dag-log-inv", req)
+	_, err := b.CreateEnvironment(context.Background(), "dag-log-inv", req)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "DagProcessingLogs")
 }
@@ -132,7 +133,7 @@ func TestAudit_LoggingConfig_InvalidLevel_OnTaskLogs(t *testing.T) {
 	req.LoggingConfiguration = &mwaa.LoggingConfiguration{
 		TaskLogs: &mwaa.ModuleLoggingConfiguration{LogLevel: "NOTSET"},
 	}
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "task-log-inv", req)
+	_, err := b.CreateEnvironment(context.Background(), "task-log-inv", req)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "TaskLogs")
 }
@@ -145,7 +146,7 @@ func TestAudit_LoggingConfig_InvalidLevel_OnWebserverLogs(t *testing.T) {
 	req.LoggingConfiguration = &mwaa.LoggingConfiguration{
 		WebserverLogs: &mwaa.ModuleLoggingConfiguration{LogLevel: "ACCESS"},
 	}
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "web-log-inv", req)
+	_, err := b.CreateEnvironment(context.Background(), "web-log-inv", req)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "WebserverLogs")
 }
@@ -158,7 +159,7 @@ func TestAudit_LoggingConfig_InvalidLevel_OnWorkerLogs(t *testing.T) {
 	req.LoggingConfiguration = &mwaa.LoggingConfiguration{
 		WorkerLogs: &mwaa.ModuleLoggingConfiguration{LogLevel: "SILLY"},
 	}
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "worker-log-inv", req)
+	_, err := b.CreateEnvironment(context.Background(), "worker-log-inv", req)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "WorkerLogs")
 }
@@ -170,7 +171,7 @@ func TestAudit_LoggingConfig_NilConfig_AllowedOnCreate(t *testing.T) {
 	req := newCreateReq()
 	req.LoggingConfiguration = nil
 
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "nil-log-env", req)
+	_, err := b.CreateEnvironment(context.Background(), "nil-log-env", req)
 	require.NoError(t, err)
 }
 
@@ -183,7 +184,7 @@ func TestAudit_LoggingConfig_EmptyLogLevel_AllowedOnCreate(t *testing.T) {
 		SchedulerLogs: &mwaa.ModuleLoggingConfiguration{LogLevel: ""},
 	}
 
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "empty-level-env", req)
+	_, err := b.CreateEnvironment(context.Background(), "empty-level-env", req)
 	require.NoError(t, err)
 }
 
@@ -209,11 +210,11 @@ func TestAudit_LoggingConfig_ValidLevel_OnUpdate(t *testing.T) {
 			t.Parallel()
 
 			b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-			_, err := b.CreateEnvironment(testRegion, testAccountID, "log-upd-env", newCreateReq())
+			_, err := b.CreateEnvironment(context.Background(), "log-upd-env", newCreateReq())
 			require.NoError(t, err)
-			_, _ = b.GetEnvironment("log-upd-env") // promote CREATING → AVAILABLE
+			_, _ = b.GetEnvironment(context.Background(), "log-upd-env") // promote CREATING → AVAILABLE
 
-			_, err = b.UpdateEnvironment("log-upd-env", &mwaa.ExportedUpdateEnvironmentRequest{
+			_, err = b.UpdateEnvironment(context.Background(), "log-upd-env", &mwaa.ExportedUpdateEnvironmentRequest{
 				LoggingConfiguration: &mwaa.LoggingConfiguration{
 					SchedulerLogs: &mwaa.ModuleLoggingConfiguration{LogLevel: tt.logLevel},
 				},
@@ -285,12 +286,12 @@ func TestAudit_LoggingConfig_Persisted_AfterCreate(t *testing.T) {
 		},
 	}
 
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "log-persist-env", req)
+	_, err := b.CreateEnvironment(context.Background(), "log-persist-env", req)
 	require.NoError(t, err)
 
 	// consume CREATING state
-	b.GetEnvironment("log-persist-env")
-	env, err := b.GetEnvironment("log-persist-env")
+	b.GetEnvironment(context.Background(), "log-persist-env")
+	env, err := b.GetEnvironment(context.Background(), "log-persist-env")
 	require.NoError(t, err)
 	require.NotNil(t, env.LoggingConfiguration)
 	require.NotNil(t, env.LoggingConfiguration.SchedulerLogs)
@@ -303,11 +304,11 @@ func TestAudit_LoggingConfig_Persisted_AfterUpdate(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "log-upd-persist", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "log-upd-persist", newCreateReq())
 	require.NoError(t, err)
-	_, _ = b.GetEnvironment("log-upd-persist") // promote CREATING → AVAILABLE
+	_, _ = b.GetEnvironment(context.Background(), "log-upd-persist") // promote CREATING → AVAILABLE
 
-	_, err = b.UpdateEnvironment("log-upd-persist", &mwaa.ExportedUpdateEnvironmentRequest{
+	_, err = b.UpdateEnvironment(context.Background(), "log-upd-persist", &mwaa.ExportedUpdateEnvironmentRequest{
 		LoggingConfiguration: &mwaa.LoggingConfiguration{
 			WorkerLogs: &mwaa.ModuleLoggingConfiguration{LogLevel: "DEBUG"},
 		},
@@ -315,8 +316,8 @@ func TestAudit_LoggingConfig_Persisted_AfterUpdate(t *testing.T) {
 	require.NoError(t, err)
 
 	// consume UPDATING state
-	b.GetEnvironment("log-upd-persist")
-	env, err := b.GetEnvironment("log-upd-persist")
+	b.GetEnvironment(context.Background(), "log-upd-persist")
+	env, err := b.GetEnvironment(context.Background(), "log-upd-persist")
 	require.NoError(t, err)
 	require.NotNil(t, env.LoggingConfiguration)
 	require.NotNil(t, env.LoggingConfiguration.WorkerLogs)
@@ -331,7 +332,7 @@ func TestAudit_Lifecycle_CreateReturnsCreating(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	env, err := b.CreateEnvironment(testRegion, testAccountID, "lc-create-env", newCreateReq())
+	env, err := b.CreateEnvironment(context.Background(), "lc-create-env", newCreateReq())
 	require.NoError(t, err)
 	assert.Equal(t, "CREATING", env.Status)
 }
@@ -340,10 +341,10 @@ func TestAudit_Lifecycle_FirstGetReturnsCreating(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "lc-first-get-env", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "lc-first-get-env", newCreateReq())
 	require.NoError(t, err)
 
-	first, err := b.GetEnvironment("lc-first-get-env")
+	first, err := b.GetEnvironment(context.Background(), "lc-first-get-env")
 	require.NoError(t, err)
 	assert.Equal(t, "CREATING", first.Status)
 }
@@ -352,12 +353,12 @@ func TestAudit_Lifecycle_SecondGetReturnsAvailable(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "lc-second-get-env", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "lc-second-get-env", newCreateReq())
 	require.NoError(t, err)
 
-	b.GetEnvironment("lc-second-get-env")
+	b.GetEnvironment(context.Background(), "lc-second-get-env")
 
-	second, err := b.GetEnvironment("lc-second-get-env")
+	second, err := b.GetEnvironment(context.Background(), "lc-second-get-env")
 	require.NoError(t, err)
 	assert.Equal(t, "AVAILABLE", second.Status)
 }
@@ -366,13 +367,13 @@ func TestAudit_Lifecycle_MultipleGetsStayAvailable(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "lc-multi-get-env", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "lc-multi-get-env", newCreateReq())
 	require.NoError(t, err)
 
-	b.GetEnvironment("lc-multi-get-env")
+	b.GetEnvironment(context.Background(), "lc-multi-get-env")
 
 	for range 5 {
-		env, err2 := b.GetEnvironment("lc-multi-get-env")
+		env, err2 := b.GetEnvironment(context.Background(), "lc-multi-get-env")
 		require.NoError(t, err2)
 		assert.Equal(t, "AVAILABLE", env.Status)
 	}
@@ -382,29 +383,29 @@ func TestAudit_Lifecycle_CreateThenUpdateStatusFlow(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "lc-full-flow-env", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "lc-full-flow-env", newCreateReq())
 	require.NoError(t, err)
 
 	// CREATING → AVAILABLE
-	first, err := b.GetEnvironment("lc-full-flow-env")
+	first, err := b.GetEnvironment(context.Background(), "lc-full-flow-env")
 	require.NoError(t, err)
 	assert.Equal(t, "CREATING", first.Status)
 
-	second, err := b.GetEnvironment("lc-full-flow-env")
+	second, err := b.GetEnvironment(context.Background(), "lc-full-flow-env")
 	require.NoError(t, err)
 	assert.Equal(t, "AVAILABLE", second.Status)
 
 	// Update → UPDATING → AVAILABLE
-	_, err = b.UpdateEnvironment("lc-full-flow-env", &mwaa.ExportedUpdateEnvironmentRequest{
+	_, err = b.UpdateEnvironment(context.Background(), "lc-full-flow-env", &mwaa.ExportedUpdateEnvironmentRequest{
 		EnvironmentClass: "mw1.medium",
 	})
 	require.NoError(t, err)
 
-	afterUpd, err := b.GetEnvironment("lc-full-flow-env")
+	afterUpd, err := b.GetEnvironment(context.Background(), "lc-full-flow-env")
 	require.NoError(t, err)
 	assert.Equal(t, "UPDATING", afterUpd.Status)
 
-	afterUpd2, err := b.GetEnvironment("lc-full-flow-env")
+	afterUpd2, err := b.GetEnvironment(context.Background(), "lc-full-flow-env")
 	require.NoError(t, err)
 	assert.Equal(t, "AVAILABLE", afterUpd2.Status)
 }
@@ -463,10 +464,10 @@ func TestAudit_Lifecycle_DeleteReturnsEnvWithDeletingStatus(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "lc-del-env", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "lc-del-env", newCreateReq())
 	require.NoError(t, err)
 
-	deleted, err := b.DeleteEnvironment("lc-del-env")
+	deleted, err := b.DeleteEnvironment(context.Background(), "lc-del-env")
 	require.NoError(t, err)
 	require.NotNil(t, deleted)
 	// The returned env carries the name.
@@ -477,13 +478,13 @@ func TestAudit_Lifecycle_DeleteThenGetReturns404(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "lc-del-get-env", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "lc-del-get-env", newCreateReq())
 	require.NoError(t, err)
 
-	_, err = b.DeleteEnvironment("lc-del-get-env")
+	_, err = b.DeleteEnvironment(context.Background(), "lc-del-get-env")
 	require.NoError(t, err)
 
-	_, err = b.GetEnvironment("lc-del-get-env")
+	_, err = b.GetEnvironment(context.Background(), "lc-del-get-env")
 	require.Error(t, err)
 	require.ErrorIs(t, err, mwaa.ErrEnvironmentNotFound)
 }
@@ -568,7 +569,7 @@ func TestAudit_S3Paths_AllThreePairs_CreateValidation(t *testing.T) {
 			req := newCreateReq()
 			tt.mutate(req)
 
-			_, err := b.CreateEnvironment(testRegion, testAccountID, "s3-pair-env", req)
+			_, err := b.CreateEnvironment(context.Background(), "s3-pair-env", req)
 			if tt.wantErr {
 				require.Error(t, err)
 			} else {
@@ -632,13 +633,13 @@ func TestAudit_S3Paths_AllThreePairs_UpdateValidation(t *testing.T) {
 			t.Parallel()
 
 			b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-			_, err := b.CreateEnvironment(testRegion, testAccountID, "s3-upd-env", newCreateReq())
+			_, err := b.CreateEnvironment(context.Background(), "s3-upd-env", newCreateReq())
 			require.NoError(t, err)
-			_, _ = b.GetEnvironment("s3-upd-env") // promote CREATING → AVAILABLE
+			_, _ = b.GetEnvironment(context.Background(), "s3-upd-env") // promote CREATING → AVAILABLE
 
 			req := new(mwaa.ExportedUpdateEnvironmentRequest)
 			tt.mutate(req)
-			_, err = b.UpdateEnvironment("s3-upd-env", req)
+			_, err = b.UpdateEnvironment(context.Background(), "s3-upd-env", req)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -653,18 +654,18 @@ func TestAudit_S3Paths_Update_PluginsPathVersionPairPersisted(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "s3-persist-env", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "s3-persist-env", newCreateReq())
 	require.NoError(t, err)
-	_, _ = b.GetEnvironment("s3-persist-env") // promote CREATING → AVAILABLE
+	_, _ = b.GetEnvironment(context.Background(), "s3-persist-env") // promote CREATING → AVAILABLE
 
-	_, err = b.UpdateEnvironment("s3-persist-env", &mwaa.ExportedUpdateEnvironmentRequest{
+	_, err = b.UpdateEnvironment(context.Background(), "s3-persist-env", &mwaa.ExportedUpdateEnvironmentRequest{
 		PluginsS3Path:          "plugins.zip",
 		PluginsS3ObjectVersion: "abc123",
 	})
 	require.NoError(t, err)
 
-	b.GetEnvironment("s3-persist-env")
-	env, err := b.GetEnvironment("s3-persist-env")
+	b.GetEnvironment(context.Background(), "s3-persist-env")
+	env, err := b.GetEnvironment(context.Background(), "s3-persist-env")
 	require.NoError(t, err)
 	assert.Equal(t, "plugins.zip", env.PluginsS3Path)
 	assert.Equal(t, "abc123", env.PluginsS3ObjectVersion)
@@ -674,18 +675,18 @@ func TestAudit_S3Paths_Update_RequirementsPathVersionPairPersisted(t *testing.T)
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "req-s3-persist", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "req-s3-persist", newCreateReq())
 	require.NoError(t, err)
-	_, _ = b.GetEnvironment("req-s3-persist") // promote CREATING → AVAILABLE
+	_, _ = b.GetEnvironment(context.Background(), "req-s3-persist") // promote CREATING → AVAILABLE
 
-	_, err = b.UpdateEnvironment("req-s3-persist", &mwaa.ExportedUpdateEnvironmentRequest{
+	_, err = b.UpdateEnvironment(context.Background(), "req-s3-persist", &mwaa.ExportedUpdateEnvironmentRequest{
 		RequirementsS3Path:          "requirements.txt",
 		RequirementsS3ObjectVersion: "def456",
 	})
 	require.NoError(t, err)
 
-	b.GetEnvironment("req-s3-persist")
-	env, err := b.GetEnvironment("req-s3-persist")
+	b.GetEnvironment(context.Background(), "req-s3-persist")
+	env, err := b.GetEnvironment(context.Background(), "req-s3-persist")
 	require.NoError(t, err)
 	assert.Equal(t, "requirements.txt", env.RequirementsS3Path)
 	assert.Equal(t, "def456", env.RequirementsS3ObjectVersion)
@@ -695,18 +696,18 @@ func TestAudit_S3Paths_Update_StartupScriptPathVersionPairPersisted(t *testing.T
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "startup-s3-persist", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "startup-s3-persist", newCreateReq())
 	require.NoError(t, err)
-	_, _ = b.GetEnvironment("startup-s3-persist") // promote CREATING → AVAILABLE
+	_, _ = b.GetEnvironment(context.Background(), "startup-s3-persist") // promote CREATING → AVAILABLE
 
-	_, err = b.UpdateEnvironment("startup-s3-persist", &mwaa.ExportedUpdateEnvironmentRequest{
+	_, err = b.UpdateEnvironment(context.Background(), "startup-s3-persist", &mwaa.ExportedUpdateEnvironmentRequest{
 		StartupScriptS3Path:          "startup.sh",
 		StartupScriptS3ObjectVersion: "ghi789",
 	})
 	require.NoError(t, err)
 
-	b.GetEnvironment("startup-s3-persist")
-	env, err := b.GetEnvironment("startup-s3-persist")
+	b.GetEnvironment(context.Background(), "startup-s3-persist")
+	env, err := b.GetEnvironment(context.Background(), "startup-s3-persist")
 	require.NoError(t, err)
 	assert.Equal(t, "startup.sh", env.StartupScriptS3Path)
 	assert.Equal(t, "ghi789", env.StartupScriptS3ObjectVersion)
@@ -750,7 +751,7 @@ func TestAudit_NetworkConfig_CreateWithSubnetsAndSecGroups(t *testing.T) {
 		SecurityGroupIDs: []string{"sg-ccc333"},
 	}
 
-	env, err := b.CreateEnvironment(testRegion, testAccountID, "nc-env", req)
+	env, err := b.CreateEnvironment(context.Background(), "nc-env", req)
 	require.NoError(t, err)
 	require.NotNil(t, env.NetworkConfiguration)
 	assert.Equal(t, []string{"subnet-aaa111", "subnet-bbb222"}, env.NetworkConfiguration.SubnetIDs)
@@ -764,7 +765,7 @@ func TestAudit_NetworkConfig_CreateWithoutNetworkConfigAllowed(t *testing.T) {
 	req := newCreateReq()
 	req.NetworkConfiguration = nil
 
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "nc-nil-env", req)
+	_, err := b.CreateEnvironment(context.Background(), "nc-nil-env", req)
 	require.NoError(t, err)
 }
 
@@ -772,11 +773,11 @@ func TestAudit_NetworkConfig_UpdateValidNetworkConfig(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "nc-upd-env", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "nc-upd-env", newCreateReq())
 	require.NoError(t, err)
-	_, _ = b.GetEnvironment("nc-upd-env") // promote CREATING → AVAILABLE
+	_, _ = b.GetEnvironment(context.Background(), "nc-upd-env") // promote CREATING → AVAILABLE
 
-	_, err = b.UpdateEnvironment("nc-upd-env", &mwaa.ExportedUpdateEnvironmentRequest{
+	_, err = b.UpdateEnvironment(context.Background(), "nc-upd-env", &mwaa.ExportedUpdateEnvironmentRequest{
 		NetworkConfiguration: &mwaa.NetworkConfig{
 			SubnetIDs:        []string{"subnet-new1", "subnet-new2"},
 			SecurityGroupIDs: []string{"sg-new1"},
@@ -789,11 +790,11 @@ func TestAudit_NetworkConfig_UpdateEmptySubnetsRejected(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "nc-empty-sn", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "nc-empty-sn", newCreateReq())
 	require.NoError(t, err)
-	_, _ = b.GetEnvironment("nc-empty-sn") // promote CREATING → AVAILABLE
+	_, _ = b.GetEnvironment(context.Background(), "nc-empty-sn") // promote CREATING → AVAILABLE
 
-	_, err = b.UpdateEnvironment("nc-empty-sn", &mwaa.ExportedUpdateEnvironmentRequest{
+	_, err = b.UpdateEnvironment(context.Background(), "nc-empty-sn", &mwaa.ExportedUpdateEnvironmentRequest{
 		NetworkConfiguration: &mwaa.NetworkConfig{
 			SecurityGroupIDs: []string{"sg-1"},
 		},
@@ -806,11 +807,11 @@ func TestAudit_NetworkConfig_UpdateEmptySecurityGroupsRejected(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "nc-empty-sg", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "nc-empty-sg", newCreateReq())
 	require.NoError(t, err)
-	_, _ = b.GetEnvironment("nc-empty-sg") // promote CREATING → AVAILABLE
+	_, _ = b.GetEnvironment(context.Background(), "nc-empty-sg") // promote CREATING → AVAILABLE
 
-	_, err = b.UpdateEnvironment("nc-empty-sg", &mwaa.ExportedUpdateEnvironmentRequest{
+	_, err = b.UpdateEnvironment(context.Background(), "nc-empty-sg", &mwaa.ExportedUpdateEnvironmentRequest{
 		NetworkConfiguration: &mwaa.NetworkConfig{
 			SubnetIDs: []string{"subnet-1"},
 		},
@@ -823,21 +824,21 @@ func TestAudit_NetworkConfig_UpdatePersisted(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "nc-persist-env", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "nc-persist-env", newCreateReq())
 	require.NoError(t, err)
-	_, _ = b.GetEnvironment("nc-persist-env") // promote CREATING → AVAILABLE
+	_, _ = b.GetEnvironment(context.Background(), "nc-persist-env") // promote CREATING → AVAILABLE
 
 	newNC := &mwaa.NetworkConfig{
 		SubnetIDs:        []string{"subnet-x1", "subnet-x2"},
 		SecurityGroupIDs: []string{"sg-x1", "sg-x2"},
 	}
-	_, err = b.UpdateEnvironment("nc-persist-env", &mwaa.ExportedUpdateEnvironmentRequest{
+	_, err = b.UpdateEnvironment(context.Background(), "nc-persist-env", &mwaa.ExportedUpdateEnvironmentRequest{
 		NetworkConfiguration: newNC,
 	})
 	require.NoError(t, err)
 
-	b.GetEnvironment("nc-persist-env")
-	env, err := b.GetEnvironment("nc-persist-env")
+	b.GetEnvironment(context.Background(), "nc-persist-env")
+	env, err := b.GetEnvironment(context.Background(), "nc-persist-env")
 	require.NoError(t, err)
 	require.NotNil(t, env.NetworkConfiguration)
 	assert.Equal(t, []string{"subnet-x1", "subnet-x2"}, env.NetworkConfiguration.SubnetIDs)
@@ -876,11 +877,11 @@ func TestAudit_AirflowConfig_CreateWithOptions(t *testing.T) {
 		"webserver.expose_config": "true",
 	}
 
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "acfg-env", req)
+	_, err := b.CreateEnvironment(context.Background(), "acfg-env", req)
 	require.NoError(t, err)
 
-	b.GetEnvironment("acfg-env")
-	env, err := b.GetEnvironment("acfg-env")
+	b.GetEnvironment(context.Background(), "acfg-env")
+	env, err := b.GetEnvironment(context.Background(), "acfg-env")
 	require.NoError(t, err)
 	assert.Equal(t, "32", env.AirflowConfigurationOptions["core.parallelism"])
 	assert.Equal(t, "100", env.AirflowConfigurationOptions["scheduler.dag_bag_size"])
@@ -895,19 +896,19 @@ func TestAudit_AirflowConfig_UpdateReplaces_NotMerges(t *testing.T) {
 		"core.parallelism": "32",
 		"old.key":          "old-value",
 	}
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "acfg-replace-env", req)
+	_, err := b.CreateEnvironment(context.Background(), "acfg-replace-env", req)
 	require.NoError(t, err)
-	_, _ = b.GetEnvironment("acfg-replace-env") // promote CREATING → AVAILABLE
+	_, _ = b.GetEnvironment(context.Background(), "acfg-replace-env") // promote CREATING → AVAILABLE
 
-	_, err = b.UpdateEnvironment("acfg-replace-env", &mwaa.ExportedUpdateEnvironmentRequest{
+	_, err = b.UpdateEnvironment(context.Background(), "acfg-replace-env", &mwaa.ExportedUpdateEnvironmentRequest{
 		AirflowConfigurationOptions: map[string]string{
 			"new.key": "new-value",
 		},
 	})
 	require.NoError(t, err)
 
-	b.GetEnvironment("acfg-replace-env")
-	env, err := b.GetEnvironment("acfg-replace-env")
+	b.GetEnvironment(context.Background(), "acfg-replace-env")
+	env, err := b.GetEnvironment(context.Background(), "acfg-replace-env")
 	require.NoError(t, err)
 	// old.key should be gone — update replaces, not merges
 	assert.NotContains(t, env.AirflowConfigurationOptions, "old.key")
@@ -922,18 +923,18 @@ func TestAudit_AirflowConfig_UpdateNilOptions_DoesNotClear(t *testing.T) {
 	req.AirflowConfigurationOptions = map[string]string{
 		"core.parallelism": "16",
 	}
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "acfg-nil-upd", req)
+	_, err := b.CreateEnvironment(context.Background(), "acfg-nil-upd", req)
 	require.NoError(t, err)
-	_, _ = b.GetEnvironment("acfg-nil-upd") // promote CREATING → AVAILABLE
+	_, _ = b.GetEnvironment(context.Background(), "acfg-nil-upd") // promote CREATING → AVAILABLE
 
 	// Update with nil AirflowConfigurationOptions — should not touch existing config.
-	_, err = b.UpdateEnvironment("acfg-nil-upd", &mwaa.ExportedUpdateEnvironmentRequest{
+	_, err = b.UpdateEnvironment(context.Background(), "acfg-nil-upd", &mwaa.ExportedUpdateEnvironmentRequest{
 		DagS3Path: "new-dags/",
 	})
 	require.NoError(t, err)
 
-	b.GetEnvironment("acfg-nil-upd")
-	env, err := b.GetEnvironment("acfg-nil-upd")
+	b.GetEnvironment(context.Background(), "acfg-nil-upd")
+	env, err := b.GetEnvironment(context.Background(), "acfg-nil-upd")
 	require.NoError(t, err)
 	assert.Equal(t, "16", env.AirflowConfigurationOptions["core.parallelism"])
 }
@@ -946,18 +947,18 @@ func TestAudit_AirflowConfig_EmptyMapClears(t *testing.T) {
 	req.AirflowConfigurationOptions = map[string]string{
 		"some.key": "some-value",
 	}
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "acfg-clear-env", req)
+	_, err := b.CreateEnvironment(context.Background(), "acfg-clear-env", req)
 	require.NoError(t, err)
-	_, _ = b.GetEnvironment("acfg-clear-env") // promote CREATING → AVAILABLE
+	_, _ = b.GetEnvironment(context.Background(), "acfg-clear-env") // promote CREATING → AVAILABLE
 
 	// Update with empty map should replace existing config with empty.
-	_, err = b.UpdateEnvironment("acfg-clear-env", &mwaa.ExportedUpdateEnvironmentRequest{
+	_, err = b.UpdateEnvironment(context.Background(), "acfg-clear-env", &mwaa.ExportedUpdateEnvironmentRequest{
 		AirflowConfigurationOptions: map[string]string{},
 	})
 	require.NoError(t, err)
 
-	b.GetEnvironment("acfg-clear-env")
-	env, err := b.GetEnvironment("acfg-clear-env")
+	b.GetEnvironment(context.Background(), "acfg-clear-env")
+	env, err := b.GetEnvironment(context.Background(), "acfg-clear-env")
 	require.NoError(t, err)
 	assert.Empty(t, env.AirflowConfigurationOptions)
 }
@@ -971,12 +972,12 @@ func TestAudit_AirflowConfig_CeleryExecutorOption(t *testing.T) {
 	req.AirflowConfigurationOptions = map[string]string{
 		"core.executor": "CeleryExecutor",
 	}
-	env, err := b.CreateEnvironment(testRegion, testAccountID, "celery-env", req)
+	env, err := b.CreateEnvironment(context.Background(), "celery-env", req)
 	require.NoError(t, err)
 	_ = env
 
-	b.GetEnvironment("celery-env")
-	got, err := b.GetEnvironment("celery-env")
+	b.GetEnvironment(context.Background(), "celery-env")
+	got, err := b.GetEnvironment(context.Background(), "celery-env")
 	require.NoError(t, err)
 	assert.Equal(t, "CeleryExecutor", got.AirflowConfigurationOptions["core.executor"])
 	// CeleryExecutorQueue should be present and non-empty on all environments.
@@ -991,11 +992,11 @@ func TestAudit_AirflowConfig_LocalExecutorOption(t *testing.T) {
 	req.AirflowConfigurationOptions = map[string]string{
 		"core.executor": "LocalExecutor",
 	}
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "local-exec-env", req)
+	_, err := b.CreateEnvironment(context.Background(), "local-exec-env", req)
 	require.NoError(t, err)
 
-	b.GetEnvironment("local-exec-env")
-	env, err := b.GetEnvironment("local-exec-env")
+	b.GetEnvironment(context.Background(), "local-exec-env")
+	env, err := b.GetEnvironment(context.Background(), "local-exec-env")
 	require.NoError(t, err)
 	assert.Equal(t, "LocalExecutor", env.AirflowConfigurationOptions["core.executor"])
 }
@@ -1027,7 +1028,7 @@ func TestAudit_KmsKey_ValidationOnCreate(t *testing.T) {
 			req := newCreateReq()
 			req.KmsKey = tt.kmsKey
 
-			_, err := b.CreateEnvironment(testRegion, testAccountID, "kms-env", req)
+			_, err := b.CreateEnvironment(context.Background(), "kms-env", req)
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), "KmsKey")
@@ -1047,11 +1048,11 @@ func TestAudit_KmsKey_PersisteddInGetEnvironment(t *testing.T) {
 	req := newCreateReq()
 	req.KmsKey = kmsARN
 
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "kms-persist-env", req)
+	_, err := b.CreateEnvironment(context.Background(), "kms-persist-env", req)
 	require.NoError(t, err)
 
-	b.GetEnvironment("kms-persist-env")
-	env, err := b.GetEnvironment("kms-persist-env")
+	b.GetEnvironment(context.Background(), "kms-persist-env")
+	env, err := b.GetEnvironment(context.Background(), "kms-persist-env")
 	require.NoError(t, err)
 	assert.Equal(t, kmsARN, env.KmsKey)
 }
@@ -1096,7 +1097,7 @@ func TestAudit_EndpointManagement_ValidationAndPersistence(t *testing.T) {
 			req.EndpointManagement = tt.mgmt
 
 			envName := "em-env-" + strings.ReplaceAll(tt.name, "_", "-")
-			env, err := b.CreateEnvironment(testRegion, testAccountID, envName, req)
+			env, err := b.CreateEnvironment(context.Background(), envName, req)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -1117,11 +1118,11 @@ func TestAudit_EndpointManagement_CustomerPersistedInGet(t *testing.T) {
 	req := newCreateReq()
 	req.EndpointManagement = "CUSTOMER"
 
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "em-customer-env", req)
+	_, err := b.CreateEnvironment(context.Background(), "em-customer-env", req)
 	require.NoError(t, err)
 
-	b.GetEnvironment("em-customer-env")
-	env, err := b.GetEnvironment("em-customer-env")
+	b.GetEnvironment(context.Background(), "em-customer-env")
+	env, err := b.GetEnvironment(context.Background(), "em-customer-env")
 	require.NoError(t, err)
 	assert.Equal(t, "CUSTOMER", env.EndpointManagement)
 }
@@ -1181,11 +1182,11 @@ func TestAudit_WeeklyMaintenance_UpdateValidation(t *testing.T) {
 			t.Parallel()
 
 			b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-			_, err := b.CreateEnvironment(testRegion, testAccountID, "wmw-upd-env", newCreateReq())
+			_, err := b.CreateEnvironment(context.Background(), "wmw-upd-env", newCreateReq())
 			require.NoError(t, err)
-			_, _ = b.GetEnvironment("wmw-upd-env") // promote CREATING → AVAILABLE
+			_, _ = b.GetEnvironment(context.Background(), "wmw-upd-env") // promote CREATING → AVAILABLE
 
-			_, err = b.UpdateEnvironment("wmw-upd-env", &mwaa.ExportedUpdateEnvironmentRequest{
+			_, err = b.UpdateEnvironment(context.Background(), "wmw-upd-env", &mwaa.ExportedUpdateEnvironmentRequest{
 				WeeklyMaintenanceWindowStart: tt.window,
 			})
 
@@ -1202,17 +1203,17 @@ func TestAudit_WeeklyMaintenance_UpdatePersisted(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "wmw-persist-env", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "wmw-persist-env", newCreateReq())
 	require.NoError(t, err)
-	_, _ = b.GetEnvironment("wmw-persist-env") // promote CREATING → AVAILABLE
+	_, _ = b.GetEnvironment(context.Background(), "wmw-persist-env") // promote CREATING → AVAILABLE
 
-	_, err = b.UpdateEnvironment("wmw-persist-env", &mwaa.ExportedUpdateEnvironmentRequest{
+	_, err = b.UpdateEnvironment(context.Background(), "wmw-persist-env", &mwaa.ExportedUpdateEnvironmentRequest{
 		WeeklyMaintenanceWindowStart: "WED:02:00",
 	})
 	require.NoError(t, err)
 
-	b.GetEnvironment("wmw-persist-env")
-	env, err := b.GetEnvironment("wmw-persist-env")
+	b.GetEnvironment(context.Background(), "wmw-persist-env")
+	env, err := b.GetEnvironment(context.Background(), "wmw-persist-env")
 	require.NoError(t, err)
 	assert.Equal(t, "WED:02:00", env.WeeklyMaintenanceWindowStart)
 }
@@ -1242,12 +1243,12 @@ func TestAudit_WeeklyMaintenance_AllDays_Valid(t *testing.T) {
 			t.Parallel()
 
 			b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-			_, err := b.CreateEnvironment(testRegion, testAccountID, "wmw-day-env", newCreateReq())
+			_, err := b.CreateEnvironment(context.Background(), "wmw-day-env", newCreateReq())
 			require.NoError(t, err)
-			_, _ = b.GetEnvironment("wmw-day-env") // promote CREATING → AVAILABLE
+			_, _ = b.GetEnvironment(context.Background(), "wmw-day-env") // promote CREATING → AVAILABLE
 
 			window := day + ":12:00"
-			_, err = b.UpdateEnvironment("wmw-day-env", &mwaa.ExportedUpdateEnvironmentRequest{
+			_, err = b.UpdateEnvironment(context.Background(), "wmw-day-env", &mwaa.ExportedUpdateEnvironmentRequest{
 				WeeklyMaintenanceWindowStart: window,
 			})
 			require.NoError(t, err)
@@ -1266,13 +1267,13 @@ func TestAudit_Workers_Update_OnlyMinSet_KeepsExistingMax(t *testing.T) {
 	req := newCreateReq()
 	req.MaxWorkers = 10
 	req.MinWorkers = 1
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "wk-only-min-env", req)
+	_, err := b.CreateEnvironment(context.Background(), "wk-only-min-env", req)
 	require.NoError(t, err)
-	_, _ = b.GetEnvironment("wk-only-min-env") // promote CREATING → AVAILABLE
+	_, _ = b.GetEnvironment(context.Background(), "wk-only-min-env") // promote CREATING → AVAILABLE
 
 	// Update: set MinWorkers=2, leave MaxWorkers=0 (no change).
 	// MinWorkers=2 < existing MaxWorkers=10: should succeed.
-	_, err = b.UpdateEnvironment("wk-only-min-env", &mwaa.ExportedUpdateEnvironmentRequest{
+	_, err = b.UpdateEnvironment(context.Background(), "wk-only-min-env", &mwaa.ExportedUpdateEnvironmentRequest{
 		MinWorkers: 2,
 	})
 	require.NoError(t, err)
@@ -1285,18 +1286,18 @@ func TestAudit_Workers_Update_OnlyMaxSet_KeepsExistingMin(t *testing.T) {
 	req := newCreateReq()
 	req.MaxWorkers = 10
 	req.MinWorkers = 3
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "wk-only-max-env", req)
+	_, err := b.CreateEnvironment(context.Background(), "wk-only-max-env", req)
 	require.NoError(t, err)
-	_, _ = b.GetEnvironment("wk-only-max-env") // promote CREATING → AVAILABLE
+	_, _ = b.GetEnvironment(context.Background(), "wk-only-max-env") // promote CREATING → AVAILABLE
 
 	// Update: set MaxWorkers=15, leave MinWorkers=0 (no change).
-	_, err = b.UpdateEnvironment("wk-only-max-env", &mwaa.ExportedUpdateEnvironmentRequest{
+	_, err = b.UpdateEnvironment(context.Background(), "wk-only-max-env", &mwaa.ExportedUpdateEnvironmentRequest{
 		MaxWorkers: 15,
 	})
 	require.NoError(t, err)
 
-	b.GetEnvironment("wk-only-max-env")
-	env, err := b.GetEnvironment("wk-only-max-env")
+	b.GetEnvironment(context.Background(), "wk-only-max-env")
+	env, err := b.GetEnvironment(context.Background(), "wk-only-max-env")
 	require.NoError(t, err)
 	assert.Equal(t, int32(15), env.MaxWorkers)
 	assert.Equal(t, int32(3), env.MinWorkers)
@@ -1309,12 +1310,12 @@ func TestAudit_Workers_Update_NewMinExceedsExistingMax(t *testing.T) {
 	req := newCreateReq()
 	req.MaxWorkers = 5
 	req.MinWorkers = 1
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "wk-min-exceeds-max", req)
+	_, err := b.CreateEnvironment(context.Background(), "wk-min-exceeds-max", req)
 	require.NoError(t, err)
-	_, _ = b.GetEnvironment("wk-min-exceeds-max") // promote CREATING → AVAILABLE
+	_, _ = b.GetEnvironment(context.Background(), "wk-min-exceeds-max") // promote CREATING → AVAILABLE
 
 	// Set MinWorkers=10 > existing MaxWorkers=5: should fail.
-	_, err = b.UpdateEnvironment("wk-min-exceeds-max", &mwaa.ExportedUpdateEnvironmentRequest{
+	_, err = b.UpdateEnvironment(context.Background(), "wk-min-exceeds-max", &mwaa.ExportedUpdateEnvironmentRequest{
 		MinWorkers: 10,
 	})
 	require.Error(t, err)
@@ -1328,12 +1329,12 @@ func TestAudit_Workers_Update_NewMaxBelowExistingMin(t *testing.T) {
 	req := newCreateReq()
 	req.MaxWorkers = 10
 	req.MinWorkers = 5
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "wk-max-below-min", req)
+	_, err := b.CreateEnvironment(context.Background(), "wk-max-below-min", req)
 	require.NoError(t, err)
-	_, _ = b.GetEnvironment("wk-max-below-min") // promote CREATING → AVAILABLE
+	_, _ = b.GetEnvironment(context.Background(), "wk-max-below-min") // promote CREATING → AVAILABLE
 
 	// Set MaxWorkers=2 < existing MinWorkers=5: should fail.
-	_, err = b.UpdateEnvironment("wk-max-below-min", &mwaa.ExportedUpdateEnvironmentRequest{
+	_, err = b.UpdateEnvironment(context.Background(), "wk-max-below-min", &mwaa.ExportedUpdateEnvironmentRequest{
 		MaxWorkers: 2,
 	})
 	require.Error(t, err)
@@ -1360,11 +1361,11 @@ func TestAudit_Workers_Update_BothSetValidRange(t *testing.T) {
 			t.Parallel()
 
 			b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-			_, err := b.CreateEnvironment(testRegion, testAccountID, "wk-both-env", newCreateReq())
+			_, err := b.CreateEnvironment(context.Background(), "wk-both-env", newCreateReq())
 			require.NoError(t, err)
-			_, _ = b.GetEnvironment("wk-both-env") // promote CREATING → AVAILABLE
+			_, _ = b.GetEnvironment(context.Background(), "wk-both-env") // promote CREATING → AVAILABLE
 
-			_, err = b.UpdateEnvironment("wk-both-env", &mwaa.ExportedUpdateEnvironmentRequest{
+			_, err = b.UpdateEnvironment(context.Background(), "wk-both-env", &mwaa.ExportedUpdateEnvironmentRequest{
 				MinWorkers: tt.min,
 				MaxWorkers: tt.max,
 			})
@@ -1401,7 +1402,7 @@ func TestAudit_Schedulers_Create_V2_BoundaryValues(t *testing.T) {
 			req := newCreateReq()
 			req.Schedulers = tt.schedulers
 
-			_, err := b.CreateEnvironment(testRegion, testAccountID, "sched-env", req)
+			_, err := b.CreateEnvironment(context.Background(), "sched-env", req)
 			if tt.wantErr {
 				require.Error(t, err)
 			} else {
@@ -1437,7 +1438,7 @@ func TestAudit_Webservers_Create_BoundaryValues(t *testing.T) {
 			req.MinWebservers = tt.min
 			req.MaxWebservers = tt.max
 
-			_, err := b.CreateEnvironment(testRegion, testAccountID, "ws-env", req)
+			_, err := b.CreateEnvironment(context.Background(), "ws-env", req)
 			if tt.wantErr {
 				require.Error(t, err)
 			} else {
@@ -1455,7 +1456,7 @@ func TestAudit_Metrics_Cap_AtExactLimit(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "metrics-cap-env", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "metrics-cap-env", newCreateReq())
 	require.NoError(t, err)
 
 	// Publish exactly 1000 metrics.
@@ -1463,7 +1464,11 @@ func TestAudit_Metrics_Cap_AtExactLimit(t *testing.T) {
 	for i := range data {
 		data[i] = mwaa.ExportedMetricDatum{MetricName: fmt.Sprintf("Metric%d", i)}
 	}
-	err = b.PublishMetrics("metrics-cap-env", &mwaa.ExportedPublishMetricsRequest{MetricData: data})
+	err = b.PublishMetrics(
+		context.Background(),
+		"metrics-cap-env",
+		&mwaa.ExportedPublishMetricsRequest{MetricData: data},
+	)
 	require.NoError(t, err)
 
 	assert.Equal(t, 1000, mwaa.MetricsCount(b, "metrics-cap-env"))
@@ -1473,7 +1478,7 @@ func TestAudit_Metrics_Cap_ExceedsLimit_TrimsOldest(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "metrics-overflow-env", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "metrics-overflow-env", newCreateReq())
 	require.NoError(t, err)
 
 	// Publish 1100 metrics in two batches.
@@ -1481,14 +1486,22 @@ func TestAudit_Metrics_Cap_ExceedsLimit_TrimsOldest(t *testing.T) {
 	for i := range first {
 		first[i] = mwaa.ExportedMetricDatum{MetricName: fmt.Sprintf("Old%d", i)}
 	}
-	err = b.PublishMetrics("metrics-overflow-env", &mwaa.ExportedPublishMetricsRequest{MetricData: first})
+	err = b.PublishMetrics(
+		context.Background(),
+		"metrics-overflow-env",
+		&mwaa.ExportedPublishMetricsRequest{MetricData: first},
+	)
 	require.NoError(t, err)
 
 	second := make([]mwaa.ExportedMetricDatum, 500)
 	for i := range second {
 		second[i] = mwaa.ExportedMetricDatum{MetricName: fmt.Sprintf("New%d", i)}
 	}
-	err = b.PublishMetrics("metrics-overflow-env", &mwaa.ExportedPublishMetricsRequest{MetricData: second})
+	err = b.PublishMetrics(
+		context.Background(),
+		"metrics-overflow-env",
+		&mwaa.ExportedPublishMetricsRequest{MetricData: second},
+	)
 	require.NoError(t, err)
 
 	// Total 1100 → capped at 1000.
@@ -1499,14 +1512,18 @@ func TestAudit_Metrics_Cap_PublishSingleBatch_Over1000(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "metrics-big-batch", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "metrics-big-batch", newCreateReq())
 	require.NoError(t, err)
 
 	data := make([]mwaa.ExportedMetricDatum, 1200)
 	for i := range data {
 		data[i] = mwaa.ExportedMetricDatum{MetricName: fmt.Sprintf("Datum%d", i)}
 	}
-	err = b.PublishMetrics("metrics-big-batch", &mwaa.ExportedPublishMetricsRequest{MetricData: data})
+	err = b.PublishMetrics(
+		context.Background(),
+		"metrics-big-batch",
+		&mwaa.ExportedPublishMetricsRequest{MetricData: data},
+	)
 	require.NoError(t, err)
 
 	// Capped at 1000.
@@ -1586,10 +1603,14 @@ func TestAudit_PublishMetrics_DatumFields(t *testing.T) {
 			t.Parallel()
 
 			b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-			_, err := b.CreateEnvironment(testRegion, testAccountID, "datum-env", newCreateReq())
+			_, err := b.CreateEnvironment(context.Background(), "datum-env", newCreateReq())
 			require.NoError(t, err)
 
-			err = b.PublishMetrics("datum-env", &mwaa.ExportedPublishMetricsRequest{MetricData: tt.datums})
+			err = b.PublishMetrics(
+				context.Background(),
+				"datum-env",
+				&mwaa.ExportedPublishMetricsRequest{MetricData: tt.datums},
+			)
 			require.NoError(t, err)
 		})
 	}
@@ -1599,7 +1620,7 @@ func TestAudit_PublishMetrics_NotFound(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	err := b.PublishMetrics("nonexistent-env", &mwaa.ExportedPublishMetricsRequest{})
+	err := b.PublishMetrics(context.Background(), "nonexistent-env", &mwaa.ExportedPublishMetricsRequest{})
 	require.ErrorIs(t, err, mwaa.ErrEnvironmentNotFound)
 }
 
@@ -1607,16 +1628,16 @@ func TestAudit_GetMetrics_ReturnsCopy(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "get-metrics-copy-env", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "get-metrics-copy-env", newCreateReq())
 	require.NoError(t, err)
 
 	v := 5.0
-	err = b.PublishMetrics("get-metrics-copy-env", &mwaa.ExportedPublishMetricsRequest{
+	err = b.PublishMetrics(context.Background(), "get-metrics-copy-env", &mwaa.ExportedPublishMetricsRequest{
 		MetricData: []mwaa.ExportedMetricDatum{{MetricName: "TaskCount", Value: &v}},
 	})
 	require.NoError(t, err)
 
-	data, err := b.GetMetrics("get-metrics-copy-env")
+	data, err := b.GetMetrics(context.Background(), "get-metrics-copy-env")
 	require.NoError(t, err)
 	assert.Len(t, data, 1)
 	assert.Equal(t, "TaskCount", data[0].MetricName)
@@ -1701,10 +1722,10 @@ func TestAudit_InvokeRestApi_Variations(t *testing.T) {
 			t.Parallel()
 
 			b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-			_, err := b.CreateEnvironment(testRegion, testAccountID, "restapi-env", newCreateReq())
+			_, err := b.CreateEnvironment(context.Background(), "restapi-env", newCreateReq())
 			require.NoError(t, err)
 
-			resp, err := b.InvokeRestAPI("restapi-env", tt.req)
+			resp, err := b.InvokeRestAPI(context.Background(), "restapi-env", tt.req)
 			if tt.wantErr {
 				require.Error(t, err)
 
@@ -1786,11 +1807,11 @@ func TestAudit_Tags_AtCreate_PersistedInGet(t *testing.T) {
 		"cost":  "cc-1234",
 	}
 
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "tagged-env", req)
+	_, err := b.CreateEnvironment(context.Background(), "tagged-env", req)
 	require.NoError(t, err)
 
-	b.GetEnvironment("tagged-env")
-	env, err := b.GetEnvironment("tagged-env")
+	b.GetEnvironment(context.Background(), "tagged-env")
+	env, err := b.GetEnvironment(context.Background(), "tagged-env")
 	require.NoError(t, err)
 	assert.Equal(t, "production", env.Tags["env"])
 	assert.Equal(t, "platform-team", env.Tags["owner"])
@@ -1804,18 +1825,18 @@ func TestAudit_Tags_Update_DoesNotTouchExistingTags(t *testing.T) {
 	req := newCreateReq()
 	req.Tags = map[string]string{"keep": "this"}
 
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "tags-upd-env", req)
+	_, err := b.CreateEnvironment(context.Background(), "tags-upd-env", req)
 	require.NoError(t, err)
-	_, _ = b.GetEnvironment("tags-upd-env") // promote CREATING → AVAILABLE
+	_, _ = b.GetEnvironment(context.Background(), "tags-upd-env") // promote CREATING → AVAILABLE
 
 	// Update the environment without touching tags.
-	_, err = b.UpdateEnvironment("tags-upd-env", &mwaa.ExportedUpdateEnvironmentRequest{
+	_, err = b.UpdateEnvironment(context.Background(), "tags-upd-env", &mwaa.ExportedUpdateEnvironmentRequest{
 		DagS3Path: "new-dags/",
 	})
 	require.NoError(t, err)
 
-	b.GetEnvironment("tags-upd-env")
-	env, err := b.GetEnvironment("tags-upd-env")
+	b.GetEnvironment(context.Background(), "tags-upd-env")
+	env, err := b.GetEnvironment(context.Background(), "tags-upd-env")
 	require.NoError(t, err)
 	assert.Equal(t, "this", env.Tags["keep"])
 }
@@ -1827,21 +1848,21 @@ func TestAudit_Tags_NotLeakedBetweenEnvironments(t *testing.T) {
 
 	reqA := newCreateReq()
 	reqA.Tags = map[string]string{"env": "alpha"}
-	envA, err := b.CreateEnvironment(testRegion, testAccountID, "tag-leak-a", reqA)
+	envA, err := b.CreateEnvironment(context.Background(), "tag-leak-a", reqA)
 	require.NoError(t, err)
 
 	reqB := newCreateReq()
 	reqB.Tags = map[string]string{"env": "beta"}
-	_, err = b.CreateEnvironment(testRegion, testAccountID, "tag-leak-b", reqB)
+	_, err = b.CreateEnvironment(context.Background(), "tag-leak-b", reqB)
 	require.NoError(t, err)
 
 	// Add a tag to A's ARN.
-	err = b.TagResource(envA.ARN, map[string]string{"extra": "from-a"})
+	err = b.TagResource(context.Background(), envA.ARN, map[string]string{"extra": "from-a"})
 	require.NoError(t, err)
 
 	// Fetch B — should not have A's extra tag.
-	b.GetEnvironment("tag-leak-b")
-	gotB, err := b.GetEnvironment("tag-leak-b")
+	b.GetEnvironment(context.Background(), "tag-leak-b")
+	gotB, err := b.GetEnvironment(context.Background(), "tag-leak-b")
 	require.NoError(t, err)
 	assert.NotContains(t, gotB.Tags, "extra")
 	assert.Equal(t, "beta", gotB.Tags["env"])
@@ -1881,11 +1902,11 @@ func TestAudit_DerivedFields_CeleryExecutorQueue(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "derived-env", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "derived-env", newCreateReq())
 	require.NoError(t, err)
 
-	b.GetEnvironment("derived-env")
-	env, err := b.GetEnvironment("derived-env")
+	b.GetEnvironment(context.Background(), "derived-env")
+	env, err := b.GetEnvironment(context.Background(), "derived-env")
 	require.NoError(t, err)
 
 	// CeleryExecutorQueue must be an SQS URL.
@@ -1902,11 +1923,11 @@ func TestAudit_DerivedFields_ServiceRoleArn(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "sra-env", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "sra-env", newCreateReq())
 	require.NoError(t, err)
 
-	b.GetEnvironment("sra-env")
-	env, err := b.GetEnvironment("sra-env")
+	b.GetEnvironment(context.Background(), "sra-env")
+	env, err := b.GetEnvironment(context.Background(), "sra-env")
 	require.NoError(t, err)
 
 	// ServiceRoleArn must be an IAM ARN.
@@ -1923,11 +1944,11 @@ func TestAudit_DerivedFields_WebserverURL(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "ws-url-env", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "ws-url-env", newCreateReq())
 	require.NoError(t, err)
 
-	b.GetEnvironment("ws-url-env")
-	env, err := b.GetEnvironment("ws-url-env")
+	b.GetEnvironment(context.Background(), "ws-url-env")
+	env, err := b.GetEnvironment(context.Background(), "ws-url-env")
 	require.NoError(t, err)
 
 	assert.True(
@@ -1943,11 +1964,11 @@ func TestAudit_DerivedFields_VpcEndpointServices(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "vpc-svc-env", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "vpc-svc-env", newCreateReq())
 	require.NoError(t, err)
 
-	b.GetEnvironment("vpc-svc-env")
-	env, err := b.GetEnvironment("vpc-svc-env")
+	b.GetEnvironment(context.Background(), "vpc-svc-env")
+	env, err := b.GetEnvironment(context.Background(), "vpc-svc-env")
 	require.NoError(t, err)
 
 	assert.NotEmpty(t, env.DatabaseVpcEndpointService)
@@ -1960,18 +1981,18 @@ func TestAudit_DerivedFields_DifferentForDifferentEnvs(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "diff-derived-a", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "diff-derived-a", newCreateReq())
 	require.NoError(t, err)
-	_, err = b.CreateEnvironment(testRegion, testAccountID, "diff-derived-b", newCreateReq())
+	_, err = b.CreateEnvironment(context.Background(), "diff-derived-b", newCreateReq())
 	require.NoError(t, err)
 
 	// Consume CREATING for both
-	b.GetEnvironment("diff-derived-a")
-	b.GetEnvironment("diff-derived-b")
+	b.GetEnvironment(context.Background(), "diff-derived-a")
+	b.GetEnvironment(context.Background(), "diff-derived-b")
 
-	envA, err := b.GetEnvironment("diff-derived-a")
+	envA, err := b.GetEnvironment(context.Background(), "diff-derived-a")
 	require.NoError(t, err)
-	envB, err := b.GetEnvironment("diff-derived-b")
+	envB, err := b.GetEnvironment(context.Background(), "diff-derived-b")
 	require.NoError(t, err)
 
 	// Each env gets a unique webserver URL and celery queue.
@@ -1990,11 +2011,11 @@ func TestAudit_DagS3Path_CreateAndGet(t *testing.T) {
 	req := newCreateReq()
 	req.DagS3Path = "custom/dags/"
 
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "dag-path-env", req)
+	_, err := b.CreateEnvironment(context.Background(), "dag-path-env", req)
 	require.NoError(t, err)
 
-	b.GetEnvironment("dag-path-env")
-	env, err := b.GetEnvironment("dag-path-env")
+	b.GetEnvironment(context.Background(), "dag-path-env")
+	env, err := b.GetEnvironment(context.Background(), "dag-path-env")
 	require.NoError(t, err)
 	assert.Equal(t, "custom/dags/", env.DagS3Path)
 }
@@ -2003,17 +2024,17 @@ func TestAudit_DagS3Path_Update_Persisted(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "dag-upd-env", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "dag-upd-env", newCreateReq())
 	require.NoError(t, err)
-	_, _ = b.GetEnvironment("dag-upd-env") // promote CREATING → AVAILABLE
+	_, _ = b.GetEnvironment(context.Background(), "dag-upd-env") // promote CREATING → AVAILABLE
 
-	_, err = b.UpdateEnvironment("dag-upd-env", &mwaa.ExportedUpdateEnvironmentRequest{
+	_, err = b.UpdateEnvironment(context.Background(), "dag-upd-env", &mwaa.ExportedUpdateEnvironmentRequest{
 		DagS3Path: "new/dags/path/",
 	})
 	require.NoError(t, err)
 
-	b.GetEnvironment("dag-upd-env")
-	env, err := b.GetEnvironment("dag-upd-env")
+	b.GetEnvironment(context.Background(), "dag-upd-env")
+	env, err := b.GetEnvironment(context.Background(), "dag-upd-env")
 	require.NoError(t, err)
 	assert.Equal(t, "new/dags/path/", env.DagS3Path)
 }
@@ -2022,7 +2043,7 @@ func TestAudit_DagS3Path_Required_OnCreate(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "dag-missing-env", &mwaa.ExportedCreateEnvironmentRequest{
+	_, err := b.CreateEnvironment(context.Background(), "dag-missing-env", &mwaa.ExportedCreateEnvironmentRequest{
 		ExecutionRoleArn: "arn:aws:iam::123456789012:role/r",
 		SourceBucketArn:  "arn:aws:s3:::bucket",
 	})
@@ -2038,7 +2059,7 @@ func TestAudit_RequiredFields_MissingSourceBucketArn(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "req-sb-env", &mwaa.ExportedCreateEnvironmentRequest{
+	_, err := b.CreateEnvironment(context.Background(), "req-sb-env", &mwaa.ExportedCreateEnvironmentRequest{
 		DagS3Path:        "dags/",
 		ExecutionRoleArn: "arn:aws:iam::123456789012:role/r",
 	})
@@ -2050,7 +2071,7 @@ func TestAudit_RequiredFields_MissingExecutionRoleArn(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "req-era-env", &mwaa.ExportedCreateEnvironmentRequest{
+	_, err := b.CreateEnvironment(context.Background(), "req-era-env", &mwaa.ExportedCreateEnvironmentRequest{
 		DagS3Path:       "dags/",
 		SourceBucketArn: "arn:aws:s3:::bucket",
 	})
@@ -2066,20 +2087,20 @@ func TestAudit_Update_ExecutionRoleArnAndSourceBucketArn(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "role-upd-env", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "role-upd-env", newCreateReq())
 	require.NoError(t, err)
-	_, _ = b.GetEnvironment("role-upd-env") // promote CREATING → AVAILABLE
+	_, _ = b.GetEnvironment(context.Background(), "role-upd-env") // promote CREATING → AVAILABLE
 
 	newRole := "arn:aws:iam::123456789012:role/new-mwaa-role"
 	newBucket := "arn:aws:s3:::new-bucket"
-	_, err = b.UpdateEnvironment("role-upd-env", &mwaa.ExportedUpdateEnvironmentRequest{
+	_, err = b.UpdateEnvironment(context.Background(), "role-upd-env", &mwaa.ExportedUpdateEnvironmentRequest{
 		ExecutionRoleArn: newRole,
 		SourceBucketArn:  newBucket,
 	})
 	require.NoError(t, err)
 
-	b.GetEnvironment("role-upd-env")
-	env, err := b.GetEnvironment("role-upd-env")
+	b.GetEnvironment(context.Background(), "role-upd-env")
+	env, err := b.GetEnvironment(context.Background(), "role-upd-env")
 	require.NoError(t, err)
 	assert.Equal(t, newRole, env.ExecutionRoleArn)
 	assert.Equal(t, newBucket, env.SourceBucketArn)
@@ -2093,17 +2114,17 @@ func TestAudit_LastUpdate_PopulatedAfterUpdate(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "lu-check-env", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "lu-check-env", newCreateReq())
 	require.NoError(t, err)
-	_, _ = b.GetEnvironment("lu-check-env") // promote CREATING → AVAILABLE
+	_, _ = b.GetEnvironment(context.Background(), "lu-check-env") // promote CREATING → AVAILABLE
 
-	_, err = b.UpdateEnvironment("lu-check-env", &mwaa.ExportedUpdateEnvironmentRequest{
+	_, err = b.UpdateEnvironment(context.Background(), "lu-check-env", &mwaa.ExportedUpdateEnvironmentRequest{
 		DagS3Path: "updated-dags/",
 	})
 	require.NoError(t, err)
 
-	b.GetEnvironment("lu-check-env")
-	env, err := b.GetEnvironment("lu-check-env")
+	b.GetEnvironment(context.Background(), "lu-check-env")
+	env, err := b.GetEnvironment(context.Background(), "lu-check-env")
 	require.NoError(t, err)
 	require.NotNil(t, env.LastUpdate)
 	assert.Equal(t, "SUCCESS", env.LastUpdate.Status)
@@ -2115,11 +2136,11 @@ func TestAudit_LastUpdate_NilBeforeFirstUpdate(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "lu-nil-env", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "lu-nil-env", newCreateReq())
 	require.NoError(t, err)
 
-	b.GetEnvironment("lu-nil-env")
-	env, err := b.GetEnvironment("lu-nil-env")
+	b.GetEnvironment(context.Background(), "lu-nil-env")
+	env, err := b.GetEnvironment(context.Background(), "lu-nil-env")
 	require.NoError(t, err)
 	assert.Nil(t, env.LastUpdate)
 }
@@ -2134,11 +2155,11 @@ func TestAudit_ListEnvironments_SortedAlphabetically(t *testing.T) {
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	names := []string{"zebra-env", "alpha-env", "middle-env"}
 	for _, n := range names {
-		_, err := b.CreateEnvironment(testRegion, testAccountID, n, newCreateReq())
+		_, err := b.CreateEnvironment(context.Background(), n, newCreateReq())
 		require.NoError(t, err)
 	}
 
-	listed, err := b.ListEnvironments()
+	listed, err := b.ListEnvironments(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, []string{"alpha-env", "middle-env", "zebra-env"}, listed)
 }
@@ -2148,24 +2169,24 @@ func TestAudit_ListEnvironments_PaginationConsistentOrder(t *testing.T) {
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	for _, n := range []string{"aa", "bb", "cc", "dd", "ee"} {
-		_, err := b.CreateEnvironment(testRegion, testAccountID, n, newCreateReq())
+		_, err := b.CreateEnvironment(context.Background(), n, newCreateReq())
 		require.NoError(t, err)
 	}
 
 	// Page 1: 2 items
-	page1, tok1, err := b.ListEnvironmentsPage("", 2)
+	page1, tok1, err := b.ListEnvironmentsPage(context.Background(), "", 2)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"aa", "bb"}, page1)
 	assert.Equal(t, "cc", tok1)
 
 	// Page 2: 2 items starting from tok1
-	page2, tok2, err := b.ListEnvironmentsPage(tok1, 2)
+	page2, tok2, err := b.ListEnvironmentsPage(context.Background(), tok1, 2)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"cc", "dd"}, page2)
 	assert.Equal(t, "ee", tok2)
 
 	// Page 3: last 1 item
-	page3, tok3, err := b.ListEnvironmentsPage(tok2, 2)
+	page3, tok3, err := b.ListEnvironmentsPage(context.Background(), tok2, 2)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"ee"}, page3)
 	assert.Empty(t, tok3)
@@ -2179,7 +2200,7 @@ func TestAudit_ARN_Format(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	env, err := b.CreateEnvironment(testRegion, testAccountID, "arn-fmt-env", newCreateReq())
+	env, err := b.CreateEnvironment(context.Background(), "arn-fmt-env", newCreateReq())
 	require.NoError(t, err)
 
 	// ARN must match arn:aws:airflow:REGION:ACCOUNT:environment/NAME
@@ -2191,9 +2212,9 @@ func TestAudit_ARN_UniquePerEnvironment(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	envA, err := b.CreateEnvironment(testRegion, testAccountID, "arn-unique-a", newCreateReq())
+	envA, err := b.CreateEnvironment(context.Background(), "arn-unique-a", newCreateReq())
 	require.NoError(t, err)
-	envB, err := b.CreateEnvironment(testRegion, testAccountID, "arn-unique-b", newCreateReq())
+	envB, err := b.CreateEnvironment(context.Background(), "arn-unique-b", newCreateReq())
 	require.NoError(t, err)
 
 	assert.NotEqual(t, envA.ARN, envB.ARN)
@@ -2207,7 +2228,7 @@ func TestAudit_CreatedAt_Set(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	env, err := b.CreateEnvironment(testRegion, testAccountID, "created-at-env", newCreateReq())
+	env, err := b.CreateEnvironment(context.Background(), "created-at-env", newCreateReq())
 	require.NoError(t, err)
 
 	assert.Positive(t, env.CreatedAt, "CreatedAt must be a positive Unix epoch")
@@ -2226,7 +2247,7 @@ func TestAudit_Snapshot_WithLoggingConfig(t *testing.T) {
 		SchedulerLogs: &mwaa.ModuleLoggingConfiguration{LogLevel: "WARNING"},
 	}
 
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "snap-log-env", req)
+	_, err := b.CreateEnvironment(context.Background(), "snap-log-env", req)
 	require.NoError(t, err)
 
 	snap := b.Snapshot()
@@ -2235,8 +2256,8 @@ func TestAudit_Snapshot_WithLoggingConfig(t *testing.T) {
 	b2 := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	require.NoError(t, b2.Restore(snap))
 
-	b2.GetEnvironment("snap-log-env")
-	env, err := b2.GetEnvironment("snap-log-env")
+	b2.GetEnvironment(context.Background(), "snap-log-env")
+	env, err := b2.GetEnvironment(context.Background(), "snap-log-env")
 	require.NoError(t, err)
 	require.NotNil(t, env.LoggingConfiguration)
 	require.NotNil(t, env.LoggingConfiguration.SchedulerLogs)
@@ -2253,15 +2274,15 @@ func TestAudit_Snapshot_WithNetworkConfig(t *testing.T) {
 		SecurityGroupIDs: []string{"sg-snap1"},
 	}
 
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "snap-nc-env", req)
+	_, err := b.CreateEnvironment(context.Background(), "snap-nc-env", req)
 	require.NoError(t, err)
 
 	snap := b.Snapshot()
 	b2 := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	require.NoError(t, b2.Restore(snap))
 
-	b2.GetEnvironment("snap-nc-env")
-	env, err := b2.GetEnvironment("snap-nc-env")
+	b2.GetEnvironment(context.Background(), "snap-nc-env")
+	env, err := b2.GetEnvironment(context.Background(), "snap-nc-env")
 	require.NoError(t, err)
 	require.NotNil(t, env.NetworkConfiguration)
 	assert.Equal(t, []string{"subnet-snap1"}, env.NetworkConfiguration.SubnetIDs)
@@ -2275,11 +2296,11 @@ func TestAudit_Reset_ClearsMetrics(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(testRegion, testAccountID, "reset-metrics-env", newCreateReq())
+	_, err := b.CreateEnvironment(context.Background(), "reset-metrics-env", newCreateReq())
 	require.NoError(t, err)
 
 	v := 1.0
-	err = b.PublishMetrics("reset-metrics-env", &mwaa.ExportedPublishMetricsRequest{
+	err = b.PublishMetrics(context.Background(), "reset-metrics-env", &mwaa.ExportedPublishMetricsRequest{
 		MetricData: []mwaa.ExportedMetricDatum{{MetricName: "M", Value: &v}},
 	})
 	require.NoError(t, err)

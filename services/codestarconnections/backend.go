@@ -2,6 +2,7 @@
 package codestarconnections
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"sort"
@@ -14,6 +15,30 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
+
+// regionContextKey is the context key under which the per-request AWS region is stored.
+type regionContextKey struct{}
+
+// getRegion extracts the region from ctx, falling back to defaultRegion when unset.
+func getRegion(ctx context.Context, defaultRegion string) string {
+	if r, ok := ctx.Value(regionContextKey{}).(string); ok && r != "" {
+		return r
+	}
+
+	return defaultRegion
+}
+
+// regionFromARN extracts the region component (index 3) from an AWS ARN
+// (arn:partition:service:region:account:resource), falling back to defaultRegion.
+func regionFromARN(resourceARN, defaultRegion string) string {
+	parts := strings.Split(resourceARN, ":")
+	const regionIndex = 3
+	if len(parts) > regionIndex && parts[regionIndex] != "" {
+		return parts[regionIndex]
+	}
+
+	return defaultRegion
+}
 
 // Connection status values.
 const (
@@ -38,7 +63,6 @@ var (
 )
 
 // validProviderTypes returns the set of valid provider types for connections and hosts.
-// Using a plain function (rather than a global) avoids gochecknoglobals lint violations.
 func validProviderTypes() map[string]bool {
 	return map[string]bool{
 		"Bitbucket":              true,
@@ -50,7 +74,6 @@ func validProviderTypes() map[string]bool {
 }
 
 // validSyncTypes returns the set of sync configuration types accepted by AWS CodeStar Connections.
-// Using a plain function (rather than a global) avoids gochecknoglobals lint violations.
 func validSyncTypes() map[string]bool {
 	return map[string]bool{
 		"CFN_STACK_SYNC": true,
@@ -58,7 +81,6 @@ func validSyncTypes() map[string]bool {
 }
 
 // syncConfigKey returns the composite map key for a sync configuration.
-// ResourceName values must not contain "/" to avoid key collisions with SyncType.
 func syncConfigKey(resourceName, syncType string) string {
 	return resourceName + "/" + syncType
 }
@@ -98,31 +120,87 @@ type Host struct {
 }
 
 // InMemoryBackend is a thread-safe in-memory store for CodeStar Connections resources.
+//
+// All resource maps are nested by region (outer key = region) so that
+// same-named resources are isolated across regions. The per-region inner maps
+// are created lazily via the *Store helpers. Callers must hold b.mu while
+// accessing the inner maps.
 type InMemoryBackend struct {
-	connections        map[string]*Connection        // keyed by ARN
-	connectionsByName  map[string]string             // name → ARN (O(1) uniqueness index)
-	hosts              map[string]*Host              // keyed by ARN
-	hostsByName        map[string]string             // name → ARN (O(1) uniqueness index)
-	repositoryLinks    map[string]*RepositoryLink    // keyed by RepositoryLinkID
-	syncConfigurations map[string]*SyncConfiguration // keyed by ResourceName+SyncType
+	connections        map[string]map[string]*Connection        // region → ARN → Connection
+	connectionsByName  map[string]map[string]string             // region → name → ARN
+	hosts              map[string]map[string]*Host              // region → ARN → Host
+	hostsByName        map[string]map[string]string             // region → name → ARN
+	repositoryLinks    map[string]map[string]*RepositoryLink    // region → ID → RepositoryLink
+	syncConfigurations map[string]map[string]*SyncConfiguration // region → key → SyncConfiguration
 	mu                 *lockmetrics.RWMutex
 	accountID          string
-	region             string
+	defaultRegion      string
 }
 
 // NewInMemoryBackend creates a new backend for the given account and region.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		connections:        make(map[string]*Connection),
-		connectionsByName:  make(map[string]string),
-		hosts:              make(map[string]*Host),
-		hostsByName:        make(map[string]string),
-		repositoryLinks:    make(map[string]*RepositoryLink),
-		syncConfigurations: make(map[string]*SyncConfiguration),
+		connections:        make(map[string]map[string]*Connection),
+		connectionsByName:  make(map[string]map[string]string),
+		hosts:              make(map[string]map[string]*Host),
+		hostsByName:        make(map[string]map[string]string),
+		repositoryLinks:    make(map[string]map[string]*RepositoryLink),
+		syncConfigurations: make(map[string]map[string]*SyncConfiguration),
 		accountID:          accountID,
-		region:             region,
+		defaultRegion:      region,
 		mu:                 lockmetrics.New("codestarconnections"),
 	}
+}
+
+// The *Store helpers return the per-region inner map, lazily creating it.
+// Callers must hold b.mu.
+
+func (b *InMemoryBackend) connectionsStore(region string) map[string]*Connection {
+	if b.connections[region] == nil {
+		b.connections[region] = make(map[string]*Connection)
+	}
+
+	return b.connections[region]
+}
+
+func (b *InMemoryBackend) connectionsByNameStore(region string) map[string]string {
+	if b.connectionsByName[region] == nil {
+		b.connectionsByName[region] = make(map[string]string)
+	}
+
+	return b.connectionsByName[region]
+}
+
+func (b *InMemoryBackend) hostsStore(region string) map[string]*Host {
+	if b.hosts[region] == nil {
+		b.hosts[region] = make(map[string]*Host)
+	}
+
+	return b.hosts[region]
+}
+
+func (b *InMemoryBackend) hostsByNameStore(region string) map[string]string {
+	if b.hostsByName[region] == nil {
+		b.hostsByName[region] = make(map[string]string)
+	}
+
+	return b.hostsByName[region]
+}
+
+func (b *InMemoryBackend) repositoryLinksStore(region string) map[string]*RepositoryLink {
+	if b.repositoryLinks[region] == nil {
+		b.repositoryLinks[region] = make(map[string]*RepositoryLink)
+	}
+
+	return b.repositoryLinks[region]
+}
+
+func (b *InMemoryBackend) syncConfigurationsStore(region string) map[string]*SyncConfiguration {
+	if b.syncConfigurations[region] == nil {
+		b.syncConfigurations[region] = make(map[string]*SyncConfiguration)
+	}
+
+	return b.syncConfigurations[region]
 }
 
 // Reset clears all state in the backend.
@@ -130,29 +208,59 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.connections = make(map[string]*Connection)
-	b.connectionsByName = make(map[string]string)
-	b.hosts = make(map[string]*Host)
-	b.hostsByName = make(map[string]string)
-	b.repositoryLinks = make(map[string]*RepositoryLink)
-	b.syncConfigurations = make(map[string]*SyncConfiguration)
+	b.connections = make(map[string]map[string]*Connection)
+	b.connectionsByName = make(map[string]map[string]string)
+	b.hosts = make(map[string]map[string]*Host)
+	b.hostsByName = make(map[string]map[string]string)
+	b.repositoryLinks = make(map[string]map[string]*RepositoryLink)
+	b.syncConfigurations = make(map[string]map[string]*SyncConfiguration)
 }
 
-// Region returns the region for this backend instance.
-func (b *InMemoryBackend) Region() string { return b.region }
+// Region returns the default region for this backend instance.
+func (b *InMemoryBackend) Region() string { return b.defaultRegion }
 
 // AccountID returns the account ID for this backend instance.
 func (b *InMemoryBackend) AccountID() string { return b.accountID }
 
-// findResourceTagsLocked returns the tag map for a resource ARN.
+// findResourceTagsLocked returns the tag map for a resource ARN within the resolved region.
 // Must be called with at least an RLock held.
-func (b *InMemoryBackend) findResourceTagsLocked(resourceArn string) (map[string]string, bool) {
-	if conn, ok := b.connections[resourceArn]; ok {
-		return conn.Tags, true
+func (b *InMemoryBackend) findResourceTagsLocked(region, resourceArn string) (map[string]string, bool) {
+	if conns := b.connections[region]; conns != nil {
+		if conn, ok := conns[resourceArn]; ok {
+			return conn.Tags, true
+		}
 	}
 
-	if host, ok := b.hosts[resourceArn]; ok {
-		return host.Tags, true
+	if hs := b.hosts[region]; hs != nil {
+		if host, ok := hs[resourceArn]; ok {
+			return host.Tags, true
+		}
+	}
+
+	return nil, false
+}
+
+// ensureTagsLocked returns a non-nil tag map for the resource, initialising it when nil.
+// Must be called with a write lock held.
+func (b *InMemoryBackend) ensureTagsLocked(region, resourceArn string) (map[string]string, bool) {
+	if conns := b.connections[region]; conns != nil {
+		if conn, ok := conns[resourceArn]; ok {
+			if conn.Tags == nil {
+				conn.Tags = make(map[string]string)
+			}
+
+			return conn.Tags, true
+		}
+	}
+
+	if hs := b.hosts[region]; hs != nil {
+		if host, ok := hs[resourceArn]; ok {
+			if host.Tags == nil {
+				host.Tags = make(map[string]string)
+			}
+
+			return host.Tags, true
+		}
 	}
 
 	return nil, false
@@ -160,6 +268,7 @@ func (b *InMemoryBackend) findResourceTagsLocked(resourceArn string) (map[string
 
 // CreateConnection creates a new CodeStar connection.
 func (b *InMemoryBackend) CreateConnection(
+	ctx context.Context,
 	name, providerType, hostArn string,
 	tags map[string]string,
 ) (*Connection, error) {
@@ -171,15 +280,18 @@ func (b *InMemoryBackend) CreateConnection(
 		return nil, fmt.Errorf("%w: invalid ProviderType %q", ErrValidation, providerType)
 	}
 
+	region := getRegion(ctx, b.defaultRegion)
+
 	b.mu.Lock("CreateConnection")
 	defer b.mu.Unlock()
 
-	if _, exists := b.connectionsByName[name]; exists {
+	byName := b.connectionsByNameStore(region)
+	if _, exists := byName[name]; exists {
 		return nil, fmt.Errorf("%w: connection %q already exists", ErrAlreadyExists, name)
 	}
 
 	id := uuid.NewString()
-	connArn := arn.Build("codestar-connections", b.region, b.accountID, "connection/"+id)
+	connArn := arn.Build("codestar-connections", region, b.accountID, "connection/"+id)
 
 	tagsCopy := make(map[string]string, len(tags))
 	maps.Copy(tagsCopy, tags)
@@ -193,8 +305,8 @@ func (b *InMemoryBackend) CreateConnection(
 		HostArn:          hostArn,
 		Tags:             tagsCopy,
 	}
-	b.connections[connArn] = conn
-	b.connectionsByName[name] = connArn
+	b.connectionsStore(region)[connArn] = conn
+	byName[name] = connArn
 
 	cp := *conn
 	cp.Tags = make(map[string]string, len(conn.Tags))
@@ -204,11 +316,18 @@ func (b *InMemoryBackend) CreateConnection(
 }
 
 // GetConnection returns a connection by ARN.
-func (b *InMemoryBackend) GetConnection(connectionArn string) (*Connection, error) {
+func (b *InMemoryBackend) GetConnection(ctx context.Context, connectionArn string) (*Connection, error) {
+	region := regionFromARN(connectionArn, getRegion(ctx, b.defaultRegion))
+
 	b.mu.RLock("GetConnection")
 	defer b.mu.RUnlock()
 
-	conn, ok := b.connections[connectionArn]
+	conns := b.connections[region]
+	if conns == nil {
+		return nil, ErrNotFound
+	}
+
+	conn, ok := conns[connectionArn]
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -221,13 +340,16 @@ func (b *InMemoryBackend) GetConnection(connectionArn string) (*Connection, erro
 }
 
 // ListConnections returns all connections sorted by name, optionally filtered by provider type or host ARN.
-func (b *InMemoryBackend) ListConnections(providerTypeFilter, hostArnFilter string) []*Connection {
+func (b *InMemoryBackend) ListConnections(ctx context.Context, providerTypeFilter, hostArnFilter string) []*Connection {
+	region := getRegion(ctx, b.defaultRegion)
+
 	b.mu.RLock("ListConnections")
 	defer b.mu.RUnlock()
 
-	result := make([]*Connection, 0, len(b.connections))
+	conns := b.connections[region]
+	result := make([]*Connection, 0, len(conns))
 
-	for _, conn := range b.connections {
+	for _, conn := range conns {
 		if providerTypeFilter != "" && conn.ProviderType != providerTypeFilter {
 			continue
 		}
@@ -250,23 +372,31 @@ func (b *InMemoryBackend) ListConnections(providerTypeFilter, hostArnFilter stri
 }
 
 // DeleteConnection removes a connection by ARN.
-func (b *InMemoryBackend) DeleteConnection(connectionArn string) error {
+func (b *InMemoryBackend) DeleteConnection(ctx context.Context, connectionArn string) error {
+	region := regionFromARN(connectionArn, getRegion(ctx, b.defaultRegion))
+
 	b.mu.Lock("DeleteConnection")
 	defer b.mu.Unlock()
 
-	conn, ok := b.connections[connectionArn]
+	conns := b.connections[region]
+	if conns == nil {
+		return ErrNotFound
+	}
+
+	conn, ok := conns[connectionArn]
 	if !ok {
 		return ErrNotFound
 	}
 
-	delete(b.connectionsByName, conn.ConnectionName)
-	delete(b.connections, connectionArn)
+	delete(b.connectionsByNameStore(region), conn.ConnectionName)
+	delete(conns, connectionArn)
 
 	return nil
 }
 
 // CreateHost creates a new CodeStar host.
 func (b *InMemoryBackend) CreateHost(
+	ctx context.Context,
 	name, providerType, providerEndpoint string,
 	tags map[string]string,
 ) (*Host, error) {
@@ -278,15 +408,18 @@ func (b *InMemoryBackend) CreateHost(
 		return nil, fmt.Errorf("%w: invalid ProviderType %q", ErrValidation, providerType)
 	}
 
+	region := getRegion(ctx, b.defaultRegion)
+
 	b.mu.Lock("CreateHost")
 	defer b.mu.Unlock()
 
-	if _, exists := b.hostsByName[name]; exists {
+	byName := b.hostsByNameStore(region)
+	if _, exists := byName[name]; exists {
 		return nil, fmt.Errorf("%w: host %q already exists", ErrAlreadyExists, name)
 	}
 
 	id := uuid.NewString()
-	hostArn := arn.Build("codestar-connections", b.region, b.accountID, "host/"+name+"/"+id[:8])
+	hostArn := arn.Build("codestar-connections", region, b.accountID, "host/"+name+"/"+id[:8])
 
 	tagsCopy := make(map[string]string, len(tags))
 	maps.Copy(tagsCopy, tags)
@@ -299,8 +432,8 @@ func (b *InMemoryBackend) CreateHost(
 		Status:           HostStatusAvailable,
 		Tags:             tagsCopy,
 	}
-	b.hosts[hostArn] = host
-	b.hostsByName[name] = hostArn
+	b.hostsStore(region)[hostArn] = host
+	byName[name] = hostArn
 
 	cp := *host
 	cp.Tags = make(map[string]string, len(host.Tags))
@@ -310,11 +443,18 @@ func (b *InMemoryBackend) CreateHost(
 }
 
 // GetHost returns a host by ARN.
-func (b *InMemoryBackend) GetHost(hostArn string) (*Host, error) {
+func (b *InMemoryBackend) GetHost(ctx context.Context, hostArn string) (*Host, error) {
+	region := regionFromARN(hostArn, getRegion(ctx, b.defaultRegion))
+
 	b.mu.RLock("GetHost")
 	defer b.mu.RUnlock()
 
-	host, ok := b.hosts[hostArn]
+	hs := b.hosts[region]
+	if hs == nil {
+		return nil, ErrNotFound
+	}
+
+	host, ok := hs[hostArn]
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -327,13 +467,16 @@ func (b *InMemoryBackend) GetHost(hostArn string) (*Host, error) {
 }
 
 // ListHosts returns all hosts sorted by name.
-func (b *InMemoryBackend) ListHosts() []*Host {
+func (b *InMemoryBackend) ListHosts(ctx context.Context) []*Host {
+	region := getRegion(ctx, b.defaultRegion)
+
 	b.mu.RLock("ListHosts")
 	defer b.mu.RUnlock()
 
-	result := make([]*Host, 0, len(b.hosts))
+	hs := b.hosts[region]
+	result := make([]*Host, 0, len(hs))
 
-	for _, host := range b.hosts {
+	for _, host := range hs {
 		cp := *host
 		cp.Tags = make(map[string]string, len(host.Tags))
 		maps.Copy(cp.Tags, host.Tags)
@@ -348,27 +491,41 @@ func (b *InMemoryBackend) ListHosts() []*Host {
 }
 
 // DeleteHost removes a host by ARN.
-func (b *InMemoryBackend) DeleteHost(hostArn string) error {
+func (b *InMemoryBackend) DeleteHost(ctx context.Context, hostArn string) error {
+	region := regionFromARN(hostArn, getRegion(ctx, b.defaultRegion))
+
 	b.mu.Lock("DeleteHost")
 	defer b.mu.Unlock()
 
-	host, ok := b.hosts[hostArn]
+	hs := b.hosts[region]
+	if hs == nil {
+		return ErrNotFound
+	}
+
+	host, ok := hs[hostArn]
 	if !ok {
 		return ErrNotFound
 	}
 
-	delete(b.hostsByName, host.Name)
-	delete(b.hosts, hostArn)
+	delete(b.hostsByNameStore(region), host.Name)
+	delete(hs, hostArn)
 
 	return nil
 }
 
 // UpdateHost updates the provider endpoint for a host.
-func (b *InMemoryBackend) UpdateHost(hostArn, providerEndpoint string) error {
+func (b *InMemoryBackend) UpdateHost(ctx context.Context, hostArn, providerEndpoint string) error {
+	region := regionFromARN(hostArn, getRegion(ctx, b.defaultRegion))
+
 	b.mu.Lock("UpdateHost")
 	defer b.mu.Unlock()
 
-	host, ok := b.hosts[hostArn]
+	hs := b.hosts[region]
+	if hs == nil {
+		return ErrNotFound
+	}
+
+	host, ok := hs[hostArn]
 	if !ok {
 		return ErrNotFound
 	}
@@ -379,11 +536,13 @@ func (b *InMemoryBackend) UpdateHost(hostArn, providerEndpoint string) error {
 }
 
 // ListTagsForResource returns the tags for a resource by ARN.
-func (b *InMemoryBackend) ListTagsForResource(resourceArn string) (map[string]string, error) {
+func (b *InMemoryBackend) ListTagsForResource(ctx context.Context, resourceArn string) (map[string]string, error) {
+	region := regionFromARN(resourceArn, getRegion(ctx, b.defaultRegion))
+
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
-	existing, ok := b.findResourceTagsLocked(resourceArn)
+	existing, ok := b.findResourceTagsLocked(region, resourceArn)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -395,24 +554,15 @@ func (b *InMemoryBackend) ListTagsForResource(resourceArn string) (map[string]st
 }
 
 // TagResource adds or updates tags on a resource.
-func (b *InMemoryBackend) TagResource(resourceArn string, tags map[string]string) error {
+func (b *InMemoryBackend) TagResource(ctx context.Context, resourceArn string, tags map[string]string) error {
+	region := regionFromARN(resourceArn, getRegion(ctx, b.defaultRegion))
+
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
-	existing, ok := b.findResourceTagsLocked(resourceArn)
+	existing, ok := b.ensureTagsLocked(region, resourceArn)
 	if !ok {
 		return ErrNotFound
-	}
-
-	if existing == nil {
-		// Should not happen given Tags is initialised in Create*, but be safe.
-		if conn, isConn := b.connections[resourceArn]; isConn {
-			conn.Tags = make(map[string]string)
-			existing = conn.Tags
-		} else if host, isHost := b.hosts[resourceArn]; isHost {
-			host.Tags = make(map[string]string)
-			existing = host.Tags
-		}
 	}
 
 	maps.Copy(existing, tags)
@@ -421,11 +571,13 @@ func (b *InMemoryBackend) TagResource(resourceArn string, tags map[string]string
 }
 
 // UntagResource removes tags from a resource.
-func (b *InMemoryBackend) UntagResource(resourceArn string, tagKeys []string) error {
+func (b *InMemoryBackend) UntagResource(ctx context.Context, resourceArn string, tagKeys []string) error {
+	region := regionFromARN(resourceArn, getRegion(ctx, b.defaultRegion))
+
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
-	existing, ok := b.findResourceTagsLocked(resourceArn)
+	existing, ok := b.findResourceTagsLocked(region, resourceArn)
 	if !ok {
 		return ErrNotFound
 	}
@@ -439,20 +591,24 @@ func (b *InMemoryBackend) UntagResource(resourceArn string, tagKeys []string) er
 
 // AddConnectionInternal seeds a connection directly for testing.
 func (b *InMemoryBackend) AddConnectionInternal(conn *Connection) {
+	region := regionFromARN(conn.ConnectionArn, b.defaultRegion)
+
 	b.mu.Lock("AddConnectionInternal")
 	defer b.mu.Unlock()
 
-	b.connections[conn.ConnectionArn] = conn
-	b.connectionsByName[conn.ConnectionName] = conn.ConnectionArn
+	b.connectionsStore(region)[conn.ConnectionArn] = conn
+	b.connectionsByNameStore(region)[conn.ConnectionName] = conn.ConnectionArn
 }
 
 // AddHostInternal seeds a host directly for testing.
 func (b *InMemoryBackend) AddHostInternal(host *Host) {
+	region := regionFromARN(host.HostArn, b.defaultRegion)
+
 	b.mu.Lock("AddHostInternal")
 	defer b.mu.Unlock()
 
-	b.hosts[host.HostArn] = host
-	b.hostsByName[host.Name] = host.HostArn
+	b.hostsStore(region)[host.HostArn] = host
+	b.hostsByNameStore(region)[host.Name] = host.HostArn
 }
 
 // RepositoryLink represents an in-memory AWS CodeStar Connections repository link.
@@ -469,17 +625,22 @@ type RepositoryLink struct {
 
 // CreateRepositoryLink creates a new repository link.
 func (b *InMemoryBackend) CreateRepositoryLink(
+	ctx context.Context,
 	connectionArn, ownerID, repoName, encryptionKeyArn string,
 ) (*RepositoryLink, error) {
+	region := getRegion(ctx, b.defaultRegion)
+
 	b.mu.Lock("CreateRepositoryLink")
 	defer b.mu.Unlock()
 
 	id := uuid.NewString()
-	linkArn := arn.Build("codestar-connections", b.region, b.accountID, "repository-link/"+id)
+	linkArn := arn.Build("codestar-connections", region, b.accountID, "repository-link/"+id)
 
 	providerType := ""
-	if conn, ok := b.connections[connectionArn]; ok {
-		providerType = conn.ProviderType
+	if conns := b.connections[region]; conns != nil {
+		if conn, ok := conns[connectionArn]; ok {
+			providerType = conn.ProviderType
+		}
 	}
 
 	link := &RepositoryLink{
@@ -493,7 +654,7 @@ func (b *InMemoryBackend) CreateRepositoryLink(
 		CreatedAt:         time.Now().UTC(),
 	}
 
-	b.repositoryLinks[id] = link
+	b.repositoryLinksStore(region)[id] = link
 
 	cp := *link
 
@@ -501,11 +662,18 @@ func (b *InMemoryBackend) CreateRepositoryLink(
 }
 
 // GetRepositoryLink retrieves a repository link by ID.
-func (b *InMemoryBackend) GetRepositoryLink(repositoryLinkID string) (*RepositoryLink, error) {
+func (b *InMemoryBackend) GetRepositoryLink(ctx context.Context, repositoryLinkID string) (*RepositoryLink, error) {
+	region := getRegion(ctx, b.defaultRegion)
+
 	b.mu.RLock("GetRepositoryLink")
 	defer b.mu.RUnlock()
 
-	link, ok := b.repositoryLinks[repositoryLinkID]
+	links := b.repositoryLinks[region]
+	if links == nil {
+		return nil, ErrNotFound
+	}
+
+	link, ok := links[repositoryLinkID]
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -516,27 +684,37 @@ func (b *InMemoryBackend) GetRepositoryLink(repositoryLinkID string) (*Repositor
 }
 
 // DeleteRepositoryLink removes a repository link by ID.
-func (b *InMemoryBackend) DeleteRepositoryLink(repositoryLinkID string) error {
+func (b *InMemoryBackend) DeleteRepositoryLink(ctx context.Context, repositoryLinkID string) error {
+	region := getRegion(ctx, b.defaultRegion)
+
 	b.mu.Lock("DeleteRepositoryLink")
 	defer b.mu.Unlock()
 
-	if _, ok := b.repositoryLinks[repositoryLinkID]; !ok {
+	links := b.repositoryLinks[region]
+	if links == nil {
 		return ErrNotFound
 	}
 
-	delete(b.repositoryLinks, repositoryLinkID)
+	if _, ok := links[repositoryLinkID]; !ok {
+		return ErrNotFound
+	}
+
+	delete(links, repositoryLinkID)
 
 	return nil
 }
 
 // ListRepositoryLinks returns all repository links sorted by ID.
-func (b *InMemoryBackend) ListRepositoryLinks() []*RepositoryLink {
+func (b *InMemoryBackend) ListRepositoryLinks(ctx context.Context) []*RepositoryLink {
+	region := getRegion(ctx, b.defaultRegion)
+
 	b.mu.RLock("ListRepositoryLinks")
 	defer b.mu.RUnlock()
 
-	result := make([]*RepositoryLink, 0, len(b.repositoryLinks))
+	links := b.repositoryLinks[region]
+	result := make([]*RepositoryLink, 0, len(links))
 
-	for _, link := range b.repositoryLinks {
+	for _, link := range links {
 		cp := *link
 		result = append(result, &cp)
 	}
@@ -549,11 +727,13 @@ func (b *InMemoryBackend) ListRepositoryLinks() []*RepositoryLink {
 }
 
 // AddRepositoryLinkInternal seeds a repository link directly for testing.
-func (b *InMemoryBackend) AddRepositoryLinkInternal(link *RepositoryLink) {
+func (b *InMemoryBackend) AddRepositoryLinkInternal(ctx context.Context, link *RepositoryLink) {
+	region := getRegion(ctx, b.defaultRegion)
+
 	b.mu.Lock("AddRepositoryLinkInternal")
 	defer b.mu.Unlock()
 
-	b.repositoryLinks[link.RepositoryLinkID] = link
+	b.repositoryLinksStore(region)[link.RepositoryLinkID] = link
 }
 
 // SyncConfiguration represents an in-memory AWS CodeStar Connections sync configuration.
@@ -572,6 +752,7 @@ type SyncConfiguration struct {
 
 // CreateSyncConfiguration creates a new sync configuration.
 func (b *InMemoryBackend) CreateSyncConfiguration(
+	ctx context.Context,
 	branch, configFile, repositoryLinkID, resourceName, roleArn, syncType string,
 ) (*SyncConfiguration, error) {
 	if !validSyncTypes()[syncType] {
@@ -582,6 +763,8 @@ func (b *InMemoryBackend) CreateSyncConfiguration(
 		return nil, fmt.Errorf("%w: ResourceName must not contain \"/\"", ErrValidation)
 	}
 
+	region := getRegion(ctx, b.defaultRegion)
+
 	b.mu.Lock("CreateSyncConfiguration")
 	defer b.mu.Unlock()
 
@@ -589,10 +772,12 @@ func (b *InMemoryBackend) CreateSyncConfiguration(
 	providerType := ""
 	repoName := ""
 
-	if link, ok := b.repositoryLinks[repositoryLinkID]; ok {
-		ownerID = link.OwnerID
-		providerType = link.ProviderType
-		repoName = link.RepositoryName
+	if links := b.repositoryLinks[region]; links != nil {
+		if link, ok := links[repositoryLinkID]; ok {
+			ownerID = link.OwnerID
+			providerType = link.ProviderType
+			repoName = link.RepositoryName
+		}
 	}
 
 	cfg := &SyncConfiguration{
@@ -608,7 +793,7 @@ func (b *InMemoryBackend) CreateSyncConfiguration(
 		CreatedAt:        time.Now().UTC(),
 	}
 
-	b.syncConfigurations[syncConfigKey(resourceName, syncType)] = cfg
+	b.syncConfigurationsStore(region)[syncConfigKey(resourceName, syncType)] = cfg
 
 	cp := *cfg
 
@@ -616,11 +801,21 @@ func (b *InMemoryBackend) CreateSyncConfiguration(
 }
 
 // GetSyncConfiguration retrieves a sync configuration by resource name and sync type.
-func (b *InMemoryBackend) GetSyncConfiguration(resourceName, syncType string) (*SyncConfiguration, error) {
+func (b *InMemoryBackend) GetSyncConfiguration(
+	ctx context.Context,
+	resourceName, syncType string,
+) (*SyncConfiguration, error) {
+	region := getRegion(ctx, b.defaultRegion)
+
 	b.mu.RLock("GetSyncConfiguration")
 	defer b.mu.RUnlock()
 
-	cfg, ok := b.syncConfigurations[syncConfigKey(resourceName, syncType)]
+	cfgs := b.syncConfigurations[region]
+	if cfgs == nil {
+		return nil, ErrNotFound
+	}
+
+	cfg, ok := cfgs[syncConfigKey(resourceName, syncType)]
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -631,20 +826,27 @@ func (b *InMemoryBackend) GetSyncConfiguration(resourceName, syncType string) (*
 }
 
 // DeleteSyncConfiguration removes a sync configuration.
-func (b *InMemoryBackend) DeleteSyncConfiguration(resourceName, syncType string) error {
+func (b *InMemoryBackend) DeleteSyncConfiguration(ctx context.Context, resourceName, syncType string) error {
 	if !validSyncTypes()[syncType] {
 		return fmt.Errorf("%w: invalid SyncType %q", ErrValidation, syncType)
 	}
 
+	region := getRegion(ctx, b.defaultRegion)
+
 	b.mu.Lock("DeleteSyncConfiguration")
 	defer b.mu.Unlock()
 
-	key := syncConfigKey(resourceName, syncType)
-	if _, ok := b.syncConfigurations[key]; !ok {
+	cfgs := b.syncConfigurations[region]
+	if cfgs == nil {
 		return ErrNotFound
 	}
 
-	delete(b.syncConfigurations, key)
+	key := syncConfigKey(resourceName, syncType)
+	if _, ok := cfgs[key]; !ok {
+		return ErrNotFound
+	}
+
+	delete(cfgs, key)
 
 	return nil
 }
@@ -666,12 +868,20 @@ type RepositorySyncStatus struct {
 
 // GetRepositorySyncStatus returns a stub latest sync status for a repository link and branch.
 func (b *InMemoryBackend) GetRepositorySyncStatus(
+	ctx context.Context,
 	repositoryLinkID, _ /*branch*/, _ /*syncType*/ string,
 ) (*RepositorySyncStatus, error) {
+	region := getRegion(ctx, b.defaultRegion)
+
 	b.mu.RLock("GetRepositorySyncStatus")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.repositoryLinks[repositoryLinkID]; !ok {
+	links := b.repositoryLinks[region]
+	if links == nil {
+		return nil, ErrNotFound
+	}
+
+	if _, ok := links[repositoryLinkID]; !ok {
 		return nil, ErrNotFound
 	}
 
@@ -690,12 +900,22 @@ type ResourceSyncStatus struct {
 }
 
 // GetResourceSyncStatus returns a stub latest sync status for a resource.
-func (b *InMemoryBackend) GetResourceSyncStatus(resourceName, syncType string) (*ResourceSyncStatus, error) {
+func (b *InMemoryBackend) GetResourceSyncStatus(
+	ctx context.Context,
+	resourceName, syncType string,
+) (*ResourceSyncStatus, error) {
+	region := getRegion(ctx, b.defaultRegion)
+
 	b.mu.RLock("GetResourceSyncStatus")
 	defer b.mu.RUnlock()
 
+	cfgs := b.syncConfigurations[region]
+	if cfgs == nil {
+		return nil, ErrNotFound
+	}
+
 	key := syncConfigKey(resourceName, syncType)
-	if _, ok := b.syncConfigurations[key]; !ok {
+	if _, ok := cfgs[key]; !ok {
 		return nil, ErrNotFound
 	}
 
@@ -724,13 +944,21 @@ type SyncBlocker struct {
 
 // GetSyncBlockerSummary returns a stub sync blocker summary for a resource.
 func (b *InMemoryBackend) GetSyncBlockerSummary(
+	ctx context.Context,
 	resourceName, syncType string,
 ) (*SyncBlockerSummary, error) {
+	region := getRegion(ctx, b.defaultRegion)
+
 	b.mu.RLock("GetSyncBlockerSummary")
 	defer b.mu.RUnlock()
 
+	cfgs := b.syncConfigurations[region]
+	if cfgs == nil {
+		return nil, ErrNotFound
+	}
+
 	key := syncConfigKey(resourceName, syncType)
-	if _, ok := b.syncConfigurations[key]; !ok {
+	if _, ok := cfgs[key]; !ok {
 		return nil, ErrNotFound
 	}
 
@@ -750,12 +978,20 @@ type RepositorySyncDefinition struct {
 
 // ListRepositorySyncDefinitions returns stub sync definitions for a repository link and sync type.
 func (b *InMemoryBackend) ListRepositorySyncDefinitions(
+	ctx context.Context,
 	repositoryLinkID, syncType string,
 ) ([]RepositorySyncDefinition, error) {
+	region := getRegion(ctx, b.defaultRegion)
+
 	b.mu.RLock("ListRepositorySyncDefinitions")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.repositoryLinks[repositoryLinkID]; !ok {
+	links := b.repositoryLinks[region]
+	if links == nil {
+		return nil, ErrNotFound
+	}
+
+	if _, ok := links[repositoryLinkID]; !ok {
 		return nil, ErrNotFound
 	}
 
@@ -765,13 +1001,19 @@ func (b *InMemoryBackend) ListRepositorySyncDefinitions(
 }
 
 // ListSyncConfigurations returns all sync configurations for a given repository link and sync type.
-func (b *InMemoryBackend) ListSyncConfigurations(repositoryLinkID, syncType string) []*SyncConfiguration {
+func (b *InMemoryBackend) ListSyncConfigurations(
+	ctx context.Context,
+	repositoryLinkID, syncType string,
+) []*SyncConfiguration {
+	region := getRegion(ctx, b.defaultRegion)
+
 	b.mu.RLock("ListSyncConfigurations")
 	defer b.mu.RUnlock()
 
-	result := make([]*SyncConfiguration, 0, len(b.syncConfigurations))
+	cfgs := b.syncConfigurations[region]
+	result := make([]*SyncConfiguration, 0, len(cfgs))
 
-	for _, cfg := range b.syncConfigurations {
+	for _, cfg := range cfgs {
 		if cfg.RepositoryLinkID != repositoryLinkID {
 			continue
 		}
@@ -793,12 +1035,20 @@ func (b *InMemoryBackend) ListSyncConfigurations(repositoryLinkID, syncType stri
 
 // UpdateRepositoryLink updates the connection ARN or encryption key for a repository link.
 func (b *InMemoryBackend) UpdateRepositoryLink(
+	ctx context.Context,
 	repositoryLinkID, connectionArn, encryptionKeyArn string,
 ) (*RepositoryLink, error) {
+	region := getRegion(ctx, b.defaultRegion)
+
 	b.mu.Lock("UpdateRepositoryLink")
 	defer b.mu.Unlock()
 
-	link, ok := b.repositoryLinks[repositoryLinkID]
+	links := b.repositoryLinks[region]
+	if links == nil {
+		return nil, ErrNotFound
+	}
+
+	link, ok := links[repositoryLinkID]
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -818,11 +1068,9 @@ func (b *InMemoryBackend) UpdateRepositoryLink(
 
 // UpdateSyncBlocker is a stub that accepts a blocker ID resolution; no real blockers stored.
 func (b *InMemoryBackend) UpdateSyncBlocker(
+	_ context.Context,
 	id, resolvedReason string,
 ) (*SyncBlockerSummary, error) {
-	b.mu.RLock("UpdateSyncBlocker")
-	defer b.mu.RUnlock()
-
 	_ = id
 	_ = resolvedReason
 
@@ -833,17 +1081,25 @@ func (b *InMemoryBackend) UpdateSyncBlocker(
 
 // UpdateSyncConfiguration updates branch, config file, role ARN, or repository link for a sync configuration.
 func (b *InMemoryBackend) UpdateSyncConfiguration(
+	ctx context.Context,
 	resourceName, syncType, branch, configFile, repositoryLinkID, roleArn string,
 ) (*SyncConfiguration, error) {
 	if syncType != "" && !validSyncTypes()[syncType] {
 		return nil, fmt.Errorf("%w: invalid SyncType %q", ErrValidation, syncType)
 	}
 
+	region := getRegion(ctx, b.defaultRegion)
+
 	b.mu.Lock("UpdateSyncConfiguration")
 	defer b.mu.Unlock()
 
+	cfgs := b.syncConfigurations[region]
+	if cfgs == nil {
+		return nil, ErrNotFound
+	}
+
 	key := syncConfigKey(resourceName, syncType)
-	cfg, ok := b.syncConfigurations[key]
+	cfg, ok := cfgs[key]
 
 	if !ok {
 		return nil, ErrNotFound

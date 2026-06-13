@@ -1,6 +1,7 @@
 package sagemaker_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -1067,32 +1068,32 @@ func TestBackend_PipelineOps_Direct(t *testing.T) {
 	b := sagemaker.NewInMemoryBackend("000000000000", "us-east-1")
 
 	// Create and start a pipeline.
-	_, err := b.CreatePipeline("direct-pipeline", `{"Version":"2020-12-01"}`, "", nil)
+	_, err := b.CreatePipeline(context.Background(), "direct-pipeline", `{"Version":"2020-12-01"}`, "", nil)
 	require.NoError(t, err)
 
-	exec, err := b.StartPipelineExecution("direct-pipeline")
+	exec, err := b.StartPipelineExecution(context.Background(), "direct-pipeline")
 	require.NoError(t, err)
 	execArn := exec.PipelineExecutionArn
 
 	// ListPipelineExecutionSteps.
-	steps, _ := b.ListPipelineExecutionSteps(execArn, "")
+	steps, _ := b.ListPipelineExecutionSteps(context.Background(), execArn, "")
 	assert.NotNil(t, steps)
 
 	// SendPipelineExecutionStepSuccess.
-	err = b.SendPipelineExecutionStepSuccess(execArn, "step1")
+	err = b.SendPipelineExecutionStepSuccess(context.Background(), execArn, "step1")
 	require.NoError(t, err)
 
 	// SendPipelineExecutionStepFailure.
-	err = b.SendPipelineExecutionStepFailure(execArn, "step2", "out of memory")
+	err = b.SendPipelineExecutionStepFailure(context.Background(), execArn, "step2", "out of memory")
 	require.NoError(t, err)
 
 	// RetryPipelineExecution.
-	retried, err := b.RetryPipelineExecution(execArn)
+	retried, err := b.RetryPipelineExecution(context.Background(), execArn)
 	require.NoError(t, err)
 	assert.NotEmpty(t, retried.PipelineExecutionArn)
 
 	// StopPipelineExecution.
-	stopped, err := b.StopPipelineExecution(execArn)
+	stopped, err := b.StopPipelineExecution(context.Background(), execArn)
 	require.NoError(t, err)
 	assert.NotEmpty(t, stopped.PipelineExecutionArn)
 }
@@ -1102,10 +1103,10 @@ func TestBackend_PipelineOps_NotFound(t *testing.T) {
 
 	b := sagemaker.NewInMemoryBackend("000000000000", "us-east-1")
 
-	_, err := b.RetryPipelineExecution("nonexistent-exec-arn")
+	_, err := b.RetryPipelineExecution(context.Background(), "nonexistent-exec-arn")
 	require.Error(t, err)
 
-	_, err = b.StopPipelineExecution("nonexistent-exec-arn")
+	_, err = b.StopPipelineExecution(context.Background(), "nonexistent-exec-arn")
 	require.Error(t, err)
 }
 
@@ -1115,11 +1116,11 @@ func TestBackend_FeatureStore_Direct(t *testing.T) {
 	b := sagemaker.NewInMemoryBackend("000000000000", "us-east-1")
 
 	// Create feature group with an identifier field.
-	_, err := b.CreateFeatureGroup("direct-fg", "id", "event_time", nil, nil)
+	_, err := b.CreateFeatureGroup(context.Background(), "direct-fg", "id", "event_time", nil, nil)
 	require.NoError(t, err)
 
 	// PutRecord.
-	err = b.PutRecord("direct-fg", map[string]string{
+	err = b.PutRecord(context.Background(), "direct-fg", map[string]string{
 		"id":         "rec-1",
 		"event_time": "2024-01-01T00:00:00Z",
 		"value":      "42",
@@ -1127,12 +1128,12 @@ func TestBackend_FeatureStore_Direct(t *testing.T) {
 	require.NoError(t, err)
 
 	// GetRecord.
-	rec, err := b.GetRecord("direct-fg", "rec-1", nil)
+	rec, err := b.GetRecord(context.Background(), "direct-fg", "rec-1", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "rec-1", rec.Record["id"])
 
 	// BatchGetRecord.
-	results := b.BatchGetRecord([]struct {
+	results := b.BatchGetRecord(context.Background(), []struct {
 		FeatureGroupName              string
 		RecordIdentifierValueAsString string
 		FeatureNames                  []string
@@ -1143,11 +1144,11 @@ func TestBackend_FeatureStore_Direct(t *testing.T) {
 	assert.Empty(t, results[0].ErrorCode)
 
 	// DeleteRecord.
-	err = b.DeleteRecord("direct-fg", "rec-1")
+	err = b.DeleteRecord(context.Background(), "direct-fg", "rec-1")
 	require.NoError(t, err)
 
 	// Record should be gone.
-	_, err = b.GetRecord("direct-fg", "rec-1", nil)
+	_, err = b.GetRecord(context.Background(), "direct-fg", "rec-1", nil)
 	require.Error(t, err)
 }
 
@@ -1157,18 +1158,18 @@ func TestBackend_FeatureMetadata_Direct(t *testing.T) {
 	b := sagemaker.NewInMemoryBackend("000000000000", "us-east-1")
 
 	// Create feature group.
-	_, err := b.CreateFeatureGroup("meta-fg", "id", "event_time", []sagemaker.FeatureDefinition{
+	_, err := b.CreateFeatureGroup(context.Background(), "meta-fg", "id", "event_time", []sagemaker.FeatureDefinition{
 		{FeatureName: "id", FeatureType: "Integral"},
 		{FeatureName: "event_time", FeatureType: "String"},
 	}, nil)
 	require.NoError(t, err)
 
 	// UpdateFeatureMetadata.
-	err = b.UpdateFeatureMetadata("meta-fg", "id", "The record identifier", nil)
+	err = b.UpdateFeatureMetadata(context.Background(), "meta-fg", "id", "The record identifier", nil)
 	require.NoError(t, err)
 
 	// GetFeatureMetadata.
-	meta, err := b.GetFeatureMetadata("meta-fg", "id")
+	meta, err := b.GetFeatureMetadata(context.Background(), "meta-fg", "id")
 	require.NoError(t, err)
 	assert.Equal(t, "The record identifier", meta.Description)
 }
@@ -1179,7 +1180,7 @@ func TestBackend_Persistence_SnapshotRestore(t *testing.T) {
 	b := sagemaker.NewInMemoryBackend("000000000000", "us-east-1")
 
 	// Create some resources.
-	_, err := b.CreateModel("snap-model", "arn:aws:iam::000000000000:role/test", nil, nil, nil)
+	_, err := b.CreateModel(context.Background(), "snap-model", "arn:aws:iam::000000000000:role/test", nil, nil, nil)
 	require.NoError(t, err)
 
 	// Snapshot.
@@ -1190,7 +1191,7 @@ func TestBackend_Persistence_SnapshotRestore(t *testing.T) {
 	b.Reset()
 
 	// Verify gone.
-	_, err = b.DescribeModel("snap-model")
+	_, err = b.DescribeModel(context.Background(), "snap-model")
 	require.Error(t, err)
 
 	// Restore.
@@ -1198,6 +1199,6 @@ func TestBackend_Persistence_SnapshotRestore(t *testing.T) {
 	require.NoError(t, restErr)
 
 	// Verify restored.
-	_, err = b.DescribeModel("snap-model")
+	_, err = b.DescribeModel(context.Background(), "snap-model")
 	assert.NoError(t, err)
 }

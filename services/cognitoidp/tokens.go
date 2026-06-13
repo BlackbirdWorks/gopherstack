@@ -226,6 +226,14 @@ func (t *tokenIssuer) ParseAccessToken(tokenString string) (jwt.MapClaims, error
 		return nil, fmt.Errorf("%w: token claims are not valid", ErrInvalidToken)
 	}
 
+	// AWS Cognito stamps every token with a "token_use" claim ("access" or
+	// "id"). Access-token operations (GetUser, GlobalSignOut, etc.) must reject
+	// an ID token presented in place of an access token, otherwise an ID token
+	// is silently accepted where an access token is required.
+	if tu, _ := claims["token_use"].(string); tu != "access" {
+		return nil, fmt.Errorf("%w: token is not an access token", ErrInvalidToken)
+	}
+
 	return claims, nil
 }
 

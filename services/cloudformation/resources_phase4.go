@@ -1,6 +1,7 @@
 package cloudformation
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -349,6 +350,7 @@ func (rc *ResourceCreator) createWAFv2WebACL(
 	}
 
 	acl, err := rc.backends.WAFv2.Backend.CreateWebACL(
+		context.Background(),
 		name, scope, "",
 		json.RawMessage(`{"Allow":{}}`), nil,
 		nil, nil, nil, nil, nil, nil,
@@ -366,7 +368,7 @@ func (rc *ResourceCreator) deleteWAFv2WebACL(id string) error {
 		return nil
 	}
 
-	return rc.backends.WAFv2.Backend.DeleteWebACL(id, "")
+	return rc.backends.WAFv2.Backend.DeleteWebACL(context.Background(), id, "")
 }
 
 // ---- WAFv2 IPSet ----
@@ -395,7 +397,7 @@ func (rc *ResourceCreator) createWAFv2IPSet(
 		ipVersion = "IPV4"
 	}
 
-	ipset, err := rc.backends.WAFv2.Backend.CreateIPSet(name, scope, "", ipVersion, nil, nil)
+	ipset, err := rc.backends.WAFv2.Backend.CreateIPSet(context.Background(), name, scope, "", ipVersion, nil, nil)
 	if err != nil {
 		return "", fmt.Errorf("create WAFv2 IPSet %s: %w", name, err)
 	}
@@ -408,7 +410,7 @@ func (rc *ResourceCreator) deleteWAFv2IPSet(id string) error {
 		return nil
 	}
 
-	return rc.backends.WAFv2.Backend.DeleteIPSet(id, "")
+	return rc.backends.WAFv2.Backend.DeleteIPSet(context.Background(), id, "")
 }
 
 // ---- WAFv2 RuleGroup ----
@@ -432,7 +434,7 @@ func (rc *ResourceCreator) createWAFv2RuleGroup(
 		scope = wafScopeRegional
 	}
 
-	rg, err := rc.backends.WAFv2.Backend.CreateRuleGroup(name, scope, "", "", 0, nil, nil)
+	rg, err := rc.backends.WAFv2.Backend.CreateRuleGroup(context.Background(), name, scope, "", "", 0, nil, nil)
 	if err != nil {
 		return "", fmt.Errorf("create WAFv2 RuleGroup %s: %w", name, err)
 	}

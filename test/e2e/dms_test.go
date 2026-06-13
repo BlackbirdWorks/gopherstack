@@ -4,6 +4,7 @@
 package e2e_test
 
 import (
+	"context"
 	"net/http/httptest"
 	"testing"
 
@@ -17,7 +18,7 @@ func TestDMSDashboard(t *testing.T) {
 	stack := newStack(t)
 
 	_, err := stack.DMSHandler.Backend.CreateReplicationInstance(
-		"e2e-rep-inst", "dms.t3.medium", "", "", 50, false, true, false, nil,
+		context.Background(), "e2e-rep-inst", "dms.t3.medium", "", "", 50, false, true, false, nil,
 	)
 	require.NoError(t, err)
 

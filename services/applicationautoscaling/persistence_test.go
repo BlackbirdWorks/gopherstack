@@ -23,7 +23,8 @@ func TestApplicationAutoScaling_PersistenceSnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *applicationautoscaling.InMemoryBackend) {
 				t.Helper()
 
-				assert.Empty(t, b.DescribeScalableTargets(applicationautoscaling.DescribeScalableTargetsFilter{}))
+				targets, _ := b.DescribeScalableTargets(applicationautoscaling.DescribeScalableTargetsFilter{})
+				assert.Empty(t, targets)
 			},
 		},
 		{
@@ -43,7 +44,7 @@ func TestApplicationAutoScaling_PersistenceSnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *applicationautoscaling.InMemoryBackend) {
 				t.Helper()
 
-				targets := b.DescribeScalableTargets(
+				targets, _ := b.DescribeScalableTargets(
 					applicationautoscaling.DescribeScalableTargetsFilter{ServiceNamespace: "ecs"},
 				)
 				require.Len(t, targets, 1)

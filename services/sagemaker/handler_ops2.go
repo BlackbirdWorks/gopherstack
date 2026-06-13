@@ -19,7 +19,7 @@ const (
 // Endpoint handlers
 // ---------------------------------------------------------------------------
 
-func (h *Handler) handleDescribeEndpoint(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeEndpoint(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		EndpointName string `json:"EndpointName"`
 	}
@@ -32,7 +32,7 @@ func (h *Handler) handleDescribeEndpoint(_ context.Context, body []byte) ([]byte
 		return nil, fmt.Errorf("%w: EndpointName is required", errInvalidRequest)
 	}
 
-	ep, err := h.Backend.DescribeEndpoint(req.EndpointName)
+	ep, err := h.Backend.DescribeEndpoint(ctx, req.EndpointName)
 	if err != nil {
 		return nil, err
 	}
@@ -63,7 +63,7 @@ type endpointSummary struct {
 	LastModifiedTime float64 `json:"LastModifiedTime"`
 }
 
-func (h *Handler) handleListEndpoints(body []byte) ([]byte, error) {
+func (h *Handler) handleListEndpoints(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		NextToken string `json:"NextToken"`
 	}
@@ -72,7 +72,7 @@ func (h *Handler) handleListEndpoints(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	eps, nextToken := h.Backend.ListEndpoints(req.NextToken)
+	eps, nextToken := h.Backend.ListEndpoints(ctx, req.NextToken)
 	summaries := make([]endpointSummary, 0, len(eps))
 
 	for _, ep := range eps {
@@ -106,7 +106,7 @@ func (h *Handler) handleDeleteEndpoint(ctx context.Context, body []byte) error {
 		return fmt.Errorf("%w: EndpointName is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.DeleteEndpoint(req.EndpointName); err != nil {
+	if err := h.Backend.DeleteEndpoint(ctx, req.EndpointName); err != nil {
 		return err
 	}
 
@@ -141,7 +141,7 @@ func (h *Handler) handleDeleteTrainingJob(ctx context.Context, body []byte) erro
 		return fmt.Errorf("%w: TrainingJobName is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.DeleteTrainingJob(req.TrainingJobName); err != nil {
+	if err := h.Backend.DeleteTrainingJob(ctx, req.TrainingJobName); err != nil {
 		return err
 	}
 
@@ -164,7 +164,7 @@ func (h *Handler) handleUpdateTrainingJob(ctx context.Context, body []byte) ([]b
 		return nil, fmt.Errorf("%w: TrainingJobName is required", errInvalidRequest)
 	}
 
-	tj, err := h.Backend.DescribeTrainingJob(req.TrainingJobName)
+	tj, err := h.Backend.DescribeTrainingJob(ctx, req.TrainingJobName)
 	if err != nil {
 		return nil, err
 	}
@@ -188,7 +188,7 @@ type notebookSummary struct {
 	LastModifiedTime       float64 `json:"LastModifiedTime"`
 }
 
-func (h *Handler) handleListNotebookInstances(body []byte) ([]byte, error) {
+func (h *Handler) handleListNotebookInstances(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		NextToken    string `json:"NextToken"`
 		StatusEquals string `json:"StatusEquals"`
@@ -199,7 +199,7 @@ func (h *Handler) handleListNotebookInstances(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	nbs, nextToken := h.Backend.ListNotebookInstances(req.NextToken, ListNotebookInstancesFilter{
+	nbs, nextToken := h.Backend.ListNotebookInstances(ctx, req.NextToken, ListNotebookInstancesFilter{
 		StatusEquals: req.StatusEquals,
 		NameContains: req.NameContains,
 	})
@@ -237,7 +237,7 @@ func (h *Handler) handleDeleteNotebookInstance(ctx context.Context, body []byte)
 		return fmt.Errorf("%w: NotebookInstanceName is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.DeleteNotebookInstance(req.NotebookInstanceName); err != nil {
+	if err := h.Backend.DeleteNotebookInstance(ctx, req.NotebookInstanceName); err != nil {
 		return err
 	}
 
@@ -260,7 +260,7 @@ func (h *Handler) handleStartNotebookInstance(ctx context.Context, body []byte) 
 		return fmt.Errorf("%w: NotebookInstanceName is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.StartNotebookInstance(req.NotebookInstanceName); err != nil {
+	if err := h.Backend.StartNotebookInstance(ctx, req.NotebookInstanceName); err != nil {
 		return err
 	}
 
@@ -283,7 +283,7 @@ func (h *Handler) handleStopNotebookInstance(ctx context.Context, body []byte) e
 		return fmt.Errorf("%w: NotebookInstanceName is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.StopNotebookInstance(req.NotebookInstanceName); err != nil {
+	if err := h.Backend.StopNotebookInstance(ctx, req.NotebookInstanceName); err != nil {
 		return err
 	}
 
@@ -294,7 +294,7 @@ func (h *Handler) handleStopNotebookInstance(ctx context.Context, body []byte) e
 }
 
 func (h *Handler) handleCreatePresignedNotebookInstanceURL(
-	_ context.Context,
+	ctx context.Context,
 	body []byte,
 ) ([]byte, error) {
 	var req struct {
@@ -309,7 +309,7 @@ func (h *Handler) handleCreatePresignedNotebookInstanceURL(
 		return nil, fmt.Errorf("%w: NotebookInstanceName is required", errInvalidRequest)
 	}
 
-	url, err := h.Backend.CreatePresignedNotebookInstanceURL(req.NotebookInstanceName)
+	url, err := h.Backend.CreatePresignedNotebookInstanceURL(ctx, req.NotebookInstanceName)
 	if err != nil {
 		return nil, err
 	}
@@ -345,6 +345,7 @@ func (h *Handler) handleCreateHyperParameterTuningJob(
 	tags := fromTagObjects(req.Tags)
 
 	j, err := h.Backend.CreateHyperParameterTuningJob(
+		ctx,
 		req.HyperParameterTuningJobName,
 		req.HyperParameterTuningJobConfig.Strategy,
 		tags,
@@ -369,7 +370,7 @@ func (h *Handler) handleCreateHyperParameterTuningJob(
 }
 
 func (h *Handler) handleDescribeHyperParameterTuningJob(
-	_ context.Context,
+	ctx context.Context,
 	body []byte,
 ) ([]byte, error) {
 	var req struct {
@@ -384,7 +385,7 @@ func (h *Handler) handleDescribeHyperParameterTuningJob(
 		return nil, fmt.Errorf("%w: HyperParameterTuningJobName is required", errInvalidRequest)
 	}
 
-	j, err := h.Backend.DescribeHyperParameterTuningJob(req.HyperParameterTuningJobName)
+	j, err := h.Backend.DescribeHyperParameterTuningJob(ctx, req.HyperParameterTuningJobName)
 	if err != nil {
 		return nil, err
 	}
@@ -408,7 +409,7 @@ type hpTuningJobSummary struct {
 	LastModifiedTime              float64 `json:"LastModifiedTime"`
 }
 
-func (h *Handler) handleListHyperParameterTuningJobs(body []byte) ([]byte, error) {
+func (h *Handler) handleListHyperParameterTuningJobs(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		NextToken string `json:"NextToken"`
 	}
@@ -417,7 +418,7 @@ func (h *Handler) handleListHyperParameterTuningJobs(body []byte) ([]byte, error
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	jobs, nextToken := h.Backend.ListHyperParameterTuningJobs(req.NextToken)
+	jobs, nextToken := h.Backend.ListHyperParameterTuningJobs(ctx, req.NextToken)
 	summaries := make([]hpTuningJobSummary, 0, len(jobs))
 
 	for _, j := range jobs {
@@ -452,7 +453,7 @@ func (h *Handler) handleStopHyperParameterTuningJob(ctx context.Context, body []
 		return fmt.Errorf("%w: HyperParameterTuningJobName is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.StopHyperParameterTuningJob(req.HyperParameterTuningJobName); err != nil {
+	if err := h.Backend.StopHyperParameterTuningJob(ctx, req.HyperParameterTuningJobName); err != nil {
 		return err
 	}
 
@@ -480,7 +481,7 @@ func (h *Handler) handleDeleteHyperParameterTuningJob(ctx context.Context, body 
 		return fmt.Errorf("%w: HyperParameterTuningJobName is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.DeleteHyperParameterTuningJob(req.HyperParameterTuningJobName); err != nil {
+	if err := h.Backend.DeleteHyperParameterTuningJob(ctx, req.HyperParameterTuningJobName); err != nil {
 		return err
 	}
 

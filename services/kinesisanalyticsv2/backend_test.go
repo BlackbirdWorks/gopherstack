@@ -1,6 +1,7 @@
 package kinesisanalyticsv2_test
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -18,6 +19,8 @@ func newTestBackend(t *testing.T) *kinesisanalyticsv2.InMemoryBackend {
 
 func TestBackend_CreateApplication(t *testing.T) {
 	t.Parallel()
+
+	ctx := context.Background()
 
 	tests := []struct {
 		name        string
@@ -48,7 +51,7 @@ func TestBackend_CreateApplication(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend(t)
-			app, err := b.CreateApplication(tt.appName, tt.runtime, tt.serviceRole, "", "", nil)
+			app, err := b.CreateApplication(ctx, tt.appName, tt.runtime, tt.serviceRole, "", "", nil)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -69,17 +72,20 @@ func TestBackend_CreateApplication(t *testing.T) {
 func TestBackend_CreateApplication_AlreadyExists(t *testing.T) {
 	t.Parallel()
 
+	ctx := context.Background()
 	b := newTestBackend(t)
 
-	_, err := b.CreateApplication("my-app", "FLINK-1_18", "", "", "", nil)
+	_, err := b.CreateApplication(ctx, "my-app", "FLINK-1_18", "", "", "", nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateApplication("my-app", "FLINK-1_18", "", "", "", nil)
+	_, err = b.CreateApplication(ctx, "my-app", "FLINK-1_18", "", "", "", nil)
 	require.Error(t, err)
 }
 
 func TestBackend_DescribeApplication(t *testing.T) {
 	t.Parallel()
+
+	ctx := context.Background()
 
 	tests := []struct {
 		name    string
@@ -107,11 +113,11 @@ func TestBackend_DescribeApplication(t *testing.T) {
 			b := newTestBackend(t)
 
 			if tt.create {
-				_, err := b.CreateApplication(tt.appName, "FLINK-1_18", "", "", "", nil)
+				_, err := b.CreateApplication(ctx, tt.appName, "FLINK-1_18", "", "", "", nil)
 				require.NoError(t, err)
 			}
 
-			app, err := b.DescribeApplication(tt.appName)
+			app, err := b.DescribeApplication(ctx, tt.appName)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -127,6 +133,8 @@ func TestBackend_DescribeApplication(t *testing.T) {
 
 func TestBackend_ListApplications(t *testing.T) {
 	t.Parallel()
+
+	ctx := context.Background()
 
 	tests := []struct {
 		name     string
@@ -157,11 +165,11 @@ func TestBackend_ListApplications(t *testing.T) {
 			b := newTestBackend(t)
 
 			for _, name := range tt.appNames {
-				_, err := b.CreateApplication(name, "FLINK-1_18", "", "", "", nil)
+				_, err := b.CreateApplication(ctx, name, "FLINK-1_18", "", "", "", nil)
 				require.NoError(t, err)
 			}
 
-			apps, _ := b.ListApplications("")
+			apps, _ := b.ListApplications(ctx, "")
 			assert.Len(t, apps, tt.wantLen)
 		})
 	}
@@ -169,6 +177,8 @@ func TestBackend_ListApplications(t *testing.T) {
 
 func TestBackend_UpdateApplication(t *testing.T) {
 	t.Parallel()
+
+	ctx := context.Background()
 
 	tests := []struct {
 		name              string
@@ -202,11 +212,11 @@ func TestBackend_UpdateApplication(t *testing.T) {
 			b := newTestBackend(t)
 
 			if tt.createFirst {
-				_, err := b.CreateApplication(tt.appName, "FLINK-1_18", "", "", "", nil)
+				_, err := b.CreateApplication(ctx, tt.appName, "FLINK-1_18", "", "", "", nil)
 				require.NoError(t, err)
 			}
 
-			app, err := b.UpdateApplication(tt.appName, tt.updateServiceRole, tt.updateDescription)
+			app, err := b.UpdateApplication(ctx, tt.appName, tt.updateServiceRole, tt.updateDescription)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -224,6 +234,8 @@ func TestBackend_UpdateApplication(t *testing.T) {
 
 func TestBackend_DeleteApplication(t *testing.T) {
 	t.Parallel()
+
+	ctx := context.Background()
 
 	tests := []struct {
 		name        string
@@ -251,11 +263,11 @@ func TestBackend_DeleteApplication(t *testing.T) {
 			b := newTestBackend(t)
 
 			if tt.createFirst {
-				_, err := b.CreateApplication(tt.appName, "FLINK-1_18", "", "", "", nil)
+				_, err := b.CreateApplication(ctx, tt.appName, "FLINK-1_18", "", "", "", nil)
 				require.NoError(t, err)
 			}
 
-			err := b.DeleteApplication(tt.appName)
+			err := b.DeleteApplication(ctx, tt.appName)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -265,7 +277,7 @@ func TestBackend_DeleteApplication(t *testing.T) {
 
 			require.NoError(t, err)
 
-			_, err = b.DescribeApplication(tt.appName)
+			_, err = b.DescribeApplication(ctx, tt.appName)
 			require.Error(t, err)
 		})
 	}
@@ -273,6 +285,8 @@ func TestBackend_DeleteApplication(t *testing.T) {
 
 func TestBackend_StartStopApplication(t *testing.T) {
 	t.Parallel()
+
+	ctx := context.Background()
 
 	tests := []struct {
 		name       string
@@ -297,13 +311,13 @@ func TestBackend_StartStopApplication(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend(t)
-			_, err := b.CreateApplication("app-lifecycle", "FLINK-1_18", "", "", "", nil)
+			_, err := b.CreateApplication(ctx, "app-lifecycle", "FLINK-1_18", "", "", "", nil)
 			require.NoError(t, err)
 
 			if tt.op == "start" {
-				err = b.StartApplication("app-lifecycle")
+				err = b.StartApplication(ctx, "app-lifecycle")
 			} else {
-				err = b.StopApplication("app-lifecycle")
+				err = b.StopApplication(ctx, "app-lifecycle")
 			}
 
 			if tt.wantErr {
@@ -314,7 +328,7 @@ func TestBackend_StartStopApplication(t *testing.T) {
 
 			require.NoError(t, err)
 
-			app, descErr := b.DescribeApplication("app-lifecycle")
+			app, descErr := b.DescribeApplication(ctx, "app-lifecycle")
 			require.NoError(t, descErr)
 			assert.Equal(t, tt.wantStatus, app.ApplicationStatus)
 		})
@@ -324,30 +338,31 @@ func TestBackend_StartStopApplication(t *testing.T) {
 func TestBackend_SnapshotLifecycle(t *testing.T) {
 	t.Parallel()
 
+	ctx := context.Background()
 	b := newTestBackend(t)
-	_, err := b.CreateApplication("snap-app", "FLINK-1_18", "", "", "", nil)
+	_, err := b.CreateApplication(ctx, "snap-app", "FLINK-1_18", "", "", "", nil)
 	require.NoError(t, err)
 
 	// Create snapshot.
-	snap, err := b.CreateApplicationSnapshot("snap-app", "snap-1")
+	snap, err := b.CreateApplicationSnapshot(ctx, "snap-app", "snap-1")
 	require.NoError(t, err)
 	assert.Equal(t, "snap-1", snap.SnapshotName)
 	assert.Equal(t, "READY", snap.SnapshotStatus)
 
 	// List snapshots.
-	snaps, _, err := b.ListApplicationSnapshots("snap-app", "")
+	snaps, _, err := b.ListApplicationSnapshots(ctx, "snap-app", "")
 	require.NoError(t, err)
 	assert.Len(t, snaps, 1)
 
 	// Duplicate snapshot name.
-	_, err = b.CreateApplicationSnapshot("snap-app", "snap-1")
+	_, err = b.CreateApplicationSnapshot(ctx, "snap-app", "snap-1")
 	require.Error(t, err)
 
 	// Delete snapshot.
-	err = b.DeleteApplicationSnapshot("snap-app", "snap-1")
+	err = b.DeleteApplicationSnapshot(ctx, "snap-app", "snap-1")
 	require.NoError(t, err)
 
-	snaps, _, err = b.ListApplicationSnapshots("snap-app", "")
+	snaps, _, err = b.ListApplicationSnapshots(ctx, "snap-app", "")
 	require.NoError(t, err)
 	assert.Empty(t, snaps)
 }
@@ -355,8 +370,9 @@ func TestBackend_SnapshotLifecycle(t *testing.T) {
 func TestBackend_Tags(t *testing.T) {
 	t.Parallel()
 
+	ctx := context.Background()
 	b := newTestBackend(t)
-	app, err := b.CreateApplication("tagged-app", "FLINK-1_18", "", "", "", []kinesisanalyticsv2.Tag{
+	app, err := b.CreateApplication(ctx, "tagged-app", "FLINK-1_18", "", "", "", []kinesisanalyticsv2.Tag{
 		{Key: "env", Value: "test"},
 	})
 	require.NoError(t, err)
@@ -364,34 +380,34 @@ func TestBackend_Tags(t *testing.T) {
 	appARN := app.ApplicationARN
 
 	// ListTagsForResource.
-	tags, err := b.ListTagsForResource(appARN)
+	tags, err := b.ListTagsForResource(ctx, appARN)
 	require.NoError(t, err)
 	assert.Len(t, tags, 1)
 	assert.Equal(t, "env", tags[0].Key)
 	assert.Equal(t, "test", tags[0].Value)
 
 	// TagResource - add new tag.
-	err = b.TagResource(appARN, []kinesisanalyticsv2.Tag{{Key: "team", Value: "platform"}})
+	err = b.TagResource(ctx, appARN, []kinesisanalyticsv2.Tag{{Key: "team", Value: "platform"}})
 	require.NoError(t, err)
 
-	tags, err = b.ListTagsForResource(appARN)
+	tags, err = b.ListTagsForResource(ctx, appARN)
 	require.NoError(t, err)
 	assert.Len(t, tags, 2)
 
 	// TagResource - update existing tag.
-	err = b.TagResource(appARN, []kinesisanalyticsv2.Tag{{Key: "env", Value: "prod"}})
+	err = b.TagResource(ctx, appARN, []kinesisanalyticsv2.Tag{{Key: "env", Value: "prod"}})
 	require.NoError(t, err)
 
-	tags, err = b.ListTagsForResource(appARN)
+	tags, err = b.ListTagsForResource(ctx, appARN)
 	require.NoError(t, err)
 	tagMap := kinesisanalyticsv2.TagsToMapForTest(tags)
 	assert.Equal(t, "prod", tagMap["env"])
 
 	// UntagResource.
-	err = b.UntagResource(appARN, []string{"team"})
+	err = b.UntagResource(ctx, appARN, []string{"team"})
 	require.NoError(t, err)
 
-	tags, err = b.ListTagsForResource(appARN)
+	tags, err = b.ListTagsForResource(ctx, appARN)
 	require.NoError(t, err)
 	assert.Len(t, tags, 1)
 }
@@ -399,20 +415,23 @@ func TestBackend_Tags(t *testing.T) {
 func TestBackend_Tags_NotFound(t *testing.T) {
 	t.Parallel()
 
+	ctx := context.Background()
 	b := newTestBackend(t)
 
-	_, err := b.ListTagsForResource("arn:aws:kinesisanalytics:us-east-1:000000000000:application/missing")
+	_, err := b.ListTagsForResource(ctx, "arn:aws:kinesisanalytics:us-east-1:000000000000:application/missing")
 	require.Error(t, err)
 
-	err = b.TagResource("arn:aws:kinesisanalytics:us-east-1:000000000000:application/missing", nil)
+	err = b.TagResource(ctx, "arn:aws:kinesisanalytics:us-east-1:000000000000:application/missing", nil)
 	require.Error(t, err)
 
-	err = b.UntagResource("arn:aws:kinesisanalytics:us-east-1:000000000000:application/missing", nil)
+	err = b.UntagResource(ctx, "arn:aws:kinesisanalytics:us-east-1:000000000000:application/missing", nil)
 	require.Error(t, err)
 }
 
 func TestBackend_ListApplicationsPagination(t *testing.T) {
 	t.Parallel()
+
+	ctx := context.Background()
 
 	tests := []struct {
 		name          string
@@ -439,19 +458,20 @@ func TestBackend_ListApplicationsPagination(t *testing.T) {
 
 			for i := range tt.count {
 				_, err := b.CreateApplication(
+					ctx,
 					fmt.Sprintf("paged-app-%04d", i),
 					"FLINK-1_18", "", "", "", nil,
 				)
 				require.NoError(t, err)
 			}
 
-			apps, outToken := b.ListApplications("")
+			apps, outToken := b.ListApplications(ctx, "")
 			if tt.wantNextToken {
 				assert.Len(t, apps, 50)
 				assert.NotEmpty(t, outToken)
 
 				// Second page.
-				apps2, outToken2 := b.ListApplications(outToken)
+				apps2, outToken2 := b.ListApplications(ctx, outToken)
 				assert.Len(t, apps2, tt.count-50)
 				assert.Empty(t, outToken2)
 			} else {
@@ -464,6 +484,8 @@ func TestBackend_ListApplicationsPagination(t *testing.T) {
 
 func TestBackend_ListApplicationSnapshotsPagination(t *testing.T) {
 	t.Parallel()
+
+	ctx := context.Background()
 
 	tests := []struct {
 		name          string
@@ -488,15 +510,15 @@ func TestBackend_ListApplicationSnapshotsPagination(t *testing.T) {
 
 			b := newTestBackend(t)
 
-			_, err := b.CreateApplication("paged-snap-app", "FLINK-1_18", "", "", "", nil)
+			_, err := b.CreateApplication(ctx, "paged-snap-app", "FLINK-1_18", "", "", "", nil)
 			require.NoError(t, err)
 
 			for i := range tt.count {
-				_, err = b.CreateApplicationSnapshot("paged-snap-app", fmt.Sprintf("snap-%04d", i))
+				_, err = b.CreateApplicationSnapshot(ctx, "paged-snap-app", fmt.Sprintf("snap-%04d", i))
 				require.NoError(t, err)
 			}
 
-			snaps, outToken, err := b.ListApplicationSnapshots("paged-snap-app", "")
+			snaps, outToken, err := b.ListApplicationSnapshots(ctx, "paged-snap-app", "")
 			require.NoError(t, err)
 
 			if tt.wantNextToken {
@@ -506,7 +528,7 @@ func TestBackend_ListApplicationSnapshotsPagination(t *testing.T) {
 				// Second page.
 				var snaps2 []*kinesisanalyticsv2.Snapshot
 				var outToken2 string
-				snaps2, outToken2, err = b.ListApplicationSnapshots("paged-snap-app", outToken)
+				snaps2, outToken2, err = b.ListApplicationSnapshots(ctx, "paged-snap-app", outToken)
 				require.NoError(t, err)
 				assert.Len(t, snaps2, tt.count-50)
 				assert.Empty(t, outToken2)

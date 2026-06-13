@@ -1,6 +1,7 @@
 package efs
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +17,18 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
+
+// regionContextKey is the context key under which the per-request AWS region is stored.
+type regionContextKey struct{}
+
+// getRegion extracts the region from ctx, falling back to defaultRegion when unset.
+func getRegion(ctx context.Context, defaultRegion string) string {
+	if r, ok := ctx.Value(regionContextKey{}).(string); ok && r != "" {
+		return r
+	}
+
+	return defaultRegion
+}
 
 // Package-local sentinels used as the inner error for wrapped error types.
 // They are not exported; callers should match via the exported Err* vars.
@@ -261,18 +274,23 @@ type CreateAccessPointRequest struct {
 }
 
 // InMemoryBackend is the in-memory store for EFS resources.
+//
+// All resource maps are nested by region (outer key = region) so that
+// same-named resources in different regions are fully isolated. The
+// cross-index maps (by ARN, by client token) are likewise region-scoped.
+// accountPreferences is account-level state in AWS and so is not region-nested.
 type InMemoryBackend struct {
-	fileSystems               map[string]*FileSystem
-	mountTargets              map[string]*MountTarget
-	accessPoints              map[string]*AccessPoint
-	lifecyclePolicies         map[string][]LifecyclePolicy
-	replicationConfigs        map[string]*ReplicationConfiguration
-	backupPolicies            map[string]string
-	fileSystemPolicies        map[string]string
-	fileSystemsByARN          map[string]*FileSystem
-	mountTargetsByARN         map[string]*MountTarget
-	accessPointsByARN         map[string]*AccessPoint
-	accessPointsByClientToken map[string]*AccessPoint
+	fileSystems               map[string]map[string]*FileSystem
+	mountTargets              map[string]map[string]*MountTarget
+	accessPoints              map[string]map[string]*AccessPoint
+	lifecyclePolicies         map[string]map[string][]LifecyclePolicy
+	replicationConfigs        map[string]map[string]*ReplicationConfiguration
+	backupPolicies            map[string]map[string]string
+	fileSystemPolicies        map[string]map[string]string
+	fileSystemsByARN          map[string]map[string]*FileSystem
+	mountTargetsByARN         map[string]map[string]*MountTarget
+	accessPointsByARN         map[string]map[string]*AccessPoint
+	accessPointsByClientToken map[string]map[string]*AccessPoint
 	accountPreferences        AccountPreferences
 	mu                        *lockmetrics.RWMutex
 	accountID                 string
@@ -288,23 +306,121 @@ type LifecyclePolicy struct {
 
 // NewInMemoryBackend creates a new in-memory EFS backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		fileSystems:               make(map[string]*FileSystem),
-		mountTargets:              make(map[string]*MountTarget),
-		accessPoints:              make(map[string]*AccessPoint),
-		lifecyclePolicies:         make(map[string][]LifecyclePolicy),
-		replicationConfigs:        make(map[string]*ReplicationConfiguration),
-		backupPolicies:            make(map[string]string),
-		fileSystemPolicies:        make(map[string]string),
-		fileSystemsByARN:          make(map[string]*FileSystem),
-		mountTargetsByARN:         make(map[string]*MountTarget),
-		accessPointsByARN:         make(map[string]*AccessPoint),
-		accessPointsByClientToken: make(map[string]*AccessPoint),
-		accountPreferences:        AccountPreferences{ResourceIDType: "LONG_ID"},
-		accountID:                 accountID,
-		region:                    region,
-		mu:                        lockmetrics.New("efs"),
+	b := &InMemoryBackend{
+		accountPreferences: AccountPreferences{ResourceIDType: "LONG_ID"},
+		accountID:          accountID,
+		region:             region,
+		mu:                 lockmetrics.New("efs"),
 	}
+	b.initRegionMaps()
+
+	return b
+}
+
+// initRegionMaps allocates the (empty) outer per-region map for every resource kind.
+func (b *InMemoryBackend) initRegionMaps() {
+	b.fileSystems = make(map[string]map[string]*FileSystem)
+	b.mountTargets = make(map[string]map[string]*MountTarget)
+	b.accessPoints = make(map[string]map[string]*AccessPoint)
+	b.lifecyclePolicies = make(map[string]map[string][]LifecyclePolicy)
+	b.replicationConfigs = make(map[string]map[string]*ReplicationConfiguration)
+	b.backupPolicies = make(map[string]map[string]string)
+	b.fileSystemPolicies = make(map[string]map[string]string)
+	b.fileSystemsByARN = make(map[string]map[string]*FileSystem)
+	b.mountTargetsByARN = make(map[string]map[string]*MountTarget)
+	b.accessPointsByARN = make(map[string]map[string]*AccessPoint)
+	b.accessPointsByClientToken = make(map[string]map[string]*AccessPoint)
+}
+
+// The following per-region store helpers return the inner map for region,
+// lazily creating it on first access. Callers must hold b.mu.
+
+func (b *InMemoryBackend) fsStore(region string) map[string]*FileSystem {
+	if b.fileSystems[region] == nil {
+		b.fileSystems[region] = make(map[string]*FileSystem)
+	}
+
+	return b.fileSystems[region]
+}
+
+func (b *InMemoryBackend) mtStore(region string) map[string]*MountTarget {
+	if b.mountTargets[region] == nil {
+		b.mountTargets[region] = make(map[string]*MountTarget)
+	}
+
+	return b.mountTargets[region]
+}
+
+func (b *InMemoryBackend) apStore(region string) map[string]*AccessPoint {
+	if b.accessPoints[region] == nil {
+		b.accessPoints[region] = make(map[string]*AccessPoint)
+	}
+
+	return b.accessPoints[region]
+}
+
+func (b *InMemoryBackend) lifecycleStore(region string) map[string][]LifecyclePolicy {
+	if b.lifecyclePolicies[region] == nil {
+		b.lifecyclePolicies[region] = make(map[string][]LifecyclePolicy)
+	}
+
+	return b.lifecyclePolicies[region]
+}
+
+func (b *InMemoryBackend) replicationStore(region string) map[string]*ReplicationConfiguration {
+	if b.replicationConfigs[region] == nil {
+		b.replicationConfigs[region] = make(map[string]*ReplicationConfiguration)
+	}
+
+	return b.replicationConfigs[region]
+}
+
+func (b *InMemoryBackend) backupStore(region string) map[string]string {
+	if b.backupPolicies[region] == nil {
+		b.backupPolicies[region] = make(map[string]string)
+	}
+
+	return b.backupPolicies[region]
+}
+
+func (b *InMemoryBackend) fsPolicyStore(region string) map[string]string {
+	if b.fileSystemPolicies[region] == nil {
+		b.fileSystemPolicies[region] = make(map[string]string)
+	}
+
+	return b.fileSystemPolicies[region]
+}
+
+func (b *InMemoryBackend) fsARNStore(region string) map[string]*FileSystem {
+	if b.fileSystemsByARN[region] == nil {
+		b.fileSystemsByARN[region] = make(map[string]*FileSystem)
+	}
+
+	return b.fileSystemsByARN[region]
+}
+
+func (b *InMemoryBackend) mtARNStore(region string) map[string]*MountTarget {
+	if b.mountTargetsByARN[region] == nil {
+		b.mountTargetsByARN[region] = make(map[string]*MountTarget)
+	}
+
+	return b.mountTargetsByARN[region]
+}
+
+func (b *InMemoryBackend) apARNStore(region string) map[string]*AccessPoint {
+	if b.accessPointsByARN[region] == nil {
+		b.accessPointsByARN[region] = make(map[string]*AccessPoint)
+	}
+
+	return b.accessPointsByARN[region]
+}
+
+func (b *InMemoryBackend) apClientTokenStore(region string) map[string]*AccessPoint {
+	if b.accessPointsByClientToken[region] == nil {
+		b.accessPointsByClientToken[region] = make(map[string]*AccessPoint)
+	}
+
+	return b.accessPointsByClientToken[region]
 }
 
 // Reset clears all stored resources, returning the backend to its empty initial state.
@@ -312,24 +428,18 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	for _, fs := range b.fileSystems {
-		fs.Tags.Close()
+	for _, regionFS := range b.fileSystems {
+		for _, fs := range regionFS {
+			fs.Tags.Close()
+		}
 	}
-	for _, ap := range b.accessPoints {
-		ap.Tags.Close()
+	for _, regionAP := range b.accessPoints {
+		for _, ap := range regionAP {
+			ap.Tags.Close()
+		}
 	}
 
-	b.fileSystems = make(map[string]*FileSystem)
-	b.mountTargets = make(map[string]*MountTarget)
-	b.accessPoints = make(map[string]*AccessPoint)
-	b.lifecyclePolicies = make(map[string][]LifecyclePolicy)
-	b.replicationConfigs = make(map[string]*ReplicationConfiguration)
-	b.backupPolicies = make(map[string]string)
-	b.fileSystemPolicies = make(map[string]string)
-	b.fileSystemsByARN = make(map[string]*FileSystem)
-	b.mountTargetsByARN = make(map[string]*MountTarget)
-	b.accessPointsByARN = make(map[string]*AccessPoint)
-	b.accessPointsByClientToken = make(map[string]*AccessPoint)
+	b.initRegionMaps()
 }
 
 // Region returns the AWS region this backend is configured for.
@@ -451,17 +561,24 @@ func validateCreateFSRequest(req *CreateFileSystemRequest) (string, error) {
 	return kmsKeyID, nil
 }
 
-func (b *InMemoryBackend) CreateFileSystem(req CreateFileSystemRequest) (*FileSystem, error) {
+func (b *InMemoryBackend) CreateFileSystem(
+	ctx context.Context,
+	req CreateFileSystemRequest,
+) (*FileSystem, error) {
 	kmsKeyID, err := validateCreateFSRequest(&req)
 	if err != nil {
 		return nil, err
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("CreateFileSystem")
 	defer b.mu.Unlock()
 
+	fileSystems := b.fsStore(region)
+
 	// Idempotency: if creationToken already used, compare args.
-	for _, fs := range b.fileSystems {
+	for _, fs := range fileSystems {
 		if fs.CreationToken == req.CreationToken {
 			if fs.PerformanceMode == req.PerformanceMode &&
 				fs.ThroughputMode == req.ThroughputMode &&
@@ -489,7 +606,7 @@ func (b *InMemoryBackend) CreateFileSystem(req CreateFileSystemRequest) (*FileSy
 	}
 
 	id := "fs-" + uuid.NewString()[:8]
-	fsARN := arn.Build("elasticfilesystem", b.region, b.accountID, "file-system/"+id)
+	fsARN := arn.Build("elasticfilesystem", region, b.accountID, "file-system/"+id)
 	t := tags.New("efs.filesystem." + id + ".tags")
 
 	tagCopy := make(map[string]string, len(req.Tags))
@@ -515,12 +632,12 @@ func (b *InMemoryBackend) CreateFileSystem(req CreateFileSystemRequest) (*FileSy
 		ProvisionedThroughputMib:       req.ProvisionedThroughputMib,
 		ReplicationOverwriteProtection: protectionDisabled,
 		AccountID:                      b.accountID,
-		Region:                         b.region,
+		Region:                         region,
 		CreationTime:                   time.Now().UTC(),
 		Tags:                           t,
 	}
-	b.fileSystems[id] = fs
-	b.fileSystemsByARN[fsARN] = fs
+	fileSystems[id] = fs
+	b.fsARNStore(region)[fsARN] = fs
 	cp := *fs
 
 	return &cp, nil
@@ -528,14 +645,19 @@ func (b *InMemoryBackend) CreateFileSystem(req CreateFileSystemRequest) (*FileSy
 
 // DescribeFileSystems returns file systems, optionally filtered by ID or creation token, with pagination support.
 func (b *InMemoryBackend) DescribeFileSystems(
+	ctx context.Context,
 	fileSystemID, creationToken, marker string,
 	maxItems int,
 ) ([]*FileSystem, string, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("DescribeFileSystems")
 	defer b.mu.RUnlock()
 
+	fileSystems := b.fsStore(region)
+
 	if fileSystemID != "" {
-		fs, ok := b.fileSystems[fileSystemID]
+		fs, ok := fileSystems[fileSystemID]
 		if !ok {
 			return nil, "", fmt.Errorf("%w: file system %s not found", ErrNotFound, fileSystemID)
 		}
@@ -545,7 +667,7 @@ func (b *InMemoryBackend) DescribeFileSystems(
 	}
 
 	if creationToken != "" {
-		for _, fs := range b.fileSystems {
+		for _, fs := range fileSystems {
 			if fs.CreationToken == creationToken {
 				cp := *fs
 
@@ -556,8 +678,8 @@ func (b *InMemoryBackend) DescribeFileSystems(
 		return []*FileSystem{}, "", nil
 	}
 
-	all := make([]*FileSystem, 0, len(b.fileSystems))
-	for _, fs := range b.fileSystems {
+	all := make([]*FileSystem, 0, len(fileSystems))
+	for _, fs := range fileSystems {
 		cp := *fs
 		all = append(all, &cp)
 	}
@@ -568,17 +690,20 @@ func (b *InMemoryBackend) DescribeFileSystems(
 
 // DeleteFileSystem deletes a file system by ID.
 // Returns ErrFileSystemInUse if any mount targets exist.
-func (b *InMemoryBackend) DeleteFileSystem(fileSystemID string) error {
+func (b *InMemoryBackend) DeleteFileSystem(ctx context.Context, fileSystemID string) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("DeleteFileSystem")
 	defer b.mu.Unlock()
 
-	fs, ok := b.fileSystems[fileSystemID]
+	fileSystems := b.fsStore(region)
+	fs, ok := fileSystems[fileSystemID]
 	if !ok {
 		return fmt.Errorf("%w: file system %s not found", ErrNotFound, fileSystemID)
 	}
 
 	// Reject delete if mount targets or access points exist (AWS: FileSystemInUse).
-	for _, mt := range b.mountTargets {
+	for _, mt := range b.mtStore(region) {
 		if mt.FileSystemID == fileSystemID {
 			return fmt.Errorf(
 				"%w: file system %s has existing mount targets",
@@ -587,7 +712,7 @@ func (b *InMemoryBackend) DeleteFileSystem(fileSystemID string) error {
 			)
 		}
 	}
-	for _, ap := range b.accessPoints {
+	for _, ap := range b.apStore(region) {
 		if ap.FileSystemID == fileSystemID {
 			return fmt.Errorf(
 				"%w: file system %s has existing access points",
@@ -597,43 +722,45 @@ func (b *InMemoryBackend) DeleteFileSystem(fileSystemID string) error {
 		}
 	}
 
-	delete(b.fileSystemsByARN, fs.FileSystemArn)
+	delete(b.fsARNStore(region), fs.FileSystemArn)
 	fs.Tags.Close()
-	delete(b.fileSystems, fileSystemID)
-	delete(b.lifecyclePolicies, fileSystemID)
-	delete(b.backupPolicies, fileSystemID)
-	delete(b.fileSystemPolicies, fileSystemID)
-	delete(b.replicationConfigs, fileSystemID)
+	delete(fileSystems, fileSystemID)
+	delete(b.lifecycleStore(region), fileSystemID)
+	delete(b.backupStore(region), fileSystemID)
+	delete(b.fsPolicyStore(region), fileSystemID)
+	delete(b.replicationStore(region), fileSystemID)
 
 	return nil
 }
 
 // TagResource adds or updates tags on a resource (file system or access point) by ARN or ID.
-func (b *InMemoryBackend) TagResource(resourceID string, kv map[string]string) error {
+func (b *InMemoryBackend) TagResource(ctx context.Context, resourceID string, kv map[string]string) error {
 	if err := validateTags(kv); err != nil {
 		return err
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
-	if fs, ok := b.fileSystems[resourceID]; ok {
+	if fs, ok := b.fsStore(region)[resourceID]; ok {
 		fs.Tags.Merge(kv)
 
 		return nil
 	}
-	if fs, ok := b.fileSystemsByARN[resourceID]; ok {
+	if fs, ok := b.fsARNStore(region)[resourceID]; ok {
 		fs.Tags.Merge(kv)
 
 		return nil
 	}
 
-	if ap, ok := b.accessPoints[resourceID]; ok {
+	if ap, ok := b.apStore(region)[resourceID]; ok {
 		ap.Tags.Merge(kv)
 
 		return nil
 	}
-	if ap, ok := b.accessPointsByARN[resourceID]; ok {
+	if ap, ok := b.apARNStore(region)[resourceID]; ok {
 		ap.Tags.Merge(kv)
 
 		return nil
@@ -643,27 +770,29 @@ func (b *InMemoryBackend) TagResource(resourceID string, kv map[string]string) e
 }
 
 // UntagResource removes tags from a resource (file system or access point) by ARN or ID.
-func (b *InMemoryBackend) UntagResource(resourceID string, tagKeys []string) error {
+func (b *InMemoryBackend) UntagResource(ctx context.Context, resourceID string, tagKeys []string) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
-	if fs, ok := b.fileSystems[resourceID]; ok {
+	if fs, ok := b.fsStore(region)[resourceID]; ok {
 		fs.Tags.DeleteKeys(tagKeys)
 
 		return nil
 	}
-	if fs, ok := b.fileSystemsByARN[resourceID]; ok {
+	if fs, ok := b.fsARNStore(region)[resourceID]; ok {
 		fs.Tags.DeleteKeys(tagKeys)
 
 		return nil
 	}
 
-	if ap, ok := b.accessPoints[resourceID]; ok {
+	if ap, ok := b.apStore(region)[resourceID]; ok {
 		ap.Tags.DeleteKeys(tagKeys)
 
 		return nil
 	}
-	if ap, ok := b.accessPointsByARN[resourceID]; ok {
+	if ap, ok := b.apARNStore(region)[resourceID]; ok {
 		ap.Tags.DeleteKeys(tagKeys)
 
 		return nil
@@ -673,21 +802,26 @@ func (b *InMemoryBackend) UntagResource(resourceID string, tagKeys []string) err
 }
 
 // ListTagsForResource lists tags for a resource by ID or ARN.
-func (b *InMemoryBackend) ListTagsForResource(resourceID string) (map[string]string, error) {
+func (b *InMemoryBackend) ListTagsForResource(
+	ctx context.Context,
+	resourceID string,
+) (map[string]string, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
-	if fs, ok := b.fileSystems[resourceID]; ok {
+	if fs, ok := b.fsStore(region)[resourceID]; ok {
 		return fs.Tags.Clone(), nil
 	}
-	if fs, ok := b.fileSystemsByARN[resourceID]; ok {
+	if fs, ok := b.fsARNStore(region)[resourceID]; ok {
 		return fs.Tags.Clone(), nil
 	}
 
-	if ap, ok := b.accessPoints[resourceID]; ok {
+	if ap, ok := b.apStore(region)[resourceID]; ok {
 		return ap.Tags.Clone(), nil
 	}
-	if ap, ok := b.accessPointsByARN[resourceID]; ok {
+	if ap, ok := b.apARNStore(region)[resourceID]; ok {
 		return ap.Tags.Clone(), nil
 	}
 
@@ -696,18 +830,25 @@ func (b *InMemoryBackend) ListTagsForResource(resourceID string) (map[string]str
 
 // CreateMountTarget creates a mount target for a file system.
 // Returns ErrMountTargetConflict if a mount target already exists in the same subnet.
-func (b *InMemoryBackend) CreateMountTarget(req CreateMountTargetRequest) (*MountTarget, error) {
+func (b *InMemoryBackend) CreateMountTarget(
+	ctx context.Context,
+	req CreateMountTargetRequest,
+) (*MountTarget, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("CreateMountTarget")
 	defer b.mu.Unlock()
 
-	fs, ok := b.fileSystems[req.FileSystemID]
+	mountTargets := b.mtStore(region)
+
+	fs, ok := b.fsStore(region)[req.FileSystemID]
 	if !ok {
 		return nil, fmt.Errorf("%w: file system %s not found", ErrNotFound, req.FileSystemID)
 	}
 
 	// One mount target per subnet per file system.
 	if req.SubnetID != "" {
-		for _, mt := range b.mountTargets {
+		for _, mt := range mountTargets {
 			if mt.FileSystemID == req.FileSystemID && mt.SubnetID == req.SubnetID {
 				return nil, fmt.Errorf(
 					"%w: mount target already exists for file system %s in subnet %s",
@@ -729,7 +870,7 @@ func (b *InMemoryBackend) CreateMountTarget(req CreateMountTargetRequest) (*Moun
 	}
 
 	id := "fsmt-" + uuid.NewString()[:8]
-	mtARN := arn.Build("elasticfilesystem", b.region, b.accountID, "mount-target/"+id)
+	mtARN := arn.Build("elasticfilesystem", region, b.accountID, "mount-target/"+id)
 	eniID := "eni-" + uuid.NewString()[:8]
 
 	sgs := make([]string, len(req.SecurityGroups))
@@ -746,8 +887,8 @@ func (b *InMemoryBackend) CreateMountTarget(req CreateMountTargetRequest) (*Moun
 		OwnerID:            b.accountID,
 		SecurityGroups:     sgs,
 	}
-	b.mountTargets[id] = mt
-	b.mountTargetsByARN[mtARN] = mt
+	mountTargets[id] = mt
+	b.mtARNStore(region)[mtARN] = mt
 	fs.NumberOfMountTargets++
 
 	cp := *mt
@@ -793,13 +934,16 @@ func describeByIDOrFilter[T any](
 
 // DescribeMountTargets returns mount targets, optionally filtered by file system ID or mount target ID.
 func (b *InMemoryBackend) DescribeMountTargets(
+	ctx context.Context,
 	fileSystemID, mountTargetID, marker string, maxItems int,
 ) ([]*MountTarget, string, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("DescribeMountTargets")
 	defer b.mu.RUnlock()
 
 	return describeByIDOrFilter(
-		b.mountTargets, mountTargetID, ErrMountTargetNotFound,
+		b.mtStore(region), mountTargetID, ErrMountTargetNotFound,
 		fileSystemID,
 		func(mt *MountTarget) string { return mt.FileSystemID },
 		copyMountTarget,
@@ -817,43 +961,51 @@ func copyMountTarget(mt *MountTarget) *MountTarget {
 }
 
 // DeleteMountTarget deletes a mount target by ID.
-func (b *InMemoryBackend) DeleteMountTarget(mountTargetID string) error {
+func (b *InMemoryBackend) DeleteMountTarget(ctx context.Context, mountTargetID string) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("DeleteMountTarget")
 	defer b.mu.Unlock()
 
-	mt, ok := b.mountTargets[mountTargetID]
+	mountTargets := b.mtStore(region)
+	mt, ok := mountTargets[mountTargetID]
 	if !ok {
 		return fmt.Errorf("%w: mount target %s not found", ErrMountTargetNotFound, mountTargetID)
 	}
-	if fs, found := b.fileSystems[mt.FileSystemID]; found {
+	if fs, found := b.fsStore(region)[mt.FileSystemID]; found {
 		fs.NumberOfMountTargets--
 	}
-	delete(b.mountTargetsByARN, mt.MountTargetArn)
-	delete(b.mountTargets, mountTargetID)
+	delete(b.mtARNStore(region), mt.MountTargetArn)
+	delete(mountTargets, mountTargetID)
 
 	return nil
 }
 
 // CreateAccessPoint creates an access point for a file system.
 // Supports ClientToken idempotency.
-func (b *InMemoryBackend) CreateAccessPoint(req CreateAccessPointRequest) (*AccessPoint, error) {
+func (b *InMemoryBackend) CreateAccessPoint(
+	ctx context.Context,
+	req CreateAccessPointRequest,
+) (*AccessPoint, error) {
 	if err := validateTags(req.Tags); err != nil {
 		return nil, err
 	}
+
+	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("CreateAccessPoint")
 	defer b.mu.Unlock()
 
 	// ClientToken idempotency.
 	if req.ClientToken != "" {
-		if existing, ok := b.accessPointsByClientToken[req.ClientToken]; ok {
+		if existing, ok := b.apClientTokenStore(region)[req.ClientToken]; ok {
 			cp := copyAccessPoint(existing)
 
 			return cp, nil
 		}
 	}
 
-	if _, ok := b.fileSystems[req.FileSystemID]; !ok {
+	if _, ok := b.fsStore(region)[req.FileSystemID]; !ok {
 		return nil, fmt.Errorf("%w: file system %s not found", ErrNotFound, req.FileSystemID)
 	}
 
@@ -868,7 +1020,7 @@ func (b *InMemoryBackend) CreateAccessPoint(req CreateAccessPointRequest) (*Acce
 	}
 
 	id := "fsap-" + uuid.NewString()[:8]
-	apARN := arn.Build("elasticfilesystem", b.region, b.accountID, "access-point/"+id)
+	apARN := arn.Build("elasticfilesystem", region, b.accountID, "access-point/"+id)
 	t := tags.New("efs.accesspoint." + id + ".tags")
 
 	tagCopy := make(map[string]string, len(req.Tags))
@@ -891,10 +1043,10 @@ func (b *InMemoryBackend) CreateAccessPoint(req CreateAccessPointRequest) (*Acce
 		RootDirectory:  req.RootDirectory,
 		OwnerID:        b.accountID,
 	}
-	b.accessPoints[id] = ap
-	b.accessPointsByARN[apARN] = ap
+	b.apStore(region)[id] = ap
+	b.apARNStore(region)[apARN] = ap
 	if req.ClientToken != "" {
-		b.accessPointsByClientToken[req.ClientToken] = ap
+		b.apClientTokenStore(region)[req.ClientToken] = ap
 	}
 	cp := copyAccessPoint(ap)
 
@@ -927,13 +1079,16 @@ func copyAccessPoint(ap *AccessPoint) *AccessPoint {
 
 // DescribeAccessPoints returns access points, optionally filtered by file system ID or access point ID.
 func (b *InMemoryBackend) DescribeAccessPoints(
+	ctx context.Context,
 	fileSystemID, accessPointID, marker string, maxItems int,
 ) ([]*AccessPoint, string, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("DescribeAccessPoints")
 	defer b.mu.RUnlock()
 
 	return describeByIDOrFilter(
-		b.accessPoints, accessPointID, ErrAccessPointNotFound,
+		b.apStore(region), accessPointID, ErrAccessPointNotFound,
 		fileSystemID,
 		func(ap *AccessPoint) string { return ap.FileSystemID },
 		copyAccessPoint,
@@ -943,36 +1098,42 @@ func (b *InMemoryBackend) DescribeAccessPoints(
 }
 
 // DeleteAccessPoint deletes an access point by ID.
-func (b *InMemoryBackend) DeleteAccessPoint(accessPointID string) error {
+func (b *InMemoryBackend) DeleteAccessPoint(ctx context.Context, accessPointID string) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("DeleteAccessPoint")
 	defer b.mu.Unlock()
 
-	ap, ok := b.accessPoints[accessPointID]
+	accessPoints := b.apStore(region)
+	ap, ok := accessPoints[accessPointID]
 	if !ok {
 		return fmt.Errorf("%w: access point %s not found", ErrAccessPointNotFound, accessPointID)
 	}
-	delete(b.accessPointsByARN, ap.AccessPointArn)
+	delete(b.apARNStore(region), ap.AccessPointArn)
 	if ap.ClientToken != "" {
-		delete(b.accessPointsByClientToken, ap.ClientToken)
+		delete(b.apClientTokenStore(region), ap.ClientToken)
 	}
 	ap.Tags.Close()
-	delete(b.accessPoints, accessPointID)
+	delete(accessPoints, accessPointID)
 
 	return nil
 }
 
 // DescribeLifecycleConfiguration returns lifecycle policies for a file system.
 func (b *InMemoryBackend) DescribeLifecycleConfiguration(
+	ctx context.Context,
 	fileSystemID string,
 ) ([]LifecyclePolicy, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("DescribeLifecycleConfiguration")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.fileSystems[fileSystemID]; !ok {
+	if _, ok := b.fsStore(region)[fileSystemID]; !ok {
 		return nil, fmt.Errorf("%w: file system %s not found", ErrNotFound, fileSystemID)
 	}
 
-	policies := b.lifecyclePolicies[fileSystemID]
+	policies := b.lifecycleStore(region)[fileSystemID]
 	if policies == nil {
 		return []LifecyclePolicy{}, nil
 	}
@@ -1018,6 +1179,7 @@ func validateLifecyclePolicies(policies []LifecyclePolicy) error {
 
 // PutLifecycleConfiguration sets lifecycle policies for a file system.
 func (b *InMemoryBackend) PutLifecycleConfiguration(
+	ctx context.Context,
 	fileSystemID string,
 	policies []LifecyclePolicy,
 ) ([]LifecyclePolicy, error) {
@@ -1025,16 +1187,18 @@ func (b *InMemoryBackend) PutLifecycleConfiguration(
 		return nil, err
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("PutLifecycleConfiguration")
 	defer b.mu.Unlock()
 
-	if _, ok := b.fileSystems[fileSystemID]; !ok {
+	if _, ok := b.fsStore(region)[fileSystemID]; !ok {
 		return nil, fmt.Errorf("%w: file system %s not found", ErrNotFound, fileSystemID)
 	}
 
 	stored := make([]LifecyclePolicy, len(policies))
 	copy(stored, policies)
-	b.lifecyclePolicies[fileSystemID] = stored
+	b.lifecycleStore(region)[fileSystemID] = stored
 
 	result := make([]LifecyclePolicy, len(stored))
 	copy(result, stored)
@@ -1044,6 +1208,7 @@ func (b *InMemoryBackend) PutLifecycleConfiguration(
 
 // CreateReplicationConfiguration creates a replication configuration for a file system.
 func (b *InMemoryBackend) CreateReplicationConfiguration(
+	ctx context.Context,
 	sourceFileSystemID string,
 	destinations []ReplicationDestination,
 ) (*ReplicationConfiguration, error) {
@@ -1056,15 +1221,19 @@ func (b *InMemoryBackend) CreateReplicationConfiguration(
 		)
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("CreateReplicationConfiguration")
 	defer b.mu.Unlock()
 
-	fs, ok := b.fileSystems[sourceFileSystemID]
+	replicationConfigs := b.replicationStore(region)
+
+	fs, ok := b.fsStore(region)[sourceFileSystemID]
 	if !ok {
 		return nil, fmt.Errorf("%w: file system %s not found", ErrNotFound, sourceFileSystemID)
 	}
 
-	if _, exists := b.replicationConfigs[sourceFileSystemID]; exists {
+	if _, exists := replicationConfigs[sourceFileSystemID]; exists {
 		return nil, fmt.Errorf(
 			"%w: replication configuration already exists for file system %s",
 			ErrAlreadyExists,
@@ -1084,11 +1253,11 @@ func (b *InMemoryBackend) CreateReplicationConfiguration(
 		OriginalSourceFileSystemARN: fs.FileSystemArn,
 		SourceFileSystemARN:         fs.FileSystemArn,
 		SourceFileSystemID:          sourceFileSystemID,
-		SourceFileSystemRegion:      b.region,
+		SourceFileSystemRegion:      region,
 		CreationTime:                time.Now().UTC().Unix(),
 		Destinations:                dests,
 	}
-	b.replicationConfigs[sourceFileSystemID] = rc
+	replicationConfigs[sourceFileSystemID] = rc
 
 	// Mark source file system as replicating.
 	fs.ReplicationOverwriteProtection = protectionReplicating
@@ -1103,15 +1272,22 @@ func (b *InMemoryBackend) CreateReplicationConfiguration(
 // DeleteReplicationConfiguration deletes the replication configuration for a file system.
 // The destination file system (if tracked) becomes a standalone writable file system
 // with ReplicationOverwriteProtection set to ENABLED.
-func (b *InMemoryBackend) DeleteReplicationConfiguration(sourceFileSystemID string) error {
+func (b *InMemoryBackend) DeleteReplicationConfiguration(
+	ctx context.Context,
+	sourceFileSystemID string,
+) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("DeleteReplicationConfiguration")
 	defer b.mu.Unlock()
 
-	if _, ok := b.fileSystems[sourceFileSystemID]; !ok {
+	fileSystems := b.fsStore(region)
+	if _, ok := fileSystems[sourceFileSystemID]; !ok {
 		return fmt.Errorf("%w: file system %s not found", ErrNotFound, sourceFileSystemID)
 	}
 
-	if _, exists := b.replicationConfigs[sourceFileSystemID]; !exists {
+	replicationConfigs := b.replicationStore(region)
+	if _, exists := replicationConfigs[sourceFileSystemID]; !exists {
 		return fmt.Errorf(
 			"%w: replication configuration not found for file system %s",
 			ErrNotFound,
@@ -1119,10 +1295,10 @@ func (b *InMemoryBackend) DeleteReplicationConfiguration(sourceFileSystemID stri
 		)
 	}
 
-	delete(b.replicationConfigs, sourceFileSystemID)
+	delete(replicationConfigs, sourceFileSystemID)
 
 	// Reset source protection to DISABLED.
-	if fs, ok := b.fileSystems[sourceFileSystemID]; ok {
+	if fs, ok := fileSystems[sourceFileSystemID]; ok {
 		fs.ReplicationOverwriteProtection = protectionDisabled
 	}
 
@@ -1131,13 +1307,18 @@ func (b *InMemoryBackend) DeleteReplicationConfiguration(sourceFileSystemID stri
 
 // DescribeReplicationConfigurations returns replication configurations, optionally filtered by file system ID.
 func (b *InMemoryBackend) DescribeReplicationConfigurations(
+	ctx context.Context,
 	fileSystemID string,
 ) ([]*ReplicationConfiguration, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("DescribeReplicationConfigurations")
 	defer b.mu.RUnlock()
 
+	replicationConfigs := b.replicationStore(region)
+
 	if fileSystemID != "" {
-		rc, ok := b.replicationConfigs[fileSystemID]
+		rc, ok := replicationConfigs[fileSystemID]
 		if !ok {
 			return []*ReplicationConfiguration{}, nil
 		}
@@ -1149,8 +1330,8 @@ func (b *InMemoryBackend) DescribeReplicationConfigurations(
 		return []*ReplicationConfiguration{&cp}, nil
 	}
 
-	list := make([]*ReplicationConfiguration, 0, len(b.replicationConfigs))
-	for _, rc := range b.replicationConfigs {
+	list := make([]*ReplicationConfiguration, 0, len(replicationConfigs))
+	for _, rc := range replicationConfigs {
 		cp := *rc
 		cp.Destinations = make([]ReplicationDestination, len(rc.Destinations))
 		copy(cp.Destinations, rc.Destinations)
@@ -1165,15 +1346,17 @@ func (b *InMemoryBackend) DescribeReplicationConfigurations(
 }
 
 // CreateTags adds tags to a file system (legacy operation, delegates to TagResource).
-func (b *InMemoryBackend) CreateTags(fileSystemID string, kv map[string]string) error {
+func (b *InMemoryBackend) CreateTags(ctx context.Context, fileSystemID string, kv map[string]string) error {
 	if err := validateTags(kv); err != nil {
 		return err
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("CreateTags")
 	defer b.mu.Unlock()
 
-	fs, ok := b.fileSystems[fileSystemID]
+	fs, ok := b.fsStore(region)[fileSystemID]
 	if !ok {
 		return fmt.Errorf("%w: file system %s not found", ErrNotFound, fileSystemID)
 	}
@@ -1184,11 +1367,13 @@ func (b *InMemoryBackend) CreateTags(fileSystemID string, kv map[string]string) 
 }
 
 // DeleteTags removes tags from a file system by key (legacy operation).
-func (b *InMemoryBackend) DeleteTags(fileSystemID string, tagKeys []string) error {
+func (b *InMemoryBackend) DeleteTags(ctx context.Context, fileSystemID string, tagKeys []string) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("DeleteTags")
 	defer b.mu.Unlock()
 
-	fs, ok := b.fileSystems[fileSystemID]
+	fs, ok := b.fsStore(region)[fileSystemID]
 	if !ok {
 		return fmt.Errorf("%w: file system %s not found", ErrNotFound, fileSystemID)
 	}
@@ -1199,15 +1384,17 @@ func (b *InMemoryBackend) DeleteTags(fileSystemID string, tagKeys []string) erro
 }
 
 // DescribeFileSystemPolicy returns the resource-based policy for a file system.
-func (b *InMemoryBackend) DescribeFileSystemPolicy(fileSystemID string) (string, error) {
+func (b *InMemoryBackend) DescribeFileSystemPolicy(ctx context.Context, fileSystemID string) (string, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("DescribeFileSystemPolicy")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.fileSystems[fileSystemID]; !ok {
+	if _, ok := b.fsStore(region)[fileSystemID]; !ok {
 		return "", fmt.Errorf("%w: file system %s not found", ErrNotFound, fileSystemID)
 	}
 
-	policy, ok := b.fileSystemPolicies[fileSystemID]
+	policy, ok := b.fsPolicyStore(region)[fileSystemID]
 	if !ok {
 		return "", fmt.Errorf("%w: no policy found for file system %s", ErrPolicyNotFound, fileSystemID)
 	}
@@ -1216,15 +1403,17 @@ func (b *InMemoryBackend) DescribeFileSystemPolicy(fileSystemID string) (string,
 }
 
 // DeleteFileSystemPolicy removes the resource-based policy from a file system.
-func (b *InMemoryBackend) DeleteFileSystemPolicy(fileSystemID string) error {
+func (b *InMemoryBackend) DeleteFileSystemPolicy(ctx context.Context, fileSystemID string) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("DeleteFileSystemPolicy")
 	defer b.mu.Unlock()
 
-	if _, ok := b.fileSystems[fileSystemID]; !ok {
+	if _, ok := b.fsStore(region)[fileSystemID]; !ok {
 		return fmt.Errorf("%w: file system %s not found", ErrNotFound, fileSystemID)
 	}
 
-	delete(b.fileSystemPolicies, fileSystemID)
+	delete(b.fsPolicyStore(region), fileSystemID)
 
 	return nil
 }
@@ -1238,15 +1427,17 @@ func (b *InMemoryBackend) DescribeAccountPreferences() AccountPreferences {
 }
 
 // DescribeBackupPolicy returns the backup policy for a file system.
-func (b *InMemoryBackend) DescribeBackupPolicy(fileSystemID string) (string, error) {
+func (b *InMemoryBackend) DescribeBackupPolicy(ctx context.Context, fileSystemID string) (string, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("DescribeBackupPolicy")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.fileSystems[fileSystemID]; !ok {
+	if _, ok := b.fsStore(region)[fileSystemID]; !ok {
 		return "", fmt.Errorf("%w: file system %s not found", ErrNotFound, fileSystemID)
 	}
 
-	status, ok := b.backupPolicies[fileSystemID]
+	status, ok := b.backupStore(region)[fileSystemID]
 	if !ok {
 		return backupStatusDisabled, nil
 	}
@@ -1256,12 +1447,15 @@ func (b *InMemoryBackend) DescribeBackupPolicy(fileSystemID string) (string, err
 
 // DescribeMountTargetSecurityGroups returns the security groups for a mount target.
 func (b *InMemoryBackend) DescribeMountTargetSecurityGroups(
+	ctx context.Context,
 	mountTargetID string,
 ) ([]string, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("DescribeMountTargetSecurityGroups")
 	defer b.mu.RUnlock()
 
-	mt, ok := b.mountTargets[mountTargetID]
+	mt, ok := b.mtStore(region)[mountTargetID]
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: mount target %s not found",
@@ -1282,7 +1476,7 @@ func (b *InMemoryBackend) DescribeMountTargetSecurityGroups(
 
 // PutBackupPolicy sets the backup policy status for a file system.
 // Valid values: ENABLED, ENABLING, DISABLED, DISABLING.
-func (b *InMemoryBackend) PutBackupPolicy(fileSystemID, status string) error {
+func (b *InMemoryBackend) PutBackupPolicy(ctx context.Context, fileSystemID, status string) error {
 	switch status {
 	case backupStatusEnabled, backupStatusEnabling, backupStatusDisabled, "DISABLING":
 		// valid
@@ -1294,21 +1488,23 @@ func (b *InMemoryBackend) PutBackupPolicy(fileSystemID, status string) error {
 		)
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("PutBackupPolicy")
 	defer b.mu.Unlock()
 
-	if _, ok := b.fileSystems[fileSystemID]; !ok {
+	if _, ok := b.fsStore(region)[fileSystemID]; !ok {
 		return fmt.Errorf("%w: file system %s not found", ErrNotFound, fileSystemID)
 	}
 
-	b.backupPolicies[fileSystemID] = status
+	b.backupStore(region)[fileSystemID] = status
 
 	return nil
 }
 
 // PutFileSystemPolicy sets the resource-based policy for a file system.
 // The policy must be valid JSON and no larger than 20 KB.
-func (b *InMemoryBackend) PutFileSystemPolicy(fileSystemID, policy string) error {
+func (b *InMemoryBackend) PutFileSystemPolicy(ctx context.Context, fileSystemID, policy string) error {
 	if !json.Valid([]byte(policy)) {
 		return fmt.Errorf("%w: FileSystemPolicy is not valid JSON", ErrValidation)
 	}
@@ -1321,14 +1517,16 @@ func (b *InMemoryBackend) PutFileSystemPolicy(fileSystemID, policy string) error
 		)
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("PutFileSystemPolicy")
 	defer b.mu.Unlock()
 
-	if _, ok := b.fileSystems[fileSystemID]; !ok {
+	if _, ok := b.fsStore(region)[fileSystemID]; !ok {
 		return fmt.Errorf("%w: file system %s not found", ErrNotFound, fileSystemID)
 	}
 
-	b.fileSystemPolicies[fileSystemID] = policy
+	b.fsPolicyStore(region)[fileSystemID] = policy
 
 	return nil
 }
@@ -1377,13 +1575,16 @@ func (b *InMemoryBackend) applyThroughputModeChange(
 // UpdateFileSystem updates throughput settings for a file system.
 // Enforces a 24-hour cooldown between throughput mode changes.
 func (b *InMemoryBackend) UpdateFileSystem(
+	ctx context.Context,
 	fileSystemID string,
 	req UpdateFileSystemRequest,
 ) (*FileSystem, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("UpdateFileSystem")
 	defer b.mu.Unlock()
 
-	fs, ok := b.fileSystems[fileSystemID]
+	fs, ok := b.fsStore(region)[fileSystemID]
 	if !ok {
 		return nil, fmt.Errorf("%w: file system %s not found", ErrNotFound, fileSystemID)
 	}
@@ -1419,6 +1620,7 @@ func (b *InMemoryBackend) UpdateFileSystem(
 // ModifyMountTargetSecurityGroups replaces the security groups for a mount target.
 // Enforces a maximum of 5 security groups.
 func (b *InMemoryBackend) ModifyMountTargetSecurityGroups(
+	ctx context.Context,
 	mountTargetID string,
 	securityGroups []string,
 ) error {
@@ -1431,10 +1633,12 @@ func (b *InMemoryBackend) ModifyMountTargetSecurityGroups(
 		)
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("ModifyMountTargetSecurityGroups")
 	defer b.mu.Unlock()
 
-	mt, ok := b.mountTargets[mountTargetID]
+	mt, ok := b.mtStore(region)[mountTargetID]
 	if !ok {
 		return fmt.Errorf("%w: mount target %s not found", ErrMountTargetNotFound, mountTargetID)
 	}
@@ -1466,6 +1670,7 @@ func (b *InMemoryBackend) PutAccountPreferences(resourceIDType string) (AccountP
 
 // UpdateFileSystemProtection sets the replication overwrite protection for a file system.
 func (b *InMemoryBackend) UpdateFileSystemProtection(
+	ctx context.Context,
 	fileSystemID, replicationOverwriteProtection string,
 ) error {
 	switch replicationOverwriteProtection {
@@ -1479,10 +1684,12 @@ func (b *InMemoryBackend) UpdateFileSystemProtection(
 		)
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("UpdateFileSystemProtection")
 	defer b.mu.Unlock()
 
-	fs, ok := b.fileSystems[fileSystemID]
+	fs, ok := b.fsStore(region)[fileSystemID]
 	if !ok {
 		return fmt.Errorf("%w: file system %s not found", ErrNotFound, fileSystemID)
 	}
@@ -1525,13 +1732,31 @@ func paginate[T any](
 	return page, next, nil
 }
 
+// regionFromARN extracts the region component (index 3) from an AWS ARN
+// (arn:partition:service:region:account:resource), falling back to defaultRegion.
+func regionFromARN(resourceARN, defaultRegion string) string {
+	parts := strings.Split(resourceARN, ":")
+	const regionIndex = 3
+	if len(parts) > regionIndex && parts[regionIndex] != "" {
+		return parts[regionIndex]
+	}
+
+	return defaultRegion
+}
+
 // AddFileSystemInternal inserts a pre-built FileSystem directly into the backend (test seed helper).
 func (b *InMemoryBackend) AddFileSystemInternal(fs *FileSystem) {
 	b.mu.Lock("AddFileSystemInternal")
 	defer b.mu.Unlock()
 
-	b.fileSystems[fs.FileSystemID] = fs
-	b.fileSystemsByARN[fs.FileSystemArn] = fs
+	region := fs.Region
+	if region == "" {
+		region = regionFromARN(fs.FileSystemArn, b.region)
+		fs.Region = region
+	}
+
+	b.fsStore(region)[fs.FileSystemID] = fs
+	b.fsARNStore(region)[fs.FileSystemArn] = fs
 }
 
 // AddMountTargetInternal inserts a pre-built MountTarget directly into the backend (test seed helper).
@@ -1539,8 +1764,9 @@ func (b *InMemoryBackend) AddMountTargetInternal(mt *MountTarget) {
 	b.mu.Lock("AddMountTargetInternal")
 	defer b.mu.Unlock()
 
-	b.mountTargets[mt.MountTargetID] = mt
-	b.mountTargetsByARN[mt.MountTargetArn] = mt
+	region := regionFromARN(mt.MountTargetArn, b.region)
+	b.mtStore(region)[mt.MountTargetID] = mt
+	b.mtARNStore(region)[mt.MountTargetArn] = mt
 }
 
 // AddAccessPointInternal inserts a pre-built AccessPoint directly into the backend (test seed helper).
@@ -1548,6 +1774,7 @@ func (b *InMemoryBackend) AddAccessPointInternal(ap *AccessPoint) {
 	b.mu.Lock("AddAccessPointInternal")
 	defer b.mu.Unlock()
 
-	b.accessPoints[ap.AccessPointID] = ap
-	b.accessPointsByARN[ap.AccessPointArn] = ap
+	region := regionFromARN(ap.AccessPointArn, b.region)
+	b.apStore(region)[ap.AccessPointID] = ap
+	b.apARNStore(region)[ap.AccessPointArn] = ap
 }

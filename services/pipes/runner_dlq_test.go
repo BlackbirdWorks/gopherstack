@@ -128,7 +128,7 @@ func TestRunner_EnrichmentFailure_RoutesToDLQ(t *testing.T) {
 			t.Parallel()
 
 			b := dlqBackend()
-			_, err := b.CreatePipe(pipes.CreatePipeInput{
+			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 				Name:             tt.name,
 				RoleARN:          "arn:aws:iam::111122223333:role/r",
 				Source:           dlqSource,
@@ -174,7 +174,7 @@ func TestRunner_EnrichmentFailure_SNSDLQ(t *testing.T) {
 	t.Parallel()
 
 	b := dlqBackend()
-	_, err := b.CreatePipe(pipes.CreatePipeInput{
+	_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 		Name:             "sns-dlq",
 		RoleARN:          "arn:aws:iam::111122223333:role/r",
 		Source:           dlqSource,
@@ -207,7 +207,7 @@ func TestRunner_TargetFailure_RoutesToDLQ(t *testing.T) {
 	t.Parallel()
 
 	b := dlqBackend()
-	_, err := b.CreatePipe(pipes.CreatePipeInput{
+	_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 		Name:             "target-dlq",
 		RoleARN:          "arn:aws:iam::111122223333:role/r",
 		Source:           dlqSource,

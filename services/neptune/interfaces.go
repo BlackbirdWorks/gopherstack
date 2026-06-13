@@ -1,94 +1,126 @@
 package neptune
 
+import "context"
+
 // StorageBackend defines the interface for Neptune backend implementations.
 // All mutating methods must be safe for concurrent use.
+//
+// Regional operations take a context.Context from which the target AWS region is
+// resolved (see getRegion); same-named resources are isolated per region. Global
+// cluster operations are partition-scoped and ignore the region.
 type StorageBackend interface {
 	// Cluster operations
-	CreateDBCluster(id, paramGroupName string, port int, opts DBClusterCreateOptions) (*DBCluster, error)
-	DescribeDBClusters(id string) ([]DBCluster, error)
-	DeleteDBCluster(id string) (*DBCluster, error)
-	ModifyDBCluster(id, paramGroupName string, opts DBClusterModifyOptions) (*DBCluster, error)
-	StopDBCluster(id string) (*DBCluster, error)
-	StartDBCluster(id string) (*DBCluster, error)
-	FailoverDBCluster(id string) (*DBCluster, error)
+	CreateDBCluster(
+		ctx context.Context,
+		id, paramGroupName string,
+		port int,
+		opts DBClusterCreateOptions,
+	) (*DBCluster, error)
+	DescribeDBClusters(ctx context.Context, id string) ([]DBCluster, error)
+	DeleteDBCluster(ctx context.Context, id string) (*DBCluster, error)
+	ModifyDBCluster(ctx context.Context, id, paramGroupName string, opts DBClusterModifyOptions) (*DBCluster, error)
+	StopDBCluster(ctx context.Context, id string) (*DBCluster, error)
+	StartDBCluster(ctx context.Context, id string) (*DBCluster, error)
+	FailoverDBCluster(ctx context.Context, id string) (*DBCluster, error)
 
 	// Instance operations
-	CreateDBInstance(id, clusterID, instanceClass string, opts DBInstanceCreateOptions) (*DBInstance, error)
-	DescribeDBInstances(id string) ([]DBInstance, error)
-	DeleteDBInstance(id string) (*DBInstance, error)
-	ModifyDBInstance(id, instanceClass string, opts DBInstanceModifyOptions) (*DBInstance, error)
-	RebootDBInstance(id string) (*DBInstance, error)
+	CreateDBInstance(
+		ctx context.Context,
+		id, clusterID, instanceClass string,
+		opts DBInstanceCreateOptions,
+	) (*DBInstance, error)
+	DescribeDBInstances(ctx context.Context, id string) ([]DBInstance, error)
+	DeleteDBInstance(ctx context.Context, id string) (*DBInstance, error)
+	ModifyDBInstance(ctx context.Context, id, instanceClass string, opts DBInstanceModifyOptions) (*DBInstance, error)
+	RebootDBInstance(ctx context.Context, id string) (*DBInstance, error)
 
 	// Subnet group operations
-	CreateDBSubnetGroup(name, description, vpcID string, subnetIDs []string) (*DBSubnetGroup, error)
-	DescribeDBSubnetGroups(name string) ([]DBSubnetGroup, error)
-	DeleteDBSubnetGroup(name string) error
+	CreateDBSubnetGroup(
+		ctx context.Context,
+		name, description, vpcID string,
+		subnetIDs []string,
+	) (*DBSubnetGroup, error)
+	DescribeDBSubnetGroups(ctx context.Context, name string) ([]DBSubnetGroup, error)
+	DeleteDBSubnetGroup(ctx context.Context, name string) error
 
 	// Cluster parameter group operations
-	CreateDBClusterParameterGroup(name, family, description string) (*DBClusterParameterGroup, error)
-	DescribeDBClusterParameterGroups(name string) ([]DBClusterParameterGroup, error)
-	DeleteDBClusterParameterGroup(name string) error
-	ModifyDBClusterParameterGroup(name string) (*DBClusterParameterGroup, error)
+	CreateDBClusterParameterGroup(
+		ctx context.Context,
+		name, family, description string,
+	) (*DBClusterParameterGroup, error)
+	DescribeDBClusterParameterGroups(ctx context.Context, name string) ([]DBClusterParameterGroup, error)
+	DeleteDBClusterParameterGroup(ctx context.Context, name string) error
+	ModifyDBClusterParameterGroup(ctx context.Context, name string) (*DBClusterParameterGroup, error)
 
 	// Cluster snapshot operations
-	CreateDBClusterSnapshot(snapshotID, clusterID string) (*DBClusterSnapshot, error)
-	DescribeDBClusterSnapshots(snapshotID, clusterID string) ([]DBClusterSnapshot, error)
-	DeleteDBClusterSnapshot(snapshotID string) (*DBClusterSnapshot, error)
+	CreateDBClusterSnapshot(ctx context.Context, snapshotID, clusterID string) (*DBClusterSnapshot, error)
+	DescribeDBClusterSnapshots(ctx context.Context, snapshotID, clusterID string) ([]DBClusterSnapshot, error)
+	DeleteDBClusterSnapshot(ctx context.Context, snapshotID string) (*DBClusterSnapshot, error)
 
 	// Tag operations
-	AddTagsToResource(arn string, tags []Tag) error
-	RemoveTagsFromResource(arn string, keys []string) error
-	ListTagsForResource(arn string) ([]Tag, error)
+	AddTagsToResource(ctx context.Context, arn string, tags []Tag) error
+	RemoveTagsFromResource(ctx context.Context, arn string, keys []string) error
+	ListTagsForResource(ctx context.Context, arn string) ([]Tag, error)
 
 	// New operations (Issue #902)
-	AddRoleToDBCluster(clusterID, roleARN string) error
-	AddSourceIdentifierToSubscription(name, sourceID string) (*EventSubscription, error)
-	ApplyPendingMaintenanceAction(resourceID, applyAction, optInType string) error
-	CopyDBClusterParameterGroup(sourceName, targetName, targetDescription string) (*DBClusterParameterGroup, error)
-	CopyDBClusterSnapshot(sourceSnapshotID, targetSnapshotID string) (*DBClusterSnapshot, error)
-	CopyDBParameterGroup(sourceName, targetName, targetDescription string) (*DBParameterGroup, error)
-	CreateDBClusterEndpoint(endpointID, clusterID, endpointType string) (*DBClusterEndpoint, error)
-	CreateDBParameterGroup(name, family, description string) (*DBParameterGroup, error)
-	CreateEventSubscription(name, snsTopicARN string, sourceIDs []string) (*EventSubscription, error)
-	CreateGlobalCluster(globalClusterID, sourceDBClusterID string) (*GlobalCluster, error)
-	DescribeGlobalClusters() []GlobalCluster
+	AddRoleToDBCluster(ctx context.Context, clusterID, roleARN string) error
+	AddSourceIdentifierToSubscription(ctx context.Context, name, sourceID string) (*EventSubscription, error)
+	ApplyPendingMaintenanceAction(ctx context.Context, resourceID, applyAction, optInType string) error
+	CopyDBClusterParameterGroup(
+		ctx context.Context,
+		sourceName, targetName, targetDescription string,
+	) (*DBClusterParameterGroup, error)
+	CopyDBClusterSnapshot(ctx context.Context, sourceSnapshotID, targetSnapshotID string) (*DBClusterSnapshot, error)
+	CopyDBParameterGroup(
+		ctx context.Context,
+		sourceName, targetName, targetDescription string,
+	) (*DBParameterGroup, error)
+	CreateDBClusterEndpoint(ctx context.Context, endpointID, clusterID, endpointType string) (*DBClusterEndpoint, error)
+	CreateDBParameterGroup(ctx context.Context, name, family, description string) (*DBParameterGroup, error)
+	CreateEventSubscription(
+		ctx context.Context,
+		name, snsTopicARN string,
+		sourceIDs []string,
+	) (*EventSubscription, error)
+	CreateGlobalCluster(ctx context.Context, globalClusterID, sourceDBClusterID string) (*GlobalCluster, error)
+	DescribeGlobalClusters(ctx context.Context) []GlobalCluster
 
 	// Cluster endpoint operations
-	DeleteDBClusterEndpoint(endpointID string) error
-	DescribeDBClusterEndpoints(endpointID, clusterID string) ([]DBClusterEndpoint, error)
-	ModifyDBClusterEndpoint(endpointID, endpointType string) (*DBClusterEndpoint, error)
+	DeleteDBClusterEndpoint(ctx context.Context, endpointID string) error
+	DescribeDBClusterEndpoints(ctx context.Context, endpointID, clusterID string) ([]DBClusterEndpoint, error)
+	ModifyDBClusterEndpoint(ctx context.Context, endpointID, endpointType string) (*DBClusterEndpoint, error)
 
 	// DB parameter group operations
-	DeleteDBParameterGroup(name string) error
-	DescribeDBParameterGroups(name string) ([]DBParameterGroup, error)
-	ModifyDBParameterGroup(name string) (*DBParameterGroup, error)
-	ResetDBParameterGroup(name string) (*DBParameterGroup, error)
+	DeleteDBParameterGroup(ctx context.Context, name string) error
+	DescribeDBParameterGroups(ctx context.Context, name string) ([]DBParameterGroup, error)
+	ModifyDBParameterGroup(ctx context.Context, name string) (*DBParameterGroup, error)
+	ResetDBParameterGroup(ctx context.Context, name string) (*DBParameterGroup, error)
 
 	// Cluster parameter group extended operations
-	ResetDBClusterParameterGroup(name string) (*DBClusterParameterGroup, error)
+	ResetDBClusterParameterGroup(ctx context.Context, name string) (*DBClusterParameterGroup, error)
 
 	// Event subscription extended operations
-	DeleteEventSubscription(name string) (*EventSubscription, error)
-	DescribeEventSubscriptions(name string) ([]EventSubscription, error)
-	ModifyEventSubscription(name, snsTopicARN string) (*EventSubscription, error)
-	RemoveSourceIdentifierFromSubscription(name, sourceID string) (*EventSubscription, error)
+	DeleteEventSubscription(ctx context.Context, name string) (*EventSubscription, error)
+	DescribeEventSubscriptions(ctx context.Context, name string) ([]EventSubscription, error)
+	ModifyEventSubscription(ctx context.Context, name, snsTopicARN string) (*EventSubscription, error)
+	RemoveSourceIdentifierFromSubscription(ctx context.Context, name, sourceID string) (*EventSubscription, error)
 
 	// Global cluster extended operations
-	DeleteGlobalCluster(globalClusterID string) (*GlobalCluster, error)
-	FailoverGlobalCluster(globalClusterID, targetDBClusterID string) (*GlobalCluster, error)
-	ModifyGlobalCluster(globalClusterID string) (*GlobalCluster, error)
-	RemoveFromGlobalCluster(globalClusterID, dbClusterID string) (*GlobalCluster, error)
-	SwitchoverGlobalCluster(globalClusterID, targetDBClusterID string) (*GlobalCluster, error)
+	DeleteGlobalCluster(ctx context.Context, globalClusterID string) (*GlobalCluster, error)
+	FailoverGlobalCluster(ctx context.Context, globalClusterID, targetDBClusterID string) (*GlobalCluster, error)
+	ModifyGlobalCluster(ctx context.Context, globalClusterID string) (*GlobalCluster, error)
+	RemoveFromGlobalCluster(ctx context.Context, globalClusterID, dbClusterID string) (*GlobalCluster, error)
+	SwitchoverGlobalCluster(ctx context.Context, globalClusterID, targetDBClusterID string) (*GlobalCluster, error)
 
 	// Role operations
-	RemoveRoleFromDBCluster(clusterID, roleARN string) error
+	RemoveRoleFromDBCluster(ctx context.Context, clusterID, roleARN string) error
 
 	// Restore operations
-	RestoreDBClusterFromSnapshot(snapshotID, clusterID string) (*DBCluster, error)
-	RestoreDBClusterToPointInTime(srcClusterID, targetClusterID string) (*DBCluster, error)
+	RestoreDBClusterFromSnapshot(ctx context.Context, snapshotID, clusterID string) (*DBCluster, error)
+	RestoreDBClusterToPointInTime(ctx context.Context, srcClusterID, targetClusterID string) (*DBCluster, error)
 
 	// Subnet group extended operations
-	ModifyDBSubnetGroup(name, description string) (*DBSubnetGroup, error)
+	ModifyDBSubnetGroup(ctx context.Context, name, description string) (*DBSubnetGroup, error)
 
 	// Lifecycle
 	Reset()

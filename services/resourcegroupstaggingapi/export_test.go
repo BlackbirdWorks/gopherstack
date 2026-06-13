@@ -16,12 +16,12 @@ func FilteredProviderCount(b *InMemoryBackend) int {
 	return len(b.filteredProviders)
 }
 
-// HasCache returns whether the backend has a non-expired resource cache.
+// HasCache returns whether the backend has a non-expired resource cache for its default region.
 func HasCache(b *InMemoryBackend) bool {
 	b.mu.RLock("HasCache")
 	defer b.mu.RUnlock()
 
-	return b.cache != nil
+	return b.caches[b.defaultRegion] != nil
 }
 
 // TaggerCount returns the number of registered ARN taggers.
@@ -40,36 +40,38 @@ func UntaggerCount(b *InMemoryBackend) int {
 	return len(b.untaggers)
 }
 
-// HasReportState returns whether the backend has a stored report creation state.
+// HasReportState returns whether the backend has a stored report creation state for its default region.
 func HasReportState(b *InMemoryBackend) bool {
 	b.mu.RLock("HasReportState")
 	defer b.mu.RUnlock()
 
-	return b.reportState != nil
+	return b.reportStates[b.defaultRegion] != nil
 }
 
-// ReportStatus returns the status string from the stored report state, or empty string.
+// ReportStatus returns the status string from the stored report state for the default region, or empty string.
 func ReportStatus(b *InMemoryBackend) string {
 	b.mu.RLock("ReportStatus")
 	defer b.mu.RUnlock()
 
-	if b.reportState == nil {
+	state := b.reportStates[b.defaultRegion]
+	if state == nil {
 		return ""
 	}
 
-	return b.reportState.Status
+	return state.Status
 }
 
-// ReportS3Location returns the S3 location from the stored report state, or empty string.
+// ReportS3Location returns the S3 location from the stored report state for the default region, or empty string.
 func ReportS3Location(b *InMemoryBackend) string {
 	b.mu.RLock("ReportS3Location")
 	defer b.mu.RUnlock()
 
-	if b.reportState == nil {
+	state := b.reportStates[b.defaultRegion]
+	if state == nil {
 		return ""
 	}
 
-	return b.reportState.S3Location
+	return state.S3Location
 }
 
 // SetNowFunc replaces the backend's time provider with fn for deterministic testing.
@@ -82,12 +84,12 @@ func HandlerOpsLen(h *Handler) int {
 	return len(h.GetSupportedOperations())
 }
 
-// AddReportStateInternal seeds the backend with a specific report state for testing.
+// AddReportStateInternal seeds the backend with a specific report state for the default region.
 func AddReportStateInternal(b *InMemoryBackend, status, s3Location, startDate string) {
 	b.mu.Lock("AddReportStateInternal")
 	defer b.mu.Unlock()
 
-	b.reportState = &reportCreationState{
+	b.reportStates[b.defaultRegion] = &reportCreationState{
 		Status:     status,
 		S3Location: s3Location,
 		StartDate:  startDate,

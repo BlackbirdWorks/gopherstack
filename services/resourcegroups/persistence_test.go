@@ -1,6 +1,7 @@
 package resourcegroups_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -23,7 +24,7 @@ func TestResourceGroups_PersistenceSnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *resourcegroups.InMemoryBackend) {
 				t.Helper()
 
-				groups := b.ListGroups(nil)
+				groups := b.ListGroups(context.Background(), nil)
 				assert.Empty(t, groups)
 			},
 		},
@@ -32,7 +33,7 @@ func TestResourceGroups_PersistenceSnapshotRestore(t *testing.T) {
 			setup: func(t *testing.T, b *resourcegroups.InMemoryBackend) {
 				t.Helper()
 
-				_, err := b.CreateGroup(
+				_, err := b.CreateGroup(context.Background(),
 					"my-group",
 					"test description",
 					&resourcegroups.ResourceQuery{Type: "TAG_FILTERS_1_0", Query: "{}"},
@@ -44,13 +45,13 @@ func TestResourceGroups_PersistenceSnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *resourcegroups.InMemoryBackend) {
 				t.Helper()
 
-				groups := b.ListGroups(nil)
+				groups := b.ListGroups(context.Background(), nil)
 				require.Len(t, groups, 1)
 				assert.Equal(t, "my-group", groups[0].Name)
 				assert.Equal(t, "test description", groups[0].Description)
 
 				// Name-based lookup.
-				g, err := b.GetGroup("my-group")
+				g, err := b.GetGroup(context.Background(), "my-group")
 				require.NoError(t, err)
 				assert.Equal(t, "my-group", g.Name)
 			},
@@ -60,17 +61,17 @@ func TestResourceGroups_PersistenceSnapshotRestore(t *testing.T) {
 			setup: func(t *testing.T, b *resourcegroups.InMemoryBackend) {
 				t.Helper()
 
-				_, err := b.CreateGroup("indexed-group", "desc", nil, nil, nil)
+				_, err := b.CreateGroup(context.Background(), "indexed-group", "desc", nil, nil, nil)
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *resourcegroups.InMemoryBackend) {
 				t.Helper()
 
-				groups := b.ListGroups(nil)
+				groups := b.ListGroups(context.Background(), nil)
 				require.Len(t, groups, 1)
 
 				// ARN-based tag lookup validates ARN index was rebuilt.
-				tagMap, err := b.GetTagsByARN(groups[0].ARN)
+				tagMap, err := b.GetTagsByARN(context.Background(), groups[0].ARN)
 				require.NoError(t, err)
 				assert.NotNil(t, tagMap)
 			},
@@ -80,19 +81,19 @@ func TestResourceGroups_PersistenceSnapshotRestore(t *testing.T) {
 			setup: func(t *testing.T, b *resourcegroups.InMemoryBackend) {
 				t.Helper()
 
-				g, err := b.CreateGroup("tagged-group", "", nil, nil, nil)
+				g, err := b.CreateGroup(context.Background(), "tagged-group", "", nil, nil, nil)
 				require.NoError(t, err)
 
-				_, err = b.AddTagsByARN(g.ARN, map[string]string{"owner": "alice"})
+				_, err = b.AddTagsByARN(context.Background(), g.ARN, map[string]string{"owner": "alice"})
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *resourcegroups.InMemoryBackend) {
 				t.Helper()
 
-				groups := b.ListGroups(nil)
+				groups := b.ListGroups(context.Background(), nil)
 				require.Len(t, groups, 1)
 
-				tagMap, err := b.GetTagsByARN(groups[0].ARN)
+				tagMap, err := b.GetTagsByARN(context.Background(), groups[0].ARN)
 				require.NoError(t, err)
 				assert.Equal(t, "alice", tagMap["owner"])
 			},

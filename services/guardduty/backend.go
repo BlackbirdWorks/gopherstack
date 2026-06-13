@@ -78,45 +78,45 @@ type AdditionalConfig struct {
 }
 
 // Filter represents a GuardDuty filter.
-type Filter struct { //nolint:govet // fieldalignment: map fields after scalars trades padding for readability
+type Filter struct {
 	CreatedAt       time.Time         `json:"createdAt"`
 	UpdatedAt       time.Time         `json:"updatedAt"`
+	FindingCriteria map[string]any    `json:"findingCriteria,omitempty"`
+	Tags            map[string]string `json:"tags,omitempty"`
 	Name            string            `json:"name"`
 	Description     string            `json:"description,omitempty"`
 	Action          string            `json:"action"`
-	Rank            int32             `json:"rank"`
-	FindingCriteria map[string]any    `json:"findingCriteria,omitempty"`
-	Tags            map[string]string `json:"tags,omitempty"`
 	DetectorID      string            `json:"-"`
+	Rank            int32             `json:"rank"`
 }
 
 // Finding represents a GuardDuty finding.
-type Finding struct { //nolint:govet // fieldalignment: float64 before strings trades padding for readability
+type Finding struct {
 	AccountID     string          `json:"accountId"`
-	Arn           string          `json:"arn"`
+	SchemaVersion string          `json:"schemaVersion"`
 	CreatedAt     string          `json:"createdAt"`
 	Description   string          `json:"description"`
 	DetectorID    string          `json:"detectorId"`
 	ID            string          `json:"id"`
-	Region        string          `json:"region"`
-	Severity      float64         `json:"severity"`
-	Title         string          `json:"title"`
 	Type          string          `json:"type"`
+	Title         string          `json:"title"`
+	Region        string          `json:"region"`
 	UpdatedAt     string          `json:"updatedAt"`
-	Service       FindingService  `json:"service"`
+	Arn           string          `json:"arn"`
 	Resource      FindingResource `json:"resource"`
-	SchemaVersion string          `json:"schemaVersion"`
+	Service       FindingService  `json:"service"`
+	Severity      float64         `json:"severity"`
 }
 
 // FindingService holds service-level metadata for a finding.
-type FindingService struct { //nolint:govet // fieldalignment: bool+int32 before strings trades padding for readability
-	Archived       bool   `json:"archived"`
-	Count          int32  `json:"count"`
+type FindingService struct {
 	DetectorID     string `json:"detectorId"`
 	EventFirstSeen string `json:"eventFirstSeen"`
 	EventLastSeen  string `json:"eventLastSeen"`
 	ResourceRole   string `json:"resourceRole"`
 	ServiceName    string `json:"serviceName"`
+	Count          int32  `json:"count"`
+	Archived       bool   `json:"archived"`
 }
 
 // FindingResource describes the AWS resource involved in a finding.

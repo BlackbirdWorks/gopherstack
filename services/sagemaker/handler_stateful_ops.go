@@ -96,7 +96,7 @@ func (h *Handler) dispatchDomainOps(
 
 		return r, true, err
 	case opListDomains:
-		r, err := h.handleListDomains(body)
+		r, err := h.handleListDomains(ctx, body)
 
 		return r, true, err
 	case opDeleteDomain:
@@ -114,7 +114,7 @@ func (h *Handler) dispatchDomainOps(
 
 		return r, true, err
 	case opListUserProfiles:
-		r, err := h.handleListUserProfiles(body)
+		r, err := h.handleListUserProfiles(ctx, body)
 
 		return r, true, err
 	case opDeleteUserProfile:
@@ -128,7 +128,7 @@ func (h *Handler) dispatchDomainOps(
 
 		return r, true, err
 	case opListApps:
-		r, err := h.handleListApps(body)
+		r, err := h.handleListApps(ctx, body)
 
 		return r, true, err
 	case opDeleteApp:
@@ -153,7 +153,7 @@ func (h *Handler) dispatchFeatureGroupAndPipelineOps(
 
 		return r, true, err
 	case opListFeatureGroups:
-		r, err := h.handleListFeatureGroups(body)
+		r, err := h.handleListFeatureGroups(ctx, body)
 
 		return r, true, err
 	case opDeleteFeatureGroup:
@@ -171,7 +171,7 @@ func (h *Handler) dispatchFeatureGroupAndPipelineOps(
 
 		return r, true, err
 	case opListPipelines:
-		r, err := h.handleListPipelines(body)
+		r, err := h.handleListPipelines(ctx, body)
 
 		return r, true, err
 	case opUpdatePipeline:
@@ -191,7 +191,7 @@ func (h *Handler) dispatchFeatureGroupAndPipelineOps(
 
 		return r, true, err
 	case opListPipelineExecutions:
-		r, err := h.handleListPipelineExecutions(body)
+		r, err := h.handleListPipelineExecutions(ctx, body)
 
 		return r, true, err
 	case opListPipelineParametersForExec:
@@ -218,7 +218,7 @@ func (h *Handler) dispatchExperimentAndTrialOps(
 
 		return r, true, err
 	case opListExperiments:
-		r, err := h.handleListExperiments(body)
+		r, err := h.handleListExperiments(ctx, body)
 
 		return r, true, err
 	case opDeleteExperiment:
@@ -234,7 +234,7 @@ func (h *Handler) dispatchExperimentAndTrialOps(
 
 		return r, true, err
 	case opListTrials:
-		r, err := h.handleListTrials(body)
+		r, err := h.handleListTrials(ctx, body)
 
 		return r, true, err
 	case opDeleteTrial:
@@ -289,7 +289,7 @@ func (h *Handler) handleCreateDomain(ctx context.Context, body []byte) ([]byte, 
 		return nil, fmt.Errorf("%w: DomainName is required", errInvalidRequest)
 	}
 
-	d, err := h.Backend.CreateDomain(req.DomainName, req.AuthMode, fromTagObjects(req.Tags))
+	d, err := h.Backend.CreateDomain(ctx, req.DomainName, req.AuthMode, fromTagObjects(req.Tags))
 	if err != nil {
 		return nil, err
 	}
@@ -302,7 +302,7 @@ func (h *Handler) handleCreateDomain(ctx context.Context, body []byte) ([]byte, 
 	)
 }
 
-func (h *Handler) handleDescribeDomain(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeDomain(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		DomainID string `json:"DomainId"`
 	}
@@ -315,7 +315,7 @@ func (h *Handler) handleDescribeDomain(_ context.Context, body []byte) ([]byte, 
 		return nil, fmt.Errorf("%w: DomainId is required", errInvalidRequest)
 	}
 
-	d, err := h.Backend.DescribeDomain(req.DomainID)
+	d, err := h.Backend.DescribeDomain(ctx, req.DomainID)
 	if err != nil {
 		return nil, err
 	}
@@ -340,7 +340,7 @@ type domainSummary struct {
 	CreationTime float64 `json:"CreationTime"`
 }
 
-func (h *Handler) handleListDomains(body []byte) ([]byte, error) {
+func (h *Handler) handleListDomains(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		NextToken string `json:"NextToken"`
 	}
@@ -349,7 +349,7 @@ func (h *Handler) handleListDomains(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	domains, nextToken := h.Backend.ListDomains(req.NextToken)
+	domains, nextToken := h.Backend.ListDomains(ctx, req.NextToken)
 	summaries := make([]domainSummary, 0, len(domains))
 
 	for _, d := range domains {
@@ -383,7 +383,7 @@ func (h *Handler) handleDeleteDomain(ctx context.Context, body []byte) error {
 		return fmt.Errorf("%w: DomainId is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.DeleteDomain(req.DomainID); err != nil {
+	if err := h.Backend.DeleteDomain(ctx, req.DomainID); err != nil {
 		return err
 	}
 
@@ -405,7 +405,7 @@ func (h *Handler) handleUpdateDomain(ctx context.Context, body []byte) ([]byte, 
 		return nil, fmt.Errorf("%w: DomainId is required", errInvalidRequest)
 	}
 
-	d, err := h.Backend.UpdateDomain(req.DomainID)
+	d, err := h.Backend.UpdateDomain(ctx, req.DomainID)
 	if err != nil {
 		return nil, err
 	}
@@ -439,6 +439,7 @@ func (h *Handler) handleCreateUserProfile(ctx context.Context, body []byte) ([]b
 	}
 
 	up, err := h.Backend.CreateUserProfile(
+		ctx,
 		req.DomainID,
 		req.UserProfileName,
 		fromTagObjects(req.Tags),
@@ -452,7 +453,7 @@ func (h *Handler) handleCreateUserProfile(ctx context.Context, body []byte) ([]b
 	return json.Marshal(map[string]string{keyUserProfileArn: up.UserProfileArn})
 }
 
-func (h *Handler) handleDescribeUserProfile(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeUserProfile(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		DomainID        string `json:"DomainId"`
 		UserProfileName string `json:"UserProfileName"`
@@ -470,7 +471,7 @@ func (h *Handler) handleDescribeUserProfile(_ context.Context, body []byte) ([]b
 		return nil, fmt.Errorf("%w: UserProfileName is required", errInvalidRequest)
 	}
 
-	up, err := h.Backend.DescribeUserProfile(req.DomainID, req.UserProfileName)
+	up, err := h.Backend.DescribeUserProfile(ctx, req.DomainID, req.UserProfileName)
 	if err != nil {
 		return nil, err
 	}
@@ -493,7 +494,7 @@ type userProfileSummary struct {
 	CreationTime    float64 `json:"CreationTime"`
 }
 
-func (h *Handler) handleListUserProfiles(body []byte) ([]byte, error) {
+func (h *Handler) handleListUserProfiles(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		DomainIDEquals string `json:"DomainIDEquals"`
 		NextToken      string `json:"NextToken"`
@@ -503,7 +504,7 @@ func (h *Handler) handleListUserProfiles(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	ups, nextToken := h.Backend.ListUserProfiles(req.DomainIDEquals, req.NextToken)
+	ups, nextToken := h.Backend.ListUserProfiles(ctx, req.DomainIDEquals, req.NextToken)
 	summaries := make([]userProfileSummary, 0, len(ups))
 
 	for _, up := range ups {
@@ -542,7 +543,7 @@ func (h *Handler) handleDeleteUserProfile(ctx context.Context, body []byte) erro
 		return fmt.Errorf("%w: UserProfileName is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.DeleteUserProfile(req.DomainID, req.UserProfileName); err != nil {
+	if err := h.Backend.DeleteUserProfile(ctx, req.DomainID, req.UserProfileName); err != nil {
 		return err
 	}
 
@@ -582,6 +583,7 @@ func (h *Handler) handleCreateApp(ctx context.Context, body []byte) ([]byte, err
 	}
 
 	a, err := h.Backend.CreateApp(
+		ctx,
 		req.DomainID,
 		req.UserProfileName,
 		req.AppType,
@@ -597,7 +599,7 @@ func (h *Handler) handleCreateApp(ctx context.Context, body []byte) ([]byte, err
 	return json.Marshal(map[string]string{keyAppArn: a.AppArn})
 }
 
-func (h *Handler) handleDescribeApp(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeApp(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		DomainID        string `json:"DomainId"`
 		UserProfileName string `json:"UserProfileName"`
@@ -621,7 +623,7 @@ func (h *Handler) handleDescribeApp(_ context.Context, body []byte) ([]byte, err
 		return nil, fmt.Errorf("%w: AppName is required", errInvalidRequest)
 	}
 
-	a, err := h.Backend.DescribeApp(req.DomainID, req.UserProfileName, req.AppType, req.AppName)
+	a, err := h.Backend.DescribeApp(ctx, req.DomainID, req.UserProfileName, req.AppType, req.AppName)
 	if err != nil {
 		return nil, err
 	}
@@ -647,7 +649,7 @@ type appSummary struct {
 	CreationTime    float64 `json:"CreationTime"`
 }
 
-func (h *Handler) handleListApps(body []byte) ([]byte, error) {
+func (h *Handler) handleListApps(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		DomainIDEquals string `json:"DomainIDEquals"`
 		NextToken      string `json:"NextToken"`
@@ -657,7 +659,7 @@ func (h *Handler) handleListApps(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	apps, nextToken := h.Backend.ListApps(req.DomainIDEquals, req.NextToken)
+	apps, nextToken := h.Backend.ListApps(ctx, req.DomainIDEquals, req.NextToken)
 	summaries := make([]appSummary, 0, len(apps))
 
 	for _, a := range apps {
@@ -704,7 +706,7 @@ func (h *Handler) handleDeleteApp(ctx context.Context, body []byte) error {
 		return fmt.Errorf("%w: AppName is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.DeleteApp(req.DomainID, req.UserProfileName, req.AppType, req.AppName); err != nil {
+	if err := h.Backend.DeleteApp(ctx, req.DomainID, req.UserProfileName, req.AppType, req.AppName); err != nil {
 		return err
 	}
 
@@ -735,6 +737,7 @@ func (h *Handler) handleCreateFeatureGroup(ctx context.Context, body []byte) ([]
 	}
 
 	fg, err := h.Backend.CreateFeatureGroup(
+		ctx,
 		req.FeatureGroupName,
 		req.RecordIdentifierFeatureName,
 		req.EventTimeFeatureName,
@@ -751,7 +754,7 @@ func (h *Handler) handleCreateFeatureGroup(ctx context.Context, body []byte) ([]
 	return json.Marshal(map[string]string{keyFeatureGroupArn: fg.FeatureGroupArn})
 }
 
-func (h *Handler) handleDescribeFeatureGroup(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeFeatureGroup(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		FeatureGroupName string `json:"FeatureGroupName"`
 	}
@@ -764,7 +767,7 @@ func (h *Handler) handleDescribeFeatureGroup(_ context.Context, body []byte) ([]
 		return nil, fmt.Errorf("%w: FeatureGroupName is required", errInvalidRequest)
 	}
 
-	fg, err := h.Backend.DescribeFeatureGroup(req.FeatureGroupName)
+	fg, err := h.Backend.DescribeFeatureGroup(ctx, req.FeatureGroupName)
 	if err != nil {
 		return nil, err
 	}
@@ -787,7 +790,7 @@ type featureGroupSummary struct {
 	CreationTime       float64 `json:"CreationTime"`
 }
 
-func (h *Handler) handleListFeatureGroups(body []byte) ([]byte, error) {
+func (h *Handler) handleListFeatureGroups(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		NextToken string `json:"NextToken"`
 	}
@@ -796,7 +799,7 @@ func (h *Handler) handleListFeatureGroups(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	fgs, nextToken := h.Backend.ListFeatureGroups(req.NextToken)
+	fgs, nextToken := h.Backend.ListFeatureGroups(ctx, req.NextToken)
 	summaries := make([]featureGroupSummary, 0, len(fgs))
 
 	for _, fg := range fgs {
@@ -829,7 +832,7 @@ func (h *Handler) handleDeleteFeatureGroup(ctx context.Context, body []byte) err
 		return fmt.Errorf("%w: FeatureGroupName is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.DeleteFeatureGroup(req.FeatureGroupName); err != nil {
+	if err := h.Backend.DeleteFeatureGroup(ctx, req.FeatureGroupName); err != nil {
 		return err
 	}
 
@@ -843,7 +846,7 @@ func (h *Handler) handleDeleteFeatureGroup(ctx context.Context, body []byte) err
 // Pipeline handlers
 // ---------------------------------------------------------------------------
 
-func (h *Handler) handleDescribePipeline(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleDescribePipeline(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		PipelineName string `json:"PipelineName"`
 	}
@@ -856,7 +859,7 @@ func (h *Handler) handleDescribePipeline(_ context.Context, body []byte) ([]byte
 		return nil, fmt.Errorf("%w: PipelineName is required", errInvalidRequest)
 	}
 
-	p, err := h.Backend.DescribePipeline(req.PipelineName)
+	p, err := h.Backend.DescribePipeline(ctx, req.PipelineName)
 	if err != nil {
 		return nil, err
 	}
@@ -891,7 +894,7 @@ type pipelineSummary struct {
 	LastModifiedTime float64 `json:"LastModifiedTime"`
 }
 
-func (h *Handler) handleListPipelines(body []byte) ([]byte, error) {
+func (h *Handler) handleListPipelines(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		NextToken string `json:"NextToken"`
 	}
@@ -900,7 +903,7 @@ func (h *Handler) handleListPipelines(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	ps, nextToken := h.Backend.ListPipelines(req.NextToken)
+	ps, nextToken := h.Backend.ListPipelines(ctx, req.NextToken)
 	summaries := make([]pipelineSummary, 0, len(ps))
 
 	for _, p := range ps {
@@ -934,7 +937,7 @@ func (h *Handler) handleDeletePipeline(ctx context.Context, body []byte) ([]byte
 		return nil, fmt.Errorf("%w: PipelineName is required", errInvalidRequest)
 	}
 
-	p, err := h.Backend.DeletePipeline(req.PipelineName)
+	p, err := h.Backend.DeletePipeline(ctx, req.PipelineName)
 	if err != nil {
 		return nil, err
 	}
@@ -944,7 +947,7 @@ func (h *Handler) handleDeletePipeline(ctx context.Context, body []byte) ([]byte
 	return json.Marshal(map[string]string{keyPipelineArn: p.PipelineArn})
 }
 
-func (h *Handler) handleDescribePipelineExecution(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleDescribePipelineExecution(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		PipelineExecutionArn string `json:"PipelineExecutionArn"`
 	}
@@ -957,7 +960,7 @@ func (h *Handler) handleDescribePipelineExecution(_ context.Context, body []byte
 		return nil, fmt.Errorf("%w: PipelineExecutionArn is required", errInvalidRequest)
 	}
 
-	pe, err := h.Backend.DescribePipelineExecution(req.PipelineExecutionArn)
+	pe, err := h.Backend.DescribePipelineExecution(ctx, req.PipelineExecutionArn)
 	if err != nil {
 		return nil, err
 	}
@@ -990,7 +993,7 @@ type pipelineExecutionSummary struct {
 	StartTime               float64 `json:"StartTime"`
 }
 
-func (h *Handler) handleListPipelineExecutions(body []byte) ([]byte, error) {
+func (h *Handler) handleListPipelineExecutions(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		PipelineName string `json:"PipelineName"`
 		NextToken    string `json:"NextToken"`
@@ -1004,7 +1007,7 @@ func (h *Handler) handleListPipelineExecutions(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: PipelineName is required", errInvalidRequest)
 	}
 
-	pes, nextToken := h.Backend.ListPipelineExecutions(req.PipelineName, req.NextToken)
+	pes, nextToken := h.Backend.ListPipelineExecutions(ctx, req.PipelineName, req.NextToken)
 	summaries := make([]pipelineExecutionSummary, 0, len(pes))
 
 	for _, pe := range pes {
@@ -1041,7 +1044,7 @@ func (h *Handler) handleCreateExperiment(ctx context.Context, body []byte) ([]by
 		return nil, fmt.Errorf("%w: ExperimentName is required", errInvalidRequest)
 	}
 
-	e, err := h.Backend.CreateExperiment(req.ExperimentName, fromTagObjects(req.Tags))
+	e, err := h.Backend.CreateExperiment(ctx, req.ExperimentName, fromTagObjects(req.Tags))
 	if err != nil {
 		return nil, err
 	}
@@ -1051,7 +1054,7 @@ func (h *Handler) handleCreateExperiment(ctx context.Context, body []byte) ([]by
 	return json.Marshal(map[string]string{keyExperimentArn: e.ExperimentArn})
 }
 
-func (h *Handler) handleDescribeExperiment(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeExperiment(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		ExperimentName string `json:"ExperimentName"`
 	}
@@ -1064,7 +1067,7 @@ func (h *Handler) handleDescribeExperiment(_ context.Context, body []byte) ([]by
 		return nil, fmt.Errorf("%w: ExperimentName is required", errInvalidRequest)
 	}
 
-	e, err := h.Backend.DescribeExperiment(req.ExperimentName)
+	e, err := h.Backend.DescribeExperiment(ctx, req.ExperimentName)
 	if err != nil {
 		return nil, err
 	}
@@ -1091,7 +1094,7 @@ type experimentSummary struct {
 	CreationTime   float64 `json:"CreationTime"`
 }
 
-func (h *Handler) handleListExperiments(body []byte) ([]byte, error) {
+func (h *Handler) handleListExperiments(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		NextToken string `json:"NextToken"`
 	}
@@ -1100,7 +1103,7 @@ func (h *Handler) handleListExperiments(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	exps, nextToken := h.Backend.ListExperiments(req.NextToken)
+	exps, nextToken := h.Backend.ListExperiments(ctx, req.NextToken)
 	summaries := make([]experimentSummary, 0, len(exps))
 
 	for _, e := range exps {
@@ -1132,7 +1135,7 @@ func (h *Handler) handleDeleteExperiment(ctx context.Context, body []byte) ([]by
 		return nil, fmt.Errorf("%w: ExperimentName is required", errInvalidRequest)
 	}
 
-	e, err := h.Backend.DeleteExperiment(req.ExperimentName)
+	e, err := h.Backend.DeleteExperiment(ctx, req.ExperimentName)
 	if err != nil {
 		return nil, err
 	}
@@ -1161,7 +1164,7 @@ func (h *Handler) handleCreateTrial(ctx context.Context, body []byte) ([]byte, e
 		return nil, fmt.Errorf("%w: TrialName is required", errInvalidRequest)
 	}
 
-	t, err := h.Backend.CreateTrial(req.TrialName, req.ExperimentName, fromTagObjects(req.Tags))
+	t, err := h.Backend.CreateTrial(ctx, req.TrialName, req.ExperimentName, fromTagObjects(req.Tags))
 	if err != nil {
 		return nil, err
 	}
@@ -1171,7 +1174,7 @@ func (h *Handler) handleCreateTrial(ctx context.Context, body []byte) ([]byte, e
 	return json.Marshal(map[string]string{keyTrialArn: t.TrialArn})
 }
 
-func (h *Handler) handleDescribeTrial(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeTrial(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		TrialName string `json:"TrialName"`
 	}
@@ -1184,7 +1187,7 @@ func (h *Handler) handleDescribeTrial(_ context.Context, body []byte) ([]byte, e
 		return nil, fmt.Errorf("%w: TrialName is required", errInvalidRequest)
 	}
 
-	t, err := h.Backend.DescribeTrial(req.TrialName)
+	t, err := h.Backend.DescribeTrial(ctx, req.TrialName)
 	if err != nil {
 		return nil, err
 	}
@@ -1209,7 +1212,7 @@ type trialSummary struct {
 	CreationTime float64 `json:"CreationTime"`
 }
 
-func (h *Handler) handleListTrials(body []byte) ([]byte, error) {
+func (h *Handler) handleListTrials(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		NextToken string `json:"NextToken"`
 	}
@@ -1218,7 +1221,7 @@ func (h *Handler) handleListTrials(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	ts, nextToken := h.Backend.ListTrials(req.NextToken)
+	ts, nextToken := h.Backend.ListTrials(ctx, req.NextToken)
 	summaries := make([]trialSummary, 0, len(ts))
 
 	for _, t := range ts {
@@ -1250,7 +1253,7 @@ func (h *Handler) handleDeleteTrial(ctx context.Context, body []byte) ([]byte, e
 		return nil, fmt.Errorf("%w: TrialName is required", errInvalidRequest)
 	}
 
-	t, err := h.Backend.DeleteTrial(req.TrialName)
+	t, err := h.Backend.DeleteTrial(ctx, req.TrialName)
 	if err != nil {
 		return nil, err
 	}
@@ -1278,7 +1281,7 @@ func (h *Handler) handleCreateTrialComponent(ctx context.Context, body []byte) (
 		return nil, fmt.Errorf("%w: TrialComponentName is required", errInvalidRequest)
 	}
 
-	tc, err := h.Backend.CreateTrialComponent(req.TrialComponentName, fromTagObjects(req.Tags))
+	tc, err := h.Backend.CreateTrialComponent(ctx, req.TrialComponentName, fromTagObjects(req.Tags))
 	if err != nil {
 		return nil, err
 	}
@@ -1289,7 +1292,7 @@ func (h *Handler) handleCreateTrialComponent(ctx context.Context, body []byte) (
 	return json.Marshal(map[string]string{keyTrialComponentArn: tc.TrialComponentArn})
 }
 
-func (h *Handler) handleDescribeTrialComponent(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeTrialComponent(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		TrialComponentName string `json:"TrialComponentName"`
 	}
@@ -1302,7 +1305,7 @@ func (h *Handler) handleDescribeTrialComponent(_ context.Context, body []byte) (
 		return nil, fmt.Errorf("%w: TrialComponentName is required", errInvalidRequest)
 	}
 
-	tc, err := h.Backend.DescribeTrialComponent(req.TrialComponentName)
+	tc, err := h.Backend.DescribeTrialComponent(ctx, req.TrialComponentName)
 	if err != nil {
 		return nil, err
 	}
@@ -1345,7 +1348,7 @@ func (h *Handler) handleDeleteTrialComponent(ctx context.Context, body []byte) (
 		return nil, fmt.Errorf("%w: TrialComponentName is required", errInvalidRequest)
 	}
 
-	tc, err := h.Backend.DeleteTrialComponent(req.TrialComponentName)
+	tc, err := h.Backend.DeleteTrialComponent(ctx, req.TrialComponentName)
 	if err != nil {
 		return nil, err
 	}

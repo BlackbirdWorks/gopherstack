@@ -2,6 +2,7 @@ package resourcegroupstaggingapi_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -30,7 +31,7 @@ func newTestHandlerWithResources(
 	t.Helper()
 
 	b := resourcegroupstaggingapi.NewInMemoryBackend("000000000000", "us-east-1")
-	b.RegisterProvider(func() []resourcegroupstaggingapi.TaggedResource { return resources })
+	b.RegisterProvider(func(_ context.Context) []resourcegroupstaggingapi.TaggedResource { return resources })
 
 	return resourcegroupstaggingapi.NewHandler(b)
 }

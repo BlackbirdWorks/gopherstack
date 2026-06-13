@@ -16,10 +16,13 @@ func TestEMR_Janitor_SweepsTerminatedClusters(t *testing.T) {
 	t.Parallel()
 
 	b := emr.NewInMemoryBackend(testAccountID, testRegion)
-	cluster, err := b.RunJobFlow(emr.RunJobFlowParams{Name: "sweep-test", ReleaseLabel: "emr-6.0.0"})
+	cluster, err := b.RunJobFlow(
+		context.Background(),
+		emr.RunJobFlowParams{Name: "sweep-test", ReleaseLabel: "emr-6.0.0"},
+	)
 	require.NoError(t, err)
 
-	require.NoError(t, b.TerminateJobFlows([]string{cluster.ID}))
+	require.NoError(t, b.TerminateJobFlows(context.Background(), []string{cluster.ID}))
 
 	janitor := emr.NewJanitor(b, 10*time.Millisecond, 50*time.Millisecond)
 	ctx, cancel := context.WithCancel(t.Context())
@@ -29,7 +32,7 @@ func TestEMR_Janitor_SweepsTerminatedClusters(t *testing.T) {
 
 	// Wait until the cluster is swept from the backend.
 	require.Eventually(t, func() bool {
-		_, descErr := b.DescribeCluster(cluster.ID)
+		_, descErr := b.DescribeCluster(context.Background(), cluster.ID)
 
 		return descErr != nil
 	}, 2*time.Second, 20*time.Millisecond, "terminated cluster should be swept")
@@ -39,7 +42,10 @@ func TestEMR_Janitor_ActiveClusterNotSwept(t *testing.T) {
 	t.Parallel()
 
 	b := emr.NewInMemoryBackend(testAccountID, testRegion)
-	cluster, err := b.RunJobFlow(emr.RunJobFlowParams{Name: "active-test", ReleaseLabel: "emr-6.0.0"})
+	cluster, err := b.RunJobFlow(
+		context.Background(),
+		emr.RunJobFlowParams{Name: "active-test", ReleaseLabel: "emr-6.0.0"},
+	)
 	require.NoError(t, err)
 
 	// Do NOT terminate the cluster — it should never be swept.
@@ -52,7 +58,7 @@ func TestEMR_Janitor_ActiveClusterNotSwept(t *testing.T) {
 	// Wait for the janitor context to expire (several ticks), then verify cluster still exists.
 	<-ctx.Done()
 
-	_, err = b.DescribeCluster(cluster.ID)
+	_, err = b.DescribeCluster(context.Background(), cluster.ID)
 	require.NoError(t, err, "active cluster must not be swept")
 }
 
@@ -60,10 +66,13 @@ func TestEMR_Janitor_RecentlyTerminatedNotSwept(t *testing.T) {
 	t.Parallel()
 
 	b := emr.NewInMemoryBackend(testAccountID, testRegion)
-	cluster, err := b.RunJobFlow(emr.RunJobFlowParams{Name: "recent-terminated", ReleaseLabel: "emr-6.0.0"})
+	cluster, err := b.RunJobFlow(
+		context.Background(),
+		emr.RunJobFlowParams{Name: "recent-terminated", ReleaseLabel: "emr-6.0.0"},
+	)
 	require.NoError(t, err)
 
-	require.NoError(t, b.TerminateJobFlows([]string{cluster.ID}))
+	require.NoError(t, b.TerminateJobFlows(context.Background(), []string{cluster.ID}))
 
 	// Use a very long TTL so the cluster should not be swept.
 	janitor := emr.NewJanitor(b, 10*time.Millisecond, 24*time.Hour)
@@ -75,7 +84,7 @@ func TestEMR_Janitor_RecentlyTerminatedNotSwept(t *testing.T) {
 	<-ctx.Done()
 
 	// Cluster should still be reachable with TERMINATED state.
-	c, err := b.DescribeCluster(cluster.ID)
+	c, err := b.DescribeCluster(context.Background(), cluster.ID)
 	require.NoError(t, err)
 	assert.Equal(t, emr.StateTerminated, c.Status.State)
 }
@@ -136,10 +145,13 @@ func TestEMR_Janitor_SweepOnce(t *testing.T) {
 			t.Parallel()
 
 			b := emr.NewInMemoryBackend(testAccountID, testRegion)
-			cluster, err := b.RunJobFlow(emr.RunJobFlowParams{Name: "sweep-once-test", ReleaseLabel: "emr-6.0.0"})
+			cluster, err := b.RunJobFlow(
+				context.Background(),
+				emr.RunJobFlowParams{Name: "sweep-once-test", ReleaseLabel: "emr-6.0.0"},
+			)
 			require.NoError(t, err)
 
-			require.NoError(t, b.TerminateJobFlows([]string{cluster.ID}))
+			require.NoError(t, b.TerminateJobFlows(context.Background(), []string{cluster.ID}))
 
 			ttl := 24 * time.Hour
 			if tt.clusterOld {
@@ -155,7 +167,7 @@ func TestEMR_Janitor_SweepOnce(t *testing.T) {
 
 			j.SweepOnce(t.Context())
 
-			_, err = b.DescribeCluster(cluster.ID)
+			_, err = b.DescribeCluster(context.Background(), cluster.ID)
 
 			if tt.wantSwept {
 				require.Error(t, err, "cluster should have been swept")
@@ -201,13 +213,16 @@ func TestEMR_Backend_Reset(t *testing.T) {
 			b := emr.NewInMemoryBackend(testAccountID, testRegion)
 
 			for range tt.createClusters {
-				_, err := b.RunJobFlow(emr.RunJobFlowParams{Name: "cluster", ReleaseLabel: "emr-6.0.0"})
+				_, err := b.RunJobFlow(
+					context.Background(),
+					emr.RunJobFlowParams{Name: "cluster", ReleaseLabel: "emr-6.0.0"},
+				)
 				require.NoError(t, err)
 			}
 
 			b.Reset()
 
-			clusters, _ := b.ListClusters(emr.ListClustersParams{})
+			clusters, _ := b.ListClusters(context.Background(), emr.ListClustersParams{})
 			assert.Len(t, clusters, tt.wantAfterReset)
 		})
 	}

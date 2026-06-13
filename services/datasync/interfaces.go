@@ -41,7 +41,7 @@ type StorageBackend interface {
 	UpdateLocationS3(locationArn, subdirectory, s3StorageClass string, s3Config S3Config) error
 
 	// Task execution update
-	UpdateTaskExecution(taskExecutionArn string) error
+	UpdateTaskExecution(taskExecutionArn string, options map[string]any) error
 
 	// Location operations (Azure Blob)
 	CreateLocationAzureBlob(
@@ -254,6 +254,7 @@ type TaskListEntry struct {
 // StartTime is first: time.Time's non-pointer prefix reduces GC pointer bytes.
 type TaskExecution struct {
 	StartTime                time.Time
+	Options                  map[string]any
 	TaskExecutionArn         string
 	Status                   string
 	EstimatedFilesToTransfer int64

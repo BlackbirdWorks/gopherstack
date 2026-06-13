@@ -1,6 +1,7 @@
 package neptune_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/url"
@@ -321,7 +322,7 @@ func TestRefinement1_CloneCluster_NoSharedSlice(t *testing.T) {
 	createCluster(t, h, "member-cluster")
 	createInstance(t, h, "member-inst", "member-cluster")
 
-	clusters, err := backend.DescribeDBClusters("member-cluster")
+	clusters, err := backend.DescribeDBClusters(context.Background(), "member-cluster")
 	require.NoError(t, err)
 	require.Len(t, clusters, 1)
 	require.Len(t, clusters[0].DBClusterMembers, 1)
@@ -329,7 +330,7 @@ func TestRefinement1_CloneCluster_NoSharedSlice(t *testing.T) {
 	// Mutate the returned copy — should not affect stored state.
 	clusters[0].DBClusterMembers[0].DBInstanceIdentifier = "mutated"
 
-	clusters2, err := backend.DescribeDBClusters("member-cluster")
+	clusters2, err := backend.DescribeDBClusters(context.Background(), "member-cluster")
 	require.NoError(t, err)
 	assert.NotEqual(t, "mutated", clusters2[0].DBClusterMembers[0].DBInstanceIdentifier)
 }

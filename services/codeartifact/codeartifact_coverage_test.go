@@ -1,6 +1,7 @@
 package codeartifact_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -238,14 +239,14 @@ func TestBackend_GetAssociatedPackageGroup(t *testing.T) {
 	t.Parallel()
 
 	b := codeartifact.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
-	_, err := b.CreateDomain("apg-domain", "", nil)
+	_, err := b.CreateDomain(context.Background(), "apg-domain", "", nil)
 	require.NoError(t, err)
 
-	pg, err := b.GetAssociatedPackageGroup("apg-domain", "npm", "", "lodash")
+	pg, err := b.GetAssociatedPackageGroup(context.Background(), "apg-domain", "npm", "", "lodash")
 	require.NoError(t, err)
 	assert.Nil(t, pg)
 
-	_, err = b.GetAssociatedPackageGroup("nonexistent", "npm", "", "lodash")
+	_, err = b.GetAssociatedPackageGroup(context.Background(), "nonexistent", "npm", "", "lodash")
 	require.Error(t, err)
 }
 
@@ -1011,14 +1012,14 @@ func TestBackend_ListSubPackageGroups(t *testing.T) {
 	t.Parallel()
 
 	b := codeartifact.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
-	_, err := b.CreateDomain("lspg-domain", "", nil)
+	_, err := b.CreateDomain(context.Background(), "lspg-domain", "", nil)
 	require.NoError(t, err)
 
-	groups, err := b.ListSubPackageGroups("lspg-domain", "/")
+	groups, err := b.ListSubPackageGroups(context.Background(), "lspg-domain", "/")
 	require.NoError(t, err)
 	assert.NotNil(t, groups)
 
-	_, err = b.ListSubPackageGroups("nonexistent", "/")
+	_, err = b.ListSubPackageGroups(context.Background(), "nonexistent", "/")
 	require.Error(t, err)
 }
 
@@ -1495,10 +1496,10 @@ func TestCABackend_PersistenceRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	b := codeartifact.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
-	_, err := b.CreateDomain("snap-domain", "", nil)
+	_, err := b.CreateDomain(context.Background(), "snap-domain", "", nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateRepository("snap-domain", "snap-repo", "", nil)
+	_, err = b.CreateRepository(context.Background(), "snap-domain", "snap-repo", "", nil)
 	require.NoError(t, err)
 
 	snap := b.Snapshot()
@@ -1508,6 +1509,6 @@ func TestCABackend_PersistenceRoundTrip(t *testing.T) {
 	err = b2.Restore(snap)
 	require.NoError(t, err)
 
-	doms := b2.ListDomains()
+	doms := b2.ListDomains(context.Background())
 	require.Len(t, doms, 1)
 }

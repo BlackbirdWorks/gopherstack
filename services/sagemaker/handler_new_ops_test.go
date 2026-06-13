@@ -1,6 +1,7 @@
 package sagemaker_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -191,7 +192,7 @@ func TestHandler_AttachClusterNodeVolume(t *testing.T) {
 			name: "success",
 			setup: func(t *testing.T, h *sagemaker.Handler) {
 				t.Helper()
-				h.Backend.AddClusterInternal("my-cluster")
+				h.Backend.AddClusterInternal(context.Background(), "my-cluster")
 			},
 			body: map[string]any{
 				"ClusterName":  "my-cluster",
@@ -268,7 +269,7 @@ func TestHandler_BatchAddClusterNodes(t *testing.T) {
 			name: "success",
 			setup: func(t *testing.T, h *sagemaker.Handler) {
 				t.Helper()
-				h.Backend.AddClusterInternal("batch-cluster")
+				h.Backend.AddClusterInternal(context.Background(), "batch-cluster")
 			},
 			body: map[string]any{
 				"ClusterName": "batch-cluster",
@@ -337,12 +338,12 @@ func TestHandler_BatchDeleteClusterNodes(t *testing.T) {
 			name: "success delete existing nodes",
 			setup: func(t *testing.T, h *sagemaker.Handler) {
 				t.Helper()
-				c := h.Backend.AddClusterInternal("del-cluster")
+				c := h.Backend.AddClusterInternal(context.Background(), "del-cluster")
 				_ = c
 				// Seed a node via BatchAdd
 				nodes := []map[string]any{{"NodeId": "del-n1"}}
 				_ = nodes
-				h.Backend.AddClusterInternal("del-cluster-2")
+				h.Backend.AddClusterInternal(context.Background(), "del-cluster-2")
 			},
 			body: map[string]any{
 				"ClusterName": "del-cluster-2",
@@ -406,7 +407,7 @@ func TestHandler_BatchDescribeModelPackage(t *testing.T) {
 			name: "success with existing packages",
 			setup: func(t *testing.T, h *sagemaker.Handler) {
 				t.Helper()
-				h.Backend.AddModelPackageInternal(&sagemaker.ModelPackage{
+				h.Backend.AddModelPackageInternal(context.Background(), &sagemaker.ModelPackage{
 					ModelPackageName:   "my-pkg",
 					ModelPackageArn:    "arn:aws:sagemaker:us-east-1:000000000000:model-package/my-pkg",
 					ModelPackageStatus: "Completed",
@@ -480,7 +481,7 @@ func TestHandler_BatchRebootClusterNodes(t *testing.T) {
 			name: "success with empty list",
 			setup: func(t *testing.T, h *sagemaker.Handler) {
 				t.Helper()
-				h.Backend.AddClusterInternal("reboot-cluster")
+				h.Backend.AddClusterInternal(context.Background(), "reboot-cluster")
 			},
 			body: map[string]any{
 				"ClusterName": "reboot-cluster",
@@ -493,7 +494,7 @@ func TestHandler_BatchRebootClusterNodes(t *testing.T) {
 			name: "partial success — missing nodes go to failures",
 			setup: func(t *testing.T, h *sagemaker.Handler) {
 				t.Helper()
-				h.Backend.AddClusterInternal("reboot-cluster-2")
+				h.Backend.AddClusterInternal(context.Background(), "reboot-cluster-2")
 			},
 			body: map[string]any{
 				"ClusterName": "reboot-cluster-2",
@@ -560,7 +561,7 @@ func TestHandler_BatchReplaceClusterNodes(t *testing.T) {
 			name: "success with empty list",
 			setup: func(t *testing.T, h *sagemaker.Handler) {
 				t.Helper()
-				h.Backend.AddClusterInternal("replace-cluster")
+				h.Backend.AddClusterInternal(context.Background(), "replace-cluster")
 			},
 			body: map[string]any{
 				"ClusterName": "replace-cluster",
@@ -573,7 +574,7 @@ func TestHandler_BatchReplaceClusterNodes(t *testing.T) {
 			name: "missing node goes to failures",
 			setup: func(t *testing.T, h *sagemaker.Handler) {
 				t.Helper()
-				h.Backend.AddClusterInternal("replace-cluster-2")
+				h.Backend.AddClusterInternal(context.Background(), "replace-cluster-2")
 			},
 			body: map[string]any{
 				"ClusterName": "replace-cluster-2",
@@ -799,7 +800,7 @@ func TestHandler_BatchDescribeModelPackage_ExistingAndMissing(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	h.Backend.AddModelPackageInternal(&sagemaker.ModelPackage{
+	h.Backend.AddModelPackageInternal(context.Background(), &sagemaker.ModelPackage{
 		ModelPackageName:   "pkg-a",
 		ModelPackageArn:    "arn:aws:sagemaker:us-east-1:000000000000:model-package/pkg-a",
 		ModelPackageStatus: "Completed",
@@ -832,7 +833,7 @@ func TestHandler_BatchAddClusterNodes_DuplicateNodeFails(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	h.Backend.AddClusterInternal("dup-node-cluster")
+	h.Backend.AddClusterInternal(context.Background(), "dup-node-cluster")
 
 	// Add node-1 first time
 	body := map[string]any{

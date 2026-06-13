@@ -1,6 +1,7 @@
 package elasticache
 
 import (
+	"context"
 	"encoding/xml"
 	"errors"
 	"net/http"
@@ -187,10 +188,10 @@ type updateActionXML struct {
 	UpdateActionStatus string `xml:"UpdateActionStatus"`
 }
 
-func (h *Handler) deleteUser(c *echo.Context, form url.Values) error {
+func (h *Handler) deleteUser(ctx context.Context, c *echo.Context, form url.Values) error {
 	userID := form.Get("UserId")
 
-	u, err := h.Backend.DeleteUser(userID)
+	u, err := h.Backend.DeleteUser(ctx, userID)
 	if err != nil {
 		if errors.Is(err, ErrUserNotFound) {
 			return xmlError(c, http.StatusBadRequest, "UserNotFound", "User not found")
@@ -227,11 +228,11 @@ func (h *Handler) deleteUser(c *echo.Context, form url.Values) error {
 	})
 }
 
-func (h *Handler) describeUsers(c *echo.Context, form url.Values) error {
+func (h *Handler) describeUsers(ctx context.Context, c *echo.Context, form url.Values) error {
 	userID := form.Get("UserId")
 	marker, maxRecords := parsePagination(form)
 
-	p, err := h.Backend.DescribeUsers(userID, marker, maxRecords)
+	p, err := h.Backend.DescribeUsers(ctx, userID, marker, maxRecords)
 	if err != nil {
 		if errors.Is(err, ErrUserNotFound) {
 			return xmlError(c, http.StatusBadRequest, "UserNotFound", "User not found")
@@ -251,12 +252,12 @@ func (h *Handler) describeUsers(c *echo.Context, form url.Values) error {
 	return xmlResp(c, http.StatusOK, res)
 }
 
-func (h *Handler) modifyUser(c *echo.Context, form url.Values) error {
+func (h *Handler) modifyUser(ctx context.Context, c *echo.Context, form url.Values) error {
 	userID := form.Get("UserId")
 	accessString := form.Get("AccessString")
 	noPasswordRequired := strings.EqualFold(form.Get("NoPasswordRequired"), "true")
 
-	u, err := h.Backend.ModifyUser(userID, accessString, noPasswordRequired)
+	u, err := h.Backend.ModifyUser(ctx, userID, accessString, noPasswordRequired)
 	if err != nil {
 		if errors.Is(err, ErrUserNotFound) {
 			return xmlError(c, http.StatusBadRequest, "UserNotFound", "User not found")
@@ -289,13 +290,13 @@ func (h *Handler) modifyUser(c *echo.Context, form url.Values) error {
 	})
 }
 
-func (h *Handler) createUserGroup(c *echo.Context, form url.Values) error {
+func (h *Handler) createUserGroup(ctx context.Context, c *echo.Context, form url.Values) error {
 	groupID := form.Get("UserGroupId")
 	description := form.Get("Description")
 	engine := form.Get("Engine")
 	userIDs := parseRepeatedField(form, "UserIds.member")
 
-	ug, err := h.Backend.CreateUserGroupValidated(groupID, description, engine, userIDs)
+	ug, err := h.Backend.CreateUserGroupValidated(ctx, groupID, description, engine, userIDs)
 	if err != nil {
 		if errors.Is(err, ErrUserGroupAlreadyExists) {
 			return xmlError(c, http.StatusBadRequest, "UserGroupAlreadyExistsFault", "User group already exists")
@@ -335,10 +336,10 @@ func (h *Handler) createUserGroup(c *echo.Context, form url.Values) error {
 	return xmlResp(c, http.StatusOK, r)
 }
 
-func (h *Handler) deleteUserGroup(c *echo.Context, form url.Values) error {
+func (h *Handler) deleteUserGroup(ctx context.Context, c *echo.Context, form url.Values) error {
 	groupID := form.Get("UserGroupId")
 
-	ug, err := h.Backend.DeleteUserGroup(groupID)
+	ug, err := h.Backend.DeleteUserGroup(ctx, groupID)
 	if err != nil {
 		if errors.Is(err, ErrUserGroupNotFound) {
 			return xmlError(c, http.StatusBadRequest, "UserGroupNotFound", "User group not found")
@@ -374,11 +375,11 @@ func (h *Handler) deleteUserGroup(c *echo.Context, form url.Values) error {
 	return xmlResp(c, http.StatusOK, r)
 }
 
-func (h *Handler) describeUserGroups(c *echo.Context, form url.Values) error {
+func (h *Handler) describeUserGroups(ctx context.Context, c *echo.Context, form url.Values) error {
 	groupID := form.Get("UserGroupId")
 	marker, maxRecords := parsePagination(form)
 
-	p, err := h.Backend.DescribeUserGroups(groupID, marker, maxRecords)
+	p, err := h.Backend.DescribeUserGroups(ctx, groupID, marker, maxRecords)
 	if err != nil {
 		if errors.Is(err, ErrUserGroupNotFound) {
 			return xmlError(c, http.StatusBadRequest, "UserGroupNotFound", "User group not found")
@@ -398,12 +399,12 @@ func (h *Handler) describeUserGroups(c *echo.Context, form url.Values) error {
 	return xmlResp(c, http.StatusOK, res)
 }
 
-func (h *Handler) modifyUserGroup(c *echo.Context, form url.Values) error {
+func (h *Handler) modifyUserGroup(ctx context.Context, c *echo.Context, form url.Values) error {
 	groupID := form.Get("UserGroupId")
 	userIDsToAdd := parseRepeatedField(form, "UserIdsToAdd.member")
 	userIDsToRemove := parseRepeatedField(form, "UserIdsToRemove.member")
 
-	ug, err := h.Backend.ModifyUserGroup(groupID, userIDsToAdd, userIDsToRemove)
+	ug, err := h.Backend.ModifyUserGroup(ctx, groupID, userIDsToAdd, userIDsToRemove)
 	if err != nil {
 		if errors.Is(err, ErrUserGroupNotFound) {
 			return xmlError(c, http.StatusBadRequest, "UserGroupNotFound", "User group not found")
@@ -439,11 +440,11 @@ func (h *Handler) modifyUserGroup(c *echo.Context, form url.Values) error {
 	return xmlResp(c, http.StatusOK, r)
 }
 
-func (h *Handler) deleteGlobalReplicationGroup(c *echo.Context, form url.Values) error {
+func (h *Handler) deleteGlobalReplicationGroup(ctx context.Context, c *echo.Context, form url.Values) error {
 	id := form.Get("GlobalReplicationGroupId")
 	retainPrimary := strings.EqualFold(form.Get("RetainPrimaryReplicationGroup"), "true")
 
-	grg, err := h.Backend.DeleteGlobalReplicationGroup(id, retainPrimary)
+	grg, err := h.Backend.DeleteGlobalReplicationGroup(ctx, id, retainPrimary)
 	if err != nil {
 		if errors.Is(err, ErrGlobalReplicationGroupNotFound) {
 			return xmlError(
@@ -469,11 +470,11 @@ func (h *Handler) deleteGlobalReplicationGroup(c *echo.Context, form url.Values)
 	})
 }
 
-func (h *Handler) describeGlobalReplicationGroups(c *echo.Context, form url.Values) error {
+func (h *Handler) describeGlobalReplicationGroups(ctx context.Context, c *echo.Context, form url.Values) error {
 	id := form.Get("GlobalReplicationGroupId")
 	marker, maxRecords := parsePagination(form)
 
-	p, err := h.Backend.DescribeGlobalReplicationGroups(id, marker, maxRecords)
+	p, err := h.Backend.DescribeGlobalReplicationGroups(ctx, id, marker, maxRecords)
 	if err != nil {
 		if errors.Is(err, ErrGlobalReplicationGroupNotFound) {
 			return xmlError(
@@ -501,12 +502,12 @@ func (h *Handler) describeGlobalReplicationGroups(c *echo.Context, form url.Valu
 	return xmlResp(c, http.StatusOK, res)
 }
 
-func (h *Handler) disassociateGlobalReplicationGroup(c *echo.Context, form url.Values) error {
+func (h *Handler) disassociateGlobalReplicationGroup(ctx context.Context, c *echo.Context, form url.Values) error {
 	id := form.Get("GlobalReplicationGroupId")
 	replicationGroupID := form.Get("ReplicationGroupId")
 	replicationGroupRegion := form.Get("ReplicationGroupRegion")
 
-	grg, err := h.Backend.DisassociateGlobalReplicationGroup(id, replicationGroupID, replicationGroupRegion)
+	grg, err := h.Backend.DisassociateGlobalReplicationGroup(ctx, id, replicationGroupID, replicationGroupRegion)
 	if err != nil {
 		if errors.Is(err, ErrGlobalReplicationGroupNotFound) {
 			return xmlError(
@@ -532,12 +533,12 @@ func (h *Handler) disassociateGlobalReplicationGroup(c *echo.Context, form url.V
 	})
 }
 
-func (h *Handler) failoverGlobalReplicationGroup(c *echo.Context, form url.Values) error {
+func (h *Handler) failoverGlobalReplicationGroup(ctx context.Context, c *echo.Context, form url.Values) error {
 	id := form.Get("GlobalReplicationGroupId")
 	primaryRegion := form.Get("PrimaryRegion")
 	primaryReplicationGroupID := form.Get("PrimaryReplicationGroupId")
 
-	grg, err := h.Backend.FailoverGlobalReplicationGroup(id, primaryRegion, primaryReplicationGroupID)
+	grg, err := h.Backend.FailoverGlobalReplicationGroup(ctx, id, primaryRegion, primaryReplicationGroupID)
 	if err != nil {
 		if errors.Is(err, ErrGlobalReplicationGroupNotFound) {
 			return xmlError(
@@ -563,11 +564,15 @@ func (h *Handler) failoverGlobalReplicationGroup(c *echo.Context, form url.Value
 	})
 }
 
-func (h *Handler) increaseNodeGroupsInGlobalReplicationGroup(c *echo.Context, form url.Values) error {
+func (h *Handler) increaseNodeGroupsInGlobalReplicationGroup(
+	ctx context.Context,
+	c *echo.Context,
+	form url.Values,
+) error {
 	id := form.Get("GlobalReplicationGroupId")
 	nodeGroupCount, _ := strconv.ParseInt(form.Get("NodeGroupCount"), 10, 32)
 
-	grg, err := h.Backend.IncreaseNodeGroupsInGlobalReplicationGroup(id, int32(nodeGroupCount))
+	grg, err := h.Backend.IncreaseNodeGroupsInGlobalReplicationGroup(ctx, id, int32(nodeGroupCount))
 	if err != nil {
 		if errors.Is(err, ErrGlobalReplicationGroupNotFound) {
 			return xmlError(
@@ -593,11 +598,15 @@ func (h *Handler) increaseNodeGroupsInGlobalReplicationGroup(c *echo.Context, fo
 	})
 }
 
-func (h *Handler) decreaseNodeGroupsInGlobalReplicationGroup(c *echo.Context, form url.Values) error {
+func (h *Handler) decreaseNodeGroupsInGlobalReplicationGroup(
+	ctx context.Context,
+	c *echo.Context,
+	form url.Values,
+) error {
 	id := form.Get("GlobalReplicationGroupId")
 	nodeGroupCount, _ := strconv.ParseInt(form.Get("NodeGroupCount"), 10, 32)
 
-	grg, err := h.Backend.DecreaseNodeGroupsInGlobalReplicationGroup(id, int32(nodeGroupCount))
+	grg, err := h.Backend.DecreaseNodeGroupsInGlobalReplicationGroup(ctx, id, int32(nodeGroupCount))
 	if err != nil {
 		if errors.Is(err, ErrGlobalReplicationGroupNotFound) {
 			return xmlError(
@@ -623,13 +632,13 @@ func (h *Handler) decreaseNodeGroupsInGlobalReplicationGroup(c *echo.Context, fo
 	})
 }
 
-func (h *Handler) modifyGlobalReplicationGroup(c *echo.Context, form url.Values) error {
+func (h *Handler) modifyGlobalReplicationGroup(ctx context.Context, c *echo.Context, form url.Values) error {
 	id := form.Get("GlobalReplicationGroupId")
 	description := form.Get("GlobalReplicationGroupDescription")
 	engineVersion := form.Get("EngineVersion")
 	automaticFailoverEnabled := strings.EqualFold(form.Get("AutomaticFailoverEnabled"), "true")
 
-	grg, err := h.Backend.ModifyGlobalReplicationGroup(id, description, engineVersion, automaticFailoverEnabled)
+	grg, err := h.Backend.ModifyGlobalReplicationGroup(ctx, id, description, engineVersion, automaticFailoverEnabled)
 	if err != nil {
 		if errors.Is(err, ErrGlobalReplicationGroupNotFound) {
 			return xmlError(
@@ -655,10 +664,10 @@ func (h *Handler) modifyGlobalReplicationGroup(c *echo.Context, form url.Values)
 	})
 }
 
-func (h *Handler) rebalanceSlotsInGlobalReplicationGroup(c *echo.Context, form url.Values) error {
+func (h *Handler) rebalanceSlotsInGlobalReplicationGroup(ctx context.Context, c *echo.Context, form url.Values) error {
 	id := form.Get("GlobalReplicationGroupId")
 
-	grg, err := h.Backend.RebalanceSlotsInGlobalReplicationGroup(id)
+	grg, err := h.Backend.RebalanceSlotsInGlobalReplicationGroup(ctx, id)
 	if err != nil {
 		if errors.Is(err, ErrGlobalReplicationGroupNotFound) {
 			return xmlError(
@@ -684,13 +693,13 @@ func (h *Handler) rebalanceSlotsInGlobalReplicationGroup(c *echo.Context, form u
 	})
 }
 
-func (h *Handler) describeReservedCacheNodes(c *echo.Context, form url.Values) error {
+func (h *Handler) describeReservedCacheNodes(ctx context.Context, c *echo.Context, form url.Values) error {
 	id := form.Get("ReservedCacheNodeId")
 	cacheNodeType := form.Get("CacheNodeType")
 	offeringType := form.Get("OfferingType")
 	marker, maxRecords := parsePagination(form)
 
-	p, err := h.Backend.DescribeReservedCacheNodes(id, cacheNodeType, offeringType, marker, maxRecords)
+	p, err := h.Backend.DescribeReservedCacheNodes(ctx, id, cacheNodeType, offeringType, marker, maxRecords)
 	if err != nil {
 		if errors.Is(err, ErrReservedCacheNodeNotFound) {
 			return xmlError(c, http.StatusBadRequest, "ReservedCacheNodeNotFound", "Reserved cache node not found")
@@ -713,13 +722,20 @@ func (h *Handler) describeReservedCacheNodes(c *echo.Context, form url.Values) e
 	return xmlResp(c, http.StatusOK, res)
 }
 
-func (h *Handler) describeReservedCacheNodesOfferings(c *echo.Context, form url.Values) error {
+func (h *Handler) describeReservedCacheNodesOfferings(ctx context.Context, c *echo.Context, form url.Values) error {
 	offeringID := form.Get("ReservedCacheNodesOfferingId")
 	cacheNodeType := form.Get("CacheNodeType")
 	offeringType := form.Get("OfferingType")
 	marker, maxRecords := parsePagination(form)
 
-	p, err := h.Backend.DescribeReservedCacheNodesOfferings(offeringID, cacheNodeType, offeringType, marker, maxRecords)
+	p, err := h.Backend.DescribeReservedCacheNodesOfferings(
+		ctx,
+		offeringID,
+		cacheNodeType,
+		offeringType,
+		marker,
+		maxRecords,
+	)
 	if err != nil {
 		if errors.Is(err, ErrReservedCacheNodesOfferingNotFound) {
 			return xmlError(
@@ -756,12 +772,12 @@ func (h *Handler) describeReservedCacheNodesOfferings(c *echo.Context, form url.
 	})
 }
 
-func (h *Handler) purchaseReservedCacheNodesOffering(c *echo.Context, form url.Values) error {
+func (h *Handler) purchaseReservedCacheNodesOffering(ctx context.Context, c *echo.Context, form url.Values) error {
 	offeringID := form.Get("ReservedCacheNodesOfferingId")
 	reservedCacheNodeID := form.Get("ReservedCacheNodeId")
 	count, _ := strconv.ParseInt(form.Get("CacheNodeCount"), 10, 32)
 
-	rcn, err := h.Backend.PurchaseReservedCacheNodesOffering(offeringID, reservedCacheNodeID, int32(count))
+	rcn, err := h.Backend.PurchaseReservedCacheNodesOffering(ctx, offeringID, reservedCacheNodeID, int32(count))
 	if err != nil {
 		if errors.Is(err, ErrReservedCacheNodesOfferingNotFound) {
 			return xmlError(
@@ -791,10 +807,10 @@ func (h *Handler) purchaseReservedCacheNodesOffering(c *echo.Context, form url.V
 	})
 }
 
-func (h *Handler) deleteServerlessCache(c *echo.Context, form url.Values) error {
+func (h *Handler) deleteServerlessCache(ctx context.Context, c *echo.Context, form url.Values) error {
 	name := form.Get("ServerlessCacheName")
 
-	sc, err := h.Backend.DeleteServerlessCache(name)
+	sc, err := h.Backend.DeleteServerlessCache(ctx, name)
 	if err != nil {
 		if errors.Is(err, ErrServerlessCacheNotFound) {
 			return xmlError(c, http.StatusBadRequest, "ServerlessCacheNotFound", "Serverless cache not found")
@@ -815,10 +831,10 @@ func (h *Handler) deleteServerlessCache(c *echo.Context, form url.Values) error 
 	})
 }
 
-func (h *Handler) deleteServerlessCacheSnapshot(c *echo.Context, form url.Values) error {
+func (h *Handler) deleteServerlessCacheSnapshot(ctx context.Context, c *echo.Context, form url.Values) error {
 	name := form.Get("ServerlessCacheSnapshotName")
 
-	snap, err := h.Backend.DeleteServerlessCacheSnapshot(name)
+	snap, err := h.Backend.DeleteServerlessCacheSnapshot(ctx, name)
 	if err != nil {
 		if errors.Is(err, ErrServerlessCacheSnapshotNotFound) {
 			return xmlError(
@@ -844,11 +860,11 @@ func (h *Handler) deleteServerlessCacheSnapshot(c *echo.Context, form url.Values
 	})
 }
 
-func (h *Handler) describeServerlessCaches(c *echo.Context, form url.Values) error {
+func (h *Handler) describeServerlessCaches(ctx context.Context, c *echo.Context, form url.Values) error {
 	name := form.Get("ServerlessCacheName")
 	marker, maxRecords := parsePagination(form)
 
-	p, err := h.Backend.DescribeServerlessCaches(name, marker, maxRecords)
+	p, err := h.Backend.DescribeServerlessCaches(ctx, name, marker, maxRecords)
 	if err != nil {
 		if errors.Is(err, ErrServerlessCacheNotFound) {
 			return xmlError(c, http.StatusBadRequest, "ServerlessCacheNotFound", "Serverless cache not found")
@@ -868,12 +884,12 @@ func (h *Handler) describeServerlessCaches(c *echo.Context, form url.Values) err
 	return xmlResp(c, http.StatusOK, res)
 }
 
-func (h *Handler) describeServerlessCacheSnapshots(c *echo.Context, form url.Values) error {
+func (h *Handler) describeServerlessCacheSnapshots(ctx context.Context, c *echo.Context, form url.Values) error {
 	serverlessCacheName := form.Get("ServerlessCacheName")
 	snapshotName := form.Get("ServerlessCacheSnapshotName")
 	marker, maxRecords := parsePagination(form)
 
-	p, err := h.Backend.DescribeServerlessCacheSnapshots(serverlessCacheName, snapshotName, marker, maxRecords)
+	p, err := h.Backend.DescribeServerlessCacheSnapshots(ctx, serverlessCacheName, snapshotName, marker, maxRecords)
 	if err != nil {
 		if errors.Is(err, ErrServerlessCacheSnapshotNotFound) {
 			return xmlError(
@@ -910,11 +926,11 @@ func (h *Handler) describeServerlessCacheSnapshots(c *echo.Context, form url.Val
 	})
 }
 
-func (h *Handler) exportServerlessCacheSnapshot(c *echo.Context, form url.Values) error {
+func (h *Handler) exportServerlessCacheSnapshot(ctx context.Context, c *echo.Context, form url.Values) error {
 	snapshotName := form.Get("ServerlessCacheSnapshotName")
 	s3BucketName := form.Get("S3BucketName")
 
-	snap, err := h.Backend.ExportServerlessCacheSnapshot(snapshotName, s3BucketName)
+	snap, err := h.Backend.ExportServerlessCacheSnapshot(ctx, snapshotName, s3BucketName)
 	if err != nil {
 		if errors.Is(err, ErrServerlessCacheSnapshotNotFound) {
 			return xmlError(
@@ -940,11 +956,11 @@ func (h *Handler) exportServerlessCacheSnapshot(c *echo.Context, form url.Values
 	})
 }
 
-func (h *Handler) modifyServerlessCache(c *echo.Context, form url.Values) error {
+func (h *Handler) modifyServerlessCache(ctx context.Context, c *echo.Context, form url.Values) error {
 	name := form.Get("ServerlessCacheName")
 	description := form.Get("Description")
 
-	sc, err := h.Backend.ModifyServerlessCache(name, description)
+	sc, err := h.Backend.ModifyServerlessCache(ctx, name, description)
 	if err != nil {
 		if errors.Is(err, ErrServerlessCacheNotFound) {
 			return xmlError(c, http.StatusBadRequest, "ServerlessCacheNotFound", "Serverless cache not found")
@@ -965,10 +981,10 @@ func (h *Handler) modifyServerlessCache(c *echo.Context, form url.Values) error 
 	})
 }
 
-func (h *Handler) startMigration(c *echo.Context, form url.Values) error {
+func (h *Handler) startMigration(ctx context.Context, c *echo.Context, form url.Values) error {
 	replicationGroupID := form.Get("ReplicationGroupId")
 
-	rg, err := h.Backend.StartMigration(replicationGroupID)
+	rg, err := h.Backend.StartMigration(ctx, replicationGroupID)
 	if err != nil {
 		if errors.Is(err, ErrReplicationGroupNotFound) {
 			return xmlError(c, http.StatusBadRequest, "ReplicationGroupNotFound", "Replication group not found")
@@ -989,10 +1005,10 @@ func (h *Handler) startMigration(c *echo.Context, form url.Values) error {
 	})
 }
 
-func (h *Handler) testMigration(c *echo.Context, form url.Values) error {
+func (h *Handler) testMigration(ctx context.Context, c *echo.Context, form url.Values) error {
 	replicationGroupID := form.Get("ReplicationGroupId")
 
-	rg, err := h.Backend.TestMigration(replicationGroupID)
+	rg, err := h.Backend.TestMigration(ctx, replicationGroupID)
 	if err != nil {
 		if errors.Is(err, ErrReplicationGroupNotFound) {
 			return xmlError(c, http.StatusBadRequest, "ReplicationGroupNotFound", "Replication group not found")
@@ -1013,11 +1029,11 @@ func (h *Handler) testMigration(c *echo.Context, form url.Values) error {
 	})
 }
 
-func (h *Handler) increaseReplicaCount(c *echo.Context, form url.Values) error {
+func (h *Handler) increaseReplicaCount(ctx context.Context, c *echo.Context, form url.Values) error {
 	replicationGroupID := form.Get("ReplicationGroupId")
 	newReplicaCount, _ := strconv.ParseInt(form.Get("NewReplicaCount"), 10, 32)
 
-	rg, err := h.Backend.IncreaseReplicaCount(replicationGroupID, int32(newReplicaCount))
+	rg, err := h.Backend.IncreaseReplicaCount(ctx, replicationGroupID, int32(newReplicaCount))
 	if err != nil {
 		if errors.Is(err, ErrReplicationGroupNotFound) {
 			return xmlError(c, http.StatusBadRequest, "ReplicationGroupNotFound", "Replication group not found")
@@ -1038,11 +1054,11 @@ func (h *Handler) increaseReplicaCount(c *echo.Context, form url.Values) error {
 	})
 }
 
-func (h *Handler) decreaseReplicaCount(c *echo.Context, form url.Values) error {
+func (h *Handler) decreaseReplicaCount(ctx context.Context, c *echo.Context, form url.Values) error {
 	replicationGroupID := form.Get("ReplicationGroupId")
 	newReplicaCount, _ := strconv.ParseInt(form.Get("NewReplicaCount"), 10, 32)
 
-	rg, err := h.Backend.DecreaseReplicaCount(replicationGroupID, int32(newReplicaCount))
+	rg, err := h.Backend.DecreaseReplicaCount(ctx, replicationGroupID, int32(newReplicaCount))
 	if err != nil {
 		if errors.Is(err, ErrReplicationGroupNotFound) {
 			return xmlError(c, http.StatusBadRequest, "ReplicationGroupNotFound", "Replication group not found")
@@ -1063,11 +1079,15 @@ func (h *Handler) decreaseReplicaCount(c *echo.Context, form url.Values) error {
 	})
 }
 
-func (h *Handler) modifyReplicationGroupShardConfiguration(c *echo.Context, form url.Values) error {
+func (h *Handler) modifyReplicationGroupShardConfiguration(
+	ctx context.Context,
+	c *echo.Context,
+	form url.Values,
+) error {
 	replicationGroupID := form.Get("ReplicationGroupId")
 	nodeGroupCount, _ := strconv.ParseInt(form.Get("NodeGroupCount"), 10, 32)
 
-	rg, err := h.Backend.ModifyReplicationGroupShardConfiguration(replicationGroupID, int32(nodeGroupCount))
+	rg, err := h.Backend.ModifyReplicationGroupShardConfiguration(ctx, replicationGroupID, int32(nodeGroupCount))
 	if err != nil {
 		if errors.Is(err, ErrReplicationGroupNotFound) {
 			return xmlError(c, http.StatusBadRequest, "ReplicationGroupNotFound", "Replication group not found")
@@ -1088,13 +1108,13 @@ func (h *Handler) modifyReplicationGroupShardConfiguration(c *echo.Context, form
 	})
 }
 
-func (h *Handler) describeCacheEngineVersions(c *echo.Context, form url.Values) error {
+func (h *Handler) describeCacheEngineVersions(ctx context.Context, c *echo.Context, form url.Values) error {
 	engine := form.Get("Engine")
 	family := form.Get("CacheParameterGroupFamily")
 	engineVersion := form.Get("EngineVersion")
 	marker, maxRecords := parsePagination(form)
 
-	p, err := h.Backend.DescribeCacheEngineVersions(engine, family, engineVersion, marker, maxRecords)
+	p, err := h.Backend.DescribeCacheEngineVersions(ctx, engine, family, engineVersion, marker, maxRecords)
 	if err != nil {
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
@@ -1122,11 +1142,11 @@ func (h *Handler) describeCacheEngineVersions(c *echo.Context, form url.Values) 
 	})
 }
 
-func (h *Handler) rebootCacheCluster(c *echo.Context, form url.Values) error {
+func (h *Handler) rebootCacheCluster(ctx context.Context, c *echo.Context, form url.Values) error {
 	clusterID := form.Get("CacheClusterId")
 	nodeIDs := parseRepeatedField(form, "CacheNodeIdsToReboot.CacheNodeId")
 
-	cl, err := h.Backend.RebootCacheCluster(clusterID, nodeIDs)
+	cl, err := h.Backend.RebootCacheCluster(ctx, clusterID, nodeIDs)
 	if err != nil {
 		if errors.Is(err, ErrClusterNotFound) {
 			return xmlError(c, http.StatusBadRequest, "CacheClusterNotFound", "Cache cluster not found")
@@ -1147,10 +1167,10 @@ func (h *Handler) rebootCacheCluster(c *echo.Context, form url.Values) error {
 	})
 }
 
-func (h *Handler) deleteCacheSecurityGroup(c *echo.Context, form url.Values) error {
+func (h *Handler) deleteCacheSecurityGroup(ctx context.Context, c *echo.Context, form url.Values) error {
 	name := form.Get("CacheSecurityGroupName")
 
-	err := h.Backend.DeleteCacheSecurityGroup(name)
+	err := h.Backend.DeleteCacheSecurityGroup(ctx, name)
 	if err != nil {
 		if errors.Is(err, ErrCacheSecurityGroupNotFound) {
 			return xmlError(c, http.StatusBadRequest, "CacheSecurityGroupNotFound", "Cache security group not found")
@@ -1167,11 +1187,11 @@ func (h *Handler) deleteCacheSecurityGroup(c *echo.Context, form url.Values) err
 	return xmlResp(c, http.StatusOK, result{Xmlns: elasticacheNS})
 }
 
-func (h *Handler) describeCacheSecurityGroups(c *echo.Context, form url.Values) error {
+func (h *Handler) describeCacheSecurityGroups(ctx context.Context, c *echo.Context, form url.Values) error {
 	name := form.Get("CacheSecurityGroupName")
 	marker, maxRecords := parsePagination(form)
 
-	p, err := h.Backend.DescribeCacheSecurityGroups(name, marker, maxRecords)
+	p, err := h.Backend.DescribeCacheSecurityGroups(ctx, name, marker, maxRecords)
 	if err != nil {
 		if errors.Is(err, ErrCacheSecurityGroupNotFound) {
 			return xmlError(c, http.StatusBadRequest, "CacheSecurityGroupNotFound", "Cache security group not found")
@@ -1194,12 +1214,12 @@ func (h *Handler) describeCacheSecurityGroups(c *echo.Context, form url.Values) 
 	return xmlResp(c, http.StatusOK, res)
 }
 
-func (h *Handler) revokeCacheSecurityGroupIngress(c *echo.Context, form url.Values) error {
+func (h *Handler) revokeCacheSecurityGroupIngress(ctx context.Context, c *echo.Context, form url.Values) error {
 	name := form.Get("CacheSecurityGroupName")
 	ec2SecurityGroupName := form.Get("EC2SecurityGroupName")
 	ec2SecurityGroupOwnerID := form.Get("EC2SecurityGroupOwnerId")
 
-	sg, err := h.Backend.RevokeCacheSecurityGroupIngress(name, ec2SecurityGroupName, ec2SecurityGroupOwnerID)
+	sg, err := h.Backend.RevokeCacheSecurityGroupIngress(ctx, name, ec2SecurityGroupName, ec2SecurityGroupOwnerID)
 	if err != nil {
 		if errors.Is(err, ErrCacheSecurityGroupNotFound) {
 			return xmlError(c, http.StatusBadRequest, "CacheSecurityGroupNotFound", "Cache security group not found")
@@ -1220,11 +1240,11 @@ func (h *Handler) revokeCacheSecurityGroupIngress(c *echo.Context, form url.Valu
 	})
 }
 
-func (h *Handler) describeEngineDefaultParameters(c *echo.Context, form url.Values) error {
+func (h *Handler) describeEngineDefaultParameters(ctx context.Context, c *echo.Context, form url.Values) error {
 	family := form.Get("CacheParameterGroupFamily")
 	marker, maxRecords := parsePagination(form)
 
-	p, err := h.Backend.DescribeEngineDefaultParameters(family, marker, maxRecords)
+	p, err := h.Backend.DescribeEngineDefaultParameters(ctx, family, marker, maxRecords)
 	if err != nil {
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
@@ -1249,12 +1269,12 @@ func (h *Handler) describeEngineDefaultParameters(c *echo.Context, form url.Valu
 	})
 }
 
-func (h *Handler) describeServiceUpdates(c *echo.Context, form url.Values) error {
+func (h *Handler) describeServiceUpdates(ctx context.Context, c *echo.Context, form url.Values) error {
 	serviceUpdateName := form.Get("ServiceUpdateName")
 	marker, maxRecords := parsePagination(form)
 	statusList := parseRepeatedField(form, "ServiceUpdateStatus.member")
 
-	p, err := h.Backend.DescribeServiceUpdates(serviceUpdateName, marker, maxRecords, statusList)
+	p, err := h.Backend.DescribeServiceUpdates(ctx, serviceUpdateName, marker, maxRecords, statusList)
 	if err != nil {
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
@@ -1285,11 +1305,11 @@ func (h *Handler) describeServiceUpdates(c *echo.Context, form url.Values) error
 	})
 }
 
-func (h *Handler) describeUpdateActions(c *echo.Context, form url.Values) error {
+func (h *Handler) describeUpdateActions(ctx context.Context, c *echo.Context, form url.Values) error {
 	serviceUpdateName := form.Get("ServiceUpdateName")
 	marker, maxRecords := parsePagination(form)
 
-	p, err := h.Backend.DescribeUpdateActions(serviceUpdateName, marker, maxRecords)
+	p, err := h.Backend.DescribeUpdateActions(ctx, serviceUpdateName, marker, maxRecords)
 	if err != nil {
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
@@ -1317,11 +1337,11 @@ func (h *Handler) describeUpdateActions(c *echo.Context, form url.Values) error 
 	})
 }
 
-func (h *Handler) listAllowedNodeTypeModifications(c *echo.Context, form url.Values) error {
+func (h *Handler) listAllowedNodeTypeModifications(ctx context.Context, c *echo.Context, form url.Values) error {
 	clusterID := form.Get("CacheClusterId")
 	replicationGroupID := form.Get("ReplicationGroupId")
 
-	mods, err := h.Backend.ListAllowedNodeTypeModifications(clusterID, replicationGroupID)
+	mods, err := h.Backend.ListAllowedNodeTypeModifications(ctx, clusterID, replicationGroupID)
 	if err != nil {
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}

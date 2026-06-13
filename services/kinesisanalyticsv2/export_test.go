@@ -10,24 +10,31 @@ func MapToTagsForTest(m map[string]string) []Tag {
 	return mapToTags(m)
 }
 
-// ApplicationCount returns the number of applications stored in the backend.
+// ApplicationCount returns the number of applications stored in the backend across all regions.
 // Exported for use in tests only.
 func ApplicationCount(b *InMemoryBackend) int {
 	b.mu.RLock("ApplicationCount")
 	defer b.mu.RUnlock()
 
-	return len(b.applications)
+	total := 0
+	for _, regionApps := range b.applications {
+		total += len(regionApps)
+	}
+
+	return total
 }
 
-// SnapshotCount returns the total number of snapshots across all applications.
+// SnapshotCount returns the total number of snapshots across all applications and regions.
 // Exported for use in tests only.
 func SnapshotCount(b *InMemoryBackend) int {
 	b.mu.RLock("SnapshotCount")
 	defer b.mu.RUnlock()
 
 	total := 0
-	for _, snaps := range b.snapshots {
-		total += len(snaps)
+	for _, regionSnaps := range b.snapshots {
+		for _, snaps := range regionSnaps {
+			total += len(snaps)
+		}
 	}
 
 	return total

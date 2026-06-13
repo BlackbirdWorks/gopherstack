@@ -217,7 +217,7 @@ func TestTimestreamQueryHandler_PrepareQuery_BackendError(t *testing.T) {
 			t.Parallel()
 
 			backend := newTestHandler().Backend
-			result, err := backend.PrepareQuery(tt.queryString, false)
+			result, err := backend.PrepareQuery(t.Context(), tt.queryString, false)
 
 			if tt.wantErr {
 				require.Error(t, err)

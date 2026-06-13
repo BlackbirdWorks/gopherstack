@@ -130,7 +130,7 @@ func TestAudit_ListStatementsFilters(t *testing.T) {
 	doRequest(t, h, "ExecuteStatement", map[string]any{
 		"Sql": "SELECT 2", "Database": "beta", "StatementName": "weekly-one",
 	})
-	redshiftdata.AddStatementInternal(b, "started-alpha", "SELECT 3", "alpha", "STARTED", true)
+	redshiftdata.AddStatementInternal(b, testRegion, "started-alpha", "SELECT 3", "alpha", "STARTED", true)
 
 	tests := []struct {
 		body      map[string]any

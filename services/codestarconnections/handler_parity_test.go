@@ -2,6 +2,7 @@ package codestarconnections_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -327,10 +328,10 @@ func TestParity_ListConnections_HostArnFilter(t *testing.T) {
 			b := codestarconnections.NewInMemoryBackend("000000000000", "us-east-1")
 			h := codestarconnections.NewHandler(b)
 
-			_, err := b.CreateConnection("ghe-conn", "GitHubEnterpriseServer", hostArn, nil)
+			_, err := b.CreateConnection(context.Background(), "ghe-conn", "GitHubEnterpriseServer", hostArn, nil)
 			require.NoError(t, err)
 
-			_, err = b.CreateConnection("gh-conn", "GitHub", "", nil)
+			_, err = b.CreateConnection(context.Background(), "gh-conn", "GitHub", "", nil)
 			require.NoError(t, err)
 
 			body := map[string]any{}

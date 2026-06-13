@@ -17,10 +17,9 @@ type snapTGWPeeringAtt = TransitGatewayPeeringAttachment
 // snapTGWVpcAtt is a type alias used in backendSnapshot to keep line lengths manageable.
 type snapTGWVpcAtt = TransitGatewayVpcAttachment
 
-//nolint:govet // fieldalignment is ignored for this struct
 type backendSnapshot struct {
-	RouteTables                        map[string]*RouteTable                          `json:"routeTables,omitempty"`
-	NetworkInterfaces                  map[string]*NetworkInterface                    `json:"networkInterfaces"`
+	SnapshotAttributes                 map[string]map[string]string                    `json:"snapshotAttributes"`
+	ImageDeprecated                    map[string]string                               `json:"imageDeprecated"`
 	VPCs                               map[string]*VPC                                 `json:"vpcs,omitempty"`
 	NatGateways                        map[string]*NatGateway                          `json:"natGateways,omitempty"`
 	KeyPairs                           map[string]*KeyPair                             `json:"keyPairs,omitempty"`
@@ -61,18 +60,13 @@ type backendSnapshot struct {
 	Fleets                             map[string]*Fleet                               `json:"fleets,omitempty"`
 	NetworkInsightsPaths               map[string]*NetworkInsightsPath                 `json:"networkInsightsPaths"`
 	ManagedPrefixLists                 map[string]*ManagedPrefixList                   `json:"managedPrefixLists"`
-	AccountID                          string                                          `json:"accountID,omitempty"`
-	Region                             string                                          `json:"region,omitempty"`
-	FreePrivateIPs                     []string                                        `json:"freePrivateIPs"`
-	NextPrivateIPIndex                 int                                             `json:"nextPrivateIPIndex"`
-	NextElasticIPIndex                 int                                             `json:"nextElasticIPIndex"`
-	EbsEncryptionByDefault             bool                                            `json:"ebsEncryptionByDefault"`
-	SerialConsoleAccess                bool                                            `json:"serialConsoleAccess"`
 	EgressOnlyIGWs                     map[string]*EgressOnlyInternetGateway           `json:"egressOnlyIGWs"`
 	IamAssociations                    map[string]*IamInstanceProfileAssociation       `json:"iamAssociations"`
 	TgwRouteTables                     map[string]*TransitGatewayRouteTable            `json:"tgwRouteTables"`
 	TgwRoutes                          map[string]*TransitGatewayRoute                 `json:"tgwRoutes,omitempty"`
 	TgwRTAssociations                  map[string]*TransitGatewayRouteTableAssociation `json:"tgwRTAssociations"`
+	ReservedInstancesModifications     map[string]*ReservedInstancesModification       `json:"rim"`
+	ReservedInstancesListings          map[string]*ReservedInstancesListing            `json:"reservedInstancesListings"`
 	VpcCidrAssociations                map[string]*VpcCidrBlockAssociation             `json:"vpcCidrAssociations"`
 	VpnConnections                     map[string]*VpnConnection                       `json:"vpnConnections"`
 	VpcEndpointServiceConfigs          map[string]*VpcEndpointServiceConfig            `json:"vpcEndpointServiceConfigs"`
@@ -80,9 +74,9 @@ type backendSnapshot struct {
 	SpotFleetHistory                   map[string][]SpotFleetHistoryRecord             `json:"spotFleetHistory"`
 	VolumeModifications                map[string]*VolumeModification                  `json:"volumeModifications"`
 	SnapshotTiers                      map[string]string                               `json:"snapshotTiers,omitempty"`
-	SnapshotAttributes                 map[string]map[string]string                    `json:"snapshotAttributes"`
-	SgVpcAssociations                  map[string]map[string]string                    `json:"sgVpcAssociations"`
-	VpcTenancy                         map[string]string                               `json:"vpcTenancy,omitempty"`
+	NetworkInterfaces                  map[string]*NetworkInterface                    `json:"networkInterfaces"`
+	RouteTables                        map[string]*RouteTable                          `json:"routeTables,omitempty"`
+	TrafficMirrorFilters               map[string]*TrafficMirrorFilter                 `json:"trafficMirrorFilters"`
 	VpcPeeringOptions                  map[string]*PeeringConnectionOptions            `json:"vpcPeeringOptions"`
 	SubnetCIDRAssociations             map[string][]*SubnetCIDRAssociation             `json:"subnetCIDRAssociations"`
 	AddressAttributes                  map[string]*AddressAttribute                    `json:"addressAttributes"`
@@ -100,7 +94,7 @@ type backendSnapshot struct {
 	ReplaceRootVolumeTasks             map[string]*ReplaceRootVolumeTask               `json:"replaceRootVolumeTasks"`
 	SubnetCIDRReservations             map[string][]*SubnetCIDRReservation             `json:"subnetCIDRReservations"`
 	ImageDisabled                      map[string]bool                                 `json:"imageDisabled,omitempty"`
-	ImageDeprecated                    map[string]string                               `json:"imageDeprecated"`
+	SgVpcAssociations                  map[string]map[string]string                    `json:"sgVpcAssociations"`
 	ImageDeregistrationProtection      map[string]bool                                 `json:"imageDeregProtect"`
 	ImageAttributes                    map[string]map[string]string                    `json:"imageAttributes"`
 	VgwRoutePropagation                map[string]bool                                 `json:"vgwRoutePropagation"`
@@ -123,7 +117,7 @@ type backendSnapshot struct {
 	FastSnapshotRestores               map[string]bool                                 `json:"fastSnapshotRestores"`
 	VpnConnectionRoutes                map[string]*VpnConnectionRoute                  `json:"vpnConnectionRoutes"`
 	SpotDatafeed                       *SpotDatafeed                                   `json:"spotDatafeed,omitempty"`
-	TrafficMirrorFilters               map[string]*TrafficMirrorFilter                 `json:"trafficMirrorFilters"`
+	VpcTenancy                         map[string]string                               `json:"vpcTenancy,omitempty"`
 	TrafficMirrorFilterRules           map[string]*TrafficMirrorFilterRule             `json:"trafficMirrorFilterRules"`
 	TrafficMirrorSessions              map[string]*TrafficMirrorSession                `json:"trafficMirrorSessions"`
 	TrafficMirrorTargets               map[string]*TrafficMirrorTarget                 `json:"trafficMirrorTargets"`
@@ -132,8 +126,13 @@ type backendSnapshot struct {
 	NetworkInsightsAccessScopeAnalyses map[string]*NetworkInsightsAccessScopeAnalysis  `json:"niasa"`
 	ReservedInstances                  map[string]*ReservedInstance                    `json:"reservedInstances"`
 	ReservedInstancesOfferings         map[string]*ReservedInstancesOffering           `json:"reservedInstancesOfferings"`
-	ReservedInstancesListings          map[string]*ReservedInstancesListing            `json:"reservedInstancesListings"`
-	ReservedInstancesModifications     map[string]*ReservedInstancesModification       `json:"rim"`
+	Region                             string                                          `json:"region,omitempty"`
+	AccountID                          string                                          `json:"accountID,omitempty"`
+	FreePrivateIPs                     []string                                        `json:"freePrivateIPs"`
+	NextPrivateIPIndex                 int                                             `json:"nextPrivateIPIndex"`
+	NextElasticIPIndex                 int                                             `json:"nextElasticIPIndex"`
+	EbsEncryptionByDefault             bool                                            `json:"ebsEncryptionByDefault"`
+	SerialConsoleAccess                bool                                            `json:"serialConsoleAccess"`
 }
 
 // Snapshot serialises the backend state to JSON.

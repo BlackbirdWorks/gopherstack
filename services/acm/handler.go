@@ -464,19 +464,24 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		region := httputils.ExtractRegionFromRequest(c.Request(), h.Backend.Region())
+		ctx := context.WithValue(c.Request().Context(), regionContextKey{}, region)
+
 		return service.HandleTarget(
-			c, logger.Load(c.Request().Context()),
+			c, logger.Load(ctx),
 			"ACM", "application/x-amz-json-1.1",
 			h.GetSupportedOperations(),
-			h.dispatch,
+			func(_ context.Context, action string, body []byte) ([]byte, error) {
+				return h.dispatch(ctx, action, body)
+			},
 			h.handleError,
 		)
 	}
 }
 
 // dispatch routes the operation to the appropriate handler and marshals the response.
-func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byte, error) {
-	resp, err := h.dispatchJSON(action, body)
+func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
+	resp, err := h.dispatchJSON(ctx, action, body)
 	if err != nil {
 		return nil, err
 	}
@@ -500,7 +505,7 @@ var errUnknownACMAction = errors.New("unknown ACM action")
 // acmDispatchTable maps ACM action names to their JSON handler functions.
 //
 //nolint:gochecknoglobals // read-only dispatch table initialized once at startup
-var acmDispatchTable = map[string]func(*Handler, []byte) (any, error){
+var acmDispatchTable = map[string]func(*Handler, context.Context, []byte) (any, error){
 	"RequestCertificate":        (*Handler).jsonRequestCertificate,
 	"DescribeCertificate":       (*Handler).jsonDescribeCertificate,
 	"ListCertificates":          (*Handler).jsonListCertificates,
@@ -520,15 +525,15 @@ var acmDispatchTable = map[string]func(*Handler, []byte) (any, error){
 }
 
 // dispatchJSON routes a JSON-protocol ACM action to the appropriate handler.
-func (h *Handler) dispatchJSON(action string, body []byte) (any, error) {
+func (h *Handler) dispatchJSON(ctx context.Context, action string, body []byte) (any, error) {
 	if fn, ok := acmDispatchTable[action]; ok {
-		return fn(h, body)
+		return fn(h, ctx, body)
 	}
 
 	return nil, errUnknownACMAction
 }
 
-func (h *Handler) jsonRequestCertificate(body []byte) (any, error) {
+func (h *Handler) jsonRequestCertificate(ctx context.Context, body []byte) (any, error) {
 	var input requestCertificateInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
@@ -543,6 +548,7 @@ func (h *Handler) jsonRequestCertificate(body []byte) (any, error) {
 	}
 
 	cert, err := h.Backend.RequestCertificate(
+		ctx,
 		input.DomainName,
 		certType,
 		input.ValidationMethod,
@@ -573,12 +579,12 @@ func (h *Handler) jsonRequestCertificate(body []byte) (any, error) {
 	return &requestCertificateOutput{CertificateArn: cert.ARN}, nil
 }
 
-func (h *Handler) jsonDescribeCertificate(body []byte) (any, error) {
+func (h *Handler) jsonDescribeCertificate(ctx context.Context, body []byte) (any, error) {
 	var input describeCertificateInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
 	}
-	cert, err := h.Backend.DescribeCertificate(input.CertificateArn)
+	cert, err := h.Backend.DescribeCertificate(ctx, input.CertificateArn)
 	if err != nil {
 		return nil, err
 	}
@@ -672,7 +678,7 @@ func (h *Handler) jsonDescribeCertificate(body []byte) (any, error) {
 }
 
 // jsonListCertificates handles the ListCertificates operation.
-func (h *Handler) jsonListCertificates(body []byte) (any, error) {
+func (h *Handler) jsonListCertificates(ctx context.Context, body []byte) (any, error) {
 	var input listCertificatesInput
 	_ = json.Unmarshal(body, &input)
 
@@ -690,7 +696,7 @@ func (h *Handler) jsonListCertificates(body []byte) (any, error) {
 		params.ExtendedKeyUsage = input.Includes.ExtendedKeyUsage
 	}
 
-	p, err := h.Backend.ListCertificates(params)
+	p, err := h.Backend.ListCertificates(ctx, params)
 	if err != nil {
 		return nil, err
 	}
@@ -726,12 +732,12 @@ func (h *Handler) jsonListCertificates(body []byte) (any, error) {
 	return &listCertificatesOutput{CertificateSummaryList: summaries, NextToken: p.Next}, nil
 }
 
-func (h *Handler) jsonDeleteCertificate(body []byte) (any, error) {
+func (h *Handler) jsonDeleteCertificate(ctx context.Context, body []byte) (any, error) {
 	var input deleteCertificateInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
 	}
-	if err := h.Backend.DeleteCertificate(input.CertificateArn); err != nil {
+	if err := h.Backend.DeleteCertificate(ctx, input.CertificateArn); err != nil {
 		return nil, err
 	}
 	h.cleanupTags(input.CertificateArn)
@@ -739,26 +745,26 @@ func (h *Handler) jsonDeleteCertificate(body []byte) (any, error) {
 	return &deleteCertificateOutput{}, nil
 }
 
-func (h *Handler) jsonListTagsForCertificate(body []byte) (any, error) {
+func (h *Handler) jsonListTagsForCertificate(ctx context.Context, body []byte) (any, error) {
 	var input listTagsForCertificateInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
 	}
 
-	if !h.Backend.CertExists(input.CertificateArn) {
+	if !h.Backend.CertExists(ctx, input.CertificateArn) {
 		return nil, fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, input.CertificateArn)
 	}
 
 	return &listTagsForCertificateOutput{Tags: h.getTags(input.CertificateArn)}, nil
 }
 
-func (h *Handler) jsonAddTagsToCertificate(body []byte) (any, error) {
+func (h *Handler) jsonAddTagsToCertificate(ctx context.Context, body []byte) (any, error) {
 	var input addTagsToCertificateInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
 	}
 
-	if !h.Backend.CertExists(input.CertificateArn) {
+	if !h.Backend.CertExists(ctx, input.CertificateArn) {
 		return nil, fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, input.CertificateArn)
 	}
 
@@ -773,13 +779,13 @@ func (h *Handler) jsonAddTagsToCertificate(body []byte) (any, error) {
 	return &addTagsToCertificateOutput{}, nil
 }
 
-func (h *Handler) jsonRemoveTagsFromCertificate(body []byte) (any, error) {
+func (h *Handler) jsonRemoveTagsFromCertificate(ctx context.Context, body []byte) (any, error) {
 	var input removeTagsFromCertificateInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
 	}
 
-	if !h.Backend.CertExists(input.CertificateArn) {
+	if !h.Backend.CertExists(ctx, input.CertificateArn) {
 		return nil, fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, input.CertificateArn)
 	}
 
@@ -792,12 +798,13 @@ func (h *Handler) jsonRemoveTagsFromCertificate(body []byte) (any, error) {
 	return &removeTagsFromCertificateOutput{}, nil
 }
 
-func (h *Handler) jsonImportCertificate(body []byte) (any, error) {
+func (h *Handler) jsonImportCertificate(ctx context.Context, body []byte) (any, error) {
 	var input importCertificateInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
 	}
 	cert, err := h.Backend.ImportCertificate(
+		ctx,
 		input.Certificate,
 		input.PrivateKey,
 		input.CertificateChain,
@@ -810,19 +817,19 @@ func (h *Handler) jsonImportCertificate(body []byte) (any, error) {
 	return &importCertificateOutput{CertificateArn: cert.ARN}, nil
 }
 
-func (h *Handler) jsonRenewCertificate(body []byte) (any, error) {
+func (h *Handler) jsonRenewCertificate(ctx context.Context, body []byte) (any, error) {
 	var input renewCertificateInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
 	}
-	if err := h.Backend.RenewCertificate(input.CertificateArn); err != nil {
+	if err := h.Backend.RenewCertificate(ctx, input.CertificateArn); err != nil {
 		return nil, err
 	}
 
 	return &renewCertificateOutput{}, nil
 }
 
-func (h *Handler) jsonExportCertificate(body []byte) (any, error) {
+func (h *Handler) jsonExportCertificate(ctx context.Context, body []byte) (any, error) {
 	var input exportCertificateInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
@@ -841,7 +848,7 @@ func (h *Handler) jsonExportCertificate(body []byte) (any, error) {
 		}
 	}
 
-	cert, err := h.Backend.ExportCertificate(input.CertificateArn, passphrase)
+	cert, err := h.Backend.ExportCertificate(ctx, input.CertificateArn, passphrase)
 	if err != nil {
 		return nil, err
 	}
@@ -853,12 +860,12 @@ func (h *Handler) jsonExportCertificate(body []byte) (any, error) {
 	}, nil
 }
 
-func (h *Handler) jsonGetCertificate(body []byte) (any, error) {
+func (h *Handler) jsonGetCertificate(ctx context.Context, body []byte) (any, error) {
 	var input getCertificateInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
 	}
-	certBody, certChain, err := h.Backend.GetCertificate(input.CertificateArn)
+	certBody, certChain, err := h.Backend.GetCertificate(ctx, input.CertificateArn)
 	if err != nil {
 		return nil, err
 	}
@@ -870,8 +877,8 @@ func (h *Handler) jsonGetCertificate(body []byte) (any, error) {
 }
 
 // jsonGetAccountConfiguration handles the GetAccountConfiguration operation.
-func (h *Handler) jsonGetAccountConfiguration(_ []byte) (any, error) {
-	cfg := h.Backend.GetAccountConfiguration()
+func (h *Handler) jsonGetAccountConfiguration(ctx context.Context, _ []byte) (any, error) {
+	cfg := h.Backend.GetAccountConfiguration(ctx)
 	days := cfg.DaysBeforeExpiry
 
 	return &getAccountConfigurationOutput{
@@ -879,7 +886,7 @@ func (h *Handler) jsonGetAccountConfiguration(_ []byte) (any, error) {
 	}, nil
 }
 
-func (h *Handler) jsonPutAccountConfiguration(body []byte) (any, error) {
+func (h *Handler) jsonPutAccountConfiguration(ctx context.Context, body []byte) (any, error) {
 	var input putAccountConfigurationInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
@@ -890,46 +897,48 @@ func (h *Handler) jsonPutAccountConfiguration(body []byte) (any, error) {
 		days = input.ExpiryEvents.DaysBeforeExpiry
 	}
 
-	if err := h.Backend.PutAccountConfiguration(input.IdempotencyToken, days); err != nil {
+	if err := h.Backend.PutAccountConfiguration(ctx, input.IdempotencyToken, days); err != nil {
 		return nil, err
 	}
 
 	return &putAccountConfigurationOutput{}, nil
 }
 
-func (h *Handler) jsonResendValidationEmail(body []byte) (any, error) {
+func (h *Handler) jsonResendValidationEmail(ctx context.Context, body []byte) (any, error) {
 	var input resendValidationEmailInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
 	}
 
-	if err := h.Backend.ResendValidationEmail(input.CertificateArn, input.Domain, input.ValidationDomain); err != nil {
+	err := h.Backend.ResendValidationEmail(ctx, input.CertificateArn, input.Domain, input.ValidationDomain)
+	if err != nil {
 		return nil, err
 	}
 
 	return &resendValidationEmailOutput{}, nil
 }
 
-func (h *Handler) jsonRevokeCertificate(body []byte) (any, error) {
+func (h *Handler) jsonRevokeCertificate(ctx context.Context, body []byte) (any, error) {
 	var input revokeCertificateInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
 	}
 
-	if err := h.Backend.RevokeCertificate(input.CertificateArn, input.RevocationReason); err != nil {
+	if err := h.Backend.RevokeCertificate(ctx, input.CertificateArn, input.RevocationReason); err != nil {
 		return nil, err
 	}
 
 	return &revokeCertificateOutput{}, nil
 }
 
-func (h *Handler) jsonUpdateCertificateOptions(body []byte) (any, error) {
+func (h *Handler) jsonUpdateCertificateOptions(ctx context.Context, body []byte) (any, error) {
 	var input updateCertificateOptionsInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
 	}
 
 	if err := h.Backend.UpdateCertificateOptions(
+		ctx,
 		input.CertificateArn,
 		input.Options.CertificateTransparencyLoggingPreference,
 	); err != nil {

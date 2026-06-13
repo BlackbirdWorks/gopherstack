@@ -299,25 +299,25 @@ func TestAudit1_InputSecurityGroup_CRUD(t *testing.T) {
 
 	// Create
 	rec := doRequest(t, h, http.MethodPost, "/prod/inputSecurityGroups", map[string]any{
-		"WhitelistRules": []any{
-			map[string]any{"Cidr": "10.0.0.0/8"},
+		"whitelistRules": []any{
+			map[string]any{"cidr": "10.0.0.0/8"},
 		},
-		"Tags": map[string]any{"env": "test"},
+		"tags": map[string]any{"env": "test"},
 	})
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var createResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
-	sg := createResp["SecurityGroup"].(map[string]any)
-	groupID := sg["Id"].(string)
+	sg := createResp["securityGroup"].(map[string]any)
+	groupID := sg["id"].(string)
 
-	assert.Contains(t, sg["Arn"], "arn:aws:medialive:us-east-1:000000000000:inputSecurityGroup:")
-	assert.Equal(t, "IDLE", sg["State"])
+	assert.Contains(t, sg["arn"], "arn:aws:medialive:us-east-1:000000000000:inputSecurityGroup:")
+	assert.Equal(t, "IDLE", sg["state"])
 	assert.NotEmpty(t, groupID)
 
-	rules := sg["WhitelistRules"].([]any)
+	rules := sg["whitelistRules"].([]any)
 	assert.Len(t, rules, 1)
-	assert.Equal(t, "10.0.0.0/8", rules[0].(map[string]any)["Cidr"])
+	assert.Equal(t, "10.0.0.0/8", rules[0].(map[string]any)["cidr"])
 
 	assert.Equal(t, 1, medialive.InputSecurityGroupCount(h.Backend.(*medialive.InMemoryBackend)))
 
@@ -327,16 +327,16 @@ func TestAudit1_InputSecurityGroup_CRUD(t *testing.T) {
 
 	// Update whitelist
 	rec = doRequest(t, h, http.MethodPut, "/prod/inputSecurityGroups/"+groupID, map[string]any{
-		"WhitelistRules": []any{
-			map[string]any{"Cidr": "192.168.0.0/16"},
-			map[string]any{"Cidr": "10.0.0.0/8"},
+		"whitelistRules": []any{
+			map[string]any{"cidr": "192.168.0.0/16"},
+			map[string]any{"cidr": "10.0.0.0/8"},
 		},
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var updateResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp))
-	updatedSG := updateResp["SecurityGroup"].(map[string]any)
-	updatedRules := updatedSG["WhitelistRules"].([]any)
+	updatedSG := updateResp["securityGroup"].(map[string]any)
+	updatedRules := updatedSG["whitelistRules"].([]any)
 	assert.Len(t, updatedRules, 2)
 
 	// List
@@ -344,7 +344,7 @@ func TestAudit1_InputSecurityGroup_CRUD(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var listResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
-	assert.Len(t, listResp["InputSecurityGroups"], 1)
+	assert.Len(t, listResp["inputSecurityGroups"], 1)
 
 	// Delete
 	rec = doRequest(t, h, http.MethodDelete, "/prod/inputSecurityGroups/"+groupID, nil)
@@ -432,5 +432,5 @@ func TestAudit1_ListInputSecurityGroups_Empty(t *testing.T) {
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Empty(t, resp["InputSecurityGroups"])
+	assert.Empty(t, resp["inputSecurityGroups"])
 }

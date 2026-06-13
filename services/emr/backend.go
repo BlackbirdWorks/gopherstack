@@ -1,11 +1,13 @@
 package emr
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"maps"
 	"slices"
 	"sort"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -14,6 +16,30 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
+
+// regionContextKey is the context key under which the per-request AWS region is stored.
+type regionContextKey struct{}
+
+// getRegion extracts the region from ctx, falling back to defaultRegion when unset.
+func getRegion(ctx context.Context, defaultRegion string) string {
+	if r, ok := ctx.Value(regionContextKey{}).(string); ok && r != "" {
+		return r
+	}
+
+	return defaultRegion
+}
+
+// regionFromARN extracts the region component (index 3) from an AWS ARN
+// (arn:partition:service:region:account:resource), falling back to defaultRegion.
+func regionFromARN(resourceARN, defaultRegion string) string {
+	parts := strings.Split(resourceARN, ":")
+	const regionIndex = 3
+	if len(parts) > regionIndex && parts[regionIndex] != "" {
+		return parts[regionIndex]
+	}
+
+	return defaultRegion
+}
 
 var ErrValidation = awserr.New(
 	"ValidationException: required field is missing",
@@ -622,16 +648,21 @@ type ListInstancesParams struct {
 }
 
 // InMemoryBackend stores EMR state in memory.
+//
+// All regional resource maps are nested by region (outer key = region) so that
+// same-named resources in different regions are fully isolated. The
+// block-public-access configuration is account-level (one per region in AWS)
+// and is therefore also region-nested.
 type InMemoryBackend struct {
-	clusters              map[string]*Cluster
-	arnIndex              map[string]string
-	securityConfigs       map[string]*SecurityConfiguration
-	studios               map[string]*Studio
-	studioSessionMappings map[string]*StudioSessionMapping
-	persistentAppUIs      map[string]*PersistentAppUI
-	notebookExecutions    map[string]*NotebookExecution
-	blockPublicAccess     *BlockPublicAccessConfiguration
-	blockPublicAccessMeta *blockPublicAccessMeta
+	clusters              map[string]map[string]*Cluster
+	arnIndex              map[string]map[string]string
+	securityConfigs       map[string]map[string]*SecurityConfiguration
+	studios               map[string]map[string]*Studio
+	studioSessionMappings map[string]map[string]*StudioSessionMapping
+	persistentAppUIs      map[string]map[string]*PersistentAppUI
+	notebookExecutions    map[string]map[string]*NotebookExecution
+	blockPublicAccess     map[string]*BlockPublicAccessConfiguration
+	blockPublicAccessMeta map[string]*blockPublicAccessMeta
 	mu                    *lockmetrics.RWMutex
 	accountID             string
 	region                string
@@ -641,13 +672,15 @@ type InMemoryBackend struct {
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		clusters:              make(map[string]*Cluster),
-		arnIndex:              make(map[string]string),
-		securityConfigs:       make(map[string]*SecurityConfiguration),
-		studios:               make(map[string]*Studio),
-		studioSessionMappings: make(map[string]*StudioSessionMapping),
-		persistentAppUIs:      make(map[string]*PersistentAppUI),
-		notebookExecutions:    make(map[string]*NotebookExecution),
+		clusters:              make(map[string]map[string]*Cluster),
+		arnIndex:              make(map[string]map[string]string),
+		securityConfigs:       make(map[string]map[string]*SecurityConfiguration),
+		studios:               make(map[string]map[string]*Studio),
+		studioSessionMappings: make(map[string]map[string]*StudioSessionMapping),
+		persistentAppUIs:      make(map[string]map[string]*PersistentAppUI),
+		notebookExecutions:    make(map[string]map[string]*NotebookExecution),
+		blockPublicAccess:     make(map[string]*BlockPublicAccessConfiguration),
+		blockPublicAccessMeta: make(map[string]*blockPublicAccessMeta),
 		accountID:             accountID,
 		region:                region,
 		mu:                    lockmetrics.New("emr"),
@@ -656,6 +689,65 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 
 // Region returns the AWS region this backend is configured for.
 func (b *InMemoryBackend) Region() string { return b.region }
+
+// The following lazy per-region store helpers return the resource map for the
+// given region, creating it on first use. Callers must hold b.mu.
+
+func (b *InMemoryBackend) clustersStore(region string) map[string]*Cluster {
+	if b.clusters[region] == nil {
+		b.clusters[region] = make(map[string]*Cluster)
+	}
+
+	return b.clusters[region]
+}
+
+func (b *InMemoryBackend) arnIndexStore(region string) map[string]string {
+	if b.arnIndex[region] == nil {
+		b.arnIndex[region] = make(map[string]string)
+	}
+
+	return b.arnIndex[region]
+}
+
+func (b *InMemoryBackend) securityConfigsStore(region string) map[string]*SecurityConfiguration {
+	if b.securityConfigs[region] == nil {
+		b.securityConfigs[region] = make(map[string]*SecurityConfiguration)
+	}
+
+	return b.securityConfigs[region]
+}
+
+func (b *InMemoryBackend) studiosStore(region string) map[string]*Studio {
+	if b.studios[region] == nil {
+		b.studios[region] = make(map[string]*Studio)
+	}
+
+	return b.studios[region]
+}
+
+func (b *InMemoryBackend) studioSessionMappingsStore(region string) map[string]*StudioSessionMapping {
+	if b.studioSessionMappings[region] == nil {
+		b.studioSessionMappings[region] = make(map[string]*StudioSessionMapping)
+	}
+
+	return b.studioSessionMappings[region]
+}
+
+func (b *InMemoryBackend) persistentAppUIsStore(region string) map[string]*PersistentAppUI {
+	if b.persistentAppUIs[region] == nil {
+		b.persistentAppUIs[region] = make(map[string]*PersistentAppUI)
+	}
+
+	return b.persistentAppUIs[region]
+}
+
+func (b *InMemoryBackend) notebookExecutionsStore(region string) map[string]*NotebookExecution {
+	if b.notebookExecutions[region] == nil {
+		b.notebookExecutions[region] = make(map[string]*NotebookExecution)
+	}
+
+	return b.notebookExecutions[region]
+}
 
 func (b *InMemoryBackend) nextID() string {
 	n := b.counter.Add(1)
@@ -811,7 +903,7 @@ func buildEC2Attrs(inst RunJobFlowInstances) *EC2InstanceAttributes {
 }
 
 // RunJobFlow creates a new EMR cluster.
-func (b *InMemoryBackend) RunJobFlow(params RunJobFlowParams) (*Cluster, error) {
+func (b *InMemoryBackend) RunJobFlow(ctx context.Context, params RunJobFlowParams) (*Cluster, error) {
 	releaseLabel := params.ReleaseLabel
 	if releaseLabel == "" {
 		releaseLabel = defaultReleaseLabel
@@ -821,11 +913,13 @@ func (b *InMemoryBackend) RunJobFlow(params RunJobFlowParams) (*Cluster, error) 
 		return nil, err
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("RunJobFlow")
 	defer b.mu.Unlock()
 
 	id := b.nextID()
-	clusterARN := arn.Build("elasticmapreduce", b.region, b.accountID, "cluster/"+id)
+	clusterARN := arn.Build("elasticmapreduce", region, b.accountID, "cluster/"+id)
 
 	tagsCopy := make([]Tag, len(params.Tags))
 	copy(tagsCopy, params.Tags)
@@ -874,19 +968,21 @@ func (b *InMemoryBackend) RunJobFlow(params RunJobFlowParams) (*Cluster, error) 
 		instanceGroups:              groups,
 		steps:                       steps,
 	}
-	b.clusters[id] = cluster
-	b.arnIndex[clusterARN] = id
+	b.clustersStore(region)[id] = cluster
+	b.arnIndexStore(region)[clusterARN] = id
 	cp := cluster.clone()
 
 	return &cp, nil
 }
 
 // DescribeCluster returns a cluster by its ID.
-func (b *InMemoryBackend) DescribeCluster(id string) (*Cluster, error) {
+func (b *InMemoryBackend) DescribeCluster(ctx context.Context, id string) (*Cluster, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("DescribeCluster")
 	defer b.mu.RUnlock()
 
-	cluster, ok := b.clusters[id]
+	cluster, ok := b.clustersStore(region)[id]
 	if !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, id)
 	}
@@ -944,12 +1040,14 @@ func (c Cluster) clone() Cluster {
 }
 
 // ListClusters returns cluster summaries matching the given filter, sorted by creation time descending.
-func (b *InMemoryBackend) ListClusters(params ListClustersParams) ([]ClusterSummary, string) {
+func (b *InMemoryBackend) ListClusters(ctx context.Context, params ListClustersParams) ([]ClusterSummary, string) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("ListClusters")
 	defer b.mu.RUnlock()
 
 	stateSet := buildStateSet(params.ClusterStates)
-	list := b.gatherClusterSummaries(stateSet, params)
+	list := b.gatherClusterSummaries(region, stateSet, params)
 
 	sort.Slice(list, func(i, j int) bool {
 		ti := clusterCreationMillis(list[i])
@@ -983,12 +1081,14 @@ func buildStateSet(states []string) map[string]bool {
 
 // gatherClusterSummaries collects filtered cluster summaries. Caller holds read lock.
 func (b *InMemoryBackend) gatherClusterSummaries(
+	region string,
 	stateSet map[string]bool,
 	params ListClustersParams,
 ) []ClusterSummary {
-	list := make([]ClusterSummary, 0, len(b.clusters))
+	clusters := b.clustersStore(region)
+	list := make([]ClusterSummary, 0, len(clusters))
 
-	for _, c := range b.clusters {
+	for _, c := range clusters {
 		if !clusterMatchesFilter(c, stateSet, params) {
 			continue
 		}
@@ -1058,12 +1158,16 @@ func timelineMillis(timeline map[string]any, key string) int64 {
 
 // TerminateJobFlows marks the specified clusters as TERMINATED.
 // Returns ValidationException if any cluster has termination protection.
-func (b *InMemoryBackend) TerminateJobFlows(ids []string) error {
+func (b *InMemoryBackend) TerminateJobFlows(ctx context.Context, ids []string) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("TerminateJobFlows")
 	defer b.mu.Unlock()
 
+	clusters := b.clustersStore(region)
+
 	for _, id := range ids {
-		if err := b.terminateSingle(id); err != nil {
+		if err := terminateSingle(clusters, id); err != nil {
 			return err
 		}
 	}
@@ -1071,8 +1175,8 @@ func (b *InMemoryBackend) TerminateJobFlows(ids []string) error {
 	return nil
 }
 
-func (b *InMemoryBackend) terminateSingle(id string) error {
-	cluster, ok := b.clusters[id]
+func terminateSingle(clusters map[string]*Cluster, id string) error {
+	cluster, ok := clusters[id]
 	if !ok {
 		return fmt.Errorf("%w: cluster %s not found", ErrNotFound, id)
 	}
@@ -1099,11 +1203,13 @@ func (b *InMemoryBackend) terminateSingle(id string) error {
 }
 
 // ListInstanceGroups returns the instance groups for a cluster by its ID.
-func (b *InMemoryBackend) ListInstanceGroups(clusterID string) ([]InstanceGroup, error) {
+func (b *InMemoryBackend) ListInstanceGroups(ctx context.Context, clusterID string) ([]InstanceGroup, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("ListInstanceGroups")
 	defer b.mu.RUnlock()
 
-	cluster, ok := b.clusters[clusterID]
+	cluster, ok := b.clustersStore(region)[clusterID]
 	if !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
 	}
@@ -1115,11 +1221,15 @@ func (b *InMemoryBackend) ListInstanceGroups(clusterID string) ([]InstanceGroup,
 }
 
 // AddTags adds or updates tags on a cluster identified by ARN or ID.
-func (b *InMemoryBackend) AddTags(resourceID string, tags []Tag) error {
+// When resourceID is an ARN the region is resolved from the ARN, otherwise the
+// ctx region (falling back to the backend default) is used.
+func (b *InMemoryBackend) AddTags(ctx context.Context, resourceID string, tags []Tag) error {
+	region := regionFromARN(resourceID, getRegion(ctx, b.region))
+
 	b.mu.Lock("AddTags")
 	defer b.mu.Unlock()
 
-	cluster := b.findClusterByIDOrARN(resourceID)
+	cluster := b.findClusterByIDOrARN(region, resourceID)
 	if cluster == nil {
 		return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceID)
 	}
@@ -1135,11 +1245,13 @@ func (b *InMemoryBackend) AddTags(resourceID string, tags []Tag) error {
 }
 
 // RemoveTags removes tags from a cluster identified by ARN or ID.
-func (b *InMemoryBackend) RemoveTags(resourceID string, tagKeys []string) error {
+func (b *InMemoryBackend) RemoveTags(ctx context.Context, resourceID string, tagKeys []string) error {
+	region := regionFromARN(resourceID, getRegion(ctx, b.region))
+
 	b.mu.Lock("RemoveTags")
 	defer b.mu.Unlock()
 
-	cluster := b.findClusterByIDOrARN(resourceID)
+	cluster := b.findClusterByIDOrARN(region, resourceID)
 	if cluster == nil {
 		return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceID)
 	}
@@ -1155,11 +1267,13 @@ func (b *InMemoryBackend) RemoveTags(resourceID string, tagKeys []string) error 
 }
 
 // ListTagsForResource returns tags for a cluster identified by ARN or ID, sorted by key.
-func (b *InMemoryBackend) ListTagsForResource(resourceID string) ([]Tag, error) {
+func (b *InMemoryBackend) ListTagsForResource(ctx context.Context, resourceID string) ([]Tag, error) {
+	region := regionFromARN(resourceID, getRegion(ctx, b.region))
+
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
-	cluster := b.findClusterByIDOrARN(resourceID)
+	cluster := b.findClusterByIDOrARN(region, resourceID)
 	if cluster == nil {
 		return nil, fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceID)
 	}
@@ -1174,15 +1288,16 @@ func (b *InMemoryBackend) ListTagsForResource(resourceID string) ([]Tag, error) 
 	return tags, nil
 }
 
-// findClusterByIDOrARN looks up a cluster by either its ID or ARN.
-// Caller must hold at least a read lock.
-func (b *InMemoryBackend) findClusterByIDOrARN(idOrARN string) *Cluster {
-	if c, ok := b.clusters[idOrARN]; ok {
+// findClusterByIDOrARN looks up a cluster by either its ID or ARN within the
+// given region. Caller must hold at least a read lock.
+func (b *InMemoryBackend) findClusterByIDOrARN(region, idOrARN string) *Cluster {
+	clusters := b.clustersStore(region)
+	if c, ok := clusters[idOrARN]; ok {
 		return c
 	}
 
-	if id, ok := b.arnIndex[idOrARN]; ok {
-		return b.clusters[id]
+	if id, ok := b.arnIndexStore(region)[idOrARN]; ok {
+		return clusters[id]
 	}
 
 	return nil
@@ -1224,27 +1339,30 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.clusters = make(map[string]*Cluster)
-	b.arnIndex = make(map[string]string)
-	b.securityConfigs = make(map[string]*SecurityConfiguration)
-	b.studios = make(map[string]*Studio)
-	b.studioSessionMappings = make(map[string]*StudioSessionMapping)
-	b.persistentAppUIs = make(map[string]*PersistentAppUI)
-	b.notebookExecutions = make(map[string]*NotebookExecution)
-	b.blockPublicAccess = nil
-	b.blockPublicAccessMeta = nil
+	b.clusters = make(map[string]map[string]*Cluster)
+	b.arnIndex = make(map[string]map[string]string)
+	b.securityConfigs = make(map[string]map[string]*SecurityConfiguration)
+	b.studios = make(map[string]map[string]*Studio)
+	b.studioSessionMappings = make(map[string]map[string]*StudioSessionMapping)
+	b.persistentAppUIs = make(map[string]map[string]*PersistentAppUI)
+	b.notebookExecutions = make(map[string]map[string]*NotebookExecution)
+	b.blockPublicAccess = make(map[string]*BlockPublicAccessConfiguration)
+	b.blockPublicAccessMeta = make(map[string]*blockPublicAccessMeta)
 	b.counter.Store(0)
 }
 
 // AddInstanceFleet adds an instance fleet to an existing cluster.
 func (b *InMemoryBackend) AddInstanceFleet(
+	ctx context.Context,
 	clusterID string,
 	spec InstanceFleetSpec,
 ) (*InstanceFleet, string, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("AddInstanceFleet")
 	defer b.mu.Unlock()
 
-	cluster, ok := b.clusters[clusterID]
+	cluster, ok := b.clustersStore(region)[clusterID]
 	if !ok {
 		return nil, "", fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
 	}
@@ -1267,13 +1385,16 @@ func (b *InMemoryBackend) AddInstanceFleet(
 
 // AddInstanceGroups adds new instance groups to an existing cluster.
 func (b *InMemoryBackend) AddInstanceGroups(
+	ctx context.Context,
 	clusterID string,
 	specs []InstanceGroupSpec,
 ) ([]string, string, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("AddInstanceGroups")
 	defer b.mu.Unlock()
 
-	cluster, ok := b.clusters[clusterID]
+	cluster, ok := b.clustersStore(region)[clusterID]
 	if !ok {
 		return nil, "", fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
 	}
@@ -1306,11 +1427,15 @@ func (b *InMemoryBackend) AddInstanceGroups(
 }
 
 // AddJobFlowSteps adds steps to a cluster and returns their IDs.
-func (b *InMemoryBackend) AddJobFlowSteps(jobFlowID string, specs []StepSpec) ([]string, error) {
+func (b *InMemoryBackend) AddJobFlowSteps(
+	ctx context.Context, jobFlowID string, specs []StepSpec,
+) ([]string, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("AddJobFlowSteps")
 	defer b.mu.Unlock()
 
-	cluster, ok := b.clusters[jobFlowID]
+	cluster, ok := b.clustersStore(region)[jobFlowID]
 	if !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, jobFlowID)
 	}
@@ -1344,15 +1469,18 @@ func (b *InMemoryBackend) AddJobFlowSteps(jobFlowID string, specs []StepSpec) ([
 
 // ListSteps returns steps for a cluster, optionally filtered by state and/or ID.
 func (b *InMemoryBackend) ListSteps(
+	ctx context.Context,
 	clusterID string,
 	stepStates []string,
 	stepIDs []string,
 	marker string,
 ) ([]Step, string) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("ListSteps")
 	defer b.mu.RUnlock()
 
-	cluster, ok := b.clusters[clusterID]
+	cluster, ok := b.clustersStore(region)[clusterID]
 	if !ok {
 		return []Step{}, ""
 	}
@@ -1404,11 +1532,13 @@ func buildStringSet(items []string) map[string]bool {
 }
 
 // DescribeStep returns a single step by cluster ID and step ID.
-func (b *InMemoryBackend) DescribeStep(clusterID, stepID string) (*Step, error) {
+func (b *InMemoryBackend) DescribeStep(ctx context.Context, clusterID, stepID string) (*Step, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("DescribeStep")
 	defer b.mu.RUnlock()
 
-	cluster, ok := b.clusters[clusterID]
+	cluster, ok := b.clustersStore(region)[clusterID]
 	if !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
 	}
@@ -1425,11 +1555,13 @@ func (b *InMemoryBackend) DescribeStep(clusterID, stepID string) (*Step, error) 
 }
 
 // CancelSteps cancels pending steps on a cluster.
-func (b *InMemoryBackend) CancelSteps(clusterID string, stepIDs []string) error {
+func (b *InMemoryBackend) CancelSteps(ctx context.Context, clusterID string, stepIDs []string) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("CancelSteps")
 	defer b.mu.Unlock()
 
-	cluster, ok := b.clusters[clusterID]
+	cluster, ok := b.clustersStore(region)[clusterID]
 	if !ok {
 		return fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
 	}
@@ -1447,7 +1579,9 @@ func (b *InMemoryBackend) CancelSteps(clusterID string, stepIDs []string) error 
 }
 
 // ModifyCluster updates StepConcurrencyLevel on a cluster.
-func (b *InMemoryBackend) ModifyCluster(clusterID string, stepConcurrencyLevel int) (int, error) {
+func (b *InMemoryBackend) ModifyCluster(
+	ctx context.Context, clusterID string, stepConcurrencyLevel int,
+) (int, error) {
 	if stepConcurrencyLevel < minStepConcurrency || stepConcurrencyLevel > maxStepConcurrency {
 		return 0, fmt.Errorf(
 			"%w: StepConcurrencyLevel must be between %d and %d",
@@ -1457,10 +1591,12 @@ func (b *InMemoryBackend) ModifyCluster(clusterID string, stepConcurrencyLevel i
 		)
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("ModifyCluster")
 	defer b.mu.Unlock()
 
-	cluster, ok := b.clusters[clusterID]
+	cluster, ok := b.clustersStore(region)[clusterID]
 	if !ok {
 		return 0, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
 	}
@@ -1472,13 +1608,16 @@ func (b *InMemoryBackend) ModifyCluster(clusterID string, stepConcurrencyLevel i
 
 // ModifyInstanceGroups updates instance counts for the specified groups.
 func (b *InMemoryBackend) ModifyInstanceGroups(
+	ctx context.Context,
 	clusterID string,
 	mods []InstanceGroupModification,
 ) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("ModifyInstanceGroups")
 	defer b.mu.Unlock()
 
-	cluster, ok := b.clusters[clusterID]
+	cluster, ok := b.clustersStore(region)[clusterID]
 	if !ok {
 		return fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
 	}
@@ -1509,13 +1648,16 @@ type InstanceGroupModification struct {
 
 // ModifyInstanceFleet updates target capacities on an instance fleet.
 func (b *InMemoryBackend) ModifyInstanceFleet(
+	ctx context.Context,
 	clusterID string,
 	mod InstanceFleetModification,
 ) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("ModifyInstanceFleet")
 	defer b.mu.Unlock()
 
-	cluster, ok := b.clusters[clusterID]
+	cluster, ok := b.clustersStore(region)[clusterID]
 	if !ok {
 		return fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
 	}
@@ -1537,12 +1679,18 @@ type InstanceFleetModification struct {
 }
 
 // SetTerminationProtection sets the TerminationProtected flag on clusters.
-func (b *InMemoryBackend) SetTerminationProtection(jobFlowIDs []string, protect bool) error {
+func (b *InMemoryBackend) SetTerminationProtection(
+	ctx context.Context, jobFlowIDs []string, protect bool,
+) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("SetTerminationProtection")
 	defer b.mu.Unlock()
 
+	clusters := b.clustersStore(region)
+
 	for _, id := range jobFlowIDs {
-		cluster, ok := b.clusters[id]
+		cluster, ok := clusters[id]
 		if !ok {
 			return fmt.Errorf("%w: cluster %s not found", ErrNotFound, id)
 		}
@@ -1554,12 +1702,18 @@ func (b *InMemoryBackend) SetTerminationProtection(jobFlowIDs []string, protect 
 }
 
 // SetKeepJobFlowAliveWhenNoSteps sets the KeepJobFlowAliveWhenNoSteps flag.
-func (b *InMemoryBackend) SetKeepJobFlowAliveWhenNoSteps(jobFlowIDs []string, keep bool) error {
+func (b *InMemoryBackend) SetKeepJobFlowAliveWhenNoSteps(
+	ctx context.Context, jobFlowIDs []string, keep bool,
+) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("SetKeepJobFlowAliveWhenNoSteps")
 	defer b.mu.Unlock()
 
+	clusters := b.clustersStore(region)
+
 	for _, id := range jobFlowIDs {
-		cluster, ok := b.clusters[id]
+		cluster, ok := clusters[id]
 		if !ok {
 			return fmt.Errorf("%w: cluster %s not found", ErrNotFound, id)
 		}
@@ -1571,12 +1725,18 @@ func (b *InMemoryBackend) SetKeepJobFlowAliveWhenNoSteps(jobFlowIDs []string, ke
 }
 
 // SetVisibleToAllUsers sets the VisibleToAllUsers flag.
-func (b *InMemoryBackend) SetVisibleToAllUsers(jobFlowIDs []string, visible bool) error {
+func (b *InMemoryBackend) SetVisibleToAllUsers(
+	ctx context.Context, jobFlowIDs []string, visible bool,
+) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("SetVisibleToAllUsers")
 	defer b.mu.Unlock()
 
+	clusters := b.clustersStore(region)
+
 	for _, id := range jobFlowIDs {
-		cluster, ok := b.clusters[id]
+		cluster, ok := clusters[id]
 		if !ok {
 			return fmt.Errorf("%w: cluster %s not found", ErrNotFound, id)
 		}
@@ -1588,12 +1748,18 @@ func (b *InMemoryBackend) SetVisibleToAllUsers(jobFlowIDs []string, visible bool
 }
 
 // SetUnhealthyNodeReplacement sets the UnhealthyNodeReplacement flag.
-func (b *InMemoryBackend) SetUnhealthyNodeReplacement(jobFlowIDs []string, replace bool) error {
+func (b *InMemoryBackend) SetUnhealthyNodeReplacement(
+	ctx context.Context, jobFlowIDs []string, replace bool,
+) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("SetUnhealthyNodeReplacement")
 	defer b.mu.Unlock()
 
+	clusters := b.clustersStore(region)
+
 	for _, id := range jobFlowIDs {
-		cluster, ok := b.clusters[id]
+		cluster, ok := clusters[id]
 		if !ok {
 			return fmt.Errorf("%w: cluster %s not found", ErrNotFound, id)
 		}
@@ -1606,6 +1772,7 @@ func (b *InMemoryBackend) SetUnhealthyNodeReplacement(jobFlowIDs []string, repla
 
 // PutManagedScalingPolicy sets the managed scaling policy on a cluster.
 func (b *InMemoryBackend) PutManagedScalingPolicy(
+	ctx context.Context,
 	clusterID string,
 	policy ManagedScalingPolicy,
 ) error {
@@ -1613,10 +1780,12 @@ func (b *InMemoryBackend) PutManagedScalingPolicy(
 		return err
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("PutManagedScalingPolicy")
 	defer b.mu.Unlock()
 
-	cluster, ok := b.clusters[clusterID]
+	cluster, ok := b.clustersStore(region)[clusterID]
 	if !ok {
 		return fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
 	}
@@ -1645,11 +1814,15 @@ func validateManagedScalingPolicy(policy ManagedScalingPolicy) error {
 }
 
 // GetManagedScalingPolicy returns the managed scaling policy for a cluster.
-func (b *InMemoryBackend) GetManagedScalingPolicy(clusterID string) (*ManagedScalingPolicy, error) {
+func (b *InMemoryBackend) GetManagedScalingPolicy(
+	ctx context.Context, clusterID string,
+) (*ManagedScalingPolicy, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("GetManagedScalingPolicy")
 	defer b.mu.RUnlock()
 
-	cluster, ok := b.clusters[clusterID]
+	cluster, ok := b.clustersStore(region)[clusterID]
 	if !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
 	}
@@ -1666,11 +1839,13 @@ func (b *InMemoryBackend) GetManagedScalingPolicy(clusterID string) (*ManagedSca
 }
 
 // RemoveManagedScalingPolicy clears the managed scaling policy on a cluster.
-func (b *InMemoryBackend) RemoveManagedScalingPolicy(clusterID string) error {
+func (b *InMemoryBackend) RemoveManagedScalingPolicy(ctx context.Context, clusterID string) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("RemoveManagedScalingPolicy")
 	defer b.mu.Unlock()
 
-	cluster, ok := b.clusters[clusterID]
+	cluster, ok := b.clustersStore(region)[clusterID]
 	if !ok {
 		return fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
 	}
@@ -1682,6 +1857,7 @@ func (b *InMemoryBackend) RemoveManagedScalingPolicy(clusterID string) error {
 
 // PutAutoTerminationPolicy sets the auto-termination policy on a cluster.
 func (b *InMemoryBackend) PutAutoTerminationPolicy(
+	ctx context.Context,
 	clusterID string,
 	policy AutoTerminationPolicy,
 ) error {
@@ -1694,10 +1870,12 @@ func (b *InMemoryBackend) PutAutoTerminationPolicy(
 		)
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("PutAutoTerminationPolicy")
 	defer b.mu.Unlock()
 
-	cluster, ok := b.clusters[clusterID]
+	cluster, ok := b.clustersStore(region)[clusterID]
 	if !ok {
 		return fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
 	}
@@ -1710,12 +1888,15 @@ func (b *InMemoryBackend) PutAutoTerminationPolicy(
 
 // GetAutoTerminationPolicy returns the auto-termination policy for a cluster.
 func (b *InMemoryBackend) GetAutoTerminationPolicy(
+	ctx context.Context,
 	clusterID string,
 ) (*AutoTerminationPolicy, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("GetAutoTerminationPolicy")
 	defer b.mu.RUnlock()
 
-	cluster, ok := b.clusters[clusterID]
+	cluster, ok := b.clustersStore(region)[clusterID]
 	if !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
 	}
@@ -1732,11 +1913,13 @@ func (b *InMemoryBackend) GetAutoTerminationPolicy(
 }
 
 // RemoveAutoTerminationPolicy clears the auto-termination policy on a cluster.
-func (b *InMemoryBackend) RemoveAutoTerminationPolicy(clusterID string) error {
+func (b *InMemoryBackend) RemoveAutoTerminationPolicy(ctx context.Context, clusterID string) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("RemoveAutoTerminationPolicy")
 	defer b.mu.Unlock()
 
-	cluster, ok := b.clusters[clusterID]
+	cluster, ok := b.clustersStore(region)[clusterID]
 	if !ok {
 		return fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
 	}
@@ -1748,13 +1931,16 @@ func (b *InMemoryBackend) RemoveAutoTerminationPolicy(clusterID string) error {
 
 // PutAutoScalingPolicy persists an auto-scaling policy on an instance group.
 func (b *InMemoryBackend) PutAutoScalingPolicy(
+	ctx context.Context,
 	clusterID, instanceGroupID string,
 	policy AutoScalingPolicySpec,
 ) (*AutoScalingPolicyDetail, string, string, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("PutAutoScalingPolicy")
 	defer b.mu.Unlock()
 
-	cluster, ok := b.clusters[clusterID]
+	cluster, ok := b.clustersStore(region)[clusterID]
 	if !ok {
 		return nil, "", "", fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
 	}
@@ -1776,11 +1962,15 @@ func (b *InMemoryBackend) PutAutoScalingPolicy(
 }
 
 // RemoveAutoScalingPolicy clears the auto-scaling policy on an instance group.
-func (b *InMemoryBackend) RemoveAutoScalingPolicy(clusterID, instanceGroupID string) error {
+func (b *InMemoryBackend) RemoveAutoScalingPolicy(
+	ctx context.Context, clusterID, instanceGroupID string,
+) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("RemoveAutoScalingPolicy")
 	defer b.mu.Unlock()
 
-	cluster, ok := b.clusters[clusterID]
+	cluster, ok := b.clustersStore(region)[clusterID]
 	if !ok {
 		return fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
 	}
@@ -1797,15 +1987,20 @@ func (b *InMemoryBackend) RemoveAutoScalingPolicy(clusterID, instanceGroupID str
 }
 
 // GetBlockPublicAccessConfiguration returns the account-level block-public-access config.
-func (b *InMemoryBackend) GetBlockPublicAccessConfiguration() (BlockPublicAccessConfiguration, blockPublicAccessMeta) {
+func (b *InMemoryBackend) GetBlockPublicAccessConfiguration(
+	ctx context.Context,
+) (BlockPublicAccessConfiguration, blockPublicAccessMeta) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("GetBlockPublicAccessConfiguration")
 	defer b.mu.RUnlock()
 
-	if b.blockPublicAccess == nil {
+	cfg := b.blockPublicAccess[region]
+	if cfg == nil {
 		return defaultBlockPublicAccess(), blockPublicAccessMeta{CreationDateTime: time.Now()}
 	}
 
-	return *b.blockPublicAccess, *b.blockPublicAccessMeta
+	return *cfg, *b.blockPublicAccessMeta[region]
 }
 
 func defaultBlockPublicAccess() BlockPublicAccessConfiguration {
@@ -1819,18 +2014,21 @@ func defaultBlockPublicAccess() BlockPublicAccessConfiguration {
 
 // PutBlockPublicAccessConfiguration sets the account-level block-public-access config.
 func (b *InMemoryBackend) PutBlockPublicAccessConfiguration(
+	ctx context.Context,
 	config BlockPublicAccessConfiguration,
 ) error {
 	if err := validatePortRanges(config.PermittedPublicSecurityGroupRuleRanges); err != nil {
 		return err
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("PutBlockPublicAccessConfiguration")
 	defer b.mu.Unlock()
 
 	cp := config
-	b.blockPublicAccess = &cp
-	b.blockPublicAccessMeta = &blockPublicAccessMeta{
+	b.blockPublicAccess[region] = &cp
+	b.blockPublicAccessMeta[region] = &blockPublicAccessMeta{
 		CreationDateTime: time.Now(),
 		CreatedByArn:     arn.Build("iam", "", b.accountID, "root"),
 	}
@@ -1850,14 +2048,18 @@ func validatePortRanges(ranges []PortRange) error {
 
 // ListSecurityConfigurations returns all security configurations, sorted by name.
 func (b *InMemoryBackend) ListSecurityConfigurations(
+	ctx context.Context,
 	marker string,
 ) ([]SecurityConfigSummary, string) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("ListSecurityConfigurations")
 	defer b.mu.RUnlock()
 
-	summaries := make([]SecurityConfigSummary, 0, len(b.securityConfigs))
+	configs := b.securityConfigsStore(region)
+	summaries := make([]SecurityConfigSummary, 0, len(configs))
 
-	for _, sc := range b.securityConfigs {
+	for _, sc := range configs {
 		summaries = append(summaries, SecurityConfigSummary{
 			Name:             sc.Name,
 			CreationDateTime: sc.CreationDateTime,
@@ -1880,7 +2082,9 @@ type SecurityConfigSummary struct {
 }
 
 // ListReleaseLabels returns release labels optionally filtered by prefix and application.
-func (b *InMemoryBackend) ListReleaseLabels(prefix, application, marker string) ([]string, string) {
+func (b *InMemoryBackend) ListReleaseLabels(
+	_ context.Context, prefix, application, marker string,
+) ([]string, string) {
 	var labels []string
 
 	for label := range releaseLabelApps {
@@ -1916,7 +2120,9 @@ func labelHasApp(label, application string) bool {
 }
 
 // DescribeReleaseLabel returns details about a specific release label.
-func (b *InMemoryBackend) DescribeReleaseLabel(releaseLabel string) (*ReleaseLabel, error) {
+func (b *InMemoryBackend) DescribeReleaseLabel(
+	_ context.Context, releaseLabel string,
+) (*ReleaseLabel, error) {
 	apps, ok := releaseLabelApps[releaseLabel]
 	if !ok {
 		return nil, fmt.Errorf("%w: release label %s not found", ErrNotFound, releaseLabel)
@@ -1932,7 +2138,7 @@ func (b *InMemoryBackend) DescribeReleaseLabel(releaseLabel string) (*ReleaseLab
 
 // ListSupportedInstanceTypes returns the static catalog of EMR-supported instance types.
 func (b *InMemoryBackend) ListSupportedInstanceTypes(
-	releaseLabel, marker string,
+	_ context.Context, releaseLabel, marker string,
 ) ([]SupportedInstanceType, string) {
 	// Validate release label exists (unknown labels → empty list matches AWS behavior).
 	if _, ok := releaseLabelApps[releaseLabel]; !ok {
@@ -1946,13 +2152,16 @@ func (b *InMemoryBackend) ListSupportedInstanceTypes(
 
 // ListInstances synthesizes per-group instances for a cluster.
 func (b *InMemoryBackend) ListInstances(
+	ctx context.Context,
 	clusterID string,
 	params ListInstancesParams,
 ) ([]ClusterInstance, string) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("ListInstances")
 	defer b.mu.RUnlock()
 
-	cluster, ok := b.clusters[clusterID]
+	cluster, ok := b.clustersStore(region)[clusterID]
 	if !ok {
 		return []ClusterInstance{}, ""
 	}
@@ -2012,11 +2221,13 @@ func synthesizeInstance(clusterID string, grp InstanceGroup, idx int) ClusterIns
 }
 
 // DescribeStudio returns an EMR Studio by ID.
-func (b *InMemoryBackend) DescribeStudio(studioID string) (*Studio, error) {
+func (b *InMemoryBackend) DescribeStudio(ctx context.Context, studioID string) (*Studio, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("DescribeStudio")
 	defer b.mu.RUnlock()
 
-	studio, ok := b.studios[studioID]
+	studio, ok := b.studiosStore(region)[studioID]
 	if !ok {
 		return nil, fmt.Errorf("%w: studio %s not found", ErrNotFound, studioID)
 	}
@@ -2027,13 +2238,16 @@ func (b *InMemoryBackend) DescribeStudio(studioID string) (*Studio, error) {
 }
 
 // ListStudios returns all studios as summaries, sorted by name.
-func (b *InMemoryBackend) ListStudios(marker string) ([]StudioSummary, string) {
+func (b *InMemoryBackend) ListStudios(ctx context.Context, marker string) ([]StudioSummary, string) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("ListStudios")
 	defer b.mu.RUnlock()
 
-	summaries := make([]StudioSummary, 0, len(b.studios))
+	studios := b.studiosStore(region)
+	summaries := make([]StudioSummary, 0, len(studios))
 
-	for _, s := range b.studios {
+	for _, s := range studios {
 		summaries = append(summaries, StudioSummary{
 			StudioID:          s.StudioID,
 			StudioArn:         s.StudioArn,
@@ -2058,12 +2272,15 @@ func (b *InMemoryBackend) ListStudios(marker string) ([]StudioSummary, string) {
 
 // UpdateStudio updates mutable fields on an EMR Studio.
 func (b *InMemoryBackend) UpdateStudio(
+	ctx context.Context,
 	studioID, name, description, defaultS3Location, subnetIDsJSON string,
 ) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("UpdateStudio")
 	defer b.mu.Unlock()
 
-	studio, ok := b.studios[studioID]
+	studio, ok := b.studiosStore(region)[studioID]
 	if !ok {
 		return fmt.Errorf("%w: studio %s not found", ErrNotFound, studioID)
 	}
@@ -2087,14 +2304,17 @@ func (b *InMemoryBackend) UpdateStudio(
 
 // GetStudioSessionMapping returns a session mapping for a studio.
 func (b *InMemoryBackend) GetStudioSessionMapping(
+	ctx context.Context,
 	studioID, identityType, identityID, identityName string,
 ) (*StudioSessionMapping, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("GetStudioSessionMapping")
 	defer b.mu.RUnlock()
 
 	key := studioSessionKey(studioID, identityType, identityID, identityName)
 
-	mapping, ok := b.studioSessionMappings[key]
+	mapping, ok := b.studioSessionMappingsStore(region)[key]
 	if !ok {
 		return nil, fmt.Errorf("%w: session mapping not found for studio %s", ErrNotFound, studioID)
 	}
@@ -2106,14 +2326,17 @@ func (b *InMemoryBackend) GetStudioSessionMapping(
 
 // ListStudioSessionMappings returns session mappings for a studio, optionally filtered by identity type.
 func (b *InMemoryBackend) ListStudioSessionMappings(
+	ctx context.Context,
 	studioID, identityType string,
 ) []StudioSessionMapping {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("ListStudioSessionMappings")
 	defer b.mu.RUnlock()
 
 	result := make([]StudioSessionMapping, 0)
 
-	for _, m := range b.studioSessionMappings {
+	for _, m := range b.studioSessionMappingsStore(region) {
 		if m.StudioID != studioID {
 			continue
 		}
@@ -2134,14 +2357,17 @@ func (b *InMemoryBackend) ListStudioSessionMappings(
 
 // UpdateStudioSessionMapping changes the SessionPolicyArn on a mapping.
 func (b *InMemoryBackend) UpdateStudioSessionMapping(
+	ctx context.Context,
 	studioID, identityType, identityID, identityName, sessionPolicyArn string,
 ) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("UpdateStudioSessionMapping")
 	defer b.mu.Unlock()
 
 	key := studioSessionKey(studioID, identityType, identityID, identityName)
 
-	mapping, ok := b.studioSessionMappings[key]
+	mapping, ok := b.studioSessionMappingsStore(region)[key]
 	if !ok {
 		return fmt.Errorf("%w: session mapping not found for studio %s", ErrNotFound, studioID)
 	}
@@ -2154,9 +2380,12 @@ func (b *InMemoryBackend) UpdateStudioSessionMapping(
 
 // DescribeJobFlows translates clusters into the legacy JobFlow format.
 func (b *InMemoryBackend) DescribeJobFlows(
+	ctx context.Context,
 	ids, states []string,
 	createdAfter, createdBefore *time.Time,
 ) []JobFlow {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("DescribeJobFlows")
 	defer b.mu.RUnlock()
 
@@ -2165,7 +2394,7 @@ func (b *InMemoryBackend) DescribeJobFlows(
 
 	flows := make([]JobFlow, 0)
 
-	for _, c := range b.clusters {
+	for _, c := range b.clustersStore(region) {
 		if !jobFlowMatchesFilter(c, idSet, stateSet, createdAfter, createdBefore) {
 			continue
 		}
@@ -2277,11 +2506,13 @@ func clusterToJobFlow(c *Cluster) JobFlow {
 }
 
 // DescribePersistentAppUI returns a persistent app UI by ID.
-func (b *InMemoryBackend) DescribePersistentAppUI(id string) (*PersistentAppUI, error) {
+func (b *InMemoryBackend) DescribePersistentAppUI(ctx context.Context, id string) (*PersistentAppUI, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("DescribePersistentAppUI")
 	defer b.mu.RUnlock()
 
-	ui, ok := b.persistentAppUIs[id]
+	ui, ok := b.persistentAppUIsStore(region)[id]
 	if !ok {
 		return nil, fmt.Errorf("%w: persistent app UI %s not found", ErrNotFound, id)
 	}
@@ -2303,16 +2534,19 @@ func (b *InMemoryBackend) GetPresignedURL(id, region string) string {
 
 // GetClusterSessionCredentials returns synthesized credentials for cluster session access.
 func (b *InMemoryBackend) GetClusterSessionCredentials(
+	ctx context.Context,
 	clusterID, executionRoleArn string,
 ) (map[string]any, time.Time, error) {
 	if executionRoleArn == "" {
 		return nil, time.Time{}, fmt.Errorf("%w: ExecutionRoleArn is required", ErrValidation)
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("GetClusterSessionCredentials")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.clusters[clusterID]; !ok {
+	if _, ok := b.clustersStore(region)[clusterID]; !ok {
 		return nil, time.Time{}, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
 	}
 
@@ -2329,11 +2563,14 @@ func (b *InMemoryBackend) GetClusterSessionCredentials(
 
 // CreatePersistentAppUI creates a new persistent application user interface.
 func (b *InMemoryBackend) CreatePersistentAppUI(
+	ctx context.Context,
 	targetResourceArn string,
 ) (*PersistentAppUI, error) {
 	if targetResourceArn == "" {
 		return nil, fmt.Errorf("%w: TargetResourceArn is required", ErrValidation)
 	}
+
+	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("CreatePersistentAppUI")
 	defer b.mu.Unlock()
@@ -2345,7 +2582,7 @@ func (b *InMemoryBackend) CreatePersistentAppUI(
 		RuntimeRoleEnabledCluster: false,
 	}
 
-	b.persistentAppUIs[id] = ui
+	b.persistentAppUIsStore(region)[id] = ui
 	cp := *ui
 
 	return &cp, nil
@@ -2353,6 +2590,7 @@ func (b *InMemoryBackend) CreatePersistentAppUI(
 
 // CreateSecurityConfiguration creates a new security configuration.
 func (b *InMemoryBackend) CreateSecurityConfiguration(
+	ctx context.Context,
 	name, securityConfig string,
 ) (*SecurityConfiguration, error) {
 	if name == "" {
@@ -2363,10 +2601,13 @@ func (b *InMemoryBackend) CreateSecurityConfiguration(
 		return nil, fmt.Errorf("%w: SecurityConfiguration must be valid JSON", ErrValidation)
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("CreateSecurityConfiguration")
 	defer b.mu.Unlock()
 
-	if _, exists := b.securityConfigs[name]; exists {
+	configs := b.securityConfigsStore(region)
+	if _, exists := configs[name]; exists {
 		return nil, fmt.Errorf(
 			"%w: security configuration %s already exists",
 			ErrAlreadyExists,
@@ -2380,7 +2621,7 @@ func (b *InMemoryBackend) CreateSecurityConfiguration(
 		CreationDateTime: time.Now(),
 	}
 
-	b.securityConfigs[name] = sc
+	configs[name] = sc
 
 	cp := *sc
 
@@ -2388,27 +2629,33 @@ func (b *InMemoryBackend) CreateSecurityConfiguration(
 }
 
 // DeleteSecurityConfiguration deletes a security configuration by name.
-func (b *InMemoryBackend) DeleteSecurityConfiguration(name string) error {
+func (b *InMemoryBackend) DeleteSecurityConfiguration(ctx context.Context, name string) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("DeleteSecurityConfiguration")
 	defer b.mu.Unlock()
 
-	if _, ok := b.securityConfigs[name]; !ok {
+	configs := b.securityConfigsStore(region)
+	if _, ok := configs[name]; !ok {
 		return fmt.Errorf("%w: security configuration %s not found", ErrNotFound, name)
 	}
 
-	delete(b.securityConfigs, name)
+	delete(configs, name)
 
 	return nil
 }
 
 // DescribeSecurityConfiguration returns the details of a security configuration.
 func (b *InMemoryBackend) DescribeSecurityConfiguration(
+	ctx context.Context,
 	name string,
 ) (*SecurityConfiguration, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("DescribeSecurityConfiguration")
 	defer b.mu.RUnlock()
 
-	sc, ok := b.securityConfigs[name]
+	sc, ok := b.securityConfigsStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: security configuration %s not found", ErrNotFound, name)
 	}
@@ -2420,6 +2667,7 @@ func (b *InMemoryBackend) DescribeSecurityConfiguration(
 
 // CreateStudio creates a new EMR Studio.
 func (b *InMemoryBackend) CreateStudio(
+	ctx context.Context,
 	name, authMode, defaultS3Location, engineSGID, serviceRole, vpcID, workspaceSGID string,
 	subnetIDs []string, tags []Tag,
 ) (*Studio, error) {
@@ -2427,17 +2675,20 @@ func (b *InMemoryBackend) CreateStudio(
 		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("CreateStudio")
 	defer b.mu.Unlock()
 
-	for _, s := range b.studios {
+	studios := b.studiosStore(region)
+	for _, s := range studios {
 		if s.Name == name {
 			return nil, fmt.Errorf("%w: studio with name %s already exists", ErrAlreadyExists, name)
 		}
 	}
 
 	id := b.nextStudioID()
-	studioARN := arn.Build("elasticmapreduce", b.region, b.accountID, "studio/"+id)
+	studioARN := arn.Build("elasticmapreduce", region, b.accountID, "studio/"+id)
 
 	tagsCopy := make([]Tag, len(tags))
 	copy(tagsCopy, tags)
@@ -2458,10 +2709,10 @@ func (b *InMemoryBackend) CreateStudio(
 		SubnetIDs:                subnetCopy,
 		Tags:                     tagsCopy,
 		CreationTime:             time.Now(),
-		URL:                      "https://studio." + id + ".emrstudio-prod." + b.region + ".amazonaws.com",
+		URL:                      "https://studio." + id + ".emrstudio-prod." + region + ".amazonaws.com",
 	}
 
-	b.studios[id] = studio
+	studios[id] = studio
 
 	cp := *studio
 
@@ -2469,19 +2720,23 @@ func (b *InMemoryBackend) CreateStudio(
 }
 
 // DeleteStudio deletes an EMR Studio by ID.
-func (b *InMemoryBackend) DeleteStudio(studioID string) error {
+func (b *InMemoryBackend) DeleteStudio(ctx context.Context, studioID string) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("DeleteStudio")
 	defer b.mu.Unlock()
 
-	if _, ok := b.studios[studioID]; !ok {
+	studios := b.studiosStore(region)
+	if _, ok := studios[studioID]; !ok {
 		return fmt.Errorf("%w: studio %s not found", ErrNotFound, studioID)
 	}
 
-	delete(b.studios, studioID)
+	delete(studios, studioID)
 
-	for k, m := range b.studioSessionMappings {
+	mappings := b.studioSessionMappingsStore(region)
+	for k, m := range mappings {
 		if m.StudioID == studioID {
-			delete(b.studioSessionMappings, k)
+			delete(mappings, k)
 		}
 	}
 
@@ -2499,21 +2754,24 @@ func studioSessionKey(studioID, identityType, identityID, identityName string) s
 
 // CreateStudioSessionMapping maps a user or group to an EMR Studio.
 func (b *InMemoryBackend) CreateStudioSessionMapping(
+	ctx context.Context,
 	studioID, identityType, identityID, identityName, sessionPolicyArn string,
 ) error {
 	if studioID == "" {
 		return fmt.Errorf("%w: StudioId is required", ErrValidation)
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("CreateStudioSessionMapping")
 	defer b.mu.Unlock()
 
-	if _, ok := b.studios[studioID]; !ok {
+	if _, ok := b.studiosStore(region)[studioID]; !ok {
 		return fmt.Errorf("%w: studio %s not found", ErrNotFound, studioID)
 	}
 
 	key := studioSessionKey(studioID, identityType, identityID, identityName)
-	b.studioSessionMappings[key] = &StudioSessionMapping{
+	b.studioSessionMappingsStore(region)[key] = &StudioSessionMapping{
 		StudioID:         studioID,
 		IdentityType:     identityType,
 		IdentityID:       identityID,
@@ -2528,27 +2786,33 @@ func (b *InMemoryBackend) CreateStudioSessionMapping(
 
 // DeleteStudioSessionMapping removes a user or group from an EMR Studio.
 func (b *InMemoryBackend) DeleteStudioSessionMapping(
+	ctx context.Context,
 	studioID, identityType, identityID, identityName string,
 ) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("DeleteStudioSessionMapping")
 	defer b.mu.Unlock()
 
+	mappings := b.studioSessionMappingsStore(region)
 	key := studioSessionKey(studioID, identityType, identityID, identityName)
-	if _, ok := b.studioSessionMappings[key]; !ok {
+	if _, ok := mappings[key]; !ok {
 		return fmt.Errorf("%w: session mapping not found for studio %s", ErrNotFound, studioID)
 	}
 
-	delete(b.studioSessionMappings, key)
+	delete(mappings, key)
 
 	return nil
 }
 
 // ListInstanceFleets returns the instance fleets for a cluster by its ID.
-func (b *InMemoryBackend) ListInstanceFleets(clusterID string) ([]InstanceFleet, error) {
+func (b *InMemoryBackend) ListInstanceFleets(ctx context.Context, clusterID string) ([]InstanceFleet, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("ListInstanceFleets")
 	defer b.mu.RUnlock()
 
-	cluster, ok := b.clusters[clusterID]
+	cluster, ok := b.clustersStore(region)[clusterID]
 	if !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
 	}
@@ -2560,40 +2824,48 @@ func (b *InMemoryBackend) ListInstanceFleets(clusterID string) ([]InstanceFleet,
 }
 
 // AddClusterInternal seeds a cluster directly into the backend for testing.
-func (b *InMemoryBackend) AddClusterInternal(cluster *Cluster) {
+func (b *InMemoryBackend) AddClusterInternal(ctx context.Context, cluster *Cluster) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("AddClusterInternal")
 	defer b.mu.Unlock()
 
 	cp := cluster.clone()
-	b.clusters[cluster.ID] = &cp
-	b.arnIndex[cluster.ARN] = cluster.ID
+	b.clustersStore(region)[cluster.ID] = &cp
+	b.arnIndexStore(region)[cluster.ARN] = cluster.ID
 }
 
 // AddSecurityConfigInternal seeds a security configuration directly into the backend for testing.
-func (b *InMemoryBackend) AddSecurityConfigInternal(sc SecurityConfiguration) {
+func (b *InMemoryBackend) AddSecurityConfigInternal(ctx context.Context, sc SecurityConfiguration) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("AddSecurityConfigInternal")
 	defer b.mu.Unlock()
 
 	cp := sc
-	b.securityConfigs[sc.Name] = &cp
+	b.securityConfigsStore(region)[sc.Name] = &cp
 }
 
 // AddStudioInternal seeds a studio directly into the backend for testing.
-func (b *InMemoryBackend) AddStudioInternal(studio Studio) {
+func (b *InMemoryBackend) AddStudioInternal(ctx context.Context, studio Studio) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("AddStudioInternal")
 	defer b.mu.Unlock()
 
 	cp := studio
-	b.studios[studio.StudioID] = &cp
+	b.studiosStore(region)[studio.StudioID] = &cp
 }
 
 // AddPersistentAppUIInternal seeds a persistent app UI directly into the backend for testing.
-func (b *InMemoryBackend) AddPersistentAppUIInternal(ui PersistentAppUI) {
+func (b *InMemoryBackend) AddPersistentAppUIInternal(ctx context.Context, ui PersistentAppUI) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("AddPersistentAppUIInternal")
 	defer b.mu.Unlock()
 
 	cp := ui
-	b.persistentAppUIs[ui.ID] = &cp
+	b.persistentAppUIsStore(region)[ui.ID] = &cp
 }
 
 // nextNotebookExecID generates a unique notebook execution ID.
@@ -2605,9 +2877,12 @@ func (b *InMemoryBackend) nextNotebookExecID() string {
 
 // StartNotebookExecution creates a new notebook execution in RUNNING state.
 func (b *InMemoryBackend) StartNotebookExecution(
+	ctx context.Context,
 	editorID, name, params, engineID string,
 	tags []Tag,
 ) (*NotebookExecution, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("StartNotebookExecution")
 	defer b.mu.Unlock()
 
@@ -2627,7 +2902,7 @@ func (b *InMemoryBackend) StartNotebookExecution(
 		Tags:                  tagsCopy,
 	}
 
-	b.notebookExecutions[id] = ne
+	b.notebookExecutionsStore(region)[id] = ne
 
 	cp := *ne
 
@@ -2635,11 +2910,13 @@ func (b *InMemoryBackend) StartNotebookExecution(
 }
 
 // StopNotebookExecution transitions a RUNNING execution to STOPPED.
-func (b *InMemoryBackend) StopNotebookExecution(id string) error {
+func (b *InMemoryBackend) StopNotebookExecution(ctx context.Context, id string) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("StopNotebookExecution")
 	defer b.mu.Unlock()
 
-	ne, ok := b.notebookExecutions[id]
+	ne, ok := b.notebookExecutionsStore(region)[id]
 	if !ok {
 		return fmt.Errorf("%w: notebook execution %s not found", ErrNotFound, id)
 	}
@@ -2653,11 +2930,13 @@ func (b *InMemoryBackend) StopNotebookExecution(id string) error {
 }
 
 // DescribeNotebookExecution returns a notebook execution by ID.
-func (b *InMemoryBackend) DescribeNotebookExecution(id string) (*NotebookExecution, error) {
+func (b *InMemoryBackend) DescribeNotebookExecution(ctx context.Context, id string) (*NotebookExecution, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("DescribeNotebookExecution")
 	defer b.mu.RUnlock()
 
-	ne, ok := b.notebookExecutions[id]
+	ne, ok := b.notebookExecutionsStore(region)[id]
 	if !ok {
 		return nil, fmt.Errorf("%w: notebook execution %s not found", ErrNotFound, id)
 	}
@@ -2675,13 +2954,18 @@ type ListNotebookExecutionsParams struct {
 }
 
 // ListNotebookExecutions returns paginated notebook executions matching the filter.
-func (b *InMemoryBackend) ListNotebookExecutions(params ListNotebookExecutionsParams) ([]NotebookExecution, string) {
+func (b *InMemoryBackend) ListNotebookExecutions(
+	ctx context.Context, params ListNotebookExecutionsParams,
+) ([]NotebookExecution, string) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("ListNotebookExecutions")
 	defer b.mu.RUnlock()
 
-	list := make([]NotebookExecution, 0, len(b.notebookExecutions))
+	executions := b.notebookExecutionsStore(region)
+	list := make([]NotebookExecution, 0, len(executions))
 
-	for _, ne := range b.notebookExecutions {
+	for _, ne := range executions {
 		if params.EditorID != "" && ne.EditorID != params.EditorID {
 			continue
 		}

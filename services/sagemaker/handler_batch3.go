@@ -81,204 +81,204 @@ func batch3SupportedOperations() []string {
 //
 //nolint:cyclop,gocyclo,funlen // large switch is required for dispatching many operations
 func (h *Handler) dispatchBatch3Ops(
-	_ context.Context,
+	ctx context.Context,
 	op string,
 	body []byte,
 ) ([]byte, bool, error) {
 	switch op {
 	// DataQualityJobDefinition
 	case "CreateDataQualityJobDefinition":
-		r, err := h.handleCreateDataQualityJobDefinition(body)
+		r, err := h.handleCreateDataQualityJobDefinition(ctx, body)
 
 		return r, true, err
 	case "DescribeDataQualityJobDefinition":
-		r, err := h.handleDescribeDataQualityJobDefinition(body)
+		r, err := h.handleDescribeDataQualityJobDefinition(ctx, body)
 
 		return r, true, err
 	case "DeleteDataQualityJobDefinition":
-		return nil, true, h.handleDeleteDataQualityJobDefinition(body)
+		return nil, true, h.handleDeleteDataQualityJobDefinition(ctx, body)
 
 	// ModelBiasJobDefinition
 	case "CreateModelBiasJobDefinition":
-		r, err := h.handleCreateModelBiasJobDefinition(body)
+		r, err := h.handleCreateModelBiasJobDefinition(ctx, body)
 
 		return r, true, err
 	case "DescribeModelBiasJobDefinition":
-		r, err := h.handleDescribeModelBiasJobDefinition(body)
+		r, err := h.handleDescribeModelBiasJobDefinition(ctx, body)
 
 		return r, true, err
 	case "DeleteModelBiasJobDefinition":
-		return nil, true, h.handleDeleteModelBiasJobDefinition(body)
+		return nil, true, h.handleDeleteModelBiasJobDefinition(ctx, body)
 
 	// ModelQualityJobDefinition
 	case "CreateModelQualityJobDefinition":
-		r, err := h.handleCreateModelQualityJobDefinition(body)
+		r, err := h.handleCreateModelQualityJobDefinition(ctx, body)
 
 		return r, true, err
 	case "DescribeModelQualityJobDefinition":
-		r, err := h.handleDescribeModelQualityJobDefinition(body)
+		r, err := h.handleDescribeModelQualityJobDefinition(ctx, body)
 
 		return r, true, err
 	case "DeleteModelQualityJobDefinition":
-		return nil, true, h.handleDeleteModelQualityJobDefinition(body)
+		return nil, true, h.handleDeleteModelQualityJobDefinition(ctx, body)
 
 	// ModelExplainabilityJobDefinition
 	case "CreateModelExplainabilityJobDefinition":
-		r, err := h.handleCreateModelExplainabilityJobDefinition(body)
+		r, err := h.handleCreateModelExplainabilityJobDefinition(ctx, body)
 
 		return r, true, err
 	case "DescribeModelExplainabilityJobDefinition":
-		r, err := h.handleDescribeModelExplainabilityJobDefinition(body)
+		r, err := h.handleDescribeModelExplainabilityJobDefinition(ctx, body)
 
 		return r, true, err
 	case "DeleteModelExplainabilityJobDefinition":
-		return nil, true, h.handleDeleteModelExplainabilityJobDefinition(body)
+		return nil, true, h.handleDeleteModelExplainabilityJobDefinition(ctx, body)
 
 	// HumanTaskUI
 	case "CreateHumanTaskUi":
-		r, err := h.handleCreateHumanTaskUI(body)
+		r, err := h.handleCreateHumanTaskUI(ctx, body)
 
 		return r, true, err
 	case "DescribeHumanTaskUi":
-		r, err := h.handleDescribeHumanTaskUI(body)
+		r, err := h.handleDescribeHumanTaskUI(ctx, body)
 
 		return r, true, err
 	case "DeleteHumanTaskUi":
-		return nil, true, h.handleDeleteHumanTaskUI(body)
+		return nil, true, h.handleDeleteHumanTaskUI(ctx, body)
 
 	// Workforce
 	case "CreateWorkforce":
-		r, err := h.handleCreateWorkforce(body)
+		r, err := h.handleCreateWorkforce(ctx, body)
 
 		return r, true, err
 	case "DescribeWorkforce":
-		r, err := h.handleDescribeWorkforce(body)
+		r, err := h.handleDescribeWorkforce(ctx, body)
 
 		return r, true, err
 	case "UpdateWorkforce":
-		r, err := h.handleUpdateWorkforce(body)
+		r, err := h.handleUpdateWorkforce(ctx, body)
 
 		return r, true, err
 
 	// FlowDefinition
 	case "CreateFlowDefinition":
-		r, err := h.handleCreateFlowDefinition(body)
+		r, err := h.handleCreateFlowDefinition(ctx, body)
 
 		return r, true, err
 	case "DescribeFlowDefinition":
-		r, err := h.handleDescribeFlowDefinition(body)
+		r, err := h.handleDescribeFlowDefinition(ctx, body)
 
 		return r, true, err
 	case "DeleteFlowDefinition":
-		return nil, true, h.handleDeleteFlowDefinition(body)
+		return nil, true, h.handleDeleteFlowDefinition(ctx, body)
 
 	// AppImageConfig
 	case "CreateAppImageConfig":
-		r, err := h.handleCreateAppImageConfig(body)
+		r, err := h.handleCreateAppImageConfig(ctx, body)
 
 		return r, true, err
 	case "DescribeAppImageConfig":
-		r, err := h.handleDescribeAppImageConfig(body)
+		r, err := h.handleDescribeAppImageConfig(ctx, body)
 
 		return r, true, err
 	case "DeleteAppImageConfig":
-		return nil, true, h.handleDeleteAppImageConfig(body)
+		return nil, true, h.handleDeleteAppImageConfig(ctx, body)
 	case "UpdateAppImageConfig":
-		r, err := h.handleUpdateAppImageConfig(body)
+		r, err := h.handleUpdateAppImageConfig(ctx, body)
 
 		return r, true, err
 
 	// InferenceExperiment
 	case "CreateInferenceExperiment":
-		r, err := h.handleCreateInferenceExperiment(body)
+		r, err := h.handleCreateInferenceExperiment(ctx, body)
 
 		return r, true, err
 	case "DescribeInferenceExperiment":
-		r, err := h.handleDescribeInferenceExperiment(body)
+		r, err := h.handleDescribeInferenceExperiment(ctx, body)
 
 		return r, true, err
 	case "StopInferenceExperiment":
-		return nil, true, h.handleStopInferenceExperiment(body)
+		return nil, true, h.handleStopInferenceExperiment(ctx, body)
 	case "DeleteInferenceExperiment":
-		return nil, true, h.handleDeleteInferenceExperiment(body)
+		return nil, true, h.handleDeleteInferenceExperiment(ctx, body)
 
 	// MlflowTrackingServer
 	case "CreateMlflowTrackingServer":
-		r, err := h.handleCreateMlflowTrackingServer(body)
+		r, err := h.handleCreateMlflowTrackingServer(ctx, body)
 
 		return r, true, err
 	case "DescribeMlflowTrackingServer":
-		r, err := h.handleDescribeMlflowTrackingServer(body)
+		r, err := h.handleDescribeMlflowTrackingServer(ctx, body)
 
 		return r, true, err
 	case "DeleteMlflowTrackingServer":
-		return nil, true, h.handleDeleteMlflowTrackingServer(body)
+		return nil, true, h.handleDeleteMlflowTrackingServer(ctx, body)
 	case "StartMlflowTrackingServer":
-		return nil, true, h.handleStartMlflowTrackingServer(body)
+		return nil, true, h.handleStartMlflowTrackingServer(ctx, body)
 	case "StopMlflowTrackingServer":
-		return nil, true, h.handleStopMlflowTrackingServer(body)
+		return nil, true, h.handleStopMlflowTrackingServer(ctx, body)
 
 	// ModelCard
 	case "CreateModelCard":
-		r, err := h.handleCreateModelCard(body)
+		r, err := h.handleCreateModelCard(ctx, body)
 
 		return r, true, err
 	case "DescribeModelCard":
-		r, err := h.handleDescribeModelCard(body)
+		r, err := h.handleDescribeModelCard(ctx, body)
 
 		return r, true, err
 	case "UpdateModelCard":
-		r, err := h.handleUpdateModelCard(body)
+		r, err := h.handleUpdateModelCard(ctx, body)
 
 		return r, true, err
 	case "DeleteModelCard":
-		return nil, true, h.handleDeleteModelCard(body)
+		return nil, true, h.handleDeleteModelCard(ctx, body)
 
 	// OptimizationJob
 	case "CreateOptimizationJob":
-		r, err := h.handleCreateOptimizationJob(body)
+		r, err := h.handleCreateOptimizationJob(ctx, body)
 
 		return r, true, err
 	case "DescribeOptimizationJob":
-		r, err := h.handleDescribeOptimizationJob(body)
+		r, err := h.handleDescribeOptimizationJob(ctx, body)
 
 		return r, true, err
 	case "DeleteOptimizationJob":
-		return nil, true, h.handleDeleteOptimizationJob(body)
+		return nil, true, h.handleDeleteOptimizationJob(ctx, body)
 	case "StopOptimizationJob":
-		return nil, true, h.handleStopOptimizationJob(body)
+		return nil, true, h.handleStopOptimizationJob(ctx, body)
 
 	// StudioLifecycleConfig
 	case "CreateStudioLifecycleConfig":
-		r, err := h.handleCreateStudioLifecycleConfig(body)
+		r, err := h.handleCreateStudioLifecycleConfig(ctx, body)
 
 		return r, true, err
 	case "DescribeStudioLifecycleConfig":
-		r, err := h.handleDescribeStudioLifecycleConfig(body)
+		r, err := h.handleDescribeStudioLifecycleConfig(ctx, body)
 
 		return r, true, err
 	case "DeleteStudioLifecycleConfig":
-		return nil, true, h.handleDeleteStudioLifecycleConfig(body)
+		return nil, true, h.handleDeleteStudioLifecycleConfig(ctx, body)
 
 	// PartnerApp
 	case "CreatePartnerApp":
-		r, err := h.handleCreatePartnerApp(body)
+		r, err := h.handleCreatePartnerApp(ctx, body)
 
 		return r, true, err
 	case "DescribePartnerApp":
-		r, err := h.handleDescribePartnerApp(body)
+		r, err := h.handleDescribePartnerApp(ctx, body)
 
 		return r, true, err
 	case "DeletePartnerApp":
-		return nil, true, h.handleDeletePartnerApp(body)
+		return nil, true, h.handleDeletePartnerApp(ctx, body)
 
 	// TrainingPlan
 	case "CreateTrainingPlan":
-		r, err := h.handleCreateTrainingPlan(body)
+		r, err := h.handleCreateTrainingPlan(ctx, body)
 
 		return r, true, err
 	case "DescribeTrainingPlan":
-		r, err := h.handleDescribeTrainingPlan(body)
+		r, err := h.handleDescribeTrainingPlan(ctx, body)
 
 		return r, true, err
 	}
@@ -290,7 +290,7 @@ func (h *Handler) dispatchBatch3Ops(
 // DataQualityJobDefinition handlers
 // ---------------------------------------------------------------------------
 
-func (h *Handler) handleCreateDataQualityJobDefinition(body []byte) ([]byte, error) {
+func (h *Handler) handleCreateDataQualityJobDefinition(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Tags                         map[string]string `json:"Tags"`
 		DataQualityJobDefinitionName string            `json:"DataQualityJobDefinitionName"`
@@ -305,7 +305,12 @@ func (h *Handler) handleCreateDataQualityJobDefinition(body []byte) ([]byte, err
 		return nil, fmt.Errorf("%w: DataQualityJobDefinitionName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.CreateDataQualityJobDefinition(req.DataQualityJobDefinitionName, req.RoleArn, req.Tags)
+	result, err := h.Backend.CreateDataQualityJobDefinition(
+		ctx,
+		req.DataQualityJobDefinitionName,
+		req.RoleArn,
+		req.Tags,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -313,7 +318,7 @@ func (h *Handler) handleCreateDataQualityJobDefinition(body []byte) ([]byte, err
 	return json.Marshal(map[string]any{keyJobDefinitionArn: result.JobDefinitionArn})
 }
 
-func (h *Handler) handleDescribeDataQualityJobDefinition(body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeDataQualityJobDefinition(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		DataQualityJobDefinitionName string `json:"DataQualityJobDefinitionName"`
 	}
@@ -326,7 +331,7 @@ func (h *Handler) handleDescribeDataQualityJobDefinition(body []byte) ([]byte, e
 		return nil, fmt.Errorf("%w: DataQualityJobDefinitionName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.DescribeDataQualityJobDefinition(req.DataQualityJobDefinitionName)
+	result, err := h.Backend.DescribeDataQualityJobDefinition(ctx, req.DataQualityJobDefinitionName)
 	if err != nil {
 		return nil, err
 	}
@@ -334,7 +339,7 @@ func (h *Handler) handleDescribeDataQualityJobDefinition(body []byte) ([]byte, e
 	return json.Marshal(result)
 }
 
-func (h *Handler) handleDeleteDataQualityJobDefinition(body []byte) error {
+func (h *Handler) handleDeleteDataQualityJobDefinition(ctx context.Context, body []byte) error {
 	var req struct {
 		DataQualityJobDefinitionName string `json:"DataQualityJobDefinitionName"`
 	}
@@ -347,14 +352,14 @@ func (h *Handler) handleDeleteDataQualityJobDefinition(body []byte) error {
 		return fmt.Errorf("%w: DataQualityJobDefinitionName is required", errInvalidRequest)
 	}
 
-	return h.Backend.DeleteDataQualityJobDefinition(req.DataQualityJobDefinitionName)
+	return h.Backend.DeleteDataQualityJobDefinition(ctx, req.DataQualityJobDefinitionName)
 }
 
 // ---------------------------------------------------------------------------
 // ModelBiasJobDefinition handlers
 // ---------------------------------------------------------------------------
 
-func (h *Handler) handleCreateModelBiasJobDefinition(body []byte) ([]byte, error) {
+func (h *Handler) handleCreateModelBiasJobDefinition(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Tags                       map[string]string `json:"Tags"`
 		ModelBiasJobDefinitionName string            `json:"ModelBiasJobDefinitionName"`
@@ -369,7 +374,7 @@ func (h *Handler) handleCreateModelBiasJobDefinition(body []byte) ([]byte, error
 		return nil, fmt.Errorf("%w: ModelBiasJobDefinitionName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.CreateModelBiasJobDefinition(req.ModelBiasJobDefinitionName, req.RoleArn, req.Tags)
+	result, err := h.Backend.CreateModelBiasJobDefinition(ctx, req.ModelBiasJobDefinitionName, req.RoleArn, req.Tags)
 	if err != nil {
 		return nil, err
 	}
@@ -377,7 +382,7 @@ func (h *Handler) handleCreateModelBiasJobDefinition(body []byte) ([]byte, error
 	return json.Marshal(map[string]any{keyJobDefinitionArn: result.JobDefinitionArn})
 }
 
-func (h *Handler) handleDescribeModelBiasJobDefinition(body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeModelBiasJobDefinition(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		ModelBiasJobDefinitionName string `json:"ModelBiasJobDefinitionName"`
 	}
@@ -390,7 +395,7 @@ func (h *Handler) handleDescribeModelBiasJobDefinition(body []byte) ([]byte, err
 		return nil, fmt.Errorf("%w: ModelBiasJobDefinitionName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.DescribeModelBiasJobDefinition(req.ModelBiasJobDefinitionName)
+	result, err := h.Backend.DescribeModelBiasJobDefinition(ctx, req.ModelBiasJobDefinitionName)
 	if err != nil {
 		return nil, err
 	}
@@ -398,7 +403,7 @@ func (h *Handler) handleDescribeModelBiasJobDefinition(body []byte) ([]byte, err
 	return json.Marshal(result)
 }
 
-func (h *Handler) handleDeleteModelBiasJobDefinition(body []byte) error {
+func (h *Handler) handleDeleteModelBiasJobDefinition(ctx context.Context, body []byte) error {
 	var req struct {
 		ModelBiasJobDefinitionName string `json:"ModelBiasJobDefinitionName"`
 	}
@@ -411,14 +416,14 @@ func (h *Handler) handleDeleteModelBiasJobDefinition(body []byte) error {
 		return fmt.Errorf("%w: ModelBiasJobDefinitionName is required", errInvalidRequest)
 	}
 
-	return h.Backend.DeleteModelBiasJobDefinition(req.ModelBiasJobDefinitionName)
+	return h.Backend.DeleteModelBiasJobDefinition(ctx, req.ModelBiasJobDefinitionName)
 }
 
 // ---------------------------------------------------------------------------
 // ModelQualityJobDefinition handlers
 // ---------------------------------------------------------------------------
 
-func (h *Handler) handleCreateModelQualityJobDefinition(body []byte) ([]byte, error) {
+func (h *Handler) handleCreateModelQualityJobDefinition(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Tags                          map[string]string `json:"Tags"`
 		ModelQualityJobDefinitionName string            `json:"ModelQualityJobDefinitionName"`
@@ -433,7 +438,7 @@ func (h *Handler) handleCreateModelQualityJobDefinition(body []byte) ([]byte, er
 		return nil, fmt.Errorf("%w: ModelQualityJobDefinitionName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.CreateModelQualityJobDefinition(
+	result, err := h.Backend.CreateModelQualityJobDefinition(ctx,
 		req.ModelQualityJobDefinitionName, req.RoleArn, req.Tags,
 	)
 	if err != nil {
@@ -443,7 +448,7 @@ func (h *Handler) handleCreateModelQualityJobDefinition(body []byte) ([]byte, er
 	return json.Marshal(map[string]any{keyJobDefinitionArn: result.JobDefinitionArn})
 }
 
-func (h *Handler) handleDescribeModelQualityJobDefinition(body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeModelQualityJobDefinition(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		ModelQualityJobDefinitionName string `json:"ModelQualityJobDefinitionName"`
 	}
@@ -456,7 +461,7 @@ func (h *Handler) handleDescribeModelQualityJobDefinition(body []byte) ([]byte, 
 		return nil, fmt.Errorf("%w: ModelQualityJobDefinitionName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.DescribeModelQualityJobDefinition(req.ModelQualityJobDefinitionName)
+	result, err := h.Backend.DescribeModelQualityJobDefinition(ctx, req.ModelQualityJobDefinitionName)
 	if err != nil {
 		return nil, err
 	}
@@ -464,7 +469,7 @@ func (h *Handler) handleDescribeModelQualityJobDefinition(body []byte) ([]byte, 
 	return json.Marshal(result)
 }
 
-func (h *Handler) handleDeleteModelQualityJobDefinition(body []byte) error {
+func (h *Handler) handleDeleteModelQualityJobDefinition(ctx context.Context, body []byte) error {
 	var req struct {
 		ModelQualityJobDefinitionName string `json:"ModelQualityJobDefinitionName"`
 	}
@@ -477,14 +482,14 @@ func (h *Handler) handleDeleteModelQualityJobDefinition(body []byte) error {
 		return fmt.Errorf("%w: ModelQualityJobDefinitionName is required", errInvalidRequest)
 	}
 
-	return h.Backend.DeleteModelQualityJobDefinition(req.ModelQualityJobDefinitionName)
+	return h.Backend.DeleteModelQualityJobDefinition(ctx, req.ModelQualityJobDefinitionName)
 }
 
 // ---------------------------------------------------------------------------
 // ModelExplainabilityJobDefinition handlers
 // ---------------------------------------------------------------------------
 
-func (h *Handler) handleCreateModelExplainabilityJobDefinition(body []byte) ([]byte, error) {
+func (h *Handler) handleCreateModelExplainabilityJobDefinition(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Tags                                 map[string]string `json:"Tags"`
 		ModelExplainabilityJobDefinitionName string            `json:"ModelExplainabilityJobDefinitionName"`
@@ -499,7 +504,7 @@ func (h *Handler) handleCreateModelExplainabilityJobDefinition(body []byte) ([]b
 		return nil, fmt.Errorf("%w: ModelExplainabilityJobDefinitionName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.CreateModelExplainabilityJobDefinition(
+	result, err := h.Backend.CreateModelExplainabilityJobDefinition(ctx,
 		req.ModelExplainabilityJobDefinitionName, req.RoleArn, req.Tags,
 	)
 	if err != nil {
@@ -509,7 +514,7 @@ func (h *Handler) handleCreateModelExplainabilityJobDefinition(body []byte) ([]b
 	return json.Marshal(map[string]any{keyJobDefinitionArn: result.JobDefinitionArn})
 }
 
-func (h *Handler) handleDescribeModelExplainabilityJobDefinition(body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeModelExplainabilityJobDefinition(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		ModelExplainabilityJobDefinitionName string `json:"ModelExplainabilityJobDefinitionName"`
 	}
@@ -522,7 +527,7 @@ func (h *Handler) handleDescribeModelExplainabilityJobDefinition(body []byte) ([
 		return nil, fmt.Errorf("%w: ModelExplainabilityJobDefinitionName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.DescribeModelExplainabilityJobDefinition(req.ModelExplainabilityJobDefinitionName)
+	result, err := h.Backend.DescribeModelExplainabilityJobDefinition(ctx, req.ModelExplainabilityJobDefinitionName)
 	if err != nil {
 		return nil, err
 	}
@@ -530,7 +535,7 @@ func (h *Handler) handleDescribeModelExplainabilityJobDefinition(body []byte) ([
 	return json.Marshal(result)
 }
 
-func (h *Handler) handleDeleteModelExplainabilityJobDefinition(body []byte) error {
+func (h *Handler) handleDeleteModelExplainabilityJobDefinition(ctx context.Context, body []byte) error {
 	var req struct {
 		ModelExplainabilityJobDefinitionName string `json:"ModelExplainabilityJobDefinitionName"`
 	}
@@ -543,14 +548,14 @@ func (h *Handler) handleDeleteModelExplainabilityJobDefinition(body []byte) erro
 		return fmt.Errorf("%w: ModelExplainabilityJobDefinitionName is required", errInvalidRequest)
 	}
 
-	return h.Backend.DeleteModelExplainabilityJobDefinition(req.ModelExplainabilityJobDefinitionName)
+	return h.Backend.DeleteModelExplainabilityJobDefinition(ctx, req.ModelExplainabilityJobDefinitionName)
 }
 
 // ---------------------------------------------------------------------------
 // HumanTaskUI handlers
 // ---------------------------------------------------------------------------
 
-func (h *Handler) handleCreateHumanTaskUI(body []byte) ([]byte, error) {
+func (h *Handler) handleCreateHumanTaskUI(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Tags            map[string]string `json:"Tags"`
 		HumanTaskUIName string            `json:"HumanTaskUiName"`
@@ -564,7 +569,7 @@ func (h *Handler) handleCreateHumanTaskUI(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: HumanTaskUiName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.CreateHumanTaskUI(req.HumanTaskUIName, req.Tags)
+	result, err := h.Backend.CreateHumanTaskUI(ctx, req.HumanTaskUIName, req.Tags)
 	if err != nil {
 		return nil, err
 	}
@@ -572,7 +577,7 @@ func (h *Handler) handleCreateHumanTaskUI(body []byte) ([]byte, error) {
 	return json.Marshal(map[string]any{keyHumanTaskUIArn: result.HumanTaskUIArn})
 }
 
-func (h *Handler) handleDescribeHumanTaskUI(body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeHumanTaskUI(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		HumanTaskUIName string `json:"HumanTaskUiName"`
 	}
@@ -585,7 +590,7 @@ func (h *Handler) handleDescribeHumanTaskUI(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: HumanTaskUiName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.DescribeHumanTaskUI(req.HumanTaskUIName)
+	result, err := h.Backend.DescribeHumanTaskUI(ctx, req.HumanTaskUIName)
 	if err != nil {
 		return nil, err
 	}
@@ -593,7 +598,7 @@ func (h *Handler) handleDescribeHumanTaskUI(body []byte) ([]byte, error) {
 	return json.Marshal(result)
 }
 
-func (h *Handler) handleDeleteHumanTaskUI(body []byte) error {
+func (h *Handler) handleDeleteHumanTaskUI(ctx context.Context, body []byte) error {
 	var req struct {
 		HumanTaskUIName string `json:"HumanTaskUiName"`
 	}
@@ -606,14 +611,14 @@ func (h *Handler) handleDeleteHumanTaskUI(body []byte) error {
 		return fmt.Errorf("%w: HumanTaskUiName is required", errInvalidRequest)
 	}
 
-	return h.Backend.DeleteHumanTaskUI(req.HumanTaskUIName)
+	return h.Backend.DeleteHumanTaskUI(ctx, req.HumanTaskUIName)
 }
 
 // ---------------------------------------------------------------------------
 // Workforce handlers
 // ---------------------------------------------------------------------------
 
-func (h *Handler) handleCreateWorkforce(body []byte) ([]byte, error) {
+func (h *Handler) handleCreateWorkforce(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Tags          map[string]string `json:"Tags"`
 		WorkforceName string            `json:"WorkforceName"`
@@ -627,7 +632,7 @@ func (h *Handler) handleCreateWorkforce(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: WorkforceName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.CreateWorkforce(req.WorkforceName, req.Tags)
+	result, err := h.Backend.CreateWorkforce(ctx, req.WorkforceName, req.Tags)
 	if err != nil {
 		return nil, err
 	}
@@ -635,7 +640,7 @@ func (h *Handler) handleCreateWorkforce(body []byte) ([]byte, error) {
 	return json.Marshal(map[string]any{keyWorkforceArn: result.WorkforceArn})
 }
 
-func (h *Handler) handleDescribeWorkforce(body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeWorkforce(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		WorkforceName string `json:"WorkforceName"`
 	}
@@ -648,7 +653,7 @@ func (h *Handler) handleDescribeWorkforce(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: WorkforceName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.DescribeWorkforce(req.WorkforceName)
+	result, err := h.Backend.DescribeWorkforce(ctx, req.WorkforceName)
 	if err != nil {
 		return nil, err
 	}
@@ -656,7 +661,7 @@ func (h *Handler) handleDescribeWorkforce(body []byte) ([]byte, error) {
 	return json.Marshal(map[string]any{"Workforce": result})
 }
 
-func (h *Handler) handleUpdateWorkforce(body []byte) ([]byte, error) {
+func (h *Handler) handleUpdateWorkforce(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		WorkforceName string `json:"WorkforceName"`
 	}
@@ -669,7 +674,7 @@ func (h *Handler) handleUpdateWorkforce(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: WorkforceName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.UpdateWorkforce(req.WorkforceName)
+	result, err := h.Backend.UpdateWorkforce(ctx, req.WorkforceName)
 	if err != nil {
 		return nil, err
 	}
@@ -681,7 +686,7 @@ func (h *Handler) handleUpdateWorkforce(body []byte) ([]byte, error) {
 // FlowDefinition handlers
 // ---------------------------------------------------------------------------
 
-func (h *Handler) handleCreateFlowDefinition(body []byte) ([]byte, error) {
+func (h *Handler) handleCreateFlowDefinition(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Tags               map[string]string `json:"Tags"`
 		FlowDefinitionName string            `json:"FlowDefinitionName"`
@@ -696,7 +701,7 @@ func (h *Handler) handleCreateFlowDefinition(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: FlowDefinitionName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.CreateFlowDefinition(req.FlowDefinitionName, req.RoleArn, req.Tags)
+	result, err := h.Backend.CreateFlowDefinition(ctx, req.FlowDefinitionName, req.RoleArn, req.Tags)
 	if err != nil {
 		return nil, err
 	}
@@ -704,7 +709,7 @@ func (h *Handler) handleCreateFlowDefinition(body []byte) ([]byte, error) {
 	return json.Marshal(map[string]any{keyFlowDefinitionArn: result.FlowDefinitionArn})
 }
 
-func (h *Handler) handleDescribeFlowDefinition(body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeFlowDefinition(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		FlowDefinitionName string `json:"FlowDefinitionName"`
 	}
@@ -717,7 +722,7 @@ func (h *Handler) handleDescribeFlowDefinition(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: FlowDefinitionName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.DescribeFlowDefinition(req.FlowDefinitionName)
+	result, err := h.Backend.DescribeFlowDefinition(ctx, req.FlowDefinitionName)
 	if err != nil {
 		return nil, err
 	}
@@ -725,7 +730,7 @@ func (h *Handler) handleDescribeFlowDefinition(body []byte) ([]byte, error) {
 	return json.Marshal(result)
 }
 
-func (h *Handler) handleDeleteFlowDefinition(body []byte) error {
+func (h *Handler) handleDeleteFlowDefinition(ctx context.Context, body []byte) error {
 	var req struct {
 		FlowDefinitionName string `json:"FlowDefinitionName"`
 	}
@@ -738,14 +743,14 @@ func (h *Handler) handleDeleteFlowDefinition(body []byte) error {
 		return fmt.Errorf("%w: FlowDefinitionName is required", errInvalidRequest)
 	}
 
-	return h.Backend.DeleteFlowDefinition(req.FlowDefinitionName)
+	return h.Backend.DeleteFlowDefinition(ctx, req.FlowDefinitionName)
 }
 
 // ---------------------------------------------------------------------------
 // AppImageConfig handlers
 // ---------------------------------------------------------------------------
 
-func (h *Handler) handleCreateAppImageConfig(body []byte) ([]byte, error) {
+func (h *Handler) handleCreateAppImageConfig(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Tags               map[string]string `json:"Tags"`
 		AppImageConfigName string            `json:"AppImageConfigName"`
@@ -759,7 +764,7 @@ func (h *Handler) handleCreateAppImageConfig(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: AppImageConfigName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.CreateAppImageConfig(req.AppImageConfigName, req.Tags)
+	result, err := h.Backend.CreateAppImageConfig(ctx, req.AppImageConfigName, req.Tags)
 	if err != nil {
 		return nil, err
 	}
@@ -767,7 +772,7 @@ func (h *Handler) handleCreateAppImageConfig(body []byte) ([]byte, error) {
 	return json.Marshal(map[string]any{keyAppImageConfigArn: result.AppImageConfigArn})
 }
 
-func (h *Handler) handleDescribeAppImageConfig(body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeAppImageConfig(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		AppImageConfigName string `json:"AppImageConfigName"`
 	}
@@ -780,7 +785,7 @@ func (h *Handler) handleDescribeAppImageConfig(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: AppImageConfigName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.DescribeAppImageConfig(req.AppImageConfigName)
+	result, err := h.Backend.DescribeAppImageConfig(ctx, req.AppImageConfigName)
 	if err != nil {
 		return nil, err
 	}
@@ -788,7 +793,7 @@ func (h *Handler) handleDescribeAppImageConfig(body []byte) ([]byte, error) {
 	return json.Marshal(result)
 }
 
-func (h *Handler) handleDeleteAppImageConfig(body []byte) error {
+func (h *Handler) handleDeleteAppImageConfig(ctx context.Context, body []byte) error {
 	var req struct {
 		AppImageConfigName string `json:"AppImageConfigName"`
 	}
@@ -801,10 +806,10 @@ func (h *Handler) handleDeleteAppImageConfig(body []byte) error {
 		return fmt.Errorf("%w: AppImageConfigName is required", errInvalidRequest)
 	}
 
-	return h.Backend.DeleteAppImageConfig(req.AppImageConfigName)
+	return h.Backend.DeleteAppImageConfig(ctx, req.AppImageConfigName)
 }
 
-func (h *Handler) handleUpdateAppImageConfig(body []byte) ([]byte, error) {
+func (h *Handler) handleUpdateAppImageConfig(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		AppImageConfigName string `json:"AppImageConfigName"`
 	}
@@ -817,7 +822,7 @@ func (h *Handler) handleUpdateAppImageConfig(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: AppImageConfigName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.UpdateAppImageConfig(req.AppImageConfigName)
+	result, err := h.Backend.UpdateAppImageConfig(ctx, req.AppImageConfigName)
 	if err != nil {
 		return nil, err
 	}
@@ -829,7 +834,7 @@ func (h *Handler) handleUpdateAppImageConfig(body []byte) ([]byte, error) {
 // InferenceExperiment handlers
 // ---------------------------------------------------------------------------
 
-func (h *Handler) handleCreateInferenceExperiment(body []byte) ([]byte, error) {
+func (h *Handler) handleCreateInferenceExperiment(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Tags    map[string]string `json:"Tags"`
 		Name    string            `json:"Name"`
@@ -845,7 +850,7 @@ func (h *Handler) handleCreateInferenceExperiment(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: Name is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.CreateInferenceExperiment(req.Name, req.Type, req.RoleArn, req.Tags)
+	result, err := h.Backend.CreateInferenceExperiment(ctx, req.Name, req.Type, req.RoleArn, req.Tags)
 	if err != nil {
 		return nil, err
 	}
@@ -853,7 +858,7 @@ func (h *Handler) handleCreateInferenceExperiment(body []byte) ([]byte, error) {
 	return json.Marshal(map[string]any{keyInferenceExperimentArn: result.Arn})
 }
 
-func (h *Handler) handleDescribeInferenceExperiment(body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeInferenceExperiment(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Name string `json:"Name"`
 	}
@@ -866,7 +871,7 @@ func (h *Handler) handleDescribeInferenceExperiment(body []byte) ([]byte, error)
 		return nil, fmt.Errorf("%w: Name is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.DescribeInferenceExperiment(req.Name)
+	result, err := h.Backend.DescribeInferenceExperiment(ctx, req.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -874,7 +879,7 @@ func (h *Handler) handleDescribeInferenceExperiment(body []byte) ([]byte, error)
 	return json.Marshal(result)
 }
 
-func (h *Handler) handleStopInferenceExperiment(body []byte) error {
+func (h *Handler) handleStopInferenceExperiment(ctx context.Context, body []byte) error {
 	var req struct {
 		Name string `json:"Name"`
 	}
@@ -887,10 +892,10 @@ func (h *Handler) handleStopInferenceExperiment(body []byte) error {
 		return fmt.Errorf("%w: Name is required", errInvalidRequest)
 	}
 
-	return h.Backend.StopInferenceExperiment(req.Name)
+	return h.Backend.StopInferenceExperiment(ctx, req.Name)
 }
 
-func (h *Handler) handleDeleteInferenceExperiment(body []byte) error {
+func (h *Handler) handleDeleteInferenceExperiment(ctx context.Context, body []byte) error {
 	var req struct {
 		Name string `json:"Name"`
 	}
@@ -903,14 +908,14 @@ func (h *Handler) handleDeleteInferenceExperiment(body []byte) error {
 		return fmt.Errorf("%w: Name is required", errInvalidRequest)
 	}
 
-	return h.Backend.DeleteInferenceExperiment(req.Name)
+	return h.Backend.DeleteInferenceExperiment(ctx, req.Name)
 }
 
 // ---------------------------------------------------------------------------
 // MlflowTrackingServer handlers
 // ---------------------------------------------------------------------------
 
-func (h *Handler) handleCreateMlflowTrackingServer(body []byte) ([]byte, error) {
+func (h *Handler) handleCreateMlflowTrackingServer(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Tags               map[string]string `json:"Tags"`
 		TrackingServerName string            `json:"TrackingServerName"`
@@ -926,7 +931,7 @@ func (h *Handler) handleCreateMlflowTrackingServer(body []byte) ([]byte, error) 
 		return nil, fmt.Errorf("%w: TrackingServerName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.CreateMlflowTrackingServer(
+	result, err := h.Backend.CreateMlflowTrackingServer(ctx,
 		req.TrackingServerName, req.RoleArn, req.MlflowVersion, req.Tags,
 	)
 	if err != nil {
@@ -936,7 +941,7 @@ func (h *Handler) handleCreateMlflowTrackingServer(body []byte) ([]byte, error) 
 	return json.Marshal(map[string]any{keyTrackingServerArn: result.TrackingServerArn})
 }
 
-func (h *Handler) handleDescribeMlflowTrackingServer(body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeMlflowTrackingServer(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		TrackingServerName string `json:"TrackingServerName"`
 	}
@@ -949,7 +954,7 @@ func (h *Handler) handleDescribeMlflowTrackingServer(body []byte) ([]byte, error
 		return nil, fmt.Errorf("%w: TrackingServerName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.DescribeMlflowTrackingServer(req.TrackingServerName)
+	result, err := h.Backend.DescribeMlflowTrackingServer(ctx, req.TrackingServerName)
 	if err != nil {
 		return nil, err
 	}
@@ -957,7 +962,7 @@ func (h *Handler) handleDescribeMlflowTrackingServer(body []byte) ([]byte, error
 	return json.Marshal(result)
 }
 
-func (h *Handler) handleDeleteMlflowTrackingServer(body []byte) error {
+func (h *Handler) handleDeleteMlflowTrackingServer(ctx context.Context, body []byte) error {
 	var req struct {
 		TrackingServerName string `json:"TrackingServerName"`
 	}
@@ -970,10 +975,10 @@ func (h *Handler) handleDeleteMlflowTrackingServer(body []byte) error {
 		return fmt.Errorf("%w: TrackingServerName is required", errInvalidRequest)
 	}
 
-	return h.Backend.DeleteMlflowTrackingServer(req.TrackingServerName)
+	return h.Backend.DeleteMlflowTrackingServer(ctx, req.TrackingServerName)
 }
 
-func (h *Handler) handleStartMlflowTrackingServer(body []byte) error {
+func (h *Handler) handleStartMlflowTrackingServer(ctx context.Context, body []byte) error {
 	var req struct {
 		TrackingServerName string `json:"TrackingServerName"`
 	}
@@ -986,10 +991,10 @@ func (h *Handler) handleStartMlflowTrackingServer(body []byte) error {
 		return fmt.Errorf("%w: TrackingServerName is required", errInvalidRequest)
 	}
 
-	return h.Backend.StartMlflowTrackingServer(req.TrackingServerName)
+	return h.Backend.StartMlflowTrackingServer(ctx, req.TrackingServerName)
 }
 
-func (h *Handler) handleStopMlflowTrackingServer(body []byte) error {
+func (h *Handler) handleStopMlflowTrackingServer(ctx context.Context, body []byte) error {
 	var req struct {
 		TrackingServerName string `json:"TrackingServerName"`
 	}
@@ -1002,14 +1007,14 @@ func (h *Handler) handleStopMlflowTrackingServer(body []byte) error {
 		return fmt.Errorf("%w: TrackingServerName is required", errInvalidRequest)
 	}
 
-	return h.Backend.StopMlflowTrackingServer(req.TrackingServerName)
+	return h.Backend.StopMlflowTrackingServer(ctx, req.TrackingServerName)
 }
 
 // ---------------------------------------------------------------------------
 // ModelCard handlers
 // ---------------------------------------------------------------------------
 
-func (h *Handler) handleCreateModelCard(body []byte) ([]byte, error) {
+func (h *Handler) handleCreateModelCard(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Tags          map[string]string `json:"Tags"`
 		ModelCardName string            `json:"ModelCardName"`
@@ -1024,7 +1029,7 @@ func (h *Handler) handleCreateModelCard(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: ModelCardName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.CreateModelCard(req.ModelCardName, req.Content, req.Tags)
+	result, err := h.Backend.CreateModelCard(ctx, req.ModelCardName, req.Content, req.Tags)
 	if err != nil {
 		return nil, err
 	}
@@ -1032,7 +1037,7 @@ func (h *Handler) handleCreateModelCard(body []byte) ([]byte, error) {
 	return json.Marshal(map[string]any{keyModelCardArn: result.ModelCardArn})
 }
 
-func (h *Handler) handleDescribeModelCard(body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeModelCard(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		ModelCardName string `json:"ModelCardName"`
 	}
@@ -1045,7 +1050,7 @@ func (h *Handler) handleDescribeModelCard(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: ModelCardName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.DescribeModelCard(req.ModelCardName)
+	result, err := h.Backend.DescribeModelCard(ctx, req.ModelCardName)
 	if err != nil {
 		return nil, err
 	}
@@ -1053,7 +1058,7 @@ func (h *Handler) handleDescribeModelCard(body []byte) ([]byte, error) {
 	return json.Marshal(result)
 }
 
-func (h *Handler) handleUpdateModelCard(body []byte) ([]byte, error) {
+func (h *Handler) handleUpdateModelCard(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		ModelCardName string `json:"ModelCardName"`
 		Content       string `json:"Content"`
@@ -1067,7 +1072,7 @@ func (h *Handler) handleUpdateModelCard(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: ModelCardName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.UpdateModelCard(req.ModelCardName, req.Content)
+	result, err := h.Backend.UpdateModelCard(ctx, req.ModelCardName, req.Content)
 	if err != nil {
 		return nil, err
 	}
@@ -1075,7 +1080,7 @@ func (h *Handler) handleUpdateModelCard(body []byte) ([]byte, error) {
 	return json.Marshal(map[string]any{keyModelCardArn: result.ModelCardArn})
 }
 
-func (h *Handler) handleDeleteModelCard(body []byte) error {
+func (h *Handler) handleDeleteModelCard(ctx context.Context, body []byte) error {
 	var req struct {
 		ModelCardName string `json:"ModelCardName"`
 	}
@@ -1088,14 +1093,14 @@ func (h *Handler) handleDeleteModelCard(body []byte) error {
 		return fmt.Errorf("%w: ModelCardName is required", errInvalidRequest)
 	}
 
-	return h.Backend.DeleteModelCard(req.ModelCardName)
+	return h.Backend.DeleteModelCard(ctx, req.ModelCardName)
 }
 
 // ---------------------------------------------------------------------------
 // OptimizationJob handlers
 // ---------------------------------------------------------------------------
 
-func (h *Handler) handleCreateOptimizationJob(body []byte) ([]byte, error) {
+func (h *Handler) handleCreateOptimizationJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Tags                map[string]string `json:"Tags"`
 		OptimizationJobName string            `json:"OptimizationJobName"`
@@ -1110,7 +1115,7 @@ func (h *Handler) handleCreateOptimizationJob(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: OptimizationJobName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.CreateOptimizationJob(req.OptimizationJobName, req.RoleArn, req.Tags)
+	result, err := h.Backend.CreateOptimizationJob(ctx, req.OptimizationJobName, req.RoleArn, req.Tags)
 	if err != nil {
 		return nil, err
 	}
@@ -1118,7 +1123,7 @@ func (h *Handler) handleCreateOptimizationJob(body []byte) ([]byte, error) {
 	return json.Marshal(map[string]any{keyOptimizationJobArn: result.OptimizationJobArn})
 }
 
-func (h *Handler) handleDescribeOptimizationJob(body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeOptimizationJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		OptimizationJobName string `json:"OptimizationJobName"`
 	}
@@ -1131,7 +1136,7 @@ func (h *Handler) handleDescribeOptimizationJob(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: OptimizationJobName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.DescribeOptimizationJob(req.OptimizationJobName)
+	result, err := h.Backend.DescribeOptimizationJob(ctx, req.OptimizationJobName)
 	if err != nil {
 		return nil, err
 	}
@@ -1139,7 +1144,7 @@ func (h *Handler) handleDescribeOptimizationJob(body []byte) ([]byte, error) {
 	return json.Marshal(result)
 }
 
-func (h *Handler) handleDeleteOptimizationJob(body []byte) error {
+func (h *Handler) handleDeleteOptimizationJob(ctx context.Context, body []byte) error {
 	var req struct {
 		OptimizationJobName string `json:"OptimizationJobName"`
 	}
@@ -1152,10 +1157,10 @@ func (h *Handler) handleDeleteOptimizationJob(body []byte) error {
 		return fmt.Errorf("%w: OptimizationJobName is required", errInvalidRequest)
 	}
 
-	return h.Backend.DeleteOptimizationJob(req.OptimizationJobName)
+	return h.Backend.DeleteOptimizationJob(ctx, req.OptimizationJobName)
 }
 
-func (h *Handler) handleStopOptimizationJob(body []byte) error {
+func (h *Handler) handleStopOptimizationJob(ctx context.Context, body []byte) error {
 	var req struct {
 		OptimizationJobName string `json:"OptimizationJobName"`
 	}
@@ -1168,14 +1173,14 @@ func (h *Handler) handleStopOptimizationJob(body []byte) error {
 		return fmt.Errorf("%w: OptimizationJobName is required", errInvalidRequest)
 	}
 
-	return h.Backend.StopOptimizationJob(req.OptimizationJobName)
+	return h.Backend.StopOptimizationJob(ctx, req.OptimizationJobName)
 }
 
 // ---------------------------------------------------------------------------
 // StudioLifecycleConfig handlers
 // ---------------------------------------------------------------------------
 
-func (h *Handler) handleCreateStudioLifecycleConfig(body []byte) ([]byte, error) {
+func (h *Handler) handleCreateStudioLifecycleConfig(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Tags                         map[string]string `json:"Tags"`
 		StudioLifecycleConfigName    string            `json:"StudioLifecycleConfigName"`
@@ -1190,7 +1195,7 @@ func (h *Handler) handleCreateStudioLifecycleConfig(body []byte) ([]byte, error)
 		return nil, fmt.Errorf("%w: StudioLifecycleConfigName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.CreateStudioLifecycleConfig(
+	result, err := h.Backend.CreateStudioLifecycleConfig(ctx,
 		req.StudioLifecycleConfigName, req.StudioLifecycleConfigAppType, req.Tags,
 	)
 	if err != nil {
@@ -1200,7 +1205,7 @@ func (h *Handler) handleCreateStudioLifecycleConfig(body []byte) ([]byte, error)
 	return json.Marshal(map[string]any{keyStudioLifecycleConfigArn: result.StudioLifecycleConfigArn})
 }
 
-func (h *Handler) handleDescribeStudioLifecycleConfig(body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeStudioLifecycleConfig(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		StudioLifecycleConfigName string `json:"StudioLifecycleConfigName"`
 	}
@@ -1213,7 +1218,7 @@ func (h *Handler) handleDescribeStudioLifecycleConfig(body []byte) ([]byte, erro
 		return nil, fmt.Errorf("%w: StudioLifecycleConfigName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.DescribeStudioLifecycleConfig(req.StudioLifecycleConfigName)
+	result, err := h.Backend.DescribeStudioLifecycleConfig(ctx, req.StudioLifecycleConfigName)
 	if err != nil {
 		return nil, err
 	}
@@ -1221,7 +1226,7 @@ func (h *Handler) handleDescribeStudioLifecycleConfig(body []byte) ([]byte, erro
 	return json.Marshal(result)
 }
 
-func (h *Handler) handleDeleteStudioLifecycleConfig(body []byte) error {
+func (h *Handler) handleDeleteStudioLifecycleConfig(ctx context.Context, body []byte) error {
 	var req struct {
 		StudioLifecycleConfigName string `json:"StudioLifecycleConfigName"`
 	}
@@ -1234,14 +1239,14 @@ func (h *Handler) handleDeleteStudioLifecycleConfig(body []byte) error {
 		return fmt.Errorf("%w: StudioLifecycleConfigName is required", errInvalidRequest)
 	}
 
-	return h.Backend.DeleteStudioLifecycleConfig(req.StudioLifecycleConfigName)
+	return h.Backend.DeleteStudioLifecycleConfig(ctx, req.StudioLifecycleConfigName)
 }
 
 // ---------------------------------------------------------------------------
 // PartnerApp handlers
 // ---------------------------------------------------------------------------
 
-func (h *Handler) handleCreatePartnerApp(body []byte) ([]byte, error) {
+func (h *Handler) handleCreatePartnerApp(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Tags map[string]string `json:"Tags"`
 		Name string            `json:"Name"`
@@ -1256,7 +1261,7 @@ func (h *Handler) handleCreatePartnerApp(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: Name is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.CreatePartnerApp(req.Name, req.Type, req.Tags)
+	result, err := h.Backend.CreatePartnerApp(ctx, req.Name, req.Type, req.Tags)
 	if err != nil {
 		return nil, err
 	}
@@ -1264,7 +1269,7 @@ func (h *Handler) handleCreatePartnerApp(body []byte) ([]byte, error) {
 	return json.Marshal(map[string]any{keyGenericArn: result.Arn})
 }
 
-func (h *Handler) handleDescribePartnerApp(body []byte) ([]byte, error) {
+func (h *Handler) handleDescribePartnerApp(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Arn string `json:"Arn"`
 	}
@@ -1277,7 +1282,7 @@ func (h *Handler) handleDescribePartnerApp(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: Arn is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.DescribePartnerApp(req.Arn)
+	result, err := h.Backend.DescribePartnerApp(ctx, req.Arn)
 	if err != nil {
 		return nil, err
 	}
@@ -1285,7 +1290,7 @@ func (h *Handler) handleDescribePartnerApp(body []byte) ([]byte, error) {
 	return json.Marshal(result)
 }
 
-func (h *Handler) handleDeletePartnerApp(body []byte) error {
+func (h *Handler) handleDeletePartnerApp(ctx context.Context, body []byte) error {
 	var req struct {
 		Arn string `json:"Arn"`
 	}
@@ -1298,14 +1303,14 @@ func (h *Handler) handleDeletePartnerApp(body []byte) error {
 		return fmt.Errorf("%w: Arn is required", errInvalidRequest)
 	}
 
-	return h.Backend.DeletePartnerApp(req.Arn)
+	return h.Backend.DeletePartnerApp(ctx, req.Arn)
 }
 
 // ---------------------------------------------------------------------------
 // TrainingPlan handlers
 // ---------------------------------------------------------------------------
 
-func (h *Handler) handleCreateTrainingPlan(body []byte) ([]byte, error) {
+func (h *Handler) handleCreateTrainingPlan(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Tags             map[string]string `json:"Tags"`
 		TrainingPlanName string            `json:"TrainingPlanName"`
@@ -1319,7 +1324,7 @@ func (h *Handler) handleCreateTrainingPlan(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: TrainingPlanName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.CreateTrainingPlan(req.TrainingPlanName, req.Tags)
+	result, err := h.Backend.CreateTrainingPlan(ctx, req.TrainingPlanName, req.Tags)
 	if err != nil {
 		return nil, err
 	}
@@ -1327,7 +1332,7 @@ func (h *Handler) handleCreateTrainingPlan(body []byte) ([]byte, error) {
 	return json.Marshal(map[string]any{keyTrainingPlanArn: result.TrainingPlanArn})
 }
 
-func (h *Handler) handleDescribeTrainingPlan(body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeTrainingPlan(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		TrainingPlanName string `json:"TrainingPlanName"`
 	}
@@ -1340,7 +1345,7 @@ func (h *Handler) handleDescribeTrainingPlan(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: TrainingPlanName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.DescribeTrainingPlan(req.TrainingPlanName)
+	result, err := h.Backend.DescribeTrainingPlan(ctx, req.TrainingPlanName)
 	if err != nil {
 		return nil, err
 	}

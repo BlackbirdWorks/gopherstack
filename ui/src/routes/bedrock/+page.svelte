@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { getBedrockClient } from '$lib/aws-client';
+	import { getBedrockClient, getBedrockRuntimeClient } from '$lib/aws-client';
 	import {
 		ListFoundationModelsCommand,
 		ListCustomModelsCommand,
@@ -9,10 +9,15 @@
 		ListGuardrailsCommand,
 		CreateGuardrailCommand,
 		DeleteGuardrailCommand,
+		type BedrockClient,
 		type FoundationModelSummary,
 		type CustomModelSummary,
 		type GuardrailSummary
 	} from '@aws-sdk/client-bedrock';
+	import {
+		InvokeModelCommand,
+		type BedrockRuntimeClient
+	} from '@aws-sdk/client-bedrock-runtime';
 	import { toast } from 'svelte-sonner';
 	import {
 		Brain,
@@ -23,16 +28,120 @@
 		Cpu,
 		CheckCircle,
 		XCircle,
-		Filter,
 		Shield,
 		Plus,
-		Trash2
+		Trash2,
+		MessageSquare,
+		Play
 	} from 'lucide-svelte';
 
-	const bedrock = getBedrockClient();
+	let bedrockClient: BedrockClient | undefined;
+	function bedrock(): BedrockClient {
+		return (bedrockClient ??= getBedrockClient());
+	}
+	let runtimeClient: BedrockRuntimeClient | undefined;
+	function runtime(): BedrockRuntimeClient {
+		return (runtimeClient ??= getBedrockRuntimeClient());
+	}
 
 	let loading = $state(false);
-	let activeTab = $state<'foundation' | 'custom' | 'guardrails'>('foundation');
+	let activeTab = $state<'foundation' | 'custom' | 'guardrails' | 'playground'>('foundation');
+
+	// ── Model invoke / test playground ──────────────────────────────────────
+	const SAMPLE_PROMPTS = [
+		'Explain quantum entanglement in one sentence.',
+		'Write a haiku about cloud computing.',
+		'List three benefits of infrastructure-as-code.'
+	];
+	let playgroundModelId = $state('');
+	let playgroundPrompt = $state(SAMPLE_PROMPTS[0]);
+	let playgroundMaxTokens = $state(512);
+	let playgroundTemperature = $state(0.7);
+	let invoking = $state(false);
+	let playgroundOutput = $state('');
+	let playgroundRaw = $state('');
+
+	// Build a provider-appropriate request body for InvokeModel.
+	function buildBody(modelId: string): string {
+		const id = modelId.toLowerCase();
+		if (id.includes('anthropic') || id.includes('claude')) {
+			return JSON.stringify({
+				anthropic_version: 'bedrock-2023-05-31',
+				max_tokens: playgroundMaxTokens,
+				temperature: playgroundTemperature,
+				messages: [{ role: 'user', content: playgroundPrompt }]
+			});
+		}
+		if (id.includes('titan') || id.includes('nova') || id.includes('amazon')) {
+			return JSON.stringify({
+				inputText: playgroundPrompt,
+				textGenerationConfig: { maxTokenCount: playgroundMaxTokens, temperature: playgroundTemperature }
+			});
+		}
+		if (id.includes('llama') || id.includes('meta')) {
+			return JSON.stringify({
+				prompt: playgroundPrompt,
+				max_gen_len: playgroundMaxTokens,
+				temperature: playgroundTemperature
+			});
+		}
+		// Cohere / Mistral / generic fallback.
+		return JSON.stringify({
+			prompt: playgroundPrompt,
+			max_tokens: playgroundMaxTokens,
+			temperature: playgroundTemperature
+		});
+	}
+
+	// Extract text from any of the common Bedrock response shapes.
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	function extractText(parsed: any): string {
+		if (!parsed) return '';
+		if (Array.isArray(parsed.content)) return parsed.content.map((c: { text?: string }) => c.text ?? '').join('');
+		if (parsed.completion) return parsed.completion;
+		if (Array.isArray(parsed.results)) return parsed.results.map((r: { outputText?: string }) => r.outputText ?? '').join('');
+		if (parsed.generation) return parsed.generation;
+		if (Array.isArray(parsed.generations)) return parsed.generations.map((g: { text?: string }) => g.text ?? '').join('');
+		if (Array.isArray(parsed.outputs)) return parsed.outputs.map((o: { text?: string }) => o.text ?? '').join('');
+		if (parsed.outputText) return parsed.outputText;
+		return '';
+	}
+
+	async function invokeModel() {
+		if (!playgroundModelId.trim()) {
+			toast.error('Select or enter a model ID');
+			return;
+		}
+		if (!playgroundPrompt.trim()) {
+			toast.error('Enter a prompt');
+			return;
+		}
+		invoking = true;
+		playgroundOutput = '';
+		playgroundRaw = '';
+		try {
+			const resp = await runtime().send(
+				new InvokeModelCommand({
+					modelId: playgroundModelId.trim(),
+					contentType: 'application/json',
+					accept: 'application/json',
+					body: new TextEncoder().encode(buildBody(playgroundModelId.trim()))
+				})
+			);
+			const text = new TextDecoder().decode(resp.body);
+			playgroundRaw = text;
+			try {
+				playgroundOutput = extractText(JSON.parse(text)) || text;
+			} catch {
+				playgroundOutput = text;
+			}
+			toast.success('Model invoked');
+		} catch (e) {
+			toast.error(`Failed to invoke model: ${e}`);
+		} finally {
+			invoking = false;
+		}
+	}
 	let searchQuery = $state('');
 	let modalityFilter = $state('all');
 	let providerFilter = $state('all');
@@ -103,7 +212,7 @@
 	async function loadFoundationModels() {
 		loading = true;
 		try {
-			const res = await bedrock.send(new ListFoundationModelsCommand({}));
+			const res = await bedrock().send(new ListFoundationModelsCommand({}));
 			foundationModels = res.modelSummaries ?? [];
 		} catch (e) {
 			toast.error(`Failed to load foundation models: ${e}`);
@@ -115,7 +224,7 @@
 	async function loadCustomModels() {
 		loading = true;
 		try {
-			const res = await bedrock.send(new ListCustomModelsCommand({ maxResults: 100 }));
+			const res = await bedrock().send(new ListCustomModelsCommand({ maxResults: 100 }));
 			customModels = res.modelSummaries ?? [];
 		} catch (e) {
 			toast.error(`Failed to load custom models: ${e}`);
@@ -127,7 +236,7 @@
 	async function loadGuardrails() {
 		loading = true;
 		try {
-			const res = await bedrock.send(new ListGuardrailsCommand({}));
+			const res = await bedrock().send(new ListGuardrailsCommand({}));
 			guardrails = (res.guardrails ?? []) as GuardrailSummary[];
 		} catch (e) {
 			toast.error(`Failed to load guardrails: ${e}`);
@@ -142,7 +251,7 @@
 		loadingDetail = true;
 		modelDetail = null;
 		try {
-			const res = await bedrock.send(
+			const res = await bedrock().send(
 				new GetFoundationModelCommand({ modelIdentifier: model.modelId ?? '' })
 			);
 			modelDetail = res.modelDetails ?? null;
@@ -160,7 +269,7 @@
 		}
 		creatingCustomModel = true;
 		try {
-			await bedrock.send(
+			await bedrock().send(
 				new CreateCustomModelCommand({
 					modelName: newCustomModelName.trim(),
 					// eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -186,7 +295,7 @@
 		}
 		creatingGuardrail = true;
 		try {
-			await bedrock.send(
+			await bedrock().send(
 				new CreateGuardrailCommand({
 					name: newGuardrailName.trim(),
 					description: newGuardrailDesc.trim() || undefined,
@@ -208,7 +317,7 @@
 
 	async function deleteGuardrail(id: string, name: string) {
 		try {
-			await bedrock.send(new DeleteGuardrailCommand({ guardrailIdentifier: id }));
+			await bedrock().send(new DeleteGuardrailCommand({ guardrailIdentifier: id }));
 			toast.success(`Guardrail "${name}" deleted`);
 			await loadGuardrails();
 		} catch (e) {
@@ -222,7 +331,8 @@
 		selectedModel = null;
 		if (tab === 'foundation') await loadFoundationModels();
 		else if (tab === 'custom') await loadCustomModels();
-		else await loadGuardrails();
+		else if (tab === 'guardrails') await loadGuardrails();
+		else if (tab === 'playground' && foundationModels.length === 0) await loadFoundationModels();
 	}
 
 	onMount(() => loadFoundationModels());
@@ -275,7 +385,8 @@
 		{#each [
 			{ id: 'foundation', label: 'Foundation Models', icon: Sparkles },
 			{ id: 'custom', label: 'Custom Models', icon: Cpu },
-			{ id: 'guardrails', label: 'Guardrails', icon: Shield }
+			{ id: 'guardrails', label: 'Guardrails', icon: Shield },
+			{ id: 'playground', label: 'Playground', icon: MessageSquare }
 		] as tab}
 			<button
 				onclick={() => onTabChange(tab.id as typeof activeTab)}
@@ -688,4 +799,68 @@
 			</div>
 		{/if}
 	{/if}
+
+		<!-- Playground Tab -->
+		{#if activeTab === 'playground'}
+			<div class="grid gap-4 lg:grid-cols-2">
+				<div class="rounded-lg border p-5 space-y-4">
+					<h3 class="font-semibold flex items-center gap-2"><MessageSquare class="h-4 w-4 text-violet-500" /> Invoke Model</h3>
+					<div>
+						<label class="text-sm font-medium" for="pg-model">Model ID</label>
+						{#if foundationModels.length > 0}
+							<select id="pg-model" bind:value={playgroundModelId} class="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+								<option value="">Select a model…</option>
+								{#each foundationModels as m}
+									<option value={m.modelId}>{m.modelName} ({m.modelId})</option>
+								{/each}
+							</select>
+						{:else}
+							<input id="pg-model" type="text" bind:value={playgroundModelId} placeholder="anthropic.claude-v2" class="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
+						{/if}
+					</div>
+					<div>
+						<div class="flex items-center justify-between">
+							<label class="text-sm font-medium" for="pg-prompt">Prompt</label>
+							<div class="flex gap-1">
+								{#each SAMPLE_PROMPTS as p, i}
+									<button type="button" onclick={() => (playgroundPrompt = p)} class="rounded bg-muted px-1.5 py-0.5 text-xs hover:bg-accent" title={p}>Sample {i + 1}</button>
+								{/each}
+							</div>
+						</div>
+						<textarea id="pg-prompt" bind:value={playgroundPrompt} rows="5" class="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"></textarea>
+					</div>
+					<div class="grid grid-cols-2 gap-3">
+						<div>
+							<label class="text-sm font-medium" for="pg-max">Max tokens</label>
+							<input id="pg-max" type="number" min="1" max="4096" bind:value={playgroundMaxTokens} class="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
+						</div>
+						<div>
+							<label class="text-sm font-medium" for="pg-temp">Temperature</label>
+							<input id="pg-temp" type="number" min="0" max="1" step="0.1" bind:value={playgroundTemperature} class="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
+						</div>
+					</div>
+					<button onclick={invokeModel} disabled={invoking} class="flex items-center gap-2 rounded-md bg-primary text-primary-foreground px-4 py-2 text-sm hover:bg-primary/90 disabled:opacity-50">
+						{#if invoking}<RefreshCw class="h-4 w-4 animate-spin" />{:else}<Play class="h-4 w-4" />{/if}
+						Invoke
+					</button>
+				</div>
+				<div class="rounded-lg border p-5 space-y-3">
+					<h3 class="font-semibold flex items-center gap-2"><Sparkles class="h-4 w-4 text-violet-500" /> Response</h3>
+					{#if playgroundOutput}
+						<div class="rounded-md bg-muted/40 p-3 text-sm whitespace-pre-wrap">{playgroundOutput}</div>
+						{#if playgroundRaw}
+							<details class="text-xs">
+								<summary class="cursor-pointer text-muted-foreground">Raw response JSON</summary>
+								<pre class="mt-2 overflow-x-auto rounded-md bg-muted/40 p-3 font-mono">{playgroundRaw}</pre>
+							</details>
+						{/if}
+					{:else}
+						<div class="flex flex-col items-center justify-center py-12 text-muted-foreground">
+							<MessageSquare class="h-12 w-12 mb-3 opacity-30" />
+							<p class="text-sm">Invoke a model to see the response</p>
+						</div>
+					{/if}
+				</div>
+			</div>
+		{/if}
 </div>

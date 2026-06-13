@@ -1,6 +1,7 @@
 package memorydb_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -604,7 +605,7 @@ func TestBackend_NewOps_Lifecycle(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := memorydb.NewInMemoryBackend()
+			b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
 
 			switch tt.name {
 			case "snapshot_lifecycle":
@@ -616,7 +617,7 @@ func TestBackend_NewOps_Lifecycle(t *testing.T) {
 					ClusterName:  "my-cluster",
 				}
 
-				s, err := b.CreateSnapshot(testRegion, testAccountID, req)
+				s, err := b.CreateSnapshot(context.Background(), req)
 				require.NoError(t, err)
 				assert.Equal(t, "my-snap", s.Name)
 				assert.Equal(t, "my-cluster", s.ClusterName)
@@ -624,11 +625,11 @@ func TestBackend_NewOps_Lifecycle(t *testing.T) {
 				assert.Equal(t, "available", s.Status)
 
 				// duplicate
-				_, err = b.CreateSnapshot(testRegion, testAccountID, req)
+				_, err = b.CreateSnapshot(context.Background(), req)
 				require.Error(t, err)
 
 				// copy
-				cp, err := b.CopySnapshot(testRegion, testAccountID, &memorydb.ExportedCopySnapshotRequest{
+				cp, err := b.CopySnapshot(context.Background(), &memorydb.ExportedCopySnapshotRequest{
 					SourceSnapshotName: "my-snap",
 					TargetSnapshotName: "copy-snap",
 				})
@@ -637,12 +638,12 @@ func TestBackend_NewOps_Lifecycle(t *testing.T) {
 				assert.Equal(t, "my-cluster", cp.ClusterName)
 
 				// delete
-				deleted, err := b.DeleteSnapshot("my-snap")
+				deleted, err := b.DeleteSnapshot(context.Background(), "my-snap")
 				require.NoError(t, err)
 				assert.Equal(t, "my-snap", deleted.Name)
 
 				// delete again → error
-				_, err = b.DeleteSnapshot("my-snap")
+				_, err = b.DeleteSnapshot(context.Background(), "my-snap")
 				require.Error(t, err)
 
 			case "multi_region_cluster_lifecycle":
@@ -652,46 +653,46 @@ func TestBackend_NewOps_Lifecycle(t *testing.T) {
 					EngineVersion:                "7.0",
 				}
 
-				mrc, err := b.CreateMultiRegionCluster(testRegion, testAccountID, req)
+				mrc, err := b.CreateMultiRegionCluster(context.Background(), req)
 				require.NoError(t, err)
 				assert.Contains(t, mrc.MultiRegionClusterName, "my-mrc")
 				assert.Equal(t, "available", mrc.Status)
 				assert.Equal(t, "7.0", mrc.EngineVersion)
 
 				// duplicate
-				_, err = b.CreateMultiRegionCluster(testRegion, testAccountID, req)
+				_, err = b.CreateMultiRegionCluster(context.Background(), req)
 				require.Error(t, err)
 
 				// describe
-				mrcs, err := b.DescribeMultiRegionClusters("")
+				mrcs, err := b.DescribeMultiRegionClusters(context.Background(), "")
 				require.NoError(t, err)
 				require.Len(t, mrcs, 1)
 
 				// describe by name
-				mrcs2, err := b.DescribeMultiRegionClusters(mrc.MultiRegionClusterName)
+				mrcs2, err := b.DescribeMultiRegionClusters(context.Background(), mrc.MultiRegionClusterName)
 				require.NoError(t, err)
 				require.Len(t, mrcs2, 1)
 
 				// describe by bad name
-				_, err = b.DescribeMultiRegionClusters("no-such")
+				_, err = b.DescribeMultiRegionClusters(context.Background(), "no-such")
 				require.Error(t, err)
 
 				// delete
-				deleted, err := b.DeleteMultiRegionCluster(mrc.MultiRegionClusterName)
+				deleted, err := b.DeleteMultiRegionCluster(context.Background(), mrc.MultiRegionClusterName)
 				require.NoError(t, err)
 				assert.Equal(t, mrc.MultiRegionClusterName, deleted.MultiRegionClusterName)
 
 				// delete again → error
-				_, err = b.DeleteMultiRegionCluster(mrc.MultiRegionClusterName)
+				_, err = b.DeleteMultiRegionCluster(context.Background(), mrc.MultiRegionClusterName)
 				require.Error(t, err)
 
 			case "engine_versions":
-				versions, err := b.DescribeEngineVersions(&memorydb.ExportedDescribeEngineVersionsRequest{})
+				versions, err := b.DescribeEngineVersions(context.Background(), &memorydb.ExportedDescribeEngineVersionsRequest{})
 				require.NoError(t, err)
 				assert.NotEmpty(t, versions)
 
 				// filter by family
-				redis7, err := b.DescribeEngineVersions(&memorydb.ExportedDescribeEngineVersionsRequest{
+				redis7, err := b.DescribeEngineVersions(context.Background(), &memorydb.ExportedDescribeEngineVersionsRequest{
 					ParameterGroupFamily: "memorydb_redis7",
 				})
 				require.NoError(t, err)
@@ -701,7 +702,7 @@ func TestBackend_NewOps_Lifecycle(t *testing.T) {
 				}
 
 				// filter unknown family
-				none, err := b.DescribeEngineVersions(&memorydb.ExportedDescribeEngineVersionsRequest{
+				none, err := b.DescribeEngineVersions(context.Background(), &memorydb.ExportedDescribeEngineVersionsRequest{
 					ParameterGroupFamily: "memorydb_redis99",
 				})
 				require.NoError(t, err)
@@ -709,7 +710,7 @@ func TestBackend_NewOps_Lifecycle(t *testing.T) {
 
 			case "events":
 				// empty initially
-				events, err := b.DescribeEvents(&memorydb.ExportedDescribeEventsRequest{})
+				events, err := b.DescribeEvents(context.Background(), &memorydb.ExportedDescribeEventsRequest{})
 				require.NoError(t, err)
 				assert.Empty(t, events)
 
@@ -726,12 +727,12 @@ func TestBackend_NewOps_Lifecycle(t *testing.T) {
 				})
 
 				// all events
-				all, err := b.DescribeEvents(&memorydb.ExportedDescribeEventsRequest{})
+				all, err := b.DescribeEvents(context.Background(), &memorydb.ExportedDescribeEventsRequest{})
 				require.NoError(t, err)
 				assert.Len(t, all, 2)
 
 				// filter by source name
-				filtered, err := b.DescribeEvents(&memorydb.ExportedDescribeEventsRequest{
+				filtered, err := b.DescribeEvents(context.Background(), &memorydb.ExportedDescribeEventsRequest{
 					SourceName: "my-cluster",
 				})
 				require.NoError(t, err)
@@ -739,7 +740,7 @@ func TestBackend_NewOps_Lifecycle(t *testing.T) {
 				assert.Equal(t, "my-cluster", filtered[0].SourceName)
 
 				// filter by source type
-				byType, err := b.DescribeEvents(&memorydb.ExportedDescribeEventsRequest{
+				byType, err := b.DescribeEvents(context.Background(), &memorydb.ExportedDescribeEventsRequest{
 					SourceType: "cluster",
 				})
 				require.NoError(t, err)
@@ -774,8 +775,8 @@ func TestBackend_MultiRegionParameterGroups(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := memorydb.NewInMemoryBackend()
-			groups, err := b.DescribeMultiRegionParameterGroups(tt.filterName)
+			b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
+			groups, err := b.DescribeMultiRegionParameterGroups(context.Background(), tt.filterName)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -819,7 +820,7 @@ func TestBackend_BatchUpdateCluster(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := memorydb.NewInMemoryBackend()
+			b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
 
 			// Seed clusters
 			req := &memorydb.ExportedCreateClusterRequest{
@@ -827,7 +828,7 @@ func TestBackend_BatchUpdateCluster(t *testing.T) {
 				NodeType:    "db.r6g.large",
 				ACLName:     "open-access",
 			}
-			_, err := b.CreateCluster(testRegion, testAccountID, req)
+			_, err := b.CreateCluster(context.Background(), req)
 			require.NoError(t, err)
 
 			req2 := &memorydb.ExportedCreateClusterRequest{
@@ -835,10 +836,10 @@ func TestBackend_BatchUpdateCluster(t *testing.T) {
 				NodeType:    "db.r6g.large",
 				ACLName:     "open-access",
 			}
-			_, err = b.CreateCluster(testRegion, testAccountID, req2)
+			_, err = b.CreateCluster(context.Background(), req2)
 			require.NoError(t, err)
 
-			found := b.BatchUpdateCluster(tt.clusterNames)
+			found := b.BatchUpdateCluster(context.Background(), tt.clusterNames)
 			assert.Len(t, found, tt.wantFoundCount)
 		})
 	}
@@ -866,35 +867,35 @@ func TestBackend_CopySnapshot_EdgeCases(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := memorydb.NewInMemoryBackend()
+			b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
 
 			if tt.name == "copy to existing target" {
 				// Pre-create the cluster that the snapshots reference.
 				b.AddClusterInternal("cluster", "db.r6g.large")
 
 				// Create source
-				_, err := b.CreateSnapshot(testRegion, testAccountID, &memorydb.ExportedCreateSnapshotRequest{
+				_, err := b.CreateSnapshot(context.Background(), &memorydb.ExportedCreateSnapshotRequest{
 					SnapshotName: "src",
 					ClusterName:  "cluster",
 				})
 				require.NoError(t, err)
 
 				// Create target first
-				_, err = b.CreateSnapshot(testRegion, testAccountID, &memorydb.ExportedCreateSnapshotRequest{
+				_, err = b.CreateSnapshot(context.Background(), &memorydb.ExportedCreateSnapshotRequest{
 					SnapshotName: "dst",
 					ClusterName:  "cluster",
 				})
 				require.NoError(t, err)
 
 				// Try to copy to same target name
-				_, err = b.CopySnapshot(testRegion, testAccountID, &memorydb.ExportedCopySnapshotRequest{
+				_, err = b.CopySnapshot(context.Background(), &memorydb.ExportedCopySnapshotRequest{
 					SourceSnapshotName: "src",
 					TargetSnapshotName: "dst",
 				})
 				require.Error(t, err)
 			} else {
 				// Copy from non-existent source
-				_, err := b.CopySnapshot(testRegion, testAccountID, &memorydb.ExportedCopySnapshotRequest{
+				_, err := b.CopySnapshot(context.Background(), &memorydb.ExportedCopySnapshotRequest{
 					SourceSnapshotName: "no-such",
 					TargetSnapshotName: "dst",
 				})

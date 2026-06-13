@@ -1,6 +1,7 @@
 package acm_test
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -24,7 +25,17 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 		{
 			name: "round_trip_preserves_state",
 			setup: func(b *acm.InMemoryBackend) string {
-				cert, err := b.RequestCertificate("example.com", "AMAZON_ISSUED", "", "", "", "", "", nil)
+				cert, err := b.RequestCertificate(
+					context.Background(),
+					"example.com",
+					"AMAZON_ISSUED",
+					"",
+					"",
+					"",
+					"",
+					"",
+					nil,
+				)
 				if err != nil {
 					return ""
 				}
@@ -34,7 +45,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *acm.InMemoryBackend, id string) {
 				t.Helper()
 
-				cert, err := b.DescribeCertificate(id)
+				cert, err := b.DescribeCertificate(context.Background(), id)
 				require.NoError(t, err)
 				assert.Equal(t, "example.com", cert.DomainName)
 				assert.Equal(t, id, cert.ARN)
@@ -44,11 +55,21 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 		{
 			name: "round_trip_preserves_imported_cert",
 			setup: func(b *acm.InMemoryBackend) string {
-				src, err := b.RequestCertificate("imported.example.com", "", "", "", "", "", "", nil)
+				src, err := b.RequestCertificate(
+					context.Background(),
+					"imported.example.com",
+					"",
+					"",
+					"",
+					"",
+					"",
+					"",
+					nil,
+				)
 				if err != nil {
 					return ""
 				}
-				imported, err := b.ImportCertificate(src.CertificateBody, src.PrivateKey, "", "")
+				imported, err := b.ImportCertificate(context.Background(), src.CertificateBody, src.PrivateKey, "", "")
 				if err != nil {
 					return ""
 				}
@@ -58,7 +79,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *acm.InMemoryBackend, id string) {
 				t.Helper()
 
-				cert, err := b.DescribeCertificate(id)
+				cert, err := b.DescribeCertificate(context.Background(), id)
 				require.NoError(t, err)
 				assert.Equal(t, "IMPORTED", cert.Type)
 				assert.NotEmpty(t, cert.CertificateBody)
@@ -71,7 +92,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *acm.InMemoryBackend, _ string) {
 				t.Helper()
 
-				p, _ := b.ListCertificates(acm.ListCertificatesParams{})
+				p, _ := b.ListCertificates(context.Background(), acm.ListCertificatesParams{})
 				certs := p.Data
 				assert.Empty(t, certs)
 			},
@@ -111,7 +132,7 @@ func TestACMHandler_Persistence(t *testing.T) {
 	h := acm.NewHandler(backend)
 
 	// Create a cert
-	_, err := backend.RequestCertificate("example.com", "AMAZON_ISSUED", "", "", "", "", "", nil)
+	_, err := backend.RequestCertificate(context.Background(), "example.com", "AMAZON_ISSUED", "", "", "", "", "", nil)
 	require.NoError(t, err)
 
 	// Test Handler.Snapshot/Restore delegation
@@ -122,7 +143,7 @@ func TestACMHandler_Persistence(t *testing.T) {
 	freshH := acm.NewHandler(fresh)
 	require.NoError(t, freshH.Restore(snap))
 
-	p, _ := fresh.ListCertificates(acm.ListCertificatesParams{})
+	p, _ := fresh.ListCertificates(context.Background(), acm.ListCertificatesParams{})
 	certs := p.Data
 	assert.Len(t, certs, 1)
 }

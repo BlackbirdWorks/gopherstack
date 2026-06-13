@@ -58,6 +58,7 @@ let showCryptoModal = $state(false);
 let cryptoKeyId = $state('');
 let plaintext = $state('');
 let ciphertext = $state('');
+let cipherEncoding = $state<'base64' | 'hex'>('base64');
 let decryptedText = $state('');
 let encryptAlgorithm = $state('');
 let decryptAlgorithm = $state('');
@@ -118,6 +119,24 @@ let showPolicyModal = $state(false);
 let policyKeyId = $state('');
 let policyContent = $state('');
 let savingPolicy = $state(false);
+const policyJsonError = $derived.by(() => {
+	const t = policyContent.trim();
+	if (!t) return '';
+	try {
+		JSON.parse(t);
+		return '';
+	} catch (e) {
+		return (e as Error).message;
+	}
+});
+function formatPolicyJson() {
+	try {
+		policyContent = JSON.stringify(JSON.parse(policyContent), null, 2);
+		toast.success('Policy formatted');
+	} catch (e) {
+		toast.error(`Invalid JSON: ${e instanceof Error ? e.message : 'parse error'}`);
+	}
+}
 
 let showGrantModal = $state(false);
 let grantKeyId = $state('');
@@ -225,13 +244,54 @@ async function createKey() {
 	}
 }
 
+// Encode raw ciphertext bytes into the currently selected display encoding.
+function bytesToCipher(bytes: Uint8Array): string {
+	if (cipherEncoding === 'hex') {
+		return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+	}
+	return btoa(String.fromCodePoint(...bytes));
+}
+
+// Decode the ciphertext string (in the selected encoding) back into bytes.
+function cipherToBytes(text: string): Uint8Array {
+	const t = text.trim();
+	if (cipherEncoding === 'hex') {
+		const clean = t.replaceAll(/\s+/g, '');
+		if (clean.length % 2 !== 0 || /[^0-9a-fA-F]/.test(clean)) {
+			throw new Error('Invalid hex ciphertext');
+		}
+		const out = new Uint8Array(clean.length / 2);
+		for (let i = 0; i < out.length; i++) {
+			out[i] = Number.parseInt(clean.slice(i * 2, i * 2 + 2), 16);
+		}
+		return out;
+	}
+	return Uint8Array.from(atob(t), (c) => c.codePointAt(0)!);
+}
+
+// Re-encode the displayed ciphertext when the user switches base64 ⇄ hex.
+function setCipherEncoding(next: 'base64' | 'hex') {
+	if (next === cipherEncoding || !ciphertext.trim()) {
+		cipherEncoding = next;
+		return;
+	}
+	try {
+		const bytes = cipherToBytes(ciphertext);
+		cipherEncoding = next;
+		ciphertext = bytesToCipher(bytes);
+	} catch {
+		// leave text as-is if it cannot be decoded under the current encoding
+		cipherEncoding = next;
+	}
+}
+
 async function encrypt() {
 	if (!plaintext) return;
 	try {
 		encrypting = true;
 		const res = await kms.send(new EncryptCommand({ KeyId: cryptoKeyId, Plaintext: new TextEncoder().encode(plaintext) }));
 		if (res.CiphertextBlob) {
-			ciphertext = btoa(String.fromCodePoint(...res.CiphertextBlob));
+			ciphertext = bytesToCipher(res.CiphertextBlob);
 		}
 		encryptAlgorithm = res.EncryptionAlgorithm ?? '';
 	} catch (e) {
@@ -245,7 +305,7 @@ async function decrypt() {
 	if (!ciphertext) return;
 	try {
 		decrypting = true;
-		const res = await kms.send(new DecryptCommand({ CiphertextBlob: Uint8Array.from(atob(ciphertext), c => c.codePointAt(0)!) }));
+		const res = await kms.send(new DecryptCommand({ CiphertextBlob: cipherToBytes(ciphertext) }));
 		if (res.Plaintext) {
 			decryptedText = new TextDecoder().decode(res.Plaintext);
 		}
@@ -276,11 +336,11 @@ async function reEncrypt() {
 	try {
 		reEncrypting = true;
 		const res = await kms.send(new ReEncryptCommand({
-			CiphertextBlob: Uint8Array.from(atob(ciphertext), c => c.codePointAt(0)!),
+			CiphertextBlob: cipherToBytes(ciphertext),
 			DestinationKeyId: reEncryptDestKeyId
 		}));
 		if (res.CiphertextBlob) {
-			reEncryptedCiphertext = btoa(String.fromCodePoint(...res.CiphertextBlob));
+			reEncryptedCiphertext = bytesToCipher(res.CiphertextBlob);
 		}
 		reEncryptSrcAlgo = res.SourceEncryptionAlgorithm ?? '';
 		reEncryptDstAlgo = res.DestinationEncryptionAlgorithm ?? '';
@@ -1132,7 +1192,13 @@ const SIGN_ALGS = ['RSASSA_PSS_SHA_256','RSASSA_PSS_SHA_384','RSASSA_PSS_SHA_512
 {#if showCryptoModal}
 	<div role="dialog" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
 		<div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
-			<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">Encrypt / Decrypt / Re-Encrypt</h2>
+			<div class="flex items-center justify-between mb-4">
+					<h2 class="text-xl font-bold text-slate-900 dark:text-white">Encrypt / Decrypt / Re-Encrypt</h2>
+					<div class="flex items-center gap-1" title="Ciphertext display encoding">
+						<button type="button" onclick={() => setCipherEncoding('base64')} class="px-2 py-0.5 text-xs rounded {cipherEncoding === 'base64' ? 'bg-amber-600 text-white' : 'text-slate-500 dark:text-slate-400 border border-slate-300 dark:border-slate-600'}">Base64</button>
+						<button type="button" onclick={() => setCipherEncoding('hex')} class="px-2 py-0.5 text-xs rounded {cipherEncoding === 'hex' ? 'bg-amber-600 text-white' : 'text-slate-500 dark:text-slate-400 border border-slate-300 dark:border-slate-600'}">Hex</button>
+					</div>
+				</div>
 			<div class="space-y-6">
 				<!-- Encrypt -->
 				<div class="space-y-2">
@@ -1146,7 +1212,7 @@ const SIGN_ALGS = ['RSASSA_PSS_SHA_256','RSASSA_PSS_SHA_384','RSASSA_PSS_SHA_512
 					{#if ciphertext}
 						<div class="p-3 bg-slate-100 dark:bg-slate-900 rounded-lg">
 							<div class="flex items-center justify-between mb-1">
-								<p class="text-xs text-slate-400 leading-none uppercase tracking-wider font-semibold">Ciphertext (Base64)</p>
+								<p class="text-xs text-slate-400 leading-none uppercase tracking-wider font-semibold">Ciphertext ({cipherEncoding === 'hex' ? 'Hex' : 'Base64'})</p>
 								{#if encryptAlgorithm}<span class="text-xs px-1.5 py-0.5 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded font-mono">{encryptAlgorithm}</span>{/if}
 							</div>
 							<p id="encrypt-result" class="text-xs font-mono break-all text-slate-700 dark:text-slate-300">{ciphertext}</p>
@@ -1156,7 +1222,7 @@ const SIGN_ALGS = ['RSASSA_PSS_SHA_256','RSASSA_PSS_SHA_384','RSASSA_PSS_SHA_512
 
 				<!-- Decrypt -->
 				<div class="space-y-2">
-					<label for="ciphertext-input" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Ciphertext (Base64)</label>
+					<label for="ciphertext-input" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Ciphertext ({cipherEncoding === 'hex' ? 'Hex' : 'Base64'})</label>
 					<div class="flex gap-2">
 						<input id="ciphertext-input" name="ciphertext" type="text" bind:value={ciphertext} class="flex-1 px-3 py-2 border rounded-lg bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-white" />
 						<button id="decrypt-submit" onclick={decrypt} disabled={decrypting} class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2">
@@ -1451,12 +1517,18 @@ const SIGN_ALGS = ['RSASSA_PSS_SHA_256','RSASSA_PSS_SHA_384','RSASSA_PSS_SHA_512
 {#if showPolicyModal}
 	<div role="dialog" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
 		<div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 w-full max-w-2xl max-h-[90vh] flex flex-col">
-			<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-2">Key Policy</h2>
+			<div class="flex items-center justify-between mb-2">
+				<h2 class="text-xl font-bold text-slate-900 dark:text-white">Key Policy</h2>
+				<button type="button" onclick={formatPolicyJson} class="px-2.5 py-1 text-xs rounded border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700">Format JSON</button>
+			</div>
 			<p class="text-xs font-mono text-slate-500 mb-4">{policyKeyId}</p>
-			<textarea bind:value={policyContent} rows="16" class="flex-1 w-full px-3 py-2 border rounded-lg bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white text-xs font-mono resize-y" />
+			<textarea bind:value={policyContent} rows="16" class="flex-1 w-full px-3 py-2 border rounded-lg bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white text-xs font-mono resize-y {policyJsonError ? 'border-red-400 dark:border-red-500' : ''}"></textarea>
+			{#if policyJsonError}
+				<p class="text-xs text-red-500 mt-1">{policyJsonError}</p>
+			{/if}
 			<div class="flex justify-end gap-3 mt-4">
 				<button onclick={() => showPolicyModal = false} class="px-4 py-2 text-slate-500">Cancel</button>
-				<button onclick={savePolicy} disabled={savingPolicy} class="px-4 py-2 bg-pink-600 text-white rounded-lg hover:bg-pink-700">{savingPolicy ? 'Saving...' : 'Save Policy'}</button>
+				<button onclick={savePolicy} disabled={savingPolicy || policyJsonError !== ''} class="px-4 py-2 bg-pink-600 text-white rounded-lg hover:bg-pink-700 disabled:opacity-50">{savingPolicy ? 'Saving...' : 'Save Policy'}</button>
 			</div>
 		</div>
 	</div>

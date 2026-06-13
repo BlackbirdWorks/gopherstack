@@ -1,6 +1,7 @@
 package elasticache_test
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -603,7 +604,13 @@ func TestBackend(t *testing.T) {
 
 			var firstCluster *elasticache.Cluster
 			for _, id := range tt.clusterIDs {
-				cluster, err := backend.CreateCluster(id, tt.clusterEngine, "cache.t3.micro", tt.clusterPort)
+				cluster, err := backend.CreateCluster(
+					context.Background(),
+					id,
+					tt.clusterEngine,
+					"cache.t3.micro",
+					tt.clusterPort,
+				)
 				require.NoError(t, err)
 				if firstCluster == nil {
 					firstCluster = cluster

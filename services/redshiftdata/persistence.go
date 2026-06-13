@@ -5,14 +5,16 @@ import (
 	"log/slog"
 )
 
-type backendSnapshot struct {
+// regionSnapshot holds the serialized state for a single region.
+type regionSnapshot struct {
 	Statements map[string]*Statement `json:"statements"`
-	AccountID  string                `json:"accountID"`
-	Region     string                `json:"region"`
-	// RingBuf stores the IDs in insertion order so the ring buffer can be
-	// reconstructed faithfully after a Restore.
-	RingBuf  []string `json:"ringBuf"`
-	RingHead int      `json:"ringHead"`
+	RingBuf    []string              `json:"ringBuf"`
+}
+
+type backendSnapshot struct {
+	Stores    map[string]*regionSnapshot `json:"stores"`
+	AccountID string                     `json:"accountID"`
+	Region    string                     `json:"region"`
 }
 
 // Snapshot serializes the backend state to JSON.
@@ -20,22 +22,29 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	// Flatten the ring buffer into a plain slice for JSON serialization.
-	ringCopy := make([]string, b.ringLen)
-	for i := range b.ringLen {
-		ringCopy[i] = b.ringBuf[(b.ringHead+i)%maxStatementHistory]
-	}
+	storesSnap := make(map[string]*regionSnapshot, len(b.stores))
 
-	stmtsCopy := make(map[string]*Statement, len(b.statements))
-	for k, v := range b.statements {
-		stmtsCopy[k] = cloneStatement(v)
+	for region, store := range b.stores {
+		ringCopy := make([]string, store.ringLen)
+		for i := range store.ringLen {
+			ringCopy[i] = store.ringBuf[(store.ringHead+i)%maxStatementHistory]
+		}
+
+		stmtsCopy := make(map[string]*Statement, len(store.statements))
+		for k, v := range store.statements {
+			stmtsCopy[k] = cloneStatement(v)
+		}
+
+		storesSnap[region] = &regionSnapshot{
+			Statements: stmtsCopy,
+			RingBuf:    ringCopy,
+		}
 	}
 
 	snap := backendSnapshot{
-		Statements: stmtsCopy,
-		RingBuf:    ringCopy,
-		AccountID:  b.accountID,
-		Region:     b.region,
+		Stores:    storesSnap,
+		AccountID: b.accountID,
+		Region:    b.defaultRegion,
 	}
 
 	data, err := json.Marshal(snap)
@@ -56,35 +65,35 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		return err
 	}
 
-	if snap.Statements == nil {
-		snap.Statements = make(map[string]*Statement)
-	}
-
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
-	b.statements = snap.Statements
 	b.accountID = snap.AccountID
-	b.region = snap.Region
+	b.defaultRegion = snap.Region
+	b.stores = make(map[string]*regionStore, len(snap.Stores))
 
-	// Re-fill the ring buffer from the flat slice.
-	b.ringLen = 0
-	b.ringHead = 0
-	for i := range b.ringBuf {
-		b.ringBuf[i] = ""
-	}
-
-	n := len(snap.RingBuf)
-	if n > maxStatementHistory {
-		// Keep only the most recent maxStatementHistory entries.
-		snap.RingBuf = snap.RingBuf[n-maxStatementHistory:]
-	}
-
-	for _, id := range snap.RingBuf {
-		if _, ok := b.statements[id]; ok {
-			b.ringBuf[b.ringLen] = id
-			b.ringLen++
+	for region, rs := range snap.Stores {
+		if rs.Statements == nil {
+			rs.Statements = make(map[string]*Statement)
 		}
+
+		store := &regionStore{
+			statements: rs.Statements,
+		}
+
+		n := len(rs.RingBuf)
+		if n > maxStatementHistory {
+			rs.RingBuf = rs.RingBuf[n-maxStatementHistory:]
+		}
+
+		for _, id := range rs.RingBuf {
+			if _, ok := store.statements[id]; ok {
+				store.ringBuf[store.ringLen] = id
+				store.ringLen++
+			}
+		}
+
+		b.stores[region] = store
 	}
 
 	return nil

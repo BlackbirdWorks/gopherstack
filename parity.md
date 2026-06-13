@@ -367,6 +367,379 @@ Also missing at the platform level:
 
 ## F. Missing per-service UI features (popular services first)
 
+> **Implementation status (branch `parity/mega-v2`).** A first pass on the
+> Popular-services group has shipped the following per-service UI features
+> (all wired to the live AWS JS SDK, no placeholders):
+>
+> - **SQS** — batch send (`SendMessageBatch`) modal with up to 10 entries +
+>   per-entry failure reporting; client-side message filter by body / message
+>   attribute. (DLQ redrive was already present as the Move-Tasks tab.)
+> - **SNS** — structured message-attribute editor (Name / DataType / Value
+>   fields) with a JSON mode that validates and round-trips between the two.
+> - **KMS** — ciphertext base64⇄hex display toggle across encrypt / decrypt /
+>   re-encrypt; key-policy "Format JSON" button + inline JSON validation that
+>   disables Save on parse errors. (Grants tab was already present.)
+> - **Secrets Manager** — structured key-value editor for the secret value
+>   (auto-detects flat-JSON secrets) with a Plaintext fallback mode.
+> - **SSM** — `/`-path folder **tree** navigation (Flat/Tree toggle) with
+>   collapsible folders, in addition to the flat parameter list.
+> - **Lambda** — Event-Source-Mapping (**Triggers**) panel: list, create
+>   (SQS/DynamoDB/Kinesis), enable/disable, delete.
+> - **Athena** — query-result **export** to CSV and JSON.
+> - **CloudWatch Logs** — Insights query **CSV export**.
+>
+> **Second pass (branch `parity/mega-v2`)** — the remaining popular-services
+> features now shipped (all wired to the live AWS JS SDK, matching each page's
+> existing tab/list/detail/search patterns, no placeholders):
+>
+> - **S3** — server **access-logging** config + view (`GetBucketLogging`/
+>   `PutBucketLogging`); **Analytics** tab: size-by-top-level-prefix breakdown
+>   with totals + share bars (computed from `ListObjectsV2`, capped at 10k
+>   objects); static-**website endpoint URL** display + copy. (Inline object
+>   preview, metadata/tag editor, and batch delete already existed.)
+> - **DynamoDB** — **PITR** (point-in-time recovery) enable/disable + restorable
+>   window display (`DescribeContinuousBackups`/`UpdateContinuousBackups`) in the
+>   Backups tab. (Query-by-index already existed via the index selector.)
+> - **EC2** — security-group **rule editor** (expand row → list/add/revoke
+>   ingress rules) + **create/delete** security group; **Elastic IP** allocate /
+>   associate / disassociate / release. (Instance Details drill-down already
+>   existed.)
+> - **Lambda** — **Versions / Aliases / Concurrency** panel: publish version,
+>   list versions, create/delete aliases, set/clear reserved concurrency.
+> - **IAM** — user **inline-policy** editor (list/get/put/delete with JSON
+>   validation) and **group membership** (list/add/remove) in the user detail.
+> - **CloudWatch** — **metric charts**: click any metric chip to open a
+>   `GetMetricStatistics` SVG time-series with statistic / range / period
+>   selectors.
+> - **Step Functions** — execution **state timeline** (built from history
+>   events), **redrive** of failed/timed-out/aborted executions, and an ASL
+>   **validator** (`ValidateStateMachineDefinition`) in the definition editor.
+> - **RDS** — **parameter-group editor** (expand → `DescribeDBParameters` +
+>   `ModifyDBParameterGroup`) and snapshot **restore** to a new instance.
+> - **ECS** — **service update**: desired count / task-definition / force new
+>   deployment via `UpdateService` (with live counts from `DescribeServices`).
+> - **ECR** — **CVE scan-findings** detail (`DescribeImageScanFindings`) per
+>   image with severity badges, plus a **docker login/pull/push** snippet block.
+> - **EKS** — **kubeconfig** CLI command (copyable) on cluster overview and
+>   node-group **scaling** (min/desired/max via `UpdateNodegroupConfig`).
+> - **EventBridge** — rule **target** view/add/remove (`ListTargetsByRule`/
+>   `PutTargets`/`RemoveTargets`) and archive **replay** (`StartReplay`, archive
+>   ARN auto-filled via `DescribeArchive`).
+> - **CloudFormation** — **Stack Policy** tab: view/edit JSON stack policy
+>   (`GetStackPolicy`/`SetStackPolicy`) with validation.
+> - **ElastiCache** — **parameter-group editor** (`DescribeCacheParameters`/
+>   `ModifyCacheParameterGroup`) and replication-group manual **TestFailover**.
+>
+> **Third pass (branch `parity/mega-v2`)** — non-popular-group per-service
+> features now shipped (all wired to the live AWS JS SDK through the gopherstack
+> endpoint, matching each page's existing tab/list/detail patterns, no
+> placeholders):
+>
+> - **Translate** (ML/AI) — **Run Translation** tab: live `TranslateText` with
+>   source (incl. auto-detect) / target language selectors, result pane, and
+>   detected-source-language display.
+> - **Comprehend** (ML/AI) — **Inference Tester** tab: live `DetectSentiment`
+>   (score bars), `DetectEntities` (typed entity chips), `DetectKeyPhrases`, and
+>   `DetectDominantLanguage` (confidence bars) on sample text with a language
+>   selector.
+> - **Polly** (ML/AI) — **output-format selector** (MP3 / Ogg Vorbis / PCM) on
+>   the synthesize demo; raw PCM is wrapped in a WAV container client-side so it
+>   plays in-browser.
+> - **WorkSpaces** (Messaging/misc) — **start / stop / reboot / rebuild**
+>   lifecycle actions on the workspace detail (previously terminate-only), via
+>   `StartWorkspaces`/`StopWorkspaces`/`RebootWorkspaces`/`RebuildWorkspaces`.
+> - **CloudTrail** (Messaging/misc) — Event-History rows are now **expandable**
+>   to show the full pretty-printed `CloudTrailEvent` JSON.
+> - **Transfer** (Networking/edge) — connector **TestConnection** action with
+>   per-connector status/message reporting.
+> - **Firehose** (Data/analytics) — **batch PutRecords**: a Batch mode in the
+>   Put-Record tab with a one-record-per-line editor, live parsed **preview**
+>   (capped display), `PutRecordBatch` send, and per-record failure reporting.
+> - **ApplicationAutoScaling** (Compute/scaling) — **scaling-activity timeline**
+>   tab (`DescribeScalingActivities`, includes not-scaled activities) with
+>   status-coloured event markers, cause/status messages, and start/end times.
+>
+> **Fourth pass (branch `parity/mega-v2`)** — next batch of non-popular-group
+> per-service features shipped (all wired to the live AWS JS SDK through the
+> gopherstack endpoint, matching each page's existing tab/list/detail patterns,
+> no placeholders):
+>
+> - **DMS** (Networking/edge) — endpoint **TestConnection**: per-endpoint modal
+>   that picks a replication instance, runs `TestConnection`, then polls
+>   `DescribeConnections` (endpoint-arn filter) until the test settles, showing
+>   status pill + `LastFailureMessage`.
+> - **EFS** (Storage/database) — **access-point** management in the file-system
+>   detail: list (`DescribeAccessPoints`), create (`CreateAccessPoint` with root
+>   path + POSIX UID/GID + creation-info permissions), and delete
+>   (`DeleteAccessPoint`).
+> - **CodeBuild** (Compute) — **Start Build** action on the project detail
+>   (`StartBuild`, refreshes history) and **Stop Build** on in-progress builds
+>   (`StopBuild`).
+> - **X-Ray** (Messaging/misc) — trace **detail drawer** with a segment
+>   **timeline** (`BatchGetTraces`, recursively flattens segment/subsegment
+>   documents into proportional latency bars, fault/error coloured), plus the
+>   previously-missing **Service Graph** tab rendering (`GetServiceGraph`
+>   summary statistics: requests / faults / errors / avg latency).
+> - **Route53Resolver** (Networking/edge) — firewall-rule **priority reorder**
+>   (up/down arrows swap adjacent priorities via two `UpdateFirewallRule` calls,
+>   then re-lists the group's rules).
+> - **Batch** (Compute) — container **log streaming**: the job-detail modal
+>   fetches `GetLogEvents` from the `/aws/batch/job` CloudWatch log group keyed
+>   by the container's `logStreamName`, rendered as a timestamped console.
+> - **AppSync** (API/app-integration) — **data-source create** UI
+>   (`CreateDataSource` for DynamoDB / Lambda / HTTP / NONE / Relational, with
+>   per-type config fields) + **delete** (`DeleteDataSource`); GraphQL **schema
+>   upload (SDL)** via `StartSchemaCreation`.
+> - **GuardDuty** (Security/identity) — finding **detail drawer**
+>   (resource/service metadata + raw JSON) with **archive / unarchive**
+>   (`ArchiveFindings` / `UnarchiveFindings`).
+> - **SecurityHub** (Security/identity) — finding **detail drawer** (remediation
+>   recommendation + affected resources) with **workflow-status** update
+>   (`BatchUpdateFindings`: NEW / NOTIFIED / RESOLVED / SUPPRESSED).
+>
+> **Fifth pass (branch `parity/mega-v2`)** — per-service leftovers within
+> already-touched pages, plus correction of two stale "not wirable" notes (all
+> wired to the live AWS JS SDK, matching each page's existing patterns, no
+> placeholders):
+>
+> - **MQ** and **AppConfig/AppConfigData** — the earlier "not wirable" claim was
+>   **wrong**: `services/mq` exposes REST-style ops (ListBrokers, DescribeBroker,
+>   CreateBroker, UpdateBroker, DeleteBroker, RebootBroker, ListConfigurations,
+>   ListUsers/CreateUser/UpdateUser/DeleteUser, …) and `services/appconfig`
+>   exposes the full Applications/Environments/Profiles/Deployments/Strategies/
+>   Extensions surface. **Both UI pages are already fully built and SDK-wired**
+>   (`ui/src/routes/mq/+page.svelte`: broker CRUD + reboot + update + user
+>   management + configurations; `ui/src/routes/appconfig/+page.svelte`:
+>   applications/strategies/extensions/associations/settings tabs with create/
+>   delete + deployment start/stop), with passing `page.test.ts` for each.
+>   No further work was needed beyond confirming this.
+> - **Polly** (ML/AI/media) — **lexicon editor**: New-Lexicon and per-lexicon
+>   view/edit (`GetLexicon` → PLS-XML textarea) + save (`PutLexicon`) + delete
+>   (`DeleteLexicon`); lexicon rows now show alphabet / language / lexeme count.
+> - **GuardDuty** (Security/identity) — detector **finding-publishing-frequency**
+>   selector (FIFTEEN_MINUTES / ONE_HOUR / SIX_HOURS) wired to `UpdateDetector`,
+>   inline on each detector row.
+> - **SecurityHub** (Security/identity) — **custom-insight creation**
+>   (`CreateInsight` with name + group-by-attribute + severity/active filter) and
+>   per-insight **delete** (`DeleteInsight`); insights now show their group-by
+>   attribute.
+> - **X-Ray** (Messaging/misc) — segment **annotations & metadata inspection**:
+>   each trace-detail segment with annotations or (namespaced) metadata is
+>   clickable to expand a key/value panel (parsed from the segment documents
+>   already fetched via `BatchGetTraces`).
+> - **AppSync** (API/app-integration) — resolver **pipeline-function config**:
+>   the resolver editor now has a UNIT/PIPELINE kind toggle; PIPELINE mode adds an
+>   ordered function picker (add/remove/reorder) saved through `UpdateResolver`
+>   `pipelineConfig.functions` (UNIT keeps `dataSourceName`).
+> - **CodeBuild** (Compute) — project-detail **cache & artifacts info** cells
+>   (cache type/location/modes; artifact type/location/packaging) read from the
+>   `BatchGetProjects` data already loaded.
+>
+> **Sixth pass (branch `parity/mega-v2`)** — ML/AI/media group features now
+> shipped (all wired to the live AWS JS SDK through the gopherstack endpoint,
+> matching each page's existing tab/list/detail patterns, no placeholders; all
+> AWS clients constructed lazily inside handlers):
+>
+> - **Bedrock** (ML/AI/media) — **model invoke/test playground** tab
+>   (`InvokeModel` via `@aws-sdk/client-bedrock-runtime`): model-id picker
+>   (populated from `ListFoundationModels`) + sample prompts + max-tokens /
+>   temperature controls; request body is built per-provider (Anthropic Claude
+>   Messages, Titan/Nova, Llama/Meta, Cohere/Mistral generic) and the response
+>   text is extracted from the common Bedrock response shapes with a raw-JSON
+>   disclosure.
+> - **SageMaker** (ML/AI/media) — endpoint **A/B traffic-split / variant-weight
+>   editor**: each endpoint row expands to `DescribeEndpoint` production variants
+>   with per-variant weight inputs, live normalized %-share bars, and a save via
+>   `UpdateEndpointWeightsAndCapacities`.
+> - **Comprehend** (ML/AI/media) — classifier/recognizer **training-metrics**
+>   expansion (Accuracy / Precision / Recall / F1 / Micro-F1 / Hamming-loss bars
+>   from `ClassifierMetadata`/`RecognizerMetadata.EvaluationMetrics`) plus a
+>   **model-version comparison** table (multi-select classifiers → side-by-side
+>   metrics by version).
+> - **Rekognition** (ML/AI/media) — **face-detail** tab (`DetectFaces` with
+>   `Attributes: ALL` on an S3 image → per-face confidence, age range, gender,
+>   smile, eyeglasses, eyes-open, top emotion) plus stream-processor
+>   **start/stop** (`StartStreamProcessor`/`StopStreamProcessor`).
+> - **Polly** (ML/AI/media) — synthesize-demo **lexicon selector** ("test
+>   pronunciation"): chosen lexicons are passed as `LexiconNames` to
+>   `SynthesizeSpeech`. (Output-format selector + lexicon editor already shipped
+>   passes 3/5.)
+> - **Transcribe** (ML/AI/media) — **transcript download** on COMPLETED jobs:
+>   `GetTranscriptionJob` → fetch `Transcript.TranscriptFileUri` → save the
+>   transcript JSON locally.
+> - **Textract** (ML/AI/media) — **local document upload** (synchronous
+>   `AnalyzeDocument` on file bytes) alongside the S3-object mode, selectable
+>   **feature types** (TABLES / FORMS / SIGNATURES / LAYOUT — was hard-coded), and
+>   **result JSON export**.
+> - **MediaConvert** (ML/AI/media) — Create-Job **input/output settings editor**:
+>   S3 input file + output destination, container (MP4/MOV/M3U8/WEBM/MKV) and
+>   video/audio codec selectors building real `Settings.Inputs` + `OutputGroups`,
+>   or apply an existing **preset** by name (overrides inline codec choices).
+>
+> **Seventh pass (branch `parity/mega-v2`)** — Data/analytics + Storage/database +
+> Networking/edge service group (all wired to the live AWS JS SDK through the
+> gopherstack endpoint, matching each page's existing tab/list/detail patterns,
+> no placeholders; clients lazily constructed in handlers):
+>
+> - **FSx** (Storage/database) — **create file system** modal (Lustre / Windows /
+>   ONTAP / OpenZFS with per-type config + subnet + capacity via
+>   `CreateFileSystem`), per-file-system **detail drill-down** (lifecycle, storage,
+>   VPC, DNS, ARN), **create backup** (`CreateBackup`) and **delete backup**
+>   (`DeleteBackup`) plus **delete file system** (`DeleteFileSystem`). (Was
+>   read-only/list-only before.)
+> - **Glue** (Data/analytics) — crawler **schedule editor** (`UpdateCrawlerSchedule`
+>   with a cron expression modal) and **pause/resume schedule**
+>   (`StopCrawlerSchedule`/`StartCrawlerSchedule`) inline on each crawler row.
+> - **Athena** (Data/analytics) — **Saved Queries** (named-query) tab:
+>   `ListNamedQueries` + `BatchGetNamedQuery` listing, **Save Query** from the
+>   editor (`CreateNamedQuery`), **load into editor**, and **delete**
+>   (`DeleteNamedQuery`). (Result export + data-scanned cost already existed.)
+> - **OpenSearch** (Networking/edge) — domain **access-policy JSON editor** in the
+>   Config tab (loads `AccessPolicies`, validates JSON, Format-JSON button, saves
+>   via `UpdateDomainConfig`).
+> - **Neptune** (Storage/database) — cluster **failover** action
+>   (`FailoverDBCluster`, promotes a reader; shown only for multi-member available
+>   clusters).
+> - **DocDB** (Storage/database) — parameter-group **value editor**: expand a group
+>   to `DescribeDBClusterParameters`, edit modifiable values inline, and save
+>   changed parameters via `ModifyDBClusterParameterGroup` (apply-method
+>   pending-reboot). (Also converted the page's client to lazy construction.)
+> - **CloudFront** (Networking/edge) — **default cache-behavior editor**: edit
+>   viewer-protocol policy, allowed methods, compress, and Min/Default TTL, saved
+>   through `UpdateDistribution` (GetDistribution ETag round-tripped via `IfMatch`).
+> - **ELBv2** (Networking/edge) — listener-rule **priority reorder** (up/down arrows
+>   swap adjacent priorities via `SetRulePriorities`), target-group **stickiness
+>   editor** (`DescribeTargetGroupAttributes`/`ModifyTargetGroupAttributes`,
+>   lb_cookie) and **target registration/deregistration**
+>   (`RegisterTargets`/`DeregisterTargets`, IP or instance) in the target-health
+>   panel.
+> - **Kinesis** (Data/analytics) — **Monitoring** tab: CloudWatch
+>   `GetMetricStatistics` SVG time-series (IncomingRecords / IncomingBytes /
+>   GetRecords.IteratorAgeMilliseconds / WriteProvisionedThroughputExceeded) with
+>   metric + time-range selectors and per-point tooltips.
+> - **Route53** (Networking/edge) — record-create **alias-target picker**
+>   (CloudFront / ALB / S3 / custom, with well-known hosted-zone presets +
+>   evaluate-target-health) replacing free-text for A/AAAA/CNAME, plus per-type
+>   **validation hints** for the values field.
+> - **EMR** (Data/analytics) — **already complete on inspection**: autoscaling +
+>   managed-scaling policy editor, bootstrap-action list, steps, notebooks, and
+>   studios are all present and SDK-wired; no further work needed.
+>
+> **Seventh pass (branch `parity/mega-v2`)** — Security/identity + Messaging/
+> engagement + remaining-misc service group (all wired to the live AWS JS SDK
+> through the gopherstack endpoint, lazily-constructed clients, matching each
+> page's existing tab/list/detail patterns, no placeholders):
+>
+> - **Organizations** (Security/identity) — **move account / reparent OU**
+>   (`MoveAccount` with a source/destination picker built from `ListParents` +
+>   `ListRoots`/`ListOrganizationalUnitsForParent`), policy **attach/detach** to a
+>   target (`AttachPolicy`/`DetachPolicy` + `ListPoliciesForTarget` inspection),
+>   and account **close** (`CloseAccount`).
+> - **SSO Admin** (Security/identity) — permission-set **inline-policy editor**
+>   (`GetInlinePolicyForPermissionSet` → JSON textarea, `PutInlinePolicyTo…` save
+>   with validation, `DeleteInlinePolicyFrom…` remove).
+> - **IAM** (Security/identity) — user **login-profile / console-password**
+>   create/reset/delete (`GetLoginProfile`/`CreateLoginProfile`/
+>   `UpdateLoginProfile`/`DeleteLoginProfile`) + **MFA-device** list/deactivate
+>   (`ListMFADevices`/`DeactivateMFADevice`) in the user detail.
+> - **SES** (Messaging) — template **test-render / send-test** in the template
+>   drawer (`TestRenderTemplate` against sample JSON template-data, rendered output
+>   preview).
+> - **SESv2** (Messaging) — contact-list **member management** (`ListContacts`/
+>   `CreateContact`/`UpdateContact`/`DeleteContact`) with an unsubscribe-all toggle
+>   and **CSV export** of the list's members.
+> - **Pinpoint** (Messaging) — campaign **schedule editor** (`UpdateCampaign`
+>   `Schedule` start/end/frequency: ONCE/HOURLY/DAILY/WEEKLY/MONTHLY).
+> - **SWF** (Messaging) — execution **input/output payload viewer** (expandable
+>   history events surface input/result/details/reason from the event attributes;
+>   `DescribeWorkflowExecution` open-counts), history **event-type filter**, and
+>   activity-type **detail** (`DescribeActivityType` timeouts/heartbeat/task-list).
+> - **CloudTrail** (Messaging) — **attribute-based filter builder** (server-side
+>   `LookupAttributes`: EventName/Username/EventSource/ResourceName/… key + value).
+> - **WorkSpaces** (Messaging) — **bundle comparison** table (compute / user &
+>   root storage / description / owner from `DescribeWorkspaceBundles`).
+> - **IoT** (Messaging) — thing **attribute editor** (`UpdateThing`
+>   `attributePayload`) and policy **attach/detach** to a target
+>   (`AttachPolicy`/`DetachPolicy` + `ListAttachedPolicies`).
+> - **Amplify** (Messaging) — **build-trigger webhooks** (`ListWebhooks`/
+>   `CreateWebhook`/`DeleteWebhook` + `StartJob` to fire a build) and custom-domain
+>   **associations** (`ListDomainAssociations`/`CreateDomainAssociation`).
+> - **MWAA** (Messaging) — **Airflow Web UI** access (`CreateWebLoginToken` opens
+>   the console SSO URL) and **CLI token** generation (`CreateCliToken`).
+> - **CodePipeline** (Messaging) — execution **action timeline** with per-action
+>   **durations** (`ListActionExecutions` filtered by execution id).
+> - **CodeDeploy** (Messaging) — deployment **rollback** (`StopDeployment`
+>   auto-rollback), **per-target status** drill-down (`ListDeploymentTargets`/
+>   `GetDeploymentTarget`), and ASG/LB **integration view** (`GetDeploymentGroup`).
+> - **CodeCommit** (Messaging) — **file browser** (`GetFolder` navigation by
+>   branch) and **commit log** (walk `GetBranch` tip → `GetCommit` parents).
+> - **CodeArtifact** (Messaging) — package-version **promote / dispose**
+>   (`UpdatePackageVersionsStatus` → Published / Disposed).
+> - **Transfer** (Messaging) — user **SSH-key fingerprint** display (now via
+>   `DescribeUser`, with a derived key-type + hash-style fingerprint).
+> - Note: **CognitoIDP/CognitoIdentity** were left as-is — their pages use the
+>   bespoke `/dashboard/api/cognitoidp/*` backend (not the AWS JS SDK) and already
+>   cover user attributes / group membership / password-reset, so SDK-wiring them
+>   would conflict with the existing architecture. **Firehose** and
+>   **ApplicationAutoScaling** were already complete (pass 3 batch PutRecords /
+>   scaling-activity timeline; AAS also has target-tracking + step-scaling
+>   `PutScalingPolicy`), so no further work was needed.
+>
+> **§F remaining** (still outstanding, for follow-up agents):
+>
+> - **Popular-services leftovers** (lower-value within the already-touched
+>   pages): S3 batch copy/rename + request-metrics; DynamoDB auto-scaling /
+>   global-tables / Contributor-Insights; EC2 subnet create/edit + metrics link;
+>   Lambda **code update** (zip/image) + resource-policy view; IAM
+>   login-profile/password + MFA-device + permission-boundary; SNS topic-metrics
+>   graphs; CloudWatch dashboard **widget editor** + metric-stream edit; SFN
+>   per-state result/variable inspection + log links; RDS read-replica/proxy +
+>   performance metrics; ECS task/container **log streaming** + ECS-Exec +
+>   autoscaling; ECR layer/SBOM + lifecycle rule-builder + replication UI; EKS
+>   kubectl-style workload list + node utilization; EventBridge event-pattern
+>   visual builder + DLQ + API-destination rotation; CloudFormation dependency
+>   **graph** + nested-stack drill-down + change-set approval; ElastiCache
+>   performance-metrics graphs + event timeline + user/ACL viewer.
+> - **Non-popular groups — remaining.** The third and fourth passes have now
+>   shipped at least one solid feature each for Translate, Comprehend, Polly,
+>   WorkSpaces, CloudTrail, Transfer, Firehose, ApplicationAutoScaling (pass 3)
+>   and DMS, EFS, CodeBuild, X-Ray, Route53Resolver, Batch, AppSync, GuardDuty,
+>   SecurityHub (pass 4). **Already-complete on inspection** (no work needed):
+>   Glacier already displays job/inventory output via `GetJobOutput`; AutoScaling
+>   already wires instance-protection toggle + lifecycle-hook view/create/delete.
+>   Still-outstanding enhancement candidates within partially-touched services
+>   (pass 5 cleared Polly lexicon, X-Ray annotations/metadata, AppSync pipeline
+>   config, GuardDuty publishing-frequency, SecurityHub custom-insight, CodeBuild
+>   cache/artifact info — see fifth pass above; **pass 6 cleared the whole
+>   ML/AI/media group**: Bedrock playground, SageMaker A/B variant weights,
+>   Comprehend training-accuracy/F1 + model-version compare, Rekognition face
+>   detail, Polly lexicon test-pronunciation, Transcribe transcript download,
+>   Textract local upload + feature-types + result export, MediaConvert
+>   input/output settings editor — see sixth pass above):
+>   WorkSpaces
+>   bundle selector + connection diagnostics; CloudTrail attribute-filter builder
+>   + delivery timeline; Transfer transfer/connection logs + SSH-key fingerprint;
+>   Firehose throughput charts + test-delivery; ApplicationAutoScaling
+>   step-scaling threshold editor + policy adjustment history; CodeBuild build-log
+>   streaming (logs land in CloudWatch — same pattern as the Batch log viewer
+>   shipped in pass 4); X-Ray trace comparison; AppSync resolver field-mapping
+>   visual builder; GuardDuty SNS-config + finding export. Untouched groups with
+>   open items: Data/analytics (Glue, EMR, Kinesis monitoring, KinesisAnalytics
+>   code editor, RedshiftData result-grid, LakeFormation permission-matrix),
+>   Storage/database (FSx create, Neptune query console, DocDB/MemoryDB param
+>   editors), Networking/edge (CloudFront cache-behaviour editor, ELBv2
+>   listener-rule reorder, OpenSearch/Elasticsearch config), Security/identity
+>   (Cognito user drill-down, Organizations move-account, SSOAdmin inline policy,
+>   VerifiedPermissions Cedar linter), ML/AI/media (**all primary §F items shipped
+>   in pass 6** — see above; remaining nice-to-haves: BedrockRuntime token
+>   streaming, SageMaker training curves / HPO dashboard, SageMakerRuntime async
+>   poller, MediaStore metrics), and
+>   Messaging (SES receipt-rule actions, Pinpoint journey builder, SWF payload
+>   viewer, IoT rule tester, the Code* suite, Amplify, MWAA, S3Control/S3Tables).
+>   (Correction: the earlier note that **MQ** and **AppConfig/AppConfigData** are
+>   "not wirable" was wrong — both have full backend operations and their UI
+>   pages are already built and SDK-wired; see the fifth pass above.)
+
 ### Popular services
 
 - **S3** (`ui/src/routes/s3/+page.svelte`) — inline object **preview/viewer** (text/JSON/image)
@@ -636,6 +1009,38 @@ commands with search + refresh and no create/edit/delete or detail drill-down. A
 backend audit, these are prioritized enhancement candidates for follow-up PRs; no UI code was
 changed in this commit.
 
+## §E / §F implementation status (branch `parity/mega-v2`)
+
+**§E — backend-only services given a dashboard page (DONE, 18 of 21):**
+Added list/detail SvelteKit pages at `ui/src/routes/<svc>/+page.svelte` for
+**accessanalyzer, account, appmesh, databrew, datasync, dax, detective, directoryservice,
+dlm, forecast, macie2, medialive, mediapackage, mediatailor, personalize, quicksight,
+rolesanywhere, workmail**. Each is wired to real backend data via the typed AWS JS SDK client
+(through the gopherstack endpoint), registered in `implementedDashboardRouteIds` and
+`sidebarCategories` in `ui/src/lib/nav.ts`, with a `getXClient` factory in
+`ui/src/lib/aws-client.ts`. Pages follow the existing fsx/shield template: tabbed
+list views (one tab per primary `List*`/`Describe*` resource), client-side search, refresh,
+status pills, and graceful empty/error states. App Mesh, MediaTailor (VOD), and WorkMail
+(users/groups/resources) expose a parent-id filter input because their child `List*` calls
+require a `meshName` / `SourceLocationName` / `OrganizationId`; QuickSight exposes an editable
+`AwsAccountId` input (defaults to `000000000000`).
+
+**§E remaining (deferred, 3):**
+- **opsworks** — DEFERRED: `@aws-sdk/client-opsworks` publishes no release in the
+  `3.1053.x`/`@smithy/core@3.24.x` line used by this UI; pinning it forces an incompatible
+  `@smithy/core` that breaks the entire SDK bundle. Re-add once a compatible client version
+  ships, or proxy via the dashboard Connect API instead of the JS SDK.
+- **qldb / qldbsession** — DEFERRED: no backend implementation exists under
+  `services/qldb*` (only a README), so there is no real data to wire; `qldbsession` is a
+  data-plane companion with no standalone page in any case.
+
+**§F — per-service UI features: NOT STARTED in this pass.**
+All §F enhancements (S3 object preview, DynamoDB query-by-index, EC2 SG editing, Lambda
+versions/aliases, IAM inline policies, the per-service CloudWatch metric charts, the global
+resource/tag search, etc.) remain open. This pass prioritized making the 18 invisible
+backend-only services reachable in the console (§E) before deepening existing pages (§F). The
+full §F checklist above is unchanged and remains the backlog for follow-up dashboard PRs.
+
 ---
 
 # Test-coverage & remaining-functionality audit (2026-06-10, pass 2)
@@ -854,6 +1259,51 @@ Outputs/Exports, `DependsOn`, nested stacks, and dynamic refs
 Custom resources and macros are the biggest single gap for "eclipse LocalStack" — many real
 templates (and CDK output) depend on `Custom::` Lambda-backed resources.
 
+### §K pass-1 — implemented (mega-v2)
+
+The following 22 resource types are now wired to their real service backends in
+`services/cloudformation/resources_phase5.go` (create→backend create, delete→backend delete,
+Fn::GetAtt→backend fields where meaningful). Each has a create/delete round-trip test in
+`resources_phase5_test.go` asserting the backend resource really exists and is cleaned up:
+
+- **Logs:** `AWS::Logs::LogStream`, `::MetricFilter`, `::SubscriptionFilter`, `::ResourcePolicy`,
+  `::QueryDefinition`.
+- **EC2:** `AWS::EC2::Volume`, `::VolumeAttachment`, `::NetworkInterface`.
+- **API Gateway v2:** `AWS::ApiGatewayV2::Integration`, `::Route`, `::Authorizer`.
+- **KMS:** `AWS::KMS::Alias`.
+- **SNS:** `AWS::SNS::TopicPolicy` (applied via SetTopicAttributes "Policy").
+- **Events:** `AWS::Events::Connection`, `::Archive`.
+- **Step Functions:** `AWS::StepFunctions::Activity`.
+- **SSM:** `AWS::SSM::Document`.
+- **Secrets Manager:** `AWS::SecretsManager::ResourcePolicy`.
+- **CloudFront:** `AWS::CloudFront::Function`, `::OriginAccessControl`, `::CachePolicy`,
+  `::ResponseHeadersPolicy`.
+
+### §K remaining (deferred)
+
+Not yet wired — all have real backends or need new modeling; next passes:
+
+- **API Gateway v1:** `AWS::ApiGateway::Model`, `::RequestValidator`, `::Authorizer`, `::ApiKey`,
+  `::UsagePlan`, `::UsagePlanKey`, `::DomainName`, `::BasePathMapping`, `::Account`, `::GatewayResponse`
+  (backends exist in `services/apigateway`).
+- **API Gateway v2:** `::DomainName`, `::ApiMapping` (backends exist).
+- **Events:** `::ApiDestination` (no backend op found), `::EventBusPolicy`.
+- **KMS:** `::ReplicaKey`.
+- **Cognito:** `::IdentityPool`, `::IdentityPoolRoleAttachment`, `::UserPoolDomain`, `::UserPoolGroup`.
+- **EC2:** `::VPCPeeringConnection`, `::NetworkAcl`(+`Entry`), `::KeyPair`,
+  `::SecurityGroupIngress`/`Egress` (standalone), `::FlowLog`.
+- **ELBv2:** `::ListenerRule`.
+- **Lambda:** `::EventInvokeConfig`, `::Url` (backend methods exist on concrete InMemoryBackend
+  but not on the StorageBackend interface — needs a type-assertion or interface widening).
+- **ApplicationAutoScaling:** `::ScalableTarget`, `::ScalingPolicy`.
+- **Secrets Manager:** `::RotationSchedule`, `::SecretTargetAttachment`.
+- **SSM:** `::MaintenanceWindow`, `::Association`.
+- **DynamoDB:** `::GlobalTable`.
+- **Glue:** `::Crawler`, `::Table`, `::Trigger`, `::Connection`, `::Partition`.
+- **AppSync:** `::DataSource`, `::Resolver`, `::FunctionConfiguration`, `::ApiKey`.
+- **Extensibility (high value):** `AWS::CloudFormation::CustomResource` / `Custom::*`,
+  `AWS::CloudFormation::Macro`, `WaitCondition`/`WaitConditionHandle`.
+
 ## L. Platform-feature parity vs LocalStack
 
 Checklist of LocalStack platform capabilities (✅ present / ◑ partial / ❌ missing), with
@@ -871,25 +1321,33 @@ file:line:
   `init/ready.d`.
 - ✅ **Embedded DNS** — `--dns-addr` resolves Lambda/Route53/RDS/Redshift/OpenSearch/ElastiCache/EC2
   hostnames (`pkgs/dns/dns.go`, `cli.go:1966-1974`).
-- ❌ **SigV4 request-signature validation** — auth headers are parsed for region/service routing
-  only, never cryptographically verified (`pkgs/httputils/httputils.go:306-326`). Any credentials
-  are accepted. (LocalStack Pro can enforce IAM; even an *opt-in* validation mode would exceed the
-  open tier.)
+- ✅ **SigV4 request-signature validation** *(opt-in)* — full AWS Signature V4 verification
+  (canonical request → string-to-sign → derived signing key → HMAC compare) is available behind
+  `--validate-sigv4` / `VALIDATE_SIGV4` with a configurable `--sigv4-secret`
+  (`pkgs/httputils/sigv4.go`, wired in `cli.go` `buildEchoServer`). **Off by default** so existing
+  clients (which sign with dummy creds) are not affected. When enabled, signed requests whose
+  recomputed signature does not match are rejected with the AWS-accurate `InvalidSignatureException`
+  / `IncompleteSignatureException`; unsigned requests (health/dashboard/anonymous) pass through.
 - ❌ **Multi-account / multi-region isolation** — a single fixed `--account-id`/`--region`; the
   account/region in the request is ignored, so state is not partitioned per account or region
   (`pkgs/config/config.go`). This is a significant parity gap — LocalStack keys stores by
-  account+region.
+  account+region. **Deferred by design** (cross-cutting re-architecture of every backend's
+  state-keying + persistence format + wiring); the current model, full requirements, and an
+  incremental migration path are documented in `MULTI_ACCOUNT.md`.
 - ◑ **Protocol coverage** — query/EC2, JSON (`x-amz-target`), rest-JSON, rest-XML all handled
   (`pkgs/service/jsondisp.go`, `priorities.go`). **Missing: CBOR** (used by newer DynamoDB/Kinesis
   SDKs and timestream) — not implemented.
-- ❌ **HTTPS/TLS listener** — HTTP only; no `ListenAndServeTLS`/cert flags (`cli.go:4307-4311`).
-  Some SDKs/tools default to HTTPS endpoints.
+- ✅ **HTTPS/TLS listener** *(opt-in)* — an HTTPS listener is available via `--tls` (generates an
+  in-memory self-signed cert for localhost on demand) or `--tls-cert`/`--tls-key` for a supplied
+  PEM pair (`cli.go` `serveHTTP` / `generateSelfSignedCert`). **HTTP remains the default**; TLS is
+  opt-in so nothing regresses.
 - ◑ **Single edge-port multiplexing** — services share one HTTP listener via a priority router
   (`pkgs/service/router.go`), but there's no LocalStack-style `:4566` edge with host/SNI-based
   service routing + TLS.
 
-Highest-leverage platform gaps to close: **multi-account/region isolation**, **optional SigV4/IAM
-enforcement mode**, **CBOR**, **TLS**, and a **persistence save/load API**.
+Highest-leverage platform gaps remaining: **multi-account/region isolation** (deferred, see
+`MULTI_ACCOUNT.md`), **CBOR**, and a **persistence save/load API**. *(Optional SigV4 validation and
+an opt-in TLS listener are now implemented — see above.)*
 
 ## M. Cross-service event/integration wiring (largely a strength)
 
@@ -910,12 +1368,19 @@ matches or beats LocalStack's open tier. Confirmed working (file:line):
 - **Step Functions task → Lambda/SNS/SQS/DynamoDB** integrations (`services/stepfunctions/integrations.go`).
 
 Remaining wiring gaps:
-- ◑ **CloudWatch Logs subscription filter → Lambda/Kinesis/Firehose** — `deliverToFilters` hands the
-  encoded batch to an external `SubscriptionDeliverer` but does **no destination-ARN type routing in
-  the backend itself** (`services/cloudwatchlogs/backend.go:1548-1602`); verify all three
-  destination types actually deliver end-to-end (and add an integration test).
-- **SNS → HTTP/HTTPS and email/email-json** delivery — confirm these subscription protocols deliver
-  (only SQS/Lambda/Firehose were positively traced).
+- ✅ **CloudWatch Logs subscription filter → Lambda/Kinesis/Firehose** — `deliverToFilters`
+  (`services/cloudwatchlogs/backend.go`) encodes the gzipped/base64 batch and hands it to the
+  `cwlogsSubscriptionDeliverer` (`cli.go`), which **routes by the destination-ARN service
+  component**: `lambda` → `InvokeFunction` (Event), `kinesis` → `PutRecord`, `firehose` →
+  `PutRecord`. Routing for all three destination types is covered by
+  `TestCWLogsSubscriptionDeliverer_Routing` (`cwlogs_subscription_delivery_test.go`), in addition to
+  the backend-level delivery tests.
+- ✅ **SNS → HTTP/HTTPS and email/email-json** delivery — HTTP/HTTPS subscriptions perform a real
+  HTTP POST with the standard SNS notification envelope and headers
+  (`services/sns/backend.go` `dispatchHTTPDeliveries` / `deliverHTTPWithMeta`). Email and email-json
+  deliveries (which have no network sink in a simulator) are now recorded per published message and
+  exposed via `DrainEmailDeliveries`, skipping pending/unconfirmed subscriptions to match AWS; see
+  `TestEmailDelivery` (`services/sns/email_delivery_test.go`).
 - **DLQ/RedrivePolicy on the SNS subscription and EventBridge target paths** — see §B; failed HTTP/
   Lambda deliveries should land in a DLQ.
 
@@ -1129,6 +1594,92 @@ S3 `<Prefix>` emission, API Gateway wrappers, IAM evaluation) need a quick AWS-s
 before the fix. The `omitzero` "bug" reported by one sub-pass was rejected (`go 1.26` supports it).
 This backlog is intentionally line-level so it can be burned down item-by-item; it does not
 duplicate the category-level findings in §A–§O.
+
+## Pass 4 — implementation status (fixing agent, 2026-06-10)
+
+A fixing agent verified each §P item against current code. Many were false positives (see below);
+the genuine ones were fixed with table-driven tests.
+
+**Fixed (file → change):**
+- **Cognito IDP pagination + bounds** — `cognitoidp/handler.go`: `ListUserPools`/`ListUserPoolClients`
+  now honor MaxResults + emit NextToken; `ListUsers` honors Limit + PaginationToken. Added
+  `validateCognitoMaxResults` (1–60, else `InvalidParameterException`). Backends already sorted, so
+  pagination cursors are stable.
+- **Cognito IDP AdminSetUserPassword** — `cognitoidp/backend.go`: now enforces the pool password
+  policy (was skipped vs `ConfirmForgotPassword`); returns `InvalidPasswordException`.
+- **Glue StopCrawler** — `glue/backend.go`: STOPPING crawlers now transition STOPPING→READY via the
+  reconciler instead of hanging in STOPPING forever.
+- **RDS** — `rds/handler.go`: `AllocatedStorage` now range-checked (20–65536); `BackupRetentionPeriod`
+  response field no longer `omitempty` (AWS always emits it). Added `ErrInvalidParameterCombination`.
+- **KMS** — `kms/backend.go` + `handler.go`: `ListKeys`/`ListAliases` Limit bounded to 1–1000,
+  `ListResourceTags` Limit bounded to 1–50, out-of-range → `ValidationException`.
+- **IAM** — `iam/handler.go`: `parseMaxItems` clamps MaxItems to ≤1000 (AWS upper bound).
+- **CodePipeline** — `codepipeline/handler.go`: `ListPipelineExecutions` now honors maxResults +
+  emits nextToken (previously ignored both); `ListWebhooks`/`ListActionExecutions`/`ListActionTypes`/
+  `ListRuleExecutions` output structs gained the NextToken field.
+- **Athena** — `athena/handler.go`: `ListQueryExecutions` now honors MaxResults (cap 50) + NextToken
+  and omits NextToken on the last page (was hardcoded `""`).
+- **IoT** — `iot/handler.go`: `ListThings`/`ListTopicRules`/`ListPolicies` now paginate via
+  maxResults + nextToken/nextMarker.
+- **EC2 DescribeInstanceStatus** — `ec2/handler_ext.go`: emits `systemStatus`/`instanceStatus` health
+  objects (status "ok" + reachability "passed" when running) so SDK `InstanceStatusOk` waiter works.
+- **S3** — `s3/object_ops.go`: DeleteObjects >1000 keys now returns `MalformedXML` (was generic
+  `InvalidArgument`); `s3/bucket_ops.go`: ListObjects MaxKeys>1000 explicitly clamped to 1000;
+  `s3/model.go`: `ListMultipartUploadsResult.Prefix` no longer `omitempty` (AWS always emits `<Prefix>`).
+- **StepFunctions / EventBridge** — output-struct `NextToken` fields gained `,omitempty` so the last
+  page omits the field (StepFunctions list*Output ×4; EventBridge listEventBuses/listRules/
+  listTargetsByRule).
+
+**Verified already-correct / false positives (NO change — would have regressed AWS fidelity):**
+- **All "pagination cursor off-by-one" items** (ECR, QuickSight, DataBrew, MQ, AutoScaling, ELBv2):
+  each is internally consistent — token is the first-un-returned item with `start = i` (include), or
+  the last-of-page item with `start = i+1` (skip). The convention-check caveat applies; none were bugs.
+- **SNS XML tag casing** (`isOptedOut`, `phoneNumbers`, `nextToken`, attribute `key`/`value`/`entry`):
+  the AWS SDK deserializes these case-insensitively (`strings.EqualFold`), and AWS's real wire format
+  for the legacy SMS APIs is lowercase. Current code already matches AWS; PascalCasing would diverge.
+- **SQS `queueUrls`**: AWS `ListDeadLetterSourceQueues` genuinely uses lowercase `queueUrls`
+  (confirmed in SDK deserializer, case-sensitive JSON). Current code is correct.
+- **Cognito `TokenResult` casing**: `TokenResult` is an internal struct; the wire response is
+  `authResult` which already uses `IdToken`/`AccessToken`/`RefreshToken`. `UserLastModified` already
+  has the `UserLastModifiedDate` JSON tag. `Enabled` correctly lacks `omitempty`.
+- **DynamoDB Scan ScannedCount**: `doScan` already increments per-candidate (pre-filter); `Count` is
+  post-filter. Correct.
+- **DynamoDB DescribeTable StreamSpecification**: AWS omits StreamSpecification when streams were
+  never enabled; current behavior matches. `BillingModeSummary` already always present.
+- **Lambda `validateMemoryAndTimeout`**: already validates memory (128–10240). `LastUpdateStatus`
+  already defaults to `Successful`.
+- **SecretsManager ListSecrets MaxResults**: already bounded 1–100 via `validateMaxResults`.
+- **SecurityHub `intFromBody`**: returns 0, but `GetFindings`/`paginateSlice` already default 0→100.
+- **CloudFormation ListStacks/ListExports/ListStackResources MaxResults**: these AWS ops have **no**
+  MaxResults parameter (only NextToken); nothing to bound.
+- **S3 `ListBucketResult.Prefix`**: already lacks `omitempty` (AWS-correct).
+
+**Deferred / not done (remaining §P):**
+- **Lambda CreateFunction State Pending→Active delay** (`lambda/handler.go:1490`): returns Active
+  immediately; SDK `FunctionActiveV2` waiter still succeeds (just doesn't wait), so not a correctness
+  bug. Mirroring the DynamoDB create→active delay is a fidelity nicety — deferred.
+- **EC2 RequestSpotFleet TargetCapacity≥1** (`ec2/backend_spot_fleet.go`): AWS permits 0-capacity
+  fleets and an existing test (`TestRequestSpotFleet_ZeroCapacity`) codifies that; left as `>= 0`.
+- **STS DurationSeconds pre-validation in dispatch** (`sts/handler.go`): the backend already validates
+  the 900–43200 range with the correct error; moving it earlier is stylistic only — deferred.
+- **RDS MonitoringInterval>0 requires MonitoringRoleArn**: AWS-accurate, but existing accuracy test
+  `TestMonitoringIntervalValidation` asserts it is accepted without a role; not changed to avoid
+  breaking the branch's test contract. `ErrInvalidParameterCombination` was added for future use.
+- **RAM list ops MaxResults bound (cap 100)** (`ram/handler.go`): list ops don't parse MaxResults at
+  all; adding validation + pagination across ~10 ops is a broad change — deferred.
+- **SSM list/describe per-op MaxResults bounds** (`ssm/handler.go`): broad, many ops — deferred.
+- **CodePipeline ListWebhooks/ListActionExecutions/ListActionTypes/ListRuleExecutions**: NextToken
+  field added to output structs, but actual paging not implemented (backend returns single page) —
+  deferred full pagination.
+- **ACM / ACM PCA input `NextToken` omitempty** (`acm/handler.go:136`, `acmpca/handler.go:287`): these
+  are request (input) structs; omitempty there does not affect the server's wire response — no-op,
+  deferred.
+- **API Gateway list-op wrapper keys** (`apigateway/handler.go`): needs per-op AWS-shape confirmation
+  — deferred (verify item).
+- **IAM policy evaluation / SimulatePrincipalPolicy real vs canned** — research/verify item, not a
+  discrete line fix — deferred (cross-refs §L platform finding).
+- **KMS encryption-context-size error wording** (`kms/backend.go:634`) — minor wording fidelity,
+  deferred.
 
 ---
 
@@ -1404,3 +1955,325 @@ wrong, so fixing them is differentiation, not catch-up. The CFN intrinsic-error 
 templates fail *correctly* (today several silently succeed). A handful of EC2/S3/DDB items are
 tagged for shape-verification against the SDK before applying. With §P+§Q+§R the line-level backlog
 now exceeds ~150 discrete fixes.
+
+---
+
+# §G/§H/§O test-coverage progress (parity/mega-v2)
+
+Integration + Terraform tests added on this branch to close the §G, §H, and §O gaps. All compile
+under `go vet -tags=integration ./test/integration/...` and `go vet ./test/terraform/...`; they
+exercise real SDK / terraform-provider-aws lifecycles (create→read/list→update/delete) and assert
+AWS-accurate fields, not smoke tests.
+
+## §G integration tests added (`test/integration/`)
+
+Each is an SDK round-trip against the in-container stack:
+
+- **comprehend** — DetectSentiment (POSITIVE/NEGATIVE/NEUTRAL keyword paths), DetectDominantLanguage,
+  EntityRecognizer create→describe→list→delete.
+- **translate** — TranslateText (explicit + auto source), Terminology import→get→list→delete.
+- **polly** — SynthesizeSpeech (audio stream + content-type), Lexicon put→get→list→delete.
+- **rekognition** — Collection create→describe→list→delete (the only stateful resource).
+- **guardduty** — Detector and Filter create→get/describe→list→delete.
+- **accessanalyzer** — Analyzer and ArchiveRule create→get→list→delete.
+- **detective** — Graph create→list→delete.
+- **apprunner** — Service (image source) and Connection create→describe/list→delete.
+- **fsx** — FileSystem (Lustre) and Backup create→describe→delete.
+- **datasync** — Agent and Task (two NFS locations) create→describe→list→delete.
+- **directoryservice** — Directory (SimpleAD) create→describe→delete.
+- **workspaces** — IpGroup and ConnectionAlias create→describe→delete.
+- **appstream** — Stack and Fleet create→describe→delete.
+- **securityhub** — Insight create→get→delete (hub-enable tolerated as shared state).
+- **macie2** — CustomDataIdentifier create→get→list→delete (regex round-trip).
+- **inspector2** — Filter create→list→delete.
+- **appmesh** — Mesh and VirtualNode create→describe→list→delete.
+- **forecast** — DatasetGroup create→describe→list→delete.
+- **personalize** — DatasetGroup create→describe→list→delete.
+- **rolesanywhere** — TrustAnchor create→get→list→delete.
+- **dax** — SubnetGroup and ParameterGroup create→describe→delete.
+- **mediapackage** — Channel create→describe→list→delete.
+- **mediatailor** — SourceLocation create→describe→list→delete (HTTP base-URL round-trip).
+- **workmail** — Organization create→describe→delete + nested Group create→list→delete.
+- **quicksight** — Group (default namespace) create→describe→list→delete.
+- **medialive** — InputSecurityGroup create→describe→list→delete (whitelist CIDR round-trip).
+
+## §H / §O Terraform fixtures added (`test/terraform/`)
+
+New `parity_mega_test.go` (own provider block with the §H endpoints) + fixtures under
+`test/terraform/fixtures/`:
+
+- **guardduty/success** — `aws_guardduty_detector`.
+- **securityhub/success** — `aws_securityhub_account`.
+- **workspaces/ipgroup** — `aws_workspaces_ip_group` (two CIDR rules).
+- **appstream/stack** — `aws_appstream_stack`.
+- **waf/ipset** — classic `aws_waf_ipset` + `aws_waf_rule`.
+- **fsx/lustre** — VPC + subnet + `aws_fsx_lustre_file_system`.
+
+## §G/§H/§O remaining (deferred)
+
+- **Integration**: `opsworks`, `account` — AWS SDK v2 modules are not in `go.mod`, so no client can
+  be built; deferred until the modules are vendored. `quicksight` asset-bundle/folder-permission
+  ops and large-surface AppStream (AppBlock/ImageBuilder/Entitlements) / WorkSpaces
+  (Bundles/Images/Pools) sub-resources still need the precise handler↔backend op diff from §I
+  before locking in.
+- **Terraform**: remaining §H services not yet fixtured — `apprunner`, `comprehend`, `databrew`,
+  `datasync`, `directoryservice` (`ds`), `dlm`, `detective`, `forecast`, `macie2`, `medialive`,
+  `mediapackage`, `mediastoredata`, `mediatailor`, `personalize`, `polly`, `quicksight`,
+  `rekognition`, `rolesanywhere`, `transcribe`, `translate`, `workmail`. Also the §O cross-service
+  event e2e (S3→Lambda asserting target receipt), CFN custom-resource round-trip, API Gateway v2
+  full-stack-via-CFN, and the `*-comprehensive` multi-resource modules for Logs/Cognito/Glue/AppSync
+  remain open.
+- **Backend notes surfaced by these tests** (for §P/Q/R agents — not fixed here): per §I,
+  MediaTailor `DescribeChannel`/`DescribeProgram`, GuardDuty malware-protection ops, SecurityHub
+  `BatchGetAutomationRules`/`GetFindingStatistics`, Inspector2 `ListFindings`, and Macie2
+  `DescribeBuckets` remain empty-stub; the added tests deliberately target the stateful ops that
+  do round-trip and avoid asserting on those known-empty paths.
+
+---
+
+# Q/R implementation status (pass-5/6 line-level fixes)
+
+Implemented genuine items from §Q (pass 5) and §R (pass 6). Each was verified against current
+code first; many flagged items were confirmed false-positives and skipped (applying them would have
+regressed fidelity).
+
+## Implemented (with table-driven tests)
+
+- **Cognito IDP** (`tokens.go`, `backend.go`): enforce `token_use=="access"` in `ParseAccessToken`
+  (rejects an ID token at GetUser/GlobalSignOut); preserve original `auth_time` across
+  `REFRESH_TOKEN_AUTH` (stored on `refreshTokenEntry`); `ConfirmSignUp` rejects an empty/cleared
+  stored code for an unconfirmed user while keeping re-confirm idempotent.
+- **Cognito Identity** (`backend.go`): `GetCredentialsForIdentity` rejects an empty `Logins` map for
+  an authenticated identity (closes the auth-bypass) with `NotAuthorized`.
+- **CloudFormation** (`handler.go`, `backend.go`, `dynamic_refs.go`): CreateStack/UpdateStack map
+  backend errors to distinct AWS codes (AlreadyExistsException / InsufficientCapabilitiesException /
+  ValidationError); empty change set → `FAILED` / `UNAVAILABLE`; DescribeStacks always serializes
+  `DisableRollback`; `resolveDynamicRef` off-by-one fixed (exactly-limit refs now resolve).
+- **RolesAnywhere** (`backend.go`, `handler.go`): fixed `nextTokenFromSlice` (always returned ""),
+  so pagination advances; `parsePageParams` returns ValidationException for non-numeric maxResults.
+- **OpsWorks** (`handler.go`): unknown action → HTTP 400 ValidationException (was 501).
+- **VerifiedPermissions** (`handler.go`): CreatePolicyStore bounds description at 150 chars.
+- **EMR Serverless** (`handler.go`): ListApplications/ListJobRuns/ListJobRunAttempts bound
+  maxResults to 1-50.
+- **MediaStore Data** (`handler.go`): ListItems bounds MaxResults to 1-1000.
+- **Identity Store** (`handler.go`): ListUsers bounds MaxResults to 1-100.
+- **Batch** (`handler.go`): ListJobs requires `jobQueue` (jobStatus stays optional).
+- **Polly** (`handler.go`): ListSpeechSynthesisTasks/ListLexicons omit NextToken when empty.
+- **API Gateway Management** (`handler.go`): GoneException returned in rest-json shape
+  (`X-Amzn-Errortype` header + body `__type`, human-readable `message`).
+- **S3 Control** (`backend.go`): CreateJob rejects a negative Priority.
+- **Account** (`handler.go`): PutAlternateContact validates the five required fields.
+
+## Verified false-positives (skipped — applying would regress fidelity)
+
+- **AccessAnalyzer `ListFindings` / Detective `ListGraphs`,`ListMembers` off-by-one**: the page
+  token is the *first item of the next page*, so `start = i` is correct; `start = i+1` would skip an
+  item.
+- **DocDB / Neptune marker upper-bounds**: both `applyDocDBMarker`/`applyNeptuneMarker` already
+  guard `start >= len(items)`.
+- **CFN `ListStacks` MaxItems**: AWS ListStacks has no MaxItems parameter (NextToken-only).
+- **CFN Capabilities case-insensitivity**: AWS capabilities are case-sensitive; lowercasing would be
+  less accurate.
+- **VerifiedPermissions `nextToken`/`maxResults` casing**: the whole service uses camelCase
+  (awsjson1_0); PascalCase would break consistency.
+- **CloudControl `ResourceNotFoundException` 404→400**: the modeled error carries `@httpError(404)`.
+- **DynamoDB Streams `MillisBeforeExpiration`**: no such field on DDB Streams GetRecords (that is
+  Kinesis `MillisBehindLatest`).
+- **Scheduler `MaximumWindowInMinutes` omitempty**: it already has `omitempty`.
+- **Support `RecentCommunications` omitempty**: it already has `omitempty`.
+- **Account `ListRegions` maxResults**: already reads the query param; **Account `Details.Id`
+  casing**: PascalCase is consistent and AWS-accurate.
+- **Glacier `ListJobs` lower bound**: already validated (`n < minListLimit`).
+- **MediaStore unrecognized X-Amz-Target → UnrecognizedClientException**: that exception is for
+  invalid credentials, not a bad target; BadRequestException is more defensible.
+
+## Deferred (genuine but invasive / lower-confidence — not done here)
+
+- **CFN `Fn::GetAtt`/`Fn::Sub`/`Fn::ImportValue` error propagation** and **unsupported-resource-type
+  failure**: require threading `error` through the entire string-returning intrinsic resolver and
+  reclassifying intentionally-stubbed (valid-but-unimplemented) resource types vs. true unknowns —
+  large refactor with high regression risk against the existing stub fallbacks.
+- **Inspector2 `CreateFilter` requires `filterCriteria`** and **RedshiftData `ExecuteStatement`
+  exactly-one of ClusterIdentifier/WorkgroupName**: both are AWS-accurate but the existing test
+  suites create these resources without those fields as ubiquitous fixtures, so enforcing the
+  constraint cascades into dozens of unrelated test updates.
+- **ApplicationAutoScaling / SSO Admin / Macie2 / MediaConvert / MediaPackage / Forecast NextToken
+  population**: real token pagination needs deterministic ordering (lists are built from map
+  iteration) plus backend signature changes across many ops — sizeable, deferred.
+- **AppConfig/Amplify/Glacier/MWAA/Cost Explorer/Elasticsearch/OpenSearch bounds & shape "verify"
+  items**: shared paginate helpers return no error (ripples to many callers) or have ambiguous exact
+  bounds (AppConfig 1-50 vs the note's 1-100); left for a focused follow-up.
+- **DAX `ClusterDiscoveryEndpoint` omitempty**, **Support CaseIdNotFound 400/`__type`**: ambiguous
+  vs. the codebase's established 404/`{"message":...}` convention; low value.
+
+---
+
+# §I / §N + deferred — implementation status (pass-7, 2026-06-10)
+
+Tackled §I op-level gaps in thin services, §N deep-accuracy items, and the
+previously-deferred high-value items. Every flagged item was re-verified against
+current code first; the §I empty-stub list turned out to be **almost entirely
+stale** (prior passes had already implemented them) — those are recorded as
+false-positives so they aren't re-flagged.
+
+## Implemented (with table-driven tests)
+
+- **Inspector2 — seedable findings (§I, exceeds LocalStack)** (`backend.go`,
+  `backend_appendixa.go`, `handler.go`, `interfaces.go`): `ListFindings` is now
+  seedable (`SeedFinding`) and evaluates the AWS `filterCriteria` shape
+  (severity / findingType / findingStatus / awsAccountId string filters with
+  EQUALS / NOT_EQUALS / PREFIX, multi-value OR), with stable ARN-cursor
+  pagination. `ListFindingAggregations` reports real per-account severity counts
+  when findings are seeded. Severity/status validated against the AWS enums.
+  LocalStack's `ListFindings` is hardwired empty, so this exceeds it.
+- **Forecast — `GetAccuracyMetrics` (§I)** (`backend.go`): was an empty
+  `PredictorEvaluationResults`; now returns AWS-shaped backtest windows (RMSE,
+  `WeightedQuantileLosses` per configured `ForecastTypes` quantile,
+  WAPE/MAPE/MASE `ErrorMetrics`), deterministic via a stable hash of the
+  predictor ARN and honoring `NumberOfBacktestWindows`.
+- **DataSync — `UpdateTaskExecution` (§I)** (`backend.go`, `handler.go`,
+  `interfaces.go`): was a no-op that mutated no state; now requires `Options`
+  (AWS-accurate), merges them onto the running execution, rejects terminal
+  (SUCCESS/ERROR) executions, and `DescribeTaskExecution` returns the persisted
+  `Options` — fixing the update→describe round-trip.
+- **ApplicationAutoScaling — NextToken population (deferred item)**
+  (`backend.go`, `handler.go`): `DescribeScalableTargets` /
+  `DescribeScalingPolicies` / `DescribeScheduledActions` now emit a real
+  `NextToken` via deterministic sorted pagination (a shared `paginate` helper);
+  previously accepted `MaxResults` but never returned a cursor.
+- **SSO Admin — NextToken population (deferred item)** (`handler.go`):
+  `ListInstances` / `ListPermissionSets` / `ListAccountAssignments` /
+  `ListApplications` now emit a real `NextToken` (were hardcoded `null`), using
+  shared sorted `paginateStrings` / `paginateBy` helpers.
+
+## Verified false-positives (§I empty-stub list is stale — NO change)
+
+Re-reading the handlers/backends showed these were already fully implemented by
+earlier passes; changing them would add nothing:
+
+- **MediaTailor** — `StartChannel`/`StopChannel` transition state
+  (RUNNING/STOPPED) and `DescribeChannel`/`DescribeSourceLocation`/
+  `DescribeVodSource`/`DescribeLiveSource`/`DescribeProgram` all read real stored
+  state (return ResourceNotFound on miss).
+- **MediaPackage** — `RotateIngestEndpointCredentials` genuinely rotates the
+  ingest-endpoint username/password and validates channel + endpoint existence.
+- **AccessAnalyzer** — `GetFindingsStatistics` is routed (`/statistics`) and
+  backed by `Backend.GetFindingsStatistics`; not a 404.
+- **GuardDuty** — `CreateMalwareProtectionPlan`/`GetMalwareProtectionPlan`/
+  `SendObjectMalwareScan` (+ List/Delete/Update) are all routed in
+  `handler_appendixa.go` and backed by real state in `backend_appendixa.go`.
+- **Detective** — `ListIndicators` and investigation state read/write real
+  backend state (`UpdateInvestigationState`, stored indicators); not hardcoded
+  stubs.
+
+## Deferred-remaining (genuine, still not done)
+
+- **CFN `Fn::GetAtt`/`Fn::Sub`/`Fn::ImportValue` error propagation +
+  unsupported-resource-type failure**: still requires threading `error` through
+  the whole string-returning intrinsic resolver and reclassifying intentional
+  stubs vs. true unknowns — large refactor, high regression risk. Left deferred.
+- **Inspector2 `CreateFilter` requires `filterCriteria`** and **RedshiftData
+  `ExecuteStatement` exactly-one of ClusterIdentifier/WorkgroupName**: confirmed
+  AWS-accurate but the branch's own test suites create these without the field
+  as ubiquitous fixtures (e.g. `redshiftdata` concurrency test seeds with both
+  empty and asserts a non-zero count); enforcing the constraint would break the
+  existing test contract. Left deferred per the "don't regress the branch's
+  tests" guidance.
+- **Personalize `GetRecommendations`/`GetPersonalizedRanking`**: these are
+  `personalize-runtime` ops (separate service endpoint not present in the repo);
+  adding them is a new-service/registration change, not an op fix. Deferred.
+  `DescribeFeatureTransformation` fabrication is low-value (FTs aren't tracked
+  and aren't a Terraform-managed resource).
+- **DirectoryService certificate / conditional-forwarder ops**, **MediaPackage-VOD
+  PackagingConfiguration / lifecycle ops**: not advertised/routed today, so no
+  round-trip breaks; genuine surface-expansion work, deferred.
+- **Macie2 / MediaConvert / MediaPackage / SecurityHub remaining empty-stubs and
+  §N EC2 structural items (IMDSv2 endpoint, SG traffic eval, routing/NAT/IGW,
+  EBS/Spot data, Lambda SnapStart, S3 SigV4-presign verify / requester-pays)**:
+  large structural emulation, unchanged this pass.
+
+---
+
+# §N structural + deferred CFN intrinsic — implementation status (pass-8, 2026-06-10)
+
+Closed the achievable §N structural items plus the long-deferred CFN
+intrinsic-error propagation. All changes are scoped to `services/*`; the build,
+`go vet`, `-race` tests, and `golangci-lint` are clean on every touched package.
+
+## Implemented (with table-driven tests)
+
+- **CFN intrinsic error-propagation (the deferred high-value item)**
+  (`services/cloudformation/intrinsics_validate.go`, wired in
+  `backend.go::createStackFromTemplate` + `applyTemplateToStack`): instead of the
+  high-risk approach of threading `error` through the recursive string-returning
+  resolver, a pre-flight validation pass (mirroring the existing
+  `validateImportValues`) walks the parsed template before any resource is
+  provisioned and fails the stack (→ `ROLLBACK_COMPLETE` + `CREATE_FAILED`
+  event + accurate `StackStatusReason`, the engine's established pre-flight
+  convention) for: (1) `Fn::GetAtt` referencing an **undefined logical
+  resource**; (2) `Fn::Sub` `${Logical.Attr}` referencing an undefined resource
+  (parameters, two-arg local vars and pseudo-params are recognized and allowed);
+  (3) an **unsupported resource type** — defined as a `Type` string that is not a
+  syntactically valid AWS identifier (`AWS::Svc::Res`, `Custom::*`,
+  `Alexa::ASK::*`). Attribute names are deliberately NOT validated (the resolver
+  falls back to the physical ID for unmodeled attrs and existing templates rely
+  on that), and a well-formed-but-unmodeled type still falls through to the stub
+  creator — so none of the ~120 working templates regress. The same pass runs on
+  `UpdateStack` (→ `UPDATE_ROLLBACK_COMPLETE`). Tests:
+  `intrinsics_validate_test.go` (failing templates fail correctly; valid +
+  Custom + unmodeled-type templates still succeed; update rollback).
+- **S3 requester-pays enforcement** (`services/s3/requester_pays.go`, wired in
+  `handler.go` before object dispatch): object requests against a bucket whose
+  request-payment config is `Requester` must carry `x-amz-request-payer:
+  requester`; absent it, the request is rejected `403 AccessDenied` (AWS-accurate
+  for a non-owner requester), and when present the response echoes
+  `x-amz-request-charged: requester`. The payer config was already stored
+  (`extra_backend.go`); this closes the *honoring* gap. Tests:
+  `requester_pays_presign_test.go`.
+- **S3 SigV4 presigned-URL signature verification (opt-in)**
+  (`services/s3/presign.go`, `S3Handler.WithPresignValidation`): when enabled,
+  the handler recomputes the SigV4 query-auth signature (canonical query with
+  `X-Amz-Signature` excluded, `UNSIGNED-PAYLOAD` body hash, signed-header
+  canonicalisation) and rejects a mismatch with `403`. OFF by default (empty
+  secret) so presigned URLs remain accepted on structure+expiry alone — no
+  behaviour change unless opted in, mirroring the platform `--validate-sigv4`
+  posture. Exceeds LocalStack's open tier. Tests cover good/tampered/wrong-secret
+  and the validation-off pass-through.
+- **Lambda SnapStart on published versions + ApplyOn validation**
+  (`services/lambda/models.go`, `backend.go`, `handler.go`): `FunctionVersion`
+  now carries a `SnapStart` field populated by `PublishVersion` and `$LATEST`
+  views; `CreateFunction` validates `SnapStart.ApplyOn` against the AWS enum
+  (`None` / `PublishedVersions`), rejecting other values with
+  `InvalidParameterValueException`. (Function-level create/update/get SnapStart
+  was already present and its existing test contract is preserved — config-level
+  `OptimizationStatus` reporting is unchanged.) No actual snapshot/restore is
+  performed (state only). Tests: `snapstart_extra_test.go`.
+- **EC2 security-group rule validation** (`services/ec2/sg_rule_validate.go`,
+  wired into `AuthorizeSecurityGroupIngress`/`Egress`): `Authorize*` now
+  validates each rule's protocol (tcp/udp/icmp/icmpv6/-1/numeric), port ranges
+  (0–65535, FromPort ≤ ToPort; ICMP type/code −1–255) and CIDR, and rejects a
+  rule that duplicates an existing or in-batch rule with
+  `InvalidPermission.Duplicate`. This is the validation/`IsValid` layer the audit
+  cited; it does NOT attempt packet-path emulation. Tests:
+  `sg_rule_validate_test.go`.
+
+## Deferred — confirmed out of scope (no half-working code added)
+
+These §N items require structural network-path emulation or cross-cutting
+re-architecture and are explicitly left as standalone follow-ups:
+
+- **EC2 IMDSv2 enforcement**: needs a live `169.254.169.254` metadata endpoint
+  with token TTL issuance/enforcement — a new in-instance HTTP surface, not a
+  validation tweak. Standalone follow-up.
+- **EC2 security-group *traffic* evaluation** (as opposed to rule validation,
+  done above): emulating allow/deny on a simulated packet path requires an
+  instance-to-instance network model that does not exist; would be a networking
+  subsystem, not an op fix. Standalone follow-up.
+- **EC2 routing / NAT / IGW packet routing, EBS snapshot data capture, Spot
+  market price + interruption**: each is a structural data-plane simulation.
+  Standalone follow-ups.
+- **Multi-account / multi-region isolation**: cross-cutting re-architecture of
+  every backend's keying — see the §L platform finding; deferred by design.
+
+No stubs, no `//nolint`, no regressions: every previously-green test still
+passes alongside the new table-driven suites.

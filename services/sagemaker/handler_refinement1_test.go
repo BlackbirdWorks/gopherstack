@@ -1,6 +1,7 @@
 package sagemaker_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -40,7 +41,7 @@ func TestRefinement1_Reset(t *testing.T) {
 
 			b := sagemaker.NewInMemoryBackend("000000000000", "us-east-1")
 			if tt.seedModel {
-				_, err := b.CreateModel(
+				_, err := b.CreateModel(context.Background(),
 					"test-model",
 					"arn:aws:iam::000000000000:role/role",
 					nil,
@@ -167,7 +168,7 @@ func TestRefinement1_ModelCount(t *testing.T) {
 			b := sagemaker.NewInMemoryBackend("000000000000", "us-east-1")
 
 			for i := range tt.numModels {
-				_, err := b.CreateModel(
+				_, err := b.CreateModel(context.Background(),
 					fmt.Sprintf("model-%d", i),
 					"arn:aws:iam::000000000000:role/role",
 					nil, nil, nil,
@@ -199,7 +200,7 @@ func TestRefinement1_EndpointConfigCount(t *testing.T) {
 			b := sagemaker.NewInMemoryBackend("000000000000", "us-east-1")
 
 			for i := range tt.numConfs {
-				_, err := b.CreateEndpointConfig(fmt.Sprintf("cfg-%d", i), nil, nil)
+				_, err := b.CreateEndpointConfig(context.Background(), fmt.Sprintf("cfg-%d", i), nil, nil)
 				require.NoError(t, err)
 			}
 
@@ -229,7 +230,7 @@ func TestRefinement1_AssociationCount(t *testing.T) {
 			for i := range tt.numAssocs {
 				src := fmt.Sprintf("arn:aws:sagemaker:us-east-1:000000000000:trial/t%d", i)
 				dst := fmt.Sprintf("arn:aws:sagemaker:us-east-1:000000000000:artifact/a%d", i)
-				_, err := b.AddAssociation(src, dst, "ContributedTo", nil)
+				_, err := b.AddAssociation(context.Background(), src, dst, "ContributedTo", nil)
 				require.NoError(t, err)
 			}
 
@@ -257,7 +258,7 @@ func TestRefinement1_ActionCount(t *testing.T) {
 			b := sagemaker.NewInMemoryBackend("000000000000", "us-east-1")
 
 			for i := range tt.numActs {
-				b.AddActionInternal(fmt.Sprintf("action-%d", i), "ModelDeployment")
+				b.AddActionInternal(context.Background(), fmt.Sprintf("action-%d", i), "ModelDeployment")
 			}
 
 			assert.Equal(t, tt.wantCount, sagemaker.ActionCount(b))
@@ -284,7 +285,7 @@ func TestRefinement1_AlgorithmCount(t *testing.T) {
 			b := sagemaker.NewInMemoryBackend("000000000000", "us-east-1")
 
 			for i := range tt.numAlgos {
-				b.AddAlgorithmInternal("algo-" + strconv.Itoa(i))
+				b.AddAlgorithmInternal(context.Background(), "algo-"+strconv.Itoa(i))
 			}
 
 			assert.Equal(t, tt.wantCount, sagemaker.AlgorithmCount(b))
@@ -311,7 +312,7 @@ func TestRefinement1_ClusterCount(t *testing.T) {
 			b := sagemaker.NewInMemoryBackend("000000000000", "us-east-1")
 
 			for i := range tt.numClusters {
-				b.AddClusterInternal("cluster-" + strconv.Itoa(i))
+				b.AddClusterInternal(context.Background(), "cluster-"+strconv.Itoa(i))
 			}
 
 			assert.Equal(t, tt.wantCount, sagemaker.ClusterCount(b))
@@ -342,7 +343,7 @@ func TestRefinement1_ModelPackageCount(t *testing.T) {
 					"arn:aws:sagemaker:us-east-1:000000000000:model-package/pkg-%d",
 					i,
 				)
-				b.AddModelPackageInternal(&sagemaker.ModelPackage{
+				b.AddModelPackageInternal(context.Background(), &sagemaker.ModelPackage{
 					ModelPackageName:   fmt.Sprintf("pkg-%d", i),
 					ModelPackageArn:    arnStr,
 					ModelPackageStatus: "Approved",
@@ -397,7 +398,7 @@ func TestRefinement1_AddActionInternal(t *testing.T) {
 			t.Parallel()
 
 			b := sagemaker.NewInMemoryBackend("000000000000", "us-east-1")
-			a := b.AddActionInternal(tt.actionName, tt.actionType)
+			a := b.AddActionInternal(context.Background(), tt.actionName, tt.actionType)
 
 			require.NotNil(t, a)
 			assert.Equal(t, tt.actionName, a.ActionName)
@@ -428,7 +429,7 @@ func TestRefinement1_AddAlgorithmInternal(t *testing.T) {
 			t.Parallel()
 
 			b := sagemaker.NewInMemoryBackend("000000000000", "us-east-1")
-			al := b.AddAlgorithmInternal(tt.algoName)
+			al := b.AddAlgorithmInternal(context.Background(), tt.algoName)
 
 			require.NotNil(t, al)
 			assert.Equal(t, tt.algoName, al.AlgorithmName)
@@ -456,7 +457,7 @@ func TestRefinement1_AddClusterInternal(t *testing.T) {
 			t.Parallel()
 
 			b := sagemaker.NewInMemoryBackend("000000000000", "us-east-1")
-			c := b.AddClusterInternal(tt.clusterName)
+			c := b.AddClusterInternal(context.Background(), tt.clusterName)
 
 			require.NotNil(t, c)
 			assert.Equal(t, tt.clusterName, c.ClusterName)
@@ -487,7 +488,7 @@ func TestRefinement1_AddModelPackageInternal(t *testing.T) {
 
 			b := sagemaker.NewInMemoryBackend("000000000000", "us-east-1")
 			arnStr := "arn:aws:sagemaker:us-east-1:000000000000:model-package/" + tt.pkgName
-			b.AddModelPackageInternal(&sagemaker.ModelPackage{
+			b.AddModelPackageInternal(context.Background(), &sagemaker.ModelPackage{
 				ModelPackageName:   tt.pkgName,
 				ModelPackageArn:    arnStr,
 				ModelPackageStatus: "Approved",
@@ -600,7 +601,7 @@ func TestRefinement1_AddTags_ModelPackage(t *testing.T) {
 
 			h := newTestHandler(t)
 			arnStr := "arn:aws:sagemaker:us-east-1:000000000000:model-package/my-pkg"
-			h.Backend.AddModelPackageInternal(&sagemaker.ModelPackage{
+			h.Backend.AddModelPackageInternal(context.Background(), &sagemaker.ModelPackage{
 				ModelPackageName:   "my-pkg",
 				ModelPackageArn:    arnStr,
 				ModelPackageStatus: "Approved",
@@ -664,7 +665,7 @@ func TestRefinement1_SnapshotRestore(t *testing.T) {
 			b1 := sagemaker.NewInMemoryBackend("000000000000", "us-east-1")
 
 			for i := range tt.numModels {
-				_, err := b1.CreateModel(
+				_, err := b1.CreateModel(context.Background(),
 					fmt.Sprintf("model-%d", i),
 					"arn:aws:iam::000000000000:role/r",
 					nil,
@@ -675,7 +676,7 @@ func TestRefinement1_SnapshotRestore(t *testing.T) {
 			}
 
 			for i := range tt.numClusters {
-				b1.AddClusterInternal("cluster-" + strconv.Itoa(i))
+				b1.AddClusterInternal(context.Background(), "cluster-"+strconv.Itoa(i))
 			}
 
 			snap := b1.Snapshot()
@@ -813,14 +814,14 @@ func TestRefinement1_BatchDescribeModelPackage_MixedResults(t *testing.T) {
 			b := sagemaker.NewInMemoryBackend("000000000000", "us-east-1")
 
 			for _, arnStr := range tt.seedArns {
-				b.AddModelPackageInternal(&sagemaker.ModelPackage{
+				b.AddModelPackageInternal(context.Background(), &sagemaker.ModelPackage{
 					ModelPackageName:   "pkg-1",
 					ModelPackageArn:    arnStr,
 					ModelPackageStatus: "Approved",
 				})
 			}
 
-			results := b.BatchDescribeModelPackage(tt.queryArns)
+			results := b.BatchDescribeModelPackage(context.Background(), tt.queryArns)
 			found, errs := 0, 0
 
 			for _, r := range results {
@@ -859,7 +860,7 @@ func TestRefinement1_BatchDeleteClusterNodes_Empty(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			h.Backend.AddClusterInternal(tt.clusterName)
+			h.Backend.AddClusterInternal(context.Background(), tt.clusterName)
 
 			rec := doSageMakerRequest(t, h, "BatchDeleteClusterNodes", map[string]any{
 				"ClusterName": tt.clusterName,
@@ -892,10 +893,10 @@ func TestRefinement1_BatchRebootClusterNodes_PartialSuccess(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			c := h.Backend.AddClusterInternal(tt.clusterName)
+			c := h.Backend.AddClusterInternal(context.Background(), tt.clusterName)
 			require.NotNil(t, c)
 
-			_, _, err := h.Backend.BatchAddClusterNodes(tt.clusterName, []sagemaker.ClusterNode{
+			_, _, err := h.Backend.BatchAddClusterNodes(context.Background(), tt.clusterName, []sagemaker.ClusterNode{
 				{NodeID: "node-1", NodeStatus: "Running"},
 			})
 			require.NoError(t, err)

@@ -1,6 +1,7 @@
 package elasticbeanstalk_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -34,7 +35,7 @@ func TestBackend_Application(t *testing.T) {
 			name:    "create duplicate",
 			appName: "dup-app",
 			setup: func(b *elasticbeanstalk.InMemoryBackend) {
-				_, _ = b.CreateApplication("dup-app", "", nil)
+				_, _ = b.CreateApplication(context.Background(), "dup-app", "", nil)
 			},
 			wantErr:   true,
 			wantErrIs: awserr.ErrAlreadyExists,
@@ -50,7 +51,9 @@ func TestBackend_Application(t *testing.T) {
 				tt.setup(b)
 			}
 
-			app, err := b.CreateApplication(tt.appName, tt.description, map[string]string{"env": "test"})
+			app, err := b.CreateApplication(
+				context.Background(), tt.appName, tt.description, map[string]string{"env": "test"},
+			)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -98,10 +101,10 @@ func TestBackend_DescribeApplications(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			b := newTestBackend()
-			_, _ = b.CreateApplication("app-a", "", nil)
-			_, _ = b.CreateApplication("app-b", "", nil)
+			_, _ = b.CreateApplication(context.Background(), "app-a", "", nil)
+			_, _ = b.CreateApplication(context.Background(), "app-b", "", nil)
 
-			apps := b.DescribeApplications(tt.filter)
+			apps := b.DescribeApplications(context.Background(), tt.filter)
 			assert.Len(t, apps, tt.wantCount)
 		})
 	}
@@ -134,10 +137,10 @@ func TestBackend_DeleteApplication(t *testing.T) {
 			b := newTestBackend()
 
 			if tt.appName == "del-app" {
-				_, _ = b.CreateApplication("del-app", "", nil)
+				_, _ = b.CreateApplication(context.Background(), "del-app", "", nil)
 			}
 
-			err := b.DeleteApplication(tt.appName)
+			err := b.DeleteApplication(context.Background(), tt.appName)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -149,7 +152,7 @@ func TestBackend_DeleteApplication(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			apps := b.DescribeApplications([]string{tt.appName})
+			apps := b.DescribeApplications(context.Background(), []string{tt.appName})
 			assert.Empty(t, apps)
 		})
 	}
@@ -176,7 +179,10 @@ func TestBackend_Environment(t *testing.T) {
 			appName: "my-app",
 			envName: "dup-env",
 			setup: func(b *elasticbeanstalk.InMemoryBackend) {
-				_, _ = b.CreateEnvironment("my-app", "dup-env", "", "", nil, elasticbeanstalk.CreateEnvironmentParams{})
+				_, _ = b.CreateEnvironment(
+					context.Background(), "my-app", "dup-env", "", "", nil,
+					elasticbeanstalk.CreateEnvironmentParams{},
+				)
 			},
 			wantErr:   true,
 			wantErrIs: awserr.ErrAlreadyExists,
@@ -193,6 +199,7 @@ func TestBackend_Environment(t *testing.T) {
 			}
 
 			env, err := b.CreateEnvironment(
+				context.Background(),
 				tt.appName,
 				tt.envName,
 				"64bit Amazon Linux",
@@ -255,11 +262,13 @@ func TestBackend_DescribeEnvironments(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			b := newTestBackend()
-			_, _ = b.CreateEnvironment("app-a", "env-1", "", "", nil, elasticbeanstalk.CreateEnvironmentParams{})
-			_, _ = b.CreateEnvironment("app-a", "env-2", "", "", nil, elasticbeanstalk.CreateEnvironmentParams{})
-			_, _ = b.CreateEnvironment("app-b", "env-3", "", "", nil, elasticbeanstalk.CreateEnvironmentParams{})
+			ctx := context.Background()
+			params := elasticbeanstalk.CreateEnvironmentParams{}
+			_, _ = b.CreateEnvironment(ctx, "app-a", "env-1", "", "", nil, params)
+			_, _ = b.CreateEnvironment(ctx, "app-a", "env-2", "", "", nil, params)
+			_, _ = b.CreateEnvironment(ctx, "app-b", "env-3", "", "", nil, params)
 
-			envs := b.DescribeEnvironments(tt.appFilter, tt.envFilter, tt.envIDs)
+			envs := b.DescribeEnvironments(context.Background(), tt.appFilter, tt.envFilter, tt.envIDs)
 			assert.Len(t, envs, tt.wantCount)
 		})
 	}
@@ -295,10 +304,13 @@ func TestBackend_TerminateEnvironment(t *testing.T) {
 			b := newTestBackend()
 
 			if tt.envName == "my-env" {
-				_, _ = b.CreateEnvironment("my-app", "my-env", "", "", nil, elasticbeanstalk.CreateEnvironmentParams{})
+				_, _ = b.CreateEnvironment(
+					context.Background(), "my-app", "my-env", "", "", nil,
+					elasticbeanstalk.CreateEnvironmentParams{},
+				)
 			}
 
-			env, err := b.TerminateEnvironment(tt.appName, tt.envName)
+			env, err := b.TerminateEnvironment(context.Background(), tt.appName, tt.envName)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -312,7 +324,7 @@ func TestBackend_TerminateEnvironment(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, "Terminated", env.Status)
 			// Verify it's gone.
-			envs := b.DescribeEnvironments("my-app", []string{"my-env"}, nil)
+			envs := b.DescribeEnvironments(context.Background(), "my-app", []string{"my-env"}, nil)
 			assert.Empty(t, envs)
 		})
 	}
@@ -339,7 +351,7 @@ func TestBackend_ApplicationVersion(t *testing.T) {
 			appName:      "my-app",
 			versionLabel: "v1",
 			setup: func(b *elasticbeanstalk.InMemoryBackend) {
-				_, _ = b.CreateApplicationVersion("my-app", "v1", "", "", "", nil)
+				_, _ = b.CreateApplicationVersion(context.Background(), "my-app", "v1", "", "", "", nil)
 			},
 			wantErr:   true,
 			wantErrIs: awserr.ErrAlreadyExists,
@@ -355,7 +367,9 @@ func TestBackend_ApplicationVersion(t *testing.T) {
 				tt.setup(b)
 			}
 
-			ver, err := b.CreateApplicationVersion(tt.appName, tt.versionLabel, "version desc", "", "", nil)
+			ver, err := b.CreateApplicationVersion(
+				context.Background(), tt.appName, tt.versionLabel, "version desc", "", "", nil,
+			)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -399,14 +413,14 @@ func TestBackend_Tags(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			b := newTestBackend()
-			app, _ := b.CreateApplication("tag-app", "", map[string]string{"key1": "val1"})
+			app, _ := b.CreateApplication(context.Background(), "tag-app", "", map[string]string{"key1": "val1"})
 
 			resourceARN := "nonexistent-arn"
 			if tt.useRealARN {
 				resourceARN = app.ApplicationARN
 			}
 
-			tags, err := b.ListTagsForResource(resourceARN)
+			tags, err := b.ListTagsForResource(context.Background(), resourceARN)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -449,9 +463,9 @@ func TestBackend_UpdateTagsForResource(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			b := newTestBackend()
-			app, _ := b.CreateApplication("tag-app", "", map[string]string{"k1": "v1"})
+			app, _ := b.CreateApplication(context.Background(), "tag-app", "", map[string]string{"k1": "v1"})
 
-			err := b.UpdateTagsForResource(app.ApplicationARN, tt.addTags, tt.removeTags)
+			err := b.UpdateTagsForResource(context.Background(), app.ApplicationARN, tt.addTags, tt.removeTags)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -460,7 +474,7 @@ func TestBackend_UpdateTagsForResource(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			tags, _ := b.ListTagsForResource(app.ApplicationARN)
+			tags, _ := b.ListTagsForResource(context.Background(), app.ApplicationARN)
 
 			for k, v := range tt.wantTags {
 				assert.Equal(t, v, tags[k])

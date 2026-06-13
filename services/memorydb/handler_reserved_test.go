@@ -222,7 +222,7 @@ func TestHandler_DescribeMultiRegionParameters(t *testing.T) {
 func TestHandler_DescribeMultiRegionParameters_WithGroup(t *testing.T) {
 	t.Parallel()
 
-	b := memorydb.NewInMemoryBackend()
+	b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
 	b.AddMultiRegionParameterGroupInternal("my-mr-pg", "memorydb_redis7")
 	h := memorydb.NewHandler(b)
 

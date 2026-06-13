@@ -567,17 +567,18 @@ func TestValidateScheduleExpression(t *testing.T) {
 
 	for _, expr := range validExprs {
 		_, err := backend.CreateScheduledQuery(
-			"valid-"+expr[:4], "SELECT 1", expr, "arn", "", "", "", "", nil,
+			t.Context(), "valid-"+expr[:4], "SELECT 1", expr, "arn", "", "", "", "", nil,
 		)
 		require.NoError(t, err, "valid expr %q should be accepted", expr)
 		_ = backend.DeleteScheduledQuery(
-			"arn:aws:timestream:us-east-1:123:scheduled-query/valid-" + expr[:4],
+			t.Context(),
+			"arn:aws:timestream:us-east-1:123:scheduled-query/valid-"+expr[:4],
 		)
 	}
 
 	for _, expr := range invalidExprs {
 		_, err := backend.CreateScheduledQuery(
-			"inv", "SELECT 1", expr, "arn", "", "", "", "", nil,
+			t.Context(), "inv", "SELECT 1", expr, "arn", "", "", "", "", nil,
 		)
 		require.Error(t, err, "invalid expr %q should be rejected", expr)
 	}

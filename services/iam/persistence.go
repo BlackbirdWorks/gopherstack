@@ -4,10 +4,9 @@ import (
 	"encoding/json"
 )
 
-//nolint:govet // fieldalignment is ignored for this struct
 type backendSnapshot struct {
-	RolePolicies          map[string][]string                  `json:"rolePolicies,omitempty"`
-	GroupPolicies         map[string][]string                  `json:"groupPolicies,omitempty"`
+	RoleInlinePolicies    map[string]map[string]string         `json:"roleInlinePolicies,omitempty"`
+	VirtualMFADevices     map[string]VirtualMFADevice          `json:"virtualMFADevices,omitempty"`
 	Policies              map[string]Policy                    `json:"policies,omitempty"`
 	Groups                map[string]Group                     `json:"groups,omitempty"`
 	AccessKeys            map[string]AccessKey                 `json:"accessKeys,omitempty"`
@@ -20,22 +19,22 @@ type backendSnapshot struct {
 	Users                 map[string]User                      `json:"users,omitempty"`
 	UserPolicies          map[string][]string                  `json:"userPolicies,omitempty"`
 	UserInlinePolicies    map[string]map[string]string         `json:"userInlinePolicies,omitempty"`
-	RoleInlinePolicies    map[string]map[string]string         `json:"roleInlinePolicies,omitempty"`
-	GroupInlinePolicies   map[string]map[string]string         `json:"groupInlinePolicies,omitempty"`
-	DelegationRequests    map[string]DelegationRequest         `json:"delegationRequests,omitempty"`
+	GroupPolicies         map[string][]string                  `json:"groupPolicies,omitempty"`
+	RolePolicies          map[string][]string                  `json:"rolePolicies,omitempty"`
+	PasswordPolicy        *PasswordPolicy                      `json:"passwordPolicy,omitempty"`
 	PolicyVersions        map[string][]StoredPolicyVersion     `json:"policyVersions,omitempty"`
 	PolicyVersionCounters map[string]int                       `json:"policyVersionCounters,omitempty"`
 	ServiceSpecificCreds  map[string]ServiceSpecificCredential `json:"serviceSpecificCreds,omitempty"`
-	VirtualMFADevices     map[string]VirtualMFADevice          `json:"virtualMFADevices,omitempty"`
-	AccountID             string                               `json:"accountID,omitempty"`
-	AccountAliases        []string                             `json:"accountAliases,omitempty"`
+	GroupInlinePolicies   map[string]map[string]string         `json:"groupInlinePolicies,omitempty"`
+	ServerCertificates    map[string]ServerCertificate         `json:"serverCertificates,omitempty"`
+	DelegationRequests    map[string]DelegationRequest         `json:"delegationRequests,omitempty"`
 	PolicyByARN           map[string]string                    `json:"policyByARN,omitempty"`
 	RoleByARN             map[string]string                    `json:"roleByARN,omitempty"`
 	PolicyAttachments     map[string]policyAttachmentRefs      `json:"policyAttachments,omitempty"`
 	DeletedV1Policies     map[string]bool                      `json:"deletedV1Policies,omitempty"`
 	SigningCertificates   map[string]SigningCertificate        `json:"signingCertificates,omitempty"`
-	ServerCertificates    map[string]ServerCertificate         `json:"serverCertificates,omitempty"`
-	PasswordPolicy        *PasswordPolicy                      `json:"passwordPolicy,omitempty"`
+	AccountID             string                               `json:"accountID,omitempty"`
+	AccountAliases        []string                             `json:"accountAliases,omitempty"`
 }
 
 // Snapshot serialises the backend state to JSON.

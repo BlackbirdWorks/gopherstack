@@ -19,6 +19,8 @@ DeleteDBClusterSnapshotCommand,
 DescribeDBClusterParameterGroupsCommand,
 CreateDBClusterParameterGroupCommand,
 DeleteDBClusterParameterGroupCommand,
+DescribeDBClusterParametersCommand,
+ModifyDBClusterParameterGroupCommand,
 DescribeGlobalClustersCommand,
 CreateGlobalClusterCommand,
 DeleteGlobalClusterCommand,
@@ -29,6 +31,7 @@ type DBCluster,
 type DBInstance,
 type DBClusterSnapshot,
 type DBClusterParameterGroup,
+type Parameter,
 type GlobalCluster,
 type EventSubscription
 } from '@aws-sdk/client-docdb';
@@ -56,7 +59,10 @@ Check
 
 type TabName = 'clusters' | 'instances' | 'snapshots' | 'parametergroups' | 'globalclusters' | 'eventsubscriptions';
 
-const client = getDocDBClient();
+let _client: ReturnType<typeof getDocDBClient> | undefined;
+function client() {
+	return (_client ??= getDocDBClient());
+}
 
 let loading = $state(false);
 let activeTab = $state<TabName>('clusters');
@@ -143,12 +149,12 @@ async function loadAll() {
 loading = true;
 try {
 const [cr, ir, sr, pr, gr, er] = await Promise.all([
-client.send(new DescribeDBClustersCommand({})),
-client.send(new DescribeDBInstancesCommand({})),
-client.send(new DescribeDBClusterSnapshotsCommand({})),
-client.send(new DescribeDBClusterParameterGroupsCommand({})),
-client.send(new DescribeGlobalClustersCommand({})),
-client.send(new DescribeEventSubscriptionsCommand({}))
+client().send(new DescribeDBClustersCommand({})),
+client().send(new DescribeDBInstancesCommand({})),
+client().send(new DescribeDBClusterSnapshotsCommand({})),
+client().send(new DescribeDBClusterParameterGroupsCommand({})),
+client().send(new DescribeGlobalClustersCommand({})),
+client().send(new DescribeEventSubscriptionsCommand({}))
 ]);
 clusters = cr.DBClusters ?? [];
 instances = ir.DBInstances ?? [];
@@ -167,13 +173,13 @@ async function seedDemo() {
 if (clusters.length > 0 || instances.length > 0 || snapshots.length > 0 || paramGroups.length > 0) return;
 try {
 await Promise.allSettled([
-client.send(new CreateDBClusterCommand({ DBClusterIdentifier: 'demo-cluster-1', Engine: 'docdb', MasterUsername: 'admin', MasterUserPassword: 'DemoPass123!' })),
-client.send(new CreateDBClusterCommand({ DBClusterIdentifier: 'demo-cluster-2', Engine: 'docdb', MasterUsername: 'admin', MasterUserPassword: 'DemoPass123!', StorageEncrypted: true })),
+client().send(new CreateDBClusterCommand({ DBClusterIdentifier: 'demo-cluster-1', Engine: 'docdb', MasterUsername: 'admin', MasterUserPassword: 'DemoPass123!' })),
+client().send(new CreateDBClusterCommand({ DBClusterIdentifier: 'demo-cluster-2', Engine: 'docdb', MasterUsername: 'admin', MasterUserPassword: 'DemoPass123!', StorageEncrypted: true })),
 ]);
 await Promise.allSettled([
-client.send(new CreateDBInstanceCommand({ DBInstanceIdentifier: 'demo-instance-1', DBClusterIdentifier: 'demo-cluster-1', DBInstanceClass: 'db.t3.medium', Engine: 'docdb' })),
-client.send(new CreateDBInstanceCommand({ DBInstanceIdentifier: 'demo-instance-2', DBClusterIdentifier: 'demo-cluster-2', DBInstanceClass: 'db.r5.large', Engine: 'docdb' })),
-client.send(new CreateDBClusterParameterGroupCommand({ DBClusterParameterGroupName: 'demo-param-group', DBParameterGroupFamily: 'docdb4.0', Description: 'Demo parameter group' })),
+client().send(new CreateDBInstanceCommand({ DBInstanceIdentifier: 'demo-instance-1', DBClusterIdentifier: 'demo-cluster-1', DBInstanceClass: 'db.t3.medium', Engine: 'docdb' })),
+client().send(new CreateDBInstanceCommand({ DBInstanceIdentifier: 'demo-instance-2', DBClusterIdentifier: 'demo-cluster-2', DBInstanceClass: 'db.r5.large', Engine: 'docdb' })),
+client().send(new CreateDBClusterParameterGroupCommand({ DBClusterParameterGroupName: 'demo-param-group', DBParameterGroupFamily: 'docdb4.0', Description: 'Demo parameter group' })),
 ]);
 await loadAll();
 } catch {
@@ -190,7 +196,7 @@ await seedDemo();
 async function createCluster() {
 loading = true;
 try {
-await client.send(new CreateDBClusterCommand({
+await client().send(new CreateDBClusterCommand({
 DBClusterIdentifier: clusterForm.DBClusterIdentifier,
 MasterUsername: clusterForm.MasterUsername || undefined,
 MasterUserPassword: clusterForm.MasterUserPassword || undefined,
@@ -211,7 +217,7 @@ async function deleteCluster(id: string) {
 if (!await confirmDestructive({ title: 'Delete Cluster', message: `Delete cluster ${id}? This action cannot be undone.` })) return;
 loading = true;
 try {
-await client.send(new DeleteDBClusterCommand({ DBClusterIdentifier: id, SkipFinalSnapshot: true }));
+await client().send(new DeleteDBClusterCommand({ DBClusterIdentifier: id, SkipFinalSnapshot: true }));
 toast.success(`Cluster ${id} deletion initiated`);
 selectedCluster = null;
 await loadAll();
@@ -222,7 +228,7 @@ finally { loading = false; }
 async function stopCluster(id: string) {
 loading = true;
 try {
-await client.send(new StopDBClusterCommand({ DBClusterIdentifier: id }));
+await client().send(new StopDBClusterCommand({ DBClusterIdentifier: id }));
 toast.success(`Cluster ${id} stopping`);
 await loadAll();
 } catch (e) { toast.error('Failed to stop cluster: ' + String(e)); }
@@ -232,7 +238,7 @@ finally { loading = false; }
 async function startCluster(id: string) {
 loading = true;
 try {
-await client.send(new StartDBClusterCommand({ DBClusterIdentifier: id }));
+await client().send(new StartDBClusterCommand({ DBClusterIdentifier: id }));
 toast.success(`Cluster ${id} starting`);
 await loadAll();
 } catch (e) { toast.error('Failed to start cluster: ' + String(e)); }
@@ -242,7 +248,7 @@ finally { loading = false; }
 async function failoverCluster(id: string) {
 loading = true;
 try {
-await client.send(new FailoverDBClusterCommand({ DBClusterIdentifier: id }));
+await client().send(new FailoverDBClusterCommand({ DBClusterIdentifier: id }));
 toast.success(`Cluster ${id} failover initiated`);
 await loadAll();
 } catch (e) { toast.error('Failed to failover cluster: ' + String(e)); }
@@ -253,7 +259,7 @@ finally { loading = false; }
 async function createInstance() {
 loading = true;
 try {
-await client.send(new CreateDBInstanceCommand({
+await client().send(new CreateDBInstanceCommand({
 DBInstanceIdentifier: instanceForm.DBInstanceIdentifier,
 DBClusterIdentifier: instanceForm.DBClusterIdentifier,
 DBInstanceClass: instanceForm.DBInstanceClass,
@@ -271,7 +277,7 @@ async function deleteInstance(id: string) {
 if (!await confirmDestructive({ title: 'Delete Instance', message: `Delete instance ${id}?` })) return;
 loading = true;
 try {
-await client.send(new DeleteDBInstanceCommand({ DBInstanceIdentifier: id }));
+await client().send(new DeleteDBInstanceCommand({ DBInstanceIdentifier: id }));
 toast.success(`Instance ${id} deletion initiated`);
 await loadAll();
 } catch (e) { toast.error('Failed to delete instance: ' + String(e)); }
@@ -281,7 +287,7 @@ finally { loading = false; }
 async function rebootInstance(id: string) {
 loading = true;
 try {
-await client.send(new RebootDBInstanceCommand({ DBInstanceIdentifier: id }));
+await client().send(new RebootDBInstanceCommand({ DBInstanceIdentifier: id }));
 toast.success(`Instance ${id} rebooting`);
 await loadAll();
 } catch (e) { toast.error('Failed to reboot instance: ' + String(e)); }
@@ -292,7 +298,7 @@ finally { loading = false; }
 async function createSnapshot() {
 loading = true;
 try {
-await client.send(new CreateDBClusterSnapshotCommand({
+await client().send(new CreateDBClusterSnapshotCommand({
 DBClusterSnapshotIdentifier: snapshotForm.DBClusterSnapshotIdentifier,
 DBClusterIdentifier: snapshotForm.DBClusterIdentifier
 }));
@@ -308,7 +314,7 @@ async function deleteSnapshot(id: string) {
 if (!await confirmDestructive({ title: 'Delete Snapshot', message: `Delete snapshot ${id}?` })) return;
 loading = true;
 try {
-await client.send(new DeleteDBClusterSnapshotCommand({ DBClusterSnapshotIdentifier: id }));
+await client().send(new DeleteDBClusterSnapshotCommand({ DBClusterSnapshotIdentifier: id }));
 toast.success(`Snapshot ${id} deleted`);
 await loadAll();
 } catch (e) { toast.error('Failed to delete snapshot: ' + String(e)); }
@@ -319,7 +325,7 @@ finally { loading = false; }
 async function createParamGroup() {
 loading = true;
 try {
-await client.send(new CreateDBClusterParameterGroupCommand({
+await client().send(new CreateDBClusterParameterGroupCommand({
 DBClusterParameterGroupName: paramGroupForm.DBClusterParameterGroupName,
 DBParameterGroupFamily: paramGroupForm.DBParameterGroupFamily,
 Description: paramGroupForm.Description
@@ -336,18 +342,65 @@ async function deleteParamGroup(name: string) {
 if (!await confirmDestructive({ title: 'Delete Parameter Group', message: `Delete parameter group ${name}?` })) return;
 loading = true;
 try {
-await client.send(new DeleteDBClusterParameterGroupCommand({ DBClusterParameterGroupName: name }));
+await client().send(new DeleteDBClusterParameterGroupCommand({ DBClusterParameterGroupName: name }));
 toast.success(`Parameter group ${name} deleted`);
 await loadAll();
 } catch (e) { toast.error('Failed to delete parameter group: ' + String(e)); }
 finally { loading = false; }
 }
 
+// Parameter editor
+let selectedParamGroup = $state<string | null>(null);
+let groupParameters = $state<Parameter[]>([]);
+let loadingParameters = $state(false);
+let savingParameters = $state(false);
+let editedValues = $state<Record<string, string>>({});
+const modifiableParams = $derived(groupParameters.filter((p) => p.IsModifiable !== false));
+
+async function openParameterEditor(name: string) {
+	selectedParamGroup = name;
+	loadingParameters = true;
+	editedValues = {};
+	try {
+		const resp = await client().send(new DescribeDBClusterParametersCommand({ DBClusterParameterGroupName: name }));
+		groupParameters = resp.Parameters ?? [];
+	} catch (e) {
+		toast.error('Failed to load parameters: ' + String(e));
+	} finally {
+		loadingParameters = false;
+	}
+}
+
+async function saveParameters() {
+	if (!selectedParamGroup) return;
+	const changed = Object.entries(editedValues).filter(([k, v]) => {
+		const orig = groupParameters.find((p) => p.ParameterName === k);
+		return orig && (orig.ParameterValue ?? '') !== v;
+	});
+	if (changed.length === 0) {
+		toast.info('No parameter changes to save');
+		return;
+	}
+	savingParameters = true;
+	try {
+		await client().send(new ModifyDBClusterParameterGroupCommand({
+			DBClusterParameterGroupName: selectedParamGroup,
+			Parameters: changed.map(([name, value]) => ({ ParameterName: name, ParameterValue: value, ApplyMethod: 'pending-reboot' }))
+		}));
+		toast.success(`${changed.length} parameter(s) updated`);
+		await openParameterEditor(selectedParamGroup);
+	} catch (e) {
+		toast.error('Failed to save parameters: ' + String(e));
+	} finally {
+		savingParameters = false;
+	}
+}
+
 // Global Cluster actions
 async function createGlobal() {
 loading = true;
 try {
-await client.send(new CreateGlobalClusterCommand({
+await client().send(new CreateGlobalClusterCommand({
 GlobalClusterIdentifier: globalForm.GlobalClusterIdentifier,
 Engine: globalForm.Engine,
 EngineVersion: globalForm.EngineVersion
@@ -364,7 +417,7 @@ async function deleteGlobal(id: string) {
 if (!await confirmDestructive({ title: 'Delete Global Cluster', message: `Delete global cluster ${id}?` })) return;
 loading = true;
 try {
-await client.send(new DeleteGlobalClusterCommand({ GlobalClusterIdentifier: id }));
+await client().send(new DeleteGlobalClusterCommand({ GlobalClusterIdentifier: id }));
 toast.success(`Global cluster ${id} deleted`);
 await loadAll();
 } catch (e) { toast.error('Failed to delete global cluster: ' + String(e)); }
@@ -375,7 +428,7 @@ finally { loading = false; }
 async function createEventSub() {
 loading = true;
 try {
-await client.send(new CreateEventSubscriptionCommand({
+await client().send(new CreateEventSubscriptionCommand({
 SubscriptionName: eventForm.SubscriptionName,
 SnsTopicArn: eventForm.SnsTopicArn,
 SourceType: eventForm.SourceType === 'all' ? undefined : eventForm.SourceType,
@@ -393,7 +446,7 @@ async function deleteEventSub(name: string) {
 if (!await confirmDestructive({ title: 'Delete Event Subscription', message: `Delete subscription ${name}?` })) return;
 loading = true;
 try {
-await client.send(new DeleteEventSubscriptionCommand({ SubscriptionName: name }));
+await client().send(new DeleteEventSubscriptionCommand({ SubscriptionName: name }));
 toast.success(`Subscription ${name} deleted`);
 await loadAll();
 } catch (e) { toast.error('Failed to delete subscription: ' + String(e)); }
@@ -765,7 +818,10 @@ class={`px-4 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition-co
 <td class="px-4 py-3 text-gray-600 dark:text-gray-300">{pg.DBParameterGroupFamily ?? '-'}</td>
 <td class="px-4 py-3 text-gray-600 dark:text-gray-300">{pg.Description ?? '-'}</td>
 <td class="px-4 py-3">
+<div class="flex gap-1">
+<button onclick={() => openParameterEditor(pg.DBClusterParameterGroupName!)} title="Edit parameters" class="p-1.5 rounded hover:bg-green-100 dark:hover:bg-green-900/30 text-green-600 dark:text-green-400"><Settings class="w-3.5 h-3.5" /></button>
 <button onclick={() => deleteParamGroup(pg.DBClusterParameterGroupName!)} title="Delete" class="p-1.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500 dark:text-red-400"><Trash2 class="w-3.5 h-3.5" /></button>
+</div>
 </td>
 </tr>
 {/each}
@@ -1025,6 +1081,58 @@ class={`px-4 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition-co
 <div class="flex justify-end gap-3 pt-2">
 <button onclick={() => showCreateParamGroup = false} class="px-4 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800">Cancel</button>
 <button onclick={createParamGroup} class="px-4 py-2 text-sm rounded-lg bg-green-600 hover:bg-green-700 text-white font-medium">Create</button>
+</div>
+</div>
+</div>
+{/if}
+
+<!-- Parameter Editor Modal -->
+{#if selectedParamGroup}
+<div class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 w-full max-w-3xl max-h-[85vh] flex flex-col p-6 space-y-4">
+<div class="flex items-center justify-between">
+<h3 class="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2"><Settings class="w-5 h-5 text-green-600" /> Parameters — {selectedParamGroup}</h3>
+<button onclick={() => { selectedParamGroup = null; groupParameters = []; }} class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"><X class="w-5 h-5" /></button>
+</div>
+{#if loadingParameters}
+<div class="flex justify-center py-12"><div class="animate-spin w-8 h-8 border-4 border-green-600 border-t-transparent rounded-full"></div></div>
+{:else if modifiableParams.length === 0}
+<div class="text-center py-12 text-gray-500">No modifiable parameters in this group.</div>
+{:else}
+<div class="overflow-y-auto flex-1 -mx-2 px-2">
+<table class="w-full text-sm">
+<thead class="bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 uppercase text-xs sticky top-0">
+<tr>
+<th class="px-3 py-2 text-left">Parameter</th>
+<th class="px-3 py-2 text-left">Value</th>
+<th class="px-3 py-2 text-left">Allowed</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-gray-100 dark:divide-gray-800">
+{#each modifiableParams as p}
+<tr>
+<td class="px-3 py-2 font-mono text-xs text-gray-900 dark:text-white align-top">
+{p.ParameterName}
+<div class="text-[10px] text-gray-400 font-sans normal-case max-w-xs truncate" title={p.Description}>{p.Description ?? ''}</div>
+</td>
+<td class="px-3 py-2">
+<input
+value={editedValues[p.ParameterName ?? ''] ?? p.ParameterValue ?? ''}
+oninput={(e) => { editedValues = { ...editedValues, [p.ParameterName ?? '']: (e.currentTarget as HTMLInputElement).value }; }}
+type="text"
+class="w-full px-2 py-1 rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-xs text-gray-900 dark:text-white font-mono"
+/>
+</td>
+<td class="px-3 py-2 text-xs text-gray-400 align-top max-w-[160px] truncate" title={p.AllowedValues}>{p.AllowedValues ?? '-'}</td>
+</tr>
+{/each}
+</tbody>
+</table>
+</div>
+{/if}
+<div class="flex justify-end gap-3 pt-2 border-t border-gray-100 dark:border-gray-800">
+<button onclick={() => { selectedParamGroup = null; groupParameters = []; }} class="px-4 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800">Close</button>
+<button onclick={saveParameters} disabled={savingParameters} class="px-4 py-2 text-sm rounded-lg bg-green-600 hover:bg-green-700 text-white font-medium disabled:opacity-50">{savingParameters ? 'Saving...' : 'Save Changes'}</button>
 </div>
 </div>
 </div>

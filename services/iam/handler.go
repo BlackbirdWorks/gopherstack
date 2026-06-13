@@ -1754,9 +1754,14 @@ func (h *Handler) resolveInstanceProfileRoles(ip *InstanceProfile) []RoleXML {
 	return roles
 }
 
+// maxItemsUpperBound is the AWS upper bound on the MaxItems pagination
+// parameter for IAM list operations. Values above this are clamped down.
+const maxItemsUpperBound = 1000
+
 // parseMaxItems converts a query-string MaxItems value to an int.
 // Returns 0 for empty, non-numeric, or non-positive values; returning 0 signals
-// the backend to apply its own default page size.
+// the backend to apply its own default page size. AWS accepts MaxItems in the
+// range 1–1000 and clamps larger values down to 1000.
 func parseMaxItems(s string) int {
 	if s == "" {
 		return 0
@@ -1765,6 +1770,10 @@ func parseMaxItems(s string) int {
 	n, err := strconv.Atoi(s)
 	if err != nil || n <= 0 {
 		return 0
+	}
+
+	if n > maxItemsUpperBound {
+		n = maxItemsUpperBound
 	}
 
 	return n

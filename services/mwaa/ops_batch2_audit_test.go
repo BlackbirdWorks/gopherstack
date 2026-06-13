@@ -8,6 +8,7 @@ package mwaa_test
 // ValidationException when env is in a transient state such as CREATING).
 
 import (
+	"context"
 	"net/http"
 	"testing"
 
@@ -43,7 +44,7 @@ func TestOpsB2_CreateCliToken_RequiresAvailable(t *testing.T) {
 			env := b.AddEnvironmentInternal("cli-state-env-" + tt.name)
 			env.Status = tt.status
 
-			_, err := b.CreateCliToken("cli-state-env-" + tt.name)
+			_, err := b.CreateCliToken(context.Background(), "cli-state-env-"+tt.name)
 			if tt.wantErr {
 				require.Error(t, err)
 				require.ErrorIs(t, err, mwaa.ErrEnvironmentNotFound,
@@ -97,7 +98,7 @@ func TestOpsB2_CreateWebLoginToken_RequiresAvailable(t *testing.T) {
 			env := b.AddEnvironmentInternal("web-state-env-" + tt.name)
 			env.Status = tt.status
 
-			_, err := b.CreateWebLoginToken("web-state-env-" + tt.name)
+			_, err := b.CreateWebLoginToken(context.Background(), "web-state-env-"+tt.name)
 			if tt.wantErr {
 				require.Error(t, err)
 				require.ErrorIs(t, err, mwaa.ErrEnvironmentNotFound,
@@ -150,9 +151,13 @@ func TestOpsB2_UpdateEnvironment_RequiresAvailable(t *testing.T) {
 			env := b.AddEnvironmentInternal("upd-state-env-" + tt.name)
 			env.Status = tt.status
 
-			_, err := b.UpdateEnvironment("upd-state-env-"+tt.name, &mwaa.ExportedUpdateEnvironmentRequest{
-				DagS3Path: "new-dags/",
-			})
+			_, err := b.UpdateEnvironment(
+				context.Background(),
+				"upd-state-env-"+tt.name,
+				&mwaa.ExportedUpdateEnvironmentRequest{
+					DagS3Path: "new-dags/",
+				},
+			)
 			if tt.wantErr {
 				require.Error(t, err)
 				require.ErrorIs(t, err, mwaa.ErrInvalidParameter,

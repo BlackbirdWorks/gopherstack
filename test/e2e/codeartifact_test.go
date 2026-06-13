@@ -4,6 +4,7 @@
 package e2e_test
 
 import (
+	"context"
 	"net/http/httptest"
 	"testing"
 
@@ -16,7 +17,7 @@ import (
 func TestCodeArtifactDashboard(t *testing.T) {
 	stack := newStack(t)
 
-	_, err := stack.CodeArtifactHandler.Backend.CreateDomain("e2e-test-domain", "", nil)
+	_, err := stack.CodeArtifactHandler.Backend.CreateDomain(context.Background(), "e2e-test-domain", "", nil)
 	require.NoError(t, err)
 
 	server := httptest.NewServer(stack.Echo)

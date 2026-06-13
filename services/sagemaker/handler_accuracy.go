@@ -49,6 +49,7 @@ func (h *Handler) handleCreateNotebookInstanceLifecycleConfig(
 	}
 
 	lc, err := h.Backend.CreateNotebookInstanceLifecycleConfig(
+		ctx,
 		req.NotebookInstanceLifecycleConfigName,
 		onCreate,
 		onStart,
@@ -64,7 +65,7 @@ func (h *Handler) handleCreateNotebookInstanceLifecycleConfig(
 }
 
 func (h *Handler) handleDescribeNotebookInstanceLifecycleConfig(
-	_ context.Context,
+	ctx context.Context,
 	body []byte,
 ) ([]byte, error) {
 	var req struct {
@@ -81,6 +82,7 @@ func (h *Handler) handleDescribeNotebookInstanceLifecycleConfig(
 	}
 
 	lc, err := h.Backend.DescribeNotebookInstanceLifecycleConfig(
+		ctx,
 		req.NotebookInstanceLifecycleConfigName,
 	)
 	if err != nil {
@@ -107,7 +109,7 @@ func (h *Handler) handleDescribeNotebookInstanceLifecycleConfig(
 }
 
 func (h *Handler) handleUpdateNotebookInstanceLifecycleConfig(
-	_ context.Context,
+	ctx context.Context,
 	body []byte,
 ) ([]byte, error) {
 	var req struct {
@@ -141,6 +143,7 @@ func (h *Handler) handleUpdateNotebookInstanceLifecycleConfig(
 	}
 
 	_, err := h.Backend.UpdateNotebookInstanceLifecycleConfig(
+		ctx,
 		req.NotebookInstanceLifecycleConfigName,
 		onCreate,
 		onStart,
@@ -166,7 +169,10 @@ func (h *Handler) handleDeleteNotebookInstanceLifecycleConfig(
 		return fmt.Errorf("%w: NotebookInstanceLifecycleConfigName is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.DeleteNotebookInstanceLifecycleConfig(req.NotebookInstanceLifecycleConfigName); err != nil {
+	if err := h.Backend.DeleteNotebookInstanceLifecycleConfig(
+		ctx,
+		req.NotebookInstanceLifecycleConfigName,
+	); err != nil {
 		return err
 	}
 
@@ -188,7 +194,7 @@ type notebookLifecycleSummary struct {
 	LastModifiedTime                    float64 `json:"LastModifiedTime"`
 }
 
-func (h *Handler) handleListNotebookInstanceLifecycleConfigs(body []byte) ([]byte, error) {
+func (h *Handler) handleListNotebookInstanceLifecycleConfigs(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		NextToken string `json:"NextToken"`
 	}
@@ -196,7 +202,7 @@ func (h *Handler) handleListNotebookInstanceLifecycleConfigs(body []byte) ([]byt
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	configs, nextToken := h.Backend.ListNotebookInstanceLifecycleConfigs(req.NextToken)
+	configs, nextToken := h.Backend.ListNotebookInstanceLifecycleConfigs(ctx, req.NextToken)
 	summaries := make([]notebookLifecycleSummary, 0, len(configs))
 	for _, lc := range configs {
 		summaries = append(summaries, notebookLifecycleSummary{
@@ -230,7 +236,7 @@ func (h *Handler) handleRetryPipelineExecution(ctx context.Context, body []byte)
 		return nil, fmt.Errorf("%w: PipelineExecutionArn is required", errInvalidRequest)
 	}
 
-	exec, err := h.Backend.RetryPipelineExecution(req.PipelineExecutionArn)
+	exec, err := h.Backend.RetryPipelineExecution(ctx, req.PipelineExecutionArn)
 	if err != nil {
 		return nil, err
 	}
@@ -252,7 +258,7 @@ func (h *Handler) handleStopPipelineExecution(ctx context.Context, body []byte) 
 		return nil, fmt.Errorf("%w: PipelineExecutionArn is required", errInvalidRequest)
 	}
 
-	exec, err := h.Backend.StopPipelineExecution(req.PipelineExecutionArn)
+	exec, err := h.Backend.StopPipelineExecution(ctx, req.PipelineExecutionArn)
 	if err != nil {
 		return nil, err
 	}
@@ -291,11 +297,11 @@ func (h *Handler) handleSendPipelineExecutionStepSuccess(
 	// Propagate error when execArn is known; be lenient when it's empty
 	// (callback token may reference executions from before this session).
 	if execArn != "" {
-		if err := h.Backend.SendPipelineExecutionStepSuccess(execArn, stepName); err != nil {
+		if err := h.Backend.SendPipelineExecutionStepSuccess(ctx, execArn, stepName); err != nil {
 			return nil, err
 		}
 	} else {
-		_ = h.Backend.SendPipelineExecutionStepSuccess(execArn, stepName)
+		_ = h.Backend.SendPipelineExecutionStepSuccess(ctx, execArn, stepName)
 	}
 
 	log := logger.Load(ctx)
@@ -330,11 +336,11 @@ func (h *Handler) handleSendPipelineExecutionStepFailure(
 
 	// Propagate error when execArn is known; be lenient when it's empty (stale callback token).
 	if execArn != "" {
-		if err := h.Backend.SendPipelineExecutionStepFailure(execArn, stepName, req.FailureReason); err != nil {
+		if err := h.Backend.SendPipelineExecutionStepFailure(ctx, execArn, stepName, req.FailureReason); err != nil {
 			return nil, err
 		}
 	} else {
-		_ = h.Backend.SendPipelineExecutionStepFailure(execArn, stepName, req.FailureReason)
+		_ = h.Backend.SendPipelineExecutionStepFailure(ctx, execArn, stepName, req.FailureReason)
 	}
 
 	log := logger.Load(ctx)
@@ -352,7 +358,7 @@ type pipelineExecStepSummary struct {
 	EndTime       float64 `json:"EndTime,omitempty"`
 }
 
-func (h *Handler) handleListPipelineExecutionSteps(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleListPipelineExecutionSteps(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		PipelineExecutionArn string `json:"PipelineExecutionArn"`
 		NextToken            string `json:"NextToken"`
@@ -365,11 +371,12 @@ func (h *Handler) handleListPipelineExecutionSteps(_ context.Context, body []byt
 	}
 
 	// Verify execution exists before listing steps.
-	if _, err := h.Backend.DescribePipelineExecution(req.PipelineExecutionArn); err != nil {
+	if _, err := h.Backend.DescribePipelineExecution(ctx, req.PipelineExecutionArn); err != nil {
 		return nil, err
 	}
 
 	steps, nextToken := h.Backend.ListPipelineExecutionSteps(
+		ctx,
 		req.PipelineExecutionArn,
 		req.NextToken,
 	)
@@ -499,7 +506,7 @@ func (h *Handler) handleCreateProcessingJob(ctx context.Context, body []byte) ([
 		outputs[i] = po
 	}
 
-	pj, err := h.Backend.CreateProcessingJob(ProcessingJob{
+	pj, err := h.Backend.CreateProcessingJob(ctx, ProcessingJob{
 		ProcessingJobName: req.ProcessingJobName,
 		RoleArn:           req.RoleArn,
 		AppSpecification: ProcessingAppSpec{
@@ -541,7 +548,7 @@ func (h *Handler) handleCreateProcessingJob(ctx context.Context, body []byte) ([
 	return json.Marshal(map[string]string{keyProcessingJobArn: pj.ProcessingJobArn})
 }
 
-func (h *Handler) handleDescribeProcessingJob(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeProcessingJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		ProcessingJobName string `json:"ProcessingJobName"`
 	}
@@ -552,7 +559,7 @@ func (h *Handler) handleDescribeProcessingJob(_ context.Context, body []byte) ([
 		return nil, fmt.Errorf("%w: ProcessingJobName is required", errInvalidRequest)
 	}
 
-	pj, err := h.Backend.DescribeProcessingJob(req.ProcessingJobName)
+	pj, err := h.Backend.DescribeProcessingJob(ctx, req.ProcessingJobName)
 	if err != nil {
 		return nil, err
 	}
@@ -593,7 +600,7 @@ func (h *Handler) handleStopProcessingJob(ctx context.Context, body []byte) erro
 		return fmt.Errorf("%w: ProcessingJobName is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.StopProcessingJob(req.ProcessingJobName); err != nil {
+	if err := h.Backend.StopProcessingJob(ctx, req.ProcessingJobName); err != nil {
 		return err
 	}
 
@@ -611,7 +618,7 @@ type processingJobSummary struct {
 	LastModifiedTime    float64 `json:"LastModifiedTime"`
 }
 
-func (h *Handler) handleListProcessingJobs(body []byte) ([]byte, error) {
+func (h *Handler) handleListProcessingJobs(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		NextToken    string `json:"NextToken"`
 		StatusEquals string `json:"StatusEquals"`
@@ -621,7 +628,7 @@ func (h *Handler) handleListProcessingJobs(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	jobs, nextToken := h.Backend.ListProcessingJobs(req.NextToken, req.StatusEquals, req.MaxResults)
+	jobs, nextToken := h.Backend.ListProcessingJobs(ctx, req.NextToken, req.StatusEquals, req.MaxResults)
 	summaries := make([]processingJobSummary, 0, len(jobs))
 	for _, pj := range jobs {
 		summaries = append(summaries, processingJobSummary{
@@ -662,7 +669,7 @@ func (h *Handler) handleCreateEndpointFSM(ctx context.Context, body []byte) ([]b
 	}
 
 	tags := fromTagObjects(req.Tags)
-	ep, err := h.Backend.CreateEndpointFSM(req.EndpointName, req.EndpointConfigName, tags)
+	ep, err := h.Backend.CreateEndpointFSM(ctx, req.EndpointName, req.EndpointConfigName, tags)
 	if err != nil {
 		return nil, err
 	}
@@ -694,7 +701,7 @@ func (h *Handler) handleUpdateEndpointFSM(ctx context.Context, body []byte) ([]b
 		return nil, fmt.Errorf("%w: EndpointName is required", errInvalidRequest)
 	}
 
-	ep, err := h.Backend.UpdateEndpointFSM(req.EndpointName, req.EndpointConfigName)
+	ep, err := h.Backend.UpdateEndpointFSM(ctx, req.EndpointName, req.EndpointConfigName)
 	if err != nil {
 		return nil, err
 	}
@@ -725,6 +732,7 @@ func (h *Handler) handleUpdateEndpointWeightsAndCapacitiesFull(
 	}
 
 	ep, err := h.Backend.UpdateEndpointWeightsAndCapacitiesFull(
+		ctx,
 		req.EndpointName,
 		req.DesiredWeightsAndCapacities,
 	)
@@ -774,7 +782,7 @@ func (h *Handler) handleCreateNotebookInstanceFull(
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	nb, err := h.Backend.CreateNotebookInstanceFSM(NotebookInstanceOptions{
+	nb, err := h.Backend.CreateNotebookInstanceFSM(ctx, NotebookInstanceOptions{
 		Name:                       req.NotebookInstanceName,
 		InstanceType:               req.InstanceType,
 		RoleArn:                    req.RoleArn,
@@ -810,7 +818,7 @@ func (h *Handler) handleCreateNotebookInstanceFull(
 
 // handleDescribeNotebookInstanceFull returns all notebook fields.
 func (h *Handler) handleDescribeNotebookInstanceFull(
-	_ context.Context,
+	ctx context.Context,
 	body []byte,
 ) ([]byte, error) {
 	var req struct {
@@ -823,7 +831,7 @@ func (h *Handler) handleDescribeNotebookInstanceFull(
 		return nil, fmt.Errorf("%w: NotebookInstanceName is required", errInvalidRequest)
 	}
 
-	nb, err := h.Backend.DescribeNotebookInstance(req.NotebookInstanceName)
+	nb, err := h.Backend.DescribeNotebookInstance(ctx, req.NotebookInstanceName)
 	if err != nil {
 		return nil, err
 	}
@@ -902,7 +910,7 @@ func (h *Handler) handleUpdateNotebookInstanceFull(ctx context.Context, body []b
 		return fmt.Errorf("%w: NotebookInstanceName is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.UpdateNotebookInstanceFull(req.NotebookInstanceName, NotebookUpdateOptions{
+	if err := h.Backend.UpdateNotebookInstanceFull(ctx, req.NotebookInstanceName, NotebookUpdateOptions{
 		InstanceType:                           req.InstanceType,
 		RoleArn:                                req.RoleArn,
 		LifecycleConfigName:                    req.LifecycleConfigName,
@@ -974,7 +982,7 @@ func (h *Handler) handleCreateTrainingJobFull(ctx context.Context, body []byte) 
 		metrics[i] = MetricDefinition{Name: md.Name, Regex: md.Regex}
 	}
 
-	tj, err := h.Backend.CreateTrainingJobFull(TrainingJobOptions{
+	tj, err := h.Backend.CreateTrainingJobFull(ctx, TrainingJobOptions{
 		TrainingJobName: req.TrainingJobName,
 		RoleArn:         req.RoleArn,
 		AlgorithmSpecification: AlgorithmSpecification{
@@ -1016,7 +1024,7 @@ func (h *Handler) handleCreateTrainingJobFull(ctx context.Context, body []byte) 
 	return json.Marshal(map[string]string{keyTrainingJobArn: tj.TrainingJobArn})
 }
 
-func (h *Handler) handleDescribeTrainingJobFull(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeTrainingJobFull(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		TrainingJobName string `json:"TrainingJobName"`
 	}
@@ -1027,7 +1035,7 @@ func (h *Handler) handleDescribeTrainingJobFull(_ context.Context, body []byte) 
 		return nil, fmt.Errorf("%w: TrainingJobName is required", errInvalidRequest)
 	}
 
-	tj, err := h.Backend.DescribeTrainingJob(req.TrainingJobName)
+	tj, err := h.Backend.DescribeTrainingJob(ctx, req.TrainingJobName)
 	if err != nil {
 		return nil, err
 	}
@@ -1121,7 +1129,7 @@ func (h *Handler) handleStopTrainingJobFSM(ctx context.Context, body []byte) err
 		return fmt.Errorf("%w: TrainingJobName is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.StopTrainingJobFSM(req.TrainingJobName); err != nil {
+	if err := h.Backend.StopTrainingJobFSM(ctx, req.TrainingJobName); err != nil {
 		return err
 	}
 
@@ -1131,7 +1139,7 @@ func (h *Handler) handleStopTrainingJobFSM(ctx context.Context, body []byte) err
 	return nil
 }
 
-func (h *Handler) handleListTrainingJobsFiltered(body []byte) ([]byte, error) {
+func (h *Handler) handleListTrainingJobsFiltered(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		CreationTimeAfterEpoch  *float64 `json:"CreationTimeAfter,omitempty"`
 		CreationTimeBeforeEpoch *float64 `json:"CreationTimeBefore,omitempty"`
@@ -1156,7 +1164,7 @@ func (h *Handler) handleListTrainingJobsFiltered(body []byte) ([]byte, error) {
 		creationTimeBefore = &t
 	}
 
-	jobs, nextToken := h.Backend.ListTrainingJobsFiltered(req.NextToken, ListTrainingJobsFilter{
+	jobs, nextToken := h.Backend.ListTrainingJobsFiltered(ctx, req.NextToken, ListTrainingJobsFilter{
 		StatusEquals:       req.StatusEquals,
 		NameContains:       req.NameContains,
 		CreationTimeAfter:  creationTimeAfter,

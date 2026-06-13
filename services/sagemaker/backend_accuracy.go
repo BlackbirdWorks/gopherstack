@@ -90,13 +90,16 @@ func cloneNotebookLifecycleConfig(
 
 // CreateNotebookInstanceLifecycleConfig creates a new lifecycle config.
 func (b *InMemoryBackend) CreateNotebookInstanceLifecycleConfig(
+	ctx context.Context,
 	name string,
 	onCreate, onStart []NotebookLifecycleHook,
 ) (*NotebookInstanceLifecycleConfig, error) {
 	b.mu.Lock("CreateNotebookInstanceLifecycleConfig")
 	defer b.mu.Unlock()
 
-	if _, ok := b.notebookLifecycleConfigs[name]; ok {
+	region := getRegion(ctx, b.region)
+
+	if _, ok := b.notebookLifecycleConfigsStore(region)[name]; ok {
 		return nil, fmt.Errorf(
 			"%w: notebook lifecycle config %s already exists",
 			ErrNotebookLifecycleConfigAlreadyExists,
@@ -106,7 +109,7 @@ func (b *InMemoryBackend) CreateNotebookInstanceLifecycleConfig(
 
 	lcARN := arn.Build(
 		"sagemaker",
-		b.region,
+		region,
 		b.accountID,
 		"notebook-instance-lifecycle-config/"+name,
 	)
@@ -119,19 +122,22 @@ func (b *InMemoryBackend) CreateNotebookInstanceLifecycleConfig(
 		CreationTime:     now,
 		LastModifiedTime: now,
 	}
-	b.notebookLifecycleConfigs[name] = lc
+	b.notebookLifecycleConfigsStore(region)[name] = lc
 
 	return cloneNotebookLifecycleConfig(lc), nil
 }
 
 // DescribeNotebookInstanceLifecycleConfig returns a lifecycle config by name.
 func (b *InMemoryBackend) DescribeNotebookInstanceLifecycleConfig(
+	ctx context.Context,
 	name string,
 ) (*NotebookInstanceLifecycleConfig, error) {
 	b.mu.RLock("DescribeNotebookInstanceLifecycleConfig")
 	defer b.mu.RUnlock()
 
-	lc, ok := b.notebookLifecycleConfigs[name]
+	region := getRegion(ctx, b.region)
+
+	lc, ok := b.notebookLifecycleConfigsStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: notebook lifecycle config %q not found",
@@ -145,13 +151,16 @@ func (b *InMemoryBackend) DescribeNotebookInstanceLifecycleConfig(
 
 // UpdateNotebookInstanceLifecycleConfig replaces onCreate/onStart scripts.
 func (b *InMemoryBackend) UpdateNotebookInstanceLifecycleConfig(
+	ctx context.Context,
 	name string,
 	onCreate, onStart []NotebookLifecycleHook,
 ) (*NotebookInstanceLifecycleConfig, error) {
 	b.mu.Lock("UpdateNotebookInstanceLifecycleConfig")
 	defer b.mu.Unlock()
 
-	lc, ok := b.notebookLifecycleConfigs[name]
+	region := getRegion(ctx, b.region)
+
+	lc, ok := b.notebookLifecycleConfigsStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: notebook lifecycle config %q not found",
@@ -172,11 +181,14 @@ func (b *InMemoryBackend) UpdateNotebookInstanceLifecycleConfig(
 }
 
 // DeleteNotebookInstanceLifecycleConfig removes a lifecycle config.
-func (b *InMemoryBackend) DeleteNotebookInstanceLifecycleConfig(name string) error {
+func (b *InMemoryBackend) DeleteNotebookInstanceLifecycleConfig(ctx context.Context, name string) error {
 	b.mu.Lock("DeleteNotebookInstanceLifecycleConfig")
 	defer b.mu.Unlock()
 
-	if _, ok := b.notebookLifecycleConfigs[name]; !ok {
+	region := getRegion(ctx, b.region)
+	store := b.notebookLifecycleConfigsStore(region)
+
+	if _, ok := store[name]; !ok {
 		return fmt.Errorf(
 			"%w: notebook lifecycle config %q not found",
 			ErrNotebookLifecycleConfigNotFound,
@@ -184,20 +196,23 @@ func (b *InMemoryBackend) DeleteNotebookInstanceLifecycleConfig(name string) err
 		)
 	}
 
-	delete(b.notebookLifecycleConfigs, name)
+	delete(store, name)
 
 	return nil
 }
 
 // ListNotebookInstanceLifecycleConfigs returns lifecycle configs sorted by name.
 func (b *InMemoryBackend) ListNotebookInstanceLifecycleConfigs(
+	ctx context.Context,
 	nextToken string,
 ) ([]*NotebookInstanceLifecycleConfig, string) {
 	b.mu.RLock("ListNotebookInstanceLifecycleConfigs")
 	defer b.mu.RUnlock()
 
-	list := make([]*NotebookInstanceLifecycleConfig, 0, len(b.notebookLifecycleConfigs))
-	for _, lc := range b.notebookLifecycleConfigs {
+	region := getRegion(ctx, b.region)
+
+	list := make([]*NotebookInstanceLifecycleConfig, 0, len(b.notebookLifecycleConfigsStore(region)))
+	for _, lc := range b.notebookLifecycleConfigsStore(region) {
 		list = append(list, cloneNotebookLifecycleConfig(lc))
 	}
 	sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
@@ -228,11 +243,12 @@ func (b *InMemoryBackend) scheduleNotebookTransition(
 	name, nextStatus string,
 	delay time.Duration,
 ) {
+	region := getRegion(ctx, b.region)
 	b.runDelayed(ctx, delay, func() {
 		b.mu.Lock("scheduleNotebookTransition.goroutine")
 		defer b.mu.Unlock()
 
-		if nb, ok := b.notebooks[name]; ok {
+		if nb, ok := b.notebooksStore(region)[name]; ok {
 			nb.NotebookInstanceStatus = nextStatus
 			nb.LastModifiedTime = time.Now()
 		}
@@ -240,11 +256,13 @@ func (b *InMemoryBackend) scheduleNotebookTransition(
 }
 
 // StartNotebookInstanceFSM transitions: Stopped → Pending, then Pending → InService.
-func (b *InMemoryBackend) StartNotebookInstanceFSM(name string) error {
+func (b *InMemoryBackend) StartNotebookInstanceFSM(ctx context.Context, name string) error {
 	b.mu.Lock("StartNotebookInstanceFSM")
 	defer b.mu.Unlock()
 
-	nb, ok := b.notebooks[name]
+	region := getRegion(ctx, b.region)
+
+	nb, ok := b.notebooksStore(region)[name]
 	if !ok {
 		return fmt.Errorf("%w: notebook instance %q not found", ErrNotebookNotFound, name)
 	}
@@ -271,11 +289,13 @@ func (b *InMemoryBackend) StartNotebookInstanceFSM(name string) error {
 }
 
 // StopNotebookInstanceFSM transitions: InService → Stopping, then Stopping → Stopped.
-func (b *InMemoryBackend) StopNotebookInstanceFSM(name string) error {
+func (b *InMemoryBackend) StopNotebookInstanceFSM(ctx context.Context, name string) error {
 	b.mu.Lock("StopNotebookInstanceFSM")
 	defer b.mu.Unlock()
 
-	nb, ok := b.notebooks[name]
+	region := getRegion(ctx, b.region)
+
+	nb, ok := b.notebooksStore(region)[name]
 	if !ok {
 		return fmt.Errorf("%w: notebook instance %q not found", ErrNotebookNotFound, name)
 	}
@@ -298,30 +318,34 @@ func (b *InMemoryBackend) StopNotebookInstanceFSM(name string) error {
 
 // CreateNotebookInstanceFSM creates a notebook and immediately schedules Pending → InService.
 func (b *InMemoryBackend) CreateNotebookInstanceFSM(
+	ctx context.Context,
 	opts NotebookInstanceOptions,
 ) (*NotebookInstance, error) {
 	b.mu.RLock("CreateNotebookInstanceFSM.ctx")
-	ctx := b.lifecycleCtx
+	lifecycleCtx := b.lifecycleCtx
 	b.mu.RUnlock()
 
-	nb, err := b.CreateNotebookInstanceFull(opts)
+	nb, err := b.CreateNotebookInstanceFull(ctx, opts)
 	if err != nil {
 		return nil, err
 	}
-	b.scheduleNotebookTransition(ctx, opts.Name, statusInService, notebookPendingToInServiceDelay)
+	b.scheduleNotebookTransition(lifecycleCtx, opts.Name, statusInService, notebookPendingToInServiceDelay)
 
 	return nb, nil
 }
 
 // UpdateNotebookInstanceFull updates all mutable fields on a notebook.
 func (b *InMemoryBackend) UpdateNotebookInstanceFull(
+	ctx context.Context,
 	name string,
 	opts NotebookUpdateOptions,
 ) error {
 	b.mu.Lock("UpdateNotebookInstanceFull")
 	defer b.mu.Unlock()
 
-	nb, ok := b.notebooks[name]
+	region := getRegion(ctx, b.region)
+
+	nb, ok := b.notebooksStore(region)[name]
 	if !ok {
 		return fmt.Errorf("%w: notebook instance %q not found", ErrNotebookNotFound, name)
 	}
@@ -492,11 +516,13 @@ type TrainingJobOptions struct {
 
 // CreateTrainingJobFull creates a training job from a full options struct
 // and schedules InProgress → Completed after a short delay.
-func (b *InMemoryBackend) CreateTrainingJobFull(opts TrainingJobOptions) (*TrainingJob, error) {
+func (b *InMemoryBackend) CreateTrainingJobFull(ctx context.Context, opts TrainingJobOptions) (*TrainingJob, error) {
 	b.mu.Lock("CreateTrainingJobFull")
 	defer b.mu.Unlock()
 
-	if _, ok := b.trainingJobs[opts.TrainingJobName]; ok {
+	region := getRegion(ctx, b.region)
+
+	if _, ok := b.trainingJobsStore(region)[opts.TrainingJobName]; ok {
 		return nil, fmt.Errorf(
 			"%w: training job %s already exists",
 			ErrTrainingJobAlreadyExists,
@@ -504,7 +530,7 @@ func (b *InMemoryBackend) CreateTrainingJobFull(opts TrainingJobOptions) (*Train
 		)
 	}
 
-	jobARN := arn.Build("sagemaker", b.region, b.accountID, "training-job/"+opts.TrainingJobName)
+	jobARN := arn.Build("sagemaker", region, b.accountID, "training-job/"+opts.TrainingJobName)
 	now := time.Now()
 
 	tj := &TrainingJob{
@@ -533,22 +559,23 @@ func (b *InMemoryBackend) CreateTrainingJobFull(opts TrainingJobOptions) (*Train
 			{StartTime: now, Status: "Starting", StatusMessage: "Launching requested ML instances"},
 		},
 	}
-	b.trainingJobs[opts.TrainingJobName] = tj
-	b.trainingJobARNIndex[jobARN] = opts.TrainingJobName
+	b.trainingJobsStore(region)[opts.TrainingJobName] = tj
+	b.trainingJobARNIndexStore(region)[jobARN] = opts.TrainingJobName
 
-	b.scheduleTrainingCompletion(b.lifecycleCtx, opts.TrainingJobName)
+	b.scheduleTrainingCompletion(b.lifecycleCtx, region, opts.TrainingJobName)
 
 	return cloneTrainingJob(tj), nil
 }
 
 // scheduleTrainingCompletion drives InProgress → Completed after delay.
 // ctx must be b.lifecycleCtx captured by the caller while holding b.mu.
-func (b *InMemoryBackend) scheduleTrainingCompletion(ctx context.Context, name string) {
+// region must be captured by the caller before the lock is released.
+func (b *InMemoryBackend) scheduleTrainingCompletion(ctx context.Context, region, name string) {
 	b.runDelayed(ctx, trainingInProgressToCompleted, func() {
 		b.mu.Lock("scheduleTrainingCompletion.goroutine")
 		defer b.mu.Unlock()
 
-		tj, ok := b.trainingJobs[name]
+		tj, ok := b.trainingJobsStore(region)[name]
 		if !ok {
 			return
 		}
@@ -580,11 +607,13 @@ func (b *InMemoryBackend) scheduleTrainingCompletion(ctx context.Context, name s
 }
 
 // StopTrainingJobFSM transitions InProgress → Stopping → Stopped.
-func (b *InMemoryBackend) StopTrainingJobFSM(name string) error {
+func (b *InMemoryBackend) StopTrainingJobFSM(ctx context.Context, name string) error {
 	b.mu.Lock("StopTrainingJobFSM")
 	defer b.mu.Unlock()
 
-	tj, ok := b.trainingJobs[name]
+	region := getRegion(ctx, b.region)
+
+	tj, ok := b.trainingJobsStore(region)[name]
 	if !ok {
 		return fmt.Errorf("%w: training job %q not found", ErrTrainingJobNotFound, name)
 	}
@@ -596,7 +625,7 @@ func (b *InMemoryBackend) StopTrainingJobFSM(name string) error {
 		b.mu.Lock("StopTrainingJobFSM.goroutine")
 		defer b.mu.Unlock()
 
-		if tj2, ok2 := b.trainingJobs[name]; ok2 &&
+		if tj2, ok2 := b.trainingJobsStore(region)[name]; ok2 &&
 			tj2.TrainingJobStatus == pipelineStatusStopping {
 			tj2.TrainingJobStatus = pipelineStatusStopped
 			tj2.LastModifiedTime = time.Now()
@@ -617,14 +646,17 @@ type ListTrainingJobsFilter struct {
 
 // ListTrainingJobsFiltered returns training jobs matching filter.
 func (b *InMemoryBackend) ListTrainingJobsFiltered(
+	ctx context.Context,
 	nextToken string,
 	f ListTrainingJobsFilter,
 ) ([]*TrainingJob, string) {
 	b.mu.RLock("ListTrainingJobsFiltered")
 	defer b.mu.RUnlock()
 
-	list := make([]*TrainingJob, 0, len(b.trainingJobs))
-	for _, tj := range b.trainingJobs {
+	region := getRegion(ctx, b.region)
+
+	list := make([]*TrainingJob, 0, len(b.trainingJobsStore(region)))
+	for _, tj := range b.trainingJobsStore(region) {
 		if f.StatusEquals != "" && !strings.EqualFold(tj.TrainingJobStatus, f.StatusEquals) {
 			continue
 		}
@@ -674,16 +706,17 @@ func (b *InMemoryBackend) ListTrainingJobsFiltered(
 
 // scheduleEndpointTransition drives an endpoint to nextStatus after delay.
 // ctx must be b.lifecycleCtx captured by the caller while holding b.mu.
+// region must be captured by the caller before the lock is released.
 func (b *InMemoryBackend) scheduleEndpointTransition(
 	ctx context.Context,
-	name, nextStatus string,
+	region, name, nextStatus string,
 	delay time.Duration,
 ) {
 	b.runDelayed(ctx, delay, func() {
 		b.mu.Lock("scheduleEndpointTransition.goroutine")
 		defer b.mu.Unlock()
 
-		if ep, ok := b.endpoints[name]; ok {
+		if ep, ok := b.endpointsStore(region)[name]; ok {
 			ep.EndpointStatus = nextStatus
 			ep.LastModifiedTime = time.Now()
 		}
@@ -692,46 +725,54 @@ func (b *InMemoryBackend) scheduleEndpointTransition(
 
 // CreateEndpointFSM creates an endpoint and schedules Creating → InService.
 func (b *InMemoryBackend) CreateEndpointFSM(
+	ctx context.Context,
 	name, endpointConfigName string,
 	tags map[string]string,
 ) (*Endpoint, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("CreateEndpointFSM.ctx")
-	ctx := b.lifecycleCtx
+	lifecycleCtx := b.lifecycleCtx
 	b.mu.RUnlock()
 
-	ep, err := b.CreateEndpoint(name, endpointConfigName, tags)
+	ep, err := b.CreateEndpoint(ctx, name, endpointConfigName, tags)
 	if err != nil {
 		return nil, err
 	}
-	b.scheduleEndpointTransition(ctx, name, statusInService, endpointCreatingToInService)
+	b.scheduleEndpointTransition(lifecycleCtx, region, name, statusInService, endpointCreatingToInService)
 
 	return ep, nil
 }
 
 // UpdateEndpointFSM updates config and drives InService → Updating → InService.
-func (b *InMemoryBackend) UpdateEndpointFSM(name, endpointConfigName string) (*Endpoint, error) {
+func (b *InMemoryBackend) UpdateEndpointFSM(ctx context.Context, name, endpointConfigName string) (*Endpoint, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("UpdateEndpointFSM.ctx")
-	ctx := b.lifecycleCtx
+	lifecycleCtx := b.lifecycleCtx
 	b.mu.RUnlock()
 
-	ep, err := b.UpdateEndpoint(name, endpointConfigName)
+	ep, err := b.UpdateEndpoint(ctx, name, endpointConfigName)
 	if err != nil {
 		return nil, err
 	}
-	b.scheduleEndpointTransition(ctx, name, statusInService, endpointUpdatingToInService)
+	b.scheduleEndpointTransition(lifecycleCtx, region, name, statusInService, endpointUpdatingToInService)
 
 	return ep, nil
 }
 
 // UpdateEndpointWeightsAndCapacitiesFull applies weight/capacity changes and drives Updating → InService.
 func (b *InMemoryBackend) UpdateEndpointWeightsAndCapacitiesFull(
+	ctx context.Context,
 	name string,
 	changes []DesiredWeightAndCapacity,
 ) (*Endpoint, error) {
 	b.mu.Lock("UpdateEndpointWeightsAndCapacitiesFull")
 	defer b.mu.Unlock()
 
-	ep, ok := b.endpoints[name]
+	region := getRegion(ctx, b.region)
+
+	ep, ok := b.endpointsStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: endpoint %q not found", ErrEndpointNotFound, name)
 	}
@@ -766,7 +807,7 @@ func (b *InMemoryBackend) UpdateEndpointWeightsAndCapacitiesFull(
 	ep.LastModifiedTime = time.Now()
 
 	cp := cloneEndpoint(ep)
-	b.scheduleEndpointTransition(b.lifecycleCtx, name, statusInService, endpointUpdatingToInService)
+	b.scheduleEndpointTransition(b.lifecycleCtx, region, name, statusInService, endpointUpdatingToInService)
 
 	return cp, nil
 }
@@ -901,11 +942,13 @@ func cloneProcessingJob(pj *ProcessingJob) *ProcessingJob {
 }
 
 // CreateProcessingJob creates and schedules a processing job.
-func (b *InMemoryBackend) CreateProcessingJob(opts ProcessingJob) (*ProcessingJob, error) {
+func (b *InMemoryBackend) CreateProcessingJob(ctx context.Context, opts ProcessingJob) (*ProcessingJob, error) {
 	b.mu.Lock("CreateProcessingJob")
 	defer b.mu.Unlock()
 
-	if _, ok := b.processingJobs[opts.ProcessingJobName]; ok {
+	region := getRegion(ctx, b.region)
+
+	if _, ok := b.processingJobsStore(region)[opts.ProcessingJobName]; ok {
 		return nil, fmt.Errorf(
 			"%w: processing job %s already exists",
 			ErrProcessingJobAlreadyExists,
@@ -913,7 +956,7 @@ func (b *InMemoryBackend) CreateProcessingJob(opts ProcessingJob) (*ProcessingJo
 		)
 	}
 
-	pjARN := arn.Build("sagemaker", b.region, b.accountID, "processing-job/"+opts.ProcessingJobName)
+	pjARN := arn.Build("sagemaker", region, b.accountID, "processing-job/"+opts.ProcessingJobName)
 	now := time.Now()
 	pj := &ProcessingJob{
 		ProcessingJobName:      opts.ProcessingJobName,
@@ -931,22 +974,23 @@ func (b *InMemoryBackend) CreateProcessingJob(opts ProcessingJob) (*ProcessingJo
 		ProcessingStartTime:    &now,
 		Tags:                   mergeTags(nil, opts.Tags),
 	}
-	b.processingJobs[opts.ProcessingJobName] = pj
-	b.processingJobARNIndex[pjARN] = opts.ProcessingJobName
+	b.processingJobsStore(region)[opts.ProcessingJobName] = pj
+	b.processingJobARNIndexStore(region)[pjARN] = opts.ProcessingJobName
 
-	b.scheduleProcessingCompletion(b.lifecycleCtx, opts.ProcessingJobName)
+	b.scheduleProcessingCompletion(b.lifecycleCtx, region, opts.ProcessingJobName)
 
 	return cloneProcessingJob(pj), nil
 }
 
 // scheduleProcessingCompletion transitions a processing job to Completed.
 // ctx must be b.lifecycleCtx captured by the caller while holding b.mu.
-func (b *InMemoryBackend) scheduleProcessingCompletion(ctx context.Context, name string) {
+// region must be captured by the caller before the lock is released.
+func (b *InMemoryBackend) scheduleProcessingCompletion(ctx context.Context, region, name string) {
 	b.runDelayed(ctx, processingJobCompletionDelay, func() {
 		b.mu.Lock("scheduleProcessingCompletion.goroutine")
 		defer b.mu.Unlock()
 
-		pj, ok := b.processingJobs[name]
+		pj, ok := b.processingJobsStore(region)[name]
 		if !ok || pj.ProcessingJobStatus != "InProgress" {
 			return
 		}
@@ -958,11 +1002,13 @@ func (b *InMemoryBackend) scheduleProcessingCompletion(ctx context.Context, name
 }
 
 // DescribeProcessingJob returns a processing job by name.
-func (b *InMemoryBackend) DescribeProcessingJob(name string) (*ProcessingJob, error) {
+func (b *InMemoryBackend) DescribeProcessingJob(ctx context.Context, name string) (*ProcessingJob, error) {
 	b.mu.RLock("DescribeProcessingJob")
 	defer b.mu.RUnlock()
 
-	pj, ok := b.processingJobs[name]
+	region := getRegion(ctx, b.region)
+
+	pj, ok := b.processingJobsStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: processing job %q not found", ErrProcessingJobNotFound, name)
 	}
@@ -971,11 +1017,13 @@ func (b *InMemoryBackend) DescribeProcessingJob(name string) (*ProcessingJob, er
 }
 
 // StopProcessingJob transitions a processing job to Stopping then Stopped.
-func (b *InMemoryBackend) StopProcessingJob(name string) error {
+func (b *InMemoryBackend) StopProcessingJob(ctx context.Context, name string) error {
 	b.mu.Lock("StopProcessingJob")
 	defer b.mu.Unlock()
 
-	pj, ok := b.processingJobs[name]
+	region := getRegion(ctx, b.region)
+
+	pj, ok := b.processingJobsStore(region)[name]
 	if !ok {
 		return fmt.Errorf("%w: processing job %q not found", ErrProcessingJobNotFound, name)
 	}
@@ -987,7 +1035,7 @@ func (b *InMemoryBackend) StopProcessingJob(name string) error {
 		b.mu.Lock("StopProcessingJob.goroutine")
 		defer b.mu.Unlock()
 
-		if pj2, ok2 := b.processingJobs[name]; ok2 && pj2.ProcessingJobStatus == "Stopping" {
+		if pj2, ok2 := b.processingJobsStore(region)[name]; ok2 && pj2.ProcessingJobStatus == "Stopping" {
 			pj2.ProcessingJobStatus = "Stopped"
 			pj2.LastModifiedTime = time.Now()
 		}
@@ -998,14 +1046,17 @@ func (b *InMemoryBackend) StopProcessingJob(name string) error {
 
 // ListProcessingJobs returns processing jobs sorted by name.
 func (b *InMemoryBackend) ListProcessingJobs(
+	ctx context.Context,
 	nextToken, statusEquals string,
 	maxResults int32,
 ) ([]*ProcessingJob, string) {
 	b.mu.RLock("ListProcessingJobs")
 	defer b.mu.RUnlock()
 
-	list := make([]*ProcessingJob, 0, len(b.processingJobs))
-	for _, pj := range b.processingJobs {
+	region := getRegion(ctx, b.region)
+
+	list := make([]*ProcessingJob, 0, len(b.processingJobsStore(region)))
+	for _, pj := range b.processingJobsStore(region) {
 		if statusEquals != "" && !strings.EqualFold(pj.ProcessingJobStatus, statusEquals) {
 			continue
 		}
@@ -1129,6 +1180,7 @@ type NotebookInstanceOptions struct {
 
 // CreateNotebookInstanceFull persists all NotebookInstanceOptions fields.
 func (b *InMemoryBackend) CreateNotebookInstanceFull(
+	ctx context.Context,
 	opts NotebookInstanceOptions,
 ) (*NotebookInstance, error) {
 	if opts.Name == "" {
@@ -1144,7 +1196,9 @@ func (b *InMemoryBackend) CreateNotebookInstanceFull(
 	b.mu.Lock("CreateNotebookInstanceFull")
 	defer b.mu.Unlock()
 
-	if _, ok := b.notebooks[opts.Name]; ok {
+	region := getRegion(ctx, b.region)
+
+	if _, ok := b.notebooksStore(region)[opts.Name]; ok {
 		return nil, fmt.Errorf(
 			"%w: notebook instance %s already exists",
 			ErrNotebookAlreadyExists,
@@ -1152,7 +1206,7 @@ func (b *InMemoryBackend) CreateNotebookInstanceFull(
 		)
 	}
 
-	nbARN := arn.Build("sagemaker", b.region, b.accountID, "notebook-instance/"+opts.Name)
+	nbARN := arn.Build("sagemaker", region, b.accountID, "notebook-instance/"+opts.Name)
 	now := time.Now()
 	nb := &NotebookInstance{
 		NotebookInstanceName:       opts.Name,
@@ -1175,8 +1229,8 @@ func (b *InMemoryBackend) CreateNotebookInstanceFull(
 		LastModifiedTime:           now,
 		Tags:                       mergeTags(nil, opts.Tags),
 	}
-	b.notebooks[opts.Name] = nb
-	b.notebookARNIndex[nbARN] = opts.Name
+	b.notebooksStore(region)[opts.Name] = nb
+	b.notebookARNIndexStore(region)[nbARN] = opts.Name
 
 	return cloneNotebook(nb), nil
 }

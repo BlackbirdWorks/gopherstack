@@ -8,16 +8,26 @@
 		ListPullRequestsCommand,
 		GetPullRequestCommand,
 		CreatePullRequestCommand,
+		GetBranchCommand,
+		GetCommitCommand,
+		GetFolderCommand,
+		type CodeCommitClient,
 		type RepositoryNameIdPair,
 		type RepositoryMetadata,
-		type PullRequest
+		type PullRequest,
+		type Commit,
+		type GetFolderCommandOutput,
+		type File as CCFile
 	} from '@aws-sdk/client-codecommit';
 	import { toast } from 'svelte-sonner';
-	import { GitBranch, RefreshCw, Search, GitCommit, ChevronRight, Folder, GitMerge, Plus, X } from 'lucide-svelte';
+	import { GitBranch, RefreshCw, Search, GitCommit, ChevronRight, Folder, GitMerge, Plus, X, FileText, FolderOpen, ArrowUp } from 'lucide-svelte';
 
-	const cc = getCodeCommitClient();
+	let ccClient: CodeCommitClient | undefined;
+	function cc(): CodeCommitClient {
+		return (ccClient ??= getCodeCommitClient());
+	}
 
-	type DetailTab = 'overview' | 'branches' | 'pullrequests';
+	type DetailTab = 'overview' | 'branches' | 'pullrequests' | 'files' | 'commits';
 
 	let loading = $state(false);
 	let repositories = $state<RepositoryNameIdPair[]>([]);
@@ -46,7 +56,7 @@
 	async function loadData() {
 		loading = true;
 		try {
-			const resp = await cc.send(new ListRepositoriesCommand({}));
+			const resp = await cc().send(new ListRepositoriesCommand({}));
 			repositories = resp.repositories ?? [];
 		} catch (e) {
 			toast.error('Failed to load CodeCommit data: ' + String(e));
@@ -61,8 +71,8 @@
 		pullRequests = [];
 		try {
 			const [detailResp, branchResp] = await Promise.all([
-				cc.send(new GetRepositoryCommand({ repositoryName: repoName })),
-				cc.send(new ListBranchesCommand({ repositoryName: repoName }))
+				cc().send(new GetRepositoryCommand({ repositoryName: repoName })),
+				cc().send(new ListBranchesCommand({ repositoryName: repoName }))
 			]);
 			selectedRepo = detailResp.repositoryMetadata ?? null;
 			branches = branchResp.branches ?? [];
@@ -77,14 +87,14 @@
 		if (!selectedRepo?.repositoryName) return;
 		loadingPRs = true;
 		try {
-			const listResp = await cc.send(new ListPullRequestsCommand({
+			const listResp = await cc().send(new ListPullRequestsCommand({
 				repositoryName: selectedRepo.repositoryName
 			}));
 			const ids = listResp.pullRequestIds ?? [];
 			if (ids.length > 0) {
 				const details = await Promise.allSettled(
 					ids.slice(0, 20).map((id) =>
-						cc.send(new GetPullRequestCommand({ pullRequestId: id })).then((r) => r.pullRequest)
+						cc().send(new GetPullRequestCommand({ pullRequestId: id })).then((r) => r.pullRequest)
 					)
 				);
 				pullRequests = details
@@ -101,16 +111,93 @@
 		}
 	}
 
+	// File browser
+	let browseBranch = $state('');
+	// currentFolder is the relative path inside the repo.
+	let currentFolder = $state('');
+	let folderContent = $state<GetFolderCommandOutput | null>(null);
+	let folderFiles = $state<CCFile[]>([]);
+	let loadingFiles = $state(false);
+
+	async function loadFolder(path: string) {
+		if (!selectedRepo?.repositoryName || !browseBranch) return;
+		loadingFiles = true;
+		try {
+			const res = await cc().send(
+				new GetFolderCommand({
+					repositoryName: selectedRepo.repositoryName,
+					commitSpecifier: browseBranch,
+					folderPath: path || '/'
+				})
+			);
+			folderContent = res;
+			folderFiles = res.files ?? [];
+			currentFolder = path;
+		} catch (e) {
+			toast.error('Failed to load folder: ' + String(e));
+		} finally {
+			loadingFiles = false;
+		}
+	}
+
+	async function openFiles() {
+		browseBranch = selectedRepo?.defaultBranch ?? branches[0] ?? '';
+		if (browseBranch) await loadFolder('');
+	}
+
+	function parentFolder(path: string): string {
+		const trimmed = path.replace(/\/$/, '');
+		const idx = trimmed.lastIndexOf('/');
+		return idx <= 0 ? '' : trimmed.slice(0, idx);
+	}
+
+	// Commit log: resolve the branch tip, then walk parent commits.
+	let commits = $state<Commit[]>([]);
+	let loadingCommits = $state(false);
+
+	async function loadCommits() {
+		if (!selectedRepo?.repositoryName) return;
+		const branch = selectedRepo.defaultBranch ?? branches[0];
+		if (!branch) return;
+		loadingCommits = true;
+		commits = [];
+		try {
+			const branchRes = await cc().send(
+				new GetBranchCommand({ repositoryName: selectedRepo.repositoryName, branchName: branch })
+			);
+			let commitId = branchRes.branch?.commitId;
+			const collected: Commit[] = [];
+			let guard = 0;
+			while (commitId && guard < 30) {
+				const commitRes = await cc().send(
+					new GetCommitCommand({ repositoryName: selectedRepo.repositoryName, commitId })
+				);
+				const commit = commitRes.commit;
+				if (!commit) break;
+				collected.push(commit);
+				commitId = commit.parents?.[0];
+				guard++;
+			}
+			commits = collected;
+		} catch (e) {
+			toast.error('Failed to load commit log: ' + String(e));
+		} finally {
+			loadingCommits = false;
+		}
+	}
+
 	async function switchDetailTab(tab: DetailTab) {
 		detailTab = tab;
 		if (tab === 'pullrequests' && pullRequests.length === 0) await loadPullRequests();
+		else if (tab === 'files') await openFiles();
+		else if (tab === 'commits') await loadCommits();
 	}
 
 	async function createPR() {
 		if (!selectedRepo?.repositoryName || !prTitle.trim() || !prSourceBranch.trim()) return;
 		creatingPR = true;
 		try {
-			await cc.send(new CreatePullRequestCommand({
+			await cc().send(new CreatePullRequestCommand({
 				title: prTitle.trim(),
 				description: prDescription.trim() || undefined,
 				targets: [{
@@ -210,7 +297,7 @@
 			{:else if selectedRepo}
 				<!-- Detail tabs -->
 				<div class="flex gap-1 p-4 border-b border-gray-200 dark:border-gray-700">
-					{#each ([['overview', 'Overview', Folder], ['branches', 'Branches', GitBranch], ['pullrequests', 'Pull Requests', GitMerge]] as const) as [tab, label, Icon]}
+					{#each ([['overview', 'Overview', Folder], ['files', 'Files', FolderOpen], ['commits', 'Commits', GitCommit], ['branches', 'Branches', GitBranch], ['pullrequests', 'Pull Requests', GitMerge]] as const) as [tab, label, Icon]}
 						<button
 							onclick={() => switchDetailTab(tab)}
 							class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors {detailTab === tab ? 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}"
@@ -247,6 +334,71 @@
 									<span class="flex items-center gap-1 text-xs px-2 py-1 rounded-full bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400">
 										<GitBranch class="w-3 h-3" /> {branch}
 									</span>
+								{/each}
+							</div>
+						{/if}
+					</div>
+				{:else if detailTab === 'files'}
+					<div class="p-4 space-y-3">
+						<div class="flex items-center gap-3">
+							<select bind:value={browseBranch} onchange={() => loadFolder('')} class="px-3 py-1.5 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+								{#each branches as b}<option value={b}>{b}</option>{/each}
+							</select>
+							<div class="flex items-center gap-1 text-xs text-gray-500 font-mono truncate">
+								<button onclick={() => loadFolder('')} class="hover:underline">root</button>
+								{#if currentFolder}<span>/ {currentFolder}</span>{/if}
+							</div>
+						</div>
+						{#if loadingFiles}
+							<div class="flex justify-center py-8"><div class="animate-spin w-6 h-6 border-3 border-orange-500 border-t-transparent rounded-full"></div></div>
+						{:else if !folderContent}
+							<div class="text-center py-8 text-gray-500">No content</div>
+						{:else}
+							<div class="rounded-lg border border-gray-200 dark:border-gray-700 divide-y divide-gray-100 dark:divide-gray-700">
+								{#if currentFolder}
+									<button onclick={() => loadFolder(parentFolder(currentFolder))} class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-800">
+										<ArrowUp class="w-4 h-4 text-gray-400" /> ..
+									</button>
+								{/if}
+								{#each folderContent.subFolders ?? [] as sf}
+									<button onclick={() => loadFolder(sf.absolutePath ?? '')} class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-800">
+										<FolderOpen class="w-4 h-4 text-orange-500" /> {sf.relativePath}
+									</button>
+								{/each}
+								{#each folderFiles as f}
+									<div class="flex items-center gap-2 px-3 py-2 text-sm">
+										<FileText class="w-4 h-4 text-gray-400" /> {f.relativePath}
+										<span class="ml-auto text-xs text-gray-400 font-mono">{f.fileMode ?? ''}</span>
+									</div>
+								{/each}
+								{#if (folderContent.subFolders ?? []).length === 0 && folderFiles.length === 0}
+									<div class="px-3 py-6 text-center text-sm text-gray-400">Empty folder</div>
+								{/if}
+							</div>
+						{/if}
+					</div>
+				{:else if detailTab === 'commits'}
+					<div class="p-4">
+						{#if loadingCommits}
+							<div class="flex justify-center py-8"><div class="animate-spin w-6 h-6 border-3 border-orange-500 border-t-transparent rounded-full"></div></div>
+						{:else if commits.length === 0}
+							<div class="text-center py-8 text-gray-500">No commits found</div>
+						{:else}
+							<div class="relative space-y-0">
+								{#each commits as commit, i}
+									<div class="flex gap-3">
+										<div class="flex flex-col items-center">
+											<div class="w-3 h-3 rounded-full bg-orange-500 mt-1.5"></div>
+											{#if i < commits.length - 1}<div class="w-0.5 flex-1 bg-gray-200 dark:bg-gray-700"></div>{/if}
+										</div>
+										<div class="pb-4 min-w-0">
+											<div class="text-sm text-gray-900 dark:text-white">{(commit.message ?? '').split('\n')[0] || '(no message)'}</div>
+											<div class="text-xs text-gray-500 font-mono">
+												{commit.commitId?.slice(0, 8)} · {commit.author?.name ?? 'unknown'}
+												{#if commit.author?.date}· {commit.author.date}{/if}
+											</div>
+										</div>
+									</div>
 								{/each}
 							</div>
 						{/if}

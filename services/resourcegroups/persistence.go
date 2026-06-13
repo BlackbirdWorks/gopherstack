@@ -8,14 +8,14 @@ import (
 )
 
 type backendSnapshot struct {
-	Groups              map[string]*Group                   `json:"groups"`
-	GroupConfigurations map[string][]GroupConfigurationItem `json:"groupConfigurations"`
-	GroupResources      map[string][]string                 `json:"groupResources"`
-	GroupingStatuses    map[string][]GroupingStatusItem     `json:"groupingStatuses"`
-	TagSyncTasks        map[string]*TagSyncTask             `json:"tagSyncTasks"`
-	AccountSettings     AccountSettings                     `json:"accountSettings"`
-	AccountID           string                              `json:"accountID"`
-	Region              string                              `json:"region"`
+	Groups              map[string]map[string]*Group                   `json:"groups"`
+	GroupConfigurations map[string]map[string][]GroupConfigurationItem `json:"groupConfigurations"`
+	GroupResources      map[string]map[string][]string                 `json:"groupResources"`
+	GroupingStatuses    map[string]map[string][]GroupingStatusItem     `json:"groupingStatuses"`
+	TagSyncTasks        map[string]map[string]*TagSyncTask             `json:"tagSyncTasks"`
+	AccountSettings     AccountSettings                                `json:"accountSettings"`
+	AccountID           string                                         `json:"accountID"`
+	Region              string                                         `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -54,33 +54,12 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		return err
 	}
 
+	ensureSnapMaps(&snap)
+
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
-	if snap.Groups == nil {
-		snap.Groups = make(map[string]*Group)
-	}
-
-	if snap.GroupConfigurations == nil {
-		snap.GroupConfigurations = make(map[string][]GroupConfigurationItem)
-	}
-
-	if snap.GroupResources == nil {
-		snap.GroupResources = make(map[string][]string)
-	}
-
-	if snap.GroupingStatuses == nil {
-		snap.GroupingStatuses = make(map[string][]GroupingStatusItem)
-	}
-
-	if snap.TagSyncTasks == nil {
-		snap.TagSyncTasks = make(map[string]*TagSyncTask)
-	}
-
-	// Close existing Tags to release Prometheus metrics before replacing state.
-	for _, g := range b.groups {
-		g.Tags.Close()
-	}
+	b.closeAllGroupTags()
 
 	b.groups = snap.Groups
 	b.groupConfigurations = snap.GroupConfigurations
@@ -91,26 +70,76 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
-	// Re-initialize Tags with per-group names to avoid Prometheus label collisions
-	// from the "json.tags" name used during JSON deserialization.
-	for name, g := range b.groups {
-		if g.Tags != nil {
-			tagMap := g.Tags.Clone()
-			g.Tags.Close()
-			g.Tags = tags.FromMap("rg."+name+".tags", tagMap)
-		} else {
-			g.Tags = tags.New("rg." + name + ".tags")
-		}
-	}
-
-	// Rebuild ARN index.
-	b.arnIndex = make(map[string]string, len(b.groups))
-
-	for name, g := range b.groups {
-		b.arnIndex[g.ARN] = name
-	}
+	b.reinitGroupTags()
+	b.rebuildARNIndex()
 
 	return nil
+}
+
+// ensureSnapMaps initialises any nil region-nested maps in a freshly decoded snapshot.
+func ensureSnapMaps(snap *backendSnapshot) {
+	if snap.Groups == nil {
+		snap.Groups = make(map[string]map[string]*Group)
+	}
+
+	if snap.GroupConfigurations == nil {
+		snap.GroupConfigurations = make(map[string]map[string][]GroupConfigurationItem)
+	}
+
+	if snap.GroupResources == nil {
+		snap.GroupResources = make(map[string]map[string][]string)
+	}
+
+	if snap.GroupingStatuses == nil {
+		snap.GroupingStatuses = make(map[string]map[string][]GroupingStatusItem)
+	}
+
+	if snap.TagSyncTasks == nil {
+		snap.TagSyncTasks = make(map[string]map[string]*TagSyncTask)
+	}
+}
+
+// closeAllGroupTags releases Prometheus metrics for every group before replacing state.
+// Must be called under b.mu (write lock).
+func (b *InMemoryBackend) closeAllGroupTags() {
+	for _, regionGroups := range b.groups {
+		for _, g := range regionGroups {
+			g.Tags.Close()
+		}
+	}
+}
+
+// reinitGroupTags replaces deserialized Tags with properly named instances to avoid
+// Prometheus label collisions from the generic "json.tags" name used during JSON
+// deserialization. Must be called under b.mu (write lock).
+func (b *InMemoryBackend) reinitGroupTags() {
+	for _, regionGroups := range b.groups {
+		for name, g := range regionGroups {
+			if g.Tags != nil {
+				tagMap := g.Tags.Clone()
+				g.Tags.Close()
+				g.Tags = tags.FromMap("rg."+name+".tags", tagMap)
+			} else {
+				g.Tags = tags.New("rg." + name + ".tags")
+			}
+		}
+	}
+}
+
+// rebuildARNIndex reconstructs the region-nested ARN → group name lookup from b.groups.
+// Must be called under b.mu (write lock).
+func (b *InMemoryBackend) rebuildARNIndex() {
+	b.arnIndex = make(map[string]map[string]string, len(b.groups))
+
+	for region, regionGroups := range b.groups {
+		idx := make(map[string]string, len(regionGroups))
+
+		for name, g := range regionGroups {
+			idx[g.ARN] = name
+		}
+
+		b.arnIndex[region] = idx
+	}
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.

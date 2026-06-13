@@ -6,12 +6,12 @@ import (
 )
 
 type backendSnapshot struct {
-	Pools         map[string]*IdentityPool        `json:"pools"`
-	Identities    map[string]*Identity            `json:"identities"`
-	Roles         map[string]*IdentityRoles       `json:"roles"`
-	PrincipalTags map[string]*PrincipalTagMapping `json:"principalTags"`
-	AccountID     string                          `json:"accountID"`
-	Region        string                          `json:"region"`
+	Pools         map[string]map[string]*IdentityPool        `json:"pools"`
+	Identities    map[string]map[string]*Identity            `json:"identities"`
+	Roles         map[string]map[string]*IdentityRoles       `json:"roles"`
+	PrincipalTags map[string]map[string]*PrincipalTagMapping `json:"principalTags"`
+	AccountID     string                                     `json:"accountID"`
+	Region        string                                     `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -50,19 +50,19 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	defer b.mu.Unlock()
 
 	if snap.Pools == nil {
-		snap.Pools = make(map[string]*IdentityPool)
+		snap.Pools = make(map[string]map[string]*IdentityPool)
 	}
 
 	if snap.Identities == nil {
-		snap.Identities = make(map[string]*Identity)
+		snap.Identities = make(map[string]map[string]*Identity)
 	}
 
 	if snap.Roles == nil {
-		snap.Roles = make(map[string]*IdentityRoles)
+		snap.Roles = make(map[string]map[string]*IdentityRoles)
 	}
 
 	if snap.PrincipalTags == nil {
-		snap.PrincipalTags = make(map[string]*PrincipalTagMapping)
+		snap.PrincipalTags = make(map[string]map[string]*PrincipalTagMapping)
 	}
 
 	b.pools = snap.Pools
@@ -72,19 +72,37 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
-	// Rebuild poolsByName, poolsByARN, and identitiesByPool indexes.
-	b.poolsByName = make(map[string]*IdentityPool, len(snap.Pools))
-	b.poolsByARN = make(map[string]*IdentityPool, len(snap.Pools))
+	// Rebuild poolsByName, poolsByARN, and identitiesByPool indexes (all region-nested).
+	b.poolsByName = make(map[string]map[string]*IdentityPool)
+	b.poolsByARN = make(map[string]map[string]*IdentityPool)
 
-	for _, p := range snap.Pools {
-		b.poolsByName[p.IdentityPoolName] = p
-		b.poolsByARN[p.ARN] = p
+	for region, regionPools := range snap.Pools {
+		if b.poolsByName[region] == nil {
+			b.poolsByName[region] = make(map[string]*IdentityPool)
+		}
+
+		if b.poolsByARN[region] == nil {
+			b.poolsByARN[region] = make(map[string]*IdentityPool)
+		}
+
+		for _, p := range regionPools {
+			b.poolsByName[region][p.IdentityPoolName] = p
+			b.poolsByARN[region][p.ARN] = p
+		}
 	}
 
-	b.identitiesByPool = make(map[string][]*Identity)
+	b.identitiesByPool = make(map[string]map[string][]*Identity)
 
-	for _, identity := range snap.Identities {
-		b.identitiesByPool[identity.IdentityPoolID] = append(b.identitiesByPool[identity.IdentityPoolID], identity)
+	for region, regionIdentities := range snap.Identities {
+		if b.identitiesByPool[region] == nil {
+			b.identitiesByPool[region] = make(map[string][]*Identity)
+		}
+
+		for _, identity := range regionIdentities {
+			b.identitiesByPool[region][identity.IdentityPoolID] = append(
+				b.identitiesByPool[region][identity.IdentityPoolID], identity,
+			)
+		}
 	}
 
 	return nil

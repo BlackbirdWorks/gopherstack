@@ -1,6 +1,7 @@
 package route53resolver_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -20,9 +21,21 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 		{
 			name: "round_trip_preserves_state",
 			setup: func(b *route53resolver.InMemoryBackend) string {
-				ep, err := b.CreateResolverEndpoint("test-ep", "INBOUND", "vpc-12345", []route53resolver.IPAddress{
-					{SubnetID: "subnet-1", IP: "10.0.0.1"},
-				}, []string{"sg-12345"}, "IPV4", nil, "", "", "")
+				ep, err := b.CreateResolverEndpoint(
+					context.Background(),
+					"test-ep",
+					"INBOUND",
+					"vpc-12345",
+					[]route53resolver.IPAddress{
+						{SubnetID: "subnet-1", IP: "10.0.0.1"},
+					},
+					[]string{"sg-12345"},
+					"IPV4",
+					nil,
+					"",
+					"",
+					"",
+				)
 				if err != nil {
 					return ""
 				}
@@ -32,7 +45,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *route53resolver.InMemoryBackend, id string) {
 				t.Helper()
 
-				ep, err := b.GetResolverEndpoint(id)
+				ep, err := b.GetResolverEndpoint(context.Background(), id)
 				require.NoError(t, err)
 				assert.Equal(t, "test-ep", ep.Name)
 				assert.Equal(t, id, ep.ID)
@@ -44,7 +57,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *route53resolver.InMemoryBackend, _ string) {
 				t.Helper()
 
-				endpoints := b.ListResolverEndpoints()
+				endpoints := b.ListResolverEndpoints(context.Background())
 				assert.Empty(t, endpoints)
 			},
 		},

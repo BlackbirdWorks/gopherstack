@@ -518,7 +518,10 @@ func (b *InMemoryBackend) reconcileLocked() {
 		}
 	}
 
-	// Crawler transitions: RUNNING→READY, create catalog tables from S3 targets.
+	// Crawler transitions:
+	//   RUNNING→READY  — crawl completes; create catalog tables from S3 targets.
+	//   STOPPING→READY — StopCrawler was issued; the crawler winds down to READY
+	//                    without creating tables (the crawl was interrupted).
 	for name, readyAt := range b.crawlerReadyAt {
 		if now.After(readyAt) {
 			c, ok := b.crawlers[name]
@@ -526,6 +529,9 @@ func (b *InMemoryBackend) reconcileLocked() {
 				c.State = stateReady
 				c.LastUpdated = float64(now.Unix())
 				b.createCrawlerTablesLocked(c)
+			} else if ok && c.State == stateStopping {
+				c.State = stateReady
+				c.LastUpdated = float64(now.Unix())
 			}
 
 			delete(b.crawlerReadyAt, name)
@@ -2048,8 +2054,14 @@ func (b *InMemoryBackend) StopCrawler(name string) error {
 	if c.State != stateRunning {
 		return ErrCrawlerNotRunning
 	}
+
+	now := time.Now()
 	c.State = stateStopping
-	c.LastUpdated = float64(time.Now().Unix())
+	c.LastUpdated = float64(now.Unix())
+
+	// Schedule the STOPPING→READY transition so the crawler does not hang in
+	// STOPPING forever. AWS returns the crawler to READY once it has stopped.
+	b.crawlerReadyAt[name] = now.Add(crawlerTransitionDelay)
 
 	return nil
 }

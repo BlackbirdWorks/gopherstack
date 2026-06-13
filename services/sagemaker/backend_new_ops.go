@@ -1,6 +1,7 @@
 package sagemaker
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"sort"
@@ -188,17 +189,20 @@ func cloneHPTuningJob(j *HyperParameterTuningJob) *HyperParameterTuningJob {
 
 // CreateEndpoint creates a new SageMaker endpoint.
 func (b *InMemoryBackend) CreateEndpoint(
+	ctx context.Context,
 	name, endpointConfigName string,
 	tags map[string]string,
 ) (*Endpoint, error) {
 	b.mu.Lock("CreateEndpoint")
 	defer b.mu.Unlock()
 
-	if _, ok := b.endpoints[name]; ok {
+	region := getRegion(ctx, b.region)
+
+	if _, ok := b.endpointsStore(region)[name]; ok {
 		return nil, fmt.Errorf("%w: endpoint %s already exists", ErrEndpointAlreadyExists, name)
 	}
 
-	epARN := arn.Build("sagemaker", b.region, b.accountID, "endpoint/"+name)
+	epARN := arn.Build("sagemaker", region, b.accountID, "endpoint/"+name)
 	now := time.Now()
 	ep := &Endpoint{
 		EndpointName:       name,
@@ -209,18 +213,20 @@ func (b *InMemoryBackend) CreateEndpoint(
 		LastModifiedTime:   now,
 		Tags:               mergeTags(nil, tags),
 	}
-	b.endpoints[name] = ep
-	b.endpointARNIndex[epARN] = name
+	b.endpointsStore(region)[name] = ep
+	b.endpointARNIndexStore(region)[epARN] = name
 
 	return cloneEndpoint(ep), nil
 }
 
 // DescribeEndpoint returns an endpoint by name.
-func (b *InMemoryBackend) DescribeEndpoint(name string) (*Endpoint, error) {
+func (b *InMemoryBackend) DescribeEndpoint(ctx context.Context, name string) (*Endpoint, error) {
 	b.mu.RLock("DescribeEndpoint")
 	defer b.mu.RUnlock()
 
-	ep, ok := b.endpoints[name]
+	region := getRegion(ctx, b.region)
+
+	ep, ok := b.endpointsStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: endpoint %q not found", ErrEndpointNotFound, name)
 	}
@@ -229,12 +235,15 @@ func (b *InMemoryBackend) DescribeEndpoint(name string) (*Endpoint, error) {
 }
 
 // ListEndpoints returns endpoints sorted by name with optional pagination.
-func (b *InMemoryBackend) ListEndpoints(nextToken string) ([]*Endpoint, string) {
+func (b *InMemoryBackend) ListEndpoints(ctx context.Context, nextToken string) ([]*Endpoint, string) {
 	b.mu.RLock("ListEndpoints")
 	defer b.mu.RUnlock()
 
-	list := make([]*Endpoint, 0, len(b.endpoints))
-	for _, ep := range b.endpoints {
+	region := getRegion(ctx, b.region)
+
+	store := b.endpointsStore(region)
+	list := make([]*Endpoint, 0, len(store))
+	for _, ep := range store {
 		list = append(list, cloneEndpoint(ep))
 	}
 	sort.Slice(list, func(i, j int) bool {
@@ -257,27 +266,33 @@ func (b *InMemoryBackend) ListEndpoints(nextToken string) ([]*Endpoint, string) 
 }
 
 // DeleteEndpoint deletes an endpoint by name.
-func (b *InMemoryBackend) DeleteEndpoint(name string) error {
+func (b *InMemoryBackend) DeleteEndpoint(ctx context.Context, name string) error {
 	b.mu.Lock("DeleteEndpoint")
 	defer b.mu.Unlock()
 
-	ep, ok := b.endpoints[name]
+	region := getRegion(ctx, b.region)
+
+	ep, ok := b.endpointsStore(region)[name]
 	if !ok {
 		return fmt.Errorf("%w: endpoint %q not found", ErrEndpointNotFound, name)
 	}
 
-	delete(b.endpointARNIndex, ep.EndpointArn)
-	delete(b.endpoints, name)
+	arnIdx := b.endpointARNIndexStore(region)
+	delete(arnIdx, ep.EndpointArn)
+	endpoints := b.endpointsStore(region)
+	delete(endpoints, name)
 
 	return nil
 }
 
 // UpdateEndpoint updates the endpoint config for an existing endpoint.
-func (b *InMemoryBackend) UpdateEndpoint(name, endpointConfigName string) (*Endpoint, error) {
+func (b *InMemoryBackend) UpdateEndpoint(ctx context.Context, name, endpointConfigName string) (*Endpoint, error) {
 	b.mu.Lock("UpdateEndpoint")
 	defer b.mu.Unlock()
 
-	ep, ok := b.endpoints[name]
+	region := getRegion(ctx, b.region)
+
+	ep, ok := b.endpointsStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: endpoint %q not found", ErrEndpointNotFound, name)
 	}
@@ -295,6 +310,7 @@ func (b *InMemoryBackend) UpdateEndpoint(name, endpointConfigName string) (*Endp
 
 // CreateTrainingJob creates a new training job (legacy signature, kept for compatibility).
 func (b *InMemoryBackend) CreateTrainingJob(
+	ctx context.Context,
 	name, roleArn string,
 	algorithmSpec map[string]string,
 	tags map[string]string,
@@ -305,7 +321,7 @@ func (b *InMemoryBackend) CreateTrainingJob(
 		TrainingInputMode: algorithmSpec["TrainingInputMode"],
 	}
 
-	return b.CreateTrainingJobFull(TrainingJobOptions{
+	return b.CreateTrainingJobFull(ctx, TrainingJobOptions{
 		TrainingJobName:        name,
 		RoleArn:                roleArn,
 		AlgorithmSpecification: spec,
@@ -314,11 +330,13 @@ func (b *InMemoryBackend) CreateTrainingJob(
 }
 
 // DescribeTrainingJob returns a training job by name.
-func (b *InMemoryBackend) DescribeTrainingJob(name string) (*TrainingJob, error) {
+func (b *InMemoryBackend) DescribeTrainingJob(ctx context.Context, name string) (*TrainingJob, error) {
 	b.mu.RLock("DescribeTrainingJob")
 	defer b.mu.RUnlock()
 
-	tj, ok := b.trainingJobs[name]
+	region := getRegion(ctx, b.region)
+
+	tj, ok := b.trainingJobsStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: training job %q not found", ErrTrainingJobNotFound, name)
 	}
@@ -327,12 +345,15 @@ func (b *InMemoryBackend) DescribeTrainingJob(name string) (*TrainingJob, error)
 }
 
 // ListTrainingJobs returns training jobs sorted by name with optional pagination.
-func (b *InMemoryBackend) ListTrainingJobs(nextToken string) ([]*TrainingJob, string) {
+func (b *InMemoryBackend) ListTrainingJobs(ctx context.Context, nextToken string) ([]*TrainingJob, string) {
 	b.mu.RLock("ListTrainingJobs")
 	defer b.mu.RUnlock()
 
-	list := make([]*TrainingJob, 0, len(b.trainingJobs))
-	for _, tj := range b.trainingJobs {
+	region := getRegion(ctx, b.region)
+
+	store := b.trainingJobsStore(region)
+	list := make([]*TrainingJob, 0, len(store))
+	for _, tj := range store {
 		list = append(list, cloneTrainingJob(tj))
 	}
 	sort.Slice(list, func(i, j int) bool {
@@ -355,11 +376,13 @@ func (b *InMemoryBackend) ListTrainingJobs(nextToken string) ([]*TrainingJob, st
 }
 
 // StopTrainingJob marks a training job as Stopping.
-func (b *InMemoryBackend) StopTrainingJob(name string) error {
+func (b *InMemoryBackend) StopTrainingJob(ctx context.Context, name string) error {
 	b.mu.Lock("StopTrainingJob")
 	defer b.mu.Unlock()
 
-	tj, ok := b.trainingJobs[name]
+	region := getRegion(ctx, b.region)
+
+	tj, ok := b.trainingJobsStore(region)[name]
 	if !ok {
 		return fmt.Errorf("%w: training job %q not found", ErrTrainingJobNotFound, name)
 	}
@@ -371,17 +394,21 @@ func (b *InMemoryBackend) StopTrainingJob(name string) error {
 }
 
 // DeleteTrainingJob removes a training job from the backend.
-func (b *InMemoryBackend) DeleteTrainingJob(name string) error {
+func (b *InMemoryBackend) DeleteTrainingJob(ctx context.Context, name string) error {
 	b.mu.Lock("DeleteTrainingJob")
 	defer b.mu.Unlock()
 
-	tj, ok := b.trainingJobs[name]
+	region := getRegion(ctx, b.region)
+
+	tj, ok := b.trainingJobsStore(region)[name]
 	if !ok {
 		return fmt.Errorf("%w: training job %q not found", ErrTrainingJobNotFound, name)
 	}
 
-	delete(b.trainingJobARNIndex, tj.TrainingJobArn)
-	delete(b.trainingJobs, name)
+	arnIdx := b.trainingJobARNIndexStore(region)
+	delete(arnIdx, tj.TrainingJobArn)
+	store := b.trainingJobsStore(region)
+	delete(store, name)
 
 	return nil
 }
@@ -392,6 +419,7 @@ func (b *InMemoryBackend) DeleteTrainingJob(name string) error {
 
 // CreateNotebookInstance creates a new notebook instance.
 func (b *InMemoryBackend) CreateNotebookInstance(
+	ctx context.Context,
 	name, instanceType, roleArn string,
 	tags map[string]string,
 ) (*NotebookInstance, error) {
@@ -410,7 +438,9 @@ func (b *InMemoryBackend) CreateNotebookInstance(
 	b.mu.Lock("CreateNotebookInstance")
 	defer b.mu.Unlock()
 
-	if _, ok := b.notebooks[name]; ok {
+	region := getRegion(ctx, b.region)
+
+	if _, ok := b.notebooksStore(region)[name]; ok {
 		return nil, fmt.Errorf(
 			"%w: notebook instance %s already exists",
 			ErrNotebookAlreadyExists,
@@ -418,7 +448,7 @@ func (b *InMemoryBackend) CreateNotebookInstance(
 		)
 	}
 
-	nbARN := arn.Build("sagemaker", b.region, b.accountID, "notebook-instance/"+name)
+	nbARN := arn.Build("sagemaker", region, b.accountID, "notebook-instance/"+name)
 	now := time.Now()
 	nb := &NotebookInstance{
 		NotebookInstanceName:   name,
@@ -430,18 +460,20 @@ func (b *InMemoryBackend) CreateNotebookInstance(
 		LastModifiedTime:       now,
 		Tags:                   mergeTags(nil, tags),
 	}
-	b.notebooks[name] = nb
-	b.notebookARNIndex[nbARN] = name
+	b.notebooksStore(region)[name] = nb
+	b.notebookARNIndexStore(region)[nbARN] = name
 
 	return cloneNotebook(nb), nil
 }
 
 // DescribeNotebookInstance returns a notebook instance by name.
-func (b *InMemoryBackend) DescribeNotebookInstance(name string) (*NotebookInstance, error) {
+func (b *InMemoryBackend) DescribeNotebookInstance(ctx context.Context, name string) (*NotebookInstance, error) {
 	b.mu.RLock("DescribeNotebookInstance")
 	defer b.mu.RUnlock()
 
-	nb, ok := b.notebooks[name]
+	region := getRegion(ctx, b.region)
+
+	nb, ok := b.notebooksStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: notebook instance %q not found", ErrNotebookNotFound, name)
 	}
@@ -460,14 +492,18 @@ type ListNotebookInstancesFilter struct {
 // and AWS-style filters: StatusEquals (exact, case-insensitive) and NameContains
 // (substring, case-insensitive).
 func (b *InMemoryBackend) ListNotebookInstances(
+	ctx context.Context,
 	nextToken string,
 	filter ListNotebookInstancesFilter,
 ) ([]*NotebookInstance, string) {
 	b.mu.RLock("ListNotebookInstances")
 	defer b.mu.RUnlock()
 
-	list := make([]*NotebookInstance, 0, len(b.notebooks))
-	for _, nb := range b.notebooks {
+	region := getRegion(ctx, b.region)
+
+	store := b.notebooksStore(region)
+	list := make([]*NotebookInstance, 0, len(store))
+	for _, nb := range store {
 		if !matchesNotebookFilter(nb, filter) {
 			continue
 		}
@@ -513,27 +549,33 @@ func matchesNotebookFilter(nb *NotebookInstance, f ListNotebookInstancesFilter) 
 }
 
 // DeleteNotebookInstance removes a notebook instance from the backend.
-func (b *InMemoryBackend) DeleteNotebookInstance(name string) error {
+func (b *InMemoryBackend) DeleteNotebookInstance(ctx context.Context, name string) error {
 	b.mu.Lock("DeleteNotebookInstance")
 	defer b.mu.Unlock()
 
-	nb, ok := b.notebooks[name]
+	region := getRegion(ctx, b.region)
+
+	nb, ok := b.notebooksStore(region)[name]
 	if !ok {
 		return fmt.Errorf("%w: notebook instance %q not found", ErrNotebookNotFound, name)
 	}
 
-	delete(b.notebookARNIndex, nb.NotebookInstanceArn)
-	delete(b.notebooks, name)
+	arnIdx := b.notebookARNIndexStore(region)
+	delete(arnIdx, nb.NotebookInstanceArn)
+	store := b.notebooksStore(region)
+	delete(store, name)
 
 	return nil
 }
 
 // StartNotebookInstance transitions a notebook instance to InService.
-func (b *InMemoryBackend) StartNotebookInstance(name string) error {
+func (b *InMemoryBackend) StartNotebookInstance(ctx context.Context, name string) error {
 	b.mu.Lock("StartNotebookInstance")
 	defer b.mu.Unlock()
 
-	nb, ok := b.notebooks[name]
+	region := getRegion(ctx, b.region)
+
+	nb, ok := b.notebooksStore(region)[name]
 	if !ok {
 		return fmt.Errorf("%w: notebook instance %q not found", ErrNotebookNotFound, name)
 	}
@@ -545,11 +587,13 @@ func (b *InMemoryBackend) StartNotebookInstance(name string) error {
 }
 
 // StopNotebookInstance transitions a notebook instance to Stopped.
-func (b *InMemoryBackend) StopNotebookInstance(name string) error {
+func (b *InMemoryBackend) StopNotebookInstance(ctx context.Context, name string) error {
 	b.mu.Lock("StopNotebookInstance")
 	defer b.mu.Unlock()
 
-	nb, ok := b.notebooks[name]
+	region := getRegion(ctx, b.region)
+
+	nb, ok := b.notebooksStore(region)[name]
 	if !ok {
 		return fmt.Errorf("%w: notebook instance %q not found", ErrNotebookNotFound, name)
 	}
@@ -561,11 +605,13 @@ func (b *InMemoryBackend) StopNotebookInstance(name string) error {
 }
 
 // UpdateNotebookInstance updates a notebook instance's instance type.
-func (b *InMemoryBackend) UpdateNotebookInstance(name, instanceType string) error {
+func (b *InMemoryBackend) UpdateNotebookInstance(ctx context.Context, name, instanceType string) error {
 	b.mu.Lock("UpdateNotebookInstance")
 	defer b.mu.Unlock()
 
-	nb, ok := b.notebooks[name]
+	region := getRegion(ctx, b.region)
+
+	nb, ok := b.notebooksStore(region)[name]
 	if !ok {
 		return fmt.Errorf("%w: notebook instance %q not found", ErrNotebookNotFound, name)
 	}
@@ -579,11 +625,13 @@ func (b *InMemoryBackend) UpdateNotebookInstance(name, instanceType string) erro
 }
 
 // CreatePresignedNotebookInstanceURL returns a presigned URL for a notebook instance.
-func (b *InMemoryBackend) CreatePresignedNotebookInstanceURL(name string) (string, error) {
+func (b *InMemoryBackend) CreatePresignedNotebookInstanceURL(ctx context.Context, name string) (string, error) {
 	b.mu.RLock("CreatePresignedNotebookInstanceURL")
 	defer b.mu.RUnlock()
 
-	nb, ok := b.notebooks[name]
+	region := getRegion(ctx, b.region)
+
+	nb, ok := b.notebooksStore(region)[name]
 	if !ok {
 		return "", fmt.Errorf("%w: notebook instance %q not found", ErrNotebookNotFound, name)
 	}
@@ -599,13 +647,16 @@ func (b *InMemoryBackend) CreatePresignedNotebookInstanceURL(name string) (strin
 
 // CreateHyperParameterTuningJob creates a new HPO job.
 func (b *InMemoryBackend) CreateHyperParameterTuningJob(
+	ctx context.Context,
 	name, strategy string,
 	tags map[string]string,
 ) (*HyperParameterTuningJob, error) {
 	b.mu.Lock("CreateHyperParameterTuningJob")
 	defer b.mu.Unlock()
 
-	if _, ok := b.hpTuningJobs[name]; ok {
+	region := getRegion(ctx, b.region)
+
+	if _, ok := b.hpTuningJobsStore(region)[name]; ok {
 		return nil, fmt.Errorf(
 			"%w: HP tuning job %s already exists",
 			ErrHPTuningJobAlreadyExists,
@@ -613,7 +664,7 @@ func (b *InMemoryBackend) CreateHyperParameterTuningJob(
 		)
 	}
 
-	jobARN := arn.Build("sagemaker", b.region, b.accountID, "hyper-parameter-tuning-job/"+name)
+	jobARN := arn.Build("sagemaker", region, b.accountID, "hyper-parameter-tuning-job/"+name)
 	now := time.Now()
 	j := &HyperParameterTuningJob{
 		HyperParameterTuningJobName:   name,
@@ -624,20 +675,23 @@ func (b *InMemoryBackend) CreateHyperParameterTuningJob(
 		LastModifiedTime:              now,
 		Tags:                          mergeTags(nil, tags),
 	}
-	b.hpTuningJobs[name] = j
-	b.hpTuningJobARNIndex[jobARN] = name
+	b.hpTuningJobsStore(region)[name] = j
+	b.hpTuningJobARNIndexStore(region)[jobARN] = name
 
 	return cloneHPTuningJob(j), nil
 }
 
 // DescribeHyperParameterTuningJob returns an HP tuning job by name.
 func (b *InMemoryBackend) DescribeHyperParameterTuningJob(
+	ctx context.Context,
 	name string,
 ) (*HyperParameterTuningJob, error) {
 	b.mu.RLock("DescribeHyperParameterTuningJob")
 	defer b.mu.RUnlock()
 
-	j, ok := b.hpTuningJobs[name]
+	region := getRegion(ctx, b.region)
+
+	j, ok := b.hpTuningJobsStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: HP tuning job %q not found", ErrHPTuningJobNotFound, name)
 	}
@@ -647,13 +701,17 @@ func (b *InMemoryBackend) DescribeHyperParameterTuningJob(
 
 // ListHyperParameterTuningJobs returns HP tuning jobs sorted by name.
 func (b *InMemoryBackend) ListHyperParameterTuningJobs(
+	ctx context.Context,
 	nextToken string,
 ) ([]*HyperParameterTuningJob, string) {
 	b.mu.RLock("ListHyperParameterTuningJobs")
 	defer b.mu.RUnlock()
 
-	list := make([]*HyperParameterTuningJob, 0, len(b.hpTuningJobs))
-	for _, j := range b.hpTuningJobs {
+	region := getRegion(ctx, b.region)
+
+	store := b.hpTuningJobsStore(region)
+	list := make([]*HyperParameterTuningJob, 0, len(store))
+	for _, j := range store {
 		list = append(list, cloneHPTuningJob(j))
 	}
 	sort.Slice(list, func(i, j int) bool {
@@ -676,11 +734,13 @@ func (b *InMemoryBackend) ListHyperParameterTuningJobs(
 }
 
 // StopHyperParameterTuningJob marks an HP tuning job as Stopping.
-func (b *InMemoryBackend) StopHyperParameterTuningJob(name string) error {
+func (b *InMemoryBackend) StopHyperParameterTuningJob(ctx context.Context, name string) error {
 	b.mu.Lock("StopHyperParameterTuningJob")
 	defer b.mu.Unlock()
 
-	j, ok := b.hpTuningJobs[name]
+	region := getRegion(ctx, b.region)
+
+	j, ok := b.hpTuningJobsStore(region)[name]
 	if !ok {
 		return fmt.Errorf("%w: HP tuning job %q not found", ErrHPTuningJobNotFound, name)
 	}
@@ -692,17 +752,21 @@ func (b *InMemoryBackend) StopHyperParameterTuningJob(name string) error {
 }
 
 // DeleteHyperParameterTuningJob removes an HP tuning job from the backend.
-func (b *InMemoryBackend) DeleteHyperParameterTuningJob(name string) error {
+func (b *InMemoryBackend) DeleteHyperParameterTuningJob(ctx context.Context, name string) error {
 	b.mu.Lock("DeleteHyperParameterTuningJob")
 	defer b.mu.Unlock()
 
-	j, ok := b.hpTuningJobs[name]
+	region := getRegion(ctx, b.region)
+
+	j, ok := b.hpTuningJobsStore(region)[name]
 	if !ok {
 		return fmt.Errorf("%w: HP tuning job %q not found", ErrHPTuningJobNotFound, name)
 	}
 
-	delete(b.hpTuningJobARNIndex, j.HyperParameterTuningJobArn)
-	delete(b.hpTuningJobs, name)
+	arnIdx := b.hpTuningJobARNIndexStore(region)
+	delete(arnIdx, j.HyperParameterTuningJobArn)
+	store := b.hpTuningJobsStore(region)
+	delete(store, name)
 
 	return nil
 }

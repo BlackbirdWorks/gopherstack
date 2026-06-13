@@ -39,6 +39,7 @@ import (
 	backupsvc "github.com/aws/aws-sdk-go-v2/service/backup"
 	batchsvc "github.com/aws/aws-sdk-go-v2/service/batch"
 	bedrocksvc "github.com/aws/aws-sdk-go-v2/service/bedrock"
+	bedrockagentsvc "github.com/aws/aws-sdk-go-v2/service/bedrockagent"
 	bedrockruntimesvc "github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	bedrockruntimetypes "github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
 	cloudcontrolsvc "github.com/aws/aws-sdk-go-v2/service/cloudcontrol"
@@ -6831,6 +6832,42 @@ func TestTerraform_CachingMessagingComprehensive(t *testing.T) {
 					}
 				}
 				assert.True(t, foundKafka, "MSK cluster %q should exist", kafkaName)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_MegaBatch4 provisions Bedrock Agent resources and verifies they exist.
+func TestTerraform_MegaBatch4(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "mega-batch-4",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+
+				return map[string]any{}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createBedrockAgentClient(t)
+
+				agentsOut, err := client.ListAgents(ctx, &bedrockagentsvc.ListAgentsInput{})
+				require.NoError(t, err, "ListAgents should succeed")
+				require.NotEmpty(t, agentsOut.AgentSummaries, "at least one agent should exist")
+
+				kbOut, err := client.ListKnowledgeBases(ctx, &bedrockagentsvc.ListKnowledgeBasesInput{})
+				require.NoError(t, err, "ListKnowledgeBases should succeed")
+				require.NotEmpty(t, kbOut.KnowledgeBaseSummaries, "at least one knowledge base should exist")
 			},
 		},
 	}

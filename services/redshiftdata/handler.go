@@ -72,6 +72,12 @@ type Handler struct {
 	Region    string
 }
 
+// regionFromRequest resolves the AWS region for a request from its SigV4
+// credential scope, falling back to the backend's default region.
+func (h *Handler) regionFromRequest(c *echo.Context) string {
+	return httputils.ExtractRegionFromRequest(c.Request(), h.Backend.Region())
+}
+
 // NewHandler creates a new Redshift Data handler.
 func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{
@@ -180,7 +186,8 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function for Redshift Data requests.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
-		ctx := c.Request().Context()
+		// Attach the SigV4-derived region so backend ops route to the correct region store.
+		ctx := context.WithValue(c.Request().Context(), regionContextKey{}, h.regionFromRequest(c))
 		log := logger.Load(ctx)
 
 		body, err := httputils.ReadBody(c.Request())
@@ -234,7 +241,7 @@ func (h *Handler) dispatch(ctx context.Context, op string, body []byte) ([]byte,
 	}
 }
 
-func (h *Handler) handleExecuteStatement(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleExecuteStatement(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		SQL               string `json:"Sql"`
 		ClusterIdentifier string `json:"ClusterIdentifier"`
@@ -252,6 +259,7 @@ func (h *Handler) handleExecuteStatement(_ context.Context, body []byte) ([]byte
 	}
 
 	stmt, err := h.Backend.ExecuteStatement(
+		ctx,
 		req.SQL, req.ClusterIdentifier, req.WorkgroupName,
 		req.Database, req.DBUser, req.SecretArn, req.StatementName,
 		req.WithEvent, req.ResultFormat,
@@ -271,7 +279,7 @@ func (h *Handler) handleExecuteStatement(_ context.Context, body []byte) ([]byte
 	})
 }
 
-func (h *Handler) handleBatchExecuteStatement(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleBatchExecuteStatement(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		ClusterIdentifier string   `json:"ClusterIdentifier"`
 		WorkgroupName     string   `json:"WorkgroupName"`
@@ -289,6 +297,7 @@ func (h *Handler) handleBatchExecuteStatement(_ context.Context, body []byte) ([
 	}
 
 	stmt, err := h.Backend.BatchExecuteStatement(
+		ctx,
 		req.Sqls, req.ClusterIdentifier, req.WorkgroupName,
 		req.Database, req.DBUser, req.SecretArn, req.StatementName,
 		req.WithEvent, req.ResultFormat,
@@ -308,7 +317,7 @@ func (h *Handler) handleBatchExecuteStatement(_ context.Context, body []byte) ([
 	})
 }
 
-func (h *Handler) handleDescribeStatement(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeStatement(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		ID string `json:"Id"`
 	}
@@ -321,7 +330,7 @@ func (h *Handler) handleDescribeStatement(_ context.Context, body []byte) ([]byt
 		return nil, fmt.Errorf("%w: Id is required", errMissingID)
 	}
 
-	stmt, err := h.Backend.DescribeStatement(req.ID)
+	stmt, err := h.Backend.DescribeStatement(ctx, req.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -329,7 +338,7 @@ func (h *Handler) handleDescribeStatement(_ context.Context, body []byte) ([]byt
 	return json.Marshal(statementToDescribeResponse(stmt))
 }
 
-func (h *Handler) handleGetStatementResult(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleGetStatementResult(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		ID string `json:"Id"`
 	}
@@ -342,7 +351,7 @@ func (h *Handler) handleGetStatementResult(_ context.Context, body []byte) ([]by
 		return nil, fmt.Errorf("%w: Id is required", errMissingID)
 	}
 
-	stmt, err := h.Backend.DescribeStatement(req.ID)
+	stmt, err := h.Backend.DescribeStatement(ctx, req.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -379,7 +388,7 @@ func (h *Handler) handleGetStatementResult(_ context.Context, body []byte) ([]by
 	})
 }
 
-func (h *Handler) handleGetStatementResultV2(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleGetStatementResultV2(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		ID        string `json:"Id"`
 		NextToken string `json:"NextToken"`
@@ -393,7 +402,7 @@ func (h *Handler) handleGetStatementResultV2(_ context.Context, body []byte) ([]
 		return nil, fmt.Errorf("%w: Id is required", errMissingID)
 	}
 
-	stmt, err := h.Backend.DescribeStatement(req.ID)
+	stmt, err := h.Backend.DescribeStatement(ctx, req.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -429,7 +438,7 @@ func (h *Handler) handleGetStatementResultV2(_ context.Context, body []byte) ([]
 	})
 }
 
-func (h *Handler) handleListStatements(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleListStatements(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		ClusterIdentifier string `json:"ClusterIdentifier"`
 		WorkgroupName     string `json:"WorkgroupName"`
@@ -453,7 +462,7 @@ func (h *Handler) handleListStatements(_ context.Context, body []byte) ([]byte, 
 		)
 	}
 
-	stmts, nextToken, err := h.Backend.ListStatements(ListStatementsFilter{
+	stmts, nextToken, err := h.Backend.ListStatements(ctx, ListStatementsFilter{
 		ClusterIdentifier: req.ClusterIdentifier,
 		WorkgroupName:     req.WorkgroupName,
 		Database:          req.Database,
@@ -482,7 +491,7 @@ func (h *Handler) handleListStatements(_ context.Context, body []byte) ([]byte, 
 	return json.Marshal(resp)
 }
 
-func (h *Handler) handleCancelStatement(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleCancelStatement(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		ID string `json:"Id"`
 	}
@@ -495,7 +504,7 @@ func (h *Handler) handleCancelStatement(_ context.Context, body []byte) ([]byte,
 		return nil, fmt.Errorf("%w: Id is required", errMissingID)
 	}
 
-	if err := h.Backend.CancelStatement(req.ID); err != nil {
+	if err := h.Backend.CancelStatement(ctx, req.ID); err != nil {
 		return nil, err
 	}
 

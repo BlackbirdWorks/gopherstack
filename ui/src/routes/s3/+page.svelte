@@ -37,6 +37,8 @@ AbortMultipartUploadCommand,
 GetBucketWebsiteCommand,
 PutBucketWebsiteCommand,
 DeleteBucketWebsiteCommand,
+GetBucketLoggingCommand,
+PutBucketLoggingCommand,
 type Bucket,
 type _Object,
 type ObjectVersion,
@@ -60,7 +62,7 @@ let bucketPage = $state(1);
 
 // Bucket detail state
 let selectedBucket = $state<string | null>(null);
-let activeDetailTab = $state<'objects' | 'properties' | 'tagging' | 'permissions' | 'lifecycle' | 'cors' | 'uploads'>('objects');
+let activeDetailTab = $state<'objects' | 'properties' | 'tagging' | 'permissions' | 'lifecycle' | 'cors' | 'uploads' | 'analytics'>('objects');
 type MultipartUploadEntry = { key: string; uploadId: string; initiated?: Date; partsCompleted: number; bytesUploaded: number; };
 let multipartUploads = $state<MultipartUploadEntry[]>([]);
 let loadingUploads = $state(false);
@@ -132,6 +134,21 @@ let copyTargetKey = $state('');
 // Website hosting state
 let websiteConfig = $state<{ IndexDocument?: string; ErrorDocument?: string } | null>(null);
 let loadingWebsite = $state(false);
+
+// Access logging state
+let loggingEnabled = $state(false);
+let loggingTargetBucket = $state('');
+let loggingTargetPrefix = $state('');
+let loadingLogging = $state(false);
+let savingLogging = $state(false);
+
+// Storage analytics state (size by prefix, computed from listed objects)
+let analyticsLoading = $state(false);
+type PrefixStat = { prefix: string; count: number; bytes: number };
+let analyticsByPrefix = $state<PrefixStat[]>([]);
+let analyticsTotalBytes = $state(0);
+let analyticsTotalCount = $state(0);
+let analyticsTruncated = $state(false);
 
 // Bucket sort state
 let bucketSortOrder = $state<'alpha' | 'newest' | 'largest'>('alpha');
@@ -857,6 +874,90 @@ async function deleteWebsite(): Promise<void> {
   }
 }
 
+function websiteEndpointUrl(): string {
+  if (!selectedBucket) return '';
+  return `${window.location.origin}/${selectedBucket}/${websiteConfig?.IndexDocument ?? 'index.html'}`;
+}
+
+async function loadLogging(): Promise<void> {
+  if (!selectedBucket) return;
+  loadingLogging = true;
+  try {
+    const res = await s3.send(new GetBucketLoggingCommand({ Bucket: selectedBucket }));
+    const le = res.LoggingEnabled;
+    loggingEnabled = !!le;
+    loggingTargetBucket = le?.TargetBucket ?? '';
+    loggingTargetPrefix = le?.TargetPrefix ?? '';
+  } catch (err: unknown) {
+    toast.error(`Failed to load access logging: ${(err as Error).message}`);
+  } finally {
+    loadingLogging = false;
+  }
+}
+
+async function saveLogging(): Promise<void> {
+  if (!selectedBucket) return;
+  if (loggingEnabled && !loggingTargetBucket.trim()) {
+    toast.error('Target bucket is required to enable access logging');
+    return;
+  }
+  savingLogging = true;
+  try {
+    await s3.send(new PutBucketLoggingCommand({
+      Bucket: selectedBucket,
+      BucketLoggingStatus: loggingEnabled
+        ? { LoggingEnabled: { TargetBucket: loggingTargetBucket.trim(), TargetPrefix: loggingTargetPrefix.trim() || `${selectedBucket}/` } }
+        : {}
+    }));
+    toast.success(loggingEnabled ? 'Access logging enabled' : 'Access logging disabled');
+    await loadLogging();
+  } catch (err: unknown) {
+    toast.error(`Failed to save access logging: ${(err as Error).message}`);
+  } finally {
+    savingLogging = false;
+  }
+}
+
+async function loadAnalytics(): Promise<void> {
+  if (!selectedBucket) return;
+  analyticsLoading = true;
+  analyticsByPrefix = [];
+  analyticsTotalBytes = 0;
+  analyticsTotalCount = 0;
+  analyticsTruncated = false;
+  try {
+    const stats = new Map<string, PrefixStat>();
+    let token: string | undefined;
+    let pages = 0;
+    do {
+      const res = await s3.send(new ListObjectsV2Command({ Bucket: selectedBucket, ContinuationToken: token, MaxKeys: 1000 }));
+      for (const obj of res.Contents ?? []) {
+        const key = obj.Key ?? '';
+        const size = obj.Size ?? 0;
+        analyticsTotalBytes += size;
+        analyticsTotalCount += 1;
+        const topPrefix = key.includes('/') ? key.slice(0, key.indexOf('/') + 1) : '(root)';
+        const cur = stats.get(topPrefix) ?? { prefix: topPrefix, count: 0, bytes: 0 };
+        cur.count += 1;
+        cur.bytes += size;
+        stats.set(topPrefix, cur);
+      }
+      token = res.IsTruncated ? res.NextContinuationToken : undefined;
+      pages += 1;
+      // Cap at 10k objects (10 pages) to keep the UI responsive on huge buckets.
+      if (pages >= 10) {
+        analyticsTruncated = !!token;
+        break;
+      }
+    } while (token);
+    analyticsByPrefix = Array.from(stats.values()).toSorted((a, b) => b.bytes - a.bytes);
+  } catch (err: unknown) {
+    toast.error(`Failed to compute analytics: ${(err as Error).message}`);
+  } finally {
+    analyticsLoading = false;
+  }
+}
+
 function fileIcon(key: string): string {
   const ext = key.split('.').pop()?.toLowerCase() ?? '';
   if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'ico'].includes(ext)) return '🖼️';
@@ -872,7 +973,8 @@ function fileIcon(key: string): string {
 
 async function switchTab(tab: typeof activeDetailTab) {
 activeDetailTab = tab;
-if (tab === 'properties') { await loadPropertiesTab(); await loadWebsite(); }
+if (tab === 'properties') { await loadPropertiesTab(); await loadWebsite(); await loadLogging(); }
+else if (tab === 'analytics') await loadAnalytics();
 else if (tab === 'tagging') await loadTagsTab();
 else if (tab === 'permissions') await loadPermissionsTab();
 else if (tab === 'lifecycle') await loadLifecycleTab();
@@ -1080,7 +1182,7 @@ Upload File
 <!-- Tabs -->
 <div class="border-b border-slate-200 dark:border-slate-700">
 <ul class="flex flex-wrap -mb-px text-sm font-medium text-center">
-{#each [['objects','Objects'],['uploads','Uploads'],['properties','Properties'],['tagging','Tags'],['permissions','Permissions'],['lifecycle','Lifecycle'],['cors','CORS']] as [tab, label]}
+{#each [['objects','Objects'],['uploads','Uploads'],['properties','Properties'],['analytics','Analytics'],['tagging','Tags'],['permissions','Permissions'],['lifecycle','Lifecycle'],['cors','CORS']] as [tab, label]}
 <li class="me-2">
 <button
 onclick={() => switchTab(tab as typeof activeDetailTab)}
@@ -1350,6 +1452,13 @@ class={`font-medium rounded-lg text-sm px-4 py-2 transition-colors ${bucketEncry
           class="border border-slate-300 dark:border-slate-600 rounded-lg p-2 text-sm bg-slate-50 dark:bg-slate-700 dark:text-white w-48" />
       </div>
     </div>
+    <div class="mb-4 p-3 bg-slate-50 dark:bg-slate-900/40 rounded-lg border border-slate-200 dark:border-slate-700">
+      <p class="text-xs text-slate-500 dark:text-slate-400 mb-1">Website endpoint</p>
+      <div class="flex items-center gap-2">
+        <a href={websiteEndpointUrl()} target="_blank" rel="noopener noreferrer" class="text-sm font-mono text-blue-600 dark:text-blue-400 hover:underline break-all">{websiteEndpointUrl()}</a>
+        <button onclick={() => { navigator.clipboard.writeText(websiteEndpointUrl()).then(() => toast.success('URL copied')).catch(() => toast.error('Copy failed')); }} class="shrink-0 text-xs text-slate-400 hover:text-blue-500">Copy</button>
+      </div>
+    </div>
     <div class="flex gap-2">
       <button onclick={saveWebsite} class="text-white bg-blue-600 hover:bg-blue-700 font-medium rounded-lg text-sm px-4 py-2">Save</button>
       <button onclick={deleteWebsite} class="text-white bg-red-600 hover:bg-red-700 font-medium rounded-lg text-sm px-4 py-2">Disable</button>
@@ -1363,6 +1472,94 @@ class={`font-medium rounded-lg text-sm px-4 py-2 transition-colors ${bucketEncry
       Enable
     </button>
   {/if}
+</div>
+
+<!-- Server Access Logging -->
+<div class="p-6 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl">
+  <h3 class="text-base font-semibold text-slate-900 dark:text-white mb-3">Server Access Logging</h3>
+  {#if loadingLogging}
+    <div class="text-sm text-slate-500">Loading...</div>
+  {:else}
+    <label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300 mb-3">
+      <input type="checkbox" bind:checked={loggingEnabled} />
+      Enable access logging
+    </label>
+    {#if loggingEnabled}
+      <div class="space-y-2 mb-4">
+        <div>
+          <label for="logging-target-bucket" class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Target Bucket</label>
+          <input type="text" id="logging-target-bucket" bind:value={loggingTargetBucket} placeholder="log-bucket-name"
+            class="border border-slate-300 dark:border-slate-600 rounded-lg p-2 text-sm bg-slate-50 dark:bg-slate-700 dark:text-white w-64" />
+        </div>
+        <div>
+          <label for="logging-target-prefix" class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Target Prefix</label>
+          <input type="text" id="logging-target-prefix" bind:value={loggingTargetPrefix} placeholder="logs/"
+            class="border border-slate-300 dark:border-slate-600 rounded-lg p-2 text-sm bg-slate-50 dark:bg-slate-700 dark:text-white w-64" />
+        </div>
+      </div>
+    {/if}
+    <button onclick={saveLogging} disabled={savingLogging} class="text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 font-medium rounded-lg text-sm px-4 py-2">{savingLogging ? 'Saving...' : 'Save Logging Config'}</button>
+  {/if}
+</div>
+{/if}
+</div>
+
+{:else if activeDetailTab === 'analytics'}
+<!-- Storage Analytics Tab -->
+<div class="space-y-4">
+{#if analyticsLoading}
+<div class="text-center py-8 text-slate-500">Computing storage analytics...</div>
+{:else}
+<div class="p-6 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl">
+<div class="flex items-center justify-between mb-4">
+<h3 class="text-base font-semibold text-slate-900 dark:text-white">Storage Analytics</h3>
+<button onclick={loadAnalytics} class="text-sm text-blue-600 hover:text-blue-700">Refresh</button>
+</div>
+<div class="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
+<div class="p-3 bg-slate-50 dark:bg-slate-900/40 rounded-lg">
+<p class="text-xs text-slate-500 dark:text-slate-400">Total Size</p>
+<p class="text-lg font-bold text-slate-900 dark:text-white">{formatBytes(analyticsTotalBytes)}</p>
+</div>
+<div class="p-3 bg-slate-50 dark:bg-slate-900/40 rounded-lg">
+<p class="text-xs text-slate-500 dark:text-slate-400">Object Count</p>
+<p class="text-lg font-bold text-slate-900 dark:text-white">{analyticsTotalCount.toLocaleString()}</p>
+</div>
+<div class="p-3 bg-slate-50 dark:bg-slate-900/40 rounded-lg">
+<p class="text-xs text-slate-500 dark:text-slate-400">Top-level Prefixes</p>
+<p class="text-lg font-bold text-slate-900 dark:text-white">{analyticsByPrefix.length}</p>
+</div>
+</div>
+{#if analyticsTruncated}
+<p class="text-xs text-amber-600 dark:text-amber-400 mb-2">Showing first 10,000 objects; totals are partial for very large buckets.</p>
+{/if}
+{#if analyticsByPrefix.length === 0}
+<p class="text-sm text-slate-500 dark:text-slate-400">No objects in this bucket.</p>
+{:else}
+<table class="w-full text-sm">
+<thead class="text-xs text-slate-700 uppercase bg-slate-50 dark:bg-slate-700 dark:text-slate-400">
+<tr>
+<th class="px-4 py-2 text-left">Prefix</th>
+<th class="px-4 py-2 text-right">Objects</th>
+<th class="px-4 py-2 text-right">Size</th>
+<th class="px-4 py-2 text-left">Share</th>
+</tr>
+</thead>
+<tbody>
+{#each analyticsByPrefix as ps}
+<tr class="border-b dark:border-slate-600">
+<td class="px-4 py-2 font-mono text-slate-900 dark:text-white">{ps.prefix}</td>
+<td class="px-4 py-2 text-right text-slate-700 dark:text-slate-300">{ps.count.toLocaleString()}</td>
+<td class="px-4 py-2 text-right text-slate-700 dark:text-slate-300">{formatBytes(ps.bytes)}</td>
+<td class="px-4 py-2">
+<div class="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-2">
+<div class="bg-blue-500 h-2 rounded-full" style={`width: ${analyticsTotalBytes > 0 ? Math.max(2, Math.round((ps.bytes / analyticsTotalBytes) * 100)) : 0}%`}></div>
+</div>
+</td>
+</tr>
+{/each}
+</tbody>
+</table>
+{/if}
 </div>
 {/if}
 </div>

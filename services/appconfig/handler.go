@@ -170,6 +170,11 @@ func (h *Handler) RouteMatcher() service.Matcher {
 
 		return strings.HasPrefix(path, "/applications") ||
 			strings.HasPrefix(path, "/deploymentstrategies") ||
+			// The AWS AppConfig API ships a known typo: DeleteDeploymentStrategy
+			// uses the misspelled "/deployementstrategies/{Id}" URI while every
+			// other deployment-strategy operation uses "/deploymentstrategies".
+			// The SDK serializer hard-codes this, so we must match it too.
+			strings.HasPrefix(path, "/deployementstrategies") ||
 			strings.HasPrefix(path, "/extensions") ||
 			strings.HasPrefix(path, "/extensionassociations") ||
 			path == "/settings" ||
@@ -224,7 +229,9 @@ func parseAppConfigPath(method, path string) appConfigRoute {
 	}
 
 	switch parts[0] {
-	case "deploymentstrategies":
+	case "deploymentstrategies", "deployementstrategies":
+		// "deployementstrategies" is the misspelled URI segment the AWS SDK
+		// hard-codes for DeleteDeploymentStrategy; treat it identically.
 		return parseDeploymentStrategyRoute(method, parts)
 	case "applications":
 		return parseApplicationRoute(method, parts)

@@ -2,6 +2,7 @@ package pipes_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -298,10 +299,10 @@ func TestBackend_TagResource(t *testing.T) {
 		"", "RUNNING", nil)
 	require.NoError(t, err)
 
-	err = b.TagResource(p.ARN, map[string]string{"env": "test"})
+	err = b.TagResource(context.Background(), p.ARN, map[string]string{"env": "test"})
 	require.NoError(t, err)
 
-	tags, err := b.ListTagsForResource(p.ARN)
+	tags, err := b.ListTagsForResource(context.Background(), p.ARN)
 	require.NoError(t, err)
 	assert.Equal(t, "test", tags["env"])
 }

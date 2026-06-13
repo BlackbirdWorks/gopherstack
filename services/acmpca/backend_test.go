@@ -1,6 +1,7 @@
 package acmpca_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -66,7 +67,7 @@ func TestInMemoryBackend_CreateCertificateAuthority(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend()
-			ca, err := b.CreateCertificateAuthority(tt.caType, tt.cfg)
+			ca, err := b.CreateCertificateAuthority(context.Background(), tt.caType, tt.cfg)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -109,16 +110,20 @@ func TestInMemoryBackend_DescribeCertificateAuthority(t *testing.T) {
 			var caARN string
 
 			if tt.caARN == "" {
-				ca, err := b.CreateCertificateAuthority("ROOT", acmpca.CertificateAuthorityConfiguration{
-					Subject: acmpca.CertificateAuthoritySubject{CommonName: "Test CA"},
-				})
+				ca, err := b.CreateCertificateAuthority(
+					context.Background(),
+					"ROOT",
+					acmpca.CertificateAuthorityConfiguration{
+						Subject: acmpca.CertificateAuthoritySubject{CommonName: "Test CA"},
+					},
+				)
 				require.NoError(t, err)
 				caARN = ca.ARN
 			} else {
 				caARN = tt.caARN
 			}
 
-			ca, err := b.DescribeCertificateAuthority(caARN)
+			ca, err := b.DescribeCertificateAuthority(context.Background(), caARN)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -159,13 +164,17 @@ func TestInMemoryBackend_ListCertificateAuthorities(t *testing.T) {
 			b := newTestBackend()
 
 			for i := range tt.createN {
-				_, err := b.CreateCertificateAuthority("ROOT", acmpca.CertificateAuthorityConfiguration{
-					Subject: acmpca.CertificateAuthoritySubject{CommonName: "CA"},
-				})
+				_, err := b.CreateCertificateAuthority(
+					context.Background(),
+					"ROOT",
+					acmpca.CertificateAuthorityConfiguration{
+						Subject: acmpca.CertificateAuthoritySubject{CommonName: "CA"},
+					},
+				)
 				require.NoError(t, err, "creating CA %d", i)
 			}
 
-			p := b.ListCertificateAuthorities("", 0)
+			p := b.ListCertificateAuthorities(context.Background(), "", 0)
 			assert.Len(t, p.Data, tt.wantCount)
 		})
 	}
@@ -205,17 +214,25 @@ func TestInMemoryBackend_DeleteCertificateAuthority(t *testing.T) {
 
 			switch tt.caARN {
 			case "":
-				ca, err := b.CreateCertificateAuthority("ROOT", acmpca.CertificateAuthorityConfiguration{
-					Subject: acmpca.CertificateAuthoritySubject{CommonName: "Test CA"},
-				})
+				ca, err := b.CreateCertificateAuthority(
+					context.Background(),
+					"ROOT",
+					acmpca.CertificateAuthorityConfiguration{
+						Subject: acmpca.CertificateAuthoritySubject{CommonName: "Test CA"},
+					},
+				)
 				require.NoError(t, err)
 				caARN = ca.ARN
 				// Disable the CA first (AWS requirement before deletion).
-				require.NoError(t, b.UpdateCertificateAuthority(caARN, "DISABLED"))
+				require.NoError(t, b.UpdateCertificateAuthority(context.Background(), caARN, "DISABLED"))
 			case "active":
-				ca, err := b.CreateCertificateAuthority("ROOT", acmpca.CertificateAuthorityConfiguration{
-					Subject: acmpca.CertificateAuthoritySubject{CommonName: "Active CA"},
-				})
+				ca, err := b.CreateCertificateAuthority(
+					context.Background(),
+					"ROOT",
+					acmpca.CertificateAuthorityConfiguration{
+						Subject: acmpca.CertificateAuthoritySubject{CommonName: "Active CA"},
+					},
+				)
 				require.NoError(t, err)
 				caARN = ca.ARN
 				// Do NOT disable — deletion should fail.
@@ -223,7 +240,7 @@ func TestInMemoryBackend_DeleteCertificateAuthority(t *testing.T) {
 				caARN = tt.caARN
 			}
 
-			err := b.DeleteCertificateAuthority(caARN, 0)
+			err := b.DeleteCertificateAuthority(context.Background(), caARN, 0)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -233,7 +250,7 @@ func TestInMemoryBackend_DeleteCertificateAuthority(t *testing.T) {
 
 			require.NoError(t, err)
 
-			ca, err := b.DescribeCertificateAuthority(caARN)
+			ca, err := b.DescribeCertificateAuthority(context.Background(), caARN)
 			require.NoError(t, err)
 			assert.Equal(t, "DELETED", ca.Status)
 		})
@@ -258,12 +275,16 @@ func TestInMemoryBackend_GetCertificateAuthorityCsr(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend()
-			ca, err := b.CreateCertificateAuthority("SUBORDINATE", acmpca.CertificateAuthorityConfiguration{
-				Subject: acmpca.CertificateAuthoritySubject{CommonName: "Sub CA"},
-			})
+			ca, err := b.CreateCertificateAuthority(
+				context.Background(),
+				"SUBORDINATE",
+				acmpca.CertificateAuthorityConfiguration{
+					Subject: acmpca.CertificateAuthoritySubject{CommonName: "Sub CA"},
+				},
+			)
 			require.NoError(t, err)
 
-			csr, err := b.GetCertificateAuthorityCsr(ca.ARN)
+			csr, err := b.GetCertificateAuthorityCsr(context.Background(), ca.ARN)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -302,21 +323,29 @@ func TestInMemoryBackend_IssueCertificate(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend()
-			ca, err := b.CreateCertificateAuthority("ROOT", acmpca.CertificateAuthorityConfiguration{
-				Subject: acmpca.CertificateAuthoritySubject{CommonName: "Test Root CA"},
-			})
+			ca, err := b.CreateCertificateAuthority(
+				context.Background(),
+				"ROOT",
+				acmpca.CertificateAuthorityConfiguration{
+					Subject: acmpca.CertificateAuthoritySubject{CommonName: "Test Root CA"},
+				},
+			)
 			require.NoError(t, err)
 
 			// Get the CA's CSR as the cert to issue (for simplicity we reuse the self-signed CA cert's pub key)
-			subCA, err := b.CreateCertificateAuthority("SUBORDINATE", acmpca.CertificateAuthorityConfiguration{
-				Subject: acmpca.CertificateAuthoritySubject{CommonName: "Test Sub CA"},
-			})
+			subCA, err := b.CreateCertificateAuthority(
+				context.Background(),
+				"SUBORDINATE",
+				acmpca.CertificateAuthorityConfiguration{
+					Subject: acmpca.CertificateAuthoritySubject{CommonName: "Test Sub CA"},
+				},
+			)
 			require.NoError(t, err)
 
-			csr, err := b.GetCertificateAuthorityCsr(subCA.ARN)
+			csr, err := b.GetCertificateAuthorityCsr(context.Background(), subCA.ARN)
 			require.NoError(t, err)
 
-			cert, err := b.IssueCertificate(ca.ARN, csr, tt.validityDays)
+			cert, err := b.IssueCertificate(context.Background(), ca.ARN, csr, tt.validityDays)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -357,9 +386,13 @@ func TestInMemoryBackend_TagOperations(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend()
-			ca, err := b.CreateCertificateAuthority("ROOT", acmpca.CertificateAuthorityConfiguration{
-				Subject: acmpca.CertificateAuthoritySubject{CommonName: "Tag CA"},
-			})
+			ca, err := b.CreateCertificateAuthority(
+				context.Background(),
+				"ROOT",
+				acmpca.CertificateAuthorityConfiguration{
+					Subject: acmpca.CertificateAuthoritySubject{CommonName: "Tag CA"},
+				},
+			)
 			require.NoError(t, err)
 
 			h := acmpca.NewHandler(b)
@@ -387,6 +420,7 @@ func TestInMemoryBackend_PermissionsAndPolicies(t *testing.T) {
 				t.Helper()
 
 				created, err := b.CreatePermission(
+					context.Background(),
 					caARN,
 					"acm.amazonaws.com",
 					testAccountID,
@@ -396,13 +430,13 @@ func TestInMemoryBackend_PermissionsAndPolicies(t *testing.T) {
 				assert.Equal(t, caARN, created.CertificateAuthorityArn)
 				assert.Equal(t, "acm.amazonaws.com", created.Principal)
 
-				list, err := b.ListPermissions(caARN, "", 0)
+				list, err := b.ListPermissions(context.Background(), caARN, "", 0)
 				require.NoError(t, err)
 				require.Len(t, list.Data, 1)
 				assert.Equal(t, []string{"IssueCertificate", "GetCertificate"}, list.Data[0].Actions)
 
-				require.NoError(t, b.DeletePermission(caARN, "acm.amazonaws.com", testAccountID))
-				list, err = b.ListPermissions(caARN, "", 0)
+				require.NoError(t, b.DeletePermission(context.Background(), caARN, "acm.amazonaws.com", testAccountID))
+				list, err = b.ListPermissions(context.Background(), caARN, "", 0)
 				require.NoError(t, err)
 				assert.Empty(t, list.Data)
 			},
@@ -413,14 +447,14 @@ func TestInMemoryBackend_PermissionsAndPolicies(t *testing.T) {
 				t.Helper()
 
 				policy := `{"Version":"2012-10-17","Statement":[]}`
-				require.NoError(t, b.PutPolicy(caARN, policy))
+				require.NoError(t, b.PutPolicy(context.Background(), caARN, policy))
 
-				got, err := b.GetPolicy(caARN)
+				got, err := b.GetPolicy(context.Background(), caARN)
 				require.NoError(t, err)
 				assert.Equal(t, policy, got)
 
-				require.NoError(t, b.DeletePolicy(caARN))
-				_, err = b.GetPolicy(caARN)
+				require.NoError(t, b.DeletePolicy(context.Background(), caARN))
+				_, err = b.GetPolicy(context.Background(), caARN)
 				require.Error(t, err)
 			},
 		},
@@ -429,20 +463,20 @@ func TestInMemoryBackend_PermissionsAndPolicies(t *testing.T) {
 			run: func(t *testing.T, b *acmpca.InMemoryBackend, caARN string) {
 				t.Helper()
 
-				report, err := b.CreateCertificateAuthorityAuditReport(caARN, "bucket", "JSON")
+				report, err := b.CreateCertificateAuthorityAuditReport(context.Background(), caARN, "bucket", "JSON")
 				require.NoError(t, err)
 				assert.Equal(t, "SUCCESS", report.Status)
 				assert.Contains(t, report.S3Key, ".json")
 
-				got, err := b.DescribeCertificateAuthorityAuditReport(caARN, report.AuditReportID)
+				got, err := b.DescribeCertificateAuthorityAuditReport(context.Background(), caARN, report.AuditReportID)
 				require.NoError(t, err)
 				assert.Equal(t, report.AuditReportID, got.AuditReportID)
 
-				require.NoError(t, b.UpdateCertificateAuthority(caARN, "DISABLED"))
-				require.NoError(t, b.DeleteCertificateAuthority(caARN, 0))
-				require.NoError(t, b.RestoreCertificateAuthority(caARN))
+				require.NoError(t, b.UpdateCertificateAuthority(context.Background(), caARN, "DISABLED"))
+				require.NoError(t, b.DeleteCertificateAuthority(context.Background(), caARN, 0))
+				require.NoError(t, b.RestoreCertificateAuthority(context.Background(), caARN))
 
-				ca, err := b.DescribeCertificateAuthority(caARN)
+				ca, err := b.DescribeCertificateAuthority(context.Background(), caARN)
 				require.NoError(t, err)
 				assert.Equal(t, "DISABLED", ca.Status)
 			},
@@ -454,9 +488,13 @@ func TestInMemoryBackend_PermissionsAndPolicies(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend()
-			ca, err := b.CreateCertificateAuthority("ROOT", acmpca.CertificateAuthorityConfiguration{
-				Subject: acmpca.CertificateAuthoritySubject{CommonName: "Ops CA"},
-			})
+			ca, err := b.CreateCertificateAuthority(
+				context.Background(),
+				"ROOT",
+				acmpca.CertificateAuthorityConfiguration{
+					Subject: acmpca.CertificateAuthoritySubject{CommonName: "Ops CA"},
+				},
+			)
 			require.NoError(t, err)
 
 			tt.run(t, b, ca.ARN)
@@ -476,7 +514,13 @@ func TestInMemoryBackend_NewOperationValidation(t *testing.T) {
 			run: func(t *testing.T, b *acmpca.InMemoryBackend) {
 				t.Helper()
 
-				_, err := b.CreatePermission("", "acm.amazonaws.com", testAccountID, []string{"IssueCertificate"})
+				_, err := b.CreatePermission(
+					context.Background(),
+					"",
+					"acm.amazonaws.com",
+					testAccountID,
+					[]string{"IssueCertificate"},
+				)
 				require.ErrorIs(t, err, acmpca.ErrInvalidParameter)
 			},
 		},
@@ -486,6 +530,7 @@ func TestInMemoryBackend_NewOperationValidation(t *testing.T) {
 				t.Helper()
 
 				err := b.DeletePermission(
+					context.Background(),
 					"arn:aws:acm-pca:us-east-1:123456789012:certificate-authority/test",
 					"",
 					testAccountID,
@@ -499,6 +544,7 @@ func TestInMemoryBackend_NewOperationValidation(t *testing.T) {
 				t.Helper()
 
 				_, err := b.ListPermissions(
+					context.Background(),
 					"arn:aws:acm-pca:us-east-1:123456789012:certificate-authority/missing",
 					"",
 					0,
@@ -511,12 +557,16 @@ func TestInMemoryBackend_NewOperationValidation(t *testing.T) {
 			run: func(t *testing.T, b *acmpca.InMemoryBackend) {
 				t.Helper()
 
-				ca, err := b.CreateCertificateAuthority("ROOT", acmpca.CertificateAuthorityConfiguration{
-					Subject: acmpca.CertificateAuthoritySubject{CommonName: "Validate CA"},
-				})
+				ca, err := b.CreateCertificateAuthority(
+					context.Background(),
+					"ROOT",
+					acmpca.CertificateAuthorityConfiguration{
+						Subject: acmpca.CertificateAuthoritySubject{CommonName: "Validate CA"},
+					},
+				)
 				require.NoError(t, err)
 
-				_, err = b.DescribeCertificateAuthorityAuditReport(ca.ARN, "")
+				_, err = b.DescribeCertificateAuthorityAuditReport(context.Background(), ca.ARN, "")
 				require.ErrorIs(t, err, acmpca.ErrInvalidParameter)
 			},
 		},
@@ -525,7 +575,7 @@ func TestInMemoryBackend_NewOperationValidation(t *testing.T) {
 			run: func(t *testing.T, b *acmpca.InMemoryBackend) {
 				t.Helper()
 
-				_, err := b.GetPolicy("")
+				_, err := b.GetPolicy(context.Background(), "")
 				require.ErrorIs(t, err, acmpca.ErrInvalidParameter)
 			},
 		},
@@ -534,7 +584,7 @@ func TestInMemoryBackend_NewOperationValidation(t *testing.T) {
 			run: func(t *testing.T, b *acmpca.InMemoryBackend) {
 				t.Helper()
 
-				err := b.RestoreCertificateAuthority("")
+				err := b.RestoreCertificateAuthority(context.Background(), "")
 				require.ErrorIs(t, err, acmpca.ErrInvalidParameter)
 			},
 		},
@@ -561,26 +611,34 @@ func TestInMemoryBackend_ValidationAndRevocation(t *testing.T) {
 			run: func(t *testing.T, b *acmpca.InMemoryBackend) {
 				t.Helper()
 
-				ca, err := b.CreateCertificateAuthority("ROOT", acmpca.CertificateAuthorityConfiguration{
-					Subject: acmpca.CertificateAuthoritySubject{CommonName: "Revoke CA"},
-				})
+				ca, err := b.CreateCertificateAuthority(
+					context.Background(),
+					"ROOT",
+					acmpca.CertificateAuthorityConfiguration{
+						Subject: acmpca.CertificateAuthoritySubject{CommonName: "Revoke CA"},
+					},
+				)
 				require.NoError(t, err)
 
-				subCA, err := b.CreateCertificateAuthority("SUBORDINATE", acmpca.CertificateAuthorityConfiguration{
-					Subject: acmpca.CertificateAuthoritySubject{CommonName: "Sub CA"},
-				})
+				subCA, err := b.CreateCertificateAuthority(
+					context.Background(),
+					"SUBORDINATE",
+					acmpca.CertificateAuthorityConfiguration{
+						Subject: acmpca.CertificateAuthoritySubject{CommonName: "Sub CA"},
+					},
+				)
 				require.NoError(t, err)
 
-				csr, err := b.GetCertificateAuthorityCsr(subCA.ARN)
+				csr, err := b.GetCertificateAuthorityCsr(context.Background(), subCA.ARN)
 				require.NoError(t, err)
 
-				cert, err := b.IssueCertificate(ca.ARN, csr, 365)
+				cert, err := b.IssueCertificate(context.Background(), ca.ARN, csr, 365)
 				require.NoError(t, err)
 
-				err = b.RevokeCertificate(ca.ARN, cert.Serial, "KEY_COMPROMISE")
+				err = b.RevokeCertificate(context.Background(), ca.ARN, cert.Serial, "KEY_COMPROMISE")
 				require.NoError(t, err)
 
-				got, err := b.GetCertificate(ca.ARN, cert.ARN)
+				got, err := b.GetCertificate(context.Background(), ca.ARN, cert.ARN)
 				require.NoError(t, err)
 				assert.Equal(t, "REVOKED", got.Status)
 				assert.NotNil(t, got.RevokedAt)
@@ -592,12 +650,16 @@ func TestInMemoryBackend_ValidationAndRevocation(t *testing.T) {
 			run: func(t *testing.T, b *acmpca.InMemoryBackend) {
 				t.Helper()
 
-				ca, err := b.CreateCertificateAuthority("ROOT", acmpca.CertificateAuthorityConfiguration{
-					Subject: acmpca.CertificateAuthoritySubject{CommonName: "Revoke CA"},
-				})
+				ca, err := b.CreateCertificateAuthority(
+					context.Background(),
+					"ROOT",
+					acmpca.CertificateAuthorityConfiguration{
+						Subject: acmpca.CertificateAuthoritySubject{CommonName: "Revoke CA"},
+					},
+				)
 				require.NoError(t, err)
 
-				err = b.RevokeCertificate(ca.ARN, "doesNotMatter", "INVALID_REASON")
+				err = b.RevokeCertificate(context.Background(), ca.ARN, "doesNotMatter", "INVALID_REASON")
 				require.ErrorIs(t, err, acmpca.ErrInvalidParameter)
 			},
 		},
@@ -607,16 +669,20 @@ func TestInMemoryBackend_ValidationAndRevocation(t *testing.T) {
 				t.Helper()
 
 				// SUBORDINATE CAs start in PENDING_CERTIFICATE state (no auto-sign).
-				ca, err := b.CreateCertificateAuthority("SUBORDINATE", acmpca.CertificateAuthorityConfiguration{
-					Subject: acmpca.CertificateAuthoritySubject{CommonName: "Pending CA"},
-				})
+				ca, err := b.CreateCertificateAuthority(
+					context.Background(),
+					"SUBORDINATE",
+					acmpca.CertificateAuthorityConfiguration{
+						Subject: acmpca.CertificateAuthoritySubject{CommonName: "Pending CA"},
+					},
+				)
 				require.NoError(t, err)
 				assert.Equal(t, "PENDING_CERTIFICATE", ca.Status)
 
-				err = b.DeleteCertificateAuthority(ca.ARN, 0)
+				err = b.DeleteCertificateAuthority(context.Background(), ca.ARN, 0)
 				require.NoError(t, err)
 
-				got, err := b.DescribeCertificateAuthority(ca.ARN)
+				got, err := b.DescribeCertificateAuthority(context.Background(), ca.ARN)
 				require.NoError(t, err)
 				assert.Equal(t, "DELETED", got.Status)
 			},
@@ -626,12 +692,16 @@ func TestInMemoryBackend_ValidationAndRevocation(t *testing.T) {
 			run: func(t *testing.T, b *acmpca.InMemoryBackend) {
 				t.Helper()
 
-				ca, err := b.CreateCertificateAuthority("ROOT", acmpca.CertificateAuthorityConfiguration{
-					Subject: acmpca.CertificateAuthoritySubject{CommonName: "CA"},
-				})
+				ca, err := b.CreateCertificateAuthority(
+					context.Background(),
+					"ROOT",
+					acmpca.CertificateAuthorityConfiguration{
+						Subject: acmpca.CertificateAuthoritySubject{CommonName: "CA"},
+					},
+				)
 				require.NoError(t, err)
 
-				err = b.DeleteCertificateAuthority(ca.ARN, 5)
+				err = b.DeleteCertificateAuthority(context.Background(), ca.ARN, 5)
 				require.ErrorIs(t, err, acmpca.ErrInvalidParameter)
 			},
 		},
@@ -640,12 +710,16 @@ func TestInMemoryBackend_ValidationAndRevocation(t *testing.T) {
 			run: func(t *testing.T, b *acmpca.InMemoryBackend) {
 				t.Helper()
 
-				ca, err := b.CreateCertificateAuthority("ROOT", acmpca.CertificateAuthorityConfiguration{
-					Subject: acmpca.CertificateAuthoritySubject{CommonName: "CA"},
-				})
+				ca, err := b.CreateCertificateAuthority(
+					context.Background(),
+					"ROOT",
+					acmpca.CertificateAuthorityConfiguration{
+						Subject: acmpca.CertificateAuthoritySubject{CommonName: "CA"},
+					},
+				)
 				require.NoError(t, err)
 
-				err = b.UpdateCertificateAuthority(ca.ARN, "INVALID_STATUS")
+				err = b.UpdateCertificateAuthority(context.Background(), ca.ARN, "INVALID_STATUS")
 				require.ErrorIs(t, err, acmpca.ErrInvalidParameter)
 			},
 		},
@@ -654,12 +728,16 @@ func TestInMemoryBackend_ValidationAndRevocation(t *testing.T) {
 			run: func(t *testing.T, b *acmpca.InMemoryBackend) {
 				t.Helper()
 
-				ca, err := b.CreateCertificateAuthority("ROOT", acmpca.CertificateAuthorityConfiguration{
-					Subject: acmpca.CertificateAuthoritySubject{CommonName: "CA"},
-				})
+				ca, err := b.CreateCertificateAuthority(
+					context.Background(),
+					"ROOT",
+					acmpca.CertificateAuthorityConfiguration{
+						Subject: acmpca.CertificateAuthoritySubject{CommonName: "CA"},
+					},
+				)
 				require.NoError(t, err)
 
-				_, err = b.IssueCertificate(ca.ARN, "", 365)
+				_, err = b.IssueCertificate(context.Background(), ca.ARN, "", 365)
 				require.ErrorIs(t, err, acmpca.ErrInvalidParameter)
 			},
 		},

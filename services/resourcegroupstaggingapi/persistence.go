@@ -7,9 +7,9 @@ import (
 
 // backendSnapshot is the serializable form of InMemoryBackend state.
 type backendSnapshot struct {
-	ReportState *reportCreationState `json:"reportState,omitempty"`
-	AccountID   string               `json:"accountID"`
-	Region      string               `json:"region"`
+	ReportStates map[string]*reportCreationState `json:"reportStates,omitempty"`
+	AccountID    string                          `json:"accountID"`
+	Region       string                          `json:"region"`
 }
 
 // Snapshot serializes the backend state to JSON.
@@ -20,9 +20,9 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		ReportState: b.reportState,
-		AccountID:   b.accountID,
-		Region:      b.region,
+		ReportStates: b.reportStates,
+		AccountID:    b.accountID,
+		Region:       b.defaultRegion,
 	}
 
 	data, err := json.Marshal(snap)
@@ -49,14 +49,19 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
-	b.reportState = snap.ReportState
+	if snap.ReportStates != nil {
+		b.reportStates = snap.ReportStates
+	} else {
+		b.reportStates = make(map[string]*reportCreationState)
+	}
+
 	b.accountID = snap.AccountID
-	b.region = snap.Region
+	b.defaultRegion = snap.Region
 	b.providers = nil
 	b.filteredProviders = nil
 	b.taggers = nil
 	b.untaggers = nil
-	b.cache = nil
+	clear(b.caches)
 
 	return nil
 }

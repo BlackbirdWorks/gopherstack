@@ -2205,7 +2205,7 @@ func TestHandler_Backend_Purge(t *testing.T) {
 	require.NoError(t, err)
 
 	b.Purge()
-	targets := b.DescribeScalableTargets(applicationautoscaling.DescribeScalableTargetsFilter{})
+	targets, _ := b.DescribeScalableTargets(applicationautoscaling.DescribeScalableTargetsFilter{})
 	assert.Empty(t, targets, "Purge should clear all scalable targets")
 }
 

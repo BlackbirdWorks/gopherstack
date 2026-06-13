@@ -1,6 +1,7 @@
 package acm_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -72,10 +73,20 @@ func TestBatch2_RenewCertificate_Imported_Returns_RequestInProgressException(t *
 			t.Parallel()
 
 			b := acm.NewInMemoryBackend("000000000000", "us-east-1")
-			src, err := b.RequestCertificate("renew-noteligible.example.com", "", "", "", "", "", "", nil)
+			src, err := b.RequestCertificate(
+				context.Background(),
+				"renew-noteligible.example.com",
+				"",
+				"",
+				"",
+				"",
+				"",
+				"",
+				nil,
+			)
 			require.NoError(t, err)
 
-			imported, err := b.ImportCertificate(src.CertificateBody, src.PrivateKey, "", "")
+			imported, err := b.ImportCertificate(context.Background(), src.CertificateBody, src.PrivateKey, "", "")
 			require.NoError(t, err)
 
 			h := acm.NewHandler(b)
@@ -110,7 +121,17 @@ func TestBatch2_GetCertificate_NonIssuedStates_Returns_RequestInProgressExceptio
 			name: "pending_validation",
 			setup: func(t *testing.T, b *acm.InMemoryBackend) string {
 				t.Helper()
-				cert, err := b.RequestCertificate("get-pending.example.com", "", "DNS", "", "", "", "", nil)
+				cert, err := b.RequestCertificate(
+					context.Background(),
+					"get-pending.example.com",
+					"",
+					"DNS",
+					"",
+					"",
+					"",
+					"",
+					nil,
+				)
 				require.NoError(t, err)
 				require.Equal(t, "PENDING_VALIDATION", cert.Status)
 
@@ -121,9 +142,19 @@ func TestBatch2_GetCertificate_NonIssuedStates_Returns_RequestInProgressExceptio
 			name: "validation_timed_out",
 			setup: func(t *testing.T, b *acm.InMemoryBackend) string {
 				t.Helper()
-				cert, err := b.RequestCertificate("get-timedout.example.com", "", "DNS", "", "", "", "", nil)
+				cert, err := b.RequestCertificate(
+					context.Background(),
+					"get-timedout.example.com",
+					"",
+					"DNS",
+					"",
+					"",
+					"",
+					"",
+					nil,
+				)
 				require.NoError(t, err)
-				require.NoError(t, b.TimeoutPendingValidation(cert.ARN))
+				require.NoError(t, b.TimeoutPendingValidation(context.Background(), cert.ARN))
 
 				return cert.ARN
 			},
@@ -132,9 +163,19 @@ func TestBatch2_GetCertificate_NonIssuedStates_Returns_RequestInProgressExceptio
 			name: "failed",
 			setup: func(t *testing.T, b *acm.InMemoryBackend) string {
 				t.Helper()
-				cert, err := b.RequestCertificate("get-failed.example.com", "", "EMAIL", "", "", "", "", nil)
+				cert, err := b.RequestCertificate(
+					context.Background(),
+					"get-failed.example.com",
+					"",
+					"EMAIL",
+					"",
+					"",
+					"",
+					"",
+					nil,
+				)
 				require.NoError(t, err)
-				require.NoError(t, b.FailCertificate(cert.ARN, "CAA_ERROR"))
+				require.NoError(t, b.FailCertificate(context.Background(), cert.ARN, "CAA_ERROR"))
 
 				return cert.ARN
 			},
@@ -259,10 +300,20 @@ func TestBatch2_UpdateCertificateOptions_NonIssued_Returns_InvalidStateException
 			name: "revoked_cert",
 			setup: func(t *testing.T, b *acm.InMemoryBackend) string {
 				t.Helper()
-				cert, err := b.RequestCertificate("update-opts-revoked.example.com", "", "", "", "", "", "", nil)
+				cert, err := b.RequestCertificate(
+					context.Background(),
+					"update-opts-revoked.example.com",
+					"",
+					"",
+					"",
+					"",
+					"",
+					"",
+					nil,
+				)
 				require.NoError(t, err)
 
-				err = b.RevokeCertificate(cert.ARN, "UNSPECIFIED")
+				err = b.RevokeCertificate(context.Background(), cert.ARN, "UNSPECIFIED")
 				require.NoError(t, err)
 
 				return cert.ARN
@@ -272,10 +323,20 @@ func TestBatch2_UpdateCertificateOptions_NonIssued_Returns_InvalidStateException
 			name: "expired_cert",
 			setup: func(t *testing.T, b *acm.InMemoryBackend) string {
 				t.Helper()
-				cert, err := b.RequestCertificate("update-opts-expired.example.com", "", "", "", "", "", "", nil)
+				cert, err := b.RequestCertificate(
+					context.Background(),
+					"update-opts-expired.example.com",
+					"",
+					"",
+					"",
+					"",
+					"",
+					"",
+					nil,
+				)
 				require.NoError(t, err)
 
-				err = b.ExpireCertificate(cert.ARN)
+				err = b.ExpireCertificate(context.Background(), cert.ARN)
 				require.NoError(t, err)
 
 				return cert.ARN

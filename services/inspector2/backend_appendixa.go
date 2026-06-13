@@ -87,13 +87,13 @@ type EncryptionKey struct {
 }
 
 // CisScanConfiguration represents a CIS scan configuration.
-type CisScanConfiguration struct { //nolint:govet // readability
-	Arn        string            `json:"scanConfigurationArn"`
-	Name       string            `json:"scanName"`
-	OwnedBy    string            `json:"ownedBy"`
+type CisScanConfiguration struct {
 	Tags       map[string]string `json:"tags,omitempty"`
 	ScheduleV2 map[string]any    `json:"schedule,omitempty"`
 	Targets    map[string]any    `json:"targets,omitempty"`
+	Arn        string            `json:"scanConfigurationArn"`
+	Name       string            `json:"scanName"`
+	OwnedBy    string            `json:"ownedBy"`
 }
 
 // CisSession represents an active CIS scan session.
@@ -105,27 +105,27 @@ type CisSession struct {
 }
 
 // CodeSecurityIntegration represents a code security integration.
-type CodeSecurityIntegration struct { //nolint:govet // readability
+type CodeSecurityIntegration struct {
+	CreatedAt      time.Time         `json:"createdAt"`
+	UpdatedAt      time.Time         `json:"updatedAt"`
+	Tags           map[string]string `json:"tags,omitempty"`
 	IntegrationArn string            `json:"integrationArn"`
 	Name           string            `json:"name"`
 	Type           string            `json:"type"`
 	Status         string            `json:"status"`
-	Tags           map[string]string `json:"tags,omitempty"`
-	CreatedAt      time.Time         `json:"createdAt"`
-	UpdatedAt      time.Time         `json:"updatedAt"`
 }
 
 // CodeSecurityScanConfiguration represents a code security scan configuration.
-type CodeSecurityScanConfiguration struct { //nolint:govet // readability
+type CodeSecurityScanConfiguration struct {
+	CreatedAt          time.Time         `json:"createdAt"`
+	UpdatedAt          time.Time         `json:"updatedAt"`
+	ScopeSettings      map[string]any    `json:"scopeSettings,omitempty"`
+	PeriodicScanConfig map[string]any    `json:"periodicScanConfiguration,omitempty"`
+	Tags               map[string]string `json:"tags,omitempty"`
 	Arn                string            `json:"scanConfigurationArn"`
 	Name               string            `json:"name"`
 	IntegrationArn     string            `json:"integrationArn,omitempty"`
-	ScopeSettings      map[string]any    `json:"scopeSettings,omitempty"`
-	PeriodicScanConfig map[string]any    `json:"periodicScanConfiguration,omitempty"`
 	Status             string            `json:"status"`
-	Tags               map[string]string `json:"tags,omitempty"`
-	CreatedAt          time.Time         `json:"createdAt"`
-	UpdatedAt          time.Time         `json:"updatedAt"`
 }
 
 // CodeSecurityScanConfigurationAssociation links a scan config to a repository.
@@ -1174,11 +1174,54 @@ func (b *InMemoryBackend) ListCoverageStatistics(_ map[string]any) (map[string]a
 
 // --- Finding Aggregations ---
 
-// ListFindingAggregations returns aggregated finding counts (stub).
-func (b *InMemoryBackend) ListFindingAggregations(_ string, _ map[string]any) (map[string]any, error) {
+// ListFindingAggregations returns aggregated finding counts. When findings have
+// been seeded it reports the real per-account severity breakdown; otherwise it
+// returns an empty responses list (matching the prior empty-stub contract).
+func (b *InMemoryBackend) ListFindingAggregations(aggregationType string, _ map[string]any) (map[string]any, error) {
+	if aggregationType == "" {
+		aggregationType = "ACCOUNT"
+	}
+
+	counts := b.FindingSeverityCounts()
+	if len(counts) == 0 {
+		return map[string]any{
+			"aggregationType": aggregationType,
+			"responses":       []any{},
+		}, nil
+	}
+
+	var critical, high, medium, low, total int64
+	for sev, n := range counts {
+		total += n
+
+		switch sev {
+		case severityCritical:
+			critical += n
+		case severityHigh:
+			high += n
+		case severityMedium:
+			medium += n
+		case severityLow:
+			low += n
+		}
+	}
+
 	return map[string]any{
-		"aggregationType": "ACCOUNT",
-		"responses":       []any{},
+		"aggregationType": aggregationType,
+		"responses": []map[string]any{
+			{
+				"accountAggregation": map[string]any{
+					keyAccountID: b.accountID,
+					"severityCounts": map[string]any{
+						"all":      total,
+						"critical": critical,
+						"high":     high,
+						"medium":   medium,
+						"low":      low,
+					},
+				},
+			},
+		},
 	}, nil
 }
 

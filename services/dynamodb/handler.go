@@ -92,6 +92,13 @@ var ErrUnknownOperation = errors.New("UnknownOperationException")
 // regionContextKey is used to store the AWS region in request context.
 type regionContextKey struct{}
 
+// WithRegion returns a derived context that carries the given AWS region.
+// External callers (e.g. the DynamoDB Streams handler) use this to scope
+// backend operations to the request's SigV4 region.
+func WithRegion(ctx context.Context, region string) context.Context {
+	return context.WithValue(ctx, regionContextKey{}, region)
+}
+
 // AWS SigV4 credential format has at least 3 parts: AKID/date/region.
 const minSigV4CredentialParts = 3
 

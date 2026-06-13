@@ -4,6 +4,7 @@
 package e2e_test
 
 import (
+	"context"
 	"net/http/httptest"
 	"testing"
 
@@ -19,7 +20,7 @@ func TestKinesisAnalyticsV2Dashboard(t *testing.T) {
 	stack := newStack(t)
 
 	// Seed an application via the backend.
-	err := stack.KinesisHandler.Backend.CreateStream(&kinesisbackend.CreateStreamInput{
+	err := stack.KinesisHandler.Backend.CreateStream(context.Background(), &kinesisbackend.CreateStreamInput{
 		StreamName: "my-test-stream",
 		ShardCount: 1,
 	})

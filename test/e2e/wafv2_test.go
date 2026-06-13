@@ -4,6 +4,7 @@
 package e2e_test
 
 import (
+	"context"
 	"net/http/httptest"
 	"testing"
 
@@ -17,6 +18,7 @@ func TestWafv2Dashboard(t *testing.T) {
 	stack := newStack(t)
 
 	_, err := stack.Wafv2Handler.Backend.CreateWebACL(
+		context.Background(),
 		"e2e-test-acl",
 		"REGIONAL",
 		"test web ACL",

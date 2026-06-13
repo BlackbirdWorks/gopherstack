@@ -16,198 +16,198 @@ const (
 //
 //nolint:cyclop,gocyclo,funlen // large switch is required for dispatching many operations
 func (h *Handler) dispatchBatch2Ops(
-	_ context.Context,
+	ctx context.Context,
 	op string,
 	body []byte,
 ) ([]byte, bool, error) {
 	switch op {
 	// ModelPackage
 	case "CreateModelPackage":
-		r, err := h.handleCreateModelPackage(body)
+		r, err := h.handleCreateModelPackage(ctx, body)
 
 		return r, true, err
 	case "DescribeModelPackage":
-		r, err := h.handleDescribeModelPackage(body)
+		r, err := h.handleDescribeModelPackage(ctx, body)
 
 		return r, true, err
 	case "DeleteModelPackage":
-		return nil, true, h.handleDeleteModelPackage(body)
+		return nil, true, h.handleDeleteModelPackage(ctx, body)
 	case "ListModelPackages":
-		r, err := h.handleListModelPackages(body)
+		r, err := h.handleListModelPackages(ctx, body)
 
 		return r, true, err
 
 	// ModelPackageGroup
 	case "CreateModelPackageGroup":
-		r, err := h.handleCreateModelPackageGroup(body)
+		r, err := h.handleCreateModelPackageGroup(ctx, body)
 
 		return r, true, err
 	case "DescribeModelPackageGroup":
-		r, err := h.handleDescribeModelPackageGroup(body)
+		r, err := h.handleDescribeModelPackageGroup(ctx, body)
 
 		return r, true, err
 	case "DeleteModelPackageGroup":
-		return nil, true, h.handleDeleteModelPackageGroup(body)
+		return nil, true, h.handleDeleteModelPackageGroup(ctx, body)
 	case "ListModelPackageGroups":
-		r, err := h.handleListModelPackageGroups(body)
+		r, err := h.handleListModelPackageGroups(ctx, body)
 
 		return r, true, err
 
 	// AutoMLJob
 	case "CreateAutoMLJob", "CreateAutoMLJobV2":
-		r, err := h.handleCreateAutoMLJob(body)
+		r, err := h.handleCreateAutoMLJob(ctx, body)
 
 		return r, true, err
 	case "DescribeAutoMLJob", "DescribeAutoMLJobV2":
-		r, err := h.handleDescribeAutoMLJob(body)
+		r, err := h.handleDescribeAutoMLJob(ctx, body)
 
 		return r, true, err
 	case "StopAutoMLJob":
-		return nil, true, h.handleStopAutoMLJob(body)
+		return nil, true, h.handleStopAutoMLJob(ctx, body)
 	case "ListAutoMLJobs":
-		r, err := h.handleListAutoMLJobs(body)
+		r, err := h.handleListAutoMLJobs(ctx, body)
 
 		return r, true, err
 
 	// CodeRepository
 	case "CreateCodeRepository":
-		r, err := h.handleCreateCodeRepository(body)
+		r, err := h.handleCreateCodeRepository(ctx, body)
 
 		return r, true, err
 	case "DescribeCodeRepository":
-		r, err := h.handleDescribeCodeRepository(body)
+		r, err := h.handleDescribeCodeRepository(ctx, body)
 
 		return r, true, err
 	case "UpdateCodeRepository":
-		r, err := h.handleUpdateCodeRepository(body)
+		r, err := h.handleUpdateCodeRepository(ctx, body)
 
 		return r, true, err
 	case "DeleteCodeRepository":
-		return nil, true, h.handleDeleteCodeRepository(body)
+		return nil, true, h.handleDeleteCodeRepository(ctx, body)
 	case "ListCodeRepositories":
-		r, err := h.handleListCodeRepositories(body)
+		r, err := h.handleListCodeRepositories(ctx, body)
 
 		return r, true, err
 
 	// Project
 	case "CreateProject":
-		r, err := h.handleCreateProject(body)
+		r, err := h.handleCreateProject(ctx, body)
 
 		return r, true, err
 	case "DescribeProject":
-		r, err := h.handleDescribeProject(body)
+		r, err := h.handleDescribeProject(ctx, body)
 
 		return r, true, err
 	case "DeleteProject":
-		return nil, true, h.handleDeleteProject(body)
+		return nil, true, h.handleDeleteProject(ctx, body)
 	case "ListProjects":
-		r, err := h.handleListProjects(body)
+		r, err := h.handleListProjects(ctx, body)
 
 		return r, true, err
 
 	// Space
 	case "CreateSpace":
-		r, err := h.handleCreateSpace(body)
+		r, err := h.handleCreateSpace(ctx, body)
 
 		return r, true, err
 	case "DescribeSpace":
-		r, err := h.handleDescribeSpace(body)
+		r, err := h.handleDescribeSpace(ctx, body)
 
 		return r, true, err
 	case "DeleteSpace":
-		return nil, true, h.handleDeleteSpace(body)
+		return nil, true, h.handleDeleteSpace(ctx, body)
 	case "ListSpaces":
-		r, err := h.handleListSpaces(body)
+		r, err := h.handleListSpaces(ctx, body)
 
 		return r, true, err
 
 	// Image
 	case "CreateImage":
-		r, err := h.handleCreateImage(body)
+		r, err := h.handleCreateImage(ctx, body)
 
 		return r, true, err
 	case "DescribeImage":
-		r, err := h.handleDescribeImage(body)
+		r, err := h.handleDescribeImage(ctx, body)
 
 		return r, true, err
 	case "DeleteImage":
-		return nil, true, h.handleDeleteImage(body)
+		return nil, true, h.handleDeleteImage(ctx, body)
 	case "ListImages":
-		r, err := h.handleListImages(body)
+		r, err := h.handleListImages(ctx, body)
 
 		return r, true, err
 
 	// ImageVersion
 	case "CreateImageVersion":
-		r, err := h.handleCreateImageVersion(body)
+		r, err := h.handleCreateImageVersion(ctx, body)
 
 		return r, true, err
 	case "DescribeImageVersion":
-		r, err := h.handleDescribeImageVersion(body)
+		r, err := h.handleDescribeImageVersion(ctx, body)
 
 		return r, true, err
 	case "DeleteImageVersion":
-		return nil, true, h.handleDeleteImageVersion(body)
+		return nil, true, h.handleDeleteImageVersion(ctx, body)
 	case "ListImageVersions":
-		r, err := h.handleListImageVersions(body)
+		r, err := h.handleListImageVersions(ctx, body)
 
 		return r, true, err
 
 	// CompilationJob
 	case "CreateCompilationJob":
-		r, err := h.handleCreateCompilationJob(body)
+		r, err := h.handleCreateCompilationJob(ctx, body)
 
 		return r, true, err
 	case "DescribeCompilationJob":
-		r, err := h.handleDescribeCompilationJob(body)
+		r, err := h.handleDescribeCompilationJob(ctx, body)
 
 		return r, true, err
 	case "DeleteCompilationJob":
-		return nil, true, h.handleDeleteCompilationJob(body)
+		return nil, true, h.handleDeleteCompilationJob(ctx, body)
 	case "StopCompilationJob":
-		return nil, true, h.handleStopCompilationJob(body)
+		return nil, true, h.handleStopCompilationJob(ctx, body)
 	case "ListCompilationJobs":
-		r, err := h.handleListCompilationJobs(body)
+		r, err := h.handleListCompilationJobs(ctx, body)
 
 		return r, true, err
 
 	// MonitoringSchedule
 	case "CreateMonitoringSchedule":
-		r, err := h.handleCreateMonitoringSchedule(body)
+		r, err := h.handleCreateMonitoringSchedule(ctx, body)
 
 		return r, true, err
 	case "DescribeMonitoringSchedule":
-		r, err := h.handleDescribeMonitoringSchedule(body)
+		r, err := h.handleDescribeMonitoringSchedule(ctx, body)
 
 		return r, true, err
 	case "DeleteMonitoringSchedule":
-		return nil, true, h.handleDeleteMonitoringSchedule(body)
+		return nil, true, h.handleDeleteMonitoringSchedule(ctx, body)
 	case opStopMonitoringSchedule:
-		return nil, true, h.handleStopMonitoringSchedule(body)
+		return nil, true, h.handleStopMonitoringSchedule(ctx, body)
 	case "StartMonitoringSchedule":
-		return nil, true, h.handleStartMonitoringSchedule(body)
+		return nil, true, h.handleStartMonitoringSchedule(ctx, body)
 	case "UpdateMonitoringSchedule":
-		r, err := h.handleUpdateMonitoringSchedule(body)
+		r, err := h.handleUpdateMonitoringSchedule(ctx, body)
 
 		return r, true, err
 	case "ListMonitoringSchedules":
-		r, err := h.handleListMonitoringSchedules(body)
+		r, err := h.handleListMonitoringSchedules(ctx, body)
 
 		return r, true, err
 
 	// Workteam
 	case "CreateWorkteam":
-		r, err := h.handleCreateWorkteam(body)
+		r, err := h.handleCreateWorkteam(ctx, body)
 
 		return r, true, err
 	case "DescribeWorkteam":
-		r, err := h.handleDescribeWorkteam(body)
+		r, err := h.handleDescribeWorkteam(ctx, body)
 
 		return r, true, err
 	case "DeleteWorkteam":
-		return nil, true, h.handleDeleteWorkteam(body)
+		return nil, true, h.handleDeleteWorkteam(ctx, body)
 	case "ListWorkteams":
-		r, err := h.handleListWorkteams(body)
+		r, err := h.handleListWorkteams(ctx, body)
 
 		return r, true, err
 	}
@@ -219,7 +219,7 @@ func (h *Handler) dispatchBatch2Ops(
 // ModelPackage handlers
 // ---------------------------------------------------------------------------
 
-func (h *Handler) handleCreateModelPackage(body []byte) ([]byte, error) {
+func (h *Handler) handleCreateModelPackage(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Tags                    map[string]string `json:"Tags"`
 		ModelPackageName        string            `json:"ModelPackageName"`
@@ -235,7 +235,7 @@ func (h *Handler) handleCreateModelPackage(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: ModelPackageName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.CreateModelPackage(
+	result, err := h.Backend.CreateModelPackage(ctx,
 		req.ModelPackageName, req.ModelPackageGroupName, req.ModelPackageDescription, req.Tags,
 	)
 	if err != nil {
@@ -245,7 +245,7 @@ func (h *Handler) handleCreateModelPackage(body []byte) ([]byte, error) {
 	return json.Marshal(map[string]any{"ModelPackageArn": result.ModelPackageArn})
 }
 
-func (h *Handler) handleDescribeModelPackage(body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeModelPackage(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		ModelPackageName string `json:"ModelPackageName"`
 	}
@@ -258,7 +258,7 @@ func (h *Handler) handleDescribeModelPackage(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: ModelPackageName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.DescribeModelPackage(req.ModelPackageName)
+	result, err := h.Backend.DescribeModelPackage(ctx, req.ModelPackageName)
 	if err != nil {
 		return nil, err
 	}
@@ -266,7 +266,7 @@ func (h *Handler) handleDescribeModelPackage(body []byte) ([]byte, error) {
 	return json.Marshal(result)
 }
 
-func (h *Handler) handleDeleteModelPackage(body []byte) error {
+func (h *Handler) handleDeleteModelPackage(ctx context.Context, body []byte) error {
 	var req struct {
 		ModelPackageName string `json:"ModelPackageName"`
 	}
@@ -279,10 +279,10 @@ func (h *Handler) handleDeleteModelPackage(body []byte) error {
 		return fmt.Errorf("%w: ModelPackageName is required", errInvalidRequest)
 	}
 
-	return h.Backend.DeleteModelPackage(req.ModelPackageName)
+	return h.Backend.DeleteModelPackage(ctx, req.ModelPackageName)
 }
 
-func (h *Handler) handleListModelPackages(body []byte) ([]byte, error) {
+func (h *Handler) handleListModelPackages(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		ModelPackageGroupName string `json:"ModelPackageGroupName"`
 		NextToken             string `json:"NextToken"`
@@ -292,7 +292,7 @@ func (h *Handler) handleListModelPackages(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	items, next := h.Backend.ListModelPackages(req.ModelPackageGroupName, req.NextToken)
+	items, next := h.Backend.ListModelPackages(ctx, req.ModelPackageGroupName, req.NextToken)
 
 	summaries := make([]map[string]any, 0, len(items))
 	for _, mp := range items {
@@ -314,7 +314,7 @@ func (h *Handler) handleListModelPackages(body []byte) ([]byte, error) {
 // ModelPackageGroup handlers
 // ---------------------------------------------------------------------------
 
-func (h *Handler) handleCreateModelPackageGroup(body []byte) ([]byte, error) {
+func (h *Handler) handleCreateModelPackageGroup(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Tags                         map[string]string `json:"Tags"`
 		ModelPackageGroupName        string            `json:"ModelPackageGroupName"`
@@ -329,7 +329,7 @@ func (h *Handler) handleCreateModelPackageGroup(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: ModelPackageGroupName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.CreateModelPackageGroup(
+	result, err := h.Backend.CreateModelPackageGroup(ctx,
 		req.ModelPackageGroupName, req.ModelPackageGroupDescription, req.Tags,
 	)
 	if err != nil {
@@ -339,7 +339,7 @@ func (h *Handler) handleCreateModelPackageGroup(body []byte) ([]byte, error) {
 	return json.Marshal(map[string]any{"ModelPackageGroupArn": result.ModelPackageGroupArn})
 }
 
-func (h *Handler) handleDescribeModelPackageGroup(body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeModelPackageGroup(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		ModelPackageGroupName string `json:"ModelPackageGroupName"`
 	}
@@ -352,7 +352,7 @@ func (h *Handler) handleDescribeModelPackageGroup(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: ModelPackageGroupName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.DescribeModelPackageGroup(req.ModelPackageGroupName)
+	result, err := h.Backend.DescribeModelPackageGroup(ctx, req.ModelPackageGroupName)
 	if err != nil {
 		return nil, err
 	}
@@ -360,7 +360,7 @@ func (h *Handler) handleDescribeModelPackageGroup(body []byte) ([]byte, error) {
 	return json.Marshal(result)
 }
 
-func (h *Handler) handleDeleteModelPackageGroup(body []byte) error {
+func (h *Handler) handleDeleteModelPackageGroup(ctx context.Context, body []byte) error {
 	var req struct {
 		ModelPackageGroupName string `json:"ModelPackageGroupName"`
 	}
@@ -373,10 +373,10 @@ func (h *Handler) handleDeleteModelPackageGroup(body []byte) error {
 		return fmt.Errorf("%w: ModelPackageGroupName is required", errInvalidRequest)
 	}
 
-	return h.Backend.DeleteModelPackageGroup(req.ModelPackageGroupName)
+	return h.Backend.DeleteModelPackageGroup(ctx, req.ModelPackageGroupName)
 }
 
-func (h *Handler) handleListModelPackageGroups(body []byte) ([]byte, error) {
+func (h *Handler) handleListModelPackageGroups(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		NextToken string `json:"NextToken"`
 	}
@@ -385,7 +385,7 @@ func (h *Handler) handleListModelPackageGroups(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	items, next := h.Backend.ListModelPackageGroups(req.NextToken)
+	items, next := h.Backend.ListModelPackageGroups(ctx, req.NextToken)
 
 	summaries := make([]map[string]any, 0, len(items))
 	for _, g := range items {
@@ -407,7 +407,7 @@ func (h *Handler) handleListModelPackageGroups(body []byte) ([]byte, error) {
 // AutoMLJob handlers
 // ---------------------------------------------------------------------------
 
-func (h *Handler) handleCreateAutoMLJob(body []byte) ([]byte, error) {
+func (h *Handler) handleCreateAutoMLJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Tags          map[string]string `json:"Tags"`
 		AutoMLJobName string            `json:"AutoMLJobName"`
@@ -422,7 +422,7 @@ func (h *Handler) handleCreateAutoMLJob(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: AutoMLJobName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.CreateAutoMLJob(req.AutoMLJobName, req.RoleArn, req.Tags)
+	result, err := h.Backend.CreateAutoMLJob(ctx, req.AutoMLJobName, req.RoleArn, req.Tags)
 	if err != nil {
 		return nil, err
 	}
@@ -430,7 +430,7 @@ func (h *Handler) handleCreateAutoMLJob(body []byte) ([]byte, error) {
 	return json.Marshal(map[string]any{"AutoMLJobArn": result.AutoMLJobArn})
 }
 
-func (h *Handler) handleDescribeAutoMLJob(body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeAutoMLJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		AutoMLJobName string `json:"AutoMLJobName"`
 	}
@@ -443,7 +443,7 @@ func (h *Handler) handleDescribeAutoMLJob(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: AutoMLJobName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.DescribeAutoMLJob(req.AutoMLJobName)
+	result, err := h.Backend.DescribeAutoMLJob(ctx, req.AutoMLJobName)
 	if err != nil {
 		return nil, err
 	}
@@ -451,7 +451,7 @@ func (h *Handler) handleDescribeAutoMLJob(body []byte) ([]byte, error) {
 	return json.Marshal(result)
 }
 
-func (h *Handler) handleStopAutoMLJob(body []byte) error {
+func (h *Handler) handleStopAutoMLJob(ctx context.Context, body []byte) error {
 	var req struct {
 		AutoMLJobName string `json:"AutoMLJobName"`
 	}
@@ -464,10 +464,10 @@ func (h *Handler) handleStopAutoMLJob(body []byte) error {
 		return fmt.Errorf("%w: AutoMLJobName is required", errInvalidRequest)
 	}
 
-	return h.Backend.StopAutoMLJob(req.AutoMLJobName)
+	return h.Backend.StopAutoMLJob(ctx, req.AutoMLJobName)
 }
 
-func (h *Handler) handleListAutoMLJobs(body []byte) ([]byte, error) {
+func (h *Handler) handleListAutoMLJobs(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		NextToken string `json:"NextToken"`
 	}
@@ -476,7 +476,7 @@ func (h *Handler) handleListAutoMLJobs(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	items, next := h.Backend.ListAutoMLJobs(req.NextToken)
+	items, next := h.Backend.ListAutoMLJobs(ctx, req.NextToken)
 
 	summaries := make([]map[string]any, 0, len(items))
 	for _, j := range items {
@@ -498,7 +498,7 @@ func (h *Handler) handleListAutoMLJobs(body []byte) ([]byte, error) {
 // CodeRepository handlers
 // ---------------------------------------------------------------------------
 
-func (h *Handler) handleCreateCodeRepository(body []byte) ([]byte, error) {
+func (h *Handler) handleCreateCodeRepository(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		GitConfig          map[string]string `json:"GitConfig"`
 		Tags               map[string]string `json:"Tags"`
@@ -513,7 +513,7 @@ func (h *Handler) handleCreateCodeRepository(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: CodeRepositoryName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.CreateCodeRepository(req.CodeRepositoryName, req.GitConfig, req.Tags)
+	result, err := h.Backend.CreateCodeRepository(ctx, req.CodeRepositoryName, req.GitConfig, req.Tags)
 	if err != nil {
 		return nil, err
 	}
@@ -521,7 +521,7 @@ func (h *Handler) handleCreateCodeRepository(body []byte) ([]byte, error) {
 	return json.Marshal(map[string]any{keyCodeRepositoryArn: result.CodeRepositoryArn})
 }
 
-func (h *Handler) handleDescribeCodeRepository(body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeCodeRepository(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		CodeRepositoryName string `json:"CodeRepositoryName"`
 	}
@@ -534,7 +534,7 @@ func (h *Handler) handleDescribeCodeRepository(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: CodeRepositoryName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.DescribeCodeRepository(req.CodeRepositoryName)
+	result, err := h.Backend.DescribeCodeRepository(ctx, req.CodeRepositoryName)
 	if err != nil {
 		return nil, err
 	}
@@ -542,7 +542,7 @@ func (h *Handler) handleDescribeCodeRepository(body []byte) ([]byte, error) {
 	return json.Marshal(result)
 }
 
-func (h *Handler) handleUpdateCodeRepository(body []byte) ([]byte, error) {
+func (h *Handler) handleUpdateCodeRepository(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		GitConfig          map[string]string `json:"GitConfig"`
 		CodeRepositoryName string            `json:"CodeRepositoryName"`
@@ -556,7 +556,7 @@ func (h *Handler) handleUpdateCodeRepository(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: CodeRepositoryName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.UpdateCodeRepository(req.CodeRepositoryName, req.GitConfig)
+	result, err := h.Backend.UpdateCodeRepository(ctx, req.CodeRepositoryName, req.GitConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -564,7 +564,7 @@ func (h *Handler) handleUpdateCodeRepository(body []byte) ([]byte, error) {
 	return json.Marshal(map[string]any{keyCodeRepositoryArn: result.CodeRepositoryArn})
 }
 
-func (h *Handler) handleDeleteCodeRepository(body []byte) error {
+func (h *Handler) handleDeleteCodeRepository(ctx context.Context, body []byte) error {
 	var req struct {
 		CodeRepositoryName string `json:"CodeRepositoryName"`
 	}
@@ -577,10 +577,10 @@ func (h *Handler) handleDeleteCodeRepository(body []byte) error {
 		return fmt.Errorf("%w: CodeRepositoryName is required", errInvalidRequest)
 	}
 
-	return h.Backend.DeleteCodeRepository(req.CodeRepositoryName)
+	return h.Backend.DeleteCodeRepository(ctx, req.CodeRepositoryName)
 }
 
-func (h *Handler) handleListCodeRepositories(body []byte) ([]byte, error) {
+func (h *Handler) handleListCodeRepositories(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		NextToken string `json:"NextToken"`
 	}
@@ -589,7 +589,7 @@ func (h *Handler) handleListCodeRepositories(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	items, next := h.Backend.ListCodeRepositories(req.NextToken)
+	items, next := h.Backend.ListCodeRepositories(ctx, req.NextToken)
 
 	summaries := make([]map[string]any, 0, len(items))
 	for _, r := range items {
@@ -611,7 +611,7 @@ func (h *Handler) handleListCodeRepositories(body []byte) ([]byte, error) {
 // Project handlers
 // ---------------------------------------------------------------------------
 
-func (h *Handler) handleCreateProject(body []byte) ([]byte, error) {
+func (h *Handler) handleCreateProject(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Tags               map[string]string `json:"Tags"`
 		ProjectName        string            `json:"ProjectName"`
@@ -626,7 +626,7 @@ func (h *Handler) handleCreateProject(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: ProjectName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.CreateProject(req.ProjectName, req.ProjectDescription, req.Tags)
+	result, err := h.Backend.CreateProject(ctx, req.ProjectName, req.ProjectDescription, req.Tags)
 	if err != nil {
 		return nil, err
 	}
@@ -637,7 +637,7 @@ func (h *Handler) handleCreateProject(body []byte) ([]byte, error) {
 	})
 }
 
-func (h *Handler) handleDescribeProject(body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeProject(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		ProjectName string `json:"ProjectName"`
 	}
@@ -650,7 +650,7 @@ func (h *Handler) handleDescribeProject(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: ProjectName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.DescribeProject(req.ProjectName)
+	result, err := h.Backend.DescribeProject(ctx, req.ProjectName)
 	if err != nil {
 		return nil, err
 	}
@@ -658,7 +658,7 @@ func (h *Handler) handleDescribeProject(body []byte) ([]byte, error) {
 	return json.Marshal(result)
 }
 
-func (h *Handler) handleDeleteProject(body []byte) error {
+func (h *Handler) handleDeleteProject(ctx context.Context, body []byte) error {
 	var req struct {
 		ProjectName string `json:"ProjectName"`
 	}
@@ -671,10 +671,10 @@ func (h *Handler) handleDeleteProject(body []byte) error {
 		return fmt.Errorf("%w: ProjectName is required", errInvalidRequest)
 	}
 
-	return h.Backend.DeleteProject(req.ProjectName)
+	return h.Backend.DeleteProject(ctx, req.ProjectName)
 }
 
-func (h *Handler) handleListProjects(body []byte) ([]byte, error) {
+func (h *Handler) handleListProjects(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		NextToken string `json:"NextToken"`
 	}
@@ -683,7 +683,7 @@ func (h *Handler) handleListProjects(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	items, next := h.Backend.ListProjects(req.NextToken)
+	items, next := h.Backend.ListProjects(ctx, req.NextToken)
 
 	summaries := make([]map[string]any, 0, len(items))
 	for _, p := range items {
@@ -706,7 +706,7 @@ func (h *Handler) handleListProjects(body []byte) ([]byte, error) {
 // Space handlers
 // ---------------------------------------------------------------------------
 
-func (h *Handler) handleCreateSpace(body []byte) ([]byte, error) {
+func (h *Handler) handleCreateSpace(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Tags      map[string]string `json:"Tags"`
 		DomainID  string            `json:"DomainId"`
@@ -725,7 +725,7 @@ func (h *Handler) handleCreateSpace(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: SpaceName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.CreateSpace(req.DomainID, req.SpaceName, req.Tags)
+	result, err := h.Backend.CreateSpace(ctx, req.DomainID, req.SpaceName, req.Tags)
 	if err != nil {
 		return nil, err
 	}
@@ -733,7 +733,7 @@ func (h *Handler) handleCreateSpace(body []byte) ([]byte, error) {
 	return json.Marshal(map[string]any{"SpaceArn": result.SpaceArn})
 }
 
-func (h *Handler) handleDescribeSpace(body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeSpace(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		DomainID  string `json:"DomainId"`
 		SpaceName string `json:"SpaceName"`
@@ -751,7 +751,7 @@ func (h *Handler) handleDescribeSpace(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: SpaceName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.DescribeSpace(req.DomainID, req.SpaceName)
+	result, err := h.Backend.DescribeSpace(ctx, req.DomainID, req.SpaceName)
 	if err != nil {
 		return nil, err
 	}
@@ -759,7 +759,7 @@ func (h *Handler) handleDescribeSpace(body []byte) ([]byte, error) {
 	return json.Marshal(result)
 }
 
-func (h *Handler) handleDeleteSpace(body []byte) error {
+func (h *Handler) handleDeleteSpace(ctx context.Context, body []byte) error {
 	var req struct {
 		DomainID  string `json:"DomainId"`
 		SpaceName string `json:"SpaceName"`
@@ -777,10 +777,10 @@ func (h *Handler) handleDeleteSpace(body []byte) error {
 		return fmt.Errorf("%w: SpaceName is required", errInvalidRequest)
 	}
 
-	return h.Backend.DeleteSpace(req.DomainID, req.SpaceName)
+	return h.Backend.DeleteSpace(ctx, req.DomainID, req.SpaceName)
 }
 
-func (h *Handler) handleListSpaces(body []byte) ([]byte, error) {
+func (h *Handler) handleListSpaces(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		DomainIDEquals string `json:"DomainIdEquals"`
 		NextToken      string `json:"NextToken"`
@@ -790,7 +790,7 @@ func (h *Handler) handleListSpaces(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	items, next := h.Backend.ListSpaces(req.DomainIDEquals, req.NextToken)
+	items, next := h.Backend.ListSpaces(ctx, req.DomainIDEquals, req.NextToken)
 
 	summaries := make([]map[string]any, 0, len(items))
 	for _, s := range items {
@@ -814,7 +814,7 @@ func (h *Handler) handleListSpaces(body []byte) ([]byte, error) {
 // Image handlers
 // ---------------------------------------------------------------------------
 
-func (h *Handler) handleCreateImage(body []byte) ([]byte, error) {
+func (h *Handler) handleCreateImage(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Tags        map[string]string `json:"Tags"`
 		ImageName   string            `json:"ImageName"`
@@ -830,7 +830,7 @@ func (h *Handler) handleCreateImage(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: ImageName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.CreateImage(req.ImageName, req.Description, req.RoleArn, req.Tags)
+	result, err := h.Backend.CreateImage(ctx, req.ImageName, req.Description, req.RoleArn, req.Tags)
 	if err != nil {
 		return nil, err
 	}
@@ -838,7 +838,7 @@ func (h *Handler) handleCreateImage(body []byte) ([]byte, error) {
 	return json.Marshal(map[string]any{"ImageArn": result.ImageArn})
 }
 
-func (h *Handler) handleDescribeImage(body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeImage(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		ImageName string `json:"ImageName"`
 	}
@@ -851,7 +851,7 @@ func (h *Handler) handleDescribeImage(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: ImageName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.DescribeImage(req.ImageName)
+	result, err := h.Backend.DescribeImage(ctx, req.ImageName)
 	if err != nil {
 		return nil, err
 	}
@@ -859,7 +859,7 @@ func (h *Handler) handleDescribeImage(body []byte) ([]byte, error) {
 	return json.Marshal(result)
 }
 
-func (h *Handler) handleDeleteImage(body []byte) error {
+func (h *Handler) handleDeleteImage(ctx context.Context, body []byte) error {
 	var req struct {
 		ImageName string `json:"ImageName"`
 	}
@@ -872,10 +872,10 @@ func (h *Handler) handleDeleteImage(body []byte) error {
 		return fmt.Errorf("%w: ImageName is required", errInvalidRequest)
 	}
 
-	return h.Backend.DeleteImage(req.ImageName)
+	return h.Backend.DeleteImage(ctx, req.ImageName)
 }
 
-func (h *Handler) handleListImages(body []byte) ([]byte, error) {
+func (h *Handler) handleListImages(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		NextToken string `json:"NextToken"`
 	}
@@ -884,7 +884,7 @@ func (h *Handler) handleListImages(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	items, next := h.Backend.ListImages(req.NextToken)
+	items, next := h.Backend.ListImages(ctx, req.NextToken)
 
 	summaries := make([]map[string]any, 0, len(items))
 	for _, img := range items {
@@ -907,7 +907,7 @@ func (h *Handler) handleListImages(body []byte) ([]byte, error) {
 // ImageVersion handlers
 // ---------------------------------------------------------------------------
 
-func (h *Handler) handleCreateImageVersion(body []byte) ([]byte, error) {
+func (h *Handler) handleCreateImageVersion(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		ImageName string `json:"ImageName"`
 	}
@@ -920,7 +920,7 @@ func (h *Handler) handleCreateImageVersion(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: ImageName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.CreateImageVersion(req.ImageName)
+	result, err := h.Backend.CreateImageVersion(ctx, req.ImageName)
 	if err != nil {
 		return nil, err
 	}
@@ -928,7 +928,7 @@ func (h *Handler) handleCreateImageVersion(body []byte) ([]byte, error) {
 	return json.Marshal(map[string]any{"ImageVersionArn": result.ImageVersionArn})
 }
 
-func (h *Handler) handleDescribeImageVersion(body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeImageVersion(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		ImageName string `json:"ImageName"`
 		Version   int    `json:"Version"`
@@ -942,7 +942,7 @@ func (h *Handler) handleDescribeImageVersion(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: ImageName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.DescribeImageVersion(req.ImageName, req.Version)
+	result, err := h.Backend.DescribeImageVersion(ctx, req.ImageName, req.Version)
 	if err != nil {
 		return nil, err
 	}
@@ -950,7 +950,7 @@ func (h *Handler) handleDescribeImageVersion(body []byte) ([]byte, error) {
 	return json.Marshal(result)
 }
 
-func (h *Handler) handleDeleteImageVersion(body []byte) error {
+func (h *Handler) handleDeleteImageVersion(ctx context.Context, body []byte) error {
 	var req struct {
 		ImageName string `json:"ImageName"`
 		Version   int    `json:"Version"`
@@ -964,10 +964,10 @@ func (h *Handler) handleDeleteImageVersion(body []byte) error {
 		return fmt.Errorf("%w: ImageName is required", errInvalidRequest)
 	}
 
-	return h.Backend.DeleteImageVersion(req.ImageName, req.Version)
+	return h.Backend.DeleteImageVersion(ctx, req.ImageName, req.Version)
 }
 
-func (h *Handler) handleListImageVersions(body []byte) ([]byte, error) {
+func (h *Handler) handleListImageVersions(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		ImageName string `json:"ImageName"`
 		NextToken string `json:"NextToken"`
@@ -981,7 +981,7 @@ func (h *Handler) handleListImageVersions(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: ImageName is required", errInvalidRequest)
 	}
 
-	items, next := h.Backend.ListImageVersions(req.ImageName, req.NextToken)
+	items, next := h.Backend.ListImageVersions(ctx, req.ImageName, req.NextToken)
 
 	summaries := make([]map[string]any, 0, len(items))
 	for _, iv := range items {
@@ -1004,7 +1004,7 @@ func (h *Handler) handleListImageVersions(body []byte) ([]byte, error) {
 // CompilationJob handlers
 // ---------------------------------------------------------------------------
 
-func (h *Handler) handleCreateCompilationJob(body []byte) ([]byte, error) {
+func (h *Handler) handleCreateCompilationJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Tags               map[string]string `json:"Tags"`
 		CompilationJobName string            `json:"CompilationJobName"`
@@ -1019,7 +1019,7 @@ func (h *Handler) handleCreateCompilationJob(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: CompilationJobName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.CreateCompilationJob(req.CompilationJobName, req.RoleArn, req.Tags)
+	result, err := h.Backend.CreateCompilationJob(ctx, req.CompilationJobName, req.RoleArn, req.Tags)
 	if err != nil {
 		return nil, err
 	}
@@ -1027,7 +1027,7 @@ func (h *Handler) handleCreateCompilationJob(body []byte) ([]byte, error) {
 	return json.Marshal(map[string]any{"CompilationJobArn": result.CompilationJobArn})
 }
 
-func (h *Handler) handleDescribeCompilationJob(body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeCompilationJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		CompilationJobName string `json:"CompilationJobName"`
 	}
@@ -1040,7 +1040,7 @@ func (h *Handler) handleDescribeCompilationJob(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: CompilationJobName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.DescribeCompilationJob(req.CompilationJobName)
+	result, err := h.Backend.DescribeCompilationJob(ctx, req.CompilationJobName)
 	if err != nil {
 		return nil, err
 	}
@@ -1048,7 +1048,7 @@ func (h *Handler) handleDescribeCompilationJob(body []byte) ([]byte, error) {
 	return json.Marshal(result)
 }
 
-func (h *Handler) handleDeleteCompilationJob(body []byte) error {
+func (h *Handler) handleDeleteCompilationJob(ctx context.Context, body []byte) error {
 	var req struct {
 		CompilationJobName string `json:"CompilationJobName"`
 	}
@@ -1061,10 +1061,10 @@ func (h *Handler) handleDeleteCompilationJob(body []byte) error {
 		return fmt.Errorf("%w: CompilationJobName is required", errInvalidRequest)
 	}
 
-	return h.Backend.DeleteCompilationJob(req.CompilationJobName)
+	return h.Backend.DeleteCompilationJob(ctx, req.CompilationJobName)
 }
 
-func (h *Handler) handleStopCompilationJob(body []byte) error {
+func (h *Handler) handleStopCompilationJob(ctx context.Context, body []byte) error {
 	var req struct {
 		CompilationJobName string `json:"CompilationJobName"`
 	}
@@ -1077,10 +1077,10 @@ func (h *Handler) handleStopCompilationJob(body []byte) error {
 		return fmt.Errorf("%w: CompilationJobName is required", errInvalidRequest)
 	}
 
-	return h.Backend.StopCompilationJob(req.CompilationJobName)
+	return h.Backend.StopCompilationJob(ctx, req.CompilationJobName)
 }
 
-func (h *Handler) handleListCompilationJobs(body []byte) ([]byte, error) {
+func (h *Handler) handleListCompilationJobs(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		NextToken string `json:"NextToken"`
 	}
@@ -1089,7 +1089,7 @@ func (h *Handler) handleListCompilationJobs(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	items, next := h.Backend.ListCompilationJobs(req.NextToken)
+	items, next := h.Backend.ListCompilationJobs(ctx, req.NextToken)
 
 	summaries := make([]map[string]any, 0, len(items))
 	for _, j := range items {
@@ -1112,7 +1112,7 @@ func (h *Handler) handleListCompilationJobs(body []byte) ([]byte, error) {
 // MonitoringSchedule handlers
 // ---------------------------------------------------------------------------
 
-func (h *Handler) handleCreateMonitoringSchedule(body []byte) ([]byte, error) {
+func (h *Handler) handleCreateMonitoringSchedule(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Tags                   map[string]string `json:"Tags"`
 		MonitoringScheduleName string            `json:"MonitoringScheduleName"`
@@ -1126,7 +1126,7 @@ func (h *Handler) handleCreateMonitoringSchedule(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: MonitoringScheduleName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.CreateMonitoringSchedule(req.MonitoringScheduleName, req.Tags)
+	result, err := h.Backend.CreateMonitoringSchedule(ctx, req.MonitoringScheduleName, req.Tags)
 	if err != nil {
 		return nil, err
 	}
@@ -1134,7 +1134,7 @@ func (h *Handler) handleCreateMonitoringSchedule(body []byte) ([]byte, error) {
 	return json.Marshal(map[string]any{keyMonitoringScheduleArn: result.MonitoringScheduleArn})
 }
 
-func (h *Handler) handleDescribeMonitoringSchedule(body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeMonitoringSchedule(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		MonitoringScheduleName string `json:"MonitoringScheduleName"`
 	}
@@ -1147,7 +1147,7 @@ func (h *Handler) handleDescribeMonitoringSchedule(body []byte) ([]byte, error) 
 		return nil, fmt.Errorf("%w: MonitoringScheduleName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.DescribeMonitoringSchedule(req.MonitoringScheduleName)
+	result, err := h.Backend.DescribeMonitoringSchedule(ctx, req.MonitoringScheduleName)
 	if err != nil {
 		return nil, err
 	}
@@ -1155,7 +1155,7 @@ func (h *Handler) handleDescribeMonitoringSchedule(body []byte) ([]byte, error) 
 	return json.Marshal(result)
 }
 
-func (h *Handler) handleDeleteMonitoringSchedule(body []byte) error {
+func (h *Handler) handleDeleteMonitoringSchedule(ctx context.Context, body []byte) error {
 	var req struct {
 		MonitoringScheduleName string `json:"MonitoringScheduleName"`
 	}
@@ -1168,10 +1168,10 @@ func (h *Handler) handleDeleteMonitoringSchedule(body []byte) error {
 		return fmt.Errorf("%w: MonitoringScheduleName is required", errInvalidRequest)
 	}
 
-	return h.Backend.DeleteMonitoringSchedule(req.MonitoringScheduleName)
+	return h.Backend.DeleteMonitoringSchedule(ctx, req.MonitoringScheduleName)
 }
 
-func (h *Handler) handleStopMonitoringSchedule(body []byte) error {
+func (h *Handler) handleStopMonitoringSchedule(ctx context.Context, body []byte) error {
 	var req struct {
 		MonitoringScheduleName string `json:"MonitoringScheduleName"`
 	}
@@ -1184,10 +1184,10 @@ func (h *Handler) handleStopMonitoringSchedule(body []byte) error {
 		return fmt.Errorf("%w: MonitoringScheduleName is required", errInvalidRequest)
 	}
 
-	return h.Backend.StopMonitoringSchedule(req.MonitoringScheduleName)
+	return h.Backend.StopMonitoringSchedule(ctx, req.MonitoringScheduleName)
 }
 
-func (h *Handler) handleStartMonitoringSchedule(body []byte) error {
+func (h *Handler) handleStartMonitoringSchedule(ctx context.Context, body []byte) error {
 	var req struct {
 		MonitoringScheduleName string `json:"MonitoringScheduleName"`
 	}
@@ -1200,10 +1200,10 @@ func (h *Handler) handleStartMonitoringSchedule(body []byte) error {
 		return fmt.Errorf("%w: MonitoringScheduleName is required", errInvalidRequest)
 	}
 
-	return h.Backend.StartMonitoringSchedule(req.MonitoringScheduleName)
+	return h.Backend.StartMonitoringSchedule(ctx, req.MonitoringScheduleName)
 }
 
-func (h *Handler) handleUpdateMonitoringSchedule(body []byte) ([]byte, error) {
+func (h *Handler) handleUpdateMonitoringSchedule(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		MonitoringScheduleName string `json:"MonitoringScheduleName"`
 	}
@@ -1216,7 +1216,7 @@ func (h *Handler) handleUpdateMonitoringSchedule(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: MonitoringScheduleName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.UpdateMonitoringSchedule(req.MonitoringScheduleName)
+	result, err := h.Backend.UpdateMonitoringSchedule(ctx, req.MonitoringScheduleName)
 	if err != nil {
 		return nil, err
 	}
@@ -1224,7 +1224,7 @@ func (h *Handler) handleUpdateMonitoringSchedule(body []byte) ([]byte, error) {
 	return json.Marshal(map[string]any{keyMonitoringScheduleArn: result.MonitoringScheduleArn})
 }
 
-func (h *Handler) handleListMonitoringSchedules(body []byte) ([]byte, error) {
+func (h *Handler) handleListMonitoringSchedules(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		NextToken string `json:"NextToken"`
 	}
@@ -1233,7 +1233,7 @@ func (h *Handler) handleListMonitoringSchedules(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	items, next := h.Backend.ListMonitoringSchedules(req.NextToken)
+	items, next := h.Backend.ListMonitoringSchedules(ctx, req.NextToken)
 
 	summaries := make([]map[string]any, 0, len(items))
 	for _, ms := range items {
@@ -1256,7 +1256,7 @@ func (h *Handler) handleListMonitoringSchedules(body []byte) ([]byte, error) {
 // Workteam handlers
 // ---------------------------------------------------------------------------
 
-func (h *Handler) handleCreateWorkteam(body []byte) ([]byte, error) {
+func (h *Handler) handleCreateWorkteam(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Tags         map[string]string `json:"Tags"`
 		WorkteamName string            `json:"WorkteamName"`
@@ -1271,7 +1271,7 @@ func (h *Handler) handleCreateWorkteam(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: WorkteamName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.CreateWorkteam(req.WorkteamName, req.Description, req.Tags)
+	result, err := h.Backend.CreateWorkteam(ctx, req.WorkteamName, req.Description, req.Tags)
 	if err != nil {
 		return nil, err
 	}
@@ -1279,7 +1279,7 @@ func (h *Handler) handleCreateWorkteam(body []byte) ([]byte, error) {
 	return json.Marshal(map[string]any{"WorkteamArn": result.WorkteamArn})
 }
 
-func (h *Handler) handleDescribeWorkteam(body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeWorkteam(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		WorkteamName string `json:"WorkteamName"`
 	}
@@ -1292,7 +1292,7 @@ func (h *Handler) handleDescribeWorkteam(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: WorkteamName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.DescribeWorkteam(req.WorkteamName)
+	result, err := h.Backend.DescribeWorkteam(ctx, req.WorkteamName)
 	if err != nil {
 		return nil, err
 	}
@@ -1300,7 +1300,7 @@ func (h *Handler) handleDescribeWorkteam(body []byte) ([]byte, error) {
 	return json.Marshal(map[string]any{"Workteam": result})
 }
 
-func (h *Handler) handleDeleteWorkteam(body []byte) error {
+func (h *Handler) handleDeleteWorkteam(ctx context.Context, body []byte) error {
 	var req struct {
 		WorkteamName string `json:"WorkteamName"`
 	}
@@ -1313,10 +1313,10 @@ func (h *Handler) handleDeleteWorkteam(body []byte) error {
 		return fmt.Errorf("%w: WorkteamName is required", errInvalidRequest)
 	}
 
-	return h.Backend.DeleteWorkteam(req.WorkteamName)
+	return h.Backend.DeleteWorkteam(ctx, req.WorkteamName)
 }
 
-func (h *Handler) handleListWorkteams(body []byte) ([]byte, error) {
+func (h *Handler) handleListWorkteams(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		NextToken string `json:"NextToken"`
 	}
@@ -1325,7 +1325,7 @@ func (h *Handler) handleListWorkteams(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	items, next := h.Backend.ListWorkteams(req.NextToken)
+	items, next := h.Backend.ListWorkteams(ctx, req.NextToken)
 
 	summaries := make([]map[string]any, 0, len(items))
 	for _, w := range items {

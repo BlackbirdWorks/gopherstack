@@ -11,14 +11,14 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
 const (
-	fsxTargetPrefix  = "AWSSimbaAPIService_v20180301."
-	matchPriority    = service.PriorityHeaderExact
-	bodyReadBufBytes = 4096
+	fsxTargetPrefix = "AWSSimbaAPIService_v20180301."
+	matchPriority   = service.PriorityHeaderExact
 
 	opCreateFileSystem           = "CreateFileSystem"
 	opCreateFileSystemFromBackup = "CreateFileSystemFromBackup"
@@ -177,8 +177,8 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 
 // ExtractResource extracts a resource identifier from the request body.
 func (h *Handler) ExtractResource(c *echo.Context) string {
-	body, err := c.Request().GetBody()
-	if err != nil || body == nil {
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil || len(body) == 0 {
 		return ""
 	}
 
@@ -188,9 +188,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		ResourceARN  string `json:"ResourceARN"`
 	}
 
-	buf := make([]byte, bodyReadBufBytes)
-	n, _ := body.Read(buf)
-	_ = json.Unmarshal(buf[:n], &req)
+	_ = json.Unmarshal(body, &req)
 
 	switch {
 	case req.ResourceARN != "":

@@ -1,6 +1,7 @@
 package elasticache
 
 import (
+	"context"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -250,7 +251,11 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	return ""
 }
 
-type elasticacheActionFn func(c *echo.Context, form url.Values) error
+type elasticacheActionFn func(ctx context.Context, c *echo.Context, form url.Values) error
+
+func (h *Handler) regionFromRequest(c *echo.Context) string {
+	return httputils.ExtractRegionFromRequest(c.Request(), h.Backend.Region())
+}
 
 func (h *Handler) dispatchTable() map[string]elasticacheActionFn {
 	return map[string]elasticacheActionFn{
@@ -351,7 +356,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return c.String(http.StatusBadRequest, "unknown action: "+action)
 		}
 
-		return fn(c, vals)
+		region := h.regionFromRequest(c)
+		ctx := context.WithValue(c.Request().Context(), regionContextKey{}, region)
+
+		return fn(ctx, c, vals)
 	}
 }
 
@@ -398,7 +406,7 @@ func parseSubnetIDs(form url.Values) []string {
 	return ids
 }
 
-func (h *Handler) createCacheCluster(c *echo.Context, form url.Values) error {
+func (h *Handler) createCacheCluster(ctx context.Context, c *echo.Context, form url.Values) error {
 	id := form.Get("CacheClusterId")
 	if id == "" {
 		return xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "CacheClusterId is required")
@@ -417,7 +425,7 @@ func (h *Handler) createCacheCluster(c *echo.Context, form url.Values) error {
 		}
 	}
 
-	cluster, err := h.Backend.CreateClusterWithOptions(
+	cluster, err := h.Backend.CreateClusterWithOptions(ctx,
 		id,
 		engine,
 		nodeType,
@@ -453,9 +461,9 @@ func (h *Handler) createCacheCluster(c *echo.Context, form url.Values) error {
 	})
 }
 
-func (h *Handler) deleteCacheCluster(c *echo.Context, form url.Values) error {
+func (h *Handler) deleteCacheCluster(ctx context.Context, c *echo.Context, form url.Values) error {
 	id := form.Get("CacheClusterId")
-	clusters, descErr := h.Backend.DescribeClusters(id, "", 0)
+	clusters, descErr := h.Backend.DescribeClusters(ctx, id, "", 0)
 	if descErr != nil {
 		if errors.Is(descErr, ErrClusterNotFound) {
 			return xmlError(c, http.StatusBadRequest, "CacheClusterNotFound", "Cache cluster not found")
@@ -464,7 +472,7 @@ func (h *Handler) deleteCacheCluster(c *echo.Context, form url.Values) error {
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", descErr.Error())
 	}
 	cl := clusters.Data[0]
-	if err := h.Backend.DeleteCluster(id); err != nil {
+	if err := h.Backend.DeleteCluster(ctx, id); err != nil {
 		if errors.Is(err, ErrClusterNotFound) {
 			return xmlError(c, http.StatusBadRequest, "CacheClusterNotFound", "Cache cluster not found")
 		}
@@ -484,11 +492,11 @@ func (h *Handler) deleteCacheCluster(c *echo.Context, form url.Values) error {
 	})
 }
 
-func (h *Handler) describeCacheClusters(c *echo.Context, form url.Values) error {
+func (h *Handler) describeCacheClusters(ctx context.Context, c *echo.Context, form url.Values) error {
 	id := form.Get("CacheClusterId")
 	marker, maxRecords := parsePagination(form)
 
-	p, err := h.Backend.DescribeClusters(id, marker, maxRecords)
+	p, err := h.Backend.DescribeClusters(ctx, id, marker, maxRecords)
 	if err != nil {
 		if errors.Is(err, ErrClusterNotFound) {
 			return xmlError(c, http.StatusBadRequest, "CacheClusterNotFound", "Cache cluster not found")
@@ -519,9 +527,9 @@ func (h *Handler) describeCacheClusters(c *echo.Context, form url.Values) error 
 	})
 }
 
-func (h *Handler) listTagsForResource(c *echo.Context, form url.Values) error {
+func (h *Handler) listTagsForResource(ctx context.Context, c *echo.Context, form url.Values) error {
 	arn := form.Get("ResourceName")
-	tags, err := h.Backend.ListTagsForResource(arn)
+	tags, err := h.Backend.ListTagsForResource(ctx, arn)
 	if err != nil {
 		return xmlError(c, http.StatusBadRequest, "InvalidARN", err.Error())
 	}
@@ -550,10 +558,10 @@ func (h *Handler) listTagsForResource(c *echo.Context, form url.Values) error {
 	})
 }
 
-func (h *Handler) createReplicationGroup(c *echo.Context, form url.Values) error {
+func (h *Handler) createReplicationGroup(ctx context.Context, c *echo.Context, form url.Values) error {
 	opts := parseCreateReplicationGroupOpts(form)
 
-	rg, err := h.Backend.CreateReplicationGroupFull(opts)
+	rg, err := h.Backend.CreateReplicationGroupFull(ctx, opts)
 	if err != nil {
 		return mapReplicationGroupCreateErr(c, err)
 	}
@@ -672,9 +680,9 @@ func mapReplicationGroupCreateErr(c *echo.Context, err error) error {
 	}
 }
 
-func (h *Handler) deleteReplicationGroup(c *echo.Context, form url.Values) error {
+func (h *Handler) deleteReplicationGroup(ctx context.Context, c *echo.Context, form url.Values) error {
 	id := form.Get("ReplicationGroupId")
-	rgs, descErr := h.Backend.DescribeReplicationGroups(id, "", 0)
+	rgs, descErr := h.Backend.DescribeReplicationGroups(ctx, id, "", 0)
 	if descErr != nil {
 		if errors.Is(descErr, ErrReplicationGroupNotFound) {
 			return xmlError(c, http.StatusBadRequest, "ReplicationGroupNotFound", "Replication group not found")
@@ -683,7 +691,7 @@ func (h *Handler) deleteReplicationGroup(c *echo.Context, form url.Values) error
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", descErr.Error())
 	}
 	rg := rgs.Data[0]
-	if err := h.Backend.DeleteReplicationGroup(id); err != nil {
+	if err := h.Backend.DeleteReplicationGroup(ctx, id); err != nil {
 		if errors.Is(err, ErrReplicationGroupNotFound) {
 			return xmlError(c, http.StatusBadRequest, "ReplicationGroupNotFound", "Replication group not found")
 		}
@@ -915,11 +923,11 @@ type replicationGroupsListXML struct {
 	ReplicationGroup []replicationGroupXML `xml:"ReplicationGroup"`
 }
 
-func (h *Handler) describeReplicationGroups(c *echo.Context, form url.Values) error {
+func (h *Handler) describeReplicationGroups(ctx context.Context, c *echo.Context, form url.Values) error {
 	id := form.Get("ReplicationGroupId")
 	marker, maxRecords := parsePagination(form)
 
-	p, err := h.Backend.DescribeReplicationGroups(id, marker, maxRecords)
+	p, err := h.Backend.DescribeReplicationGroups(ctx, id, marker, maxRecords)
 	if err != nil {
 		if errors.Is(err, ErrReplicationGroupNotFound) {
 			return xmlError(c, http.StatusBadRequest, "ReplicationGroupNotFound", "Replication group not found")
@@ -983,7 +991,7 @@ func clusterToXML(cl *Cluster, status string) cacheClusterXML {
 	}
 }
 
-func (h *Handler) modifyCacheCluster(c *echo.Context, form url.Values) error {
+func (h *Handler) modifyCacheCluster(ctx context.Context, c *echo.Context, form url.Values) error {
 	id := form.Get("CacheClusterId")
 	nodeType := form.Get("CacheNodeType")
 	paramGroupName := form.Get("CacheParameterGroupName")
@@ -998,7 +1006,7 @@ func (h *Handler) modifyCacheCluster(c *echo.Context, form url.Values) error {
 		}
 	}
 
-	cluster, err := h.Backend.ModifyCluster(
+	cluster, err := h.Backend.ModifyCluster(ctx,
 		id,
 		nodeType,
 		paramGroupName,
@@ -1030,11 +1038,11 @@ func (h *Handler) modifyCacheCluster(c *echo.Context, form url.Values) error {
 	})
 }
 
-func (h *Handler) modifyReplicationGroup(c *echo.Context, form url.Values) error {
+func (h *Handler) modifyReplicationGroup(ctx context.Context, c *echo.Context, form url.Values) error {
 	id := form.Get("ReplicationGroupId")
 	opts := parseModifyReplicationGroupOpts(form)
 
-	rg, err := h.Backend.ModifyReplicationGroupFull(id, opts)
+	rg, err := h.Backend.ModifyReplicationGroupFull(ctx, id, opts)
 	if err != nil {
 		return mapReplicationGroupModifyErr(c, err)
 	}
@@ -1140,12 +1148,12 @@ func paramGroupToXML(pg *CacheParameterGroup) cacheParameterGroupXML {
 	}
 }
 
-func (h *Handler) createCacheParameterGroup(c *echo.Context, form url.Values) error {
+func (h *Handler) createCacheParameterGroup(ctx context.Context, c *echo.Context, form url.Values) error {
 	name := form.Get("CacheParameterGroupName")
 	family := form.Get("CacheParameterGroupFamily")
 	desc := form.Get("Description")
 
-	pg, err := h.Backend.CreateParameterGroup(name, family, desc)
+	pg, err := h.Backend.CreateParameterGroup(ctx, name, family, desc)
 	if err != nil {
 		if errors.Is(err, ErrParameterGroupAlreadyExists) {
 			return xmlError(
@@ -1160,7 +1168,7 @@ func (h *Handler) createCacheParameterGroup(c *echo.Context, form url.Values) er
 	}
 
 	if initialTags := parseFormTags(form); len(initialTags) > 0 {
-		_ = h.Backend.AddTagsToResource(pg.ARN, initialTags)
+		_ = h.Backend.AddTagsToResource(ctx, pg.ARN, initialTags)
 	}
 
 	type result struct {
@@ -1175,10 +1183,10 @@ func (h *Handler) createCacheParameterGroup(c *echo.Context, form url.Values) er
 	})
 }
 
-func (h *Handler) deleteCacheParameterGroup(c *echo.Context, form url.Values) error {
+func (h *Handler) deleteCacheParameterGroup(ctx context.Context, c *echo.Context, form url.Values) error {
 	name := form.Get("CacheParameterGroupName")
 
-	if err := h.Backend.DeleteParameterGroup(name); err != nil {
+	if err := h.Backend.DeleteParameterGroup(ctx, name); err != nil {
 		if errors.Is(err, ErrParameterGroupNotFound) {
 			return xmlError(c, http.StatusBadRequest, "CacheParameterGroupNotFound", "Cache parameter group not found")
 		}
@@ -1216,11 +1224,11 @@ type cacheParameterGroupsListXML struct {
 	CacheParameterGroup []cacheParameterGroupXML `xml:"CacheParameterGroup"`
 }
 
-func (h *Handler) describeCacheParameterGroups(c *echo.Context, form url.Values) error {
+func (h *Handler) describeCacheParameterGroups(ctx context.Context, c *echo.Context, form url.Values) error {
 	name := form.Get("CacheParameterGroupName")
 	marker, maxRecords := parsePagination(form)
 
-	p, err := h.Backend.DescribeParameterGroups(name, marker, maxRecords)
+	p, err := h.Backend.DescribeParameterGroups(ctx, name, marker, maxRecords)
 	if err != nil {
 		if errors.Is(err, ErrParameterGroupNotFound) {
 			return xmlError(c, http.StatusBadRequest, "CacheParameterGroupNotFound", "Cache parameter group not found")
@@ -1241,7 +1249,7 @@ func (h *Handler) describeCacheParameterGroups(c *echo.Context, form url.Values)
 	})
 }
 
-func (h *Handler) modifyCacheParameterGroup(c *echo.Context, form url.Values) error {
+func (h *Handler) modifyCacheParameterGroup(ctx context.Context, c *echo.Context, form url.Values) error {
 	name := form.Get("CacheParameterGroupName")
 
 	params := make(map[string]string)
@@ -1255,7 +1263,7 @@ func (h *Handler) modifyCacheParameterGroup(c *echo.Context, form url.Values) er
 		params[pname] = pval
 	}
 
-	pg, err := h.Backend.ModifyParameterGroup(name, params)
+	pg, err := h.Backend.ModifyParameterGroup(ctx, name, params)
 	if err != nil {
 		if errors.Is(err, ErrParameterGroupNotFound) {
 			return xmlError(c, http.StatusBadRequest, "CacheParameterGroupNotFound", "Cache parameter group not found")
@@ -1284,7 +1292,7 @@ func (h *Handler) modifyCacheParameterGroup(c *echo.Context, form url.Values) er
 	})
 }
 
-func (h *Handler) resetCacheParameterGroup(c *echo.Context, form url.Values) error {
+func (h *Handler) resetCacheParameterGroup(ctx context.Context, c *echo.Context, form url.Values) error {
 	name := form.Get("CacheParameterGroupName")
 	resetAll := form.Get("ResetAllParameters") == "true"
 
@@ -1299,7 +1307,7 @@ func (h *Handler) resetCacheParameterGroup(c *echo.Context, form url.Values) err
 		}
 	}
 
-	pg, err := h.Backend.ResetParameterGroup(name, paramNames, resetAll)
+	pg, err := h.Backend.ResetParameterGroup(ctx, name, paramNames, resetAll)
 	if err != nil {
 		if errors.Is(err, ErrParameterGroupNotFound) {
 			return xmlError(c, http.StatusBadRequest, "CacheParameterGroupNotFound", "Cache parameter group not found")
@@ -1364,11 +1372,11 @@ func buildParameterItems(params []CacheParameter) []parameterXML {
 	return items
 }
 
-func (h *Handler) describeCacheParameters(c *echo.Context, form url.Values) error {
+func (h *Handler) describeCacheParameters(ctx context.Context, c *echo.Context, form url.Values) error {
 	name := form.Get("CacheParameterGroupName")
 	marker, maxRecords := parsePagination(form)
 
-	p, err := h.Backend.DescribeParameters(name, marker, maxRecords)
+	p, err := h.Backend.DescribeParameters(ctx, name, marker, maxRecords)
 	if err != nil {
 		if errors.Is(err, ErrParameterGroupNotFound) {
 			return xmlError(c, http.StatusBadRequest, "CacheParameterGroupNotFound", "Cache parameter group not found")
@@ -1416,12 +1424,12 @@ func subnetGroupToXML(sg *CacheSubnetGroup) cacheSubnetGroupXML {
 	}
 }
 
-func (h *Handler) createCacheSubnetGroup(c *echo.Context, form url.Values) error {
+func (h *Handler) createCacheSubnetGroup(ctx context.Context, c *echo.Context, form url.Values) error {
 	name := form.Get("CacheSubnetGroupName")
 	desc := form.Get("CacheSubnetGroupDescription")
 	subnetIDs := parseSubnetIDs(form)
 
-	sg, err := h.Backend.CreateSubnetGroup(name, desc, subnetIDs)
+	sg, err := h.Backend.CreateSubnetGroup(ctx, name, desc, subnetIDs)
 	if err != nil {
 		if errors.Is(err, ErrSubnetGroupAlreadyExists) {
 			return xmlError(
@@ -1436,7 +1444,7 @@ func (h *Handler) createCacheSubnetGroup(c *echo.Context, form url.Values) error
 	}
 
 	if initialTags := parseFormTags(form); len(initialTags) > 0 {
-		_ = h.Backend.AddTagsToResource(sg.ARN, initialTags)
+		_ = h.Backend.AddTagsToResource(ctx, sg.ARN, initialTags)
 	}
 
 	type result struct {
@@ -1451,10 +1459,10 @@ func (h *Handler) createCacheSubnetGroup(c *echo.Context, form url.Values) error
 	})
 }
 
-func (h *Handler) deleteCacheSubnetGroup(c *echo.Context, form url.Values) error {
+func (h *Handler) deleteCacheSubnetGroup(ctx context.Context, c *echo.Context, form url.Values) error {
 	name := form.Get("CacheSubnetGroupName")
 
-	if err := h.Backend.DeleteSubnetGroup(name); err != nil {
+	if err := h.Backend.DeleteSubnetGroup(ctx, name); err != nil {
 		if errors.Is(err, ErrSubnetGroupNotFound) {
 			return xmlError(c, http.StatusBadRequest, "CacheSubnetGroupNotFound", "Cache subnet group not found")
 		}
@@ -1484,11 +1492,11 @@ type cacheSubnetGroupsListXML struct {
 	CacheSubnetGroup []cacheSubnetGroupXML `xml:"CacheSubnetGroup"`
 }
 
-func (h *Handler) describeCacheSubnetGroups(c *echo.Context, form url.Values) error {
+func (h *Handler) describeCacheSubnetGroups(ctx context.Context, c *echo.Context, form url.Values) error {
 	name := form.Get("CacheSubnetGroupName")
 	marker, maxRecords := parsePagination(form)
 
-	p, err := h.Backend.DescribeSubnetGroups(name, marker, maxRecords)
+	p, err := h.Backend.DescribeSubnetGroups(ctx, name, marker, maxRecords)
 	if err != nil {
 		if errors.Is(err, ErrSubnetGroupNotFound) {
 			return xmlError(c, http.StatusBadRequest, "CacheSubnetGroupNotFound", "Cache subnet group not found")
@@ -1509,12 +1517,12 @@ func (h *Handler) describeCacheSubnetGroups(c *echo.Context, form url.Values) er
 	})
 }
 
-func (h *Handler) modifyCacheSubnetGroup(c *echo.Context, form url.Values) error {
+func (h *Handler) modifyCacheSubnetGroup(ctx context.Context, c *echo.Context, form url.Values) error {
 	name := form.Get("CacheSubnetGroupName")
 	desc := form.Get("CacheSubnetGroupDescription")
 	subnetIDs := parseSubnetIDs(form)
 
-	sg, err := h.Backend.ModifySubnetGroup(name, desc, subnetIDs)
+	sg, err := h.Backend.ModifySubnetGroup(ctx, name, desc, subnetIDs)
 	if err != nil {
 		if errors.Is(err, ErrSubnetGroupNotFound) {
 			return xmlError(c, http.StatusBadRequest, "CacheSubnetGroupNotFound", "Cache subnet group not found")
@@ -1564,12 +1572,12 @@ func snapshotToXML(snap *CacheSnapshot) snapshotXML {
 	}
 }
 
-func (h *Handler) createSnapshot(c *echo.Context, form url.Values) error {
+func (h *Handler) createSnapshot(ctx context.Context, c *echo.Context, form url.Values) error {
 	snapshotName := form.Get("SnapshotName")
 	clusterID := form.Get("CacheClusterId")
 	replicationGroupID := form.Get("ReplicationGroupId")
 
-	snap, err := h.Backend.CreateSnapshot(snapshotName, clusterID, replicationGroupID)
+	snap, err := h.Backend.CreateSnapshot(ctx, snapshotName, clusterID, replicationGroupID)
 	if err != nil {
 		if errors.Is(err, ErrInvalidSnapshotSource) {
 			return xmlError(
@@ -1604,10 +1612,10 @@ func (h *Handler) createSnapshot(c *echo.Context, form url.Values) error {
 	})
 }
 
-func (h *Handler) deleteSnapshot(c *echo.Context, form url.Values) error {
+func (h *Handler) deleteSnapshot(ctx context.Context, c *echo.Context, form url.Values) error {
 	snapshotName := form.Get("SnapshotName")
 
-	snap, err := h.Backend.DeleteSnapshot(snapshotName)
+	snap, err := h.Backend.DeleteSnapshot(ctx, snapshotName)
 	if err != nil {
 		if errors.Is(err, ErrSnapshotNotFound) {
 			return xmlError(c, http.StatusBadRequest, "SnapshotNotFoundFault", "Snapshot not found")
@@ -1628,13 +1636,13 @@ func (h *Handler) deleteSnapshot(c *echo.Context, form url.Values) error {
 	})
 }
 
-func (h *Handler) describeSnapshots(c *echo.Context, form url.Values) error {
+func (h *Handler) describeSnapshots(ctx context.Context, c *echo.Context, form url.Values) error {
 	snapshotName := form.Get("SnapshotName")
 	clusterID := form.Get("CacheClusterId")
 	replicationGroupID := form.Get("ReplicationGroupId")
 	marker, maxRecords := parsePagination(form)
 
-	p, err := h.Backend.DescribeSnapshots(snapshotName, clusterID, replicationGroupID, marker, maxRecords)
+	p, err := h.Backend.DescribeSnapshots(ctx, snapshotName, clusterID, replicationGroupID, marker, maxRecords)
 	if err != nil {
 		if errors.Is(err, ErrSnapshotNotFound) {
 			return xmlError(c, http.StatusBadRequest, "SnapshotNotFoundFault", "Snapshot not found")
@@ -1665,11 +1673,11 @@ func (h *Handler) describeSnapshots(c *echo.Context, form url.Values) error {
 	})
 }
 
-func (h *Handler) copySnapshot(c *echo.Context, form url.Values) error {
+func (h *Handler) copySnapshot(ctx context.Context, c *echo.Context, form url.Values) error {
 	sourceSnapshotName := form.Get("SourceSnapshotName")
 	targetSnapshotName := form.Get("TargetSnapshotName")
 
-	snap, err := h.Backend.CopySnapshot(sourceSnapshotName, targetSnapshotName)
+	snap, err := h.Backend.CopySnapshot(ctx, sourceSnapshotName, targetSnapshotName)
 	if err != nil {
 		if errors.Is(err, ErrSnapshotNotFound) {
 			return xmlError(c, http.StatusBadRequest, "SnapshotNotFoundFault", "Source snapshot not found")
@@ -1693,7 +1701,7 @@ func (h *Handler) copySnapshot(c *echo.Context, form url.Values) error {
 	})
 }
 
-func (h *Handler) addTagsToResource(c *echo.Context, form url.Values) error {
+func (h *Handler) addTagsToResource(ctx context.Context, c *echo.Context, form url.Values) error {
 	resourceARN := form.Get("ResourceName")
 
 	newTags := make(map[string]string)
@@ -1706,7 +1714,7 @@ func (h *Handler) addTagsToResource(c *echo.Context, form url.Values) error {
 		newTags[key] = val
 	}
 
-	if err := h.Backend.AddTagsToResource(resourceARN, newTags); err != nil {
+	if err := h.Backend.AddTagsToResource(ctx, resourceARN, newTags); err != nil {
 		if errors.Is(err, ErrResourceNotFound) {
 			return xmlError(c, http.StatusBadRequest, "InvalidARN", err.Error())
 		}
@@ -1738,7 +1746,7 @@ func (h *Handler) addTagsToResource(c *echo.Context, form url.Values) error {
 	})
 }
 
-func (h *Handler) removeTagsFromResource(c *echo.Context, form url.Values) error {
+func (h *Handler) removeTagsFromResource(ctx context.Context, c *echo.Context, form url.Values) error {
 	resourceARN := form.Get("ResourceName")
 
 	var tagKeys []string
@@ -1750,7 +1758,7 @@ func (h *Handler) removeTagsFromResource(c *echo.Context, form url.Values) error
 		tagKeys = append(tagKeys, key)
 	}
 
-	if err := h.Backend.RemoveTagsFromResource(resourceARN, tagKeys); err != nil {
+	if err := h.Backend.RemoveTagsFromResource(ctx, resourceARN, tagKeys); err != nil {
 		if errors.Is(err, ErrResourceNotFound) {
 			return xmlError(c, http.StatusBadRequest, "InvalidARN", err.Error())
 		}
@@ -1777,11 +1785,11 @@ func (h *Handler) removeTagsFromResource(c *echo.Context, form url.Values) error
 	})
 }
 
-func (h *Handler) testFailoverReplicationGroup(c *echo.Context, form url.Values) error {
+func (h *Handler) testFailoverReplicationGroup(ctx context.Context, c *echo.Context, form url.Values) error {
 	id := form.Get("ReplicationGroupId")
 	nodeGroupID := form.Get("NodeGroupId")
 
-	rg, err := h.Backend.FailoverReplicationGroup(id, nodeGroupID)
+	rg, err := h.Backend.FailoverReplicationGroup(ctx, id, nodeGroupID)
 	if err != nil {
 		if errors.Is(err, ErrReplicationGroupNotFound) {
 			return xmlError(c, http.StatusBadRequest, "ReplicationGroupNotFound", "Replication group not found")
@@ -1802,7 +1810,7 @@ func (h *Handler) testFailoverReplicationGroup(c *echo.Context, form url.Values)
 	})
 }
 
-func (h *Handler) describeEvents(c *echo.Context, form url.Values) error {
+func (h *Handler) describeEvents(ctx context.Context, c *echo.Context, form url.Values) error {
 	sourceIdentifier := form.Get("SourceIdentifier")
 	sourceType := form.Get("SourceType")
 	marker, maxRecords := parsePagination(form)
@@ -1828,7 +1836,16 @@ func (h *Handler) describeEvents(c *echo.Context, form url.Values) error {
 		}
 	}
 
-	p, err := h.Backend.DescribeEvents(sourceIdentifier, sourceType, marker, startTime, endTime, duration, maxRecords)
+	p, err := h.Backend.DescribeEvents(
+		ctx,
+		sourceIdentifier,
+		sourceType,
+		marker,
+		startTime,
+		endTime,
+		duration,
+		maxRecords,
+	)
 	if err != nil {
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}

@@ -53,32 +53,50 @@ type ExportedUpdateClusterRequest = updateClusterRequest
 func ClusterCount(b *InMemoryBackend) int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
+	total := 0
+	for _, m := range b.clusters {
+		total += len(m)
+	}
 
-	return len(b.clusters)
+	return total
 }
 
 // ACLCount returns the number of ACLs in the backend.
 func ACLCount(b *InMemoryBackend) int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
+	total := 0
+	for _, m := range b.acls {
+		total += len(m)
+	}
 
-	return len(b.acls)
+	return total
 }
 
 // SnapshotCount returns the number of snapshots in the backend.
 func SnapshotCount(b *InMemoryBackend) int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
+	total := 0
+	for _, m := range b.snapshots {
 
-	return len(b.snapshots)
+		total += len(m)
+	}
+
+	return total
 }
 
 // UserCount returns the number of users in the backend.
 func UserCount(b *InMemoryBackend) int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
+	total := 0
 
-	return len(b.users)
+	for _, m := range b.users {
+		total += len(m)
+	}
+
+	return total
 }
 
 // SubnetGroupCount returns the number of subnet groups in the backend.
@@ -86,23 +104,38 @@ func SubnetGroupCount(b *InMemoryBackend) int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	return len(b.subnetGroups)
+	total := 0
+	for _, m := range b.subnetGroups {
+		total += len(m)
+	}
+
+	return total
 }
 
 // ParameterGroupCount returns the number of parameter groups in the backend.
 func ParameterGroupCount(b *InMemoryBackend) int {
 	b.mu.RLock()
-	defer b.mu.RUnlock()
 
-	return len(b.parameterGroups)
+	defer b.mu.RUnlock()
+	total := 0
+	for _, m := range b.parameterGroups {
+		total += len(m)
+	}
+
+	return total
 }
 
 // EventCount returns the number of events in the backend.
 func EventCount(b *InMemoryBackend) int {
+
 	b.mu.RLock()
 	defer b.mu.RUnlock()
+	total := 0
+	for _, evs := range b.events {
+		total += len(evs)
+	}
 
-	return len(b.events)
+	return total
 }
 
 // MultiRegionClusterCount returns the number of multi-region clusters in the backend.
@@ -117,8 +150,12 @@ func MultiRegionClusterCount(b *InMemoryBackend) int {
 func ARNIndexSize(b *InMemoryBackend) int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
+	total := 0
+	for _, m := range b.arnToResource {
+		total += len(m)
+	}
 
-	return len(b.arnToResource)
+	return total
 }
 
 // HandlerOpsLen returns the number of supported operations reported by the handler.

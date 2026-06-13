@@ -1,24 +1,30 @@
 package rdsdata
 
+import "context"
+
 // StorageBackend defines the interface for RDS Data backend implementations.
 // All methods must be safe for concurrent use.
 type StorageBackend interface {
 	// Statement execution
-	ExecuteStatement(resourceARN, sql, transactionID string) ([][]Field, []ColumnMetadata, int64, error)
+	ExecuteStatement(
+		ctx context.Context,
+		resourceARN, sql, transactionID string,
+	) ([][]Field, []ColumnMetadata, int64, error)
 	BatchExecuteStatement(
+		ctx context.Context,
 		resourceARN, sql, transactionID string,
 		parameterSets [][]SQLParameter,
 	) ([]UpdateResult, error)
-	ExecuteSQL(resourceARN, sqlStatements string) ([]SQLStatementResult, error)
+	ExecuteSQL(ctx context.Context, resourceARN, sqlStatements string) ([]SQLStatementResult, error)
 
 	// Transaction management
-	BeginTransaction(resourceARN string) (string, error)
-	CommitTransaction(transactionID string) (string, error)
-	RollbackTransaction(transactionID string) (string, error)
+	BeginTransaction(ctx context.Context, resourceARN string) (string, error)
+	CommitTransaction(ctx context.Context, transactionID string) (string, error)
+	RollbackTransaction(ctx context.Context, transactionID string) (string, error)
 
 	// Introspection helpers (used by tests and dashboard)
-	ListExecutedStatements() []ExecutedStatement
-	ListTransactions() map[string]Transaction
+	ListExecutedStatements(ctx context.Context) []ExecutedStatement
+	ListTransactions(ctx context.Context) map[string]Transaction
 
 	// Lifecycle
 	Reset()

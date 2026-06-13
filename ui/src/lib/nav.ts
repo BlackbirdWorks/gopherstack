@@ -136,6 +136,24 @@ export const implementedDashboardRouteIds = new Set<string>([
   "iotwireless",
   "lakeformation",
   "costexplorer",
+  "accessanalyzer",
+  "account",
+  "appmesh",
+  "databrew",
+  "datasync",
+  "dax",
+  "detective",
+  "directoryservice",
+  "dlm",
+  "forecast",
+  "macie2",
+  "medialive",
+  "mediapackage",
+  "mediatailor",
+  "personalize",
+  "quicksight",
+  "rolesanywhere",
+  "workmail",
 ]);
 
 // The 25 most commonly used AWS services shown in the sidebar.
@@ -256,6 +274,14 @@ export const sidebarCategories: DashboardCategory[] = [
         icon: "identitystore",
       },
       { id: "ram", href: "/dashboard/ram", label: "RAM", icon: "ram" },
+      { id: "detective", href: "/dashboard/detective", label: "Detective", icon: "detective" },
+      { id: "macie2", href: "/dashboard/macie2", label: "Macie", icon: "macie2" },
+      {
+        id: "rolesanywhere",
+        href: "/dashboard/rolesanywhere",
+        label: "Roles Anywhere",
+        icon: "rolesanywhere",
+      },
     ],
   },
   {
@@ -363,6 +389,10 @@ export const sidebarCategories: DashboardCategory[] = [
         label: "Lake Formation",
         icon: "lake",
       },
+      { id: "dax", href: "/dashboard/dax", label: "DynamoDB Accelerator", icon: "dax" },
+      { id: "databrew", href: "/dashboard/databrew", label: "Glue DataBrew", icon: "databrew" },
+      { id: "forecast", href: "/dashboard/forecast", label: "Forecast", icon: "forecast" },
+      { id: "quicksight", href: "/dashboard/quicksight", label: "QuickSight", icon: "quicksight" },
     ],
   },
   {
@@ -492,6 +522,12 @@ export const sidebarCategories: DashboardCategory[] = [
       { id: "transcribe", href: "/dashboard/transcribe", label: "Transcribe", icon: "transcribe" },
       { id: "translate", href: "/dashboard/translate", label: "Translate", icon: "translate" },
       { id: "polly", href: "/dashboard/polly", label: "Polly", icon: "polly" },
+      {
+        id: "personalize",
+        href: "/dashboard/personalize",
+        label: "Personalize",
+        icon: "personalize",
+      },
     ],
   },
   {
@@ -527,6 +563,19 @@ export const sidebarCategories: DashboardCategory[] = [
         label: "MediaStore Data",
         icon: "media",
       },
+      { id: "medialive", href: "/dashboard/medialive", label: "MediaLive", icon: "medialive" },
+      {
+        id: "mediapackage",
+        href: "/dashboard/mediapackage",
+        label: "MediaPackage",
+        icon: "mediapackage",
+      },
+      {
+        id: "mediatailor",
+        href: "/dashboard/mediatailor",
+        label: "MediaTailor",
+        icon: "mediatailor",
+      },
     ],
   },
   {
@@ -538,6 +587,8 @@ export const sidebarCategories: DashboardCategory[] = [
       { id: "fsx", href: "/dashboard/fsx", label: "FSx", icon: "fsx" },
       { id: "backup", href: "/dashboard/backup", label: "AWS Backup", icon: "backup" },
       { id: "glacier", href: "/dashboard/glacier", label: "Glacier", icon: "glacier" },
+      { id: "datasync", href: "/dashboard/datasync", label: "DataSync", icon: "datasync" },
+      { id: "dlm", href: "/dashboard/dlm", label: "Data Lifecycle Mgr", icon: "dlm" },
     ],
   },
   {
@@ -546,6 +597,7 @@ export const sidebarCategories: DashboardCategory[] = [
     routes: [
       { id: "ses", href: "/dashboard/ses", label: "SES", icon: "ses", common: true },
       { id: "sesv2", href: "/dashboard/sesv2", label: "SES v2", icon: "sesv2", common: true },
+      { id: "workmail", href: "/dashboard/workmail", label: "WorkMail", icon: "workmail" },
     ],
   },
   {
@@ -587,6 +639,7 @@ export const sidebarCategories: DashboardCategory[] = [
         icon: "servicediscovery",
       },
       { id: "transfer", href: "/dashboard/transfer", label: "Transfer Family", icon: "transfer" },
+      { id: "appmesh", href: "/dashboard/appmesh", label: "App Mesh", icon: "appmesh" },
     ],
   },
   {
@@ -655,6 +708,7 @@ export const sidebarCategories: DashboardCategory[] = [
         label: "Cost Explorer",
         icon: "costexplorer",
       },
+      { id: "account", href: "/dashboard/account", label: "Account", icon: "account" },
     ],
   },
   {

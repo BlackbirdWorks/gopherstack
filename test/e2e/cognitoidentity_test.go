@@ -17,6 +17,7 @@ func TestCognitoIdentityDashboard(t *testing.T) {
 	stack := newStack(t)
 
 	_, err := stack.CognitoIdentityHandler.Backend.CreateIdentityPool(
+		t.Context(),
 		"e2e-test-pool",
 		true,
 		false,

@@ -821,7 +821,7 @@ func TestAudit2_Events_Generated(t *testing.T) {
 func TestAudit2_ListClusters_NoMutation(t *testing.T) {
 	t.Parallel()
 
-	b := memorydb.NewInMemoryBackend()
+	b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
 	b.AddClusterInternal("cl-clone-test", "db.r6g.large")
 
 	// Call ListClusters and mutate the result; verify backend is not affected.

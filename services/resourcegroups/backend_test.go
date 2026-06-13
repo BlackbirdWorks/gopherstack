@@ -1,6 +1,7 @@
 package resourcegroups_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -30,7 +31,7 @@ func TestResourceGroupsCreateGroup(t *testing.T) {
 			name:      "already_exists",
 			groupName: "my-group",
 			setup: func(b *resourcegroups.InMemoryBackend) {
-				_, _ = b.CreateGroup("my-group", "", nil, nil, nil)
+				_, _ = b.CreateGroup(context.Background(), "my-group", "", nil, nil, nil)
 			},
 			wantErr: resourcegroups.ErrAlreadyExists,
 		},
@@ -43,7 +44,7 @@ func TestResourceGroupsCreateGroup(t *testing.T) {
 			if tt.setup != nil {
 				tt.setup(b)
 			}
-			g, err := b.CreateGroup(tt.groupName, tt.description, nil, tt.tags, nil)
+			g, err := b.CreateGroup(context.Background(), tt.groupName, tt.description, nil, tt.tags, nil)
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
@@ -71,7 +72,7 @@ func TestResourceGroupsDeleteGroup(t *testing.T) {
 			name:      "success",
 			groupName: "my-group",
 			setup: func(b *resourcegroups.InMemoryBackend) {
-				_, _ = b.CreateGroup("my-group", "", nil, nil, nil)
+				_, _ = b.CreateGroup(context.Background(), "my-group", "", nil, nil, nil)
 			},
 		},
 		{
@@ -88,7 +89,7 @@ func TestResourceGroupsDeleteGroup(t *testing.T) {
 			if tt.setup != nil {
 				tt.setup(b)
 			}
-			err := b.DeleteGroup(tt.groupName)
+			err := b.DeleteGroup(context.Background(), tt.groupName)
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
@@ -96,7 +97,7 @@ func TestResourceGroupsDeleteGroup(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			groups := b.ListGroups(nil)
+			groups := b.ListGroups(context.Background(), nil)
 			assert.Empty(t, groups)
 		})
 	}
@@ -118,7 +119,7 @@ func TestResourceGroupsGetGroup(t *testing.T) {
 			groupName: "my-group",
 			setup: func(b *resourcegroups.InMemoryBackend) {
 				tgs := tags.FromMap("test.rg", map[string]string{"env": "test"})
-				_, _ = b.CreateGroup("my-group", "desc", nil, tgs, nil)
+				_, _ = b.CreateGroup(context.Background(), "my-group", "desc", nil, tgs, nil)
 			},
 			wantTag: "test",
 		},
@@ -132,7 +133,7 @@ func TestResourceGroupsGetGroup(t *testing.T) {
 			groupName: "arn:aws:resource-groups:us-east-1:000000000000:group/my-group",
 			wantName:  "my-group",
 			setup: func(b *resourcegroups.InMemoryBackend) {
-				_, _ = b.CreateGroup("my-group", "desc", nil, nil, nil)
+				_, _ = b.CreateGroup(context.Background(), "my-group", "desc", nil, nil, nil)
 			},
 		},
 	}
@@ -144,7 +145,7 @@ func TestResourceGroupsGetGroup(t *testing.T) {
 			if tt.setup != nil {
 				tt.setup(b)
 			}
-			g, err := b.GetGroup(tt.groupName)
+			g, err := b.GetGroup(context.Background(), tt.groupName)
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
@@ -169,10 +170,10 @@ func TestResourceGroupsListGroups(t *testing.T) {
 	t.Parallel()
 
 	b := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
-	_, _ = b.CreateGroup("group-a", "", nil, nil, nil)
-	_, _ = b.CreateGroup("group-b", "", nil, nil, nil)
+	_, _ = b.CreateGroup(context.Background(), "group-a", "", nil, nil, nil)
+	_, _ = b.CreateGroup(context.Background(), "group-b", "", nil, nil, nil)
 
-	groups := b.ListGroups(nil)
+	groups := b.ListGroups(context.Background(), nil)
 	assert.Len(t, groups, 2)
 }
 
@@ -188,7 +189,7 @@ func TestResourceGroupsGetTagsByARN(t *testing.T) {
 		{
 			name: "success",
 			setup: func(b *resourcegroups.InMemoryBackend) string {
-				g, _ := b.CreateGroup(
+				g, _ := b.CreateGroup(context.Background(),
 					"my-group",
 					"",
 					nil,
@@ -214,7 +215,7 @@ func TestResourceGroupsGetTagsByARN(t *testing.T) {
 			t.Parallel()
 			b := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
 			arn := tt.setup(b)
-			got, err := b.GetTagsByARN(arn)
+			got, err := b.GetTagsByARN(context.Background(), arn)
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
@@ -254,7 +255,7 @@ func TestResourceGroupsAddTagsByARN(t *testing.T) {
 			b := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
 			var groupARN string
 			if tt.wantErr == nil {
-				g, _ := b.CreateGroup(
+				g, _ := b.CreateGroup(context.Background(),
 					"my-group",
 					"",
 					nil,
@@ -265,7 +266,7 @@ func TestResourceGroupsAddTagsByARN(t *testing.T) {
 			} else {
 				groupARN = "arn:aws:resource-groups:us-east-1:000000000000:group/nonexistent"
 			}
-			got, err := b.AddTagsByARN(groupARN, tt.addTags)
+			got, err := b.AddTagsByARN(context.Background(), groupARN, tt.addTags)
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
@@ -303,7 +304,7 @@ func TestResourceGroupsRemoveTagsByARN(t *testing.T) {
 			b := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
 			var groupARN string
 			if tt.wantErr == nil {
-				g, _ := b.CreateGroup(
+				g, _ := b.CreateGroup(context.Background(),
 					"my-group",
 					"",
 					nil,
@@ -314,7 +315,7 @@ func TestResourceGroupsRemoveTagsByARN(t *testing.T) {
 			} else {
 				groupARN = "arn:aws:resource-groups:us-east-1:000000000000:group/nonexistent"
 			}
-			err := b.RemoveTagsByARN(groupARN, tt.removeKeys)
+			err := b.RemoveTagsByARN(context.Background(), groupARN, tt.removeKeys)
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
@@ -322,7 +323,7 @@ func TestResourceGroupsRemoveTagsByARN(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			got, _ := b.GetTagsByARN(groupARN)
+			got, _ := b.GetTagsByARN(context.Background(), groupARN)
 			assert.NotContains(t, got, "env")
 		})
 	}
@@ -332,7 +333,7 @@ func TestResourceGroupsSnapshotRestore(t *testing.T) {
 	t.Parallel()
 
 	b := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.CreateGroup("snap-group", "desc", &resourcegroups.ResourceQuery{
+	_, err := b.CreateGroup(context.Background(), "snap-group", "desc", &resourcegroups.ResourceQuery{
 		Type:  "TAG_FILTERS_1_0",
 		Query: `{}`,
 	}, tags.FromMap("test.rg", map[string]string{"env": "test"}), nil)
@@ -344,7 +345,7 @@ func TestResourceGroupsSnapshotRestore(t *testing.T) {
 	b2 := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
 	require.NoError(t, b2.Restore(snap))
 
-	g, err := b2.GetGroup("snap-group")
+	g, err := b2.GetGroup(context.Background(), "snap-group")
 	require.NoError(t, err)
 	assert.Equal(t, "snap-group", g.Name)
 	assert.Equal(t, "desc", g.Description)

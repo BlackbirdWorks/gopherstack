@@ -1,6 +1,7 @@
 package resourcegroups
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -15,6 +16,21 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
+
+// regionContextKey is the context key under which the per-request AWS region is stored.
+type regionContextKey struct{}
+
+// getRegion extracts the region from ctx, falling back to defaultRegion when unset.
+// Resource Groups resources are isolated per region: every backend operation resolves
+// the caller's region from the request context and operates only on that region's
+// nested store.
+func getRegion(ctx context.Context, defaultRegion string) string {
+	if r, ok := ctx.Value(regionContextKey{}).(string); ok && r != "" {
+		return r
+	}
+
+	return defaultRegion
+}
 
 var (
 	// ErrNotFound is returned when a resource group is not found.
@@ -318,13 +334,18 @@ type ListTagSyncTasksFilter struct {
 }
 
 // InMemoryBackend is the in-memory store for Resource Groups.
+//
+// All resource maps are nested by region (outer key = region) so that
+// same-named resources are isolated across regions. The per-region inner maps
+// are created lazily via the *Store helpers (under write lock only). Read
+// operations use direct nil-safe map access without creating inner maps.
 type InMemoryBackend struct {
-	groups              map[string]*Group
-	arnIndex            map[string]string // ARN → group name
-	groupConfigurations map[string][]GroupConfigurationItem
-	groupResources      map[string][]string // group name → []resourceARN
-	groupingStatuses    map[string][]GroupingStatusItem
-	tagSyncTasks        map[string]*TagSyncTask // taskARN → task
+	groups              map[string]map[string]*Group
+	arnIndex            map[string]map[string]string // region → ARN → group name
+	groupConfigurations map[string]map[string][]GroupConfigurationItem
+	groupResources      map[string]map[string][]string // region → group name → []resourceARN
+	groupingStatuses    map[string]map[string][]GroupingStatusItem
+	tagSyncTasks        map[string]map[string]*TagSyncTask // region → taskARN → task
 	mu                  *lockmetrics.RWMutex
 	accountSettings     AccountSettings
 	accountID           string
@@ -334,16 +355,67 @@ type InMemoryBackend struct {
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		groups:              make(map[string]*Group),
-		arnIndex:            make(map[string]string),
-		groupConfigurations: make(map[string][]GroupConfigurationItem),
-		groupResources:      make(map[string][]string),
-		groupingStatuses:    make(map[string][]GroupingStatusItem),
-		tagSyncTasks:        make(map[string]*TagSyncTask),
+		groups:              make(map[string]map[string]*Group),
+		arnIndex:            make(map[string]map[string]string),
+		groupConfigurations: make(map[string]map[string][]GroupConfigurationItem),
+		groupResources:      make(map[string]map[string][]string),
+		groupingStatuses:    make(map[string]map[string][]GroupingStatusItem),
+		tagSyncTasks:        make(map[string]map[string]*TagSyncTask),
 		accountID:           accountID,
 		region:              region,
 		mu:                  lockmetrics.New("resourcegroups"),
 	}
+}
+
+// The *Store helpers return the per-region inner map, lazily creating it.
+// Callers must hold b.mu (write lock).
+
+func (b *InMemoryBackend) groupsStore(region string) map[string]*Group {
+	if b.groups[region] == nil {
+		b.groups[region] = make(map[string]*Group)
+	}
+
+	return b.groups[region]
+}
+
+func (b *InMemoryBackend) arnIndexStore(region string) map[string]string {
+	if b.arnIndex[region] == nil {
+		b.arnIndex[region] = make(map[string]string)
+	}
+
+	return b.arnIndex[region]
+}
+
+func (b *InMemoryBackend) groupConfigurationsStore(region string) map[string][]GroupConfigurationItem {
+	if b.groupConfigurations[region] == nil {
+		b.groupConfigurations[region] = make(map[string][]GroupConfigurationItem)
+	}
+
+	return b.groupConfigurations[region]
+}
+
+func (b *InMemoryBackend) groupResourcesStore(region string) map[string][]string {
+	if b.groupResources[region] == nil {
+		b.groupResources[region] = make(map[string][]string)
+	}
+
+	return b.groupResources[region]
+}
+
+func (b *InMemoryBackend) groupingStatusesStore(region string) map[string][]GroupingStatusItem {
+	if b.groupingStatuses[region] == nil {
+		b.groupingStatuses[region] = make(map[string][]GroupingStatusItem)
+	}
+
+	return b.groupingStatuses[region]
+}
+
+func (b *InMemoryBackend) tagSyncTasksStore(region string) map[string]*TagSyncTask {
+	if b.tagSyncTasks[region] == nil {
+		b.tagSyncTasks[region] = make(map[string]*TagSyncTask)
+	}
+
+	return b.tagSyncTasks[region]
 }
 
 // Region returns the AWS region this backend is configured for.
@@ -358,18 +430,20 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	for _, g := range b.groups {
-		if g.Tags != nil {
-			g.Tags.Close()
+	for _, regionGroups := range b.groups {
+		for _, g := range regionGroups {
+			if g.Tags != nil {
+				g.Tags.Close()
+			}
 		}
 	}
 
-	b.groups = make(map[string]*Group)
-	b.arnIndex = make(map[string]string)
-	b.groupConfigurations = make(map[string][]GroupConfigurationItem)
-	b.groupResources = make(map[string][]string)
-	b.groupingStatuses = make(map[string][]GroupingStatusItem)
-	b.tagSyncTasks = make(map[string]*TagSyncTask)
+	b.groups = make(map[string]map[string]*Group)
+	b.arnIndex = make(map[string]map[string]string)
+	b.groupConfigurations = make(map[string]map[string][]GroupConfigurationItem)
+	b.groupResources = make(map[string]map[string][]string)
+	b.groupingStatuses = make(map[string]map[string][]GroupingStatusItem)
+	b.tagSyncTasks = make(map[string]map[string]*TagSyncTask)
 	b.accountSettings = AccountSettings{}
 }
 
@@ -387,6 +461,7 @@ func resolveGroupName(nameOrARN string) string {
 // safe to read but callers should not pass it back to mutation methods.
 // configuration is optional; when non-nil it is stored atomically with the group.
 func (b *InMemoryBackend) CreateGroup(
+	ctx context.Context,
 	name, description string,
 	resourceQuery *ResourceQuery,
 	inputTags *tags.Tags,
@@ -420,11 +495,14 @@ func (b *InMemoryBackend) CreateGroup(
 	b.mu.Lock("CreateGroup")
 	defer b.mu.Unlock()
 
-	if _, ok := b.groups[name]; ok {
+	region := getRegion(ctx, b.region)
+	groups := b.groupsStore(region)
+
+	if _, ok := groups[name]; ok {
 		return nil, fmt.Errorf("%w: group %s already exists", ErrAlreadyExists, name)
 	}
 
-	groupARN := arn.Build("resource-groups", b.region, b.accountID, "group/"+name)
+	groupARN := arn.Build("resource-groups", region, b.accountID, "group/"+name)
 
 	// Clone caller-provided tags into a backend-owned collection so that the
 	// caller cannot mutate backend state by keeping a reference to inputTags.
@@ -443,11 +521,11 @@ func (b *InMemoryBackend) CreateGroup(
 		ResourceQuery: resourceQuery,
 		OwnerID:       b.accountID,
 	}
-	b.groups[name] = g
-	b.arnIndex[groupARN] = name
+	groups[name] = g
+	b.arnIndexStore(region)[groupARN] = name
 
 	if len(configuration) > 0 {
-		b.groupConfigurations[name] = cloneConfigItems(configuration)
+		b.groupConfigurationsStore(region)[name] = cloneConfigItems(configuration)
 	}
 
 	cp := *g
@@ -456,13 +534,14 @@ func (b *InMemoryBackend) CreateGroup(
 }
 
 // GetGroup returns a resource group by name or ARN.
-func (b *InMemoryBackend) GetGroup(nameOrARN string) (*Group, error) {
+func (b *InMemoryBackend) GetGroup(ctx context.Context, nameOrARN string) (*Group, error) {
 	b.mu.RLock("GetGroup")
 	defer b.mu.RUnlock()
 
+	region := getRegion(ctx, b.region)
 	name := resolveGroupName(nameOrARN)
 
-	g, ok := b.groups[name]
+	g, ok := b.groups[region][name]
 	if !ok {
 		return nil, fmt.Errorf("%w: group %s not found", ErrNotFound, name)
 	}
@@ -476,6 +555,7 @@ func (b *InMemoryBackend) GetGroup(nameOrARN string) (*Group, error) {
 // Pass an empty displayName to leave it unchanged. Pass criticality=0 to leave it unchanged.
 // Criticality must be 1-5 if non-zero.
 func (b *InMemoryBackend) UpdateGroup(
+	ctx context.Context,
 	nameOrARN, description, displayName string,
 	criticality int,
 ) (*Group, error) {
@@ -490,9 +570,10 @@ func (b *InMemoryBackend) UpdateGroup(
 	b.mu.Lock("UpdateGroup")
 	defer b.mu.Unlock()
 
+	region := getRegion(ctx, b.region)
 	name := resolveGroupName(nameOrARN)
 
-	g, ok := b.groups[name]
+	g, ok := b.groups[region][name]
 	if !ok {
 		return nil, fmt.Errorf("%w: group %s not found", ErrNotFound, name)
 	}
@@ -513,7 +594,11 @@ func (b *InMemoryBackend) UpdateGroup(
 }
 
 // UpdateGroupQuery updates the resource query of a resource group identified by name or ARN.
-func (b *InMemoryBackend) UpdateGroupQuery(nameOrARN string, query *ResourceQuery) (*Group, error) {
+func (b *InMemoryBackend) UpdateGroupQuery(
+	ctx context.Context,
+	nameOrARN string,
+	query *ResourceQuery,
+) (*Group, error) {
 	if err := validateResourceQuery(query); err != nil {
 		return nil, err
 	}
@@ -521,9 +606,10 @@ func (b *InMemoryBackend) UpdateGroupQuery(nameOrARN string, query *ResourceQuer
 	b.mu.Lock("UpdateGroupQuery")
 	defer b.mu.Unlock()
 
+	region := getRegion(ctx, b.region)
 	name := resolveGroupName(nameOrARN)
 
-	g, ok := b.groups[name]
+	g, ok := b.groups[region][name]
 	if !ok {
 		return nil, fmt.Errorf("%w: group %s not found", ErrNotFound, name)
 	}
@@ -537,30 +623,41 @@ func (b *InMemoryBackend) UpdateGroupQuery(nameOrARN string, query *ResourceQuer
 // DeleteGroup deletes a resource group by name or ARN.
 // It cascades to remove all associated resources, configurations,
 // grouping-status records, and tag-sync tasks for the group.
-func (b *InMemoryBackend) DeleteGroup(nameOrARN string) error {
+func (b *InMemoryBackend) DeleteGroup(ctx context.Context, nameOrARN string) error {
 	b.mu.Lock("DeleteGroup")
 	defer b.mu.Unlock()
 
+	region := getRegion(ctx, b.region)
 	name := resolveGroupName(nameOrARN)
 
-	g, ok := b.groups[name]
+	g, ok := b.groups[region][name]
 	if !ok {
 		return fmt.Errorf("%w: group %s not found", ErrNotFound, name)
 	}
 
-	delete(b.arnIndex, g.ARN)
+	delete(b.arnIndex[region], g.ARN)
 	g.Tags.Close()
-	delete(b.groups, name)
+	delete(b.groups[region], name)
 
 	// Cascade: remove all derived state for this group.
-	delete(b.groupResources, name)
-	delete(b.groupingStatuses, name)
-	delete(b.groupConfigurations, name)
+	if b.groupResources[region] != nil {
+		delete(b.groupResources[region], name)
+	}
+
+	if b.groupingStatuses[region] != nil {
+		delete(b.groupingStatuses[region], name)
+	}
+
+	if b.groupConfigurations[region] != nil {
+		delete(b.groupConfigurations[region], name)
+	}
 
 	// Cancel any tag-sync tasks bound to this group.
-	for taskARN, task := range b.tagSyncTasks {
-		if task.GroupName == name {
-			delete(b.tagSyncTasks, taskARN)
+	if b.tagSyncTasks[region] != nil {
+		for taskARN, task := range b.tagSyncTasks[region] {
+			if task.GroupName == name {
+				delete(b.tagSyncTasks[region], taskARN)
+			}
 		}
 	}
 
@@ -571,14 +668,16 @@ func (b *InMemoryBackend) DeleteGroup(nameOrARN string) error {
 // Supported filter names: "configuration-type" (match by GroupConfigurationItem.Type)
 // and "resource-type" (match by allowed-resource-types parameter value).
 // An empty filters slice returns all groups.
-func (b *InMemoryBackend) ListGroups(filters []ListGroupsFilter) []Group {
+func (b *InMemoryBackend) ListGroups(ctx context.Context, filters []ListGroupsFilter) []Group {
 	b.mu.RLock("ListGroups")
 	defer b.mu.RUnlock()
 
-	out := make([]Group, 0, len(b.groups))
+	region := getRegion(ctx, b.region)
+	regionGroups := b.groups[region]
+	out := make([]Group, 0, len(regionGroups))
 
-	for _, g := range b.groups {
-		if !b.groupMatchesFilters(g.Name, filters) {
+	for _, g := range regionGroups {
+		if !b.groupMatchesFilters(region, g.Name, filters) {
 			continue
 		}
 
@@ -594,12 +693,15 @@ func (b *InMemoryBackend) ListGroups(filters []ListGroupsFilter) []Group {
 
 // groupMatchesFilters returns true when a group satisfies all provided filter criteria.
 // Must be called under an active read lock.
-func (b *InMemoryBackend) groupMatchesFilters(name string, filters []ListGroupsFilter) bool {
+func (b *InMemoryBackend) groupMatchesFilters(region, name string, filters []ListGroupsFilter) bool {
 	if len(filters) == 0 {
 		return true
 	}
 
-	configs := b.groupConfigurations[name]
+	var configs []GroupConfigurationItem
+	if b.groupConfigurations[region] != nil {
+		configs = b.groupConfigurations[region][name]
+	}
 
 	for _, f := range filters {
 		switch f.Name {
@@ -649,11 +751,13 @@ func configMatchesResourceTypeFilter(configs []GroupConfigurationItem, values []
 }
 
 // GetTagsByARN returns the tags for the resource group identified by ARN.
-func (b *InMemoryBackend) GetTagsByARN(resourceARN string) (map[string]string, error) {
+func (b *InMemoryBackend) GetTagsByARN(ctx context.Context, resourceARN string) (map[string]string, error) {
 	b.mu.RLock("GetTagsByARN")
 	defer b.mu.RUnlock()
 
-	g := b.findByARN(resourceARN)
+	region := getRegion(ctx, b.region)
+
+	g := b.findByARN(region, resourceARN)
 	if g == nil {
 		return nil, fmt.Errorf("%w: group with ARN %s not found", ErrNotFound, resourceARN)
 	}
@@ -664,6 +768,7 @@ func (b *InMemoryBackend) GetTagsByARN(resourceARN string) (map[string]string, e
 // AddTagsByARN merges newTags into the resource group identified by ARN and
 // returns the resulting tag set. Rejects reserved aws: tag key prefixes.
 func (b *InMemoryBackend) AddTagsByARN(
+	ctx context.Context,
 	resourceARN string,
 	newTags map[string]string,
 ) (map[string]string, error) {
@@ -674,7 +779,9 @@ func (b *InMemoryBackend) AddTagsByARN(
 	b.mu.Lock("AddTagsByARN")
 	defer b.mu.Unlock()
 
-	g := b.findByARN(resourceARN)
+	region := getRegion(ctx, b.region)
+
+	g := b.findByARN(region, resourceARN)
 	if g == nil {
 		return nil, fmt.Errorf("%w: group with ARN %s not found", ErrNotFound, resourceARN)
 	}
@@ -686,11 +793,13 @@ func (b *InMemoryBackend) AddTagsByARN(
 
 // RemoveTagsByARN removes the specified tag keys from the resource group
 // identified by ARN.
-func (b *InMemoryBackend) RemoveTagsByARN(resourceARN string, keys []string) error {
+func (b *InMemoryBackend) RemoveTagsByARN(ctx context.Context, resourceARN string, keys []string) error {
 	b.mu.Lock("RemoveTagsByARN")
 	defer b.mu.Unlock()
 
-	g := b.findByARN(resourceARN)
+	region := getRegion(ctx, b.region)
+
+	g := b.findByARN(region, resourceARN)
 	if g == nil {
 		return fmt.Errorf("%w: group with ARN %s not found", ErrNotFound, resourceARN)
 	}
@@ -700,14 +809,19 @@ func (b *InMemoryBackend) RemoveTagsByARN(resourceARN string, keys []string) err
 	return nil
 }
 
-// findByARN looks up a group by its ARN (must be called under a lock).
-func (b *InMemoryBackend) findByARN(resourceARN string) *Group {
-	name, ok := b.arnIndex[resourceARN]
+// findByARN looks up a group by its ARN within the given region (must be called under a lock).
+func (b *InMemoryBackend) findByARN(region, resourceARN string) *Group {
+	arnIdx := b.arnIndex[region]
+	if arnIdx == nil {
+		return nil
+	}
+
+	name, ok := arnIdx[resourceARN]
 	if !ok {
 		return nil
 	}
 
-	return b.groups[name]
+	return b.groups[region][name]
 }
 
 // GetAccountSettings returns the account-level settings.
@@ -742,6 +856,7 @@ func (b *InMemoryBackend) UpdateAccountSettings(desiredStatus string) error {
 // PutGroupConfiguration stores a deep copy of items for the named group.
 // It validates each item's Type and Parameters against the known allow-list.
 func (b *InMemoryBackend) PutGroupConfiguration(
+	ctx context.Context,
 	nameOrARN string,
 	items []GroupConfigurationItem,
 ) error {
@@ -752,29 +867,39 @@ func (b *InMemoryBackend) PutGroupConfiguration(
 	b.mu.Lock("PutGroupConfiguration")
 	defer b.mu.Unlock()
 
+	region := getRegion(ctx, b.region)
 	name := resolveGroupName(nameOrARN)
-	if _, ok := b.groups[name]; !ok {
+
+	if b.groups[region][name] == nil {
 		return fmt.Errorf("%w: group %s not found", ErrNotFound, name)
 	}
 
-	b.groupConfigurations[name] = cloneConfigItems(items)
+	b.groupConfigurationsStore(region)[name] = cloneConfigItems(items)
 
 	return nil
 }
 
 // GetGroupConfigurationItems returns a deep copy of the stored configuration for a group.
 func (b *InMemoryBackend) GetGroupConfigurationItems(
+	ctx context.Context,
 	nameOrARN string,
 ) ([]GroupConfigurationItem, error) {
 	b.mu.RLock("GetGroupConfigurationItems")
 	defer b.mu.RUnlock()
 
+	region := getRegion(ctx, b.region)
 	name := resolveGroupName(nameOrARN)
-	if _, ok := b.groups[name]; !ok {
+
+	if b.groups[region][name] == nil {
 		return nil, fmt.Errorf("%w: group %s not found", ErrNotFound, name)
 	}
 
-	return cloneConfigItems(b.groupConfigurations[name]), nil
+	var configs []GroupConfigurationItem
+	if b.groupConfigurations[region] != nil {
+		configs = b.groupConfigurations[region][name]
+	}
+
+	return cloneConfigItems(configs), nil
 }
 
 // cloneConfigItems returns a deep copy of a GroupConfigurationItem slice.
@@ -805,38 +930,44 @@ func cloneConfigItems(items []GroupConfigurationItem) []GroupConfigurationItem {
 // GroupResources associates a list of resource ARNs with a group.
 // Duplicate ARNs are silently ignored; each ARN is only added once.
 func (b *InMemoryBackend) GroupResources(
+	ctx context.Context,
 	nameOrARN string,
 	resourceARNs []string,
 ) ([]string, error) {
 	b.mu.Lock("GroupResources")
 	defer b.mu.Unlock()
 
+	region := getRegion(ctx, b.region)
 	name := resolveGroupName(nameOrARN)
-	if _, ok := b.groups[name]; !ok {
+
+	if b.groups[region][name] == nil {
 		return nil, fmt.Errorf("%w: group %s not found", ErrNotFound, name)
 	}
 
-	if b.groupResources[name] == nil {
-		b.groupResources[name] = []string{}
+	resStore := b.groupResourcesStore(region)
+
+	if resStore[name] == nil {
+		resStore[name] = []string{}
 	}
 
-	existing := make(map[string]struct{}, len(b.groupResources[name]))
+	existing := make(map[string]struct{}, len(resStore[name]))
 
-	for _, a := range b.groupResources[name] {
+	for _, a := range resStore[name] {
 		existing[a] = struct{}{}
 	}
 
 	now := time.Now().UTC()
 	succeeded := make([]string, 0, len(resourceARNs))
+	statusStore := b.groupingStatusesStore(region)
 
 	for _, a := range resourceARNs {
 		if _, dup := existing[a]; !dup {
-			b.groupResources[name] = append(b.groupResources[name], a)
+			resStore[name] = append(resStore[name], a)
 			existing[a] = struct{}{}
 		}
 
 		succeeded = append(succeeded, a)
-		b.groupingStatuses[name] = append(b.groupingStatuses[name], GroupingStatusItem{
+		statusStore[name] = append(statusStore[name], GroupingStatusItem{
 			ResourceArn: a,
 			Action:      groupingActionGroup,
 			Status:      groupingStatusSuccess,
@@ -863,19 +994,24 @@ type GroupingFailedItem struct {
 // UngroupResources removes a list of resource ARNs from a group.
 // ARNs that are not currently in the group are returned in Failed[].
 func (b *InMemoryBackend) UngroupResources(
+	ctx context.Context,
 	nameOrARN string,
 	resourceARNs []string,
 ) (*UngroupResourcesResult, error) {
 	b.mu.Lock("UngroupResources")
 	defer b.mu.Unlock()
 
+	region := getRegion(ctx, b.region)
 	name := resolveGroupName(nameOrARN)
-	if _, ok := b.groups[name]; !ok {
+
+	if b.groups[region][name] == nil {
 		return nil, fmt.Errorf("%w: group %s not found", ErrNotFound, name)
 	}
 
-	existing := make(map[string]struct{}, len(b.groupResources[name]))
-	for _, a := range b.groupResources[name] {
+	resStore := b.groupResourcesStore(region)
+	existing := make(map[string]struct{}, len(resStore[name]))
+
+	for _, a := range resStore[name] {
 		existing[a] = struct{}{}
 	}
 
@@ -884,14 +1020,14 @@ func (b *InMemoryBackend) UngroupResources(
 		remove[a] = struct{}{}
 	}
 
-	kept := b.groupResources[name][:0:0]
-	for _, a := range b.groupResources[name] {
+	kept := resStore[name][:0:0]
+	for _, a := range resStore[name] {
 		if _, ok := remove[a]; !ok {
 			kept = append(kept, a)
 		}
 	}
 
-	b.groupResources[name] = kept
+	resStore[name] = kept
 
 	now := time.Now().UTC()
 	result := &UngroupResourcesResult{
@@ -899,10 +1035,12 @@ func (b *InMemoryBackend) UngroupResources(
 		Failed:    make([]GroupingFailedItem, 0),
 	}
 
+	statusStore := b.groupingStatusesStore(region)
+
 	for _, a := range resourceARNs {
 		if _, wasMember := existing[a]; wasMember {
 			result.Succeeded = append(result.Succeeded, a)
-			b.groupingStatuses[name] = append(b.groupingStatuses[name], GroupingStatusItem{
+			statusStore[name] = append(statusStore[name], GroupingStatusItem{
 				ResourceArn: a,
 				Action:      groupingActionUngroup,
 				Status:      groupingStatusSuccess,
@@ -914,7 +1052,7 @@ func (b *InMemoryBackend) UngroupResources(
 				ErrorCode:    groupingErrResourceNotFound,
 				ErrorMessage: fmt.Sprintf("resource %s is not a member of group %s", a, name),
 			})
-			b.groupingStatuses[name] = append(b.groupingStatuses[name], GroupingStatusItem{
+			statusStore[name] = append(statusStore[name], GroupingStatusItem{
 				ResourceArn:  a,
 				Action:       groupingActionUngroup,
 				Status:       groupingStatusFailed,
@@ -929,16 +1067,22 @@ func (b *InMemoryBackend) UngroupResources(
 }
 
 // ListGroupResources returns all resource ARNs associated with a group.
-func (b *InMemoryBackend) ListGroupResources(nameOrARN string) ([]ResourceIdentifier, error) {
+func (b *InMemoryBackend) ListGroupResources(ctx context.Context, nameOrARN string) ([]ResourceIdentifier, error) {
 	b.mu.RLock("ListGroupResources")
 	defer b.mu.RUnlock()
 
+	region := getRegion(ctx, b.region)
 	name := resolveGroupName(nameOrARN)
-	if _, ok := b.groups[name]; !ok {
+
+	if b.groups[region][name] == nil {
 		return nil, fmt.Errorf("%w: group %s not found", ErrNotFound, name)
 	}
 
-	arns := b.groupResources[name]
+	var arns []string
+	if b.groupResources[region] != nil {
+		arns = b.groupResources[region][name]
+	}
+
 	out := make([]ResourceIdentifier, 0, len(arns))
 
 	for _, a := range arns {
@@ -949,32 +1093,42 @@ func (b *InMemoryBackend) ListGroupResources(nameOrARN string) ([]ResourceIdenti
 }
 
 // ListGroupingStatuses returns the grouping/ungrouping status history for a group.
-func (b *InMemoryBackend) ListGroupingStatuses(nameOrARN string) ([]GroupingStatusItem, error) {
+func (b *InMemoryBackend) ListGroupingStatuses(ctx context.Context, nameOrARN string) ([]GroupingStatusItem, error) {
 	b.mu.RLock("ListGroupingStatuses")
 	defer b.mu.RUnlock()
 
+	region := getRegion(ctx, b.region)
 	name := resolveGroupName(nameOrARN)
-	if _, ok := b.groups[name]; !ok {
+
+	if b.groups[region][name] == nil {
 		return nil, fmt.Errorf("%w: group %s not found", ErrNotFound, name)
 	}
 
-	statuses := b.groupingStatuses[name]
+	var statuses []GroupingStatusItem
+	if b.groupingStatuses[region] != nil {
+		statuses = b.groupingStatuses[region][name]
+	}
+
 	out := make([]GroupingStatusItem, len(statuses))
 	copy(out, statuses)
 
 	return out, nil
 }
 
-// SearchResources returns resource identifiers that have been grouped into any group.
-// The in-memory implementation returns all known grouped resource ARNs, de-duplicated.
-func (b *InMemoryBackend) SearchResources(_ *ResourceQuery) ([]ResourceIdentifier, error) {
+// SearchResources returns resource identifiers that have been grouped into any group
+// within the request's region. The in-memory implementation returns all known grouped
+// resource ARNs for the region, de-duplicated.
+func (b *InMemoryBackend) SearchResources(ctx context.Context, _ *ResourceQuery) ([]ResourceIdentifier, error) {
 	b.mu.RLock("SearchResources")
 	defer b.mu.RUnlock()
 
-	seen := make(map[string]struct{})
-	out := make([]ResourceIdentifier, 0, len(b.groupResources))
+	region := getRegion(ctx, b.region)
+	regionRes := b.groupResources[region]
 
-	for _, arns := range b.groupResources {
+	seen := make(map[string]struct{})
+	out := make([]ResourceIdentifier, 0, len(regionRes))
+
+	for _, arns := range regionRes {
 		for _, a := range arns {
 			if _, ok := seen[a]; !ok {
 				seen[a] = struct{}{}
@@ -988,22 +1142,24 @@ func (b *InMemoryBackend) SearchResources(_ *ResourceQuery) ([]ResourceIdentifie
 
 // StartTagSyncTask creates a new tag-sync task for an application group.
 func (b *InMemoryBackend) StartTagSyncTask(
+	ctx context.Context,
 	nameOrARN, roleARN, tagKey, tagValue string,
 	resourceQuery *ResourceQuery,
 ) (*TagSyncTask, error) {
 	b.mu.Lock("StartTagSyncTask")
 	defer b.mu.Unlock()
 
+	region := getRegion(ctx, b.region)
 	name := resolveGroupName(nameOrARN)
 
-	g, ok := b.groups[name]
+	g, ok := b.groups[region][name]
 	if !ok {
 		return nil, fmt.Errorf("%w: group %s not found", ErrNotFound, name)
 	}
 
 	taskARN := arn.Build(
 		"resource-groups",
-		b.region,
+		region,
 		b.accountID,
 		"tag-sync-task/"+name+"-"+time.Now().Format("20060102150405"),
 	)
@@ -1020,7 +1176,7 @@ func (b *InMemoryBackend) StartTagSyncTask(
 		CreatedAt:     time.Now().UTC(),
 	}
 
-	b.tagSyncTasks[taskARN] = task
+	b.tagSyncTasksStore(region)[taskARN] = task
 
 	cp := *task
 
@@ -1030,11 +1186,14 @@ func (b *InMemoryBackend) StartTagSyncTask(
 // CancelTagSyncTask transitions a tag-sync task to CANCELLED status.
 // The task remains visible via GetTagSyncTask and ListTagSyncTasks until
 // the tagSyncTaskTTL eviction window expires (issue #22 accuracy fix).
-func (b *InMemoryBackend) CancelTagSyncTask(taskARN string) error {
+func (b *InMemoryBackend) CancelTagSyncTask(ctx context.Context, taskARN string) error {
 	b.mu.Lock("CancelTagSyncTask")
 	defer b.mu.Unlock()
 
-	task, ok := b.tagSyncTasks[taskARN]
+	region := getRegion(ctx, b.region)
+
+	tasks := b.tagSyncTasks[region]
+	task, ok := tasks[taskARN]
 	if !ok {
 		return fmt.Errorf("%w: task %s not found", ErrTagSyncTaskNotFound, taskARN)
 	}
@@ -1045,12 +1204,18 @@ func (b *InMemoryBackend) CancelTagSyncTask(taskARN string) error {
 }
 
 // GetTagSyncTask returns a copy of a tag-sync task by ARN.
-func (b *InMemoryBackend) GetTagSyncTask(taskARN string) (*TagSyncTask, error) {
+func (b *InMemoryBackend) GetTagSyncTask(ctx context.Context, taskARN string) (*TagSyncTask, error) {
 	b.mu.RLock("GetTagSyncTask")
 	defer b.mu.RUnlock()
 
-	task, ok := b.tagSyncTasks[taskARN]
-	if !ok {
+	region := getRegion(ctx, b.region)
+
+	var task *TagSyncTask
+	if b.tagSyncTasks[region] != nil {
+		task = b.tagSyncTasks[region][taskARN]
+	}
+
+	if task == nil {
 		return nil, fmt.Errorf("%w: task %s not found", ErrTagSyncTaskNotFound, taskARN)
 	}
 
@@ -1063,23 +1228,26 @@ func (b *InMemoryBackend) GetTagSyncTask(taskARN string) (*TagSyncTask, error) {
 // Inactive tasks older than tagSyncTaskTTL are evicted before the result is assembled.
 // Results are sorted by TaskArn for deterministic ordering.
 func (b *InMemoryBackend) ListTagSyncTasks(
+	ctx context.Context,
 	filters []ListTagSyncTasksFilter,
 ) ([]TagSyncTask, error) {
 	b.mu.Lock("ListTagSyncTasks")
 	defer b.mu.Unlock()
 
+	region := getRegion(ctx, b.region)
 	cutoff := time.Now().UTC().Add(-tagSyncTaskTTL)
 
 	// Evict stale non-active tasks.
-	for taskARN, task := range b.tagSyncTasks {
+	tasks := b.tagSyncTasks[region]
+	for taskARN, task := range tasks {
 		if task.Status != tagSyncTaskStatusActive && task.CreatedAt.Before(cutoff) {
-			delete(b.tagSyncTasks, taskARN)
+			delete(tasks, taskARN)
 		}
 	}
 
-	out := make([]TagSyncTask, 0, len(b.tagSyncTasks))
+	out := make([]TagSyncTask, 0, len(tasks))
 
-	for _, task := range b.tagSyncTasks {
+	for _, task := range tasks {
 		if !taskMatchesFilters(task, filters) {
 			continue
 		}

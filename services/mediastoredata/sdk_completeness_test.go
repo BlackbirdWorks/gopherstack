@@ -16,7 +16,7 @@ import (
 func TestSDKCompleteness(t *testing.T) {
 	t.Parallel()
 
-	backend := mediastoredata.NewInMemoryBackend()
+	backend := mediastoredata.NewInMemoryBackend("us-east-1")
 	h := mediastoredata.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &mediastoredatasdk.Client{}, h.GetSupportedOperations(), nil)
 }

@@ -1,6 +1,7 @@
 package textract_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -66,10 +67,10 @@ func TestRefinement1_BackendReset(t *testing.T) {
 
 	b := newTestBackend(t)
 
-	_, err := b.StartDocumentAnalysis("s3://bucket/doc.pdf")
+	_, err := b.StartDocumentAnalysis(context.Background(), "s3://bucket/doc.pdf")
 	require.NoError(t, err)
 
-	_, err = b.CreateAdapter("myAdapter", "desc", "DISABLED", []string{"FORMS"}, nil)
+	_, err = b.CreateAdapter(context.Background(), "myAdapter", "desc", "DISABLED", []string{"FORMS"}, nil)
 	require.NoError(t, err)
 
 	require.Equal(t, 1, textract.JobCount(b))
@@ -549,18 +550,18 @@ func TestRefinement1_DeleteAdapter_CascadesVersions(t *testing.T) {
 
 	b := newTestBackend(t)
 
-	adapter, err := b.CreateAdapter("cascade-test", "", "DISABLED", []string{"FORMS"}, nil)
+	adapter, err := b.CreateAdapter(context.Background(), "cascade-test", "", "DISABLED", []string{"FORMS"}, nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateAdapterVersion(adapter.AdapterID, nil)
+	_, err = b.CreateAdapterVersion(context.Background(), adapter.AdapterID, nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateAdapterVersion(adapter.AdapterID, nil)
+	_, err = b.CreateAdapterVersion(context.Background(), adapter.AdapterID, nil)
 	require.NoError(t, err)
 
 	require.Equal(t, 2, textract.AdapterVersionCount(b))
 
-	err = b.DeleteAdapter(adapter.AdapterID)
+	err = b.DeleteAdapter(context.Background(), adapter.AdapterID)
 	require.NoError(t, err)
 
 	assert.Equal(t, 0, textract.AdapterCount(b))
@@ -574,10 +575,10 @@ func TestRefinement1_PersistenceWithExpenseAndLendingJobs(t *testing.T) {
 
 	b := newTestBackend(t)
 
-	expJob, err := b.StartExpenseAnalysis("s3://bucket/invoice.pdf")
+	expJob, err := b.StartExpenseAnalysis(context.Background(), "s3://bucket/invoice.pdf")
 	require.NoError(t, err)
 
-	lendJob, err := b.StartLendingAnalysis("s3://bucket/loan.pdf")
+	lendJob, err := b.StartLendingAnalysis(context.Background(), "s3://bucket/loan.pdf")
 	require.NoError(t, err)
 
 	snap := b.Snapshot()
@@ -589,13 +590,13 @@ func TestRefinement1_PersistenceWithExpenseAndLendingJobs(t *testing.T) {
 	assert.Equal(t, 1, textract.ExpenseJobCount(b2))
 	assert.Equal(t, 1, textract.LendingJobCount(b2))
 
-	fetched, err := b2.GetExpenseAnalysis(expJob.JobID)
+	fetched, err := b2.GetExpenseAnalysis(context.Background(), expJob.JobID)
 	require.NoError(t, err)
 	assert.Equal(t, expJob.JobID, fetched.JobID)
 	assert.Equal(t, "SUCCEEDED", fetched.JobStatus)
 	assert.NotEmpty(t, fetched.ExpenseDocuments)
 
-	fetchedL, err := b2.GetLendingAnalysis(lendJob.JobID)
+	fetchedL, err := b2.GetLendingAnalysis(context.Background(), lendJob.JobID)
 	require.NoError(t, err)
 	assert.Equal(t, lendJob.JobID, fetchedL.JobID)
 }
@@ -608,6 +609,7 @@ func TestRefinement1_PersistenceWithAdapters(t *testing.T) {
 	b := newTestBackend(t)
 
 	adapter, err := b.CreateAdapter(
+		context.Background(),
 		"persist-adapter",
 		"desc",
 		"ENABLED",
@@ -616,7 +618,7 @@ func TestRefinement1_PersistenceWithAdapters(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	av, err := b.CreateAdapterVersion(adapter.AdapterID, nil)
+	av, err := b.CreateAdapterVersion(context.Background(), adapter.AdapterID, nil)
 	require.NoError(t, err)
 
 	snap := b.Snapshot()
@@ -628,12 +630,12 @@ func TestRefinement1_PersistenceWithAdapters(t *testing.T) {
 	assert.Equal(t, 1, textract.AdapterCount(b2))
 	assert.Equal(t, 1, textract.AdapterVersionCount(b2))
 
-	fetchedAdapter, err := b2.GetAdapter(adapter.AdapterID)
+	fetchedAdapter, err := b2.GetAdapter(context.Background(), adapter.AdapterID)
 	require.NoError(t, err)
 	assert.Equal(t, "ENABLED", fetchedAdapter.AutoUpdate)
 	assert.Equal(t, "v", fetchedAdapter.Tags["k"])
 
-	fetchedAV, err := b2.GetAdapterVersion(adapter.AdapterID, av.AdapterVersion)
+	fetchedAV, err := b2.GetAdapterVersion(context.Background(), adapter.AdapterID, av.AdapterVersion)
 	require.NoError(t, err)
 	assert.Equal(t, "ACTIVE", fetchedAV.Status)
 }
@@ -656,7 +658,7 @@ func TestRefinement1_SeedHelpersAdapterInternal(t *testing.T) {
 
 	assert.Equal(t, 1, textract.AdapterCount(b))
 
-	fetched, err := b.GetAdapter("seeded-id")
+	fetched, err := b.GetAdapter(context.Background(), "seeded-id")
 	require.NoError(t, err)
 	assert.Equal(t, "seeded-adapter", fetched.AdapterName)
 }
@@ -688,14 +690,14 @@ func TestRefinement1_SeedHelpersExpenseLendingInternal(t *testing.T) {
 	textract.AddLendingJobInternal(b, lendJob)
 	assert.Equal(t, 1, textract.LendingJobCount(b))
 
-	fetchedExp, err := b.GetExpenseAnalysis("expense-seed-job")
+	fetchedExp, err := b.GetExpenseAnalysis(context.Background(), "expense-seed-job")
 	require.NoError(t, err)
 	assert.Equal(t, "SUCCEEDED", fetchedExp.JobStatus)
 	assert.Len(t, fetchedExp.ExpenseDocuments, 1)
 	// Deep copy check: blocks inside expense documents must be independent.
 	fetchedExp.ExpenseDocuments[0].Blocks[0].BlockType = "MUTATED"
 
-	fetchedExp2, err := b.GetExpenseAnalysis("expense-seed-job")
+	fetchedExp2, err := b.GetExpenseAnalysis(context.Background(), "expense-seed-job")
 	require.NoError(t, err)
 	assert.Equal(t, "PAGE", fetchedExp2.ExpenseDocuments[0].Blocks[0].BlockType)
 }
@@ -707,7 +709,7 @@ func TestRefinement1_CloneTags_NilInput(t *testing.T) {
 
 	b := newTestBackend(t)
 	// Create adapter without tags.
-	adapter, err := b.CreateAdapter("no-tags", "", "DISABLED", []string{"FORMS"}, nil)
+	adapter, err := b.CreateAdapter(context.Background(), "no-tags", "", "DISABLED", []string{"FORMS"}, nil)
 	require.NoError(t, err)
 	assert.NotNil(t, adapter.Tags)
 }

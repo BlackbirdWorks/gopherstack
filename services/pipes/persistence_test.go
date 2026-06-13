@@ -1,6 +1,7 @@
 package pipes_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -38,14 +39,14 @@ func TestPipes_PersistenceSnapshotRestore(t *testing.T) {
 				ps := b.ListPipesAll()
 				require.Len(t, ps, 1)
 				assert.Equal(t, "my-pipe", ps[0].Name)
-				err := b.TagResource(ps[0].ARN, map[string]string{"env": "test"})
+				err := b.TagResource(context.Background(), ps[0].ARN, map[string]string{"env": "test"})
 				require.NoError(t, err)
 			},
 		},
 		{
 			name: "source_parameters_preserved",
 			setup: func(b *pipes.InMemoryBackend) {
-				_, _ = b.CreatePipe(pipes.CreatePipeInput{
+				_, _ = b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 					Name:    "param-pipe",
 					RoleARN: "arn:aws:iam::123:role/r",
 					Source:  "arn:aws:sqs:us-east-1:123:src",

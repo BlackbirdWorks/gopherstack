@@ -5,21 +5,71 @@
 		ListTerminologiesCommand,
 		ListParallelDataCommand,
 		ListTextTranslationJobsCommand,
+		TranslateTextCommand,
 		type TerminologyProperties,
 		type ParallelDataProperties,
 		type TextTranslationJobProperties
 	} from '@aws-sdk/client-translate';
 	import { toast } from 'svelte-sonner';
-	import { Languages, RefreshCw, Search, BookOpen, Activity, Database } from 'lucide-svelte';
+	import { Languages, RefreshCw, Search, BookOpen, Activity, Database, Play } from 'lucide-svelte';
 
 	const tl = getTranslateClient();
 
 	let loading = $state(false);
-	let activeTab = $state<'terminologies' | 'paralleldata' | 'jobs'>('terminologies');
+	let activeTab = $state<'terminologies' | 'paralleldata' | 'jobs' | 'translate'>('terminologies');
 	let searchQuery = $state('');
 	let terminologies = $state<TerminologyProperties[]>([]);
 	let parallelData = $state<ParallelDataProperties[]>([]);
 	let jobs = $state<TextTranslationJobProperties[]>([]);
+
+	// Run-translation tester
+	let sourceText = $state('');
+	let sourceLang = $state('auto');
+	let targetLang = $state('es');
+	let translating = $state(false);
+	let translatedText = $state('');
+	let detectedSourceLang = $state('');
+
+	const commonLangs = [
+		['auto', 'Auto-detect'],
+		['en', 'English'],
+		['es', 'Spanish'],
+		['fr', 'French'],
+		['de', 'German'],
+		['it', 'Italian'],
+		['pt', 'Portuguese'],
+		['ja', 'Japanese'],
+		['ko', 'Korean'],
+		['zh', 'Chinese (Simplified)'],
+		['ar', 'Arabic'],
+		['hi', 'Hindi'],
+		['ru', 'Russian']
+	];
+
+	async function runTranslation() {
+		if (!sourceText.trim()) {
+			toast.error('Enter text to translate');
+			return;
+		}
+		translating = true;
+		translatedText = '';
+		detectedSourceLang = '';
+		try {
+			const resp = await tl.send(
+				new TranslateTextCommand({
+					Text: sourceText,
+					SourceLanguageCode: sourceLang,
+					TargetLanguageCode: targetLang
+				})
+			);
+			translatedText = resp.TranslatedText ?? '';
+			detectedSourceLang = resp.SourceLanguageCode ?? '';
+		} catch (e) {
+			toast.error('Translation failed: ' + String(e));
+		} finally {
+			translating = false;
+		}
+	}
 
 	const filteredTerminologies = $derived(terminologies.filter((t) => (t.Name ?? '').toLowerCase().includes(searchQuery.toLowerCase())));
 	const filteredParallelData = $derived(parallelData.filter((p) => (p.Name ?? '').toLowerCase().includes(searchQuery.toLowerCase())));
@@ -78,17 +128,19 @@
 	<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
 		<div class="p-4 border-b border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row gap-3 justify-between">
 			<div class="flex gap-2 flex-wrap">
-				{#each [['terminologies', 'Terminologies'], ['paralleldata', 'Parallel Data'], ['jobs', 'Translation Jobs']] as [tab, label]}
+				{#each [['terminologies', 'Terminologies'], ['paralleldata', 'Parallel Data'], ['jobs', 'Translation Jobs'], ['translate', 'Run Translation']] as [tab, label]}
 					<button onclick={() => { activeTab = tab as typeof activeTab; searchQuery = ''; }}
 						class="px-4 py-2 rounded-lg text-sm font-medium {activeTab === tab ? 'bg-blue-600 text-white' : 'bg-gray-100 dark:bg-slate-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-slate-600'}">
 						{label}
 					</button>
 				{/each}
 			</div>
-			<div class="relative">
-				<Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-				<input bind:value={searchQuery} placeholder="Search..." class="pl-9 pr-4 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white w-full sm:w-64" />
-			</div>
+			{#if activeTab !== 'translate'}
+				<div class="relative">
+					<Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+					<input bind:value={searchQuery} placeholder="Search..." class="pl-9 pr-4 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white w-full sm:w-64" />
+				</div>
+			{/if}
 		</div>
 		<div class="p-4">
 			{#if loading}
@@ -125,6 +177,38 @@
 						{/each}
 					</div>
 				{/if}
+			{:else if activeTab === 'translate'}
+				<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+					<div class="space-y-3">
+						<div class="flex items-center gap-2">
+							<label class="text-xs font-medium text-gray-500 dark:text-gray-400">Source</label>
+							<select bind:value={sourceLang} class="text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white px-2 py-1">
+								{#each commonLangs as [code, name]}
+									<option value={code}>{name}</option>
+								{/each}
+							</select>
+						</div>
+						<textarea bind:value={sourceText} rows="8" placeholder="Enter text to translate..." class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"></textarea>
+						<div class="flex items-center gap-2">
+							<label class="text-xs font-medium text-gray-500 dark:text-gray-400">Target</label>
+							<select bind:value={targetLang} class="text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white px-2 py-1">
+								{#each commonLangs.filter(([c]) => c !== 'auto') as [code, name]}
+									<option value={code}>{name}</option>
+								{/each}
+							</select>
+							<button onclick={runTranslation} disabled={translating} class="ml-auto flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium disabled:opacity-50">
+								<Play class="w-4 h-4" /> {translating ? 'Translating...' : 'Translate'}
+							</button>
+						</div>
+					</div>
+					<div class="space-y-3">
+						<label class="text-xs font-medium text-gray-500 dark:text-gray-400">Result</label>
+						<div class="w-full min-h-[200px] px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-slate-900 text-gray-900 dark:text-white whitespace-pre-wrap">{translatedText || (translating ? 'Translating…' : 'Translation appears here')}</div>
+						{#if detectedSourceLang}
+							<p class="text-xs text-gray-500 dark:text-gray-400">Detected source language: <span class="font-mono">{detectedSourceLang}</span></p>
+						{/if}
+					</div>
+				</div>
 			{:else if activeTab === 'jobs'}
 				{#if filteredJobs.length === 0}
 					<div class="text-center py-8 text-gray-500 dark:text-gray-400">No translation jobs found</div>

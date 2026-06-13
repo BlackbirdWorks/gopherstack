@@ -449,17 +449,31 @@ func TestIntegration_Batch_ListJobsAllQueues(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, aws.ToString(submitOut.JobId))
 
-	listOut, err := client.ListJobs(ctx, &batch.ListJobsInput{})
+	// AWS Batch ListJobs requires a grouping key (jobQueue, arrayJobId, or
+	// multiNodeJobId); a no-arg "all queues" listing is rejected with a
+	// ClientException. To list across all queues, enumerate the queues and
+	// call ListJobs per-queue, aggregating the results.
+	queuesOut, err := client.DescribeJobQueues(ctx, &batch.DescribeJobQueuesInput{})
 	require.NoError(t, err)
-	found := false
-	for _, s := range listOut.JobSummaryList {
-		if aws.ToString(s.JobId) == aws.ToString(submitOut.JobId) {
-			found = true
 
+	found := false
+	for _, q := range queuesOut.JobQueues {
+		listOut, lerr := client.ListJobs(ctx, &batch.ListJobsInput{
+			JobQueue: q.JobQueueName,
+		})
+		require.NoError(t, lerr)
+		for _, s := range listOut.JobSummaryList {
+			if aws.ToString(s.JobId) == aws.ToString(submitOut.JobId) {
+				found = true
+
+				break
+			}
+		}
+		if found {
 			break
 		}
 	}
-	assert.True(t, found, "submitted job should appear in list-all-jobs")
+	assert.True(t, found, "submitted job should appear in per-queue list aggregation")
 }
 
 func TestIntegration_Batch_UpdateJobQueue_ComputeEnvironments(t *testing.T) {

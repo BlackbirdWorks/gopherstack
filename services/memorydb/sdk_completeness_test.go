@@ -16,7 +16,7 @@ import (
 func TestSDKCompleteness(t *testing.T) {
 	t.Parallel()
 
-	backend := memorydb.NewInMemoryBackend()
+	backend := memorydb.NewInMemoryBackend(testAccountID, testRegion)
 	h := memorydb.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &memorydbsdk.Client{}, h.GetSupportedOperations(), []string{})
 }

@@ -29,6 +29,18 @@ const (
 	errResourceNotFoundException = "ResourceNotFoundException"
 )
 
+// regionContextKey is the context key under which the per-request AWS region is stored.
+type regionContextKey struct{}
+
+// getRegion extracts the region from ctx, falling back to defaultRegion when unset.
+func getRegion(ctx context.Context, defaultRegion string) string {
+	if r, ok := ctx.Value(regionContextKey{}).(string); ok && r != "" {
+		return r
+	}
+
+	return defaultRegion
+}
+
 var (
 	// ErrSecretNotFound is returned when the specified secret does not exist.
 	ErrSecretNotFound = errors.New(errResourceNotFoundException)
@@ -100,11 +112,13 @@ const (
 )
 
 // InMemoryBackend is a concurrency-safe in-memory Secrets Manager backend.
+// InMemoryBackend stores Secrets Manager state. All resource maps are nested by
+// region (outer key = region) so that secrets are isolated per region.
 type InMemoryBackend struct {
 	lambdaInvoker      LambdaInvoker
-	secrets            map[string]*Secret
-	resourcePolicies   map[string]string
-	replicationConfigs map[string][]ReplicationStatusType
+	secrets            map[string]map[string]*Secret
+	resourcePolicies   map[string]map[string]string
+	replicationConfigs map[string]map[string][]ReplicationStatusType
 	mu                 *lockmetrics.RWMutex
 	now                func() time.Time
 	schedulerStop      chan struct{}
@@ -128,15 +142,42 @@ func NewInMemoryBackend() *InMemoryBackend {
 // NewInMemoryBackendWithConfig creates a new Secrets Manager backend with the given account ID and region.
 func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		secrets:            make(map[string]*Secret),
-		resourcePolicies:   make(map[string]string),
-		replicationConfigs: make(map[string][]ReplicationStatusType),
+		secrets:            make(map[string]map[string]*Secret),
+		resourcePolicies:   make(map[string]map[string]string),
+		replicationConfigs: make(map[string]map[string][]ReplicationStatusType),
 		accountID:          accountID,
 		region:             region,
 		mu:                 lockmetrics.New("secretsmanager"),
 		now:                time.Now,
 		schedulerStop:      make(chan struct{}),
 	}
+}
+
+// The *Store helpers return the per-region inner map, lazily creating it.
+// Callers must hold b.mu.
+
+func (b *InMemoryBackend) secretsStore(region string) map[string]*Secret {
+	if b.secrets[region] == nil {
+		b.secrets[region] = make(map[string]*Secret)
+	}
+
+	return b.secrets[region]
+}
+
+func (b *InMemoryBackend) resourcePoliciesStore(region string) map[string]string {
+	if b.resourcePolicies[region] == nil {
+		b.resourcePolicies[region] = make(map[string]string)
+	}
+
+	return b.resourcePolicies[region]
+}
+
+func (b *InMemoryBackend) replicationConfigsStore(region string) map[string][]ReplicationStatusType {
+	if b.replicationConfigs[region] == nil {
+		b.replicationConfigs[region] = make(map[string][]ReplicationStatusType)
+	}
+
+	return b.replicationConfigs[region]
 }
 
 // resolveSecretID resolves a name or ARN to the internal key (name).
@@ -236,7 +277,7 @@ func validateTagCount(existing int, adding int) error {
 }
 
 // CreateSecret creates a new secret with an optional initial value.
-func (b *InMemoryBackend) CreateSecret(input *CreateSecretInput) (*CreateSecretOutput, error) {
+func (b *InMemoryBackend) CreateSecret(ctx context.Context, input *CreateSecretInput) (*CreateSecretOutput, error) {
 	if err := validateSecretName(input.Name); err != nil {
 		return nil, err
 	}
@@ -249,10 +290,16 @@ func (b *InMemoryBackend) CreateSecret(input *CreateSecretInput) (*CreateSecretO
 		return nil, err
 	}
 
+	region := getRegion(ctx, b.region)
+	if input.Region != "" {
+		region = input.Region
+	}
+
 	b.mu.Lock("CreateSecret")
 	defer b.mu.Unlock()
 
-	if existing, exists := b.secrets[input.Name]; exists {
+	secrets := b.secretsStore(region)
+	if existing, exists := secrets[input.Name]; exists {
 		if existing.DeletedDate != nil {
 			return nil, fmt.Errorf(
 				"%w: a secret with this name is already scheduled for deletion; restore or force-delete it first",
@@ -268,10 +315,6 @@ func (b *InMemoryBackend) CreateSecret(input *CreateSecretInput) (*CreateSecretO
 		return nil, err
 	}
 
-	region := b.region
-	if input.Region != "" {
-		region = input.Region
-	}
 	arn := b.buildARNWithRegion(region, input.Name, suffix)
 
 	secret := &Secret{
@@ -293,29 +336,9 @@ func (b *InMemoryBackend) CreateSecret(input *CreateSecretInput) (*CreateSecretO
 		}
 	}
 
-	var versionID string
+	versionID := seedInitialVersion(secret, input)
 
-	if input.SecretString != "" || len(input.SecretBinary) > 0 {
-		// Use ClientRequestToken as initial version ID for idempotency.
-		versionID = input.ClientRequestToken
-		if versionID == "" {
-			versionID = uuid.New().String()
-		}
-
-		now := UnixTimeFloat(time.Now())
-		version := &SecretVersion{
-			VersionID:     versionID,
-			SecretString:  input.SecretString,
-			SecretBinary:  input.SecretBinary,
-			StagingLabels: []string{StagingLabelCurrent},
-			CreatedDate:   now,
-		}
-		secret.Versions[versionID] = version
-		secret.CurrentVersionID = versionID
-		secret.LastChangedDate = &now
-	}
-
-	b.secrets[input.Name] = secret
+	secrets[input.Name] = secret
 
 	if len(input.AddReplicaRegions) > 0 {
 		replicas := make([]ReplicationStatusType, 0, len(input.AddReplicaRegions))
@@ -327,27 +350,58 @@ func (b *InMemoryBackend) CreateSecret(input *CreateSecretInput) (*CreateSecretO
 				StatusMessage: "replication queued",
 			})
 		}
-		b.replicationConfigs[input.Name] = replicas
+		b.replicationConfigsStore(region)[input.Name] = replicas
 	}
 
-	b.syncReplicationStatusLocked(secret)
+	b.syncReplicationStatusLocked(region, secret)
 
 	return &CreateSecretOutput{
 		ARN:               arn,
 		Name:              input.Name,
 		VersionID:         versionID,
-		ReplicationStatus: b.replicationConfigs[input.Name],
+		ReplicationStatus: b.replicationConfigsStore(region)[input.Name],
 	}, nil
 }
 
+// seedInitialVersion creates the initial AWSCURRENT version on a freshly created secret
+// when the create request carries a value, and returns the version ID (empty if none).
+func seedInitialVersion(secret *Secret, input *CreateSecretInput) string {
+	if input.SecretString == "" && len(input.SecretBinary) == 0 {
+		return ""
+	}
+
+	// Use ClientRequestToken as initial version ID for idempotency.
+	versionID := input.ClientRequestToken
+	if versionID == "" {
+		versionID = uuid.New().String()
+	}
+
+	now := UnixTimeFloat(time.Now())
+	secret.Versions[versionID] = &SecretVersion{
+		VersionID:     versionID,
+		SecretString:  input.SecretString,
+		SecretBinary:  input.SecretBinary,
+		StagingLabels: []string{StagingLabelCurrent},
+		CreatedDate:   now,
+	}
+	secret.CurrentVersionID = versionID
+	secret.LastChangedDate = &now
+
+	return versionID
+}
+
 // GetSecretValue retrieves the value of a secret version.
-func (b *InMemoryBackend) GetSecretValue(input *GetSecretValueInput) (*GetSecretValueOutput, error) {
+func (b *InMemoryBackend) GetSecretValue(
+	ctx context.Context, input *GetSecretValueInput,
+) (*GetSecretValueOutput, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("GetSecretValue")
 	defer b.mu.Unlock()
 
 	name := resolveSecretID(input.SecretID)
 
-	secret, exists := b.secrets[name]
+	secret, exists := b.secretsStore(region)[name]
 	if !exists {
 		return nil, ErrSecretNotFound
 	}
@@ -412,7 +466,9 @@ func (b *InMemoryBackend) findVersion(secret *Secret, versionID, versionStage st
 }
 
 // PutSecretValue adds a new version to an existing secret.
-func (b *InMemoryBackend) PutSecretValue(input *PutSecretValueInput) (*PutSecretValueOutput, error) {
+func (b *InMemoryBackend) PutSecretValue(
+	ctx context.Context, input *PutSecretValueInput,
+) (*PutSecretValueOutput, error) {
 	if input.SecretString == "" && len(input.SecretBinary) == 0 {
 		return nil, fmt.Errorf(
 			"%w: you must provide either SecretString or SecretBinary",
@@ -424,12 +480,14 @@ func (b *InMemoryBackend) PutSecretValue(input *PutSecretValueInput) (*PutSecret
 		return nil, err
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("PutSecretValue")
 	defer b.mu.Unlock()
 
 	name := resolveSecretID(input.SecretID)
 
-	secret, exists := b.secrets[name]
+	secret, exists := b.secretsStore(region)[name]
 	if !exists {
 		return nil, ErrSecretNotFound
 	}
@@ -479,7 +537,7 @@ func (b *InMemoryBackend) PutSecretValue(input *PutSecretValueInput) (*PutSecret
 	secret.Versions[versionID] = version
 	secret.CurrentVersionID = versionID
 	secret.LastChangedDate = &now
-	b.syncReplicationStatusLocked(secret)
+	b.syncReplicationStatusLocked(region, secret)
 
 	pruneVersions(secret)
 
@@ -572,13 +630,16 @@ func validateSecretSize(secretString string, secretBinary []byte) error {
 }
 
 // DeleteSecret marks a secret as deleted, or permanently removes it when ForceDeleteWithoutRecovery is set.
-func (b *InMemoryBackend) DeleteSecret(input *DeleteSecretInput) (*DeleteSecretOutput, error) {
+func (b *InMemoryBackend) DeleteSecret(ctx context.Context, input *DeleteSecretInput) (*DeleteSecretOutput, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("DeleteSecret")
 	defer b.mu.Unlock()
 
 	name := resolveSecretID(input.SecretID)
 
-	secret, exists := b.secrets[name]
+	secrets := b.secretsStore(region)
+	secret, exists := secrets[name]
 	if !exists {
 		return nil, ErrSecretNotFound
 	}
@@ -590,9 +651,9 @@ func (b *InMemoryBackend) DeleteSecret(input *DeleteSecretInput) (*DeleteSecretO
 			secret.Tags.Close()
 		}
 
-		delete(b.secrets, name)
-		delete(b.resourcePolicies, name)
-		delete(b.replicationConfigs, name)
+		delete(secrets, name)
+		delete(b.resourcePoliciesStore(region), name)
+		delete(b.replicationConfigsStore(region), name)
 
 		return &DeleteSecretOutput{
 			ARN:          secret.ARN,
@@ -634,17 +695,20 @@ func (b *InMemoryBackend) DeleteSecret(input *DeleteSecretInput) (*DeleteSecretO
 }
 
 // ListSecrets returns a paginated list of secrets.
-func (b *InMemoryBackend) ListSecrets(input *ListSecretsInput) (*ListSecretsOutput, error) {
+func (b *InMemoryBackend) ListSecrets(ctx context.Context, input *ListSecretsInput) (*ListSecretsOutput, error) {
 	if err := validateMaxResults(input.MaxResults, maxResultsListSecrets); err != nil {
 		return nil, err
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("ListSecrets")
 	defer b.mu.RUnlock()
 
-	entries := make([]SecretListEntry, 0, len(b.secrets))
+	secrets := b.secretsStore(region)
+	entries := make([]SecretListEntry, 0, len(secrets))
 
-	for _, s := range b.secrets {
+	for _, s := range secrets {
 		if s.DeletedDate != nil && !input.IncludeDeleted {
 			continue
 		}
@@ -776,17 +840,21 @@ func secretHasTagValue(s *Secret, values []string) bool {
 }
 
 // ListSecretVersionIDs returns the list of versions for a secret with optional pagination.
-func (b *InMemoryBackend) ListSecretVersionIDs(input *ListSecretVersionIDsInput) (*ListSecretVersionIDsOutput, error) {
+func (b *InMemoryBackend) ListSecretVersionIDs(
+	ctx context.Context, input *ListSecretVersionIDsInput,
+) (*ListSecretVersionIDsOutput, error) {
 	if err := validateMaxResults(input.MaxResults, maxResultsListSecrets); err != nil {
 		return nil, err
 	}
+
+	region := getRegion(ctx, b.region)
 
 	b.mu.RLock("ListSecretVersionIDs")
 	defer b.mu.RUnlock()
 
 	name := resolveSecretID(input.SecretID)
 
-	secret, exists := b.secrets[name]
+	secret, exists := b.secretsStore(region)[name]
 	if !exists {
 		return nil, ErrSecretNotFound
 	}
@@ -849,13 +917,18 @@ func (b *InMemoryBackend) ListSecretVersionIDs(input *ListSecretVersionIDsInput)
 }
 
 // DescribeSecret returns metadata about a secret.
-func (b *InMemoryBackend) DescribeSecret(input *DescribeSecretInput) (*DescribeSecretOutput, error) {
+func (b *InMemoryBackend) DescribeSecret(
+	ctx context.Context,
+	input *DescribeSecretInput,
+) (*DescribeSecretOutput, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("DescribeSecret")
 	defer b.mu.RUnlock()
 
 	name := resolveSecretID(input.SecretID)
 
-	secret, exists := b.secrets[name]
+	secret, exists := b.secretsStore(region)[name]
 	if !exists {
 		return nil, ErrSecretNotFound
 	}
@@ -883,9 +956,9 @@ func (b *InMemoryBackend) DescribeSecret(input *DescribeSecretInput) (*DescribeS
 		LastAccessedDate:   secret.LastAccessedDate,
 		VersionIDsToStages: versionIDsToStages,
 		RotationEnabled:    secret.RotationEnabled,
-		ReplicationStatus:  b.replicationConfigs[name],
+		ReplicationStatus:  b.replicationConfigsStore(region)[name],
 		OwnerAccountID:     b.accountID,
-		PrimaryRegion:      b.region,
+		PrimaryRegion:      region,
 	}
 
 	// Compute NextRotationDate from the last rotation base + interval.
@@ -934,17 +1007,19 @@ func computeNextRotationDate(secret *Secret) *float64 {
 }
 
 // UpdateSecret updates the description of a secret and optionally creates a new version.
-func (b *InMemoryBackend) UpdateSecret(input *UpdateSecretInput) (*UpdateSecretOutput, error) {
+func (b *InMemoryBackend) UpdateSecret(ctx context.Context, input *UpdateSecretInput) (*UpdateSecretOutput, error) {
 	if err := validateSecretSize(input.SecretString, input.SecretBinary); err != nil {
 		return nil, err
 	}
+
+	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("UpdateSecret")
 	defer b.mu.Unlock()
 
 	name := resolveSecretID(input.SecretID)
 
-	secret, exists := b.secrets[name]
+	secret, exists := b.secretsStore(region)[name]
 	if !exists {
 		return nil, ErrSecretNotFound
 	}
@@ -995,7 +1070,7 @@ func (b *InMemoryBackend) UpdateSecret(input *UpdateSecretInput) (*UpdateSecretO
 		secret.Versions[versionID] = version
 		secret.CurrentVersionID = versionID
 		secret.LastChangedDate = &now
-		b.syncReplicationStatusLocked(secret)
+		b.syncReplicationStatusLocked(region, secret)
 
 		pruneVersions(secret)
 	}
@@ -1008,13 +1083,15 @@ func (b *InMemoryBackend) UpdateSecret(input *UpdateSecretInput) (*UpdateSecretO
 }
 
 // RestoreSecret clears the deletion mark from a secret.
-func (b *InMemoryBackend) RestoreSecret(input *RestoreSecretInput) (*RestoreSecretOutput, error) {
+func (b *InMemoryBackend) RestoreSecret(ctx context.Context, input *RestoreSecretInput) (*RestoreSecretOutput, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("RestoreSecret")
 	defer b.mu.Unlock()
 
 	name := resolveSecretID(input.SecretID)
 
-	secret, exists := b.secrets[name]
+	secret, exists := b.secretsStore(region)[name]
 	if !exists {
 		return nil, ErrSecretNotFound
 	}
@@ -1037,15 +1114,18 @@ func (b *InMemoryBackend) RestoreSecret(input *RestoreSecretInput) (*RestoreSecr
 	}, nil
 }
 
-// ListAll returns all secrets as list entries, sorted by name (for dashboard use).
+// ListAll returns all secrets across all regions as list entries, sorted by name
+// (for dashboard use).
 func (b *InMemoryBackend) ListAll() []SecretListEntry {
 	b.mu.RLock("ListAll")
 	defer b.mu.RUnlock()
 
-	entries := make([]SecretListEntry, 0, len(b.secrets))
+	var entries []SecretListEntry
 
-	for _, s := range b.secrets {
-		entries = append(entries, secretToListEntry(s))
+	for _, regionSecrets := range b.secrets {
+		for _, s := range regionSecrets {
+			entries = append(entries, secretToListEntry(s))
+		}
 	}
 
 	sort.Slice(entries, func(i, j int) bool {
@@ -1108,12 +1188,14 @@ func generateVersionID() string {
 }
 
 // TagResource adds or updates tags on a secret.
-func (b *InMemoryBackend) TagResource(input *TagResourceInput) error {
+func (b *InMemoryBackend) TagResource(ctx context.Context, input *TagResourceInput) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
 	id := resolveSecretID(input.SecretID)
-	secret, ok := b.secrets[id]
+	secret, ok := b.secretsStore(region)[id]
 	if !ok {
 		return ErrSecretNotFound
 	}
@@ -1141,12 +1223,14 @@ func (b *InMemoryBackend) TagResource(input *TagResourceInput) error {
 }
 
 // UntagResource removes tags from a secret.
-func (b *InMemoryBackend) UntagResource(input *UntagResourceInput) error {
+func (b *InMemoryBackend) UntagResource(ctx context.Context, input *UntagResourceInput) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
 	id := resolveSecretID(input.SecretID)
-	secret, ok := b.secrets[id]
+	secret, ok := b.secretsStore(region)[id]
 	if !ok {
 		return ErrSecretNotFound
 	}
@@ -1161,12 +1245,14 @@ func (b *InMemoryBackend) UntagResource(input *UntagResourceInput) error {
 }
 
 // RotateSecret creates a new version of the secret (rotation stub).
-func (b *InMemoryBackend) RotateSecret(input *RotateSecretInput) (*RotateSecretOutput, error) {
+func (b *InMemoryBackend) RotateSecret(ctx context.Context, input *RotateSecretInput) (*RotateSecretOutput, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("RotateSecret")
 	defer b.mu.Unlock()
 
 	id := resolveSecretID(input.SecretID)
-	secret, ok := b.secrets[id]
+	secret, ok := b.secretsStore(region)[id]
 	if !ok {
 		return nil, ErrSecretNotFound
 	}
@@ -1209,7 +1295,7 @@ func (b *InMemoryBackend) RotateSecret(input *RotateSecretInput) (*RotateSecretO
 	// When a Lambda ARN is set AND a Lambda invoker is configured, the handler or
 	// scheduler will call FinishRotation after invoking the four rotation steps.
 	if input.RotationLambdaARN == "" || b.lambdaInvoker == nil {
-		b.finishRotationLocked(secret, versionID)
+		b.finishRotationLocked(region, secret, versionID)
 	}
 
 	return &RotateSecretOutput{
@@ -1257,7 +1343,7 @@ func (b *InMemoryBackend) rotateSecretLocked(secret *Secret, token string) (stri
 
 // finishRotationLocked promotes the AWSPENDING version identified by versionID to
 // AWSCURRENT, moving the old AWSCURRENT to AWSPREVIOUS. Must be called with b.mu held.
-func (b *InMemoryBackend) finishRotationLocked(secret *Secret, versionID string) {
+func (b *InMemoryBackend) finishRotationLocked(region string, secret *Secret, versionID string) {
 	newVer, ok := secret.Versions[versionID]
 	if !ok {
 		return
@@ -1271,7 +1357,7 @@ func (b *InMemoryBackend) finishRotationLocked(secret *Secret, versionID string)
 	secret.LastChangedDate = &now
 	secret.LastRotatedDate = &now
 	pruneVersions(secret)
-	b.syncReplicationStatusLocked(secret)
+	b.syncReplicationStatusLocked(region, secret)
 }
 
 // abortRotationLocked removes the AWSPENDING version, cancelling an in-progress rotation.
@@ -1282,30 +1368,34 @@ func (b *InMemoryBackend) abortRotationLocked(secret *Secret, versionID string) 
 
 // FinishRotation promotes the AWSPENDING version to AWSCURRENT. Called by the
 // handler after all Lambda rotation steps succeed.
-func (b *InMemoryBackend) FinishRotation(secretID, versionID string) error {
+func (b *InMemoryBackend) FinishRotation(ctx context.Context, secretID, versionID string) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("FinishRotation")
 	defer b.mu.Unlock()
 
 	id := resolveSecretID(secretID)
-	secret, ok := b.secrets[id]
+	secret, ok := b.secretsStore(region)[id]
 
 	if !ok || secret.DeletedDate != nil {
 		return ErrSecretNotFound
 	}
 
-	b.finishRotationLocked(secret, versionID)
+	b.finishRotationLocked(region, secret, versionID)
 
 	return nil
 }
 
 // AbortRotation removes the AWSPENDING version, aborting an in-progress rotation.
 // Called by the handler when a Lambda rotation step fails.
-func (b *InMemoryBackend) AbortRotation(secretID, versionID string) error {
+func (b *InMemoryBackend) AbortRotation(ctx context.Context, secretID, versionID string) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("AbortRotation")
 	defer b.mu.Unlock()
 
 	id := resolveSecretID(secretID)
-	secret, ok := b.secrets[id]
+	secret, ok := b.secretsStore(region)[id]
 
 	if !ok || secret.DeletedDate != nil {
 		return ErrSecretNotFound
@@ -1636,32 +1726,49 @@ func (b *InMemoryBackend) TaggedSecrets() []TaggedSecretInfo {
 	b.mu.RLock("TaggedSecrets")
 	defer b.mu.RUnlock()
 
-	result := make([]TaggedSecretInfo, 0, len(b.secrets))
+	var result []TaggedSecretInfo
 
-	for _, secret := range b.secrets {
-		if secret.DeletedDate != nil {
-			continue
+	for _, regionSecrets := range b.secrets {
+		for _, secret := range regionSecrets {
+			if secret.DeletedDate != nil {
+				continue
+			}
+
+			var tagMap map[string]string
+			if secret.Tags != nil {
+				tagMap = secret.Tags.Clone()
+			}
+
+			result = append(result, TaggedSecretInfo{ARN: secret.ARN, Tags: tagMap})
 		}
-
-		var tagMap map[string]string
-		if secret.Tags != nil {
-			tagMap = secret.Tags.Clone()
-		}
-
-		result = append(result, TaggedSecretInfo{ARN: secret.ARN, Tags: tagMap})
 	}
 
 	return result
 }
 
-// TagSecretByARN applies tags to the secret identified by its ARN.
+// regionFromARN extracts the region component (index 3) from an AWS ARN
+// (arn:partition:service:region:account:resource), falling back to defaultRegion.
+func regionFromARN(resourceARN, defaultRegion string) string {
+	parts := strings.Split(resourceARN, ":")
+	const regionIndex = 3
+	if len(parts) > regionIndex && parts[regionIndex] != "" {
+		return parts[regionIndex]
+	}
+
+	return defaultRegion
+}
+
+// TagSecretByARN applies tags to the secret identified by its ARN. The region is taken
+// from the ARN so cross-service callers (Resource Groups Tagging API) reach the right region.
 func (b *InMemoryBackend) TagSecretByARN(secretARN string, newTags map[string]string) error {
+	region := regionFromARN(secretARN, b.region)
+
 	b.mu.Lock("TagSecretByARN")
 	defer b.mu.Unlock()
 
 	name := resolveSecretID(secretARN)
 
-	secret, ok := b.secrets[name]
+	secret, ok := b.secretsStore(region)[name]
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrSecretNotFound, secretARN)
 	}
@@ -1677,12 +1784,14 @@ func (b *InMemoryBackend) TagSecretByARN(secretARN string, newTags map[string]st
 
 // UntagSecretByARN removes the specified tag keys from the secret identified by its ARN.
 func (b *InMemoryBackend) UntagSecretByARN(secretARN string, tagKeys []string) error {
+	region := regionFromARN(secretARN, b.region)
+
 	b.mu.Lock("UntagSecretByARN")
 	defer b.mu.Unlock()
 
 	name := resolveSecretID(secretARN)
 
-	secret, ok := b.secrets[name]
+	secret, ok := b.secretsStore(region)[name]
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrSecretNotFound, secretARN)
 	}
@@ -1695,7 +1804,9 @@ func (b *InMemoryBackend) UntagSecretByARN(secretARN string, tagKeys []string) e
 }
 
 // BatchGetSecretValue retrieves the values of multiple secrets in a single call.
-func (b *InMemoryBackend) BatchGetSecretValue(input *BatchGetSecretValueInput) (*BatchGetSecretValueOutput, error) {
+func (b *InMemoryBackend) BatchGetSecretValue(
+	ctx context.Context, input *BatchGetSecretValueInput,
+) (*BatchGetSecretValueOutput, error) {
 	if input.MaxResults != nil {
 		mr := int64(*input.MaxResults)
 		if err := validateMaxResults(&mr, maxResultsBatchGet); err != nil {
@@ -1711,6 +1822,8 @@ func (b *InMemoryBackend) BatchGetSecretValue(input *BatchGetSecretValueInput) (
 		)
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("BatchGetSecretValue")
 	defer b.mu.Unlock()
 
@@ -1720,23 +1833,24 @@ func (b *InMemoryBackend) BatchGetSecretValue(input *BatchGetSecretValueInput) (
 	}
 
 	if len(input.SecretIDList) > 0 {
-		b.batchGetByIDList(input.SecretIDList, out)
+		b.batchGetByIDList(region, input.SecretIDList, out)
 
 		return out, nil
 	}
 
-	return b.batchGetByFilter(input, out), nil
+	return b.batchGetByFilter(region, input, out), nil
 }
 
 // batchGetByIDList populates out with values and errors for each explicit secret ID.
 // Must be called with write lock held.
-func (b *InMemoryBackend) batchGetByIDList(ids []string, out *BatchGetSecretValueOutput) {
+func (b *InMemoryBackend) batchGetByIDList(region string, ids []string, out *BatchGetSecretValueOutput) {
 	accessDay := UnixTimeFloat(time.Now().UTC().Truncate(hoursPerDay * time.Hour))
+	secrets := b.secretsStore(region)
 
 	for _, id := range ids {
 		name := resolveSecretID(id)
 
-		secret, ok := b.secrets[name]
+		secret, ok := secrets[name]
 		if !ok {
 			out.Errors = append(out.Errors, APIErrorType{
 				ErrorCode: errResourceNotFoundException,
@@ -1777,13 +1891,15 @@ func (b *InMemoryBackend) batchGetByIDList(ids []string, out *BatchGetSecretValu
 // batchGetByFilter collects and paginates secrets matching filters.
 // Must be called with write lock held.
 func (b *InMemoryBackend) batchGetByFilter(
+	region string,
 	input *BatchGetSecretValueInput,
 	out *BatchGetSecretValueOutput,
 ) *BatchGetSecretValueOutput {
-	allValues := make([]SecretValueEntry, 0, len(b.secrets))
+	secrets := b.secretsStore(region)
+	allValues := make([]SecretValueEntry, 0, len(secrets))
 	accessDay := UnixTimeFloat(time.Now().UTC().Truncate(hoursPerDay * time.Hour))
 
-	for _, secret := range b.secrets {
+	for _, secret := range secrets {
 		if secret.DeletedDate != nil || !batchMatchesFilters(secret, input.Filters) {
 			continue
 		}
@@ -1871,13 +1987,17 @@ func anyMatch(values []string, target string) bool {
 }
 
 // CancelRotateSecret cancels an in-progress rotation by removing the AWSPENDING staging label.
-func (b *InMemoryBackend) CancelRotateSecret(input *CancelRotateSecretInput) (*CancelRotateSecretOutput, error) {
+func (b *InMemoryBackend) CancelRotateSecret(
+	ctx context.Context, input *CancelRotateSecretInput,
+) (*CancelRotateSecretOutput, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("CancelRotateSecret")
 	defer b.mu.Unlock()
 
 	name := resolveSecretID(input.SecretID)
 
-	secret, ok := b.secrets[name]
+	secret, ok := b.secretsStore(region)[name]
 	if !ok {
 		return nil, ErrSecretNotFound
 	}
@@ -1916,13 +2036,17 @@ func (b *InMemoryBackend) CancelRotateSecret(input *CancelRotateSecretInput) (*C
 }
 
 // GetResourcePolicy retrieves the resource-based policy for a secret.
-func (b *InMemoryBackend) GetResourcePolicy(input *GetResourcePolicyInput) (*GetResourcePolicyOutput, error) {
+func (b *InMemoryBackend) GetResourcePolicy(
+	ctx context.Context, input *GetResourcePolicyInput,
+) (*GetResourcePolicyOutput, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("GetResourcePolicy")
 	defer b.mu.RUnlock()
 
 	name := resolveSecretID(input.SecretID)
 
-	secret, ok := b.secrets[name]
+	secret, ok := b.secretsStore(region)[name]
 	if !ok {
 		return nil, ErrSecretNotFound
 	}
@@ -1931,7 +2055,7 @@ func (b *InMemoryBackend) GetResourcePolicy(input *GetResourcePolicyInput) (*Get
 		return nil, fmt.Errorf("%w: secret %s is deleted", ErrSecretDeleted, input.SecretID)
 	}
 
-	policy := b.resourcePolicies[name]
+	policy := b.resourcePoliciesStore(region)[name]
 
 	return &GetResourcePolicyOutput{
 		ARN:            secret.ARN,
@@ -1941,17 +2065,21 @@ func (b *InMemoryBackend) GetResourcePolicy(input *GetResourcePolicyInput) (*Get
 }
 
 // PutResourcePolicy stores a resource-based policy for a secret.
-func (b *InMemoryBackend) PutResourcePolicy(input *PutResourcePolicyInput) (*PutResourcePolicyOutput, error) {
+func (b *InMemoryBackend) PutResourcePolicy(
+	ctx context.Context, input *PutResourcePolicyInput,
+) (*PutResourcePolicyOutput, error) {
 	if input.ResourcePolicy == "" {
 		return nil, fmt.Errorf("%w: ResourcePolicy must not be empty", ErrInvalidParameter)
 	}
+
+	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("PutResourcePolicy")
 	defer b.mu.Unlock()
 
 	name := resolveSecretID(input.SecretID)
 
-	secret, ok := b.secrets[name]
+	secret, ok := b.secretsStore(region)[name]
 	if !ok {
 		return nil, ErrSecretNotFound
 	}
@@ -1960,7 +2088,7 @@ func (b *InMemoryBackend) PutResourcePolicy(input *PutResourcePolicyInput) (*Put
 		return nil, fmt.Errorf("%w: secret %s is deleted", ErrSecretDeleted, input.SecretID)
 	}
 
-	b.resourcePolicies[name] = input.ResourcePolicy
+	b.resourcePoliciesStore(region)[name] = input.ResourcePolicy
 
 	return &PutResourcePolicyOutput{
 		ARN:  secret.ARN,
@@ -1969,13 +2097,17 @@ func (b *InMemoryBackend) PutResourcePolicy(input *PutResourcePolicyInput) (*Put
 }
 
 // DeleteResourcePolicy removes the resource-based policy from a secret.
-func (b *InMemoryBackend) DeleteResourcePolicy(input *DeleteResourcePolicyInput) (*DeleteResourcePolicyOutput, error) {
+func (b *InMemoryBackend) DeleteResourcePolicy(
+	ctx context.Context, input *DeleteResourcePolicyInput,
+) (*DeleteResourcePolicyOutput, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("DeleteResourcePolicy")
 	defer b.mu.Unlock()
 
 	name := resolveSecretID(input.SecretID)
 
-	secret, ok := b.secrets[name]
+	secret, ok := b.secretsStore(region)[name]
 	if !ok {
 		return nil, ErrSecretNotFound
 	}
@@ -1984,7 +2116,7 @@ func (b *InMemoryBackend) DeleteResourcePolicy(input *DeleteResourcePolicyInput)
 		return nil, fmt.Errorf("%w: secret %s is deleted", ErrSecretDeleted, input.SecretID)
 	}
 
-	delete(b.resourcePolicies, name)
+	delete(b.resourcePoliciesStore(region), name)
 
 	return &DeleteResourcePolicyOutput{
 		ARN:  secret.ARN,
@@ -2001,14 +2133,17 @@ const (
 
 // ReplicateSecretToRegions adds replication configuration for the specified regions.
 func (b *InMemoryBackend) ReplicateSecretToRegions(
+	ctx context.Context,
 	input *ReplicateSecretToRegionsInput,
 ) (*ReplicateSecretToRegionsOutput, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("ReplicateSecretToRegions")
 	defer b.mu.Unlock()
 
 	name := resolveSecretID(input.SecretID)
 
-	secret, ok := b.secrets[name]
+	secret, ok := b.secretsStore(region)[name]
 	if !ok {
 		return nil, ErrSecretNotFound
 	}
@@ -2017,7 +2152,8 @@ func (b *InMemoryBackend) ReplicateSecretToRegions(
 		return nil, fmt.Errorf("%w: secret %s is deleted", ErrSecretDeleted, input.SecretID)
 	}
 
-	existing := b.replicationConfigs[name]
+	configs := b.replicationConfigsStore(region)
+	existing := configs[name]
 	existingByRegion := make(map[string]int, len(existing))
 
 	for i, r := range existing {
@@ -2039,25 +2175,28 @@ func (b *InMemoryBackend) ReplicateSecretToRegions(
 		}
 	}
 
-	b.replicationConfigs[name] = existing
-	b.syncReplicationStatusLocked(secret)
+	configs[name] = existing
+	b.syncReplicationStatusLocked(region, secret)
 
 	return &ReplicateSecretToRegionsOutput{
 		ARN:               secret.ARN,
-		ReplicationStatus: b.replicationConfigs[name],
+		ReplicationStatus: configs[name],
 	}, nil
 }
 
 // RemoveRegionsFromReplication removes replication configuration for the specified regions.
 func (b *InMemoryBackend) RemoveRegionsFromReplication(
+	ctx context.Context,
 	input *RemoveRegionsFromReplicationInput,
 ) (*RemoveRegionsFromReplicationOutput, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("RemoveRegionsFromReplication")
 	defer b.mu.Unlock()
 
 	name := resolveSecretID(input.SecretID)
 
-	secret, ok := b.secrets[name]
+	secret, ok := b.secretsStore(region)[name]
 	if !ok {
 		return nil, ErrSecretNotFound
 	}
@@ -2072,7 +2211,8 @@ func (b *InMemoryBackend) RemoveRegionsFromReplication(
 		toRemove[r] = struct{}{}
 	}
 
-	existing := b.replicationConfigs[name]
+	configs := b.replicationConfigsStore(region)
+	existing := configs[name]
 	remaining := make([]ReplicationStatusType, 0, len(existing))
 
 	for _, r := range existing {
@@ -2081,7 +2221,7 @@ func (b *InMemoryBackend) RemoveRegionsFromReplication(
 		}
 	}
 
-	b.replicationConfigs[name] = remaining
+	configs[name] = remaining
 
 	return &RemoveRegionsFromReplicationOutput{
 		ARN:               secret.ARN,
@@ -2091,14 +2231,17 @@ func (b *InMemoryBackend) RemoveRegionsFromReplication(
 
 // StopReplicationToReplica promotes a replica secret to a standalone secret.
 func (b *InMemoryBackend) StopReplicationToReplica(
+	ctx context.Context,
 	input *StopReplicationToReplicaInput,
 ) (*StopReplicationToReplicaOutput, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("StopReplicationToReplica")
 	defer b.mu.Unlock()
 
 	name := resolveSecretID(input.SecretID)
 
-	secret, ok := b.secrets[name]
+	secret, ok := b.secretsStore(region)[name]
 	if !ok {
 		return nil, ErrSecretNotFound
 	}
@@ -2108,7 +2251,7 @@ func (b *InMemoryBackend) StopReplicationToReplica(
 	}
 
 	// In the in-memory backend, we simply remove any replication config for this secret.
-	delete(b.replicationConfigs, name)
+	delete(b.replicationConfigsStore(region), name)
 
 	return &StopReplicationToReplicaOutput{
 		ARN: secret.ARN,
@@ -2117,14 +2260,17 @@ func (b *InMemoryBackend) StopReplicationToReplica(
 
 // UpdateSecretVersionStage moves or adds a staging label to a specific secret version.
 func (b *InMemoryBackend) UpdateSecretVersionStage(
+	ctx context.Context,
 	input *UpdateSecretVersionStageInput,
 ) (*UpdateSecretVersionStageOutput, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("UpdateSecretVersionStage")
 	defer b.mu.Unlock()
 
 	name := resolveSecretID(input.SecretID)
 
-	secret, ok := b.secrets[name]
+	secret, ok := b.secretsStore(region)[name]
 	if !ok {
 		return nil, ErrSecretNotFound
 	}
@@ -2216,15 +2362,17 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	for _, secret := range b.secrets {
-		if secret.Tags != nil {
-			secret.Tags.Close()
+	for _, regionSecrets := range b.secrets {
+		for _, secret := range regionSecrets {
+			if secret.Tags != nil {
+				secret.Tags.Close()
+			}
 		}
 	}
 
-	b.secrets = make(map[string]*Secret)
-	b.resourcePolicies = make(map[string]string)
-	b.replicationConfigs = make(map[string][]ReplicationStatusType)
+	b.secrets = make(map[string]map[string]*Secret)
+	b.resourcePolicies = make(map[string]map[string]string)
+	b.replicationConfigs = make(map[string]map[string][]ReplicationStatusType)
 }
 
 func (b *InMemoryBackend) ensureRotationScheduler() {
@@ -2258,58 +2406,75 @@ func (b *InMemoryBackend) StopRotationScheduler() {
 	b.schedulerStopOnce.Do(func() { close(b.schedulerStop) })
 }
 
-func (b *InMemoryBackend) runScheduledRotations(now time.Time) {
-	type pendingRotation struct {
-		secretID  string
-		versionID string
-		lambdaARN string
-	}
+// pendingRotation describes a Lambda-backed rotation awaiting its step invocations.
+type pendingRotation struct {
+	region    string
+	secretID  string
+	versionID string
+	lambdaARN string
+}
 
+func (b *InMemoryBackend) runScheduledRotations(now time.Time) {
 	// Phase 1: create AWSPENDING versions while holding the lock.
 	b.mu.Lock("rotationScheduler")
 	var pending []pendingRotation
 
-	for id, secret := range b.secrets {
-		if secret.DeletedDate != nil || !secret.RotationEnabled || secret.RotationRules == nil {
-			continue
+	for region, regionSecrets := range b.secrets {
+		for id, secret := range regionSecrets {
+			if p, ok := b.scheduleRotationLocked(region, id, secret, now); ok {
+				pending = append(pending, p)
+			}
 		}
-
-		base := secret.LastRotatedDate
-		if base == nil {
-			base = secret.LastChangedDate
-		}
-
-		if !rotationDue(secret.RotationRules, now, base) {
-			continue
-		}
-
-		versionID, err := b.rotateSecretLocked(secret, "")
-		if err != nil {
-			continue
-		}
-
-		lambdaARN := secret.RotationLambdaARN
-		if b.lambdaInvoker == nil || lambdaARN == "" {
-			// No Lambda configured — promote immediately while still locked.
-			b.finishRotationLocked(secret, versionID)
-
-			continue
-		}
-
-		pending = append(pending, pendingRotation{secretID: id, versionID: versionID, lambdaARN: lambdaARN})
 	}
 
 	b.mu.Unlock()
 
 	// Phase 2: invoke Lambda WITHOUT holding the lock, then promote or abort.
 	for _, p := range pending {
-		lambdaErr := b.runLambdaRotationSteps(context.Background(), p.lambdaARN, p.secretID, p.versionID)
+		ctx := context.WithValue(context.Background(), regionContextKey{}, p.region)
+		lambdaErr := b.runLambdaRotationSteps(ctx, p.lambdaARN, p.secretID, p.versionID)
 		if lambdaErr != nil {
-			_ = b.AbortRotation(p.secretID, p.versionID)
+			_ = b.AbortRotation(ctx, p.secretID, p.versionID)
 		} else {
-			_ = b.FinishRotation(p.secretID, p.versionID)
+			_ = b.FinishRotation(ctx, p.secretID, p.versionID)
 		}
 	}
+}
+
+// scheduleRotationLocked evaluates a single secret for a due rotation. When rotation is due
+// it creates the AWSPENDING version; if no Lambda is configured it promotes immediately and
+// returns ok=false, otherwise it returns the pendingRotation to invoke without the lock held.
+// Callers must hold b.mu.
+func (b *InMemoryBackend) scheduleRotationLocked(
+	region, id string, secret *Secret, now time.Time,
+) (pendingRotation, bool) {
+	if secret.DeletedDate != nil || !secret.RotationEnabled || secret.RotationRules == nil {
+		return pendingRotation{}, false
+	}
+
+	base := secret.LastRotatedDate
+	if base == nil {
+		base = secret.LastChangedDate
+	}
+
+	if !rotationDue(secret.RotationRules, now, base) {
+		return pendingRotation{}, false
+	}
+
+	versionID, err := b.rotateSecretLocked(secret, "")
+	if err != nil {
+		return pendingRotation{}, false
+	}
+
+	lambdaARN := secret.RotationLambdaARN
+	if b.lambdaInvoker == nil || lambdaARN == "" {
+		// No Lambda configured — promote immediately while still locked.
+		b.finishRotationLocked(region, secret, versionID)
+
+		return pendingRotation{}, false
+	}
+
+	return pendingRotation{region: region, secretID: id, versionID: versionID, lambdaARN: lambdaARN}, true
 }
 
 // rotationDue reports whether a rotation should fire at `now` given the rotation rules and
@@ -2386,8 +2551,9 @@ func rotationInterval(rules *RotationRulesType) (time.Duration, bool) {
 	}
 }
 
-func (b *InMemoryBackend) syncReplicationStatusLocked(secret *Secret) {
-	statuses, exists := b.replicationConfigs[secret.Name]
+func (b *InMemoryBackend) syncReplicationStatusLocked(region string, secret *Secret) {
+	configs := b.replicationConfigsStore(region)
+	statuses, exists := configs[secret.Name]
 	if !exists || len(statuses) == 0 {
 		return
 	}
@@ -2398,7 +2564,7 @@ func (b *InMemoryBackend) syncReplicationStatusLocked(secret *Secret) {
 			statuses[i].Status = replicationStatusFailed
 			statuses[i].StatusMessage = "no current secret version to replicate"
 		}
-		b.replicationConfigs[secret.Name] = statuses
+		configs[secret.Name] = statuses
 
 		return
 	}
@@ -2408,7 +2574,7 @@ func (b *InMemoryBackend) syncReplicationStatusLocked(secret *Secret) {
 		statuses[i].StatusMessage = "replicated version " + currentVer.VersionID
 	}
 
-	b.replicationConfigs[secret.Name] = statuses
+	configs[secret.Name] = statuses
 }
 
 // AccountID returns the AWS account ID configured for this backend.
@@ -2418,14 +2584,17 @@ func (b *InMemoryBackend) AccountID() string { return b.accountID }
 func (b *InMemoryBackend) Region() string { return b.region }
 
 // AddSecretInternal seeds the backend with a pre-built Secret for testing.
-// Must not be called concurrently with other operations.
+// The secret is placed in the region encoded in its ARN (falling back to the
+// backend's default region). Must not be called concurrently with other operations.
 func (b *InMemoryBackend) AddSecretInternal(s *Secret) {
-	b.secrets[s.Name] = s
+	region := regionFromARN(s.ARN, b.region)
+	b.secretsStore(region)[s.Name] = s
 }
 
 // ValidateResourcePolicy validates a resource-based policy document for a secret.
 // It performs basic structural validation and returns any detected issues.
 func (b *InMemoryBackend) ValidateResourcePolicy(
+	ctx context.Context,
 	input *ValidateResourcePolicyInput,
 ) (*ValidateResourcePolicyOutput, error) {
 	if input.ResourcePolicy == "" {
@@ -2434,11 +2603,13 @@ func (b *InMemoryBackend) ValidateResourcePolicy(
 
 	// If a secret ID is provided, verify the secret exists.
 	if input.SecretID != "" {
+		region := getRegion(ctx, b.region)
+
 		b.mu.RLock("ValidateResourcePolicy")
 		defer b.mu.RUnlock()
 
 		name := resolveSecretID(input.SecretID)
-		if _, ok := b.secrets[name]; !ok {
+		if _, ok := b.secretsStore(region)[name]; !ok {
 			return nil, ErrSecretNotFound
 		}
 	}

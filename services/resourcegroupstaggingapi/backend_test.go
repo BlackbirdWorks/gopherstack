@@ -1,6 +1,7 @@
 package resourcegroupstaggingapi_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -14,7 +15,7 @@ func TestGetResources_NoProviders(t *testing.T) {
 
 	b := resourcegroupstaggingapi.NewInMemoryBackend("123456789012", "us-east-1")
 
-	out, err := b.GetResources(&resourcegroupstaggingapi.GetResourcesInput{})
+	out, err := b.GetResources(context.Background(), &resourcegroupstaggingapi.GetResourcesInput{})
 
 	require.NoError(t, err)
 	require.NotNil(t, out)
@@ -26,7 +27,7 @@ func TestGetResources_TagFilter(t *testing.T) {
 	t.Parallel()
 
 	b := resourcegroupstaggingapi.NewInMemoryBackend("123456789012", "us-east-1")
-	b.RegisterProvider(func() []resourcegroupstaggingapi.TaggedResource {
+	b.RegisterProvider(func(_ context.Context) []resourcegroupstaggingapi.TaggedResource {
 		return []resourcegroupstaggingapi.TaggedResource{
 			{
 				ResourceARN:  "arn:aws:sqs:us-east-1:123456789012:queue-a",
@@ -91,7 +92,10 @@ func TestGetResources_TagFilter(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			out, err := b.GetResources(&resourcegroupstaggingapi.GetResourcesInput{TagFilters: tt.tagFilters})
+			out, err := b.GetResources(
+				context.Background(),
+				&resourcegroupstaggingapi.GetResourcesInput{TagFilters: tt.tagFilters},
+			)
 
 			require.NoError(t, err)
 			require.NotNil(t, out)
@@ -114,7 +118,7 @@ func TestGetResources_ResourceTypeFilter(t *testing.T) {
 	t.Parallel()
 
 	b := resourcegroupstaggingapi.NewInMemoryBackend("123456789012", "us-east-1")
-	b.RegisterProvider(func() []resourcegroupstaggingapi.TaggedResource {
+	b.RegisterProvider(func(_ context.Context) []resourcegroupstaggingapi.TaggedResource {
 		return []resourcegroupstaggingapi.TaggedResource{
 			{
 				ResourceARN:  "arn:aws:sqs:us-east-1:123456789012:q1",
@@ -173,7 +177,10 @@ func TestGetResources_ResourceTypeFilter(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			out, err := b.GetResources(&resourcegroupstaggingapi.GetResourcesInput{ResourceTypeFilters: tt.typeFilters})
+			out, err := b.GetResources(
+				context.Background(),
+				&resourcegroupstaggingapi.GetResourcesInput{ResourceTypeFilters: tt.typeFilters},
+			)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -192,7 +199,7 @@ func TestGetResources_Pagination(t *testing.T) {
 	t.Parallel()
 
 	b := resourcegroupstaggingapi.NewInMemoryBackend("123456789012", "us-east-1")
-	b.RegisterProvider(func() []resourcegroupstaggingapi.TaggedResource {
+	b.RegisterProvider(func(_ context.Context) []resourcegroupstaggingapi.TaggedResource {
 		return []resourcegroupstaggingapi.TaggedResource{
 			{ResourceARN: "arn:aws:sqs:us-east-1:123:a", ResourceType: "sqs:queue", Tags: map[string]string{"k": "v"}},
 			{ResourceARN: "arn:aws:sqs:us-east-1:123:b", ResourceType: "sqs:queue", Tags: map[string]string{"k": "v"}},
@@ -202,14 +209,17 @@ func TestGetResources_Pagination(t *testing.T) {
 
 	pageSize := int32(2)
 
-	out1, err := b.GetResources(&resourcegroupstaggingapi.GetResourcesInput{ResourcesPerPage: &pageSize})
+	out1, err := b.GetResources(
+		context.Background(),
+		&resourcegroupstaggingapi.GetResourcesInput{ResourcesPerPage: &pageSize},
+	)
 	require.NoError(t, err)
 	require.NotNil(t, out1)
 	require.NotNil(t, out1.PaginationToken)
 	assert.Len(t, out1.ResourceTagMappingList, 2)
 	assert.Equal(t, "arn:aws:sqs:us-east-1:123:a", out1.ResourceTagMappingList[0].ResourceARN)
 
-	out2, err := b.GetResources(&resourcegroupstaggingapi.GetResourcesInput{
+	out2, err := b.GetResources(context.Background(), &resourcegroupstaggingapi.GetResourcesInput{
 		ResourcesPerPage: &pageSize,
 		PaginationToken:  *out1.PaginationToken,
 	})
@@ -224,14 +234,14 @@ func TestGetTagKeys(t *testing.T) {
 	t.Parallel()
 
 	b := resourcegroupstaggingapi.NewInMemoryBackend("123456789012", "us-east-1")
-	b.RegisterProvider(func() []resourcegroupstaggingapi.TaggedResource {
+	b.RegisterProvider(func(_ context.Context) []resourcegroupstaggingapi.TaggedResource {
 		return []resourcegroupstaggingapi.TaggedResource{
 			{ResourceARN: "arn:1", ResourceType: "sqs:queue", Tags: map[string]string{"env": "prod", "team": "ops"}},
 			{ResourceARN: "arn:2", ResourceType: "sqs:queue", Tags: map[string]string{"env": "dev", "owner": "alice"}},
 		}
 	})
 
-	out := b.GetTagKeys(&resourcegroupstaggingapi.GetTagKeysInput{})
+	out := b.GetTagKeys(context.Background(), &resourcegroupstaggingapi.GetTagKeysInput{})
 
 	require.NotNil(t, out)
 	assert.Equal(t, []string{"env", "owner", "team"}, out.TagKeys)
@@ -241,7 +251,7 @@ func TestGetTagValues(t *testing.T) {
 	t.Parallel()
 
 	b := resourcegroupstaggingapi.NewInMemoryBackend("123456789012", "us-east-1")
-	b.RegisterProvider(func() []resourcegroupstaggingapi.TaggedResource {
+	b.RegisterProvider(func(_ context.Context) []resourcegroupstaggingapi.TaggedResource {
 		return []resourcegroupstaggingapi.TaggedResource{
 			{ResourceARN: "arn:1", ResourceType: "sqs:queue", Tags: map[string]string{"env": "prod"}},
 			{ResourceARN: "arn:2", ResourceType: "sqs:queue", Tags: map[string]string{"env": "dev"}},
@@ -250,7 +260,7 @@ func TestGetTagValues(t *testing.T) {
 	})
 
 	envKey := "env"
-	out := b.GetTagValues(&resourcegroupstaggingapi.GetTagValuesInput{Key: &envKey})
+	out := b.GetTagValues(context.Background(), &resourcegroupstaggingapi.GetTagValuesInput{Key: &envKey})
 
 	require.NotNil(t, out)
 	assert.Equal(t, []string{"dev", "prod"}, out.TagValues)
@@ -263,7 +273,7 @@ func TestTagResources_Handled(t *testing.T) {
 
 	taggedARNs := make(map[string]map[string]string)
 
-	b.RegisterARNTagger(func(arn string, tags map[string]string) (bool, error) {
+	b.RegisterARNTagger(func(_ context.Context, arn string, tags map[string]string) (bool, error) {
 		if !isARN(arn, "sqs") {
 			return false, nil
 		}
@@ -273,7 +283,7 @@ func TestTagResources_Handled(t *testing.T) {
 		return true, nil
 	})
 
-	out, err := b.TagResources(&resourcegroupstaggingapi.TagResourcesInput{
+	out, err := b.TagResources(context.Background(), &resourcegroupstaggingapi.TagResourcesInput{
 		ResourceARNList: []string{"arn:aws:sqs:us-east-1:123:q1"},
 		Tags:            map[string]string{"env": "test"},
 	})
@@ -289,7 +299,7 @@ func TestTagResources_Unhandled(t *testing.T) {
 
 	b := resourcegroupstaggingapi.NewInMemoryBackend("123456789012", "us-east-1")
 
-	out, err := b.TagResources(&resourcegroupstaggingapi.TagResourcesInput{
+	out, err := b.TagResources(context.Background(), &resourcegroupstaggingapi.TagResourcesInput{
 		ResourceARNList: []string{"arn:aws:sqs:us-east-1:123:q1"},
 		Tags:            map[string]string{"env": "test"},
 	})
@@ -307,7 +317,7 @@ func TestUntagResources(t *testing.T) {
 
 	untaggedARNs := make(map[string][]string)
 
-	b.RegisterARNUntagger(func(arn string, keys []string) (bool, error) {
+	b.RegisterARNUntagger(func(_ context.Context, arn string, keys []string) (bool, error) {
 		if !isARN(arn, "sqs") {
 			return false, nil
 		}
@@ -317,7 +327,7 @@ func TestUntagResources(t *testing.T) {
 		return true, nil
 	})
 
-	out, err := b.UntagResources(&resourcegroupstaggingapi.UntagResourcesInput{
+	out, err := b.UntagResources(context.Background(), &resourcegroupstaggingapi.UntagResourcesInput{
 		ResourceARNList: []string{"arn:aws:sqs:us-east-1:123:q1"},
 		TagKeys:         []string{"env"},
 	})

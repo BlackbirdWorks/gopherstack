@@ -6,11 +6,13 @@ import (
 )
 
 type backendSnapshot struct {
-	Environments map[string]*Environment  `json:"environments"`
-	ARNIndex     map[string]string        `json:"arnIndex"`
-	Metrics      map[string][]MetricDatum `json:"metrics"`
-	AccountID    string                   `json:"accountID"`
-	Region       string                   `json:"region"`
+	// Environments, ARNIndex and Metrics are nested by region (outer key = region)
+	// so that same-named resources in different regions remain isolated.
+	Environments map[string]map[string]*Environment  `json:"environments"`
+	ARNIndex     map[string]map[string]string        `json:"arnIndex"`
+	Metrics      map[string]map[string][]MetricDatum `json:"metrics"`
+	AccountID    string                              `json:"accountID"`
+	Region       string                              `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -62,23 +64,25 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 // ensureNonNilMaps initialises nil maps in the snapshot to empty maps.
 func ensureNonNilMaps(snap *backendSnapshot) {
 	if snap.Environments == nil {
-		snap.Environments = make(map[string]*Environment)
+		snap.Environments = make(map[string]map[string]*Environment)
 	}
 
 	if snap.ARNIndex == nil {
-		snap.ARNIndex = make(map[string]string)
+		snap.ARNIndex = make(map[string]map[string]string)
 	}
 
 	if snap.Metrics == nil {
-		snap.Metrics = make(map[string][]MetricDatum)
+		snap.Metrics = make(map[string]map[string][]MetricDatum)
 	}
 }
 
 // fixNilEnvTags ensures restored environments have non-nil tag maps.
 func fixNilEnvTags(snap *backendSnapshot) {
-	for _, env := range snap.Environments {
-		if env.Tags == nil {
-			env.Tags = make(map[string]string)
+	for _, regionEnvs := range snap.Environments {
+		for _, env := range regionEnvs {
+			if env.Tags == nil {
+				env.Tags = make(map[string]string)
+			}
 		}
 	}
 }

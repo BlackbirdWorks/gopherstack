@@ -8,9 +8,9 @@ import (
 
 // backendSnapshot is the serialisable form of InMemoryBackend state.
 type backendSnapshot struct {
-	ScheduledQueries map[string]*ScheduledQuery `json:"scheduled_queries"`
-	ArnIndex         map[string]string          `json:"arn_index"`
-	AccountSettings  accountSettingsSnapshot    `json:"account_settings"`
+	ScheduledQueries map[string]map[string]*ScheduledQuery `json:"scheduled_queries"` // region → name → SQ
+	ArnIndex         map[string]map[string]string          `json:"arn_index"`         // region → ARN → name
+	AccountSettings  map[string]accountSettingsSnapshot    `json:"account_settings"`  // region → settings
 }
 
 // accountSettingsSnapshot is the serialisable form of AccountSettings.
@@ -25,25 +25,38 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	sqCopy := make(map[string]*ScheduledQuery, len(b.scheduledQueries))
-	for k, v := range b.scheduledQueries {
-		sqCopy[k] = cloneScheduledQuery(v)
+	// Deep-copy scheduled queries across all regions.
+	sqCopy := make(map[string]map[string]*ScheduledQuery, len(b.scheduledQueries))
+	for region, regionMap := range b.scheduledQueries {
+		inner := make(map[string]*ScheduledQuery, len(regionMap))
+		for name, sq := range regionMap {
+			inner[name] = cloneScheduledQuery(sq)
+		}
+		sqCopy[region] = inner
 	}
 
-	snap := backendSnapshot{
+	// Deep-copy ARN index across all regions.
+	arnCopy := make(map[string]map[string]string, len(b.arnIndex))
+	for region, regionMap := range b.arnIndex {
+		arnCopy[region] = maps.Clone(regionMap)
+	}
+
+	// Snapshot account settings across all regions.
+	settingsSnap := make(map[string]accountSettingsSnapshot, len(b.accountSettings))
+	for region, s := range b.accountSettings {
+		snap := accountSettingsSnapshot{QueryPricingModel: s.QueryPricingModel}
+		if s.MaxQueryTCU != nil {
+			v := *s.MaxQueryTCU
+			snap.MaxQueryTCU = &v
+		}
+		settingsSnap[region] = snap
+	}
+
+	data, err := json.Marshal(backendSnapshot{
 		ScheduledQueries: sqCopy,
-		ArnIndex:         maps.Clone(b.arnIndex),
-		AccountSettings: accountSettingsSnapshot{
-			QueryPricingModel: b.accountSettings.QueryPricingModel,
-		},
-	}
-
-	if b.accountSettings.MaxQueryTCU != nil {
-		v := *b.accountSettings.MaxQueryTCU
-		snap.AccountSettings.MaxQueryTCU = &v
-	}
-
-	data, err := json.Marshal(snap)
+		ArnIndex:         arnCopy,
+		AccountSettings:  settingsSnap,
+	})
 	if err != nil {
 		slog.Default().Warn("timestreamquery: failed to marshal snapshot", "error", err)
 
@@ -67,9 +80,14 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 
 	b.scheduledQueries = snap.ScheduledQueries
 	b.arnIndex = snap.ArnIndex
-	b.accountSettings = AccountSettings{
-		QueryPricingModel: snap.AccountSettings.QueryPricingModel,
-		MaxQueryTCU:       snap.AccountSettings.MaxQueryTCU,
+
+	// Reconstruct per-region account settings.
+	b.accountSettings = make(map[string]AccountSettings, len(snap.AccountSettings))
+	for region, s := range snap.AccountSettings {
+		b.accountSettings[region] = AccountSettings{
+			QueryPricingModel: s.QueryPricingModel,
+			MaxQueryTCU:       s.MaxQueryTCU,
+		}
 	}
 
 	ensureNonNilMaps(b)
@@ -81,15 +99,19 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 // Must be called with the write lock held.
 func ensureNonNilMaps(b *InMemoryBackend) {
 	if b.scheduledQueries == nil {
-		b.scheduledQueries = make(map[string]*ScheduledQuery)
+		b.scheduledQueries = make(map[string]map[string]*ScheduledQuery)
 	}
 
 	if b.arnIndex == nil {
-		b.arnIndex = make(map[string]string)
+		b.arnIndex = make(map[string]map[string]string)
 	}
 
 	if b.queries == nil {
 		b.queries = make(map[string]*QueryResult)
+	}
+
+	if b.accountSettings == nil {
+		b.accountSettings = make(map[string]AccountSettings)
 	}
 }
 

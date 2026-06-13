@@ -12,17 +12,20 @@
 		ListPipelineExecutionsCommand,
 		ListWebhooksCommand,
 		PutApprovalResultCommand,
+		ListActionExecutionsCommand,
+		type CodePipelineClient,
 		type PipelineDeclaration,
 		type GetPipelineStateCommandOutput,
 		type StageState,
 		type PipelineExecutionSummary,
-		type ListWebhookItem
+		type ListWebhookItem,
+		type ActionExecutionDetail
 	} from '@aws-sdk/client-codepipeline';
 	import { toast } from 'svelte-sonner';
 	import { 
 		Workflow, Search, RefreshCw, Plus, Trash2, 
 		Activity, Info, Box, Clock, ShieldCheck,
-		ChevronRight, ListFilter, Globe, 
+		ChevronRight, ChevronDown, ListFilter, Globe,
 		Layers, Share2, Play, CheckCircle2, 
 		XCircle, AlertCircle, Timer, Zap,
 		ArrowRight, ExternalLink, Shield,
@@ -31,7 +34,10 @@
 		Database, Terminal
 	} from 'lucide-svelte';
 
-	const codepipeline = getCodePipelineClient();
+	let codepipelineClient: CodePipelineClient | undefined;
+	function codepipeline(): CodePipelineClient {
+		return (codepipelineClient ??= getCodePipelineClient());
+	}
 
 	// State
 	let loading = $state(false);
@@ -62,12 +68,12 @@
 	async function loadPipelines() {
 		loading = true;
 		try {
-			const listRes = await codepipeline.send(new ListPipelinesCommand({}));
+			const listRes = await codepipeline().send(new ListPipelinesCommand({}));
 			const pNames = listRes.pipelines?.map(p => p.name).filter(Boolean) as string[];
 			
 			if (pNames.length > 0) {
 				const details = await Promise.all(
-					pNames.map(name => codepipeline.send(new GetPipelineCommand({ name })))
+					pNames.map(name => codepipeline().send(new GetPipelineCommand({ name })))
 				);
 				pipelines = details.map(d => d.pipeline).filter(Boolean) as PipelineDeclaration[];
 			}
@@ -87,9 +93,9 @@
 		loadingDetails = true;
 		try {
 			const [stateRes, execRes, webhookRes] = await Promise.all([
-				codepipeline.send(new GetPipelineStateCommand({ name: pipeline.name })),
-				codepipeline.send(new ListPipelineExecutionsCommand({ pipelineName: pipeline.name })).catch(() => ({ pipelineExecutionSummaries: [] })),
-				codepipeline.send(new ListWebhooksCommand({})).catch(() => ({ webhooks: [] }))
+				codepipeline().send(new GetPipelineStateCommand({ name: pipeline.name })),
+				codepipeline().send(new ListPipelineExecutionsCommand({ pipelineName: pipeline.name })).catch(() => ({ pipelineExecutionSummaries: [] })),
+				codepipeline().send(new ListWebhooksCommand({})).catch(() => ({ webhooks: [] }))
 			]);
 			pipelineState = stateRes;
 			executions = execRes.pipelineExecutionSummaries ?? [];
@@ -101,11 +107,56 @@
 		}
 	}
 
+	// Per-execution action timeline (with durations) via ListActionExecutions.
+	let expandedExecId = $state<string | null>(null);
+	let actionExecutions = $state<ActionExecutionDetail[]>([]);
+	let loadingActions = $state(false);
+
+	function fmtDuration(start?: Date, end?: Date): string {
+		if (!start) return '—';
+		const endMs = (end ?? new Date()).getTime();
+		const ms = endMs - start.getTime();
+		if (ms < 0) return '—';
+		if (ms < 1000) return `${ms}ms`;
+		const s = Math.round(ms / 1000);
+		if (s < 60) return `${s}s`;
+		const m = Math.floor(s / 60);
+		return `${m}m ${s % 60}s`;
+	}
+
+	async function toggleExecutionTimeline(execId: string | undefined) {
+		if (!execId || !selectedPipeline?.name) return;
+		if (expandedExecId === execId) {
+			expandedExecId = null;
+			return;
+		}
+		expandedExecId = execId;
+		actionExecutions = [];
+		loadingActions = true;
+		try {
+			const res = await codepipeline().send(
+				new ListActionExecutionsCommand({
+					pipelineName: selectedPipeline.name,
+					filter: { pipelineExecutionId: execId }
+				})
+			);
+			actionExecutions = (res.actionExecutionDetails ?? []).toSorted((a, b) => {
+				const ta = a.startTime?.getTime() ?? 0;
+				const tb = b.startTime?.getTime() ?? 0;
+				return ta - tb;
+			});
+		} catch (err: unknown) {
+			toast.error(`Failed to load action timeline: ${(err as Error).message}`);
+		} finally {
+			loadingActions = false;
+		}
+	}
+
 	async function startExecution() {
 		if (!selectedPipeline?.name) return;
 		startingExecution = true;
 		try {
-			const res = await codepipeline.send(new StartPipelineExecutionCommand({ name: selectedPipeline.name }));
+			const res = await codepipeline().send(new StartPipelineExecutionCommand({ name: selectedPipeline.name }));
 			toast.success(`Execution started: ${res.pipelineExecutionId}`);
 			await selectPipeline(selectedPipeline);
 		} catch (err: unknown) {
@@ -118,7 +169,7 @@
 	async function approveAction(stageName: string, actionName: string, status: 'Approved' | 'Rejected') {
 		if (!selectedPipeline?.name) return;
 		try {
-			await codepipeline.send(new PutApprovalResultCommand({
+			await codepipeline().send(new PutApprovalResultCommand({
 				pipelineName: selectedPipeline.name,
 				stageName,
 				actionName,
@@ -135,7 +186,7 @@
 		if (!newPipelineName.trim()) return;
 		creating = true;
 		try {
-			await codepipeline.send(new CreatePipelineCommand({
+			await codepipeline().send(new CreatePipelineCommand({
 				pipeline: {
 					name: newPipelineName.trim(),
 					roleArn,
@@ -164,7 +215,7 @@
 	async function deletePipeline(name: string | undefined) {
 		if (!name || !await confirmDestructive({ title: 'Delete Pipeline', message: `Delete pipeline "${name}"? This cannot be undone.` })) return;
 		try {
-			await codepipeline.send(new DeletePipelineCommand({ name }));
+			await codepipeline().send(new DeletePipelineCommand({ name }));
 			toast.success(`Pipeline deleted`);
 			if (selectedPipeline?.name === name) selectedPipeline = null;
 			await loadPipelines();
@@ -320,9 +371,51 @@
 									<p class="text-center py-8 text-sm text-slate-500 dark:text-slate-400 italic">No executions found</p>
 								{:else}
 									{#each executions as exec}
-										<div class="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-700/50">
-											<span class="font-mono text-xs text-slate-600 dark:text-slate-300">{exec.pipelineExecutionId}</span>
-											<span class="text-xs px-2 py-0.5 rounded-full {exec.status === 'Succeeded' ? 'bg-emerald-100 text-emerald-700' : exec.status === 'Failed' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}">{exec.status}</span>
+										<div class="rounded-xl bg-slate-50 dark:bg-slate-700/50">
+											<button
+												type="button"
+												onclick={() => toggleExecutionTimeline(exec.pipelineExecutionId)}
+												class="flex w-full items-center justify-between p-3 text-left"
+											>
+												<span class="flex items-center gap-2 font-mono text-xs text-slate-600 dark:text-slate-300">
+													{#if expandedExecId === exec.pipelineExecutionId}
+														<ChevronDown class="w-3.5 h-3.5" />
+													{:else}
+														<ChevronRight class="w-3.5 h-3.5" />
+													{/if}
+													{exec.pipelineExecutionId}
+												</span>
+												<span class="text-xs px-2 py-0.5 rounded-full {exec.status === 'Succeeded' ? 'bg-emerald-100 text-emerald-700' : exec.status === 'Failed' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}">{exec.status}</span>
+											</button>
+											{#if expandedExecId === exec.pipelineExecutionId}
+												<div class="border-t border-slate-200 dark:border-slate-600 p-3">
+													{#if loadingActions}
+														<p class="text-center py-3 text-xs text-slate-500 italic">Loading timeline…</p>
+													{:else if actionExecutions.length === 0}
+														<p class="text-center py-3 text-xs text-slate-500 italic">No action executions recorded</p>
+													{:else}
+														<div class="space-y-2">
+															{#each actionExecutions as ae}
+																<div class="flex items-center justify-between gap-3 rounded-lg bg-white dark:bg-slate-800 px-3 py-2">
+																	<div class="min-w-0">
+																		<div class="text-xs font-bold text-slate-800 dark:text-slate-200 truncate">{ae.stageName} / {ae.actionName}</div>
+																		<div class="text-[10px] text-slate-400 font-mono">
+																			{ae.startTime ? ae.startTime.toLocaleTimeString() : '—'}
+																			{#if ae.input?.actionTypeId?.provider}· {ae.input.actionTypeId.provider}{/if}
+																		</div>
+																	</div>
+																	<div class="flex items-center gap-2 shrink-0">
+																		<span class="flex items-center gap-1 text-[10px] text-slate-500 font-mono">
+																			<Timer class="w-3 h-3" /> {fmtDuration(ae.startTime, ae.lastUpdateTime)}
+																		</span>
+																		<span class="text-[10px] px-2 py-0.5 rounded-full {ae.status === 'Succeeded' ? 'bg-emerald-100 text-emerald-700' : ae.status === 'Failed' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}">{ae.status}</span>
+																	</div>
+																</div>
+															{/each}
+														</div>
+													{/if}
+												</div>
+											{/if}
 										</div>
 									{/each}
 								{/if}

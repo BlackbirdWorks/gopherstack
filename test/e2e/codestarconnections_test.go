@@ -16,7 +16,7 @@ import (
 func TestCodeStarConnectionsDashboard(t *testing.T) {
 	stack := newStack(t)
 
-	_, err := stack.CodeStarConnectionsHandler.Backend.CreateConnection("e2e-test-conn", "GitHub", "", nil)
+	_, err := stack.CodeStarConnectionsHandler.Backend.CreateConnection(t.Context(), "e2e-test-conn", "GitHub", "", nil)
 	require.NoError(t, err)
 
 	server := httptest.NewServer(stack.Echo)

@@ -4,6 +4,7 @@
 package e2e_test
 
 import (
+	"context"
 	"net/http/httptest"
 	"testing"
 
@@ -19,6 +20,7 @@ func TestElasticbeanstalkDashboard(t *testing.T) {
 	stack := newStack(t)
 
 	_, err := stack.ElasticbeanstalkHandler.Backend.CreateApplication(
+		context.Background(),
 		"e2e-app",
 		"E2E test application",
 		map[string]string{"env": "e2e"},
@@ -26,6 +28,7 @@ func TestElasticbeanstalkDashboard(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = stack.ElasticbeanstalkHandler.Backend.CreateEnvironment(
+		context.Background(),
 		"e2e-app", "e2e-env",
 		"64bit Amazon Linux 2023 v4.0.0 running Python 3.11",
 		"E2E test environment",

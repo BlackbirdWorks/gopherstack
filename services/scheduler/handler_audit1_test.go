@@ -712,13 +712,14 @@ func TestAudit1_CompositeKey_SameNameDifferentGroups_BothFire(t *testing.T) {
 	lambdaARN := "arn:aws:lambda:us-east-1:000000000000:function:fn"
 	backend := newAuditBackend(t)
 
-	_, err := backend.CreateScheduleGroup("g1", "", nil)
+	_, err := backend.CreateScheduleGroup(context.Background(), "g1", "", nil)
 	require.NoError(t, err)
 
-	_, err = backend.CreateScheduleGroup("g2", "", nil)
+	_, err = backend.CreateScheduleGroup(context.Background(), "g2", "", nil)
 	require.NoError(t, err)
 
 	_, err = backend.CreateSchedule(
+		context.Background(),
 		"same-name", "g1", "rate(1 second)", "", "",
 		scheduler.Target{ARN: lambdaARN, RoleARN: "arn:aws:iam::0:role/r"},
 		"ENABLED", scheduler.FlexibleTimeWindow{Mode: "OFF"},
@@ -726,6 +727,7 @@ func TestAudit1_CompositeKey_SameNameDifferentGroups_BothFire(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = backend.CreateSchedule(
+		context.Background(),
 		"same-name", "g2", "rate(1 second)", "", "",
 		scheduler.Target{ARN: lambdaARN, RoleARN: "arn:aws:iam::0:role/r"},
 		"ENABLED", scheduler.FlexibleTimeWindow{Mode: "OFF"},
@@ -788,6 +790,7 @@ func TestAudit1_ActionAfterCompletion_Delete_RemovesSchedule(t *testing.T) {
 	backend := newAuditBackend(t)
 
 	_, err := backend.CreateSchedule(
+		context.Background(),
 		"one-shot", "", "rate(1 second)", "", "",
 		scheduler.Target{ARN: lambdaARN, RoleARN: "arn:aws:iam::0:role/r"},
 		"ENABLED", scheduler.FlexibleTimeWindow{Mode: "OFF"},
@@ -804,7 +807,7 @@ func TestAudit1_ActionAfterCompletion_Delete_RemovesSchedule(t *testing.T) {
 	// Schedule should have fired and been deleted.
 	require.Len(t, invoker.Called(), 1)
 
-	_, err = backend.GetSchedule("one-shot", "")
+	_, err = backend.GetSchedule(context.Background(), "one-shot", "")
 	assert.Error(t, err, "schedule should be deleted after ActionAfterCompletion=DELETE")
 }
 
@@ -815,6 +818,7 @@ func TestAudit1_ActionAfterCompletion_None_DoesNotRemove(t *testing.T) {
 	backend := newAuditBackend(t)
 
 	_, err := backend.CreateSchedule(
+		context.Background(),
 		"keep-me", "", "rate(1 second)", "", "",
 		scheduler.Target{ARN: lambdaARN, RoleARN: "arn:aws:iam::0:role/r"},
 		"ENABLED", scheduler.FlexibleTimeWindow{Mode: "OFF"},
@@ -829,7 +833,7 @@ func TestAudit1_ActionAfterCompletion_None_DoesNotRemove(t *testing.T) {
 	scheduler.CheckAndFireSchedules(t.Context(), runner, time.Now())
 	require.Len(t, invoker.Called(), 1)
 
-	_, err = backend.GetSchedule("keep-me", "")
+	_, err = backend.GetSchedule(context.Background(), "keep-me", "")
 	assert.NoError(t, err, "schedule with ActionAfterCompletion=NONE should remain")
 }
 
@@ -865,6 +869,7 @@ func TestAudit1_Runner_EventBridgeTarget_Invoked(t *testing.T) {
 	backend := newAuditBackend(t)
 
 	_, err := backend.CreateSchedule(
+		context.Background(),
 		"eb-sched", "", "rate(1 second)", "", "",
 		scheduler.Target{
 			ARN:     busARN,
@@ -915,6 +920,7 @@ func TestAudit1_Runner_KinesisTarget_Invoked(t *testing.T) {
 	backend := newAuditBackend(t)
 
 	_, err := backend.CreateSchedule(
+		context.Background(),
 		"kinesis-sched", "", "rate(1 second)", "", "",
 		scheduler.Target{
 			ARN:               streamARN,
@@ -964,6 +970,7 @@ func TestAudit1_Runner_SageMakerTarget_Invoked(t *testing.T) {
 	backend := newAuditBackend(t)
 
 	_, err := backend.CreateSchedule(
+		context.Background(),
 		"sm-sched", "", "rate(1 second)", "", "",
 		scheduler.Target{
 			ARN:     pipelineARN,
@@ -1019,6 +1026,7 @@ func TestAudit1_Runner_ECSTarget_Invoked(t *testing.T) {
 	backend := newAuditBackend(t)
 
 	_, err := backend.CreateSchedule(
+		context.Background(),
 		"ecs-sched", "", "rate(1 second)", "", "",
 		scheduler.Target{
 			ARN:     clusterARN,
@@ -1080,6 +1088,7 @@ func TestAudit1_Runner_DLQ_SentOnExhaustion(t *testing.T) {
 	backend := newAuditBackend(t)
 
 	_, err := backend.CreateSchedule(
+		context.Background(),
 		"dlq-test", "", "rate(1 second)", "", "",
 		scheduler.Target{
 			ARN:     lambdaARN,

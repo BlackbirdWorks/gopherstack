@@ -13,8 +13,8 @@ import (
 // ---------------------------------------------------------------------------
 
 type ipRuleItem struct {
-	IpRule   string `json:"IpRule"` //nolint:revive,staticcheck // existing issue.
-	RuleDesc string `json:"RuleDesc"`
+	IpRule   string `json:"ipRule"` //nolint:revive,staticcheck // existing issue.
+	RuleDesc string `json:"ruleDesc"`
 }
 
 type storedIpGroup struct { //nolint:revive,staticcheck // existing issue.

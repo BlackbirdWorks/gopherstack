@@ -16,7 +16,7 @@ func TestRefinement2_CancelStatement_SuccessStatusBoolean(t *testing.T) {
 	t.Parallel()
 
 	b := redshiftdata.NewInMemoryBackend(testAccountID, testRegion)
-	redshiftdata.AddStatementInternal(b, "stmt-pending", "SELECT 1", "mydb", "STARTED", false)
+	redshiftdata.AddStatementInternal(b, testRegion, "stmt-pending", "SELECT 1", "mydb", "STARTED", false)
 
 	h := redshiftdata.NewHandler(b)
 
@@ -335,8 +335,8 @@ func TestRefinement2_ListStatements_StatusFilter(t *testing.T) {
 	t.Parallel()
 
 	b := redshiftdata.NewInMemoryBackend(testAccountID, testRegion)
-	redshiftdata.AddStatementInternal(b, "stmt-finished", "SELECT 1", "mydb", "FINISHED", true)
-	redshiftdata.AddStatementInternal(b, "stmt-failed", "SELECT 2", "mydb", "FAILED", false)
+	redshiftdata.AddStatementInternal(b, testRegion, "stmt-finished", "SELECT 1", "mydb", "FINISHED", true)
+	redshiftdata.AddStatementInternal(b, testRegion, "stmt-failed", "SELECT 2", "mydb", "FAILED", false)
 
 	h := redshiftdata.NewHandler(b)
 

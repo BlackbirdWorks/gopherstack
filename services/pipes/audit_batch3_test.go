@@ -94,7 +94,7 @@ func b3Describe(t *testing.T, h *pipes.Handler, name string) map[string]any {
 func b3CreatePipe(t *testing.T, b *pipes.InMemoryBackend, name, target string) {
 	t.Helper()
 
-	_, err := b.CreatePipe(pipes.CreatePipeInput{
+	_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 		Name:         name,
 		RoleARN:      "arn:aws:iam::111122223333:role/r",
 		Source:       b3SQSSource,
@@ -142,7 +142,7 @@ func TestBatch3_UpdatePipe_Description_AbsentMeansUnchanged(t *testing.T) {
 			t.Parallel()
 
 			b := b3Backend()
-			_, err := b.CreatePipe(pipes.CreatePipeInput{
+			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 				Name:         tt.name,
 				RoleARN:      "arn:aws:iam::111122223333:role/r",
 				Source:       b3SQSSource,
@@ -154,12 +154,12 @@ func TestBatch3_UpdatePipe_Description_AbsentMeansUnchanged(t *testing.T) {
 			pipes.WaitPipeRunning(t, b, tt.name)
 
 			desc := tt.updateDesc
-			_, err = b.UpdatePipe(tt.name, pipes.UpdatePipeInput{
+			_, err = b.UpdatePipe(context.Background(), tt.name, pipes.UpdatePipeInput{
 				Description: &desc,
 			})
 			require.NoError(t, err)
 
-			p, err := b.GetPipe(tt.name)
+			p, err := b.GetPipe(context.Background(), tt.name)
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantDesc, p.Description)
 		})
@@ -242,7 +242,7 @@ func TestBatch3_Snapshot_PersistsEnrichmentCallCount(t *testing.T) {
 			b3CreatePipe(t, b, tt.pipeName, b3LambdaTarget)
 
 			for range tt.callCount {
-				b.RecordEnrichmentCall(tt.pipeName)
+				b.RecordEnrichmentCall(context.Background(), tt.pipeName)
 			}
 
 			snap := b.Snapshot()
@@ -251,7 +251,7 @@ func TestBatch3_Snapshot_PersistsEnrichmentCallCount(t *testing.T) {
 			b2 := b3Backend()
 			require.NoError(t, b2.Restore(snap))
 
-			got := b2.GetEnrichmentCallCount(tt.pipeName)
+			got := b2.GetEnrichmentCallCount(context.Background(), tt.pipeName)
 			assert.Equal(t, int64(tt.callCount), got, "enrichment call count should survive snapshot/restore")
 		})
 	}
@@ -268,7 +268,7 @@ func TestBatch3_Restore_MissingEnrichmentCallCount(t *testing.T) {
 	require.NoError(t, b.Restore(legacySnap))
 
 	// Must not panic; count for unknown pipe is zero.
-	assert.Equal(t, int64(0), b.GetEnrichmentCallCount("any-pipe"))
+	assert.Equal(t, int64(0), b.GetEnrichmentCallCount(context.Background(), "any-pipe"))
 }
 
 // --- epochMillis millisecond-resolution timestamps ---
@@ -349,7 +349,7 @@ func TestBatch3_ListPipes_LexicographicOrder(t *testing.T) {
 
 			b := b3Backend()
 			for _, n := range tt.pipeNames {
-				_, err := b.CreatePipe(pipes.CreatePipeInput{
+				_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 					Name:         n,
 					RoleARN:      "arn:aws:iam::111122223333:role/r",
 					Source:       b3SQSSource,
@@ -359,7 +359,7 @@ func TestBatch3_ListPipes_LexicographicOrder(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			result := b.ListPipes(pipes.ListPipesFilter{})
+			result := b.ListPipes(context.Background(), pipes.ListPipesFilter{})
 			require.Len(t, result.Pipes, len(tt.pipeNames))
 
 			for i, p := range result.Pipes {
@@ -466,7 +466,7 @@ func TestBatch3_BatchSize_Validation(t *testing.T) {
 			t.Parallel()
 
 			b := b3Backend()
-			_, err := b.CreatePipe(pipes.CreatePipeInput{
+			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 				Name:             tt.name + "-pipe",
 				RoleARN:          "arn:aws:iam::111122223333:role/r",
 				Source:           b3SQSSource,
@@ -518,7 +518,7 @@ func TestBatch3_BatchSize_UpdateValidation(t *testing.T) {
 			b := b3Backend()
 			b3CreatePipe(t, b, tt.name+"-pipe", b3LambdaTarget)
 
-			_, err := b.UpdatePipe(tt.name+"-pipe", pipes.UpdatePipeInput{
+			_, err := b.UpdatePipe(context.Background(), tt.name+"-pipe", pipes.UpdatePipeInput{
 				SourceParameters: tt.sp,
 			})
 
@@ -575,7 +575,7 @@ func TestBatch3_Lambda_InvocationType_Mapping(t *testing.T) {
 				}
 			}
 
-			_, err := b.CreatePipe(pipes.CreatePipeInput{
+			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 				Name:             "it-" + tt.name,
 				RoleARN:          "arn:aws:iam::111122223333:role/r",
 				Source:           b3SQSSource,
@@ -641,7 +641,7 @@ func TestBatch3_Enrichment_LambdaInvocation(t *testing.T) {
 			t.Parallel()
 
 			b := b3Backend()
-			_, err := b.CreatePipe(pipes.CreatePipeInput{
+			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 				Name:         tt.name,
 				RoleARN:      "arn:aws:iam::111122223333:role/r",
 				Source:       b3SQSSource,
@@ -673,7 +673,7 @@ func TestBatch3_Enrichment_LambdaInvocation(t *testing.T) {
 			pipes.PollAllPipesOnce(t.Context(), runner)
 
 			// Enrichment call should be recorded.
-			assert.Equal(t, int64(1), b.GetEnrichmentCallCount(tt.name),
+			assert.Equal(t, int64(1), b.GetEnrichmentCallCount(context.Background(), tt.name),
 				"enrichment call should be recorded")
 
 			enricher.mu.Lock()
@@ -782,7 +782,7 @@ func TestBatch3_Target_SQS(t *testing.T) {
 			t.Parallel()
 
 			b := b3Backend()
-			_, err := b.CreatePipe(pipes.CreatePipeInput{
+			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 				Name:             tt.name + "-pipe",
 				RoleARN:          "arn:aws:iam::111122223333:role/r",
 				Source:           b3SQSSource,
@@ -850,7 +850,7 @@ func TestBatch3_Target_Kinesis(t *testing.T) {
 
 			kinesisARN := "arn:aws:kinesis:eu-west-1:111122223333:stream/output"
 			b := b3Backend()
-			_, err := b.CreatePipe(pipes.CreatePipeInput{
+			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 				Name:             tt.name + "-pipe",
 				RoleARN:          "arn:aws:iam::111122223333:role/r",
 				Source:           b3SQSSource,
@@ -920,7 +920,7 @@ func TestBatch3_Target_EventBridge(t *testing.T) {
 
 			busARN := "arn:aws:events:eu-west-1:111122223333:event-bus/my-bus"
 			b := b3Backend()
-			_, err := b.CreatePipe(pipes.CreatePipeInput{
+			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 				Name:             tt.name + "-pipe",
 				RoleARN:          "arn:aws:iam::111122223333:role/r",
 				Source:           b3SQSSource,
@@ -989,7 +989,7 @@ func TestBatch3_Target_CloudWatchLogs(t *testing.T) {
 
 			logGroupARN := "arn:aws:logs:eu-west-1:111122223333:log-group:/pipes/output"
 			b := b3Backend()
-			_, err := b.CreatePipe(pipes.CreatePipeInput{
+			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 				Name:             tt.name + "-pipe",
 				RoleARN:          "arn:aws:iam::111122223333:role/r",
 				Source:           b3SQSSource,
@@ -1088,7 +1088,7 @@ func TestBatch3_Filter_JSONPattern(t *testing.T) {
 			t.Parallel()
 
 			b := b3Backend()
-			_, err := b.CreatePipe(pipes.CreatePipeInput{
+			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 				Name:         tt.name + "-pipe",
 				RoleARN:      "arn:aws:iam::111122223333:role/r",
 				Source:       b3SQSSource,
@@ -1184,7 +1184,7 @@ func TestBatch3_Filter_PatternOperators(t *testing.T) {
 			t.Parallel()
 
 			b := b3Backend()
-			_, err := b.CreatePipe(pipes.CreatePipeInput{
+			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 				Name:         "op-" + tt.name,
 				RoleARN:      "arn:aws:iam::111122223333:role/r",
 				Source:       b3SQSSource,
@@ -1266,7 +1266,7 @@ func TestBatch3_Filter_MultipleFilters(t *testing.T) {
 			t.Parallel()
 
 			b := b3Backend()
-			_, err := b.CreatePipe(pipes.CreatePipeInput{
+			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 				Name:         "mf-" + tt.name,
 				RoleARN:      "arn:aws:iam::111122223333:role/r",
 				Source:       b3SQSSource,
@@ -1328,7 +1328,7 @@ func TestBatch3_Enrichment_RecordedOnlyWhenConfigured(t *testing.T) {
 			t.Parallel()
 
 			b := b3Backend()
-			_, err := b.CreatePipe(pipes.CreatePipeInput{
+			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 				Name:         tt.name + "-pipe",
 				RoleARN:      "arn:aws:iam::111122223333:role/r",
 				Source:       b3SQSSource,
@@ -1349,7 +1349,7 @@ func TestBatch3_Enrichment_RecordedOnlyWhenConfigured(t *testing.T) {
 
 			pipes.PollAllPipesOnce(t.Context(), runner)
 
-			assert.Equal(t, tt.wantCount, b.GetEnrichmentCallCount(tt.name+"-pipe"))
+			assert.Equal(t, tt.wantCount, b.GetEnrichmentCallCount(context.Background(), tt.name+"-pipe"))
 		})
 	}
 }

@@ -45,7 +45,7 @@ func TestBackend_ListClusters(t *testing.T) {
 			name: "multiple clusters",
 			setup: func(b *memorydb.InMemoryBackend) {
 				for _, clusterName := range []string{"cluster-1", "cluster-2", "cluster-3"} {
-					_, err := b.CreateCluster(testRegion, testAccountID, &memorydb.ExportedCreateClusterRequest{
+					_, err := b.CreateCluster(context.Background(), &memorydb.ExportedCreateClusterRequest{
 						ClusterName: clusterName,
 						NodeType:    "db.r6g.large",
 						ACLName:     "open-access",
@@ -61,7 +61,7 @@ func TestBackend_ListClusters(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := memorydb.NewInMemoryBackend()
+			b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
 
 			if tt.setup != nil {
 				tt.setup(b)
@@ -95,10 +95,10 @@ func TestBackend_Purge(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := memorydb.NewInMemoryBackend()
+			b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
 			ctx := t.Context()
 
-			_, err := b.CreateCluster(testRegion, testAccountID, &memorydb.ExportedCreateClusterRequest{
+			_, err := b.CreateCluster(context.Background(), &memorydb.ExportedCreateClusterRequest{
 				ClusterName: "old-cluster",
 				NodeType:    "db.r6g.large",
 				ACLName:     "open-access",
@@ -125,9 +125,9 @@ func TestBackend_Purge(t *testing.T) {
 func TestBackend_Purge_CancelledContext(t *testing.T) {
 	t.Parallel()
 
-	b := memorydb.NewInMemoryBackend()
+	b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
 
-	_, err := b.CreateCluster(testRegion, testAccountID, &memorydb.ExportedCreateClusterRequest{
+	_, err := b.CreateCluster(context.Background(), &memorydb.ExportedCreateClusterRequest{
 		ClusterName: "my-cluster",
 		NodeType:    "db.r6g.large",
 		ACLName:     "open-access",
@@ -225,8 +225,8 @@ func TestBackend_DescribeMultiRegionParameterGroups_WithData(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := memorydb.NewInMemoryBackend()
-			groups, err := b.DescribeMultiRegionParameterGroups(tt.filterName)
+			b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
+			groups, err := b.DescribeMultiRegionParameterGroups(context.Background(), tt.filterName)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -338,7 +338,7 @@ func TestHandler_DescribeEvents_WithData(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := memorydb.NewInMemoryBackend()
+			b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
 
 			b.AddEvent(&memorydb.ExportedEvent{
 				SourceName: "my-cluster",
@@ -351,7 +351,7 @@ func TestHandler_DescribeEvents_WithData(t *testing.T) {
 				Message:    "event 2",
 			})
 
-			events, err := b.DescribeEvents(&memorydb.ExportedDescribeEventsRequest{
+			events, err := b.DescribeEvents(context.Background(), &memorydb.ExportedDescribeEventsRequest{
 				SourceName: func() string {
 					if v, ok := tt.body["SourceName"].(string); ok {
 						return v

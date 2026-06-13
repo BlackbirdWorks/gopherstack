@@ -9,14 +9,28 @@
 		CreateFunctionCommand,
 		ListLayersCommand,
 		UpdateFunctionConfigurationCommand,
+		ListEventSourceMappingsCommand,
+		CreateEventSourceMappingCommand,
+		UpdateEventSourceMappingCommand,
+		DeleteEventSourceMappingCommand,
+		ListVersionsByFunctionCommand,
+		PublishVersionCommand,
+		ListAliasesCommand,
+		CreateAliasCommand,
+		DeleteAliasCommand,
+		PutFunctionConcurrencyCommand,
+		DeleteFunctionConcurrencyCommand,
+		GetFunctionConcurrencyCommand,
 		type FunctionConfiguration,
 		type InvocationResponse,
-		type LayersListItem
+		type LayersListItem,
+		type EventSourceMappingConfiguration,
+		type AliasConfiguration
 	} from '@aws-sdk/client-lambda';
 	import { toast } from 'svelte-sonner';
-	import { 
-		Zap, Search, RefreshCw, Plus, Trash2, Play, 
-		Code, Cpu, Clock, Terminal, Globe, Sliders, ChevronRight, X
+	import {
+		Zap, Search, RefreshCw, Plus, Trash2, Play,
+		Code, Cpu, Clock, Terminal, Globe, Sliders, ChevronRight, X, Link2
 	} from 'lucide-svelte';
 
 	const lambda = getLambdaClient();
@@ -52,6 +66,30 @@
 	let layers = $state<LayersListItem[]>([]);
 	let layersLoading = $state(false);
 	let showLayerTab = $state(false);
+
+	// Event Source Mappings (triggers)
+	let eventSourceMappings = $state<EventSourceMappingConfiguration[]>([]);
+	let esmLoading = $state(false);
+	let showEsmPanel = $state(false);
+	let showCreateEsmModal = $state(false);
+	let creatingEsm = $state(false);
+	let newEsmArn = $state('');
+	let newEsmBatchSize = $state(10);
+	let newEsmEnabled = $state(true);
+	let newEsmStartPosition = $state<'' | 'LATEST' | 'TRIM_HORIZON'>('');
+
+	// Versions / Aliases / Concurrency
+	let showVersionsPanel = $state(false);
+	let versionsLoading = $state(false);
+	let fnVersions = $state<FunctionConfiguration[]>([]);
+	let fnAliases = $state<AliasConfiguration[]>([]);
+	let publishingVersion = $state(false);
+	let newAliasName = $state('');
+	let newAliasVersion = $state('');
+	let creatingAlias = $state(false);
+	let reservedConcurrency = $state<number | null>(null);
+	let concurrencyDraft = $state('');
+	let savingConcurrency = $state(false);
 
 	// Env Var Editor
 	let editingEnvVars = $state(false);
@@ -209,6 +247,182 @@
 			toast.error(`Failed to load layers: ${(err as Error).message}`);
 		} finally {
 			layersLoading = false;
+		}
+	}
+
+	// Reload triggers when the selected function changes while the panel is open.
+	$effect(() => {
+		const name = selectedFunction?.FunctionName;
+		if (showEsmPanel && name) {
+			void loadEventSourceMappings();
+		}
+	});
+
+	async function loadEventSourceMappings() {
+		if (!selectedFunction?.FunctionName) return;
+		esmLoading = true;
+		try {
+			const res = await lambda.send(new ListEventSourceMappingsCommand({ FunctionName: selectedFunction.FunctionName }));
+			eventSourceMappings = res.EventSourceMappings ?? [];
+		} catch (err: unknown) {
+			toast.error(`Failed to load triggers: ${(err as Error).message}`);
+		} finally {
+			esmLoading = false;
+		}
+	}
+
+	function toggleEsmPanel() {
+		showEsmPanel = !showEsmPanel;
+		if (showEsmPanel) loadEventSourceMappings();
+	}
+
+	function toggleVersionsPanel() {
+		showVersionsPanel = !showVersionsPanel;
+		if (showVersionsPanel) void loadVersionsAndAliases();
+	}
+
+	async function loadVersionsAndAliases() {
+		if (!selectedFunction?.FunctionName) return;
+		versionsLoading = true;
+		try {
+			const fnName = selectedFunction.FunctionName;
+			const [vers, aliases, conc] = await Promise.all([
+				lambda.send(new ListVersionsByFunctionCommand({ FunctionName: fnName })),
+				lambda.send(new ListAliasesCommand({ FunctionName: fnName })),
+				lambda.send(new GetFunctionConcurrencyCommand({ FunctionName: fnName })).catch(() => null)
+			]);
+			fnVersions = vers.Versions ?? [];
+			fnAliases = aliases.Aliases ?? [];
+			reservedConcurrency = conc?.ReservedConcurrentExecutions ?? null;
+			concurrencyDraft = reservedConcurrency === null ? '' : String(reservedConcurrency);
+		} catch (err: unknown) {
+			toast.error(`Failed to load versions: ${(err as Error).message}`);
+		} finally {
+			versionsLoading = false;
+		}
+	}
+
+	async function publishVersion() {
+		if (!selectedFunction?.FunctionName) return;
+		publishingVersion = true;
+		try {
+			const res = await lambda.send(new PublishVersionCommand({ FunctionName: selectedFunction.FunctionName }));
+			toast.success(`Published version ${res.Version ?? ''}`);
+			await loadVersionsAndAliases();
+		} catch (err: unknown) {
+			toast.error(`Failed to publish version: ${(err as Error).message}`);
+		} finally {
+			publishingVersion = false;
+		}
+	}
+
+	async function createAlias() {
+		if (!selectedFunction?.FunctionName || !newAliasName.trim() || !newAliasVersion.trim()) {
+			toast.error('Alias name and version are required');
+			return;
+		}
+		creatingAlias = true;
+		try {
+			await lambda.send(new CreateAliasCommand({
+				FunctionName: selectedFunction.FunctionName,
+				Name: newAliasName.trim(),
+				FunctionVersion: newAliasVersion.trim()
+			}));
+			toast.success(`Alias "${newAliasName.trim()}" created`);
+			newAliasName = '';
+			newAliasVersion = '';
+			await loadVersionsAndAliases();
+		} catch (err: unknown) {
+			toast.error(`Failed to create alias: ${(err as Error).message}`);
+		} finally {
+			creatingAlias = false;
+		}
+	}
+
+	async function deleteAlias(name: string) {
+		if (!selectedFunction?.FunctionName) return;
+		try {
+			await lambda.send(new DeleteAliasCommand({ FunctionName: selectedFunction.FunctionName, Name: name }));
+			toast.success('Alias deleted');
+			await loadVersionsAndAliases();
+		} catch (err: unknown) {
+			toast.error(`Failed to delete alias: ${(err as Error).message}`);
+		}
+	}
+
+	async function saveConcurrency() {
+		if (!selectedFunction?.FunctionName) return;
+		savingConcurrency = true;
+		try {
+			if (concurrencyDraft.trim() === '') {
+				await lambda.send(new DeleteFunctionConcurrencyCommand({ FunctionName: selectedFunction.FunctionName }));
+				toast.success('Reserved concurrency removed');
+			} else {
+				const n = Number(concurrencyDraft);
+				if (!Number.isInteger(n) || n < 0) {
+					toast.error('Concurrency must be a non-negative integer');
+					return;
+				}
+				await lambda.send(new PutFunctionConcurrencyCommand({
+					FunctionName: selectedFunction.FunctionName,
+					ReservedConcurrentExecutions: n
+				}));
+				toast.success(`Reserved concurrency set to ${n}`);
+			}
+			await loadVersionsAndAliases();
+		} catch (err: unknown) {
+			toast.error(`Failed to update concurrency: ${(err as Error).message}`);
+		} finally {
+			savingConcurrency = false;
+		}
+	}
+
+	async function createEventSourceMapping() {
+		if (!selectedFunction?.FunctionName || !newEsmArn.trim()) return;
+		creatingEsm = true;
+		try {
+			await lambda.send(new CreateEventSourceMappingCommand({
+				FunctionName: selectedFunction.FunctionName,
+				EventSourceArn: newEsmArn.trim(),
+				BatchSize: newEsmBatchSize,
+				Enabled: newEsmEnabled,
+				StartingPosition: newEsmStartPosition || undefined
+			}));
+			toast.success('Trigger created');
+			showCreateEsmModal = false;
+			newEsmArn = '';
+			newEsmBatchSize = 10;
+			newEsmEnabled = true;
+			newEsmStartPosition = '';
+			await loadEventSourceMappings();
+		} catch (err: unknown) {
+			toast.error(`Create trigger failed: ${(err as Error).message}`);
+		} finally {
+			creatingEsm = false;
+		}
+	}
+
+	async function toggleEsmEnabled(esm: EventSourceMappingConfiguration) {
+		if (!esm.UUID) return;
+		const enable = esm.State === 'Disabled' || esm.State === 'Disabling';
+		try {
+			await lambda.send(new UpdateEventSourceMappingCommand({ UUID: esm.UUID, Enabled: enable }));
+			toast.success(enable ? 'Trigger enabling' : 'Trigger disabling');
+			await loadEventSourceMappings();
+		} catch (err: unknown) {
+			toast.error(`Update failed: ${(err as Error).message}`);
+		}
+	}
+
+	async function deleteEventSourceMapping(esm: EventSourceMappingConfiguration) {
+		if (!esm.UUID) return;
+		if (!await confirmDestructive({ title: 'Delete Trigger', message: `Delete event-source mapping ${esm.UUID}?`, confirmLabel: 'Delete' })) return;
+		try {
+			await lambda.send(new DeleteEventSourceMappingCommand({ UUID: esm.UUID }));
+			toast.success('Trigger deleted');
+			await loadEventSourceMappings();
+		} catch (err: unknown) {
+			toast.error(`Delete failed: ${(err as Error).message}`);
 		}
 	}
 
@@ -549,7 +763,123 @@
 							{/if}
 						</div>
 
-						<button 
+						<!-- Event Source Mappings (Triggers) -->
+						<div>
+							<div class="flex items-center justify-between mb-3">
+								<h3 class="flex items-center gap-2 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+									<Link2 class="w-3 h-3" />
+									Triggers (Event Source Mappings)
+								</h3>
+								<button onclick={toggleEsmPanel} class="text-xs text-orange-500 hover:text-orange-700">
+									{showEsmPanel ? 'Hide' : 'Show'}
+								</button>
+							</div>
+							{#if showEsmPanel}
+								<div class="flex justify-end mb-2">
+									<button onclick={() => { showCreateEsmModal = true; }} class="text-xs text-orange-500 hover:text-orange-700 flex items-center gap-1">
+										<Plus class="w-3 h-3" /> Add Trigger
+									</button>
+								</div>
+								{#if esmLoading}
+									<div class="text-center py-4"><div class="inline-block animate-spin rounded-full h-5 w-5 border-b-2 border-orange-500"></div></div>
+								{:else if eventSourceMappings.length === 0}
+									<p class="text-xs text-slate-400 italic text-center py-4">No triggers configured for this function.</p>
+								{:else}
+									<div class="space-y-2 max-h-56 overflow-y-auto pr-1">
+										{#each eventSourceMappings as esm}
+											<div class="p-3 bg-slate-50 dark:bg-slate-900/40 rounded-xl border border-slate-200 dark:border-slate-700/50">
+												<div class="flex items-center justify-between gap-2">
+													<span class="text-xs font-mono text-slate-700 dark:text-slate-200 truncate flex-1">{esm.EventSourceArn ?? esm.UUID}</span>
+													<span class="flex-shrink-0 px-2 py-0.5 text-[10px] rounded-full {esm.State === 'Enabled' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' : esm.State === 'Disabled' ? 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'}">{esm.State ?? '—'}</span>
+												</div>
+												<div class="flex items-center gap-3 mt-1 text-[11px] text-slate-400">
+													<span>Batch: {esm.BatchSize ?? '—'}</span>
+													{#if esm.LastModified}<span>Modified: {new Date(esm.LastModified).toLocaleDateString()}</span>{/if}
+												</div>
+												<div class="flex items-center gap-2 mt-2">
+													<button onclick={() => toggleEsmEnabled(esm)} class="text-[11px] px-2 py-0.5 rounded border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700">
+														{esm.State === 'Disabled' || esm.State === 'Disabling' ? 'Enable' : 'Disable'}
+													</button>
+													<button onclick={() => deleteEventSourceMapping(esm)} class="text-[11px] px-2 py-0.5 rounded border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20">
+														Delete
+													</button>
+												</div>
+											</div>
+										{/each}
+									</div>
+								{/if}
+							{/if}
+						</div>
+
+						<!-- Versions / Aliases / Concurrency -->
+						<div>
+							<div class="flex items-center justify-between mb-3">
+								<h3 class="flex items-center gap-2 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+									<Code class="w-3 h-3" />
+									Versions, Aliases &amp; Concurrency
+								</h3>
+								<button onclick={toggleVersionsPanel} class="text-xs text-orange-500 hover:text-orange-700">
+									{showVersionsPanel ? 'Hide' : 'Show'}
+								</button>
+							</div>
+							{#if showVersionsPanel}
+								{#if versionsLoading}
+									<div class="text-center py-4"><div class="inline-block animate-spin rounded-full h-5 w-5 border-b-2 border-orange-500"></div></div>
+								{:else}
+									<!-- Concurrency -->
+									<div class="mb-4 p-3 bg-slate-50 dark:bg-slate-900/40 rounded-xl border border-slate-200 dark:border-slate-700/50">
+										<p class="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">Reserved Concurrency</p>
+										<div class="flex items-center gap-2">
+											<input type="number" min="0" bind:value={concurrencyDraft} placeholder="Unreserved" class="w-28 px-2 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white" />
+											<button disabled={savingConcurrency} onclick={saveConcurrency} class="px-2 py-1 text-xs bg-orange-500 text-white rounded hover:bg-orange-600 disabled:opacity-50">{savingConcurrency ? 'Saving...' : 'Save'}</button>
+											<span class="text-[11px] text-slate-400">leave blank to clear</span>
+										</div>
+									</div>
+
+									<!-- Versions -->
+									<div class="mb-4">
+										<div class="flex items-center justify-between mb-2">
+											<p class="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Versions</p>
+											<button disabled={publishingVersion} onclick={publishVersion} class="text-xs text-orange-500 hover:text-orange-700 flex items-center gap-1 disabled:opacity-50">
+												<Plus class="w-3 h-3" /> {publishingVersion ? 'Publishing...' : 'Publish Version'}
+											</button>
+										</div>
+										<div class="space-y-1 max-h-32 overflow-y-auto pr-1">
+											{#each fnVersions as v}
+												<div class="flex items-center justify-between text-xs px-2 py-1 bg-slate-50 dark:bg-slate-900/40 rounded border border-slate-200 dark:border-slate-700/50">
+													<span class="font-mono text-slate-700 dark:text-slate-200">{v.Version}</span>
+													<span class="text-slate-400">{v.LastModified ? new Date(v.LastModified).toLocaleDateString() : ''}</span>
+												</div>
+											{/each}
+										</div>
+									</div>
+
+									<!-- Aliases -->
+									<div>
+										<p class="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-2">Aliases</p>
+										{#if fnAliases.length === 0}
+											<p class="text-xs text-slate-400 italic mb-2">No aliases.</p>
+										{:else}
+											<div class="space-y-1 mb-2">
+												{#each fnAliases as a}
+													<div class="flex items-center justify-between text-xs px-2 py-1 bg-slate-50 dark:bg-slate-900/40 rounded border border-slate-200 dark:border-slate-700/50">
+														<span class="font-mono text-slate-700 dark:text-slate-200">{a.Name} → v{a.FunctionVersion}</span>
+														<button onclick={() => deleteAlias(a.Name ?? '')} class="p-0.5 text-red-400 hover:text-red-600"><Trash2 class="w-3 h-3" /></button>
+													</div>
+												{/each}
+											</div>
+										{/if}
+										<div class="flex items-center gap-1">
+											<input type="text" bind:value={newAliasName} placeholder="alias name" class="flex-1 min-w-0 px-2 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white" />
+											<input type="text" bind:value={newAliasVersion} placeholder="version" class="w-20 px-2 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white" />
+											<button disabled={creatingAlias} onclick={createAlias} class="px-2 py-1 text-xs bg-orange-500 text-white rounded hover:bg-orange-600 disabled:opacity-50">Add</button>
+										</div>
+									</div>
+								{/if}
+							{/if}
+						</div>
+
+						<button
 							onclick={() => showInvokeModal = true}
 							class="w-full flex items-center justify-center gap-2 py-3 bg-teal-600 hover:bg-teal-700 text-white rounded-xl font-bold shadow-lg shadow-teal-600/20 transition-all active:scale-[0.98]"
 						>
@@ -621,6 +951,47 @@
 		{/if}
 	</div>
 </div>
+
+<!-- Create Trigger Modal -->
+{#if showCreateEsmModal && selectedFunction}
+	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+		<div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+			<h3 class="text-xl font-bold text-slate-900 dark:text-white mb-1 flex items-center gap-2"><Link2 class="w-5 h-5" /> Add Trigger</h3>
+			<p class="text-xs text-slate-500 dark:text-slate-400 mb-4">Create an event-source mapping for <span class="font-mono">{selectedFunction.FunctionName}</span>. Supports SQS, DynamoDB Streams, and Kinesis.</p>
+			<form onsubmit={(e) => { e.preventDefault(); createEventSourceMapping(); }} class="space-y-4">
+				<div>
+					<label for="esm-arn" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Event Source ARN</label>
+					<input id="esm-arn" type="text" bind:value={newEsmArn} required placeholder="arn:aws:sqs:us-east-1:000000000000:my-queue"
+						class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white text-sm font-mono focus:outline-none focus:ring-2 focus:ring-orange-500" />
+				</div>
+				<div class="grid grid-cols-2 gap-4">
+					<div>
+						<label for="esm-batch" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Batch Size</label>
+						<input id="esm-batch" type="number" min="1" max="10000" bind:value={newEsmBatchSize}
+							class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-orange-500" />
+					</div>
+					<div>
+						<label for="esm-start" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Starting Position <span class="text-slate-400 font-normal">(streams)</span></label>
+						<select id="esm-start" bind:value={newEsmStartPosition}
+							class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-orange-500">
+							<option value="">N/A (SQS)</option>
+							<option value="LATEST">LATEST</option>
+							<option value="TRIM_HORIZON">TRIM_HORIZON</option>
+						</select>
+					</div>
+				</div>
+				<label class="flex items-center gap-2 cursor-pointer">
+					<input type="checkbox" bind:checked={newEsmEnabled} class="rounded" />
+					<span class="text-sm text-slate-700 dark:text-slate-300">Enabled</span>
+				</label>
+				<div class="flex justify-end gap-3 pt-2">
+					<button type="button" onclick={() => { showCreateEsmModal = false; }} class="px-4 py-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">Cancel</button>
+					<button type="submit" disabled={creatingEsm} class="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50">{creatingEsm ? 'Creating...' : 'Create Trigger'}</button>
+				</div>
+			</form>
+		</div>
+	</div>
+{/if}
 
 <!-- Invoke Modal -->
 {#if showInvokeModal && selectedFunction}

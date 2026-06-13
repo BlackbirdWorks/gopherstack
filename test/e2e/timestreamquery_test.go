@@ -17,6 +17,7 @@ func TestTimestreamQueryDashboard(t *testing.T) {
 	stack := newStack(t)
 
 	_, err := stack.TimestreamQueryHandler.Backend.CreateScheduledQuery(
+		t.Context(),
 		"e2e-test-query",
 		"SELECT 1 FROM test_db.test_table",
 		"rate(1 hour)",
@@ -102,6 +103,7 @@ func TestTimestreamQueryDashboard_Create(t *testing.T) {
 	stack := newStack(t)
 
 	_, err := stack.TimestreamQueryHandler.Backend.CreateScheduledQuery(
+		t.Context(),
 		"ui-test-query",
 		"SELECT 1",
 		"rate(1 hour)",
