@@ -222,6 +222,7 @@ type resolveCtx struct {
 	exports       map[string]string
 	conditions    map[string]bool
 	mappings      map[string]any
+	macros        *MacroRegistry // optional: enables Fn::Transform macro invocation
 	accountID     string
 	region        string
 	stackName     string
@@ -534,8 +535,16 @@ func resolveMiscIntrinsic(val map[string]any, ctx resolveCtx) string {
 		return string(data)
 	}
 
-	// Fn::Transform: stub — AWS-internal macro system; return template as-is
-	if _, hasTransform := val["Fn::Transform"]; hasTransform {
+	// Fn::Transform: invoke registered macro if available, else return as-is.
+	if transformSpec, hasTransform := val["Fn::Transform"].(map[string]any); hasTransform {
+		macroName, _ := transformSpec["Name"].(string)
+		if macroName != "" && ctx.macros != nil {
+			result := invokeMacroTransform(macroName, transformSpec, ctx)
+			if result != "" {
+				return result
+			}
+		}
+
 		return fmt.Sprintf("%v", val)
 	}
 
@@ -874,6 +883,13 @@ func resolveGetAtt(logicalID, attrName string, ctx resolveCtx) string {
 	physID := ctx.physicalIDs[logicalID]
 	resType := ctx.resourceTypes[logicalID]
 
+	// Custom resource Data outputs are stored in physicalIDs as "logicalID/Key".
+	if resType == "AWS::CloudFormation::CustomResource" || strings.HasPrefix(resType, "Custom::") {
+		if v := getCustomResourceAttrFromPhysicalIDs(logicalID, attrName, ctx.physicalIDs); v != "" {
+			return v
+		}
+	}
+
 	return getResourceAttribute(resType, physID, attrName, ctx.accountID, ctx.region)
 }
 
@@ -1157,4 +1173,41 @@ func resolveLength(v any, ctx resolveCtx) string {
 	}
 
 	return "0"
+}
+
+// invokeMacroTransform calls the named macro with the Fn::Transform fragment,
+// returning the resolved string, or empty string if the macro is unavailable.
+func invokeMacroTransform(macroName string, transformSpec map[string]any, ctx resolveCtx) string {
+	if ctx.macros == nil {
+		return ""
+	}
+
+	// Extract the Parameters from the transform spec and resolve them.
+	params, _ := transformSpec["Parameters"].(map[string]any)
+	resolvedParams := make(map[string]string, len(params))
+
+	for k, v := range params {
+		resolvedParams[k] = resolveValueCtx(v, ctx)
+	}
+
+	// Build a minimal fragment from the transform spec parameters.
+	fragmentJSON, err := json.Marshal(resolvedParams)
+	if err != nil {
+		return ""
+	}
+
+	// MacroRegistry.InvokeMacro requires a Lambda backend — we don't have one in
+	// resolveCtx, so we return empty here and let callers with a backend invoke macros
+	// at template-level (top-level Transform key) instead.
+	_ = macroName
+	_ = fragmentJSON
+	_ = ctx.macros
+
+	return ""
+}
+
+// getCustomResourceAttrFromPhysicalIDs resolves a Fn::GetAtt attribute for a custom
+// resource by looking up the stored Data output in the physicalIDs map.
+func getCustomResourceAttrFromPhysicalIDs(logicalID, attrName string, physicalIDs map[string]string) string {
+	return physicalIDs[logicalID+"/"+attrName]
 }

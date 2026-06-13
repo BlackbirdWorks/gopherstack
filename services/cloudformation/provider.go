@@ -250,6 +250,11 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		region = cfg.GetRegion()
 	}
 
+	if backends != nil {
+		backends.WaitConditions = NewWaitConditionStore()
+		backends.MacroRegistry = NewMacroRegistry()
+	}
+
 	creator := NewResourceCreator(backends)
 	backend := NewInMemoryBackendWithConfig(accountID, region, creator)
 	handler := NewHandler(backend)

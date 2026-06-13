@@ -585,6 +585,10 @@ func (b *InMemoryBackend) provisionResources(
 	name := stack.StackName
 	physicalIDs := make(map[string]string)
 
+	// Inject stack metadata for custom resource event payloads.
+	physicalIDs["_StackId"] = arn
+	physicalIDs["_StackName"] = name
+
 	ordered := topoSortResources(tmpl.Resources)
 
 	created := make([]string, 0, len(ordered))
@@ -889,6 +893,18 @@ func (b *InMemoryBackend) updateResources(
 
 	for logicalID, res := range tmpl.Resources {
 		if existing, exists := b.resources[stack.StackID][logicalID]; exists {
+			// For CFN extensibility types (Custom::*, WaitCondition, Macro), send an
+			// Update event when properties have changed so the backing Lambda can react.
+			if isCFNExtensibilityType(res.Type) {
+				b.addEvent(stack.StackID, stack.StackName, logicalID, existing.PhysicalID, res.Type, statusUpdateInProgress, "")
+				if uerr := b.creator.Update(ctx, logicalID, res.Type, existing.PhysicalID, res.Properties, existing.Properties); uerr != nil {
+					b.addEvent(stack.StackID, stack.StackName, logicalID, existing.PhysicalID, res.Type, statusUpdateFailed, uerr.Error())
+					b.rollbackUpdateResources(ctx, stack, prevResources, created)
+					stack.StackStatusReason = fmt.Sprintf("resource %s update: %v", logicalID, uerr)
+					return false
+				}
+				existing.Properties = res.Properties
+			}
 			existing.Status = statusUpdateComplete
 			existing.Timestamp = time.Now()
 			b.addEvent(
