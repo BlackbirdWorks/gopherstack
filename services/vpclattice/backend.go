@@ -203,10 +203,9 @@ func (s *storedSNSA) toSummary() *ServiceNetworkServiceAssociationSummary {
 
 // storedSNVA holds a service network VPC association.
 type storedSNVA struct {
-	Tags               map[string]string `json:"tags"`
-	SecurityGroupIDs   []string          `json:"securityGroupIds"`
 	CreatedAt          time.Time         `json:"createdAt"`
 	LastUpdatedAt      time.Time         `json:"lastUpdatedAt"`
+	Tags               map[string]string `json:"tags"`
 	ARN                string            `json:"arn"`
 	ID                 string            `json:"id"`
 	VpcID              string            `json:"vpcId"`
@@ -215,6 +214,7 @@ type storedSNVA struct {
 	ServiceNetworkName string            `json:"serviceNetworkName"`
 	Status             string            `json:"status"`
 	CreatedBy          string            `json:"createdBy"`
+	SecurityGroupIDs   []string          `json:"securityGroupIds"`
 }
 
 func (s *storedSNVA) toAssociation() *ServiceNetworkVpcAssociation {
@@ -333,16 +333,16 @@ func (r *storedRule) toSummary() *RuleSummary {
 
 // storedTargetGroup holds a target group.
 type storedTargetGroup struct {
-	Tags          map[string]string  `json:"tags"`
-	Config        *TargetGroupConfig `json:"config"`
-	ServiceARNs   []string           `json:"serviceArns"`
 	CreatedAt     time.Time          `json:"createdAt"`
 	LastUpdatedAt time.Time          `json:"lastUpdatedAt"`
+	Tags          map[string]string  `json:"tags"`
+	Config        *TargetGroupConfig `json:"config"`
 	ARN           string             `json:"arn"`
 	ID            string             `json:"id"`
 	Name          string             `json:"name"`
 	Type          string             `json:"type"`
 	Status        string             `json:"status"`
+	ServiceARNs   []string           `json:"serviceArns"`
 }
 
 func (tg *storedTargetGroup) toTargetGroup() *TargetGroup {

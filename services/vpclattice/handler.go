@@ -29,6 +29,7 @@ const (
 	opUnknown = "Unknown"
 
 	keyMessage = "message"
+	keyStatus  = "status"
 
 	keyARN                = "arn"
 	keyName               = "name"
@@ -49,58 +50,58 @@ const (
 	keyUnsuccessful       = "unsuccessful"
 	keyNameRequired       = "name is required"
 
-	opBatchUpdateRule = "BatchUpdateRule"
-	opCreateALS       = "CreateAccessLogSubscription"
-	opCreateListener  = "CreateListener"
-	opCreateRule      = "CreateRule"
-	opCreateService   = "CreateService"
-	opCreateSN        = "CreateServiceNetwork"
-	opCreateSNSA      = "CreateServiceNetworkServiceAssociation"
-	opCreateSNVA      = "CreateServiceNetworkVpcAssociation"
-	opCreateTG        = "CreateTargetGroup"
-	opDeleteALS       = "DeleteAccessLogSubscription"
-	opDeleteAuthPolicy      = "DeleteAuthPolicy"
-	opDeleteListener        = "DeleteListener"
-	opDeleteResourcePolicy  = "DeleteResourcePolicy"
-	opDeleteRule            = "DeleteRule"
-	opDeleteService         = "DeleteService"
-	opDeleteSN              = "DeleteServiceNetwork"
-	opDeleteSNSA            = "DeleteServiceNetworkServiceAssociation"
-	opDeleteSNVA            = "DeleteServiceNetworkVpcAssociation"
-	opDeleteTG              = "DeleteTargetGroup"
-	opDeregisterTargets     = "DeregisterTargets"
-	opGetALS                = "GetAccessLogSubscription"
-	opGetAuthPolicy         = "GetAuthPolicy"
-	opGetListener           = "GetListener"
-	opGetResourcePolicy     = "GetResourcePolicy"
-	opGetRule               = "GetRule"
-	opGetService            = "GetService"
-	opGetSN                 = "GetServiceNetwork"
-	opGetSNSA               = "GetServiceNetworkServiceAssociation"
-	opGetSNVA               = "GetServiceNetworkVpcAssociation"
-	opGetTG                 = "GetTargetGroup"
-	opListALSs              = "ListAccessLogSubscriptions"
-	opListListeners         = "ListListeners"
-	opListRules             = "ListRules"
-	opListSNSAs             = "ListServiceNetworkServiceAssociations"
-	opListSNVAs             = "ListServiceNetworkVpcAssociations"
-	opListSNs               = "ListServiceNetworks"
-	opListServices          = "ListServices"
-	opListTagsForResource   = "ListTagsForResource"
-	opListTGs               = "ListTargetGroups"
-	opListTargets           = "ListTargets"
-	opPutAuthPolicy         = "PutAuthPolicy"
-	opPutResourcePolicy     = "PutResourcePolicy"
-	opRegisterTargets       = "RegisterTargets"
-	opTagResource           = "TagResource"
-	opUntagResource         = "UntagResource"
-	opUpdateALS             = "UpdateAccessLogSubscription"
-	opUpdateListener        = "UpdateListener"
-	opUpdateRule            = "UpdateRule"
-	opUpdateService         = "UpdateService"
-	opUpdateSN              = "UpdateServiceNetwork"
-	opUpdateSNVA            = "UpdateServiceNetworkVpcAssociation"
-	opUpdateTG              = "UpdateTargetGroup"
+	opBatchUpdateRule      = "BatchUpdateRule"
+	opCreateALS            = "CreateAccessLogSubscription"
+	opCreateListener       = "CreateListener"
+	opCreateRule           = "CreateRule"
+	opCreateService        = "CreateService"
+	opCreateSN             = "CreateServiceNetwork"
+	opCreateSNSA           = "CreateServiceNetworkServiceAssociation"
+	opCreateSNVA           = "CreateServiceNetworkVpcAssociation"
+	opCreateTG             = "CreateTargetGroup"
+	opDeleteALS            = "DeleteAccessLogSubscription"
+	opDeleteAuthPolicy     = "DeleteAuthPolicy"
+	opDeleteListener       = "DeleteListener"
+	opDeleteResourcePolicy = "DeleteResourcePolicy"
+	opDeleteRule           = "DeleteRule"
+	opDeleteService        = "DeleteService"
+	opDeleteSN             = "DeleteServiceNetwork"
+	opDeleteSNSA           = "DeleteServiceNetworkServiceAssociation"
+	opDeleteSNVA           = "DeleteServiceNetworkVpcAssociation"
+	opDeleteTG             = "DeleteTargetGroup"
+	opDeregisterTargets    = "DeregisterTargets"
+	opGetALS               = "GetAccessLogSubscription"
+	opGetAuthPolicy        = "GetAuthPolicy"
+	opGetListener          = "GetListener"
+	opGetResourcePolicy    = "GetResourcePolicy"
+	opGetRule              = "GetRule"
+	opGetService           = "GetService"
+	opGetSN                = "GetServiceNetwork"
+	opGetSNSA              = "GetServiceNetworkServiceAssociation"
+	opGetSNVA              = "GetServiceNetworkVpcAssociation"
+	opGetTG                = "GetTargetGroup"
+	opListALSs             = "ListAccessLogSubscriptions"
+	opListListeners        = "ListListeners"
+	opListRules            = "ListRules"
+	opListSNSAs            = "ListServiceNetworkServiceAssociations"
+	opListSNVAs            = "ListServiceNetworkVpcAssociations"
+	opListSNs              = "ListServiceNetworks"
+	opListServices         = "ListServices"
+	opListTagsForResource  = "ListTagsForResource"
+	opListTGs              = "ListTargetGroups"
+	opListTargets          = "ListTargets"
+	opPutAuthPolicy        = "PutAuthPolicy"
+	opPutResourcePolicy    = "PutResourcePolicy"
+	opRegisterTargets      = "RegisterTargets"
+	opTagResource          = "TagResource"
+	opUntagResource        = "UntagResource"
+	opUpdateALS            = "UpdateAccessLogSubscription"
+	opUpdateListener       = "UpdateListener"
+	opUpdateRule           = "UpdateRule"
+	opUpdateService        = "UpdateService"
+	opUpdateSN             = "UpdateServiceNetwork"
+	opUpdateSNVA           = "UpdateServiceNetworkVpcAssociation"
+	opUpdateTG             = "UpdateTargetGroup"
 )
 
 // Handler handles VPC Lattice HTTP requests.
@@ -226,7 +227,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) handleREST(c *echo.Context) error { //nolint:gocognit,gocyclo,cyclop // large routing dispatch is expected
+func (h *Handler) handleREST(c *echo.Context) error { //nolint:gocyclo,cyclop,funlen // routing dispatch
 	op, id1, id2, id3 := classifyPath(c.Request().Method, c.Request().URL.Path)
 
 	var body map[string]any
@@ -550,7 +551,7 @@ func (h *Handler) handleDeleteSNSA(c *echo.Context, id string) error {
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"status": statusDeleteInProgress})
+	return c.JSON(http.StatusOK, map[string]any{keyStatus: statusDeleteInProgress})
 }
 
 func (h *Handler) handleListSNSAs(c *echo.Context) error {
@@ -646,7 +647,7 @@ func (h *Handler) handleDeleteSNVA(c *echo.Context, id string) error {
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"status": statusDeleteInProgress})
+	return c.JSON(http.StatusOK, map[string]any{keyStatus: statusDeleteInProgress})
 }
 
 func (h *Handler) handleListSNVAs(c *echo.Context) error {
@@ -939,7 +940,7 @@ func (h *Handler) handleDeleteTargetGroup(c *echo.Context, id string) error {
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"id": id, "status": statusDeleteInProgress})
+	return c.JSON(http.StatusOK, map[string]any{"id": id, keyStatus: statusDeleteInProgress})
 }
 
 func (h *Handler) handleListTargetGroups(c *echo.Context) error {
@@ -1212,9 +1213,10 @@ func (h *Handler) handleListTagsForResource(c *echo.Context, resourceArn string)
 
 // classifyPath maps (method, path) → (op, id1, id2, id3).
 // id1..id3 are path segments in order (service, listener, rule etc.).
-func classifyPath( //nolint:gocognit,gocyclo,cyclop // large routing dispatch is expected
+// classifyPath maps method+path to (op,id1,id2,id3).
+func classifyPath( //nolint:gocyclo,cyclop,funlen // routing dispatch
 	method, path string,
-) (op, id1, id2, id3 string) {
+) (string, string, string, string) {
 	switch {
 	case path == pathServices:
 		if method == http.MethodPost {
@@ -1308,9 +1310,9 @@ func classifyPath( //nolint:gocognit,gocyclo,cyclop // large routing dispatch is
 }
 
 // classifyServicePath handles /services/{serviceID}[/listeners[/...]].
-func classifyServicePath( //nolint:gocognit,gocyclo,cyclop,nestif // large routing dispatch is expected
+func classifyServicePath( //nolint:gocognit,cyclop // routing dispatch
 	method, path string,
-) (op, id1, id2, id3 string) {
+) (string, string, string, string) {
 	rest := strings.TrimPrefix(path, pathServices+"/")
 	serviceID, sub, hasSub := strings.Cut(rest, "/")
 
@@ -1336,7 +1338,7 @@ func classifyServicePath( //nolint:gocognit,gocyclo,cyclop,nestif // large routi
 		return opListListeners, serviceID, "", ""
 	}
 
-	if listenerRest, ok := strings.CutPrefix(sub, "listeners/"); ok {
+	if listenerRest, ok := strings.CutPrefix(sub, "listeners/"); ok { //nolint:nestif // nested path hierarchy
 		listenerID, listenerSub, hasListenerSub := strings.Cut(listenerRest, "/")
 
 		if !hasListenerSub {
@@ -1485,7 +1487,7 @@ func serviceToJSON(s *Service) map[string]any {
 		"id":             s.ID,
 		keyName:          s.Name,
 		"authType":       s.AuthType,
-		"status":         s.Status,
+		keyStatus:        s.Status,
 		keyCreatedAt:     s.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
 		keyLastUpdatedAt: s.LastUpdatedAt.Format("2006-01-02T15:04:05.000Z"),
 		"dnsEntry":       map[string]any{"domainName": s.DNSName},
@@ -1507,7 +1509,7 @@ func serviceSummaryToJSON(s *ServiceSummary) map[string]any {
 		keyARN:       s.ARN,
 		"id":         s.ID,
 		keyName:      s.Name,
-		"status":     s.Status,
+		keyStatus:    s.Status,
 		keyCreatedAt: s.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
 	}
 
@@ -1524,25 +1526,25 @@ func serviceSummaryToJSON(s *ServiceSummary) map[string]any {
 
 func serviceNetworkToJSON(s *ServiceNetwork) map[string]any {
 	return map[string]any{
-		keyARN:                         s.ARN,
-		"id":                           s.ID,
-		keyName:                        s.Name,
-		"authType":                     s.AuthType,
-		"numberOfAssociatedServices":   s.NumberOfAssociatedServices,
-		"numberOfAssociatedVPCs":       s.NumberOfAssociatedVPCs,
-		keyCreatedAt:                   s.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
-		keyLastUpdatedAt:               s.LastUpdatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyARN:                       s.ARN,
+		"id":                         s.ID,
+		keyName:                      s.Name,
+		"authType":                   s.AuthType,
+		"numberOfAssociatedServices": s.NumberOfAssociatedServices,
+		"numberOfAssociatedVPCs":     s.NumberOfAssociatedVPCs,
+		keyCreatedAt:                 s.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyLastUpdatedAt:             s.LastUpdatedAt.Format("2006-01-02T15:04:05.000Z"),
 	}
 }
 
 func serviceNetworkSummaryToJSON(s *ServiceNetworkSummary) map[string]any {
 	return map[string]any{
-		keyARN:                         s.ARN,
-		"id":                           s.ID,
-		keyName:                        s.Name,
-		"numberOfAssociatedServices":   s.NumberOfAssociatedServices,
-		"numberOfAssociatedVPCs":       s.NumberOfAssociatedVPCs,
-		keyCreatedAt:                   s.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyARN:                       s.ARN,
+		"id":                         s.ID,
+		keyName:                      s.Name,
+		"numberOfAssociatedServices": s.NumberOfAssociatedServices,
+		"numberOfAssociatedVPCs":     s.NumberOfAssociatedVPCs,
+		keyCreatedAt:                 s.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
 	}
 }
 
@@ -1556,7 +1558,7 @@ func snsaToJSON(s *ServiceNetworkServiceAssociation) map[string]any {
 		keyServiceNetworkARN:  s.ServiceNetworkARN,
 		keyServiceNetworkID:   s.ServiceNetworkID,
 		keyServiceNetworkName: s.ServiceNetworkName,
-		"status":              s.Status,
+		keyStatus:             s.Status,
 		"createdBy":           s.CreatedBy,
 		keyCreatedAt:          s.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
 	}
@@ -1572,7 +1574,7 @@ func snsaSummaryToJSON(s *ServiceNetworkServiceAssociationSummary) map[string]an
 		keyServiceNetworkARN:  s.ServiceNetworkARN,
 		keyServiceNetworkID:   s.ServiceNetworkID,
 		keyServiceNetworkName: s.ServiceNetworkName,
-		"status":              s.Status,
+		keyStatus:             s.Status,
 		keyCreatedAt:          s.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
 	}
 }
@@ -1589,7 +1591,7 @@ func snvaToJSON(s *ServiceNetworkVpcAssociation) map[string]any {
 		keyServiceNetworkID:   s.ServiceNetworkID,
 		keyServiceNetworkName: s.ServiceNetworkName,
 		"securityGroupIds":    sgs,
-		"status":              s.Status,
+		keyStatus:             s.Status,
 		"createdBy":           s.CreatedBy,
 		keyCreatedAt:          s.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
 		keyLastUpdatedAt:      s.LastUpdatedAt.Format("2006-01-02T15:04:05.000Z"),
@@ -1604,7 +1606,7 @@ func snvaSummaryToJSON(s *ServiceNetworkVpcAssociationSummary) map[string]any {
 		keyServiceNetworkARN:  s.ServiceNetworkARN,
 		keyServiceNetworkID:   s.ServiceNetworkID,
 		keyServiceNetworkName: s.ServiceNetworkName,
-		"status":              s.Status,
+		keyStatus:             s.Status,
 		keyCreatedAt:          s.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
 	}
 }
@@ -1757,7 +1759,7 @@ func targetGroupToJSON(tg *TargetGroup) map[string]any {
 		"id":             tg.ID,
 		keyName:          tg.Name,
 		"type":           tg.Type,
-		"status":         tg.Status,
+		keyStatus:        tg.Status,
 		"serviceArns":    tg.ServiceARNs,
 		keyCreatedAt:     tg.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
 		keyLastUpdatedAt: tg.LastUpdatedAt.Format("2006-01-02T15:04:05.000Z"),
@@ -1772,25 +1774,25 @@ func targetGroupToJSON(tg *TargetGroup) map[string]any {
 
 func targetGroupSummaryToJSON(tg *TargetGroupSummary) map[string]any {
 	return map[string]any{
-		keyARN:       tg.ARN,
-		"id":         tg.ID,
-		keyName:      tg.Name,
-		"type":       tg.Type,
-		"status":     tg.Status,
-		keyPort:      tg.Port,
-		keyProtocol:  tg.Protocol,
-		keyVPCID:     tg.VpcID,
+		keyARN:        tg.ARN,
+		"id":          tg.ID,
+		keyName:       tg.Name,
+		"type":        tg.Type,
+		keyStatus:     tg.Status,
+		keyPort:       tg.Port,
+		keyProtocol:   tg.Protocol,
+		keyVPCID:      tg.VpcID,
 		"serviceArns": tg.ServiceARNs,
-		keyCreatedAt: tg.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyCreatedAt:  tg.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
 	}
 }
 
 func targetGroupConfigToJSON(c *TargetGroupConfig) map[string]any {
 	m := map[string]any{
-		keyPort:         c.Port,
-		keyProtocol:     c.Protocol,
+		keyPort:           c.Port,
+		keyProtocol:       c.Protocol,
 		"protocolVersion": c.ProtocolVersion,
-		"vpcIdentifier": c.VpcID,
+		"vpcIdentifier":   c.VpcID,
 	}
 
 	if c.HealthCheck != nil {
@@ -1817,7 +1819,7 @@ func targetSummaryToJSON(t *TargetSummary) map[string]any {
 	return map[string]any{
 		"id":         t.ID,
 		keyPort:      t.Port,
-		"status":     t.Status,
+		keyStatus:    t.Status,
 		"reasonCode": t.ReasonCode,
 	}
 }
@@ -1873,13 +1875,13 @@ func extractTags(body map[string]any) map[string]string {
 func bodyInt32(body map[string]any, key string) int32 {
 	switch v := body[key].(type) {
 	case float64:
-		return int32(v) //nolint:gosec // value is bounded by JSON number range
+		return int32(v)
 	case int:
-		return int32(v) //nolint:gosec // value is bounded, overflow not possible
+		return int32(v) //nolint:gosec // value bounded by JSON number range
 	case int32:
 		return v
 	case int64:
-		return int32(v) //nolint:gosec // value is bounded, overflow not possible
+		return int32(v) //nolint:gosec // value bounded by JSON number range
 	}
 
 	return 0
@@ -1916,7 +1918,7 @@ func extractRuleAction(body map[string]any, key string) *RuleAction {
 	return action
 }
 
-func extractRuleMatch(body map[string]any, key string) *RuleMatch { //nolint:gocognit,nestif // nested JSON extraction
+func extractRuleMatch(body map[string]any, key string) *RuleMatch { //nolint:gocognit // nested extraction
 	raw, ok := body[key].(map[string]any)
 	if !ok {
 		return nil
@@ -1924,7 +1926,7 @@ func extractRuleMatch(body map[string]any, key string) *RuleMatch { //nolint:goc
 
 	match := &RuleMatch{}
 
-	if httpMatch, ok2 := raw["httpMatch"].(map[string]any); ok2 {
+	if httpMatch, ok2 := raw["httpMatch"].(map[string]any); ok2 { //nolint:nestif // HTTP match needs nested parsing
 		match.HTTPMethod, _ = httpMatch["method"].(string)
 
 		if pathRaw, ok3 := httpMatch["path"].(map[string]any); ok3 {
@@ -2028,5 +2030,5 @@ func queryInt32(c *echo.Context) int32 {
 		return 0
 	}
 
-	return int32(n) //nolint:gosec // value is bounded by ParseInt with bitSize=32
+	return int32(n)
 }
