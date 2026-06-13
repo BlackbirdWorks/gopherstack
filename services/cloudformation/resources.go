@@ -60,6 +60,7 @@ import (
 	swfbackend "github.com/blackbirdworks/gopherstack/services/swf"
 	transferbackend "github.com/blackbirdworks/gopherstack/services/transfer"
 
+	appautoscalingbackend "github.com/blackbirdworks/gopherstack/services/applicationautoscaling"
 	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	"github.com/blackbirdworks/gopherstack/services/bedrockruntime"
 	elbv2backend "github.com/blackbirdworks/gopherstack/services/elbv2"
@@ -124,6 +125,8 @@ type ServiceBackends struct {
 	ELBv2  *elbv2backend.Handler
 	WAFv2  *wafv2backend.Handler
 	Backup *backupbackend.Handler
+	// Phase-5 backends
+	AppAutoScaling *appautoscalingbackend.Handler
 	// CFN extensibility
 	WaitConditions *WaitConditionStore
 	MacroRegistry  *MacroRegistry
@@ -953,7 +956,7 @@ func (rc *ResourceCreator) createPhase4Resource(
 		return rc.createRDSDBClusterParameterGroup(logicalID, props, params, physicalIDs)
 	default:
 
-		return logicalID + "-stub", nil
+		return rc.createPhase5Resource(context.Background(), logicalID, resourceType, props, params, physicalIDs)
 	}
 }
 
@@ -1502,6 +1505,7 @@ func parseDDBKeySchema(props map[string]any, params, physicalIDs map[string]stri
 
 const (
 	defaultCapacityUnits     = int64(5)
+	defaultEventBusName      = "default"
 	kmsMinDeletionWindowDays = 7
 	boolTrue                 = "true"
 )
@@ -1774,7 +1778,7 @@ func (rc *ResourceCreator) createEventBridgeRule(
 
 	eventBusName := strProp(props, "EventBusName", params, physicalIDs)
 	if eventBusName == "" {
-		eventBusName = "default"
+		eventBusName = defaultEventBusName
 	}
 
 	pattern := strProp(props, "EventPattern", params, physicalIDs)
@@ -1808,7 +1812,7 @@ func (rc *ResourceCreator) deleteEventBridgeRule(_ context.Context, physicalID s
 	parts := strings.Split(physicalID, "/")
 	name := parts[len(parts)-1]
 
-	return rc.backends.EventBridge.Backend.DeleteRule(context.Background(), name, "default")
+	return rc.backends.EventBridge.Backend.DeleteRule(context.Background(), name, defaultEventBusName)
 }
 
 // createStepFunctionsStateMachine creates a Step Functions state machine.

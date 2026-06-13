@@ -1,6 +1,7 @@
 package cloudformation
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"strconv"
@@ -1446,6 +1447,6 @@ func (rc *ResourceCreator) deletePhase4Resource(physicalID, resourceType string)
 	case "AWS::RDS::DBClusterParameterGroup":
 		return rc.deleteRDSDBClusterParameterGroup(physicalID)
 	default:
-		return nil
+		return rc.deletePhase5Resource(context.Background(), physicalID, resourceType)
 	}
 }
