@@ -46,5 +46,10 @@ func TestSDKCompleteness(t *testing.T) {
 		"StartDomainVerification",
 	}
 
-	sdkcheck.CheckCompleteness(t, &vpclatticesdk.Client{}, h.GetSupportedOperations(), notImplemented)
+	sdkcheck.CheckCompleteness(
+		t,
+		&vpclatticesdk.Client{},
+		h.GetSupportedOperations(),
+		notImplemented,
+	)
 }

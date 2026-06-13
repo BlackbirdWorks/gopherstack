@@ -21,7 +21,12 @@ func newTestHandler(t *testing.T) *vpclattice.Handler {
 	return vpclattice.NewHandler(backend)
 }
 
-func doRequest(t *testing.T, h *vpclattice.Handler, method, path string, body any) *httptest.ResponseRecorder {
+func doRequest(
+	t *testing.T,
+	h *vpclattice.Handler,
+	method, path string,
+	body any,
+) *httptest.ResponseRecorder {
 	t.Helper()
 
 	var buf *bytes.Reader
@@ -76,7 +81,11 @@ func TestService_CRUD(t *testing.T) {
 			wantCode: http.StatusCreated,
 			check: func(t *testing.T, resp map[string]any) {
 				t.Helper()
-				assert.Contains(t, resp["arn"], "arn:aws:vpc-lattice:us-east-1:000000000000:service/svc-")
+				assert.Contains(
+					t,
+					resp["arn"],
+					"arn:aws:vpc-lattice:us-east-1:000000000000:service/svc-",
+				)
 				assert.Equal(t, "my-svc", resp["name"])
 				assert.Equal(t, "ACTIVE", resp["status"])
 				assert.NotEmpty(t, resp["id"])
@@ -169,7 +178,11 @@ func TestServiceNetwork_CRUD(t *testing.T) {
 	created := parseBody(t, rec)
 	id, _ := created["id"].(string)
 	require.NotEmpty(t, id)
-	assert.Contains(t, created["arn"], "arn:aws:vpc-lattice:us-east-1:000000000000:servicenetwork/sn-")
+	assert.Contains(
+		t,
+		created["arn"],
+		"arn:aws:vpc-lattice:us-east-1:000000000000:servicenetwork/sn-",
+	)
 
 	// get
 	rec = doRequest(t, h, http.MethodGet, "/servicenetworks/"+id, nil)
@@ -178,7 +191,13 @@ func TestServiceNetwork_CRUD(t *testing.T) {
 	assert.Equal(t, "sn1", got["name"])
 
 	// update
-	rec = doRequest(t, h, http.MethodPatch, "/servicenetworks/"+id, map[string]any{"authType": "AWS_IAM"})
+	rec = doRequest(
+		t,
+		h,
+		http.MethodPatch,
+		"/servicenetworks/"+id,
+		map[string]any{"authType": "AWS_IAM"},
+	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	// list
@@ -270,9 +289,15 @@ func TestSNVA_CRUD(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	// update security groups
-	rec = doRequest(t, h, http.MethodPatch, "/servicenetworkvpcassociations/"+assocID, map[string]any{
-		"securityGroupIds": []string{"sg-new"},
-	})
+	rec = doRequest(
+		t,
+		h,
+		http.MethodPatch,
+		"/servicenetworkvpcassociations/"+assocID,
+		map[string]any{
+			"securityGroupIds": []string{"sg-new"},
+		},
+	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	// list
@@ -318,11 +343,17 @@ func TestListener_CRUD(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	// update
-	rec = doRequest(t, h, http.MethodPatch, "/services/"+svcID+"/listeners/"+listenerID, map[string]any{
-		"defaultAction": map[string]any{
-			"fixedResponse": map[string]any{"statusCode": 200},
+	rec = doRequest(
+		t,
+		h,
+		http.MethodPatch,
+		"/services/"+svcID+"/listeners/"+listenerID,
+		map[string]any{
+			"defaultAction": map[string]any{
+				"fixedResponse": map[string]any{"statusCode": 200},
+			},
 		},
-	})
+	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, 1, vpclattice.ListenerCount(h.Backend.(*vpclattice.InMemoryBackend)))
 
@@ -364,8 +395,8 @@ func TestRule_CRUD(t *testing.T) {
 		"name": "tg1",
 		"type": "INSTANCE",
 		"config": map[string]any{
-			"protocol": "HTTP",
-			"port":     80,
+			"protocol":      "HTTP",
+			"port":          80,
 			"vpcIdentifier": "vpc-123",
 		},
 	})
@@ -373,25 +404,31 @@ func TestRule_CRUD(t *testing.T) {
 	tgID, _ := parseBody(t, recTG)["id"].(string)
 
 	// create rule with forward action
-	rec := doRequest(t, h, http.MethodPost, "/services/"+svcID+"/listeners/"+listenerID+"/rules", map[string]any{
-		"name":     "rule1",
-		"priority": 10,
-		"action": map[string]any{
-			"forward": map[string]any{
-				"targetGroups": []any{
-					map[string]any{"targetGroupIdentifier": tgID, "weight": 100},
+	rec := doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/services/"+svcID+"/listeners/"+listenerID+"/rules",
+		map[string]any{
+			"name":     "rule1",
+			"priority": 10,
+			"action": map[string]any{
+				"forward": map[string]any{
+					"targetGroups": []any{
+						map[string]any{"targetGroupIdentifier": tgID, "weight": 100},
+					},
+				},
+			},
+			"match": map[string]any{
+				"httpMatch": map[string]any{
+					"method": "GET",
+					"path": map[string]any{
+						"match": map[string]any{"exact": "/api"},
+					},
 				},
 			},
 		},
-		"match": map[string]any{
-			"httpMatch": map[string]any{
-				"method": "GET",
-				"path": map[string]any{
-					"match": map[string]any{"exact": "/api"},
-				},
-			},
-		},
-	})
+	)
 	require.Equal(t, http.StatusCreated, rec.Code)
 	rule := parseBody(t, rec)
 	ruleID, _ := rule["id"].(string)
@@ -399,7 +436,13 @@ func TestRule_CRUD(t *testing.T) {
 	assert.Equal(t, float64(10), rule["priority"])
 
 	// get
-	rec = doRequest(t, h, http.MethodGet, "/services/"+svcID+"/listeners/"+listenerID+"/rules/"+ruleID, nil)
+	rec = doRequest(
+		t,
+		h,
+		http.MethodGet,
+		"/services/"+svcID+"/listeners/"+listenerID+"/rules/"+ruleID,
+		nil,
+	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	// list (includes default rule)
@@ -410,15 +453,27 @@ func TestRule_CRUD(t *testing.T) {
 	assert.Len(t, items, 2) // default + created
 
 	// update
-	rec = doRequest(t, h, http.MethodPatch, "/services/"+svcID+"/listeners/"+listenerID+"/rules/"+ruleID, map[string]any{
-		"priority": 20,
-	})
+	rec = doRequest(
+		t,
+		h,
+		http.MethodPatch,
+		"/services/"+svcID+"/listeners/"+listenerID+"/rules/"+ruleID,
+		map[string]any{
+			"priority": 20,
+		},
+	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	updated := parseBody(t, rec)
 	assert.Equal(t, float64(20), updated["priority"])
 
 	// delete
-	rec = doRequest(t, h, http.MethodDelete, "/services/"+svcID+"/listeners/"+listenerID+"/rules/"+ruleID, nil)
+	rec = doRequest(
+		t,
+		h,
+		http.MethodDelete,
+		"/services/"+svcID+"/listeners/"+listenerID+"/rules/"+ruleID,
+		nil,
+	)
 	assert.Equal(t, http.StatusNoContent, rec.Code)
 
 	// list now has only default rule
@@ -448,21 +503,33 @@ func TestBatchUpdateRule(t *testing.T) {
 	require.Equal(t, http.StatusCreated, recL.Code)
 	listenerID, _ := parseBody(t, recL)["id"].(string)
 
-	rec := doRequest(t, h, http.MethodPost, "/services/"+svcID+"/listeners/"+listenerID+"/rules", map[string]any{
-		"name":     "r1",
-		"priority": 10,
-		"action":   map[string]any{"fixedResponse": map[string]any{"statusCode": 200}},
-	})
+	rec := doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/services/"+svcID+"/listeners/"+listenerID+"/rules",
+		map[string]any{
+			"name":     "r1",
+			"priority": 10,
+			"action":   map[string]any{"fixedResponse": map[string]any{"statusCode": 200}},
+		},
+	)
 	require.Equal(t, http.StatusCreated, rec.Code)
 	ruleID, _ := parseBody(t, rec)["id"].(string)
 
 	// batch update
-	rec = doRequest(t, h, http.MethodPatch, "/services/"+svcID+"/listeners/"+listenerID+"/rules", map[string]any{
-		"rules": []any{
-			map[string]any{"ruleIdentifier": ruleID, "priority": 50},
-			map[string]any{"ruleIdentifier": "rule-notexist", "priority": 99},
+	rec = doRequest(
+		t,
+		h,
+		http.MethodPatch,
+		"/services/"+svcID+"/listeners/"+listenerID+"/rules",
+		map[string]any{
+			"rules": []any{
+				map[string]any{"ruleIdentifier": ruleID, "priority": 50},
+				map[string]any{"ruleIdentifier": "rule-notexist", "priority": 99},
+			},
 		},
-	})
+	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	resp := parseBody(t, rec)
 	successful, _ := resp["successful"].([]any)
@@ -493,8 +560,8 @@ func TestTargetGroup_CRUD(t *testing.T) {
 				"name": "tg-inst",
 				"type": "INSTANCE",
 				"config": map[string]any{
-					"protocol": "HTTP",
-					"port":     8080,
+					"protocol":      "HTTP",
+					"port":          8080,
 					"vpcIdentifier": "vpc-abc",
 				},
 			},
@@ -524,8 +591,8 @@ func TestTargetGroup_CRUD(t *testing.T) {
 		"name": "tg-full",
 		"type": "IP",
 		"config": map[string]any{
-			"protocol": "HTTPS",
-			"port":     443,
+			"protocol":      "HTTPS",
+			"port":          443,
 			"vpcIdentifier": "vpc-xyz",
 		},
 	})
@@ -568,8 +635,8 @@ func TestTargets(t *testing.T) {
 	h := newTestHandler(t)
 
 	rec := doRequest(t, h, http.MethodPost, "/targetgroups", map[string]any{
-		"name": "tg-targets",
-		"type": "IP",
+		"name":   "tg-targets",
+		"type":   "IP",
 		"config": map[string]any{"protocol": "HTTP", "port": 80, "vpcIdentifier": "vpc-1"},
 	})
 	require.Equal(t, http.StatusCreated, rec.Code)
@@ -595,11 +662,17 @@ func TestTargets(t *testing.T) {
 	assert.Len(t, items, 2)
 
 	// deregister one
-	rec = doRequest(t, h, http.MethodPost, "/targetgroups/"+tgID+"/deregistertargets", map[string]any{
-		"targets": []any{
-			map[string]any{"id": "10.0.0.1", "port": 80},
+	rec = doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/targetgroups/"+tgID+"/deregistertargets",
+		map[string]any{
+			"targets": []any{
+				map[string]any{"id": "10.0.0.1", "port": 80},
+			},
 		},
-	})
+	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	// list after deregister
@@ -693,7 +766,13 @@ func TestResourcePolicy(t *testing.T) {
 	policy := `{"Version":"2012-10-17","Statement":[]}`
 
 	// put
-	rec := doRequest(t, h, http.MethodPut, "/resourcepolicy/"+resArn, map[string]any{"policy": policy})
+	rec := doRequest(
+		t,
+		h,
+		http.MethodPut,
+		"/resourcepolicy/"+resArn,
+		map[string]any{"policy": policy},
+	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	// get
@@ -754,21 +833,33 @@ func TestARNFormat(t *testing.T) {
 	rec := doRequest(t, h, http.MethodPost, "/services", map[string]any{"name": "arn-svc"})
 	require.Equal(t, http.StatusCreated, rec.Code)
 	svc := parseBody(t, rec)
-	assert.Regexp(t, `^arn:aws:vpc-lattice:us-east-1:000000000000:service/svc-[a-f0-9]+$`, svc["arn"])
+	assert.Regexp(
+		t,
+		`^arn:aws:vpc-lattice:us-east-1:000000000000:service/svc-[a-f0-9]+$`,
+		svc["arn"],
+	)
 
 	rec = doRequest(t, h, http.MethodPost, "/servicenetworks", map[string]any{"name": "arn-sn"})
 	require.Equal(t, http.StatusCreated, rec.Code)
 	sn := parseBody(t, rec)
-	assert.Regexp(t, `^arn:aws:vpc-lattice:us-east-1:000000000000:servicenetwork/sn-[a-f0-9]+$`, sn["arn"])
+	assert.Regexp(
+		t,
+		`^arn:aws:vpc-lattice:us-east-1:000000000000:servicenetwork/sn-[a-f0-9]+$`,
+		sn["arn"],
+	)
 
 	rec = doRequest(t, h, http.MethodPost, "/targetgroups", map[string]any{
-		"name": "arn-tg",
-		"type": "IP",
+		"name":   "arn-tg",
+		"type":   "IP",
 		"config": map[string]any{"protocol": "HTTP", "port": 80, "vpcIdentifier": "vpc-1"},
 	})
 	require.Equal(t, http.StatusCreated, rec.Code)
 	tg := parseBody(t, rec)
-	assert.Regexp(t, `^arn:aws:vpc-lattice:us-east-1:000000000000:targetgroup/tg-[a-f0-9]+$`, tg["arn"])
+	assert.Regexp(
+		t,
+		`^arn:aws:vpc-lattice:us-east-1:000000000000:targetgroup/tg-[a-f0-9]+$`,
+		tg["arn"],
+	)
 }
 
 // TestNotFound verifies 404 on get/update/delete of nonexistent resources.
