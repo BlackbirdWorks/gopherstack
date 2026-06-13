@@ -763,7 +763,11 @@ func ramPaginate[T any](items []T, nextToken string, maxResults *int32) ([]T, st
 
 	if maxResults != nil {
 		if *maxResults < 1 || *maxResults > ramMaxResults {
-			return nil, "", fmt.Errorf("%w: maxResults must be between 1 and %d", ErrInvalidParameter, ramMaxResults)
+			return nil, "", fmt.Errorf(
+				"%w: maxResults must be between 1 and %d",
+				ErrInvalidParameter,
+				ramMaxResults,
+			)
 		}
 
 		limit = *maxResults
@@ -1216,7 +1220,9 @@ func (h *Handler) handleGetResourceShareAssociations(
 		return nil, err
 	}
 
-	return json.Marshal(getResourceShareAssociationsResponse{NextToken: nextToken, ResourceShareAssociations: page})
+	return json.Marshal(
+		getResourceShareAssociationsResponse{NextToken: nextToken, ResourceShareAssociations: page},
+	)
 }
 
 type tagResourceRequest struct {
@@ -1344,7 +1350,9 @@ func (h *Handler) handleListResourceSharePermissions(
 		return nil, err
 	}
 
-	return json.Marshal(listResourceSharePermissionsResponse{NextToken: nextToken, Permissions: page})
+	return json.Marshal(
+		listResourceSharePermissionsResponse{NextToken: nextToken, Permissions: page},
+	)
 }
 
 type enableSharingWithAwsOrganizationResponse struct {
@@ -1628,7 +1636,10 @@ func (h *Handler) handleDeletePermissionVersion(
 
 	v64, parseErr := strconv.ParseInt(versionStr, 10, 32)
 	if parseErr != nil || v64 <= 0 {
-		return nil, fmt.Errorf("%w: permissionVersion must be a positive integer", errInvalidRequest)
+		return nil, fmt.Errorf(
+			"%w: permissionVersion must be a positive integer",
+			errInvalidRequest,
+		)
 	}
 
 	version := int32(v64)
@@ -1783,7 +1794,9 @@ func (h *Handler) handleGetResourceShareInvitations(
 		return nil, err
 	}
 
-	return json.Marshal(getResourceShareInvitationsResponse{NextToken: nextToken, ResourceShareInvitations: page})
+	return json.Marshal(
+		getResourceShareInvitationsResponse{NextToken: nextToken, ResourceShareInvitations: page},
+	)
 }
 
 // --- GetResourcePolicies ---
@@ -2288,7 +2301,9 @@ func (h *Handler) handleListPendingInvitationResources(
 		return nil, pErr
 	}
 
-	return json.Marshal(listPendingInvitationResourcesResponse{NextToken: nextToken, Resources: page})
+	return json.Marshal(
+		listPendingInvitationResourcesResponse{NextToken: nextToken, Resources: page},
+	)
 }
 
 // --- ListResourceTypes ---
@@ -2314,11 +2329,31 @@ const (
 
 //nolint:gochecknoglobals // read-only table initialized once; represents the AWS-supported shareable resource types
 var awsShareableResourceTypes = []resourceTypeObject{
-	{ResourceType: "ec2:Subnet", ServiceName: serviceNameEC2, ResourceRegionScope: resourceRegionScopeRegional},
-	{ResourceType: "ec2:VPC", ServiceName: serviceNameEC2, ResourceRegionScope: resourceRegionScopeRegional},
-	{ResourceType: "ec2:TransitGateway", ServiceName: serviceNameEC2, ResourceRegionScope: resourceRegionScopeRegional},
-	{ResourceType: "ec2:LocalGateway", ServiceName: serviceNameEC2, ResourceRegionScope: resourceRegionScopeRegional},
-	{ResourceType: "ec2:PrefixList", ServiceName: serviceNameEC2, ResourceRegionScope: resourceRegionScopeRegional},
+	{
+		ResourceType:        "ec2:Subnet",
+		ServiceName:         serviceNameEC2,
+		ResourceRegionScope: resourceRegionScopeRegional,
+	},
+	{
+		ResourceType:        "ec2:VPC",
+		ServiceName:         serviceNameEC2,
+		ResourceRegionScope: resourceRegionScopeRegional,
+	},
+	{
+		ResourceType:        "ec2:TransitGateway",
+		ServiceName:         serviceNameEC2,
+		ResourceRegionScope: resourceRegionScopeRegional,
+	},
+	{
+		ResourceType:        "ec2:LocalGateway",
+		ServiceName:         serviceNameEC2,
+		ResourceRegionScope: resourceRegionScopeRegional,
+	},
+	{
+		ResourceType:        "ec2:PrefixList",
+		ServiceName:         serviceNameEC2,
+		ResourceRegionScope: resourceRegionScopeRegional,
+	},
 	{
 		ResourceType:        "route53resolver:ResolverRule",
 		ServiceName:         serviceNameRoute53Resolver,
@@ -2344,17 +2379,41 @@ var awsShareableResourceTypes = []resourceTypeObject{
 		ServiceName:         serviceNameCodeBuild,
 		ResourceRegionScope: resourceRegionScopeRegional,
 	},
-	{ResourceType: "glue:Catalog", ServiceName: serviceNameGlue, ResourceRegionScope: resourceRegionScopeRegional},
-	{ResourceType: "glue:Database", ServiceName: serviceNameGlue, ResourceRegionScope: resourceRegionScopeRegional},
-	{ResourceType: "glue:Table", ServiceName: serviceNameGlue, ResourceRegionScope: resourceRegionScopeRegional},
-	{ResourceType: "appmesh:Mesh", ServiceName: "appmesh", ResourceRegionScope: resourceRegionScopeRegional},
-	{ResourceType: "outposts:Outpost", ServiceName: "outposts", ResourceRegionScope: resourceRegionScopeRegional},
+	{
+		ResourceType:        "glue:Catalog",
+		ServiceName:         serviceNameGlue,
+		ResourceRegionScope: resourceRegionScopeRegional,
+	},
+	{
+		ResourceType:        "glue:Database",
+		ServiceName:         serviceNameGlue,
+		ResourceRegionScope: resourceRegionScopeRegional,
+	},
+	{
+		ResourceType:        "glue:Table",
+		ServiceName:         serviceNameGlue,
+		ResourceRegionScope: resourceRegionScopeRegional,
+	},
+	{
+		ResourceType:        "appmesh:Mesh",
+		ServiceName:         "appmesh",
+		ResourceRegionScope: resourceRegionScopeRegional,
+	},
+	{
+		ResourceType:        "outposts:Outpost",
+		ServiceName:         "outposts",
+		ResourceRegionScope: resourceRegionScopeRegional,
+	},
 	{
 		ResourceType:        "resource-groups:Group",
 		ServiceName:         "resource-groups",
 		ResourceRegionScope: resourceRegionScopeRegional,
 	},
-	{ResourceType: "ssm-contacts:Contact", ServiceName: "ssm-contacts", ResourceRegionScope: resourceRegionScopeGlobal},
+	{
+		ResourceType:        "ssm-contacts:Contact",
+		ServiceName:         "ssm-contacts",
+		ResourceRegionScope: resourceRegionScopeGlobal,
+	},
 	{
 		ResourceType:        "ssm-incidents:ResponsePlan",
 		ServiceName:         "ssm-incidents",

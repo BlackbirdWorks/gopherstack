@@ -61,12 +61,21 @@ func cpParseNextToken(token string) int {
 
 // cpPaginate applies MaxResults/NextToken pagination to a slice.
 // maxResultsCap is the per-operation maximum. A zero maxResults means "use cap".
-func cpPaginate[T any](items []T, nextToken string, maxResults int32, maxResultsCap int32) ([]T, string, error) {
+func cpPaginate[T any](
+	items []T,
+	nextToken string,
+	maxResults int32,
+	maxResultsCap int32,
+) ([]T, string, error) {
 	limit := maxResultsCap
 
 	if maxResults > 0 {
 		if maxResults > maxResultsCap {
-			return nil, "", fmt.Errorf("%w: maxResults must be between 1 and %d", errInvalidRequest, maxResultsCap)
+			return nil, "", fmt.Errorf(
+				"%w: maxResults must be between 1 and %d",
+				errInvalidRequest,
+				maxResultsCap,
+			)
 		}
 
 		limit = maxResults
@@ -98,12 +107,14 @@ func validPipelineType(t string) bool {
 
 // validExecutionMode returns true if m is a valid ExecutionMode value.
 func validExecutionMode(m string) bool {
-	return m == "" || m == ExecutionModeQueued || m == ExecutionModeSuperseded || m == ExecutionModeParallel
+	return m == "" || m == ExecutionModeQueued || m == ExecutionModeSuperseded ||
+		m == ExecutionModeParallel
 }
 
 // validWebhookAuth returns true if a is a valid webhook Authentication value.
 func validWebhookAuth(a string) bool {
-	return a == "" || a == WebhookAuthGitHubHMAC || a == WebhookAuthIP || a == WebhookAuthUnauthenticated
+	return a == "" || a == WebhookAuthGitHubHMAC || a == WebhookAuthIP ||
+		a == WebhookAuthUnauthenticated
 }
 
 // Handler is the Echo HTTP handler for CodePipeline operations.
@@ -224,50 +235,52 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"AcknowledgeJob":                   service.WrapOp(h.handleAcknowledgeJob),
-		"AcknowledgeThirdPartyJob":         service.WrapOp(h.handleAcknowledgeThirdPartyJob),
-		"CreateCustomActionType":           service.WrapOp(h.handleCreateCustomActionType),
-		"CreatePipeline":                   service.WrapOp(h.handleCreatePipeline),
-		"DeleteCustomActionType":           service.WrapOp(h.handleDeleteCustomActionType),
-		"DeletePipeline":                   service.WrapOp(h.handleDeletePipeline),
-		"DeleteWebhook":                    service.WrapOp(h.handleDeleteWebhook),
-		"DeregisterWebhookWithThirdParty":  service.WrapOp(h.handleDeregisterWebhookWithThirdParty),
-		"DisableStageTransition":           service.WrapOp(h.handleDisableStageTransition),
-		"EnableStageTransition":            service.WrapOp(h.handleEnableStageTransition),
-		"GetActionType":                    service.WrapOp(h.handleGetActionType),
-		"GetJobDetails":                    service.WrapOp(h.handleGetJobDetails),
-		"GetPipeline":                      service.WrapOp(h.handleGetPipeline),
-		"ListPipelines":                    service.WrapOp(h.handleListPipelines),
-		"ListTagsForResource":              service.WrapOp(h.handleListTagsForResource),
-		"TagResource":                      service.WrapOp(h.handleTagResource),
-		"UntagResource":                    service.WrapOp(h.handleUntagResource),
-		"UpdatePipeline":                   service.WrapOp(h.handleUpdatePipeline),
-		"GetPipelineExecution":             service.WrapOp(h.handleGetPipelineExecution),
-		"GetPipelineState":                 service.WrapOp(h.handleGetPipelineState),
-		"GetThirdPartyJobDetails":          service.WrapOp(h.handleGetThirdPartyJobDetails),
-		"ListActionExecutions":             service.WrapOp(h.handleListActionExecutions),
-		"ListActionTypes":                  service.WrapOp(h.handleListActionTypes),
-		"ListDeployActionExecutionTargets": service.WrapOp(h.handleListDeployActionExecutionTargets),
-		"ListPipelineExecutions":           service.WrapOp(h.handleListPipelineExecutions),
-		"ListRuleExecutions":               service.WrapOp(h.handleListRuleExecutions),
-		"ListRuleTypes":                    service.WrapOp(h.handleListRuleTypes),
-		"ListWebhooks":                     service.WrapOp(h.handleListWebhooks),
-		"OverrideStageCondition":           service.WrapOp(h.handleOverrideStageCondition),
-		"PollForJobs":                      service.WrapOp(h.handlePollForJobs),
-		"PollForThirdPartyJobs":            service.WrapOp(h.handlePollForThirdPartyJobs),
-		"PutActionRevision":                service.WrapOp(h.handlePutActionRevision),
-		"PutApprovalResult":                service.WrapOp(h.handlePutApprovalResult),
-		"PutJobFailureResult":              service.WrapOp(h.handlePutJobFailureResult),
-		"PutJobSuccessResult":              service.WrapOp(h.handlePutJobSuccessResult),
-		"PutThirdPartyJobFailureResult":    service.WrapOp(h.handlePutThirdPartyJobFailureResult),
-		"PutThirdPartyJobSuccessResult":    service.WrapOp(h.handlePutThirdPartyJobSuccessResult),
-		"PutWebhook":                       service.WrapOp(h.handlePutWebhook),
-		"RegisterWebhookWithThirdParty":    service.WrapOp(h.handleRegisterWebhookWithThirdParty),
-		"RetryStageExecution":              service.WrapOp(h.handleRetryStageExecution),
-		"RollbackStage":                    service.WrapOp(h.handleRollbackStage),
-		"StartPipelineExecution":           service.WrapOp(h.handleStartPipelineExecution),
-		"StopPipelineExecution":            service.WrapOp(h.handleStopPipelineExecution),
-		"UpdateActionType":                 service.WrapOp(h.handleUpdateActionType),
+		"AcknowledgeJob":                  service.WrapOp(h.handleAcknowledgeJob),
+		"AcknowledgeThirdPartyJob":        service.WrapOp(h.handleAcknowledgeThirdPartyJob),
+		"CreateCustomActionType":          service.WrapOp(h.handleCreateCustomActionType),
+		"CreatePipeline":                  service.WrapOp(h.handleCreatePipeline),
+		"DeleteCustomActionType":          service.WrapOp(h.handleDeleteCustomActionType),
+		"DeletePipeline":                  service.WrapOp(h.handleDeletePipeline),
+		"DeleteWebhook":                   service.WrapOp(h.handleDeleteWebhook),
+		"DeregisterWebhookWithThirdParty": service.WrapOp(h.handleDeregisterWebhookWithThirdParty),
+		"DisableStageTransition":          service.WrapOp(h.handleDisableStageTransition),
+		"EnableStageTransition":           service.WrapOp(h.handleEnableStageTransition),
+		"GetActionType":                   service.WrapOp(h.handleGetActionType),
+		"GetJobDetails":                   service.WrapOp(h.handleGetJobDetails),
+		"GetPipeline":                     service.WrapOp(h.handleGetPipeline),
+		"ListPipelines":                   service.WrapOp(h.handleListPipelines),
+		"ListTagsForResource":             service.WrapOp(h.handleListTagsForResource),
+		"TagResource":                     service.WrapOp(h.handleTagResource),
+		"UntagResource":                   service.WrapOp(h.handleUntagResource),
+		"UpdatePipeline":                  service.WrapOp(h.handleUpdatePipeline),
+		"GetPipelineExecution":            service.WrapOp(h.handleGetPipelineExecution),
+		"GetPipelineState":                service.WrapOp(h.handleGetPipelineState),
+		"GetThirdPartyJobDetails":         service.WrapOp(h.handleGetThirdPartyJobDetails),
+		"ListActionExecutions":            service.WrapOp(h.handleListActionExecutions),
+		"ListActionTypes":                 service.WrapOp(h.handleListActionTypes),
+		"ListDeployActionExecutionTargets": service.WrapOp(
+			h.handleListDeployActionExecutionTargets,
+		),
+		"ListPipelineExecutions":        service.WrapOp(h.handleListPipelineExecutions),
+		"ListRuleExecutions":            service.WrapOp(h.handleListRuleExecutions),
+		"ListRuleTypes":                 service.WrapOp(h.handleListRuleTypes),
+		"ListWebhooks":                  service.WrapOp(h.handleListWebhooks),
+		"OverrideStageCondition":        service.WrapOp(h.handleOverrideStageCondition),
+		"PollForJobs":                   service.WrapOp(h.handlePollForJobs),
+		"PollForThirdPartyJobs":         service.WrapOp(h.handlePollForThirdPartyJobs),
+		"PutActionRevision":             service.WrapOp(h.handlePutActionRevision),
+		"PutApprovalResult":             service.WrapOp(h.handlePutApprovalResult),
+		"PutJobFailureResult":           service.WrapOp(h.handlePutJobFailureResult),
+		"PutJobSuccessResult":           service.WrapOp(h.handlePutJobSuccessResult),
+		"PutThirdPartyJobFailureResult": service.WrapOp(h.handlePutThirdPartyJobFailureResult),
+		"PutThirdPartyJobSuccessResult": service.WrapOp(h.handlePutThirdPartyJobSuccessResult),
+		"PutWebhook":                    service.WrapOp(h.handlePutWebhook),
+		"RegisterWebhookWithThirdParty": service.WrapOp(h.handleRegisterWebhookWithThirdParty),
+		"RetryStageExecution":           service.WrapOp(h.handleRetryStageExecution),
+		"RollbackStage":                 service.WrapOp(h.handleRollbackStage),
+		"StartPipelineExecution":        service.WrapOp(h.handleStartPipelineExecution),
+		"StopPipelineExecution":         service.WrapOp(h.handleStopPipelineExecution),
+		"UpdateActionType":              service.WrapOp(h.handleUpdateActionType),
 	}
 }
 
@@ -363,14 +376,23 @@ func (h *Handler) handleCreatePipeline(
 	}
 
 	if !validPipelineType(in.Pipeline.PipelineType) {
-		return nil, fmt.Errorf("%w: invalid pipelineType %q", ErrValidation, in.Pipeline.PipelineType)
+		return nil, fmt.Errorf(
+			"%w: invalid pipelineType %q",
+			ErrValidation,
+			in.Pipeline.PipelineType,
+		)
 	}
 
 	if !validExecutionMode(in.Pipeline.ExecutionMode) {
-		return nil, fmt.Errorf("%w: invalid executionMode %q", ErrValidation, in.Pipeline.ExecutionMode)
+		return nil, fmt.Errorf(
+			"%w: invalid executionMode %q",
+			ErrValidation,
+			in.Pipeline.ExecutionMode,
+		)
 	}
 
-	if in.Pipeline.ArtifactStore.Type != "" && !validArtifactStoreType(in.Pipeline.ArtifactStore.Type) {
+	if in.Pipeline.ArtifactStore.Type != "" &&
+		!validArtifactStoreType(in.Pipeline.ArtifactStore.Type) {
 		return nil, fmt.Errorf(
 			"%w: invalid artifactStore type %q: must be S3",
 			ErrValidation,
@@ -1123,12 +1145,20 @@ func (h *Handler) handleListPipelineExecutions(
 		}
 	}
 
-	page, nextToken, err := cpPaginate(items, in.NextToken, in.MaxResults, maxResultsCapPipelineExecutions)
+	page, nextToken, err := cpPaginate(
+		items,
+		in.NextToken,
+		in.MaxResults,
+		maxResultsCapPipelineExecutions,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	return &listPipelineExecutionsOutput{NextToken: nextToken, PipelineExecutionSummaries: page}, nil
+	return &listPipelineExecutionsOutput{
+		NextToken:                  nextToken,
+		PipelineExecutionSummaries: page,
+	}, nil
 }
 
 // --- Pipeline state ---
@@ -1202,7 +1232,11 @@ func (h *Handler) handleRetryStageExecution(
 		return nil, fmt.Errorf("%w: pipelineName is required", errInvalidRequest)
 	}
 
-	exec, err := h.Backend.RetryStageExecution(in.PipelineName, in.StageName, in.PipelineExecutionID)
+	exec, err := h.Backend.RetryStageExecution(
+		in.PipelineName,
+		in.StageName,
+		in.PipelineExecutionID,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1224,7 +1258,11 @@ func (h *Handler) handleRollbackStage(
 		return nil, fmt.Errorf("%w: pipelineName is required", errInvalidRequest)
 	}
 
-	exec, err := h.Backend.RollbackStage(in.PipelineName, in.StageName, in.TargetPipelineExecutionID)
+	exec, err := h.Backend.RollbackStage(
+		in.PipelineName,
+		in.StageName,
+		in.TargetPipelineExecutionID,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1556,7 +1594,11 @@ func (h *Handler) handlePutThirdPartyJobFailureResult(
 	_ context.Context,
 	in *putThirdPartyJobFailureResultInput,
 ) (*emptyOut, error) {
-	return &emptyOut{}, h.Backend.PutThirdPartyJobFailureResult(in.JobID, in.ClientToken, in.FailureDetails.Message)
+	return &emptyOut{}, h.Backend.PutThirdPartyJobFailureResult(
+		in.JobID,
+		in.ClientToken,
+		in.FailureDetails.Message,
+	)
 }
 
 // --- Action operations ---
@@ -1657,7 +1699,12 @@ func (h *Handler) handleListActionExecutions(
 		return nil, err
 	}
 
-	page, nextToken, pErr := cpPaginate(items, in.NextToken, in.MaxResults, maxResultsCapActionExecutions)
+	page, nextToken, pErr := cpPaginate(
+		items,
+		in.NextToken,
+		in.MaxResults,
+		maxResultsCapActionExecutions,
+	)
 	if pErr != nil {
 		return nil, pErr
 	}
@@ -1808,7 +1855,12 @@ func (h *Handler) handleListRuleExecutions(
 		return nil, err
 	}
 
-	page, nextToken, pErr := cpPaginate(items, in.NextToken, in.MaxResults, maxResultsCapRuleExecutions)
+	page, nextToken, pErr := cpPaginate(
+		items,
+		in.NextToken,
+		in.MaxResults,
+		maxResultsCapRuleExecutions,
+	)
 	if pErr != nil {
 		return nil, pErr
 	}
