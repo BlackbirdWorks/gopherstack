@@ -100,6 +100,8 @@ var (
 	ErrOperationNotPermitted = awserr.New("OperationNotPermittedException", awserr.ErrConflict)
 	// ErrPermissionInUse is returned when deleting a permission that is associated with active shares.
 	ErrPermissionInUse = awserr.New("PermissionInUseException", awserr.ErrConflict)
+	// ErrInvalidParameter is returned when a parameter value is out of the allowed range.
+	ErrInvalidParameter = awserr.New("InvalidParameterException", awserr.ErrInvalidParameter)
 )
 
 // ResourceShare represents an AWS RAM resource share.
