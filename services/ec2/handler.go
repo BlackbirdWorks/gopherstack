@@ -91,6 +91,14 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	return nil
 }
 
+// Shutdown stops background goroutines started by this handler.
+// Implements service.Shutdowner. Safe to call multiple times.
+func (h *Handler) Shutdown(_ context.Context) {
+	if mem, ok := h.Backend.(*InMemoryBackend); ok {
+		mem.StopLifecycleReconciler()
+	}
+}
+
 // Name returns the service name.
 func (h *Handler) Name() string {
 	return "EC2"
