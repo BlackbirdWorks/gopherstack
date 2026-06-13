@@ -227,6 +227,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		host := c.Request().Host
 		path := c.Request().URL.Path
+
 		return strings.HasPrefix(host, cleanroomsHostPrefix) ||
 			strings.HasPrefix(path, "/collaborations") ||
 			strings.HasPrefix(path, "/configuredTables") ||
@@ -239,11 +240,13 @@ func (h *Handler) MatchPriority() int { return service.PriorityPathVersioned }
 
 func (h *Handler) ExtractOperation(c *echo.Context) string {
 	op, _ := classifyPath(c.Request().Method, c.Request().URL.Path)
+
 	return op
 }
 
 func (h *Handler) ExtractResource(c *echo.Context) string {
 	_, resource := classifyPath(c.Request().Method, c.Request().URL.Path)
+
 	return resource
 }
 
@@ -260,6 +263,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		body, err := httputils.ReadBody(c.Request())
 		if err != nil {
 			log.ErrorContext(ctx, "cleanrooms: failed to read request body", "error", err)
+
 			return c.String(http.StatusInternalServerError, "internal server error")
 		}
 
@@ -273,6 +277,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		if result == nil {
 			return c.JSON(http.StatusOK, map[string]any{})
 		}
+
 		return c.JSONBlob(http.StatusOK, result)
 	}
 }
@@ -303,7 +308,7 @@ type pathRouteEntry struct {
 func classifyPath(method, path string) (string, string) {
 	// Trim leading slash and split
 	path = strings.TrimPrefix(path, "/")
-	segs := strings.SplitN(path, "/", -1)
+	segs := strings.Split(path, "/")
 	if len(segs) == 0 {
 		return opUnknown, ""
 	}
@@ -320,6 +325,7 @@ func classifyPath(method, path string) (string, string) {
 	case "tags":
 		return classifyTags(method, segs)
 	}
+
 	return opUnknown, ""
 }
 
@@ -455,6 +461,7 @@ func classifyCollaborations(method string, segs []string) (string, string) {
 			}
 		}
 	}
+
 	return opUnknown, ""
 }
 
@@ -484,6 +491,7 @@ func classifyConfiguredTables(method string, segs []string) (string, string) {
 	if len(segs) >= 3 && segs[2] == "analysisRule" {
 		return classifyConfiguredTableAnalysisRule(method, segs)
 	}
+
 	return opUnknown, ""
 }
 
@@ -502,6 +510,7 @@ func classifyConfiguredTableAnalysisRule(method string, segs []string) (string, 
 			return opUpdateConfiguredTableAnalysisRule, id
 		}
 	}
+
 	return opUnknown, ""
 }
 
@@ -713,6 +722,7 @@ func classifyMemberships(method string, segs []string) (string, string) {
 			}
 		}
 	}
+
 	return opUnknown, ""
 }
 
@@ -729,6 +739,7 @@ func classifyTags(method string, segs []string) (string, string) {
 	case http.MethodDelete:
 		return opUntagResource, resourceArn
 	}
+
 	return opUnknown, ""
 }
 
@@ -812,6 +823,7 @@ func injectPathParams(path, op string, body []byte) []byte {
 	}
 
 	out, _ := json.Marshal(m)
+
 	return out
 }
 
@@ -1016,6 +1028,7 @@ func (h *Handler) dispatch(
 	case opUntagResource:
 		return h.handleUntagResource(ctx, body, c)
 	}
+
 	return nil, errUnknownAction
 }
 
@@ -1023,6 +1036,7 @@ func (h *Handler) dispatch(
 
 func mustJSON(v any) []byte {
 	b, _ := json.Marshal(v)
+
 	return b
 }
 
@@ -1034,13 +1048,13 @@ func qp(c *echo.Context, key string) string {
 
 func (h *Handler) handleCreateCollaboration(_ context.Context, body []byte) ([]byte, error) {
 	var req struct {
+		Tags                   map[string]string `json:"tags"`
 		Name                   string            `json:"name"`
 		Description            string            `json:"description"`
 		CreatorDisplayName     string            `json:"creatorDisplayName"`
+		QueryLogStatus         string            `json:"queryLogStatus"`
 		CreatorMemberAbilities []string          `json:"creatorMemberAbilities"`
 		Members                []MemberSpec      `json:"members"`
-		QueryLogStatus         string            `json:"queryLogStatus"`
-		Tags                   map[string]string `json:"tags"`
 	}
 	_ = json.Unmarshal(body, &req)
 	c, err := h.Backend.CreateCollaboration(
@@ -1055,6 +1069,7 @@ func (h *Handler) handleCreateCollaboration(_ context.Context, body []byte) ([]b
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(map[string]any{"collaboration": c}), nil
 }
 
@@ -1067,6 +1082,7 @@ func (h *Handler) handleGetCollaboration(_ context.Context, body []byte) ([]byte
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(map[string]any{"collaboration": c}), nil
 }
 
@@ -1084,6 +1100,7 @@ func (h *Handler) handleListCollaborations(
 	if next != "" {
 		resp["nextToken"] = next
 	}
+
 	return mustJSON(resp), nil
 }
 
@@ -1102,6 +1119,7 @@ func (h *Handler) handleUpdateCollaboration(_ context.Context, body []byte) ([]b
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(map[string]any{"collaboration": col}), nil
 }
 
@@ -1110,6 +1128,7 @@ func (h *Handler) handleDeleteCollaboration(_ context.Context, body []byte) ([]b
 		CollaborationIdentifier string `json:"collaborationIdentifier"`
 	}
 	_ = json.Unmarshal(body, &req)
+
 	return nil, h.Backend.DeleteCollaboration(req.CollaborationIdentifier)
 }
 
@@ -1134,6 +1153,7 @@ func (h *Handler) handleListMembers(
 	if next != "" {
 		resp["nextToken"] = next
 	}
+
 	return mustJSON(resp), nil
 }
 
@@ -1143,6 +1163,7 @@ func (h *Handler) handleDeleteMember(_ context.Context, body []byte) ([]byte, er
 		AccountId               string `json:"accountId"`
 	}
 	_ = json.Unmarshal(body, &req)
+
 	return nil, h.Backend.DeleteMember(req.CollaborationIdentifier, req.AccountId)
 }
 
@@ -1162,6 +1183,7 @@ func (h *Handler) handleGetCollaborationAnalysisTemplate(
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(map[string]any{"analysisTemplate": t}), nil
 }
 
@@ -1186,6 +1208,7 @@ func (h *Handler) handleListCollaborationAnalysisTemplates(
 	if next != "" {
 		resp["nextToken"] = next
 	}
+
 	return mustJSON(resp), nil
 }
 
@@ -1205,6 +1228,7 @@ func (h *Handler) handleBatchGetCollaborationAnalysisTemplate(
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(map[string]any{"analysisTemplates": items, "errors": errs}), nil
 }
 
@@ -1218,6 +1242,7 @@ func (h *Handler) handleBatchGetSchema(_ context.Context, body []byte) ([]byte, 
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(map[string]any{"schemas": items, "errors": errs}), nil
 }
 
@@ -1246,6 +1271,7 @@ func (h *Handler) handleBatchGetSchemaAnalysisRule(_ context.Context, body []byt
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(map[string]any{"analysisRules": items, "errors": errs}), nil
 }
 
@@ -1259,6 +1285,7 @@ func (h *Handler) handleGetSchema(_ context.Context, body []byte) ([]byte, error
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(map[string]any{"schema": s}), nil
 }
 
@@ -1284,6 +1311,7 @@ func (h *Handler) handleListSchemas(
 	if next != "" {
 		resp["nextToken"] = next
 	}
+
 	return mustJSON(resp), nil
 }
 
@@ -1298,6 +1326,7 @@ func (h *Handler) handleGetSchemaAnalysisRule(_ context.Context, body []byte) ([
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(map[string]any{"analysisRule": r}), nil
 }
 
@@ -1306,9 +1335,9 @@ func (h *Handler) handleCreateCollaborationChangeRequest(
 	body []byte,
 ) ([]byte, error) {
 	var req struct {
+		Details                 map[string]any `json:"details"`
 		CollaborationIdentifier string         `json:"collaborationIdentifier"`
 		Type                    string         `json:"type"`
-		Details                 map[string]any `json:"details"`
 	}
 	_ = json.Unmarshal(body, &req)
 	r, err := h.Backend.CreateCollaborationChangeRequest(
@@ -1319,6 +1348,7 @@ func (h *Handler) handleCreateCollaborationChangeRequest(
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(map[string]any{"collaborationChangeRequest": r}), nil
 }
 
@@ -1338,6 +1368,7 @@ func (h *Handler) handleGetCollaborationChangeRequest(
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(map[string]any{"collaborationChangeRequest": r}), nil
 }
 
@@ -1362,6 +1393,7 @@ func (h *Handler) handleListCollaborationChangeRequests(
 	if next != "" {
 		resp["nextToken"] = next
 	}
+
 	return mustJSON(resp), nil
 }
 
@@ -1383,6 +1415,7 @@ func (h *Handler) handleUpdateCollaborationChangeRequest(
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(map[string]any{"collaborationChangeRequest": r}), nil
 }
 
@@ -1402,6 +1435,7 @@ func (h *Handler) handleGetCollaborationConfiguredAudienceModelAssociation(
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(map[string]any{"configuredAudienceModelAssociation": a}), nil
 }
 
@@ -1426,6 +1460,7 @@ func (h *Handler) handleListCollaborationConfiguredAudienceModelAssociations(
 	if next != "" {
 		resp["nextToken"] = next
 	}
+
 	return mustJSON(resp), nil
 }
 
@@ -1445,6 +1480,7 @@ func (h *Handler) handleGetCollaborationIdNamespaceAssociation(
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(map[string]any{"idNamespaceAssociation": a}), nil
 }
 
@@ -1469,6 +1505,7 @@ func (h *Handler) handleListCollaborationIdNamespaceAssociations(
 	if next != "" {
 		resp["nextToken"] = next
 	}
+
 	return mustJSON(resp), nil
 }
 
@@ -1488,6 +1525,7 @@ func (h *Handler) handleGetCollaborationPrivacyBudgetTemplate(
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(map[string]any{"privacyBudgetTemplate": t}), nil
 }
 
@@ -1512,6 +1550,7 @@ func (h *Handler) handleListCollaborationPrivacyBudgetTemplates(
 	if next != "" {
 		resp["nextToken"] = next
 	}
+
 	return mustJSON(resp), nil
 }
 
@@ -1537,6 +1576,7 @@ func (h *Handler) handleListCollaborationPrivacyBudgets(
 	if next != "" {
 		resp["nextToken"] = next
 	}
+
 	return mustJSON(resp), nil
 }
 
@@ -1544,11 +1584,11 @@ func (h *Handler) handleListCollaborationPrivacyBudgets(
 
 func (h *Handler) handleCreateMembership(_ context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		CollaborationIdentifier    string            `json:"collaborationIdentifier"`
-		QueryLogStatus             string            `json:"queryLogStatus"`
 		DefaultResultConfiguration map[string]any    `json:"defaultResultConfiguration"`
 		PaymentConfiguration       map[string]any    `json:"paymentConfiguration"`
 		Tags                       map[string]string `json:"tags"`
+		CollaborationIdentifier    string            `json:"collaborationIdentifier"`
+		QueryLogStatus             string            `json:"queryLogStatus"`
 	}
 	_ = json.Unmarshal(body, &req)
 	m, err := h.Backend.CreateMembership(
@@ -1561,6 +1601,7 @@ func (h *Handler) handleCreateMembership(_ context.Context, body []byte) ([]byte
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(map[string]any{"membership": m}), nil
 }
 
@@ -1573,6 +1614,7 @@ func (h *Handler) handleGetMembership(_ context.Context, body []byte) ([]byte, e
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(map[string]any{"membership": m}), nil
 }
 
@@ -1590,14 +1632,15 @@ func (h *Handler) handleListMemberships(
 	if next != "" {
 		resp["nextToken"] = next
 	}
+
 	return mustJSON(resp), nil
 }
 
 func (h *Handler) handleUpdateMembership(_ context.Context, body []byte) ([]byte, error) {
 	var req struct {
+		DefaultResultConfiguration map[string]any `json:"defaultResultConfiguration"`
 		MembershipIdentifier       string         `json:"membershipIdentifier"`
 		QueryLogStatus             string         `json:"queryLogStatus"`
-		DefaultResultConfiguration map[string]any `json:"defaultResultConfiguration"`
 	}
 	_ = json.Unmarshal(body, &req)
 	m, err := h.Backend.UpdateMembership(
@@ -1608,6 +1651,7 @@ func (h *Handler) handleUpdateMembership(_ context.Context, body []byte) ([]byte
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(map[string]any{"membership": m}), nil
 }
 
@@ -1616,6 +1660,7 @@ func (h *Handler) handleDeleteMembership(_ context.Context, body []byte) ([]byte
 		MembershipIdentifier string `json:"membershipIdentifier"`
 	}
 	_ = json.Unmarshal(body, &req)
+
 	return nil, h.Backend.DeleteMembership(req.MembershipIdentifier)
 }
 
@@ -1623,12 +1668,12 @@ func (h *Handler) handleDeleteMembership(_ context.Context, body []byte) ([]byte
 
 func (h *Handler) handleCreateConfiguredTable(_ context.Context, body []byte) ([]byte, error) {
 	var req struct {
+		TableReference map[string]any    `json:"tableReference"`
+		Tags           map[string]string `json:"tags"`
 		Name           string            `json:"name"`
 		Description    string            `json:"description"`
-		TableReference map[string]any    `json:"tableReference"`
-		AllowedColumns []string          `json:"allowedColumns"`
 		AnalysisMethod string            `json:"analysisMethod"`
-		Tags           map[string]string `json:"tags"`
+		AllowedColumns []string          `json:"allowedColumns"`
 	}
 	_ = json.Unmarshal(body, &req)
 	ct, err := h.Backend.CreateConfiguredTable(
@@ -1642,6 +1687,7 @@ func (h *Handler) handleCreateConfiguredTable(_ context.Context, body []byte) ([
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(map[string]any{"configuredTable": ct}), nil
 }
 
@@ -1654,6 +1700,7 @@ func (h *Handler) handleGetConfiguredTable(_ context.Context, body []byte) ([]by
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(map[string]any{"configuredTable": ct}), nil
 }
 
@@ -1667,6 +1714,7 @@ func (h *Handler) handleListConfiguredTables(
 	if next != "" {
 		resp["nextToken"] = next
 	}
+
 	return mustJSON(resp), nil
 }
 
@@ -1685,6 +1733,7 @@ func (h *Handler) handleUpdateConfiguredTable(_ context.Context, body []byte) ([
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(map[string]any{"configuredTable": ct}), nil
 }
 
@@ -1693,6 +1742,7 @@ func (h *Handler) handleDeleteConfiguredTable(_ context.Context, body []byte) ([
 		ConfiguredTableIdentifier string `json:"configuredTableIdentifier"`
 	}
 	_ = json.Unmarshal(body, &req)
+
 	return nil, h.Backend.DeleteConfiguredTable(req.ConfiguredTableIdentifier)
 }
 
@@ -1703,9 +1753,9 @@ func (h *Handler) handleCreateConfiguredTableAnalysisRule(
 	body []byte,
 ) ([]byte, error) {
 	var req struct {
+		AnalysisRulePolicy        map[string]any `json:"analysisRulePolicy"`
 		ConfiguredTableIdentifier string         `json:"configuredTableIdentifier"`
 		AnalysisRuleType          string         `json:"analysisRuleType"`
-		AnalysisRulePolicy        map[string]any `json:"analysisRulePolicy"`
 	}
 	_ = json.Unmarshal(body, &req)
 	r, err := h.Backend.CreateConfiguredTableAnalysisRule(
@@ -1716,6 +1766,7 @@ func (h *Handler) handleCreateConfiguredTableAnalysisRule(
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(map[string]any{"analysisRule": r}), nil
 }
 
@@ -1735,6 +1786,7 @@ func (h *Handler) handleGetConfiguredTableAnalysisRule(
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(map[string]any{"analysisRule": r}), nil
 }
 
@@ -1743,9 +1795,9 @@ func (h *Handler) handleUpdateConfiguredTableAnalysisRule(
 	body []byte,
 ) ([]byte, error) {
 	var req struct {
+		AnalysisRulePolicy        map[string]any `json:"analysisRulePolicy"`
 		ConfiguredTableIdentifier string         `json:"configuredTableIdentifier"`
 		AnalysisRuleType          string         `json:"analysisRuleType"`
-		AnalysisRulePolicy        map[string]any `json:"analysisRulePolicy"`
 	}
 	_ = json.Unmarshal(body, &req)
 	r, err := h.Backend.UpdateConfiguredTableAnalysisRule(
@@ -1756,6 +1808,7 @@ func (h *Handler) handleUpdateConfiguredTableAnalysisRule(
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(map[string]any{"analysisRule": r}), nil
 }
 
@@ -1768,6 +1821,7 @@ func (h *Handler) handleDeleteConfiguredTableAnalysisRule(
 		AnalysisRuleType          string `json:"analysisRuleType"`
 	}
 	_ = json.Unmarshal(body, &req)
+
 	return nil, h.Backend.DeleteConfiguredTableAnalysisRule(
 		req.ConfiguredTableIdentifier,
 		req.AnalysisRuleType,
@@ -1781,12 +1835,12 @@ func (h *Handler) handleCreateConfiguredTableAssociation(
 	body []byte,
 ) ([]byte, error) {
 	var req struct {
+		Tags                      map[string]string `json:"tags"`
 		MembershipIdentifier      string            `json:"membershipIdentifier"`
 		Name                      string            `json:"name"`
 		Description               string            `json:"description"`
 		ConfiguredTableIdentifier string            `json:"configuredTableIdentifier"`
 		RoleArn                   string            `json:"roleArn"`
-		Tags                      map[string]string `json:"tags"`
 	}
 	_ = json.Unmarshal(body, &req)
 	a, err := h.Backend.CreateConfiguredTableAssociation(
@@ -1800,6 +1854,7 @@ func (h *Handler) handleCreateConfiguredTableAssociation(
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(map[string]any{"configuredTableAssociation": a}), nil
 }
 
@@ -1819,6 +1874,7 @@ func (h *Handler) handleGetConfiguredTableAssociation(
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(map[string]any{"configuredTableAssociation": a}), nil
 }
 
@@ -1843,6 +1899,7 @@ func (h *Handler) handleListConfiguredTableAssociations(
 	if next != "" {
 		resp["nextToken"] = next
 	}
+
 	return mustJSON(resp), nil
 }
 
@@ -1866,6 +1923,7 @@ func (h *Handler) handleUpdateConfiguredTableAssociation(
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(map[string]any{"configuredTableAssociation": a}), nil
 }
 
@@ -1878,6 +1936,7 @@ func (h *Handler) handleDeleteConfiguredTableAssociation(
 		ConfiguredTableAssociationIdentifier string `json:"configuredTableAssociationIdentifier"`
 	}
 	_ = json.Unmarshal(body, &req)
+
 	return nil, h.Backend.DeleteConfiguredTableAssociation(
 		req.MembershipIdentifier,
 		req.ConfiguredTableAssociationIdentifier,
@@ -1891,10 +1950,10 @@ func (h *Handler) handleCreateConfiguredTableAssociationAnalysisRule(
 	body []byte,
 ) ([]byte, error) {
 	var req struct {
+		AnalysisRulePolicy                   map[string]any `json:"analysisRulePolicy"`
 		MembershipIdentifier                 string         `json:"membershipIdentifier"`
 		ConfiguredTableAssociationIdentifier string         `json:"configuredTableAssociationIdentifier"`
 		AnalysisRuleType                     string         `json:"analysisRuleType"`
-		AnalysisRulePolicy                   map[string]any `json:"analysisRulePolicy"`
 	}
 	_ = json.Unmarshal(body, &req)
 	r, err := h.Backend.CreateConfiguredTableAssociationAnalysisRule(
@@ -1906,6 +1965,7 @@ func (h *Handler) handleCreateConfiguredTableAssociationAnalysisRule(
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(map[string]any{"analysisRule": r}), nil
 }
 
@@ -1927,6 +1987,7 @@ func (h *Handler) handleGetConfiguredTableAssociationAnalysisRule(
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(map[string]any{"analysisRule": r}), nil
 }
 
@@ -1935,10 +1996,10 @@ func (h *Handler) handleUpdateConfiguredTableAssociationAnalysisRule(
 	body []byte,
 ) ([]byte, error) {
 	var req struct {
+		AnalysisRulePolicy                   map[string]any `json:"analysisRulePolicy"`
 		MembershipIdentifier                 string         `json:"membershipIdentifier"`
 		ConfiguredTableAssociationIdentifier string         `json:"configuredTableAssociationIdentifier"`
 		AnalysisRuleType                     string         `json:"analysisRuleType"`
-		AnalysisRulePolicy                   map[string]any `json:"analysisRulePolicy"`
 	}
 	_ = json.Unmarshal(body, &req)
 	r, err := h.Backend.UpdateConfiguredTableAssociationAnalysisRule(
@@ -1950,6 +2011,7 @@ func (h *Handler) handleUpdateConfiguredTableAssociationAnalysisRule(
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(map[string]any{"analysisRule": r}), nil
 }
 
@@ -1963,6 +2025,7 @@ func (h *Handler) handleDeleteConfiguredTableAssociationAnalysisRule(
 		AnalysisRuleType                     string `json:"analysisRuleType"`
 	}
 	_ = json.Unmarshal(body, &req)
+
 	return nil, h.Backend.DeleteConfiguredTableAssociationAnalysisRule(
 		req.MembershipIdentifier,
 		req.ConfiguredTableAssociationIdentifier,
@@ -1974,13 +2037,13 @@ func (h *Handler) handleDeleteConfiguredTableAssociationAnalysisRule(
 
 func (h *Handler) handleCreateAnalysisTemplate(_ context.Context, body []byte) ([]byte, error) {
 	var req struct {
+		Source               map[string]any    `json:"source"`
+		Tags                 map[string]string `json:"tags"`
 		MembershipIdentifier string            `json:"membershipIdentifier"`
 		Name                 string            `json:"name"`
 		Description          string            `json:"description"`
 		Format               string            `json:"format"`
-		Source               map[string]any    `json:"source"`
 		AnalysisParameters   []map[string]any  `json:"analysisParameters"`
-		Tags                 map[string]string `json:"tags"`
 	}
 	_ = json.Unmarshal(body, &req)
 	t, err := h.Backend.CreateAnalysisTemplate(
@@ -1995,6 +2058,7 @@ func (h *Handler) handleCreateAnalysisTemplate(_ context.Context, body []byte) (
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(map[string]any{"analysisTemplate": t}), nil
 }
 
@@ -2011,6 +2075,7 @@ func (h *Handler) handleGetAnalysisTemplate(_ context.Context, body []byte) ([]b
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(map[string]any{"analysisTemplate": t}), nil
 }
 
@@ -2035,6 +2100,7 @@ func (h *Handler) handleListAnalysisTemplates(
 	if next != "" {
 		resp["nextToken"] = next
 	}
+
 	return mustJSON(resp), nil
 }
 
@@ -2053,6 +2119,7 @@ func (h *Handler) handleUpdateAnalysisTemplate(_ context.Context, body []byte) (
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(map[string]any{"analysisTemplate": t}), nil
 }
 
@@ -2062,6 +2129,7 @@ func (h *Handler) handleDeleteAnalysisTemplate(_ context.Context, body []byte) (
 		AnalysisTemplateIdentifier string `json:"analysisTemplateIdentifier"`
 	}
 	_ = json.Unmarshal(body, &req)
+
 	return nil, h.Backend.DeleteAnalysisTemplate(
 		req.MembershipIdentifier,
 		req.AnalysisTemplateIdentifier,
@@ -2072,10 +2140,10 @@ func (h *Handler) handleDeleteAnalysisTemplate(_ context.Context, body []byte) (
 
 func (h *Handler) handleStartProtectedQuery(_ context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		MembershipIdentifier string         `json:"membershipIdentifier"`
 		SqlParameters        map[string]any `json:"sqlParameters"`
 		ResultConfiguration  map[string]any `json:"resultConfiguration"`
 		ComputeConfiguration map[string]any `json:"computeConfiguration"`
+		MembershipIdentifier string         `json:"membershipIdentifier"`
 	}
 	_ = json.Unmarshal(body, &req)
 	var sqlText string
@@ -2093,6 +2161,7 @@ func (h *Handler) handleStartProtectedQuery(_ context.Context, body []byte) ([]b
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(map[string]any{"protectedQuery": q}), nil
 }
 
@@ -2106,6 +2175,7 @@ func (h *Handler) handleGetProtectedQuery(_ context.Context, body []byte) ([]byt
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(map[string]any{"protectedQuery": q}), nil
 }
 
@@ -2131,6 +2201,7 @@ func (h *Handler) handleListProtectedQueries(
 	if next != "" {
 		resp["nextToken"] = next
 	}
+
 	return mustJSON(resp), nil
 }
 
@@ -2149,6 +2220,7 @@ func (h *Handler) handleUpdateProtectedQuery(_ context.Context, body []byte) ([]
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(map[string]any{"protectedQuery": q}), nil
 }
 
@@ -2156,10 +2228,10 @@ func (h *Handler) handleUpdateProtectedQuery(_ context.Context, body []byte) ([]
 
 func (h *Handler) handleStartProtectedJob(_ context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		MembershipIdentifier string         `json:"membershipIdentifier"`
-		Type                 string         `json:"type"`
 		JobParameters        map[string]any `json:"jobParameters"`
 		ResultConfiguration  map[string]any `json:"resultConfiguration"`
+		MembershipIdentifier string         `json:"membershipIdentifier"`
+		Type                 string         `json:"type"`
 	}
 	_ = json.Unmarshal(body, &req)
 	j, err := h.Backend.StartProtectedJob(
@@ -2171,6 +2243,7 @@ func (h *Handler) handleStartProtectedJob(_ context.Context, body []byte) ([]byt
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(map[string]any{"protectedJob": j}), nil
 }
 
@@ -2184,6 +2257,7 @@ func (h *Handler) handleGetProtectedJob(_ context.Context, body []byte) ([]byte,
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(map[string]any{"protectedJob": j}), nil
 }
 
@@ -2209,6 +2283,7 @@ func (h *Handler) handleListProtectedJobs(
 	if next != "" {
 		resp["nextToken"] = next
 	}
+
 	return mustJSON(resp), nil
 }
 
@@ -2227,6 +2302,7 @@ func (h *Handler) handleUpdateProtectedJob(_ context.Context, body []byte) ([]by
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(map[string]any{"protectedJob": j}), nil
 }
 
@@ -2237,11 +2313,11 @@ func (h *Handler) handleCreatePrivacyBudgetTemplate(
 	body []byte,
 ) ([]byte, error) {
 	var req struct {
+		Parameters           map[string]any    `json:"parameters"`
+		Tags                 map[string]string `json:"tags"`
 		MembershipIdentifier string            `json:"membershipIdentifier"`
 		PrivacyBudgetType    string            `json:"privacyBudgetType"`
 		AutoRefresh          string            `json:"autoRefresh"`
-		Parameters           map[string]any    `json:"parameters"`
-		Tags                 map[string]string `json:"tags"`
 	}
 	_ = json.Unmarshal(body, &req)
 	t, err := h.Backend.CreatePrivacyBudgetTemplate(
@@ -2254,6 +2330,7 @@ func (h *Handler) handleCreatePrivacyBudgetTemplate(
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(map[string]any{"privacyBudgetTemplate": t}), nil
 }
 
@@ -2270,6 +2347,7 @@ func (h *Handler) handleGetPrivacyBudgetTemplate(_ context.Context, body []byte)
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(map[string]any{"privacyBudgetTemplate": t}), nil
 }
 
@@ -2295,6 +2373,7 @@ func (h *Handler) handleListPrivacyBudgetTemplates(
 	if next != "" {
 		resp["nextToken"] = next
 	}
+
 	return mustJSON(resp), nil
 }
 
@@ -2303,10 +2382,10 @@ func (h *Handler) handleUpdatePrivacyBudgetTemplate(
 	body []byte,
 ) ([]byte, error) {
 	var req struct {
+		Parameters                      map[string]any `json:"parameters"`
 		MembershipIdentifier            string         `json:"membershipIdentifier"`
 		PrivacyBudgetTemplateIdentifier string         `json:"privacyBudgetTemplateIdentifier"`
 		AutoRefresh                     string         `json:"autoRefresh"`
-		Parameters                      map[string]any `json:"parameters"`
 	}
 	_ = json.Unmarshal(body, &req)
 	t, err := h.Backend.UpdatePrivacyBudgetTemplate(
@@ -2318,6 +2397,7 @@ func (h *Handler) handleUpdatePrivacyBudgetTemplate(
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(map[string]any{"privacyBudgetTemplate": t}), nil
 }
 
@@ -2330,6 +2410,7 @@ func (h *Handler) handleDeletePrivacyBudgetTemplate(
 		PrivacyBudgetTemplateIdentifier string `json:"privacyBudgetTemplateIdentifier"`
 	}
 	_ = json.Unmarshal(body, &req)
+
 	return nil, h.Backend.DeletePrivacyBudgetTemplate(
 		req.MembershipIdentifier,
 		req.PrivacyBudgetTemplateIdentifier,
@@ -2358,19 +2439,21 @@ func (h *Handler) handleListPrivacyBudgets(
 	if next != "" {
 		resp["nextToken"] = next
 	}
+
 	return mustJSON(resp), nil
 }
 
 func (h *Handler) handlePreviewPrivacyImpact(_ context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		MembershipIdentifier string         `json:"membershipIdentifier"`
 		Parameters           map[string]any `json:"parameters"`
+		MembershipIdentifier string         `json:"membershipIdentifier"`
 	}
 	_ = json.Unmarshal(body, &req)
 	result, err := h.Backend.PreviewPrivacyImpact(req.MembershipIdentifier, req.Parameters)
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(result), nil
 }
 
@@ -2378,12 +2461,12 @@ func (h *Handler) handlePreviewPrivacyImpact(_ context.Context, body []byte) ([]
 
 func (h *Handler) handleCreateIdMappingTable(_ context.Context, body []byte) ([]byte, error) {
 	var req struct {
+		InputReferenceConfig map[string]any    `json:"inputReferenceConfig"`
+		Tags                 map[string]string `json:"tags"`
 		MembershipIdentifier string            `json:"membershipIdentifier"`
 		Name                 string            `json:"name"`
 		Description          string            `json:"description"`
-		InputReferenceConfig map[string]any    `json:"inputReferenceConfig"`
 		KmsKeyArn            string            `json:"kmsKeyArn"`
-		Tags                 map[string]string `json:"tags"`
 	}
 	_ = json.Unmarshal(body, &req)
 	t, err := h.Backend.CreateIdMappingTable(
@@ -2397,6 +2480,7 @@ func (h *Handler) handleCreateIdMappingTable(_ context.Context, body []byte) ([]
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(map[string]any{"idMappingTable": t}), nil
 }
 
@@ -2410,6 +2494,7 @@ func (h *Handler) handleGetIdMappingTable(_ context.Context, body []byte) ([]byt
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(map[string]any{"idMappingTable": t}), nil
 }
 
@@ -2434,6 +2519,7 @@ func (h *Handler) handleListIdMappingTables(
 	if next != "" {
 		resp["nextToken"] = next
 	}
+
 	return mustJSON(resp), nil
 }
 
@@ -2454,6 +2540,7 @@ func (h *Handler) handleUpdateIdMappingTable(_ context.Context, body []byte) ([]
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(map[string]any{"idMappingTable": t}), nil
 }
 
@@ -2463,6 +2550,7 @@ func (h *Handler) handleDeleteIdMappingTable(_ context.Context, body []byte) ([]
 		IdMappingTableIdentifier string `json:"idMappingTableIdentifier"`
 	}
 	_ = json.Unmarshal(body, &req)
+
 	return nil, h.Backend.DeleteIdMappingTable(
 		req.MembershipIdentifier,
 		req.IdMappingTableIdentifier,
@@ -2482,6 +2570,7 @@ func (h *Handler) handlePopulateIdMappingTable(_ context.Context, body []byte) (
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(result), nil
 }
 
@@ -2492,12 +2581,12 @@ func (h *Handler) handleCreateIdNamespaceAssociation(
 	body []byte,
 ) ([]byte, error) {
 	var req struct {
-		MembershipIdentifier string            `json:"membershipIdentifier"`
-		Name                 string            `json:"name"`
-		Description          string            `json:"description"`
 		InputReferenceConfig map[string]any    `json:"inputReferenceConfig"`
 		IdMappingConfig      map[string]any    `json:"idMappingConfig"`
 		Tags                 map[string]string `json:"tags"`
+		MembershipIdentifier string            `json:"membershipIdentifier"`
+		Name                 string            `json:"name"`
+		Description          string            `json:"description"`
 	}
 	_ = json.Unmarshal(body, &req)
 	a, err := h.Backend.CreateIdNamespaceAssociation(
@@ -2511,6 +2600,7 @@ func (h *Handler) handleCreateIdNamespaceAssociation(
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(map[string]any{"idNamespaceAssociation": a}), nil
 }
 
@@ -2527,6 +2617,7 @@ func (h *Handler) handleGetIdNamespaceAssociation(_ context.Context, body []byte
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(map[string]any{"idNamespaceAssociation": a}), nil
 }
 
@@ -2551,6 +2642,7 @@ func (h *Handler) handleListIdNamespaceAssociations(
 	if next != "" {
 		resp["nextToken"] = next
 	}
+
 	return mustJSON(resp), nil
 }
 
@@ -2559,10 +2651,10 @@ func (h *Handler) handleUpdateIdNamespaceAssociation(
 	body []byte,
 ) ([]byte, error) {
 	var req struct {
+		IdMappingConfig                  map[string]any `json:"idMappingConfig"`
 		MembershipIdentifier             string         `json:"membershipIdentifier"`
 		IdNamespaceAssociationIdentifier string         `json:"idNamespaceAssociationIdentifier"`
 		Description                      string         `json:"description"`
-		IdMappingConfig                  map[string]any `json:"idMappingConfig"`
 	}
 	_ = json.Unmarshal(body, &req)
 	a, err := h.Backend.UpdateIdNamespaceAssociation(
@@ -2574,6 +2666,7 @@ func (h *Handler) handleUpdateIdNamespaceAssociation(
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(map[string]any{"idNamespaceAssociation": a}), nil
 }
 
@@ -2586,6 +2679,7 @@ func (h *Handler) handleDeleteIdNamespaceAssociation(
 		IdNamespaceAssociationIdentifier string `json:"idNamespaceAssociationIdentifier"`
 	}
 	_ = json.Unmarshal(body, &req)
+
 	return nil, h.Backend.DeleteIdNamespaceAssociation(
 		req.MembershipIdentifier,
 		req.IdNamespaceAssociationIdentifier,
@@ -2599,12 +2693,12 @@ func (h *Handler) handleCreateConfiguredAudienceModelAssociation(
 	body []byte,
 ) ([]byte, error) {
 	var req struct {
+		Tags                       map[string]string `json:"tags"`
 		MembershipIdentifier       string            `json:"membershipIdentifier"`
 		ConfiguredAudienceModelArn string            `json:"configuredAudienceModelArn"`
 		Name                       string            `json:"name"`
 		Description                string            `json:"description"`
 		ManageResourcePolicies     bool              `json:"manageResourcePolicies"`
-		Tags                       map[string]string `json:"tags"`
 	}
 	_ = json.Unmarshal(body, &req)
 	a, err := h.Backend.CreateConfiguredAudienceModelAssociation(
@@ -2618,6 +2712,7 @@ func (h *Handler) handleCreateConfiguredAudienceModelAssociation(
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(map[string]any{"configuredAudienceModelAssociation": a}), nil
 }
 
@@ -2637,6 +2732,7 @@ func (h *Handler) handleGetConfiguredAudienceModelAssociation(
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(map[string]any{"configuredAudienceModelAssociation": a}), nil
 }
 
@@ -2661,6 +2757,7 @@ func (h *Handler) handleListConfiguredAudienceModelAssociations(
 	if next != "" {
 		resp["nextToken"] = next
 	}
+
 	return mustJSON(resp), nil
 }
 
@@ -2684,6 +2781,7 @@ func (h *Handler) handleUpdateConfiguredAudienceModelAssociation(
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(map[string]any{"configuredAudienceModelAssociation": a}), nil
 }
 
@@ -2696,6 +2794,7 @@ func (h *Handler) handleDeleteConfiguredAudienceModelAssociation(
 		ConfiguredAudienceModelAssociationIdentifier string `json:"configuredAudienceModelAssociationIdentifier"`
 	}
 	_ = json.Unmarshal(body, &req)
+
 	return nil, h.Backend.DeleteConfiguredAudienceModelAssociation(
 		req.MembershipIdentifier,
 		req.ConfiguredAudienceModelAssociationIdentifier,
@@ -2713,15 +2812,17 @@ func (h *Handler) handleListTagsForResource(_ context.Context, body []byte) ([]b
 	if err != nil {
 		return nil, err
 	}
+
 	return mustJSON(map[string]any{"tags": tags}), nil
 }
 
 func (h *Handler) handleTagResource(_ context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		ResourceArn string            `json:"resourceArn"`
 		Tags        map[string]string `json:"tags"`
+		ResourceArn string            `json:"resourceArn"`
 	}
 	_ = json.Unmarshal(body, &req)
+
 	return nil, h.Backend.TagResource(req.ResourceArn, req.Tags)
 }
 
@@ -2739,5 +2840,6 @@ func (h *Handler) handleUntagResource(
 	if len(req.TagKeys) == 0 {
 		req.TagKeys = c.Request().URL.Query()["tagKeys"]
 	}
+
 	return nil, h.Backend.UntagResource(req.ResourceArn, req.TagKeys)
 }

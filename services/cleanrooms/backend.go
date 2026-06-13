@@ -5,7 +5,9 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 
@@ -31,41 +33,41 @@ const (
 // ---- types ----
 
 type MemberSpec struct {
+	PaymentConfig map[string]any `json:"paymentConfiguration,omitempty"`
 	AccountID     string         `json:"accountId"`
 	DisplayName   string         `json:"displayName"`
 	Abilities     []string       `json:"memberAbilities"`
-	PaymentConfig map[string]any `json:"paymentConfiguration,omitempty"`
 }
 
 type MemberSummary struct {
 	AccountID   string   `json:"accountId"`
 	DisplayName string   `json:"displayName"`
-	Abilities   []string `json:"abilities"`
 	Status      string   `json:"status"`
+	Abilities   []string `json:"abilities"`
 	CreateTime  float64  `json:"createTime,omitempty"`
 	UpdateTime  float64  `json:"updateTime,omitempty"`
 }
 
 type Collaboration struct {
+	Tags                    map[string]string `json:"tags,omitempty"`
 	CollaborationIdentifier string            `json:"collaborationIdentifier"`
 	Arn                     string            `json:"arn"`
 	Name                    string            `json:"name"`
 	Description             string            `json:"description,omitempty"`
-	CreatorAccountId        string            `json:"creatorAccountId"`
+	CreatorAccountID        string            `json:"creatorAccountId"`
 	CreatorDisplayName      string            `json:"creatorDisplayName"`
+	QueryLogStatus          string            `json:"queryLogStatus,omitempty"`
 	MemberAbilities         []string          `json:"memberAbilities,omitempty"`
 	Members                 []*MemberSummary  `json:"members,omitempty"`
-	QueryLogStatus          string            `json:"queryLogStatus,omitempty"`
 	CreateTime              float64           `json:"createTime,omitempty"`
 	UpdateTime              float64           `json:"updateTime,omitempty"`
-	Tags                    map[string]string `json:"tags,omitempty"`
 }
 
 type CollaborationSummary struct {
 	CollaborationIdentifier string  `json:"collaborationIdentifier"`
 	Arn                     string  `json:"arn"`
 	Name                    string  `json:"name"`
-	CreatorAccountId        string  `json:"creatorAccountId"`
+	CreatorAccountID        string  `json:"creatorAccountId"`
 	CreatorDisplayName      string  `json:"creatorDisplayName"`
 	MemberStatus            string  `json:"memberStatus"`
 	CreateTime              float64 `json:"createTime,omitempty"`
@@ -73,18 +75,18 @@ type CollaborationSummary struct {
 }
 
 type Membership struct {
-	MembershipIdentifier            string         `json:"membershipIdentifier"`
-	Arn                             string         `json:"arn"`
-	CollaborationIdentifier         string         `json:"collaborationIdentifier"`
-	CollaborationArn                string         `json:"collaborationArn"`
-	CollaborationCreatorAccountId   string         `json:"collaborationCreatorAccountId"`
-	CollaborationCreatorDisplayName string         `json:"collaborationCreatorDisplayName"`
-	CollaborationName               string         `json:"collaborationName"`
-	Status                          string         `json:"status"`
-	MemberAbilities                 []string       `json:"memberAbilities,omitempty"`
-	QueryLogStatus                  string         `json:"queryLogStatus,omitempty"`
 	DefaultResultConfiguration      map[string]any `json:"defaultResultConfiguration,omitempty"`
 	PaymentConfiguration            map[string]any `json:"paymentConfiguration,omitempty"`
+	CollaborationName               string         `json:"collaborationName"`
+	CollaborationArn                string         `json:"collaborationArn"`
+	CollaborationCreatorAccountID   string         `json:"collaborationCreatorAccountId"`
+	CollaborationCreatorDisplayName string         `json:"collaborationCreatorDisplayName"`
+	MembershipIdentifier            string         `json:"membershipIdentifier"`
+	Status                          string         `json:"status"`
+	QueryLogStatus                  string         `json:"queryLogStatus,omitempty"`
+	CollaborationIdentifier         string         `json:"collaborationIdentifier"`
+	Arn                             string         `json:"arn"`
+	MemberAbilities                 []string       `json:"memberAbilities,omitempty"`
 	CreateTime                      float64        `json:"createTime,omitempty"`
 	UpdateTime                      float64        `json:"updateTime,omitempty"`
 }
@@ -94,7 +96,7 @@ type MembershipSummary struct {
 	Arn                             string   `json:"arn"`
 	CollaborationIdentifier         string   `json:"collaborationIdentifier"`
 	CollaborationArn                string   `json:"collaborationArn"`
-	CollaborationCreatorAccountId   string   `json:"collaborationCreatorAccountId"`
+	CollaborationCreatorAccountID   string   `json:"collaborationCreatorAccountId"`
 	CollaborationCreatorDisplayName string   `json:"collaborationCreatorDisplayName"`
 	CollaborationName               string   `json:"collaborationName"`
 	Status                          string   `json:"status"`
@@ -104,17 +106,17 @@ type MembershipSummary struct {
 }
 
 type ConfiguredTable struct {
+	TableReference            map[string]any    `json:"tableReference,omitempty"`
+	Tags                      map[string]string `json:"tags,omitempty"`
 	ConfiguredTableIdentifier string            `json:"configuredTableIdentifier"`
 	Arn                       string            `json:"arn"`
 	Name                      string            `json:"name"`
 	Description               string            `json:"description,omitempty"`
-	TableReference            map[string]any    `json:"tableReference,omitempty"`
-	AllowedColumns            []string          `json:"allowedColumns,omitempty"`
 	AnalysisMethod            string            `json:"analysisMethod,omitempty"`
+	AllowedColumns            []string          `json:"allowedColumns,omitempty"`
 	AnalysisRuleTypes         []string          `json:"analysisRuleTypes,omitempty"`
 	CreateTime                float64           `json:"createTime,omitempty"`
 	UpdateTime                float64           `json:"updateTime,omitempty"`
-	Tags                      map[string]string `json:"tags,omitempty"`
 }
 
 type ConfiguredTableSummary struct {
@@ -128,28 +130,28 @@ type ConfiguredTableSummary struct {
 }
 
 type ConfiguredTableAnalysisRule struct {
+	Policy                    map[string]any `json:"policy,omitempty"`
 	ConfiguredTableIdentifier string         `json:"configuredTableIdentifier"`
 	ConfiguredTableArn        string         `json:"configuredTableArn"`
 	Type                      string         `json:"type"`
-	Policy                    map[string]any `json:"policy,omitempty"`
 	CreateTime                float64        `json:"createTime,omitempty"`
 	UpdateTime                float64        `json:"updateTime,omitempty"`
 }
 
 type ConfiguredTableAssociation struct {
-	ConfiguredTableAssociationIdentifier string            `json:"configuredTableAssociationIdentifier"`
-	Arn                                  string            `json:"arn"`
+	Tags                                 map[string]string `json:"tags,omitempty"`
+	Name                                 string            `json:"name"`
 	MembershipIdentifier                 string            `json:"membershipIdentifier"`
 	MembershipArn                        string            `json:"membershipArn"`
 	ConfiguredTableIdentifier            string            `json:"configuredTableIdentifier"`
 	ConfiguredTableArn                   string            `json:"configuredTableArn"`
-	Name                                 string            `json:"name"`
+	ConfiguredTableAssociationIdentifier string            `json:"configuredTableAssociationIdentifier"`
 	Description                          string            `json:"description,omitempty"`
 	RoleArn                              string            `json:"roleArn,omitempty"`
+	Arn                                  string            `json:"arn"`
 	AnalysisRuleTypes                    []string          `json:"analysisRuleTypes,omitempty"`
 	CreateTime                           float64           `json:"createTime,omitempty"`
 	UpdateTime                           float64           `json:"updateTime,omitempty"`
-	Tags                                 map[string]string `json:"tags,omitempty"`
 }
 
 type ConfiguredTableAssociationSummary struct {
@@ -164,32 +166,32 @@ type ConfiguredTableAssociationSummary struct {
 }
 
 type ConfiguredTableAssociationAnalysisRule struct {
+	Policy                               map[string]any `json:"policy,omitempty"`
 	ConfiguredTableAssociationIdentifier string         `json:"configuredTableAssociationIdentifier"`
 	ConfiguredTableAssociationArn        string         `json:"configuredTableAssociationArn"`
 	MembershipIdentifier                 string         `json:"membershipIdentifier"`
 	MembershipArn                        string         `json:"membershipArn"`
 	Type                                 string         `json:"type"`
-	Policy                               map[string]any `json:"policy,omitempty"`
 	CreateTime                           float64        `json:"createTime,omitempty"`
 	UpdateTime                           float64        `json:"updateTime,omitempty"`
 }
 
 type AnalysisTemplate struct {
-	AnalysisTemplateIdentifier string            `json:"analysisTemplateIdentifier"`
-	Arn                        string            `json:"arn"`
-	CollaborationArn           string            `json:"collaborationArn"`
+	Source                     map[string]any    `json:"source,omitempty"`
+	Tags                       map[string]string `json:"tags,omitempty"`
+	Schema                     map[string]any    `json:"schema,omitempty"`
 	CollaborationIdentifier    string            `json:"collaborationIdentifier"`
 	MembershipIdentifier       string            `json:"membershipIdentifier"`
 	MembershipArn              string            `json:"membershipArn"`
 	Name                       string            `json:"name"`
 	Description                string            `json:"description,omitempty"`
-	Source                     map[string]any    `json:"source,omitempty"`
-	Schema                     map[string]any    `json:"schema,omitempty"`
+	AnalysisTemplateIdentifier string            `json:"analysisTemplateIdentifier"`
+	CollaborationArn           string            `json:"collaborationArn"`
 	Format                     string            `json:"format,omitempty"`
+	Arn                        string            `json:"arn"`
 	AnalysisParameters         []map[string]any  `json:"analysisParameters,omitempty"`
 	CreateTime                 float64           `json:"createTime,omitempty"`
 	UpdateTime                 float64           `json:"updateTime,omitempty"`
-	Tags                       map[string]string `json:"tags,omitempty"`
 }
 
 type AnalysisTemplateSummary struct {
@@ -214,13 +216,13 @@ type BatchError struct {
 type Schema struct {
 	CollaborationArn        string           `json:"collaborationArn"`
 	CollaborationIdentifier string           `json:"collaborationIdentifier"`
-	CreatorAccountId        string           `json:"creatorAccountId"`
+	CreatorAccountID        string           `json:"creatorAccountId"`
 	Name                    string           `json:"name"`
 	Type                    string           `json:"type"`
+	AnalysisMethod          string           `json:"analysisMethod,omitempty"`
 	Columns                 []map[string]any `json:"columns,omitempty"`
 	PartitionKeys           []map[string]any `json:"partitionKeys,omitempty"`
 	AnalysisRuleTypes       []string         `json:"analysisRuleTypes,omitempty"`
-	AnalysisMethod          string           `json:"analysisMethod,omitempty"`
 	CreateTime              float64          `json:"createTime,omitempty"`
 	UpdateTime              float64          `json:"updateTime,omitempty"`
 }
@@ -228,36 +230,36 @@ type Schema struct {
 type SchemaSummary struct {
 	CollaborationArn        string   `json:"collaborationArn"`
 	CollaborationIdentifier string   `json:"collaborationIdentifier"`
-	CreatorAccountId        string   `json:"creatorAccountId"`
+	CreatorAccountID        string   `json:"creatorAccountId"`
 	Name                    string   `json:"name"`
 	Type                    string   `json:"type"`
-	AnalysisRuleTypes       []string `json:"analysisRuleTypes,omitempty"`
 	AnalysisMethod          string   `json:"analysisMethod,omitempty"`
+	AnalysisRuleTypes       []string `json:"analysisRuleTypes,omitempty"`
 	CreateTime              float64  `json:"createTime,omitempty"`
 	UpdateTime              float64  `json:"updateTime,omitempty"`
 }
 
 type SchemaAnalysisRule struct {
+	Policy                  map[string]any `json:"policy,omitempty"`
 	CollaborationArn        string         `json:"collaborationArn"`
 	CollaborationIdentifier string         `json:"collaborationIdentifier"`
 	Name                    string         `json:"name"`
 	Type                    string         `json:"type"`
-	Policy                  map[string]any `json:"policy,omitempty"`
 	CreateTime              float64        `json:"createTime,omitempty"`
 	UpdateTime              float64        `json:"updateTime,omitempty"`
 }
 
 type ProtectedQuery struct {
-	Id                   string         `json:"id"`
-	MembershipIdentifier string         `json:"membershipIdentifier"`
-	MembershipArn        string         `json:"membershipArn"`
-	Status               string         `json:"status"`
 	SqlParameters        map[string]any `json:"sqlParameters,omitempty"`
 	ResultConfiguration  map[string]any `json:"resultConfiguration,omitempty"`
 	ComputeConfiguration map[string]any `json:"computeConfiguration,omitempty"`
 	Statistics           map[string]any `json:"statistics,omitempty"`
 	Result               map[string]any `json:"result,omitempty"`
 	Error                map[string]any `json:"error,omitempty"`
+	Id                   string         `json:"id"`
+	MembershipIdentifier string         `json:"membershipIdentifier"`
+	MembershipArn        string         `json:"membershipArn"`
+	Status               string         `json:"status"`
 	CreateTime           float64        `json:"createTime,omitempty"`
 }
 
@@ -270,16 +272,16 @@ type ProtectedQuerySummary struct {
 }
 
 type ProtectedJob struct {
-	Id                   string         `json:"id"`
-	MembershipIdentifier string         `json:"membershipIdentifier"`
-	MembershipArn        string         `json:"membershipArn"`
-	Status               string         `json:"status"`
-	Type                 string         `json:"type"`
 	JobParameters        map[string]any `json:"jobParameters,omitempty"`
 	ResultConfiguration  map[string]any `json:"resultConfiguration,omitempty"`
 	Statistics           map[string]any `json:"statistics,omitempty"`
 	Result               map[string]any `json:"result,omitempty"`
 	Error                map[string]any `json:"error,omitempty"`
+	Id                   string         `json:"id"`
+	MembershipIdentifier string         `json:"membershipIdentifier"`
+	MembershipArn        string         `json:"membershipArn"`
+	Status               string         `json:"status"`
+	Type                 string         `json:"type"`
 	CreateTime           float64        `json:"createTime,omitempty"`
 }
 
@@ -293,6 +295,8 @@ type ProtectedJobSummary struct {
 }
 
 type PrivacyBudgetTemplate struct {
+	Parameters                      map[string]any    `json:"parameters,omitempty"`
+	Tags                            map[string]string `json:"tags,omitempty"`
 	PrivacyBudgetTemplateIdentifier string            `json:"privacyBudgetTemplateIdentifier"`
 	Arn                             string            `json:"arn"`
 	CollaborationArn                string            `json:"collaborationArn"`
@@ -301,10 +305,8 @@ type PrivacyBudgetTemplate struct {
 	MembershipIdentifier            string            `json:"membershipIdentifier"`
 	PrivacyBudgetType               string            `json:"privacyBudgetType"`
 	AutoRefresh                     string            `json:"autoRefresh,omitempty"`
-	Parameters                      map[string]any    `json:"parameters,omitempty"`
 	CreateTime                      float64           `json:"createTime,omitempty"`
 	UpdateTime                      float64           `json:"updateTime,omitempty"`
-	Tags                            map[string]string `json:"tags,omitempty"`
 }
 
 type PrivacyBudgetTemplateSummary struct {
@@ -320,6 +322,7 @@ type PrivacyBudgetTemplateSummary struct {
 }
 
 type PrivacyBudget struct {
+	Budget                          map[string]any `json:"budget,omitempty"`
 	Id                              string         `json:"id"`
 	PrivacyBudgetTemplateArn        string         `json:"privacyBudgetTemplateArn"`
 	PrivacyBudgetTemplateIdentifier string         `json:"privacyBudgetTemplateIdentifier"`
@@ -328,24 +331,23 @@ type PrivacyBudget struct {
 	MembershipArn                   string         `json:"membershipArn"`
 	MembershipIdentifier            string         `json:"membershipIdentifier"`
 	PrivacyBudgetType               string         `json:"privacyBudgetType"`
-	Budget                          map[string]any `json:"budget,omitempty"`
 }
 
 type IdMappingTable struct {
-	IdMappingTableIdentifier string            `json:"idMappingTableIdentifier"`
-	Arn                      string            `json:"arn"`
-	CollaborationArn         string            `json:"collaborationArn"`
+	InputReferenceConfig     map[string]any    `json:"inputReferenceConfig,omitempty"`
+	Tags                     map[string]string `json:"tags,omitempty"`
+	InputReferenceProperties map[string]any    `json:"inputReferenceProperties,omitempty"`
 	CollaborationIdentifier  string            `json:"collaborationIdentifier"`
 	MembershipArn            string            `json:"membershipArn"`
 	MembershipIdentifier     string            `json:"membershipIdentifier"`
 	Name                     string            `json:"name"`
 	Description              string            `json:"description,omitempty"`
-	InputReferenceConfig     map[string]any    `json:"inputReferenceConfig,omitempty"`
-	InputReferenceProperties map[string]any    `json:"inputReferenceProperties,omitempty"`
+	IdMappingTableIdentifier string            `json:"idMappingTableIdentifier"`
+	CollaborationArn         string            `json:"collaborationArn"`
 	KmsKeyArn                string            `json:"kmsKeyArn,omitempty"`
+	Arn                      string            `json:"arn"`
 	CreateTime               float64           `json:"createTime,omitempty"`
 	UpdateTime               float64           `json:"updateTime,omitempty"`
-	Tags                     map[string]string `json:"tags,omitempty"`
 }
 
 type IdMappingTableSummary struct {
@@ -361,20 +363,20 @@ type IdMappingTableSummary struct {
 }
 
 type IdNamespaceAssociation struct {
-	IdNamespaceAssociationIdentifier string            `json:"idNamespaceAssociationIdentifier"`
-	Arn                              string            `json:"arn"`
-	CollaborationArn                 string            `json:"collaborationArn"`
+	InputReferenceConfig             map[string]any    `json:"inputReferenceConfig,omitempty"`
+	Tags                             map[string]string `json:"tags,omitempty"`
+	IdMappingConfig                  map[string]any    `json:"idMappingConfig,omitempty"`
+	InputReferenceProperties         map[string]any    `json:"inputReferenceProperties,omitempty"`
 	CollaborationIdentifier          string            `json:"collaborationIdentifier"`
-	MembershipArn                    string            `json:"membershipArn"`
 	MembershipIdentifier             string            `json:"membershipIdentifier"`
 	Name                             string            `json:"name"`
 	Description                      string            `json:"description,omitempty"`
-	InputReferenceConfig             map[string]any    `json:"inputReferenceConfig,omitempty"`
-	InputReferenceProperties         map[string]any    `json:"inputReferenceProperties,omitempty"`
-	IdMappingConfig                  map[string]any    `json:"idMappingConfig,omitempty"`
+	MembershipArn                    string            `json:"membershipArn"`
+	IdNamespaceAssociationIdentifier string            `json:"idNamespaceAssociationIdentifier"`
+	CollaborationArn                 string            `json:"collaborationArn"`
+	Arn                              string            `json:"arn"`
 	CreateTime                       float64           `json:"createTime,omitempty"`
 	UpdateTime                       float64           `json:"updateTime,omitempty"`
-	Tags                             map[string]string `json:"tags,omitempty"`
 }
 
 type IdNamespaceAssociationSummary struct {
@@ -390,19 +392,19 @@ type IdNamespaceAssociationSummary struct {
 }
 
 type ConfiguredAudienceModelAssociation struct {
-	ConfiguredAudienceModelAssociationIdentifier string            `json:"configuredAudienceModelAssociationIdentifier"`
-	Arn                                          string            `json:"arn"`
+	Tags                                         map[string]string `json:"tags,omitempty"`
+	ConfiguredAudienceModelArn                   string            `json:"configuredAudienceModelArn"`
 	CollaborationArn                             string            `json:"collaborationArn"`
 	CollaborationIdentifier                      string            `json:"collaborationIdentifier"`
 	MembershipArn                                string            `json:"membershipArn"`
 	MembershipIdentifier                         string            `json:"membershipIdentifier"`
-	ConfiguredAudienceModelArn                   string            `json:"configuredAudienceModelArn"`
+	ConfiguredAudienceModelAssociationIdentifier string            `json:"configuredAudienceModelAssociationIdentifier"`
 	Name                                         string            `json:"name"`
 	Description                                  string            `json:"description,omitempty"`
-	ManageResourcePolicies                       bool              `json:"manageResourcePolicies"`
+	Arn                                          string            `json:"arn"`
 	CreateTime                                   float64           `json:"createTime,omitempty"`
 	UpdateTime                                   float64           `json:"updateTime,omitempty"`
-	Tags                                         map[string]string `json:"tags,omitempty"`
+	ManageResourcePolicies                       bool              `json:"manageResourcePolicies"`
 }
 
 type ConfiguredAudienceModelAssociationSummary struct {
@@ -418,12 +420,12 @@ type ConfiguredAudienceModelAssociationSummary struct {
 }
 
 type CollaborationChangeRequest struct {
+	Details                 map[string]any `json:"details,omitempty"`
 	ChangeRequestIdentifier string         `json:"changeRequestIdentifier"`
 	CollaborationIdentifier string         `json:"collaborationIdentifier"`
 	CollaborationArn        string         `json:"collaborationArn"`
 	Status                  string         `json:"status"`
 	Type                    string         `json:"type"`
-	Details                 map[string]any `json:"details,omitempty"`
 	CreateTime              float64        `json:"createTime,omitempty"`
 	UpdateTime              float64        `json:"updateTime,omitempty"`
 }
@@ -432,28 +434,27 @@ type CollaborationChangeRequest struct {
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
-	mu        *lockmetrics.RWMutex
-	accountID string
-	region    string
-
+	protectedQueries        map[string]map[string]*ProtectedQuery
+	protectedJobs           map[string]map[string]*ProtectedJob
+	nowFn                   func() float64
 	collaborations          map[string]*Collaboration
 	memberships             map[string]*Membership
 	configuredTables        map[string]*ConfiguredTable
 	ctAnalysisRules         map[string]map[string]*ConfiguredTableAnalysisRule
 	ctAssociations          map[string]map[string]*ConfiguredTableAssociation
 	ctaAnalysisRules        map[string]map[string]*ConfiguredTableAssociationAnalysisRule
-	analysisTemplates       map[string]map[string]*AnalysisTemplate
-	protectedQueries        map[string]map[string]*ProtectedQuery
-	protectedJobs           map[string]map[string]*ProtectedJob
 	privacyBudgetTemplates  map[string]map[string]*PrivacyBudgetTemplate
+	tagsByArn               map[string]map[string]string
+	mu                      *lockmetrics.RWMutex
+	analysisTemplates       map[string]map[string]*AnalysisTemplate
 	idMappingTables         map[string]map[string]*IdMappingTable
 	idNamespaceAssociations map[string]map[string]*IdNamespaceAssociation
 	camaAssociations        map[string]map[string]*ConfiguredAudienceModelAssociation
 	changeRequests          map[string]map[string]*CollaborationChangeRequest
 	schemas                 map[string]map[string]*Schema
 	schemaAnalysisRules     map[string]map[string]map[string]*SchemaAnalysisRule
-	tagsByArn               map[string]map[string]string
-	nowFn                   func() float64
+	accountID               string
+	region                  string
 	muNow                   sync.Mutex
 }
 
@@ -595,6 +596,7 @@ func listItems[T, S any](
 		result = append(result, convert(t))
 	}
 	sort.Slice(result, func(i, j int) bool { return less(result[i], result[j]) })
+
 	return paginate(result, maxResults, nextToken)
 }
 
@@ -616,6 +618,7 @@ func listNestedItems[T, S any](
 		}
 	}
 	sort.Slice(result, func(i, j int) bool { return less(result[i], result[j]) })
+
 	return paginate(result, maxResults, nextToken)
 }
 
@@ -641,7 +644,8 @@ func paginate[T any](items []T, maxResultsStr, nextToken string) ([]T, string) {
 	if end >= len(items) {
 		return items[start:], ""
 	}
-	return items[start:end], fmt.Sprintf("%d", end)
+
+	return items[start:end], strconv.Itoa(end)
 }
 
 func toAnalysisTemplateSummary(t *AnalysisTemplate) *AnalysisTemplateSummary {
@@ -735,6 +739,7 @@ func toConfiguredAudienceModelAssociationSummary(
 func (b *InMemoryBackend) now() float64 {
 	b.muNow.Lock()
 	defer b.muNow.Unlock()
+
 	return b.nowFn()
 }
 
@@ -791,6 +796,7 @@ func (b *InMemoryBackend) CreateCollaboration(
 	if len(tags) > 0 {
 		b.tagsByArn[collab.Arn] = maps.Clone(tags)
 	}
+
 	return collab, nil
 }
 
@@ -801,6 +807,7 @@ func (b *InMemoryBackend) GetCollaboration(id string) (*Collaboration, error) {
 	if !ok {
 		return nil, ErrNotFound
 	}
+
 	return c, nil
 }
 
@@ -827,6 +834,7 @@ func (b *InMemoryBackend) ListCollaborations(
 		func(i, j int) bool { return items[i].CollaborationIdentifier < items[j].CollaborationIdentifier },
 	)
 	page, next := paginate(items, maxResults, nextToken)
+
 	return page, next
 }
 
@@ -846,6 +854,7 @@ func (b *InMemoryBackend) UpdateCollaboration(
 		c.Description = description
 	}
 	c.UpdateTime = b.now()
+
 	return c, nil
 }
 
@@ -858,6 +867,7 @@ func (b *InMemoryBackend) DeleteCollaboration(id string) error {
 	}
 	delete(b.tagsByArn, c.Arn)
 	delete(b.collaborations, id)
+
 	return nil
 }
 
@@ -874,6 +884,7 @@ func (b *InMemoryBackend) ListMembers(
 	members := make([]*MemberSummary, len(c.Members))
 	copy(members, c.Members)
 	page, next := paginate(members, maxResults, nextToken)
+
 	return page, next, nil
 }
 
@@ -887,9 +898,11 @@ func (b *InMemoryBackend) DeleteMember(collaborationID, accountID string) error 
 	for i, m := range c.Members {
 		if m.AccountID == accountID {
 			c.Members = append(c.Members[:i], c.Members[i+1:]...)
+
 			return nil
 		}
 	}
+
 	return ErrNotFound
 }
 
@@ -931,6 +944,7 @@ func (b *InMemoryBackend) CreateMembership(
 	if len(tags) > 0 {
 		b.tagsByArn[m.Arn] = maps.Clone(tags)
 	}
+
 	return m, nil
 }
 
@@ -941,6 +955,7 @@ func (b *InMemoryBackend) GetMembership(id string) (*Membership, error) {
 	if !ok {
 		return nil, ErrNotFound
 	}
+
 	return m, nil
 }
 
@@ -973,6 +988,7 @@ func (b *InMemoryBackend) ListMemberships(
 		func(i, j int) bool { return items[i].MembershipIdentifier < items[j].MembershipIdentifier },
 	)
 	page, next := paginate(items, maxResults, nextToken)
+
 	return page, next
 }
 
@@ -993,6 +1009,7 @@ func (b *InMemoryBackend) UpdateMembership(
 		m.DefaultResultConfiguration = defaultResultConfiguration
 	}
 	m.UpdateTime = b.now()
+
 	return m, nil
 }
 
@@ -1005,6 +1022,7 @@ func (b *InMemoryBackend) DeleteMembership(id string) error {
 	}
 	delete(b.tagsByArn, m.Arn)
 	delete(b.memberships, id)
+
 	return nil
 }
 
@@ -1040,6 +1058,7 @@ func (b *InMemoryBackend) CreateConfiguredTable(
 	if len(tags) > 0 {
 		b.tagsByArn[ct.Arn] = maps.Clone(tags)
 	}
+
 	return ct, nil
 }
 
@@ -1050,6 +1069,7 @@ func (b *InMemoryBackend) GetConfiguredTable(id string) (*ConfiguredTable, error
 	if !ok {
 		return nil, ErrNotFound
 	}
+
 	return ct, nil
 }
 
@@ -1075,6 +1095,7 @@ func (b *InMemoryBackend) ListConfiguredTables(
 		func(i, j int) bool { return items[i].ConfiguredTableIdentifier < items[j].ConfiguredTableIdentifier },
 	)
 	page, next := paginate(items, maxResults, nextToken)
+
 	return page, next
 }
 
@@ -1094,6 +1115,7 @@ func (b *InMemoryBackend) UpdateConfiguredTable(
 		ct.Description = description
 	}
 	ct.UpdateTime = b.now()
+
 	return ct, nil
 }
 
@@ -1107,6 +1129,7 @@ func (b *InMemoryBackend) DeleteConfiguredTable(id string) error {
 	delete(b.tagsByArn, ct.Arn)
 	delete(b.configuredTables, id)
 	delete(b.ctAnalysisRules, id)
+
 	return nil
 }
 
@@ -1141,6 +1164,7 @@ func (b *InMemoryBackend) CreateConfiguredTableAnalysisRule(
 	if !contains(ct.AnalysisRuleTypes, analysisRuleType) {
 		ct.AnalysisRuleTypes = append(ct.AnalysisRuleTypes, analysisRuleType)
 	}
+
 	return rule, nil
 }
 
@@ -1157,6 +1181,7 @@ func (b *InMemoryBackend) GetConfiguredTableAnalysisRule(
 	if !ok {
 		return nil, ErrNotFound
 	}
+
 	return rule, nil
 }
 
@@ -1176,6 +1201,7 @@ func (b *InMemoryBackend) UpdateConfiguredTableAnalysisRule(
 	}
 	rule.Policy = policy
 	rule.UpdateTime = b.now()
+
 	return rule, nil
 }
 
@@ -1195,6 +1221,7 @@ func (b *InMemoryBackend) DeleteConfiguredTableAnalysisRule(
 	if ct, ok := b.configuredTables[configuredTableID]; ok {
 		ct.AnalysisRuleTypes = removeFrom(ct.AnalysisRuleTypes, analysisRuleType)
 	}
+
 	return nil
 }
 
@@ -1237,6 +1264,7 @@ func (b *InMemoryBackend) CreateConfiguredTableAssociation(
 	if len(tags) > 0 {
 		b.tagsByArn[assoc.Arn] = maps.Clone(tags)
 	}
+
 	return assoc, nil
 }
 
@@ -1253,6 +1281,7 @@ func (b *InMemoryBackend) GetConfiguredTableAssociation(
 	if !ok {
 		return nil, ErrNotFound
 	}
+
 	return assoc, nil
 }
 
@@ -1281,6 +1310,7 @@ func (b *InMemoryBackend) ListConfiguredTableAssociations(
 		return items[i].ConfiguredTableAssociationIdentifier < items[j].ConfiguredTableAssociationIdentifier
 	})
 	page, next := paginate(items, maxResults, nextToken)
+
 	return page, next, nil
 }
 
@@ -1304,6 +1334,7 @@ func (b *InMemoryBackend) UpdateConfiguredTableAssociation(
 		assoc.RoleArn = roleArn
 	}
 	assoc.UpdateTime = b.now()
+
 	return assoc, nil
 }
 
@@ -1321,6 +1352,7 @@ func (b *InMemoryBackend) DeleteConfiguredTableAssociation(membershipID, assocID
 	delete(b.tagsByArn, assoc.Arn)
 	delete(assocs, assocID)
 	delete(b.ctaAnalysisRules, assocID)
+
 	return nil
 }
 
@@ -1362,6 +1394,7 @@ func (b *InMemoryBackend) CreateConfiguredTableAssociationAnalysisRule(
 	if !contains(assoc.AnalysisRuleTypes, ruleType) {
 		assoc.AnalysisRuleTypes = append(assoc.AnalysisRuleTypes, ruleType)
 	}
+
 	return rule, nil
 }
 
@@ -1378,6 +1411,7 @@ func (b *InMemoryBackend) GetConfiguredTableAssociationAnalysisRule(
 	if !ok {
 		return nil, ErrNotFound
 	}
+
 	return rule, nil
 }
 
@@ -1397,6 +1431,7 @@ func (b *InMemoryBackend) UpdateConfiguredTableAssociationAnalysisRule(
 	}
 	rule.Policy = policy
 	rule.UpdateTime = b.now()
+
 	return rule, nil
 }
 
@@ -1418,6 +1453,7 @@ func (b *InMemoryBackend) DeleteConfiguredTableAssociationAnalysisRule(
 			assoc.AnalysisRuleTypes = removeFrom(assoc.AnalysisRuleTypes, ruleType)
 		}
 	}
+
 	return nil
 }
 
@@ -1465,6 +1501,7 @@ func (b *InMemoryBackend) CreateAnalysisTemplate(
 	if len(tags) > 0 {
 		b.tagsByArn[tmpl.Arn] = maps.Clone(tags)
 	}
+
 	return tmpl, nil
 }
 
@@ -1481,6 +1518,7 @@ func (b *InMemoryBackend) GetAnalysisTemplate(
 	if !ok {
 		return nil, ErrNotFound
 	}
+
 	return tmpl, nil
 }
 
@@ -1501,6 +1539,7 @@ func (b *InMemoryBackend) ListAnalysisTemplates(
 		},
 		maxResults, nextToken,
 	)
+
 	return page, next, nil
 }
 
@@ -1519,6 +1558,7 @@ func (b *InMemoryBackend) UpdateAnalysisTemplate(
 	}
 	tmpl.Description = description
 	tmpl.UpdateTime = b.now()
+
 	return tmpl, nil
 }
 
@@ -1535,6 +1575,7 @@ func (b *InMemoryBackend) DeleteAnalysisTemplate(membershipID, templateID string
 	}
 	delete(b.tagsByArn, tmpl.Arn)
 	delete(tmpls, templateID)
+
 	return nil
 }
 
@@ -1550,6 +1591,7 @@ func (b *InMemoryBackend) GetCollaborationAnalysisTemplate(
 			}
 		}
 	}
+
 	return nil, ErrNotFound
 }
 
@@ -1570,6 +1612,7 @@ func (b *InMemoryBackend) ListCollaborationAnalysisTemplates(
 		},
 		maxResults, nextToken,
 	)
+
 	return page, next, nil
 }
 
@@ -1591,6 +1634,7 @@ func (b *InMemoryBackend) BatchGetCollaborationAnalysisTemplate(
 				if t.CollaborationIdentifier == collaborationID && t.Arn == arnStr {
 					results = append(results, t)
 					found = true
+
 					break
 				}
 			}
@@ -1605,6 +1649,7 @@ func (b *InMemoryBackend) BatchGetCollaborationAnalysisTemplate(
 			)
 		}
 	}
+
 	return results, errors, nil
 }
 
@@ -1621,6 +1666,7 @@ func (b *InMemoryBackend) GetSchema(collaborationID, name string) (*Schema, erro
 	if !ok {
 		return nil, ErrNotFound
 	}
+
 	return s, nil
 }
 
@@ -1639,6 +1685,7 @@ func (b *InMemoryBackend) ListSchemas(
 		func(a, c *SchemaSummary) bool { return a.Name < c.Name },
 		maxResults, nextToken,
 	)
+
 	return page, next, nil
 }
 
@@ -1661,6 +1708,7 @@ func (b *InMemoryBackend) BatchGetSchema(
 			errors = append(errors, BatchError{Name: name, Code: errCodeNotFound, Message: errMsgNotFound})
 		}
 	}
+
 	return results, errors, nil
 }
 
@@ -1681,6 +1729,7 @@ func (b *InMemoryBackend) GetSchemaAnalysisRule(
 	if !ok {
 		return nil, ErrNotFound
 	}
+
 	return rule, nil
 }
 
@@ -1702,6 +1751,7 @@ func (b *InMemoryBackend) BatchGetSchemaAnalysisRule(
 			if schemaRules, ok := collabRules[name]; ok {
 				if rule, ok := schemaRules[ruleType]; ok {
 					results = append(results, rule)
+
 					continue
 				}
 			}
@@ -1711,6 +1761,7 @@ func (b *InMemoryBackend) BatchGetSchemaAnalysisRule(
 			BatchError{Name: name, Code: errCodeNotFound, Message: errMsgNotFound},
 		)
 	}
+
 	return results, errors, nil
 }
 
@@ -1747,6 +1798,7 @@ func (b *InMemoryBackend) StartProtectedQuery(
 		CreateTime:           ts,
 	}
 	b.protectedQueries[membershipID][id] = q
+
 	return q, nil
 }
 
@@ -1761,6 +1813,7 @@ func (b *InMemoryBackend) GetProtectedQuery(membershipID, queryID string) (*Prot
 	if !ok {
 		return nil, ErrNotFound
 	}
+
 	return q, nil
 }
 
@@ -1787,6 +1840,7 @@ func (b *InMemoryBackend) ListProtectedQueries(
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].Id < items[j].Id })
 	page, next := paginate(items, maxResults, nextToken)
+
 	return page, next, nil
 }
 
@@ -1804,6 +1858,7 @@ func (b *InMemoryBackend) UpdateProtectedQuery(
 		return nil, ErrNotFound
 	}
 	q.Status = status
+
 	return q, nil
 }
 
@@ -1835,6 +1890,7 @@ func (b *InMemoryBackend) StartProtectedJob(
 		CreateTime:           b.now(),
 	}
 	b.protectedJobs[membershipID][id] = j
+
 	return j, nil
 }
 
@@ -1849,6 +1905,7 @@ func (b *InMemoryBackend) GetProtectedJob(membershipID, jobID string) (*Protecte
 	if !ok {
 		return nil, ErrNotFound
 	}
+
 	return j, nil
 }
 
@@ -1876,6 +1933,7 @@ func (b *InMemoryBackend) ListProtectedJobs(
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].Id < items[j].Id })
 	page, next := paginate(items, maxResults, nextToken)
+
 	return page, next, nil
 }
 
@@ -1893,6 +1951,7 @@ func (b *InMemoryBackend) UpdateProtectedJob(
 		return nil, ErrNotFound
 	}
 	j.Status = status
+
 	return j, nil
 }
 
@@ -1937,6 +1996,7 @@ func (b *InMemoryBackend) CreatePrivacyBudgetTemplate(
 	if len(tags) > 0 {
 		b.tagsByArn[tmpl.Arn] = maps.Clone(tags)
 	}
+
 	return tmpl, nil
 }
 
@@ -1953,6 +2013,7 @@ func (b *InMemoryBackend) GetPrivacyBudgetTemplate(
 	if !ok {
 		return nil, ErrNotFound
 	}
+
 	return tmpl, nil
 }
 
@@ -1975,6 +2036,7 @@ func (b *InMemoryBackend) ListPrivacyBudgetTemplates(
 		},
 		maxResults, nextToken,
 	)
+
 	return page, next, nil
 }
 
@@ -1999,6 +2061,7 @@ func (b *InMemoryBackend) UpdatePrivacyBudgetTemplate(
 		tmpl.Parameters = parameters
 	}
 	tmpl.UpdateTime = b.now()
+
 	return tmpl, nil
 }
 
@@ -2015,6 +2078,7 @@ func (b *InMemoryBackend) DeletePrivacyBudgetTemplate(membershipID, templateID s
 	}
 	delete(b.tagsByArn, tmpl.Arn)
 	delete(tmpls, templateID)
+
 	return nil
 }
 
@@ -2026,6 +2090,7 @@ func (b *InMemoryBackend) ListPrivacyBudgets(
 	if _, ok := b.memberships[membershipID]; !ok {
 		return nil, "", ErrNotFound
 	}
+
 	return []*PrivacyBudget{}, "", nil
 }
 
@@ -2037,6 +2102,7 @@ func (b *InMemoryBackend) ListCollaborationPrivacyBudgets(
 	if _, ok := b.collaborations[collaborationID]; !ok {
 		return nil, "", ErrNotFound
 	}
+
 	return []*PrivacyBudget{}, "", nil
 }
 
@@ -2053,6 +2119,7 @@ func (b *InMemoryBackend) GetCollaborationPrivacyBudgetTemplate(
 			}
 		}
 	}
+
 	return nil, ErrNotFound
 }
 
@@ -2073,6 +2140,7 @@ func (b *InMemoryBackend) ListCollaborationPrivacyBudgetTemplates(
 		},
 		maxResults, nextToken,
 	)
+
 	return page, next, nil
 }
 
@@ -2085,6 +2153,7 @@ func (b *InMemoryBackend) PreviewPrivacyImpact(
 	if _, ok := b.memberships[membershipID]; !ok {
 		return nil, ErrNotFound
 	}
+
 	return map[string]any{"privacyImpact": map[string]any{"aggregationCount": []any{}}}, nil
 }
 
@@ -2134,6 +2203,7 @@ func (b *InMemoryBackend) CreateIdMappingTable(
 	if len(tags) > 0 {
 		b.tagsByArn[t.Arn] = maps.Clone(tags)
 	}
+
 	return t, nil
 }
 
@@ -2148,6 +2218,7 @@ func (b *InMemoryBackend) GetIdMappingTable(membershipID, tableID string) (*IdMa
 	if !ok {
 		return nil, ErrNotFound
 	}
+
 	return t, nil
 }
 
@@ -2168,6 +2239,7 @@ func (b *InMemoryBackend) ListIdMappingTables(
 		},
 		maxResults, nextToken,
 	)
+
 	return page, next, nil
 }
 
@@ -2191,6 +2263,7 @@ func (b *InMemoryBackend) UpdateIdMappingTable(
 		t.KmsKeyArn = kmsKeyArn
 	}
 	t.UpdateTime = b.now()
+
 	return t, nil
 }
 
@@ -2207,6 +2280,7 @@ func (b *InMemoryBackend) DeleteIdMappingTable(membershipID, tableID string) err
 	}
 	delete(b.tagsByArn, t.Arn)
 	delete(tables, tableID)
+
 	return nil
 }
 
@@ -2221,6 +2295,7 @@ func (b *InMemoryBackend) PopulateIdMappingTable(
 	if _, ok := b.idMappingTables[membershipID][tableID]; !ok {
 		return nil, ErrNotFound
 	}
+
 	return map[string]any{"mappedJobIdentifier": uuid.NewString()}, nil
 }
 
@@ -2267,6 +2342,7 @@ func (b *InMemoryBackend) CreateIdNamespaceAssociation(
 	if len(tags) > 0 {
 		b.tagsByArn[assoc.Arn] = maps.Clone(tags)
 	}
+
 	return assoc, nil
 }
 
@@ -2283,6 +2359,7 @@ func (b *InMemoryBackend) GetIdNamespaceAssociation(
 	if !ok {
 		return nil, ErrNotFound
 	}
+
 	return assoc, nil
 }
 
@@ -2303,6 +2380,7 @@ func (b *InMemoryBackend) ListIdNamespaceAssociations(
 		},
 		maxResults, nextToken,
 	)
+
 	return page, next, nil
 }
 
@@ -2327,6 +2405,7 @@ func (b *InMemoryBackend) UpdateIdNamespaceAssociation(
 		assoc.IdMappingConfig = idMappingConfig
 	}
 	assoc.UpdateTime = b.now()
+
 	return assoc, nil
 }
 
@@ -2343,6 +2422,7 @@ func (b *InMemoryBackend) DeleteIdNamespaceAssociation(membershipID, assocID str
 	}
 	delete(b.tagsByArn, assoc.Arn)
 	delete(assocs, assocID)
+
 	return nil
 }
 
@@ -2359,6 +2439,7 @@ func (b *InMemoryBackend) GetCollaborationIdNamespaceAssociation(
 			}
 		}
 	}
+
 	return nil, ErrNotFound
 }
 
@@ -2380,6 +2461,7 @@ func (b *InMemoryBackend) ListCollaborationIdNamespaceAssociations(
 		maxResults,
 		nextToken,
 	)
+
 	return page, next, nil
 }
 
@@ -2428,6 +2510,7 @@ func (b *InMemoryBackend) CreateConfiguredAudienceModelAssociation(
 	if len(tags) > 0 {
 		b.tagsByArn[assoc.Arn] = maps.Clone(tags)
 	}
+
 	return assoc, nil
 }
 
@@ -2444,6 +2527,7 @@ func (b *InMemoryBackend) GetConfiguredAudienceModelAssociation(
 	if !ok {
 		return nil, ErrNotFound
 	}
+
 	return assoc, nil
 }
 
@@ -2464,6 +2548,7 @@ func (b *InMemoryBackend) ListConfiguredAudienceModelAssociations(
 		},
 		maxResults, nextToken,
 	)
+
 	return page, next, nil
 }
 
@@ -2487,6 +2572,7 @@ func (b *InMemoryBackend) UpdateConfiguredAudienceModelAssociation(
 		assoc.Description = description
 	}
 	assoc.UpdateTime = b.now()
+
 	return assoc, nil
 }
 
@@ -2505,6 +2591,7 @@ func (b *InMemoryBackend) DeleteConfiguredAudienceModelAssociation(
 	}
 	delete(b.tagsByArn, assoc.Arn)
 	delete(assocs, assocID)
+
 	return nil
 }
 
@@ -2521,6 +2608,7 @@ func (b *InMemoryBackend) GetCollaborationConfiguredAudienceModelAssociation(
 			}
 		}
 	}
+
 	return nil, ErrNotFound
 }
 
@@ -2543,6 +2631,7 @@ func (b *InMemoryBackend) ListCollaborationConfiguredAudienceModelAssociations(
 		},
 		maxResults, nextToken,
 	)
+
 	return page, next, nil
 }
 
@@ -2574,6 +2663,7 @@ func (b *InMemoryBackend) CreateCollaborationChangeRequest(
 		UpdateTime:              ts,
 	}
 	b.changeRequests[collaborationID][id] = req
+
 	return req, nil
 }
 
@@ -2590,6 +2680,7 @@ func (b *InMemoryBackend) GetCollaborationChangeRequest(
 	if !ok {
 		return nil, ErrNotFound
 	}
+
 	return req, nil
 }
 
@@ -2610,6 +2701,7 @@ func (b *InMemoryBackend) ListCollaborationChangeRequests(
 		func(i, j int) bool { return items[i].ChangeRequestIdentifier < items[j].ChangeRequestIdentifier },
 	)
 	page, next := paginate(items, maxResults, nextToken)
+
 	return page, next, nil
 }
 
@@ -2628,6 +2720,7 @@ func (b *InMemoryBackend) UpdateCollaborationChangeRequest(
 	}
 	req.Status = status
 	req.UpdateTime = b.now()
+
 	return req, nil
 }
 
@@ -2639,6 +2732,7 @@ func (b *InMemoryBackend) ListTagsForResource(resourceArn string) (map[string]st
 	if tags, ok := b.tagsByArn[resourceArn]; ok {
 		return maps.Clone(tags), nil
 	}
+
 	return map[string]string{}, nil
 }
 
@@ -2648,9 +2742,8 @@ func (b *InMemoryBackend) TagResource(resourceArn string, tags map[string]string
 	if b.tagsByArn[resourceArn] == nil {
 		b.tagsByArn[resourceArn] = make(map[string]string)
 	}
-	for k, v := range tags {
-		b.tagsByArn[resourceArn][k] = v
-	}
+	maps.Copy(b.tagsByArn[resourceArn], tags)
+
 	return nil
 }
 
@@ -2661,18 +2754,15 @@ func (b *InMemoryBackend) UntagResource(resourceArn string, tagKeys []string) er
 	for _, k := range tagKeys {
 		delete(tags, k)
 	}
+
 	return nil
 }
 
 // ---- helpers ----
 
 func contains(ss []string, s string) bool {
-	for _, v := range ss {
-		if v == s {
-			return true
-		}
-	}
-	return false
+
+	return slices.Contains(ss, s)
 }
 
 func removeFrom(ss []string, s string) []string {
@@ -2682,5 +2772,6 @@ func removeFrom(ss []string, s string) []string {
 			out = append(out, v)
 		}
 	}
+
 	return out
 }
