@@ -1938,7 +1938,7 @@ func (b *InMemoryBackend) CreateHybridAD(
 		return nil, "", ErrInvalidParameter
 	}
 
-	d := b.newStoredDirectory(name, shortName, description, DirectoryTypeMicrosoftAD, "", edition, tags)
+	d := b.newStoredDirectory(name, shortName, description, DirectoryTypeMicrosoftAD, "", edition, nil, tags)
 	b.directories[d.DirectoryID] = d
 	b.aliases[d.Alias] = d.DirectoryID
 
@@ -2170,7 +2170,7 @@ func (b *InMemoryBackend) ConnectDirectory(
 		return nil, ErrInvalidParameter
 	}
 
-	d := b.newStoredDirectory(name, shortName, description, DirectoryTypeADConnector, size, "", tags)
+	d := b.newStoredDirectory(name, shortName, description, DirectoryTypeADConnector, size, "", nil, tags)
 	b.directories[d.DirectoryID] = d
 	b.aliases[d.Alias] = d.DirectoryID
 
