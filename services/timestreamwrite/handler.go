@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"regexp"
 	"sort"
@@ -394,6 +395,10 @@ func (h *Handler) ExtractResource(_ *echo.Context) string { return "" }
 // Handler returns the Echo handler function.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if service.IsCBORRequest(c.Request()) {
+			return h.handleCBOR(c)
+		}
+
 		return service.HandleTarget(
 			c, logger.Load(c.Request().Context()),
 			"TimestreamWrite", "application/x-amz-json-1.1",
@@ -402,6 +407,69 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			h.handleError,
 		)
 	}
+}
+
+func (h *Handler) handleCBOR(c *echo.Context) error {
+	ctx := c.Request().Context()
+	log := logger.Load(ctx)
+
+	if c.Request().Method != http.MethodPost {
+		return c.String(http.StatusMethodNotAllowed, "Method not allowed")
+	}
+
+	const targetParts = 2
+
+	target := c.Request().Header.Get("X-Amz-Target")
+	parts := strings.SplitN(target, ".", targetParts)
+	if len(parts) != targetParts || parts[1] == "" {
+		return c.String(http.StatusBadRequest, "Missing or invalid X-Amz-Target")
+	}
+	action := parts[1]
+
+	raw, err := readBodyBytes(c)
+	if err != nil {
+		log.ErrorContext(ctx, "failed to read CBOR body", "error", err)
+
+		return c.String(http.StatusInternalServerError, "internal server error")
+	}
+
+	jsonBody, err := service.CBORToJSON(raw)
+	if err != nil {
+		log.ErrorContext(ctx, "failed to decode CBOR body", "error", err)
+
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			keyTypeField:    "SerializationException",
+			keyMessageField: "invalid CBOR body: " + err.Error(),
+		})
+	}
+
+	log.DebugContext(ctx, "TimestreamWrite CBOR request", "action", action)
+
+	jsonResp, reqErr := h.dispatch(ctx, action, jsonBody)
+	if reqErr != nil {
+		return h.handleError(ctx, c, action, reqErr)
+	}
+
+	cborPayload, err := service.JSONToCBOR(jsonResp, nil)
+	if err != nil {
+		log.ErrorContext(ctx, "failed to encode CBOR response", "error", err)
+
+		return c.String(http.StatusInternalServerError, "internal server error")
+	}
+
+	return c.Blob(http.StatusOK, service.ContentTypeCBOR, cborPayload)
+}
+
+func readBodyBytes(c *echo.Context) ([]byte, error) {
+	r := c.Request()
+	if r.Body == nil {
+		return nil, nil
+	}
+	defer r.Body.Close()
+
+	const maxBody = 10 << 20 // 10 MiB
+
+	return io.ReadAll(io.LimitReader(r.Body, maxBody))
 }
 
 func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
