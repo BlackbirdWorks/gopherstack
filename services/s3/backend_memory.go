@@ -20,6 +20,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -117,6 +118,9 @@ type InMemoryBackend struct {
 	compressor          Compressor
 	defaultRegion       string
 	compressionMinBytes int
+	// replicationWg tracks all in-flight replication goroutines.
+	// DrainReplicationGoroutines blocks until they all finish.
+	replicationWg sync.WaitGroup
 	// skipMultipartSizeCheck disables the 5 MiB minimum part size check during
 	// CompleteMultipartUpload. This is intended for use in unit tests only.
 	skipMultipartSizeCheck bool
@@ -128,6 +132,13 @@ func (b *InMemoryBackend) WithSkipMultipartSizeCheck() *InMemoryBackend {
 	b.skipMultipartSizeCheck = true
 
 	return b
+}
+
+// DrainReplicationGoroutines blocks until all in-flight replication goroutines
+// complete. Use in tests to establish a happens-before boundary between
+// operations that spawn replication goroutines and subsequent state assertions.
+func (b *InMemoryBackend) DrainReplicationGoroutines() {
+	b.replicationWg.Wait()
 }
 
 func NewInMemoryBackend(compressor Compressor) *InMemoryBackend {
@@ -465,7 +476,11 @@ func (b *InMemoryBackend) PutObject(
 		"versionId", newVersionID)
 
 	// Async replication to configured destination buckets.
-	go b.triggerReplication(ctx, bucketName, key, finalQuotedETag)
+	b.replicationWg.Add(1)
+	go func() {
+		defer b.replicationWg.Done()
+		b.triggerReplication(ctx, bucketName, key, finalQuotedETag)
+	}()
 
 	return &s3.PutObjectOutput{
 		ETag:              aws.String(finalQuotedETag),
@@ -848,7 +863,11 @@ func (b *InMemoryBackend) DeleteObject(
 
 	// Async delete-marker replication when versioning created a delete marker.
 	if out.DeleteMarker != nil && aws.ToBool(out.DeleteMarker) {
-		go b.triggerDeleteMarkerReplication(ctx, bucketName, *input.Key)
+		b.replicationWg.Add(1)
+		go func() {
+			defer b.replicationWg.Done()
+			b.triggerDeleteMarkerReplication(ctx, bucketName, *input.Key)
+		}()
 	}
 
 	return out, nil
