@@ -107,39 +107,8 @@ func (b *InMemoryBackend) ListDeviceFleets(ctx context.Context, nextToken string
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.deviceFleetsStore(region)
 
-	keys := make([]string, 0, len(store))
-	for k := range store {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
-
-	start := 0
-	if nextToken != "" {
-		for i, k := range keys {
-			if k == nextToken {
-				start = i
-
-				break
-			}
-		}
-	}
-
-	end := min(start+sagemakerDefaultPageSize, len(keys))
-
-	out := make([]*DeviceFleet, 0, end-start)
-	for _, k := range keys[start:end] {
-		out = append(out, cloneDeviceFleet(store[k]))
-	}
-
-	next := ""
-	if end < len(keys) {
-		next = keys[end]
-	}
-
-	return out, next
+	return sagemakerListKeyPaged(b.deviceFleetsStore(region), nextToken, cloneDeviceFleet)
 }
 
 // UpdateDeviceFleet updates a device fleet's description or role ARN.
@@ -594,43 +563,33 @@ func (b *InMemoryBackend) CreateClusterSchedulerConfig(
 	ctx context.Context,
 	opts CreateClusterSchedulerConfigOptions,
 ) (*ClusterSchedulerConfig, error) {
-	b.mu.Lock("CreateClusterSchedulerConfig")
-	defer b.mu.Unlock()
-
-	region := getRegion(ctx, b.region)
-
 	if opts.ClusterSchedulerConfigName == "" {
 		return nil, fmt.Errorf("%w: ClusterSchedulerConfigName is required", ErrValidation)
 	}
 
-	if _, ok := b.clusterSchedulerConfigsStore(region)[opts.ClusterSchedulerConfigName]; ok {
-		return nil, fmt.Errorf(
-			"%w: cluster scheduler config %q already exists",
-			ErrClusterSchedulerConfigAlreadyExists,
-			opts.ClusterSchedulerConfigName,
-		)
-	}
-
-	configARN := arn.Build(
-		"sagemaker",
-		region,
-		b.accountID,
-		"cluster-scheduler-config/"+opts.ClusterSchedulerConfigName,
+	return sagemakerCreate(ctx, b,
+		"CreateClusterSchedulerConfig", opts.ClusterSchedulerConfigName, "cluster-scheduler-config",
+		b.clusterSchedulerConfigsStore,
+		func(n string) error {
+			return fmt.Errorf(
+				"%w: cluster scheduler config %q already exists",
+				ErrClusterSchedulerConfigAlreadyExists,
+				n,
+			)
+		},
+		func(arnStr string, now time.Time) *ClusterSchedulerConfig {
+			return &ClusterSchedulerConfig{
+				ClusterSchedulerConfigName: opts.ClusterSchedulerConfigName,
+				ClusterSchedulerConfigArn:  arnStr,
+				ClusterArn:                 opts.ClusterArn,
+				Status:                     statusCreating,
+				Tags:                       mergeTags(nil, opts.Tags),
+				CreationTime:               now,
+				LastModifiedTime:           now,
+			}
+		},
+		cloneClusterSchedulerConfig,
 	)
-	now := time.Now()
-
-	c := &ClusterSchedulerConfig{
-		ClusterSchedulerConfigName: opts.ClusterSchedulerConfigName,
-		ClusterSchedulerConfigArn:  configARN,
-		ClusterArn:                 opts.ClusterArn,
-		Status:                     statusCreating,
-		Tags:                       mergeTags(nil, opts.Tags),
-		CreationTime:               now,
-		LastModifiedTime:           now,
-	}
-	b.clusterSchedulerConfigsStore(region)[opts.ClusterSchedulerConfigName] = c
-
-	return cloneClusterSchedulerConfig(c), nil
 }
 
 // DescribeClusterSchedulerConfig returns a cluster scheduler config by name.
@@ -660,39 +619,8 @@ func (b *InMemoryBackend) ListClusterSchedulerConfigs(
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.clusterSchedulerConfigsStore(region)
 
-	keys := make([]string, 0, len(store))
-	for k := range store {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
-
-	start := 0
-	if nextToken != "" {
-		for i, k := range keys {
-			if k == nextToken {
-				start = i
-
-				break
-			}
-		}
-	}
-
-	end := min(start+sagemakerDefaultPageSize, len(keys))
-
-	out := make([]*ClusterSchedulerConfig, 0, end-start)
-	for _, k := range keys[start:end] {
-		out = append(out, cloneClusterSchedulerConfig(store[k]))
-	}
-
-	next := ""
-	if end < len(keys) {
-		next = keys[end]
-	}
-
-	return out, next
+	return sagemakerListKeyPaged(b.clusterSchedulerConfigsStore(region), nextToken, cloneClusterSchedulerConfig)
 }
 
 // UpdateClusterSchedulerConfig updates a cluster scheduler config's cluster ARN.
@@ -774,38 +702,29 @@ func (b *InMemoryBackend) CreateComputeQuota(
 	ctx context.Context,
 	opts CreateComputeQuotaOptions,
 ) (*ComputeQuota, error) {
-	b.mu.Lock("CreateComputeQuota")
-	defer b.mu.Unlock()
-
-	region := getRegion(ctx, b.region)
-
 	if opts.ComputeQuotaName == "" {
 		return nil, fmt.Errorf("%w: ComputeQuotaName is required", ErrValidation)
 	}
 
-	if _, ok := b.computeQuotasStore(region)[opts.ComputeQuotaName]; ok {
-		return nil, fmt.Errorf(
-			"%w: compute quota %q already exists",
-			ErrComputeQuotaAlreadyExists,
-			opts.ComputeQuotaName,
-		)
-	}
-
-	quotaARN := arn.Build("sagemaker", region, b.accountID, "compute-quota/"+opts.ComputeQuotaName)
-	now := time.Now()
-
-	q := &ComputeQuota{
-		ComputeQuotaName: opts.ComputeQuotaName,
-		ComputeQuotaArn:  quotaARN,
-		ClusterArn:       opts.ClusterArn,
-		Status:           statusCreated,
-		Tags:             mergeTags(nil, opts.Tags),
-		CreationTime:     now,
-		LastModifiedTime: now,
-	}
-	b.computeQuotasStore(region)[opts.ComputeQuotaName] = q
-
-	return cloneComputeQuota(q), nil
+	return sagemakerCreate(ctx, b,
+		"CreateComputeQuota", opts.ComputeQuotaName, "compute-quota",
+		b.computeQuotasStore,
+		func(n string) error {
+			return fmt.Errorf("%w: compute quota %q already exists", ErrComputeQuotaAlreadyExists, n)
+		},
+		func(arnStr string, now time.Time) *ComputeQuota {
+			return &ComputeQuota{
+				ComputeQuotaName: opts.ComputeQuotaName,
+				ComputeQuotaArn:  arnStr,
+				ClusterArn:       opts.ClusterArn,
+				Status:           statusCreated,
+				Tags:             mergeTags(nil, opts.Tags),
+				CreationTime:     now,
+				LastModifiedTime: now,
+			}
+		},
+		cloneComputeQuota,
+	)
 }
 
 // DescribeComputeQuota returns a compute quota by name.
@@ -829,39 +748,8 @@ func (b *InMemoryBackend) ListComputeQuotas(ctx context.Context, nextToken strin
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.computeQuotasStore(region)
 
-	keys := make([]string, 0, len(store))
-	for k := range store {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
-
-	start := 0
-	if nextToken != "" {
-		for i, k := range keys {
-			if k == nextToken {
-				start = i
-
-				break
-			}
-		}
-	}
-
-	end := min(start+sagemakerDefaultPageSize, len(keys))
-
-	out := make([]*ComputeQuota, 0, end-start)
-	for _, k := range keys[start:end] {
-		out = append(out, cloneComputeQuota(store[k]))
-	}
-
-	next := ""
-	if end < len(keys) {
-		next = keys[end]
-	}
-
-	return out, next
+	return sagemakerListKeyPaged(b.computeQuotasStore(region), nextToken, cloneComputeQuota)
 }
 
 // UpdateComputeQuota updates a compute quota's cluster ARN.

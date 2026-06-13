@@ -325,39 +325,12 @@ func (b *InMemoryBackend) ListInferenceRecommendationsJobs(
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.inferenceRecommendationsJobsStore(region)
 
-	keys := make([]string, 0, len(store))
-	for k := range store {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
-
-	start := 0
-	if nextToken != "" {
-		for i, k := range keys {
-			if k == nextToken {
-				start = i
-
-				break
-			}
-		}
-	}
-
-	end := min(start+sagemakerDefaultPageSize, len(keys))
-
-	out := make([]*InferenceRecommendationsJob, 0, end-start)
-	for _, k := range keys[start:end] {
-		out = append(out, cloneInferenceRecommendationsJob(store[k]))
-	}
-
-	next := ""
-	if end < len(keys) {
-		next = keys[end]
-	}
-
-	return out, next
+	return sagemakerListKeyPaged(
+		b.inferenceRecommendationsJobsStore(region),
+		nextToken,
+		cloneInferenceRecommendationsJob,
+	)
 }
 
 // ---------------------------------------------------------------------------
@@ -474,39 +447,8 @@ func (b *InMemoryBackend) ListMlflowTrackingServers(
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.mlflowTrackingServersStore(region)
 
-	keys := make([]string, 0, len(store))
-	for k := range store {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
-
-	start := 0
-	if nextToken != "" {
-		for i, k := range keys {
-			if k == nextToken {
-				start = i
-
-				break
-			}
-		}
-	}
-
-	end := min(start+sagemakerDefaultPageSize, len(keys))
-
-	out := make([]*MlflowTrackingServer, 0, end-start)
-	for _, k := range keys[start:end] {
-		out = append(out, cloneMlflowTrackingServer(store[k]))
-	}
-
-	next := ""
-	if end < len(keys) {
-		next = keys[end]
-	}
-
-	return out, next
+	return sagemakerListKeyPaged(b.mlflowTrackingServersStore(region), nextToken, cloneMlflowTrackingServer)
 }
 
 // ListModelCards returns all model cards.
@@ -515,39 +457,8 @@ func (b *InMemoryBackend) ListModelCards(ctx context.Context, nextToken string) 
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.modelCardsStore(region)
 
-	keys := make([]string, 0, len(store))
-	for k := range store {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
-
-	start := 0
-	if nextToken != "" {
-		for i, k := range keys {
-			if k == nextToken {
-				start = i
-
-				break
-			}
-		}
-	}
-
-	end := min(start+sagemakerDefaultPageSize, len(keys))
-
-	out := make([]*ModelCard, 0, end-start)
-	for _, k := range keys[start:end] {
-		out = append(out, cloneModelCard(store[k]))
-	}
-
-	next := ""
-	if end < len(keys) {
-		next = keys[end]
-	}
-
-	return out, next
+	return sagemakerListKeyPaged(b.modelCardsStore(region), nextToken, cloneModelCard)
 }
 
 // ListOptimizationJobs returns all optimization jobs.
@@ -556,39 +467,8 @@ func (b *InMemoryBackend) ListOptimizationJobs(ctx context.Context, nextToken st
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.optimizationJobsStore(region)
 
-	keys := make([]string, 0, len(store))
-	for k := range store {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
-
-	start := 0
-	if nextToken != "" {
-		for i, k := range keys {
-			if k == nextToken {
-				start = i
-
-				break
-			}
-		}
-	}
-
-	end := min(start+sagemakerDefaultPageSize, len(keys))
-
-	out := make([]*OptimizationJob, 0, end-start)
-	for _, k := range keys[start:end] {
-		out = append(out, cloneOptimizationJob(store[k]))
-	}
-
-	next := ""
-	if end < len(keys) {
-		next = keys[end]
-	}
-
-	return out, next
+	return sagemakerListKeyPaged(b.optimizationJobsStore(region), nextToken, cloneOptimizationJob)
 }
 
 // ListStudioLifecycleConfigs returns all Studio lifecycle configs.
@@ -600,39 +480,8 @@ func (b *InMemoryBackend) ListStudioLifecycleConfigs(
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.studioLifecycleConfigsStore(region)
 
-	keys := make([]string, 0, len(store))
-	for k := range store {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
-
-	start := 0
-	if nextToken != "" {
-		for i, k := range keys {
-			if k == nextToken {
-				start = i
-
-				break
-			}
-		}
-	}
-
-	end := min(start+sagemakerDefaultPageSize, len(keys))
-
-	out := make([]*StudioLifecycleConfig, 0, end-start)
-	for _, k := range keys[start:end] {
-		out = append(out, cloneStudioLifecycleConfig(store[k]))
-	}
-
-	next := ""
-	if end < len(keys) {
-		next = keys[end]
-	}
-
-	return out, next
+	return sagemakerListKeyPaged(b.studioLifecycleConfigsStore(region), nextToken, cloneStudioLifecycleConfig)
 }
 
 // ListInferenceExperiments returns all inference experiments.
@@ -644,39 +493,8 @@ func (b *InMemoryBackend) ListInferenceExperiments(
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.inferenceExperimentsStore(region)
 
-	keys := make([]string, 0, len(store))
-	for k := range store {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
-
-	start := 0
-	if nextToken != "" {
-		for i, k := range keys {
-			if k == nextToken {
-				start = i
-
-				break
-			}
-		}
-	}
-
-	end := min(start+sagemakerDefaultPageSize, len(keys))
-
-	out := make([]*InferenceExperiment, 0, end-start)
-	for _, k := range keys[start:end] {
-		out = append(out, cloneInferenceExperiment(store[k]))
-	}
-
-	next := ""
-	if end < len(keys) {
-		next = keys[end]
-	}
-
-	return out, next
+	return sagemakerListKeyPaged(b.inferenceExperimentsStore(region), nextToken, cloneInferenceExperiment)
 }
 
 // ListFlowDefinitions returns all flow definitions.
@@ -685,39 +503,8 @@ func (b *InMemoryBackend) ListFlowDefinitions(ctx context.Context, nextToken str
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.flowDefinitionsStore(region)
 
-	keys := make([]string, 0, len(store))
-	for k := range store {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
-
-	start := 0
-	if nextToken != "" {
-		for i, k := range keys {
-			if k == nextToken {
-				start = i
-
-				break
-			}
-		}
-	}
-
-	end := min(start+sagemakerDefaultPageSize, len(keys))
-
-	out := make([]*FlowDefinition, 0, end-start)
-	for _, k := range keys[start:end] {
-		out = append(out, cloneFlowDefinition(store[k]))
-	}
-
-	next := ""
-	if end < len(keys) {
-		next = keys[end]
-	}
-
-	return out, next
+	return sagemakerListKeyPaged(b.flowDefinitionsStore(region), nextToken, cloneFlowDefinition)
 }
 
 // ListHumanTaskUIs returns all human task UIs.
@@ -726,39 +513,8 @@ func (b *InMemoryBackend) ListHumanTaskUIs(ctx context.Context, nextToken string
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.humanTaskUisStore(region)
 
-	keys := make([]string, 0, len(store))
-	for k := range store {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
-
-	start := 0
-	if nextToken != "" {
-		for i, k := range keys {
-			if k == nextToken {
-				start = i
-
-				break
-			}
-		}
-	}
-
-	end := min(start+sagemakerDefaultPageSize, len(keys))
-
-	out := make([]*HumanTaskUI, 0, end-start)
-	for _, k := range keys[start:end] {
-		out = append(out, cloneHumanTaskUI(store[k]))
-	}
-
-	next := ""
-	if end < len(keys) {
-		next = keys[end]
-	}
-
-	return out, next
+	return sagemakerListKeyPaged(b.humanTaskUisStore(region), nextToken, cloneHumanTaskUI)
 }
 
 // ListAppImageConfigs returns all App image configs.
@@ -767,39 +523,8 @@ func (b *InMemoryBackend) ListAppImageConfigs(ctx context.Context, nextToken str
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.appImageConfigsStore(region)
 
-	keys := make([]string, 0, len(store))
-	for k := range store {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
-
-	start := 0
-	if nextToken != "" {
-		for i, k := range keys {
-			if k == nextToken {
-				start = i
-
-				break
-			}
-		}
-	}
-
-	end := min(start+sagemakerDefaultPageSize, len(keys))
-
-	out := make([]*AppImageConfig, 0, end-start)
-	for _, k := range keys[start:end] {
-		out = append(out, cloneAppImageConfig(store[k]))
-	}
-
-	next := ""
-	if end < len(keys) {
-		next = keys[end]
-	}
-
-	return out, next
+	return sagemakerListKeyPaged(b.appImageConfigsStore(region), nextToken, cloneAppImageConfig)
 }
 
 // ListTrainingJobsForHyperParameterTuningJob returns training jobs for an HP tuning job.

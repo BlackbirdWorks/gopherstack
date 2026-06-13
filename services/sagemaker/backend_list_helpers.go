@@ -1,8 +1,13 @@
 package sagemaker
 
 import (
+	"context"
+	"fmt"
 	"sort"
 	"strconv"
+	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // sagemakerListPaged paginates a store using index-based tokens.
@@ -77,4 +82,38 @@ func sagemakerListKeyPaged[T any](
 	}
 
 	return out, next
+}
+
+// sagemakerCreate handles the common create-resource-by-name pattern:
+// acquire lock, check for duplicate, build ARN, build item, store, return clone.
+func sagemakerCreate[T any](
+	ctx context.Context,
+	b *InMemoryBackend,
+	opName, name, arnResource string,
+	storeOf func(string) map[string]*T,
+	dupErr func(string) error,
+	build func(arnStr string, now time.Time) *T,
+	clone func(*T) *T,
+) (*T, error) {
+	region := getRegion(ctx, b.region)
+	b.mu.Lock(opName)
+	defer b.mu.Unlock()
+
+	store := storeOf(region)
+	if _, ok := store[name]; ok {
+		return nil, dupErr(name)
+	}
+
+	arnStr := arn.Build("sagemaker", region, b.accountID, arnResource+"/"+name)
+	now := time.Now()
+
+	item := build(arnStr, now)
+	store[name] = item
+
+	return clone(item), nil
+}
+
+// sagemakerDupErr returns a formatted "already exists" error wrapping ErrValidation.
+func sagemakerDupErr(kind, name string) error {
+	return fmt.Errorf("%w: %s %q already exists", ErrValidation, kind, name)
 }

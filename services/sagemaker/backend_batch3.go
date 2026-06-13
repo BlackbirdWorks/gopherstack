@@ -674,37 +674,28 @@ func (b *InMemoryBackend) CreateInferenceExperiment(
 	name, expType, roleArn string,
 	tags map[string]string,
 ) (*InferenceExperiment, error) {
-	region := getRegion(ctx, b.region)
-
-	b.mu.Lock("CreateInferenceExperiment")
-	defer b.mu.Unlock()
-
 	if name == "" {
 		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
 	}
 
-	store := b.inferenceExperimentsStore(region)
-
-	if _, ok := store[name]; ok {
-		return nil, fmt.Errorf("%w: inference experiment %q already exists", ErrValidation, name)
-	}
-
-	expARN := arn.Build("sagemaker", region, b.accountID, "inference-experiment/"+name)
-	now := time.Now()
-
-	e := &InferenceExperiment{
-		Name:             name,
-		Arn:              expARN,
-		Status:           "Running",
-		Type:             expType,
-		RoleArn:          roleArn,
-		Tags:             mergeTags(nil, tags),
-		CreationTime:     now,
-		LastModifiedTime: now,
-	}
-	store[name] = e
-
-	return cloneInferenceExperiment(e), nil
+	return sagemakerCreate(ctx, b,
+		"CreateInferenceExperiment", name, "inference-experiment",
+		b.inferenceExperimentsStore,
+		func(n string) error { return sagemakerDupErr("inference experiment", n) },
+		func(arnStr string, now time.Time) *InferenceExperiment {
+			return &InferenceExperiment{
+				Name:             name,
+				Arn:              arnStr,
+				Status:           "Running",
+				Type:             expType,
+				RoleArn:          roleArn,
+				Tags:             mergeTags(nil, tags),
+				CreationTime:     now,
+				LastModifiedTime: now,
+			}
+		},
+		cloneInferenceExperiment,
+	)
 }
 
 // DescribeInferenceExperiment returns an inference experiment by name.
@@ -787,37 +778,28 @@ func (b *InMemoryBackend) CreateMlflowTrackingServer(
 	name, roleArn, mlflowVersion string,
 	tags map[string]string,
 ) (*MlflowTrackingServer, error) {
-	region := getRegion(ctx, b.region)
-
-	b.mu.Lock("CreateMlflowTrackingServer")
-	defer b.mu.Unlock()
-
 	if name == "" {
 		return nil, fmt.Errorf("%w: TrackingServerName is required", ErrValidation)
 	}
 
-	store := b.mlflowTrackingServersStore(region)
-
-	if _, ok := store[name]; ok {
-		return nil, fmt.Errorf("%w: MLflow tracking server %q already exists", ErrValidation, name)
-	}
-
-	serverARN := arn.Build("sagemaker", region, b.accountID, "mlflow-tracking-server/"+name)
-	now := time.Now()
-
-	s := &MlflowTrackingServer{
-		TrackingServerName:   name,
-		TrackingServerArn:    serverARN,
-		TrackingServerStatus: "Created",
-		RoleArn:              roleArn,
-		MlflowVersion:        mlflowVersion,
-		Tags:                 mergeTags(nil, tags),
-		CreationTime:         now,
-		LastModifiedTime:     now,
-	}
-	store[name] = s
-
-	return cloneMlflowTrackingServer(s), nil
+	return sagemakerCreate(ctx, b,
+		"CreateMlflowTrackingServer", name, "mlflow-tracking-server",
+		b.mlflowTrackingServersStore,
+		func(n string) error { return sagemakerDupErr("MLflow tracking server", n) },
+		func(arnStr string, now time.Time) *MlflowTrackingServer {
+			return &MlflowTrackingServer{
+				TrackingServerName:   name,
+				TrackingServerArn:    arnStr,
+				TrackingServerStatus: "Created",
+				RoleArn:              roleArn,
+				MlflowVersion:        mlflowVersion,
+				Tags:                 mergeTags(nil, tags),
+				CreationTime:         now,
+				LastModifiedTime:     now,
+			}
+		},
+		cloneMlflowTrackingServer,
+	)
 }
 
 // DescribeMlflowTrackingServer returns an MLflow tracking server by name.

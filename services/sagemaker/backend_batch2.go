@@ -157,37 +157,7 @@ func (b *InMemoryBackend) ListModelPackageGroups(ctx context.Context, nextToken 
 
 	region := getRegion(ctx, b.region)
 
-	keys := make([]string, 0, len(b.modelPackageGroupsStore(region)))
-	for k := range b.modelPackageGroupsStore(region) {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
-
-	start := 0
-	if nextToken != "" {
-		for i, k := range keys {
-			if k == nextToken {
-				start = i
-
-				break
-			}
-		}
-	}
-
-	end := min(start+sagemakerDefaultPageSize, len(keys))
-
-	out := make([]*ModelPackageGroup, 0, end-start)
-	for _, k := range keys[start:end] {
-		out = append(out, cloneModelPackageGroup(b.modelPackageGroupsStore(region)[k]))
-	}
-
-	next := ""
-	if end < len(keys) {
-		next = keys[end]
-	}
-
-	return out, next
+	return sagemakerListKeyPaged(b.modelPackageGroupsStore(region), nextToken, cloneModelPackageGroup)
 }
 
 // ---------------------------------------------------------------------------
@@ -423,37 +393,7 @@ func (b *InMemoryBackend) ListAutoMLJobs(ctx context.Context, nextToken string) 
 
 	region := getRegion(ctx, b.region)
 
-	keys := make([]string, 0, len(b.autoMLJobsStore(region)))
-	for k := range b.autoMLJobsStore(region) {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
-
-	start := 0
-	if nextToken != "" {
-		for i, k := range keys {
-			if k == nextToken {
-				start = i
-
-				break
-			}
-		}
-	}
-
-	end := min(start+sagemakerDefaultPageSize, len(keys))
-
-	out := make([]*AutoMLJob, 0, end-start)
-	for _, k := range keys[start:end] {
-		out = append(out, cloneAutoMLJob(b.autoMLJobsStore(region)[k]))
-	}
-
-	next := ""
-	if end < len(keys) {
-		next = keys[end]
-	}
-
-	return out, next
+	return sagemakerListKeyPaged(b.autoMLJobsStore(region), nextToken, cloneAutoMLJob)
 }
 
 // ---------------------------------------------------------------------------
@@ -578,37 +518,7 @@ func (b *InMemoryBackend) ListCodeRepositories(ctx context.Context, nextToken st
 
 	region := getRegion(ctx, b.region)
 
-	keys := make([]string, 0, len(b.codeRepositoriesStore(region)))
-	for k := range b.codeRepositoriesStore(region) {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
-
-	start := 0
-	if nextToken != "" {
-		for i, k := range keys {
-			if k == nextToken {
-				start = i
-
-				break
-			}
-		}
-	}
-
-	end := min(start+sagemakerDefaultPageSize, len(keys))
-
-	out := make([]*CodeRepository, 0, end-start)
-	for _, k := range keys[start:end] {
-		out = append(out, cloneCodeRepository(b.codeRepositoriesStore(region)[k]))
-	}
-
-	next := ""
-	if end < len(keys) {
-		next = keys[end]
-	}
-
-	return out, next
+	return sagemakerListKeyPaged(b.codeRepositoriesStore(region), nextToken, cloneCodeRepository)
 }
 
 // ---------------------------------------------------------------------------
@@ -707,37 +617,7 @@ func (b *InMemoryBackend) ListProjects(ctx context.Context, nextToken string) ([
 
 	region := getRegion(ctx, b.region)
 
-	keys := make([]string, 0, len(b.projectsStore(region)))
-	for k := range b.projectsStore(region) {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
-
-	start := 0
-	if nextToken != "" {
-		for i, k := range keys {
-			if k == nextToken {
-				start = i
-
-				break
-			}
-		}
-	}
-
-	end := min(start+sagemakerDefaultPageSize, len(keys))
-
-	out := make([]*Project, 0, end-start)
-	for _, k := range keys[start:end] {
-		out = append(out, cloneProject(b.projectsStore(region)[k]))
-	}
-
-	next := ""
-	if end < len(keys) {
-		next = keys[end]
-	}
-
-	return out, next
+	return sagemakerListKeyPaged(b.projectsStore(region), nextToken, cloneProject)
 }
 
 // ---------------------------------------------------------------------------
@@ -988,37 +868,7 @@ func (b *InMemoryBackend) ListImages(ctx context.Context, nextToken string) ([]*
 
 	region := getRegion(ctx, b.region)
 
-	keys := make([]string, 0, len(b.smImagesStore(region)))
-	for k := range b.smImagesStore(region) {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
-
-	start := 0
-	if nextToken != "" {
-		for i, k := range keys {
-			if k == nextToken {
-				start = i
-
-				break
-			}
-		}
-	}
-
-	end := min(start+sagemakerDefaultPageSize, len(keys))
-
-	out := make([]*SMImage, 0, end-start)
-	for _, k := range keys[start:end] {
-		out = append(out, cloneSMImage(b.smImagesStore(region)[k]))
-	}
-
-	next := ""
-	if end < len(keys) {
-		next = keys[end]
-	}
-
-	return out, next
+	return sagemakerListKeyPaged(b.smImagesStore(region), nextToken, cloneSMImage)
 }
 
 // ---------------------------------------------------------------------------
@@ -1295,37 +1145,7 @@ func (b *InMemoryBackend) ListCompilationJobs(ctx context.Context, nextToken str
 
 	region := getRegion(ctx, b.region)
 
-	keys := make([]string, 0, len(b.compilationJobsStore(region)))
-	for k := range b.compilationJobsStore(region) {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
-
-	start := 0
-	if nextToken != "" {
-		for i, k := range keys {
-			if k == nextToken {
-				start = i
-
-				break
-			}
-		}
-	}
-
-	end := min(start+sagemakerDefaultPageSize, len(keys))
-
-	out := make([]*CompilationJob, 0, end-start)
-	for _, k := range keys[start:end] {
-		out = append(out, cloneCompilationJob(b.compilationJobsStore(region)[k]))
-	}
-
-	next := ""
-	if end < len(keys) {
-		next = keys[end]
-	}
-
-	return out, next
+	return sagemakerListKeyPaged(b.compilationJobsStore(region), nextToken, cloneCompilationJob)
 }
 
 // ---------------------------------------------------------------------------
@@ -1490,37 +1310,7 @@ func (b *InMemoryBackend) ListMonitoringSchedules(
 
 	region := getRegion(ctx, b.region)
 
-	keys := make([]string, 0, len(b.monitoringSchedulesStore(region)))
-	for k := range b.monitoringSchedulesStore(region) {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
-
-	start := 0
-	if nextToken != "" {
-		for i, k := range keys {
-			if k == nextToken {
-				start = i
-
-				break
-			}
-		}
-	}
-
-	end := min(start+sagemakerDefaultPageSize, len(keys))
-
-	out := make([]*MonitoringSchedule, 0, end-start)
-	for _, k := range keys[start:end] {
-		out = append(out, cloneMonitoringSchedule(b.monitoringSchedulesStore(region)[k]))
-	}
-
-	next := ""
-	if end < len(keys) {
-		next = keys[end]
-	}
-
-	return out, next
+	return sagemakerListKeyPaged(b.monitoringSchedulesStore(region), nextToken, cloneMonitoringSchedule)
 }
 
 // ---------------------------------------------------------------------------
@@ -1618,35 +1408,5 @@ func (b *InMemoryBackend) ListWorkteams(ctx context.Context, nextToken string) (
 
 	region := getRegion(ctx, b.region)
 
-	keys := make([]string, 0, len(b.workteamsStore(region)))
-	for k := range b.workteamsStore(region) {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
-
-	start := 0
-	if nextToken != "" {
-		for i, k := range keys {
-			if k == nextToken {
-				start = i
-
-				break
-			}
-		}
-	}
-
-	end := min(start+sagemakerDefaultPageSize, len(keys))
-
-	out := make([]*Workteam, 0, end-start)
-	for _, k := range keys[start:end] {
-		out = append(out, cloneWorkteam(b.workteamsStore(region)[k]))
-	}
-
-	next := ""
-	if end < len(keys) {
-		next = keys[end]
-	}
-
-	return out, next
+	return sagemakerListKeyPaged(b.workteamsStore(region), nextToken, cloneWorkteam)
 }
