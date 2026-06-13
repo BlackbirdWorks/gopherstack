@@ -6396,7 +6396,8 @@ func TestTerraform_Xray(t *testing.T) {
 	})
 }
 
-// TestTerraform_VPCLattice provisions a VPC Lattice service and service network via Terraform and verifies they were created.
+// TestTerraform_VPCLattice provisions a VPC Lattice service and service network
+// via Terraform and verifies they were created.
 func TestTerraform_VPCLattice(t *testing.T) {
 	t.Parallel()
 
