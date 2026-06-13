@@ -188,6 +188,7 @@ import (
 	transcribebackend "github.com/blackbirdworks/gopherstack/services/transcribe"
 	transferbackend "github.com/blackbirdworks/gopherstack/services/transfer"
 	verifiedpermissionsbackend "github.com/blackbirdworks/gopherstack/services/verifiedpermissions"
+	vpclatticebackend "github.com/blackbirdworks/gopherstack/services/vpclattice"
 	wafbackend "github.com/blackbirdworks/gopherstack/services/waf"
 	wafv2backend "github.com/blackbirdworks/gopherstack/services/wafv2"
 	workmailbackend "github.com/blackbirdworks/gopherstack/services/workmail"
@@ -2741,6 +2742,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&datasyncbackend.Provider{},
 		&fsxbackend.Provider{},
 		&omicsbackend.Provider{},
+		&vpclatticebackend.Provider{},
 	}
 }
 

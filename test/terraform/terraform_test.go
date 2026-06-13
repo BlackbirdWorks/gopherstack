@@ -311,6 +311,7 @@ provider "aws" {
     ssoadmin        = %[1]q
     sts             = %[1]q
     swf             = %[1]q
+    vpclattice      = %[1]q
     wafv2           = %[1]q
   }
 }
