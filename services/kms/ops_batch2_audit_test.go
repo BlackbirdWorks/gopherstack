@@ -11,6 +11,7 @@ package kms_test
 //     colons, forward slashes, underscores, and hyphens in alias names.
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -29,7 +30,7 @@ func ops2NewBackend(t *testing.T) *kms.InMemoryBackend {
 
 func ops2MustCreateSymKey(t *testing.T, b *kms.InMemoryBackend) string {
 	t.Helper()
-	out, err := b.CreateKey(&kms.CreateKeyInput{})
+	out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 
 	return out.KeyMetadata.KeyID
@@ -50,7 +51,7 @@ func TestOps2_CreateGrant_PendingDeletion_Rejected(t *testing.T) {
 			state: kms.KeyStatePendingDeletion,
 			setup: func(t *testing.T, b *kms.InMemoryBackend, keyID string) {
 				t.Helper()
-				_, err := b.ScheduleKeyDeletion(&kms.ScheduleKeyDeletionInput{
+				_, err := b.ScheduleKeyDeletion(context.Background(), &kms.ScheduleKeyDeletionInput{
 					KeyID:               keyID,
 					PendingWindowInDays: 7,
 				})
@@ -74,7 +75,7 @@ func TestOps2_CreateGrant_PendingDeletion_Rejected(t *testing.T) {
 
 			var keyID string
 			if tc.state == kms.KeyStatePendingImport {
-				out, err := b.CreateKey(&kms.CreateKeyInput{Origin: "EXTERNAL"})
+				out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{Origin: "EXTERNAL"})
 				require.NoError(t, err)
 				keyID = out.KeyMetadata.KeyID
 			} else {
@@ -82,7 +83,7 @@ func TestOps2_CreateGrant_PendingDeletion_Rejected(t *testing.T) {
 				tc.setup(t, b, keyID)
 			}
 
-			_, err := b.CreateGrant(&kms.CreateGrantInput{
+			_, err := b.CreateGrant(context.Background(), &kms.CreateGrantInput{
 				KeyID:            keyID,
 				GranteePrincipal: "arn:aws:iam::123456789012:role/TestRole",
 				Operations:       []string{"Decrypt"},
@@ -100,9 +101,9 @@ func TestOps2_CreateGrant_Disabled_Allowed(t *testing.T) {
 	b := ops2NewBackend(t)
 	keyID := ops2MustCreateSymKey(t, b)
 
-	require.NoError(t, b.DisableKey(&kms.DisableKeyInput{KeyID: keyID}))
+	require.NoError(t, b.DisableKey(context.Background(), &kms.DisableKeyInput{KeyID: keyID}))
 
-	_, err := b.CreateGrant(&kms.CreateGrantInput{
+	_, err := b.CreateGrant(context.Background(), &kms.CreateGrantInput{
 		KeyID:            keyID,
 		GranteePrincipal: "arn:aws:iam::123456789012:role/TestRole",
 		Operations:       []string{"Decrypt"},
@@ -117,14 +118,14 @@ func TestOps2_GenerateDataKey_GrantTokens_Accepted(t *testing.T) {
 	b := ops2NewBackend(t)
 	keyID := ops2MustCreateSymKey(t, b)
 
-	grantOut, err := b.CreateGrant(&kms.CreateGrantInput{
+	grantOut, err := b.CreateGrant(context.Background(), &kms.CreateGrantInput{
 		KeyID:            keyID,
 		GranteePrincipal: "arn:aws:iam::123456789012:role/TestRole",
 		Operations:       []string{"GenerateDataKey"},
 	})
 	require.NoError(t, err)
 
-	out, err := b.GenerateDataKey(&kms.GenerateDataKeyInput{
+	out, err := b.GenerateDataKey(context.Background(), &kms.GenerateDataKeyInput{
 		KeyID:       keyID,
 		KeySpec:     "AES_256",
 		GrantTokens: []string{grantOut.GrantToken},
@@ -139,7 +140,7 @@ func TestOps2_GenerateDataKey_ExpiredGrantToken_Rejected(t *testing.T) {
 	b := ops2NewBackend(t)
 	keyID := ops2MustCreateSymKey(t, b)
 
-	_, err := b.GenerateDataKey(&kms.GenerateDataKeyInput{
+	_, err := b.GenerateDataKey(context.Background(), &kms.GenerateDataKeyInput{
 		KeyID:       keyID,
 		KeySpec:     "AES_256",
 		GrantTokens: []string{"not-a-real-grant-token"},
@@ -155,7 +156,7 @@ func TestOps2_GenerateDataKeyWithoutPlaintext_GrantTokens_Accepted(t *testing.T)
 	b := ops2NewBackend(t)
 	keyID := ops2MustCreateSymKey(t, b)
 
-	grantOut, err := b.CreateGrant(&kms.CreateGrantInput{
+	grantOut, err := b.CreateGrant(context.Background(), &kms.CreateGrantInput{
 		KeyID:            keyID,
 		GranteePrincipal: "arn:aws:iam::123456789012:role/TestRole",
 		Operations:       []string{"GenerateDataKey"},
@@ -163,7 +164,7 @@ func TestOps2_GenerateDataKeyWithoutPlaintext_GrantTokens_Accepted(t *testing.T)
 	require.NoError(t, err)
 
 	nb := int32(16)
-	out, err := b.GenerateDataKeyWithoutPlaintext(&kms.GenerateDataKeyWithoutPlaintextInput{
+	out, err := b.GenerateDataKeyWithoutPlaintext(context.Background(), &kms.GenerateDataKeyWithoutPlaintextInput{
 		KeyID:         keyID,
 		NumberOfBytes: &nb,
 		GrantTokens:   []string{grantOut.GrantToken},
@@ -177,7 +178,7 @@ func TestOps2_GenerateDataKeyWithoutPlaintext_ExpiredGrantToken_Rejected(t *test
 	b := ops2NewBackend(t)
 	keyID := ops2MustCreateSymKey(t, b)
 
-	_, err := b.GenerateDataKeyWithoutPlaintext(&kms.GenerateDataKeyWithoutPlaintextInput{
+	_, err := b.GenerateDataKeyWithoutPlaintext(context.Background(), &kms.GenerateDataKeyWithoutPlaintextInput{
 		KeyID:       keyID,
 		KeySpec:     "AES_256",
 		GrantTokens: []string{"not-a-real-grant-token"},
@@ -213,7 +214,7 @@ func TestOps2_CreateAlias_InvalidCharacters_Rejected(t *testing.T) {
 			b := ops2NewBackend(t)
 			keyID := ops2MustCreateSymKey(t, b)
 
-			err := b.CreateAlias(&kms.CreateAliasInput{
+			err := b.CreateAlias(context.Background(), &kms.CreateAliasInput{
 				AliasName:   tc.aliasName,
 				TargetKeyID: keyID,
 			})
@@ -246,7 +247,7 @@ func TestOps2_CreateAlias_ValidCharacters_Accepted(t *testing.T) {
 			b := ops2NewBackend(t)
 			keyID := ops2MustCreateSymKey(t, b)
 
-			err := b.CreateAlias(&kms.CreateAliasInput{
+			err := b.CreateAlias(context.Background(), &kms.CreateAliasInput{
 				AliasName:   tc.aliasName,
 				TargetKeyID: keyID,
 			})

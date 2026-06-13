@@ -74,14 +74,14 @@ func TestKMSJanitor_SweepOnce_DeletesExpiredKeys(t *testing.T) {
 			b := kms.NewInMemoryBackend()
 
 			// Create a key and schedule it for deletion.
-			createOut, err := b.CreateKey(&kms.CreateKeyInput{
+			createOut, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{
 				Description: "test-key",
 			})
 			require.NoError(t, err)
 
 			keyID := createOut.KeyMetadata.KeyID
 
-			_, err = b.ScheduleKeyDeletion(&kms.ScheduleKeyDeletionInput{
+			_, err = b.ScheduleKeyDeletion(context.Background(), &kms.ScheduleKeyDeletionInput{
 				KeyID:               keyID,
 				PendingWindowInDays: 7,
 			})
@@ -93,7 +93,7 @@ func TestKMSJanitor_SweepOnce_DeletesExpiredKeys(t *testing.T) {
 			j := kms.NewJanitor(b, time.Minute)
 			j.SweepOnce(t.Context())
 
-			meta, err := b.DescribeKey(&kms.DescribeKeyInput{KeyID: keyID})
+			meta, err := b.DescribeKey(context.Background(), &kms.DescribeKeyInput{KeyID: keyID})
 			if tt.expectKeyDeleted {
 				require.Error(t, err, "expected key to be deleted")
 				assert.Nil(t, meta)
