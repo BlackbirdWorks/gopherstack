@@ -216,6 +216,7 @@ const (
 	contentTypeJSON      = "application/json"
 	emrServerlessRoleARN = "arn:aws:iam::000000000000:role/EMRServerlessRole"
 	envProduction        = "production"
+	kinesisServiceName   = "kinesis"
 )
 
 // CLI holds all command-line / environment-variable configuration for Gopherstack.
@@ -3051,18 +3052,22 @@ func wireSQSMetrics(sqsReg, cwReg service.Registerable) {
 		return
 	}
 
-	sqsBk.SetMetricEmitter(sqsbackend.MetricEmitterFunc(func(namespace, name string, value float64, unit string) error {
-		_, err := cwBk.PutMetricData(namespace, []cwbackend.MetricDatum{
-			{
-				MetricName: name,
-				Value:      value,
-				Unit:       unit,
-				Timestamp:  time.Now(),
-			},
-		})
+	sqsBk.SetMetricEmitter(
+		sqsbackend.MetricEmitterFunc(
+			func(namespace, name string, value float64, unit string) error {
+				_, err := cwBk.PutMetricData(namespace, []cwbackend.MetricDatum{
+					{
+						MetricName: name,
+						Value:      value,
+						Unit:       unit,
+						Timestamp:  time.Now(),
+					},
+				})
 
-		return err
-	}))
+				return err
+			},
+		),
+	)
 }
 
 // wireEventBridgeDelivery connects EventBridge fan-out to Lambda, SQS, and SNS backends.
@@ -3838,7 +3843,7 @@ func (d *cwlogsSubscriptionDeliverer) DeliverLogEvents(
 		)
 
 		return err
-	case "kinesis":
+	case kinesisServiceName:
 		if d.kinesis == nil {
 			return nil
 		}
@@ -3888,19 +3893,21 @@ func wireCWLogsMetricEmitter(cwlogsReg, cwReg service.Registerable) {
 	}
 
 	cwlogsBk.SetMetricEmitter(
-		cwlogsbackend.MetricEmitterFunc(func(namespace, name string, value float64, unit string) error {
-			_, err := cwBk.PutMetricData(namespace, []cwbackend.MetricDatum{
-				{
-					MetricName: name,
-					Namespace:  namespace,
-					Value:      value,
-					Unit:       unit,
-					Timestamp:  time.Now(),
-				},
-			})
+		cwlogsbackend.MetricEmitterFunc(
+			func(namespace, name string, value float64, unit string) error {
+				_, err := cwBk.PutMetricData(namespace, []cwbackend.MetricDatum{
+					{
+						MetricName: name,
+						Namespace:  namespace,
+						Value:      value,
+						Unit:       unit,
+						Timestamp:  time.Now(),
+					},
+				})
 
-			return err
-		}),
+				return err
+			},
+		),
 	)
 }
 

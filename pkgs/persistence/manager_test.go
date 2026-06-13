@@ -163,6 +163,8 @@ var (
 	errLoad     = errors.New("i/o failure")
 	errRestore  = errors.New("decode error")
 	errDiskFull = errors.New("disk full")
+	errAlpha    = errors.New("alpha failed")
+	errBeta     = errors.New("beta failed")
 )
 
 func TestManager_Register_RestoreAll(t *testing.T) {
@@ -534,10 +536,10 @@ func TestManager_ExportAll(t *testing.T) {
 	snap := []byte(`{"state":"active"}`)
 
 	tests := []struct {
-		data     []byte
 		name     string
-		wantLen  int
+		data     []byte
 		wantData []byte
+		wantLen  int
 	}{
 		{
 			name:     "non_empty_snapshot_included",
@@ -668,11 +670,11 @@ func TestManager_ImportAll(t *testing.T) {
 	snap := []byte(`{"restored":true}`)
 
 	tests := []struct {
-		setupErr   error
-		name       string
-		snapshots  map[string][]byte
-		wantErr    bool
+		setupErr     error
+		snapshots    map[string][]byte
+		name         string
 		wantRestores int64
+		wantErr      bool
 	}{
 		{
 			name:         "single_service_restored",
@@ -746,8 +748,8 @@ func TestManager_ImportAll_MultipleErrors(t *testing.T) {
 	t.Parallel()
 
 	mgr := persistence.NewManager(newMemStore())
-	mgr.Register("alpha", &mockPersistable{restoreErr: errors.New("alpha failed")})
-	mgr.Register("beta", &mockPersistable{restoreErr: errors.New("beta failed")})
+	mgr.Register("alpha", &mockPersistable{restoreErr: errAlpha})
+	mgr.Register("beta", &mockPersistable{restoreErr: errBeta})
 
 	err := mgr.ImportAll(t.Context(), map[string][]byte{
 		"alpha": []byte(`{"a":1}`),
@@ -847,9 +849,9 @@ func TestManager_ExportImport_RoundTrip(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		initial    map[string]string
 		wantStates map[string]string
+		name       string
 	}{
 		{
 			name:       "single_service_state_preserved",
@@ -942,7 +944,7 @@ func TestManager_ExportImport_RoundTrip_MultipleRounds(t *testing.T) {
 
 	// Round 1: export v1.
 	snap1 := mgr.ExportAll()
-	assert.Equal(t, `{"state":"v1"}`, string(snap1["svc"]))
+	assert.JSONEq(t, `{"state":"v1"}`, string(snap1["svc"]))
 
 	// Mutate to v2 and export.
 	svc.mu.Lock()
@@ -950,7 +952,7 @@ func TestManager_ExportImport_RoundTrip_MultipleRounds(t *testing.T) {
 	svc.mu.Unlock()
 
 	snap2 := mgr.ExportAll()
-	assert.Equal(t, `{"state":"v2"}`, string(snap2["svc"]))
+	assert.JSONEq(t, `{"state":"v2"}`, string(snap2["svc"]))
 
 	// Reset, load snap1, verify v1 is restored.
 	svc.Reset()

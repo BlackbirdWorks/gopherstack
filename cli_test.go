@@ -607,8 +607,11 @@ func TestCLI_AWSDefaultRegionEnvVar(t *testing.T) {
 			wantRegion: "ap-southeast-1",
 		},
 		{
-			name:       "AWS_DEFAULT_REGION_overrides_AWS_REGION",
-			env:        map[string]string{"AWS_REGION": "us-west-1", "AWS_DEFAULT_REGION": "us-west-2"},
+			name: "AWS_DEFAULT_REGION_overrides_AWS_REGION",
+			env: map[string]string{
+				"AWS_REGION":         "us-west-1",
+				"AWS_DEFAULT_REGION": "us-west-2",
+			},
 			wantRegion: "us-west-2",
 		},
 		{
@@ -652,6 +655,9 @@ var errTestPanic = errors.New("deliberate error panic")
 
 // errTestGeneric is a sentinel error used by TestCustomHTTPErrorHandler_LogsServerErrors.
 var errTestGeneric = errors.New("generic error")
+
+// errRestoreFailure is a sentinel error used by TestBuildLoadHandler.
+var errRestoreFailure = errors.New("restore failure")
 
 func TestPanicRecoveryMiddleware_RecoversPanic(t *testing.T) {
 	t.Parallel()
@@ -922,8 +928,8 @@ func TestBuildSnapshotHandler(t *testing.T) {
 	tests := []struct {
 		services     map[string]*testPersistable
 		name         string
-		wantExported int
 		wantKeys     []string
+		wantExported int
 	}{
 		{
 			name:         "single_service_with_data",
@@ -1057,7 +1063,7 @@ func TestBuildLoadHandler(t *testing.T) {
 		},
 		{
 			name:     "restore_error_returns_500",
-			setupErr: errors.New("restore failure"),
+			setupErr: errRestoreFailure,
 			bundle: snapshotBundle{
 				Format:   snapshotBundleFormat,
 				Services: map[string]json.RawMessage{"svc": snap},
@@ -1117,7 +1123,7 @@ func TestBuildLoadHandler_InvalidJSON(t *testing.T) {
 	err := handler(c)
 
 	var httpErr *echo.HTTPError
-	require.True(t, errors.As(err, &httpErr))
+	require.ErrorAs(t, err, &httpErr)
 	assert.Equal(t, http.StatusBadRequest, httpErr.Code)
 }
 
@@ -1188,7 +1194,11 @@ func TestSnapshotLoadRoundTrip(t *testing.T) {
 			loadBody, err := json.Marshal(snapResp.snapshotBundle)
 			require.NoError(t, err)
 
-			loadReq := httptest.NewRequest(http.MethodPost, "/_gopherstack/load", bytes.NewReader(loadBody))
+			loadReq := httptest.NewRequest(
+				http.MethodPost,
+				"/_gopherstack/load",
+				bytes.NewReader(loadBody),
+			)
 			loadReq.Header.Set("Content-Type", "application/json")
 			loadRec := httptest.NewRecorder()
 			loadCtx := e.NewContext(loadReq, loadRec)
@@ -1330,16 +1340,15 @@ func TestBuildSnapshotHandler_MultipleServices_StatePreservedIndependently(t *te
 	require.Equal(t, http.StatusOK, loadRec.Code)
 
 	// Verify each service individually.
-	assert.Equal(t,
-		[]byte(`{"streams":["stream-a","stream-b"],"shards":4}`),
-		services["kinesis"].Data(),
+	assert.JSONEq(
+		t,
+		`{"streams":["stream-a","stream-b"],"shards":4}`,
+		string(services["kinesis"].Data()),
 	)
-	assert.Equal(t,
-		[]byte(`{"queues":{"my-queue":{"messages":10}}}`),
-		services["sqs"].Data(),
-	)
-	assert.Equal(t,
-		[]byte(`{"topics":["arn:aws:sns:us-east-1:000000000000:alerts"]}`),
-		services["sns"].Data(),
+	assert.JSONEq(t, `{"queues":{"my-queue":{"messages":10}}}`, string(services["sqs"].Data()))
+	assert.JSONEq(
+		t,
+		`{"topics":["arn:aws:sns:us-east-1:000000000000:alerts"]}`,
+		string(services["sns"].Data()),
 	)
 }
