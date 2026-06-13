@@ -312,8 +312,29 @@ provider "aws" {
     ssoadmin        = %[1]q
     sts             = %[1]q
     swf             = %[1]q
+    apprunner       = %[1]q
+    comprehend      = %[1]q
+    datasync        = %[1]q
+    detective       = %[1]q
+    dlm             = %[1]q
+    ds              = %[1]q
+    forecast        = %[1]q
+    gluedatabrew    = %[1]q
+    macie2          = %[1]q
+    medialive       = %[1]q
+    mediapackage    = %[1]q
+    mediastoredata  = %[1]q
+    mediatailor     = %[1]q
+    personalize     = %[1]q
+    polly           = %[1]q
+    quicksight      = %[1]q
+    rekognition     = %[1]q
+    rolesanywhere   = %[1]q
+    transcribe      = %[1]q
+    translate       = %[1]q
     vpclattice      = %[1]q
     wafv2           = %[1]q
+    workmail        = %[1]q
   }
 }
 `, addr)
