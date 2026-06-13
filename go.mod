@@ -200,9 +200,8 @@ require (
 require (
 	github.com/aws/aws-sdk-go v1.55.5
 	github.com/aws/aws-sdk-go-v2/service/appstream v1.60.3
+	github.com/aws/aws-sdk-go-v2/service/omics v1.45.0
 )
-
-require github.com/aws/aws-sdk-go-v2/service/omics v1.45.0 // indirect
 
 require (
 	github.com/antlr/antlr4 v0.0.0-20181218183524-be58ebffde8e // indirect
