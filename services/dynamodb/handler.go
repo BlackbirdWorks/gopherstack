@@ -360,6 +360,14 @@ func (h *DynamoDBHandler) Handler() echo.HandlerFunc {
 		}
 		action := parts[1]
 
+		// Extract region from request and add to context
+		region := extractRegionFromAuth(c.Request(), h.DefaultRegion)
+		ctx = context.WithValue(ctx, regionContextKey{}, region)
+
+		if service.IsCBORRequest(c.Request()) {
+			return h.handleCBORRequest(c, ctx, log, action)
+		}
+
 		body, err := httputils.ReadBody(c.Request())
 		if err != nil {
 			log.ErrorContext(ctx, "failed to read request body", "error", err)
@@ -368,10 +376,6 @@ func (h *DynamoDBHandler) Handler() echo.HandlerFunc {
 		}
 
 		log.DebugContext(ctx, "DynamoDB request", "action", action, "body", string(body))
-
-		// Extract region from request and add to context
-		region := extractRegionFromAuth(c.Request(), h.DefaultRegion)
-		ctx = context.WithValue(ctx, regionContextKey{}, region)
 
 		response, reqErr := h.dispatch(ctx, action, body)
 		if reqErr != nil {
