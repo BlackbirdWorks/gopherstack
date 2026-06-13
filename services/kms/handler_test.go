@@ -2,6 +2,7 @@ package kms_test
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha512"
 	"encoding/json"
 	"log/slog"
@@ -26,7 +27,7 @@ func TestKMSBackendCreateKey(t *testing.T) {
 
 	backend := kms.NewInMemoryBackend()
 
-	out, err := backend.CreateKey(&kms.CreateKeyInput{
+	out, err := backend.CreateKey(context.Background(), &kms.CreateKeyInput{
 		Description: "test key",
 		KeyUsage:    "ENCRYPT_DECRYPT",
 	})
@@ -47,9 +48,9 @@ func TestKMSBackendDescribeKey(t *testing.T) {
 		t.Parallel()
 
 		backend := kms.NewInMemoryBackend()
-		created, _ := backend.CreateKey(&kms.CreateKeyInput{Description: "my key"})
+		created, _ := backend.CreateKey(context.Background(), &kms.CreateKeyInput{Description: "my key"})
 
-		out, err := backend.DescribeKey(&kms.DescribeKeyInput{KeyID: created.KeyMetadata.KeyID})
+		out, err := backend.DescribeKey(context.Background(), &kms.DescribeKeyInput{KeyID: created.KeyMetadata.KeyID})
 		require.NoError(t, err)
 		assert.Equal(t, created.KeyMetadata.KeyID, out.KeyMetadata.KeyID)
 	})
@@ -58,7 +59,7 @@ func TestKMSBackendDescribeKey(t *testing.T) {
 		t.Parallel()
 
 		backend := kms.NewInMemoryBackend()
-		_, err := backend.DescribeKey(&kms.DescribeKeyInput{KeyID: "does-not-exist"})
+		_, err := backend.DescribeKey(context.Background(), &kms.DescribeKeyInput{KeyID: "does-not-exist"})
 		require.ErrorIs(t, err, kms.ErrKeyNotFound)
 	})
 }
@@ -70,10 +71,10 @@ func TestKMSBackendListKeys(t *testing.T) {
 	backend := kms.NewInMemoryBackend()
 
 	for range 3 {
-		_, _ = backend.CreateKey(&kms.CreateKeyInput{})
+		_, _ = backend.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	}
 
-	out, err := backend.ListKeys(&kms.ListKeysInput{})
+	out, err := backend.ListKeys(context.Background(), &kms.ListKeysInput{})
 	require.NoError(t, err)
 	assert.Len(t, out.Keys, 3)
 	assert.False(t, out.Truncated)
@@ -86,18 +87,18 @@ func TestKMSBackendListKeysPagination(t *testing.T) {
 	backend := kms.NewInMemoryBackend()
 
 	for range 5 {
-		_, _ = backend.CreateKey(&kms.CreateKeyInput{})
+		_, _ = backend.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	}
 
 	limit := int32(2)
-	out, err := backend.ListKeys(&kms.ListKeysInput{Limit: &limit})
+	out, err := backend.ListKeys(context.Background(), &kms.ListKeysInput{Limit: &limit})
 	require.NoError(t, err)
 	assert.Len(t, out.Keys, 2)
 	assert.True(t, out.Truncated)
 	assert.NotEmpty(t, out.NextMarker)
 
 	// Get next page
-	out2, err := backend.ListKeys(&kms.ListKeysInput{Limit: &limit, Marker: out.NextMarker})
+	out2, err := backend.ListKeys(context.Background(), &kms.ListKeysInput{Limit: &limit, Marker: out.NextMarker})
 	require.NoError(t, err)
 	assert.Len(t, out2.Keys, 2)
 }
@@ -107,11 +108,11 @@ func TestKMSBackendEncryptDecrypt(t *testing.T) {
 	t.Parallel()
 
 	backend := kms.NewInMemoryBackend()
-	key, _ := backend.CreateKey(&kms.CreateKeyInput{})
+	key, _ := backend.CreateKey(context.Background(), &kms.CreateKeyInput{})
 
 	plaintext := []byte("hello, world")
 
-	encOut, err := backend.Encrypt(&kms.EncryptInput{
+	encOut, err := backend.Encrypt(context.Background(), &kms.EncryptInput{
 		KeyID:     key.KeyMetadata.KeyID,
 		Plaintext: plaintext,
 	})
@@ -119,7 +120,7 @@ func TestKMSBackendEncryptDecrypt(t *testing.T) {
 	assert.NotEmpty(t, encOut.CiphertextBlob)
 	assert.Equal(t, key.KeyMetadata.Arn, encOut.KeyID)
 
-	decOut, err := backend.Decrypt(&kms.DecryptInput{
+	decOut, err := backend.Decrypt(context.Background(), &kms.DecryptInput{
 		CiphertextBlob: encOut.CiphertextBlob,
 	})
 	require.NoError(t, err)
@@ -135,19 +136,19 @@ func TestKMSBackendEncryptDisabledKey(t *testing.T) {
 		t.Parallel()
 
 		backend := kms.NewInMemoryBackend()
-		key, _ := backend.CreateKey(&kms.CreateKeyInput{})
+		key, _ := backend.CreateKey(context.Background(), &kms.CreateKeyInput{})
 
 		// Disable via alias (test resolveKeyID too)
-		_ = backend.CreateAlias(&kms.CreateAliasInput{
+		_ = backend.CreateAlias(context.Background(), &kms.CreateAliasInput{
 			AliasName:   "alias/my-key",
 			TargetKeyID: key.KeyMetadata.KeyID,
 		})
 
 		// Manually disable by re-describing then using internal disable
-		_ = backend.DisableKeyRotation(&kms.DisableKeyRotationInput{KeyID: key.KeyMetadata.KeyID})
+		_ = backend.DisableKeyRotation(context.Background(), &kms.DisableKeyRotationInput{KeyID: key.KeyMetadata.KeyID})
 
 		// Encrypt should succeed on enabled key
-		_, err := backend.Encrypt(&kms.EncryptInput{
+		_, err := backend.Encrypt(context.Background(), &kms.EncryptInput{
 			KeyID:     "alias/my-key",
 			Plaintext: []byte("test"),
 		})
@@ -163,9 +164,9 @@ func TestKMSBackendGenerateDataKey(t *testing.T) {
 		t.Parallel()
 
 		backend := kms.NewInMemoryBackend()
-		key, _ := backend.CreateKey(&kms.CreateKeyInput{})
+		key, _ := backend.CreateKey(context.Background(), &kms.CreateKeyInput{})
 
-		out, err := backend.GenerateDataKey(&kms.GenerateDataKeyInput{
+		out, err := backend.GenerateDataKey(context.Background(), &kms.GenerateDataKeyInput{
 			KeyID:   key.KeyMetadata.KeyID,
 			KeySpec: "AES_256",
 		})
@@ -179,9 +180,9 @@ func TestKMSBackendGenerateDataKey(t *testing.T) {
 		t.Parallel()
 
 		backend := kms.NewInMemoryBackend()
-		key, _ := backend.CreateKey(&kms.CreateKeyInput{})
+		key, _ := backend.CreateKey(context.Background(), &kms.CreateKeyInput{})
 
-		out, err := backend.GenerateDataKey(&kms.GenerateDataKeyInput{
+		out, err := backend.GenerateDataKey(context.Background(), &kms.GenerateDataKeyInput{
 			KeyID:   key.KeyMetadata.KeyID,
 			KeySpec: "AES_128",
 		})
@@ -193,10 +194,10 @@ func TestKMSBackendGenerateDataKey(t *testing.T) {
 		t.Parallel()
 
 		backend := kms.NewInMemoryBackend()
-		key, _ := backend.CreateKey(&kms.CreateKeyInput{})
+		key, _ := backend.CreateKey(context.Background(), &kms.CreateKeyInput{})
 
 		n := int32(24)
-		out, err := backend.GenerateDataKey(&kms.GenerateDataKeyInput{
+		out, err := backend.GenerateDataKey(context.Background(), &kms.GenerateDataKeyInput{
 			KeyID:         key.KeyMetadata.KeyID,
 			NumberOfBytes: &n,
 		})
@@ -210,15 +211,15 @@ func TestKMSBackendReEncrypt(t *testing.T) {
 	t.Parallel()
 
 	backend := kms.NewInMemoryBackend()
-	key1, _ := backend.CreateKey(&kms.CreateKeyInput{})
-	key2, _ := backend.CreateKey(&kms.CreateKeyInput{})
+	key1, _ := backend.CreateKey(context.Background(), &kms.CreateKeyInput{})
+	key2, _ := backend.CreateKey(context.Background(), &kms.CreateKeyInput{})
 
-	encOut, _ := backend.Encrypt(&kms.EncryptInput{
+	encOut, _ := backend.Encrypt(context.Background(), &kms.EncryptInput{
 		KeyID:     key1.KeyMetadata.KeyID,
 		Plaintext: []byte("secret"),
 	})
 
-	reEncOut, err := backend.ReEncrypt(&kms.ReEncryptInput{
+	reEncOut, err := backend.ReEncrypt(context.Background(), &kms.ReEncryptInput{
 		CiphertextBlob:   encOut.CiphertextBlob,
 		DestinationKeyID: key2.KeyMetadata.KeyID,
 	})
@@ -227,7 +228,7 @@ func TestKMSBackendReEncrypt(t *testing.T) {
 	assert.Equal(t, key1.KeyMetadata.Arn, reEncOut.SourceKeyID)
 
 	// Decrypt re-encrypted blob
-	decOut, err := backend.Decrypt(&kms.DecryptInput{
+	decOut, err := backend.Decrypt(context.Background(), &kms.DecryptInput{
 		CiphertextBlob: reEncOut.CiphertextBlob,
 	})
 	require.NoError(t, err)
@@ -239,33 +240,33 @@ func TestKMSBackendAliases(t *testing.T) {
 	t.Parallel()
 
 	backend := kms.NewInMemoryBackend()
-	key, _ := backend.CreateKey(&kms.CreateKeyInput{})
+	key, _ := backend.CreateKey(context.Background(), &kms.CreateKeyInput{})
 
-	err := backend.CreateAlias(&kms.CreateAliasInput{
+	err := backend.CreateAlias(context.Background(), &kms.CreateAliasInput{
 		AliasName:   "alias/myalias",
 		TargetKeyID: key.KeyMetadata.KeyID,
 	})
 	require.NoError(t, err)
 
 	// Duplicate should fail
-	err2 := backend.CreateAlias(&kms.CreateAliasInput{
+	err2 := backend.CreateAlias(context.Background(), &kms.CreateAliasInput{
 		AliasName:   "alias/myalias",
 		TargetKeyID: key.KeyMetadata.KeyID,
 	})
 	require.ErrorIs(t, err2, kms.ErrAliasAlreadyExists)
 
 	// ListAliases by key
-	listOut, err := backend.ListAliases(&kms.ListAliasesInput{KeyID: key.KeyMetadata.KeyID})
+	listOut, err := backend.ListAliases(context.Background(), &kms.ListAliasesInput{KeyID: key.KeyMetadata.KeyID})
 	require.NoError(t, err)
 	assert.Len(t, listOut.Aliases, 1)
 	assert.Equal(t, "alias/myalias", listOut.Aliases[0].AliasName)
 
 	// Delete alias
-	err = backend.DeleteAlias(&kms.DeleteAliasInput{AliasName: "alias/myalias"})
+	err = backend.DeleteAlias(context.Background(), &kms.DeleteAliasInput{AliasName: "alias/myalias"})
 	require.NoError(t, err)
 
 	// Delete again should fail
-	err2 = backend.DeleteAlias(&kms.DeleteAliasInput{AliasName: "alias/myalias"})
+	err2 = backend.DeleteAlias(context.Background(), &kms.DeleteAliasInput{AliasName: "alias/myalias"})
 	require.ErrorIs(t, err2, kms.ErrAliasNotFound)
 }
 
@@ -274,26 +275,35 @@ func TestKMSBackendKeyRotation(t *testing.T) {
 	t.Parallel()
 
 	backend := kms.NewInMemoryBackend()
-	key, _ := backend.CreateKey(&kms.CreateKeyInput{})
+	key, _ := backend.CreateKey(context.Background(), &kms.CreateKeyInput{})
 
 	// Default: rotation disabled
-	statusOut, err := backend.GetKeyRotationStatus(&kms.GetKeyRotationStatusInput{KeyID: key.KeyMetadata.KeyID})
+	statusOut, err := backend.GetKeyRotationStatus(
+		context.Background(),
+		&kms.GetKeyRotationStatusInput{KeyID: key.KeyMetadata.KeyID},
+	)
 	require.NoError(t, err)
 	assert.False(t, statusOut.KeyRotationEnabled)
 
 	// Enable
-	err = backend.EnableKeyRotation(&kms.EnableKeyRotationInput{KeyID: key.KeyMetadata.KeyID})
+	err = backend.EnableKeyRotation(context.Background(), &kms.EnableKeyRotationInput{KeyID: key.KeyMetadata.KeyID})
 	require.NoError(t, err)
 
-	statusOut, err = backend.GetKeyRotationStatus(&kms.GetKeyRotationStatusInput{KeyID: key.KeyMetadata.KeyID})
+	statusOut, err = backend.GetKeyRotationStatus(
+		context.Background(),
+		&kms.GetKeyRotationStatusInput{KeyID: key.KeyMetadata.KeyID},
+	)
 	require.NoError(t, err)
 	assert.True(t, statusOut.KeyRotationEnabled)
 
 	// Disable
-	err = backend.DisableKeyRotation(&kms.DisableKeyRotationInput{KeyID: key.KeyMetadata.KeyID})
+	err = backend.DisableKeyRotation(context.Background(), &kms.DisableKeyRotationInput{KeyID: key.KeyMetadata.KeyID})
 	require.NoError(t, err)
 
-	statusOut, err = backend.GetKeyRotationStatus(&kms.GetKeyRotationStatusInput{KeyID: key.KeyMetadata.KeyID})
+	statusOut, err = backend.GetKeyRotationStatus(
+		context.Background(),
+		&kms.GetKeyRotationStatusInput{KeyID: key.KeyMetadata.KeyID},
+	)
 	require.NoError(t, err)
 	assert.False(t, statusOut.KeyRotationEnabled)
 }
@@ -370,7 +380,7 @@ func TestKMSHandler(t *testing.T) {
 			body:   `{}`,
 			setupFn: func(t *testing.T, backend kms.StorageBackend) string {
 				t.Helper()
-				_, _ = backend.CreateKey(&kms.CreateKeyInput{})
+				_, _ = backend.CreateKey(context.Background(), &kms.CreateKeyInput{})
 
 				return ""
 			},
@@ -788,7 +798,7 @@ func TestKMSHandlerErrorCases(t *testing.T) {
 			target: "TrentService.CreateAlias",
 			body:   `{"AliasName":"alias/dup","TargetKeyId":"PLACEHOLDER"}`,
 			setup: func(b *kms.InMemoryBackend, keyID string) string {
-				_ = b.CreateAlias(&kms.CreateAliasInput{
+				_ = b.CreateAlias(context.Background(), &kms.CreateAliasInput{
 					AliasName:   "alias/dup",
 					TargetKeyID: keyID,
 				})
@@ -810,7 +820,7 @@ func TestKMSHandlerErrorCases(t *testing.T) {
 			target: "TrentService.Encrypt",
 			body:   `{"KeyId":"PLACEHOLDER","Plaintext":"aGVsbG8="}`,
 			setup: func(b *kms.InMemoryBackend, _ string) string {
-				out, _ := b.CreateKey(&kms.CreateKeyInput{KeyUsage: kms.KeyUsageSignVerify})
+				out, _ := b.CreateKey(context.Background(), &kms.CreateKeyInput{KeyUsage: kms.KeyUsageSignVerify})
 
 				return out.KeyMetadata.KeyID
 			},
@@ -822,7 +832,7 @@ func TestKMSHandlerErrorCases(t *testing.T) {
 			target: "TrentService.Encrypt",
 			body:   `{"KeyId":"PLACEHOLDER","Plaintext":"aGVsbG8="}`,
 			setup: func(b *kms.InMemoryBackend, keyID string) string {
-				_, _ = b.ScheduleKeyDeletion(&kms.ScheduleKeyDeletionInput{
+				_, _ = b.ScheduleKeyDeletion(context.Background(), &kms.ScheduleKeyDeletionInput{
 					KeyID:               keyID,
 					PendingWindowInDays: 7,
 				})
@@ -844,7 +854,7 @@ func TestKMSHandlerErrorCases(t *testing.T) {
 			h := kms.NewHandler(backend)
 
 			// Create a key to use as placeholder
-			created, err := backend.CreateKey(&kms.CreateKeyInput{})
+			created, err := backend.CreateKey(context.Background(), &kms.CreateKeyInput{})
 			require.NoError(t, err)
 			keyID := created.KeyMetadata.KeyID
 
@@ -878,10 +888,16 @@ func TestKMSListAliasesFiltered(t *testing.T) {
 	h := kms.NewHandler(backend)
 
 	// Create two keys with aliases
-	key1, _ := backend.CreateKey(&kms.CreateKeyInput{})
-	key2, _ := backend.CreateKey(&kms.CreateKeyInput{})
-	_ = backend.CreateAlias(&kms.CreateAliasInput{AliasName: "alias/key1", TargetKeyID: key1.KeyMetadata.KeyID})
-	_ = backend.CreateAlias(&kms.CreateAliasInput{AliasName: "alias/key2", TargetKeyID: key2.KeyMetadata.KeyID})
+	key1, _ := backend.CreateKey(context.Background(), &kms.CreateKeyInput{})
+	key2, _ := backend.CreateKey(context.Background(), &kms.CreateKeyInput{})
+	_ = backend.CreateAlias(
+		context.Background(),
+		&kms.CreateAliasInput{AliasName: "alias/key1", TargetKeyID: key1.KeyMetadata.KeyID},
+	)
+	_ = backend.CreateAlias(
+		context.Background(),
+		&kms.CreateAliasInput{AliasName: "alias/key2", TargetKeyID: key2.KeyMetadata.KeyID},
+	)
 
 	// Filter by key1
 	body, _ := json.Marshal(map[string]string{"KeyId": key1.KeyMetadata.KeyID})
@@ -903,14 +919,14 @@ func TestKMSResolveKeyIDAlias(t *testing.T) {
 
 	backend := kms.NewInMemoryBackend()
 
-	key, _ := backend.CreateKey(&kms.CreateKeyInput{})
-	_ = backend.CreateAlias(&kms.CreateAliasInput{
+	key, _ := backend.CreateKey(context.Background(), &kms.CreateKeyInput{})
+	_ = backend.CreateAlias(context.Background(), &kms.CreateAliasInput{
 		AliasName:   "alias/resolve-test",
 		TargetKeyID: key.KeyMetadata.KeyID,
 	})
 
 	// Encrypt with alias - exercises resolveKeyID alias path
-	out, err := backend.Encrypt(&kms.EncryptInput{
+	out, err := backend.Encrypt(context.Background(), &kms.EncryptInput{
 		KeyID:     "alias/resolve-test",
 		Plaintext: []byte("hello"),
 	})
@@ -924,11 +940,11 @@ func TestKMSParseMarkerBadToken(t *testing.T) {
 
 	backend := kms.NewInMemoryBackend()
 	for range 3 {
-		_, _ = backend.CreateKey(&kms.CreateKeyInput{})
+		_, _ = backend.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	}
 
 	// A bad marker should be treated as 0 (start from beginning)
-	out, err := backend.ListKeys(&kms.ListKeysInput{Marker: "not-a-number"})
+	out, err := backend.ListKeys(context.Background(), &kms.ListKeysInput{Marker: "not-a-number"})
 	require.NoError(t, err)
 	assert.Len(t, out.Keys, 3)
 }
@@ -938,11 +954,11 @@ func TestKMSResolveKeyIDARN(t *testing.T) {
 	t.Parallel()
 
 	backend := kms.NewInMemoryBackend()
-	key, _ := backend.CreateKey(&kms.CreateKeyInput{})
+	key, _ := backend.CreateKey(context.Background(), &kms.CreateKeyInput{})
 
 	// Use ARN format to encrypt
 	keyArn := key.KeyMetadata.Arn
-	out, err := backend.Encrypt(&kms.EncryptInput{
+	out, err := backend.Encrypt(context.Background(), &kms.EncryptInput{
 		KeyID:     keyArn,
 		Plaintext: []byte("arn-test"),
 	})
@@ -983,7 +999,7 @@ func TestKMSGenerateDataKeyErrors(t *testing.T) {
 	backend := kms.NewInMemoryBackend()
 
 	// Key not found
-	_, err := backend.GenerateDataKey(&kms.GenerateDataKeyInput{
+	_, err := backend.GenerateDataKey(context.Background(), &kms.GenerateDataKeyInput{
 		KeyID:   "nonexistent-key",
 		KeySpec: "AES_256",
 	})
@@ -997,13 +1013,13 @@ func TestKMSReEncryptErrors(t *testing.T) {
 	backend := kms.NewInMemoryBackend()
 
 	// Destination key not found
-	key, _ := backend.CreateKey(&kms.CreateKeyInput{})
-	enc, _ := backend.Encrypt(&kms.EncryptInput{
+	key, _ := backend.CreateKey(context.Background(), &kms.CreateKeyInput{})
+	enc, _ := backend.Encrypt(context.Background(), &kms.EncryptInput{
 		KeyID:     key.KeyMetadata.KeyID,
 		Plaintext: []byte("test"),
 	})
 
-	_, err := backend.ReEncrypt(&kms.ReEncryptInput{
+	_, err := backend.ReEncrypt(context.Background(), &kms.ReEncryptInput{
 		CiphertextBlob:   enc.CiphertextBlob,
 		DestinationKeyID: "nonexistent-dest",
 	})
@@ -1016,7 +1032,7 @@ func TestKMSCreateAliasKeyNotFound(t *testing.T) {
 
 	backend := kms.NewInMemoryBackend()
 
-	err := backend.CreateAlias(&kms.CreateAliasInput{
+	err := backend.CreateAlias(context.Background(), &kms.CreateAliasInput{
 		AliasName:   "alias/no-key",
 		TargetKeyID: "nonexistent-key-id",
 	})
@@ -1028,14 +1044,14 @@ func TestKMSListAliasesWithAliasFilter(t *testing.T) {
 	t.Parallel()
 
 	backend := kms.NewInMemoryBackend()
-	key, _ := backend.CreateKey(&kms.CreateKeyInput{})
-	_ = backend.CreateAlias(&kms.CreateAliasInput{
+	key, _ := backend.CreateKey(context.Background(), &kms.CreateKeyInput{})
+	_ = backend.CreateAlias(context.Background(), &kms.CreateAliasInput{
 		AliasName:   "alias/lookup-test",
 		TargetKeyID: key.KeyMetadata.KeyID,
 	})
 
 	// Filter using the alias name itself
-	out, err := backend.ListAliases(&kms.ListAliasesInput{
+	out, err := backend.ListAliases(context.Background(), &kms.ListAliasesInput{
 		KeyID: "alias/lookup-test",
 	})
 	require.NoError(t, err)
@@ -1047,7 +1063,7 @@ func TestKMSGetKeyRotationStatusNotFound(t *testing.T) {
 	t.Parallel()
 
 	backend := kms.NewInMemoryBackend()
-	_, err := backend.GetKeyRotationStatus(&kms.GetKeyRotationStatusInput{KeyID: "missing"})
+	_, err := backend.GetKeyRotationStatus(context.Background(), &kms.GetKeyRotationStatusInput{KeyID: "missing"})
 	require.ErrorIs(t, err, kms.ErrKeyNotFound)
 }
 
@@ -1056,7 +1072,7 @@ func TestKMSEnableKeyRotationNotFound(t *testing.T) {
 	t.Parallel()
 
 	backend := kms.NewInMemoryBackend()
-	err := backend.EnableKeyRotation(&kms.EnableKeyRotationInput{KeyID: "missing"})
+	err := backend.EnableKeyRotation(context.Background(), &kms.EnableKeyRotationInput{KeyID: "missing"})
 	require.ErrorIs(t, err, kms.ErrKeyNotFound)
 }
 
@@ -1065,7 +1081,7 @@ func TestKMSDisableKeyRotationNotFound(t *testing.T) {
 	t.Parallel()
 
 	backend := kms.NewInMemoryBackend()
-	err := backend.DisableKeyRotation(&kms.DisableKeyRotationInput{KeyID: "missing"})
+	err := backend.DisableKeyRotation(context.Background(), &kms.DisableKeyRotationInput{KeyID: "missing"})
 	require.ErrorIs(t, err, kms.ErrKeyNotFound)
 }
 
@@ -1074,13 +1090,13 @@ func TestKMSKeyMetadataFields(t *testing.T) {
 	t.Parallel()
 
 	backend := kms.NewInMemoryBackend()
-	created, err := backend.CreateKey(&kms.CreateKeyInput{
+	created, err := backend.CreateKey(context.Background(), &kms.CreateKeyInput{
 		Description: "test key",
 		KeyUsage:    "ENCRYPT_DECRYPT",
 	})
 	require.NoError(t, err)
 
-	out, err := backend.DescribeKey(&kms.DescribeKeyInput{KeyID: created.KeyMetadata.KeyID})
+	out, err := backend.DescribeKey(context.Background(), &kms.DescribeKeyInput{KeyID: created.KeyMetadata.KeyID})
 	require.NoError(t, err)
 
 	assert.Equal(t, "CUSTOMER", out.KeyMetadata.KeyManager)
@@ -1095,24 +1111,24 @@ func TestKMSDisableEnableKey(t *testing.T) {
 	t.Parallel()
 
 	backend := kms.NewInMemoryBackend()
-	out, err := backend.CreateKey(&kms.CreateKeyInput{})
+	out, err := backend.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 	keyID := out.KeyMetadata.KeyID
 
-	require.NoError(t, backend.DisableKey(&kms.DisableKeyInput{KeyID: keyID}))
+	require.NoError(t, backend.DisableKey(context.Background(), &kms.DisableKeyInput{KeyID: keyID}))
 
-	desc, err := backend.DescribeKey(&kms.DescribeKeyInput{KeyID: keyID})
+	desc, err := backend.DescribeKey(context.Background(), &kms.DescribeKeyInput{KeyID: keyID})
 	require.NoError(t, err)
 	assert.Equal(t, kms.KeyStateDisabled, desc.KeyMetadata.KeyState)
 
 	// Encrypt should fail when key is disabled
-	_, err = backend.Encrypt(&kms.EncryptInput{KeyID: keyID, Plaintext: []byte("test")})
+	_, err = backend.Encrypt(context.Background(), &kms.EncryptInput{KeyID: keyID, Plaintext: []byte("test")})
 	require.ErrorIs(t, err, kms.ErrKeyDisabled)
 
 	// Re-enable
-	require.NoError(t, backend.EnableKey(&kms.EnableKeyInput{KeyID: keyID}))
+	require.NoError(t, backend.EnableKey(context.Background(), &kms.EnableKeyInput{KeyID: keyID}))
 
-	desc, err = backend.DescribeKey(&kms.DescribeKeyInput{KeyID: keyID})
+	desc, err = backend.DescribeKey(context.Background(), &kms.DescribeKeyInput{KeyID: keyID})
 	require.NoError(t, err)
 	assert.Equal(t, kms.KeyStateEnabled, desc.KeyMetadata.KeyState)
 }
@@ -1122,11 +1138,11 @@ func TestKMSScheduleAndCancelKeyDeletion(t *testing.T) {
 	t.Parallel()
 
 	backend := kms.NewInMemoryBackend()
-	out, err := backend.CreateKey(&kms.CreateKeyInput{})
+	out, err := backend.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 	keyID := out.KeyMetadata.KeyID
 
-	schedOut, err := backend.ScheduleKeyDeletion(&kms.ScheduleKeyDeletionInput{
+	schedOut, err := backend.ScheduleKeyDeletion(context.Background(), &kms.ScheduleKeyDeletionInput{
 		KeyID:               keyID,
 		PendingWindowInDays: 7,
 	})
@@ -1135,11 +1151,11 @@ func TestKMSScheduleAndCancelKeyDeletion(t *testing.T) {
 	assert.NotZero(t, schedOut.DeletionDate)
 
 	// Cancel deletion — key should become Disabled
-	cancelOut, cancelErr := backend.CancelKeyDeletion(&kms.CancelKeyDeletionInput{KeyID: keyID})
+	cancelOut, cancelErr := backend.CancelKeyDeletion(context.Background(), &kms.CancelKeyDeletionInput{KeyID: keyID})
 	require.NoError(t, cancelErr)
 	assert.Equal(t, kms.KeyStateDisabled, cancelOut.KeyState)
 
-	desc, err := backend.DescribeKey(&kms.DescribeKeyInput{KeyID: keyID})
+	desc, err := backend.DescribeKey(context.Background(), &kms.DescribeKeyInput{KeyID: keyID})
 	require.NoError(t, err)
 	assert.Equal(t, kms.KeyStateDisabled, desc.KeyMetadata.KeyState)
 }
@@ -1151,7 +1167,7 @@ func TestKMSHandlerDisableEnableKey(t *testing.T) {
 	backend := kms.NewInMemoryBackend()
 	h := kms.NewHandler(backend)
 
-	out, _ := backend.CreateKey(&kms.CreateKeyInput{})
+	out, _ := backend.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	keyID := out.KeyMetadata.KeyID
 
 	doKMSReqLocal := func(t *testing.T, h *kms.Handler, action, body string) *httptest.ResponseRecorder {
@@ -1211,7 +1227,7 @@ func TestKMSGrantOperations(t *testing.T) {
 	backend := kms.NewInMemoryBackend()
 	h := kms.NewHandler(backend)
 
-	keyOut, err := backend.CreateKey(&kms.CreateKeyInput{Description: "grant-test"})
+	keyOut, err := backend.CreateKey(context.Background(), &kms.CreateKeyInput{Description: "grant-test"})
 	require.NoError(t, err)
 	keyID := keyOut.KeyMetadata.KeyID
 
@@ -1252,7 +1268,7 @@ func TestKMSKeyPolicy(t *testing.T) {
 	backend := kms.NewInMemoryBackend()
 	h := kms.NewHandler(backend)
 
-	keyOut, err := backend.CreateKey(&kms.CreateKeyInput{Description: "policy-test"})
+	keyOut, err := backend.CreateKey(context.Background(), &kms.CreateKeyInput{Description: "policy-test"})
 	require.NoError(t, err)
 	keyID := keyOut.KeyMetadata.KeyID
 
@@ -1280,7 +1296,7 @@ func TestKMSGenerateDataKeyWithoutPlaintext(t *testing.T) {
 	backend := kms.NewInMemoryBackend()
 	h := kms.NewHandler(backend)
 
-	keyOut, err := backend.CreateKey(&kms.CreateKeyInput{})
+	keyOut, err := backend.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 	keyID := keyOut.KeyMetadata.KeyID
 
@@ -1301,7 +1317,7 @@ func TestKMSRetireGrant(t *testing.T) {
 	h := kms.NewHandler(backend)
 
 	// Create a key and grant
-	keyOut, err := backend.CreateKey(&kms.CreateKeyInput{Description: "retire-grant-test"})
+	keyOut, err := backend.CreateKey(context.Background(), &kms.CreateKeyInput{Description: "retire-grant-test"})
 	require.NoError(t, err)
 	keyID := keyOut.KeyMetadata.KeyID
 
@@ -1345,7 +1361,7 @@ func TestKMSTagOperations(t *testing.T) {
 	backend := kms.NewInMemoryBackend()
 	h := kms.NewHandler(backend)
 
-	keyOut, err := backend.CreateKey(&kms.CreateKeyInput{Description: "tag-test"})
+	keyOut, err := backend.CreateKey(context.Background(), &kms.CreateKeyInput{Description: "tag-test"})
 	require.NoError(t, err)
 	keyID := keyOut.KeyMetadata.KeyID
 
@@ -1433,7 +1449,7 @@ func TestKMSBackendInvalidKeyUsage(t *testing.T) {
 		{
 			name: "Encrypt_with_sign_verify_key",
 			operation: func(b *kms.InMemoryBackend, keyID string) error {
-				_, err := b.Encrypt(&kms.EncryptInput{KeyID: keyID, Plaintext: []byte("test")})
+				_, err := b.Encrypt(context.Background(), &kms.EncryptInput{KeyID: keyID, Plaintext: []byte("test")})
 
 				return err
 			},
@@ -1441,7 +1457,10 @@ func TestKMSBackendInvalidKeyUsage(t *testing.T) {
 		{
 			name: "GenerateDataKey_with_sign_verify_key",
 			operation: func(b *kms.InMemoryBackend, keyID string) error {
-				_, err := b.GenerateDataKey(&kms.GenerateDataKeyInput{KeyID: keyID, KeySpec: "AES_256"})
+				_, err := b.GenerateDataKey(
+					context.Background(),
+					&kms.GenerateDataKeyInput{KeyID: keyID, KeySpec: "AES_256"},
+				)
 
 				return err
 			},
@@ -1449,12 +1468,12 @@ func TestKMSBackendInvalidKeyUsage(t *testing.T) {
 		{
 			name: "ReEncrypt_with_sign_verify_dest_key",
 			operation: func(b *kms.InMemoryBackend, keyID string) error {
-				encKey, createErr := b.CreateKey(&kms.CreateKeyInput{})
+				encKey, createErr := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 				if createErr != nil {
 					return createErr
 				}
 
-				encOut, encErr := b.Encrypt(&kms.EncryptInput{
+				encOut, encErr := b.Encrypt(context.Background(), &kms.EncryptInput{
 					KeyID:     encKey.KeyMetadata.KeyID,
 					Plaintext: []byte("test"),
 				})
@@ -1462,7 +1481,7 @@ func TestKMSBackendInvalidKeyUsage(t *testing.T) {
 					return encErr
 				}
 
-				_, err := b.ReEncrypt(&kms.ReEncryptInput{
+				_, err := b.ReEncrypt(context.Background(), &kms.ReEncryptInput{
 					DestinationKeyID: keyID,
 					CiphertextBlob:   encOut.CiphertextBlob,
 				})
@@ -1477,7 +1496,7 @@ func TestKMSBackendInvalidKeyUsage(t *testing.T) {
 			t.Parallel()
 
 			b := kms.NewInMemoryBackend()
-			createOut, err := b.CreateKey(&kms.CreateKeyInput{KeyUsage: kms.KeyUsageSignVerify})
+			createOut, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{KeyUsage: kms.KeyUsageSignVerify})
 			require.NoError(t, err)
 
 			err = tt.operation(b, createOut.KeyMetadata.KeyID)
@@ -1524,7 +1543,7 @@ func TestKMSBackendSignVerify(t *testing.T) {
 
 			backend := kms.NewInMemoryBackend()
 
-			keyOut, err := backend.CreateKey(&kms.CreateKeyInput{
+			keyOut, err := backend.CreateKey(context.Background(), &kms.CreateKeyInput{
 				KeyUsage: kms.KeyUsageSignVerify,
 				KeySpec:  tt.keySpec,
 			})
@@ -1533,7 +1552,7 @@ func TestKMSBackendSignVerify(t *testing.T) {
 
 			message := []byte("hello, cryptographic world")
 
-			signOut, err := backend.Sign(&kms.SignInput{
+			signOut, err := backend.Sign(context.Background(), &kms.SignInput{
 				KeyID:            keyID,
 				Message:          message,
 				MessageType:      "RAW",
@@ -1544,7 +1563,7 @@ func TestKMSBackendSignVerify(t *testing.T) {
 			assert.NotEqual(t, message, signOut.Signature)
 			assert.Equal(t, tt.signingAlgorithm, signOut.SigningAlgorithm)
 
-			verifyOut, err := backend.Verify(&kms.VerifyInput{
+			verifyOut, err := backend.Verify(context.Background(), &kms.VerifyInput{
 				KeyID:            keyID,
 				Message:          message,
 				MessageType:      "RAW",
@@ -1563,7 +1582,7 @@ func TestKMSBackendVerifyInvalidSignature(t *testing.T) {
 
 	backend := kms.NewInMemoryBackend()
 
-	keyOut, err := backend.CreateKey(&kms.CreateKeyInput{
+	keyOut, err := backend.CreateKey(context.Background(), &kms.CreateKeyInput{
 		KeyUsage: kms.KeyUsageSignVerify,
 		KeySpec:  "RSA_2048",
 	})
@@ -1572,7 +1591,7 @@ func TestKMSBackendVerifyInvalidSignature(t *testing.T) {
 
 	message := []byte("test message")
 
-	signOut, err := backend.Sign(&kms.SignInput{
+	signOut, err := backend.Sign(context.Background(), &kms.SignInput{
 		KeyID:            keyID,
 		Message:          message,
 		MessageType:      "RAW",
@@ -1585,7 +1604,7 @@ func TestKMSBackendVerifyInvalidSignature(t *testing.T) {
 	copy(tampered, signOut.Signature)
 	tampered[0] ^= 0xFF
 
-	_, err = backend.Verify(&kms.VerifyInput{
+	_, err = backend.Verify(context.Background(), &kms.VerifyInput{
 		KeyID:            keyID,
 		Message:          message,
 		MessageType:      "RAW",
@@ -1612,13 +1631,16 @@ func TestKMSBackendGetPublicKey(t *testing.T) {
 			t.Parallel()
 
 			backend := kms.NewInMemoryBackend()
-			keyOut, err := backend.CreateKey(&kms.CreateKeyInput{
+			keyOut, err := backend.CreateKey(context.Background(), &kms.CreateKeyInput{
 				KeyUsage: kms.KeyUsageSignVerify,
 				KeySpec:  tt.keySpec,
 			})
 			require.NoError(t, err)
 
-			pubKeyOut, err := backend.GetPublicKey(&kms.GetPublicKeyInput{KeyID: keyOut.KeyMetadata.KeyID})
+			pubKeyOut, err := backend.GetPublicKey(
+				context.Background(),
+				&kms.GetPublicKeyInput{KeyID: keyOut.KeyMetadata.KeyID},
+			)
 			require.NoError(t, err)
 			assert.NotEmpty(t, pubKeyOut.PublicKey)
 			assert.Equal(t, tt.keySpec, pubKeyOut.KeySpec)
@@ -1632,10 +1654,10 @@ func TestKMSBackendSignWrongKeyType(t *testing.T) {
 	t.Parallel()
 
 	backend := kms.NewInMemoryBackend()
-	symKey, err := backend.CreateKey(&kms.CreateKeyInput{KeyUsage: kms.KeyUsageEncryptDecrypt})
+	symKey, err := backend.CreateKey(context.Background(), &kms.CreateKeyInput{KeyUsage: kms.KeyUsageEncryptDecrypt})
 	require.NoError(t, err)
 
-	_, err = backend.Sign(&kms.SignInput{
+	_, err = backend.Sign(context.Background(), &kms.SignInput{
 		KeyID:            symKey.KeyMetadata.KeyID,
 		Message:          []byte("test"),
 		MessageType:      "RAW",
@@ -1649,7 +1671,7 @@ func TestKMSBackendSignVerifyDigestMode(t *testing.T) {
 	t.Parallel()
 
 	backend := kms.NewInMemoryBackend()
-	keyOut, err := backend.CreateKey(&kms.CreateKeyInput{
+	keyOut, err := backend.CreateKey(context.Background(), &kms.CreateKeyInput{
 		KeyUsage: kms.KeyUsageSignVerify,
 		KeySpec:  "RSA_2048",
 	})
@@ -1659,7 +1681,7 @@ func TestKMSBackendSignVerifyDigestMode(t *testing.T) {
 	rawMsg := []byte("data to sign")
 
 	// Sign using RAW mode first to get signature
-	signOut, err := backend.Sign(&kms.SignInput{
+	signOut, err := backend.Sign(context.Background(), &kms.SignInput{
 		KeyID:            keyID,
 		Message:          rawMsg,
 		MessageType:      "RAW",
@@ -1670,7 +1692,7 @@ func TestKMSBackendSignVerifyDigestMode(t *testing.T) {
 	// Verify using DIGEST mode (pre-computed hash)
 	d512 := sha512.Sum512(rawMsg)
 	digest512 := d512[:]
-	verifyOut, err := backend.Verify(&kms.VerifyInput{
+	verifyOut, err := backend.Verify(context.Background(), &kms.VerifyInput{
 		KeyID:            keyID,
 		Message:          digest512,
 		MessageType:      "DIGEST",
@@ -1688,22 +1710,22 @@ func TestKMSSnapshotRestoreWithKeyMaterials(t *testing.T) {
 	original := kms.NewInMemoryBackend()
 
 	// Create symmetric key and encrypt something
-	symKey, err := original.CreateKey(&kms.CreateKeyInput{})
+	symKey, err := original.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 	plaintext := []byte("persistence test data")
-	encOut, err := original.Encrypt(&kms.EncryptInput{
+	encOut, err := original.Encrypt(context.Background(), &kms.EncryptInput{
 		KeyID:     symKey.KeyMetadata.KeyID,
 		Plaintext: plaintext,
 	})
 	require.NoError(t, err)
 
 	// Create asymmetric key and sign something
-	asymKey, err := original.CreateKey(&kms.CreateKeyInput{
+	asymKey, err := original.CreateKey(context.Background(), &kms.CreateKeyInput{
 		KeyUsage: kms.KeyUsageSignVerify,
 		KeySpec:  "ECC_NIST_P256",
 	})
 	require.NoError(t, err)
-	signOut, err := original.Sign(&kms.SignInput{
+	signOut, err := original.Sign(context.Background(), &kms.SignInput{
 		KeyID:            asymKey.KeyMetadata.KeyID,
 		Message:          plaintext,
 		MessageType:      "RAW",
@@ -1719,12 +1741,12 @@ func TestKMSSnapshotRestoreWithKeyMaterials(t *testing.T) {
 	require.NoError(t, restored.Restore(snap))
 
 	// Decrypt using restored backend — must use same per-key material
-	decOut, err := restored.Decrypt(&kms.DecryptInput{CiphertextBlob: encOut.CiphertextBlob})
+	decOut, err := restored.Decrypt(context.Background(), &kms.DecryptInput{CiphertextBlob: encOut.CiphertextBlob})
 	require.NoError(t, err)
 	assert.Equal(t, plaintext, decOut.Plaintext)
 
 	// Verify using restored backend — must use same per-key material
-	verifyOut, err := restored.Verify(&kms.VerifyInput{
+	verifyOut, err := restored.Verify(context.Background(), &kms.VerifyInput{
 		KeyID:            asymKey.KeyMetadata.KeyID,
 		Message:          plaintext,
 		MessageType:      "RAW",
@@ -1766,14 +1788,14 @@ func TestKMSBackendSignVerifyAdditionalKeySpecs(t *testing.T) {
 			t.Parallel()
 
 			b := kms.NewInMemoryBackend()
-			keyOut, err := b.CreateKey(&kms.CreateKeyInput{
+			keyOut, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{
 				KeyUsage: kms.KeyUsageSignVerify,
 				KeySpec:  tt.keySpec,
 			})
 			require.NoError(t, err)
 
 			msg := []byte("test-" + tt.name)
-			signOut, err := b.Sign(&kms.SignInput{
+			signOut, err := b.Sign(context.Background(), &kms.SignInput{
 				KeyID:            keyOut.KeyMetadata.KeyID,
 				Message:          msg,
 				MessageType:      "RAW",
@@ -1781,7 +1803,7 @@ func TestKMSBackendSignVerifyAdditionalKeySpecs(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			verifyOut, err := b.Verify(&kms.VerifyInput{
+			verifyOut, err := b.Verify(context.Background(), &kms.VerifyInput{
 				KeyID:            keyOut.KeyMetadata.KeyID,
 				Message:          msg,
 				MessageType:      "RAW",
@@ -1799,7 +1821,7 @@ func TestKMSBackendUnsupportedKeySpec(t *testing.T) {
 	t.Parallel()
 
 	b := kms.NewInMemoryBackend()
-	_, err := b.CreateKey(&kms.CreateKeyInput{
+	_, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{
 		KeySpec: "UNSUPPORTED_SPEC",
 	})
 	require.Error(t, err)
@@ -1926,14 +1948,14 @@ func TestKMSSnapshotRestoreRSA3072(t *testing.T) {
 	t.Parallel()
 
 	original := kms.NewInMemoryBackend()
-	keyOut, err := original.CreateKey(&kms.CreateKeyInput{
+	keyOut, err := original.CreateKey(context.Background(), &kms.CreateKeyInput{
 		KeyUsage: kms.KeyUsageSignVerify,
 		KeySpec:  "RSA_3072",
 	})
 	require.NoError(t, err)
 
 	msg := []byte("rsa-3072-persistence-test")
-	signOut, err := original.Sign(&kms.SignInput{
+	signOut, err := original.Sign(context.Background(), &kms.SignInput{
 		KeyID:            keyOut.KeyMetadata.KeyID,
 		Message:          msg,
 		MessageType:      "RAW",
@@ -1947,7 +1969,7 @@ func TestKMSSnapshotRestoreRSA3072(t *testing.T) {
 	restored := kms.NewInMemoryBackend()
 	require.NoError(t, restored.Restore(snap))
 
-	verifyOut, err := restored.Verify(&kms.VerifyInput{
+	verifyOut, err := restored.Verify(context.Background(), &kms.VerifyInput{
 		KeyID:            keyOut.KeyMetadata.KeyID,
 		Message:          msg,
 		MessageType:      "RAW",
@@ -1963,10 +1985,10 @@ func TestKMSBackendGetPublicKeySymmetricFails(t *testing.T) {
 	t.Parallel()
 
 	b := kms.NewInMemoryBackend()
-	keyOut, err := b.CreateKey(&kms.CreateKeyInput{KeyUsage: kms.KeyUsageEncryptDecrypt})
+	keyOut, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{KeyUsage: kms.KeyUsageEncryptDecrypt})
 	require.NoError(t, err)
 
-	_, err = b.GetPublicKey(&kms.GetPublicKeyInput{KeyID: keyOut.KeyMetadata.KeyID})
+	_, err = b.GetPublicKey(context.Background(), &kms.GetPublicKeyInput{KeyID: keyOut.KeyMetadata.KeyID})
 	require.ErrorIs(t, err, kms.ErrInvalidKeyUsage)
 }
 
@@ -1975,14 +1997,14 @@ func TestKMSBackendVerifyDisabledKey(t *testing.T) {
 	t.Parallel()
 
 	b := kms.NewInMemoryBackend()
-	keyOut, err := b.CreateKey(&kms.CreateKeyInput{
+	keyOut, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{
 		KeyUsage: kms.KeyUsageSignVerify,
 		KeySpec:  "ECC_NIST_P256",
 	})
 	require.NoError(t, err)
 	keyID := keyOut.KeyMetadata.KeyID
 
-	signOut, err := b.Sign(&kms.SignInput{
+	signOut, err := b.Sign(context.Background(), &kms.SignInput{
 		KeyID:            keyID,
 		Message:          []byte("test"),
 		MessageType:      "RAW",
@@ -1990,9 +2012,9 @@ func TestKMSBackendVerifyDisabledKey(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.NoError(t, b.DisableKey(&kms.DisableKeyInput{KeyID: keyID}))
+	require.NoError(t, b.DisableKey(context.Background(), &kms.DisableKeyInput{KeyID: keyID}))
 
-	_, err = b.Verify(&kms.VerifyInput{
+	_, err = b.Verify(context.Background(), &kms.VerifyInput{
 		KeyID:            keyID,
 		Message:          []byte("test"),
 		MessageType:      "RAW",
@@ -2007,15 +2029,15 @@ func TestKMSBackendSignDisabledKey(t *testing.T) {
 	t.Parallel()
 
 	b := kms.NewInMemoryBackend()
-	keyOut, err := b.CreateKey(&kms.CreateKeyInput{
+	keyOut, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{
 		KeyUsage: kms.KeyUsageSignVerify,
 		KeySpec:  "RSA_2048",
 	})
 	require.NoError(t, err)
 
-	require.NoError(t, b.DisableKey(&kms.DisableKeyInput{KeyID: keyOut.KeyMetadata.KeyID}))
+	require.NoError(t, b.DisableKey(context.Background(), &kms.DisableKeyInput{KeyID: keyOut.KeyMetadata.KeyID}))
 
-	_, err = b.Sign(&kms.SignInput{
+	_, err = b.Sign(context.Background(), &kms.SignInput{
 		KeyID:            keyOut.KeyMetadata.KeyID,
 		Message:          []byte("test"),
 		MessageType:      "RAW",
@@ -2030,13 +2052,13 @@ func TestKMSKeyMetadataSigningAlgorithms(t *testing.T) {
 	t.Parallel()
 
 	b := kms.NewInMemoryBackend()
-	keyOut, err := b.CreateKey(&kms.CreateKeyInput{
+	keyOut, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{
 		KeyUsage: kms.KeyUsageSignVerify,
 		KeySpec:  "RSA_2048",
 	})
 	require.NoError(t, err)
 
-	descOut, err := b.DescribeKey(&kms.DescribeKeyInput{KeyID: keyOut.KeyMetadata.KeyID})
+	descOut, err := b.DescribeKey(context.Background(), &kms.DescribeKeyInput{KeyID: keyOut.KeyMetadata.KeyID})
 	require.NoError(t, err)
 	assert.NotEmpty(t, descOut.KeyMetadata.SigningAlgorithms)
 	assert.Contains(t, descOut.KeyMetadata.SigningAlgorithms, "RSASSA_PSS_SHA_256")
@@ -2047,13 +2069,13 @@ func TestKMSBackendSignUnsupportedAlgorithm(t *testing.T) {
 	t.Parallel()
 
 	b := kms.NewInMemoryBackend()
-	keyOut, err := b.CreateKey(&kms.CreateKeyInput{
+	keyOut, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{
 		KeyUsage: kms.KeyUsageSignVerify,
 		KeySpec:  "RSA_2048",
 	})
 	require.NoError(t, err)
 
-	_, err = b.Sign(&kms.SignInput{
+	_, err = b.Sign(context.Background(), &kms.SignInput{
 		KeyID:            keyOut.KeyMetadata.KeyID,
 		Message:          []byte("test"),
 		MessageType:      "RAW",
@@ -2067,13 +2089,13 @@ func TestKMSBackendVerifyUnsupportedAlgorithm(t *testing.T) {
 	t.Parallel()
 
 	b := kms.NewInMemoryBackend()
-	keyOut, err := b.CreateKey(&kms.CreateKeyInput{
+	keyOut, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{
 		KeyUsage: kms.KeyUsageSignVerify,
 		KeySpec:  "RSA_2048",
 	})
 	require.NoError(t, err)
 
-	_, err = b.Verify(&kms.VerifyInput{
+	_, err = b.Verify(context.Background(), &kms.VerifyInput{
 		KeyID:            keyOut.KeyMetadata.KeyID,
 		Message:          []byte("test"),
 		MessageType:      "RAW",
@@ -2088,7 +2110,7 @@ func TestKMSBackendVerifyECDSAInvalidASN1(t *testing.T) {
 	t.Parallel()
 
 	b := kms.NewInMemoryBackend()
-	keyOut, err := b.CreateKey(&kms.CreateKeyInput{
+	keyOut, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{
 		KeyUsage: kms.KeyUsageSignVerify,
 		KeySpec:  "ECC_NIST_P256",
 	})
@@ -2096,7 +2118,7 @@ func TestKMSBackendVerifyECDSAInvalidASN1(t *testing.T) {
 
 	// Provide a signature that is not valid ASN.1
 	invalidSig := []byte("not-asn1-signature-data-at-all-!!!!")
-	_, err = b.Verify(&kms.VerifyInput{
+	_, err = b.Verify(context.Background(), &kms.VerifyInput{
 		KeyID:            keyOut.KeyMetadata.KeyID,
 		Message:          []byte("test message"),
 		MessageType:      "RAW",
@@ -2111,7 +2133,7 @@ func TestKMSBackendVerifyECDSAWrongSignature(t *testing.T) {
 	t.Parallel()
 
 	b := kms.NewInMemoryBackend()
-	keyOut, err := b.CreateKey(&kms.CreateKeyInput{
+	keyOut, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{
 		KeyUsage: kms.KeyUsageSignVerify,
 		KeySpec:  "ECC_NIST_P256",
 	})
@@ -2119,7 +2141,7 @@ func TestKMSBackendVerifyECDSAWrongSignature(t *testing.T) {
 	keyID := keyOut.KeyMetadata.KeyID
 
 	// Sign one message
-	signOut, err := b.Sign(&kms.SignInput{
+	signOut, err := b.Sign(context.Background(), &kms.SignInput{
 		KeyID:            keyID,
 		Message:          []byte("message-a"),
 		MessageType:      "RAW",
@@ -2128,7 +2150,7 @@ func TestKMSBackendVerifyECDSAWrongSignature(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify against a different message — should fail
-	_, err = b.Verify(&kms.VerifyInput{
+	_, err = b.Verify(context.Background(), &kms.VerifyInput{
 		KeyID:            keyID,
 		Message:          []byte("message-b"),
 		MessageType:      "RAW",
@@ -2146,9 +2168,9 @@ func TestKMSHandlerSnapshotRestore(t *testing.T) {
 	h := kms.NewHandler(backend)
 
 	// Create a key and encrypt something to populate state
-	keyOut, err := backend.CreateKey(&kms.CreateKeyInput{Description: "snapshot-test"})
+	keyOut, err := backend.CreateKey(context.Background(), &kms.CreateKeyInput{Description: "snapshot-test"})
 	require.NoError(t, err)
-	encOut, err := backend.Encrypt(&kms.EncryptInput{
+	encOut, err := backend.Encrypt(context.Background(), &kms.EncryptInput{
 		KeyID:     keyOut.KeyMetadata.KeyID,
 		Plaintext: []byte("snap-data"),
 	})
@@ -2163,7 +2185,7 @@ func TestKMSHandlerSnapshotRestore(t *testing.T) {
 	require.NoError(t, h2.Restore(snap))
 
 	// Decrypt with restored handler's backend
-	decOut, err := backend2.Decrypt(&kms.DecryptInput{CiphertextBlob: encOut.CiphertextBlob})
+	decOut, err := backend2.Decrypt(context.Background(), &kms.DecryptInput{CiphertextBlob: encOut.CiphertextBlob})
 	require.NoError(t, err)
 	assert.Equal(t, []byte("snap-data"), decOut.Plaintext)
 }
@@ -2173,14 +2195,14 @@ func TestKMSBackendSnapshotRestoreECDSA(t *testing.T) {
 	t.Parallel()
 
 	orig := kms.NewInMemoryBackend()
-	keyOut, err := orig.CreateKey(&kms.CreateKeyInput{
+	keyOut, err := orig.CreateKey(context.Background(), &kms.CreateKeyInput{
 		KeyUsage: kms.KeyUsageSignVerify,
 		KeySpec:  "ECC_NIST_P384",
 	})
 	require.NoError(t, err)
 
 	msg := []byte("ecdsa-snapshot-test")
-	signOut, err := orig.Sign(&kms.SignInput{
+	signOut, err := orig.Sign(context.Background(), &kms.SignInput{
 		KeyID:            keyOut.KeyMetadata.KeyID,
 		Message:          msg,
 		MessageType:      "RAW",
@@ -2194,7 +2216,7 @@ func TestKMSBackendSnapshotRestoreECDSA(t *testing.T) {
 	restored := kms.NewInMemoryBackend()
 	require.NoError(t, restored.Restore(snap))
 
-	verifyOut, err := restored.Verify(&kms.VerifyInput{
+	verifyOut, err := restored.Verify(context.Background(), &kms.VerifyInput{
 		KeyID:            keyOut.KeyMetadata.KeyID,
 		Message:          msg,
 		MessageType:      "RAW",
@@ -2210,15 +2232,15 @@ func TestKMSBackendGetPublicKeyDisabledKey(t *testing.T) {
 	t.Parallel()
 
 	b := kms.NewInMemoryBackend()
-	keyOut, err := b.CreateKey(&kms.CreateKeyInput{
+	keyOut, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{
 		KeyUsage: kms.KeyUsageSignVerify,
 		KeySpec:  "ECC_NIST_P256",
 	})
 	require.NoError(t, err)
 
-	require.NoError(t, b.DisableKey(&kms.DisableKeyInput{KeyID: keyOut.KeyMetadata.KeyID}))
+	require.NoError(t, b.DisableKey(context.Background(), &kms.DisableKeyInput{KeyID: keyOut.KeyMetadata.KeyID}))
 
-	_, err = b.GetPublicKey(&kms.GetPublicKeyInput{KeyID: keyOut.KeyMetadata.KeyID})
+	_, err = b.GetPublicKey(context.Background(), &kms.GetPublicKeyInput{KeyID: keyOut.KeyMetadata.KeyID})
 	require.ErrorIs(t, err, kms.ErrKeyDisabled)
 }
 
@@ -2227,7 +2249,7 @@ func TestKMSBackendGetPublicKeyNotFound(t *testing.T) {
 	t.Parallel()
 
 	b := kms.NewInMemoryBackend()
-	_, err := b.GetPublicKey(&kms.GetPublicKeyInput{KeyID: "non-existent-key"})
+	_, err := b.GetPublicKey(context.Background(), &kms.GetPublicKeyInput{KeyID: "non-existent-key"})
 	require.ErrorIs(t, err, kms.ErrKeyNotFound)
 }
 
@@ -2252,7 +2274,7 @@ func TestKMSHandlerTaggedKeysByARN(t *testing.T) {
 	h := kms.NewHandler(backend)
 
 	// Create a key
-	keyOut, err := backend.CreateKey(&kms.CreateKeyInput{Description: "tagged"})
+	keyOut, err := backend.CreateKey(context.Background(), &kms.CreateKeyInput{Description: "tagged"})
 	require.NoError(t, err)
 	keyARN := keyOut.KeyMetadata.Arn
 
@@ -2292,22 +2314,22 @@ func TestKMSBackendRetireGrantAllPaths(t *testing.T) {
 		t.Parallel()
 
 		b := kms.NewInMemoryBackend()
-		keyOut, err := b.CreateKey(&kms.CreateKeyInput{})
+		keyOut, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 		require.NoError(t, err)
 
-		grantOut, err := b.CreateGrant(&kms.CreateGrantInput{
+		grantOut, err := b.CreateGrant(context.Background(), &kms.CreateGrantInput{
 			KeyID:            keyOut.KeyMetadata.KeyID,
 			GranteePrincipal: "arn:aws:iam::123:role/test",
 			Operations:       []string{"Decrypt"},
 		})
 		require.NoError(t, err)
 
-		require.NoError(t, b.RetireGrant(&kms.RetireGrantInput{
+		require.NoError(t, b.RetireGrant(context.Background(), &kms.RetireGrantInput{
 			GrantID: grantOut.GrantID,
 		}))
 
 		// Retiring again should fail
-		err = b.RetireGrant(&kms.RetireGrantInput{GrantID: grantOut.GrantID})
+		err = b.RetireGrant(context.Background(), &kms.RetireGrantInput{GrantID: grantOut.GrantID})
 		require.ErrorIs(t, err, kms.ErrGrantNotFound)
 	})
 
@@ -2315,17 +2337,17 @@ func TestKMSBackendRetireGrantAllPaths(t *testing.T) {
 		t.Parallel()
 
 		b := kms.NewInMemoryBackend()
-		keyOut, err := b.CreateKey(&kms.CreateKeyInput{})
+		keyOut, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 		require.NoError(t, err)
 
-		grantOut, err := b.CreateGrant(&kms.CreateGrantInput{
+		grantOut, err := b.CreateGrant(context.Background(), &kms.CreateGrantInput{
 			KeyID:            keyOut.KeyMetadata.KeyID,
 			GranteePrincipal: "arn:aws:iam::123:role/test",
 			Operations:       []string{"Decrypt"},
 		})
 		require.NoError(t, err)
 
-		require.NoError(t, b.RetireGrant(&kms.RetireGrantInput{
+		require.NoError(t, b.RetireGrant(context.Background(), &kms.RetireGrantInput{
 			GrantID: grantOut.GrantID,
 			KeyID:   keyOut.KeyMetadata.KeyID,
 		}))
@@ -2335,7 +2357,7 @@ func TestKMSBackendRetireGrantAllPaths(t *testing.T) {
 		t.Parallel()
 
 		b := kms.NewInMemoryBackend()
-		err := b.RetireGrant(&kms.RetireGrantInput{GrantID: ""})
+		err := b.RetireGrant(context.Background(), &kms.RetireGrantInput{GrantID: ""})
 		require.ErrorIs(t, err, kms.ErrGrantNotFound)
 	})
 
@@ -2343,19 +2365,19 @@ func TestKMSBackendRetireGrantAllPaths(t *testing.T) {
 		t.Parallel()
 
 		b := kms.NewInMemoryBackend()
-		key1, err := b.CreateKey(&kms.CreateKeyInput{})
+		key1, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 		require.NoError(t, err)
-		key2, err := b.CreateKey(&kms.CreateKeyInput{})
+		key2, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 		require.NoError(t, err)
 
-		grantOut, err := b.CreateGrant(&kms.CreateGrantInput{
+		grantOut, err := b.CreateGrant(context.Background(), &kms.CreateGrantInput{
 			KeyID:            key1.KeyMetadata.KeyID,
 			GranteePrincipal: "arn:aws:iam::123:role/test",
 			Operations:       []string{"Decrypt"},
 		})
 		require.NoError(t, err)
 
-		err = b.RetireGrant(&kms.RetireGrantInput{
+		err = b.RetireGrant(context.Background(), &kms.RetireGrantInput{
 			GrantID: grantOut.GrantID,
 			KeyID:   key2.KeyMetadata.KeyID,
 		})
@@ -2368,7 +2390,7 @@ func TestKMSBackendDecryptCiphertextTooShort(t *testing.T) {
 	t.Parallel()
 
 	b := kms.NewInMemoryBackend()
-	_, err := b.Decrypt(&kms.DecryptInput{CiphertextBlob: []byte("short")})
+	_, err := b.Decrypt(context.Background(), &kms.DecryptInput{CiphertextBlob: []byte("short")})
 	require.ErrorIs(t, err, kms.ErrCiphertextTooShort)
 }
 
@@ -2377,23 +2399,23 @@ func TestKMSBackendGetKeyPolicyDefaultAndCustom(t *testing.T) {
 	t.Parallel()
 
 	b := kms.NewInMemoryBackend()
-	keyOut, err := b.CreateKey(&kms.CreateKeyInput{})
+	keyOut, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 	keyID := keyOut.KeyMetadata.KeyID
 
 	// Default policy
-	out, err := b.GetKeyPolicy(&kms.GetKeyPolicyInput{KeyID: keyID})
+	out, err := b.GetKeyPolicy(context.Background(), &kms.GetKeyPolicyInput{KeyID: keyID})
 	require.NoError(t, err)
 	assert.NotEmpty(t, out.Policy)
 	assert.Equal(t, "default", out.PolicyName)
 
 	// Custom policy
 	customPolicy := `{"Version":"2012-10-17","Statement":[]}`
-	require.NoError(t, b.PutKeyPolicy(&kms.PutKeyPolicyInput{
+	require.NoError(t, b.PutKeyPolicy(context.Background(), &kms.PutKeyPolicyInput{
 		KeyID:  keyID,
 		Policy: customPolicy,
 	}))
-	out2, err := b.GetKeyPolicy(&kms.GetKeyPolicyInput{
+	out2, err := b.GetKeyPolicy(context.Background(), &kms.GetKeyPolicyInput{
 		KeyID:      keyID,
 		PolicyName: "custom",
 	})
@@ -2408,11 +2430,11 @@ func TestKMSBackendDecryptNonExistentKey(t *testing.T) {
 	t.Parallel()
 
 	b := kms.NewInMemoryBackend()
-	key, err := b.CreateKey(&kms.CreateKeyInput{})
+	key, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 
 	// Encrypt with a valid key to confirm the normal path works.
-	encOut, err := b.Encrypt(&kms.EncryptInput{
+	encOut, err := b.Encrypt(context.Background(), &kms.EncryptInput{
 		KeyID:     key.KeyMetadata.KeyID,
 		Plaintext: []byte("data"),
 	})
@@ -2422,11 +2444,11 @@ func TestKMSBackendDecryptNonExistentKey(t *testing.T) {
 	// Decrypt should fail with ErrKeyNotFound (not a data-corruption error).
 	badBlob := make([]byte, 36+28) // keyIDPrefixLen + minimum nonce/ct size
 	copy(badBlob[:36], "nonexistent-key-id-000000000000000")
-	_, err = b.Decrypt(&kms.DecryptInput{CiphertextBlob: badBlob})
+	_, err = b.Decrypt(context.Background(), &kms.DecryptInput{CiphertextBlob: badBlob})
 	require.ErrorIs(t, err, kms.ErrKeyNotFound)
 
 	// Confirm successful decrypt recovers the expected plaintext.
-	decOut, err := b.Decrypt(&kms.DecryptInput{CiphertextBlob: encOut.CiphertextBlob})
+	decOut, err := b.Decrypt(context.Background(), &kms.DecryptInput{CiphertextBlob: encOut.CiphertextBlob})
 	require.NoError(t, err)
 	assert.Equal(t, []byte("data"), decOut.Plaintext)
 }
@@ -2436,7 +2458,7 @@ func TestKMSBackendPutKeyPolicyNotFound(t *testing.T) {
 	t.Parallel()
 
 	b := kms.NewInMemoryBackend()
-	err := b.PutKeyPolicy(&kms.PutKeyPolicyInput{
+	err := b.PutKeyPolicy(context.Background(), &kms.PutKeyPolicyInput{
 		KeyID:  "non-existent",
 		Policy: `{"Version":"2012-10-17"}`,
 	})
@@ -2448,10 +2470,10 @@ func TestKMSBackendReEncryptShortBlob(t *testing.T) {
 	t.Parallel()
 
 	b := kms.NewInMemoryBackend()
-	destKey, err := b.CreateKey(&kms.CreateKeyInput{})
+	destKey, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 
-	_, err = b.ReEncrypt(&kms.ReEncryptInput{
+	_, err = b.ReEncrypt(context.Background(), &kms.ReEncryptInput{
 		CiphertextBlob:   []byte("short"),
 		DestinationKeyID: destKey.KeyMetadata.KeyID,
 	})
@@ -2507,7 +2529,7 @@ func TestKMSCreateKeyIncompatibleSpecUsage(t *testing.T) {
 			t.Parallel()
 
 			b := kms.NewInMemoryBackend()
-			_, err := b.CreateKey(&kms.CreateKeyInput{
+			_, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{
 				KeySpec:  tt.keySpec,
 				KeyUsage: tt.keyUsage,
 			})
@@ -2522,7 +2544,7 @@ func TestKMSSignVerifyAlgorithmKeySpecMismatch(t *testing.T) {
 	t.Parallel()
 
 	b := kms.NewInMemoryBackend()
-	keyOut, err := b.CreateKey(&kms.CreateKeyInput{
+	keyOut, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{
 		KeyUsage: kms.KeyUsageSignVerify,
 		KeySpec:  "ECC_NIST_P384",
 	})
@@ -2531,7 +2553,7 @@ func TestKMSSignVerifyAlgorithmKeySpecMismatch(t *testing.T) {
 	msg := []byte("test")
 
 	// ECDSA_SHA_256 is only valid for ECC_NIST_P256, not ECC_NIST_P384
-	_, signErr := b.Sign(&kms.SignInput{
+	_, signErr := b.Sign(context.Background(), &kms.SignInput{
 		KeyID:            keyOut.KeyMetadata.KeyID,
 		Message:          msg,
 		MessageType:      "RAW",
@@ -2539,7 +2561,7 @@ func TestKMSSignVerifyAlgorithmKeySpecMismatch(t *testing.T) {
 	})
 	require.Error(t, signErr)
 
-	_, verifyErr := b.Verify(&kms.VerifyInput{
+	_, verifyErr := b.Verify(context.Background(), &kms.VerifyInput{
 		KeyID:            keyOut.KeyMetadata.KeyID,
 		Message:          msg,
 		MessageType:      "RAW",
@@ -2554,13 +2576,13 @@ func TestKMSHashAndAlgorithmInvalidMessageType(t *testing.T) {
 	t.Parallel()
 
 	b := kms.NewInMemoryBackend()
-	keyOut, err := b.CreateKey(&kms.CreateKeyInput{
+	keyOut, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{
 		KeyUsage: kms.KeyUsageSignVerify,
 		KeySpec:  "RSA_2048",
 	})
 	require.NoError(t, err)
 
-	_, err = b.Sign(&kms.SignInput{
+	_, err = b.Sign(context.Background(), &kms.SignInput{
 		KeyID:            keyOut.KeyMetadata.KeyID,
 		Message:          []byte("test"),
 		MessageType:      "INVALID_TYPE",
@@ -2576,9 +2598,9 @@ func TestKMSKeyMaterialUnavailableAfterManualRestore(t *testing.T) {
 	t.Parallel()
 
 	orig := kms.NewInMemoryBackend()
-	symKey, err := orig.CreateKey(&kms.CreateKeyInput{})
+	symKey, err := orig.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
-	asymKey, err := orig.CreateKey(&kms.CreateKeyInput{
+	asymKey, err := orig.CreateKey(context.Background(), &kms.CreateKeyInput{
 		KeyUsage: kms.KeyUsageSignVerify,
 		KeySpec:  "ECC_NIST_P256",
 	})
@@ -2595,14 +2617,14 @@ func TestKMSKeyMaterialUnavailableAfterManualRestore(t *testing.T) {
 	require.NoError(t, restored.Restore([]byte(stripped)))
 
 	// Encrypt should fail with ErrKeyMaterialUnavailable.
-	_, encErr := restored.Encrypt(&kms.EncryptInput{
+	_, encErr := restored.Encrypt(context.Background(), &kms.EncryptInput{
 		KeyID:     symKey.KeyMetadata.KeyID,
 		Plaintext: []byte("test"),
 	})
 	require.ErrorIs(t, encErr, kms.ErrKeyMaterialUnavailable)
 
 	// Sign should fail with ErrKeyMaterialUnavailable.
-	_, signErr := restored.Sign(&kms.SignInput{
+	_, signErr := restored.Sign(context.Background(), &kms.SignInput{
 		KeyID:            asymKey.KeyMetadata.KeyID,
 		Message:          []byte("test"),
 		MessageType:      "RAW",
@@ -2619,21 +2641,21 @@ func TestKMSReEncryptSourceKeyValidation(t *testing.T) {
 		t.Parallel()
 
 		b := kms.NewInMemoryBackend()
-		srcKey, err := b.CreateKey(&kms.CreateKeyInput{})
+		srcKey, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 		require.NoError(t, err)
-		dstKey, err := b.CreateKey(&kms.CreateKeyInput{})
+		dstKey, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 		require.NoError(t, err)
 
-		encOut, err := b.Encrypt(&kms.EncryptInput{
+		encOut, err := b.Encrypt(context.Background(), &kms.EncryptInput{
 			KeyID:     srcKey.KeyMetadata.KeyID,
 			Plaintext: []byte("test"),
 		})
 		require.NoError(t, err)
 
 		// Disable source key
-		require.NoError(t, b.DisableKey(&kms.DisableKeyInput{KeyID: srcKey.KeyMetadata.KeyID}))
+		require.NoError(t, b.DisableKey(context.Background(), &kms.DisableKeyInput{KeyID: srcKey.KeyMetadata.KeyID}))
 
-		_, err = b.ReEncrypt(&kms.ReEncryptInput{
+		_, err = b.ReEncrypt(context.Background(), &kms.ReEncryptInput{
 			CiphertextBlob:   encOut.CiphertextBlob,
 			DestinationKeyID: dstKey.KeyMetadata.KeyID,
 		})
@@ -2647,12 +2669,12 @@ func TestKMSBackendReEncryptKeyMaterialUnavailable(t *testing.T) {
 	t.Parallel()
 
 	orig := kms.NewInMemoryBackend()
-	srcKey, err := orig.CreateKey(&kms.CreateKeyInput{})
+	srcKey, err := orig.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
-	dstKey, err := orig.CreateKey(&kms.CreateKeyInput{})
+	dstKey, err := orig.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 
-	encOut, err := orig.Encrypt(&kms.EncryptInput{
+	encOut, err := orig.Encrypt(context.Background(), &kms.EncryptInput{
 		KeyID:     srcKey.KeyMetadata.KeyID,
 		Plaintext: []byte("test"),
 	})
@@ -2666,7 +2688,7 @@ func TestKMSBackendReEncryptKeyMaterialUnavailable(t *testing.T) {
 	restored := kms.NewInMemoryBackend()
 	require.NoError(t, restored.Restore([]byte(stripped)))
 
-	_, err = restored.ReEncrypt(&kms.ReEncryptInput{
+	_, err = restored.ReEncrypt(context.Background(), &kms.ReEncryptInput{
 		CiphertextBlob:   encOut.CiphertextBlob,
 		DestinationKeyID: dstKey.KeyMetadata.KeyID,
 	})
@@ -2679,10 +2701,10 @@ func TestKMSBackendDecryptKeyMaterialUnavailable(t *testing.T) {
 	t.Parallel()
 
 	orig := kms.NewInMemoryBackend()
-	key, err := orig.CreateKey(&kms.CreateKeyInput{})
+	key, err := orig.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 
-	encOut, err := orig.Encrypt(&kms.EncryptInput{
+	encOut, err := orig.Encrypt(context.Background(), &kms.EncryptInput{
 		KeyID:     key.KeyMetadata.KeyID,
 		Plaintext: []byte("test"),
 	})
@@ -2695,7 +2717,7 @@ func TestKMSBackendDecryptKeyMaterialUnavailable(t *testing.T) {
 	restored := kms.NewInMemoryBackend()
 	require.NoError(t, restored.Restore([]byte(stripped)))
 
-	_, err = restored.Decrypt(&kms.DecryptInput{CiphertextBlob: encOut.CiphertextBlob})
+	_, err = restored.Decrypt(context.Background(), &kms.DecryptInput{CiphertextBlob: encOut.CiphertextBlob})
 	require.ErrorIs(t, err, kms.ErrKeyMaterialUnavailable)
 }
 
@@ -2705,7 +2727,7 @@ func TestKMSBackendGetPublicKeyMaterialUnavailable(t *testing.T) {
 	t.Parallel()
 
 	orig := kms.NewInMemoryBackend()
-	key, err := orig.CreateKey(&kms.CreateKeyInput{
+	key, err := orig.CreateKey(context.Background(), &kms.CreateKeyInput{
 		KeyUsage: kms.KeyUsageSignVerify,
 		KeySpec:  "ECC_NIST_P256",
 	})
@@ -2718,7 +2740,7 @@ func TestKMSBackendGetPublicKeyMaterialUnavailable(t *testing.T) {
 	restored := kms.NewInMemoryBackend()
 	require.NoError(t, restored.Restore([]byte(stripped)))
 
-	_, err = restored.GetPublicKey(&kms.GetPublicKeyInput{KeyID: key.KeyMetadata.KeyID})
+	_, err = restored.GetPublicKey(context.Background(), &kms.GetPublicKeyInput{KeyID: key.KeyMetadata.KeyID})
 	require.ErrorIs(t, err, kms.ErrKeyMaterialUnavailable)
 }
 
@@ -2778,11 +2800,11 @@ func TestKMSBackendListGrantsPagination(t *testing.T) {
 			t.Parallel()
 
 			b := kms.NewInMemoryBackend()
-			key, err := b.CreateKey(&kms.CreateKeyInput{})
+			key, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 			require.NoError(t, err)
 
 			for range 5 {
-				_, err = b.CreateGrant(&kms.CreateGrantInput{
+				_, err = b.CreateGrant(context.Background(), &kms.CreateGrantInput{
 					KeyID:            key.KeyMetadata.KeyID,
 					GranteePrincipal: "arn:aws:iam::000000000000:role/r",
 					Operations:       []string{"Decrypt"},
@@ -2791,7 +2813,7 @@ func TestKMSBackendListGrantsPagination(t *testing.T) {
 			}
 
 			lim := tt.limit
-			out, err := b.ListGrants(&kms.ListGrantsInput{
+			out, err := b.ListGrants(context.Background(), &kms.ListGrantsInput{
 				KeyID:  key.KeyMetadata.KeyID,
 				Limit:  &lim,
 				Marker: tt.marker,
@@ -2854,11 +2876,11 @@ func TestKMSBackendListRetirableGrantsPagination(t *testing.T) {
 			t.Parallel()
 
 			b := kms.NewInMemoryBackend()
-			key, err := b.CreateKey(&kms.CreateKeyInput{})
+			key, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 			require.NoError(t, err)
 
 			for range 3 {
-				_, err = b.CreateGrant(&kms.CreateGrantInput{
+				_, err = b.CreateGrant(context.Background(), &kms.CreateGrantInput{
 					KeyID:             key.KeyMetadata.KeyID,
 					GranteePrincipal:  "arn:aws:iam::000000000000:role/grantee",
 					RetiringPrincipal: "arn:aws:iam::000000000000:role/retiring",
@@ -2868,7 +2890,7 @@ func TestKMSBackendListRetirableGrantsPagination(t *testing.T) {
 			}
 
 			// Grant with a different retiring principal — must not appear in results.
-			_, err = b.CreateGrant(&kms.CreateGrantInput{
+			_, err = b.CreateGrant(context.Background(), &kms.CreateGrantInput{
 				KeyID:             key.KeyMetadata.KeyID,
 				GranteePrincipal:  "arn:aws:iam::000000000000:role/grantee",
 				RetiringPrincipal: "arn:aws:iam::000000000000:role/other",
@@ -2877,7 +2899,7 @@ func TestKMSBackendListRetirableGrantsPagination(t *testing.T) {
 			require.NoError(t, err)
 
 			lim := tt.limit
-			out, err := b.ListRetirableGrants(&kms.ListRetirableGrantsInput{
+			out, err := b.ListRetirableGrants(context.Background(), &kms.ListRetirableGrantsInput{
 				RetiringPrincipal: tt.retiringPrincipal,
 				Limit:             &lim,
 				Marker:            tt.marker,
@@ -2931,7 +2953,7 @@ func TestKMSHandlerListResourceTagsPagination(t *testing.T) {
 			t.Parallel()
 
 			h := kms.NewHandler(kms.NewInMemoryBackend())
-			key, err := h.Backend.CreateKey(&kms.CreateKeyInput{})
+			key, err := h.Backend.CreateKey(context.Background(), &kms.CreateKeyInput{})
 			require.NoError(t, err)
 
 			tagMap := map[string]string{
@@ -3007,7 +3029,7 @@ func TestKMSScheduleKeyDeletion_Validation(t *testing.T) {
 			name:        "already_pending_deletion",
 			pendingDays: 7,
 			setup: func(b *kms.InMemoryBackend, keyID string) {
-				_, err := b.ScheduleKeyDeletion(&kms.ScheduleKeyDeletionInput{
+				_, err := b.ScheduleKeyDeletion(context.Background(), &kms.ScheduleKeyDeletionInput{
 					KeyID:               keyID,
 					PendingWindowInDays: 7,
 				})
@@ -3022,7 +3044,7 @@ func TestKMSScheduleKeyDeletion_Validation(t *testing.T) {
 			t.Parallel()
 
 			b := kms.NewInMemoryBackend()
-			out, err := b.CreateKey(&kms.CreateKeyInput{})
+			out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 			require.NoError(t, err)
 			keyID := out.KeyMetadata.KeyID
 
@@ -3030,7 +3052,7 @@ func TestKMSScheduleKeyDeletion_Validation(t *testing.T) {
 				tt.setup(b, keyID)
 			}
 
-			_, schedErr := b.ScheduleKeyDeletion(&kms.ScheduleKeyDeletionInput{
+			_, schedErr := b.ScheduleKeyDeletion(context.Background(), &kms.ScheduleKeyDeletionInput{
 				KeyID:               keyID,
 				PendingWindowInDays: tt.pendingDays,
 			})
@@ -3059,7 +3081,7 @@ func TestKMSCancelKeyDeletion_RequiresPendingDeletion(t *testing.T) {
 		{
 			name: "key_in_pending_deletion_succeeds",
 			setup: func(b *kms.InMemoryBackend, keyID string) {
-				_, err := b.ScheduleKeyDeletion(&kms.ScheduleKeyDeletionInput{
+				_, err := b.ScheduleKeyDeletion(context.Background(), &kms.ScheduleKeyDeletionInput{
 					KeyID:               keyID,
 					PendingWindowInDays: 7,
 				})
@@ -3073,7 +3095,7 @@ func TestKMSCancelKeyDeletion_RequiresPendingDeletion(t *testing.T) {
 		{
 			name: "disabled_key_fails",
 			setup: func(b *kms.InMemoryBackend, keyID string) {
-				require.NoError(t, b.DisableKey(&kms.DisableKeyInput{KeyID: keyID}))
+				require.NoError(t, b.DisableKey(context.Background(), &kms.DisableKeyInput{KeyID: keyID}))
 			},
 			wantErr: kms.ErrKeyDisabled,
 		},
@@ -3084,7 +3106,7 @@ func TestKMSCancelKeyDeletion_RequiresPendingDeletion(t *testing.T) {
 			t.Parallel()
 
 			b := kms.NewInMemoryBackend()
-			out, err := b.CreateKey(&kms.CreateKeyInput{})
+			out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 			require.NoError(t, err)
 			keyID := out.KeyMetadata.KeyID
 
@@ -3092,7 +3114,7 @@ func TestKMSCancelKeyDeletion_RequiresPendingDeletion(t *testing.T) {
 				tt.setup(b, keyID)
 			}
 
-			_, cancelErr := b.CancelKeyDeletion(&kms.CancelKeyDeletionInput{KeyID: keyID})
+			_, cancelErr := b.CancelKeyDeletion(context.Background(), &kms.CancelKeyDeletionInput{KeyID: keyID})
 
 			if tt.wantErr != nil {
 				require.ErrorIs(t, cancelErr, tt.wantErr)
@@ -3120,10 +3142,10 @@ func TestKMSEnableDisableKey_StateValidation(t *testing.T) {
 			name: "disable_pending_deletion_fails",
 			op:   "disable",
 			setup: func(b *kms.InMemoryBackend) string {
-				out, err := b.CreateKey(&kms.CreateKeyInput{})
+				out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 				require.NoError(t, err)
 				keyID := out.KeyMetadata.KeyID
-				_, err = b.ScheduleKeyDeletion(&kms.ScheduleKeyDeletionInput{
+				_, err = b.ScheduleKeyDeletion(context.Background(), &kms.ScheduleKeyDeletionInput{
 					KeyID:               keyID,
 					PendingWindowInDays: 7,
 				})
@@ -3137,10 +3159,10 @@ func TestKMSEnableDisableKey_StateValidation(t *testing.T) {
 			name: "enable_pending_deletion_fails",
 			op:   "enable",
 			setup: func(b *kms.InMemoryBackend) string {
-				out, err := b.CreateKey(&kms.CreateKeyInput{})
+				out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 				require.NoError(t, err)
 				keyID := out.KeyMetadata.KeyID
-				_, err = b.ScheduleKeyDeletion(&kms.ScheduleKeyDeletionInput{
+				_, err = b.ScheduleKeyDeletion(context.Background(), &kms.ScheduleKeyDeletionInput{
 					KeyID:               keyID,
 					PendingWindowInDays: 7,
 				})
@@ -3154,7 +3176,7 @@ func TestKMSEnableDisableKey_StateValidation(t *testing.T) {
 			name: "disable_pending_import_fails",
 			op:   "disable",
 			setup: func(b *kms.InMemoryBackend) string {
-				out, err := b.CreateKey(&kms.CreateKeyInput{Origin: kms.KeyOriginExternal})
+				out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{Origin: kms.KeyOriginExternal})
 				require.NoError(t, err)
 
 				return out.KeyMetadata.KeyID
@@ -3165,7 +3187,7 @@ func TestKMSEnableDisableKey_StateValidation(t *testing.T) {
 			name: "enable_pending_import_fails",
 			op:   "enable",
 			setup: func(b *kms.InMemoryBackend) string {
-				out, err := b.CreateKey(&kms.CreateKeyInput{Origin: kms.KeyOriginExternal})
+				out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{Origin: kms.KeyOriginExternal})
 				require.NoError(t, err)
 
 				return out.KeyMetadata.KeyID
@@ -3185,9 +3207,9 @@ func TestKMSEnableDisableKey_StateValidation(t *testing.T) {
 
 			switch tt.op {
 			case "disable":
-				opErr = b.DisableKey(&kms.DisableKeyInput{KeyID: targetKeyID})
+				opErr = b.DisableKey(context.Background(), &kms.DisableKeyInput{KeyID: targetKeyID})
 			case "enable":
-				opErr = b.EnableKey(&kms.EnableKeyInput{KeyID: targetKeyID})
+				opErr = b.EnableKey(context.Background(), &kms.EnableKeyInput{KeyID: targetKeyID})
 			}
 
 			if tt.wantErr != nil {
@@ -3227,14 +3249,14 @@ func TestKMSKeyRotation_AsymmetricUnsupported(t *testing.T) {
 			b := kms.NewInMemoryBackend()
 			inp := &kms.CreateKeyInput{KeySpec: tt.keySpec, Origin: tt.origin}
 
-			out, err := b.CreateKey(inp)
+			out, err := b.CreateKey(context.Background(), inp)
 			require.NoError(t, err)
 			keyID := out.KeyMetadata.KeyID
 
 			// For EXTERNAL keys in PendingImport, enable them first by importing material.
 			if tt.origin == kms.KeyOriginExternal {
 				mat := make([]byte, 32)
-				require.NoError(t, b.ImportKeyMaterial(&kms.ImportKeyMaterialInput{
+				require.NoError(t, b.ImportKeyMaterial(context.Background(), &kms.ImportKeyMaterialInput{
 					KeyID:       keyID,
 					KeyMaterial: mat,
 				}))
@@ -3242,10 +3264,10 @@ func TestKMSKeyRotation_AsymmetricUnsupported(t *testing.T) {
 
 			switch tt.op {
 			case "enable":
-				rotErr := b.EnableKeyRotation(&kms.EnableKeyRotationInput{KeyID: keyID})
+				rotErr := b.EnableKeyRotation(context.Background(), &kms.EnableKeyRotationInput{KeyID: keyID})
 				require.ErrorIs(t, rotErr, kms.ErrUnsupportedOrigin)
 			case "disable":
-				rotErr := b.DisableKeyRotation(&kms.DisableKeyRotationInput{KeyID: keyID})
+				rotErr := b.DisableKeyRotation(context.Background(), &kms.DisableKeyRotationInput{KeyID: keyID})
 				require.ErrorIs(t, rotErr, kms.ErrUnsupportedOrigin)
 			}
 		})
@@ -3272,7 +3294,7 @@ func TestKMSGenerateDataKey_MaxBytes(t *testing.T) {
 			t.Parallel()
 
 			b := kms.NewInMemoryBackend()
-			key, err := b.CreateKey(&kms.CreateKeyInput{})
+			key, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 			require.NoError(t, err)
 
 			inp := &kms.GenerateDataKeyInput{KeyID: key.KeyMetadata.KeyID}
@@ -3280,7 +3302,7 @@ func TestKMSGenerateDataKey_MaxBytes(t *testing.T) {
 				inp.NumberOfBytes = &tt.numberOfBytes
 			}
 
-			out, genErr := b.GenerateDataKey(inp)
+			out, genErr := b.GenerateDataKey(context.Background(), inp)
 
 			if tt.wantErr {
 				require.ErrorIs(t, genErr, kms.ErrInvalidDataKeySize)
@@ -3306,11 +3328,11 @@ func TestKMSUpdateAlias(t *testing.T) {
 		{
 			name: "redirect_alias_to_new_key",
 			setupFn: func(b *kms.InMemoryBackend) (string, string, string) {
-				k1, err := b.CreateKey(&kms.CreateKeyInput{})
+				k1, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 				require.NoError(t, err)
-				k2, err := b.CreateKey(&kms.CreateKeyInput{})
+				k2, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 				require.NoError(t, err)
-				require.NoError(t, b.CreateAlias(&kms.CreateAliasInput{
+				require.NoError(t, b.CreateAlias(context.Background(), &kms.CreateAliasInput{
 					AliasName:   "alias/redirect-test",
 					TargetKeyID: k1.KeyMetadata.KeyID,
 				}))
@@ -3321,7 +3343,7 @@ func TestKMSUpdateAlias(t *testing.T) {
 		{
 			name: "update_nonexistent_alias_fails",
 			setupFn: func(b *kms.InMemoryBackend) (string, string, string) {
-				k, err := b.CreateKey(&kms.CreateKeyInput{})
+				k, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 				require.NoError(t, err)
 
 				return "alias/does-not-exist", "", k.KeyMetadata.KeyID
@@ -3331,9 +3353,9 @@ func TestKMSUpdateAlias(t *testing.T) {
 		{
 			name: "update_to_nonexistent_key_fails",
 			setupFn: func(b *kms.InMemoryBackend) (string, string, string) {
-				k, err := b.CreateKey(&kms.CreateKeyInput{})
+				k, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 				require.NoError(t, err)
-				require.NoError(t, b.CreateAlias(&kms.CreateAliasInput{
+				require.NoError(t, b.CreateAlias(context.Background(), &kms.CreateAliasInput{
 					AliasName:   "alias/update-bad-target",
 					TargetKeyID: k.KeyMetadata.KeyID,
 				}))
@@ -3351,7 +3373,7 @@ func TestKMSUpdateAlias(t *testing.T) {
 			b := kms.NewInMemoryBackend()
 			aliasName, _, targetKeyID := tt.setupFn(b)
 
-			err := b.UpdateAlias(&kms.UpdateAliasInput{
+			err := b.UpdateAlias(context.Background(), &kms.UpdateAliasInput{
 				AliasName:   aliasName,
 				TargetKeyID: targetKeyID,
 			})
@@ -3365,7 +3387,7 @@ func TestKMSUpdateAlias(t *testing.T) {
 			require.NoError(t, err)
 
 			// Verify the alias now points to the new target.
-			aliases, listErr := b.ListAliases(&kms.ListAliasesInput{KeyID: targetKeyID})
+			aliases, listErr := b.ListAliases(context.Background(), &kms.ListAliasesInput{KeyID: targetKeyID})
 			require.NoError(t, listErr)
 			require.Len(t, aliases.Aliases, 1)
 			assert.Equal(t, aliasName, aliases.Aliases[0].AliasName)
@@ -3380,12 +3402,12 @@ func TestKMSUpdateAlias_Handler(t *testing.T) {
 	b := kms.NewInMemoryBackend()
 	h := kms.NewHandler(b)
 
-	k1, err := b.CreateKey(&kms.CreateKeyInput{})
+	k1, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
-	k2, err := b.CreateKey(&kms.CreateKeyInput{})
+	k2, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 
-	require.NoError(t, b.CreateAlias(&kms.CreateAliasInput{
+	require.NoError(t, b.CreateAlias(context.Background(), &kms.CreateAliasInput{
 		AliasName:   "alias/handler-update-test",
 		TargetKeyID: k1.KeyMetadata.KeyID,
 	}))
@@ -3400,7 +3422,7 @@ func TestKMSUpdateAlias_Handler(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Confirm the alias now points to k2.
-	aliases, listErr := b.ListAliases(&kms.ListAliasesInput{KeyID: k2.KeyMetadata.KeyID})
+	aliases, listErr := b.ListAliases(context.Background(), &kms.ListAliasesInput{KeyID: k2.KeyMetadata.KeyID})
 	require.NoError(t, listErr)
 	require.Len(t, aliases.Aliases, 1)
 	assert.Equal(t, "alias/handler-update-test", aliases.Aliases[0].AliasName)
@@ -3412,22 +3434,22 @@ func TestKMSDescribeKey_DeletionDateInResponse(t *testing.T) {
 	t.Parallel()
 
 	b := kms.NewInMemoryBackend()
-	out, err := b.CreateKey(&kms.CreateKeyInput{})
+	out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 	keyID := out.KeyMetadata.KeyID
 
 	// No DeletionDate before scheduling.
-	desc, err := b.DescribeKey(&kms.DescribeKeyInput{KeyID: keyID})
+	desc, err := b.DescribeKey(context.Background(), &kms.DescribeKeyInput{KeyID: keyID})
 	require.NoError(t, err)
 	assert.Zero(t, desc.KeyMetadata.DeletionDate)
 
-	_, err = b.ScheduleKeyDeletion(&kms.ScheduleKeyDeletionInput{
+	_, err = b.ScheduleKeyDeletion(context.Background(), &kms.ScheduleKeyDeletionInput{
 		KeyID:               keyID,
 		PendingWindowInDays: 7,
 	})
 	require.NoError(t, err)
 
-	desc, err = b.DescribeKey(&kms.DescribeKeyInput{KeyID: keyID})
+	desc, err = b.DescribeKey(context.Background(), &kms.DescribeKeyInput{KeyID: keyID})
 	require.NoError(t, err)
 	assert.NotZero(t, desc.KeyMetadata.DeletionDate)
 	assert.Equal(t, kms.KeyStatePendingDeletion, desc.KeyMetadata.KeyState)

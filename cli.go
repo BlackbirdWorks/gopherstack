@@ -146,6 +146,7 @@ import (
 	mqbackend "github.com/blackbirdworks/gopherstack/services/mq"
 	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
+	omicsbackend "github.com/blackbirdworks/gopherstack/services/omics"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
 	pinpointbackend "github.com/blackbirdworks/gopherstack/services/pinpoint"
@@ -2585,7 +2586,14 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 
 // getServiceProviders returns the list of all available service providers.
 func getServiceProviders() []service.Provider {
-	return append([]service.Provider{
+	return append(getCoreServiceProviders(), getRemainingServiceProviders()...)
+}
+
+// getCoreServiceProviders returns the foundational service providers.
+// Extracted from getServiceProviders to satisfy the funlen limit and to
+// give the inline registration list headroom as new services are added.
+func getCoreServiceProviders() []service.Provider {
+	return []service.Provider{
 		&ddbbackend.Provider{},
 		&s3backend.Provider{},
 		&ssmbackend.Provider{},
@@ -2597,6 +2605,14 @@ func getServiceProviders() []service.Provider {
 		&secretsmanagerbackend.Provider{},
 		&lambdabackend.Provider{},
 		&ebbackend.Provider{},
+	}
+}
+
+// getRemainingServiceProviders returns the remaining service providers. New
+// services should be registered in getMostRecentServiceProviders (the tail of
+// the chain), not here, to keep this function under the funlen limit.
+func getRemainingServiceProviders() []service.Provider {
+	return append([]service.Provider{
 		&apigwbackend.Provider{},
 		&cwlogsbackend.Provider{},
 		&sfnbackend.Provider{},
@@ -2739,6 +2755,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&detectivebackend.Provider{},
 		&datasyncbackend.Provider{},
 		&fsxbackend.Provider{},
+		&omicsbackend.Provider{},
 	}
 }
 
@@ -3095,7 +3112,7 @@ type ssmKMSAdapter struct {
 }
 
 func (a *ssmKMSAdapter) EncryptSSM(keyID string, plaintext []byte) ([]byte, error) {
-	out, err := a.backend.Encrypt(&kmsbackend.EncryptInput{
+	out, err := a.backend.Encrypt(context.Background(), &kmsbackend.EncryptInput{
 		KeyID:     keyID,
 		Plaintext: plaintext,
 	})
@@ -3107,7 +3124,7 @@ func (a *ssmKMSAdapter) EncryptSSM(keyID string, plaintext []byte) ([]byte, erro
 }
 
 func (a *ssmKMSAdapter) DecryptSSM(ciphertext []byte) ([]byte, error) {
-	out, err := a.backend.Decrypt(&kmsbackend.DecryptInput{
+	out, err := a.backend.Decrypt(context.Background(), &kmsbackend.DecryptInput{
 		CiphertextBlob: ciphertext,
 	})
 	if err != nil {

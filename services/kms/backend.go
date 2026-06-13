@@ -1,6 +1,7 @@
 package kms
 
 import (
+	"context"
 	"crypto/rand"
 	"errors"
 	"fmt"
@@ -19,6 +20,18 @@ import (
 
 	gopherarn "github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
+
+// regionContextKey is the context key type for the per-request AWS region.
+type regionContextKey struct{}
+
+// getRegion extracts the region from ctx, falling back to defaultRegion.
+func getRegion(ctx context.Context, defaultRegion string) string {
+	if v, ok := ctx.Value(regionContextKey{}).(string); ok && v != "" {
+		return v
+	}
+
+	return defaultRegion
+}
 
 var (
 	// ErrKeyNotFound is returned when the specified key does not exist.
@@ -174,60 +187,66 @@ func isValidGrantOperation(op string) bool {
 
 // StorageBackend defines the interface for the KMS in-memory backend.
 type StorageBackend interface {
-	CreateKey(input *CreateKeyInput) (*CreateKeyOutput, error)
-	DescribeKey(input *DescribeKeyInput) (*DescribeKeyOutput, error)
-	ListKeys(input *ListKeysInput) (*ListKeysOutput, error)
-	Encrypt(input *EncryptInput) (*EncryptOutput, error)
-	Decrypt(input *DecryptInput) (*DecryptOutput, error)
-	GenerateDataKey(input *GenerateDataKeyInput) (*GenerateDataKeyOutput, error)
+	CreateKey(ctx context.Context, input *CreateKeyInput) (*CreateKeyOutput, error)
+	DescribeKey(ctx context.Context, input *DescribeKeyInput) (*DescribeKeyOutput, error)
+	ListKeys(ctx context.Context, input *ListKeysInput) (*ListKeysOutput, error)
+	Encrypt(ctx context.Context, input *EncryptInput) (*EncryptOutput, error)
+	Decrypt(ctx context.Context, input *DecryptInput) (*DecryptOutput, error)
+	GenerateDataKey(ctx context.Context, input *GenerateDataKeyInput) (*GenerateDataKeyOutput, error)
 	GenerateDataKeyWithoutPlaintext(
-		input *GenerateDataKeyWithoutPlaintextInput,
+		ctx context.Context, input *GenerateDataKeyWithoutPlaintextInput,
 	) (*GenerateDataKeyWithoutPlaintextOutput, error)
-	ReEncrypt(input *ReEncryptInput) (*ReEncryptOutput, error)
-	Sign(input *SignInput) (*SignOutput, error)
-	Verify(input *VerifyInput) (*VerifyOutput, error)
-	GetPublicKey(input *GetPublicKeyInput) (*GetPublicKeyOutput, error)
-	CreateAlias(input *CreateAliasInput) error
-	UpdateAlias(input *UpdateAliasInput) error
-	DeleteAlias(input *DeleteAliasInput) error
-	ListAliases(input *ListAliasesInput) (*ListAliasesOutput, error)
-	EnableKeyRotation(input *EnableKeyRotationInput) error
-	DisableKeyRotation(input *DisableKeyRotationInput) error
-	GetKeyRotationStatus(input *GetKeyRotationStatusInput) (*GetKeyRotationStatusOutput, error)
-	DisableKey(input *DisableKeyInput) error
-	EnableKey(input *EnableKeyInput) error
-	ScheduleKeyDeletion(input *ScheduleKeyDeletionInput) (*ScheduleKeyDeletionOutput, error)
-	CancelKeyDeletion(input *CancelKeyDeletionInput) (*CancelKeyDeletionOutput, error)
-	CreateGrant(input *CreateGrantInput) (*CreateGrantOutput, error)
-	ListGrants(input *ListGrantsInput) (*ListGrantsOutput, error)
-	RevokeGrant(input *RevokeGrantInput) error
-	RetireGrant(input *RetireGrantInput) error
-	ListRetirableGrants(input *ListRetirableGrantsInput) (*ListGrantsOutput, error)
-	PutKeyPolicy(input *PutKeyPolicyInput) error
-	GetKeyPolicy(input *GetKeyPolicyInput) (*GetKeyPolicyOutput, error)
-	GetParametersForImport(input *GetParametersForImportInput) (*GetParametersForImportOutput, error)
-	ListKeyPolicies(input *ListKeyPoliciesInput) (*ListKeyPoliciesOutput, error)
-	ListKeyRotations(input *ListKeyRotationsInput) (*ListKeyRotationsOutput, error)
-	ImportKeyMaterial(input *ImportKeyMaterialInput) error
-	DeleteImportedKeyMaterial(input *DeleteImportedKeyMaterialInput) error
-	ReplicateKey(input *ReplicateKeyInput) (*ReplicateKeyOutput, error)
-	RotateKeyOnDemand(input *RotateKeyOnDemandInput) (*RotateKeyOnDemandOutput, error)
-	ConnectCustomKeyStore(input *ConnectCustomKeyStoreInput) error
-	CreateCustomKeyStore(input *CreateCustomKeyStoreInput) (*CreateCustomKeyStoreOutput, error)
-	DeleteCustomKeyStore(input *DeleteCustomKeyStoreInput) error
-	DeriveSharedSecret(input *DeriveSharedSecretInput) (*DeriveSharedSecretOutput, error)
-	DescribeCustomKeyStores(input *DescribeCustomKeyStoresInput) (*DescribeCustomKeyStoresOutput, error)
-	DisconnectCustomKeyStore(input *DisconnectCustomKeyStoreInput) error
-	UpdateCustomKeyStore(input *UpdateCustomKeyStoreInput) error
-	UpdateKeyDescription(input *UpdateKeyDescriptionInput) error
-	UpdatePrimaryRegion(input *UpdatePrimaryRegionInput) error
-	GenerateDataKeyPair(input *GenerateDataKeyPairInput) (*GenerateDataKeyPairOutput, error)
+	ReEncrypt(ctx context.Context, input *ReEncryptInput) (*ReEncryptOutput, error)
+	Sign(ctx context.Context, input *SignInput) (*SignOutput, error)
+	Verify(ctx context.Context, input *VerifyInput) (*VerifyOutput, error)
+	GetPublicKey(ctx context.Context, input *GetPublicKeyInput) (*GetPublicKeyOutput, error)
+	CreateAlias(ctx context.Context, input *CreateAliasInput) error
+	UpdateAlias(ctx context.Context, input *UpdateAliasInput) error
+	DeleteAlias(ctx context.Context, input *DeleteAliasInput) error
+	ListAliases(ctx context.Context, input *ListAliasesInput) (*ListAliasesOutput, error)
+	EnableKeyRotation(ctx context.Context, input *EnableKeyRotationInput) error
+	DisableKeyRotation(ctx context.Context, input *DisableKeyRotationInput) error
+	GetKeyRotationStatus(ctx context.Context, input *GetKeyRotationStatusInput) (*GetKeyRotationStatusOutput, error)
+	DisableKey(ctx context.Context, input *DisableKeyInput) error
+	EnableKey(ctx context.Context, input *EnableKeyInput) error
+	ScheduleKeyDeletion(ctx context.Context, input *ScheduleKeyDeletionInput) (*ScheduleKeyDeletionOutput, error)
+	CancelKeyDeletion(ctx context.Context, input *CancelKeyDeletionInput) (*CancelKeyDeletionOutput, error)
+	CreateGrant(ctx context.Context, input *CreateGrantInput) (*CreateGrantOutput, error)
+	ListGrants(ctx context.Context, input *ListGrantsInput) (*ListGrantsOutput, error)
+	RevokeGrant(ctx context.Context, input *RevokeGrantInput) error
+	RetireGrant(ctx context.Context, input *RetireGrantInput) error
+	ListRetirableGrants(ctx context.Context, input *ListRetirableGrantsInput) (*ListGrantsOutput, error)
+	PutKeyPolicy(ctx context.Context, input *PutKeyPolicyInput) error
+	GetKeyPolicy(ctx context.Context, input *GetKeyPolicyInput) (*GetKeyPolicyOutput, error)
+	GetParametersForImport(
+		ctx context.Context,
+		input *GetParametersForImportInput,
+	) (*GetParametersForImportOutput, error)
+	ListKeyPolicies(ctx context.Context, input *ListKeyPoliciesInput) (*ListKeyPoliciesOutput, error)
+	ListKeyRotations(ctx context.Context, input *ListKeyRotationsInput) (*ListKeyRotationsOutput, error)
+	ImportKeyMaterial(ctx context.Context, input *ImportKeyMaterialInput) error
+	DeleteImportedKeyMaterial(ctx context.Context, input *DeleteImportedKeyMaterialInput) error
+	ReplicateKey(ctx context.Context, input *ReplicateKeyInput) (*ReplicateKeyOutput, error)
+	RotateKeyOnDemand(ctx context.Context, input *RotateKeyOnDemandInput) (*RotateKeyOnDemandOutput, error)
+	ConnectCustomKeyStore(ctx context.Context, input *ConnectCustomKeyStoreInput) error
+	CreateCustomKeyStore(ctx context.Context, input *CreateCustomKeyStoreInput) (*CreateCustomKeyStoreOutput, error)
+	DeleteCustomKeyStore(ctx context.Context, input *DeleteCustomKeyStoreInput) error
+	DeriveSharedSecret(ctx context.Context, input *DeriveSharedSecretInput) (*DeriveSharedSecretOutput, error)
+	DescribeCustomKeyStores(
+		ctx context.Context,
+		input *DescribeCustomKeyStoresInput,
+	) (*DescribeCustomKeyStoresOutput, error)
+	DisconnectCustomKeyStore(ctx context.Context, input *DisconnectCustomKeyStoreInput) error
+	UpdateCustomKeyStore(ctx context.Context, input *UpdateCustomKeyStoreInput) error
+	UpdateKeyDescription(ctx context.Context, input *UpdateKeyDescriptionInput) error
+	UpdatePrimaryRegion(ctx context.Context, input *UpdatePrimaryRegionInput) error
+	GenerateDataKeyPair(ctx context.Context, input *GenerateDataKeyPairInput) (*GenerateDataKeyPairOutput, error)
 	GenerateDataKeyPairWithoutPlaintext(
-		input *GenerateDataKeyPairWithoutPlaintextInput,
+		ctx context.Context, input *GenerateDataKeyPairWithoutPlaintextInput,
 	) (*GenerateDataKeyPairWithoutPlaintextOutput, error)
-	GenerateMac(input *GenerateMacInput) (*GenerateMacOutput, error)
-	GenerateRandom(input *GenerateRandomInput) (*GenerateRandomOutput, error)
-	VerifyMac(input *VerifyMacInput) (*VerifyMacOutput, error)
+	GenerateMac(ctx context.Context, input *GenerateMacInput) (*GenerateMacOutput, error)
+	GenerateRandom(ctx context.Context, input *GenerateRandomInput) (*GenerateRandomOutput, error)
+	VerifyMac(ctx context.Context, input *VerifyMacInput) (*VerifyMacOutput, error)
 }
 
 // ensure InMemoryBackend satisfies StorageBackend at compile time.
@@ -235,20 +254,20 @@ var _ StorageBackend = (*InMemoryBackend)(nil)
 
 // InMemoryBackend is a concurrency-safe in-memory KMS backend.
 type InMemoryBackend struct {
-	keys    map[string]*Key
-	aliases map[string]*Alias
-	grants  map[string]*Grant
+	keys    map[string]map[string]*Key
+	aliases map[string]map[string]*Alias
+	grants  map[string]map[string]*Grant
 	// grantsByToken indexes grants by their GrantToken for O(1) lookup on the
 	// encrypt/decrypt grant-validation hot path. Kept consistent with grants on
 	// every create/revoke/retire.
-	grantsByToken        map[string]*Grant
-	policies             map[string]string
-	keyMaterials         map[string]*keyMaterial
-	keyMaterialHistory   map[string][]*keyMaterial
-	customKeyStores      map[string]*CustomKeyStore
+	grantsByToken        map[string]map[string]*Grant
+	policies             map[string]map[string]string
+	keyMaterials         map[string]map[string]*keyMaterial
+	keyMaterialHistory   map[string]map[string][]*keyMaterial
+	customKeyStores      map[string]map[string]*CustomKeyStore
 	mu                   *lockmetrics.RWMutex
 	accountID            string
-	region               string
+	defaultRegion        string
 	keyIDResolutionCache sync.Map
 }
 
@@ -260,77 +279,178 @@ func NewInMemoryBackend() *InMemoryBackend {
 // NewInMemoryBackendWithConfig creates a new KMS backend with the given account ID and region.
 func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		keys:               make(map[string]*Key),
-		aliases:            make(map[string]*Alias),
-		grants:             make(map[string]*Grant),
-		grantsByToken:      make(map[string]*Grant),
-		policies:           make(map[string]string),
-		keyMaterials:       make(map[string]*keyMaterial),
-		keyMaterialHistory: make(map[string][]*keyMaterial),
-		customKeyStores:    make(map[string]*CustomKeyStore),
+		keys:               make(map[string]map[string]*Key),
+		aliases:            make(map[string]map[string]*Alias),
+		grants:             make(map[string]map[string]*Grant),
+		grantsByToken:      make(map[string]map[string]*Grant),
+		policies:           make(map[string]map[string]string),
+		keyMaterials:       make(map[string]map[string]*keyMaterial),
+		keyMaterialHistory: make(map[string]map[string][]*keyMaterial),
+		customKeyStores:    make(map[string]map[string]*CustomKeyStore),
 		accountID:          accountID,
-		region:             region,
+		defaultRegion:      region,
 		mu:                 lockmetrics.New("kms"),
 	}
 }
 
-// resolveKeyID resolves an alias name or ARN to a plain key UUID.
+// keysStore returns (creating lazily) the per-region keys map.
+func (b *InMemoryBackend) keysStore(region string) map[string]*Key {
+	if m, ok := b.keys[region]; ok {
+		return m
+	}
+
+	m := make(map[string]*Key)
+	b.keys[region] = m
+
+	return m
+}
+
+// aliasesStore returns (creating lazily) the per-region aliases map.
+func (b *InMemoryBackend) aliasesStore(region string) map[string]*Alias {
+	if m, ok := b.aliases[region]; ok {
+		return m
+	}
+
+	m := make(map[string]*Alias)
+	b.aliases[region] = m
+
+	return m
+}
+
+// grantsStore returns (creating lazily) the per-region grants map.
+func (b *InMemoryBackend) grantsStore(region string) map[string]*Grant {
+	if m, ok := b.grants[region]; ok {
+		return m
+	}
+
+	m := make(map[string]*Grant)
+	b.grants[region] = m
+
+	return m
+}
+
+// grantsByTokenStore returns (creating lazily) the per-region grantsByToken map.
+func (b *InMemoryBackend) grantsByTokenStore(region string) map[string]*Grant {
+	if m, ok := b.grantsByToken[region]; ok {
+		return m
+	}
+
+	m := make(map[string]*Grant)
+	b.grantsByToken[region] = m
+
+	return m
+}
+
+// policiesStore returns (creating lazily) the per-region policies map.
+func (b *InMemoryBackend) policiesStore(region string) map[string]string {
+	if m, ok := b.policies[region]; ok {
+		return m
+	}
+
+	m := make(map[string]string)
+	b.policies[region] = m
+
+	return m
+}
+
+// keyMaterialsStore returns (creating lazily) the per-region keyMaterials map.
+func (b *InMemoryBackend) keyMaterialsStore(region string) map[string]*keyMaterial {
+	if m, ok := b.keyMaterials[region]; ok {
+		return m
+	}
+
+	m := make(map[string]*keyMaterial)
+	b.keyMaterials[region] = m
+
+	return m
+}
+
+// keyMaterialHistoryStore returns (creating lazily) the per-region keyMaterialHistory map.
+func (b *InMemoryBackend) keyMaterialHistoryStore(region string) map[string][]*keyMaterial {
+	if m, ok := b.keyMaterialHistory[region]; ok {
+		return m
+	}
+
+	m := make(map[string][]*keyMaterial)
+	b.keyMaterialHistory[region] = m
+
+	return m
+}
+
+// customKeyStoresStore returns (creating lazily) the per-region customKeyStores map.
+func (b *InMemoryBackend) customKeyStoresStore(region string) map[string]*CustomKeyStore {
+	if m, ok := b.customKeyStores[region]; ok {
+		return m
+	}
+
+	m := make(map[string]*CustomKeyStore)
+	b.customKeyStores[region] = m
+
+	return m
+}
+
+// resolveKeyID resolves an alias name or ARN to a plain key UUID and region.
 // Must be called with at least a read lock held.
-func (b *InMemoryBackend) resolveKeyID(keyID string) (string, error) {
+func (b *InMemoryBackend) resolveKeyID(
+	ctx context.Context,
+	keyID string,
+) (string, string, error) {
+	ctxRegion := getRegion(ctx, b.defaultRegion)
+
 	if cached, ok := b.keyIDResolutionCache.Load(keyID); ok {
 		resolved, resolvedOK := cached.(string)
 		if !resolvedOK {
-			return "", fmt.Errorf("%w: invalid key resolution cache entry", ErrValidation)
+			return "", "", fmt.Errorf("%w: invalid key resolution cache entry", ErrValidation)
 		}
 
-		return resolved, nil
+		return resolved, ctxRegion, nil
 	}
 
 	if strings.HasPrefix(keyID, "alias/") {
-		alias, ok := b.aliases[keyID]
+		alias, ok := b.aliasesStore(ctxRegion)[keyID]
 		if !ok {
-			return "", ErrAliasNotFound
+			return "", "", ErrAliasNotFound
 		}
 
 		b.keyIDResolutionCache.Store(keyID, alias.TargetKeyID)
 
-		return alias.TargetKeyID, nil
+		return alias.TargetKeyID, ctxRegion, nil
 	}
 
 	if strings.HasPrefix(keyID, "arn:") {
-		resolved, err := b.resolveARNKeyID(keyID)
-		if err != nil {
-			return "", err
+		resolved, arnRegion, arnErr := b.resolveARNKeyID(keyID)
+		if arnErr != nil {
+			return "", "", arnErr
 		}
 
 		b.keyIDResolutionCache.Store(keyID, resolved)
 
-		return resolved, nil
+		return resolved, arnRegion, nil
 	}
 
-	return keyID, nil
+	return keyID, ctxRegion, nil
 }
 
-func (b *InMemoryBackend) resolveARNKeyID(keyID string) (string, error) {
-	parsed, err := awsarn.Parse(keyID)
-	if err != nil {
-		return "", fmt.Errorf("%w: invalid key ARN %q", ErrValidation, keyID)
+func (b *InMemoryBackend) resolveARNKeyID(keyID string) (string, string, error) {
+	parsed, parseErr := awsarn.Parse(keyID)
+	if parseErr != nil {
+		return "", "", fmt.Errorf("%w: invalid key ARN %q", ErrValidation, keyID)
 	}
 
 	if strings.HasPrefix(parsed.Resource, "alias/") {
-		alias, ok := b.aliases[parsed.Resource]
+		alias, ok := b.aliasesStore(parsed.Region)[parsed.Resource]
 		if !ok {
-			return "", ErrAliasNotFound
+			return "", "", ErrAliasNotFound
 		}
 
-		return alias.TargetKeyID, nil
+		return alias.TargetKeyID, parsed.Region, nil
 	}
 
 	if after, ok := strings.CutPrefix(parsed.Resource, "key/"); ok {
-		return after, nil
+		return after, parsed.Region, nil
 	}
 
-	return "", fmt.Errorf("%w: unsupported KMS ARN resource %q", ErrValidation, parsed.Resource)
+	return "", "", fmt.Errorf("%w: unsupported KMS ARN resource %q", ErrValidation, parsed.Resource)
 }
 
 func (b *InMemoryBackend) clearResolutionCache() {
@@ -344,7 +464,7 @@ func (b *InMemoryBackend) clearResolutionCache() {
 func (b *InMemoryBackend) keyRegion(keyARN string) string {
 	parsed, err := awsarn.Parse(keyARN)
 	if err != nil {
-		return b.region
+		return b.defaultRegion
 	}
 
 	return parsed.Region
@@ -381,10 +501,10 @@ func (*InMemoryBackend) checkKeyMaterialExpiry(key *Key) error {
 	return nil
 }
 
-// requireKeyMaterial returns the key material for keyID or an error if absent.
+// requireKeyMaterial returns the key material for keyID in the given region or an error if absent.
 // Must be called with at least a read lock held.
-func (b *InMemoryBackend) requireKeyMaterial(keyID string) (*keyMaterial, error) {
-	km, ok := b.keyMaterials[keyID]
+func (b *InMemoryBackend) requireKeyMaterial(region, keyID string) (*keyMaterial, error) {
+	km, ok := b.keyMaterialsStore(region)[keyID]
 	if !ok || km == nil {
 		return nil, fmt.Errorf("%w: keyID %q", ErrKeyMaterialUnavailable, keyID)
 	}
@@ -466,7 +586,7 @@ func deriveKeySpecUsage(keySpec, keyUsage string) (string, string) {
 }
 
 // CreateKey creates a new KMS key and stores it in the backend.
-func (b *InMemoryBackend) CreateKey(input *CreateKeyInput) (*CreateKeyOutput, error) {
+func (b *InMemoryBackend) CreateKey(ctx context.Context, input *CreateKeyInput) (*CreateKeyOutput, error) {
 	if len(input.Description) > maxDescriptionLength {
 		return nil, fmt.Errorf(
 			"%w: Description exceeds maximum length of %d characters",
@@ -483,6 +603,11 @@ func (b *InMemoryBackend) CreateKey(input *CreateKeyInput) (*CreateKeyOutput, er
 
 	b.mu.Lock("CreateKey")
 	defer b.mu.Unlock()
+
+	region := getRegion(ctx, b.defaultRegion)
+	if input.Region != "" {
+		region = input.Region
+	}
 
 	keyID := uuid.New().String()
 	keyUsage := input.KeyUsage
@@ -510,11 +635,6 @@ func (b *InMemoryBackend) CreateKey(input *CreateKeyInput) (*CreateKeyOutput, er
 	origin := input.Origin
 	if origin == "" {
 		origin = KeyOriginAWSKMS
-	}
-
-	region := b.region
-	if input.Region != "" {
-		region = input.Region
 	}
 
 	keyARN := gopherarn.Build("kms", region, b.accountID, "key/"+keyID)
@@ -545,10 +665,10 @@ func (b *InMemoryBackend) CreateKey(input *CreateKeyInput) (*CreateKeyOutput, er
 			return nil, fmt.Errorf("generating key material for spec %q: %w", keySpec, err)
 		}
 
-		b.keyMaterials[keyID] = km
+		b.keyMaterialsStore(region)[keyID] = km
 	}
 
-	b.keys[keyID] = key
+	b.keysStore(region)[keyID] = key
 
 	out := &CreateKeyOutput{
 		KeyMetadata: keyToMetadata(key),
@@ -558,29 +678,30 @@ func (b *InMemoryBackend) CreateKey(input *CreateKeyInput) (*CreateKeyOutput, er
 }
 
 // DescribeKey returns metadata for the specified key.
-func (b *InMemoryBackend) DescribeKey(input *DescribeKeyInput) (*DescribeKeyOutput, error) {
+func (b *InMemoryBackend) DescribeKey(ctx context.Context, input *DescribeKeyInput) (*DescribeKeyOutput, error) {
 	b.mu.RLock("DescribeKey")
 	defer b.mu.RUnlock()
 
-	key, err := b.lookupKey(input.KeyID)
+	key, err := b.lookupKey(ctx, input.KeyID)
 	if err != nil {
 		return nil, err
 	}
 
 	meta := keyToMetadata(key)
-	meta.MultiRegionConfiguration = b.buildMultiRegionConfig(key)
+	meta.MultiRegionConfiguration = b.buildMultiRegionConfig(ctx, key)
 
 	return &DescribeKeyOutput{KeyMetadata: meta}, nil
 }
 
 // ListKeys returns a paginated list of all keys.
-func (b *InMemoryBackend) ListKeys(input *ListKeysInput) (*ListKeysOutput, error) {
+func (b *InMemoryBackend) ListKeys(ctx context.Context, input *ListKeysInput) (*ListKeysOutput, error) {
 	b.mu.RLock("ListKeys")
 	defer b.mu.RUnlock()
 
-	entries := make([]KeyListEntry, 0, len(b.keys))
+	region := getRegion(ctx, b.defaultRegion)
+	entries := make([]KeyListEntry, 0, len(b.keysStore(region)))
 
-	for _, k := range b.keys {
+	for _, k := range b.keysStore(region) {
 		entries = append(entries, KeyListEntry{KeyID: k.KeyID, KeyArn: k.Arn, Description: k.Description})
 	}
 
@@ -628,7 +749,7 @@ func encryptionAlgorithmForSpec(keySpec string) string {
 }
 
 // Encrypt encrypts the given plaintext using the specified key.
-func (b *InMemoryBackend) Encrypt(input *EncryptInput) (*EncryptOutput, error) {
+func (b *InMemoryBackend) Encrypt(ctx context.Context, input *EncryptInput) (*EncryptOutput, error) {
 	if len(input.Plaintext) > maxPlaintextBytes {
 		return nil, fmt.Errorf(
 			"%w: plaintext must not exceed %d bytes, got %d",
@@ -643,7 +764,9 @@ func (b *InMemoryBackend) Encrypt(input *EncryptInput) (*EncryptOutput, error) {
 	b.mu.RLock("Encrypt")
 	defer b.mu.RUnlock()
 
-	key, err := b.lookupKey(input.KeyID)
+	region := getRegion(ctx, b.defaultRegion)
+
+	key, err := b.lookupKey(ctx, input.KeyID)
 	if err != nil {
 		return nil, err
 	}
@@ -660,12 +783,12 @@ func (b *InMemoryBackend) Encrypt(input *EncryptInput) (*EncryptOutput, error) {
 		return nil, err
 	}
 
-	km, err := b.requireKeyMaterial(key.KeyID)
+	km, err := b.requireKeyMaterial(region, key.KeyID)
 	if err != nil {
 		return nil, err
 	}
 
-	if err = b.validateGrantTokenConstraints(input.GrantTokens, input.EncryptionContext); err != nil {
+	if err = b.validateGrantTokenConstraints(ctx, input.GrantTokens, input.EncryptionContext); err != nil {
 		return nil, err
 	}
 
@@ -708,13 +831,15 @@ func (*InMemoryBackend) encryptPayload(
 }
 
 // Decrypt decrypts the given ciphertext blob.
-func (b *InMemoryBackend) Decrypt(input *DecryptInput) (*DecryptOutput, error) {
+func (b *InMemoryBackend) Decrypt(ctx context.Context, input *DecryptInput) (*DecryptOutput, error) {
 	if err := validateEncryptionContextSize(input.EncryptionContext); err != nil {
 		return nil, err
 	}
 
 	b.mu.RLock("Decrypt")
 	defer b.mu.RUnlock()
+
+	region := getRegion(ctx, b.defaultRegion)
 
 	// Extract the key ID from the blob prefix first, then look up material.
 	if len(input.CiphertextBlob) < keyIDPrefixLen {
@@ -725,7 +850,7 @@ func (b *InMemoryBackend) Decrypt(input *DecryptInput) (*DecryptOutput, error) {
 
 	// If the caller provided a KeyId hint, verify it matches the embedded key ID.
 	if input.KeyID != "" {
-		hintResolved, hintErr := b.resolveKeyID(input.KeyID)
+		hintResolved, _, hintErr := b.resolveKeyID(ctx, input.KeyID)
 		if hintErr != nil {
 			return nil, hintErr
 		}
@@ -738,7 +863,7 @@ func (b *InMemoryBackend) Decrypt(input *DecryptInput) (*DecryptOutput, error) {
 		}
 	}
 
-	key, lookupErr := b.lookupKey(keyID)
+	key, lookupErr := b.lookupKey(ctx, keyID)
 	if lookupErr != nil {
 		return nil, lookupErr
 	}
@@ -755,18 +880,18 @@ func (b *InMemoryBackend) Decrypt(input *DecryptInput) (*DecryptOutput, error) {
 		return nil, err
 	}
 
-	km, err := b.requireKeyMaterial(key.KeyID)
+	km, err := b.requireKeyMaterial(region, key.KeyID)
 	if err != nil {
 		return nil, err
 	}
 
-	if err = b.validateGrantTokenConstraints(input.GrantTokens, input.EncryptionContext); err != nil {
+	if err = b.validateGrantTokenConstraints(ctx, input.GrantTokens, input.EncryptionContext); err != nil {
 		return nil, err
 	}
 
 	cipherPayload := input.CiphertextBlob[keyIDPrefixLen:]
 
-	plaintext, err := b.decryptPayload(input.CiphertextBlob, cipherPayload, input.EncryptionContext, key, km)
+	plaintext, err := b.decryptPayload(region, input.CiphertextBlob, cipherPayload, input.EncryptionContext, key, km)
 	if err != nil {
 		return nil, err
 	}
@@ -790,6 +915,7 @@ func (b *InMemoryBackend) Decrypt(input *DecryptInput) (*DecryptOutput, error) {
 // decryptPayload dispatches to RSA-OAEP or symmetric decryption depending on key type.
 // Must be called with at least a read lock held.
 func (b *InMemoryBackend) decryptPayload(
+	region string,
 	fullBlob, rsaPayload []byte,
 	encCtx map[string]string,
 	key *Key,
@@ -805,13 +931,18 @@ func (b *InMemoryBackend) decryptPayload(
 	}
 
 	// Try previous key material versions (produced by key rotation).
-	return b.decryptWithHistory(fullBlob, encCtx, key.KeyID)
+	return b.decryptWithHistory(region, fullBlob, encCtx, key.KeyID)
 }
 
 // decryptWithHistory attempts to decrypt a blob using previous key material versions.
 // Must be called with at least a read lock held.
-func (b *InMemoryBackend) decryptWithHistory(blob []byte, encCtx map[string]string, keyID string) ([]byte, error) {
-	history := b.keyMaterialHistory[keyID]
+func (b *InMemoryBackend) decryptWithHistory(
+	region string,
+	blob []byte,
+	encCtx map[string]string,
+	keyID string,
+) ([]byte, error) {
+	history := b.keyMaterialHistoryStore(region)[keyID]
 	for _, v := range slices.Backward(history) {
 		plaintext, _, err := decryptData(blob, encCtx, v)
 		if err == nil {
@@ -823,7 +954,10 @@ func (b *InMemoryBackend) decryptWithHistory(blob []byte, encCtx map[string]stri
 }
 
 // GenerateDataKey generates a random data key, returning both plaintext and encrypted forms.
-func (b *InMemoryBackend) GenerateDataKey(input *GenerateDataKeyInput) (*GenerateDataKeyOutput, error) {
+func (b *InMemoryBackend) GenerateDataKey(
+	ctx context.Context,
+	input *GenerateDataKeyInput,
+) (*GenerateDataKeyOutput, error) {
 	if err := validateGenerateDataKeyInput(input); err != nil {
 		return nil, err
 	}
@@ -831,7 +965,9 @@ func (b *InMemoryBackend) GenerateDataKey(input *GenerateDataKeyInput) (*Generat
 	b.mu.RLock("GenerateDataKey")
 	defer b.mu.RUnlock()
 
-	key, err := b.lookupKey(input.KeyID)
+	region := getRegion(ctx, b.defaultRegion)
+
+	key, err := b.lookupKey(ctx, input.KeyID)
 	if err != nil {
 		return nil, err
 	}
@@ -858,12 +994,12 @@ func (b *InMemoryBackend) GenerateDataKey(input *GenerateDataKeyInput) (*Generat
 		return nil, randErr
 	}
 
-	km, err := b.requireKeyMaterial(key.KeyID)
+	km, err := b.requireKeyMaterial(region, key.KeyID)
 	if err != nil {
 		return nil, err
 	}
 
-	if err = b.validateGrantTokenConstraints(input.GrantTokens, input.EncryptionContext); err != nil {
+	if err = b.validateGrantTokenConstraints(ctx, input.GrantTokens, input.EncryptionContext); err != nil {
 		return nil, err
 	}
 
@@ -880,13 +1016,15 @@ func (b *InMemoryBackend) GenerateDataKey(input *GenerateDataKeyInput) (*Generat
 }
 
 // ReEncrypt decrypts a ciphertext and re-encrypts it under a different key.
-func (b *InMemoryBackend) ReEncrypt(input *ReEncryptInput) (*ReEncryptOutput, error) {
+func (b *InMemoryBackend) ReEncrypt(ctx context.Context, input *ReEncryptInput) (*ReEncryptOutput, error) {
 	if err := validateReEncryptInput(input); err != nil {
 		return nil, err
 	}
 
 	b.mu.RLock("ReEncrypt")
 	defer b.mu.RUnlock()
+
+	region := getRegion(ctx, b.defaultRegion)
 
 	// Extract source key ID from blob to look up key metadata and material.
 	if len(input.CiphertextBlob) < keyIDPrefixLen {
@@ -896,7 +1034,7 @@ func (b *InMemoryBackend) ReEncrypt(input *ReEncryptInput) (*ReEncryptOutput, er
 	sourceKeyID := strings.TrimRight(string(input.CiphertextBlob[:keyIDPrefixLen]), "\x00")
 
 	// Validate source key state and usage before decrypting.
-	sourceKey, sourceErr := b.lookupKey(sourceKeyID)
+	sourceKey, sourceErr := b.lookupKey(ctx, sourceKeyID)
 	if sourceErr != nil {
 		return nil, sourceErr
 	}
@@ -909,7 +1047,7 @@ func (b *InMemoryBackend) ReEncrypt(input *ReEncryptInput) (*ReEncryptOutput, er
 		return nil, fmt.Errorf("%w: source key %q is not usable for decryption", ErrInvalidKeyUsage, sourceKey.KeyID)
 	}
 
-	sourceKM, err := b.requireKeyMaterial(sourceKeyID)
+	sourceKM, err := b.requireKeyMaterial(region, sourceKeyID)
 	if err != nil {
 		return nil, err
 	}
@@ -917,13 +1055,18 @@ func (b *InMemoryBackend) ReEncrypt(input *ReEncryptInput) (*ReEncryptOutput, er
 	plaintext, _, decErr := decryptData(input.CiphertextBlob, input.SourceEncryptionContext, sourceKM)
 	if decErr != nil {
 		// Try previous key material versions produced by rotation.
-		plaintext, decErr = b.decryptWithHistory(input.CiphertextBlob, input.SourceEncryptionContext, sourceKey.KeyID)
+		plaintext, decErr = b.decryptWithHistory(
+			region,
+			input.CiphertextBlob,
+			input.SourceEncryptionContext,
+			sourceKey.KeyID,
+		)
 		if decErr != nil {
 			return nil, decErr
 		}
 	}
 
-	destKey, lookupErr := b.lookupKey(input.DestinationKeyID)
+	destKey, lookupErr := b.lookupKey(ctx, input.DestinationKeyID)
 	if lookupErr != nil {
 		return nil, lookupErr
 	}
@@ -936,7 +1079,7 @@ func (b *InMemoryBackend) ReEncrypt(input *ReEncryptInput) (*ReEncryptOutput, er
 		return nil, fmt.Errorf("%w: destination key %q is not usable for encryption", ErrInvalidKeyUsage, destKey.KeyID)
 	}
 
-	destKM, err := b.requireKeyMaterial(destKey.KeyID)
+	destKM, err := b.requireKeyMaterial(region, destKey.KeyID)
 	if err != nil {
 		return nil, err
 	}
@@ -956,7 +1099,7 @@ func (b *InMemoryBackend) ReEncrypt(input *ReEncryptInput) (*ReEncryptOutput, er
 }
 
 // Sign creates a digital signature for the specified message using an asymmetric KMS key.
-func (b *InMemoryBackend) Sign(input *SignInput) (*SignOutput, error) {
+func (b *InMemoryBackend) Sign(ctx context.Context, input *SignInput) (*SignOutput, error) {
 	// Validate message size: AWS limits RAW messages to 4096 bytes.
 	msgType := input.MessageType
 	if msgType == "" {
@@ -973,7 +1116,9 @@ func (b *InMemoryBackend) Sign(input *SignInput) (*SignOutput, error) {
 	b.mu.RLock("Sign")
 	defer b.mu.RUnlock()
 
-	key, err := b.lookupKey(input.KeyID)
+	region := getRegion(ctx, b.defaultRegion)
+
+	key, err := b.lookupKey(ctx, input.KeyID)
 	if err != nil {
 		return nil, err
 	}
@@ -990,7 +1135,7 @@ func (b *InMemoryBackend) Sign(input *SignInput) (*SignOutput, error) {
 		return nil, algErr
 	}
 
-	km, err := b.requireKeyMaterial(key.KeyID)
+	km, err := b.requireKeyMaterial(region, key.KeyID)
 	if err != nil {
 		return nil, err
 	}
@@ -1013,7 +1158,7 @@ func (b *InMemoryBackend) Sign(input *SignInput) (*SignOutput, error) {
 }
 
 // Verify verifies a digital signature using an asymmetric KMS key.
-func (b *InMemoryBackend) Verify(input *VerifyInput) (*VerifyOutput, error) {
+func (b *InMemoryBackend) Verify(ctx context.Context, input *VerifyInput) (*VerifyOutput, error) {
 	// Validate message size: AWS limits RAW messages to 4096 bytes.
 	msgType := input.MessageType
 	if msgType == "" {
@@ -1030,7 +1175,9 @@ func (b *InMemoryBackend) Verify(input *VerifyInput) (*VerifyOutput, error) {
 	b.mu.RLock("Verify")
 	defer b.mu.RUnlock()
 
-	key, err := b.lookupKey(input.KeyID)
+	region := getRegion(ctx, b.defaultRegion)
+
+	key, err := b.lookupKey(ctx, input.KeyID)
 	if err != nil {
 		return nil, err
 	}
@@ -1047,7 +1194,7 @@ func (b *InMemoryBackend) Verify(input *VerifyInput) (*VerifyOutput, error) {
 		return nil, algErr
 	}
 
-	km, err := b.requireKeyMaterial(key.KeyID)
+	km, err := b.requireKeyMaterial(region, key.KeyID)
 	if err != nil {
 		return nil, err
 	}
@@ -1070,11 +1217,13 @@ func (b *InMemoryBackend) Verify(input *VerifyInput) (*VerifyOutput, error) {
 }
 
 // GetPublicKey returns the public key for an asymmetric KMS key.
-func (b *InMemoryBackend) GetPublicKey(input *GetPublicKeyInput) (*GetPublicKeyOutput, error) {
+func (b *InMemoryBackend) GetPublicKey(ctx context.Context, input *GetPublicKeyInput) (*GetPublicKeyOutput, error) {
 	b.mu.RLock("GetPublicKey")
 	defer b.mu.RUnlock()
 
-	key, err := b.lookupKey(input.KeyID)
+	region := getRegion(ctx, b.defaultRegion)
+
+	key, err := b.lookupKey(ctx, input.KeyID)
 	if err != nil {
 		return nil, err
 	}
@@ -1098,7 +1247,7 @@ func (b *InMemoryBackend) GetPublicKey(input *GetPublicKeyInput) (*GetPublicKeyO
 		return nil, fmt.Errorf("%w: key %q is a symmetric key and has no public key", ErrInvalidKeyUsage, key.KeyID)
 	}
 
-	km, err := b.requireKeyMaterial(key.KeyID)
+	km, err := b.requireKeyMaterial(region, key.KeyID)
 	if err != nil {
 		return nil, err
 	}
@@ -1128,7 +1277,7 @@ func (b *InMemoryBackend) GetPublicKey(input *GetPublicKeyInput) (*GetPublicKeyO
 }
 
 // CreateAlias creates an alias pointing to a key.
-func (b *InMemoryBackend) CreateAlias(input *CreateAliasInput) error {
+func (b *InMemoryBackend) CreateAlias(ctx context.Context, input *CreateAliasInput) error {
 	if !strings.HasPrefix(input.AliasName, "alias/") {
 		return fmt.Errorf("%w: alias name must start with alias/", ErrValidation)
 	}
@@ -1155,22 +1304,24 @@ func (b *InMemoryBackend) CreateAlias(input *CreateAliasInput) error {
 	b.mu.Lock("CreateAlias")
 	defer b.mu.Unlock()
 
-	if _, exists := b.aliases[input.AliasName]; exists {
+	region := getRegion(ctx, b.defaultRegion)
+
+	if _, exists := b.aliasesStore(region)[input.AliasName]; exists {
 		return ErrAliasAlreadyExists
 	}
 
-	targetID, err := b.resolveKeyID(input.TargetKeyID)
+	targetID, _, err := b.resolveKeyID(ctx, input.TargetKeyID)
 	if err != nil {
 		return err
 	}
 
-	if _, exists := b.keys[targetID]; !exists {
+	if _, exists := b.keysStore(region)[targetID]; !exists {
 		return ErrKeyNotFound
 	}
 
 	now := UnixTimeFloat(time.Now())
-	aliasArn := gopherarn.Build("kms", b.region, b.accountID, input.AliasName)
-	b.aliases[input.AliasName] = &Alias{
+	aliasArn := gopherarn.Build("kms", region, b.accountID, input.AliasName)
+	b.aliasesStore(region)[input.AliasName] = &Alias{
 		AliasName:       input.AliasName,
 		AliasArn:        aliasArn,
 		TargetKeyID:     targetID,
@@ -1184,21 +1335,23 @@ func (b *InMemoryBackend) CreateAlias(input *CreateAliasInput) error {
 
 // UpdateAlias redirects an existing alias to a different key.
 // The alias must already exist; the target key must exist and not be in PendingDeletion state.
-func (b *InMemoryBackend) UpdateAlias(input *UpdateAliasInput) error {
+func (b *InMemoryBackend) UpdateAlias(ctx context.Context, input *UpdateAliasInput) error {
 	b.mu.Lock("UpdateAlias")
 	defer b.mu.Unlock()
 
-	alias, exists := b.aliases[input.AliasName]
+	region := getRegion(ctx, b.defaultRegion)
+
+	alias, exists := b.aliasesStore(region)[input.AliasName]
 	if !exists {
 		return ErrAliasNotFound
 	}
 
-	targetID, err := b.resolveKeyID(input.TargetKeyID)
+	targetID, _, err := b.resolveKeyID(ctx, input.TargetKeyID)
 	if err != nil {
 		return err
 	}
 
-	targetKey, ok := b.keys[targetID]
+	targetKey, ok := b.keysStore(region)[targetID]
 	if !ok {
 		return ErrKeyNotFound
 	}
@@ -1221,18 +1374,20 @@ func (b *InMemoryBackend) UpdateAlias(input *UpdateAliasInput) error {
 // DeleteAlias removes an alias.
 // Per AWS KMS behaviour, an alias pointing to a key in PendingDeletion state
 // cannot be deleted — the caller must cancel the deletion first.
-func (b *InMemoryBackend) DeleteAlias(input *DeleteAliasInput) error {
+func (b *InMemoryBackend) DeleteAlias(ctx context.Context, input *DeleteAliasInput) error {
 	b.mu.Lock("DeleteAlias")
 	defer b.mu.Unlock()
 
-	alias, exists := b.aliases[input.AliasName]
+	region := getRegion(ctx, b.defaultRegion)
+
+	alias, exists := b.aliasesStore(region)[input.AliasName]
 	if !exists {
 		return ErrAliasNotFound
 	}
 
 	// Prevent deleting an alias that targets a key scheduled for deletion.
 	if alias.TargetKeyID != "" {
-		if key, ok := b.keys[alias.TargetKeyID]; ok && key.KeyState == KeyStatePendingDeletion {
+		if key, ok := b.keysStore(region)[alias.TargetKeyID]; ok && key.KeyState == KeyStatePendingDeletion {
 			return fmt.Errorf(
 				"%w: key %s is pending deletion; cancel the deletion before deleting the alias",
 				ErrKeyInvalidState, alias.TargetKeyID,
@@ -1240,31 +1395,33 @@ func (b *InMemoryBackend) DeleteAlias(input *DeleteAliasInput) error {
 		}
 	}
 
-	delete(b.aliases, input.AliasName)
+	delete(b.aliasesStore(region), input.AliasName)
 	b.clearResolutionCache()
 
 	return nil
 }
 
 // ListAliases returns a paginated list of aliases, optionally filtered by key.
-func (b *InMemoryBackend) ListAliases(input *ListAliasesInput) (*ListAliasesOutput, error) {
+func (b *InMemoryBackend) ListAliases(ctx context.Context, input *ListAliasesInput) (*ListAliasesOutput, error) {
 	b.mu.RLock("ListAliases")
 	defer b.mu.RUnlock()
+
+	region := getRegion(ctx, b.defaultRegion)
 
 	var resolvedKeyID string
 
 	if input.KeyID != "" {
 		var err error
 
-		resolvedKeyID, err = b.resolveKeyID(input.KeyID)
+		resolvedKeyID, _, err = b.resolveKeyID(ctx, input.KeyID)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	aliases := make([]Alias, 0, len(b.aliases))
+	aliases := make([]Alias, 0, len(b.aliasesStore(region)))
 
-	for _, a := range b.aliases {
+	for _, a := range b.aliasesStore(region) {
 		if resolvedKeyID != "" && a.TargetKeyID != resolvedKeyID {
 			continue
 		}
@@ -1308,11 +1465,11 @@ func (b *InMemoryBackend) ListAliases(input *ListAliasesInput) (*ListAliasesOutp
 // The rotation period defaults to 365 days. Rotation is NOT performed immediately;
 // it is scheduled starting from the key's creation date or last rotation date.
 // The key must be in the Enabled state.
-func (b *InMemoryBackend) EnableKeyRotation(input *EnableKeyRotationInput) error {
+func (b *InMemoryBackend) EnableKeyRotation(ctx context.Context, input *EnableKeyRotationInput) error {
 	b.mu.Lock("EnableKeyRotation")
 	defer b.mu.Unlock()
 
-	key, err := b.lookupKeyWrite(input.KeyID)
+	key, err := b.lookupKeyWrite(ctx, input.KeyID)
 	if err != nil {
 		return err
 	}
@@ -1359,11 +1516,11 @@ func (b *InMemoryBackend) EnableKeyRotation(input *EnableKeyRotationInput) error
 
 // DisableKeyRotation disables automatic key rotation for the specified key.
 // Asymmetric keys and EXTERNAL-origin keys do not support rotation and return ErrUnsupportedOrigin.
-func (b *InMemoryBackend) DisableKeyRotation(input *DisableKeyRotationInput) error {
+func (b *InMemoryBackend) DisableKeyRotation(ctx context.Context, input *DisableKeyRotationInput) error {
 	b.mu.Lock("DisableKeyRotation")
 	defer b.mu.Unlock()
 
-	key, err := b.lookupKeyWrite(input.KeyID)
+	key, err := b.lookupKeyWrite(ctx, input.KeyID)
 	if err != nil {
 		return err
 	}
@@ -1389,11 +1546,16 @@ func (b *InMemoryBackend) DisableKeyRotation(input *DisableKeyRotationInput) err
 }
 
 // RotateKeyOnDemand rotates key material immediately without changing automatic rotation status.
-func (b *InMemoryBackend) RotateKeyOnDemand(input *RotateKeyOnDemandInput) (*RotateKeyOnDemandOutput, error) {
+func (b *InMemoryBackend) RotateKeyOnDemand(
+	ctx context.Context,
+	input *RotateKeyOnDemandInput,
+) (*RotateKeyOnDemandOutput, error) {
 	b.mu.Lock("RotateKeyOnDemand")
 	defer b.mu.Unlock()
 
-	key, err := b.lookupKeyWrite(input.KeyID)
+	region := getRegion(ctx, b.defaultRegion)
+
+	key, err := b.lookupKeyWrite(ctx, input.KeyID)
 	if err != nil {
 		return nil, err
 	}
@@ -1430,7 +1592,7 @@ func (b *InMemoryBackend) RotateKeyOnDemand(input *RotateKeyOnDemandInput) (*Rot
 		)
 	}
 
-	if err = b.rotateKeyMaterialLocked(key, rotationTypeImported); err != nil {
+	if err = b.rotateKeyMaterialLocked(region, key, rotationTypeImported); err != nil {
 		return nil, err
 	}
 
@@ -1440,11 +1602,14 @@ func (b *InMemoryBackend) RotateKeyOnDemand(input *RotateKeyOnDemandInput) (*Rot
 }
 
 // GetKeyRotationStatus returns rotation configuration and schedule for the specified key.
-func (b *InMemoryBackend) GetKeyRotationStatus(input *GetKeyRotationStatusInput) (*GetKeyRotationStatusOutput, error) {
+func (b *InMemoryBackend) GetKeyRotationStatus(
+	ctx context.Context,
+	input *GetKeyRotationStatusInput,
+) (*GetKeyRotationStatusOutput, error) {
 	b.mu.RLock("GetKeyRotationStatus")
 	defer b.mu.RUnlock()
 
-	key, err := b.lookupKey(input.KeyID)
+	key, err := b.lookupKey(ctx, input.KeyID)
 	if err != nil {
 		return nil, err
 	}
@@ -1524,11 +1689,11 @@ func (b *InMemoryBackend) lastOnDemandRotationDate(key *Key) float64 {
 
 // DisableKey disables the specified key.
 // AWS raises KMSInvalidStateException for keys in PendingDeletion or PendingImport states.
-func (b *InMemoryBackend) DisableKey(input *DisableKeyInput) error {
+func (b *InMemoryBackend) DisableKey(ctx context.Context, input *DisableKeyInput) error {
 	b.mu.Lock("DisableKey")
 	defer b.mu.Unlock()
 
-	key, err := b.lookupKeyWrite(input.KeyID)
+	key, err := b.lookupKeyWrite(ctx, input.KeyID)
 	if err != nil {
 		return err
 	}
@@ -1545,11 +1710,11 @@ func (b *InMemoryBackend) DisableKey(input *DisableKeyInput) error {
 
 // EnableKey enables the specified key.
 // AWS raises KMSInvalidStateException for keys in PendingDeletion or PendingImport states.
-func (b *InMemoryBackend) EnableKey(input *EnableKeyInput) error {
+func (b *InMemoryBackend) EnableKey(ctx context.Context, input *EnableKeyInput) error {
 	b.mu.Lock("EnableKey")
 	defer b.mu.Unlock()
 
-	key, err := b.lookupKeyWrite(input.KeyID)
+	key, err := b.lookupKeyWrite(ctx, input.KeyID)
 	if err != nil {
 		return err
 	}
@@ -1568,11 +1733,14 @@ func (b *InMemoryBackend) EnableKey(input *EnableKeyInput) error {
 // PendingWindowInDays must be in the range [7, 30]; values outside this range are rejected.
 // AWS raises ValidationException for out-of-range values and KMSInvalidStateException
 // for keys already in PendingDeletion.
-func (b *InMemoryBackend) ScheduleKeyDeletion(input *ScheduleKeyDeletionInput) (*ScheduleKeyDeletionOutput, error) {
+func (b *InMemoryBackend) ScheduleKeyDeletion(
+	ctx context.Context,
+	input *ScheduleKeyDeletionInput,
+) (*ScheduleKeyDeletionOutput, error) {
 	b.mu.Lock("ScheduleKeyDeletion")
 	defer b.mu.Unlock()
 
-	key, err := b.lookupKeyWrite(input.KeyID)
+	key, err := b.lookupKeyWrite(ctx, input.KeyID)
 	if err != nil {
 		return nil, err
 	}
@@ -1609,11 +1777,14 @@ func (b *InMemoryBackend) ScheduleKeyDeletion(input *ScheduleKeyDeletionInput) (
 
 // CancelKeyDeletion cancels a pending key deletion and sets the key to Disabled.
 // AWS raises KMSInvalidStateException if the key is not in PendingDeletion state.
-func (b *InMemoryBackend) CancelKeyDeletion(input *CancelKeyDeletionInput) (*CancelKeyDeletionOutput, error) {
+func (b *InMemoryBackend) CancelKeyDeletion(
+	ctx context.Context,
+	input *CancelKeyDeletionInput,
+) (*CancelKeyDeletionOutput, error) {
 	b.mu.Lock("CancelKeyDeletion")
 	defer b.mu.Unlock()
 
-	key, err := b.lookupKeyWrite(input.KeyID)
+	key, err := b.lookupKeyWrite(ctx, input.KeyID)
 	if err != nil {
 		return nil, err
 	}
@@ -1630,14 +1801,23 @@ func (b *InMemoryBackend) CancelKeyDeletion(input *CancelKeyDeletionInput) (*Can
 }
 
 // lookupKey finds a key by ID, alias, or ARN. Caller must hold at least a read lock.
-func (b *InMemoryBackend) lookupKey(keyID string) (*Key, error) {
-	resolved, err := b.resolveKeyID(keyID)
+func (b *InMemoryBackend) lookupKey(ctx context.Context, keyID string) (*Key, error) {
+	resolved, region, err := b.resolveKeyID(ctx, keyID)
 	if err != nil {
 		return nil, err
 	}
 
-	key, ok := b.keys[resolved]
+	key, ok := b.keysStore(region)[resolved]
 	if !ok {
+		// For plain UUID lookups (not ARN or alias), fall back to searching all regions.
+		// This preserves mock compatibility: multi-region tests create replicas in a target
+		// region and look them up without specifying the target region in ctx.
+		if !strings.HasPrefix(keyID, "arn:") && !strings.HasPrefix(keyID, "alias/") {
+			if key = b.findKeyInAnyRegion(resolved); key != nil {
+				return key, nil
+			}
+		}
+
 		return nil, ErrKeyNotFound
 	}
 
@@ -1645,8 +1825,8 @@ func (b *InMemoryBackend) lookupKey(keyID string) (*Key, error) {
 }
 
 // lookupKeyWrite finds a key by ID, alias, or ARN. Caller must hold a write lock.
-func (b *InMemoryBackend) lookupKeyWrite(keyID string) (*Key, error) {
-	return b.lookupKey(keyID)
+func (b *InMemoryBackend) lookupKeyWrite(ctx context.Context, keyID string) (*Key, error) {
+	return b.lookupKey(ctx, keyID)
 }
 
 // keyStateError returns the appropriate error for a key that is not in the Enabled state.
@@ -1660,7 +1840,7 @@ func keyStateError(key *Key) error {
 	return ErrKeyInvalidState
 }
 
-func (b *InMemoryBackend) rotateKeyMaterialLocked(key *Key, rotationType string) error {
+func (b *InMemoryBackend) rotateKeyMaterialLocked(region string, key *Key, rotationType string) error {
 	if key.KeyState != KeyStateEnabled {
 		return keyStateError(key)
 	}
@@ -1684,16 +1864,19 @@ func (b *InMemoryBackend) rotateKeyMaterialLocked(key *Key, rotationType string)
 		return fmt.Errorf("rotating key material: %w", kmErr)
 	}
 
-	if current := b.keyMaterials[key.KeyID]; current != nil {
-		b.keyMaterialHistory[key.KeyID] = append(b.keyMaterialHistory[key.KeyID], current)
+	kms := b.keyMaterialsStore(region)
+	kmh := b.keyMaterialHistoryStore(region)
+
+	if current := kms[key.KeyID]; current != nil {
+		kmh[key.KeyID] = append(kmh[key.KeyID], current)
 		// Cap retained history to bound long-running mock memory growth.
-		hist := b.keyMaterialHistory[key.KeyID]
+		hist := kmh[key.KeyID]
 		if len(hist) > maxKeyMaterialHistoryEntries {
-			b.keyMaterialHistory[key.KeyID] = hist[len(hist)-maxKeyMaterialHistoryEntries:]
+			kmh[key.KeyID] = hist[len(hist)-maxKeyMaterialHistoryEntries:]
 		}
 	}
 
-	b.keyMaterials[key.KeyID] = newKM
+	kms[key.KeyID] = newKM
 	ts := UnixTimeFloat(time.Now())
 	key.RotationDates = append(key.RotationDates, ts)
 	key.Rotations = append(key.Rotations, RotationRecord{Date: ts, RotationType: rotationType})
@@ -1775,7 +1958,7 @@ func applyMultiRegionType(k *Key, meta *KeyMetadata) {
 // buildMultiRegionConfig constructs the MultiRegionConfiguration for a key, following
 // the same PRIMARY/REPLICA logic used by AWS DescribeKey. Returns nil for non-multi-region keys.
 // Must be called with at least a read lock held.
-func (b *InMemoryBackend) buildMultiRegionConfig(key *Key) *MultiRegionConfiguration {
+func (b *InMemoryBackend) buildMultiRegionConfig(_ context.Context, key *Key) *MultiRegionConfiguration {
 	if !key.MultiRegion {
 		return nil
 	}
@@ -1798,7 +1981,8 @@ func (b *InMemoryBackend) buildPrimaryMultiRegionConfig(key *Key, keyRegion stri
 	}
 
 	for _, replicaID := range key.ReplicaKeyIDs {
-		if rk, ok := b.keys[replicaID]; ok {
+		// replica keys may live in any region — search all regions
+		if rk := b.findKeyInAnyRegion(replicaID); rk != nil {
 			cfg.ReplicaKeys = append(cfg.ReplicaKeys, MultiRegionKeyRef{
 				Arn:    rk.Arn,
 				Region: extractRegionFromARN(rk.Arn),
@@ -1824,7 +2008,7 @@ func (b *InMemoryBackend) buildReplicaMultiRegionConfig(key *Key) *MultiRegionCo
 		}
 
 		for _, replicaID := range primaryKey.ReplicaKeyIDs {
-			if rk, ok := b.keys[replicaID]; ok {
+			if rk := b.findKeyInAnyRegion(replicaID); rk != nil {
 				cfg.ReplicaKeys = append(cfg.ReplicaKeys, MultiRegionKeyRef{
 					Arn:    rk.Arn,
 					Region: extractRegionFromARN(rk.Arn),
@@ -1838,16 +2022,30 @@ func (b *InMemoryBackend) buildReplicaMultiRegionConfig(key *Key) *MultiRegionCo
 	return cfg
 }
 
+// findKeyInAnyRegion searches all region stores for a key with the given keyID.
+// Must be called with at least a read lock held.
+func (b *InMemoryBackend) findKeyInAnyRegion(keyID string) *Key {
+	for _, regionKeys := range b.keys {
+		if k, ok := regionKeys[keyID]; ok {
+			return k
+		}
+	}
+
+	return nil
+}
+
 // findPrimaryKeyForReplica locates the primary key that lists replicaKey.KeyID in its
 // ReplicaKeyIDs. Must be called with at least a read lock held.
 func (b *InMemoryBackend) findPrimaryKeyForReplica(replicaKey *Key) *Key {
-	for _, k := range b.keys {
-		if !k.MultiRegion || extractRegionFromARN(k.Arn) != replicaKey.PrimaryRegion {
-			continue
-		}
+	for _, regionKeys := range b.keys {
+		for _, k := range regionKeys {
+			if !k.MultiRegion || extractRegionFromARN(k.Arn) != replicaKey.PrimaryRegion {
+				continue
+			}
 
-		if slices.Contains(k.ReplicaKeyIDs, replicaKey.KeyID) {
-			return k
+			if slices.Contains(k.ReplicaKeyIDs, replicaKey.KeyID) {
+				return k
+			}
 		}
 	}
 
@@ -1910,7 +2108,7 @@ func parseMarker(marker string) int {
 }
 
 // CreateGrant creates a new grant on the specified key.
-func (b *InMemoryBackend) CreateGrant(input *CreateGrantInput) (*CreateGrantOutput, error) {
+func (b *InMemoryBackend) CreateGrant(ctx context.Context, input *CreateGrantInput) (*CreateGrantOutput, error) {
 	if strings.TrimSpace(input.GranteePrincipal) == "" {
 		return nil, fmt.Errorf("%w: GranteePrincipal must not be empty", ErrValidation)
 	}
@@ -1940,12 +2138,14 @@ func (b *InMemoryBackend) CreateGrant(input *CreateGrantInput) (*CreateGrantOutp
 	b.mu.Lock("CreateGrant")
 	defer b.mu.Unlock()
 
-	keyID, err := b.resolveKeyID(input.KeyID)
+	region := getRegion(ctx, b.defaultRegion)
+
+	keyID, _, err := b.resolveKeyID(ctx, input.KeyID)
 	if err != nil {
 		return nil, err
 	}
 
-	key, ok := b.keys[keyID]
+	key, ok := b.keysStore(region)[keyID]
 	if !ok {
 		return nil, ErrKeyNotFound
 	}
@@ -1955,7 +2155,7 @@ func (b *InMemoryBackend) CreateGrant(input *CreateGrantInput) (*CreateGrantOutp
 	}
 
 	grantCount := 0
-	for _, g := range b.grants {
+	for _, g := range b.grantsStore(region) {
 		if g.KeyID == keyID {
 			grantCount++
 		}
@@ -1979,8 +2179,8 @@ func (b *InMemoryBackend) CreateGrant(input *CreateGrantInput) (*CreateGrantOutp
 		Constraints:       input.Constraints,
 		CreationDate:      UnixTimeFloat(now),
 	}
-	b.grants[grantID] = grant
-	b.grantsByToken[grantToken] = grant
+	b.grantsStore(region)[grantID] = grant
+	b.grantsByTokenStore(region)[grantToken] = grant
 
 	return &CreateGrantOutput{GrantID: grantID, GrantToken: grantToken}, nil
 }
@@ -2014,11 +2214,13 @@ func grantConstraintsSatisfied(c *GrantConstraints, encCtx map[string]string) bo
 }
 
 // findGrantByToken returns the first grant whose GrantToken matches any of the provided tokens.
-// Must be called with at least a read lock held.
+// Searches all regions. Must be called with at least a read lock held.
 func (b *InMemoryBackend) findGrantByToken(grantTokens []string) *Grant {
-	for _, token := range grantTokens {
-		if g, ok := b.grantsByToken[token]; ok {
-			return g
+	for _, regionMap := range b.grantsByToken {
+		for _, token := range grantTokens {
+			if g, ok := regionMap[token]; ok {
+				return g
+			}
 		}
 	}
 
@@ -2028,7 +2230,11 @@ func (b *InMemoryBackend) findGrantByToken(grantTokens []string) *Grant {
 // validateGrantTokenConstraints checks that, if a grant token is provided, the encryption
 // context satisfies the grant's constraints. No-op when grantTokens is empty.
 // Must be called with at least a read lock held.
-func (b *InMemoryBackend) validateGrantTokenConstraints(grantTokens []string, encCtx map[string]string) error {
+func (b *InMemoryBackend) validateGrantTokenConstraints(
+	_ context.Context,
+	grantTokens []string,
+	encCtx map[string]string,
+) error {
 	if len(grantTokens) == 0 {
 		return nil
 	}
@@ -2054,21 +2260,23 @@ func (b *InMemoryBackend) validateGrantTokenConstraints(grantTokens []string, en
 }
 
 // ListGrants returns the grants for a specified key with optional pagination and GrantId filter.
-func (b *InMemoryBackend) ListGrants(input *ListGrantsInput) (*ListGrantsOutput, error) {
+func (b *InMemoryBackend) ListGrants(ctx context.Context, input *ListGrantsInput) (*ListGrantsOutput, error) {
 	b.mu.RLock("ListGrants")
 	defer b.mu.RUnlock()
 
-	keyID, err := b.resolveKeyID(input.KeyID)
+	region := getRegion(ctx, b.defaultRegion)
+
+	keyID, _, err := b.resolveKeyID(ctx, input.KeyID)
 	if err != nil {
 		return nil, err
 	}
 
-	if _, ok := b.keys[keyID]; !ok {
+	if _, ok := b.keysStore(region)[keyID]; !ok {
 		return nil, ErrKeyNotFound
 	}
 
 	var grants []Grant
-	for _, g := range b.grants {
+	for _, g := range b.grantsStore(region) {
 		if g.KeyID != keyID {
 			continue
 		}
@@ -2109,58 +2317,64 @@ func (b *InMemoryBackend) ListGrants(input *ListGrantsInput) (*ListGrantsOutput,
 }
 
 // RevokeGrant revokes a grant by ID.
-func (b *InMemoryBackend) RevokeGrant(input *RevokeGrantInput) error {
+func (b *InMemoryBackend) RevokeGrant(ctx context.Context, input *RevokeGrantInput) error {
 	b.mu.Lock("RevokeGrant")
 	defer b.mu.Unlock()
 
-	keyID, err := b.resolveKeyID(input.KeyID)
+	region := getRegion(ctx, b.defaultRegion)
+
+	keyID, _, err := b.resolveKeyID(ctx, input.KeyID)
 	if err != nil {
 		return err
 	}
 
-	if _, ok := b.keys[keyID]; !ok {
+	if _, ok := b.keysStore(region)[keyID]; !ok {
 		return ErrKeyNotFound
 	}
 
-	grant, ok := b.grants[input.GrantID]
+	grant, ok := b.grantsStore(region)[input.GrantID]
 	if !ok || grant.KeyID != keyID {
 		return ErrGrantNotFound
 	}
 
-	delete(b.grants, input.GrantID)
-	delete(b.grantsByToken, grant.GrantToken)
+	delete(b.grantsStore(region), input.GrantID)
+	delete(b.grantsByTokenStore(region), grant.GrantToken)
 
 	return nil
 }
 
 // RetireGrant retires a grant by grant token or grant ID + key ID.
-func (b *InMemoryBackend) RetireGrant(input *RetireGrantInput) error {
+func (b *InMemoryBackend) RetireGrant(ctx context.Context, input *RetireGrantInput) error {
 	b.mu.Lock("RetireGrant")
 	defer b.mu.Unlock()
 
+	region := getRegion(ctx, b.defaultRegion)
+
 	if input.GrantToken != "" {
-		g, ok := b.grantsByToken[input.GrantToken]
-		if !ok {
-			return ErrGrantNotFound
+		// Search all regions for the grant token.
+		for r, regionMap := range b.grantsByToken {
+			if g, ok := regionMap[input.GrantToken]; ok {
+				delete(b.grantsStore(r), g.GrantID)
+				delete(regionMap, input.GrantToken)
+
+				return nil
+			}
 		}
 
-		delete(b.grants, g.GrantID)
-		delete(b.grantsByToken, input.GrantToken)
-
-		return nil
+		return ErrGrantNotFound
 	}
 
 	if input.GrantID == "" {
 		return ErrGrantNotFound
 	}
 
-	grant, ok := b.grants[input.GrantID]
+	grant, ok := b.grantsStore(region)[input.GrantID]
 	if !ok {
 		return ErrGrantNotFound
 	}
 
 	if input.KeyID != "" {
-		keyID, err := b.resolveKeyID(input.KeyID)
+		keyID, _, err := b.resolveKeyID(ctx, input.KeyID)
 		if err != nil {
 			return err
 		}
@@ -2170,19 +2384,24 @@ func (b *InMemoryBackend) RetireGrant(input *RetireGrantInput) error {
 		}
 	}
 
-	delete(b.grants, input.GrantID)
-	delete(b.grantsByToken, grant.GrantToken)
+	delete(b.grantsStore(region), input.GrantID)
+	delete(b.grantsByTokenStore(region), grant.GrantToken)
 
 	return nil
 }
 
 // ListRetirableGrants returns all grants for which the given principal is the retiring principal.
-func (b *InMemoryBackend) ListRetirableGrants(input *ListRetirableGrantsInput) (*ListGrantsOutput, error) {
+func (b *InMemoryBackend) ListRetirableGrants(
+	ctx context.Context,
+	input *ListRetirableGrantsInput,
+) (*ListGrantsOutput, error) {
 	b.mu.RLock("ListRetirableGrants")
 	defer b.mu.RUnlock()
 
-	grants := make([]Grant, 0, len(b.grants))
-	for _, g := range b.grants {
+	region := getRegion(ctx, b.defaultRegion)
+
+	grants := make([]Grant, 0)
+	for _, g := range b.grantsStore(region) {
 		if g.RetiringPrincipal == input.RetiringPrincipal {
 			grants = append(grants, *g)
 		}
@@ -2219,9 +2438,9 @@ func (b *InMemoryBackend) ListRetirableGrants(input *ListRetirableGrantsInput) (
 
 // GenerateDataKeyWithoutPlaintext generates a data key but returns only the encrypted copy.
 func (b *InMemoryBackend) GenerateDataKeyWithoutPlaintext(
-	input *GenerateDataKeyWithoutPlaintextInput,
+	ctx context.Context, input *GenerateDataKeyWithoutPlaintextInput,
 ) (*GenerateDataKeyWithoutPlaintextOutput, error) {
-	out, err := b.GenerateDataKey(&GenerateDataKeyInput{
+	out, err := b.GenerateDataKey(ctx, &GenerateDataKeyInput{
 		KeyID:             input.KeyID,
 		KeySpec:           input.KeySpec,
 		NumberOfBytes:     input.NumberOfBytes,
@@ -2240,7 +2459,7 @@ func (b *InMemoryBackend) GenerateDataKeyWithoutPlaintext(
 
 // PutKeyPolicy stores a key policy for a KMS key.
 // Only the "default" policy name is supported.
-func (b *InMemoryBackend) PutKeyPolicy(input *PutKeyPolicyInput) error {
+func (b *InMemoryBackend) PutKeyPolicy(ctx context.Context, input *PutKeyPolicyInput) error {
 	policyName := input.PolicyName
 	if policyName == "" {
 		policyName = defaultKeyPolicyName
@@ -2256,35 +2475,39 @@ func (b *InMemoryBackend) PutKeyPolicy(input *PutKeyPolicyInput) error {
 	b.mu.Lock("PutKeyPolicy")
 	defer b.mu.Unlock()
 
-	keyID, err := b.resolveKeyID(input.KeyID)
+	region := getRegion(ctx, b.defaultRegion)
+
+	keyID, _, err := b.resolveKeyID(ctx, input.KeyID)
 	if err != nil {
 		return err
 	}
 
-	if _, ok := b.keys[keyID]; !ok {
+	if _, ok := b.keysStore(region)[keyID]; !ok {
 		return ErrKeyNotFound
 	}
 
-	b.policies[keyID] = input.Policy
+	b.policiesStore(region)[keyID] = input.Policy
 
 	return nil
 }
 
 // GetKeyPolicy retrieves the key policy for a KMS key.
-func (b *InMemoryBackend) GetKeyPolicy(input *GetKeyPolicyInput) (*GetKeyPolicyOutput, error) {
+func (b *InMemoryBackend) GetKeyPolicy(ctx context.Context, input *GetKeyPolicyInput) (*GetKeyPolicyOutput, error) {
 	b.mu.RLock("GetKeyPolicy")
 	defer b.mu.RUnlock()
 
-	keyID, err := b.resolveKeyID(input.KeyID)
+	region := getRegion(ctx, b.defaultRegion)
+
+	keyID, _, err := b.resolveKeyID(ctx, input.KeyID)
 	if err != nil {
 		return nil, err
 	}
 
-	if _, ok := b.keys[keyID]; !ok {
+	if _, ok := b.keysStore(region)[keyID]; !ok {
 		return nil, ErrKeyNotFound
 	}
 
-	policy, ok := b.policies[keyID]
+	policy, ok := b.policiesStore(region)[keyID]
 	if !ok {
 		// Return default policy
 		rootARN := gopherarn.Build("iam", "", b.accountID, "root")
@@ -2302,7 +2525,7 @@ func (b *InMemoryBackend) GetKeyPolicy(input *GetKeyPolicyInput) (*GetKeyPolicyO
 
 // GetParametersForImport returns mock wrapping parameters for EXTERNAL-origin key material import.
 func (b *InMemoryBackend) GetParametersForImport(
-	input *GetParametersForImportInput,
+	ctx context.Context, input *GetParametersForImportInput,
 ) (*GetParametersForImportOutput, error) {
 	// Validate WrappingAlgorithm if provided.
 	validWrappingAlgorithms := map[string]struct{}{
@@ -2342,7 +2565,7 @@ func (b *InMemoryBackend) GetParametersForImport(
 	b.mu.RLock("GetParametersForImport")
 	defer b.mu.RUnlock()
 
-	key, err := b.lookupKey(input.KeyID)
+	key, err := b.lookupKey(ctx, input.KeyID)
 	if err != nil {
 		return nil, err
 	}
@@ -2374,11 +2597,14 @@ func (b *InMemoryBackend) GetParametersForImport(
 }
 
 // ListKeyPolicies returns policy names available for a key.
-func (b *InMemoryBackend) ListKeyPolicies(input *ListKeyPoliciesInput) (*ListKeyPoliciesOutput, error) {
+func (b *InMemoryBackend) ListKeyPolicies(
+	ctx context.Context,
+	input *ListKeyPoliciesInput,
+) (*ListKeyPoliciesOutput, error) {
 	b.mu.RLock("ListKeyPolicies")
 	defer b.mu.RUnlock()
 
-	if _, err := b.lookupKey(input.KeyID); err != nil {
+	if _, err := b.lookupKey(ctx, input.KeyID); err != nil {
 		return nil, err
 	}
 
@@ -2410,11 +2636,14 @@ func (b *InMemoryBackend) ListKeyPolicies(input *ListKeyPoliciesInput) (*ListKey
 }
 
 // ListKeyRotations returns observed key material rotation timestamps for a key.
-func (b *InMemoryBackend) ListKeyRotations(input *ListKeyRotationsInput) (*ListKeyRotationsOutput, error) {
+func (b *InMemoryBackend) ListKeyRotations(
+	ctx context.Context,
+	input *ListKeyRotationsInput,
+) (*ListKeyRotationsOutput, error) {
 	b.mu.RLock("ListKeyRotations")
 	defer b.mu.RUnlock()
 
-	key, err := b.lookupKey(input.KeyID)
+	key, err := b.lookupKey(ctx, input.KeyID)
 	if err != nil {
 		return nil, err
 	}
@@ -2461,11 +2690,13 @@ func (b *InMemoryBackend) ListKeyRotations(input *ListKeyRotationsInput) (*ListK
 // Origin=EXTERNAL. The key must be in PendingImport state. On success the key transitions
 // to Enabled. Only SYMMETRIC_DEFAULT keys are supported; asymmetric EXTERNAL keys are
 // not modeled by this mock.
-func (b *InMemoryBackend) ImportKeyMaterial(input *ImportKeyMaterialInput) error {
+func (b *InMemoryBackend) ImportKeyMaterial(ctx context.Context, input *ImportKeyMaterialInput) error {
 	b.mu.Lock("ImportKeyMaterial")
 	defer b.mu.Unlock()
 
-	key, err := b.lookupKeyWrite(input.KeyID)
+	region := getRegion(ctx, b.defaultRegion)
+
+	key, err := b.lookupKeyWrite(ctx, input.KeyID)
 	if err != nil {
 		return err
 	}
@@ -2511,7 +2742,7 @@ func (b *InMemoryBackend) ImportKeyMaterial(input *ImportKeyMaterialInput) error
 		return fmt.Errorf("creating imported symmetric key material: %w", kmErr)
 	}
 
-	b.keyMaterials[key.KeyID] = km
+	b.keyMaterialsStore(region)[key.KeyID] = km
 	key.KeyState = KeyStateEnabled
 	key.Enabled = true
 
@@ -2558,11 +2789,13 @@ func (b *InMemoryBackend) ImportKeyMaterial(input *ImportKeyMaterialInput) error
 
 // DeleteImportedKeyMaterial removes the imported key material from an EXTERNAL-origin key.
 // The key transitions to PendingImport; it can receive new material via ImportKeyMaterial.
-func (b *InMemoryBackend) DeleteImportedKeyMaterial(input *DeleteImportedKeyMaterialInput) error {
+func (b *InMemoryBackend) DeleteImportedKeyMaterial(ctx context.Context, input *DeleteImportedKeyMaterialInput) error {
 	b.mu.Lock("DeleteImportedKeyMaterial")
 	defer b.mu.Unlock()
 
-	key, err := b.lookupKeyWrite(input.KeyID)
+	region := getRegion(ctx, b.defaultRegion)
+
+	key, err := b.lookupKeyWrite(ctx, input.KeyID)
 	if err != nil {
 		return err
 	}
@@ -2575,8 +2808,8 @@ func (b *InMemoryBackend) DeleteImportedKeyMaterial(input *DeleteImportedKeyMate
 		)
 	}
 
-	delete(b.keyMaterials, key.KeyID)
-	delete(b.keyMaterialHistory, key.KeyID)
+	delete(b.keyMaterialsStore(region), key.KeyID)
+	delete(b.keyMaterialHistoryStore(region), key.KeyID)
 	key.KeyState = KeyStatePendingImport
 	key.Enabled = false
 	key.ValidTo = 0
@@ -2586,7 +2819,7 @@ func (b *InMemoryBackend) DeleteImportedKeyMaterial(input *DeleteImportedKeyMate
 }
 
 // ReplicateKey creates a multi-region replica for an existing key in the target region.
-func (b *InMemoryBackend) ReplicateKey(input *ReplicateKeyInput) (*ReplicateKeyOutput, error) {
+func (b *InMemoryBackend) ReplicateKey(ctx context.Context, input *ReplicateKeyInput) (*ReplicateKeyOutput, error) {
 	if strings.TrimSpace(input.ReplicaRegion) == "" {
 		return nil, fmt.Errorf("%w: ReplicaRegion must not be empty", ErrValidation)
 	}
@@ -2594,7 +2827,9 @@ func (b *InMemoryBackend) ReplicateKey(input *ReplicateKeyInput) (*ReplicateKeyO
 	b.mu.Lock("ReplicateKey")
 	defer b.mu.Unlock()
 
-	sourceKey, err := b.lookupKeyWrite(input.KeyID)
+	sourceRegion := getRegion(ctx, b.defaultRegion)
+
+	sourceKey, err := b.lookupKeyWrite(ctx, input.KeyID)
 	if err != nil {
 		return nil, err
 	}
@@ -2643,7 +2878,7 @@ func (b *InMemoryBackend) ReplicateKey(input *ReplicateKeyInput) (*ReplicateKeyO
 		sourceKey.PrimaryRegion = b.keyRegion(sourceKey.Arn)
 	}
 
-	if km := b.keyMaterials[sourceKey.KeyID]; km != nil {
+	if km := b.keyMaterialsStore(sourceRegion)[sourceKey.KeyID]; km != nil {
 		serialized, serErr := marshalKeyMaterial(km)
 		if serErr != nil {
 			return nil, fmt.Errorf("serializing key material for replication: %w", serErr)
@@ -2654,10 +2889,12 @@ func (b *InMemoryBackend) ReplicateKey(input *ReplicateKeyInput) (*ReplicateKeyO
 			return nil, fmt.Errorf("deserializing replicated key material: %w", cloneErr)
 		}
 
-		b.keyMaterials[replica.KeyID] = cloned
+		// Store replica key material in the target region's store.
+		b.keyMaterialsStore(input.ReplicaRegion)[replica.KeyID] = cloned
 	}
 
-	b.keys[replica.KeyID] = replica
+	// Store replica key in the target region's store.
+	b.keysStore(input.ReplicaRegion)[replica.KeyID] = replica
 
 	// Record the replica key ID on the source (primary) key so DescribeKey can
 	// return the full MultiRegionConfiguration.
@@ -2667,7 +2904,7 @@ func (b *InMemoryBackend) ReplicateKey(input *ReplicateKeyInput) (*ReplicateKeyO
 }
 
 // UpdateKeyDescription updates a key's description field.
-func (b *InMemoryBackend) UpdateKeyDescription(input *UpdateKeyDescriptionInput) error {
+func (b *InMemoryBackend) UpdateKeyDescription(ctx context.Context, input *UpdateKeyDescriptionInput) error {
 	if len(input.Description) > maxDescriptionLength {
 		return fmt.Errorf(
 			"%w: Description exceeds maximum length of %d characters",
@@ -2678,7 +2915,7 @@ func (b *InMemoryBackend) UpdateKeyDescription(input *UpdateKeyDescriptionInput)
 	b.mu.Lock("UpdateKeyDescription")
 	defer b.mu.Unlock()
 
-	key, err := b.lookupKeyWrite(input.KeyID)
+	key, err := b.lookupKeyWrite(ctx, input.KeyID)
 	if err != nil {
 		return err
 	}
@@ -2689,7 +2926,7 @@ func (b *InMemoryBackend) UpdateKeyDescription(input *UpdateKeyDescriptionInput)
 }
 
 // UpdatePrimaryRegion updates the primary region marker for a multi-region key.
-func (b *InMemoryBackend) UpdatePrimaryRegion(input *UpdatePrimaryRegionInput) error {
+func (b *InMemoryBackend) UpdatePrimaryRegion(ctx context.Context, input *UpdatePrimaryRegionInput) error {
 	if strings.TrimSpace(input.PrimaryRegion) == "" {
 		return fmt.Errorf("%w: PrimaryRegion must not be empty", ErrValidation)
 	}
@@ -2697,7 +2934,7 @@ func (b *InMemoryBackend) UpdatePrimaryRegion(input *UpdatePrimaryRegionInput) e
 	b.mu.Lock("UpdatePrimaryRegion")
 	defer b.mu.Unlock()
 
-	key, err := b.lookupKeyWrite(input.KeyID)
+	key, err := b.lookupKeyWrite(ctx, input.KeyID)
 	if err != nil {
 		return err
 	}
@@ -2714,20 +2951,20 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.keys = make(map[string]*Key)
-	b.aliases = make(map[string]*Alias)
-	b.grants = make(map[string]*Grant)
-	b.grantsByToken = make(map[string]*Grant)
-	b.policies = make(map[string]string)
-	b.keyMaterials = make(map[string]*keyMaterial)
-	b.keyMaterialHistory = make(map[string][]*keyMaterial)
-	b.customKeyStores = make(map[string]*CustomKeyStore)
+	b.keys = make(map[string]map[string]*Key)
+	b.aliases = make(map[string]map[string]*Alias)
+	b.grants = make(map[string]map[string]*Grant)
+	b.grantsByToken = make(map[string]map[string]*Grant)
+	b.policies = make(map[string]map[string]string)
+	b.keyMaterials = make(map[string]map[string]*keyMaterial)
+	b.keyMaterialHistory = make(map[string]map[string][]*keyMaterial)
+	b.customKeyStores = make(map[string]map[string]*CustomKeyStore)
 	b.clearResolutionCache()
 }
 
 // CreateCustomKeyStore creates a new in-memory custom key store entry in DISCONNECTED state.
 func (b *InMemoryBackend) CreateCustomKeyStore(
-	input *CreateCustomKeyStoreInput,
+	ctx context.Context, input *CreateCustomKeyStoreInput,
 ) (*CreateCustomKeyStoreOutput, error) {
 	if strings.TrimSpace(input.CustomKeyStoreName) == "" {
 		return nil, fmt.Errorf("%w: CustomKeyStoreName must not be empty", ErrValidation)
@@ -2745,8 +2982,10 @@ func (b *InMemoryBackend) CreateCustomKeyStore(
 	b.mu.Lock("CreateCustomKeyStore")
 	defer b.mu.Unlock()
 
+	region := getRegion(ctx, b.defaultRegion)
+
 	// Ensure name is unique.
-	for _, ks := range b.customKeyStores {
+	for _, ks := range b.customKeyStoresStore(region) {
 		if ks.CustomKeyStoreName == input.CustomKeyStoreName {
 			return nil, fmt.Errorf(
 				"%w: custom key store with name %q already exists",
@@ -2757,7 +2996,7 @@ func (b *InMemoryBackend) CreateCustomKeyStore(
 
 	storeID := uuid.New().String()
 
-	b.customKeyStores[storeID] = &CustomKeyStore{
+	b.customKeyStoresStore(region)[storeID] = &CustomKeyStore{
 		CustomKeyStoreID:   storeID,
 		CustomKeyStoreName: input.CustomKeyStoreName,
 		ConnectionState:    ConnectionStateDisconnected,
@@ -2769,7 +3008,7 @@ func (b *InMemoryBackend) CreateCustomKeyStore(
 }
 
 // DeleteCustomKeyStore removes an existing custom key store. It must be in DISCONNECTED state.
-func (b *InMemoryBackend) DeleteCustomKeyStore(input *DeleteCustomKeyStoreInput) error {
+func (b *InMemoryBackend) DeleteCustomKeyStore(ctx context.Context, input *DeleteCustomKeyStoreInput) error {
 	if input.CustomKeyStoreID == "" {
 		return fmt.Errorf("%w: CustomKeyStoreId must not be empty", ErrValidation)
 	}
@@ -2777,7 +3016,9 @@ func (b *InMemoryBackend) DeleteCustomKeyStore(input *DeleteCustomKeyStoreInput)
 	b.mu.Lock("DeleteCustomKeyStore")
 	defer b.mu.Unlock()
 
-	ks, ok := b.customKeyStores[input.CustomKeyStoreID]
+	region := getRegion(ctx, b.defaultRegion)
+
+	ks, ok := b.customKeyStoresStore(region)[input.CustomKeyStoreID]
 	if !ok {
 		return fmt.Errorf("%w: custom key store %q not found", ErrCustomKeyStoreNotFound, input.CustomKeyStoreID)
 	}
@@ -2789,21 +3030,23 @@ func (b *InMemoryBackend) DeleteCustomKeyStore(input *DeleteCustomKeyStoreInput)
 		)
 	}
 
-	delete(b.customKeyStores, input.CustomKeyStoreID)
+	delete(b.customKeyStoresStore(region), input.CustomKeyStoreID)
 
 	return nil
 }
 
 // DescribeCustomKeyStores returns a list of custom key stores matching optional filters.
 func (b *InMemoryBackend) DescribeCustomKeyStores(
-	input *DescribeCustomKeyStoresInput,
+	ctx context.Context, input *DescribeCustomKeyStoresInput,
 ) (*DescribeCustomKeyStoresOutput, error) {
 	b.mu.RLock("DescribeCustomKeyStores")
 	defer b.mu.RUnlock()
 
-	stores := make([]CustomKeyStore, 0, len(b.customKeyStores))
+	region := getRegion(ctx, b.defaultRegion)
 
-	for _, ks := range b.customKeyStores {
+	stores := make([]CustomKeyStore, 0, len(b.customKeyStoresStore(region)))
+
+	for _, ks := range b.customKeyStoresStore(region) {
 		if input.CustomKeyStoreID != "" && ks.CustomKeyStoreID != input.CustomKeyStoreID {
 			continue
 		}
@@ -2847,7 +3090,7 @@ func (b *InMemoryBackend) DescribeCustomKeyStores(
 }
 
 // ConnectCustomKeyStore transitions a custom key store from DISCONNECTED to CONNECTED.
-func (b *InMemoryBackend) ConnectCustomKeyStore(input *ConnectCustomKeyStoreInput) error {
+func (b *InMemoryBackend) ConnectCustomKeyStore(ctx context.Context, input *ConnectCustomKeyStoreInput) error {
 	if input.CustomKeyStoreID == "" {
 		return fmt.Errorf("%w: CustomKeyStoreId must not be empty", ErrValidation)
 	}
@@ -2855,7 +3098,9 @@ func (b *InMemoryBackend) ConnectCustomKeyStore(input *ConnectCustomKeyStoreInpu
 	b.mu.Lock("ConnectCustomKeyStore")
 	defer b.mu.Unlock()
 
-	ks, ok := b.customKeyStores[input.CustomKeyStoreID]
+	region := getRegion(ctx, b.defaultRegion)
+
+	ks, ok := b.customKeyStoresStore(region)[input.CustomKeyStoreID]
 	if !ok {
 		return fmt.Errorf("%w: custom key store %q not found", ErrCustomKeyStoreNotFound, input.CustomKeyStoreID)
 	}
@@ -2873,7 +3118,7 @@ func (b *InMemoryBackend) ConnectCustomKeyStore(input *ConnectCustomKeyStoreInpu
 }
 
 // DisconnectCustomKeyStore transitions a custom key store from CONNECTED to DISCONNECTED.
-func (b *InMemoryBackend) DisconnectCustomKeyStore(input *DisconnectCustomKeyStoreInput) error {
+func (b *InMemoryBackend) DisconnectCustomKeyStore(ctx context.Context, input *DisconnectCustomKeyStoreInput) error {
 	if input.CustomKeyStoreID == "" {
 		return fmt.Errorf("%w: CustomKeyStoreId must not be empty", ErrValidation)
 	}
@@ -2881,7 +3126,9 @@ func (b *InMemoryBackend) DisconnectCustomKeyStore(input *DisconnectCustomKeySto
 	b.mu.Lock("DisconnectCustomKeyStore")
 	defer b.mu.Unlock()
 
-	ks, ok := b.customKeyStores[input.CustomKeyStoreID]
+	region := getRegion(ctx, b.defaultRegion)
+
+	ks, ok := b.customKeyStoresStore(region)[input.CustomKeyStoreID]
 	if !ok {
 		return fmt.Errorf("%w: custom key store %q not found", ErrCustomKeyStoreNotFound, input.CustomKeyStoreID)
 	}
@@ -2899,7 +3146,7 @@ func (b *InMemoryBackend) DisconnectCustomKeyStore(input *DisconnectCustomKeySto
 }
 
 // UpdateCustomKeyStore updates mutable properties for a custom key store.
-func (b *InMemoryBackend) UpdateCustomKeyStore(input *UpdateCustomKeyStoreInput) error {
+func (b *InMemoryBackend) UpdateCustomKeyStore(ctx context.Context, input *UpdateCustomKeyStoreInput) error {
 	if strings.TrimSpace(input.CustomKeyStoreID) == "" {
 		return fmt.Errorf("%w: CustomKeyStoreId must not be empty", ErrValidation)
 	}
@@ -2907,13 +3154,15 @@ func (b *InMemoryBackend) UpdateCustomKeyStore(input *UpdateCustomKeyStoreInput)
 	b.mu.Lock("UpdateCustomKeyStore")
 	defer b.mu.Unlock()
 
-	ks, ok := b.customKeyStores[input.CustomKeyStoreID]
+	region := getRegion(ctx, b.defaultRegion)
+
+	ks, ok := b.customKeyStoresStore(region)[input.CustomKeyStoreID]
 	if !ok {
 		return fmt.Errorf("%w: custom key store %q not found", ErrCustomKeyStoreNotFound, input.CustomKeyStoreID)
 	}
 
 	if input.NewCustomKeyStoreName != "" && input.NewCustomKeyStoreName != ks.CustomKeyStoreName {
-		for _, existing := range b.customKeyStores {
+		for _, existing := range b.customKeyStoresStore(region) {
 			if existing.CustomKeyStoreName == input.NewCustomKeyStoreName {
 				return fmt.Errorf(
 					"%w: custom key store with name %q already exists",
@@ -2932,7 +3181,7 @@ func (b *InMemoryBackend) UpdateCustomKeyStore(input *UpdateCustomKeyStoreInput)
 // DeriveSharedSecret computes an ECDH shared secret using an ECC KEY_AGREEMENT KMS key
 // and the provided DER-encoded peer public key.
 func (b *InMemoryBackend) DeriveSharedSecret(
-	input *DeriveSharedSecretInput,
+	ctx context.Context, input *DeriveSharedSecretInput,
 ) (*DeriveSharedSecretOutput, error) {
 	if input.KeyAgreementAlgorithm != "" && input.KeyAgreementAlgorithm != algoECDH {
 		return nil, fmt.Errorf(
@@ -2948,7 +3197,9 @@ func (b *InMemoryBackend) DeriveSharedSecret(
 	b.mu.RLock("DeriveSharedSecret")
 	defer b.mu.RUnlock()
 
-	key, err := b.lookupKey(input.KeyID)
+	region := getRegion(ctx, b.defaultRegion)
+
+	key, err := b.lookupKey(ctx, input.KeyID)
 	if err != nil {
 		return nil, err
 	}
@@ -2964,7 +3215,7 @@ func (b *InMemoryBackend) DeriveSharedSecret(
 		)
 	}
 
-	km, err := b.requireKeyMaterial(key.KeyID)
+	km, err := b.requireKeyMaterial(region, key.KeyID)
 	if err != nil {
 		return nil, err
 	}
@@ -2990,7 +3241,7 @@ func (b *InMemoryBackend) DeriveSharedSecret(
 // plaintext private key (DER-encoded PKCS#8), and the private key encrypted under the specified
 // KMS wrapping key.
 func (b *InMemoryBackend) GenerateDataKeyPair(
-	input *GenerateDataKeyPairInput,
+	ctx context.Context, input *GenerateDataKeyPairInput,
 ) (*GenerateDataKeyPairOutput, error) {
 	if input.KeyPairSpec == "" {
 		return nil, fmt.Errorf("%w: KeyPairSpec must not be empty", ErrValidation)
@@ -2999,7 +3250,9 @@ func (b *InMemoryBackend) GenerateDataKeyPair(
 	b.mu.RLock("GenerateDataKeyPair")
 	defer b.mu.RUnlock()
 
-	wrapKey, err := b.lookupKey(input.KeyID)
+	region := getRegion(ctx, b.defaultRegion)
+
+	wrapKey, err := b.lookupKey(ctx, input.KeyID)
 	if err != nil {
 		return nil, err
 	}
@@ -3012,7 +3265,7 @@ func (b *InMemoryBackend) GenerateDataKeyPair(
 		return nil, fmt.Errorf("%w: wrapping key %q must have ENCRYPT_DECRYPT usage", ErrInvalidKeyUsage, wrapKey.KeyID)
 	}
 
-	wrapKM, err := b.requireKeyMaterial(wrapKey.KeyID)
+	wrapKM, err := b.requireKeyMaterial(region, wrapKey.KeyID)
 	if err != nil {
 		return nil, err
 	}
@@ -3049,9 +3302,9 @@ func (b *InMemoryBackend) GenerateDataKeyPair(
 // GenerateDataKeyPairWithoutPlaintext generates an asymmetric key pair but omits the plaintext
 // private key from the response.
 func (b *InMemoryBackend) GenerateDataKeyPairWithoutPlaintext(
-	input *GenerateDataKeyPairWithoutPlaintextInput,
+	ctx context.Context, input *GenerateDataKeyPairWithoutPlaintextInput,
 ) (*GenerateDataKeyPairWithoutPlaintextOutput, error) {
-	out, err := b.GenerateDataKeyPair(&GenerateDataKeyPairInput{
+	out, err := b.GenerateDataKeyPair(ctx, &GenerateDataKeyPairInput{
 		KeyID:             input.KeyID,
 		KeyPairSpec:       input.KeyPairSpec,
 		EncryptionContext: input.EncryptionContext,
@@ -3069,7 +3322,7 @@ func (b *InMemoryBackend) GenerateDataKeyPairWithoutPlaintext(
 }
 
 // GenerateMac computes an HMAC tag over the provided message using an HMAC KMS key.
-func (b *InMemoryBackend) GenerateMac(input *GenerateMacInput) (*GenerateMacOutput, error) {
+func (b *InMemoryBackend) GenerateMac(ctx context.Context, input *GenerateMacInput) (*GenerateMacOutput, error) {
 	if input.MacAlgorithm == "" {
 		return nil, fmt.Errorf("%w: MacAlgorithm must not be empty", ErrValidation)
 	}
@@ -3077,7 +3330,9 @@ func (b *InMemoryBackend) GenerateMac(input *GenerateMacInput) (*GenerateMacOutp
 	b.mu.RLock("GenerateMac")
 	defer b.mu.RUnlock()
 
-	key, err := b.lookupKey(input.KeyID)
+	region := getRegion(ctx, b.defaultRegion)
+
+	key, err := b.lookupKey(ctx, input.KeyID)
 	if err != nil {
 		return nil, err
 	}
@@ -3097,7 +3352,7 @@ func (b *InMemoryBackend) GenerateMac(input *GenerateMacInput) (*GenerateMacOutp
 		return nil, algErr
 	}
 
-	km, err := b.requireKeyMaterial(key.KeyID)
+	km, err := b.requireKeyMaterial(region, key.KeyID)
 	if err != nil {
 		return nil, err
 	}
@@ -3116,7 +3371,7 @@ func (b *InMemoryBackend) GenerateMac(input *GenerateMacInput) (*GenerateMacOutp
 
 // GenerateRandom returns the requested number of cryptographically secure random bytes.
 // NumberOfBytes defaults to 32 when not specified; maximum is 1024.
-func (b *InMemoryBackend) GenerateRandom(input *GenerateRandomInput) (*GenerateRandomOutput, error) {
+func (b *InMemoryBackend) GenerateRandom(_ context.Context, input *GenerateRandomInput) (*GenerateRandomOutput, error) {
 	n := int32(aes256Bytes)
 
 	if input.NumberOfBytes != nil {
@@ -3140,7 +3395,7 @@ func (b *InMemoryBackend) GenerateRandom(input *GenerateRandomInput) (*GenerateR
 
 // VerifyMac verifies an HMAC tag over the provided message using an HMAC KMS key.
 // Returns an error if the MAC does not match; on success returns the key ARN and algorithm.
-func (b *InMemoryBackend) VerifyMac(input *VerifyMacInput) (*VerifyMacOutput, error) {
+func (b *InMemoryBackend) VerifyMac(ctx context.Context, input *VerifyMacInput) (*VerifyMacOutput, error) {
 	if input.MacAlgorithm == "" {
 		return nil, fmt.Errorf("%w: MacAlgorithm must not be empty", ErrValidation)
 	}
@@ -3148,7 +3403,9 @@ func (b *InMemoryBackend) VerifyMac(input *VerifyMacInput) (*VerifyMacOutput, er
 	b.mu.RLock("VerifyMac")
 	defer b.mu.RUnlock()
 
-	key, err := b.lookupKey(input.KeyID)
+	region := getRegion(ctx, b.defaultRegion)
+
+	key, err := b.lookupKey(ctx, input.KeyID)
 	if err != nil {
 		return nil, err
 	}
@@ -3168,7 +3425,7 @@ func (b *InMemoryBackend) VerifyMac(input *VerifyMacInput) (*VerifyMacOutput, er
 		return nil, algErr
 	}
 
-	km, err := b.requireKeyMaterial(key.KeyID)
+	km, err := b.requireKeyMaterial(region, key.KeyID)
 	if err != nil {
 		return nil, err
 	}
@@ -3191,14 +3448,20 @@ func (b *InMemoryBackend) VerifyMac(input *VerifyMacInput) (*VerifyMacOutput, er
 
 // AddKeyInternal inserts a key directly into the backend without going through CreateKey.
 // It also inserts the provided key material if non-nil. This is intended for test seeding only.
+// The region is derived from the key ARN, falling back to defaultRegion.
 func (b *InMemoryBackend) AddKeyInternal(key *Key, km *keyMaterial) {
 	b.mu.Lock("AddKeyInternal")
 	defer b.mu.Unlock()
 
-	b.keys[key.KeyID] = key
+	region := b.keyRegion(key.Arn)
+	if region == "" {
+		region = b.defaultRegion
+	}
+
+	b.keysStore(region)[key.KeyID] = key
 
 	if km != nil {
-		b.keyMaterials[key.KeyID] = km
+		b.keyMaterialsStore(region)[key.KeyID] = km
 	}
 }
 
@@ -3208,5 +3471,5 @@ func (b *InMemoryBackend) AddCustomKeyStoreInternal(ks *CustomKeyStore) {
 	b.mu.Lock("AddCustomKeyStoreInternal")
 	defer b.mu.Unlock()
 
-	b.customKeyStores[ks.CustomKeyStoreID] = ks
+	b.customKeyStoresStore(b.defaultRegion)[ks.CustomKeyStoreID] = ks
 }

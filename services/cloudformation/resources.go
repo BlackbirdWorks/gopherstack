@@ -1594,7 +1594,7 @@ func (rc *ResourceCreator) deleteSSMParameter(ctx context.Context, physicalID st
 }
 
 func (rc *ResourceCreator) createKMSKey(
-	_ context.Context,
+	ctx context.Context,
 	logicalID string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
@@ -1603,7 +1603,7 @@ func (rc *ResourceCreator) createKMSKey(
 		return logicalID + "-stub", nil
 	}
 	description := strProp(props, "Description", params, physicalIDs)
-	out, err := rc.backends.KMS.Backend.CreateKey(&kmsbackend.CreateKeyInput{
+	out, err := rc.backends.KMS.Backend.CreateKey(ctx, &kmsbackend.CreateKeyInput{
 		Description: description,
 		KeyUsage:    "ENCRYPT_DECRYPT",
 	})
@@ -1614,11 +1614,11 @@ func (rc *ResourceCreator) createKMSKey(
 	return out.KeyMetadata.KeyID, nil
 }
 
-func (rc *ResourceCreator) deleteKMSKey(_ context.Context, physicalID string) error {
+func (rc *ResourceCreator) deleteKMSKey(ctx context.Context, physicalID string) error {
 	if rc.backends.KMS == nil {
 		return nil
 	}
-	_, err := rc.backends.KMS.Backend.ScheduleKeyDeletion(&kmsbackend.ScheduleKeyDeletionInput{
+	_, err := rc.backends.KMS.Backend.ScheduleKeyDeletion(ctx, &kmsbackend.ScheduleKeyDeletionInput{
 		KeyID:               physicalID,
 		PendingWindowInDays: kmsMinDeletionWindowDays,
 	})
