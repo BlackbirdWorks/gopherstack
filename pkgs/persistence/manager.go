@@ -3,6 +3,7 @@ package persistence
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
@@ -171,4 +172,54 @@ func (m *Manager) save(e *entry) error {
 	}
 
 	return m.store.Save(e.name, snapshotKey, data)
+}
+
+// ExportAll captures an in-memory snapshot from every registered service and
+// returns the results as a map of service name → raw snapshot bytes. Services
+// that return an empty snapshot (nil or zero-length) are omitted from the map.
+// The store is not written; this is a pure read of current in-memory state.
+func (m *Manager) ExportAll() map[string][]byte {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	result := make(map[string][]byte, len(m.entries))
+
+	for name, e := range m.entries {
+		data := e.persistable.Snapshot()
+		if len(data) > 0 {
+			result[name] = data
+		}
+	}
+
+	return result
+}
+
+// ImportAll restores state for every service whose name appears in snapshots.
+// Services not registered with the manager are warned and skipped. Restore
+// errors are collected; all services in the map are attempted regardless of
+// earlier failures. Returns a combined error if any restore failed, nil
+// otherwise.
+func (m *Manager) ImportAll(ctx context.Context, snapshots map[string][]byte) error {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var errs []error
+
+	for name, data := range snapshots {
+		e, ok := m.entries[name]
+		if !ok {
+			slog.Default().WarnContext(ctx, "persistence: unknown service in snapshot, skipping", "service", name)
+
+			continue
+		}
+
+		if err := e.persistable.Restore(data); err != nil {
+			slog.Default().WarnContext(ctx, "persistence: import restore failed", "service", name, "error", err)
+			errs = append(errs, fmt.Errorf("%s: %w", name, err))
+		} else {
+			slog.Default().InfoContext(ctx, "persistence: imported", "service", name)
+		}
+	}
+
+	return errors.Join(errs...)
 }
