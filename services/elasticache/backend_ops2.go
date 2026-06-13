@@ -244,25 +244,9 @@ func (b *InMemoryBackend) DescribeUsers(
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.usersStore(region)
 
-	if userID != "" {
-		u, ok := store[userID]
-		if !ok {
-			return page.Page[User]{}, ErrUserNotFound
-		}
-
-		return page.Page[User]{Data: []User{*u}}, nil
-	}
-
-	out := make([]User, 0, len(store))
-	for _, u := range store {
-		out = append(out, *u)
-	}
-
-	sort.Slice(out, func(i, j int) bool { return out[i].UserID < out[j].UserID })
-
-	return page.New(out, marker, maxRecords, elasticacheDefaultMaxRecords), nil
+	return describePaged(b.usersStore(region), userID, ErrUserNotFound, nil,
+		func(u User) string { return u.UserID }, marker, maxRecords)
 }
 
 // ModifyUser modifies a user's access string and/or password settings.
@@ -354,25 +338,9 @@ func (b *InMemoryBackend) DescribeUserGroups(
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.userGroupsStore(region)
 
-	if groupID != "" {
-		ug, ok := store[groupID]
-		if !ok {
-			return page.Page[UserGroup]{}, ErrUserGroupNotFound
-		}
-
-		return page.Page[UserGroup]{Data: []UserGroup{*ug}}, nil
-	}
-
-	out := make([]UserGroup, 0, len(store))
-	for _, ug := range store {
-		out = append(out, *ug)
-	}
-
-	sort.Slice(out, func(i, j int) bool { return out[i].UserGroupID < out[j].UserGroupID })
-
-	return page.New(out, marker, maxRecords, elasticacheDefaultMaxRecords), nil
+	return describePaged(b.userGroupsStore(region), groupID, ErrUserGroupNotFound, nil,
+		func(ug UserGroup) string { return ug.UserGroupID }, marker, maxRecords)
 }
 
 // ModifyUserGroup adds or removes users from a user group.
@@ -598,31 +566,19 @@ func (b *InMemoryBackend) DescribeReservedCacheNodes(
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.reservedCacheNodesStore(region)
 
-	if id != "" {
-		rcn, ok := store[id]
-		if !ok {
-			return page.Page[ReservedCacheNode]{}, ErrReservedCacheNodeNotFound
-		}
-
-		return page.Page[ReservedCacheNode]{Data: []ReservedCacheNode{*rcn}}, nil
-	}
-
-	out := make([]ReservedCacheNode, 0, len(store))
-	for _, rcn := range store {
-		if cacheNodeType != "" && rcn.CacheNodeType != cacheNodeType {
-			continue
-		}
-		if offeringType != "" && rcn.OfferingType != offeringType {
-			continue
-		}
-		out = append(out, *rcn)
-	}
-
-	sort.Slice(out, func(i, j int) bool { return out[i].ReservedCacheNodeID < out[j].ReservedCacheNodeID })
-
-	return page.New(out, marker, maxRecords, elasticacheDefaultMaxRecords), nil
+	return describePaged(
+		b.reservedCacheNodesStore(region),
+		id,
+		ErrReservedCacheNodeNotFound,
+		func(rcn ReservedCacheNode) bool {
+			return (cacheNodeType == "" || rcn.CacheNodeType == cacheNodeType) &&
+				(offeringType == "" || rcn.OfferingType == offeringType)
+		},
+		func(rcn ReservedCacheNode) string { return rcn.ReservedCacheNodeID },
+		marker,
+		maxRecords,
+	)
 }
 
 // DescribeReservedCacheNodesOfferings returns a paginated list of reserved cache node offerings.
@@ -769,25 +725,9 @@ func (b *InMemoryBackend) DescribeServerlessCaches(
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.serverlessCachesStore(region)
 
-	if name != "" {
-		sc, ok := store[name]
-		if !ok {
-			return page.Page[ServerlessCache]{}, ErrServerlessCacheNotFound
-		}
-
-		return page.Page[ServerlessCache]{Data: []ServerlessCache{*sc}}, nil
-	}
-
-	out := make([]ServerlessCache, 0, len(store))
-	for _, sc := range store {
-		out = append(out, *sc)
-	}
-
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-
-	return page.New(out, marker, maxRecords, elasticacheDefaultMaxRecords), nil
+	return describePaged(b.serverlessCachesStore(region), name, ErrServerlessCacheNotFound, nil,
+		func(sc ServerlessCache) string { return sc.Name }, marker, maxRecords)
 }
 
 // DescribeServerlessCacheSnapshots returns a paginated list of serverless cache snapshots.
@@ -1070,25 +1010,9 @@ func (b *InMemoryBackend) DescribeCacheSecurityGroups(
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.cacheSecurityGroupsStore(region)
 
-	if name != "" {
-		sg, ok := store[name]
-		if !ok {
-			return page.Page[CacheSecurityGroup]{}, ErrCacheSecurityGroupNotFound
-		}
-
-		return page.Page[CacheSecurityGroup]{Data: []CacheSecurityGroup{*sg}}, nil
-	}
-
-	out := make([]CacheSecurityGroup, 0, len(store))
-	for _, sg := range store {
-		out = append(out, *sg)
-	}
-
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-
-	return page.New(out, marker, maxRecords, elasticacheDefaultMaxRecords), nil
+	return describePaged(b.cacheSecurityGroupsStore(region), name, ErrCacheSecurityGroupNotFound, nil,
+		func(sg CacheSecurityGroup) string { return sg.Name }, marker, maxRecords)
 }
 
 // RevokeCacheSecurityGroupIngress removes an EC2 security group authorization.

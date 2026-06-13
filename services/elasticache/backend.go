@@ -964,25 +964,9 @@ func (b *InMemoryBackend) DescribeClusters(
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.clustersStore(region)
 
-	if id != "" {
-		c, exists := store[id]
-		if !exists {
-			return page.Page[Cluster]{}, ErrClusterNotFound
-		}
-
-		return page.Page[Cluster]{Data: []Cluster{*c}}, nil
-	}
-
-	out := make([]Cluster, 0, len(store))
-	for _, c := range store {
-		out = append(out, *c)
-	}
-
-	sort.Slice(out, func(i, j int) bool { return out[i].ClusterID < out[j].ClusterID })
-
-	return page.New(out, marker, maxRecords, elasticacheDefaultMaxRecords), nil
+	return describePaged(b.clustersStore(region), id, ErrClusterNotFound, nil,
+		func(c Cluster) string { return c.ClusterID }, marker, maxRecords)
 }
 
 // tagEntry holds the tags pointer and the metric name used to initialise tags when nil.
@@ -1253,25 +1237,9 @@ func (b *InMemoryBackend) DescribeReplicationGroups(
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.replicationGroupsStore(region)
 
-	if id != "" {
-		rg, exists := store[id]
-		if !exists {
-			return page.Page[ReplicationGroup]{}, ErrReplicationGroupNotFound
-		}
-
-		return page.Page[ReplicationGroup]{Data: []ReplicationGroup{*rg}}, nil
-	}
-
-	out := make([]ReplicationGroup, 0, len(store))
-	for _, rg := range store {
-		out = append(out, *rg)
-	}
-
-	sort.Slice(out, func(i, j int) bool { return out[i].ReplicationGroupID < out[j].ReplicationGroupID })
-
-	return page.New(out, marker, maxRecords, elasticacheDefaultMaxRecords), nil
+	return describePaged(b.replicationGroupsStore(region), id, ErrReplicationGroupNotFound, nil,
+		func(rg ReplicationGroup) string { return rg.ReplicationGroupID }, marker, maxRecords)
 }
 
 // randomSuffix generates a short random hex string for synthetic hostnames.
@@ -1486,25 +1454,9 @@ func (b *InMemoryBackend) DescribeParameterGroups(
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.parameterGroupsStore(region)
 
-	if name != "" {
-		pg, exists := store[name]
-		if !exists {
-			return page.Page[CacheParameterGroup]{}, ErrParameterGroupNotFound
-		}
-
-		return page.Page[CacheParameterGroup]{Data: []CacheParameterGroup{*pg}}, nil
-	}
-
-	out := make([]CacheParameterGroup, 0, len(store))
-	for _, pg := range store {
-		out = append(out, *pg)
-	}
-
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-
-	return page.New(out, marker, maxRecords, elasticacheDefaultMaxRecords), nil
+	return describePaged(b.parameterGroupsStore(region), name, ErrParameterGroupNotFound, nil,
+		func(pg CacheParameterGroup) string { return pg.Name }, marker, maxRecords)
 }
 
 // ModifyParameterGroup updates parameters in a cache parameter group.
@@ -1651,25 +1603,9 @@ func (b *InMemoryBackend) DescribeSubnetGroups(
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.subnetGroupsStore(region)
 
-	if name != "" {
-		sg, exists := store[name]
-		if !exists {
-			return page.Page[CacheSubnetGroup]{}, ErrSubnetGroupNotFound
-		}
-
-		return page.Page[CacheSubnetGroup]{Data: []CacheSubnetGroup{*sg}}, nil
-	}
-
-	out := make([]CacheSubnetGroup, 0, len(store))
-	for _, sg := range store {
-		out = append(out, *sg)
-	}
-
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-
-	return page.New(out, marker, maxRecords, elasticacheDefaultMaxRecords), nil
+	return describePaged(b.subnetGroupsStore(region), name, ErrSubnetGroupNotFound, nil,
+		func(sg CacheSubnetGroup) string { return sg.Name }, marker, maxRecords)
 }
 
 // ModifySubnetGroup updates a cache subnet group.
@@ -1794,31 +1730,12 @@ func (b *InMemoryBackend) DescribeSnapshots(
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.snapshotsStore(region)
 
-	if snapshotName != "" {
-		snap, exists := store[snapshotName]
-		if !exists {
-			return page.Page[CacheSnapshot]{}, ErrSnapshotNotFound
-		}
-
-		return page.Page[CacheSnapshot]{Data: []CacheSnapshot{*snap}}, nil
-	}
-
-	out := make([]CacheSnapshot, 0, len(store))
-	for _, snap := range store {
-		if clusterID != "" && snap.CacheClusterID != clusterID {
-			continue
-		}
-		if replicationGroupID != "" && snap.ReplicationGroupID != replicationGroupID {
-			continue
-		}
-		out = append(out, *snap)
-	}
-
-	sort.Slice(out, func(i, j int) bool { return out[i].SnapshotName < out[j].SnapshotName })
-
-	return page.New(out, marker, maxRecords, elasticacheDefaultMaxRecords), nil
+	return describePaged(b.snapshotsStore(region), snapshotName, ErrSnapshotNotFound, func(s CacheSnapshot) bool {
+		return (clusterID == "" || s.CacheClusterID == clusterID) &&
+			(replicationGroupID == "" || s.ReplicationGroupID == replicationGroupID)
+	},
+		func(s CacheSnapshot) string { return s.SnapshotName }, marker, maxRecords)
 }
 
 // CopySnapshot copies an existing snapshot to a new name.
