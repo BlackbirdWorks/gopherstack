@@ -19,7 +19,7 @@ type testKMSAdapter struct {
 }
 
 func (a *testKMSAdapter) EncryptSSM(keyID string, plaintext []byte) ([]byte, error) {
-	out, err := a.b.Encrypt(&kms.EncryptInput{KeyID: keyID, Plaintext: plaintext})
+	out, err := a.b.Encrypt(context.Background(), &kms.EncryptInput{KeyID: keyID, Plaintext: plaintext})
 	if err != nil {
 		return nil, err
 	}
@@ -28,7 +28,7 @@ func (a *testKMSAdapter) EncryptSSM(keyID string, plaintext []byte) ([]byte, err
 }
 
 func (a *testKMSAdapter) DecryptSSM(ciphertext []byte) ([]byte, error) {
-	out, err := a.b.Decrypt(&kms.DecryptInput{CiphertextBlob: ciphertext})
+	out, err := a.b.Decrypt(context.Background(), &kms.DecryptInput{CiphertextBlob: ciphertext})
 	if err != nil {
 		return nil, err
 	}
@@ -41,7 +41,7 @@ func (a *testKMSAdapter) DecryptSSM(ciphertext []byte) ([]byte, error) {
 func newSSMWithKMS(t *testing.T) (*ssm.InMemoryBackend, string) {
 	t.Helper()
 	kmsBackend := kms.NewInMemoryBackend()
-	keyOut, err := kmsBackend.CreateKey(&kms.CreateKeyInput{Description: "test key"})
+	keyOut, err := kmsBackend.CreateKey(t.Context(), &kms.CreateKeyInput{Description: "test key"})
 	require.NoError(t, err)
 	keyID := keyOut.KeyMetadata.KeyID
 

@@ -2,6 +2,7 @@ package kms_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -47,11 +48,11 @@ func TestRefinement1_BackendReset(t *testing.T) {
 
 	b := newTestBackend()
 
-	key, err := b.CreateKey(&kms.CreateKeyInput{})
+	key, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 	assert.Equal(t, 1, kms.KeyCount(b))
 
-	b.CreateAlias(&kms.CreateAliasInput{
+	b.CreateAlias(context.Background(), &kms.CreateAliasInput{
 		AliasName:   "alias/test-reset",
 		TargetKeyID: key.KeyMetadata.KeyID,
 	})
@@ -129,7 +130,7 @@ func TestRefinement1_ErrValidation_Mapping(t *testing.T) {
 			name: "ScheduleKeyDeletion_too_few_days",
 			op:   "ScheduleKeyDeletion",
 			setup: func(b *kms.InMemoryBackend) string {
-				key, err := b.CreateKey(&kms.CreateKeyInput{})
+				key, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 				if err != nil {
 					return `{}`
 				}
@@ -224,18 +225,18 @@ func TestRefinement1_ExportCountHelpers(t *testing.T) {
 	assert.Equal(t, 0, kms.GrantCount(b))
 	assert.Equal(t, 0, kms.CustomKeyStoreCount(b))
 
-	key, err := b.CreateKey(&kms.CreateKeyInput{})
+	key, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 	assert.Equal(t, 1, kms.KeyCount(b))
 
-	err = b.CreateAlias(&kms.CreateAliasInput{
+	err = b.CreateAlias(context.Background(), &kms.CreateAliasInput{
 		AliasName:   "alias/test-count",
 		TargetKeyID: key.KeyMetadata.KeyID,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, 1, kms.AliasCount(b))
 
-	_, err = b.CreateGrant(&kms.CreateGrantInput{
+	_, err = b.CreateGrant(context.Background(), &kms.CreateGrantInput{
 		KeyID:            key.KeyMetadata.KeyID,
 		GranteePrincipal: "arn:aws:iam::123456789012:user/alice",
 		Operations:       []string{"Encrypt"},
@@ -243,7 +244,7 @@ func TestRefinement1_ExportCountHelpers(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, kms.GrantCount(b))
 
-	_, err = b.CreateCustomKeyStore(&kms.CreateCustomKeyStoreInput{
+	_, err = b.CreateCustomKeyStore(context.Background(), &kms.CreateCustomKeyStoreInput{
 		CustomKeyStoreName: "test-store",
 	})
 	require.NoError(t, err)
@@ -279,7 +280,7 @@ func TestRefinement1_SeedHelpers(t *testing.T) {
 	assert.Equal(t, 1, kms.CustomKeyStoreCount(b))
 
 	// Verify describe finds it.
-	out, err := b.DescribeCustomKeyStores(&kms.DescribeCustomKeyStoresInput{
+	out, err := b.DescribeCustomKeyStores(context.Background(), &kms.DescribeCustomKeyStoresInput{
 		CustomKeyStoreID: "test-ks-id",
 	})
 	require.NoError(t, err)
@@ -291,17 +292,17 @@ func TestRefinement1_KeyMetadata_Enabled(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	out, err := b.CreateKey(&kms.CreateKeyInput{})
+	out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 	assert.True(t, out.KeyMetadata.Enabled, "newly created key should be Enabled=true in metadata")
 
-	desc, err := b.DescribeKey(&kms.DescribeKeyInput{KeyID: out.KeyMetadata.KeyID})
+	desc, err := b.DescribeKey(context.Background(), &kms.DescribeKeyInput{KeyID: out.KeyMetadata.KeyID})
 	require.NoError(t, err)
 	assert.True(t, desc.KeyMetadata.Enabled)
 
-	require.NoError(t, b.DisableKey(&kms.DisableKeyInput{KeyID: out.KeyMetadata.KeyID}))
+	require.NoError(t, b.DisableKey(context.Background(), &kms.DisableKeyInput{KeyID: out.KeyMetadata.KeyID}))
 
-	desc2, err := b.DescribeKey(&kms.DescribeKeyInput{KeyID: out.KeyMetadata.KeyID})
+	desc2, err := b.DescribeKey(context.Background(), &kms.DescribeKeyInput{KeyID: out.KeyMetadata.KeyID})
 	require.NoError(t, err)
 	assert.False(t, desc2.KeyMetadata.Enabled)
 }
@@ -310,7 +311,7 @@ func TestRefinement1_KeyMetadata_MacAlgorithms(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	out, err := b.CreateKey(&kms.CreateKeyInput{KeySpec: "HMAC_256"})
+	out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{KeySpec: "HMAC_256"})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"HMAC_SHA_256"}, out.KeyMetadata.MacAlgorithms)
 	assert.Empty(t, out.KeyMetadata.EncryptionAlgorithms)
@@ -321,7 +322,7 @@ func TestRefinement1_KeyMetadata_CustomerMasterKeySpec(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	out, err := b.CreateKey(&kms.CreateKeyInput{})
+	out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 	assert.Equal(t, out.KeyMetadata.KeySpec, out.KeyMetadata.CustomerMasterKeySpec)
 }
@@ -330,7 +331,7 @@ func TestRefinement1_KeyMetadata_RSA_ENCRYPT_DECRYPT(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	out, err := b.CreateKey(&kms.CreateKeyInput{
+	out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{
 		KeySpec:  "RSA_2048",
 		KeyUsage: kms.KeyUsageEncryptDecrypt,
 	})
@@ -343,13 +344,13 @@ func TestRefinement1_GetPublicKey_KeyAgreement(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	out, err := b.CreateKey(&kms.CreateKeyInput{
+	out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{
 		KeySpec:  "ECC_NIST_P256",
 		KeyUsage: kms.KeyUsageKeyAgreement,
 	})
 	require.NoError(t, err)
 
-	pub, err := b.GetPublicKey(&kms.GetPublicKeyInput{KeyID: out.KeyMetadata.KeyID})
+	pub, err := b.GetPublicKey(context.Background(), &kms.GetPublicKeyInput{KeyID: out.KeyMetadata.KeyID})
 	require.NoError(t, err)
 	assert.NotEmpty(t, pub.PublicKey)
 	assert.Equal(t, kms.KeyUsageKeyAgreement, pub.KeyUsage)
@@ -361,7 +362,7 @@ func TestRefinement1_RSA_OAEP_EncryptDecrypt(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	out, err := b.CreateKey(&kms.CreateKeyInput{
+	out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{
 		KeySpec:  "RSA_2048",
 		KeyUsage: kms.KeyUsageEncryptDecrypt,
 	})
@@ -369,14 +370,14 @@ func TestRefinement1_RSA_OAEP_EncryptDecrypt(t *testing.T) {
 	keyID := out.KeyMetadata.KeyID
 
 	plaintext := []byte("hello RSA-OAEP world")
-	encOut, err := b.Encrypt(&kms.EncryptInput{
+	encOut, err := b.Encrypt(context.Background(), &kms.EncryptInput{
 		KeyID:     keyID,
 		Plaintext: plaintext,
 	})
 	require.NoError(t, err)
 	assert.NotEmpty(t, encOut.CiphertextBlob)
 
-	decOut, err := b.Decrypt(&kms.DecryptInput{
+	decOut, err := b.Decrypt(context.Background(), &kms.DecryptInput{
 		CiphertextBlob: encOut.CiphertextBlob,
 	})
 	require.NoError(t, err)
@@ -387,12 +388,12 @@ func TestRefinement1_VerifyMac_Success(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	out, err := b.CreateKey(&kms.CreateKeyInput{KeySpec: "HMAC_256"})
+	out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{KeySpec: "HMAC_256"})
 	require.NoError(t, err)
 	keyID := out.KeyMetadata.KeyID
 
 	msg := []byte("test message")
-	macOut, err := b.GenerateMac(&kms.GenerateMacInput{
+	macOut, err := b.GenerateMac(context.Background(), &kms.GenerateMacInput{
 		KeyID:        keyID,
 		MacAlgorithm: "HMAC_SHA_256",
 		Message:      msg,
@@ -400,7 +401,7 @@ func TestRefinement1_VerifyMac_Success(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, macOut.Mac)
 
-	verOut, err := b.VerifyMac(&kms.VerifyMacInput{
+	verOut, err := b.VerifyMac(context.Background(), &kms.VerifyMacInput{
 		KeyID:        keyID,
 		MacAlgorithm: "HMAC_SHA_256",
 		Message:      msg,
@@ -415,10 +416,10 @@ func TestRefinement1_VerifyMac_WrongMac(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	out, err := b.CreateKey(&kms.CreateKeyInput{KeySpec: "HMAC_256"})
+	out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{KeySpec: "HMAC_256"})
 	require.NoError(t, err)
 
-	_, err = b.VerifyMac(&kms.VerifyMacInput{
+	_, err = b.VerifyMac(context.Background(), &kms.VerifyMacInput{
 		KeyID:        out.KeyMetadata.KeyID,
 		MacAlgorithm: "HMAC_SHA_256",
 		Message:      []byte("message"),
@@ -431,7 +432,7 @@ func TestRefinement1_VerifyMac_EmptyAlgorithm(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	_, err := b.VerifyMac(&kms.VerifyMacInput{
+	_, err := b.VerifyMac(context.Background(), &kms.VerifyMacInput{
 		KeyID:        "any",
 		MacAlgorithm: "",
 		Message:      []byte("x"),
@@ -446,11 +447,11 @@ func TestRefinement1_VerifyMac_Handler(t *testing.T) {
 	b := newTestBackend()
 	h := kms.NewHandler(b)
 
-	key, err := b.CreateKey(&kms.CreateKeyInput{KeySpec: "HMAC_256"})
+	key, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{KeySpec: "HMAC_256"})
 	require.NoError(t, err)
 
 	msg := []byte("hello")
-	macOut, err := b.GenerateMac(&kms.GenerateMacInput{
+	macOut, err := b.GenerateMac(context.Background(), &kms.GenerateMacInput{
 		KeyID:        key.KeyMetadata.KeyID,
 		MacAlgorithm: "HMAC_SHA_256",
 		Message:      msg,
@@ -475,13 +476,13 @@ func TestRefinement1_DeriveSharedSecret_InvalidAlgorithm(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	out, err := b.CreateKey(&kms.CreateKeyInput{
+	out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{
 		KeySpec:  "ECC_NIST_P256",
 		KeyUsage: kms.KeyUsageKeyAgreement,
 	})
 	require.NoError(t, err)
 
-	_, err = b.DeriveSharedSecret(&kms.DeriveSharedSecretInput{
+	_, err = b.DeriveSharedSecret(context.Background(), &kms.DeriveSharedSecretInput{
 		KeyID:                 out.KeyMetadata.KeyID,
 		KeyAgreementAlgorithm: "RSA",
 		PublicKey:             []byte("fake"),
@@ -493,10 +494,10 @@ func TestRefinement1_GenerateDataKeyPair_EmptySpec(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	key, err := b.CreateKey(&kms.CreateKeyInput{})
+	key, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 
-	_, err = b.GenerateDataKeyPair(&kms.GenerateDataKeyPairInput{
+	_, err = b.GenerateDataKeyPair(context.Background(), &kms.GenerateDataKeyPairInput{
 		KeyID:       key.KeyMetadata.KeyID,
 		KeyPairSpec: "",
 	})
@@ -507,7 +508,7 @@ func TestRefinement1_CreateCustomKeyStore_EmptyName(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	_, err := b.CreateCustomKeyStore(&kms.CreateCustomKeyStoreInput{
+	_, err := b.CreateCustomKeyStore(context.Background(), &kms.CreateCustomKeyStoreInput{
 		CustomKeyStoreName: "",
 	})
 	require.ErrorIs(t, err, kms.ErrValidation)
@@ -517,7 +518,7 @@ func TestRefinement1_CreateCustomKeyStore_InvalidType(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	_, err := b.CreateCustomKeyStore(&kms.CreateCustomKeyStoreInput{
+	_, err := b.CreateCustomKeyStore(context.Background(), &kms.CreateCustomKeyStoreInput{
 		CustomKeyStoreName: "my-store",
 		CustomKeyStoreType: "INVALID_TYPE",
 	})
@@ -528,7 +529,7 @@ func TestRefinement1_ConnectCustomKeyStore_EmptyID(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	err := b.ConnectCustomKeyStore(&kms.ConnectCustomKeyStoreInput{CustomKeyStoreID: ""})
+	err := b.ConnectCustomKeyStore(context.Background(), &kms.ConnectCustomKeyStoreInput{CustomKeyStoreID: ""})
 	require.ErrorIs(t, err, kms.ErrValidation)
 }
 
@@ -536,7 +537,7 @@ func TestRefinement1_DisconnectCustomKeyStore_EmptyID(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	err := b.DisconnectCustomKeyStore(&kms.DisconnectCustomKeyStoreInput{CustomKeyStoreID: ""})
+	err := b.DisconnectCustomKeyStore(context.Background(), &kms.DisconnectCustomKeyStoreInput{CustomKeyStoreID: ""})
 	require.ErrorIs(t, err, kms.ErrValidation)
 }
 
@@ -544,7 +545,7 @@ func TestRefinement1_DeleteCustomKeyStore_EmptyID(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	err := b.DeleteCustomKeyStore(&kms.DeleteCustomKeyStoreInput{CustomKeyStoreID: ""})
+	err := b.DeleteCustomKeyStore(context.Background(), &kms.DeleteCustomKeyStoreInput{CustomKeyStoreID: ""})
 	require.ErrorIs(t, err, kms.ErrValidation)
 }
 
@@ -552,7 +553,10 @@ func TestRefinement1_ErrCustomKeyStoreNotFound_Sentinel(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	err := b.ConnectCustomKeyStore(&kms.ConnectCustomKeyStoreInput{CustomKeyStoreID: "no-such-id"})
+	err := b.ConnectCustomKeyStore(
+		context.Background(),
+		&kms.ConnectCustomKeyStoreInput{CustomKeyStoreID: "no-such-id"},
+	)
 	require.ErrorIs(t, err, kms.ErrCustomKeyStoreNotFound)
 }
 
@@ -560,10 +564,10 @@ func TestRefinement1_ScheduleKeyDeletion_UsesErrValidation(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	key, err := b.CreateKey(&kms.CreateKeyInput{})
+	key, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 
-	_, err = b.ScheduleKeyDeletion(&kms.ScheduleKeyDeletionInput{
+	_, err = b.ScheduleKeyDeletion(context.Background(), &kms.ScheduleKeyDeletionInput{
 		KeyID:               key.KeyMetadata.KeyID,
 		PendingWindowInDays: 3,
 	})
@@ -574,7 +578,7 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	key, err := b.CreateKey(&kms.CreateKeyInput{})
+	key, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 
 	snap := b.Snapshot()
@@ -583,19 +587,19 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	b2 := newTestBackend()
 	require.NoError(t, b2.Restore(snap))
 
-	desc, err := b2.DescribeKey(&kms.DescribeKeyInput{KeyID: key.KeyMetadata.KeyID})
+	desc, err := b2.DescribeKey(context.Background(), &kms.DescribeKeyInput{KeyID: key.KeyMetadata.KeyID})
 	require.NoError(t, err)
 	assert.Equal(t, key.KeyMetadata.KeyID, desc.KeyMetadata.KeyID)
 	assert.True(t, desc.KeyMetadata.Enabled)
 
 	// Encryption should still work after restore.
-	encOut, err := b2.Encrypt(&kms.EncryptInput{
+	encOut, err := b2.Encrypt(context.Background(), &kms.EncryptInput{
 		KeyID:     key.KeyMetadata.KeyID,
 		Plaintext: []byte("after restore"),
 	})
 	require.NoError(t, err)
 
-	decOut, err := b2.Decrypt(&kms.DecryptInput{CiphertextBlob: encOut.CiphertextBlob})
+	decOut, err := b2.Decrypt(context.Background(), &kms.DecryptInput{CiphertextBlob: encOut.CiphertextBlob})
 	require.NoError(t, err)
 	assert.Equal(t, []byte("after restore"), decOut.Plaintext)
 }
@@ -606,7 +610,7 @@ func TestRefinement1_MultipleResetCycle(t *testing.T) {
 	b := newTestBackend()
 
 	for range 3 {
-		_, err := b.CreateKey(&kms.CreateKeyInput{})
+		_, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 		require.NoError(t, err)
 		b.Reset()
 		assert.Equal(t, 0, kms.KeyCount(b))
@@ -653,7 +657,7 @@ func TestRefinement1_GenerateRandom_Validation(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend()
-			out, err := b.GenerateRandom(&kms.GenerateRandomInput{NumberOfBytes: tt.n})
+			out, err := b.GenerateRandom(context.Background(), &kms.GenerateRandomInput{NumberOfBytes: tt.n})
 
 			if tt.wantErr {
 				require.ErrorIs(t, err, kms.ErrValidation)

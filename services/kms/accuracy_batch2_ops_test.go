@@ -11,6 +11,7 @@ package kms_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -40,7 +41,7 @@ func ab2NewHandler(t *testing.T) *kms.Handler {
 
 func ab2MustCreateKey(t *testing.T, b *kms.InMemoryBackend) string {
 	t.Helper()
-	out, err := b.CreateKey(&kms.CreateKeyInput{})
+	out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 
 	return out.KeyMetadata.KeyID
@@ -48,7 +49,7 @@ func ab2MustCreateKey(t *testing.T, b *kms.InMemoryBackend) string {
 
 func ab2MustScheduleDeletion(t *testing.T, b *kms.InMemoryBackend, keyID string) {
 	t.Helper()
-	_, err := b.ScheduleKeyDeletion(&kms.ScheduleKeyDeletionInput{
+	_, err := b.ScheduleKeyDeletion(context.Background(), &kms.ScheduleKeyDeletionInput{
 		KeyID:               keyID,
 		PendingWindowInDays: 7,
 	})
@@ -90,7 +91,7 @@ func TestAB2_EnableKeyRotation_PeriodBelowMinimum_Rejected(t *testing.T) {
 			keyID := ab2MustCreateKey(t, b)
 			period := tc.period
 
-			err := b.EnableKeyRotation(&kms.EnableKeyRotationInput{
+			err := b.EnableKeyRotation(context.Background(), &kms.EnableKeyRotationInput{
 				KeyID:                keyID,
 				RotationPeriodInDays: &period,
 			})
@@ -120,7 +121,7 @@ func TestAB2_EnableKeyRotation_PeriodAtOrAboveMinimum_Accepted(t *testing.T) {
 			keyID := ab2MustCreateKey(t, b)
 			period := tc.period
 
-			err := b.EnableKeyRotation(&kms.EnableKeyRotationInput{
+			err := b.EnableKeyRotation(context.Background(), &kms.EnableKeyRotationInput{
 				KeyID:                keyID,
 				RotationPeriodInDays: &period,
 			})
@@ -147,7 +148,7 @@ func TestAB2_EnableKeyRotation_PeriodAboveMaximum_Rejected(t *testing.T) {
 			keyID := ab2MustCreateKey(t, b)
 			period := tc.period
 
-			err := b.EnableKeyRotation(&kms.EnableKeyRotationInput{
+			err := b.EnableKeyRotation(context.Background(), &kms.EnableKeyRotationInput{
 				KeyID:                keyID,
 				RotationPeriodInDays: &period,
 			})
@@ -195,7 +196,7 @@ func TestAB2_TagResource_EnabledAndDisabled_Accepted(t *testing.T) {
 		{
 			name: "disabled",
 			setup: func(b *kms.InMemoryBackend, keyID string) error {
-				return b.DisableKey(&kms.DisableKeyInput{KeyID: keyID})
+				return b.DisableKey(context.Background(), &kms.DisableKeyInput{KeyID: keyID})
 			},
 		},
 	}
@@ -256,7 +257,7 @@ func TestAB2_UntagResource_EnabledAndDisabled_Accepted(t *testing.T) {
 		{
 			name: "disabled",
 			setup: func(b *kms.InMemoryBackend, keyID string) error {
-				return b.DisableKey(&kms.DisableKeyInput{KeyID: keyID})
+				return b.DisableKey(context.Background(), &kms.DisableKeyInput{KeyID: keyID})
 			},
 		},
 	}

@@ -237,7 +237,7 @@ func BenchmarkDynamoDB_GetItem(b *testing.B) {
 
 func BenchmarkKMS_Encrypt(b *testing.B) {
 	backend := kms.NewInMemoryBackend()
-	out, setupErr := backend.CreateKey(&kms.CreateKeyInput{Description: "bench"})
+	out, setupErr := backend.CreateKey(b.Context(), &kms.CreateKeyInput{Description: "bench"})
 	require.NoError(b, setupErr)
 
 	plaintext := bytes.Repeat([]byte("a"), 32)
@@ -246,7 +246,7 @@ func BenchmarkKMS_Encrypt(b *testing.B) {
 	b.ReportAllocs()
 
 	for range b.N {
-		_, err := backend.Encrypt(&kms.EncryptInput{
+		_, err := backend.Encrypt(b.Context(), &kms.EncryptInput{
 			KeyID:     out.KeyMetadata.KeyID,
 			Plaintext: plaintext,
 		})
@@ -256,18 +256,21 @@ func BenchmarkKMS_Encrypt(b *testing.B) {
 
 func BenchmarkKMS_Decrypt(b *testing.B) {
 	backend := kms.NewInMemoryBackend()
-	out, setupErr := backend.CreateKey(&kms.CreateKeyInput{Description: "bench"})
+	out, setupErr := backend.CreateKey(b.Context(), &kms.CreateKeyInput{Description: "bench"})
 	require.NoError(b, setupErr)
 
 	plaintext := bytes.Repeat([]byte("a"), 32)
-	enc, setupErr2 := backend.Encrypt(&kms.EncryptInput{KeyID: out.KeyMetadata.KeyID, Plaintext: plaintext})
+	enc, setupErr2 := backend.Encrypt(b.Context(), &kms.EncryptInput{
+		KeyID:     out.KeyMetadata.KeyID,
+		Plaintext: plaintext,
+	})
 	require.NoError(b, setupErr2)
 
 	b.ResetTimer()
 	b.ReportAllocs()
 
 	for range b.N {
-		_, err := backend.Decrypt(&kms.DecryptInput{CiphertextBlob: enc.CiphertextBlob})
+		_, err := backend.Decrypt(b.Context(), &kms.DecryptInput{CiphertextBlob: enc.CiphertextBlob})
 		require.NoError(b, err)
 	}
 }

@@ -3095,7 +3095,7 @@ type ssmKMSAdapter struct {
 }
 
 func (a *ssmKMSAdapter) EncryptSSM(keyID string, plaintext []byte) ([]byte, error) {
-	out, err := a.backend.Encrypt(&kmsbackend.EncryptInput{
+	out, err := a.backend.Encrypt(context.Background(), &kmsbackend.EncryptInput{
 		KeyID:     keyID,
 		Plaintext: plaintext,
 	})
@@ -3107,7 +3107,7 @@ func (a *ssmKMSAdapter) EncryptSSM(keyID string, plaintext []byte) ([]byte, erro
 }
 
 func (a *ssmKMSAdapter) DecryptSSM(ciphertext []byte) ([]byte, error) {
-	out, err := a.backend.Decrypt(&kmsbackend.DecryptInput{
+	out, err := a.backend.Decrypt(context.Background(), &kmsbackend.DecryptInput{
 		CiphertextBlob: ciphertext,
 	})
 	if err != nil {

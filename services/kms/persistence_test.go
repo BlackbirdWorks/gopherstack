@@ -1,6 +1,7 @@
 package kms_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -20,7 +21,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 		{
 			name: "round_trip_preserves_state",
 			setup: func(b *kms.InMemoryBackend) string {
-				out, err := b.CreateKey(&kms.CreateKeyInput{Description: "test key"})
+				out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{Description: "test key"})
 				if err != nil {
 					return ""
 				}
@@ -30,7 +31,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *kms.InMemoryBackend, id string) {
 				t.Helper()
 
-				out, err := b.DescribeKey(&kms.DescribeKeyInput{KeyID: id})
+				out, err := b.DescribeKey(context.Background(), &kms.DescribeKeyInput{KeyID: id})
 				require.NoError(t, err)
 				assert.Equal(t, id, out.KeyMetadata.KeyID)
 				assert.Equal(t, "test key", out.KeyMetadata.Description)
@@ -42,7 +43,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *kms.InMemoryBackend, _ string) {
 				t.Helper()
 
-				out, err := b.ListKeys(&kms.ListKeysInput{})
+				out, err := b.ListKeys(context.Background(), &kms.ListKeysInput{})
 				require.NoError(t, err)
 				assert.Empty(t, out.Keys)
 			},

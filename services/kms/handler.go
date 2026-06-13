@@ -339,7 +339,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-type kmsActionFn func(region string, body []byte) (any, error)
+type kmsActionFn func(ctx context.Context, body []byte) (any, error)
 
 // buildDispatchTable merges key lifecycle, crypto, alias/rotation, and tag actions into a single lookup map.
 func (h *Handler) buildDispatchTable() map[string]kmsActionFn {
@@ -358,52 +358,64 @@ func (h *Handler) buildKeyLifecycleActions() map[string]kmsActionFn {
 	return map[string]kmsActionFn{
 		"CreateKey": h.createKeyAction,
 		opDescribeKey: unmarshalAction(
-			func(i *DescribeKeyInput) (any, error) { return h.Backend.DescribeKey(i) },
+			func(ctx context.Context, i *DescribeKeyInput) (any, error) { return h.Backend.DescribeKey(ctx, i) },
 		),
-		"ListKeys": unmarshalAction(func(i *ListKeysInput) (any, error) { return h.Backend.ListKeys(i) }),
+		"ListKeys": unmarshalAction(func(ctx context.Context, i *ListKeysInput) (any, error) {
+			return h.Backend.ListKeys(ctx, i)
+		}),
 		"DisableKey": unmarshalAction(
-			func(i *DisableKeyInput) (any, error) { return struct{}{}, h.Backend.DisableKey(i) },
+			func(ctx context.Context, i *DisableKeyInput) (any, error) {
+				return struct{}{}, h.Backend.DisableKey(ctx, i)
+			},
 		),
 		"EnableKey": unmarshalAction(
-			func(i *EnableKeyInput) (any, error) { return struct{}{}, h.Backend.EnableKey(i) },
+			func(ctx context.Context, i *EnableKeyInput) (any, error) {
+				return struct{}{}, h.Backend.EnableKey(ctx, i)
+			},
 		),
 		"ScheduleKeyDeletion": unmarshalAction(
-			func(i *ScheduleKeyDeletionInput) (any, error) { return h.Backend.ScheduleKeyDeletion(i) },
+			func(ctx context.Context, i *ScheduleKeyDeletionInput) (any, error) {
+				return h.Backend.ScheduleKeyDeletion(ctx, i)
+			},
 		),
 		"CancelKeyDeletion": unmarshalAction(
-			func(i *CancelKeyDeletionInput) (any, error) { return h.Backend.CancelKeyDeletion(i) },
+			func(ctx context.Context, i *CancelKeyDeletionInput) (any, error) {
+				return h.Backend.CancelKeyDeletion(ctx, i)
+			},
 		),
 		"ImportKeyMaterial": unmarshalAction(
-			func(i *ImportKeyMaterialInput) (any, error) { return struct{}{}, h.Backend.ImportKeyMaterial(i) },
+			func(ctx context.Context, i *ImportKeyMaterialInput) (any, error) {
+				return struct{}{}, h.Backend.ImportKeyMaterial(ctx, i)
+			},
 		),
-		"DeleteImportedKeyMaterial": unmarshalAction(func(i *DeleteImportedKeyMaterialInput) (any, error) {
-			return struct{}{}, h.Backend.DeleteImportedKeyMaterial(i)
-		}),
+		"DeleteImportedKeyMaterial": unmarshalAction(
+			func(ctx context.Context, i *DeleteImportedKeyMaterialInput) (any, error) {
+				return struct{}{}, h.Backend.DeleteImportedKeyMaterial(ctx, i)
+			},
+		),
 	}
 }
 
 // unmarshalAction is a generic helper that creates a kmsActionFn from a strongly-typed backend call.
-func unmarshalAction[T any](fn func(*T) (any, error)) kmsActionFn {
-	return func(_ string, b []byte) (any, error) {
+func unmarshalAction[T any](fn func(context.Context, *T) (any, error)) kmsActionFn {
+	return func(ctx context.Context, b []byte) (any, error) {
 		var input T
 		if err := json.Unmarshal(b, &input); err != nil {
 			return nil, err
 		}
 
-		return fn(&input)
+		return fn(ctx, &input)
 	}
 }
 
 // createKeyAction handles CreateKey dispatch, including tag validation.
-func (h *Handler) createKeyAction(region string, b []byte) (any, error) {
+func (h *Handler) createKeyAction(ctx context.Context, b []byte) (any, error) {
 	var input CreateKeyInput
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
 	}
 
-	input.Region = region
-
-	out, err := h.Backend.CreateKey(&input)
+	out, err := h.Backend.CreateKey(ctx, &input)
 	if err != nil {
 		return nil, err
 	}
@@ -418,69 +430,69 @@ func (h *Handler) createKeyAction(region string, b []byte) (any, error) {
 // buildCryptoActions returns dispatch entries for encrypt, decrypt, sign, verify, and data-key operations.
 func (h *Handler) buildCryptoActions() map[string]kmsActionFn {
 	return map[string]kmsActionFn{
-		opEncrypt: func(_ string, b []byte) (any, error) {
+		opEncrypt: func(ctx context.Context, b []byte) (any, error) {
 			var input EncryptInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.Encrypt(&input)
+			return h.Backend.Encrypt(ctx, &input)
 		},
-		opDecrypt: func(_ string, b []byte) (any, error) {
+		opDecrypt: func(ctx context.Context, b []byte) (any, error) {
 			var input DecryptInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.Decrypt(&input)
+			return h.Backend.Decrypt(ctx, &input)
 		},
-		opGenerateDataKey: func(_ string, b []byte) (any, error) {
+		opGenerateDataKey: func(ctx context.Context, b []byte) (any, error) {
 			var input GenerateDataKeyInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.GenerateDataKey(&input)
+			return h.Backend.GenerateDataKey(ctx, &input)
 		},
-		opGenerateDataKeyWithoutPlaintext: func(_ string, b []byte) (any, error) {
+		opGenerateDataKeyWithoutPlaintext: func(ctx context.Context, b []byte) (any, error) {
 			var input GenerateDataKeyWithoutPlaintextInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.GenerateDataKeyWithoutPlaintext(&input)
+			return h.Backend.GenerateDataKeyWithoutPlaintext(ctx, &input)
 		},
-		"ReEncrypt": func(_ string, b []byte) (any, error) {
+		"ReEncrypt": func(ctx context.Context, b []byte) (any, error) {
 			var input ReEncryptInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.ReEncrypt(&input)
+			return h.Backend.ReEncrypt(ctx, &input)
 		},
-		opSign: func(_ string, b []byte) (any, error) {
+		opSign: func(ctx context.Context, b []byte) (any, error) {
 			var input SignInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.Sign(&input)
+			return h.Backend.Sign(ctx, &input)
 		},
-		opVerify: func(_ string, b []byte) (any, error) {
+		opVerify: func(ctx context.Context, b []byte) (any, error) {
 			var input VerifyInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.Verify(&input)
+			return h.Backend.Verify(ctx, &input)
 		},
-		opGetPublicKey: func(_ string, b []byte) (any, error) {
+		opGetPublicKey: func(ctx context.Context, b []byte) (any, error) {
 			var input GetPublicKeyInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.GetPublicKey(&input)
+			return h.Backend.GetPublicKey(ctx, &input)
 		},
 	}
 }
@@ -488,61 +500,61 @@ func (h *Handler) buildCryptoActions() map[string]kmsActionFn {
 // buildAliasRotationActions returns dispatch entries for alias management and key rotation.
 func (h *Handler) buildAliasRotationActions() map[string]kmsActionFn {
 	return map[string]kmsActionFn{
-		"CreateAlias": func(_ string, b []byte) (any, error) {
+		"CreateAlias": func(ctx context.Context, b []byte) (any, error) {
 			var input CreateAliasInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return struct{}{}, h.Backend.CreateAlias(&input)
+			return struct{}{}, h.Backend.CreateAlias(ctx, &input)
 		},
-		"UpdateAlias": func(_ string, b []byte) (any, error) {
+		"UpdateAlias": func(ctx context.Context, b []byte) (any, error) {
 			var input UpdateAliasInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return struct{}{}, h.Backend.UpdateAlias(&input)
+			return struct{}{}, h.Backend.UpdateAlias(ctx, &input)
 		},
-		"DeleteAlias": func(_ string, b []byte) (any, error) {
+		"DeleteAlias": func(ctx context.Context, b []byte) (any, error) {
 			var input DeleteAliasInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return struct{}{}, h.Backend.DeleteAlias(&input)
+			return struct{}{}, h.Backend.DeleteAlias(ctx, &input)
 		},
-		"ListAliases": func(_ string, b []byte) (any, error) {
+		"ListAliases": func(ctx context.Context, b []byte) (any, error) {
 			var input ListAliasesInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.ListAliases(&input)
+			return h.Backend.ListAliases(ctx, &input)
 		},
-		"EnableKeyRotation": func(_ string, b []byte) (any, error) {
+		"EnableKeyRotation": func(ctx context.Context, b []byte) (any, error) {
 			var input EnableKeyRotationInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return struct{}{}, h.Backend.EnableKeyRotation(&input)
+			return struct{}{}, h.Backend.EnableKeyRotation(ctx, &input)
 		},
-		"DisableKeyRotation": func(_ string, b []byte) (any, error) {
+		"DisableKeyRotation": func(ctx context.Context, b []byte) (any, error) {
 			var input DisableKeyRotationInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return struct{}{}, h.Backend.DisableKeyRotation(&input)
+			return struct{}{}, h.Backend.DisableKeyRotation(ctx, &input)
 		},
-		"GetKeyRotationStatus": func(_ string, b []byte) (any, error) {
+		"GetKeyRotationStatus": func(ctx context.Context, b []byte) (any, error) {
 			var input GetKeyRotationStatusInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.GetKeyRotationStatus(&input)
+			return h.Backend.GetKeyRotationStatus(ctx, &input)
 		},
 	}
 }
@@ -550,47 +562,47 @@ func (h *Handler) buildAliasRotationActions() map[string]kmsActionFn {
 // buildGrantPolicyActions returns dispatch entries for grant and key policy operations.
 func (h *Handler) buildGrantPolicyActions() map[string]kmsActionFn {
 	return map[string]kmsActionFn{
-		opCreateGrant: func(_ string, b []byte) (any, error) {
+		opCreateGrant: func(ctx context.Context, b []byte) (any, error) {
 			var input CreateGrantInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.CreateGrant(&input)
+			return h.Backend.CreateGrant(ctx, &input)
 		},
-		"ListGrants": func(_ string, b []byte) (any, error) {
+		"ListGrants": func(ctx context.Context, b []byte) (any, error) {
 			var input ListGrantsInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.ListGrants(&input)
+			return h.Backend.ListGrants(ctx, &input)
 		},
-		"RevokeGrant": func(_ string, b []byte) (any, error) {
+		"RevokeGrant": func(ctx context.Context, b []byte) (any, error) {
 			var input RevokeGrantInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return struct{}{}, h.Backend.RevokeGrant(&input)
+			return struct{}{}, h.Backend.RevokeGrant(ctx, &input)
 		},
-		opRetireGrant: func(_ string, b []byte) (any, error) {
+		opRetireGrant: func(ctx context.Context, b []byte) (any, error) {
 			var input RetireGrantInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return struct{}{}, h.Backend.RetireGrant(&input)
+			return struct{}{}, h.Backend.RetireGrant(ctx, &input)
 		},
-		"ListRetirableGrants": func(_ string, b []byte) (any, error) {
+		"ListRetirableGrants": func(ctx context.Context, b []byte) (any, error) {
 			var input ListRetirableGrantsInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.ListRetirableGrants(&input)
+			return h.Backend.ListRetirableGrants(ctx, &input)
 		},
-		"PutKeyPolicy": func(_ string, b []byte) (any, error) {
+		"PutKeyPolicy": func(ctx context.Context, b []byte) (any, error) {
 			var input PutKeyPolicyInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -608,15 +620,15 @@ func (h *Handler) buildGrantPolicyActions() map[string]kmsActionFn {
 				input.PolicyName = defaultKeyPolicyName
 			}
 
-			return struct{}{}, h.Backend.PutKeyPolicy(&input)
+			return struct{}{}, h.Backend.PutKeyPolicy(ctx, &input)
 		},
-		"GetKeyPolicy": func(_ string, b []byte) (any, error) {
+		"GetKeyPolicy": func(ctx context.Context, b []byte) (any, error) {
 			var input GetKeyPolicyInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.GetKeyPolicy(&input)
+			return h.Backend.GetKeyPolicy(ctx, &input)
 		},
 	}
 }
@@ -628,7 +640,9 @@ func (h *Handler) listResourceTags(b []byte) (any, error) {
 		return nil, err
 	}
 
-	if _, descErr := h.Backend.DescribeKey(&DescribeKeyInput{KeyID: input.KeyID}); descErr != nil {
+	if _, descErr := h.Backend.DescribeKey(
+		context.Background(), &DescribeKeyInput{KeyID: input.KeyID},
+	); descErr != nil {
 		return nil, descErr
 	}
 
@@ -681,7 +695,7 @@ func (h *Handler) tagResource(b []byte) (any, error) {
 		return nil, err
 	}
 
-	desc, descErr := h.Backend.DescribeKey(&DescribeKeyInput{KeyID: input.KeyID})
+	desc, descErr := h.Backend.DescribeKey(context.Background(), &DescribeKeyInput{KeyID: input.KeyID})
 	if descErr != nil {
 		return nil, descErr
 	}
@@ -766,7 +780,7 @@ func (h *Handler) untagResource(b []byte) (any, error) {
 		return nil, err
 	}
 
-	desc, descErr := h.Backend.DescribeKey(&DescribeKeyInput{KeyID: input.KeyID})
+	desc, descErr := h.Backend.DescribeKey(context.Background(), &DescribeKeyInput{KeyID: input.KeyID})
 	if descErr != nil {
 		return nil, descErr
 	}
@@ -783,13 +797,13 @@ func (h *Handler) untagResource(b []byte) (any, error) {
 // buildTagActions returns dispatch entries for KMS resource tag operations.
 func (h *Handler) buildTagActions() map[string]kmsActionFn {
 	return map[string]kmsActionFn{
-		"ListResourceTags": func(_ string, b []byte) (any, error) {
+		"ListResourceTags": func(_ context.Context, b []byte) (any, error) {
 			return h.listResourceTags(b)
 		},
-		"TagResource": func(_ string, b []byte) (any, error) {
+		"TagResource": func(_ context.Context, b []byte) (any, error) {
 			return h.tagResource(b)
 		},
-		"UntagResource": func(_ string, b []byte) (any, error) {
+		"UntagResource": func(_ context.Context, b []byte) (any, error) {
 			return h.untagResource(b)
 		},
 	}
@@ -809,53 +823,53 @@ func (h *Handler) buildNewOpsActions() map[string]kmsActionFn {
 // buildCustomKeyStoreActions returns dispatch entries for custom key store and ECDH operations.
 func (h *Handler) buildCustomKeyStoreActions() map[string]kmsActionFn {
 	return map[string]kmsActionFn{
-		"CreateCustomKeyStore": func(_ string, b []byte) (any, error) {
+		"CreateCustomKeyStore": func(ctx context.Context, b []byte) (any, error) {
 			var input CreateCustomKeyStoreInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.CreateCustomKeyStore(&input)
+			return h.Backend.CreateCustomKeyStore(ctx, &input)
 		},
-		"DeleteCustomKeyStore": func(_ string, b []byte) (any, error) {
+		"DeleteCustomKeyStore": func(ctx context.Context, b []byte) (any, error) {
 			var input DeleteCustomKeyStoreInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return struct{}{}, h.Backend.DeleteCustomKeyStore(&input)
+			return struct{}{}, h.Backend.DeleteCustomKeyStore(ctx, &input)
 		},
-		"DescribeCustomKeyStores": func(_ string, b []byte) (any, error) {
+		"DescribeCustomKeyStores": func(ctx context.Context, b []byte) (any, error) {
 			var input DescribeCustomKeyStoresInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DescribeCustomKeyStores(&input)
+			return h.Backend.DescribeCustomKeyStores(ctx, &input)
 		},
-		"ConnectCustomKeyStore": func(_ string, b []byte) (any, error) {
+		"ConnectCustomKeyStore": func(ctx context.Context, b []byte) (any, error) {
 			var input ConnectCustomKeyStoreInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return struct{}{}, h.Backend.ConnectCustomKeyStore(&input)
+			return struct{}{}, h.Backend.ConnectCustomKeyStore(ctx, &input)
 		},
-		"DisconnectCustomKeyStore": func(_ string, b []byte) (any, error) {
+		"DisconnectCustomKeyStore": func(ctx context.Context, b []byte) (any, error) {
 			var input DisconnectCustomKeyStoreInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return struct{}{}, h.Backend.DisconnectCustomKeyStore(&input)
+			return struct{}{}, h.Backend.DisconnectCustomKeyStore(ctx, &input)
 		},
-		opDeriveSharedSecret: func(_ string, b []byte) (any, error) {
+		opDeriveSharedSecret: func(ctx context.Context, b []byte) (any, error) {
 			var input DeriveSharedSecretInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.DeriveSharedSecret(&input)
+			return h.Backend.DeriveSharedSecret(ctx, &input)
 		},
 	}
 }
@@ -863,76 +877,76 @@ func (h *Handler) buildCustomKeyStoreActions() map[string]kmsActionFn {
 // buildGenerateAndMacActions returns dispatch entries for data key pair, MAC, and random operations.
 func (h *Handler) buildGenerateAndMacActions() map[string]kmsActionFn {
 	return map[string]kmsActionFn{
-		opGenerateDataKeyPair: func(_ string, b []byte) (any, error) {
+		opGenerateDataKeyPair: func(ctx context.Context, b []byte) (any, error) {
 			var input GenerateDataKeyPairInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.GenerateDataKeyPair(&input)
+			return h.Backend.GenerateDataKeyPair(ctx, &input)
 		},
-		opGenerateDataKeyPairWithoutPlaintext: func(_ string, b []byte) (any, error) {
+		opGenerateDataKeyPairWithoutPlaintext: func(ctx context.Context, b []byte) (any, error) {
 			var input GenerateDataKeyPairWithoutPlaintextInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.GenerateDataKeyPairWithoutPlaintext(&input)
+			return h.Backend.GenerateDataKeyPairWithoutPlaintext(ctx, &input)
 		},
-		opGenerateMac: func(_ string, b []byte) (any, error) {
+		opGenerateMac: func(ctx context.Context, b []byte) (any, error) {
 			var input GenerateMacInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.GenerateMac(&input)
+			return h.Backend.GenerateMac(ctx, &input)
 		},
-		"GenerateRandom": func(_ string, b []byte) (any, error) {
+		"GenerateRandom": func(ctx context.Context, b []byte) (any, error) {
 			var input GenerateRandomInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.GenerateRandom(&input)
+			return h.Backend.GenerateRandom(ctx, &input)
 		},
-		opVerifyMac: func(_ string, b []byte) (any, error) {
+		opVerifyMac: func(ctx context.Context, b []byte) (any, error) {
 			var input VerifyMacInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.VerifyMac(&input)
+			return h.Backend.VerifyMac(ctx, &input)
 		},
 	}
 }
 
 func (h *Handler) buildReplicationAndMaintenanceActions() map[string]kmsActionFn {
 	return map[string]kmsActionFn{
-		"GetParametersForImport": func(_ string, b []byte) (any, error) {
+		"GetParametersForImport": func(ctx context.Context, b []byte) (any, error) {
 			var input GetParametersForImportInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.GetParametersForImport(&input)
+			return h.Backend.GetParametersForImport(ctx, &input)
 		},
-		"ListKeyPolicies": func(_ string, b []byte) (any, error) {
+		"ListKeyPolicies": func(ctx context.Context, b []byte) (any, error) {
 			var input ListKeyPoliciesInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.ListKeyPolicies(&input)
+			return h.Backend.ListKeyPolicies(ctx, &input)
 		},
-		"ListKeyRotations": func(_ string, b []byte) (any, error) {
+		"ListKeyRotations": func(ctx context.Context, b []byte) (any, error) {
 			var input ListKeyRotationsInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.ListKeyRotations(&input)
+			return h.Backend.ListKeyRotations(ctx, &input)
 		},
-		"ReplicateKey": func(_ string, b []byte) (any, error) {
+		"ReplicateKey": func(ctx context.Context, b []byte) (any, error) {
 			var input ReplicateKeyInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -940,11 +954,11 @@ func (h *Handler) buildReplicationAndMaintenanceActions() map[string]kmsActionFn
 
 			// Capture source key ID for tag copying before we replicate.
 			var sourceKeyID string
-			if desc, descErr := h.Backend.DescribeKey(&DescribeKeyInput{KeyID: input.KeyID}); descErr == nil {
+			if desc, descErr := h.Backend.DescribeKey(ctx, &DescribeKeyInput{KeyID: input.KeyID}); descErr == nil {
 				sourceKeyID = desc.KeyMetadata.KeyID
 			}
 
-			out, err := h.Backend.ReplicateKey(&input)
+			out, err := h.Backend.ReplicateKey(ctx, &input)
 			if err != nil {
 				return nil, err
 			}
@@ -953,51 +967,52 @@ func (h *Handler) buildReplicationAndMaintenanceActions() map[string]kmsActionFn
 
 			return out, nil
 		},
-		"RotateKeyOnDemand": func(_ string, b []byte) (any, error) {
+		"RotateKeyOnDemand": func(ctx context.Context, b []byte) (any, error) {
 			var input RotateKeyOnDemandInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.RotateKeyOnDemand(&input)
+			return h.Backend.RotateKeyOnDemand(ctx, &input)
 		},
-		"UpdateCustomKeyStore": func(_ string, b []byte) (any, error) {
+		"UpdateCustomKeyStore": func(ctx context.Context, b []byte) (any, error) {
 			var input UpdateCustomKeyStoreInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return struct{}{}, h.Backend.UpdateCustomKeyStore(&input)
+			return struct{}{}, h.Backend.UpdateCustomKeyStore(ctx, &input)
 		},
-		"UpdateKeyDescription": func(_ string, b []byte) (any, error) {
+		"UpdateKeyDescription": func(ctx context.Context, b []byte) (any, error) {
 			var input UpdateKeyDescriptionInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return struct{}{}, h.Backend.UpdateKeyDescription(&input)
+			return struct{}{}, h.Backend.UpdateKeyDescription(ctx, &input)
 		},
-		"UpdatePrimaryRegion": func(_ string, b []byte) (any, error) {
+		"UpdatePrimaryRegion": func(ctx context.Context, b []byte) (any, error) {
 			var input UpdatePrimaryRegionInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return struct{}{}, h.Backend.UpdatePrimaryRegion(&input)
+			return struct{}{}, h.Backend.UpdatePrimaryRegion(ctx, &input)
 		},
 	}
 }
 
 // dispatch routes the KMS operation to the appropriate backend method.
-func (h *Handler) dispatch(_ context.Context, r *http.Request, action string, body []byte) ([]byte, error) {
+func (h *Handler) dispatch(ctx context.Context, r *http.Request, action string, body []byte) ([]byte, error) {
 	region := httputils.ExtractRegionFromRequest(r, h.DefaultRegion)
+	ctx = context.WithValue(ctx, regionContextKey{}, region)
 
 	fn, ok := h.actions[action]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrUnknownOperation, action)
 	}
 
-	response, err := fn(region, body)
+	response, err := fn(ctx, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1085,7 +1100,7 @@ type TaggedKeyInfo struct {
 // TaggedKeys returns a snapshot of all KMS keys with their ARNs and tags.
 // Intended for use by the Resource Groups Tagging API provider.
 func (h *Handler) TaggedKeys() []TaggedKeyInfo {
-	out, err := h.Backend.ListKeys(&ListKeysInput{})
+	out, err := h.Backend.ListKeys(context.Background(), &ListKeysInput{})
 	if err != nil {
 		return nil
 	}
@@ -1109,7 +1124,7 @@ func (h *Handler) TaggedKeys() []TaggedKeyInfo {
 
 // TagKeyByARN applies tags to the KMS key identified by its ARN.
 func (h *Handler) TagKeyByARN(keyARN string, newTags map[string]string) error {
-	out, err := h.Backend.ListKeys(&ListKeysInput{})
+	out, err := h.Backend.ListKeys(context.Background(), &ListKeysInput{})
 	if err != nil {
 		return err
 	}
@@ -1127,7 +1142,7 @@ func (h *Handler) TagKeyByARN(keyARN string, newTags map[string]string) error {
 
 // UntagKeyByARN removes the specified tag keys from the KMS key identified by its ARN.
 func (h *Handler) UntagKeyByARN(keyARN string, tagKeys []string) error {
-	out, err := h.Backend.ListKeys(&ListKeysInput{})
+	out, err := h.Backend.ListKeys(context.Background(), &ListKeysInput{})
 	if err != nil {
 		return err
 	}
