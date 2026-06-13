@@ -1140,7 +1140,6 @@ func (h *Handler) handleCreateThreatEntitySet( //nolint:dupl // existing issue.
 	detectorID string,
 	body []byte,
 ) (any, int, error) {
-
 	var req struct {
 		Tags     map[string]string `json:"tags"`
 		Activate *bool             `json:"activate"`
@@ -1194,7 +1193,6 @@ func (h *Handler) handleListThreatEntitySets(detectorID string) (any, int, error
 	return map[string]any{"threatEntitySetIds": ids}, http.StatusOK, nil
 }
 func (h *Handler) handleUpdateThreatEntitySet(detectorID, setID string, body []byte) (int, error) {
-
 	var req struct {
 		Activate *bool  `json:"activate"`
 		Name     string `json:"name"`
@@ -1226,7 +1224,6 @@ func (h *Handler) handleCreateTrustedEntitySet( //nolint:dupl // existing issue.
 	detectorID string,
 	body []byte,
 ) (any, int, error) {
-
 	var req struct {
 		Tags     map[string]string `json:"tags"`
 		Activate *bool             `json:"activate"`
