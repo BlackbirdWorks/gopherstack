@@ -1,20 +1,14 @@
 package pipes
 
 import (
-<<<<<<< Updated upstream
 	"context"
-=======
->>>>>>> Stashed changes
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"maps"
 	"regexp"
 	"strings"
-<<<<<<< Updated upstream
 	"sync"
-=======
->>>>>>> Stashed changes
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -25,25 +19,19 @@ import (
 const (
 	stateRunning      = "RUNNING"
 	stateStopped      = "STOPPED"
-<<<<<<< Updated upstream
 	stateCreating     = "CREATING"
 	stateUpdating     = "UPDATING"
 	stateDeleting     = "DELETING"
-=======
->>>>>>> Stashed changes
 	stateStarting     = "STARTING"
 	stateStopping     = "STOPPING"
 	stateCreateFailed = "CREATE_FAILED"
 	stateUpdateFailed = "UPDATE_FAILED"
 	stateDeleteFailed = "DELETE_FAILED"
-<<<<<<< Updated upstream
 	stateStartFailed  = "START_FAILED"
 	stateStopFailed   = "STOP_FAILED"
 
 	// stateTransitionDelay is the simulated delay for async state transitions.
 	stateTransitionDelay = 10 * time.Millisecond
-=======
->>>>>>> Stashed changes
 
 	maxPipeNameLen  = 64
 	maxTagKeyLen    = 128
@@ -51,33 +39,18 @@ const (
 	maxTagsPerPipe  = 50
 	maxPipesPerAcct = 1000
 
-<<<<<<< Updated upstream
 	// nextTokenSep separates cursor values in pagination tokens.
-=======
-	// nextTokenSep separates the name from the rest in a NextToken.
->>>>>>> Stashed changes
 	nextTokenSep = "\x00"
 )
 
 var (
-<<<<<<< Updated upstream
 	ErrNotFound      = awserr.New("NotFoundException", awserr.ErrNotFound)
 	ErrAlreadyExists = awserr.New("ConflictException", awserr.ErrConflict)
 	ErrValidation    = awserr.New("ValidationException", awserr.ErrInvalidParameter)
-=======
-	ErrNotFound    = awserr.New("NotFoundException", awserr.ErrNotFound)
-	ErrAlreadyExists = awserr.New("ConflictException", awserr.ErrConflict)
-	ErrValidation  = awserr.New("ValidationException", awserr.ErrInvalidParameter)
->>>>>>> Stashed changes
 
 	pipeNameRE = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 )
 
-<<<<<<< Updated upstream
-=======
-// --- Sub-parameter types ---
-
->>>>>>> Stashed changes
 // FilterCriteria holds event filter patterns applied before forwarding to the target.
 type FilterCriteria struct {
 	Filters []Filter `json:"Filters,omitempty"`
@@ -88,7 +61,6 @@ type Filter struct {
 	Pattern string `json:"Pattern,omitempty"`
 }
 
-<<<<<<< Updated upstream
 // AwsVpcConfiguration is the VPC network configuration for ECS tasks.
 type AwsVpcConfiguration struct {
 	AssignPublicIP string   `json:"AssignPublicIp,omitempty"`
@@ -184,15 +156,12 @@ type RuntimeMetricsStreaming struct {
 	Level              string              `json:"Level,omitempty"`
 }
 
-=======
->>>>>>> Stashed changes
 // SQSSourceParameters holds SQS-specific source configuration.
 type SQSSourceParameters struct {
 	BatchSize                      int `json:"BatchSize,omitempty"`
 	MaximumBatchingWindowInSeconds int `json:"MaximumBatchingWindowInSeconds,omitempty"`
 }
 
-<<<<<<< Updated upstream
 // KinesisStreamSourceParameters holds Kinesis-specific source configuration.
 type KinesisStreamSourceParameters struct {
 	StartingPositionTimestamp      *time.Time        `json:"StartingPositionTimestamp,omitempty"`
@@ -268,12 +237,6 @@ type SourceParameters struct {
 	SelfManagedKafkaParameters      *SelfManagedKafkaSourceParameters `json:"SelfManagedKafkaParameters,omitempty"`
 	RabbitMQBrokerParameters        *RabbitMQBrokerSourceParameters   `json:"RabbitMQBrokerParameters,omitempty"`
 	ActiveMQBrokerParameters        *ActiveMQBrokerSourceParameters   `json:"ActiveMQBrokerParameters,omitempty"`
-=======
-// SourceParameters holds source-specific configuration.
-type SourceParameters struct {
-	FilterCriteria     *FilterCriteria      `json:"FilterCriteria,omitempty"`
-	SqsQueueParameters *SQSSourceParameters `json:"SqsQueueParameters,omitempty"`
->>>>>>> Stashed changes
 }
 
 // LambdaFunctionParameters holds Lambda-specific target configuration.
@@ -281,7 +244,6 @@ type LambdaFunctionParameters struct {
 	InvocationType string `json:"InvocationType,omitempty"`
 }
 
-<<<<<<< Updated upstream
 // StepFunctionTargetParameters holds Step Functions target configuration.
 type StepFunctionTargetParameters struct {
 	InvocationType string `json:"InvocationType,omitempty"`
@@ -432,12 +394,6 @@ type TargetParameters struct {
 	TimestreamParameters          *TimestreamParameters              `json:"TimestreamParameters,omitempty"`
 	HTTPParameters                *TargetHTTPParameters              `json:"HttpParameters,omitempty"`
 	InputTemplate                 string                             `json:"InputTemplate,omitempty"`
-=======
-// TargetParameters holds target-specific configuration.
-type TargetParameters struct {
-	InputTemplate            string                    `json:"InputTemplate,omitempty"`
-	LambdaFunctionParameters *LambdaFunctionParameters `json:"LambdaFunctionParameters,omitempty"`
->>>>>>> Stashed changes
 }
 
 // DeadLetterConfig identifies the DLQ for failed pipe events.
@@ -445,7 +401,6 @@ type DeadLetterConfig struct {
 	Arn string `json:"Arn,omitempty"`
 }
 
-<<<<<<< Updated upstream
 // EnrichmentHTTPParameters holds HTTP parameters for enrichment calls.
 type EnrichmentHTTPParameters struct {
 	HeaderParameters      map[string]string `json:"HeaderParameters,omitempty"`
@@ -460,14 +415,10 @@ type EnrichmentParameters struct {
 }
 
 // CloudwatchLogsLogDestination is a CloudWatch Logs target.
-=======
-// CloudwatchLogsLogDestination is a CloudWatch Logs target for pipe execution logs.
->>>>>>> Stashed changes
 type CloudwatchLogsLogDestination struct {
 	LogGroupArn string `json:"LogGroupArn,omitempty"`
 }
 
-<<<<<<< Updated upstream
 // FirehoseLogDestination is a Firehose delivery stream log target.
 type FirehoseLogDestination struct {
 	DeliveryStreamArn string `json:"DeliveryStreamArn,omitempty"`
@@ -486,16 +437,10 @@ type LogDestination struct {
 	CloudwatchLogsLogDestination *CloudwatchLogsLogDestination `json:"CloudwatchLogsLogDestination,omitempty"`
 	FirehoseLogDestination       *FirehoseLogDestination       `json:"FirehoseLogDestination,omitempty"`
 	S3LogDestination             *S3LogDestination             `json:"S3LogDestination,omitempty"`
-=======
-// LogDestination wraps possible log destination types.
-type LogDestination struct {
-	CloudwatchLogsLogDestination *CloudwatchLogsLogDestination `json:"CloudwatchLogsLogDestination,omitempty"`
->>>>>>> Stashed changes
 }
 
 // LogConfiguration controls pipe execution logging.
 type LogConfiguration struct {
-<<<<<<< Updated upstream
 	Level                string           `json:"Level,omitempty"`
 	Destinations         []LogDestination `json:"Destinations,omitempty"`
 	IncludeExecutionData []string         `json:"IncludeExecutionData,omitempty"`
@@ -833,50 +778,6 @@ func cloneEnrichmentParameters(src *EnrichmentParameters) *EnrichmentParameters 
 	return &ep
 }
 
-=======
-	Destinations         []LogDestination `json:"Destinations,omitempty"`
-	IncludeExecutionData []string         `json:"IncludeExecutionData,omitempty"`
-	Level                string           `json:"Level,omitempty"`
-}
-
-// --- Pipe ---
-
-// Pipe represents an EventBridge Pipe.
-type Pipe struct {
-	SourceParameters *SourceParameters `json:"sourceParameters,omitempty"`
-	TargetParameters *TargetParameters `json:"targetParameters,omitempty"`
-	DeadLetterConfig *DeadLetterConfig `json:"deadLetterConfig,omitempty"`
-	LogConfiguration *LogConfiguration `json:"logConfiguration,omitempty"`
-	LastModifiedTime time.Time         `json:"lastModifiedTime"`
-	CreationTime     time.Time         `json:"creationTime"`
-	Tags             map[string]string `json:"tags,omitempty"`
-	Description      string            `json:"description,omitempty"`
-	Enrichment       string            `json:"enrichment,omitempty"`
-	Source           string            `json:"source"`
-	Target           string            `json:"target"`
-	RoleARN          string            `json:"roleArn"`
-	StateReason      string            `json:"stateReason,omitempty"`
-	DesiredState     string            `json:"desiredState"`
-	CurrentState     string            `json:"currentState"`
-	AccountID        string            `json:"accountID"`
-	Region           string            `json:"region"`
-	ARN              string            `json:"arn"`
-	Name             string            `json:"name"`
-}
-
-// effectiveBatchSize returns the configured SQS batch size, or the default.
-func (p *Pipe) effectiveBatchSize() int {
-	if p.SourceParameters != nil &&
-		p.SourceParameters.SqsQueueParameters != nil &&
-		p.SourceParameters.SqsQueueParameters.BatchSize > 0 {
-		return p.SourceParameters.SqsQueueParameters.BatchSize
-	}
-
-	return pipeDefaultBatchSize
-}
-
-// clonePipe returns a deep copy of p.
->>>>>>> Stashed changes
 func clonePipe(p *Pipe) *Pipe {
 	cp := *p
 	cp.Tags = maps.Clone(p.Tags)
@@ -912,53 +813,10 @@ func clonePipe(p *Pipe) *Pipe {
 		cp.RuntimeMetricsStreaming = &rms
 	}
 
-	if p.SourceParameters != nil {
-		sp := *p.SourceParameters
-		if p.SourceParameters.FilterCriteria != nil {
-			fc := *p.SourceParameters.FilterCriteria
-			fc.Filters = append([]Filter(nil), p.SourceParameters.FilterCriteria.Filters...)
-			sp.FilterCriteria = &fc
-		}
-
-		if p.SourceParameters.SqsQueueParameters != nil {
-			sqsp := *p.SourceParameters.SqsQueueParameters
-			sp.SqsQueueParameters = &sqsp
-		}
-
-		cp.SourceParameters = &sp
-	}
-
-	if p.TargetParameters != nil {
-		tp := *p.TargetParameters
-		if p.TargetParameters.LambdaFunctionParameters != nil {
-			lfp := *p.TargetParameters.LambdaFunctionParameters
-			tp.LambdaFunctionParameters = &lfp
-		}
-
-		cp.TargetParameters = &tp
-	}
-
-	if p.DeadLetterConfig != nil {
-		dlc := *p.DeadLetterConfig
-		cp.DeadLetterConfig = &dlc
-	}
-
-	if p.LogConfiguration != nil {
-		lc := *p.LogConfiguration
-		lc.Destinations = append([]LogDestination(nil), p.LogConfiguration.Destinations...)
-		lc.IncludeExecutionData = append([]string(nil), p.LogConfiguration.IncludeExecutionData...)
-		cp.LogConfiguration = &lc
-	}
-
 	return &cp
 }
 
-<<<<<<< Updated upstream
 // InMemoryBackend is the in-memory store for pipes.
-=======
-// --- Backend ---
-
->>>>>>> Stashed changes
 type InMemoryBackend struct {
 	svcCtx              context.Context
 	pipes               map[string]*Pipe
@@ -1055,7 +913,6 @@ func (b *InMemoryBackend) Region() string { return b.region }
 
 // CreatePipeInput holds the full set of fields for pipe creation.
 type CreatePipeInput struct {
-<<<<<<< Updated upstream
 	Tags                    map[string]string
 	SourceParameters        *SourceParameters
 	TargetParameters        *TargetParameters
@@ -1073,28 +930,10 @@ type CreatePipeInput struct {
 	DesiredState            string
 }
 
-=======
-	Tags             map[string]string
-	SourceParameters *SourceParameters
-	TargetParameters *TargetParameters
-	DeadLetterConfig *DeadLetterConfig
-	LogConfiguration *LogConfiguration
-	Name             string
-	RoleARN          string
-	Source           string
-	Target           string
-	Description      string
-	Enrichment       string
-	DesiredState     string
-}
-
-// CreatePipe creates a new pipe.
->>>>>>> Stashed changes
 func (b *InMemoryBackend) CreatePipe(in CreatePipeInput) (*Pipe, error) {
 	if err := validatePipeName(in.Name); err != nil {
 		return nil, err
 	}
-<<<<<<< Updated upstream
 	if err := validateDesiredState(in.DesiredState); err != nil {
 		return nil, err
 	}
@@ -1110,30 +949,11 @@ func (b *InMemoryBackend) CreatePipe(in CreatePipeInput) (*Pipe, error) {
 	if err := validateSourceBatchSize(in.SourceParameters); err != nil {
 		return nil, err
 	}
-=======
-
-	if err := validateDesiredState(in.DesiredState); err != nil {
-		return nil, err
-	}
-
-	if in.Source == "" {
-		return nil, fmt.Errorf("%w: Source is required", ErrValidation)
-	}
-
-	if in.Target == "" {
-		return nil, fmt.Errorf("%w: Target is required", ErrValidation)
-	}
-
-	if err := validateTags(in.Tags); err != nil {
-		return nil, err
-	}
->>>>>>> Stashed changes
 
 	b.mu.Lock("CreatePipe")
 	defer b.mu.Unlock()
 
 	if len(b.pipes) >= maxPipesPerAcct {
-<<<<<<< Updated upstream
 		return nil, fmt.Errorf(
 			"%w: account has reached the maximum number of pipes (%d)",
 			ErrValidation,
@@ -1143,16 +963,6 @@ func (b *InMemoryBackend) CreatePipe(in CreatePipeInput) (*Pipe, error) {
 	if _, ok := b.pipes[in.Name]; ok {
 		return nil, fmt.Errorf("%w: pipe %s already exists", ErrAlreadyExists, in.Name)
 	}
-=======
-		return nil, fmt.Errorf("%w: account has reached the maximum number of pipes (%d)",
-			ErrValidation, maxPipesPerAcct)
-	}
-
-	if _, ok := b.pipes[in.Name]; ok {
-		return nil, fmt.Errorf("%w: pipe %s already exists", ErrAlreadyExists, in.Name)
-	}
-
->>>>>>> Stashed changes
 	if in.DesiredState == "" {
 		in.DesiredState = stateRunning
 	}
@@ -1160,7 +970,6 @@ func (b *InMemoryBackend) CreatePipe(in CreatePipeInput) (*Pipe, error) {
 	now := time.Now()
 	pipeARN := arn.Build("pipes", b.region, b.accountID, "pipe/"+in.Name)
 	p := &Pipe{
-<<<<<<< Updated upstream
 		Name: in.Name, ARN: pipeARN, RoleARN: in.RoleARN,
 		Source: in.Source, Target: in.Target, Description: in.Description,
 		Enrichment: in.Enrichment, KmsKeyIdentifier: in.KmsKeyIdentifier,
@@ -1174,26 +983,6 @@ func (b *InMemoryBackend) CreatePipe(in CreatePipeInput) (*Pipe, error) {
 		LogConfiguration:        in.LogConfiguration,
 		EnrichmentParameters:    in.EnrichmentParameters,
 		RuntimeMetricsStreaming: in.RuntimeMetricsStreaming,
-=======
-		Name:             in.Name,
-		ARN:              pipeARN,
-		RoleARN:          in.RoleARN,
-		Source:           in.Source,
-		Target:           in.Target,
-		Description:      in.Description,
-		Enrichment:       in.Enrichment,
-		DesiredState:     in.DesiredState,
-		CurrentState:     in.DesiredState,
-		AccountID:        b.accountID,
-		Region:           b.region,
-		CreationTime:     now,
-		LastModifiedTime: now,
-		Tags:             mergeTags(nil, in.Tags),
-		SourceParameters: in.SourceParameters,
-		TargetParameters: in.TargetParameters,
-		DeadLetterConfig: in.DeadLetterConfig,
-		LogConfiguration: in.LogConfiguration,
->>>>>>> Stashed changes
 	}
 	b.pipes[in.Name] = p
 	b.pipeARNIndex[pipeARN] = in.Name
@@ -1244,18 +1033,10 @@ type ListPipesFilter struct {
 
 // ListPipesResult holds the paginated result of a ListPipes call.
 type ListPipesResult struct {
-<<<<<<< Updated upstream
 	NextToken string
 	Pipes     []*Pipe
 }
 
-=======
-	Pipes     []*Pipe
-	NextToken string
-}
-
-// ListPipes returns pipes matching the filter with optional pagination.
->>>>>>> Stashed changes
 func (b *InMemoryBackend) ListPipes(f ListPipesFilter) ListPipesResult {
 	b.mu.RLock("ListPipes")
 	defer b.mu.RUnlock()
@@ -1265,7 +1046,6 @@ func (b *InMemoryBackend) ListPipes(f ListPipesFilter) ListPipesResult {
 		limit = 1000
 	}
 
-<<<<<<< Updated upstream
 	names := b.sortedPipeNames()
 	startIdx := b.resolveStartIndex(names, f.NextToken)
 	result, lastIncluded := b.collectMatchingPipes(names, startIdx, limit, f)
@@ -1422,138 +1202,13 @@ func applyUpdateFields(p *Pipe, in UpdatePipeInput) {
 	}
 }
 
-=======
-	// Deterministic iteration order: sort pipe names so NextToken is stable.
-	names := make([]string, 0, len(b.pipes))
-	for name := range b.pipes {
-		names = append(names, name)
-	}
-
-	// Simple lexicographic sort without importing sort package; use a manual bubble for small N.
-	for i := 0; i < len(names); i++ {
-		for j := i + 1; j < len(names); j++ {
-			if names[j] < names[i] {
-				names[i], names[j] = names[j], names[i]
-			}
-		}
-	}
-
-	// Apply NextToken offset.
-	startIdx := 0
-	if f.NextToken != "" {
-		decoded, err := base64.StdEncoding.DecodeString(f.NextToken)
-		if err == nil {
-			cursor := strings.TrimSuffix(string(decoded), nextTokenSep)
-			for i, n := range names {
-				if n > cursor {
-					startIdx = i
-					break
-				}
-				startIdx = len(names)
-			}
-		}
-	}
-
-	var result []*Pipe
-	var lastIncluded string
-
-	for i := startIdx; i < len(names); i++ {
-		if len(result) >= limit {
-			break
-		}
-
-		p := b.pipes[names[i]]
-
-		if f.NamePrefix != "" && !strings.HasPrefix(p.Name, f.NamePrefix) {
-			continue
-		}
-
-		if f.DesiredState != "" && p.DesiredState != f.DesiredState {
-			continue
-		}
-
-		if f.CurrentState != "" && p.CurrentState != f.CurrentState {
-			continue
-		}
-
-		if f.SourcePrefix != "" && !strings.HasPrefix(p.Source, f.SourcePrefix) {
-			continue
-		}
-
-		if f.TargetPrefix != "" && !strings.HasPrefix(p.Target, f.TargetPrefix) {
-			continue
-		}
-
-		result = append(result, clonePipe(p))
-		lastIncluded = p.Name
-	}
-
-	var nextToken string
-
-	if len(result) == limit && lastIncluded != "" {
-		// Check if there are more matching pipes beyond the limit.
-		for i := startIdx + len(result); i < len(names); i++ {
-			p := b.pipes[names[i]]
-			if matchesFilter(p, f) {
-				nextToken = base64.StdEncoding.EncodeToString([]byte(lastIncluded + nextTokenSep))
-				break
-			}
-		}
-	}
-
-	return ListPipesResult{Pipes: result, NextToken: nextToken}
-}
-
-// matchesFilter reports whether a pipe matches the filter criteria (excluding pagination).
-func matchesFilter(p *Pipe, f ListPipesFilter) bool {
-	if f.NamePrefix != "" && !strings.HasPrefix(p.Name, f.NamePrefix) {
-		return false
-	}
-
-	if f.DesiredState != "" && p.DesiredState != f.DesiredState {
-		return false
-	}
-
-	if f.CurrentState != "" && p.CurrentState != f.CurrentState {
-		return false
-	}
-
-	if f.SourcePrefix != "" && !strings.HasPrefix(p.Source, f.SourcePrefix) {
-		return false
-	}
-
-	if f.TargetPrefix != "" && !strings.HasPrefix(p.Target, f.TargetPrefix) {
-		return false
-	}
-
-	return true
-}
-
-// UpdatePipeInput holds the fields that can be updated on an existing pipe.
-type UpdatePipeInput struct {
-	SourceParameters *SourceParameters
-	TargetParameters *TargetParameters
-	DeadLetterConfig *DeadLetterConfig
-	LogConfiguration *LogConfiguration
-	RoleARN          string
-	Target           string
-	Description      string
-	Enrichment       string
-	DesiredState     string
-}
-
-// UpdatePipe updates an existing pipe.
->>>>>>> Stashed changes
 func (b *InMemoryBackend) UpdatePipe(name string, in UpdatePipeInput) (*Pipe, error) {
 	if err := validateDesiredState(in.DesiredState); err != nil {
 		return nil, err
 	}
-<<<<<<< Updated upstream
 	if err := validateSourceBatchSize(in.SourceParameters); err != nil {
 		return nil, err
 	}
-=======
->>>>>>> Stashed changes
 
 	b.mu.Lock("UpdatePipe")
 	defer b.mu.Unlock()
@@ -1563,7 +1218,6 @@ func (b *InMemoryBackend) UpdatePipe(name string, in UpdatePipeInput) (*Pipe, er
 		return nil, fmt.Errorf("%w: pipe %s not found", ErrNotFound, name)
 	}
 
-<<<<<<< Updated upstream
 	applyUpdateFields(p, in)
 
 	prevDesiredState := p.DesiredState
@@ -1571,42 +1225,6 @@ func (b *InMemoryBackend) UpdatePipe(name string, in UpdatePipeInput) (*Pipe, er
 		prevDesiredState = in.DesiredState
 	}
 	p.CurrentState = stateUpdating
-=======
-	if in.RoleARN != "" {
-		p.RoleARN = in.RoleARN
-	}
-
-	if in.Target != "" {
-		p.Target = in.Target
-	}
-
-	if in.DesiredState != "" {
-		p.DesiredState = in.DesiredState
-	}
-
-	if in.Enrichment != "" {
-		p.Enrichment = in.Enrichment
-	}
-
-	p.Description = in.Description
-
-	if in.SourceParameters != nil {
-		p.SourceParameters = in.SourceParameters
-	}
-
-	if in.TargetParameters != nil {
-		p.TargetParameters = in.TargetParameters
-	}
-
-	if in.DeadLetterConfig != nil {
-		p.DeadLetterConfig = in.DeadLetterConfig
-	}
-
-	if in.LogConfiguration != nil {
-		p.LogConfiguration = in.LogConfiguration
-	}
-
->>>>>>> Stashed changes
 	p.LastModifiedTime = time.Now()
 	cp := clonePipe(p)
 
@@ -1663,10 +1281,6 @@ func (b *InMemoryBackend) completeDeleteTransition(name string) {
 	}
 }
 
-<<<<<<< Updated upstream
-=======
-// StartPipe transitions a pipe to the RUNNING desired/current state.
->>>>>>> Stashed changes
 func (b *InMemoryBackend) StartPipe(name string) (*Pipe, error) {
 	b.mu.Lock("StartPipe")
 	defer b.mu.Unlock()
@@ -1674,22 +1288,12 @@ func (b *InMemoryBackend) StartPipe(name string) (*Pipe, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: pipe %s not found", ErrNotFound, name)
 	}
-<<<<<<< Updated upstream
 	if p.DesiredState == stateRunning {
 		return nil, fmt.Errorf("%w: pipe %s already has desired state RUNNING", ErrValidation, name)
 	}
 	p.DesiredState = stateRunning
 	// Transition through STARTING → RUNNING to simulate AWS behavior.
 	p.CurrentState = stateStarting
-=======
-
-	if p.DesiredState == stateRunning && p.CurrentState == stateRunning {
-		return nil, fmt.Errorf("%w: pipe %s is already in RUNNING state", ErrValidation, name)
-	}
-
-	p.DesiredState = stateRunning
-	p.CurrentState = stateRunning
->>>>>>> Stashed changes
 	p.StateReason = ""
 	p.LastModifiedTime = time.Now()
 	cp := clonePipe(p)
@@ -1716,10 +1320,6 @@ func (b *InMemoryBackend) completeStartTransition(name string) {
 	}
 }
 
-<<<<<<< Updated upstream
-=======
-// StopPipe transitions a pipe to the STOPPED desired/current state.
->>>>>>> Stashed changes
 func (b *InMemoryBackend) StopPipe(name string) (*Pipe, error) {
 	b.mu.Lock("StopPipe")
 	defer b.mu.Unlock()
@@ -1727,22 +1327,12 @@ func (b *InMemoryBackend) StopPipe(name string) (*Pipe, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: pipe %s not found", ErrNotFound, name)
 	}
-<<<<<<< Updated upstream
 	if p.DesiredState == stateStopped {
 		return nil, fmt.Errorf("%w: pipe %s already has desired state STOPPED", ErrValidation, name)
 	}
 	p.DesiredState = stateStopped
 	// Transition through STOPPING → STOPPED to simulate AWS behavior.
 	p.CurrentState = stateStopping
-=======
-
-	if p.DesiredState == stateStopped && p.CurrentState == stateStopped {
-		return nil, fmt.Errorf("%w: pipe %s is already in STOPPED state", ErrValidation, name)
-	}
-
-	p.DesiredState = stateStopped
-	p.CurrentState = stateStopped
->>>>>>> Stashed changes
 	p.StateReason = ""
 	p.LastModifiedTime = time.Now()
 	cp := clonePipe(p)
@@ -1782,34 +1372,10 @@ func (b *InMemoryBackend) MarkPipeFailed(name, state, reason string) {
 	p.LastModifiedTime = time.Now()
 }
 
-<<<<<<< Updated upstream
-=======
-// MarkPipeFailed updates a pipe to a failed state with a reason message.
-// This is called by the runner when a pipe encounters a persistent error.
-func (b *InMemoryBackend) MarkPipeFailed(name, state, reason string) {
-	b.mu.Lock("MarkPipeFailed")
-	defer b.mu.Unlock()
-
-	p, ok := b.pipes[name]
-	if !ok {
-		return
-	}
-
-	p.CurrentState = state
-	p.StateReason = reason
-	p.LastModifiedTime = time.Now()
-}
-
-// TagResource adds or updates tags on a pipe identified by ARN.
->>>>>>> Stashed changes
 func (b *InMemoryBackend) TagResource(resourceARN string, kv map[string]string) error {
 	if err := validateTags(kv); err != nil {
 		return err
 	}
-<<<<<<< Updated upstream
-=======
-
->>>>>>> Stashed changes
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 	name, ok := b.pipeARNIndex[resourceARN]
@@ -1817,18 +1383,10 @@ func (b *InMemoryBackend) TagResource(resourceARN string, kv map[string]string) 
 		return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 	}
 	p := b.pipes[name]
-<<<<<<< Updated upstream
-=======
-
->>>>>>> Stashed changes
 	merged := mergeTags(p.Tags, kv)
 	if len(merged) > maxTagsPerPipe {
 		return fmt.Errorf("%w: pipe would exceed %d tags limit", ErrValidation, maxTagsPerPipe)
 	}
-<<<<<<< Updated upstream
-=======
-
->>>>>>> Stashed changes
 	p.Tags = merged
 
 	return nil
@@ -1985,241 +1543,6 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		b.enrichmentCallCount = s.EnrichmentCallCount
 	} else {
 		b.enrichmentCallCount = make(map[string]int64)
-	}
-
-	return nil
-}
-
-// --- Validation ---
-
-func validatePipeName(name string) error {
-	if name == "" {
-		return fmt.Errorf("%w: pipe name must not be empty", ErrValidation)
-	}
-
-	if len(name) > maxPipeNameLen {
-		return fmt.Errorf("%w: pipe name exceeds maximum length of %d characters", ErrValidation, maxPipeNameLen)
-	}
-
-	if !pipeNameRE.MatchString(name) {
-		return fmt.Errorf("%w: pipe name %q contains invalid characters (allowed: a-z, A-Z, 0-9, -, _)", ErrValidation, name)
-	}
-
-	return nil
-}
-
-func validateDesiredState(state string) error {
-	if state == "" || state == stateRunning || state == stateStopped {
-		return nil
-	}
-
-	return fmt.Errorf("%w: DesiredState must be RUNNING or STOPPED, got %q", ErrValidation, state)
-}
-
-func validateTags(tags map[string]string) error {
-	for k, v := range tags {
-		if len(k) == 0 {
-			return fmt.Errorf("%w: tag key must not be empty", ErrValidation)
-		}
-
-		if len(k) > maxTagKeyLen {
-			return fmt.Errorf("%w: tag key %q exceeds maximum length of %d", ErrValidation, k, maxTagKeyLen)
-		}
-
-		if len(v) > maxTagValueLen {
-			return fmt.Errorf("%w: tag value for key %q exceeds maximum length of %d", ErrValidation, k, maxTagValueLen)
-		}
-	}
-
-	return nil
-}
-
-// cloneSourceParameters returns a deep copy of SourceParameters for snapshot serialisation.
-func cloneSourceParameters(sp *SourceParameters) *SourceParameters {
-	if sp == nil {
-		return nil
-	}
-
-	out := &SourceParameters{}
-
-	if sp.FilterCriteria != nil {
-		fc := &FilterCriteria{
-			Filters: append([]Filter(nil), sp.FilterCriteria.Filters...),
-		}
-		out.FilterCriteria = fc
-	}
-
-	if sp.SqsQueueParameters != nil {
-		sqsp := *sp.SqsQueueParameters
-		out.SqsQueueParameters = &sqsp
-	}
-
-	return out
-}
-
-// pipeResponseJSON encodes a pipe snapshot for the Snapshot/Restore persistence path.
-// This mirrors the Pipe struct but uses exported names for clarity.
-type pipeSnapshot struct {
-	SourceParameters *SourceParameters `json:"sourceParameters,omitempty"`
-	TargetParameters *TargetParameters `json:"targetParameters,omitempty"`
-	DeadLetterConfig *DeadLetterConfig `json:"deadLetterConfig,omitempty"`
-	LogConfiguration *LogConfiguration `json:"logConfiguration,omitempty"`
-	LastModifiedTime time.Time         `json:"lastModifiedTime"`
-	CreationTime     time.Time         `json:"creationTime"`
-	Tags             map[string]string `json:"tags,omitempty"`
-	Description      string            `json:"description,omitempty"`
-	Enrichment       string            `json:"enrichment,omitempty"`
-	Source           string            `json:"source"`
-	Target           string            `json:"target"`
-	RoleARN          string            `json:"roleArn"`
-	StateReason      string            `json:"stateReason,omitempty"`
-	DesiredState     string            `json:"desiredState"`
-	CurrentState     string            `json:"currentState"`
-	AccountID        string            `json:"accountID"`
-	Region           string            `json:"region"`
-	ARN              string            `json:"arn"`
-	Name             string            `json:"name"`
-}
-
-// marshalPipeForSnapshot converts a Pipe to JSON-serialisable form.
-func marshalPipeForSnapshot(p *Pipe) pipeSnapshot {
-	return pipeSnapshot{
-		Name:             p.Name,
-		ARN:              p.ARN,
-		RoleARN:          p.RoleARN,
-		Source:           p.Source,
-		Target:           p.Target,
-		Description:      p.Description,
-		Enrichment:       p.Enrichment,
-		DesiredState:     p.DesiredState,
-		CurrentState:     p.CurrentState,
-		StateReason:      p.StateReason,
-		AccountID:        p.AccountID,
-		Region:           p.Region,
-		CreationTime:     p.CreationTime,
-		LastModifiedTime: p.LastModifiedTime,
-		Tags:             p.Tags,
-		SourceParameters: cloneSourceParameters(p.SourceParameters),
-		TargetParameters: p.TargetParameters,
-		DeadLetterConfig: p.DeadLetterConfig,
-		LogConfiguration: p.LogConfiguration,
-	}
-}
-
-// restorePipeFromSnapshot converts a pipeSnapshot back to a Pipe.
-func restorePipeFromSnapshot(s pipeSnapshot) *Pipe {
-	return &Pipe{
-		Name:             s.Name,
-		ARN:              s.ARN,
-		RoleARN:          s.RoleARN,
-		Source:           s.Source,
-		Target:           s.Target,
-		Description:      s.Description,
-		Enrichment:       s.Enrichment,
-		DesiredState:     s.DesiredState,
-		CurrentState:     s.CurrentState,
-		StateReason:      s.StateReason,
-		AccountID:        s.AccountID,
-		Region:           s.Region,
-		CreationTime:     s.CreationTime,
-		LastModifiedTime: s.LastModifiedTime,
-		Tags:             s.Tags,
-		SourceParameters: s.SourceParameters,
-		TargetParameters: s.TargetParameters,
-		DeadLetterConfig: s.DeadLetterConfig,
-		LogConfiguration: s.LogConfiguration,
-	}
-}
-
-// snapshotV2 is the versioned snapshot format used since the addition of extended fields.
-type snapshotV2 struct {
-	Pipes     map[string]pipeSnapshot `json:"pipes"`
-	AccountID string                  `json:"accountID"`
-	Region    string                  `json:"region"`
-	Version   int                     `json:"version"`
-}
-
-// Snapshot serialises the backend state to JSON (used by persistence layer).
-func (b *InMemoryBackend) Snapshot() []byte {
-	b.mu.RLock("Snapshot")
-	defer b.mu.RUnlock()
-
-	snap := snapshotV2{
-		Version:   2,
-		AccountID: b.accountID,
-		Region:    b.region,
-		Pipes:     make(map[string]pipeSnapshot, len(b.pipes)),
-	}
-
-	for name, p := range b.pipes {
-		snap.Pipes[name] = marshalPipeForSnapshot(p)
-	}
-
-	data, err := json.Marshal(snap)
-	if err != nil {
-		return nil
-	}
-
-	return data
-}
-
-// Restore loads backend state from a JSON snapshot.
-func (b *InMemoryBackend) Restore(data []byte) error {
-	var snap snapshotV2
-
-	if err := json.Unmarshal(data, &snap); err != nil {
-		// Attempt legacy v1 restore.
-		return b.restoreLegacy(data)
-	}
-
-	if snap.Version == 0 {
-		return b.restoreLegacy(data)
-	}
-
-	b.mu.Lock("Restore")
-	defer b.mu.Unlock()
-
-	b.pipes = make(map[string]*Pipe, len(snap.Pipes))
-	b.pipeARNIndex = make(map[string]string, len(snap.Pipes))
-	b.accountID = snap.AccountID
-	b.region = snap.Region
-
-	for name, ps := range snap.Pipes {
-		p := restorePipeFromSnapshot(ps)
-		b.pipes[name] = p
-		b.pipeARNIndex[p.ARN] = name
-	}
-
-	return nil
-}
-
-// restoreLegacy handles v1 snapshots that used the old Pipe struct directly.
-func (b *InMemoryBackend) restoreLegacy(data []byte) error {
-	type legacySnap struct {
-		Pipes     map[string]*Pipe `json:"pipes"`
-		AccountID string           `json:"accountID"`
-		Region    string           `json:"region"`
-	}
-
-	var snap legacySnap
-	if err := json.Unmarshal(data, &snap); err != nil {
-		return err
-	}
-
-	b.mu.Lock("RestoreLegacy")
-	defer b.mu.Unlock()
-
-	if snap.Pipes == nil {
-		snap.Pipes = make(map[string]*Pipe)
-	}
-
-	b.pipes = snap.Pipes
-	b.accountID = snap.AccountID
-	b.region = snap.Region
-	b.pipeARNIndex = make(map[string]string, len(b.pipes))
-
-	for name, p := range b.pipes {
-		b.pipeARNIndex[p.ARN] = name
 	}
 
 	return nil

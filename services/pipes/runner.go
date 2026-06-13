@@ -31,19 +31,12 @@ var (
 
 const (
 	pipeRunnerTickInterval = 1 * time.Second
-<<<<<<< Updated upstream
 	pipeDefaultBatchSize   = 10
 	maxPipeWorkers         = 64
 
 	// Pipes invocation type constants.
 	invocationTypeFireAndForget   = "FIRE_AND_FORGET"
 	invocationTypeRequestResponse = "REQUEST_RESPONSE"
-=======
-	// pipeDefaultBatchSize is the default number of messages/records read per poll cycle.
-	pipeDefaultBatchSize = 10
-	// maxPipeWorkers caps the number of concurrent per-pipe poll goroutines.
-	maxPipeWorkers = 64
->>>>>>> Stashed changes
 )
 
 // lambdaPipesInvocationType maps Pipes invocation types to Lambda invocation types.
@@ -134,7 +127,6 @@ type Runner struct {
 	sqsReader SQSReader
 	lambda    PipeLambdaInvoker
 	sfn       PipeStepFunctionsStarter
-<<<<<<< Updated upstream
 	sns       SNSPublisher
 	sqsSender SQSSender
 	kinesis   PipeKinesisPutter
@@ -147,20 +139,13 @@ type Runner struct {
 	doneMu    sync.RWMutex
 	wg        sync.WaitGroup
 	started   bool
-=======
-	wg        sync.WaitGroup
-	sem       chan struct{} // bounded concurrency semaphore
->>>>>>> Stashed changes
 }
 
 func NewRunner(backend *InMemoryBackend) *Runner {
 	return &Runner{
 		backend: backend,
 		sem:     make(chan struct{}, maxPipeWorkers),
-<<<<<<< Updated upstream
 		done:    make(chan struct{}),
-=======
->>>>>>> Stashed changes
 	}
 }
 
@@ -175,7 +160,6 @@ func (r *Runner) SetCloudWatchLogsPutter(c PipeCloudWatchLogsPutter) { r.cwLogs 
 func (r *Runner) SetFirehosePutter(f PipeFirehosePutter)             { r.firehose = f }
 
 func (r *Runner) Start(ctx context.Context) {
-<<<<<<< Updated upstream
 	r.doneMu.Lock()
 	if r.started {
 		r.doneMu.Unlock()
@@ -192,19 +176,11 @@ func (r *Runner) Start(ctx context.Context) {
 	go func() {
 		r.wg.Wait()
 		close(done)
-=======
-	r.wg.Add(1)
-
-	go func() {
-		defer r.wg.Done()
-		r.run(ctx)
->>>>>>> Stashed changes
 	}()
 }
 
 // Wait blocks until all runner goroutines have exited, or ctx expires.
 func (r *Runner) Wait(ctx context.Context) {
-<<<<<<< Updated upstream
 	r.doneMu.RLock()
 	if !r.started {
 		r.doneMu.RUnlock()
@@ -213,14 +189,6 @@ func (r *Runner) Wait(ctx context.Context) {
 	}
 	done := r.done
 	r.doneMu.RUnlock()
-=======
-	done := make(chan struct{})
-
-	go func() {
-		r.wg.Wait()
-		close(done)
-	}()
->>>>>>> Stashed changes
 
 	select {
 	case <-done:
@@ -242,39 +210,21 @@ func (r *Runner) run(ctx context.Context) {
 	}
 }
 
-// pollAllPipes dispatches a goroutine per RUNNING pipe, bounded by the semaphore.
 func (r *Runner) pollAllPipes(ctx context.Context) {
 	res := r.backend.ListPipes(ListPipesFilter{CurrentState: stateRunning})
 
 	for _, p := range res.Pipes {
-<<<<<<< Updated upstream
-=======
-		p := p // capture for goroutine
-
-		// Non-blocking semaphore acquire: skip pipe this tick if at capacity.
->>>>>>> Stashed changes
 		select {
 		case r.sem <- struct{}{}:
 		default:
 			continue
 		}
 
-<<<<<<< Updated upstream
 		r.wg.Go(func() {
 			defer func() { <-r.sem }()
 
 			r.pollPipe(ctx, p)
 		})
-=======
-		r.wg.Add(1)
-
-		go func() {
-			defer r.wg.Done()
-			defer func() { <-r.sem }()
-
-			r.pollPipe(ctx, p)
-		}()
->>>>>>> Stashed changes
 	}
 }
 
@@ -307,16 +257,11 @@ func (r *Runner) pollSQSPipe(ctx context.Context, p *Pipe) {
 		return
 	}
 
-<<<<<<< Updated upstream
-=======
-	// Apply filter criteria before forwarding.
->>>>>>> Stashed changes
 	msgs = r.applyFilters(p, msgs)
 	if len(msgs) == 0 {
 		return
 	}
 
-<<<<<<< Updated upstream
 	payload, err := json.Marshal(sqsPipeEvent{Records: buildSQSRecords(p, msgs)})
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "pipes: failed to marshal SQS records", "pipe", p.Name, "error", err)
@@ -342,9 +287,6 @@ func (r *Runner) pollSQSPipe(ctx context.Context, p *Pipe) {
 	}
 
 	receiptHandles, invokeErr := r.invokeTargetWithPayload(ctx, p, msgs, payload)
-=======
-	receiptHandles, invokeErr := r.invokeTarget(ctx, p, msgs)
->>>>>>> Stashed changes
 	if invokeErr != nil {
 		logger.Load(ctx).WarnContext(ctx, "pipes: target invocation failed",
 			"pipe", p.Name, "target", p.Target, "error", invokeErr)
@@ -359,7 +301,6 @@ func (r *Runner) pollSQSPipe(ctx context.Context, p *Pipe) {
 	}
 }
 
-<<<<<<< Updated upstream
 // handlePipeFailure routes a failed batch to the configured dead-letter queue. When
 // a DLQ is configured and the send succeeds, the source messages are deleted so they
 // are not reprocessed in a tight loop. When no DLQ is configured, the messages are
@@ -456,10 +397,6 @@ func (r *Runner) invokeEnrichment(ctx context.Context, p *Pipe, payload []byte) 
 	return nil, fmt.Errorf("%w %q for pipe %q", ErrUnsupportedPipeEnrichment, enrichARN, p.Name)
 }
 
-=======
-// applyFilters applies FilterCriteria patterns, returning only matching messages.
-// If no filters are configured, all messages pass through.
->>>>>>> Stashed changes
 func (r *Runner) applyFilters(p *Pipe, msgs []*SQSMessage) []*SQSMessage {
 	if p.SourceParameters == nil ||
 		p.SourceParameters.FilterCriteria == nil ||
@@ -478,29 +415,11 @@ func (r *Runner) applyFilters(p *Pipe, msgs []*SQSMessage) []*SQSMessage {
 	return out
 }
 
-<<<<<<< Updated upstream
 // invokeTargetWithPayload dispatches the pre-marshalled payload to the pipe's target.
 // It returns receipt handles on success so the caller can delete the source messages.
 func (r *Runner) invokeTargetWithPayload(
 	ctx context.Context, p *Pipe, msgs []*SQSMessage, payload []byte,
 ) ([]string, error) {
-=======
-// matchesAnyFilter reports whether a message matches at least one filter pattern.
-// Patterns are simple JSON substring matches for local simulation.
-func matchesAnyFilter(m *SQSMessage, filters []Filter) bool {
-	for _, f := range filters {
-		if f.Pattern == "" || strings.Contains(m.Body, f.Pattern) {
-			return true
-		}
-	}
-
-	return false
-}
-
-// invokeTarget forwards the SQS messages to the pipe's target and returns the receipt handles.
-// Returns an error (and does NOT delete messages) when the target ARN is unsupported.
-func (r *Runner) invokeTarget(ctx context.Context, p *Pipe, msgs []*SQSMessage) ([]string, error) {
->>>>>>> Stashed changes
 	receiptHandles := make([]string, len(msgs))
 	for i, m := range msgs {
 		receiptHandles[i] = m.ReceiptHandle
@@ -562,36 +481,11 @@ func buildSQSRecords(p *Pipe, msgs []*SQSMessage) []sqsPipeRecord {
 	return records
 }
 
-<<<<<<< Updated upstream
 // applyInputTemplate returns the InputTemplate payload if configured, otherwise the
 // pre-built default payload. This implements the Pipes TargetParameters.InputTemplate contract.
 func applyInputTemplate(p *Pipe, defaultPayload []byte) []byte {
 	if p.TargetParameters != nil && p.TargetParameters.InputTemplate != "" {
 		return []byte(p.TargetParameters.InputTemplate)
-=======
-func (r *Runner) invokeLambdaTarget(ctx context.Context, p *Pipe, msgs []*SQSMessage) error {
-	if r.lambda == nil {
-		return nil
-	}
-
-	invocationType := "Event"
-	if p.TargetParameters != nil &&
-		p.TargetParameters.LambdaFunctionParameters != nil &&
-		p.TargetParameters.LambdaFunctionParameters.InvocationType != "" {
-		invocationType = p.TargetParameters.LambdaFunctionParameters.InvocationType
-	}
-
-	var payload []byte
-	var err error
-
-	if p.TargetParameters != nil && p.TargetParameters.InputTemplate != "" {
-		payload = []byte(p.TargetParameters.InputTemplate)
-	} else {
-		payload, err = json.Marshal(sqsPipeEvent{Records: buildSQSRecords(p, msgs)})
-		if err != nil {
-			return err
-		}
->>>>>>> Stashed changes
 	}
 
 	return defaultPayload
@@ -623,11 +517,7 @@ func (r *Runner) invokeLambdaTarget(ctx context.Context, p *Pipe, payload []byte
 		fnName = p.Target
 	}
 
-<<<<<<< Updated upstream
 	_, _, err := r.lambda.InvokeFunction(ctx, fnName, invocationType, payload)
-=======
-	_, _, err = r.lambda.InvokeFunction(ctx, fnName, invocationType, payload)
->>>>>>> Stashed changes
 	if err == nil {
 		logger.Load(ctx).DebugContext(ctx, "pipes: invoked Lambda",
 			"pipe", p.Name, "function", fnName)
@@ -641,7 +531,6 @@ func (r *Runner) invokeSFNTarget(_ context.Context, p *Pipe, payload []byte) err
 		return fmt.Errorf("%w: step functions target %q", ErrTargetInvokerUnwired, p.Target)
 	}
 
-<<<<<<< Updated upstream
 	payload = applyInputTemplate(p, payload)
 	invocationType := invocationTypeFireAndForget
 
@@ -657,22 +546,6 @@ func (r *Runner) invokeSFNTarget(_ context.Context, p *Pipe, payload []byte) err
 	_ = invocationType // passed to StartExecution when API supports it
 
 	return r.sfn.StartExecution(p.Target, "", string(payload))
-=======
-	var inputStr string
-
-	if p.TargetParameters != nil && p.TargetParameters.InputTemplate != "" {
-		inputStr = p.TargetParameters.InputTemplate
-	} else {
-		payload, err := json.Marshal(sqsPipeEvent{Records: buildSQSRecords(p, msgs)})
-		if err != nil {
-			return err
-		}
-
-		inputStr = string(payload)
-	}
-
-	return r.sfn.StartExecution(p.Target, "", inputStr)
->>>>>>> Stashed changes
 }
 
 func (r *Runner) invokeSNSTarget(ctx context.Context, p *Pipe, payload []byte) error {

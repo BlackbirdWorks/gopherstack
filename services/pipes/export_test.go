@@ -6,19 +6,13 @@ import (
 	"time"
 )
 
-<<<<<<< Updated upstream
 // PollAllPipesOnce triggers a single synchronous poll cycle for tests.
-=======
-// PollAllPipesOnce triggers a single synchronous poll cycle on the given Runner.
-// It polls each RUNNING pipe inline (no goroutines) for deterministic test behaviour.
->>>>>>> Stashed changes
 func PollAllPipesOnce(ctx context.Context, r *Runner) {
 	res := r.backend.ListPipes(ListPipesFilter{CurrentState: stateRunning})
 
 	for _, p := range res.Pipes {
 		r.pollPipe(ctx, p)
 	}
-<<<<<<< Updated upstream
 }
 
 // CreatePipeSimple is a test helper that creates a pipe using positional args.
@@ -62,29 +56,4 @@ func WaitPipeRunning(t *testing.T, b *InMemoryBackend, name string) {
 	}
 
 	t.Fatalf("pipe %q did not reach RUNNING state within 500ms", name)
-=======
->>>>>>> Stashed changes
 }
-
-// CreatePipeSimple is a test helper that creates a pipe using positional args
-// (name, roleARN, source, target, description, desiredState, tags).
-func (b *InMemoryBackend) CreatePipeSimple(
-	name, roleARN, source, target, description, desiredState string,
-	tags map[string]string,
-) (*Pipe, error) {
-	return b.CreatePipe(CreatePipeInput{
-		Name:         name,
-		RoleARN:      roleARN,
-		Source:       source,
-		Target:       target,
-		Description:  description,
-		DesiredState: desiredState,
-		Tags:         tags,
-	})
-}
-
-// ListPipesAll returns all pipes without filtering (test convenience).
-func (b *InMemoryBackend) ListPipesAll() []*Pipe {
-	return b.ListPipes(ListPipesFilter{}).Pipes
-}
-

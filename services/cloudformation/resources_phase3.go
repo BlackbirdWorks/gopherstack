@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	apigatewayv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
-	"github.com/blackbirdworks/gopherstack/services/pipes"
 	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
 	codebuildbackend "github.com/blackbirdworks/gopherstack/services/codebuild"

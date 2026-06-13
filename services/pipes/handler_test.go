@@ -545,33 +545,16 @@ func TestBackend_Validation(t *testing.T) {
 
 	t.Run("name_too_long", func(t *testing.T) {
 		t.Parallel()
-<<<<<<< Updated upstream
 		var sb strings.Builder
 		for range 65 {
 			sb.WriteString("a")
 		}
 		long := sb.String()
-=======
-		long := "a"
-		for range 65 {
-			long += "a"
-		}
->>>>>>> Stashed changes
 		_, err := b.CreatePipeSimple(long, "arn:r", "arn:s", "arn:t", "", "RUNNING", nil)
 		require.Error(t, err)
 		require.ErrorIs(t, err, pipes.ErrValidation)
 	})
 
-<<<<<<< Updated upstream
-=======
-	t.Run("invalid_name_chars", func(t *testing.T) {
-		t.Parallel()
-		_, err := b.CreatePipeSimple("my pipe!", "arn:r", "arn:s", "arn:t", "", "RUNNING", nil)
-		require.Error(t, err)
-		require.ErrorIs(t, err, pipes.ErrValidation)
-	})
-
->>>>>>> Stashed changes
 	t.Run("invalid_desired_state", func(t *testing.T) {
 		t.Parallel()
 		_, err := b.CreatePipeSimple("valid-name", "arn:r", "arn:s", "arn:t", "", "INVALID", nil)
@@ -585,16 +568,6 @@ func TestBackend_Validation(t *testing.T) {
 		require.Error(t, err)
 		require.ErrorIs(t, err, pipes.ErrValidation)
 	})
-<<<<<<< Updated upstream
-=======
-
-	t.Run("missing_target", func(t *testing.T) {
-		t.Parallel()
-		_, err := b.CreatePipeSimple("valid-name", "arn:r", "arn:s", "", "", "RUNNING", nil)
-		require.Error(t, err)
-		require.ErrorIs(t, err, pipes.ErrValidation)
-	})
->>>>>>> Stashed changes
 }
 
 func TestHandler_ValidationHTTP(t *testing.T) {
@@ -624,21 +597,6 @@ func TestHandler_ValidationHTTP(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
 		assert.Contains(t, rec.Body.String(), "ValidationException")
 	})
-<<<<<<< Updated upstream
-=======
-
-	t.Run("stop_stopped_pipe_returns_400", func(t *testing.T) {
-		t.Parallel()
-		h2 := newTestHandler(t)
-		doPipesRequest(t, h2, http.MethodPost, "/v1/pipes/stopped-pipe", map[string]any{
-			"Source":       "arn:aws:sqs:us-east-1:000000000000:src",
-			"Target":       "arn:aws:lambda:us-east-1:000000000000:function:fn",
-			"DesiredState": "STOPPED",
-		})
-		rec := doPipesRequest(t, h2, http.MethodPost, "/v1/pipes/stopped-pipe/stop", nil)
-		assert.Equal(t, http.StatusBadRequest, rec.Code)
-	})
->>>>>>> Stashed changes
 }
 
 func TestHandler_ListPipesFiltering(t *testing.T) {
@@ -663,15 +621,11 @@ func TestHandler_ListPipesFiltering(t *testing.T) {
 		t.Parallel()
 		rec := doPipesRequest(t, h, http.MethodGet, "/v1/pipes?NamePrefix=sqs", nil)
 		require.Equal(t, http.StatusOK, rec.Code)
-<<<<<<< Updated upstream
 		var out struct {
 			Pipes []struct {
 				Name string `json:"Name"`
 			} `json:"Pipes"`
 		}
-=======
-		var out struct{ Pipes []struct{ Name string } }
->>>>>>> Stashed changes
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 		assert.Len(t, out.Pipes, 2)
 	})
@@ -680,32 +634,16 @@ func TestHandler_ListPipesFiltering(t *testing.T) {
 		t.Parallel()
 		rec := doPipesRequest(t, h, http.MethodGet, "/v1/pipes?DesiredState=STOPPED", nil)
 		require.Equal(t, http.StatusOK, rec.Code)
-<<<<<<< Updated upstream
 		var out struct {
 			Pipes []struct {
 				Name string `json:"Name"`
 			} `json:"Pipes"`
 		}
-=======
-		var out struct{ Pipes []struct{ Name string } }
->>>>>>> Stashed changes
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 		assert.Len(t, out.Pipes, 1)
 		assert.Equal(t, "sqs-beta", out.Pipes[0].Name)
 	})
 
-<<<<<<< Updated upstream
-=======
-	t.Run("filter_by_source_prefix", func(t *testing.T) {
-		t.Parallel()
-		rec := doPipesRequest(t, h, http.MethodGet, "/v1/pipes?SourcePrefix=arn:aws:sqs", nil)
-		require.Equal(t, http.StatusOK, rec.Code)
-		var out struct{ Pipes []struct{ Name string } }
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-		assert.Len(t, out.Pipes, 3)
-	})
-
->>>>>>> Stashed changes
 	t.Run("invalid_limit_returns_400", func(t *testing.T) {
 		t.Parallel()
 		h2 := newTestHandler(t)
@@ -724,84 +662,27 @@ func TestHandler_SourceAndTargetParameters(t *testing.T) {
 		"Target":  "arn:aws:lambda:us-east-1:000000000000:function:fn",
 		"RoleArn": "arn:aws:iam::000000000000:role/r",
 		"SourceParameters": map[string]any{
-<<<<<<< Updated upstream
 			"SqsQueueParameters": map[string]any{"BatchSize": 5},
 		},
 		"TargetParameters": map[string]any{
 			"InputTemplate": `{"fixed":"value"}`,
-=======
-			"SqsQueueParameters": map[string]any{
-				"BatchSize":                      5,
-				"MaximumBatchingWindowInSeconds": 30,
-			},
-			"FilterCriteria": map[string]any{
-				"Filters": []map[string]any{
-					{"Pattern": `{"type":["order"]}`},
-				},
-			},
-		},
-		"TargetParameters": map[string]any{
-			"InputTemplate": `{"id": "<$.messageId>"}`,
-			"LambdaFunctionParameters": map[string]any{
-				"InvocationType": "RequestResponse",
-			},
->>>>>>> Stashed changes
 		},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var created struct {
-<<<<<<< Updated upstream
 		TargetParameters struct {
 			InputTemplate string `json:"InputTemplate"`
 		} `json:"TargetParameters"`
-=======
->>>>>>> Stashed changes
 		SourceParameters struct {
 			SqsQueueParameters struct {
 				BatchSize int `json:"BatchSize"`
 			} `json:"SqsQueueParameters"`
 		} `json:"SourceParameters"`
-<<<<<<< Updated upstream
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
 	assert.Equal(t, 5, created.SourceParameters.SqsQueueParameters.BatchSize)
 	assert.JSONEq(t, `{"fixed":"value"}`, created.TargetParameters.InputTemplate)
-=======
-		TargetParameters struct {
-			InputTemplate string `json:"InputTemplate"`
-		} `json:"TargetParameters"`
-	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
-	assert.Equal(t, 5, created.SourceParameters.SqsQueueParameters.BatchSize)
-	assert.Equal(t, `{"id": "<$.messageId>"}`, created.TargetParameters.InputTemplate)
-
-	descRec := doPipesRequest(t, h, http.MethodGet, "/v1/pipes/param-pipe", nil)
-	require.Equal(t, http.StatusOK, descRec.Code)
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &created))
-	assert.Equal(t, 5, created.SourceParameters.SqsQueueParameters.BatchSize)
-}
-
-func TestHandler_UpdatePipeDesiredState(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	doPipesRequest(t, h, http.MethodPost, "/v1/pipes/update-state-pipe", map[string]any{
-		"Source":       "arn:aws:sqs:us-east-1:000000000000:src",
-		"Target":       "arn:aws:lambda:us-east-1:000000000000:function:fn",
-		"DesiredState": "RUNNING",
-	})
-
-	rec := doPipesRequest(t, h, http.MethodPut, "/v1/pipes/update-state-pipe", map[string]any{
-		"DesiredState": "STOPPED",
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var out struct{ DesiredState string }
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-	assert.Equal(t, "STOPPED", out.DesiredState)
->>>>>>> Stashed changes
 }
 
 func TestHandler_ListPipesIncludesSourceTarget(t *testing.T) {
@@ -824,11 +705,7 @@ func TestHandler_ListPipesIncludesSourceTarget(t *testing.T) {
 			Source      string `json:"Source"`
 			Target      string `json:"Target"`
 			Description string `json:"Description"`
-<<<<<<< Updated upstream
 		} `json:"Pipes"`
-=======
-		}
->>>>>>> Stashed changes
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 	require.Len(t, out.Pipes, 1)
@@ -836,7 +713,6 @@ func TestHandler_ListPipesIncludesSourceTarget(t *testing.T) {
 	assert.Equal(t, "arn:aws:lambda:us-east-1:000000000000:function:my-fn", out.Pipes[0].Target)
 	assert.Equal(t, "test pipe", out.Pipes[0].Description)
 }
-<<<<<<< Updated upstream
 
 func TestHandler_UpdatePipeDesiredState(t *testing.T) {
 	t.Parallel()
@@ -860,5 +736,3 @@ func TestHandler_UpdatePipeDesiredState(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 	assert.Equal(t, "STOPPED", out.DesiredState)
 }
-=======
->>>>>>> Stashed changes
