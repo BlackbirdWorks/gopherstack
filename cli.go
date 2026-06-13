@@ -146,6 +146,7 @@ import (
 	mqbackend "github.com/blackbirdworks/gopherstack/services/mq"
 	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
+	omicsbackend "github.com/blackbirdworks/gopherstack/services/omics"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
 	pinpointbackend "github.com/blackbirdworks/gopherstack/services/pinpoint"
@@ -2739,6 +2740,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&detectivebackend.Provider{},
 		&datasyncbackend.Provider{},
 		&fsxbackend.Provider{},
+		&omicsbackend.Provider{},
 	}
 }
 
