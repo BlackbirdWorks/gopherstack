@@ -138,9 +138,9 @@ func TestHandlerAgentCRUD(t *testing.T) {
 				}
 			}
 
-			rec := doRequest(t, hLocal, eLocal, tc.method, path, tc.body)
-			if rec.Code != tc.expectedStatus {
-				t.Errorf("got %d want %d: %s", rec.Code, tc.expectedStatus, rec.Body.String())
+			result := doRequest(t, hLocal, eLocal, tc.method, path, tc.body)
+			if result.Code != tc.expectedStatus {
+				t.Errorf("got %d want %d: %s", result.Code, tc.expectedStatus, result.Body.String())
 			}
 		})
 	}

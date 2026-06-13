@@ -124,7 +124,8 @@ const (
 
 const (
 	keyAgent             = "agent"
-	keyAgentID           = keyAgentID
+	keyAgentID           = "agentId"
+	keyAgentStatus       = "agentStatus"
 	keyAgentVersion      = "agentVersion"
 	keyAgentActionGroup  = "agentActionGroup"
 	keyAgentAlias        = "agentAlias"
@@ -931,7 +932,7 @@ func (h *Handler) handleDeleteAgent(ctx context.Context, c *echo.Context, agentI
 		return handleErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyAgentID: agentID, "agentStatus": statusDeleting})
+	return c.JSON(http.StatusOK, map[string]any{keyAgentID: agentID, keyAgentStatus: statusDeleting})
 }
 
 func (h *Handler) handleListAgents(ctx context.Context, c *echo.Context) error {
@@ -952,8 +953,8 @@ func (h *Handler) handlePrepareAgent(ctx context.Context, c *echo.Context, agent
 	}
 
 	return c.JSON(http.StatusAccepted, map[string]any{
-		keyAgentID:       agent.AgentID,
-		"agentStatus":   agent.AgentStatus,
+		keyAgentID:      agent.AgentID,
+		keyAgentStatus:  agent.AgentStatus,
 		keyAgentVersion: agent.AgentVersion,
 	})
 }
@@ -998,9 +999,9 @@ func (h *Handler) handleDeleteAgentVersion(
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		keyAgentID:       agentID,
+		keyAgentID:      agentID,
 		keyAgentVersion: version,
-		"agentStatus":   statusDeleting,
+		keyAgentStatus:  statusDeleting,
 	})
 }
 
@@ -1200,7 +1201,7 @@ func (h *Handler) handleDeleteAgentAlias(
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		keyAgentID:          agentID,
+		keyAgentID:         agentID,
 		"agentAliasId":     aliasID,
 		"agentAliasStatus": statusDeleting,
 	})
