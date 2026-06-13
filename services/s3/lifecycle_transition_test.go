@@ -43,7 +43,12 @@ func TestS3Lifecycle_StorageClassTransitions(t *testing.T) {
 				mustCreateBucket(t, b, "tr-days")
 				mustPutObject(t, b, "tr-days", "old-obj.txt", []byte("data"))
 				// Backdate to 31 days ago so the 30-day rule fires.
-				s3.BackdateObjectForTest(b, "tr-days", "old-obj.txt", time.Now().Add(-31*24*time.Hour))
+				s3.BackdateObjectForTest(
+					b,
+					"tr-days",
+					"old-obj.txt",
+					time.Now().Add(-31*24*time.Hour),
+				)
 			},
 			wantClass: "GLACIER",
 			verify: func(t *testing.T, b *s3.InMemoryBackend) {
@@ -153,7 +158,12 @@ func TestS3Lifecycle_StorageClassTransitions(t *testing.T) {
 				// All history entries must be STANDARD → GLACIER (no duplicate from→GLACIER).
 				for _, h := range history {
 					assert.Equal(t, "GLACIER", h.ToClass)
-					assert.NotEqual(t, "GLACIER", h.FromClass, "must not record GLACIER→GLACIER no-op")
+					assert.NotEqual(
+						t,
+						"GLACIER",
+						h.FromClass,
+						"must not record GLACIER→GLACIER no-op",
+					)
 				}
 			},
 		},
@@ -172,7 +182,12 @@ func TestS3Lifecycle_StorageClassTransitions(t *testing.T) {
 				t.Helper()
 				mustCreateBucket(t, b, "tr-disabled")
 				mustPutObject(t, b, "tr-disabled", "file.txt", []byte("data"))
-				s3.BackdateObjectForTest(b, "tr-disabled", "file.txt", time.Now().Add(-2*24*time.Hour))
+				s3.BackdateObjectForTest(
+					b,
+					"tr-disabled",
+					"file.txt",
+					time.Now().Add(-2*24*time.Hour),
+				)
 			},
 			verify: func(t *testing.T, b *s3.InMemoryBackend) {
 				t.Helper()
@@ -183,7 +198,12 @@ func TestS3Lifecycle_StorageClassTransitions(t *testing.T) {
 					Key:    aws.String("file.txt"),
 				})
 				require.NoError(t, err)
-				assert.NotEqual(t, "GLACIER", string(out.StorageClass), "disabled rule must not transition")
+				assert.NotEqual(
+					t,
+					"GLACIER",
+					string(out.StorageClass),
+					"disabled rule must not transition",
+				)
 
 				history := s3.StorageClassTransitionsForObject(b, "tr-disabled", "file.txt")
 				assert.Empty(t, history, "no transition history for disabled rule")

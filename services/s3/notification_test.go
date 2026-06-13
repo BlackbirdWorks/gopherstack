@@ -149,14 +149,19 @@ func TestNotificationDispatcher_DispatchObjectCreated(t *testing.T) {
 		wantTopicCount    int
 	}{
 		{
-			name:              "SQS_basic",
-			notifXML:          sqsCreatedXML,
-			key:               "my-key",
-			etag:              "abc123",
-			size:              42,
-			wantQueueCount:    1,
-			wantQueueContains: []string{`"aws:s3"`, `"my-bucket"`, `"my-key"`, `"s3:ObjectCreated:Put"`},
-			wantQueueARN:      "arn:aws:sqs:us-east-1:000000000000:my-queue",
+			name:           "SQS_basic",
+			notifXML:       sqsCreatedXML,
+			key:            "my-key",
+			etag:           "abc123",
+			size:           42,
+			wantQueueCount: 1,
+			wantQueueContains: []string{
+				`"aws:s3"`,
+				`"my-bucket"`,
+				`"my-key"`,
+				`"s3:ObjectCreated:Put"`,
+			},
+			wantQueueARN: "arn:aws:sqs:us-east-1:000000000000:my-queue",
 		},
 		{
 			name:              "SNS_basic",
@@ -361,7 +366,11 @@ type captureLambda struct {
 	mu          sync.Mutex
 }
 
-func (c *captureLambda) InvokeFunction(_ context.Context, name, _ string, payload []byte) ([]byte, int, error) {
+func (c *captureLambda) InvokeFunction(
+	_ context.Context,
+	name, _ string,
+	payload []byte,
+) ([]byte, int, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.invocations = append(c.invocations, name+":"+string(payload))
@@ -407,7 +416,14 @@ func TestNotificationDispatcher_DispatchToLambda(t *testing.T) {
 			targets := &s3.NotificationTargets{LambdaInvoker: fn}
 			d := s3.NewNotificationDispatcher(targets, "us-east-1")
 
-			d.DispatchObjectCreated(t.Context(), "my-bucket", "test-key", "etag123", 42, tt.notifXML)
+			d.DispatchObjectCreated(
+				t.Context(),
+				"my-bucket",
+				"test-key",
+				"etag123",
+				42,
+				tt.notifXML,
+			)
 
 			fn.mu.Lock()
 			defer fn.mu.Unlock()
@@ -429,7 +445,10 @@ type captureEventBridge struct {
 func (c *captureEventBridge) PublishS3Event(_ context.Context, source, detailType, detail string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.events = append(c.events, struct{ source, detailType, detail string }{source, detailType, detail})
+	c.events = append(
+		c.events,
+		struct{ source, detailType, detail string }{source, detailType, detail},
+	)
 }
 
 func TestNotificationDispatcher_DispatchToEventBridge(t *testing.T) {
@@ -550,11 +569,32 @@ func TestNotificationDispatcher_DispatchToEventBridge(t *testing.T) {
 			case tt.dispatchDelete:
 				d.DispatchObjectDeleted(t.Context(), "my-bucket", tt.key, tt.notifXML)
 			case tt.dispatchCopy:
-				d.DispatchObjectCopied(t.Context(), "my-bucket", tt.key, tt.etag, tt.size, tt.notifXML)
+				d.DispatchObjectCopied(
+					t.Context(),
+					"my-bucket",
+					tt.key,
+					tt.etag,
+					tt.size,
+					tt.notifXML,
+				)
 			case tt.dispatchComplete:
-				d.DispatchObjectCompleted(t.Context(), "my-bucket", tt.key, tt.etag, tt.size, tt.notifXML)
+				d.DispatchObjectCompleted(
+					t.Context(),
+					"my-bucket",
+					tt.key,
+					tt.etag,
+					tt.size,
+					tt.notifXML,
+				)
 			default:
-				d.DispatchObjectCreated(t.Context(), "my-bucket", tt.key, tt.etag, tt.size, tt.notifXML)
+				d.DispatchObjectCreated(
+					t.Context(),
+					"my-bucket",
+					tt.key,
+					tt.etag,
+					tt.size,
+					tt.notifXML,
+				)
 			}
 
 			eb.mu.Lock()
@@ -592,10 +632,22 @@ func TestDetailTypeFromEventName(t *testing.T) {
 		{name: "object_created_put", eventName: "s3:ObjectCreated:Put", want: "Object Created"},
 		{name: "object_created_copy", eventName: "s3:ObjectCreated:Copy", want: "Object Created"},
 		{name: "object_created_wildcard", eventName: "s3:ObjectCreated:*", want: "Object Created"},
-		{name: "object_removed_delete", eventName: "s3:ObjectRemoved:Delete", want: "Object Deleted"},
+		{
+			name:      "object_removed_delete",
+			eventName: "s3:ObjectRemoved:Delete",
+			want:      "Object Deleted",
+		},
 		{name: "object_removed_wildcard", eventName: "s3:ObjectRemoved:*", want: "Object Deleted"},
-		{name: "object_restore", eventName: "s3:ObjectRestore:Post", want: "Object Restore Initiated"},
-		{name: "unknown_event", eventName: "s3:Replication:OperationMissedThreshold", want: "S3 Event"},
+		{
+			name:      "object_restore",
+			eventName: "s3:ObjectRestore:Post",
+			want:      "Object Restore Initiated",
+		},
+		{
+			name:      "unknown_event",
+			eventName: "s3:Replication:OperationMissedThreshold",
+			want:      "S3 Event",
+		},
 	}
 
 	for _, tt := range tests {
@@ -616,9 +668,17 @@ func TestReasonFromEventName(t *testing.T) {
 	}{
 		{name: "put", eventName: "s3:ObjectCreated:Put", want: "PutObject"},
 		{name: "copy", eventName: "s3:ObjectCreated:Copy", want: "CopyObject"},
-		{name: "multipart", eventName: "s3:ObjectCreated:CompleteMultipartUpload", want: "CompleteMultipartUpload"},
+		{
+			name:      "multipart",
+			eventName: "s3:ObjectCreated:CompleteMultipartUpload",
+			want:      "CompleteMultipartUpload",
+		},
 		{name: "delete", eventName: "s3:ObjectRemoved:Delete", want: "DeleteObject"},
-		{name: "delete_marker", eventName: "s3:ObjectRemoved:DeleteMarkerCreated", want: "DeleteObject"},
+		{
+			name:      "delete_marker",
+			eventName: "s3:ObjectRemoved:DeleteMarkerCreated",
+			want:      "DeleteObject",
+		},
 		{name: "unknown", eventName: "s3:ObjectCreated:Unknown", want: "Unknown"},
 	}
 

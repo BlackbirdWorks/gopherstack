@@ -62,7 +62,12 @@ func TestVersionID_RandomFormat(t *testing.T) {
 					break
 				}
 			}
-			assert.False(t, isNumeric, "version ID should not be a purely numeric Unix timestamp: %s", vid)
+			assert.False(
+				t,
+				isNumeric,
+				"version ID should not be a purely numeric Unix timestamp: %s",
+				vid,
+			)
 
 			// Must be 32 hex chars (16 random bytes encoded as hex).
 			assert.Len(t, vid, 32)
@@ -192,11 +197,14 @@ func TestMultipartUpload_TaggingPropagated(t *testing.T) {
 			backend := newTestBackend(t)
 			mustCreateBucket(t, backend, "bkt")
 
-			createOut, err := backend.CreateMultipartUpload(t.Context(), &sdk_s3.CreateMultipartUploadInput{
-				Bucket:  aws.String("bkt"),
-				Key:     aws.String("key"),
-				Tagging: aws.String(tt.tagging),
-			})
+			createOut, err := backend.CreateMultipartUpload(
+				t.Context(),
+				&sdk_s3.CreateMultipartUploadInput{
+					Bucket:  aws.String("bkt"),
+					Key:     aws.String("key"),
+					Tagging: aws.String(tt.tagging),
+				},
+			)
 			require.NoError(t, err)
 
 			uploadID := createOut.UploadId
@@ -212,22 +220,28 @@ func TestMultipartUpload_TaggingPropagated(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			_, err = backend.CompleteMultipartUpload(t.Context(), &sdk_s3.CompleteMultipartUploadInput{
-				Bucket:   aws.String("bkt"),
-				Key:      aws.String("key"),
-				UploadId: uploadID,
-				MultipartUpload: &types.CompletedMultipartUpload{
-					Parts: []types.CompletedPart{
-						{PartNumber: aws.Int32(1), ETag: p1.ETag},
+			_, err = backend.CompleteMultipartUpload(
+				t.Context(),
+				&sdk_s3.CompleteMultipartUploadInput{
+					Bucket:   aws.String("bkt"),
+					Key:      aws.String("key"),
+					UploadId: uploadID,
+					MultipartUpload: &types.CompletedMultipartUpload{
+						Parts: []types.CompletedPart{
+							{PartNumber: aws.Int32(1), ETag: p1.ETag},
+						},
 					},
 				},
-			})
+			)
 			require.NoError(t, err)
 
-			taggingOut, getErr := backend.GetObjectTagging(t.Context(), &sdk_s3.GetObjectTaggingInput{
-				Bucket: aws.String("bkt"),
-				Key:    aws.String("key"),
-			})
+			taggingOut, getErr := backend.GetObjectTagging(
+				t.Context(),
+				&sdk_s3.GetObjectTaggingInput{
+					Bucket: aws.String("bkt"),
+					Key:    aws.String("key"),
+				},
+			)
 
 			if tt.wantTags == 0 {
 				// No tags set → either NoSuchTagSet or empty tag set.

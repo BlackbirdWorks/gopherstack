@@ -88,11 +88,21 @@ func keyMatchesFilter(key string, filter notificationFilter) bool {
 // NotificationDispatcher delivers S3 event notifications to configured targets.
 type NotificationDispatcher interface {
 	// DispatchObjectCreated sends an s3:ObjectCreated:Put notification for a PutObject operation.
-	DispatchObjectCreated(ctx context.Context, bucket, key, etag string, size int64, notifXML string)
+	DispatchObjectCreated(
+		ctx context.Context,
+		bucket, key, etag string,
+		size int64,
+		notifXML string,
+	)
 	// DispatchObjectCopied sends an s3:ObjectCreated:Copy notification for a CopyObject operation.
 	DispatchObjectCopied(ctx context.Context, bucket, key, etag string, size int64, notifXML string)
 	// DispatchObjectCompleted sends an s3:ObjectCreated:CompleteMultipartUpload notification.
-	DispatchObjectCompleted(ctx context.Context, bucket, key, etag string, size int64, notifXML string)
+	DispatchObjectCompleted(
+		ctx context.Context,
+		bucket, key, etag string,
+		size int64,
+		notifXML string,
+	)
 	// DispatchObjectDeleted sends an s3:ObjectRemoved notification for the given object.
 	DispatchObjectDeleted(ctx context.Context, bucket, key, notifXML string)
 	// DispatchObjectRestorePost sends an s3:ObjectRestore:Post notification for a
@@ -120,7 +130,11 @@ type SNSPublisher interface {
 
 // LambdaInvoker invokes a Lambda function by name or ARN with a JSON payload.
 type LambdaInvoker interface {
-	InvokeFunction(ctx context.Context, name, invocationType string, payload []byte) ([]byte, int, error)
+	InvokeFunction(
+		ctx context.Context,
+		name, invocationType string,
+		payload []byte,
+	) ([]byte, int, error)
 }
 
 // EventBridgePublisher publishes an S3 event to the default EventBridge event bus.
@@ -158,7 +172,10 @@ type s3EventObject struct {
 }
 
 // buildS3EventPayload builds the standard S3 event notification JSON payload.
-func buildS3EventPayload(eventName, configID, region, bucket, key, etag string, size int64) (string, error) {
+func buildS3EventPayload(
+	eventName, configID, region, bucket, key, etag string,
+	size int64,
+) (string, error) {
 	record := s3EventRecord{
 		EventVersion: "2.1",
 		EventSource:  "aws:s3",
@@ -428,7 +445,12 @@ func (d *inMemoryNotificationDispatcher) dispatchToLambda(
 	}
 
 	if d.targets != nil && d.targets.LambdaInvoker != nil {
-		_, _, _ = d.targets.LambdaInvoker.InvokeFunction(ctx, lc.CloudFunc, "Event", []byte(payload))
+		_, _, _ = d.targets.LambdaInvoker.InvokeFunction(
+			ctx,
+			lc.CloudFunc,
+			"Event",
+			[]byte(payload),
+		)
 	}
 }
 

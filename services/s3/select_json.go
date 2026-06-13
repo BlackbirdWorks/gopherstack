@@ -10,7 +10,12 @@ import (
 )
 
 // evaluateJSONQuery reads JSON from data, applies the SQL query, and streams results.
-func evaluateJSONQuery(w io.Writer, query *sqlQuery, data []byte, req *selectRequest) (int64, error) {
+func evaluateJSONQuery(
+	w io.Writer,
+	query *sqlQuery,
+	data []byte,
+	req *selectRequest,
+) (int64, error) {
 	jsonIn := req.InputSerialization.JSON
 	jsonType := "DOCUMENT"
 
@@ -27,7 +32,12 @@ func evaluateJSONQuery(w io.Writer, query *sqlQuery, data []byte, req *selectReq
 
 // evaluateJSONLinesQuery collects all NDJSON rows, applies the query, and emits results.
 // All rows are buffered so that ORDER BY and aggregate functions work correctly.
-func evaluateJSONLinesQuery(w io.Writer, query *sqlQuery, data []byte, req *selectRequest) (int64, error) {
+func evaluateJSONLinesQuery(
+	w io.Writer,
+	query *sqlQuery,
+	data []byte,
+	req *selectRequest,
+) (int64, error) {
 	scanner := bufio.NewScanner(bytes.NewReader(data))
 	// Increase the buffer to handle large JSON lines (up to 10MB).
 	const maxScanTokenSize = 10 * 1024 * 1024
@@ -125,7 +135,10 @@ func evaluateJSONDocumentQuery(
 	return 0, nil
 }
 
-func serializeJSONQueryResults(resultRows []map[string]any, out selectOutputSerialization) ([]byte, error) {
+func serializeJSONQueryResults(
+	resultRows []map[string]any,
+	out selectOutputSerialization,
+) ([]byte, error) {
 	if out.CSV != nil {
 		return serializeJSONRowsAsCSV(resultRows, out.CSV)
 	}

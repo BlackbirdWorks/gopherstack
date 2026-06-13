@@ -86,7 +86,12 @@ func TestTagCleanupOnDelete(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			assert.Equal(t, tt.wantTags, b.TagsForBucket(bucket), "tags should be cleaned up after delete")
+			assert.Equal(
+				t,
+				tt.wantTags,
+				b.TagsForBucket(bucket),
+				"tags should be cleaned up after delete",
+			)
 		})
 	}
 }

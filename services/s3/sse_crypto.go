@@ -42,7 +42,11 @@ const dataKeySize = 32
 // Real AWS computes ETag = MD5(plaintext) for SSE-S3, an opaque value for
 // SSE-KMS/SSE-C. For tests we keep ETag = MD5(plaintext) across the board so
 // existing checksum-based assertions still match.
-func encryptWithSSE(plaintext []byte, sse sseInfo, customerKeyB64 string) ([]byte, []byte, []byte, error) {
+func encryptWithSSE(
+	plaintext []byte,
+	sse sseInfo,
+	customerKeyB64 string,
+) ([]byte, []byte, []byte, error) {
 	if sse.Algorithm == "" && sse.SSECAlgorithm == "" {
 		return plaintext, nil, nil, nil
 	}
