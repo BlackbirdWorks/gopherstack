@@ -4,7 +4,10 @@ import "time"
 
 // StorageBackend is the interface for VPC Lattice storage operations.
 type StorageBackend interface {
-	CreateService(name, authType, certificateArn, customDomainName string, tags map[string]string) (*Service, error)
+	CreateService(
+		name, authType, certificateArn, customDomainName string,
+		tags map[string]string,
+	) (*Service, error)
 	GetService(serviceID string) (*Service, error)
 	UpdateService(serviceID, authType, certificateArn string) (*Service, error)
 	DeleteService(serviceID string) (*Service, error)
@@ -14,46 +17,109 @@ type StorageBackend interface {
 	GetServiceNetwork(snID string) (*ServiceNetwork, error)
 	UpdateServiceNetwork(snID, authType string) (*ServiceNetwork, error)
 	DeleteServiceNetwork(snID string) error
-	ListServiceNetworks(maxResults int32, nextToken string) ([]*ServiceNetworkSummary, string, error)
+	ListServiceNetworks(
+		maxResults int32,
+		nextToken string,
+	) ([]*ServiceNetworkSummary, string, error)
 
-	CreateServiceNetworkServiceAssociation(serviceNetworkID, serviceID string, tags map[string]string) (*ServiceNetworkServiceAssociation, error)
+	CreateServiceNetworkServiceAssociation(
+		serviceNetworkID, serviceID string,
+		tags map[string]string,
+	) (*ServiceNetworkServiceAssociation, error)
 	GetServiceNetworkServiceAssociation(snsaID string) (*ServiceNetworkServiceAssociation, error)
 	DeleteServiceNetworkServiceAssociation(snsaID string) error
-	ListServiceNetworkServiceAssociations(serviceNetworkID, serviceID string, maxResults int32, nextToken string) ([]*ServiceNetworkServiceAssociationSummary, string, error)
+	ListServiceNetworkServiceAssociations(
+		serviceNetworkID, serviceID string,
+		maxResults int32,
+		nextToken string,
+	) ([]*ServiceNetworkServiceAssociationSummary, string, error)
 
-	CreateServiceNetworkVpcAssociation(serviceNetworkID, vpcID string, securityGroupIDs []string, tags map[string]string) (*ServiceNetworkVpcAssociation, error)
+	CreateServiceNetworkVpcAssociation(
+		serviceNetworkID, vpcID string,
+		securityGroupIDs []string,
+		tags map[string]string,
+	) (*ServiceNetworkVpcAssociation, error)
 	GetServiceNetworkVpcAssociation(snvaID string) (*ServiceNetworkVpcAssociation, error)
-	UpdateServiceNetworkVpcAssociation(snvaID string, securityGroupIDs []string) (*ServiceNetworkVpcAssociation, error)
+	UpdateServiceNetworkVpcAssociation(
+		snvaID string,
+		securityGroupIDs []string,
+	) (*ServiceNetworkVpcAssociation, error)
 	DeleteServiceNetworkVpcAssociation(snvaID string) error
-	ListServiceNetworkVpcAssociations(serviceNetworkID, vpcID string, maxResults int32, nextToken string) ([]*ServiceNetworkVpcAssociationSummary, string, error)
+	ListServiceNetworkVpcAssociations(
+		serviceNetworkID, vpcID string,
+		maxResults int32,
+		nextToken string,
+	) ([]*ServiceNetworkVpcAssociationSummary, string, error)
 
-	CreateListener(serviceID, name, protocol string, port int32, defaultAction *RuleAction, tags map[string]string) (*Listener, error)
+	CreateListener(
+		serviceID, name, protocol string,
+		port int32,
+		defaultAction *RuleAction,
+		tags map[string]string,
+	) (*Listener, error)
 	GetListener(serviceID, listenerID string) (*Listener, error)
 	UpdateListener(serviceID, listenerID string, defaultAction *RuleAction) (*Listener, error)
 	DeleteListener(serviceID, listenerID string) error
-	ListListeners(serviceID string, maxResults int32, nextToken string) ([]*ListenerSummary, string, error)
+	ListListeners(
+		serviceID string,
+		maxResults int32,
+		nextToken string,
+	) ([]*ListenerSummary, string, error)
 
-	CreateRule(serviceID, listenerID, name string, priority int32, action *RuleAction, match *RuleMatch, tags map[string]string) (*Rule, error)
+	CreateRule(
+		serviceID, listenerID, name string,
+		priority int32,
+		action *RuleAction,
+		match *RuleMatch,
+		tags map[string]string,
+	) (*Rule, error)
 	GetRule(serviceID, listenerID, ruleID string) (*Rule, error)
-	UpdateRule(serviceID, listenerID, ruleID string, priority int32, action *RuleAction, match *RuleMatch) (*Rule, error)
+	UpdateRule(
+		serviceID, listenerID, ruleID string,
+		priority int32,
+		action *RuleAction,
+		match *RuleMatch,
+	) (*Rule, error)
 	DeleteRule(serviceID, listenerID, ruleID string) error
-	ListRules(serviceID, listenerID string, maxResults int32, nextToken string) ([]*RuleSummary, string, error)
-	BatchUpdateRule(serviceID, listenerID string, updates []*RuleUpdate) ([]*RuleUpdateSuccess, []*RuleUpdateFailure, error)
+	ListRules(
+		serviceID, listenerID string,
+		maxResults int32,
+		nextToken string,
+	) ([]*RuleSummary, string, error)
+	BatchUpdateRule(
+		serviceID, listenerID string,
+		updates []*RuleUpdate,
+	) ([]*RuleUpdateSuccess, []*RuleUpdateFailure, error)
 
-	CreateTargetGroup(name, tgType string, config *TargetGroupConfig, tags map[string]string) (*TargetGroup, error)
+	CreateTargetGroup(
+		name, tgType string,
+		config *TargetGroupConfig,
+		tags map[string]string,
+	) (*TargetGroup, error)
 	GetTargetGroup(tgID string) (*TargetGroup, error)
 	UpdateTargetGroup(tgID string, healthCheck *HealthCheckConfig) (*TargetGroup, error)
 	DeleteTargetGroup(tgID string) error
-	ListTargetGroups(tgType, serviceArn string, maxResults int32, nextToken string) ([]*TargetGroupSummary, string, error)
+	ListTargetGroups(
+		tgType, serviceArn string,
+		maxResults int32,
+		nextToken string,
+	) ([]*TargetGroupSummary, string, error)
 	RegisterTargets(tgID string, targets []*Target) ([]*TargetFailure, error)
 	DeregisterTargets(tgID string, targets []*Target) ([]*TargetFailure, error)
 	ListTargets(tgID string, maxResults int32, nextToken string) ([]*TargetSummary, string, error)
 
-	CreateAccessLogSubscription(resourceID, destinationArn, logType string, tags map[string]string) (*AccessLogSubscription, error)
+	CreateAccessLogSubscription(
+		resourceID, destinationArn, logType string,
+		tags map[string]string,
+	) (*AccessLogSubscription, error)
 	GetAccessLogSubscription(alsID string) (*AccessLogSubscription, error)
 	UpdateAccessLogSubscription(alsID, destinationArn string) (*AccessLogSubscription, error)
 	DeleteAccessLogSubscription(alsID string) error
-	ListAccessLogSubscriptions(resourceID string, maxResults int32, nextToken string) ([]*AccessLogSubscriptionSummary, string, error)
+	ListAccessLogSubscriptions(
+		resourceID string,
+		maxResults int32,
+		nextToken string,
+	) ([]*AccessLogSubscriptionSummary, string, error)
 
 	PutAuthPolicy(resourceID, policy string) (*AuthPolicy, error)
 	GetAuthPolicy(resourceID string) (*AuthPolicy, error)
@@ -102,24 +168,24 @@ type ServiceSummary struct {
 
 // ServiceNetwork represents a VPC Lattice service network.
 type ServiceNetwork struct {
-	CreatedAt                 time.Time
-	LastUpdatedAt             time.Time
-	ARN                       string
-	ID                        string
-	Name                      string
-	AuthType                  string
+	CreatedAt                  time.Time
+	LastUpdatedAt              time.Time
+	ARN                        string
+	ID                         string
+	Name                       string
+	AuthType                   string
 	NumberOfAssociatedServices int64
-	NumberOfAssociatedVPCs    int64
+	NumberOfAssociatedVPCs     int64
 }
 
 // ServiceNetworkSummary is a service network entry for list responses.
 type ServiceNetworkSummary struct {
-	CreatedAt                 time.Time
-	ARN                       string
-	ID                        string
-	Name                      string
+	CreatedAt                  time.Time
+	ARN                        string
+	ID                         string
+	Name                       string
 	NumberOfAssociatedServices int64
-	NumberOfAssociatedVPCs    int64
+	NumberOfAssociatedVPCs     int64
 }
 
 // ServiceNetworkServiceAssociation is a service-to-service-network association.
@@ -270,18 +336,18 @@ type WeightedTargetGroup struct {
 
 // RuleMatch is the match conditions for a listener rule.
 type RuleMatch struct {
-	HTTPMethod      string
-	PathMatchType   string
-	PathMatchValue  string
-	HeaderMatches   []*HeaderMatch
+	HTTPMethod     string
+	PathMatchType  string
+	PathMatchValue string
+	HeaderMatches  []*HeaderMatch
 }
 
 // HeaderMatch is an HTTP header match condition.
 type HeaderMatch struct {
-	Name            string
-	MatchType       string
-	MatchValue      string
-	CaseSensitive   bool
+	Name          string
+	MatchType     string
+	MatchValue    string
+	CaseSensitive bool
 }
 
 // TargetGroup represents a VPC Lattice target group.
@@ -344,10 +410,10 @@ type Target struct {
 
 // TargetSummary is a target entry for list responses.
 type TargetSummary struct {
-	ID            string
-	Port          int32
-	Status        string
-	ReasonCode    string
+	ID         string
+	Port       int32
+	Status     string
+	ReasonCode string
 }
 
 // TargetFailure is a target registration/deregistration failure.
@@ -360,13 +426,13 @@ type TargetFailure struct {
 
 // AccessLogSubscription represents a VPC Lattice access log subscription.
 type AccessLogSubscription struct {
-	CreatedAt      time.Time
-	LastUpdatedAt  time.Time
-	ARN            string
-	ID             string
-	ResourceARN    string
-	ResourceID     string
-	DestinationARN string
+	CreatedAt             time.Time
+	LastUpdatedAt         time.Time
+	ARN                   string
+	ID                    string
+	ResourceARN           string
+	ResourceID            string
+	DestinationARN        string
 	ServiceNetworkLogType string
 }
 

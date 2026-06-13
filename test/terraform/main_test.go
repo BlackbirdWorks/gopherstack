@@ -120,6 +120,7 @@ import (
 	timestreamquerysvc "github.com/aws/aws-sdk-go-v2/service/timestreamquery"
 	transfersvc "github.com/aws/aws-sdk-go-v2/service/transfer"
 	verifiedpermissionssvc "github.com/aws/aws-sdk-go-v2/service/verifiedpermissions"
+	vpclatticesvc "github.com/aws/aws-sdk-go-v2/service/vpclattice"
 	xraysvc "github.com/aws/aws-sdk-go-v2/service/xray"
 
 	"github.com/moby/moby/client"
@@ -2332,6 +2333,13 @@ func createXrayClient(t *testing.T) *xraysvc.Client {
 	t.Helper()
 
 	return createClientWithEndpoint(t, xraysvc.NewFromConfig, endpoint)
+}
+
+// createVPCLatticeClient returns a VPC Lattice client pointed at the shared test container.
+func createVPCLatticeClient(t *testing.T) *vpclatticesvc.Client {
+	t.Helper()
+
+	return createClientWithEndpoint(t, vpclatticesvc.NewFromConfig, endpoint)
 }
 
 // createClientWithEndpoint is a helper to create an AWS client with a base endpoint.

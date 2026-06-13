@@ -17,39 +17,39 @@ import (
 )
 
 const (
-	arnService                          = "vpc-lattice"
-	resourceService                     = "service"
-	resourceServiceNetwork              = "servicenetwork"
-	resourceServiceNetworkSvcAssoc      = "servicenetworkserviceassociation"
-	resourceServiceNetworkVpcAssoc      = "servicenetworkvpcassociation"
-	resourceListener                    = "listener"
-	resourceRule                        = "rule"
-	resourceTargetGroup                 = "targetgroup"
-	resourceAccessLogSubscription       = "accesslogsubscription"
+	arnService                     = "vpc-lattice"
+	resourceService                = "service"
+	resourceServiceNetwork         = "servicenetwork"
+	resourceServiceNetworkSvcAssoc = "servicenetworkserviceassociation"
+	resourceServiceNetworkVpcAssoc = "servicenetworkvpcassociation"
+	resourceListener               = "listener"
+	resourceRule                   = "rule"
+	resourceTargetGroup            = "targetgroup"
+	resourceAccessLogSubscription  = "accesslogsubscription"
 
-	idPrefixService       = "svc-"
-	idPrefixNetwork       = "sn-"
-	idPrefixSNSA          = "snsa-"
-	idPrefixSNVA          = "snva-"
-	idPrefixListener      = "listener-"
-	idPrefixRule          = "rule-"
-	idPrefixTargetGroup   = "tg-"
-	idPrefixALS           = "als-"
+	idPrefixService     = "svc-"
+	idPrefixNetwork     = "sn-"
+	idPrefixSNSA        = "snsa-"
+	idPrefixSNVA        = "snva-"
+	idPrefixListener    = "listener-"
+	idPrefixRule        = "rule-"
+	idPrefixTargetGroup = "tg-"
+	idPrefixALS         = "als-"
 
-	statusActive       = "ACTIVE"
-	statusInactive     = "INACTIVE"
+	statusActive           = "ACTIVE"
+	statusInactive         = "INACTIVE"
 	statusCreateInProgress = "CREATE_IN_PROGRESS"
 	statusDeleteInProgress = "DELETE_IN_PROGRESS"
-	statusDeleted      = "DELETED"
-	statusCreateFailed = "CREATE_FAILED"
+	statusDeleted          = "DELETED"
+	statusCreateFailed     = "CREATE_FAILED"
 
-	authTypeNone   = "NONE"
-	protocolHTTP   = "HTTP"
-	protocolHTTPS  = "HTTPS"
+	authTypeNone  = "NONE"
+	protocolHTTP  = "HTTP"
+	protocolHTTPS = "HTTPS"
 
 	tgStatusActive = "ACTIVE"
 
-	targetStatusHealthy  = "HEALTHY"
+	targetStatusHealthy = "HEALTHY"
 
 	defaultMaxResults = 100
 )
@@ -108,38 +108,38 @@ func (s *storedService) toSummary() *ServiceSummary {
 
 // storedServiceNetwork holds a service network.
 type storedServiceNetwork struct {
-	CreatedAt                 time.Time         `json:"createdAt"`
-	LastUpdatedAt             time.Time         `json:"lastUpdatedAt"`
-	Tags                      map[string]string `json:"tags"`
-	ARN                       string            `json:"arn"`
-	ID                        string            `json:"id"`
-	Name                      string            `json:"name"`
-	AuthType                  string            `json:"authType"`
+	CreatedAt                  time.Time         `json:"createdAt"`
+	LastUpdatedAt              time.Time         `json:"lastUpdatedAt"`
+	Tags                       map[string]string `json:"tags"`
+	ARN                        string            `json:"arn"`
+	ID                         string            `json:"id"`
+	Name                       string            `json:"name"`
+	AuthType                   string            `json:"authType"`
 	NumberOfAssociatedServices int64             `json:"numberOfAssociatedServices"`
-	NumberOfAssociatedVPCs    int64             `json:"numberOfAssociatedVpcs"`
+	NumberOfAssociatedVPCs     int64             `json:"numberOfAssociatedVpcs"`
 }
 
 func (s *storedServiceNetwork) toServiceNetwork() *ServiceNetwork {
 	return &ServiceNetwork{
-		ARN:                       s.ARN,
-		ID:                        s.ID,
-		Name:                      s.Name,
-		AuthType:                  s.AuthType,
+		ARN:                        s.ARN,
+		ID:                         s.ID,
+		Name:                       s.Name,
+		AuthType:                   s.AuthType,
 		NumberOfAssociatedServices: s.NumberOfAssociatedServices,
-		NumberOfAssociatedVPCs:    s.NumberOfAssociatedVPCs,
-		CreatedAt:                 s.CreatedAt,
-		LastUpdatedAt:             s.LastUpdatedAt,
+		NumberOfAssociatedVPCs:     s.NumberOfAssociatedVPCs,
+		CreatedAt:                  s.CreatedAt,
+		LastUpdatedAt:              s.LastUpdatedAt,
 	}
 }
 
 func (s *storedServiceNetwork) toSummary() *ServiceNetworkSummary {
 	return &ServiceNetworkSummary{
-		ARN:                       s.ARN,
-		ID:                        s.ID,
-		Name:                      s.Name,
+		ARN:                        s.ARN,
+		ID:                         s.ID,
+		Name:                       s.Name,
 		NumberOfAssociatedServices: s.NumberOfAssociatedServices,
-		NumberOfAssociatedVPCs:    s.NumberOfAssociatedVPCs,
-		CreatedAt:                 s.CreatedAt,
+		NumberOfAssociatedVPCs:     s.NumberOfAssociatedVPCs,
+		CreatedAt:                  s.CreatedAt,
 	}
 }
 
@@ -328,15 +328,15 @@ func (r *storedRule) toSummary() *RuleSummary {
 
 // storedTargetGroup holds a target group.
 type storedTargetGroup struct {
-	CreatedAt     time.Time         `json:"createdAt"`
-	LastUpdatedAt time.Time         `json:"lastUpdatedAt"`
-	Tags          map[string]string `json:"tags"`
-	ServiceARNs   []string          `json:"serviceArns"`
-	ARN           string            `json:"arn"`
-	ID            string            `json:"id"`
-	Name          string            `json:"name"`
-	Type          string            `json:"type"`
-	Status        string            `json:"status"`
+	CreatedAt     time.Time          `json:"createdAt"`
+	LastUpdatedAt time.Time          `json:"lastUpdatedAt"`
+	Tags          map[string]string  `json:"tags"`
+	ServiceARNs   []string           `json:"serviceArns"`
+	ARN           string             `json:"arn"`
+	ID            string             `json:"id"`
+	Name          string             `json:"name"`
+	Type          string             `json:"type"`
+	Status        string             `json:"status"`
 	Config        *TargetGroupConfig `json:"config"`
 }
 
@@ -387,27 +387,27 @@ type storedTarget struct {
 
 // storedALS holds an access log subscription.
 type storedALS struct {
-	CreatedAt      time.Time         `json:"createdAt"`
-	LastUpdatedAt  time.Time         `json:"lastUpdatedAt"`
-	Tags           map[string]string `json:"tags"`
-	ARN            string            `json:"arn"`
-	ID             string            `json:"id"`
-	ResourceARN    string            `json:"resourceArn"`
-	ResourceID     string            `json:"resourceId"`
-	DestinationARN string            `json:"destinationArn"`
-	ServiceNetworkLogType string     `json:"serviceNetworkLogType"`
+	CreatedAt             time.Time         `json:"createdAt"`
+	LastUpdatedAt         time.Time         `json:"lastUpdatedAt"`
+	Tags                  map[string]string `json:"tags"`
+	ARN                   string            `json:"arn"`
+	ID                    string            `json:"id"`
+	ResourceARN           string            `json:"resourceArn"`
+	ResourceID            string            `json:"resourceId"`
+	DestinationARN        string            `json:"destinationArn"`
+	ServiceNetworkLogType string            `json:"serviceNetworkLogType"`
 }
 
 func (a *storedALS) toALS() *AccessLogSubscription {
 	return &AccessLogSubscription{
-		ARN:            a.ARN,
-		ID:             a.ID,
-		ResourceARN:    a.ResourceARN,
-		ResourceID:     a.ResourceID,
-		DestinationARN: a.DestinationARN,
+		ARN:                   a.ARN,
+		ID:                    a.ID,
+		ResourceARN:           a.ResourceARN,
+		ResourceID:            a.ResourceID,
+		DestinationARN:        a.DestinationARN,
 		ServiceNetworkLogType: a.ServiceNetworkLogType,
-		CreatedAt:      a.CreatedAt,
-		LastUpdatedAt:  a.LastUpdatedAt,
+		CreatedAt:             a.CreatedAt,
+		LastUpdatedAt:         a.LastUpdatedAt,
 	}
 }
 
@@ -425,18 +425,18 @@ func (a *storedALS) toSummary() *AccessLogSubscriptionSummary {
 
 // snapshot is the serializable form of InMemoryBackend.
 type snapshot struct {
-	Services             map[string]*storedService             `json:"services"`
-	ServiceNetworks      map[string]*storedServiceNetwork      `json:"serviceNetworks"`
-	SNSAs                map[string]*storedSNSA                `json:"snsas"`
-	SNVAs                map[string]*storedSNVA                `json:"snvas"`
-	Listeners            map[string]*storedListener            `json:"listeners"`
-	Rules                map[string]*storedRule                `json:"rules"`
-	TargetGroups         map[string]*storedTargetGroup         `json:"targetGroups"`
-	Targets              map[string][]*storedTarget            `json:"targets"`
-	ALSs                 map[string]*storedALS                 `json:"alss"`
-	AuthPolicies         map[string]string                     `json:"authPolicies"`
-	ResourcePolicies     map[string]string                     `json:"resourcePolicies"`
-	Tags                 map[string]map[string]string          `json:"tags"`
+	Services         map[string]*storedService        `json:"services"`
+	ServiceNetworks  map[string]*storedServiceNetwork `json:"serviceNetworks"`
+	SNSAs            map[string]*storedSNSA           `json:"snsas"`
+	SNVAs            map[string]*storedSNVA           `json:"snvas"`
+	Listeners        map[string]*storedListener       `json:"listeners"`
+	Rules            map[string]*storedRule           `json:"rules"`
+	TargetGroups     map[string]*storedTargetGroup    `json:"targetGroups"`
+	Targets          map[string][]*storedTarget       `json:"targets"`
+	ALSs             map[string]*storedALS            `json:"alss"`
+	AuthPolicies     map[string]string                `json:"authPolicies"`
+	ResourcePolicies map[string]string                `json:"resourcePolicies"`
+	Tags             map[string]map[string]string     `json:"tags"`
 }
 
 // InMemoryBackend is an in-memory implementation of StorageBackend.
@@ -580,8 +580,20 @@ func (b *InMemoryBackend) buildListenerARN(serviceID, listenerID string) string 
 }
 
 func (b *InMemoryBackend) buildRuleARN(serviceID, listenerID, ruleID string) string {
-	return arn.Build(arnService, b.region, b.accountID,
-		fmt.Sprintf("%s/%s/%s/%s/%s/%s", resourceService, serviceID, resourceListener, listenerID, resourceRule, ruleID))
+	return arn.Build(
+		arnService,
+		b.region,
+		b.accountID,
+		fmt.Sprintf(
+			"%s/%s/%s/%s/%s/%s",
+			resourceService,
+			serviceID,
+			resourceListener,
+			listenerID,
+			resourceRule,
+			ruleID,
+		),
+	)
 }
 
 func newID(prefix string) string {
@@ -719,7 +731,10 @@ func (b *InMemoryBackend) resolveSNVAID(identifier string) (string, bool) {
 // ------- Service operations -------
 
 // CreateService creates a new service.
-func (b *InMemoryBackend) CreateService(name, authType, certificateArn, customDomainName string, tags map[string]string) (*Service, error) {
+func (b *InMemoryBackend) CreateService(
+	name, authType, certificateArn, customDomainName string,
+	tags map[string]string,
+) (*Service, error) {
 	if name == "" {
 		return nil, ErrInvalidParameter
 	}
@@ -774,7 +789,9 @@ func (b *InMemoryBackend) GetService(serviceID string) (*Service, error) {
 }
 
 // UpdateService updates a service.
-func (b *InMemoryBackend) UpdateService(serviceID, authType, certificateArn string) (*Service, error) {
+func (b *InMemoryBackend) UpdateService(
+	serviceID, authType, certificateArn string,
+) (*Service, error) {
 	b.mu.Lock("UpdateService")
 	defer b.mu.Unlock()
 
@@ -816,7 +833,10 @@ func (b *InMemoryBackend) DeleteService(serviceID string) (*Service, error) {
 }
 
 // ListServices returns a paginated list of services.
-func (b *InMemoryBackend) ListServices(maxResults int32, nextToken string) ([]*ServiceSummary, string, error) {
+func (b *InMemoryBackend) ListServices(
+	maxResults int32,
+	nextToken string,
+) ([]*ServiceSummary, string, error) {
 	b.mu.RLock("ListServices")
 	defer b.mu.RUnlock()
 
@@ -835,7 +855,10 @@ func (b *InMemoryBackend) ListServices(maxResults int32, nextToken string) ([]*S
 // ------- ServiceNetwork operations -------
 
 // CreateServiceNetwork creates a new service network.
-func (b *InMemoryBackend) CreateServiceNetwork(name, authType string, tags map[string]string) (*ServiceNetwork, error) {
+func (b *InMemoryBackend) CreateServiceNetwork(
+	name, authType string,
+	tags map[string]string,
+) (*ServiceNetwork, error) {
 	if name == "" {
 		return nil, ErrInvalidParameter
 	}
@@ -952,7 +975,10 @@ func (b *InMemoryBackend) DeleteServiceNetwork(snID string) error {
 }
 
 // ListServiceNetworks returns a paginated list of service networks.
-func (b *InMemoryBackend) ListServiceNetworks(maxResults int32, nextToken string) ([]*ServiceNetworkSummary, string, error) {
+func (b *InMemoryBackend) ListServiceNetworks(
+	maxResults int32,
+	nextToken string,
+) ([]*ServiceNetworkSummary, string, error) {
 	b.mu.RLock("ListServiceNetworks")
 	defer b.mu.RUnlock()
 
@@ -971,7 +997,10 @@ func (b *InMemoryBackend) ListServiceNetworks(maxResults int32, nextToken string
 // ------- ServiceNetworkServiceAssociation operations -------
 
 // CreateServiceNetworkServiceAssociation creates a service-to-network association.
-func (b *InMemoryBackend) CreateServiceNetworkServiceAssociation(serviceNetworkID, serviceID string, tags map[string]string) (*ServiceNetworkServiceAssociation, error) {
+func (b *InMemoryBackend) CreateServiceNetworkServiceAssociation(
+	serviceNetworkID, serviceID string,
+	tags map[string]string,
+) (*ServiceNetworkServiceAssociation, error) {
 	b.mu.Lock("CreateServiceNetworkServiceAssociation")
 	defer b.mu.Unlock()
 
@@ -1023,7 +1052,9 @@ func (b *InMemoryBackend) CreateServiceNetworkServiceAssociation(serviceNetworkI
 }
 
 // GetServiceNetworkServiceAssociation returns a SNSA by ID or ARN.
-func (b *InMemoryBackend) GetServiceNetworkServiceAssociation(snsaID string) (*ServiceNetworkServiceAssociation, error) {
+func (b *InMemoryBackend) GetServiceNetworkServiceAssociation(
+	snsaID string,
+) (*ServiceNetworkServiceAssociation, error) {
 	b.mu.RLock("GetServiceNetworkServiceAssociation")
 	defer b.mu.RUnlock()
 
@@ -1053,14 +1084,19 @@ func (b *InMemoryBackend) DeleteServiceNetworkServiceAssociation(snsaID string) 
 }
 
 // ListServiceNetworkServiceAssociations lists SNSAs with optional filters.
-func (b *InMemoryBackend) ListServiceNetworkServiceAssociations(serviceNetworkID, serviceID string, maxResults int32, nextToken string) ([]*ServiceNetworkServiceAssociationSummary, string, error) {
+func (b *InMemoryBackend) ListServiceNetworkServiceAssociations(
+	serviceNetworkID, serviceID string,
+	maxResults int32,
+	nextToken string,
+) ([]*ServiceNetworkServiceAssociationSummary, string, error) {
 	b.mu.RLock("ListServiceNetworkServiceAssociations")
 	defer b.mu.RUnlock()
 
 	all := make([]*ServiceNetworkServiceAssociationSummary, 0)
 
 	for _, s := range b.snsas {
-		if serviceNetworkID != "" && s.ServiceNetworkID != serviceNetworkID && s.ServiceNetworkARN != serviceNetworkID {
+		if serviceNetworkID != "" && s.ServiceNetworkID != serviceNetworkID &&
+			s.ServiceNetworkARN != serviceNetworkID {
 			continue
 		}
 
@@ -1081,7 +1117,11 @@ func (b *InMemoryBackend) ListServiceNetworkServiceAssociations(serviceNetworkID
 // ------- ServiceNetworkVpcAssociation operations -------
 
 // CreateServiceNetworkVpcAssociation creates a VPC-to-network association.
-func (b *InMemoryBackend) CreateServiceNetworkVpcAssociation(serviceNetworkID, vpcID string, securityGroupIDs []string, tags map[string]string) (*ServiceNetworkVpcAssociation, error) {
+func (b *InMemoryBackend) CreateServiceNetworkVpcAssociation(
+	serviceNetworkID, vpcID string,
+	securityGroupIDs []string,
+	tags map[string]string,
+) (*ServiceNetworkVpcAssociation, error) {
 	if vpcID == "" {
 		return nil, ErrInvalidParameter
 	}
@@ -1131,7 +1171,9 @@ func (b *InMemoryBackend) CreateServiceNetworkVpcAssociation(serviceNetworkID, v
 }
 
 // GetServiceNetworkVpcAssociation returns a SNVA.
-func (b *InMemoryBackend) GetServiceNetworkVpcAssociation(snvaID string) (*ServiceNetworkVpcAssociation, error) {
+func (b *InMemoryBackend) GetServiceNetworkVpcAssociation(
+	snvaID string,
+) (*ServiceNetworkVpcAssociation, error) {
 	b.mu.RLock("GetServiceNetworkVpcAssociation")
 	defer b.mu.RUnlock()
 
@@ -1144,7 +1186,10 @@ func (b *InMemoryBackend) GetServiceNetworkVpcAssociation(snvaID string) (*Servi
 }
 
 // UpdateServiceNetworkVpcAssociation updates security groups on a SNVA.
-func (b *InMemoryBackend) UpdateServiceNetworkVpcAssociation(snvaID string, securityGroupIDs []string) (*ServiceNetworkVpcAssociation, error) {
+func (b *InMemoryBackend) UpdateServiceNetworkVpcAssociation(
+	snvaID string,
+	securityGroupIDs []string,
+) (*ServiceNetworkVpcAssociation, error) {
 	b.mu.Lock("UpdateServiceNetworkVpcAssociation")
 	defer b.mu.Unlock()
 
@@ -1180,14 +1225,19 @@ func (b *InMemoryBackend) DeleteServiceNetworkVpcAssociation(snvaID string) erro
 }
 
 // ListServiceNetworkVpcAssociations lists SNVAs with optional filters.
-func (b *InMemoryBackend) ListServiceNetworkVpcAssociations(serviceNetworkID, vpcID string, maxResults int32, nextToken string) ([]*ServiceNetworkVpcAssociationSummary, string, error) {
+func (b *InMemoryBackend) ListServiceNetworkVpcAssociations(
+	serviceNetworkID, vpcID string,
+	maxResults int32,
+	nextToken string,
+) ([]*ServiceNetworkVpcAssociationSummary, string, error) {
 	b.mu.RLock("ListServiceNetworkVpcAssociations")
 	defer b.mu.RUnlock()
 
 	all := make([]*ServiceNetworkVpcAssociationSummary, 0)
 
 	for _, s := range b.snvas {
-		if serviceNetworkID != "" && s.ServiceNetworkID != serviceNetworkID && s.ServiceNetworkARN != serviceNetworkID {
+		if serviceNetworkID != "" && s.ServiceNetworkID != serviceNetworkID &&
+			s.ServiceNetworkARN != serviceNetworkID {
 			continue
 		}
 
@@ -1208,7 +1258,12 @@ func (b *InMemoryBackend) ListServiceNetworkVpcAssociations(serviceNetworkID, vp
 // ------- Listener operations -------
 
 // CreateListener creates a listener on a service.
-func (b *InMemoryBackend) CreateListener(serviceID, name, protocol string, port int32, defaultAction *RuleAction, tags map[string]string) (*Listener, error) {
+func (b *InMemoryBackend) CreateListener(
+	serviceID, name, protocol string,
+	port int32,
+	defaultAction *RuleAction,
+	tags map[string]string,
+) (*Listener, error) {
 	if name == "" || protocol == "" {
 		return nil, ErrInvalidParameter
 	}
@@ -1265,7 +1320,11 @@ func (b *InMemoryBackend) CreateListener(serviceID, name, protocol string, port 
 	return l.toListener(), nil
 }
 
-func (b *InMemoryBackend) createDefaultRule(serviceID, listenerID, listenerARN string, action *RuleAction, now time.Time) {
+func (b *InMemoryBackend) createDefaultRule(
+	serviceID, listenerID, listenerARN string,
+	action *RuleAction,
+	now time.Time,
+) {
 	id := newID(idPrefixRule)
 	ruleARN := b.buildRuleARN(serviceID, listenerID, id)
 	key := serviceID + "/" + listenerID + "/" + id
@@ -1308,7 +1367,10 @@ func (b *InMemoryBackend) GetListener(serviceID, listenerID string) (*Listener, 
 }
 
 // UpdateListener updates the default action of a listener.
-func (b *InMemoryBackend) UpdateListener(serviceID, listenerID string, defaultAction *RuleAction) (*Listener, error) {
+func (b *InMemoryBackend) UpdateListener(
+	serviceID, listenerID string,
+	defaultAction *RuleAction,
+) (*Listener, error) {
 	b.mu.Lock("UpdateListener")
 	defer b.mu.Unlock()
 
@@ -1367,7 +1429,11 @@ func (b *InMemoryBackend) DeleteListener(serviceID, listenerID string) error {
 }
 
 // ListListeners lists listeners for a service.
-func (b *InMemoryBackend) ListListeners(serviceID string, maxResults int32, nextToken string) ([]*ListenerSummary, string, error) {
+func (b *InMemoryBackend) ListListeners(
+	serviceID string,
+	maxResults int32,
+	nextToken string,
+) ([]*ListenerSummary, string, error) {
 	b.mu.RLock("ListListeners")
 	defer b.mu.RUnlock()
 
@@ -1394,7 +1460,13 @@ func (b *InMemoryBackend) ListListeners(serviceID string, maxResults int32, next
 // ------- Rule operations -------
 
 // CreateRule creates a listener rule.
-func (b *InMemoryBackend) CreateRule(serviceID, listenerID, name string, priority int32, action *RuleAction, match *RuleMatch, tags map[string]string) (*Rule, error) {
+func (b *InMemoryBackend) CreateRule(
+	serviceID, listenerID, name string,
+	priority int32,
+	action *RuleAction,
+	match *RuleMatch,
+	tags map[string]string,
+) (*Rule, error) {
 	if name == "" {
 		return nil, ErrInvalidParameter
 	}
@@ -1470,7 +1542,12 @@ func (b *InMemoryBackend) GetRule(serviceID, listenerID, ruleID string) (*Rule, 
 }
 
 // UpdateRule updates a rule.
-func (b *InMemoryBackend) UpdateRule(serviceID, listenerID, ruleID string, priority int32, action *RuleAction, match *RuleMatch) (*Rule, error) {
+func (b *InMemoryBackend) UpdateRule(
+	serviceID, listenerID, ruleID string,
+	priority int32,
+	action *RuleAction,
+	match *RuleMatch,
+) (*Rule, error) {
 	b.mu.Lock("UpdateRule")
 	defer b.mu.Unlock()
 
@@ -1543,7 +1620,11 @@ func (b *InMemoryBackend) DeleteRule(serviceID, listenerID, ruleID string) error
 }
 
 // ListRules lists rules for a listener.
-func (b *InMemoryBackend) ListRules(serviceID, listenerID string, maxResults int32, nextToken string) ([]*RuleSummary, string, error) {
+func (b *InMemoryBackend) ListRules(
+	serviceID, listenerID string,
+	maxResults int32,
+	nextToken string,
+) ([]*RuleSummary, string, error) {
 	b.mu.RLock("ListRules")
 	defer b.mu.RUnlock()
 
@@ -1573,7 +1654,10 @@ func (b *InMemoryBackend) ListRules(serviceID, listenerID string, maxResults int
 }
 
 // BatchUpdateRule updates multiple rules atomically.
-func (b *InMemoryBackend) BatchUpdateRule(serviceID, listenerID string, updates []*RuleUpdate) ([]*RuleUpdateSuccess, []*RuleUpdateFailure, error) {
+func (b *InMemoryBackend) BatchUpdateRule(
+	serviceID, listenerID string,
+	updates []*RuleUpdate,
+) ([]*RuleUpdateSuccess, []*RuleUpdateFailure, error) {
 	b.mu.Lock("BatchUpdateRule")
 	defer b.mu.Unlock()
 
@@ -1636,7 +1720,11 @@ func (b *InMemoryBackend) BatchUpdateRule(serviceID, listenerID string, updates 
 // ------- TargetGroup operations -------
 
 // CreateTargetGroup creates a target group.
-func (b *InMemoryBackend) CreateTargetGroup(name, tgType string, config *TargetGroupConfig, tags map[string]string) (*TargetGroup, error) {
+func (b *InMemoryBackend) CreateTargetGroup(
+	name, tgType string,
+	config *TargetGroupConfig,
+	tags map[string]string,
+) (*TargetGroup, error) {
 	if name == "" {
 		return nil, ErrInvalidParameter
 	}
@@ -1686,7 +1774,10 @@ func (b *InMemoryBackend) GetTargetGroup(tgID string) (*TargetGroup, error) {
 }
 
 // UpdateTargetGroup updates a target group's health check config.
-func (b *InMemoryBackend) UpdateTargetGroup(tgID string, healthCheck *HealthCheckConfig) (*TargetGroup, error) {
+func (b *InMemoryBackend) UpdateTargetGroup(
+	tgID string,
+	healthCheck *HealthCheckConfig,
+) (*TargetGroup, error) {
 	b.mu.Lock("UpdateTargetGroup")
 	defer b.mu.Unlock()
 
@@ -1729,7 +1820,11 @@ func (b *InMemoryBackend) DeleteTargetGroup(tgID string) error {
 }
 
 // ListTargetGroups lists target groups with optional filters.
-func (b *InMemoryBackend) ListTargetGroups(tgType, serviceArn string, maxResults int32, nextToken string) ([]*TargetGroupSummary, string, error) {
+func (b *InMemoryBackend) ListTargetGroups(
+	tgType, serviceArn string,
+	maxResults int32,
+	nextToken string,
+) ([]*TargetGroupSummary, string, error) {
 	b.mu.RLock("ListTargetGroups")
 	defer b.mu.RUnlock()
 
@@ -1766,7 +1861,10 @@ func (b *InMemoryBackend) ListTargetGroups(tgType, serviceArn string, maxResults
 }
 
 // RegisterTargets registers targets to a target group.
-func (b *InMemoryBackend) RegisterTargets(tgID string, targets []*Target) ([]*TargetFailure, error) {
+func (b *InMemoryBackend) RegisterTargets(
+	tgID string,
+	targets []*Target,
+) ([]*TargetFailure, error) {
 	b.mu.Lock("RegisterTargets")
 	defer b.mu.Unlock()
 
@@ -1813,7 +1911,10 @@ func (b *InMemoryBackend) RegisterTargets(tgID string, targets []*Target) ([]*Ta
 }
 
 // DeregisterTargets deregisters targets from a target group.
-func (b *InMemoryBackend) DeregisterTargets(tgID string, targets []*Target) ([]*TargetFailure, error) {
+func (b *InMemoryBackend) DeregisterTargets(
+	tgID string,
+	targets []*Target,
+) ([]*TargetFailure, error) {
 	b.mu.Lock("DeregisterTargets")
 	defer b.mu.Unlock()
 
@@ -1875,7 +1976,11 @@ func (b *InMemoryBackend) DeregisterTargets(tgID string, targets []*Target) ([]*
 }
 
 // ListTargets lists registered targets for a target group.
-func (b *InMemoryBackend) ListTargets(tgID string, maxResults int32, nextToken string) ([]*TargetSummary, string, error) {
+func (b *InMemoryBackend) ListTargets(
+	tgID string,
+	maxResults int32,
+	nextToken string,
+) ([]*TargetSummary, string, error) {
 	b.mu.RLock("ListTargets")
 	defer b.mu.RUnlock()
 
@@ -1903,7 +2008,10 @@ func (b *InMemoryBackend) ListTargets(tgID string, maxResults int32, nextToken s
 // ------- AccessLogSubscription operations -------
 
 // CreateAccessLogSubscription creates an access log subscription.
-func (b *InMemoryBackend) CreateAccessLogSubscription(resourceID, destinationArn, logType string, tags map[string]string) (*AccessLogSubscription, error) {
+func (b *InMemoryBackend) CreateAccessLogSubscription(
+	resourceID, destinationArn, logType string,
+	tags map[string]string,
+) (*AccessLogSubscription, error) {
 	if destinationArn == "" {
 		return nil, ErrInvalidParameter
 	}
@@ -1919,15 +2027,15 @@ func (b *InMemoryBackend) CreateAccessLogSubscription(resourceID, destinationArn
 	alsARN := b.buildARN(resourceAccessLogSubscription, id)
 
 	als := &storedALS{
-		ARN:            alsARN,
-		ID:             id,
-		ResourceARN:    resourceARN,
-		ResourceID:     resourceID,
-		DestinationARN: destinationArn,
+		ARN:                   alsARN,
+		ID:                    id,
+		ResourceARN:           resourceARN,
+		ResourceID:            resourceID,
+		DestinationARN:        destinationArn,
 		ServiceNetworkLogType: logType,
-		Tags:           copyTags(tags),
-		CreatedAt:      now,
-		LastUpdatedAt:  now,
+		Tags:                  copyTags(tags),
+		CreatedAt:             now,
+		LastUpdatedAt:         now,
 	}
 
 	b.alss[id] = als
@@ -1974,7 +2082,9 @@ func (b *InMemoryBackend) GetAccessLogSubscription(alsID string) (*AccessLogSubs
 }
 
 // UpdateAccessLogSubscription updates the destination ARN.
-func (b *InMemoryBackend) UpdateAccessLogSubscription(alsID, destinationArn string) (*AccessLogSubscription, error) {
+func (b *InMemoryBackend) UpdateAccessLogSubscription(
+	alsID, destinationArn string,
+) (*AccessLogSubscription, error) {
 	b.mu.Lock("UpdateAccessLogSubscription")
 	defer b.mu.Unlock()
 
@@ -2008,7 +2118,11 @@ func (b *InMemoryBackend) DeleteAccessLogSubscription(alsID string) error {
 }
 
 // ListAccessLogSubscriptions lists access log subscriptions for a resource.
-func (b *InMemoryBackend) ListAccessLogSubscriptions(resourceID string, maxResults int32, nextToken string) ([]*AccessLogSubscriptionSummary, string, error) {
+func (b *InMemoryBackend) ListAccessLogSubscriptions(
+	resourceID string,
+	maxResults int32,
+	nextToken string,
+) ([]*AccessLogSubscriptionSummary, string, error) {
 	b.mu.RLock("ListAccessLogSubscriptions")
 	defer b.mu.RUnlock()
 
