@@ -125,11 +125,11 @@ func TestCPBounds_ListWebhooks(t *testing.T) {
 
 	rec = doRequest(t, h, "PutWebhook", map[string]any{
 		"webhook": map[string]any{
-			"name":           "wh-bounds",
-			"targetPipeline": "wh-pipe",
-			"targetAction":   "SourceAction",
-			"authentication": "UNAUTHENTICATED",
-			"filters":        []any{},
+			"name":                        "wh-bounds",
+			"targetPipeline":              "wh-pipe",
+			"targetAction":                "SourceAction",
+			"authentication":              "UNAUTHENTICATED",
+			"filters":                     []any{},
 			"authenticationConfiguration": map[string]any{},
 		},
 	})
@@ -176,11 +176,11 @@ func TestCPPagination_ListWebhooks(t *testing.T) {
 	for i := range 5 {
 		rec = doRequest(t, h, "PutWebhook", map[string]any{
 			"webhook": map[string]any{
-				"name":           fmt.Sprintf("wh-%02d", i),
-				"targetPipeline": "wh-page-pipe",
-				"targetAction":   "SourceAction",
-				"authentication": "UNAUTHENTICATED",
-				"filters":        []any{},
+				"name":                        fmt.Sprintf("wh-%02d", i),
+				"targetPipeline":              "wh-page-pipe",
+				"targetAction":                "SourceAction",
+				"authentication":              "UNAUTHENTICATED",
+				"filters":                     []any{},
 				"authenticationConfiguration": map[string]any{},
 			},
 		})
@@ -330,9 +330,9 @@ func TestCPPagination_ListActionTypes(t *testing.T) {
 	// Create 5 custom action types to paginate over.
 	for i := range 5 {
 		rec := doRequest(t, h, "CreateCustomActionType", map[string]any{
-			"category": "Build",
-			"provider": fmt.Sprintf("CustomProvider%02d", i),
-			"version":  "1",
+			"category":              "Build",
+			"provider":              fmt.Sprintf("CustomProvider%02d", i),
+			"version":               "1",
 			"inputArtifactDetails":  map[string]any{"minimumCount": 0, "maximumCount": 5},
 			"outputArtifactDetails": map[string]any{"minimumCount": 0, "maximumCount": 5},
 		})
@@ -349,7 +349,7 @@ func TestCPPagination_ListActionTypes(t *testing.T) {
 	}
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
 
-	assert.Equal(t, 5, len(out.ActionTypes))
+	assert.Len(t, out.ActionTypes, 5)
 	assert.Empty(t, out.NextToken, "5 items fit within the 25-cap default page")
 }
 
@@ -361,9 +361,9 @@ func TestCPPagination_ListActionTypes_MultiPage(t *testing.T) {
 	// Create 30 custom action types to exceed the fixed cap of 25.
 	for i := range 30 {
 		rec := doRequest(t, h, "CreateCustomActionType", map[string]any{
-			"category": "Build",
-			"provider": fmt.Sprintf("Provider%03d", i),
-			"version":  "1",
+			"category":              "Build",
+			"provider":              fmt.Sprintf("Provider%03d", i),
+			"version":               "1",
 			"inputArtifactDetails":  map[string]any{"minimumCount": 0, "maximumCount": 5},
 			"outputArtifactDetails": map[string]any{"minimumCount": 0, "maximumCount": 5},
 		})

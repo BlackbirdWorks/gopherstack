@@ -153,7 +153,10 @@ func (b *InMemoryBackend) ListDocumentMetadataHistory(
 
 // PutInventory stores inventory items for an instance.
 // It fails if InstanceId is empty AND Items are provided.
-func (b *InMemoryBackend) PutInventory(ctx context.Context, input *PutInventoryInput) (*StubOutput, error) {
+func (b *InMemoryBackend) PutInventory(
+	ctx context.Context,
+	input *PutInventoryInput,
+) (*StubOutput, error) {
 	if input.InstanceID == "" && len(input.Items) > 0 {
 		return nil, fmt.Errorf("%w: InstanceId is required", ErrValidationException)
 	}
@@ -190,7 +193,10 @@ func (b *InMemoryBackend) PutInventory(ctx context.Context, input *PutInventoryI
 }
 
 // GetInventory returns stored inventory entities across all instances.
-func (b *InMemoryBackend) GetInventory(ctx context.Context, input *GetInventoryInput) (*GetInventoryOutput, error) {
+func (b *InMemoryBackend) GetInventory(
+	ctx context.Context,
+	input *GetInventoryInput,
+) (*GetInventoryOutput, error) {
 	region := getRegion(ctx)
 	b.mu.RLock("GetInventory")
 	defer b.mu.RUnlock()
@@ -222,7 +228,11 @@ func (b *InMemoryBackend) GetInventory(ctx context.Context, input *GetInventoryI
 	maxResults := int64(defaultMaxResults)
 	if input.MaxResults != nil {
 		if *input.MaxResults < 1 || *input.MaxResults > defaultMaxResults {
-			return nil, fmt.Errorf("%w: MaxResults must be between 1 and %d", ErrValidationException, defaultMaxResults)
+			return nil, fmt.Errorf(
+				"%w: MaxResults must be between 1 and %d",
+				ErrValidationException,
+				defaultMaxResults,
+			)
 		}
 
 		maxResults = *input.MaxResults
@@ -298,7 +308,11 @@ func (b *InMemoryBackend) ListInventoryEntries(
 
 	if input.MaxResults != nil {
 		if *input.MaxResults < 1 || *input.MaxResults > maxInventoryEntries {
-			return nil, fmt.Errorf("%w: MaxResults must be between 1 and %d", ErrValidationException, maxInventoryEntries)
+			return nil, fmt.Errorf(
+				"%w: MaxResults must be between 1 and %d",
+				ErrValidationException,
+				maxInventoryEntries,
+			)
 		}
 	}
 
@@ -363,7 +377,10 @@ func (b *InMemoryBackend) ListInventoryEntries(
 }
 
 // DeleteInventory removes all inventory for the given TypeName across all instances.
-func (b *InMemoryBackend) DeleteInventory(ctx context.Context, input *DeleteInventoryInput) (*StubOutput, error) {
+func (b *InMemoryBackend) DeleteInventory(
+	ctx context.Context,
+	input *DeleteInventoryInput,
+) (*StubOutput, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("DeleteInventory")
 	defer b.mu.Unlock()
@@ -404,7 +421,10 @@ func (b *InMemoryBackend) DescribeInventoryDeletions(
 
 // PutComplianceItems stores compliance items for a resource.
 // It fails if ResourceID is empty AND Items are provided.
-func (b *InMemoryBackend) PutComplianceItems(ctx context.Context, input *PutComplianceItemsInput) (*StubOutput, error) {
+func (b *InMemoryBackend) PutComplianceItems(
+	ctx context.Context,
+	input *PutComplianceItemsInput,
+) (*StubOutput, error) {
 	if input.ResourceID == "" && len(input.Items) > 0 {
 		return nil, fmt.Errorf("%w: ResourceId is required", ErrValidationException)
 	}
@@ -469,7 +489,11 @@ func (b *InMemoryBackend) ListComplianceItems(
 
 	if input.MaxResults != nil {
 		if *input.MaxResults < 1 || *input.MaxResults > maxComplianceItems {
-			return nil, fmt.Errorf("%w: MaxResults must be between 1 and %d", ErrValidationException, maxComplianceItems)
+			return nil, fmt.Errorf(
+				"%w: MaxResults must be between 1 and %d",
+				ErrValidationException,
+				maxComplianceItems,
+			)
 		}
 	}
 
@@ -550,7 +574,11 @@ func (b *InMemoryBackend) ListComplianceSummaries(
 
 	if input.MaxResults != nil {
 		if *input.MaxResults < 1 || *input.MaxResults > maxComplianceSummaries {
-			return nil, fmt.Errorf("%w: MaxResults must be between 1 and %d", ErrValidationException, maxComplianceSummaries)
+			return nil, fmt.Errorf(
+				"%w: MaxResults must be between 1 and %d",
+				ErrValidationException,
+				maxComplianceSummaries,
+			)
 		}
 	}
 
@@ -575,7 +603,10 @@ func (b *InMemoryBackend) ListComplianceSummaries(
 		end = len(summaries)
 	}
 
-	return &ListComplianceSummariesOutput{NextToken: nextToken, ComplianceSummaryItems: summaries[startIdx:end]}, nil
+	return &ListComplianceSummariesOutput{
+		NextToken:              nextToken,
+		ComplianceSummaryItems: summaries[startIdx:end],
+	}, nil
 }
 
 // ListResourceComplianceSummaries returns per-resource compliance summaries
@@ -631,7 +662,11 @@ func (b *InMemoryBackend) ListResourceComplianceSummaries(
 
 	if input.MaxResults != nil {
 		if *input.MaxResults < 1 || *input.MaxResults > maxResourceComplianceSummaries {
-			return nil, fmt.Errorf("%w: MaxResults must be between 1 and %d", ErrValidationException, maxResourceComplianceSummaries)
+			return nil, fmt.Errorf(
+				"%w: MaxResults must be between 1 and %d",
+				ErrValidationException,
+				maxResourceComplianceSummaries,
+			)
 		}
 	}
 
@@ -656,7 +691,10 @@ func (b *InMemoryBackend) ListResourceComplianceSummaries(
 		end = len(summaries)
 	}
 
-	return &ListResourceComplianceSummariesOutput{NextToken: nextToken, ResourceComplianceSummaryItems: summaries[startIdx:end]}, nil
+	return &ListResourceComplianceSummariesOutput{
+		NextToken:                      nextToken,
+		ResourceComplianceSummaryItems: summaries[startIdx:end],
+	}, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -708,7 +746,11 @@ func (b *InMemoryBackend) GetPatchBaselineForPatchGroup(
 
 	id, ok := b.patchGroupToBaselineStore(region)[input.PatchGroup]
 	if !ok {
-		return nil, fmt.Errorf("%w: patch group %q not found", ErrPatchBaselineNotFound, input.PatchGroup)
+		return nil, fmt.Errorf(
+			"%w: patch group %q not found",
+			ErrPatchBaselineNotFound,
+			input.PatchGroup,
+		)
 	}
 
 	return &GetPatchBaselineForPatchBaselineOutput{
@@ -733,7 +775,11 @@ func (b *InMemoryBackend) RegisterDefaultPatchBaseline(
 	defer b.mu.Unlock()
 
 	if _, exists := b.patchBaselinesStore(region)[input.BaselineID]; !exists {
-		return nil, fmt.Errorf("%w: baseline %q not found", ErrPatchBaselineNotFound, input.BaselineID)
+		return nil, fmt.Errorf(
+			"%w: baseline %q not found",
+			ErrPatchBaselineNotFound,
+			input.BaselineID,
+		)
 	}
 
 	store := b.patchGroupToBaselineStore(region)
@@ -812,7 +858,11 @@ func (b *InMemoryBackend) DescribePatchGroups(
 	maxResults := int64(defaultPatchGroupsMaxResults)
 	if input.MaxResults != nil {
 		if *input.MaxResults < 1 || *input.MaxResults > maxPatchGroupsMaxResults {
-			return nil, fmt.Errorf("%w: MaxResults must be between 1 and %d", ErrValidationException, maxPatchGroupsMaxResults)
+			return nil, fmt.Errorf(
+				"%w: MaxResults must be between 1 and %d",
+				ErrValidationException,
+				maxPatchGroupsMaxResults,
+			)
 		}
 
 		maxResults = *input.MaxResults
@@ -866,7 +916,11 @@ func (b *InMemoryBackend) DescribeEffectivePatchesForPatchBaseline(
 	defer b.mu.RUnlock()
 
 	if _, exists := b.patchBaselinesStore(region)[input.BaselineID]; !exists {
-		return nil, fmt.Errorf("%w: baseline %q not found", ErrPatchBaselineNotFound, input.BaselineID)
+		return nil, fmt.Errorf(
+			"%w: baseline %q not found",
+			ErrPatchBaselineNotFound,
+			input.BaselineID,
+		)
 	}
 
 	return &DescribeEffectivePatchesForPatchBaselineOutput{
@@ -954,7 +1008,8 @@ func (b *InMemoryBackend) DescribeMaintenanceWindowsForTarget(
 			continue
 		}
 
-		if len(input.Targets) == 0 || windowTargetMatchesFilters(windowTarget.Targets, input.Targets) {
+		if len(input.Targets) == 0 ||
+			windowTargetMatchesFilters(windowTarget.Targets, input.Targets) {
 			matchedWindowIDs[windowTarget.WindowID] = struct{}{}
 		}
 	}
@@ -982,7 +1037,11 @@ func (b *InMemoryBackend) DescribeMaintenanceWindowsForTarget(
 
 	if input.MaxResults != nil {
 		if *input.MaxResults < 1 || *input.MaxResults > maxMWTargetMaxResults {
-			return nil, fmt.Errorf("%w: MaxResults must be between 1 and %d", ErrValidationException, maxMWTargetMaxResults)
+			return nil, fmt.Errorf(
+				"%w: MaxResults must be between 1 and %d",
+				ErrValidationException,
+				maxMWTargetMaxResults,
+			)
 		}
 	}
 
@@ -994,7 +1053,9 @@ func (b *InMemoryBackend) DescribeMaintenanceWindowsForTarget(
 	}
 
 	if startIdx >= len(identities) {
-		return &DescribeMaintenanceWindowsForTargetOutput{WindowIdentities: []MaintenanceWindowIdentity{}}, nil
+		return &DescribeMaintenanceWindowsForTargetOutput{
+			WindowIdentities: []MaintenanceWindowIdentity{},
+		}, nil
 	}
 
 	end := startIdx + int(limit)
@@ -1149,7 +1210,10 @@ func (b *InMemoryBackend) UpdateMaintenanceWindowTask(
 // ---------------------------------------------------------------------------
 
 // DeleteOpsItem removes an OpsItem by ID.
-func (b *InMemoryBackend) DeleteOpsItem(ctx context.Context, input *DeleteOpsItemInput) (*StubOutput, error) {
+func (b *InMemoryBackend) DeleteOpsItem(
+	ctx context.Context,
+	input *DeleteOpsItemInput,
+) (*StubOutput, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("DeleteOpsItem")
 	defer b.mu.Unlock()
@@ -1226,7 +1290,11 @@ func (b *InMemoryBackend) ListOpsItemRelatedItems(
 
 	if input.MaxResults != nil {
 		if *input.MaxResults < 1 || *input.MaxResults > maxOpsItemRelatedItems {
-			return nil, fmt.Errorf("%w: MaxResults must be between 1 and %d", ErrValidationException, maxOpsItemRelatedItems)
+			return nil, fmt.Errorf(
+				"%w: MaxResults must be between 1 and %d",
+				ErrValidationException,
+				maxOpsItemRelatedItems,
+			)
 		}
 	}
 
@@ -1282,7 +1350,11 @@ func (b *InMemoryBackend) ListOpsItemEvents(
 
 	if input.MaxResults != nil {
 		if *input.MaxResults < 1 || *input.MaxResults > maxOpsItemEvents {
-			return nil, fmt.Errorf("%w: MaxResults must be between 1 and %d", ErrValidationException, maxOpsItemEvents)
+			return nil, fmt.Errorf(
+				"%w: MaxResults must be between 1 and %d",
+				ErrValidationException,
+				maxOpsItemEvents,
+			)
 		}
 	}
 
@@ -1311,7 +1383,10 @@ func (b *InMemoryBackend) ListOpsItemEvents(
 }
 
 // DeleteOpsMetadata removes OpsMetadata by ARN.
-func (b *InMemoryBackend) DeleteOpsMetadata(ctx context.Context, input *DeleteOpsMetadataInput) (*StubOutput, error) {
+func (b *InMemoryBackend) DeleteOpsMetadata(
+	ctx context.Context,
+	input *DeleteOpsMetadataInput,
+) (*StubOutput, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("DeleteOpsMetadata")
 	defer b.mu.Unlock()

@@ -72,11 +72,18 @@ const maxParamNameLength = 2048
 // validateParameterName returns a ValidationException error when the name is invalid.
 func validateParameterName(name string) error {
 	if len(name) > maxParamNameLength {
-		return fmt.Errorf("%w: parameter name exceeds maximum length of %d", ErrValidationException, maxParamNameLength)
+		return fmt.Errorf(
+			"%w: parameter name exceeds maximum length of %d",
+			ErrValidationException,
+			maxParamNameLength,
+		)
 	}
 
 	if strings.Contains(name, "//") {
-		return fmt.Errorf("%w: parameter name must not contain double slashes", ErrValidationException)
+		return fmt.Errorf(
+			"%w: parameter name must not contain double slashes",
+			ErrValidationException,
+		)
 	}
 
 	lower := strings.ToLower(strings.TrimPrefix(name, "/"))
@@ -374,7 +381,9 @@ func (b *InMemoryBackend) maintenanceWindowsStore(region string) map[string]Main
 	return b.maintenanceWindows[region]
 }
 
-func (b *InMemoryBackend) maintenanceWindowTargetsStore(region string) map[string]MaintenanceWindowTarget {
+func (b *InMemoryBackend) maintenanceWindowTargetsStore(
+	region string,
+) map[string]MaintenanceWindowTarget {
 	if b.maintenanceWindowTargets[region] == nil {
 		b.maintenanceWindowTargets[region] = make(map[string]MaintenanceWindowTarget)
 	}
@@ -382,7 +391,9 @@ func (b *InMemoryBackend) maintenanceWindowTargetsStore(region string) map[strin
 	return b.maintenanceWindowTargets[region]
 }
 
-func (b *InMemoryBackend) maintenanceWindowTasksStore(region string) map[string]MaintenanceWindowTask {
+func (b *InMemoryBackend) maintenanceWindowTasksStore(
+	region string,
+) map[string]MaintenanceWindowTask {
 	if b.maintenanceWindowTasks[region] == nil {
 		b.maintenanceWindowTasks[region] = make(map[string]MaintenanceWindowTask)
 	}
@@ -633,7 +644,10 @@ func resolveTier(tier, value string) (string, error) {
 	return tier, nil
 }
 
-func (b *InMemoryBackend) PutParameter(ctx context.Context, input *PutParameterInput) (*PutParameterOutput, error) {
+func (b *InMemoryBackend) PutParameter(
+	ctx context.Context,
+	input *PutParameterInput,
+) (*PutParameterOutput, error) {
 	if err := validateParameterName(input.Name); err != nil {
 		return nil, err
 	}
@@ -724,7 +738,10 @@ func (b *InMemoryBackend) PutParameter(ctx context.Context, input *PutParameterI
 }
 
 // GetParameter retrieves a single parameter.
-func (b *InMemoryBackend) GetParameter(ctx context.Context, input *GetParameterInput) (*GetParameterOutput, error) {
+func (b *InMemoryBackend) GetParameter(
+	ctx context.Context,
+	input *GetParameterInput,
+) (*GetParameterOutput, error) {
 	region := getRegion(ctx)
 
 	b.mu.RLock("GetParameter")
@@ -749,7 +766,10 @@ func (b *InMemoryBackend) GetParameter(ctx context.Context, input *GetParameterI
 }
 
 // GetParameters retrieves multiple parameters. Missing names are returned as InvalidParameters.
-func (b *InMemoryBackend) GetParameters(ctx context.Context, input *GetParametersInput) (*GetParametersOutput, error) {
+func (b *InMemoryBackend) GetParameters(
+	ctx context.Context,
+	input *GetParametersInput,
+) (*GetParametersOutput, error) {
 	region := getRegion(ctx)
 
 	b.mu.RLock("GetParameters")
@@ -865,7 +885,11 @@ func (b *InMemoryBackend) GetParameterHistory(
 	maxResults := int64(maxHistoryResults)
 	if input.MaxResults != nil {
 		if *input.MaxResults < 1 || *input.MaxResults > maxHistoryResults {
-			return nil, fmt.Errorf("%w: MaxResults must be between 1 and %d", ErrValidationException, maxHistoryResults)
+			return nil, fmt.Errorf(
+				"%w: MaxResults must be between 1 and %d",
+				ErrValidationException,
+				maxHistoryResults,
+			)
 		}
 
 		maxResults = *input.MaxResults
@@ -993,7 +1017,8 @@ func (b *InMemoryBackend) GetParametersByPath(
 			continue
 		}
 
-		if len(input.ParameterFilters) > 0 && !paramByPathMatchesFilters(param, input.ParameterFilters) {
+		if len(input.ParameterFilters) > 0 &&
+			!paramByPathMatchesFilters(param, input.ParameterFilters) {
 			continue
 		}
 
@@ -1009,7 +1034,11 @@ func (b *InMemoryBackend) GetParametersByPath(
 	maxResults := int64(defaultPathMaxResults)
 	if input.MaxResults != nil {
 		if *input.MaxResults < 1 || *input.MaxResults > defaultPathMaxResults {
-			return nil, fmt.Errorf("%w: MaxResults must be between 1 and %d", ErrValidationException, defaultPathMaxResults)
+			return nil, fmt.Errorf(
+				"%w: MaxResults must be between 1 and %d",
+				ErrValidationException,
+				defaultPathMaxResults,
+			)
 		}
 
 		maxResults = *input.MaxResults
@@ -1100,7 +1129,11 @@ func (b *InMemoryBackend) DescribeParameters(
 	maxResults := int64(defaultDescribeMaxResults)
 	if input.MaxResults != nil {
 		if *input.MaxResults < 1 || *input.MaxResults > defaultDescribeMaxResults {
-			return nil, fmt.Errorf("%w: MaxResults must be between 1 and %d", ErrValidationException, defaultDescribeMaxResults)
+			return nil, fmt.Errorf(
+				"%w: MaxResults must be between 1 and %d",
+				ErrValidationException,
+				defaultDescribeMaxResults,
+			)
 		}
 
 		maxResults = *input.MaxResults
@@ -1198,7 +1231,10 @@ func paramMatchesFilter(meta ParameterMetadata, f ParameterFilter) bool {
 }
 
 // AddTagsToResource adds or updates tags for a resource.
-func (b *InMemoryBackend) AddTagsToResource(ctx context.Context, input *AddTagsToResourceInput) error {
+func (b *InMemoryBackend) AddTagsToResource(
+	ctx context.Context,
+	input *AddTagsToResourceInput,
+) error {
 	region := getRegion(ctx)
 
 	if input.ResourceType == resourceTypeParameter || input.ResourceType == "" {
@@ -1236,7 +1272,10 @@ func (b *InMemoryBackend) AddTagsToResource(ctx context.Context, input *AddTagsT
 }
 
 // RemoveTagsFromResource removes tags from a resource.
-func (b *InMemoryBackend) RemoveTagsFromResource(ctx context.Context, input *RemoveTagsFromResourceInput) error {
+func (b *InMemoryBackend) RemoveTagsFromResource(
+	ctx context.Context,
+	input *RemoveTagsFromResourceInput,
+) error {
 	region := getRegion(ctx)
 
 	if input.ResourceType == resourceTypeParameter || input.ResourceType == "" {
@@ -1433,7 +1472,10 @@ func (b *InMemoryBackend) CreateDocument(
 }
 
 // GetDocument retrieves a document's content.
-func (b *InMemoryBackend) GetDocument(ctx context.Context, input *GetDocumentInput) (*GetDocumentOutput, error) {
+func (b *InMemoryBackend) GetDocument(
+	ctx context.Context,
+	input *GetDocumentInput,
+) (*GetDocumentOutput, error) {
 	region := getRegion(ctx)
 	b.mu.RLock("GetDocument")
 	defer b.mu.RUnlock()
@@ -1446,7 +1488,8 @@ func (b *InMemoryBackend) GetDocument(ctx context.Context, input *GetDocumentInp
 	content := doc.Content
 	version := doc.DocumentVersion
 
-	if input.DocumentVersion != "" && input.DocumentVersion != "$LATEST" && input.DocumentVersion != "$DEFAULT" {
+	if input.DocumentVersion != "" && input.DocumentVersion != "$LATEST" &&
+		input.DocumentVersion != "$DEFAULT" {
 		versions := b.documentVersionsStore(region)[input.Name]
 		found := false
 		for _, v := range versions {
@@ -1514,7 +1557,10 @@ func (b *InMemoryBackend) DescribeDocument(
 }
 
 // ListDocuments returns a list of document identifiers filtered by key-value criteria.
-func (b *InMemoryBackend) ListDocuments(ctx context.Context, input *ListDocumentsInput) (*ListDocumentsOutput, error) {
+func (b *InMemoryBackend) ListDocuments(
+	ctx context.Context,
+	input *ListDocumentsInput,
+) (*ListDocumentsOutput, error) {
 	region := getRegion(ctx)
 	b.mu.RLock("ListDocuments")
 	defer b.mu.RUnlock()
@@ -1747,7 +1793,10 @@ func (b *InMemoryBackend) ListDocumentVersions(
 }
 
 // SendCommand records a command stub and returns a generated command ID.
-func (b *InMemoryBackend) SendCommand(ctx context.Context, input *SendCommandInput) (*SendCommandOutput, error) {
+func (b *InMemoryBackend) SendCommand(
+	ctx context.Context,
+	input *SendCommandInput,
+) (*SendCommandOutput, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("SendCommand")
 	defer b.mu.Unlock()
@@ -1806,7 +1855,10 @@ func (b *InMemoryBackend) SendCommand(ctx context.Context, input *SendCommandInp
 }
 
 // ListCommands returns recorded commands.
-func (b *InMemoryBackend) ListCommands(ctx context.Context, input *ListCommandsInput) (*ListCommandsOutput, error) {
+func (b *InMemoryBackend) ListCommands(
+	ctx context.Context,
+	input *ListCommandsInput,
+) (*ListCommandsOutput, error) {
 	region := getRegion(ctx)
 	b.mu.RLock("ListCommands")
 	defer b.mu.RUnlock()
@@ -2039,7 +2091,10 @@ func generateCode(n int) string {
 }
 
 // CancelCommand cancels a running command (sets status to Cancelled).
-func (b *InMemoryBackend) CancelCommand(ctx context.Context, input *CancelCommandInput) (*CancelCommandOutput, error) {
+func (b *InMemoryBackend) CancelCommand(
+	ctx context.Context,
+	input *CancelCommandInput,
+) (*CancelCommandOutput, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("CancelCommand")
 	defer b.mu.Unlock()
@@ -2261,7 +2316,10 @@ func (b *InMemoryBackend) CreateMaintenanceWindow(
 		maxWindowDuration = int32(24)
 	)
 	if input.Duration < minWindowDuration || input.Duration > maxWindowDuration {
-		return nil, fmt.Errorf("%w: Duration must be between 1 and 24 hours", ErrValidationException)
+		return nil, fmt.Errorf(
+			"%w: Duration must be between 1 and 24 hours",
+			ErrValidationException,
+		)
 	}
 	if input.Cutoff >= input.Duration {
 		return nil, fmt.Errorf("%w: Cutoff must be less than Duration", ErrValidationException)
@@ -2303,7 +2361,10 @@ func (b *InMemoryBackend) CreateMaintenanceWindow(
 }
 
 // CreateOpsItem creates a new OpsItem.
-func (b *InMemoryBackend) CreateOpsItem(ctx context.Context, input *CreateOpsItemInput) (*CreateOpsItemOutput, error) {
+func (b *InMemoryBackend) CreateOpsItem(
+	ctx context.Context,
+	input *CreateOpsItemInput,
+) (*CreateOpsItemOutput, error) {
 	if input.Title == "" {
 		return nil, fmt.Errorf("%w: Title is required", ErrValidationException)
 	}

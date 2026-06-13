@@ -12,7 +12,11 @@ import (
 )
 
 // ptr64 returns a pointer to the given int64.
-func ptr64(v int64) *int64 { return &v }
+func ptr64(v int64) *int64 {
+	p := new(int64)
+	*p = v
+	return p
+}
 
 // ---------------------------------------------------------------------------
 // GetParameterHistory — bounds (1-50) + multi-page
@@ -24,12 +28,12 @@ func TestSSMBounds_GetParameterHistory(t *testing.T) {
 	_, b := newTestHandler(t)
 	ctx := context.Background()
 
-	_, err := b.PutParameter(ctx, &ssm.PutParameterInput{Name: "/hist/p", Value: "v1", Type: "String"})
-	require.NoError(t, err)
+	_, putErr := b.PutParameter(ctx, &ssm.PutParameterInput{Name: "/hist/p", Value: "v1", Type: "String"})
+	require.NoError(t, putErr)
 
 	tests := []struct {
-		name       string
 		maxResults *int64
+		name       string
 		wantError  bool
 	}{
 		{"nil uses default", nil, false},
@@ -50,7 +54,7 @@ func TestSSMBounds_GetParameterHistory(t *testing.T) {
 			})
 
 			if tc.wantError {
-				assert.Error(t, err)
+				require.Error(t, err)
 				assert.Nil(t, out)
 			} else {
 				require.NoError(t, err)
@@ -66,17 +70,17 @@ func TestSSMPagination_GetParameterHistory(t *testing.T) {
 	_, b := newTestHandler(t)
 	ctx := context.Background()
 
-	_, err := b.PutParameter(ctx, &ssm.PutParameterInput{Name: "/hist/multi", Value: "v1", Type: "String"})
-	require.NoError(t, err)
+	_, putErr := b.PutParameter(ctx, &ssm.PutParameterInput{Name: "/hist/multi", Value: "v1", Type: "String"})
+	require.NoError(t, putErr)
 
 	for i := 2; i <= 5; i++ {
-		_, err = b.PutParameter(ctx, &ssm.PutParameterInput{
+		_, putErr = b.PutParameter(ctx, &ssm.PutParameterInput{
 			Name:      "/hist/multi",
 			Value:     fmt.Sprintf("v%d", i),
 			Type:      "String",
 			Overwrite: true,
 		})
-		require.NoError(t, err)
+		require.NoError(t, putErr)
 	}
 
 	maxR := ptr64(2)
@@ -115,12 +119,12 @@ func TestSSMBounds_GetParametersByPath(t *testing.T) {
 	_, b := newTestHandler(t)
 	ctx := context.Background()
 
-	_, err := b.PutParameter(ctx, &ssm.PutParameterInput{Name: "/path/a", Value: "v", Type: "String"})
-	require.NoError(t, err)
+	_, putErr := b.PutParameter(ctx, &ssm.PutParameterInput{Name: "/path/a", Value: "v", Type: "String"})
+	require.NoError(t, putErr)
 
 	tests := []struct {
-		name       string
 		maxResults *int64
+		name       string
 		wantError  bool
 	}{
 		{"nil uses default 10", nil, false},
@@ -205,8 +209,8 @@ func TestSSMBounds_DescribeParameters(t *testing.T) {
 	require.NoError(t, err)
 
 	tests := []struct {
-		name       string
 		maxResults *int64
+		name       string
 		wantError  bool
 	}{
 		{"nil uses default", nil, false},
@@ -285,8 +289,8 @@ func TestSSMBounds_GetInventory(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
-		name       string
 		maxResults *int64
+		name       string
 		wantError  bool
 	}{
 		{"nil uses default", nil, false},
@@ -371,8 +375,8 @@ func TestSSMBounds_ListInventoryEntries(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
-		name       string
 		maxResults *int64
+		name       string
 		wantError  bool
 	}{
 		{"nil uses default", nil, false},
@@ -468,8 +472,8 @@ func TestSSMBounds_ListComplianceItems(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
-		name       string
 		maxResults *int64
+		name       string
 		wantError  bool
 	}{
 		{"nil uses default", nil, false},
@@ -574,8 +578,8 @@ func TestSSMBounds_ListComplianceSummaries(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
-		name       string
 		maxResults *int64
+		name       string
 		wantError  bool
 	}{
 		{"nil uses default", nil, false},
@@ -659,8 +663,8 @@ func TestSSMBounds_ListResourceComplianceSummaries(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
-		name       string
 		maxResults *int64
+		name       string
 		wantError  bool
 	}{
 		{"nil uses default", nil, false},
@@ -743,8 +747,8 @@ func TestSSMBounds_DescribePatchGroups(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
-		name       string
 		maxResults *int64
+		name       string
 		wantError  bool
 	}{
 		{"nil uses default", nil, false},
@@ -783,8 +787,8 @@ func TestSSMBounds_DescribeMaintenanceWindowsForTarget(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
-		name       string
 		maxResults *int64
+		name       string
 		wantError  bool
 	}{
 		{"nil uses default", nil, false},
@@ -824,8 +828,8 @@ func TestSSMBounds_ListOpsItemRelatedItems(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
-		name       string
 		maxResults *int64
+		name       string
 		wantError  bool
 	}{
 		{"nil uses default", nil, false},
@@ -864,8 +868,8 @@ func TestSSMBounds_ListOpsItemEvents(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
-		name       string
 		maxResults *int64
+		name       string
 		wantError  bool
 	}{
 		{"nil uses default", nil, false},

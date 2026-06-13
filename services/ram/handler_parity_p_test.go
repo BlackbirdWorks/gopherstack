@@ -100,7 +100,7 @@ func TestRAMPagination_GetResourceShares(t *testing.T) {
 
 			type respBody struct {
 				NextToken      string        `json:"nextToken"`
-				ResourceShares []interface{} `json:"resourceShares"`
+				ResourceShares []any `json:"resourceShares"`
 			}
 
 			nextToken := ""
@@ -170,9 +170,9 @@ func TestRAMPagination_ListPermissions(t *testing.T) {
 			wantPages:  ram.BuiltInPermissionCount + 2, // each page has 1 item
 		},
 		{
-			name:      "maxResults=101 returns error",
-			extra:     0,
-			wantError: true,
+			name:       "maxResults=101 returns error",
+			extra:      0,
+			wantError:  true,
 			maxResults: ptr32(101),
 		},
 	}
@@ -196,7 +196,7 @@ func TestRAMPagination_ListPermissions(t *testing.T) {
 
 			type respBody struct {
 				NextToken   string        `json:"nextToken"`
-				Permissions []interface{} `json:"permissions"`
+				Permissions []any `json:"permissions"`
 			}
 
 			nextToken := ""
@@ -272,7 +272,7 @@ func TestRAMPagination_GetResourceShareAssociations(t *testing.T) {
 			shareARNs := makeNShares(t, b, 3)
 
 			for _, shareARN := range shareARNs {
-				body := map[string]interface{}{
+				body := map[string]any{
 					"resourceShareArn": shareARN,
 					"principals":       []string{"000000000000"},
 				}
@@ -288,7 +288,7 @@ func TestRAMPagination_GetResourceShareAssociations(t *testing.T) {
 
 			type respBody struct {
 				NextToken                 string        `json:"nextToken"`
-				ResourceShareAssociations []interface{} `json:"resourceShareAssociations"`
+				ResourceShareAssociations []any `json:"resourceShareAssociations"`
 			}
 
 			nextToken := ""
@@ -344,7 +344,7 @@ func TestRAMPagination_ListResources(t *testing.T) {
 
 	for i := range 5 {
 		resourceARN := fmt.Sprintf("arn:aws:ec2:us-east-1:000000000000:subnet/subnet-%d", i)
-		body := map[string]interface{}{
+		body := map[string]any{
 			"resourceShareArn": shareARN,
 			"resourceArns":     []string{resourceARN},
 		}
@@ -360,7 +360,7 @@ func TestRAMPagination_ListResources(t *testing.T) {
 
 	type respBody struct {
 		NextToken string        `json:"nextToken"`
-		Resources []interface{} `json:"resources"`
+		Resources []any `json:"resources"`
 	}
 
 	tests := []struct {
@@ -371,21 +371,21 @@ func TestRAMPagination_ListResources(t *testing.T) {
 		wantError  bool
 	}{
 		{
-			name:      "maxResults=2 paginates 5 resources into 3 pages",
+			name:       "maxResults=2 paginates 5 resources into 3 pages",
 			maxResults: ptr32(2),
-			wantTotal: 5,
-			wantPages: 3,
+			wantTotal:  5,
+			wantPages:  3,
 		},
 		{
-			name:      "maxResults=5 returns all in one page",
+			name:       "maxResults=5 returns all in one page",
 			maxResults: ptr32(5),
-			wantTotal: 5,
-			wantPages: 1,
+			wantTotal:  5,
+			wantPages:  1,
 		},
 		{
-			name:      "maxResults=101 returns error",
+			name:       "maxResults=101 returns error",
 			maxResults: ptr32(101),
-			wantError: true,
+			wantError:  true,
 		},
 	}
 
@@ -444,7 +444,7 @@ func TestRAMPagination_ListPrincipals(t *testing.T) {
 	h := ram.NewHandler(b)
 
 	// Create a share with AllowExternalPrincipals so we can associate different external principals.
-	createRec := doRAMRequest(t, h, "/createresourceshare", map[string]interface{}{
+	createRec := doRAMRequest(t, h, "/createresourceshare", map[string]any{
 		"name":                    "principal-share",
 		"allowExternalPrincipals": true,
 	})
@@ -462,7 +462,7 @@ func TestRAMPagination_ListPrincipals(t *testing.T) {
 	// Associate 4 different external account IDs as principals.
 	for i := range 4 {
 		principal := fmt.Sprintf("%012d", 111111111111+i)
-		body := map[string]interface{}{
+		body := map[string]any{
 			"resourceShareArn": shareARN,
 			"principals":       []string{principal},
 		}
@@ -478,21 +478,21 @@ func TestRAMPagination_ListPrincipals(t *testing.T) {
 		wantError  bool
 	}{
 		{
-			name:      "maxResults=2 paginates 4 principals into 2 pages",
+			name:       "maxResults=2 paginates 4 principals into 2 pages",
 			maxResults: ptr32(2),
-			wantTotal: 4,
-			wantPages: 2,
+			wantTotal:  4,
+			wantPages:  2,
 		},
 		{
-			name:      "maxResults=4 returns all in one page",
+			name:       "maxResults=4 returns all in one page",
 			maxResults: ptr32(4),
-			wantTotal: 4,
-			wantPages: 1,
+			wantTotal:  4,
+			wantPages:  1,
 		},
 		{
-			name:      "maxResults=-1 returns error",
+			name:       "maxResults=-1 returns error",
 			maxResults: ptr32(-1),
-			wantError: true,
+			wantError:  true,
 		},
 	}
 
@@ -504,7 +504,7 @@ func TestRAMPagination_ListPrincipals(t *testing.T) {
 
 	type respBody struct {
 		NextToken  string        `json:"nextToken"`
-		Principals []interface{} `json:"principals"`
+		Principals []any `json:"principals"`
 	}
 
 	for _, tc := range tests {
@@ -569,7 +569,7 @@ func TestRAMPagination_ListResourceSharePermissions(t *testing.T) {
 		permARN := fmt.Sprintf("arn:aws:ram::aws:permission/custom-%d", i)
 		ram.AddPermissionInternal(b, ram.NewTestPermission(permARN, fmt.Sprintf("Custom%d", i), "ec2:Subnet"))
 
-		body := map[string]interface{}{
+		body := map[string]any{
 			"resourceShareArn": shareARN,
 			"permissionArn":    permARN,
 		}
@@ -584,19 +584,19 @@ func TestRAMPagination_ListResourceSharePermissions(t *testing.T) {
 		minPages   int
 	}{
 		{
-			name:      "maxResults=1 paginates",
+			name:       "maxResults=1 paginates",
 			maxResults: ptr32(1),
-			minPages:  2,
+			minPages:   2,
 		},
 		{
-			name:      "no maxResults returns all",
+			name:       "no maxResults returns all",
 			maxResults: nil,
-			minPages:  1,
+			minPages:   1,
 		},
 		{
-			name:      "maxResults=101 returns error",
+			name:       "maxResults=101 returns error",
 			maxResults: ptr32(101),
-			wantError: true,
+			wantError:  true,
 		},
 	}
 
@@ -608,7 +608,7 @@ func TestRAMPagination_ListResourceSharePermissions(t *testing.T) {
 
 	type respBody struct {
 		NextToken   string        `json:"nextToken"`
-		Permissions []interface{} `json:"permissions"`
+		Permissions []any `json:"permissions"`
 	}
 
 	for _, tc := range tests {
@@ -677,21 +677,21 @@ func TestRAMPagination_GetResourceShareInvitations(t *testing.T) {
 		wantError  bool
 	}{
 		{
-			name:      "maxResults=2 paginates 5 invitations",
+			name:       "maxResults=2 paginates 5 invitations",
 			maxResults: ptr32(2),
-			wantTotal: 5,
-			wantPages: 3,
+			wantTotal:  5,
+			wantPages:  3,
 		},
 		{
-			name:      "maxResults=5 returns all in one page",
+			name:       "maxResults=5 returns all in one page",
 			maxResults: ptr32(5),
-			wantTotal: 5,
-			wantPages: 1,
+			wantTotal:  5,
+			wantPages:  1,
 		},
 		{
-			name:      "maxResults=0 returns error",
+			name:       "maxResults=0 returns error",
 			maxResults: ptr32(0),
-			wantError: true,
+			wantError:  true,
 		},
 	}
 
@@ -702,7 +702,7 @@ func TestRAMPagination_GetResourceShareInvitations(t *testing.T) {
 
 	type respBody struct {
 		NextToken                string        `json:"nextToken"`
-		ResourceShareInvitations []interface{} `json:"resourceShareInvitations"`
+		ResourceShareInvitations []any `json:"resourceShareInvitations"`
 	}
 
 	for _, tc := range tests {
@@ -760,7 +760,7 @@ func TestRAMPagination_ListPermissionVersions(t *testing.T) {
 	// Create 3 more versions via CreatePermissionVersion.
 	for i := range 3 {
 		_ = i
-		body := map[string]interface{}{
+		body := map[string]any{
 			"permissionArn":  permARN,
 			"policyTemplate": `{"Effect":"Allow","Action":["ec2:DescribeSubnets"]}`,
 		}
@@ -775,19 +775,19 @@ func TestRAMPagination_ListPermissionVersions(t *testing.T) {
 		wantError  bool
 	}{
 		{
-			name:      "maxResults=1 paginates all versions",
+			name:       "maxResults=1 paginates all versions",
 			maxResults: ptr32(1),
-			wantMin:  2,
+			wantMin:    2,
 		},
 		{
-			name:      "maxResults=100 returns all in one page",
+			name:       "maxResults=100 returns all in one page",
 			maxResults: ptr32(100),
-			wantMin:  1,
+			wantMin:    1,
 		},
 		{
-			name:      "maxResults=0 returns error",
+			name:       "maxResults=0 returns error",
 			maxResults: ptr32(0),
-			wantError: true,
+			wantError:  true,
 		},
 	}
 
@@ -799,7 +799,7 @@ func TestRAMPagination_ListPermissionVersions(t *testing.T) {
 
 	type respBody struct {
 		NextToken   string        `json:"nextToken"`
-		Permissions []interface{} `json:"permissions"`
+		Permissions []any `json:"permissions"`
 	}
 
 	for _, tc := range tests {
@@ -861,7 +861,7 @@ func TestRAMPagination_ListPermissionAssociations(t *testing.T) {
 		shareARN := fmt.Sprintf("arn:aws:ram:us-east-1:000000000000:resource-share/assoc-share-%d", i)
 		ram.AddResourceShareInternal(b, ram.NewTestResourceShare(shareARN, fmt.Sprintf("assoc-share-%d", i)))
 
-		body := map[string]interface{}{
+		body := map[string]any{
 			"resourceShareArn": shareARN,
 			"permissionArn":    permARN,
 		}
@@ -877,21 +877,21 @@ func TestRAMPagination_ListPermissionAssociations(t *testing.T) {
 		wantError  bool
 	}{
 		{
-			name:      "maxResults=2 paginates 4 associations",
+			name:       "maxResults=2 paginates 4 associations",
 			maxResults: ptr32(2),
-			wantTotal: 4,
-			wantPages: 2,
+			wantTotal:  4,
+			wantPages:  2,
 		},
 		{
-			name:      "maxResults=4 returns all in one page",
+			name:       "maxResults=4 returns all in one page",
 			maxResults: ptr32(4),
-			wantTotal: 4,
-			wantPages: 1,
+			wantTotal:  4,
+			wantPages:  1,
 		},
 		{
-			name:      "maxResults=101 returns error",
+			name:       "maxResults=101 returns error",
 			maxResults: ptr32(101),
-			wantError: true,
+			wantError:  true,
 		},
 	}
 
@@ -903,7 +903,7 @@ func TestRAMPagination_ListPermissionAssociations(t *testing.T) {
 
 	type respBody struct {
 		NextToken   string        `json:"nextToken"`
-		Permissions []interface{} `json:"permissions"`
+		Permissions []any `json:"permissions"`
 	}
 
 	for _, tc := range tests {
@@ -983,7 +983,7 @@ func TestRAMPagination_PendingInvitationResources(t *testing.T) {
 
 	type respBody struct {
 		NextToken string        `json:"nextToken"`
-		Resources []interface{} `json:"resources"`
+		Resources []any `json:"resources"`
 	}
 
 	tests := []struct {
@@ -992,13 +992,13 @@ func TestRAMPagination_PendingInvitationResources(t *testing.T) {
 		wantError  bool
 	}{
 		{
-			name:      "maxResults=10 succeeds",
+			name:       "maxResults=10 succeeds",
 			maxResults: ptr32(10),
 		},
 		{
-			name:      "maxResults=0 returns error",
+			name:       "maxResults=0 returns error",
 			maxResults: ptr32(0),
-			wantError: true,
+			wantError:  true,
 		},
 	}
 
@@ -1046,18 +1046,18 @@ func TestRAMPagination_GetResourcePolicies(t *testing.T) {
 		wantError  bool
 	}{
 		{
-			name:      "maxResults=10 succeeds even with empty policies",
+			name:       "maxResults=10 succeeds even with empty policies",
 			maxResults: ptr32(10),
 		},
 		{
-			name:      "maxResults=101 returns error",
+			name:       "maxResults=101 returns error",
 			maxResults: ptr32(101),
-			wantError: true,
+			wantError:  true,
 		},
 		{
-			name:      "maxResults=0 returns error",
+			name:       "maxResults=0 returns error",
 			maxResults: ptr32(0),
-			wantError: true,
+			wantError:  true,
 		},
 	}
 
@@ -1094,7 +1094,11 @@ func TestRAMPagination_GetResourcePolicies(t *testing.T) {
 }
 
 // ptr32 is a helper to get a pointer to an int32 literal.
-func ptr32(v int32) *int32 { return &v }
+func ptr32(v int32) *int32 {
+	p := new(int32)
+	*p = v
+	return p
+}
 
 // Ensure time package is referenced (used indirectly via NewTestResourceShare).
 var _ = time.Now

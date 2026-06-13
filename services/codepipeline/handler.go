@@ -28,6 +28,13 @@ const (
 	// keyJobID is the JSON key for job IDs.
 	keyJobID               = "id"
 	transitionTypeOutbound = "Outbound"
+
+	// maxResultsCap* constants define the per-operation pagination caps.
+	maxResultsCapPipelineExecutions int32 = 100
+	maxResultsCapWebhooks           int32 = 60
+	maxResultsCapActionExecutions   int32 = 100
+	maxResultsCapRuleExecutions     int32 = 100
+	maxResultsCapActionTypes        int32 = 25
 )
 
 var (
@@ -1116,7 +1123,7 @@ func (h *Handler) handleListPipelineExecutions(
 		}
 	}
 
-	page, nextToken, err := cpPaginate(items, in.NextToken, in.MaxResults, 100)
+	page, nextToken, err := cpPaginate(items, in.NextToken, in.MaxResults, maxResultsCapPipelineExecutions)
 	if err != nil {
 		return nil, err
 	}
@@ -1309,7 +1316,7 @@ func (h *Handler) handleListWebhooks(
 		}
 	}
 
-	page, nextToken, err := cpPaginate(entries, in.NextToken, in.MaxResults, 60)
+	page, nextToken, err := cpPaginate(entries, in.NextToken, in.MaxResults, maxResultsCapWebhooks)
 	if err != nil {
 		return nil, err
 	}
@@ -1650,7 +1657,7 @@ func (h *Handler) handleListActionExecutions(
 		return nil, err
 	}
 
-	page, nextToken, pErr := cpPaginate(items, in.NextToken, in.MaxResults, 100)
+	page, nextToken, pErr := cpPaginate(items, in.NextToken, in.MaxResults, maxResultsCapActionExecutions)
 	if pErr != nil {
 		return nil, pErr
 	}
@@ -1714,7 +1721,7 @@ func (h *Handler) handleListActionTypes(
 		items = append(items, item)
 	}
 
-	page, nextToken, err := cpPaginate(items, in.NextToken, 0, 25)
+	page, nextToken, err := cpPaginate(items, in.NextToken, 0, maxResultsCapActionTypes)
 	if err != nil {
 		return nil, err
 	}
@@ -1801,7 +1808,7 @@ func (h *Handler) handleListRuleExecutions(
 		return nil, err
 	}
 
-	page, nextToken, pErr := cpPaginate(items, in.NextToken, in.MaxResults, 100)
+	page, nextToken, pErr := cpPaginate(items, in.NextToken, in.MaxResults, maxResultsCapRuleExecutions)
 	if pErr != nil {
 		return nil, pErr
 	}
