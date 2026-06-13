@@ -30,7 +30,11 @@ func isPresignedRequest(r *http.Request) bool {
 // structurally well-formed and has not yet expired.
 // It writes the appropriate S3 error response and returns false if validation
 // fails. Returns true when the request may proceed normally.
-func (h *S3Handler) validatePresignedRequest(ctx context.Context, w http.ResponseWriter, r *http.Request) bool {
+func (h *S3Handler) validatePresignedRequest(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+) bool {
 	q := r.URL.Query()
 
 	// Verify all required query parameters are present and non-empty.
@@ -41,7 +45,8 @@ func (h *S3Handler) validatePresignedRequest(ctx context.Context, w http.Respons
 	signedHeaders := q.Get("X-Amz-SignedHeaders")
 	signature := q.Get("X-Amz-Signature")
 
-	if algorithm == "" || credential == "" || dateStr == "" || expiresStr == "" || signedHeaders == "" ||
+	if algorithm == "" || credential == "" || dateStr == "" || expiresStr == "" ||
+		signedHeaders == "" ||
 		signature == "" {
 		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
 			Code: errAuthQueryParams,

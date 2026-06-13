@@ -82,7 +82,10 @@ func TestBatch2_GetBucketLocation_NonDefaultRegion_HasConstraint(t *testing.T) {
 	_ = backend // backend available for future assertions
 
 	req2 := httptest.NewRequest(http.MethodGet, "/"+bucket+"?location", nil)
-	req2.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential=AKID/20240101/eu-west-1/s3/aws4_request")
+	req2.Header.Set(
+		"Authorization",
+		"AWS4-HMAC-SHA256 Credential=AKID/20240101/eu-west-1/s3/aws4_request",
+	)
 	rec2 := httptest.NewRecorder()
 	serveS3Handler(handler, rec2, req2)
 

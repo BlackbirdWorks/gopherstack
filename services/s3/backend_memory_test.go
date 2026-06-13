@@ -56,7 +56,10 @@ func TestCreateBucket(t *testing.T) {
 			setup: func(t *testing.T, b *s3.InMemoryBackend) {
 				t.Helper()
 				mustCreateBucket(t, b, "my-bucket")
-				_, err := b.DeleteBucket(t.Context(), &sdk_s3.DeleteBucketInput{Bucket: aws.String("my-bucket")})
+				_, err := b.DeleteBucket(
+					t.Context(),
+					&sdk_s3.DeleteBucketInput{Bucket: aws.String("my-bucket")},
+				)
 				require.NoError(t, err)
 			},
 			wantErr:   s3.ErrBucketAlreadyOwnedByYou,
@@ -241,7 +244,11 @@ func TestListBuckets(t *testing.T) {
 				gotNames[i] = aws.ToString(b.Name)
 			}
 
-			assert.Empty(t, cmp.Diff(tt.wantBuckets, gotNames, cmpopts.EquateEmpty()), "bucket names mismatch")
+			assert.Empty(
+				t,
+				cmp.Diff(tt.wantBuckets, gotNames, cmpopts.EquateEmpty()),
+				"bucket names mismatch",
+			)
 		})
 	}
 }
@@ -745,7 +752,11 @@ func TestObjectTagging(t *testing.T) {
 				func(i, j int) bool { return *wantSorted[i].Key < *wantSorted[j].Key },
 			)
 
-			assert.Empty(t, cmp.Diff(wantSorted, gotTags, cmpopts.IgnoreUnexported(types.Tag{})), "tag set mismatch")
+			assert.Empty(
+				t,
+				cmp.Diff(wantSorted, gotTags, cmpopts.IgnoreUnexported(types.Tag{})),
+				"tag set mismatch",
+			)
 		})
 	}
 }
@@ -978,7 +989,12 @@ func TestCreateBucket_GlobalUniqueness(t *testing.T) {
 	_, err := backend.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{
 		Bucket: aws.String("unique-bucket"),
 	})
-	require.ErrorIs(t, err, s3.ErrBucketAlreadyOwnedByYou, "same bucket name should be rejected globally")
+	require.ErrorIs(
+		t,
+		err,
+		s3.ErrBucketAlreadyOwnedByYou,
+		"same bucket name should be rejected globally",
+	)
 }
 
 func TestPutObject_ContentEncodingDisposition(t *testing.T) {
@@ -1104,7 +1120,11 @@ func TestCreateBucket_NonDefaultRegion_PutObjectSucceeds(t *testing.T) {
 		Key:    aws.String("hello.txt"),
 		Body:   bytes.NewReader([]byte("hello")),
 	})
-	require.NoError(t, err, "PutObject must succeed even when bucket was created with a non-default LocationConstraint")
+	require.NoError(
+		t,
+		err,
+		"PutObject must succeed even when bucket was created with a non-default LocationConstraint",
+	)
 
 	out, err := backend.GetObject(t.Context(), &sdk_s3.GetObjectInput{
 		Bucket: aws.String("west-bucket"),
@@ -1364,7 +1384,11 @@ func TestPutBucketEncryption_NotFound(t *testing.T) {
 	t.Parallel()
 
 	backend := newTestBackend(t)
-	err := backend.PutBucketEncryption(t.Context(), "nonexistent-bucket", "<ServerSideEncryptionConfiguration/>")
+	err := backend.PutBucketEncryption(
+		t.Context(),
+		"nonexistent-bucket",
+		"<ServerSideEncryptionConfiguration/>",
+	)
 	assert.ErrorIs(t, err, s3.ErrNoSuchBucket)
 }
 
@@ -1515,10 +1539,13 @@ func TestCompressionMinBytes_CompleteMultipartUpload(t *testing.T) {
 			mustCreateBucket(t, backend, "bkt")
 
 			// Start multipart upload
-			createOut, err := backend.CreateMultipartUpload(t.Context(), &sdk_s3.CreateMultipartUploadInput{
-				Bucket: aws.String("bkt"),
-				Key:    aws.String("key"),
-			})
+			createOut, err := backend.CreateMultipartUpload(
+				t.Context(),
+				&sdk_s3.CreateMultipartUploadInput{
+					Bucket: aws.String("bkt"),
+					Key:    aws.String("key"),
+				},
+			)
 			require.NoError(t, err)
 			uploadID := createOut.UploadId
 
@@ -1542,15 +1569,18 @@ func TestCompressionMinBytes_CompleteMultipartUpload(t *testing.T) {
 			require.NoError(t, err)
 
 			// Complete
-			_, err = backend.CompleteMultipartUpload(t.Context(), &sdk_s3.CompleteMultipartUploadInput{
-				Bucket:   aws.String("bkt"),
-				Key:      aws.String("key"),
-				UploadId: uploadID,
-				MultipartUpload: &types.CompletedMultipartUpload{Parts: []types.CompletedPart{
-					{PartNumber: aws.Int32(1), ETag: p1.ETag},
-					{PartNumber: aws.Int32(2), ETag: p2.ETag},
-				}},
-			})
+			_, err = backend.CompleteMultipartUpload(
+				t.Context(),
+				&sdk_s3.CompleteMultipartUploadInput{
+					Bucket:   aws.String("bkt"),
+					Key:      aws.String("key"),
+					UploadId: uploadID,
+					MultipartUpload: &types.CompletedMultipartUpload{Parts: []types.CompletedPart{
+						{PartNumber: aws.Int32(1), ETag: p1.ETag},
+						{PartNumber: aws.Int32(2), ETag: p2.ETag},
+					}},
+				},
+			)
 			require.NoError(t, err)
 
 			assert.Equal(
@@ -1703,7 +1733,12 @@ func TestInMemoryBackend_IntelligentTieringConfig(t *testing.T) {
 			ctx := t.Context()
 
 			if tt.configXML != "" {
-				err := b.PutBucketIntelligentTieringConfiguration(ctx, tt.bucket, tt.id, tt.configXML)
+				err := b.PutBucketIntelligentTieringConfiguration(
+					ctx,
+					tt.bucket,
+					tt.id,
+					tt.configXML,
+				)
 				require.NoError(t, err)
 			}
 

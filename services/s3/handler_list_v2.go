@@ -114,7 +114,10 @@ func (h *S3Handler) renderListObjectsV2Response(
 	)
 	// Add common prefixes from backend (if any)
 	for _, cp := range commonPrefixes {
-		resp.CommonPrefixes = append(resp.CommonPrefixes, CommonPrefixXML{Prefix: aws.ToString(cp.Prefix)})
+		resp.CommonPrefixes = append(
+			resp.CommonPrefixes,
+			CommonPrefixXML{Prefix: aws.ToString(cp.Prefix)},
+		)
 	}
 	resp.KeyCount = len(resp.Contents) + len(resp.CommonPrefixes)
 

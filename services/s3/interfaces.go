@@ -133,8 +133,17 @@ type StorageBackend interface {
 		bucket, key string,
 		versionID *string,
 	) (mode string, retainUntil time.Time, err error)
-	PutObjectLegalHold(ctx context.Context, bucket, key string, versionID *string, status string) error
-	GetObjectLegalHold(ctx context.Context, bucket, key string, versionID *string) (status string, err error)
+	PutObjectLegalHold(
+		ctx context.Context,
+		bucket, key string,
+		versionID *string,
+		status string,
+	) error
+	GetObjectLegalHold(
+		ctx context.Context,
+		bucket, key string,
+		versionID *string,
+	) (status string, err error)
 
 	// Multipart
 	CreateMultipartUpload(
@@ -172,7 +181,10 @@ type StorageBackend interface {
 	ListBucketAnalyticsConfigurations(ctx context.Context, bucket string) ([]string, error)
 
 	// Intelligent Tiering (supports multiple configs per bucket via id)
-	PutBucketIntelligentTieringConfiguration(ctx context.Context, bucket, id, configXML string) error
+	PutBucketIntelligentTieringConfiguration(
+		ctx context.Context,
+		bucket, id, configXML string,
+	) error
 	GetBucketIntelligentTieringConfiguration(ctx context.Context, bucket, id string) (string, error)
 	DeleteBucketIntelligentTieringConfiguration(ctx context.Context, bucket, id string) error
 	ListBucketIntelligentTieringConfigurations(ctx context.Context, bucket string) ([]string, error)
@@ -212,7 +224,10 @@ type StorageBackend interface {
 	GetBucketRequestPayment(ctx context.Context, bucket string) (string, error)
 
 	// GetObjectAttributes / RestoreObject / RenameObject
-	GetObjectAttributes(ctx context.Context, bucket, key, versionID string) (*ObjectAttributes, error)
+	GetObjectAttributes(
+		ctx context.Context,
+		bucket, key, versionID string,
+	) (*ObjectAttributes, error)
 	RestoreObject(ctx context.Context, bucket, key string, days int) error
 	RenameObject(ctx context.Context, bucket, sourceKey, targetKey string) error
 
