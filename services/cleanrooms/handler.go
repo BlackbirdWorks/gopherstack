@@ -42,6 +42,7 @@ const (
 	keyProtectedQuery             = "protectedQuery"
 	keyProtectedJob               = "protectedJob"
 	keyIDMappingTable             = "idMappingTable"
+	keyAnalysisRule               = "analysisRule"
 )
 
 // Path segment count constants (mnd).
@@ -389,6 +390,7 @@ func classifyCollaborations(method string, segs []string) (string, string) {
 	if len(segs) >= segsWithSub {
 		id := segs[1]
 		sub := segs[2]
+
 		return classifyCollaboration(method, id, sub, segs)
 	}
 
@@ -560,6 +562,7 @@ func classifyMemberships(method string, segs []string) (string, string) {
 	}
 	membershipID := segs[1]
 	sub := segs[2]
+
 	return classifyMembership(method, membershipID, sub, segs)
 }
 
@@ -859,440 +862,301 @@ func injectMembershipParams(segs []string, setStr func(string, string)) {
 
 // ---- dispatch ----
 
+// opHandlerFn is the unified type for operation handlers.
+type opHandlerFn func(ctx context.Context, body []byte, c *echo.Context) ([]byte, error)
+
+// buildOpHandlers returns a map from operation name to handler function.
+func (h *Handler) buildOpHandlers(c *echo.Context) map[string]opHandlerFn {
+	return map[string]opHandlerFn{
+		// Collaboration
+		opCreateCollaboration: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleCreateCollaboration(ctx, body)
+		},
+		opGetCollaboration: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleGetCollaboration(ctx, body)
+		},
+		opListCollaborations: func(ctx context.Context, _ []byte, ec *echo.Context) ([]byte, error) {
+			return h.handleListCollaborations(ctx, ec)
+		},
+		opUpdateCollaboration: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleUpdateCollaboration(ctx, body)
+		},
+		opDeleteCollaboration: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleDeleteCollaboration(ctx, body)
+		},
+		opListMembers: func(ctx context.Context, body []byte, ec *echo.Context) ([]byte, error) {
+			return h.handleListMembers(ctx, body, ec)
+		},
+		opDeleteMember: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleDeleteMember(ctx, body)
+		},
+		// Collaboration sub-resources
+		opGetCollaborationAnalysisTemplate: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleGetCollaborationAnalysisTemplate(ctx, body)
+		},
+		opListCollaborationAnalysisTemplates: func(ctx context.Context, body []byte, ec *echo.Context) ([]byte, error) {
+			return h.handleListCollaborationAnalysisTemplates(ctx, body, ec)
+		},
+		opBatchGetCollaborationAnalysisTemplate: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleBatchGetCollaborationAnalysisTemplate(ctx, body)
+		},
+		opBatchGetSchema: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleBatchGetSchema(ctx, body)
+		},
+		opBatchGetSchemaAnalysisRule: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleBatchGetSchemaAnalysisRule(ctx, body)
+		},
+		opGetSchema: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleGetSchema(ctx, body)
+		},
+		opListSchemas: func(ctx context.Context, body []byte, ec *echo.Context) ([]byte, error) {
+			return h.handleListSchemas(ctx, body, ec)
+		},
+		opGetSchemaAnalysisRule: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleGetSchemaAnalysisRule(ctx, body)
+		},
+		opCreateCollaborationChangeRequest: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleCreateCollaborationChangeRequest(ctx, body)
+		},
+		opGetCollaborationChangeRequest: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleGetCollaborationChangeRequest(ctx, body)
+		},
+		opListCollaborationChangeRequests: func(ctx context.Context, body []byte, ec *echo.Context) ([]byte, error) {
+			return h.handleListCollaborationChangeRequests(ctx, body, ec)
+		},
+		opUpdateCollaborationChangeRequest: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleUpdateCollaborationChangeRequest(ctx, body)
+		},
+		opGetCollaborationConfiguredAudienceModelAssociation: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleGetCollaborationConfiguredAudienceModelAssociation(ctx, body)
+		},
+		opListCollaborationConfiguredAudienceModelAssociations: func(ctx context.Context, body []byte, ec *echo.Context) ([]byte, error) {
+			return h.handleListCollaborationConfiguredAudienceModelAssociations(ctx, body, ec)
+		},
+		opGetCollaborationIDNamespaceAssociation: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleGetCollaborationIDNamespaceAssociation(ctx, body)
+		},
+		opListCollaborationIDNamespaceAssociations: func(ctx context.Context, body []byte, ec *echo.Context) ([]byte, error) {
+			return h.handleListCollaborationIDNamespaceAssociations(ctx, body, ec)
+		},
+		opGetCollaborationPrivacyBudgetTemplate: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleGetCollaborationPrivacyBudgetTemplate(ctx, body)
+		},
+		opListCollaborationPrivacyBudgetTemplates: func(ctx context.Context, body []byte, ec *echo.Context) ([]byte, error) {
+			return h.handleListCollaborationPrivacyBudgetTemplates(ctx, body, ec)
+		},
+		opListCollaborationPrivacyBudgets: func(ctx context.Context, body []byte, ec *echo.Context) ([]byte, error) {
+			return h.handleListCollaborationPrivacyBudgets(ctx, body, ec)
+		},
+		// Membership
+		opCreateMembership: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleCreateMembership(ctx, body)
+		},
+		opGetMembership: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleGetMembership(ctx, body)
+		},
+		opListMemberships: func(ctx context.Context, _ []byte, ec *echo.Context) ([]byte, error) {
+			return h.handleListMemberships(ctx, ec)
+		},
+		opUpdateMembership: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleUpdateMembership(ctx, body)
+		},
+		opDeleteMembership: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleDeleteMembership(ctx, body)
+		},
+		opCreateAnalysisTemplate: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleCreateAnalysisTemplate(ctx, body)
+		},
+		opGetAnalysisTemplate: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleGetAnalysisTemplate(ctx, body)
+		},
+		opListAnalysisTemplates: func(ctx context.Context, body []byte, ec *echo.Context) ([]byte, error) {
+			return h.handleListAnalysisTemplates(ctx, body, ec)
+		},
+		opUpdateAnalysisTemplate: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleUpdateAnalysisTemplate(ctx, body)
+		},
+		opDeleteAnalysisTemplate: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleDeleteAnalysisTemplate(ctx, body)
+		},
+		opStartProtectedQuery: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleStartProtectedQuery(ctx, body)
+		},
+		opGetProtectedQuery: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleGetProtectedQuery(ctx, body)
+		},
+		opListProtectedQueries: func(ctx context.Context, body []byte, ec *echo.Context) ([]byte, error) {
+			return h.handleListProtectedQueries(ctx, body, ec)
+		},
+		opUpdateProtectedQuery: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleUpdateProtectedQuery(ctx, body)
+		},
+		opStartProtectedJob: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleStartProtectedJob(ctx, body)
+		},
+		opGetProtectedJob: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleGetProtectedJob(ctx, body)
+		},
+		opListProtectedJobs: func(ctx context.Context, body []byte, ec *echo.Context) ([]byte, error) {
+			return h.handleListProtectedJobs(ctx, body, ec)
+		},
+		opUpdateProtectedJob: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleUpdateProtectedJob(ctx, body)
+		},
+		// ConfiguredTable
+		opCreateConfiguredTable: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleCreateConfiguredTable(ctx, body)
+		},
+		opGetConfiguredTable: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleGetConfiguredTable(ctx, body)
+		},
+		opListConfiguredTables: func(ctx context.Context, _ []byte, ec *echo.Context) ([]byte, error) {
+			return h.handleListConfiguredTables(ctx, ec)
+		},
+		opUpdateConfiguredTable: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleUpdateConfiguredTable(ctx, body)
+		},
+		opDeleteConfiguredTable: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleDeleteConfiguredTable(ctx, body)
+		},
+		opCreateConfiguredTableAnalysisRule: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleCreateConfiguredTableAnalysisRule(ctx, body)
+		},
+		opGetConfiguredTableAnalysisRule: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleGetConfiguredTableAnalysisRule(ctx, body)
+		},
+		opUpdateConfiguredTableAnalysisRule: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleUpdateConfiguredTableAnalysisRule(ctx, body)
+		},
+		opDeleteConfiguredTableAnalysisRule: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleDeleteConfiguredTableAnalysisRule(ctx, body)
+		},
+		opCreateConfiguredTableAssociation: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleCreateConfiguredTableAssociation(ctx, body)
+		},
+		opGetConfiguredTableAssociation: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleGetConfiguredTableAssociation(ctx, body)
+		},
+		opListConfiguredTableAssociations: func(ctx context.Context, body []byte, ec *echo.Context) ([]byte, error) {
+			return h.handleListConfiguredTableAssociations(ctx, body, ec)
+		},
+		opUpdateConfiguredTableAssociation: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleUpdateConfiguredTableAssociation(ctx, body)
+		},
+		opDeleteConfiguredTableAssociation: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleDeleteConfiguredTableAssociation(ctx, body)
+		},
+		opCreateConfiguredTableAssociationAnalysisRule: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleCreateConfiguredTableAssociationAnalysisRule(ctx, body)
+		},
+		opGetConfiguredTableAssociationAnalysisRule: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleGetConfiguredTableAssociationAnalysisRule(ctx, body)
+		},
+		opUpdateConfiguredTableAssociationAnalysisRule: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleUpdateConfiguredTableAssociationAnalysisRule(ctx, body)
+		},
+		opDeleteConfiguredTableAssociationAnalysisRule: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleDeleteConfiguredTableAssociationAnalysisRule(ctx, body)
+		},
+		// IDMappingTable
+		opCreateIDMappingTable: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleCreateIDMappingTable(ctx, body)
+		},
+		opGetIDMappingTable: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleGetIDMappingTable(ctx, body)
+		},
+		opListIDMappingTables: func(ctx context.Context, body []byte, ec *echo.Context) ([]byte, error) {
+			return h.handleListIDMappingTables(ctx, body, ec)
+		},
+		opUpdateIDMappingTable: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleUpdateIDMappingTable(ctx, body)
+		},
+		opDeleteIDMappingTable: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleDeleteIDMappingTable(ctx, body)
+		},
+		opPopulateIDMappingTable: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handlePopulateIDMappingTable(ctx, body)
+		},
+		// IDNamespaceAssociation
+		opCreateIDNamespaceAssociation: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleCreateIDNamespaceAssociation(ctx, body)
+		},
+		opGetIDNamespaceAssociation: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleGetIDNamespaceAssociation(ctx, body)
+		},
+		opListIDNamespaceAssociations: func(ctx context.Context, body []byte, ec *echo.Context) ([]byte, error) {
+			return h.handleListIDNamespaceAssociations(ctx, body, ec)
+		},
+		opUpdateIDNamespaceAssociation: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleUpdateIDNamespaceAssociation(ctx, body)
+		},
+		opDeleteIDNamespaceAssociation: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleDeleteIDNamespaceAssociation(ctx, body)
+		},
+		// ConfiguredAudienceModelAssociation
+		opCreateConfiguredAudienceModelAssociation: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleCreateConfiguredAudienceModelAssociation(ctx, body)
+		},
+		opGetConfiguredAudienceModelAssociation: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleGetConfiguredAudienceModelAssociation(ctx, body)
+		},
+		opListConfiguredAudienceModelAssociations: func(ctx context.Context, body []byte, ec *echo.Context) ([]byte, error) {
+			return h.handleListConfiguredAudienceModelAssociations(ctx, body, ec)
+		},
+		opUpdateConfiguredAudienceModelAssociation: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleUpdateConfiguredAudienceModelAssociation(ctx, body)
+		},
+		opDeleteConfiguredAudienceModelAssociation: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleDeleteConfiguredAudienceModelAssociation(ctx, body)
+		},
+		// PrivacyBudget
+		opCreatePrivacyBudgetTemplate: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleCreatePrivacyBudgetTemplate(ctx, body)
+		},
+		opGetPrivacyBudgetTemplate: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleGetPrivacyBudgetTemplate(ctx, body)
+		},
+		opListPrivacyBudgetTemplates: func(ctx context.Context, body []byte, ec *echo.Context) ([]byte, error) {
+			return h.handleListPrivacyBudgetTemplates(ctx, body, ec)
+		},
+		opUpdatePrivacyBudgetTemplate: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleUpdatePrivacyBudgetTemplate(ctx, body)
+		},
+		opDeletePrivacyBudgetTemplate: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleDeletePrivacyBudgetTemplate(ctx, body)
+		},
+		opListPrivacyBudgets: func(ctx context.Context, body []byte, ec *echo.Context) ([]byte, error) {
+			return h.handleListPrivacyBudgets(ctx, body, ec)
+		},
+		opPreviewPrivacyImpact: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handlePreviewPrivacyImpact(ctx, body)
+		},
+		// Tags
+		opListTagsForResource: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleListTagsForResource(ctx, body)
+		},
+		opTagResource: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+			return h.handleTagResource(ctx, body)
+		},
+		opUntagResource: func(ctx context.Context, body []byte, ec *echo.Context) ([]byte, error) {
+			return h.handleUntagResource(ctx, body, ec)
+		},
+	}
+}
+
 func (h *Handler) dispatch(
 	ctx context.Context,
 	op string,
 	body []byte,
 	c *echo.Context,
 ) ([]byte, error) {
-	if ok, result, err := h.dispatchCollaboration(ctx, op, body, c); ok {
-		return result, err
-	}
-	if ok, result, err := h.dispatchMembership(ctx, op, body, c); ok {
-		return result, err
-	}
-	if ok, result, err := h.dispatchConfiguredTable(ctx, op, body, c); ok {
-		return result, err
-	}
-	if ok, result, err := h.dispatchIDResources(ctx, op, body, c); ok {
-		return result, err
-	}
-	if ok, result, err := h.dispatchPrivacy(ctx, op, body, c); ok {
-		return result, err
-	}
-	// Tags
-	switch op {
-	case opListTagsForResource:
-		return h.handleListTagsForResource(ctx, body)
-	case opTagResource:
-		return h.handleTagResource(ctx, body)
-	case opUntagResource:
-		return h.handleUntagResource(ctx, body, c)
+	handlers := h.buildOpHandlers(c)
+	if fn, ok := handlers[op]; ok {
+		return fn(ctx, body, c)
 	}
 
 	return nil, errUnknownAction
 }
-
-// dispatchCollaboration handles Collaboration and collaboration sub-resource operations.
-func (h *Handler) dispatchCollaboration(
-	ctx context.Context,
-	op string,
-	body []byte,
-	c *echo.Context,
-) (bool, []byte, error) {
-	switch op {
-	case opCreateCollaboration:
-		r, e := h.handleCreateCollaboration(ctx, body)
-
-		return true, r, e
-	case opGetCollaboration:
-		r, e := h.handleGetCollaboration(ctx, body)
-
-		return true, r, e
-	case opListCollaborations:
-		r, e := h.handleListCollaborations(ctx, c)
-
-		return true, r, e
-	case opUpdateCollaboration:
-		r, e := h.handleUpdateCollaboration(ctx, body)
-
-		return true, r, e
-	case opDeleteCollaboration:
-		r, e := h.handleDeleteCollaboration(ctx, body)
-
-		return true, r, e
-	case opListMembers:
-		r, e := h.handleListMembers(ctx, body, c)
-
-		return true, r, e
-	case opDeleteMember:
-		r, e := h.handleDeleteMember(ctx, body)
-
-		return true, r, e
-	case opGetCollaborationAnalysisTemplate:
-		r, e := h.handleGetCollaborationAnalysisTemplate(ctx, body)
-
-		return true, r, e
-	case opListCollaborationAnalysisTemplates:
-		r, e := h.handleListCollaborationAnalysisTemplates(ctx, body, c)
-
-		return true, r, e
-	case opBatchGetCollaborationAnalysisTemplate:
-		r, e := h.handleBatchGetCollaborationAnalysisTemplate(ctx, body)
-
-		return true, r, e
-	case opBatchGetSchema:
-		r, e := h.handleBatchGetSchema(ctx, body)
-
-		return true, r, e
-	case opBatchGetSchemaAnalysisRule:
-		r, e := h.handleBatchGetSchemaAnalysisRule(ctx, body)
-
-		return true, r, e
-	case opGetSchema:
-		r, e := h.handleGetSchema(ctx, body)
-
-		return true, r, e
-	case opListSchemas:
-		r, e := h.handleListSchemas(ctx, body, c)
-
-		return true, r, e
-	case opGetSchemaAnalysisRule:
-		r, e := h.handleGetSchemaAnalysisRule(ctx, body)
-
-		return true, r, e
-	case opCreateCollaborationChangeRequest:
-		r, e := h.handleCreateCollaborationChangeRequest(ctx, body)
-
-		return true, r, e
-	case opGetCollaborationChangeRequest:
-		r, e := h.handleGetCollaborationChangeRequest(ctx, body)
-
-		return true, r, e
-	case opListCollaborationChangeRequests:
-		r, e := h.handleListCollaborationChangeRequests(ctx, body, c)
-
-		return true, r, e
-	case opUpdateCollaborationChangeRequest:
-		r, e := h.handleUpdateCollaborationChangeRequest(ctx, body)
-
-		return true, r, e
-	case opGetCollaborationConfiguredAudienceModelAssociation:
-		r, e := h.handleGetCollaborationConfiguredAudienceModelAssociation(ctx, body)
-
-		return true, r, e
-	case opListCollaborationConfiguredAudienceModelAssociations:
-		r, e := h.handleListCollaborationConfiguredAudienceModelAssociations(ctx, body, c)
-
-		return true, r, e
-	case opGetCollaborationIDNamespaceAssociation:
-		r, e := h.handleGetCollaborationIDNamespaceAssociation(ctx, body)
-
-		return true, r, e
-	case opListCollaborationIDNamespaceAssociations:
-		r, e := h.handleListCollaborationIDNamespaceAssociations(ctx, body, c)
-
-		return true, r, e
-	case opGetCollaborationPrivacyBudgetTemplate:
-		r, e := h.handleGetCollaborationPrivacyBudgetTemplate(ctx, body)
-
-		return true, r, e
-	case opListCollaborationPrivacyBudgetTemplates:
-		r, e := h.handleListCollaborationPrivacyBudgetTemplates(ctx, body, c)
-
-		return true, r, e
-	case opListCollaborationPrivacyBudgets:
-		r, e := h.handleListCollaborationPrivacyBudgets(ctx, body, c)
-
-		return true, r, e
-	}
-	return false, nil, nil
-}
-
-// dispatchMembership handles Membership and membership sub-resource operations.
-func (h *Handler) dispatchMembership(
-	ctx context.Context,
-	op string,
-	body []byte,
-	c *echo.Context,
-) (bool, []byte, error) {
-	switch op {
-	case opCreateMembership:
-		r, e := h.handleCreateMembership(ctx, body)
-
-		return true, r, e
-	case opGetMembership:
-		r, e := h.handleGetMembership(ctx, body)
-
-		return true, r, e
-	case opListMemberships:
-		r, e := h.handleListMemberships(ctx, c)
-
-		return true, r, e
-	case opUpdateMembership:
-		r, e := h.handleUpdateMembership(ctx, body)
-
-		return true, r, e
-	case opDeleteMembership:
-		r, e := h.handleDeleteMembership(ctx, body)
-
-		return true, r, e
-	case opCreateAnalysisTemplate:
-		r, e := h.handleCreateAnalysisTemplate(ctx, body)
-
-		return true, r, e
-	case opGetAnalysisTemplate:
-		r, e := h.handleGetAnalysisTemplate(ctx, body)
-
-		return true, r, e
-	case opListAnalysisTemplates:
-		r, e := h.handleListAnalysisTemplates(ctx, body, c)
-
-		return true, r, e
-	case opUpdateAnalysisTemplate:
-		r, e := h.handleUpdateAnalysisTemplate(ctx, body)
-
-		return true, r, e
-	case opDeleteAnalysisTemplate:
-		r, e := h.handleDeleteAnalysisTemplate(ctx, body)
-
-		return true, r, e
-	case opStartProtectedQuery:
-		r, e := h.handleStartProtectedQuery(ctx, body)
-
-		return true, r, e
-	case opGetProtectedQuery:
-		r, e := h.handleGetProtectedQuery(ctx, body)
-
-		return true, r, e
-	case opListProtectedQueries:
-		r, e := h.handleListProtectedQueries(ctx, body, c)
-
-		return true, r, e
-	case opUpdateProtectedQuery:
-		r, e := h.handleUpdateProtectedQuery(ctx, body)
-
-		return true, r, e
-	case opStartProtectedJob:
-		r, e := h.handleStartProtectedJob(ctx, body)
-
-		return true, r, e
-	case opGetProtectedJob:
-		r, e := h.handleGetProtectedJob(ctx, body)
-
-		return true, r, e
-	case opListProtectedJobs:
-		r, e := h.handleListProtectedJobs(ctx, body, c)
-
-		return true, r, e
-	case opUpdateProtectedJob:
-		r, e := h.handleUpdateProtectedJob(ctx, body)
-
-		return true, r, e
-	}
-	return false, nil, nil
-}
-
-// dispatchConfiguredTable handles ConfiguredTable and related operations.
-func (h *Handler) dispatchConfiguredTable(
-	ctx context.Context,
-	op string,
-	body []byte,
-	c *echo.Context,
-) (bool, []byte, error) {
-	switch op {
-	case opCreateConfiguredTable:
-		r, e := h.handleCreateConfiguredTable(ctx, body)
-
-		return true, r, e
-	case opGetConfiguredTable:
-		r, e := h.handleGetConfiguredTable(ctx, body)
-
-		return true, r, e
-	case opListConfiguredTables:
-		r, e := h.handleListConfiguredTables(ctx, c)
-
-		return true, r, e
-	case opUpdateConfiguredTable:
-		r, e := h.handleUpdateConfiguredTable(ctx, body)
-
-		return true, r, e
-	case opDeleteConfiguredTable:
-		r, e := h.handleDeleteConfiguredTable(ctx, body)
-
-		return true, r, e
-	case opCreateConfiguredTableAnalysisRule:
-		r, e := h.handleCreateConfiguredTableAnalysisRule(ctx, body)
-
-		return true, r, e
-	case opGetConfiguredTableAnalysisRule:
-		r, e := h.handleGetConfiguredTableAnalysisRule(ctx, body)
-
-		return true, r, e
-	case opUpdateConfiguredTableAnalysisRule:
-		r, e := h.handleUpdateConfiguredTableAnalysisRule(ctx, body)
-
-		return true, r, e
-	case opDeleteConfiguredTableAnalysisRule:
-		r, e := h.handleDeleteConfiguredTableAnalysisRule(ctx, body)
-
-		return true, r, e
-	case opCreateConfiguredTableAssociation:
-		r, e := h.handleCreateConfiguredTableAssociation(ctx, body)
-
-		return true, r, e
-	case opGetConfiguredTableAssociation:
-		r, e := h.handleGetConfiguredTableAssociation(ctx, body)
-
-		return true, r, e
-	case opListConfiguredTableAssociations:
-		r, e := h.handleListConfiguredTableAssociations(ctx, body, c)
-
-		return true, r, e
-	case opUpdateConfiguredTableAssociation:
-		r, e := h.handleUpdateConfiguredTableAssociation(ctx, body)
-
-		return true, r, e
-	case opDeleteConfiguredTableAssociation:
-		r, e := h.handleDeleteConfiguredTableAssociation(ctx, body)
-
-		return true, r, e
-	case opCreateConfiguredTableAssociationAnalysisRule:
-		r, e := h.handleCreateConfiguredTableAssociationAnalysisRule(ctx, body)
-
-		return true, r, e
-	case opGetConfiguredTableAssociationAnalysisRule:
-		r, e := h.handleGetConfiguredTableAssociationAnalysisRule(ctx, body)
-
-		return true, r, e
-	case opUpdateConfiguredTableAssociationAnalysisRule:
-		r, e := h.handleUpdateConfiguredTableAssociationAnalysisRule(ctx, body)
-
-		return true, r, e
-	case opDeleteConfiguredTableAssociationAnalysisRule:
-		r, e := h.handleDeleteConfiguredTableAssociationAnalysisRule(ctx, body)
-
-		return true, r, e
-	}
-	return false, nil, nil
-}
-
-// dispatchIDResources handles IDMappingTable, IDNamespaceAssociation, and CAMA operations.
-func (h *Handler) dispatchIDResources(
-	ctx context.Context,
-	op string,
-	body []byte,
-	c *echo.Context,
-) (bool, []byte, error) {
-	switch op {
-	case opCreateIDMappingTable:
-		r, e := h.handleCreateIDMappingTable(ctx, body)
-
-		return true, r, e
-	case opGetIDMappingTable:
-		r, e := h.handleGetIDMappingTable(ctx, body)
-
-		return true, r, e
-	case opListIDMappingTables:
-		r, e := h.handleListIDMappingTables(ctx, body, c)
-
-		return true, r, e
-	case opUpdateIDMappingTable:
-		r, e := h.handleUpdateIDMappingTable(ctx, body)
-
-		return true, r, e
-	case opDeleteIDMappingTable:
-		r, e := h.handleDeleteIDMappingTable(ctx, body)
-
-		return true, r, e
-	case opPopulateIDMappingTable:
-		r, e := h.handlePopulateIDMappingTable(ctx, body)
-
-		return true, r, e
-	case opCreateIDNamespaceAssociation:
-		r, e := h.handleCreateIDNamespaceAssociation(ctx, body)
-
-		return true, r, e
-	case opGetIDNamespaceAssociation:
-		r, e := h.handleGetIDNamespaceAssociation(ctx, body)
-
-		return true, r, e
-	case opListIDNamespaceAssociations:
-		r, e := h.handleListIDNamespaceAssociations(ctx, body, c)
-
-		return true, r, e
-	case opUpdateIDNamespaceAssociation:
-		r, e := h.handleUpdateIDNamespaceAssociation(ctx, body)
-
-		return true, r, e
-	case opDeleteIDNamespaceAssociation:
-		r, e := h.handleDeleteIDNamespaceAssociation(ctx, body)
-
-		return true, r, e
-	case opCreateConfiguredAudienceModelAssociation:
-		r, e := h.handleCreateConfiguredAudienceModelAssociation(ctx, body)
-
-		return true, r, e
-	case opGetConfiguredAudienceModelAssociation:
-		r, e := h.handleGetConfiguredAudienceModelAssociation(ctx, body)
-
-		return true, r, e
-	case opListConfiguredAudienceModelAssociations:
-		r, e := h.handleListConfiguredAudienceModelAssociations(ctx, body, c)
-
-		return true, r, e
-	case opUpdateConfiguredAudienceModelAssociation:
-		r, e := h.handleUpdateConfiguredAudienceModelAssociation(ctx, body)
-
-		return true, r, e
-	case opDeleteConfiguredAudienceModelAssociation:
-		r, e := h.handleDeleteConfiguredAudienceModelAssociation(ctx, body)
-
-		return true, r, e
-	}
-	return false, nil, nil
-}
-
-// dispatchPrivacy handles PrivacyBudgetTemplate and related operations.
-func (h *Handler) dispatchPrivacy(
-	ctx context.Context,
-	op string,
-	body []byte,
-	c *echo.Context,
-) (bool, []byte, error) {
-	switch op {
-	case opCreatePrivacyBudgetTemplate:
-		r, e := h.handleCreatePrivacyBudgetTemplate(ctx, body)
-
-		return true, r, e
-	case opGetPrivacyBudgetTemplate:
-		r, e := h.handleGetPrivacyBudgetTemplate(ctx, body)
-
-		return true, r, e
-	case opListPrivacyBudgetTemplates:
-		r, e := h.handleListPrivacyBudgetTemplates(ctx, body, c)
-
-		return true, r, e
-	case opUpdatePrivacyBudgetTemplate:
-		r, e := h.handleUpdatePrivacyBudgetTemplate(ctx, body)
-
-		return true, r, e
-	case opDeletePrivacyBudgetTemplate:
-		r, e := h.handleDeletePrivacyBudgetTemplate(ctx, body)
-
-		return true, r, e
-	case opListPrivacyBudgets:
-		r, e := h.handleListPrivacyBudgets(ctx, body, c)
-
-		return true, r, e
-	case opPreviewPrivacyImpact:
-		r, e := h.handlePreviewPrivacyImpact(ctx, body)
-
-		return true, r, e
-	}
-	return false, nil, nil
-}
-
 // ---- handler helpers ----
 
 func mustJSON(v any) []byte {
@@ -1515,7 +1379,7 @@ func (h *Handler) handleBatchGetSchemaAnalysisRule(_ context.Context, body []byt
 		} `json:"schemaAnalysisRuleRequests"`
 	}
 	_ = json.Unmarshal(body, &req)
-	var names []string
+	names := make([]string, 0, len(req.SchemaAnalysisRuleRequests))
 	var ruleType string
 	for _, r := range req.SchemaAnalysisRuleRequests {
 		names = append(names, r.Name)
@@ -1587,7 +1451,7 @@ func (h *Handler) handleGetSchemaAnalysisRule(_ context.Context, body []byte) ([
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{"analysisRule": r}), nil
+	return mustJSON(map[string]any{subAnalysisRule: r}), nil
 }
 
 func (h *Handler) handleCreateCollaborationChangeRequest(
@@ -2025,7 +1889,7 @@ func (h *Handler) handleCreateConfiguredTableAnalysisRule(
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{"analysisRule": r}), nil
+	return mustJSON(map[string]any{subAnalysisRule: r}), nil
 }
 
 func (h *Handler) handleGetConfiguredTableAnalysisRule(
@@ -2045,7 +1909,7 @@ func (h *Handler) handleGetConfiguredTableAnalysisRule(
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{"analysisRule": r}), nil
+	return mustJSON(map[string]any{subAnalysisRule: r}), nil
 }
 
 func (h *Handler) handleUpdateConfiguredTableAnalysisRule(
@@ -2067,7 +1931,7 @@ func (h *Handler) handleUpdateConfiguredTableAnalysisRule(
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{"analysisRule": r}), nil
+	return mustJSON(map[string]any{subAnalysisRule: r}), nil
 }
 
 func (h *Handler) handleDeleteConfiguredTableAnalysisRule(
@@ -2224,7 +2088,7 @@ func (h *Handler) handleCreateConfiguredTableAssociationAnalysisRule(
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{"analysisRule": r}), nil
+	return mustJSON(map[string]any{subAnalysisRule: r}), nil
 }
 
 func (h *Handler) handleGetConfiguredTableAssociationAnalysisRule(
@@ -2246,7 +2110,7 @@ func (h *Handler) handleGetConfiguredTableAssociationAnalysisRule(
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{"analysisRule": r}), nil
+	return mustJSON(map[string]any{subAnalysisRule: r}), nil
 }
 
 func (h *Handler) handleUpdateConfiguredTableAssociationAnalysisRule(
@@ -2270,7 +2134,7 @@ func (h *Handler) handleUpdateConfiguredTableAssociationAnalysisRule(
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{"analysisRule": r}), nil
+	return mustJSON(map[string]any{subAnalysisRule: r}), nil
 }
 
 func (h *Handler) handleDeleteConfiguredTableAssociationAnalysisRule(
