@@ -614,8 +614,16 @@ func TestOmics_RouteMatcher_TagPaths(t *testing.T) {
 		wantMatch bool
 	}{
 		{name: "omics_tag_path", path: "/tags/arn:aws:omics:us-east-1:000000000000:workflow/12345", wantMatch: true},
-		{name: "fis_tag_path", path: "/tags/arn:aws:fis:us-east-1:000000000000:experiment-template/EXTabcdef0123456", wantMatch: false},
-		{name: "fis_tag_path_nonexistent", path: "/tags/arn:aws:fis:us-east-1:000000000000:experiment-template/EXTdoesnotexist00000000", wantMatch: false},
+		{
+			name:      "fis_tag_path",
+			path:      "/tags/arn:aws:fis:us-east-1:000000000000:experiment-template/EXTabcdef0123456",
+			wantMatch: false,
+		},
+		{
+			name:      "fis_tag_path_nonexistent",
+			path:      "/tags/arn:aws:fis:us-east-1:000000000000:experiment-template/EXTdoesnotexist00000000",
+			wantMatch: false,
+		},
 		{name: "other_tag_path", path: "/tags/arn:aws:s3:::my-bucket", wantMatch: false},
 		{name: "tags_root", path: "/tags", wantMatch: false},
 		{name: "workflow_path", path: "/workflow", wantMatch: true},
