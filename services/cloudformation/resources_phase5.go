@@ -2,6 +2,7 @@ package cloudformation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -136,12 +137,22 @@ func (rc *ResourceCreator) createAPIGatewayAuthorizer(
 	auth, err := rc.backends.APIGateway.Backend.CreateAuthorizer(
 		restAPIID,
 		apigwbackend.CreateAuthorizerInput{
-			Name:                         name,
-			Type:                         authType,
-			AuthorizerURI:                strProp(props, "AuthorizerUri", params, physicalIDs),
-			AuthorizerCredentials:        strProp(props, "AuthorizerCredentials", params, physicalIDs),
-			IdentitySource:               strProp(props, "IdentitySource", params, physicalIDs),
-			IdentityValidationExpression: strProp(props, "IdentityValidationExpression", params, physicalIDs),
+			Name:          name,
+			Type:          authType,
+			AuthorizerURI: strProp(props, "AuthorizerUri", params, physicalIDs),
+			AuthorizerCredentials: strProp(
+				props,
+				"AuthorizerCredentials",
+				params,
+				physicalIDs,
+			),
+			IdentitySource: strProp(props, "IdentitySource", params, physicalIDs),
+			IdentityValidationExpression: strProp(
+				props,
+				"IdentityValidationExpression",
+				params,
+				physicalIDs,
+			),
 		},
 	)
 	if err != nil {
@@ -168,7 +179,7 @@ func (rc *ResourceCreator) deleteAPIGatewayAuthorizer(physicalID string) error {
 
 // ---- AWS::ApiGateway::ApiKey ----
 
-func (rc *ResourceCreator) createAPIGatewayApiKey(
+func (rc *ResourceCreator) createAPIGatewayAPIKey(
 	logicalID string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
@@ -200,7 +211,7 @@ func (rc *ResourceCreator) createAPIGatewayApiKey(
 	return key.ID, nil
 }
 
-func (rc *ResourceCreator) deleteAPIGatewayApiKey(physicalID string) error {
+func (rc *ResourceCreator) deleteAPIGatewayAPIKey(physicalID string) error {
 	if rc.backends.APIGateway == nil {
 		return nil
 	}
@@ -261,11 +272,13 @@ func (rc *ResourceCreator) createAPIGatewayUsagePlanKey(
 		keyType = "API_KEY"
 	}
 
-	upk, err := rc.backends.APIGateway.Backend.CreateUsagePlanKey(apigwbackend.CreateUsagePlanKeyInput{
-		UsagePlanID: usagePlanID,
-		KeyID:       keyID,
-		KeyType:     keyType,
-	})
+	upk, err := rc.backends.APIGateway.Backend.CreateUsagePlanKey(
+		apigwbackend.CreateUsagePlanKeyInput{
+			UsagePlanID: usagePlanID,
+			KeyID:       keyID,
+			KeyType:     keyType,
+		},
+	)
 	if err != nil {
 		return "", fmt.Errorf("create ApiGateway UsagePlanKey for plan %s: %w", usagePlanID, err)
 	}
@@ -340,12 +353,14 @@ func (rc *ResourceCreator) createAPIGatewayBasePathMapping(
 	restAPIID := strProp(props, "RestApiId", params, physicalIDs)
 	stage := strProp(props, "Stage", params, physicalIDs)
 
-	_, err := rc.backends.APIGateway.Backend.CreateBasePathMapping(apigwbackend.CreateBasePathMappingInput{
-		DomainName: domainName,
-		BasePath:   basePath,
-		RestAPIID:  restAPIID,
-		Stage:      stage,
-	})
+	_, err := rc.backends.APIGateway.Backend.CreateBasePathMapping(
+		apigwbackend.CreateBasePathMappingInput{
+			DomainName: domainName,
+			BasePath:   basePath,
+			RestAPIID:  restAPIID,
+			Stage:      stage,
+		},
+	)
 	if err != nil {
 		return "", fmt.Errorf("create ApiGateway BasePathMapping for %s: %w", domainName, err)
 	}
@@ -401,11 +416,13 @@ func (rc *ResourceCreator) createAPIGatewayGatewayResponse(
 	restAPIID := strProp(props, "RestApiId", params, physicalIDs)
 	responseType := strProp(props, "ResponseType", params, physicalIDs)
 
-	gr, err := rc.backends.APIGateway.Backend.PutGatewayResponse(apigwbackend.PutGatewayResponseInput{
-		RestAPIID:    restAPIID,
-		ResponseType: responseType,
-		StatusCode:   strProp(props, "StatusCode", params, physicalIDs),
-	})
+	gr, err := rc.backends.APIGateway.Backend.PutGatewayResponse(
+		apigwbackend.PutGatewayResponseInput{
+			RestAPIID:    restAPIID,
+			ResponseType: responseType,
+			StatusCode:   strProp(props, "StatusCode", params, physicalIDs),
+		},
+	)
 	if err != nil {
 		return "", fmt.Errorf("create ApiGateway GatewayResponse %s: %w", responseType, err)
 	}
@@ -444,9 +461,11 @@ func (rc *ResourceCreator) createAPIGatewayV2DomainName(
 		domainName = logicalID
 	}
 
-	dn, err := rc.backends.APIGatewayV2.Backend.CreateDomainName(apigatewayv2backend.CreateDomainNameInput{
-		DomainNameValue: domainName,
-	})
+	dn, err := rc.backends.APIGatewayV2.Backend.CreateDomainName(
+		apigatewayv2backend.CreateDomainNameInput{
+			DomainNameValue: domainName,
+		},
+	)
 	if err != nil {
 		return "", fmt.Errorf("create ApiGatewayV2 DomainName %s: %w", domainName, err)
 	}
@@ -509,7 +528,7 @@ func (rc *ResourceCreator) deleteAPIGatewayV2ApiMapping(physicalID string) error
 
 // ---- AWS::Events::ApiDestination ----
 
-func (rc *ResourceCreator) createEventBridgeApiDestination(
+func (rc *ResourceCreator) createEventBridgeAPIDestination(
 	logicalID string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
@@ -528,13 +547,16 @@ func (rc *ResourceCreator) createEventBridgeApiDestination(
 		httpMethod = "POST"
 	}
 
-	dst, err := rc.backends.EventBridge.Backend.CreateAPIDestination(context.Background(), ebbackend.CreateAPIDestinationInput{
-		Name:               name,
-		ConnectionArn:      strProp(props, "ConnectionArn", params, physicalIDs),
-		HTTPMethod:         httpMethod,
-		InvocationEndpoint: strProp(props, "InvocationEndpoint", params, physicalIDs),
-		Description:        strProp(props, "Description", params, physicalIDs),
-	})
+	dst, err := rc.backends.EventBridge.Backend.CreateAPIDestination(
+		context.Background(),
+		ebbackend.CreateAPIDestinationInput{
+			Name:               name,
+			ConnectionArn:      strProp(props, "ConnectionArn", params, physicalIDs),
+			HTTPMethod:         httpMethod,
+			InvocationEndpoint: strProp(props, "InvocationEndpoint", params, physicalIDs),
+			Description:        strProp(props, "Description", params, physicalIDs),
+		},
+	)
 	if err != nil {
 		return "", fmt.Errorf("create Events ApiDestination %s: %w", name, err)
 	}
@@ -542,7 +564,7 @@ func (rc *ResourceCreator) createEventBridgeApiDestination(
 	return dst.Name, nil
 }
 
-func (rc *ResourceCreator) deleteEventBridgeApiDestination(physicalID string) error {
+func (rc *ResourceCreator) deleteEventBridgeAPIDestination(physicalID string) error {
 	if rc.backends.EventBridge == nil {
 		return nil
 	}
@@ -585,7 +607,9 @@ func (rc *ResourceCreator) createEventBridgeEventBusPolicy(
 
 	policy := fmt.Sprintf(
 		`{"Version":"2012-10-17","Statement":[{"Sid":%q,"Effect":"Allow","Principal":{"AWS":%q},"Action":%q,"Resource":"*"}]}`,
-		statementID, principal, action,
+		statementID,
+		principal,
+		action,
 	)
 
 	if err := rc.backends.EventBridge.Backend.PutEventBusPolicy(context.Background(), ebbackend.PutEventBusPolicyInput{
@@ -613,10 +637,13 @@ func (rc *ResourceCreator) deleteEventBridgeEventBusPolicy(physicalID string) er
 	eventBusName := p[0]
 
 	// Replace the policy with an empty one to remove the statement.
-	return rc.backends.EventBridge.Backend.PutEventBusPolicy(context.Background(), ebbackend.PutEventBusPolicyInput{
-		EventBusName: eventBusName,
-		Policy:       `{"Version":"2012-10-17","Statement":[]}`,
-	})
+	return rc.backends.EventBridge.Backend.PutEventBusPolicy(
+		context.Background(),
+		ebbackend.PutEventBusPolicyInput{
+			EventBusName: eventBusName,
+			Policy:       `{"Version":"2012-10-17","Statement":[]}`,
+		},
+	)
 }
 
 // ---- AWS::KMS::ReplicaKey ----
@@ -636,11 +663,14 @@ func (rc *ResourceCreator) createKMSReplicaKey(
 		replicaRegion = rc.backends.Region
 	}
 
-	out, err := rc.backends.KMS.Backend.ReplicateKey(context.Background(), &kmsbackend.ReplicateKeyInput{
-		KeyID:         primaryKeyID,
-		ReplicaRegion: replicaRegion,
-		Description:   strProp(props, "Description", params, physicalIDs),
-	})
+	out, err := rc.backends.KMS.Backend.ReplicateKey(
+		context.Background(),
+		&kmsbackend.ReplicateKeyInput{
+			KeyID:         primaryKeyID,
+			ReplicaRegion: replicaRegion,
+			Description:   strProp(props, "Description", params, physicalIDs),
+		},
+	)
 	if err != nil {
 		return "", fmt.Errorf("create KMS ReplicaKey for %s: %w", primaryKeyID, err)
 	}
@@ -653,10 +683,13 @@ func (rc *ResourceCreator) deleteKMSReplicaKey(physicalID string) error {
 		return nil
 	}
 
-	_, err := rc.backends.KMS.Backend.ScheduleKeyDeletion(context.Background(), &kmsbackend.ScheduleKeyDeletionInput{
-		KeyID:               physicalID,
-		PendingWindowInDays: kmsMinDeletionWindowDays,
-	})
+	_, err := rc.backends.KMS.Backend.ScheduleKeyDeletion(
+		context.Background(),
+		&kmsbackend.ScheduleKeyDeletionInput{
+			KeyID:               physicalID,
+			PendingWindowInDays: kmsMinDeletionWindowDays,
+		},
+	)
 
 	return err
 }
@@ -715,11 +748,14 @@ func (rc *ResourceCreator) createCognitoIdentityPoolRoleAttachment(
 
 	var authenticatedARN, unauthenticatedARN string
 	if rolesRaw, ok := props["Roles"].(map[string]any); ok {
-		if v, ok := rolesRaw["authenticated"].(string); ok {
-			authenticatedARN = v
+		var authOK, unauthOK bool
+		authenticatedARN, authOK = rolesRaw["authenticated"].(string)
+		if !authOK {
+			authenticatedARN = ""
 		}
-		if v, ok := rolesRaw["unauthenticated"].(string); ok {
-			unauthenticatedARN = v
+		unauthenticatedARN, unauthOK = rolesRaw["unauthenticated"].(string)
+		if !unauthOK {
+			unauthenticatedARN = ""
 		}
 	}
 
@@ -798,7 +834,12 @@ func (rc *ResourceCreator) createCognitoUserPoolGroup(
 		precedence = int32(v)
 	}
 
-	_, err := rc.backends.CognitoIDP.Backend.CreateGroup(userPoolID, groupName, description, precedence)
+	_, err := rc.backends.CognitoIDP.Backend.CreateGroup(
+		userPoolID,
+		groupName,
+		description,
+		precedence,
+	)
 	if err != nil {
 		return "", fmt.Errorf("create Cognito UserPoolGroup %s: %w", groupName, err)
 	}
@@ -837,7 +878,12 @@ func (rc *ResourceCreator) createEC2VPCPeeringConnection(
 
 	pc, err := rc.backends.EC2.Backend.CreateVpcPeeringConnection(requesterVPCID, accepterVPCID)
 	if err != nil {
-		return "", fmt.Errorf("create EC2 VPCPeeringConnection %s<->%s: %w", requesterVPCID, accepterVPCID, err)
+		return "", fmt.Errorf(
+			"create EC2 VPCPeeringConnection %s<->%s: %w",
+			requesterVPCID,
+			accepterVPCID,
+			err,
+		)
 	}
 
 	return pc.VpcPeeringConnectionID, nil
@@ -853,7 +899,7 @@ func (rc *ResourceCreator) deleteEC2VPCPeeringConnection(physicalID string) erro
 
 // ---- AWS::EC2::NetworkAcl ----
 
-func (rc *ResourceCreator) createEC2NetworkAcl(
+func (rc *ResourceCreator) createEC2NetworkACL(
 	logicalID string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
@@ -872,7 +918,7 @@ func (rc *ResourceCreator) createEC2NetworkAcl(
 	return acl.ID, nil
 }
 
-func (rc *ResourceCreator) deleteEC2NetworkAcl(physicalID string) error {
+func (rc *ResourceCreator) deleteEC2NetworkACL(physicalID string) error {
 	if rc.backends.EC2 == nil {
 		return nil
 	}
@@ -882,7 +928,7 @@ func (rc *ResourceCreator) deleteEC2NetworkAcl(physicalID string) error {
 
 // ---- AWS::EC2::NetworkAclEntry ----
 
-func (rc *ResourceCreator) createEC2NetworkAclEntry(
+func (rc *ResourceCreator) createEC2NetworkACLEntry(
 	logicalID string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
@@ -918,12 +964,12 @@ func (rc *ResourceCreator) createEC2NetworkAclEntry(
 	fromPort := 0
 	toPort := 0
 
-	if pr, ok := props["PortRange"].(map[string]any); ok {
-		if v, ok := pr["From"].(float64); ok {
+	if pr, hasPR := props["PortRange"].(map[string]any); hasPR {
+		if v, hasFrom := pr["From"].(float64); hasFrom {
 			fromPort = int(v)
 		}
 
-		if v, ok := pr["To"].(float64); ok {
+		if v, hasTo := pr["To"].(float64); hasTo {
 			toPort = int(v)
 		}
 	}
@@ -931,7 +977,12 @@ func (rc *ResourceCreator) createEC2NetworkAclEntry(
 	if err := rc.backends.EC2.Backend.CreateNetworkACLEntry(
 		aclID, ruleNumber, protocol, ruleAction, cidr, egress, fromPort, toPort,
 	); err != nil {
-		return "", fmt.Errorf("create EC2 NetworkAclEntry rule %d on %s: %w", ruleNumber, aclID, err)
+		return "", fmt.Errorf(
+			"create EC2 NetworkAclEntry rule %d on %s: %w",
+			ruleNumber,
+			aclID,
+			err,
+		)
 	}
 
 	egressStr := "ingress"
@@ -942,7 +993,7 @@ func (rc *ResourceCreator) createEC2NetworkAclEntry(
 	return aclID + "/" + egressStr + "/" + strconv.Itoa(ruleNumber), nil
 }
 
-func (rc *ResourceCreator) deleteEC2NetworkAclEntry(physicalID string) error {
+func (rc *ResourceCreator) deleteEC2NetworkACLEntry(physicalID string) error {
 	if rc.backends.EC2 == nil {
 		return nil
 	}
@@ -960,7 +1011,7 @@ func (rc *ResourceCreator) deleteEC2NetworkAclEntry(physicalID string) error {
 
 	ruleNumber, err := strconv.Atoi(p[2])
 	if err != nil {
-		return nil
+		return err
 	}
 
 	return rc.backends.EC2.Backend.DeleteNetworkACLEntry(aclID, ruleNumber, egress)
@@ -1009,7 +1060,7 @@ func (rc *ResourceCreator) deleteEC2KeyPair(physicalID string) error {
 	return rc.backends.EC2.Backend.DeleteKeyPair(physicalID)
 }
 
-// ---- AWS::EC2::SecurityGroupIngress ----
+// ---- AWS::EC2::SecurityGroupIngress / AWS::EC2::SecurityGroupEgress ----
 
 // createEC2SecurityGroupIngress handles the standalone SecurityGroupIngress resource.
 // Physical ID encodes groupID + protocol + fromPort + toPort + cidr for idempotent delete.
@@ -1018,46 +1069,24 @@ func (rc *ResourceCreator) createEC2SecurityGroupIngress(
 	props map[string]any,
 	params, physicalIDs map[string]string,
 ) (string, error) {
-	if rc.backends.EC2 == nil {
-		return logicalID + "-stub", nil
-	}
-
-	groupID := strProp(props, "GroupId", params, physicalIDs)
-	protocol := strProp(props, "IpProtocol", params, physicalIDs)
-	cidr := strProp(props, "CidrIp", params, physicalIDs)
-
-	fromPort := 0
-	toPort := 0
-
-	if v, ok := props["FromPort"].(float64); ok {
-		fromPort = int(v)
-	}
-
-	if v, ok := props["ToPort"].(float64); ok {
-		toPort = int(v)
-	}
-
-	if err := rc.backends.EC2.Backend.AuthorizeSecurityGroupIngress(
-		groupID,
-		[]ec2backend.SecurityGroupRule{{
-			Protocol: protocol,
-			IPRange:  cidr,
-			FromPort: fromPort,
-			ToPort:   toPort,
-		}},
-	); err != nil {
-		return "", fmt.Errorf("create EC2 SecurityGroupIngress on %s: %w", groupID, err)
-	}
-
-	return fmt.Sprintf("%s/ingress/%s/%d/%d/%s", groupID, protocol, fromPort, toPort, cidr), nil
+	return rc.createEC2SecurityGroupRule(logicalID, props, params, physicalIDs, "ingress")
 }
-
-// ---- AWS::EC2::SecurityGroupEgress ----
 
 func (rc *ResourceCreator) createEC2SecurityGroupEgress(
 	logicalID string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
+) (string, error) {
+	return rc.createEC2SecurityGroupRule(logicalID, props, params, physicalIDs, "egress")
+}
+
+// createEC2SecurityGroupRule is the shared implementation for SecurityGroupIngress
+// and SecurityGroupEgress. direction must be "ingress" or "egress".
+func (rc *ResourceCreator) createEC2SecurityGroupRule(
+	logicalID string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+	direction string,
 ) (string, error) {
 	if rc.backends.EC2 == nil {
 		return logicalID + "-stub", nil
@@ -1078,19 +1107,37 @@ func (rc *ResourceCreator) createEC2SecurityGroupEgress(
 		toPort = int(v)
 	}
 
-	if err := rc.backends.EC2.Backend.AuthorizeSecurityGroupEgress(
-		groupID,
-		[]ec2backend.SecurityGroupRule{{
-			Protocol: protocol,
-			IPRange:  cidr,
-			FromPort: fromPort,
-			ToPort:   toPort,
-		}},
-	); err != nil {
-		return "", fmt.Errorf("create EC2 SecurityGroupEgress on %s: %w", groupID, err)
+	rule := []ec2backend.SecurityGroupRule{{
+		Protocol: protocol,
+		IPRange:  cidr,
+		FromPort: fromPort,
+		ToPort:   toPort,
+	}}
+
+	var err error
+
+	typeName := "Ingress"
+
+	if direction == "ingress" {
+		err = rc.backends.EC2.Backend.AuthorizeSecurityGroupIngress(groupID, rule)
+	} else {
+		typeName = "Egress"
+		err = rc.backends.EC2.Backend.AuthorizeSecurityGroupEgress(groupID, rule)
 	}
 
-	return fmt.Sprintf("%s/egress/%s/%d/%d/%s", groupID, protocol, fromPort, toPort, cidr), nil
+	if err != nil {
+		return "", fmt.Errorf("create EC2 SecurityGroup%s on %s: %w", typeName, groupID, err)
+	}
+
+	return fmt.Sprintf(
+		"%s/%s/%s/%d/%d/%s",
+		groupID,
+		direction,
+		protocol,
+		fromPort,
+		toPort,
+		cidr,
+	), nil
 }
 
 // ---- AWS::EC2::FlowLog ----
@@ -1224,7 +1271,7 @@ func (rc *ResourceCreator) deleteLambdaEventInvokeConfig(physicalID string) erro
 	}
 
 	err := ib.DeleteFunctionEventInvokeConfig(name)
-	if err != nil && err != lambdabackend.ErrEventInvokeConfigNotFound {
+	if err != nil && !errors.Is(err, lambdabackend.ErrEventInvokeConfigNotFound) {
 		return err
 	}
 
@@ -1233,7 +1280,7 @@ func (rc *ResourceCreator) deleteLambdaEventInvokeConfig(physicalID string) erro
 
 // ---- AWS::Lambda::Url ----
 
-func (rc *ResourceCreator) createLambdaUrl(
+func (rc *ResourceCreator) createLambdaURL(
 	logicalID string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
@@ -1271,7 +1318,7 @@ func (rc *ResourceCreator) createLambdaUrl(
 	return cfg.FunctionURL, nil
 }
 
-func (rc *ResourceCreator) deleteLambdaUrl(physicalID string) error {
+func (rc *ResourceCreator) deleteLambdaURL(physicalID string) error {
 	if rc.backends.Lambda == nil {
 		return nil
 	}
@@ -1287,10 +1334,9 @@ func (rc *ResourceCreator) deleteLambdaUrl(physicalID string) error {
 	}
 
 	err := ib.DeleteFunctionURLConfig(name)
-	if err != nil && err != lambdabackend.ErrFunctionURLNotFound {
+	if err != nil && !errors.Is(err, lambdabackend.ErrFunctionURLNotFound) {
 		return err
 	}
 
 	return nil
 }
-

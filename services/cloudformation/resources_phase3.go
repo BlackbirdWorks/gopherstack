@@ -1450,7 +1450,8 @@ func (rc *ResourceCreator) deletePhase4Resource(physicalID, resourceType string)
 	}
 }
 
-// deletePhase5Resource handles deletion of phase-5 resource types.
+// deletePhase5Resource handles deletion of phase-5 ApiGateway (v1+v2) resource types.
+// Other phase-5 types are handled by deletePhase5bResource.
 func (rc *ResourceCreator) deletePhase5Resource(resourceType, physicalID string) error {
 	switch resourceType {
 	case "AWS::ApiGateway::Model":
@@ -1477,6 +1478,15 @@ func (rc *ResourceCreator) deletePhase5Resource(resourceType, physicalID string)
 		return rc.deleteAPIGatewayV2DomainName(physicalID)
 	case "AWS::ApiGatewayV2::ApiMapping":
 		return rc.deleteAPIGatewayV2ApiMapping(physicalID)
+	default:
+		return rc.deletePhase5bResource(resourceType, physicalID)
+	}
+}
+
+// deletePhase5bResource handles deletion of phase-5 Events/KMS/Cognito/ELBv2/Lambda types.
+// EC2 phase-5 types are handled by deletePhase5cResource.
+func (rc *ResourceCreator) deletePhase5bResource(resourceType, physicalID string) error {
+	switch resourceType {
 	case "AWS::Events::ApiDestination":
 		return rc.deleteEventBridgeApiDestination(physicalID)
 	case "AWS::Events::EventBusPolicy":
@@ -1491,6 +1501,20 @@ func (rc *ResourceCreator) deletePhase5Resource(resourceType, physicalID string)
 		return rc.deleteCognitoUserPoolDomain(physicalID)
 	case "AWS::Cognito::UserPoolGroup":
 		return rc.deleteCognitoUserPoolGroup(physicalID)
+	case "AWS::ElasticLoadBalancingV2::ListenerRule":
+		return rc.deleteELBv2ListenerRule(physicalID)
+	case "AWS::Lambda::EventInvokeConfig":
+		return rc.deleteLambdaEventInvokeConfig(physicalID)
+	case "AWS::Lambda::Url":
+		return rc.deleteLambdaUrl(physicalID)
+	default:
+		return rc.deletePhase5cResource(resourceType, physicalID)
+	}
+}
+
+// deletePhase5cResource handles deletion of phase-5 EC2 resource types.
+func (rc *ResourceCreator) deletePhase5cResource(resourceType, physicalID string) error {
+	switch resourceType {
 	case "AWS::EC2::VPCPeeringConnection":
 		return rc.deleteEC2VPCPeeringConnection(physicalID)
 	case "AWS::EC2::NetworkAcl":
@@ -1503,12 +1527,6 @@ func (rc *ResourceCreator) deletePhase5Resource(resourceType, physicalID string)
 		return nil // standalone rules are revoked when the SG is deleted
 	case "AWS::EC2::FlowLog":
 		return rc.deleteEC2FlowLog(physicalID)
-	case "AWS::ElasticLoadBalancingV2::ListenerRule":
-		return rc.deleteELBv2ListenerRule(physicalID)
-	case "AWS::Lambda::EventInvokeConfig":
-		return rc.deleteLambdaEventInvokeConfig(physicalID)
-	case "AWS::Lambda::Url":
-		return rc.deleteLambdaUrl(physicalID)
 	default:
 		return nil
 	}

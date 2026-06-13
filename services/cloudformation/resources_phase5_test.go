@@ -6,8 +6,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	"github.com/blackbirdworks/gopherstack/services/cloudformation"
+	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	elbv2backend "github.com/blackbirdworks/gopherstack/services/elbv2"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 )
@@ -21,7 +21,13 @@ func newPhase5ServiceBackends() *cloudformation.ServiceBackends {
 		"us-east-1",
 	)
 	b.Lambda = lambdabackend.NewHandler(
-		lambdabackend.NewInMemoryBackend(nil, nil, lambdabackend.DefaultSettings(), "000000000000", "us-east-1"),
+		lambdabackend.NewInMemoryBackend(
+			nil,
+			nil,
+			lambdabackend.DefaultSettings(),
+			"000000000000",
+			"us-east-1",
+		),
 	)
 
 	return b
@@ -42,7 +48,11 @@ func TestResourceCreator_Phase5Types_NilBackends(t *testing.T) {
 			name:         "apigw_model",
 			logicalID:    "MyModel",
 			resourceType: "AWS::ApiGateway::Model",
-			props:        map[string]any{"RestApiId": "api-stub", "Name": "stub-model", "ContentType": "application/json"},
+			props: map[string]any{
+				"RestApiId":   "api-stub",
+				"Name":        "stub-model",
+				"ContentType": "application/json",
+			},
 		},
 		{
 			name:         "apigw_request_validator",
@@ -54,7 +64,11 @@ func TestResourceCreator_Phase5Types_NilBackends(t *testing.T) {
 			name:         "apigw_authorizer",
 			logicalID:    "MyAuth",
 			resourceType: "AWS::ApiGateway::Authorizer",
-			props:        map[string]any{"RestApiId": "api-stub", "Name": "stub-auth", "Type": "TOKEN"},
+			props: map[string]any{
+				"RestApiId": "api-stub",
+				"Name":      "stub-auth",
+				"Type":      "TOKEN",
+			},
 		},
 		{
 			name:         "apigw_api_key",
@@ -72,7 +86,11 @@ func TestResourceCreator_Phase5Types_NilBackends(t *testing.T) {
 			name:         "apigw_usage_plan_key",
 			logicalID:    "MyUPKey",
 			resourceType: "AWS::ApiGateway::UsagePlanKey",
-			props:        map[string]any{"UsagePlanId": "plan-stub", "KeyId": "key-stub", "KeyType": "API_KEY"},
+			props: map[string]any{
+				"UsagePlanId": "plan-stub",
+				"KeyId":       "key-stub",
+				"KeyType":     "API_KEY",
+			},
 		},
 		{
 			name:         "apigw_domain_name",
@@ -108,31 +126,50 @@ func TestResourceCreator_Phase5Types_NilBackends(t *testing.T) {
 			name:         "apigwv2_api_mapping",
 			logicalID:    "MyAPIMapping",
 			resourceType: "AWS::ApiGatewayV2::ApiMapping",
-			props:        map[string]any{"DomainName": "v2.example.com", "ApiId": "api-stub", "Stage": "prod"},
+			props: map[string]any{
+				"DomainName": "v2.example.com",
+				"ApiId":      "api-stub",
+				"Stage":      "prod",
+			},
 		},
 		{
 			name:         "events_api_destination",
 			logicalID:    "MyDest",
 			resourceType: "AWS::Events::ApiDestination",
-			props:        map[string]any{"Name": "stub-dest", "ConnectionArn": "arn:stub", "InvocationEndpoint": "https://example.com", "HttpMethod": "POST"},
+			props: map[string]any{
+				"Name":               "stub-dest",
+				"ConnectionArn":      "arn:stub",
+				"InvocationEndpoint": "https://example.com",
+				"HttpMethod":         "POST",
+			},
 		},
 		{
 			name:         "events_event_bus_policy",
 			logicalID:    "MyPolicy",
 			resourceType: "AWS::Events::EventBusPolicy",
-			props:        map[string]any{"StatementId": "stub-stmt", "EventBusName": "default", "Action": "events:PutEvents", "Principal": "123456789012"},
+			props: map[string]any{
+				"StatementId":  "stub-stmt",
+				"EventBusName": "default",
+				"Action":       "events:PutEvents",
+				"Principal":    "123456789012",
+			},
 		},
 		{
 			name:         "kms_replica_key",
 			logicalID:    "MyReplicaKey",
 			resourceType: "AWS::KMS::ReplicaKey",
-			props:        map[string]any{"PrimaryKeyArn": "arn:aws:kms:us-west-2:000000000000:key/stub"},
+			props: map[string]any{
+				"PrimaryKeyArn": "arn:aws:kms:us-west-2:000000000000:key/stub",
+			},
 		},
 		{
 			name:         "cognito_identity_pool",
 			logicalID:    "MyPool",
 			resourceType: "AWS::Cognito::IdentityPool",
-			props:        map[string]any{"IdentityPoolName": "stub-pool", "AllowUnauthenticatedIdentities": false},
+			props: map[string]any{
+				"IdentityPoolName":               "stub-pool",
+				"AllowUnauthenticatedIdentities": false,
+			},
 		},
 		{
 			name:         "cognito_identity_pool_role_attachment",
@@ -168,7 +205,14 @@ func TestResourceCreator_Phase5Types_NilBackends(t *testing.T) {
 			name:         "ec2_network_acl_entry",
 			logicalID:    "MyACLEntry",
 			resourceType: "AWS::EC2::NetworkAclEntry",
-			props:        map[string]any{"NetworkAclId": "acl-stub", "RuleNumber": float64(100), "Protocol": float64(6), "RuleAction": "allow", "Egress": false, "CidrBlock": "0.0.0.0/0"},
+			props: map[string]any{
+				"NetworkAclId": "acl-stub",
+				"RuleNumber":   float64(100),
+				"Protocol":     float64(6),
+				"RuleAction":   "allow",
+				"Egress":       false,
+				"CidrBlock":    "0.0.0.0/0",
+			},
 		},
 		{
 			name:         "ec2_key_pair",
@@ -180,19 +224,36 @@ func TestResourceCreator_Phase5Types_NilBackends(t *testing.T) {
 			name:         "ec2_sg_ingress",
 			logicalID:    "MyIngress",
 			resourceType: "AWS::EC2::SecurityGroupIngress",
-			props:        map[string]any{"GroupId": "sg-stub", "IpProtocol": "tcp", "FromPort": float64(80), "ToPort": float64(80), "CidrIp": "0.0.0.0/0"},
+			props: map[string]any{
+				"GroupId":    "sg-stub",
+				"IpProtocol": "tcp",
+				"FromPort":   float64(80),
+				"ToPort":     float64(80),
+				"CidrIp":     "0.0.0.0/0",
+			},
 		},
 		{
 			name:         "ec2_sg_egress",
 			logicalID:    "MyEgress",
 			resourceType: "AWS::EC2::SecurityGroupEgress",
-			props:        map[string]any{"GroupId": "sg-stub", "IpProtocol": "tcp", "FromPort": float64(443), "ToPort": float64(443), "CidrIp": "0.0.0.0/0"},
+			props: map[string]any{
+				"GroupId":    "sg-stub",
+				"IpProtocol": "tcp",
+				"FromPort":   float64(443),
+				"ToPort":     float64(443),
+				"CidrIp":     "0.0.0.0/0",
+			},
 		},
 		{
 			name:         "ec2_flow_log",
 			logicalID:    "MyFlowLog",
 			resourceType: "AWS::EC2::FlowLog",
-			props:        map[string]any{"ResourceId": "vpc-stub", "ResourceType": "VPC", "TrafficType": "ALL", "LogGroupName": "stub-lg"},
+			props: map[string]any{
+				"ResourceId":   "vpc-stub",
+				"ResourceType": "VPC",
+				"TrafficType":  "ALL",
+				"LogGroupName": "stub-lg",
+			},
 		},
 		{
 			name:         "elbv2_listener_rule",
@@ -206,7 +267,7 @@ func TestResourceCreator_Phase5Types_NilBackends(t *testing.T) {
 					"Values": []any{"/api/*"},
 				}},
 				"Actions": []any{map[string]any{
-					"Type":           "fixed-response",
+					"Type":                "fixed-response",
 					"FixedResponseConfig": map[string]any{"StatusCode": "200"},
 				}},
 			},
@@ -215,7 +276,10 @@ func TestResourceCreator_Phase5Types_NilBackends(t *testing.T) {
 			name:         "lambda_event_invoke_config",
 			logicalID:    "MyEIC",
 			resourceType: "AWS::Lambda::EventInvokeConfig",
-			props:        map[string]any{"FunctionName": "stub-fn", "MaximumRetryAttempts": float64(2)},
+			props: map[string]any{
+				"FunctionName":         "stub-fn",
+				"MaximumRetryAttempts": float64(2),
+			},
 		},
 		{
 			name:         "lambda_url",
@@ -275,9 +339,19 @@ func TestResourceCreator_Phase5Types_RealBackends(t *testing.T) {
 	t.Run("apigw_model", func(t *testing.T) {
 		t.Parallel()
 		rc2 := cloudformation.NewResourceCreator(backends)
-		physID, err := rc2.Create(t.Context(), "MyModel", "AWS::ApiGateway::Model",
-			map[string]any{"RestApiId": restAPIID, "Name": "MyModel", "ContentType": "application/json", "Schema": `{}`},
-			nil, nil)
+		physID, err := rc2.Create(
+			t.Context(),
+			"MyModel",
+			"AWS::ApiGateway::Model",
+			map[string]any{
+				"RestApiId":   restAPIID,
+				"Name":        "MyModel",
+				"ContentType": "application/json",
+				"Schema":      `{}`,
+			},
+			nil,
+			nil,
+		)
 		require.NoError(t, err)
 		assert.Contains(t, physID, restAPIID)
 		require.NoError(t, rc2.Delete(t.Context(), "AWS::ApiGateway::Model", physID, nil))
@@ -291,7 +365,10 @@ func TestResourceCreator_Phase5Types_RealBackends(t *testing.T) {
 			nil, nil)
 		require.NoError(t, err)
 		assert.Contains(t, physID, restAPIID)
-		require.NoError(t, rc2.Delete(t.Context(), "AWS::ApiGateway::RequestValidator", physID, nil))
+		require.NoError(
+			t,
+			rc2.Delete(t.Context(), "AWS::ApiGateway::RequestValidator", physID, nil),
+		)
 	})
 
 	t.Run("apigw_domain_name", func(t *testing.T) {
@@ -319,9 +396,17 @@ func TestResourceCreator_Phase5Types_RealBackends(t *testing.T) {
 	t.Run("cognito_identity_pool_create_delete", func(t *testing.T) {
 		t.Parallel()
 		rc2 := cloudformation.NewResourceCreator(backends)
-		physID, err := rc2.Create(t.Context(), "MyPool", "AWS::Cognito::IdentityPool",
-			map[string]any{"IdentityPoolName": "phase5-test-pool", "AllowUnauthenticatedIdentities": true},
-			nil, nil)
+		physID, err := rc2.Create(
+			t.Context(),
+			"MyPool",
+			"AWS::Cognito::IdentityPool",
+			map[string]any{
+				"IdentityPoolName":               "phase5-test-pool",
+				"AllowUnauthenticatedIdentities": true,
+			},
+			nil,
+			nil,
+		)
 		require.NoError(t, err)
 		assert.NotEmpty(t, physID)
 		require.NoError(t, rc2.Delete(t.Context(), "AWS::Cognito::IdentityPool", physID, nil))
@@ -356,19 +441,28 @@ func TestResourceCreator_Phase5Types_RealBackends(t *testing.T) {
 			map[string]any{"Name": "phase5-test-lb", "Type": "application"}, nil, nil)
 		require.NoError(t, err)
 
-		listenerARN, err := rc2.Create(t.Context(), "MyListener", "AWS::ElasticLoadBalancingV2::Listener",
+		listenerARN, err := rc2.Create(
+			t.Context(),
+			"MyListener",
+			"AWS::ElasticLoadBalancingV2::Listener",
 			map[string]any{
 				"LoadBalancerArn": lbARN,
 				"Protocol":        "HTTP",
 				"Port":            float64(80),
 				"DefaultActions": []any{map[string]any{
-					"Type": "fixed-response",
+					"Type":                "fixed-response",
 					"FixedResponseConfig": map[string]any{"StatusCode": "200"},
 				}},
-			}, nil, nil)
+			},
+			nil,
+			nil,
+		)
 		require.NoError(t, err)
 
-		physID, err := rc2.Create(t.Context(), "MyRule", "AWS::ElasticLoadBalancingV2::ListenerRule",
+		physID, err := rc2.Create(
+			t.Context(),
+			"MyRule",
+			"AWS::ElasticLoadBalancingV2::ListenerRule",
 			map[string]any{
 				"ListenerArn": listenerARN,
 				"Priority":    float64(10),
@@ -377,13 +471,19 @@ func TestResourceCreator_Phase5Types_RealBackends(t *testing.T) {
 					"Values": []any{"/api/*"},
 				}},
 				"Actions": []any{map[string]any{
-					"Type": "fixed-response",
+					"Type":                "fixed-response",
 					"FixedResponseConfig": map[string]any{"StatusCode": "200"},
 				}},
-			}, nil, nil)
+			},
+			nil,
+			nil,
+		)
 		require.NoError(t, err)
 		assert.NotEmpty(t, physID)
-		require.NoError(t, rc2.Delete(t.Context(), "AWS::ElasticLoadBalancingV2::ListenerRule", physID, nil))
+		require.NoError(
+			t,
+			rc2.Delete(t.Context(), "AWS::ElasticLoadBalancingV2::ListenerRule", physID, nil),
+		)
 	})
 
 	t.Run("lambda_event_invoke_config", func(t *testing.T) {

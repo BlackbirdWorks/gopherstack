@@ -959,15 +959,8 @@ func (rc *ResourceCreator) createPhase4Resource(
 	}
 }
 
-// createPhase5Resource handles phase-5 resource types:
-// ApiGateway (Model/RequestValidator/Authorizer/ApiKey/UsagePlan/UsagePlanKey/DomainName/BasePathMapping/Account/GatewayResponse),
-// ApiGatewayV2 (DomainName/ApiMapping),
-// Events (ApiDestination/EventBusPolicy),
-// KMS (ReplicaKey),
-// Cognito (IdentityPool/IdentityPoolRoleAttachment/UserPoolDomain/UserPoolGroup),
-// EC2 (VPCPeeringConnection/NetworkAcl/NetworkAclEntry/KeyPair/SecurityGroupIngress/SecurityGroupEgress/FlowLog),
-// ELBv2 (ListenerRule),
-// Lambda (EventInvokeConfig/Url).
+// createPhase5Resource handles phase-5 ApiGateway (v1+v2) resource types.
+// Other phase-5 types are handled by createPhase5bResource.
 func (rc *ResourceCreator) createPhase5Resource(
 	logicalID, resourceType string,
 	props map[string]any,
@@ -1000,6 +993,19 @@ func (rc *ResourceCreator) createPhase5Resource(
 		return rc.createAPIGatewayV2DomainName(logicalID, props, params, physicalIDs)
 	case "AWS::ApiGatewayV2::ApiMapping":
 		return rc.createAPIGatewayV2ApiMapping(logicalID, props, params, physicalIDs)
+	default:
+		return rc.createPhase5bResource(logicalID, resourceType, props, params, physicalIDs)
+	}
+}
+
+// createPhase5bResource handles phase-5 Events/KMS/Cognito/ELBv2/Lambda resource types.
+// EC2 phase-5 types are handled by createPhase5cResource.
+func (rc *ResourceCreator) createPhase5bResource(
+	logicalID, resourceType string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, error) {
+	switch resourceType {
 	// Events
 	case "AWS::Events::ApiDestination":
 		return rc.createEventBridgeApiDestination(logicalID, props, params, physicalIDs)
@@ -1017,7 +1023,26 @@ func (rc *ResourceCreator) createPhase5Resource(
 		return rc.createCognitoUserPoolDomain(logicalID, props, params, physicalIDs)
 	case "AWS::Cognito::UserPoolGroup":
 		return rc.createCognitoUserPoolGroup(logicalID, props, params, physicalIDs)
-	// EC2
+	// ELBv2
+	case "AWS::ElasticLoadBalancingV2::ListenerRule":
+		return rc.createELBv2ListenerRule(logicalID, props, params, physicalIDs)
+	// Lambda
+	case "AWS::Lambda::EventInvokeConfig":
+		return rc.createLambdaEventInvokeConfig(logicalID, props, params, physicalIDs)
+	case "AWS::Lambda::Url":
+		return rc.createLambdaUrl(logicalID, props, params, physicalIDs)
+	default:
+		return rc.createPhase5cResource(logicalID, resourceType, props, params, physicalIDs)
+	}
+}
+
+// createPhase5cResource handles phase-5 EC2 resource types.
+func (rc *ResourceCreator) createPhase5cResource(
+	logicalID, resourceType string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, error) {
+	switch resourceType {
 	case "AWS::EC2::VPCPeeringConnection":
 		return rc.createEC2VPCPeeringConnection(logicalID, props, params, physicalIDs)
 	case "AWS::EC2::NetworkAcl":
@@ -1032,14 +1057,6 @@ func (rc *ResourceCreator) createPhase5Resource(
 		return rc.createEC2SecurityGroupEgress(logicalID, props, params, physicalIDs)
 	case "AWS::EC2::FlowLog":
 		return rc.createEC2FlowLog(logicalID, props, params, physicalIDs)
-	// ELBv2
-	case "AWS::ElasticLoadBalancingV2::ListenerRule":
-		return rc.createELBv2ListenerRule(logicalID, props, params, physicalIDs)
-	// Lambda
-	case "AWS::Lambda::EventInvokeConfig":
-		return rc.createLambdaEventInvokeConfig(logicalID, props, params, physicalIDs)
-	case "AWS::Lambda::Url":
-		return rc.createLambdaUrl(logicalID, props, params, physicalIDs)
 	default:
 		return logicalID + "-stub", nil
 	}
