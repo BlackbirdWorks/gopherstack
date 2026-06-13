@@ -2586,7 +2586,14 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 
 // getServiceProviders returns the list of all available service providers.
 func getServiceProviders() []service.Provider {
-	return append([]service.Provider{
+	return append(getCoreServiceProviders(), getRemainingServiceProviders()...)
+}
+
+// getCoreServiceProviders returns the foundational service providers.
+// Extracted from getServiceProviders to satisfy the funlen limit and to
+// give the inline registration list headroom as new services are added.
+func getCoreServiceProviders() []service.Provider {
+	return []service.Provider{
 		&ddbbackend.Provider{},
 		&s3backend.Provider{},
 		&ssmbackend.Provider{},
@@ -2598,6 +2605,14 @@ func getServiceProviders() []service.Provider {
 		&secretsmanagerbackend.Provider{},
 		&lambdabackend.Provider{},
 		&ebbackend.Provider{},
+	}
+}
+
+// getRemainingServiceProviders returns the remaining service providers. New
+// services should be registered in getMostRecentServiceProviders (the tail of
+// the chain), not here, to keep this function under the funlen limit.
+func getRemainingServiceProviders() []service.Provider {
+	return append([]service.Provider{
 		&apigwbackend.Provider{},
 		&cwlogsbackend.Provider{},
 		&sfnbackend.Provider{},
