@@ -7,6 +7,7 @@ package kms_test
 // by KeyId, retiring-principal grants, GrantTokens, and resource tagging.
 
 import (
+	"context"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -39,7 +40,7 @@ func b2newHandler(t *testing.T) *kms.Handler {
 
 func b2mustCreateMultiRegionKey(t *testing.T, b *kms.InMemoryBackend) string {
 	t.Helper()
-	out, err := b.CreateKey(&kms.CreateKeyInput{
+	out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{
 		MultiRegion: true,
 		Description: "primary key",
 	})
@@ -50,7 +51,7 @@ func b2mustCreateMultiRegionKey(t *testing.T, b *kms.InMemoryBackend) string {
 
 func b2mustCreateExternalKey(t *testing.T, b *kms.InMemoryBackend) string {
 	t.Helper()
-	out, err := b.CreateKey(&kms.CreateKeyInput{
+	out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{
 		Origin: "EXTERNAL",
 	})
 	require.NoError(t, err)
@@ -60,7 +61,7 @@ func b2mustCreateExternalKey(t *testing.T, b *kms.InMemoryBackend) string {
 
 func b2mustCreateECKey(t *testing.T, b *kms.InMemoryBackend, spec string, usage string) string {
 	t.Helper()
-	out, err := b.CreateKey(&kms.CreateKeyInput{
+	out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{
 		KeySpec:  spec,
 		KeyUsage: usage,
 	})
@@ -75,7 +76,7 @@ func b2importKeyMaterial(t *testing.T, b *kms.InMemoryBackend, keyID string) {
 	for i := range mat {
 		mat[i] = byte(i + 1)
 	}
-	require.NoError(t, b.ImportKeyMaterial(&kms.ImportKeyMaterialInput{
+	require.NoError(t, b.ImportKeyMaterial(context.Background(), &kms.ImportKeyMaterialInput{
 		KeyID:       keyID,
 		KeyMaterial: mat,
 	}))
@@ -101,7 +102,7 @@ func TestBatch2_ReplicateKey_MetadataSync_Description(t *testing.T) {
 	b := b2newBackend(t)
 	keyID := b2mustCreateMultiRegionKey(t, b)
 
-	out, err := b.ReplicateKey(&kms.ReplicateKeyInput{
+	out, err := b.ReplicateKey(context.Background(), &kms.ReplicateKeyInput{
 		KeyID:         keyID,
 		ReplicaRegion: "us-west-2",
 		Description:   "replica description",
@@ -115,7 +116,7 @@ func TestBatch2_ReplicateKey_MetadataSync_InheritsDescription(t *testing.T) {
 	b := b2newBackend(t)
 	keyID := b2mustCreateMultiRegionKey(t, b)
 
-	out, err := b.ReplicateKey(&kms.ReplicateKeyInput{
+	out, err := b.ReplicateKey(context.Background(), &kms.ReplicateKeyInput{
 		KeyID:         keyID,
 		ReplicaRegion: "eu-west-1",
 	})
@@ -128,7 +129,7 @@ func TestBatch2_ReplicateKey_MetadataSync_KeySpecAndUsage(t *testing.T) {
 	b := b2newBackend(t)
 	keyID := b2mustCreateMultiRegionKey(t, b)
 
-	out, err := b.ReplicateKey(&kms.ReplicateKeyInput{
+	out, err := b.ReplicateKey(context.Background(), &kms.ReplicateKeyInput{
 		KeyID:         keyID,
 		ReplicaRegion: "ap-southeast-1",
 	})
@@ -143,7 +144,7 @@ func TestBatch2_ReplicateKey_SharedKeyMaterial_EncryptRoundtrip(t *testing.T) {
 	b := b2newBackend(t)
 	primaryID := b2mustCreateMultiRegionKey(t, b)
 
-	replicaOut, err := b.ReplicateKey(&kms.ReplicateKeyInput{
+	replicaOut, err := b.ReplicateKey(context.Background(), &kms.ReplicateKeyInput{
 		KeyID:         primaryID,
 		ReplicaRegion: "us-east-2",
 	})
@@ -151,14 +152,14 @@ func TestBatch2_ReplicateKey_SharedKeyMaterial_EncryptRoundtrip(t *testing.T) {
 	replicaID := replicaOut.ReplicaKeyMetadata.KeyID
 
 	// Encrypt with primary key
-	enc, err := b.Encrypt(&kms.EncryptInput{
+	enc, err := b.Encrypt(context.Background(), &kms.EncryptInput{
 		KeyID:     primaryID,
 		Plaintext: []byte("shared secret"),
 	})
 	require.NoError(t, err)
 
 	// Decrypt with replica key (shared key material)
-	dec, err := b.Decrypt(&kms.DecryptInput{
+	dec, err := b.Decrypt(context.Background(), &kms.DecryptInput{
 		CiphertextBlob: enc.CiphertextBlob,
 	})
 	require.NoError(t, err)
@@ -171,14 +172,14 @@ func TestBatch2_ReplicateKey_PrimaryShowsReplica_InDescribeKey(t *testing.T) {
 	b := b2newBackend(t)
 	primaryID := b2mustCreateMultiRegionKey(t, b)
 
-	out, err := b.ReplicateKey(&kms.ReplicateKeyInput{
+	out, err := b.ReplicateKey(context.Background(), &kms.ReplicateKeyInput{
 		KeyID:         primaryID,
 		ReplicaRegion: "eu-central-1",
 	})
 	require.NoError(t, err)
 	replicaID := out.ReplicaKeyMetadata.KeyID
 
-	desc, err := b.DescribeKey(&kms.DescribeKeyInput{KeyID: primaryID})
+	desc, err := b.DescribeKey(context.Background(), &kms.DescribeKeyInput{KeyID: primaryID})
 	require.NoError(t, err)
 	require.NotNil(t, desc.KeyMetadata.MultiRegionConfiguration)
 	assert.Equal(t, "PRIMARY", desc.KeyMetadata.MultiRegionConfiguration.MultiRegionKeyType)
@@ -196,14 +197,14 @@ func TestBatch2_ReplicateKey_ReplicaShowsPrimary_InDescribeKey(t *testing.T) {
 	b := b2newBackend(t)
 	primaryID := b2mustCreateMultiRegionKey(t, b)
 
-	out, err := b.ReplicateKey(&kms.ReplicateKeyInput{
+	out, err := b.ReplicateKey(context.Background(), &kms.ReplicateKeyInput{
 		KeyID:         primaryID,
 		ReplicaRegion: "ap-northeast-1",
 	})
 	require.NoError(t, err)
 	replicaID := out.ReplicaKeyMetadata.KeyID
 
-	desc, err := b.DescribeKey(&kms.DescribeKeyInput{KeyID: replicaID})
+	desc, err := b.DescribeKey(context.Background(), &kms.DescribeKeyInput{KeyID: replicaID})
 	require.NoError(t, err)
 	assert.Equal(t, "REPLICA", desc.KeyMetadata.MultiRegionKeyType)
 }
@@ -213,9 +214,9 @@ func TestBatch2_ReplicateKey_DisabledSource_Rejected(t *testing.T) {
 	b := b2newBackend(t)
 	keyID := b2mustCreateMultiRegionKey(t, b)
 
-	require.NoError(t, b.DisableKey(&kms.DisableKeyInput{KeyID: keyID}))
+	require.NoError(t, b.DisableKey(context.Background(), &kms.DisableKeyInput{KeyID: keyID}))
 
-	_, err := b.ReplicateKey(&kms.ReplicateKeyInput{
+	_, err := b.ReplicateKey(context.Background(), &kms.ReplicateKeyInput{
 		KeyID:         keyID,
 		ReplicaRegion: "us-west-1",
 	})
@@ -229,14 +230,14 @@ func TestBatch2_ReplicateKey_MultipleReplicas(t *testing.T) {
 
 	regions := []string{"us-west-2", "eu-west-1", "ap-southeast-1"}
 	for _, region := range regions {
-		_, err := b.ReplicateKey(&kms.ReplicateKeyInput{
+		_, err := b.ReplicateKey(context.Background(), &kms.ReplicateKeyInput{
 			KeyID:         primaryID,
 			ReplicaRegion: region,
 		})
 		require.NoError(t, err)
 	}
 
-	desc, err := b.DescribeKey(&kms.DescribeKeyInput{KeyID: primaryID})
+	desc, err := b.DescribeKey(context.Background(), &kms.DescribeKeyInput{KeyID: primaryID})
 	require.NoError(t, err)
 	assert.Len(t, desc.KeyMetadata.MultiRegionConfiguration.ReplicaKeys, 3)
 }
@@ -247,17 +248,17 @@ func TestBatch2_ConnectCustomKeyStore_AlreadyConnected_Rejected(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, err := b.CreateCustomKeyStore(&kms.CreateCustomKeyStoreInput{
+	out, err := b.CreateCustomKeyStore(context.Background(), &kms.CreateCustomKeyStoreInput{
 		CustomKeyStoreName: "my-hsm-store",
 	})
 	require.NoError(t, err)
 	storeID := out.CustomKeyStoreID
 
-	require.NoError(t, b.ConnectCustomKeyStore(&kms.ConnectCustomKeyStoreInput{
+	require.NoError(t, b.ConnectCustomKeyStore(context.Background(), &kms.ConnectCustomKeyStoreInput{
 		CustomKeyStoreID: storeID,
 	}))
 
-	err = b.ConnectCustomKeyStore(&kms.ConnectCustomKeyStoreInput{
+	err = b.ConnectCustomKeyStore(context.Background(), &kms.ConnectCustomKeyStoreInput{
 		CustomKeyStoreID: storeID,
 	})
 	require.Error(t, err)
@@ -267,13 +268,13 @@ func TestBatch2_DisconnectCustomKeyStore_AlreadyDisconnected_Rejected(t *testing
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, err := b.CreateCustomKeyStore(&kms.CreateCustomKeyStoreInput{
+	out, err := b.CreateCustomKeyStore(context.Background(), &kms.CreateCustomKeyStoreInput{
 		CustomKeyStoreName: "my-hsm-store-2",
 	})
 	require.NoError(t, err)
 	storeID := out.CustomKeyStoreID
 
-	err = b.DisconnectCustomKeyStore(&kms.DisconnectCustomKeyStoreInput{
+	err = b.DisconnectCustomKeyStore(context.Background(), &kms.DisconnectCustomKeyStoreInput{
 		CustomKeyStoreID: storeID,
 	})
 	require.Error(t, err)
@@ -283,7 +284,7 @@ func TestBatch2_ConnectCustomKeyStore_NotFound_Rejected(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	err := b.ConnectCustomKeyStore(&kms.ConnectCustomKeyStoreInput{
+	err := b.ConnectCustomKeyStore(context.Background(), &kms.ConnectCustomKeyStoreInput{
 		CustomKeyStoreID: "nonexistent-id",
 	})
 	require.Error(t, err)
@@ -293,7 +294,7 @@ func TestBatch2_DisconnectCustomKeyStore_NotFound_Rejected(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	err := b.DisconnectCustomKeyStore(&kms.DisconnectCustomKeyStoreInput{
+	err := b.DisconnectCustomKeyStore(context.Background(), &kms.DisconnectCustomKeyStoreInput{
 		CustomKeyStoreID: "nonexistent-id",
 	})
 	require.Error(t, err)
@@ -303,17 +304,17 @@ func TestBatch2_DeleteCustomKeyStore_WhileConnected_Rejected(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, err := b.CreateCustomKeyStore(&kms.CreateCustomKeyStoreInput{
+	out, err := b.CreateCustomKeyStore(context.Background(), &kms.CreateCustomKeyStoreInput{
 		CustomKeyStoreName: "connected-store-delete-test",
 	})
 	require.NoError(t, err)
 	storeID := out.CustomKeyStoreID
 
-	require.NoError(t, b.ConnectCustomKeyStore(&kms.ConnectCustomKeyStoreInput{
+	require.NoError(t, b.ConnectCustomKeyStore(context.Background(), &kms.ConnectCustomKeyStoreInput{
 		CustomKeyStoreID: storeID,
 	}))
 
-	err = b.DeleteCustomKeyStore(&kms.DeleteCustomKeyStoreInput{
+	err = b.DeleteCustomKeyStore(context.Background(), &kms.DeleteCustomKeyStoreInput{
 		CustomKeyStoreID: storeID,
 	})
 	require.Error(t, err)
@@ -323,18 +324,18 @@ func TestBatch2_UpdateCustomKeyStore_RenameSucceeds(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, err := b.CreateCustomKeyStore(&kms.CreateCustomKeyStoreInput{
+	out, err := b.CreateCustomKeyStore(context.Background(), &kms.CreateCustomKeyStoreInput{
 		CustomKeyStoreName: "old-name",
 	})
 	require.NoError(t, err)
 	storeID := out.CustomKeyStoreID
 
-	require.NoError(t, b.UpdateCustomKeyStore(&kms.UpdateCustomKeyStoreInput{
+	require.NoError(t, b.UpdateCustomKeyStore(context.Background(), &kms.UpdateCustomKeyStoreInput{
 		CustomKeyStoreID:      storeID,
 		NewCustomKeyStoreName: "new-name",
 	}))
 
-	desc, err := b.DescribeCustomKeyStores(&kms.DescribeCustomKeyStoresInput{
+	desc, err := b.DescribeCustomKeyStores(context.Background(), &kms.DescribeCustomKeyStoresInput{
 		CustomKeyStoreID: storeID,
 	})
 	require.NoError(t, err)
@@ -348,7 +349,7 @@ func TestBatch2_XKS_CreateWithExternalKeyStoreType(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, err := b.CreateCustomKeyStore(&kms.CreateCustomKeyStoreInput{
+	out, err := b.CreateCustomKeyStore(context.Background(), &kms.CreateCustomKeyStoreInput{
 		CustomKeyStoreName: "my-xks-store",
 		CustomKeyStoreType: "EXTERNAL_KEY_STORE",
 	})
@@ -360,13 +361,13 @@ func TestBatch2_XKS_DescribeReturnsCorrectType(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, err := b.CreateCustomKeyStore(&kms.CreateCustomKeyStoreInput{
+	out, err := b.CreateCustomKeyStore(context.Background(), &kms.CreateCustomKeyStoreInput{
 		CustomKeyStoreName: "my-xks-describe",
 		CustomKeyStoreType: "EXTERNAL_KEY_STORE",
 	})
 	require.NoError(t, err)
 
-	desc, err := b.DescribeCustomKeyStores(&kms.DescribeCustomKeyStoresInput{
+	desc, err := b.DescribeCustomKeyStores(context.Background(), &kms.DescribeCustomKeyStoresInput{
 		CustomKeyStoreID: out.CustomKeyStoreID,
 	})
 	require.NoError(t, err)
@@ -378,7 +379,7 @@ func TestBatch2_XKS_InvalidTypeRejected(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	_, err := b.CreateCustomKeyStore(&kms.CreateCustomKeyStoreInput{
+	_, err := b.CreateCustomKeyStore(context.Background(), &kms.CreateCustomKeyStoreInput{
 		CustomKeyStoreName: "bad-type-store",
 		CustomKeyStoreType: "INVALID_TYPE",
 	})
@@ -389,7 +390,7 @@ func TestBatch2_XKS_ConnectDisconnectLifecycle(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, err := b.CreateCustomKeyStore(&kms.CreateCustomKeyStoreInput{
+	out, err := b.CreateCustomKeyStore(context.Background(), &kms.CreateCustomKeyStoreInput{
 		CustomKeyStoreName: "xks-lifecycle",
 		CustomKeyStoreType: "EXTERNAL_KEY_STORE",
 	})
@@ -397,27 +398,27 @@ func TestBatch2_XKS_ConnectDisconnectLifecycle(t *testing.T) {
 	storeID := out.CustomKeyStoreID
 
 	// Initial state is DISCONNECTED
-	desc, err := b.DescribeCustomKeyStores(&kms.DescribeCustomKeyStoresInput{
+	desc, err := b.DescribeCustomKeyStores(context.Background(), &kms.DescribeCustomKeyStoresInput{
 		CustomKeyStoreID: storeID,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, kms.ConnectionStateDisconnected, desc.CustomKeyStores[0].ConnectionState)
 
-	require.NoError(t, b.ConnectCustomKeyStore(&kms.ConnectCustomKeyStoreInput{
+	require.NoError(t, b.ConnectCustomKeyStore(context.Background(), &kms.ConnectCustomKeyStoreInput{
 		CustomKeyStoreID: storeID,
 	}))
 
-	desc2, err := b.DescribeCustomKeyStores(&kms.DescribeCustomKeyStoresInput{
+	desc2, err := b.DescribeCustomKeyStores(context.Background(), &kms.DescribeCustomKeyStoresInput{
 		CustomKeyStoreID: storeID,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, kms.ConnectionStateConnected, desc2.CustomKeyStores[0].ConnectionState)
 
-	require.NoError(t, b.DisconnectCustomKeyStore(&kms.DisconnectCustomKeyStoreInput{
+	require.NoError(t, b.DisconnectCustomKeyStore(context.Background(), &kms.DisconnectCustomKeyStoreInput{
 		CustomKeyStoreID: storeID,
 	}))
 
-	desc3, err := b.DescribeCustomKeyStores(&kms.DescribeCustomKeyStoresInput{
+	desc3, err := b.DescribeCustomKeyStores(context.Background(), &kms.DescribeCustomKeyStoresInput{
 		CustomKeyStoreID: storeID,
 	})
 	require.NoError(t, err)
@@ -428,13 +429,13 @@ func TestBatch2_XKS_DescribeByName(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	_, err := b.CreateCustomKeyStore(&kms.CreateCustomKeyStoreInput{
+	_, err := b.CreateCustomKeyStore(context.Background(), &kms.CreateCustomKeyStoreInput{
 		CustomKeyStoreName: "my-xks-by-name",
 		CustomKeyStoreType: "EXTERNAL_KEY_STORE",
 	})
 	require.NoError(t, err)
 
-	desc, err := b.DescribeCustomKeyStores(&kms.DescribeCustomKeyStoresInput{
+	desc, err := b.DescribeCustomKeyStores(context.Background(), &kms.DescribeCustomKeyStoresInput{
 		CustomKeyStoreName: "my-xks-by-name",
 	})
 	require.NoError(t, err)
@@ -451,13 +452,13 @@ func TestBatch2_DeriveSharedSecret_P256_Roundtrip(t *testing.T) {
 	key1ID := b2mustCreateECKey(t, b, "ECC_NIST_P256", kms.KeyUsageKeyAgreement)
 	key2ID := b2mustCreateECKey(t, b, "ECC_NIST_P256", kms.KeyUsageKeyAgreement)
 
-	pub1, err := b.GetPublicKey(&kms.GetPublicKeyInput{KeyID: key1ID})
+	pub1, err := b.GetPublicKey(context.Background(), &kms.GetPublicKeyInput{KeyID: key1ID})
 	require.NoError(t, err)
-	pub2, err := b.GetPublicKey(&kms.GetPublicKeyInput{KeyID: key2ID})
+	pub2, err := b.GetPublicKey(context.Background(), &kms.GetPublicKeyInput{KeyID: key2ID})
 	require.NoError(t, err)
 
 	// Derive shared secret from key1 with key2's public key
-	out1, err := b.DeriveSharedSecret(&kms.DeriveSharedSecretInput{
+	out1, err := b.DeriveSharedSecret(context.Background(), &kms.DeriveSharedSecretInput{
 		KeyID:                 key1ID,
 		KeyAgreementAlgorithm: "ECDH",
 		PublicKey:             pub2.PublicKey,
@@ -465,7 +466,7 @@ func TestBatch2_DeriveSharedSecret_P256_Roundtrip(t *testing.T) {
 	require.NoError(t, err)
 
 	// Derive shared secret from key2 with key1's public key
-	out2, err := b.DeriveSharedSecret(&kms.DeriveSharedSecretInput{
+	out2, err := b.DeriveSharedSecret(context.Background(), &kms.DeriveSharedSecretInput{
 		KeyID:                 key2ID,
 		KeyAgreementAlgorithm: "ECDH",
 		PublicKey:             pub1.PublicKey,
@@ -483,10 +484,10 @@ func TestBatch2_DeriveSharedSecret_P384_Roundtrip(t *testing.T) {
 	key1ID := b2mustCreateECKey(t, b, "ECC_NIST_P384", kms.KeyUsageKeyAgreement)
 	key2ID := b2mustCreateECKey(t, b, "ECC_NIST_P384", kms.KeyUsageKeyAgreement)
 
-	pub2, err := b.GetPublicKey(&kms.GetPublicKeyInput{KeyID: key2ID})
+	pub2, err := b.GetPublicKey(context.Background(), &kms.GetPublicKeyInput{KeyID: key2ID})
 	require.NoError(t, err)
 
-	out, err := b.DeriveSharedSecret(&kms.DeriveSharedSecretInput{
+	out, err := b.DeriveSharedSecret(context.Background(), &kms.DeriveSharedSecretInput{
 		KeyID:                 key1ID,
 		KeyAgreementAlgorithm: "ECDH",
 		PublicKey:             pub2.PublicKey,
@@ -503,10 +504,10 @@ func TestBatch2_DeriveSharedSecret_P521_Roundtrip(t *testing.T) {
 	key1ID := b2mustCreateECKey(t, b, "ECC_NIST_P521", kms.KeyUsageKeyAgreement)
 	key2ID := b2mustCreateECKey(t, b, "ECC_NIST_P521", kms.KeyUsageKeyAgreement)
 
-	pub2, err := b.GetPublicKey(&kms.GetPublicKeyInput{KeyID: key2ID})
+	pub2, err := b.GetPublicKey(context.Background(), &kms.GetPublicKeyInput{KeyID: key2ID})
 	require.NoError(t, err)
 
-	out, err := b.DeriveSharedSecret(&kms.DeriveSharedSecretInput{
+	out, err := b.DeriveSharedSecret(context.Background(), &kms.DeriveSharedSecretInput{
 		KeyID:                 key1ID,
 		KeyAgreementAlgorithm: "ECDH",
 		PublicKey:             pub2.PublicKey,
@@ -523,10 +524,10 @@ func TestBatch2_DeriveSharedSecret_WrongKeyUsage_Rejected(t *testing.T) {
 	keyID := b2mustCreateECKey(t, b, "ECC_NIST_P256", kms.KeyUsageSignVerify)
 	peerID := b2mustCreateECKey(t, b, "ECC_NIST_P256", kms.KeyUsageKeyAgreement)
 
-	pub, err := b.GetPublicKey(&kms.GetPublicKeyInput{KeyID: peerID})
+	pub, err := b.GetPublicKey(context.Background(), &kms.GetPublicKeyInput{KeyID: peerID})
 	require.NoError(t, err)
 
-	_, err = b.DeriveSharedSecret(&kms.DeriveSharedSecretInput{
+	_, err = b.DeriveSharedSecret(context.Background(), &kms.DeriveSharedSecretInput{
 		KeyID:                 keyID,
 		KeyAgreementAlgorithm: "ECDH",
 		PublicKey:             pub.PublicKey,
@@ -542,12 +543,12 @@ func TestBatch2_DeriveSharedSecret_DisabledKey_Rejected(t *testing.T) {
 	keyID := b2mustCreateECKey(t, b, "ECC_NIST_P256", kms.KeyUsageKeyAgreement)
 	peerID := b2mustCreateECKey(t, b, "ECC_NIST_P256", kms.KeyUsageKeyAgreement)
 
-	require.NoError(t, b.DisableKey(&kms.DisableKeyInput{KeyID: keyID}))
+	require.NoError(t, b.DisableKey(context.Background(), &kms.DisableKeyInput{KeyID: keyID}))
 
-	pub, err := b.GetPublicKey(&kms.GetPublicKeyInput{KeyID: peerID})
+	pub, err := b.GetPublicKey(context.Background(), &kms.GetPublicKeyInput{KeyID: peerID})
 	require.NoError(t, err)
 
-	_, err = b.DeriveSharedSecret(&kms.DeriveSharedSecretInput{
+	_, err = b.DeriveSharedSecret(context.Background(), &kms.DeriveSharedSecretInput{
 		KeyID:                 keyID,
 		KeyAgreementAlgorithm: "ECDH",
 		PublicKey:             pub.PublicKey,
@@ -561,7 +562,7 @@ func TestBatch2_DeriveSharedSecret_InvalidPublicKey_Rejected(t *testing.T) {
 
 	keyID := b2mustCreateECKey(t, b, "ECC_NIST_P256", kms.KeyUsageKeyAgreement)
 
-	_, err := b.DeriveSharedSecret(&kms.DeriveSharedSecretInput{
+	_, err := b.DeriveSharedSecret(context.Background(), &kms.DeriveSharedSecretInput{
 		KeyID:                 keyID,
 		KeyAgreementAlgorithm: "ECDH",
 		PublicKey:             []byte("not a valid DER public key"),
@@ -576,10 +577,10 @@ func TestBatch2_DeriveSharedSecret_WrongAlgorithm_Rejected(t *testing.T) {
 	keyID := b2mustCreateECKey(t, b, "ECC_NIST_P256", kms.KeyUsageKeyAgreement)
 	peerID := b2mustCreateECKey(t, b, "ECC_NIST_P256", kms.KeyUsageKeyAgreement)
 
-	pub, err := b.GetPublicKey(&kms.GetPublicKeyInput{KeyID: peerID})
+	pub, err := b.GetPublicKey(context.Background(), &kms.GetPublicKeyInput{KeyID: peerID})
 	require.NoError(t, err)
 
-	_, err = b.DeriveSharedSecret(&kms.DeriveSharedSecretInput{
+	_, err = b.DeriveSharedSecret(context.Background(), &kms.DeriveSharedSecretInput{
 		KeyID:                 keyID,
 		KeyAgreementAlgorithm: "RSA_OAEP", // Wrong algorithm
 		PublicKey:             pub.PublicKey,
@@ -593,7 +594,7 @@ func TestBatch2_DeriveSharedSecret_EmptyPublicKey_Rejected(t *testing.T) {
 
 	keyID := b2mustCreateECKey(t, b, "ECC_NIST_P256", kms.KeyUsageKeyAgreement)
 
-	_, err := b.DeriveSharedSecret(&kms.DeriveSharedSecretInput{
+	_, err := b.DeriveSharedSecret(context.Background(), &kms.DeriveSharedSecretInput{
 		KeyID:                 keyID,
 		KeyAgreementAlgorithm: "ECDH",
 		PublicKey:             nil,
@@ -607,7 +608,7 @@ func TestBatch2_GetPublicKey_ReturnsKeyAgreementAlgorithms(t *testing.T) {
 
 	keyID := b2mustCreateECKey(t, b, "ECC_NIST_P256", kms.KeyUsageKeyAgreement)
 
-	out, err := b.GetPublicKey(&kms.GetPublicKeyInput{KeyID: keyID})
+	out, err := b.GetPublicKey(context.Background(), &kms.GetPublicKeyInput{KeyID: keyID})
 	require.NoError(t, err)
 	assert.Contains(t, out.KeyAgreementAlgorithms, "ECDH")
 	assert.Empty(t, out.SigningAlgorithms)
@@ -622,7 +623,7 @@ func TestBatch2_ImportKeyMaterial_ExpiresModel_RequiresValidTo(t *testing.T) {
 	keyID := b2mustCreateExternalKey(t, b)
 
 	mat := make([]byte, 32)
-	err := b.ImportKeyMaterial(&kms.ImportKeyMaterialInput{
+	err := b.ImportKeyMaterial(context.Background(), &kms.ImportKeyMaterialInput{
 		KeyID:           keyID,
 		KeyMaterial:     mat,
 		ExpirationModel: "KEY_MATERIAL_EXPIRES",
@@ -639,7 +640,7 @@ func TestBatch2_ImportKeyMaterial_NoExpiryModel_RejectsValidTo(t *testing.T) {
 
 	mat := make([]byte, 32)
 	futureTS := float64(time.Now().Add(24*time.Hour).UnixNano()) / 1e9
-	err := b.ImportKeyMaterial(&kms.ImportKeyMaterialInput{
+	err := b.ImportKeyMaterial(context.Background(), &kms.ImportKeyMaterialInput{
 		KeyID:           keyID,
 		KeyMaterial:     mat,
 		ExpirationModel: "KEY_MATERIAL_DOES_NOT_EXPIRE",
@@ -656,13 +657,13 @@ func TestBatch2_ImportKeyMaterial_WithValidTo_ExpiresModel(t *testing.T) {
 
 	mat := make([]byte, 32)
 	futureTS := float64(time.Now().Add(24*time.Hour).UnixNano()) / 1e9
-	require.NoError(t, b.ImportKeyMaterial(&kms.ImportKeyMaterialInput{
+	require.NoError(t, b.ImportKeyMaterial(context.Background(), &kms.ImportKeyMaterialInput{
 		KeyID:       keyID,
 		KeyMaterial: mat,
 		ValidTo:     futureTS,
 	}))
 
-	desc, err := b.DescribeKey(&kms.DescribeKeyInput{KeyID: keyID})
+	desc, err := b.DescribeKey(context.Background(), &kms.DescribeKeyInput{KeyID: keyID})
 	require.NoError(t, err)
 	assert.Equal(t, "KEY_MATERIAL_EXPIRES", desc.KeyMetadata.ExpirationModel)
 	assert.Greater(t, desc.KeyMetadata.ValidTo, float64(0))
@@ -675,7 +676,7 @@ func TestBatch2_ImportKeyMaterial_NoValidTo_NoExpiryModel(t *testing.T) {
 
 	b2importKeyMaterial(t, b, keyID)
 
-	desc, err := b.DescribeKey(&kms.DescribeKeyInput{KeyID: keyID})
+	desc, err := b.DescribeKey(context.Background(), &kms.DescribeKeyInput{KeyID: keyID})
 	require.NoError(t, err)
 	assert.Equal(t, "KEY_MATERIAL_DOES_NOT_EXPIRE", desc.KeyMetadata.ExpirationModel)
 	assert.InDelta(t, float64(0), desc.KeyMetadata.ValidTo, 0)
@@ -690,13 +691,13 @@ func TestBatch2_ImportKeyMaterial_ReImport_ReplacesExisting(t *testing.T) {
 	for i := range mat1 {
 		mat1[i] = byte(i + 1)
 	}
-	require.NoError(t, b.ImportKeyMaterial(&kms.ImportKeyMaterialInput{
+	require.NoError(t, b.ImportKeyMaterial(context.Background(), &kms.ImportKeyMaterialInput{
 		KeyID:       keyID,
 		KeyMaterial: mat1,
 	}))
 
 	// Delete imported material
-	require.NoError(t, b.DeleteImportedKeyMaterial(&kms.DeleteImportedKeyMaterialInput{
+	require.NoError(t, b.DeleteImportedKeyMaterial(context.Background(), &kms.DeleteImportedKeyMaterialInput{
 		KeyID: keyID,
 	}))
 
@@ -705,12 +706,12 @@ func TestBatch2_ImportKeyMaterial_ReImport_ReplacesExisting(t *testing.T) {
 	for i := range mat2 {
 		mat2[i] = byte(i + 100)
 	}
-	require.NoError(t, b.ImportKeyMaterial(&kms.ImportKeyMaterialInput{
+	require.NoError(t, b.ImportKeyMaterial(context.Background(), &kms.ImportKeyMaterialInput{
 		KeyID:       keyID,
 		KeyMaterial: mat2,
 	}))
 
-	desc, err := b.DescribeKey(&kms.DescribeKeyInput{KeyID: keyID})
+	desc, err := b.DescribeKey(context.Background(), &kms.DescribeKeyInput{KeyID: keyID})
 	require.NoError(t, err)
 	assert.Equal(t, kms.KeyStateEnabled, desc.KeyMetadata.KeyState)
 }
@@ -735,14 +736,14 @@ func TestBatch2_ImportKeyMaterial_ExpiredMaterial_BlocksEncrypt(t *testing.T) {
 	// Instead: import with explicit expires model + past ValidTo to verify Encrypt blocks.
 
 	// Use backdated timestamp so it looks expired
-	require.NoError(t, b.ImportKeyMaterial(&kms.ImportKeyMaterialInput{
+	require.NoError(t, b.ImportKeyMaterial(context.Background(), &kms.ImportKeyMaterialInput{
 		KeyID:       keyID,
 		KeyMaterial: mat,
 		ValidTo:     pastTS,
 	}))
 
 	// Encrypt should fail because the material is past its ValidTo
-	_, err := b.Encrypt(&kms.EncryptInput{
+	_, err := b.Encrypt(context.Background(), &kms.EncryptInput{
 		KeyID:     keyID,
 		Plaintext: []byte("test"),
 	})
@@ -754,12 +755,12 @@ func TestBatch2_ImportKeyMaterial_NonExternalOrigin_Rejected(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, err := b.CreateKey(&kms.CreateKeyInput{})
+	out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 	keyID := out.KeyMetadata.KeyID
 
 	mat := make([]byte, 32)
-	err = b.ImportKeyMaterial(&kms.ImportKeyMaterialInput{
+	err = b.ImportKeyMaterial(context.Background(), &kms.ImportKeyMaterialInput{
 		KeyID:       keyID,
 		KeyMaterial: mat,
 	})
@@ -772,7 +773,7 @@ func TestBatch2_ImportKeyMaterial_WrongSize_Rejected(t *testing.T) {
 	keyID := b2mustCreateExternalKey(t, b)
 
 	mat := make([]byte, 16) // too short, need 32
-	err := b.ImportKeyMaterial(&kms.ImportKeyMaterialInput{
+	err := b.ImportKeyMaterial(context.Background(), &kms.ImportKeyMaterialInput{
 		KeyID:       keyID,
 		KeyMaterial: mat,
 	})
@@ -786,11 +787,11 @@ func TestBatch2_DeleteImportedKeyMaterial_TransitionsToPendingImport(t *testing.
 
 	b2importKeyMaterial(t, b, keyID)
 
-	require.NoError(t, b.DeleteImportedKeyMaterial(&kms.DeleteImportedKeyMaterialInput{
+	require.NoError(t, b.DeleteImportedKeyMaterial(context.Background(), &kms.DeleteImportedKeyMaterialInput{
 		KeyID: keyID,
 	}))
 
-	desc, err := b.DescribeKey(&kms.DescribeKeyInput{KeyID: keyID})
+	desc, err := b.DescribeKey(context.Background(), &kms.DescribeKeyInput{KeyID: keyID})
 	require.NoError(t, err)
 	assert.Equal(t, kms.KeyStatePendingImport, desc.KeyMetadata.KeyState)
 	assert.False(t, desc.KeyMetadata.Enabled)
@@ -803,7 +804,7 @@ func TestBatch2_GetParametersForImport_ReturnsTokenAndKey(t *testing.T) {
 	b := b2newBackend(t)
 	keyID := b2mustCreateExternalKey(t, b)
 
-	out, err := b.GetParametersForImport(&kms.GetParametersForImportInput{
+	out, err := b.GetParametersForImport(context.Background(), &kms.GetParametersForImportInput{
 		KeyID: keyID,
 	})
 	require.NoError(t, err)
@@ -817,11 +818,11 @@ func TestBatch2_GetParametersForImport_AWSOriginKey_Rejected(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, err := b.CreateKey(&kms.CreateKeyInput{})
+	out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 	keyID := out.KeyMetadata.KeyID
 
-	_, err = b.GetParametersForImport(&kms.GetParametersForImportInput{
+	_, err = b.GetParametersForImport(context.Background(), &kms.GetParametersForImportInput{
 		KeyID: keyID,
 	})
 	require.Error(t, err)
@@ -832,7 +833,7 @@ func TestBatch2_GetParametersForImport_InvalidWrappingAlgorithm_Rejected(t *test
 	b := b2newBackend(t)
 	keyID := b2mustCreateExternalKey(t, b)
 
-	_, err := b.GetParametersForImport(&kms.GetParametersForImportInput{
+	_, err := b.GetParametersForImport(context.Background(), &kms.GetParametersForImportInput{
 		KeyID:             keyID,
 		WrappingAlgorithm: "INVALID_ALGO",
 	})
@@ -845,7 +846,7 @@ func TestBatch2_GetParametersForImport_InvalidWrappingKeySpec_Rejected(t *testin
 	b := b2newBackend(t)
 	keyID := b2mustCreateExternalKey(t, b)
 
-	_, err := b.GetParametersForImport(&kms.GetParametersForImportInput{
+	_, err := b.GetParametersForImport(context.Background(), &kms.GetParametersForImportInput{
 		KeyID:           keyID,
 		WrappingKeySpec: "ECC_NIST_P256",
 	})
@@ -869,7 +870,7 @@ func TestBatch2_GetParametersForImport_ValidWrappingAlgorithms(t *testing.T) {
 		t.Run(algo, func(t *testing.T) {
 			t.Parallel()
 			keyID := b2mustCreateExternalKey(t, b)
-			out, err := b.GetParametersForImport(&kms.GetParametersForImportInput{
+			out, err := b.GetParametersForImport(context.Background(), &kms.GetParametersForImportInput{
 				KeyID:             keyID,
 				WrappingAlgorithm: algo,
 			})
@@ -888,7 +889,7 @@ func TestBatch2_GetParametersForImport_ValidWrappingKeySpecs(t *testing.T) {
 		t.Run(spec, func(t *testing.T) {
 			t.Parallel()
 			keyID := b2mustCreateExternalKey(t, b)
-			out, err := b.GetParametersForImport(&kms.GetParametersForImportInput{
+			out, err := b.GetParametersForImport(context.Background(), &kms.GetParametersForImportInput{
 				KeyID:           keyID,
 				WrappingKeySpec: spec,
 			})
@@ -904,7 +905,7 @@ func TestBatch2_GetParametersForImport_ParametersValidToIsFuture(t *testing.T) {
 	keyID := b2mustCreateExternalKey(t, b)
 
 	now := float64(time.Now().UnixNano()) / 1e9
-	out, err := b.GetParametersForImport(&kms.GetParametersForImportInput{
+	out, err := b.GetParametersForImport(context.Background(), &kms.GetParametersForImportInput{
 		KeyID: keyID,
 	})
 	require.NoError(t, err)
@@ -918,7 +919,7 @@ func TestBatch2_MultiRegion_PrimaryType_InDescribeKey(t *testing.T) {
 	b := b2newBackend(t)
 	keyID := b2mustCreateMultiRegionKey(t, b)
 
-	desc, err := b.DescribeKey(&kms.DescribeKeyInput{KeyID: keyID})
+	desc, err := b.DescribeKey(context.Background(), &kms.DescribeKeyInput{KeyID: keyID})
 	require.NoError(t, err)
 	assert.Equal(t, "PRIMARY", desc.KeyMetadata.MultiRegionKeyType)
 	assert.True(t, desc.KeyMetadata.MultiRegion)
@@ -929,13 +930,13 @@ func TestBatch2_MultiRegion_ReplicaType_AfterReplicate(t *testing.T) {
 	b := b2newBackend(t)
 	primaryID := b2mustCreateMultiRegionKey(t, b)
 
-	out, err := b.ReplicateKey(&kms.ReplicateKeyInput{
+	out, err := b.ReplicateKey(context.Background(), &kms.ReplicateKeyInput{
 		KeyID:         primaryID,
 		ReplicaRegion: "us-west-2",
 	})
 	require.NoError(t, err)
 
-	desc, err := b.DescribeKey(&kms.DescribeKeyInput{KeyID: out.ReplicaKeyMetadata.KeyID})
+	desc, err := b.DescribeKey(context.Background(), &kms.DescribeKeyInput{KeyID: out.ReplicaKeyMetadata.KeyID})
 	require.NoError(t, err)
 	assert.Equal(t, "REPLICA", desc.KeyMetadata.MultiRegionKeyType)
 }
@@ -945,14 +946,14 @@ func TestBatch2_MultiRegion_PrimaryConfig_HasPrimaryAndReplicas(t *testing.T) {
 	b := b2newBackend(t)
 	primaryID := b2mustCreateMultiRegionKey(t, b)
 
-	out, err := b.ReplicateKey(&kms.ReplicateKeyInput{
+	out, err := b.ReplicateKey(context.Background(), &kms.ReplicateKeyInput{
 		KeyID:         primaryID,
 		ReplicaRegion: "ap-east-1",
 	})
 	require.NoError(t, err)
 	_ = out
 
-	desc, err := b.DescribeKey(&kms.DescribeKeyInput{KeyID: primaryID})
+	desc, err := b.DescribeKey(context.Background(), &kms.DescribeKeyInput{KeyID: primaryID})
 	require.NoError(t, err)
 	mrConfig := desc.KeyMetadata.MultiRegionConfiguration
 	require.NotNil(t, mrConfig)
@@ -965,12 +966,12 @@ func TestBatch2_MultiRegion_UpdatePrimaryRegion_ChangesType(t *testing.T) {
 	b := b2newBackend(t)
 	keyID := b2mustCreateMultiRegionKey(t, b)
 
-	require.NoError(t, b.UpdatePrimaryRegion(&kms.UpdatePrimaryRegionInput{
+	require.NoError(t, b.UpdatePrimaryRegion(context.Background(), &kms.UpdatePrimaryRegionInput{
 		KeyID:         keyID,
 		PrimaryRegion: "us-west-2",
 	}))
 
-	desc, err := b.DescribeKey(&kms.DescribeKeyInput{KeyID: keyID})
+	desc, err := b.DescribeKey(context.Background(), &kms.DescribeKeyInput{KeyID: keyID})
 	require.NoError(t, err)
 	assert.Equal(t, "REPLICA", desc.KeyMetadata.MultiRegionKeyType)
 }
@@ -980,7 +981,7 @@ func TestBatch2_MultiRegion_ReplicaEnableDisable_Independent(t *testing.T) {
 	b := b2newBackend(t)
 	primaryID := b2mustCreateMultiRegionKey(t, b)
 
-	out, err := b.ReplicateKey(&kms.ReplicateKeyInput{
+	out, err := b.ReplicateKey(context.Background(), &kms.ReplicateKeyInput{
 		KeyID:         primaryID,
 		ReplicaRegion: "sa-east-1",
 	})
@@ -988,9 +989,9 @@ func TestBatch2_MultiRegion_ReplicaEnableDisable_Independent(t *testing.T) {
 	replicaID := out.ReplicaKeyMetadata.KeyID
 
 	// Disable primary; replica should still be enabled
-	require.NoError(t, b.DisableKey(&kms.DisableKeyInput{KeyID: primaryID}))
+	require.NoError(t, b.DisableKey(context.Background(), &kms.DisableKeyInput{KeyID: primaryID}))
 
-	replicaDesc, err := b.DescribeKey(&kms.DescribeKeyInput{KeyID: replicaID})
+	replicaDesc, err := b.DescribeKey(context.Background(), &kms.DescribeKeyInput{KeyID: replicaID})
 	require.NoError(t, err)
 	assert.Equal(t, kms.KeyStateEnabled, replicaDesc.KeyMetadata.KeyState)
 }
@@ -1001,17 +1002,17 @@ func TestBatch2_Rotation_CustomPeriodPreserved(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, err := b.CreateKey(&kms.CreateKeyInput{})
+	out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 	keyID := out.KeyMetadata.KeyID
 
 	period := int32(90)
-	require.NoError(t, b.EnableKeyRotation(&kms.EnableKeyRotationInput{
+	require.NoError(t, b.EnableKeyRotation(context.Background(), &kms.EnableKeyRotationInput{
 		KeyID:                keyID,
 		RotationPeriodInDays: &period,
 	}))
 
-	status, err := b.GetKeyRotationStatus(&kms.GetKeyRotationStatusInput{KeyID: keyID})
+	status, err := b.GetKeyRotationStatus(context.Background(), &kms.GetKeyRotationStatusInput{KeyID: keyID})
 	require.NoError(t, err)
 	assert.True(t, status.KeyRotationEnabled)
 	assert.Equal(t, int32(90), status.RotationPeriodInDays)
@@ -1021,14 +1022,14 @@ func TestBatch2_Rotation_DisableKeyRotation_ClearsStatus(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, err := b.CreateKey(&kms.CreateKeyInput{})
+	out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 	keyID := out.KeyMetadata.KeyID
 
-	require.NoError(t, b.EnableKeyRotation(&kms.EnableKeyRotationInput{KeyID: keyID}))
-	require.NoError(t, b.DisableKeyRotation(&kms.DisableKeyRotationInput{KeyID: keyID}))
+	require.NoError(t, b.EnableKeyRotation(context.Background(), &kms.EnableKeyRotationInput{KeyID: keyID}))
+	require.NoError(t, b.DisableKeyRotation(context.Background(), &kms.DisableKeyRotationInput{KeyID: keyID}))
 
-	status, err := b.GetKeyRotationStatus(&kms.GetKeyRotationStatusInput{KeyID: keyID})
+	status, err := b.GetKeyRotationStatus(context.Background(), &kms.GetKeyRotationStatusInput{KeyID: keyID})
 	require.NoError(t, err)
 	assert.False(t, status.KeyRotationEnabled)
 }
@@ -1037,14 +1038,14 @@ func TestBatch2_Rotation_NextRotationDate_SetAfterEnable(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, err := b.CreateKey(&kms.CreateKeyInput{})
+	out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 	keyID := out.KeyMetadata.KeyID
 
-	require.NoError(t, b.EnableKeyRotation(&kms.EnableKeyRotationInput{KeyID: keyID}))
+	require.NoError(t, b.EnableKeyRotation(context.Background(), &kms.EnableKeyRotationInput{KeyID: keyID}))
 
 	now := float64(time.Now().UnixNano()) / 1e9
-	status, err := b.GetKeyRotationStatus(&kms.GetKeyRotationStatusInput{KeyID: keyID})
+	status, err := b.GetKeyRotationStatus(context.Background(), &kms.GetKeyRotationStatusInput{KeyID: keyID})
 	require.NoError(t, err)
 	assert.Greater(t, status.NextRotationDate, now)
 }
@@ -1053,15 +1054,15 @@ func TestBatch2_Rotation_ListKeyRotations_ContainsAutoRotationType(t *testing.T)
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, err := b.CreateKey(&kms.CreateKeyInput{})
+	out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 	keyID := out.KeyMetadata.KeyID
 
-	require.NoError(t, b.EnableKeyRotation(&kms.EnableKeyRotationInput{KeyID: keyID}))
-	_, err = b.RotateKeyOnDemand(&kms.RotateKeyOnDemandInput{KeyID: keyID})
+	require.NoError(t, b.EnableKeyRotation(context.Background(), &kms.EnableKeyRotationInput{KeyID: keyID}))
+	_, err = b.RotateKeyOnDemand(context.Background(), &kms.RotateKeyOnDemandInput{KeyID: keyID})
 	require.NoError(t, err)
 
-	rotList, err := b.ListKeyRotations(&kms.ListKeyRotationsInput{KeyID: keyID})
+	rotList, err := b.ListKeyRotations(context.Background(), &kms.ListKeyRotationsInput{KeyID: keyID})
 	require.NoError(t, err)
 	assert.NotEmpty(t, rotList.Rotations)
 
@@ -1076,18 +1077,18 @@ func TestBatch2_Rotation_ListKeyRotations_Pagination(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, err := b.CreateKey(&kms.CreateKeyInput{})
+	out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 	keyID := out.KeyMetadata.KeyID
 
 	// Perform multiple on-demand rotations
 	for range 5 {
-		_, rotErr := b.RotateKeyOnDemand(&kms.RotateKeyOnDemandInput{KeyID: keyID})
+		_, rotErr := b.RotateKeyOnDemand(context.Background(), &kms.RotateKeyOnDemandInput{KeyID: keyID})
 		require.NoError(t, rotErr)
 	}
 
 	limit := int32(2)
-	first, err := b.ListKeyRotations(&kms.ListKeyRotationsInput{
+	first, err := b.ListKeyRotations(context.Background(), &kms.ListKeyRotationsInput{
 		KeyID: keyID,
 		Limit: &limit,
 	})
@@ -1096,7 +1097,7 @@ func TestBatch2_Rotation_ListKeyRotations_Pagination(t *testing.T) {
 	assert.True(t, first.Truncated)
 	assert.NotEmpty(t, first.NextMarker)
 
-	second, err := b.ListKeyRotations(&kms.ListKeyRotationsInput{
+	second, err := b.ListKeyRotations(context.Background(), &kms.ListKeyRotationsInput{
 		KeyID:  keyID,
 		Limit:  &limit,
 		Marker: first.NextMarker,
@@ -1110,7 +1111,7 @@ func TestBatch2_Rotation_ExternalOriginKey_RotationRejected(t *testing.T) {
 	b := b2newBackend(t)
 	keyID := b2mustCreateExternalKey(t, b)
 
-	err := b.EnableKeyRotation(&kms.EnableKeyRotationInput{KeyID: keyID})
+	err := b.EnableKeyRotation(context.Background(), &kms.EnableKeyRotationInput{KeyID: keyID})
 	require.Error(t, err)
 }
 
@@ -1120,22 +1121,22 @@ func TestBatch2_RotateKeyOnDemand_OldCiphertext_Decryptable(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, err := b.CreateKey(&kms.CreateKeyInput{})
+	out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 	keyID := out.KeyMetadata.KeyID
 
 	// Encrypt before rotation
-	enc, err := b.Encrypt(&kms.EncryptInput{
+	enc, err := b.Encrypt(context.Background(), &kms.EncryptInput{
 		KeyID:     keyID,
 		Plaintext: []byte("pre-rotation data"),
 	})
 	require.NoError(t, err)
 
-	_, err = b.RotateKeyOnDemand(&kms.RotateKeyOnDemandInput{KeyID: keyID})
+	_, err = b.RotateKeyOnDemand(context.Background(), &kms.RotateKeyOnDemandInput{KeyID: keyID})
 	require.NoError(t, err)
 
 	// Should still decrypt after rotation
-	dec, err := b.Decrypt(&kms.DecryptInput{
+	dec, err := b.Decrypt(context.Background(), &kms.DecryptInput{
 		CiphertextBlob: enc.CiphertextBlob,
 	})
 	require.NoError(t, err)
@@ -1146,13 +1147,13 @@ func TestBatch2_RotateKeyOnDemand_HMACKey_Rejected(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, err := b.CreateKey(&kms.CreateKeyInput{
+	out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{
 		KeySpec:  "HMAC_256",
 		KeyUsage: kms.KeyUsageGenerateMac,
 	})
 	require.NoError(t, err)
 
-	_, err = b.RotateKeyOnDemand(&kms.RotateKeyOnDemandInput{KeyID: out.KeyMetadata.KeyID})
+	_, err = b.RotateKeyOnDemand(context.Background(), &kms.RotateKeyOnDemandInput{KeyID: out.KeyMetadata.KeyID})
 	require.Error(t, err)
 }
 
@@ -1160,11 +1161,11 @@ func TestBatch2_RotateKeyOnDemand_ReturnsKeyID(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, err := b.CreateKey(&kms.CreateKeyInput{})
+	out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 	keyID := out.KeyMetadata.KeyID
 
-	rotOut, err := b.RotateKeyOnDemand(&kms.RotateKeyOnDemandInput{KeyID: keyID})
+	rotOut, err := b.RotateKeyOnDemand(context.Background(), &kms.RotateKeyOnDemandInput{KeyID: keyID})
 	require.NoError(t, err)
 	assert.Equal(t, keyID, rotOut.KeyID)
 }
@@ -1173,14 +1174,14 @@ func TestBatch2_RotateKeyOnDemand_GetKeyRotationStatus_HasOnDemandDate(t *testin
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, err := b.CreateKey(&kms.CreateKeyInput{})
+	out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 	keyID := out.KeyMetadata.KeyID
 
-	_, err = b.RotateKeyOnDemand(&kms.RotateKeyOnDemandInput{KeyID: keyID})
+	_, err = b.RotateKeyOnDemand(context.Background(), &kms.RotateKeyOnDemandInput{KeyID: keyID})
 	require.NoError(t, err)
 
-	status, err := b.GetKeyRotationStatus(&kms.GetKeyRotationStatusInput{KeyID: keyID})
+	status, err := b.GetKeyRotationStatus(context.Background(), &kms.GetKeyRotationStatusInput{KeyID: keyID})
 	require.NoError(t, err)
 	assert.Greater(t, status.OnDemandRotationStartDate, float64(0))
 }
@@ -1191,17 +1192,17 @@ func TestBatch2_ScheduleKeyDeletion_BlocksEncrypt(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, err := b.CreateKey(&kms.CreateKeyInput{})
+	out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 	keyID := out.KeyMetadata.KeyID
 
-	_, err = b.ScheduleKeyDeletion(&kms.ScheduleKeyDeletionInput{
+	_, err = b.ScheduleKeyDeletion(context.Background(), &kms.ScheduleKeyDeletionInput{
 		KeyID:               keyID,
 		PendingWindowInDays: 7,
 	})
 	require.NoError(t, err)
 
-	_, err = b.Encrypt(&kms.EncryptInput{
+	_, err = b.Encrypt(context.Background(), &kms.EncryptInput{
 		KeyID:     keyID,
 		Plaintext: []byte("test"),
 	})
@@ -1212,23 +1213,23 @@ func TestBatch2_ScheduleKeyDeletion_BlocksDecrypt(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, err := b.CreateKey(&kms.CreateKeyInput{})
+	out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 	keyID := out.KeyMetadata.KeyID
 
-	enc, err := b.Encrypt(&kms.EncryptInput{
+	enc, err := b.Encrypt(context.Background(), &kms.EncryptInput{
 		KeyID:     keyID,
 		Plaintext: []byte("test"),
 	})
 	require.NoError(t, err)
 
-	_, err = b.ScheduleKeyDeletion(&kms.ScheduleKeyDeletionInput{
+	_, err = b.ScheduleKeyDeletion(context.Background(), &kms.ScheduleKeyDeletionInput{
 		KeyID:               keyID,
 		PendingWindowInDays: 7,
 	})
 	require.NoError(t, err)
 
-	_, err = b.Decrypt(&kms.DecryptInput{
+	_, err = b.Decrypt(context.Background(), &kms.DecryptInput{
 		CiphertextBlob: enc.CiphertextBlob,
 	})
 	require.Error(t, err)
@@ -1238,11 +1239,11 @@ func TestBatch2_ScheduleKeyDeletion_MinWindow_7Days(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, err := b.CreateKey(&kms.CreateKeyInput{})
+	out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 	keyID := out.KeyMetadata.KeyID
 
-	_, err = b.ScheduleKeyDeletion(&kms.ScheduleKeyDeletionInput{
+	_, err = b.ScheduleKeyDeletion(context.Background(), &kms.ScheduleKeyDeletionInput{
 		KeyID:               keyID,
 		PendingWindowInDays: 6,
 	})
@@ -1253,11 +1254,11 @@ func TestBatch2_ScheduleKeyDeletion_MaxWindow_30Days(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, err := b.CreateKey(&kms.CreateKeyInput{})
+	out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 	keyID := out.KeyMetadata.KeyID
 
-	_, err = b.ScheduleKeyDeletion(&kms.ScheduleKeyDeletionInput{
+	_, err = b.ScheduleKeyDeletion(context.Background(), &kms.ScheduleKeyDeletionInput{
 		KeyID:               keyID,
 		PendingWindowInDays: 31,
 	})
@@ -1268,12 +1269,12 @@ func TestBatch2_ScheduleKeyDeletion_DeletionDateInFuture(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, err := b.CreateKey(&kms.CreateKeyInput{})
+	out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 	keyID := out.KeyMetadata.KeyID
 
 	now := float64(time.Now().UnixNano()) / 1e9
-	schedOut, err := b.ScheduleKeyDeletion(&kms.ScheduleKeyDeletionInput{
+	schedOut, err := b.ScheduleKeyDeletion(context.Background(), &kms.ScheduleKeyDeletionInput{
 		KeyID:               keyID,
 		PendingWindowInDays: 7,
 	})
@@ -1286,17 +1287,17 @@ func TestBatch2_CancelKeyDeletion_RestoresToDisabled(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, err := b.CreateKey(&kms.CreateKeyInput{})
+	out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 	keyID := out.KeyMetadata.KeyID
 
-	_, err = b.ScheduleKeyDeletion(&kms.ScheduleKeyDeletionInput{
+	_, err = b.ScheduleKeyDeletion(context.Background(), &kms.ScheduleKeyDeletionInput{
 		KeyID:               keyID,
 		PendingWindowInDays: 7,
 	})
 	require.NoError(t, err)
 
-	cancelOut, err := b.CancelKeyDeletion(&kms.CancelKeyDeletionInput{KeyID: keyID})
+	cancelOut, err := b.CancelKeyDeletion(context.Background(), &kms.CancelKeyDeletionInput{KeyID: keyID})
 	require.NoError(t, err)
 	assert.Equal(t, kms.KeyStateDisabled, cancelOut.KeyState)
 }
@@ -1305,22 +1306,22 @@ func TestBatch2_CancelKeyDeletion_AllowsReEnableAndEncrypt(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, err := b.CreateKey(&kms.CreateKeyInput{})
+	out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 	keyID := out.KeyMetadata.KeyID
 
-	_, err = b.ScheduleKeyDeletion(&kms.ScheduleKeyDeletionInput{
+	_, err = b.ScheduleKeyDeletion(context.Background(), &kms.ScheduleKeyDeletionInput{
 		KeyID:               keyID,
 		PendingWindowInDays: 7,
 	})
 	require.NoError(t, err)
 
-	_, err = b.CancelKeyDeletion(&kms.CancelKeyDeletionInput{KeyID: keyID})
+	_, err = b.CancelKeyDeletion(context.Background(), &kms.CancelKeyDeletionInput{KeyID: keyID})
 	require.NoError(t, err)
 
-	require.NoError(t, b.EnableKey(&kms.EnableKeyInput{KeyID: keyID}))
+	require.NoError(t, b.EnableKey(context.Background(), &kms.EnableKeyInput{KeyID: keyID}))
 
-	_, err = b.Encrypt(&kms.EncryptInput{
+	_, err = b.Encrypt(context.Background(), &kms.EncryptInput{
 		KeyID:     keyID,
 		Plaintext: []byte("after cancel"),
 	})
@@ -1331,11 +1332,11 @@ func TestBatch2_ScheduleKeyDeletion_DefaultWindow_30Days(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, err := b.CreateKey(&kms.CreateKeyInput{})
+	out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 	keyID := out.KeyMetadata.KeyID
 
-	schedOut, err := b.ScheduleKeyDeletion(&kms.ScheduleKeyDeletionInput{
+	schedOut, err := b.ScheduleKeyDeletion(context.Background(), &kms.ScheduleKeyDeletionInput{
 		KeyID: keyID,
 		// No PendingWindowInDays → defaults to 30
 	})
@@ -1347,20 +1348,20 @@ func TestBatch2_ScheduleKeyDeletion_BlocksSign(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, err := b.CreateKey(&kms.CreateKeyInput{
+	out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{
 		KeySpec:  "RSA_2048",
 		KeyUsage: kms.KeyUsageSignVerify,
 	})
 	require.NoError(t, err)
 	keyID := out.KeyMetadata.KeyID
 
-	_, err = b.ScheduleKeyDeletion(&kms.ScheduleKeyDeletionInput{
+	_, err = b.ScheduleKeyDeletion(context.Background(), &kms.ScheduleKeyDeletionInput{
 		KeyID:               keyID,
 		PendingWindowInDays: 7,
 	})
 	require.NoError(t, err)
 
-	_, err = b.Sign(&kms.SignInput{
+	_, err = b.Sign(context.Background(), &kms.SignInput{
 		KeyID:            keyID,
 		Message:          []byte("message"),
 		SigningAlgorithm: "RSASSA_PKCS1_V1_5_SHA_256",
@@ -1374,16 +1375,16 @@ func TestBatch2_UpdateKeyDescription_EmptyDescriptionAllowed(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, err := b.CreateKey(&kms.CreateKeyInput{Description: "original"})
+	out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{Description: "original"})
 	require.NoError(t, err)
 	keyID := out.KeyMetadata.KeyID
 
-	require.NoError(t, b.UpdateKeyDescription(&kms.UpdateKeyDescriptionInput{
+	require.NoError(t, b.UpdateKeyDescription(context.Background(), &kms.UpdateKeyDescriptionInput{
 		KeyID:       keyID,
 		Description: "",
 	}))
 
-	desc, err := b.DescribeKey(&kms.DescribeKeyInput{KeyID: keyID})
+	desc, err := b.DescribeKey(context.Background(), &kms.DescribeKeyInput{KeyID: keyID})
 	require.NoError(t, err)
 	assert.Empty(t, desc.KeyMetadata.Description)
 }
@@ -1392,7 +1393,7 @@ func TestBatch2_UpdateKeyDescription_MaxLength_Accepted(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, err := b.CreateKey(&kms.CreateKeyInput{})
+	out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 	keyID := out.KeyMetadata.KeyID
 
@@ -1400,7 +1401,7 @@ func TestBatch2_UpdateKeyDescription_MaxLength_Accepted(t *testing.T) {
 	for i := range maxDesc {
 		maxDesc[i] = 'a'
 	}
-	require.NoError(t, b.UpdateKeyDescription(&kms.UpdateKeyDescriptionInput{
+	require.NoError(t, b.UpdateKeyDescription(context.Background(), &kms.UpdateKeyDescriptionInput{
 		KeyID:       keyID,
 		Description: string(maxDesc),
 	}))
@@ -1410,12 +1411,12 @@ func TestBatch2_UpdateKeyDescription_ExceedsMaxLength_Rejected(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, err := b.CreateKey(&kms.CreateKeyInput{})
+	out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 	keyID := out.KeyMetadata.KeyID
 
 	tooLong := make([]byte, 8193)
-	err = b.UpdateKeyDescription(&kms.UpdateKeyDescriptionInput{
+	err = b.UpdateKeyDescription(context.Background(), &kms.UpdateKeyDescriptionInput{
 		KeyID:       keyID,
 		Description: string(tooLong),
 	})
@@ -1426,16 +1427,16 @@ func TestBatch2_UpdateKeyDescription_DescribeKeyReturnsUpdated(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, err := b.CreateKey(&kms.CreateKeyInput{})
+	out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 	keyID := out.KeyMetadata.KeyID
 
-	require.NoError(t, b.UpdateKeyDescription(&kms.UpdateKeyDescriptionInput{
+	require.NoError(t, b.UpdateKeyDescription(context.Background(), &kms.UpdateKeyDescriptionInput{
 		KeyID:       keyID,
 		Description: "updated description",
 	}))
 
-	desc, err := b.DescribeKey(&kms.DescribeKeyInput{KeyID: keyID})
+	desc, err := b.DescribeKey(context.Background(), &kms.DescribeKeyInput{KeyID: keyID})
 	require.NoError(t, err)
 	assert.Equal(t, "updated description", desc.KeyMetadata.Description)
 }
@@ -1446,16 +1447,16 @@ func TestBatch2_ListAliases_FilterByKeyID_ReturnsOnlyMatching(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out1, _ := b.CreateKey(&kms.CreateKeyInput{})
-	out2, _ := b.CreateKey(&kms.CreateKeyInput{})
+	out1, _ := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
+	out2, _ := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	key1 := out1.KeyMetadata.KeyID
 	key2 := out2.KeyMetadata.KeyID
 
-	require.NoError(t, b.CreateAlias(&kms.CreateAliasInput{AliasName: "alias/key1-a", TargetKeyID: key1}))
-	require.NoError(t, b.CreateAlias(&kms.CreateAliasInput{AliasName: "alias/key1-b", TargetKeyID: key1}))
-	require.NoError(t, b.CreateAlias(&kms.CreateAliasInput{AliasName: "alias/key2-a", TargetKeyID: key2}))
+	require.NoError(t, b.CreateAlias(context.Background(), &kms.CreateAliasInput{AliasName: "alias/key1-a", TargetKeyID: key1}))
+	require.NoError(t, b.CreateAlias(context.Background(), &kms.CreateAliasInput{AliasName: "alias/key1-b", TargetKeyID: key1}))
+	require.NoError(t, b.CreateAlias(context.Background(), &kms.CreateAliasInput{AliasName: "alias/key2-a", TargetKeyID: key2}))
 
-	aliases, err := b.ListAliases(&kms.ListAliasesInput{KeyID: key1})
+	aliases, err := b.ListAliases(context.Background(), &kms.ListAliasesInput{KeyID: key1})
 	require.NoError(t, err)
 	assert.Len(t, aliases.Aliases, 2)
 	for _, a := range aliases.Aliases {
@@ -1467,19 +1468,19 @@ func TestBatch2_ListAliases_NoFilter_ReturnsAll(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out1, _ := b.CreateKey(&kms.CreateKeyInput{})
-	out2, _ := b.CreateKey(&kms.CreateKeyInput{})
+	out1, _ := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
+	out2, _ := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 
 	require.NoError(
 		t,
-		b.CreateAlias(&kms.CreateAliasInput{AliasName: "alias/one", TargetKeyID: out1.KeyMetadata.KeyID}),
+		b.CreateAlias(context.Background(), &kms.CreateAliasInput{AliasName: "alias/one", TargetKeyID: out1.KeyMetadata.KeyID}),
 	)
 	require.NoError(
 		t,
-		b.CreateAlias(&kms.CreateAliasInput{AliasName: "alias/two", TargetKeyID: out2.KeyMetadata.KeyID}),
+		b.CreateAlias(context.Background(), &kms.CreateAliasInput{AliasName: "alias/two", TargetKeyID: out2.KeyMetadata.KeyID}),
 	)
 
-	aliases, err := b.ListAliases(&kms.ListAliasesInput{})
+	aliases, err := b.ListAliases(context.Background(), &kms.ListAliasesInput{})
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, len(aliases.Aliases), 2)
 }
@@ -1488,14 +1489,14 @@ func TestBatch2_ListAliases_NonMatchingKeyID_ReturnsEmpty(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, _ := b.CreateKey(&kms.CreateKeyInput{})
+	out, _ := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	key1 := out.KeyMetadata.KeyID
-	require.NoError(t, b.CreateAlias(&kms.CreateAliasInput{AliasName: "alias/unrelated", TargetKeyID: key1}))
+	require.NoError(t, b.CreateAlias(context.Background(), &kms.CreateAliasInput{AliasName: "alias/unrelated", TargetKeyID: key1}))
 
-	out2, _ := b.CreateKey(&kms.CreateKeyInput{})
+	out2, _ := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	key2 := out2.KeyMetadata.KeyID // no aliases
 
-	aliases, err := b.ListAliases(&kms.ListAliasesInput{KeyID: key2})
+	aliases, err := b.ListAliases(context.Background(), &kms.ListAliasesInput{KeyID: key2})
 	require.NoError(t, err)
 	assert.Empty(t, aliases.Aliases)
 }
@@ -1504,22 +1505,22 @@ func TestBatch2_ListAliases_Pagination(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, _ := b.CreateKey(&kms.CreateKeyInput{})
+	out, _ := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	keyID := out.KeyMetadata.KeyID
 
 	for i := range 5 {
 		name := fmt.Sprintf("alias/pagtest-%d", i)
-		require.NoError(t, b.CreateAlias(&kms.CreateAliasInput{AliasName: name, TargetKeyID: keyID}))
+		require.NoError(t, b.CreateAlias(context.Background(), &kms.CreateAliasInput{AliasName: name, TargetKeyID: keyID}))
 	}
 
 	limit := int32(2)
-	first, err := b.ListAliases(&kms.ListAliasesInput{Limit: &limit})
+	first, err := b.ListAliases(context.Background(), &kms.ListAliasesInput{Limit: &limit})
 	require.NoError(t, err)
 	assert.Len(t, first.Aliases, 2)
 	assert.True(t, first.Truncated)
 	assert.NotEmpty(t, first.NextMarker)
 
-	second, err := b.ListAliases(&kms.ListAliasesInput{Limit: &limit, Marker: first.NextMarker})
+	second, err := b.ListAliases(context.Background(), &kms.ListAliasesInput{Limit: &limit, Marker: first.NextMarker})
 	require.NoError(t, err)
 	assert.NotEmpty(t, second.Aliases)
 }
@@ -1528,11 +1529,11 @@ func TestBatch2_ListAliases_ReturnsCreationAndUpdateDates(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, _ := b.CreateKey(&kms.CreateKeyInput{})
+	out, _ := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	keyID := out.KeyMetadata.KeyID
-	require.NoError(t, b.CreateAlias(&kms.CreateAliasInput{AliasName: "alias/dated", TargetKeyID: keyID}))
+	require.NoError(t, b.CreateAlias(context.Background(), &kms.CreateAliasInput{AliasName: "alias/dated", TargetKeyID: keyID}))
 
-	aliases, err := b.ListAliases(&kms.ListAliasesInput{})
+	aliases, err := b.ListAliases(context.Background(), &kms.ListAliasesInput{})
 	require.NoError(t, err)
 	require.NotEmpty(t, aliases.Aliases)
 	for _, a := range aliases.Aliases {
@@ -1548,10 +1549,10 @@ func TestBatch2_CreateGrant_WithRetiringPrincipal(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, _ := b.CreateKey(&kms.CreateKeyInput{})
+	out, _ := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	keyID := out.KeyMetadata.KeyID
 
-	grantOut, err := b.CreateGrant(&kms.CreateGrantInput{
+	grantOut, err := b.CreateGrant(context.Background(), &kms.CreateGrantInput{
 		KeyID:             keyID,
 		GranteePrincipal:  "arn:aws:iam::123456789012:role/grantee",
 		RetiringPrincipal: "arn:aws:iam::123456789012:role/retiree",
@@ -1566,11 +1567,11 @@ func TestBatch2_ListRetirableGrants_ReturnsMatchingGrants(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, _ := b.CreateKey(&kms.CreateKeyInput{})
+	out, _ := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	keyID := out.KeyMetadata.KeyID
 
 	retiringPrincipal := "arn:aws:iam::123456789012:role/retiree"
-	_, err := b.CreateGrant(&kms.CreateGrantInput{
+	_, err := b.CreateGrant(context.Background(), &kms.CreateGrantInput{
 		KeyID:             keyID,
 		GranteePrincipal:  "arn:aws:iam::123456789012:role/grantee",
 		RetiringPrincipal: retiringPrincipal,
@@ -1578,7 +1579,7 @@ func TestBatch2_ListRetirableGrants_ReturnsMatchingGrants(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	retList, err := b.ListRetirableGrants(&kms.ListRetirableGrantsInput{
+	retList, err := b.ListRetirableGrants(context.Background(), &kms.ListRetirableGrantsInput{
 		RetiringPrincipal: retiringPrincipal,
 	})
 	require.NoError(t, err)
@@ -1592,10 +1593,10 @@ func TestBatch2_ListRetirableGrants_DifferentPrincipal_NotReturned(t *testing.T)
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, _ := b.CreateKey(&kms.CreateKeyInput{})
+	out, _ := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	keyID := out.KeyMetadata.KeyID
 
-	_, err := b.CreateGrant(&kms.CreateGrantInput{
+	_, err := b.CreateGrant(context.Background(), &kms.CreateGrantInput{
 		KeyID:             keyID,
 		GranteePrincipal:  "arn:aws:iam::123456789012:role/grantee",
 		RetiringPrincipal: "arn:aws:iam::123456789012:role/retiree-A",
@@ -1603,7 +1604,7 @@ func TestBatch2_ListRetirableGrants_DifferentPrincipal_NotReturned(t *testing.T)
 	})
 	require.NoError(t, err)
 
-	retList, err := b.ListRetirableGrants(&kms.ListRetirableGrantsInput{
+	retList, err := b.ListRetirableGrants(context.Background(), &kms.ListRetirableGrantsInput{
 		RetiringPrincipal: "arn:aws:iam::123456789012:role/retiree-B",
 	})
 	require.NoError(t, err)
@@ -1614,10 +1615,10 @@ func TestBatch2_RetireGrant_ByGrantToken(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, _ := b.CreateKey(&kms.CreateKeyInput{})
+	out, _ := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	keyID := out.KeyMetadata.KeyID
 
-	grantOut, err := b.CreateGrant(&kms.CreateGrantInput{
+	grantOut, err := b.CreateGrant(context.Background(), &kms.CreateGrantInput{
 		KeyID:             keyID,
 		GranteePrincipal:  "arn:aws:iam::123456789012:role/grantee",
 		RetiringPrincipal: "arn:aws:iam::123456789012:role/retiree",
@@ -1625,11 +1626,11 @@ func TestBatch2_RetireGrant_ByGrantToken(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.NoError(t, b.RetireGrant(&kms.RetireGrantInput{
+	require.NoError(t, b.RetireGrant(context.Background(), &kms.RetireGrantInput{
 		GrantToken: grantOut.GrantToken,
 	}))
 
-	grants, err := b.ListGrants(&kms.ListGrantsInput{KeyID: keyID})
+	grants, err := b.ListGrants(context.Background(), &kms.ListGrantsInput{KeyID: keyID})
 	require.NoError(t, err)
 	for _, g := range grants.Grants {
 		assert.NotEqual(t, grantOut.GrantID, g.GrantID)
@@ -1640,22 +1641,22 @@ func TestBatch2_RetireGrant_ByGrantIDAndKeyID(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, _ := b.CreateKey(&kms.CreateKeyInput{})
+	out, _ := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	keyID := out.KeyMetadata.KeyID
 
-	grantOut, err := b.CreateGrant(&kms.CreateGrantInput{
+	grantOut, err := b.CreateGrant(context.Background(), &kms.CreateGrantInput{
 		KeyID:            keyID,
 		GranteePrincipal: "arn:aws:iam::123456789012:role/grantee",
 		Operations:       []string{"Decrypt"},
 	})
 	require.NoError(t, err)
 
-	require.NoError(t, b.RetireGrant(&kms.RetireGrantInput{
+	require.NoError(t, b.RetireGrant(context.Background(), &kms.RetireGrantInput{
 		KeyID:   keyID,
 		GrantID: grantOut.GrantID,
 	}))
 
-	grants, err := b.ListGrants(&kms.ListGrantsInput{KeyID: keyID})
+	grants, err := b.ListGrants(context.Background(), &kms.ListGrantsInput{KeyID: keyID})
 	require.NoError(t, err)
 	for _, g := range grants.Grants {
 		assert.NotEqual(t, grantOut.GrantID, g.GrantID)
@@ -1666,23 +1667,23 @@ func TestBatch2_ListGrants_FilterByGrantID(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, _ := b.CreateKey(&kms.CreateKeyInput{})
+	out, _ := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	keyID := out.KeyMetadata.KeyID
 
-	g1, err := b.CreateGrant(&kms.CreateGrantInput{
+	g1, err := b.CreateGrant(context.Background(), &kms.CreateGrantInput{
 		KeyID:            keyID,
 		GranteePrincipal: "arn:aws:iam::123456789012:role/grantee1",
 		Operations:       []string{"Encrypt"},
 	})
 	require.NoError(t, err)
-	_, err = b.CreateGrant(&kms.CreateGrantInput{
+	_, err = b.CreateGrant(context.Background(), &kms.CreateGrantInput{
 		KeyID:            keyID,
 		GranteePrincipal: "arn:aws:iam::123456789012:role/grantee2",
 		Operations:       []string{"Decrypt"},
 	})
 	require.NoError(t, err)
 
-	grants, err := b.ListGrants(&kms.ListGrantsInput{
+	grants, err := b.ListGrants(context.Background(), &kms.ListGrantsInput{
 		KeyID:   keyID,
 		GrantID: g1.GrantID,
 	})
@@ -1695,10 +1696,10 @@ func TestBatch2_GrantName_Preserved(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, _ := b.CreateKey(&kms.CreateKeyInput{})
+	out, _ := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	keyID := out.KeyMetadata.KeyID
 
-	grantOut, err := b.CreateGrant(&kms.CreateGrantInput{
+	grantOut, err := b.CreateGrant(context.Background(), &kms.CreateGrantInput{
 		KeyID:            keyID,
 		GranteePrincipal: "arn:aws:iam::123456789012:role/grantee",
 		Name:             "my-named-grant",
@@ -1706,7 +1707,7 @@ func TestBatch2_GrantName_Preserved(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	grants, err := b.ListGrants(&kms.ListGrantsInput{
+	grants, err := b.ListGrants(context.Background(), &kms.ListGrantsInput{
 		KeyID:   keyID,
 		GrantID: grantOut.GrantID,
 	})
@@ -1721,17 +1722,17 @@ func TestBatch2_GrantTokens_ValidToken_Encrypt_Accepted(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, _ := b.CreateKey(&kms.CreateKeyInput{})
+	out, _ := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	keyID := out.KeyMetadata.KeyID
 
-	grantOut, err := b.CreateGrant(&kms.CreateGrantInput{
+	grantOut, err := b.CreateGrant(context.Background(), &kms.CreateGrantInput{
 		KeyID:            keyID,
 		GranteePrincipal: "arn:aws:iam::123456789012:role/grantee",
 		Operations:       []string{"Encrypt"},
 	})
 	require.NoError(t, err)
 
-	_, err = b.Encrypt(&kms.EncryptInput{
+	_, err = b.Encrypt(context.Background(), &kms.EncryptInput{
 		KeyID:       keyID,
 		Plaintext:   []byte("token test"),
 		GrantTokens: []string{grantOut.GrantToken},
@@ -1743,11 +1744,11 @@ func TestBatch2_GrantTokens_ExpiredToken_Rejected(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, _ := b.CreateKey(&kms.CreateKeyInput{})
+	out, _ := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	keyID := out.KeyMetadata.KeyID
 
 	// Use an obviously invalid/expired token
-	_, err := b.Encrypt(&kms.EncryptInput{
+	_, err := b.Encrypt(context.Background(), &kms.EncryptInput{
 		KeyID:       keyID,
 		Plaintext:   []byte("token test"),
 		GrantTokens: []string{"definitely-not-a-real-grant-token"},
@@ -1759,23 +1760,23 @@ func TestBatch2_GrantTokens_ValidToken_Decrypt_Accepted(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, _ := b.CreateKey(&kms.CreateKeyInput{})
+	out, _ := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	keyID := out.KeyMetadata.KeyID
 
-	enc, err := b.Encrypt(&kms.EncryptInput{
+	enc, err := b.Encrypt(context.Background(), &kms.EncryptInput{
 		KeyID:     keyID,
 		Plaintext: []byte("decrypt with token"),
 	})
 	require.NoError(t, err)
 
-	grantOut, err := b.CreateGrant(&kms.CreateGrantInput{
+	grantOut, err := b.CreateGrant(context.Background(), &kms.CreateGrantInput{
 		KeyID:            keyID,
 		GranteePrincipal: "arn:aws:iam::123456789012:role/grantee",
 		Operations:       []string{"Decrypt"},
 	})
 	require.NoError(t, err)
 
-	dec, err := b.Decrypt(&kms.DecryptInput{
+	dec, err := b.Decrypt(context.Background(), &kms.DecryptInput{
 		CiphertextBlob: enc.CiphertextBlob,
 		GrantTokens:    []string{grantOut.GrantToken},
 	})
@@ -1790,7 +1791,7 @@ func TestBatch2_TagResource_AndListResourceTags_Roundtrip(t *testing.T) {
 	h := b2newHandler(t)
 	b := h.Backend.(*kms.InMemoryBackend)
 
-	out, _ := b.CreateKey(&kms.CreateKeyInput{})
+	out, _ := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	keyID := out.KeyMetadata.KeyID
 
 	body := fmt.Sprintf(
@@ -1819,7 +1820,7 @@ func TestBatch2_UntagResource_RemovesSpecifiedTags(t *testing.T) {
 	h := b2newHandler(t)
 	b := h.Backend.(*kms.InMemoryBackend)
 
-	out, _ := b.CreateKey(&kms.CreateKeyInput{})
+	out, _ := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	keyID := out.KeyMetadata.KeyID
 
 	tagBody := fmt.Sprintf(
@@ -1853,7 +1854,7 @@ func TestBatch2_TagResource_AWSPrefixRejected(t *testing.T) {
 	h := b2newHandler(t)
 	b := h.Backend.(*kms.InMemoryBackend)
 
-	out, _ := b.CreateKey(&kms.CreateKeyInput{})
+	out, _ := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	keyID := out.KeyMetadata.KeyID
 
 	body := fmt.Sprintf(`{"KeyId":"%s","Tags":[{"TagKey":"aws:reserved","TagValue":"x"}]}`, keyID)
@@ -1866,7 +1867,7 @@ func TestBatch2_TagResource_MaxTagsLimit_Enforced(t *testing.T) {
 	h := b2newHandler(t)
 	b := h.Backend.(*kms.InMemoryBackend)
 
-	out, _ := b.CreateKey(&kms.CreateKeyInput{})
+	out, _ := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	keyID := out.KeyMetadata.KeyID
 
 	// Add 50 tags (the max)
@@ -1889,7 +1890,7 @@ func TestBatch2_ListResourceTags_Pagination(t *testing.T) {
 	h := b2newHandler(t)
 	b := h.Backend.(*kms.InMemoryBackend)
 
-	out, _ := b.CreateKey(&kms.CreateKeyInput{})
+	out, _ := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	keyID := out.KeyMetadata.KeyID
 
 	// Add 10 tags
@@ -1971,7 +1972,7 @@ func TestBatch2_Handler_ReplicateKey_ViaHTTP(t *testing.T) {
 	h := b2newHandler(t)
 	b := h.Backend.(*kms.InMemoryBackend)
 
-	createOut, _ := b.CreateKey(&kms.CreateKeyInput{MultiRegion: true})
+	createOut, _ := b.CreateKey(context.Background(), &kms.CreateKeyInput{MultiRegion: true})
 	keyID := createOut.KeyMetadata.KeyID
 
 	body := fmt.Sprintf(`{"KeyId":"%s","ReplicaRegion":"eu-west-1"}`, keyID)
@@ -1984,7 +1985,7 @@ func TestBatch2_Handler_ScheduleKeyDeletion_ViaHTTP(t *testing.T) {
 	h := b2newHandler(t)
 	b := h.Backend.(*kms.InMemoryBackend)
 
-	out, _ := b.CreateKey(&kms.CreateKeyInput{})
+	out, _ := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	keyID := out.KeyMetadata.KeyID
 
 	body := fmt.Sprintf(`{"KeyId":"%s","PendingWindowInDays":7}`, keyID)
@@ -2003,10 +2004,10 @@ func TestBatch2_Handler_CancelKeyDeletion_ViaHTTP(t *testing.T) {
 	h := b2newHandler(t)
 	b := h.Backend.(*kms.InMemoryBackend)
 
-	out, _ := b.CreateKey(&kms.CreateKeyInput{})
+	out, _ := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	keyID := out.KeyMetadata.KeyID
 
-	_, err := b.ScheduleKeyDeletion(&kms.ScheduleKeyDeletionInput{
+	_, err := b.ScheduleKeyDeletion(context.Background(), &kms.ScheduleKeyDeletionInput{
 		KeyID:               keyID,
 		PendingWindowInDays: 7,
 	})
@@ -2031,7 +2032,7 @@ func TestBatch2_Handler_DeriveSharedSecret_ViaHTTP(t *testing.T) {
 	key1ID := b2mustCreateECKey(t, b, "ECC_NIST_P256", kms.KeyUsageKeyAgreement)
 	key2ID := b2mustCreateECKey(t, b, "ECC_NIST_P256", kms.KeyUsageKeyAgreement)
 
-	pub2, err := b.GetPublicKey(&kms.GetPublicKeyInput{KeyID: key2ID})
+	pub2, err := b.GetPublicKey(context.Background(), &kms.GetPublicKeyInput{KeyID: key2ID})
 	require.NoError(t, err)
 
 	// Encode public key as base64 for JSON
@@ -2046,10 +2047,10 @@ func TestBatch2_Handler_ListAliases_FilterByKeyID_ViaHTTP(t *testing.T) {
 	h := b2newHandler(t)
 	b := h.Backend.(*kms.InMemoryBackend)
 
-	out, _ := b.CreateKey(&kms.CreateKeyInput{})
+	out, _ := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	keyID := out.KeyMetadata.KeyID
 
-	require.NoError(t, b.CreateAlias(&kms.CreateAliasInput{
+	require.NoError(t, b.CreateAlias(context.Background(), &kms.CreateAliasInput{
 		AliasName:   "alias/filter-test",
 		TargetKeyID: keyID,
 	}))
@@ -2114,7 +2115,7 @@ func TestBatch2_Handler_RotateKeyOnDemand_ViaHTTP(t *testing.T) {
 	h := b2newHandler(t)
 	b := h.Backend.(*kms.InMemoryBackend)
 
-	out, _ := b.CreateKey(&kms.CreateKeyInput{})
+	out, _ := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	keyID := out.KeyMetadata.KeyID
 
 	body := fmt.Sprintf(`{"KeyId":"%s"}`, keyID)
@@ -2133,7 +2134,7 @@ func TestBatch2_Handler_EnableKeyRotation_ViaHTTP(t *testing.T) {
 	h := b2newHandler(t)
 	b := h.Backend.(*kms.InMemoryBackend)
 
-	out, _ := b.CreateKey(&kms.CreateKeyInput{})
+	out, _ := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	keyID := out.KeyMetadata.KeyID
 
 	body := fmt.Sprintf(`{"KeyId":"%s","RotationPeriodInDays":90}`, keyID)
@@ -2159,7 +2160,7 @@ func TestBatch2_Handler_CreateGrant_WithRetiringPrincipal_ViaHTTP(t *testing.T) 
 	h := b2newHandler(t)
 	b := h.Backend.(*kms.InMemoryBackend)
 
-	out, _ := b.CreateKey(&kms.CreateKeyInput{})
+	out, _ := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	keyID := out.KeyMetadata.KeyID
 
 	body := fmt.Sprintf(
@@ -2185,14 +2186,14 @@ func TestBatch2_DescribeKey_AllFields_Populated(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, err := b.CreateKey(&kms.CreateKeyInput{
+	out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{
 		Description: "test key",
 		MultiRegion: true,
 	})
 	require.NoError(t, err)
 	keyID := out.KeyMetadata.KeyID
 
-	desc, err := b.DescribeKey(&kms.DescribeKeyInput{KeyID: keyID})
+	desc, err := b.DescribeKey(context.Background(), &kms.DescribeKeyInput{KeyID: keyID})
 	require.NoError(t, err)
 	meta := desc.KeyMetadata
 	assert.NotEmpty(t, meta.KeyID)
@@ -2210,7 +2211,7 @@ func TestBatch2_CreateKey_ECC_P384_KeyAgreement(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, err := b.CreateKey(&kms.CreateKeyInput{
+	out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{
 		KeySpec:  "ECC_NIST_P384",
 		KeyUsage: kms.KeyUsageKeyAgreement,
 	})
@@ -2223,7 +2224,7 @@ func TestBatch2_CreateKey_ECC_P521_KeyAgreement(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, err := b.CreateKey(&kms.CreateKeyInput{
+	out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{
 		KeySpec:  "ECC_NIST_P521",
 		KeyUsage: kms.KeyUsageKeyAgreement,
 	})
@@ -2235,7 +2236,7 @@ func TestBatch2_CreateKey_SignVerify_DefaultsToRSA2048(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, err := b.CreateKey(&kms.CreateKeyInput{
+	out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{
 		KeyUsage: kms.KeyUsageSignVerify,
 	})
 	require.NoError(t, err)
@@ -2247,17 +2248,17 @@ func TestBatch2_ListKeys_Pagination_MultiplePages(t *testing.T) {
 	b := b2newBackend(t)
 
 	for range 5 {
-		_, err := b.CreateKey(&kms.CreateKeyInput{})
+		_, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 		require.NoError(t, err)
 	}
 
 	limit := int32(2)
-	first, err := b.ListKeys(&kms.ListKeysInput{Limit: &limit})
+	first, err := b.ListKeys(context.Background(), &kms.ListKeysInput{Limit: &limit})
 	require.NoError(t, err)
 	assert.Len(t, first.Keys, 2)
 	assert.True(t, first.Truncated)
 
-	second, err := b.ListKeys(&kms.ListKeysInput{Limit: &limit, Marker: first.NextMarker})
+	second, err := b.ListKeys(context.Background(), &kms.ListKeysInput{Limit: &limit, Marker: first.NextMarker})
 	require.NoError(t, err)
 	assert.NotEmpty(t, second.Keys)
 }
@@ -2266,10 +2267,10 @@ func TestBatch2_RevokeGrant_NotFound_Error(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, _ := b.CreateKey(&kms.CreateKeyInput{})
+	out, _ := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	keyID := out.KeyMetadata.KeyID
 
-	err := b.RevokeGrant(&kms.RevokeGrantInput{
+	err := b.RevokeGrant(context.Background(), &kms.RevokeGrantInput{
 		KeyID:   keyID,
 		GrantID: "nonexistent-grant-id",
 	})
@@ -2280,17 +2281,17 @@ func TestBatch2_PutKeyPolicy_AndGetKeyPolicy_Roundtrip(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, _ := b.CreateKey(&kms.CreateKeyInput{})
+	out, _ := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	keyID := out.KeyMetadata.KeyID
 
 	policy := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":"*","Action":"kms:*","Resource":"*"}]}`
-	require.NoError(t, b.PutKeyPolicy(&kms.PutKeyPolicyInput{
+	require.NoError(t, b.PutKeyPolicy(context.Background(), &kms.PutKeyPolicyInput{
 		KeyID:      keyID,
 		PolicyName: "default",
 		Policy:     policy,
 	}))
 
-	policyOut, err := b.GetKeyPolicy(&kms.GetKeyPolicyInput{
+	policyOut, err := b.GetKeyPolicy(context.Background(), &kms.GetKeyPolicyInput{
 		KeyID:      keyID,
 		PolicyName: "default",
 	})
@@ -2302,10 +2303,10 @@ func TestBatch2_ListKeyPolicies_ReturnsDefault(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, _ := b.CreateKey(&kms.CreateKeyInput{})
+	out, _ := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	keyID := out.KeyMetadata.KeyID
 
-	policies, err := b.ListKeyPolicies(&kms.ListKeyPoliciesInput{KeyID: keyID})
+	policies, err := b.ListKeyPolicies(context.Background(), &kms.ListKeyPoliciesInput{KeyID: keyID})
 	require.NoError(t, err)
 	assert.Contains(t, policies.PolicyNames, "default")
 }
@@ -2314,14 +2315,14 @@ func TestBatch2_GenerateDataKeyPair_AllSpecs(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, _ := b.CreateKey(&kms.CreateKeyInput{})
+	out, _ := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	keyID := out.KeyMetadata.KeyID
 
 	specs := []string{"RSA_2048", "RSA_3072", "RSA_4096", "ECC_NIST_P256", "ECC_NIST_P384", "ECC_NIST_P521"}
 	for _, spec := range specs {
 		t.Run(spec, func(t *testing.T) {
 			t.Parallel()
-			pairOut, err := b.GenerateDataKeyPair(&kms.GenerateDataKeyPairInput{
+			pairOut, err := b.GenerateDataKeyPair(context.Background(), &kms.GenerateDataKeyPairInput{
 				KeyID:       keyID,
 				KeyPairSpec: spec,
 			})
@@ -2338,18 +2339,18 @@ func TestBatch2_EncryptDecrypt_WithEncryptionContext_Roundtrip(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, _ := b.CreateKey(&kms.CreateKeyInput{})
+	out, _ := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	keyID := out.KeyMetadata.KeyID
 
 	ctx := map[string]string{"purpose": "batch2-test", "env": "staging"}
-	enc, err := b.Encrypt(&kms.EncryptInput{
+	enc, err := b.Encrypt(context.Background(), &kms.EncryptInput{
 		KeyID:             keyID,
 		Plaintext:         []byte("context-bound data"),
 		EncryptionContext: ctx,
 	})
 	require.NoError(t, err)
 
-	dec, err := b.Decrypt(&kms.DecryptInput{
+	dec, err := b.Decrypt(context.Background(), &kms.DecryptInput{
 		CiphertextBlob:    enc.CiphertextBlob,
 		EncryptionContext: ctx,
 	})
@@ -2361,18 +2362,18 @@ func TestBatch2_EncryptDecrypt_WrongContext_Fails(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, _ := b.CreateKey(&kms.CreateKeyInput{})
+	out, _ := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	keyID := out.KeyMetadata.KeyID
 
 	ctx := map[string]string{"purpose": "correct"}
-	enc, err := b.Encrypt(&kms.EncryptInput{
+	enc, err := b.Encrypt(context.Background(), &kms.EncryptInput{
 		KeyID:             keyID,
 		Plaintext:         []byte("secret"),
 		EncryptionContext: ctx,
 	})
 	require.NoError(t, err)
 
-	_, err = b.Decrypt(&kms.DecryptInput{
+	_, err = b.Decrypt(context.Background(), &kms.DecryptInput{
 		CiphertextBlob:    enc.CiphertextBlob,
 		EncryptionContext: map[string]string{"purpose": "wrong"},
 	})
@@ -2383,7 +2384,7 @@ func TestBatch2_Concurrent_CreateGrant_And_ListGrants(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)
 
-	out, _ := b.CreateKey(&kms.CreateKeyInput{})
+	out, _ := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	keyID := out.KeyMetadata.KeyID
 
 	const workers = 5
@@ -2391,7 +2392,7 @@ func TestBatch2_Concurrent_CreateGrant_And_ListGrants(t *testing.T) {
 
 	for i := range workers {
 		go func(n int) {
-			_, err := b.CreateGrant(&kms.CreateGrantInput{
+			_, err := b.CreateGrant(context.Background(), &kms.CreateGrantInput{
 				KeyID:            keyID,
 				GranteePrincipal: fmt.Sprintf("arn:aws:iam::123456789012:role/grantee-%d", n),
 				Operations:       []string{"Encrypt"},
@@ -2399,7 +2400,7 @@ func TestBatch2_Concurrent_CreateGrant_And_ListGrants(t *testing.T) {
 			errCh <- err
 		}(i)
 		go func() {
-			_, err := b.ListGrants(&kms.ListGrantsInput{KeyID: keyID})
+			_, err := b.ListGrants(context.Background(), &kms.ListGrantsInput{KeyID: keyID})
 			errCh <- err
 		}()
 	}
@@ -2420,7 +2421,7 @@ func TestBatch2_Concurrent_ReplicateKey(t *testing.T) {
 	errCh := make(chan error, len(regions))
 	for _, region := range regions {
 		go func() {
-			_, err := b.ReplicateKey(&kms.ReplicateKeyInput{
+			_, err := b.ReplicateKey(context.Background(), &kms.ReplicateKeyInput{
 				KeyID:         primaryID,
 				ReplicaRegion: region,
 			})
@@ -2433,7 +2434,7 @@ func TestBatch2_Concurrent_ReplicateKey(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	desc, err := b.DescribeKey(&kms.DescribeKeyInput{KeyID: primaryID})
+	desc, err := b.DescribeKey(context.Background(), &kms.DescribeKeyInput{KeyID: primaryID})
 	require.NoError(t, err)
 	assert.Len(t, desc.KeyMetadata.MultiRegionConfiguration.ReplicaKeys, len(regions))
 }

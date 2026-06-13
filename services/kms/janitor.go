@@ -17,6 +17,7 @@ const (
 
 // expiryEntry is a heap entry tracking when a key's deletion or material expiry fires.
 type expiryEntry struct {
+	region  string
 	keyID   string
 	fireAt  float64 // Unix seconds
 	expKind expiryKind
@@ -125,8 +126,8 @@ func (j *Janitor) SweepOnce(ctx context.Context) {
 
 // scheduleExpiry adds a key expiry event to the heap.
 // Must be called with the backend write lock held OR before the janitor is started.
-func (j *Janitor) scheduleExpiry(keyID string, fireAt float64, kind expiryKind) {
-	e := &expiryEntry{keyID: keyID, fireAt: fireAt, expKind: kind}
+func (j *Janitor) scheduleExpiry(region, keyID string, fireAt float64, kind expiryKind) {
+	e := &expiryEntry{region: region, keyID: keyID, fireAt: fireAt, expKind: kind}
 	heap.Push(&j.heap, e)
 }
 
@@ -172,7 +173,7 @@ func (j *Janitor) sweepFromHeap(now float64) (int, int) {
 			continue
 		}
 
-		key, ok := j.Backend.keys[e.keyID]
+		key, ok := j.Backend.keysStore(e.region)[e.keyID]
 		if !ok {
 			continue // already purged
 		}
@@ -180,12 +181,12 @@ func (j *Janitor) sweepFromHeap(now float64) (int, int) {
 		switch e.expKind {
 		case expiryKindDeletion:
 			if key.KeyState == KeyStatePendingDeletion && key.DeletionDate != 0 && now >= key.DeletionDate {
-				j.purgeKey(e.keyID)
+				j.purgeKey(e.region, e.keyID)
 				purged++
 			}
 		case expiryKindMaterial:
 			if j.shouldExpireMaterial(key, now) {
-				j.expireMaterial(e.keyID, key)
+				j.expireMaterial(e.region, e.keyID, key)
 				expired++
 			}
 		}
@@ -199,19 +200,21 @@ func (j *Janitor) sweepFromHeap(now float64) (int, int) {
 // Must be called with the backend write lock held.
 func (j *Janitor) sweepKeys(now float64) (int, int) {
 	var purged, expired int
-	for keyID, key := range j.Backend.keys {
-		if key.KeyState == KeyStatePendingDeletion {
-			if key.DeletionDate != 0 && now >= key.DeletionDate {
-				j.purgeKey(keyID)
-				purged++
+	for region, regionKeys := range j.Backend.keys {
+		for keyID, key := range regionKeys {
+			if key.KeyState == KeyStatePendingDeletion {
+				if key.DeletionDate != 0 && now >= key.DeletionDate {
+					j.purgeKey(region, keyID)
+					purged++
+				}
+
+				continue
 			}
 
-			continue
-		}
-
-		if j.shouldExpireMaterial(key, now) {
-			j.expireMaterial(keyID, key)
-			expired++
+			if j.shouldExpireMaterial(key, now) {
+				j.expireMaterial(region, keyID, key)
+				expired++
+			}
 		}
 	}
 
@@ -220,24 +223,25 @@ func (j *Janitor) sweepKeys(now float64) (int, int) {
 
 // purgeKey permanently removes a key and all associated resources.
 // Must be called with the backend write lock held.
-func (j *Janitor) purgeKey(keyID string) {
-	delete(j.Backend.keyMaterials, keyID)
-	delete(j.Backend.keyMaterialHistory, keyID)
+func (j *Janitor) purgeKey(region, keyID string) {
+	delete(j.Backend.keyMaterialsStore(region), keyID)
+	delete(j.Backend.keyMaterialHistoryStore(region), keyID)
 
-	for aliasName, alias := range j.Backend.aliases {
+	for aliasName, alias := range j.Backend.aliasesStore(region) {
 		if alias.TargetKeyID == keyID {
-			delete(j.Backend.aliases, aliasName)
+			delete(j.Backend.aliasesStore(region), aliasName)
 		}
 	}
 
-	for grantID, grant := range j.Backend.grants {
+	for grantID, grant := range j.Backend.grantsStore(region) {
 		if grant.KeyID == keyID {
-			delete(j.Backend.grants, grantID)
+			delete(j.Backend.grantsStore(region), grantID)
+			delete(j.Backend.grantsByTokenStore(region), grant.GrantToken)
 		}
 	}
 
-	delete(j.Backend.keys, keyID)
-	delete(j.Backend.policies, keyID)
+	delete(j.Backend.keysStore(region), keyID)
+	delete(j.Backend.policiesStore(region), keyID)
 }
 
 // shouldExpireMaterial reports whether the key's imported material should be expired.
@@ -251,9 +255,9 @@ func (j *Janitor) shouldExpireMaterial(key *Key, now float64) bool {
 
 // expireMaterial revokes the imported key material and sets the key back to PendingImport.
 // Must be called with the backend write lock held.
-func (j *Janitor) expireMaterial(keyID string, key *Key) {
-	delete(j.Backend.keyMaterials, keyID)
-	delete(j.Backend.keyMaterialHistory, keyID)
+func (j *Janitor) expireMaterial(region, keyID string, key *Key) {
+	delete(j.Backend.keyMaterialsStore(region), keyID)
+	delete(j.Backend.keyMaterialHistoryStore(region), keyID)
 	key.KeyState = KeyStatePendingImport
 	key.Enabled = false
 	key.ValidTo = 0

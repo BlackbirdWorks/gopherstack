@@ -19,36 +19,56 @@ func HandlerOpsLen(h *Handler) int {
 	return len(h.actions)
 }
 
-// KeyCount returns the number of keys stored in the backend.
+// KeyCount returns the total number of keys stored across all regions.
 func KeyCount(b *InMemoryBackend) int {
 	b.mu.RLock("KeyCount")
 	defer b.mu.RUnlock()
 
-	return len(b.keys)
+	n := 0
+	for _, m := range b.keys {
+		n += len(m)
+	}
+
+	return n
 }
 
-// AliasCount returns the number of aliases stored in the backend.
+// AliasCount returns the total number of aliases stored across all regions.
 func AliasCount(b *InMemoryBackend) int {
 	b.mu.RLock("AliasCount")
 	defer b.mu.RUnlock()
 
-	return len(b.aliases)
+	n := 0
+	for _, m := range b.aliases {
+		n += len(m)
+	}
+
+	return n
 }
 
-// GrantCount returns the number of grants stored in the backend.
+// GrantCount returns the total number of grants stored across all regions.
 func GrantCount(b *InMemoryBackend) int {
 	b.mu.RLock("GrantCount")
 	defer b.mu.RUnlock()
 
-	return len(b.grants)
+	n := 0
+	for _, m := range b.grants {
+		n += len(m)
+	}
+
+	return n
 }
 
-// CustomKeyStoreCount returns the number of custom key stores in the backend.
+// CustomKeyStoreCount returns the total number of custom key stores across all regions.
 func CustomKeyStoreCount(b *InMemoryBackend) int {
 	b.mu.RLock("CustomKeyStoreCount")
 	defer b.mu.RUnlock()
 
-	return len(b.customKeyStores)
+	n := 0
+	for _, m := range b.customKeyStores {
+		n += len(m)
+	}
+
+	return n
 }
 
 // SetDeletionDateForTest directly sets a key's DeletionDate to the given time.
@@ -57,8 +77,11 @@ func (b *InMemoryBackend) SetDeletionDateForTest(keyID string, t time.Time) {
 	b.mu.Lock("SetDeletionDateForTest")
 	defer b.mu.Unlock()
 
-	if key, ok := b.keys[keyID]; ok {
-		key.DeletionDate = UnixTimeFloat(t)
+	for _, regionKeys := range b.keys {
+		if key, ok := regionKeys[keyID]; ok {
+			key.DeletionDate = UnixTimeFloat(t)
+			return
+		}
 	}
 }
 
@@ -89,7 +112,7 @@ func (j *Janitor) ScheduleJanitorExpiry(keyID string, fireAt float64, isDeletion
 		kind = expiryKindDeletion
 	}
 
-	j.scheduleExpiry(keyID, fireAt, kind)
+	j.scheduleExpiry("", keyID, fireAt, kind)
 }
 
 // GrantTokenTTL exposes grantTokenTTL for testing.
@@ -100,7 +123,10 @@ func (b *InMemoryBackend) SetGrantTokenIssuedAt(grantID string, t time.Time) {
 	b.mu.Lock("SetGrantTokenIssuedAt")
 	defer b.mu.Unlock()
 
-	if g, ok := b.grants[grantID]; ok {
-		g.TokenIssuedAt = t
+	for _, regionGrants := range b.grants {
+		if g, ok := regionGrants[grantID]; ok {
+			g.TokenIssuedAt = t
+			return
+		}
 	}
 }

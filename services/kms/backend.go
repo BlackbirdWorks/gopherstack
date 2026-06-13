@@ -3141,7 +3141,9 @@ func (b *InMemoryBackend) DeriveSharedSecret(
 	b.mu.RLock("DeriveSharedSecret")
 	defer b.mu.RUnlock()
 
-	key, err := b.lookupKey(input.KeyID)
+	region := getRegion(ctx, b.defaultRegion)
+
+	key, err := b.lookupKey(ctx, input.KeyID)
 	if err != nil {
 		return nil, err
 	}
@@ -3157,7 +3159,7 @@ func (b *InMemoryBackend) DeriveSharedSecret(
 		)
 	}
 
-	km, err := b.requireKeyMaterial(key.KeyID)
+	km, err := b.requireKeyMaterial(region, key.KeyID)
 	if err != nil {
 		return nil, err
 	}
@@ -3183,7 +3185,7 @@ func (b *InMemoryBackend) DeriveSharedSecret(
 // plaintext private key (DER-encoded PKCS#8), and the private key encrypted under the specified
 // KMS wrapping key.
 func (b *InMemoryBackend) GenerateDataKeyPair(
-	input *GenerateDataKeyPairInput,
+	ctx context.Context, input *GenerateDataKeyPairInput,
 ) (*GenerateDataKeyPairOutput, error) {
 	if input.KeyPairSpec == "" {
 		return nil, fmt.Errorf("%w: KeyPairSpec must not be empty", ErrValidation)
@@ -3192,7 +3194,9 @@ func (b *InMemoryBackend) GenerateDataKeyPair(
 	b.mu.RLock("GenerateDataKeyPair")
 	defer b.mu.RUnlock()
 
-	wrapKey, err := b.lookupKey(input.KeyID)
+	region := getRegion(ctx, b.defaultRegion)
+
+	wrapKey, err := b.lookupKey(ctx, input.KeyID)
 	if err != nil {
 		return nil, err
 	}
@@ -3205,7 +3209,7 @@ func (b *InMemoryBackend) GenerateDataKeyPair(
 		return nil, fmt.Errorf("%w: wrapping key %q must have ENCRYPT_DECRYPT usage", ErrInvalidKeyUsage, wrapKey.KeyID)
 	}
 
-	wrapKM, err := b.requireKeyMaterial(wrapKey.KeyID)
+	wrapKM, err := b.requireKeyMaterial(region, wrapKey.KeyID)
 	if err != nil {
 		return nil, err
 	}
@@ -3242,9 +3246,9 @@ func (b *InMemoryBackend) GenerateDataKeyPair(
 // GenerateDataKeyPairWithoutPlaintext generates an asymmetric key pair but omits the plaintext
 // private key from the response.
 func (b *InMemoryBackend) GenerateDataKeyPairWithoutPlaintext(
-	input *GenerateDataKeyPairWithoutPlaintextInput,
+	ctx context.Context, input *GenerateDataKeyPairWithoutPlaintextInput,
 ) (*GenerateDataKeyPairWithoutPlaintextOutput, error) {
-	out, err := b.GenerateDataKeyPair(&GenerateDataKeyPairInput{
+	out, err := b.GenerateDataKeyPair(ctx, &GenerateDataKeyPairInput{
 		KeyID:             input.KeyID,
 		KeyPairSpec:       input.KeyPairSpec,
 		EncryptionContext: input.EncryptionContext,
@@ -3262,7 +3266,7 @@ func (b *InMemoryBackend) GenerateDataKeyPairWithoutPlaintext(
 }
 
 // GenerateMac computes an HMAC tag over the provided message using an HMAC KMS key.
-func (b *InMemoryBackend) GenerateMac(input *GenerateMacInput) (*GenerateMacOutput, error) {
+func (b *InMemoryBackend) GenerateMac(ctx context.Context, input *GenerateMacInput) (*GenerateMacOutput, error) {
 	if input.MacAlgorithm == "" {
 		return nil, fmt.Errorf("%w: MacAlgorithm must not be empty", ErrValidation)
 	}
@@ -3270,7 +3274,9 @@ func (b *InMemoryBackend) GenerateMac(input *GenerateMacInput) (*GenerateMacOutp
 	b.mu.RLock("GenerateMac")
 	defer b.mu.RUnlock()
 
-	key, err := b.lookupKey(input.KeyID)
+	region := getRegion(ctx, b.defaultRegion)
+
+	key, err := b.lookupKey(ctx, input.KeyID)
 	if err != nil {
 		return nil, err
 	}
@@ -3290,7 +3296,7 @@ func (b *InMemoryBackend) GenerateMac(input *GenerateMacInput) (*GenerateMacOutp
 		return nil, algErr
 	}
 
-	km, err := b.requireKeyMaterial(key.KeyID)
+	km, err := b.requireKeyMaterial(region, key.KeyID)
 	if err != nil {
 		return nil, err
 	}
@@ -3309,7 +3315,7 @@ func (b *InMemoryBackend) GenerateMac(input *GenerateMacInput) (*GenerateMacOutp
 
 // GenerateRandom returns the requested number of cryptographically secure random bytes.
 // NumberOfBytes defaults to 32 when not specified; maximum is 1024.
-func (b *InMemoryBackend) GenerateRandom(input *GenerateRandomInput) (*GenerateRandomOutput, error) {
+func (b *InMemoryBackend) GenerateRandom(_ context.Context, input *GenerateRandomInput) (*GenerateRandomOutput, error) {
 	n := int32(aes256Bytes)
 
 	if input.NumberOfBytes != nil {
@@ -3333,7 +3339,7 @@ func (b *InMemoryBackend) GenerateRandom(input *GenerateRandomInput) (*GenerateR
 
 // VerifyMac verifies an HMAC tag over the provided message using an HMAC KMS key.
 // Returns an error if the MAC does not match; on success returns the key ARN and algorithm.
-func (b *InMemoryBackend) VerifyMac(input *VerifyMacInput) (*VerifyMacOutput, error) {
+func (b *InMemoryBackend) VerifyMac(ctx context.Context, input *VerifyMacInput) (*VerifyMacOutput, error) {
 	if input.MacAlgorithm == "" {
 		return nil, fmt.Errorf("%w: MacAlgorithm must not be empty", ErrValidation)
 	}
@@ -3341,7 +3347,9 @@ func (b *InMemoryBackend) VerifyMac(input *VerifyMacInput) (*VerifyMacOutput, er
 	b.mu.RLock("VerifyMac")
 	defer b.mu.RUnlock()
 
-	key, err := b.lookupKey(input.KeyID)
+	region := getRegion(ctx, b.defaultRegion)
+
+	key, err := b.lookupKey(ctx, input.KeyID)
 	if err != nil {
 		return nil, err
 	}
@@ -3361,7 +3369,7 @@ func (b *InMemoryBackend) VerifyMac(input *VerifyMacInput) (*VerifyMacOutput, er
 		return nil, algErr
 	}
 
-	km, err := b.requireKeyMaterial(key.KeyID)
+	km, err := b.requireKeyMaterial(region, key.KeyID)
 	if err != nil {
 		return nil, err
 	}
@@ -3384,14 +3392,20 @@ func (b *InMemoryBackend) VerifyMac(input *VerifyMacInput) (*VerifyMacOutput, er
 
 // AddKeyInternal inserts a key directly into the backend without going through CreateKey.
 // It also inserts the provided key material if non-nil. This is intended for test seeding only.
+// The region is derived from the key ARN, falling back to defaultRegion.
 func (b *InMemoryBackend) AddKeyInternal(key *Key, km *keyMaterial) {
 	b.mu.Lock("AddKeyInternal")
 	defer b.mu.Unlock()
 
-	b.keys[key.KeyID] = key
+	region := b.keyRegion(key.Arn)
+	if region == "" {
+		region = b.defaultRegion
+	}
+
+	b.keysStore(region)[key.KeyID] = key
 
 	if km != nil {
-		b.keyMaterials[key.KeyID] = km
+		b.keyMaterialsStore(region)[key.KeyID] = km
 	}
 }
 
@@ -3401,5 +3415,5 @@ func (b *InMemoryBackend) AddCustomKeyStoreInternal(ks *CustomKeyStore) {
 	b.mu.Lock("AddCustomKeyStoreInternal")
 	defer b.mu.Unlock()
 
-	b.customKeyStores[ks.CustomKeyStoreID] = ks
+	b.customKeyStoresStore(b.defaultRegion)[ks.CustomKeyStoreID] = ks
 }

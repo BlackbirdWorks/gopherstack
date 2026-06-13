@@ -1,6 +1,7 @@
 package kms_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -26,21 +27,21 @@ func TestKMSGrantTokenIndexConsistency(t *testing.T) {
 			name: "revoke_grant_by_id",
 			remove: func(t *testing.T, b *kms.InMemoryBackend, keyID, grantID, _ string) {
 				t.Helper()
-				require.NoError(t, b.RevokeGrant(&kms.RevokeGrantInput{KeyID: keyID, GrantID: grantID}))
+				require.NoError(t, b.RevokeGrant(context.Background(), &kms.RevokeGrantInput{KeyID: keyID, GrantID: grantID}))
 			},
 		},
 		{
 			name: "retire_grant_by_token",
 			remove: func(t *testing.T, b *kms.InMemoryBackend, _, _, grantToken string) {
 				t.Helper()
-				require.NoError(t, b.RetireGrant(&kms.RetireGrantInput{GrantToken: grantToken}))
+				require.NoError(t, b.RetireGrant(context.Background(), &kms.RetireGrantInput{GrantToken: grantToken}))
 			},
 		},
 		{
 			name: "retire_grant_by_id",
 			remove: func(t *testing.T, b *kms.InMemoryBackend, keyID, grantID, _ string) {
 				t.Helper()
-				require.NoError(t, b.RetireGrant(&kms.RetireGrantInput{KeyID: keyID, GrantID: grantID}))
+				require.NoError(t, b.RetireGrant(context.Background(), &kms.RetireGrantInput{KeyID: keyID, GrantID: grantID}))
 			},
 		},
 	}
@@ -51,11 +52,11 @@ func TestKMSGrantTokenIndexConsistency(t *testing.T) {
 
 			b := kms.NewInMemoryBackend()
 
-			key, err := b.CreateKey(&kms.CreateKeyInput{})
+			key, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 			require.NoError(t, err)
 			keyID := key.KeyMetadata.KeyID
 
-			grant, err := b.CreateGrant(&kms.CreateGrantInput{
+			grant, err := b.CreateGrant(context.Background(), &kms.CreateGrantInput{
 				KeyID:            keyID,
 				GranteePrincipal: "arn:aws:iam::000000000000:role/test",
 				Operations:       []string{"Encrypt", "Decrypt"},
@@ -64,7 +65,7 @@ func TestKMSGrantTokenIndexConsistency(t *testing.T) {
 			require.NotEmpty(t, grant.GrantToken)
 
 			// The token resolves through the index, so the encrypt succeeds.
-			_, err = b.Encrypt(&kms.EncryptInput{
+			_, err = b.Encrypt(context.Background(), &kms.EncryptInput{
 				KeyID:       keyID,
 				Plaintext:   []byte("secret"),
 				GrantTokens: []string{grant.GrantToken},
@@ -76,7 +77,7 @@ func TestKMSGrantTokenIndexConsistency(t *testing.T) {
 
 			// The index must no longer resolve the token: the same encrypt now
 			// fails with an invalid-grant-token error.
-			_, err = b.Encrypt(&kms.EncryptInput{
+			_, err = b.Encrypt(context.Background(), &kms.EncryptInput{
 				KeyID:       keyID,
 				Plaintext:   []byte("secret"),
 				GrantTokens: []string{grant.GrantToken},

@@ -1,6 +1,7 @@
 package kms_test
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
@@ -44,20 +45,20 @@ func TestEncryptionAlgorithmField(t *testing.T) {
 			t.Parallel()
 
 			b := kms.NewInMemoryBackend()
-			keyOut, err := b.CreateKey(&kms.CreateKeyInput{
+			keyOut, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{
 				KeySpec:  tt.keySpec,
 				KeyUsage: tt.keyUsage,
 			})
 			require.NoError(t, err)
 
-			encOut, err := b.Encrypt(&kms.EncryptInput{
+			encOut, err := b.Encrypt(context.Background(), &kms.EncryptInput{
 				KeyID:     keyOut.KeyMetadata.KeyID,
 				Plaintext: []byte("hello"),
 			})
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantAlgo, encOut.EncryptionAlgorithm)
 
-			decOut, err := b.Decrypt(&kms.DecryptInput{
+			decOut, err := b.Decrypt(context.Background(), &kms.DecryptInput{
 				CiphertextBlob: encOut.CiphertextBlob,
 			})
 			require.NoError(t, err)
@@ -71,16 +72,16 @@ func TestReEncryptAlgorithmFields(t *testing.T) {
 
 	b := kms.NewInMemoryBackend()
 
-	src, err := b.CreateKey(&kms.CreateKeyInput{})
+	src, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 
-	dst, err := b.CreateKey(&kms.CreateKeyInput{})
+	dst, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 
-	enc, err := b.Encrypt(&kms.EncryptInput{KeyID: src.KeyMetadata.KeyID, Plaintext: []byte("data")})
+	enc, err := b.Encrypt(context.Background(), &kms.EncryptInput{KeyID: src.KeyMetadata.KeyID, Plaintext: []byte("data")})
 	require.NoError(t, err)
 
-	out, err := b.ReEncrypt(&kms.ReEncryptInput{
+	out, err := b.ReEncrypt(context.Background(), &kms.ReEncryptInput{
 		CiphertextBlob:   enc.CiphertextBlob,
 		DestinationKeyID: dst.KeyMetadata.KeyID,
 	})
@@ -123,12 +124,12 @@ func TestDecryptKeyIDHint(t *testing.T) {
 			t.Parallel()
 
 			b := kms.NewInMemoryBackend()
-			k1, err := b.CreateKey(&kms.CreateKeyInput{})
+			k1, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 			require.NoError(t, err)
-			k2, err := b.CreateKey(&kms.CreateKeyInput{})
+			k2, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 			require.NoError(t, err)
 
-			enc, err := b.Encrypt(&kms.EncryptInput{
+			enc, err := b.Encrypt(context.Background(), &kms.EncryptInput{
 				KeyID:     k1.KeyMetadata.KeyID,
 				Plaintext: []byte("secret"),
 			})
@@ -136,7 +137,7 @@ func TestDecryptKeyIDHint(t *testing.T) {
 
 			hint := tt.hintFn(k1.KeyMetadata.KeyID, k2.KeyMetadata.KeyID)
 
-			_, decErr := b.Decrypt(&kms.DecryptInput{
+			_, decErr := b.Decrypt(context.Background(), &kms.DecryptInput{
 				CiphertextBlob: enc.CiphertextBlob,
 				KeyID:          hint,
 			})
@@ -209,12 +210,12 @@ func TestCreateGrantValidation(t *testing.T) {
 			t.Parallel()
 
 			b := kms.NewInMemoryBackend()
-			key, err := b.CreateKey(&kms.CreateKeyInput{})
+			key, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 			require.NoError(t, err)
 
 			tt.input.KeyID = key.KeyMetadata.KeyID
 
-			_, grantErr := b.CreateGrant(&tt.input)
+			_, grantErr := b.CreateGrant(context.Background(), &tt.input)
 
 			if tt.wantErr {
 				require.Error(t, grantErr)
@@ -248,11 +249,11 @@ func TestUpdateKeyDescriptionMaxLength(t *testing.T) {
 			t.Parallel()
 
 			b := kms.NewInMemoryBackend()
-			key, err := b.CreateKey(&kms.CreateKeyInput{})
+			key, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 			require.NoError(t, err)
 
 			desc := strings.Repeat("x", tt.descLen)
-			updateErr := b.UpdateKeyDescription(&kms.UpdateKeyDescriptionInput{
+			updateErr := b.UpdateKeyDescription(context.Background(), &kms.UpdateKeyDescriptionInput{
 				KeyID:       key.KeyMetadata.KeyID,
 				Description: desc,
 			})
@@ -324,7 +325,7 @@ func TestCreateKeyValidations(t *testing.T) {
 			t.Parallel()
 
 			b := kms.NewInMemoryBackend()
-			_, err := b.CreateKey(&tt.input)
+			_, err := b.CreateKey(context.Background(), &tt.input)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -369,10 +370,10 @@ func TestCreateAliasValidation(t *testing.T) {
 			t.Parallel()
 
 			b := kms.NewInMemoryBackend()
-			key, err := b.CreateKey(&kms.CreateKeyInput{})
+			key, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 			require.NoError(t, err)
 
-			createErr := b.CreateAlias(&kms.CreateAliasInput{
+			createErr := b.CreateAlias(context.Background(), &kms.CreateAliasInput{
 				AliasName:   tt.aliasName,
 				TargetKeyID: key.KeyMetadata.KeyID,
 			})
@@ -407,10 +408,10 @@ func TestReplicateKeyRequiresMultiRegion(t *testing.T) {
 			t.Parallel()
 
 			b := kms.NewInMemoryBackend()
-			key, err := b.CreateKey(&kms.CreateKeyInput{MultiRegion: tt.multiRegion})
+			key, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{MultiRegion: tt.multiRegion})
 			require.NoError(t, err)
 
-			_, replicaErr := b.ReplicateKey(&kms.ReplicateKeyInput{
+			_, replicaErr := b.ReplicateKey(context.Background(), &kms.ReplicateKeyInput{
 				KeyID:         key.KeyMetadata.KeyID,
 				ReplicaRegion: "us-west-2",
 			})
@@ -457,10 +458,10 @@ func TestRotateKeyOnDemandValidation(t *testing.T) {
 			t.Parallel()
 
 			b := kms.NewInMemoryBackend()
-			key, err := b.CreateKey(&tt.input)
+			key, err := b.CreateKey(context.Background(), &tt.input)
 			require.NoError(t, err)
 
-			_, rotErr := b.RotateKeyOnDemand(&kms.RotateKeyOnDemandInput{
+			_, rotErr := b.RotateKeyOnDemand(context.Background(), &kms.RotateKeyOnDemandInput{
 				KeyID: key.KeyMetadata.KeyID,
 			})
 
@@ -477,17 +478,17 @@ func TestRotateKeyOnDemandExternalOriginRejected(t *testing.T) {
 	t.Parallel()
 
 	b := kms.NewInMemoryBackend()
-	key, err := b.CreateKey(&kms.CreateKeyInput{Origin: kms.KeyOriginExternal})
+	key, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{Origin: kms.KeyOriginExternal})
 	require.NoError(t, err)
 
 	// Import material so key transitions to Enabled state.
-	err = b.ImportKeyMaterial(&kms.ImportKeyMaterialInput{
+	err = b.ImportKeyMaterial(context.Background(), &kms.ImportKeyMaterialInput{
 		KeyID:       key.KeyMetadata.KeyID,
 		KeyMaterial: make([]byte, 32),
 	})
 	require.NoError(t, err)
 
-	_, rotErr := b.RotateKeyOnDemand(&kms.RotateKeyOnDemandInput{KeyID: key.KeyMetadata.KeyID})
+	_, rotErr := b.RotateKeyOnDemand(context.Background(), &kms.RotateKeyOnDemandInput{KeyID: key.KeyMetadata.KeyID})
 	require.Error(t, rotErr)
 	require.ErrorIs(t, rotErr, kms.ErrUnsupportedOrigin)
 }
@@ -500,20 +501,20 @@ func TestGetKeyRotationStatusOnDemandDate(t *testing.T) {
 	t.Parallel()
 
 	b := kms.NewInMemoryBackend()
-	key, err := b.CreateKey(&kms.CreateKeyInput{})
+	key, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 
 	// Before on-demand rotation: field should be absent.
-	status, err := b.GetKeyRotationStatus(&kms.GetKeyRotationStatusInput{KeyID: key.KeyMetadata.KeyID})
+	status, err := b.GetKeyRotationStatus(context.Background(), &kms.GetKeyRotationStatusInput{KeyID: key.KeyMetadata.KeyID})
 	require.NoError(t, err)
 	assert.Zero(t, status.OnDemandRotationStartDate)
 
 	// Trigger on-demand rotation.
-	_, err = b.RotateKeyOnDemand(&kms.RotateKeyOnDemandInput{KeyID: key.KeyMetadata.KeyID})
+	_, err = b.RotateKeyOnDemand(context.Background(), &kms.RotateKeyOnDemandInput{KeyID: key.KeyMetadata.KeyID})
 	require.NoError(t, err)
 
 	// After on-demand rotation: date should be populated.
-	status2, err := b.GetKeyRotationStatus(&kms.GetKeyRotationStatusInput{KeyID: key.KeyMetadata.KeyID})
+	status2, err := b.GetKeyRotationStatus(context.Background(), &kms.GetKeyRotationStatusInput{KeyID: key.KeyMetadata.KeyID})
 	require.NoError(t, err)
 	assert.NotZero(t, status2.OnDemandRotationStartDate)
 }
@@ -526,20 +527,20 @@ func TestListKeyRotationsFields(t *testing.T) {
 	t.Parallel()
 
 	b := kms.NewInMemoryBackend()
-	key, err := b.CreateKey(&kms.CreateKeyInput{})
+	key, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 
 	keyID := key.KeyMetadata.KeyID
 
 	// Rotation via EnableKeyRotation (AWS_KMS rotation type).
-	err = b.EnableKeyRotation(&kms.EnableKeyRotationInput{KeyID: keyID})
+	err = b.EnableKeyRotation(context.Background(), &kms.EnableKeyRotationInput{KeyID: keyID})
 	require.NoError(t, err)
 
 	// Rotation via RotateKeyOnDemand (IMPORTED rotation type).
-	_, err = b.RotateKeyOnDemand(&kms.RotateKeyOnDemandInput{KeyID: keyID})
+	_, err = b.RotateKeyOnDemand(context.Background(), &kms.RotateKeyOnDemandInput{KeyID: keyID})
 	require.NoError(t, err)
 
-	out, err := b.ListKeyRotations(&kms.ListKeyRotationsInput{KeyID: keyID})
+	out, err := b.ListKeyRotations(context.Background(), &kms.ListKeyRotationsInput{KeyID: keyID})
 	require.NoError(t, err)
 	require.NotEmpty(t, out.Rotations)
 
@@ -564,14 +565,14 @@ func TestListKeyRotationsTypedRecords(t *testing.T) {
 		{
 			name: "enable_rotation_creates_no_immediate_record",
 			setup: func(b *kms.InMemoryBackend, keyID string) error {
-				return b.EnableKeyRotation(&kms.EnableKeyRotationInput{KeyID: keyID})
+				return b.EnableKeyRotation(context.Background(), &kms.EnableKeyRotationInput{KeyID: keyID})
 			},
 			wantTypes: []string{},
 		},
 		{
 			name: "on_demand_rotation_is_imported",
 			setup: func(b *kms.InMemoryBackend, keyID string) error {
-				_, err := b.RotateKeyOnDemand(&kms.RotateKeyOnDemandInput{KeyID: keyID})
+				_, err := b.RotateKeyOnDemand(context.Background(), &kms.RotateKeyOnDemandInput{KeyID: keyID})
 
 				return err
 			},
@@ -580,10 +581,10 @@ func TestListKeyRotationsTypedRecords(t *testing.T) {
 		{
 			name: "enable_then_on_demand_rotation_has_one_record",
 			setup: func(b *kms.InMemoryBackend, keyID string) error {
-				if err := b.EnableKeyRotation(&kms.EnableKeyRotationInput{KeyID: keyID}); err != nil {
+				if err := b.EnableKeyRotation(context.Background(), &kms.EnableKeyRotationInput{KeyID: keyID}); err != nil {
 					return err
 				}
-				_, err := b.RotateKeyOnDemand(&kms.RotateKeyOnDemandInput{KeyID: keyID})
+				_, err := b.RotateKeyOnDemand(context.Background(), &kms.RotateKeyOnDemandInput{KeyID: keyID})
 
 				return err
 			},
@@ -596,14 +597,14 @@ func TestListKeyRotationsTypedRecords(t *testing.T) {
 			t.Parallel()
 
 			b := kms.NewInMemoryBackend()
-			key, err := b.CreateKey(&kms.CreateKeyInput{})
+			key, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 			require.NoError(t, err)
 
 			keyID := key.KeyMetadata.KeyID
 
 			require.NoError(t, tt.setup(b, keyID))
 
-			out, err := b.ListKeyRotations(&kms.ListKeyRotationsInput{KeyID: keyID})
+			out, err := b.ListKeyRotations(context.Background(), &kms.ListKeyRotationsInput{KeyID: keyID})
 			require.NoError(t, err)
 			require.Len(t, out.Rotations, len(tt.wantTypes))
 
@@ -623,20 +624,20 @@ func TestListKeyRotationsLegacyFallback(t *testing.T) {
 	t.Parallel()
 
 	b := kms.NewInMemoryBackend()
-	key, err := b.CreateKey(&kms.CreateKeyInput{})
+	key, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 
 	keyID := key.KeyMetadata.KeyID
 
 	// Enabling rotation does not create an immediate rotation record.
-	require.NoError(t, b.EnableKeyRotation(&kms.EnableKeyRotationInput{KeyID: keyID}))
+	require.NoError(t, b.EnableKeyRotation(context.Background(), &kms.EnableKeyRotationInput{KeyID: keyID}))
 
 	// On-demand rotation creates a record with type IMPORTED.
-	_, err = b.RotateKeyOnDemand(&kms.RotateKeyOnDemandInput{KeyID: keyID})
+	_, err = b.RotateKeyOnDemand(context.Background(), &kms.RotateKeyOnDemandInput{KeyID: keyID})
 	require.NoError(t, err)
 
 	// List rotations - should have exactly 1 record (on-demand only).
-	out, err := b.ListKeyRotations(&kms.ListKeyRotationsInput{KeyID: keyID})
+	out, err := b.ListKeyRotations(context.Background(), &kms.ListKeyRotationsInput{KeyID: keyID})
 	require.NoError(t, err)
 	require.Len(t, out.Rotations, 1)
 	assert.Equal(t, "IMPORTED", out.Rotations[0].RotationType)
@@ -646,18 +647,18 @@ func TestCancelKeyDeletionOutput(t *testing.T) {
 	t.Parallel()
 
 	b := kms.NewInMemoryBackend()
-	key, err := b.CreateKey(&kms.CreateKeyInput{})
+	key, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 
 	keyID := key.KeyMetadata.KeyID
 
-	_, err = b.ScheduleKeyDeletion(&kms.ScheduleKeyDeletionInput{
+	_, err = b.ScheduleKeyDeletion(context.Background(), &kms.ScheduleKeyDeletionInput{
 		KeyID:               keyID,
 		PendingWindowInDays: 7,
 	})
 	require.NoError(t, err)
 
-	out, err := b.CancelKeyDeletion(&kms.CancelKeyDeletionInput{KeyID: keyID})
+	out, err := b.CancelKeyDeletion(context.Background(), &kms.CancelKeyDeletionInput{KeyID: keyID})
 	require.NoError(t, err)
 	require.NotNil(t, out)
 	assert.Equal(t, keyID, out.KeyID)
@@ -990,20 +991,20 @@ func TestRSAEncryptDecryptRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	b := kms.NewInMemoryBackend()
-	key, err := b.CreateKey(&kms.CreateKeyInput{
+	key, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{
 		KeySpec:  "RSA_2048",
 		KeyUsage: "ENCRYPT_DECRYPT",
 	})
 	require.NoError(t, err)
 
-	enc, err := b.Encrypt(&kms.EncryptInput{
+	enc, err := b.Encrypt(context.Background(), &kms.EncryptInput{
 		KeyID:     key.KeyMetadata.KeyID,
 		Plaintext: []byte("rsa secret"),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "RSAES_OAEP_SHA_256", enc.EncryptionAlgorithm)
 
-	dec, err := b.Decrypt(&kms.DecryptInput{
+	dec, err := b.Decrypt(context.Background(), &kms.DecryptInput{
 		CiphertextBlob: enc.CiphertextBlob,
 	})
 	require.NoError(t, err)
@@ -1053,17 +1054,17 @@ func TestECDSASignVerifyAllAlgorithms(t *testing.T) {
 			t.Parallel()
 
 			b := kms.NewInMemoryBackend()
-			key, err := b.CreateKey(&kms.CreateKeyInput{KeySpec: tt.keySpec, KeyUsage: "SIGN_VERIFY"})
+			key, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{KeySpec: tt.keySpec, KeyUsage: "SIGN_VERIFY"})
 			require.NoError(t, err)
 
-			signOut, err := b.Sign(&kms.SignInput{
+			signOut, err := b.Sign(context.Background(), &kms.SignInput{
 				KeyID:            key.KeyMetadata.KeyID,
 				Message:          []byte("message"),
 				SigningAlgorithm: tt.algorithm,
 			})
 			require.NoError(t, err)
 
-			verOut, err := b.Verify(&kms.VerifyInput{
+			verOut, err := b.Verify(context.Background(), &kms.VerifyInput{
 				KeyID:            key.KeyMetadata.KeyID,
 				Message:          []byte("message"),
 				Signature:        signOut.Signature,
@@ -1126,17 +1127,17 @@ func TestDecryptViaARNHint(t *testing.T) {
 	t.Parallel()
 
 	b := kms.NewInMemoryBackend()
-	key, err := b.CreateKey(&kms.CreateKeyInput{})
+	key, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 
-	enc, err := b.Encrypt(&kms.EncryptInput{
+	enc, err := b.Encrypt(context.Background(), &kms.EncryptInput{
 		KeyID:     key.KeyMetadata.KeyID,
 		Plaintext: []byte("arn decrypt"),
 	})
 	require.NoError(t, err)
 
 	// Use the ARN as the KeyID hint.
-	dec, err := b.Decrypt(&kms.DecryptInput{
+	dec, err := b.Decrypt(context.Background(), &kms.DecryptInput{
 		CiphertextBlob: enc.CiphertextBlob,
 		KeyID:          key.KeyMetadata.Arn,
 	})
@@ -1152,20 +1153,20 @@ func TestVerifyMacRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	b := kms.NewInMemoryBackend()
-	key, err := b.CreateKey(&kms.CreateKeyInput{
+	key, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{
 		KeySpec:  "HMAC_256",
 		KeyUsage: "GENERATE_VERIFY_MAC",
 	})
 	require.NoError(t, err)
 
-	macOut, err := b.GenerateMac(&kms.GenerateMacInput{
+	macOut, err := b.GenerateMac(context.Background(), &kms.GenerateMacInput{
 		KeyID:        key.KeyMetadata.KeyID,
 		MacAlgorithm: "HMAC_SHA_256",
 		Message:      []byte("msg"),
 	})
 	require.NoError(t, err)
 
-	verOut, err := b.VerifyMac(&kms.VerifyMacInput{
+	verOut, err := b.VerifyMac(context.Background(), &kms.VerifyMacInput{
 		KeyID:        key.KeyMetadata.KeyID,
 		MacAlgorithm: "HMAC_SHA_256",
 		Message:      []byte("msg"),
@@ -1175,7 +1176,7 @@ func TestVerifyMacRoundTrip(t *testing.T) {
 	assert.True(t, verOut.MacValid)
 
 	// Wrong message should fail.
-	_, verErr := b.VerifyMac(&kms.VerifyMacInput{
+	_, verErr := b.VerifyMac(context.Background(), &kms.VerifyMacInput{
 		KeyID:        key.KeyMetadata.KeyID,
 		MacAlgorithm: "HMAC_SHA_256",
 		Message:      []byte("wrong"),
@@ -1192,11 +1193,11 @@ func TestGenerateDataKeyWithoutPlaintextNumberOfBytes(t *testing.T) {
 	t.Parallel()
 
 	b := kms.NewInMemoryBackend()
-	key, err := b.CreateKey(&kms.CreateKeyInput{})
+	key, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 
 	numBytes := int32(64)
-	out, err := b.GenerateDataKeyWithoutPlaintext(&kms.GenerateDataKeyWithoutPlaintextInput{
+	out, err := b.GenerateDataKeyWithoutPlaintext(context.Background(), &kms.GenerateDataKeyWithoutPlaintextInput{
 		KeyID:         key.KeyMetadata.KeyID,
 		NumberOfBytes: &numBytes,
 	})
@@ -1212,20 +1213,20 @@ func TestRSAPKCS1SignVerify(t *testing.T) {
 	t.Parallel()
 
 	b := kms.NewInMemoryBackend()
-	key, err := b.CreateKey(&kms.CreateKeyInput{
+	key, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{
 		KeySpec:  "RSA_2048",
 		KeyUsage: "SIGN_VERIFY",
 	})
 	require.NoError(t, err)
 
-	signOut, err := b.Sign(&kms.SignInput{
+	signOut, err := b.Sign(context.Background(), &kms.SignInput{
 		KeyID:            key.KeyMetadata.KeyID,
 		Message:          []byte("data"),
 		SigningAlgorithm: "RSASSA_PKCS1_V1_5_SHA_256",
 	})
 	require.NoError(t, err)
 
-	verOut, err := b.Verify(&kms.VerifyInput{
+	verOut, err := b.Verify(context.Background(), &kms.VerifyInput{
 		KeyID:            key.KeyMetadata.KeyID,
 		Message:          []byte("data"),
 		Signature:        signOut.Signature,
@@ -1243,10 +1244,10 @@ func TestEncryptViaAliasARN(t *testing.T) {
 	t.Parallel()
 
 	b := kms.NewInMemoryBackend()
-	key, err := b.CreateKey(&kms.CreateKeyInput{})
+	key, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 
-	err = b.CreateAlias(&kms.CreateAliasInput{
+	err = b.CreateAlias(context.Background(), &kms.CreateAliasInput{
 		AliasName:   "alias/my-arn-test",
 		TargetKeyID: key.KeyMetadata.KeyID,
 	})
@@ -1255,7 +1256,7 @@ func TestEncryptViaAliasARN(t *testing.T) {
 	// Build an ARN for the alias.
 	aliasARN := "arn:aws:kms:us-east-1:000000000000:alias/my-arn-test"
 
-	enc, err := b.Encrypt(&kms.EncryptInput{
+	enc, err := b.Encrypt(context.Background(), &kms.EncryptInput{
 		KeyID:     aliasARN,
 		Plaintext: []byte("alias-arn"),
 	})
@@ -1271,10 +1272,10 @@ func TestSnapshotRestoreRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	b := kms.NewInMemoryBackend()
-	key, err := b.CreateKey(&kms.CreateKeyInput{Description: "snap-test"})
+	key, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{Description: "snap-test"})
 	require.NoError(t, err)
 
-	enc, err := b.Encrypt(&kms.EncryptInput{
+	enc, err := b.Encrypt(context.Background(), &kms.EncryptInput{
 		KeyID:     key.KeyMetadata.KeyID,
 		Plaintext: []byte("before-snap"),
 	})
@@ -1303,17 +1304,17 @@ func TestHandlerResetClearsAliasCache(t *testing.T) {
 	b := kms.NewInMemoryBackend()
 	h := kms.NewHandler(b)
 
-	key, err := b.CreateKey(&kms.CreateKeyInput{})
+	key, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 
-	err = b.CreateAlias(&kms.CreateAliasInput{
+	err = b.CreateAlias(context.Background(), &kms.CreateAliasInput{
 		AliasName:   "alias/to-be-cleared",
 		TargetKeyID: key.KeyMetadata.KeyID,
 	})
 	require.NoError(t, err)
 
 	// Resolve alias to populate the cache.
-	_, err = b.Encrypt(&kms.EncryptInput{
+	_, err = b.Encrypt(context.Background(), &kms.EncryptInput{
 		KeyID:     "alias/to-be-cleared",
 		Plaintext: []byte("pre-reset"),
 	})
@@ -1323,7 +1324,7 @@ func TestHandlerResetClearsAliasCache(t *testing.T) {
 	h.Reset()
 
 	// After reset the alias should no longer exist.
-	_, err = b.Encrypt(&kms.EncryptInput{
+	_, err = b.Encrypt(context.Background(), &kms.EncryptInput{
 		KeyID:     "alias/to-be-cleared",
 		Plaintext: []byte("post-reset"),
 	})
@@ -1351,18 +1352,18 @@ func TestRSAPSSSignVerifyAllSizes(t *testing.T) {
 			t.Parallel()
 
 			b := kms.NewInMemoryBackend()
-			key, err := b.CreateKey(&kms.CreateKeyInput{KeySpec: tt.keySpec, KeyUsage: "SIGN_VERIFY"})
+			key, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{KeySpec: tt.keySpec, KeyUsage: "SIGN_VERIFY"})
 			require.NoError(t, err)
 
 			msg := []byte("test message for " + tt.name)
-			signOut, err := b.Sign(&kms.SignInput{
+			signOut, err := b.Sign(context.Background(), &kms.SignInput{
 				KeyID:            key.KeyMetadata.KeyID,
 				Message:          msg,
 				SigningAlgorithm: tt.algo,
 			})
 			require.NoError(t, err)
 
-			verOut, err := b.Verify(&kms.VerifyInput{
+			verOut, err := b.Verify(context.Background(), &kms.VerifyInput{
 				KeyID:            key.KeyMetadata.KeyID,
 				Message:          msg,
 				Signature:        signOut.Signature,
