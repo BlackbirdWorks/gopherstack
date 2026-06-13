@@ -22,6 +22,11 @@ var (
 	ErrValidation    = awserr.New("ValidationException", awserr.ErrInvalidParameter)
 )
 
+const (
+	statusActive    = "ACTIVE"
+	errCodeNotFound = "ResourceNotFoundException"
+)
+
 // ---- types ----
 
 type MemberSpec struct {
@@ -447,6 +452,8 @@ type InMemoryBackend struct {
 	schemas                 map[string]map[string]*Schema
 	schemaAnalysisRules     map[string]map[string]map[string]*SchemaAnalysisRule
 	tagsByArn               map[string]map[string]string
+	nowFn                   func() float64
+	muNow                   sync.Mutex
 }
 
 // NewInMemoryBackendWithContext creates a backend tied to svcCtx (ignored; no lifecycle goroutines).
@@ -479,6 +486,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		schemas:                 make(map[string]map[string]*Schema),
 		schemaAnalysisRules:     make(map[string]map[string]map[string]*SchemaAnalysisRule),
 		tagsByArn:               make(map[string]map[string]string),
+		nowFn:                   func() float64 { return float64(time.Now().Unix()) },
 	}
 }
 
@@ -505,6 +513,30 @@ func (b *InMemoryBackend) Reset() {
 	b.schemas = make(map[string]map[string]*Schema)
 	b.schemaAnalysisRules = make(map[string]map[string]map[string]*SchemaAnalysisRule)
 	b.tagsByArn = make(map[string]map[string]string)
+}
+
+// membershipCtx holds common values computed when creating a resource within a membership.
+type membershipCtx struct {
+	id               string
+	ts               float64
+	membershipArn    string
+	collaborationID  string
+	collaborationArn string
+}
+
+func (b *InMemoryBackend) newMembershipCtx(mem *Membership) membershipCtx {
+	collab := b.collaborations[mem.CollaborationIdentifier]
+	var collabArn string
+	if collab != nil {
+		collabArn = collab.Arn
+	}
+	return membershipCtx{
+		id:               uuid.NewString(),
+		ts:               b.now(),
+		membershipArn:    mem.Arn,
+		collaborationID:  mem.CollaborationIdentifier,
+		collaborationArn: collabArn,
+	}
 }
 
 // ---- ARN helpers ----
@@ -616,14 +648,14 @@ func paginate[T any](items []T, maxResultsStr, nextToken string) ([]T, string) {
 	}
 	max := 100
 	if maxResultsStr != "" {
-		fmt.Sscanf(maxResultsStr, "%d", &max)
+		_, _ = fmt.Sscanf(maxResultsStr, "%d", &max)
 	}
 	if max <= 0 || max > 1000 {
 		max = 100
 	}
 	start := 0
 	if nextToken != "" {
-		fmt.Sscanf(nextToken, "%d", &start)
+		_, _ = fmt.Sscanf(nextToken, "%d", &start)
 	}
 	if start >= len(items) {
 		return []T{}, ""
@@ -635,15 +667,96 @@ func paginate[T any](items []T, maxResultsStr, nextToken string) ([]T, string) {
 	return items[start:end], fmt.Sprintf("%d", end)
 }
 
+func toAnalysisTemplateSummary(t *AnalysisTemplate) *AnalysisTemplateSummary {
+	return &AnalysisTemplateSummary{
+		AnalysisTemplateIdentifier: t.AnalysisTemplateIdentifier,
+		Arn:                        t.Arn,
+		CollaborationArn:           t.CollaborationArn,
+		CollaborationIdentifier:    t.CollaborationIdentifier,
+		MembershipIdentifier:       t.MembershipIdentifier,
+		MembershipArn:              t.MembershipArn,
+		Name:                       t.Name,
+		CreateTime:                 t.CreateTime,
+		UpdateTime:                 t.UpdateTime,
+	}
+}
+
+func toIdMappingTableSummary(t *IdMappingTable) *IdMappingTableSummary {
+	return &IdMappingTableSummary{
+		IdMappingTableIdentifier: t.IdMappingTableIdentifier,
+		Arn:                      t.Arn,
+		CollaborationArn:         t.CollaborationArn,
+		CollaborationIdentifier:  t.CollaborationIdentifier,
+		MembershipArn:            t.MembershipArn,
+		MembershipIdentifier:     t.MembershipIdentifier,
+		Name:                     t.Name,
+		CreateTime:               t.CreateTime,
+		UpdateTime:               t.UpdateTime,
+	}
+}
+
+func toPrivacyBudgetTemplateSummary(t *PrivacyBudgetTemplate) *PrivacyBudgetTemplateSummary {
+	return &PrivacyBudgetTemplateSummary{
+		PrivacyBudgetTemplateIdentifier: t.PrivacyBudgetTemplateIdentifier,
+		Arn:                             t.Arn,
+		CollaborationArn:                t.CollaborationArn,
+		CollaborationIdentifier:         t.CollaborationIdentifier,
+		MembershipArn:                   t.MembershipArn,
+		MembershipIdentifier:            t.MembershipIdentifier,
+		PrivacyBudgetType:               t.PrivacyBudgetType,
+		CreateTime:                      t.CreateTime,
+		UpdateTime:                      t.UpdateTime,
+	}
+}
+
+func toSchemaSummary(s *Schema) *SchemaSummary {
+	return &SchemaSummary{
+		CollaborationArn:        s.CollaborationArn,
+		CollaborationIdentifier: s.CollaborationIdentifier,
+		CreatorAccountId:        s.CreatorAccountId,
+		Name:                    s.Name,
+		Type:                    s.Type,
+		AnalysisRuleTypes:       s.AnalysisRuleTypes,
+		AnalysisMethod:          s.AnalysisMethod,
+		CreateTime:              s.CreateTime,
+		UpdateTime:              s.UpdateTime,
+	}
+}
+
+func toIdNamespaceAssociationSummary(a *IdNamespaceAssociation) *IdNamespaceAssociationSummary {
+	return &IdNamespaceAssociationSummary{
+		IdNamespaceAssociationIdentifier: a.IdNamespaceAssociationIdentifier,
+		Arn:                              a.Arn,
+		CollaborationArn:                 a.CollaborationArn,
+		CollaborationIdentifier:          a.CollaborationIdentifier,
+		MembershipArn:                    a.MembershipArn,
+		MembershipIdentifier:             a.MembershipIdentifier,
+		Name:                             a.Name,
+		CreateTime:                       a.CreateTime,
+		UpdateTime:                       a.UpdateTime,
+	}
+}
+
+func toConfiguredAudienceModelAssociationSummary(a *ConfiguredAudienceModelAssociation) *ConfiguredAudienceModelAssociationSummary {
+	return &ConfiguredAudienceModelAssociationSummary{
+		ConfiguredAudienceModelAssociationIdentifier: a.ConfiguredAudienceModelAssociationIdentifier,
+		Arn:                     a.Arn,
+		CollaborationArn:        a.CollaborationArn,
+		CollaborationIdentifier: a.CollaborationIdentifier,
+		MembershipArn:           a.MembershipArn,
+		MembershipIdentifier:    a.MembershipIdentifier,
+		Name:                    a.Name,
+		CreateTime:              a.CreateTime,
+		UpdateTime:              a.UpdateTime,
+	}
+}
+
 // ---- now helper ----
 
-var nowFn = func() float64 { return float64(time.Now().Unix()) }
-var muNow sync.Mutex
-
-func now() float64 {
-	muNow.Lock()
-	defer muNow.Unlock()
-	return nowFn()
+func (b *InMemoryBackend) now() float64 {
+	b.muNow.Lock()
+	defer b.muNow.Unlock()
+	return b.nowFn()
 }
 
 // ---- Collaboration ----
@@ -661,13 +774,13 @@ func (b *InMemoryBackend) CreateCollaboration(
 		return nil, ErrValidation
 	}
 	id := uuid.NewString()
-	ts := now()
+	ts := b.now()
 	memberSummaries := make([]*MemberSummary, 0, len(members)+1)
 	memberSummaries = append(memberSummaries, &MemberSummary{
 		AccountID:   b.accountID,
 		DisplayName: creatorDisplayName,
 		Abilities:   creatorMemberAbilities,
-		Status:      "ACTIVE",
+		Status:      statusActive,
 		CreateTime:  ts,
 		UpdateTime:  ts,
 	})
@@ -725,7 +838,7 @@ func (b *InMemoryBackend) ListCollaborations(
 			Name:                    c.Name,
 			CreatorAccountId:        c.CreatorAccountId,
 			CreatorDisplayName:      c.CreatorDisplayName,
-			MemberStatus:            "ACTIVE",
+			MemberStatus:            statusActive,
 			CreateTime:              c.CreateTime,
 			UpdateTime:              c.UpdateTime,
 		})
@@ -753,7 +866,7 @@ func (b *InMemoryBackend) UpdateCollaboration(
 	if description != "" {
 		c.Description = description
 	}
-	c.UpdateTime = now()
+	c.UpdateTime = b.now()
 	return c, nil
 }
 
@@ -819,7 +932,7 @@ func (b *InMemoryBackend) CreateMembership(
 		return nil, ErrNotFound
 	}
 	id := uuid.NewString()
-	ts := now()
+	ts := b.now()
 	m := &Membership{
 		MembershipIdentifier:            id,
 		Arn:                             b.membershipARN(id),
@@ -828,7 +941,7 @@ func (b *InMemoryBackend) CreateMembership(
 		CollaborationCreatorAccountId:   collab.CreatorAccountId,
 		CollaborationCreatorDisplayName: collab.CreatorDisplayName,
 		CollaborationName:               collab.Name,
-		Status:                          "ACTIVE",
+		Status:                          statusActive,
 		QueryLogStatus:                  queryLogStatus,
 		DefaultResultConfiguration:      defaultResultConfiguration,
 		PaymentConfiguration:            paymentConfiguration,
@@ -900,7 +1013,7 @@ func (b *InMemoryBackend) UpdateMembership(
 	if defaultResultConfiguration != nil {
 		m.DefaultResultConfiguration = defaultResultConfiguration
 	}
-	m.UpdateTime = now()
+	m.UpdateTime = b.now()
 	return m, nil
 }
 
@@ -931,7 +1044,7 @@ func (b *InMemoryBackend) CreateConfiguredTable(
 		return nil, ErrValidation
 	}
 	id := uuid.NewString()
-	ts := now()
+	ts := b.now()
 	ct := &ConfiguredTable{
 		ConfiguredTableIdentifier: id,
 		Arn:                       b.configuredTableARN(id),
@@ -1001,7 +1114,7 @@ func (b *InMemoryBackend) UpdateConfiguredTable(
 	if description != "" {
 		ct.Description = description
 	}
-	ct.UpdateTime = now()
+	ct.UpdateTime = b.now()
 	return ct, nil
 }
 
@@ -1036,7 +1149,7 @@ func (b *InMemoryBackend) CreateConfiguredTableAnalysisRule(
 	if _, exists := b.ctAnalysisRules[configuredTableID][analysisRuleType]; exists {
 		return nil, ErrAlreadyExists
 	}
-	ts := now()
+	ts := b.now()
 	rule := &ConfiguredTableAnalysisRule{
 		ConfiguredTableIdentifier: configuredTableID,
 		ConfiguredTableArn:        ct.Arn,
@@ -1083,7 +1196,7 @@ func (b *InMemoryBackend) UpdateConfiguredTableAnalysisRule(
 		return nil, ErrNotFound
 	}
 	rule.Policy = policy
-	rule.UpdateTime = now()
+	rule.UpdateTime = b.now()
 	return rule, nil
 }
 
@@ -1126,7 +1239,7 @@ func (b *InMemoryBackend) CreateConfiguredTableAssociation(
 		b.ctAssociations[membershipID] = make(map[string]*ConfiguredTableAssociation)
 	}
 	id := uuid.NewString()
-	ts := now()
+	ts := b.now()
 	assoc := &ConfiguredTableAssociation{
 		ConfiguredTableAssociationIdentifier: id,
 		Arn:                                  b.ctAssociationARN(membershipID, id),
@@ -1211,7 +1324,7 @@ func (b *InMemoryBackend) UpdateConfiguredTableAssociation(
 	if roleArn != "" {
 		assoc.RoleArn = roleArn
 	}
-	assoc.UpdateTime = now()
+	assoc.UpdateTime = b.now()
 	return assoc, nil
 }
 
@@ -1255,7 +1368,7 @@ func (b *InMemoryBackend) CreateConfiguredTableAssociationAnalysisRule(
 		return nil, ErrAlreadyExists
 	}
 	mem := b.memberships[membershipID]
-	ts := now()
+	ts := b.now()
 	rule := &ConfiguredTableAssociationAnalysisRule{
 		ConfiguredTableAssociationIdentifier: assocID,
 		ConfiguredTableAssociationArn:        assoc.Arn,
@@ -1304,7 +1417,7 @@ func (b *InMemoryBackend) UpdateConfiguredTableAssociationAnalysisRule(
 		return nil, ErrNotFound
 	}
 	rule.Policy = policy
-	rule.UpdateTime = now()
+	rule.UpdateTime = b.now()
 	return rule, nil
 }
 
@@ -1347,7 +1460,7 @@ func (b *InMemoryBackend) CreateAnalysisTemplate(
 		b.analysisTemplates[membershipID] = make(map[string]*AnalysisTemplate)
 	}
 	id := uuid.NewString()
-	ts := now()
+	ts := b.now()
 	collab := b.collaborations[mem.CollaborationIdentifier]
 	var collabArn string
 	if collab != nil {
@@ -1403,19 +1516,7 @@ func (b *InMemoryBackend) ListAnalysisTemplates(
 	page, next := listItems(
 		b.analysisTemplates[membershipID],
 		nil,
-		func(t *AnalysisTemplate) *AnalysisTemplateSummary {
-			return &AnalysisTemplateSummary{
-				AnalysisTemplateIdentifier: t.AnalysisTemplateIdentifier,
-				Arn:                        t.Arn,
-				CollaborationArn:           t.CollaborationArn,
-				CollaborationIdentifier:    t.CollaborationIdentifier,
-				MembershipIdentifier:       t.MembershipIdentifier,
-				MembershipArn:              t.MembershipArn,
-				Name:                       t.Name,
-				CreateTime:                 t.CreateTime,
-				UpdateTime:                 t.UpdateTime,
-			}
-		},
+		toAnalysisTemplateSummary,
 		func(a, c *AnalysisTemplateSummary) bool {
 			return a.AnalysisTemplateIdentifier < c.AnalysisTemplateIdentifier
 		},
@@ -1438,7 +1539,7 @@ func (b *InMemoryBackend) UpdateAnalysisTemplate(
 		return nil, ErrNotFound
 	}
 	tmpl.Description = description
-	tmpl.UpdateTime = now()
+	tmpl.UpdateTime = b.now()
 	return tmpl, nil
 }
 
@@ -1484,19 +1585,7 @@ func (b *InMemoryBackend) ListCollaborationAnalysisTemplates(
 	page, next := listNestedItems(
 		b.analysisTemplates,
 		func(t *AnalysisTemplate) bool { return t.CollaborationIdentifier == collaborationID },
-		func(t *AnalysisTemplate) *AnalysisTemplateSummary {
-			return &AnalysisTemplateSummary{
-				AnalysisTemplateIdentifier: t.AnalysisTemplateIdentifier,
-				Arn:                        t.Arn,
-				CollaborationArn:           t.CollaborationArn,
-				CollaborationIdentifier:    t.CollaborationIdentifier,
-				MembershipIdentifier:       t.MembershipIdentifier,
-				MembershipArn:              t.MembershipArn,
-				Name:                       t.Name,
-				CreateTime:                 t.CreateTime,
-				UpdateTime:                 t.UpdateTime,
-			}
-		},
+		toAnalysisTemplateSummary,
 		func(a, c *AnalysisTemplateSummary) bool {
 			return a.AnalysisTemplateIdentifier < c.AnalysisTemplateIdentifier
 		},
@@ -1533,7 +1622,7 @@ func (b *InMemoryBackend) BatchGetCollaborationAnalysisTemplate(
 		if !found {
 			errors = append(
 				errors,
-				BatchError{Arn: arnStr, Code: "ResourceNotFoundException", Message: "not found"},
+				BatchError{Arn: arnStr, Code: errCodeNotFound, Message: "not found"},
 			)
 		}
 	}
@@ -1567,19 +1656,7 @@ func (b *InMemoryBackend) ListSchemas(
 	page, next := listItems(
 		b.schemas[collaborationID],
 		func(s *Schema) bool { return schemaType == "" || s.Type == schemaType },
-		func(s *Schema) *SchemaSummary {
-			return &SchemaSummary{
-				CollaborationArn:        s.CollaborationArn,
-				CollaborationIdentifier: s.CollaborationIdentifier,
-				CreatorAccountId:        s.CreatorAccountId,
-				Name:                    s.Name,
-				Type:                    s.Type,
-				AnalysisRuleTypes:       s.AnalysisRuleTypes,
-				AnalysisMethod:          s.AnalysisMethod,
-				CreateTime:              s.CreateTime,
-				UpdateTime:              s.UpdateTime,
-			}
-		},
+		toSchemaSummary,
 		func(a, c *SchemaSummary) bool { return a.Name < c.Name },
 		maxResults, nextToken,
 	)
@@ -1602,7 +1679,7 @@ func (b *InMemoryBackend) BatchGetSchema(
 		if ok {
 			results = append(results, s)
 		} else {
-			errors = append(errors, BatchError{Name: name, Code: "ResourceNotFoundException", Message: "not found"})
+			errors = append(errors, BatchError{Name: name, Code: errCodeNotFound, Message: "not found"})
 		}
 	}
 	return results, errors, nil
@@ -1652,7 +1729,7 @@ func (b *InMemoryBackend) BatchGetSchemaAnalysisRule(
 		}
 		errors = append(
 			errors,
-			BatchError{Name: name, Code: "ResourceNotFoundException", Message: "not found"},
+			BatchError{Name: name, Code: errCodeNotFound, Message: "not found"},
 		)
 	}
 	return results, errors, nil
@@ -1675,7 +1752,7 @@ func (b *InMemoryBackend) StartProtectedQuery(
 		b.protectedQueries[membershipID] = make(map[string]*ProtectedQuery)
 	}
 	id := uuid.NewString()
-	ts := now()
+	ts := b.now()
 	var sqlParams map[string]any
 	if sqlText != "" {
 		sqlParams = map[string]any{"queryString": sqlText}
@@ -1776,7 +1853,7 @@ func (b *InMemoryBackend) StartProtectedJob(
 		Type:                 jobType,
 		JobParameters:        jobParameters,
 		ResultConfiguration:  resultConfig,
-		CreateTime:           now(),
+		CreateTime:           b.now(),
 	}
 	b.protectedJobs[membershipID][id] = j
 	return j, nil
@@ -1857,7 +1934,7 @@ func (b *InMemoryBackend) CreatePrivacyBudgetTemplate(
 		b.privacyBudgetTemplates[membershipID] = make(map[string]*PrivacyBudgetTemplate)
 	}
 	id := uuid.NewString()
-	ts := now()
+	ts := b.now()
 	collab := b.collaborations[mem.CollaborationIdentifier]
 	var collabArn string
 	if collab != nil {
@@ -1913,19 +1990,7 @@ func (b *InMemoryBackend) ListPrivacyBudgetTemplates(
 		func(t *PrivacyBudgetTemplate) bool {
 			return privacyBudgetType == "" || t.PrivacyBudgetType == privacyBudgetType
 		},
-		func(t *PrivacyBudgetTemplate) *PrivacyBudgetTemplateSummary {
-			return &PrivacyBudgetTemplateSummary{
-				PrivacyBudgetTemplateIdentifier: t.PrivacyBudgetTemplateIdentifier,
-				Arn:                             t.Arn,
-				CollaborationArn:                t.CollaborationArn,
-				CollaborationIdentifier:         t.CollaborationIdentifier,
-				MembershipArn:                   t.MembershipArn,
-				MembershipIdentifier:            t.MembershipIdentifier,
-				PrivacyBudgetType:               t.PrivacyBudgetType,
-				CreateTime:                      t.CreateTime,
-				UpdateTime:                      t.UpdateTime,
-			}
-		},
+		toPrivacyBudgetTemplateSummary,
 		func(a, c *PrivacyBudgetTemplateSummary) bool {
 			return a.PrivacyBudgetTemplateIdentifier < c.PrivacyBudgetTemplateIdentifier
 		},
@@ -1954,7 +2019,7 @@ func (b *InMemoryBackend) UpdatePrivacyBudgetTemplate(
 	if parameters != nil {
 		tmpl.Parameters = parameters
 	}
-	tmpl.UpdateTime = now()
+	tmpl.UpdateTime = b.now()
 	return tmpl, nil
 }
 
@@ -2023,19 +2088,7 @@ func (b *InMemoryBackend) ListCollaborationPrivacyBudgetTemplates(
 	page, next := listNestedItems(
 		b.privacyBudgetTemplates,
 		func(t *PrivacyBudgetTemplate) bool { return t.CollaborationIdentifier == collaborationID },
-		func(t *PrivacyBudgetTemplate) *PrivacyBudgetTemplateSummary {
-			return &PrivacyBudgetTemplateSummary{
-				PrivacyBudgetTemplateIdentifier: t.PrivacyBudgetTemplateIdentifier,
-				Arn:                             t.Arn,
-				CollaborationArn:                t.CollaborationArn,
-				CollaborationIdentifier:         t.CollaborationIdentifier,
-				MembershipArn:                   t.MembershipArn,
-				MembershipIdentifier:            t.MembershipIdentifier,
-				PrivacyBudgetType:               t.PrivacyBudgetType,
-				CreateTime:                      t.CreateTime,
-				UpdateTime:                      t.UpdateTime,
-			}
-		},
+		toPrivacyBudgetTemplateSummary,
 		func(a, c *PrivacyBudgetTemplateSummary) bool {
 			return a.PrivacyBudgetTemplateIdentifier < c.PrivacyBudgetTemplateIdentifier
 		},
@@ -2073,29 +2126,23 @@ func (b *InMemoryBackend) CreateIdMappingTable(
 	if b.idMappingTables[membershipID] == nil {
 		b.idMappingTables[membershipID] = make(map[string]*IdMappingTable)
 	}
-	id := uuid.NewString()
-	ts := now()
-	collab := b.collaborations[mem.CollaborationIdentifier]
-	var collabArn string
-	if collab != nil {
-		collabArn = collab.Arn
-	}
+	ctx := b.newMembershipCtx(mem)
 	t := &IdMappingTable{
-		IdMappingTableIdentifier: id,
-		Arn:                      b.idMappingTableARN(membershipID, id),
-		CollaborationArn:         collabArn,
-		CollaborationIdentifier:  mem.CollaborationIdentifier,
-		MembershipArn:            mem.Arn,
+		IdMappingTableIdentifier: ctx.id,
+		Arn:                      b.idMappingTableARN(membershipID, ctx.id),
+		CollaborationArn:         ctx.collaborationArn,
+		CollaborationIdentifier:  ctx.collaborationID,
+		MembershipArn:            ctx.membershipArn,
 		MembershipIdentifier:     membershipID,
 		Name:                     name,
 		Description:              description,
 		InputReferenceConfig:     inputReferenceConfig,
 		KmsKeyArn:                kmsKeyArn,
-		CreateTime:               ts,
-		UpdateTime:               ts,
+		CreateTime:               ctx.ts,
+		UpdateTime:               ctx.ts,
 		Tags:                     tags,
 	}
-	b.idMappingTables[membershipID][id] = t
+	b.idMappingTables[membershipID][ctx.id] = t
 	if len(tags) > 0 {
 		b.tagsByArn[t.Arn] = maps.Clone(tags)
 	}
@@ -2127,19 +2174,7 @@ func (b *InMemoryBackend) ListIdMappingTables(
 	page, next := listItems(
 		b.idMappingTables[membershipID],
 		nil,
-		func(t *IdMappingTable) *IdMappingTableSummary {
-			return &IdMappingTableSummary{
-				IdMappingTableIdentifier: t.IdMappingTableIdentifier,
-				Arn:                      t.Arn,
-				CollaborationArn:         t.CollaborationArn,
-				CollaborationIdentifier:  t.CollaborationIdentifier,
-				MembershipArn:            t.MembershipArn,
-				MembershipIdentifier:     t.MembershipIdentifier,
-				Name:                     t.Name,
-				CreateTime:               t.CreateTime,
-				UpdateTime:               t.UpdateTime,
-			}
-		},
+		toIdMappingTableSummary,
 		func(a, c *IdMappingTableSummary) bool {
 			return a.IdMappingTableIdentifier < c.IdMappingTableIdentifier
 		},
@@ -2167,7 +2202,7 @@ func (b *InMemoryBackend) UpdateIdMappingTable(
 	if kmsKeyArn != "" {
 		t.KmsKeyArn = kmsKeyArn
 	}
-	t.UpdateTime = now()
+	t.UpdateTime = b.now()
 	return t, nil
 }
 
@@ -2218,29 +2253,23 @@ func (b *InMemoryBackend) CreateIdNamespaceAssociation(
 	if b.idNamespaceAssociations[membershipID] == nil {
 		b.idNamespaceAssociations[membershipID] = make(map[string]*IdNamespaceAssociation)
 	}
-	id := uuid.NewString()
-	ts := now()
-	collab := b.collaborations[mem.CollaborationIdentifier]
-	var collabArn string
-	if collab != nil {
-		collabArn = collab.Arn
-	}
+	ctx := b.newMembershipCtx(mem)
 	assoc := &IdNamespaceAssociation{
-		IdNamespaceAssociationIdentifier: id,
-		Arn:                              b.idNamespaceAssocARN(membershipID, id),
-		CollaborationArn:                 collabArn,
-		CollaborationIdentifier:          mem.CollaborationIdentifier,
-		MembershipArn:                    mem.Arn,
+		IdNamespaceAssociationIdentifier: ctx.id,
+		Arn:                              b.idNamespaceAssocARN(membershipID, ctx.id),
+		CollaborationArn:                 ctx.collaborationArn,
+		CollaborationIdentifier:          ctx.collaborationID,
+		MembershipArn:                    ctx.membershipArn,
 		MembershipIdentifier:             membershipID,
 		Name:                             name,
 		Description:                      description,
 		InputReferenceConfig:             inputReferenceConfig,
 		IdMappingConfig:                  idMappingConfig,
-		CreateTime:                       ts,
-		UpdateTime:                       ts,
+		CreateTime:                       ctx.ts,
+		UpdateTime:                       ctx.ts,
 		Tags:                             tags,
 	}
-	b.idNamespaceAssociations[membershipID][id] = assoc
+	b.idNamespaceAssociations[membershipID][ctx.id] = assoc
 	if len(tags) > 0 {
 		b.tagsByArn[assoc.Arn] = maps.Clone(tags)
 	}
@@ -2271,24 +2300,15 @@ func (b *InMemoryBackend) ListIdNamespaceAssociations(
 	if _, ok := b.memberships[membershipID]; !ok {
 		return nil, "", ErrNotFound
 	}
-	var items []*IdNamespaceAssociationSummary
-	for _, a := range b.idNamespaceAssociations[membershipID] {
-		items = append(items, &IdNamespaceAssociationSummary{
-			IdNamespaceAssociationIdentifier: a.IdNamespaceAssociationIdentifier,
-			Arn:                              a.Arn,
-			CollaborationArn:                 a.CollaborationArn,
-			CollaborationIdentifier:          a.CollaborationIdentifier,
-			MembershipArn:                    a.MembershipArn,
-			MembershipIdentifier:             a.MembershipIdentifier,
-			Name:                             a.Name,
-			CreateTime:                       a.CreateTime,
-			UpdateTime:                       a.UpdateTime,
-		})
-	}
-	sort.Slice(items, func(i, j int) bool {
-		return items[i].IdNamespaceAssociationIdentifier < items[j].IdNamespaceAssociationIdentifier
-	})
-	page, next := paginate(items, maxResults, nextToken)
+	page, next := listItems(
+		b.idNamespaceAssociations[membershipID],
+		nil,
+		toIdNamespaceAssociationSummary,
+		func(a, c *IdNamespaceAssociationSummary) bool {
+			return a.IdNamespaceAssociationIdentifier < c.IdNamespaceAssociationIdentifier
+		},
+		maxResults, nextToken,
+	)
 	return page, next, nil
 }
 
@@ -2312,7 +2332,7 @@ func (b *InMemoryBackend) UpdateIdNamespaceAssociation(
 	if idMappingConfig != nil {
 		assoc.IdMappingConfig = idMappingConfig
 	}
-	assoc.UpdateTime = now()
+	assoc.UpdateTime = b.now()
 	return assoc, nil
 }
 
@@ -2356,28 +2376,15 @@ func (b *InMemoryBackend) ListCollaborationIdNamespaceAssociations(
 	if _, ok := b.collaborations[collaborationID]; !ok {
 		return nil, "", ErrNotFound
 	}
-	var items []*IdNamespaceAssociationSummary
-	for _, assocs := range b.idNamespaceAssociations {
-		for _, a := range assocs {
-			if a.CollaborationIdentifier == collaborationID {
-				items = append(items, &IdNamespaceAssociationSummary{
-					IdNamespaceAssociationIdentifier: a.IdNamespaceAssociationIdentifier,
-					Arn:                              a.Arn,
-					CollaborationArn:                 a.CollaborationArn,
-					CollaborationIdentifier:          a.CollaborationIdentifier,
-					MembershipArn:                    a.MembershipArn,
-					MembershipIdentifier:             a.MembershipIdentifier,
-					Name:                             a.Name,
-					CreateTime:                       a.CreateTime,
-					UpdateTime:                       a.UpdateTime,
-				})
-			}
-		}
-	}
-	sort.Slice(items, func(i, j int) bool {
-		return items[i].IdNamespaceAssociationIdentifier < items[j].IdNamespaceAssociationIdentifier
-	})
-	page, next := paginate(items, maxResults, nextToken)
+	page, next := listNestedItems(
+		b.idNamespaceAssociations,
+		func(a *IdNamespaceAssociation) bool { return a.CollaborationIdentifier == collaborationID },
+		toIdNamespaceAssociationSummary,
+		func(a, c *IdNamespaceAssociationSummary) bool {
+			return a.IdNamespaceAssociationIdentifier < c.IdNamespaceAssociationIdentifier
+		},
+		maxResults, nextToken,
+	)
 	return page, next, nil
 }
 
@@ -2398,7 +2405,7 @@ func (b *InMemoryBackend) CreateConfiguredAudienceModelAssociation(
 		b.camaAssociations[membershipID] = make(map[string]*ConfiguredAudienceModelAssociation)
 	}
 	id := uuid.NewString()
-	ts := now()
+	ts := b.now()
 	collab := b.collaborations[mem.CollaborationIdentifier]
 	var collabArn string
 	if collab != nil {
@@ -2450,24 +2457,15 @@ func (b *InMemoryBackend) ListConfiguredAudienceModelAssociations(
 	if _, ok := b.memberships[membershipID]; !ok {
 		return nil, "", ErrNotFound
 	}
-	var items []*ConfiguredAudienceModelAssociationSummary
-	for _, a := range b.camaAssociations[membershipID] {
-		items = append(items, &ConfiguredAudienceModelAssociationSummary{
-			ConfiguredAudienceModelAssociationIdentifier: a.ConfiguredAudienceModelAssociationIdentifier,
-			Arn:                     a.Arn,
-			CollaborationArn:        a.CollaborationArn,
-			CollaborationIdentifier: a.CollaborationIdentifier,
-			MembershipArn:           a.MembershipArn,
-			MembershipIdentifier:    a.MembershipIdentifier,
-			Name:                    a.Name,
-			CreateTime:              a.CreateTime,
-			UpdateTime:              a.UpdateTime,
-		})
-	}
-	sort.Slice(items, func(i, j int) bool {
-		return items[i].ConfiguredAudienceModelAssociationIdentifier < items[j].ConfiguredAudienceModelAssociationIdentifier
-	})
-	page, next := paginate(items, maxResults, nextToken)
+	page, next := listItems(
+		b.camaAssociations[membershipID],
+		nil,
+		toConfiguredAudienceModelAssociationSummary,
+		func(a, c *ConfiguredAudienceModelAssociationSummary) bool {
+			return a.ConfiguredAudienceModelAssociationIdentifier < c.ConfiguredAudienceModelAssociationIdentifier
+		},
+		maxResults, nextToken,
+	)
 	return page, next, nil
 }
 
@@ -2490,7 +2488,7 @@ func (b *InMemoryBackend) UpdateConfiguredAudienceModelAssociation(
 	if description != "" {
 		assoc.Description = description
 	}
-	assoc.UpdateTime = now()
+	assoc.UpdateTime = b.now()
 	return assoc, nil
 }
 
@@ -2536,28 +2534,17 @@ func (b *InMemoryBackend) ListCollaborationConfiguredAudienceModelAssociations(
 	if _, ok := b.collaborations[collaborationID]; !ok {
 		return nil, "", ErrNotFound
 	}
-	var items []*ConfiguredAudienceModelAssociationSummary
-	for _, assocs := range b.camaAssociations {
-		for _, a := range assocs {
-			if a.CollaborationIdentifier == collaborationID {
-				items = append(items, &ConfiguredAudienceModelAssociationSummary{
-					ConfiguredAudienceModelAssociationIdentifier: a.ConfiguredAudienceModelAssociationIdentifier,
-					Arn:                     a.Arn,
-					CollaborationArn:        a.CollaborationArn,
-					CollaborationIdentifier: a.CollaborationIdentifier,
-					MembershipArn:           a.MembershipArn,
-					MembershipIdentifier:    a.MembershipIdentifier,
-					Name:                    a.Name,
-					CreateTime:              a.CreateTime,
-					UpdateTime:              a.UpdateTime,
-				})
-			}
-		}
-	}
-	sort.Slice(items, func(i, j int) bool {
-		return items[i].ConfiguredAudienceModelAssociationIdentifier < items[j].ConfiguredAudienceModelAssociationIdentifier
-	})
-	page, next := paginate(items, maxResults, nextToken)
+	page, next := listNestedItems(
+		b.camaAssociations,
+		func(a *ConfiguredAudienceModelAssociation) bool {
+			return a.CollaborationIdentifier == collaborationID
+		},
+		toConfiguredAudienceModelAssociationSummary,
+		func(a, c *ConfiguredAudienceModelAssociationSummary) bool {
+			return a.ConfiguredAudienceModelAssociationIdentifier < c.ConfiguredAudienceModelAssociationIdentifier
+		},
+		maxResults, nextToken,
+	)
 	return page, next, nil
 }
 
@@ -2577,7 +2564,7 @@ func (b *InMemoryBackend) CreateCollaborationChangeRequest(
 		b.changeRequests[collaborationID] = make(map[string]*CollaborationChangeRequest)
 	}
 	id := uuid.NewString()
-	ts := now()
+	ts := b.now()
 	req := &CollaborationChangeRequest{
 		ChangeRequestIdentifier: id,
 		CollaborationIdentifier: collaborationID,
@@ -2642,7 +2629,7 @@ func (b *InMemoryBackend) UpdateCollaborationChangeRequest(
 		return nil, ErrNotFound
 	}
 	req.Status = status
-	req.UpdateTime = now()
+	req.UpdateTime = b.now()
 	return req, nil
 }
 
