@@ -401,88 +401,128 @@ func classifyCollaborations(method string, segs []string) (string, string) {
 func classifyCollaboration(method, id, sub string, segs []string) (string, string) {
 	switch sub {
 	case subAnalysisTemplates:
-		if len(segs) == segsWithSub && method == http.MethodGet {
-			return opListCollaborationAnalysisTemplates, id
-		}
-		if len(segs) == segsWithSubID && method == http.MethodGet {
-			return opGetCollaborationAnalysisTemplate, id
-		}
-	case "batch-analysistemplates":
-		if method == http.MethodPost {
-			return opBatchGetCollaborationAnalysisTemplate, id
-		}
-	case "batch-schema":
-		if method == http.MethodPost {
-			return opBatchGetSchema, id
-		}
-	case "batch-schema-analysis-rule":
-		if method == http.MethodPost {
-			return opBatchGetSchemaAnalysisRule, id
-		}
+		return classifyCollabAnalysisTemplates(method, id, segs)
+	case "batch-analysistemplates", "batch-schema", "batch-schema-analysis-rule":
+		return classifyCollabBatchPost(method, id, sub)
 	case "changeRequests":
-		if len(segs) == segsWithSub {
-			switch method {
-			case http.MethodPost:
-				return opCreateCollaborationChangeRequest, id
-			case http.MethodGet:
-				return opListCollaborationChangeRequests, id
-			}
-		}
-		if len(segs) == segsWithSubID {
-			switch method {
-			case http.MethodGet:
-				return opGetCollaborationChangeRequest, id
-			case http.MethodPatch:
-				return opUpdateCollaborationChangeRequest, id
-			}
-		}
+		return classifyCollabChangeRequests(method, id, segs)
 	case subCAMAAssociations:
-		if len(segs) == segsWithSub && method == http.MethodGet {
-			return opListCollaborationConfiguredAudienceModelAssociations, id
-		}
-		if len(segs) == segsWithSubID && method == http.MethodGet {
-			return opGetCollaborationConfiguredAudienceModelAssociation, id
-		}
+		return classifyCollabCAMAAssocs(method, id, segs)
 	case subIDNamespaceAssocs:
-		if len(segs) == segsWithSub && method == http.MethodGet {
-			return opListCollaborationIDNamespaceAssociations, id
-		}
-		if len(segs) == segsWithSubID && method == http.MethodGet {
-			return opGetCollaborationIDNamespaceAssociation, id
-		}
+		return classifyCollabIDNamespaceAssocs(method, id, segs)
 	case "member":
-		// /collaborations/{id}/member/{accountId}
-		if len(segs) == segsWithSubID && method == http.MethodDelete {
-			return opDeleteMember, id
-		}
+		return classifyCollabMember(method, id, segs)
 	case "members":
 		if method == http.MethodGet {
 			return opListMembers, id
 		}
 	case subPrivacyBudgetTmpls:
-		if len(segs) == segsWithSub && method == http.MethodGet {
-			return opListCollaborationPrivacyBudgetTemplates, id
-		}
-		if len(segs) == segsWithSubID && method == http.MethodGet {
-			return opGetCollaborationPrivacyBudgetTemplate, id
-		}
+		return classifyCollabPrivacyBudgetTmpls(method, id, segs)
 	case "privacybudgets":
 		if method == http.MethodGet {
 			return opListCollaborationPrivacyBudgets, id
 		}
 	case subSchemas:
-		if len(segs) == segsWithSub && method == http.MethodGet {
-			return opListSchemas, id
-		}
-		if len(segs) == segsWithSubID && method == http.MethodGet {
-			return opGetSchema, id
-		}
-		// /collaborations/{id}/schemas/{name}/analysisRule/{type}
-		if len(segs) == segsWithSubSubID && segs[4] == subAnalysisRule && method == http.MethodGet {
-			return opGetSchemaAnalysisRule, id
-		}
+		return classifyCollabSchemas(method, id, segs)
 	}
 
+	return opUnknown, ""
+}
+
+func classifyCollabBatchPost(method, id, sub string) (string, string) {
+	if method != http.MethodPost {
+		return opUnknown, ""
+	}
+	switch sub {
+	case "batch-analysistemplates":
+		return opBatchGetCollaborationAnalysisTemplate, id
+	case "batch-schema":
+		return opBatchGetSchema, id
+	case "batch-schema-analysis-rule":
+		return opBatchGetSchemaAnalysisRule, id
+	}
+	return opUnknown, ""
+}
+
+func classifyCollabMember(method, id string, segs []string) (string, string) {
+	// /collaborations/{id}/member/{accountId}
+	if len(segs) == segsWithSubID && method == http.MethodDelete {
+		return opDeleteMember, id
+	}
+	return opUnknown, ""
+}
+
+func classifyCollabAnalysisTemplates(method, id string, segs []string) (string, string) {
+	if len(segs) == segsWithSub && method == http.MethodGet {
+		return opListCollaborationAnalysisTemplates, id
+	}
+	if len(segs) == segsWithSubID && method == http.MethodGet {
+		return opGetCollaborationAnalysisTemplate, id
+	}
+	return opUnknown, ""
+}
+
+func classifyCollabChangeRequests(method, id string, segs []string) (string, string) {
+	if len(segs) == segsWithSub {
+		switch method {
+		case http.MethodPost:
+			return opCreateCollaborationChangeRequest, id
+		case http.MethodGet:
+			return opListCollaborationChangeRequests, id
+		}
+	}
+	if len(segs) == segsWithSubID {
+		switch method {
+		case http.MethodGet:
+			return opGetCollaborationChangeRequest, id
+		case http.MethodPatch:
+			return opUpdateCollaborationChangeRequest, id
+		}
+	}
+	return opUnknown, ""
+}
+
+func classifyCollabCAMAAssocs(method, id string, segs []string) (string, string) {
+	if len(segs) == segsWithSub && method == http.MethodGet {
+		return opListCollaborationConfiguredAudienceModelAssociations, id
+	}
+	if len(segs) == segsWithSubID && method == http.MethodGet {
+		return opGetCollaborationConfiguredAudienceModelAssociation, id
+	}
+	return opUnknown, ""
+}
+
+func classifyCollabIDNamespaceAssocs(method, id string, segs []string) (string, string) {
+	if len(segs) == segsWithSub && method == http.MethodGet {
+		return opListCollaborationIDNamespaceAssociations, id
+	}
+	if len(segs) == segsWithSubID && method == http.MethodGet {
+		return opGetCollaborationIDNamespaceAssociation, id
+	}
+	return opUnknown, ""
+}
+
+func classifyCollabPrivacyBudgetTmpls(method, id string, segs []string) (string, string) {
+	if len(segs) == segsWithSub && method == http.MethodGet {
+		return opListCollaborationPrivacyBudgetTemplates, id
+	}
+	if len(segs) == segsWithSubID && method == http.MethodGet {
+		return opGetCollaborationPrivacyBudgetTemplate, id
+	}
+	return opUnknown, ""
+}
+
+func classifyCollabSchemas(method, id string, segs []string) (string, string) {
+	if len(segs) == segsWithSub && method == http.MethodGet {
+		return opListSchemas, id
+	}
+	if len(segs) == segsWithSubID && method == http.MethodGet {
+		return opGetSchema, id
+	}
+	// /collaborations/{id}/schemas/{name}/analysisRule/{type}
+	if len(segs) == segsWithSubSubID && segs[4] == subAnalysisRule && method == http.MethodGet {
+		return opGetSchemaAnalysisRule, id
+	}
 	return opUnknown, ""
 }
 
@@ -570,119 +610,15 @@ func classifyMemberships(method string, segs []string) (string, string) {
 func classifyMembership(method, membershipID, sub string, segs []string) (string, string) {
 	switch sub {
 	case subAnalysisTemplates:
-		if len(segs) == segsWithSub {
-			switch method {
-			case http.MethodPost:
-				return opCreateAnalysisTemplate, membershipID
-			case http.MethodGet:
-				return opListAnalysisTemplates, membershipID
-			}
-		}
-		if len(segs) == segsWithSubID {
-			switch method {
-			case http.MethodGet:
-				return opGetAnalysisTemplate, membershipID
-			case http.MethodDelete:
-				return opDeleteAnalysisTemplate, membershipID
-			case http.MethodPatch:
-				return opUpdateAnalysisTemplate, membershipID
-			}
-		}
+		return classifyMemAnalysisTemplates(method, membershipID, segs)
 	case "configuredTableAssociations":
-		if len(segs) == segsWithSub {
-			switch method {
-			case http.MethodPost:
-				return opCreateConfiguredTableAssociation, membershipID
-			case http.MethodGet:
-				return opListConfiguredTableAssociations, membershipID
-			}
-		}
-		if len(segs) == segsWithSubID {
-			switch method {
-			case http.MethodGet:
-				return opGetConfiguredTableAssociation, membershipID
-			case http.MethodDelete:
-				return opDeleteConfiguredTableAssociation, membershipID
-			case http.MethodPatch:
-				return opUpdateConfiguredTableAssociation, membershipID
-			}
-		}
-		// /memberships/{id}/configuredTableAssociations/{assocId}/analysisRule
-		if len(segs) == segsWithSubSub && segs[4] == subAnalysisRule && method == http.MethodPost {
-			return opCreateConfiguredTableAssociationAnalysisRule, membershipID
-		}
-		// /memberships/{id}/configuredTableAssociations/{assocId}/analysisRule/{type}
-		if len(segs) == segsWithSubSubID && segs[4] == subAnalysisRule {
-			switch method {
-			case http.MethodGet:
-				return opGetConfiguredTableAssociationAnalysisRule, membershipID
-			case http.MethodDelete:
-				return opDeleteConfiguredTableAssociationAnalysisRule, membershipID
-			case http.MethodPatch:
-				return opUpdateConfiguredTableAssociationAnalysisRule, membershipID
-			}
-		}
+		return classifyMemCTAssociations(method, membershipID, segs)
 	case subCAMAAssociations:
-		if len(segs) == segsWithSub {
-			switch method {
-			case http.MethodPost:
-				return opCreateConfiguredAudienceModelAssociation, membershipID
-			case http.MethodGet:
-				return opListConfiguredAudienceModelAssociations, membershipID
-			}
-		}
-		if len(segs) == segsWithSubID {
-			switch method {
-			case http.MethodGet:
-				return opGetConfiguredAudienceModelAssociation, membershipID
-			case http.MethodDelete:
-				return opDeleteConfiguredAudienceModelAssociation, membershipID
-			case http.MethodPatch:
-				return opUpdateConfiguredAudienceModelAssociation, membershipID
-			}
-		}
+		return classifyMemCAMAAssocs(method, membershipID, segs)
 	case "idmappingtables":
-		if len(segs) == segsWithSub {
-			switch method {
-			case http.MethodPost:
-				return opCreateIDMappingTable, membershipID
-			case http.MethodGet:
-				return opListIDMappingTables, membershipID
-			}
-		}
-		if len(segs) == segsWithSubID {
-			switch method {
-			case http.MethodGet:
-				return opGetIDMappingTable, membershipID
-			case http.MethodDelete:
-				return opDeleteIDMappingTable, membershipID
-			case http.MethodPatch:
-				return opUpdateIDMappingTable, membershipID
-			}
-		}
-		// /memberships/{id}/idmappingtables/{tableId}/populate
-		if len(segs) == segsWithSubSub && segs[4] == "populate" && method == http.MethodPost {
-			return opPopulateIDMappingTable, membershipID
-		}
+		return classifyMemIDMappingTables(method, membershipID, segs)
 	case subIDNamespaceAssocs:
-		if len(segs) == segsWithSub {
-			switch method {
-			case http.MethodPost:
-				return opCreateIDNamespaceAssociation, membershipID
-			case http.MethodGet:
-				return opListIDNamespaceAssociations, membershipID
-			}
-		}
-		if len(segs) == segsWithSubID {
-			switch method {
-			case http.MethodGet:
-				return opGetIDNamespaceAssociation, membershipID
-			case http.MethodDelete:
-				return opDeleteIDNamespaceAssociation, membershipID
-			case http.MethodPatch:
-				return opUpdateIDNamespaceAssociation, membershipID
-			}
-		}
+		return classifyMemIDNamespaceAssocs(method, membershipID, segs)
 	case "previewprivacyimpact":
 		if method == http.MethodPost {
 			return opPreviewPrivacyImpact, membershipID
@@ -692,60 +628,211 @@ func classifyMembership(method, membershipID, sub string, segs []string) (string
 			return opListPrivacyBudgets, membershipID
 		}
 	case subPrivacyBudgetTmpls:
-		if len(segs) == segsWithSub {
-			switch method {
-			case http.MethodPost:
-				return opCreatePrivacyBudgetTemplate, membershipID
-			case http.MethodGet:
-				return opListPrivacyBudgetTemplates, membershipID
-			}
-		}
-		if len(segs) == segsWithSubID {
-			switch method {
-			case http.MethodGet:
-				return opGetPrivacyBudgetTemplate, membershipID
-			case http.MethodDelete:
-				return opDeletePrivacyBudgetTemplate, membershipID
-			case http.MethodPatch:
-				return opUpdatePrivacyBudgetTemplate, membershipID
-			}
-		}
+		return classifyMemPrivacyBudgetTmpls(method, membershipID, segs)
 	case subProtectedJobs:
-		if len(segs) == segsWithSub {
-			switch method {
-			case http.MethodPost:
-				return opStartProtectedJob, membershipID
-			case http.MethodGet:
-				return opListProtectedJobs, membershipID
-			}
-		}
-		if len(segs) == segsWithSubID {
-			switch method {
-			case http.MethodGet:
-				return opGetProtectedJob, membershipID
-			case http.MethodPatch:
-				return opUpdateProtectedJob, membershipID
-			}
-		}
+		return classifyMemProtectedJobs(method, membershipID, segs)
 	case subProtectedQueries:
-		if len(segs) == segsWithSub {
-			switch method {
-			case http.MethodPost:
-				return opStartProtectedQuery, membershipID
-			case http.MethodGet:
-				return opListProtectedQueries, membershipID
-			}
-		}
-		if len(segs) == segsWithSubID {
-			switch method {
-			case http.MethodGet:
-				return opGetProtectedQuery, membershipID
-			case http.MethodPatch:
-				return opUpdateProtectedQuery, membershipID
-			}
-		}
+		return classifyMemProtectedQueries(method, membershipID, segs)
 	}
 
+	return opUnknown, ""
+}
+
+func classifyMemAnalysisTemplates(method, membershipID string, segs []string) (string, string) {
+	if len(segs) == segsWithSub {
+		switch method {
+		case http.MethodPost:
+			return opCreateAnalysisTemplate, membershipID
+		case http.MethodGet:
+			return opListAnalysisTemplates, membershipID
+		}
+	}
+	if len(segs) == segsWithSubID {
+		switch method {
+		case http.MethodGet:
+			return opGetAnalysisTemplate, membershipID
+		case http.MethodDelete:
+			return opDeleteAnalysisTemplate, membershipID
+		case http.MethodPatch:
+			return opUpdateAnalysisTemplate, membershipID
+		}
+	}
+	return opUnknown, ""
+}
+
+func classifyMemCTAssociations(method, membershipID string, segs []string) (string, string) {
+	if len(segs) == segsWithSub {
+		switch method {
+		case http.MethodPost:
+			return opCreateConfiguredTableAssociation, membershipID
+		case http.MethodGet:
+			return opListConfiguredTableAssociations, membershipID
+		}
+	}
+	if len(segs) == segsWithSubID {
+		switch method {
+		case http.MethodGet:
+			return opGetConfiguredTableAssociation, membershipID
+		case http.MethodDelete:
+			return opDeleteConfiguredTableAssociation, membershipID
+		case http.MethodPatch:
+			return opUpdateConfiguredTableAssociation, membershipID
+		}
+	}
+	if len(segs) >= segsWithSubSub && segs[4] == subAnalysisRule {
+		return classifyMemCTAssocAnalysisRule(method, membershipID, segs)
+	}
+	return opUnknown, ""
+}
+
+func classifyMemCTAssocAnalysisRule(method, membershipID string, segs []string) (string, string) {
+	// /memberships/{id}/configuredTableAssociations/{assocId}/analysisRule
+	if len(segs) == segsWithSubSub && method == http.MethodPost {
+		return opCreateConfiguredTableAssociationAnalysisRule, membershipID
+	}
+	// /memberships/{id}/configuredTableAssociations/{assocId}/analysisRule/{type}
+	if len(segs) == segsWithSubSubID {
+		switch method {
+		case http.MethodGet:
+			return opGetConfiguredTableAssociationAnalysisRule, membershipID
+		case http.MethodDelete:
+			return opDeleteConfiguredTableAssociationAnalysisRule, membershipID
+		case http.MethodPatch:
+			return opUpdateConfiguredTableAssociationAnalysisRule, membershipID
+		}
+	}
+	return opUnknown, ""
+}
+
+func classifyMemCAMAAssocs(method, membershipID string, segs []string) (string, string) {
+	if len(segs) == segsWithSub {
+		switch method {
+		case http.MethodPost:
+			return opCreateConfiguredAudienceModelAssociation, membershipID
+		case http.MethodGet:
+			return opListConfiguredAudienceModelAssociations, membershipID
+		}
+	}
+	if len(segs) == segsWithSubID {
+		switch method {
+		case http.MethodGet:
+			return opGetConfiguredAudienceModelAssociation, membershipID
+		case http.MethodDelete:
+			return opDeleteConfiguredAudienceModelAssociation, membershipID
+		case http.MethodPatch:
+			return opUpdateConfiguredAudienceModelAssociation, membershipID
+		}
+	}
+	return opUnknown, ""
+}
+
+func classifyMemIDMappingTables(method, membershipID string, segs []string) (string, string) {
+	if len(segs) == segsWithSub {
+		switch method {
+		case http.MethodPost:
+			return opCreateIDMappingTable, membershipID
+		case http.MethodGet:
+			return opListIDMappingTables, membershipID
+		}
+	}
+	if len(segs) == segsWithSubID {
+		switch method {
+		case http.MethodGet:
+			return opGetIDMappingTable, membershipID
+		case http.MethodDelete:
+			return opDeleteIDMappingTable, membershipID
+		case http.MethodPatch:
+			return opUpdateIDMappingTable, membershipID
+		}
+	}
+	// /memberships/{id}/idmappingtables/{tableId}/populate
+	if len(segs) == segsWithSubSub && segs[4] == "populate" && method == http.MethodPost {
+		return opPopulateIDMappingTable, membershipID
+	}
+	return opUnknown, ""
+}
+
+func classifyMemIDNamespaceAssocs(method, membershipID string, segs []string) (string, string) {
+	if len(segs) == segsWithSub {
+		switch method {
+		case http.MethodPost:
+			return opCreateIDNamespaceAssociation, membershipID
+		case http.MethodGet:
+			return opListIDNamespaceAssociations, membershipID
+		}
+	}
+	if len(segs) == segsWithSubID {
+		switch method {
+		case http.MethodGet:
+			return opGetIDNamespaceAssociation, membershipID
+		case http.MethodDelete:
+			return opDeleteIDNamespaceAssociation, membershipID
+		case http.MethodPatch:
+			return opUpdateIDNamespaceAssociation, membershipID
+		}
+	}
+	return opUnknown, ""
+}
+
+func classifyMemPrivacyBudgetTmpls(method, membershipID string, segs []string) (string, string) {
+	if len(segs) == segsWithSub {
+		switch method {
+		case http.MethodPost:
+			return opCreatePrivacyBudgetTemplate, membershipID
+		case http.MethodGet:
+			return opListPrivacyBudgetTemplates, membershipID
+		}
+	}
+	if len(segs) == segsWithSubID {
+		switch method {
+		case http.MethodGet:
+			return opGetPrivacyBudgetTemplate, membershipID
+		case http.MethodDelete:
+			return opDeletePrivacyBudgetTemplate, membershipID
+		case http.MethodPatch:
+			return opUpdatePrivacyBudgetTemplate, membershipID
+		}
+	}
+	return opUnknown, ""
+}
+
+func classifyMemProtectedJobs(method, membershipID string, segs []string) (string, string) {
+	if len(segs) == segsWithSub {
+		switch method {
+		case http.MethodPost:
+			return opStartProtectedJob, membershipID
+		case http.MethodGet:
+			return opListProtectedJobs, membershipID
+		}
+	}
+	if len(segs) == segsWithSubID {
+		switch method {
+		case http.MethodGet:
+			return opGetProtectedJob, membershipID
+		case http.MethodPatch:
+			return opUpdateProtectedJob, membershipID
+		}
+	}
+	return opUnknown, ""
+}
+
+func classifyMemProtectedQueries(method, membershipID string, segs []string) (string, string) {
+	if len(segs) == segsWithSub {
+		switch method {
+		case http.MethodPost:
+			return opStartProtectedQuery, membershipID
+		case http.MethodGet:
+			return opListProtectedQueries, membershipID
+		}
+	}
+	if len(segs) == segsWithSubID {
+		switch method {
+		case http.MethodGet:
+			return opGetProtectedQuery, membershipID
+		case http.MethodPatch:
+			return opUpdateProtectedQuery, membershipID
+		}
+	}
 	return opUnknown, ""
 }
 
@@ -866,7 +953,7 @@ func injectMembershipParams(segs []string, setStr func(string, string)) {
 type opHandlerFn func(ctx context.Context, body []byte, c *echo.Context) ([]byte, error)
 
 // buildOpHandlers returns a map from operation name to handler function.
-func (h *Handler) buildOpHandlers(c *echo.Context) map[string]opHandlerFn {
+func (h *Handler) buildOpHandlers(_ *echo.Context) map[string]opHandlerFn {
 	return map[string]opHandlerFn{
 		// Collaboration
 		opCreateCollaboration: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
@@ -927,10 +1014,14 @@ func (h *Handler) buildOpHandlers(c *echo.Context) map[string]opHandlerFn {
 		opUpdateCollaborationChangeRequest: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
 			return h.handleUpdateCollaborationChangeRequest(ctx, body)
 		},
-		opGetCollaborationConfiguredAudienceModelAssociation: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+		opGetCollaborationConfiguredAudienceModelAssociation: func(
+			ctx context.Context, body []byte, _ *echo.Context,
+		) ([]byte, error) {
 			return h.handleGetCollaborationConfiguredAudienceModelAssociation(ctx, body)
 		},
-		opListCollaborationConfiguredAudienceModelAssociations: func(ctx context.Context, body []byte, ec *echo.Context) ([]byte, error) {
+		opListCollaborationConfiguredAudienceModelAssociations: func(
+			ctx context.Context, body []byte, ec *echo.Context,
+		) ([]byte, error) {
 			return h.handleListCollaborationConfiguredAudienceModelAssociations(ctx, body, ec)
 		},
 		opGetCollaborationIDNamespaceAssociation: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
@@ -1046,16 +1137,22 @@ func (h *Handler) buildOpHandlers(c *echo.Context) map[string]opHandlerFn {
 		opDeleteConfiguredTableAssociation: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
 			return h.handleDeleteConfiguredTableAssociation(ctx, body)
 		},
-		opCreateConfiguredTableAssociationAnalysisRule: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+		opCreateConfiguredTableAssociationAnalysisRule: func(
+			ctx context.Context, body []byte, _ *echo.Context,
+		) ([]byte, error) {
 			return h.handleCreateConfiguredTableAssociationAnalysisRule(ctx, body)
 		},
 		opGetConfiguredTableAssociationAnalysisRule: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
 			return h.handleGetConfiguredTableAssociationAnalysisRule(ctx, body)
 		},
-		opUpdateConfiguredTableAssociationAnalysisRule: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+		opUpdateConfiguredTableAssociationAnalysisRule: func(
+			ctx context.Context, body []byte, _ *echo.Context,
+		) ([]byte, error) {
 			return h.handleUpdateConfiguredTableAssociationAnalysisRule(ctx, body)
 		},
-		opDeleteConfiguredTableAssociationAnalysisRule: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
+		opDeleteConfiguredTableAssociationAnalysisRule: func(
+			ctx context.Context, body []byte, _ *echo.Context,
+		) ([]byte, error) {
 			return h.handleDeleteConfiguredTableAssociationAnalysisRule(ctx, body)
 		},
 		// IDMappingTable
@@ -1157,6 +1254,7 @@ func (h *Handler) dispatch(
 
 	return nil, errUnknownAction
 }
+
 // ---- handler helpers ----
 
 func mustJSON(v any) []byte {
