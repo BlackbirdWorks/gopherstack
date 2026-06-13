@@ -43,6 +43,8 @@ const (
 	defaultEngineVersion = "7.0"
 	// defaultNodeType is the default node type for new clusters.
 	defaultNodeType = "db.r6g.large"
+	// defaultReservedNodeType is the node type used in reserved node offerings.
+	defaultReservedNodeType = "db.r6g.xlarge"
 	// defaultPort is the default MemoryDB port.
 	defaultPort = int32(6379)
 	// clusterStatusAvailable is the status for a running cluster.
@@ -364,7 +366,6 @@ func newInMemoryBackendWithDefaults(region, accountID string) *InMemoryBackend {
 	return b
 }
 func (b *InMemoryBackend) clustersStore(region string) map[string]*Cluster {
-
 	if b.clusters[region] == nil {
 		b.clusters[region] = make(map[string]*Cluster)
 	}
@@ -396,7 +397,6 @@ func (b *InMemoryBackend) subnetGroupsStore(region string) map[string]*SubnetGro
 	return b.subnetGroups[region]
 }
 func (b *InMemoryBackend) usersStore(region string) map[string]*User {
-
 	if b.users[region] == nil {
 		b.users[region] = make(map[string]*User)
 	}
@@ -814,6 +814,7 @@ func buildCluster(region, clusterARN, aclName string, req *createClusterRequest,
 		c.AvailabilityMode = "SingleAZ"
 	}
 	c.Endpoint = req.ClusterName + ".memorydb." + region + ".amazonaws.com"
+
 	return c
 }
 
@@ -1160,7 +1161,6 @@ func (b *InMemoryBackend) CreateACL(ctx context.Context, req *createACLRequest) 
 
 // DescribeACLs returns ACLs, optionally filtered by name.
 func (b *InMemoryBackend) DescribeACLs(ctx context.Context, name string) ([]*ACL, error) {
-
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -1170,7 +1170,6 @@ func (b *InMemoryBackend) DescribeACLs(ctx context.Context, name string) ([]*ACL
 	if name != "" {
 		a, ok := store[name]
 		if !ok {
-
 			return nil, ErrACLNotFound
 		}
 
@@ -1628,7 +1627,7 @@ func (b *InMemoryBackend) UpdateParameterGroup(ctx context.Context, req *updateP
 // -- Tag operations --------------------------------------------------------------
 
 // ListTags returns the tags for a resource identified by ARN.
-func (b *InMemoryBackend) ListTags(ctx context.Context, resourceArn string) (map[string]string, error) {
+func (b *InMemoryBackend) ListTags(_ context.Context, resourceArn string) (map[string]string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -1643,7 +1642,7 @@ func (b *InMemoryBackend) ListTags(ctx context.Context, resourceArn string) (map
 }
 
 // TagResource adds or updates tags on a resource.
-func (b *InMemoryBackend) TagResource(ctx context.Context, resourceArn string, tags map[string]string) error {
+func (b *InMemoryBackend) TagResource(_ context.Context, resourceArn string, tags map[string]string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -1677,7 +1676,7 @@ func (b *InMemoryBackend) TagResource(ctx context.Context, resourceArn string, t
 }
 
 // UntagResource removes tags from a resource.
-func (b *InMemoryBackend) UntagResource(ctx context.Context, resourceArn string, tagKeys []string) error {
+func (b *InMemoryBackend) UntagResource(_ context.Context, resourceArn string, tagKeys []string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -2083,7 +2082,7 @@ func defaultEngineVersions() []*EngineVersion {
 }
 
 // DescribeEngineVersions returns supported engine versions, optionally filtered.
-func (b *InMemoryBackend) DescribeEngineVersions(ctx context.Context, req *describeEngineVersionsRequest) ([]*EngineVersion, error) {
+func (b *InMemoryBackend) DescribeEngineVersions(_ context.Context, req *describeEngineVersionsRequest) ([]*EngineVersion, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -2244,7 +2243,7 @@ func (b *InMemoryBackend) DeleteMultiRegionCluster(ctx context.Context, name str
 }
 
 // DescribeMultiRegionClusters returns multi-region clusters, optionally filtered by name.
-func (b *InMemoryBackend) DescribeMultiRegionClusters(ctx context.Context, name string) ([]*MultiRegionCluster, error) {
+func (b *InMemoryBackend) DescribeMultiRegionClusters(_ context.Context, name string) ([]*MultiRegionCluster, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -2269,7 +2268,7 @@ func (b *InMemoryBackend) DescribeMultiRegionClusters(ctx context.Context, name 
 }
 
 // UpdateMultiRegionCluster modifies an existing multi-region cluster.
-func (b *InMemoryBackend) UpdateMultiRegionCluster(ctx context.Context, req *updateMultiRegionClusterRequest) (*MultiRegionCluster, error) {
+func (b *InMemoryBackend) UpdateMultiRegionCluster(_ context.Context, req *updateMultiRegionClusterRequest) (*MultiRegionCluster, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -2286,7 +2285,6 @@ func (b *InMemoryBackend) UpdateMultiRegionCluster(ctx context.Context, req *upd
 		mrc.NodeType = req.NodeType
 	}
 	if req.EngineVersion != "" {
-
 		mrc.EngineVersion = req.EngineVersion
 	}
 
@@ -2300,7 +2298,7 @@ func (b *InMemoryBackend) UpdateMultiRegionCluster(ctx context.Context, req *upd
 // -- MultiRegionParameterGroup operations ----------------------------------------
 
 // DescribeMultiRegionParameterGroups returns multi-region parameter groups, optionally filtered by name.
-func (b *InMemoryBackend) DescribeMultiRegionParameterGroups(ctx context.Context, name string) ([]*MultiRegionParameterGroup, error) {
+func (b *InMemoryBackend) DescribeMultiRegionParameterGroups(_ context.Context, name string) ([]*MultiRegionParameterGroup, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -2411,7 +2409,7 @@ func (b *InMemoryBackend) FailoverShard(ctx context.Context, clusterName, shardN
 func allowedNodeTypes() []string {
 	return []string{
 		defaultNodeType,
-		"db.r6g.xlarge",
+		defaultReservedNodeType,
 		"db.r6g.2xlarge",
 		"db.r6g.4xlarge",
 		"db.r6gd.xlarge",
@@ -2435,7 +2433,7 @@ func (b *InMemoryBackend) ListAllowedNodeTypeUpdates(ctx context.Context, cluste
 }
 
 // ListAllowedMultiRegionClusterUpdates returns the set of node types a multi-region cluster can be updated to.
-func (b *InMemoryBackend) ListAllowedMultiRegionClusterUpdates(ctx context.Context, clusterName string) ([]string, error) {
+func (b *InMemoryBackend) ListAllowedMultiRegionClusterUpdates(_ context.Context, clusterName string) ([]string, error) {
 	b.mu.RLock()
 
 	defer b.mu.RUnlock()
@@ -2483,7 +2481,7 @@ func defaultReservedNodesOfferings() []*ReservedNodesOffering {
 		},
 		{
 			ReservedNodesOfferingID: "bbb00000-1111-2222-3333-444444444444",
-			NodeType:                "db.r6g.xlarge",
+			NodeType:                defaultReservedNodeType,
 			Duration:                reservedDuration1Year,
 			FixedPrice:              reservedFixedPriceXLarge1Y,
 			OfferingType:            "No Upfront",
@@ -2536,7 +2534,7 @@ func (b *InMemoryBackend) DescribeReservedNodes(ctx context.Context, req *descri
 }
 
 // DescribeReservedNodesOfferings returns available reserved node offerings.
-func (b *InMemoryBackend) DescribeReservedNodesOfferings(ctx context.Context, req *describeReservedNodesOfferingsRequest) ([]*ReservedNodesOffering, error) {
+func (b *InMemoryBackend) DescribeReservedNodesOfferings(_ context.Context, req *describeReservedNodesOfferingsRequest) ([]*ReservedNodesOffering, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -2643,7 +2641,7 @@ func (b *InMemoryBackend) PurchaseReservedNodesOffering(ctx context.Context, req
 // -- DescribeMultiRegionParameters operation ------------------------------------
 
 // DescribeMultiRegionParameters returns the parameters for a multi-region parameter group.
-func (b *InMemoryBackend) DescribeMultiRegionParameters(ctx context.Context, parameterGroupName string) (map[string]string, error) {
+func (b *InMemoryBackend) DescribeMultiRegionParameters(_ context.Context, parameterGroupName string) (map[string]string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -2660,7 +2658,7 @@ func (b *InMemoryBackend) DescribeMultiRegionParameters(ctx context.Context, par
 }
 
 // DescribeServiceUpdates returns service updates, optionally filtered.
-func (b *InMemoryBackend) DescribeServiceUpdates(ctx context.Context, req *describeServiceUpdatesRequest) ([]*ServiceUpdate, error) {
+func (b *InMemoryBackend) DescribeServiceUpdates(_ context.Context, req *describeServiceUpdatesRequest) ([]*ServiceUpdate, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 

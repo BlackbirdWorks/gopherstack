@@ -1,4 +1,4 @@
-package memorydb //nolint:testpackage
+package memorydb //nolint:testpackage // internal tests need access to unexported backend methods
 
 import (
 	"context"
