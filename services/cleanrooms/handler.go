@@ -235,7 +235,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 	}
 }
 
-func (h *Handler) MatchPriority() int { return service.PriorityPathPlain }
+func (h *Handler) MatchPriority() int { return service.PriorityPathVersioned }
 
 func (h *Handler) ExtractOperation(c *echo.Context) string {
 	op, _ := classifyPath(c.Request().Method, c.Request().URL.Path)
@@ -989,8 +989,6 @@ func (h *Handler) dispatch(ctx context.Context, op string, body []byte, c *echo.
 		return h.handleUpdateIdNamespaceAssociation(ctx, body)
 	case opDeleteIdNamespaceAssociation:
 		return h.handleDeleteIdNamespaceAssociation(ctx, body)
-	case opGetCollaborationIdNamespaceAssociation:
-		return h.handleGetCollaborationIdNamespaceAssociation(ctx, body)
 	// ConfiguredAudienceModelAssociation
 	case opCreateConfiguredAudienceModelAssociation:
 		return h.handleCreateConfiguredAudienceModelAssociation(ctx, body)

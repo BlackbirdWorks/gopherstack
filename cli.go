@@ -92,6 +92,7 @@ import (
 	codedeploybackend "github.com/blackbirdworks/gopherstack/services/codedeploy"
 	codepipelinebackend "github.com/blackbirdworks/gopherstack/services/codepipeline"
 	codestarconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codestarconnections"
+	cleanroomsbackend "github.com/blackbirdworks/gopherstack/services/cleanrooms"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	comprehendbackend "github.com/blackbirdworks/gopherstack/services/comprehend"
@@ -2758,6 +2759,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&xraybackend.Provider{},
 		&s3tablesbackend.Provider{},
 		&databrewbackend.Provider{},
+		&cleanroomsbackend.Provider{},
 		&forecastbackend.Provider{},
 		&macie2backend.Provider{},
 		&appmeshbackend.Provider{},

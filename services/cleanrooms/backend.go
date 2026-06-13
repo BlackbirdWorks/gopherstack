@@ -2,6 +2,7 @@
 package cleanrooms
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"sort"
@@ -446,6 +447,11 @@ type InMemoryBackend struct {
 	schemas                      map[string]map[string]*Schema
 	schemaAnalysisRules          map[string]map[string]map[string]*SchemaAnalysisRule
 	tagsByArn                    map[string]map[string]string
+}
+
+// NewInMemoryBackendWithContext creates a backend tied to svcCtx (ignored; no lifecycle goroutines).
+func NewInMemoryBackendWithContext(_ context.Context, accountID, region string) *InMemoryBackend {
+	return NewInMemoryBackend(accountID, region)
 }
 
 // NewInMemoryBackend creates a new in-memory Clean Rooms backend.
