@@ -294,6 +294,14 @@ func (b *InMemoryBackend) ListInventoryEntries(
 	ctx context.Context,
 	input *ListInventoryEntriesInput,
 ) (*ListInventoryEntriesOutput, error) {
+	const maxInventoryEntries = 50
+
+	if input.MaxResults != nil {
+		if *input.MaxResults < 1 || *input.MaxResults > maxInventoryEntries {
+			return nil, fmt.Errorf("%w: MaxResults must be between 1 and %d", ErrValidationException, maxInventoryEntries)
+		}
+	}
+
 	region := getRegion(ctx)
 	b.mu.RLock("ListInventoryEntries")
 	defer b.mu.RUnlock()
@@ -319,14 +327,6 @@ func (b *InMemoryBackend) ListInventoryEntries(
 
 	if entries == nil {
 		entries = []map[string]string{}
-	}
-
-	const maxInventoryEntries = 50
-
-	if input.MaxResults != nil {
-		if *input.MaxResults < 1 || *input.MaxResults > maxInventoryEntries {
-			return nil, fmt.Errorf("%w: MaxResults must be between 1 and %d", ErrValidationException, maxInventoryEntries)
-		}
 	}
 
 	startIdx := parseNextToken(input.NextToken)
