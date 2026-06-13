@@ -5,7 +5,7 @@ import (
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
-	"crypto/sha1" //nolint:gosec // AWS SNS SignatureVersion=1 requires SHA-1
+	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
@@ -309,7 +309,7 @@ type ArchivedMessage struct {
 }
 
 // notificationSigner holds the RSA key pair and self-signed certificate used to
-// sign SNS HTTP/HTTPS notification envelopes per AWS SignatureVersion=1 spec.
+// sign SNS HTTP/HTTPS notification envelopes per AWS SignatureVersion=2 spec.
 // The certificate is served at the URL stored in certURL so subscribers can
 // verify signatures without contacting the real AWS endpoint.
 type notificationSigner struct {
@@ -356,12 +356,11 @@ func newNotificationSigner() *notificationSigner {
 	}
 }
 
-// sign computes the RSA-SHA1 signature of the canonical notification string
-// per AWS SNS SignatureVersion=1 and returns it base64-encoded.
+// sign computes the RSA-SHA256 signature of the canonical notification string
+// per AWS SNS SignatureVersion=2 and returns it base64-encoded.
 func (s *notificationSigner) sign(canonical string) string {
-	//nolint:gosec // SHA-1 is mandated by the AWS SignatureVersion=1 spec
-	h := sha1.Sum([]byte(canonical))
-	sig, err := rsa.SignPKCS1v15(rand.Reader, s.privateKey, crypto.SHA1, h[:])
+	h := sha256.Sum256([]byte(canonical))
+	sig, err := rsa.SignPKCS1v15(rand.Reader, s.privateKey, crypto.SHA256, h[:])
 	if err != nil {
 		return "SIGN-ERROR"
 	}
@@ -2204,7 +2203,7 @@ func deliverHTTPWithMeta(parent context.Context, d httpDelivery, client *http.Cl
 			TopicArn:         d.topicARN,
 			Message:          d.body,
 			Timestamp:        timestamp,
-			SignatureVersion: "1",
+			SignatureVersion: "2",
 			Signature:        signature,
 			SigningCertURL:   certURL,
 			UnsubscribeURL:   "https://sns.us-east-1.amazonaws.com/?Action=Unsubscribe&SubscriptionArn=" + d.subscriptionARN,

@@ -2,9 +2,9 @@ package eks
 
 import (
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"hash/fnv"
 	"maps"
 	"sort"
 	"time"
@@ -1235,14 +1235,16 @@ func deepCopyNodegroup(ng *Nodegroup) *Nodegroup {
 }
 
 // stableID returns a deterministic 8-character hex identifier derived from the
-// input string using SHA-256. The identifier is stable across calls but only
-// 32 bits long, so collisions are possible at scale; it should be used only
-// for non-critical IDs such as test ARN suffixes and endpoint URL components,
-// not for strong uniqueness or cryptographic guarantees.
+// input string using FNV-1a (a non-cryptographic hash). The identifier is
+// stable across calls but only 32 bits long, so collisions are possible at
+// scale; it should be used only for non-critical IDs such as test ARN suffixes
+// and endpoint URL components, not for strong uniqueness or cryptographic
+// guarantees.
 func stableID(input string) string {
-	sum := sha256.Sum256([]byte(input))
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(input))
 
-	return hex.EncodeToString(sum[:])[:8]
+	return fmt.Sprintf("%08x", h.Sum32())
 }
 
 // oidcIDBytes is the number of random bytes needed to produce a 16-char hex OIDC ID.
