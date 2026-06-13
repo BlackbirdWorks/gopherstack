@@ -20,11 +20,13 @@ import (
 	cognitoidpsvc "github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
 	comprehendsvc "github.com/aws/aws-sdk-go-v2/service/comprehend"
 	databrewsvc "github.com/aws/aws-sdk-go-v2/service/databrew"
+	databrewtypes "github.com/aws/aws-sdk-go-v2/service/databrew/types"
 	datasyncsvc "github.com/aws/aws-sdk-go-v2/service/datasync"
 	detectivesvc "github.com/aws/aws-sdk-go-v2/service/detective"
 	directoryservicesvc "github.com/aws/aws-sdk-go-v2/service/directoryservice"
 	dlmsvc "github.com/aws/aws-sdk-go-v2/service/dlm"
 	forecastsvc "github.com/aws/aws-sdk-go-v2/service/forecast"
+	forecasttypes "github.com/aws/aws-sdk-go-v2/service/forecast/types"
 	gluesvc "github.com/aws/aws-sdk-go-v2/service/glue"
 	macie2svc "github.com/aws/aws-sdk-go-v2/service/macie2"
 	medialivesvcc "github.com/aws/aws-sdk-go-v2/service/medialive"
@@ -185,8 +187,10 @@ func TestTerraform_Comprehend(t *testing.T) {
 // DataBrew
 // ---------------------------------------------------------------------------
 
-// TestTerraform_DataBrew provisions a Glue DataBrew dataset via Terraform and
-// verifies it appears in ListDatasets.
+// TestTerraform_DataBrew creates an S3 bucket via Terraform, then provisions a
+// DataBrew dataset via the SDK and verifies it appears in ListDatasets.
+// aws_glue_databrew_dataset was removed from terraform-provider-aws v5, so
+// SDK creation is used instead.
 func TestTerraform_DataBrew(t *testing.T) {
 	t.Parallel()
 
@@ -207,9 +211,17 @@ func TestTerraform_DataBrew(t *testing.T) {
 				t.Helper()
 				client := createDataBrewClient(t)
 				datasetName := vars["DatasetName"].(string)
+				bucketName := vars["BucketName"].(string)
+
+				_, createErr := client.CreateDataset(ctx, &databrewsvc.CreateDatasetInput{
+					Name:   aws.String(datasetName),
+					Input:  &databrewtypes.Input{S3InputDefinition: &databrewtypes.S3Location{Bucket: aws.String(bucketName), Key: aws.String("data.csv")}},
+					Format: databrewtypes.InputFormatCsv,
+				})
+				require.NoError(t, createErr, "CreateDataset should succeed")
 
 				out, err := client.ListDatasets(ctx, &databrewsvc.ListDatasetsInput{})
-				require.NoError(t, err, "ListDatasets should succeed after terraform apply")
+				require.NoError(t, err, "ListDatasets should succeed after SDK create")
 
 				found := false
 				for _, d := range out.Datasets {
@@ -433,8 +445,10 @@ func TestTerraform_Detective(t *testing.T) {
 // Forecast
 // ---------------------------------------------------------------------------
 
-// TestTerraform_Forecast provisions a Forecast dataset group via Terraform and
-// verifies it appears in ListDatasetGroups.
+// TestTerraform_Forecast applies a placeholder fixture, then provisions a
+// Forecast dataset group via the SDK and verifies it appears in
+// ListDatasetGroups. aws_forecast_dataset_group was removed from
+// terraform-provider-aws v5; SDK creation is used instead.
 func TestTerraform_Forecast(t *testing.T) {
 	t.Parallel()
 
@@ -455,8 +469,14 @@ func TestTerraform_Forecast(t *testing.T) {
 				client := createForecastClient(t)
 				name := vars["DatasetGroupName"].(string)
 
+				_, createErr := client.CreateDatasetGroup(ctx, &forecastsvc.CreateDatasetGroupInput{
+					DatasetGroupName: aws.String(name),
+					Domain:           forecasttypes.DomainCustom,
+				})
+				require.NoError(t, createErr, "CreateDatasetGroup should succeed")
+
 				out, err := client.ListDatasetGroups(ctx, &forecastsvc.ListDatasetGroupsInput{})
-				require.NoError(t, err, "ListDatasetGroups should succeed after terraform apply")
+				require.NoError(t, err, "ListDatasetGroups should succeed after SDK create")
 
 				found := false
 				for _, g := range out.DatasetGroups {
@@ -668,8 +688,10 @@ func TestTerraform_MediaStoreData(t *testing.T) {
 // MediaTailor
 // ---------------------------------------------------------------------------
 
-// TestTerraform_MediaTailor provisions a MediaTailor playback configuration via
-// Terraform and verifies it appears in ListPlaybackConfigurations.
+// TestTerraform_MediaTailor applies a placeholder fixture, then provisions a
+// MediaTailor playback configuration via the SDK and verifies it appears in
+// ListPlaybackConfigurations. aws_mediatailor_playback_configuration was
+// removed from terraform-provider-aws v5; SDK creation is used instead.
 func TestTerraform_MediaTailor(t *testing.T) {
 	t.Parallel()
 
@@ -690,6 +712,13 @@ func TestTerraform_MediaTailor(t *testing.T) {
 				client := createMediaTailorClient(t)
 				configName := vars["ConfigName"].(string)
 
+				_, createErr := client.PutPlaybackConfiguration(ctx, &mediatailorsvc.PutPlaybackConfigurationInput{
+					Name:                   aws.String(configName),
+					AdDecisionServerUrl:    aws.String("https://ads.example.com/vast"),
+					VideoContentSourceUrl:  aws.String("https://example.com/hls/manifest.m3u8"),
+				})
+				require.NoError(t, createErr, "PutPlaybackConfiguration should succeed")
+
 				out, err := client.ListPlaybackConfigurations(
 					ctx,
 					&mediatailorsvc.ListPlaybackConfigurationsInput{},
@@ -697,7 +726,7 @@ func TestTerraform_MediaTailor(t *testing.T) {
 				require.NoError(
 					t,
 					err,
-					"ListPlaybackConfigurations should succeed after terraform apply",
+					"ListPlaybackConfigurations should succeed after SDK create",
 				)
 
 				found := false
