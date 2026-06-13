@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"net/http"
 	"strings"
 
@@ -441,6 +442,7 @@ func classifyCollabBatchPost(method, id, sub string) (string, string) {
 	case "batch-schema-analysis-rule":
 		return opBatchGetSchemaAnalysisRule, id
 	}
+
 	return opUnknown, ""
 }
 
@@ -449,6 +451,7 @@ func classifyCollabMember(method, id string, segs []string) (string, string) {
 	if len(segs) == segsWithSubID && method == http.MethodDelete {
 		return opDeleteMember, id
 	}
+
 	return opUnknown, ""
 }
 
@@ -459,6 +462,7 @@ func classifyCollabAnalysisTemplates(method, id string, segs []string) (string, 
 	if len(segs) == segsWithSubID && method == http.MethodGet {
 		return opGetCollaborationAnalysisTemplate, id
 	}
+
 	return opUnknown, ""
 }
 
@@ -479,6 +483,7 @@ func classifyCollabChangeRequests(method, id string, segs []string) (string, str
 			return opUpdateCollaborationChangeRequest, id
 		}
 	}
+
 	return opUnknown, ""
 }
 
@@ -489,6 +494,7 @@ func classifyCollabCAMAAssocs(method, id string, segs []string) (string, string)
 	if len(segs) == segsWithSubID && method == http.MethodGet {
 		return opGetCollaborationConfiguredAudienceModelAssociation, id
 	}
+
 	return opUnknown, ""
 }
 
@@ -499,6 +505,7 @@ func classifyCollabIDNamespaceAssocs(method, id string, segs []string) (string, 
 	if len(segs) == segsWithSubID && method == http.MethodGet {
 		return opGetCollaborationIDNamespaceAssociation, id
 	}
+
 	return opUnknown, ""
 }
 
@@ -509,6 +516,7 @@ func classifyCollabPrivacyBudgetTmpls(method, id string, segs []string) (string,
 	if len(segs) == segsWithSubID && method == http.MethodGet {
 		return opGetCollaborationPrivacyBudgetTemplate, id
 	}
+
 	return opUnknown, ""
 }
 
@@ -523,6 +531,7 @@ func classifyCollabSchemas(method, id string, segs []string) (string, string) {
 	if len(segs) == segsWithSubSubID && segs[4] == subAnalysisRule && method == http.MethodGet {
 		return opGetSchemaAnalysisRule, id
 	}
+
 	return opUnknown, ""
 }
 
@@ -657,6 +666,7 @@ func classifyMemAnalysisTemplates(method, membershipID string, segs []string) (s
 			return opUpdateAnalysisTemplate, membershipID
 		}
 	}
+
 	return opUnknown, ""
 }
 
@@ -682,6 +692,7 @@ func classifyMemCTAssociations(method, membershipID string, segs []string) (stri
 	if len(segs) >= segsWithSubSub && segs[4] == subAnalysisRule {
 		return classifyMemCTAssocAnalysisRule(method, membershipID, segs)
 	}
+
 	return opUnknown, ""
 }
 
@@ -701,6 +712,7 @@ func classifyMemCTAssocAnalysisRule(method, membershipID string, segs []string) 
 			return opUpdateConfiguredTableAssociationAnalysisRule, membershipID
 		}
 	}
+
 	return opUnknown, ""
 }
 
@@ -723,6 +735,7 @@ func classifyMemCAMAAssocs(method, membershipID string, segs []string) (string, 
 			return opUpdateConfiguredAudienceModelAssociation, membershipID
 		}
 	}
+
 	return opUnknown, ""
 }
 
@@ -749,6 +762,7 @@ func classifyMemIDMappingTables(method, membershipID string, segs []string) (str
 	if len(segs) == segsWithSubSub && segs[4] == "populate" && method == http.MethodPost {
 		return opPopulateIDMappingTable, membershipID
 	}
+
 	return opUnknown, ""
 }
 
@@ -771,6 +785,7 @@ func classifyMemIDNamespaceAssocs(method, membershipID string, segs []string) (s
 			return opUpdateIDNamespaceAssociation, membershipID
 		}
 	}
+
 	return opUnknown, ""
 }
 
@@ -793,6 +808,7 @@ func classifyMemPrivacyBudgetTmpls(method, membershipID string, segs []string) (
 			return opUpdatePrivacyBudgetTemplate, membershipID
 		}
 	}
+
 	return opUnknown, ""
 }
 
@@ -813,6 +829,7 @@ func classifyMemProtectedJobs(method, membershipID string, segs []string) (strin
 			return opUpdateProtectedJob, membershipID
 		}
 	}
+
 	return opUnknown, ""
 }
 
@@ -833,6 +850,7 @@ func classifyMemProtectedQueries(method, membershipID string, segs []string) (st
 			return opUpdateProtectedQuery, membershipID
 		}
 	}
+
 	return opUnknown, ""
 }
 
@@ -954,6 +972,15 @@ type opHandlerFn func(ctx context.Context, body []byte, c *echo.Context) ([]byte
 
 // buildOpHandlers returns a map from operation name to handler function.
 func (h *Handler) buildOpHandlers(_ *echo.Context) map[string]opHandlerFn {
+	out := h.buildCollaborationHandlers()
+	maps.Copy(out, h.buildMembershipHandlers())
+	maps.Copy(out, h.buildConfiguredTableHandlers())
+	maps.Copy(out, h.buildResourceHandlers())
+
+	return out
+}
+
+func (h *Handler) buildCollaborationHandlers() map[string]opHandlerFn {
 	return map[string]opHandlerFn{
 		// Collaboration
 		opCreateCollaboration: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
@@ -1039,7 +1066,11 @@ func (h *Handler) buildOpHandlers(_ *echo.Context) map[string]opHandlerFn {
 		opListCollaborationPrivacyBudgets: func(ctx context.Context, body []byte, ec *echo.Context) ([]byte, error) {
 			return h.handleListCollaborationPrivacyBudgets(ctx, body, ec)
 		},
-		// Membership
+	}
+}
+
+func (h *Handler) buildMembershipHandlers() map[string]opHandlerFn {
+	return map[string]opHandlerFn{
 		opCreateMembership: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
 			return h.handleCreateMembership(ctx, body)
 		},
@@ -1094,7 +1125,11 @@ func (h *Handler) buildOpHandlers(_ *echo.Context) map[string]opHandlerFn {
 		opUpdateProtectedJob: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
 			return h.handleUpdateProtectedJob(ctx, body)
 		},
-		// ConfiguredTable
+	}
+}
+
+func (h *Handler) buildConfiguredTableHandlers() map[string]opHandlerFn {
+	return map[string]opHandlerFn{
 		opCreateConfiguredTable: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
 			return h.handleCreateConfiguredTable(ctx, body)
 		},
@@ -1155,6 +1190,11 @@ func (h *Handler) buildOpHandlers(_ *echo.Context) map[string]opHandlerFn {
 		) ([]byte, error) {
 			return h.handleDeleteConfiguredTableAssociationAnalysisRule(ctx, body)
 		},
+	}
+}
+
+func (h *Handler) buildResourceHandlers() map[string]opHandlerFn {
+	return map[string]opHandlerFn{
 		// IDMappingTable
 		opCreateIDMappingTable: func(ctx context.Context, body []byte, _ *echo.Context) ([]byte, error) {
 			return h.handleCreateIDMappingTable(ctx, body)
