@@ -72,11 +72,18 @@ const maxParamNameLength = 2048
 // validateParameterName returns a ValidationException error when the name is invalid.
 func validateParameterName(name string) error {
 	if len(name) > maxParamNameLength {
-		return fmt.Errorf("%w: parameter name exceeds maximum length of %d", ErrValidationException, maxParamNameLength)
+		return fmt.Errorf(
+			"%w: parameter name exceeds maximum length of %d",
+			ErrValidationException,
+			maxParamNameLength,
+		)
 	}
 
 	if strings.Contains(name, "//") {
-		return fmt.Errorf("%w: parameter name must not contain double slashes", ErrValidationException)
+		return fmt.Errorf(
+			"%w: parameter name must not contain double slashes",
+			ErrValidationException,
+		)
 	}
 
 	lower := strings.ToLower(strings.TrimPrefix(name, "/"))
@@ -374,7 +381,9 @@ func (b *InMemoryBackend) maintenanceWindowsStore(region string) map[string]Main
 	return b.maintenanceWindows[region]
 }
 
-func (b *InMemoryBackend) maintenanceWindowTargetsStore(region string) map[string]MaintenanceWindowTarget {
+func (b *InMemoryBackend) maintenanceWindowTargetsStore(
+	region string,
+) map[string]MaintenanceWindowTarget {
 	if b.maintenanceWindowTargets[region] == nil {
 		b.maintenanceWindowTargets[region] = make(map[string]MaintenanceWindowTarget)
 	}
@@ -382,7 +391,9 @@ func (b *InMemoryBackend) maintenanceWindowTargetsStore(region string) map[strin
 	return b.maintenanceWindowTargets[region]
 }
 
-func (b *InMemoryBackend) maintenanceWindowTasksStore(region string) map[string]MaintenanceWindowTask {
+func (b *InMemoryBackend) maintenanceWindowTasksStore(
+	region string,
+) map[string]MaintenanceWindowTask {
 	if b.maintenanceWindowTasks[region] == nil {
 		b.maintenanceWindowTasks[region] = make(map[string]MaintenanceWindowTask)
 	}
@@ -633,7 +644,10 @@ func resolveTier(tier, value string) (string, error) {
 	return tier, nil
 }
 
-func (b *InMemoryBackend) PutParameter(ctx context.Context, input *PutParameterInput) (*PutParameterOutput, error) {
+func (b *InMemoryBackend) PutParameter(
+	ctx context.Context,
+	input *PutParameterInput,
+) (*PutParameterOutput, error) {
 	if err := validateParameterName(input.Name); err != nil {
 		return nil, err
 	}
@@ -724,7 +738,10 @@ func (b *InMemoryBackend) PutParameter(ctx context.Context, input *PutParameterI
 }
 
 // GetParameter retrieves a single parameter.
-func (b *InMemoryBackend) GetParameter(ctx context.Context, input *GetParameterInput) (*GetParameterOutput, error) {
+func (b *InMemoryBackend) GetParameter(
+	ctx context.Context,
+	input *GetParameterInput,
+) (*GetParameterOutput, error) {
 	region := getRegion(ctx)
 
 	b.mu.RLock("GetParameter")
@@ -749,7 +766,10 @@ func (b *InMemoryBackend) GetParameter(ctx context.Context, input *GetParameterI
 }
 
 // GetParameters retrieves multiple parameters. Missing names are returned as InvalidParameters.
-func (b *InMemoryBackend) GetParameters(ctx context.Context, input *GetParametersInput) (*GetParametersOutput, error) {
+func (b *InMemoryBackend) GetParameters(
+	ctx context.Context,
+	input *GetParametersInput,
+) (*GetParametersOutput, error) {
 	region := getRegion(ctx)
 
 	b.mu.RLock("GetParameters")
@@ -848,6 +868,34 @@ func (b *InMemoryBackend) DeleteParameters(
 }
 
 // GetParameterHistory retrieves all versions of a parameter.
+// buildReversedHistory returns the history list in reverse order (newest first),
+// populating labels from parameterLabels and optionally decrypting SecureString values.
+func (b *InMemoryBackend) buildReversedHistory(
+	historyList []ParameterHistory,
+	parameterLabels map[string]map[int64][]string,
+	name string,
+	withDecryption bool,
+) []ParameterHistory {
+	n := len(historyList)
+	reversed := make([]ParameterHistory, n)
+	for i, h := range historyList {
+		entry := h
+		if versionLabels, ok := parameterLabels[name]; ok {
+			if labels, ok2 := versionLabels[entry.Version]; ok2 && len(labels) > 0 {
+				entry.Labels = labels
+			}
+		}
+		if withDecryption && entry.Type == SecureStringType {
+			if decrypted, err := b.decryptSSMValue(entry.KeyID, entry.Value); err == nil {
+				entry.Value = decrypted
+			}
+		}
+		reversed[n-1-i] = entry
+	}
+
+	return reversed
+}
+
 func (b *InMemoryBackend) GetParameterHistory(
 	ctx context.Context,
 	input *GetParameterHistoryInput,
@@ -863,32 +911,25 @@ func (b *InMemoryBackend) GetParameterHistory(
 	}
 
 	maxResults := int64(maxHistoryResults)
-	if input.MaxResults != nil && *input.MaxResults > 0 && *input.MaxResults < maxHistoryResults {
+	if input.MaxResults != nil {
+		if *input.MaxResults < 1 || *input.MaxResults > maxHistoryResults {
+			return nil, fmt.Errorf(
+				"%w: MaxResults must be between 1 and %d",
+				ErrValidationException,
+				maxHistoryResults,
+			)
+		}
+
 		maxResults = *input.MaxResults
 	}
 
-	// Build reversed list (newest first) to match AWS behavior.
-	n := len(historyList)
-	reversed := make([]ParameterHistory, n)
-
-	parameterLabels := b.parameterLabelsStore(region)
-
-	for i, h := range historyList {
-		entry := h
-		// Populate labels from the per-version label store.
-		if versionLabels, ok := parameterLabels[input.Name]; ok {
-			if labels, ok2 := versionLabels[entry.Version]; ok2 && len(labels) > 0 {
-				entry.Labels = labels
-			}
-		}
-		// Decrypt SecureString values when WithDecryption is requested.
-		if input.WithDecryption && entry.Type == SecureStringType {
-			if decrypted, err := b.decryptSSMValue(entry.KeyID, entry.Value); err == nil {
-				entry.Value = decrypted
-			}
-		}
-		reversed[n-1-i] = entry
-	}
+	reversed := b.buildReversedHistory(
+		historyList,
+		b.parameterLabelsStore(region),
+		input.Name,
+		input.WithDecryption,
+	)
+	n := len(reversed)
 
 	startIdx := parseNextToken(input.NextToken)
 
@@ -965,6 +1006,47 @@ func paramByPathMatchesFilters(param Parameter, filters []ParameterFilter) bool 
 	return paramMatchesFilters(meta, filters)
 }
 
+// collectPathParams returns parameters from store that match path and filters, sorted by name.
+func collectPathParams(
+	store map[string]Parameter,
+	path string,
+	recursive bool,
+	filters []ParameterFilter,
+) []Parameter {
+	var matched []Parameter
+	for name, param := range store {
+		if !paramMatchesPath(name, path, recursive) {
+			continue
+		}
+		if len(filters) > 0 && !paramByPathMatchesFilters(param, filters) {
+			continue
+		}
+		matched = append(matched, param)
+	}
+	sort.Slice(matched, func(i, j int) bool {
+		return matched[i].Name < matched[j].Name
+	})
+
+	return matched
+}
+
+// decryptParamsSlice returns a copy of params with SecureString values decrypted when requested.
+func (b *InMemoryBackend) decryptParamsSlice(params []Parameter, withDecryption bool) []Parameter {
+	// No capacity hint — user-derived values in the capacity slot trigger CodeQL.
+	// nolint:prealloc,nolintlint // satisfies CodeQL by removing tainted capacity hint
+	result := make([]Parameter, 0)
+	for _, p := range params {
+		if withDecryption && p.Type == SecureStringType {
+			if decrypted, err := b.decryptSSMValue(p.KeyID, p.Value); err == nil {
+				p.Value = decrypted
+			}
+		}
+		result = append(result, p)
+	}
+
+	return result
+}
+
 // GetParametersByPath returns parameters whose names begin with the given path.
 func (b *InMemoryBackend) GetParametersByPath(
 	ctx context.Context,
@@ -975,35 +1057,30 @@ func (b *InMemoryBackend) GetParametersByPath(
 	b.mu.RLock("GetParametersByPath")
 	defer b.mu.RUnlock()
 
-	// Normalize path to end with /
 	path := input.Path
 	if !strings.HasSuffix(path, "/") {
 		path += "/"
 	}
 
-	// Collect matching parameters
-	var matched []Parameter
-
-	for name, param := range b.parametersStore(region) {
-		if !paramMatchesPath(name, path, input.Recursive) {
-			continue
-		}
-
-		if len(input.ParameterFilters) > 0 && !paramByPathMatchesFilters(param, input.ParameterFilters) {
-			continue
-		}
-
-		matched = append(matched, param)
-	}
-
-	sort.Slice(matched, func(i, j int) bool {
-		return matched[i].Name < matched[j].Name
-	})
+	matched := collectPathParams(
+		b.parametersStore(region),
+		path,
+		input.Recursive,
+		input.ParameterFilters,
+	)
 
 	startIdx := parseNextToken(input.NextToken)
 
 	maxResults := int64(defaultPathMaxResults)
-	if input.MaxResults != nil && *input.MaxResults > 0 {
+	if input.MaxResults != nil {
+		if *input.MaxResults < 1 || *input.MaxResults > defaultPathMaxResults {
+			return nil, fmt.Errorf(
+				"%w: MaxResults must be between 1 and %d",
+				ErrValidationException,
+				defaultPathMaxResults,
+			)
+		}
+
 		maxResults = *input.MaxResults
 	}
 
@@ -1021,23 +1098,8 @@ func (b *InMemoryBackend) GetParametersByPath(
 		end = len(matched)
 	}
 
-	// No capacity hint — user-derived values like (end-startIdx) in the
-	// capacity slot trigger CodeQL.
-	// nolint:prealloc,nolintlint // satisfies CodeQL by removing tainted capacity hint
-	result := make([]Parameter, 0)
-
-	for _, p := range matched[startIdx:end] {
-		if input.WithDecryption && p.Type == SecureStringType {
-			if decrypted, err := b.decryptSSMValue(p.KeyID, p.Value); err == nil {
-				p.Value = decrypted
-			}
-		}
-
-		result = append(result, p)
-	}
-
 	return &GetParametersByPathOutput{
-		Parameters: result,
+		Parameters: b.decryptParamsSlice(matched[startIdx:end], input.WithDecryption),
 		NextToken:  nextToken,
 	}, nil
 }
@@ -1090,7 +1152,15 @@ func (b *InMemoryBackend) DescribeParameters(
 	startIdx := parseNextToken(input.NextToken)
 
 	maxResults := int64(defaultDescribeMaxResults)
-	if input.MaxResults != nil && *input.MaxResults > 0 {
+	if input.MaxResults != nil {
+		if *input.MaxResults < 1 || *input.MaxResults > defaultDescribeMaxResults {
+			return nil, fmt.Errorf(
+				"%w: MaxResults must be between 1 and %d",
+				ErrValidationException,
+				defaultDescribeMaxResults,
+			)
+		}
+
 		maxResults = *input.MaxResults
 	}
 
@@ -1186,7 +1256,10 @@ func paramMatchesFilter(meta ParameterMetadata, f ParameterFilter) bool {
 }
 
 // AddTagsToResource adds or updates tags for a resource.
-func (b *InMemoryBackend) AddTagsToResource(ctx context.Context, input *AddTagsToResourceInput) error {
+func (b *InMemoryBackend) AddTagsToResource(
+	ctx context.Context,
+	input *AddTagsToResourceInput,
+) error {
 	region := getRegion(ctx)
 
 	if input.ResourceType == resourceTypeParameter || input.ResourceType == "" {
@@ -1224,7 +1297,10 @@ func (b *InMemoryBackend) AddTagsToResource(ctx context.Context, input *AddTagsT
 }
 
 // RemoveTagsFromResource removes tags from a resource.
-func (b *InMemoryBackend) RemoveTagsFromResource(ctx context.Context, input *RemoveTagsFromResourceInput) error {
+func (b *InMemoryBackend) RemoveTagsFromResource(
+	ctx context.Context,
+	input *RemoveTagsFromResourceInput,
+) error {
 	region := getRegion(ctx)
 
 	if input.ResourceType == resourceTypeParameter || input.ResourceType == "" {
@@ -1421,7 +1497,10 @@ func (b *InMemoryBackend) CreateDocument(
 }
 
 // GetDocument retrieves a document's content.
-func (b *InMemoryBackend) GetDocument(ctx context.Context, input *GetDocumentInput) (*GetDocumentOutput, error) {
+func (b *InMemoryBackend) GetDocument(
+	ctx context.Context,
+	input *GetDocumentInput,
+) (*GetDocumentOutput, error) {
 	region := getRegion(ctx)
 	b.mu.RLock("GetDocument")
 	defer b.mu.RUnlock()
@@ -1434,7 +1513,8 @@ func (b *InMemoryBackend) GetDocument(ctx context.Context, input *GetDocumentInp
 	content := doc.Content
 	version := doc.DocumentVersion
 
-	if input.DocumentVersion != "" && input.DocumentVersion != "$LATEST" && input.DocumentVersion != "$DEFAULT" {
+	if input.DocumentVersion != "" && input.DocumentVersion != "$LATEST" &&
+		input.DocumentVersion != "$DEFAULT" {
 		versions := b.documentVersionsStore(region)[input.Name]
 		found := false
 		for _, v := range versions {
@@ -1502,7 +1582,10 @@ func (b *InMemoryBackend) DescribeDocument(
 }
 
 // ListDocuments returns a list of document identifiers filtered by key-value criteria.
-func (b *InMemoryBackend) ListDocuments(ctx context.Context, input *ListDocumentsInput) (*ListDocumentsOutput, error) {
+func (b *InMemoryBackend) ListDocuments(
+	ctx context.Context,
+	input *ListDocumentsInput,
+) (*ListDocumentsOutput, error) {
 	region := getRegion(ctx)
 	b.mu.RLock("ListDocuments")
 	defer b.mu.RUnlock()
@@ -1735,7 +1818,10 @@ func (b *InMemoryBackend) ListDocumentVersions(
 }
 
 // SendCommand records a command stub and returns a generated command ID.
-func (b *InMemoryBackend) SendCommand(ctx context.Context, input *SendCommandInput) (*SendCommandOutput, error) {
+func (b *InMemoryBackend) SendCommand(
+	ctx context.Context,
+	input *SendCommandInput,
+) (*SendCommandOutput, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("SendCommand")
 	defer b.mu.Unlock()
@@ -1794,7 +1880,10 @@ func (b *InMemoryBackend) SendCommand(ctx context.Context, input *SendCommandInp
 }
 
 // ListCommands returns recorded commands.
-func (b *InMemoryBackend) ListCommands(ctx context.Context, input *ListCommandsInput) (*ListCommandsOutput, error) {
+func (b *InMemoryBackend) ListCommands(
+	ctx context.Context,
+	input *ListCommandsInput,
+) (*ListCommandsOutput, error) {
 	region := getRegion(ctx)
 	b.mu.RLock("ListCommands")
 	defer b.mu.RUnlock()
@@ -2027,7 +2116,10 @@ func generateCode(n int) string {
 }
 
 // CancelCommand cancels a running command (sets status to Cancelled).
-func (b *InMemoryBackend) CancelCommand(ctx context.Context, input *CancelCommandInput) (*CancelCommandOutput, error) {
+func (b *InMemoryBackend) CancelCommand(
+	ctx context.Context,
+	input *CancelCommandInput,
+) (*CancelCommandOutput, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("CancelCommand")
 	defer b.mu.Unlock()
@@ -2249,7 +2341,10 @@ func (b *InMemoryBackend) CreateMaintenanceWindow(
 		maxWindowDuration = int32(24)
 	)
 	if input.Duration < minWindowDuration || input.Duration > maxWindowDuration {
-		return nil, fmt.Errorf("%w: Duration must be between 1 and 24 hours", ErrValidationException)
+		return nil, fmt.Errorf(
+			"%w: Duration must be between 1 and 24 hours",
+			ErrValidationException,
+		)
 	}
 	if input.Cutoff >= input.Duration {
 		return nil, fmt.Errorf("%w: Cutoff must be less than Duration", ErrValidationException)
@@ -2291,7 +2386,10 @@ func (b *InMemoryBackend) CreateMaintenanceWindow(
 }
 
 // CreateOpsItem creates a new OpsItem.
-func (b *InMemoryBackend) CreateOpsItem(ctx context.Context, input *CreateOpsItemInput) (*CreateOpsItemOutput, error) {
+func (b *InMemoryBackend) CreateOpsItem(
+	ctx context.Context,
+	input *CreateOpsItemInput,
+) (*CreateOpsItemOutput, error) {
 	if input.Title == "" {
 		return nil, fmt.Errorf("%w: Title is required", ErrValidationException)
 	}
