@@ -291,6 +291,7 @@ func (h *Handler) GetSupportedOperations() []string { //nolint:funlen // long bu
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
+
 		return isOmicsPath(path)
 	}
 }
@@ -371,12 +372,15 @@ func (h *Handler) handleREST(
 	// Reference
 	case opDeleteReference:
 		storeID, refID := extractTwoIDs(path, "/referencestore/", "/reference/")
+
 		return h.handleDeleteReference(c, storeID, refID)
 	case opGetReference:
 		storeID, refID := extractTwoIDs(path, "/referencestore/", "/reference/")
+
 		return h.handleGetReference(c, storeID, refID)
 	case opGetReferenceMetadata:
 		storeID, refID := extractRefMetadataIDs(path)
+
 		return h.handleGetReferenceMetadata(c, storeID, refID)
 	case opListReferences:
 		return h.handleListReferences(c, extractID(path, "/referencestore/"))
@@ -384,6 +388,7 @@ func (h *Handler) handleREST(
 		return h.handleStartReferenceImportJob(c, extractID(path, "/referencestore/"))
 	case opGetReferenceImportJob:
 		storeID, jobID := extractTwoIDs(path, "/referencestore/", "/importjob/")
+
 		return h.handleGetReferenceImportJob(c, storeID, jobID)
 	case opListReferenceImportJobs:
 		return h.handleListReferenceImportJobs(c, extractID(path, "/referencestore/"))
@@ -405,9 +410,11 @@ func (h *Handler) handleREST(
 		return h.handleBatchDeleteReadSet(c, extractID(path, "/sequencestore/"))
 	case opGetReadSet:
 		storeID, rsID := extractTwoIDs(path, "/sequencestore/", "/readset/")
+
 		return h.handleGetReadSet(c, storeID, rsID)
 	case opGetReadSetMetadata:
 		storeID, rsID := extractReadSetMetadataIDs(path)
+
 		return h.handleGetReadSetMetadata(c, storeID, rsID)
 	case opListReadSets:
 		return h.handleListReadSets(c, extractID(path, "/sequencestore/"))
@@ -415,6 +422,7 @@ func (h *Handler) handleREST(
 		return h.handleStartReadSetActivationJob(c, extractID(path, "/sequencestore/"))
 	case opGetReadSetActivationJob:
 		storeID, jobID := extractTwoIDs(path, "/sequencestore/", "/activationjob/")
+
 		return h.handleGetReadSetActivationJob(c, storeID, jobID)
 	case opListReadSetActivationJobs:
 		return h.handleListReadSetActivationJobs(c, extractID(path, "/sequencestore/"))
@@ -422,6 +430,7 @@ func (h *Handler) handleREST(
 		return h.handleStartReadSetExportJob(c, extractID(path, "/sequencestore/"))
 	case opGetReadSetExportJob:
 		storeID, jobID := extractTwoIDs(path, "/sequencestore/", "/exportjob/")
+
 		return h.handleGetReadSetExportJob(c, storeID, jobID)
 	case opListReadSetExportJobs:
 		return h.handleListReadSetExportJobs(c, extractID(path, "/sequencestore/"))
@@ -429,6 +438,7 @@ func (h *Handler) handleREST(
 		return h.handleStartReadSetImportJob(c, extractID(path, "/sequencestore/"))
 	case opGetReadSetImportJob:
 		storeID, jobID := extractTwoIDs(path, "/sequencestore/", "/importjob/")
+
 		return h.handleGetReadSetImportJob(c, storeID, jobID)
 	case opListReadSetImportJobs:
 		return h.handleListReadSetImportJobs(c, extractID(path, "/sequencestore/"))
@@ -438,17 +448,21 @@ func (h *Handler) handleREST(
 		return h.handleCreateMultipartReadSetUpload(c, extractID(path, "/sequencestore/"))
 	case opAbortMultipartReadSetUpload:
 		storeID, uploadID := extractUploadIDs(path)
+
 		return h.handleAbortMultipartReadSetUpload(c, storeID, uploadID)
 	case opCompleteMultipartReadSetUpload:
 		storeID, uploadID := extractUploadIDs(path)
+
 		return h.handleCompleteMultipartReadSetUpload(c, storeID, uploadID)
 	case opListMultipartReadSetUploads:
 		return h.handleListMultipartReadSetUploads(c, extractID(path, "/sequencestore/"))
 	case opListReadSetUploadParts:
 		storeID, uploadID := extractUploadIDs(path)
+
 		return h.handleListReadSetUploadParts(c, storeID, uploadID)
 	case opUploadReadSetPart:
 		storeID, uploadID := extractUploadIDs(path)
+
 		return h.handleUploadReadSetPart(c, storeID, uploadID)
 
 	// RunGroup
@@ -476,6 +490,7 @@ func (h *Handler) handleREST(
 		return h.handleListRuns(c)
 	case opGetRunTask:
 		runID, taskID := extractTwoIDs(path, "/run/", "/task/")
+
 		return h.handleGetRunTask(c, runID, taskID)
 	case opListRunTasks:
 		return h.handleListRunTasks(c, extractID(path, "/run/"))
@@ -497,14 +512,17 @@ func (h *Handler) handleREST(
 		return h.handleCreateWorkflowVersion(c, extractID(path, "/workflow/"))
 	case opDeleteWorkflowVersion:
 		wfID, verName := extractTwoIDs(path, "/workflow/", "/version/")
+
 		return h.handleDeleteWorkflowVersion(c, wfID, verName)
 	case opGetWorkflowVersion:
 		wfID, verName := extractTwoIDs(path, "/workflow/", "/version/")
+
 		return h.handleGetWorkflowVersion(c, wfID, verName)
 	case opListWorkflowVersions:
 		return h.handleListWorkflowVersions(c, extractID(path, "/workflow/"))
 	case opUpdateWorkflowVersion:
 		wfID, verName := extractTwoIDs(path, "/workflow/", "/version/")
+
 		return h.handleUpdateWorkflowVersion(c, wfID, verName)
 
 	// AnnotationStore
@@ -532,11 +550,13 @@ func (h *Handler) handleREST(
 		return h.handleDeleteAnnotationStoreVersions(c, extractID(path, "/annotationStore/"))
 	case opGetAnnotationStoreVersion:
 		name, verName := extractTwoIDs(path, "/annotationStore/", "/version/")
+
 		return h.handleGetAnnotationStoreVersion(c, name, verName)
 	case opListAnnotationStoreVersions:
 		return h.handleListAnnotationStoreVersions(c, extractID(path, "/annotationStore/"))
 	case opUpdateAnnotationStoreVersion:
 		name, verName := extractTwoIDs(path, "/annotationStore/", "/version/")
+
 		return h.handleUpdateAnnotationStoreVersion(c, name, verName)
 
 	// VariantStore
@@ -637,7 +657,7 @@ func (h *Handler) handleREST(
 // classifyPath maps (method, path) → operation name
 // ────────────────────────────────────────────────────────────────────────────
 
-func classifyPath(method, path string) string { //nolint:cyclop,funlen // large routing table
+func classifyPath(method, path string) string { //nolint:cyclop // large routing table
 	// Tags
 	if strings.HasPrefix(path, "/tags/") {
 		switch method {
@@ -1020,7 +1040,9 @@ func classifyDELETE(path string) string { //nolint:cyclop // large routing table
 	case matchPattern(path, "/referencestore/", ""):
 		return opDeleteReferenceStore
 	// /sequencestore/{sequenceStoreId}/upload/{uploadId}/abort
-	case strings.HasPrefix(path, "/sequencestore/") && strings.Contains(path, "/upload/") && strings.HasSuffix(path, "/abort"):
+	case strings.HasPrefix(path, "/sequencestore/") &&
+		strings.Contains(path, "/upload/") &&
+		strings.HasSuffix(path, "/abort"):
 		return opAbortMultipartReadSetUpload
 	// /sequencestore/{id}
 	case matchPattern(path, "/sequencestore/", ""):
@@ -1085,8 +1107,8 @@ func extractID(path, prefix string) string {
 		return ""
 	}
 
-	if idx := strings.Index(rest, "/"); idx >= 0 {
-		return rest[:idx]
+	if before, _, hasSep := strings.Cut(rest, "/"); hasSep {
+		return before
 	}
 
 	return rest
@@ -1100,18 +1122,13 @@ func extractTwoIDs(path, prefix, segment string) (string, string) {
 		return "", ""
 	}
 
-	idx := strings.Index(rest, segment)
+	id1, after, found := strings.Cut(rest, segment)
 
-	if idx < 0 {
+	if !found {
 		return rest, ""
 	}
 
-	id1 := rest[:idx]
-	id2 := rest[idx+len(segment):]
-
-	if i := strings.Index(id2, "/"); i >= 0 {
-		id2 = id2[:i]
-	}
+	id2, _, _ := strings.Cut(after, "/")
 
 	return id1, id2
 }
@@ -1379,14 +1396,14 @@ func (h *Handler) handleUpdateSequenceStore(c *echo.Context, id string) error {
 
 func (h *Handler) handleBatchDeleteReadSet(c *echo.Context, storeID string) error {
 	var req struct {
-		Ids []string `json:"ids"`
+		IDs []string `json:"ids"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
 		return err
 	}
 
-	errs, err := h.Backend.BatchDeleteReadSet(storeID, req.Ids)
+	errs, err := h.Backend.BatchDeleteReadSet(storeID, req.IDs)
 	if err != nil {
 		return h.mapError(c, err)
 	}
@@ -1765,7 +1782,7 @@ func (h *Handler) handleStartRun(c *echo.Context) error {
 	var req struct {
 		Parameters map[string]any    `json:"parameters"`
 		Tags       map[string]string `json:"tags"`
-		WorkflowId string            `json:"workflowId"`
+		WorkflowID string            `json:"workflowId"`
 		RoleArn    string            `json:"roleArn"`
 		Name       string            `json:"name"`
 	}
@@ -1774,7 +1791,7 @@ func (h *Handler) handleStartRun(c *echo.Context) error {
 		return err
 	}
 
-	run, err := h.Backend.StartRun(req.WorkflowId, req.RoleArn, req.Name, req.Parameters, req.Tags)
+	run, err := h.Backend.StartRun(req.WorkflowID, req.RoleArn, req.Name, req.Parameters, req.Tags)
 	if err != nil {
 		return h.mapError(c, err)
 	}
@@ -2397,9 +2414,9 @@ func (h *Handler) handleListShares(c *echo.Context) error {
 
 func (h *Handler) handleCreateRunCache(c *echo.Context) error {
 	var req struct {
+		Tags            map[string]string `json:"tags"`
 		Name            string            `json:"name"`
 		CacheS3Location string            `json:"cacheS3Location"`
-		Tags            map[string]string `json:"tags"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
@@ -2461,7 +2478,7 @@ func (h *Handler) handleUpdateRunCache(c *echo.Context, id string) error {
 
 func (h *Handler) handleStartRunBatch(c *echo.Context) error {
 	var req struct {
-		WorkflowId string `json:"workflowId"`
+		WorkflowID string `json:"workflowId"`
 		RoleArn    string `json:"roleArn"`
 		Name       string `json:"name"`
 	}
@@ -2470,7 +2487,7 @@ func (h *Handler) handleStartRunBatch(c *echo.Context) error {
 		return err
 	}
 
-	rb, err := h.Backend.StartRunBatch(req.WorkflowId, req.RoleArn, req.Name)
+	rb, err := h.Backend.StartRunBatch(req.WorkflowID, req.RoleArn, req.Name)
 	if err != nil {
 		return h.mapError(c, err)
 	}
@@ -2480,14 +2497,14 @@ func (h *Handler) handleStartRunBatch(c *echo.Context) error {
 
 func (h *Handler) handleCancelRunBatch(c *echo.Context) error {
 	var req struct {
-		BatchId string `json:"batchId"`
+		BatchID string `json:"batchId"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
 		return err
 	}
 
-	if err := h.Backend.CancelRunBatch(req.BatchId); err != nil {
+	if err := h.Backend.CancelRunBatch(req.BatchID); err != nil {
 		return h.mapError(c, err)
 	}
 
@@ -2524,14 +2541,14 @@ func (h *Handler) handleListRunBatches(c *echo.Context) error {
 
 func (h *Handler) handleDeleteBatch(c *echo.Context) error {
 	var req struct {
-		BatchIds []string `json:"batchIds"`
+		BatchIDs []string `json:"batchIds"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
 		return err
 	}
 
-	errs, err := h.Backend.DeleteRunBatches(req.BatchIds)
+	errs, err := h.Backend.DeleteRunBatches(req.BatchIDs)
 	if err != nil {
 		return h.mapError(c, err)
 	}

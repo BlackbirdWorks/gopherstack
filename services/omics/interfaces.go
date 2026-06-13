@@ -290,11 +290,11 @@ type ReferenceFilter struct {
 type ReferenceImportJob struct {
 	CreationTime     time.Time                  `json:"creationTime"`
 	CompletionTime   *time.Time                 `json:"completionTime,omitempty"`
-	Sources          []ReferenceImportJobSource `json:"sources"`
 	ID               string                     `json:"id"`
 	ReferenceStoreID string                     `json:"referenceStoreId"`
 	RoleARN          string                     `json:"roleArn"`
 	Status           string                     `json:"status"`
+	Sources          []ReferenceImportJobSource `json:"sources"`
 }
 
 // ReferenceImportJobSource is a source for a reference import job.
@@ -357,10 +357,10 @@ type ReadSetActivationJobSource struct {
 type ReadSetActivationJob struct {
 	CreationTime    time.Time                    `json:"creationTime"`
 	CompletionTime  *time.Time                   `json:"completionTime,omitempty"`
-	Sources         []ReadSetActivationJobSource `json:"sources"`
 	ID              string                       `json:"id"`
 	SequenceStoreID string                       `json:"sequenceStoreId"`
 	Status          string                       `json:"status"`
+	Sources         []ReadSetActivationJobSource `json:"sources"`
 }
 
 // ReadSetExportJobSource is a source for a read set export job.
@@ -372,11 +372,11 @@ type ReadSetExportJobSource struct {
 type ReadSetExportJob struct {
 	CreationTime    time.Time                `json:"creationTime"`
 	CompletionTime  *time.Time               `json:"completionTime,omitempty"`
-	Sources         []ReadSetExportJobSource `json:"sources"`
 	ID              string                   `json:"id"`
 	SequenceStoreID string                   `json:"sequenceStoreId"`
 	Destination     string                   `json:"destination"`
 	Status          string                   `json:"status"`
+	Sources         []ReadSetExportJobSource `json:"sources"`
 }
 
 // ReadSetImportJobSource is a source for a read set import job.
@@ -397,11 +397,11 @@ type ReadSetImportJobSource struct {
 type ReadSetImportJob struct {
 	CreationTime    time.Time                `json:"creationTime"`
 	CompletionTime  *time.Time               `json:"completionTime,omitempty"`
-	Sources         []ReadSetImportJobSource `json:"sources"`
 	ID              string                   `json:"id"`
 	SequenceStoreID string                   `json:"sequenceStoreId"`
 	RoleARN         string                   `json:"roleArn"`
 	Status          string                   `json:"status"`
+	Sources         []ReadSetImportJobSource `json:"sources"`
 }
 
 // MultipartReadSetUpload represents an in-progress multipart read set upload.
@@ -418,10 +418,10 @@ type MultipartReadSetUpload struct {
 // ReadSetUploadPart represents a single part of a multipart read set upload.
 type ReadSetUploadPart struct {
 	LastUpdatedTime time.Time `json:"lastUpdatedTime"`
-	PartNumber      int       `json:"partNumber"`
-	PartSize        int64     `json:"partSize"`
 	Checksum        string    `json:"checksum"`
 	Source          string    `json:"source"`
+	PartNumber      int       `json:"partNumber"`
+	PartSize        int64     `json:"partSize"`
 }
 
 // RunGroup represents an HealthOmics run group.
@@ -530,11 +530,11 @@ type AnnotationImportItem struct {
 type AnnotationImportJob struct {
 	CreationTime    time.Time              `json:"creationTime"`
 	CompletionTime  *time.Time             `json:"completionTime,omitempty"`
-	Items           []AnnotationImportItem `json:"items"`
 	ID              string                 `json:"id"`
 	DestinationName string                 `json:"destinationName"`
 	RoleARN         string                 `json:"roleArn"`
 	Status          string                 `json:"status"`
+	Items           []AnnotationImportItem `json:"items"`
 }
 
 // VariantStore represents an HealthOmics variant store.
@@ -558,11 +558,11 @@ type VariantImportItem struct {
 type VariantImportJob struct {
 	CreationTime    time.Time           `json:"creationTime"`
 	CompletionTime  *time.Time          `json:"completionTime,omitempty"`
-	Items           []VariantImportItem `json:"items"`
 	ID              string              `json:"id"`
 	DestinationName string              `json:"destinationName"`
 	RoleARN         string              `json:"roleArn"`
 	Status          string              `json:"status"`
+	Items           []VariantImportItem `json:"items"`
 }
 
 // Share represents an HealthOmics resource share.

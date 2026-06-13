@@ -198,7 +198,7 @@ func TestOmics_SequenceStore(t *testing.T) {
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(body, &resp))
 				stores := resp["sequenceStores"].([]any)
-				assert.Len(t, stores, 0)
+				assert.Empty(t, stores)
 			},
 		},
 	}

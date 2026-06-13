@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -24,15 +25,6 @@ func WithRegion(ctx context.Context, region string) context.Context {
 	return context.WithValue(ctx, regionContextKey{}, region)
 }
 
-// getRegion extracts the region from ctx, falling back to defaultRegion when unset.
-func getRegion(ctx context.Context, defaultRegion string) string {
-	if r, ok := ctx.Value(regionContextKey{}).(string); ok && r != "" {
-		return r
-	}
-
-	return defaultRegion
-}
-
 const (
 	errResourceNotFound = "ResourceNotFoundException"
 	errConflict         = "ConflictException"
@@ -49,6 +41,9 @@ const (
 
 	maxPageSize = 100
 	maxTags     = 200
+
+	stubTaskCPUs   = 2
+	stubTaskMemory = 4096
 )
 
 var (
@@ -1233,7 +1228,7 @@ func (b *InMemoryBackend) ListReadSetUploadParts(
 
 	if nextToken != "" {
 		for i, p := range parts {
-			if fmt.Sprintf("%d", p.PartNumber) == nextToken {
+			if strconv.Itoa(p.PartNumber) == nextToken {
 				start = i
 
 				break
@@ -1246,7 +1241,7 @@ func (b *InMemoryBackend) ListReadSetUploadParts(
 
 	var outToken string
 	if end < len(parts) {
-		outToken = fmt.Sprintf("%d", parts[end].PartNumber)
+		outToken = strconv.Itoa(parts[end].PartNumber)
 	}
 
 	result := make([]*ReadSetUploadPart, len(page))
@@ -1435,8 +1430,8 @@ func (b *InMemoryBackend) StartRun(
 		RunID:        id,
 		Name:         "task-1",
 		Status:       statusCompleted,
-		CPUs:         2,
-		Memory:       4096,
+		CPUs:         stubTaskCPUs,
+		Memory:       stubTaskMemory,
 		CreationTime: now,
 		StartTime:    &now,
 		StopTime:     &now,
@@ -1579,7 +1574,7 @@ func (b *InMemoryBackend) ListRunTasks(
 
 // CreateWorkflow creates a new workflow.
 func (b *InMemoryBackend) CreateWorkflow(
-	name, description, definitionZip, engine string,
+	name, description, _ /* definitionZip */, engine string,
 	tags map[string]string,
 ) (*Workflow, error) {
 	if name == "" {
@@ -2552,7 +2547,7 @@ func (b *InMemoryBackend) GetShare(shareID string) (*Share, error) {
 
 // ListShares lists shares by resource owner.
 func (b *InMemoryBackend) ListShares(
-	resourceOwner string,
+	_ /* resourceOwner */ string,
 	maxResults int,
 	nextToken string,
 ) ([]*Share, string, error) {
@@ -2817,8 +2812,8 @@ func (b *InMemoryBackend) DeleteRunBatches(ids []string) ([]RunBatchDeleteError,
 // ListRunsInBatch lists runs that belong to a run batch.
 func (b *InMemoryBackend) ListRunsInBatch(
 	batchID string,
-	maxResults int,
-	nextToken string,
+	_ /* maxResults */ int,
+	_ /* nextToken */ string,
 ) ([]*Run, string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -2988,9 +2983,7 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 		st.tags[resourceARN] = make(map[string]string)
 	}
 
-	for k, v := range tags {
-		st.tags[resourceARN][k] = v
-	}
+	maps.Copy(st.tags[resourceARN], tags)
 
 	return nil
 }
