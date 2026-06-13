@@ -80,6 +80,7 @@ func (b *InMemoryBackend) SetDeletionDateForTest(keyID string, t time.Time) {
 	for _, regionKeys := range b.keys {
 		if key, ok := regionKeys[keyID]; ok {
 			key.DeletionDate = UnixTimeFloat(t)
+
 			return
 		}
 	}
@@ -126,6 +127,7 @@ func (b *InMemoryBackend) SetGrantTokenIssuedAt(grantID string, t time.Time) {
 	for _, regionGrants := range b.grants {
 		if g, ok := regionGrants[grantID]; ok {
 			g.TokenIssuedAt = t
+
 			return
 		}
 	}

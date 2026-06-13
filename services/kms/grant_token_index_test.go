@@ -27,7 +27,10 @@ func TestKMSGrantTokenIndexConsistency(t *testing.T) {
 			name: "revoke_grant_by_id",
 			remove: func(t *testing.T, b *kms.InMemoryBackend, keyID, grantID, _ string) {
 				t.Helper()
-				require.NoError(t, b.RevokeGrant(context.Background(), &kms.RevokeGrantInput{KeyID: keyID, GrantID: grantID}))
+				require.NoError(
+					t,
+					b.RevokeGrant(context.Background(), &kms.RevokeGrantInput{KeyID: keyID, GrantID: grantID}),
+				)
 			},
 		},
 		{
@@ -41,7 +44,10 @@ func TestKMSGrantTokenIndexConsistency(t *testing.T) {
 			name: "retire_grant_by_id",
 			remove: func(t *testing.T, b *kms.InMemoryBackend, keyID, grantID, _ string) {
 				t.Helper()
-				require.NoError(t, b.RetireGrant(context.Background(), &kms.RetireGrantInput{KeyID: keyID, GrantID: grantID}))
+				require.NoError(
+					t,
+					b.RetireGrant(context.Background(), &kms.RetireGrantInput{KeyID: keyID, GrantID: grantID}),
+				)
 			},
 		},
 	}

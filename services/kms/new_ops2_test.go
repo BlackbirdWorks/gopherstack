@@ -1,8 +1,8 @@
 package kms_test
 
 import (
-	"context"
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -216,7 +216,10 @@ func TestDeriveSharedSecret(t *testing.T) {
 				})
 				require.NoError(t, err)
 
-				pubOut, err := peerB.GetPublicKey(context.Background(), &kms.GetPublicKeyInput{KeyID: peerOut.KeyMetadata.KeyID})
+				pubOut, err := peerB.GetPublicKey(
+					context.Background(),
+					&kms.GetPublicKeyInput{KeyID: peerOut.KeyMetadata.KeyID},
+				)
 				require.NoError(t, err)
 
 				_, err = b.DeriveSharedSecret(context.Background(), &kms.DeriveSharedSecretInput{
@@ -354,10 +357,13 @@ func TestGenerateDataKeyPairWithoutPlaintext(t *testing.T) {
 			wrapKey, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 			require.NoError(t, err)
 
-			out, err := b.GenerateDataKeyPairWithoutPlaintext(context.Background(), &kms.GenerateDataKeyPairWithoutPlaintextInput{
-				KeyID:       wrapKey.KeyMetadata.KeyID,
-				KeyPairSpec: tt.keyPairSpec,
-			})
+			out, err := b.GenerateDataKeyPairWithoutPlaintext(
+				context.Background(),
+				&kms.GenerateDataKeyPairWithoutPlaintextInput{
+					KeyID:       wrapKey.KeyMetadata.KeyID,
+					KeyPairSpec: tt.keyPairSpec,
+				},
+			)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -519,7 +525,10 @@ func TestNewOpsHandler(t *testing.T) {
 			body:      `{}`,
 			setupFn: func(t *testing.T, b *kms.InMemoryBackend) string {
 				t.Helper()
-				_, _ = b.CreateCustomKeyStore(context.Background(), &kms.CreateCustomKeyStoreInput{CustomKeyStoreName: "s1"})
+				_, _ = b.CreateCustomKeyStore(
+					context.Background(),
+					&kms.CreateCustomKeyStoreInput{CustomKeyStoreName: "s1"},
+				)
 
 				return ""
 			},
@@ -1003,7 +1012,10 @@ func TestKMSBackendNewMaintenanceOps(t *testing.T) {
 				key, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{Origin: kms.KeyOriginExternal})
 				require.NoError(t, err)
 
-				out, err := b.GetParametersForImport(context.Background(), &kms.GetParametersForImportInput{KeyID: key.KeyMetadata.KeyID})
+				out, err := b.GetParametersForImport(
+					context.Background(),
+					&kms.GetParametersForImportInput{KeyID: key.KeyMetadata.KeyID},
+				)
 				require.NoError(t, err)
 				assert.Equal(t, key.KeyMetadata.KeyID, out.KeyID)
 				assert.NotEmpty(t, out.ImportToken)
@@ -1018,7 +1030,10 @@ func TestKMSBackendNewMaintenanceOps(t *testing.T) {
 				key, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 				require.NoError(t, err)
 
-				out, err := b.ListKeyPolicies(context.Background(), &kms.ListKeyPoliciesInput{KeyID: key.KeyMetadata.KeyID})
+				out, err := b.ListKeyPolicies(
+					context.Background(),
+					&kms.ListKeyPoliciesInput{KeyID: key.KeyMetadata.KeyID},
+				)
 				require.NoError(t, err)
 				assert.Equal(t, []string{"default"}, out.PolicyNames)
 			},
@@ -1031,10 +1046,16 @@ func TestKMSBackendNewMaintenanceOps(t *testing.T) {
 				key, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 				require.NoError(t, err)
 
-				_, err = b.RotateKeyOnDemand(context.Background(), &kms.RotateKeyOnDemandInput{KeyID: key.KeyMetadata.KeyID})
+				_, err = b.RotateKeyOnDemand(
+					context.Background(),
+					&kms.RotateKeyOnDemandInput{KeyID: key.KeyMetadata.KeyID},
+				)
 				require.NoError(t, err)
 
-				out, err := b.ListKeyRotations(context.Background(), &kms.ListKeyRotationsInput{KeyID: key.KeyMetadata.KeyID})
+				out, err := b.ListKeyRotations(
+					context.Background(),
+					&kms.ListKeyRotationsInput{KeyID: key.KeyMetadata.KeyID},
+				)
 				require.NoError(t, err)
 				require.Len(t, out.Rotations, 1)
 				assert.Positive(t, out.Rotations[0].RotationDate)
@@ -1062,7 +1083,7 @@ func TestKMSBackendNewMaintenanceOps(t *testing.T) {
 			run: func(t *testing.T, b *kms.InMemoryBackend) {
 				t.Helper()
 
-				created, err := b.CreateCustomKeyStore(context.Background(), 
+				created, err := b.CreateCustomKeyStore(context.Background(),
 					&kms.CreateCustomKeyStoreInput{CustomKeyStoreName: "before-name"},
 				)
 				require.NoError(t, err)

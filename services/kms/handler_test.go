@@ -1,8 +1,8 @@
 package kms_test
 
 import (
-	"context"
 	"bytes"
+	"context"
 	"crypto/sha512"
 	"encoding/json"
 	"log/slog"
@@ -278,7 +278,10 @@ func TestKMSBackendKeyRotation(t *testing.T) {
 	key, _ := backend.CreateKey(context.Background(), &kms.CreateKeyInput{})
 
 	// Default: rotation disabled
-	statusOut, err := backend.GetKeyRotationStatus(context.Background(), &kms.GetKeyRotationStatusInput{KeyID: key.KeyMetadata.KeyID})
+	statusOut, err := backend.GetKeyRotationStatus(
+		context.Background(),
+		&kms.GetKeyRotationStatusInput{KeyID: key.KeyMetadata.KeyID},
+	)
 	require.NoError(t, err)
 	assert.False(t, statusOut.KeyRotationEnabled)
 
@@ -286,7 +289,10 @@ func TestKMSBackendKeyRotation(t *testing.T) {
 	err = backend.EnableKeyRotation(context.Background(), &kms.EnableKeyRotationInput{KeyID: key.KeyMetadata.KeyID})
 	require.NoError(t, err)
 
-	statusOut, err = backend.GetKeyRotationStatus(context.Background(), &kms.GetKeyRotationStatusInput{KeyID: key.KeyMetadata.KeyID})
+	statusOut, err = backend.GetKeyRotationStatus(
+		context.Background(),
+		&kms.GetKeyRotationStatusInput{KeyID: key.KeyMetadata.KeyID},
+	)
 	require.NoError(t, err)
 	assert.True(t, statusOut.KeyRotationEnabled)
 
@@ -294,7 +300,10 @@ func TestKMSBackendKeyRotation(t *testing.T) {
 	err = backend.DisableKeyRotation(context.Background(), &kms.DisableKeyRotationInput{KeyID: key.KeyMetadata.KeyID})
 	require.NoError(t, err)
 
-	statusOut, err = backend.GetKeyRotationStatus(context.Background(), &kms.GetKeyRotationStatusInput{KeyID: key.KeyMetadata.KeyID})
+	statusOut, err = backend.GetKeyRotationStatus(
+		context.Background(),
+		&kms.GetKeyRotationStatusInput{KeyID: key.KeyMetadata.KeyID},
+	)
 	require.NoError(t, err)
 	assert.False(t, statusOut.KeyRotationEnabled)
 }
@@ -881,8 +890,14 @@ func TestKMSListAliasesFiltered(t *testing.T) {
 	// Create two keys with aliases
 	key1, _ := backend.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	key2, _ := backend.CreateKey(context.Background(), &kms.CreateKeyInput{})
-	_ = backend.CreateAlias(context.Background(), &kms.CreateAliasInput{AliasName: "alias/key1", TargetKeyID: key1.KeyMetadata.KeyID})
-	_ = backend.CreateAlias(context.Background(), &kms.CreateAliasInput{AliasName: "alias/key2", TargetKeyID: key2.KeyMetadata.KeyID})
+	_ = backend.CreateAlias(
+		context.Background(),
+		&kms.CreateAliasInput{AliasName: "alias/key1", TargetKeyID: key1.KeyMetadata.KeyID},
+	)
+	_ = backend.CreateAlias(
+		context.Background(),
+		&kms.CreateAliasInput{AliasName: "alias/key2", TargetKeyID: key2.KeyMetadata.KeyID},
+	)
 
 	// Filter by key1
 	body, _ := json.Marshal(map[string]string{"KeyId": key1.KeyMetadata.KeyID})
@@ -1442,7 +1457,10 @@ func TestKMSBackendInvalidKeyUsage(t *testing.T) {
 		{
 			name: "GenerateDataKey_with_sign_verify_key",
 			operation: func(b *kms.InMemoryBackend, keyID string) error {
-				_, err := b.GenerateDataKey(context.Background(), &kms.GenerateDataKeyInput{KeyID: keyID, KeySpec: "AES_256"})
+				_, err := b.GenerateDataKey(
+					context.Background(),
+					&kms.GenerateDataKeyInput{KeyID: keyID, KeySpec: "AES_256"},
+				)
 
 				return err
 			},
@@ -1619,7 +1637,10 @@ func TestKMSBackendGetPublicKey(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			pubKeyOut, err := backend.GetPublicKey(context.Background(), &kms.GetPublicKeyInput{KeyID: keyOut.KeyMetadata.KeyID})
+			pubKeyOut, err := backend.GetPublicKey(
+				context.Background(),
+				&kms.GetPublicKeyInput{KeyID: keyOut.KeyMetadata.KeyID},
+			)
 			require.NoError(t, err)
 			assert.NotEmpty(t, pubKeyOut.PublicKey)
 			assert.Equal(t, tt.keySpec, pubKeyOut.KeySpec)

@@ -1,8 +1,8 @@
 package kms_test
 
 import (
-	"context"
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -553,7 +553,10 @@ func TestRefinement1_ErrCustomKeyStoreNotFound_Sentinel(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	err := b.ConnectCustomKeyStore(context.Background(), &kms.ConnectCustomKeyStoreInput{CustomKeyStoreID: "no-such-id"})
+	err := b.ConnectCustomKeyStore(
+		context.Background(),
+		&kms.ConnectCustomKeyStoreInput{CustomKeyStoreID: "no-such-id"},
+	)
 	require.ErrorIs(t, err, kms.ErrCustomKeyStoreNotFound)
 }
 

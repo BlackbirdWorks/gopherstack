@@ -2,9 +2,13 @@ package kms
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 )
+
+// errFlatSnapshotFormat is returned by tryRestoreNested when the snapshot uses the legacy flat format.
+var errFlatSnapshotFormat = errors.New("detected flat snapshot format")
 
 type backendSnapshot struct {
 	Keys               map[string]map[string]*Key                    `json:"keys"`
@@ -31,6 +35,78 @@ type backendSnapshotFlat struct {
 	Region             string                             `json:"region"`
 }
 
+// snapshotRegionKeyMaterials serializes b.keyMaterials into region-nested form.
+func snapshotRegionKeyMaterials(
+	km map[string]map[string]*keyMaterial,
+) map[string]map[string]serializedKeyMaterial {
+	out := make(map[string]map[string]serializedKeyMaterial, len(km))
+
+	for region, regionKMs := range km {
+		regionOut := make(map[string]serializedKeyMaterial, len(regionKMs))
+
+		for keyID, m := range regionKMs {
+			s, err := marshalKeyMaterial(m)
+			if err != nil {
+				slog.Default().Warn("KMS snapshot: skipping key material",
+					"region", region, "keyID", keyID, "error", err)
+
+				continue
+			}
+
+			regionOut[keyID] = s
+		}
+
+		if len(regionOut) > 0 {
+			out[region] = regionOut
+		}
+	}
+
+	return out
+}
+
+// snapshotRegionKeyMaterialHistory serializes b.keyMaterialHistory into region-nested form.
+func snapshotRegionKeyMaterialHistory(
+	hist map[string]map[string][]*keyMaterial,
+) map[string]map[string][]serializedKeyMaterial {
+	out := make(map[string]map[string][]serializedKeyMaterial, len(hist))
+
+	for region, regionHist := range hist {
+		regionOut := make(map[string][]serializedKeyMaterial, len(regionHist))
+
+		for keyID, history := range regionHist {
+			entries := snapshotKeyMaterialHistory(region, keyID, history)
+			if len(entries) > 0 {
+				regionOut[keyID] = entries
+			}
+		}
+
+		if len(regionOut) > 0 {
+			out[region] = regionOut
+		}
+	}
+
+	return out
+}
+
+// snapshotKeyMaterialHistory serializes a single key's material history slice.
+func snapshotKeyMaterialHistory(region, keyID string, history []*keyMaterial) []serializedKeyMaterial {
+	entries := make([]serializedKeyMaterial, 0, len(history))
+
+	for _, m := range history {
+		s, err := marshalKeyMaterial(m)
+		if err != nil {
+			slog.Default().Warn("KMS snapshot: skipping historical key material",
+				"region", region, "keyID", keyID, "error", err)
+
+			continue
+		}
+
+		entries = append(entries, s)
+	}
+
+	return entries
+}
+
 // Snapshot serialises the backend state to JSON.
 // It implements persistence.Persistable.
 // Key materials that cannot be serialized are omitted from the snapshot with a warning log.
@@ -38,67 +114,13 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	// Serialize key materials: region → keyID → serializedKeyMaterial
-	serialized := make(map[string]map[string]serializedKeyMaterial, len(b.keyMaterials))
-
-	for region, regionKMs := range b.keyMaterials {
-		regionSerialized := make(map[string]serializedKeyMaterial, len(regionKMs))
-
-		for keyID, km := range regionKMs {
-			s, err := marshalKeyMaterial(km)
-			if err != nil {
-				slog.Default().Warn("KMS snapshot: skipping key material that could not be serialized",
-					"region", region, "keyID", keyID, "error", err)
-
-				continue
-			}
-
-			regionSerialized[keyID] = s
-		}
-
-		if len(regionSerialized) > 0 {
-			serialized[region] = regionSerialized
-		}
-	}
-
-	// Snapshot key material history: region → keyID → []serializedKeyMaterial
-	serializedHistory := make(map[string]map[string][]serializedKeyMaterial, len(b.keyMaterialHistory))
-
-	for region, regionHistory := range b.keyMaterialHistory {
-		regionSerializedHistory := make(map[string][]serializedKeyMaterial, len(regionHistory))
-
-		for keyID, history := range regionHistory {
-			entries := make([]serializedKeyMaterial, 0, len(history))
-
-			for _, km := range history {
-				s, err := marshalKeyMaterial(km)
-				if err != nil {
-					slog.Default().Warn("KMS snapshot: skipping historical key material that could not be serialized",
-						"region", region, "keyID", keyID, "error", err)
-
-					continue
-				}
-
-				entries = append(entries, s)
-			}
-
-			if len(entries) > 0 {
-				regionSerializedHistory[keyID] = entries
-			}
-		}
-
-		if len(regionSerializedHistory) > 0 {
-			serializedHistory[region] = regionSerializedHistory
-		}
-	}
-
 	snap := backendSnapshot{
 		Keys:               b.keys,
 		Aliases:            b.aliases,
 		Grants:             b.grants,
 		Policies:           b.policies,
-		KeyMaterials:       serialized,
-		KeyMaterialHistory: serializedHistory,
+		KeyMaterials:       snapshotRegionKeyMaterials(b.keyMaterials),
+		KeyMaterialHistory: snapshotRegionKeyMaterialHistory(b.keyMaterialHistory),
 		CustomKeyStores:    b.customKeyStores,
 		AccountID:          b.accountID,
 		Region:             b.defaultRegion,
@@ -166,7 +188,7 @@ func tryRestoreNested(data []byte) (*backendSnapshot, error) {
 			for _, regionOrKey := range flatKeys {
 				if regionOrKey != nil && regionOrKey.KeyID != "" {
 					// This is a flat map: the "region" key has a KeyID → it's actually a keyID key.
-					return nil, fmt.Errorf("detected flat snapshot format")
+					return nil, errFlatSnapshotFormat
 				}
 			}
 		}
@@ -175,12 +197,106 @@ func tryRestoreNested(data []byte) (*backendSnapshot, error) {
 	return &snap, nil
 }
 
-// applySnapshot applies a nested backendSnapshot to the backend.
-// Must be called without any lock held (acquires write lock internally).
-func (b *InMemoryBackend) applySnapshot(snap *backendSnapshot) error {
-	b.mu.Lock("Restore")
-	defer b.mu.Unlock()
+// restoreRegionKeyMaterials deserializes the region-nested key materials map.
+func restoreRegionKeyMaterials(
+	serialized map[string]map[string]serializedKeyMaterial,
+) (map[string]map[string]*keyMaterial, error) {
+	out := make(map[string]map[string]*keyMaterial, len(serialized))
 
+	for region, regionKMs := range serialized {
+		regionOut := make(map[string]*keyMaterial, len(regionKMs))
+
+		for keyID, s := range regionKMs {
+			km, err := unmarshalKeyMaterial(s)
+			if err != nil {
+				return nil, fmt.Errorf("restoring key material for region %s key %s: %w", region, keyID, err)
+			}
+
+			regionOut[keyID] = km
+		}
+
+		out[region] = regionOut
+	}
+
+	return out, nil
+}
+
+// restoreRegionKeyMaterialHistory deserializes the region-nested key material history map.
+func restoreRegionKeyMaterialHistory(
+	serialized map[string]map[string][]serializedKeyMaterial,
+) (map[string]map[string][]*keyMaterial, error) {
+	out := make(map[string]map[string][]*keyMaterial, len(serialized))
+
+	for region, regionHist := range serialized {
+		regionOut := make(map[string][]*keyMaterial, len(regionHist))
+
+		for keyID, entries := range regionHist {
+			history, err := restoreKeyMaterialHistory(region, keyID, entries)
+			if err != nil {
+				return nil, err
+			}
+
+			regionOut[keyID] = history
+		}
+
+		out[region] = regionOut
+	}
+
+	return out, nil
+}
+
+// restoreKeyMaterialHistory deserializes a single key's material history.
+func restoreKeyMaterialHistory(region, keyID string, entries []serializedKeyMaterial) ([]*keyMaterial, error) {
+	history := make([]*keyMaterial, 0, len(entries))
+
+	for i, s := range entries {
+		km, err := unmarshalKeyMaterial(s)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"restoring historical key material[%d] for region %s key %s: %w",
+				i,
+				region,
+				keyID,
+				err,
+			)
+		}
+
+		history = append(history, km)
+	}
+
+	return history, nil
+}
+
+// warnMissingKeyMaterials logs a warning for any key that lacks key material after restore.
+func warnMissingKeyMaterials(
+	keys map[string]map[string]*Key,
+	materials map[string]map[string]*keyMaterial,
+) {
+	for region, regionKeys := range keys {
+		regionMaterials := materials[region]
+
+		for keyID, key := range regionKeys {
+			if key.KeyState == KeyStatePendingImport {
+				continue
+			}
+
+			if regionMaterials == nil {
+				slog.Default().Warn("KMS restore: key has no material in snapshot; crypto operations will fail",
+					"region", region, "keyID", keyID)
+
+				continue
+			}
+
+			if _, hasMaterial := regionMaterials[keyID]; !hasMaterial {
+				slog.Default().Warn("KMS restore: key has no material in snapshot; crypto operations will fail",
+					"region", region, "keyID", keyID)
+			}
+		}
+	}
+}
+
+// ensureSnapDefaults fills nil maps in a snapshot with empty initialized versions.
+func ensureSnapDefaults(snap *backendSnapshot) {
 	if snap.Keys == nil {
 		snap.Keys = make(map[string]map[string]*Key)
 	}
@@ -200,71 +316,27 @@ func (b *InMemoryBackend) applySnapshot(snap *backendSnapshot) error {
 	if snap.CustomKeyStores == nil {
 		snap.CustomKeyStores = make(map[string]map[string]*CustomKeyStore)
 	}
+}
 
-	// Restore key materials: region → keyID → *keyMaterial
-	restored := make(map[string]map[string]*keyMaterial, len(snap.KeyMaterials))
+// applySnapshot applies a nested backendSnapshot to the backend.
+// Must be called without any lock held (acquires write lock internally).
+func (b *InMemoryBackend) applySnapshot(snap *backendSnapshot) error {
+	ensureSnapDefaults(snap)
 
-	for region, regionKMs := range snap.KeyMaterials {
-		regionRestored := make(map[string]*keyMaterial, len(regionKMs))
-
-		for keyID, s := range regionKMs {
-			km, err := unmarshalKeyMaterial(s)
-			if err != nil {
-				return fmt.Errorf("restoring key material for region %s key %s: %w", region, keyID, err)
-			}
-
-			regionRestored[keyID] = km
-		}
-
-		restored[region] = regionRestored
+	restored, err := restoreRegionKeyMaterials(snap.KeyMaterials)
+	if err != nil {
+		return err
 	}
 
-	// Restore key material history: region → keyID → []*keyMaterial
-	restoredHistory := make(map[string]map[string][]*keyMaterial, len(snap.KeyMaterialHistory))
-
-	for region, regionHistory := range snap.KeyMaterialHistory {
-		regionRestoredHistory := make(map[string][]*keyMaterial, len(regionHistory))
-
-		for keyID, entries := range regionHistory {
-			history := make([]*keyMaterial, 0, len(entries))
-
-			for i, s := range entries {
-				km, err := unmarshalKeyMaterial(s)
-				if err != nil {
-					return fmt.Errorf("restoring historical key material[%d] for region %s key %s: %w", i, region, keyID, err)
-				}
-
-				history = append(history, km)
-			}
-
-			regionRestoredHistory[keyID] = history
-		}
-
-		restoredHistory[region] = regionRestoredHistory
+	restoredHistory, err := restoreRegionKeyMaterialHistory(snap.KeyMaterialHistory)
+	if err != nil {
+		return err
 	}
 
-	// Warn about keys that lack material in the snapshot (older snapshots may omit key_materials).
-	for region, regionKeys := range snap.Keys {
-		regionRestored := restored[region]
+	warnMissingKeyMaterials(snap.Keys, restored)
 
-		for keyID, key := range regionKeys {
-			if key.KeyState == KeyStatePendingImport {
-				continue
-			}
-
-			if regionRestored == nil {
-				slog.Default().Warn("KMS restore: key has no material in snapshot; crypto operations will fail",
-					"region", region, "keyID", keyID)
-
-				continue
-			}
-
-			if _, hasMaterial := regionRestored[keyID]; !hasMaterial {
-				slog.Default().Warn("KMS restore: key has no material in snapshot; crypto operations will fail",
-					"region", region, "keyID", keyID)
-			}
-		}
-	}
+	b.mu.Lock("Restore")
+	defer b.mu.Unlock()
 
 	b.keys = snap.Keys
 	b.aliases = snap.Aliases

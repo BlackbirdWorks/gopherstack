@@ -280,7 +280,10 @@ func TestKMSKeyRotationRotatesMaterial(t *testing.T) {
 			}))
 
 			// Verify rotation status is set.
-			status, err := b.GetKeyRotationStatus(context.Background(), &kms.GetKeyRotationStatusInput{KeyID: key.KeyMetadata.KeyID})
+			status, err := b.GetKeyRotationStatus(
+				context.Background(),
+				&kms.GetKeyRotationStatusInput{KeyID: key.KeyMetadata.KeyID},
+			)
 			require.NoError(t, err)
 			assert.True(t, status.KeyRotationEnabled)
 
@@ -336,7 +339,10 @@ func TestKMSKeyRotationMultipleRounds(t *testing.T) {
 
 		// Rotate between encryptions.
 		if i < rounds-1 {
-			require.NoError(t, b.EnableKeyRotation(context.Background(), &kms.EnableKeyRotationInput{KeyID: key.KeyMetadata.KeyID}))
+			require.NoError(
+				t,
+				b.EnableKeyRotation(context.Background(), &kms.EnableKeyRotationInput{KeyID: key.KeyMetadata.KeyID}),
+			)
 		}
 	}
 
@@ -380,7 +386,10 @@ func TestKMSKeyRotationSnapshotRestorePreservesHistory(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.NoError(t, orig.EnableKeyRotation(context.Background(), &kms.EnableKeyRotationInput{KeyID: key.KeyMetadata.KeyID}))
+	require.NoError(
+		t,
+		orig.EnableKeyRotation(context.Background(), &kms.EnableKeyRotationInput{KeyID: key.KeyMetadata.KeyID}),
+	)
 
 	// Encrypt after rotation.
 	encAfter, err := orig.Encrypt(context.Background(), &kms.EncryptInput{
@@ -476,7 +485,10 @@ func TestKMSJanitorSweepExpiredKeys(t *testing.T) {
 				assert.Empty(t, aliases.Aliases)
 
 				// Grants should be gone.
-				grants, grantsErr := b.ListGrants(context.Background(), &kms.ListGrantsInput{KeyID: key.KeyMetadata.KeyID})
+				grants, grantsErr := b.ListGrants(
+					context.Background(),
+					&kms.ListGrantsInput{KeyID: key.KeyMetadata.KeyID},
+				)
 				// Key is gone so lookup fails — that's acceptable.
 				if grantsErr == nil {
 					assert.Empty(t, grants.Grants)
@@ -566,7 +578,10 @@ func TestKMSImportKeyMaterial(t *testing.T) {
 			verify: func(t *testing.T, b *kms.InMemoryBackend, keyID string, _ []byte) {
 				t.Helper()
 
-				err := b.DeleteImportedKeyMaterial(context.Background(), &kms.DeleteImportedKeyMaterialInput{KeyID: keyID})
+				err := b.DeleteImportedKeyMaterial(
+					context.Background(),
+					&kms.DeleteImportedKeyMaterialInput{KeyID: keyID},
+				)
 				require.NoError(t, err)
 
 				desc, err := b.DescribeKey(context.Background(), &kms.DescribeKeyInput{KeyID: keyID})
@@ -615,7 +630,10 @@ func TestKMSImportKeyMaterial(t *testing.T) {
 			verify: func(t *testing.T, b *kms.InMemoryBackend, keyID string, _ []byte) {
 				t.Helper()
 
-				err := b.DeleteImportedKeyMaterial(context.Background(), &kms.DeleteImportedKeyMaterialInput{KeyID: keyID})
+				err := b.DeleteImportedKeyMaterial(
+					context.Background(),
+					&kms.DeleteImportedKeyMaterialInput{KeyID: keyID},
+				)
 				require.Error(t, err)
 				assert.ErrorIs(t, err, kms.ErrUnsupportedOrigin)
 			},

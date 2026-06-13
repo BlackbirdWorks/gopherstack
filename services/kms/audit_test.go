@@ -73,7 +73,10 @@ func TestAudit_EncryptContextSize_Encrypt(t *testing.T) {
 	keyID := mustCreateSymKey(t, b)
 
 	oversized := map[string]string{"k": strings.Repeat("v", 5000)}
-	_, err := b.Encrypt(context.Background(), &kms.EncryptInput{KeyID: keyID, Plaintext: []byte("x"), EncryptionContext: oversized})
+	_, err := b.Encrypt(
+		context.Background(),
+		&kms.EncryptInput{KeyID: keyID, Plaintext: []byte("x"), EncryptionContext: oversized},
+	)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "EncryptionContext")
 }
@@ -82,7 +85,10 @@ func TestAudit_EncryptContextSize_Decrypt(t *testing.T) {
 	t.Parallel()
 	b := newBackend(t)
 	oversized := map[string]string{"k": strings.Repeat("v", 5000)}
-	_, err := b.Decrypt(context.Background(), &kms.DecryptInput{CiphertextBlob: make([]byte, 64), EncryptionContext: oversized})
+	_, err := b.Decrypt(
+		context.Background(),
+		&kms.DecryptInput{CiphertextBlob: make([]byte, 64), EncryptionContext: oversized},
+	)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "EncryptionContext")
 }
@@ -132,7 +138,10 @@ func TestAudit_EncryptContextSize_ExactlyAtLimit(t *testing.T) {
 	// Build context that is exactly 4096 bytes encoded: 1(sep) + 1(key) + 1(=) + value = 4096 → value = 4093
 	val := strings.Repeat("v", 4093)
 	ctx := map[string]string{"k": val}
-	_, err := b.Encrypt(context.Background(), &kms.EncryptInput{KeyID: keyID, Plaintext: []byte("x"), EncryptionContext: ctx})
+	_, err := b.Encrypt(
+		context.Background(),
+		&kms.EncryptInput{KeyID: keyID, Plaintext: []byte("x"), EncryptionContext: ctx},
+	)
 	require.NoError(t, err)
 }
 
@@ -618,7 +627,10 @@ func TestAudit_Janitor_HeapSweep_PurgesExpiredKey(t *testing.T) {
 	keyID := mustCreateSymKey(t, b)
 
 	// Schedule deletion in the past via ScheduleKeyDeletion + backdating.
-	_, err := b.ScheduleKeyDeletion(context.Background(), &kms.ScheduleKeyDeletionInput{KeyID: keyID, PendingWindowInDays: 7})
+	_, err := b.ScheduleKeyDeletion(
+		context.Background(),
+		&kms.ScheduleKeyDeletionInput{KeyID: keyID, PendingWindowInDays: 7},
+	)
 	require.NoError(t, err)
 	b.SetDeletionDateForTest(keyID, time.Now().Add(-time.Second))
 
@@ -639,7 +651,10 @@ func TestAudit_Janitor_FallbackLinearSweep(t *testing.T) {
 	jan := kms.NewJanitor(b, time.Minute)
 
 	keyID := mustCreateSymKey(t, b)
-	_, err := b.ScheduleKeyDeletion(context.Background(), &kms.ScheduleKeyDeletionInput{KeyID: keyID, PendingWindowInDays: 7})
+	_, err := b.ScheduleKeyDeletion(
+		context.Background(),
+		&kms.ScheduleKeyDeletionInput{KeyID: keyID, PendingWindowInDays: 7},
+	)
 	require.NoError(t, err)
 	b.SetDeletionDateForTest(keyID, time.Now().Add(-time.Second))
 
@@ -1526,10 +1541,13 @@ func TestAudit_GenerateDataKeyPairWithoutPlaintext(t *testing.T) {
 	b := newBackend(t)
 	keyID := mustCreateSymKey(t, b)
 
-	out, err := b.GenerateDataKeyPairWithoutPlaintext(context.Background(), &kms.GenerateDataKeyPairWithoutPlaintextInput{
-		KeyID:       keyID,
-		KeyPairSpec: "RSA_2048",
-	})
+	out, err := b.GenerateDataKeyPairWithoutPlaintext(
+		context.Background(),
+		&kms.GenerateDataKeyPairWithoutPlaintextInput{
+			KeyID:       keyID,
+			KeyPairSpec: "RSA_2048",
+		},
+	)
 	require.NoError(t, err)
 	assert.NotEmpty(t, out.PublicKey)
 	assert.NotEmpty(t, out.PrivateKeyCiphertextBlob)

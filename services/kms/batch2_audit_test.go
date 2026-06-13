@@ -7,8 +7,8 @@ package kms_test
 // by KeyId, retiring-principal grants, GrantTokens, and resource tagging.
 
 import (
-	"context"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -1452,9 +1452,18 @@ func TestBatch2_ListAliases_FilterByKeyID_ReturnsOnlyMatching(t *testing.T) {
 	key1 := out1.KeyMetadata.KeyID
 	key2 := out2.KeyMetadata.KeyID
 
-	require.NoError(t, b.CreateAlias(context.Background(), &kms.CreateAliasInput{AliasName: "alias/key1-a", TargetKeyID: key1}))
-	require.NoError(t, b.CreateAlias(context.Background(), &kms.CreateAliasInput{AliasName: "alias/key1-b", TargetKeyID: key1}))
-	require.NoError(t, b.CreateAlias(context.Background(), &kms.CreateAliasInput{AliasName: "alias/key2-a", TargetKeyID: key2}))
+	require.NoError(
+		t,
+		b.CreateAlias(context.Background(), &kms.CreateAliasInput{AliasName: "alias/key1-a", TargetKeyID: key1}),
+	)
+	require.NoError(
+		t,
+		b.CreateAlias(context.Background(), &kms.CreateAliasInput{AliasName: "alias/key1-b", TargetKeyID: key1}),
+	)
+	require.NoError(
+		t,
+		b.CreateAlias(context.Background(), &kms.CreateAliasInput{AliasName: "alias/key2-a", TargetKeyID: key2}),
+	)
 
 	aliases, err := b.ListAliases(context.Background(), &kms.ListAliasesInput{KeyID: key1})
 	require.NoError(t, err)
@@ -1473,11 +1482,17 @@ func TestBatch2_ListAliases_NoFilter_ReturnsAll(t *testing.T) {
 
 	require.NoError(
 		t,
-		b.CreateAlias(context.Background(), &kms.CreateAliasInput{AliasName: "alias/one", TargetKeyID: out1.KeyMetadata.KeyID}),
+		b.CreateAlias(
+			context.Background(),
+			&kms.CreateAliasInput{AliasName: "alias/one", TargetKeyID: out1.KeyMetadata.KeyID},
+		),
 	)
 	require.NoError(
 		t,
-		b.CreateAlias(context.Background(), &kms.CreateAliasInput{AliasName: "alias/two", TargetKeyID: out2.KeyMetadata.KeyID}),
+		b.CreateAlias(
+			context.Background(),
+			&kms.CreateAliasInput{AliasName: "alias/two", TargetKeyID: out2.KeyMetadata.KeyID},
+		),
 	)
 
 	aliases, err := b.ListAliases(context.Background(), &kms.ListAliasesInput{})
@@ -1491,7 +1506,10 @@ func TestBatch2_ListAliases_NonMatchingKeyID_ReturnsEmpty(t *testing.T) {
 
 	out, _ := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	key1 := out.KeyMetadata.KeyID
-	require.NoError(t, b.CreateAlias(context.Background(), &kms.CreateAliasInput{AliasName: "alias/unrelated", TargetKeyID: key1}))
+	require.NoError(
+		t,
+		b.CreateAlias(context.Background(), &kms.CreateAliasInput{AliasName: "alias/unrelated", TargetKeyID: key1}),
+	)
 
 	out2, _ := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	key2 := out2.KeyMetadata.KeyID // no aliases
@@ -1510,7 +1528,10 @@ func TestBatch2_ListAliases_Pagination(t *testing.T) {
 
 	for i := range 5 {
 		name := fmt.Sprintf("alias/pagtest-%d", i)
-		require.NoError(t, b.CreateAlias(context.Background(), &kms.CreateAliasInput{AliasName: name, TargetKeyID: keyID}))
+		require.NoError(
+			t,
+			b.CreateAlias(context.Background(), &kms.CreateAliasInput{AliasName: name, TargetKeyID: keyID}),
+		)
 	}
 
 	limit := int32(2)
@@ -1531,7 +1552,10 @@ func TestBatch2_ListAliases_ReturnsCreationAndUpdateDates(t *testing.T) {
 
 	out, _ := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	keyID := out.KeyMetadata.KeyID
-	require.NoError(t, b.CreateAlias(context.Background(), &kms.CreateAliasInput{AliasName: "alias/dated", TargetKeyID: keyID}))
+	require.NoError(
+		t,
+		b.CreateAlias(context.Background(), &kms.CreateAliasInput{AliasName: "alias/dated", TargetKeyID: keyID}),
+	)
 
 	aliases, err := b.ListAliases(context.Background(), &kms.ListAliasesInput{})
 	require.NoError(t, err)

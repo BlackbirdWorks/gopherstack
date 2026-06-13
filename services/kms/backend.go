@@ -218,7 +218,10 @@ type StorageBackend interface {
 	ListRetirableGrants(ctx context.Context, input *ListRetirableGrantsInput) (*ListGrantsOutput, error)
 	PutKeyPolicy(ctx context.Context, input *PutKeyPolicyInput) error
 	GetKeyPolicy(ctx context.Context, input *GetKeyPolicyInput) (*GetKeyPolicyOutput, error)
-	GetParametersForImport(ctx context.Context, input *GetParametersForImportInput) (*GetParametersForImportOutput, error)
+	GetParametersForImport(
+		ctx context.Context,
+		input *GetParametersForImportInput,
+	) (*GetParametersForImportOutput, error)
 	ListKeyPolicies(ctx context.Context, input *ListKeyPoliciesInput) (*ListKeyPoliciesOutput, error)
 	ListKeyRotations(ctx context.Context, input *ListKeyRotationsInput) (*ListKeyRotationsOutput, error)
 	ImportKeyMaterial(ctx context.Context, input *ImportKeyMaterialInput) error
@@ -229,7 +232,10 @@ type StorageBackend interface {
 	CreateCustomKeyStore(ctx context.Context, input *CreateCustomKeyStoreInput) (*CreateCustomKeyStoreOutput, error)
 	DeleteCustomKeyStore(ctx context.Context, input *DeleteCustomKeyStoreInput) error
 	DeriveSharedSecret(ctx context.Context, input *DeriveSharedSecretInput) (*DeriveSharedSecretOutput, error)
-	DescribeCustomKeyStores(ctx context.Context, input *DescribeCustomKeyStoresInput) (*DescribeCustomKeyStoresOutput, error)
+	DescribeCustomKeyStores(
+		ctx context.Context,
+		input *DescribeCustomKeyStoresInput,
+	) (*DescribeCustomKeyStoresOutput, error)
 	DisconnectCustomKeyStore(ctx context.Context, input *DisconnectCustomKeyStoreInput) error
 	UpdateCustomKeyStore(ctx context.Context, input *UpdateCustomKeyStoreInput) error
 	UpdateKeyDescription(ctx context.Context, input *UpdateKeyDescriptionInput) error
@@ -385,7 +391,10 @@ func (b *InMemoryBackend) customKeyStoresStore(region string) map[string]*Custom
 
 // resolveKeyID resolves an alias name or ARN to a plain key UUID and region.
 // Must be called with at least a read lock held.
-func (b *InMemoryBackend) resolveKeyID(ctx context.Context, keyID string) (resolvedKeyID string, resolvedRegion string, err error) {
+func (b *InMemoryBackend) resolveKeyID(
+	ctx context.Context,
+	keyID string,
+) (string, string, error) {
 	ctxRegion := getRegion(ctx, b.defaultRegion)
 
 	if cached, ok := b.keyIDResolutionCache.Load(keyID); ok {
@@ -422,7 +431,7 @@ func (b *InMemoryBackend) resolveKeyID(ctx context.Context, keyID string) (resol
 	return keyID, ctxRegion, nil
 }
 
-func (b *InMemoryBackend) resolveARNKeyID(keyID string) (resolvedID string, region string, err error) {
+func (b *InMemoryBackend) resolveARNKeyID(keyID string) (string, string, error) {
 	parsed, parseErr := awsarn.Parse(keyID)
 	if parseErr != nil {
 		return "", "", fmt.Errorf("%w: invalid key ARN %q", ErrValidation, keyID)
@@ -927,7 +936,12 @@ func (b *InMemoryBackend) decryptPayload(
 
 // decryptWithHistory attempts to decrypt a blob using previous key material versions.
 // Must be called with at least a read lock held.
-func (b *InMemoryBackend) decryptWithHistory(region string, blob []byte, encCtx map[string]string, keyID string) ([]byte, error) {
+func (b *InMemoryBackend) decryptWithHistory(
+	region string,
+	blob []byte,
+	encCtx map[string]string,
+	keyID string,
+) ([]byte, error) {
 	history := b.keyMaterialHistoryStore(region)[keyID]
 	for _, v := range slices.Backward(history) {
 		plaintext, _, err := decryptData(blob, encCtx, v)
@@ -940,7 +954,10 @@ func (b *InMemoryBackend) decryptWithHistory(region string, blob []byte, encCtx 
 }
 
 // GenerateDataKey generates a random data key, returning both plaintext and encrypted forms.
-func (b *InMemoryBackend) GenerateDataKey(ctx context.Context, input *GenerateDataKeyInput) (*GenerateDataKeyOutput, error) {
+func (b *InMemoryBackend) GenerateDataKey(
+	ctx context.Context,
+	input *GenerateDataKeyInput,
+) (*GenerateDataKeyOutput, error) {
 	if err := validateGenerateDataKeyInput(input); err != nil {
 		return nil, err
 	}
@@ -1038,7 +1055,12 @@ func (b *InMemoryBackend) ReEncrypt(ctx context.Context, input *ReEncryptInput) 
 	plaintext, _, decErr := decryptData(input.CiphertextBlob, input.SourceEncryptionContext, sourceKM)
 	if decErr != nil {
 		// Try previous key material versions produced by rotation.
-		plaintext, decErr = b.decryptWithHistory(region, input.CiphertextBlob, input.SourceEncryptionContext, sourceKey.KeyID)
+		plaintext, decErr = b.decryptWithHistory(
+			region,
+			input.CiphertextBlob,
+			input.SourceEncryptionContext,
+			sourceKey.KeyID,
+		)
 		if decErr != nil {
 			return nil, decErr
 		}
@@ -1524,7 +1546,10 @@ func (b *InMemoryBackend) DisableKeyRotation(ctx context.Context, input *Disable
 }
 
 // RotateKeyOnDemand rotates key material immediately without changing automatic rotation status.
-func (b *InMemoryBackend) RotateKeyOnDemand(ctx context.Context, input *RotateKeyOnDemandInput) (*RotateKeyOnDemandOutput, error) {
+func (b *InMemoryBackend) RotateKeyOnDemand(
+	ctx context.Context,
+	input *RotateKeyOnDemandInput,
+) (*RotateKeyOnDemandOutput, error) {
 	b.mu.Lock("RotateKeyOnDemand")
 	defer b.mu.Unlock()
 
@@ -1577,7 +1602,10 @@ func (b *InMemoryBackend) RotateKeyOnDemand(ctx context.Context, input *RotateKe
 }
 
 // GetKeyRotationStatus returns rotation configuration and schedule for the specified key.
-func (b *InMemoryBackend) GetKeyRotationStatus(ctx context.Context, input *GetKeyRotationStatusInput) (*GetKeyRotationStatusOutput, error) {
+func (b *InMemoryBackend) GetKeyRotationStatus(
+	ctx context.Context,
+	input *GetKeyRotationStatusInput,
+) (*GetKeyRotationStatusOutput, error) {
 	b.mu.RLock("GetKeyRotationStatus")
 	defer b.mu.RUnlock()
 
@@ -1705,7 +1733,10 @@ func (b *InMemoryBackend) EnableKey(ctx context.Context, input *EnableKeyInput) 
 // PendingWindowInDays must be in the range [7, 30]; values outside this range are rejected.
 // AWS raises ValidationException for out-of-range values and KMSInvalidStateException
 // for keys already in PendingDeletion.
-func (b *InMemoryBackend) ScheduleKeyDeletion(ctx context.Context, input *ScheduleKeyDeletionInput) (*ScheduleKeyDeletionOutput, error) {
+func (b *InMemoryBackend) ScheduleKeyDeletion(
+	ctx context.Context,
+	input *ScheduleKeyDeletionInput,
+) (*ScheduleKeyDeletionOutput, error) {
 	b.mu.Lock("ScheduleKeyDeletion")
 	defer b.mu.Unlock()
 
@@ -1746,7 +1777,10 @@ func (b *InMemoryBackend) ScheduleKeyDeletion(ctx context.Context, input *Schedu
 
 // CancelKeyDeletion cancels a pending key deletion and sets the key to Disabled.
 // AWS raises KMSInvalidStateException if the key is not in PendingDeletion state.
-func (b *InMemoryBackend) CancelKeyDeletion(ctx context.Context, input *CancelKeyDeletionInput) (*CancelKeyDeletionOutput, error) {
+func (b *InMemoryBackend) CancelKeyDeletion(
+	ctx context.Context,
+	input *CancelKeyDeletionInput,
+) (*CancelKeyDeletionOutput, error) {
 	b.mu.Lock("CancelKeyDeletion")
 	defer b.mu.Unlock()
 
@@ -1924,7 +1958,7 @@ func applyMultiRegionType(k *Key, meta *KeyMetadata) {
 // buildMultiRegionConfig constructs the MultiRegionConfiguration for a key, following
 // the same PRIMARY/REPLICA logic used by AWS DescribeKey. Returns nil for non-multi-region keys.
 // Must be called with at least a read lock held.
-func (b *InMemoryBackend) buildMultiRegionConfig(ctx context.Context, key *Key) *MultiRegionConfiguration {
+func (b *InMemoryBackend) buildMultiRegionConfig(_ context.Context, key *Key) *MultiRegionConfiguration {
 	if !key.MultiRegion {
 		return nil
 	}
@@ -2196,7 +2230,11 @@ func (b *InMemoryBackend) findGrantByToken(grantTokens []string) *Grant {
 // validateGrantTokenConstraints checks that, if a grant token is provided, the encryption
 // context satisfies the grant's constraints. No-op when grantTokens is empty.
 // Must be called with at least a read lock held.
-func (b *InMemoryBackend) validateGrantTokenConstraints(ctx context.Context, grantTokens []string, encCtx map[string]string) error {
+func (b *InMemoryBackend) validateGrantTokenConstraints(
+	_ context.Context,
+	grantTokens []string,
+	encCtx map[string]string,
+) error {
 	if len(grantTokens) == 0 {
 		return nil
 	}
@@ -2353,7 +2391,10 @@ func (b *InMemoryBackend) RetireGrant(ctx context.Context, input *RetireGrantInp
 }
 
 // ListRetirableGrants returns all grants for which the given principal is the retiring principal.
-func (b *InMemoryBackend) ListRetirableGrants(ctx context.Context, input *ListRetirableGrantsInput) (*ListGrantsOutput, error) {
+func (b *InMemoryBackend) ListRetirableGrants(
+	ctx context.Context,
+	input *ListRetirableGrantsInput,
+) (*ListGrantsOutput, error) {
 	b.mu.RLock("ListRetirableGrants")
 	defer b.mu.RUnlock()
 
@@ -2556,7 +2597,10 @@ func (b *InMemoryBackend) GetParametersForImport(
 }
 
 // ListKeyPolicies returns policy names available for a key.
-func (b *InMemoryBackend) ListKeyPolicies(ctx context.Context, input *ListKeyPoliciesInput) (*ListKeyPoliciesOutput, error) {
+func (b *InMemoryBackend) ListKeyPolicies(
+	ctx context.Context,
+	input *ListKeyPoliciesInput,
+) (*ListKeyPoliciesOutput, error) {
 	b.mu.RLock("ListKeyPolicies")
 	defer b.mu.RUnlock()
 
@@ -2592,7 +2636,10 @@ func (b *InMemoryBackend) ListKeyPolicies(ctx context.Context, input *ListKeyPol
 }
 
 // ListKeyRotations returns observed key material rotation timestamps for a key.
-func (b *InMemoryBackend) ListKeyRotations(ctx context.Context, input *ListKeyRotationsInput) (*ListKeyRotationsOutput, error) {
+func (b *InMemoryBackend) ListKeyRotations(
+	ctx context.Context,
+	input *ListKeyRotationsInput,
+) (*ListKeyRotationsOutput, error) {
 	b.mu.RLock("ListKeyRotations")
 	defer b.mu.RUnlock()
 

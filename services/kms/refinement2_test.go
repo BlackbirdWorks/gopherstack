@@ -78,7 +78,10 @@ func TestReEncryptAlgorithmFields(t *testing.T) {
 	dst, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
 	require.NoError(t, err)
 
-	enc, err := b.Encrypt(context.Background(), &kms.EncryptInput{KeyID: src.KeyMetadata.KeyID, Plaintext: []byte("data")})
+	enc, err := b.Encrypt(
+		context.Background(),
+		&kms.EncryptInput{KeyID: src.KeyMetadata.KeyID, Plaintext: []byte("data")},
+	)
 	require.NoError(t, err)
 
 	out, err := b.ReEncrypt(context.Background(), &kms.ReEncryptInput{
@@ -505,7 +508,10 @@ func TestGetKeyRotationStatusOnDemandDate(t *testing.T) {
 	require.NoError(t, err)
 
 	// Before on-demand rotation: field should be absent.
-	status, err := b.GetKeyRotationStatus(context.Background(), &kms.GetKeyRotationStatusInput{KeyID: key.KeyMetadata.KeyID})
+	status, err := b.GetKeyRotationStatus(
+		context.Background(),
+		&kms.GetKeyRotationStatusInput{KeyID: key.KeyMetadata.KeyID},
+	)
 	require.NoError(t, err)
 	assert.Zero(t, status.OnDemandRotationStartDate)
 
@@ -514,7 +520,10 @@ func TestGetKeyRotationStatusOnDemandDate(t *testing.T) {
 	require.NoError(t, err)
 
 	// After on-demand rotation: date should be populated.
-	status2, err := b.GetKeyRotationStatus(context.Background(), &kms.GetKeyRotationStatusInput{KeyID: key.KeyMetadata.KeyID})
+	status2, err := b.GetKeyRotationStatus(
+		context.Background(),
+		&kms.GetKeyRotationStatusInput{KeyID: key.KeyMetadata.KeyID},
+	)
 	require.NoError(t, err)
 	assert.NotZero(t, status2.OnDemandRotationStartDate)
 }
@@ -581,7 +590,9 @@ func TestListKeyRotationsTypedRecords(t *testing.T) {
 		{
 			name: "enable_then_on_demand_rotation_has_one_record",
 			setup: func(b *kms.InMemoryBackend, keyID string) error {
-				if err := b.EnableKeyRotation(context.Background(), &kms.EnableKeyRotationInput{KeyID: keyID}); err != nil {
+				if err := b.EnableKeyRotation(
+					context.Background(), &kms.EnableKeyRotationInput{KeyID: keyID},
+				); err != nil {
 					return err
 				}
 				_, err := b.RotateKeyOnDemand(context.Background(), &kms.RotateKeyOnDemandInput{KeyID: keyID})
@@ -1054,7 +1065,10 @@ func TestECDSASignVerifyAllAlgorithms(t *testing.T) {
 			t.Parallel()
 
 			b := kms.NewInMemoryBackend()
-			key, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{KeySpec: tt.keySpec, KeyUsage: "SIGN_VERIFY"})
+			key, err := b.CreateKey(
+				context.Background(),
+				&kms.CreateKeyInput{KeySpec: tt.keySpec, KeyUsage: "SIGN_VERIFY"},
+			)
 			require.NoError(t, err)
 
 			signOut, err := b.Sign(context.Background(), &kms.SignInput{
@@ -1352,7 +1366,10 @@ func TestRSAPSSSignVerifyAllSizes(t *testing.T) {
 			t.Parallel()
 
 			b := kms.NewInMemoryBackend()
-			key, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{KeySpec: tt.keySpec, KeyUsage: "SIGN_VERIFY"})
+			key, err := b.CreateKey(
+				context.Background(),
+				&kms.CreateKeyInput{KeySpec: tt.keySpec, KeyUsage: "SIGN_VERIFY"},
+			)
 			require.NoError(t, err)
 
 			msg := []byte("test message for " + tt.name)

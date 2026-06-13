@@ -388,9 +388,11 @@ func (h *Handler) buildKeyLifecycleActions() map[string]kmsActionFn {
 				return struct{}{}, h.Backend.ImportKeyMaterial(ctx, i)
 			},
 		),
-		"DeleteImportedKeyMaterial": unmarshalAction(func(ctx context.Context, i *DeleteImportedKeyMaterialInput) (any, error) {
-			return struct{}{}, h.Backend.DeleteImportedKeyMaterial(ctx, i)
-		}),
+		"DeleteImportedKeyMaterial": unmarshalAction(
+			func(ctx context.Context, i *DeleteImportedKeyMaterialInput) (any, error) {
+				return struct{}{}, h.Backend.DeleteImportedKeyMaterial(ctx, i)
+			},
+		),
 	}
 }
 
@@ -638,7 +640,9 @@ func (h *Handler) listResourceTags(b []byte) (any, error) {
 		return nil, err
 	}
 
-	if _, descErr := h.Backend.DescribeKey(context.Background(), &DescribeKeyInput{KeyID: input.KeyID}); descErr != nil {
+	if _, descErr := h.Backend.DescribeKey(
+		context.Background(), &DescribeKeyInput{KeyID: input.KeyID},
+	); descErr != nil {
 		return nil, descErr
 	}
 
