@@ -868,11 +868,7 @@
 				</div>
 				<div>
 					<label class="block text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1.5" for="pipe-template">Input Template (optional)</label>
-<<<<<<< Updated upstream
-					<input id="pipe-template" type="text" bind:value={newPipeInputTemplate} placeholder='eg. input template JSON'
-=======
 					<input id="pipe-template" type="text" bind:value={newPipeInputTemplate} placeholder="e.g. Static JSON or $.path expression"
->>>>>>> Stashed changes
 						class="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-mono focus:ring-2 focus:ring-rose-500 outline-none transition-all" />
 				</div>
 				<div class="grid grid-cols-2 gap-3">

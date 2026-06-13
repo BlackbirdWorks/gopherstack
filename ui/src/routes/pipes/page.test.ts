@@ -134,13 +134,9 @@ describe("Pipes Page", () => {
       Name: "new-pipe",
       Arn: "arn:aws:pipes:us-east-1:000000000000:pipe/new-pipe",
     });
-<<<<<<< Updated upstream
-    mockSend.mockResolvedValueOnce({ Pipes: [{ Name: "new-pipe", CurrentState: "RUNNING" }] });
-=======
     mockSend.mockResolvedValueOnce({
       Pipes: [{ Name: "new-pipe", CurrentState: "RUNNING", DesiredState: "RUNNING" }],
     });
->>>>>>> Stashed changes
 
     render(PipesPage);
 
