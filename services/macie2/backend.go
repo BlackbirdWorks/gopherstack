@@ -81,6 +81,7 @@ type InMemoryBackend struct {
 	customDataIDs   map[string]*storedCustomDataID   // id → custom data identifier
 	findingsFilters map[string]*storedFindingsFilter // id → findings filter
 	findings        map[string]*storedFinding        // id → finding
+	s3Buckets       map[string]*S3BucketMetadata     // bucketArn → bucket metadata
 	tags            map[string]map[string]string     // resourceARN → tags
 	session         *Session
 	// Appendix A fields
@@ -113,6 +114,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		customDataIDs:         make(map[string]*storedCustomDataID),
 		findingsFilters:       make(map[string]*storedFindingsFilter),
 		findings:              make(map[string]*storedFinding),
+		s3Buckets:             make(map[string]*S3BucketMetadata),
 		tags:                  make(map[string]map[string]string),
 		classificationJobs:    make(map[string]*ClassificationJob),
 		members:               make(map[string]*Member),
@@ -883,6 +885,7 @@ func (b *InMemoryBackend) Reset() {
 	b.customDataIDs = make(map[string]*storedCustomDataID)
 	b.findingsFilters = make(map[string]*storedFindingsFilter)
 	b.findings = make(map[string]*storedFinding)
+	b.s3Buckets = make(map[string]*S3BucketMetadata)
 	b.tags = make(map[string]map[string]string)
 	b.classificationJobs = make(map[string]*ClassificationJob)
 	b.members = make(map[string]*Member)
@@ -925,6 +928,7 @@ type snapshot struct {
 	CustomDataIDs         map[string]*storedCustomDataID            `json:"customDataIds"`
 	FindingsFilters       map[string]*storedFindingsFilter          `json:"findingsFilters"`
 	Findings              map[string]*storedFinding                 `json:"findings"`
+	S3Buckets             map[string]*S3BucketMetadata              `json:"s3Buckets"`
 	Tags                  map[string]map[string]string              `json:"tags"`
 	ClassificationJobs    map[string]*ClassificationJob             `json:"classificationJobs"`
 	Members               map[string]*Member                        `json:"members"`
@@ -954,6 +958,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		CustomDataIDs:         b.customDataIDs,
 		FindingsFilters:       b.findingsFilters,
 		Findings:              b.findings,
+		S3Buckets:             b.s3Buckets,
 		Tags:                  b.tags,
 		ClassificationJobs:    b.classificationJobs,
 		Members:               b.members,
@@ -990,7 +995,11 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.customDataIDs = snap.CustomDataIDs
 	b.findingsFilters = snap.FindingsFilters
 	b.findings = snap.Findings
+	b.s3Buckets = snap.S3Buckets
 	b.tags = snap.Tags
+	if b.s3Buckets == nil {
+		b.s3Buckets = make(map[string]*S3BucketMetadata)
+	}
 	b.classificationJobs = snap.ClassificationJobs
 	b.members = snap.Members
 	b.invitations = snap.Invitations
