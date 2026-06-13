@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-)
 
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
 	apigatewayv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
@@ -314,7 +313,7 @@ func (rc *ResourceCreator) createAPIGatewayDomainName(
 		return "", fmt.Errorf("create ApiGateway DomainName %s: %w", domainName, err)
 	}
 
-	return dn.DomainName, nil
+	return dn.DomainNameValue, nil
 }
 
 func (rc *ResourceCreator) deleteAPIGatewayDomainName(physicalID string) error {
@@ -684,7 +683,7 @@ func (rc *ResourceCreator) createCognitoIdentityPool(
 	}
 
 	pool, err := rc.backends.CognitoIdentity.Backend.CreateIdentityPool(
-		name, allowUnauthenticated, nil, nil,
+		name, allowUnauthenticated, false, "", nil, nil, nil,
 	)
 	if err != nil {
 		return "", fmt.Errorf("create Cognito IdentityPool %s: %w", name, err)
@@ -714,17 +713,18 @@ func (rc *ResourceCreator) createCognitoIdentityPoolRoleAttachment(
 
 	poolID := strProp(props, "IdentityPoolId", params, physicalIDs)
 
-	roles := make(map[string]string)
+	var authenticatedARN, unauthenticatedARN string
 	if rolesRaw, ok := props["Roles"].(map[string]any); ok {
-		for k, v := range rolesRaw {
-			if s, ok := v.(string); ok {
-				roles[k] = s
-			}
+		if v, ok := rolesRaw["authenticated"].(string); ok {
+			authenticatedARN = v
+		}
+		if v, ok := rolesRaw["unauthenticated"].(string); ok {
+			unauthenticatedARN = v
 		}
 	}
 
 	if err := rc.backends.CognitoIdentity.Backend.SetIdentityPoolRoles(
-		poolID, roles, nil,
+		poolID, authenticatedARN, unauthenticatedARN, nil,
 	); err != nil {
 		return "", fmt.Errorf("create Cognito IdentityPoolRoleAttachment for %s: %w", poolID, err)
 	}
@@ -1195,7 +1195,12 @@ func (rc *ResourceCreator) createLambdaEventInvokeConfig(
 		input.MaximumEventAgeInSeconds = &n
 	}
 
-	cfg, err := rc.backends.Lambda.Backend.PutFunctionEventInvokeConfig(functionName, input)
+	ib, ok := rc.backends.Lambda.Backend.(*lambdabackend.InMemoryBackend)
+	if !ok {
+		return logicalID + "-stub", nil
+	}
+
+	cfg, err := ib.PutFunctionEventInvokeConfig(functionName, input)
 	if err != nil {
 		return "", fmt.Errorf("create Lambda EventInvokeConfig for %s: %w", functionName, err)
 	}
@@ -1208,13 +1213,17 @@ func (rc *ResourceCreator) deleteLambdaEventInvokeConfig(physicalID string) erro
 		return nil
 	}
 
-	// physicalID is the function ARN; extract the function name from it.
+	ib, ok := rc.backends.Lambda.Backend.(*lambdabackend.InMemoryBackend)
+	if !ok {
+		return nil
+	}
+
 	name := resourceNameFromARN(physicalID)
 	if name == "" {
 		name = physicalID
 	}
 
-	err := rc.backends.Lambda.Backend.DeleteFunctionEventInvokeConfig(name)
+	err := ib.DeleteFunctionEventInvokeConfig(name)
 	if err != nil && err != lambdabackend.ErrEventInvokeConfigNotFound {
 		return err
 	}
@@ -1249,7 +1258,12 @@ func (rc *ResourceCreator) createLambdaUrl(
 		authType = "NONE"
 	}
 
-	cfg, err := rc.backends.Lambda.Backend.CreateFunctionURLConfig(name, authType, nil, "")
+	ib, ok := rc.backends.Lambda.Backend.(*lambdabackend.InMemoryBackend)
+	if !ok {
+		return logicalID + "-stub", nil
+	}
+
+	cfg, err := ib.CreateFunctionURLConfig(name, authType, nil, "")
 	if err != nil {
 		return "", fmt.Errorf("create Lambda Url for %s: %w", name, err)
 	}
@@ -1262,15 +1276,17 @@ func (rc *ResourceCreator) deleteLambdaUrl(physicalID string) error {
 		return nil
 	}
 
-	// physicalID is the function URL; we need the function name from the FunctionArn.
-	// Retrieve by URL: scan configs. Since we don't have a reverse lookup, store name in physicalID.
-	// physicalID = functionName used at create time.
+	ib, ok := rc.backends.Lambda.Backend.(*lambdabackend.InMemoryBackend)
+	if !ok {
+		return nil
+	}
+
 	name := resourceNameFromARN(physicalID)
 	if name == "" {
 		name = physicalID
 	}
 
-	err := rc.backends.Lambda.Backend.DeleteFunctionURLConfig(name)
+	err := ib.DeleteFunctionURLConfig(name)
 	if err != nil && err != lambdabackend.ErrFunctionURLNotFound {
 		return err
 	}

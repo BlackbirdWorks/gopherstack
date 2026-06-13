@@ -1,7 +1,6 @@
 package cloudformation
 
 import (
-	"context"
 	"fmt"
 	"math"
 	"strconv"
