@@ -484,10 +484,7 @@ func writeEventStringHeader(w *bytes.Buffer, name, value string) {
 	w.WriteByte(eventStreamHeaderTypeString)
 
 	vlen := make([]byte, eventStreamHeaderValueLenBytes)
-	binary.BigEndian.PutUint16(
-		vlen,
-		uint16(len(valBuf)),
-	) //nolint:gosec // header values are always < 65536 bytes
+	binary.BigEndian.PutUint16(vlen, uint16(len(valBuf))) //nolint:gosec // header values are always < 65536 bytes
 	w.Write(vlen)
 	w.Write(valBuf)
 }

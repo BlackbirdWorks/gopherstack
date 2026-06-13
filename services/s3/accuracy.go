@@ -340,9 +340,7 @@ func NewCRC64NVME() hash.Hash {
 // Write implements io.Writer.
 func (h *CRC64NVMEHash) Write(p []byte) (int, error) {
 	for _, b := range p {
-		lsb := byte(
-			h.crc,
-		) //nolint:gosec // lower-byte truncation is intentional for CRC table index
+		lsb := byte(h.crc) //nolint:gosec // lower-byte truncation is intentional for CRC table index
 		h.crc = crc64NVMETable[lsb^b] ^ (h.crc >> crc64ShiftBits)
 	}
 

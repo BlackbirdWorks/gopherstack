@@ -74,6 +74,10 @@ func errorTable() []s3ErrorEntry {
 }
 
 func coreErrorTable() []s3ErrorEntry {
+	return append(coreErrorTableBucket(), coreErrorTableObject()...)
+}
+
+func coreErrorTableBucket() []s3ErrorEntry {
 	return []s3ErrorEntry{
 		{
 			ErrNoSuchBucket,
@@ -131,6 +135,11 @@ func coreErrorTable() []s3ErrorEntry {
 			ErrInvalidArgument,
 			s3ErrorInfo{errInvalidArgument, "Invalid Argument.", http.StatusBadRequest},
 		},
+	}
+}
+
+func coreErrorTableObject() []s3ErrorEntry {
+	return []s3ErrorEntry{
 		{ErrMethodNotAllowed, s3ErrorInfo{
 			"MethodNotAllowed",
 			"The specified method is not allowed against this resource.",
