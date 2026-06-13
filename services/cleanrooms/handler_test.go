@@ -21,7 +21,12 @@ func newTestServer(t *testing.T) (*cleanrooms.Handler, *echo.Echo) {
 	return h, e
 }
 
-func doRequest(t *testing.T, e *echo.Echo, method, path string, body any) *httptest.ResponseRecorder {
+func doRequest(
+	t *testing.T,
+	e *echo.Echo,
+	method, path string,
+	body any,
+) *httptest.ResponseRecorder {
 	t.Helper()
 	var reqBody []byte
 	if body != nil {
@@ -136,9 +141,11 @@ func TestConfiguredTableCRUD(t *testing.T) {
 	}
 
 	createBody := map[string]any{
-		"name":           "my-table",
-		"description":    "desc",
-		"tableReference": map[string]any{"glue": map[string]any{"databaseName": "db", "tableName": "tbl"}},
+		"name":        "my-table",
+		"description": "desc",
+		"tableReference": map[string]any{
+			"glue": map[string]any{"databaseName": "db", "tableName": "tbl"},
+		},
 		"allowedColumns": []string{"col1"},
 		"analysisMethod": "DIRECT_QUERY",
 	}
@@ -178,7 +185,13 @@ func TestConfiguredTableCRUD(t *testing.T) {
 	}
 
 	t.Run("update", func(t *testing.T) {
-		rec := doRequest(t, e, http.MethodPatch, "/configuredTables/"+ctID, map[string]any{"name": "new-name"})
+		rec := doRequest(
+			t,
+			e,
+			http.MethodPatch,
+			"/configuredTables/"+ctID,
+			map[string]any{"name": "new-name"},
+		)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
 		}
@@ -226,7 +239,13 @@ func TestMembershipCRUD(t *testing.T) {
 	}
 
 	tests := []tc{
-		{name: "create", method: http.MethodPost, path: "/memberships", body: createBody, wantStatus: http.StatusOK},
+		{
+			name:       "create",
+			method:     http.MethodPost,
+			path:       "/memberships",
+			body:       createBody,
+			wantStatus: http.StatusOK,
+		},
 		{name: "list", method: http.MethodGet, path: "/memberships", wantStatus: http.StatusOK},
 	}
 
