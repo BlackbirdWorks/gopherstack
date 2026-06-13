@@ -202,6 +202,8 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/appstream v1.60.3
 )
 
+require github.com/aws/aws-sdk-go-v2/service/vpclattice v1.22.2
+
 require github.com/aws/aws-sdk-go-v2/service/networkmonitor v1.14.6
 
 require github.com/aws/aws-sdk-go-v2/service/omics v1.45.0

@@ -139,6 +139,7 @@ import (
 	timestreamquerytypes "github.com/aws/aws-sdk-go-v2/service/timestreamquery/types"
 	transfersvc "github.com/aws/aws-sdk-go-v2/service/transfer"
 	verifiedpermissionssvc "github.com/aws/aws-sdk-go-v2/service/verifiedpermissions"
+	vpclatticesvc "github.com/aws/aws-sdk-go-v2/service/vpclattice"
 	xraysvc "github.com/aws/aws-sdk-go-v2/service/xray"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -311,6 +312,7 @@ provider "aws" {
     ssoadmin        = %[1]q
     sts             = %[1]q
     swf             = %[1]q
+    vpclattice      = %[1]q
     wafv2           = %[1]q
   }
 }
@@ -6391,6 +6393,28 @@ func TestTerraform_Xray(t *testing.T) {
 		groupsOut, err := client.GetGroups(ctx, &xraysvc.GetGroupsInput{})
 		require.NoError(t, err, "GetGroups should succeed")
 		assert.NotEmpty(t, groupsOut.Groups, "expected at least one group")
+	})
+}
+
+// TestTerraform_VPCLattice provisions a VPC Lattice service and service network
+// via Terraform and verifies they were created.
+func TestTerraform_VPCLattice(t *testing.T) {
+	t.Parallel()
+
+	runTfTestWithEndpoint(t, "vpclattice/success", func(t *testing.T, ctx context.Context) {
+		t.Helper()
+
+		client := createVPCLatticeClient(t)
+
+		// ListServices - should have at least one from Terraform provisioning.
+		svcsOut, err := client.ListServices(ctx, &vpclatticesvc.ListServicesInput{})
+		require.NoError(t, err, "ListServices should succeed")
+		assert.NotEmpty(t, svcsOut.Items, "expected at least one service")
+
+		// ListServiceNetworks - should have at least one from Terraform provisioning.
+		snsOut, err := client.ListServiceNetworks(ctx, &vpclatticesvc.ListServiceNetworksInput{})
+		require.NoError(t, err, "ListServiceNetworks should succeed")
+		assert.NotEmpty(t, snsOut.Items, "expected at least one service network")
 	})
 }
 

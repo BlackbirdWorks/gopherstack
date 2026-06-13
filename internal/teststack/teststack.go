@@ -134,6 +134,7 @@ import (
 	transcribebackend "github.com/blackbirdworks/gopherstack/services/transcribe"
 	transferbackend "github.com/blackbirdworks/gopherstack/services/transfer"
 	verifiedpermissionsbackend "github.com/blackbirdworks/gopherstack/services/verifiedpermissions"
+	vpclatticebackend "github.com/blackbirdworks/gopherstack/services/vpclattice"
 	wafv2backend "github.com/blackbirdworks/gopherstack/services/wafv2"
 	xraybackend "github.com/blackbirdworks/gopherstack/services/xray"
 )
@@ -310,6 +311,8 @@ type Stack struct {
 	TransferHandler *transferbackend.Handler
 	// VerifiedPermissionsHandler provides access to the Verified Permissions backend.
 	VerifiedPermissionsHandler *verifiedpermissionsbackend.Handler
+	// VpcLatticeHandler provides access to the VPC Lattice backend.
+	VpcLatticeHandler *vpclatticebackend.Handler
 	// Wafv2Handler provides access to the WAFv2 backend.
 	Wafv2Handler *wafv2backend.Handler
 	// XrayHandler provides access to the X-Ray backend.
@@ -561,6 +564,7 @@ func registerLatestServices(registry *service.Registry, h handlers) {
 	_ = registry.Register(h.timestreamquery)
 	_ = registry.Register(h.transfer)
 	_ = registry.Register(h.verifiedpermissions)
+	_ = registry.Register(h.vpclattice)
 	_ = registry.Register(h.wafv2)
 	_ = registry.Register(h.xray)
 	_ = registry.Register(h.s3tables)
@@ -684,6 +688,7 @@ type handlers struct {
 	timestreamquery     *timestreamquerybackend.Handler
 	transfer            *transferbackend.Handler
 	verifiedpermissions *verifiedpermissionsbackend.Handler
+	vpclattice          *vpclatticebackend.Handler
 	wafv2               *wafv2backend.Handler
 	xray                *xraybackend.Handler
 	s3tables            *s3tablesbackend.Handler
@@ -1044,6 +1049,9 @@ func populateTransferHandlers(h *handlers) {
 	h.verifiedpermissions = verifiedpermissionsbackend.NewHandler(
 		verifiedpermissionsbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
+	h.vpclattice = vpclatticebackend.NewHandler(
+		vpclatticebackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
 	h.xray = xraybackend.NewHandler(xraybackend.NewInMemoryBackend())
 	h.s3tables = s3tablesbackend.NewHandler(
 		s3tablesbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
@@ -1329,6 +1337,7 @@ func setNewestStackHandlers(s *Stack, h handlers) {
 	s.TimestreamQueryHandler = h.timestreamquery
 	s.TransferHandler = h.transfer
 	s.VerifiedPermissionsHandler = h.verifiedpermissions
+	s.VpcLatticeHandler = h.vpclattice
 	s.Wafv2Handler = h.wafv2
 	s.XrayHandler = h.xray
 	s.S3TablesHandler = h.s3tables
