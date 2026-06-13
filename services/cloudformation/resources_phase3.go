@@ -1,6 +1,7 @@
 package cloudformation
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"strconv"
@@ -1445,6 +1446,70 @@ func (rc *ResourceCreator) deletePhase4Resource(physicalID, resourceType string)
 		return rc.deleteRDSDBCluster(physicalID)
 	case "AWS::RDS::DBClusterParameterGroup":
 		return rc.deleteRDSDBClusterParameterGroup(physicalID)
+	default:
+		return rc.deletePhase5Resource(resourceType, physicalID)
+	}
+}
+
+// deletePhase5Resource handles deletion of phase-5 resource types.
+func (rc *ResourceCreator) deletePhase5Resource(resourceType, physicalID string) error {
+	switch resourceType {
+	case "AWS::ApiGateway::Model":
+		return rc.deleteAPIGatewayModel(physicalID)
+	case "AWS::ApiGateway::RequestValidator":
+		return rc.deleteAPIGatewayRequestValidator(physicalID)
+	case "AWS::ApiGateway::Authorizer":
+		return rc.deleteAPIGatewayAuthorizer(physicalID)
+	case "AWS::ApiGateway::ApiKey":
+		return rc.deleteAPIGatewayApiKey(physicalID)
+	case "AWS::ApiGateway::UsagePlan":
+		return rc.deleteAPIGatewayUsagePlan(physicalID)
+	case "AWS::ApiGateway::UsagePlanKey":
+		return rc.deleteAPIGatewayUsagePlanKey(physicalID)
+	case "AWS::ApiGateway::DomainName":
+		return rc.deleteAPIGatewayDomainName(physicalID)
+	case "AWS::ApiGateway::BasePathMapping":
+		return rc.deleteAPIGatewayBasePathMapping(physicalID)
+	case "AWS::ApiGateway::Account":
+		return nil // singleton — no delete
+	case "AWS::ApiGateway::GatewayResponse":
+		return rc.deleteAPIGatewayGatewayResponse(physicalID)
+	case "AWS::ApiGatewayV2::DomainName":
+		return rc.deleteAPIGatewayV2DomainName(physicalID)
+	case "AWS::ApiGatewayV2::ApiMapping":
+		return rc.deleteAPIGatewayV2ApiMapping(physicalID)
+	case "AWS::Events::ApiDestination":
+		return rc.deleteEventBridgeApiDestination(physicalID)
+	case "AWS::Events::EventBusPolicy":
+		return rc.deleteEventBridgeEventBusPolicy(physicalID)
+	case "AWS::KMS::ReplicaKey":
+		return rc.deleteKMSReplicaKey(physicalID)
+	case "AWS::Cognito::IdentityPool":
+		return rc.deleteCognitoIdentityPool(physicalID)
+	case "AWS::Cognito::IdentityPoolRoleAttachment":
+		return nil // no explicit delete; pool deletion handles cleanup
+	case "AWS::Cognito::UserPoolDomain":
+		return rc.deleteCognitoUserPoolDomain(physicalID)
+	case "AWS::Cognito::UserPoolGroup":
+		return rc.deleteCognitoUserPoolGroup(physicalID)
+	case "AWS::EC2::VPCPeeringConnection":
+		return rc.deleteEC2VPCPeeringConnection(physicalID)
+	case "AWS::EC2::NetworkAcl":
+		return rc.deleteEC2NetworkAcl(physicalID)
+	case "AWS::EC2::NetworkAclEntry":
+		return rc.deleteEC2NetworkAclEntry(physicalID)
+	case "AWS::EC2::KeyPair":
+		return rc.deleteEC2KeyPair(physicalID)
+	case "AWS::EC2::SecurityGroupIngress", "AWS::EC2::SecurityGroupEgress":
+		return nil // standalone rules are revoked when the SG is deleted
+	case "AWS::EC2::FlowLog":
+		return rc.deleteEC2FlowLog(physicalID)
+	case "AWS::ElasticLoadBalancingV2::ListenerRule":
+		return rc.deleteELBv2ListenerRule(physicalID)
+	case "AWS::Lambda::EventInvokeConfig":
+		return rc.deleteLambdaEventInvokeConfig(physicalID)
+	case "AWS::Lambda::Url":
+		return rc.deleteLambdaUrl(physicalID)
 	default:
 		return nil
 	}

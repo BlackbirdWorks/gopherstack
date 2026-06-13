@@ -23,6 +23,7 @@ import (
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 	codebuildbackend "github.com/blackbirdworks/gopherstack/services/codebuild"
 	codepipelinebackend "github.com/blackbirdworks/gopherstack/services/codepipeline"
+	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	docdbbackend "github.com/blackbirdworks/gopherstack/services/docdb"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
@@ -100,6 +101,7 @@ type ServiceBackends struct {
 	SES             *sesbackend.Handler
 	ACM             *acmbackend.Handler
 	CognitoIDP      *cognitoidpbackend.Handler
+	CognitoIdentity *cognitoidentitybackend.Handler
 	// Phase-3 backends
 	EKS            *eksbackend.Handler
 	EFS            *efsbackend.Handler
@@ -953,6 +955,92 @@ func (rc *ResourceCreator) createPhase4Resource(
 		return rc.createRDSDBClusterParameterGroup(logicalID, props, params, physicalIDs)
 	default:
 
+		return rc.createPhase5Resource(logicalID, resourceType, props, params, physicalIDs)
+	}
+}
+
+// createPhase5Resource handles phase-5 resource types:
+// ApiGateway (Model/RequestValidator/Authorizer/ApiKey/UsagePlan/UsagePlanKey/DomainName/BasePathMapping/Account/GatewayResponse),
+// ApiGatewayV2 (DomainName/ApiMapping),
+// Events (ApiDestination/EventBusPolicy),
+// KMS (ReplicaKey),
+// Cognito (IdentityPool/IdentityPoolRoleAttachment/UserPoolDomain/UserPoolGroup),
+// EC2 (VPCPeeringConnection/NetworkAcl/NetworkAclEntry/KeyPair/SecurityGroupIngress/SecurityGroupEgress/FlowLog),
+// ELBv2 (ListenerRule),
+// Lambda (EventInvokeConfig/Url).
+func (rc *ResourceCreator) createPhase5Resource(
+	logicalID, resourceType string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, error) {
+	switch resourceType {
+	// ApiGateway v1
+	case "AWS::ApiGateway::Model":
+		return rc.createAPIGatewayModel(logicalID, props, params, physicalIDs)
+	case "AWS::ApiGateway::RequestValidator":
+		return rc.createAPIGatewayRequestValidator(logicalID, props, params, physicalIDs)
+	case "AWS::ApiGateway::Authorizer":
+		return rc.createAPIGatewayAuthorizer(logicalID, props, params, physicalIDs)
+	case "AWS::ApiGateway::ApiKey":
+		return rc.createAPIGatewayApiKey(logicalID, props, params, physicalIDs)
+	case "AWS::ApiGateway::UsagePlan":
+		return rc.createAPIGatewayUsagePlan(logicalID, props, params, physicalIDs)
+	case "AWS::ApiGateway::UsagePlanKey":
+		return rc.createAPIGatewayUsagePlanKey(logicalID, props, params, physicalIDs)
+	case "AWS::ApiGateway::DomainName":
+		return rc.createAPIGatewayDomainName(logicalID, props, params, physicalIDs)
+	case "AWS::ApiGateway::BasePathMapping":
+		return rc.createAPIGatewayBasePathMapping(logicalID, props, params, physicalIDs)
+	case "AWS::ApiGateway::Account":
+		return rc.createAPIGatewayAccount(logicalID, props, params, physicalIDs)
+	case "AWS::ApiGateway::GatewayResponse":
+		return rc.createAPIGatewayGatewayResponse(logicalID, props, params, physicalIDs)
+	// ApiGateway v2
+	case "AWS::ApiGatewayV2::DomainName":
+		return rc.createAPIGatewayV2DomainName(logicalID, props, params, physicalIDs)
+	case "AWS::ApiGatewayV2::ApiMapping":
+		return rc.createAPIGatewayV2ApiMapping(logicalID, props, params, physicalIDs)
+	// Events
+	case "AWS::Events::ApiDestination":
+		return rc.createEventBridgeApiDestination(logicalID, props, params, physicalIDs)
+	case "AWS::Events::EventBusPolicy":
+		return rc.createEventBridgeEventBusPolicy(logicalID, props, params, physicalIDs)
+	// KMS
+	case "AWS::KMS::ReplicaKey":
+		return rc.createKMSReplicaKey(logicalID, props, params, physicalIDs)
+	// Cognito
+	case "AWS::Cognito::IdentityPool":
+		return rc.createCognitoIdentityPool(logicalID, props, params, physicalIDs)
+	case "AWS::Cognito::IdentityPoolRoleAttachment":
+		return rc.createCognitoIdentityPoolRoleAttachment(logicalID, props, params, physicalIDs)
+	case "AWS::Cognito::UserPoolDomain":
+		return rc.createCognitoUserPoolDomain(logicalID, props, params, physicalIDs)
+	case "AWS::Cognito::UserPoolGroup":
+		return rc.createCognitoUserPoolGroup(logicalID, props, params, physicalIDs)
+	// EC2
+	case "AWS::EC2::VPCPeeringConnection":
+		return rc.createEC2VPCPeeringConnection(logicalID, props, params, physicalIDs)
+	case "AWS::EC2::NetworkAcl":
+		return rc.createEC2NetworkAcl(logicalID, props, params, physicalIDs)
+	case "AWS::EC2::NetworkAclEntry":
+		return rc.createEC2NetworkAclEntry(logicalID, props, params, physicalIDs)
+	case "AWS::EC2::KeyPair":
+		return rc.createEC2KeyPair(logicalID, props, params, physicalIDs)
+	case "AWS::EC2::SecurityGroupIngress":
+		return rc.createEC2SecurityGroupIngress(logicalID, props, params, physicalIDs)
+	case "AWS::EC2::SecurityGroupEgress":
+		return rc.createEC2SecurityGroupEgress(logicalID, props, params, physicalIDs)
+	case "AWS::EC2::FlowLog":
+		return rc.createEC2FlowLog(logicalID, props, params, physicalIDs)
+	// ELBv2
+	case "AWS::ElasticLoadBalancingV2::ListenerRule":
+		return rc.createELBv2ListenerRule(logicalID, props, params, physicalIDs)
+	// Lambda
+	case "AWS::Lambda::EventInvokeConfig":
+		return rc.createLambdaEventInvokeConfig(logicalID, props, params, physicalIDs)
+	case "AWS::Lambda::Url":
+		return rc.createLambdaUrl(logicalID, props, params, physicalIDs)
+	default:
 		return logicalID + "-stub", nil
 	}
 }
