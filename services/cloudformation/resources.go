@@ -121,14 +121,14 @@ type ServiceBackends struct {
 	MemoryDB       *memorydb.Handler
 	BedrockRuntime *bedrockruntime.Handler
 	// Phase-4 backends
-	ELBv2     *elbv2backend.Handler
-	WAFv2     *wafv2backend.Handler
-	Backup    *backupbackend.Handler
+	ELBv2  *elbv2backend.Handler
+	WAFv2  *wafv2backend.Handler
+	Backup *backupbackend.Handler
 	// CFN extensibility
 	WaitConditions *WaitConditionStore
 	MacroRegistry  *MacroRegistry
-	AccountID string
-	Region    string
+	AccountID      string
+	Region         string
 }
 
 // NestedStackCreator is a callback used to create and delete nested CloudFormation stacks.
@@ -1998,10 +1998,10 @@ func (r *serviceBackendsResolver) ResolveSecret(secretID, jsonKey string) (strin
 // (CustomResource, Custom::*, WaitCondition, WaitConditionHandle, Macro).
 func isCFNExtensibilityType(resourceType string) bool {
 	switch resourceType {
-	case "AWS::CloudFormation::CustomResource",
-		"AWS::CloudFormation::WaitCondition",
-		"AWS::CloudFormation::WaitConditionHandle",
-		"AWS::CloudFormation::Macro":
+	case cfnTypeCustomResource,
+		cfnTypeWaitCondition,
+		cfnTypeWaitConditionHandle,
+		cfnTypeMacro:
 		return true
 	}
 

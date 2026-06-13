@@ -272,7 +272,11 @@ func evaluateConditions(raw map[string]any, params, physicalIDs map[string]strin
 	return result
 }
 
-func evalConditionExpr(expr any, params, physicalIDs map[string]string, conditions map[string]bool) bool {
+func evalConditionExpr(
+	expr any,
+	params, physicalIDs map[string]string,
+	conditions map[string]bool,
+) bool {
 	m, isMagic := expr.(map[string]any)
 	if !isMagic {
 		return false
@@ -304,7 +308,11 @@ func evalConditionExpr(expr any, params, physicalIDs map[string]string, conditio
 	return false
 }
 
-func evalAndExpr(args []any, params, physicalIDs map[string]string, conditions map[string]bool) bool {
+func evalAndExpr(
+	args []any,
+	params, physicalIDs map[string]string,
+	conditions map[string]bool,
+) bool {
 	for _, a := range args {
 		if !evalConditionExpr(a, params, physicalIDs, conditions) {
 			return false
@@ -314,7 +322,11 @@ func evalAndExpr(args []any, params, physicalIDs map[string]string, conditions m
 	return true
 }
 
-func evalOrExpr(args []any, params, physicalIDs map[string]string, conditions map[string]bool) bool {
+func evalOrExpr(
+	args []any,
+	params, physicalIDs map[string]string,
+	conditions map[string]bool,
+) bool {
 	for _, a := range args {
 		if evalConditionExpr(a, params, physicalIDs, conditions) {
 			return true
@@ -403,7 +415,7 @@ func resolveRef(ref string, ctx resolveCtx) string {
 			return ctx.region
 		}
 
-		return "us-east-1"
+		return cfnDefaultRegion
 	case "AWS::AccountId":
 		if ctx.accountID != "" {
 			return ctx.accountID
@@ -537,15 +549,20 @@ func resolveMiscIntrinsic(val map[string]any, ctx resolveCtx) string {
 
 	// Fn::Transform: invoke registered macro if available, else return as-is.
 	if transformSpec, hasTransform := val["Fn::Transform"].(map[string]any); hasTransform {
-		macroName, _ := transformSpec["Name"].(string)
-		if macroName != "" && ctx.macros != nil {
-			result := invokeMacroTransform(macroName, transformSpec, ctx)
-			if result != "" {
-				return result
-			}
-		}
+		return resolveTransformIntrinsic(transformSpec, val, ctx)
+	}
 
-		return fmt.Sprintf("%v", val)
+	return fmt.Sprintf("%v", val)
+}
+
+// resolveTransformIntrinsic handles the Fn::Transform intrinsic function.
+func resolveTransformIntrinsic(transformSpec, val map[string]any, ctx resolveCtx) string {
+	macroName, _ := transformSpec["Name"].(string)
+	if macroName != "" && ctx.macros != nil {
+		result := invokeMacroTransform(macroName, transformSpec, ctx)
+		if result != "" {
+			return result
+		}
 	}
 
 	return fmt.Sprintf("%v", val)
@@ -790,7 +807,11 @@ func resolveOutputsWithContext(
 // validateImportValues checks that all Fn::ImportValue references in the template
 // can be resolved against the available exports. Returns an error describing the
 // first missing export, or nil if all imports are satisfied.
-func validateImportValues(tmpl *Template, resolvedParams map[string]string, exports map[string]string) error {
+func validateImportValues(
+	tmpl *Template,
+	resolvedParams map[string]string,
+	exports map[string]string,
+) error {
 	for _, res := range tmpl.Resources {
 		if err := validateImportValuesInValue(res.Properties, resolvedParams, exports); err != nil {
 			return err
@@ -884,7 +905,7 @@ func resolveGetAtt(logicalID, attrName string, ctx resolveCtx) string {
 	resType := ctx.resourceTypes[logicalID]
 
 	// Custom resource Data outputs are stored in physicalIDs as "logicalID/Key".
-	if resType == "AWS::CloudFormation::CustomResource" || strings.HasPrefix(resType, "Custom::") {
+	if resType == cfnTypeCustomResource || strings.HasPrefix(resType, "Custom::") {
 		if v := getCustomResourceAttrFromPhysicalIDs(logicalID, attrName, ctx.physicalIDs); v != "" {
 			return v
 		}
@@ -1003,7 +1024,12 @@ func getDynamoDBTableAttribute(physID, attrName, accountID, region string) strin
 	case attrNameArn:
 		return arn.Build("dynamodb", region, accountID, "table/"+physID)
 	case "StreamArn":
-		return arn.Build("dynamodb", region, accountID, "table/"+physID+"/stream/2000-01-01T00:00:00.000")
+		return arn.Build(
+			"dynamodb",
+			region,
+			accountID,
+			"table/"+physID+"/stream/2000-01-01T00:00:00.000",
+		)
 	}
 
 	return physID
@@ -1066,7 +1092,14 @@ func sqsQueueNameFromURL(queueURL string) string {
 func getAZsForRegion(region string) []string {
 	switch region {
 	case "us-east-1":
-		return []string{"us-east-1a", "us-east-1b", "us-east-1c", "us-east-1d", "us-east-1e", "us-east-1f"}
+		return []string{
+			"us-east-1a",
+			"us-east-1b",
+			"us-east-1c",
+			"us-east-1d",
+			"us-east-1e",
+			"us-east-1f",
+		}
 	case "us-east-2":
 		return []string{"us-east-2a", "us-east-2b", "us-east-2c"}
 	case "us-west-1":
@@ -1208,6 +1241,9 @@ func invokeMacroTransform(macroName string, transformSpec map[string]any, ctx re
 
 // getCustomResourceAttrFromPhysicalIDs resolves a Fn::GetAtt attribute for a custom
 // resource by looking up the stored Data output in the physicalIDs map.
-func getCustomResourceAttrFromPhysicalIDs(logicalID, attrName string, physicalIDs map[string]string) string {
+func getCustomResourceAttrFromPhysicalIDs(
+	logicalID, attrName string,
+	physicalIDs map[string]string,
+) string {
 	return physicalIDs[logicalID+"/"+attrName]
 }

@@ -3,6 +3,7 @@ package cloudformation
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -23,8 +24,30 @@ const customResourceTimeout = 30 * time.Second
 // in emulator mode (i.e. no real workload has sent a signal).
 const waitConditionEmulatorTimeout = 100 * time.Millisecond
 
+// CFN resource type constants used across the cloudformation package.
+const (
+	cfnTypeCustomResource      = "AWS::CloudFormation::CustomResource"
+	cfnTypeWaitCondition       = "AWS::CloudFormation::WaitCondition"
+	cfnTypeWaitConditionHandle = "AWS::CloudFormation::WaitConditionHandle"
+	cfnTypeMacro               = "AWS::CloudFormation::Macro"
+	cfnStatusFailed            = "FAILED"
+	cfnDefaultRegion           = "us-east-1"
+)
+
+// cfnResponseServerReadTimeout is the ReadHeaderTimeout for the cfn-response HTTP server.
+const cfnResponseServerReadTimeout = 10 * time.Second
+
+// Sentinel errors for custom resource lifecycle failures.
+var (
+	errCustomResourceFailed       = errors.New("custom resource failed")
+	errCustomResourceUpdateFailed = errors.New("custom resource update failed")
+	errCustomResourceDeleteFailed = errors.New("custom resource delete failed")
+	errUnexpectedListenerAddr     = errors.New("unexpected listener address type")
+)
+
 // cfnCustomResourceEvent is the event payload sent to a Lambda-backed custom resource.
 type cfnCustomResourceEvent struct {
+	ResourceProperties map[string]any `json:"ResourceProperties"`
 	RequestType        string         `json:"RequestType"`
 	ResponseURL        string         `json:"ResponseURL"`
 	StackID            string         `json:"StackId"`
@@ -32,18 +55,17 @@ type cfnCustomResourceEvent struct {
 	ResourceType       string         `json:"ResourceType"`
 	LogicalResourceID  string         `json:"LogicalResourceId"`
 	PhysicalResourceID string         `json:"PhysicalResourceId,omitempty"`
-	ResourceProperties map[string]any `json:"ResourceProperties"`
 }
 
 // cfnCustomResourceResponse is the response a custom resource Lambda sends via HTTP PUT.
 type cfnCustomResourceResponse struct {
+	Data               map[string]any `json:"Data,omitempty"`
 	Status             string         `json:"Status"`
 	Reason             string         `json:"Reason,omitempty"`
 	PhysicalResourceID string         `json:"PhysicalResourceId"`
 	StackID            string         `json:"StackId,omitempty"`
 	RequestID          string         `json:"RequestId,omitempty"`
 	LogicalResourceID  string         `json:"LogicalResourceId,omitempty"`
-	Data               map[string]any `json:"Data,omitempty"`
 	NoEcho             bool           `json:"NoEcho,omitempty"`
 }
 
@@ -58,9 +80,9 @@ type WCSignal struct {
 // WaitConditionStore manages wait condition signals independently of the CFN backend mutex.
 // It uses its own mutex so signals can be injected from goroutines that don't hold the CFN lock.
 type WaitConditionStore struct {
-	mu      sync.Mutex
-	sigs    map[string][]WCSignal    // handleToken → signals received
-	notify  map[string][]chan struct{} // handleToken → listener channels
+	sigs   map[string][]WCSignal
+	notify map[string][]chan struct{}
+	mu     sync.Mutex
 }
 
 // NewWaitConditionStore creates a new empty WaitConditionStore.
@@ -104,7 +126,12 @@ func (s *WaitConditionStore) signalCount(token string) int {
 // Wait blocks until at least count SUCCESS signals have been received for token,
 // or until ctx is cancelled, or until emulatorTimeout elapses (in which case it
 // succeeds anyway — no real workload is running in the emulator).
-func (s *WaitConditionStore) Wait(ctx context.Context, token string, count int, emulatorTimeout time.Duration) error {
+func (s *WaitConditionStore) Wait(
+	ctx context.Context,
+	token string,
+	count int,
+	emulatorTimeout time.Duration,
+) error {
 	// Fast path: signals already present.
 	if s.signalCount(token) >= count {
 		return nil
@@ -124,6 +151,7 @@ func (s *WaitConditionStore) Wait(ctx context.Context, token string, count int, 
 		for i, c := range notifiers {
 			if c == ch {
 				s.notify[token] = append(notifiers[:i], notifiers[i+1:]...)
+
 				break
 			}
 		}
@@ -165,6 +193,86 @@ func isSNSARN(s string) bool {
 	return strings.HasPrefix(s, "arn:") && strings.Contains(s, ":sns:")
 }
 
+// startCFNResponseServer starts a temporary HTTP server to receive a cfn-response PUT callback.
+// The caller must invoke shutdown() when done to release the listener.
+func startCFNResponseServer(
+	ctx context.Context,
+	requestID string,
+) (chan cfnCustomResourceResponse, string, func(), error) {
+	lc := &net.ListenConfig{}
+
+	ln, err := lc.Listen(ctx, "tcp", "127.0.0.1:0")
+	if err != nil {
+		return nil, "", func() {}, err
+	}
+
+	tcpAddr, ok := ln.Addr().(*net.TCPAddr)
+	if !ok {
+		_ = ln.Close()
+
+		return nil, "", func() {}, errUnexpectedListenerAddr
+	}
+
+	path := "/cfn-response/" + requestID
+	responseURL := fmt.Sprintf("http://127.0.0.1:%d%s", tcpAddr.Port, path)
+	respCh := make(chan cfnCustomResourceResponse, 1)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+
+			return
+		}
+
+		var resp cfnCustomResourceResponse
+		_ = json.NewDecoder(r.Body).Decode(&resp)
+
+		select {
+		case respCh <- resp:
+		default:
+		}
+
+		w.WriteHeader(http.StatusOK)
+	})
+
+	srv := &http.Server{
+		Handler:           mux,
+		ReadHeaderTimeout: cfnResponseServerReadTimeout,
+	}
+
+	go func() { _ = srv.Serve(ln) }()
+
+	return respCh, responseURL, func() { _ = srv.Shutdown(context.Background()) }, nil
+}
+
+// dispatchToServiceToken dispatches an event payload to the backing Lambda or SNS service.
+// Returns true if the dispatch succeeded and a callback response is expected.
+func (rc *ResourceCreator) dispatchToServiceToken(
+	ctx context.Context,
+	serviceToken string,
+	payload []byte,
+) bool {
+	switch {
+	case isLambdaARN(serviceToken) && rc.backends.Lambda != nil:
+		_, statusCode, invokeErr := rc.backends.Lambda.Backend.InvokeFunction(
+			ctx, serviceToken, lambdabackend.InvocationTypeEvent, payload,
+		)
+
+		return invokeErr == nil && statusCode >= 200 && statusCode < 300
+
+	case isSNSARN(serviceToken) && rc.backends.SNS != nil:
+		_, publishErr := rc.backends.SNS.Backend.Publish(
+			serviceToken, string(payload), "", "", map[string]snsbackend.MessageAttribute{},
+		)
+
+		return publishErr == nil
+
+	default:
+		return false
+	}
+}
+
 // createCustomResource handles AWS::CloudFormation::CustomResource and Custom::* resource types.
 // It invokes the backing Lambda (or SNS) with the CFN custom resource event and waits for the
 // response via a temporary local HTTP server that receives the cfn-response PUT callback.
@@ -184,50 +292,21 @@ func (rc *ResourceCreator) createCustomResource(
 	defaultPhysID := logicalID + "-" + requestID[:8]
 
 	if serviceToken == "" {
-		// No ServiceToken: emit a stub physical ID.
 		return defaultPhysID, nil
 	}
 
-	stackID, _ := physicalIDs["_StackId"]
+	stackID := physicalIDs["_StackId"]
 	if stackID == "" {
-		stackID = "arn:aws:cloudformation:us-east-1:000000000000:stack/unknown/unknown"
+		stackID = "arn:aws:cloudformation:" + cfnDefaultRegion + ":000000000000:stack/unknown/unknown"
 	}
 
-	// Start a temporary HTTP server to receive the cfn-response PUT.
-	respCh := make(chan cfnCustomResourceResponse, 1)
-
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	respCh, responseURL, shutdown, err := startCFNResponseServer(ctx, requestID)
 	if err != nil {
-		// No listener available; fall through to stub.
 		return defaultPhysID, nil
 	}
 
-	port := ln.Addr().(*net.TCPAddr).Port
-	path := "/cfn-response/" + requestID
-	responseURL := fmt.Sprintf("http://127.0.0.1:%d%s", port, path)
+	defer shutdown()
 
-	mux := http.NewServeMux()
-	mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPut {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		var resp cfnCustomResourceResponse
-		_ = json.NewDecoder(r.Body).Decode(&resp)
-		select {
-		case respCh <- resp:
-		default:
-		}
-		w.WriteHeader(http.StatusOK)
-	})
-
-	srv := &http.Server{Handler: mux}
-
-	go func() { _ = srv.Serve(ln) }()
-
-	defer func() { _ = srv.Shutdown(context.Background()) }()
-
-	// Build the event payload.
 	event := cfnCustomResourceEvent{
 		RequestType:        "Create",
 		ResponseURL:        responseURL,
@@ -243,29 +322,7 @@ func (rc *ResourceCreator) createCustomResource(
 		return defaultPhysID, nil
 	}
 
-	// Invoke the backing service. Track whether an invocation was dispatched
-	// successfully enough to expect an async callback via ResponseURL.
-	expectCallback := false
-
-	switch {
-	case isLambdaARN(serviceToken) && rc.backends.Lambda != nil:
-		_, statusCode, invokeErr := rc.backends.Lambda.Backend.InvokeFunction(
-			ctx, serviceToken, lambdabackend.InvocationTypeEvent, payload,
-		)
-		// Async (Event) invocation returns 202 on successful dispatch.
-		// Errors or non-2xx mean the Lambda won't send a callback.
-		if invokeErr == nil && statusCode >= 200 && statusCode < 300 {
-			expectCallback = true
-		}
-	case isSNSARN(serviceToken) && rc.backends.SNS != nil:
-		_, publishErr := rc.backends.SNS.Backend.Publish(serviceToken, string(payload), "", "", map[string]snsbackend.MessageAttribute{})
-		if publishErr == nil {
-			expectCallback = true
-		}
-	}
-
-	// If no dispatch succeeded, return stub immediately (no callback will arrive).
-	if !expectCallback {
+	if !rc.dispatchToServiceToken(ctx, serviceToken, payload) {
 		return defaultPhysID, nil
 	}
 
@@ -274,7 +331,6 @@ func (rc *ResourceCreator) createCustomResource(
 	case resp := <-respCh:
 		return rc.applyCustomResourceResponse(logicalID, requestID, resp, physicalIDs)
 	case <-time.After(customResourceTimeout):
-		// Timeout: emulator succeeds with stub ID (no real Lambda running in unit tests).
 		return defaultPhysID, nil
 	case <-ctx.Done():
 		return defaultPhysID, nil
@@ -289,13 +345,13 @@ func (rc *ResourceCreator) applyCustomResourceResponse(
 	resp cfnCustomResourceResponse,
 	physicalIDs map[string]string,
 ) (string, error) {
-	if resp.Status == "FAILED" {
+	if resp.Status == cfnStatusFailed {
 		reason := resp.Reason
 		if reason == "" {
 			reason = "resource reported FAILED with no reason"
 		}
 
-		return "", fmt.Errorf("custom resource %s failed: %s", logicalID, reason)
+		return "", fmt.Errorf("%w: resource %s: %s", errCustomResourceFailed, logicalID, reason)
 	}
 
 	physID := resp.PhysicalResourceID
@@ -320,48 +376,26 @@ func (rc *ResourceCreator) updateCustomResource(
 ) error {
 	serviceToken, _ := props["ServiceToken"].(string)
 	if serviceToken == "" {
-		// Try old props if new props have no ServiceToken.
 		serviceToken, _ = oldProps["ServiceToken"].(string)
 	}
+
 	if serviceToken == "" {
 		return nil
 	}
 
 	requestID := uuid.New().String()
 
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	respCh, responseURL, shutdown, err := startCFNResponseServer(ctx, requestID)
 	if err != nil {
 		return nil
 	}
 
-	port := ln.Addr().(*net.TCPAddr).Port
-	path := "/cfn-response/" + requestID
-	responseURL := fmt.Sprintf("http://127.0.0.1:%d%s", port, path)
-
-	respCh := make(chan cfnCustomResourceResponse, 1)
-	mux := http.NewServeMux()
-	mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPut {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		var resp cfnCustomResourceResponse
-		_ = json.NewDecoder(r.Body).Decode(&resp)
-		select {
-		case respCh <- resp:
-		default:
-		}
-		w.WriteHeader(http.StatusOK)
-	})
-
-	srv := &http.Server{Handler: mux}
-
-	go func() { _ = srv.Serve(ln) }()
-
-	defer func() { _ = srv.Shutdown(context.Background()) }()
+	defer shutdown()
 
 	// Build the Update event payload per the CFN custom resource protocol.
 	type updateEvent struct {
+		ResourceProperties    map[string]any `json:"ResourceProperties"`
+		OldResourceProperties map[string]any `json:"OldResourceProperties"`
 		RequestType           string         `json:"RequestType"`
 		ResponseURL           string         `json:"ResponseURL"`
 		StackID               string         `json:"StackId"`
@@ -369,14 +403,12 @@ func (rc *ResourceCreator) updateCustomResource(
 		ResourceType          string         `json:"ResourceType"`
 		LogicalResourceID     string         `json:"LogicalResourceId"`
 		PhysicalResourceID    string         `json:"PhysicalResourceId"`
-		ResourceProperties    map[string]any `json:"ResourceProperties"`
-		OldResourceProperties map[string]any `json:"OldResourceProperties"`
 	}
 
 	event := updateEvent{
 		RequestType:           "Update",
 		ResponseURL:           responseURL,
-		StackID:               "arn:aws:cloudformation:us-east-1:000000000000:stack/unknown/unknown",
+		StackID:               "arn:aws:cloudformation:" + cfnDefaultRegion + ":000000000000:stack/unknown/unknown",
 		RequestID:             requestID,
 		ResourceType:          resourceType,
 		LogicalResourceID:     logicalID,
@@ -385,41 +417,29 @@ func (rc *ResourceCreator) updateCustomResource(
 		OldResourceProperties: oldProps,
 	}
 
-	payload, err := json.Marshal(event)
-	if err != nil {
+	payload, merr := json.Marshal(event)
+	if merr != nil {
 		return nil
 	}
 
-	updateExpectCallback := false
-
-	switch {
-	case isLambdaARN(serviceToken) && rc.backends.Lambda != nil:
-		_, sc, invokeErr := rc.backends.Lambda.Backend.InvokeFunction(
-			ctx, serviceToken, lambdabackend.InvocationTypeEvent, payload,
-		)
-		if invokeErr == nil && sc >= 200 && sc < 300 {
-			updateExpectCallback = true
-		}
-	case isSNSARN(serviceToken) && rc.backends.SNS != nil:
-		_, publishErr := rc.backends.SNS.Backend.Publish(serviceToken, string(payload), "", "", map[string]snsbackend.MessageAttribute{})
-		if publishErr == nil {
-			updateExpectCallback = true
-		}
-	}
-
-	if !updateExpectCallback {
+	if !rc.dispatchToServiceToken(ctx, serviceToken, payload) {
 		return nil
 	}
 
 	select {
 	case resp := <-respCh:
-		if resp.Status == "FAILED" {
+		if resp.Status == cfnStatusFailed {
 			reason := resp.Reason
 			if reason == "" {
 				reason = "resource reported FAILED with no reason"
 			}
 
-			return fmt.Errorf("custom resource update %s failed: %s", logicalID, reason)
+			return fmt.Errorf(
+				"%w: resource %s: %s",
+				errCustomResourceUpdateFailed,
+				logicalID,
+				reason,
+			)
 		}
 
 		return nil
@@ -443,32 +463,12 @@ func (rc *ResourceCreator) deleteCustomResource(
 
 	requestID := uuid.New().String()
 
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	respCh, responseURL, shutdown, err := startCFNResponseServer(ctx, requestID)
 	if err != nil {
 		return nil
 	}
 
-	port := ln.Addr().(*net.TCPAddr).Port
-	path := "/cfn-response/" + requestID
-	responseURL := fmt.Sprintf("http://127.0.0.1:%d%s", port, path)
-
-	respCh := make(chan cfnCustomResourceResponse, 1)
-	mux := http.NewServeMux()
-	mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
-		var resp cfnCustomResourceResponse
-		_ = json.NewDecoder(r.Body).Decode(&resp)
-		select {
-		case respCh <- resp:
-		default:
-		}
-		w.WriteHeader(http.StatusOK)
-	})
-
-	srv := &http.Server{Handler: mux}
-
-	go func() { _ = srv.Serve(ln) }()
-
-	defer func() { _ = srv.Shutdown(context.Background()) }()
+	defer shutdown()
 
 	event := cfnCustomResourceEvent{
 		RequestType:        "Delete",
@@ -480,37 +480,23 @@ func (rc *ResourceCreator) deleteCustomResource(
 		ResourceProperties: props,
 	}
 
-	payload, err := json.Marshal(event)
-	if err != nil {
+	payload, merr := json.Marshal(event)
+	if merr != nil {
 		return nil
 	}
 
-	deleteExpectCallback := false
-
-	switch {
-	case isLambdaARN(serviceToken) && rc.backends.Lambda != nil:
-		_, sc, invokeErr := rc.backends.Lambda.Backend.InvokeFunction(
-			ctx, serviceToken, lambdabackend.InvocationTypeEvent, payload,
-		)
-		if invokeErr == nil && sc >= 200 && sc < 300 {
-			deleteExpectCallback = true
-		}
-	case isSNSARN(serviceToken) && rc.backends.SNS != nil:
-		_, publishErr := rc.backends.SNS.Backend.Publish(serviceToken, string(payload), "", "", map[string]snsbackend.MessageAttribute{})
-		if publishErr == nil {
-			deleteExpectCallback = true
-		}
-	}
-
-	if !deleteExpectCallback {
+	if !rc.dispatchToServiceToken(ctx, serviceToken, payload) {
 		return nil
 	}
 
 	// Wait for Delete response (fire-and-forget if timeout).
 	select {
 	case resp := <-respCh:
-		if resp.Status == "FAILED" {
-			return fmt.Errorf("custom resource delete %s failed: %s", logicalID, resp.Reason)
+		if resp.Status == cfnStatusFailed {
+			return fmt.Errorf(
+				"%w: resource %s: %s",
+				errCustomResourceDeleteFailed, logicalID, resp.Reason,
+			)
 		}
 
 		return nil
@@ -525,7 +511,7 @@ func (rc *ResourceCreator) deleteCustomResource(
 
 // createWaitConditionHandle creates an AWS::CloudFormation::WaitConditionHandle.
 // Returns a token used to correlate future signals from WaitCondition.
-func (rc *ResourceCreator) createWaitConditionHandle(logicalID string) (string, error) {
+func (rc *ResourceCreator) createWaitConditionHandle(_ string) (string, error) {
 	token := uuid.New().String()
 	// Physical ID encodes the signal token so WaitCondition can retrieve it.
 	physID := "wchandle-" + token
@@ -611,18 +597,16 @@ func (rc *ResourceCreator) createMacro(
 }
 
 // deleteMacro handles AWS::CloudFormation::Macro resource deletion.
-func (rc *ResourceCreator) deleteMacro(physicalID string) error {
+func (rc *ResourceCreator) deleteMacro(physicalID string) {
 	if rc.backends.MacroRegistry != nil {
 		rc.backends.MacroRegistry.remove(physicalID)
 	}
-
-	return nil
 }
 
 // MacroRegistry stores registered CloudFormation macros.
 type MacroRegistry struct {
+	macros map[string]*MacroRecord
 	mu     sync.RWMutex
-	macros map[string]*MacroRecord // name → record
 }
 
 // NewMacroRegistry creates an empty MacroRegistry.
@@ -678,36 +662,40 @@ func (r *MacroRegistry) InvokeMacro(
 
 	// Build the macro invocation event per AWS spec.
 	event := map[string]any{
-		"region":                   "us-east-1",
-		"accountId":                "000000000000",
-		"fragment":                 json.RawMessage(fragmentJSON),
-		"transformId":              macroName,
-		"params":                   map[string]any{},
-		"templateParameterValues":  params,
-		"requestedTransforms":      []string{macroName},
+		"region":                  cfnDefaultRegion,
+		"accountId":               "000000000000",
+		"fragment":                json.RawMessage(fragmentJSON),
+		"transformId":             macroName,
+		"params":                  map[string]any{},
+		"templateParameterValues": params,
+		"requestedTransforms":     []string{macroName},
 	}
 
 	payload, err := json.Marshal(event)
 	if err != nil {
-		return fragmentJSON, nil
+		return fragmentJSON, err
 	}
 
 	result, _, err := lambdaBackend.Backend.InvokeFunction(
 		ctx, rec.FunctionARN, lambdabackend.InvocationTypeRequestResponse, payload,
 	)
-	if err != nil || len(result) == 0 {
+	if err != nil {
+		return fragmentJSON, err
+	}
+
+	if len(result) == 0 {
 		return fragmentJSON, nil
 	}
 
 	// Parse macro response: {"status": "success", "fragment": {...}}
 	var resp struct {
-		Status   string          `json:"status"`
-		Fragment json.RawMessage `json:"fragment"`
-		ErrorMessage string      `json:"errorMessage,omitempty"`
+		Status       string          `json:"status"`
+		ErrorMessage string          `json:"errorMessage,omitempty"`
+		Fragment     json.RawMessage `json:"fragment"`
 	}
 
-	if err := json.Unmarshal(result, &resp); err != nil {
-		return fragmentJSON, nil
+	if unmarshalErr := json.Unmarshal(result, &resp); unmarshalErr != nil {
+		return fragmentJSON, unmarshalErr
 	}
 
 	if strings.EqualFold(resp.Status, "success") && len(resp.Fragment) > 0 {
@@ -725,13 +713,13 @@ func (rc *ResourceCreator) createCFNExtensibilityResource(
 	params, physicalIDs map[string]string,
 ) (string, error) {
 	switch {
-	case resourceType == "AWS::CloudFormation::CustomResource" || strings.HasPrefix(resourceType, "Custom::"):
+	case resourceType == cfnTypeCustomResource || strings.HasPrefix(resourceType, "Custom::"):
 		return rc.createCustomResource(ctx, logicalID, resourceType, props, params, physicalIDs)
-	case resourceType == "AWS::CloudFormation::WaitConditionHandle":
+	case resourceType == cfnTypeWaitConditionHandle:
 		return rc.createWaitConditionHandle(logicalID)
-	case resourceType == "AWS::CloudFormation::WaitCondition":
+	case resourceType == cfnTypeWaitCondition:
 		return rc.createWaitCondition(ctx, logicalID, props, params, physicalIDs)
-	case resourceType == "AWS::CloudFormation::Macro":
+	case resourceType == cfnTypeMacro:
 		return rc.createMacro(logicalID, props, params, physicalIDs)
 	default:
 		return logicalID + "-stub", nil
@@ -746,11 +734,18 @@ func (rc *ResourceCreator) updateCFNExtensibilityResource(
 	props, oldProps map[string]any,
 ) (bool, error) {
 	switch {
-	case resourceType == "AWS::CloudFormation::CustomResource" || strings.HasPrefix(resourceType, "Custom::"):
-		return true, rc.updateCustomResource(ctx, logicalID, resourceType, physicalID, props, oldProps)
-	case resourceType == "AWS::CloudFormation::WaitConditionHandle",
-		resourceType == "AWS::CloudFormation::WaitCondition",
-		resourceType == "AWS::CloudFormation::Macro":
+	case resourceType == cfnTypeCustomResource || strings.HasPrefix(resourceType, "Custom::"):
+		return true, rc.updateCustomResource(
+			ctx,
+			logicalID,
+			resourceType,
+			physicalID,
+			props,
+			oldProps,
+		)
+	case resourceType == cfnTypeWaitConditionHandle,
+		resourceType == cfnTypeWaitCondition,
+		resourceType == cfnTypeMacro:
 		return true, nil
 	default:
 		return false, nil
@@ -764,26 +759,17 @@ func (rc *ResourceCreator) deleteCFNExtensibilityResource(
 	props map[string]any,
 ) (bool, error) {
 	switch {
-	case resourceType == "AWS::CloudFormation::CustomResource" || strings.HasPrefix(resourceType, "Custom::"):
+	case resourceType == cfnTypeCustomResource || strings.HasPrefix(resourceType, "Custom::"):
 		return true, rc.deleteCustomResource(ctx, logicalID, resourceType, physicalID, props)
-	case resourceType == "AWS::CloudFormation::WaitConditionHandle":
+	case resourceType == cfnTypeWaitConditionHandle:
 		return true, nil
-	case resourceType == "AWS::CloudFormation::WaitCondition":
+	case resourceType == cfnTypeWaitCondition:
 		return true, nil
-	case resourceType == "AWS::CloudFormation::Macro":
-		return true, rc.deleteMacro(physicalID)
+	case resourceType == cfnTypeMacro:
+		rc.deleteMacro(physicalID)
+
+		return true, nil
 	default:
 		return false, nil
 	}
-}
-
-// getCustomResourceAttribute resolves Fn::GetAtt for a Custom resource logical ID.
-// Data outputs are stored in physicalIDs as "logicalID/Key" during creation.
-func getCustomResourceAttribute(logicalID, attrName string, physicalIDs map[string]string) string {
-	key := logicalID + "/" + attrName
-	if v, ok := physicalIDs[key]; ok {
-		return v
-	}
-
-	return ""
 }

@@ -3,9 +3,11 @@ package cloudformation_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
 	"testing"
 	"time"
 
@@ -17,6 +19,8 @@ import (
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 	snsbackend "github.com/blackbirdworks/gopherstack/services/sns"
 )
+
+var errFunctionNotFound = errors.New("function not found")
 
 // newExtensibilityBackends creates a ServiceBackends suitable for extensibility tests.
 func newExtensibilityBackends() *cloudformation.ServiceBackends {
@@ -33,7 +37,13 @@ func newExtensibilityBackends() *cloudformation.ServiceBackends {
 // newExtensibilityBackendsWithLambda adds a real Lambda backend.
 func newExtensibilityBackendsWithLambda() *cloudformation.ServiceBackends {
 	b := newExtensibilityBackends()
-	lambdaBk := lambdabackend.NewInMemoryBackend(nil, nil, lambdabackend.DefaultSettings(), "000000000000", "us-east-1")
+	lambdaBk := lambdabackend.NewInMemoryBackend(
+		nil,
+		nil,
+		lambdabackend.DefaultSettings(),
+		"000000000000",
+		"us-east-1",
+	)
 	b.Lambda = lambdabackend.NewHandler(lambdaBk)
 
 	return b
@@ -123,7 +133,10 @@ func TestWaitConditionStore_AsyncSignal(t *testing.T) {
 	// Signal from a goroutine after a short delay.
 	go func() {
 		time.Sleep(20 * time.Millisecond)
-		store.Signal(token, cloudformation.WCSignal{UniqueID: "u1", Status: "SUCCESS", Data: "data"})
+		store.Signal(
+			token,
+			cloudformation.WCSignal{UniqueID: "u1", Status: "SUCCESS", Data: "data"},
+		)
 	}()
 
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
@@ -154,19 +167,23 @@ func TestResourceCreator_CustomResource_NilBackends(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		props        map[string]any
 		name         string
 		resourceType string
-		props        map[string]any
 	}{
 		{
 			name:         "AWS::CloudFormation::CustomResource stub",
 			resourceType: "AWS::CloudFormation::CustomResource",
-			props:        map[string]any{"ServiceToken": "arn:aws:lambda:us-east-1:000000000000:function:my-fn"},
+			props: map[string]any{
+				"ServiceToken": "arn:aws:lambda:us-east-1:000000000000:function:my-fn",
+			},
 		},
 		{
 			name:         "Custom::MyType stub",
 			resourceType: "Custom::MyType",
-			props:        map[string]any{"ServiceToken": "arn:aws:lambda:us-east-1:000000000000:function:my-fn"},
+			props: map[string]any{
+				"ServiceToken": "arn:aws:lambda:us-east-1:000000000000:function:my-fn",
+			},
 		},
 		{
 			name:         "Custom::Resource no ServiceToken",
@@ -180,7 +197,14 @@ func TestResourceCreator_CustomResource_NilBackends(t *testing.T) {
 			t.Parallel()
 
 			rc := cloudformation.NewResourceCreator(nil)
-			physID, err := rc.Create(t.Context(), "MyRes", tt.resourceType, tt.props, nil, make(map[string]string))
+			physID, err := rc.Create(
+				t.Context(),
+				"MyRes",
+				tt.resourceType,
+				tt.props,
+				nil,
+				make(map[string]string),
+			)
 			require.NoError(t, err)
 			assert.NotEmpty(t, physID)
 		})
@@ -196,9 +220,16 @@ func TestResourceCreator_CustomResource_LambdaBackend_NoFunctionRegistered(t *te
 	backends := newExtensibilityBackendsWithLambda()
 	rc := cloudformation.NewResourceCreator(backends)
 
-	physID, err := rc.Create(t.Context(), "MyCustom", "Custom::Widget",
-		map[string]any{"ServiceToken": "arn:aws:lambda:us-east-1:000000000000:function:nonexistent"},
-		nil, make(map[string]string))
+	physID, err := rc.Create(
+		t.Context(),
+		"MyCustom",
+		"Custom::Widget",
+		map[string]any{
+			"ServiceToken": "arn:aws:lambda:us-east-1:000000000000:function:nonexistent",
+		},
+		nil,
+		make(map[string]string),
+	)
 
 	require.NoError(t, err)
 	assert.NotEmpty(t, physID)
@@ -221,7 +252,7 @@ func TestResourceCreator_CustomResource_ResponseURL_RoundTrip(t *testing.T) {
 	capturedURL := make(chan string, 1)
 
 	mockLambda := &mockLambdaStorageBackend{
-		invokeFunc: func(ctx context.Context, _ string, _ lambdabackend.InvocationType, payload []byte) ([]byte, int, error) {
+		invokeFunc: func(_ context.Context, _ string, _ lambdabackend.InvocationType, payload []byte) ([]byte, int, error) {
 			var event struct {
 				ResponseURL string `json:"ResponseURL"`
 			}
@@ -247,8 +278,8 @@ func TestResourceCreator_CustomResource_ResponseURL_RoundTrip(t *testing.T) {
 
 	// Run Create in background.
 	resultCh := make(chan struct {
-		physID string
 		err    error
+		physID string
 	}, 1)
 
 	go func() {
@@ -259,9 +290,9 @@ func TestResourceCreator_CustomResource_ResponseURL_RoundTrip(t *testing.T) {
 			},
 			nil, physIDs)
 		resultCh <- struct {
-			physID string
 			err    error
-		}{physID, err}
+			physID string
+		}{err: err, physID: physID}
 	}()
 
 	// Wait for the ResponseURL to be captured, then send a SUCCESS response.
@@ -298,27 +329,44 @@ func TestResourceCreator_CustomResource_ResponseURL_RoundTrip(t *testing.T) {
 
 // mockLambdaStorageBackend is a minimal StorageBackend that captures invocations.
 type mockLambdaStorageBackend struct {
-	invokeFunc func(ctx context.Context, name string, invType lambdabackend.InvocationType, payload []byte) ([]byte, int, error)
+	invokeFunc func(
+		ctx context.Context,
+		name string,
+		invType lambdabackend.InvocationType,
+		payload []byte,
+	) ([]byte, int, error)
 }
 
-func (m *mockLambdaStorageBackend) CreateFunction(fn *lambdabackend.FunctionConfiguration) error {
+func (m *mockLambdaStorageBackend) CreateFunction(_ *lambdabackend.FunctionConfiguration) error {
 	return nil
 }
 
-func (m *mockLambdaStorageBackend) GetFunction(name string) (*lambdabackend.FunctionConfiguration, error) {
-	return nil, fmt.Errorf("not found: %s", name)
+func (m *mockLambdaStorageBackend) GetFunction(
+	name string,
+) (*lambdabackend.FunctionConfiguration, error) {
+	return nil, fmt.Errorf("%s: %w", name, errFunctionNotFound)
 }
 
-func (m *mockLambdaStorageBackend) ListFunctions(marker string, maxItems int) page.Page[*lambdabackend.FunctionConfiguration] {
+func (m *mockLambdaStorageBackend) ListFunctions(
+	_ string,
+	maxItems int,
+) page.Page[*lambdabackend.FunctionConfiguration] {
+	_ = maxItems
+
 	return page.Page[*lambdabackend.FunctionConfiguration]{}
 }
 
-func (m *mockLambdaStorageBackend) DeleteFunction(name string) error   { return nil }
+func (m *mockLambdaStorageBackend) DeleteFunction(_ string) error { return nil }
 func (m *mockLambdaStorageBackend) UpdateFunction(_ *lambdabackend.FunctionConfiguration) error {
 	return nil
 }
 
-func (m *mockLambdaStorageBackend) InvokeFunction(ctx context.Context, name string, invType lambdabackend.InvocationType, payload []byte) ([]byte, int, error) {
+func (m *mockLambdaStorageBackend) InvokeFunction(
+	ctx context.Context,
+	name string,
+	invType lambdabackend.InvocationType,
+	payload []byte,
+) ([]byte, int, error) {
 	if m.invokeFunc != nil {
 		return m.invokeFunc(ctx, name, invType, payload)
 	}
@@ -364,15 +412,29 @@ func TestResourceCreator_WaitConditionHandle_ReturnsPhysID(t *testing.T) {
 	backends := newExtensibilityBackends()
 	rc := cloudformation.NewResourceCreator(backends)
 
-	seen := map[string]bool{}
+	var (
+		mu   sync.Mutex
+		seen = map[string]bool{}
+	)
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			physID, err := rc.Create(t.Context(), "MyHandle", "AWS::CloudFormation::WaitConditionHandle",
-				nil, nil, make(map[string]string))
+			t.Parallel()
+
+			physID, err := rc.Create(
+				t.Context(),
+				"MyHandle",
+				"AWS::CloudFormation::WaitConditionHandle",
+				nil,
+				nil,
+				make(map[string]string),
+			)
 			require.NoError(t, err)
 			assert.NotEmpty(t, physID)
-			assert.False(t, seen[physID], "physID must be unique across creations")
+
+			mu.Lock()
+			defer mu.Unlock()
+			assert.False(t, seen[physID], "physID must be unique across creations: "+tt.name)
 			seen[physID] = true
 		})
 	}
@@ -400,8 +462,14 @@ func TestResourceCreator_WaitCondition_AutoSucceedsWithNoSignals(t *testing.T) {
 			physIDs := make(map[string]string)
 
 			// Create handle first.
-			handlePhysID, err := rc.Create(t.Context(), "MyHandle", "AWS::CloudFormation::WaitConditionHandle",
-				nil, nil, physIDs)
+			handlePhysID, err := rc.Create(
+				t.Context(),
+				"MyHandle",
+				"AWS::CloudFormation::WaitConditionHandle",
+				nil,
+				nil,
+				physIDs,
+			)
 			require.NoError(t, err)
 
 			physIDs["MyHandle"] = handlePhysID
@@ -431,8 +499,14 @@ func TestResourceCreator_WaitCondition_SucceedsWithPreloadedSignal(t *testing.T)
 	physIDs := make(map[string]string)
 
 	// Create handle.
-	handlePhysID, err := rc.Create(t.Context(), "MyHandle", "AWS::CloudFormation::WaitConditionHandle",
-		nil, nil, physIDs)
+	handlePhysID, err := rc.Create(
+		t.Context(),
+		"MyHandle",
+		"AWS::CloudFormation::WaitConditionHandle",
+		nil,
+		nil,
+		physIDs,
+	)
 	require.NoError(t, err)
 
 	physIDs["MyHandle"] = handlePhysID
@@ -469,15 +543,20 @@ func TestResourceCreator_Macro_Registration(t *testing.T) {
 		wantMacName string
 	}{
 		{
-			name:        "explicit Name property",
-			logicalID:   "MyMacro",
-			props:       map[string]any{"Name": "MyCustomMacro", "FunctionName": "arn:aws:lambda:us-east-1:000000000000:function:macro-fn"},
+			name:      "explicit Name property",
+			logicalID: "MyMacro",
+			props: map[string]any{
+				"Name":         "MyCustomMacro",
+				"FunctionName": "arn:aws:lambda:us-east-1:000000000000:function:macro-fn",
+			},
 			wantMacName: "MyCustomMacro",
 		},
 		{
-			name:        "Name defaults to logicalID",
-			logicalID:   "FallbackMacro",
-			props:       map[string]any{"FunctionName": "arn:aws:lambda:us-east-1:000000000000:function:macro-fn"},
+			name:      "Name defaults to logicalID",
+			logicalID: "FallbackMacro",
+			props: map[string]any{
+				"FunctionName": "arn:aws:lambda:us-east-1:000000000000:function:macro-fn",
+			},
 			wantMacName: "FallbackMacro",
 		},
 	}
@@ -508,9 +587,17 @@ func TestResourceCreator_Macro_Delete(t *testing.T) {
 	rc := cloudformation.NewResourceCreator(backends)
 
 	// Register a macro.
-	_, err := rc.Create(t.Context(), "MyMacro", "AWS::CloudFormation::Macro",
-		map[string]any{"Name": "MyMacro", "FunctionName": "arn:aws:lambda:us-east-1:000000000000:function:fn"},
-		nil, make(map[string]string))
+	_, err := rc.Create(
+		t.Context(),
+		"MyMacro",
+		"AWS::CloudFormation::Macro",
+		map[string]any{
+			"Name":         "MyMacro",
+			"FunctionName": "arn:aws:lambda:us-east-1:000000000000:function:fn",
+		},
+		nil,
+		make(map[string]string),
+	)
 	require.NoError(t, err)
 
 	rec := backends.MacroRegistry.Get("MyMacro")
@@ -551,7 +638,13 @@ func TestStack_WaitConditionHandle_InTemplate(t *testing.T) {
   }
 }`
 
-	stack, err := b.CreateStack(t.Context(), "wc-test", template, nil, cloudformation.StackOptions{})
+	stack, err := b.CreateStack(
+		t.Context(),
+		"wc-test",
+		template,
+		nil,
+		cloudformation.StackOptions{},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "CREATE_COMPLETE", stack.StackStatus)
 }
@@ -579,7 +672,13 @@ func TestStack_CustomResource_NoLambda_StubSuccess(t *testing.T) {
   }
 }`
 
-	stack, err := b.CreateStack(t.Context(), "custom-test", template, nil, cloudformation.StackOptions{})
+	stack, err := b.CreateStack(
+		t.Context(),
+		"custom-test",
+		template,
+		nil,
+		cloudformation.StackOptions{},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "CREATE_COMPLETE", stack.StackStatus)
 }
@@ -606,7 +705,13 @@ func TestStack_Macro_RegisteredViaTemplate(t *testing.T) {
   }
 }`
 
-	stack, err := b.CreateStack(t.Context(), "macro-test", template, nil, cloudformation.StackOptions{})
+	stack, err := b.CreateStack(
+		t.Context(),
+		"macro-test",
+		template,
+		nil,
+		cloudformation.StackOptions{},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "CREATE_COMPLETE", stack.StackStatus)
 
@@ -644,7 +749,7 @@ func TestResourceCreator_CustomResource_FAILEDResponse(t *testing.T) {
 	capturedURL := make(chan string, 1)
 
 	mockLambda := &mockLambdaStorageBackend{
-		invokeFunc: func(ctx context.Context, _ string, _ lambdabackend.InvocationType, payload []byte) ([]byte, int, error) {
+		invokeFunc: func(_ context.Context, _ string, _ lambdabackend.InvocationType, payload []byte) ([]byte, int, error) {
 			var event struct {
 				ResponseURL string `json:"ResponseURL"`
 			}
@@ -654,6 +759,7 @@ func TestResourceCreator_CustomResource_FAILEDResponse(t *testing.T) {
 				default:
 				}
 			}
+
 			return nil, 200, nil
 		},
 	}
@@ -667,8 +773,8 @@ func TestResourceCreator_CustomResource_FAILEDResponse(t *testing.T) {
 	}
 
 	resultCh := make(chan struct {
-		physID string
 		err    error
+		physID string
 	}, 1)
 
 	go func() {
@@ -679,9 +785,9 @@ func TestResourceCreator_CustomResource_FAILEDResponse(t *testing.T) {
 			},
 			nil, physIDs)
 		resultCh <- struct {
-			physID string
 			err    error
-		}{physID, err}
+			physID string
+		}{err: err, physID: physID}
 	}()
 
 	select {
@@ -719,7 +825,7 @@ func TestStack_CustomResource_GetAtt_DataOutputs(t *testing.T) {
 	capturedURL := make(chan string, 1)
 
 	mockLambda := &mockLambdaStorageBackend{
-		invokeFunc: func(ctx context.Context, _ string, _ lambdabackend.InvocationType, payload []byte) ([]byte, int, error) {
+		invokeFunc: func(_ context.Context, _ string, _ lambdabackend.InvocationType, payload []byte) ([]byte, int, error) {
 			var event struct {
 				ResponseURL string `json:"ResponseURL"`
 			}
@@ -729,6 +835,7 @@ func TestStack_CustomResource_GetAtt_DataOutputs(t *testing.T) {
 				default:
 				}
 			}
+
 			return nil, 200, nil
 		},
 	}
@@ -763,7 +870,13 @@ func TestStack_CustomResource_GetAtt_DataOutputs(t *testing.T) {
 	}, 1)
 
 	go func() {
-		stack, err := b.CreateStack(t.Context(), "getatt-test", template, nil, cloudformation.StackOptions{})
+		stack, err := b.CreateStack(
+			t.Context(),
+			"getatt-test",
+			template,
+			nil,
+			cloudformation.StackOptions{},
+		)
 		stackCh <- struct {
 			stack *cloudformation.Stack
 			err   error
@@ -802,6 +915,7 @@ func TestStack_CustomResource_GetAtt_DataOutputs(t *testing.T) {
 			if out.OutputKey == "BucketName" {
 				assert.Equal(t, "my-prefix-generated-bucket", out.OutputValue)
 				found = true
+
 				break
 			}
 		}
@@ -817,11 +931,11 @@ func TestMacroRegistry_InvokeMacro_WithMockLambda(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		macroName    string
 		fragment     map[string]any
 		lambdaResp   map[string]any
 		wantFragment map[string]any
+		name         string
+		macroName    string
 	}{
 		{
 			name:      "macro transforms fragment successfully",
@@ -850,17 +964,24 @@ func TestMacroRegistry_InvokeMacro_WithMockLambda(t *testing.T) {
 			t.Parallel()
 
 			mockLambda := &mockLambdaStorageBackend{
-				invokeFunc: func(ctx context.Context, _ string, _ lambdabackend.InvocationType, payload []byte) ([]byte, int, error) {
+				invokeFunc: func(_ context.Context, _ string, _ lambdabackend.InvocationType, _ []byte) ([]byte, int, error) {
 					respBody, _ := json.Marshal(tt.lambdaResp)
+
 					return respBody, 200, nil
 				},
 			}
 
 			registry := cloudformation.NewMacroRegistry()
-			registry.RegisterForTest(tt.macroName, "arn:aws:lambda:us-east-1:000000000000:function:macro-fn", "")
+			registry.RegisterForTest(
+				tt.macroName,
+				"arn:aws:lambda:us-east-1:000000000000:function:macro-fn",
+				"",
+			)
 
 			fragmentJSON, _ := json.Marshal(tt.fragment)
-			result, err := registry.InvokeMacro(t.Context(), lambdabackend.NewHandler(mockLambda), tt.macroName, fragmentJSON, nil)
+			result, err := registry.InvokeMacro(
+				t.Context(), lambdabackend.NewHandler(mockLambda), tt.macroName, fragmentJSON, nil,
+			)
 			require.NoError(t, err)
 
 			var got map[string]any
@@ -884,7 +1005,7 @@ func TestMacroRegistry_InvokeMacro_NoLambdaBackend(t *testing.T) {
 	// nil lambda backend → returns fragment unchanged.
 	result, err := registry.InvokeMacro(t.Context(), nil, "MyMacro", fragmentJSON, nil)
 	require.NoError(t, err)
-	assert.Equal(t, fragmentJSON, result)
+	assert.JSONEq(t, string(fragmentJSON), string(result))
 }
 
 // ---- MacroRegistry: InvokeMacro unknown macro ----
@@ -898,9 +1019,11 @@ func TestMacroRegistry_InvokeMacro_UnknownMacro(t *testing.T) {
 	fragmentJSON, _ := json.Marshal(fragment)
 
 	mockLambda := &mockLambdaStorageBackend{}
-	result, err := registry.InvokeMacro(t.Context(), lambdabackend.NewHandler(mockLambda), "DoesNotExist", fragmentJSON, nil)
+	result, err := registry.InvokeMacro(
+		t.Context(), lambdabackend.NewHandler(mockLambda), "DoesNotExist", fragmentJSON, nil,
+	)
 	require.NoError(t, err)
-	assert.Equal(t, fragmentJSON, result)
+	assert.JSONEq(t, string(fragmentJSON), string(result))
 }
 
 // ---- WaitConditionStore: token isolation ----
@@ -933,7 +1056,10 @@ func TestWaitConditionStore_FailureSignalNotCounted(t *testing.T) {
 	store := cloudformation.NewWaitConditionStore()
 
 	// Send a FAILURE signal — should not count toward SUCCESS count.
-	store.Signal("token", cloudformation.WCSignal{UniqueID: "f1", Status: "FAILURE", Reason: "deploy failed"})
+	store.Signal(
+		"token",
+		cloudformation.WCSignal{UniqueID: "f1", Status: "FAILURE", Reason: "deploy failed"},
+	)
 
 	ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
 	defer cancel()
@@ -984,7 +1110,13 @@ func TestStack_WaitConditionAndCustomResource_Combined(t *testing.T) {
   }
 }`
 
-	stack, err := b.CreateStack(t.Context(), "combined-test", template, nil, cloudformation.StackOptions{})
+	stack, err := b.CreateStack(
+		t.Context(),
+		"combined-test",
+		template,
+		nil,
+		cloudformation.StackOptions{},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "CREATE_COMPLETE", stack.StackStatus)
 }
@@ -1012,37 +1144,49 @@ func TestResourceCreator_CustomResource_DeleteEvent(t *testing.T) {
 				ResourceType       string `json:"ResourceType"`
 				ResponseURL        string `json:"ResponseURL"`
 			}
-			if err := json.Unmarshal(payload, &ev); err == nil {
-				select {
-				case events <- capturedEvent{
-					RequestType:        ev.RequestType,
-					PhysicalResourceID: ev.PhysicalResourceID,
-					LogicalResourceID:  ev.LogicalResourceID,
-					ResourceType:       ev.ResourceType,
-				}:
-				default:
-				}
-				// Simulate immediate response for Delete (fire-and-forget in real CFN).
-				if ev.ResponseURL != "" {
-					go func(url string) {
-						resp := map[string]any{
-							"Status":             "SUCCESS",
-							"PhysicalResourceId": ev.PhysicalResourceID,
-						}
-						body, _ := json.Marshal(resp)
-						client := &http.Client{Timeout: 2 * time.Second}
-						req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, newBytesReader(body))
-						if err != nil {
-							return
-						}
-						req.ContentLength = int64(len(body))
-						res, err := client.Do(req)
-						if err == nil {
-							res.Body.Close()
-						}
-					}(ev.ResponseURL)
-				}
+
+			if err := json.Unmarshal(payload, &ev); err != nil {
+				return nil, 0, err
 			}
+
+			select {
+			case events <- capturedEvent{
+				RequestType:        ev.RequestType,
+				PhysicalResourceID: ev.PhysicalResourceID,
+				LogicalResourceID:  ev.LogicalResourceID,
+				ResourceType:       ev.ResourceType,
+			}:
+			default:
+			}
+
+			if ev.ResponseURL == "" {
+				return nil, 200, nil
+			}
+
+			// Simulate immediate response for Delete (fire-and-forget in real CFN).
+			go func(url string) {
+				resp := map[string]any{
+					"Status":             "SUCCESS",
+					"PhysicalResourceId": ev.PhysicalResourceID,
+				}
+				body, _ := json.Marshal(resp)
+				client := &http.Client{Timeout: 2 * time.Second}
+				req, reqErr := http.NewRequestWithContext(
+					ctx,
+					http.MethodPut,
+					url,
+					newBytesReader(body),
+				)
+				if reqErr != nil {
+					return
+				}
+				req.ContentLength = int64(len(body))
+				res, doErr := client.Do(req)
+				if doErr == nil {
+					res.Body.Close()
+				}
+			}(ev.ResponseURL)
+
 			return nil, 200, nil
 		},
 	}
@@ -1074,10 +1218,10 @@ func TestResourceCreator_CustomResource_UpdateEvent(t *testing.T) {
 	t.Parallel()
 
 	type capturedUpdate struct {
-		RequestType           string         `json:"RequestType"`
-		PhysicalResourceID    string         `json:"PhysicalResourceId"`
 		ResourceProperties    map[string]any `json:"ResourceProperties"`
 		OldResourceProperties map[string]any `json:"OldResourceProperties"`
+		RequestType           string         `json:"RequestType"`
+		PhysicalResourceID    string         `json:"PhysicalResourceId"`
 	}
 
 	updates := make(chan capturedUpdate, 1)
@@ -1091,37 +1235,53 @@ func TestResourceCreator_CustomResource_UpdateEvent(t *testing.T) {
 				OldResourceProperties map[string]any `json:"OldResourceProperties"`
 				ResponseURL           string         `json:"ResponseURL"`
 			}
-			if err := json.Unmarshal(payload, &ev); err == nil && ev.RequestType == "Update" {
-				select {
-				case updates <- capturedUpdate{
-					RequestType:           ev.RequestType,
-					PhysicalResourceID:    ev.PhysicalResourceID,
-					ResourceProperties:    ev.ResourceProperties,
-					OldResourceProperties: ev.OldResourceProperties,
-				}:
-				default:
-				}
-				// Respond immediately via goroutine.
-				if ev.ResponseURL != "" {
-					go func(url string) {
-						resp := map[string]any{
-							"Status":             "SUCCESS",
-							"PhysicalResourceId": ev.PhysicalResourceID,
-						}
-						body, _ := json.Marshal(resp)
-						client := &http.Client{Timeout: 2 * time.Second}
-						req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, newBytesReader(body))
-						if err != nil {
-							return
-						}
-						req.ContentLength = int64(len(body))
-						res, err := client.Do(req)
-						if err == nil {
-							res.Body.Close()
-						}
-					}(ev.ResponseURL)
-				}
+
+			if err := json.Unmarshal(payload, &ev); err != nil {
+				return nil, 0, err
 			}
+
+			if ev.RequestType != "Update" {
+				return nil, 200, nil
+			}
+
+			select {
+			case updates <- capturedUpdate{
+				RequestType:           ev.RequestType,
+				PhysicalResourceID:    ev.PhysicalResourceID,
+				ResourceProperties:    ev.ResourceProperties,
+				OldResourceProperties: ev.OldResourceProperties,
+			}:
+			default:
+			}
+
+			if ev.ResponseURL == "" {
+				return nil, 200, nil
+			}
+
+			// Respond immediately via goroutine.
+			go func(url string) {
+				resp := map[string]any{
+					"Status":             "SUCCESS",
+					"PhysicalResourceId": ev.PhysicalResourceID,
+				}
+				body, _ := json.Marshal(resp)
+				client := &http.Client{Timeout: 2 * time.Second}
+				req, reqErr := http.NewRequestWithContext(
+					ctx,
+					http.MethodPut,
+					url,
+					newBytesReader(body),
+				)
+				if reqErr != nil {
+					return
+				}
+				req.ContentLength = int64(len(body))
+				res, doErr := client.Do(req)
+				if doErr == nil {
+					res.Body.Close()
+				}
+			}(ev.ResponseURL)
+
 			return nil, 200, nil
 		},
 	}
@@ -1194,31 +1354,43 @@ func TestStack_CustomResource_UpdateStack_SendsUpdateEvent(t *testing.T) {
 				PhysicalResourceID string `json:"PhysicalResourceId"`
 				ResponseURL        string `json:"ResponseURL"`
 			}
-			if err := json.Unmarshal(payload, &ev); err == nil {
-				select {
-				case requestTypes <- ev.RequestType:
-				default:
-				}
-				if ev.ResponseURL != "" {
-					go func(url, physID string) {
-						resp := map[string]any{
-							"Status":             "SUCCESS",
-							"PhysicalResourceId": physID,
-						}
-						body, _ := json.Marshal(resp)
-						client := &http.Client{Timeout: 2 * time.Second}
-						req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, newBytesReader(body))
-						if err != nil {
-							return
-						}
-						req.ContentLength = int64(len(body))
-						res, err := client.Do(req)
-						if err == nil {
-							res.Body.Close()
-						}
-					}(ev.ResponseURL, ev.PhysicalResourceID)
-				}
+
+			if err := json.Unmarshal(payload, &ev); err != nil {
+				return nil, 0, err
 			}
+
+			select {
+			case requestTypes <- ev.RequestType:
+			default:
+			}
+
+			if ev.ResponseURL == "" {
+				return nil, 200, nil
+			}
+
+			go func(url, physID string) {
+				resp := map[string]any{
+					"Status":             "SUCCESS",
+					"PhysicalResourceId": physID,
+				}
+				body, _ := json.Marshal(resp)
+				client := &http.Client{Timeout: 2 * time.Second}
+				req, reqErr := http.NewRequestWithContext(
+					ctx,
+					http.MethodPut,
+					url,
+					newBytesReader(body),
+				)
+				if reqErr != nil {
+					return
+				}
+				req.ContentLength = int64(len(body))
+				res, doErr := client.Do(req)
+				if doErr == nil {
+					res.Body.Close()
+				}
+			}(ev.ResponseURL, ev.PhysicalResourceID)
+
 			return nil, 200, nil
 		},
 	}
@@ -1254,7 +1426,13 @@ func TestStack_CustomResource_UpdateStack_SendsUpdateEvent(t *testing.T) {
 }`
 
 	// Create.
-	_, err := b.CreateStack(t.Context(), "update-test", templateV1, nil, cloudformation.StackOptions{})
+	_, err := b.CreateStack(
+		t.Context(),
+		"update-test",
+		templateV1,
+		nil,
+		cloudformation.StackOptions{},
+	)
 	require.NoError(t, err)
 
 	// Drain the Create event.
@@ -1266,7 +1444,13 @@ func TestStack_CustomResource_UpdateStack_SendsUpdateEvent(t *testing.T) {
 	}
 
 	// Update with changed properties.
-	_, err = b.UpdateStack(t.Context(), "update-test", templateV2, nil, cloudformation.StackOptions{})
+	_, err = b.UpdateStack(
+		t.Context(),
+		"update-test",
+		templateV2,
+		nil,
+		cloudformation.StackOptions{},
+	)
 	require.NoError(t, err)
 
 	// Should receive an Update event.
@@ -1284,9 +1468,9 @@ func TestResourceCreator_CFNExtensibilityTypes_AllHandled(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		props        map[string]any
 		name         string
 		resourceType string
-		props        map[string]any
 	}{
 		{
 			name:         "AWS::CloudFormation::CustomResource",
@@ -1311,7 +1495,9 @@ func TestResourceCreator_CFNExtensibilityTypes_AllHandled(t *testing.T) {
 		{
 			name:         "AWS::CloudFormation::Macro",
 			resourceType: "AWS::CloudFormation::Macro",
-			props:        map[string]any{"FunctionName": "arn:aws:lambda:us-east-1:000000000000:function:fn"},
+			props: map[string]any{
+				"FunctionName": "arn:aws:lambda:us-east-1:000000000000:function:fn",
+			},
 		},
 	}
 
@@ -1322,7 +1508,14 @@ func TestResourceCreator_CFNExtensibilityTypes_AllHandled(t *testing.T) {
 			backends := newExtensibilityBackends()
 			rc := cloudformation.NewResourceCreator(backends)
 
-			physID, err := rc.Create(t.Context(), "Res", tt.resourceType, tt.props, nil, make(map[string]string))
+			physID, err := rc.Create(
+				t.Context(),
+				"Res",
+				tt.resourceType,
+				tt.props,
+				nil,
+				make(map[string]string),
+			)
 			require.NoError(t, err, "extensibility type should not return error")
 			assert.NotEmpty(t, physID)
 		})
