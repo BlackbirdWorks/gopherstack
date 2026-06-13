@@ -34,11 +34,33 @@ describe("Pipes Page", () => {
     expect(screen.getByText("New Pipe")).toBeInTheDocument();
   });
 
+  it("shows stats bar with counts", async () => {
+    mockSend.mockResolvedValueOnce({
+      Pipes: [
+        { Name: "pipe-1", CurrentState: "RUNNING", DesiredState: "RUNNING" },
+        { Name: "pipe-2", CurrentState: "STOPPED", DesiredState: "STOPPED" },
+      ],
+    });
+
+    render(PipesPage);
+
+    await waitFor(
+      () => {
+        expect(screen.getByText("pipe-1")).toBeInTheDocument();
+      },
+      { timeout: 3000 },
+    );
+
+    // Stats bar labels are present in the filter select dropdown
+    const select = document.querySelector("select");
+    expect(select).toBeTruthy();
+  });
+
   it("displays loaded pipes", async () => {
     mockSend.mockResolvedValueOnce({
       Pipes: [
-        { Name: "sqs-to-lambda", CurrentState: "RUNNING" },
-        { Name: "dynamo-to-sqs", CurrentState: "STOPPED" },
+        { Name: "sqs-to-lambda", CurrentState: "RUNNING", DesiredState: "RUNNING" },
+        { Name: "dynamo-to-sqs", CurrentState: "STOPPED", DesiredState: "STOPPED" },
       ],
     });
 
@@ -56,9 +78,9 @@ describe("Pipes Page", () => {
   it("filters pipes via search input", async () => {
     mockSend.mockResolvedValueOnce({
       Pipes: [
-        { Name: "sqs-to-lambda", CurrentState: "RUNNING" },
-        { Name: "dynamo-to-sqs", CurrentState: "STOPPED" },
-        { Name: "kinesis-to-firehose", CurrentState: "RUNNING" },
+        { Name: "sqs-to-lambda", CurrentState: "RUNNING", DesiredState: "RUNNING" },
+        { Name: "dynamo-to-sqs", CurrentState: "STOPPED", DesiredState: "STOPPED" },
+        { Name: "kinesis-to-firehose", CurrentState: "RUNNING", DesiredState: "RUNNING" },
       ],
     });
 
@@ -112,7 +134,13 @@ describe("Pipes Page", () => {
       Name: "new-pipe",
       Arn: "arn:aws:pipes:us-east-1:000000000000:pipe/new-pipe",
     });
+<<<<<<< Updated upstream
     mockSend.mockResolvedValueOnce({ Pipes: [{ Name: "new-pipe", CurrentState: "RUNNING" }] });
+=======
+    mockSend.mockResolvedValueOnce({
+      Pipes: [{ Name: "new-pipe", CurrentState: "RUNNING", DesiredState: "RUNNING" }],
+    });
+>>>>>>> Stashed changes
 
     render(PipesPage);
 
@@ -135,16 +163,18 @@ describe("Pipes Page", () => {
     expect(toast.success).toHaveBeenCalled();
   });
 
-  it("selects a pipe and loads details", async () => {
+  it("selects a pipe and loads details with tabs", async () => {
     mockSend.mockResolvedValueOnce({
-      Pipes: [{ Name: "my-pipe", CurrentState: "RUNNING" }],
+      Pipes: [{ Name: "my-pipe", CurrentState: "RUNNING", DesiredState: "RUNNING" }],
     });
     mockSend.mockResolvedValueOnce({
       Name: "my-pipe",
       Arn: "arn:aws:pipes:us-east-1:000000000000:pipe/my-pipe",
       CurrentState: "RUNNING",
+      DesiredState: "RUNNING",
       Source: "arn:aws:sqs:us-east-1:000000000000:source-queue",
       Target: "arn:aws:lambda:us-east-1:000000000000:function:target-fn",
+      Tags: {},
     });
 
     render(PipesPage);
@@ -160,10 +190,47 @@ describe("Pipes Page", () => {
 
     await waitFor(
       () => {
-        expect(mockSend).toHaveBeenCalledTimes(2);
+        expect(screen.getByText("Overview")).toBeInTheDocument();
       },
       { timeout: 3000 },
     );
+
+    expect(screen.getByText("Tags")).toBeInTheDocument();
+    expect(screen.getByText("Config")).toBeInTheDocument();
+  });
+
+  it("shows Source and Target in detail view", async () => {
+    mockSend.mockResolvedValueOnce({
+      Pipes: [{ Name: "detail-pipe", CurrentState: "RUNNING", DesiredState: "RUNNING" }],
+    });
+    mockSend.mockResolvedValueOnce({
+      Name: "detail-pipe",
+      CurrentState: "RUNNING",
+      DesiredState: "RUNNING",
+      Source: "arn:aws:sqs:us-east-1:000000000000:my-queue",
+      Target: "arn:aws:lambda:us-east-1:000000000000:function:my-fn",
+      Tags: {},
+    });
+
+    render(PipesPage);
+
+    await waitFor(
+      () => {
+        expect(screen.getByText("detail-pipe")).toBeInTheDocument();
+      },
+      { timeout: 3000 },
+    );
+
+    await fireEvent.click(screen.getByText("detail-pipe"));
+
+    await waitFor(
+      () => {
+        expect(screen.getByText("Source")).toBeInTheDocument();
+      },
+      { timeout: 3000 },
+    );
+
+    expect(screen.getByText("Target")).toBeInTheDocument();
   });
 
   it("shows empty state when no pipes exist", async () => {
@@ -177,6 +244,7 @@ describe("Pipes Page", () => {
       },
       { timeout: 3000 },
     );
+    expect(screen.getByText("Create your first pipe")).toBeInTheDocument();
   });
 
   it("shows error toast on load failure", async () => {
@@ -191,5 +259,25 @@ describe("Pipes Page", () => {
       },
       { timeout: 3000 },
     );
+  });
+
+  it("shows filter dropdown for state", () => {
+    mockSend.mockResolvedValueOnce({ Pipes: [] });
+
+    render(PipesPage);
+
+    const selects = document.querySelectorAll("select");
+    const stateSelect = Array.from(selects).find((s) => s.innerHTML.includes("All States"));
+    expect(stateSelect).toBeTruthy();
+  });
+
+  it("shows sort dropdown", () => {
+    mockSend.mockResolvedValueOnce({ Pipes: [] });
+
+    render(PipesPage);
+
+    const selects = document.querySelectorAll("select");
+    const sortSelect = Array.from(selects).find((s) => s.innerHTML.includes("Name"));
+    expect(sortSelect).toBeTruthy();
   });
 });

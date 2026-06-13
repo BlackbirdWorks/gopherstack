@@ -20,6 +20,10 @@ type mockSQSReader struct {
 	deleteErr       error
 	messages        []*pipes.SQSMessage
 	deletedIDs      []string
+<<<<<<< Updated upstream
+=======
+	deleted         []string // alias for deletedIDs used in filter tests
+>>>>>>> Stashed changes
 	receiveCalls    int
 	lastMaxMessages int
 	mu              sync.Mutex
@@ -43,6 +47,7 @@ func (m *mockSQSReader) ReceivePipeMessages(_ string, maxMessages int) ([]*pipes
 func (m *mockSQSReader) DeletePipeMessages(_ string, receiptHandles []string) error {
 	m.mu.Lock()
 	m.deletedIDs = append(m.deletedIDs, receiptHandles...)
+	m.deleted = append(m.deleted, receiptHandles...)
 	m.mu.Unlock()
 
 	return m.deleteErr
@@ -288,7 +293,10 @@ func TestPipesRunner_FilterCriteria(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
+<<<<<<< Updated upstream
 	pipes.WaitPipeRunning(t, backend, "filter-pipe")
+=======
+>>>>>>> Stashed changes
 
 	sqsReader := &mockSQSReader{
 		messages: []*pipes.SQSMessage{
@@ -311,12 +319,26 @@ func TestPipesRunner_FilterCriteria(t *testing.T) {
 
 	require.Len(t, calls, 1)
 
+<<<<<<< Updated upstream
 	var event map[string]any
 	require.NoError(t, json.Unmarshal(payloads[0], &event))
 	require.Len(t, event, 1)
 	// payload is forwarded - just check Lambda was called once
 
 	deleted := sqsReader.getDeleted()
+=======
+	var event struct {
+		Records []struct{ MessageID string `json:"messageId"` } `json:"Records"`
+	}
+	require.NoError(t, json.Unmarshal(payloads[0], &event))
+	require.Len(t, event.Records, 1)
+	assert.Equal(t, "m1", event.Records[0].MessageID)
+
+	// Only the matched message should be deleted.
+	sqsReader.mu.Lock()
+	deleted := sqsReader.deleted
+	sqsReader.mu.Unlock()
+>>>>>>> Stashed changes
 	assert.Equal(t, []string{"rh1"}, deleted)
 }
 
@@ -325,18 +347,32 @@ func TestPipesRunner_ConfigurableBatchSize(t *testing.T) {
 	t.Parallel()
 
 	backend := newTestPipeBackend(t)
+<<<<<<< Updated upstream
 	_, err := backend.CreatePipe(pipes.CreatePipeInput{
 		Name:         "batch-pipe",
 		RoleARN:      "arn:aws:iam::000000000000:role/r",
 		Source:       "arn:aws:sqs:us-east-1:000000000000:batch-queue",
 		Target:       "arn:aws:lambda:us-east-1:000000000000:function:fn",
+=======
+	sqsARN := "arn:aws:sqs:us-east-1:000000000000:batch-queue"
+	lambdaARN := "arn:aws:lambda:us-east-1:000000000000:function:fn"
+
+	_, err := backend.CreatePipe(pipes.CreatePipeInput{
+		Name:         "batch-pipe",
+		RoleARN:      "arn:aws:iam::000000000000:role/r",
+		Source:       sqsARN,
+		Target:       lambdaARN,
+>>>>>>> Stashed changes
 		DesiredState: "RUNNING",
 		SourceParameters: &pipes.SourceParameters{
 			SqsQueueParameters: &pipes.SQSSourceParameters{BatchSize: 3},
 		},
 	})
 	require.NoError(t, err)
+<<<<<<< Updated upstream
 	pipes.WaitPipeRunning(t, backend, "batch-pipe")
+=======
+>>>>>>> Stashed changes
 
 	sqsReader := &mockSQSReader{}
 	runner := pipes.NewRunner(backend)
@@ -344,26 +380,51 @@ func TestPipesRunner_ConfigurableBatchSize(t *testing.T) {
 
 	pipes.PollAllPipesOnce(t.Context(), runner)
 
+<<<<<<< Updated upstream
 	assert.Equal(t, 3, sqsReader.getLastMaxMessages(), "runner should request batch size from source parameters")
 }
 
 // TestPipesRunner_InputTemplate tests that TargetParameters.InputTemplate overrides default payload.
+=======
+	sqsReader.mu.Lock()
+	maxRequested := sqsReader.lastMaxMessages
+	sqsReader.mu.Unlock()
+
+	assert.Equal(t, 3, maxRequested, "runner should request batch size from source parameters")
+}
+
+// TestPipesRunner_InputTemplate tests that TargetParameters.InputTemplate overrides the default payload.
+>>>>>>> Stashed changes
 func TestPipesRunner_InputTemplate(t *testing.T) {
 	t.Parallel()
 
 	backend := newTestPipeBackend(t)
+<<<<<<< Updated upstream
 	_, err := backend.CreatePipe(pipes.CreatePipeInput{
 		Name:         "template-pipe",
 		RoleARN:      "arn:aws:iam::000000000000:role/r",
 		Source:       "arn:aws:sqs:us-east-1:000000000000:tmpl-queue",
 		Target:       "arn:aws:lambda:us-east-1:000000000000:function:fn",
+=======
+	sqsARN := "arn:aws:sqs:us-east-1:000000000000:tmpl-queue"
+	lambdaARN := "arn:aws:lambda:us-east-1:000000000000:function:fn"
+
+	_, err := backend.CreatePipe(pipes.CreatePipeInput{
+		Name:         "template-pipe",
+		RoleARN:      "arn:aws:iam::000000000000:role/r",
+		Source:       sqsARN,
+		Target:       lambdaARN,
+>>>>>>> Stashed changes
 		DesiredState: "RUNNING",
 		TargetParameters: &pipes.TargetParameters{
 			InputTemplate: `{"fixed":"value"}`,
 		},
 	})
 	require.NoError(t, err)
+<<<<<<< Updated upstream
 	pipes.WaitPipeRunning(t, backend, "template-pipe")
+=======
+>>>>>>> Stashed changes
 
 	sqsReader := &mockSQSReader{
 		messages: []*pipes.SQSMessage{{MessageID: "m1", ReceiptHandle: "rh1", Body: "hello"}},
@@ -381,5 +442,9 @@ func TestPipesRunner_InputTemplate(t *testing.T) {
 	lambdaInvoker.mu.Unlock()
 
 	require.Len(t, payloads, 1)
+<<<<<<< Updated upstream
 	assert.JSONEq(t, `{"fixed":"value"}`, string(payloads[0]))
+=======
+	assert.Equal(t, `{"fixed":"value"}`, string(payloads[0]))
+>>>>>>> Stashed changes
 }

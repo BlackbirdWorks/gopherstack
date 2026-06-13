@@ -25,6 +25,7 @@ var (
 const (
 	statusActive    = "ACTIVE"
 	errCodeNotFound = "ResourceNotFoundException"
+	errMsgNotFound  = "not found"
 )
 
 // ---- types ----
@@ -1600,7 +1601,7 @@ func (b *InMemoryBackend) BatchGetCollaborationAnalysisTemplate(
 		if !found {
 			errors = append(
 				errors,
-				BatchError{Arn: arnStr, Code: errCodeNotFound, Message: "not found"},
+				BatchError{Arn: arnStr, Code: errCodeNotFound, Message: errMsgNotFound},
 			)
 		}
 	}
@@ -1657,7 +1658,7 @@ func (b *InMemoryBackend) BatchGetSchema(
 		if ok {
 			results = append(results, s)
 		} else {
-			errors = append(errors, BatchError{Name: name, Code: errCodeNotFound, Message: "not found"})
+			errors = append(errors, BatchError{Name: name, Code: errCodeNotFound, Message: errMsgNotFound})
 		}
 	}
 	return results, errors, nil
@@ -1707,7 +1708,7 @@ func (b *InMemoryBackend) BatchGetSchemaAnalysisRule(
 		}
 		errors = append(
 			errors,
-			BatchError{Name: name, Code: errCodeNotFound, Message: "not found"},
+			BatchError{Name: name, Code: errCodeNotFound, Message: errMsgNotFound},
 		)
 	}
 	return results, errors, nil
@@ -2095,6 +2096,9 @@ func (b *InMemoryBackend) CreateIdMappingTable(
 	kmsKeyArn string,
 	tags map[string]string,
 ) (*IdMappingTable, error) {
+	if name == "" {
+		return nil, ErrValidation
+	}
 	b.mu.Lock("CreateIdMappingTable")
 	defer b.mu.Unlock()
 	mem, ok := b.memberships[membershipID]
@@ -2381,7 +2385,14 @@ func (b *InMemoryBackend) ListCollaborationIdNamespaceAssociations(
 
 // ---- ConfiguredAudienceModelAssociation ----
 
-func (b *InMemoryBackend) CreateConfiguredAudienceModelAssociation(membershipID, configuredAudienceModelArn, name, description string, manageResourcePolicies bool, tags map[string]string) (*ConfiguredAudienceModelAssociation, error) {
+func (b *InMemoryBackend) CreateConfiguredAudienceModelAssociation(
+	membershipID, configuredAudienceModelArn, name, description string,
+	manageResourcePolicies bool,
+	tags map[string]string,
+) (*ConfiguredAudienceModelAssociation, error) {
+	if configuredAudienceModelArn == "" || name == "" {
+		return nil, ErrValidation
+	}
 	b.mu.Lock("CreateConfiguredAudienceModelAssociation")
 	defer b.mu.Unlock()
 	mem, ok := b.memberships[membershipID]

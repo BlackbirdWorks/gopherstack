@@ -91,15 +91,20 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	return nil
 }
 
+<<<<<<< Updated upstream
 // Shutdown implements service.Shutdowner. It stops the background runner and
 // cancels any in-flight delayed state-transition goroutines in the backend so
 // they cannot mutate pipe state after the process begins shutting down.
+=======
+// Shutdown implements service.Shutdowner.
+>>>>>>> Stashed changes
 func (h *Handler) Shutdown(ctx context.Context) {
 	if h.cancel != nil {
 		h.cancel()
 	}
 
 	h.runner.Wait(ctx)
+<<<<<<< Updated upstream
 
 	if h.Backend != nil {
 		h.Backend.Shutdown(ctx)
@@ -110,6 +115,12 @@ var (
 	_ service.BackgroundWorker = (*Handler)(nil)
 	_ service.Shutdowner       = (*Handler)(nil)
 )
+=======
+}
+
+var _ service.BackgroundWorker = (*Handler)(nil)
+var _ service.Shutdowner = (*Handler)(nil)
+>>>>>>> Stashed changes
 
 // GetSupportedOperations returns the list of supported Pipes operations.
 func (h *Handler) GetSupportedOperations() []string {
@@ -133,6 +144,10 @@ func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations()
 
 func (h *Handler) ChaosRegions() []string { return []string{h.Region} }
 
+<<<<<<< Updated upstream
+=======
+// RouteMatcher returns a function that matches Pipes API requests.
+>>>>>>> Stashed changes
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		if httputils.ExtractServiceFromRequest(c.Request()) != pipesService {
@@ -296,7 +311,10 @@ func (h *Handler) dispatch(
 
 		return h.handleDescribePipe(ctx, path)
 	case opListPipes:
+<<<<<<< Updated upstream
 
+=======
+>>>>>>> Stashed changes
 		return h.handleListPipes(ctx, query)
 	case opDeletePipe:
 
@@ -346,7 +364,11 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		return c.JSONBlob(http.StatusConflict, payload)
 	case errors.Is(err, ErrValidation):
 		payload, _ := json.Marshal(map[string]string{
+<<<<<<< Updated upstream
 			keyTypeField:    "ValidationException",
+=======
+			"__type":        "ValidationException",
+>>>>>>> Stashed changes
 			keyMessageField: err.Error(),
 		})
 
@@ -373,6 +395,7 @@ func extractPipeName(path string) string {
 	return ""
 }
 
+<<<<<<< Updated upstream
 // epochMillis returns t as a Unix epoch value with millisecond precision,
 // matching the AWS Pipes API timestamp format (fractional seconds, 3 decimal places).
 func epochMillis(t time.Time) float64 {
@@ -411,9 +434,44 @@ type updatePipeRequest struct {
 	Enrichment              string                   `json:"Enrichment"`
 	KmsKeyIdentifier        string                   `json:"KmsKeyIdentifier"`
 	DesiredState            string                   `json:"DesiredState"`
+=======
+// epochSeconds converts a [time.Time] to Unix epoch seconds as float64,
+// matching the AWS REST-JSON protocol for timestamp fields.
+func epochSeconds(t time.Time) float64 {
+	return float64(t.Unix())
+>>>>>>> Stashed changes
+}
+
+// --- Request/Response types ---
+
+type createPipeRequest struct {
+	Tags             map[string]string `json:"Tags"`
+	SourceParameters *SourceParameters `json:"SourceParameters"`
+	TargetParameters *TargetParameters `json:"TargetParameters"`
+	DeadLetterConfig *DeadLetterConfig `json:"DeadLetterConfig"`
+	LogConfiguration *LogConfiguration `json:"LogConfiguration"`
+	RoleArn          string            `json:"RoleArn"`
+	Source           string            `json:"Source"`
+	Target           string            `json:"Target"`
+	Description      string            `json:"Description"`
+	Enrichment       string            `json:"Enrichment"`
+	DesiredState     string            `json:"DesiredState"`
+}
+
+type updatePipeRequest struct {
+	SourceParameters *SourceParameters `json:"SourceParameters"`
+	TargetParameters *TargetParameters `json:"TargetParameters"`
+	DeadLetterConfig *DeadLetterConfig `json:"DeadLetterConfig"`
+	LogConfiguration *LogConfiguration `json:"LogConfiguration"`
+	RoleArn          string            `json:"RoleArn"`
+	Target           string            `json:"Target"`
+	Description      string            `json:"Description"`
+	Enrichment       string            `json:"Enrichment"`
+	DesiredState     string            `json:"DesiredState"`
 }
 
 type pipeResponse struct {
+<<<<<<< Updated upstream
 	SourceParameters        *SourceParameters        `json:"SourceParameters,omitempty"`
 	TargetParameters        *TargetParameters        `json:"TargetParameters,omitempty"`
 	DeadLetterConfig        *DeadLetterConfig        `json:"DeadLetterConfig,omitempty"`
@@ -434,10 +492,30 @@ type pipeResponse struct {
 	StateReason             string                   `json:"StateReason,omitempty"`
 	CreationTime            float64                  `json:"CreationTime"`
 	LastModifiedTime        float64                  `json:"LastModifiedTime"`
+=======
+	SourceParameters *SourceParameters `json:"SourceParameters,omitempty"`
+	TargetParameters *TargetParameters `json:"TargetParameters,omitempty"`
+	DeadLetterConfig *DeadLetterConfig `json:"DeadLetterConfig,omitempty"`
+	LogConfiguration *LogConfiguration `json:"LogConfiguration,omitempty"`
+	Tags             map[string]string `json:"Tags,omitempty"`
+	Arn              string            `json:"Arn"`
+	Name             string            `json:"Name"`
+	RoleArn          string            `json:"RoleArn"`
+	Source           string            `json:"Source"`
+	Target           string            `json:"Target"`
+	Description      string            `json:"Description,omitempty"`
+	Enrichment       string            `json:"Enrichment,omitempty"`
+	DesiredState     string            `json:"DesiredState"`
+	CurrentState     string            `json:"CurrentState"`
+	StateReason      string            `json:"StateReason,omitempty"`
+	CreationTime     float64           `json:"CreationTime"`
+	LastModifiedTime float64           `json:"LastModifiedTime"`
+>>>>>>> Stashed changes
 }
 
 func toPipeResponse(p *Pipe) pipeResponse {
 	return pipeResponse{
+<<<<<<< Updated upstream
 		Arn:                     p.ARN,
 		Name:                    p.Name,
 		RoleArn:                 p.RoleARN,
@@ -458,6 +536,25 @@ func toPipeResponse(p *Pipe) pipeResponse {
 		LogConfiguration:        p.LogConfiguration,
 		EnrichmentParameters:    p.EnrichmentParameters,
 		RuntimeMetricsStreaming: p.RuntimeMetricsStreaming,
+=======
+		Arn:              p.ARN,
+		Name:             p.Name,
+		RoleArn:          p.RoleARN,
+		Source:           p.Source,
+		Target:           p.Target,
+		Description:      p.Description,
+		Enrichment:       p.Enrichment,
+		DesiredState:     p.DesiredState,
+		CurrentState:     p.CurrentState,
+		StateReason:      p.StateReason,
+		CreationTime:     epochSeconds(p.CreationTime),
+		LastModifiedTime: epochSeconds(p.LastModifiedTime),
+		Tags:             p.Tags,
+		SourceParameters: p.SourceParameters,
+		TargetParameters: p.TargetParameters,
+		DeadLetterConfig: p.DeadLetterConfig,
+		LogConfiguration: p.LogConfiguration,
+>>>>>>> Stashed changes
 	}
 }
 
@@ -473,6 +570,7 @@ func (h *Handler) handleCreatePipe(_ context.Context, path string, body []byte) 
 	}
 
 	p, err := h.Backend.CreatePipe(CreatePipeInput{
+<<<<<<< Updated upstream
 		Name:                    name,
 		RoleARN:                 req.RoleArn,
 		Source:                  req.Source,
@@ -488,6 +586,20 @@ func (h *Handler) handleCreatePipe(_ context.Context, path string, body []byte) 
 		LogConfiguration:        req.LogConfiguration,
 		EnrichmentParameters:    req.EnrichmentParameters,
 		RuntimeMetricsStreaming: req.RuntimeMetricsStreaming,
+=======
+		Name:             name,
+		RoleARN:          req.RoleArn,
+		Source:           req.Source,
+		Target:           req.Target,
+		Description:      req.Description,
+		Enrichment:       req.Enrichment,
+		DesiredState:     req.DesiredState,
+		Tags:             req.Tags,
+		SourceParameters: req.SourceParameters,
+		TargetParameters: req.TargetParameters,
+		DeadLetterConfig: req.DeadLetterConfig,
+		LogConfiguration: req.LogConfiguration,
+>>>>>>> Stashed changes
 	})
 	if err != nil {
 		return nil, err
@@ -510,6 +622,7 @@ func (h *Handler) handleDescribePipe(_ context.Context, path string) ([]byte, er
 	return json.Marshal(toPipeResponse(p))
 }
 
+// pipeSummary is the condensed view returned by ListPipes.
 type pipeSummary struct {
 	Arn              string  `json:"Arn"`
 	Name             string  `json:"Name"`
@@ -560,8 +673,13 @@ func (h *Handler) handleListPipes(_ context.Context, query url.Values) ([]byte, 
 			CurrentState:     p.CurrentState,
 			DesiredState:     p.DesiredState,
 			StateReason:      p.StateReason,
+<<<<<<< Updated upstream
 			CreationTime:     epochMillis(p.CreationTime),
 			LastModifiedTime: epochMillis(p.LastModifiedTime),
+=======
+			CreationTime:     epochSeconds(p.CreationTime),
+			LastModifiedTime: epochSeconds(p.LastModifiedTime),
+>>>>>>> Stashed changes
 		})
 	}
 
@@ -579,7 +697,11 @@ func (h *Handler) handleDeletePipe(_ context.Context, path string) ([]byte, erro
 		return nil, err
 	}
 
+<<<<<<< Updated upstream
 	return json.Marshal(toPipeResponse(p))
+=======
+	return nil, nil
+>>>>>>> Stashed changes
 }
 
 func (h *Handler) handleUpdatePipe(_ context.Context, path string, body []byte) ([]byte, error) {
@@ -594,6 +716,7 @@ func (h *Handler) handleUpdatePipe(_ context.Context, path string, body []byte) 
 	}
 
 	p, err := h.Backend.UpdatePipe(name, UpdatePipeInput{
+<<<<<<< Updated upstream
 		RoleARN:                 req.RoleArn,
 		Target:                  req.Target,
 		Description:             req.Description,
@@ -606,6 +729,17 @@ func (h *Handler) handleUpdatePipe(_ context.Context, path string, body []byte) 
 		LogConfiguration:        req.LogConfiguration,
 		EnrichmentParameters:    req.EnrichmentParameters,
 		RuntimeMetricsStreaming: req.RuntimeMetricsStreaming,
+=======
+		RoleARN:          req.RoleArn,
+		Target:           req.Target,
+		Description:      req.Description,
+		Enrichment:       req.Enrichment,
+		DesiredState:     req.DesiredState,
+		SourceParameters: req.SourceParameters,
+		TargetParameters: req.TargetParameters,
+		DeadLetterConfig: req.DeadLetterConfig,
+		LogConfiguration: req.LogConfiguration,
+>>>>>>> Stashed changes
 	})
 	if err != nil {
 		return nil, err
