@@ -605,17 +605,16 @@ func (rc *ResourceCreator) createEventBridgeEventBusPolicy(
 
 	principal := strProp(props, "Principal", params, physicalIDs)
 
-	policy := fmt.Sprintf(
-		`{"Version":"2012-10-17","Statement":[{"Sid":%q,"Effect":"Allow","Principal":{"AWS":%q},"Action":%q,"Resource":"*"}]}`,
-		statementID,
-		principal,
-		action,
-	)
+	const policyTmpl = `{"Version":"2012-10-17","Statement":[` +
+		`{"Sid":%q,"Effect":"Allow","Principal":{"AWS":%q},"Action":%q,"Resource":"*"}]}`
 
-	if err := rc.backends.EventBridge.Backend.PutEventBusPolicy(context.Background(), ebbackend.PutEventBusPolicyInput{
+	policy := fmt.Sprintf(policyTmpl, statementID, principal, action)
+
+	putIn := ebbackend.PutEventBusPolicyInput{
 		EventBusName: eventBusName,
 		Policy:       policy,
-	}); err != nil {
+	}
+	if err := rc.backends.EventBridge.Backend.PutEventBusPolicy(context.Background(), putIn); err != nil {
 		return "", fmt.Errorf("create Events EventBusPolicy on %s: %w", eventBusName, err)
 	}
 

@@ -975,7 +975,7 @@ func (rc *ResourceCreator) createPhase5Resource(
 	case "AWS::ApiGateway::Authorizer":
 		return rc.createAPIGatewayAuthorizer(logicalID, props, params, physicalIDs)
 	case "AWS::ApiGateway::ApiKey":
-		return rc.createAPIGatewayApiKey(logicalID, props, params, physicalIDs)
+		return rc.createAPIGatewayAPIKey(logicalID, props, params, physicalIDs)
 	case "AWS::ApiGateway::UsagePlan":
 		return rc.createAPIGatewayUsagePlan(logicalID, props, params, physicalIDs)
 	case "AWS::ApiGateway::UsagePlanKey":
@@ -1008,7 +1008,7 @@ func (rc *ResourceCreator) createPhase5bResource(
 	switch resourceType {
 	// Events
 	case "AWS::Events::ApiDestination":
-		return rc.createEventBridgeApiDestination(logicalID, props, params, physicalIDs)
+		return rc.createEventBridgeAPIDestination(logicalID, props, params, physicalIDs)
 	case "AWS::Events::EventBusPolicy":
 		return rc.createEventBridgeEventBusPolicy(logicalID, props, params, physicalIDs)
 	// KMS
@@ -1030,7 +1030,7 @@ func (rc *ResourceCreator) createPhase5bResource(
 	case "AWS::Lambda::EventInvokeConfig":
 		return rc.createLambdaEventInvokeConfig(logicalID, props, params, physicalIDs)
 	case "AWS::Lambda::Url":
-		return rc.createLambdaUrl(logicalID, props, params, physicalIDs)
+		return rc.createLambdaURL(logicalID, props, params, physicalIDs)
 	default:
 		return rc.createPhase5cResource(logicalID, resourceType, props, params, physicalIDs)
 	}
@@ -1046,9 +1046,9 @@ func (rc *ResourceCreator) createPhase5cResource(
 	case "AWS::EC2::VPCPeeringConnection":
 		return rc.createEC2VPCPeeringConnection(logicalID, props, params, physicalIDs)
 	case "AWS::EC2::NetworkAcl":
-		return rc.createEC2NetworkAcl(logicalID, props, params, physicalIDs)
+		return rc.createEC2NetworkACL(logicalID, props, params, physicalIDs)
 	case "AWS::EC2::NetworkAclEntry":
-		return rc.createEC2NetworkAclEntry(logicalID, props, params, physicalIDs)
+		return rc.createEC2NetworkACLEntry(logicalID, props, params, physicalIDs)
 	case "AWS::EC2::KeyPair":
 		return rc.createEC2KeyPair(logicalID, props, params, physicalIDs)
 	case "AWS::EC2::SecurityGroupIngress":

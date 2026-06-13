@@ -1461,7 +1461,7 @@ func (rc *ResourceCreator) deletePhase5Resource(resourceType, physicalID string)
 	case "AWS::ApiGateway::Authorizer":
 		return rc.deleteAPIGatewayAuthorizer(physicalID)
 	case "AWS::ApiGateway::ApiKey":
-		return rc.deleteAPIGatewayApiKey(physicalID)
+		return rc.deleteAPIGatewayAPIKey(physicalID)
 	case "AWS::ApiGateway::UsagePlan":
 		return rc.deleteAPIGatewayUsagePlan(physicalID)
 	case "AWS::ApiGateway::UsagePlanKey":
@@ -1488,7 +1488,7 @@ func (rc *ResourceCreator) deletePhase5Resource(resourceType, physicalID string)
 func (rc *ResourceCreator) deletePhase5bResource(resourceType, physicalID string) error {
 	switch resourceType {
 	case "AWS::Events::ApiDestination":
-		return rc.deleteEventBridgeApiDestination(physicalID)
+		return rc.deleteEventBridgeAPIDestination(physicalID)
 	case "AWS::Events::EventBusPolicy":
 		return rc.deleteEventBridgeEventBusPolicy(physicalID)
 	case "AWS::KMS::ReplicaKey":
@@ -1506,7 +1506,7 @@ func (rc *ResourceCreator) deletePhase5bResource(resourceType, physicalID string
 	case "AWS::Lambda::EventInvokeConfig":
 		return rc.deleteLambdaEventInvokeConfig(physicalID)
 	case "AWS::Lambda::Url":
-		return rc.deleteLambdaUrl(physicalID)
+		return rc.deleteLambdaURL(physicalID)
 	default:
 		return rc.deletePhase5cResource(resourceType, physicalID)
 	}
@@ -1518,9 +1518,9 @@ func (rc *ResourceCreator) deletePhase5cResource(resourceType, physicalID string
 	case "AWS::EC2::VPCPeeringConnection":
 		return rc.deleteEC2VPCPeeringConnection(physicalID)
 	case "AWS::EC2::NetworkAcl":
-		return rc.deleteEC2NetworkAcl(physicalID)
+		return rc.deleteEC2NetworkACL(physicalID)
 	case "AWS::EC2::NetworkAclEntry":
-		return rc.deleteEC2NetworkAclEntry(physicalID)
+		return rc.deleteEC2NetworkACLEntry(physicalID)
 	case "AWS::EC2::KeyPair":
 		return rc.deleteEC2KeyPair(physicalID)
 	case "AWS::EC2::SecurityGroupIngress", "AWS::EC2::SecurityGroupEgress":

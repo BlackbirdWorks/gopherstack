@@ -325,15 +325,15 @@ func TestResourceCreator_Phase5Types_RealBackends(t *testing.T) {
 	rc := cloudformation.NewResourceCreator(backends)
 
 	// First create a real REST API so child resources have a valid restAPIID.
-	restAPIID, err := rc.Create(t.Context(), "MyAPI", "AWS::ApiGateway::RestApi",
+	restAPIID, setupErr := rc.Create(t.Context(), "MyAPI", "AWS::ApiGateway::RestApi",
 		map[string]any{"Name": "phase5-test-api"}, nil, nil)
-	require.NoError(t, err)
+	require.NoError(t, setupErr)
 	require.NotEmpty(t, restAPIID)
 
 	// And a real API key to use in UsagePlanKey.
-	apiKeyID, err := rc.Create(t.Context(), "MyKey", "AWS::ApiGateway::ApiKey",
+	apiKeyID, setupErr := rc.Create(t.Context(), "MyKey", "AWS::ApiGateway::ApiKey",
 		map[string]any{"Name": "phase5-key", "Enabled": true}, nil, nil)
-	require.NoError(t, err)
+	require.NoError(t, setupErr)
 	require.NotEmpty(t, apiKeyID)
 
 	t.Run("apigw_model", func(t *testing.T) {
