@@ -1188,9 +1188,9 @@ func (b *InMemoryBackend) ListFindingAggregations(_ string, _ map[string]any) (m
 func (b *InMemoryBackend) ListUsageTotals(_ []string) ([]map[string]any, error) {
 	return []map[string]any{
 		{
-			"accountId": b.accountID, //nolint:goconst // existing issue.
-			"status":    "ACTIVE",
-			"usage":     []any{},
+			keyAccountID: b.accountID,
+			"status":     "ACTIVE",
+			"usage":      []any{},
 		},
 	}, nil
 }
