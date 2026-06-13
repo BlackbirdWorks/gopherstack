@@ -982,12 +982,12 @@ func (h *Handler) handleCreateResourceShare(_ context.Context, body []byte) ([]b
 }
 
 type getResourceSharesRequest struct {
+	MaxResults          *int32   `json:"maxResults,omitempty"`
 	ResourceOwner       string   `json:"resourceOwner"`
 	Name                string   `json:"name"`
 	NextToken           string   `json:"nextToken"`
 	ResourceShareStatus string   `json:"resourceShareStatus"`
 	ResourceShareArns   []string `json:"resourceShareArns"`
-	MaxResults          *int32   `json:"maxResults,omitempty"`
 }
 
 type getResourceSharesResponse struct {
@@ -1169,12 +1169,12 @@ func (h *Handler) handleDisassociateResourceShare(_ context.Context, body []byte
 }
 
 type getResourceShareAssociationsRequest struct {
+	MaxResults        *int32   `json:"maxResults,omitempty"`
 	AssociationType   string   `json:"associationType"`
 	Principal         string   `json:"principal"`
 	ResourceArn       string   `json:"resourceArn"`
 	NextToken         string   `json:"nextToken"`
 	ResourceShareArns []string `json:"resourceShareArns"`
-	MaxResults        *int32   `json:"maxResults,omitempty"`
 }
 
 type getResourceShareAssociationsResponse struct {
@@ -1308,9 +1308,9 @@ func (h *Handler) handleListTagsForResource(_ context.Context, body []byte) ([]b
 }
 
 type listResourceSharePermissionsRequest struct {
+	MaxResults       *int32 `json:"maxResults,omitempty"`
 	ResourceShareArn string `json:"resourceShareArn"`
 	NextToken        string `json:"nextToken"`
-	MaxResults       *int32 `json:"maxResults,omitempty"`
 }
 
 type listResourceSharePermissionsResponse struct {
@@ -1748,10 +1748,10 @@ func (h *Handler) handleDisassociateResourceSharePermission(
 // --- GetResourceShareInvitations ---
 
 type getResourceShareInvitationsRequest struct {
+	MaxResults                  *int32   `json:"maxResults,omitempty"`
 	NextToken                   string   `json:"nextToken"`
 	ResourceShareInvitationArns []string `json:"resourceShareInvitationArns"`
 	ResourceShareArns           []string `json:"resourceShareArns"`
-	MaxResults                  *int32   `json:"maxResults,omitempty"`
 }
 
 type getResourceShareInvitationsResponse struct {
@@ -1789,9 +1789,9 @@ func (h *Handler) handleGetResourceShareInvitations(
 // --- GetResourcePolicies ---
 
 type getResourcePoliciesRequest struct {
+	MaxResults   *int32   `json:"maxResults,omitempty"`
 	NextToken    string   `json:"nextToken"`
 	ResourceArns []string `json:"resourceArns"`
-	MaxResults   *int32   `json:"maxResults,omitempty"`
 }
 
 type getResourcePoliciesResponse struct {
@@ -2004,10 +2004,10 @@ func (h *Handler) handleReplacePermissionAssociations(
 // --- ListPermissions ---
 
 type listPermissionsRequest struct {
+	MaxResults     *int32 `json:"maxResults,omitempty"`
 	PermissionType string `json:"permissionType"`
 	ResourceType   string `json:"resourceType"`
 	NextToken      string `json:"nextToken"`
-	MaxResults     *int32 `json:"maxResults,omitempty"`
 }
 
 type listPermissionsResponse struct {
@@ -2043,9 +2043,9 @@ func (h *Handler) handleListPermissions(_ context.Context, body []byte) ([]byte,
 // --- ListPermissionVersions ---
 
 type listPermissionVersionsRequest struct {
+	MaxResults    *int32 `json:"maxResults,omitempty"`
 	PermissionArn string `json:"permissionArn"`
 	NextToken     string `json:"nextToken"`
-	MaxResults    *int32 `json:"maxResults,omitempty"`
 }
 
 type listPermissionVersionsResponse struct {
@@ -2096,10 +2096,10 @@ type permissionAssociationObject struct {
 }
 
 type listPermissionAssociationsRequest struct {
-	PermissionArn     string `json:"permissionArn"`
 	PermissionVersion *int32 `json:"permissionVersion,omitempty"`
-	NextToken         string `json:"nextToken"`
 	MaxResults        *int32 `json:"maxResults,omitempty"`
+	PermissionArn     string `json:"permissionArn"`
+	NextToken         string `json:"nextToken"`
 }
 
 type listPermissionAssociationsResponse struct {
@@ -2160,11 +2160,11 @@ func toResourceObject(a *ResourceShareAssociation) resourceObject {
 }
 
 type listResourcesRequest struct {
+	MaxResults       *int32 `json:"maxResults,omitempty"`
 	ResourceOwner    string `json:"resourceOwner"`
 	ResourceShareArn string `json:"resourceShareArn"`
 	ResourceType     string `json:"resourceType"`
 	NextToken        string `json:"nextToken"`
-	MaxResults       *int32 `json:"maxResults,omitempty"`
 }
 
 type listResourcesResponse struct {
@@ -2214,10 +2214,10 @@ func toPrincipalObject(a *ResourceShareAssociation) principalObject {
 }
 
 type listPrincipalsRequest struct {
+	MaxResults       *int32 `json:"maxResults,omitempty"`
 	ResourceOwner    string `json:"resourceOwner"`
 	ResourceShareArn string `json:"resourceShareArn"`
 	NextToken        string `json:"nextToken"`
-	MaxResults       *int32 `json:"maxResults,omitempty"`
 }
 
 type listPrincipalsResponse struct {
@@ -2249,9 +2249,9 @@ func (h *Handler) handleListPrincipals(_ context.Context, body []byte) ([]byte, 
 // --- ListPendingInvitationResources ---
 
 type listPendingInvitationResourcesRequest struct {
+	MaxResults                 *int32 `json:"maxResults,omitempty"`
 	ResourceShareInvitationArn string `json:"resourceShareInvitationArn"`
 	NextToken                  string `json:"nextToken"`
-	MaxResults                 *int32 `json:"maxResults,omitempty"`
 }
 
 type listPendingInvitationResourcesResponse struct {

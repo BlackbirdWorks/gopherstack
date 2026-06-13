@@ -21,13 +21,13 @@ func TestCPBounds_ListPipelineExecutions(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	rec := doRequest(t, h, "CreatePipeline", map[string]any{
+	setupRec := doRequest(t, h, "CreatePipeline", map[string]any{
 		"pipeline": samplePipeline("bounds-pipe"),
 	})
-	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, http.StatusOK, setupRec.Code)
 
-	rec = doRequest(t, h, "StartPipelineExecution", map[string]any{"name": "bounds-pipe"})
-	require.Equal(t, http.StatusOK, rec.Code)
+	setupRec = doRequest(t, h, "StartPipelineExecution", map[string]any{"name": "bounds-pipe"})
+	require.Equal(t, http.StatusOK, setupRec.Code)
 
 	tests := []struct {
 		name       string
@@ -86,12 +86,12 @@ func TestCPPagination_ListPipelineExecutions(t *testing.T) {
 			body["nextToken"] = nextToken
 		}
 
-		rec := doRequest(t, h, "ListPipelineExecutions", body)
+		rec = doRequest(t, h, "ListPipelineExecutions", body)
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var out struct {
-			PipelineExecutionSummaries []map[string]any `json:"pipelineExecutionSummaries"`
 			NextToken                  string           `json:"nextToken"`
+			PipelineExecutionSummaries []map[string]any `json:"pipelineExecutionSummaries"`
 		}
 		require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
 
@@ -118,12 +118,12 @@ func TestCPBounds_ListWebhooks(t *testing.T) {
 	h := newTestHandler(t)
 
 	// Seed one pipeline for the webhook target.
-	rec := doRequest(t, h, "CreatePipeline", map[string]any{
+	setupRec := doRequest(t, h, "CreatePipeline", map[string]any{
 		"pipeline": samplePipeline("wh-pipe"),
 	})
-	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, http.StatusOK, setupRec.Code)
 
-	rec = doRequest(t, h, "PutWebhook", map[string]any{
+	setupRec = doRequest(t, h, "PutWebhook", map[string]any{
 		"webhook": map[string]any{
 			"name":                        "wh-bounds",
 			"targetPipeline":              "wh-pipe",
@@ -133,7 +133,7 @@ func TestCPBounds_ListWebhooks(t *testing.T) {
 			"authenticationConfiguration": map[string]any{},
 		},
 	})
-	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, http.StatusOK, setupRec.Code)
 
 	tests := []struct {
 		name       string
@@ -199,12 +199,12 @@ func TestCPPagination_ListWebhooks(t *testing.T) {
 			body["NextToken"] = nextToken
 		}
 
-		rec := doRequest(t, h, "ListWebhooks", body)
+		rec = doRequest(t, h, "ListWebhooks", body)
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var out struct {
-			Webhooks  []map[string]any `json:"webhooks"`
 			NextToken string           `json:"NextToken"`
+			Webhooks  []map[string]any `json:"webhooks"`
 		}
 		require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
 
@@ -230,13 +230,13 @@ func TestCPBounds_ListActionExecutions(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	rec := doRequest(t, h, "CreatePipeline", map[string]any{
+	setupRec := doRequest(t, h, "CreatePipeline", map[string]any{
 		"pipeline": samplePipeline("ae-bounds-pipe"),
 	})
-	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, http.StatusOK, setupRec.Code)
 
-	rec = doRequest(t, h, "StartPipelineExecution", map[string]any{"name": "ae-bounds-pipe"})
-	require.Equal(t, http.StatusOK, rec.Code)
+	setupRec = doRequest(t, h, "StartPipelineExecution", map[string]any{"name": "ae-bounds-pipe"})
+	require.Equal(t, http.StatusOK, setupRec.Code)
 
 	tests := []struct {
 		name       string
@@ -296,12 +296,12 @@ func TestCPPagination_ListActionExecutions(t *testing.T) {
 			body["nextToken"] = nextToken
 		}
 
-		rec := doRequest(t, h, "ListActionExecutions", body)
+		rec = doRequest(t, h, "ListActionExecutions", body)
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var out struct {
-			ActionExecutionDetails []map[string]any `json:"actionExecutionDetails"`
 			NextToken              string           `json:"nextToken"`
+			ActionExecutionDetails []map[string]any `json:"actionExecutionDetails"`
 		}
 		require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
 
@@ -344,8 +344,8 @@ func TestCPPagination_ListActionTypes(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out struct {
-		ActionTypes []map[string]any `json:"actionTypes"`
 		NextToken   string           `json:"nextToken"`
+		ActionTypes []map[string]any `json:"actionTypes"`
 	}
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
 
@@ -384,8 +384,8 @@ func TestCPPagination_ListActionTypes_MultiPage(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var out struct {
-			ActionTypes []map[string]any `json:"actionTypes"`
 			NextToken   string           `json:"nextToken"`
+			ActionTypes []map[string]any `json:"actionTypes"`
 		}
 		require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
 
@@ -411,10 +411,10 @@ func TestCPBounds_ListRuleExecutions(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	rec := doRequest(t, h, "CreatePipeline", map[string]any{
+	setupRec := doRequest(t, h, "CreatePipeline", map[string]any{
 		"pipeline": samplePipeline("re-bounds-pipe"),
 	})
-	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, http.StatusOK, setupRec.Code)
 
 	tests := []struct {
 		name       string

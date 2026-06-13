@@ -521,6 +521,34 @@ func (b *InMemoryBackend) ListComplianceItems(
 	return &ListComplianceItemsOutput{NextToken: nextToken, ComplianceItems: all[startIdx:end]}, nil
 }
 
+type complianceTally struct {
+	compliantCount    int
+	nonCompliantCount int
+}
+
+// buildComplianceTallies accumulates compliant/non-compliant item counts per ComplianceType.
+func buildComplianceTallies(store map[string][]ComplianceItem) map[string]*complianceTally {
+	tallies := make(map[string]*complianceTally)
+	for _, items := range store {
+		for _, item := range items {
+			ct := item.ComplianceType
+			if ct == "" {
+				ct = "Custom"
+			}
+			if tallies[ct] == nil {
+				tallies[ct] = &complianceTally{}
+			}
+			if item.Status == complianceStatusCompliant {
+				tallies[ct].compliantCount++
+			} else {
+				tallies[ct].nonCompliantCount++
+			}
+		}
+	}
+
+	return tallies
+}
+
 // ListComplianceSummaries aggregates stored compliance items by ComplianceType.
 func (b *InMemoryBackend) ListComplianceSummaries(
 	ctx context.Context,
@@ -530,32 +558,7 @@ func (b *InMemoryBackend) ListComplianceSummaries(
 	b.mu.RLock("ListComplianceSummaries")
 	defer b.mu.RUnlock()
 
-	// Tally compliant/non-compliant counts per compliance type.
-	type tally struct {
-		compliantCount    int
-		nonCompliantCount int
-	}
-
-	tallies := make(map[string]*tally)
-
-	for _, items := range b.complianceStore(region) {
-		for _, item := range items {
-			ct := item.ComplianceType
-			if ct == "" {
-				ct = "Custom"
-			}
-
-			if tallies[ct] == nil {
-				tallies[ct] = &tally{}
-			}
-
-			if item.Status == complianceStatusCompliant {
-				tallies[ct].compliantCount++
-			} else {
-				tallies[ct].nonCompliantCount++
-			}
-		}
-	}
+	tallies := buildComplianceTallies(b.complianceStore(region))
 
 	summaries := make([]any, 0, len(tallies))
 	for ct, t := range tallies {

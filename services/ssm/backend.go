@@ -868,6 +868,34 @@ func (b *InMemoryBackend) DeleteParameters(
 }
 
 // GetParameterHistory retrieves all versions of a parameter.
+// buildReversedHistory returns the history list in reverse order (newest first),
+// populating labels from parameterLabels and optionally decrypting SecureString values.
+func (b *InMemoryBackend) buildReversedHistory(
+	historyList []ParameterHistory,
+	parameterLabels map[string]map[int64][]string,
+	name string,
+	withDecryption bool,
+) []ParameterHistory {
+	n := len(historyList)
+	reversed := make([]ParameterHistory, n)
+	for i, h := range historyList {
+		entry := h
+		if versionLabels, ok := parameterLabels[name]; ok {
+			if labels, ok2 := versionLabels[entry.Version]; ok2 && len(labels) > 0 {
+				entry.Labels = labels
+			}
+		}
+		if withDecryption && entry.Type == SecureStringType {
+			if decrypted, err := b.decryptSSMValue(entry.KeyID, entry.Value); err == nil {
+				entry.Value = decrypted
+			}
+		}
+		reversed[n-1-i] = entry
+	}
+
+	return reversed
+}
+
 func (b *InMemoryBackend) GetParameterHistory(
 	ctx context.Context,
 	input *GetParameterHistoryInput,
@@ -895,28 +923,13 @@ func (b *InMemoryBackend) GetParameterHistory(
 		maxResults = *input.MaxResults
 	}
 
-	// Build reversed list (newest first) to match AWS behavior.
-	n := len(historyList)
-	reversed := make([]ParameterHistory, n)
-
-	parameterLabels := b.parameterLabelsStore(region)
-
-	for i, h := range historyList {
-		entry := h
-		// Populate labels from the per-version label store.
-		if versionLabels, ok := parameterLabels[input.Name]; ok {
-			if labels, ok2 := versionLabels[entry.Version]; ok2 && len(labels) > 0 {
-				entry.Labels = labels
-			}
-		}
-		// Decrypt SecureString values when WithDecryption is requested.
-		if input.WithDecryption && entry.Type == SecureStringType {
-			if decrypted, err := b.decryptSSMValue(entry.KeyID, entry.Value); err == nil {
-				entry.Value = decrypted
-			}
-		}
-		reversed[n-1-i] = entry
-	}
+	reversed := b.buildReversedHistory(
+		historyList,
+		b.parameterLabelsStore(region),
+		input.Name,
+		input.WithDecryption,
+	)
+	n := len(reversed)
 
 	startIdx := parseNextToken(input.NextToken)
 
@@ -993,6 +1006,47 @@ func paramByPathMatchesFilters(param Parameter, filters []ParameterFilter) bool 
 	return paramMatchesFilters(meta, filters)
 }
 
+// collectPathParams returns parameters from store that match path and filters, sorted by name.
+func collectPathParams(
+	store map[string]Parameter,
+	path string,
+	recursive bool,
+	filters []ParameterFilter,
+) []Parameter {
+	var matched []Parameter
+	for name, param := range store {
+		if !paramMatchesPath(name, path, recursive) {
+			continue
+		}
+		if len(filters) > 0 && !paramByPathMatchesFilters(param, filters) {
+			continue
+		}
+		matched = append(matched, param)
+	}
+	sort.Slice(matched, func(i, j int) bool {
+		return matched[i].Name < matched[j].Name
+	})
+
+	return matched
+}
+
+// decryptParamsSlice returns a copy of params with SecureString values decrypted when requested.
+func (b *InMemoryBackend) decryptParamsSlice(params []Parameter, withDecryption bool) []Parameter {
+	// No capacity hint — user-derived values in the capacity slot trigger CodeQL.
+	// nolint:prealloc,nolintlint // satisfies CodeQL by removing tainted capacity hint
+	result := make([]Parameter, 0)
+	for _, p := range params {
+		if withDecryption && p.Type == SecureStringType {
+			if decrypted, err := b.decryptSSMValue(p.KeyID, p.Value); err == nil {
+				p.Value = decrypted
+			}
+		}
+		result = append(result, p)
+	}
+
+	return result
+}
+
 // GetParametersByPath returns parameters whose names begin with the given path.
 func (b *InMemoryBackend) GetParametersByPath(
 	ctx context.Context,
@@ -1003,31 +1057,17 @@ func (b *InMemoryBackend) GetParametersByPath(
 	b.mu.RLock("GetParametersByPath")
 	defer b.mu.RUnlock()
 
-	// Normalize path to end with /
 	path := input.Path
 	if !strings.HasSuffix(path, "/") {
 		path += "/"
 	}
 
-	// Collect matching parameters
-	var matched []Parameter
-
-	for name, param := range b.parametersStore(region) {
-		if !paramMatchesPath(name, path, input.Recursive) {
-			continue
-		}
-
-		if len(input.ParameterFilters) > 0 &&
-			!paramByPathMatchesFilters(param, input.ParameterFilters) {
-			continue
-		}
-
-		matched = append(matched, param)
-	}
-
-	sort.Slice(matched, func(i, j int) bool {
-		return matched[i].Name < matched[j].Name
-	})
+	matched := collectPathParams(
+		b.parametersStore(region),
+		path,
+		input.Recursive,
+		input.ParameterFilters,
+	)
 
 	startIdx := parseNextToken(input.NextToken)
 
@@ -1058,23 +1098,8 @@ func (b *InMemoryBackend) GetParametersByPath(
 		end = len(matched)
 	}
 
-	// No capacity hint — user-derived values like (end-startIdx) in the
-	// capacity slot trigger CodeQL.
-	// nolint:prealloc,nolintlint // satisfies CodeQL by removing tainted capacity hint
-	result := make([]Parameter, 0)
-
-	for _, p := range matched[startIdx:end] {
-		if input.WithDecryption && p.Type == SecureStringType {
-			if decrypted, err := b.decryptSSMValue(p.KeyID, p.Value); err == nil {
-				p.Value = decrypted
-			}
-		}
-
-		result = append(result, p)
-	}
-
 	return &GetParametersByPathOutput{
-		Parameters: result,
+		Parameters: b.decryptParamsSlice(matched[startIdx:end], input.WithDecryption),
 		NextToken:  nextToken,
 	}, nil
 }

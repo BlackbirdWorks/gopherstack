@@ -15,6 +15,7 @@ import (
 func ptr64(v int64) *int64 {
 	p := new(int64)
 	*p = v
+
 	return p
 }
 
@@ -36,12 +37,12 @@ func TestSSMBounds_GetParameterHistory(t *testing.T) {
 		name       string
 		wantError  bool
 	}{
-		{"nil uses default", nil, false},
-		{"1 is valid", ptr64(1), false},
-		{"50 is valid cap", ptr64(50), false},
-		{"51 exceeds cap", ptr64(51), true},
-		{"0 is invalid", ptr64(0), true},
-		{"-1 is invalid", ptr64(-1), true},
+		{nil, "nil uses default", false},
+		{ptr64(1), "1 is valid", false},
+		{ptr64(50), "50 is valid cap", false},
+		{ptr64(51), "51 exceeds cap", true},
+		{ptr64(0), "0 is invalid", true},
+		{ptr64(-1), "-1 is invalid", true},
 	}
 
 	for _, tc := range tests {
@@ -127,11 +128,11 @@ func TestSSMBounds_GetParametersByPath(t *testing.T) {
 		name       string
 		wantError  bool
 	}{
-		{"nil uses default 10", nil, false},
-		{"1 is valid", ptr64(1), false},
-		{"10 is valid cap", ptr64(10), false},
-		{"11 exceeds cap", ptr64(11), true},
-		{"0 is invalid", ptr64(0), true},
+		{nil, "nil uses default 10", false},
+		{ptr64(1), "1 is valid", false},
+		{ptr64(10), "10 is valid cap", false},
+		{ptr64(11), "11 exceeds cap", true},
+		{ptr64(0), "0 is invalid", true},
 	}
 
 	for _, tc := range tests {
@@ -205,19 +206,19 @@ func TestSSMBounds_DescribeParameters(t *testing.T) {
 	_, b := newTestHandler(t)
 	ctx := context.Background()
 
-	_, err := b.PutParameter(ctx, &ssm.PutParameterInput{Name: "/desc/p", Value: "v", Type: "String"})
-	require.NoError(t, err)
+	_, putErr := b.PutParameter(ctx, &ssm.PutParameterInput{Name: "/desc/p", Value: "v", Type: "String"})
+	require.NoError(t, putErr)
 
 	tests := []struct {
 		maxResults *int64
 		name       string
 		wantError  bool
 	}{
-		{"nil uses default", nil, false},
-		{"1 is valid", ptr64(1), false},
-		{"50 is valid cap", ptr64(50), false},
-		{"51 exceeds cap", ptr64(51), true},
-		{"0 is invalid", ptr64(0), true},
+		{nil, "nil uses default", false},
+		{ptr64(1), "1 is valid", false},
+		{ptr64(50), "50 is valid cap", false},
+		{ptr64(51), "51 exceeds cap", true},
+		{ptr64(0), "0 is invalid", true},
 	}
 
 	for _, tc := range tests {
@@ -293,11 +294,11 @@ func TestSSMBounds_GetInventory(t *testing.T) {
 		name       string
 		wantError  bool
 	}{
-		{"nil uses default", nil, false},
-		{"1 is valid", ptr64(1), false},
-		{"50 is valid cap", ptr64(50), false},
-		{"51 exceeds cap", ptr64(51), true},
-		{"0 is invalid", ptr64(0), true},
+		{nil, "nil uses default", false},
+		{ptr64(1), "1 is valid", false},
+		{ptr64(50), "50 is valid cap", false},
+		{ptr64(51), "51 exceeds cap", true},
+		{ptr64(0), "0 is invalid", true},
 	}
 
 	for _, tc := range tests {
@@ -379,11 +380,11 @@ func TestSSMBounds_ListInventoryEntries(t *testing.T) {
 		name       string
 		wantError  bool
 	}{
-		{"nil uses default", nil, false},
-		{"1 is valid", ptr64(1), false},
-		{"50 is valid cap", ptr64(50), false},
-		{"51 exceeds cap", ptr64(51), true},
-		{"0 is invalid", ptr64(0), true},
+		{nil, "nil uses default", false},
+		{ptr64(1), "1 is valid", false},
+		{ptr64(50), "50 is valid cap", false},
+		{ptr64(51), "51 exceeds cap", true},
+		{ptr64(0), "0 is invalid", true},
 	}
 
 	for _, tc := range tests {
@@ -421,7 +422,7 @@ func TestSSMPagination_ListInventoryEntries(t *testing.T) {
 		}
 	}
 
-	_, err := b.PutInventory(ctx, &ssm.PutInventoryInput{
+	_, putErr := b.PutInventory(ctx, &ssm.PutInventoryInput{
 		InstanceID: "i-entries-0001",
 		Items: []ssm.InventoryItem{
 			{
@@ -432,7 +433,7 @@ func TestSSMPagination_ListInventoryEntries(t *testing.T) {
 			},
 		},
 	})
-	require.NoError(t, err)
+	require.NoError(t, putErr)
 
 	maxR := ptr64(2)
 	var nextToken string
@@ -476,11 +477,11 @@ func TestSSMBounds_ListComplianceItems(t *testing.T) {
 		name       string
 		wantError  bool
 	}{
-		{"nil uses default", nil, false},
-		{"1 is valid", ptr64(1), false},
-		{"50 is valid cap", ptr64(50), false},
-		{"51 exceeds cap", ptr64(51), true},
-		{"0 is invalid", ptr64(0), true},
+		{nil, "nil uses default", false},
+		{ptr64(1), "1 is valid", false},
+		{ptr64(50), "50 is valid cap", false},
+		{ptr64(51), "51 exceeds cap", true},
+		{ptr64(0), "0 is invalid", true},
 	}
 
 	for _, tc := range tests {
@@ -517,13 +518,13 @@ func TestSSMPagination_ListComplianceItems(t *testing.T) {
 		}
 	}
 
-	_, err := b.PutComplianceItems(ctx, &ssm.PutComplianceItemsInput{
+	_, putErr := b.PutComplianceItems(ctx, &ssm.PutComplianceItemsInput{
 		ResourceID:     "res-ci-1",
 		ResourceType:   "ManagedInstance",
 		ComplianceType: "Custom",
 		Items:          items1,
 	})
-	require.NoError(t, err)
+	require.NoError(t, putErr)
 
 	items2 := make([]ssm.ComplianceItem, 2)
 	for i := range 2 {
@@ -534,13 +535,13 @@ func TestSSMPagination_ListComplianceItems(t *testing.T) {
 		}
 	}
 
-	_, err = b.PutComplianceItems(ctx, &ssm.PutComplianceItemsInput{
+	_, putErr = b.PutComplianceItems(ctx, &ssm.PutComplianceItemsInput{
 		ResourceID:     "res-ci-2",
 		ResourceType:   "ManagedInstance",
 		ComplianceType: "Custom",
 		Items:          items2,
 	})
-	require.NoError(t, err)
+	require.NoError(t, putErr)
 
 	maxR := ptr64(2)
 	var nextToken string
@@ -582,11 +583,11 @@ func TestSSMBounds_ListComplianceSummaries(t *testing.T) {
 		name       string
 		wantError  bool
 	}{
-		{"nil uses default", nil, false},
-		{"1 is valid", ptr64(1), false},
-		{"50 is valid cap", ptr64(50), false},
-		{"51 exceeds cap", ptr64(51), true},
-		{"0 is invalid", ptr64(0), true},
+		{nil, "nil uses default", false},
+		{ptr64(1), "1 is valid", false},
+		{ptr64(50), "50 is valid cap", false},
+		{ptr64(51), "51 exceeds cap", true},
+		{ptr64(0), "0 is invalid", true},
 	}
 
 	for _, tc := range tests {
@@ -667,11 +668,11 @@ func TestSSMBounds_ListResourceComplianceSummaries(t *testing.T) {
 		name       string
 		wantError  bool
 	}{
-		{"nil uses default", nil, false},
-		{"1 is valid", ptr64(1), false},
-		{"50 is valid cap", ptr64(50), false},
-		{"51 exceeds cap", ptr64(51), true},
-		{"0 is invalid", ptr64(0), true},
+		{nil, "nil uses default", false},
+		{ptr64(1), "1 is valid", false},
+		{ptr64(50), "50 is valid cap", false},
+		{ptr64(51), "51 exceeds cap", true},
+		{ptr64(0), "0 is invalid", true},
 	}
 
 	for _, tc := range tests {
@@ -751,11 +752,11 @@ func TestSSMBounds_DescribePatchGroups(t *testing.T) {
 		name       string
 		wantError  bool
 	}{
-		{"nil uses default", nil, false},
-		{"1 is valid", ptr64(1), false},
-		{"100 is valid cap", ptr64(100), false},
-		{"101 exceeds cap", ptr64(101), true},
-		{"0 is invalid", ptr64(0), true},
+		{nil, "nil uses default", false},
+		{ptr64(1), "1 is valid", false},
+		{ptr64(100), "100 is valid cap", false},
+		{ptr64(101), "101 exceeds cap", true},
+		{ptr64(0), "0 is invalid", true},
 	}
 
 	for _, tc := range tests {
@@ -791,11 +792,11 @@ func TestSSMBounds_DescribeMaintenanceWindowsForTarget(t *testing.T) {
 		name       string
 		wantError  bool
 	}{
-		{"nil uses default", nil, false},
-		{"1 is valid", ptr64(1), false},
-		{"100 is valid cap", ptr64(100), false},
-		{"101 exceeds cap", ptr64(101), true},
-		{"0 is invalid", ptr64(0), true},
+		{nil, "nil uses default", false},
+		{ptr64(1), "1 is valid", false},
+		{ptr64(100), "100 is valid cap", false},
+		{ptr64(101), "101 exceeds cap", true},
+		{ptr64(0), "0 is invalid", true},
 	}
 
 	for _, tc := range tests {
@@ -832,11 +833,11 @@ func TestSSMBounds_ListOpsItemRelatedItems(t *testing.T) {
 		name       string
 		wantError  bool
 	}{
-		{"nil uses default", nil, false},
-		{"1 is valid", ptr64(1), false},
-		{"50 is valid cap", ptr64(50), false},
-		{"51 exceeds cap", ptr64(51), true},
-		{"0 is invalid", ptr64(0), true},
+		{nil, "nil uses default", false},
+		{ptr64(1), "1 is valid", false},
+		{ptr64(50), "50 is valid cap", false},
+		{ptr64(51), "51 exceeds cap", true},
+		{ptr64(0), "0 is invalid", true},
 	}
 
 	for _, tc := range tests {
@@ -872,11 +873,11 @@ func TestSSMBounds_ListOpsItemEvents(t *testing.T) {
 		name       string
 		wantError  bool
 	}{
-		{"nil uses default", nil, false},
-		{"1 is valid", ptr64(1), false},
-		{"50 is valid cap", ptr64(50), false},
-		{"51 exceeds cap", ptr64(51), true},
-		{"0 is invalid", ptr64(0), true},
+		{nil, "nil uses default", false},
+		{ptr64(1), "1 is valid", false},
+		{ptr64(50), "50 is valid cap", false},
+		{ptr64(51), "51 exceeds cap", true},
+		{ptr64(0), "0 is invalid", true},
 	}
 
 	for _, tc := range tests {

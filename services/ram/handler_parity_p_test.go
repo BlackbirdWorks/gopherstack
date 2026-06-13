@@ -33,9 +33,9 @@ func TestRAMPagination_GetResourceShares(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		maxResults  *int32
 		name        string
 		totalShares int
-		maxResults  *int32
 		wantPages   int
 		wantError   bool
 	}{
@@ -99,8 +99,8 @@ func TestRAMPagination_GetResourceShares(t *testing.T) {
 			}
 
 			type respBody struct {
-				NextToken      string        `json:"nextToken"`
-				ResourceShares []any `json:"resourceShares"`
+				NextToken      string `json:"nextToken"`
+				ResourceShares []any  `json:"resourceShares"`
 			}
 
 			nextToken := ""
@@ -151,11 +151,11 @@ func TestRAMPagination_ListPermissions(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		maxResults *int32
 		name       string
 		extra      int
-		maxResults *int32
-		wantError  bool
 		wantPages  int
+		wantError  bool
 	}{
 		{
 			name:       "default cap returns all permissions in one page",
@@ -195,8 +195,8 @@ func TestRAMPagination_ListPermissions(t *testing.T) {
 			}
 
 			type respBody struct {
-				NextToken   string        `json:"nextToken"`
-				Permissions []any `json:"permissions"`
+				NextToken   string `json:"nextToken"`
+				Permissions []any  `json:"permissions"`
 			}
 
 			nextToken := ""
@@ -242,8 +242,8 @@ func TestRAMPagination_GetResourceShareAssociations(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		maxResults *int32
+		name       string
 		wantError  bool
 	}{
 		{
@@ -287,8 +287,8 @@ func TestRAMPagination_GetResourceShareAssociations(t *testing.T) {
 			}
 
 			type respBody struct {
-				NextToken                 string        `json:"nextToken"`
-				ResourceShareAssociations []any `json:"resourceShareAssociations"`
+				NextToken                 string `json:"nextToken"`
+				ResourceShareAssociations []any  `json:"resourceShareAssociations"`
 			}
 
 			nextToken := ""
@@ -359,13 +359,13 @@ func TestRAMPagination_ListResources(t *testing.T) {
 	}
 
 	type respBody struct {
-		NextToken string        `json:"nextToken"`
-		Resources []any `json:"resources"`
+		NextToken string `json:"nextToken"`
+		Resources []any  `json:"resources"`
 	}
 
 	tests := []struct {
-		name       string
 		maxResults *int32
+		name       string
 		wantTotal  int
 		wantPages  int
 		wantError  bool
@@ -471,8 +471,8 @@ func TestRAMPagination_ListPrincipals(t *testing.T) {
 	}
 
 	tests := []struct {
-		name       string
 		maxResults *int32
+		name       string
 		wantTotal  int
 		wantPages  int
 		wantError  bool
@@ -503,8 +503,8 @@ func TestRAMPagination_ListPrincipals(t *testing.T) {
 	}
 
 	type respBody struct {
-		NextToken  string        `json:"nextToken"`
-		Principals []any `json:"principals"`
+		NextToken  string `json:"nextToken"`
+		Principals []any  `json:"principals"`
 	}
 
 	for _, tc := range tests {
@@ -578,10 +578,10 @@ func TestRAMPagination_ListResourceSharePermissions(t *testing.T) {
 	}
 
 	tests := []struct {
-		name       string
 		maxResults *int32
-		wantError  bool
+		name       string
 		minPages   int
+		wantError  bool
 	}{
 		{
 			name:       "maxResults=1 paginates",
@@ -607,8 +607,8 @@ func TestRAMPagination_ListResourceSharePermissions(t *testing.T) {
 	}
 
 	type respBody struct {
-		NextToken   string        `json:"nextToken"`
-		Permissions []any `json:"permissions"`
+		NextToken   string `json:"nextToken"`
+		Permissions []any  `json:"permissions"`
 	}
 
 	for _, tc := range tests {
@@ -670,8 +670,8 @@ func TestRAMPagination_GetResourceShareInvitations(t *testing.T) {
 	}
 
 	tests := []struct {
-		name       string
 		maxResults *int32
+		name       string
 		wantTotal  int
 		wantPages  int
 		wantError  bool
@@ -701,8 +701,8 @@ func TestRAMPagination_GetResourceShareInvitations(t *testing.T) {
 	}
 
 	type respBody struct {
-		NextToken                string        `json:"nextToken"`
-		ResourceShareInvitations []any `json:"resourceShareInvitations"`
+		NextToken                string `json:"nextToken"`
+		ResourceShareInvitations []any  `json:"resourceShareInvitations"`
 	}
 
 	for _, tc := range tests {
@@ -769,9 +769,9 @@ func TestRAMPagination_ListPermissionVersions(t *testing.T) {
 	}
 
 	tests := []struct {
-		name       string
 		maxResults *int32
-		wantMin    int // minimum total versions expected
+		name       string
+		wantMin    int
 		wantError  bool
 	}{
 		{
@@ -798,8 +798,8 @@ func TestRAMPagination_ListPermissionVersions(t *testing.T) {
 	}
 
 	type respBody struct {
-		NextToken   string        `json:"nextToken"`
-		Permissions []any `json:"permissions"`
+		NextToken   string `json:"nextToken"`
+		Permissions []any  `json:"permissions"`
 	}
 
 	for _, tc := range tests {
@@ -870,8 +870,8 @@ func TestRAMPagination_ListPermissionAssociations(t *testing.T) {
 	}
 
 	tests := []struct {
-		name       string
 		maxResults *int32
+		name       string
 		wantTotal  int
 		wantPages  int
 		wantError  bool
@@ -902,8 +902,8 @@ func TestRAMPagination_ListPermissionAssociations(t *testing.T) {
 	}
 
 	type respBody struct {
-		NextToken   string        `json:"nextToken"`
-		Permissions []any `json:"permissions"`
+		NextToken   string `json:"nextToken"`
+		Permissions []any  `json:"permissions"`
 	}
 
 	for _, tc := range tests {
@@ -982,13 +982,13 @@ func TestRAMPagination_PendingInvitationResources(t *testing.T) {
 	}
 
 	type respBody struct {
-		NextToken string        `json:"nextToken"`
-		Resources []any `json:"resources"`
+		NextToken string `json:"nextToken"`
+		Resources []any  `json:"resources"`
 	}
 
 	tests := []struct {
-		name       string
 		maxResults *int32
+		name       string
 		wantError  bool
 	}{
 		{
@@ -1041,8 +1041,8 @@ func TestRAMPagination_GetResourcePolicies(t *testing.T) {
 	h := ram.NewHandler(b)
 
 	tests := []struct {
-		name       string
 		maxResults *int32
+		name       string
 		wantError  bool
 	}{
 		{
@@ -1062,9 +1062,9 @@ func TestRAMPagination_GetResourcePolicies(t *testing.T) {
 	}
 
 	type reqBody struct {
-		ResourceArns []string `json:"resourceArns"`
 		MaxResults   *int32   `json:"maxResults,omitempty"`
 		NextToken    string   `json:"nextToken,omitempty"`
+		ResourceArns []string `json:"resourceArns"`
 	}
 
 	for _, tc := range tests {
@@ -1097,6 +1097,7 @@ func TestRAMPagination_GetResourcePolicies(t *testing.T) {
 func ptr32(v int32) *int32 {
 	p := new(int32)
 	*p = v
+
 	return p
 }
 
