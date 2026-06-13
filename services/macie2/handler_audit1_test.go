@@ -48,14 +48,14 @@ func doRequest(t *testing.T, h *macie2.Handler, method, path string, body any) *
 func TestMacie2_Session(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // function field in anonymous struct causes false fieldalignment positive
-		name     string
+	tests := []struct {
+		body     any
 		setup    func(h *macie2.Handler)
+		check    func(t *testing.T, body []byte)
+		name     string
 		method   string
 		path     string
-		body     any
 		wantCode int
-		check    func(t *testing.T, body []byte)
 	}{
 		{
 			name:     "GetMacieSession when not enabled returns 403",
@@ -144,14 +144,14 @@ func TestMacie2_Session(t *testing.T) {
 func TestMacie2_AllowLists(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // function field in anonymous struct causes false fieldalignment positive
-		name     string
-		setup    func(h *macie2.Handler) string
-		method   string
-		pathFn   func(id string) string
+	tests := []struct {
 		body     any
-		wantCode int
+		setup    func(h *macie2.Handler) string
+		pathFn   func(id string) string
 		check    func(t *testing.T, body []byte)
+		name     string
+		method   string
+		wantCode int
 	}{
 		{
 			name:   "CreateAllowList returns arn and id",
@@ -262,14 +262,14 @@ func TestMacie2_AllowLists(t *testing.T) {
 func TestMacie2_CustomDataIdentifiers(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // function field in anonymous struct causes false fieldalignment positive
-		name     string
-		setup    func(h *macie2.Handler) string
-		method   string
-		pathFn   func(id string) string
+	tests := []struct {
 		body     any
-		wantCode int
+		setup    func(h *macie2.Handler) string
+		pathFn   func(id string) string
 		check    func(t *testing.T, body []byte)
+		name     string
+		method   string
+		wantCode int
 	}{
 		{
 			name:   "CreateCustomDataIdentifier returns id",
@@ -387,14 +387,14 @@ func TestMacie2_CustomDataIdentifiers(t *testing.T) {
 func TestMacie2_FindingsFilters(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // function field in anonymous struct causes false fieldalignment positive
-		name     string
-		setup    func(h *macie2.Handler) string
-		method   string
-		pathFn   func(id string) string
+	tests := []struct {
 		body     any
-		wantCode int
+		setup    func(h *macie2.Handler) string
+		pathFn   func(id string) string
 		check    func(t *testing.T, body []byte)
+		name     string
+		method   string
+		wantCode int
 	}{
 		{
 			name:   "CreateFindingsFilter returns arn and id",
@@ -498,14 +498,14 @@ func TestMacie2_FindingsFilters(t *testing.T) {
 func TestMacie2_Findings(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // function field in anonymous struct causes false fieldalignment positive
-		name     string
+	tests := []struct {
+		body     any
 		setup    func(h *macie2.Handler)
+		check    func(t *testing.T, body []byte)
+		name     string
 		method   string
 		path     string
-		body     any
 		wantCode int
-		check    func(t *testing.T, body []byte)
 	}{
 		{
 			name:   "CreateSampleFindings returns 200",
@@ -626,15 +626,15 @@ func createTestAllowListARN(t *testing.T, h *macie2.Handler) string {
 func TestMacie2_Tags(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // function field in anonymous struct causes false fieldalignment positive
-		name     string
-		setup    func(h *macie2.Handler) string
-		method   string
-		pathFn   func(arn string) string
-		query    string
+	tests := []struct {
 		body     any
-		wantCode int
+		setup    func(h *macie2.Handler) string
+		pathFn   func(arn string) string
 		check    func(t *testing.T, body []byte)
+		name     string
+		method   string
+		query    string
+		wantCode int
 	}{
 		{
 			name:     "TagResource returns 200",

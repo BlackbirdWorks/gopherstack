@@ -32,6 +32,19 @@ func FindingCount(b *InMemoryBackend) int {
 	return len(b.findings)
 }
 
+// S3BucketCount returns the number of seeded S3 buckets.
+func S3BucketCount(b *InMemoryBackend) int {
+	b.mu.RLock("S3BucketCount")
+	defer b.mu.RUnlock()
+
+	return len(b.s3Buckets)
+}
+
+// SeedS3Bucket adds an S3 bucket metadata entry to the backend for testing.
+func SeedS3Bucket(b *InMemoryBackend, bucket S3BucketMetadata) {
+	b.AddS3Bucket(bucket)
+}
+
 // HandlerOpsLen returns the count of GetSupportedOperations.
 func HandlerOpsLen(h *Handler) int {
 	return len(h.GetSupportedOperations())
