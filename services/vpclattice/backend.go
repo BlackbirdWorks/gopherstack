@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -50,6 +51,10 @@ const (
 	tgStatusActive = "ACTIVE"
 
 	targetStatusHealthy = "HEALTHY"
+
+	authPolicyStateActive = "Active"
+
+	defaultRulePriority = 100
 
 	defaultMaxResults = 100
 )
@@ -1321,7 +1326,7 @@ func (b *InMemoryBackend) CreateListener(
 }
 
 func (b *InMemoryBackend) createDefaultRule(
-	serviceID, listenerID, listenerARN string,
+	serviceID, listenerID, _ string,
 	action *RuleAction,
 	now time.Time,
 ) {
@@ -1335,7 +1340,7 @@ func (b *InMemoryBackend) createDefaultRule(
 		ServiceID:     serviceID,
 		ListenerID:    listenerID,
 		Name:          "default",
-		Priority:      100,
+		Priority:      defaultRulePriority,
 		Action:        action,
 		IsDefault:     true,
 		Tags:          make(map[string]string),
@@ -1676,8 +1681,8 @@ func (b *InMemoryBackend) BatchUpdateRule(
 	now := time.Now().UTC()
 
 	for _, u := range updates {
-		rID, ok := b.resolveRuleID(svcID, lID, u.RuleIdentifier)
-		if !ok {
+		rID, found := b.resolveRuleID(svcID, lID, u.RuleIdentifier)
+		if !found {
 			failures = append(failures, &RuleUpdateFailure{
 				RuleIdentifier: u.RuleIdentifier,
 				Code:           "NOT_FOUND",
@@ -1835,19 +1840,8 @@ func (b *InMemoryBackend) ListTargetGroups(
 			continue
 		}
 
-		if serviceArn != "" {
-			found := false
-			for _, a := range tg.ServiceARNs {
-				if a == serviceArn {
-					found = true
-
-					break
-				}
-			}
-
-			if !found {
-				continue
-			}
+		if serviceArn != "" && !slices.Contains(tg.ServiceARNs, serviceArn) {
+			continue
 		}
 
 		all = append(all, tg.toSummary())
@@ -1925,19 +1919,15 @@ func (b *InMemoryBackend) DeregisterTargets(
 
 	failures := make([]*TargetFailure, 0)
 	existing := b.targets[id]
-	remaining := make([]*storedTarget, 0, len(existing))
 
 	for _, t := range targets {
 		found := false
+
 		for _, e := range existing {
 			if e.ID == t.ID && (t.Port == 0 || e.Port == t.Port) {
 				found = true
 
-				continue
-			}
-
-			if e.ID != t.ID || (t.Port != 0 && e.Port != t.Port) {
-				remaining = append(remaining, e)
+				break
 			}
 		}
 
@@ -1952,7 +1942,7 @@ func (b *InMemoryBackend) DeregisterTargets(
 	}
 
 	// rebuild remaining with non-deregistered targets
-	remaining = make([]*storedTarget, 0)
+	remaining := make([]*storedTarget, 0, len(existing))
 
 	for _, e := range existing {
 		remove := false
@@ -2152,7 +2142,7 @@ func (b *InMemoryBackend) PutAuthPolicy(resourceID, policy string) (*AuthPolicy,
 
 	b.authPolicies[resourceID] = policy
 
-	return &AuthPolicy{Policy: policy, State: "Active"}, nil
+	return &AuthPolicy{Policy: policy, State: authPolicyStateActive}, nil
 }
 
 // GetAuthPolicy returns the auth policy for a resource.
@@ -2165,7 +2155,7 @@ func (b *InMemoryBackend) GetAuthPolicy(resourceID string) (*AuthPolicy, error) 
 		return &AuthPolicy{Policy: "", State: "Active"}, nil
 	}
 
-	return &AuthPolicy{Policy: policy, State: "Active"}, nil
+	return &AuthPolicy{Policy: policy, State: authPolicyStateActive}, nil
 }
 
 // DeleteAuthPolicy deletes the auth policy for a resource.
@@ -2226,9 +2216,7 @@ func (b *InMemoryBackend) TagResource(resourceArn string, tags map[string]string
 		b.tags[resourceArn] = make(map[string]string)
 	}
 
-	for k, v := range tags {
-		b.tags[resourceArn][k] = v
-	}
+	maps.Copy(b.tags[resourceArn], tags)
 
 	return nil
 }

@@ -323,31 +323,31 @@ type RuleUpdateFailure struct {
 
 // RuleAction is the action for a listener rule.
 type RuleAction struct {
-	FixedResponseStatusCode int32
-	ForwardTargetGroups     []*WeightedTargetGroup
-	IsFixedResponse         bool
+	ForwardTargetGroups     []*WeightedTargetGroup `json:"forwardTargetGroups,omitempty"`
+	FixedResponseStatusCode int32                  `json:"fixedResponseStatusCode,omitempty"`
+	IsFixedResponse         bool                   `json:"isFixedResponse,omitempty"`
 }
 
 // WeightedTargetGroup is a weighted target group for forward actions.
 type WeightedTargetGroup struct {
-	TargetGroupID string
-	Weight        int32
+	TargetGroupID string `json:"targetGroupId"`
+	Weight        int32  `json:"weight"`
 }
 
 // RuleMatch is the match conditions for a listener rule.
 type RuleMatch struct {
-	HTTPMethod     string
-	PathMatchType  string
-	PathMatchValue string
-	HeaderMatches  []*HeaderMatch
+	HeaderMatches  []*HeaderMatch `json:"headerMatches,omitempty"`
+	HTTPMethod     string         `json:"httpMethod,omitempty"`
+	PathMatchType  string         `json:"pathMatchType,omitempty"`
+	PathMatchValue string         `json:"pathMatchValue,omitempty"`
 }
 
 // HeaderMatch is an HTTP header match condition.
 type HeaderMatch struct {
-	Name          string
-	MatchType     string
-	MatchValue    string
-	CaseSensitive bool
+	Name          string `json:"name"`
+	MatchType     string `json:"matchType"`
+	MatchValue    string `json:"matchValue"`
+	CaseSensitive bool   `json:"caseSensitive"`
 }
 
 // TargetGroup represents a VPC Lattice target group.
@@ -379,27 +379,27 @@ type TargetGroupSummary struct {
 
 // TargetGroupConfig is the configuration for a target group.
 type TargetGroupConfig struct {
-	Port                        int32
-	Protocol                    string
-	ProtocolVersion             string
-	VpcID                       string
-	HealthCheck                 *HealthCheckConfig
-	IPAddressType               string
-	LambdaEventStructureVersion string
+	HealthCheck                 *HealthCheckConfig `json:"healthCheck,omitempty"`
+	Protocol                    string             `json:"protocol,omitempty"`
+	ProtocolVersion             string             `json:"protocolVersion,omitempty"`
+	VpcID                       string             `json:"vpcId,omitempty"`
+	IPAddressType               string             `json:"ipAddressType,omitempty"`
+	LambdaEventStructureVersion string             `json:"lambdaEventStructureVersion,omitempty"`
+	Port                        int32              `json:"port,omitempty"`
 }
 
 // HealthCheckConfig is the health check configuration for a target group.
 type HealthCheckConfig struct {
-	Enabled                    bool
-	Protocol                   string
-	ProtocolVersion            string
-	Path                       string
-	Port                       int32
-	HealthyThresholdCount      int32
-	UnhealthyThresholdCount    int32
-	HealthCheckIntervalSeconds int32
-	HealthCheckTimeoutSeconds  int32
-	MatcherHTTPCode            string
+	Protocol                   string `json:"protocol,omitempty"`
+	ProtocolVersion            string `json:"protocolVersion,omitempty"`
+	Path                       string `json:"path,omitempty"`
+	MatcherHTTPCode            string `json:"matcherHttpCode,omitempty"`
+	Port                       int32  `json:"port,omitempty"`
+	HealthyThresholdCount      int32  `json:"healthyThresholdCount,omitempty"`
+	UnhealthyThresholdCount    int32  `json:"unhealthyThresholdCount,omitempty"`
+	HealthCheckIntervalSeconds int32  `json:"healthCheckIntervalSeconds,omitempty"`
+	HealthCheckTimeoutSeconds  int32  `json:"healthCheckTimeoutSeconds,omitempty"`
+	Enabled                    bool   `json:"enabled,omitempty"`
 }
 
 // Target is a target registered to a target group.

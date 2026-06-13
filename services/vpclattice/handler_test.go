@@ -336,7 +336,7 @@ func TestListener_CRUD(t *testing.T) {
 	listenerID, _ := l["id"].(string)
 	require.NotEmpty(t, listenerID)
 	assert.Equal(t, "my-listener", l["name"])
-	assert.Equal(t, float64(80), l["port"])
+	assert.InDelta(t, float64(80), l["port"], 0)
 
 	// get
 	rec = doRequest(t, h, http.MethodGet, "/services/"+svcID+"/listeners/"+listenerID, nil)
@@ -433,7 +433,7 @@ func TestRule_CRUD(t *testing.T) {
 	rule := parseBody(t, rec)
 	ruleID, _ := rule["id"].(string)
 	require.NotEmpty(t, ruleID)
-	assert.Equal(t, float64(10), rule["priority"])
+	assert.InDelta(t, float64(10), rule["priority"], 0)
 
 	// get
 	rec = doRequest(
@@ -464,7 +464,7 @@ func TestRule_CRUD(t *testing.T) {
 	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	updated := parseBody(t, rec)
-	assert.Equal(t, float64(20), updated["priority"])
+	assert.InDelta(t, float64(20), updated["priority"], 0)
 
 	// delete
 	rec = doRequest(
