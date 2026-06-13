@@ -18,8 +18,11 @@ type Router struct {
 func NewServiceRouter(registry *Registry) *Router {
 	services := registry.GetAll()
 
-	// Sort by priority (descending)
-	sort.Slice(services, func(i, j int) bool {
+	// Sort by priority (descending). Use SliceStable so that services registered at the
+	// same priority retain their original registration order. This prevents new service
+	// additions from non-deterministically reordering existing services at the same
+	// priority level, which would cause intermittent routing conflicts.
+	sort.SliceStable(services, func(i, j int) bool {
 		return services[i].Priority > services[j].Priority
 	})
 
