@@ -455,7 +455,7 @@ func (b *InMemoryBackend) clearResolutionCache() {
 func (b *InMemoryBackend) keyRegion(keyARN string) string {
 	parsed, err := awsarn.Parse(keyARN)
 	if err != nil {
-		return b.region
+		return b.defaultRegion
 	}
 
 	return parsed.Region
