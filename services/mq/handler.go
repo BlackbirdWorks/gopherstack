@@ -60,6 +60,7 @@ const (
 	promoteSuffix         = "/promote"
 	usersSuffix           = "/users"
 	revisionsSuffix       = "/revisions"
+	mqDefaultPageSize     = 100
 )
 
 // Handler is the Echo HTTP handler for Amazon MQ REST operations.
@@ -541,7 +542,7 @@ func (h *Handler) handleListBrokers(c *echo.Context) error {
 
 	// Use opaque index-based tokens so the page boundary is stable regardless
 	// of insertions or deletions between requests. AWS uses opaque cursors too.
-	pg := page.New(brokers, nextToken, maxResults, 100)
+	pg := page.New(brokers, nextToken, maxResults, mqDefaultPageSize)
 
 	summaries := make([]brokerSummary, 0, len(pg.Data))
 	for _, br := range pg.Data {
@@ -896,7 +897,7 @@ func (h *Handler) handleListConfigurations(c *echo.Context) error {
 	}
 
 	// Use opaque index-based tokens so the page boundary is stable.
-	pg := page.New(cfgs, nextToken, maxResults, 100)
+	pg := page.New(cfgs, nextToken, maxResults, mqDefaultPageSize)
 
 	list := make([]any, 0, len(pg.Data))
 	for _, cfg := range pg.Data {

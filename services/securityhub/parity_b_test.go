@@ -35,11 +35,11 @@ func TestParityB_BatchImportFindings_TypesRequired(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		finding      map[string]any
-		wantSuccess  int
-		wantFailed   int
-		wantErrCode  string
+		finding     map[string]any
+		name        string
+		wantErrCode string
+		wantSuccess int
+		wantFailed  int
 	}{
 		{
 			name:        "valid_finding_succeeds",
@@ -52,6 +52,7 @@ func TestParityB_BatchImportFindings_TypesRequired(t *testing.T) {
 			finding: func() map[string]any {
 				f := validFinding("finding-no-types")
 				delete(f, "Types")
+
 				return f
 			}(),
 			wantSuccess: 0,
@@ -63,6 +64,7 @@ func TestParityB_BatchImportFindings_TypesRequired(t *testing.T) {
 			finding: func() map[string]any {
 				f := validFinding("finding-empty-types")
 				f["Types"] = []string{}
+
 				return f
 			}(),
 			wantSuccess: 0,
@@ -74,6 +76,7 @@ func TestParityB_BatchImportFindings_TypesRequired(t *testing.T) {
 			finding: func() map[string]any {
 				f := validFinding("finding-no-arn")
 				delete(f, "ProductArn")
+
 				return f
 			}(),
 			wantSuccess: 0,
@@ -85,6 +88,7 @@ func TestParityB_BatchImportFindings_TypesRequired(t *testing.T) {
 			finding: func() map[string]any {
 				f := validFinding("")
 				f["Id"] = ""
+
 				return f
 			}(),
 			wantSuccess: 0,

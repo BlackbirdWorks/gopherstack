@@ -2192,10 +2192,9 @@ type snsHTTPNotification struct {
 // to the endpoint. Standard AWS SNS headers are added when metadata is available.
 // When rawDelivery is false the body is wrapped in a SNS Notification JSON envelope
 // (matching what AWS SNS sends to http/https subscribers by default).
-// Returns true when the endpoint accepts the message (2xx status), false on any
-// network error or non-2xx response. A false return triggers DLQ delivery when the
-// subscription has a RedrivePolicy configured.
-func deliverHTTPWithMeta(parent context.Context, d httpDelivery, client *http.Client) bool {
+// On network error or non-2xx response, the message is forwarded to the DLQ when
+// a RedrivePolicy is configured.
+func deliverHTTPWithMeta(parent context.Context, d httpDelivery, client *http.Client) {
 	ctx, cancel := context.WithTimeout(parent, snsHTTPTimeout)
 	defer cancel()
 
@@ -2246,7 +2245,8 @@ func deliverHTTPWithMeta(parent context.Context, d httpDelivery, client *http.Cl
 	)
 	if err != nil {
 		sendSubscriptionDLQ(parent, d)
-		return false
+
+		return
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -2266,7 +2266,8 @@ func deliverHTTPWithMeta(parent context.Context, d httpDelivery, client *http.Cl
 	resp, err := client.Do(req)
 	if err != nil {
 		sendSubscriptionDLQ(parent, d)
-		return false
+
+		return
 	}
 
 	defer func() { _ = resp.Body.Close() }()
@@ -2274,10 +2275,7 @@ func deliverHTTPWithMeta(parent context.Context, d httpDelivery, client *http.Cl
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		sendSubscriptionDLQ(parent, d)
-		return false
 	}
-
-	return true
 }
 
 // sendSubscriptionDLQ delivers the message body to the DLQ configured in d.redrivePolicy when

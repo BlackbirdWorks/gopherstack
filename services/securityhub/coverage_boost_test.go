@@ -50,7 +50,11 @@ func TestBackend_Reset(t *testing.T) {
 			b := securityhub.NewInMemoryBackend("000000000000", "us-east-1")
 			require.NoError(t, b.EnableHub(false, nil))
 			_, _, _ = b.ImportFindings([]map[string]any{
-				{"Id": "f1", "ProductArn": "arn:aws:securityhub:::product/x/y", "Types": []any{"Software and Configuration Checks"}},
+				{
+					"Id":         "f1",
+					"ProductArn": "arn:aws:securityhub:::product/x/y",
+					"Types":      []any{"Software and Configuration Checks"},
+				},
 			})
 			assert.True(t, securityhub.IsHubEnabled(b))
 			assert.Equal(t, 1, securityhub.FindingCount(b))
@@ -78,7 +82,11 @@ func TestBackend_SnapshotRestore(t *testing.T) {
 			b := securityhub.NewInMemoryBackend("000000000000", "us-east-1")
 			require.NoError(t, b.EnableHub(false, nil))
 			_, _, _ = b.ImportFindings([]map[string]any{
-				{"Id": "snap-1", "ProductArn": "arn:p", "Types": []any{"Software and Configuration Checks"}},
+				{
+					"Id":         "snap-1",
+					"ProductArn": "arn:p",
+					"Types":      []any{"Software and Configuration Checks"},
+				},
 			})
 			snap := b.Snapshot()
 			assert.NotEmpty(t, snap)
@@ -192,7 +200,9 @@ func TestBackend_DisableImportFindingsForProduct(t *testing.T) {
 			var subArn string
 			if tc.preEnable {
 				var err error
-				subArn, err = b.EnableImportFindingsForProduct("arn:aws:securityhub:us-east-1::product/aws/guardduty")
+				subArn, err = b.EnableImportFindingsForProduct(
+					"arn:aws:securityhub:us-east-1::product/aws/guardduty",
+				)
 				require.NoError(t, err)
 			} else {
 				subArn = "arn:aws:securityhub:us-east-1:000000000000:product-subscription/nonexistent"
@@ -517,7 +527,12 @@ func TestBackend_UpdateConfigurationPolicy(t *testing.T) {
 
 			var identifier string
 			if tc.wantErrMsg == "" {
-				cp, err := b.CreateConfigurationPolicy("Original", "orig desc", map[string]any{}, nil)
+				cp, err := b.CreateConfigurationPolicy(
+					"Original",
+					"orig desc",
+					map[string]any{},
+					nil,
+				)
 				require.NoError(t, err)
 				identifier = cp.Id
 			} else {
@@ -611,7 +626,11 @@ func TestBackend_UpdateFindings(t *testing.T) {
 			if tc.hubEnabled {
 				require.NoError(t, b.EnableHub(false, nil))
 				_, _, _ = b.ImportFindings([]map[string]any{
-					{"Id": "f1", "ProductArn": "arn:aws:p", "Types": []any{"Software and Configuration Checks"}},
+					{
+						"Id":         "f1",
+						"ProductArn": "arn:aws:p",
+						"Types":      []any{"Software and Configuration Checks"},
+					},
 				})
 			}
 
@@ -800,7 +819,11 @@ func TestBackend_DeleteInsight(t *testing.T) {
 		preCreate  bool
 	}{
 		{name: "delete existing insight", preCreate: true},
-		{name: "delete non-existent insight returns error", preCreate: false, wantErrMsg: "not found"},
+		{
+			name:       "delete non-existent insight returns error",
+			preCreate:  false,
+			wantErrMsg: "not found",
+		},
 	}
 
 	for _, tc := range tests {
@@ -888,7 +911,11 @@ func TestBackend_MatchesStringFilter(t *testing.T) {
 			t.Parallel()
 			b := securityhub.NewInMemoryBackend("000000000000", "us-east-1")
 			_, _, _ = b.ImportFindings([]map[string]any{
-				{"Id": "filter-finding-1", "ProductArn": "arn:aws:p", "Types": []any{"Software and Configuration Checks"}},
+				{
+					"Id":         "filter-finding-1",
+					"ProductArn": "arn:aws:p",
+					"Types":      []any{"Software and Configuration Checks"},
+				},
 			})
 
 			results, _ := b.GetFindings(tc.filter, nil, "", 100)
@@ -917,7 +944,13 @@ func TestHandler_UpdateActionTarget(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			h := newTestHandler(t)
-			doRequest(t, h, http.MethodPost, "/accounts", map[string]any{"EnableDefaultStandards": false})
+			doRequest(
+				t,
+				h,
+				http.MethodPost,
+				"/accounts",
+				map[string]any{"EnableDefaultStandards": false},
+			)
 			doRequest(t, h, http.MethodPost, "/actionTargets", map[string]any{
 				"Name":        "MyTarget",
 				"Description": "desc",
@@ -953,7 +986,13 @@ func TestHandler_DisableImportFindingsForProduct(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			h := newTestHandler(t)
-			doRequest(t, h, http.MethodPost, "/accounts", map[string]any{"EnableDefaultStandards": false})
+			doRequest(
+				t,
+				h,
+				http.MethodPost,
+				"/accounts",
+				map[string]any{"EnableDefaultStandards": false},
+			)
 
 			// Enable first
 			enableRec := doRequest(t, h, http.MethodPost, "/productSubscriptions", map[string]any{
@@ -1349,7 +1388,11 @@ func TestHandler_GetFindingsV2_InvalidNextToken(t *testing.T) {
 		wantCode  int
 	}{
 		{name: "valid next token", nextToken: "", wantCode: http.StatusOK},
-		{name: "non-numeric next token falls back", nextToken: "notanumber", wantCode: http.StatusOK},
+		{
+			name:      "non-numeric next token falls back",
+			nextToken: "notanumber",
+			wantCode:  http.StatusOK,
+		},
 	}
 
 	for _, tc := range tests {
@@ -1401,9 +1444,15 @@ func TestHandler_AutomationRuleV2_UpdateNotFound(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			h := newTestHandler(t)
-			rec := doRequest(t, h, http.MethodPatch, "/automationrulesv2/nonexistent-rule", map[string]any{
-				"RuleName": "Updated",
-			})
+			rec := doRequest(
+				t,
+				h,
+				http.MethodPatch,
+				"/automationrulesv2/nonexistent-rule",
+				map[string]any{
+					"RuleName": "Updated",
+				},
+			)
 			assert.Equal(t, tc.wantCode, rec.Code)
 		})
 	}

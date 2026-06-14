@@ -1462,7 +1462,9 @@ func (h *Handler) handleCreateIntegration(c *echo.Context, apiID string) error {
 func (h *Handler) handleGetIntegrations(c *echo.Context, apiID string) error {
 	return handleGetList(c, apiID, "integrations", func() ([]Integration, error) {
 		return h.Backend.GetIntegrations(apiID)
-	}, func(items []Integration, next string) any { return listIntegrationsOutput{Items: items, NextToken: next} })
+	}, func(items []Integration, next string) any {
+		return listIntegrationsOutput{Items: items, NextToken: next}
+	})
 }
 
 func (h *Handler) handleGetIntegration(c *echo.Context, apiID, integrationID string) error {

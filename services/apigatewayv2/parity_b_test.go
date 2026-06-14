@@ -93,8 +93,8 @@ func TestParityB_GetAPIs_Pagination(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out struct {
-				Items     []apigatewayv2.API `json:"items"`
 				NextToken string             `json:"nextToken"`
+				Items     []apigatewayv2.API `json:"items"`
 			}
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 
@@ -122,8 +122,8 @@ func TestParityB_GetAPIs_PaginationContinuation(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var page1 struct {
-		Items     []apigatewayv2.API `json:"items"`
 		NextToken string             `json:"nextToken"`
+		Items     []apigatewayv2.API `json:"items"`
 	}
 	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &page1))
 	require.Len(t, page1.Items, 2)
@@ -134,8 +134,8 @@ func TestParityB_GetAPIs_PaginationContinuation(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var page2 struct {
-		Items     []apigatewayv2.API `json:"items"`
 		NextToken string             `json:"nextToken"`
+		Items     []apigatewayv2.API `json:"items"`
 	}
 	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2))
 	assert.Len(t, page2.Items, 1, "page 2 holds the remaining API")
@@ -148,8 +148,8 @@ func TestParityB_GetStages_Pagination(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		stageNames    []string
 		maxResults    string
+		stageNames    []string
 		wantCount     int
 		wantNextToken bool
 	}{
@@ -184,8 +184,8 @@ func TestParityB_GetStages_Pagination(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out struct {
-				Items     []any  `json:"items"`
 				NextToken string `json:"nextToken"`
+				Items     []any  `json:"items"`
 			}
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 

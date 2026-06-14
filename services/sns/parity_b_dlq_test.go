@@ -18,8 +18,8 @@ import (
 
 // mockSQSSender records calls to SendMessageToQueue.
 type mockSQSSender struct {
-	mu       sync.Mutex
 	messages []sqsMessage
+	mu       sync.Mutex
 }
 
 type sqsMessage struct {
@@ -61,9 +61,9 @@ func TestParityB_SNS_DLQ_OnHTTPDeliveryFailure(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name           string
-		serverStatus   int
-		expectDLQ      bool
+		name         string
+		serverStatus int
+		expectDLQ    bool
 	}{
 		{
 			name:         "server_returns_200_no_dlq",

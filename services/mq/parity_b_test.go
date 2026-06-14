@@ -85,12 +85,10 @@ func TestParityB_ListBrokers_PaginationOpaqueToken(t *testing.T) {
 				// Token must be opaque base64 integer, not a broker name.
 				offset := decodeOpaqueToken(t, tok)
 				assert.Equal(t, tt.wantCount, offset, "token encodes offset = items returned so far")
-			} else {
-				if hasToken {
-					var tok string
-					require.NoError(t, json.Unmarshal(rawToken, &tok))
-					assert.Empty(t, tok, "nextToken must be empty string when no more pages")
-				}
+			} else if hasToken {
+				var tok string
+				require.NoError(t, json.Unmarshal(rawToken, &tok))
+				assert.Empty(t, tok, "nextToken must be empty string when no more pages")
 			}
 		})
 	}
@@ -168,7 +166,7 @@ func TestParityB_ListConfigurations_PaginationOpaqueToken(t *testing.T) {
 
 			h := newBatch1Handler(t)
 			for _, name := range tt.configNames {
-				createBatch1Config(t, h, name, "ACTIVEMQ")
+				createBatch1Config(t, h, name)
 			}
 
 			path := "/v1/configurations?maxResults=" + strconv.Itoa(tt.maxResults)
@@ -191,12 +189,10 @@ func TestParityB_ListConfigurations_PaginationOpaqueToken(t *testing.T) {
 
 				offset := decodeOpaqueToken(t, tok)
 				assert.Equal(t, tt.wantCount, offset)
-			} else {
-				if hasToken {
-					var tok string
-					require.NoError(t, json.Unmarshal(rawToken, &tok))
-					assert.Empty(t, tok)
-				}
+			} else if hasToken {
+				var tok string
+				require.NoError(t, json.Unmarshal(rawToken, &tok))
+				assert.Empty(t, tok)
 			}
 		})
 	}
