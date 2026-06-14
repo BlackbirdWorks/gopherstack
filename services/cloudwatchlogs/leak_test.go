@@ -32,14 +32,16 @@ func TestParsedInsightsQueryCache_CappedAtMax(t *testing.T) {
 			ctx := context.Background()
 			b := cloudwatchlogs.NewInMemoryBackend()
 
-			require.NoError(t, b.CreateLogGroup(ctx, "test-group", "", ""))
+			_, err := b.CreateLogGroup(ctx, "test-group", "", "")
+			require.NoError(t, err)
 
+			var sqErr error
 			for i := range tc.queries {
 				// Each iteration uses a different (but valid) query string so
 				// each one triggers a new cache entry.
 				q := fmt.Sprintf("fields @timestamp, @message | filter @message like /msg-%d/", i)
-				_, err := b.StartQuery(ctx, fmt.Sprintf("qid-%d", i), q, []string{"test-group"}, 0, 9999999999)
-				require.NoError(t, err, "StartQuery[%d] must succeed", i)
+				_, sqErr = b.StartQuery(ctx, fmt.Sprintf("qid-%d", i), q, []string{"test-group"}, 0, 9999999999)
+				require.NoError(t, sqErr, "StartQuery[%d] must succeed", i)
 			}
 
 			got := b.GetParsedInsightsQueryCacheSize()
@@ -58,14 +60,16 @@ func TestParsedInsightsQueryCache_DeduplicatesIdenticalQueries(t *testing.T) {
 	ctx := context.Background()
 	b := cloudwatchlogs.NewInMemoryBackend()
 
-	require.NoError(t, b.CreateLogGroup(ctx, "test-group", "", ""))
+	_, err := b.CreateLogGroup(ctx, "test-group", "", "")
+	require.NoError(t, err)
 
 	const query = "fields @timestamp, @message"
 	const repeats = 20
 
+	var sqErr error
 	for i := range repeats {
-		_, err := b.StartQuery(ctx, fmt.Sprintf("qid-%d", i), query, []string{"test-group"}, 0, 9999999999)
-		require.NoError(t, err, "StartQuery[%d] must succeed", i)
+		_, sqErr = b.StartQuery(ctx, fmt.Sprintf("qid-%d", i), query, []string{"test-group"}, 0, 9999999999)
+		require.NoError(t, sqErr, "StartQuery[%d] must succeed", i)
 	}
 
 	require.Equal(t, 1, b.GetParsedInsightsQueryCacheSize(),

@@ -16,7 +16,7 @@ func TestKeyMaterialHistory_CappedAtMax(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
+		name      string
 		rotations int
 	}{
 		{name: "at cap", rotations: kms.MaxKeyMaterialHistoryEntriesForTest},
@@ -35,9 +35,10 @@ func TestKeyMaterialHistory_CappedAtMax(t *testing.T) {
 			require.NoError(t, err)
 			keyID := out.KeyMetadata.KeyID
 
+			var rotErr error
 			for i := range tc.rotations {
-				err := b.ForceRotateForTest(keyID)
-				require.NoError(t, err, "rotation %d must succeed", i)
+				rotErr = b.ForceRotateForTest(keyID)
+				require.NoError(t, rotErr, "rotation %d must succeed", i)
 			}
 
 			histLen := b.KeyMaterialHistoryLenForTest(keyID)

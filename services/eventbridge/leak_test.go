@@ -78,5 +78,5 @@ func TestEventLog_RetainsMostRecentEvents(t *testing.T) {
 
 	// The GetEventLog call must return exactly the cap entries.
 	log := b.GetEventLog(ctx)
-	require.Equal(t, eventbridge.MaxEventLogSizeForTest, len(log))
+	require.Len(t, log, eventbridge.MaxEventLogSizeForTest)
 }

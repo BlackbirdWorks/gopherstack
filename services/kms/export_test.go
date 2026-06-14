@@ -1,6 +1,7 @@
 package kms
 
 import (
+	"errors"
 	"fmt"
 	"time"
 )
@@ -154,6 +155,9 @@ func (b *InMemoryBackend) KeyMaterialHistoryLenForTest(keyID string) int {
 	return 0
 }
 
+// ErrForceRotateKeyNotFound is returned by ForceRotateForTest when keyID is absent.
+var ErrForceRotateKeyNotFound = errors.New("key not found")
+
 // ForceRotateForTest rotates the key material for keyID, bypassing the
 // on-demand rate limit. Used in tests to drive the history cap.
 func (b *InMemoryBackend) ForceRotateForTest(keyID string) error {
@@ -166,5 +170,5 @@ func (b *InMemoryBackend) ForceRotateForTest(keyID string) error {
 		}
 	}
 
-	return fmt.Errorf("key %q not found", keyID)
+	return fmt.Errorf("%w: %s", ErrForceRotateKeyNotFound, keyID)
 }
