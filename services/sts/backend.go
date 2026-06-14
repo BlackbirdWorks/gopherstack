@@ -586,8 +586,14 @@ func (b *InMemoryBackend) GetCallerIdentity(accessKeyID, sessionToken string) (*
 		b.mu.Unlock()
 
 		if ok {
+			// When the caller presents a session token, it must match the stored value.
+			// AWS rejects a mismatched session token with HTTP 400 InvalidClientTokenId,
+			// not 403 AccessDenied.
 			if sessionToken != "" && session.SessionToken != "" && sessionToken != session.SessionToken {
-				return nil, fmt.Errorf("%w: the security token included in the request is invalid", ErrAccessDenied)
+				return nil, fmt.Errorf(
+					"%w: the security token included in the request is invalid",
+					ErrUnknownAccessKeyID,
+				)
 			}
 
 			return &GetCallerIdentityResponse{
