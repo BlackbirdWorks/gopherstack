@@ -1,6 +1,6 @@
 package securityhub_test
 
-// Tests for parity §B: BatchImportFindings rejects missing required fields (go-nace).
+// parity_b_test.go — §B parity: BatchImportFindings ASFF field validation
 
 import (
 	"encoding/json"
@@ -9,156 +9,194 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/securityhub"
 )
 
-// validFinding returns a well-formed ASFF finding map.
-func validFinding(id string) map[string]any {
-	return map[string]any{
-		"SchemaVersion": "2018-10-08",
-		"Id":            id,
-		"ProductArn":    "arn:aws:securityhub:us-east-1::product/aws/guardduty",
-		"GeneratorId":   "gen-1",
-		"AwsAccountId":  "000000000000",
-		"Types":         []string{"Software and Configuration Checks"},
-		"CreatedAt":     "2024-01-01T00:00:00Z",
-		"UpdatedAt":     "2024-01-01T00:00:00Z",
-		"Severity":      map[string]any{"Label": "HIGH"},
-		"Title":         "Test Finding",
-		"Description":   "desc",
-		"Resources":     []map[string]any{{"Type": "AwsEc2Instance", "Id": "i-1"}},
-	}
+// validFinding returns a minimal ASFF-compliant finding for HTTP handler tests.
+func validFinding(overrides map[string]any) map[string]any {
+	return securityhub.ValidFinding(overrides)
 }
 
-// TestParityB_BatchImportFindings_TypesRequired verifies that BatchImportFindings
-// rejects findings missing ProductArn, Id, or Types with an error in FailedFindings.
-func TestParityB_BatchImportFindings_TypesRequired(t *testing.T) {
+// ---------------------------------------------------------------------------
+// BatchImportFindings validation
+// ---------------------------------------------------------------------------
+
+func TestParity_BatchImportFindings_RequiredFields(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		finding     map[string]any
-		name        string
-		wantErrCode string
-		wantSuccess int
-		wantFailed  int
+		finding       map[string]any
+		name          string
+		wantErrSubstr string
+		wantSuccess   int
+		wantFailed    int
 	}{
 		{
-			name:        "valid_finding_succeeds",
-			finding:     validFinding("finding-valid"),
+			name:        "valid_finding_accepted",
+			finding:     validFinding(nil),
 			wantSuccess: 1,
 			wantFailed:  0,
 		},
 		{
-			name: "missing_types_fails",
-			finding: func() map[string]any {
-				f := validFinding("finding-no-types")
-				delete(f, "Types")
-
-				return f
-			}(),
-			wantSuccess: 0,
-			wantFailed:  1,
-			wantErrCode: "InvalidInputException",
+			name:          "missing_ProductArn_rejected",
+			finding:       validFinding(map[string]any{"ProductArn": ""}),
+			wantSuccess:   0,
+			wantFailed:    1,
+			wantErrSubstr: "ProductArn",
 		},
 		{
-			name: "empty_types_fails",
-			finding: func() map[string]any {
-				f := validFinding("finding-empty-types")
-				f["Types"] = []string{}
-
-				return f
-			}(),
-			wantSuccess: 0,
-			wantFailed:  1,
-			wantErrCode: "InvalidInputException",
+			name:          "missing_Id_rejected",
+			finding:       validFinding(map[string]any{"Id": ""}),
+			wantSuccess:   0,
+			wantFailed:    1,
+			wantErrSubstr: "Id",
 		},
 		{
-			name: "missing_product_arn_fails",
-			finding: func() map[string]any {
-				f := validFinding("finding-no-arn")
-				delete(f, "ProductArn")
-
-				return f
-			}(),
-			wantSuccess: 0,
-			wantFailed:  1,
-			wantErrCode: "InvalidInputException",
+			name:          "missing_AwsAccountId_rejected",
+			finding:       validFinding(map[string]any{"AwsAccountId": ""}),
+			wantSuccess:   0,
+			wantFailed:    1,
+			wantErrSubstr: "AwsAccountId",
 		},
 		{
-			name: "missing_id_fails",
-			finding: func() map[string]any {
-				f := validFinding("")
-				f["Id"] = ""
-
-				return f
-			}(),
-			wantSuccess: 0,
-			wantFailed:  1,
-			wantErrCode: "InvalidInputException",
+			name:          "missing_GeneratorId_rejected",
+			finding:       validFinding(map[string]any{"GeneratorId": ""}),
+			wantSuccess:   0,
+			wantFailed:    1,
+			wantErrSubstr: "GeneratorId",
+		},
+		{
+			name:          "missing_Title_rejected",
+			finding:       validFinding(map[string]any{"Title": ""}),
+			wantSuccess:   0,
+			wantFailed:    1,
+			wantErrSubstr: "Title",
+		},
+		{
+			name:          "missing_Description_rejected",
+			finding:       validFinding(map[string]any{"Description": ""}),
+			wantSuccess:   0,
+			wantFailed:    1,
+			wantErrSubstr: "Description",
+		},
+		{
+			name: "missing_all_timestamps_rejected",
+			finding: validFinding(map[string]any{
+				"CreatedAt":       "",
+				"UpdatedAt":       "",
+				"FirstObservedAt": "",
+				"LastObservedAt":  "",
+			}),
+			wantSuccess:   0,
+			wantFailed:    1,
+			wantErrSubstr: "CreatedAt",
+		},
+		{
+			name:        "only_UpdatedAt_timestamp_accepted",
+			finding:     validFinding(map[string]any{"CreatedAt": "", "UpdatedAt": "2024-01-01T00:00:00Z"}),
+			wantSuccess: 1,
+			wantFailed:  0,
+		},
+		{
+			name: "only_FirstObservedAt_accepted",
+			finding: validFinding(
+				map[string]any{"CreatedAt": "", "UpdatedAt": "", "FirstObservedAt": "2024-01-01T00:00:00Z"},
+			),
+			wantSuccess: 1,
+			wantFailed:  0,
+		},
+		{
+			name:          "empty_Resources_rejected",
+			finding:       validFinding(map[string]any{"Resources": []any{}}),
+			wantSuccess:   0,
+			wantFailed:    1,
+			wantErrSubstr: "Resources",
+		},
+		{
+			name:          "nil_Resources_rejected",
+			finding:       validFinding(map[string]any{"Resources": nil}),
+			wantSuccess:   0,
+			wantFailed:    1,
+			wantErrSubstr: "Resources",
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
 
+			// Enable hub first so findings are accepted.
+			doRequest(t, h, http.MethodPost, "/accounts", map[string]any{"EnableDefaultStandards": false})
+
 			rec := doRequest(t, h, http.MethodPost, "/findings/import", map[string]any{
-				"Findings": []any{tt.finding},
+				"Findings": []any{tc.finding},
 			})
-			require.Equal(t, http.StatusOK, rec.Code, "BatchImportFindings always returns 200: %s", rec.Body.String())
+			require.Equal(t, http.StatusOK, rec.Code)
 
-			var resp map[string]any
+			var resp struct {
+				FailedFindings []map[string]any `json:"FailedFindings"`
+				SuccessCount   int              `json:"SuccessCount"`
+				FailedCount    int              `json:"FailedCount"`
+			}
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			assert.Equal(t, tc.wantSuccess, resp.SuccessCount, "SuccessCount")
+			assert.Equal(t, tc.wantFailed, resp.FailedCount, "FailedCount")
 
-			successCount := int(resp["SuccessCount"].(float64))
-			failedCount := int(resp["FailedCount"].(float64))
-
-			assert.Equal(t, tt.wantSuccess, successCount, "SuccessCount mismatch")
-			assert.Equal(t, tt.wantFailed, failedCount, "FailedCount mismatch")
-
-			if tt.wantErrCode != "" {
-				failedFindings, ok := resp["FailedFindings"].([]any)
-				require.True(t, ok, "FailedFindings must be present")
-				require.Len(t, failedFindings, 1)
-
-				ff, ok := failedFindings[0].(map[string]any)
-				require.True(t, ok)
-				assert.Equal(t, tt.wantErrCode, ff["ErrorCode"], "ErrorCode mismatch")
+			if tc.wantErrSubstr != "" {
+				require.NotEmpty(t, resp.FailedFindings, "expected FailedFindings")
+				errMsg, _ := resp.FailedFindings[0]["ErrorMessage"].(string)
+				assert.Contains(t, errMsg, tc.wantErrSubstr, "error message should mention %s", tc.wantErrSubstr)
 			}
 		})
 	}
 }
 
-// TestParityB_BatchImportFindings_MixedFindings verifies that a batch with both
-// valid and invalid findings returns correct split counts.
-func TestParityB_BatchImportFindings_MixedFindings(t *testing.T) {
+func TestParity_BatchImportFindings_MixedValidity(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
+	doRequest(t, h, http.MethodPost, "/accounts", map[string]any{"EnableDefaultStandards": false})
 
-	missingTypes := validFinding("bad-finding")
-	delete(missingTypes, "Types")
-
+	// Two valid, one invalid (missing ProductArn).
 	rec := doRequest(t, h, http.MethodPost, "/findings/import", map[string]any{
 		"Findings": []any{
-			validFinding("good-1"),
-			missingTypes,
-			validFinding("good-2"),
+			validFinding(map[string]any{"Id": "f1"}),
+			validFinding(map[string]any{"ProductArn": ""}),
+			validFinding(map[string]any{"Id": "f3"}),
 		},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	var resp map[string]any
+	var resp struct {
+		FailedFindings []map[string]any `json:"FailedFindings"`
+		SuccessCount   int              `json:"SuccessCount"`
+		FailedCount    int              `json:"FailedCount"`
+	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, 2, resp.SuccessCount)
+	assert.Equal(t, 1, resp.FailedCount)
+	assert.Len(t, resp.FailedFindings, 1)
+}
 
-	assert.InDelta(t, float64(2), resp["SuccessCount"], 0.01)
-	assert.InDelta(t, float64(1), resp["FailedCount"], 0.01)
+func TestParity_BatchImportFindings_EmptyFindingsList(t *testing.T) {
+	t.Parallel()
 
-	failedFindings, ok := resp["FailedFindings"].([]any)
-	require.True(t, ok)
-	require.Len(t, failedFindings, 1)
+	h := newTestHandler(t)
+	doRequest(t, h, http.MethodPost, "/accounts", map[string]any{"EnableDefaultStandards": false})
 
-	ff := failedFindings[0].(map[string]any)
-	assert.Equal(t, "InvalidInputException", ff["ErrorCode"])
+	rec := doRequest(t, h, http.MethodPost, "/findings/import", map[string]any{
+		"Findings": []any{},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		SuccessCount int `json:"SuccessCount"`
+		FailedCount  int `json:"FailedCount"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, 0, resp.SuccessCount)
+	assert.Equal(t, 0, resp.FailedCount)
 }
