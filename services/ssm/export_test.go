@@ -231,3 +231,31 @@ func (b *InMemoryBackend) ForceInsertParameter(p Parameter) {
 	defer b.mu.Unlock()
 	b.parametersStore(b.Region())[p.Name] = p
 }
+
+// AddInstancePatchStateInternal seeds an InstancePatchState directly into the backend for testing.
+func (b *InMemoryBackend) AddInstancePatchStateInternal(s InstancePatchState) {
+	b.mu.Lock("AddInstancePatchStateInternal")
+	defer b.mu.Unlock()
+	b.instancePatchStatesStore(b.Region())[s.InstanceID] = &s
+}
+
+// AddInstancePatchesInternal seeds PatchComplianceData for an instance directly into the backend for testing.
+func (b *InMemoryBackend) AddInstancePatchesInternal(instanceID string, patches []PatchComplianceData) {
+	b.mu.Lock("AddInstancePatchesInternal")
+	defer b.mu.Unlock()
+	b.instancePatchesStore(b.Region())[instanceID] = patches
+}
+
+// AddInstancePropertyInternal seeds an InstanceProperty directly into the backend for testing.
+func (b *InMemoryBackend) AddInstancePropertyInternal(p InstanceProperty) {
+	b.mu.Lock("AddInstancePropertyInternal")
+	defer b.mu.Unlock()
+	b.instancePropertiesStore(b.Region())[p.InstanceID] = &p
+}
+
+// AddAvailablePatchInternal seeds a Patch into the available patches catalog for testing.
+func (b *InMemoryBackend) AddAvailablePatchInternal(p Patch) {
+	b.mu.Lock("AddAvailablePatchInternal")
+	defer b.mu.Unlock()
+	b.availablePatches[b.Region()] = append(b.availablePatches[b.Region()], p)
+}
