@@ -9,6 +9,7 @@ SetQueueAttributesCommand,
 CreateQueueCommand,
 DeleteQueueCommand,
 SendMessageCommand,
+SendMessageBatchCommand,
 ReceiveMessageCommand,
 DeleteMessageCommand,
 PurgeQueueCommand,
@@ -69,6 +70,15 @@ let receivingMessages = $state(false);
 let expandedMsg = $state<string | null>(null);
 let deletingReceipt = $state<string | null>(null);
 let receiveMaxMessages = $state(10);
+let messageFilter = $state('');
+
+// Batch send
+let showBatchSendModal = $state(false);
+let batchMessages = $state<Array<{ id: string; body: string; delay: number }>>([
+{ id: '1', body: '', delay: 0 },
+{ id: '2', body: '', delay: 0 },
+]);
+let sendingBatch = $state(false);
 
 // Edit attributes
 let editAttrs = $state<Record<string, string>>({});
@@ -283,6 +293,31 @@ msgGroupId = '';
 msgDedupId = '';
 msgDelay = 0;
 msgAttrRows = [];
+}
+
+async function sendBatch() {
+if (!selectedQueue) return;
+const nonEmpty = batchMessages.filter(m => m.body.trim());
+if (nonEmpty.length === 0) { toast.error('Add at least one message body'); return; }
+sendingBatch = true;
+try {
+await sqs.send(new SendMessageBatchCommand({
+QueueUrl: selectedQueue.url,
+Entries: nonEmpty.map(m => ({
+Id: m.id,
+MessageBody: m.body,
+DelaySeconds: m.delay > 0 ? m.delay : undefined
+}))
+}));
+toast.success(`${nonEmpty.length} message(s) sent`);
+showBatchSendModal = false;
+batchMessages = [{ id: '1', body: '', delay: 0 }, { id: '2', body: '', delay: 0 }];
+await refreshSelectedQueueStats();
+} catch (err: unknown) {
+toast.error(`Batch send failed: ${(err as Error).message}`);
+} finally {
+sendingBatch = false;
+}
 }
 
 function addMsgAttrRow() {
@@ -766,6 +801,9 @@ class="w-full text-left bg-white dark:bg-slate-800 rounded-lg border p-4 hover:b
 <button onclick={() => { showSendModal = true; }} class="px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-1.5 text-sm">
 <Send class="w-4 h-4" />Send
 </button>
+<button onclick={() => { showBatchSendModal = true; }} class="px-3 py-1.5 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 flex items-center gap-1.5 text-sm">
+<Send class="w-4 h-4" />Batch Send
+</button>
 <button onclick={() => receiveMessages()} disabled={receivingMessages} class="px-3 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-1.5 text-sm disabled:opacity-50">
 <Inbox class="w-4 h-4" />{receivingMessages ? '...' : 'Receive'}
 </button>
@@ -855,12 +893,19 @@ class="px-2 py-1 text-xs bg-slate-50 dark:bg-slate-700 border border-slate-200 d
 </button>
 {/if}
 </div>
+{#if messages.length > 0}
+<div class="flex items-center gap-2 mb-3">
+<input type="text" bind:value={messageFilter} placeholder="Filter messages by body content…" class="flex-1 text-xs border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-1.5 bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+{#if messageFilter}<button onclick={() => messageFilter = ''} class="text-xs text-slate-400 hover:text-slate-600"><X class="w-3 h-3" /></button>{/if}
+</div>
+{/if}
 {#if messages.length === 0}
 <p class="text-center text-slate-400 dark:text-slate-500 py-8">No messages received. Click "Receive" to fetch messages.</p>
 {:else}
+{@const filteredMessages = messageFilter ? messages.filter(m => (m.Body ?? '').toLowerCase().includes(messageFilter.toLowerCase())) : messages}
 <div class="space-y-2">
-<p class="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">Received Messages ({messages.length})</p>
-{#each messages as msg}
+<p class="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">Received Messages ({filteredMessages.length}{messageFilter ? ` of ${messages.length}` : ''})</p>
+{#each filteredMessages as msg}
 <div class="border border-slate-200 dark:border-slate-600 rounded-lg overflow-hidden">
 <div class="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-700/30">
 <button
@@ -1387,6 +1432,46 @@ class="flex-1 px-2 py-1.5 bg-slate-50 dark:bg-slate-700 border border-slate-200 
 </button>
 </div>
 </form>
+</div>
+</div>
+{/if}
+
+<!-- Batch Send Modal -->
+{#if showBatchSendModal}
+<div class="fixed inset-0 z-50 flex items-center justify-center p-4">
+<div role="none" onclick={() => { showBatchSendModal = false; }} onkeydown={(e) => e.key === 'Escape' && (showBatchSendModal = false)} class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"></div>
+<div class="relative w-full max-w-2xl bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-white/20 dark:border-slate-700 overflow-hidden">
+<div class="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-700">
+<h3 class="text-lg font-bold text-slate-900 dark:text-white">Batch Send Messages</h3>
+<button onclick={() => showBatchSendModal = false} class="text-slate-400 hover:text-slate-600 text-xl">&times;</button>
+</div>
+<div class="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
+{#each batchMessages as msg, i}
+<div class="p-3 border border-slate-200 dark:border-slate-600 rounded-lg space-y-2">
+<div class="flex items-center justify-between">
+<span class="text-xs font-bold text-slate-500 dark:text-slate-400">Message {i + 1}</span>
+{#if batchMessages.length > 1}
+<button onclick={() => batchMessages = batchMessages.filter((_, j) => j !== i)} class="text-red-400 hover:text-red-600 text-xs">Remove</button>
+{/if}
+</div>
+<textarea bind:value={msg.body} rows="3" placeholder="Message body" class="w-full text-sm font-mono border border-slate-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"></textarea>
+<div class="flex items-center gap-2">
+<label class="text-xs text-slate-500">Delay (s):</label>
+<input type="number" bind:value={msg.delay} min="0" max="900" class="w-20 text-sm border border-slate-300 dark:border-slate-600 rounded-lg p-1.5 bg-white dark:bg-slate-700 dark:text-white" />
+</div>
+</div>
+{/each}
+{#if batchMessages.length < 10}
+<button onclick={() => batchMessages = [...batchMessages, { id: String(batchMessages.length + 1), body: '', delay: 0 }]} class="w-full text-sm text-indigo-600 hover:text-indigo-700 border-2 border-dashed border-indigo-300 dark:border-indigo-700 rounded-lg py-2">+ Add Message</button>
+{/if}
+<div class="flex justify-end gap-3 pt-2">
+<button onclick={() => showBatchSendModal = false} class="px-4 py-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">Cancel</button>
+<button onclick={sendBatch} disabled={sendingBatch} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-2">
+<Send class="w-4 h-4" />
+{sendingBatch ? 'Sending…' : `Send ${batchMessages.filter(m => m.body.trim()).length} Message(s)`}
+</button>
+</div>
+</div>
 </div>
 </div>
 {/if}

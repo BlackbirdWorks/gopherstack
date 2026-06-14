@@ -1338,6 +1338,16 @@ class={`font-medium rounded-lg text-sm px-4 py-2 transition-colors ${bucketEncry
     <div class="text-sm text-slate-500">Loading...</div>
   {:else if websiteConfig}
     <p class="text-sm text-slate-600 dark:text-slate-400 mb-3">Status: <span class="font-medium text-green-600 dark:text-green-400">Enabled</span></p>
+    {#if selectedBucket}
+    {@const websiteUrl = `http://${selectedBucket}.s3-website-${getStoredRegion() || 'us-east-1'}.amazonaws.com`}
+    <div class="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+      <p class="text-xs font-medium text-blue-700 dark:text-blue-300 mb-1">Website Endpoint</p>
+      <div class="flex items-center gap-2">
+        <a href={websiteUrl} target="_blank" rel="noopener noreferrer" class="text-sm font-mono text-blue-600 dark:text-blue-400 hover:underline break-all flex-1">{websiteUrl}</a>
+        <button onclick={() => navigator.clipboard.writeText(websiteUrl).then(() => toast.success('URL copied')).catch(() => {})} class="shrink-0 text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 border border-blue-300 dark:border-blue-700 rounded px-2 py-0.5">Copy</button>
+      </div>
+    </div>
+    {/if}
     <div class="space-y-2 mb-4">
       <div>
         <label for="website-index-doc" class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Index Document</label>
