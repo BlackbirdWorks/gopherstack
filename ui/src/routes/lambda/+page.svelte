@@ -66,14 +66,6 @@
 	// Function detail tab
 	let fnDetailTab = $state<'config' | 'versions' | 'aliases' | 'triggers' | 'code'>('config');
 
-	// Versions
-	let publishDesc = $state('');
-	let publishing = $state(false);
-
-	// Aliases
-	let aliasesLoading = $state(false);
-	let newAliasFnVersion = $state('$LATEST');
-
 	// Event Source Mappings
 	let fnEsms = $state<EventSourceMappingConfiguration[]>([]);
 	let esmsLoading = $state(false);
@@ -256,71 +248,6 @@
 			return atob(logResult);
 		} catch {
 			return logResult;
-		}
-	}
-
-	async function loadVersions(fnName: string) {
-		versionsLoading = true;
-		try {
-			const res = await lambda.send(new ListVersionsByFunctionCommand({ FunctionName: fnName }));
-			fnVersions = res.Versions ?? [];
-		} catch (e) {
-			toast.error(e instanceof Error ? e.message : 'Failed to load versions');
-		} finally {
-			versionsLoading = false;
-		}
-	}
-
-	async function publishVersion() {
-		if (!selectedFunction?.FunctionName) return;
-		publishing = true;
-		try {
-			await lambda.send(new PublishVersionCommand({ FunctionName: selectedFunction.FunctionName, Description: publishDesc || undefined }));
-			toast.success('Version published');
-			publishDesc = '';
-			await loadVersions(selectedFunction.FunctionName);
-		} catch (e) {
-			toast.error(e instanceof Error ? e.message : 'Failed to publish');
-		} finally {
-			publishing = false;
-		}
-	}
-
-	async function loadAliases(fnName: string) {
-		aliasesLoading = true;
-		try {
-			const res = await lambda.send(new ListAliasesCommand({ FunctionName: fnName }));
-			fnAliases = res.Aliases ?? [];
-		} catch (e) {
-			toast.error(e instanceof Error ? e.message : 'Failed to load aliases');
-		} finally {
-			aliasesLoading = false;
-		}
-	}
-
-	async function createAlias() {
-		if (!selectedFunction?.FunctionName || !newAliasName.trim()) return;
-		creatingAlias = true;
-		try {
-			await lambda.send(new CreateAliasCommand({ FunctionName: selectedFunction.FunctionName, Name: newAliasName.trim(), FunctionVersion: newAliasFnVersion }));
-			toast.success(`Alias "${newAliasName.trim()}" created`);
-			newAliasName = '';
-			await loadAliases(selectedFunction.FunctionName);
-		} catch (e) {
-			toast.error(e instanceof Error ? e.message : 'Failed to create alias');
-		} finally {
-			creatingAlias = false;
-		}
-	}
-
-	async function deleteAlias(name: string) {
-		if (!selectedFunction?.FunctionName || !await confirmDestructive({ title: 'Delete Alias', message: `Delete alias "${name}"?`, confirmLabel: 'Delete' })) return;
-		try {
-			await lambda.send(new DeleteAliasCommand({ FunctionName: selectedFunction.FunctionName, Name: name }));
-			toast.success('Alias deleted');
-			await loadAliases(selectedFunction.FunctionName);
-		} catch (e) {
-			toast.error(e instanceof Error ? e.message : 'Failed to delete alias');
 		}
 	}
 
@@ -1033,8 +960,8 @@
 								<button
 									onclick={() => {
 										fnDetailTab = id as typeof fnDetailTab;
-										if (id === 'versions' && selectedFunction?.FunctionName) loadVersions(selectedFunction.FunctionName);
-										if (id === 'aliases' && selectedFunction?.FunctionName) loadAliases(selectedFunction.FunctionName);
+										if (id === 'versions') void loadVersionsAndAliases();
+										if (id === 'aliases') void loadVersionsAndAliases();
 										if (id === 'triggers' && selectedFunction?.FunctionName) loadEsms(selectedFunction.FunctionName);
 									}}
 									class="px-4 py-3 text-xs font-medium whitespace-nowrap border-b-2 transition-colors {fnDetailTab === id ? 'border-orange-500 text-orange-600 dark:text-orange-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'}"
@@ -1064,12 +991,11 @@
 										{#if fnVersions.length === 0}<p class="text-xs text-slate-400">No versions published yet.</p>{/if}
 									</div>
 									<div class="flex gap-2 items-end">
-										<input type="text" bind:value={publishDesc} placeholder="Version description (optional)" class="flex-1 text-xs border border-slate-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 dark:text-white" />
-										<button onclick={publishVersion} disabled={publishing} class="text-white bg-orange-600 hover:bg-orange-700 font-medium rounded-lg text-xs px-3 py-2 disabled:opacity-50">{publishing ? 'Publishing…' : 'Publish'}</button>
+										<button onclick={publishVersion} disabled={publishingVersion} class="text-white bg-orange-600 hover:bg-orange-700 font-medium rounded-lg text-xs px-3 py-2 disabled:opacity-50">{publishingVersion ? 'Publishing…' : 'Publish'}</button>
 									</div>
 								{/if}
 							{:else if fnDetailTab === 'aliases'}
-								{#if aliasesLoading}
+								{#if versionsLoading}
 									<p class="text-xs text-slate-400 animate-pulse">Loading…</p>
 								{:else}
 									<div class="space-y-2 mb-3">
@@ -1084,7 +1010,7 @@
 									</div>
 									<div class="flex gap-2 items-end flex-wrap">
 										<input type="text" bind:value={newAliasName} placeholder="Alias name (e.g. live)" class="text-xs border border-slate-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 dark:text-white w-28" />
-										<input type="text" bind:value={newAliasFnVersion} placeholder="Version" class="text-xs border border-slate-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 dark:text-white w-20" />
+										<input type="text" bind:value={newAliasVersion} placeholder="Version" class="text-xs border border-slate-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 dark:text-white w-20" />
 										<button onclick={createAlias} disabled={creatingAlias} class="text-white bg-orange-600 hover:bg-orange-700 font-medium rounded-lg text-xs px-3 py-2 disabled:opacity-50">{creatingAlias ? 'Creating…' : 'Create'}</button>
 									</div>
 								{/if}

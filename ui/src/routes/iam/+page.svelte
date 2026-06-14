@@ -229,34 +229,6 @@ toast.error(e instanceof Error ? e.message : 'Failed to load policy');
 }
 }
 
-async function saveInlinePolicy() {
-if (!selectedUser?.UserName || !inlinePolicyName.trim()) return;
-savingInlinePolicy = true;
-try {
-await iam.send(new PutUserPolicyCommand({ UserName: selectedUser.UserName, PolicyName: inlinePolicyName.trim(), PolicyDocument: inlinePolicyDoc }));
-toast.success('Inline policy saved');
-showInlinePolicyEditor = false;
-const res = await iam.send(new ListUserPoliciesCommand({ UserName: selectedUser.UserName }));
-userInlinePolicies = res.PolicyNames || [];
-} catch (e) {
-toast.error(e instanceof Error ? e.message : 'Failed to save policy');
-} finally {
-savingInlinePolicy = false;
-}
-}
-
-async function deleteInlinePolicy(policyName: string) {
-if (!selectedUser?.UserName) return;
-try {
-await iam.send(new DeleteUserPolicyCommand({ UserName: selectedUser.UserName, PolicyName: policyName }));
-toast.success('Inline policy deleted');
-const res = await iam.send(new ListUserPoliciesCommand({ UserName: selectedUser.UserName }));
-userInlinePolicies = res.PolicyNames || [];
-} catch (e) {
-toast.error(e instanceof Error ? e.message : 'Failed to delete policy');
-}
-}
-
 async function createLoginProfile() {
 if (!selectedUser?.UserName || !loginProfilePassword) return;
 try {
@@ -335,6 +307,7 @@ savingInlinePolicy = true;
 try {
 await iam.send(new PutUserPolicyCommand({ UserName: selectedUser.UserName, PolicyName: inlinePolicyName.trim(), PolicyDocument: doc }));
 toast.success(`Inline policy "${inlinePolicyName.trim()}" saved`);
+showInlinePolicyEditor = false;
 inlinePolicyName = '';
 inlinePolicyDoc = '';
 editingInlinePolicy = null;
