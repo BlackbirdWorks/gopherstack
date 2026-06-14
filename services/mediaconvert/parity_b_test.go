@@ -23,8 +23,9 @@ func extractLeaf(m map[string]any) (string, bool) {
 	cur := m
 	for {
 		if leaf, ok := cur["leaf"]; ok {
-			s, ok := leaf.(string)
-			return s, ok
+			s, isStr := leaf.(string)
+
+			return s, isStr
 		}
 
 		next, ok := cur["nested"]
@@ -46,8 +47,8 @@ func TestParity_DeepCloneValueAt_PreservesDeepNesting(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		depth     int
 		leafValue string
+		depth     int
 	}{
 		{
 			name:      "depth_20_preserved",
@@ -101,13 +102,14 @@ func TestParity_DeepCloneValueAt_PreservesDeepNesting(t *testing.T) {
 			// Find our job and check settings.
 			var found map[string]any
 			for _, j := range jobs {
-				jm, ok := j.(map[string]any)
-				if !ok {
+				jm, isMap := j.(map[string]any)
+				if !isMap {
 					continue
 				}
 
 				if jm["id"] == jobID {
 					found = jm
+
 					break
 				}
 			}

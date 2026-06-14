@@ -11,10 +11,10 @@ func TestParity_UnrecognizedOp_Returns400(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		op          string
-		wantCode    int
-		wantInBody  string
+		name       string
+		op         string
+		wantInBody string
+		wantCode   int
 	}{
 		{
 			name:       "completely_unknown_op",

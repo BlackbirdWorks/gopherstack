@@ -16,14 +16,12 @@ func TestParity_GetRecords_SizeCap_ExcludesPartitionKey(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		run  func(t *testing.T)
+		name string
 	}{
 		{
 			name: "records_with_large_partitionkey_not_counted_toward_cap",
 			run: func(t *testing.T) {
-				t.Parallel()
-
 				h := newTestHandler(t)
 				streamName := "parity-b-large-pk-stream"
 
@@ -47,9 +45,11 @@ func TestParity_GetRecords_SizeCap_ExcludesPartitionKey(t *testing.T) {
 				require.NotEmpty(t, descResp.StreamDescription.Shards)
 				shardID := descResp.StreamDescription.Shards[0].ShardID
 
-				// 3 records: tiny data (10 raw bytes) + large partition key (1000 chars).
+				// 3 records: tiny data (10 raw bytes) + large partition key (256 chars, the AWS max).
+				// If PK bytes counted toward the 10 MiB response cap the logic would still
+				// be wrong; this test verifies all 3 records are returned regardless.
 				smallData := base64.StdEncoding.EncodeToString(make([]byte, 10))
-				largePK := strings.Repeat("k", 1000)
+				largePK := strings.Repeat("k", 256)
 
 				records := make([]map[string]any, 3)
 				for i := range records {
@@ -102,8 +102,6 @@ func TestParity_GetRecords_SizeCap_ExcludesPartitionKey(t *testing.T) {
 		{
 			name: "data_bytes_counted_toward_cap",
 			run: func(t *testing.T) {
-				t.Parallel()
-
 				h := newTestHandler(t)
 				streamName := "parity-b-data-cap-stream"
 
@@ -176,6 +174,10 @@ func TestParity_GetRecords_SizeCap_ExcludesPartitionKey(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		t.Run(tc.name, tc.run)
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			tc.run(t)
+		})
 	}
 }

@@ -66,28 +66,58 @@ func TestParity_AssociatePackage_DuplicateRejected(t *testing.T) {
 			switch tt.name {
 			case "first_association_succeeds":
 				pkgID := createPackageAndGetID(t, h, "pkg-first", "TXT-DICTIONARY")
-				resp := doRequest(t, h, http.MethodPost, "/2015-01-01/packages/associate/"+pkgID+"/"+tt.domainName, nil)
+				resp := doRequest(
+					t,
+					h,
+					http.MethodPost,
+					"/2015-01-01/packages/associate/"+pkgID+"/"+tt.domainName,
+					nil,
+				)
 				resp.Body.Close()
 				assert.Equal(t, tt.wantCode, resp.StatusCode)
 
 			case "second_association_rejected":
 				pkgID := createPackageAndGetID(t, h, "pkg-dup", "TXT-DICTIONARY")
 				// First association must succeed.
-				first := doRequest(t, h, http.MethodPost, "/2015-01-01/packages/associate/"+pkgID+"/"+tt.domainName, nil)
+				first := doRequest(
+					t,
+					h,
+					http.MethodPost,
+					"/2015-01-01/packages/associate/"+pkgID+"/"+tt.domainName,
+					nil,
+				)
 				first.Body.Close()
 				require.Equal(t, http.StatusOK, first.StatusCode)
 				// Second association of the same package to the same domain must fail.
-				second := doRequest(t, h, http.MethodPost, "/2015-01-01/packages/associate/"+pkgID+"/"+tt.domainName, nil)
+				second := doRequest(
+					t,
+					h,
+					http.MethodPost,
+					"/2015-01-01/packages/associate/"+pkgID+"/"+tt.domainName,
+					nil,
+				)
 				second.Body.Close()
 				assert.Equal(t, tt.wantCode, second.StatusCode)
 
 			case "different_package_allowed":
 				pkgA := createPackageAndGetID(t, h, "pkg-a", "TXT-DICTIONARY")
 				pkgB := createPackageAndGetID(t, h, "pkg-b", "TXT-DICTIONARY")
-				respA := doRequest(t, h, http.MethodPost, "/2015-01-01/packages/associate/"+pkgA+"/"+tt.domainName, nil)
+				respA := doRequest(
+					t,
+					h,
+					http.MethodPost,
+					"/2015-01-01/packages/associate/"+pkgA+"/"+tt.domainName,
+					nil,
+				)
 				respA.Body.Close()
 				require.Equal(t, http.StatusOK, respA.StatusCode)
-				respB := doRequest(t, h, http.MethodPost, "/2015-01-01/packages/associate/"+pkgB+"/"+tt.domainName, nil)
+				respB := doRequest(
+					t,
+					h,
+					http.MethodPost,
+					"/2015-01-01/packages/associate/"+pkgB+"/"+tt.domainName,
+					nil,
+				)
 				respB.Body.Close()
 				assert.Equal(t, tt.wantCode, respB.StatusCode)
 			}

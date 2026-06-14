@@ -16,7 +16,12 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/dynamodb"
 )
 
-func makeParityRequest(t *testing.T, h *dynamodb.DynamoDBHandler, target string, body []byte) *httptest.ResponseRecorder {
+func makeParityRequest(
+	t *testing.T,
+	h *dynamodb.DynamoDBHandler,
+	target string,
+	body []byte,
+) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
 	req.Header.Set("X-Amz-Target", target)
@@ -28,6 +33,7 @@ func makeParityRequest(t *testing.T, h *dynamodb.DynamoDBHandler, target string,
 	w := httptest.NewRecorder()
 	c := e.NewContext(req, w)
 	_ = h.Handler()(c)
+
 	return w
 }
 
@@ -35,11 +41,11 @@ func TestParity_Query_ConsistentRead_GSI_Rejected(t *testing.T) {
 	t.Parallel()
 
 	type queryBody struct {
+		ExpressionAttributeValues map[string]any `json:"ExpressionAttributeValues"`
 		TableName                 string         `json:"TableName"`
 		IndexName                 string         `json:"IndexName,omitempty"`
-		ConsistentRead            bool           `json:"ConsistentRead"`
 		KeyConditionExpression    string         `json:"KeyConditionExpression"`
-		ExpressionAttributeValues map[string]any `json:"ExpressionAttributeValues"`
+		ConsistentRead            bool           `json:"ConsistentRead"`
 	}
 
 	createTableBody, err := json.Marshal(map[string]any{
@@ -78,10 +84,10 @@ func TestParity_Query_ConsistentRead_GSI_Rejected(t *testing.T) {
 	require.NoError(t, err)
 
 	tests := []struct {
-		name             string
 		query            queryBody
-		wantStatus       int
 		wantBodyContains []string
+		name             string
+		wantStatus       int
 	}{
 		{
 			name: "gsi_consistentread_true_rejected",
@@ -142,8 +148,8 @@ func TestParity_Query_ConsistentRead_GSI_Rejected(t *testing.T) {
 			require.Equal(t, http.StatusOK, w.Code, "PutItem failed: %s", w.Body.String())
 
 			// Execute query.
-			queryRaw, err := json.Marshal(tc.query)
-			require.NoError(t, err)
+			queryRaw, marshalErr := json.Marshal(tc.query)
+			require.NoError(t, marshalErr)
 			w = makeParityRequest(t, h, "DynamoDB_20120810.Query", queryRaw)
 
 			assert.Equal(t, tc.wantStatus, w.Code)

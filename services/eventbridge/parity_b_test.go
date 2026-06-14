@@ -17,7 +17,11 @@ var errSimulatedLambdaFailure = errors.New("simulated lambda invocation failure"
 // failingLambdaInvoker always returns an error from InvokeFunction.
 type failingLambdaInvoker struct{}
 
-func (f *failingLambdaInvoker) InvokeFunction(_ context.Context, _, _ string, _ []byte) ([]byte, int, error) {
+func (f *failingLambdaInvoker) InvokeFunction(
+	_ context.Context,
+	_, _ string,
+	_ []byte,
+) ([]byte, int, error) {
 	return nil, 500, errSimulatedLambdaFailure
 }
 
@@ -75,7 +79,12 @@ func TestParity_DLQ_RoutedOnDeliveryFailure(t *testing.T) {
 				target.DeadLetterConfig = &eventbridge.DeadLetterConfig{Arn: tt.dlqARN}
 			}
 
-			_, err = backend.PutTargets(context.Background(), "dlq-rule-"+tt.name, "default", []eventbridge.Target{target})
+			_, err = backend.PutTargets(
+				context.Background(),
+				"dlq-rule-"+tt.name,
+				"default",
+				[]eventbridge.Target{target},
+			)
 			require.NoError(t, err)
 
 			backend.PutEvents(context.Background(), []eventbridge.EventEntry{
