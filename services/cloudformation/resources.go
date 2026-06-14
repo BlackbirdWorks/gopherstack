@@ -962,8 +962,11 @@ func (rc *ResourceCreator) createPhase4Resource(
 		return rc.createRDSDBClusterParameterGroup(logicalID, props, params, physicalIDs)
 	default:
 
-		physID, _, err := rc.createPhase5Resource(context.Background(), logicalID, resourceType, props, params, physicalIDs)
-		return physID, err
+		if physID, handled, err := rc.createPhase5Resource(context.Background(), logicalID, resourceType, props, params, physicalIDs); handled {
+			return physID, err
+		}
+
+		return logicalID + "-stub", nil
 	}
 }
 
