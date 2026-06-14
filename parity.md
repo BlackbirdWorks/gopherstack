@@ -920,6 +920,51 @@ Outputs/Exports, `DependsOn`, nested stacks, and dynamic refs
 Custom resources and macros are the biggest single gap for "eclipse LocalStack" — many real
 templates (and CDK output) depend on `Custom::` Lambda-backed resources.
 
+### §K pass-1 — implemented (mega-v2)
+
+The following 22 resource types are now wired to their real service backends in
+`services/cloudformation/resources_phase5.go` (create→backend create, delete→backend delete,
+Fn::GetAtt→backend fields where meaningful). Each has a create/delete round-trip test in
+`resources_phase5_test.go` asserting the backend resource really exists and is cleaned up:
+
+- **Logs:** `AWS::Logs::LogStream`, `::MetricFilter`, `::SubscriptionFilter`, `::ResourcePolicy`,
+  `::QueryDefinition`.
+- **EC2:** `AWS::EC2::Volume`, `::VolumeAttachment`, `::NetworkInterface`.
+- **API Gateway v2:** `AWS::ApiGatewayV2::Integration`, `::Route`, `::Authorizer`.
+- **KMS:** `AWS::KMS::Alias`.
+- **SNS:** `AWS::SNS::TopicPolicy` (applied via SetTopicAttributes "Policy").
+- **Events:** `AWS::Events::Connection`, `::Archive`.
+- **Step Functions:** `AWS::StepFunctions::Activity`.
+- **SSM:** `AWS::SSM::Document`.
+- **Secrets Manager:** `AWS::SecretsManager::ResourcePolicy`.
+- **CloudFront:** `AWS::CloudFront::Function`, `::OriginAccessControl`, `::CachePolicy`,
+  `::ResponseHeadersPolicy`.
+
+### §K remaining (deferred)
+
+Not yet wired — all have real backends or need new modeling; next passes:
+
+- **API Gateway v1:** `AWS::ApiGateway::Model`, `::RequestValidator`, `::Authorizer`, `::ApiKey`,
+  `::UsagePlan`, `::UsagePlanKey`, `::DomainName`, `::BasePathMapping`, `::Account`, `::GatewayResponse`
+  (backends exist in `services/apigateway`).
+- **API Gateway v2:** `::DomainName`, `::ApiMapping` (backends exist).
+- **Events:** `::ApiDestination` (no backend op found), `::EventBusPolicy`.
+- **KMS:** `::ReplicaKey`.
+- **Cognito:** `::IdentityPool`, `::IdentityPoolRoleAttachment`, `::UserPoolDomain`, `::UserPoolGroup`.
+- **EC2:** `::VPCPeeringConnection`, `::NetworkAcl`(+`Entry`), `::KeyPair`,
+  `::SecurityGroupIngress`/`Egress` (standalone), `::FlowLog`.
+- **ELBv2:** `::ListenerRule`.
+- **Lambda:** `::EventInvokeConfig`, `::Url` (backend methods exist on concrete InMemoryBackend
+  but not on the StorageBackend interface — needs a type-assertion or interface widening).
+- **ApplicationAutoScaling:** `::ScalableTarget`, `::ScalingPolicy`.
+- **Secrets Manager:** `::RotationSchedule`, `::SecretTargetAttachment`.
+- **SSM:** `::MaintenanceWindow`, `::Association`.
+- **DynamoDB:** `::GlobalTable`.
+- **Glue:** `::Crawler`, `::Table`, `::Trigger`, `::Connection`, `::Partition`.
+- **AppSync:** `::DataSource`, `::Resolver`, `::FunctionConfiguration`, `::ApiKey`.
+- **Extensibility (high value):** `AWS::CloudFormation::CustomResource` / `Custom::*`,
+  `AWS::CloudFormation::Macro`, `WaitCondition`/`WaitConditionHandle`.
+
 ## L. Platform-feature parity vs LocalStack
 
 Checklist of LocalStack platform capabilities (✅ present / ◑ partial / ❌ missing), with
