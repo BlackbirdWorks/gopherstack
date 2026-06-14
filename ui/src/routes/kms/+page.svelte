@@ -1107,7 +1107,7 @@ const SIGN_ALGS = ['RSASSA_PSS_SHA_256','RSASSA_PSS_SHA_384','RSASSA_PSS_SHA_512
 			<select bind:value={grantsTabKeyId} onchange={async () => { grantsTabGrants = []; policyTabContent = ''; if (grantsTabKeyId) { await loadGrantsForTab(); await loadPolicyForTab(); } }} class="flex-1 px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm">
 				<option value="">— select a key —</option>
 				{#each keys as k}
-					<option value={k.KeyId ?? ''}>{k.KeyMetadata?.Description || k.KeyId} ({(k.KeyId ?? '').slice(0, 8)}...)</option>
+					<option value={k.KeyId ?? ''}>{k.Description || k.KeyId} ({(k.KeyId ?? '').slice(0, 8)}...)</option>
 				{/each}
 			</select>
 			{#if grantsTabKeyId}
