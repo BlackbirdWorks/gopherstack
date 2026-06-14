@@ -171,21 +171,24 @@ type KMSEncryptor interface {
 
 // InMemoryBackend implements StorageBackend using a concurrency-safe map.
 type InMemoryBackend struct {
-	kms                        KMSEncryptor
-	activations                map[string]map[string]Activation
-	maintenanceWindows         map[string]map[string]MaintenanceWindow
-	maintenanceWindowTargets   map[string]map[string]MaintenanceWindowTarget
-	maintenanceWindowTasks     map[string]map[string]MaintenanceWindowTask
-	sessions                   map[string]map[string]Session
-	patchGroupToBaseline       map[string]map[string]string
-	tags                       map[string]map[string]*tags.Tags
-	associations               map[string]map[string]Association
-	documentVersions           map[string]map[string][]DocumentVersion
-	documentPermissions        map[string]map[string][]string
-	commands                   map[string]map[string]Command
-	commandInvocations         map[string]map[string][]CommandInvocation
-	history                    map[string]map[string][]ParameterHistory
-	parameters                 map[string]map[string]Parameter
+	kms                      KMSEncryptor
+	activations              map[string]map[string]Activation
+	maintenanceWindows       map[string]map[string]MaintenanceWindow
+	maintenanceWindowTargets map[string]map[string]MaintenanceWindowTarget
+	maintenanceWindowTasks   map[string]map[string]MaintenanceWindowTask
+	sessions                 map[string]map[string]Session
+	patchGroupToBaseline     map[string]map[string]string
+	tags                     map[string]map[string]*tags.Tags
+	associations             map[string]map[string]Association
+	documentVersions         map[string]map[string][]DocumentVersion
+	documentPermissions      map[string]map[string][]string
+	commands                 map[string]map[string]Command
+	commandInvocations       map[string]map[string][]CommandInvocation
+	history                  map[string]map[string][]ParameterHistory
+	parameters               map[string]map[string]Parameter
+	// paramNamesSorted holds per-region parameter names in sorted order for
+	// binary-search prefix lookups in GetParametersByPath (O(log n + k) vs O(n)).
+	paramNamesSorted           map[string][]string
 	documents                  map[string]map[string]Document
 	opsItems                   map[string]map[string]OpsItem
 	opsItemRelatedItems        map[string]map[string][]OpsItemRelatedItem
@@ -210,6 +213,7 @@ type InMemoryBackend struct {
 func NewInMemoryBackend() *InMemoryBackend {
 	b := &InMemoryBackend{
 		parameters:                 make(map[string]map[string]Parameter),
+		paramNamesSorted:           make(map[string][]string),
 		history:                    make(map[string]map[string][]ParameterHistory),
 		tags:                       make(map[string]map[string]*tags.Tags),
 		documents:                  make(map[string]map[string]Document),
@@ -711,6 +715,9 @@ func (b *InMemoryBackend) PutParameter(
 	}
 
 	params[input.Name] = param
+	if !exists {
+		b.insertSortedParamName(region, input.Name)
+	}
 
 	// Store in history (store encrypted value for SecureString)
 	paramHistory := ParameterHistory{
@@ -821,6 +828,7 @@ func (b *InMemoryBackend) DeleteParameter(
 
 	delete(params, input.Name)
 	delete(b.historyStore(region), input.Name)
+	b.removeSortedParamName(region, input.Name)
 
 	tags := b.tagsStore(region)
 	if t, ok := tags[input.Name]; ok {
@@ -854,6 +862,7 @@ func (b *InMemoryBackend) DeleteParameters(
 		if _, exists := params[name]; exists {
 			delete(params, name)
 			delete(history, name)
+			b.removeSortedParamName(region, name)
 			if t, ok := tags[name]; ok {
 				t.Close()
 				delete(tags, name)
@@ -978,20 +987,6 @@ const (
 	defaultDescribeMaxResults = 50
 )
 
-// paramMatchesPath checks if a parameter name matches the given path prefix.
-// If recursive is false, only direct children are matched (no nested paths).
-func paramMatchesPath(name, path string, recursive bool) bool {
-	if !strings.HasPrefix(name, path) {
-		return false
-	}
-	if recursive {
-		return true
-	}
-	suffix := name[len(path):]
-
-	return !strings.Contains(suffix, "/")
-}
-
 // paramByPathMatchesFilters converts a Parameter to ParameterMetadata and
 // delegates to paramMatchesFilters, keeping GetParametersByPath's complexity low.
 func paramByPathMatchesFilters(param Parameter, filters []ParameterFilter) bool {
@@ -1006,16 +1001,49 @@ func paramByPathMatchesFilters(param Parameter, filters []ParameterFilter) bool 
 	return paramMatchesFilters(meta, filters)
 }
 
-// collectPathParams returns parameters from store that match path and filters, sorted by name.
-func collectPathParams(
+// insertSortedParamName inserts name into the sorted paramNamesSorted[region] slice.
+// Caller must hold the write lock.
+func (b *InMemoryBackend) insertSortedParamName(region, name string) {
+	names := b.paramNamesSorted[region]
+	i := sort.SearchStrings(names, name)
+	b.paramNamesSorted[region] = slices.Insert(names, i, name)
+}
+
+// removeSortedParamName removes name from the sorted paramNamesSorted[region] slice.
+// Caller must hold the write lock.
+func (b *InMemoryBackend) removeSortedParamName(region, name string) {
+	names := b.paramNamesSorted[region]
+	i := sort.SearchStrings(names, name)
+	if i < len(names) && names[i] == name {
+		b.paramNamesSorted[region] = slices.Delete(names, i, i+1)
+	}
+}
+
+// collectPathParamsSorted uses binary search on the sorted name index to find
+// parameters matching path in O(log n + k) instead of O(n).
+func (b *InMemoryBackend) collectPathParamsSorted(
 	store map[string]Parameter,
+	sortedNames []string,
 	path string,
 	recursive bool,
 	filters []ParameterFilter,
 ) []Parameter {
+	// Find first name >= path via binary search, then scan while HasPrefix.
+	start := sort.SearchStrings(sortedNames, path)
 	var matched []Parameter
-	for name, param := range store {
-		if !paramMatchesPath(name, path, recursive) {
+	for i := start; i < len(sortedNames); i++ {
+		name := sortedNames[i]
+		if !strings.HasPrefix(name, path) {
+			break
+		}
+		if !recursive {
+			suffix := name[len(path):]
+			if strings.Contains(suffix, "/") {
+				continue
+			}
+		}
+		param, ok := store[name]
+		if !ok {
 			continue
 		}
 		if len(filters) > 0 && !paramByPathMatchesFilters(param, filters) {
@@ -1023,10 +1051,7 @@ func collectPathParams(
 		}
 		matched = append(matched, param)
 	}
-	sort.Slice(matched, func(i, j int) bool {
-		return matched[i].Name < matched[j].Name
-	})
-
+	// Results are already sorted since sortedNames is sorted.
 	return matched
 }
 
@@ -1062,8 +1087,9 @@ func (b *InMemoryBackend) GetParametersByPath(
 		path += "/"
 	}
 
-	matched := collectPathParams(
+	matched := b.collectPathParamsSorted(
 		b.parametersStore(region),
+		b.paramNamesSorted[region],
 		path,
 		input.Recursive,
 		input.ParameterFilters,
@@ -2029,6 +2055,7 @@ func (b *InMemoryBackend) Reset() {
 	}
 
 	b.parameters = make(map[string]map[string]Parameter)
+	b.paramNamesSorted = make(map[string][]string)
 	b.history = make(map[string]map[string][]ParameterHistory)
 	b.tags = make(map[string]map[string]*tags.Tags)
 	b.documents = make(map[string]map[string]Document)

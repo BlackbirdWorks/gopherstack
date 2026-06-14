@@ -230,17 +230,20 @@ type Connection struct {
 
 // InMemoryBackend is the in-memory store for AWS DMS resources.
 type InMemoryBackend struct {
-	replicationInstances         map[string]*ReplicationInstance
-	endpoints                    map[string]*Endpoint
-	replicationTasks             map[string]*ReplicationTask
-	dataMigrations               map[string]*DataMigration
-	dataProviders                map[string]*DataProvider
-	eventSubscriptions           map[string]*EventSubscription
-	fleetAdvisorCollectors       map[string]*FleetAdvisorCollector
-	instanceProfiles             map[string]*InstanceProfile
-	replicationInstancesByARN    map[string]*ReplicationInstance
-	endpointsByARN               map[string]*Endpoint
-	replicationTasksByARN        map[string]*ReplicationTask
+	replicationInstances      map[string]*ReplicationInstance
+	endpoints                 map[string]*Endpoint
+	replicationTasks          map[string]*ReplicationTask
+	dataMigrations            map[string]*DataMigration
+	dataProviders             map[string]*DataProvider
+	eventSubscriptions        map[string]*EventSubscription
+	fleetAdvisorCollectors    map[string]*FleetAdvisorCollector
+	instanceProfiles          map[string]*InstanceProfile
+	replicationInstancesByARN map[string]*ReplicationInstance
+	endpointsByARN            map[string]*Endpoint
+	replicationTasksByARN     map[string]*ReplicationTask
+	// tasksByInstanceARN indexes task ARNs by the instance ARN they are attached to,
+	// enabling O(1) checks in DeleteReplicationInstance instead of scanning all tasks.
+	tasksByInstanceARN           map[string]map[string]struct{}
 	dataMigrationsByARN          map[string]*DataMigration
 	dataProvidersByARN           map[string]*DataProvider
 	instanceProfilesByARN        map[string]*InstanceProfile
@@ -272,6 +275,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		replicationInstancesByARN:    make(map[string]*ReplicationInstance),
 		endpointsByARN:               make(map[string]*Endpoint),
 		replicationTasksByARN:        make(map[string]*ReplicationTask),
+		tasksByInstanceARN:           make(map[string]map[string]struct{}),
 		dataMigrationsByARN:          make(map[string]*DataMigration),
 		dataProvidersByARN:           make(map[string]*DataProvider),
 		instanceProfilesByARN:        make(map[string]*InstanceProfile),
@@ -381,19 +385,15 @@ func (b *InMemoryBackend) DescribeReplicationInstances(
 	defer b.mu.RUnlock()
 
 	if identifierOrArn != "" {
-		// Try by identifier first.
-		if ri, ok := b.replicationInstances[identifierOrArn]; ok {
+		// Try by identifier first, then by ARN index.
+		ri, ok := b.replicationInstances[identifierOrArn]
+		if !ok {
+			ri, ok = b.replicationInstancesByARN[identifierOrArn]
+		}
+		if ok {
 			cp := *ri
 
 			return []*ReplicationInstance{&cp}, nil
-		}
-		// Try by ARN.
-		for _, ri := range b.replicationInstances {
-			if ri.ReplicationInstanceArn == identifierOrArn {
-				cp := *ri
-
-				return []*ReplicationInstance{&cp}, nil
-			}
 		}
 
 		return []*ReplicationInstance{}, nil
@@ -415,32 +415,28 @@ func (b *InMemoryBackend) DeleteReplicationInstance(arnOrID string) error {
 	defer b.mu.Unlock()
 
 	deleteInstance := func(ri *ReplicationInstance, id string) error {
-		// Check for tasks attached to this instance.
-		for _, rt := range b.replicationTasks {
-			if rt.ReplicationInstanceArn == ri.ReplicationInstanceArn {
-				return fmt.Errorf(
-					"%w: replication instance %s has tasks attached; delete all tasks first",
-					ErrInvalidState,
-					arnOrID,
-				)
-			}
+		// O(1) check via reverse index instead of scanning all tasks.
+		if len(b.tasksByInstanceARN[ri.ReplicationInstanceArn]) > 0 {
+			return fmt.Errorf(
+				"%w: replication instance %s has tasks attached; delete all tasks first",
+				ErrInvalidState,
+				arnOrID,
+			)
 		}
 		ri.Tags.Close()
 		delete(b.replicationInstancesByARN, ri.ReplicationInstanceArn)
+		delete(b.tasksByInstanceARN, ri.ReplicationInstanceArn)
 		delete(b.replicationInstances, id)
 
 		return nil
 	}
 
-	// Try by identifier first.
+	// Try by identifier first, then by ARN index.
 	if ri, ok := b.replicationInstances[arnOrID]; ok {
 		return deleteInstance(ri, arnOrID)
 	}
-	// Try by ARN.
-	for id, ri := range b.replicationInstances {
-		if ri.ReplicationInstanceArn == arnOrID {
-			return deleteInstance(ri, id)
-		}
+	if ri, ok := b.replicationInstancesByARN[arnOrID]; ok {
+		return deleteInstance(ri, ri.ReplicationInstanceIdentifier)
 	}
 
 	return fmt.Errorf("%w: replication instance %s not found", ErrNotFound, arnOrID)
@@ -494,19 +490,15 @@ func (b *InMemoryBackend) DescribeEndpoints(identifierOrArn string) ([]*Endpoint
 	defer b.mu.RUnlock()
 
 	if identifierOrArn != "" {
-		// Try by identifier first.
-		if ep, ok := b.endpoints[identifierOrArn]; ok {
+		// Try by identifier first, then by ARN index.
+		ep, ok := b.endpoints[identifierOrArn]
+		if !ok {
+			ep, ok = b.endpointsByARN[identifierOrArn]
+		}
+		if ok {
 			cp := *ep
 
 			return []*Endpoint{&cp}, nil
-		}
-		// Try by ARN.
-		for _, ep := range b.endpoints {
-			if ep.EndpointArn == identifierOrArn {
-				cp := *ep
-
-				return []*Endpoint{&cp}, nil
-			}
 		}
 
 		return []*Endpoint{}, nil
@@ -535,16 +527,14 @@ func (b *InMemoryBackend) DeleteEndpoint(arnOrID string) (*Endpoint, error) {
 
 		return &cp, nil
 	}
-	// Try by ARN.
-	for id, ep := range b.endpoints {
-		if ep.EndpointArn == arnOrID {
-			cp := *ep
-			ep.Tags.Close()
-			delete(b.endpointsByARN, arnOrID)
-			delete(b.endpoints, id)
+	// Try by ARN index.
+	if ep, ok := b.endpointsByARN[arnOrID]; ok {
+		cp := *ep
+		ep.Tags.Close()
+		delete(b.endpointsByARN, arnOrID)
+		delete(b.endpoints, ep.EndpointIdentifier)
 
-			return &cp, nil
-		}
+		return &cp, nil
 	}
 
 	return nil, fmt.Errorf("%w: endpoint %s not found", ErrNotFound, arnOrID)
@@ -590,6 +580,10 @@ func (b *InMemoryBackend) CreateReplicationTask(
 	}
 	b.replicationTasks[identifier] = rt
 	b.replicationTasksByARN[taskARN] = rt
+	if b.tasksByInstanceARN[replicationInstanceArn] == nil {
+		b.tasksByInstanceARN[replicationInstanceArn] = make(map[string]struct{})
+	}
+	b.tasksByInstanceARN[replicationInstanceArn][taskARN] = struct{}{}
 	cp := *rt
 
 	return &cp, nil
@@ -601,19 +595,15 @@ func (b *InMemoryBackend) DescribeReplicationTasks(arnOrID string) ([]*Replicati
 	defer b.mu.RUnlock()
 
 	if arnOrID != "" {
-		// Try by identifier first.
-		if rt, ok := b.replicationTasks[arnOrID]; ok {
+		// Try by identifier first, then by ARN index.
+		rt, ok := b.replicationTasks[arnOrID]
+		if !ok {
+			rt, ok = b.replicationTasksByARN[arnOrID]
+		}
+		if ok {
 			cp := *rt
 
 			return []*ReplicationTask{&cp}, nil
-		}
-		// Try by ARN.
-		for _, rt := range b.replicationTasks {
-			if rt.ReplicationTaskArn == arnOrID {
-				cp := *rt
-
-				return []*ReplicationTask{&cp}, nil
-			}
 		}
 
 		return []*ReplicationTask{}, nil
@@ -686,19 +676,20 @@ func (b *InMemoryBackend) DeleteReplicationTask(arnOrID string) (*ReplicationTas
 		rt.Tags.Close()
 		delete(b.replicationTasksByARN, rt.ReplicationTaskArn)
 		delete(b.replicationTasks, id)
+		// Remove from reverse instance→tasks index.
+		if instTasks := b.tasksByInstanceARN[rt.ReplicationInstanceArn]; instTasks != nil {
+			delete(instTasks, rt.ReplicationTaskArn)
+		}
 
 		return &cp, nil
 	}
 
-	// Try by identifier first.
+	// Try by identifier first, then by ARN index.
 	if rt, ok := b.replicationTasks[arnOrID]; ok {
 		return deleteTask(rt, arnOrID)
 	}
-	// Try by ARN.
-	for id, rt := range b.replicationTasks {
-		if rt.ReplicationTaskArn == arnOrID {
-			return deleteTask(rt, id)
-		}
+	if rt, ok := b.replicationTasksByARN[arnOrID]; ok {
+		return deleteTask(rt, rt.ReplicationTaskIdentifier)
 	}
 
 	return nil, fmt.Errorf("%w: replication task %s not found", ErrNotFound, arnOrID)
@@ -709,10 +700,8 @@ func (b *InMemoryBackend) findTask(arnOrID string) *ReplicationTask {
 	if rt, ok := b.replicationTasks[arnOrID]; ok {
 		return rt
 	}
-	for _, rt := range b.replicationTasks {
-		if rt.ReplicationTaskArn == arnOrID {
-			return rt
-		}
+	if rt, ok := b.replicationTasksByARN[arnOrID]; ok {
+		return rt
 	}
 
 	return nil
@@ -753,16 +742,18 @@ func (b *InMemoryBackend) ApplyPendingMaintenanceAction(
 	b.mu.Lock("ApplyPendingMaintenanceAction")
 	defer b.mu.Unlock()
 
-	for _, ri := range b.replicationInstances {
-		if ri.ReplicationInstanceArn == replicationInstanceArn {
-			// In-memory: mark the action as applied by updating the engine version
-			// for "os-upgrade" / "db-upgrade" or just acknowledge for others.
-			_ = applyAction
-			_ = optInType
-			cp := *ri
+	ri, ok := b.replicationInstancesByARN[replicationInstanceArn]
+	if !ok {
+		ri, ok = b.replicationInstances[replicationInstanceArn]
+	}
+	if ok {
+		// In-memory: mark the action as applied by updating the engine version
+		// for "os-upgrade" / "db-upgrade" or just acknowledge for others.
+		_ = applyAction
+		_ = optInType
+		cp := *ri
 
-			return &cp, nil
-		}
+		return &cp, nil
 	}
 
 	return nil, fmt.Errorf(
@@ -1116,6 +1107,7 @@ func (b *InMemoryBackend) Reset() {
 
 	b.replicationTasks = make(map[string]*ReplicationTask)
 	b.replicationTasksByARN = make(map[string]*ReplicationTask)
+	b.tasksByInstanceARN = make(map[string]map[string]struct{})
 	b.dataMigrations = make(map[string]*DataMigration)
 	b.dataMigrationsByARN = make(map[string]*DataMigration)
 	b.dataProviders = make(map[string]*DataProvider)
@@ -1202,6 +1194,10 @@ func (b *InMemoryBackend) AddReplicationTaskInternal(
 	}
 	b.replicationTasks[identifier] = rt
 	b.replicationTasksByARN[taskARN] = rt
+	if b.tasksByInstanceARN[instARN] == nil {
+		b.tasksByInstanceARN[instARN] = make(map[string]struct{})
+	}
+	b.tasksByInstanceARN[instARN][taskARN] = struct{}{}
 }
 
 // AddDataMigrationInternal seeds a data migration directly without HTTP.

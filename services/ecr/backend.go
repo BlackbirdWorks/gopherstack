@@ -376,9 +376,12 @@ var _ Backend = (*InMemoryBackend)(nil)
 
 // InMemoryBackend stores ECR repository state in memory.
 type InMemoryBackend struct {
-	repos                       map[string]*Repository
-	images                      map[string]map[string]*Image // repoName → digest → image
-	tagIndex                    map[string]map[string]string // repoName → tag → digest
+	repos    map[string]*Repository
+	images   map[string]map[string]*Image // repoName → digest → image
+	tagIndex map[string]map[string]string // repoName → tag → digest
+	// digestTagsIndex is the inverse of tagIndex: repoName → digest → []tag.
+	// Maintained incrementally so DescribeImages avoids rebuilding it per call.
+	digestTagsIndex             map[string]map[string][]string
 	pullThroughCacheRules       map[string]*PullThroughCacheRule
 	repositoryCreationTemplates map[string]*RepositoryCreationTemplate
 	lifecyclePolicies           map[string]string
@@ -406,6 +409,7 @@ func NewInMemoryBackend(accountID, region, endpoint string) *InMemoryBackend {
 		repos:                       make(map[string]*Repository),
 		images:                      make(map[string]map[string]*Image),
 		tagIndex:                    make(map[string]map[string]string),
+		digestTagsIndex:             make(map[string]map[string][]string),
 		pullThroughCacheRules:       make(map[string]*PullThroughCacheRule),
 		repositoryCreationTemplates: make(map[string]*RepositoryCreationTemplate),
 		lifecyclePolicies:           make(map[string]string),
@@ -572,6 +576,7 @@ func (b *InMemoryBackend) DeleteRepository(
 	delete(b.repos, name)
 	delete(b.images, name)
 	delete(b.tagIndex, name)
+	delete(b.digestTagsIndex, name)
 	delete(b.uploadedLayers, name)
 	delete(b.lifecyclePolicies, name)
 	delete(b.lifecyclePolicyPreviews, name)
@@ -696,8 +701,16 @@ func (b *InMemoryBackend) BatchDeleteImage(ctx context.Context, //nolint:revive 
 
 		if id.ImageDigest != "" {
 			found = deleteByDigestLocked(repoImages, repoTags, id.ImageDigest)
+			if found {
+				b.clearDigestTagsLocked(repositoryName, id.ImageDigest)
+			}
 		} else if id.ImageTag != "" {
+			// Snapshot the digest before deletion so we can update the reverse index.
+			oldDigest := repoTags[id.ImageTag]
 			found = deleteByTagLocked(repoImages, repoTags, id.ImageTag)
+			if found && oldDigest != "" {
+				b.removeDigestTagLocked(repositoryName, oldDigest, id.ImageTag)
+			}
 		}
 
 		if found {
@@ -764,6 +777,39 @@ func buildDigestTagsLocked(repoTagIdx map[string]string) map[string][]string {
 	return digestTags
 }
 
+// addDigestTagLocked records tag→digest in both tagIndex and digestTagsIndex.
+// Caller must hold the write lock.
+func (b *InMemoryBackend) addDigestTagLocked(repo, digest, tag string) {
+	if b.digestTagsIndex[repo] == nil {
+		b.digestTagsIndex[repo] = make(map[string][]string)
+	}
+	b.digestTagsIndex[repo][digest] = append(b.digestTagsIndex[repo][digest], tag)
+}
+
+// removeDigestTagLocked removes a single tag from digestTagsIndex[repo][digest].
+// Caller must hold the write lock.
+func (b *InMemoryBackend) removeDigestTagLocked(repo, digest, tag string) {
+	if b.digestTagsIndex[repo] == nil {
+		return
+	}
+	tags := b.digestTagsIndex[repo][digest]
+	for i, t := range tags {
+		if t == tag {
+			b.digestTagsIndex[repo][digest] = append(tags[:i], tags[i+1:]...)
+
+			return
+		}
+	}
+}
+
+// clearDigestTagsLocked removes all tag entries for a digest (used on image delete by digest).
+// Caller must hold the write lock.
+func (b *InMemoryBackend) clearDigestTagsLocked(repo, digest string) {
+	if b.digestTagsIndex[repo] != nil {
+		delete(b.digestTagsIndex[repo], digest)
+	}
+}
+
 // DescribeImages returns image details for a repository.
 func (b *InMemoryBackend) DescribeImages(
 	ctx context.Context, //nolint:revive // existing issue.
@@ -779,9 +825,7 @@ func (b *InMemoryBackend) DescribeImages(
 
 	repoImages := b.images[repositoryName]
 	repoTagIdx := b.tagIndex[repositoryName]
-
-	// Build digest → []tag reverse map for multi-tag annotation.
-	digestTags := buildDigestTagsLocked(repoTagIdx)
+	digestTags := b.digestTagsIndex[repositoryName]
 
 	annotate := func(img Image) Image {
 		tags := digestTags[img.ImageDigest]
@@ -1909,9 +1953,16 @@ func (b *InMemoryBackend) PutImage(
 	stored := image
 	b.images[repositoryName][image.ImageDigest] = &stored
 
-	// Update tag index.
+	// Update tag index and keep digestTagsIndex in sync.
 	if tag != "" {
+		oldDigest, hadTag := repoTags[tag]
 		repoTags[tag] = image.ImageDigest
+		if hadTag && oldDigest != image.ImageDigest {
+			b.removeDigestTagLocked(repositoryName, oldDigest, tag)
+		}
+		if !hadTag || oldDigest != image.ImageDigest {
+			b.addDigestTagLocked(repositoryName, image.ImageDigest, tag)
+		}
 	}
 
 	ret := stored
@@ -2323,6 +2374,7 @@ func (b *InMemoryBackend) Reset() {
 	b.repos = make(map[string]*Repository)
 	b.images = make(map[string]map[string]*Image)
 	b.tagIndex = make(map[string]map[string]string)
+	b.digestTagsIndex = make(map[string]map[string][]string)
 	b.pullThroughCacheRules = make(map[string]*PullThroughCacheRule)
 	b.repositoryCreationTemplates = make(map[string]*RepositoryCreationTemplate)
 	b.lifecyclePolicies = make(map[string]string)

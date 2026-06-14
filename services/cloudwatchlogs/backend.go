@@ -1456,6 +1456,8 @@ type metricFilterMatch struct {
 
 // matchingMetricFilters returns metric filters for groupName whose pattern matches at least one
 // of the given events, along with the per-filter match count.
+// Events outer, filters inner: each event is visited once regardless of filter count,
+// cutting allocations from O(filters×events) repeated scans to a single pass.
 // Must be called while holding the write lock.
 func (b *InMemoryBackend) matchingMetricFilters(region, groupName string, events []InputLogEvent) []metricFilterMatch {
 	mfMap := b.metricFiltersStore(region)[groupName]
@@ -1463,18 +1465,30 @@ func (b *InMemoryBackend) matchingMetricFilters(region, groupName string, events
 		return nil
 	}
 
-	var matched []metricFilterMatch
+	// Pre-compile all patterns once, keyed by filter name.
+	type filterEntry struct {
+		filter   *MetricFilter
+		compiled *compiledFilterPattern
+	}
+	entries := make([]filterEntry, 0, len(mfMap))
 	for _, f := range mfMap {
-		compiled := b.getCompiledPattern(f.FilterPattern)
-		count := 0
-		for _, ev := range events {
-			if compiled == nil || compiled.matches(ev.Message) {
-				count++
+		entries = append(entries, filterEntry{filter: f, compiled: b.getCompiledPattern(f.FilterPattern)})
+	}
+
+	counts := make([]int, len(entries))
+	for _, ev := range events {
+		for i, e := range entries {
+			if e.compiled == nil || e.compiled.matches(ev.Message) {
+				counts[i]++
 			}
 		}
-		if count > 0 {
-			cp := *f
-			matched = append(matched, metricFilterMatch{filter: &cp, matchCount: count})
+	}
+
+	var matched []metricFilterMatch
+	for i, e := range entries {
+		if counts[i] > 0 {
+			cp := *e.filter
+			matched = append(matched, metricFilterMatch{filter: &cp, matchCount: counts[i]})
 		}
 	}
 
