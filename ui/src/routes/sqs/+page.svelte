@@ -807,6 +807,9 @@ class="w-full text-left bg-white dark:bg-slate-800 rounded-lg border p-4 hover:b
 <button onclick={() => receiveMessages()} disabled={receivingMessages} class="px-3 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-1.5 text-sm disabled:opacity-50">
 <Inbox class="w-4 h-4" />{receivingMessages ? '...' : 'Receive'}
 </button>
+<button onclick={() => onTabChange('move')} class="px-3 py-1.5 bg-orange-600 text-white rounded-lg hover:bg-orange-700 flex items-center gap-1.5 text-sm" title="Move messages — redrive from DLQ or migrate to another queue">
+<ArrowRightLeft class="w-4 h-4" />Redrive
+</button>
 <button onclick={() => purgeQueue(selectedQueue?.url ?? '')} class="px-3 py-1.5 bg-red-600 text-white rounded-lg hover:bg-red-700 flex items-center gap-1.5 text-sm">
 <Flame class="w-4 h-4" />Purge
 </button>
@@ -895,14 +898,23 @@ class="px-2 py-1 text-xs bg-slate-50 dark:bg-slate-700 border border-slate-200 d
 </div>
 {#if messages.length > 0}
 <div class="flex items-center gap-2 mb-3">
-<input type="text" bind:value={messageFilter} placeholder="Filter messages by body content…" class="flex-1 text-xs border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-1.5 bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+<input type="text" bind:value={messageFilter} placeholder="Filter by body, attribute key or value…" class="flex-1 text-xs border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-1.5 bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500" />
 {#if messageFilter}<button onclick={() => messageFilter = ''} class="text-xs text-slate-400 hover:text-slate-600"><X class="w-3 h-3" /></button>{/if}
 </div>
 {/if}
 {#if messages.length === 0}
 <p class="text-center text-slate-400 dark:text-slate-500 py-8">No messages received. Click "Receive" to fetch messages.</p>
 {:else}
-{@const filteredMessages = messageFilter ? messages.filter(m => (m.Body ?? '').toLowerCase().includes(messageFilter.toLowerCase())) : messages}
+{@const filteredMessages = messageFilter ? messages.filter(m => {
+					const lf = messageFilter.toLowerCase();
+					if ((m.Body ?? '').toLowerCase().includes(lf)) return true;
+					if (m.MessageAttributes) {
+						return Object.entries(m.MessageAttributes).some(([k, v]) =>
+							k.toLowerCase().includes(lf) || (v.StringValue ?? '').toLowerCase().includes(lf)
+						);
+					}
+					return false;
+				}) : messages}
 <div class="space-y-2">
 <p class="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">Received Messages ({filteredMessages.length}{messageFilter ? ` of ${messages.length}` : ''})</p>
 {#each filteredMessages as msg}
