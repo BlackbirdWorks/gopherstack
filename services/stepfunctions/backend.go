@@ -64,6 +64,12 @@ const (
 	// maxActivityNameLen is the AWS limit on activity name length.
 	maxActivityNameLen = 80
 
+	// executionPruneSweepThreshold is the number of stored executions above which
+	// StartExecution opportunistically prunes finished executions that have aged
+	// past the retention period. Keeps the execution map bounded even when the
+	// background janitor is disabled.
+	executionPruneSweepThreshold = 500
+
 	statusRunning   = "RUNNING"
 	statusSucceeded = "SUCCEEDED"
 	statusFailed    = "FAILED"
@@ -479,9 +485,14 @@ func (b *InMemoryBackend) PruneExecutions(_ context.Context) int {
 	b.mu.Lock("PruneExecutions")
 	defer b.mu.Unlock()
 
+	return b.pruneExecutionsLocked(cutoff)
+}
+
+// pruneExecutionsLocked removes finished executions older than cutoff (Unix seconds).
+// Must be called with b.mu held for writing.
+func (b *InMemoryBackend) pruneExecutionsLocked(cutoff float64) int {
 	var toDelete []string
 	for arn, exec := range b.executions {
-		// Only prune finished executions.
 		if exec.Status != statusRunning && exec.StopDate != nil && *exec.StopDate < cutoff {
 			toDelete = append(toDelete, arn)
 		}
@@ -494,7 +505,6 @@ func (b *InMemoryBackend) PruneExecutions(_ context.Context) int {
 		delete(b.historyTruncated, arn)
 		b.execHistoryMu.Delete(arn)
 
-		// Remove from smExecutions index.
 		for smARN, execs := range b.smExecutions {
 			for i, e := range execs {
 				if e == arn {
@@ -767,6 +777,17 @@ func (b *InMemoryBackend) StartExecution(stateMachineArn, name, input string) (*
 	}
 
 	b.mu.Lock("StartExecution")
+
+	// Opportunistically prune finished executions that have aged past the retention
+	// period so the executions/history maps stay bounded when the janitor is off.
+	if len(b.executions) >= executionPruneSweepThreshold {
+		retention := b.settings.ExecutionRetention
+		if retention == 0 {
+			retention = defaultExecutionRetention
+		}
+
+		b.pruneExecutionsLocked(float64(time.Now().Add(-retention).Unix()))
+	}
 
 	sm, exists := b.stateMachines[stateMachineArn]
 	if !exists {
