@@ -50,7 +50,7 @@ func TestBackend_Reset(t *testing.T) {
 			b := securityhub.NewInMemoryBackend("000000000000", "us-east-1")
 			require.NoError(t, b.EnableHub(false, nil))
 			_, _, _ = b.ImportFindings([]map[string]any{
-				{"Id": "f1", "ProductArn": "arn:aws:securityhub:::product/x/y"},
+				{"Id": "f1", "ProductArn": "arn:aws:securityhub:::product/x/y", "Types": []any{"Software and Configuration Checks"}},
 			})
 			assert.True(t, securityhub.IsHubEnabled(b))
 			assert.Equal(t, 1, securityhub.FindingCount(b))
@@ -78,7 +78,7 @@ func TestBackend_SnapshotRestore(t *testing.T) {
 			b := securityhub.NewInMemoryBackend("000000000000", "us-east-1")
 			require.NoError(t, b.EnableHub(false, nil))
 			_, _, _ = b.ImportFindings([]map[string]any{
-				{"Id": "snap-1", "ProductArn": "arn:p"},
+				{"Id": "snap-1", "ProductArn": "arn:p", "Types": []any{"Software and Configuration Checks"}},
 			})
 			snap := b.Snapshot()
 			assert.NotEmpty(t, snap)
@@ -611,7 +611,7 @@ func TestBackend_UpdateFindings(t *testing.T) {
 			if tc.hubEnabled {
 				require.NoError(t, b.EnableHub(false, nil))
 				_, _, _ = b.ImportFindings([]map[string]any{
-					{"Id": "f1", "ProductArn": "arn:aws:p"},
+					{"Id": "f1", "ProductArn": "arn:aws:p", "Types": []any{"Software and Configuration Checks"}},
 				})
 			}
 
@@ -888,7 +888,7 @@ func TestBackend_MatchesStringFilter(t *testing.T) {
 			t.Parallel()
 			b := securityhub.NewInMemoryBackend("000000000000", "us-east-1")
 			_, _, _ = b.ImportFindings([]map[string]any{
-				{"Id": "filter-finding-1", "ProductArn": "arn:aws:p"},
+				{"Id": "filter-finding-1", "ProductArn": "arn:aws:p", "Types": []any{"Software and Configuration Checks"}},
 			})
 
 			results, _ := b.GetFindings(tc.filter, nil, "", 100)
