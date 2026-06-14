@@ -470,6 +470,60 @@ func TestNewOps_CapacityProvider_GetDeleteUpdateList(t *testing.T) {
 	assert.Empty(t, listOut2.CapacityProviders)
 }
 
+// --- ListFunctionVersionsByCapacityProvider tests ---
+
+func TestNewOps_ListFunctionVersionsByCapacityProvider(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		cpName     string
+		wantStatus int
+		setup      bool // create the CP before the list call
+		wantEmpty  bool
+	}{
+		{
+			name:       "exists_returns_empty_list",
+			cpName:     "my-cp",
+			setup:      true,
+			wantStatus: http.StatusOK,
+			wantEmpty:  true,
+		},
+		{
+			name:       "not_found_returns_404",
+			cpName:     "nonexistent-cp",
+			setup:      false,
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, _ := newInMemoryHandler(t)
+
+			if tt.setup {
+				rec := callInMemoryHandler(t, h, http.MethodPost, "/2025-11-30/capacity-providers",
+					`{"Name":"`+tt.cpName+`","TargetOnDemandConcurrency":100}`)
+				require.Equal(t, http.StatusCreated, rec.Code)
+			}
+
+			rec := callInMemoryHandler(t, h, http.MethodGet,
+				"/2025-11-30/capacity-providers/"+tt.cpName+"/function-versions", "")
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantEmpty {
+				var out struct {
+					FunctionVersions []any `json:"FunctionVersions"`
+				}
+				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+				assert.Empty(t, out.FunctionVersions)
+			}
+		})
+	}
+}
+
 // --- CheckpointDurableExecution tests ---
 
 func TestNewOps_CheckpointDurableExecution(t *testing.T) {
@@ -691,6 +745,7 @@ func TestNewOps_GetSupportedOperations(t *testing.T) {
 		"ListCodeSigningConfigs",
 		"ListFunctionsByCodeSigningConfig",
 		"ListFunctionUrlConfigs",
+		"ListFunctionVersionsByCapacityProvider",
 		"PutFunctionCodeSigningConfig",
 		"UpdateCapacityProvider",
 		"UpdateCodeSigningConfig",
