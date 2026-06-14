@@ -9,12 +9,15 @@ import {
 	DescribeTaskDefinitionCommand,
 	ListContainerInstancesCommand,
 	DescribeContainerInstancesCommand,
+	DescribeServicesCommand,
+	UpdateServiceCommand,
 	DescribeTaskSetsCommand,
 	DescribeCapacityProvidersCommand,
 	type TaskDefinition,
 	type ContainerInstance,
 	type TaskSet,
-	type CapacityProvider
+	type CapacityProvider,
+	type Service
 } from '@aws-sdk/client-ecs';
 import { toast } from 'svelte-sonner';
 import { Container, Plus, RefreshCw, Search, Layers, Activity, Server, ChevronRight, List, Box, Cpu, LayoutGrid, Zap } from 'lucide-svelte';
@@ -26,6 +29,12 @@ let loading = $state(true);
 let selectedCluster = $state<string | null>(null);
 let services = $state<string[]>([]);
 let servicesLoading = $state(false);
+let serviceDetails = $state<Record<string, Service>>({});
+let editingService = $state<string | null>(null);
+let svcDesiredCount = $state(0);
+let svcTaskDef = $state('');
+let svcForceDeploy = $state(false);
+let updatingService = $state(false);
 let tasks = $state<string[]>([]);
 let tasksLoading = $state(false);
 let taskDefs = $state<string[]>([]);
@@ -76,10 +85,52 @@ async function loadServices(clusterArn: string) {
 		const arns = data.serviceArns || [];
 		services = arns;
 		servicesByCluster = { ...servicesByCluster, [clusterArn]: arns };
+		serviceDetails = {};
+		if (arns.length > 0) {
+			// DescribeServices accepts up to 10 per call
+			const detail: Record<string, Service> = {};
+			for (let i = 0; i < arns.length; i += 10) {
+				const chunk = arns.slice(i, i + 10);
+				const res = await ecs.send(new DescribeServicesCommand({ cluster: clusterArn, services: chunk }));
+				for (const s of res.services ?? []) {
+					if (s.serviceArn) detail[s.serviceArn] = s;
+				}
+			}
+			serviceDetails = detail;
+		}
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load services');
 	} finally {
 		servicesLoading = false;
+	}
+}
+
+function startEditService(serviceArn: string) {
+	const svc = serviceDetails[serviceArn];
+	editingService = serviceArn;
+	svcDesiredCount = svc?.desiredCount ?? 0;
+	svcTaskDef = svc?.taskDefinition ?? '';
+	svcForceDeploy = false;
+}
+
+async function updateService(serviceArn: string) {
+	if (!selectedCluster) return;
+	updatingService = true;
+	try {
+		await ecs.send(new UpdateServiceCommand({
+			cluster: selectedCluster,
+			service: serviceName(serviceArn),
+			desiredCount: svcDesiredCount,
+			taskDefinition: svcTaskDef.trim() || undefined,
+			forceNewDeployment: svcForceDeploy
+		}));
+		toast.success('Service updated');
+		editingService = null;
+		await loadServices(selectedCluster);
+	} catch (e) {
+		toast.error(e instanceof Error ? e.message : 'Failed to update service');
+	} finally {
+		updatingService = false;
 	}
 }
 
@@ -489,15 +540,33 @@ let taskDefFamilies = $derived(() => {
 							<div class="space-y-2">
 								{#each filteredServices as service}
 									{@const name = serviceName(service)}
+									{@const svc = serviceDetails[service]}
 									<div class="p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg border border-slate-200 dark:border-slate-600 hover:border-indigo-300 dark:hover:border-indigo-700 transition-colors">
 										<div class="flex items-center justify-between">
 											<p class="font-semibold text-slate-900 dark:text-white text-sm">{name}</p>
 											<div class="flex items-center gap-2">
-												<span class="text-xs px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 font-medium">Active</span>
-												<span class="text-xs text-slate-400 italic">No recent events</span>
+												<span class="text-xs px-2 py-0.5 rounded-full {svc?.status === 'ACTIVE' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'} font-medium">{svc?.status ?? 'Active'}</span>
+												{#if svc}<span class="text-xs text-slate-500 dark:text-slate-400">{svc.runningCount ?? 0}/{svc.desiredCount ?? 0} running</span>{/if}
+												<button onclick={() => editingService === service ? (editingService = null) : startEditService(service)} class="text-xs px-2 py-0.5 rounded border border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20">{editingService === service ? 'Cancel' : 'Update'}</button>
 											</div>
 										</div>
-										<p class="text-xs text-slate-400 dark:text-slate-500 font-mono mt-1 truncate">{service}</p>
+										<p class="text-xs text-slate-400 dark:text-slate-500 font-mono mt-1 truncate">{svc?.taskDefinition ?? service}</p>
+										{#if editingService === service}
+											<div class="mt-3 pt-3 border-t border-slate-200 dark:border-slate-600 space-y-2">
+												<div class="flex items-center gap-2 flex-wrap">
+													<label class="text-xs text-slate-500 dark:text-slate-400" for="svc-desired-{name}">Desired count</label>
+													<input id="svc-desired-{name}" type="number" min="0" bind:value={svcDesiredCount} class="w-20 px-2 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white" />
+												</div>
+												<div>
+													<label class="block text-xs text-slate-500 dark:text-slate-400 mb-1" for="svc-taskdef-{name}">Task definition</label>
+													<input id="svc-taskdef-{name}" type="text" bind:value={svcTaskDef} placeholder="family:revision" class="w-full px-2 py-1 text-xs font-mono border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white" />
+												</div>
+												<label class="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+													<input type="checkbox" bind:checked={svcForceDeploy} /> Force new deployment
+												</label>
+												<button disabled={updatingService} onclick={() => updateService(service)} class="w-full py-1.5 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50">{updatingService ? 'Updating...' : 'Apply Update'}</button>
+											</div>
+										{/if}
 									</div>
 								{/each}
 							</div>

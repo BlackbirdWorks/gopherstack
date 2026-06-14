@@ -26,6 +26,7 @@
 		DescribeAccessEntryCommand,
 		CreateAccessEntryCommand,
 		DeleteAccessEntryCommand,
+		UpdateNodegroupConfigCommand,
 		type Cluster,
 		type Nodegroup,
 		type Addon,
@@ -47,6 +48,12 @@
 	let nodeGroups = $state<string[]>([]);
 	let nodeGroupDetails = $state<Nodegroup[]>([]);
 	let loadingNodeGroups = $state(false);
+	// Nodegroup scaling editor
+	let scalingNG = $state<string | null>(null);
+	let scaleMin = $state(1);
+	let scaleDesired = $state(2);
+	let scaleMax = $state(3);
+	let scalingUpdate = $state(false);
 	let detailTab = $state<'overview' | 'nodegroups' | 'addons' | 'fargate' | 'podidentity' | 'access'>('overview');
 
 	// Addon state
@@ -313,6 +320,50 @@
 		}
 	}
 
+	function startScaleNodeGroup(ng: Nodegroup) {
+		if (scalingNG === ng.nodegroupName) {
+			scalingNG = null;
+			return;
+		}
+		scalingNG = ng.nodegroupName ?? null;
+		scaleMin = ng.scalingConfig?.minSize ?? 1;
+		scaleDesired = ng.scalingConfig?.desiredSize ?? 1;
+		scaleMax = ng.scalingConfig?.maxSize ?? 1;
+	}
+
+	async function scaleNodeGroup(ngName: string) {
+		if (!selectedCluster?.name) return;
+		if (scaleMin > scaleDesired || scaleDesired > scaleMax) {
+			toast.error('Require min ≤ desired ≤ max');
+			return;
+		}
+		scalingUpdate = true;
+		try {
+			await eks.send(new UpdateNodegroupConfigCommand({
+				clusterName: selectedCluster.name,
+				nodegroupName: ngName,
+				scalingConfig: { minSize: scaleMin, desiredSize: scaleDesired, maxSize: scaleMax }
+			}));
+			toast.success(`Node group "${ngName}" scaling updated`);
+			scalingNG = null;
+			await loadNodeGroups(selectedCluster.name);
+		} catch (err: unknown) {
+			toast.error(`Scaling update failed: ${(err as Error).message}`);
+		} finally {
+			scalingUpdate = false;
+		}
+	}
+
+	function kubeconfigCmd(): string {
+		const region = selectedCluster?.arn?.split(':')[3] ?? 'us-east-1';
+		return `aws eks update-kubeconfig --name ${selectedCluster?.name ?? ''} --region ${region}`;
+	}
+
+	function copyKubeconfigCmd() {
+		if (!selectedCluster?.name) return;
+		navigator.clipboard.writeText(kubeconfigCmd()).then(() => toast.success('Command copied')).catch(() => toast.error('Copy failed'));
+	}
+
 	async function createAddon() {
 		if (!selectedCluster?.name) return;
 		creatingAddon = true;
@@ -548,6 +599,13 @@
 										</div>
 									{/each}
 								</div>
+								<div class="mt-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg p-3">
+									<div class="flex items-center justify-between mb-1.5">
+										<p class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Connect (kubeconfig)</p>
+										<button onclick={copyKubeconfigCmd} class="text-xs text-indigo-600 dark:text-indigo-400 hover:underline">Copy</button>
+									</div>
+									<code class="block text-xs font-mono text-slate-700 dark:text-slate-300 break-all">{kubeconfigCmd()}</code>
+								</div>
 							{/if}
 						{:else if detailTab === 'nodegroups'}
 							<div class="space-y-3">
@@ -562,19 +620,41 @@
 									<p class="text-slate-500 dark:text-slate-400 text-sm text-center py-4">No node groups</p>
 								{:else}
 									{#each nodeGroupDetails as ng}
-										<div class="bg-slate-50 dark:bg-slate-700/30 rounded-lg p-4 flex items-start justify-between">
-											<div>
-												<div class="flex items-center gap-2 mb-1">
-													<p class="font-medium text-slate-900 dark:text-white">{ng.nodegroupName}</p>
-													<span class="px-2 py-0.5 text-xs rounded-full {statusColor(ng.status)}">{ng.status}</span>
+										<div class="bg-slate-50 dark:bg-slate-700/30 rounded-lg p-4">
+											<div class="flex items-start justify-between">
+												<div>
+													<div class="flex items-center gap-2 mb-1">
+														<p class="font-medium text-slate-900 dark:text-white">{ng.nodegroupName}</p>
+														<span class="px-2 py-0.5 text-xs rounded-full {statusColor(ng.status)}">{ng.status}</span>
+													</div>
+													<p class="text-xs text-slate-500 dark:text-slate-400">
+														{ng.instanceTypes?.join(', ')} · min {ng.scalingConfig?.minSize ?? 0} / desired {ng.scalingConfig?.desiredSize ?? 0} / max {ng.scalingConfig?.maxSize ?? 0}
+													</p>
 												</div>
-												<p class="text-xs text-slate-500 dark:text-slate-400">
-													{ng.instanceTypes?.join(', ')} · min {ng.scalingConfig?.minSize ?? 0} / desired {ng.scalingConfig?.desiredSize ?? 0} / max {ng.scalingConfig?.maxSize ?? 0}
-												</p>
+												<div class="flex items-center gap-1">
+													<button onclick={() => startScaleNodeGroup(ng)} class="text-xs px-2 py-1 rounded border border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20">{scalingNG === ng.nodegroupName ? 'Cancel' : 'Scale'}</button>
+													<button onclick={() => deleteNodeGroup(ng.nodegroupName ?? '')} class="p-1.5 text-slate-400 hover:text-red-500">
+														<Trash2 class="w-4 h-4" />
+													</button>
+												</div>
 											</div>
-											<button onclick={() => deleteNodeGroup(ng.nodegroupName ?? '')} class="p-1.5 text-slate-400 hover:text-red-500">
-												<Trash2 class="w-4 h-4" />
-											</button>
+											{#if scalingNG === ng.nodegroupName}
+												<div class="mt-3 pt-3 border-t border-slate-200 dark:border-slate-600 flex flex-wrap items-end gap-2">
+													<div>
+														<label class="block text-xs text-slate-500 dark:text-slate-400 mb-1" for="ng-min-{ng.nodegroupName}">Min</label>
+														<input id="ng-min-{ng.nodegroupName}" type="number" min="0" bind:value={scaleMin} class="w-16 px-2 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white" />
+													</div>
+													<div>
+														<label class="block text-xs text-slate-500 dark:text-slate-400 mb-1" for="ng-des-{ng.nodegroupName}">Desired</label>
+														<input id="ng-des-{ng.nodegroupName}" type="number" min="0" bind:value={scaleDesired} class="w-16 px-2 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white" />
+													</div>
+													<div>
+														<label class="block text-xs text-slate-500 dark:text-slate-400 mb-1" for="ng-max-{ng.nodegroupName}">Max</label>
+														<input id="ng-max-{ng.nodegroupName}" type="number" min="0" bind:value={scaleMax} class="w-16 px-2 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white" />
+													</div>
+													<button disabled={scalingUpdate} onclick={() => scaleNodeGroup(ng.nodegroupName ?? '')} class="px-3 py-1 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50">{scalingUpdate ? 'Updating...' : 'Apply'}</button>
+												</div>
+											{/if}
 										</div>
 									{/each}
 								{/if}

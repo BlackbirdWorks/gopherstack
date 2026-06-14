@@ -21,8 +21,12 @@
 		DeleteBackupCommand,
 		DescribeContinuousBackupsCommand,
 		UpdateContinuousBackupsCommand,
+<<<<<<< HEAD
 		DescribeTableReplicaAutoScalingCommand,
+=======
+>>>>>>> 3ed0e7e6 (dashboard: §F second pass — popular-services UI features)
 		type TableDescription,
+		type ContinuousBackupsDescription,
 		type KeySchemaElement,
 		type ScalarAttributeType,
 		type AttributeValue,
@@ -88,6 +92,7 @@
 	let backupsLoading = $state(false);
 	let newBackupName = $state('');
 
+<<<<<<< HEAD
 	// PITR State
 	let pitrStatus = $state<'ENABLED' | 'DISABLED' | 'ENABLING' | 'DISABLING' | null>(null);
 	let pitrLoading = $state(false);
@@ -97,6 +102,12 @@
 	let tableReplicas = $state<{ RegionName?: string; ReplicaStatus?: string }[]>([]);
 	let replicasLoading = $state(false);
 	let newReplicaRegion = $state('');
+=======
+	// Point-In-Time Recovery (PITR) state
+	let continuousBackups = $state<ContinuousBackupsDescription | null>(null);
+	let pitrLoading = $state(false);
+	let pitrUpdating = $state(false);
+>>>>>>> 3ed0e7e6 (dashboard: §F second pass — popular-services UI features)
 
 	// PartiQL State
 	let partiqlStatement = $state('');
@@ -488,6 +499,39 @@
 		}
 	}
 
+	async function loadContinuousBackups(): Promise<void> {
+		if (!selectedTable) return;
+		pitrLoading = true;
+		try {
+			const res = await ddb.send(new DescribeContinuousBackupsCommand({ TableName: selectedTable }));
+			continuousBackups = res.ContinuousBackupsDescription ?? null;
+		} catch (err: unknown) {
+			continuousBackups = null;
+			toast.error(`Failed to load PITR status: ${(err as Error).message}`);
+		} finally {
+			pitrLoading = false;
+		}
+	}
+
+	async function togglePITR(enable: boolean): Promise<void> {
+		if (!selectedTable) return;
+		pitrUpdating = true;
+		try {
+			await ddb.send(
+				new UpdateContinuousBackupsCommand({
+					TableName: selectedTable,
+					PointInTimeRecoverySpecification: { PointInTimeRecoveryEnabled: enable }
+				})
+			);
+			toast.success(`Point-in-time recovery ${enable ? 'enabled' : 'disabled'}`);
+			await loadContinuousBackups();
+		} catch (err: unknown) {
+			toast.error(`Failed to update PITR: ${(err as Error).message}`);
+		} finally {
+			pitrUpdating = false;
+		}
+	}
+
 	async function deleteBackup(arn: string): Promise<void> {
 		if (!await confirmDestructive({ title: 'Delete Backup', message: 'Delete this backup? This cannot be undone.' })) return;
 		try {
@@ -795,6 +839,7 @@
 	$effect(() => {
 		if (activeTab === 'backups' && selectedTable) {
 			void loadBackups();
+			void loadContinuousBackups();
 		}
 	});
 
@@ -1760,6 +1805,39 @@
 			</div>
 		{:else if activeTab === 'backups'}
 			<div class="p-4 rounded-lg bg-slate-50 dark:bg-slate-800 space-y-6">
+				<div class="p-4 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
+					<h3 class="text-lg font-semibold text-slate-900 dark:text-white mb-2">Point-In-Time Recovery (PITR)</h3>
+					{#if pitrLoading}
+						<p class="text-sm text-slate-500 dark:text-slate-400">Loading PITR status...</p>
+					{:else}
+						{@const pitr = continuousBackups?.PointInTimeRecoveryDescription}
+						{@const enabled = pitr?.PointInTimeRecoveryStatus === 'ENABLED'}
+						<div class="flex items-center justify-between flex-wrap gap-3">
+							<div>
+								<p class="text-sm text-slate-700 dark:text-slate-300">
+									Status:
+									<span class="font-medium {enabled ? 'text-green-600 dark:text-green-400' : 'text-slate-500 dark:text-slate-400'}">
+										{enabled ? 'Enabled' : 'Disabled'}
+									</span>
+								</p>
+								{#if enabled && pitr?.EarliestRestorableDateTime}
+									<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">
+										Restorable: {new Date(pitr.EarliestRestorableDateTime).toLocaleString()} → {pitr.LatestRestorableDateTime ? new Date(pitr.LatestRestorableDateTime).toLocaleString() : 'now'}
+									</p>
+								{/if}
+							</div>
+							{#if enabled}
+								<button type="button" disabled={pitrUpdating} onclick={() => togglePITR(false)} class="py-2 px-4 text-sm font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600 dark:hover:bg-slate-700">
+									{pitrUpdating ? 'Disabling...' : 'Disable PITR'}
+								</button>
+							{:else}
+								<button type="button" disabled={pitrUpdating} onclick={() => togglePITR(true)} class="text-white bg-blue-700 hover:bg-blue-800 font-medium rounded-lg text-sm px-4 py-2 disabled:opacity-50 dark:bg-blue-600 dark:hover:bg-blue-700">
+									{pitrUpdating ? 'Enabling...' : 'Enable PITR'}
+								</button>
+							{/if}
+						</div>
+					{/if}
+				</div>
 				<div class="flex items-center justify-between">
 					<h3 class="text-lg font-semibold text-slate-900 dark:text-white">Backups</h3>
 				</div>

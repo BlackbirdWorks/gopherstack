@@ -13,11 +13,16 @@ CreateAccessKeyCommand, DeleteAccessKeyCommand, ListAccessKeysCommand, UpdateAcc
 ListAccountAliasesCommand, GetAccountSummaryCommand,
 ListAccessKeysCommand as ListAccessKeysCmd,
 ListUserPoliciesCommand, GetUserPolicyCommand, PutUserPolicyCommand, DeleteUserPolicyCommand,
+<<<<<<< HEAD
 ListGroupsForUserCommand,
 GetLoginProfileCommand, CreateLoginProfileCommand, UpdateLoginProfileCommand, DeleteLoginProfileCommand,
 ListVirtualMFADevicesCommand, DeactivateMFADeviceCommand,
 type User, type Role, type Group, type Policy as ManagedPolicy, type AccessKeyMetadata,
 type VirtualMFADevice
+=======
+ListGroupsForUserCommand, AddUserToGroupCommand, RemoveUserFromGroupCommand,
+type User, type Role, type Group, type Policy as ManagedPolicy, type AccessKeyMetadata
+>>>>>>> 3ed0e7e6 (dashboard: §F second pass — popular-services UI features)
 } from '@aws-sdk/client-iam';
 import { toast } from 'svelte-sonner';
 import {
@@ -60,6 +65,14 @@ let roleAttachedPolicies = $state<{PolicyName?: string; PolicyArn?: string}[]>([
 let groupAttachedPolicies = $state<{PolicyName?: string; PolicyArn?: string}[]>([]);
 let userAccessKeys = $state<AccessKeyMetadata[]>([]);
 let detailLoading = $state(false);
+// Inline policies + group membership for user detail
+let userInlinePolicies = $state<string[]>([]);
+let userGroupMemberships = $state<string[]>([]);
+let inlinePolicyName = $state('');
+let inlinePolicyDoc = $state('');
+let editingInlinePolicy = $state<string | null>(null);
+let savingInlinePolicy = $state(false);
+let addToGroupName = $state('');
 
 // Inline policy state
 let userInlinePolicies = $state<string[]>([]);
@@ -178,16 +191,26 @@ summary = (data.SummaryMap as AccountSummary) || {};
 async function loadUserDetail(user: User) {
 if (!user.UserName) return;
 detailLoading = true;
+<<<<<<< HEAD
 userInlinePolicies = [];
 userGroups = [];
 loginProfileExists = null;
 userMFADevices = [];
 try {
 const [pol, keys, inlinePol, groupsRes, mfaRes] = await Promise.all([
+=======
+inlinePolicyName = '';
+inlinePolicyDoc = '';
+editingInlinePolicy = null;
+addToGroupName = '';
+try {
+const [pol, keys, inline, grps] = await Promise.all([
+>>>>>>> 3ed0e7e6 (dashboard: §F second pass — popular-services UI features)
 iam.send(new ListAttachedUserPoliciesCommand({ UserName: user.UserName })),
 iam.send(new ListAccessKeysCommand({ UserName: user.UserName })),
 iam.send(new ListUserPoliciesCommand({ UserName: user.UserName })),
 iam.send(new ListGroupsForUserCommand({ UserName: user.UserName })),
+<<<<<<< HEAD
 iam.send(new ListVirtualMFADevicesCommand({ AssignmentStatus: 'Assigned' })),
 ]);
 userAttachedPolicies = pol.AttachedPolicies || [];
@@ -195,6 +218,13 @@ userAccessKeys = keys.AccessKeyMetadata || [];
 userInlinePolicies = inlinePol.PolicyNames || [];
 userGroups = (groupsRes.Groups || []).map(g => ({ GroupName: g.GroupName, GroupId: g.GroupId }));
 userMFADevices = (mfaRes.VirtualMFADevices || []).filter(d => d.User?.UserName === user.UserName);
+=======
+]);
+userAttachedPolicies = pol.AttachedPolicies || [];
+userAccessKeys = keys.AccessKeyMetadata || [];
+userInlinePolicies = inline.PolicyNames || [];
+userGroupMemberships = (grps.Groups || []).map((g) => g.GroupName ?? '').filter(Boolean);
+>>>>>>> 3ed0e7e6 (dashboard: §F second pass — popular-services UI features)
 } catch {
 		// non-critical
 		} finally {
@@ -291,6 +321,87 @@ toast.success('MFA device deactivated');
 userMFADevices = userMFADevices.filter(d => d.SerialNumber !== serialNumber);
 } catch (e) {
 toast.error(e instanceof Error ? e.message : 'Failed to deactivate MFA');
+}
+}
+
+async function editInlinePolicy(name: string) {
+if (!selectedUser?.UserName) return;
+try {
+const res = await iam.send(new GetUserPolicyCommand({ UserName: selectedUser.UserName, PolicyName: name }));
+const doc = res.PolicyDocument ? decodeURIComponent(res.PolicyDocument) : '';
+inlinePolicyName = name;
+editingInlinePolicy = name;
+try {
+inlinePolicyDoc = JSON.stringify(JSON.parse(doc), null, 2);
+} catch {
+inlinePolicyDoc = doc;
+}
+} catch (e) {
+toast.error(`Failed to load inline policy: ${e instanceof Error ? e.message : String(e)}`);
+}
+}
+
+async function saveInlinePolicy() {
+if (!selectedUser?.UserName || !inlinePolicyName.trim()) {
+toast.error('Policy name is required');
+return;
+}
+let doc = inlinePolicyDoc;
+try {
+doc = JSON.stringify(JSON.parse(inlinePolicyDoc));
+} catch {
+toast.error('Policy document is not valid JSON');
+return;
+}
+savingInlinePolicy = true;
+try {
+await iam.send(new PutUserPolicyCommand({ UserName: selectedUser.UserName, PolicyName: inlinePolicyName.trim(), PolicyDocument: doc }));
+toast.success(`Inline policy "${inlinePolicyName.trim()}" saved`);
+inlinePolicyName = '';
+inlinePolicyDoc = '';
+editingInlinePolicy = null;
+await loadUserDetail(selectedUser);
+} catch (e) {
+toast.error(`Failed to save inline policy: ${e instanceof Error ? e.message : String(e)}`);
+} finally {
+savingInlinePolicy = false;
+}
+}
+
+async function deleteInlinePolicy(name: string) {
+if (!selectedUser?.UserName) return;
+try {
+await iam.send(new DeleteUserPolicyCommand({ UserName: selectedUser.UserName, PolicyName: name }));
+toast.success('Inline policy deleted');
+await loadUserDetail(selectedUser);
+} catch (e) {
+toast.error(`Failed to delete inline policy: ${e instanceof Error ? e.message : String(e)}`);
+}
+}
+
+async function addUserToGroup() {
+if (!selectedUser?.UserName || !addToGroupName.trim()) {
+toast.error('Group name is required');
+return;
+}
+try {
+await iam.send(new AddUserToGroupCommand({ UserName: selectedUser.UserName, GroupName: addToGroupName.trim() }));
+toast.success(`Added to group "${addToGroupName.trim()}"`);
+addToGroupName = '';
+await loadUserDetail(selectedUser);
+} catch (e) {
+toast.error(`Failed to add to group: ${e instanceof Error ? e.message : String(e)}`);
+}
+}
+
+async function removeUserFromGroup(groupName: string) {
+if (!selectedUser?.UserName) return;
+try {
+await iam.send(new RemoveUserFromGroupCommand({ UserName: selectedUser.UserName, GroupName: groupName }));
+toast.success(`Removed from group "${groupName}"`);
+await loadUserDetail(selectedUser);
+} catch (e) {
+toast.error(`Failed to remove from group: ${e instanceof Error ? e.message : String(e)}`);
 }
 }
 
@@ -850,6 +961,65 @@ else deleteGroup(item as Group);
 <li class="text-xs text-indigo-700 dark:text-indigo-300 font-mono truncate">{p.PolicyName}</li>
 {/each}
 </ul>
+{/if}
+</div>
+
+<!-- Group Membership -->
+<div>
+<p class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-2">Group Membership</p>
+{#if detailLoading}
+<p class="text-xs text-slate-400 animate-pulse">Loading...</p>
+{:else}
+{#if userGroupMemberships.length === 0}
+<p class="text-xs text-slate-400">Not a member of any group</p>
+{:else}
+<ul class="space-y-1 mb-2">
+{#each userGroupMemberships as g}
+<li class="flex items-center justify-between gap-1">
+<span class="text-xs font-mono text-slate-700 dark:text-slate-300 truncate">{g}</span>
+<button onclick={() => removeUserFromGroup(g)} class="p-0.5 text-red-400 hover:text-red-600" title="Remove from group"><Trash2 class="w-3 h-3" /></button>
+</li>
+{/each}
+</ul>
+{/if}
+<div class="flex items-center gap-1">
+<input type="text" bind:value={addToGroupName} placeholder="group name" class="flex-1 min-w-0 px-2 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white" />
+<button onclick={addUserToGroup} class="px-2 py-1 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700">Add</button>
+</div>
+{/if}
+</div>
+
+<!-- Inline Policies -->
+<div>
+<p class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-2">Inline Policies</p>
+{#if detailLoading}
+<p class="text-xs text-slate-400 animate-pulse">Loading...</p>
+{:else}
+{#if userInlinePolicies.length === 0}
+<p class="text-xs text-slate-400 mb-2">None</p>
+{:else}
+<ul class="space-y-1 mb-2">
+{#each userInlinePolicies as p}
+<li class="flex items-center justify-between gap-1">
+<span class="text-xs font-mono text-indigo-700 dark:text-indigo-300 truncate">{p}</span>
+<div class="flex items-center gap-1">
+<button onclick={() => editInlinePolicy(p)} class="p-0.5 text-slate-400 hover:text-slate-600" title="Edit"><FileText class="w-3 h-3" /></button>
+<button onclick={() => deleteInlinePolicy(p)} class="p-0.5 text-red-400 hover:text-red-600" title="Delete"><Trash2 class="w-3 h-3" /></button>
+</div>
+</li>
+{/each}
+</ul>
+{/if}
+<div class="space-y-1.5">
+<input type="text" bind:value={inlinePolicyName} disabled={editingInlinePolicy !== null} placeholder="policy name" class="w-full px-2 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white disabled:opacity-60" />
+<textarea bind:value={inlinePolicyDoc} rows="5" placeholder={'{\n  "Version": "2012-10-17",\n  "Statement": []\n}'} class="w-full px-2 py-1 text-xs font-mono border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white"></textarea>
+<div class="flex gap-1">
+<button disabled={savingInlinePolicy} onclick={saveInlinePolicy} class="flex-1 py-1 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50">{savingInlinePolicy ? 'Saving...' : (editingInlinePolicy ? 'Update Policy' : 'Add Policy')}</button>
+{#if editingInlinePolicy}
+<button onclick={() => { editingInlinePolicy = null; inlinePolicyName = ''; inlinePolicyDoc = ''; }} class="px-2 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded text-slate-600 dark:text-slate-400">Cancel</button>
+{/if}
+</div>
+</div>
 {/if}
 </div>
 

@@ -388,18 +388,66 @@ Also missing at the platform level:
 > - **Athena** — query-result **export** to CSV and JSON.
 > - **CloudWatch Logs** — Insights query **CSV export**.
 >
-> **§F remaining** (everything below this note is still outstanding) — the
-> remaining Popular-services items (S3 inline preview / analytics / website URL
-> / batch ops; DynamoDB query-by-index / PITR / auto-scaling / global-tables;
-> EC2 SG-rule editor / subnet & EIP management / drill-down; Lambda
-> code-update / versions-aliases / concurrency; IAM inline-policy / group
-> membership / login-profile / MFA; SNS topic-metrics graphs; CloudWatch metric
-> charts / dashboard widget editor; Step Functions execution graph / redrive /
-> validator; RDS parameter-group editor / snapshot restore / metrics; ECS / ECR
-> / EKS / EventBridge / CloudFormation / ElastiCache items) **and the entire
-> API/app-integration, Compute, Data/analytics, Storage/database,
-> Networking/edge, Security/identity, ML/AI/media, and Messaging groups** below
-> have not yet been implemented. They remain accurate enhancement candidates.
+> **Second pass (branch `parity/mega-v2`)** — the remaining popular-services
+> features now shipped (all wired to the live AWS JS SDK, matching each page's
+> existing tab/list/detail/search patterns, no placeholders):
+>
+> - **S3** — server **access-logging** config + view (`GetBucketLogging`/
+>   `PutBucketLogging`); **Analytics** tab: size-by-top-level-prefix breakdown
+>   with totals + share bars (computed from `ListObjectsV2`, capped at 10k
+>   objects); static-**website endpoint URL** display + copy. (Inline object
+>   preview, metadata/tag editor, and batch delete already existed.)
+> - **DynamoDB** — **PITR** (point-in-time recovery) enable/disable + restorable
+>   window display (`DescribeContinuousBackups`/`UpdateContinuousBackups`) in the
+>   Backups tab. (Query-by-index already existed via the index selector.)
+> - **EC2** — security-group **rule editor** (expand row → list/add/revoke
+>   ingress rules) + **create/delete** security group; **Elastic IP** allocate /
+>   associate / disassociate / release. (Instance Details drill-down already
+>   existed.)
+> - **Lambda** — **Versions / Aliases / Concurrency** panel: publish version,
+>   list versions, create/delete aliases, set/clear reserved concurrency.
+> - **IAM** — user **inline-policy** editor (list/get/put/delete with JSON
+>   validation) and **group membership** (list/add/remove) in the user detail.
+> - **CloudWatch** — **metric charts**: click any metric chip to open a
+>   `GetMetricStatistics` SVG time-series with statistic / range / period
+>   selectors.
+> - **Step Functions** — execution **state timeline** (built from history
+>   events), **redrive** of failed/timed-out/aborted executions, and an ASL
+>   **validator** (`ValidateStateMachineDefinition`) in the definition editor.
+> - **RDS** — **parameter-group editor** (expand → `DescribeDBParameters` +
+>   `ModifyDBParameterGroup`) and snapshot **restore** to a new instance.
+> - **ECS** — **service update**: desired count / task-definition / force new
+>   deployment via `UpdateService` (with live counts from `DescribeServices`).
+> - **ECR** — **CVE scan-findings** detail (`DescribeImageScanFindings`) per
+>   image with severity badges, plus a **docker login/pull/push** snippet block.
+> - **EKS** — **kubeconfig** CLI command (copyable) on cluster overview and
+>   node-group **scaling** (min/desired/max via `UpdateNodegroupConfig`).
+> - **EventBridge** — rule **target** view/add/remove (`ListTargetsByRule`/
+>   `PutTargets`/`RemoveTargets`) and archive **replay** (`StartReplay`, archive
+>   ARN auto-filled via `DescribeArchive`).
+> - **CloudFormation** — **Stack Policy** tab: view/edit JSON stack policy
+>   (`GetStackPolicy`/`SetStackPolicy`) with validation.
+> - **ElastiCache** — **parameter-group editor** (`DescribeCacheParameters`/
+>   `ModifyCacheParameterGroup`) and replication-group manual **TestFailover**.
+>
+> **§F remaining** (still outstanding, for follow-up agents):
+>
+> - **Popular-services leftovers** (lower-value within the already-touched
+>   pages): S3 batch copy/rename + request-metrics; DynamoDB auto-scaling /
+>   global-tables / Contributor-Insights; EC2 subnet create/edit + metrics link;
+>   Lambda **code update** (zip/image) + resource-policy view; IAM
+>   login-profile/password + MFA-device + permission-boundary; SNS topic-metrics
+>   graphs; CloudWatch dashboard **widget editor** + metric-stream edit; SFN
+>   per-state result/variable inspection + log links; RDS read-replica/proxy +
+>   performance metrics; ECS task/container **log streaming** + ECS-Exec +
+>   autoscaling; ECR layer/SBOM + lifecycle rule-builder + replication UI; EKS
+>   kubectl-style workload list + node utilization; EventBridge event-pattern
+>   visual builder + DLQ + API-destination rotation; CloudFormation dependency
+>   **graph** + nested-stack drill-down + change-set approval; ElastiCache
+>   performance-metrics graphs + event timeline + user/ACL viewer.
+> - **The entire API/app-integration, Compute, Data/analytics, Storage/database,
+>   Networking/edge, Security/identity, ML/AI/media, and Messaging groups** below
+>   remain unimplemented and are accurate enhancement candidates.
 
 ### Popular services
 
