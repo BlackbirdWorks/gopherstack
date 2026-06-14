@@ -153,9 +153,13 @@ type InMemoryBackend struct {
 	sqsIntegration asl.SQSIntegration
 	snsIntegration asl.SNSIntegration
 	ddbIntegration asl.DynamoDBIntegration
-	stateMachines  map[string]*StateMachine
-	executions     map[string]*Execution
-	history        map[string][]*HistoryEvent
+	// svcCtx is the service lifecycle context. Execution goroutines derive their
+	// contexts from it so that all active executions are cancelled on server shutdown.
+	svcCtx context.Context
+	// tasksByToken maps task token → task entry for SendTaskSuccess/Failure.
+	tasksByToken map[string]*activityTaskEntry
+	// smVersions maps state machine ARN → ordered list of version ARNs.
+	smVersions map[string][]string
 	// nameIndex maps region → name → ARN for O(1) duplicate detection per region.
 	nameIndex map[string]map[string]string
 	// smExecutions maps state machine ARN → execution ARNs for O(1) scoped listing.
@@ -169,12 +173,10 @@ type InMemoryBackend struct {
 	activityNameIndex map[string]map[string]string
 	// pendingTaskQueues maps activity ARN → buffered channel of pending tasks.
 	pendingTaskQueues map[string]chan *activityTaskEntry
-	// tasksByToken maps task token → task entry for SendTaskSuccess/Failure.
-	tasksByToken map[string]*activityTaskEntry
+	executions        map[string]*Execution
 	// versions maps version ARN → version for PublishStateMachineVersion.
 	versions map[string]*StateMachineVersion
-	// smVersions maps state machine ARN → ordered list of version ARNs.
-	smVersions map[string][]string
+	history  map[string][]*HistoryEvent
 	// aliases maps alias ARN → alias for CreateStateMachineAlias.
 	aliases map[string]*StateMachineAlias
 	// smAliases maps state machine ARN → list of alias ARNs.
@@ -184,17 +186,15 @@ type InMemoryBackend struct {
 	// historyTruncated tracks executions where the history cap has been reached
 	// so we only emit a single warning per execution.
 	historyTruncated map[string]bool
+	stateMachines    map[string]*StateMachine
+	logger           *slog.Logger
+	mu               *lockmetrics.RWMutex
+	accountID        string
+	region           string
+	settings         Settings
 	// historyMu protects b.history and b.historyTruncated for concurrent cross-execution writes.
 	// Lock order: b.mu (read or write) must be acquired before historyMu.
 	historyMu sync.RWMutex
-	logger    *slog.Logger
-	mu            *lockmetrics.RWMutex
-	// svcCtx is the service lifecycle context. Execution goroutines derive their
-	// contexts from it so that all active executions are cancelled on server shutdown.
-	svcCtx    context.Context
-	accountID string
-	region    string
-	settings  Settings
 }
 
 // activityTaskEntry holds a pending activity task and its result channel.
