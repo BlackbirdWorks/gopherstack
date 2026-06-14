@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -177,8 +178,11 @@ type InMemoryBackend struct {
 	// historyTruncated tracks executions where the history cap has been reached
 	// so we only emit a single warning per execution.
 	historyTruncated map[string]bool
-	logger           *slog.Logger
-	mu               *lockmetrics.RWMutex
+	// execHistoryMu holds per-execution mutexes so concurrent executions can
+	// append history without contending on the global b.mu write lock.
+	execHistoryMu sync.Map // execARN → *sync.Mutex
+	logger        *slog.Logger
+	mu            *lockmetrics.RWMutex
 	// svcCtx is the service lifecycle context. Execution goroutines derive their
 	// contexts from it so that all active executions are cancelled on server shutdown.
 	svcCtx    context.Context
@@ -488,6 +492,7 @@ func (b *InMemoryBackend) PruneExecutions(_ context.Context) int {
 		delete(b.history, arn)
 		delete(b.executionDefinitions, arn)
 		delete(b.historyTruncated, arn)
+		b.execHistoryMu.Delete(arn)
 
 		// Remove from smExecutions index.
 		for smARN, execs := range b.smExecutions {
@@ -534,6 +539,7 @@ func (b *InMemoryBackend) DeleteStateMachine(arn string) error {
 		delete(b.history, execARN)
 		delete(b.executionDefinitions, execARN)
 		delete(b.historyTruncated, execARN)
+		b.execHistoryMu.Delete(execARN)
 	}
 
 	delete(b.smExecutions, arn)
@@ -810,6 +816,7 @@ func (b *InMemoryBackend) StartExecution(stateMachineArn, name, input string) (*
 	b.history[execArn] = []*HistoryEvent{
 		{Timestamp: now, Type: "ExecutionStarted", ID: executionStartedEventID, PreviousEventID: 0},
 	}
+	b.execHistoryMu.Store(execArn, &sync.Mutex{})
 
 	lambdaInvoker := b.lambdaInvoker
 	sqsIntegration := b.sqsIntegration
@@ -972,125 +979,82 @@ func stateExitedEventType(stateType string) string {
 	}
 }
 
-func (r *historyRecorder) RecordStateEntered(execARN, stateName, stateType string, _ any) {
-	r.backend.mu.Lock("RecordStateEntered")
-	defer r.backend.mu.Unlock()
+// execHistoryLock returns the per-execution mutex for history writes, creating it if absent.
+// Callers must NOT hold b.mu when calling this.
+func (b *InMemoryBackend) execHistoryLock(execARN string) *sync.Mutex {
+	v, _ := b.execHistoryMu.LoadOrStore(execARN, &sync.Mutex{})
+	mu, _ := v.(*sync.Mutex)
 
-	if r.backend.deletedExecs[execARN] {
+	return mu
+}
+
+// appendHistory appends event to the per-execution history using a per-execution
+// mutex so concurrent executions do not serialize on the global b.mu write lock.
+func (b *InMemoryBackend) appendHistory(execARN string, event *HistoryEvent) {
+	mu := b.execHistoryLock(execARN)
+	mu.Lock()
+	defer mu.Unlock()
+
+	// Recheck tombstone under the global read lock so we don't write history
+	// for an execution that DeleteStateMachine just removed.
+	b.mu.RLock("appendHistory")
+	defer b.mu.RUnlock()
+
+	if b.deletedExecs[execARN] {
 		return
 	}
 
-	events, ok := r.backend.checkHistoryCapacity(execARN)
+	events, ok := b.checkHistoryCapacity(execARN)
 	if !ok {
 		return
 	}
 
 	nextID := int64(len(events) + 1)
-	r.backend.history[execARN] = append(events, &HistoryEvent{
-		Timestamp:       float64(time.Now().Unix()),
-		Type:            stateEnteredEventType(stateType),
-		ID:              nextID,
-		PreviousEventID: nextID - 1,
-		StateEnteredEventDetails: &StateEnteredEventDetails{
-			Name: stateName,
-		},
+	event.ID = nextID
+	event.PreviousEventID = nextID - 1
+	b.history[execARN] = append(events, event)
+}
+
+func (r *historyRecorder) RecordStateEntered(execARN, stateName, stateType string, _ any) {
+	r.backend.appendHistory(execARN, &HistoryEvent{
+		Timestamp:                float64(time.Now().Unix()),
+		Type:                     stateEnteredEventType(stateType),
+		StateEnteredEventDetails: &StateEnteredEventDetails{Name: stateName},
 	})
 }
 
 func (r *historyRecorder) RecordStateExited(execARN, stateName, stateType string, _ any) {
-	r.backend.mu.Lock("RecordStateExited")
-	defer r.backend.mu.Unlock()
-
-	if r.backend.deletedExecs[execARN] {
-		return
-	}
-
-	events, ok := r.backend.checkHistoryCapacity(execARN)
-	if !ok {
-		return
-	}
-
-	nextID := int64(len(events) + 1)
-	r.backend.history[execARN] = append(events, &HistoryEvent{
-		Timestamp:       float64(time.Now().Unix()),
-		Type:            stateExitedEventType(stateType),
-		ID:              nextID,
-		PreviousEventID: nextID - 1,
-		StateExitedEventDetails: &StateExitedEventDetails{
-			Name: stateName,
-		},
+	r.backend.appendHistory(execARN, &HistoryEvent{
+		Timestamp:               float64(time.Now().Unix()),
+		Type:                    stateExitedEventType(stateType),
+		StateExitedEventDetails: &StateExitedEventDetails{Name: stateName},
 	})
 }
 
 func (r *historyRecorder) RecordTaskScheduled(execARN, _ /* stateName */, _ /* resource */ string) {
-	r.backend.mu.Lock("RecordTaskScheduled")
-	defer r.backend.mu.Unlock()
-
-	if r.backend.deletedExecs[execARN] {
-		return
-	}
-
-	events, ok := r.backend.checkHistoryCapacity(execARN)
-	if !ok {
-		return
-	}
-
-	nextID := int64(len(events) + 1)
-	r.backend.history[execARN] = append(events, &HistoryEvent{
-		Timestamp:       float64(time.Now().Unix()),
-		Type:            "TaskScheduled",
-		ID:              nextID,
-		PreviousEventID: nextID - 1,
+	r.backend.appendHistory(execARN, &HistoryEvent{
+		Timestamp: float64(time.Now().Unix()),
+		Type:      "TaskScheduled",
 	})
 }
 
 func (r *historyRecorder) RecordTaskSucceeded(execARN, _ /* stateName */ string, _ any) {
-	r.backend.mu.Lock("RecordTaskSucceeded")
-	defer r.backend.mu.Unlock()
-
-	if r.backend.deletedExecs[execARN] {
-		return
-	}
-
-	events, ok := r.backend.checkHistoryCapacity(execARN)
-	if !ok {
-		return
-	}
-
-	nextID := int64(len(events) + 1)
-	r.backend.history[execARN] = append(events, &HistoryEvent{
-		Timestamp:       float64(time.Now().Unix()),
-		Type:            "TaskSucceeded",
-		ID:              nextID,
-		PreviousEventID: nextID - 1,
+	r.backend.appendHistory(execARN, &HistoryEvent{
+		Timestamp: float64(time.Now().Unix()),
+		Type:      "TaskSucceeded",
 	})
 }
 
 func (r *historyRecorder) RecordTaskFailed(execARN, _ /* stateName */, _ /* errCode */, _ /* cause */ string) {
-	r.backend.mu.Lock("RecordTaskFailed")
-	defer r.backend.mu.Unlock()
-
-	if r.backend.deletedExecs[execARN] {
-		return
-	}
-
-	events, ok := r.backend.checkHistoryCapacity(execARN)
-	if !ok {
-		return
-	}
-
-	nextID := int64(len(events) + 1)
-	r.backend.history[execARN] = append(events, &HistoryEvent{
-		Timestamp:       float64(time.Now().Unix()),
-		Type:            "TaskFailed",
-		ID:              nextID,
-		PreviousEventID: nextID - 1,
+	r.backend.appendHistory(execARN, &HistoryEvent{
+		Timestamp: float64(time.Now().Unix()),
+		Type:      "TaskFailed",
 	})
 }
 
 // checkHistoryCapacity returns the current event slice and whether there is
 // room to append. On the first refusal per execution it logs a warning so that
-// silent truncation is observable. Caller must hold b.mu write lock.
+// silent truncation is observable. Caller must hold b.mu read or write lock.
 func (b *InMemoryBackend) checkHistoryCapacity(execARN string) ([]*HistoryEvent, bool) {
 	events := b.history[execARN]
 	if len(events) < maxHistoryEvents {
@@ -1376,6 +1340,7 @@ func (b *InMemoryBackend) Reset() {
 	b.smAliases = make(map[string][]string)
 	b.executionDefinitions = make(map[string]string)
 	b.historyTruncated = make(map[string]bool)
+	b.execHistoryMu = sync.Map{}
 
 	b.mu.Unlock()
 }
