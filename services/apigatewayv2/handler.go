@@ -1131,10 +1131,10 @@ func (h *Handler) handleGetAPIs(c *echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
 	}
 
-	q := c.Request().URL.Query()
-	pg := apigwv2Page(apis, q.Get("nextToken"), q.Get("maxResults"))
+	maxResults, nextToken := apigwPaginationParams(c)
+	p := page.New(apis, nextToken, maxResults, apigwDefaultPageSize)
 
-	return c.JSON(http.StatusOK, listApisOutput{Items: pg.Data, NextToken: pg.Next})
+	return c.JSON(http.StatusOK, listApisOutput{Items: p.Data, NextToken: p.Next})
 }
 
 func (h *Handler) handleGetAPI(c *echo.Context, apiID string) error {
@@ -1520,7 +1520,9 @@ func (h *Handler) handleCreateDeployment(c *echo.Context, apiID string) error {
 func (h *Handler) handleGetDeployments(c *echo.Context, apiID string) error {
 	return handleGetList(c, apiID, "deployments", func() ([]Deployment, error) {
 		return h.Backend.GetDeployments(apiID)
-	}, func(items []Deployment, next string) any { return listDeploymentsOutput{Items: items, NextToken: next} })
+	}, func(items []Deployment, next string) any {
+		return listDeploymentsOutput{Items: items, NextToken: next}
+	})
 }
 
 func (h *Handler) handleGetDeployment(c *echo.Context, apiID, deploymentID string) error {
@@ -1567,7 +1569,9 @@ func (h *Handler) handleCreateAuthorizer(c *echo.Context, apiID string) error {
 func (h *Handler) handleGetAuthorizers(c *echo.Context, apiID string) error {
 	return handleGetList(c, apiID, "authorizers", func() ([]Authorizer, error) {
 		return h.Backend.GetAuthorizers(apiID)
-	}, func(items []Authorizer, next string) any { return listAuthorizersOutput{Items: items, NextToken: next} })
+	}, func(items []Authorizer, next string) any {
+		return listAuthorizersOutput{Items: items, NextToken: next}
+	})
 }
 
 func (h *Handler) handleGetAuthorizer(c *echo.Context, apiID, authorizerID string) error {
@@ -1701,6 +1705,23 @@ func handleUpdate[I, O any](
 	return c.JSON(http.StatusOK, result)
 }
 
+// apigwDefaultPageSize is the default page size for API Gateway v2 list operations.
+const apigwDefaultPageSize = 500
+
+// apigwPaginationParams extracts maxResults and nextToken from query parameters.
+func apigwPaginationParams(c *echo.Context) (int, string) {
+	q := c.Request().URL.Query()
+	maxResults := 0
+
+	if s := q.Get("maxResults"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			maxResults = n
+		}
+	}
+
+	return maxResults, q.Get("nextToken")
+}
+
 // handleGetList is a generic helper for list (GET collection) handlers.
 func handleGetList[T any](
 	c *echo.Context,
@@ -1721,21 +1742,10 @@ func handleGetList[T any](
 		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
 	}
 
-	q := c.Request().URL.Query()
-	pg := apigwv2Page(items, q.Get("nextToken"), q.Get("maxResults"))
+	maxResults, nextToken := apigwPaginationParams(c)
+	p := page.New(items, nextToken, maxResults, apigwDefaultPageSize)
 
-	return c.JSON(http.StatusOK, wrapFn(pg.Data, pg.Next))
-}
-
-// apigwv2Page paginates a slice using maxResults and nextToken query params.
-// maxResults defaults to all items when absent or zero; AWS caps at a per-resource limit.
-func apigwv2Page[T any](items []T, nextToken, maxResultsStr string) page.Page[T] {
-	maxResults := 0
-	if n, err := strconv.Atoi(maxResultsStr); err == nil && n > 0 {
-		maxResults = n
-	}
-
-	return page.New(items, nextToken, maxResults, len(items))
+	return c.JSON(http.StatusOK, wrapFn(p.Data, p.Next))
 }
 
 // handleCreateNoParent is a generic helper for top-level Create* handlers (no parent resource).
