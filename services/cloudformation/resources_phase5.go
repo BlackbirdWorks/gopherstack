@@ -1111,7 +1111,7 @@ func (rc *ResourceCreator) createKMSAlias(
 
 	targetKeyID := strProp(props, "TargetKeyId", params, physicalIDs)
 
-	if err := rc.backends.KMS.Backend.CreateAlias(&kmsbackend.CreateAliasInput{
+	if err := rc.backends.KMS.Backend.CreateAlias(context.Background(), &kmsbackend.CreateAliasInput{
 		AliasName:   aliasName,
 		TargetKeyID: targetKeyID,
 	}); err != nil {
@@ -1126,7 +1126,7 @@ func (rc *ResourceCreator) deleteKMSAlias(aliasName string) error {
 		return nil
 	}
 
-	return rc.backends.KMS.Backend.DeleteAlias(&kmsbackend.DeleteAliasInput{AliasName: aliasName})
+	return rc.backends.KMS.Backend.DeleteAlias(context.Background(), &kmsbackend.DeleteAliasInput{AliasName: aliasName})
 }
 
 func (rc *ResourceCreator) createSSMDocument(
@@ -1499,7 +1499,7 @@ func (rc *ResourceCreator) deleteAppAutoScalingScalableTarget(arnStr string) err
 		return nil
 	}
 
-	targets := rc.backends.AppAutoScaling.Backend.DescribeScalableTargets(
+	targets, _ := rc.backends.AppAutoScaling.Backend.DescribeScalableTargets(
 		appautoscalingbackend.DescribeScalableTargetsFilter{},
 	)
 	for _, t := range targets {
@@ -1557,7 +1557,7 @@ func (rc *ResourceCreator) deleteAppAutoScalingScalingPolicy(policyARN string) e
 		return nil
 	}
 
-	policies := rc.backends.AppAutoScaling.Backend.DescribeScalingPolicies(
+	policies, _ := rc.backends.AppAutoScaling.Backend.DescribeScalingPolicies(
 		appautoscalingbackend.DescribeScalingPoliciesFilter{},
 	)
 	for _, p := range policies {
