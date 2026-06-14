@@ -1257,6 +1257,18 @@
 								<option value={lsi.IndexName}>{lsi.IndexName} (LSI)</option>
 							{/each}
 						</select>
+						{#if queryIndexName}
+							<div class="mt-2 flex flex-wrap gap-2 text-xs">
+								<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300 font-mono">
+									PK: {currentKeySchema.pkName} ({currentKeySchema.pkType})
+								</span>
+								{#if currentKeySchema.skName}
+									<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300 font-mono">
+										SK: {currentKeySchema.skName} ({currentKeySchema.skType})
+									</span>
+								{/if}
+							</div>
+						{/if}
 					</div>
 					<div>
 						<label for="q-pk" class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Partition Key Value ({currentKeySchema.pkName})</label>
@@ -1762,6 +1774,9 @@
 			<div class="p-4 rounded-lg bg-slate-50 dark:bg-slate-800 space-y-6">
 				<div class="flex items-center justify-between">
 					<h3 class="text-lg font-semibold text-slate-900 dark:text-white">Backups</h3>
+					<button type="button" onclick={() => loadBackups()} disabled={backupsLoading} class="py-1.5 px-3 text-xs font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600 dark:hover:bg-slate-700">
+						{backupsLoading ? 'Loading...' : 'Refresh'}
+					</button>
 				</div>
 				<form onsubmit={(e) => { e.preventDefault(); createBackup(); }} class="flex gap-3 items-end">
 					<div class="flex-1 max-w-xs">
@@ -1785,6 +1800,7 @@
 									<th class="px-6 py-3">Backup Name</th>
 									<th class="px-6 py-3">Status</th>
 									<th class="px-6 py-3">Creation Date</th>
+									<th class="px-6 py-3">Size</th>
 									<th class="px-6 py-3">ARN</th>
 									<th class="px-6 py-3">Actions</th>
 								</tr>
@@ -1795,6 +1811,7 @@
 										<td class="px-6 py-4 font-medium text-slate-900 dark:text-white">{backup.BackupName ?? '-'}</td>
 										<td class="px-6 py-4"><span class="bg-green-100 text-green-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-green-900 dark:text-green-300">{backup.BackupStatus ?? '-'}</span></td>
 										<td class="px-6 py-4">{backup.BackupCreationDateTime ? new Date(backup.BackupCreationDateTime).toLocaleString() : '-'}</td>
+										<td class="px-6 py-4">{backup.BackupSizeBytes != null ? formatBytes(backup.BackupSizeBytes) : '-'}</td>
 										<td class="px-6 py-4 font-mono text-xs max-w-[200px] truncate" title={backup.BackupArn ?? ''}>{backup.BackupArn ?? '-'}</td>
 										<td class="px-6 py-4">
 											<button onclick={() => backup.BackupArn && deleteBackup(backup.BackupArn)} class="text-xs text-red-600 hover:text-red-800 dark:text-red-400">Delete</button>
@@ -1809,7 +1826,12 @@
 		{/if}
 		{:else if activeTab === 'pitr'}
 			<div class="p-4 rounded-lg bg-slate-50 dark:bg-slate-800 space-y-6">
-				<h3 class="text-lg font-semibold text-slate-900 dark:text-white">Point-in-Time Recovery (PITR)</h3>
+				<div class="flex items-center justify-between">
+					<h3 class="text-lg font-semibold text-slate-900 dark:text-white">Point-in-Time Recovery (PITR)</h3>
+					<button type="button" onclick={() => loadPitr()} disabled={pitrLoading} class="py-1.5 px-3 text-xs font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600 dark:hover:bg-slate-700">
+						{pitrLoading ? 'Loading...' : 'Refresh'}
+					</button>
+				</div>
 				{#if pitrLoading}
 					<div class="flex justify-center p-8"><svg class="w-8 h-8 animate-spin text-slate-200 dark:text-slate-600 fill-blue-600" viewBox="0 0 100 101" fill="none"><path d="M100 50.5908C100 78.2051 77.6142 100.591 50 100.591C22.3858 100.591 0 78.2051 0 50.5908C0 22.9766 22.3858 0.59082 50 0.59082C77.6142 0.59082 100 22.9766 100 50.5908ZM9.08144 50.5908C9.08144 73.1895 27.4013 91.5094 50 91.5094C72.5987 91.5094 90.9186 73.1895 90.9186 50.5908C90.9186 27.9921 72.5987 9.67226 50 9.67226C27.4013 9.67226 9.08144 27.9921 9.08144 50.5908Z" fill="currentColor"/></svg></div>
 				{:else}
