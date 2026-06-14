@@ -116,9 +116,10 @@ a success envelope while nothing happens.
   capacity-provider ops (`Create/Update/Delete/Get/ListCapacityProviders`) are declared
   supported but dispatch to no-op stubs (`services/lambda/handler_stubs.go:23-100`,
   `services/lambda/handler.go:270-361`).
-- **SSM** — ~120 operations route to `&StubOutput{}` with no state change
-  (`CreateResourceDataSync`, `DeleteInventory`, `DescribeActivations`, …)
-  (`services/ssm/handler.go:307`, `services/ssm/handler_stubs.go:1-50`).
+- ~~**SSM**~~ — ✓ RESOLVED: all 112 ops in `handler_stubs.go` now have real stateful
+  `InMemoryBackend` implementations (PRs #1899, #1918, #2049, #2145, #2213, #2260).
+  The file name is historical; no-op stubs were replaced. `StubOutput` is an empty
+  success type used by void AWS ops (no data returned), not a sign of missing impl.
 - **Glue** — 20+ stubs return empty structs with no data/state, e.g. `GetBlueprintRun`,
   `GetCatalogImportStatus`, `GetColumnStatisticsTaskRun`, `GetPlan`, `GetSchemaVersionsDiff`,
   `GetUsageProfile`, plus `CancelMLTaskRun`, `ImportCatalogToGlue`,
