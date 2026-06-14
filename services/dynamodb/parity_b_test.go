@@ -85,8 +85,8 @@ func TestParity_Query_ConsistentRead_GSI_Rejected(t *testing.T) {
 
 	tests := []struct {
 		query            queryBody
-		wantBodyContains []string
 		name             string
+		wantBodyContains []string
 		wantStatus       int
 	}{
 		{

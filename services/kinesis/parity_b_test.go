@@ -22,6 +22,7 @@ func TestParity_GetRecords_SizeCap_ExcludesPartitionKey(t *testing.T) {
 		{
 			name: "records_with_large_partitionkey_not_counted_toward_cap",
 			run: func(t *testing.T) {
+				t.Helper()
 				h := newTestHandler(t)
 				streamName := "parity-b-large-pk-stream"
 
@@ -95,13 +96,18 @@ func TestParity_GetRecords_SizeCap_ExcludesPartitionKey(t *testing.T) {
 					} `json:"Records"`
 				}
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
-				assert.Len(t, getResp.Records, 3,
-					"all 3 records should be returned: large PartitionKey must not count toward the 10 MiB data cap")
+				assert.Len(
+					t,
+					getResp.Records,
+					3,
+					"all 3 records should be returned: large PartitionKey must not count toward the 10 MiB data cap",
+				)
 			},
 		},
 		{
 			name: "data_bytes_counted_toward_cap",
 			run: func(t *testing.T) {
+				t.Helper()
 				h := newTestHandler(t)
 				streamName := "parity-b-data-cap-stream"
 
@@ -174,7 +180,6 @@ func TestParity_GetRecords_SizeCap_ExcludesPartitionKey(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			tc.run(t)

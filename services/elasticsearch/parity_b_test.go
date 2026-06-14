@@ -11,13 +11,13 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/elasticsearch"
 )
 
-// createPackageAndGetID creates an Elasticsearch package and returns its ID.
-func createPackageAndGetID(t *testing.T, h *elasticsearch.Handler, pkgName, pkgType string) string {
+// createPackageAndGetID creates an Elasticsearch TXT-DICTIONARY package and returns its ID.
+func createPackageAndGetID(t *testing.T, h *elasticsearch.Handler, pkgName string) string {
 	t.Helper()
 
 	resp := doRequest(t, h, http.MethodPost, "/2015-01-01/packages", map[string]any{
 		"PackageName": pkgName,
-		"PackageType": pkgType,
+		"PackageType": "TXT-DICTIONARY",
 	})
 	defer resp.Body.Close()
 
@@ -65,7 +65,7 @@ func TestParity_AssociatePackage_DuplicateRejected(t *testing.T) {
 
 			switch tt.name {
 			case "first_association_succeeds":
-				pkgID := createPackageAndGetID(t, h, "pkg-first", "TXT-DICTIONARY")
+				pkgID := createPackageAndGetID(t, h, "pkg-first")
 				resp := doRequest(
 					t,
 					h,
@@ -77,7 +77,7 @@ func TestParity_AssociatePackage_DuplicateRejected(t *testing.T) {
 				assert.Equal(t, tt.wantCode, resp.StatusCode)
 
 			case "second_association_rejected":
-				pkgID := createPackageAndGetID(t, h, "pkg-dup", "TXT-DICTIONARY")
+				pkgID := createPackageAndGetID(t, h, "pkg-dup")
 				// First association must succeed.
 				first := doRequest(
 					t,
@@ -100,8 +100,8 @@ func TestParity_AssociatePackage_DuplicateRejected(t *testing.T) {
 				assert.Equal(t, tt.wantCode, second.StatusCode)
 
 			case "different_package_allowed":
-				pkgA := createPackageAndGetID(t, h, "pkg-a", "TXT-DICTIONARY")
-				pkgB := createPackageAndGetID(t, h, "pkg-b", "TXT-DICTIONARY")
+				pkgA := createPackageAndGetID(t, h, "pkg-a")
+				pkgB := createPackageAndGetID(t, h, "pkg-b")
 				respA := doRequest(
 					t,
 					h,
