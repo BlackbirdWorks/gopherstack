@@ -184,10 +184,10 @@ type InMemoryBackend struct {
 	// historyTruncated tracks executions where the history cap has been reached
 	// so we only emit a single warning per execution.
 	historyTruncated map[string]bool
-	// execHistoryMu holds per-execution mutexes so concurrent executions can
-	// append history without contending on the global b.mu write lock.
-	execHistoryMu sync.Map // execARN → *sync.Mutex
-	logger        *slog.Logger
+	// historyMu protects b.history and b.historyTruncated for concurrent cross-execution writes.
+	// Lock order: b.mu (read or write) must be acquired before historyMu.
+	historyMu sync.RWMutex
+	logger    *slog.Logger
 	mu            *lockmetrics.RWMutex
 	// svcCtx is the service lifecycle context. Execution goroutines derive their
 	// contexts from it so that all active executions are cancelled on server shutdown.
@@ -503,7 +503,6 @@ func (b *InMemoryBackend) pruneExecutionsLocked(cutoff float64) int {
 		delete(b.history, arn)
 		delete(b.executionDefinitions, arn)
 		delete(b.historyTruncated, arn)
-		b.execHistoryMu.Delete(arn)
 
 		for smARN, execs := range b.smExecutions {
 			for i, e := range execs {
@@ -549,7 +548,6 @@ func (b *InMemoryBackend) DeleteStateMachine(arn string) error {
 		delete(b.history, execARN)
 		delete(b.executionDefinitions, execARN)
 		delete(b.historyTruncated, execARN)
-		b.execHistoryMu.Delete(execARN)
 	}
 
 	delete(b.smExecutions, arn)
@@ -837,7 +835,6 @@ func (b *InMemoryBackend) StartExecution(stateMachineArn, name, input string) (*
 	b.history[execArn] = []*HistoryEvent{
 		{Timestamp: now, Type: "ExecutionStarted", ID: executionStartedEventID, PreviousEventID: 0},
 	}
-	b.execHistoryMu.Store(execArn, &sync.Mutex{})
 
 	lambdaInvoker := b.lambdaInvoker
 	sqsIntegration := b.sqsIntegration
@@ -1000,30 +997,20 @@ func stateExitedEventType(stateType string) string {
 	}
 }
 
-// execHistoryLock returns the per-execution mutex for history writes, creating it if absent.
-// Callers must NOT hold b.mu when calling this.
-func (b *InMemoryBackend) execHistoryLock(execARN string) *sync.Mutex {
-	v, _ := b.execHistoryMu.LoadOrStore(execARN, &sync.Mutex{})
-	mu, _ := v.(*sync.Mutex)
-
-	return mu
-}
-
-// appendHistory appends event to the per-execution history using a per-execution
-// mutex so concurrent executions do not serialize on the global b.mu write lock.
+// appendHistory appends event to the per-execution history without the global
+// write lock on the hot path. Lock order: b.mu (RLock) then b.historyMu (Lock).
+// Holding b.mu.RLock for the entire call ensures b.mu write-lock holders (e.g.
+// StartExecution, runParsedExecution) cannot race with concurrent map writes here.
 func (b *InMemoryBackend) appendHistory(execARN string, event *HistoryEvent) {
-	mu := b.execHistoryLock(execARN)
-	mu.Lock()
-	defer mu.Unlock()
-
-	// Recheck tombstone under the global read lock so we don't write history
-	// for an execution that DeleteStateMachine just removed.
 	b.mu.RLock("appendHistory")
 	defer b.mu.RUnlock()
 
 	if b.deletedExecs[execARN] {
 		return
 	}
+
+	b.historyMu.Lock()
+	defer b.historyMu.Unlock()
 
 	events, ok := b.checkHistoryCapacity(execARN)
 	if !ok {
@@ -1075,7 +1062,7 @@ func (r *historyRecorder) RecordTaskFailed(execARN, _ /* stateName */, _ /* errC
 
 // checkHistoryCapacity returns the current event slice and whether there is
 // room to append. On the first refusal per execution it logs a warning so that
-// silent truncation is observable. Caller must hold b.mu read or write lock.
+// silent truncation is observable. Caller must hold b.historyMu write lock.
 func (b *InMemoryBackend) checkHistoryCapacity(execARN string) ([]*HistoryEvent, bool) {
 	events := b.history[execARN]
 	if len(events) < maxHistoryEvents {
@@ -1268,6 +1255,9 @@ func (b *InMemoryBackend) GetExecutionHistory(
 		return nil, "", fmt.Errorf("%w: %s", ErrExecutionDoesNotExist, executionArn)
 	}
 
+	b.historyMu.RLock()
+	defer b.historyMu.RUnlock()
+
 	raw := b.history[executionArn]
 	all := make([]HistoryEvent, 0, len(raw))
 	for _, e := range raw {
@@ -1361,7 +1351,7 @@ func (b *InMemoryBackend) Reset() {
 	b.smAliases = make(map[string][]string)
 	b.executionDefinitions = make(map[string]string)
 	b.historyTruncated = make(map[string]bool)
-	b.execHistoryMu = sync.Map{}
+	b.historyMu = sync.RWMutex{}
 
 	b.mu.Unlock()
 }
