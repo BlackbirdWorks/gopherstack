@@ -13,6 +13,7 @@ CreateAccessKeyCommand, DeleteAccessKeyCommand, ListAccessKeysCommand, UpdateAcc
 ListAccountAliasesCommand, GetAccountSummaryCommand,
 ListAccessKeysCommand as ListAccessKeysCmd,
 ListUserPoliciesCommand, GetUserPolicyCommand, PutUserPolicyCommand, DeleteUserPolicyCommand,
+ListRolePoliciesCommand, GetRolePolicyCommand, PutRolePolicyCommand, DeleteRolePolicyCommand,
 ListGroupsForUserCommand,
 GetLoginProfileCommand, CreateLoginProfileCommand, UpdateLoginProfileCommand, DeleteLoginProfileCommand,
 ListVirtualMFADevicesCommand, DeactivateMFADeviceCommand,
@@ -67,6 +68,13 @@ let inlinePolicyName = $state('');
 let inlinePolicyDoc = $state('{\n  "Version": "2012-10-17",\n  "Statement": [{\n    "Effect": "Allow",\n    "Action": "*",\n    "Resource": "*"\n  }]\n}');
 let showInlinePolicyEditor = $state(false);
 let savingInlinePolicy = $state(false);
+
+// Role inline policy state
+let roleInlinePolicies = $state<string[]>([]);
+let roleInlinePolicyName = $state('');
+let roleInlinePolicyDoc = $state('{\n  "Version": "2012-10-17",\n  "Statement": [{\n    "Effect": "Allow",\n    "Action": "*",\n    "Resource": "*"\n  }]\n}');
+let showRoleInlinePolicyEditor = $state(false);
+let savingRoleInlinePolicy = $state(false);
 
 // Group membership
 let userGroups = $state<{ GroupName?: string; GroupId?: string }[]>([]);
@@ -297,13 +305,59 @@ toast.error(e instanceof Error ? e.message : 'Failed to deactivate MFA');
 async function loadRoleDetail(role: Role) {
 if (!role.RoleName) return;
 detailLoading = true;
+roleInlinePolicies = [];
+showRoleInlinePolicyEditor = false;
 try {
-const pol = await iam.send(new ListAttachedRolePoliciesCommand({ RoleName: role.RoleName }));
+const [pol, inline] = await Promise.all([
+iam.send(new ListAttachedRolePoliciesCommand({ RoleName: role.RoleName })),
+iam.send(new ListRolePoliciesCommand({ RoleName: role.RoleName })),
+]);
 roleAttachedPolicies = pol.AttachedPolicies || [];
+roleInlinePolicies = inline.PolicyNames || [];
 } catch {
 		// non-critical
 		} finally {
 detailLoading = false;
+}
+}
+
+async function loadRoleInlinePolicyDoc(policyName: string) {
+if (!selectedRole?.RoleName) return;
+try {
+const res = await iam.send(new GetRolePolicyCommand({ RoleName: selectedRole.RoleName, PolicyName: policyName }));
+roleInlinePolicyName = policyName;
+roleInlinePolicyDoc = decodeURIComponent(res.PolicyDocument ?? '{}');
+showRoleInlinePolicyEditor = true;
+} catch (e) {
+toast.error(e instanceof Error ? e.message : 'Failed to load policy');
+}
+}
+
+async function saveRoleInlinePolicy() {
+if (!selectedRole?.RoleName || !roleInlinePolicyName.trim()) return;
+savingRoleInlinePolicy = true;
+try {
+await iam.send(new PutRolePolicyCommand({ RoleName: selectedRole.RoleName, PolicyName: roleInlinePolicyName.trim(), PolicyDocument: roleInlinePolicyDoc }));
+toast.success('Role inline policy saved');
+showRoleInlinePolicyEditor = false;
+const res = await iam.send(new ListRolePoliciesCommand({ RoleName: selectedRole.RoleName }));
+roleInlinePolicies = res.PolicyNames || [];
+} catch (e) {
+toast.error(e instanceof Error ? e.message : 'Failed to save policy');
+} finally {
+savingRoleInlinePolicy = false;
+}
+}
+
+async function deleteRoleInlinePolicy(policyName: string) {
+if (!selectedRole?.RoleName) return;
+try {
+await iam.send(new DeleteRolePolicyCommand({ RoleName: selectedRole.RoleName, PolicyName: policyName }));
+toast.success('Role inline policy deleted');
+const res = await iam.send(new ListRolePoliciesCommand({ RoleName: selectedRole.RoleName }));
+roleInlinePolicies = res.PolicyNames || [];
+} catch (e) {
+toast.error(e instanceof Error ? e.message : 'Failed to delete policy');
 }
 }
 
@@ -1028,6 +1082,38 @@ else deleteGroup(item as Group);
 <li class="text-xs text-indigo-700 dark:text-indigo-300 font-mono truncate">{p.PolicyName}</li>
 {/each}
 </ul>
+{/if}
+</div>
+
+<!-- Role Inline Policies -->
+<div>
+<div class="flex items-center justify-between mb-2">
+<p class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Inline Policies</p>
+<button onclick={() => { roleInlinePolicyName = ''; roleInlinePolicyDoc = '{\n  "Version": "2012-10-17",\n  "Statement": [{"Effect": "Allow","Action": "*","Resource": "*"}]\n}'; showRoleInlinePolicyEditor = true; }} class="text-xs text-indigo-600 hover:text-indigo-700 flex items-center gap-1"><Plus class="w-3 h-3" /> New</button>
+</div>
+{#if detailLoading}
+<p class="text-xs text-slate-400 animate-pulse">Loading…</p>
+{:else if roleInlinePolicies.length === 0}
+<p class="text-xs text-slate-400">None</p>
+{:else}
+<ul class="space-y-1">
+{#each roleInlinePolicies as pname}
+<li class="flex items-center justify-between text-xs">
+<button onclick={() => loadRoleInlinePolicyDoc(pname)} class="text-indigo-700 dark:text-indigo-300 font-mono hover:underline truncate">{pname}</button>
+<button onclick={() => deleteRoleInlinePolicy(pname)} class="shrink-0 text-red-400 hover:text-red-600 ml-1"><Trash2 class="w-3 h-3" /></button>
+</li>
+{/each}
+</ul>
+{/if}
+{#if showRoleInlinePolicyEditor}
+<div class="mt-2 space-y-2">
+<input type="text" bind:value={roleInlinePolicyName} placeholder="Policy name" class="w-full text-xs border border-slate-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 dark:text-white" />
+<textarea bind:value={roleInlinePolicyDoc} rows="6" class="w-full text-xs font-mono border border-slate-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 dark:text-white"></textarea>
+<div class="flex gap-2">
+<button onclick={saveRoleInlinePolicy} disabled={savingRoleInlinePolicy} class="flex-1 text-xs py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg disabled:opacity-50">{savingRoleInlinePolicy ? 'Saving…' : 'Save'}</button>
+<button onclick={() => showRoleInlinePolicyEditor = false} class="flex-1 text-xs py-1.5 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700">Cancel</button>
+</div>
+</div>
 {/if}
 </div>
 
