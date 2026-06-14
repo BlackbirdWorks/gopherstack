@@ -685,13 +685,16 @@ func (b *InMemoryBackend) ImportFindings(findings []map[string]any) (int, int, [
 		productArn, _ := f["ProductArn"].(string)
 		id, _ := f["Id"].(string)
 
-		if productArn == "" || id == "" {
+		// AWS ASFF requires Types (array of strings); reject findings missing it.
+		findingTypes, _ := f["Types"].([]any)
+
+		if productArn == "" || id == "" || len(findingTypes) == 0 {
 			failedCount++
 			failedFindings = append(failedFindings, map[string]any{
 				"Id":            id,
 				"ProductArn":    productArn, //nolint:goconst // existing issue.
-				keyErrorCode:    "InternalException",
-				keyErrorMessage: "ProductArn and Id are required",
+				keyErrorCode:    "InvalidInputException",
+				keyErrorMessage: "ProductArn, Id, and Types are required",
 			})
 
 			continue
