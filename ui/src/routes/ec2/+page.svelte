@@ -64,6 +64,11 @@ type EC2Instance = {
 	SubnetId?: string;
 	Tags?: Array<{ Key?: string; Value?: string }>;
 	VpcId?: string;
+	SecurityGroups?: Array<{ GroupId?: string; GroupName?: string }>;
+	Placement?: { AvailabilityZone?: string };
+	KeyName?: string;
+	Architecture?: string;
+	Platform?: string;
 };
 
 type TabName = 'instances' | 'secgroups' | 'keypairs' | 'amis' | 'launchtemplates' | 'vpcendpoints' | 'nacls' | 'vpcs' | 'volumes' | 'snapshots' | 'eips' | 'igws' | 'routetables' | 'natgateways';
@@ -1515,20 +1520,120 @@ class="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg
 {/if}
 
 {#if selectedInstance}
-<div class="fixed inset-0 bg-black/50 z-50 flex items-end justify-end">
-<div class="bg-white dark:bg-slate-800 w-full max-w-lg h-full overflow-y-auto p-6">
-<div class="flex items-center justify-between mb-6">
-<h2 class="text-xl font-bold text-slate-900 dark:text-white">{getName(selectedInstance)}</h2>
-<button onclick={() => selectedInstance = null} class="text-slate-400 hover:text-slate-600 text-2xl">&times;</button>
-</div>
-<div class="grid grid-cols-2 gap-4 text-sm">
-{#each [['Instance ID', selectedInstance.InstanceId], ['Type', selectedInstance.InstanceType], ['State', selectedInstance.State?.Name], ['Public IP', selectedInstance.PublicIpAddress || '—'], ['Private IP', selectedInstance.PrivateIpAddress || '—'], ['VPC', selectedInstance.VpcId || '—'], ['Subnet', selectedInstance.SubnetId || '—'], ['AMI', selectedInstance.ImageId || '—'], ['Launch Time', selectedInstance.LaunchTime ? new Date(selectedInstance.LaunchTime).toLocaleString() : '—']] as [label, val]}
-<div>
-<p class="text-slate-500 text-xs uppercase">{label}</p>
-<p class="font-mono text-slate-900 dark:text-white text-xs break-all">{val}</p>
-</div>
-{/each}
-</div>
+<div class="fixed inset-0 bg-black/50 z-50 flex items-end justify-end" role="none" onclick={(e) => { if (e.target === e.currentTarget) selectedInstance = null; }}>
+<div class="bg-white dark:bg-slate-800 w-full max-w-xl h-full overflow-y-auto shadow-2xl">
+	<!-- Header -->
+	<div class="flex items-start justify-between px-6 py-5 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50">
+		<div>
+			<h2 class="text-lg font-bold text-slate-900 dark:text-white">{getName(selectedInstance)}</h2>
+			<p class="text-xs font-mono text-slate-500 dark:text-slate-400 mt-0.5">{selectedInstance.InstanceId}</p>
+		</div>
+		<div class="flex items-center gap-3">
+			{#if selectedInstance.State?.Name}
+			<span class="px-2 py-1 rounded-full text-xs font-semibold {getStatusColor(selectedInstance.State.Name)}">{selectedInstance.State.Name}</span>
+			{/if}
+			<button onclick={() => selectedInstance = null} class="text-slate-400 hover:text-slate-600 text-2xl leading-none">&times;</button>
+		</div>
+	</div>
+	<div class="p-6 space-y-6">
+		<!-- Actions -->
+		<div class="flex flex-wrap gap-2">
+			{#if selectedInstance.State?.Name === 'stopped'}
+			<button onclick={() => { startInstance(selectedInstance?.InstanceId ?? ''); selectedInstance = null; }} class="px-3 py-1.5 bg-green-600 text-white rounded text-sm hover:bg-green-700 flex items-center gap-1"><Play class="w-3 h-3" /> Start</button>
+			{/if}
+			{#if selectedInstance.State?.Name === 'running'}
+			<button onclick={() => { stopInstance(selectedInstance?.InstanceId ?? ''); selectedInstance = null; }} class="px-3 py-1.5 bg-yellow-600 text-white rounded text-sm hover:bg-yellow-700 flex items-center gap-1"><Square class="w-3 h-3" /> Stop</button>
+			<button onclick={() => { rebootInstance(selectedInstance?.InstanceId ?? ''); selectedInstance = null; }} class="px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 flex items-center gap-1"><RotateCcw class="w-3 h-3" /> Reboot</button>
+			{/if}
+			{#if selectedInstance.State?.Name !== 'terminated'}
+			<button onclick={() => { terminateInstance(selectedInstance?.InstanceId ?? ''); selectedInstance = null; }} class="px-3 py-1.5 bg-red-600 text-white rounded text-sm hover:bg-red-700 flex items-center gap-1"><Trash2 class="w-3 h-3" /> Terminate</button>
+			{/if}
+		</div>
+
+		<!-- Core Info -->
+		<div>
+			<h3 class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-3">Compute</h3>
+			<div class="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+				{#each [
+					['Instance Type', selectedInstance.InstanceType ?? '—'],
+					['Architecture', selectedInstance.Architecture ?? '—'],
+					['AMI', selectedInstance.ImageId ?? '—'],
+					['Key Pair', selectedInstance.KeyName ?? '—'],
+					['Availability Zone', selectedInstance.Placement?.AvailabilityZone ?? '—'],
+					['Launch Time', selectedInstance.LaunchTime ? new Date(selectedInstance.LaunchTime).toLocaleString() : '—'],
+				] as [label, val]}
+				<div>
+					<p class="text-xs text-slate-500 dark:text-slate-400">{label}</p>
+					<p class="font-mono text-slate-900 dark:text-white text-xs break-all mt-0.5">{val}</p>
+				</div>
+				{/each}
+			</div>
+		</div>
+
+		<!-- Network -->
+		<div>
+			<h3 class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-3">Network</h3>
+			<div class="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+				{#each [
+					['Public IP', selectedInstance.PublicIpAddress ?? '—'],
+					['Private IP', selectedInstance.PrivateIpAddress ?? '—'],
+					['VPC', selectedInstance.VpcId ?? '—'],
+					['Subnet', selectedInstance.SubnetId ?? '—'],
+				] as [label, val]}
+				<div>
+					<p class="text-xs text-slate-500 dark:text-slate-400">{label}</p>
+					<p class="font-mono text-slate-900 dark:text-white text-xs break-all mt-0.5">{val}</p>
+				</div>
+				{/each}
+			</div>
+		</div>
+
+		<!-- Security Groups -->
+		{#if (selectedInstance.SecurityGroups?.length ?? 0) > 0}
+		<div>
+			<h3 class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-3">Security Groups</h3>
+			<div class="space-y-1.5">
+				{#each selectedInstance.SecurityGroups ?? [] as sg}
+				<div class="flex items-center justify-between p-2 bg-slate-50 dark:bg-slate-700/50 rounded text-xs">
+					<div>
+						<span class="font-semibold text-slate-800 dark:text-slate-200">{sg.GroupName}</span>
+						<span class="font-mono text-slate-500 dark:text-slate-400 ml-2">{sg.GroupId}</span>
+					</div>
+					<button onclick={() => {
+						const target = securityGroups.find(s => s.GroupId === sg.GroupId);
+						if (target) { selectedSg = target; showSgRules = true; }
+						selectedInstance = null;
+						activeTab = 'secgroups';
+						if (securityGroups.length === 0) loadSecurityGroups();
+					}} class="text-indigo-500 hover:text-indigo-700 text-xs font-medium">View Rules →</button>
+				</div>
+				{/each}
+			</div>
+		</div>
+		{/if}
+
+		<!-- Tags -->
+		{#if (selectedInstance.Tags?.length ?? 0) > 0}
+		<div>
+			<h3 class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-3">Tags</h3>
+			<div class="border border-slate-200 dark:border-slate-700 rounded overflow-hidden">
+				<table class="w-full text-xs">
+					<thead class="bg-slate-50 dark:bg-slate-700">
+						<tr><th class="text-left px-3 py-2 text-slate-600 dark:text-slate-300">Key</th><th class="text-left px-3 py-2 text-slate-600 dark:text-slate-300">Value</th></tr>
+					</thead>
+					<tbody class="divide-y divide-slate-100 dark:divide-slate-700">
+						{#each selectedInstance.Tags ?? [] as tag}
+						<tr>
+							<td class="px-3 py-2 font-mono text-slate-700 dark:text-slate-300">{tag.Key}</td>
+							<td class="px-3 py-2 font-mono text-slate-700 dark:text-slate-300 break-all">{tag.Value}</td>
+						</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		</div>
+		{/if}
+	</div>
 </div>
 </div>
 {/if}
