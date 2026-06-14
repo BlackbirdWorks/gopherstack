@@ -1017,9 +1017,14 @@ type listTagsForResourceInput struct {
 	ResourceArn string `json:"ResourceArn"`
 }
 
+type tagEntry struct {
+	Key   string `json:"Key"`
+	Value string `json:"Value"`
+}
+
 type listTagsForResourceOutput struct {
-	Tags        map[string]string `json:"Tags"`
-	ResourceArn string            `json:"ResourceArn,omitempty"`
+	ResourceArn string     `json:"ResourceArn,omitempty"`
+	Tags        []tagEntry `json:"Tags"`
 }
 
 func (h *Handler) handleListTagsForResource(
@@ -1031,9 +1036,14 @@ func (h *Handler) handleListTagsForResource(
 		return nil, err
 	}
 
+	entries := make([]tagEntry, 0, len(tags))
+	for k, v := range tags {
+		entries = append(entries, tagEntry{Key: k, Value: v})
+	}
+
 	return &listTagsForResourceOutput{
 		ResourceArn: in.ResourceArn,
-		Tags:        tags,
+		Tags:        entries,
 	}, nil
 }
 
