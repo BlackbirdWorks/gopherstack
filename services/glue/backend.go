@@ -1348,6 +1348,10 @@ func (b *InMemoryBackend) GetTags(resourceARN string) (map[string]string, error)
 		return maps.Clone(conn.Tags), nil
 	}
 
+	if t := b.findTriggerByARN(resourceARN); t != nil {
+		return maps.Clone(t.Tags), nil
+	}
+
 	return nil, ErrNotFound
 }
 
@@ -1419,6 +1423,20 @@ func (b *InMemoryBackend) findConnectionByARN(resourceARN string) *Connection {
 	}
 
 	return c
+}
+
+func (b *InMemoryBackend) findTriggerByARN(resourceARN string) *Trigger {
+	name := glueResourceName(resourceARN, "trigger")
+	if name == "" {
+		return nil
+	}
+
+	t, ok := b.triggers[name]
+	if !ok {
+		return nil
+	}
+
+	return t
 }
 
 // --- Batch operations ---
