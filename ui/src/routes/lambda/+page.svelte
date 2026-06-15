@@ -85,6 +85,8 @@
 	// Code Update
 	let updateCodeImageUri = $state('');
 	let updatingCode = $state(false);
+	let updateCodeZipFile = $state<File | null>(null);
+	let updateCodeMode = $state<'image' | 'zip'>('image');
 
 	// Layer Management
 	let layers = $state<LayersListItem[]>([]);
@@ -207,11 +209,14 @@
 				Timeout: newFnTimeout,
 				Description: newFnDescription || undefined,
 			}));
-			toast.success(`Function "${newFnName.trim()}" created`);
+			const createdName = newFnName.trim();
+			toast.success(`Function "${createdName}" created`);
 			showCreateModal = false;
 			newFnName = '';
 			newFnDescription = '';
 			await loadFunctions();
+			selectedFunction = functions.find(f => f.FunctionName === createdName) ?? null;
+			if (selectedFunction) fnDetailTab = 'code';
 		} catch (err: unknown) {
 			toast.error(`Create failed: ${(err as Error).message}`);
 		} finally {
@@ -342,12 +347,20 @@
 	}
 
 	async function updateFunctionCode() {
-		if (!selectedFunction?.FunctionName || !updateCodeImageUri.trim()) return;
+		if (!selectedFunction?.FunctionName) return;
+		if (updateCodeMode === 'image' && !updateCodeImageUri.trim()) return;
+		if (updateCodeMode === 'zip' && !updateCodeZipFile) return;
 		updatingCode = true;
 		try {
-			await lambda.send(new UpdateFunctionCodeCommand({ FunctionName: selectedFunction.FunctionName, ImageUri: updateCodeImageUri.trim() }));
+			if (updateCodeMode === 'image') {
+				await lambda.send(new UpdateFunctionCodeCommand({ FunctionName: selectedFunction.FunctionName, ImageUri: updateCodeImageUri.trim() }));
+			} else {
+				const buf = await updateCodeZipFile!.arrayBuffer();
+				await lambda.send(new UpdateFunctionCodeCommand({ FunctionName: selectedFunction.FunctionName, ZipFile: new Uint8Array(buf) }));
+			}
 			toast.success('Function code updated');
 			updateCodeImageUri = '';
+			updateCodeZipFile = null;
 			await loadFunctions();
 		} catch (e) {
 			toast.error(e instanceof Error ? e.message : 'Failed to update code');
@@ -731,11 +744,22 @@
 						<div class="p-4">
 							{#if fnDetailTab === 'code'}
 								<h4 class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Update Function Code</h4>
-								<p class="text-xs text-slate-500 dark:text-slate-400 mb-3">Update the container image URI for this function.</p>
-								<div class="flex gap-2">
-									<input type="text" bind:value={updateCodeImageUri} placeholder="public.ecr.aws/lambda/python:3.12" class="flex-1 text-xs font-mono border border-slate-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 dark:text-white" />
-									<button onclick={updateFunctionCode} disabled={updatingCode || !updateCodeImageUri.trim()} class="text-white bg-orange-600 hover:bg-orange-700 font-medium rounded-lg text-xs px-3 py-2 disabled:opacity-50">{updatingCode ? 'Updating…' : 'Update'}</button>
+								<div class="flex gap-1 p-1 bg-slate-100 dark:bg-slate-900 rounded-lg mb-3">
+									<button onclick={() => updateCodeMode = 'image'} class="flex-1 py-1 text-xs font-semibold rounded-md transition-all {updateCodeMode === 'image' ? 'bg-white dark:bg-slate-700 text-orange-600 shadow' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}">Container Image</button>
+									<button onclick={() => updateCodeMode = 'zip'} class="flex-1 py-1 text-xs font-semibold rounded-md transition-all {updateCodeMode === 'zip' ? 'bg-white dark:bg-slate-700 text-orange-600 shadow' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}">ZIP Upload</button>
 								</div>
+								{#if updateCodeMode === 'image'}
+									<div class="flex gap-2">
+										<input type="text" bind:value={updateCodeImageUri} placeholder="public.ecr.aws/lambda/python:3.12" class="flex-1 text-xs font-mono border border-slate-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 dark:text-white" />
+										<button onclick={updateFunctionCode} disabled={updatingCode || !updateCodeImageUri.trim()} class="text-white bg-orange-600 hover:bg-orange-700 font-medium rounded-lg text-xs px-3 py-2 disabled:opacity-50">{updatingCode ? 'Updating…' : 'Update'}</button>
+									</div>
+								{:else}
+									<div class="space-y-2">
+										<input type="file" accept=".zip,application/zip" onchange={(e) => { const f = (e.target as HTMLInputElement).files?.[0]; updateCodeZipFile = f ?? null; }} class="w-full text-xs file:mr-2 file:py-1 file:px-3 file:rounded-lg file:border-0 file:bg-orange-100 file:text-orange-700 dark:file:bg-orange-900/30 dark:file:text-orange-300 text-slate-500 dark:text-slate-400" />
+										{#if updateCodeZipFile}<p class="text-[10px] text-slate-400">{updateCodeZipFile.name} ({(updateCodeZipFile.size / 1024).toFixed(1)} KB)</p>{/if}
+										<button onclick={updateFunctionCode} disabled={updatingCode || !updateCodeZipFile} class="w-full text-white bg-orange-600 hover:bg-orange-700 font-medium rounded-lg text-xs px-3 py-2 disabled:opacity-50">{updatingCode ? 'Uploading…' : 'Upload ZIP'}</button>
+									</div>
+								{/if}
 							{:else if fnDetailTab === 'versions'}
 								{#if versionsLoading}
 									<p class="text-xs text-slate-400 animate-pulse">Loading…</p>
