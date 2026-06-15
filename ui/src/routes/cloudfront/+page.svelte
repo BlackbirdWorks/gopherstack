@@ -5,6 +5,7 @@ import {
 ListDistributionsCommand,
 CreateDistributionCommand,
 GetDistributionCommand,
+UpdateDistributionCommand,
 CreateInvalidationCommand,
 ListInvalidationsCommand,
 ListCachePoliciesCommand,
@@ -57,8 +58,18 @@ let selectedDist = $state<Distribution | null>(null);
 let activeTab = $state<'overview' | 'origins' | 'behaviors' | 'invalidations'>('overview');
 let searchQuery = $state('');
 
+let selectedDistEtag = $state<string | undefined>();
 let invalidations = $state<InvalidationSummary[]>([]);
 let loadingInvalidations = $state(false);
+
+// Default cache-behavior editor
+let showEditBehavior = $state(false);
+let savingBehavior = $state(false);
+let editViewerProtocol = $state('allow-all');
+let editCompress = $state(false);
+let editAllowedMethods = $state<'GET_HEAD' | 'GET_HEAD_OPTIONS' | 'ALL'>('GET_HEAD');
+let editMinTTL = $state(0);
+let editDefaultTTL = $state(86400);
 let showInvalidate = $state(false);
 let creatingInvalidation = $state(false);
 let invalidationPaths = $state('/\n');
@@ -98,8 +109,59 @@ invalidations = [];
 try {
 const resp = await cf.send(new GetDistributionCommand({ Id: id }));
 selectedDist = resp.Distribution ?? null;
+selectedDistEtag = resp.ETag;
 } catch (e) {
 toast.error('Failed to load distribution details: ' + String(e));
+}
+}
+
+function openEditBehavior() {
+const dcb = selectedDist?.DistributionConfig?.DefaultCacheBehavior;
+editViewerProtocol = dcb?.ViewerProtocolPolicy ?? 'allow-all';
+editCompress = dcb?.Compress ?? false;
+const methods = dcb?.AllowedMethods?.Items ?? [];
+if (methods.length >= 7) editAllowedMethods = 'ALL';
+else if (methods.includes('OPTIONS')) editAllowedMethods = 'GET_HEAD_OPTIONS';
+else editAllowedMethods = 'GET_HEAD';
+editMinTTL = Number(dcb?.MinTTL ?? 0);
+editDefaultTTL = Number(dcb?.DefaultTTL ?? 86400);
+showEditBehavior = true;
+}
+
+async function saveDefaultBehavior() {
+if (!selectedDist?.Id || !selectedDist.DistributionConfig) return;
+savingBehavior = true;
+try {
+const methodItems = editAllowedMethods === 'ALL'
+? ['GET', 'HEAD', 'OPTIONS', 'PUT', 'POST', 'PATCH', 'DELETE']
+: editAllowedMethods === 'GET_HEAD_OPTIONS'
+? ['GET', 'HEAD', 'OPTIONS']
+: ['GET', 'HEAD'];
+const config = JSON.parse(JSON.stringify(selectedDist.DistributionConfig));
+config.DefaultCacheBehavior = {
+...config.DefaultCacheBehavior,
+ViewerProtocolPolicy: editViewerProtocol,
+Compress: editCompress,
+AllowedMethods: {
+Quantity: methodItems.length,
+Items: methodItems,
+CachedMethods: { Quantity: 2, Items: ['GET', 'HEAD'] }
+},
+MinTTL: editMinTTL,
+DefaultTTL: editDefaultTTL
+};
+await cf.send(new UpdateDistributionCommand({
+Id: selectedDist.Id,
+IfMatch: selectedDistEtag,
+DistributionConfig: config
+}));
+toast.success('Default cache behavior updated');
+showEditBehavior = false;
+await selectDistribution(selectedDist.Id);
+} catch (e) {
+toast.error('Failed to update behavior: ' + String(e));
+} finally {
+savingBehavior = false;
 }
 }
 
@@ -701,11 +763,14 @@ class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-g
 <div
 class="bg-white dark:bg-gray-900 rounded-xl border border-violet-200 dark:border-violet-800 p-4"
 >
-<div class="flex items-center gap-2 mb-2">
+<div class="flex items-center justify-between mb-2">
+<div class="flex items-center gap-2">
 <span class="px-2 py-0.5 rounded text-xs font-medium bg-violet-100 text-violet-700"
 >Default</span
 >
 <span class="text-sm font-medium">/*</span>
+</div>
+<button onclick={openEditBehavior} class="text-xs text-violet-600 dark:text-violet-400 hover:underline">Edit</button>
 </div>
 <div class="grid grid-cols-2 gap-2 text-xs text-gray-500">
 <span>Origin: {dcb.TargetOriginId}</span>
@@ -1250,6 +1315,49 @@ class="flex-1 px-4 py-2 rounded-lg bg-violet-600 text-white text-sm font-medium 
 {/if}
 
 <!-- Create Cache Policy Modal -->
+{#if showEditBehavior}
+<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+<div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
+<h2 class="text-lg font-semibold text-gray-900 dark:text-white">Edit Default Cache Behavior</h2>
+<div class="space-y-3">
+<div>
+<label for="cb-protocol" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Viewer Protocol Policy</label>
+<select id="cb-protocol" bind:value={editViewerProtocol} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm">
+<option value="allow-all">allow-all</option>
+<option value="redirect-to-https">redirect-to-https</option>
+<option value="https-only">https-only</option>
+</select>
+</div>
+<div>
+<label for="cb-methods" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Allowed Methods</label>
+<select id="cb-methods" bind:value={editAllowedMethods} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm">
+<option value="GET_HEAD">GET, HEAD</option>
+<option value="GET_HEAD_OPTIONS">GET, HEAD, OPTIONS</option>
+<option value="ALL">GET, HEAD, OPTIONS, PUT, POST, PATCH, DELETE</option>
+</select>
+</div>
+<div class="grid grid-cols-2 gap-3">
+<div>
+<label for="cb-min-ttl" class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Min TTL (s)</label>
+<input id="cb-min-ttl" bind:value={editMinTTL} type="number" min="0" class="w-full px-2 py-1.5 rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+</div>
+<div>
+<label for="cb-default-ttl" class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Default TTL (s)</label>
+<input id="cb-default-ttl" bind:value={editDefaultTTL} type="number" min="0" class="w-full px-2 py-1.5 rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+</div>
+</div>
+<label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+<input type="checkbox" bind:checked={editCompress} class="rounded" /> Compress objects automatically
+</label>
+</div>
+<div class="flex gap-3 pt-2">
+<button onclick={() => (showEditBehavior = false)} class="flex-1 px-4 py-2 rounded-lg border text-sm hover:bg-gray-50 dark:hover:bg-gray-800">Cancel</button>
+<button onclick={saveDefaultBehavior} disabled={savingBehavior} class="flex-1 px-4 py-2 rounded-lg bg-violet-600 text-white text-sm font-medium hover:bg-violet-700 disabled:opacity-50">{savingBehavior ? 'Saving...' : 'Save'}</button>
+</div>
+</div>
+</div>
+{/if}
+
 {#if showCreateCP}
 <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
 <div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
