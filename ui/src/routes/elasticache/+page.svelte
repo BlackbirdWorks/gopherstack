@@ -1320,8 +1320,8 @@
 													</button>
 												</div>
 											{/if}
-											{#if node.PreferredAvailabilityZone}
-												<div class="text-[10px] text-slate-400">{node.PreferredAvailabilityZone}</div>
+											{#if node.CustomerAvailabilityZone}
+												<div class="text-[10px] text-slate-400">{node.CustomerAvailabilityZone}</div>
 											{/if}
 										</div>
 									{/each}
