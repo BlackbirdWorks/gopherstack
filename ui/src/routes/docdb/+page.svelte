@@ -51,7 +51,6 @@ Zap,
 Settings,
 X,
 Copy,
-Check
 } from 'lucide-svelte';
 
 type TabName = 'clusters' | 'instances' | 'snapshots' | 'parametergroups' | 'globalclusters' | 'eventsubscriptions';
@@ -62,7 +61,6 @@ let loading = $state(false);
 let activeTab = $state<TabName>('clusters');
 let searchQuery = $state('');
 let selectedCluster = $state<DBCluster | null>(null);
-let copiedArn = $state(false);
 let snapshotTypeFilter = $state('all');
 
 // Data
@@ -129,13 +127,12 @@ default: return 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400';
 }
 }
 
-async function copyToClipboard(text: string) {
+async function copyToClipboard(text: string, label: string) {
   try {
     await navigator.clipboard.writeText(text);
-    copiedArn = true;
-    setTimeout(() => { copiedArn = false; }, 2000);
+    toast.success(`${label} copied to clipboard`);
   } catch {
-    // clipboard write failed; ignore silently
+    toast.error('Failed to copy to clipboard');
   }
 }
 
