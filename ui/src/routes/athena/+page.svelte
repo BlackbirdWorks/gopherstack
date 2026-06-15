@@ -236,8 +236,9 @@
 		let ext: string;
 
 		if (format === 'csv') {
-			const escape = (v: string) => `"${v.replace(/"/g, '""')}"`;
-			content = [headers.map(escape).join(','), ...rows.map((r) => r.map(escape).join(','))].join('\n');
+			content = [headers, ...rows]
+				.map((row) => row.map((v) => `"${v.replaceAll('"', '""')}"`).join(','))
+				.join('\n');
 			mime = 'text/csv';
 			ext = 'csv';
 		} else {
