@@ -2,6 +2,7 @@ package glue
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
@@ -1470,6 +1471,7 @@ func (h *Handler) handleGetCatalogImportStatus(
 	in *getCatalogImportStatusInput,
 ) (*getCatalogImportStatusOutput, error) {
 	status := h.Backend.GetCatalogImportStatus(in.CatalogID)
+
 	return &getCatalogImportStatusOutput{ImportStatus: status}, nil
 }
 
@@ -2157,16 +2159,6 @@ func (h *Handler) handleGetPartitions(
 	return &getPartitionsOutput{Partitions: partitions}, nil
 }
 
-// getPlanMappingEntry holds a single field mapping entry.
-type getPlanMappingEntry struct {
-	SourceTable string `json:"SourceTable,omitempty"`
-	SourcePath  string `json:"SourcePath,omitempty"`
-	SourceType  string `json:"SourceType,omitempty"`
-	TargetTable string `json:"TargetTable,omitempty"`
-	TargetPath  string `json:"TargetPath,omitempty"`
-	TargetType  string `json:"TargetType,omitempty"`
-}
-
 // getPlanCatalogEntry holds a catalog source/sink reference.
 type getPlanCatalogEntry struct {
 	DatabaseName string `json:"DatabaseName,omitempty"`
@@ -2175,8 +2167,9 @@ type getPlanCatalogEntry struct {
 
 // getPlanInput holds input for GetPlan.
 type getPlanInput struct {
-	Mapping  []MappingEntry `json:"Mapping"`
-	Language string         `json:"Language"`
+	Source   *getPlanCatalogEntry `json:"Source,omitempty"`
+	Language string               `json:"Language"`
+	Mapping  []MappingEntry       `json:"Mapping"`
 }
 
 // getPlanOutput holds the result for GetPlan.
@@ -2187,6 +2180,15 @@ type getPlanOutput struct {
 
 func (h *Handler) handleGetPlan(_ context.Context, in *getPlanInput) (*getPlanOutput, error) {
 	python, scala := h.Backend.GetPlan(in.Language)
+	if in.Source != nil && in.Source.TableName != "" {
+		if python != "" {
+			python += fmt.Sprintf("# Source: %s\n", in.Source.TableName)
+		}
+		if scala != "" {
+			scala += fmt.Sprintf("// Source: %s\n", in.Source.TableName)
+		}
+	}
+
 	return &getPlanOutput{PythonScript: python, ScalaCode: scala}, nil
 }
 
@@ -2403,18 +2405,39 @@ func (h *Handler) handleGetSchemaVersion(
 	}, nil
 }
 
+// schemaVersionNumberInput accepts either a plain integer or AWS-style
+// {"VersionNumber": N} object, matching both API call formats in use.
+type schemaVersionNumberInput struct {
+	Number int64
+}
+
+func (s *schemaVersionNumberInput) UnmarshalJSON(data []byte) error {
+	var n int64
+	if err := json.Unmarshal(data, &n); err == nil {
+		s.Number = n
+
+		return nil
+	}
+
+	var v struct {
+		VersionNumber int64 `json:"VersionNumber"`
+	}
+
+	if err := json.Unmarshal(data, &v); err != nil {
+		return err
+	}
+
+	s.Number = v.VersionNumber
+
+	return nil
+}
+
 // getSchemaVersionsDiffInput holds input for GetSchemaVersionsDiff.
 type getSchemaVersionsDiffInput struct {
-	SchemaID *schemaIDInput `json:"SchemaId"`
-	FirstSchemaVersionNumber *struct {
-		VersionNumber int64 `json:"VersionNumber"`
-		LatestVersion bool  `json:"LatestVersion"`
-	} `json:"FirstSchemaVersionNumber"`
-	SecondSchemaVersionNumber *struct {
-		VersionNumber int64 `json:"VersionNumber"`
-		LatestVersion bool  `json:"LatestVersion"`
-	} `json:"SecondSchemaVersionNumber"`
-	SchemaDiffType string `json:"SchemaDiffType"`
+	SchemaID                  *schemaIDInput            `json:"SchemaId,omitempty"`
+	FirstSchemaVersionNumber  *schemaVersionNumberInput `json:"FirstSchemaVersionNumber,omitempty"`
+	SecondSchemaVersionNumber *schemaVersionNumberInput `json:"SecondSchemaVersionNumber,omitempty"`
+	SchemaDiffType            string                    `json:"SchemaDiffType,omitempty"`
 }
 
 // getSchemaVersionsDiffOutput holds the result for GetSchemaVersionsDiff.
@@ -2426,23 +2449,19 @@ func (h *Handler) handleGetSchemaVersionsDiff(
 	_ context.Context,
 	in *getSchemaVersionsDiffInput,
 ) (*getSchemaVersionsDiffOutput, error) {
-	registryName, schemaName := "", ""
-	if in.SchemaID != nil {
-		registryName = in.SchemaID.RegistryName
-		schemaName = in.SchemaID.SchemaName
+	if in.SchemaID == nil {
+		return &getSchemaVersionsDiffOutput{}, nil
 	}
 
 	var v1, v2 int64
-
 	if in.FirstSchemaVersionNumber != nil {
-		v1 = in.FirstSchemaVersionNumber.VersionNumber
+		v1 = in.FirstSchemaVersionNumber.Number
 	}
-
 	if in.SecondSchemaVersionNumber != nil {
-		v2 = in.SecondSchemaVersionNumber.VersionNumber
+		v2 = in.SecondSchemaVersionNumber.Number
 	}
 
-	diff, err := h.Backend.GetSchemaVersionsDiff(registryName, schemaName, v1, v2)
+	diff, err := h.Backend.GetSchemaVersionsDiff(in.SchemaID.RegistryName, in.SchemaID.SchemaName, v1, v2)
 	if err != nil {
 		return nil, err
 	}
@@ -3496,11 +3515,11 @@ func (h *Handler) handlePutResourcePolicy(
 
 // putSchemaVersionMetadataInput holds input for PutSchemaVersionMetadata.
 type putSchemaVersionMetadataInput struct {
-	SchemaVersionID string `json:"SchemaVersionId"`
 	MetadataKeyValue *struct {
 		MetadataKey   string `json:"MetadataKey"`
 		MetadataValue string `json:"MetadataValue"`
 	} `json:"MetadataKeyValue"`
+	SchemaVersionID string `json:"SchemaVersionId"`
 }
 
 // putSchemaVersionMetadataOutput holds the result for PutSchemaVersionMetadata.
@@ -3625,11 +3644,11 @@ func (h *Handler) handleRegisterSchemaVersion(
 
 // removeSchemaVersionMetadataInput holds input for RemoveSchemaVersionMetadata.
 type removeSchemaVersionMetadataInput struct {
-	SchemaVersionID string `json:"SchemaVersionId"`
 	MetadataKeyValue *struct {
 		MetadataKey   string `json:"MetadataKey"`
 		MetadataValue string `json:"MetadataValue"`
 	} `json:"MetadataKeyValue"`
+	SchemaVersionID string `json:"SchemaVersionId"`
 }
 
 // removeSchemaVersionMetadataOutput holds the result for RemoveSchemaVersionMetadata.
