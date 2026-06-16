@@ -558,8 +558,13 @@ func initialResourceStatus(resourceType string) string {
 		return statusActive
 	case resourceTypeFlywheel, resourceTypeDataset:
 		return statusReady
+	case "document-classifier", "document-classifier-version",
+		"entity-recognizer", "entity-recognizer-version":
+		// Emulator skips async training; classifiers/recognizers are immediately TRAINED.
+		// The real AWS provider waits minutes before polling, causing CI timeouts if we
+		// start at SUBMITTED and require multiple poll cycles.
+		return statusTrained
 	default:
-		// Classifiers and recognizers start training asynchronously.
 		return statusSubmitted
 	}
 }
