@@ -516,8 +516,9 @@ func TestTerraform_Macie2(t *testing.T) {
 
 	tests := []tfTestCase{
 		{
-			name:    "success",
-			fixture: "macie2/account",
+			name:       "success",
+			fixture:    "macie2/account",
+			providerFn: macie2ProviderBlock,
 			setup: func(t *testing.T, _ string) map[string]any {
 				t.Helper()
 
