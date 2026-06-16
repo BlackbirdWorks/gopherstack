@@ -141,3 +141,14 @@ func (b *InMemoryBackend) SetArchiveCreationTimeForTest(name string, creationTim
 
 	return nil
 }
+
+// EventLogLen returns the number of entries in the in-memory event log.
+func (b *InMemoryBackend) EventLogLen() int {
+	b.mu.RLock("EventLogLen")
+	defer b.mu.RUnlock()
+
+	return len(b.eventLog)
+}
+
+// MaxEventLogSizeForTest exposes the in-memory event log size cap.
+const MaxEventLogSizeForTest = maxEventLogSize

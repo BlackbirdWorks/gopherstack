@@ -15,7 +15,7 @@ var ErrNilAppContext = errors.New("glue provider: nil AppContext")
 type Provider struct{}
 
 // Name returns the provider name.
-func (p *Provider) Name() string { return "Glue" }
+func (p *Provider) Name() string { return glueServiceName }
 
 // Init initializes the Glue backend and handler.
 //

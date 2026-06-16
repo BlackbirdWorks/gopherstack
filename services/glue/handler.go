@@ -43,7 +43,7 @@ func NewHandler(backend StorageBackend) *Handler {
 func (h *Handler) Reset() { h.Backend.Reset() }
 
 // Name returns the service name.
-func (h *Handler) Name() string { return "Glue" }
+func (h *Handler) Name() string { return glueServiceName }
 
 // GetSupportedOperations returns the list of supported Glue operations.
 func (h *Handler) GetSupportedOperations() []string { //nolint:funlen
@@ -390,7 +390,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		return service.HandleTarget(
 			c, logger.Load(c.Request().Context()),
-			"Glue", "application/x-amz-json-1.1",
+			glueServiceName, "application/x-amz-json-1.1",
 			h.GetSupportedOperations(),
 			h.dispatch,
 			h.handleError,

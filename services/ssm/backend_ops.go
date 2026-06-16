@@ -467,7 +467,7 @@ func (b *InMemoryBackend) ListComplianceItems(
 
 	var all []ComplianceItem
 
-	for _, items := range b.complianceStore(region) {
+	for _, items := range b.compliance[region] {
 		for _, item := range items {
 			if input.ResourceID != "" && item.ResourceID != input.ResourceID {
 				continue
@@ -558,7 +558,7 @@ func (b *InMemoryBackend) ListComplianceSummaries(
 	b.mu.RLock("ListComplianceSummaries")
 	defer b.mu.RUnlock()
 
-	tallies := buildComplianceTallies(b.complianceStore(region))
+	tallies := buildComplianceTallies(b.compliance[region])
 
 	summaries := make([]any, 0, len(tallies))
 	for ct, t := range tallies {
@@ -622,7 +622,7 @@ func (b *InMemoryBackend) ListResourceComplianceSummaries(
 	b.mu.RLock("ListResourceComplianceSummaries")
 	defer b.mu.RUnlock()
 
-	store := b.complianceStore(region)
+	store := b.compliance[region]
 	summaries := make([]any, 0, len(store))
 
 	for resourceID, items := range store {
@@ -815,13 +815,33 @@ func (b *InMemoryBackend) DeletePatchBaseline(
 	return &DeletePatchBaselineOutput{BaselineID: input.BaselineID}, nil
 }
 
-// DescribePatchGroupState returns zeroed counts for a patch group.
-// The in-memory backend does not track per-instance patch state.
+// DescribePatchGroupState returns aggregated patch counts for a patch group.
 func (b *InMemoryBackend) DescribePatchGroupState(
-	_ context.Context,
-	_ *DescribePatchGroupStateInput,
+	ctx context.Context,
+	input *DescribePatchGroupStateInput,
 ) (*DescribePatchGroupStateOutput, error) {
-	return &DescribePatchGroupStateOutput{}, nil
+	region := getRegion(ctx)
+	b.mu.RLock("DescribePatchGroupState")
+	defer b.mu.RUnlock()
+
+	out := &DescribePatchGroupStateOutput{}
+	for _, s := range b.instancePatchStates[region] {
+		if s.PatchGroup != input.PatchGroup {
+			continue
+		}
+		out.Instances++
+		if s.FailedCount > 0 {
+			out.InstancesWithFailedPatches++
+		}
+		if s.InstalledCount > 0 {
+			out.InstancesWithInstalledPatches++
+		}
+		if s.MissingCount > 0 {
+			out.InstancesWithMissingPatches++
+		}
+	}
+
+	return out, nil
 }
 
 // DescribePatchGroups lists the patch group to baseline mappings.
@@ -890,15 +910,35 @@ func (b *InMemoryBackend) DescribePatchGroups(
 	}, nil
 }
 
-// DescribePatchProperties returns an empty property list.
-// The in-memory backend does not maintain patch metadata.
+// DescribePatchProperties returns property data aggregated from patch baselines.
 func (b *InMemoryBackend) DescribePatchProperties(
-	_ context.Context,
-	_ *DescribePatchPropertiesInput,
+	ctx context.Context,
+	input *DescribePatchPropertiesInput,
 ) (*DescribePatchPropertiesOutput, error) {
-	return &DescribePatchPropertiesOutput{
-		Properties: []map[string]string{},
-	}, nil
+	region := getRegion(ctx)
+	b.mu.RLock("DescribePatchProperties")
+	defer b.mu.RUnlock()
+
+	seen := map[string]bool{}
+	props := make([]map[string]string, 0)
+	for _, bl := range b.patchBaselines[region] {
+		if input.OperatingSystem != "" && bl.OperatingSystem != input.OperatingSystem {
+			continue
+		}
+
+		key := bl.OperatingSystem + ":" + bl.Name
+		if seen[key] {
+			continue
+		}
+
+		seen[key] = true
+		props = append(props, map[string]string{
+			"OperatingSystem": bl.OperatingSystem,
+			"BaselineName":    bl.Name,
+		})
+	}
+
+	return &DescribePatchPropertiesOutput{Properties: props}, nil
 }
 
 // DescribeEffectivePatchesForPatchBaseline returns an empty patch list.

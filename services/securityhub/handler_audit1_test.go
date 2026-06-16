@@ -35,6 +35,7 @@ func doRequest(t *testing.T, h *securityhub.Handler, method, path string, body a
 
 	req := httptest.NewRequest(method, path, bytes.NewReader(bodyBytes))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential=AKID/20240101/us-east-1/securityhub/aws4_request")
 	rec := httptest.NewRecorder()
 
 	e := echo.New()

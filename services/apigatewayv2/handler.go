@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -1129,7 +1131,10 @@ func (h *Handler) handleGetAPIs(c *echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
 	}
 
-	return c.JSON(http.StatusOK, listApisOutput{Items: apis})
+	maxResults, nextToken := apigwPaginationParams(c)
+	p := page.New(apis, nextToken, maxResults, apigwDefaultPageSize)
+
+	return c.JSON(http.StatusOK, listApisOutput{Items: p.Data, NextToken: p.Next})
 }
 
 func (h *Handler) handleGetAPI(c *echo.Context, apiID string) error {
@@ -1346,7 +1351,7 @@ func (h *Handler) handleCreateStage(c *echo.Context, apiID string) error {
 func (h *Handler) handleGetStages(c *echo.Context, apiID string) error {
 	return handleGetList(c, apiID, "stages", func() ([]Stage, error) {
 		return h.Backend.GetStages(apiID)
-	}, func(items []Stage) any { return listStagesOutput{Items: items} })
+	}, func(items []Stage, next string) any { return listStagesOutput{Items: items, NextToken: next} })
 }
 
 func (h *Handler) handleGetStage(c *echo.Context, apiID, stageName string) error {
@@ -1401,7 +1406,7 @@ func (h *Handler) handleCreateRoute(c *echo.Context, apiID string) error {
 func (h *Handler) handleGetRoutes(c *echo.Context, apiID string) error {
 	return handleGetList(c, apiID, "routes", func() ([]Route, error) {
 		return h.Backend.GetRoutes(apiID)
-	}, func(items []Route) any { return listRoutesOutput{Items: items} })
+	}, func(items []Route, next string) any { return listRoutesOutput{Items: items, NextToken: next} })
 }
 
 func (h *Handler) handleGetRoute(c *echo.Context, apiID, routeID string) error {
@@ -1457,7 +1462,9 @@ func (h *Handler) handleCreateIntegration(c *echo.Context, apiID string) error {
 func (h *Handler) handleGetIntegrations(c *echo.Context, apiID string) error {
 	return handleGetList(c, apiID, "integrations", func() ([]Integration, error) {
 		return h.Backend.GetIntegrations(apiID)
-	}, func(items []Integration) any { return listIntegrationsOutput{Items: items} })
+	}, func(items []Integration, next string) any {
+		return listIntegrationsOutput{Items: items, NextToken: next}
+	})
 }
 
 func (h *Handler) handleGetIntegration(c *echo.Context, apiID, integrationID string) error {
@@ -1513,7 +1520,9 @@ func (h *Handler) handleCreateDeployment(c *echo.Context, apiID string) error {
 func (h *Handler) handleGetDeployments(c *echo.Context, apiID string) error {
 	return handleGetList(c, apiID, "deployments", func() ([]Deployment, error) {
 		return h.Backend.GetDeployments(apiID)
-	}, func(items []Deployment) any { return listDeploymentsOutput{Items: items} })
+	}, func(items []Deployment, next string) any {
+		return listDeploymentsOutput{Items: items, NextToken: next}
+	})
 }
 
 func (h *Handler) handleGetDeployment(c *echo.Context, apiID, deploymentID string) error {
@@ -1560,7 +1569,9 @@ func (h *Handler) handleCreateAuthorizer(c *echo.Context, apiID string) error {
 func (h *Handler) handleGetAuthorizers(c *echo.Context, apiID string) error {
 	return handleGetList(c, apiID, "authorizers", func() ([]Authorizer, error) {
 		return h.Backend.GetAuthorizers(apiID)
-	}, func(items []Authorizer) any { return listAuthorizersOutput{Items: items} })
+	}, func(items []Authorizer, next string) any {
+		return listAuthorizersOutput{Items: items, NextToken: next}
+	})
 }
 
 func (h *Handler) handleGetAuthorizer(c *echo.Context, apiID, authorizerID string) error {
@@ -1694,12 +1705,29 @@ func handleUpdate[I, O any](
 	return c.JSON(http.StatusOK, result)
 }
 
+// apigwDefaultPageSize is the default page size for API Gateway v2 list operations.
+const apigwDefaultPageSize = 500
+
+// apigwPaginationParams extracts maxResults and nextToken from query parameters.
+func apigwPaginationParams(c *echo.Context) (int, string) {
+	q := c.Request().URL.Query()
+	maxResults := 0
+
+	if s := q.Get("maxResults"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			maxResults = n
+		}
+	}
+
+	return maxResults, q.Get("nextToken")
+}
+
 // handleGetList is a generic helper for list (GET collection) handlers.
 func handleGetList[T any](
 	c *echo.Context,
 	apiID, resourceName string,
 	backendFn func() ([]T, error),
-	wrapFn func([]T) any,
+	wrapFn func([]T, string) any,
 ) error {
 	log := logger.Load(c.Request().Context())
 
@@ -1714,7 +1742,10 @@ func handleGetList[T any](
 		return c.JSON(http.StatusInternalServerError, notFoundResponse{Message: err.Error()})
 	}
 
-	return c.JSON(http.StatusOK, wrapFn(items))
+	maxResults, nextToken := apigwPaginationParams(c)
+	p := page.New(items, nextToken, maxResults, apigwDefaultPageSize)
+
+	return c.JSON(http.StatusOK, wrapFn(p.Data, p.Next))
 }
 
 // handleCreateNoParent is a generic helper for top-level Create* handlers (no parent resource).
@@ -1764,7 +1795,7 @@ func pathSegments(path string) []string {
 func (h *Handler) handleGetModels(c *echo.Context, apiID string) error {
 	return handleGetList(c, apiID, "models", func() ([]Model, error) {
 		return h.Backend.GetModels(apiID)
-	}, func(items []Model) any { return listModelsOutput{Items: items} })
+	}, func(items []Model, next string) any { return listModelsOutput{Items: items, NextToken: next} })
 }
 
 func (h *Handler) handleGetModel(c *echo.Context, apiID, modelID string) error {

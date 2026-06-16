@@ -37,6 +37,8 @@ AbortMultipartUploadCommand,
 GetBucketWebsiteCommand,
 PutBucketWebsiteCommand,
 DeleteBucketWebsiteCommand,
+GetObjectTaggingCommand,
+PutObjectTaggingCommand,
 type Bucket,
 type _Object,
 type ObjectVersion,
@@ -132,6 +134,16 @@ let copyTargetKey = $state('');
 // Website hosting state
 let websiteConfig = $state<{ IndexDocument?: string; ErrorDocument?: string } | null>(null);
 let loadingWebsite = $state(false);
+
+// Object preview / tag editor state
+let previewObj = $state<_Object | null>(null);
+let previewContent = $state<string | null>(null);
+let previewObjectUrl = $state<string | null>(null);
+let previewType = $state<'image' | 'text' | 'json' | 'binary'>('text');
+let previewLoading = $state(false);
+let previewTags = $state<Tag[]>([]);
+let previewTagsLoading = $state(false);
+let previewTagsSaving = $state(false);
 
 // Bucket sort state
 let bucketSortOrder = $state<'alpha' | 'newest' | 'largest'>('alpha');
@@ -445,9 +457,79 @@ next.add(key);
 selectedObjects = next;
 }
 
-function inspectObject(obj: _Object) {
+function guessPreviewType(key: string): 'image' | 'text' | 'json' | 'binary' {
+const ext = key.split('.').pop()?.toLowerCase() ?? '';
+if (['jpg','jpeg','png','gif','svg','webp','bmp','ico'].includes(ext)) return 'image';
+if (['json'].includes(ext)) return 'json';
+if (['txt','md','csv','log','yaml','yml','xml','html','htm','sh','py','js','ts','css','tf','conf','ini','env'].includes(ext)) return 'text';
+return 'binary';
+}
+
+async function inspectObject(obj: _Object) {
 if (!selectedBucket || !obj.Key) return;
-goto(`/dashboard/s3/${selectedBucket}/${obj.Key}`);
+// revoke previous object URL to avoid memory leak
+if (previewObjectUrl) { URL.revokeObjectURL(previewObjectUrl); previewObjectUrl = null; }
+previewObj = obj;
+previewContent = null;
+previewObjectUrl = null;
+previewTags = [];
+previewLoading = true;
+previewTagsLoading = true;
+const type = guessPreviewType(obj.Key);
+previewType = type;
+try {
+	const res = await s3.send(new GetObjectCommand({ Bucket: selectedBucket, Key: obj.Key }));
+	const bytes = await res.Body?.transformToByteArray();
+	if (bytes) {
+		if (type === 'image') {
+			const blob = new Blob([bytes], { type: res.ContentType ?? 'image/*' });
+			previewObjectUrl = URL.createObjectURL(blob);
+		} else if (type === 'json') {
+			const text = new TextDecoder().decode(bytes);
+			try { previewContent = JSON.stringify(JSON.parse(text), null, 2); } catch { previewContent = text; }
+		} else if (type === 'text') {
+			previewContent = new TextDecoder().decode(bytes);
+		} else {
+			previewContent = `Binary file — ${bytes.length.toLocaleString()} bytes. Download to view.`;
+		}
+	}
+} catch (err: unknown) {
+	toast.error(`Preview failed: ${(err as Error).message}`);
+} finally {
+	previewLoading = false;
+}
+try {
+	const tagRes = await s3.send(new GetObjectTaggingCommand({ Bucket: selectedBucket, Key: obj.Key }));
+	previewTags = tagRes.TagSet ?? [];
+} catch {
+	previewTags = [];
+} finally {
+	previewTagsLoading = false;
+}
+}
+
+async function saveObjectTags() {
+if (!selectedBucket || !previewObj?.Key) return;
+previewTagsSaving = true;
+try {
+	await s3.send(new PutObjectTaggingCommand({
+		Bucket: selectedBucket,
+		Key: previewObj.Key,
+		Tagging: { TagSet: previewTags.filter(t => t.Key?.trim()) }
+	}));
+	toast.success('Tags saved');
+} catch (err: unknown) {
+	toast.error(`Save tags failed: ${(err as Error).message}`);
+} finally {
+	previewTagsSaving = false;
+}
+}
+
+function closePreview() {
+if (previewObjectUrl) { URL.revokeObjectURL(previewObjectUrl); previewObjectUrl = null; }
+previewObj = null;
+previewContent = null;
+previewTags = [];
 }
 
 async function loadPropertiesTab() {
@@ -1338,6 +1420,16 @@ class={`font-medium rounded-lg text-sm px-4 py-2 transition-colors ${bucketEncry
     <div class="text-sm text-slate-500">Loading...</div>
   {:else if websiteConfig}
     <p class="text-sm text-slate-600 dark:text-slate-400 mb-3">Status: <span class="font-medium text-green-600 dark:text-green-400">Enabled</span></p>
+    {#if selectedBucket}
+    {@const websiteUrl = `http://${selectedBucket}.s3-website-${getStoredRegion() || 'us-east-1'}.amazonaws.com`}
+    <div class="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+      <p class="text-xs font-medium text-blue-700 dark:text-blue-300 mb-1">Website Endpoint</p>
+      <div class="flex items-center gap-2">
+        <a href={websiteUrl} target="_blank" rel="noopener noreferrer" class="text-sm font-mono text-blue-600 dark:text-blue-400 hover:underline break-all flex-1">{websiteUrl}</a>
+        <button onclick={() => navigator.clipboard.writeText(websiteUrl).then(() => toast.success('URL copied')).catch(() => {})} class="shrink-0 text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 border border-blue-300 dark:border-blue-700 rounded px-2 py-0.5">Copy</button>
+      </div>
+    </div>
+    {/if}
     <div class="space-y-2 mb-4">
       <div>
         <label for="website-index-doc" class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Index Document</label>
@@ -1957,5 +2049,70 @@ class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300
 </div>
 </div>
 </div>
+</div>
+{/if}
+
+<!-- Object Preview / Tag Editor Modal -->
+{#if previewObj}
+<div class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" role="none" onclick={(e) => { if (e.target === e.currentTarget) closePreview(); }}>
+	<div class="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-3xl max-h-[88vh] flex flex-col overflow-hidden">
+		<!-- Header -->
+		<div class="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 shrink-0">
+			<div class="min-w-0">
+				<p class="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-0.5">Object Preview</p>
+				<p class="text-sm font-mono font-semibold text-slate-900 dark:text-white truncate">{previewObj.Key}</p>
+			</div>
+			<div class="flex items-center gap-2 ml-4 shrink-0">
+				<button onclick={() => downloadObject(previewObj?.Key ?? "")} class="text-xs px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">Download</button>
+				<button onclick={closePreview} class="text-slate-400 hover:text-slate-600 text-2xl leading-none">&times;</button>
+			</div>
+		</div>
+		<div class="flex-1 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-700">
+			<!-- Preview section -->
+			<div class="p-5">
+				<h3 class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-3">Content</h3>
+				{#if previewLoading}
+					<div class="flex items-center justify-center py-12"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500"></div></div>
+				{:else if previewType === "image" && previewObjectUrl}
+					<div class="flex items-center justify-center bg-slate-100 dark:bg-slate-900 rounded-lg p-4 max-h-80 overflow-hidden">
+						<img src={previewObjectUrl} alt={previewObj.Key} class="max-h-72 max-w-full object-contain rounded" />
+					</div>
+				{:else if previewType === "json" && previewContent}
+					<pre class="text-xs font-mono text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg p-4 overflow-x-auto max-h-72 overflow-y-auto whitespace-pre-wrap">{previewContent}</pre>
+				{:else if previewType === "text" && previewContent !== null}
+					<textarea readonly value={previewContent} rows="12" class="w-full text-xs font-mono border border-slate-200 dark:border-slate-700 rounded-lg p-3 bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-300 resize-none focus:outline-none"></textarea>
+				{:else if previewContent}
+					<p class="text-sm text-slate-500 dark:text-slate-400 italic text-center py-6">{previewContent}</p>
+				{/if}
+			</div>
+			<!-- Tags section -->
+			<div class="p-5">
+				<div class="flex items-center justify-between mb-3">
+					<h3 class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Object Tags</h3>
+					<button onclick={() => { previewTags = [...previewTags, { Key: '', Value: '' }]; }} class="text-xs text-indigo-600 hover:text-indigo-800 font-medium">+ Add Tag</button>
+				</div>
+				{#if previewTagsLoading}
+					<p class="text-xs text-slate-400 animate-pulse">Loading tags…</p>
+				{:else if previewTags.length === 0}
+					<p class="text-xs text-slate-400 italic">No tags. Click "+ Add Tag" to add one.</p>
+				{:else}
+					<div class="space-y-2">
+						{#each previewTags as tag, i}
+						<div class="flex items-center gap-2">
+							<input type="text" bind:value={tag.Key} placeholder="Key" class="flex-1 text-xs border border-slate-200 dark:border-slate-700 rounded-lg p-2 bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+							<input type="text" bind:value={tag.Value} placeholder="Value" class="flex-1 text-xs border border-slate-200 dark:border-slate-700 rounded-lg p-2 bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+							<button onclick={() => { previewTags = previewTags.filter((_, j) => j !== i); }} class="p-1.5 text-slate-400 hover:text-red-500">✕</button>
+						</div>
+						{/each}
+					</div>
+				{/if}
+				{#if !previewTagsLoading}
+				<button onclick={saveObjectTags} disabled={previewTagsSaving} class="mt-3 px-4 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 text-xs font-medium">
+					{previewTagsSaving ? 'Saving…' : 'Save Tags'}
+				</button>
+				{/if}
+			</div>
+		</div>
+	</div>
 </div>
 {/if}

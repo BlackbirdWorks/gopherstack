@@ -9,9 +9,20 @@
 		CreateFunctionCommand,
 		ListLayersCommand,
 		UpdateFunctionConfigurationCommand,
+		UpdateFunctionCodeCommand,
+		ListVersionsByFunctionCommand,
+		PublishVersionCommand,
+		ListAliasesCommand,
+		CreateAliasCommand,
+		DeleteAliasCommand,
+		ListEventSourceMappingsCommand,
+		CreateEventSourceMappingCommand,
+		DeleteEventSourceMappingCommand,
 		type FunctionConfiguration,
 		type InvocationResponse,
-		type LayersListItem
+		type LayersListItem,
+		type AliasConfiguration,
+		type EventSourceMappingConfiguration
 	} from '@aws-sdk/client-lambda';
 	import { toast } from 'svelte-sonner';
 	import { 
@@ -47,6 +58,35 @@
 		payload: string;
 	}
 	let invocationHistory = $state<InvocationRecord[]>([]);
+
+	// Function detail tab
+	let fnDetailTab = $state<'config' | 'versions' | 'aliases' | 'triggers' | 'code'>('config');
+
+	// Versions
+	let fnVersions = $state<FunctionConfiguration[]>([]);
+	let versionsLoading = $state(false);
+	let publishDesc = $state('');
+	let publishing = $state(false);
+
+	// Aliases
+	let fnAliases = $state<AliasConfiguration[]>([]);
+	let aliasesLoading = $state(false);
+	let newAliasName = $state('');
+	let newAliasFnVersion = $state('$LATEST');
+	let creatingAlias = $state(false);
+
+	// Event Source Mappings
+	let fnEsms = $state<EventSourceMappingConfiguration[]>([]);
+	let esmsLoading = $state(false);
+	let newEsmEventArn = $state('');
+	let newEsmBatchSize = $state(10);
+	let creatingEsm = $state(false);
+
+	// Code Update
+	let updateCodeImageUri = $state('');
+	let updatingCode = $state(false);
+	let updateCodeZipFile = $state<File | null>(null);
+	let updateCodeMode = $state<'image' | 'zip'>('image');
 
 	// Layer Management
 	let layers = $state<LayersListItem[]>([]);
@@ -169,11 +209,14 @@
 				Timeout: newFnTimeout,
 				Description: newFnDescription || undefined,
 			}));
-			toast.success(`Function "${newFnName.trim()}" created`);
+			const createdName = newFnName.trim();
+			toast.success(`Function "${createdName}" created`);
 			showCreateModal = false;
 			newFnName = '';
 			newFnDescription = '';
 			await loadFunctions();
+			selectedFunction = functions.find(f => f.FunctionName === createdName) ?? null;
+			if (selectedFunction) fnDetailTab = 'code';
 		} catch (err: unknown) {
 			toast.error(`Create failed: ${(err as Error).message}`);
 		} finally {
@@ -197,6 +240,132 @@
 			return atob(logResult);
 		} catch {
 			return logResult;
+		}
+	}
+
+	async function loadVersions(fnName: string) {
+		versionsLoading = true;
+		try {
+			const res = await lambda.send(new ListVersionsByFunctionCommand({ FunctionName: fnName }));
+			fnVersions = res.Versions ?? [];
+		} catch (e) {
+			toast.error(e instanceof Error ? e.message : 'Failed to load versions');
+		} finally {
+			versionsLoading = false;
+		}
+	}
+
+	async function publishVersion() {
+		if (!selectedFunction?.FunctionName) return;
+		publishing = true;
+		try {
+			await lambda.send(new PublishVersionCommand({ FunctionName: selectedFunction.FunctionName, Description: publishDesc || undefined }));
+			toast.success('Version published');
+			publishDesc = '';
+			await loadVersions(selectedFunction.FunctionName);
+		} catch (e) {
+			toast.error(e instanceof Error ? e.message : 'Failed to publish');
+		} finally {
+			publishing = false;
+		}
+	}
+
+	async function loadAliases(fnName: string) {
+		aliasesLoading = true;
+		try {
+			const res = await lambda.send(new ListAliasesCommand({ FunctionName: fnName }));
+			fnAliases = res.Aliases ?? [];
+		} catch (e) {
+			toast.error(e instanceof Error ? e.message : 'Failed to load aliases');
+		} finally {
+			aliasesLoading = false;
+		}
+	}
+
+	async function createAlias() {
+		if (!selectedFunction?.FunctionName || !newAliasName.trim()) return;
+		creatingAlias = true;
+		try {
+			await lambda.send(new CreateAliasCommand({ FunctionName: selectedFunction.FunctionName, Name: newAliasName.trim(), FunctionVersion: newAliasFnVersion }));
+			toast.success(`Alias "${newAliasName.trim()}" created`);
+			newAliasName = '';
+			await loadAliases(selectedFunction.FunctionName);
+		} catch (e) {
+			toast.error(e instanceof Error ? e.message : 'Failed to create alias');
+		} finally {
+			creatingAlias = false;
+		}
+	}
+
+	async function deleteAlias(name: string) {
+		if (!selectedFunction?.FunctionName || !await confirmDestructive({ title: 'Delete Alias', message: `Delete alias "${name}"?`, confirmLabel: 'Delete' })) return;
+		try {
+			await lambda.send(new DeleteAliasCommand({ FunctionName: selectedFunction.FunctionName, Name: name }));
+			toast.success('Alias deleted');
+			await loadAliases(selectedFunction.FunctionName);
+		} catch (e) {
+			toast.error(e instanceof Error ? e.message : 'Failed to delete alias');
+		}
+	}
+
+	async function loadEsms(fnName: string) {
+		esmsLoading = true;
+		try {
+			const res = await lambda.send(new ListEventSourceMappingsCommand({ FunctionName: fnName }));
+			fnEsms = res.EventSourceMappings ?? [];
+		} catch (e) {
+			toast.error(e instanceof Error ? e.message : 'Failed to load event sources');
+		} finally {
+			esmsLoading = false;
+		}
+	}
+
+	async function createEsm() {
+		if (!selectedFunction?.FunctionArn || !newEsmEventArn.trim()) return;
+		creatingEsm = true;
+		try {
+			await lambda.send(new CreateEventSourceMappingCommand({ FunctionName: selectedFunction.FunctionArn, EventSourceArn: newEsmEventArn.trim(), BatchSize: newEsmBatchSize, Enabled: true }));
+			toast.success('Event source mapping created');
+			newEsmEventArn = '';
+			await loadEsms(selectedFunction.FunctionName!);
+		} catch (e) {
+			toast.error(e instanceof Error ? e.message : 'Failed to create event source');
+		} finally {
+			creatingEsm = false;
+		}
+	}
+
+	async function deleteEsm(uuid: string) {
+		if (!await confirmDestructive({ title: 'Delete Trigger', message: 'Remove this event source mapping?', confirmLabel: 'Remove' })) return;
+		try {
+			await lambda.send(new DeleteEventSourceMappingCommand({ UUID: uuid }));
+			toast.success('Event source mapping removed');
+			if (selectedFunction?.FunctionName) await loadEsms(selectedFunction.FunctionName);
+		} catch (e) {
+			toast.error(e instanceof Error ? e.message : 'Failed to delete event source');
+		}
+	}
+
+	async function updateFunctionCode() {
+		if (!selectedFunction?.FunctionName) return;
+		if (updateCodeMode === 'image' && !updateCodeImageUri.trim()) return;
+		if (updateCodeMode === 'zip' && !updateCodeZipFile) return;
+		updatingCode = true;
+		try {
+			if (updateCodeMode === 'image') {
+				await lambda.send(new UpdateFunctionCodeCommand({ FunctionName: selectedFunction.FunctionName, ImageUri: updateCodeImageUri.trim() }));
+			} else {
+				const buf = await updateCodeZipFile!.arrayBuffer();
+				await lambda.send(new UpdateFunctionCodeCommand({ FunctionName: selectedFunction.FunctionName, ZipFile: new Uint8Array(buf) }));
+			}
+			toast.success('Function code updated');
+			updateCodeImageUri = '';
+			updateCodeZipFile = null;
+			await loadFunctions();
+		} catch (e) {
+			toast.error(e instanceof Error ? e.message : 'Failed to update code');
+		} finally {
+			updatingCode = false;
 		}
 	}
 
@@ -549,13 +718,115 @@
 							{/if}
 						</div>
 
-						<button 
+						<button
 							onclick={() => showInvokeModal = true}
 							class="w-full flex items-center justify-center gap-2 py-3 bg-teal-600 hover:bg-teal-700 text-white rounded-xl font-bold shadow-lg shadow-teal-600/20 transition-all active:scale-[0.98]"
 						>
 							<Play class="w-4 h-4 fill-current" />
 							Test / Invoke
 						</button>
+					</div>
+					<!-- Function sub-tabs -->
+					<div class="border-t border-slate-200 dark:border-slate-700/50">
+						<div class="flex overflow-x-auto">
+							{#each [['code', 'Code'], ['versions', 'Versions'], ['aliases', 'Aliases'], ['triggers', 'Triggers']] as [id, label]}
+								<button
+									onclick={() => {
+										fnDetailTab = id as typeof fnDetailTab;
+										if (id === 'versions' && selectedFunction?.FunctionName) loadVersions(selectedFunction.FunctionName);
+										if (id === 'aliases' && selectedFunction?.FunctionName) loadAliases(selectedFunction.FunctionName);
+										if (id === 'triggers' && selectedFunction?.FunctionName) loadEsms(selectedFunction.FunctionName);
+									}}
+									class="px-4 py-3 text-xs font-medium whitespace-nowrap border-b-2 transition-colors {fnDetailTab === id ? 'border-orange-500 text-orange-600 dark:text-orange-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'}"
+								>{label}</button>
+							{/each}
+						</div>
+						<div class="p-4">
+							{#if fnDetailTab === 'code'}
+								<h4 class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Update Function Code</h4>
+								<div class="flex gap-1 p-1 bg-slate-100 dark:bg-slate-900 rounded-lg mb-3">
+									<button onclick={() => updateCodeMode = 'image'} class="flex-1 py-1 text-xs font-semibold rounded-md transition-all {updateCodeMode === 'image' ? 'bg-white dark:bg-slate-700 text-orange-600 shadow' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}">Container Image</button>
+									<button onclick={() => updateCodeMode = 'zip'} class="flex-1 py-1 text-xs font-semibold rounded-md transition-all {updateCodeMode === 'zip' ? 'bg-white dark:bg-slate-700 text-orange-600 shadow' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}">ZIP Upload</button>
+								</div>
+								{#if updateCodeMode === 'image'}
+									<div class="flex gap-2">
+										<input type="text" bind:value={updateCodeImageUri} placeholder="public.ecr.aws/lambda/python:3.12" class="flex-1 text-xs font-mono border border-slate-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 dark:text-white" />
+										<button onclick={updateFunctionCode} disabled={updatingCode || !updateCodeImageUri.trim()} class="text-white bg-orange-600 hover:bg-orange-700 font-medium rounded-lg text-xs px-3 py-2 disabled:opacity-50">{updatingCode ? 'Updating…' : 'Update'}</button>
+									</div>
+								{:else}
+									<div class="space-y-2">
+										<input type="file" accept=".zip,application/zip" onchange={(e) => { const f = (e.target as HTMLInputElement).files?.[0]; updateCodeZipFile = f ?? null; }} class="w-full text-xs file:mr-2 file:py-1 file:px-3 file:rounded-lg file:border-0 file:bg-orange-100 file:text-orange-700 dark:file:bg-orange-900/30 dark:file:text-orange-300 text-slate-500 dark:text-slate-400" />
+										{#if updateCodeZipFile}<p class="text-[10px] text-slate-400">{updateCodeZipFile.name} ({(updateCodeZipFile.size / 1024).toFixed(1)} KB)</p>{/if}
+										<button onclick={updateFunctionCode} disabled={updatingCode || !updateCodeZipFile} class="w-full text-white bg-orange-600 hover:bg-orange-700 font-medium rounded-lg text-xs px-3 py-2 disabled:opacity-50">{updatingCode ? 'Uploading…' : 'Upload ZIP'}</button>
+									</div>
+								{/if}
+							{:else if fnDetailTab === 'versions'}
+								{#if versionsLoading}
+									<p class="text-xs text-slate-400 animate-pulse">Loading…</p>
+								{:else}
+									<div class="space-y-2 mb-3">
+										{#each fnVersions as v}
+											<div class="flex items-center justify-between p-2 bg-slate-50 dark:bg-slate-900/40 rounded-lg border border-slate-200 dark:border-slate-700/50 text-xs">
+												<span class="font-mono font-bold text-slate-700 dark:text-slate-300">v{v.Version}</span>
+												<span class="text-slate-400">{v.LastModified ? new Date(v.LastModified).toLocaleDateString() : '—'}</span>
+												{#if v.Description}<span class="text-slate-500 truncate max-w-[100px]">{v.Description}</span>{/if}
+											</div>
+										{/each}
+										{#if fnVersions.length === 0}<p class="text-xs text-slate-400">No versions published yet.</p>{/if}
+									</div>
+									<div class="flex gap-2 items-end">
+										<input type="text" bind:value={publishDesc} placeholder="Version description (optional)" class="flex-1 text-xs border border-slate-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 dark:text-white" />
+										<button onclick={publishVersion} disabled={publishing} class="text-white bg-orange-600 hover:bg-orange-700 font-medium rounded-lg text-xs px-3 py-2 disabled:opacity-50">{publishing ? 'Publishing…' : 'Publish'}</button>
+									</div>
+								{/if}
+							{:else if fnDetailTab === 'aliases'}
+								{#if aliasesLoading}
+									<p class="text-xs text-slate-400 animate-pulse">Loading…</p>
+								{:else}
+									<div class="space-y-2 mb-3">
+										{#each fnAliases as alias}
+											<div class="flex items-center justify-between p-2 bg-slate-50 dark:bg-slate-900/40 rounded-lg border border-slate-200 dark:border-slate-700/50 text-xs">
+												<span class="font-mono font-bold text-slate-700 dark:text-slate-300">{alias.Name}</span>
+												<span class="text-slate-400">→ v{alias.FunctionVersion}</span>
+												<button onclick={() => alias.Name && deleteAlias(alias.Name)} class="text-red-400 hover:text-red-600">Delete</button>
+											</div>
+										{/each}
+										{#if fnAliases.length === 0}<p class="text-xs text-slate-400">No aliases.</p>{/if}
+									</div>
+									<div class="flex gap-2 items-end flex-wrap">
+										<input type="text" bind:value={newAliasName} placeholder="Alias name (e.g. live)" class="text-xs border border-slate-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 dark:text-white w-28" />
+										<input type="text" bind:value={newAliasFnVersion} placeholder="Version" class="text-xs border border-slate-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 dark:text-white w-20" />
+										<button onclick={createAlias} disabled={creatingAlias} class="text-white bg-orange-600 hover:bg-orange-700 font-medium rounded-lg text-xs px-3 py-2 disabled:opacity-50">{creatingAlias ? 'Creating…' : 'Create'}</button>
+									</div>
+								{/if}
+							{:else if fnDetailTab === 'triggers'}
+								{#if esmsLoading}
+									<p class="text-xs text-slate-400 animate-pulse">Loading…</p>
+								{:else}
+									<div class="space-y-2 mb-3">
+										{#each fnEsms as esm}
+											<div class="p-2 bg-slate-50 dark:bg-slate-900/40 rounded-lg border border-slate-200 dark:border-slate-700/50 text-xs">
+												<div class="flex items-center justify-between">
+													<span class="font-mono text-slate-700 dark:text-slate-300 truncate max-w-[160px]" title={esm.EventSourceArn}>{esm.EventSourceArn?.split(':').pop() ?? esm.UUID}</span>
+													<span class="ml-2 px-1.5 py-0.5 rounded-full {esm.State === 'Enabled' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}">{esm.State}</span>
+													<button onclick={() => esm.UUID && deleteEsm(esm.UUID)} class="ml-2 text-red-400 hover:text-red-600">Remove</button>
+												</div>
+												<p class="text-slate-400 mt-0.5">Batch: {esm.BatchSize}</p>
+											</div>
+										{/each}
+										{#if fnEsms.length === 0}<p class="text-xs text-slate-400">No event source mappings.</p>{/if}
+									</div>
+									<div class="space-y-2">
+										<input type="text" bind:value={newEsmEventArn} placeholder="Event source ARN (SQS/Kinesis/DynamoDB)" class="w-full text-xs font-mono border border-slate-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 dark:text-white" />
+										<div class="flex gap-2 items-center">
+											<label class="text-xs text-slate-500">Batch size:</label>
+											<input type="number" bind:value={newEsmBatchSize} min="1" max="10000" class="w-20 text-xs border border-slate-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 dark:text-white" />
+											<button onclick={createEsm} disabled={creatingEsm || !newEsmEventArn.trim()} class="text-white bg-orange-600 hover:bg-orange-700 font-medium rounded-lg text-xs px-3 py-2 disabled:opacity-50">{creatingEsm ? 'Adding…' : 'Add Trigger'}</button>
+										</div>
+									</div>
+								{/if}
+							{/if}
+						</div>
 					</div>
 				</div>
 			{:else}

@@ -7,6 +7,7 @@
 		DescribeClusterCommand,
 		ListInstancesCommand,
 		ListInstanceFleetsCommand,
+		ListInstanceGroupsCommand,
 		ListBootstrapActionsCommand,
 		ListNotebookExecutionsCommand,
 		ListStudiosCommand,
@@ -23,6 +24,7 @@
 		type StepSummary,
 		type Instance,
 		type InstanceFleet,
+		type InstanceGroup,
 		type StudioSummary,
 		type NotebookExecutionSummary
 	} from '@aws-sdk/client-emr';
@@ -34,7 +36,7 @@
 	let loading = $state(false);
 	let clusters = $state<ClusterSummary[]>([]);
 	let selectedCluster = $state<Cluster | null>(null);
-	let activeTab = $state<'overview' | 'steps' | 'instances' | 'modifications' | 'autoscaling' | 'notebooks' | 'studios' | 'bootstrap-actions' | 'instance-fleets'>('overview');
+	let activeTab = $state<'overview' | 'steps' | 'instances' | 'instance-groups' | 'modifications' | 'autoscaling' | 'notebooks' | 'studios' | 'bootstrap-actions' | 'instance-fleets'>('overview');
 	let searchQuery = $state('');
 
 	// Steps
@@ -48,6 +50,10 @@
 	// Instance Fleets
 	let instanceFleets = $state<InstanceFleet[]>([]);
 	let loadingFleets = $state(false);
+
+	// Instance Groups
+	let instanceGroups = $state<InstanceGroup[]>([]);
+	let loadingGroups = $state(false);
 
 	// Bootstrap Actions
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -125,7 +131,7 @@
 		}
 	}
 
-	async function handleTabChange(tab: 'overview' | 'steps' | 'instances' | 'modifications' | 'autoscaling' | 'notebooks' | 'studios' | 'bootstrap-actions' | 'instance-fleets') {
+	async function handleTabChange(tab: 'overview' | 'steps' | 'instances' | 'instance-groups' | 'modifications' | 'autoscaling' | 'notebooks' | 'studios' | 'bootstrap-actions' | 'instance-fleets') {
 		activeTab = tab;
 		if (!selectedCluster) return;
 		if (tab === 'steps' && steps.length === 0) {
@@ -148,6 +154,17 @@
 				toast.error('Failed to load instances: ' + String(e));
 			} finally {
 				loadingInstances = false;
+			}
+		}
+		if (tab === 'instance-groups' && instanceGroups.length === 0) {
+			loadingGroups = true;
+			try {
+				const resp = await emr.send(new ListInstanceGroupsCommand({ ClusterId: selectedCluster.Id ?? '' }));
+				instanceGroups = resp.InstanceGroups ?? [];
+			} catch (e) {
+				toast.error('Failed to load instance groups: ' + String(e));
+			} finally {
+				loadingGroups = false;
 			}
 		}
 		if (tab === 'instance-fleets' && instanceFleets.length === 0) {
@@ -341,7 +358,7 @@
 		<!-- Cluster Detail -->
 		<div class="flex items-center justify-between">
 			<div class="flex items-center gap-2 text-sm">
-				<button onclick={() => { selectedCluster = null; steps = []; instances = []; }} class="text-orange-600 hover:underline">Clusters</button>
+				<button onclick={() => { selectedCluster = null; steps = []; instances = []; instanceGroups = []; instanceFleets = []; }} class="text-orange-600 hover:underline">Clusters</button>
 				<ChevronRight class="w-4 h-4 text-gray-400" />
 				<span class="text-gray-600 dark:text-gray-300 font-medium">{selectedCluster.Name}</span>
 				<span class={`ml-2 px-2 py-0.5 rounded text-xs font-medium bg-${clusterStatusColor(selectedCluster.Status?.State)}-100 text-${clusterStatusColor(selectedCluster.Status?.State)}-700`}>
@@ -353,9 +370,9 @@
 
 		<!-- Tabs -->
 		<div class="flex gap-1 border-b border-gray-200 dark:border-gray-700">
-			{#each [['overview', 'Overview'], ['steps', 'Steps'], ['instances', 'Instances'], ['modifications', 'Modifications'], ['autoscaling', 'Autoscaling'], ['notebooks', 'Notebooks'], ['studios', 'Studios'], ['bootstrap-actions', 'Bootstrap Actions'], ['instance-fleets', 'Instance Fleets']] as [tab, label]}
+			{#each [['overview', 'Overview'], ['steps', 'Steps'], ['instances', 'Instances'], ['instance-groups', 'Instance Groups'], ['modifications', 'Modifications'], ['autoscaling', 'Autoscaling'], ['notebooks', 'Notebooks'], ['studios', 'Studios'], ['bootstrap-actions', 'Bootstrap Actions'], ['instance-fleets', 'Instance Fleets']] as [tab, label]}
 				<button
-					onclick={() => handleTabChange(tab as 'overview' | 'steps' | 'instances' | 'modifications' | 'autoscaling' | 'notebooks' | 'studios' | 'bootstrap-actions' | 'instance-fleets')}
+					onclick={() => handleTabChange(tab as 'overview' | 'steps' | 'instances' | 'instance-groups' | 'modifications' | 'autoscaling' | 'notebooks' | 'studios' | 'bootstrap-actions' | 'instance-fleets')}
 					class={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab === tab ? 'border-orange-500 text-orange-600 dark:text-orange-400' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
 				>
 					{label}
@@ -463,7 +480,44 @@
 			{/if}
 		{/if}
 
-		{#if activeTab === 'modifications'}
+		{#if activeTab === 'instance-groups'}
+			{#if loadingGroups}
+				<div class="flex justify-center py-12"><div class="animate-spin w-8 h-8 border-4 border-orange-600 border-t-transparent rounded-full"></div></div>
+			{:else if instanceGroups.length === 0}
+				<div class="text-center py-12 text-gray-500"><Server class="w-10 h-10 mx-auto mb-2 opacity-40" /><p>No instance groups found</p></div>
+			{:else}
+				<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+					<table class="w-full text-sm">
+						<thead class="bg-gray-50 dark:bg-gray-800 text-xs text-gray-500 uppercase">
+							<tr>
+								<th class="px-4 py-3 text-left">Name</th>
+								<th class="px-4 py-3 text-left">Type</th>
+								<th class="px-4 py-3 text-left">Instance Type</th>
+								<th class="px-4 py-3 text-left">Market</th>
+								<th class="px-4 py-3 text-left">Status</th>
+								<th class="px-4 py-3 text-right">Requested</th>
+								<th class="px-4 py-3 text-right">Running</th>
+							</tr>
+						</thead>
+						<tbody class="divide-y divide-gray-100 dark:divide-gray-800">
+							{#each instanceGroups as ig}
+								<tr>
+									<td class="px-4 py-3 font-medium">{ig.Name ?? ig.Id ?? '-'}</td>
+									<td class="px-4 py-3 text-xs text-gray-500">{ig.InstanceGroupType ?? '-'}</td>
+									<td class="px-4 py-3 font-mono text-xs">{ig.InstanceType ?? '-'}</td>
+									<td class="px-4 py-3 text-xs text-gray-500">{ig.Market ?? '-'}</td>
+									<td class="px-4 py-3"><span class="px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">{ig.Status?.State ?? '-'}</span></td>
+									<td class="px-4 py-3 text-right text-gray-600 dark:text-gray-400">{ig.RequestedInstanceCount ?? 0}</td>
+									<td class="px-4 py-3 text-right text-gray-600 dark:text-gray-400">{ig.RunningInstanceCount ?? 0}</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			{/if}
+		{/if}
+
+	{#if activeTab === 'modifications'}
 			<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-6 space-y-4 max-w-md">
 				<div class="flex items-center gap-2 mb-2">
 					<Settings class="w-5 h-5 text-orange-500" />
