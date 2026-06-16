@@ -69,7 +69,7 @@ const (
 	keyTags            = "Tags"
 	keyDescription     = "Description"
 	keyChannel         = "Channel"
-	keyInput           = "Input"
+	keyInput           = "input"
 	keyAlerts          = "Alerts"
 	keyActionName      = "ActionName"
 	keyScheduleActions = "ScheduleActions"
@@ -1320,13 +1320,13 @@ func (h *Handler) handleStopChannel(c *echo.Context, channelID string) error {
 
 // Tags first: reduces GC pointer scan from 104 to 96 bytes.
 type inputOutput struct {
-	Tags    map[string]string `json:"Tags"`
-	Arn     string            `json:"Arn"`
-	ID      string            `json:"Id"`
-	Name    string            `json:"Name"`
-	Type    string            `json:"Type"`
-	RoleArn string            `json:"RoleArn"`
-	State   string            `json:"State"`
+	Tags    map[string]string `json:"tags"`
+	Arn     string            `json:"arn"`
+	ID      string            `json:"id"`
+	Name    string            `json:"name"`
+	Type    string            `json:"type"`
+	RoleArn string            `json:"roleArn"`
+	State   string            `json:"state"`
 }
 
 func toInputOutput(inp *Input) inputOutput {
@@ -1398,17 +1398,17 @@ func (h *Handler) handleListInputs(c *echo.Context) error {
 	out := make([]map[string]any, 0, len(summaries))
 	for _, s := range summaries {
 		out = append(out, map[string]any{
-			keyArn:   s.ARN,
-			keyID:    s.ID,
-			"Name":   s.Name,
-			"Type":   s.InputType,
-			keyState: s.State,
+			"arn":   s.ARN,
+			"id":    s.ID,
+			"name":  s.Name,
+			"type":  s.InputType,
+			"state": s.State,
 		})
 	}
 
-	resp := map[string]any{"Inputs": out}
+	resp := map[string]any{"inputs": out}
 	if nextToken != "" {
-		resp["NextToken"] = nextToken
+		resp["nextToken"] = nextToken
 	}
 
 	return c.JSON(http.StatusOK, resp)

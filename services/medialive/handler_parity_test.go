@@ -412,13 +412,13 @@ func TestCreatePartnerInput(t *testing.T) {
 		"name": "primary", "type": "UDP_PUSH",
 	})
 	require.Equal(t, http.StatusCreated, rec.Code)
-	inputID := decodeBody(t, rec.Body.Bytes())["Input"].(map[string]any)["Id"].(string)
+	inputID := decodeBody(t, rec.Body.Bytes())["input"].(map[string]any)["id"].(string)
 
 	rec = doRequest(t, h, http.MethodPost, "/prod/inputs/"+inputID+"/partners", map[string]any{})
 	require.Equal(t, http.StatusCreated, rec.Code)
-	partner := decodeBody(t, rec.Body.Bytes())["Input"].(map[string]any)
-	assert.NotEmpty(t, partner["Id"])
-	assert.NotEqual(t, inputID, partner["Id"])
+	partner := decodeBody(t, rec.Body.Bytes())["input"].(map[string]any)
+	assert.NotEmpty(t, partner["id"])
+	assert.NotEqual(t, inputID, partner["id"])
 
 	rec = doRequest(t, h, http.MethodPost, "/prod/inputs/missing/partners", map[string]any{})
 	assert.Equal(t, http.StatusNotFound, rec.Code)
