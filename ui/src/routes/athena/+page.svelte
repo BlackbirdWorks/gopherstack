@@ -31,7 +31,7 @@
 		type PreparedStatementSummary
 	} from '@aws-sdk/client-athena';
 	import { toast } from 'svelte-sonner';
-	import { Search, RefreshCw, Play, XCircle, Database, Clock, ChevronRight, Table, BookOpen, Terminal, Save, Trash2, Bookmark } from 'lucide-svelte';
+	import { Search, RefreshCw, Play, XCircle, Database, Clock, ChevronRight, Table, BookOpen, Terminal, Save, Trash2, Bookmark, BarChart2, Download } from 'lucide-svelte';
 
 	const athena = getAthenaClient();
 
@@ -429,7 +429,6 @@
 
 	onMount(() => {
 		loadWorkgroups();
-		loadSavedQueriesFromStorage();
 	});
 
 	onDestroy(() => {
@@ -490,27 +489,6 @@
 			<div class="flex items-center justify-between mb-2">
 				<label for="query-text" class="block text-sm font-semibold text-gray-700 dark:text-gray-300">SQL Query</label>
 				<div class="flex gap-2">
-					<!-- Save dialog toggle -->
-					{#if showSaveDialog}
-						<div class="flex items-center gap-2">
-							<input
-								bind:value={saveQueryName}
-								type="text"
-								placeholder="Query name..."
-								class="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm w-40"
-							/>
-							<button onclick={saveCurrentQuery} disabled={!saveQueryName.trim()} class="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-teal-600 text-white hover:bg-teal-700 text-sm font-medium disabled:opacity-50">
-								<Save class="w-3.5 h-3.5" /> Save
-							</button>
-							<button onclick={() => { showSaveDialog = false; saveQueryName = ''; }} class="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-sm hover:bg-gray-50 dark:hover:bg-gray-800">
-								Cancel
-							</button>
-						</div>
-					{:else}
-						<button onclick={() => { showSaveDialog = true; }} class="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm hover:bg-gray-50 dark:hover:bg-gray-800">
-							<Save class="w-4 h-4" /> Save
-						</button>
-					{/if}
 					{#if queryExecuting}
 						<button onclick={stopQuery} class="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 text-sm font-medium">
 							<XCircle class="w-4 h-4" /> Stop
@@ -954,19 +932,18 @@
 					<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
 						<div class="flex items-start justify-between gap-4">
 							<div class="flex-1 min-w-0">
-								<div class="font-medium text-sm text-gray-900 dark:text-white">{sq.name}</div>
-								<code class="text-xs text-gray-500 truncate block mt-1">{sq.query}</code>
+								<div class="font-medium text-sm text-gray-900 dark:text-white">{sq.Name}</div>
+								<code class="text-xs text-gray-500 truncate block mt-1">{sq.QueryString}</code>
 								<div class="flex gap-3 mt-2 text-xs text-gray-400">
-									<span>Workgroup: {sq.workgroup}</span>
-									<span>DB: {sq.database}</span>
-									<span>Saved: {new Date(sq.savedAt).toLocaleString()}</span>
+									<span>Workgroup: {sq.WorkGroup}</span>
+									<span>DB: {sq.Database}</span>
 								</div>
 							</div>
 							<div class="flex items-center gap-2 shrink-0">
-								<button onclick={() => loadSavedQuery(sq)} class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-600 text-white hover:bg-teal-700 text-xs font-medium">
+								<button onclick={() => loadSavedIntoEditor(sq)} class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-600 text-white hover:bg-teal-700 text-xs font-medium">
 									<Play class="w-3.5 h-3.5" /> Load
 								</button>
-								<button onclick={() => deleteSavedQuery(sq.id)} class="text-red-500 hover:text-red-700 p-1.5">
+								<button onclick={() => deleteNamedQuery(sq.NamedQueryId)} class="text-red-500 hover:text-red-700 p-1.5">
 									<Trash2 class="w-4 h-4" />
 								</button>
 							</div>
