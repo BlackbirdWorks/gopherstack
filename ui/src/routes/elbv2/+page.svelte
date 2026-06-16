@@ -22,6 +22,11 @@
 		CreateRuleCommand,
 		ModifyRuleCommand,
 		DeleteRuleCommand,
+		SetRulePrioritiesCommand,
+		DescribeTargetGroupAttributesCommand,
+		ModifyTargetGroupAttributesCommand,
+		RegisterTargetsCommand,
+		DeregisterTargetsCommand,
 		AddListenerCertificatesCommand,
 		RemoveListenerCertificatesCommand,
 		ModifyListenerCommand,
@@ -84,6 +89,14 @@
 	let selectedTG = $state<TargetGroup | null>(null);
 	let tgHealth = $state<Array<{ Target?: { Id?: string; Port?: number }; TargetHealth?: { State?: string; Description?: string } }>>([]);
 	let loadingHealth = $state(false);
+
+	// Target-group stickiness + register
+	let tgStickinessEnabled = $state(false);
+	let tgStickinessDuration = $state(86400);
+	let savingTgAttrs = $state(false);
+	let newTargetId = $state('');
+	let newTargetPort = $state('80');
+	let registeringTarget = $state(false);
 	let showCreateTGModal = $state(false);
 	let newTGName = $state('');
 	let newTGType = $state<'instance' | 'ip' | 'lambda'>('instance');
@@ -326,6 +339,8 @@
 		selectedTG = tg;
 		loadingHealth = true;
 		tgHealth = [];
+		newTargetId = '';
+		newTargetPort = String(tg.Port ?? 80);
 		try {
 			const res = await elb.send(
 				new DescribeTargetHealthCommand({ TargetGroupArn: tg.TargetGroupArn })
@@ -338,10 +353,101 @@
 					? { State: d.TargetHealth.State, Description: d.TargetHealth.Description }
 					: undefined
 			}));
+			await loadTgAttributes(tg);
 		} catch (e) {
 			toast.error(`Failed to load target health: ${e}`);
 		} finally {
 			loadingHealth = false;
+		}
+	}
+
+	async function loadTgAttributes(tg: TargetGroup) {
+		try {
+			const res = await elb.send(new DescribeTargetGroupAttributesCommand({ TargetGroupArn: tg.TargetGroupArn }));
+			const attrs = res.Attributes ?? [];
+			tgStickinessEnabled = attrs.find((a) => a.Key === 'stickiness.enabled')?.Value === 'true';
+			const dur = attrs.find((a) => a.Key === 'stickiness.lb_cookie.duration_seconds')?.Value;
+			tgStickinessDuration = dur ? Number(dur) : 86400;
+		} catch (e) {
+			toast.error(`Failed to load target-group attributes: ${e}`);
+		}
+	}
+
+	async function saveTgStickiness() {
+		if (!selectedTG?.TargetGroupArn) return;
+		savingTgAttrs = true;
+		try {
+			await elb.send(new ModifyTargetGroupAttributesCommand({
+				TargetGroupArn: selectedTG.TargetGroupArn,
+				Attributes: [
+					{ Key: 'stickiness.enabled', Value: String(tgStickinessEnabled) },
+					{ Key: 'stickiness.type', Value: 'lb_cookie' },
+					{ Key: 'stickiness.lb_cookie.duration_seconds', Value: String(tgStickinessDuration) }
+				]
+			}));
+			toast.success('Stickiness settings saved');
+		} catch (e) {
+			toast.error(`Failed to save stickiness: ${e}`);
+		} finally {
+			savingTgAttrs = false;
+		}
+	}
+
+	async function registerTarget() {
+		if (!selectedTG?.TargetGroupArn || !newTargetId.trim()) return;
+		registeringTarget = true;
+		try {
+			await elb.send(new RegisterTargetsCommand({
+				TargetGroupArn: selectedTG.TargetGroupArn,
+				Targets: [{ Id: newTargetId.trim(), Port: newTargetPort ? Number(newTargetPort) : undefined }]
+			}));
+			toast.success(`Target "${newTargetId}" registered`);
+			newTargetId = '';
+			await viewTGHealth(selectedTG);
+		} catch (e) {
+			toast.error(`Failed to register target: ${e}`);
+		} finally {
+			registeringTarget = false;
+		}
+	}
+
+	async function deregisterTarget(id: string | undefined, port: number | undefined) {
+		if (!selectedTG?.TargetGroupArn || !id) return;
+		try {
+			await elb.send(new DeregisterTargetsCommand({
+				TargetGroupArn: selectedTG.TargetGroupArn,
+				Targets: [{ Id: id, Port: port }]
+			}));
+			toast.success(`Target "${id}" deregistered`);
+			await viewTGHealth(selectedTG);
+		} catch (e) {
+			toast.error(`Failed to deregister target: ${e}`);
+		}
+	}
+
+	async function reorderRule(rule: Rule, direction: -1 | 1) {
+		if (!selectedListener || rule.IsDefault) return;
+		const nonDefault = listenerRules
+			.filter((r) => !r.IsDefault)
+			.toSorted((a, b) => (parseInt(a.Priority ?? '0', 10) || 0) - (parseInt(b.Priority ?? '0', 10) || 0));
+		const idx = nonDefault.findIndex((r) => r.RuleArn === rule.RuleArn);
+		const swapIdx = idx + direction;
+		if (idx < 0 || swapIdx < 0 || swapIdx >= nonDefault.length) return;
+		const a = nonDefault[idx];
+		const b = nonDefault[swapIdx];
+		const aPrio = parseInt(a.Priority ?? '0', 10);
+		const bPrio = parseInt(b.Priority ?? '0', 10);
+		try {
+			await elb.send(new SetRulePrioritiesCommand({
+				RulePriorities: [
+					{ RuleArn: a.RuleArn, Priority: bPrio },
+					{ RuleArn: b.RuleArn, Priority: aPrio }
+				]
+			}));
+			toast.success('Rule priority updated');
+			await loadListenerRules(selectedListener);
+		} catch (e) {
+			toast.error(`Failed to reorder rule: ${e}`);
 		}
 	}
 
@@ -1032,18 +1138,61 @@
 					</div>
 					{#if loadingHealth}
 						<RefreshCw class="h-5 w-5 animate-spin text-muted-foreground" />
-					{:else if tgHealth.length === 0}
-						<p class="text-sm text-muted-foreground">No registered targets.</p>
 					{:else}
-						<div class="divide-y rounded border overflow-hidden">
-							{#each tgHealth as h}
-								<div class="px-4 py-3 text-sm flex items-center justify-between">
-									<span>{h.Target?.Id}:{h.Target?.Port}</span>
-									<span class="rounded-full px-2 py-0.5 text-xs {healthBadge(h.TargetHealth?.State)}">
-										{h.TargetHealth?.State ?? '—'}
-									</span>
+						{#if tgHealth.length === 0}
+							<p class="text-sm text-muted-foreground">No registered targets.</p>
+						{:else}
+							<div class="divide-y rounded border overflow-hidden">
+								{#each tgHealth as h}
+									<div class="px-4 py-3 text-sm flex items-center justify-between">
+										<span>{h.Target?.Id}:{h.Target?.Port}</span>
+										<div class="flex items-center gap-2">
+											<span class="rounded-full px-2 py-0.5 text-xs {healthBadge(h.TargetHealth?.State)}">
+												{h.TargetHealth?.State ?? '—'}
+											</span>
+											<button onclick={() => deregisterTarget(h.Target?.Id, h.Target?.Port)} class="rounded p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-950" title="Deregister target">
+												<Trash2 class="h-3.5 w-3.5" />
+											</button>
+										</div>
+									</div>
+								{/each}
+							</div>
+						{/if}
+
+						<!-- Register IP/Instance target -->
+						<div class="border-t pt-3 space-y-2">
+							<h4 class="text-sm font-medium">Register Target {selectedTG.TargetType === 'ip' ? '(IP)' : selectedTG.TargetType === 'instance' ? '(Instance)' : ''}</h4>
+							<div class="flex flex-wrap items-end gap-2">
+								<div class="flex-1 min-w-[160px]">
+									<label for="tg-target-id" class="block text-xs text-muted-foreground mb-1">{selectedTG.TargetType === 'ip' ? 'IP address' : selectedTG.TargetType === 'lambda' ? 'Lambda ARN' : 'Instance ID / IP'}</label>
+									<input id="tg-target-id" type="text" bind:value={newTargetId} placeholder={selectedTG.TargetType === 'ip' ? '10.0.0.10' : 'i-0123… or 10.0.0.10'} class="w-full rounded-md border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
 								</div>
-							{/each}
+								<div class="w-24">
+									<label for="tg-target-port" class="block text-xs text-muted-foreground mb-1">Port</label>
+									<input id="tg-target-port" type="number" bind:value={newTargetPort} class="w-full rounded-md border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
+								</div>
+								<button onclick={registerTarget} disabled={registeringTarget || !newTargetId.trim()} class="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
+									{registeringTarget ? 'Registering…' : 'Register'}
+								</button>
+							</div>
+						</div>
+
+						<!-- Stickiness -->
+						<div class="border-t pt-3 space-y-2">
+							<h4 class="text-sm font-medium">Stickiness</h4>
+							<label class="flex items-center gap-2 text-sm">
+								<input type="checkbox" bind:checked={tgStickinessEnabled} class="rounded" />
+								Enable load-balancer cookie stickiness
+							</label>
+							{#if tgStickinessEnabled}
+								<div class="flex items-center gap-2">
+									<label for="tg-stick-dur" class="text-xs text-muted-foreground">Duration (s)</label>
+									<input id="tg-stick-dur" type="number" min="1" max="604800" bind:value={tgStickinessDuration} class="w-32 rounded-md border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
+								</div>
+							{/if}
+							<button onclick={saveTgStickiness} disabled={savingTgAttrs} class="rounded-md border px-3 py-1.5 text-sm hover:bg-muted disabled:opacity-50">
+								{savingTgAttrs ? 'Saving…' : 'Save Stickiness'}
+							</button>
 						</div>
 					{/if}
 				</div>
@@ -1198,7 +1347,21 @@
 											{/if}
 										</div>
 										{#if !rule.IsDefault}
-											<div class="flex gap-1">
+											<div class="flex items-center gap-1">
+												<button
+													onclick={() => reorderRule(rule, -1)}
+													class="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+													title="Increase priority (move up)"
+												>
+													<ChevronDown class="h-3.5 w-3.5 rotate-180" />
+												</button>
+												<button
+													onclick={() => reorderRule(rule, 1)}
+													class="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+													title="Decrease priority (move down)"
+												>
+													<ChevronDown class="h-3.5 w-3.5" />
+												</button>
 												<button
 													onclick={() => openEditRule(rule)}
 													class="text-xs text-blue-600 hover:underline dark:text-blue-400"
