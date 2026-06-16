@@ -69,7 +69,7 @@ const (
 	keyTags            = "Tags"
 	keyDescription     = "Description"
 	keyChannel         = "Channel"
-	keyInput           = "input"
+	keyInput           = "Input"
 	keyAlerts          = "Alerts"
 	keyActionName      = "ActionName"
 	keyScheduleActions = "ScheduleActions"

@@ -9,11 +9,13 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
 const (
-	matchPriority = service.PriorityPathVersioned
+	matchPriority      = service.PriorityPathVersioned
+	mediaTailorService = "mediatailor"
 
 	pathChannels         = "/channels"
 	pathChannel          = "/channel/"
@@ -175,12 +177,18 @@ func (h *Handler) GetSupportedOperations() []string {
 	}
 }
 
-// RouteMatcher returns a function that matches MediaTailor requests by path.
+// RouteMatcher returns a function that matches MediaTailor requests by path and
+// Authorization header. MediaTailor shares /channels paths with MediaPackage and
+// IoTAnalytics, so we distinguish by the service name in the AWS Signature header.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
-		path := c.Request().URL.Path
+		if !isMediaTailorPath(c.Request().URL.Path) {
+			return false
+		}
 
-		return isMediaTailorPath(path)
+		svc := httputils.ExtractServiceFromRequest(c.Request())
+
+		return svc == "" || svc == mediaTailorService
 	}
 }
 

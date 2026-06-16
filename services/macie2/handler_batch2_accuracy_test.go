@@ -78,9 +78,10 @@ func TestBatch2_Session_Timestamps_Present(t *testing.T) {
 	for _, field := range []string{"createdAt", "updatedAt"} {
 		raw, ok := resp[field]
 		require.True(t, ok, "GetMacieSession must include %s", field)
-		ts, ok := raw.(float64)
-		require.True(t, ok, "%s must be a Unix epoch float64, got %T", field, raw)
-		assert.Greater(t, ts, float64(0), "%s must be a positive Unix timestamp", field)
+		ts, ok := raw.(string)
+		require.True(t, ok, "%s must be an ISO8601 string, got %T", field, raw)
+		_, err := time.Parse(time.RFC3339, ts)
+		assert.NoError(t, err, "%s must be a valid RFC3339 timestamp, got %q", field, ts)
 	}
 }
 
@@ -95,7 +96,7 @@ func TestBatch2_Session_UpdatedAt_Advances(t *testing.T) {
 
 	var before map[string]any
 	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &before))
-	createdAt := before["createdAt"].(float64)
+	createdAt := before["createdAt"].(string)
 
 	time.Sleep(1001 * time.Millisecond)
 
@@ -108,7 +109,7 @@ func TestBatch2_Session_UpdatedAt_Advances(t *testing.T) {
 	var after map[string]any
 	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &after))
 
-	assert.InDelta(t, createdAt, after["createdAt"].(float64), 0, "createdAt must not change after update")
+	assert.Equal(t, createdAt, after["createdAt"].(string), "createdAt must not change after update")
 	assert.NotEqual(t, after["createdAt"], after["updatedAt"],
 		"updatedAt must differ from createdAt after UpdateMacieSession")
 }

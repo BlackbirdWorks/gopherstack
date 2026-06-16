@@ -82,7 +82,7 @@ func createTestInput(t *testing.T, h *medialive.Handler) string {
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	inp := resp["input"].(map[string]any)
+	inp := resp["Input"].(map[string]any)
 
 	return inp["Id"].(string)
 }
@@ -264,7 +264,7 @@ func TestAudit1_Input_CRUD(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var updateResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp))
-	inp := updateResp["input"].(map[string]any)
+	inp := updateResp["Input"].(map[string]any)
 	assert.Equal(t, "updated-input", inp["Name"])
 
 	// List

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -618,8 +617,8 @@ func terminologyToMap(t *Terminology) map[string]any {
 		"Format":              t.Format,
 		"SizeBytes":           t.SizeBytes,
 		"TermCount":           t.TermCount,
-		"CreatedAt":           t.CreatedAt.Format(time.RFC3339),
-		"LastUpdatedAt":       t.LastUpdatedAt.Format(time.RFC3339),
+		"CreatedAt":           float64(t.CreatedAt.Unix()),
+		"LastUpdatedAt":       float64(t.LastUpdatedAt.Unix()),
 		keySourceLanguageCode: t.SourceLanguage,
 	}
 
@@ -641,8 +640,8 @@ func parallelDataToMap(pd *ParallelData) map[string]any {
 		keyStatus:             pd.Status,
 		keySourceLanguageCode: pd.SourceLanguage,
 		"TargetLanguageCodes": pd.TargetLanguages,
-		"CreatedAt":           pd.CreatedAt.Format(time.RFC3339),
-		"LastUpdatedAt":       pd.LastUpdatedAt.Format(time.RFC3339),
+		"CreatedAt":           float64(pd.CreatedAt.Unix()),
+		"LastUpdatedAt":       float64(pd.LastUpdatedAt.Unix()),
 	}
 
 	if pd.ParallelDataConfig != nil {
@@ -663,7 +662,7 @@ func jobToMap(job *TranslationJob) map[string]any {
 		"DataAccessRoleArn":   job.DataAccessRoleARN,
 		keySourceLanguageCode: job.SourceLanguage,
 		"TargetLanguageCodes": job.TargetLanguages,
-		"SubmittedTime":       job.SubmittedAt.Format(time.RFC3339),
+		"SubmittedTime":       float64(job.SubmittedAt.Unix()),
 	}
 
 	if job.InputDataConfig != nil {
