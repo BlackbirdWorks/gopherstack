@@ -592,11 +592,11 @@
 
 					<div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
 						{#each [
-							['Broker ARN', selectedBroker.BrokerArn ?? 'N/A'],
 							['Broker ID', selectedBroker.BrokerId ?? 'N/A'],
 							['Engine Version', selectedBroker.EngineVersion ?? 'N/A'],
 							['Deployment Mode', selectedBroker.DeploymentMode ?? 'N/A'],
 							['Host Instance Type', selectedBroker.HostInstanceType ?? 'N/A'],
+							['Auth Strategy', selectedBroker.AuthenticationStrategy ?? 'N/A'],
 							['Auto Minor Upgrade', String(selectedBroker.AutoMinorVersionUpgrade ?? false)],
 							['Publicly Accessible', String(selectedBroker.PubliclyAccessible ?? false)],
 							['Storage Type', selectedBroker.StorageType ?? 'N/A'],
@@ -609,14 +609,41 @@
 						{/each}
 					</div>
 
+					{#if selectedBroker.BrokerArn}
+						<div class="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-3">
+							<p class="text-xs text-slate-500 dark:text-slate-400 mb-1">Broker ARN</p>
+							<p class="text-xs font-mono text-slate-900 dark:text-white break-all">{selectedBroker.BrokerArn}</p>
+						</div>
+					{/if}
+
 					{#if (selectedBroker.BrokerInstances ?? []).length > 0}
 						<div>
 							<h3 class="font-semibold text-slate-900 dark:text-white mb-2">Broker Instances</h3>
-							<div class="space-y-2">
-								{#each selectedBroker.BrokerInstances ?? [] as instance}
-									<div class="bg-slate-50 dark:bg-slate-700/30 rounded-lg px-3 py-2">
-										<p class="text-sm font-medium text-slate-900 dark:text-white">{instance.ConsoleURL ?? 'N/A'}</p>
-										<p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">IP: {instance.IpAddress ?? 'N/A'}</p>
+							<div class="space-y-3">
+								{#each selectedBroker.BrokerInstances ?? [] as instance, i}
+									<div class="bg-slate-50 dark:bg-slate-700/30 rounded-lg p-3 space-y-2">
+										<div class="flex items-center justify-between">
+											<p class="text-xs font-medium text-slate-500 dark:text-slate-400">Instance {i + 1}</p>
+											{#if instance.IpAddress}
+												<span class="text-xs font-mono text-slate-600 dark:text-slate-300">IP: {instance.IpAddress}</span>
+											{/if}
+										</div>
+										{#if instance.ConsoleURL}
+											<div>
+												<p class="text-xs text-slate-500 dark:text-slate-400 mb-0.5">Console URL</p>
+												<p class="text-xs font-mono text-orange-600 dark:text-orange-400 break-all">{instance.ConsoleURL}</p>
+											</div>
+										{/if}
+										{#if (instance.Endpoints ?? []).length > 0}
+											<div>
+												<p class="text-xs text-slate-500 dark:text-slate-400 mb-1">Endpoints</p>
+												<div class="space-y-1">
+													{#each instance.Endpoints ?? [] as endpoint}
+														<p class="text-xs font-mono text-slate-700 dark:text-slate-200 break-all bg-slate-200 dark:bg-slate-600 rounded px-2 py-0.5">{endpoint}</p>
+													{/each}
+												</div>
+											</div>
+										{/if}
 									</div>
 								{/each}
 							</div>
