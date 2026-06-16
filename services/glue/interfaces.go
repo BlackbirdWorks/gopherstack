@@ -373,8 +373,25 @@ type StorageBackend interface {
 	ListDataQualityResults() []*DataQualityResult
 
 	// CatalogImport operations.
+	ImportCatalogToGlue(catalogID string) error
 	GetCatalogImportStatus(catalogID string) *CatalogImportStatus
-	ImportCatalogToGlue(catalogID string)
+
+	// Schema version metadata operations.
+	PutSchemaVersionMetadata(schemaVersionID, key, value string) error
+	QuerySchemaVersionMetadata(schemaVersionID string) map[string]string
+	RemoveSchemaVersionMetadata(schemaVersionID, key string) error
+
+	// Schema lookup by definition.
+	GetSchemaByDefinition(registryName, schemaName, definition string) (*SchemaVersion, error)
+
+	// Schema version diff.
+	GetSchemaVersionsDiff(registryName, schemaName string, v1, v2 int64) (string, error)
+
+	// ETL plan generation.
+	GetPlan(language string) (string, string)
+
+	// Workflow resume.
+	ResumeWorkflowRun(workflowName, runID string) (string, []string, error)
 }
 
 // Snapshottable is an optional interface that a StorageBackend may implement
