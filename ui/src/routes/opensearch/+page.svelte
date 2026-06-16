@@ -65,6 +65,14 @@
 	let updateInstanceType = $state('');
 	let updateInstanceCount = $state(1);
 
+	// Access Policy editor
+	let accessPolicyText = $state('');
+	let savingPolicy = $state(false);
+	const accessPolicyValid = $derived.by(() => {
+		if (!accessPolicyText.trim()) return true;
+		try { JSON.parse(accessPolicyText); return true; } catch { return false; }
+	});
+
 	// Add Tag
 	let showAddTag = $state(false);
 	let newTagKey = $state('');
@@ -101,6 +109,12 @@
 			selectedDomain = resp.DomainStatus ?? null;
 			updateInstanceType = selectedDomain?.ClusterConfig?.InstanceType ?? '';
 			updateInstanceCount = selectedDomain?.ClusterConfig?.InstanceCount ?? 1;
+			const rawPolicy = selectedDomain?.AccessPolicies ?? '';
+			try {
+				accessPolicyText = rawPolicy ? JSON.stringify(JSON.parse(rawPolicy), null, 2) : '';
+			} catch {
+				accessPolicyText = rawPolicy;
+			}
 		} catch (e) {
 			toast.error('Failed to load domain details: ' + String(e));
 		} finally {
@@ -296,6 +310,32 @@
 		}
 	}
 
+	async function saveAccessPolicy() {
+		if (!selectedDomain || !accessPolicyValid) return;
+		savingPolicy = true;
+		try {
+			await opensearch.send(new UpdateDomainConfigCommand({
+				DomainName: selectedDomain.DomainName ?? '',
+				AccessPolicies: accessPolicyText.trim()
+			}));
+			toast.success('Access policy updated');
+			await selectDomain(selectedDomain.DomainName ?? '');
+			activeTab = 'config';
+		} catch (e) {
+			toast.error('Failed to update access policy: ' + String(e));
+		} finally {
+			savingPolicy = false;
+		}
+	}
+
+	function formatAccessPolicy() {
+		try {
+			accessPolicyText = JSON.stringify(JSON.parse(accessPolicyText), null, 2);
+		} catch {
+			toast.error('Invalid JSON — cannot format');
+		}
+	}
+
 	async function deleteDomain(name: string) {
 		if (!await confirmDestructive({ title: 'Delete OpenSearch Domain', message: `Delete domain "${name}"? All indices and data will be permanently lost.` })) return;
 		try {
@@ -452,6 +492,21 @@
 						<div class="text-sm text-gray-900 dark:text-white mt-1">{row.value}</div>
 					</div>
 				{/each}
+
+				<!-- Access Policy editor -->
+				<div class="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4 col-span-2">
+					<div class="flex items-center justify-between mb-2">
+						<div class="text-xs text-gray-500 font-medium">Access Policy (IAM JSON)</div>
+						<div class="flex items-center gap-2">
+							{#if !accessPolicyValid}<span class="text-xs text-red-500">Invalid JSON</span>{/if}
+							<button onclick={formatAccessPolicy} class="px-2 py-1 text-xs rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800">Format JSON</button>
+							<button onclick={saveAccessPolicy} disabled={savingPolicy || !accessPolicyValid} class="px-3 py-1 text-xs rounded bg-cyan-600 text-white hover:bg-cyan-700 disabled:opacity-50">
+								{savingPolicy ? 'Saving...' : 'Save Policy'}
+							</button>
+						</div>
+					</div>
+					<textarea bind:value={accessPolicyText} rows={10} placeholder={'{\n  "Version": "2012-10-17",\n  "Statement": []\n}'} class="w-full px-3 py-2 rounded-lg border {accessPolicyValid ? 'border-gray-200 dark:border-gray-700' : 'border-red-400'} bg-white dark:bg-gray-800 text-xs font-mono text-gray-900 dark:text-white resize-y"></textarea>
+				</div>
 			</div>
 		{/if}
 

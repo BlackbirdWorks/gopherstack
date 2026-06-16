@@ -1,7 +1,8 @@
 <script lang="ts">
 import { confirmDestructive } from '$lib/confirm-dialog';
 import { onMount, onDestroy } from 'svelte';
-import { getKinesisClient } from '$lib/aws-client';
+import { getKinesisClient, getCloudWatchClient } from '$lib/aws-client';
+import { GetMetricStatisticsCommand } from '@aws-sdk/client-cloudwatch';
 import {
 ListStreamsCommand,
 DescribeStreamSummaryCommand,
@@ -40,6 +41,10 @@ import { toast } from 'svelte-sonner';
 import { Waves, Search, RefreshCw, Plus, Trash2, Send, Download, Tag, Shield, Activity, Layers, Settings, ChevronRight, AlertTriangle } from 'lucide-svelte';
 
 const kinesis = getKinesisClient();
+let cw: ReturnType<typeof getCloudWatchClient> | undefined;
+function cwClient() {
+  return (cw ??= getCloudWatchClient());
+}
 
 // Converts a Uint8Array to a base64 string.
 function toBase64(arr: Uint8Array): string {
@@ -58,8 +63,85 @@ let loadingDetail = $state(false);
 let allShards = $state<Shard[]>([]);
 
 // ─── Active tab ─────────────────────────────────────────────────
-type DetailTab = 'overview' | 'shards' | 'records' | 'consumers' | 'tags' | 'settings';
+type DetailTab = 'overview' | 'shards' | 'records' | 'consumers' | 'tags' | 'monitoring' | 'settings';
 let activeTab = $state<DetailTab>('overview');
+
+// ─── Monitoring (CloudWatch metrics) ────────────────────────────
+type MetricPoint = { t: number; v: number };
+const KINESIS_METRICS = [
+  { name: 'IncomingRecords', label: 'Incoming Records', stat: 'Sum', unit: 'count', color: '#6366f1' },
+  { name: 'IncomingBytes', label: 'Incoming Bytes', stat: 'Sum', unit: 'bytes', color: '#0ea5e9' },
+  { name: 'GetRecords.IteratorAgeMilliseconds', label: 'Iterator Age', stat: 'Maximum', unit: 'ms', color: '#f59e0b' },
+  { name: 'WriteProvisionedThroughputExceeded', label: 'Write Throttles', stat: 'Sum', unit: 'count', color: '#ef4444' }
+];
+// Default to the first metric (IncomingRecords) and a 3-hour window.
+let monitoringMetric = $state('IncomingRecords');
+let monitoringRange = $state(3);
+let monitoringPoints = $state<MetricPoint[]>([]);
+let loadingMonitoring = $state(false);
+
+const selectedMetricDef = $derived(KINESIS_METRICS.find((m) => m.name === monitoringMetric) ?? KINESIS_METRICS.at(0)!);
+
+async function loadMonitoring() {
+  if (!selectedStream) return;
+  loadingMonitoring = true;
+  monitoringPoints = [];
+  try {
+    const end = new Date();
+    const start = new Date(end.getTime() - monitoringRange * 3600 * 1000);
+    const period = monitoringRange <= 3 ? 60 : monitoringRange <= 12 ? 300 : 900;
+    const def = selectedMetricDef;
+    const resp = await cwClient().send(new GetMetricStatisticsCommand({
+      Namespace: 'AWS/Kinesis',
+      MetricName: def.name,
+      Dimensions: [{ Name: 'StreamName', Value: selectedStream }],
+      StartTime: start,
+      EndTime: end,
+      Period: period,
+      Statistics: [def.stat as 'Sum' | 'Maximum']
+    }));
+    const stat = def.stat as 'Sum' | 'Maximum';
+    monitoringPoints = (resp.Datapoints ?? [])
+      .map((d) => ({ t: d.Timestamp ? new Date(d.Timestamp).getTime() : 0, v: Number(d[stat] ?? 0) }))
+      .toSorted((a, b) => a.t - b.t);
+  } catch (e) {
+    toast.error('Failed to load metrics: ' + String(e));
+  } finally {
+    loadingMonitoring = false;
+  }
+}
+
+// Build an SVG polyline path for the chart.
+const chartGeom = $derived.by(() => {
+  const H = 200;
+  const W = 640;
+  const pad = 30;
+  const pts = monitoringPoints;
+  if (pts.length === 0) return { W, H, pad, path: '', area: '', maxV: 0, points: [] as Array<{ x: number; y: number; t: number; v: number }> };
+  const maxV = Math.max(1, ...pts.map((p) => p.v));
+  const minT = pts.at(0)!.t;
+  const maxT = pts.at(-1)!.t;
+  const span = Math.max(1, maxT - minT);
+  const xy = pts.map((p) => ({
+    x: pad + ((p.t - minT) / span) * (W - 2 * pad),
+    y: H - pad - (p.v / maxV) * (H - 2 * pad),
+    t: p.t,
+    v: p.v
+  }));
+  const path = xy.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+  const area = `${path} L${xy.at(-1)!.x.toFixed(1)},${H - pad} L${xy.at(0)!.x.toFixed(1)},${H - pad} Z`;
+  return { W, H, pad, path, area, maxV, points: xy };
+});
+
+function formatMetricValue(v: number, unit: string): string {
+  if (unit === 'bytes') {
+    if (v < 1024) return `${v.toFixed(0)} B`;
+    if (v < 1048576) return `${(v / 1024).toFixed(1)} KB`;
+    return `${(v / 1048576).toFixed(1)} MB`;
+  }
+  if (unit === 'ms') return `${v.toFixed(0)} ms`;
+  return v.toLocaleString();
+}
 
 // ─── Create modal ───────────────────────────────────────────────
 let showCreateModal = $state(false);
@@ -786,10 +868,11 @@ class="w-full text-left bg-white dark:bg-slate-800 rounded-lg border p-3 hover:b
 						{ id: 'records', label: 'Records', count: records.length },
 						{ id: 'consumers', label: 'Consumers', count: consumers.length },
 						{ id: 'tags', label: 'Tags', count: tags.length },
+						{ id: 'monitoring', label: 'Monitoring', count: null },
 						{ id: 'settings', label: 'Settings', count: null }
 					] as tab}
 <button
-onclick={() => { activeTab = tab.id as DetailTab; }}
+onclick={() => { activeTab = tab.id as DetailTab; if (tab.id === 'monitoring') loadMonitoring(); }}
 class="px-3 py-2 text-sm font-medium whitespace-nowrap border-b-2 transition-colors {activeTab === tab.id ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}"
 >
 {tab.label}{#if tab.count !== null && tab.count > 0} <span class="ml-1 px-1.5 py-0.5 text-xs rounded-full bg-slate-100 dark:bg-slate-700">{tab.count}</span>{/if}
@@ -1012,6 +1095,48 @@ class="px-3 py-2 text-sm font-medium whitespace-nowrap border-b-2 transition-col
 {/if}
 
 <!-- TAB: Settings -->
+{#if activeTab === 'monitoring'}
+<div class="space-y-4">
+<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-5">
+<div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+<h3 class="font-semibold text-slate-900 dark:text-white flex items-center gap-2"><Activity class="w-4 h-4 text-indigo-500" /> CloudWatch Metrics</h3>
+<div class="flex items-center gap-2">
+<select bind:value={monitoringMetric} onchange={() => loadMonitoring()} class="px-3 py-1.5 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+{#each KINESIS_METRICS as m}<option value={m.name}>{m.label}</option>{/each}
+</select>
+<select bind:value={monitoringRange} onchange={() => loadMonitoring()} class="px-3 py-1.5 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+<option value={1}>Last 1h</option>
+<option value={3}>Last 3h</option>
+<option value={12}>Last 12h</option>
+<option value={24}>Last 24h</option>
+</select>
+<button onclick={() => loadMonitoring()} class="px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm flex items-center gap-1.5"><RefreshCw class="w-3.5 h-3.5 {loadingMonitoring ? 'animate-spin' : ''}" /> Refresh</button>
+</div>
+</div>
+{#if loadingMonitoring}
+<div class="text-center py-12"><div class="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-500"></div></div>
+{:else if monitoringPoints.length === 0}
+<div class="text-center py-12 text-slate-500 dark:text-slate-400">No datapoints for "{selectedMetricDef.label}" in this range.</div>
+{:else}
+<div class="text-xs text-slate-500 dark:text-slate-400 mb-2">
+Peak: {formatMetricValue(chartGeom.maxV, selectedMetricDef.unit)} · {selectedMetricDef.stat} per period
+</div>
+<svg viewBox="0 0 {chartGeom.W} {chartGeom.H}" class="w-full" role="img" aria-label="{selectedMetricDef.label} time series">
+<line x1={chartGeom.pad} y1={chartGeom.H - chartGeom.pad} x2={chartGeom.W - chartGeom.pad} y2={chartGeom.H - chartGeom.pad} stroke="currentColor" class="text-slate-200 dark:text-slate-600" stroke-width="1" />
+<line x1={chartGeom.pad} y1={chartGeom.pad} x2={chartGeom.pad} y2={chartGeom.H - chartGeom.pad} stroke="currentColor" class="text-slate-200 dark:text-slate-600" stroke-width="1" />
+<path d={chartGeom.area} fill={selectedMetricDef.color} opacity="0.12" />
+<path d={chartGeom.path} fill="none" stroke={selectedMetricDef.color} stroke-width="2" />
+{#each chartGeom.points as p}
+<circle cx={p.x} cy={p.y} r="2.5" fill={selectedMetricDef.color}><title>{new Date(p.t).toLocaleString()}: {formatMetricValue(p.v, selectedMetricDef.unit)}</title></circle>
+{/each}
+<text x={chartGeom.pad} y={chartGeom.pad - 8} class="fill-slate-400 text-[10px]">{formatMetricValue(chartGeom.maxV, selectedMetricDef.unit)}</text>
+</svg>
+{/if}
+<p class="text-xs text-slate-400 mt-3">Metrics from the AWS/Kinesis namespace, dimension StreamName={selectedStream}.</p>
+</div>
+</div>
+{/if}
+
 {#if activeTab === 'settings'}
 <div class="space-y-4">
 <!-- Retention -->

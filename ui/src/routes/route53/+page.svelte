@@ -46,6 +46,41 @@
 	let newRecordType = $state<'A' | 'AAAA' | 'CNAME' | 'MX' | 'TXT' | 'NS' | 'SOA' | 'PTR' | 'SRV' | 'CAA' | 'DS' | 'HTTPS' | 'SVCB' | 'SSHFP' | 'TLSA' | 'NAPTR' | 'SPF'>('A');
 	let newRecordTTL = $state(300);
 	let newRecordValues = $state('');
+	// Alias target (instead of free-text values)
+	let newRecordIsAlias = $state(false);
+	let newAliasType = $state<'cloudfront' | 'alb' | 's3' | 'custom'>('alb');
+	let newAliasDNSName = $state('');
+	let newAliasHostedZoneId = $state('');
+	let newAliasEvaluateHealth = $state(false);
+
+	// CloudFront / S3-website hosted-zone constants (AWS well-known).
+	const ALIAS_PRESETS: Record<string, { hostedZoneId: string; hint: string; placeholder: string }> = {
+		cloudfront: { hostedZoneId: 'Z2FDTNDATAQYW2', hint: 'CloudFront always uses hosted zone Z2FDTNDATAQYW2.', placeholder: 'd111111abcdef8.cloudfront.net' },
+		alb: { hostedZoneId: '', hint: 'Use the ALB/NLB DNS name and its canonical hosted zone ID (from the load balancer details).', placeholder: 'my-alb-123.us-east-1.elb.amazonaws.com' },
+		s3: { hostedZoneId: 'Z3AQBSTGFYJSTF', hint: 'S3 website endpoints use a per-region hosted zone (us-east-1 shown).', placeholder: 's3-website-us-east-1.amazonaws.com' },
+		custom: { hostedZoneId: '', hint: 'Enter the target DNS name and its hosted zone ID manually.', placeholder: 'target.example.com' }
+	};
+
+	const ALIASABLE_TYPES = ['A', 'AAAA', 'CNAME'];
+	const aliasAllowed = $derived(ALIASABLE_TYPES.includes(newRecordType));
+
+	// Per-type validation hint for the values textarea.
+	const recordValueHint = $derived.by(() => {
+		switch (newRecordType) {
+			case 'A': return 'One IPv4 address per line, e.g. 192.0.2.1';
+			case 'AAAA': return 'One IPv6 address per line, e.g. 2001:db8::1';
+			case 'CNAME': return 'Exactly one canonical domain name (CNAME cannot coexist with other records at the apex).';
+			case 'MX': return 'One "<priority> <mail-server>" per line, e.g. 10 mail.example.com';
+			case 'TXT': return 'Free-form text; quote values with spaces, e.g. "v=spf1 -all"';
+			case 'SRV': return 'One "<priority> <weight> <port> <target>" per line.';
+			case 'CAA': return 'One "<flags> <tag> <value>" per line, e.g. 0 issue "amazon.com"';
+			default: return 'One value per line.';
+		}
+	});
+
+	function applyAliasPreset() {
+		newAliasHostedZoneId = ALIAS_PRESETS[newAliasType].hostedZoneId;
+	}
 
 	const filteredZones = $derived(
 		zones.filter((z) => !searchQuery || (z.Name ?? '').toLowerCase().includes(searchQuery.toLowerCase()))
@@ -150,29 +185,44 @@
 	}
 
 	async function createRecord() {
-		if (!selectedZone || !newRecordName.trim() || !newRecordValues.trim()) return;
+		if (!selectedZone || !newRecordName.trim()) return;
+		const useAlias = newRecordIsAlias && aliasAllowed;
+		if (useAlias) {
+			if (!newAliasDNSName.trim() || !newAliasHostedZoneId.trim()) return;
+		} else if (!newRecordValues.trim()) {
+			return;
+		}
 		creatingRecord = true;
 		try {
 			const zoneId = (selectedZone.Id ?? '').replace('/hostedzone/', '');
-			const valueLines = newRecordValues.split('\n').filter((v) => v.trim()).map((v) => ({ Value: v.trim() }));
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			const rrs: any = {
+				Name: newRecordName.trim(),
+				Type: newRecordType
+			};
+			if (useAlias) {
+				rrs.AliasTarget = {
+					DNSName: newAliasDNSName.trim(),
+					HostedZoneId: newAliasHostedZoneId.trim(),
+					EvaluateTargetHealth: newAliasEvaluateHealth
+				};
+			} else {
+				rrs.TTL = newRecordTTL;
+				rrs.ResourceRecords = newRecordValues.split('\n').filter((v) => v.trim()).map((v) => ({ Value: v.trim() }));
+			}
 			await r53.send(new ChangeResourceRecordSetsCommand({
 				HostedZoneId: zoneId,
 				ChangeBatch: {
-					Changes: [{
-						Action: 'CREATE',
-						ResourceRecordSet: {
-							Name: newRecordName.trim(),
-							Type: newRecordType,
-							TTL: newRecordTTL,
-							ResourceRecords: valueLines
-						}
-					}]
+					Changes: [{ Action: 'CREATE', ResourceRecordSet: rrs }]
 				}
 			}));
 			toast.success(`Record "${newRecordName}" created`);
 			showCreateRecord = false;
 			newRecordName = '';
 			newRecordValues = '';
+			newRecordIsAlias = false;
+			newAliasDNSName = '';
+			newAliasHostedZoneId = '';
 			await selectZone(selectedZone);
 		} catch (e) {
 			toast.error('Failed to create record: ' + String(e));
@@ -466,18 +516,56 @@
 						{#each recordTypes as t}<option value={t}>{t}</option>{/each}
 					</select>
 				</div>
-				<div>
-					<label for="record-ttl" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">TTL (seconds)</label>
-					<input id="record-ttl" bind:value={newRecordTTL} type="number" min="1" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+				{#if !(newRecordIsAlias && aliasAllowed)}
+					<div>
+						<label for="record-ttl" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">TTL (seconds)</label>
+						<input id="record-ttl" bind:value={newRecordTTL} type="number" min="1" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+					</div>
+				{/if}
+			</div>
+
+			{#if aliasAllowed}
+				<label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+					<input type="checkbox" bind:checked={newRecordIsAlias} class="rounded" />
+					Alias to an AWS resource (CloudFront / ALB / S3) instead of plain values
+				</label>
+			{/if}
+
+			{#if newRecordIsAlias && aliasAllowed}
+				<div class="space-y-3 border border-indigo-200 dark:border-indigo-800 rounded-lg p-3 bg-indigo-50/50 dark:bg-indigo-900/10">
+					<div>
+						<label for="alias-type" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Alias Target Type</label>
+						<select id="alias-type" bind:value={newAliasType} onchange={applyAliasPreset} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm">
+							<option value="cloudfront">CloudFront distribution</option>
+							<option value="alb">Application/Network Load Balancer</option>
+							<option value="s3">S3 website endpoint</option>
+							<option value="custom">Custom target</option>
+						</select>
+						<p class="text-xs text-indigo-600 dark:text-indigo-400 mt-1">{ALIAS_PRESETS[newAliasType].hint}</p>
+					</div>
+					<div>
+						<label for="alias-dns" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Target DNS Name</label>
+						<input id="alias-dns" bind:value={newAliasDNSName} type="text" placeholder={ALIAS_PRESETS[newAliasType].placeholder} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm font-mono" />
+					</div>
+					<div>
+						<label for="alias-zone" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Target Hosted Zone ID</label>
+						<input id="alias-zone" bind:value={newAliasHostedZoneId} type="text" placeholder="Z2FDTNDATAQYW2" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm font-mono" />
+					</div>
+					<label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+						<input type="checkbox" bind:checked={newAliasEvaluateHealth} class="rounded" /> Evaluate target health
+					</label>
 				</div>
-			</div>
-			<div>
-				<label for="record-values" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Values (one per line)</label>
-				<textarea id="record-values" bind:value={newRecordValues} rows={4} placeholder="192.0.2.1" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm font-mono"></textarea>
-			</div>
+			{:else}
+				<div>
+					<label for="record-values" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Values (one per line)</label>
+					<textarea id="record-values" bind:value={newRecordValues} rows={4} placeholder="192.0.2.1" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm font-mono"></textarea>
+					<p class="text-xs text-gray-400 mt-1">{recordValueHint}</p>
+				</div>
+			{/if}
+
 			<div class="flex gap-3 pt-2">
 				<button onclick={() => (showCreateRecord = false)} class="flex-1 px-4 py-2 rounded-lg border text-sm hover:bg-gray-50">Cancel</button>
-				<button onclick={createRecord} disabled={creatingRecord || !newRecordName.trim() || !newRecordValues.trim()} class="flex-1 px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50">
+				<button onclick={createRecord} disabled={creatingRecord || !newRecordName.trim() || (newRecordIsAlias && aliasAllowed ? (!newAliasDNSName.trim() || !newAliasHostedZoneId.trim()) : !newRecordValues.trim())} class="flex-1 px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50">
 					{creatingRecord ? 'Creating...' : 'Create Record'}
 				</button>
 			</div>

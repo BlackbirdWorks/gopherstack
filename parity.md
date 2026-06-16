@@ -367,6 +367,319 @@ Also missing at the platform level:
 
 ## F. Missing per-service UI features (popular services first)
 
+> **Implementation status (branch `parity/mega-v2`).** A first pass on the
+> Popular-services group has shipped the following per-service UI features
+> (all wired to the live AWS JS SDK, no placeholders):
+>
+> - **SQS** — batch send (`SendMessageBatch`) modal with up to 10 entries +
+>   per-entry failure reporting; client-side message filter by body / message
+>   attribute. (DLQ redrive was already present as the Move-Tasks tab.)
+> - **SNS** — structured message-attribute editor (Name / DataType / Value
+>   fields) with a JSON mode that validates and round-trips between the two.
+> - **KMS** — ciphertext base64⇄hex display toggle across encrypt / decrypt /
+>   re-encrypt; key-policy "Format JSON" button + inline JSON validation that
+>   disables Save on parse errors. (Grants tab was already present.)
+> - **Secrets Manager** — structured key-value editor for the secret value
+>   (auto-detects flat-JSON secrets) with a Plaintext fallback mode.
+> - **SSM** — `/`-path folder **tree** navigation (Flat/Tree toggle) with
+>   collapsible folders, in addition to the flat parameter list.
+> - **Lambda** — Event-Source-Mapping (**Triggers**) panel: list, create
+>   (SQS/DynamoDB/Kinesis), enable/disable, delete.
+> - **Athena** — query-result **export** to CSV and JSON.
+> - **CloudWatch Logs** — Insights query **CSV export**.
+>
+> **Second pass (branch `parity/mega-v2`)** — the remaining popular-services
+> features now shipped (all wired to the live AWS JS SDK, matching each page's
+> existing tab/list/detail/search patterns, no placeholders):
+>
+> - **S3** — server **access-logging** config + view (`GetBucketLogging`/
+>   `PutBucketLogging`); **Analytics** tab: size-by-top-level-prefix breakdown
+>   with totals + share bars (computed from `ListObjectsV2`, capped at 10k
+>   objects); static-**website endpoint URL** display + copy. (Inline object
+>   preview, metadata/tag editor, and batch delete already existed.)
+> - **DynamoDB** — **PITR** (point-in-time recovery) enable/disable + restorable
+>   window display (`DescribeContinuousBackups`/`UpdateContinuousBackups`) in the
+>   Backups tab. (Query-by-index already existed via the index selector.)
+> - **EC2** — security-group **rule editor** (expand row → list/add/revoke
+>   ingress rules) + **create/delete** security group; **Elastic IP** allocate /
+>   associate / disassociate / release. (Instance Details drill-down already
+>   existed.)
+> - **Lambda** — **Versions / Aliases / Concurrency** panel: publish version,
+>   list versions, create/delete aliases, set/clear reserved concurrency.
+> - **IAM** — user **inline-policy** editor (list/get/put/delete with JSON
+>   validation) and **group membership** (list/add/remove) in the user detail.
+> - **CloudWatch** — **metric charts**: click any metric chip to open a
+>   `GetMetricStatistics` SVG time-series with statistic / range / period
+>   selectors.
+> - **Step Functions** — execution **state timeline** (built from history
+>   events), **redrive** of failed/timed-out/aborted executions, and an ASL
+>   **validator** (`ValidateStateMachineDefinition`) in the definition editor.
+> - **RDS** — **parameter-group editor** (expand → `DescribeDBParameters` +
+>   `ModifyDBParameterGroup`) and snapshot **restore** to a new instance.
+> - **ECS** — **service update**: desired count / task-definition / force new
+>   deployment via `UpdateService` (with live counts from `DescribeServices`).
+> - **ECR** — **CVE scan-findings** detail (`DescribeImageScanFindings`) per
+>   image with severity badges, plus a **docker login/pull/push** snippet block.
+> - **EKS** — **kubeconfig** CLI command (copyable) on cluster overview and
+>   node-group **scaling** (min/desired/max via `UpdateNodegroupConfig`).
+> - **EventBridge** — rule **target** view/add/remove (`ListTargetsByRule`/
+>   `PutTargets`/`RemoveTargets`) and archive **replay** (`StartReplay`, archive
+>   ARN auto-filled via `DescribeArchive`).
+> - **CloudFormation** — **Stack Policy** tab: view/edit JSON stack policy
+>   (`GetStackPolicy`/`SetStackPolicy`) with validation.
+> - **ElastiCache** — **parameter-group editor** (`DescribeCacheParameters`/
+>   `ModifyCacheParameterGroup`) and replication-group manual **TestFailover**.
+>
+> **Third pass (branch `parity/mega-v2`)** — non-popular-group per-service
+> features now shipped (all wired to the live AWS JS SDK through the gopherstack
+> endpoint, matching each page's existing tab/list/detail patterns, no
+> placeholders):
+>
+> - **Translate** (ML/AI) — **Run Translation** tab: live `TranslateText` with
+>   source (incl. auto-detect) / target language selectors, result pane, and
+>   detected-source-language display.
+> - **Comprehend** (ML/AI) — **Inference Tester** tab: live `DetectSentiment`
+>   (score bars), `DetectEntities` (typed entity chips), `DetectKeyPhrases`, and
+>   `DetectDominantLanguage` (confidence bars) on sample text with a language
+>   selector.
+> - **Polly** (ML/AI) — **output-format selector** (MP3 / Ogg Vorbis / PCM) on
+>   the synthesize demo; raw PCM is wrapped in a WAV container client-side so it
+>   plays in-browser.
+> - **WorkSpaces** (Messaging/misc) — **start / stop / reboot / rebuild**
+>   lifecycle actions on the workspace detail (previously terminate-only), via
+>   `StartWorkspaces`/`StopWorkspaces`/`RebootWorkspaces`/`RebuildWorkspaces`.
+> - **CloudTrail** (Messaging/misc) — Event-History rows are now **expandable**
+>   to show the full pretty-printed `CloudTrailEvent` JSON.
+> - **Transfer** (Networking/edge) — connector **TestConnection** action with
+>   per-connector status/message reporting.
+> - **Firehose** (Data/analytics) — **batch PutRecords**: a Batch mode in the
+>   Put-Record tab with a one-record-per-line editor, live parsed **preview**
+>   (capped display), `PutRecordBatch` send, and per-record failure reporting.
+> - **ApplicationAutoScaling** (Compute/scaling) — **scaling-activity timeline**
+>   tab (`DescribeScalingActivities`, includes not-scaled activities) with
+>   status-coloured event markers, cause/status messages, and start/end times.
+>
+> **Fourth pass (branch `parity/mega-v2`)** — next batch of non-popular-group
+> per-service features shipped (all wired to the live AWS JS SDK through the
+> gopherstack endpoint, matching each page's existing tab/list/detail patterns,
+> no placeholders):
+>
+> - **DMS** (Networking/edge) — endpoint **TestConnection**: per-endpoint modal
+>   that picks a replication instance, runs `TestConnection`, then polls
+>   `DescribeConnections` (endpoint-arn filter) until the test settles, showing
+>   status pill + `LastFailureMessage`.
+> - **EFS** (Storage/database) — **access-point** management in the file-system
+>   detail: list (`DescribeAccessPoints`), create (`CreateAccessPoint` with root
+>   path + POSIX UID/GID + creation-info permissions), and delete
+>   (`DeleteAccessPoint`).
+> - **CodeBuild** (Compute) — **Start Build** action on the project detail
+>   (`StartBuild`, refreshes history) and **Stop Build** on in-progress builds
+>   (`StopBuild`).
+> - **X-Ray** (Messaging/misc) — trace **detail drawer** with a segment
+>   **timeline** (`BatchGetTraces`, recursively flattens segment/subsegment
+>   documents into proportional latency bars, fault/error coloured), plus the
+>   previously-missing **Service Graph** tab rendering (`GetServiceGraph`
+>   summary statistics: requests / faults / errors / avg latency).
+> - **Route53Resolver** (Networking/edge) — firewall-rule **priority reorder**
+>   (up/down arrows swap adjacent priorities via two `UpdateFirewallRule` calls,
+>   then re-lists the group's rules).
+> - **Batch** (Compute) — container **log streaming**: the job-detail modal
+>   fetches `GetLogEvents` from the `/aws/batch/job` CloudWatch log group keyed
+>   by the container's `logStreamName`, rendered as a timestamped console.
+> - **AppSync** (API/app-integration) — **data-source create** UI
+>   (`CreateDataSource` for DynamoDB / Lambda / HTTP / NONE / Relational, with
+>   per-type config fields) + **delete** (`DeleteDataSource`); GraphQL **schema
+>   upload (SDL)** via `StartSchemaCreation`.
+> - **GuardDuty** (Security/identity) — finding **detail drawer**
+>   (resource/service metadata + raw JSON) with **archive / unarchive**
+>   (`ArchiveFindings` / `UnarchiveFindings`).
+> - **SecurityHub** (Security/identity) — finding **detail drawer** (remediation
+>   recommendation + affected resources) with **workflow-status** update
+>   (`BatchUpdateFindings`: NEW / NOTIFIED / RESOLVED / SUPPRESSED).
+>
+> **Fifth pass (branch `parity/mega-v2`)** — per-service leftovers within
+> already-touched pages, plus correction of two stale "not wirable" notes (all
+> wired to the live AWS JS SDK, matching each page's existing patterns, no
+> placeholders):
+>
+> - **MQ** and **AppConfig/AppConfigData** — the earlier "not wirable" claim was
+>   **wrong**: `services/mq` exposes REST-style ops (ListBrokers, DescribeBroker,
+>   CreateBroker, UpdateBroker, DeleteBroker, RebootBroker, ListConfigurations,
+>   ListUsers/CreateUser/UpdateUser/DeleteUser, …) and `services/appconfig`
+>   exposes the full Applications/Environments/Profiles/Deployments/Strategies/
+>   Extensions surface. **Both UI pages are already fully built and SDK-wired**
+>   (`ui/src/routes/mq/+page.svelte`: broker CRUD + reboot + update + user
+>   management + configurations; `ui/src/routes/appconfig/+page.svelte`:
+>   applications/strategies/extensions/associations/settings tabs with create/
+>   delete + deployment start/stop), with passing `page.test.ts` for each.
+>   No further work was needed beyond confirming this.
+> - **Polly** (ML/AI/media) — **lexicon editor**: New-Lexicon and per-lexicon
+>   view/edit (`GetLexicon` → PLS-XML textarea) + save (`PutLexicon`) + delete
+>   (`DeleteLexicon`); lexicon rows now show alphabet / language / lexeme count.
+> - **GuardDuty** (Security/identity) — detector **finding-publishing-frequency**
+>   selector (FIFTEEN_MINUTES / ONE_HOUR / SIX_HOURS) wired to `UpdateDetector`,
+>   inline on each detector row.
+> - **SecurityHub** (Security/identity) — **custom-insight creation**
+>   (`CreateInsight` with name + group-by-attribute + severity/active filter) and
+>   per-insight **delete** (`DeleteInsight`); insights now show their group-by
+>   attribute.
+> - **X-Ray** (Messaging/misc) — segment **annotations & metadata inspection**:
+>   each trace-detail segment with annotations or (namespaced) metadata is
+>   clickable to expand a key/value panel (parsed from the segment documents
+>   already fetched via `BatchGetTraces`).
+> - **AppSync** (API/app-integration) — resolver **pipeline-function config**:
+>   the resolver editor now has a UNIT/PIPELINE kind toggle; PIPELINE mode adds an
+>   ordered function picker (add/remove/reorder) saved through `UpdateResolver`
+>   `pipelineConfig.functions` (UNIT keeps `dataSourceName`).
+> - **CodeBuild** (Compute) — project-detail **cache & artifacts info** cells
+>   (cache type/location/modes; artifact type/location/packaging) read from the
+>   `BatchGetProjects` data already loaded.
+>
+> **Sixth pass (branch `parity/mega-v2`)** — ML/AI/media group features now
+> shipped (all wired to the live AWS JS SDK through the gopherstack endpoint,
+> matching each page's existing tab/list/detail patterns, no placeholders; all
+> AWS clients constructed lazily inside handlers):
+>
+> - **Bedrock** (ML/AI/media) — **model invoke/test playground** tab
+>   (`InvokeModel` via `@aws-sdk/client-bedrock-runtime`): model-id picker
+>   (populated from `ListFoundationModels`) + sample prompts + max-tokens /
+>   temperature controls; request body is built per-provider (Anthropic Claude
+>   Messages, Titan/Nova, Llama/Meta, Cohere/Mistral generic) and the response
+>   text is extracted from the common Bedrock response shapes with a raw-JSON
+>   disclosure.
+> - **SageMaker** (ML/AI/media) — endpoint **A/B traffic-split / variant-weight
+>   editor**: each endpoint row expands to `DescribeEndpoint` production variants
+>   with per-variant weight inputs, live normalized %-share bars, and a save via
+>   `UpdateEndpointWeightsAndCapacities`.
+> - **Comprehend** (ML/AI/media) — classifier/recognizer **training-metrics**
+>   expansion (Accuracy / Precision / Recall / F1 / Micro-F1 / Hamming-loss bars
+>   from `ClassifierMetadata`/`RecognizerMetadata.EvaluationMetrics`) plus a
+>   **model-version comparison** table (multi-select classifiers → side-by-side
+>   metrics by version).
+> - **Rekognition** (ML/AI/media) — **face-detail** tab (`DetectFaces` with
+>   `Attributes: ALL` on an S3 image → per-face confidence, age range, gender,
+>   smile, eyeglasses, eyes-open, top emotion) plus stream-processor
+>   **start/stop** (`StartStreamProcessor`/`StopStreamProcessor`).
+> - **Polly** (ML/AI/media) — synthesize-demo **lexicon selector** ("test
+>   pronunciation"): chosen lexicons are passed as `LexiconNames` to
+>   `SynthesizeSpeech`. (Output-format selector + lexicon editor already shipped
+>   passes 3/5.)
+> - **Transcribe** (ML/AI/media) — **transcript download** on COMPLETED jobs:
+>   `GetTranscriptionJob` → fetch `Transcript.TranscriptFileUri` → save the
+>   transcript JSON locally.
+> - **Textract** (ML/AI/media) — **local document upload** (synchronous
+>   `AnalyzeDocument` on file bytes) alongside the S3-object mode, selectable
+>   **feature types** (TABLES / FORMS / SIGNATURES / LAYOUT — was hard-coded), and
+>   **result JSON export**.
+> - **MediaConvert** (ML/AI/media) — Create-Job **input/output settings editor**:
+>   S3 input file + output destination, container (MP4/MOV/M3U8/WEBM/MKV) and
+>   video/audio codec selectors building real `Settings.Inputs` + `OutputGroups`,
+>   or apply an existing **preset** by name (overrides inline codec choices).
+>
+> **Seventh pass (branch `parity/mega-v2`)** — Data/analytics + Storage/database +
+> Networking/edge service group (all wired to the live AWS JS SDK through the
+> gopherstack endpoint, matching each page's existing tab/list/detail patterns,
+> no placeholders; clients lazily constructed in handlers):
+>
+> - **FSx** (Storage/database) — **create file system** modal (Lustre / Windows /
+>   ONTAP / OpenZFS with per-type config + subnet + capacity via
+>   `CreateFileSystem`), per-file-system **detail drill-down** (lifecycle, storage,
+>   VPC, DNS, ARN), **create backup** (`CreateBackup`) and **delete backup**
+>   (`DeleteBackup`) plus **delete file system** (`DeleteFileSystem`). (Was
+>   read-only/list-only before.)
+> - **Glue** (Data/analytics) — crawler **schedule editor** (`UpdateCrawlerSchedule`
+>   with a cron expression modal) and **pause/resume schedule**
+>   (`StopCrawlerSchedule`/`StartCrawlerSchedule`) inline on each crawler row.
+> - **Athena** (Data/analytics) — **Saved Queries** (named-query) tab:
+>   `ListNamedQueries` + `BatchGetNamedQuery` listing, **Save Query** from the
+>   editor (`CreateNamedQuery`), **load into editor**, and **delete**
+>   (`DeleteNamedQuery`). (Result export + data-scanned cost already existed.)
+> - **OpenSearch** (Networking/edge) — domain **access-policy JSON editor** in the
+>   Config tab (loads `AccessPolicies`, validates JSON, Format-JSON button, saves
+>   via `UpdateDomainConfig`).
+> - **Neptune** (Storage/database) — cluster **failover** action
+>   (`FailoverDBCluster`, promotes a reader; shown only for multi-member available
+>   clusters).
+> - **DocDB** (Storage/database) — parameter-group **value editor**: expand a group
+>   to `DescribeDBClusterParameters`, edit modifiable values inline, and save
+>   changed parameters via `ModifyDBClusterParameterGroup` (apply-method
+>   pending-reboot). (Also converted the page's client to lazy construction.)
+> - **CloudFront** (Networking/edge) — **default cache-behavior editor**: edit
+>   viewer-protocol policy, allowed methods, compress, and Min/Default TTL, saved
+>   through `UpdateDistribution` (GetDistribution ETag round-tripped via `IfMatch`).
+> - **ELBv2** (Networking/edge) — listener-rule **priority reorder** (up/down arrows
+>   swap adjacent priorities via `SetRulePriorities`), target-group **stickiness
+>   editor** (`DescribeTargetGroupAttributes`/`ModifyTargetGroupAttributes`,
+>   lb_cookie) and **target registration/deregistration**
+>   (`RegisterTargets`/`DeregisterTargets`, IP or instance) in the target-health
+>   panel.
+> - **Kinesis** (Data/analytics) — **Monitoring** tab: CloudWatch
+>   `GetMetricStatistics` SVG time-series (IncomingRecords / IncomingBytes /
+>   GetRecords.IteratorAgeMilliseconds / WriteProvisionedThroughputExceeded) with
+>   metric + time-range selectors and per-point tooltips.
+> - **Route53** (Networking/edge) — record-create **alias-target picker**
+>   (CloudFront / ALB / S3 / custom, with well-known hosted-zone presets +
+>   evaluate-target-health) replacing free-text for A/AAAA/CNAME, plus per-type
+>   **validation hints** for the values field.
+> - **EMR** (Data/analytics) — **already complete on inspection**: autoscaling +
+>   managed-scaling policy editor, bootstrap-action list, steps, notebooks, and
+>   studios are all present and SDK-wired; no further work needed.
+>
+> **§F remaining** (still outstanding, for follow-up agents):
+>
+> - **Popular-services leftovers** (lower-value within the already-touched
+>   pages): S3 batch copy/rename + request-metrics; DynamoDB auto-scaling /
+>   global-tables / Contributor-Insights; EC2 subnet create/edit + metrics link;
+>   Lambda **code update** (zip/image) + resource-policy view; IAM
+>   login-profile/password + MFA-device + permission-boundary; SNS topic-metrics
+>   graphs; CloudWatch dashboard **widget editor** + metric-stream edit; SFN
+>   per-state result/variable inspection + log links; RDS read-replica/proxy +
+>   performance metrics; ECS task/container **log streaming** + ECS-Exec +
+>   autoscaling; ECR layer/SBOM + lifecycle rule-builder + replication UI; EKS
+>   kubectl-style workload list + node utilization; EventBridge event-pattern
+>   visual builder + DLQ + API-destination rotation; CloudFormation dependency
+>   **graph** + nested-stack drill-down + change-set approval; ElastiCache
+>   performance-metrics graphs + event timeline + user/ACL viewer.
+> - **Non-popular groups — remaining.** The third and fourth passes have now
+>   shipped at least one solid feature each for Translate, Comprehend, Polly,
+>   WorkSpaces, CloudTrail, Transfer, Firehose, ApplicationAutoScaling (pass 3)
+>   and DMS, EFS, CodeBuild, X-Ray, Route53Resolver, Batch, AppSync, GuardDuty,
+>   SecurityHub (pass 4). **Already-complete on inspection** (no work needed):
+>   Glacier already displays job/inventory output via `GetJobOutput`; AutoScaling
+>   already wires instance-protection toggle + lifecycle-hook view/create/delete.
+>   Still-outstanding enhancement candidates within partially-touched services
+>   (pass 5 cleared Polly lexicon, X-Ray annotations/metadata, AppSync pipeline
+>   config, GuardDuty publishing-frequency, SecurityHub custom-insight, CodeBuild
+>   cache/artifact info — see fifth pass above; **pass 6 cleared the whole
+>   ML/AI/media group**: Bedrock playground, SageMaker A/B variant weights,
+>   Comprehend training-accuracy/F1 + model-version compare, Rekognition face
+>   detail, Polly lexicon test-pronunciation, Transcribe transcript download,
+>   Textract local upload + feature-types + result export, MediaConvert
+>   input/output settings editor — see sixth pass above):
+>   WorkSpaces
+>   bundle selector + connection diagnostics; CloudTrail attribute-filter builder
+>   + delivery timeline; Transfer transfer/connection logs + SSH-key fingerprint;
+>   Firehose throughput charts + test-delivery; ApplicationAutoScaling
+>   step-scaling threshold editor + policy adjustment history; CodeBuild build-log
+>   streaming (logs land in CloudWatch — same pattern as the Batch log viewer
+>   shipped in pass 4); X-Ray trace comparison; AppSync resolver field-mapping
+>   visual builder; GuardDuty SNS-config + finding export. Untouched groups with
+>   open items: Data/analytics (Glue, EMR, Kinesis monitoring, KinesisAnalytics
+>   code editor, RedshiftData result-grid, LakeFormation permission-matrix),
+>   Storage/database (FSx create, Neptune query console, DocDB/MemoryDB param
+>   editors), Networking/edge (CloudFront cache-behaviour editor, ELBv2
+>   listener-rule reorder, OpenSearch/Elasticsearch config), Security/identity
+>   (Cognito user drill-down, Organizations move-account, SSOAdmin inline policy,
+>   VerifiedPermissions Cedar linter), ML/AI/media (**all primary §F items shipped
+>   in pass 6** — see above; remaining nice-to-haves: BedrockRuntime token
+>   streaming, SageMaker training curves / HPO dashboard, SageMakerRuntime async
+>   poller, MediaStore metrics), and
+>   Messaging (SES receipt-rule actions, Pinpoint journey builder, SWF payload
+>   viewer, IoT rule tester, the Code* suite, Amplify, MWAA, S3Control/S3Tables).
+>   (Correction: the earlier note that **MQ** and **AppConfig/AppConfigData** are
+>   "not wirable" was wrong — both have full backend operations and their UI
+>   pages are already built and SDK-wired; see the fifth pass above.)
+
 ### Popular services
 
 - **S3** (`ui/src/routes/s3/+page.svelte`) — inline object **preview/viewer** (text/JSON/image)
