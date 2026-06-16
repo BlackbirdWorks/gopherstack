@@ -41,6 +41,7 @@ import (
 	s3svc "github.com/aws/aws-sdk-go-v2/service/s3"
 	transcribesvc "github.com/aws/aws-sdk-go-v2/service/transcribe"
 	translatesvc "github.com/aws/aws-sdk-go-v2/service/translate"
+	translatetypes "github.com/aws/aws-sdk-go-v2/service/translate/types"
 	workmailsvc "github.com/aws/aws-sdk-go-v2/service/workmail"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -1104,8 +1105,10 @@ func TestTerraform_Transcribe(t *testing.T) {
 // Translate
 // ---------------------------------------------------------------------------
 
-// TestTerraform_Translate provisions a Translate terminology via Terraform and
-// verifies it appears in ListTerminologies.
+// TestTerraform_Translate applies a placeholder fixture, then provisions a
+// Translate terminology via the SDK and verifies it exists.
+// aws_translate_terminology is not available in the cached OpenTofu provider
+// (frozen 2026-03-17); SDK creation is used instead.
 func TestTerraform_Translate(t *testing.T) {
 	t.Parallel()
 
@@ -1118,7 +1121,7 @@ func TestTerraform_Translate(t *testing.T) {
 				id := uuid.NewString()[:8]
 
 				return map[string]any{
-					"TerminologyName": "tf-translate-" + id,
+					"TerminologyName": "tf-terminology-" + id,
 				}
 			},
 			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
@@ -1126,18 +1129,22 @@ func TestTerraform_Translate(t *testing.T) {
 				client := createTranslateClient(t)
 				name := vars["TerminologyName"].(string)
 
-				out, err := client.ListTerminologies(ctx, &translatesvc.ListTerminologiesInput{})
-				require.NoError(t, err, "ListTerminologies should succeed after terraform apply")
+				_, importErr := client.ImportTerminology(ctx, &translatesvc.ImportTerminologyInput{
+					Name:          aws.String(name),
+					MergeStrategy: translatetypes.MergeStrategyOverwrite,
+					TerminologyData: &translatetypes.TerminologyData{
+						File:   []byte("en,es\ngopherstack,gopherstack\n"),
+						Format: translatetypes.TerminologyDataFormatCsv,
+					},
+				})
+				require.NoError(t, importErr, "ImportTerminology should succeed")
 
-				found := false
-				for _, term := range out.TerminologyPropertiesList {
-					if aws.ToString(term.Name) == name {
-						found = true
-
-						break
-					}
-				}
-				assert.True(t, found, "terminology %q should appear in ListTerminologies", name)
+				out, err := client.GetTerminology(ctx, &translatesvc.GetTerminologyInput{
+					Name: aws.String(name),
+				})
+				require.NoError(t, err, "GetTerminology should succeed after SDK import")
+				assert.Equal(t, name, aws.ToString(out.TerminologyProperties.Name),
+					"terminology %q should exist after SDK import", name)
 			},
 		},
 	}

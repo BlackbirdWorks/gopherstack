@@ -310,7 +310,9 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			strings.HasPrefix(path, pathDatastores) ||
 			strings.HasPrefix(path, pathDatasets) ||
 			strings.HasPrefix(path, pathPipelines) {
-			return true
+			svc := httputils.ExtractServiceFromRequest(c.Request())
+
+			return svc == "" || svc == iotAnalyticsService
 		}
 
 		if path == pathTags || strings.HasPrefix(path, pathTags+"?") || strings.HasPrefix(path, pathTags+"/") {

@@ -3479,6 +3479,11 @@ func (b *InMemoryBackend) AddPermission(functionName string, input *AddPermissio
 	b.mu.Lock("AddPermission")
 	defer b.mu.Unlock()
 
+	if strings.HasPrefix(functionName, "arn:aws:lambda:") {
+		parts := strings.Split(functionName, ":")
+		functionName = parts[len(parts)-1]
+	}
+
 	if _, ok := b.functions[functionName]; !ok {
 		return nil, ErrFunctionNotFound
 	}

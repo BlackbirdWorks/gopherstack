@@ -59,8 +59,8 @@ func createTestChannel(t *testing.T, h *medialive.Handler) string {
 	t.Helper()
 
 	rec := doRequest(t, h, http.MethodPost, "/prod/channels", map[string]any{
-		"Name":         "test-channel",
-		"ChannelClass": "STANDARD",
+		"name":         "test-channel",
+		"channelClass": "STANDARD",
 	})
 	require.Equal(t, http.StatusCreated, rec.Code)
 
@@ -75,14 +75,14 @@ func createTestInput(t *testing.T, h *medialive.Handler) string {
 	t.Helper()
 
 	rec := doRequest(t, h, http.MethodPost, "/prod/inputs", map[string]any{
-		"Name": "test-input",
-		"Type": "UDP_PUSH",
+		"name": "test-input",
+		"type": "UDP_PUSH",
 	})
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	inp := resp["Input"].(map[string]any)
+	inp := resp["input"].(map[string]any)
 
 	return inp["Id"].(string)
 }
@@ -98,7 +98,7 @@ func TestAudit1_Channel_Create(t *testing.T) {
 	}{
 		{
 			name:     "create returns channel with ARN and IDLE state",
-			body:     map[string]any{"Name": "my-channel", "ChannelClass": "STANDARD"},
+			body:     map[string]any{"name": "my-channel", "channelClass": "STANDARD"},
 			wantCode: http.StatusCreated,
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
@@ -150,7 +150,7 @@ func TestAudit1_Channel_CRUD(t *testing.T) {
 
 	// Update
 	rec = doRequest(t, h, http.MethodPut, "/prod/channels/"+channelID, map[string]any{
-		"Name": "updated-channel",
+		"name": "updated-channel",
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var updateResp map[string]any
@@ -259,12 +259,12 @@ func TestAudit1_Input_CRUD(t *testing.T) {
 
 	// Update
 	rec = doRequest(t, h, http.MethodPut, "/prod/inputs/"+inputID, map[string]any{
-		"Name": "updated-input",
+		"name": "updated-input",
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var updateResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp))
-	inp := updateResp["Input"].(map[string]any)
+	inp := updateResp["input"].(map[string]any)
 	assert.Equal(t, "updated-input", inp["Name"])
 
 	// List

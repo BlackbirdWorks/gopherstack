@@ -843,6 +843,14 @@ func (rc *ResourceCreator) createPhase3AppServiceResource(
 		physID, err := rc.createAPIGatewayV2Stage(logicalID, props, params, physicalIDs)
 
 		return physID, true, err
+	case "AWS::ApiGatewayV2::Integration":
+		physID, err := rc.createAPIGatewayV2Integration(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case "AWS::ApiGatewayV2::Route":
+		physID, err := rc.createAPIGatewayV2Route(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
 	case "AWS::CodeBuild::Project":
 		physID, err := rc.createCodeBuildProject(logicalID, props, params, physicalIDs)
 

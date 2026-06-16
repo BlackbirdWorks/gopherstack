@@ -1243,8 +1243,8 @@ func (h *Handler) describeAlgorithm(input map[string]any) (map[string]any, error
 			"algorithmArn":         algorithmArn,
 			keyName:                "user-personalization",
 			keyStatus:              statusActive,
-			keyCreationDateTime:    time.Now().UTC().Format(time.RFC3339),
-			keyLastUpdatedDateTime: time.Now().UTC().Format(time.RFC3339),
+			keyCreationDateTime:    float64(time.Now().Unix()),
+			keyLastUpdatedDateTime: float64(time.Now().Unix()),
 		},
 	}, nil
 }
@@ -1259,8 +1259,8 @@ func (h *Handler) describeFeatureTransformation(input map[string]any) (map[strin
 			"featureTransformationArn": ftArn,
 			keyName:                    "aws-feature-transformation",
 			keyStatus:                  statusActive,
-			keyCreationDateTime:        time.Now().UTC().Format(time.RFC3339),
-			keyLastUpdatedDateTime:     time.Now().UTC().Format(time.RFC3339),
+			keyCreationDateTime:        float64(time.Now().Unix()),
+			keyLastUpdatedDateTime:     float64(time.Now().Unix()),
 		},
 	}, nil
 }
@@ -1307,8 +1307,8 @@ func datasetGroupToMap(dg *DatasetGroup) map[string]any {
 		"kmsKeyArn":            dg.KmsKeyArn,
 		keyRoleArn:             dg.RoleArn,
 		keyStatus:              dg.Status,
-		keyCreationDateTime:    dg.CreationDateTime.Format(time.RFC3339),
-		keyLastUpdatedDateTime: dg.LastUpdatedDateTime.Format(time.RFC3339),
+		keyCreationDateTime:    float64(dg.CreationDateTime.Unix()),
+		keyLastUpdatedDateTime: float64(dg.LastUpdatedDateTime.Unix()),
 	}
 }
 
@@ -1320,8 +1320,8 @@ func datasetToMap(ds *Dataset) map[string]any {
 		keyName:                ds.Name,
 		"datasetType":          ds.DatasetType,
 		keyStatus:              ds.Status,
-		keyCreationDateTime:    ds.CreationDateTime.Format(time.RFC3339),
-		keyLastUpdatedDateTime: ds.LastUpdatedDateTime.Format(time.RFC3339),
+		keyCreationDateTime:    float64(ds.CreationDateTime.Unix()),
+		keyLastUpdatedDateTime: float64(ds.LastUpdatedDateTime.Unix()),
 	}
 }
 
@@ -1331,8 +1331,8 @@ func schemaToMap(s *Schema) map[string]any {
 		keyName:                s.Name,
 		"schema":               s.Schema,
 		keyDomain:              s.Domain,
-		keyCreationDateTime:    s.CreationDateTime.Format(time.RFC3339),
-		keyLastUpdatedDateTime: s.LastUpdatedDateTime.Format(time.RFC3339),
+		keyCreationDateTime:    float64(s.CreationDateTime.Unix()),
+		keyLastUpdatedDateTime: float64(s.LastUpdatedDateTime.Unix()),
 	}
 }
 
@@ -1345,8 +1345,8 @@ func solutionToMap(sol *Solution) map[string]any {
 		"performAutoML":        sol.PerformAutoML,
 		"performHPO":           sol.PerformHPO,
 		keyStatus:              sol.Status,
-		keyCreationDateTime:    sol.CreationDateTime.Format(time.RFC3339),
-		keyLastUpdatedDateTime: sol.LastUpdatedDateTime.Format(time.RFC3339),
+		keyCreationDateTime:    float64(sol.CreationDateTime.Unix()),
+		keyLastUpdatedDateTime: float64(sol.LastUpdatedDateTime.Unix()),
 	}
 }
 
@@ -1357,8 +1357,8 @@ func solutionVersionToMap(sv *SolutionVersion) map[string]any {
 		keyStatus:              sv.Status,
 		"trainingMode":         sv.TrainingMode,
 		"trainingHours":        sv.TrainingHours,
-		keyCreationDateTime:    sv.CreationDateTime.Format(time.RFC3339),
-		keyLastUpdatedDateTime: sv.LastUpdatedDateTime.Format(time.RFC3339),
+		keyCreationDateTime:    float64(sv.CreationDateTime.Unix()),
+		keyLastUpdatedDateTime: float64(sv.LastUpdatedDateTime.Unix()),
 	}
 }
 
@@ -1369,8 +1369,8 @@ func campaignToMap(c *Campaign) map[string]any {
 		keySolutionVersionArn:  c.SolutionVersionArn,
 		"minProvisionedTPS":    c.MinProvisionedTPS,
 		keyStatus:              c.Status,
-		keyCreationDateTime:    c.CreationDateTime.Format(time.RFC3339),
-		keyLastUpdatedDateTime: c.LastUpdatedDateTime.Format(time.RFC3339),
+		keyCreationDateTime:    float64(c.CreationDateTime.Unix()),
+		keyLastUpdatedDateTime: float64(c.LastUpdatedDateTime.Unix()),
 	}
 }
 
@@ -1381,8 +1381,8 @@ func eventTrackerToMap(et *EventTracker) map[string]any {
 		keyDatasetGroupArn:     et.DatasetGroupArn,
 		"trackingId":           et.TrackingID,
 		keyStatus:              et.Status,
-		keyCreationDateTime:    et.CreationDateTime.Format(time.RFC3339),
-		keyLastUpdatedDateTime: et.LastUpdatedDateTime.Format(time.RFC3339),
+		keyCreationDateTime:    float64(et.CreationDateTime.Unix()),
+		keyLastUpdatedDateTime: float64(et.LastUpdatedDateTime.Unix()),
 	}
 }
 
@@ -1393,8 +1393,8 @@ func filterToMap(f *Filter) map[string]any {
 		keyDatasetGroupArn:     f.DatasetGroupArn,
 		"filterExpression":     f.FilterExpression,
 		keyStatus:              f.Status,
-		keyCreationDateTime:    f.CreationDateTime.Format(time.RFC3339),
-		keyLastUpdatedDateTime: f.LastUpdatedDateTime.Format(time.RFC3339),
+		keyCreationDateTime:    float64(f.CreationDateTime.Unix()),
+		keyLastUpdatedDateTime: float64(f.LastUpdatedDateTime.Unix()),
 	}
 }
 
@@ -1408,8 +1408,8 @@ func recommenderToMap(r *Recommender) map[string]any {
 		"recommenderConfig": map[string]any{
 			"minRecommendationRequestsPerSecond": r.MinRecommendationRequestsPerSecond,
 		},
-		keyCreationDateTime:    r.CreationDateTime.Format(time.RFC3339),
-		keyLastUpdatedDateTime: r.LastUpdatedDateTime.Format(time.RFC3339),
+		keyCreationDateTime:    float64(r.CreationDateTime.Unix()),
+		keyLastUpdatedDateTime: float64(r.LastUpdatedDateTime.Unix()),
 	}
 }
 
@@ -1420,8 +1420,8 @@ func metricAttributionToMap(ma *MetricAttribution) map[string]any {
 		keyDatasetGroupArn:      ma.DatasetGroupArn,
 		"metricsOutputConfig":   ma.MetricsOutputConfig,
 		keyStatus:               ma.Status,
-		keyCreationDateTime:     ma.CreationDateTime.Format(time.RFC3339),
-		keyLastUpdatedDateTime:  ma.LastUpdatedDateTime.Format(time.RFC3339),
+		keyCreationDateTime:     float64(ma.CreationDateTime.Unix()),
+		keyLastUpdatedDateTime:  float64(ma.LastUpdatedDateTime.Unix()),
 	}
 }
 
@@ -1433,8 +1433,8 @@ func datasetImportJobToMap(job *DatasetImportJob) map[string]any {
 		keyRoleArn:             job.RoleArn,
 		"dataSource":           job.DataSource,
 		keyStatus:              job.Status,
-		keyCreationDateTime:    job.CreationDateTime.Format(time.RFC3339),
-		keyLastUpdatedDateTime: job.LastUpdatedDateTime.Format(time.RFC3339),
+		keyCreationDateTime:    float64(job.CreationDateTime.Unix()),
+		keyLastUpdatedDateTime: float64(job.LastUpdatedDateTime.Unix()),
 	}
 }
 
@@ -1446,8 +1446,8 @@ func datasetExportJobToMap(job *DatasetExportJob) map[string]any {
 		keyRoleArn:             job.RoleArn,
 		keyJobOutput:           job.JobOutput,
 		keyStatus:              job.Status,
-		keyCreationDateTime:    job.CreationDateTime.Format(time.RFC3339),
-		keyLastUpdatedDateTime: job.LastUpdatedDateTime.Format(time.RFC3339),
+		keyCreationDateTime:    float64(job.CreationDateTime.Unix()),
+		keyLastUpdatedDateTime: float64(job.LastUpdatedDateTime.Unix()),
 	}
 }
 
@@ -1460,8 +1460,8 @@ func batchInferenceJobToMap(job *BatchInferenceJob) map[string]any {
 		"jobInput":             job.JobInput,
 		keyJobOutput:           job.JobOutput,
 		keyStatus:              job.Status,
-		keyCreationDateTime:    job.CreationDateTime.Format(time.RFC3339),
-		keyLastUpdatedDateTime: job.LastUpdatedDateTime.Format(time.RFC3339),
+		keyCreationDateTime:    float64(job.CreationDateTime.Unix()),
+		keyLastUpdatedDateTime: float64(job.LastUpdatedDateTime.Unix()),
 	}
 }
 
@@ -1474,8 +1474,8 @@ func batchSegmentJobToMap(job *BatchSegmentJob) map[string]any {
 		"jobInput":             job.JobInput,
 		keyJobOutput:           job.JobOutput,
 		keyStatus:              job.Status,
-		keyCreationDateTime:    job.CreationDateTime.Format(time.RFC3339),
-		keyLastUpdatedDateTime: job.LastUpdatedDateTime.Format(time.RFC3339),
+		keyCreationDateTime:    float64(job.CreationDateTime.Unix()),
+		keyLastUpdatedDateTime: float64(job.LastUpdatedDateTime.Unix()),
 	}
 }
 
@@ -1488,8 +1488,8 @@ func dataDeletionJobToMap(job *DataDeletionJob) map[string]any {
 		"dataSource":           job.DataSource,
 		keyStatus:              job.Status,
 		"numDeleted":           job.NumDeleted,
-		keyCreationDateTime:    job.CreationDateTime.Format(time.RFC3339),
-		keyLastUpdatedDateTime: job.LastUpdatedDateTime.Format(time.RFC3339),
+		keyCreationDateTime:    float64(job.CreationDateTime.Unix()),
+		keyLastUpdatedDateTime: float64(job.LastUpdatedDateTime.Unix()),
 	}
 }
 

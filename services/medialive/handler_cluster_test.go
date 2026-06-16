@@ -15,7 +15,7 @@ func createTestCluster(t *testing.T, h *medialive.Handler) string {
 	t.Helper()
 
 	rec := doRequest(t, h, http.MethodPost, "/prod/clusters", map[string]any{
-		"Name":        "test-cluster",
+		"name":        "test-cluster",
 		"ClusterType": "ON_PREMISES",
 	})
 	require.Equal(t, http.StatusCreated, rec.Code)
@@ -38,7 +38,7 @@ func TestCluster_Create(t *testing.T) {
 		{
 			name: "create returns cluster with ARN and ACTIVE state",
 			body: map[string]any{
-				"Name":        "my-cluster",
+				"name":        "my-cluster",
 				"ClusterType": "ON_PREMISES",
 			},
 			wantCode: http.StatusCreated,
@@ -92,7 +92,7 @@ func TestCluster_CRUD(t *testing.T) {
 
 	// Update
 	rec = doRequest(t, h, http.MethodPut, "/prod/clusters/"+clusterID, map[string]any{
-		"Name": "updated-cluster",
+		"name": "updated-cluster",
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var updateResp map[string]any
@@ -182,7 +182,7 @@ func TestNode_CRUD(t *testing.T) {
 
 	// Create node
 	rec := doRequest(t, h, http.MethodPost, "/prod/clusters/"+clusterID+"/nodes", map[string]any{
-		"Name": "my-node",
+		"name": "my-node",
 		"Role": "ACTIVE",
 	})
 	require.Equal(t, http.StatusCreated, rec.Code)
@@ -206,7 +206,7 @@ func TestNode_CRUD(t *testing.T) {
 
 	// Update node
 	rec = doRequest(t, h, http.MethodPut, "/prod/clusters/"+clusterID+"/nodes/"+nodeID, map[string]any{
-		"Name": "updated-node",
+		"name": "updated-node",
 		"Role": "BACKUP",
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
