@@ -1,5 +1,7 @@
 package securityhub
 
+import "maps"
+
 // FindingCount returns the number of stored findings.
 func FindingCount(b *InMemoryBackend) int {
 	b.mu.RLock("FindingCount")
@@ -51,4 +53,24 @@ func IsHubEnabled(b *InMemoryBackend) bool {
 // HandlerOpsLen returns the count of GetSupportedOperations.
 func HandlerOpsLen(h *Handler) int {
 	return len(h.GetSupportedOperations())
+}
+
+// ValidFinding returns a minimal ASFF-compliant finding map for use in tests.
+// Pass overrides to customise individual fields.
+func ValidFinding(overrides map[string]any) map[string]any {
+	f := map[string]any{
+		"Id":           "test-finding-1",
+		"ProductArn":   "arn:aws:securityhub:us-east-1::product/aws/guardduty",
+		"AwsAccountId": "000000000000",
+		"GeneratorId":  "test-generator",
+		"Title":        "Test finding",
+		"Description":  "Test finding description",
+		"CreatedAt":    "2024-01-01T00:00:00Z",
+		"UpdatedAt":    "2024-01-01T00:00:00Z",
+		"Resources":    []any{map[string]any{"Type": "AwsEc2Instance", "Id": "i-12345678"}},
+	}
+
+	maps.Copy(f, overrides)
+
+	return f
 }

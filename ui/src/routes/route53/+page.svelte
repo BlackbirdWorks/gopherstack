@@ -5,11 +5,15 @@
 	import {
 		ListHostedZonesCommand,
 		ListResourceRecordSetsCommand,
+		GetHostedZoneCommand,
+		ListHealthChecksCommand,
 		CreateHostedZoneCommand,
 		DeleteHostedZoneCommand,
 		ChangeResourceRecordSetsCommand,
 		type HostedZone,
-		type ResourceRecordSet
+		type ResourceRecordSet,
+		type DelegationSet,
+		type HealthCheck
 	} from '@aws-sdk/client-route-53';
 	import { toast } from 'svelte-sonner';
 	import { Globe, Search, RefreshCw, Plus, Trash2, ChevronRight } from 'lucide-svelte';
@@ -21,6 +25,10 @@
 	let selectedZone = $state<HostedZone | null>(null);
 	let records = $state<ResourceRecordSet[]>([]);
 	let loadingRecords = $state(false);
+	let delegationSet = $state<DelegationSet | null>(null);
+	let healthChecks = $state<HealthCheck[]>([]);
+	let loadingHealthChecks = $state(false);
+	let showHealthChecks = $state(false);
 	let searchQuery = $state('');
 	let recordSearch = $state('');
 
@@ -71,15 +79,35 @@
 	async function selectZone(zone: HostedZone) {
 		selectedZone = zone;
 		recordSearch = '';
+		delegationSet = null;
+		showHealthChecks = false;
 		loadingRecords = true;
 		try {
 			const zoneId = (zone.Id ?? '').replace('/hostedzone/', '');
-			const resp = await r53.send(new ListResourceRecordSetsCommand({ HostedZoneId: zoneId, MaxItems: 300 }));
-			records = resp.ResourceRecordSets ?? [];
+			const [recordsResp, zoneResp] = await Promise.all([
+				r53.send(new ListResourceRecordSetsCommand({ HostedZoneId: zoneId, MaxItems: 300 })),
+				r53.send(new GetHostedZoneCommand({ Id: zoneId }))
+			]);
+			records = recordsResp.ResourceRecordSets ?? [];
+			delegationSet = zoneResp.DelegationSet ?? null;
 		} catch (e) {
-			toast.error('Failed to load records: ' + String(e));
+			toast.error('Failed to load zone detail: ' + String(e));
 		} finally {
 			loadingRecords = false;
+		}
+	}
+
+	async function loadHealthChecks() {
+		if (healthChecks.length > 0) { showHealthChecks = true; return; }
+		loadingHealthChecks = true;
+		showHealthChecks = true;
+		try {
+			const resp = await r53.send(new ListHealthChecksCommand({ MaxItems: 100 }));
+			healthChecks = resp.HealthChecks ?? [];
+		} catch (e) {
+			toast.error('Failed to load health checks: ' + String(e));
+		} finally {
+			loadingHealthChecks = false;
 		}
 	}
 
@@ -210,6 +238,9 @@
 				</span>
 			</div>
 			<div class="flex items-center gap-2">
+				<button onclick={loadHealthChecks} class="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 text-sm">
+					Health Checks
+				</button>
 				<button onclick={() => (showCreateRecord = true)} class="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm font-medium">
 					<Plus class="w-4 h-4" /> Create Record
 				</button>
@@ -218,7 +249,7 @@
 		</div>
 
 		<!-- Zone Info -->
-		<div class="grid grid-cols-3 gap-4">
+		<div class="grid grid-cols-2 md:grid-cols-4 gap-4">
 			<div class="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
 				<div class="text-xs text-gray-500">Zone ID</div>
 				<div class="text-sm font-mono mt-1">{(selectedZone.Id ?? '').replace('/hostedzone/', '')}</div>
@@ -231,7 +262,21 @@
 				<div class="text-xs text-gray-500">Comment</div>
 				<div class="text-sm mt-1">{selectedZone.Config?.Comment ?? '-'}</div>
 			</div>
+			<div class="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+				<div class="text-xs text-gray-500">Caller Reference</div>
+				<div class="text-xs font-mono mt-1 truncate">{selectedZone.CallerReference ?? '-'}</div>
+			</div>
 		</div>
+		{#if delegationSet && (delegationSet.NameServers ?? []).length > 0}
+			<div class="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+				<div class="text-xs text-gray-500 font-medium mb-2">Delegation Set — Authoritative Name Servers</div>
+				<div class="flex flex-wrap gap-2">
+					{#each delegationSet.NameServers ?? [] as ns}
+						<span class="px-2 py-1 text-xs font-mono bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 rounded">{ns}</span>
+					{/each}
+				</div>
+			</div>
+		{/if}
 
 		<!-- Record Search -->
 		<div class="relative">
@@ -279,6 +324,47 @@
 						{/each}
 					</tbody>
 				</table>
+			</div>
+		{/if}
+
+		{#if showHealthChecks}
+			<div class="mt-4">
+				<div class="flex items-center justify-between mb-2">
+					<h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300">Health Checks (Account-Wide)</h3>
+					<button onclick={() => (showHealthChecks = false)} class="text-xs text-gray-500 hover:underline">Hide</button>
+				</div>
+				{#if loadingHealthChecks}
+					<div class="flex justify-center py-8"><div class="animate-spin w-6 h-6 border-4 border-indigo-600 border-t-transparent rounded-full"></div></div>
+				{:else if healthChecks.length === 0}
+					<div class="text-center py-8 text-gray-500 text-sm">No health checks configured</div>
+				{:else}
+					<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+						<table class="w-full text-sm">
+							<thead class="bg-gray-50 dark:bg-gray-800 text-xs text-gray-500 uppercase">
+								<tr>
+									<th class="px-4 py-3 text-left">ID</th>
+									<th class="px-4 py-3 text-left">Type</th>
+									<th class="px-4 py-3 text-left">Target</th>
+									<th class="px-4 py-3 text-left">Path</th>
+									<th class="px-4 py-3 text-center">Interval</th>
+									<th class="px-4 py-3 text-center">Failure Threshold</th>
+								</tr>
+							</thead>
+							<tbody class="divide-y divide-gray-100 dark:divide-gray-800">
+								{#each healthChecks as hc}
+									<tr>
+										<td class="px-4 py-3 font-mono text-xs text-gray-600 dark:text-gray-400">{hc.Id}</td>
+										<td class="px-4 py-3"><span class="px-2 py-0.5 rounded text-xs font-medium bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300">{hc.HealthCheckConfig?.Type ?? '-'}</span></td>
+										<td class="px-4 py-3 font-mono text-xs">{hc.HealthCheckConfig?.FullyQualifiedDomainName ?? hc.HealthCheckConfig?.IPAddress ?? '-'}</td>
+										<td class="px-4 py-3 font-mono text-xs text-gray-500">{hc.HealthCheckConfig?.ResourcePath ?? '-'}</td>
+										<td class="px-4 py-3 text-center text-xs text-gray-600 dark:text-gray-400">{hc.HealthCheckConfig?.RequestInterval ?? '-'}s</td>
+										<td class="px-4 py-3 text-center text-xs text-gray-600 dark:text-gray-400">{hc.HealthCheckConfig?.FailureThreshold ?? '-'}</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
+				{/if}
 			</div>
 		{/if}
 

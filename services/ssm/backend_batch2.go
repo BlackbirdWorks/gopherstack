@@ -1151,13 +1151,27 @@ func (b *InMemoryBackend) DescribeInstanceInformation(
 
 // DescribeInstancePatchStates returns patch compliance state for instances.
 func (b *InMemoryBackend) DescribeInstancePatchStates(
-	_ context.Context,
-	_ *DescribeInstancePatchStatesInput,
+	ctx context.Context,
+	input *DescribeInstancePatchStatesInput,
 ) (*DescribeInstancePatchStatesOutputFull, error) {
+	region := getRegion(ctx)
 	b.mu.RLock("DescribeInstancePatchStates")
 	defer b.mu.RUnlock()
 
-	return &DescribeInstancePatchStatesOutputFull{
-		InstancePatchStates: []InstancePatchState{},
-	}, nil
+	store := b.instancePatchStates[region]
+	states := make([]InstancePatchState, 0)
+
+	if len(input.InstanceIDs) == 0 {
+		for _, s := range store {
+			states = append(states, *s)
+		}
+	} else {
+		for _, instanceID := range input.InstanceIDs {
+			if s, exists := store[instanceID]; exists {
+				states = append(states, *s)
+			}
+		}
+	}
+
+	return &DescribeInstancePatchStatesOutputFull{InstancePatchStates: states}, nil
 }

@@ -415,6 +415,13 @@
 								<span class="px-2 py-0.5 rounded bg-pink-500/10 text-pink-600 text-[10px] font-black uppercase">{selectedSM.status}</span>
 								<span class="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-[10px] font-black uppercase">{selectedSM.type}</span>
 							</div>
+							{#if selectedSM.roleArn}
+							<div class="flex items-center gap-1.5 mt-2">
+								<span class="text-[9px] text-slate-400 uppercase font-bold">Role:</span>
+								<span class="text-[9px] font-mono text-slate-500 dark:text-slate-400 truncate max-w-xs">{selectedSM.roleArn}</span>
+								<button onclick={() => cp(selectedSM?.roleArn ?? '')} class="text-slate-400 hover:text-pink-500 flex-shrink-0" title="Copy Role ARN"><Copy class="w-3 h-3" /></button>
+							</div>
+							{/if}
 						</div>
 						<div class="flex gap-2">
 							<button onclick={() => showStartModal = true} class="px-3 py-2 bg-pink-600 hover:bg-pink-700 text-white rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 active:scale-95 transition-all">
