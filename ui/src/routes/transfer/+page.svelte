@@ -38,9 +38,7 @@
 		DeleteHostKeyCommand,
 		ImportSshPublicKeyCommand,
 		DeleteSshPublicKeyCommand,
-		DescribeUserCommand,
 		type DescribedServer,
-		type DescribedUser,
 		type ListedServer,
 		type ListedUser,
 		type ListedAccess,
@@ -97,11 +95,6 @@
 	let importingHostKey = $state(false);
 	let newHostKeyBody = $state('');
 	let newHostKeyDescription = $state('');
-
-	// User detail
-	let selectedUser = $state<ListedUser | null>(null);
-	let userDetail = $state<DescribedUser | null>(null);
-	let loadingUserDetail = $state(false);
 
 	// SSH Public Keys in user panel
 	let showImportSshKeyModal = $state(false);
@@ -474,21 +467,6 @@
 			toast.error(`Failed to load SSH keys: ${e instanceof Error ? e.message : String(e)}`);
 		} finally {
 			loadingSshKeys = false;
-		}
-	}
-
-	async function selectUser(user: ListedUser) {
-		selectedUser = user;
-		userDetail = null;
-		if (!selectedServerId || !user.UserName) return;
-		loadingUserDetail = true;
-		try {
-			const res = await transfer.send(new DescribeUserCommand({ ServerId: selectedServerId, UserName: user.UserName }));
-			userDetail = res.User ?? null;
-		} catch (e) {
-			toast.error(`Failed to load user details: ${e instanceof Error ? e.message : String(e)}`);
-		} finally {
-			loadingUserDetail = false;
 		}
 	}
 
@@ -889,65 +867,27 @@
 							<Plus class="h-3 w-3" />
 							Add User
 						</button>
-						<button onclick={() => { selectedServer = null; serverUsers = []; selectedUser = null; userDetail = null; }} class="text-xs text-muted-foreground hover:text-foreground">
+						<button onclick={() => { selectedServer = null; serverUsers = []; }} class="text-xs text-muted-foreground hover:text-foreground">
 							Close
 						</button>
 					</div>
 				</div>
 
 				{#if serverDetail}
-					<div class="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
-						<div class="rounded-md bg-muted/30 px-3 py-2">
-							<p class="text-xs text-muted-foreground">Protocols</p>
-							<div class="flex flex-wrap gap-1 mt-1">
-								{#each serverDetail.Protocols ?? [] as proto}
-									<span class="rounded bg-blue-100 dark:bg-blue-900/30 px-1.5 py-0.5 text-xs text-blue-700 dark:text-blue-300">{proto}</span>
-								{/each}
-							</div>
+					<div class="flex flex-wrap gap-4 text-sm">
+						<div>
+							<span class="text-muted-foreground">Endpoint Type:</span>
+							<span class="ml-1">{serverDetail.EndpointType ?? '—'}</span>
 						</div>
-						<div class="rounded-md bg-muted/30 px-3 py-2">
-							<p class="text-xs text-muted-foreground">Endpoint Type</p>
-							<p class="font-medium mt-0.5">{serverDetail.EndpointType ?? '—'}</p>
+						<div>
+							<span class="text-muted-foreground">Identity Provider:</span>
+							<span class="ml-1">{serverDetail.IdentityProviderType ?? '—'}</span>
 						</div>
-						<div class="rounded-md bg-muted/30 px-3 py-2">
-							<p class="text-xs text-muted-foreground">Identity Provider</p>
-							<p class="font-medium mt-0.5">{serverDetail.IdentityProviderType ?? '—'}</p>
-						</div>
-						<div class="rounded-md bg-muted/30 px-3 py-2">
-							<p class="text-xs text-muted-foreground">Domain</p>
-							<p class="font-medium mt-0.5">{serverDetail.Domain ?? 'S3'}</p>
-						</div>
-						<div class="rounded-md bg-muted/30 px-3 py-2">
-							<p class="text-xs text-muted-foreground">Security Policy</p>
-							<p class="font-medium mt-0.5 text-xs truncate">{serverDetail.SecurityPolicyName ?? '—'}</p>
-						</div>
-						<div class="rounded-md bg-muted/30 px-3 py-2">
-							<p class="text-xs text-muted-foreground">Users</p>
-							<p class="font-medium mt-0.5">{selectedServer?.UserCount ?? 0}</p>
+						<div>
+							<span class="text-muted-foreground">Protocols:</span>
+							<span class="ml-1">{serverDetail.Protocols?.join(', ') ?? '—'}</span>
 						</div>
 					</div>
-					{#if serverDetail.HostKeyFingerprint}
-						<div class="rounded-md bg-muted/30 px-3 py-2 text-sm">
-							<p class="text-xs text-muted-foreground mb-0.5">Host Key Fingerprint</p>
-							<p class="font-mono text-xs break-all">{serverDetail.HostKeyFingerprint}</p>
-						</div>
-					{/if}
-					{#if serverDetail.EndpointDetails?.VpcId || serverDetail.EndpointDetails?.VpcEndpointId}
-						<div class="rounded-md bg-muted/30 px-3 py-2 text-sm grid grid-cols-2 gap-2">
-							{#if serverDetail.EndpointDetails.VpcId}
-								<div>
-									<p class="text-xs text-muted-foreground">VPC ID</p>
-									<p class="font-mono text-xs">{serverDetail.EndpointDetails.VpcId}</p>
-								</div>
-							{/if}
-							{#if serverDetail.EndpointDetails.VpcEndpointId}
-								<div>
-									<p class="text-xs text-muted-foreground">VPC Endpoint</p>
-									<p class="font-mono text-xs">{serverDetail.EndpointDetails.VpcEndpointId}</p>
-								</div>
-							{/if}
-						</div>
-					{/if}
 				{/if}
 
 				{#if loadingUsers}
@@ -961,33 +901,26 @@
 								<tr>
 									<th class="px-3 py-2 text-left font-medium">Username</th>
 									<th class="px-3 py-2 text-left font-medium">Home Directory</th>
-									<th class="px-3 py-2 text-left font-medium">Dir Type</th>
-									<th class="px-3 py-2 text-left font-medium">SSH Keys</th>
 									<th class="px-3 py-2 text-right font-medium">Actions</th>
 								</tr>
 							</thead>
 							<tbody class="divide-y">
 								{#each serverUsers as user}
-									<tr
-										class="hover:bg-muted/30 cursor-pointer {selectedUser?.UserName === user.UserName ? 'bg-blue-50 dark:bg-blue-900/10' : ''}"
-										onclick={() => selectUser(user)}
-									>
+									<tr>
 										<td class="px-3 py-2 font-medium">{user.UserName}</td>
 										<td class="px-3 py-2 text-muted-foreground font-mono text-xs">
 											{user.HomeDirectory ?? '/'}
 										</td>
-										<td class="px-3 py-2 text-muted-foreground text-xs">{user.HomeDirectoryType ?? 'PATH'}</td>
-										<td class="px-3 py-2 text-muted-foreground text-xs">{user.SshPublicKeyCount ?? 0}</td>
 										<td class="px-3 py-2 text-right flex justify-end gap-1">
 											<button
-												onclick={(e) => { e.stopPropagation(); sshKeyTargetUser = user.UserName ?? ''; showImportSshKeyModal = true; }}
+												onclick={() => { sshKeyTargetUser = user.UserName ?? ''; showImportSshKeyModal = true; }}
 												class="rounded p-1 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-950"
 												title="Import SSH key for this user"
 											>
 												<Plus class="h-3.5 w-3.5" />
 											</button>
 											<button
-												onclick={(e) => { e.stopPropagation(); deleteUser(user.UserName ?? ''); }}
+												onclick={() => deleteUser(user.UserName ?? '')}
 												class="rounded p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-950"
 											>
 												<Trash2 class="h-3.5 w-3.5" />
@@ -998,79 +931,6 @@
 							</tbody>
 						</table>
 					</div>
-
-					<!-- User Detail Panel -->
-					{#if selectedUser}
-						<div class="rounded-lg border p-4 space-y-3 bg-muted/10">
-							<div class="flex items-center justify-between">
-								<h4 class="font-semibold text-sm">{selectedUser.UserName}</h4>
-								<button onclick={() => { selectedUser = null; userDetail = null; }} class="text-xs text-muted-foreground hover:text-foreground">Close</button>
-							</div>
-							{#if loadingUserDetail}
-								<RefreshCw class="h-4 w-4 animate-spin text-muted-foreground" />
-							{:else if userDetail}
-								<div class="grid grid-cols-2 gap-2 text-sm">
-									<div>
-										<p class="text-xs text-muted-foreground">Home Directory</p>
-										<p class="font-mono text-xs mt-0.5">{userDetail.HomeDirectory ?? '/'}</p>
-									</div>
-									<div>
-										<p class="text-xs text-muted-foreground">Directory Type</p>
-										<p class="font-medium text-xs mt-0.5">{userDetail.HomeDirectoryType ?? 'PATH'}</p>
-									</div>
-								</div>
-								{#if userDetail.Role}
-									<div>
-										<p class="text-xs text-muted-foreground">IAM Role ARN</p>
-										<p class="font-mono text-xs break-all mt-0.5 text-foreground">{userDetail.Role}</p>
-									</div>
-								{/if}
-								{#if userDetail.PosixProfile}
-									<div class="text-sm">
-										<p class="text-xs text-muted-foreground mb-1">POSIX Profile</p>
-										<div class="flex gap-4">
-											<span>UID: <span class="font-mono">{userDetail.PosixProfile.Uid}</span></span>
-											<span>GID: <span class="font-mono">{userDetail.PosixProfile.Gid}</span></span>
-										</div>
-									</div>
-								{/if}
-								{#if (userDetail.SshPublicKeys?.length ?? 0) > 0}
-									<div>
-										<p class="text-xs text-muted-foreground mb-1">SSH Public Keys</p>
-										<div class="rounded border overflow-hidden">
-											<table class="w-full text-xs">
-												<thead class="bg-muted/50">
-													<tr>
-														<th class="px-2 py-1.5 text-left font-medium">Key ID</th>
-														<th class="px-2 py-1.5 text-left font-medium">Imported</th>
-														<th class="px-2 py-1.5 text-right font-medium">Actions</th>
-													</tr>
-												</thead>
-												<tbody class="divide-y">
-													{#each userDetail.SshPublicKeys ?? [] as key}
-														<tr>
-															<td class="px-2 py-1.5 font-mono">{key.SshPublicKeyId}</td>
-															<td class="px-2 py-1.5 text-muted-foreground">{key.DateImported ? new Date(key.DateImported).toLocaleDateString() : '—'}</td>
-															<td class="px-2 py-1.5 text-right">
-																<button
-																	onclick={() => deleteSshKey(userDetail?.UserName ?? '', key.SshPublicKeyId ?? '')}
-																	class="rounded p-0.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-950"
-																>
-																	<Trash2 class="h-3 w-3" />
-																</button>
-															</td>
-														</tr>
-													{/each}
-												</tbody>
-											</table>
-										</div>
-									</div>
-								{:else}
-									<p class="text-xs text-muted-foreground">No SSH public keys configured.</p>
-								{/if}
-							{/if}
-						</div>
-					{/if}
 				{/if}
 
 				<!-- Host Keys section -->

@@ -5,8 +5,6 @@
 	import {
 		DescribeTrailsCommand,
 		GetTrailStatusCommand,
-		GetEventSelectorsCommand,
-		GetInsightSelectorsCommand,
 		LookupEventsCommand,
 		StartLoggingCommand,
 		StopLoggingCommand,
@@ -19,9 +17,6 @@
 		StopEventDataStoreIngestionCommand,
 		type Trail,
 		type EventDataStore,
-		type EventSelector,
-		type AdvancedEventSelector,
-		type InsightSelector,
 		type Event as CloudTrailEvent,
 		type LookupAttribute
 	} from '@aws-sdk/client-cloudtrail';
@@ -49,12 +44,7 @@
 
 	// Trails
 	let trails = $state<Trail[]>([]);
-	let trailStatuses = $state<Record<string, { IsLogging?: boolean; LatestDeliveryTime?: Date; LatestNotificationTime?: Date; StartLoggingTime?: Date; StopLoggingTime?: Date; LatestDeliveryError?: string }>>({});
-	let selectedTrail = $state<Trail | null>(null);
-	let trailEventSelectors = $state<EventSelector[]>([]);
-	let trailAdvancedSelectors = $state<AdvancedEventSelector[]>([]);
-	let trailInsightSelectors = $state<InsightSelector[]>([]);
-	let loadingTrailDetail = $state(false);
+	let trailStatuses = $state<Record<string, { IsLogging?: boolean; LatestDeliveryTime?: Date }>>({});
 	let showCreateModal = $state(false);
 	let creating = $state(false);
 	let newTrailName = $state('');
@@ -117,11 +107,7 @@
 						);
 						trailStatuses[trail.TrailARN] = {
 							IsLogging: status.IsLogging,
-							LatestDeliveryTime: status.LatestDeliveryTime,
-							LatestNotificationTime: status.LatestNotificationTime,
-							StartLoggingTime: status.StartLoggingTime,
-							StopLoggingTime: status.StopLoggingTime,
-							LatestDeliveryError: status.LatestDeliveryError
+							LatestDeliveryTime: status.LatestDeliveryTime
 						};
 					} catch {
 						// ignore per-trail errors
@@ -132,30 +118,6 @@
 			toast.error(`Failed to load trails: ${e}`);
 		} finally {
 			loading = false;
-		}
-	}
-
-	async function selectTrail(trail: Trail) {
-		if (selectedTrail?.TrailARN === trail.TrailARN) { selectedTrail = null; return; }
-		selectedTrail = trail;
-		loadingTrailDetail = true;
-		trailEventSelectors = [];
-		trailAdvancedSelectors = [];
-		trailInsightSelectors = [];
-		try {
-			const [esRes, isRes] = await Promise.allSettled([
-				ct.send(new GetEventSelectorsCommand({ TrailName: trail.TrailARN })),
-				ct.send(new GetInsightSelectorsCommand({ TrailName: trail.TrailARN }))
-			]);
-			if (esRes.status === 'fulfilled') {
-				trailEventSelectors = esRes.value.EventSelectors ?? [];
-				trailAdvancedSelectors = esRes.value.AdvancedEventSelectors ?? [];
-			}
-			if (isRes.status === 'fulfilled') trailInsightSelectors = isRes.value.InsightSelectors ?? [];
-		} catch {
-			// ignore
-		} finally {
-			loadingTrailDetail = false;
 		}
 	}
 
@@ -308,7 +270,6 @@
 
 	async function onTabChange(tab: typeof activeTab) {
 		activeTab = tab;
-		selectedTrail = null;
 		if (tab === 'trails') await loadTrails();
 		else if (tab === 'events') await lookupEvents();
 		else await loadDataStores();
@@ -394,10 +355,7 @@
 					<tbody class="divide-y">
 						{#each filteredTrails as trail}
 							{@const status = trailStatuses[trail.TrailARN ?? '']}
-							<tr
-								class="hover:bg-muted/30 cursor-pointer {selectedTrail?.TrailARN === trail.TrailARN ? 'bg-muted/50' : ''}"
-								onclick={() => selectTrail(trail)}
-							>
+							<tr class="hover:bg-muted/30">
 								<td class="px-4 py-3 font-medium">{trail.Name}</td>
 								<td class="px-4 py-3 text-muted-foreground">{trail.HomeRegion ?? '—'}</td>
 								<td class="px-4 py-3 text-muted-foreground truncate max-w-[180px]">
@@ -423,7 +381,7 @@
 								</td>
 								<td class="px-4 py-3 text-right flex justify-end gap-1">
 									<button
-										onclick={(e) => { e.stopPropagation(); toggleLogging(trail); }}
+										onclick={() => toggleLogging(trail)}
 										class="rounded p-1 hover:bg-accent"
 										title={status?.IsLogging ? 'Stop logging' : 'Start logging'}
 									>
@@ -434,7 +392,7 @@
 										{/if}
 									</button>
 									<button
-										onclick={(e) => { e.stopPropagation(); deleteTrail(trail); }}
+										onclick={() => deleteTrail(trail)}
 										class="rounded p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-950"
 										title="Delete trail"
 									>
@@ -445,148 +403,6 @@
 						{/each}
 					</tbody>
 				</table>
-			</div>
-		{/if}
-
-		<!-- Trail Detail Panel -->
-		{#if selectedTrail}
-			{@const status = trailStatuses[selectedTrail.TrailARN ?? '']}
-			<div class="rounded-lg border p-5 space-y-5">
-				<div class="flex items-center justify-between">
-					<h3 class="font-semibold text-lg">{selectedTrail.Name}</h3>
-					<button onclick={() => { selectedTrail = null; }} class="text-xs text-muted-foreground hover:text-foreground">Close</button>
-				</div>
-
-				<!-- Config grid -->
-				<div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-					{#each [
-						['S3 Bucket', selectedTrail.S3BucketName ?? '—'],
-						['S3 Key Prefix', selectedTrail.S3KeyPrefix ?? '(none)'],
-						['Multi-Region', selectedTrail.IsMultiRegionTrail ? 'Yes' : 'No'],
-						['Log Validation', selectedTrail.LogFileValidationEnabled ? 'Enabled' : 'Disabled'],
-						['Global Services', selectedTrail.IncludeGlobalServiceEvents ? 'Yes' : 'No'],
-						['Org Trail', selectedTrail.IsOrganizationTrail ? 'Yes' : 'No'],
-						['Custom Selectors', selectedTrail.HasCustomEventSelectors ? 'Yes' : 'No'],
-						['Insight Selectors', selectedTrail.HasInsightSelectors ? 'Yes' : 'No'],
-					] as [label, value]}
-						<div class="rounded bg-muted/50 p-3">
-							<p class="text-xs text-muted-foreground">{label}</p>
-							<p class="text-sm font-semibold mt-0.5">{value}</p>
-						</div>
-					{/each}
-				</div>
-
-				{#if selectedTrail.TrailARN}
-					<div class="rounded bg-muted/50 px-3 py-2">
-						<p class="text-xs text-muted-foreground mb-0.5">Trail ARN</p>
-						<p class="text-xs font-mono break-all">{selectedTrail.TrailARN}</p>
-					</div>
-				{/if}
-
-				{#if selectedTrail.CloudWatchLogsLogGroupArn}
-					<div class="rounded bg-muted/50 px-3 py-2">
-						<p class="text-xs text-muted-foreground mb-0.5">CloudWatch Logs Group ARN</p>
-						<p class="text-xs font-mono break-all">{selectedTrail.CloudWatchLogsLogGroupArn}</p>
-					</div>
-				{/if}
-
-				{#if selectedTrail.KmsKeyId}
-					<div class="rounded bg-muted/50 px-3 py-2">
-						<p class="text-xs text-muted-foreground mb-0.5">KMS Key ID</p>
-						<p class="text-xs font-mono break-all">{selectedTrail.KmsKeyId}</p>
-					</div>
-				{/if}
-
-				<!-- Status -->
-				{#if status}
-					<div>
-						<h4 class="text-sm font-medium mb-2">Logging Status</h4>
-						<div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
-							{#each [
-								['Status', status.IsLogging ? 'Logging' : 'Stopped'],
-								['Last Delivery', status.LatestDeliveryTime ? new Date(status.LatestDeliveryTime).toLocaleString() : '—'],
-								['Last Notification', status.LatestNotificationTime ? new Date(status.LatestNotificationTime).toLocaleString() : '—'],
-								['Logging Started', status.StartLoggingTime ? new Date(status.StartLoggingTime).toLocaleString() : '—'],
-								['Logging Stopped', status.StopLoggingTime ? new Date(status.StopLoggingTime).toLocaleString() : '—'],
-								['Delivery Error', status.LatestDeliveryError ?? 'None'],
-							] as [label, value]}
-								<div class="rounded bg-muted/50 p-3">
-									<p class="text-xs text-muted-foreground">{label}</p>
-									<p class="text-sm font-medium mt-0.5 truncate" title={value}>{value}</p>
-								</div>
-							{/each}
-						</div>
-					</div>
-				{/if}
-
-				{#if loadingTrailDetail}
-					<div class="flex items-center gap-2 text-sm text-muted-foreground">
-						<RefreshCw class="h-4 w-4 animate-spin" />
-						Loading selectors...
-					</div>
-				{:else}
-					<!-- Event Selectors -->
-					{#if trailEventSelectors.length > 0}
-						<div>
-							<h4 class="text-sm font-medium mb-2">Event Selectors</h4>
-							<div class="rounded border overflow-hidden">
-								<table class="w-full text-sm">
-									<thead class="bg-muted/50">
-										<tr>
-											<th class="px-3 py-2 text-left font-medium">Read/Write Type</th>
-											<th class="px-3 py-2 text-left font-medium">Management Events</th>
-											<th class="px-3 py-2 text-left font-medium">Data Resources</th>
-										</tr>
-									</thead>
-									<tbody class="divide-y">
-										{#each trailEventSelectors as sel}
-											<tr>
-												<td class="px-3 py-2">{sel.ReadWriteType ?? '—'}</td>
-												<td class="px-3 py-2">{sel.IncludeManagementEvents ? 'Yes' : 'No'}</td>
-												<td class="px-3 py-2 text-xs">
-													{#if (sel.DataResources ?? []).length > 0}
-														{#each sel.DataResources ?? [] as dr}
-															<div><span class="font-medium">{dr.Type}</span>: {(dr.Values ?? []).join(', ') || 'All'}</div>
-														{/each}
-													{:else}
-														None
-													{/if}
-												</td>
-											</tr>
-										{/each}
-									</tbody>
-								</table>
-							</div>
-						</div>
-					{/if}
-
-					<!-- Advanced Event Selectors -->
-					{#if trailAdvancedSelectors.length > 0}
-						<div>
-							<h4 class="text-sm font-medium mb-2">Advanced Event Selectors ({trailAdvancedSelectors.length})</h4>
-							<div class="space-y-2">
-								{#each trailAdvancedSelectors as sel}
-									<div class="rounded bg-muted/50 px-3 py-2">
-										<p class="text-sm font-medium">{sel.Name ?? '(unnamed)'}</p>
-										<p class="text-xs text-muted-foreground mt-0.5">{(sel.FieldSelectors ?? []).length} field selector(s)</p>
-									</div>
-								{/each}
-							</div>
-						</div>
-					{/if}
-
-					<!-- Insight Selectors -->
-					{#if trailInsightSelectors.length > 0}
-						<div>
-							<h4 class="text-sm font-medium mb-2">Insight Selectors</h4>
-							<div class="flex flex-wrap gap-2">
-								{#each trailInsightSelectors as ins}
-									<span class="px-2 py-1 text-xs rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">{ins.InsightType ?? '—'}</span>
-								{/each}
-							</div>
-						</div>
-					{/if}
-				{/if}
 			</div>
 		{/if}
 	{/if}

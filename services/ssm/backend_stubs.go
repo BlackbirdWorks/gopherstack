@@ -138,33 +138,11 @@ type DescribeAutomationStepExecutionsInput struct {
 // DescribeAutomationStepExecutionsOutput is the response for DescribeAutomationStepExecutions.
 type DescribeAutomationStepExecutionsOutput struct{}
 
-// PatchFilter is a filter for patch operations.
-type PatchFilter struct {
-	Key    string   `json:"Key"`
-	Values []string `json:"Values"`
-}
-
-// Patch represents a patch in the available patches catalog.
-type Patch struct {
-	Name           string `json:"Name"`
-	Product        string `json:"Product"`
-	Classification string `json:"Classification"`
-	Severity       string `json:"Severity"`
-	State          string `json:"State,omitempty"`
-}
-
 // DescribeAvailablePatchesInput is the request for DescribeAvailablePatches.
-type DescribeAvailablePatchesInput struct {
-	MaxResults *int64        `json:"MaxResults,omitempty"`
-	NextToken  string        `json:"NextToken,omitempty"`
-	Filters    []PatchFilter `json:"Filters,omitempty"`
-}
+type DescribeAvailablePatchesInput struct{}
 
 // DescribeAvailablePatchesOutput is the response for DescribeAvailablePatches.
-type DescribeAvailablePatchesOutput struct {
-	NextToken string  `json:"NextToken,omitempty"`
-	Patches   []Patch `json:"Patches"`
-}
+type DescribeAvailablePatchesOutput struct{}
 
 // DescribeEffectiveInstanceAssociationsInput is the request for DescribeEffectiveInstanceAssociations.
 type DescribeEffectiveInstanceAssociationsInput struct {
@@ -189,104 +167,28 @@ type DescribeInstanceInformationInput struct{}
 type DescribeInstanceInformationOutput struct{}
 
 // DescribeInstancePatchStatesInput is the request for DescribeInstancePatchStates.
-type DescribeInstancePatchStatesInput struct {
-	MaxResults  *int64   `json:"MaxResults,omitempty"`
-	NextToken   string   `json:"NextToken,omitempty"`
-	InstanceIDs []string `json:"InstanceIds"`
-}
+type DescribeInstancePatchStatesInput struct{}
 
 // DescribeInstancePatchStatesOutput is the response for DescribeInstancePatchStates.
 type DescribeInstancePatchStatesOutput struct{}
 
-// InstancePatchStateFilter filters patch states by field.
-type InstancePatchStateFilter struct {
-	Key    string   `json:"Key"`
-	Type   string   `json:"Type,omitempty"`
-	Values []string `json:"Values"`
-}
-
 // DescribeInstancePatchStatesForPatchGroupInput is the request for DescribeInstancePatchStatesForPatchGroup.
-type DescribeInstancePatchStatesForPatchGroupInput struct {
-	MaxResults *int64                     `json:"MaxResults,omitempty"`
-	NextToken  string                     `json:"NextToken,omitempty"`
-	PatchGroup string                     `json:"PatchGroup"`
-	Filters    []InstancePatchStateFilter `json:"Filters,omitempty"`
-}
+type DescribeInstancePatchStatesForPatchGroupInput struct{}
 
 // DescribeInstancePatchStatesForPatchGroupOutput is the response for DescribeInstancePatchStatesForPatchGroup.
-type DescribeInstancePatchStatesForPatchGroupOutput struct {
-	NextToken           string               `json:"NextToken,omitempty"`
-	InstancePatchStates []InstancePatchState `json:"InstancePatchStates"`
-}
-
-// PatchOrchestratorFilter filters patches by field.
-type PatchOrchestratorFilter struct {
-	Key    string   `json:"Key"`
-	Values []string `json:"Values"`
-}
-
-// PatchComplianceData holds the patch compliance data for a single patch.
-type PatchComplianceData struct {
-	Classification string     `json:"Classification"`
-	InstalledTime  *time.Time `json:"InstalledTime,omitempty"`
-	KBId           string     `json:"KBId,omitempty"`
-	Severity       string     `json:"Severity"`
-	State          string     `json:"State"`
-	Title          string     `json:"Title"`
-}
+type DescribeInstancePatchStatesForPatchGroupOutput struct{}
 
 // DescribeInstancePatchesInput is the request for DescribeInstancePatches.
-type DescribeInstancePatchesInput struct {
-	MaxResults *int64                    `json:"MaxResults,omitempty"`
-	InstanceID string                    `json:"InstanceId"`
-	NextToken  string                    `json:"NextToken,omitempty"`
-	Filters    []PatchOrchestratorFilter `json:"Filters,omitempty"`
-}
+type DescribeInstancePatchesInput struct{}
 
 // DescribeInstancePatchesOutput is the response for DescribeInstancePatches.
-type DescribeInstancePatchesOutput struct {
-	NextToken string                `json:"NextToken,omitempty"`
-	Patches   []PatchComplianceData `json:"Patches"`
-}
-
-// InstancePropertyStringFilter filters instance properties by string field.
-type InstancePropertyStringFilter struct {
-	Key      string   `json:"Key"`
-	Operator string   `json:"Operator,omitempty"`
-	Values   []string `json:"Values"`
-}
-
-// InstancePropertyFilter filters instance properties.
-type InstancePropertyFilter struct {
-	Key      string   `json:"Key"`
-	ValueSet []string `json:"ValueSet"`
-}
-
-// InstanceProperty represents properties of a managed instance.
-type InstanceProperty struct {
-	InstanceID      string `json:"InstanceId"`
-	Name            string `json:"Name,omitempty"`
-	PlatformType    string `json:"PlatformType,omitempty"`
-	PlatformName    string `json:"PlatformName,omitempty"`
-	PlatformVersion string `json:"PlatformVersion,omitempty"`
-	PingStatus      string `json:"PingStatus,omitempty"`
-	AgentVersion    string `json:"AgentVersion,omitempty"`
-	ActivationID    string `json:"ActivationId,omitempty"`
-}
+type DescribeInstancePatchesOutput struct{}
 
 // DescribeInstancePropertiesInput is the request for DescribeInstanceProperties.
-type DescribeInstancePropertiesInput struct {
-	MaxResults                 *int64                         `json:"MaxResults,omitempty"`
-	NextToken                  string                         `json:"NextToken,omitempty"`
-	FiltersWithOperator        []InstancePropertyStringFilter `json:"FiltersWithOperator,omitempty"`
-	InstancePropertyFilterList []InstancePropertyFilter       `json:"InstancePropertyFilterList,omitempty"`
-}
+type DescribeInstancePropertiesInput struct{}
 
 // DescribeInstancePropertiesOutput is the response for DescribeInstanceProperties.
-type DescribeInstancePropertiesOutput struct {
-	NextToken          string             `json:"NextToken,omitempty"`
-	InstanceProperties []InstanceProperty `json:"InstanceProperties"`
-}
+type DescribeInstancePropertiesOutput struct{}
 
 // DescribeMaintenanceWindowExecutionTaskInvocationsInput is the request payload.
 type DescribeMaintenanceWindowExecutionTaskInvocationsInput struct {
@@ -991,83 +893,36 @@ func (b *InMemoryBackend) DescribeAssociation(
 	return nil, ErrAssociationNotFound
 }
 
-// DescribeAvailablePatches returns patches from the available patches catalog.
+// DescribeAvailablePatches is a stub implementation.
 func (b *InMemoryBackend) DescribeAvailablePatches(
-	ctx context.Context,
+	_ context.Context,
 	_ *DescribeAvailablePatchesInput,
 ) (*DescribeAvailablePatchesOutput, error) {
-	region := getRegion(ctx)
-	b.mu.RLock("DescribeAvailablePatches")
-	defer b.mu.RUnlock()
-
-	patches := b.availablePatches[region]
-	if patches == nil {
-		patches = []Patch{}
-	}
-
-	result := make([]Patch, len(patches))
-	copy(result, patches)
-
-	return &DescribeAvailablePatchesOutput{Patches: result}, nil
+	return &DescribeAvailablePatchesOutput{}, nil
 }
 
-// DescribeInstancePatchStatesForPatchGroup returns patch states filtered by patch group.
+// DescribeInstancePatchStatesForPatchGroup is a stub implementation.
 func (b *InMemoryBackend) DescribeInstancePatchStatesForPatchGroup(
-	ctx context.Context,
-	input *DescribeInstancePatchStatesForPatchGroupInput,
+	_ context.Context,
+	_ *DescribeInstancePatchStatesForPatchGroupInput,
 ) (*DescribeInstancePatchStatesForPatchGroupOutput, error) {
-	region := getRegion(ctx)
-	b.mu.RLock("DescribeInstancePatchStatesForPatchGroup")
-	defer b.mu.RUnlock()
-
-	store := b.instancePatchStates[region]
-	states := make([]InstancePatchState, 0)
-	for _, s := range store {
-		if s.PatchGroup == input.PatchGroup {
-			states = append(states, *s)
-		}
-	}
-
-	return &DescribeInstancePatchStatesForPatchGroupOutput{InstancePatchStates: states}, nil
+	return &DescribeInstancePatchStatesForPatchGroupOutput{}, nil
 }
 
-// DescribeInstancePatches returns patch compliance data for an instance.
+// DescribeInstancePatches is a stub implementation.
 func (b *InMemoryBackend) DescribeInstancePatches(
-	ctx context.Context,
-	input *DescribeInstancePatchesInput,
+	_ context.Context,
+	_ *DescribeInstancePatchesInput,
 ) (*DescribeInstancePatchesOutput, error) {
-	region := getRegion(ctx)
-	b.mu.RLock("DescribeInstancePatches")
-	defer b.mu.RUnlock()
-
-	store := b.instancePatches[region]
-	patches := store[input.InstanceID]
-	if patches == nil {
-		patches = []PatchComplianceData{}
-	}
-
-	result := make([]PatchComplianceData, len(patches))
-	copy(result, patches)
-
-	return &DescribeInstancePatchesOutput{Patches: result}, nil
+	return &DescribeInstancePatchesOutput{}, nil
 }
 
-// DescribeInstanceProperties returns properties for managed instances.
+// DescribeInstanceProperties is a stub implementation.
 func (b *InMemoryBackend) DescribeInstanceProperties(
-	ctx context.Context,
+	_ context.Context,
 	_ *DescribeInstancePropertiesInput,
 ) (*DescribeInstancePropertiesOutput, error) {
-	region := getRegion(ctx)
-	b.mu.RLock("DescribeInstanceProperties")
-	defer b.mu.RUnlock()
-
-	store := b.instanceProperties[region]
-	props := make([]InstanceProperty, 0, len(store))
-	for _, p := range store {
-		props = append(props, *p)
-	}
-
-	return &DescribeInstancePropertiesOutput{InstanceProperties: props}, nil
+	return &DescribeInstancePropertiesOutput{}, nil
 }
 
 // DescribeMaintenanceWindowTargets lists targets registered with a maintenance window.

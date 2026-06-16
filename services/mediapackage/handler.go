@@ -91,26 +91,18 @@ func (h *Handler) GetSupportedOperations() []string {
 	}
 }
 
-// RouteMatcher returns a function that matches MediaPackage requests by path and
-// Authorization header. IoTAnalytics shares /channels paths, so we must
-// distinguish by the service name embedded in the AWS Signature header.
+// RouteMatcher returns a function that matches MediaPackage requests by path.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
 
-		pathMatch := path == pathChannels ||
+		return path == pathChannels ||
 			strings.HasPrefix(path, pathChannels+"/") ||
 			path == pathOriginEndpoints ||
 			strings.HasPrefix(path, pathOriginEndpoints+"/") ||
 			path == pathHarvestJobs ||
 			strings.HasPrefix(path, pathHarvestJobs+"/") ||
 			isMediaPackageTagPath(path)
-
-		if !pathMatch {
-			return false
-		}
-
-		return strings.Contains(c.Request().Header.Get("Authorization"), "/mediapackage/")
 	}
 }
 

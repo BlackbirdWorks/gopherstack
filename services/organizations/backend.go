@@ -329,14 +329,11 @@ type InMemoryBackend struct {
 	ouParent         map[string]string
 	tags             map[string]map[string]string
 	emailToAccountID map[string]string
-	// ousByParent maps parentID → ouName → ouID for O(1) sibling name uniqueness
-	// checks in CreateOrganizationalUnit and UpdateOrganizationalUnit.
-	ousByParent    map[string]map[string]string
-	mu             *lockmetrics.RWMutex
-	region         string
-	accountID      string
-	accountCounter int
-	statusCounter  int
+	mu               *lockmetrics.RWMutex
+	region           string
+	accountID        string
+	accountCounter   int
+	statusCounter    int
 }
 
 // NewInMemoryBackend creates a new in-memory Organizations backend.
@@ -357,7 +354,6 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		delegatedAdmins:  make(map[string]map[string]*DelegatedAdmin),
 		handshakes:       make(map[string]*Handshake),
 		emailToAccountID: make(map[string]string),
-		ousByParent:      make(map[string]map[string]string),
 		accountCounter:   managementAccountCounter,
 		mu:               lockmetrics.New("organizations"),
 	}
@@ -549,7 +545,6 @@ func (b *InMemoryBackend) DeleteOrganization() error {
 	b.root = nil
 	b.accounts = make(map[string]*Account)
 	b.ous = make(map[string]*OrganizationalUnit)
-	b.ousByParent = make(map[string]map[string]string)
 	b.policies = make(map[string]*Policy)
 	b.policyTargets = make(map[string][]string)
 	b.targetPolicies = make(map[string][]string)
@@ -947,9 +942,9 @@ func (b *InMemoryBackend) CreateOrganizationalUnit(
 		return nil, ErrOUDepthLimitExceeded
 	}
 
-	// O(1) sibling name uniqueness check via ousByParent index.
-	if siblings := b.ousByParent[parentID]; siblings != nil {
-		if _, exists := siblings[name]; exists {
+	// Name uniqueness: no sibling OU under the same parent may have the same name.
+	for _, ou := range b.ous {
+		if ou.ParentID == parentID && ou.Name == name {
 			return nil, ErrDuplicateOrganizationalUnit
 		}
 	}
@@ -964,10 +959,6 @@ func (b *InMemoryBackend) CreateOrganizationalUnit(
 
 	b.ous[ouID] = ou
 	b.ouParent[ouID] = parentID
-	if b.ousByParent[parentID] == nil {
-		b.ousByParent[parentID] = make(map[string]string)
-	}
-	b.ousByParent[parentID][name] = ouID
 	b.setTagsLocked(ouID, tags)
 
 	return ou, nil
@@ -1009,13 +1000,8 @@ func (b *InMemoryBackend) DeleteOrganizationalUnit(ouID string) error {
 		}
 	}
 
-	ou := b.ous[ouID]
 	delete(b.ous, ouID)
-	parentID := b.ouParent[ouID]
 	delete(b.ouParent, ouID)
-	if siblings := b.ousByParent[parentID]; siblings != nil {
-		delete(siblings, ou.Name)
-	}
 	delete(b.tags, ouID)
 	delete(b.targetPolicies, ouID)
 
@@ -1032,20 +1018,14 @@ func (b *InMemoryBackend) UpdateOrganizationalUnit(ouID, name string) (*Organiza
 		return nil, ErrOUNotFound
 	}
 
-	// O(1) sibling name uniqueness check via ousByParent index (excluding self).
+	// Name uniqueness: no sibling OU under the same parent may have the same name (excluding self).
 	if name != "" && name != ou.Name {
 		parentID := b.ouParent[ouID]
-		if siblings := b.ousByParent[parentID]; siblings != nil {
-			if existingID, exists := siblings[name]; exists && existingID != ouID {
+		for id, sibling := range b.ous {
+			if id != ouID && sibling.ParentID == parentID && sibling.Name == name {
 				return nil, ErrDuplicateOrganizationalUnit
 			}
 		}
-		// Update the index: remove old name, add new name.
-		if b.ousByParent[parentID] == nil {
-			b.ousByParent[parentID] = make(map[string]string)
-		}
-		delete(b.ousByParent[parentID], ou.Name)
-		b.ousByParent[parentID][name] = ouID
 	}
 
 	ou.Name = name
@@ -2272,7 +2252,6 @@ func (b *InMemoryBackend) Reset() {
 	b.root = nil
 	b.accounts = make(map[string]*Account)
 	b.ous = make(map[string]*OrganizationalUnit)
-	b.ousByParent = make(map[string]map[string]string)
 	b.policies = make(map[string]*Policy)
 	b.policyTargets = make(map[string][]string)
 	b.targetPolicies = make(map[string][]string)

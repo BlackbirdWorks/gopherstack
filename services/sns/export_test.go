@@ -41,9 +41,3 @@ func MatchesFilterPolicyMessageBodyForTest(policy string, message string) (bool,
 
 	return matchesFilterPolicyMessageBody(parsed, message), nil
 }
-
-// WaitDeliveriesForTest blocks until all in-flight HTTP delivery goroutines complete.
-// Use this in tests after Publish to synchronize before asserting DLQ or delivery state.
-func WaitDeliveriesForTest(b *InMemoryBackend) {
-	b.deliveryWg.Wait()
-}

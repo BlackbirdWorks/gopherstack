@@ -193,24 +193,15 @@ func (h *Handler) handleStopDurableExecution(c *echo.Context) error {
 	return c.JSON(http.StatusOK, ex)
 }
 
-// --- ListFunctionVersionsByCapacityProvider ---
+// --- ListFunctionVersionsByCapacityProvider stub ---
 
 type listFunctionVersionsByCapacityProviderOutput struct {
 	NextMarker       string `json:"NextMarker,omitempty"`
 	FunctionVersions []any  `json:"FunctionVersions"`
 }
 
-// handleListFunctionVersionsByCapacityProvider returns function versions assigned to the
-// named capacity provider. Since there is currently no API to assign function versions
-// to a capacity provider, this always returns an empty list for a valid provider.
-func (h *Handler) handleListFunctionVersionsByCapacityProvider(
-	c *echo.Context, bk *InMemoryBackend, name string,
-) error {
-	if _, err := bk.GetCapacityProvider(name); err != nil {
-		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-			"Capacity provider not found: "+name)
-	}
-
+// handleListFunctionVersionsByCapacityProvider returns an empty list stub.
+func (h *Handler) handleListFunctionVersionsByCapacityProvider(c *echo.Context) error {
 	return c.JSON(http.StatusOK, &listFunctionVersionsByCapacityProviderOutput{
 		FunctionVersions: []any{},
 	})

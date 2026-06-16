@@ -1300,34 +1300,6 @@
 									</div>
 								{/each}
 							</div>
-							<!-- Cache Nodes -->
-							{#if selectedCluster.CacheNodes && selectedCluster.CacheNodes.length > 0}
-								<div class="space-y-1">
-									<div class="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1">
-										<Server class="w-3 h-3 text-blue-500" /> Cache Nodes
-									</div>
-									{#each selectedCluster.CacheNodes as node}
-										<div class="p-2.5 bg-slate-50/80 dark:bg-slate-900/40 rounded-lg border border-slate-100 dark:border-slate-700/50 space-y-1">
-											<div class="flex items-center justify-between">
-												<span class="text-xs font-bold text-slate-700 dark:text-slate-200">{node.CacheNodeId ?? '—'}</span>
-												<span class="text-[10px] px-1.5 py-0.5 rounded font-medium {getStatusBadge(node.CacheNodeStatus)}">{node.CacheNodeStatus ?? '—'}</span>
-											</div>
-											{#if node.Endpoint?.Address}
-												<div class="flex items-center justify-between">
-													<span class="font-mono text-[10px] text-cyan-600 dark:text-cyan-400 truncate">{node.Endpoint.Address}:{node.Endpoint.Port}</span>
-													<button onclick={() => copyToClipboard(`${node.Endpoint?.Address}:${node.Endpoint?.Port}`)} class="ml-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 flex-shrink-0" title="Copy">
-														<Copy class="w-3 h-3" />
-													</button>
-												</div>
-											{/if}
-											{#if node.CustomerAvailabilityZone}
-												<div class="text-[10px] text-slate-400">{node.CustomerAvailabilityZone}</div>
-											{/if}
-										</div>
-									{/each}
-								</div>
-							{/if}
-
 							<!-- ARN -->
 							<div class="p-2.5 bg-slate-50 dark:bg-slate-900/40 rounded-lg">
 								<div class="flex items-center justify-between mb-1">

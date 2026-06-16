@@ -52,8 +52,6 @@ let jobCountByQueue = $state<Record<string, number>>({});
 // Job Queues
 let queues = $state<JobQueueDetail[]>([]);
 let selectedQueue = $state<JobQueueDetail | null>(null);
-let selectedCE = $state<ComputeEnvironmentDetail | null>(null);
-let queueJobCounts = $state<Record<string, number>>({});
 
 // Job Definitions
 let definitions = $state<JobDefinition[]>([]);
@@ -374,20 +372,6 @@ if (!d) return '-';
 return new Date(d).toLocaleString();
 }
 
-async function loadQueueJobCounts(queueName: string) {
-const statuses = ['PENDING', 'RUNNABLE', 'STARTING', 'RUNNING', 'SUCCEEDED', 'FAILED'] as const;
-const counts: Record<string, number> = {};
-await Promise.all(statuses.map(async (status) => {
-	try {
-		const r = await batch.send(new ListJobsCommand({ jobQueue: queueName, jobStatus: status, maxResults: 100 }));
-		counts[status] = (r.jobSummaryList ?? []).length;
-	} catch {
-		counts[status] = 0;
-	}
-}));
-queueJobCounts = counts;
-}
-
 onMount(async () => { await Promise.all([loadQueues(), loadJobCounts()]); });
 </script>
 
@@ -475,7 +459,7 @@ class={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab =
 <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
 {#each filteredQueues as queue}
 <tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
-<td class="px-4 py-3 font-medium text-purple-600 dark:text-purple-400 cursor-pointer hover:underline" title={queue.jobQueueArn} onclick={() => { selectedQueue = queue; void loadQueueJobCounts(queue.jobQueueName ?? ''); }}>{queue.jobQueueName}</td>
+<td class="px-4 py-3 font-medium text-purple-600 dark:text-purple-400" title={queue.jobQueueArn}>{queue.jobQueueName}</td>
 <td class="px-4 py-3"><span class={`px-2 py-0.5 rounded text-xs font-medium ${badgeClass(queue.state)}`}>{queue.state}</span></td>
 <td class="px-4 py-3 text-xs text-gray-500">{queue.status}</td>
 <td class="px-4 py-3 text-gray-600 dark:text-gray-400">{queue.priority}</td>
@@ -499,57 +483,6 @@ class={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab =
 </table>
 </div>
 {/if}
-{/if}
-
-<!-- Queue detail panel -->
-{#if activeTab === 'queues' && selectedQueue}
-<div class="bg-white dark:bg-gray-900 rounded-xl border border-purple-200 dark:border-purple-800 p-5 space-y-4">
-	<div class="flex items-start justify-between">
-		<div>
-			<h3 class="text-base font-semibold text-gray-900 dark:text-white">{selectedQueue.jobQueueName}</h3>
-			<p class="text-xs font-mono text-gray-400 mt-0.5 break-all">{selectedQueue.jobQueueArn}</p>
-		</div>
-		<button onclick={() => selectedQueue = null} class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xs">✕</button>
-	</div>
-	<div class="grid grid-cols-3 gap-3">
-		{#each [['Priority', String(selectedQueue.priority)], ['State', selectedQueue.state ?? '-'], ['Status', selectedQueue.status ?? '-']] as [label, value]}
-		<div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
-			<p class="text-xs text-gray-500">{label}</p>
-			<p class="text-sm font-semibold text-gray-900 dark:text-white mt-0.5">{value}</p>
-		</div>
-		{/each}
-	</div>
-	<!-- Job states -->
-	<div>
-		<p class="text-xs font-medium text-gray-500 mb-2">Job States</p>
-		<div class="grid grid-cols-3 sm:grid-cols-6 gap-2">
-			{#each ['PENDING','RUNNABLE','STARTING','RUNNING','SUCCEEDED','FAILED'] as status}
-			<div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-2 text-center">
-				<p class="text-[10px] text-gray-400 uppercase">{status.slice(0,3)}</p>
-				<p class="text-sm font-bold text-gray-900 dark:text-white">{queueJobCounts[status] ?? '…'}</p>
-			</div>
-			{/each}
-		</div>
-	</div>
-	<!-- Compute environments -->
-	{#if (selectedQueue.computeEnvironmentOrder ?? []).length > 0}
-	<div>
-		<p class="text-xs font-medium text-gray-500 mb-2">Compute Environments (by order)</p>
-		<div class="space-y-1">
-			{#each (selectedQueue.computeEnvironmentOrder ?? []) as ceo}
-			{@const ce = computeEnvironments.find(c => c.computeEnvironmentArn === ceo.computeEnvironment)}
-			<div class="flex items-center justify-between bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2 text-xs">
-				<span class="font-medium text-gray-700 dark:text-gray-300">{ce?.computeEnvironmentName ?? ceo.computeEnvironment}</span>
-				<div class="flex items-center gap-2 text-gray-400">
-					{#if ce}<span>{ce.type}</span>{/if}
-					<span>order {ceo.order}</span>
-				</div>
-			</div>
-			{/each}
-		</div>
-	</div>
-	{/if}
-</div>
 {/if}
 
 <!-- SERVICE ENVIRONMENTS TAB -->
@@ -613,7 +546,7 @@ class={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab =
 <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
 {#each filteredCEs as ce}
 <tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
-<td class="px-4 py-3 font-medium text-purple-600 dark:text-purple-400 cursor-pointer hover:underline" title={ce.computeEnvironmentArn} onclick={() => selectedCE = ce}>{ce.computeEnvironmentName}</td>
+<td class="px-4 py-3 font-medium text-purple-600 dark:text-purple-400" title={ce.computeEnvironmentArn}>{ce.computeEnvironmentName}</td>
 <td class="px-4 py-3 text-xs text-gray-500">{ce.type}</td>
 <td class="px-4 py-3"><span class={`px-2 py-0.5 rounded text-xs font-medium ${badgeClass(ce.state)}`}>{ce.state}</span></td>
 <td class="px-4 py-3"><span class={`px-2 py-0.5 rounded text-xs font-medium ${badgeClass(ce.status)}`}>{ce.status}</span></td>
@@ -628,55 +561,6 @@ class={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab =
 </table>
 </div>
 {/if}
-{/if}
-
-<!-- CE detail panel -->
-{#if activeTab === 'compute-environments' && selectedCE}
-<div class="bg-white dark:bg-gray-900 rounded-xl border border-purple-200 dark:border-purple-800 p-5 space-y-4">
-	<div class="flex items-start justify-between">
-		<div>
-			<h3 class="text-base font-semibold text-gray-900 dark:text-white">{selectedCE.computeEnvironmentName}</h3>
-			<p class="text-xs font-mono text-gray-400 mt-0.5 break-all">{selectedCE.computeEnvironmentArn}</p>
-		</div>
-		<button onclick={() => selectedCE = null} class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xs">✕</button>
-	</div>
-	<div class="grid grid-cols-3 gap-3">
-		{#each [['Type', selectedCE.type ?? '-'], ['State', selectedCE.state ?? '-'], ['Status', selectedCE.status ?? '-']] as [label, value]}
-		<div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
-			<p class="text-xs text-gray-500">{label}</p>
-			<p class="text-sm font-semibold text-gray-900 dark:text-white mt-0.5">{value}</p>
-		</div>
-		{/each}
-	</div>
-	{#if selectedCE.computeResources}
-	<div>
-		<p class="text-xs font-medium text-gray-500 mb-2">Compute Resources</p>
-		<div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
-			{#each [
-				['Min vCPUs', String(selectedCE.computeResources.minvCpus ?? 0)],
-				['Max vCPUs', String(selectedCE.computeResources.maxvCpus ?? '-')],
-				['Desired vCPUs', String(selectedCE.computeResources.desiredvCpus ?? '-')],
-				['Allocation', selectedCE.computeResources.allocationStrategy ?? '-']
-			] as [label, value]}
-			<div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
-				<p class="text-xs text-gray-500">{label}</p>
-				<p class="text-sm font-semibold text-gray-900 dark:text-white mt-0.5">{value}</p>
-			</div>
-			{/each}
-		</div>
-		{#if (selectedCE.computeResources.instanceTypes ?? []).length > 0}
-		<div class="mt-2">
-			<p class="text-xs text-gray-500 mb-1">Instance Types</p>
-			<div class="flex flex-wrap gap-1">
-				{#each (selectedCE.computeResources.instanceTypes ?? []) as inst}
-				<span class="px-2 py-0.5 text-xs rounded bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 font-mono">{inst}</span>
-				{/each}
-			</div>
-		</div>
-		{/if}
-	</div>
-	{/if}
-</div>
 {/if}
 
 <!-- JOBS TAB -->

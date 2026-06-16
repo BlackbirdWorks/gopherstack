@@ -98,32 +98,3 @@ func (b *InMemoryBackend) TaskTokensForTest() []string {
 
 	return tokens
 }
-
-// ExecutionPruneSweepThresholdForTest exposes the inline-sweep threshold.
-const ExecutionPruneSweepThresholdForTest = executionPruneSweepThreshold
-
-// SetExecutionStopDateForTest directly sets the StopDate of an execution to
-// force it past the retention cutoff without sleeping.
-func (b *InMemoryBackend) SetExecutionStopDateForTest(execARN string, stopDate float64) {
-	b.mu.Lock("SetExecutionStopDateForTest")
-	defer b.mu.Unlock()
-
-	if exec, ok := b.executions[execARN]; ok {
-		exec.StopDate = &stopDate
-		exec.Status = statusSucceeded
-	}
-}
-
-// PendingTaskQueueLenForTest returns the number of entries in the pending task
-// queue for the given activity ARN, or -1 if the queue does not exist.
-func (b *InMemoryBackend) PendingTaskQueueLenForTest(activityARN string) int {
-	b.mu.RLock("PendingTaskQueueLenForTest")
-	defer b.mu.RUnlock()
-
-	q, ok := b.pendingTaskQueues[activityARN]
-	if !ok {
-		return -1
-	}
-
-	return len(q)
-}

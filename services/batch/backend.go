@@ -698,16 +698,9 @@ type InMemoryBackend struct {
 	serviceJobs            map[string]*ServiceJob // serviceJobID → ServiceJob
 	schedulingPolicyByName map[string]string      // name → ARN
 	jobsByARN              map[string]string      // job ARN → job ID
-	// ARN indexes for O(1) ARN-based lookups instead of linear scans.
-	cesByARN map[string]string // CE ARN → CE name
-	jqsByARN map[string]string // JQ ARN → JQ name
-	crsByARN map[string]string // consumable resource ARN → resource name
-	// ceToQueues maps CE name → set of queue names that reference it, enabling
-	// O(1) referential-integrity checks in DeleteComputeEnvironment.
-	ceToQueues map[string]map[string]struct{}
-	mu         *lockmetrics.RWMutex
-	accountID  string
-	region     string
+	mu                     *lockmetrics.RWMutex
+	accountID              string
+	region                 string
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -725,10 +718,6 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		serviceJobs:            make(map[string]*ServiceJob),
 		schedulingPolicyByName: make(map[string]string),
 		jobsByARN:              make(map[string]string),
-		cesByARN:               make(map[string]string),
-		jqsByARN:               make(map[string]string),
-		crsByARN:               make(map[string]string),
-		ceToQueues:             make(map[string]map[string]struct{}),
 		accountID:              accountID,
 		region:                 region,
 		mu:                     lockmetrics.New("batch"),
@@ -752,10 +741,6 @@ func (b *InMemoryBackend) Reset() {
 	b.serviceJobs = make(map[string]*ServiceJob)
 	b.schedulingPolicyByName = make(map[string]string)
 	b.jobsByARN = make(map[string]string)
-	b.cesByARN = make(map[string]string)
-	b.jqsByARN = make(map[string]string)
-	b.crsByARN = make(map[string]string)
-	b.ceToQueues = make(map[string]map[string]struct{})
 }
 
 // Region returns the AWS region this backend is configured for.
@@ -767,8 +752,9 @@ func (b *InMemoryBackend) lookupCEByNameOrARN(nameOrARN string) (*ComputeEnviron
 	if ce, ok := b.computeEnvironments[nameOrARN]; ok {
 		return ce, true
 	}
-	if name, ok2 := b.cesByARN[nameOrARN]; ok2 {
-		if ce, ok3 := b.computeEnvironments[name]; ok3 {
+
+	for _, ce := range b.computeEnvironments {
+		if ce.ComputeEnvironmentArn == nameOrARN {
 			return ce, true
 		}
 	}
@@ -782,8 +768,9 @@ func (b *InMemoryBackend) lookupJQByNameOrARN(nameOrARN string) (*JobQueue, bool
 	if jq, ok := b.jobQueues[nameOrARN]; ok {
 		return jq, true
 	}
-	if name, ok2 := b.jqsByARN[nameOrARN]; ok2 {
-		if jq, ok3 := b.jobQueues[name]; ok3 {
+
+	for _, jq := range b.jobQueues {
+		if jq.JobQueueArn == nameOrARN {
 			return jq, true
 		}
 	}
@@ -915,7 +902,6 @@ func (b *InMemoryBackend) CreateComputeEnvironment(
 		UpdatePolicy:           upCopy,
 	}
 	b.computeEnvironments[name] = ce
-	b.cesByARN[ceARN] = name
 	cp := *ce
 
 	return &cp, nil
@@ -1037,17 +1023,21 @@ func (b *InMemoryBackend) DeleteComputeEnvironment(nameOrARN string) error {
 		)
 	}
 
-	// O(1) check via reverse index instead of scanning all job queues.
-	if len(b.ceToQueues[ce.ComputeEnvironmentName]) > 0 || len(b.ceToQueues[ce.ComputeEnvironmentArn]) > 0 {
-		return fmt.Errorf(
-			"%w: compute environment %s is referenced by one or more job queues",
-			ErrValidation,
-			nameOrARN,
-		)
+	// Check if referenced by any job queue.
+	for _, jq := range b.jobQueues {
+		for _, ceOrder := range jq.ComputeEnvironmentOrder {
+			if ceOrder.ComputeEnvironment == ce.ComputeEnvironmentName ||
+				ceOrder.ComputeEnvironment == ce.ComputeEnvironmentArn {
+				return fmt.Errorf(
+					"%w: compute environment %s is referenced by one or more job queues",
+					ErrValidation,
+					nameOrARN,
+				)
+			}
+		}
 	}
 
 	delete(b.computeEnvironments, ce.ComputeEnvironmentName)
-	delete(b.cesByARN, ce.ComputeEnvironmentArn)
 
 	return nil
 }
@@ -1106,15 +1096,6 @@ func (b *InMemoryBackend) CreateJobQueue(
 		JobStateTimeLimitActions: actionsCopy,
 	}
 	b.jobQueues[name] = jq
-	b.jqsByARN[jqARN] = name
-	// Register this queue as a reference for each compute environment it orders.
-	for _, ceOrder := range orderCopy {
-		ceName := ceOrder.ComputeEnvironment
-		if b.ceToQueues[ceName] == nil {
-			b.ceToQueues[ceName] = make(map[string]struct{})
-		}
-		b.ceToQueues[ceName][name] = struct{}{}
-	}
 	cp := *jq
 
 	return &cp, nil
@@ -1184,22 +1165,9 @@ func (b *InMemoryBackend) UpdateJobQueue(
 	}
 
 	if ceOrder != nil {
-		// Remove old CE references from the reverse index.
-		for _, old := range jq.ComputeEnvironmentOrder {
-			if refs := b.ceToQueues[old.ComputeEnvironment]; refs != nil {
-				delete(refs, jq.JobQueueName)
-			}
-		}
 		orderCopy := make([]ComputeEnvironmentOrder, len(ceOrder))
 		copy(orderCopy, ceOrder)
 		jq.ComputeEnvironmentOrder = orderCopy
-		// Add new CE references to the reverse index.
-		for _, ceRef := range orderCopy {
-			if b.ceToQueues[ceRef.ComputeEnvironment] == nil {
-				b.ceToQueues[ceRef.ComputeEnvironment] = make(map[string]struct{})
-			}
-			b.ceToQueues[ceRef.ComputeEnvironment][jq.JobQueueName] = struct{}{}
-		}
 	}
 
 	if jobStateTimeLimitActions != nil {
@@ -1239,13 +1207,6 @@ func (b *InMemoryBackend) DeleteJobQueue(nameOrARN string) error {
 	}
 
 	delete(b.jobsByQueue, queueName)
-	delete(b.jqsByARN, jq.JobQueueArn)
-	// Remove this queue from the CE→queues reverse index.
-	for _, ceOrder := range jq.ComputeEnvironmentOrder {
-		if refs := b.ceToQueues[ceOrder.ComputeEnvironment]; refs != nil {
-			delete(refs, queueName)
-		}
-	}
 	delete(b.jobQueues, queueName)
 
 	return nil
@@ -1530,14 +1491,14 @@ func (b *InMemoryBackend) findTagsByARN(resourceARN string) (map[string]string, 
 }
 
 func (b *InMemoryBackend) findTagsInCoreResources(resourceARN string) (map[string]string, bool) {
-	if ceName, ok := b.cesByARN[resourceARN]; ok {
-		if ce, ok2 := b.computeEnvironments[ceName]; ok2 {
+	for _, ce := range b.computeEnvironments {
+		if ce.ComputeEnvironmentArn == resourceARN {
 			return ce.Tags, true
 		}
 	}
 
-	if jqName, ok := b.jqsByARN[resourceARN]; ok {
-		if jq, ok2 := b.jobQueues[jqName]; ok2 {
+	for _, jq := range b.jobQueues {
+		if jq.JobQueueArn == resourceARN {
 			return jq.Tags, true
 		}
 	}
@@ -1546,15 +1507,14 @@ func (b *InMemoryBackend) findTagsInCoreResources(resourceARN string) (map[strin
 		return jd.Tags, true
 	}
 
-	// Use the jobs ARN index for O(1) lookup.
-	if jobID, ok := b.jobsByARN[resourceARN]; ok {
-		if j, ok2 := b.jobs[jobID]; ok2 {
+	for _, j := range b.jobs {
+		if j.JobARN == resourceARN {
 			return j.Tags, true
 		}
 	}
 
-	if crName, ok := b.crsByARN[resourceARN]; ok {
-		if cr, ok2 := b.consumableResources[crName]; ok2 {
+	for _, cr := range b.consumableResources {
+		if cr.ConsumableResourceArn == resourceARN {
 			return cr.Tags, true
 		}
 	}
@@ -1975,7 +1935,6 @@ func (b *InMemoryBackend) CreateConsumableResource(
 		Tags:                   tagsCloneOrEmpty(tags),
 	}
 	b.consumableResources[name] = cr
-	b.crsByARN[crARN] = name
 	cp := *cr
 
 	return &cp, nil
@@ -1992,7 +1951,6 @@ func (b *InMemoryBackend) DeleteConsumableResource(nameOrARN string) error {
 	}
 
 	delete(b.consumableResources, cr.ConsumableResourceName)
-	delete(b.crsByARN, cr.ConsumableResourceArn)
 
 	return nil
 }
@@ -2019,8 +1977,9 @@ func (b *InMemoryBackend) lookupConsumableResourceByNameOrARN(nameOrARN string) 
 	if cr, ok := b.consumableResources[nameOrARN]; ok {
 		return cr, true
 	}
-	if name, ok2 := b.crsByARN[nameOrARN]; ok2 {
-		if cr, ok3 := b.consumableResources[name]; ok3 {
+
+	for _, cr := range b.consumableResources {
+		if cr.ConsumableResourceArn == nameOrARN {
 			return cr, true
 		}
 	}

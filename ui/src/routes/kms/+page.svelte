@@ -45,7 +45,7 @@ let search = $state('');
 let stateFilter = $state('all');
 let usageFilter = $state('all');
 let selectedKey = $state<KMSKey | null>(null);
-let activeTab = $state<'keys' | 'aliases' | 'grants' | 'metrics' | 'docs'>('keys');
+let activeTab = $state<'keys' | 'aliases' | 'metrics' | 'docs'>('keys');
 let aliasSearch = $state('');
 let showCreateModal = $state(false);
 let creatingKey = $state(false);
@@ -126,25 +126,6 @@ let newGrantPrincipal = $state('');
 let newGrantOps = $state('Decrypt,Encrypt');
 let creatingGrant = $state(false);
 
-// Grants tab state
-const ALL_GRANT_OPERATIONS: GrantOperation[] = [
-	'Decrypt', 'Encrypt', 'GenerateDataKey', 'GenerateDataKeyWithoutPlaintext',
-	'ReEncryptFrom', 'ReEncryptTo', 'Sign', 'Verify', 'GetPublicKey',
-	'CreateGrant', 'RetireGrant', 'DescribeKey', 'GenerateDataKeyPair',
-	'GenerateDataKeyPairWithoutPlaintext', 'GenerateMac', 'VerifyMac', 'DeriveSharedSecret'
-];
-let grantsTabKeyId = $state('');
-let grantsTabGrants = $state<Grant[]>([]);
-let grantsTabLoading = $state(false);
-let grantsTabPrincipal = $state('');
-let grantsTabSelectedOps = $state<Set<GrantOperation>>(new Set(['Decrypt', 'Encrypt']));
-let grantsTabName = $state('');
-let grantsTabCreating = $state(false);
-// Policy viewer/editor in grants tab
-let policyTabContent = $state('');
-let policyTabLoading = $state(false);
-let policyTabSaving = $state(false);
-
 let originFilter = $state('all');
 let seedingDemo = $state(false);
 
@@ -189,99 +170,11 @@ async function selectTab(t: typeof activeTab) {
 	activeTab = t;
 	if (t === 'keys' && keys.length === 0) await loadKeys();
 	else if (t === 'aliases') await loadAliases();
-	else if (t === 'grants') {
-		if (keys.length === 0) await loadKeys();
-		if (grantsTabKeyId && keys.length > 0) await loadGrantsForTab();
-	}
 }
 
 async function refresh() {
 	if (activeTab === 'keys') { keys = []; await loadKeys(); }
 	else if (activeTab === 'aliases') { aliases = []; await loadAliases(); }
-	else if (activeTab === 'grants' && grantsTabKeyId) await loadGrantsForTab();
-}
-
-async function loadGrantsForTab() {
-	if (!grantsTabKeyId) return;
-	grantsTabLoading = true;
-	try {
-		const res = await kms.send(new ListGrantsCommand({ KeyId: grantsTabKeyId }));
-		grantsTabGrants = (res.Grants ?? []) as Grant[];
-	} catch (e) {
-		toast.error(e instanceof Error ? e.message : 'Failed to load grants');
-	} finally {
-		grantsTabLoading = false;
-	}
-}
-
-async function loadPolicyForTab() {
-	if (!grantsTabKeyId) return;
-	policyTabLoading = true;
-	try {
-		const res = await kms.send(new GetKeyPolicyCommand({ KeyId: grantsTabKeyId, PolicyName: 'default' }));
-		policyTabContent = res.Policy ? JSON.stringify(JSON.parse(res.Policy), null, 2) : '{}';
-	} catch (e) {
-		policyTabContent = '{}';
-		toast.error(e instanceof Error ? e.message : 'Failed to load policy');
-	} finally {
-		policyTabLoading = false;
-	}
-}
-
-async function savePolicyForTab() {
-	if (!grantsTabKeyId) return;
-	policyTabSaving = true;
-	try {
-		JSON.parse(policyTabContent);
-	} catch {
-		toast.error('Policy is not valid JSON');
-		policyTabSaving = false;
-		return;
-	}
-	try {
-		await kms.send(new PutKeyPolicyCommand({ KeyId: grantsTabKeyId, PolicyName: 'default', Policy: policyTabContent }));
-		toast.success('Key policy saved');
-	} catch (e) {
-		toast.error(e instanceof Error ? e.message : 'Failed to save policy');
-	} finally {
-		policyTabSaving = false;
-	}
-}
-
-async function createGrantInTab() {
-	if (!grantsTabKeyId || !grantsTabPrincipal.trim() || grantsTabSelectedOps.size === 0) {
-		toast.error('Key, grantee principal, and at least one operation are required');
-		return;
-	}
-	grantsTabCreating = true;
-	try {
-		await kms.send(new CreateGrantCommand({
-			KeyId: grantsTabKeyId,
-			GranteePrincipal: grantsTabPrincipal.trim(),
-			Operations: [...grantsTabSelectedOps],
-			Name: grantsTabName.trim() || undefined
-		}));
-		toast.success('Grant created');
-		grantsTabPrincipal = '';
-		grantsTabName = '';
-		grantsTabSelectedOps = new Set(['Decrypt', 'Encrypt']);
-		await loadGrantsForTab();
-	} catch (e) {
-		toast.error(e instanceof Error ? e.message : 'Failed to create grant');
-	} finally {
-		grantsTabCreating = false;
-	}
-}
-
-async function revokeGrantInTab(grantId: string) {
-	if (!grantsTabKeyId) return;
-	try {
-		await kms.send(new RevokeGrantCommand({ KeyId: grantsTabKeyId, GrantId: grantId }));
-		toast.success('Grant revoked');
-		grantsTabGrants = grantsTabGrants.filter(g => g.GrantId !== grantId);
-	} catch (e) {
-		toast.error(e instanceof Error ? e.message : 'Failed to revoke grant');
-	}
 }
 
 async function copyId(id: string) {
@@ -824,9 +717,6 @@ const SIGN_ALGS = ['RSASSA_PSS_SHA_256','RSASSA_PSS_SHA_384','RSASSA_PSS_SHA_512
 			<button onclick={() => selectTab('aliases')} class="flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap {activeTab === 'aliases' ? 'border-amber-500 text-amber-600 dark:text-amber-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 hover:border-slate-300'}">
 				<Tag class="w-4 h-4" /> Aliases {#if aliases.length > 0}<span class="ml-1 px-1.5 py-0.5 text-xs bg-slate-100 dark:bg-slate-700 rounded-full">{aliases.length}</span>{/if}
 			</button>
-			<button onclick={() => selectTab('grants')} class="flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap {activeTab === 'grants' ? 'border-amber-500 text-amber-600 dark:text-amber-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 hover:border-slate-300'}">
-				<Shield class="w-4 h-4" /> Grants {#if grantsTabGrants.length > 0}<span class="ml-1 px-1.5 py-0.5 text-xs bg-slate-100 dark:bg-slate-700 rounded-full">{grantsTabGrants.length}</span>{/if}
-			</button>
 			<button onclick={() => selectTab('metrics')} class="flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap {activeTab === 'metrics' ? 'border-amber-500 text-amber-600 dark:text-amber-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 hover:border-slate-300'}">
 				<BarChart3 class="w-4 h-4" /> Metrics
 			</button>
@@ -1096,119 +986,6 @@ const SIGN_ALGS = ['RSASSA_PSS_SHA_256','RSASSA_PSS_SHA_384','RSASSA_PSS_SHA_512
 				</div>
 			{/if}
 		</div>
-	{/if}
-
-	<!-- Grants Tab -->
-	{#if activeTab === 'grants'}
-	<div class="space-y-6">
-		<!-- Key selector -->
-		<div class="flex items-center gap-3">
-			<label class="text-sm font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap">Key:</label>
-			<select bind:value={grantsTabKeyId} onchange={async () => { grantsTabGrants = []; policyTabContent = ''; if (grantsTabKeyId) { await loadGrantsForTab(); await loadPolicyForTab(); } }} class="flex-1 px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm">
-				<option value="">— select a key —</option>
-				{#each keys as k}
-					<option value={k.KeyId ?? ''}>{k.Description || k.KeyId} ({(k.KeyId ?? '').slice(0, 8)}...)</option>
-				{/each}
-			</select>
-			{#if grantsTabKeyId}
-			<button onclick={loadGrantsForTab} class="p-2 text-slate-400 hover:text-slate-600"><RefreshCw class="w-4 h-4" /></button>
-			{/if}
-		</div>
-
-		{#if grantsTabKeyId}
-		<div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
-			<!-- Left: Grants list + create form -->
-			<div class="space-y-4">
-				<!-- Grants list -->
-				<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
-					<div class="px-4 py-3 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
-						<h3 class="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2"><Shield class="w-4 h-4 text-amber-500" /> Grants ({grantsTabGrants.length})</h3>
-					</div>
-					{#if grantsTabLoading}
-						<div class="p-8 text-center"><div class="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-amber-500"></div></div>
-					{:else if grantsTabGrants.length === 0}
-						<p class="p-6 text-sm text-slate-400 italic text-center">No grants for this key.</p>
-					{:else}
-						<div class="divide-y divide-slate-100 dark:divide-slate-700">
-							{#each grantsTabGrants as grant}
-							<div class="px-4 py-3 space-y-1">
-								<div class="flex items-start justify-between gap-2">
-									<div class="min-w-0 flex-1">
-										{#if grant.Name}<p class="text-xs font-semibold text-slate-900 dark:text-white truncate">{grant.Name}</p>{/if}
-										<p class="text-xs font-mono text-slate-500 dark:text-slate-400 truncate">{grant.GranteePrincipal}</p>
-										<div class="flex flex-wrap gap-1 mt-1">
-											{#each grant.Operations ?? [] as op}
-												<span class="px-1.5 py-0.5 text-[10px] bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 rounded">{op}</span>
-											{/each}
-										</div>
-										<p class="text-[10px] text-slate-400 font-mono mt-1 truncate">ID: {grant.GrantId}</p>
-									</div>
-									<button onclick={() => revokeGrantInTab(grant.GrantId)} class="flex-shrink-0 p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded" title="Revoke grant">
-										<Trash2 class="w-3.5 h-3.5" />
-									</button>
-								</div>
-							</div>
-							{/each}
-						</div>
-					{/if}
-				</div>
-
-				<!-- Create grant form -->
-				<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-4">
-					<h3 class="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2"><Plus class="w-4 h-4 text-amber-500" /> Create Grant</h3>
-					<div>
-						<label class="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Grantee Principal (ARN)</label>
-						<input type="text" bind:value={grantsTabPrincipal} placeholder="arn:aws:iam::123456789012:role/my-role" class="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-1 focus:ring-amber-500" />
-					</div>
-					<div>
-						<label class="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Grant Name (optional)</label>
-						<input type="text" bind:value={grantsTabName} placeholder="my-grant" class="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-1 focus:ring-amber-500" />
-					</div>
-					<div>
-						<label class="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">Operations</label>
-						<div class="grid grid-cols-2 gap-1.5">
-							{#each ALL_GRANT_OPERATIONS as op}
-							<label class="flex items-center gap-2 cursor-pointer select-none">
-								<input type="checkbox" checked={grantsTabSelectedOps.has(op)} onchange={() => {
-									const s = new Set(grantsTabSelectedOps);
-									if (s.has(op)) s.delete(op); else s.add(op);
-									grantsTabSelectedOps = s;
-								}} class="w-3.5 h-3.5 rounded border-slate-300 text-amber-500 focus:ring-amber-500" />
-								<span class="text-xs text-slate-700 dark:text-slate-300">{op}</span>
-							</label>
-							{/each}
-						</div>
-					</div>
-					<button onclick={createGrantInTab} disabled={grantsTabCreating || !grantsTabPrincipal.trim() || grantsTabSelectedOps.size === 0} class="w-full px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-50 text-sm font-medium flex items-center justify-center gap-2">
-						{#if grantsTabCreating}<div class="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-white"></div>{/if}
-						{grantsTabCreating ? 'Creating...' : 'Create Grant'}
-					</button>
-				</div>
-			</div>
-
-			<!-- Right: Key policy viewer/editor -->
-			<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden flex flex-col">
-				<div class="px-4 py-3 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
-					<h3 class="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2"><BookOpen class="w-4 h-4 text-amber-500" /> Key Policy</h3>
-					<button onclick={loadPolicyForTab} class="p-1.5 text-slate-400 hover:text-slate-600" title="Reload policy"><RefreshCw class="w-3.5 h-3.5" /></button>
-				</div>
-				{#if policyTabLoading}
-					<div class="p-8 text-center flex-1"><div class="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-amber-500"></div></div>
-				{:else}
-					<div class="flex flex-col flex-1 p-4 gap-3">
-						<textarea bind:value={policyTabContent} rows={20} spellcheck={false} class="flex-1 w-full font-mono text-xs border border-slate-200 dark:border-slate-700 rounded-lg p-3 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white resize-none focus:outline-none focus:ring-1 focus:ring-amber-500" placeholder="Loading policy..."></textarea>
-						<button onclick={savePolicyForTab} disabled={policyTabSaving || !policyTabContent} class="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-50 text-sm font-medium flex items-center justify-center gap-2">
-							{#if policyTabSaving}<div class="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-white"></div>{/if}
-							{policyTabSaving ? 'Saving...' : 'Save Policy'}
-						</button>
-					</div>
-				{/if}
-			</div>
-		</div>
-		{:else}
-			<p class="text-sm text-slate-400 italic text-center py-12">Select a key above to manage grants and view its key policy.</p>
-		{/if}
-	</div>
 	{/if}
 
 	<!-- Metrics Tab -->

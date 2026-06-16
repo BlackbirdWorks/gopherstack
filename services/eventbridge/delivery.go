@@ -117,11 +117,8 @@ func (b *InMemoryBackend) buildDeliveryPlan(region string, entries []EventEntry)
 	defer b.mu.RUnlock()
 
 	accountID := b.accountID
-	// Read directly without lazy-init: buildDeliveryPlan holds only RLock, so
-	// calling ruleIndexStore/targetsStore (which write on nil) races with other
-	// concurrent deliverEvents goroutines. Nil map reads are safe in Go.
-	ruleIndex := b.ruleIndex[region]
-	targetsStore := b.targets[region]
+	ruleIndex := b.ruleIndexStore(region)
+	targetsStore := b.targetsStore(region)
 
 	var groups []deliveryGroup
 	for _, entry := range entries {

@@ -94,9 +94,7 @@ let showPublishModal = $state(false);
 let publishing = $state(false);
 let pubSubject = $state('');
 let pubMessage = $state('');
-let pubAttrRows = $state<Array<{ name: string; type: string; value: string }>>([]);
-let pubAttrJsonMode = $state(false);
-let pubAttrJson = $state('{}');
+let pubAttributes = $state('{}');
 let pubDeduplicationId = $state('');
 let pubGroupId = $state('');
 
@@ -430,29 +428,29 @@ savingRedrive = false;
 }
 
 // ─── Publish ──────────────────────────────────────────────────────────────────
-function pubAttrsToSdk(): Record<string, { DataType: string; StringValue?: string; BinaryValue?: Uint8Array }> | undefined {
-	let rows: Array<{ name: string; type: string; value: string }>;
-	if (pubAttrJsonMode) {
-		try {
-			const parsed = JSON.parse(pubAttrJson);
-			rows = Object.entries(parsed).map(([k, v]) => ({ name: k, type: 'String', value: String(v) }));
-		} catch { return undefined; }
-	} else {
-		rows = pubAttrRows.filter(r => r.name.trim());
-	}
-	if (rows.length === 0) return undefined;
-	return Object.fromEntries(rows.map(r => [r.name, { DataType: r.type || 'String', StringValue: r.value }]));
-}
-
 async function publish() {
 if (!selectedTopic || !pubMessage.trim()) return;
 publishing = true;
 try {
+let attrs: Record<string, { DataType: string; StringValue: string }> | undefined;
+try {
+const parsed = JSON.parse(pubAttributes);
+if (Object.keys(parsed).length > 0) {
+attrs = Object.fromEntries(
+Object.entries(parsed).map(([k, v]) => [
+k,
+{ DataType: 'String', StringValue: String(v) }
+])
+);
+}
+} catch {
+			// ignore invalid JSON
+		}
 await sns.send(new PublishCommand({
 TopicArn: selectedTopic.TopicArn,
 Subject: pubSubject || undefined,
 Message: pubMessage,
-MessageAttributes: pubAttrsToSdk(),
+MessageAttributes: attrs,
 MessageDeduplicationId: pubDeduplicationId || undefined,
 MessageGroupId: pubGroupId || undefined
 }));
@@ -460,9 +458,7 @@ toast.success('Message published');
 showPublishModal = false;
 pubSubject = '';
 pubMessage = '';
-pubAttrRows = [];
-pubAttrJsonMode = false;
-pubAttrJson = '{}';
+pubAttributes = '{}';
 pubDeduplicationId = '';
 pubGroupId = '';
 } catch (err: unknown) {
@@ -1351,48 +1347,14 @@ required
 ></textarea>
 </div>
 <div>
-	<div class="flex items-center justify-between mb-1">
-		<label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Message Attributes</label>
-		<button type="button" onclick={() => {
-			if (!pubAttrJsonMode) {
-				pubAttrJson = pubAttrRows.filter(r => r.name.trim()).length
-					? JSON.stringify(Object.fromEntries(pubAttrRows.filter(r => r.name.trim()).map(r => [r.name, r.value])), null, 2)
-					: '{}';
-			} else {
-				try {
-					const parsed = JSON.parse(pubAttrJson);
-					pubAttrRows = Object.entries(parsed).map(([k, v]) => ({ name: k, type: 'String', value: String(v) }));
-				} catch { /* keep rows */ }
-			}
-			pubAttrJsonMode = !pubAttrJsonMode;
-		}} class="text-xs text-indigo-600 dark:text-indigo-400 hover:underline">
-			{pubAttrJsonMode ? 'Switch to fields' : 'Switch to JSON'}
-		</button>
-	</div>
-	{#if pubAttrJsonMode}
-		<textarea
-			bind:value={pubAttrJson}
-			rows={3}
-			placeholder={`{"key": "value"}`}
-			class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm resize-none"
-		></textarea>
-	{:else}
-		<div class="space-y-1">
-			{#each pubAttrRows as row, i}
-				<div class="flex gap-1 items-center">
-					<input type="text" bind:value={row.name} placeholder="Name" class="flex-1 min-w-0 px-2 py-1 text-xs bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded text-slate-900 dark:text-white" />
-					<select bind:value={row.type} class="px-1 py-1 text-xs bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded text-slate-900 dark:text-white">
-						<option value="String">String</option>
-						<option value="Number">Number</option>
-						<option value="Binary">Binary</option>
-					</select>
-					<input type="text" bind:value={row.value} placeholder="Value" class="flex-1 min-w-0 px-2 py-1 text-xs bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded text-slate-900 dark:text-white" />
-					<button type="button" onclick={() => { pubAttrRows = pubAttrRows.filter((_, j) => j !== i); }} class="text-red-400 hover:text-red-600 text-xs px-1">✕</button>
-				</div>
-			{/each}
-			<button type="button" onclick={() => { pubAttrRows = [...pubAttrRows, { name: '', type: 'String', value: '' }]; }} class="text-xs text-indigo-600 dark:text-indigo-400 hover:underline mt-1">+ Add attribute</button>
-		</div>
-	{/if}
+<label for="sns-msg-attrs" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Message Attributes <span class="font-normal text-slate-400">(JSON key-value map)</span></label>
+<textarea
+id="sns-msg-attrs"
+bind:value={pubAttributes}
+rows={2}
+placeholder={`{"key": "value"}`}
+class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm resize-none"
+></textarea>
 </div>
 {#if isFifo(selectedTopic?.TopicArn)}
 <div class="grid grid-cols-2 gap-4">

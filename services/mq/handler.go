@@ -13,7 +13,6 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
-	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -60,7 +59,6 @@ const (
 	promoteSuffix         = "/promote"
 	usersSuffix           = "/users"
 	revisionsSuffix       = "/revisions"
-	mqDefaultPageSize     = 100
 )
 
 // Handler is the Echo HTTP handler for Amazon MQ REST operations.
@@ -530,7 +528,7 @@ func (h *Handler) handleDescribeBroker(c *echo.Context, brokerID string) error {
 func (h *Handler) handleListBrokers(c *echo.Context) error {
 	q := c.Request().URL.Query()
 	nextToken := q.Get("nextToken")
-	maxResults := 0
+	maxResults := 100
 
 	if s := q.Get("maxResults"); s != "" {
 		if n, err := strconv.Atoi(s); err == nil && n > 0 && n <= 100 {
@@ -540,12 +538,26 @@ func (h *Handler) handleListBrokers(c *echo.Context) error {
 
 	brokers := h.Backend.ListBrokers()
 
-	// Use opaque index-based tokens so the page boundary is stable regardless
-	// of insertions or deletions between requests. AWS uses opaque cursors too.
-	pg := page.New(brokers, nextToken, maxResults, mqDefaultPageSize)
+	// Apply nextToken: skip brokers up to and including the named broker.
+	if nextToken != "" {
+		for i, br := range brokers {
+			if br.BrokerName == nextToken {
+				brokers = brokers[i+1:]
 
-	summaries := make([]brokerSummary, 0, len(pg.Data))
-	for _, br := range pg.Data {
+				break
+			}
+		}
+	}
+
+	var responseNextToken string
+
+	if len(brokers) > maxResults {
+		responseNextToken = brokers[maxResults-1].BrokerName
+		brokers = brokers[:maxResults]
+	}
+
+	summaries := make([]brokerSummary, 0, len(brokers))
+	for _, br := range brokers {
 		summaries = append(summaries, brokerSummary{
 			BrokerArn:        br.BrokerArn,
 			BrokerID:         br.BrokerID,
@@ -559,8 +571,8 @@ func (h *Handler) handleListBrokers(c *echo.Context) error {
 	}
 
 	resp := map[string]any{"brokerSummaries": summaries}
-	if pg.Next != "" {
-		resp["nextToken"] = pg.Next
+	if responseNextToken != "" {
+		resp["nextToken"] = responseNextToken
 	}
 
 	return c.JSON(http.StatusOK, resp)
@@ -883,7 +895,7 @@ func (h *Handler) handleDescribeConfiguration(c *echo.Context, configID string) 
 func (h *Handler) handleListConfigurations(c *echo.Context) error {
 	q := c.Request().URL.Query()
 	nextToken := q.Get("nextToken")
-	maxResults := 0
+	maxResults := 100
 
 	if s := q.Get("maxResults"); s != "" {
 		if n, err := strconv.Atoi(s); err == nil && n > 0 && n <= 100 {
@@ -896,17 +908,32 @@ func (h *Handler) handleListConfigurations(c *echo.Context) error {
 		cfgs = []*Configuration{}
 	}
 
-	// Use opaque index-based tokens so the page boundary is stable.
-	pg := page.New(cfgs, nextToken, maxResults, mqDefaultPageSize)
+	// Apply nextToken: skip configurations up to and including the named one.
+	if nextToken != "" {
+		for i, cfg := range cfgs {
+			if cfg.Name == nextToken {
+				cfgs = cfgs[i+1:]
 
-	list := make([]any, 0, len(pg.Data))
-	for _, cfg := range pg.Data {
+				break
+			}
+		}
+	}
+
+	var responseNextToken string
+
+	if len(cfgs) > maxResults {
+		responseNextToken = cfgs[maxResults-1].Name
+		cfgs = cfgs[:maxResults]
+	}
+
+	list := make([]any, 0, len(cfgs))
+	for _, cfg := range cfgs {
 		list = append(list, toConfigurationResponse(cfg))
 	}
 
 	resp := map[string]any{"configurations": list}
-	if pg.Next != "" {
-		resp["nextToken"] = pg.Next
+	if responseNextToken != "" {
+		resp["nextToken"] = responseNextToken
 	}
 
 	return c.JSON(http.StatusOK, resp)

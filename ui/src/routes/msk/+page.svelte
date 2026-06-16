@@ -19,7 +19,6 @@
 		DeleteVpcConnectionCommand,
 		GetBootstrapBrokersCommand,
 		ListClusterOperationsV2Command,
-		type Cluster,
 		type ClusterInfo,
 		type NodeInfo,
 		type Configuration,
@@ -55,8 +54,7 @@
 	let selectedCluster = $state<ClusterInfo | null>(null);
 	let clusterNodes = $state<NodeInfo[]>([]);
 	let clusterOps = $state<ClusterOperationV2[]>([]);
-	let bootstrapEndpoints = $state<{ label: string; value: string }[]>([]);
-	let clusterDetail = $state<Cluster | null>(null);
+	let bootstrapBrokers = $state('');
 	let loadingDetail = $state(false);
 	let showCreateClusterModal = $state(false);
 	let creatingCluster = $state(false);
@@ -127,27 +125,23 @@
 		loadingDetail = true;
 		clusterNodes = [];
 		clusterOps = [];
-		bootstrapEndpoints = [];
-		clusterDetail = null;
+		bootstrapBrokers = '';
 		try {
-			const [nodesRes, opsRes, brokerRes, descRes] = await Promise.allSettled([
+			const [nodesRes, opsRes, brokerRes] = await Promise.allSettled([
 				msk.send(new ListNodesCommand({ ClusterArn: cluster.ClusterArn, MaxResults: 100 })),
-				msk.send(new ListClusterOperationsV2Command({ ClusterArn: cluster.ClusterArn, MaxResults: 20 })),
-				msk.send(new GetBootstrapBrokersCommand({ ClusterArn: cluster.ClusterArn })),
-				msk.send(new DescribeClusterV2Command({ ClusterArn: cluster.ClusterArn }))
+				msk.send(
+					new ListClusterOperationsV2Command({ ClusterArn: cluster.ClusterArn, MaxResults: 20 })
+				),
+				msk.send(new GetBootstrapBrokersCommand({ ClusterArn: cluster.ClusterArn }))
 			]);
 			if (nodesRes.status === 'fulfilled') clusterNodes = nodesRes.value.NodeInfoList ?? [];
-			if (opsRes.status === 'fulfilled') clusterOps = opsRes.value.ClusterOperationInfoList ?? [];
-			if (brokerRes.status === 'fulfilled') {
-				const b = brokerRes.value;
-				bootstrapEndpoints = [
-					{ label: 'Plaintext', value: b.BootstrapBrokerString ?? '' },
-					{ label: 'TLS', value: b.BootstrapBrokerStringTls ?? '' },
-					{ label: 'SASL/SCRAM', value: b.BootstrapBrokerStringSaslScram ?? '' },
-					{ label: 'SASL/IAM', value: b.BootstrapBrokerStringSaslIam ?? '' },
-				].filter((e) => e.value);
-			}
-			if (descRes.status === 'fulfilled') clusterDetail = descRes.value.ClusterInfo ?? null;
+			if (opsRes.status === 'fulfilled')
+				clusterOps = opsRes.value.ClusterOperationInfoList ?? [];
+			if (brokerRes.status === 'fulfilled')
+				bootstrapBrokers =
+					brokerRes.value.BootstrapBrokerString ??
+					brokerRes.value.BootstrapBrokerStringTls ??
+					'';
 		} catch (e) {
 			toast.error(`Failed to load cluster detail: ${e}`);
 		} finally {
@@ -373,8 +367,6 @@
 		activeTab = tab;
 		searchQuery = '';
 		selectedCluster = null;
-		clusterDetail = null;
-		bootstrapEndpoints = [];
 		switch (tab) {
 			case 'clusters':
 				await loadClusters();
@@ -519,89 +511,21 @@
 						<Server class="h-5 w-5" />
 						{selectedCluster.ClusterName}
 					</h3>
-					<button onclick={() => { selectedCluster = null; clusterDetail = null; bootstrapEndpoints = []; }} class="text-xs text-muted-foreground hover:text-foreground">Close</button>
+					<button onclick={() => (selectedCluster = null)} class="text-xs text-muted-foreground hover:text-foreground">Close</button>
 				</div>
+
+				{#if bootstrapBrokers}
+					<div class="rounded bg-muted/50 px-3 py-2 text-xs font-mono text-muted-foreground break-all">
+						<span class="font-semibold text-foreground">Bootstrap Brokers:</span> {bootstrapBrokers}
+					</div>
+				{/if}
 
 				{#if loadingDetail}
 					<RefreshCw class="h-5 w-5 animate-spin text-muted-foreground" />
 				{:else}
-					<!-- Cluster info grid -->
-					{@const prov = clusterDetail?.Provisioned}
-					{#if prov}
-						<div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-							{#each [
-								['Kafka Version', prov.CurrentBrokerSoftwareInfo?.KafkaVersion ?? '—'],
-								['Broker Count', String(prov.NumberOfBrokerNodes ?? '—')],
-								['Instance Type', prov.BrokerNodeGroupInfo?.InstanceType ?? '—'],
-								['Storage Mode', prov.StorageMode ?? 'LOCAL'],
-							] as [label, value]}
-								<div class="rounded bg-muted/50 p-3">
-									<p class="text-xs text-muted-foreground">{label}</p>
-									<p class="text-sm font-semibold mt-0.5">{value}</p>
-								</div>
-							{/each}
-						</div>
-
-						<!-- Encryption -->
-						{#if prov.EncryptionInfo}
-							{@const enc = prov.EncryptionInfo}
-							<div>
-								<h4 class="text-sm font-medium mb-2">Encryption</h4>
-								<div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
-									<div class="rounded bg-muted/50 p-3">
-										<p class="text-xs text-muted-foreground">At Rest (KMS Key)</p>
-										<p class="text-xs font-mono mt-0.5 break-all">{enc.EncryptionAtRest?.DataVolumeKMSKeyId ?? 'AWS Managed'}</p>
-									</div>
-									<div class="rounded bg-muted/50 p-3">
-										<p class="text-xs text-muted-foreground">In Transit (Client↔Broker)</p>
-										<p class="text-sm font-semibold mt-0.5">{enc.EncryptionInTransit?.ClientBroker ?? 'TLS_PLAINTEXT'}</p>
-									</div>
-									<div class="rounded bg-muted/50 p-3">
-										<p class="text-xs text-muted-foreground">In Transit (In-Cluster)</p>
-										<p class="text-sm font-semibold mt-0.5">{enc.EncryptionInTransit?.InCluster !== false ? 'Enabled' : 'Disabled'}</p>
-									</div>
-								</div>
-							</div>
-						{/if}
-
-						<!-- Zookeeper -->
-						{#if prov.ZookeeperConnectString}
-							<div>
-								<h4 class="text-sm font-medium mb-1">ZooKeeper</h4>
-								<div class="space-y-1">
-									<div class="rounded bg-muted/50 px-3 py-2">
-										<p class="text-xs text-muted-foreground mb-0.5">Plaintext</p>
-										<p class="text-xs font-mono break-all">{prov.ZookeeperConnectString}</p>
-									</div>
-									{#if prov.ZookeeperConnectStringTls}
-										<div class="rounded bg-muted/50 px-3 py-2">
-											<p class="text-xs text-muted-foreground mb-0.5">TLS</p>
-											<p class="text-xs font-mono break-all">{prov.ZookeeperConnectStringTls}</p>
-										</div>
-									{/if}
-								</div>
-							</div>
-						{/if}
-					{/if}
-
-					<!-- Bootstrap Brokers -->
-					{#if bootstrapEndpoints.length > 0}
-						<div>
-							<h4 class="text-sm font-medium mb-2">Bootstrap Brokers</h4>
-							<div class="space-y-1">
-								{#each bootstrapEndpoints as ep}
-									<div class="rounded bg-muted/50 px-3 py-2">
-										<p class="text-xs text-muted-foreground mb-0.5">{ep.label}</p>
-										<p class="text-xs font-mono break-all">{ep.value}</p>
-									</div>
-								{/each}
-							</div>
-						</div>
-					{/if}
-
 					<!-- Broker Nodes -->
 					<div>
-						<h4 class="text-sm font-medium mb-2">Broker Nodes ({clusterNodes.length})</h4>
+						<h4 class="text-sm font-medium mb-2">Broker Nodes</h4>
 						{#if clusterNodes.length === 0}
 							<p class="text-sm text-muted-foreground">No nodes found.</p>
 						{:else}
@@ -611,7 +535,6 @@
 										<tr>
 											<th class="px-3 py-2 text-left font-medium">Broker ID</th>
 											<th class="px-3 py-2 text-left font-medium">Instance Type</th>
-											<th class="px-3 py-2 text-left font-medium">AZ</th>
 											<th class="px-3 py-2 text-left font-medium">Endpoint</th>
 										</tr>
 									</thead>
@@ -620,8 +543,7 @@
 											<tr>
 												<td class="px-3 py-2">{node.BrokerNodeInfo?.BrokerId ?? '—'}</td>
 												<td class="px-3 py-2">{node.InstanceType ?? '—'}</td>
-												<td class="px-3 py-2 text-xs text-muted-foreground">{node.BrokerNodeInfo?.CurrentBrokerSoftwareInfo?.KafkaVersion ?? '—'}</td>
-												<td class="px-3 py-2 text-xs font-mono text-muted-foreground break-all">
+												<td class="px-3 py-2 text-xs text-muted-foreground truncate max-w-[250px]">
 													{node.BrokerNodeInfo?.Endpoints?.[0] ?? '—'}
 												</td>
 											</tr>
@@ -658,14 +580,6 @@
 									</tbody>
 								</table>
 							</div>
-						</div>
-					{/if}
-
-					<!-- Cluster ARN -->
-					{#if selectedCluster.ClusterArn}
-						<div class="rounded bg-muted/50 px-3 py-2">
-							<p class="text-xs text-muted-foreground mb-0.5">Cluster ARN</p>
-							<p class="text-xs font-mono break-all">{selectedCluster.ClusterArn}</p>
 						</div>
 					{/if}
 				{/if}

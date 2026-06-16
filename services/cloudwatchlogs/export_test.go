@@ -72,6 +72,3 @@ func (b *InMemoryBackend) GetParsedInsightsQueryCacheSize() int {
 
 	return len(b.parsedQueries)
 }
-
-// DefaultParsedQueryCacheSizeForTest exposes the default parsed-query cache cap.
-const DefaultParsedQueryCacheSizeForTest = defaultParsedQueryCacheSize

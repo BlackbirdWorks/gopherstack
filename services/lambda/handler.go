@@ -3390,9 +3390,7 @@ func (h *Handler) handleCapacityProviderRoute(c *echo.Context, path, method stri
 
 	// /2025-11-30/capacity-providers/{name}/function-versions → ListFunctionVersionsByCapacityProvider
 	if strings.HasSuffix(rest, "/function-versions") && method == http.MethodGet {
-		cpName := strings.TrimSuffix(rest, "/function-versions")
-
-		return h.handleListFunctionVersionsByCapacityProvider(c, lambdaBk, cpName)
+		return h.handleListFunctionVersionsByCapacityProvider(c)
 	}
 
 	// /2025-11-30/capacity-providers/{name} → Get / Delete / Update

@@ -383,7 +383,6 @@ type InMemoryBackend struct {
 	materializedViewRuns      map[string]*MaterializedViewRefreshRun    // key: taskRunID
 	integrations              map[string]*Integration                   // key: integrationName
 	mlTaskRuns                map[string]*MLTaskRun                     // key: "transformID|taskRunID"
-	catalogImportStatus       map[string]*CatalogImportStatus           // key: catalogID
 	glueIdentityCenterConfig  *IdentityCenterConfig
 	mu                        *lockmetrics.RWMutex
 
@@ -441,7 +440,6 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		materializedViewRuns:      make(map[string]*MaterializedViewRefreshRun),
 		integrations:              make(map[string]*Integration),
 		mlTaskRuns:                make(map[string]*MLTaskRun),
-		catalogImportStatus:       make(map[string]*CatalogImportStatus),
 		mu:                        lockmetrics.New("glue"),
 		accountID:                 accountID,
 		region:                    region,
@@ -614,7 +612,6 @@ func (b *InMemoryBackend) Reset() {
 	b.materializedViewRuns = make(map[string]*MaterializedViewRefreshRun)
 	b.integrations = make(map[string]*Integration)
 	b.mlTaskRuns = make(map[string]*MLTaskRun)
-	b.catalogImportStatus = make(map[string]*CatalogImportStatus)
 	b.glueIdentityCenterConfig = nil
 }
 
@@ -1351,10 +1348,6 @@ func (b *InMemoryBackend) GetTags(resourceARN string) (map[string]string, error)
 		return maps.Clone(conn.Tags), nil
 	}
 
-	if t := b.findTriggerByARN(resourceARN); t != nil {
-		return maps.Clone(t.Tags), nil
-	}
-
 	return nil, ErrNotFound
 }
 
@@ -1426,20 +1419,6 @@ func (b *InMemoryBackend) findConnectionByARN(resourceARN string) *Connection {
 	}
 
 	return c
-}
-
-func (b *InMemoryBackend) findTriggerByARN(resourceARN string) *Trigger {
-	name := glueResourceName(resourceARN, "trigger")
-	if name == "" {
-		return nil
-	}
-
-	t, ok := b.triggers[name]
-	if !ok {
-		return nil
-	}
-
-	return t
 }
 
 // --- Batch operations ---

@@ -105,7 +105,13 @@ func (h *Handler) ChaosRegions() []string { return []string{h.DefaultRegion} }
 // RouteMatcher returns a function that matches MediaStore JSON 1.1 API requests.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
-		return strings.HasPrefix(c.Request().Header.Get("X-Amz-Target"), mediastoreTargetPrefix)
+		target := c.Request().Header.Get("X-Amz-Target")
+
+		if strings.HasPrefix(target, mediastoreTargetPrefix) {
+			return true
+		}
+
+		return httputils.ExtractServiceFromRequest(c.Request()) == mediastoreService
 	}
 }
 

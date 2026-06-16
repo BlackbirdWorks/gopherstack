@@ -267,16 +267,15 @@
 		{#if activeTab === 'overview'}
 			<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
 				{#each [
-					{ label: 'Status', value: selectedCluster.ClusterStatus ?? '-' },
 					{ label: 'Endpoint', value: selectedCluster.Endpoint ? `${selectedCluster.Endpoint.Address}:${selectedCluster.Endpoint.Port}` : '-' },
-					{ label: 'Database', value: selectedCluster.DBName ?? '-' },
-					{ label: 'Master Username', value: selectedCluster.MasterUsername ?? '-' },
-					{ label: 'Node Type', value: selectedCluster.NodeType ?? '-' },
+					{ label: 'Database', value: selectedCluster.DBName },
+					{ label: 'Master Username', value: selectedCluster.MasterUsername },
+					{ label: 'Node Type', value: selectedCluster.NodeType },
 					{ label: 'Number of Nodes', value: String(selectedCluster.NumberOfNodes ?? 1) },
-					{ label: 'Cluster Type', value: (selectedCluster.NumberOfNodes ?? 1) > 1 ? 'multi-node' : 'single-node' },
-					{ label: 'Availability Zone', value: selectedCluster.AvailabilityZone ?? '-' },
+					{ label: 'Cluster Type', value: selectedCluster.ClusterCreateTime ? 'Multi-node' : 'Single-node' },
+					{ label: 'Availability Zone', value: selectedCluster.AvailabilityZone },
 					{ label: 'Created', value: formatDate(selectedCluster.ClusterCreateTime) },
-					{ label: 'VPC ID', value: selectedCluster.VpcId ?? '-' },
+					{ label: 'VPC ID', value: selectedCluster.VpcId ?? 'N/A' },
 					{ label: 'Encryption', value: selectedCluster.Encrypted ? 'Encrypted' : 'Not Encrypted' }
 				] as row}
 					<div class="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">

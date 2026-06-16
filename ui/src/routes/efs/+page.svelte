@@ -9,10 +9,8 @@
 		CreateMountTargetCommand,
 		DeleteMountTargetCommand,
 		DescribeMountTargetsCommand,
-		DescribeAccessPointsCommand,
 		type FileSystemDescription,
-		type MountTargetDescription,
-		type AccessPointDescription
+		type MountTargetDescription
 	} from '@aws-sdk/client-efs';
 	import { toast } from 'svelte-sonner';
 	import { HardDrive, Search, RefreshCw, ChevronRight, Server, Plus, Trash2 } from 'lucide-svelte';
@@ -23,8 +21,6 @@
 	let fileSystems = $state<FileSystemDescription[]>([]);
 	let mountTargets = $state<MountTargetDescription[]>([]);
 	let selectedFS = $state<FileSystemDescription | null>(null);
-	let accessPoints = $state<AccessPointDescription[]>([]);
-	let loadingAccessPoints = $state(false);
 	let activeTab = $state<'filesystems' | 'mounttargets'>('filesystems');
 	let searchQuery = $state('');
 
@@ -91,18 +87,6 @@
 		}
 	}
 
-	async function loadAccessPoints(fsId: string) {
-		loadingAccessPoints = true;
-		try {
-			const res = await client.send(new DescribeAccessPointsCommand({ FileSystemId: fsId }));
-			accessPoints = res.AccessPoints ?? [];
-		} catch (e) {
-			toast.error('Failed to load access points: ' + String(e));
-		} finally {
-			loadingAccessPoints = false;
-		}
-	}
-
 	async function createFileSystem() {
 		if (!newCreationToken.trim()) {
 			toast.error('Creation token is required');
@@ -145,7 +129,7 @@
 		try {
 			await client.send(new DeleteFileSystemCommand({ FileSystemId: id }));
 			toast.success(`File system ${id} deleted`);
-			if (selectedFS?.FileSystemId === id) { selectedFS = null; accessPoints = []; }
+			if (selectedFS?.FileSystemId === id) selectedFS = null;
 			await loadData();
 		} catch (e) {
 			toast.error('Failed to delete file system: ' + String(e));
@@ -262,47 +246,30 @@
 
 	{#if selectedFS}
 		<div class="flex items-center gap-2 text-sm">
-			<button onclick={() => { selectedFS = null; accessPoints = []; }} class="text-teal-600 hover:underline">File Systems</button>
+			<button onclick={() => { selectedFS = null; }} class="text-teal-600 hover:underline">File Systems</button>
 			<ChevronRight class="w-4 h-4 text-gray-400" />
 			<span class="font-medium text-gray-700 dark:text-gray-300">{selectedFS.FileSystemId}</span>
 		</div>
-		<!-- Info grid -->
-		<div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+		<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
 			{#each [
+				{ label: 'File System ID', value: selectedFS.FileSystemId ?? '-' },
 				{ label: 'Lifecycle State', value: selectedFS.LifeCycleState ?? '-' },
 				{ label: 'Performance Mode', value: selectedFS.PerformanceMode ?? '-' },
 				{ label: 'Throughput Mode', value: selectedFS.ThroughputMode ?? '-' },
-				{ label: 'Size (GB)', value: String(Math.round((selectedFS.SizeInBytes?.Value ?? 0) / 1073741824)) },
-				{ label: 'Mount Targets', value: String(selectedFS.NumberOfMountTargets ?? 0) },
-				{ label: 'Encrypted', value: selectedFS.Encrypted ? 'Yes' : 'No' },
-				{ label: 'AZ', value: selectedFS.AvailabilityZoneName ?? 'Regional' },
-				{ label: 'Creation Token', value: selectedFS.CreationToken ?? '-' },
+				{ label: 'Size (Bytes)', value: String(selectedFS.SizeInBytes?.Value ?? 0) },
+				{ label: 'Number of Mount Targets', value: String(selectedFS.NumberOfMountTargets ?? 0) }
 			] as row}
-				<div class="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-3">
+				<div class="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
 					<div class="text-xs text-gray-500 font-medium">{row.label}</div>
-					<div class="text-sm text-gray-900 dark:text-white mt-0.5 font-medium truncate">{row.value}</div>
+					<div class="text-sm text-gray-900 dark:text-white mt-1 font-mono truncate">{row.value}</div>
 				</div>
 			{/each}
 		</div>
 
-		{#if selectedFS.FileSystemArn}
-			<div class="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-3">
-				<div class="text-xs text-gray-500 font-medium mb-0.5">File System ARN</div>
-				<div class="text-xs font-mono text-gray-900 dark:text-white break-all">{selectedFS.FileSystemArn}</div>
-			</div>
-		{/if}
-
-		{#if selectedFS.KmsKeyId}
-			<div class="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-3">
-				<div class="text-xs text-gray-500 font-medium mb-0.5">KMS Key ID</div>
-				<div class="text-xs font-mono text-gray-900 dark:text-white break-all">{selectedFS.KmsKeyId}</div>
-			</div>
-		{/if}
-
 		<!-- Mount Target Management -->
 		<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700">
 			<div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
-				<h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300">Mount Targets per AZ</h2>
+				<h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300">Mount Targets</h2>
 				<button
 					onclick={() => { showCreateMTModal = true; }}
 					class="flex items-center gap-1 px-3 py-1.5 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-xs font-medium"
@@ -320,23 +287,21 @@
 					<thead class="bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 uppercase text-xs">
 						<tr>
 							<th class="px-4 py-3 text-left">Mount Target ID</th>
-							<th class="px-4 py-3 text-left">AZ</th>
 							<th class="px-4 py-3 text-left">State</th>
-							<th class="px-4 py-3 text-left">IP Address</th>
 							<th class="px-4 py-3 text-left">Subnet</th>
+							<th class="px-4 py-3 text-left">IP Address</th>
 							<th class="px-4 py-3 text-left"></th>
 						</tr>
 					</thead>
 					<tbody class="divide-y divide-gray-100 dark:divide-gray-800">
 						{#each mountTargets as mt}
 							<tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
-								<td class="px-4 py-3 font-medium text-gray-900 dark:text-white font-mono text-xs">{mt.MountTargetId ?? '-'}</td>
-								<td class="px-4 py-3 text-gray-600 dark:text-gray-300 text-xs">{mt.AvailabilityZoneName ?? mt.AvailabilityZoneId ?? '-'}</td>
+								<td class="px-4 py-3 font-medium text-gray-900 dark:text-white">{mt.MountTargetId ?? '-'}</td>
 								<td class="px-4 py-3">
 									<span class={`px-2 py-0.5 rounded text-xs font-medium ${mt.LifeCycleState === 'available' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'}`}>{mt.LifeCycleState ?? '-'}</span>
 								</td>
-								<td class="px-4 py-3 text-gray-600 dark:text-gray-300 font-mono text-xs">{mt.IpAddress ?? '-'}</td>
-								<td class="px-4 py-3 text-gray-600 dark:text-gray-300 text-xs">{mt.SubnetId ?? '-'}</td>
+								<td class="px-4 py-3 text-gray-600 dark:text-gray-300">{mt.SubnetId ?? '-'}</td>
+								<td class="px-4 py-3 text-gray-600 dark:text-gray-300">{mt.IpAddress ?? '-'}</td>
 								<td class="px-4 py-3 text-right">
 									<button
 										onclick={() => deleteMountTarget(mt)}
@@ -345,51 +310,6 @@
 									>
 										<Trash2 class="w-4 h-4" />
 									</button>
-								</td>
-							</tr>
-						{/each}
-					</tbody>
-				</table>
-			{/if}
-		</div>
-
-		<!-- Access Points -->
-		<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700">
-			<div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
-				<h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300">Access Points</h2>
-			</div>
-			{#if loadingAccessPoints}
-				<div class="text-center py-8"><div class="inline-block w-5 h-5 border-2 border-teal-600 border-t-transparent rounded-full animate-spin"></div></div>
-			{:else if accessPoints.length === 0}
-				<div class="text-center py-8 text-gray-500 dark:text-gray-400">
-					<p class="text-sm">No access points</p>
-				</div>
-			{:else}
-				<table class="w-full text-sm">
-					<thead class="bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 uppercase text-xs">
-						<tr>
-							<th class="px-4 py-3 text-left">Access Point ID</th>
-							<th class="px-4 py-3 text-left">Name</th>
-							<th class="px-4 py-3 text-left">Root Path</th>
-							<th class="px-4 py-3 text-left">POSIX UID/GID</th>
-							<th class="px-4 py-3 text-left">State</th>
-						</tr>
-					</thead>
-					<tbody class="divide-y divide-gray-100 dark:divide-gray-800">
-						{#each accessPoints as ap}
-							<tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
-								<td class="px-4 py-3 font-mono text-xs text-gray-900 dark:text-white">{ap.AccessPointId ?? '-'}</td>
-								<td class="px-4 py-3 text-gray-600 dark:text-gray-300">{ap.Name ?? '-'}</td>
-								<td class="px-4 py-3 font-mono text-xs text-gray-600 dark:text-gray-300">{ap.RootDirectory?.Path ?? '/'}</td>
-								<td class="px-4 py-3 text-xs text-gray-600 dark:text-gray-300">
-									{#if ap.PosixUser}
-										{ap.PosixUser.Uid}/{ap.PosixUser.Gid}
-									{:else}
-										-
-									{/if}
-								</td>
-								<td class="px-4 py-3">
-									<span class={`px-2 py-0.5 rounded text-xs font-medium ${ap.LifeCycleState === 'available' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'}`}>{ap.LifeCycleState ?? '-'}</span>
 								</td>
 							</tr>
 						{/each}
@@ -439,7 +359,7 @@
 								<tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
 									<td class="px-4 py-3">
 										<button
-											onclick={async () => { selectedFS = fs; accessPoints = []; await Promise.all([loadMountTargets(fs.FileSystemId ?? ''), loadAccessPoints(fs.FileSystemId ?? '')]); }}
+											onclick={async () => { selectedFS = fs; await loadMountTargets(fs.FileSystemId ?? ''); }}
 											class="text-teal-600 dark:text-teal-400 hover:underline font-medium"
 										>{fs.FileSystemId ?? '-'}</button>
 									</td>

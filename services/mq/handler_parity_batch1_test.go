@@ -37,12 +37,12 @@ func createBatch1Broker(t *testing.T, h *mq.Handler, name, engineType string) st
 	return parseAccuracyMQ(t, rec)["brokerId"].(string)
 }
 
-func createBatch1Config(t *testing.T, h *mq.Handler, name string) string {
+func createBatch1Config(t *testing.T, h *mq.Handler, name, engineType string) string {
 	t.Helper()
 
 	rec := doAccuracyMQ(t, h, http.MethodPost, "/v1/configurations", map[string]any{
 		"name":       name,
-		"engineType": mq.EngineTypeActiveMQ,
+		"engineType": engineType,
 	})
 	require.Equal(t, http.StatusOK, rec.Code, "CreateConfiguration %s: %s", name, rec.Body.String())
 
@@ -772,7 +772,7 @@ func TestBatch1_ConfigAssoc_CreateBroker_WithConfiguration(t *testing.T) {
 	t.Parallel()
 
 	h := newBatch1Handler(t)
-	configID := createBatch1Config(t, h, "assoc-cfg")
+	configID := createBatch1Config(t, h, "assoc-cfg", mq.EngineTypeActiveMQ)
 
 	rec := doAccuracyMQ(t, h, http.MethodPost, "/v1/brokers", map[string]any{
 		"brokerName": "assoc-broker",
@@ -801,7 +801,7 @@ func TestBatch1_ConfigAssoc_UpdateBroker_SetsCurrentConfig(t *testing.T) {
 
 	h := newBatch1Handler(t)
 	brokerID := createBatch1Broker(t, h, "assoc-upd-broker", mq.EngineTypeActiveMQ)
-	configID := createBatch1Config(t, h, "assoc-upd-cfg")
+	configID := createBatch1Config(t, h, "assoc-upd-cfg", mq.EngineTypeActiveMQ)
 
 	updRec := doAccuracyMQ(t, h, http.MethodPut, "/v1/brokers/"+brokerID, map[string]any{
 		"configuration": map[string]any{
@@ -822,7 +822,7 @@ func TestBatch1_ConfigAssoc_DescribeBroker_After_UpdateBroker(t *testing.T) {
 
 	h := newBatch1Handler(t)
 	brokerID := createBatch1Broker(t, h, "assoc-desc-broker", mq.EngineTypeActiveMQ)
-	configID := createBatch1Config(t, h, "assoc-desc-cfg")
+	configID := createBatch1Config(t, h, "assoc-desc-cfg", mq.EngineTypeActiveMQ)
 
 	doAccuracyMQ(t, h, http.MethodPut, "/v1/brokers/"+brokerID, map[string]any{
 		"configuration": map[string]any{

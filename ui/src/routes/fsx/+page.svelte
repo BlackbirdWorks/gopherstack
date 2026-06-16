@@ -23,29 +23,6 @@
 
 	const availableFS = $derived(fileSystems.filter((f) => f.Lifecycle === 'AVAILABLE').length);
 
-	function getThroughput(fs: FileSystem): string {
-		let t: number | undefined;
-		let unit = 'MB/s';
-		if (fs.FileSystemType === 'LUSTRE') {
-			t = fs.LustreConfiguration?.PerUnitStorageThroughput;
-			unit = 'MB/s/TiB';
-		} else if (fs.FileSystemType === 'WINDOWS') {
-			t = fs.WindowsConfiguration?.ThroughputCapacity;
-		} else if (fs.FileSystemType === 'ONTAP') {
-			t = fs.OntapConfiguration?.ThroughputCapacity;
-		} else if (fs.FileSystemType === 'OPENZFS') {
-			t = fs.OpenZFSConfiguration?.ThroughputCapacity;
-		}
-		return t === undefined ? '—' : `${t} ${unit}`;
-	}
-
-	function getMountName(fs: FileSystem): string {
-		if (fs.FileSystemType === 'LUSTRE') {
-			return fs.LustreConfiguration?.MountName ?? fs.DNSName ?? '—';
-		}
-		return fs.DNSName ?? '—';
-	}
-
 	async function loadData() {
 		loading = true;
 		try {
@@ -116,33 +93,17 @@
 				{#if filteredFS.length === 0}
 					<div class="text-center py-8 text-gray-500 dark:text-gray-400">No file systems found</div>
 				{:else}
-					<div class="space-y-3">
+					<div class="space-y-2">
 						{#each filteredFS as fs}
-							<div class="p-4 rounded-lg bg-gray-50 dark:bg-slate-700/50 border border-gray-200 dark:border-slate-600">
-								<div class="flex items-start justify-between gap-3">
-									<div class="flex items-center gap-3">
-										<HardDrive class="w-5 h-5 text-orange-500 mt-0.5 shrink-0" />
-										<div>
-											<p class="font-medium text-gray-900 dark:text-white">{fs.FileSystemId}</p>
-											<p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{fs.FileSystemType}</p>
-										</div>
-									</div>
-									<span class="text-xs px-2 py-1 rounded-full shrink-0 {fs.Lifecycle === 'AVAILABLE' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400'}">{fs.Lifecycle}</span>
-								</div>
-								<div class="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-3">
+							<div class="flex items-center justify-between p-3 rounded-lg bg-gray-50 dark:bg-slate-700/50">
+								<div class="flex items-center gap-3">
+									<HardDrive class="w-5 h-5 text-orange-500" />
 									<div>
-										<p class="text-xs text-gray-500 dark:text-gray-400">Capacity</p>
-										<p class="text-sm font-medium text-gray-900 dark:text-white">{fs.StorageCapacity != null ? `${fs.StorageCapacity} GiB` : '—'}</p>
-									</div>
-									<div>
-										<p class="text-xs text-gray-500 dark:text-gray-400">Throughput</p>
-										<p class="text-sm font-medium text-gray-900 dark:text-white">{getThroughput(fs)}</p>
-									</div>
-									<div class="col-span-2">
-										<p class="text-xs text-gray-500 dark:text-gray-400">Mount Name / DNS</p>
-										<p class="text-sm font-medium text-gray-900 dark:text-white truncate">{getMountName(fs)}</p>
+										<p class="font-medium text-gray-900 dark:text-white">{fs.FileSystemId}</p>
+										<p class="text-xs text-gray-500 dark:text-gray-400">{fs.FileSystemType} · {fs.StorageCapacity} GiB</p>
 									</div>
 								</div>
+								<span class="text-xs px-2 py-1 rounded-full {fs.Lifecycle === 'AVAILABLE' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400'}">{fs.Lifecycle}</span>
 							</div>
 						{/each}
 					</div>

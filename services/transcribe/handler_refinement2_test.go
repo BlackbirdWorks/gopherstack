@@ -269,18 +269,11 @@ func TestRefinement2_HTTP_ListTagsForResource_ReturnsStoredTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp struct {
-		Tags []struct {
-			Key   string `json:"Key"`
-			Value string `json:"Value"`
-		} `json:"Tags"`
+		Tags map[string]string `json:"Tags"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	tagMap := make(map[string]string, len(resp.Tags))
-	for _, tag := range resp.Tags {
-		tagMap[tag.Key] = tag.Value
-	}
-	assert.Equal(t, "prod", tagMap["env"])
-	assert.Equal(t, "ml", tagMap["team"])
+	assert.Equal(t, "prod", resp.Tags["env"])
+	assert.Equal(t, "ml", resp.Tags["team"])
 }
 
 func TestRefinement2_HTTP_UntagResource(t *testing.T) {
@@ -303,18 +296,11 @@ func TestRefinement2_HTTP_UntagResource(t *testing.T) {
 		"ResourceArn": arn,
 	})
 	var resp struct {
-		Tags []struct {
-			Key   string `json:"Key"`
-			Value string `json:"Value"`
-		} `json:"Tags"`
+		Tags map[string]string `json:"Tags"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	tagMap := make(map[string]string, len(resp.Tags))
-	for _, tag := range resp.Tags {
-		tagMap[tag.Key] = tag.Value
-	}
-	assert.NotContains(t, tagMap, "env")
-	assert.Equal(t, "ml", tagMap["team"])
+	assert.NotContains(t, resp.Tags, "env")
+	assert.Equal(t, "ml", resp.Tags["team"])
 }
 
 // ── LanguageModel InputDataConfig echo ────────────────────────────────────────

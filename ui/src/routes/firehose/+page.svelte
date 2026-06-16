@@ -298,9 +298,9 @@
 		{#if activeTab === 'overview'}
 			<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
 				{#each [
-					{ label: 'Status', value: selectedStream.DeliveryStreamStatus ?? '-' },
-					{ label: 'Stream Type', value: selectedStream.DeliveryStreamType ?? '-' },
-					{ label: 'Version', value: selectedStream.VersionId ?? '-' },
+					{ label: 'Stream ARN', value: selectedStream.DeliveryStreamARN },
+					{ label: 'Stream Type', value: selectedStream.DeliveryStreamType },
+					{ label: 'Version', value: selectedStream.VersionId },
 					{ label: 'Created', value: formatDate(selectedStream.CreateTimestamp) },
 					{ label: 'Last Updated', value: formatDate(selectedStream.LastUpdateTimestamp) },
 					{ label: 'Destinations', value: `${(selectedStream.Destinations ?? []).length} destination(s)` }
@@ -344,55 +344,6 @@
 											<div class="bg-gray-50 dark:bg-gray-800 rounded p-2">
 												<div class="text-gray-400 mb-1">Compression</div>
 												<div class="font-semibold text-gray-800 dark:text-gray-200">{dest.S3DestinationDescription.CompressionFormat ?? 'UNCOMPRESSED'}</div>
-											</div>
-										</div>
-										{#if dest.S3DestinationDescription.Prefix}
-											<div class="mt-2 text-xs">
-												<span class="text-gray-400">Prefix: </span>
-												<span class="font-mono text-gray-700 dark:text-gray-300">{dest.S3DestinationDescription.Prefix}</span>
-											</div>
-										{/if}
-									{/if}
-
-									{#if dest.RedshiftDestinationDescription}
-										<div class="mt-3 grid grid-cols-2 gap-3 text-xs">
-											<div class="bg-gray-50 dark:bg-gray-800 rounded p-2">
-												<div class="text-gray-400 mb-1">JDBC URL</div>
-												<div class="font-mono text-gray-800 dark:text-gray-200 truncate">{dest.RedshiftDestinationDescription.ClusterJDBCURL ?? '-'}</div>
-											</div>
-											<div class="bg-gray-50 dark:bg-gray-800 rounded p-2">
-												<div class="text-gray-400 mb-1">Username</div>
-												<div class="font-semibold text-gray-800 dark:text-gray-200">{dest.RedshiftDestinationDescription.Username ?? '-'}</div>
-											</div>
-											<div class="bg-gray-50 dark:bg-gray-800 rounded p-2">
-												<div class="text-gray-400 mb-1">Target Table</div>
-												<div class="font-mono text-gray-800 dark:text-gray-200">{dest.RedshiftDestinationDescription.CopyCommand?.DataTableName ?? '-'}</div>
-											</div>
-											<div class="bg-gray-50 dark:bg-gray-800 rounded p-2">
-												<div class="text-gray-400 mb-1">Retry Duration</div>
-												<div class="font-semibold text-gray-800 dark:text-gray-200">{dest.RedshiftDestinationDescription.RetryOptions?.DurationInSeconds ?? '-'}s</div>
-											</div>
-										</div>
-									{/if}
-
-									{#if dest.AmazonopensearchserviceDestinationDescription}
-										{@const es = dest.AmazonopensearchserviceDestinationDescription}
-										<div class="mt-3 grid grid-cols-2 gap-3 text-xs">
-											<div class="bg-gray-50 dark:bg-gray-800 rounded p-2">
-												<div class="text-gray-400 mb-1">Domain / Endpoint</div>
-												<div class="font-mono text-gray-800 dark:text-gray-200 truncate">{es.ClusterEndpoint ?? es.DomainARN ?? '-'}</div>
-											</div>
-											<div class="bg-gray-50 dark:bg-gray-800 rounded p-2">
-												<div class="text-gray-400 mb-1">Index Name</div>
-												<div class="font-semibold text-gray-800 dark:text-gray-200">{es.IndexName ?? '-'}</div>
-											</div>
-											<div class="bg-gray-50 dark:bg-gray-800 rounded p-2">
-												<div class="text-gray-400 mb-1">Index Rotation</div>
-												<div class="font-semibold text-gray-800 dark:text-gray-200">{es.IndexRotationPeriod ?? '-'}</div>
-											</div>
-											<div class="bg-gray-50 dark:bg-gray-800 rounded p-2">
-												<div class="text-gray-400 mb-1">Buffer Size / Interval</div>
-												<div class="font-semibold text-gray-800 dark:text-gray-200">{es.BufferingHints?.SizeInMBs ?? '-'} MB / {es.BufferingHints?.IntervalInSeconds ?? '-'}s</div>
 											</div>
 										</div>
 									{/if}

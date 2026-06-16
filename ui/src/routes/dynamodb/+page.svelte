@@ -19,9 +19,6 @@
 		ListBackupsCommand,
 		CreateBackupCommand,
 		DeleteBackupCommand,
-		DescribeContinuousBackupsCommand,
-		UpdateContinuousBackupsCommand,
-		DescribeTableReplicaAutoScalingCommand,
 		type TableDescription,
 		type KeySchemaElement,
 		type ScalarAttributeType,
@@ -87,16 +84,6 @@
 	let backups = $state<BackupSummary[]>([]);
 	let backupsLoading = $state(false);
 	let newBackupName = $state('');
-
-	// PITR State
-	let pitrStatus = $state<'ENABLED' | 'DISABLED' | 'ENABLING' | 'DISABLING' | null>(null);
-	let pitrLoading = $state(false);
-	let pitrEarliestRestoreDate = $state<Date | null>(null);
-
-	// Global Tables / Replicas State
-	let tableReplicas = $state<{ RegionName?: string; ReplicaStatus?: string }[]>([]);
-	let replicasLoading = $state(false);
-	let newReplicaRegion = $state('');
 
 	// PartiQL State
 	let partiqlStatement = $state('');
@@ -499,87 +486,6 @@
 		}
 	}
 
-	// PITR
-	async function loadPitr(): Promise<void> {
-		if (!selectedTable) return;
-		pitrLoading = true;
-		try {
-			const res = await ddb.send(new DescribeContinuousBackupsCommand({ TableName: selectedTable }));
-			const pitr = res.ContinuousBackupsDescription?.PointInTimeRecoveryDescription;
-			pitrStatus = (pitr?.PointInTimeRecoveryStatus as 'ENABLED' | 'DISABLED' | 'ENABLING' | 'DISABLING') ?? 'DISABLED';
-			pitrEarliestRestoreDate = pitr?.EarliestRestorableDateTime ?? null;
-		} catch {
-			pitrStatus = null;
-		} finally {
-			pitrLoading = false;
-		}
-	}
-
-	async function togglePitr(): Promise<void> {
-		if (!selectedTable) return;
-		const enable = pitrStatus !== 'ENABLED';
-		try {
-			await ddb.send(new UpdateContinuousBackupsCommand({
-				TableName: selectedTable,
-				PointInTimeRecoverySpecification: { PointInTimeRecoveryEnabled: enable }
-			}));
-			toast.success(`PITR ${enable ? 'enabled' : 'disabled'}`);
-			await loadPitr();
-		} catch (err: unknown) {
-			toast.error(`PITR update failed: ${(err as Error).message}`);
-		}
-	}
-
-	// Global Tables / Replicas
-	async function loadReplicas(): Promise<void> {
-		if (!selectedTable) return;
-		replicasLoading = true;
-		try {
-			const res = await ddb.send(new DescribeTableReplicaAutoScalingCommand({ TableName: selectedTable }));
-			tableReplicas = (res.TableAutoScalingDescription?.Replicas ?? []).map(r => ({
-				RegionName: r.RegionName,
-				ReplicaStatus: r.ReplicaStatus as string
-			}));
-		} catch {
-			// Table may not be global - check from DescribeTable
-			tableReplicas = (selectedTableDesc?.Replicas ?? []).map(r => ({
-				RegionName: r.RegionName,
-				ReplicaStatus: r.ReplicaStatus as string
-			}));
-		} finally {
-			replicasLoading = false;
-		}
-	}
-
-	async function addReplica(): Promise<void> {
-		if (!selectedTable || !newReplicaRegion.trim()) return;
-		try {
-			await ddb.send(new UpdateTableCommand({
-				TableName: selectedTable,
-				ReplicaUpdates: [{ Create: { RegionName: newReplicaRegion.trim() } }]
-			}));
-			toast.success(`Replica in ${newReplicaRegion.trim()} is being created`);
-			newReplicaRegion = '';
-			await loadReplicas();
-		} catch (err: unknown) {
-			toast.error(`Add replica failed: ${(err as Error).message}`);
-		}
-	}
-
-	async function removeReplica(region: string): Promise<void> {
-		if (!selectedTable || !await confirmDestructive({ title: 'Remove Replica', message: `Remove replica in ${region}? This deletes the table copy in that region.`, confirmLabel: 'Remove' })) return;
-		try {
-			await ddb.send(new UpdateTableCommand({
-				TableName: selectedTable,
-				ReplicaUpdates: [{ Delete: { RegionName: region } }]
-			}));
-			toast.success(`Replica in ${region} is being removed`);
-			await loadReplicas();
-		} catch (err: unknown) {
-			toast.error(`Remove replica failed: ${(err as Error).message}`);
-		}
-	}
-
 	// TTL test
 	async function testTTL(): Promise<void> {
 		if (!selectedTable || !ttlAttribute.trim()) {
@@ -798,18 +704,6 @@
 		}
 	});
 
-	$effect(() => {
-		if (activeTab === 'pitr' && selectedTable) {
-			void loadPitr();
-		}
-	});
-
-	$effect(() => {
-		if (activeTab === 'replicas' && selectedTable) {
-			void loadReplicas();
-		}
-	});
-
 	function copyToClipboard(text: string): void {
 		navigator.clipboard.writeText(text).then(() => toast.success('Copied to clipboard')).catch(() => toast.error('Failed to copy'));
 	}
@@ -985,7 +879,7 @@
 
 		<div class="mb-4 border-b border-slate-200 dark:border-slate-700">
 			<ul class="flex flex-wrap -mb-px text-sm font-medium text-center">
-				{#each [['overview', 'Overview'], ['query', 'Query'], ['scan', 'Scan'], ['items', 'Items'], ['indexes', 'Indexes'], ['streams', 'Stream Events'], ['partiql', 'PartiQL'], ['metrics', 'Metrics'], ['backups', 'Backups'], ['pitr', 'PITR'], ['replicas', 'Replicas']] as [id, label]}
+				{#each [['overview', 'Overview'], ['query', 'Query'], ['scan', 'Scan'], ['items', 'Items'], ['indexes', 'Indexes'], ['streams', 'Stream Events'], ['partiql', 'PartiQL'], ['metrics', 'Metrics'], ['backups', 'Backups']] as [id, label]}
 					<li class="me-2">
 						<button onclick={() => { activeTab = id; }}
 							class="inline-block p-4 border-b-2 rounded-t-lg {activeTab === id ? 'text-blue-600 border-blue-600 dark:text-blue-500 dark:border-blue-500' : 'border-transparent hover:text-slate-600 hover:border-slate-300 dark:hover:text-slate-300'}">
@@ -1257,18 +1151,6 @@
 								<option value={lsi.IndexName}>{lsi.IndexName} (LSI)</option>
 							{/each}
 						</select>
-						{#if queryIndexName}
-							<div class="mt-2 flex flex-wrap gap-2 text-xs">
-								<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300 font-mono">
-									PK: {currentKeySchema.pkName} ({currentKeySchema.pkType})
-								</span>
-								{#if currentKeySchema.skName}
-									<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300 font-mono">
-										SK: {currentKeySchema.skName} ({currentKeySchema.skType})
-									</span>
-								{/if}
-							</div>
-						{/if}
 					</div>
 					<div>
 						<label for="q-pk" class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Partition Key Value ({currentKeySchema.pkName})</label>
@@ -1774,9 +1656,6 @@
 			<div class="p-4 rounded-lg bg-slate-50 dark:bg-slate-800 space-y-6">
 				<div class="flex items-center justify-between">
 					<h3 class="text-lg font-semibold text-slate-900 dark:text-white">Backups</h3>
-					<button type="button" onclick={() => loadBackups()} disabled={backupsLoading} class="py-1.5 px-3 text-xs font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600 dark:hover:bg-slate-700">
-						{backupsLoading ? 'Loading...' : 'Refresh'}
-					</button>
 				</div>
 				<form onsubmit={(e) => { e.preventDefault(); createBackup(); }} class="flex gap-3 items-end">
 					<div class="flex-1 max-w-xs">
@@ -1800,7 +1679,6 @@
 									<th class="px-6 py-3">Backup Name</th>
 									<th class="px-6 py-3">Status</th>
 									<th class="px-6 py-3">Creation Date</th>
-									<th class="px-6 py-3">Size</th>
 									<th class="px-6 py-3">ARN</th>
 									<th class="px-6 py-3">Actions</th>
 								</tr>
@@ -1811,7 +1689,6 @@
 										<td class="px-6 py-4 font-medium text-slate-900 dark:text-white">{backup.BackupName ?? '-'}</td>
 										<td class="px-6 py-4"><span class="bg-green-100 text-green-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-green-900 dark:text-green-300">{backup.BackupStatus ?? '-'}</span></td>
 										<td class="px-6 py-4">{backup.BackupCreationDateTime ? new Date(backup.BackupCreationDateTime).toLocaleString() : '-'}</td>
-										<td class="px-6 py-4">{backup.BackupSizeBytes != null ? formatBytes(backup.BackupSizeBytes) : '-'}</td>
 										<td class="px-6 py-4 font-mono text-xs max-w-[200px] truncate" title={backup.BackupArn ?? ''}>{backup.BackupArn ?? '-'}</td>
 										<td class="px-6 py-4">
 											<button onclick={() => backup.BackupArn && deleteBackup(backup.BackupArn)} class="text-xs text-red-600 hover:text-red-800 dark:text-red-400">Delete</button>
@@ -1824,78 +1701,6 @@
 				{/if}
 			</div>
 		{/if}
-		{:else if activeTab === 'pitr'}
-			<div class="p-4 rounded-lg bg-slate-50 dark:bg-slate-800 space-y-6">
-				<div class="flex items-center justify-between">
-					<h3 class="text-lg font-semibold text-slate-900 dark:text-white">Point-in-Time Recovery (PITR)</h3>
-					<button type="button" onclick={() => loadPitr()} disabled={pitrLoading} class="py-1.5 px-3 text-xs font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600 dark:hover:bg-slate-700">
-						{pitrLoading ? 'Loading...' : 'Refresh'}
-					</button>
-				</div>
-				{#if pitrLoading}
-					<div class="flex justify-center p-8"><svg class="w-8 h-8 animate-spin text-slate-200 dark:text-slate-600 fill-blue-600" viewBox="0 0 100 101" fill="none"><path d="M100 50.5908C100 78.2051 77.6142 100.591 50 100.591C22.3858 100.591 0 78.2051 0 50.5908C0 22.9766 22.3858 0.59082 50 0.59082C77.6142 0.59082 100 22.9766 100 50.5908ZM9.08144 50.5908C9.08144 73.1895 27.4013 91.5094 50 91.5094C72.5987 91.5094 90.9186 73.1895 90.9186 50.5908C90.9186 27.9921 72.5987 9.67226 50 9.67226C27.4013 9.67226 9.08144 27.9921 9.08144 50.5908Z" fill="currentColor"/></svg></div>
-				{:else}
-					<div class="p-6 bg-white dark:bg-slate-700 rounded-lg border border-slate-200 dark:border-slate-600 space-y-4">
-						<div class="flex items-center gap-3">
-							<span class="text-sm font-medium text-slate-700 dark:text-slate-300">Status:</span>
-							{#if pitrStatus === 'ENABLED'}
-								<span class="px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300">Enabled</span>
-							{:else if pitrStatus === 'ENABLING' || pitrStatus === 'DISABLING'}
-								<span class="px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300">{pitrStatus}&#8230;</span>
-							{:else}
-								<span class="px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-700 dark:bg-slate-600 dark:text-slate-300">Disabled</span>
-							{/if}
-						</div>
-						{#if pitrEarliestRestoreDate}
-							<p class="text-sm text-slate-600 dark:text-slate-400">Earliest restore point: <span class="font-mono font-medium text-slate-900 dark:text-white">{pitrEarliestRestoreDate.toLocaleString()}</span></p>
-						{/if}
-						<p class="text-sm text-slate-500 dark:text-slate-400">PITR lets you restore this table to any point in the last 35 days.</p>
-						<button onclick={togglePitr} disabled={pitrStatus === 'ENABLING' || pitrStatus === 'DISABLING'} class="text-white font-medium rounded-lg text-sm px-4 py-2 disabled:opacity-50 {pitrStatus === 'ENABLED' ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'}">
-							{pitrStatus === 'ENABLED' ? 'Disable PITR' : 'Enable PITR'}
-						</button>
-					</div>
-				{/if}
-			</div>
-		{:else if activeTab === 'replicas'}
-			<div class="p-4 rounded-lg bg-slate-50 dark:bg-slate-800 space-y-6">
-				<h3 class="text-lg font-semibold text-slate-900 dark:text-white">Global Table Replicas</h3>
-				{#if replicasLoading}
-					<div class="flex justify-center p-8"><svg class="w-8 h-8 animate-spin text-slate-200 dark:text-slate-600 fill-blue-600" viewBox="0 0 100 101" fill="none"><path d="M100 50.5908C100 78.2051 77.6142 100.591 50 100.591C22.3858 100.591 0 78.2051 0 50.5908C0 22.9766 22.3858 0.59082 50 0.59082C77.6142 0.59082 100 22.9766 100 50.5908ZM9.08144 50.5908C9.08144 73.1895 27.4013 91.5094 50 91.5094C72.5987 91.5094 90.9186 73.1895 90.9186 50.5908C90.9186 27.9921 72.5987 9.67226 50 9.67226C27.4013 9.67226 9.08144 27.9921 9.08144 50.5908Z" fill="currentColor"/></svg></div>
-				{:else}
-					<div class="space-y-4">
-						{#if tableReplicas.length === 0}
-							<p class="text-sm text-slate-500 dark:text-slate-400">No replicas configured. This table is not a global table.</p>
-						{:else}
-							<div class="overflow-x-auto">
-								<table class="w-full text-sm text-left text-slate-500 dark:text-slate-400">
-									<thead class="text-xs text-slate-700 uppercase bg-slate-100 dark:bg-slate-700 dark:text-slate-400">
-										<tr><th class="px-6 py-3">Region</th><th class="px-6 py-3">Status</th><th class="px-6 py-3">Actions</th></tr>
-									</thead>
-									<tbody>
-										{#each tableReplicas as replica}
-											<tr class="border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
-												<td class="px-6 py-4 font-medium text-slate-900 dark:text-white">{replica.RegionName ?? '-'}</td>
-												<td class="px-6 py-4"><span class="px-2.5 py-0.5 rounded-full text-xs font-medium {replica.ReplicaStatus === 'ACTIVE' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300' : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300'}">{replica.ReplicaStatus ?? '-'}</span></td>
-												<td class="px-6 py-4"><button onclick={() => replica.RegionName && removeReplica(replica.RegionName)} class="text-xs text-red-600 hover:text-red-800 dark:text-red-400">Remove</button></td>
-											</tr>
-										{/each}
-									</tbody>
-								</table>
-							</div>
-						{/if}
-						<div class="p-4 bg-white dark:bg-slate-700 rounded-lg border border-slate-200 dark:border-slate-600">
-							<h4 class="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3">Add Replica</h4>
-							<div class="flex gap-3 items-end">
-								<div class="flex-1 max-w-xs">
-									<label for="new-replica-region" class="block mb-1 text-xs text-slate-600 dark:text-slate-400">AWS Region</label>
-									<input type="text" id="new-replica-region" bind:value={newReplicaRegion} placeholder="us-west-2" class="bg-white border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-slate-600 dark:border-slate-500 dark:text-white" />
-								</div>
-								<button onclick={addReplica} class="text-white bg-blue-600 hover:bg-blue-700 font-medium rounded-lg text-sm px-4 py-2.5">Add Replica</button>
-							</div>
-						</div>
-					</div>
-				{/if}
-			</div>
 	{:else}
 		<div class="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md p-6 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
 			<div>

@@ -23,6 +23,7 @@ import (
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 	codebuildbackend "github.com/blackbirdworks/gopherstack/services/codebuild"
 	codepipelinebackend "github.com/blackbirdworks/gopherstack/services/codepipeline"
+	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	docdbbackend "github.com/blackbirdworks/gopherstack/services/docdb"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
@@ -60,7 +61,6 @@ import (
 	swfbackend "github.com/blackbirdworks/gopherstack/services/swf"
 	transferbackend "github.com/blackbirdworks/gopherstack/services/transfer"
 
-	appautoscalingbackend "github.com/blackbirdworks/gopherstack/services/applicationautoscaling"
 	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	"github.com/blackbirdworks/gopherstack/services/bedrockruntime"
 	elbv2backend "github.com/blackbirdworks/gopherstack/services/elbv2"
@@ -101,6 +101,7 @@ type ServiceBackends struct {
 	SES             *sesbackend.Handler
 	ACM             *acmbackend.Handler
 	CognitoIDP      *cognitoidpbackend.Handler
+	CognitoIdentity *cognitoidentitybackend.Handler
 	// Phase-3 backends
 	EKS            *eksbackend.Handler
 	EFS            *efsbackend.Handler
@@ -125,8 +126,6 @@ type ServiceBackends struct {
 	ELBv2  *elbv2backend.Handler
 	WAFv2  *wafv2backend.Handler
 	Backup *backupbackend.Handler
-	// Phase-5 backends
-	AppAutoScaling *appautoscalingbackend.Handler
 	// CFN extensibility
 	WaitConditions *WaitConditionStore
 	MacroRegistry  *MacroRegistry
@@ -956,7 +955,110 @@ func (rc *ResourceCreator) createPhase4Resource(
 		return rc.createRDSDBClusterParameterGroup(logicalID, props, params, physicalIDs)
 	default:
 
-		return rc.createPhase5Resource(context.Background(), logicalID, resourceType, props, params, physicalIDs)
+		return rc.createPhase5Resource(logicalID, resourceType, props, params, physicalIDs)
+	}
+}
+
+// createPhase5Resource handles phase-5 ApiGateway (v1+v2) resource types.
+// Other phase-5 types are handled by createPhase5bResource.
+func (rc *ResourceCreator) createPhase5Resource(
+	logicalID, resourceType string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, error) {
+	switch resourceType {
+	// ApiGateway v1
+	case "AWS::ApiGateway::Model":
+		return rc.createAPIGatewayModel(logicalID, props, params, physicalIDs)
+	case "AWS::ApiGateway::RequestValidator":
+		return rc.createAPIGatewayRequestValidator(logicalID, props, params, physicalIDs)
+	case "AWS::ApiGateway::Authorizer":
+		return rc.createAPIGatewayAuthorizer(logicalID, props, params, physicalIDs)
+	case "AWS::ApiGateway::ApiKey":
+		return rc.createAPIGatewayAPIKey(logicalID, props, params, physicalIDs)
+	case "AWS::ApiGateway::UsagePlan":
+		return rc.createAPIGatewayUsagePlan(logicalID, props, params, physicalIDs)
+	case "AWS::ApiGateway::UsagePlanKey":
+		return rc.createAPIGatewayUsagePlanKey(logicalID, props, params, physicalIDs)
+	case "AWS::ApiGateway::DomainName":
+		return rc.createAPIGatewayDomainName(logicalID, props, params, physicalIDs)
+	case "AWS::ApiGateway::BasePathMapping":
+		return rc.createAPIGatewayBasePathMapping(logicalID, props, params, physicalIDs)
+	case "AWS::ApiGateway::Account":
+		return rc.createAPIGatewayAccount(logicalID, props, params, physicalIDs)
+	case "AWS::ApiGateway::GatewayResponse":
+		return rc.createAPIGatewayGatewayResponse(logicalID, props, params, physicalIDs)
+	// ApiGateway v2
+	case "AWS::ApiGatewayV2::DomainName":
+		return rc.createAPIGatewayV2DomainName(logicalID, props, params, physicalIDs)
+	case "AWS::ApiGatewayV2::ApiMapping":
+		return rc.createAPIGatewayV2ApiMapping(logicalID, props, params, physicalIDs)
+	default:
+		return rc.createPhase5bResource(logicalID, resourceType, props, params, physicalIDs)
+	}
+}
+
+// createPhase5bResource handles phase-5 Events/KMS/Cognito/ELBv2/Lambda resource types.
+// EC2 phase-5 types are handled by createPhase5cResource.
+func (rc *ResourceCreator) createPhase5bResource(
+	logicalID, resourceType string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, error) {
+	switch resourceType {
+	// Events
+	case "AWS::Events::ApiDestination":
+		return rc.createEventBridgeAPIDestination(logicalID, props, params, physicalIDs)
+	case "AWS::Events::EventBusPolicy":
+		return rc.createEventBridgeEventBusPolicy(logicalID, props, params, physicalIDs)
+	// KMS
+	case "AWS::KMS::ReplicaKey":
+		return rc.createKMSReplicaKey(logicalID, props, params, physicalIDs)
+	// Cognito
+	case "AWS::Cognito::IdentityPool":
+		return rc.createCognitoIdentityPool(logicalID, props, params, physicalIDs)
+	case "AWS::Cognito::IdentityPoolRoleAttachment":
+		return rc.createCognitoIdentityPoolRoleAttachment(logicalID, props, params, physicalIDs)
+	case "AWS::Cognito::UserPoolDomain":
+		return rc.createCognitoUserPoolDomain(logicalID, props, params, physicalIDs)
+	case "AWS::Cognito::UserPoolGroup":
+		return rc.createCognitoUserPoolGroup(logicalID, props, params, physicalIDs)
+	// ELBv2
+	case "AWS::ElasticLoadBalancingV2::ListenerRule":
+		return rc.createELBv2ListenerRule(logicalID, props, params, physicalIDs)
+	// Lambda
+	case "AWS::Lambda::EventInvokeConfig":
+		return rc.createLambdaEventInvokeConfig(logicalID, props, params, physicalIDs)
+	case "AWS::Lambda::Url":
+		return rc.createLambdaURL(logicalID, props, params, physicalIDs)
+	default:
+		return rc.createPhase5cResource(logicalID, resourceType, props, params, physicalIDs)
+	}
+}
+
+// createPhase5cResource handles phase-5 EC2 resource types.
+func (rc *ResourceCreator) createPhase5cResource(
+	logicalID, resourceType string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, error) {
+	switch resourceType {
+	case "AWS::EC2::VPCPeeringConnection":
+		return rc.createEC2VPCPeeringConnection(logicalID, props, params, physicalIDs)
+	case "AWS::EC2::NetworkAcl":
+		return rc.createEC2NetworkACL(logicalID, props, params, physicalIDs)
+	case "AWS::EC2::NetworkAclEntry":
+		return rc.createEC2NetworkACLEntry(logicalID, props, params, physicalIDs)
+	case "AWS::EC2::KeyPair":
+		return rc.createEC2KeyPair(logicalID, props, params, physicalIDs)
+	case "AWS::EC2::SecurityGroupIngress":
+		return rc.createEC2SecurityGroupIngress(logicalID, props, params, physicalIDs)
+	case "AWS::EC2::SecurityGroupEgress":
+		return rc.createEC2SecurityGroupEgress(logicalID, props, params, physicalIDs)
+	case "AWS::EC2::FlowLog":
+		return rc.createEC2FlowLog(logicalID, props, params, physicalIDs)
+	default:
+		return logicalID + "-stub", nil
 	}
 }
 
@@ -1505,7 +1607,6 @@ func parseDDBKeySchema(props map[string]any, params, physicalIDs map[string]stri
 
 const (
 	defaultCapacityUnits     = int64(5)
-	defaultEventBusName      = "default"
 	kmsMinDeletionWindowDays = 7
 	boolTrue                 = "true"
 )
@@ -1778,7 +1879,7 @@ func (rc *ResourceCreator) createEventBridgeRule(
 
 	eventBusName := strProp(props, "EventBusName", params, physicalIDs)
 	if eventBusName == "" {
-		eventBusName = defaultEventBusName
+		eventBusName = "default"
 	}
 
 	pattern := strProp(props, "EventPattern", params, physicalIDs)
@@ -1812,7 +1913,7 @@ func (rc *ResourceCreator) deleteEventBridgeRule(_ context.Context, physicalID s
 	parts := strings.Split(physicalID, "/")
 	name := parts[len(parts)-1]
 
-	return rc.backends.EventBridge.Backend.DeleteRule(context.Background(), name, defaultEventBusName)
+	return rc.backends.EventBridge.Backend.DeleteRule(context.Background(), name, "default")
 }
 
 // createStepFunctionsStateMachine creates a Step Functions state machine.

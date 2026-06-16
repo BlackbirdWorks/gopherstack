@@ -5,11 +5,8 @@
 		ListApplicationsCommand,
 		GetApplicationCommand,
 		ListDeploymentGroupsCommand,
-		GetDeploymentGroupCommand,
 		ListDeploymentsCommand,
 		GetDeploymentCommand,
-		ListDeploymentInstancesCommand,
-		BatchGetDeploymentInstancesCommand,
 		CreateDeploymentCommand,
 		StopDeploymentCommand,
 		ListDeploymentConfigsCommand,
@@ -21,8 +18,6 @@
 		DeregisterOnPremisesInstanceCommand,
 		type ApplicationInfo,
 		type DeploymentInfo,
-		type DeploymentGroupInfo,
-		type InstanceSummary,
 		type DeploymentConfigInfo,
 		type InstanceInfo
 	} from '@aws-sdk/client-codedeploy';
@@ -45,13 +40,6 @@
 	let deployments = $state<string[]>([]);
 	let deploymentDetails = $state<DeploymentInfo[]>([]);
 	let loadingDeployments = $state(false);
-	let selectedDeployment = $state<DeploymentInfo | null>(null);
-	let deploymentInstances = $state<InstanceSummary[]>([]);
-	let loadingInstances = $state(false);
-
-	// Deployment Group detail
-	let selectedGroup = $state<DeploymentGroupInfo | null>(null);
-	let loadingGroupDetail = $state(false);
 
 	// Create Deployment
 	let showCreateDeployment = $state(false);
@@ -154,42 +142,7 @@
 
 	async function handleTabChange(tab: 'groups' | 'deployments') {
 		activeTab = tab;
-		selectedDeployment = null;
-		selectedGroup = null;
 		if (tab === 'deployments' && deploymentDetails.length === 0) await loadDeployments();
-	}
-
-	async function selectDeployment(dep: DeploymentInfo) {
-		selectedDeployment = dep;
-		deploymentInstances = [];
-		if (!dep.deploymentId) return;
-		loadingInstances = true;
-		try {
-			const listRes = await codedeploy.send(new ListDeploymentInstancesCommand({ deploymentId: dep.deploymentId }));
-			const ids = (listRes.instancesList ?? []).slice(0, 20);
-			if (ids.length > 0) {
-				const batchRes = await codedeploy.send(new BatchGetDeploymentInstancesCommand({ deploymentId: dep.deploymentId, instanceIds: ids }));
-				deploymentInstances = batchRes.instancesSummary ?? [];
-			}
-		} catch (e) {
-			toast.error('Failed to load instances: ' + String(e));
-		} finally {
-			loadingInstances = false;
-		}
-	}
-
-	async function selectGroup(grpName: string) {
-		if (!selectedApp?.applicationName) return;
-		loadingGroupDetail = true;
-		selectedGroup = null;
-		try {
-			const res = await codedeploy.send(new GetDeploymentGroupCommand({ applicationName: selectedApp.applicationName, deploymentGroupName: grpName }));
-			selectedGroup = res.deploymentGroupInfo ?? null;
-		} catch (e) {
-			toast.error('Failed to load group detail: ' + String(e));
-		} finally {
-			loadingGroupDetail = false;
-		}
 	}
 
 	async function createDeployment() {
@@ -534,83 +487,13 @@
 						</thead>
 						<tbody class="divide-y divide-gray-100 dark:divide-gray-800">
 							{#each deploymentGroups as grp}
-								<tr
-									class="hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer {selectedGroup?.deploymentGroupName === grp ? 'bg-green-50 dark:bg-green-900/10' : ''}"
-									onclick={() => selectGroup(grp)}
-								>
+								<tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50">
 									<td class="px-4 py-3 font-medium text-green-600 dark:text-green-400">{grp}</td>
 								</tr>
 							{/each}
 						</tbody>
 					</table>
 				</div>
-
-				{#if loadingGroupDetail}
-					<div class="flex justify-center py-6"><div class="animate-spin w-6 h-6 border-4 border-green-600 border-t-transparent rounded-full"></div></div>
-				{:else if selectedGroup}
-					<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-5 space-y-4">
-						<div class="flex items-center justify-between">
-							<h3 class="font-semibold text-gray-900 dark:text-white">{selectedGroup.deploymentGroupName}</h3>
-							<button onclick={() => (selectedGroup = null)} class="text-xs text-gray-500 hover:text-gray-700">Close</button>
-						</div>
-						<div class="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
-							<div>
-								<p class="text-xs text-gray-500">Deployment Config</p>
-								<p class="font-medium mt-0.5">{selectedGroup.deploymentConfigName ?? '—'}</p>
-							</div>
-							<div>
-								<p class="text-xs text-gray-500">Compute Platform</p>
-								<p class="font-medium mt-0.5">{selectedGroup.computePlatform ?? 'Server'}</p>
-							</div>
-							<div>
-								<p class="text-xs text-gray-500">Deployment Style</p>
-								<p class="font-medium mt-0.5">{selectedGroup.deploymentStyle?.deploymentType ?? '—'}</p>
-							</div>
-							<div>
-								<p class="text-xs text-gray-500">Deployment Option</p>
-								<p class="font-medium mt-0.5">{selectedGroup.deploymentStyle?.deploymentOption ?? '—'}</p>
-							</div>
-							<div>
-								<p class="text-xs text-gray-500">Auto-Rollback</p>
-								<p class="font-medium mt-0.5">{selectedGroup.autoRollbackConfiguration?.enabled ? 'Enabled' : 'Disabled'}</p>
-							</div>
-							{#if selectedGroup.autoRollbackConfiguration?.enabled && (selectedGroup.autoRollbackConfiguration.events?.length ?? 0) > 0}
-								<div>
-									<p class="text-xs text-gray-500">Rollback Events</p>
-									<div class="flex flex-wrap gap-1 mt-1">
-										{#each selectedGroup.autoRollbackConfiguration.events ?? [] as evt}
-											<span class="rounded bg-yellow-100 dark:bg-yellow-900/30 px-1.5 py-0.5 text-xs text-yellow-800 dark:text-yellow-300">{evt}</span>
-										{/each}
-									</div>
-								</div>
-							{/if}
-						</div>
-						{#if selectedGroup.serviceRoleArn}
-							<div>
-								<p class="text-xs text-gray-500">Service Role ARN</p>
-								<p class="text-xs font-mono text-gray-700 dark:text-gray-300 break-all mt-0.5">{selectedGroup.serviceRoleArn}</p>
-							</div>
-						{/if}
-						{#if (selectedGroup.autoScalingGroups?.length ?? 0) > 0}
-							<div>
-								<p class="text-xs text-gray-500 mb-1">Auto Scaling Groups</p>
-								<div class="flex flex-wrap gap-1">
-									{#each selectedGroup.autoScalingGroups ?? [] as asg}
-										<span class="rounded bg-blue-100 dark:bg-blue-900/30 px-1.5 py-0.5 text-xs text-blue-700 dark:text-blue-300">{asg.name}</span>
-									{/each}
-								</div>
-							</div>
-						{/if}
-						{#if (selectedGroup.ecsServices?.length ?? 0) > 0}
-							<div>
-								<p class="text-xs text-gray-500 mb-1">ECS Services</p>
-								{#each selectedGroup.ecsServices ?? [] as svc}
-									<p class="text-xs font-mono text-gray-700 dark:text-gray-300">{svc.clusterName} / {svc.serviceName}</p>
-								{/each}
-							</div>
-						{/if}
-					</div>
-				{/if}
 			{/if}
 		{/if}
 
@@ -622,13 +505,7 @@
 			{:else}
 				<div class="space-y-3">
 					{#each deploymentDetails as dep}
-						<div
-							class="bg-white dark:bg-gray-900 rounded-xl border p-4 cursor-pointer transition-colors {selectedDeployment?.deploymentId === dep.deploymentId ? 'border-green-500' : 'border-gray-200 dark:border-gray-700'}"
-							onclick={() => selectDeployment(dep)}
-							role="button"
-							tabindex="0"
-							onkeydown={(e) => { if (e.key === 'Enter') selectDeployment(dep); }}
-						>
+						<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
 							<div class="flex items-start justify-between">
 								<div>
 									<div class="flex items-center gap-2">
@@ -643,17 +520,14 @@
 										<span class={`px-2 py-0.5 rounded text-xs font-medium bg-${statusColor(dep.status)}-100 text-${statusColor(dep.status)}-700`}>{dep.status}</span>
 									</div>
 									<div class="text-xs text-gray-500 mt-1">
-										Group: {dep.deploymentGroupName} | Config: {dep.deploymentConfigName ?? '—'} | Created: {formatDate(dep.createTime)}
+										Group: {dep.deploymentGroupName} | Created: {formatDate(dep.createTime)}
 									</div>
 									{#if dep.description}
 										<div class="text-xs text-gray-500 mt-0.5">{dep.description}</div>
 									{/if}
 								</div>
 								{#if dep.status === 'InProgress'}
-									<button
-										onclick={(e) => { e.stopPropagation(); stopDeployment(dep.deploymentId ?? ''); }}
-										class="flex items-center gap-1 px-3 py-1 text-xs text-red-600 border border-red-200 rounded hover:bg-red-50"
-									>
+									<button onclick={() => stopDeployment(dep.deploymentId ?? '')} class="flex items-center gap-1 px-3 py-1 text-xs text-red-600 border border-red-200 rounded hover:bg-red-50">
 										<XCircle class="w-3.5 h-3.5" /> Stop
 									</button>
 								{/if}
@@ -677,116 +551,6 @@
 						</div>
 					{/each}
 				</div>
-
-				<!-- Deployment Detail Panel -->
-				{#if selectedDeployment}
-					<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-5 space-y-4">
-						<div class="flex items-center justify-between">
-							<h3 class="font-semibold text-gray-900 dark:text-white">{selectedDeployment.deploymentId}</h3>
-							<button onclick={() => { selectedDeployment = null; deploymentInstances = []; }} class="text-xs text-gray-500 hover:text-gray-700">Close</button>
-						</div>
-						<div class="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
-							<div>
-								<p class="text-xs text-gray-500">Status</p>
-								<span class={`inline-block mt-0.5 px-2 py-0.5 rounded text-xs font-medium bg-${statusColor(selectedDeployment.status)}-100 text-${statusColor(selectedDeployment.status)}-700`}>{selectedDeployment.status}</span>
-							</div>
-							<div>
-								<p class="text-xs text-gray-500">Creator</p>
-								<p class="font-medium mt-0.5">{selectedDeployment.creator ?? '—'}</p>
-							</div>
-							<div>
-								<p class="text-xs text-gray-500">Deployment Config</p>
-								<p class="font-medium mt-0.5">{selectedDeployment.deploymentConfigName ?? '—'}</p>
-							</div>
-							<div>
-								<p class="text-xs text-gray-500">Started</p>
-								<p class="font-medium mt-0.5">{formatDate(selectedDeployment.startTime)}</p>
-							</div>
-							<div>
-								<p class="text-xs text-gray-500">Completed</p>
-								<p class="font-medium mt-0.5">{formatDate(selectedDeployment.completeTime)}</p>
-							</div>
-							<div>
-								<p class="text-xs text-gray-500">Compute Platform</p>
-								<p class="font-medium mt-0.5">{selectedDeployment.computePlatform ?? 'Server'}</p>
-							</div>
-						</div>
-
-						{#if selectedDeployment.revision}
-							{@const rev = selectedDeployment.revision}
-							<div>
-								<p class="text-xs text-gray-500 mb-1">Revision</p>
-								<div class="rounded-md bg-gray-50 dark:bg-gray-800 px-4 py-3 text-sm space-y-1">
-									<div><span class="text-gray-500">Type:</span> {rev.revisionType ?? '—'}</div>
-									{#if rev.s3Location}
-										<div><span class="text-gray-500">S3:</span> <span class="font-mono">{rev.s3Location.bucket}/{rev.s3Location.key}</span></div>
-										{#if rev.s3Location.version}
-											<div><span class="text-gray-500">Version:</span> <span class="font-mono">{rev.s3Location.version}</span></div>
-										{/if}
-									{/if}
-									{#if rev.gitHubLocation}
-										<div><span class="text-gray-500">Repo:</span> <span class="font-mono">{rev.gitHubLocation.repository}</span></div>
-										<div><span class="text-gray-500">Commit:</span> <span class="font-mono">{rev.gitHubLocation.commitId?.slice(0, 12) ?? '—'}</span></div>
-									{/if}
-								</div>
-							</div>
-						{/if}
-
-						{#if selectedDeployment.rollbackInfo?.rollbackDeploymentId}
-							<div class="rounded-md bg-yellow-50 dark:bg-yellow-900/20 px-4 py-3 text-sm">
-								<p class="font-medium text-yellow-800 dark:text-yellow-200 mb-1">Rollback Info</p>
-								<div class="text-yellow-700 dark:text-yellow-300 space-y-1">
-									<div>Rollback Deployment: <span class="font-mono">{selectedDeployment.rollbackInfo.rollbackDeploymentId}</span></div>
-									{#if selectedDeployment.rollbackInfo.rollbackMessage}
-										<div>Reason: {selectedDeployment.rollbackInfo.rollbackMessage}</div>
-									{/if}
-								</div>
-							</div>
-						{/if}
-
-						{#if selectedDeployment.errorInformation?.message}
-							<div class="rounded-md bg-red-50 dark:bg-red-900/20 px-4 py-3 text-sm">
-								<p class="font-medium text-red-800 dark:text-red-200 mb-1">Error: {selectedDeployment.errorInformation.code}</p>
-								<p class="text-red-700 dark:text-red-300">{selectedDeployment.errorInformation.message}</p>
-							</div>
-						{/if}
-
-						<!-- Instance-level status -->
-						<div>
-							<p class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Instance Status</p>
-							{#if loadingInstances}
-								<div class="flex justify-center py-4"><div class="animate-spin w-5 h-5 border-4 border-green-600 border-t-transparent rounded-full"></div></div>
-							{:else if deploymentInstances.length === 0}
-								<p class="text-xs text-gray-500">No instance data available</p>
-							{:else}
-								<div class="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700">
-									<table class="w-full text-xs">
-										<thead class="bg-gray-50 dark:bg-gray-800 text-gray-500 uppercase">
-											<tr>
-												<th class="px-3 py-2 text-left">Instance ID</th>
-												<th class="px-3 py-2 text-left">Status</th>
-												<th class="px-3 py-2 text-left">Type</th>
-												<th class="px-3 py-2 text-left">Last Updated</th>
-											</tr>
-										</thead>
-										<tbody class="divide-y divide-gray-100 dark:divide-gray-800">
-											{#each deploymentInstances as inst}
-												<tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50">
-													<td class="px-3 py-2 font-mono truncate max-w-[180px]">{inst.instanceId?.split('/').pop() ?? inst.instanceId}</td>
-													<td class="px-3 py-2">
-														<span class={`px-1.5 py-0.5 rounded text-xs bg-${statusColor(inst.status)}-100 text-${statusColor(inst.status)}-700`}>{inst.status ?? '—'}</span>
-													</td>
-													<td class="px-3 py-2 text-gray-500">{inst.instanceType ?? '—'}</td>
-													<td class="px-3 py-2 text-gray-500">{inst.lastUpdatedAt ? new Date(inst.lastUpdatedAt).toLocaleTimeString() : '—'}</td>
-												</tr>
-											{/each}
-										</tbody>
-									</table>
-								</div>
-							{/if}
-						</div>
-					</div>
-				{/if}
 			{/if}
 		{/if}
 

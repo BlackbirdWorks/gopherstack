@@ -538,7 +538,7 @@
 								<div class="grid grid-cols-2 gap-3">
 									{#each [
 										['K8s Version', selectedCluster.version ?? 'N/A'],
-										['Platform Version', selectedCluster.platformVersion ?? 'N/A'],
+										['Endpoint', selectedCluster.endpoint ? selectedCluster.endpoint.slice(0, 30) + '...' : 'N/A'],
 										['Role ARN', selectedCluster.roleArn?.split('/').pop() ?? 'N/A'],
 										['Created', selectedCluster.createdAt ? new Date(selectedCluster.createdAt).toLocaleDateString() : 'N/A']
 									] as [label, value]}
@@ -548,53 +548,6 @@
 										</div>
 									{/each}
 								</div>
-								{#if selectedCluster.endpoint}
-									<div class="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-3">
-										<p class="text-xs text-slate-500 dark:text-slate-400 mb-1">API Server Endpoint</p>
-										<p class="text-xs font-mono text-slate-900 dark:text-white break-all">{selectedCluster.endpoint}</p>
-									</div>
-								{/if}
-								{@const vpc = selectedCluster.resourcesVpcConfig}
-								{#if vpc}
-									<div class="space-y-2">
-										<p class="text-sm font-medium text-slate-700 dark:text-slate-300">VPC Configuration</p>
-										<div class="grid grid-cols-2 gap-3">
-											<div class="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-3">
-												<p class="text-xs text-slate-500 dark:text-slate-400">VPC ID</p>
-												<p class="text-sm font-mono text-slate-900 dark:text-white mt-0.5">{vpc.vpcId ?? 'N/A'}</p>
-											</div>
-											<div class="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-3">
-												<p class="text-xs text-slate-500 dark:text-slate-400">Cluster Security Group</p>
-												<p class="text-xs font-mono text-slate-900 dark:text-white mt-0.5 truncate">{vpc.clusterSecurityGroupId ?? 'N/A'}</p>
-											</div>
-											<div class="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-3">
-												<p class="text-xs text-slate-500 dark:text-slate-400">Subnets</p>
-												<p class="text-sm font-semibold text-slate-900 dark:text-white mt-0.5">{vpc.subnetIds?.length ?? 0} subnet(s)</p>
-											</div>
-											<div class="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-3">
-												<p class="text-xs text-slate-500 dark:text-slate-400">API Access</p>
-												<div class="flex gap-2 mt-1">
-													{#if vpc.endpointPublicAccess}
-														<span class="px-1.5 py-0.5 text-xs rounded bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300">Public</span>
-													{/if}
-													{#if vpc.endpointPrivateAccess}
-														<span class="px-1.5 py-0.5 text-xs rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">Private</span>
-													{/if}
-												</div>
-											</div>
-										</div>
-										{#if (vpc.subnetIds?.length ?? 0) > 0}
-											<div class="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-3">
-												<p class="text-xs text-slate-500 dark:text-slate-400 mb-1">Subnet IDs</p>
-												<div class="flex flex-wrap gap-1">
-													{#each vpc.subnetIds ?? [] as sid}
-														<span class="rounded bg-slate-200 dark:bg-slate-600 px-1.5 py-0.5 text-xs font-mono">{sid}</span>
-													{/each}
-												</div>
-											</div>
-										{/if}
-									</div>
-								{/if}
 							{/if}
 						{:else if detailTab === 'nodegroups'}
 							<div class="space-y-3">
@@ -609,31 +562,19 @@
 									<p class="text-slate-500 dark:text-slate-400 text-sm text-center py-4">No node groups</p>
 								{:else}
 									{#each nodeGroupDetails as ng}
-										<div class="bg-slate-50 dark:bg-slate-700/30 rounded-lg p-4">
-											<div class="flex items-start justify-between mb-2">
-												<div class="flex items-center gap-2">
+										<div class="bg-slate-50 dark:bg-slate-700/30 rounded-lg p-4 flex items-start justify-between">
+											<div>
+												<div class="flex items-center gap-2 mb-1">
 													<p class="font-medium text-slate-900 dark:text-white">{ng.nodegroupName}</p>
 													<span class="px-2 py-0.5 text-xs rounded-full {statusColor(ng.status)}">{ng.status}</span>
-													{#if ng.capacityType}
-														<span class="px-1.5 py-0.5 text-xs rounded bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300">{ng.capacityType}</span>
-													{/if}
 												</div>
-												<button onclick={() => deleteNodeGroup(ng.nodegroupName ?? '')} class="p-1.5 text-slate-400 hover:text-red-500">
-													<Trash2 class="w-4 h-4" />
-												</button>
+												<p class="text-xs text-slate-500 dark:text-slate-400">
+													{ng.instanceTypes?.join(', ')} · min {ng.scalingConfig?.minSize ?? 0} / desired {ng.scalingConfig?.desiredSize ?? 0} / max {ng.scalingConfig?.maxSize ?? 0}
+												</p>
 											</div>
-											<div class="grid grid-cols-2 gap-x-6 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
-												<div><span class="font-medium">Instance Types:</span> {ng.instanceTypes?.join(', ') ?? 'N/A'}</div>
-												<div><span class="font-medium">AMI Type:</span> {ng.amiType ?? 'N/A'}</div>
-												<div><span class="font-medium">Scaling:</span> min {ng.scalingConfig?.minSize ?? 0} / desired {ng.scalingConfig?.desiredSize ?? 0} / max {ng.scalingConfig?.maxSize ?? 0}</div>
-												<div><span class="font-medium">Disk Size:</span> {ng.diskSize ? `${ng.diskSize} GiB` : 'N/A'}</div>
-												{#if ng.releaseVersion}
-													<div class="col-span-2"><span class="font-medium">AMI Release:</span> <span class="font-mono">{ng.releaseVersion}</span></div>
-												{/if}
-												{#if ng.version}
-													<div><span class="font-medium">K8s Version:</span> {ng.version}</div>
-												{/if}
-											</div>
+											<button onclick={() => deleteNodeGroup(ng.nodegroupName ?? '')} class="p-1.5 text-slate-400 hover:text-red-500">
+												<Trash2 class="w-4 h-4" />
+											</button>
 										</div>
 									{/each}
 								{/if}

@@ -13,7 +13,6 @@
 		PutImageScanningConfigurationCommand,
 		PutLifecyclePolicyCommand,
 		StartImageScanCommand,
-		DescribeImageScanFindingsCommand,
 		DescribeRegistryCommand,
 		GetRegistryScanningConfigurationCommand,
 		GetSigningConfigurationCommand,
@@ -22,7 +21,6 @@
 		ListPullTimeUpdateExclusionsCommand,
 		type Repository,
 		type ImageDetail,
-		type ImageScanFinding,
 		type ReplicationConfiguration,
 		type RegistryScanningConfiguration,
 		type SigningConfiguration,
@@ -62,11 +60,6 @@
 
 	// Delete image confirmation
 	let deletingImages = $state<string[]>([]);
-
-	// Scan findings
-	let selectedScanImage = $state<ImageDetail | null>(null);
-	let scanFindings = $state<ImageScanFinding[]>([]);
-	let loadingScanFindings = $state(false);
 
 	const filteredRepos = $derived(
 		repositories.filter((r) => (r.repositoryName ?? '').toLowerCase().includes(searchQuery.toLowerCase()))
@@ -234,40 +227,6 @@
 		} finally {
 			scanningImages = scanningImages.filter((d) => d !== digest);
 		}
-	}
-
-	async function loadScanFindings(img: ImageDetail) {
-		if (!selectedRepo?.repositoryName) return;
-		selectedScanImage = img;
-		scanFindings = [];
-		loadingScanFindings = true;
-		try {
-			const res = await ecr.send(new DescribeImageScanFindingsCommand({
-				repositoryName: selectedRepo.repositoryName,
-				imageId: { imageDigest: img.imageDigest }
-			}));
-			scanFindings = res.imageScanFindings?.findings ?? [];
-		} catch (err: unknown) {
-			toast.error(`Failed to load scan findings: ${(err as Error).message}`);
-		} finally {
-			loadingScanFindings = false;
-		}
-	}
-
-	function findingAttr(finding: ImageScanFinding, key: string): string {
-		return finding.attributes?.find(a => a.key?.toLowerCase() === key.toLowerCase())?.value ?? '—';
-	}
-
-	function severityColor(severity?: string): string {
-		const map: Record<string, string> = {
-			CRITICAL: 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300',
-			HIGH: 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300',
-			MEDIUM: 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300',
-			LOW: 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300',
-			INFORMATIONAL: 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300',
-			UNDEFINED: 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400',
-		};
-		return map[severity ?? ''] ?? 'bg-slate-100 dark:bg-slate-700 text-slate-500';
 	}
 
 	async function toggleScanOnPush() {
@@ -537,18 +496,8 @@
 											<p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
 												{formatBytes(img.imageSizeInBytes)} · pushed {formatDate(img.imagePushedAt)}
 											</p>
-											<p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-2 flex-wrap">
-												<span>Scan: {img.imageScanStatus?.status ?? 'Not scanned'}</span>
-												{#if img.imageScanFindingsSummary?.findingSeverityCounts}
-												{@const total = Object.values(img.imageScanFindingsSummary.findingSeverityCounts).reduce((s, c) => s + c, 0)}
-												{#if total > 0}
-												<button onclick={() => loadScanFindings(img)} class="text-indigo-500 hover:text-indigo-700 font-medium underline underline-offset-2">
-													{total} finding{total !== 1 ? 's' : ''} →
-												</button>
-												{:else}
-												<span class="text-green-600 dark:text-green-400">0 findings</span>
-												{/if}
-												{/if}
+											<p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+												Scan: {img.imageScanStatus?.status ?? 'Not scanned'} · Findings: {Object.values(img.imageScanFindingsSummary?.findingSeverityCounts ?? {}).reduce((sum, count) => sum + count, 0)}
 											</p>
 											<p class="text-xs text-slate-400 font-mono truncate">{img.imageDigest}</p>
 										</div>
@@ -638,78 +587,4 @@
 			</form>
 		</div>
 	</div>
-{/if}
-
-<!-- Scan Findings Modal -->
-{#if selectedScanImage}
-<div class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" role="none" onclick={(e) => { if (e.target === e.currentTarget) selectedScanImage = null; }}>
-	<div class="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-4xl max-h-[85vh] flex flex-col overflow-hidden">
-		<!-- Header -->
-		<div class="flex items-start justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 shrink-0">
-			<div>
-				<h2 class="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
-					<ShieldCheck class="w-5 h-5 text-indigo-500" /> Scan Findings
-				</h2>
-				<p class="text-xs font-mono text-slate-500 dark:text-slate-400 mt-0.5 truncate max-w-lg">{imageTags(selectedScanImage)} · {selectedScanImage.imageDigest?.slice(0, 24)}…</p>
-			</div>
-			<button onclick={() => selectedScanImage = null} class="text-slate-400 hover:text-slate-600 text-2xl leading-none ml-4">&times;</button>
-		</div>
-
-		<!-- Severity summary bar -->
-		{#if !loadingScanFindings && scanFindings.length > 0}
-		{@const counts = scanFindings.reduce((acc, f) => { const s = f.severity ?? 'UNDEFINED'; acc[s] = (acc[s] ?? 0) + 1; return acc; }, {} as Record<string, number>)}
-		<div class="flex flex-wrap gap-2 px-6 py-3 border-b border-slate-200 dark:border-slate-700 shrink-0">
-			{#each Object.entries(counts).sort(([a],[b]) => ['CRITICAL','HIGH','MEDIUM','LOW','INFORMATIONAL','UNDEFINED'].indexOf(a) - ['CRITICAL','HIGH','MEDIUM','LOW','INFORMATIONAL','UNDEFINED'].indexOf(b)) as [sev, cnt]}
-			<span class="px-2 py-1 rounded-full text-xs font-semibold {severityColor(sev)}">{sev}: {cnt}</span>
-			{/each}
-		</div>
-		{/if}
-
-		<!-- Findings table -->
-		<div class="flex-1 overflow-y-auto">
-			{#if loadingScanFindings}
-				<div class="flex items-center justify-center py-16"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500"></div></div>
-			{:else if scanFindings.length === 0}
-				<div class="py-16 text-center">
-					<ShieldCheck class="w-12 h-12 mx-auto text-green-400 mb-3" />
-					<p class="text-slate-500 dark:text-slate-400">No findings — image is clean</p>
-				</div>
-			{:else}
-				<table class="w-full text-sm">
-					<thead class="bg-slate-50 dark:bg-slate-700 sticky top-0">
-						<tr>
-							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">CVE / Name</th>
-							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Severity</th>
-							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Package</th>
-							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Version</th>
-							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Fixed In</th>
-						</tr>
-					</thead>
-					<tbody class="divide-y divide-slate-100 dark:divide-slate-700">
-						{#each scanFindings.sort((a, b) => ['CRITICAL','HIGH','MEDIUM','LOW','INFORMATIONAL','UNDEFINED'].indexOf(a.severity ?? 'UNDEFINED') - ['CRITICAL','HIGH','MEDIUM','LOW','INFORMATIONAL','UNDEFINED'].indexOf(b.severity ?? 'UNDEFINED')) as finding}
-						<tr class="hover:bg-slate-50 dark:hover:bg-slate-700/30">
-							<td class="px-4 py-3">
-								{#if finding.uri}
-								<a href={finding.uri} target="_blank" rel="noopener noreferrer" class="font-mono text-indigo-600 dark:text-indigo-400 hover:underline text-xs">{finding.name ?? '—'}</a>
-								{:else}
-								<span class="font-mono text-xs text-slate-700 dark:text-slate-300">{finding.name ?? '—'}</span>
-								{/if}
-								{#if finding.description}
-								<p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5 max-w-xs truncate" title={finding.description}>{finding.description}</p>
-								{/if}
-							</td>
-							<td class="px-4 py-3">
-								<span class="px-2 py-0.5 rounded-full text-xs font-semibold {severityColor(finding.severity)}">{finding.severity ?? '—'}</span>
-							</td>
-							<td class="px-4 py-3 font-mono text-xs text-slate-700 dark:text-slate-300">{findingAttr(finding, 'package_name')}</td>
-							<td class="px-4 py-3 font-mono text-xs text-slate-700 dark:text-slate-300">{findingAttr(finding, 'package_version')}</td>
-							<td class="px-4 py-3 font-mono text-xs {findingAttr(finding, 'FIXED_IN_VERSION') !== '—' ? 'text-green-600 dark:text-green-400' : 'text-slate-400'}">{findingAttr(finding, 'FIXED_IN_VERSION')}</td>
-						</tr>
-						{/each}
-					</tbody>
-				</table>
-			{/if}
-		</div>
-	</div>
-</div>
 {/if}

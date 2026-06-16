@@ -760,6 +760,7 @@ func (b *InMemoryBackend) findDefaultSubnetID() string {
 // than scanning every instance in the backend.
 func (b *InMemoryBackend) DescribeInstances(ids []string, state string) []*Instance {
 	b.mu.RLock("DescribeInstances")
+	defer b.mu.RUnlock()
 
 	if len(ids) > 0 {
 		out := make([]*Instance, 0, len(ids))
@@ -778,25 +779,18 @@ func (b *InMemoryBackend) DescribeInstances(ids []string, state string) []*Insta
 			out = append(out, &cp)
 		}
 
-		b.mu.RUnlock()
-
 		return out
 	}
 
-	// Collect matching pointers under the read lock (no allocations), then copy
-	// outside the lock to narrow the critical section for concurrent writers.
-	ptrs := make([]*Instance, 0, len(b.instances))
-	for _, inst := range b.instances {
-		if state == "" || inst.State.Name == state {
-			ptrs = append(ptrs, inst)
-		}
-	}
-	b.mu.RUnlock()
+	out := make([]*Instance, 0, len(b.instances))
 
-	out := make([]*Instance, len(ptrs))
-	for i, inst := range ptrs {
+	for _, inst := range b.instances {
+		if state != "" && inst.State.Name != state {
+			continue
+		}
+
 		cp := *inst
-		out[i] = &cp
+		out = append(out, &cp)
 	}
 
 	return out

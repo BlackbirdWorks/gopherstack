@@ -319,7 +319,6 @@ type QueryInput struct {
 	ProjectionExpression      string            `json:"ProjectionExpression,omitempty"`
 	ReturnConsumedCapacity    string            `json:"ReturnConsumedCapacity,omitempty"`
 	Limit                     int32             `json:"Limit,omitempty"`
-	ConsistentRead            bool              `json:"ConsistentRead,omitempty"`
 }
 
 type QueryOutput struct {

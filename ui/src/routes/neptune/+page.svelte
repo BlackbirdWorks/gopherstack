@@ -691,23 +691,6 @@
 						{/each}
 					</div>
 
-					<!-- Serverless v2 Scaling -->
-					{#if selectedCluster.ServerlessV2ScalingConfiguration}
-						<div class="space-y-2">
-							<h3 class="font-semibold text-slate-900 dark:text-white text-sm">Serverless v2 Scaling</h3>
-							<div class="grid grid-cols-2 gap-3">
-								<div class="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-3">
-									<p class="text-xs text-slate-500 dark:text-slate-400">Min Capacity (ACU)</p>
-									<p class="text-sm font-semibold text-slate-900 dark:text-white mt-0.5">{selectedCluster.ServerlessV2ScalingConfiguration.MinCapacity ?? '—'}</p>
-								</div>
-								<div class="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-3">
-									<p class="text-xs text-slate-500 dark:text-slate-400">Max Capacity (ACU)</p>
-									<p class="text-sm font-semibold text-slate-900 dark:text-white mt-0.5">{selectedCluster.ServerlessV2ScalingConfiguration.MaxCapacity ?? '—'}</p>
-								</div>
-							</div>
-						</div>
-					{/if}
-
 					<!-- Endpoints -->
 					<div class="space-y-2">
 						<h3 class="font-semibold text-slate-900 dark:text-white text-sm">Endpoints</h3>
