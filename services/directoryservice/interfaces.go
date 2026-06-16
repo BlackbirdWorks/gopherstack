@@ -4,10 +4,16 @@ import "time"
 
 // StorageBackend is the interface for DirectoryService storage operations.
 type StorageBackend interface {
-	CreateDirectory(name, shortName, description, password string, size DirectorySize, tags []Tag) (*Directory, error)
+	CreateDirectory(
+		name, shortName, description, password string,
+		size DirectorySize,
+		vpcSettings *DirectoryVpcSettings,
+		tags []Tag,
+	) (*Directory, error)
 	CreateMicrosoftAD(
 		name, shortName, description, password string,
 		edition DirectoryEdition,
+		vpcSettings *DirectoryVpcSettings,
 		tags []Tag,
 	) (*Directory, error)
 	DeleteDirectory(directoryID string) error
@@ -198,10 +204,19 @@ const (
 	SnapshotTypeManual SnapshotType = "Manual"
 )
 
+// DirectoryVpcSettings holds VPC networking settings for a directory.
+type DirectoryVpcSettings struct {
+	VpcID             string
+	SubnetIDs         []string
+	SecurityGroupIDs  []string
+	AvailabilityZones []string
+}
+
 // Directory represents an AWS Directory Service directory.
 // LaunchTime is first: time.Time's non-pointer prefix reduces GC pointer bytes.
 type Directory struct {
 	LaunchTime  time.Time
+	VpcSettings *DirectoryVpcSettings
 	DirectoryID string
 	Name        string
 	ShortName   string

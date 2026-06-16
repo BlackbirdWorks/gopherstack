@@ -312,6 +312,21 @@ provider "aws" {
     ssoadmin        = %[1]q
     sts             = %[1]q
     swf             = %[1]q
+    apprunner       = %[1]q
+    comprehend      = %[1]q
+    datasync        = %[1]q
+    detective       = %[1]q
+    dlm             = %[1]q
+    ds              = %[1]q
+    gluedatabrew    = %[1]q
+    macie2          = %[1]q
+    medialive       = %[1]q
+    mediapackage    = %[1]q
+    polly           = %[1]q
+    quicksight      = %[1]q
+    rekognition     = %[1]q
+    rolesanywhere   = %[1]q
+    transcribe      = %[1]q
     vpclattice      = %[1]q
     wafv2           = %[1]q
   }
@@ -717,6 +732,11 @@ func applyTofu(t *testing.T, tofuBin, dir, hcl string) {
 		"TF_IN_AUTOMATION=1",
 		"TF_PLUGIN_CACHE_DIR="+tofuProviderCacheDir,
 		"TF_PLUGIN_CACHE_MAY_BREAK_DEPENDENCY_LOCK_FILE=true",
+		// Catch-all for services not covered by the provider endpoints block.
+		// The AWS provider v5.6.0+ reads this env var as a global endpoint
+		// override so services like forecast, mediatailor, personalize,
+		// translate, mediastoredata, and workmail route to gopherstack.
+		"AWS_ENDPOINT_URL="+endpoint,
 	)
 
 	run := func(failFatal bool, args ...string) bool {

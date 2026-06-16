@@ -33,25 +33,34 @@ var (
 	ErrInvalidParameter = awserr.New(errClientException, awserr.ErrInvalidParameter)
 )
 
+// storedVpcSettings holds VPC settings for serialization.
+type storedVpcSettings struct {
+	VpcID             string   `json:"vpcId"`
+	SubnetIDs         []string `json:"subnetIds"`
+	SecurityGroupIDs  []string `json:"securityGroupIds"`
+	AvailabilityZones []string `json:"availabilityZones"`
+}
+
 // storedDirectory holds a directory with all fields.
 type storedDirectory struct {
-	LaunchTime  time.Time         `json:"launchTime"`
-	Tags        map[string]string `json:"tags"`
-	DirectoryID string            `json:"directoryId"`
-	Name        string            `json:"name"`
-	ShortName   string            `json:"shortName"`
-	Description string            `json:"description"`
-	Alias       string            `json:"alias"`
-	AccessURL   string            `json:"accessUrl"`
-	DirType     string            `json:"type"`
-	Stage       string            `json:"stage"`
-	Size        string            `json:"size"`
-	Edition     string            `json:"edition"`
-	SsoEnabled  bool              `json:"ssoEnabled"`
+	LaunchTime  time.Time          `json:"launchTime"`
+	Tags        map[string]string  `json:"tags"`
+	VpcSettings *storedVpcSettings `json:"vpcSettings,omitempty"`
+	DirectoryID string             `json:"directoryId"`
+	Name        string             `json:"name"`
+	ShortName   string             `json:"shortName"`
+	Description string             `json:"description"`
+	Alias       string             `json:"alias"`
+	AccessURL   string             `json:"accessUrl"`
+	DirType     string             `json:"type"`
+	Stage       string             `json:"stage"`
+	Size        string             `json:"size"`
+	Edition     string             `json:"edition"`
+	SsoEnabled  bool               `json:"ssoEnabled"`
 }
 
 func (d *storedDirectory) toDirectory() Directory {
-	return Directory{
+	dir := Directory{
 		LaunchTime:  d.LaunchTime,
 		DirectoryID: d.DirectoryID,
 		Name:        d.Name,
@@ -65,6 +74,16 @@ func (d *storedDirectory) toDirectory() Directory {
 		Edition:     DirectoryEdition(d.Edition),
 		SsoEnabled:  d.SsoEnabled,
 	}
+	if d.VpcSettings != nil {
+		dir.VpcSettings = &DirectoryVpcSettings{
+			VpcID:             d.VpcSettings.VpcID,
+			SubnetIDs:         d.VpcSettings.SubnetIDs,
+			SecurityGroupIDs:  d.VpcSettings.SecurityGroupIDs,
+			AvailabilityZones: d.VpcSettings.AvailabilityZones,
+		}
+	}
+
+	return dir
 }
 
 // storedSnapshot holds a snapshot with all fields.
@@ -176,12 +195,13 @@ func (b *InMemoryBackend) newStoredDirectory(
 	dirType DirectoryType,
 	size DirectorySize,
 	edition DirectoryEdition,
+	vpcSettings *DirectoryVpcSettings,
 	tags []Tag,
 ) *storedDirectory {
 	id := b.newDirectoryID()
 	alias := b.defaultAlias(id)
 
-	return &storedDirectory{
+	d := &storedDirectory{
 		LaunchTime:  time.Now().UTC(),
 		DirectoryID: id,
 		Name:        name,
@@ -195,12 +215,22 @@ func (b *InMemoryBackend) newStoredDirectory(
 		Edition:     string(edition),
 		Tags:        tagsToMap(tags),
 	}
+	if vpcSettings != nil {
+		d.VpcSettings = &storedVpcSettings{
+			VpcID:             vpcSettings.VpcID,
+			SubnetIDs:         vpcSettings.SubnetIDs,
+			SecurityGroupIDs:  vpcSettings.SecurityGroupIDs,
+			AvailabilityZones: vpcSettings.AvailabilityZones,
+		}
+	}
+
+	return d
 }
 
 // CreateDirectory creates a new Simple AD directory.
 func (b *InMemoryBackend) CreateDirectory(
 	name, shortName, description, _ string,
-	size DirectorySize, tags []Tag,
+	size DirectorySize, vpcSettings *DirectoryVpcSettings, tags []Tag,
 ) (*Directory, error) {
 	b.mu.Lock("CreateDirectory")
 	defer b.mu.Unlock()
@@ -209,7 +239,7 @@ func (b *InMemoryBackend) CreateDirectory(
 		return nil, ErrInvalidParameter
 	}
 
-	d := b.newStoredDirectory(name, shortName, description, DirectoryTypeSimpleAD, size, "", tags)
+	d := b.newStoredDirectory(name, shortName, description, DirectoryTypeSimpleAD, size, "", vpcSettings, tags)
 	b.directories[d.DirectoryID] = d
 	b.aliases[d.Alias] = d.DirectoryID
 
@@ -221,7 +251,7 @@ func (b *InMemoryBackend) CreateDirectory(
 // CreateMicrosoftAD creates a new Managed Microsoft AD directory.
 func (b *InMemoryBackend) CreateMicrosoftAD(
 	name, shortName, description, _ string,
-	edition DirectoryEdition, tags []Tag,
+	edition DirectoryEdition, vpcSettings *DirectoryVpcSettings, tags []Tag,
 ) (*Directory, error) {
 	b.mu.Lock("CreateMicrosoftAD")
 	defer b.mu.Unlock()
@@ -230,7 +260,7 @@ func (b *InMemoryBackend) CreateMicrosoftAD(
 		return nil, ErrInvalidParameter
 	}
 
-	d := b.newStoredDirectory(name, shortName, description, DirectoryTypeMicrosoftAD, "", edition, tags)
+	d := b.newStoredDirectory(name, shortName, description, DirectoryTypeMicrosoftAD, "", edition, vpcSettings, tags)
 	b.directories[d.DirectoryID] = d
 	b.aliases[d.Alias] = d.DirectoryID
 

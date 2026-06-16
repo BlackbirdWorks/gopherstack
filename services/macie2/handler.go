@@ -814,11 +814,11 @@ func (h *Handler) handleGetMacieSession() (any, int) {
 	}
 
 	return map[string]any{
-		"createdAt":                  session.CreatedAt,
+		"createdAt":                  float64(session.CreatedAt.Unix()),
 		"findingPublishingFrequency": session.FindingPublishingFrequency,
 		"serviceRole":                session.ServiceRole,
 		"status":                     session.Status,
-		"updatedAt":                  session.UpdatedAt,
+		"updatedAt":                  float64(session.UpdatedAt.Unix()),
 	}, http.StatusOK
 }
 
