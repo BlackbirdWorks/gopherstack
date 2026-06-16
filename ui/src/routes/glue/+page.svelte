@@ -12,6 +12,9 @@
 		GetCrawlersCommand,
 		StartCrawlerCommand,
 		StopCrawlerCommand,
+		UpdateCrawlerScheduleCommand,
+		StartCrawlerScheduleCommand,
+		StopCrawlerScheduleCommand,
 		GetConnectionsCommand,
 		DeleteConnectionCommand,
 		DeleteJobCommand,
@@ -27,7 +30,7 @@
 		type DataQualityRulesetListDetails
 	} from '@aws-sdk/client-glue';
 	import { toast } from 'svelte-sonner';
-	import { Database as DBIcon, Search, RefreshCw, Play, XCircle, ChevronRight, Table as TableIcon, Settings, Globe, Trash2, Copy } from 'lucide-svelte';
+	import { Database as DBIcon, Search, RefreshCw, Play, Pause, XCircle, ChevronRight, Table as TableIcon, Settings, Globe, Trash2, Copy, Clock } from 'lucide-svelte';
 
 	const glue = getGlueClient();
 
@@ -57,6 +60,11 @@
 	// Connections
 	let connections = $state<Connection[]>([]);
 	let loadingConnections = $state(false);
+
+	// Crawler schedule editor
+	let scheduleCrawler = $state<Crawler | null>(null);
+	let scheduleExpression = $state('cron(0 0 * * ? *)');
+	let savingSchedule = $state(false);
 
 	// Data Quality
 	let dataQualityRulesets = $state<DataQualityRulesetListDetails[]>([]);
@@ -199,6 +207,46 @@
 			await loadCrawlers();
 		} catch (e) {
 			toast.error('Failed to stop crawler: ' + String(e));
+		}
+	}
+
+	function openScheduleEditor(crawler: Crawler) {
+		scheduleCrawler = crawler;
+		scheduleExpression = crawler.Schedule?.ScheduleExpression ?? 'cron(0 0 * * ? *)';
+	}
+
+	async function saveCrawlerSchedule() {
+		if (!scheduleCrawler?.Name || !scheduleExpression.trim()) return;
+		savingSchedule = true;
+		try {
+			await glue.send(new UpdateCrawlerScheduleCommand({
+				CrawlerName: scheduleCrawler.Name,
+				Schedule: scheduleExpression.trim()
+			}));
+			toast.success(`Schedule updated for "${scheduleCrawler.Name}"`);
+			scheduleCrawler = null;
+			await loadCrawlers();
+		} catch (e) {
+			toast.error('Failed to update schedule: ' + String(e));
+		} finally {
+			savingSchedule = false;
+		}
+	}
+
+	async function toggleCrawlerSchedule(crawler: Crawler) {
+		if (!crawler.Name) return;
+		const isScheduled = crawler.Schedule?.State === 'SCHEDULED';
+		try {
+			if (isScheduled) {
+				await glue.send(new StopCrawlerScheduleCommand({ CrawlerName: crawler.Name }));
+				toast.success(`Schedule paused for "${crawler.Name}"`);
+			} else {
+				await glue.send(new StartCrawlerScheduleCommand({ CrawlerName: crawler.Name }));
+				toast.success(`Schedule resumed for "${crawler.Name}"`);
+			}
+			await loadCrawlers();
+		} catch (e) {
+			toast.error('Failed to toggle schedule: ' + String(e));
 		}
 	}
 
@@ -670,6 +718,12 @@
 									{:else if crawler.State === 'RUNNING'}
 										<button onclick={() => stopCrawler(crawler.Name ?? '')} class="text-red-500 hover:text-red-700 p-1" title="Stop crawler"><XCircle class="w-4 h-4" /></button>
 									{/if}
+									<button onclick={() => openScheduleEditor(crawler)} class="text-gray-500 hover:text-sky-600 p-1" title="Edit schedule"><Clock class="w-4 h-4" /></button>
+									{#if crawler.Schedule?.ScheduleExpression}
+										<button onclick={() => toggleCrawlerSchedule(crawler)} class="text-gray-500 hover:text-sky-600 p-1" title={crawler.Schedule?.State === 'SCHEDULED' ? 'Pause schedule' : 'Resume schedule'}>
+											{#if crawler.Schedule?.State === 'SCHEDULED'}<Pause class="w-4 h-4" />{:else}<Play class="w-4 h-4" />{/if}
+										</button>
+									{/if}
 									<button onclick={() => deleteCrawler(crawler.Name ?? '')} class="text-red-400 hover:text-red-600 p-1" title="Delete"><Trash2 class="w-4 h-4" /></button>
 								</td>
 							</tr>
@@ -822,3 +876,24 @@
 		{/if}
 	{/if}
 </div>
+
+<!-- Crawler Schedule Editor Modal -->
+{#if scheduleCrawler}
+	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+		<div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
+			<h2 class="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2"><Clock class="w-5 h-5 text-sky-500" /> Edit Crawler Schedule</h2>
+			<p class="text-sm text-gray-500">Crawler: <span class="font-medium text-gray-700 dark:text-gray-300">{scheduleCrawler.Name}</span></p>
+			<div>
+				<label for="crawler-schedule" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Schedule Expression (cron)</label>
+				<input id="crawler-schedule" bind:value={scheduleExpression} type="text" placeholder="cron(0 0 * * ? *)" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm font-mono" />
+				<p class="text-xs text-gray-400 mt-1">Example: cron(0 12 * * ? *) runs daily at 12:00 UTC.</p>
+			</div>
+			<div class="flex gap-3 pt-2">
+				<button onclick={() => (scheduleCrawler = null)} class="flex-1 px-4 py-2 rounded-lg border text-sm hover:bg-gray-50 dark:hover:bg-gray-800">Cancel</button>
+				<button onclick={saveCrawlerSchedule} disabled={savingSchedule || !scheduleExpression.trim()} class="flex-1 px-4 py-2 rounded-lg bg-sky-600 text-white text-sm font-medium hover:bg-sky-700 disabled:opacity-50">
+					{savingSchedule ? 'Saving...' : 'Save Schedule'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}

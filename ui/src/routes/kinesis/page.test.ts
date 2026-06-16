@@ -6,6 +6,7 @@ const mockSend = vi.fn();
 
 vi.mock("$lib/aws-client", () => ({
   getKinesisClient: () => ({ send: mockSend }),
+  getCloudWatchClient: () => ({ send: mockSend }),
 }));
 
 vi.mock("svelte-sonner", () => ({
