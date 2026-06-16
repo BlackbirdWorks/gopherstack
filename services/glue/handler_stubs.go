@@ -1462,14 +1462,19 @@ type getCatalogImportStatusInput struct {
 
 // getCatalogImportStatusOutput holds the result for GetCatalogImportStatus.
 type getCatalogImportStatusOutput struct {
-	ImportStatus any `json:"ImportStatus"`
+	ImportStatus *CatalogImportStatus `json:"ImportStatus"`
 }
 
 func (h *Handler) handleGetCatalogImportStatus(
 	_ context.Context,
-	_ *getCatalogImportStatusInput,
+	in *getCatalogImportStatusInput,
 ) (*getCatalogImportStatusOutput, error) {
-	return &getCatalogImportStatusOutput{}, nil
+	catalogID := in.CatalogID
+	if catalogID == "" {
+		catalogID = "account-level"
+	}
+
+	return &getCatalogImportStatusOutput{ImportStatus: h.Backend.GetCatalogImportStatus(catalogID)}, nil
 }
 
 // getCatalogsInput holds input for GetCatalogs.
@@ -2156,8 +2161,29 @@ func (h *Handler) handleGetPartitions(
 	return &getPartitionsOutput{Partitions: partitions}, nil
 }
 
+// getPlanMappingEntry holds a single field mapping entry.
+type getPlanMappingEntry struct {
+	SourceTable string `json:"SourceTable,omitempty"`
+	SourcePath  string `json:"SourcePath,omitempty"`
+	SourceType  string `json:"SourceType,omitempty"`
+	TargetTable string `json:"TargetTable,omitempty"`
+	TargetPath  string `json:"TargetPath,omitempty"`
+	TargetType  string `json:"TargetType,omitempty"`
+}
+
+// getPlanCatalogEntry holds a catalog source/sink reference.
+type getPlanCatalogEntry struct {
+	DatabaseName string `json:"DatabaseName,omitempty"`
+	TableName    string `json:"TableName,omitempty"`
+}
+
 // getPlanInput holds input for GetPlan.
-type getPlanInput struct{}
+type getPlanInput struct {
+	Source   *getPlanCatalogEntry  `json:"Source,omitempty"`
+	Language string                `json:"Language,omitempty"`
+	Mapping  []getPlanMappingEntry `json:"Mapping,omitempty"`
+	Sinks    []getPlanCatalogEntry `json:"Sinks,omitempty"`
+}
 
 // getPlanOutput holds the result for GetPlan.
 type getPlanOutput struct {
@@ -2165,8 +2191,27 @@ type getPlanOutput struct {
 	ScalaCode    string `json:"ScalaCode"`
 }
 
-func (h *Handler) handleGetPlan(_ context.Context, _ *getPlanInput) (*getPlanOutput, error) {
-	return &getPlanOutput{}, nil
+func (h *Handler) handleGetPlan(_ context.Context, in *getPlanInput) (*getPlanOutput, error) {
+	sourceTable := ""
+	if in.Source != nil {
+		sourceTable = in.Source.TableName
+	}
+
+	if in.Language == "Scala" {
+		return &getPlanOutput{
+			ScalaCode: fmt.Sprintf(
+				"import com.amazonaws.services.glue._\n// Source: %s\n",
+				sourceTable,
+			),
+		}, nil
+	}
+
+	return &getPlanOutput{
+		PythonScript: fmt.Sprintf(
+			"import sys\nfrom awsglue.transforms import *\n# Source: %s\n",
+			sourceTable,
+		),
+	}, nil
 }
 
 // getRegistryInput holds input for GetRegistry.
@@ -2364,7 +2409,12 @@ func (h *Handler) handleGetSchemaVersion(
 }
 
 // getSchemaVersionsDiffInput holds input for GetSchemaVersionsDiff.
-type getSchemaVersionsDiffInput struct{}
+type getSchemaVersionsDiffInput struct {
+	SchemaID                  *schemaIDInput `json:"SchemaId,omitempty"`
+	SchemaDiffType            string         `json:"SchemaDiffType,omitempty"`
+	FirstSchemaVersionNumber  int64          `json:"FirstSchemaVersionNumber,omitempty"`
+	SecondSchemaVersionNumber int64          `json:"SecondSchemaVersionNumber,omitempty"`
+}
 
 // getSchemaVersionsDiffOutput holds the result for GetSchemaVersionsDiff.
 type getSchemaVersionsDiffOutput struct {
@@ -2373,9 +2423,37 @@ type getSchemaVersionsDiffOutput struct {
 
 func (h *Handler) handleGetSchemaVersionsDiff(
 	_ context.Context,
-	_ *getSchemaVersionsDiffInput,
+	in *getSchemaVersionsDiffInput,
 ) (*getSchemaVersionsDiffOutput, error) {
-	return &getSchemaVersionsDiffOutput{}, nil
+	if in.SchemaID == nil {
+		return &getSchemaVersionsDiffOutput{}, nil
+	}
+
+	registryName := in.SchemaID.RegistryName
+	schemaName := in.SchemaID.SchemaName
+
+	sv1, err := h.Backend.GetSchemaVersion(registryName, schemaName, in.FirstSchemaVersionNumber)
+	if err != nil {
+		return nil, err
+	}
+
+	sv2, err := h.Backend.GetSchemaVersion(registryName, schemaName, in.SecondSchemaVersionNumber)
+	if err != nil {
+		return nil, err
+	}
+
+	diff := ""
+	if sv1.SchemaDefinition != sv2.SchemaDefinition {
+		diff = fmt.Sprintf(
+			"Schema version %d differs from version %d: %s vs %s",
+			in.FirstSchemaVersionNumber,
+			in.SecondSchemaVersionNumber,
+			sv1.SchemaDefinition,
+			sv2.SchemaDefinition,
+		)
+	}
+
+	return &getSchemaVersionsDiffOutput{Diff: diff}, nil
 }
 
 // getSecurityConfigurationInput holds input for GetSecurityConfiguration.
@@ -2696,7 +2774,11 @@ type getUsageProfileInput struct {
 
 // getUsageProfileOutput holds the result for GetUsageProfile.
 type getUsageProfileOutput struct {
-	Name string `json:"Name"`
+	Tags           map[string]string `json:"Tags,omitempty"`
+	Name           string            `json:"Name"`
+	Description    string            `json:"Description,omitempty"`
+	CreatedOn      float64           `json:"CreatedOn,omitempty"`
+	LastModifiedOn float64           `json:"LastModifiedOn,omitempty"`
 }
 
 func (h *Handler) handleGetUsageProfile(
@@ -2712,7 +2794,13 @@ func (h *Handler) handleGetUsageProfile(
 		return nil, err
 	}
 
-	return &getUsageProfileOutput{Name: p.Name}, nil
+	return &getUsageProfileOutput{
+		Name:           p.Name,
+		Description:    p.Description,
+		CreatedOn:      float64(p.CreatedOn.Unix()),
+		LastModifiedOn: float64(p.LastModifiedOn.Unix()),
+		Tags:           p.Tags,
+	}, nil
 }
 
 // getUserDefinedFunctionInput holds input for GetUserDefinedFunction.
@@ -2853,12 +2941,21 @@ func (h *Handler) handleGetWorkflowRuns(
 }
 
 // importCatalogToGlueInput holds input for ImportCatalogToGlue.
-type importCatalogToGlueInput struct{}
+type importCatalogToGlueInput struct {
+	CatalogID string `json:"CatalogId,omitempty"`
+}
 
 func (h *Handler) handleImportCatalogToGlue(
 	_ context.Context,
-	_ *importCatalogToGlueInput,
+	in *importCatalogToGlueInput,
 ) (*emptyOutput, error) {
+	catalogID := in.CatalogID
+	if catalogID == "" {
+		catalogID = "account-level"
+	}
+
+	h.Backend.ImportCatalogToGlue(catalogID)
+
 	return &emptyOutput{}, nil
 }
 

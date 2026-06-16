@@ -87,13 +87,13 @@ type EncryptionKey struct {
 }
 
 // CisScanConfiguration represents a CIS scan configuration.
-type CisScanConfiguration struct { //nolint:govet // readability
-	Arn        string            `json:"scanConfigurationArn"`
-	Name       string            `json:"scanName"`
-	OwnedBy    string            `json:"ownedBy"`
+type CisScanConfiguration struct {
 	Tags       map[string]string `json:"tags,omitempty"`
 	ScheduleV2 map[string]any    `json:"schedule,omitempty"`
 	Targets    map[string]any    `json:"targets,omitempty"`
+	Arn        string            `json:"scanConfigurationArn"`
+	Name       string            `json:"scanName"`
+	OwnedBy    string            `json:"ownedBy"`
 }
 
 // CisSession represents an active CIS scan session.
@@ -105,27 +105,27 @@ type CisSession struct {
 }
 
 // CodeSecurityIntegration represents a code security integration.
-type CodeSecurityIntegration struct { //nolint:govet // readability
+type CodeSecurityIntegration struct {
+	CreatedAt      time.Time         `json:"createdAt"`
+	UpdatedAt      time.Time         `json:"updatedAt"`
+	Tags           map[string]string `json:"tags,omitempty"`
 	IntegrationArn string            `json:"integrationArn"`
 	Name           string            `json:"name"`
 	Type           string            `json:"type"`
 	Status         string            `json:"status"`
-	Tags           map[string]string `json:"tags,omitempty"`
-	CreatedAt      time.Time         `json:"createdAt"`
-	UpdatedAt      time.Time         `json:"updatedAt"`
 }
 
 // CodeSecurityScanConfiguration represents a code security scan configuration.
-type CodeSecurityScanConfiguration struct { //nolint:govet // readability
+type CodeSecurityScanConfiguration struct {
+	CreatedAt          time.Time         `json:"createdAt"`
+	UpdatedAt          time.Time         `json:"updatedAt"`
+	ScopeSettings      map[string]any    `json:"scopeSettings,omitempty"`
+	PeriodicScanConfig map[string]any    `json:"periodicScanConfiguration,omitempty"`
+	Tags               map[string]string `json:"tags,omitempty"`
 	Arn                string            `json:"scanConfigurationArn"`
 	Name               string            `json:"name"`
 	IntegrationArn     string            `json:"integrationArn,omitempty"`
-	ScopeSettings      map[string]any    `json:"scopeSettings,omitempty"`
-	PeriodicScanConfig map[string]any    `json:"periodicScanConfiguration,omitempty"`
 	Status             string            `json:"status"`
-	Tags               map[string]string `json:"tags,omitempty"`
-	CreatedAt          time.Time         `json:"createdAt"`
-	UpdatedAt          time.Time         `json:"updatedAt"`
 }
 
 // CodeSecurityScanConfigurationAssociation links a scan config to a repository.
@@ -1188,9 +1188,9 @@ func (b *InMemoryBackend) ListFindingAggregations(_ string, _ map[string]any) (m
 func (b *InMemoryBackend) ListUsageTotals(_ []string) ([]map[string]any, error) {
 	return []map[string]any{
 		{
-			"accountId": b.accountID, //nolint:goconst // existing issue.
-			"status":    "ACTIVE",
-			"usage":     []any{},
+			keyAccountID: b.accountID,
+			"status":     "ACTIVE",
+			"usage":      []any{},
 		},
 	}, nil
 }

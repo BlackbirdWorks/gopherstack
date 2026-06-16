@@ -69,6 +69,7 @@ import (
 	appconfigdatabackend "github.com/blackbirdworks/gopherstack/services/appconfigdata"
 	applicationautoscalingbackend "github.com/blackbirdworks/gopherstack/services/applicationautoscaling"
 	appmeshbackend "github.com/blackbirdworks/gopherstack/services/appmesh"
+	apprunnerbackend "github.com/blackbirdworks/gopherstack/services/apprunner"
 	appstreambackend "github.com/blackbirdworks/gopherstack/services/appstream"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
@@ -98,6 +99,7 @@ import (
 	databrewbackend "github.com/blackbirdworks/gopherstack/services/databrew"
 	datasyncbackend "github.com/blackbirdworks/gopherstack/services/datasync"
 	detectivebackend "github.com/blackbirdworks/gopherstack/services/detective"
+	dlmbackend "github.com/blackbirdworks/gopherstack/services/dlm"
 	dmsbackend "github.com/blackbirdworks/gopherstack/services/dms"
 	docdbbackend "github.com/blackbirdworks/gopherstack/services/docdb"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
@@ -140,6 +142,8 @@ import (
 	macie2backend "github.com/blackbirdworks/gopherstack/services/macie2"
 	managedblockchainbackend "github.com/blackbirdworks/gopherstack/services/managedblockchain"
 	mediaconvertbackend "github.com/blackbirdworks/gopherstack/services/mediaconvert"
+	medialivebackend "github.com/blackbirdworks/gopherstack/services/medialive"
+	mediapackagebackend "github.com/blackbirdworks/gopherstack/services/mediapackage"
 	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
 	mediastoredatabackend "github.com/blackbirdworks/gopherstack/services/mediastoredata"
 	memorydbbackend "github.com/blackbirdworks/gopherstack/services/memorydb"
@@ -150,14 +154,17 @@ import (
 	omicsbackend "github.com/blackbirdworks/gopherstack/services/omics"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
+	personalizebackend "github.com/blackbirdworks/gopherstack/services/personalize"
 	pinpointbackend "github.com/blackbirdworks/gopherstack/services/pinpoint"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
 	pollybackend "github.com/blackbirdworks/gopherstack/services/polly"
+	quicksightbackend "github.com/blackbirdworks/gopherstack/services/quicksight"
 	rambackend "github.com/blackbirdworks/gopherstack/services/ram"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	rdsdatabackend "github.com/blackbirdworks/gopherstack/services/rdsdata"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 	redshiftdatabackend "github.com/blackbirdworks/gopherstack/services/redshiftdata"
+	rekognitionbackend "github.com/blackbirdworks/gopherstack/services/rekognition"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
 	resourcegroupstaggingapibackend "github.com/blackbirdworks/gopherstack/services/resourcegroupstaggingapi"
 	rolesanywherebackend "github.com/blackbirdworks/gopherstack/services/rolesanywhere"
@@ -188,6 +195,7 @@ import (
 	timestreamwritebackend "github.com/blackbirdworks/gopherstack/services/timestreamwrite"
 	transcribebackend "github.com/blackbirdworks/gopherstack/services/transcribe"
 	transferbackend "github.com/blackbirdworks/gopherstack/services/transfer"
+	translatebackend "github.com/blackbirdworks/gopherstack/services/translate"
 	verifiedpermissionsbackend "github.com/blackbirdworks/gopherstack/services/verifiedpermissions"
 	vpclatticebackend "github.com/blackbirdworks/gopherstack/services/vpclattice"
 	wafbackend "github.com/blackbirdworks/gopherstack/services/waf"
@@ -216,6 +224,7 @@ const (
 	contentTypeJSON      = "application/json"
 	emrServerlessRoleARN = "arn:aws:iam::000000000000:role/EMRServerlessRole"
 	envProduction        = "production"
+	kinesisServiceName   = "kinesis"
 )
 
 // CLI holds all command-line / environment-variable configuration for Gopherstack.
@@ -2001,6 +2010,8 @@ func buildEchoServer(
 	e.HTTPErrorHandler = buildHTTPErrorHandler()
 	e.GET("/_gopherstack/health", buildHealthHandler(services))
 	e.POST("/_gopherstack/reset", buildResetHandler(services))
+	e.POST("/_gopherstack/snapshot", buildSnapshotHandler(persistManager))
+	e.POST("/_gopherstack/load", buildLoadHandler(persistManager))
 
 	registerWebsiteRoutes(e, services)
 
@@ -2084,6 +2095,108 @@ func buildResetHandler(services []service.Registerable) echo.HandlerFunc {
 			"reset":         reset,
 			keyMessageField: fmt.Sprintf("reset %d service(s)", reset),
 		})
+	}
+}
+
+// snapshotBundle is the JSON envelope returned by POST /_gopherstack/snapshot
+// and accepted by POST /_gopherstack/load.
+//
+// Each value in Services is a raw JSON blob produced by the service's
+// Snapshot() method, embedded verbatim so that round-trips are lossless and the
+// payload stays human-readable without an extra base64 layer.
+type snapshotBundle struct {
+	// Services maps each registered service name to its raw JSON snapshot.
+	Services map[string]json.RawMessage `json:"services"`
+	// Format is a fixed version tag; currently "gopherstack-snapshot/v1".
+	Format string `json:"format"`
+}
+
+// snapshotResponse is the JSON body returned by POST /_gopherstack/snapshot.
+type snapshotResponse struct {
+	snapshotBundle
+	Status string `json:"status"`
+	// Exported is the number of services whose snapshots were included.
+	Exported int `json:"exported"`
+}
+
+// loadResponse is the JSON body returned by POST /_gopherstack/load.
+type loadResponse struct {
+	Status  string `json:"status"`
+	Message string `json:"message"`
+	// Loaded is the number of services successfully restored.
+	Loaded int `json:"loaded"`
+}
+
+// snapshotBundleFormat is the format identifier embedded in every snapshot bundle.
+const snapshotBundleFormat = "gopherstack-snapshot/v1"
+
+// buildSnapshotHandler returns the POST /_gopherstack/snapshot handler.
+//
+// It calls ExportAll on the persistence manager to collect the current
+// in-memory state of every registered service, wraps the snapshots in a
+// snapshotBundle envelope, and returns it as the response body. The caller
+// can store the blob and later replay it via POST /_gopherstack/load to
+// restore state (Cloud-Pods style).
+//
+// The handler does not write to the underlying Store; if the caller also
+// wants on-disk persistence they should use --persist/--data-dir together
+// with the debounced auto-snapshot that fires after every mutation.
+func buildSnapshotHandler(m *persistence.Manager) echo.HandlerFunc {
+	return func(c *echo.Context) error {
+		raw := m.ExportAll()
+
+		services := make(map[string]json.RawMessage, len(raw))
+		for name, data := range raw {
+			services[name] = json.RawMessage(data)
+		}
+
+		resp := snapshotResponse{
+			snapshotBundle: snapshotBundle{
+				Format:   snapshotBundleFormat,
+				Services: services,
+			},
+			Exported: len(services),
+			Status:   "ok",
+		}
+
+		return c.JSON(http.StatusOK, resp)
+	}
+}
+
+// buildLoadHandler returns the POST /_gopherstack/load handler.
+//
+// It reads a snapshotBundle from the request body and restores each service's
+// state by calling ImportAll on the persistence manager. Services present in
+// the bundle but not registered with the manager are warned and skipped.
+// Returns 400 for malformed input and 500 if any restore fails.
+func buildLoadHandler(m *persistence.Manager) echo.HandlerFunc {
+	return func(c *echo.Context) error {
+		var bundle snapshotBundle
+
+		if err := json.NewDecoder(c.Request().Body).Decode(&bundle); err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest,
+				fmt.Sprintf("invalid snapshot bundle: %s", err.Error()))
+		}
+
+		snapshots := make(map[string][]byte, len(bundle.Services))
+		for name, raw := range bundle.Services {
+			snapshots[name] = []byte(raw)
+		}
+
+		ctx := c.Request().Context()
+
+		if err := m.ImportAll(ctx, snapshots); err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError,
+				fmt.Sprintf("restore failed: %s", err.Error()))
+		}
+
+		resp := loadResponse{
+			Status:  "ok",
+			Loaded:  len(snapshots),
+			Message: fmt.Sprintf("restored %d service(s)", len(snapshots)),
+		}
+
+		return c.JSON(http.StatusOK, resp)
 	}
 }
 
@@ -2760,6 +2873,14 @@ func getMostRecentServiceProviders() []service.Provider {
 		&databrewbackend.Provider{},
 		&forecastbackend.Provider{},
 		&macie2backend.Provider{},
+		&apprunnerbackend.Provider{},
+		&dlmbackend.Provider{},
+		&medialivebackend.Provider{},
+		&mediapackagebackend.Provider{},
+		&personalizebackend.Provider{},
+		&quicksightbackend.Provider{},
+		&rekognitionbackend.Provider{},
+		&translatebackend.Provider{},
 		&appmeshbackend.Provider{},
 		&appstreambackend.Provider{},
 		&detectivebackend.Provider{},
@@ -2947,18 +3068,22 @@ func wireSQSMetrics(sqsReg, cwReg service.Registerable) {
 		return
 	}
 
-	sqsBk.SetMetricEmitter(sqsbackend.MetricEmitterFunc(func(namespace, name string, value float64, unit string) error {
-		_, err := cwBk.PutMetricData(namespace, []cwbackend.MetricDatum{
-			{
-				MetricName: name,
-				Value:      value,
-				Unit:       unit,
-				Timestamp:  time.Now(),
-			},
-		})
+	sqsBk.SetMetricEmitter(
+		sqsbackend.MetricEmitterFunc(
+			func(namespace, name string, value float64, unit string) error {
+				_, err := cwBk.PutMetricData(namespace, []cwbackend.MetricDatum{
+					{
+						MetricName: name,
+						Value:      value,
+						Unit:       unit,
+						Timestamp:  time.Now(),
+					},
+				})
 
-		return err
-	}))
+				return err
+			},
+		),
+	)
 }
 
 // wireEventBridgeDelivery connects EventBridge fan-out to Lambda, SQS, and SNS backends.
@@ -3734,7 +3859,7 @@ func (d *cwlogsSubscriptionDeliverer) DeliverLogEvents(
 		)
 
 		return err
-	case "kinesis":
+	case kinesisServiceName:
 		if d.kinesis == nil {
 			return nil
 		}
@@ -3784,19 +3909,21 @@ func wireCWLogsMetricEmitter(cwlogsReg, cwReg service.Registerable) {
 	}
 
 	cwlogsBk.SetMetricEmitter(
-		cwlogsbackend.MetricEmitterFunc(func(namespace, name string, value float64, unit string) error {
-			_, err := cwBk.PutMetricData(namespace, []cwbackend.MetricDatum{
-				{
-					MetricName: name,
-					Namespace:  namespace,
-					Value:      value,
-					Unit:       unit,
-					Timestamp:  time.Now(),
-				},
-			})
+		cwlogsbackend.MetricEmitterFunc(
+			func(namespace, name string, value float64, unit string) error {
+				_, err := cwBk.PutMetricData(namespace, []cwbackend.MetricDatum{
+					{
+						MetricName: name,
+						Namespace:  namespace,
+						Value:      value,
+						Unit:       unit,
+						Timestamp:  time.Now(),
+					},
+				})
 
-			return err
-		}),
+				return err
+			},
+		),
 	)
 }
 

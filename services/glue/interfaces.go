@@ -371,6 +371,10 @@ type StorageBackend interface {
 	// DataQuality listing operations.
 	ListDataQualityEvaluationRuns() []*DataQualityEvaluationRun
 	ListDataQualityResults() []*DataQualityResult
+
+	// CatalogImport operations.
+	GetCatalogImportStatus(catalogID string) *CatalogImportStatus
+	ImportCatalogToGlue(catalogID string)
 }
 
 // Snapshottable is an optional interface that a StorageBackend may implement

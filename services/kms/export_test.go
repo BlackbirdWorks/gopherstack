@@ -1,6 +1,10 @@
 package kms
 
-import "time"
+import (
+	"errors"
+	"fmt"
+	"time"
+)
 
 // DefaultJanitorInterval exposes the package default janitor interval for testing.
 const DefaultJanitorInterval = defaultKMSJanitorInterval
@@ -131,4 +135,40 @@ func (b *InMemoryBackend) SetGrantTokenIssuedAt(grantID string, t time.Time) {
 			return
 		}
 	}
+}
+
+// MaxKeyMaterialHistoryEntriesForTest exposes the key material history cap.
+const MaxKeyMaterialHistoryEntriesForTest = maxKeyMaterialHistoryEntries
+
+// KeyMaterialHistoryLenForTest returns the number of retained historical key
+// materials for the given keyID across all regions.
+func (b *InMemoryBackend) KeyMaterialHistoryLenForTest(keyID string) int {
+	b.mu.RLock("KeyMaterialHistoryLenForTest")
+	defer b.mu.RUnlock()
+
+	for _, regionHist := range b.keyMaterialHistory {
+		if hist, ok := regionHist[keyID]; ok {
+			return len(hist)
+		}
+	}
+
+	return 0
+}
+
+// ErrForceRotateKeyNotFound is returned by ForceRotateForTest when keyID is absent.
+var ErrForceRotateKeyNotFound = errors.New("key not found")
+
+// ForceRotateForTest rotates the key material for keyID, bypassing the
+// on-demand rate limit. Used in tests to drive the history cap.
+func (b *InMemoryBackend) ForceRotateForTest(keyID string) error {
+	b.mu.Lock("ForceRotateForTest")
+	defer b.mu.Unlock()
+
+	for region, regionKeys := range b.keys {
+		if key, ok := regionKeys[keyID]; ok {
+			return b.rotateKeyMaterialLocked(region, key, rotationTypeAWSKMS)
+		}
+	}
+
+	return fmt.Errorf("%w: %s", ErrForceRotateKeyNotFound, keyID)
 }

@@ -1949,6 +1949,68 @@ func TestTerraform_CloudFormation(t *testing.T) {
 	}
 }
 
+// TestTerraform_CloudFormation_CustomResource exercises CFN extensibility types
+// (Custom::*, WaitConditionHandle/WaitCondition, Macro) via a Terraform-managed stack,
+// verifying that Gopherstack correctly handles all three resource classes end-to-end.
+func TestTerraform_CloudFormation_CustomResource(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "custom_resource_round_trip",
+			fixture: "cloudformation/custom_resource",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"StackName": "tf-cfn-ext-" + id,
+					"MacroName": "TfTestMacro" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+
+				client := createCloudFormationClient(t)
+				stackName := vars["StackName"].(string)
+
+				out, err := client.DescribeStacks(ctx, &cfnsvc.DescribeStacksInput{
+					StackName: aws.String(stackName),
+				})
+				require.NoError(t, err, "DescribeStacks should succeed after terraform apply")
+				require.Len(t, out.Stacks, 1)
+
+				s := out.Stacks[0]
+				assert.Equal(t, stackName, aws.ToString(s.StackName))
+				assert.Equal(t, "CREATE_COMPLETE", string(s.StackStatus),
+					"stack with CustomResource + WaitCondition + Macro should reach CREATE_COMPLETE")
+
+				// Verify Macro output is present.
+				macroName := vars["MacroName"].(string)
+				var foundMacro bool
+
+				for _, o := range s.Outputs {
+					if aws.ToString(o.OutputKey) == "MacroName" {
+						assert.Equal(t, macroName, aws.ToString(o.OutputValue),
+							"Macro physical ID should match registered macro name")
+						foundMacro = true
+					}
+				}
+
+				assert.True(t, foundMacro, "MacroName output should exist in stack outputs")
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
 // TestTerraform_ElastiCache provisions an ElastiCache cluster and verifies it exists.
 func TestTerraform_ElastiCache(t *testing.T) {
 	t.Parallel()

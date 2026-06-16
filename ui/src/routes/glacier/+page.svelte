@@ -11,6 +11,7 @@
 		DeleteArchiveCommand,
 		InitiateJobCommand,
 		ListJobsCommand,
+		DescribeJobCommand,
 		GetJobOutputCommand,
 		AddTagsToVaultCommand,
 		ListTagsForVaultCommand,
@@ -102,6 +103,8 @@
 	let inventoryFormat = $state<'JSON' | 'CSV'>('JSON');
 	let initiatingJob = $state(false);
 	let selectedJob = $state<GlacierJobDescription | null>(null);
+	let jobDetails = $state<GlacierJobDescription | null>(null);
+	let loadingJobDetails = $state(false);
 	let jobOutput = $state('');
 	let loadingJobOutput = $state(false);
 	let jobStatusFilter = $state<'all' | 'completed' | 'in-progress'>('all');
@@ -319,6 +322,7 @@
 		editingNotifications = false;
 		selectedJob = null;
 		jobOutput = '';
+		jobDetails = null;
 		stopAutoRefresh();
 
 		if (!selectedVault?.VaultName) return;
@@ -444,11 +448,31 @@
 		}
 	}
 
+	async function describeJob(jobId: string) {
+		if (!selectedVault?.VaultName) return;
+		loadingJobDetails = true;
+		jobDetails = null;
+		try {
+			const res = await glacier.send(new DescribeJobCommand({
+				accountId: '-',
+				vaultName: selectedVault.VaultName,
+				jobId,
+			}));
+			jobDetails = res as GlacierJobDescription;
+		} catch (err: unknown) {
+			toast.error(`Failed to describe job: ${extractErrorMessage(err)}`);
+		} finally {
+			loadingJobDetails = false;
+		}
+	}
+
 	async function viewJobOutput(job: GlacierJobDescription) {
 		selectedJob = job;
-		if (!job.JobId || !selectedVault?.VaultName) return;
-		loadingJobOutput = true;
 		jobOutput = '';
+		jobDetails = null;
+		if (!job.JobId || !selectedVault?.VaultName) return;
+		await describeJob(job.JobId);
+		loadingJobOutput = true;
 		try {
 			const res = await glacier.send(new GetJobOutputCommand({
 				accountId: '-',
@@ -1098,9 +1122,54 @@
 													{#if copiedId === 'job-output'}<Check class="w-4 h-4 text-green-500" />{:else}<Copy class="w-4 h-4" />{/if}
 												</button>
 											{/if}
-											<button onclick={() => { selectedJob = null; jobOutput = ''; }} class="text-gray-400 hover:text-gray-600"><X class="w-4 h-4" /></button>
+											<button onclick={() => { selectedJob = null; jobOutput = ''; jobDetails = null; }} class="text-gray-400 hover:text-gray-600"><X class="w-4 h-4" /></button>
 										</div>
 									</div>
+									{#if loadingJobDetails}
+										<div class="flex items-center gap-2 text-sm text-gray-500 py-1">
+											<RefreshCw class="w-3.5 h-3.5 animate-spin" /> Fetching job details…
+										</div>
+									{:else if jobDetails}
+										<div class="mb-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+											<div>
+												<span class="text-gray-500 dark:text-gray-400">Status: </span>
+												<span class="font-medium {jobDetails.Completed ? 'text-green-600 dark:text-green-400' : 'text-yellow-600 dark:text-yellow-400'}">{jobDetails.StatusCode}</span>
+											</div>
+											{#if jobDetails.StatusMessage}
+												<div class="col-span-2">
+													<span class="text-gray-500 dark:text-gray-400">Message: </span>
+													<span class="text-gray-700 dark:text-gray-300">{jobDetails.StatusMessage}</span>
+												</div>
+											{/if}
+											{#if jobDetails.ArchiveSizeInBytes}
+												<div>
+													<span class="text-gray-500 dark:text-gray-400">Archive Size: </span>
+													<span class="text-gray-700 dark:text-gray-300">{fmtBytes(jobDetails.ArchiveSizeInBytes)}</span>
+												</div>
+											{/if}
+											{#if jobDetails.SHA256TreeHash}
+												<div class="col-span-2">
+													<span class="text-gray-500 dark:text-gray-400">SHA256 Tree Hash: </span>
+													<code class="font-mono text-gray-700 dark:text-gray-300 break-all">{jobDetails.SHA256TreeHash}</code>
+												</div>
+											{/if}
+											{#if jobDetails.InventoryRetrievalParameters}
+												{@const inv = jobDetails.InventoryRetrievalParameters}
+												{#if inv.StartDate || inv.EndDate}
+													<div class="col-span-2">
+														<span class="text-gray-500 dark:text-gray-400">Date Range: </span>
+														<span class="text-gray-700 dark:text-gray-300">{inv.StartDate ?? '—'} → {inv.EndDate ?? '—'}</span>
+													</div>
+												{/if}
+												{#if inv.Limit}
+													<div>
+														<span class="text-gray-500 dark:text-gray-400">Limit: </span>
+														<span class="text-gray-700 dark:text-gray-300">{inv.Limit}</span>
+													</div>
+												{/if}
+											{/if}
+										</div>
+									{/if}
 									{#if loadingJobOutput}
 										<div class="flex items-center gap-2 text-sm text-gray-500 py-2">
 											<RefreshCw class="w-4 h-4 animate-spin" /> Loading output…
