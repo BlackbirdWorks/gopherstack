@@ -794,3 +794,520 @@ func TestDataQualityRecommendationRun_Stateful(t *testing.T) {
 	assert.Equal(t, startOut.RunID, getOut.RunID)
 	assert.NotEmpty(t, getOut.Status)
 }
+
+// ---------------------------------------------------------------------------
+// TestCatalogImport — ImportCatalogToGlue + GetCatalogImportStatus
+// ---------------------------------------------------------------------------
+
+// TestCatalogImport_Lifecycle verifies that ImportCatalogToGlue sets the
+// import state and GetCatalogImportStatus reflects it.
+func TestCatalogImport_Lifecycle(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		catalogID     string
+		importFirst   bool
+		wantCompleted bool
+	}{
+		{
+			name:          "not_yet_imported_returns_false",
+			catalogID:     "my-catalog",
+			importFirst:   false,
+			wantCompleted: false,
+		},
+		{
+			name:          "after_import_returns_completed",
+			catalogID:     "my-catalog",
+			importFirst:   true,
+			wantCompleted: true,
+		},
+		{
+			name:          "empty_catalog_id_uses_account_default",
+			catalogID:     "",
+			importFirst:   true,
+			wantCompleted: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			if tc.importFirst {
+				rec := doGlueRequest(t, h, "ImportCatalogToGlue", map[string]any{
+					"CatalogId": tc.catalogID,
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+			}
+
+			getRec := doGlueRequest(t, h, "GetCatalogImportStatus", map[string]any{
+				"CatalogId": tc.catalogID,
+			})
+			require.Equal(t, http.StatusOK, getRec.Code)
+
+			var out struct {
+				ImportStatus struct {
+					ImportedBy      string  `json:"ImportedBy"`
+					ImportTime      float64 `json:"ImportTime"`
+					ImportCompleted bool    `json:"ImportCompleted"`
+				} `json:"ImportStatus"`
+			}
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out))
+			assert.Equal(t, tc.wantCompleted, out.ImportStatus.ImportCompleted)
+
+			if tc.wantCompleted {
+				assert.NotEmpty(t, out.ImportStatus.ImportedBy)
+				assert.Greater(t, out.ImportStatus.ImportTime, float64(0))
+			}
+		})
+	}
+}
+
+// TestCatalogImport_Idempotent verifies repeated imports overwrite state.
+func TestCatalogImport_Idempotent(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	for range 3 {
+		rec := doGlueRequest(t, h, "ImportCatalogToGlue", map[string]any{"CatalogId": "c1"})
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	getRec := doGlueRequest(t, h, "GetCatalogImportStatus", map[string]any{"CatalogId": "c1"})
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var out struct {
+		ImportStatus struct {
+			ImportCompleted bool `json:"ImportCompleted"`
+		} `json:"ImportStatus"`
+	}
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out))
+	assert.True(t, out.ImportStatus.ImportCompleted)
+}
+
+// ---------------------------------------------------------------------------
+// TestSchemaVersionMetadata — Put / Query / Remove lifecycle
+// ---------------------------------------------------------------------------
+
+// setupTestSchema creates a registry, schema, and registers two versions.
+// Returns the schema version IDs of the two registered versions.
+func setupTestSchema(t *testing.T, h *glue.Handler) string {
+	t.Helper()
+
+	regRec := doGlueRequest(t, h, "CreateRegistry", map[string]any{
+		"RegistryName": "reg1",
+	})
+	require.Equal(t, http.StatusOK, regRec.Code)
+
+	schemaRec := doGlueRequest(t, h, "CreateSchema", map[string]any{
+		"RegistryId":    map[string]any{"RegistryName": "reg1"},
+		"SchemaName":    "schema1",
+		"DataFormat":    "AVRO",
+		"Compatibility": "NONE",
+	})
+	require.Equal(t, http.StatusOK, schemaRec.Code)
+
+	const schemaV2Def = `{"type":"record","name":"A","fields":[` +
+		`{"name":"id","type":"int"},{"name":"name","type":"string"}]}`
+
+	reg1Rec := doGlueRequest(t, h, "RegisterSchemaVersion", map[string]any{
+		"SchemaId":         map[string]any{"RegistryName": "reg1", "SchemaName": "schema1"},
+		"SchemaDefinition": `{"type":"record","name":"A","fields":[{"name":"id","type":"int"}]}`,
+	})
+	require.Equal(t, http.StatusOK, reg1Rec.Code)
+
+	var sv1Out struct {
+		SchemaVersionID string `json:"SchemaVersionId"`
+	}
+	require.NoError(t, json.Unmarshal(reg1Rec.Body.Bytes(), &sv1Out))
+
+	reg2Rec := doGlueRequest(t, h, "RegisterSchemaVersion", map[string]any{
+		"SchemaId":         map[string]any{"RegistryName": "reg1", "SchemaName": "schema1"},
+		"SchemaDefinition": schemaV2Def,
+	})
+	require.Equal(t, http.StatusOK, reg2Rec.Code)
+
+	var sv2Out struct {
+		SchemaVersionID string `json:"SchemaVersionId"`
+	}
+	require.NoError(t, json.Unmarshal(reg2Rec.Body.Bytes(), &sv2Out))
+
+	return sv1Out.SchemaVersionID
+}
+
+// TestSchemaVersionMetadata_Lifecycle tests put/query/remove round-trip.
+func TestSchemaVersionMetadata_Lifecycle(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		pairs     map[string]string
+		wantAfter map[string]string
+		name      string
+		removeKey string
+	}{
+		{
+			name:      "single_key_put_and_query",
+			pairs:     map[string]string{"owner": "team-a"},
+			wantAfter: map[string]string{"owner": "team-a"},
+		},
+		{
+			name:      "multiple_keys",
+			pairs:     map[string]string{"owner": "team-a", "env": "prod"},
+			wantAfter: map[string]string{"owner": "team-a", "env": "prod"},
+		},
+		{
+			name:      "put_then_remove",
+			pairs:     map[string]string{"owner": "team-a", "env": "prod"},
+			removeKey: "env",
+			wantAfter: map[string]string{"owner": "team-a"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			v1ID := setupTestSchema(t, h)
+
+			for k, v := range tc.pairs {
+				putRec := doGlueRequest(t, h, "PutSchemaVersionMetadata", map[string]any{
+					"SchemaVersionId":  v1ID,
+					"MetadataKeyValue": map[string]any{"MetadataKey": k, "MetadataValue": v},
+				})
+				require.Equal(t, http.StatusOK, putRec.Code)
+			}
+
+			if tc.removeKey != "" {
+				removeRec := doGlueRequest(t, h, "RemoveSchemaVersionMetadata", map[string]any{
+					"SchemaVersionId":  v1ID,
+					"MetadataKeyValue": map[string]any{"MetadataKey": tc.removeKey},
+				})
+				require.Equal(t, http.StatusOK, removeRec.Code)
+			}
+
+			queryRec := doGlueRequest(t, h, "QuerySchemaVersionMetadata", map[string]any{
+				"SchemaVersionId": v1ID,
+			})
+			require.Equal(t, http.StatusOK, queryRec.Code)
+
+			var out struct {
+				MetadataInfo map[string]struct {
+					MetadataValue string `json:"MetadataValue"`
+				} `json:"MetadataInfo"`
+				SchemaVersionID string `json:"SchemaVersionId"`
+			}
+			require.NoError(t, json.Unmarshal(queryRec.Body.Bytes(), &out))
+			assert.Equal(t, v1ID, out.SchemaVersionID)
+
+			got := make(map[string]string, len(out.MetadataInfo))
+			for k, v := range out.MetadataInfo {
+				got[k] = v.MetadataValue
+			}
+
+			assert.Equal(t, tc.wantAfter, got)
+		})
+	}
+}
+
+// TestSchemaVersionMetadata_EmptyQuery verifies empty map returned for unknown ID.
+func TestSchemaVersionMetadata_EmptyQuery(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doGlueRequest(t, h, "QuerySchemaVersionMetadata", map[string]any{
+		"SchemaVersionId": "no-such-version",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out struct {
+		MetadataInfo map[string]any `json:"MetadataInfo"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	assert.Empty(t, out.MetadataInfo)
+}
+
+// ---------------------------------------------------------------------------
+// TestGetSchemaByDefinition
+// ---------------------------------------------------------------------------
+
+// TestGetSchemaByDefinition_Stateful verifies lookup by definition content.
+func TestGetSchemaByDefinition_Stateful(t *testing.T) {
+	t.Parallel()
+
+	const def1 = `{"type":"record","name":"A","fields":[{"name":"id","type":"int"}]}`
+	const def2 = `{"type":"record","name":"A","fields":[{"name":"id","type":"int"},{"name":"name","type":"string"}]}`
+
+	tests := []struct {
+		name       string
+		definition string
+		wantCode   int
+		wantFound  bool
+	}{
+		{
+			name:       "found_v1_by_definition",
+			definition: def1,
+			wantCode:   http.StatusOK,
+			wantFound:  true,
+		},
+		{
+			name:       "found_v2_by_definition",
+			definition: def2,
+			wantCode:   http.StatusOK,
+			wantFound:  true,
+		},
+		{
+			name:       "unknown_definition_returns_400",
+			definition: `{"type":"record","name":"X"}`,
+			wantCode:   http.StatusBadRequest,
+			wantFound:  false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			setupTestSchema(t, h)
+
+			rec := doGlueRequest(t, h, "GetSchemaByDefinition", map[string]any{
+				"SchemaId":         map[string]any{"RegistryName": "reg1", "SchemaName": "schema1"},
+				"SchemaDefinition": tc.definition,
+			})
+			assert.Equal(t, tc.wantCode, rec.Code)
+
+			if tc.wantFound {
+				var out struct {
+					SchemaVersionID string `json:"SchemaVersionId"`
+					Status          string `json:"Status"`
+				}
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				assert.NotEmpty(t, out.SchemaVersionID)
+				assert.Equal(t, "AVAILABLE", out.Status)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestGetSchemaVersionsDiff
+// ---------------------------------------------------------------------------
+
+// TestGetSchemaVersionsDiff_Stateful verifies diff between schema versions.
+func TestGetSchemaVersionsDiff_Stateful(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		v1       int64
+		v2       int64
+		wantDiff bool
+	}{
+		{
+			name:     "same_version_returns_empty_diff",
+			v1:       1,
+			v2:       1,
+			wantDiff: false,
+		},
+		{
+			name:     "different_versions_return_diff",
+			v1:       1,
+			v2:       2,
+			wantDiff: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			setupTestSchema(t, h)
+
+			rec := doGlueRequest(t, h, "GetSchemaVersionsDiff", map[string]any{
+				"SchemaId":                  map[string]any{"RegistryName": "reg1", "SchemaName": "schema1"},
+				"FirstSchemaVersionNumber":  map[string]any{"VersionNumber": tc.v1},
+				"SecondSchemaVersionNumber": map[string]any{"VersionNumber": tc.v2},
+				"SchemaDiffType":            "SYNTAX_DIFF",
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out struct {
+				Diff string `json:"Diff"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+			if tc.wantDiff {
+				assert.NotEmpty(t, out.Diff)
+			} else {
+				assert.Empty(t, out.Diff)
+			}
+		})
+	}
+}
+
+// TestGetSchemaVersionsDiff_UnknownSchema verifies 400 for missing schema.
+func TestGetSchemaVersionsDiff_UnknownSchema(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doGlueRequest(t, h, "GetSchemaVersionsDiff", map[string]any{
+		"SchemaId":                  map[string]any{"RegistryName": "no-reg", "SchemaName": "no-schema"},
+		"FirstSchemaVersionNumber":  map[string]any{"VersionNumber": int64(1)},
+		"SecondSchemaVersionNumber": map[string]any{"VersionNumber": int64(2)},
+		"SchemaDiffType":            "SYNTAX_DIFF",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// ---------------------------------------------------------------------------
+// TestGetPlan
+// ---------------------------------------------------------------------------
+
+// TestGetPlan_Languages verifies GetPlan returns code for both languages.
+func TestGetPlan_Languages(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		language   string
+		wantPython bool
+		wantScala  bool
+	}{
+		{
+			name:       "python_language",
+			language:   "Python",
+			wantPython: true,
+			wantScala:  false,
+		},
+		{
+			name:       "scala_language",
+			language:   "Scala",
+			wantPython: false,
+			wantScala:  true,
+		},
+		{
+			name:       "default_to_python",
+			language:   "",
+			wantPython: true,
+			wantScala:  false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			rec := doGlueRequest(t, h, "GetPlan", map[string]any{
+				"Language": tc.language,
+				"Mapping":  []any{},
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out struct {
+				PythonScript string `json:"PythonScript"`
+				ScalaCode    string `json:"ScalaCode"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+			if tc.wantPython {
+				assert.NotEmpty(t, out.PythonScript)
+			} else {
+				assert.Empty(t, out.PythonScript)
+			}
+
+			if tc.wantScala {
+				assert.NotEmpty(t, out.ScalaCode)
+			} else {
+				assert.Empty(t, out.ScalaCode)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestResumeWorkflowRun
+// ---------------------------------------------------------------------------
+
+// TestResumeWorkflowRun_Stateful verifies resume of a running workflow run.
+func TestResumeWorkflowRun_Stateful(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(t *testing.T, h *glue.Handler) (wfName, runID string)
+		name     string
+		wantCode int
+	}{
+		{
+			name: "empty_inputs_returns_ok",
+			setup: func(_ *testing.T, _ *glue.Handler) (string, string) {
+				return "", ""
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "existing_run_returns_run_id",
+			setup: func(t *testing.T, h *glue.Handler) (string, string) {
+				t.Helper()
+
+				createRec := doGlueRequest(t, h, "CreateWorkflow", map[string]any{
+					"Name": "my-workflow",
+				})
+				require.Equal(t, http.StatusOK, createRec.Code)
+
+				startRec := doGlueRequest(t, h, "StartWorkflowRun", map[string]any{
+					"Name": "my-workflow",
+				})
+				require.Equal(t, http.StatusOK, startRec.Code)
+
+				var startOut struct {
+					RunID string `json:"RunId"`
+				}
+				require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
+
+				return "my-workflow", startOut.RunID
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "unknown_workflow_returns_400",
+			setup: func(_ *testing.T, _ *glue.Handler) (string, string) {
+				return "no-such-workflow", "no-such-run"
+			},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			wfName, runID := tc.setup(t, h)
+
+			rec := doGlueRequest(t, h, "ResumeWorkflowRun", map[string]any{
+				"Name":    wfName,
+				"RunId":   runID,
+				"NodeIds": []string{},
+			})
+			assert.Equal(t, tc.wantCode, rec.Code)
+
+			if tc.wantCode == http.StatusOK && wfName != "" {
+				var out struct {
+					RunID   string   `json:"RunId"`
+					NodeIDs []string `json:"NodeIds"`
+				}
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				assert.Equal(t, runID, out.RunID)
+			}
+		})
+	}
+}

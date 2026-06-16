@@ -197,11 +197,15 @@ type InMemoryBackend struct {
 	inventory                  map[string]map[string][]InventoryItem  // key: instanceID
 	compliance                 map[string]map[string][]ComplianceItem // key: resourceID
 	resourceDataSyncs          map[string]map[string]*ResourceDataSync
-	parameterLabels            map[string]map[string]map[int64][]string   // paramName → version → labels (0 = latest)
-	automationExecutions       map[string]map[string]*AutomationExecution // executionID → exec
-	serviceSettings            map[string]map[string]*ServiceSetting      // settingID → setting
-	resourcePolicies           map[string]map[string][]*ResourcePolicy    // resourceARN → policies
-	executionPreviews          map[string]map[string]*ExecutionPreview    // previewID → preview
+	parameterLabels            map[string]map[string]map[int64][]string    // paramName → version → labels (0 = latest)
+	automationExecutions       map[string]map[string]*AutomationExecution  // executionID → exec
+	serviceSettings            map[string]map[string]*ServiceSetting       // settingID → setting
+	resourcePolicies           map[string]map[string][]*ResourcePolicy     // resourceARN → policies
+	executionPreviews          map[string]map[string]*ExecutionPreview     // previewID → preview
+	instancePatchStates        map[string]map[string]*InstancePatchState   // region → instanceID → state
+	instancePatches            map[string]map[string][]PatchComplianceData // region → instanceID → patches
+	instanceProperties         map[string]map[string]*InstanceProperty     // region → instanceID → properties
+	availablePatches           map[string][]Patch                          // region → patches
 	mu                         *lockmetrics.RWMutex
 	miscResourceTags           map[string]map[string]map[string]string
 	resourceIDToOpsMetadataArn map[string]map[string]string
@@ -240,6 +244,10 @@ func NewInMemoryBackend() *InMemoryBackend {
 		serviceSettings:            make(map[string]map[string]*ServiceSetting),
 		resourcePolicies:           make(map[string]map[string][]*ResourcePolicy),
 		executionPreviews:          make(map[string]map[string]*ExecutionPreview),
+		instancePatchStates:        make(map[string]map[string]*InstancePatchState),
+		instancePatches:            make(map[string]map[string][]PatchComplianceData),
+		instanceProperties:         make(map[string]map[string]*InstanceProperty),
+		availablePatches:           make(map[string][]Patch),
 		commandExpirySecs:          defaultCommandExpirySecs,
 		mu:                         lockmetrics.New("ssm"),
 		resourceIDToOpsMetadataArn: make(map[string]map[string]string),
@@ -539,6 +547,30 @@ func (b *InMemoryBackend) opsItemEventsStore(region string) []OpsItemEventSummar
 	}
 
 	return b.opsItemEvents[region]
+}
+
+func (b *InMemoryBackend) instancePatchStatesStore(region string) map[string]*InstancePatchState {
+	if b.instancePatchStates[region] == nil {
+		b.instancePatchStates[region] = make(map[string]*InstancePatchState)
+	}
+
+	return b.instancePatchStates[region]
+}
+
+func (b *InMemoryBackend) instancePatchesStore(region string) map[string][]PatchComplianceData {
+	if b.instancePatches[region] == nil {
+		b.instancePatches[region] = make(map[string][]PatchComplianceData)
+	}
+
+	return b.instancePatches[region]
+}
+
+func (b *InMemoryBackend) instancePropertiesStore(region string) map[string]*InstanceProperty {
+	if b.instanceProperties[region] == nil {
+		b.instanceProperties[region] = make(map[string]*InstanceProperty)
+	}
+
+	return b.instanceProperties[region]
 }
 
 // encryptSSMValue encrypts a SecureString value using KMS (when keyID is set

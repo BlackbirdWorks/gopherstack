@@ -2,6 +2,7 @@ package glue
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
@@ -1462,14 +1463,16 @@ type getCatalogImportStatusInput struct {
 
 // getCatalogImportStatusOutput holds the result for GetCatalogImportStatus.
 type getCatalogImportStatusOutput struct {
-	ImportStatus any `json:"ImportStatus"`
+	ImportStatus *CatalogImportStatus `json:"ImportStatus"`
 }
 
 func (h *Handler) handleGetCatalogImportStatus(
 	_ context.Context,
-	_ *getCatalogImportStatusInput,
+	in *getCatalogImportStatusInput,
 ) (*getCatalogImportStatusOutput, error) {
-	return &getCatalogImportStatusOutput{}, nil
+	status := h.Backend.GetCatalogImportStatus(in.CatalogID)
+
+	return &getCatalogImportStatusOutput{ImportStatus: status}, nil
 }
 
 // getCatalogsInput holds input for GetCatalogs.
@@ -2156,8 +2159,18 @@ func (h *Handler) handleGetPartitions(
 	return &getPartitionsOutput{Partitions: partitions}, nil
 }
 
+// getPlanCatalogEntry holds a catalog source/sink reference.
+type getPlanCatalogEntry struct {
+	DatabaseName string `json:"DatabaseName,omitempty"`
+	TableName    string `json:"TableName,omitempty"`
+}
+
 // getPlanInput holds input for GetPlan.
-type getPlanInput struct{}
+type getPlanInput struct {
+	Source   *getPlanCatalogEntry `json:"Source,omitempty"`
+	Language string               `json:"Language"`
+	Mapping  []MappingEntry       `json:"Mapping"`
+}
 
 // getPlanOutput holds the result for GetPlan.
 type getPlanOutput struct {
@@ -2165,8 +2178,18 @@ type getPlanOutput struct {
 	ScalaCode    string `json:"ScalaCode"`
 }
 
-func (h *Handler) handleGetPlan(_ context.Context, _ *getPlanInput) (*getPlanOutput, error) {
-	return &getPlanOutput{}, nil
+func (h *Handler) handleGetPlan(_ context.Context, in *getPlanInput) (*getPlanOutput, error) {
+	python, scala := h.Backend.GetPlan(in.Language)
+	if in.Source != nil && in.Source.TableName != "" {
+		if python != "" {
+			python += fmt.Sprintf("# Source: %s\n", in.Source.TableName)
+		}
+		if scala != "" {
+			scala += fmt.Sprintf("// Source: %s\n", in.Source.TableName)
+		}
+	}
+
+	return &getPlanOutput{PythonScript: python, ScalaCode: scala}, nil
 }
 
 // getRegistryInput holds input for GetRegistry.
@@ -2294,7 +2317,10 @@ func (h *Handler) handleGetSchema(_ context.Context, in *getSchemaInput) (*getSc
 }
 
 // getSchemaByDefinitionInput holds input for GetSchemaByDefinition.
-type getSchemaByDefinitionInput struct{}
+type getSchemaByDefinitionInput struct {
+	SchemaID         *schemaIDInput `json:"SchemaId"`
+	SchemaDefinition string         `json:"SchemaDefinition"`
+}
 
 // getSchemaByDefinitionOutput holds the result for GetSchemaByDefinition.
 type getSchemaByDefinitionOutput struct {
@@ -2306,9 +2332,25 @@ type getSchemaByDefinitionOutput struct {
 
 func (h *Handler) handleGetSchemaByDefinition(
 	_ context.Context,
-	_ *getSchemaByDefinitionInput,
+	in *getSchemaByDefinitionInput,
 ) (*getSchemaByDefinitionOutput, error) {
-	return &getSchemaByDefinitionOutput{Status: stateAvailable}, nil
+	registryName, schemaName := "", ""
+	if in.SchemaID != nil {
+		registryName = in.SchemaID.RegistryName
+		schemaName = in.SchemaID.SchemaName
+	}
+
+	sv, err := h.Backend.GetSchemaByDefinition(registryName, schemaName, in.SchemaDefinition)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getSchemaByDefinitionOutput{
+		SchemaVersionID: sv.SchemaVersionID,
+		SchemaArn:       sv.SchemaARN,
+		DataFormat:      sv.DataFormat,
+		Status:          sv.Status,
+	}, nil
 }
 
 // getSchemaVersionInput holds input for GetSchemaVersion.
@@ -2363,8 +2405,40 @@ func (h *Handler) handleGetSchemaVersion(
 	}, nil
 }
 
+// schemaVersionNumberInput accepts either a plain integer or AWS-style
+// {"VersionNumber": N} object, matching both API call formats in use.
+type schemaVersionNumberInput struct {
+	Number int64
+}
+
+func (s *schemaVersionNumberInput) UnmarshalJSON(data []byte) error {
+	var n int64
+	if err := json.Unmarshal(data, &n); err == nil {
+		s.Number = n
+
+		return nil
+	}
+
+	var v struct {
+		VersionNumber int64 `json:"VersionNumber"`
+	}
+
+	if err := json.Unmarshal(data, &v); err != nil {
+		return err
+	}
+
+	s.Number = v.VersionNumber
+
+	return nil
+}
+
 // getSchemaVersionsDiffInput holds input for GetSchemaVersionsDiff.
-type getSchemaVersionsDiffInput struct{}
+type getSchemaVersionsDiffInput struct {
+	SchemaID                  *schemaIDInput            `json:"SchemaId,omitempty"`
+	FirstSchemaVersionNumber  *schemaVersionNumberInput `json:"FirstSchemaVersionNumber,omitempty"`
+	SecondSchemaVersionNumber *schemaVersionNumberInput `json:"SecondSchemaVersionNumber,omitempty"`
+	SchemaDiffType            string                    `json:"SchemaDiffType,omitempty"`
+}
 
 // getSchemaVersionsDiffOutput holds the result for GetSchemaVersionsDiff.
 type getSchemaVersionsDiffOutput struct {
@@ -2373,9 +2447,26 @@ type getSchemaVersionsDiffOutput struct {
 
 func (h *Handler) handleGetSchemaVersionsDiff(
 	_ context.Context,
-	_ *getSchemaVersionsDiffInput,
+	in *getSchemaVersionsDiffInput,
 ) (*getSchemaVersionsDiffOutput, error) {
-	return &getSchemaVersionsDiffOutput{}, nil
+	if in.SchemaID == nil {
+		return &getSchemaVersionsDiffOutput{}, nil
+	}
+
+	var v1, v2 int64
+	if in.FirstSchemaVersionNumber != nil {
+		v1 = in.FirstSchemaVersionNumber.Number
+	}
+	if in.SecondSchemaVersionNumber != nil {
+		v2 = in.SecondSchemaVersionNumber.Number
+	}
+
+	diff, err := h.Backend.GetSchemaVersionsDiff(in.SchemaID.RegistryName, in.SchemaID.SchemaName, v1, v2)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getSchemaVersionsDiffOutput{Diff: diff}, nil
 }
 
 // getSecurityConfigurationInput holds input for GetSecurityConfiguration.
@@ -2696,7 +2787,11 @@ type getUsageProfileInput struct {
 
 // getUsageProfileOutput holds the result for GetUsageProfile.
 type getUsageProfileOutput struct {
-	Name string `json:"Name"`
+	Tags           map[string]string `json:"Tags,omitempty"`
+	Name           string            `json:"Name"`
+	Description    string            `json:"Description,omitempty"`
+	CreatedOn      float64           `json:"CreatedOn,omitempty"`
+	LastModifiedOn float64           `json:"LastModifiedOn,omitempty"`
 }
 
 func (h *Handler) handleGetUsageProfile(
@@ -2712,7 +2807,13 @@ func (h *Handler) handleGetUsageProfile(
 		return nil, err
 	}
 
-	return &getUsageProfileOutput{Name: p.Name}, nil
+	return &getUsageProfileOutput{
+		Name:           p.Name,
+		Description:    p.Description,
+		CreatedOn:      float64(p.CreatedOn.Unix()),
+		LastModifiedOn: float64(p.LastModifiedOn.Unix()),
+		Tags:           p.Tags,
+	}, nil
 }
 
 // getUserDefinedFunctionInput holds input for GetUserDefinedFunction.
@@ -2853,13 +2954,15 @@ func (h *Handler) handleGetWorkflowRuns(
 }
 
 // importCatalogToGlueInput holds input for ImportCatalogToGlue.
-type importCatalogToGlueInput struct{}
+type importCatalogToGlueInput struct {
+	CatalogID string `json:"CatalogId,omitempty"`
+}
 
 func (h *Handler) handleImportCatalogToGlue(
 	_ context.Context,
-	_ *importCatalogToGlueInput,
+	in *importCatalogToGlueInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, nil
+	return &emptyOutput{}, h.Backend.ImportCatalogToGlue(in.CatalogID)
 }
 
 // listBlueprintsInput holds input for ListBlueprints.
@@ -3411,7 +3514,13 @@ func (h *Handler) handlePutResourcePolicy(
 }
 
 // putSchemaVersionMetadataInput holds input for PutSchemaVersionMetadata.
-type putSchemaVersionMetadataInput struct{}
+type putSchemaVersionMetadataInput struct {
+	MetadataKeyValue *struct {
+		MetadataKey   string `json:"MetadataKey"`
+		MetadataValue string `json:"MetadataValue"`
+	} `json:"MetadataKeyValue"`
+	SchemaVersionID string `json:"SchemaVersionId"`
+}
 
 // putSchemaVersionMetadataOutput holds the result for PutSchemaVersionMetadata.
 type putSchemaVersionMetadataOutput struct {
@@ -3423,9 +3532,19 @@ type putSchemaVersionMetadataOutput struct {
 
 func (h *Handler) handlePutSchemaVersionMetadata(
 	_ context.Context,
-	_ *putSchemaVersionMetadataInput,
+	in *putSchemaVersionMetadataInput,
 ) (*putSchemaVersionMetadataOutput, error) {
-	return &putSchemaVersionMetadataOutput{}, nil
+	key, value := "", ""
+	if in.MetadataKeyValue != nil {
+		key = in.MetadataKeyValue.MetadataKey
+		value = in.MetadataKeyValue.MetadataValue
+	}
+
+	if err := h.Backend.PutSchemaVersionMetadata(in.SchemaVersionID, key, value); err != nil {
+		return nil, err
+	}
+
+	return &putSchemaVersionMetadataOutput{SchemaVersionID: in.SchemaVersionID}, nil
 }
 
 // putWorkflowRunPropertiesInput holds input for PutWorkflowRunProperties.
@@ -3443,7 +3562,9 @@ func (h *Handler) handlePutWorkflowRunProperties(
 }
 
 // querySchemaVersionMetadataInput holds input for QuerySchemaVersionMetadata.
-type querySchemaVersionMetadataInput struct{}
+type querySchemaVersionMetadataInput struct {
+	SchemaVersionID string `json:"SchemaVersionId"`
+}
 
 // querySchemaVersionMetadataOutput holds the result for QuerySchemaVersionMetadata.
 type querySchemaVersionMetadataOutput struct {
@@ -3453,9 +3574,19 @@ type querySchemaVersionMetadataOutput struct {
 
 func (h *Handler) handleQuerySchemaVersionMetadata(
 	_ context.Context,
-	_ *querySchemaVersionMetadataInput,
+	in *querySchemaVersionMetadataInput,
 ) (*querySchemaVersionMetadataOutput, error) {
-	return &querySchemaVersionMetadataOutput{MetadataInfo: map[string]any{}}, nil
+	raw := h.Backend.QuerySchemaVersionMetadata(in.SchemaVersionID)
+
+	meta := make(map[string]any, len(raw))
+	for k, v := range raw {
+		meta[k] = map[string]any{"MetadataValue": v, "CreatedTime": ""}
+	}
+
+	return &querySchemaVersionMetadataOutput{
+		MetadataInfo:    meta,
+		SchemaVersionID: in.SchemaVersionID,
+	}, nil
 }
 
 // registerConnectionTypeInput holds input for RegisterConnectionType.
@@ -3512,7 +3643,13 @@ func (h *Handler) handleRegisterSchemaVersion(
 }
 
 // removeSchemaVersionMetadataInput holds input for RemoveSchemaVersionMetadata.
-type removeSchemaVersionMetadataInput struct{}
+type removeSchemaVersionMetadataInput struct {
+	MetadataKeyValue *struct {
+		MetadataKey   string `json:"MetadataKey"`
+		MetadataValue string `json:"MetadataValue"`
+	} `json:"MetadataKeyValue"`
+	SchemaVersionID string `json:"SchemaVersionId"`
+}
 
 // removeSchemaVersionMetadataOutput holds the result for RemoveSchemaVersionMetadata.
 type removeSchemaVersionMetadataOutput struct {
@@ -3524,13 +3661,26 @@ type removeSchemaVersionMetadataOutput struct {
 
 func (h *Handler) handleRemoveSchemaVersionMetadata(
 	_ context.Context,
-	_ *removeSchemaVersionMetadataInput,
+	in *removeSchemaVersionMetadataInput,
 ) (*removeSchemaVersionMetadataOutput, error) {
-	return &removeSchemaVersionMetadataOutput{}, nil
+	key := ""
+	if in.MetadataKeyValue != nil {
+		key = in.MetadataKeyValue.MetadataKey
+	}
+
+	if err := h.Backend.RemoveSchemaVersionMetadata(in.SchemaVersionID, key); err != nil {
+		return nil, err
+	}
+
+	return &removeSchemaVersionMetadataOutput{SchemaVersionID: in.SchemaVersionID}, nil
 }
 
 // resumeWorkflowRunInput holds input for ResumeWorkflowRun.
-type resumeWorkflowRunInput struct{}
+type resumeWorkflowRunInput struct {
+	Name    string   `json:"Name"`
+	RunID   string   `json:"RunId"`
+	NodeIDs []string `json:"NodeIds"`
+}
 
 // resumeWorkflowRunOutput holds the result for ResumeWorkflowRun.
 type resumeWorkflowRunOutput struct {
@@ -3540,9 +3690,18 @@ type resumeWorkflowRunOutput struct {
 
 func (h *Handler) handleResumeWorkflowRun(
 	_ context.Context,
-	_ *resumeWorkflowRunInput,
+	in *resumeWorkflowRunInput,
 ) (*resumeWorkflowRunOutput, error) {
-	return &resumeWorkflowRunOutput{NodeIDs: []string{}}, nil
+	if in.Name == "" || in.RunID == "" {
+		return &resumeWorkflowRunOutput{NodeIDs: []string{}}, nil
+	}
+
+	runID, nodeIDs, err := h.Backend.ResumeWorkflowRun(in.Name, in.RunID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &resumeWorkflowRunOutput{RunID: runID, NodeIDs: nodeIDs}, nil
 }
 
 // runStatementInput holds input for RunStatement.

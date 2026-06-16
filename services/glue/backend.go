@@ -383,6 +383,8 @@ type InMemoryBackend struct {
 	materializedViewRuns      map[string]*MaterializedViewRefreshRun    // key: taskRunID
 	integrations              map[string]*Integration                   // key: integrationName
 	mlTaskRuns                map[string]*MLTaskRun                     // key: "transformID|taskRunID"
+	catalogImports            map[string]*CatalogImportStatus           // key: catalogID or accountID
+	schemaVersionMetadata     map[string]map[string]string              // key: schemaVersionID → key → value
 	glueIdentityCenterConfig  *IdentityCenterConfig
 	mu                        *lockmetrics.RWMutex
 
@@ -440,6 +442,8 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		materializedViewRuns:      make(map[string]*MaterializedViewRefreshRun),
 		integrations:              make(map[string]*Integration),
 		mlTaskRuns:                make(map[string]*MLTaskRun),
+		catalogImports:            make(map[string]*CatalogImportStatus),
+		schemaVersionMetadata:     make(map[string]map[string]string),
 		mu:                        lockmetrics.New("glue"),
 		accountID:                 accountID,
 		region:                    region,
@@ -612,6 +616,8 @@ func (b *InMemoryBackend) Reset() {
 	b.materializedViewRuns = make(map[string]*MaterializedViewRefreshRun)
 	b.integrations = make(map[string]*Integration)
 	b.mlTaskRuns = make(map[string]*MLTaskRun)
+	b.catalogImports = make(map[string]*CatalogImportStatus)
+	b.schemaVersionMetadata = make(map[string]map[string]string)
 	b.glueIdentityCenterConfig = nil
 }
 

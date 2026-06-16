@@ -51,7 +51,6 @@ Zap,
 Settings,
 X,
 Copy,
-Check
 } from 'lucide-svelte';
 
 type TabName = 'clusters' | 'instances' | 'snapshots' | 'parametergroups' | 'globalclusters' | 'eventsubscriptions';
@@ -62,7 +61,6 @@ let loading = $state(false);
 let activeTab = $state<TabName>('clusters');
 let searchQuery = $state('');
 let selectedCluster = $state<DBCluster | null>(null);
-let copiedArn = $state(false);
 let snapshotTypeFilter = $state('all');
 
 // Data
@@ -129,13 +127,12 @@ default: return 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400';
 }
 }
 
-async function copyToClipboard(text: string) {
+async function copyToClipboard(text: string, label: string) {
   try {
     await navigator.clipboard.writeText(text);
-    copiedArn = true;
-    setTimeout(() => { copiedArn = false; }, 2000);
+    toast.success(`${label} copied to clipboard`);
   } catch {
-    // clipboard write failed; ignore silently
+    toast.error('Failed to copy to clipboard');
   }
 }
 
@@ -472,10 +469,13 @@ const tabs: { id: TabName; label: string }[] = [
 <ChevronRight class="w-4 h-4 text-gray-400" />
 <span class="font-medium text-gray-700 dark:text-gray-300">{selectedCluster.DBClusterIdentifier}</span>
 </div>
-<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-6 space-y-4">
-<div class="flex items-center justify-between">
-<h2 class="text-lg font-semibold text-gray-900 dark:text-white">{selectedCluster.DBClusterIdentifier}</h2>
-<div class="flex gap-2">
+<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-6 space-y-5">
+<div class="flex items-center justify-between flex-wrap gap-2">
+<div class="flex items-center gap-3">
+  <h2 class="text-lg font-semibold text-gray-900 dark:text-white">{selectedCluster.DBClusterIdentifier}</h2>
+  <span class={`px-2 py-0.5 rounded-full text-xs font-medium ${statusClass(selectedCluster.Status)}`}>{selectedCluster.Status ?? 'unknown'}</span>
+</div>
+<div class="flex gap-2 flex-wrap">
 {#if selectedCluster.Status === 'available'}
 <button onclick={() => stopCluster(selectedCluster!.DBClusterIdentifier!)} class="flex items-center gap-1 px-3 py-1.5 text-sm rounded-lg bg-yellow-100 text-yellow-700 hover:bg-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400"><Square class="w-4 h-4" /> Stop</button>
 <button onclick={() => failoverCluster(selectedCluster!.DBClusterIdentifier!)} class="flex items-center gap-1 px-3 py-1.5 text-sm rounded-lg bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400"><Zap class="w-4 h-4" /> Failover</button>
@@ -486,57 +486,76 @@ const tabs: { id: TabName; label: string }[] = [
 <button onclick={() => deleteCluster(selectedCluster!.DBClusterIdentifier!)} class="flex items-center gap-1 px-3 py-1.5 text-sm rounded-lg bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400"><Trash2 class="w-4 h-4" /> Delete</button>
 </div>
 </div>
-<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+
+<div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
 {#each [
-{ label: 'ARN', value: selectedCluster.DBClusterArn ?? '-' },
-{ label: 'Reader Endpoint', value: selectedCluster.ReaderEndpoint ?? '-' },
-{ label: 'Endpoint', value: selectedCluster.Endpoint ?? '-' },
-{ label: 'Port', value: String(selectedCluster.Port ?? '-') },
-{ label: 'Engine Version', value: selectedCluster.EngineVersion ?? '-' },
-{ label: 'Status', value: selectedCluster.Status ?? '-' },
-{ label: 'DB Subnet Group', value: selectedCluster.DBSubnetGroup ?? '-' },
-{ label: 'Parameter Group', value: (selectedCluster.DBClusterParameterGroup ?? '-') },
-{ label: 'Backup Retention', value: String(selectedCluster.BackupRetentionPeriod ?? '-') },
-{ label: 'Deletion Protection', value: selectedCluster.DeletionProtection ? 'Yes' : 'No' },
-{ label: 'Storage Encrypted', value: selectedCluster.StorageEncrypted ? 'Yes' : 'No' }
-] as row}
-{#if row.label === 'ARN'}
-  <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
-    <div class="text-xs text-gray-500 dark:text-gray-400 font-medium">ARN</div>
-    <div class="flex items-center gap-1 mt-1">
-      <div class="text-sm text-gray-900 dark:text-white font-mono truncate flex-1" title={row.value}>{row.value}</div>
-      <button onclick={() => copyToClipboard(row.value)} title="Copy ARN" class="shrink-0 text-gray-400 hover:text-green-500 dark:hover:text-green-400">
-        {#if copiedArn}<Check class="w-3.5 h-3.5 text-green-500" />{:else}<Copy class="w-3.5 h-3.5" />{/if}
-      </button>
-    </div>
-  </div>
-{:else}
+['Engine Version', selectedCluster.EngineVersion ?? '—'],
+['Port', String(selectedCluster.Port ?? 27017)],
+['Backup Retention', `${selectedCluster.BackupRetentionPeriod ?? 1} day(s)`],
+['Storage Encrypted', selectedCluster.StorageEncrypted ? 'Yes' : 'No'],
+['Deletion Protection', selectedCluster.DeletionProtection ? 'Enabled' : 'Disabled'],
+['DB Subnet Group', selectedCluster.DBSubnetGroup ?? '—'],
+['Parameter Group', selectedCluster.DBClusterParameterGroup ?? '—'],
+] as [label, value]}
 <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
-<div class="text-xs text-gray-500 dark:text-gray-400 font-medium">{row.label}</div>
-<div class="text-sm text-gray-900 dark:text-white mt-1 font-mono truncate" title={row.value}>{row.value}</div>
+  <p class="text-xs text-gray-500 dark:text-gray-400">{label}</p>
+  <p class="text-sm font-semibold text-gray-900 dark:text-white mt-0.5 truncate" title={value}>{value}</p>
 </div>
-{/if}
 {/each}
 </div>
-<div class="mt-4">
-  <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Member Instances</h3>
-  {#if clusterInstances.length === 0}
-    <p class="text-sm text-gray-500 dark:text-gray-400">No instances</p>
+
+<div class="space-y-2">
+  <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300">Endpoints</h3>
+  {#each [
+    ['Writer Endpoint', selectedCluster.Endpoint ?? ''],
+    ['Reader Endpoint', selectedCluster.ReaderEndpoint ?? ''],
+  ] as [label, value]}
+    {#if value}
+    <div class="flex items-center justify-between bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2">
+      <div class="min-w-0">
+        <p class="text-xs text-gray-500 dark:text-gray-400">{label}</p>
+        <p class="text-sm font-mono text-gray-900 dark:text-white truncate" title={value}>{value}</p>
+      </div>
+      <button onclick={() => copyToClipboard(value, label)} title="Copy {label}" class="ml-2 p-1.5 text-gray-400 hover:text-green-500 dark:hover:text-green-400 flex-shrink-0"><Copy class="w-3.5 h-3.5" /></button>
+    </div>
+    {/if}
+  {/each}
+  {#if selectedCluster.DBClusterArn}
+  <div class="flex items-center justify-between bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2">
+    <div class="min-w-0">
+      <p class="text-xs text-gray-500 dark:text-gray-400">Cluster ARN</p>
+      <p class="text-xs font-mono text-gray-700 dark:text-gray-300 truncate" title={selectedCluster.DBClusterArn}>{selectedCluster.DBClusterArn}</p>
+    </div>
+    <button onclick={() => copyToClipboard(selectedCluster!.DBClusterArn!, 'ARN')} title="Copy ARN" class="ml-2 p-1.5 text-gray-400 hover:text-green-500 dark:hover:text-green-400 flex-shrink-0"><Copy class="w-3.5 h-3.5" /></button>
+  </div>
+  {/if}
+</div>
+
+<div>
+  <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+    Cluster Members
+    {#if (selectedCluster.DBClusterMembers ?? []).length > 0}
+    <span class="ml-1 text-xs text-gray-500 font-normal">({(selectedCluster.DBClusterMembers ?? []).length})</span>
+    {/if}
+  </h3>
+  {#if (selectedCluster.DBClusterMembers ?? []).length === 0}
+    <div class="bg-blue-50 dark:bg-blue-900/20 rounded-lg px-4 py-3 text-sm text-blue-700 dark:text-blue-300">
+      No instances in this cluster.
+      <button onclick={() => { instanceForm = { ...instanceForm, DBClusterIdentifier: selectedCluster!.DBClusterIdentifier ?? '' }; showCreateInstance = true; }} class="underline ml-1">Add an instance</button>
+    </div>
   {:else}
     <div class="space-y-1">
-      {#each clusterInstances as inst}
+      {#each selectedCluster.DBClusterMembers ?? [] as member}
         <div class="flex items-center justify-between bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2">
-          <div class="flex items-center gap-2">
-            <span class={`px-2 py-0.5 rounded text-xs font-medium ${statusClass(inst.DBInstanceStatus)}`}>{inst.DBInstanceStatus}</span>
-            <span class="text-sm text-gray-900 dark:text-white">{inst.DBInstanceIdentifier}</span>
-            <span class="text-xs text-gray-500 dark:text-gray-400">{inst.DBInstanceClass}</span>
-          </div>
-          <button onclick={() => deleteInstance(inst.DBInstanceIdentifier!)} class="text-red-400 hover:text-red-600 dark:hover:text-red-400"><Trash2 class="w-3.5 h-3.5" /></button>
+          <span class="text-sm text-gray-900 dark:text-white font-medium">{member.DBInstanceIdentifier}</span>
+          <span class="text-xs px-2 py-0.5 rounded-full {member.IsClusterWriter ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'}">
+            {member.IsClusterWriter ? 'Writer' : 'Reader'}
+          </span>
         </div>
       {/each}
     </div>
+    <button onclick={() => { instanceForm = { ...instanceForm, DBClusterIdentifier: selectedCluster!.DBClusterIdentifier ?? '' }; showCreateInstance = true; }} class="mt-2 flex items-center gap-1 text-sm text-green-600 dark:text-green-400 hover:underline"><Plus class="w-3.5 h-3.5" /> Add Instance</button>
   {/if}
-  <button onclick={() => { instanceForm = { ...instanceForm, DBClusterIdentifier: selectedCluster!.DBClusterIdentifier ?? '' }; showCreateInstance = true; }} class="mt-2 flex items-center gap-1 text-sm text-green-600 dark:text-green-400 hover:underline"><Plus class="w-3.5 h-3.5" /> Add Instance</button>
 </div>
 </div>
 {:else}
