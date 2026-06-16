@@ -888,12 +888,12 @@ func (h *Handler) handleUpdateMacieSession(body []byte) (any, int, error) {
 // Allow list handlers
 
 func (h *Handler) handleCreateAllowList(body []byte) (any, int, error) {
-	var req struct { //nolint:govet // fieldalignment: local decode struct, readability over padding
-		ClientToken string             `json:"clientToken"`
+	var req struct {
 		Criteria    *AllowListCriteria `json:"criteria"`
+		Tags        map[string]string  `json:"tags"`
+		ClientToken string             `json:"clientToken"`
 		Description string             `json:"description"`
 		Name        string             `json:"name"`
-		Tags        map[string]string  `json:"tags"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -979,15 +979,15 @@ func (h *Handler) handleListAllowLists() (any, int) {
 // Custom data identifier handlers
 
 func (h *Handler) handleCreateCustomDataID(body []byte) (any, int, error) {
-	var req struct { //nolint:govet // fieldalignment: local decode struct, readability over padding
+	var req struct {
+		MaximumMatchDistance *int32            `json:"maximumMatchDistance"`
+		Tags                 map[string]string `json:"tags"`
 		ClientToken          string            `json:"clientToken"`
 		Description          string            `json:"description"`
-		IgnoreWords          []string          `json:"ignoreWords"`
-		Keywords             []string          `json:"keywords"`
-		MaximumMatchDistance *int32            `json:"maximumMatchDistance"`
 		Name                 string            `json:"name"`
 		Regex                string            `json:"regex"`
-		Tags                 map[string]string `json:"tags"`
+		IgnoreWords          []string          `json:"ignoreWords"`
+		Keywords             []string          `json:"keywords"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -1049,12 +1049,12 @@ func (h *Handler) handleListCustomDataIDs() (any, int, error) {
 }
 
 func (h *Handler) handleTestCustomDataID(body []byte) (any, int, error) {
-	var req struct { //nolint:govet // fieldalignment: local decode struct, readability over padding
-		IgnoreWords          []string `json:"ignoreWords"`
-		Keywords             []string `json:"keywords"`
+	var req struct {
 		MaximumMatchDistance *int32   `json:"maximumMatchDistance"`
 		Regex                string   `json:"regex"`
 		SampleText           string   `json:"sampleText"`
+		IgnoreWords          []string `json:"ignoreWords"`
+		Keywords             []string `json:"keywords"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -1079,14 +1079,14 @@ func (h *Handler) handleTestCustomDataID(body []byte) (any, int, error) {
 // Findings filter handlers
 
 func (h *Handler) handleCreateFindingsFilter(body []byte) (any, int, error) {
-	var req struct { //nolint:govet // fieldalignment: local decode struct, readability over padding
+	var req struct {
+		FindingCriteria map[string]any    `json:"findingCriteria"`
+		Position        *int32            `json:"position"`
+		Tags            map[string]string `json:"tags"`
 		Action          string            `json:"action"`
 		ClientToken     string            `json:"clientToken"`
 		Description     string            `json:"description"`
-		FindingCriteria map[string]any    `json:"findingCriteria"`
 		Name            string            `json:"name"`
-		Position        *int32            `json:"position"`
-		Tags            map[string]string `json:"tags"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -1122,12 +1122,12 @@ func (h *Handler) handleGetFindingsFilter(id string) (any, int, error) {
 }
 
 func (h *Handler) handleUpdateFindingsFilter(id string, body []byte) (any, int, error) {
-	var req struct { //nolint:govet // fieldalignment: local decode struct, readability over padding
+	var req struct {
+		FindingCriteria map[string]any `json:"findingCriteria"`
+		Position        *int32         `json:"position"`
 		Action          string         `json:"action"`
 		Description     string         `json:"description"`
-		FindingCriteria map[string]any `json:"findingCriteria"`
 		Name            string         `json:"name"`
-		Position        *int32         `json:"position"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {

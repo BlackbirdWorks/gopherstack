@@ -70,12 +70,12 @@ func TestMacie2_Accuracy_FrequencyValidation(t *testing.T) {
 func TestMacie2_Accuracy_UpdateSessionNotEnabled(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // function field in anonymous struct causes false fieldalignment positive
+	tests := []struct {
 		name      string
-		enabled   bool
 		freq      string
-		wantCode  int
 		wantError string
+		wantCode  int
+		enabled   bool
 	}{
 		{
 			name:      "UpdateMacieSession when not enabled returns 403",
@@ -124,14 +124,14 @@ func TestMacie2_Accuracy_UpdateSessionNotEnabled(t *testing.T) {
 func TestMacie2_Accuracy_CustomDataIdentifier(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // function field in anonymous struct causes false fieldalignment positive
-		name      string
-		setup     func(h *macie2.Handler) string
-		method    string
-		pathFn    func(id string) string
+	tests := []struct {
 		body      any
-		wantCode  int
+		setup     func(h *macie2.Handler) string
+		pathFn    func(id string) string
+		name      string
+		method    string
 		wantError string
+		wantCode  int
 	}{
 		{
 			name:   "CreateCustomDataIdentifier with invalid regex returns 400",
@@ -231,14 +231,14 @@ func TestMacie2_Accuracy_TagOperations(t *testing.T) {
 
 	const unknownARN = "arn:aws:macie2:us-east-1:000000000000:allow-list/nonexistent-id"
 
-	tests := []struct { //nolint:govet // function field in anonymous struct causes false fieldalignment positive
-		name      string
-		setup     func(h *macie2.Handler) string
-		method    string
-		pathFn    func(arn string) string
+	tests := []struct {
 		body      any
-		wantCode  int
+		setup     func(h *macie2.Handler) string
+		pathFn    func(arn string) string
+		name      string
+		method    string
 		wantError string
+		wantCode  int
 	}{
 		{
 			name:      "TagResource on unknown ARN returns 404",

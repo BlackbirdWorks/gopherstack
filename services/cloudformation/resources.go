@@ -60,6 +60,7 @@ import (
 	swfbackend "github.com/blackbirdworks/gopherstack/services/swf"
 	transferbackend "github.com/blackbirdworks/gopherstack/services/transfer"
 
+	appautoscalingbackend "github.com/blackbirdworks/gopherstack/services/applicationautoscaling"
 	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	"github.com/blackbirdworks/gopherstack/services/bedrockruntime"
 	elbv2backend "github.com/blackbirdworks/gopherstack/services/elbv2"
@@ -121,11 +122,16 @@ type ServiceBackends struct {
 	MemoryDB       *memorydb.Handler
 	BedrockRuntime *bedrockruntime.Handler
 	// Phase-4 backends
-	ELBv2     *elbv2backend.Handler
-	WAFv2     *wafv2backend.Handler
-	Backup    *backupbackend.Handler
-	AccountID string
-	Region    string
+	ELBv2  *elbv2backend.Handler
+	WAFv2  *wafv2backend.Handler
+	Backup *backupbackend.Handler
+	// Phase-5 backends
+	AppAutoScaling *appautoscalingbackend.Handler
+	// CFN extensibility
+	WaitConditions *WaitConditionStore
+	MacroRegistry  *MacroRegistry
+	AccountID      string
+	Region         string
 }
 
 // NestedStackCreator is a callback used to create and delete nested CloudFormation stacks.
@@ -172,6 +178,15 @@ func (rc *ResourceCreator) Create(
 	// Handle nested stacks regardless of whether service backends are configured.
 	if resourceType == cfnStackType {
 		return rc.createNestedStack(ctx, logicalID, props, params)
+	}
+
+	// Handle CFN extensibility types (CustomResource, WaitCondition, Macro).
+	if isCFNExtensibilityType(resourceType) {
+		if rc.backends == nil {
+			return logicalID + "-" + uuid.New().String()[:8], nil
+		}
+
+		return rc.createCFNExtensibilityResource(ctx, logicalID, resourceType, props, params, physicalIDs)
 	}
 
 	if rc.backends == nil {
@@ -941,15 +956,40 @@ func (rc *ResourceCreator) createPhase4Resource(
 		return rc.createRDSDBClusterParameterGroup(logicalID, props, params, physicalIDs)
 	default:
 
-		return logicalID + "-stub", nil
+		return rc.createPhase5Resource(context.Background(), logicalID, resourceType, props, params, physicalIDs)
 	}
+}
+
+// Update sends an Update lifecycle event to CFN extensibility resource types
+// (Custom::*, AWS::CloudFormation::CustomResource). For other resource types it is
+// a no-op — the backend's updateResources handles them via property overwrite.
+func (rc *ResourceCreator) Update(
+	ctx context.Context,
+	logicalID, resourceType, physicalID string,
+	newProps, oldProps map[string]any,
+) error {
+	if rc == nil {
+		return nil
+	}
+
+	if !isCFNExtensibilityType(resourceType) {
+		return nil
+	}
+
+	if rc.backends == nil {
+		return nil
+	}
+
+	_, err := rc.updateCFNExtensibilityResource(ctx, logicalID, resourceType, physicalID, newProps, oldProps)
+
+	return err
 }
 
 // Delete deletes a resource by type and physical ID.
 func (rc *ResourceCreator) Delete(
 	ctx context.Context,
 	resourceType, physicalID string,
-	_ map[string]any,
+	props map[string]any,
 ) error {
 	if rc == nil {
 		return nil
@@ -962,6 +1002,18 @@ func (rc *ResourceCreator) Delete(
 		}
 
 		return nil
+	}
+
+	// Handle CFN extensibility type deletions.
+	if isCFNExtensibilityType(resourceType) {
+		if rc.backends == nil {
+			return nil
+		}
+
+		handled, err := rc.deleteCFNExtensibilityResource(ctx, "", resourceType, physicalID, props)
+		if handled {
+			return err
+		}
 	}
 
 	if rc.backends == nil {
@@ -1453,6 +1505,7 @@ func parseDDBKeySchema(props map[string]any, params, physicalIDs map[string]stri
 
 const (
 	defaultCapacityUnits     = int64(5)
+	defaultEventBusName      = "default"
 	kmsMinDeletionWindowDays = 7
 	boolTrue                 = "true"
 )
@@ -1725,7 +1778,7 @@ func (rc *ResourceCreator) createEventBridgeRule(
 
 	eventBusName := strProp(props, "EventBusName", params, physicalIDs)
 	if eventBusName == "" {
-		eventBusName = "default"
+		eventBusName = defaultEventBusName
 	}
 
 	pattern := strProp(props, "EventPattern", params, physicalIDs)
@@ -1759,7 +1812,7 @@ func (rc *ResourceCreator) deleteEventBridgeRule(_ context.Context, physicalID s
 	parts := strings.Split(physicalID, "/")
 	name := parts[len(parts)-1]
 
-	return rc.backends.EventBridge.Backend.DeleteRule(context.Background(), name, "default")
+	return rc.backends.EventBridge.Backend.DeleteRule(context.Background(), name, defaultEventBusName)
 }
 
 // createStepFunctionsStateMachine creates a Step Functions state machine.
@@ -1943,4 +1996,18 @@ func (r *serviceBackendsResolver) ResolveSecret(secretID, jsonKey string) (strin
 	}
 
 	return resolveJSONKey(out.SecretString, jsonKey)
+}
+
+// isCFNExtensibilityType reports whether resourceType is a CFN extensibility type
+// (CustomResource, Custom::*, WaitCondition, WaitConditionHandle, Macro).
+func isCFNExtensibilityType(resourceType string) bool {
+	switch resourceType {
+	case cfnTypeCustomResource,
+		cfnTypeWaitCondition,
+		cfnTypeWaitConditionHandle,
+		cfnTypeMacro:
+		return true
+	}
+
+	return strings.HasPrefix(resourceType, "Custom::")
 }

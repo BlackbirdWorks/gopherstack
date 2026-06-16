@@ -673,6 +673,57 @@ func findingKey(productArn, id string) string {
 	return productArn + "|" + id
 }
 
+// validateASFFRequiredFields checks that a finding has the mandatory ASFF fields.
+// AWS rejects findings missing any of these fields in BatchImportFindings.
+// Returns a non-empty error message if validation fails.
+func validateASFFRequiredFields(f map[string]any, productArn, id string) string {
+	if productArn == "" {
+		return "ProductArn is required"
+	}
+
+	if id == "" {
+		return "Id is required"
+	}
+
+	if v, _ := f["AwsAccountId"].(string); v == "" {
+		return "AwsAccountId is required"
+	}
+
+	if v, _ := f["GeneratorId"].(string); v == "" {
+		return "GeneratorId is required"
+	}
+
+	if v, _ := f["Title"].(string); v == "" {
+		return "Title is required"
+	}
+
+	if v, _ := f["Description"].(string); v == "" {
+		return "Description is required"
+	}
+
+	// At least one of CreatedAt/UpdatedAt/FirstObservedAt/LastObservedAt must be present.
+	hasTimestamp := false
+	for _, k := range []string{keyCreatedAt, keyUpdatedAt, "FirstObservedAt", "LastObservedAt"} {
+		if v, _ := f[k].(string); v != "" {
+			hasTimestamp = true
+
+			break
+		}
+	}
+
+	if !hasTimestamp {
+		return "At least one of CreatedAt, UpdatedAt, FirstObservedAt, or LastObservedAt is required"
+	}
+
+	// Resources must be a non-empty array.
+	resources, _ := f["Resources"].([]any)
+	if len(resources) == 0 {
+		return "Resources must contain at least one entry"
+	}
+
+	return ""
+}
+
 func (b *InMemoryBackend) ImportFindings(findings []map[string]any) (int, int, []map[string]any) {
 	b.mu.Lock("ImportFindings")
 	defer b.mu.Unlock()
@@ -685,13 +736,13 @@ func (b *InMemoryBackend) ImportFindings(findings []map[string]any) (int, int, [
 		productArn, _ := f["ProductArn"].(string)
 		id, _ := f["Id"].(string)
 
-		if productArn == "" || id == "" {
+		if msg := validateASFFRequiredFields(f, productArn, id); msg != "" {
 			failedCount++
 			failedFindings = append(failedFindings, map[string]any{
 				"Id":            id,
 				"ProductArn":    productArn, //nolint:goconst // existing issue.
-				keyErrorCode:    "InternalException",
-				keyErrorMessage: "ProductArn and Id are required",
+				keyErrorCode:    "InvalidInputException",
+				keyErrorMessage: msg,
 			})
 
 			continue
