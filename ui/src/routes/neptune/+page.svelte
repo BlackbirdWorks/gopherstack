@@ -13,6 +13,7 @@
 		DeleteDBClusterSnapshotCommand,
 		StopDBClusterCommand,
 		StartDBClusterCommand,
+		FailoverDBClusterCommand,
 		type DBCluster,
 		type DBInstance,
 		type DBClusterSnapshot
@@ -229,6 +230,23 @@
 			selectedCluster = clusters.find(c => c.DBClusterIdentifier === id) ?? null;
 		} catch (err: unknown) {
 			toast.error(`Start failed: ${(err as Error).message}`);
+		}
+	}
+
+	async function failoverCluster(cluster: DBCluster) {
+		const id = cluster.DBClusterIdentifier ?? '';
+		const reader = (cluster.DBClusterMembers ?? []).find((m) => !m.IsClusterWriter)?.DBInstanceIdentifier;
+		if (!await confirmDestructive({ title: 'Failover Cluster', message: `Promote a reader to writer for "${id}"? The current writer will become a reader. This causes a brief interruption.`, confirmLabel: 'Failover', dangerous: false })) return;
+		try {
+			await neptune.send(new FailoverDBClusterCommand({
+				DBClusterIdentifier: id,
+				TargetDBInstanceIdentifier: reader
+			}));
+			toast.success(`Failover initiated for "${id}"`);
+			await loadClusters();
+			selectedCluster = clusters.find(c => c.DBClusterIdentifier === id) ?? null;
+		} catch (err: unknown) {
+			toast.error(`Failover failed: ${(err as Error).message}`);
 		}
 	}
 
@@ -647,6 +665,15 @@
 							>
 								<Plus class="w-3.5 h-3.5" />Add Instance
 							</button>
+							{#if selectedCluster.Status === 'available' && (selectedCluster.DBClusterMembers ?? []).length > 1}
+								<button
+									onclick={() => failoverCluster(selectedCluster!)}
+									class="px-3 py-1.5 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-700 flex items-center gap-1.5"
+									title="Failover cluster (promote a reader)"
+								>
+									<RefreshCw class="w-3.5 h-3.5" />Failover
+								</button>
+							{/if}
 							{#if selectedCluster.Status === 'available'}
 								<button
 									onclick={() => stopCluster(selectedCluster!)}
