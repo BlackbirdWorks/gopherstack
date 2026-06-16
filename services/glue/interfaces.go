@@ -388,7 +388,7 @@ type StorageBackend interface {
 	GetSchemaVersionsDiff(registryName, schemaName string, v1, v2 int64) (string, error)
 
 	// ETL plan generation.
-	GetPlan(language string) (pythonScript, scalaCode string)
+	GetPlan(language string) (string, string)
 
 	// Workflow resume.
 	ResumeWorkflowRun(workflowName, runID string) (string, []string, error)

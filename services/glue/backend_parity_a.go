@@ -2,6 +2,7 @@ package glue
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 	"time"
@@ -13,9 +14,9 @@ import (
 
 // CatalogImportStatus records the Hive metastore import completion state.
 type CatalogImportStatus struct {
-	ImportedBy       string  `json:"ImportedBy"`
-	ImportTime       float64 `json:"ImportTime"`
-	ImportCompleted  bool    `json:"ImportCompleted"`
+	ImportedBy      string  `json:"ImportedBy"`
+	ImportTime      float64 `json:"ImportTime"`
+	ImportCompleted bool    `json:"ImportCompleted"`
 }
 
 // ImportCatalogToGlue marks the given catalog (or the account-level catalog
@@ -32,7 +33,7 @@ func (b *InMemoryBackend) ImportCatalogToGlue(catalogID string) error {
 	b.catalogImports[key] = &CatalogImportStatus{
 		ImportCompleted: true,
 		ImportTime:      float64(time.Now().Unix()),
-		ImportedBy:      "gopherstack",
+		ImportedBy:      glueServiceName,
 	}
 
 	return nil
@@ -52,6 +53,7 @@ func (b *InMemoryBackend) GetCatalogImportStatus(catalogID string) *CatalogImpor
 
 	if s, ok := b.catalogImports[key]; ok {
 		cp := *s
+
 		return &cp
 	}
 
@@ -91,9 +93,7 @@ func (b *InMemoryBackend) QuerySchemaVersionMetadata(schemaVersionID string) map
 	out := make(map[string]string)
 
 	if m, ok := b.schemaVersionMetadata[schemaVersionID]; ok {
-		for k, v := range m {
-			out[k] = v
-		}
+		maps.Copy(out, m)
 	}
 
 	return out
@@ -135,6 +135,7 @@ func (b *InMemoryBackend) GetSchemaByDefinition(
 	for _, sv := range b.schemaVersions[schemaVersionListKey(s.SchemaARN)] {
 		if sv.SchemaDefinition == definition {
 			cp := *sv
+
 			return &cp, nil
 		}
 	}
@@ -162,16 +163,16 @@ func (b *InMemoryBackend) GetSchemaVersionsDiff(
 		return "", fmt.Errorf("schema %q/%q not found: %w", registryName, schemaName, ErrNotFound)
 	}
 
-	var def1, def2 string
+	defs := make(map[int64]string)
 
 	for _, sv := range b.schemaVersions[schemaVersionListKey(s.SchemaARN)] {
-		switch sv.VersionNumber {
-		case v1:
-			def1 = sv.SchemaDefinition
-		case v2:
-			def2 = sv.SchemaDefinition
+		if sv.VersionNumber == v1 || sv.VersionNumber == v2 {
+			defs[sv.VersionNumber] = sv.SchemaDefinition
 		}
 	}
+
+	def1 := defs[v1]
+	def2 := defs[v2]
 
 	if def1 == def2 {
 		return "", nil
@@ -212,8 +213,9 @@ func buildLineDiff(old, newDef string) string {
 	sort.Strings(removed)
 	sort.Strings(added)
 
-	parts := append(removed, added...)
-	return strings.Join(parts, "\n")
+	removed = append(removed, added...)
+
+	return strings.Join(removed, "\n")
 }
 
 func splitLines(s string) []string {
@@ -264,7 +266,7 @@ object GlueApp {
 
 // GetPlan returns minimal ETL code appropriate for the requested language.
 // language should be "Python" or "Scala"; defaults to Python.
-func (b *InMemoryBackend) GetPlan(language string) (pythonScript, scalaCode string) {
+func (b *InMemoryBackend) GetPlan(language string) (string, string) {
 	switch strings.ToUpper(language) {
 	case "SCALA":
 		return "", minimalScalaScript
