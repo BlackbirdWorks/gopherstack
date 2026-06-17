@@ -301,28 +301,28 @@ func asyncJobSpecs() map[string]jobSpec {
 func resourceSpecs() map[string]resourceSpec {
 	return map[string]resourceSpec{
 		"DocumentClassifier": {
-			resourceType: "document-classifier",
+			resourceType: resourceTypeDocClassifier,
 			nameField:    "DocumentClassifierName",
 			arnField:     fieldDocumentClassifierARN,
 			objectField:  "DocumentClassifierProperties",
 			listField:    "DocumentClassifierPropertiesList",
 		},
 		"DocumentClassifierVersion": {
-			resourceType: "document-classifier-version",
+			resourceType: resourceTypeDocClassifierVersion,
 			nameField:    fieldDocumentClassifierARN,
 			arnField:     fieldDocumentClassifierARN,
 			objectField:  "DocumentClassifierProperties",
 			listField:    "DocumentClassifierPropertiesList",
 		},
 		"EntityRecognizer": {
-			resourceType: "entity-recognizer",
+			resourceType: resourceTypeEntityRecognizer,
 			nameField:    "RecognizerName",
 			arnField:     fieldEntityRecognizerARN,
 			objectField:  "EntityRecognizerProperties",
 			listField:    "EntityRecognizerPropertiesList",
 		},
 		"EntityRecognizerVersion": {
-			resourceType: "entity-recognizer-version",
+			resourceType: resourceTypeEntityRecognizerVer,
 			nameField:    fieldEntityRecognizerARN,
 			arnField:     fieldEntityRecognizerARN,
 			objectField:  "EntityRecognizerProperties",
@@ -844,7 +844,7 @@ func (h *Handler) importModel(input map[string]any) (map[string]any, error) {
 	// For simplicity in emulation, we map it to creating a new DocumentClassifier (or EntityRecognizer).
 	// We'll assume DocumentClassifier by default as AWS docs specify it can be either based on source.
 	resource, err := h.Backend.CreateResource(
-		"document-classifier",
+		resourceTypeDocClassifier,
 		stringValue(input, "ModelName", ""),
 		stringValue(input, "VersionName", ""),
 		input,
@@ -860,7 +860,7 @@ func (h *Handler) importModel(input map[string]any) (map[string]any, error) {
 }
 
 func (h *Handler) listDocumentClassifierSummaries(_ map[string]any) (map[string]any, error) {
-	resources := h.Backend.ListResources("document-classifier")
+	resources := h.Backend.ListResources(resourceTypeDocClassifier)
 	items := make([]map[string]any, 0, len(resources))
 	for _, resource := range resources {
 		items = append(items, map[string]any{
@@ -878,7 +878,7 @@ func (h *Handler) listDocumentClassifierSummaries(_ map[string]any) (map[string]
 }
 
 func (h *Handler) listEntityRecognizerSummaries(_ map[string]any) (map[string]any, error) {
-	resources := h.Backend.ListResources("entity-recognizer")
+	resources := h.Backend.ListResources(resourceTypeEntityRecognizer)
 	items := make([]map[string]any, 0, len(resources))
 	for _, resource := range resources {
 		items = append(items, map[string]any{
@@ -896,13 +896,16 @@ func (h *Handler) listEntityRecognizerSummaries(_ map[string]any) (map[string]an
 }
 
 func (h *Handler) stopTrainingDocumentClassifier(input map[string]any) (map[string]any, error) {
-	err := h.Backend.StopTrainingResource(stringValue(input, fieldDocumentClassifierARN, ""), "document-classifier")
+	err := h.Backend.StopTrainingResource(stringValue(input, fieldDocumentClassifierARN, ""), resourceTypeDocClassifier)
 
 	return map[string]any{}, err
 }
 
 func (h *Handler) stopTrainingEntityRecognizer(input map[string]any) (map[string]any, error) {
-	err := h.Backend.StopTrainingResource(stringValue(input, fieldEntityRecognizerARN, ""), "entity-recognizer")
+	err := h.Backend.StopTrainingResource(
+		stringValue(input, fieldEntityRecognizerARN, ""),
+		resourceTypeEntityRecognizer,
+	)
 
 	return map[string]any{}, err
 }

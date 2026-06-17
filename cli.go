@@ -99,6 +99,7 @@ import (
 	databrewbackend "github.com/blackbirdworks/gopherstack/services/databrew"
 	datasyncbackend "github.com/blackbirdworks/gopherstack/services/datasync"
 	detectivebackend "github.com/blackbirdworks/gopherstack/services/detective"
+	directoryservicebackend "github.com/blackbirdworks/gopherstack/services/directoryservice"
 	dlmbackend "github.com/blackbirdworks/gopherstack/services/dlm"
 	dmsbackend "github.com/blackbirdworks/gopherstack/services/dms"
 	docdbbackend "github.com/blackbirdworks/gopherstack/services/docdb"
@@ -146,6 +147,7 @@ import (
 	mediapackagebackend "github.com/blackbirdworks/gopherstack/services/mediapackage"
 	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
 	mediastoredatabackend "github.com/blackbirdworks/gopherstack/services/mediastoredata"
+	mediatailorbackend "github.com/blackbirdworks/gopherstack/services/mediatailor"
 	memorydbbackend "github.com/blackbirdworks/gopherstack/services/memorydb"
 	mqbackend "github.com/blackbirdworks/gopherstack/services/mq"
 	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
@@ -2871,21 +2873,23 @@ func getMostRecentServiceProviders() []service.Provider {
 		&xraybackend.Provider{},
 		&s3tablesbackend.Provider{},
 		&databrewbackend.Provider{},
+		&directoryservicebackend.Provider{},
 		&forecastbackend.Provider{},
+		&mediatailorbackend.Provider{},
 		&macie2backend.Provider{},
 		&apprunnerbackend.Provider{},
+		&appmeshbackend.Provider{},
+		&appstreambackend.Provider{},
+		&detectivebackend.Provider{},
+		&datasyncbackend.Provider{},
 		&dlmbackend.Provider{},
+		&fsxbackend.Provider{},
 		&medialivebackend.Provider{},
 		&mediapackagebackend.Provider{},
 		&personalizebackend.Provider{},
 		&quicksightbackend.Provider{},
 		&rekognitionbackend.Provider{},
 		&translatebackend.Provider{},
-		&appmeshbackend.Provider{},
-		&appstreambackend.Provider{},
-		&detectivebackend.Provider{},
-		&datasyncbackend.Provider{},
-		&fsxbackend.Provider{},
 		&vpclatticebackend.Provider{},
 		&omicsbackend.Provider{},
 	}

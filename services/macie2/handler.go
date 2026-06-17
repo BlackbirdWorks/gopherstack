@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -814,11 +815,11 @@ func (h *Handler) handleGetMacieSession() (any, int) {
 	}
 
 	return map[string]any{
-		"createdAt":                  session.CreatedAt,
+		"createdAt":                  session.CreatedAt.UTC().Format(time.RFC3339),
 		"findingPublishingFrequency": session.FindingPublishingFrequency,
 		"serviceRole":                session.ServiceRole,
 		"status":                     session.Status,
-		"updatedAt":                  session.UpdatedAt,
+		"updatedAt":                  session.UpdatedAt.UTC().Format(time.RFC3339),
 	}, http.StatusOK
 }
 

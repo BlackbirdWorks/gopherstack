@@ -38,7 +38,7 @@ func TestSignalMap_CRUD(t *testing.T) {
 			t.Parallel()
 			h := newTestHandler(t)
 			rec := doRequest(t, h, http.MethodPost, "/prod/signal-maps", map[string]any{
-				"Name":                   "test-signal-map",
+				"name":                   "test-signal-map",
 				"DiscoveryEntryPointArn": "arn:aws:medialive:us-east-1:000000000000:channel:abc123",
 			})
 			assert.Equal(t, tc.wantCode, rec.Code)
@@ -55,7 +55,7 @@ func TestSignalMap_GetListDelete(t *testing.T) {
 	h := newTestHandler(t)
 	// Create
 	rec := doRequest(t, h, http.MethodPost, "/prod/signal-maps", map[string]any{
-		"Name": "sig-map-1",
+		"name": "sig-map-1",
 	})
 	require.Equal(t, http.StatusCreated, rec.Code)
 	var created map[string]any
@@ -80,7 +80,7 @@ func TestSignalMap_GetListDelete(t *testing.T) {
 
 	// StartUpdateSignalMap (PATCH)
 	rec = doRequest(t, h, http.MethodPatch, "/prod/signal-maps/"+id, map[string]any{
-		"Name": "sig-map-updated",
+		"name": "sig-map-updated",
 	})
 	assert.Equal(t, http.StatusAccepted, rec.Code)
 
@@ -114,7 +114,7 @@ func TestCWAlarmTemplateGroup_CRUD(t *testing.T) {
 		{
 			name:     "create returns 201 with id and name",
 			wantCode: http.StatusCreated,
-			body:     map[string]any{"Name": "test-cw-group"},
+			body:     map[string]any{"name": "test-cw-group"},
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
@@ -148,7 +148,7 @@ func TestCWAlarmTemplateGroup_GetUpdateListDelete(t *testing.T) {
 
 	h := newTestHandler(t)
 	rec := doRequest(t, h, http.MethodPost, "/prod/cloudwatch-alarm-template-groups", map[string]any{
-		"Name": "cw-group-1",
+		"name": "cw-group-1",
 	})
 	require.Equal(t, http.StatusCreated, rec.Code)
 	var created map[string]any
@@ -161,7 +161,7 @@ func TestCWAlarmTemplateGroup_GetUpdateListDelete(t *testing.T) {
 
 	// Update (PATCH)
 	rec = doRequest(t, h, http.MethodPatch, "/prod/cloudwatch-alarm-template-groups/"+id, map[string]any{
-		"Name": "cw-group-updated",
+		"name": "cw-group-updated",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var updated map[string]any
@@ -200,7 +200,7 @@ func TestCWAlarmTemplate_CRUD(t *testing.T) {
 			name:     "create returns 201 with metric fields",
 			wantCode: http.StatusCreated,
 			body: map[string]any{
-				"Name": "cw-template-1", "MetricName": "InputLossSeconds",
+				"name": "cw-template-1", "MetricName": "InputLossSeconds",
 				"Namespace": "MediaLive", "Statistic": "Sum",
 				"ComparisonOperator": "GreaterThanThreshold", "Threshold": 0.0,
 				"EvaluationPeriods": 1.0, "Period": 300.0,
@@ -233,7 +233,7 @@ func TestCWAlarmTemplate_GetUpdateListDelete(t *testing.T) {
 
 	h := newTestHandler(t)
 	rec := doRequest(t, h, http.MethodPost, "/prod/cloudwatch-alarm-templates", map[string]any{
-		"Name": "cw-template-1", "MetricName": "OutputLossSeconds",
+		"name": "cw-template-1", "MetricName": "OutputLossSeconds",
 	})
 	require.Equal(t, http.StatusCreated, rec.Code)
 	var created map[string]any
@@ -277,7 +277,7 @@ func TestEBRuleTemplateGroup_CRUD(t *testing.T) {
 
 	h := newTestHandler(t)
 	rec := doRequest(t, h, http.MethodPost, "/prod/eventbridge-rule-template-groups", map[string]any{
-		"Name": "eb-group-1",
+		"name": "eb-group-1",
 	})
 	require.Equal(t, http.StatusCreated, rec.Code)
 	var created map[string]any
@@ -314,7 +314,7 @@ func TestEBRuleTemplate_CRUD(t *testing.T) {
 
 	h := newTestHandler(t)
 	rec := doRequest(t, h, http.MethodPost, "/prod/eventbridge-rule-templates", map[string]any{
-		"Name":      "eb-template-1",
+		"name":      "eb-template-1",
 		"EventType": "MEDIALIVE_CHANNEL_STATE_CHANGE",
 	})
 	require.Equal(t, http.StatusCreated, rec.Code)
@@ -407,7 +407,7 @@ func TestReservations_PurchaseListDescribeDeleteUpdate(t *testing.T) {
 
 	// Purchase
 	rec := doRequest(t, h, http.MethodPost, "/prod/offerings/87654321/purchase", map[string]any{
-		"Name":  "test-reservation",
+		"name":  "test-reservation",
 		"Count": 2.0,
 	})
 	require.Equal(t, http.StatusCreated, rec.Code)
@@ -432,7 +432,7 @@ func TestReservations_PurchaseListDescribeDeleteUpdate(t *testing.T) {
 
 	// Update name
 	rec = doRequest(t, h, http.MethodPut, "/prod/reservations/"+reservationID, map[string]any{
-		"Name": "renamed-reservation",
+		"name": "renamed-reservation",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var updatedResp map[string]any

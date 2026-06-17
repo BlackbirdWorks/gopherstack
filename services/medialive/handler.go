@@ -69,7 +69,7 @@ const (
 	keyTags            = "Tags"
 	keyDescription     = "Description"
 	keyChannel         = "Channel"
-	keyInput           = "Input"
+	keyInput           = "input"
 	keyAlerts          = "Alerts"
 	keyActionName      = "ActionName"
 	keyScheduleActions = "ScheduleActions"
@@ -1226,9 +1226,9 @@ func toChannelOutput(ch *Channel) channelOutput {
 }
 
 func (h *Handler) handleCreateChannel(c *echo.Context, body map[string]any) error {
-	name, _ := body["Name"].(string)
-	channelClass, _ := body["ChannelClass"].(string)
-	roleArn, _ := body["RoleArn"].(string)
+	name, _ := body["name"].(string)
+	channelClass, _ := body["channelClass"].(string)
+	roleArn, _ := body["roleArn"].(string)
 	tags := extractTags(body)
 
 	ch, err := h.Backend.CreateChannel(name, channelClass, roleArn, tags)
@@ -1253,8 +1253,8 @@ func (h *Handler) handleUpdateChannel(
 	channelID string,
 	body map[string]any,
 ) error {
-	name, _ := body["Name"].(string)
-	roleArn, _ := body["RoleArn"].(string)
+	name, _ := body["name"].(string)
+	roleArn, _ := body["roleArn"].(string)
 
 	ch, err := h.Backend.UpdateChannel(channelID, name, roleArn)
 	if err != nil {
@@ -1320,13 +1320,13 @@ func (h *Handler) handleStopChannel(c *echo.Context, channelID string) error {
 
 // Tags first: reduces GC pointer scan from 104 to 96 bytes.
 type inputOutput struct {
-	Tags    map[string]string `json:"Tags"`
-	Arn     string            `json:"Arn"`
-	ID      string            `json:"Id"`
-	Name    string            `json:"Name"`
-	Type    string            `json:"Type"`
-	RoleArn string            `json:"RoleArn"`
-	State   string            `json:"State"`
+	Tags    map[string]string `json:"tags"`
+	Arn     string            `json:"arn"`
+	ID      string            `json:"id"`
+	Name    string            `json:"name"`
+	Type    string            `json:"type"`
+	RoleArn string            `json:"roleArn"`
+	State   string            `json:"state"`
 }
 
 func toInputOutput(inp *Input) inputOutput {
@@ -1347,9 +1347,9 @@ func toInputOutput(inp *Input) inputOutput {
 }
 
 func (h *Handler) handleCreateInput(c *echo.Context, body map[string]any) error {
-	name, _ := body["Name"].(string)
-	inputType, _ := body["Type"].(string)
-	roleArn, _ := body["RoleArn"].(string)
+	name, _ := body["name"].(string)
+	inputType, _ := body["type"].(string)
+	roleArn, _ := body["roleArn"].(string)
 	tags := extractTags(body)
 
 	inp, err := h.Backend.CreateInput(name, inputType, roleArn, tags)
@@ -1370,8 +1370,8 @@ func (h *Handler) handleDescribeInput(c *echo.Context, inputID string) error {
 }
 
 func (h *Handler) handleUpdateInput(c *echo.Context, inputID string, body map[string]any) error {
-	name, _ := body["Name"].(string)
-	roleArn, _ := body["RoleArn"].(string)
+	name, _ := body["name"].(string)
+	roleArn, _ := body["roleArn"].(string)
 
 	inp, err := h.Backend.UpdateInput(inputID, name, roleArn)
 	if err != nil {
@@ -1398,17 +1398,17 @@ func (h *Handler) handleListInputs(c *echo.Context) error {
 	out := make([]map[string]any, 0, len(summaries))
 	for _, s := range summaries {
 		out = append(out, map[string]any{
-			keyArn:   s.ARN,
-			keyID:    s.ID,
-			"Name":   s.Name,
-			"Type":   s.InputType,
-			keyState: s.State,
+			"arn":   s.ARN,
+			"id":    s.ID,
+			"name":  s.Name,
+			"type":  s.InputType,
+			"state": s.State,
 		})
 	}
 
-	resp := map[string]any{"Inputs": out}
+	resp := map[string]any{"inputs": out}
 	if nextToken != "" {
-		resp["NextToken"] = nextToken
+		resp["nextToken"] = nextToken
 	}
 
 	return c.JSON(http.StatusOK, resp)
@@ -1639,7 +1639,7 @@ func intFromAny(v any) int {
 }
 
 func (h *Handler) handleCreateMultiplex(c *echo.Context, body map[string]any) error {
-	name, _ := body["Name"].(string)
+	name, _ := body["name"].(string)
 	settings := extractMultiplexSettings(body)
 	tags := extractTags(body)
 
@@ -1674,7 +1674,7 @@ func (h *Handler) handleUpdateMultiplex(
 	multiplexID string,
 	body map[string]any,
 ) error {
-	name, _ := body["Name"].(string)
+	name, _ := body["name"].(string)
 	settings := extractMultiplexSettings(body)
 
 	m, err := h.Backend.UpdateMultiplex(multiplexID, name, settings)
@@ -1979,7 +1979,7 @@ func (h *Handler) handleUpdateInputDevice(
 	deviceID string,
 	body map[string]any,
 ) error {
-	name, _ := body["Name"].(string)
+	name, _ := body["name"].(string)
 
 	d, err := h.Backend.UpdateInputDevice(deviceID, name)
 	if err != nil {
@@ -2235,7 +2235,7 @@ func toClusterOutput(c *Cluster) clusterOutput {
 }
 
 func (h *Handler) handleCreateCluster(c *echo.Context, body map[string]any) error {
-	name, _ := body["Name"].(string)
+	name, _ := body["name"].(string)
 	clusterType, _ := body["ClusterType"].(string)
 	instanceRoleArn, _ := body["InstanceRoleArn"].(string)
 	tags := extractTags(body)
@@ -2258,7 +2258,7 @@ func (h *Handler) handleDescribeCluster(c *echo.Context, clusterID string) error
 }
 
 func (h *Handler) handleUpdateCluster(c *echo.Context, clusterID string, body map[string]any) error {
-	name, _ := body["Name"].(string)
+	name, _ := body["name"].(string)
 
 	cl, err := h.Backend.UpdateCluster(clusterID, name)
 	if err != nil {
@@ -2358,7 +2358,7 @@ func toNodeOutput(n *Node) nodeOutput {
 }
 
 func (h *Handler) handleCreateNode(c *echo.Context, clusterID string, body map[string]any) error {
-	name, _ := body["Name"].(string)
+	name, _ := body["name"].(string)
 	role, _ := body["Role"].(string)
 	tags := extractTags(body)
 
@@ -2384,7 +2384,7 @@ func (h *Handler) handleDescribeNode(c *echo.Context, resource string) error {
 func (h *Handler) handleUpdateNode(c *echo.Context, resource string, body map[string]any) error {
 	clusterID, nodeID := splitClusterNode(resource)
 
-	name, _ := body["Name"].(string)
+	name, _ := body["name"].(string)
 	role, _ := body["Role"].(string)
 
 	n, err := h.Backend.UpdateNode(clusterID, nodeID, name, role)
@@ -2472,7 +2472,7 @@ func toSignalMapOutput(sm *SignalMap) map[string]any {
 }
 
 func (h *Handler) handleCreateSignalMap(c *echo.Context, body map[string]any) error {
-	name, _ := body[keyName].(string)
+	name, _ := body["name"].(string)
 	description, _ := body[keyDescription].(string)
 	discoveryArn, _ := body["DiscoveryEntryPointArn"].(string)
 	cwGroupIDs := extractStringSlice(body, "CloudWatchAlarmTemplateGroupIdentifiers")
@@ -2532,7 +2532,7 @@ func (h *Handler) handleStartUpdateSignalMap(
 	identifier string,
 	body map[string]any,
 ) error {
-	name, _ := body[keyName].(string)
+	name, _ := body["name"].(string)
 	description, _ := body[keyDescription].(string)
 	cwGroupIDs := extractStringSlice(body, "CloudWatchAlarmTemplateGroupIdentifiers")
 	ebGroupIDs := extractStringSlice(body, "EventBridgeRuleTemplateGroupIdentifiers")
@@ -2567,7 +2567,7 @@ func toCWAlarmTemplateGroupOutput(g *CloudWatchAlarmTemplateGroup) map[string]an
 }
 
 func (h *Handler) handleCreateCWAlarmTemplateGroup(c *echo.Context, body map[string]any) error {
-	name, _ := body[keyName].(string)
+	name, _ := body["name"].(string)
 	description, _ := body[keyDescription].(string)
 	tags := extractTags(body)
 	g, err := h.Backend.CreateCloudWatchAlarmTemplateGroup(name, description, tags)
@@ -2609,7 +2609,7 @@ func (h *Handler) handleUpdateCWAlarmTemplateGroup(
 	identifier string,
 	body map[string]any,
 ) error {
-	name, _ := body[keyName].(string)
+	name, _ := body["name"].(string)
 	description, _ := body[keyDescription].(string)
 	g, err := h.Backend.UpdateCloudWatchAlarmTemplateGroup(identifier, name, description)
 	if err != nil {
@@ -2679,7 +2679,7 @@ func extractCWAlarmTemplateFields(
 }
 
 func (h *Handler) handleCreateCWAlarmTemplate(c *echo.Context, body map[string]any) error {
-	name, _ := body[keyName].(string)
+	name, _ := body["name"].(string)
 	description, _ := body[keyDescription].(string)
 	tags := extractTags(body)
 	groupID, metricName, namespace, statistic, compOp,
@@ -2740,7 +2740,7 @@ func (h *Handler) handleUpdateCWAlarmTemplate(
 	identifier string,
 	body map[string]any,
 ) error {
-	name, _ := body[keyName].(string)
+	name, _ := body["name"].(string)
 	description, _ := body[keyDescription].(string)
 	groupID, metricName, namespace, statistic, compOp,
 		targetType, treatMissing, threshold,
@@ -2791,7 +2791,7 @@ func toEBRuleTemplateGroupOutput(g *EventBridgeRuleTemplateGroup) map[string]any
 }
 
 func (h *Handler) handleCreateEBRuleTemplateGroup(c *echo.Context, body map[string]any) error {
-	name, _ := body[keyName].(string)
+	name, _ := body["name"].(string)
 	description, _ := body[keyDescription].(string)
 	tags := extractTags(body)
 	g, err := h.Backend.CreateEventBridgeRuleTemplateGroup(name, description, tags)
@@ -2833,7 +2833,7 @@ func (h *Handler) handleUpdateEBRuleTemplateGroup(
 	identifier string,
 	body map[string]any,
 ) error {
-	name, _ := body[keyName].(string)
+	name, _ := body["name"].(string)
 	description, _ := body[keyDescription].(string)
 	g, err := h.Backend.UpdateEventBridgeRuleTemplateGroup(identifier, name, description)
 	if err != nil {
@@ -2888,7 +2888,7 @@ func extractEBTargets(body map[string]any) []EventBridgeRuleTemplateTarget {
 }
 
 func (h *Handler) handleCreateEBRuleTemplate(c *echo.Context, body map[string]any) error {
-	name, _ := body[keyName].(string)
+	name, _ := body["name"].(string)
 	description, _ := body[keyDescription].(string)
 	groupIdentifier, _ := body["GroupIdentifier"].(string)
 	eventType, _ := body["EventType"].(string)
@@ -2940,7 +2940,7 @@ func (h *Handler) handleUpdateEBRuleTemplate(
 	identifier string,
 	body map[string]any,
 ) error {
-	name, _ := body[keyName].(string)
+	name, _ := body["name"].(string)
 	description, _ := body[keyDescription].(string)
 	groupIdentifier, _ := body["GroupIdentifier"].(string)
 	eventType, _ := body["EventType"].(string)
@@ -3018,7 +3018,7 @@ func (h *Handler) handlePurchaseOffering(
 	offeringID string,
 	body map[string]any,
 ) error {
-	name, _ := body[keyName].(string)
+	name, _ := body["name"].(string)
 	var count int32 = 1
 	if v, ok := body["Count"].(float64); ok {
 		count = int32(v)
@@ -3100,7 +3100,7 @@ func (h *Handler) handleUpdateReservation(
 	reservationID string,
 	body map[string]any,
 ) error {
-	name, _ := body[keyName].(string)
+	name, _ := body["name"].(string)
 	r, err := h.Backend.UpdateReservation(reservationID, name)
 	if err != nil {
 		return respondErr(c, err)
@@ -3284,7 +3284,7 @@ func extractRoutes(body map[string]any) []Route {
 }
 
 func (h *Handler) handleCreateNetwork(c *echo.Context, body map[string]any) error {
-	name, _ := body[keyName].(string)
+	name, _ := body["name"].(string)
 	tags := extractTags(body)
 
 	n, err := h.Backend.CreateNetwork(name, extractIPPools(body), extractRoutes(body), tags)
@@ -3309,7 +3309,7 @@ func (h *Handler) handleUpdateNetwork(
 	networkID string,
 	body map[string]any,
 ) error {
-	name, _ := body[keyName].(string)
+	name, _ := body["name"].(string)
 
 	n, err := h.Backend.UpdateNetwork(networkID, name, extractIPPools(body), extractRoutes(body))
 	if err != nil {
@@ -3362,7 +3362,7 @@ func toSdiSourceOutput(s *SdiSource) map[string]any {
 }
 
 func (h *Handler) handleCreateSdiSource(c *echo.Context, body map[string]any) error {
-	name, _ := body[keyName].(string)
+	name, _ := body["name"].(string)
 	sdiType, _ := body["Type"].(string)
 	mode, _ := body["Mode"].(string)
 	tags := extractTags(body)
@@ -3389,7 +3389,7 @@ func (h *Handler) handleUpdateSdiSource(
 	sdiSourceID string,
 	body map[string]any,
 ) error {
-	name, _ := body[keyName].(string)
+	name, _ := body["name"].(string)
 	sdiType, _ := body["Type"].(string)
 	mode, _ := body["Mode"].(string)
 
@@ -3452,7 +3452,7 @@ func (h *Handler) handleCreateChannelPlacementGroup(
 	clusterID string,
 	body map[string]any,
 ) error {
-	name, _ := body[keyName].(string)
+	name, _ := body["name"].(string)
 	nodes := extractStringSlice(body, "Nodes")
 	tags := extractTags(body)
 
@@ -3481,7 +3481,7 @@ func (h *Handler) handleUpdateChannelPlacementGroup(
 	body map[string]any,
 ) error {
 	clusterID, groupID := splitClusterNode(resource)
-	name, _ := body[keyName].(string)
+	name, _ := body["name"].(string)
 	nodes := extractStringSlice(body, "Nodes")
 
 	g, err := h.Backend.UpdateChannelPlacementGroup(clusterID, groupID, name, nodes)
@@ -3613,7 +3613,7 @@ func (h *Handler) handleUpdateChannelClass(
 	channelID string,
 	body map[string]any,
 ) error {
-	channelClass, _ := body["ChannelClass"].(string)
+	channelClass, _ := body["channelClass"].(string)
 
 	ch, err := h.Backend.UpdateChannelClass(channelID, channelClass)
 	if err != nil {

@@ -572,8 +572,11 @@ func (rc *ResourceCreator) createAPIGatewayV2Stage(
 		stageName = logicalID
 	}
 
+	autoDeploy, _ := props["AutoDeploy"].(bool)
+
 	_, err := rc.backends.APIGatewayV2.Backend.CreateStage(apiID, apigatewayv2backend.CreateStageInput{
-		StageName: stageName,
+		StageName:  stageName,
+		AutoDeploy: autoDeploy,
 	})
 	if err != nil {
 		return "", fmt.Errorf("create API Gateway V2 stage %s: %w", stageName, err)
@@ -597,6 +600,92 @@ func (rc *ResourceCreator) deleteAPIGatewayV2Stage(physicalID string) error {
 	stageName := physicalID[idx+1:]
 
 	return rc.backends.APIGatewayV2.Backend.DeleteStage(apiID, stageName)
+}
+
+func (rc *ResourceCreator) createAPIGatewayV2Integration(
+	logicalID string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, error) {
+	if rc.backends.APIGatewayV2 == nil {
+		return logicalID + "-stub", nil
+	}
+
+	apiID := strProp(props, "ApiId", params, physicalIDs)
+	integrationType := strProp(props, "IntegrationType", params, physicalIDs)
+	if integrationType == "" {
+		integrationType = "AWS_PROXY"
+	}
+
+	integration, err := rc.backends.APIGatewayV2.Backend.CreateIntegration(
+		apiID,
+		apigatewayv2backend.CreateIntegrationInput{
+			IntegrationType:      integrationType,
+			IntegrationURI:       strProp(props, "IntegrationUri", params, physicalIDs),
+			PayloadFormatVersion: strProp(props, "PayloadFormatVersion", params, physicalIDs),
+		},
+	)
+	if err != nil {
+		return "", fmt.Errorf("create API Gateway V2 integration: %w", err)
+	}
+
+	return apiID + "/" + integration.IntegrationID, nil
+}
+
+func (rc *ResourceCreator) deleteAPIGatewayV2Integration(physicalID string) error {
+	if rc.backends.APIGatewayV2 == nil {
+		return nil
+	}
+
+	idx := strings.LastIndex(physicalID, "/")
+	if idx < 0 {
+		return nil
+	}
+
+	apiID := physicalID[:idx]
+	integrationID := physicalID[idx+1:]
+
+	return rc.backends.APIGatewayV2.Backend.DeleteIntegration(apiID, integrationID)
+}
+
+func (rc *ResourceCreator) createAPIGatewayV2Route(
+	logicalID string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, error) {
+	if rc.backends.APIGatewayV2 == nil {
+		return logicalID + "-stub", nil
+	}
+
+	apiID := strProp(props, "ApiId", params, physicalIDs)
+	routeKey := strProp(props, "RouteKey", params, physicalIDs)
+	target := strProp(props, "Target", params, physicalIDs)
+
+	route, err := rc.backends.APIGatewayV2.Backend.CreateRoute(apiID, apigatewayv2backend.CreateRouteInput{
+		RouteKey: routeKey,
+		Target:   target,
+	})
+	if err != nil {
+		return "", fmt.Errorf("create API Gateway V2 route: %w", err)
+	}
+
+	return apiID + "/" + route.RouteID, nil
+}
+
+func (rc *ResourceCreator) deleteAPIGatewayV2Route(physicalID string) error {
+	if rc.backends.APIGatewayV2 == nil {
+		return nil
+	}
+
+	idx := strings.LastIndex(physicalID, "/")
+	if idx < 0 {
+		return nil
+	}
+
+	apiID := physicalID[:idx]
+	routeID := physicalID[idx+1:]
+
+	return rc.backends.APIGatewayV2.Backend.DeleteRoute(apiID, routeID)
 }
 
 // ---- CodeBuild ----
@@ -1379,6 +1468,10 @@ func (rc *ResourceCreator) deletePhase3AppResource(physicalID, resourceType stri
 		return true, rc.deleteAPIGatewayV2API(physicalID)
 	case "AWS::ApiGatewayV2::Stage":
 		return true, rc.deleteAPIGatewayV2Stage(physicalID)
+	case "AWS::ApiGatewayV2::Integration":
+		return true, rc.deleteAPIGatewayV2Integration(physicalID)
+	case "AWS::ApiGatewayV2::Route":
+		return true, rc.deleteAPIGatewayV2Route(physicalID)
 	case "AWS::CodeBuild::Project":
 		return true, rc.deleteCodeBuildProject(physicalID)
 	case "AWS::Glue::Database":

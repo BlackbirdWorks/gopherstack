@@ -24,21 +24,25 @@ var (
 )
 
 const (
-	statusSubmitted      = "SUBMITTED"
-	statusInProgress     = "IN_PROGRESS"
-	statusCompleted      = "COMPLETED"
-	statusFailed         = "FAILED"
-	statusStopRequested  = "STOP_REQUESTED"
-	statusStopped        = "STOPPED"
-	statusTrained        = "TRAINED"
-	statusReady          = "READY"
-	statusActive         = "ACTIVE"
-	defaultLanguageCode  = "en"
-	defaultScore         = 0.99
-	failedMarker         = "[fail]"
-	resourceTypeEndpoint = "endpoint"
-	resourceTypeFlywheel = "flywheel"
-	resourceTypeDataset  = "dataset"
+	statusSubmitted                  = "SUBMITTED"
+	statusInProgress                 = "IN_PROGRESS"
+	statusCompleted                  = "COMPLETED"
+	statusFailed                     = "FAILED"
+	statusStopRequested              = "STOP_REQUESTED"
+	statusStopped                    = "STOPPED"
+	statusTrained                    = "TRAINED"
+	statusReady                      = "READY"
+	statusActive                     = "ACTIVE"
+	defaultLanguageCode              = "en"
+	defaultScore                     = 0.99
+	failedMarker                     = "[fail]"
+	resourceTypeEndpoint             = "endpoint"
+	resourceTypeFlywheel             = "flywheel"
+	resourceTypeDataset              = "dataset"
+	resourceTypeDocClassifier        = "document-classifier"
+	resourceTypeDocClassifierVersion = "document-classifier-version"
+	resourceTypeEntityRecognizer     = "entity-recognizer"
+	resourceTypeEntityRecognizerVer  = "entity-recognizer-version"
 )
 
 // Tag is a Comprehend resource tag.
@@ -558,8 +562,13 @@ func initialResourceStatus(resourceType string) string {
 		return statusActive
 	case resourceTypeFlywheel, resourceTypeDataset:
 		return statusReady
+	case resourceTypeDocClassifier, resourceTypeDocClassifierVersion,
+		resourceTypeEntityRecognizer, resourceTypeEntityRecognizerVer:
+		// Emulator skips async training; classifiers/recognizers are immediately TRAINED.
+		// The real AWS provider waits minutes before polling, causing CI timeouts if we
+		// start at SUBMITTED and require multiple poll cycles.
+		return statusTrained
 	default:
-		// Classifiers and recognizers start training asynchronously.
 		return statusSubmitted
 	}
 }
@@ -567,8 +576,8 @@ func initialResourceStatus(resourceType string) string {
 // isTrainingResourceType reports whether rType goes through async training.
 func isTrainingResourceType(rType string) bool {
 	switch rType {
-	case "document-classifier", "document-classifier-version",
-		"entity-recognizer", "entity-recognizer-version":
+	case resourceTypeDocClassifier, resourceTypeDocClassifierVersion,
+		resourceTypeEntityRecognizer, resourceTypeEntityRecognizerVer:
 		return true
 	}
 

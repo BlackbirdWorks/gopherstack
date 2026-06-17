@@ -164,14 +164,14 @@ func TestHandlerUpdateInputDevice(t *testing.T) {
 		wantStatus int
 	}{
 		{
-			body:       map[string]any{"Name": "renamed-device"},
+			body:       map[string]any{"name": "renamed-device"},
 			name:       "rename device",
 			deviceID:   "hd-upd1",
 			wantName:   "renamed-device",
 			wantStatus: http.StatusOK,
 		},
 		{
-			body:       map[string]any{"Name": "x"},
+			body:       map[string]any{"name": "x"},
 			name:       "not found",
 			deviceID:   "hd-notfound",
 			wantStatus: http.StatusNotFound,

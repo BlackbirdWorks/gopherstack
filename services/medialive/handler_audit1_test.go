@@ -59,8 +59,8 @@ func createTestChannel(t *testing.T, h *medialive.Handler) string {
 	t.Helper()
 
 	rec := doRequest(t, h, http.MethodPost, "/prod/channels", map[string]any{
-		"Name":         "test-channel",
-		"ChannelClass": "STANDARD",
+		"name":         "test-channel",
+		"channelClass": "STANDARD",
 	})
 	require.Equal(t, http.StatusCreated, rec.Code)
 
@@ -75,16 +75,16 @@ func createTestInput(t *testing.T, h *medialive.Handler) string {
 	t.Helper()
 
 	rec := doRequest(t, h, http.MethodPost, "/prod/inputs", map[string]any{
-		"Name": "test-input",
-		"Type": "UDP_PUSH",
+		"name": "test-input",
+		"type": "UDP_PUSH",
 	})
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	inp := resp["Input"].(map[string]any)
+	inp := resp["input"].(map[string]any)
 
-	return inp["Id"].(string)
+	return inp["id"].(string)
 }
 
 func TestAudit1_Channel_Create(t *testing.T) {
@@ -98,7 +98,7 @@ func TestAudit1_Channel_Create(t *testing.T) {
 	}{
 		{
 			name:     "create returns channel with ARN and IDLE state",
-			body:     map[string]any{"Name": "my-channel", "ChannelClass": "STANDARD"},
+			body:     map[string]any{"name": "my-channel", "channelClass": "STANDARD"},
 			wantCode: http.StatusCreated,
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
@@ -150,7 +150,7 @@ func TestAudit1_Channel_CRUD(t *testing.T) {
 
 	// Update
 	rec = doRequest(t, h, http.MethodPut, "/prod/channels/"+channelID, map[string]any{
-		"Name": "updated-channel",
+		"name": "updated-channel",
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var updateResp map[string]any
@@ -253,26 +253,26 @@ func TestAudit1_Input_CRUD(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var descResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
-	assert.Equal(t, "test-input", descResp["Name"])
-	assert.Equal(t, "DETACHED", descResp["State"])
-	assert.Contains(t, descResp["Arn"], "arn:aws:medialive:us-east-1:000000000000:input:")
+	assert.Equal(t, "test-input", descResp["name"])
+	assert.Equal(t, "DETACHED", descResp["state"])
+	assert.Contains(t, descResp["arn"], "arn:aws:medialive:us-east-1:000000000000:input:")
 
 	// Update
 	rec = doRequest(t, h, http.MethodPut, "/prod/inputs/"+inputID, map[string]any{
-		"Name": "updated-input",
+		"name": "updated-input",
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var updateResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp))
-	inp := updateResp["Input"].(map[string]any)
-	assert.Equal(t, "updated-input", inp["Name"])
+	inp := updateResp["input"].(map[string]any)
+	assert.Equal(t, "updated-input", inp["name"])
 
 	// List
 	rec = doRequest(t, h, http.MethodGet, "/prod/inputs", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var listResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
-	assert.Len(t, listResp["Inputs"], 1)
+	assert.Len(t, listResp["inputs"], 1)
 
 	// Delete
 	rec = doRequest(t, h, http.MethodDelete, "/prod/inputs/"+inputID, nil)
@@ -420,7 +420,7 @@ func TestAudit1_ListInputs_Empty(t *testing.T) {
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Empty(t, resp["Inputs"])
+	assert.Empty(t, resp["inputs"])
 }
 
 func TestAudit1_ListInputSecurityGroups_Empty(t *testing.T) {

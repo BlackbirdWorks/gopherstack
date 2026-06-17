@@ -5,11 +5,11 @@ package comprehend_test
 // Covers:
 //   - StopJob terminal-state guard: COMPLETED/FAILED/STOPPED jobs reject Stop
 //     with InvalidRequestException (400).
-//   - Classifier/recognizer training lifecycle: Create starts SUBMITTED, first
-//     Describe advances to IN_PROGRESS, second Describe advances to TRAINED.
-//   - Delete training-resource guard: DeleteDocumentClassifier and
-//     DeleteEntityRecognizer return ResourceInUseException (400) when the
-//     resource is still in SUBMITTED or IN_PROGRESS state.
+//   - Classifier/recognizer training lifecycle: the emulator skips async
+//     training so classifiers/recognizers start immediately at TRAINED,
+//     allowing the Terraform provider waiter to exit without a long delay.
+//   - Delete training-resource: classifiers/recognizers start TRAINED so they
+//     can be deleted immediately (no SUBMITTED/IN_PROGRESS state guard needed).
 
 import (
 	"encoding/json"
@@ -166,19 +166,19 @@ func TestBatch2_TrainingResourceLifecycle(t *testing.T) {
 
 			h := b2Handler(t)
 
-			// Create → SUBMITTED.
+			// Create → immediately TRAINED (emulator skips async training).
 			createRec := b2Do(t, h, tc.createAction, tc.createBody)
 			require.Equal(t, http.StatusOK, createRec.Code)
 			arn := b2Unmarshal(t, createRec)[tc.arnField].(string)
 			require.NotEmpty(t, arn)
 
-			// First Describe → IN_PROGRESS.
+			// First Describe → still TRAINED (no lifecycle advancement needed).
 			desc1 := b2Do(t, h, tc.descAction, `{"`+tc.arnField+`":"`+arn+`"}`)
 			require.Equal(t, http.StatusOK, desc1.Code)
 			props1 := b2Unmarshal(t, desc1)[tc.propsField].(map[string]any)
-			assert.Equal(t, "IN_PROGRESS", props1["Status"])
+			assert.Equal(t, "TRAINED", props1["Status"])
 
-			// Second Describe → TRAINED.
+			// Second Describe → still TRAINED.
 			desc2 := b2Do(t, h, tc.descAction, `{"`+tc.arnField+`":"`+arn+`"}`)
 			require.Equal(t, http.StatusOK, desc2.Code)
 			props2 := b2Unmarshal(t, desc2)[tc.propsField].(map[string]any)
@@ -187,7 +187,7 @@ func TestBatch2_TrainingResourceLifecycle(t *testing.T) {
 	}
 }
 
-// --- Delete training-resource state guard ---
+// --- Delete training-resource: immediate deletion allowed ---
 
 func TestBatch2_DeleteTrainingResource_StateGuard(t *testing.T) {
 	t.Parallel()
@@ -196,41 +196,22 @@ func TestBatch2_DeleteTrainingResource_StateGuard(t *testing.T) {
 		name         string
 		createAction string
 		deleteAction string
-		descAction   string
 		arnField     string
 		createBody   string
 	}{
 		{
-			name:         "delete_classifier_while_submitted",
+			name:         "delete_classifier_immediately",
 			createAction: "CreateDocumentClassifier",
 			deleteAction: "DeleteDocumentClassifier",
-			descAction:   "DescribeDocumentClassifier",
 			arnField:     "DocumentClassifierArn",
 			createBody:   `{"DocumentClassifierName":"del-guard-clf","LanguageCode":"en"}`,
 		},
 		{
-			name:         "delete_classifier_while_in_progress",
-			createAction: "CreateDocumentClassifier",
-			deleteAction: "DeleteDocumentClassifier",
-			descAction:   "DescribeDocumentClassifier",
-			arnField:     "DocumentClassifierArn",
-			createBody:   `{"DocumentClassifierName":"del-guard-clf2","LanguageCode":"en"}`,
-		},
-		{
-			name:         "delete_recognizer_while_submitted",
+			name:         "delete_recognizer_immediately",
 			createAction: "CreateEntityRecognizer",
 			deleteAction: "DeleteEntityRecognizer",
-			descAction:   "DescribeEntityRecognizer",
 			arnField:     "EntityRecognizerArn",
 			createBody:   `{"RecognizerName":"del-guard-rec","LanguageCode":"en"}`,
-		},
-		{
-			name:         "delete_recognizer_while_in_progress",
-			createAction: "CreateEntityRecognizer",
-			deleteAction: "DeleteEntityRecognizer",
-			descAction:   "DescribeEntityRecognizer",
-			arnField:     "EntityRecognizerArn",
-			createBody:   `{"RecognizerName":"del-guard-rec2","LanguageCode":"en"}`,
 		},
 	}
 
@@ -240,31 +221,10 @@ func TestBatch2_DeleteTrainingResource_StateGuard(t *testing.T) {
 
 			h := b2Handler(t)
 
-			// Create resource.
+			// Create resource — immediately TRAINED, so delete succeeds right away.
 			createRec := b2Do(t, h, tc.createAction, tc.createBody)
 			require.Equal(t, http.StatusOK, createRec.Code)
 			arn := b2Unmarshal(t, createRec)[tc.arnField].(string)
-
-			// For "in_progress" cases, advance one step to IN_PROGRESS.
-			if strings.Contains(tc.name, "in_progress") {
-				b2Do(t, h, tc.descAction, `{"`+tc.arnField+`":"`+arn+`"}`)
-			}
-
-			// Delete while SUBMITTED or IN_PROGRESS must fail with ResourceInUseException.
-			rec := b2Do(t, h, tc.deleteAction, `{"`+tc.arnField+`":"`+arn+`"}`)
-			assert.Equal(t, http.StatusBadRequest, rec.Code)
-			resp := b2Unmarshal(t, rec)
-			assert.Equal(t, "ResourceInUseException", resp["__type"])
-
-			// Advance to TRAINED (all remaining lifecycle steps), then delete succeeds.
-			if strings.Contains(tc.name, "in_progress") {
-				// Already at IN_PROGRESS, one more Describe → TRAINED.
-				b2Do(t, h, tc.descAction, `{"`+tc.arnField+`":"`+arn+`"}`)
-			} else {
-				// At SUBMITTED, two Describes → TRAINED.
-				b2Do(t, h, tc.descAction, `{"`+tc.arnField+`":"`+arn+`"}`)
-				b2Do(t, h, tc.descAction, `{"`+tc.arnField+`":"`+arn+`"}`)
-			}
 
 			okRec := b2Do(t, h, tc.deleteAction, `{"`+tc.arnField+`":"`+arn+`"}`)
 			assert.Equal(t, http.StatusOK, okRec.Code)

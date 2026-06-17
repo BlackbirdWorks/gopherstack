@@ -298,8 +298,8 @@ func resourceOutput(spec operationSpec, resource *Resource) map[string]any {
 	output[spec.nameField] = resource.Name
 	output[spec.arnField] = resource.ARN
 	output["Status"] = resource.Status
-	output["CreationTime"] = resource.CreatedAt
-	output["LastModificationTime"] = resource.UpdatedAt
+	output["CreationTime"] = float64(resource.CreatedAt.Unix())
+	output["LastModificationTime"] = float64(resource.UpdatedAt.Unix())
 
 	return output
 }

@@ -15,7 +15,7 @@ func createTestMultiplex(t *testing.T, h *medialive.Handler) string {
 	t.Helper()
 
 	rec := doRequest(t, h, http.MethodPost, "/prod/multiplexes", map[string]any{
-		"Name":              "test-multiplex",
+		"name":              "test-multiplex",
 		"AvailabilityZones": []any{"us-east-1a", "us-east-1b"},
 		"MultiplexSettings": map[string]any{
 			"TransportStreamBitrate": 1000000,
@@ -43,7 +43,7 @@ func TestMultiplex_Create(t *testing.T) {
 		{
 			name: "create returns multiplex with ARN and IDLE state",
 			body: map[string]any{
-				"Name":              "my-multiplex",
+				"name":              "my-multiplex",
 				"AvailabilityZones": []any{"us-east-1a"},
 				"MultiplexSettings": map[string]any{
 					"TransportStreamBitrate": 2000000,
@@ -104,7 +104,7 @@ func TestMultiplex_CRUD(t *testing.T) {
 
 	// Update
 	rec = doRequest(t, h, http.MethodPut, "/prod/multiplexes/"+multiplexID, map[string]any{
-		"Name": "updated-multiplex",
+		"name": "updated-multiplex",
 		"MultiplexSettings": map[string]any{
 			"TransportStreamBitrate": 3000000,
 			"TransportStreamId":      2,

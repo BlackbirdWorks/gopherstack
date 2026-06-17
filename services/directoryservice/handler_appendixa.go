@@ -2404,7 +2404,7 @@ func (h *Handler) handleResetUserPassword(c *echo.Context) error {
 
 // --- ConnectDirectory ---
 
-func (h *Handler) handleConnectDirectory(c *echo.Context) error { //nolint:dupl // existing issue.
+func (h *Handler) handleConnectDirectory(c *echo.Context) error {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid body"))

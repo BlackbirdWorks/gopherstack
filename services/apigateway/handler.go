@@ -809,7 +809,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			strings.HasPrefix(path, "/apikeys") ||
 			strings.HasPrefix(path, "/domainnames") ||
 			strings.HasPrefix(path, "/usageplans") ||
-			strings.HasPrefix(path, "/account") ||
+			(path == "/account" || strings.HasPrefix(path, "/account/")) ||
 			strings.HasPrefix(path, "/"+apiGWSegClientCerts) {
 			return true
 		}
@@ -889,7 +889,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			strings.HasPrefix(path, "/apikeys") ||
 			strings.HasPrefix(path, "/domainnames") ||
 			strings.HasPrefix(path, "/usageplans") ||
-			strings.HasPrefix(path, "/account") ||
+			(path == "/account" || strings.HasPrefix(path, "/account/")) ||
 			strings.HasPrefix(path, "/"+apiGWSegClientCerts) ||
 			isAPIGWTagPath
 

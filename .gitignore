@@ -8,6 +8,7 @@
 main 
 **/main
 /gopherstack
+test/terraform/gopherstack
 /bin/
 .DS_Store
 coverage.html

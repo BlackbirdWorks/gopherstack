@@ -3479,6 +3479,11 @@ func (b *InMemoryBackend) AddPermission(functionName string, input *AddPermissio
 	b.mu.Lock("AddPermission")
 	defer b.mu.Unlock()
 
+	if strings.HasPrefix(functionName, "arn:aws:lambda:") {
+		parts := strings.Split(functionName, ":")
+		functionName = parts[len(parts)-1]
+	}
+
 	if _, ok := b.functions[functionName]; !ok {
 		return nil, ErrFunctionNotFound
 	}
@@ -3516,6 +3521,11 @@ func (b *InMemoryBackend) RemovePermission(functionName, statementID string) err
 	b.mu.Lock("RemovePermission")
 	defer b.mu.Unlock()
 
+	if strings.HasPrefix(functionName, "arn:aws:lambda:") {
+		parts := strings.Split(functionName, ":")
+		functionName = parts[len(parts)-1]
+	}
+
 	if _, ok := b.functions[functionName]; !ok {
 		return ErrFunctionNotFound
 	}
@@ -3538,6 +3548,11 @@ func (b *InMemoryBackend) RemovePermission(functionName, statementID string) err
 func (b *InMemoryBackend) GetPolicy(functionName string) (*GetPolicyOutput, error) {
 	b.mu.RLock("GetPolicy")
 	defer b.mu.RUnlock()
+
+	if strings.HasPrefix(functionName, "arn:aws:lambda:") {
+		parts := strings.Split(functionName, ":")
+		functionName = parts[len(parts)-1]
+	}
 
 	if _, ok := b.functions[functionName]; !ok {
 		return nil, ErrFunctionNotFound

@@ -217,10 +217,10 @@ type describeCollectionReq struct {
 }
 
 type describeCollectionResp struct {
-	CollectionARN     string `json:"CollectionARN"`
-	CreationTimestamp string `json:"CreationTimestamp"`
-	FaceModelVersion  string `json:"FaceModelVersion"`
-	FaceCount         int64  `json:"FaceCount"`
+	CollectionARN     string  `json:"CollectionARN"`
+	FaceModelVersion  string  `json:"FaceModelVersion"`
+	CreationTimestamp float64 `json:"CreationTimestamp"`
+	FaceCount         int64   `json:"FaceCount"`
 }
 
 func (h *Handler) handleDescribeCollection(
@@ -243,7 +243,7 @@ func (h *Handler) handleDescribeCollection(
 
 	return &describeCollectionResp{
 		CollectionARN:     coll.CollectionARN,
-		CreationTimestamp: coll.CreationTimestamp.Format("2006-01-02T15:04:05.000Z"),
+		CreationTimestamp: float64(coll.CreationTimestamp.Unix()),
 		FaceCount:         int64(len(faces)),
 		FaceModelVersion:  coll.FaceModelVersion,
 	}, nil
@@ -546,11 +546,11 @@ type describeStreamProcessorReq struct {
 }
 
 type describeStreamProcessorResp struct {
-	CreationTimestamp  string `json:"CreationTimestamp"`
-	Name               string `json:"Name"`
-	RoleArn            string `json:"RoleArn"`
-	Status             string `json:"Status"`
-	StreamProcessorArn string `json:"StreamProcessorArn"`
+	Name               string  `json:"Name"`
+	RoleArn            string  `json:"RoleArn"`
+	Status             string  `json:"Status"`
+	StreamProcessorArn string  `json:"StreamProcessorArn"`
+	CreationTimestamp  float64 `json:"CreationTimestamp"`
 }
 
 func (h *Handler) handleDescribeStreamProcessor(
@@ -567,7 +567,7 @@ func (h *Handler) handleDescribeStreamProcessor(
 	}
 
 	return &describeStreamProcessorResp{
-		CreationTimestamp:  proc.CreationTimestamp.Format("2006-01-02T15:04:05.000Z"),
+		CreationTimestamp:  float64(proc.CreationTimestamp.Unix()),
 		Name:               proc.Name,
 		RoleArn:            proc.RoleARN,
 		Status:             proc.Status,
