@@ -75,3 +75,15 @@ func (b *InMemoryBackend) GetParsedInsightsQueryCacheSize() int {
 
 // DefaultParsedQueryCacheSizeForTest exposes the default parsed-query cache cap.
 const DefaultParsedQueryCacheSizeForTest = defaultParsedQueryCacheSize
+
+// GetCompiledPatternCacheSize returns the number of entries in the compiled
+// metric-filter pattern cache.
+func (b *InMemoryBackend) GetCompiledPatternCacheSize() int {
+	b.compiledPatternsMu.RLock()
+	defer b.compiledPatternsMu.RUnlock()
+
+	return len(b.compiledPatterns)
+}
+
+// MaxCompiledPatternCacheForTest exposes the compiled-pattern cache cap.
+const MaxCompiledPatternCacheForTest = maxCompiledPatternCache
