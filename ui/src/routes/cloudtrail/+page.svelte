@@ -173,8 +173,8 @@
 		trailInsightSelectors = [];
 		try {
 			const [esRes, isRes] = await Promise.allSettled([
-				ct.send(new GetEventSelectorsCommand({ TrailName: trail.TrailARN })),
-				ct.send(new GetInsightSelectorsCommand({ TrailName: trail.TrailARN }))
+				ct().send(new GetEventSelectorsCommand({ TrailName: trail.TrailARN })),
+				ct().send(new GetInsightSelectorsCommand({ TrailName: trail.TrailARN }))
 			]);
 			if (esRes.status === 'fulfilled') {
 				trailEventSelectors = esRes.value.EventSelectors ?? [];

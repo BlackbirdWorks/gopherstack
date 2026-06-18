@@ -102,6 +102,17 @@ func (rc *ResourceCreator) deletePhase5Resource(
 		return true, err
 	}
 
+	if handled, err := rc.deletePhase5DataResource(ctx, resourceType, physicalID); handled {
+		return true, err
+	}
+
+	return rc.deletePhase5PlatformResource(ctx, resourceType, physicalID)
+}
+
+func (rc *ResourceCreator) deletePhase5DataResource(
+	ctx context.Context,
+	resourceType, physicalID string,
+) (bool, error) {
 	switch resourceType {
 	case "AWS::ApplicationAutoScaling::ScalableTarget":
 		return true, rc.deleteAppAutoScalingScalableTarget(physicalID)
@@ -111,7 +122,6 @@ func (rc *ResourceCreator) deletePhase5Resource(
 		"AWS::SecretsManager::SecretTargetAttachment",
 		"AWS::DynamoDB::GlobalTable",
 		"AWS::Glue::Partition":
-		// config-only or logical resources; nothing to delete
 		return true, nil
 	case "AWS::SSM::MaintenanceWindow":
 		return true, rc.deleteSSMMaintenanceWindow(ctx, physicalID)
@@ -135,7 +145,7 @@ func (rc *ResourceCreator) deletePhase5Resource(
 		return true, rc.deleteAppSyncAPIKey(physicalID)
 	}
 
-	return rc.deletePhase5PlatformResource(ctx, resourceType, physicalID)
+	return false, nil
 }
 
 // ---- CloudWatch Logs (LogStream, MetricFilter, SubscriptionFilter, ResourcePolicy, QueryDefinition) ----

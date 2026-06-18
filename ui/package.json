@@ -53,6 +53,7 @@
     "@aws-sdk/client-codedeploy": "3.1053.0",
     "@aws-sdk/client-codepipeline": "3.1053.0",
     "@aws-sdk/client-codestar-connections": "3.1053.0",
+    "@aws-sdk/client-cognito-identity": "3.1053.0",
     "@aws-sdk/client-cognito-identity-provider": "3.1053.0",
     "@aws-sdk/client-comprehend": "3.1053.0",
     "@aws-sdk/client-config-service": "3.1053.0",

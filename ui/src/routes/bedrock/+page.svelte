@@ -273,7 +273,7 @@
 		if (!model.modelArn) return;
 		loadingCustomDetail = true;
 		try {
-			const res = await bedrock.send(new GetCustomModelCommand({ modelIdentifier: model.modelArn }));
+			const res = await bedrock().send(new GetCustomModelCommand({ modelIdentifier: model.modelArn }));
 			customModelDetail = res as GetCustomModelResponse;
 		} catch (e) {
 			toast.error(`Failed to load custom model details: ${e}`);
