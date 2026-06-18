@@ -2649,10 +2649,6 @@ func classifyTagPath(method string) string {
 	return opUnknown
 }
 
-func isWrite(method string) bool {
-	return method == http.MethodPost || method == http.MethodPut
-}
-
 func containsSeg(segs []string, seg string) bool {
 	return slices.Contains(segs, seg)
 }

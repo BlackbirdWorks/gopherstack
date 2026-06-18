@@ -58,7 +58,7 @@ func TestBatch2Ops_StopEvaluationJob_AlreadyStopped_Rejected(t *testing.T) {
 
 			var errBody map[string]any
 			require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &errBody))
-			assert.Equal(t, "ValidationException", errBody["type"],
+			assert.Equal(t, "ValidationException", errBody["__type"],
 				"error type must be ValidationException")
 		})
 	}
@@ -124,7 +124,7 @@ func TestBatch2Ops_StopModelInvocationJob_AlreadyStopped_Rejected(t *testing.T) 
 
 			var errBody map[string]any
 			require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &errBody))
-			assert.Equal(t, "ValidationException", errBody["type"])
+			assert.Equal(t, "ValidationException", errBody["__type"])
 		})
 	}
 }

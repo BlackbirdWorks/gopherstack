@@ -13,6 +13,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
+// defaultIdleSessionTTLSeconds is the default agent idle session TTL (10 minutes),
+// matching the AWS Bedrock Agent default.
+const defaultIdleSessionTTLSeconds = 600
+
 // ---------------------------------------------------------------------------
 // Sentinel errors
 // ---------------------------------------------------------------------------
@@ -683,7 +687,7 @@ func (b *InMemoryBackend) CreateAgent(ctx context.Context, cfg AgentConfig) (*Ag
 		PromptOverrideConfiguration: map[string]any{
 			"promptConfigurations": []any{},
 		},
-		IdleSessionTTLInSeconds: 600,
+		IdleSessionTTLInSeconds: defaultIdleSessionTTLSeconds,
 		CreatedAt:               now,
 		UpdatedAt:               now,
 	}
