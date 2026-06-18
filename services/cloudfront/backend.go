@@ -279,6 +279,7 @@ type CachePolicy struct {
 
 // ConnectionFunction represents a CloudFront connection function.
 type ConnectionFunction struct {
+	ID      string `json:"id"`
 	ARN     string `json:"arn"`
 	Name    string `json:"name"`
 	Comment string `json:"comment,omitempty"`
@@ -480,8 +481,9 @@ type InMemoryBackend struct {
 	oaiCallerRefs                     map[string]string // CallerReference → OAI ID (idempotency)
 	anycastIPLists                    map[string]*AnycastIPList
 	cachePolicies                     map[string]*CachePolicy
-	cachePolicyByName                 map[string]string // name → policy ID (uniqueness)
-	connectionFunctions               map[string]*ConnectionFunction
+	cachePolicyByName                 map[string]string              // name → policy ID (uniqueness)
+	connectionFunctions               map[string]*ConnectionFunction // key: UUID id
+	connectionFunctionByName          map[string]string              // name → UUID id
 	connectionGroups                  map[string]*ConnectionGroup
 	continuousDeploymentPolicies      map[string]*ContinuousDeploymentPolicy
 	originAccessControls              map[string]*OriginAccessControl
@@ -518,6 +520,7 @@ type InMemoryBackend struct {
 	distributionTenants         map[string]*DistributionTenant // key: tenant ID
 	distributionTenantsByDomain map[string]string              // key: domain → tenant ID
 	tenantInvalidations         map[string][]*Invalidation     // key: tenantID
+	managedCertificates         map[string]*ManagedCertificate // key: tenant ID
 	// Audit batch additions.
 	keyValueStoreData map[string]map[string]string // KVS ID → key → value
 	keyValueDataETags map[string]string            // KVS ID → current data-plane ETag
@@ -546,6 +549,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		cachePolicies:                       make(map[string]*CachePolicy),
 		cachePolicyByName:                   make(map[string]string),
 		connectionFunctions:                 make(map[string]*ConnectionFunction),
+		connectionFunctionByName:            make(map[string]string),
 		connectionGroups:                    make(map[string]*ConnectionGroup),
 		continuousDeploymentPolicies:        make(map[string]*ContinuousDeploymentPolicy),
 		originAccessControls:                make(map[string]*OriginAccessControl),
@@ -580,6 +584,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		distributionTenants:                 make(map[string]*DistributionTenant),
 		distributionTenantsByDomain:         make(map[string]string),
 		tenantInvalidations:                 make(map[string][]*Invalidation),
+		managedCertificates:                 make(map[string]*ManagedCertificate),
 		keyValueStoreData:                   make(map[string]map[string]string),
 		keyValueDataETags:                   make(map[string]string),
 		invalidationReadyAt:                 make(map[string]map[string]time.Time),
@@ -677,6 +682,7 @@ func (b *InMemoryBackend) resetDistributions() {
 	b.cachePolicies = make(map[string]*CachePolicy)
 	b.cachePolicyByName = make(map[string]string)
 	b.connectionFunctions = make(map[string]*ConnectionFunction)
+	b.connectionFunctionByName = make(map[string]string)
 	b.connectionGroups = make(map[string]*ConnectionGroup)
 	b.continuousDeploymentPolicies = make(map[string]*ContinuousDeploymentPolicy)
 	b.originAccessControls = make(map[string]*OriginAccessControl)
@@ -694,6 +700,7 @@ func (b *InMemoryBackend) resetDistributions() {
 	b.distributionTenants = make(map[string]*DistributionTenant)
 	b.distributionTenantsByDomain = make(map[string]string)
 	b.tenantInvalidations = make(map[string][]*Invalidation)
+	b.managedCertificates = make(map[string]*ManagedCertificate)
 }
 
 // resetPoliciesAndKeys clears encryption, key, and store maps.
@@ -1323,11 +1330,13 @@ func (b *InMemoryBackend) CreateConnectionFunction(
 	id := generateID()
 	arn := fmt.Sprintf("arn:aws:cloudfront::%s:connection-function/%s", b.accountID, id)
 	fn := &ConnectionFunction{
+		ID:      id,
 		ARN:     arn,
 		Name:    name,
 		Comment: comment,
 	}
 	b.connectionFunctions[id] = fn
+	b.connectionFunctionByName[name] = id
 	cp := *fn
 
 	return &cp, nil

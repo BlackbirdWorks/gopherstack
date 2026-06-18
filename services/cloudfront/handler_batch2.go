@@ -349,13 +349,27 @@ func (h *Handler) handleVerifyDNSConfiguration(c *echo.Context) error {
 // GetManagedCertificateDetails handler
 // ---------------------------------------------------------------------------
 
-func (h *Handler) handleGetManagedCertificateDetails(c *echo.Context, _ string) error {
+func (h *Handler) handleGetManagedCertificateDetails(c *echo.Context, tenantID string) error {
+	cert, err := h.Backend.GetManagedCertificateDetails(tenantID)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	var sb strings.Builder
+	for _, vt := range cert.ValidationTokens {
+		fmt.Fprintf(&sb,
+			`<member><Domain>%s</Domain><ValidationStatus>%s</ValidationStatus></member>`,
+			vt.Domain, vt.ValidationStatus,
+		)
+	}
+	tokenXML := sb.String()
+
 	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
 		`<ManagedCertificateDetails xmlns="%s">`+
-		`<ValidationTokens/>`+
-		`<Status>SUCCESS</Status>`+
+		`<ValidationTokens>%s</ValidationTokens>`+
+		`<Status>%s</Status>`+
 		`</ManagedCertificateDetails>`,
-		cfNS)
+		cfNS, tokenXML, cert.Status)
 
 	return xmlResp(c, http.StatusOK, resp)
 }
@@ -552,12 +566,23 @@ func (h *Handler) handleListConflictingAliases(c *echo.Context) error {
 // ---------------------------------------------------------------------------
 
 func (h *Handler) handleListDomainConflicts(c *echo.Context) error {
+	domain := c.Request().URL.Query().Get("Domain")
+	conflicts := h.Backend.ListDomainConflicts(domain)
+
+	var sb strings.Builder
+	for _, conflict := range conflicts {
+		fmt.Fprintf(&sb,
+			`<member><Domain>%s</Domain><DistributionId>%s</DistributionId><AccountId>%s</AccountId></member>`,
+			conflict.Domain, conflict.DistributionID, conflict.AccountID,
+		)
+	}
+
 	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
 		`<DomainConflictList xmlns="%s">`+
-		`<Items/>`+
-		`<Quantity>0</Quantity>`+
+		`<Items>%s</Items>`+
+		`<Quantity>%d</Quantity>`+
 		`</DomainConflictList>`,
-		cfNS)
+		cfNS, sb.String(), len(conflicts))
 
 	return xmlResp(c, http.StatusOK, resp)
 }

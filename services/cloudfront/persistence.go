@@ -100,10 +100,34 @@ type backendIndexes struct {
 	keyGroupByName                    map[string]string
 	realtimeLogConfigByName           map[string]string
 	keyValueStoreByName               map[string]string
+	connectionFunctionByName          map[string]string
 }
 
 // rebuildIndexes derives all secondary indexes from a snapshot.
 func rebuildIndexes(snap *backendSnapshot) backendIndexes {
+	arnIndex, callerRefIndex := rebuildDistributionIndexes(snap)
+	oaiCallerRefIndex := rebuildOAIIndex(snap)
+	byName := rebuildByNameIndexes(snap)
+
+	return backendIndexes{
+		distributionARNs:                  arnIndex,
+		distributionCallerRefs:            callerRefIndex,
+		oaiCallerRefs:                     oaiCallerRefIndex,
+		cachePolicyByName:                 byName["cachePolicy"],
+		originAccessControlByName:         byName["oac"],
+		responseHeadersPolicyByName:       byName["rhp"],
+		originRequestPolicyByName:         byName["orp"],
+		fieldLevelEncryptionByName:        byName["fle"],
+		fieldLevelEncryptionProfileByName: byName["flep"],
+		publicKeyByName:                   byName["pk"],
+		keyGroupByName:                    byName["kg"],
+		realtimeLogConfigByName:           byName["rlc"],
+		keyValueStoreByName:               byName["kvs"],
+		connectionFunctionByName:          byName["cfn"],
+	}
+}
+
+func rebuildDistributionIndexes(snap *backendSnapshot) (map[string]string, map[string]string) {
 	arnIndex := make(map[string]string, len(snap.Distributions))
 	callerRefIndex := make(map[string]string, len(snap.Distributions))
 
@@ -114,6 +138,10 @@ func rebuildIndexes(snap *backendSnapshot) backendIndexes {
 		}
 	}
 
+	return arnIndex, callerRefIndex
+}
+
+func rebuildOAIIndex(snap *backendSnapshot) map[string]string {
 	oaiCallerRefIndex := make(map[string]string, len(snap.OAIs))
 
 	for id, oai := range snap.OAIs {
@@ -122,81 +150,59 @@ func rebuildIndexes(snap *backendSnapshot) backendIndexes {
 		}
 	}
 
-	cachePolicyByName := make(map[string]string, len(snap.CachePolicies))
+	return oaiCallerRefIndex
+}
+
+func rebuildByNameIndexes(snap *backendSnapshot) map[string]map[string]string {
+	result := map[string]map[string]string{
+		"cachePolicy": make(map[string]string, len(snap.CachePolicies)),
+		"oac":         make(map[string]string, len(snap.OriginAccessControls)),
+		"rhp":         make(map[string]string, len(snap.ResponseHeadersPolicies)),
+		"orp":         make(map[string]string, len(snap.OriginRequestPolicies)),
+		"fle":         make(map[string]string, len(snap.FieldLevelEncryptions)),
+		"flep":        make(map[string]string, len(snap.FieldLevelEncryptionProfiles)),
+		"pk":          make(map[string]string, len(snap.PublicKeys)),
+		"kg":          make(map[string]string, len(snap.KeyGroups)),
+		"rlc":         make(map[string]string, len(snap.RealtimeLogConfigs)),
+		"kvs":         make(map[string]string, len(snap.KeyValueStores)),
+		"cfn":         make(map[string]string, len(snap.ConnectionFunctions)),
+	}
 
 	for id, cp := range snap.CachePolicies {
-		cachePolicyByName[cp.Name] = id
+		result["cachePolicy"][cp.Name] = id
 	}
-
-	oacByName := make(map[string]string, len(snap.OriginAccessControls))
-
 	for id, oac := range snap.OriginAccessControls {
-		oacByName[oac.Name] = id
+		result["oac"][oac.Name] = id
 	}
-
-	rhpByName := make(map[string]string, len(snap.ResponseHeadersPolicies))
-
 	for id, p := range snap.ResponseHeadersPolicies {
-		rhpByName[p.Name] = id
+		result["rhp"][p.Name] = id
 	}
-
-	orpByName := make(map[string]string, len(snap.OriginRequestPolicies))
-
 	for id, p := range snap.OriginRequestPolicies {
-		orpByName[p.Name] = id
+		result["orp"][p.Name] = id
 	}
-
-	fleByName := make(map[string]string, len(snap.FieldLevelEncryptions))
-
 	for id, fle := range snap.FieldLevelEncryptions {
-		fleByName[fle.Name] = id
+		result["fle"][fle.Name] = id
 	}
-
-	flePByName := make(map[string]string, len(snap.FieldLevelEncryptionProfiles))
-
 	for id, p := range snap.FieldLevelEncryptionProfiles {
-		flePByName[p.Name] = id
+		result["flep"][p.Name] = id
 	}
-
-	pkByName := make(map[string]string, len(snap.PublicKeys))
-
 	for id, pk := range snap.PublicKeys {
-		pkByName[pk.Name] = id
+		result["pk"][pk.Name] = id
 	}
-
-	kgByName := make(map[string]string, len(snap.KeyGroups))
-
 	for id, kg := range snap.KeyGroups {
-		kgByName[kg.Name] = id
+		result["kg"][kg.Name] = id
 	}
-
-	rlcByName := make(map[string]string, len(snap.RealtimeLogConfigs))
-
 	for arn, rlc := range snap.RealtimeLogConfigs {
-		rlcByName[rlc.Name] = arn
+		result["rlc"][rlc.Name] = arn
 	}
-
-	kvsByName := make(map[string]string, len(snap.KeyValueStores))
-
 	for id, kvs := range snap.KeyValueStores {
-		kvsByName[kvs.Name] = id
+		result["kvs"][kvs.Name] = id
+	}
+	for id, fn := range snap.ConnectionFunctions {
+		result["cfn"][fn.Name] = id
 	}
 
-	return backendIndexes{
-		distributionARNs:                  arnIndex,
-		distributionCallerRefs:            callerRefIndex,
-		oaiCallerRefs:                     oaiCallerRefIndex,
-		cachePolicyByName:                 cachePolicyByName,
-		originAccessControlByName:         oacByName,
-		responseHeadersPolicyByName:       rhpByName,
-		originRequestPolicyByName:         orpByName,
-		fieldLevelEncryptionByName:        fleByName,
-		fieldLevelEncryptionProfileByName: flePByName,
-		publicKeyByName:                   pkByName,
-		keyGroupByName:                    kgByName,
-		realtimeLogConfigByName:           rlcByName,
-		keyValueStoreByName:               kvsByName,
-	}
+	return result
 }
 
 func (b *InMemoryBackend) Restore(data []byte) error {
@@ -249,6 +255,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.keyGroupByName = idx.keyGroupByName
 	b.realtimeLogConfigByName = idx.realtimeLogConfigByName
 	b.keyValueStoreByName = idx.keyValueStoreByName
+	b.connectionFunctionByName = idx.connectionFunctionByName
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
