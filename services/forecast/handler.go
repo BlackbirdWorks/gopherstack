@@ -26,6 +26,8 @@ const (
 	modeList     operationMode = "list"
 	modeDelete   operationMode = "delete"
 	modeUpdate   operationMode = "update"
+
+	defaultListPageSize = 100
 )
 
 type operationSpec struct {
@@ -321,11 +323,12 @@ func listOutput(spec operationSpec, resources []*Resource, input map[string]any)
 		summaries = append(summaries, resourceOutput(spec, r))
 	}
 
-	pg := page.New(summaries, nextToken, maxResults, 100)
+	pg := page.New(summaries, nextToken, maxResults, defaultListPageSize)
 	out := map[string]any{spec.listField: pg.Data}
 	if pg.Next != "" {
 		out["NextToken"] = pg.Next
 	}
+
 	return out
 }
 

@@ -20,6 +20,9 @@ import (
 
 const (
 	keyMessageField = "message"
+
+	defaultPageSizeSmall = 10
+	defaultPageSizeLarge = 100
 )
 
 const resolverTargetPrefix = "Route53Resolver."
@@ -274,12 +277,14 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 			Type:    "InvalidParameterException",
 			Message: err.Error(),
 		})
+
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, ErrValidation):
 		payload, _ := json.Marshal(service.JSONErrorResponse{
 			Type:    "InvalidRequestException",
 			Message: err.Error(),
 		})
+
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
@@ -387,8 +392,8 @@ type createResolverEndpointOutput struct {
 type deleteResolverEndpointOutput struct{}
 
 type listResolverEndpointsInput struct {
-	MaxResults int32  `json:"MaxResults"`
 	NextToken  string `json:"NextToken"`
+	MaxResults int32  `json:"MaxResults"`
 }
 
 type listResolverEndpointsOutput struct {
@@ -411,8 +416,8 @@ type getResolverRuleOutput struct {
 type deleteResolverRuleOutput struct{}
 
 type listResolverRulesInput struct {
-	MaxResults int32  `json:"MaxResults"`
 	NextToken  string `json:"NextToken"`
+	MaxResults int32  `json:"MaxResults"`
 }
 
 type listResolverRulesOutput struct {
@@ -541,11 +546,12 @@ func (h *Handler) handleListResolverEndpoints(
 		items = append(items, endpointToOutput(ep))
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
-	pg := page.New(items, in.NextToken, int(in.MaxResults), 10)
+	pg := page.New(items, in.NextToken, int(in.MaxResults), defaultPageSizeSmall)
 	out := &listResolverEndpointsOutput{ResolverEndpoints: pg.Data}
 	if pg.Next != "" {
 		out.NextToken = &pg.Next
 	}
+
 	return out, nil
 }
 
@@ -653,11 +659,12 @@ func (h *Handler) handleListResolverRules(
 		items = append(items, ruleToOutput(r))
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
-	pg := page.New(items, in.NextToken, int(in.MaxResults), 10)
+	pg := page.New(items, in.NextToken, int(in.MaxResults), defaultPageSizeSmall)
 	out := &listResolverRulesOutput{ResolverRules: pg.Data}
 	if pg.Next != "" {
 		out.NextToken = &pg.Next
 	}
+
 	return out, nil
 }
 
@@ -1484,8 +1491,8 @@ func (h *Handler) handleUpdateFirewallRule(
 
 type listFirewallRulesInput struct {
 	FirewallRuleGroupID string `json:"FirewallRuleGroupId"`
-	MaxResults          int32  `json:"MaxResults"`
 	NextToken           string `json:"NextToken"`
+	MaxResults          int32  `json:"MaxResults"`
 }
 
 type listFirewallRulesOutput struct {
@@ -1503,11 +1510,12 @@ func (h *Handler) handleListFirewallRules(
 		items = append(items, firewallRuleToOutput(r))
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
-	pg := page.New(items, in.NextToken, int(in.MaxResults), 100)
+	pg := page.New(items, in.NextToken, int(in.MaxResults), defaultPageSizeLarge)
 	out := &listFirewallRulesOutput{FirewallRules: pg.Data}
 	if pg.Next != "" {
 		out.NextToken = &pg.Next
 	}
+
 	return out, nil
 }
 
@@ -1564,8 +1572,8 @@ func (h *Handler) handleGetFirewallRuleGroup(
 // --- ListFirewallRuleGroups ---
 
 type listFirewallRuleGroupsInput struct {
-	MaxResults int32  `json:"MaxResults"`
 	NextToken  string `json:"NextToken"`
+	MaxResults int32  `json:"MaxResults"`
 }
 
 type listFirewallRuleGroupsOutput struct {
@@ -1583,11 +1591,12 @@ func (h *Handler) handleListFirewallRuleGroups(
 		items = append(items, firewallRuleGroupToOutput(g))
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
-	pg := page.New(items, in.NextToken, int(in.MaxResults), 100)
+	pg := page.New(items, in.NextToken, int(in.MaxResults), defaultPageSizeLarge)
 	out := &listFirewallRuleGroupsOutput{FirewallRuleGroups: pg.Data}
 	if pg.Next != "" {
 		out.NextToken = &pg.Next
 	}
+
 	return out, nil
 }
 
@@ -1776,8 +1785,8 @@ func (h *Handler) handleGetFirewallDomainList(
 // --- ListFirewallDomainLists ---
 
 type listFirewallDomainListsInput struct {
-	MaxResults int32  `json:"MaxResults"`
 	NextToken  string `json:"NextToken"`
+	MaxResults int32  `json:"MaxResults"`
 }
 
 type listFirewallDomainListsOutput struct {
@@ -1795,11 +1804,12 @@ func (h *Handler) handleListFirewallDomainLists(
 		items = append(items, firewallDomainListToOutput(dl))
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
-	pg := page.New(items, in.NextToken, int(in.MaxResults), 100)
+	pg := page.New(items, in.NextToken, int(in.MaxResults), defaultPageSizeLarge)
 	out := &listFirewallDomainListsOutput{FirewallDomainLists: pg.Data}
 	if pg.Next != "" {
 		out.NextToken = &pg.Next
 	}
+
 	return out, nil
 }
 

@@ -12,6 +12,8 @@ import (
 const (
 	keyStartTime = "StartTime"
 	keyEndTime   = "EndTime"
+
+	defaultTracesPageSize = 100
 )
 
 // --- GetServiceGraph ---
@@ -164,7 +166,7 @@ func (h *Handler) handleListRetrievedTraces(_ context.Context, body []byte) ([]b
 		})
 	}
 
-	pg := page.New(traceViews, in.NextToken, in.MaxResults, 100)
+	pg := page.New(traceViews, in.NextToken, in.MaxResults, defaultTracesPageSize)
 	resp := map[string]any{
 		"RetrievalStatus": status,
 		"Traces":          pg.Data,

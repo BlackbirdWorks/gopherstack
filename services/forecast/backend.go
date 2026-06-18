@@ -199,12 +199,13 @@ func (b *InMemoryBackend) describe(kind resourceKind, nameOrARN string) (*Resour
 		return nil, fmt.Errorf("%w: %s %q", ErrNotFound, kind, nameOrARN)
 	}
 
+	result := cloneResource(resource)
 	if resource.Status == statusCreatePending {
 		resource.Status = statusActive
 		resource.UpdatedAt = time.Now().UTC()
 	}
 
-	return cloneResource(resource), nil
+	return result, nil
 }
 
 func (b *InMemoryBackend) update(kind resourceKind, nameOrARN string, data map[string]any) (*Resource, error) {

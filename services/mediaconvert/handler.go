@@ -17,6 +17,8 @@ import (
 
 const (
 	opUnknown = "Unknown"
+
+	defaultJobsPageSize = 20
 )
 
 const (
@@ -863,7 +865,7 @@ func (h *Handler) handleListJobs(c *echo.Context) error {
 	}
 
 	nextTokenIn := q.Get("nextToken")
-	pg := page.New(jobs, nextTokenIn, maxResults, 20)
+	pg := page.New(jobs, nextTokenIn, maxResults, defaultJobsPageSize)
 
 	out := jobsListOutput{Jobs: pg.Data, TotalCount: len(jobs)}
 	if pg.Next != "" {
@@ -1265,7 +1267,7 @@ func (h *Handler) handleSearchJobs(c *echo.Context) error {
 	}
 
 	nextTokenIn := q.Get("nextToken")
-	pg := page.New(filtered, nextTokenIn, maxResults, 20)
+	pg := page.New(filtered, nextTokenIn, maxResults, defaultJobsPageSize)
 
 	out := searchJobsOutput{Jobs: pg.Data}
 	if pg.Next != "" {

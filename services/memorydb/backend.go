@@ -57,6 +57,10 @@ const (
 	snapshotStatusAvailable = "available"
 	// multiRegionClusterStatusAvailable is the status for a running multi-region cluster.
 	multiRegionClusterStatusAvailable = "available"
+	// snsTopicStatusActive is the active value for SnsTopicStatus on a cluster.
+	snsTopicStatusActive = "active"
+	// snsTopicStatusInactive is the inactive value for SnsTopicStatus on a cluster.
+	snsTopicStatusInactive = "inactive"
 	// maxEvents is the maximum number of events retained in memory.
 	maxEvents = 1000
 
@@ -1073,11 +1077,18 @@ func validateUpdateClusterRequest(req *updateClusterRequest) error {
 	}
 
 	if req.SnsTopicStatus != "" {
-		switch req.SnsTopicStatus {
-		case "active", "inactive":
-		default:
-			return fmt.Errorf("invalid SnsTopicStatus %q, must be active or inactive: %w", req.SnsTopicStatus, ErrValidation)
+		if err := validateSnsTopicStatus(req.SnsTopicStatus); err != nil {
+			return err
 		}
+	}
+
+	return nil
+}
+
+func validateSnsTopicStatus(s string) error {
+	if s != snsTopicStatusActive && s != snsTopicStatusInactive {
+		return fmt.Errorf("invalid SnsTopicStatus %q, must be %s or %s: %w",
+			s, snsTopicStatusActive, snsTopicStatusInactive, ErrValidation)
 	}
 
 	return nil

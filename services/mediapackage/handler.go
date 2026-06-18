@@ -748,7 +748,9 @@ func (h *Handler) handleListHarvestJobs(c *echo.Context) error {
 	includeStatus := c.QueryParam("includeStatus")
 
 	maxResults := parseMediaPkgMaxResults(c.QueryParam("maxResults"))
-	jobs, nextToken, err := h.Backend.ListHarvestJobs(includeChannelID, includeStatus, maxResults, c.QueryParam("nextToken"))
+	jobs, nextToken, err := h.Backend.ListHarvestJobs(
+		includeChannelID, includeStatus, maxResults, c.QueryParam("nextToken"),
+	)
 	if err != nil {
 		return h.mapError(c, err)
 	}
@@ -840,5 +842,6 @@ func parseMediaPkgMaxResults(s string) int {
 	if err != nil || n < 0 {
 		return 0
 	}
+
 	return n
 }

@@ -224,7 +224,8 @@ func setSessionResponseHeader(c *echo.Context, backend *InMemoryBackend, endpoin
 	}
 
 	session := backend.StartSession(endpointName)
-	c.Response().Header().Set(headerNewSessionID, session.ID+"; Expires="+session.ExpiresAt.UTC().Format("Mon, 02 Jan 2006 15:04:05 GMT"))
+	expires := session.ExpiresAt.UTC().Format("Mon, 02 Jan 2006 15:04:05 GMT")
+	c.Response().Header().Set(headerNewSessionID, session.ID+"; Expires="+expires)
 }
 
 func setForwardedHeader(c *echo.Context, header string) {

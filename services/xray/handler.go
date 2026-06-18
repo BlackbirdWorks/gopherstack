@@ -20,6 +20,8 @@ import (
 
 const (
 	keyTypeField = "__type"
+
+	defaultResourcePoliciesPageSize = 25
 )
 
 const (
@@ -1577,11 +1579,8 @@ func (h *Handler) handleListResourcePolicies(_ context.Context, body []byte) ([]
 		views = append(views, toResourcePolicyView(&policies[i]))
 	}
 
-	pg := page.New(views, in.NextToken, in.MaxResults, 25)
-	resp := map[string]any{"ResourcePolicies": pg.Data}
-	if pg.Next != "" {
-		resp[keyNextToken] = pg.Next
-	}
+	pg := page.New(views, in.NextToken, in.MaxResults, defaultResourcePoliciesPageSize)
+	resp := map[string]any{"ResourcePolicies": pg.Data, keyNextToken: pg.Next}
 
 	return json.Marshal(resp)
 }
