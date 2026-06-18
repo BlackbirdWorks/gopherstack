@@ -81,3 +81,35 @@ func (b *InMemoryBackend) ConnectionCount() int {
 
 	return sumRegions(b.connections)
 }
+
+// FleetAdvisorCollectorByIDCount returns entries in the fleetAdvisorCollectorsByID index. Used only in tests.
+func (b *InMemoryBackend) FleetAdvisorCollectorByIDCount() int {
+	b.mu.RLock("FleetAdvisorCollectorByIDCount")
+	defer b.mu.RUnlock()
+
+	return sumRegions(b.fleetAdvisorCollectorsByID)
+}
+
+// DataMigrationByARNCount returns entries in the dataMigrationsByARN index. Used only in tests.
+func (b *InMemoryBackend) DataMigrationByARNCount() int {
+	b.mu.RLock("DataMigrationByARNCount")
+	defer b.mu.RUnlock()
+
+	return sumRegions(b.dataMigrationsByARN)
+}
+
+// DataProviderByARNCount returns entries in the dataProvidersByARN index. Used only in tests.
+func (b *InMemoryBackend) DataProviderByARNCount() int {
+	b.mu.RLock("DataProviderByARNCount")
+	defer b.mu.RUnlock()
+
+	return sumRegions(b.dataProvidersByARN)
+}
+
+// InstanceProfileByARNCount returns entries in the instanceProfilesByARN index. Used only in tests.
+func (b *InMemoryBackend) InstanceProfileByARNCount() int {
+	b.mu.RLock("InstanceProfileByARNCount")
+	defer b.mu.RUnlock()
+
+	return sumRegions(b.instanceProfilesByARN)
+}
