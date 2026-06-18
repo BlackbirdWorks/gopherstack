@@ -6,5 +6,9 @@ func (b *InMemoryBackend) TimerCountForTest() int {
 	b.mu.RLock("TimerCountForTest")
 	defer b.mu.RUnlock()
 
-	return len(b.timers)
+	total := 0
+	for _, regionTimers := range b.timers {
+		total += len(regionTimers)
+	}
+	return total
 }
