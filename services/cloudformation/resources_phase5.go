@@ -1736,7 +1736,7 @@ func (rc *ResourceCreator) createEventsConnection(
 
 	authType := strProp(props, "AuthorizationType", params, physicalIDs)
 	if authType == "" {
-		authType = "API_KEY"
+		authType = cfnKeyTypeAPIKey
 	}
 
 	conn, err := rc.backends.EventBridge.Backend.CreateConnection(ctx, ebbackend.CreateConnectionInput{
@@ -1753,7 +1753,7 @@ func (rc *ResourceCreator) createEventsConnection(
 }
 
 func defaultConnectionAuthParameters(authType string) *ebbackend.ConnectionAuthParameters {
-	if authType == "API_KEY" {
+	if authType == cfnKeyTypeAPIKey {
 		return &ebbackend.ConnectionAuthParameters{
 			APIKeyAuthParameters: &ebbackend.ConnectionAPIKeyAuthParameters{
 				APIKeyName:  "x-api-key",

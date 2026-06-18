@@ -6,8 +6,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	"github.com/blackbirdworks/gopherstack/services/cloudformation"
+	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 )
@@ -35,7 +35,11 @@ func TestResourceCreator_Phase6Types_NilBackends(t *testing.T) {
 	}{
 		{
 			name: "apigw_model", logicalID: "Model", resourceType: "AWS::ApiGateway::Model",
-			props: map[string]any{"RestApiId": "api-1", "Name": "MyModel", "ContentType": "application/json"},
+			props: map[string]any{
+				"RestApiId":   "api-1",
+				"Name":        "MyModel",
+				"ContentType": "application/json",
+			},
 		},
 		{
 			name: "apigw_request_validator", logicalID: "Validator", resourceType: "AWS::ApiGateway::RequestValidator",
@@ -79,7 +83,11 @@ func TestResourceCreator_Phase6Types_NilBackends(t *testing.T) {
 		},
 		{
 			name: "apigwv2_api_mapping", logicalID: "Mapping", resourceType: "AWS::ApiGatewayV2::ApiMapping",
-			props: map[string]any{"DomainName": "ws.example.com", "ApiId": "api-2", "Stage": "$default"},
+			props: map[string]any{
+				"DomainName": "ws.example.com",
+				"ApiId":      "api-2",
+				"Stage":      "$default",
+			},
 		},
 		{
 			name: "events_api_destination", logicalID: "Dest", resourceType: "AWS::Events::ApiDestination",
@@ -100,7 +108,10 @@ func TestResourceCreator_Phase6Types_NilBackends(t *testing.T) {
 		},
 		{
 			name: "cognito_identity_pool", logicalID: "Pool", resourceType: "AWS::Cognito::IdentityPool",
-			props: map[string]any{"IdentityPoolName": "MyPool", "AllowUnauthenticatedIdentities": false},
+			props: map[string]any{
+				"IdentityPoolName":               "MyPool",
+				"AllowUnauthenticatedIdentities": false,
+			},
 		},
 		{
 			name: "cognito_identity_pool_role_attachment", logicalID: "Roles", resourceType: "AWS::Cognito::IdentityPoolRoleAttachment",
@@ -124,7 +135,12 @@ func TestResourceCreator_Phase6Types_NilBackends(t *testing.T) {
 		},
 		{
 			name: "ec2_network_acl_entry", logicalID: "Entry", resourceType: "AWS::EC2::NetworkAclEntry",
-			props: map[string]any{"NetworkAclId": "acl-1", "RuleNumber": float64(100), "Protocol": "-1", "RuleAction": "allow"},
+			props: map[string]any{
+				"NetworkAclId": "acl-1",
+				"RuleNumber":   float64(100),
+				"Protocol":     "-1",
+				"RuleAction":   "allow",
+			},
 		},
 		{
 			name: "ec2_key_pair", logicalID: "KP", resourceType: "AWS::EC2::KeyPair",
@@ -132,7 +148,12 @@ func TestResourceCreator_Phase6Types_NilBackends(t *testing.T) {
 		},
 		{
 			name: "ec2_security_group_ingress", logicalID: "SGI", resourceType: "AWS::EC2::SecurityGroupIngress",
-			props: map[string]any{"GroupId": "sg-1", "IpProtocol": "tcp", "FromPort": float64(80), "ToPort": float64(80)},
+			props: map[string]any{
+				"GroupId":    "sg-1",
+				"IpProtocol": "tcp",
+				"FromPort":   float64(80),
+				"ToPort":     float64(80),
+			},
 		},
 		{
 			name: "ec2_security_group_egress", logicalID: "SGE", resourceType: "AWS::EC2::SecurityGroupEgress",
@@ -148,7 +169,10 @@ func TestResourceCreator_Phase6Types_NilBackends(t *testing.T) {
 				"ListenerArn": "arn:aws:elasticloadbalancing:::listener/l-1",
 				"Priority":    "10",
 				"Actions": []any{
-					map[string]any{"Type": "forward", "TargetGroupArn": "arn:aws:elasticloadbalancing:::targetgroup/tg"},
+					map[string]any{
+						"Type":           "forward",
+						"TargetGroupArn": "arn:aws:elasticloadbalancing:::targetgroup/tg",
+					},
 				},
 			},
 		},
@@ -270,7 +294,10 @@ func TestResourceCreator_Phase6_KMSReplicaKey(t *testing.T) {
 	require.True(t, ok)
 
 	// Create a primary key.
-	keyOut, err := kmsb.CreateKey(t.Context(), &kmsbackend.CreateKeyInput{Description: "primary"})
+	keyOut, err := kmsb.CreateKey(
+		t.Context(),
+		&kmsbackend.CreateKeyInput{Description: "primary", MultiRegion: true},
+	)
 	require.NoError(t, err)
 
 	rc := cloudformation.NewResourceCreator(backends)
