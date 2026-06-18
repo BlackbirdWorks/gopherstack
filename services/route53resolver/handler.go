@@ -13,6 +13,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -268,8 +269,18 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		})
 
 		return c.JSONBlob(http.StatusNotFound, payload)
+	case errors.Is(err, ErrInvalidParameter):
+		payload, _ := json.Marshal(service.JSONErrorResponse{
+			Type:    "InvalidParameterException",
+			Message: err.Error(),
+		})
+		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, ErrValidation):
-		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: err.Error()})
+		payload, _ := json.Marshal(service.JSONErrorResponse{
+			Type:    "InvalidRequestException",
+			Message: err.Error(),
+		})
+		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: err.Error()})
@@ -375,7 +386,10 @@ type createResolverEndpointOutput struct {
 
 type deleteResolverEndpointOutput struct{}
 
-type listResolverEndpointsInput struct{}
+type listResolverEndpointsInput struct {
+	MaxResults int32  `json:"MaxResults"`
+	NextToken  string `json:"NextToken"`
+}
 
 type listResolverEndpointsOutput struct {
 	NextToken         *string                  `json:"NextToken,omitempty"`
@@ -396,7 +410,10 @@ type getResolverRuleOutput struct {
 
 type deleteResolverRuleOutput struct{}
 
-type listResolverRulesInput struct{}
+type listResolverRulesInput struct {
+	MaxResults int32  `json:"MaxResults"`
+	NextToken  string `json:"NextToken"`
+}
 
 type listResolverRulesOutput struct {
 	NextToken     *string              `json:"NextToken,omitempty"`
@@ -516,15 +533,20 @@ func (h *Handler) handleDeleteResolverEndpoint(
 
 func (h *Handler) handleListResolverEndpoints(
 	ctx context.Context,
-	_ *listResolverEndpointsInput,
+	in *listResolverEndpointsInput,
 ) (*listResolverEndpointsOutput, error) {
 	eps := h.Backend.ListResolverEndpoints(ctx)
 	items := make([]resolverEndpointOutput, 0, len(eps))
 	for _, ep := range eps {
 		items = append(items, endpointToOutput(ep))
 	}
-
-	return &listResolverEndpointsOutput{ResolverEndpoints: items}, nil
+	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
+	pg := page.New(items, in.NextToken, int(in.MaxResults), 10)
+	out := &listResolverEndpointsOutput{ResolverEndpoints: pg.Data}
+	if pg.Next != "" {
+		out.NextToken = &pg.Next
+	}
+	return out, nil
 }
 
 func (h *Handler) handleGetResolverEndpoint(
@@ -623,15 +645,20 @@ func (h *Handler) handleDeleteResolverRule(
 
 func (h *Handler) handleListResolverRules(
 	ctx context.Context,
-	_ *listResolverRulesInput,
+	in *listResolverRulesInput,
 ) (*listResolverRulesOutput, error) {
 	rules := h.Backend.ListResolverRules(ctx)
 	items := make([]resolverRuleOutput, 0, len(rules))
 	for _, r := range rules {
 		items = append(items, ruleToOutput(r))
 	}
-
-	return &listResolverRulesOutput{ResolverRules: items}, nil
+	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
+	pg := page.New(items, in.NextToken, int(in.MaxResults), 10)
+	out := &listResolverRulesOutput{ResolverRules: pg.Data}
+	if pg.Next != "" {
+		out.NextToken = &pg.Next
+	}
+	return out, nil
 }
 
 type listTagsForResourceInput struct {
@@ -1457,9 +1484,12 @@ func (h *Handler) handleUpdateFirewallRule(
 
 type listFirewallRulesInput struct {
 	FirewallRuleGroupID string `json:"FirewallRuleGroupId"`
+	MaxResults          int32  `json:"MaxResults"`
+	NextToken           string `json:"NextToken"`
 }
 
 type listFirewallRulesOutput struct {
+	NextToken     *string              `json:"NextToken,omitempty"`
 	FirewallRules []firewallRuleOutput `json:"FirewallRules"`
 }
 
@@ -1472,8 +1502,13 @@ func (h *Handler) handleListFirewallRules(
 	for _, r := range rules {
 		items = append(items, firewallRuleToOutput(r))
 	}
-
-	return &listFirewallRulesOutput{FirewallRules: items}, nil
+	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
+	pg := page.New(items, in.NextToken, int(in.MaxResults), 100)
+	out := &listFirewallRulesOutput{FirewallRules: pg.Data}
+	if pg.Next != "" {
+		out.NextToken = &pg.Next
+	}
+	return out, nil
 }
 
 // --- DeleteFirewallRuleGroup ---
@@ -1528,7 +1563,10 @@ func (h *Handler) handleGetFirewallRuleGroup(
 
 // --- ListFirewallRuleGroups ---
 
-type listFirewallRuleGroupsInput struct{}
+type listFirewallRuleGroupsInput struct {
+	MaxResults int32  `json:"MaxResults"`
+	NextToken  string `json:"NextToken"`
+}
 
 type listFirewallRuleGroupsOutput struct {
 	NextToken          *string                   `json:"NextToken,omitempty"`
@@ -1537,15 +1575,20 @@ type listFirewallRuleGroupsOutput struct {
 
 func (h *Handler) handleListFirewallRuleGroups(
 	ctx context.Context,
-	_ *listFirewallRuleGroupsInput,
+	in *listFirewallRuleGroupsInput,
 ) (*listFirewallRuleGroupsOutput, error) {
 	groups := h.Backend.ListFirewallRuleGroups(ctx)
 	items := make([]firewallRuleGroupOutput, 0, len(groups))
 	for _, g := range groups {
 		items = append(items, firewallRuleGroupToOutput(g))
 	}
-
-	return &listFirewallRuleGroupsOutput{FirewallRuleGroups: items}, nil
+	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
+	pg := page.New(items, in.NextToken, int(in.MaxResults), 100)
+	out := &listFirewallRuleGroupsOutput{FirewallRuleGroups: pg.Data}
+	if pg.Next != "" {
+		out.NextToken = &pg.Next
+	}
+	return out, nil
 }
 
 // --- GetFirewallRuleGroupPolicy ---
@@ -1732,7 +1775,10 @@ func (h *Handler) handleGetFirewallDomainList(
 
 // --- ListFirewallDomainLists ---
 
-type listFirewallDomainListsInput struct{}
+type listFirewallDomainListsInput struct {
+	MaxResults int32  `json:"MaxResults"`
+	NextToken  string `json:"NextToken"`
+}
 
 type listFirewallDomainListsOutput struct {
 	NextToken           *string                    `json:"NextToken,omitempty"`
@@ -1741,15 +1787,20 @@ type listFirewallDomainListsOutput struct {
 
 func (h *Handler) handleListFirewallDomainLists(
 	ctx context.Context,
-	_ *listFirewallDomainListsInput,
+	in *listFirewallDomainListsInput,
 ) (*listFirewallDomainListsOutput, error) {
 	lists := h.Backend.ListFirewallDomainLists(ctx)
 	items := make([]firewallDomainListOutput, 0, len(lists))
 	for _, dl := range lists {
 		items = append(items, firewallDomainListToOutput(dl))
 	}
-
-	return &listFirewallDomainListsOutput{FirewallDomainLists: items}, nil
+	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
+	pg := page.New(items, in.NextToken, int(in.MaxResults), 100)
+	out := &listFirewallDomainListsOutput{FirewallDomainLists: pg.Data}
+	if pg.Next != "" {
+		out.NextToken = &pg.Next
+	}
+	return out, nil
 }
 
 // --- ListFirewallDomains ---

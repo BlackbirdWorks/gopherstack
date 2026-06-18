@@ -1072,6 +1072,14 @@ func validateUpdateClusterRequest(req *updateClusterRequest) error {
 		}
 	}
 
+	if req.SnsTopicStatus != "" {
+		switch req.SnsTopicStatus {
+		case "active", "inactive":
+		default:
+			return fmt.Errorf("invalid SnsTopicStatus %q, must be active or inactive: %w", req.SnsTopicStatus, ErrValidation)
+		}
+	}
+
 	return nil
 }
 

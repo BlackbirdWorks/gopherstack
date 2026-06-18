@@ -25,9 +25,10 @@ const (
 )
 
 var (
-	ErrNotFound      = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
-	ErrAlreadyExists = awserr.New("ResourceExistsException", awserr.ErrAlreadyExists)
-	ErrValidation    = awserr.New("InvalidRequestException", awserr.ErrInvalidParameter)
+	ErrNotFound         = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
+	ErrAlreadyExists    = awserr.New("ResourceExistsException", awserr.ErrAlreadyExists)
+	ErrValidation       = awserr.New("InvalidRequestException", awserr.ErrInvalidParameter)
+	ErrInvalidParameter = awserr.New("InvalidParameterException", awserr.ErrInvalidParameter)
 )
 
 // regionContextKey is the context key under which the per-request AWS region is stored.
