@@ -361,10 +361,11 @@ func TestGetManagedCertificateDetails_TableDriven(t *testing.T) {
 	const prefix = "/2020-05-31/"
 
 	makeTenant := func(h *cloudfront.Handler, domain string) string {
-		body := fmt.Sprintf(
-			`<CreateDistributionTenantRequest><DistributionId>d-001</DistributionId><Domain>%s</Domain></CreateDistributionTenantRequest>`,
-			domain,
-		)
+		const tenantTemplate = `<CreateDistributionTenantRequest>` +
+			`<DistributionId>d-001</DistributionId>` +
+			`<Domain>%s</Domain>` +
+			`</CreateDistributionTenantRequest>`
+		body := fmt.Sprintf(tenantTemplate, domain)
 		resp := cfOK(t, h, http.MethodPost, prefix+"distribution-tenant", body)
 
 		return extractXMLID(t, resp)
@@ -373,8 +374,8 @@ func TestGetManagedCertificateDetails_TableDriven(t *testing.T) {
 	tests := []struct {
 		setup    func(h *cloudfront.Handler) string
 		name     string
-		wantCode int
 		wantBody []string
+		wantCode int
 	}{
 		{
 			name: "existing_tenant_returns_success_cert",
@@ -408,7 +409,8 @@ func TestGetManagedCertificateDetails_TableDriven(t *testing.T) {
 
 			h := cloudfront.NewHandler(newBatch2Backend())
 			tenantID := tt.setup(h)
-			rec := doBatch2Req(t, h, http.MethodGet, prefix+"distribution-tenant/"+tenantID+"/managed-certificate-details")
+			certPath := prefix + "distribution-tenant/" + tenantID + "/managed-certificate-details"
+			rec := doBatch2Req(t, h, http.MethodGet, certPath)
 
 			assert.Equal(t, tt.wantCode, rec.Code)
 			for _, want := range tt.wantBody {
@@ -428,9 +430,9 @@ func TestListDomainConflicts_TableDriven(t *testing.T) {
 		setup    func(b *cloudfront.InMemoryBackend)
 		name     string
 		domain   string
-		wantCode int
 		wantBody []string
 		wantNot  []string
+		wantCode int
 	}{
 		{
 			name:     "no_conflicts_returns_empty_list",
@@ -519,8 +521,8 @@ func TestTestConnectionFunction_TableDriven(t *testing.T) {
 	tests := []struct {
 		setup    func(h *cloudfront.Handler) string
 		name     string
-		wantCode int
 		wantBody []string
+		wantCode int
 	}{
 		{
 			name: "existing_function_returns_test_result",

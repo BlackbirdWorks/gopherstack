@@ -2913,7 +2913,7 @@ func (h *Handler) handleCreateConnectionFunction(c *echo.Context) error {
 
 	c.Response().Header().Set("Location", cfPathPrefix+"connection-function/"+fn.ID)
 
-	return xmlResp(c, http.StatusCreated, connectionFunctionXML(cfNS, fn))
+	return xmlResp(c, http.StatusCreated, connectionFunctionXML(fn))
 }
 
 func (h *Handler) handleCreateConnectionGroup(c *echo.Context) error {

@@ -569,16 +569,12 @@ func (h *Handler) handleListDomainConflicts(c *echo.Context) error {
 	domain := c.Request().URL.Query().Get("Domain")
 	conflicts := h.Backend.ListDomainConflicts(domain)
 
-	var itemsXML string
+	var sb strings.Builder
 	for _, conflict := range conflicts {
-		itemsXML += fmt.Sprintf(
+		fmt.Fprintf(&sb,
 			`<member><Domain>%s</Domain><DistributionId>%s</DistributionId><AccountId>%s</AccountId></member>`,
 			conflict.Domain, conflict.DistributionID, conflict.AccountID,
 		)
-	}
-
-	if itemsXML == "" {
-		itemsXML = ""
 	}
 
 	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
@@ -586,7 +582,7 @@ func (h *Handler) handleListDomainConflicts(c *echo.Context) error {
 		`<Items>%s</Items>`+
 		`<Quantity>%d</Quantity>`+
 		`</DomainConflictList>`,
-		cfNS, itemsXML, len(conflicts))
+		cfNS, sb.String(), len(conflicts))
 
 	return xmlResp(c, http.StatusOK, resp)
 }
