@@ -34,14 +34,14 @@ func TestSeedFinding_Defaults(t *testing.T) {
 		},
 		{
 			name:         "explicit_values",
-			in:           inspector2.Finding{Severity: "CRITICAL", Status: "SUPPRESSED", Type: "CODE_VULNERABILITY"},
+			in:           inspector2.Finding{Severity: inspector2.FindingSeverity{Label: "CRITICAL"}, Status: "SUPPRESSED", Type: "CODE_VULNERABILITY"},
 			wantSeverity: "CRITICAL",
 			wantStatus:   "SUPPRESSED",
 			wantType:     "CODE_VULNERABILITY",
 		},
 		{
 			name:    "invalid_severity",
-			in:      inspector2.Finding{Severity: "BOGUS"},
+			in:      inspector2.Finding{Severity: inspector2.FindingSeverity{Label: "BOGUS"}},
 			wantErr: true,
 		},
 		{
@@ -65,7 +65,7 @@ func TestSeedFinding_Defaults(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			assert.Equal(t, tc.wantSeverity, f.Severity)
+			assert.Equal(t, tc.wantSeverity, f.Severity.Label)
 			assert.Equal(t, tc.wantStatus, f.Status)
 			assert.Equal(t, tc.wantType, f.Type)
 			assert.NotEmpty(t, f.FindingArn)
@@ -83,12 +83,12 @@ func TestListFindings_FilterCriteria(t *testing.T) {
 
 		b := inspector2.NewInMemoryBackend("123456789012", "us-east-1")
 		_, err := b.SeedFinding(
-			inspector2.Finding{Severity: "CRITICAL", Type: "PACKAGE_VULNERABILITY", Status: "ACTIVE"},
+			inspector2.Finding{Severity: inspector2.FindingSeverity{Label: "CRITICAL"}, Type: "PACKAGE_VULNERABILITY", Status: "ACTIVE"},
 		)
 		require.NoError(t, err)
-		_, err = b.SeedFinding(inspector2.Finding{Severity: "LOW", Type: "PACKAGE_VULNERABILITY", Status: "ACTIVE"})
+		_, err = b.SeedFinding(inspector2.Finding{Severity: inspector2.FindingSeverity{Label: "LOW"}, Type: "PACKAGE_VULNERABILITY", Status: "ACTIVE"})
 		require.NoError(t, err)
-		_, err = b.SeedFinding(inspector2.Finding{Severity: "HIGH", Type: "CODE_VULNERABILITY", Status: "SUPPRESSED"})
+		_, err = b.SeedFinding(inspector2.Finding{Severity: inspector2.FindingSeverity{Label: "HIGH"}, Type: "CODE_VULNERABILITY", Status: "SUPPRESSED"})
 		require.NoError(t, err)
 
 		return b
@@ -162,7 +162,7 @@ func TestListFindings_Pagination(t *testing.T) {
 
 	b := inspector2.NewInMemoryBackend("123456789012", "us-east-1")
 	for range 5 {
-		_, err := b.SeedFinding(inspector2.Finding{Severity: "MEDIUM"})
+		_, err := b.SeedFinding(inspector2.Finding{Severity: inspector2.FindingSeverity{Label: "MEDIUM"}})
 		require.NoError(t, err)
 	}
 
@@ -203,7 +203,7 @@ func TestListFindingAggregations_SeededCounts(t *testing.T) {
 	assert.Empty(t, empty["responses"])
 
 	for _, sev := range []string{"CRITICAL", "CRITICAL", "HIGH", "LOW"} {
-		_, seedErr := b.SeedFinding(inspector2.Finding{Severity: sev})
+		_, seedErr := b.SeedFinding(inspector2.Finding{Severity: inspector2.FindingSeverity{Label: sev}})
 		require.NoError(t, seedErr)
 	}
 

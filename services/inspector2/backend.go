@@ -115,13 +115,14 @@ type Finding struct {
 	FindingArn      string    `json:"findingArn"`
 	AccountID       string    `json:"awsAccountId"`
 	Type            string    `json:"type"`
-	Severity        string    `json:"severity"`
+	Severity        FindingSeverity `json:"severity"`
 	Status          string    `json:"status"`
 	Title           string    `json:"title,omitempty"`
 	Description     string    `json:"description"`
-	FixAvailable    string    `json:"fixAvailable,omitempty"`
-	ResourceType    string    `json:"-"`
-	ResourceID      string    `json:"-"`
+	FixAvailable    string            `json:"fixAvailable,omitempty"`
+	Resources       []FindingResource `json:"resources,omitempty"`
+	ResourceType    string            `json:"-"`
+	ResourceID      string            `json:"-"`
 }
 
 // FindingSeverity holds severity details for a finding.
@@ -436,12 +437,12 @@ func (b *InMemoryBackend) SeedFinding(f Finding) (*Finding, error) {
 	defer b.mu.Unlock()
 
 	stored := f
-	if stored.Severity == "" {
-		stored.Severity = severityMedium
+	if stored.Severity.Label == "" {
+		stored.Severity = FindingSeverity{Label: severityMedium, Score: severityScore(severityMedium)}
 	}
 
-	if !isValidFindingSeverity(stored.Severity) {
-		return nil, fmt.Errorf("%w: invalid finding severity %q", ErrValidation, stored.Severity)
+	if !isValidFindingSeverity(stored.Severity.Label) {
+		return nil, fmt.Errorf("%w: invalid finding severity %q", ErrValidation, stored.Severity.Label)
 	}
 
 	if stored.Status == "" {
@@ -495,17 +496,16 @@ func (b *InMemoryBackend) AddFinding(
 	findingARN := arn.Build(inspector2Service, b.region, b.accountID, "finding/"+id)
 	now := time.Now().UTC()
 
-	_ = resources // stored in Finding for future use; Finding.ResourceType/ResourceID are single-valued
-
 	b.findings[findingARN] = &storedFinding{
 		Finding: Finding{
 			FindingArn:      findingARN,
 			AccountID:       b.accountID,
 			Type:            findingType,
-			Severity:        severityLabel,
+			Severity:        FindingSeverity{Label: severityLabel, Score: severityScore(severityLabel)},
 			Status:          status,
 			Description:     description,
 			Title:           title,
+			Resources:       resources,
 			FirstObservedAt: now,
 			LastObservedAt:  now,
 			UpdatedAt:       now,
@@ -619,7 +619,7 @@ func matchStringFilters(filters []stringFilter, actual string) bool {
 }
 
 func (fc findingFilterCriteria) matches(f *Finding) bool {
-	return matchStringFilters(fc.severities, f.Severity) &&
+	return matchStringFilters(fc.severities, f.Severity.Label) &&
 		matchStringFilters(fc.findingTypes, f.Type) &&
 		matchStringFilters(fc.statuses, f.Status) &&
 		matchStringFilters(fc.accountIDs, f.AccountID)
@@ -687,7 +687,7 @@ func (b *InMemoryBackend) FindingSeverityCounts() map[string]int64 {
 
 	counts := make(map[string]int64, len(b.findings))
 	for _, f := range b.findings {
-		counts[f.Severity]++
+		counts[f.Severity.Label]++
 	}
 
 	return counts
@@ -704,7 +704,7 @@ func matchesFindingCriteria(f *Finding, criteria map[string]any) bool {
 		matched := false
 
 		for _, s := range severities {
-			if strings.EqualFold(f.Severity, s) {
+			if strings.EqualFold(f.Severity.Label, s) {
 				matched = true
 
 				break
