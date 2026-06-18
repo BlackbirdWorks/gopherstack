@@ -233,6 +233,7 @@ provider "aws" {
     backup          = %[1]q
     batch           = %[1]q
     bedrock         = %[1]q
+    bedrockagent    = %[1]q
     ce              = %[1]q
     cloudcontrol    = %[1]q
     cloudformation  = %[1]q
@@ -374,6 +375,7 @@ provider "aws" {
     backup          = %[1]q
     batch           = %[1]q
     bedrock         = %[1]q
+    bedrockagent    = %[1]q
     ce              = %[1]q
     cloudcontrol    = %[1]q
     cloudformation  = %[1]q
