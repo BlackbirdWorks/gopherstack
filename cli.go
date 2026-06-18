@@ -112,10 +112,7 @@ import (
 	daxbackend "github.com/blackbirdworks/gopherstack/services/dax"
 	detectivebackend "github.com/blackbirdworks/gopherstack/services/detective"
 	directoryservicebackend "github.com/blackbirdworks/gopherstack/services/directoryservice"
-<<<<<<< HEAD
-=======
 	dlmbackend "github.com/blackbirdworks/gopherstack/services/dlm"
->>>>>>> origin/main
 	dmsbackend "github.com/blackbirdworks/gopherstack/services/dms"
 	docdbbackend "github.com/blackbirdworks/gopherstack/services/docdb"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
@@ -2932,11 +2929,8 @@ func getMostRecentServiceProviders() []service.Provider {
 		&xraybackend.Provider{},
 		&s3tablesbackend.Provider{},
 		&databrewbackend.Provider{},
-<<<<<<< HEAD
 		&cleanroomsbackend.Provider{},
-=======
 		&directoryservicebackend.Provider{},
->>>>>>> origin/main
 		&forecastbackend.Provider{},
 		&mediatailorbackend.Provider{},
 		&macie2backend.Provider{},
@@ -2947,24 +2941,14 @@ func getMostRecentServiceProviders() []service.Provider {
 		&datasyncbackend.Provider{},
 		&dlmbackend.Provider{},
 		&fsxbackend.Provider{},
-<<<<<<< HEAD
-		&apprunnerbackend.Provider{},
 		&daxbackend.Provider{},
-=======
 		&medialivebackend.Provider{},
->>>>>>> origin/main
 		&mediapackagebackend.Provider{},
 		&personalizebackend.Provider{},
 		&quicksightbackend.Provider{},
 		&rekognitionbackend.Provider{},
 		&translatebackend.Provider{},
-<<<<<<< HEAD
 		&securityhubbackend.Provider{},
-		&mediatailorbackend.Provider{},
-		&medialivebackend.Provider{},
-		&directoryservicebackend.Provider{},
-=======
->>>>>>> origin/main
 		&vpclatticebackend.Provider{},
 		&omicsbackend.Provider{},
 		&bedrockagentbackend.Provider{},

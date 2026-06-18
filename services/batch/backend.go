@@ -703,7 +703,6 @@ type FrontOfQueueJob struct {
 // schedulingPolicyByName) are nested by region (outer key = region) so that
 // same-named resources in different regions are fully isolated.
 type InMemoryBackend struct {
-<<<<<<< HEAD
 	computeEnvironments    map[string]map[string]*ComputeEnvironment // region → name → CE
 	jobQueues              map[string]map[string]*JobQueue           // region → name → JQ
 	jobDefinitions         map[string]map[string]*JobDefinition      // region → ARN → JobDefinition
@@ -716,22 +715,6 @@ type InMemoryBackend struct {
 	serviceJobs            map[string]map[string]*ServiceJob         // region → serviceJobID → ServiceJob
 	schedulingPolicyByName map[string]map[string]string              // region → name → ARN
 	jobsByARN              map[string]map[string]string              // region → job ARN → job ID
-	mu                     *lockmetrics.RWMutex
-	accountID              string
-	region                 string
-=======
-	computeEnvironments    map[string]*ComputeEnvironment
-	jobQueues              map[string]*JobQueue
-	jobDefinitions         map[string]*JobDefinition
-	jobs                   map[string]*Job     // job ID → Job
-	jobsByQueue            map[string][]string // queue name → []jobID
-	jobDefRevisions        map[string]int32
-	consumableResources    map[string]*ConsumableResource
-	schedulingPolicies     map[string]*SchedulingPolicy // ARN → SchedulingPolicy
-	serviceEnvironments    map[string]*ServiceEnvironment
-	serviceJobs            map[string]*ServiceJob // serviceJobID → ServiceJob
-	schedulingPolicyByName map[string]string      // name → ARN
-	jobsByARN              map[string]string      // job ARN → job ID
 	// ARN indexes for O(1) ARN-based lookups instead of linear scans.
 	cesByARN map[string]string // CE ARN → CE name
 	jqsByARN map[string]string // JQ ARN → JQ name
@@ -742,38 +725,18 @@ type InMemoryBackend struct {
 	mu         *lockmetrics.RWMutex
 	accountID  string
 	region     string
->>>>>>> origin/main
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-<<<<<<< HEAD
 	b := &InMemoryBackend{
-		mu:        lockmetrics.New("batch"),
-		accountID: accountID,
-		region:    region,
-=======
-	return &InMemoryBackend{
-		computeEnvironments:    make(map[string]*ComputeEnvironment),
-		jobQueues:              make(map[string]*JobQueue),
-		jobDefinitions:         make(map[string]*JobDefinition),
-		jobs:                   make(map[string]*Job),
-		jobsByQueue:            make(map[string][]string),
-		jobDefRevisions:        make(map[string]int32),
-		consumableResources:    make(map[string]*ConsumableResource),
-		schedulingPolicies:     make(map[string]*SchedulingPolicy),
-		serviceEnvironments:    make(map[string]*ServiceEnvironment),
-		serviceJobs:            make(map[string]*ServiceJob),
-		schedulingPolicyByName: make(map[string]string),
-		jobsByARN:              make(map[string]string),
-		cesByARN:               make(map[string]string),
-		jqsByARN:               make(map[string]string),
-		crsByARN:               make(map[string]string),
-		ceToQueues:             make(map[string]map[string]struct{}),
-		accountID:              accountID,
-		region:                 region,
-		mu:                     lockmetrics.New("batch"),
->>>>>>> origin/main
+		cesByARN:   make(map[string]string),
+		jqsByARN:   make(map[string]string),
+		crsByARN:   make(map[string]string),
+		ceToQueues: make(map[string]map[string]struct{}),
+		mu:         lockmetrics.New("batch"),
+		accountID:  accountID,
+		region:     region,
 	}
 	b.initMaps()
 
@@ -900,26 +863,11 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-<<<<<<< HEAD
 	b.initMaps()
-=======
-	b.computeEnvironments = make(map[string]*ComputeEnvironment)
-	b.jobQueues = make(map[string]*JobQueue)
-	b.jobDefinitions = make(map[string]*JobDefinition)
-	b.jobs = make(map[string]*Job)
-	b.jobsByQueue = make(map[string][]string)
-	b.jobDefRevisions = make(map[string]int32)
-	b.consumableResources = make(map[string]*ConsumableResource)
-	b.schedulingPolicies = make(map[string]*SchedulingPolicy)
-	b.serviceEnvironments = make(map[string]*ServiceEnvironment)
-	b.serviceJobs = make(map[string]*ServiceJob)
-	b.schedulingPolicyByName = make(map[string]string)
-	b.jobsByARN = make(map[string]string)
 	b.cesByARN = make(map[string]string)
 	b.jqsByARN = make(map[string]string)
 	b.crsByARN = make(map[string]string)
 	b.ceToQueues = make(map[string]map[string]struct{})
->>>>>>> origin/main
 }
 
 // Region returns the AWS region this backend is configured for.
@@ -932,14 +880,9 @@ func (b *InMemoryBackend) lookupCEByNameOrARN(region, nameOrARN string) (*Comput
 	if ce, ok := ces[nameOrARN]; ok {
 		return ce, true
 	}
-<<<<<<< HEAD
 
 	for _, ce := range ces {
 		if ce.ComputeEnvironmentArn == nameOrARN {
-=======
-	if name, ok2 := b.cesByARN[nameOrARN]; ok2 {
-		if ce, ok3 := b.computeEnvironments[name]; ok3 {
->>>>>>> origin/main
 			return ce, true
 		}
 	}
@@ -954,14 +897,9 @@ func (b *InMemoryBackend) lookupJQByNameOrARN(region, nameOrARN string) (*JobQue
 	if jq, ok := jqs[nameOrARN]; ok {
 		return jq, true
 	}
-<<<<<<< HEAD
 
 	for _, jq := range jqs {
 		if jq.JobQueueArn == nameOrARN {
-=======
-	if name, ok2 := b.jqsByARN[nameOrARN]; ok2 {
-		if jq, ok3 := b.jobQueues[name]; ok3 {
->>>>>>> origin/main
 			return jq, true
 		}
 	}
@@ -1097,12 +1035,8 @@ func (b *InMemoryBackend) CreateComputeEnvironment(
 		EksConfiguration:       eksCopy,
 		UpdatePolicy:           upCopy,
 	}
-<<<<<<< HEAD
 	ces[name] = ce
-=======
-	b.computeEnvironments[name] = ce
 	b.cesByARN[ceARN] = name
->>>>>>> origin/main
 	cp := *ce
 
 	return &cp, nil
@@ -1234,23 +1168,6 @@ func (b *InMemoryBackend) DeleteComputeEnvironment(ctx context.Context, nameOrAR
 		)
 	}
 
-<<<<<<< HEAD
-	// Check if referenced by any job queue.
-	for _, jq := range b.jobQueuesStore(region) {
-		for _, ceOrder := range jq.ComputeEnvironmentOrder {
-			if ceOrder.ComputeEnvironment == ce.ComputeEnvironmentName ||
-				ceOrder.ComputeEnvironment == ce.ComputeEnvironmentArn {
-				return fmt.Errorf(
-					"%w: compute environment %s is referenced by one or more job queues",
-					ErrValidation,
-					nameOrARN,
-				)
-			}
-		}
-	}
-
-	delete(b.computeEnvironmentsStore(region), ce.ComputeEnvironmentName)
-=======
 	// O(1) check via reverse index instead of scanning all job queues.
 	if len(b.ceToQueues[ce.ComputeEnvironmentName]) > 0 || len(b.ceToQueues[ce.ComputeEnvironmentArn]) > 0 {
 		return fmt.Errorf(
@@ -1260,9 +1177,8 @@ func (b *InMemoryBackend) DeleteComputeEnvironment(ctx context.Context, nameOrAR
 		)
 	}
 
-	delete(b.computeEnvironments, ce.ComputeEnvironmentName)
+	delete(b.computeEnvironmentsStore(region), ce.ComputeEnvironmentName)
 	delete(b.cesByARN, ce.ComputeEnvironmentArn)
->>>>>>> origin/main
 
 	return nil
 }
@@ -1324,10 +1240,7 @@ func (b *InMemoryBackend) CreateJobQueue(
 		SchedulingPolicyArn:      schedulingPolicyArn,
 		JobStateTimeLimitActions: actionsCopy,
 	}
-<<<<<<< HEAD
 	jqs[name] = jq
-=======
-	b.jobQueues[name] = jq
 	b.jqsByARN[jqARN] = name
 	// Register this queue as a reference for each compute environment it orders.
 	for _, ceOrder := range orderCopy {
@@ -1337,7 +1250,6 @@ func (b *InMemoryBackend) CreateJobQueue(
 		}
 		b.ceToQueues[ceName][name] = struct{}{}
 	}
->>>>>>> origin/main
 	cp := *jq
 
 	return &cp, nil
@@ -1479,11 +1391,7 @@ func (b *InMemoryBackend) DeleteJobQueue(ctx context.Context, nameOrARN string) 
 		delete(jobs, jobID)
 	}
 
-<<<<<<< HEAD
 	delete(jobsByQueue, queueName)
-	delete(b.jobQueuesStore(region), queueName)
-=======
-	delete(b.jobsByQueue, queueName)
 	delete(b.jqsByARN, jq.JobQueueArn)
 	// Remove this queue from the CE→queues reverse index.
 	for _, ceOrder := range jq.ComputeEnvironmentOrder {
@@ -1491,8 +1399,7 @@ func (b *InMemoryBackend) DeleteJobQueue(ctx context.Context, nameOrARN string) 
 			delete(refs, queueName)
 		}
 	}
-	delete(b.jobQueues, queueName)
->>>>>>> origin/main
+	delete(b.jobQueuesStore(region), queueName)
 
 	return nil
 }
@@ -1794,26 +1701,15 @@ func (b *InMemoryBackend) findTagsByARN(region, resourceARN string) (map[string]
 	return b.findTagsInPolicyResources(region, resourceARN)
 }
 
-<<<<<<< HEAD
 func (b *InMemoryBackend) findTagsInCoreResources(region, resourceARN string) (map[string]string, bool) {
 	for _, ce := range b.computeEnvironmentsStore(region) {
 		if ce.ComputeEnvironmentArn == resourceARN {
-=======
-func (b *InMemoryBackend) findTagsInCoreResources(resourceARN string) (map[string]string, bool) {
-	if ceName, ok := b.cesByARN[resourceARN]; ok {
-		if ce, ok2 := b.computeEnvironments[ceName]; ok2 {
->>>>>>> origin/main
 			return ce.Tags, true
 		}
 	}
 
-<<<<<<< HEAD
 	for _, jq := range b.jobQueuesStore(region) {
 		if jq.JobQueueArn == resourceARN {
-=======
-	if jqName, ok := b.jqsByARN[resourceARN]; ok {
-		if jq, ok2 := b.jobQueues[jqName]; ok2 {
->>>>>>> origin/main
 			return jq.Tags, true
 		}
 	}
@@ -1822,25 +1718,14 @@ func (b *InMemoryBackend) findTagsInCoreResources(resourceARN string) (map[strin
 		return jd.Tags, true
 	}
 
-<<<<<<< HEAD
 	for _, j := range b.jobsStore(region) {
 		if j.JobARN == resourceARN {
-=======
-	// Use the jobs ARN index for O(1) lookup.
-	if jobID, ok := b.jobsByARN[resourceARN]; ok {
-		if j, ok2 := b.jobs[jobID]; ok2 {
->>>>>>> origin/main
 			return j.Tags, true
 		}
 	}
 
-<<<<<<< HEAD
 	for _, cr := range b.consumableResourcesStore(region) {
 		if cr.ConsumableResourceArn == resourceARN {
-=======
-	if crName, ok := b.crsByARN[resourceARN]; ok {
-		if cr, ok2 := b.consumableResources[crName]; ok2 {
->>>>>>> origin/main
 			return cr.Tags, true
 		}
 	}
@@ -2282,12 +2167,8 @@ func (b *InMemoryBackend) CreateConsumableResource(
 		CreatedAt:              time.Now().UnixMilli(),
 		Tags:                   tagsCloneOrEmpty(tags),
 	}
-<<<<<<< HEAD
 	crs[name] = cr
-=======
-	b.consumableResources[name] = cr
 	b.crsByARN[crARN] = name
->>>>>>> origin/main
 	cp := *cr
 
 	return &cp, nil
@@ -2305,12 +2186,8 @@ func (b *InMemoryBackend) DeleteConsumableResource(ctx context.Context, nameOrAR
 		return fmt.Errorf("%w: consumable resource %s not found", ErrNotFound, nameOrARN)
 	}
 
-<<<<<<< HEAD
 	delete(b.consumableResourcesStore(region), cr.ConsumableResourceName)
-=======
-	delete(b.consumableResources, cr.ConsumableResourceName)
 	delete(b.crsByARN, cr.ConsumableResourceArn)
->>>>>>> origin/main
 
 	return nil
 }
@@ -2343,14 +2220,9 @@ func (b *InMemoryBackend) lookupConsumableResourceByNameOrARN(region, nameOrARN 
 	if cr, ok := crs[nameOrARN]; ok {
 		return cr, true
 	}
-<<<<<<< HEAD
 
 	for _, cr := range crs {
 		if cr.ConsumableResourceArn == nameOrARN {
-=======
-	if name, ok2 := b.crsByARN[nameOrARN]; ok2 {
-		if cr, ok3 := b.consumableResources[name]; ok3 {
->>>>>>> origin/main
 			return cr, true
 		}
 	}

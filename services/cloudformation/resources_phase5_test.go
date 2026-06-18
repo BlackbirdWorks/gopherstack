@@ -1,29 +1,19 @@
 package cloudformation_test
 
 import (
-<<<<<<< HEAD
 	"context"
-=======
 	"maps"
->>>>>>> origin/main
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-<<<<<<< HEAD
 	apigatewayv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
+	appautoscalingbackend "github.com/blackbirdworks/gopherstack/services/applicationautoscaling"
 	"github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
-)
-
-// TestResourceCreator_Phase5Types_NilBackends ensures every phase-5 resource type returns
-// a stub physical ID (no panic, no error) when the backing service is nil.
-=======
-	appautoscalingbackend "github.com/blackbirdworks/gopherstack/services/applicationautoscaling"
-	"github.com/blackbirdworks/gopherstack/services/cloudformation"
 )
 
 // newPhase5ServiceBackends creates a ServiceBackends with all phase-5 backends populated.
@@ -36,9 +26,8 @@ func newPhase5ServiceBackends() *cloudformation.ServiceBackends {
 	return b
 }
 
-// TestResourceCreator_Phase5Types_NilBackends ensures all phase-5 resource types return a stub
-// physical ID when the corresponding backend is nil.
->>>>>>> origin/main
+// TestResourceCreator_Phase5Types_NilBackends ensures every phase-5 resource type returns
+// a stub physical ID (no panic, no error) when the backing service is nil.
 func TestResourceCreator_Phase5Types_NilBackends(t *testing.T) {
 	t.Parallel()
 
@@ -48,7 +37,6 @@ func TestResourceCreator_Phase5Types_NilBackends(t *testing.T) {
 		logicalID    string
 		resourceType string
 	}{
-<<<<<<< HEAD
 		{name: "logs_log_stream", logicalID: "Stream", resourceType: "AWS::Logs::LogStream",
 			props: map[string]any{"LogGroupName": "/g", "LogStreamName": "s"}},
 		{name: "logs_metric_filter", logicalID: "MF", resourceType: "AWS::Logs::MetricFilter",
@@ -93,7 +81,6 @@ func TestResourceCreator_Phase5Types_NilBackends(t *testing.T) {
 			props: map[string]any{"OriginAccessControlConfig": map[string]any{"Name": "oac"}}},
 		{name: "cloudfront_rhp", logicalID: "RHP", resourceType: "AWS::CloudFront::ResponseHeadersPolicy",
 			props: map[string]any{"ResponseHeadersPolicyConfig": map[string]any{"Name": "rhp"}}},
-=======
 		{
 			name:         "app_autoscaling_scalable_target",
 			logicalID:    "MyScalableTarget",
@@ -233,39 +220,138 @@ func TestResourceCreator_Phase5Types_NilBackends(t *testing.T) {
 			resourceType: "AWS::AppSync::ApiKey",
 			props:        map[string]any{"ApiId": "api-stub"},
 		},
->>>>>>> origin/main
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-<<<<<<< HEAD
 			rc := cloudformation.NewResourceCreator(&cloudformation.ServiceBackends{
 				AccountID: "000000000000",
 				Region:    "us-east-1",
 			})
-=======
-			// nil backends → stub path
-			backends := &cloudformation.ServiceBackends{}
-			rc := cloudformation.NewResourceCreator(backends)
->>>>>>> origin/main
 
 			physID, err := rc.Create(t.Context(), tt.logicalID, tt.resourceType, tt.props, nil, nil)
 			require.NoError(t, err)
 			assert.NotEmpty(t, physID)
 
-<<<<<<< HEAD
 			require.NoError(t, rc.Delete(t.Context(), tt.resourceType, physID, tt.props))
-=======
-			err = rc.Delete(t.Context(), tt.resourceType, physID, nil)
-			require.NoError(t, err)
->>>>>>> origin/main
 		})
 	}
 }
 
-<<<<<<< HEAD
+// TestResourceCreator_Phase5Types_RealBackends validates create and delete with real in-memory backends.
+func TestResourceCreator_Phase5Types_RealBackends(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setupFn      func(*cloudformation.ServiceBackends)
+		props        map[string]any
+		name         string
+		logicalID    string
+		resourceType string
+	}{
+		{
+			name:         "app_autoscaling_scalable_target",
+			logicalID:    "MyScalableTarget",
+			resourceType: "AWS::ApplicationAutoScaling::ScalableTarget",
+			props: map[string]any{
+				"ServiceNamespace":  "ecs",
+				"ResourceId":        "service/default/web",
+				"ScalableDimension": "ecs:service:DesiredCount",
+				"MinCapacity":       float64(1),
+				"MaxCapacity":       float64(10),
+			},
+		},
+		{
+			name:         "app_autoscaling_scaling_policy",
+			logicalID:    "MyScalingPolicy",
+			resourceType: "AWS::ApplicationAutoScaling::ScalingPolicy",
+			props: map[string]any{
+				"PolicyName":        "unit-cfn-policy",
+				"ServiceNamespace":  "ecs",
+				"ResourceId":        "service/default/web",
+				"ScalableDimension": "ecs:service:DesiredCount",
+				"PolicyType":        "StepScaling",
+			},
+		},
+		{
+			name:         "secretsmanager_rotation_schedule",
+			logicalID:    "MyRotation",
+			resourceType: "AWS::SecretsManager::RotationSchedule",
+			props: map[string]any{
+				"SecretId": "arn:aws:secretsmanager:us-east-1:000000000000:secret:MySecret",
+			},
+		},
+		{
+			name:         "secretsmanager_secret_target_attachment",
+			logicalID:    "MyAttachment",
+			resourceType: "AWS::SecretsManager::SecretTargetAttachment",
+			props: map[string]any{
+				"SecretId":   "arn:aws:secretsmanager:us-east-1:000000000000:secret:MySecret",
+				"TargetId":   "db-12345",
+				"TargetType": "AWS::RDS::DBInstance",
+			},
+		},
+		{
+			name:         "ssm_maintenance_window",
+			logicalID:    "MyMW",
+			resourceType: "AWS::SSM::MaintenanceWindow",
+			props: map[string]any{
+				"Name":     "unit-cfn-mw",
+				"Schedule": "cron(0 2 ? * SUN *)",
+				"Duration": float64(4),
+				"Cutoff":   float64(1),
+			},
+		},
+		{
+			name:         "glue_crawler",
+			logicalID:    "MyCrawler",
+			resourceType: "AWS::Glue::Crawler",
+			props: map[string]any{
+				"Name": "unit-cfn-crawler",
+				"Role": "AWSGlueServiceRole",
+			},
+		},
+		{
+			name:         "glue_trigger",
+			logicalID:    "MyTrigger",
+			resourceType: "AWS::Glue::Trigger",
+			props: map[string]any{
+				"Name": "unit-cfn-trigger",
+				"Type": "ON_DEMAND",
+			},
+		},
+		{
+			name:         "glue_connection",
+			logicalID:    "MyConnection",
+			resourceType: "AWS::Glue::Connection",
+			props: map[string]any{
+				"ConnectionInput": map[string]any{
+					"Name":           "unit-cfn-conn",
+					"ConnectionType": "JDBC",
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backends := newPhase5ServiceBackends()
+			rc := cloudformation.NewResourceCreator(backends)
+
+			physID, err := rc.Create(t.Context(), tt.logicalID, tt.resourceType, tt.props, nil, nil)
+			require.NoError(t, err)
+			assert.NotEmpty(t, physID)
+
+			err = rc.Delete(t.Context(), tt.resourceType, physID, nil)
+			require.NoError(t, err)
+		})
+	}
+}
+
 // TestResourceCreator_Phase5_LogsResources verifies that Logs child resources are created in
 // the real CloudWatch Logs backend and removed on delete.
 func TestResourceCreator_Phase5_LogsResources(t *testing.T) {
@@ -507,100 +593,6 @@ func TestResourceCreator_Phase5_GetAtt(t *testing.T) {
 		{
 			name: "kms_alias_arn", resType: "AWS::KMS::Alias", physID: "alias/x", attrName: "Arn",
 			want: "arn:aws:kms:us-east-1:000000000000:alias/x",
-=======
-// TestResourceCreator_Phase5Types_RealBackends validates create and delete with real in-memory backends.
-func TestResourceCreator_Phase5Types_RealBackends(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setupFn      func(*cloudformation.ServiceBackends)
-		props        map[string]any
-		name         string
-		logicalID    string
-		resourceType string
-	}{
-		{
-			name:         "app_autoscaling_scalable_target",
-			logicalID:    "MyScalableTarget",
-			resourceType: "AWS::ApplicationAutoScaling::ScalableTarget",
-			props: map[string]any{
-				"ServiceNamespace":  "ecs",
-				"ResourceId":        "service/default/web",
-				"ScalableDimension": "ecs:service:DesiredCount",
-				"MinCapacity":       float64(1),
-				"MaxCapacity":       float64(10),
-			},
-		},
-		{
-			name:         "app_autoscaling_scaling_policy",
-			logicalID:    "MyScalingPolicy",
-			resourceType: "AWS::ApplicationAutoScaling::ScalingPolicy",
-			props: map[string]any{
-				"PolicyName":        "unit-cfn-policy",
-				"ServiceNamespace":  "ecs",
-				"ResourceId":        "service/default/web",
-				"ScalableDimension": "ecs:service:DesiredCount",
-				"PolicyType":        "StepScaling",
-			},
-		},
-		{
-			name:         "secretsmanager_rotation_schedule",
-			logicalID:    "MyRotation",
-			resourceType: "AWS::SecretsManager::RotationSchedule",
-			props: map[string]any{
-				"SecretId": "arn:aws:secretsmanager:us-east-1:000000000000:secret:MySecret",
-			},
-		},
-		{
-			name:         "secretsmanager_secret_target_attachment",
-			logicalID:    "MyAttachment",
-			resourceType: "AWS::SecretsManager::SecretTargetAttachment",
-			props: map[string]any{
-				"SecretId":   "arn:aws:secretsmanager:us-east-1:000000000000:secret:MySecret",
-				"TargetId":   "db-12345",
-				"TargetType": "AWS::RDS::DBInstance",
-			},
-		},
-		{
-			name:         "ssm_maintenance_window",
-			logicalID:    "MyMW",
-			resourceType: "AWS::SSM::MaintenanceWindow",
-			props: map[string]any{
-				"Name":     "unit-cfn-mw",
-				"Schedule": "cron(0 2 ? * SUN *)",
-				"Duration": float64(4),
-				"Cutoff":   float64(1),
-			},
-		},
-		{
-			name:         "glue_crawler",
-			logicalID:    "MyCrawler",
-			resourceType: "AWS::Glue::Crawler",
-			props: map[string]any{
-				"Name": "unit-cfn-crawler",
-				"Role": "AWSGlueServiceRole",
-			},
-		},
-		{
-			name:         "glue_trigger",
-			logicalID:    "MyTrigger",
-			resourceType: "AWS::Glue::Trigger",
-			props: map[string]any{
-				"Name": "unit-cfn-trigger",
-				"Type": "ON_DEMAND",
-			},
-		},
-		{
-			name:         "glue_connection",
-			logicalID:    "MyConnection",
-			resourceType: "AWS::Glue::Connection",
-			props: map[string]any{
-				"ConnectionInput": map[string]any{
-					"Name":           "unit-cfn-conn",
-					"ConnectionType": "JDBC",
-				},
-			},
->>>>>>> origin/main
 		},
 	}
 
@@ -608,19 +600,8 @@ func TestResourceCreator_Phase5Types_RealBackends(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-<<<<<<< HEAD
 			got := cloudformation.GetResourceAttribute(tt.resType, tt.physID, tt.attrName, account, region)
 			assert.Equal(t, tt.want, got)
-=======
-			backends := newPhase5ServiceBackends()
-			rc := cloudformation.NewResourceCreator(backends)
-
-			physID, err := rc.Create(t.Context(), tt.logicalID, tt.resourceType, tt.props, nil, nil)
-			require.NoError(t, err)
-			assert.NotEmpty(t, physID)
-
-			err = rc.Delete(t.Context(), tt.resourceType, physID, nil)
-			require.NoError(t, err)
 		})
 	}
 }
@@ -910,7 +891,6 @@ func TestResourceCreator_AppSync_Supplemental_CreateDelete(t *testing.T) {
 
 			err = rc2.Delete(t.Context(), tt.resourceType, physID, nil)
 			require.NoError(t, err)
->>>>>>> origin/main
 		})
 	}
 }

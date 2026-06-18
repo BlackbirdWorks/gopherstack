@@ -2404,7 +2404,6 @@ func createS3TablesClient(t *testing.T) *s3tablessvc.Client {
 	})
 }
 
-<<<<<<< HEAD
 func createBedrockAgentClient(t *testing.T) *bedrockagentsvc.Client {
 	t.Helper()
 
@@ -2420,7 +2419,8 @@ func createBedrockAgentClient(t *testing.T) *bedrockagentsvc.Client {
 	return bedrockagentsvc.NewFromConfig(cfg, func(o *bedrockagentsvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
-=======
+}
+
 func createAppRunnerClient(t *testing.T) *apprunnersdkv2.Client {
 	t.Helper()
 
@@ -2548,5 +2548,4 @@ func createWorkMailClient(t *testing.T) *workmailsvc.Client {
 	t.Helper()
 
 	return createClientWithEndpoint(t, workmailsvc.NewFromConfig, endpoint)
->>>>>>> origin/main
 }

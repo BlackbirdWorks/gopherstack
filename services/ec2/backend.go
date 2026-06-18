@@ -128,6 +128,7 @@ type VpcEndpoint struct {
 	State           string    `json:"state,omitempty"`
 	VpcEndpointType string    `json:"vpcEndpointType,omitempty"`
 	SubnetIDs       []string  `json:"subnetIDs,omitempty"`
+	RouteTableIDs   []string  `json:"routeTableIDs,omitempty"`
 }
 
 // NetworkACL represents an EC2 network ACL.

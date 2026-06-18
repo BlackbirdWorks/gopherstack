@@ -161,6 +161,14 @@ func (b *InMemoryBackend) CreateVpcEndpoint(
 	vpcID, serviceName, endpointType string,
 	subnetIDs []string,
 ) (*VpcEndpoint, error) {
+	return b.CreateVpcEndpointWithRouteTableIDs(vpcID, serviceName, endpointType, subnetIDs, nil)
+}
+
+// CreateVpcEndpointWithRouteTableIDs creates a VPC endpoint with optional route table associations.
+func (b *InMemoryBackend) CreateVpcEndpointWithRouteTableIDs(
+	vpcID, serviceName, endpointType string,
+	subnetIDs, routeTableIDs []string,
+) (*VpcEndpoint, error) {
 	if vpcID == "" {
 		return nil, fmt.Errorf("%w: VpcId is required", ErrInvalidParameter)
 	}
@@ -196,6 +204,12 @@ func (b *InMemoryBackend) CreateVpcEndpoint(
 		}
 	}
 
+	for _, rtID := range routeTableIDs {
+		if _, ok := b.routeTables[rtID]; !ok {
+			return nil, fmt.Errorf("%w: route table %s not found", ErrRouteTableNotFound, rtID)
+		}
+	}
+
 	endpoint := &VpcEndpoint{
 		ID:              "vpce-" + uuid.New().String()[:17],
 		VPCID:           vpcID,
@@ -203,11 +217,13 @@ func (b *InMemoryBackend) CreateVpcEndpoint(
 		State:           stateAvailable,
 		VpcEndpointType: endpointType,
 		SubnetIDs:       append([]string(nil), subnetIDs...),
+		RouteTableIDs:   append([]string(nil), routeTableIDs...),
 		CreateTime:      time.Now().UTC(),
 	}
 	b.vpcEndpoints[endpoint.ID] = endpoint
 	cp := *endpoint
 	cp.SubnetIDs = append([]string(nil), endpoint.SubnetIDs...)
+	cp.RouteTableIDs = append([]string(nil), endpoint.RouteTableIDs...)
 
 	return &cp, nil
 }
@@ -230,6 +246,7 @@ func (b *InMemoryBackend) DescribeVpcEndpoints(ids []string) []*VpcEndpoint {
 
 		cp := *ep
 		cp.SubnetIDs = append([]string(nil), ep.SubnetIDs...)
+		cp.RouteTableIDs = append([]string(nil), ep.RouteTableIDs...)
 		endpoints = append(endpoints, &cp)
 	}
 
