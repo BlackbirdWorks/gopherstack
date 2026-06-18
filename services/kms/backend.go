@@ -271,6 +271,10 @@ type InMemoryBackend struct {
 	keyIDResolutionCache sync.Map
 }
 
+<<<<<<< Updated upstream
+=======
+
+>>>>>>> Stashed changes
 // NewInMemoryBackend creates and returns a new empty KMS backend with default account/region.
 func NewInMemoryBackend() *InMemoryBackend {
 	return NewInMemoryBackendWithConfig(MockAccountID, MockRegion)
