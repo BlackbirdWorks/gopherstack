@@ -1176,6 +1176,7 @@ type tagResourceInput struct {
 type kafkaErrorResponse struct {
 	Message   string `json:"message"`
 	ErrorCode string `json:"errorCode"`
+	Type      string `json:"__type"`
 }
 
 // ----------------------------------------
@@ -2680,6 +2681,7 @@ func (h *Handler) writeError(c *echo.Context, status int, code, message string) 
 	return c.JSON(status, kafkaErrorResponse{
 		Message:   message,
 		ErrorCode: code,
+		Type:      code,
 	})
 }
 

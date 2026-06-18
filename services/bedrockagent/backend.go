@@ -164,21 +164,24 @@ type KBDocument struct {
 
 // Agent represents a Bedrock Agent.
 type Agent struct {
-	CreatedAt       time.Time         `json:"createdAt"`
-	UpdatedAt       time.Time         `json:"updatedAt"`
-	Tags            map[string]string `json:"tags,omitempty"`
-	Guardrail       map[string]any    `json:"guardrailConfiguration,omitempty"`
-	Memory          map[string]any    `json:"memoryConfiguration,omitempty"`
-	AgentID         string            `json:"agentId"`
-	AgentARN        string            `json:"agentArn"`
-	AgentName       string            `json:"agentName"`
-	AgentVersion    string            `json:"agentVersion"`
-	AgentStatus     string            `json:"agentStatus"`
-	Collaboration   string            `json:"agentCollaboration,omitempty"`
-	Description     string            `json:"description,omitempty"`
-	FoundationModel string            `json:"foundationModel,omitempty"`
-	Instruction     string            `json:"instruction,omitempty"`
-	RoleARN         string            `json:"agentResourceRoleArn,omitempty"`
+	CreatedAt                   time.Time         `json:"createdAt"`
+	UpdatedAt                   time.Time         `json:"updatedAt"`
+	PreparedAt                  *time.Time        `json:"preparedAt,omitempty"`
+	Tags                        map[string]string `json:"tags,omitempty"`
+	Guardrail                   map[string]any    `json:"guardrailConfiguration,omitempty"`
+	Memory                      map[string]any    `json:"memoryConfiguration,omitempty"`
+	PromptOverrideConfiguration map[string]any    `json:"promptOverrideConfiguration"`
+	AgentID                     string            `json:"agentId"`
+	AgentARN                    string            `json:"agentArn"`
+	AgentName                   string            `json:"agentName"`
+	AgentVersion                string            `json:"agentVersion"`
+	AgentStatus                 string            `json:"agentStatus"`
+	Collaboration               string            `json:"agentCollaboration"`
+	Description                 string            `json:"description,omitempty"`
+	FoundationModel             string            `json:"foundationModel,omitempty"`
+	Instruction                 string            `json:"instruction,omitempty"`
+	RoleARN                     string            `json:"agentResourceRoleArn,omitempty"`
+	IdleSessionTTLInSeconds     int               `json:"idleSessionTTLInSeconds"`
 }
 
 // AgentSummary is the condensed agent representation used in list responses.
@@ -658,13 +661,18 @@ func (b *InMemoryBackend) CreateAgent(ctx context.Context, cfg AgentConfig) (*Ag
 	id := b.nextID("agent", &b.agentCounter)
 	now := time.Now().UTC()
 
+	collab := cfg.Collaboration
+	if collab == "" {
+		collab = "DISABLED"
+	}
+
 	a := &Agent{
 		AgentID:         id,
 		AgentARN:        b.buildAgentARN(region, id),
 		AgentName:       cfg.AgentName,
 		AgentVersion:    defaultAgentVersion,
 		AgentStatus:     agentStatusNotPrepared,
-		Collaboration:   cfg.Collaboration,
+		Collaboration:   collab,
 		Description:     cfg.Description,
 		FoundationModel: cfg.FoundationModel,
 		Instruction:     cfg.Instruction,
@@ -672,8 +680,12 @@ func (b *InMemoryBackend) CreateAgent(ctx context.Context, cfg AgentConfig) (*Ag
 		Tags:            maps.Clone(cfg.Tags),
 		Guardrail:       cfg.Guardrail,
 		Memory:          cfg.Memory,
-		CreatedAt:       now,
-		UpdatedAt:       now,
+		PromptOverrideConfiguration: map[string]any{
+			"promptConfigurations": []any{},
+		},
+		IdleSessionTTLInSeconds: 600,
+		CreatedAt:               now,
+		UpdatedAt:               now,
 	}
 
 	b.agents[id] = a
@@ -807,8 +819,10 @@ func (b *InMemoryBackend) PrepareAgent(_ context.Context, agentID string) (*Agen
 		return nil, fmt.Errorf("%w: agent %q not found", ErrNotFound, agentID)
 	}
 
+	now := time.Now().UTC()
 	a.AgentStatus = agentStatusPrepared
-	a.UpdatedAt = time.Now().UTC()
+	a.UpdatedAt = now
+	a.PreparedAt = &now
 
 	return agentCopy(a), nil
 }
