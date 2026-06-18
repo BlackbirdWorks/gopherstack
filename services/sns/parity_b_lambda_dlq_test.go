@@ -37,20 +37,22 @@ func (s *successLambdaInvoker) InvokeFunction(
 
 // mockLambdaDLQSender records SQS messages sent.
 type mockLambdaDLQSender struct {
+	messages []string // before mu to minimize GC pointer scan span
 	mu       sync.Mutex
-	messages []string
 }
 
 func (m *mockLambdaDLQSender) SendMessageToQueue(_ context.Context, _ string, body string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.messages = append(m.messages, body)
+
 	return nil
 }
 
 func (m *mockLambdaDLQSender) count() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	return len(m.messages)
 }
 
@@ -60,8 +62,8 @@ func TestParityB_SNS_Lambda_DLQ_OnDeliveryFailure(t *testing.T) {
 	dlqARN := "arn:aws:sqs:us-east-1:123456789012:lambda-dlq"
 
 	tests := []struct {
-		name      string
 		invoker   sns.LambdaInvoker
+		name      string
 		expectDLQ bool
 	}{
 		{

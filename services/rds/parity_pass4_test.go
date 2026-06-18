@@ -16,14 +16,15 @@ func TestCreateDBInstance_AllocatedStorageBound(t *testing.T) {
 
 	tests := []struct {
 		name       string
+		id         string
 		storage    string
 		wantStatus int
 	}{
-		{name: "below min", storage: "10", wantStatus: http.StatusBadRequest},
-		{name: "at min", storage: "20", wantStatus: http.StatusOK},
-		{name: "mid range", storage: "100", wantStatus: http.StatusOK},
-		{name: "at max", storage: "65536", wantStatus: http.StatusOK},
-		{name: "above max", storage: "65537", wantStatus: http.StatusBadRequest},
+		{name: "below min", id: "as-below-min", storage: "10", wantStatus: http.StatusBadRequest},
+		{name: "at min", id: "as-at-min", storage: "20", wantStatus: http.StatusOK},
+		{name: "mid range", id: "as-mid-range", storage: "100", wantStatus: http.StatusOK},
+		{name: "at max", id: "as-at-max", storage: "65536", wantStatus: http.StatusOK},
+		{name: "above max", id: "as-above-max", storage: "65537", wantStatus: http.StatusBadRequest},
 	}
 
 	for _, tc := range tests {
@@ -34,7 +35,7 @@ func TestCreateDBInstance_AllocatedStorageBound(t *testing.T) {
 			rec := doAccuracyRDS(t, h, url.Values{
 				"Action":               {"CreateDBInstance"},
 				"Version":              {"2014-10-31"},
-				"DBInstanceIdentifier": {"as-" + tc.name},
+				"DBInstanceIdentifier": {tc.id},
 				"DBInstanceClass":      {"db.t3.micro"},
 				"Engine":               {"postgres"},
 				"MasterUsername":       {"admin"},

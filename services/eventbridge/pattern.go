@@ -35,16 +35,14 @@ func compilePattern(patternJSON string) (*compiledPattern, error) {
 	}, nil
 }
 
-// knownMatchers is the set of valid EventBridge matcher object keys.
-var knownMatchers = map[string]bool{
-	"prefix":             true,
-	"suffix":             true,
-	"exists":             true,
-	"numeric":            true,
-	"anything-but":       true,
-	"cidr":               true,
-	"wildcard":           true,
-	"equals-ignore-case": true,
+// isKnownMatcher reports whether key is a valid EventBridge matcher object key.
+func isKnownMatcher(key string) bool {
+	switch key {
+	case "prefix", "suffix", "exists", "numeric", "anything-but", "cidr", "wildcard", "equals-ignore-case":
+		return true
+	}
+
+	return false
 }
 
 // validatePatternObject validates the structure of an EventBridge pattern object.
@@ -52,24 +50,15 @@ var knownMatchers = map[string]bool{
 func validatePatternObject(pattern map[string]any) error {
 	for key, val := range pattern {
 		if key == "$or" {
-			alts, ok := val.([]any)
-			if !ok {
-				return fmt.Errorf("invalid event pattern: $or must be an array")
+			if err := validateOrCombinator(val); err != nil {
+				return err
 			}
-			for _, alt := range alts {
-				subPat, ok := alt.(map[string]any)
-				if !ok {
-					return fmt.Errorf("invalid event pattern: $or elements must be objects")
-				}
-				if err := validatePatternObject(subPat); err != nil {
-					return err
-				}
-			}
+
 			continue
 		}
+
 		switch v := val.(type) {
 		case map[string]any:
-			// Nested object — recurse.
 			if err := validatePatternObject(v); err != nil {
 				return err
 			}
@@ -78,9 +67,31 @@ func validatePatternObject(pattern map[string]any) error {
 				return err
 			}
 		default:
-			return fmt.Errorf("invalid event pattern: value for field %q must be an array or object, got scalar", key)
+			return fmt.Errorf("%w: value for field %q must be an array or object, got scalar", ErrInvalidParameter, key)
 		}
 	}
+
+	return nil
+}
+
+// validateOrCombinator validates the $or combinator value.
+func validateOrCombinator(val any) error {
+	alts, ok := val.([]any)
+	if !ok {
+		return fmt.Errorf("%w: $or must be an array", ErrInvalidParameter)
+	}
+
+	for _, alt := range alts {
+		subPat, isMap := alt.(map[string]any)
+		if !isMap {
+			return fmt.Errorf("%w: $or elements must be objects", ErrInvalidParameter)
+		}
+
+		if err := validatePatternObject(subPat); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -95,19 +106,21 @@ func validateMatcherArray(field string, matchers []any) error {
 				return err
 			}
 		default:
-			return fmt.Errorf("invalid event pattern: matcher for field %q has unsupported type", field)
+			return fmt.Errorf("%w: matcher for field %q has unsupported type", ErrInvalidParameter, field)
 		}
 	}
+
 	return nil
 }
 
 // validateMatcherObject validates a single matcher object (e.g., {"prefix": "foo"}).
 func validateMatcherObject(field string, m map[string]any) error {
 	for key := range m {
-		if !knownMatchers[key] {
-			return fmt.Errorf("invalid event pattern: unknown matcher %q for field %q", key, field)
+		if !isKnownMatcher(key) {
+			return fmt.Errorf("%w: unknown matcher %q for field %q", ErrInvalidParameter, key, field)
 		}
 	}
+
 	return nil
 }
 
