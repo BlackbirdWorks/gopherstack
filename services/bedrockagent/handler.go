@@ -316,9 +316,9 @@ func (h *Handler) dispatchAgentRoot(
 	ctx context.Context, c *echo.Context, method string, body []byte,
 ) error {
 	switch method {
-	case http.MethodPut, http.MethodPost:
+	case http.MethodPut:
 		return h.handleCreateAgent(ctx, c, body)
-	case http.MethodGet:
+	case http.MethodPost, http.MethodGet:
 		return h.handleListAgents(ctx, c)
 	}
 
@@ -2231,7 +2231,7 @@ func classifyPath(method, path string) string {
 	path = strings.TrimSuffix(path, "/")
 
 	switch {
-	case path == agentsBase && isWrite(method):
+	case path == agentsBase && method == http.MethodPut:
 		return opCreateAgent
 	case path == agentsBase:
 		return opListAgents
