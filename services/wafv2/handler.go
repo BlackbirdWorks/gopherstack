@@ -2275,16 +2275,10 @@ func (h *Handler) handleDescribeManagedRuleGroup(body []byte) ([]byte, error) {
 		}
 	}
 
-	// Not found — return minimal stub so callers don't break.
-	const defaultManagedRuleGroupCapacity = int64(100)
-
-	return json.Marshal(map[string]any{
-		keyCapacity:       defaultManagedRuleGroupCapacity,
-		keyRules:          []any{},
-		"SnsTopicArn":     "",
-		"AvailableLabels": []any{},
-		"ConsumedLabels":  []any{},
-	})
+	return nil, fmt.Errorf(
+		"%w: managed rule group %q/%q not found",
+		ErrManagedRuleGroupNotFound, req.VendorName, req.Name,
+	)
 }
 
 // generateMobileSdkReleaseUrlRequest is the request body for GenerateMobileSdkReleaseUrl.
@@ -2293,15 +2287,35 @@ type generateMobileSdkReleaseURLRequest struct {
 	ReleaseVersion string `json:"ReleaseVersion"`
 }
 
-// handleGenerateMobileSdkReleaseURL returns a stub presigned URL.
+// handleGenerateMobileSdkReleaseURL returns a presigned-style URL for the requested mobile SDK release.
 func (h *Handler) handleGenerateMobileSdkReleaseURL(body []byte) ([]byte, error) {
 	var req generateMobileSdkReleaseURLRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
+	if req.Platform == "" {
+		return nil, fmt.Errorf("%w: Platform is required", errInvalidRequest)
+	}
+
+	if req.ReleaseVersion == "" {
+		return nil, fmt.Errorf("%w: ReleaseVersion is required", errInvalidRequest)
+	}
+
+	if getMobileSdkRelease(req.Platform, req.ReleaseVersion) == nil {
+		return nil, fmt.Errorf(
+			"%w: mobile SDK release %q/%q not found",
+			ErrMobileSdkReleaseNotFound,
+			req.Platform,
+			req.ReleaseVersion,
+		)
+	}
+
+	url := "https://d1mh8l8x6wqrj9.cloudfront.net/waf-mobile-sdk/" +
+		req.Platform + "/" + req.ReleaseVersion + "/aws-waf-mobile-sdk.zip?X-Amz-Signature=simulated"
+
 	return json.Marshal(map[string]any{
-		"Url": "https://example.com/mobile-sdk/" + req.Platform + "/" + req.ReleaseVersion,
+		"Url": url,
 	})
 }
 
