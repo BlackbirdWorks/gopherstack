@@ -331,8 +331,11 @@ type InMemoryBackend struct {
 	emailToAccountID map[string]string
 	// ousByParent maps parentID → ouName → ouID for O(1) sibling name uniqueness
 	// checks in CreateOrganizationalUnit and UpdateOrganizationalUnit.
-	ousByParent    map[string]map[string]string
-	mu             *lockmetrics.RWMutex
+	ousByParent map[string]map[string]string
+	// accountChildrenByParent maps parentID → set of accountIDs for O(1) child
+	// lookups in ListChildren and DeleteOrganizationalUnit.
+	accountChildrenByParent map[string]map[string]bool
+	mu                      *lockmetrics.RWMutex
 	region         string
 	accountID      string
 	accountCounter int
@@ -357,9 +360,29 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		delegatedAdmins:  make(map[string]map[string]*DelegatedAdmin),
 		handshakes:       make(map[string]*Handshake),
 		emailToAccountID: make(map[string]string),
-		ousByParent:      make(map[string]map[string]string),
-		accountCounter:   managementAccountCounter,
-		mu:               lockmetrics.New("organizations"),
+		ousByParent:             make(map[string]map[string]string),
+		accountChildrenByParent: make(map[string]map[string]bool),
+		accountCounter:          managementAccountCounter,
+		mu:                      lockmetrics.New("organizations"),
+	}
+}
+
+// addAccountChild records accountID as a child of parentID in the index.
+// Must be called with the write lock held.
+func (b *InMemoryBackend) addAccountChild(parentID, accountID string) {
+	if b.accountChildrenByParent[parentID] == nil {
+		b.accountChildrenByParent[parentID] = make(map[string]bool)
+	}
+
+	b.accountChildrenByParent[parentID][accountID] = true
+}
+
+// removeAccountChild removes accountID from its parent's entry in the index.
+// Must be called with the write lock held.
+func (b *InMemoryBackend) removeAccountChild(accountID string) {
+	parentID := b.accountParent[accountID]
+	if children := b.accountChildrenByParent[parentID]; children != nil {
+		delete(children, accountID)
 	}
 }
 
@@ -491,6 +514,7 @@ func (b *InMemoryBackend) CreateOrganization(featureSet string) (*Organization, 
 	b.root = root
 	b.accounts[mgmtAcctID] = mgmtAcct
 	b.accountParent[mgmtAcctID] = rootID
+	b.addAccountChild(rootID, mgmtAcctID)
 
 	return org, root, nil
 }
