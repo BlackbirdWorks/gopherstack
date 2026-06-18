@@ -422,40 +422,10 @@ func TestBatch4Accuracy_NetworkACL_EntryRules(t *testing.T) {
 	acl, err := b.CreateNetworkACL("vpc-default")
 	require.NoError(t, err)
 
-	tests := []struct {
-		name       string
-		protocol   string
-		action     string
-		cidr       string
-		ruleNumber int
-		fromPort   int
-		toPort     int
-		egress     bool
-	}{
-		{
-			name: "allow_http_inbound", ruleNumber: 100, protocol: "6",
-			action: "allow", cidr: "0.0.0.0/0", egress: false, fromPort: 80, toPort: 80,
-		},
-		{
-			name: "allow_https_inbound", ruleNumber: 110, protocol: "6",
-			action: "allow", cidr: "0.0.0.0/0", egress: false, fromPort: 443, toPort: 443,
-		},
-		{
-			name: "allow_all_outbound", ruleNumber: 100, protocol: "-1",
-			action: "allow", cidr: "0.0.0.0/0", egress: true, fromPort: 0, toPort: 0,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			createErr := b.CreateNetworkACLEntry(
-				acl.ID, tt.ruleNumber, tt.protocol, tt.action,
-				tt.cidr, tt.egress, tt.fromPort, tt.toPort,
-			)
-			require.NoError(t, createErr)
-		})
-	}
+	// add rules sequentially (shared acl object — no subtests)
+	require.NoError(t, b.CreateNetworkACLEntry(acl.ID, 100, "6", "allow", "0.0.0.0/0", false, 80, 80))
+	require.NoError(t, b.CreateNetworkACLEntry(acl.ID, 110, "6", "allow", "0.0.0.0/0", false, 443, 443))
+	require.NoError(t, b.CreateNetworkACLEntry(acl.ID, 100, "-1", "allow", "0.0.0.0/0", true, 0, 0))
 
 	// delete one entry
 	require.NoError(t, b.DeleteNetworkACLEntry(acl.ID, 110, false))
