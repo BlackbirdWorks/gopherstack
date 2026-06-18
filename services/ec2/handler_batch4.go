@@ -201,7 +201,10 @@ type describeClientVpnEndpointsResponse struct {
 }
 
 type clientVpnTargetNetworkItem struct {
-	SubnetID string `xml:"subnetId"`
+	AssociationID       string `xml:"associationId"`
+	SubnetID            string `xml:"subnetId"`
+	ClientVpnEndpointID string `xml:"clientVpnEndpointId"`
+	Status              string `xml:"status"`
 }
 
 type describeClientVpnTargetNetworksResponse struct {
@@ -223,7 +226,7 @@ type describeClientVpnRoutesResponse struct {
 	RequestID string   `xml:"requestId"`
 	Routes    struct {
 		Items []clientVpnRouteItem `xml:"item"`
-	} `xml:"routes"`
+	} `xml:"clientVpnRouteSet"`
 }
 
 type clientVpnAuthRuleItem struct {
@@ -588,27 +591,34 @@ func (h *Handler) handleDescribeClientVpnEndpoints(vals url.Values, reqID string
 	return resp, nil
 }
 
+type associateClientVpnTargetNetworkResponse struct {
+	XMLName     xml.Name `xml:"AssociateClientVpnTargetNetworkResponse"`
+	RequestID   string   `xml:"requestId"`
+	AssocStatus struct {
+		AssociationID string `xml:"associationId"`
+		Status        string `xml:"status"`
+	} `xml:"associationStatus"`
+}
+
 func (h *Handler) handleAssociateClientVpnTargetNetwork(vals url.Values, reqID string) (any, error) {
 	endpointID := vals.Get("ClientVpnEndpointId")
 	subnetID := vals.Get("SubnetId")
-	if err := h.Backend.AssociateClientVpnTargetNetwork(endpointID, subnetID); err != nil {
+	assocID, err := h.Backend.AssociateClientVpnTargetNetwork(endpointID, subnetID)
+	if err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "AssociateClientVpnTargetNetworkResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
+	resp := &associateClientVpnTargetNetworkResponse{RequestID: reqID}
+	resp.AssocStatus.AssociationID = assocID
+	resp.AssocStatus.Status = "associating"
+
+	return resp, nil
 }
 
 func (h *Handler) handleDisassociateClientVpnTargetNetwork(vals url.Values, reqID string) (any, error) {
 	endpointID := vals.Get("ClientVpnEndpointId")
-	subnetID := vals.Get("AssociationId") // AWS uses AssociationId, treat as subnetId in mock
-	if subnetID == "" {
-		subnetID = vals.Get("SubnetId")
-	}
-	if err := h.Backend.DisassociateClientVpnTargetNetwork(endpointID, subnetID); err != nil {
+	assocID := vals.Get("AssociationId")
+	if err := h.Backend.DisassociateClientVpnTargetNetwork(endpointID, assocID); err != nil {
 		return nil, err
 	}
 
@@ -627,10 +637,15 @@ func (h *Handler) handleDescribeClientVpnTargetNetworks(vals url.Values, reqID s
 	}
 
 	resp := &describeClientVpnTargetNetworksResponse{RequestID: reqID}
-	for _, s := range networks {
+	for _, tn := range networks {
 		resp.ClientVpnTargetNetworks.Items = append(
 			resp.ClientVpnTargetNetworks.Items,
-			clientVpnTargetNetworkItem{SubnetID: s},
+			clientVpnTargetNetworkItem{
+				AssociationID:       tn.AssociationID,
+				SubnetID:            tn.SubnetID,
+				ClientVpnEndpointID: tn.ClientVpnEndpointID,
+				Status:              tn.Status,
+			},
 		)
 	}
 

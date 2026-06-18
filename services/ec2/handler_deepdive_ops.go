@@ -6,6 +6,31 @@ import (
 	"time"
 )
 
+func toVpcEndpointItem(ep *VpcEndpoint) vpcEndpointItem {
+	item := vpcEndpointItem{
+		ID:              ep.ID,
+		VPCID:           ep.VPCID,
+		ServiceName:     ep.ServiceName,
+		State:           ep.State,
+		VpcEndpointType: ep.VpcEndpointType,
+		CreateTime:      ep.CreateTime.Format(time.RFC3339),
+	}
+
+	for _, sid := range ep.SubnetIDs {
+		item.SubnetIds.Items = append(item.SubnetIds.Items, struct {
+			SubnetID string `xml:"subnetId"`
+		}{SubnetID: sid})
+	}
+
+	for _, rtID := range ep.RouteTableIDs {
+		item.RouteTableIds.Items = append(item.RouteTableIds.Items, struct {
+			RouteTableID string `xml:"routeTableId"`
+		}{RouteTableID: rtID})
+	}
+
+	return item
+}
+
 func deepDiveSupportedOperations() []string {
 	return []string{
 		"CreateImage",
@@ -90,11 +115,13 @@ func (h *Handler) handleCreateLaunchTemplate(vals url.Values, reqID string) (any
 
 func (h *Handler) handleCreateVpcEndpoint(vals url.Values, reqID string) (any, error) {
 	subnetIDs := parseMemberList(vals, "SubnetId")
-	endpoint, err := h.Backend.CreateVpcEndpoint(
+	routeTableIDs := parseMemberList(vals, "RouteTableId")
+	endpoint, err := h.Backend.CreateVpcEndpointWithRouteTableIDs(
 		vals.Get("VpcId"),
 		vals.Get("ServiceName"),
 		vals.Get("VpcEndpointType"),
 		subnetIDs,
+		routeTableIDs,
 	)
 	if err != nil {
 		return nil, err
@@ -103,14 +130,7 @@ func (h *Handler) handleCreateVpcEndpoint(vals url.Values, reqID string) (any, e
 	return &createVpcEndpointResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
-		Endpoint: vpcEndpointItem{
-			ID:              endpoint.ID,
-			VPCID:           endpoint.VPCID,
-			ServiceName:     endpoint.ServiceName,
-			State:           endpoint.State,
-			VpcEndpointType: endpoint.VpcEndpointType,
-			CreateTime:      endpoint.CreateTime.Format(time.RFC3339),
-		},
+		Endpoint:  toVpcEndpointItem(endpoint),
 	}, nil
 }
 
@@ -119,14 +139,7 @@ func (h *Handler) handleDescribeVpcEndpoints(vals url.Values, reqID string) (any
 	endpoints := h.Backend.DescribeVpcEndpoints(ids)
 	items := make([]vpcEndpointItem, 0, len(endpoints))
 	for _, endpoint := range endpoints {
-		items = append(items, vpcEndpointItem{
-			ID:              endpoint.ID,
-			VPCID:           endpoint.VPCID,
-			ServiceName:     endpoint.ServiceName,
-			State:           endpoint.State,
-			VpcEndpointType: endpoint.VpcEndpointType,
-			CreateTime:      endpoint.CreateTime.Format(time.RFC3339),
-		})
+		items = append(items, toVpcEndpointItem(endpoint))
 	}
 
 	return &describeVpcEndpointsResponse{
@@ -137,14 +150,49 @@ func (h *Handler) handleDescribeVpcEndpoints(vals url.Values, reqID string) (any
 }
 
 func (h *Handler) handleDescribeNetworkAcls(vals url.Values, reqID string) (any, error) {
-	vpcIDs := parseMemberList(vals, "Filter.1.Value")
-	acls := h.Backend.DescribeNetworkAcls(vpcIDs)
+	// support both Filter.N.Name=vpc-id filter and NetworkAclId.N direct IDs
+	filters := parseEC2Filters(vals)
+	aclIDs := parseMemberList(vals, "NetworkAclId")
+
+	var vpcIDs []string
+	if vals, ok := filters["vpc-id"]; ok {
+		vpcIDs = vals
+	}
+
+	acls := h.Backend.DescribeNetworkAclsFiltered(vpcIDs)
+
+	// filter by ACL IDs if provided
+	if len(aclIDs) > 0 {
+		aclIDSet := make(map[string]bool, len(aclIDs))
+		for _, id := range aclIDs {
+			aclIDSet[id] = true
+		}
+
+		filtered := acls[:0:0]
+		for _, acl := range acls {
+			if aclIDSet[acl.ID] {
+				filtered = append(filtered, acl)
+			}
+		}
+
+		acls = filtered
+	}
+
 	items := make([]networkACLItem, 0, len(acls))
 	for _, acl := range acls {
+		assocs := make([]networkACLAssocItem, 0, len(acl.AssociationIDs))
+		for _, aid := range acl.AssociationIDs {
+			assocs = append(assocs, networkACLAssocItem{
+				NetworkACLAssociationID: aid,
+				NetworkACLID:            acl.ID,
+			})
+		}
+
 		items = append(items, networkACLItem{
-			ID:        acl.ID,
-			VPCID:     acl.VPCID,
-			IsDefault: acl.IsDefault,
+			ID:           acl.ID,
+			VPCID:        acl.VPCID,
+			IsDefault:    acl.IsDefault,
+			Associations: networkACLAssocSet{Items: assocs},
 		})
 	}
 
@@ -187,13 +235,27 @@ type createLaunchTemplateResponse struct {
 	LaunchTemplate launchTemplateItem `xml:"launchTemplate"`
 }
 
+type vpcEndpointSubnetIDSet struct {
+	Items []struct {
+		SubnetID string `xml:"subnetId"`
+	} `xml:"item"`
+}
+
+type vpcEndpointRouteTableIDSet struct {
+	Items []struct {
+		RouteTableID string `xml:"routeTableId"`
+	} `xml:"item"`
+}
+
 type vpcEndpointItem struct {
-	ID              string `xml:"vpcEndpointId"`
-	VPCID           string `xml:"vpcId"`
-	ServiceName     string `xml:"serviceName"`
-	State           string `xml:"vpcEndpointState"`
-	VpcEndpointType string `xml:"vpcEndpointType"`
-	CreateTime      string `xml:"creationTimestamp"`
+	ID             string                     `xml:"vpcEndpointId"`
+	VPCID          string                     `xml:"vpcId"`
+	ServiceName    string                     `xml:"serviceName"`
+	State          string                     `xml:"vpcEndpointState"`
+	VpcEndpointType string                   `xml:"vpcEndpointType"`
+	CreateTime     string                     `xml:"creationTimestamp"`
+	SubnetIds      vpcEndpointSubnetIDSet     `xml:"subnetIdSet"`
+	RouteTableIds  vpcEndpointRouteTableIDSet `xml:"routeTableIdSet"`
 }
 
 type vpcEndpointSet struct {
@@ -214,10 +276,21 @@ type describeVpcEndpointsResponse struct {
 	Endpoints vpcEndpointSet `xml:"vpcEndpointSet"`
 }
 
+type networkACLAssocItem struct {
+	NetworkACLAssociationID string `xml:"networkAclAssociationId"`
+	NetworkACLID            string `xml:"networkAclId"`
+	SubnetID                string `xml:"subnetId,omitempty"`
+}
+
+type networkACLAssocSet struct {
+	Items []networkACLAssocItem `xml:"item"`
+}
+
 type networkACLItem struct {
-	ID        string `xml:"networkAclId"`
-	VPCID     string `xml:"vpcId"`
-	IsDefault bool   `xml:"default"`
+	ID           string             `xml:"networkAclId"`
+	VPCID        string             `xml:"vpcId"`
+	IsDefault    bool               `xml:"default"`
+	Associations networkACLAssocSet `xml:"associationSet"`
 }
 
 type networkACLSet struct {
