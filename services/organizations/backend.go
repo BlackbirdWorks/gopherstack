@@ -574,6 +574,7 @@ func (b *InMemoryBackend) DeleteOrganization() error {
 	b.accounts = make(map[string]*Account)
 	b.ous = make(map[string]*OrganizationalUnit)
 	b.ousByParent = make(map[string]map[string]string)
+	b.accountChildrenByParent = make(map[string]map[string]bool)
 	b.policies = make(map[string]*Policy)
 	b.policyTargets = make(map[string][]string)
 	b.targetPolicies = make(map[string][]string)
@@ -627,6 +628,7 @@ func (b *InMemoryBackend) createAccountLocked(
 
 	b.accounts[acctID] = acct
 	b.accountParent[acctID] = b.root.ID
+	b.addAccountChild(b.root.ID, acctID)
 	b.setTagsLocked(acctID, tags)
 
 	if b.emailToAccountID == nil {
@@ -746,6 +748,7 @@ func (b *InMemoryBackend) RemoveAccountFromOrganization(accountID string) error 
 		b.policyTargets[policyID] = removeString(b.policyTargets[policyID], accountID)
 	}
 
+	b.removeAccountChild(accountID)
 	delete(b.accounts, accountID)
 	delete(b.accountParent, accountID)
 	delete(b.tags, accountID)
@@ -802,7 +805,9 @@ func (b *InMemoryBackend) MoveAccount(accountID, sourceParentID, destParentID st
 		return ErrInvalidInput
 	}
 
+	b.removeAccountChild(accountID)
 	b.accountParent[accountID] = destParentID
+	b.addAccountChild(destParentID, accountID)
 
 	return nil
 }
@@ -1020,17 +1025,13 @@ func (b *InMemoryBackend) DeleteOrganizationalUnit(ouID string) error {
 	}
 
 	// AWS rejects deletion of OUs that still contain accounts.
-	for _, parentID := range b.accountParent {
-		if parentID == ouID {
-			return ErrInvalidInput
-		}
+	if len(b.accountChildrenByParent[ouID]) > 0 {
+		return ErrInvalidInput
 	}
 
 	// AWS rejects deletion of OUs that still contain child OUs.
-	for _, parentID := range b.ouParent {
-		if parentID == ouID {
-			return ErrInvalidInput
-		}
+	if len(b.ousByParent[ouID]) > 0 {
+		return ErrInvalidInput
 	}
 
 	ou := b.ous[ouID]
@@ -1185,16 +1186,12 @@ func (b *InMemoryBackend) ListChildren(parentID, childType string) ([]ChildSumma
 
 	switch childType {
 	case targetTypeAccount:
-		for acctID, pid := range b.accountParent {
-			if pid == parentID {
-				out = append(out, ChildSummary{ID: acctID, Type: targetTypeAccount})
-			}
+		for acctID := range b.accountChildrenByParent[parentID] {
+			out = append(out, ChildSummary{ID: acctID, Type: targetTypeAccount})
 		}
 	case targetTypeOU:
-		for ouID, ou := range b.ous {
-			if ou.ParentID == parentID {
-				out = append(out, ChildSummary{ID: ouID, Type: targetTypeOU})
-			}
+		for _, ouID := range b.ousByParent[parentID] {
+			out = append(out, ChildSummary{ID: ouID, Type: targetTypeOU})
 		}
 	default:
 		return nil, ErrInvalidInput
@@ -1836,6 +1833,7 @@ func (b *InMemoryBackend) AcceptHandshake(handshakeID string) (*Handshake, error
 					}
 					b.accounts[acctID] = acct
 					b.accountParent[acctID] = b.root.ID
+					b.addAccountChild(b.root.ID, acctID)
 				}
 
 				break
@@ -2297,6 +2295,7 @@ func (b *InMemoryBackend) Reset() {
 	b.accounts = make(map[string]*Account)
 	b.ous = make(map[string]*OrganizationalUnit)
 	b.ousByParent = make(map[string]map[string]string)
+	b.accountChildrenByParent = make(map[string]map[string]bool)
 	b.policies = make(map[string]*Policy)
 	b.policyTargets = make(map[string][]string)
 	b.targetPolicies = make(map[string][]string)
@@ -2691,6 +2690,7 @@ func (b *InMemoryBackend) AddAccountInternal(a *Account) {
 
 	if b.root != nil {
 		b.accountParent[a.ID] = b.root.ID
+		b.addAccountChild(b.root.ID, a.ID)
 	}
 }
 

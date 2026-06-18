@@ -276,6 +276,12 @@ type RunTaskInput struct {
 // compile-time assertion.
 var _ Backend = (*InMemoryBackend)(nil)
 
+// svcRef is a composite key identifying a service by its cluster key and service name.
+type svcRef struct {
+	cluster string
+	name    string
+}
+
 // InMemoryBackend stores ECS state in memory.
 type InMemoryBackend struct {
 	runner                 TaskRunner
@@ -296,7 +302,10 @@ type InMemoryBackend struct {
 	// tasksByInstance is a reverse index: clusterName → containerInstanceArn → set of taskArns.
 	// It allows enrichContainerInstance to look up tasks in O(k) instead of O(n).
 	tasksByInstance map[string]map[string]map[string]bool
-	mu              *lockmetrics.RWMutex
+	// serviceIndex is a flat map of all service keys for single-pass iteration in
+	// getServicesForReconciler, avoiding the double nested-map loop + counting pass.
+	serviceIndex map[svcRef]bool
+	mu           *lockmetrics.RWMutex
 	accountID       string
 	region          string
 }
@@ -326,6 +335,7 @@ func NewInMemoryBackend(accountID, region string, runner TaskRunner) *InMemoryBa
 		expressGatewayServices: make(map[string]*ExpressGatewayService),
 		resourceTags:           make(map[string][]Tag),
 		tasksByInstance:        make(map[string]map[string]map[string]bool),
+		serviceIndex:           make(map[svcRef]bool),
 		mu:                     lockmetrics.New("ecs"),
 		accountID:              accountID,
 		region:                 region,
@@ -353,6 +363,7 @@ func (b *InMemoryBackend) Reset() {
 	b.expressGatewayServices = make(map[string]*ExpressGatewayService)
 	b.resourceTags = make(map[string][]Tag)
 	b.tasksByInstance = make(map[string]map[string]map[string]bool)
+	b.serviceIndex = make(map[svcRef]bool)
 }
 
 // Purge removes all ECS resources created before the given cutoff time.
@@ -362,6 +373,9 @@ func (b *InMemoryBackend) Purge(_ context.Context, cutoff time.Time) {
 
 	for name, c := range b.clusters {
 		if c.CreatedAt.Before(cutoff) {
+			for svcName := range b.services[name] {
+				delete(b.serviceIndex, svcRef{cluster: name, name: svcName})
+			}
 			delete(b.clusters, name)
 			delete(b.services, name)
 			delete(b.tasks, name)
@@ -543,9 +557,10 @@ func (b *InMemoryBackend) DeleteCluster(clusterName string) (*Cluster, error) {
 	// Delete task sets and service deployments for all services in this cluster
 	// before removing the services map, preventing stale entries on cluster recreation.
 	if svcs, exists := b.services[key]; exists {
-		for _, svc := range svcs {
+		for svcName, svc := range svcs {
 			delete(b.taskSets, svc.ServiceArn)
 			delete(b.serviceDeployments, svc.ServiceArn)
+			delete(b.serviceIndex, svcRef{cluster: key, name: svcName})
 		}
 	}
 
@@ -898,6 +913,7 @@ func (b *InMemoryBackend) CreateService(input CreateServiceInput) (*Service, err
 	svc.Deployments = []Deployment{newPrimaryDeployment(svc)}
 
 	b.services[clusterName][input.ServiceName] = svc
+	b.serviceIndex[svcRef{cluster: clusterName, name: input.ServiceName}] = true
 
 	cp := *svc
 
@@ -1107,6 +1123,7 @@ func (b *InMemoryBackend) DeleteService(cluster, serviceName string) (*Service, 
 
 	delete(svcs, key)
 	delete(b.taskSets, svc.ServiceArn)
+	delete(b.serviceIndex, svcRef{cluster: clusterName, name: key})
 
 	cp := *svc
 
@@ -1443,26 +1460,20 @@ func (b *InMemoryBackend) ListTasksFiltered(input ListTasksInput) ([]string, err
 }
 
 // getServicesForReconciler returns a snapshot of all services for the reconciler.
+// Uses the flat serviceIndex for O(len) single-pass iteration without nested loops
+// or a pre-counting pass.
 func (b *InMemoryBackend) getServicesForReconciler() []serviceSnapshot {
 	b.mu.RLock("GetServicesForReconciler")
 	defer b.mu.RUnlock()
 
-	// Preallocate to the exact service count so the snapshot does not repeatedly
-	// grow/reallocate the backing array on every reconcile tick.
-	total := 0
-	for _, svcs := range b.services {
-		total += len(svcs)
-	}
+	out := make([]serviceSnapshot, 0, len(b.serviceIndex))
 
-	out := make([]serviceSnapshot, 0, total)
-
-	for clusterName, svcs := range b.services {
-		for _, svc := range svcs {
-			out = append(out, serviceSnapshot{
-				clusterName: clusterName,
-				service:     *svc,
-			})
-		}
+	for ref := range b.serviceIndex {
+		svc := b.services[ref.cluster][ref.name]
+		out = append(out, serviceSnapshot{
+			clusterName: ref.cluster,
+			service:     *svc,
+		})
 	}
 
 	return out
