@@ -104,6 +104,7 @@ func (j *Janitor) Run(ctx context.Context) {
 			j.sweepTxnTokens(taskCtx)
 			j.sweepTxnPending(taskCtx)
 			j.Backend.exprCache.Sweep()
+			j.Backend.iteratorStore.Sweep()
 			j.runTableCleaner(taskCtx)
 			cancel()
 		}

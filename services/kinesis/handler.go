@@ -566,6 +566,10 @@ func (h *Handler) handleCreateStream(
 		return nil, ErrInvalidArgument
 	}
 
+	if !streamNameRe.MatchString(req.StreamName) {
+		return nil, ErrValidation
+	}
+
 	region := getRegion(ctx, h.defaultRegion())
 
 	var streamMode string

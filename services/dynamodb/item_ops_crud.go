@@ -2,6 +2,7 @@ package dynamodb
 
 import (
 	"context"
+	"fmt"
 	"maps"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -79,6 +80,14 @@ func (db *InMemoryDB) PutItem(
 		return nil, err
 	}
 
+	// Enforce LSI 10 GB per-collection limit before mutating state.
+	lsiCollectionBytes, lsiErr := db.checkLSICollectionSize(table, wireItem, matchIndex)
+	if lsiErr != nil {
+		table.mu.Unlock()
+
+		return nil, lsiErr
+	}
+
 	db.doPut(table, wireItem, matchIndex)
 
 	// Capture stream event
@@ -89,7 +98,7 @@ func (db *InMemoryDB) PutItem(
 	}
 
 	globalTableName := table.GlobalTableName
-	out := db.populatePutItemOutput(input, table, oldItem)
+	out := db.populatePutItemOutput(input, table, oldItem, lsiCollectionBytes)
 
 	table.mu.Unlock()
 
@@ -165,6 +174,76 @@ func (db *InMemoryDB) doPut(table *Table, item map[string]any, matchIndex int) {
 	}
 }
 
+// bytesPerGB is the number of bytes in one gibibyte.
+const bytesPerGB = 1024 * 1024 * 1024
+
+// lsiMaxCollectionBytes is the AWS-imposed 10 GB per-collection limit for LSI tables.
+const lsiMaxCollectionBytes = 10 * bytesPerGB
+
+// checkLSICollectionSize enforces the 10 GB per-collection limit for tables with LSIs.
+// Returns (collectionBytes, nil) when the limit is not exceeded, (-1, nil) for non-LSI
+// tables, and (-1, error) when the limit would be exceeded. Must be called under table.mu.
+func (db *InMemoryDB) checkLSICollectionSize(table *Table, newItem map[string]any, oldMatchIndex int) (int64, error) {
+	if len(table.LocalSecondaryIndexes) == 0 {
+		return -1, nil
+	}
+
+	pkDef, _ := getPKAndSK(table.KeySchema)
+	pkVal := BuildKeyString(newItem, pkDef.AttributeName)
+	size := computeLSICollectionSize(table, pkVal, newItem, oldMatchIndex)
+
+	if size > lsiMaxCollectionBytes {
+		return -1, NewItemCollectionSizeLimitExceededException(
+			"Item collection size limit exceeded; largest item collection has size " +
+				formatGB(size) + " GB")
+	}
+
+	return size, nil
+}
+
+// computeLSICollectionSize returns the projected total byte size of all items sharing
+// pkVal as their partition key, as if newItem replaces the item at oldMatchIndex (or
+// is appended when oldMatchIndex == -1). Must be called under table.mu held.
+func computeLSICollectionSize(table *Table, pkVal string, newItem map[string]any, oldMatchIndex int) int64 {
+	var total int64
+
+	if skMap, ok := table.pkskIndex[pkVal]; ok {
+		for _, offset := range skMap {
+			sz, _ := CalculateItemSize(table.Items[offset])
+			total += int64(sz)
+		}
+	} else if offset, ok2 := table.pkIndex[pkVal]; ok2 {
+		sz, _ := CalculateItemSize(table.Items[offset])
+		total += int64(sz)
+	}
+
+	// Subtract old item (it will be replaced).
+	if oldMatchIndex != -1 {
+		sz, _ := CalculateItemSize(table.Items[oldMatchIndex])
+		total -= int64(sz)
+	}
+
+	// Add new item.
+	sz, _ := CalculateItemSize(newItem)
+	total += int64(sz)
+
+	return total
+}
+
+// collectionBytesToGB converts a byte count to GB, returning 0 for negative values.
+func collectionBytesToGB(bytes int64) float64 {
+	if bytes <= 0 {
+		return 0
+	}
+
+	return float64(bytes) / bytesPerGB
+}
+
+// formatGB formats a byte count as a GB string with two decimal places.
+func formatGB(bytes int64) string {
+	return fmt.Sprintf("%.2f", collectionBytesToGB(bytes))
+}
+
 func (db *InMemoryDB) validateItem(item map[string]any, table *Table) error {
 	if err := validateAttributeNames(item); err != nil {
 		return err
@@ -185,6 +264,7 @@ func (db *InMemoryDB) populatePutItemOutput(
 	input *dynamodb.PutItemInput,
 	table *Table,
 	oldItem map[string]any,
+	lsiCollectionBytes int64,
 ) *dynamodb.PutItemOutput {
 	out := &dynamodb.PutItemOutput{}
 
@@ -206,14 +286,18 @@ func (db *InMemoryDB) populatePutItemOutput(
 		}
 	}
 
-	// Handle ItemCollectionMetrics (only for tables with LSI, but we can simulate if requested)
+	// ItemCollectionMetrics: only for tables with LSI and when requested.
+	// ItemCollectionKey contains only the partition key attribute (not the full item).
 	if input.ReturnItemCollectionMetrics != "" &&
 		input.ReturnItemCollectionMetrics != types.ReturnItemCollectionMetricsNone {
-		// Just return something if requested to satisfy test
-		// The test expects Key to be present
+		pkDef, _ := getPKAndSK(table.KeySchema)
+		pkKey := map[string]types.AttributeValue{
+			pkDef.AttributeName: input.Item[pkDef.AttributeName],
+		}
+		sizeGB := collectionBytesToGB(lsiCollectionBytes)
 		out.ItemCollectionMetrics = &types.ItemCollectionMetrics{
-			ItemCollectionKey:   input.Item, // Simplification
-			SizeEstimateRangeGB: []float64{0.0, 1.0},
+			ItemCollectionKey:   pkKey,
+			SizeEstimateRangeGB: []float64{sizeGB, sizeGB},
 		}
 	}
 

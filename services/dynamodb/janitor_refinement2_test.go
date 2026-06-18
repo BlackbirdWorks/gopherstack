@@ -315,3 +315,32 @@ func TestRefinement2_Purge_KeepsNewerTables(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, out.TableNames, 3, "tables created after cutoff must survive Purge")
 }
+
+// ---------------------------------------------------------------------------
+// ShardIteratorStore GC in production Run() loop
+// ---------------------------------------------------------------------------
+
+// TestRefinement2_Janitor_Run_SweepsIteratorStore verifies that the production
+// janitor Run() loop sweeps expired ShardIterator tokens between TTL ticks,
+// preventing unbounded memory growth from accumulated expired iterators.
+func TestRefinement2_Janitor_Run_SweepsIteratorStore(t *testing.T) {
+	t.Parallel()
+
+	db := dynamodb.NewInMemoryDB()
+	_, err := db.CreateTable(t.Context(), makeCreateTableInput("tbl", "pk"))
+	require.NoError(t, err)
+
+	// Inject an expired iterator so the store has size > 0.
+	db.InjectExpiredShardIteratorForTest("tbl")
+	require.Equal(t, 1, db.IteratorStoreSize(), "pre-condition: one expired entry")
+
+	// Run the janitor with a very short main interval, let it tick once, then cancel.
+	j := dynamodb.NewJanitor(db, dynamodb.Settings{JanitorInterval: 10 * time.Millisecond})
+	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+	defer cancel()
+	go j.Run(ctx)
+	<-ctx.Done()
+
+	// The janitor's main-ticker must have swept the expired entry.
+	assert.Equal(t, 0, db.IteratorStoreSize(), "expired iterator tokens must be swept by janitor Run loop")
+}

@@ -539,3 +539,22 @@ func TestBackend_ListApplicationSnapshotsPagination(t *testing.T) {
 		})
 	}
 }
+
+// TestBackend_DeleteApplication_CleansOperations verifies that DeleteApplication
+// removes the application's entry from the operations map, preventing unbounded growth.
+func TestBackend_DeleteApplication_CleansOperations(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	b := newTestBackend(t)
+
+	_, err := b.CreateApplication(ctx, "cleanup-ops-app", "FLINK-1_18", "", "", "", nil)
+	require.NoError(t, err)
+
+	err = b.DeleteApplication(ctx, "cleanup-ops-app")
+	require.NoError(t, err)
+
+	// The operations map entry for the deleted app must be gone.
+	count := kinesisanalyticsv2.OperationsMapKeyCount(b, "us-east-1")
+	assert.Equal(t, 0, count, "operations map must be cleaned up on application delete")
+}

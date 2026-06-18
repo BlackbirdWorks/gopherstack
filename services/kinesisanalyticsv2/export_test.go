@@ -45,3 +45,12 @@ func SnapshotCount(b *InMemoryBackend) int {
 func HandlerOpsLen(h *Handler) int {
 	return len(h.ops)
 }
+
+// OperationsMapKeyCount returns the number of application-name keys in the operations map
+// for the given region. Used to verify leak-free cleanup on DeleteApplication.
+func OperationsMapKeyCount(b *InMemoryBackend, region string) int {
+	b.mu.RLock("OperationsMapKeyCount")
+	defer b.mu.RUnlock()
+
+	return len(b.operations[region])
+}
