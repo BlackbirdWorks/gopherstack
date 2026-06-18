@@ -60,6 +60,7 @@ import (
 	emrsdk "github.com/aws/aws-sdk-go-v2/service/emr"
 	emrserverlesssdk "github.com/aws/aws-sdk-go-v2/service/emrserverless"
 	eventbridgesdk "github.com/aws/aws-sdk-go-v2/service/eventbridge"
+	firehosesdk "github.com/aws/aws-sdk-go-v2/service/firehose"
 	gluesdk "github.com/aws/aws-sdk-go-v2/service/glue"
 	iamsdk "github.com/aws/aws-sdk-go-v2/service/iam"
 	identitystoresdk "github.com/aws/aws-sdk-go-v2/service/identitystore"
@@ -1746,6 +1747,23 @@ func createAPIGatewayV2Client(t *testing.T) *apigwv2sdk.Client {
 	require.NoError(t, err, "unable to load SDK config")
 
 	return apigwv2sdk.NewFromConfig(cfg, func(o *apigwv2sdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+func createFirehoseClient(t *testing.T) *firehosesdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return firehosesdk.NewFromConfig(cfg, func(o *firehosesdk.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
