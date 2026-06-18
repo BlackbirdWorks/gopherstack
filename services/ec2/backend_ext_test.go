@@ -970,7 +970,8 @@ func TestSecurityGroupRuleOperations(t *testing.T) {
 				require.NoError(t, err)
 				sgs := b.DescribeSecurityGroups([]string{sg.ID})
 				require.Len(t, sgs, 1)
-				assert.Len(t, sgs[0].EgressRules, 1)
+				// 2 = 1 default allow-all egress + 1 explicitly added rule.
+				assert.Len(t, sgs[0].EgressRules, 2)
 
 			case "revoke_ingress":
 				sg, err := b.CreateSecurityGroup("test-sg-revoke", "test", "vpc-default")
@@ -992,7 +993,8 @@ func TestSecurityGroupRuleOperations(t *testing.T) {
 				require.NoError(t, err)
 				sgs := b.DescribeSecurityGroups([]string{sg.ID})
 				require.Len(t, sgs, 1)
-				assert.Empty(t, sgs[0].EgressRules)
+				// Default allow-all egress rule remains after revoking the explicitly added rule.
+				assert.Len(t, sgs[0].EgressRules, 1)
 
 			case "revoke_egress_idempotent":
 				// Revoking a rule that was never added must return InvalidPermission.NotFound (AWS behavior).

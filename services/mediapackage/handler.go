@@ -337,10 +337,16 @@ func (h *Handler) jsonError(c *echo.Context, status int, err error) error {
 	return c.JSON(status, map[string]any{keyMessage: err.Error()})
 }
 
+func (h *Handler) jsonErrorTyped(c *echo.Context, status int, errType string, err error) error {
+	return c.JSON(status, map[string]any{keyMessage: err.Error(), "__type": errType})
+}
+
 func (h *Handler) mapError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
-		return h.jsonError(c, http.StatusNotFound, err)
+		// Include __type so the AWS SDK can identify the NotFoundException
+		// and terraform destroy-wait converges correctly.
+		return h.jsonErrorTyped(c, http.StatusNotFound, ErrNotFound.Error(), err)
 	case errors.Is(err, awserr.ErrAlreadyExists):
 		return h.jsonError(c, http.StatusUnprocessableEntity, err)
 	case errors.Is(err, awserr.ErrInvalidParameter):
