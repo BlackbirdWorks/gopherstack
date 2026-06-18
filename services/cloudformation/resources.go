@@ -23,6 +23,7 @@ import (
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 	codebuildbackend "github.com/blackbirdworks/gopherstack/services/codebuild"
 	codepipelinebackend "github.com/blackbirdworks/gopherstack/services/codepipeline"
+	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	docdbbackend "github.com/blackbirdworks/gopherstack/services/docdb"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
@@ -101,6 +102,7 @@ type ServiceBackends struct {
 	SES             *sesbackend.Handler
 	ACM             *acmbackend.Handler
 	CognitoIDP      *cognitoidpbackend.Handler
+	CognitoIdentity *cognitoidentitybackend.Handler
 	// Phase-3 backends
 	EKS            *eksbackend.Handler
 	EFS            *efsbackend.Handler
@@ -645,6 +647,12 @@ func (rc *ResourceCreator) createNewServiceResource(
 		return physID, err
 	}
 
+	if physID, handled, err := rc.createPhase6Resource(
+		ctx, logicalID, resourceType, props, params, physicalIDs,
+	); handled {
+		return physID, err
+	}
+
 	return rc.createMiscServiceResource(logicalID, resourceType, props, params, physicalIDs)
 }
 
@@ -1016,7 +1024,20 @@ func (rc *ResourceCreator) createPhase4Resource(
 			return "", err
 		}
 		if !handled {
-			return logicalID + "-stub", nil
+			id, handled, err = rc.createPhase6Resource(
+				context.Background(),
+				logicalID,
+				resourceType,
+				props,
+				params,
+				physicalIDs,
+			)
+			if err != nil {
+				return "", err
+			}
+			if !handled {
+				return logicalID + "-stub", nil
+			}
 		}
 
 		return id, nil
@@ -1344,6 +1365,10 @@ func (rc *ResourceCreator) deleteDataPlatformResource(
 		return rc.deleteSchedulerSchedule(physicalID)
 	default:
 		if handled, err := rc.deletePhase5Resource(ctx, resourceType, physicalID); handled {
+			return err
+		}
+
+		if handled, err := rc.deletePhase6Resource(ctx, resourceType, physicalID); handled {
 			return err
 		}
 

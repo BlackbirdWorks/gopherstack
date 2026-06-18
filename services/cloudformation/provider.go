@@ -16,6 +16,7 @@ import (
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 	codebuildbackend "github.com/blackbirdworks/gopherstack/services/codebuild"
 	codepipelinebackend "github.com/blackbirdworks/gopherstack/services/codepipeline"
+	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	docdbbackend "github.com/blackbirdworks/gopherstack/services/docdb"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
@@ -198,6 +199,7 @@ func extractAllServiceBackends(bp BackendsProvider, backends *ServiceBackends) {
 	backends.SES, _ = getHandler[*sesbackend.Handler](bp.GetSESHandler())
 	backends.ACM, _ = getHandler[*acmbackend.Handler](bp.GetACMHandler())
 	backends.CognitoIDP, _ = getHandler[*cognitoidpbackend.Handler](bp.GetCognitoIDPHandler())
+	backends.CognitoIdentity, _ = getHandler[*cognitoidentitybackend.Handler](bp.GetCognitoIdentityHandler())
 	// Phase-3 backends (EKS, EFS, Batch, CloudFront, AutoScaling, etc.)
 	backends.EKS, _ = getHandler[*eksbackend.Handler](bp.GetEKSHandler())
 	backends.EFS, _ = getHandler[*efsbackend.Handler](bp.GetEFSHandler())
