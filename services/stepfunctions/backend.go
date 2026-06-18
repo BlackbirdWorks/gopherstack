@@ -198,19 +198,22 @@ type InMemoryBackend struct {
 }
 
 // activityTaskEntry holds a pending activity task and its result channel.
+// Field order is tuned for GC pointer-bitmap scan range (pointer fields first).
 type activityTaskEntry struct {
 	// heartbeatTimer is reset on each SendTaskHeartbeat call. Nil if no heartbeat timeout.
 	heartbeatTimer *time.Timer
 	// heartbeatStop signals the heartbeat monitor to stop (on task completion).
 	heartbeatStop chan struct{}
 	resultCh      chan activityTaskResult
-	activityArn   string
-	taskToken     string
-	input         string
-	// heartbeatDuration is the original duration for resetting the heartbeat timer.
-	heartbeatDuration time.Duration
 	// createdAt records when the task entry was created, used for TTL-based eviction.
-	createdAt time.Time
+	// time.Time contains a pointer (loc), placed before strings to keep scan range minimal.
+	createdAt   time.Time
+	activityArn string
+	taskToken   string
+	input       string
+	// heartbeatDuration is the original duration for resetting the heartbeat timer.
+	// Non-pointer field placed last to reduce GC scan range.
+	heartbeatDuration time.Duration
 }
 
 // activityTaskResult holds the result of an activity task.

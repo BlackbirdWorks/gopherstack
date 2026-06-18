@@ -187,8 +187,8 @@ func TestDeleteActivity_UnblocksInFlightInvokeActivity(t *testing.T) {
 			deadline := time.After(2 * time.Second)
 			for range tc.tasks {
 				select {
-				case err := <-done:
-					require.Error(t, err, "InvokeActivity must return an error after activity deletion")
+				case invokeErr := <-done:
+					require.Error(t, invokeErr, "InvokeActivity must return an error after activity deletion")
 				case <-deadline:
 					t.Fatal("InvokeActivity goroutine did not unblock after DeleteActivity")
 				}
@@ -247,8 +247,8 @@ func TestSweepTaskTokens_EvictsStaleTokens(t *testing.T) {
 	deadline := time.After(2 * time.Second)
 	for range taskCount {
 		select {
-		case err := <-done:
-			require.Error(t, err, "InvokeActivity must return an error after token eviction")
+		case invokeErr := <-done:
+			require.Error(t, invokeErr, "InvokeActivity must return an error after token eviction")
 		case <-deadline:
 			t.Fatal("InvokeActivity goroutine did not unblock after SweepTaskTokens")
 		}
