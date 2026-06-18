@@ -69,10 +69,9 @@ resource "aws_msk_cluster" "example" {
 }
 
 resource "aws_dynamodb_table" "example" {
-  name                        = "mega-batch-4-table"
-  billing_mode                = "PAY_PER_REQUEST"
-  hash_key                    = "pk"
-  deletion_protection_enabled = true
+  name         = "mega-batch-4-table"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "pk"
 
   attribute {
     name = "pk"

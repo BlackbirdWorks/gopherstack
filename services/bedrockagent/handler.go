@@ -515,9 +515,9 @@ func (h *Handler) dispatchKB(
 ) error {
 	if path == kbBase {
 		switch method {
-		case http.MethodPut, http.MethodPost:
+		case http.MethodPut:
 			return h.handleCreateKB(ctx, c, body)
-		case http.MethodGet:
+		case http.MethodPost, http.MethodGet:
 			return h.handleListKBs(ctx, c)
 		}
 	}
@@ -2235,7 +2235,7 @@ func classifyPath(method, path string) string {
 		return opCreateAgent
 	case path == agentsBase:
 		return opListAgents
-	case path == kbBase && isWrite(method):
+	case path == kbBase && method == http.MethodPut:
 		return opCreateKnowledgeBase
 	case path == kbBase:
 		return opListKnowledgeBases
