@@ -209,6 +209,8 @@ type activityTaskEntry struct {
 	input         string
 	// heartbeatDuration is the original duration for resetting the heartbeat timer.
 	heartbeatDuration time.Duration
+	// createdAt records when the task entry was created, used for TTL-based eviction.
+	createdAt time.Time
 }
 
 // activityTaskResult holds the result of an activity task.
@@ -471,6 +473,43 @@ func (b *InMemoryBackend) CreateStateMachine(
 	nameIdx[name] = smARN
 
 	return sm, nil
+}
+
+// SweepTaskTokens evicts task tokens that have exceeded the TTL without a worker response,
+// signalling the blocked InvokeActivity goroutine so it is not leaked. Returns evicted count.
+func (b *InMemoryBackend) SweepTaskTokens() int {
+	ttl := b.settings.TaskTokenTTL
+	if ttl == 0 {
+		ttl = defaultTaskTokenTTL
+	}
+
+	cutoff := time.Now().Add(-ttl)
+
+	b.mu.Lock("SweepTaskTokens")
+
+	var stale []*activityTaskEntry
+	for _, entry := range b.tasksByToken {
+		if !entry.createdAt.IsZero() && entry.createdAt.Before(cutoff) {
+			stale = append(stale, entry)
+		}
+	}
+	for _, entry := range stale {
+		delete(b.tasksByToken, entry.taskToken)
+		if entry.heartbeatTimer != nil {
+			entry.heartbeatTimer.Stop()
+		}
+	}
+
+	b.mu.Unlock()
+
+	for _, entry := range stale {
+		select {
+		case entry.resultCh <- activityTaskResult{errCode: "TaskTimedOut", cause: "task token TTL exceeded"}:
+		default:
+		}
+	}
+
+	return len(stale)
 }
 
 // PruneExecutions removes executions and history older than the retention period.
@@ -1414,7 +1453,16 @@ func (b *InMemoryBackend) DeleteActivity(activityArn string) error {
 		}
 	}
 	for _, taskToken := range taskTokens {
+		entry := b.tasksByToken[taskToken]
 		delete(b.tasksByToken, taskToken)
+		if entry.heartbeatTimer != nil {
+			entry.heartbeatTimer.Stop()
+		}
+		// Unblock any InvokeActivity goroutine waiting on this task's resultCh.
+		select {
+		case entry.resultCh <- activityTaskResult{errCode: "ActivityDoesNotExist", cause: "activity deleted"}:
+		default:
+		}
 	}
 
 	return nil
@@ -2051,6 +2099,7 @@ func (b *InMemoryBackend) InvokeActivity(
 		taskToken:   taskToken,
 		input:       inputJSON,
 		resultCh:    make(chan activityTaskResult, 1),
+		createdAt:   time.Now(),
 	}
 
 	if heartbeatSeconds > 0 {

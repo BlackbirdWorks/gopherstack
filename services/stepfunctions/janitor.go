@@ -60,10 +60,15 @@ func (j *Janitor) taskContext(parent context.Context) (context.Context, context.
 
 func (j *Janitor) sweepExecutions(ctx context.Context) {
 	pruned := j.Backend.PruneExecutions(ctx)
+	evicted := j.Backend.SweepTaskTokens()
 
 	telemetry.RecordWorkerTask(sfnWorkerService, prunerName, "success")
 	if pruned > 0 {
 		telemetry.RecordWorkerItems(sfnWorkerService, prunerName, pruned)
 		logger.Load(ctx).InfoContext(ctx, "Step Functions janitor: pruned old executions", "count", pruned)
+	}
+	if evicted > 0 {
+		telemetry.RecordWorkerItems(sfnWorkerService, prunerName, evicted)
+		logger.Load(ctx).InfoContext(ctx, "Step Functions janitor: evicted stale task tokens", "count", evicted)
 	}
 }
