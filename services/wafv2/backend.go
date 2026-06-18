@@ -107,6 +107,8 @@ var (
 	ErrManagedRuleSetNotFound = awserr.New("WAFNonexistentItemException", awserr.ErrNotFound)
 	// ErrMobileSdkReleaseNotFound is returned when a mobile SDK release is not in the catalog.
 	ErrMobileSdkReleaseNotFound = awserr.New("WAFNonexistentItemException", awserr.ErrNotFound)
+	// ErrManagedRuleGroupNotFound is returned when a managed rule group is not in the catalog.
+	ErrManagedRuleGroupNotFound = awserr.New("WAFNonexistentItemException", awserr.ErrNotFound)
 )
 
 const (
