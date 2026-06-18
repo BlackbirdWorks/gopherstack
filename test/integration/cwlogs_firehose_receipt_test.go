@@ -99,9 +99,9 @@ func TestIntegration_CWLogs_Firehose_SubscriptionReceipt(t *testing.T) {
 
 	// Wire a subscription filter pointing to the Firehose stream.
 	_, err = cwlClient.PutSubscriptionFilter(ctx, &cloudwatchlogssdk.PutSubscriptionFilterInput{
-		LogGroupName:  aws.String(groupName),
-		FilterName:    aws.String(filterName),
-		FilterPattern: aws.String(""),
+		LogGroupName:   aws.String(groupName),
+		FilterName:     aws.String(filterName),
+		FilterPattern:  aws.String(""),
 		DestinationArn: aws.String(fhARN),
 	})
 	require.NoError(t, err, "PutSubscriptionFilter should succeed")
