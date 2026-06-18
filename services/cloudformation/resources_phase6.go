@@ -53,6 +53,7 @@ func (rc *ResourceCreator) createPhase6Resource(
 	if id, ok, err := rc.createPhase6LambdaResource(logicalID, resourceType, props, params, physicalIDs); ok {
 		return id, true, err
 	}
+
 	return "", false, nil
 }
 
@@ -85,6 +86,7 @@ func (rc *ResourceCreator) deletePhase6Resource(
 	if handled, err := rc.deletePhase6LambdaResource(resourceType, physicalID); handled {
 		return true, err
 	}
+
 	return false, nil
 }
 
@@ -98,33 +100,43 @@ func (rc *ResourceCreator) createPhase6APIGatewayResource(
 	switch resourceType {
 	case "AWS::ApiGateway::Model":
 		id, err := rc.createAPIGatewayModel(logicalID, props, params, physicalIDs)
+
 		return id, true, err
 	case "AWS::ApiGateway::RequestValidator":
 		id, err := rc.createAPIGatewayRequestValidator(logicalID, props, params, physicalIDs)
+
 		return id, true, err
 	case "AWS::ApiGateway::Authorizer":
 		id, err := rc.createAPIGatewayAuthorizer(logicalID, props, params, physicalIDs)
+
 		return id, true, err
 	case "AWS::ApiGateway::ApiKey":
 		id, err := rc.createAPIGatewayAPIKey(logicalID, props, params, physicalIDs)
+
 		return id, true, err
 	case "AWS::ApiGateway::UsagePlan":
 		id, err := rc.createAPIGatewayUsagePlan(logicalID, props, params, physicalIDs)
+
 		return id, true, err
 	case "AWS::ApiGateway::UsagePlanKey":
 		id, err := rc.createAPIGatewayUsagePlanKey(logicalID, props, params, physicalIDs)
+
 		return id, true, err
 	case "AWS::ApiGateway::DomainName":
 		id, err := rc.createAPIGatewayV1DomainName(logicalID, props, params, physicalIDs)
+
 		return id, true, err
 	case "AWS::ApiGateway::BasePathMapping":
 		id, err := rc.createAPIGatewayBasePathMapping(logicalID, props, params, physicalIDs)
+
 		return id, true, err
 	case "AWS::ApiGateway::Account":
 		id, err := rc.createAPIGatewayAccount(logicalID, props, params, physicalIDs)
+
 		return id, true, err
 	case "AWS::ApiGateway::GatewayResponse":
 		id, err := rc.createAPIGatewayGatewayResponse(logicalID, props, params, physicalIDs)
+
 		return id, true, err
 	default:
 		return "", false, nil
@@ -336,6 +348,7 @@ func (rc *ResourceCreator) deleteAPIGatewayAPIKey(physicalID string) error {
 	if rc.backends.APIGateway == nil {
 		return nil
 	}
+
 	return rc.backends.APIGateway.Backend.DeleteAPIKey(physicalID)
 }
 
@@ -366,6 +379,7 @@ func (rc *ResourceCreator) deleteAPIGatewayUsagePlan(physicalID string) error {
 	if rc.backends.APIGateway == nil {
 		return nil
 	}
+
 	return rc.backends.APIGateway.Backend.DeleteUsagePlan(physicalID)
 }
 
@@ -438,6 +452,7 @@ func (rc *ResourceCreator) deleteAPIGatewayV1DomainName(physicalID string) error
 	if rc.backends.APIGateway == nil {
 		return nil
 	}
+
 	return rc.backends.APIGateway.Backend.DeleteDomainName(physicalID)
 }
 
@@ -500,6 +515,7 @@ func (rc *ResourceCreator) createAPIGatewayAccount(
 			return "", fmt.Errorf("update API Gateway account: %w", err)
 		}
 	}
+
 	return "account", nil
 }
 
@@ -566,9 +582,11 @@ func (rc *ResourceCreator) createPhase6APIGatewayV2Resource(
 	switch resourceType {
 	case "AWS::ApiGatewayV2::DomainName":
 		id, err := rc.createAPIGatewayV2DomainName(logicalID, props, params, physicalIDs)
+
 		return id, true, err
 	case "AWS::ApiGatewayV2::ApiMapping":
 		id, err := rc.createAPIGatewayV2ApiMapping(logicalID, props, params, physicalIDs)
+
 		return id, true, err
 	default:
 		return "", false, nil
@@ -616,6 +634,7 @@ func (rc *ResourceCreator) deleteAPIGatewayV2DomainName(physicalID string) error
 	if rc.backends.APIGatewayV2 == nil {
 		return nil
 	}
+
 	return rc.backends.APIGatewayV2.Backend.DeleteDomainName(physicalID)
 }
 
@@ -667,9 +686,11 @@ func (rc *ResourceCreator) createPhase6EventsResource(
 	switch resourceType {
 	case "AWS::Events::ApiDestination":
 		id, err := rc.createEventsAPIDestination(ctx, logicalID, props, params, physicalIDs)
+
 		return id, true, err
 	case "AWS::Events::EventBusPolicy":
 		id, err := rc.createEventsEventBusPolicy(ctx, logicalID, props, params, physicalIDs)
+
 		return id, true, err
 	default:
 		return "", false, nil
@@ -786,6 +807,7 @@ func (rc *ResourceCreator) createPhase6KMSResource(
 		return "", false, nil
 	}
 	id, err := rc.createKMSReplicaKey(ctx, logicalID, props, params, physicalIDs)
+
 	return id, true, err
 }
 
@@ -796,6 +818,7 @@ func (rc *ResourceCreator) deletePhase6KMSResource(
 	if resourceType != "AWS::KMS::ReplicaKey" {
 		return false, nil
 	}
+
 	return true, rc.deleteKMSReplicaKey(ctx, physicalID)
 }
 
@@ -832,6 +855,7 @@ func (rc *ResourceCreator) deleteKMSReplicaKey(ctx context.Context, physicalID s
 		KeyID:               physicalID,
 		PendingWindowInDays: kmsMinDeletionWindowDays,
 	})
+
 	return err
 }
 
@@ -846,6 +870,7 @@ func (rc *ResourceCreator) createPhase6CognitoResource(
 	switch resourceType {
 	case "AWS::Cognito::IdentityPool":
 		id, err := rc.createCognitoIdentityPool(ctx, logicalID, props, params, physicalIDs)
+
 		return id, true, err
 	case "AWS::Cognito::IdentityPoolRoleAttachment":
 		id, err := rc.createCognitoIdentityPoolRoleAttachment(
@@ -855,12 +880,15 @@ func (rc *ResourceCreator) createPhase6CognitoResource(
 			params,
 			physicalIDs,
 		)
+
 		return id, true, err
 	case "AWS::Cognito::UserPoolDomain":
 		id, err := rc.createCognitoUserPoolDomain(logicalID, props, params, physicalIDs)
+
 		return id, true, err
 	case "AWS::Cognito::UserPoolGroup":
 		id, err := rc.createCognitoUserPoolGroup(logicalID, props, params, physicalIDs)
+
 		return id, true, err
 	default:
 		return "", false, nil
@@ -913,6 +941,7 @@ func (rc *ResourceCreator) deleteCognitoIdentityPool(ctx context.Context, physic
 	if rc.backends.CognitoIdentity == nil {
 		return nil
 	}
+
 	return rc.backends.CognitoIdentity.Backend.DeleteIdentityPool(ctx, physicalID)
 }
 
@@ -1021,24 +1050,31 @@ func (rc *ResourceCreator) createPhase6EC2Resource(
 	switch resourceType {
 	case "AWS::EC2::VPCPeeringConnection":
 		id, err := rc.createEC2VPCPeeringConnection(logicalID, props, params, physicalIDs)
+
 		return id, true, err
 	case "AWS::EC2::NetworkAcl":
 		id, err := rc.createEC2NetworkACL(logicalID, props, params, physicalIDs)
+
 		return id, true, err
 	case "AWS::EC2::NetworkAclEntry":
 		id, err := rc.createEC2NetworkACLEntry(logicalID, props, params, physicalIDs)
+
 		return id, true, err
 	case "AWS::EC2::KeyPair":
 		id, err := rc.createEC2KeyPair(logicalID, props, params, physicalIDs)
+
 		return id, true, err
 	case "AWS::EC2::SecurityGroupIngress":
 		id, err := rc.createEC2SecurityGroupIngress(logicalID, props, params, physicalIDs)
+
 		return id, true, err
 	case "AWS::EC2::SecurityGroupEgress":
 		id, err := rc.createEC2SecurityGroupEgress(logicalID, props, params, physicalIDs)
+
 		return id, true, err
 	case "AWS::EC2::FlowLog":
 		id, err := rc.createEC2FlowLog(logicalID, props, params, physicalIDs)
+
 		return id, true, err
 	default:
 		return "", false, nil
@@ -1087,6 +1123,7 @@ func (rc *ResourceCreator) deleteEC2VPCPeeringConnection(physicalID string) erro
 	if rc.backends.EC2 == nil {
 		return nil
 	}
+
 	return rc.backends.EC2.Backend.DeleteVpcPeeringConnection(physicalID)
 }
 
@@ -1112,6 +1149,7 @@ func (rc *ResourceCreator) deleteEC2NetworkACL(physicalID string) error {
 	if rc.backends.EC2 == nil {
 		return nil
 	}
+
 	return rc.backends.EC2.Backend.DeleteNetworkACL(physicalID)
 }
 
@@ -1172,6 +1210,7 @@ func (rc *ResourceCreator) deleteEC2NetworkACLEntry(physicalID string) error {
 	if err != nil {
 		return err
 	}
+
 	return rc.backends.EC2.Backend.DeleteNetworkACLEntry(parts[0], ruleNumber, parts[2] == boolTrue)
 }
 
@@ -1205,6 +1244,7 @@ func (rc *ResourceCreator) deleteEC2KeyPair(physicalID string) error {
 	if rc.backends.EC2 == nil {
 		return nil
 	}
+
 	return rc.backends.EC2.Backend.DeleteKeyPair(physicalID)
 }
 
@@ -1228,7 +1268,9 @@ func (rc *ResourceCreator) createEC2SecurityGroupIngress(
 		ToPort:        intProp(props, "ToPort"),
 		SourceGroupID: strProp(props, "SourceSecurityGroupId", params, physicalIDs),
 	}
-	if err := rc.backends.EC2.Backend.AuthorizeSecurityGroupIngress(groupID, []ec2backend.SecurityGroupRule{rule}); err != nil {
+	if err := rc.backends.EC2.Backend.AuthorizeSecurityGroupIngress(
+		groupID, []ec2backend.SecurityGroupRule{rule},
+	); err != nil {
 		return "", fmt.Errorf("create EC2 security group ingress: %w", err)
 	}
 
@@ -1255,7 +1297,9 @@ func (rc *ResourceCreator) createEC2SecurityGroupEgress(
 		ToPort:        intProp(props, "ToPort"),
 		SourceGroupID: strProp(props, "DestinationSecurityGroupId", params, physicalIDs),
 	}
-	if err := rc.backends.EC2.Backend.AuthorizeSecurityGroupEgress(groupID, []ec2backend.SecurityGroupRule{rule}); err != nil {
+	if err := rc.backends.EC2.Backend.AuthorizeSecurityGroupEgress(
+		groupID, []ec2backend.SecurityGroupRule{rule},
+	); err != nil {
 		return "", fmt.Errorf("create EC2 security group egress: %w", err)
 	}
 
@@ -1291,6 +1335,7 @@ func (rc *ResourceCreator) deleteEC2FlowLog(physicalID string) error {
 	if rc.backends.EC2 == nil {
 		return nil
 	}
+
 	return rc.backends.EC2.Backend.DeleteFlowLogs([]string{physicalID})
 }
 
@@ -1305,6 +1350,7 @@ func (rc *ResourceCreator) createPhase6ELBv2Resource(
 		return "", false, nil
 	}
 	id, err := rc.createELBv2Phase6ListenerRule(logicalID, props, params, physicalIDs)
+
 	return id, true, err
 }
 
@@ -1314,6 +1360,7 @@ func (rc *ResourceCreator) deletePhase6ELBv2Resource(
 	if resourceType != "AWS::ElasticLoadBalancingV2::ListenerRule" {
 		return false, nil
 	}
+
 	return true, rc.deleteELBv2Phase6ListenerRule(physicalID)
 }
 
@@ -1347,6 +1394,7 @@ func (rc *ResourceCreator) deleteELBv2Phase6ListenerRule(physicalID string) erro
 	if rc.backends.ELBv2 == nil {
 		return nil
 	}
+
 	return rc.backends.ELBv2.Backend.DeleteRule(physicalID)
 }
 
@@ -1366,6 +1414,7 @@ func parseELBv2CFNActions(
 			TargetGroupArn: resolve(m["TargetGroupArn"], params, physicalIDs),
 		})
 	}
+
 	return out
 }
 
@@ -1388,6 +1437,7 @@ func parseELBv2CFNConditions(
 		}
 		out = append(out, c)
 	}
+
 	return out
 }
 
@@ -1401,9 +1451,11 @@ func (rc *ResourceCreator) createPhase6LambdaResource(
 	switch resourceType {
 	case "AWS::Lambda::EventInvokeConfig":
 		id, err := rc.createLambdaEventInvokeConfig(logicalID, props, params, physicalIDs)
+
 		return id, true, err
 	case "AWS::Lambda::Url":
 		id, err := rc.createLambdaURL(logicalID, props, params, physicalIDs)
+
 		return id, true, err
 	default:
 		return "", false, nil
@@ -1448,6 +1500,7 @@ func (rc *ResourceCreator) createLambdaEventInvokeConfig(
 	if _, err := imb.PutFunctionEventInvokeConfig(functionName, input); err != nil {
 		return "", fmt.Errorf("create Lambda event invoke config %s: %w", functionName, err)
 	}
+
 	return functionName, nil
 }
 
@@ -1459,6 +1512,7 @@ func (rc *ResourceCreator) deleteLambdaEventInvokeConfig(physicalID string) erro
 	if !ok {
 		return nil
 	}
+
 	return imb.DeleteFunctionEventInvokeConfig(physicalID)
 }
 
@@ -1496,6 +1550,7 @@ func (rc *ResourceCreator) createLambdaURL(
 	if err != nil {
 		return "", fmt.Errorf("create Lambda function URL %s: %w", functionName, err)
 	}
+
 	return cfg.FunctionArn, nil
 }
 
@@ -1507,5 +1562,6 @@ func (rc *ResourceCreator) deleteLambdaURL(physicalID string) error {
 	if !ok {
 		return nil
 	}
+
 	return imb.DeleteFunctionURLConfig(physicalID)
 }

@@ -19,6 +19,7 @@ func newPhase6ServiceBackends() *cloudformation.ServiceBackends {
 		cognitoidentitybackend.NewInMemoryBackend("000000000000", "us-east-1"),
 		"us-east-1",
 	)
+
 	return b
 }
 
@@ -114,8 +115,10 @@ func TestResourceCreator_Phase6Types_NilBackends(t *testing.T) {
 			},
 		},
 		{
-			name: "cognito_identity_pool_role_attachment", logicalID: "Roles", resourceType: "AWS::Cognito::IdentityPoolRoleAttachment",
-			props: map[string]any{"IdentityPoolId": "pool-1"},
+			name:         "cognito_identity_pool_role_attachment",
+			logicalID:    "Roles",
+			resourceType: "AWS::Cognito::IdentityPoolRoleAttachment",
+			props:        map[string]any{"IdentityPoolId": "pool-1"},
 		},
 		{
 			name: "cognito_user_pool_domain", logicalID: "Domain", resourceType: "AWS::Cognito::UserPoolDomain",
