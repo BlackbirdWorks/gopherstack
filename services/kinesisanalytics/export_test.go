@@ -6,6 +6,10 @@ import (
 	"time"
 )
 
+// RegionContextKeyForTest re-exports the unexported regionContextKey type so
+// external test packages can inject a region into a context.
+type RegionContextKeyForTest = regionContextKey
+
 // ApplicationCount returns the number of applications stored in the backend across all regions.
 // This is exported for use in tests only.
 func ApplicationCount(b *InMemoryBackend) int {
