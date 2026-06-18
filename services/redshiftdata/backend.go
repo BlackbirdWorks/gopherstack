@@ -197,7 +197,7 @@ func (b *InMemoryBackend) Region() string { return b.defaultRegion }
 func (b *InMemoryBackend) AccountID() string { return b.accountID }
 
 // storeFor returns the regionStore for the given region, creating it on first use.
-// Caller must hold b.mu.
+// Caller must hold b.mu write lock.
 func (b *InMemoryBackend) storeFor(region string) *regionStore {
 	if b.stores[region] == nil {
 		b.stores[region] = &regionStore{
@@ -205,6 +205,12 @@ func (b *InMemoryBackend) storeFor(region string) *regionStore {
 		}
 	}
 
+	return b.stores[region]
+}
+
+// storeForRead returns the regionStore for the given region, or nil if none exists.
+// Caller must hold b.mu (read or write). Does not create a store.
+func (b *InMemoryBackend) storeForRead(region string) *regionStore {
 	return b.stores[region]
 }
 
@@ -340,7 +346,11 @@ func (b *InMemoryBackend) DescribeStatement(ctx context.Context, id string) (*St
 	b.mu.RLock("DescribeStatement")
 	defer b.mu.RUnlock()
 
-	store := b.storeFor(region)
+	store := b.storeForRead(region)
+	if store == nil {
+		return nil, fmt.Errorf("%w: statement %s not found", ErrNotFound, id)
+	}
+
 	stmt, ok := store.statements[id]
 
 	if !ok {
@@ -388,7 +398,11 @@ func (b *InMemoryBackend) ListStatements(
 	b.mu.RLock("ListStatements")
 	defer b.mu.RUnlock()
 
-	store := b.storeFor(region)
+	store := b.storeForRead(region)
+	if store == nil {
+		return nil, "", nil
+	}
+
 	result := make([]*Statement, 0, len(store.statements))
 
 	for _, stmt := range store.statements {
