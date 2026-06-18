@@ -24,9 +24,9 @@ func TestBatch4Accuracy_VpcEndpoint_CreateContainsEndpointID(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
+		name         string
 		endpointType string
-		wantType    string
+		wantType     string
 	}{
 		{name: "interface_type", endpointType: "Interface", wantType: "Interface"},
 		{name: "gateway_type", endpointType: "Gateway", wantType: "Gateway"},
@@ -133,11 +133,11 @@ func TestBatch4Accuracy_VpcEndpoint_CreateWithRouteTableID(t *testing.T) {
 	require.NoError(t, err)
 
 	resp, err := ec2.ExportDispatch(h, url.Values{
-		"Action":            {"CreateVpcEndpoint"},
-		"VpcId":             {"vpc-default"},
-		"ServiceName":       {"com.amazonaws.us-east-1.s3"},
-		"VpcEndpointType":   {"Gateway"},
-		"RouteTableId.1":    {rt.ID},
+		"Action":          {"CreateVpcEndpoint"},
+		"VpcId":           {"vpc-default"},
+		"ServiceName":     {"com.amazonaws.us-east-1.s3"},
+		"VpcEndpointType": {"Gateway"},
+		"RouteTableId.1":  {rt.ID},
 	})
 	require.NoError(t, err)
 	assert.Contains(t, resp, "<routeTableId>"+rt.ID+"</routeTableId>",
@@ -185,8 +185,8 @@ func TestBatch4Accuracy_VpcEndpoint_DeleteReturnsDeleted(t *testing.T) {
 	require.NoError(t, err)
 
 	resp, err := ec2.ExportDispatch(h, url.Values{
-		"Action":            {"DeleteVpcEndpoints"},
-		"VpcEndpointId.1":   {ep.ID},
+		"Action":          {"DeleteVpcEndpoints"},
+		"VpcEndpointId.1": {ep.ID},
 	})
 	require.NoError(t, err)
 	assert.Contains(t, resp, "<DeleteVpcEndpointsResponse")
@@ -323,9 +323,9 @@ func TestBatch4Accuracy_NetworkACL_FilterByVpcID(t *testing.T) {
 	require.NoError(t, err)
 
 	resp, err := ec2.ExportDispatch(h, url.Values{
-		"Action":             {"DescribeNetworkAcls"},
-		"Filter.1.Name":      {"vpc-id"},
-		"Filter.1.Value.1":   {"vpc-default"},
+		"Action":           {"DescribeNetworkAcls"},
+		"Filter.1.Name":    {"vpc-id"},
+		"Filter.1.Value.1": {"vpc-default"},
 	})
 	require.NoError(t, err)
 	assert.Contains(t, resp, "vpc-default")
@@ -348,8 +348,8 @@ func TestBatch4Accuracy_NetworkACL_FilterByNetworkAclID(t *testing.T) {
 	require.NoError(t, err)
 
 	resp, err := ec2.ExportDispatch(h, url.Values{
-		"Action":           {"DescribeNetworkAcls"},
-		"NetworkAclId.1":   {acl1.ID},
+		"Action":         {"DescribeNetworkAcls"},
+		"NetworkAclId.1": {acl1.ID},
 	})
 	require.NoError(t, err)
 	assert.Contains(t, resp, acl1.ID)
@@ -374,6 +374,7 @@ func TestBatch4Accuracy_NetworkACL_CreateDeleteCycle(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			// create
 			createResp, err := ec2.ExportDispatch(h2, url.Values{
 				"Action": {"CreateNetworkAcl"},
@@ -423,26 +424,36 @@ func TestBatch4Accuracy_NetworkACL_EntryRules(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		ruleNumber int
 		protocol   string
 		action     string
 		cidr       string
-		egress     bool
+		ruleNumber int
 		fromPort   int
 		toPort     int
+		egress     bool
 	}{
-		{name: "allow_http_inbound", ruleNumber: 100, protocol: "6", action: "allow", cidr: "0.0.0.0/0", egress: false, fromPort: 80, toPort: 80},
-		{name: "allow_https_inbound", ruleNumber: 110, protocol: "6", action: "allow", cidr: "0.0.0.0/0", egress: false, fromPort: 443, toPort: 443},
-		{name: "allow_all_outbound", ruleNumber: 100, protocol: "-1", action: "allow", cidr: "0.0.0.0/0", egress: true, fromPort: 0, toPort: 0},
+		{
+			name: "allow_http_inbound", ruleNumber: 100, protocol: "6",
+			action: "allow", cidr: "0.0.0.0/0", egress: false, fromPort: 80, toPort: 80,
+		},
+		{
+			name: "allow_https_inbound", ruleNumber: 110, protocol: "6",
+			action: "allow", cidr: "0.0.0.0/0", egress: false, fromPort: 443, toPort: 443,
+		},
+		{
+			name: "allow_all_outbound", ruleNumber: 100, protocol: "-1",
+			action: "allow", cidr: "0.0.0.0/0", egress: true, fromPort: 0, toPort: 0,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := b.CreateNetworkACLEntry(
+			t.Parallel()
+			createErr := b.CreateNetworkACLEntry(
 				acl.ID, tt.ruleNumber, tt.protocol, tt.action,
 				tt.cidr, tt.egress, tt.fromPort, tt.toPort,
 			)
-			require.NoError(t, err)
+			require.NoError(t, createErr)
 		})
 	}
 
@@ -536,7 +547,7 @@ func TestBatch4Accuracy_NatGateway_DescribeReturnsAllFields(t *testing.T) {
 	require.NoError(t, err)
 
 	resp, err := ec2.ExportDispatch(h, url.Values{
-		"Action":        {"DescribeNatGateways"},
+		"Action":         {"DescribeNatGateways"},
 		"NatGatewayId.1": {ngw.ID},
 	})
 	require.NoError(t, err)
@@ -630,9 +641,9 @@ func TestBatch4Accuracy_NatGateway_AssociateAddress(t *testing.T) {
 	require.NoError(t, err)
 
 	resp, err := ec2.ExportDispatch(h, url.Values{
-		"Action":          {"AssociateNatGatewayAddress"},
-		"NatGatewayId":    {ngw.ID},
-		"AllocationId.1":  {addr2.AllocationID},
+		"Action":         {"AssociateNatGatewayAddress"},
+		"NatGatewayId":   {ngw.ID},
+		"AllocationId.1": {addr2.AllocationID},
 	})
 	require.NoError(t, err)
 	assert.NotEmpty(t, resp)
@@ -653,9 +664,9 @@ func TestBatch4Accuracy_NatGateway_DisassociateAddress(t *testing.T) {
 	require.NoError(t, err)
 
 	resp, err := ec2.ExportDispatch(h, url.Values{
-		"Action":              {"DisassociateNatGatewayAddress"},
-		"NatGatewayId":        {ngw.ID},
-		"AssociationId.1":     {"eipassoc-test"},
+		"Action":          {"DisassociateNatGatewayAddress"},
+		"NatGatewayId":    {ngw.ID},
+		"AssociationId.1": {"eipassoc-test"},
 	})
 	require.NoError(t, err)
 	assert.NotEmpty(t, resp)
@@ -707,7 +718,7 @@ func TestBatch4Accuracy_RouteTable_DescribeReturnsRouteSet(t *testing.T) {
 	require.NoError(t, err)
 
 	resp, err := ec2.ExportDispatch(h, url.Values{
-		"Action":        {"DescribeRouteTables"},
+		"Action":         {"DescribeRouteTables"},
 		"RouteTableId.1": {rt.ID},
 	})
 	require.NoError(t, err)
@@ -743,9 +754,9 @@ func TestBatch4Accuracy_RouteTable_CreateRoute(t *testing.T) {
 			require.NoError(t, err)
 
 			vals := url.Values{
-				"Action":                  {"CreateRoute"},
-				"RouteTableId":            {rt.ID},
-				"DestinationCidrBlock":    {tt.destCIDR},
+				"Action":               {"CreateRoute"},
+				"RouteTableId":         {rt.ID},
+				"DestinationCidrBlock": {tt.destCIDR},
 			}
 			if tt.gatewayID != "" {
 				vals.Set("GatewayId", tt.gatewayID)
@@ -760,7 +771,7 @@ func TestBatch4Accuracy_RouteTable_CreateRoute(t *testing.T) {
 
 			// verify route appears in describe
 			descResp, err := ec2.ExportDispatch(h, url.Values{
-				"Action":        {"DescribeRouteTables"},
+				"Action":         {"DescribeRouteTables"},
 				"RouteTableId.1": {rt.ID},
 			})
 			require.NoError(t, err)
@@ -792,7 +803,7 @@ func TestBatch4Accuracy_RouteTable_DeleteRoute(t *testing.T) {
 
 	// route must be gone
 	descResp, err := ec2.ExportDispatch(h, url.Values{
-		"Action":        {"DescribeRouteTables"},
+		"Action":         {"DescribeRouteTables"},
 		"RouteTableId.1": {rt.ID},
 	})
 	require.NoError(t, err)
@@ -887,9 +898,9 @@ func TestBatch4Accuracy_RouteTable_ReplaceRouteTableAssociation(t *testing.T) {
 
 	// replace association to rt2
 	resp, err := ec2.ExportDispatch(h, url.Values{
-		"Action":           {"ReplaceRouteTableAssociation"},
-		"AssociationId":    {assocID},
-		"RouteTableId":     {rt2.ID},
+		"Action":        {"ReplaceRouteTableAssociation"},
+		"AssociationId": {assocID},
+		"RouteTableId":  {rt2.ID},
 	})
 	require.NoError(t, err)
 	assert.Contains(t, resp, "<newAssociationId>", "must return newAssociationId")
@@ -1182,10 +1193,10 @@ func TestBatch4Accuracy_TGW_PeeringAttachment_ViaHandler(t *testing.T) {
 	h := newTestHandler()
 
 	resp, err := ec2.ExportDispatch(h, url.Values{
-		"Action":                    {"CreateTransitGatewayPeeringAttachment"},
-		"TransitGatewayId":          {"tgw-111"},
-		"PeerTransitGatewayId":      {"tgw-222"},
-		"PeerRegion":                {"us-west-2"},
+		"Action":               {"CreateTransitGatewayPeeringAttachment"},
+		"TransitGatewayId":     {"tgw-111"},
+		"PeerTransitGatewayId": {"tgw-222"},
+		"PeerRegion":           {"us-west-2"},
 	})
 	require.NoError(t, err)
 	assert.Contains(t, resp, "<transitGatewayAttachmentId>tgw-attach-")
@@ -1203,7 +1214,9 @@ func TestBatch4Accuracy_TGW_ConnectCRUD(t *testing.T) {
 	assert.NotEmpty(t, conn.TransitGatewayAttachmentID)
 
 	// add a connect peer
-	peer, err := b.CreateTransitGatewayConnectPeer(conn.TransitGatewayAttachmentID, "1.2.3.4", []string{"169.254.6.0/29"})
+	peer, err := b.CreateTransitGatewayConnectPeer(
+		conn.TransitGatewayAttachmentID, "1.2.3.4", []string{"169.254.6.0/29"},
+	)
 	require.NoError(t, err)
 	assert.NotEmpty(t, peer.TransitGatewayConnectPeerID)
 	assert.Contains(t, peer.TransitGatewayConnectPeerID, "tgw-connect-peer-")
@@ -1280,7 +1293,9 @@ func TestBatch4Accuracy_ManagedPrefixList_FullCycle(t *testing.T) {
 			assert.Len(t, entries, 2)
 
 			// remove one entry
-			require.NoError(t, b.ModifyManagedPrefixList(pl.PrefixListID, nil, []ec2.PrefixListEntry{{Cidr: "10.0.0.0/8"}}))
+			require.NoError(t, b.ModifyManagedPrefixList(
+				pl.PrefixListID, nil, []ec2.PrefixListEntry{{Cidr: "10.0.0.0/8"}},
+			))
 
 			entries2, err := b.GetManagedPrefixListEntries(pl.PrefixListID)
 			require.NoError(t, err)
@@ -1302,10 +1317,10 @@ func TestBatch4Accuracy_ManagedPrefixList_ViaHandler(t *testing.T) {
 	h := newTestHandler()
 
 	resp, err := ec2.ExportDispatch(h, url.Values{
-		"Action":        {"CreateManagedPrefixList"},
+		"Action":         {"CreateManagedPrefixList"},
 		"PrefixListName": {"test-list"},
-		"AddressFamily": {"IPv4"},
-		"MaxEntries":    {"20"},
+		"AddressFamily":  {"IPv4"},
+		"MaxEntries":     {"20"},
 	})
 	require.NoError(t, err)
 	assert.Contains(t, resp, "<prefixListId>pl-")
@@ -1413,15 +1428,15 @@ func TestBatch4Accuracy_VerifiedAccess_EndpointCRUD(t *testing.T) {
 
 // extractBatch4XMLValue extracts the first text content of an XML element by tag name.
 func extractBatch4XMLValue(xmlStr, tag string) string {
-	open := "<" + tag + ">"
-	close := "</" + tag + ">"
-	start := strings.Index(xmlStr, open)
+	openTag := "<" + tag + ">"
+	closeTag := "</" + tag + ">"
+	start := strings.Index(xmlStr, openTag)
 	if start < 0 {
 		return ""
 	}
 
-	start += len(open)
-	end := strings.Index(xmlStr[start:], close)
+	start += len(openTag)
+	end := strings.Index(xmlStr[start:], closeTag)
 	if end < 0 {
 		return ""
 	}

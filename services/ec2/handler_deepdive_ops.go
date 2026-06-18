@@ -17,13 +17,13 @@ func toVpcEndpointItem(ep *VpcEndpoint) vpcEndpointItem {
 	}
 
 	for _, sid := range ep.SubnetIDs {
-		item.SubnetIds.Items = append(item.SubnetIds.Items, struct {
+		item.SubnetIDs.Items = append(item.SubnetIDs.Items, struct {
 			SubnetID string `xml:"subnetId"`
 		}{SubnetID: sid})
 	}
 
 	for _, rtID := range ep.RouteTableIDs {
-		item.RouteTableIds.Items = append(item.RouteTableIds.Items, struct {
+		item.RouteTableIDs.Items = append(item.RouteTableIDs.Items, struct {
 			RouteTableID string `xml:"routeTableId"`
 		}{RouteTableID: rtID})
 	}
@@ -248,14 +248,14 @@ type vpcEndpointRouteTableIDSet struct {
 }
 
 type vpcEndpointItem struct {
-	ID             string                     `xml:"vpcEndpointId"`
-	VPCID          string                     `xml:"vpcId"`
-	ServiceName    string                     `xml:"serviceName"`
-	State          string                     `xml:"vpcEndpointState"`
-	VpcEndpointType string                   `xml:"vpcEndpointType"`
-	CreateTime     string                     `xml:"creationTimestamp"`
-	SubnetIds      vpcEndpointSubnetIDSet     `xml:"subnetIdSet"`
-	RouteTableIds  vpcEndpointRouteTableIDSet `xml:"routeTableIdSet"`
+	ID              string                     `xml:"vpcEndpointId"`
+	VPCID           string                     `xml:"vpcId"`
+	ServiceName     string                     `xml:"serviceName"`
+	State           string                     `xml:"vpcEndpointState"`
+	VpcEndpointType string                     `xml:"vpcEndpointType"`
+	CreateTime      string                     `xml:"creationTimestamp"`
+	SubnetIDs       vpcEndpointSubnetIDSet     `xml:"subnetIdSet"`
+	RouteTableIDs   vpcEndpointRouteTableIDSet `xml:"routeTableIdSet"`
 }
 
 type vpcEndpointSet struct {
@@ -289,8 +289,8 @@ type networkACLAssocSet struct {
 type networkACLItem struct {
 	ID           string             `xml:"networkAclId"`
 	VPCID        string             `xml:"vpcId"`
-	IsDefault    bool               `xml:"default"`
 	Associations networkACLAssocSet `xml:"associationSet"`
+	IsDefault    bool               `xml:"default"`
 }
 
 type networkACLSet struct {
