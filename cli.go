@@ -112,6 +112,10 @@ import (
 	daxbackend "github.com/blackbirdworks/gopherstack/services/dax"
 	detectivebackend "github.com/blackbirdworks/gopherstack/services/detective"
 	directoryservicebackend "github.com/blackbirdworks/gopherstack/services/directoryservice"
+<<<<<<< HEAD
+=======
+	dlmbackend "github.com/blackbirdworks/gopherstack/services/dlm"
+>>>>>>> origin/main
 	dmsbackend "github.com/blackbirdworks/gopherstack/services/dms"
 	docdbbackend "github.com/blackbirdworks/gopherstack/services/docdb"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
@@ -247,6 +251,7 @@ const (
 	contentTypeJSON      = "application/json"
 	emrServerlessRoleARN = "arn:aws:iam::000000000000:role/EMRServerlessRole"
 	envProduction        = "production"
+	kinesisServiceName   = "kinesis"
 )
 
 // CLI holds all command-line / environment-variable configuration for Gopherstack.
@@ -2066,6 +2071,8 @@ func buildEchoServer(
 	e.HTTPErrorHandler = buildHTTPErrorHandler()
 	e.GET("/_gopherstack/health", buildHealthHandler(services))
 	e.POST("/_gopherstack/reset", buildResetHandler(services))
+	e.POST("/_gopherstack/snapshot", buildSnapshotHandler(persistManager))
+	e.POST("/_gopherstack/load", buildLoadHandler(persistManager))
 
 	registerWebsiteRoutes(e, services)
 
@@ -2149,6 +2156,108 @@ func buildResetHandler(services []service.Registerable) echo.HandlerFunc {
 			"reset":         reset,
 			keyMessageField: fmt.Sprintf("reset %d service(s)", reset),
 		})
+	}
+}
+
+// snapshotBundle is the JSON envelope returned by POST /_gopherstack/snapshot
+// and accepted by POST /_gopherstack/load.
+//
+// Each value in Services is a raw JSON blob produced by the service's
+// Snapshot() method, embedded verbatim so that round-trips are lossless and the
+// payload stays human-readable without an extra base64 layer.
+type snapshotBundle struct {
+	// Services maps each registered service name to its raw JSON snapshot.
+	Services map[string]json.RawMessage `json:"services"`
+	// Format is a fixed version tag; currently "gopherstack-snapshot/v1".
+	Format string `json:"format"`
+}
+
+// snapshotResponse is the JSON body returned by POST /_gopherstack/snapshot.
+type snapshotResponse struct {
+	snapshotBundle
+	Status string `json:"status"`
+	// Exported is the number of services whose snapshots were included.
+	Exported int `json:"exported"`
+}
+
+// loadResponse is the JSON body returned by POST /_gopherstack/load.
+type loadResponse struct {
+	Status  string `json:"status"`
+	Message string `json:"message"`
+	// Loaded is the number of services successfully restored.
+	Loaded int `json:"loaded"`
+}
+
+// snapshotBundleFormat is the format identifier embedded in every snapshot bundle.
+const snapshotBundleFormat = "gopherstack-snapshot/v1"
+
+// buildSnapshotHandler returns the POST /_gopherstack/snapshot handler.
+//
+// It calls ExportAll on the persistence manager to collect the current
+// in-memory state of every registered service, wraps the snapshots in a
+// snapshotBundle envelope, and returns it as the response body. The caller
+// can store the blob and later replay it via POST /_gopherstack/load to
+// restore state (Cloud-Pods style).
+//
+// The handler does not write to the underlying Store; if the caller also
+// wants on-disk persistence they should use --persist/--data-dir together
+// with the debounced auto-snapshot that fires after every mutation.
+func buildSnapshotHandler(m *persistence.Manager) echo.HandlerFunc {
+	return func(c *echo.Context) error {
+		raw := m.ExportAll()
+
+		services := make(map[string]json.RawMessage, len(raw))
+		for name, data := range raw {
+			services[name] = json.RawMessage(data)
+		}
+
+		resp := snapshotResponse{
+			snapshotBundle: snapshotBundle{
+				Format:   snapshotBundleFormat,
+				Services: services,
+			},
+			Exported: len(services),
+			Status:   "ok",
+		}
+
+		return c.JSON(http.StatusOK, resp)
+	}
+}
+
+// buildLoadHandler returns the POST /_gopherstack/load handler.
+//
+// It reads a snapshotBundle from the request body and restores each service's
+// state by calling ImportAll on the persistence manager. Services present in
+// the bundle but not registered with the manager are warned and skipped.
+// Returns 400 for malformed input and 500 if any restore fails.
+func buildLoadHandler(m *persistence.Manager) echo.HandlerFunc {
+	return func(c *echo.Context) error {
+		var bundle snapshotBundle
+
+		if err := json.NewDecoder(c.Request().Body).Decode(&bundle); err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest,
+				fmt.Sprintf("invalid snapshot bundle: %s", err.Error()))
+		}
+
+		snapshots := make(map[string][]byte, len(bundle.Services))
+		for name, raw := range bundle.Services {
+			snapshots[name] = []byte(raw)
+		}
+
+		ctx := c.Request().Context()
+
+		if err := m.ImportAll(ctx, snapshots); err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError,
+				fmt.Sprintf("restore failed: %s", err.Error()))
+		}
+
+		resp := loadResponse{
+			Status:  "ok",
+			Loaded:  len(snapshots),
+			Message: fmt.Sprintf("restored %d service(s)", len(snapshots)),
+		}
+
+		return c.JSON(http.StatusOK, resp)
 	}
 }
 
@@ -2823,25 +2932,39 @@ func getMostRecentServiceProviders() []service.Provider {
 		&xraybackend.Provider{},
 		&s3tablesbackend.Provider{},
 		&databrewbackend.Provider{},
+<<<<<<< HEAD
 		&cleanroomsbackend.Provider{},
+=======
+		&directoryservicebackend.Provider{},
+>>>>>>> origin/main
 		&forecastbackend.Provider{},
+		&mediatailorbackend.Provider{},
 		&macie2backend.Provider{},
+		&apprunnerbackend.Provider{},
 		&appmeshbackend.Provider{},
 		&appstreambackend.Provider{},
 		&detectivebackend.Provider{},
 		&datasyncbackend.Provider{},
+		&dlmbackend.Provider{},
 		&fsxbackend.Provider{},
+<<<<<<< HEAD
 		&apprunnerbackend.Provider{},
 		&daxbackend.Provider{},
+=======
+		&medialivebackend.Provider{},
+>>>>>>> origin/main
 		&mediapackagebackend.Provider{},
 		&personalizebackend.Provider{},
 		&quicksightbackend.Provider{},
 		&rekognitionbackend.Provider{},
 		&translatebackend.Provider{},
+<<<<<<< HEAD
 		&securityhubbackend.Provider{},
 		&mediatailorbackend.Provider{},
 		&medialivebackend.Provider{},
 		&directoryservicebackend.Provider{},
+=======
+>>>>>>> origin/main
 		&vpclatticebackend.Provider{},
 		&omicsbackend.Provider{},
 		&bedrockagentbackend.Provider{},
@@ -3025,18 +3148,22 @@ func wireSQSMetrics(sqsReg, cwReg service.Registerable) {
 		return
 	}
 
-	sqsBk.SetMetricEmitter(sqsbackend.MetricEmitterFunc(func(namespace, name string, value float64, unit string) error {
-		_, err := cwBk.PutMetricData(namespace, []cwbackend.MetricDatum{
-			{
-				MetricName: name,
-				Value:      value,
-				Unit:       unit,
-				Timestamp:  time.Now(),
-			},
-		})
+	sqsBk.SetMetricEmitter(
+		sqsbackend.MetricEmitterFunc(
+			func(namespace, name string, value float64, unit string) error {
+				_, err := cwBk.PutMetricData(namespace, []cwbackend.MetricDatum{
+					{
+						MetricName: name,
+						Value:      value,
+						Unit:       unit,
+						Timestamp:  time.Now(),
+					},
+				})
 
-		return err
-	}))
+				return err
+			},
+		),
+	)
 }
 
 // wireEventBridgeDelivery connects EventBridge fan-out to Lambda, SQS, and SNS backends.
@@ -3813,7 +3940,7 @@ func (d *cwlogsSubscriptionDeliverer) DeliverLogEvents(
 		)
 
 		return err
-	case "kinesis":
+	case kinesisServiceName:
 		if d.kinesis == nil {
 			return nil
 		}
@@ -3863,19 +3990,21 @@ func wireCWLogsMetricEmitter(cwlogsReg, cwReg service.Registerable) {
 	}
 
 	cwlogsBk.SetMetricEmitter(
-		cwlogsbackend.MetricEmitterFunc(func(namespace, name string, value float64, unit string) error {
-			_, err := cwBk.PutMetricData(namespace, []cwbackend.MetricDatum{
-				{
-					MetricName: name,
-					Namespace:  namespace,
-					Value:      value,
-					Unit:       unit,
-					Timestamp:  time.Now(),
-				},
-			})
+		cwlogsbackend.MetricEmitterFunc(
+			func(namespace, name string, value float64, unit string) error {
+				_, err := cwBk.PutMetricData(namespace, []cwbackend.MetricDatum{
+					{
+						MetricName: name,
+						Namespace:  namespace,
+						Value:      value,
+						Unit:       unit,
+						Timestamp:  time.Now(),
+					},
+				})
 
-			return err
-		}),
+				return err
+			},
+		),
 	)
 }
 

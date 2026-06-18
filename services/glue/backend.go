@@ -383,6 +383,8 @@ type InMemoryBackend struct {
 	materializedViewRuns      map[string]*MaterializedViewRefreshRun    // key: taskRunID
 	integrations              map[string]*Integration                   // key: integrationName
 	mlTaskRuns                map[string]*MLTaskRun                     // key: "transformID|taskRunID"
+	catalogImports            map[string]*CatalogImportStatus           // key: catalogID or accountID
+	schemaVersionMetadata     map[string]map[string]string              // key: schemaVersionID → key → value
 	glueIdentityCenterConfig  *IdentityCenterConfig
 	mu                        *lockmetrics.RWMutex
 
@@ -440,6 +442,8 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		materializedViewRuns:      make(map[string]*MaterializedViewRefreshRun),
 		integrations:              make(map[string]*Integration),
 		mlTaskRuns:                make(map[string]*MLTaskRun),
+		catalogImports:            make(map[string]*CatalogImportStatus),
+		schemaVersionMetadata:     make(map[string]map[string]string),
 		mu:                        lockmetrics.New("glue"),
 		accountID:                 accountID,
 		region:                    region,
@@ -618,6 +622,8 @@ func (b *InMemoryBackend) Reset() {
 	b.materializedViewRuns = make(map[string]*MaterializedViewRefreshRun)
 	b.integrations = make(map[string]*Integration)
 	b.mlTaskRuns = make(map[string]*MLTaskRun)
+	b.catalogImports = make(map[string]*CatalogImportStatus)
+	b.schemaVersionMetadata = make(map[string]map[string]string)
 	b.glueIdentityCenterConfig = nil
 }
 
@@ -748,7 +754,10 @@ func sortedKeys[V any](m map[string]V) []string {
 // --- Database operations ---
 
 // CreateDatabase creates a new Glue database.
-func (b *InMemoryBackend) CreateDatabase(input DatabaseInput, tags map[string]string) (*Database, error) {
+func (b *InMemoryBackend) CreateDatabase(
+	input DatabaseInput,
+	tags map[string]string,
+) (*Database, error) {
 	b.mu.Lock("CreateDatabase")
 	defer b.mu.Unlock()
 
@@ -1111,7 +1120,11 @@ func (b *InMemoryBackend) CreateJob(input Job) (*Job, error) {
 	}
 
 	if input.MaxRetries < 0 || input.MaxRetries > maxJobRetries {
-		return nil, fmt.Errorf("%w: MaxRetries must be between 0 and %d", ErrValidation, maxJobRetries)
+		return nil, fmt.Errorf(
+			"%w: MaxRetries must be between 0 and %d",
+			ErrValidation,
+			maxJobRetries,
+		)
 	}
 
 	if err := validateTags(input.Tags); err != nil {
@@ -1232,48 +1245,56 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 	return b.tagResource(resourceARN, tags)
 }
 
-func (b *InMemoryBackend) tagResource(resourceARN string, tags map[string]string) error {
+func mergeTags(dst *map[string]string, src map[string]string) {
+	if *dst == nil {
+		*dst = make(map[string]string)
+	}
+
+	maps.Copy(*dst, src)
+}
+
+func (b *InMemoryBackend) tagResource(
+	resourceARN string,
+	tags map[string]string,
+) error {
 	if db := b.findDatabaseByARN(resourceARN); db != nil {
-		if db.Tags == nil {
-			db.Tags = make(map[string]string)
-		}
-		maps.Copy(db.Tags, tags)
+		mergeTags(&db.Tags, tags)
 
 		return nil
 	}
 
 	if c := b.findCrawlerByARN(resourceARN); c != nil {
-		if c.Tags == nil {
-			c.Tags = make(map[string]string)
-		}
-		maps.Copy(c.Tags, tags)
+		mergeTags(&c.Tags, tags)
 
 		return nil
 	}
 
 	if j := b.findJobByARN(resourceARN); j != nil {
-		if j.Tags == nil {
-			j.Tags = make(map[string]string)
-		}
-		maps.Copy(j.Tags, tags)
+		mergeTags(&j.Tags, tags)
 
 		return nil
 	}
 
 	if r := b.findDataQualityRulesetByARN(resourceARN); r != nil {
-		if r.Tags == nil {
-			r.Tags = make(map[string]string)
-		}
-		maps.Copy(r.Tags, tags)
+		mergeTags(&r.Tags, tags)
 
 		return nil
 	}
 
 	if conn := b.findConnectionByARN(resourceARN); conn != nil {
-		if conn.Tags == nil {
-			conn.Tags = make(map[string]string)
-		}
-		maps.Copy(conn.Tags, tags)
+		mergeTags(&conn.Tags, tags)
+
+		return nil
+	}
+
+	if trig := b.findTriggerByARN(resourceARN); trig != nil {
+		mergeTags(&trig.Tags, tags)
+
+		return nil
+	}
+
+	if w := b.findWorkflowByARN(resourceARN); w != nil {
+		mergeTags(&w.Tags, tags)
 
 		return nil
 	}
@@ -1281,47 +1302,58 @@ func (b *InMemoryBackend) tagResource(resourceARN string, tags map[string]string
 	return ErrNotFound
 }
 
+func deleteTags(tags map[string]string, keys []string) {
+	for _, k := range keys {
+		delete(tags, k)
+	}
+}
+
 // UntagResource removes tags from a resource by ARN.
-func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) error {
+func (b *InMemoryBackend) UntagResource(
+	resourceARN string,
+	tagKeys []string,
+) error {
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
 	if db := b.findDatabaseByARN(resourceARN); db != nil {
-		for _, k := range tagKeys {
-			delete(db.Tags, k)
-		}
+		deleteTags(db.Tags, tagKeys)
 
 		return nil
 	}
 
 	if c := b.findCrawlerByARN(resourceARN); c != nil {
-		for _, k := range tagKeys {
-			delete(c.Tags, k)
-		}
+		deleteTags(c.Tags, tagKeys)
 
 		return nil
 	}
 
 	if j := b.findJobByARN(resourceARN); j != nil {
-		for _, k := range tagKeys {
-			delete(j.Tags, k)
-		}
+		deleteTags(j.Tags, tagKeys)
 
 		return nil
 	}
 
 	if r := b.findDataQualityRulesetByARN(resourceARN); r != nil {
-		for _, k := range tagKeys {
-			delete(r.Tags, k)
-		}
+		deleteTags(r.Tags, tagKeys)
 
 		return nil
 	}
 
 	if conn := b.findConnectionByARN(resourceARN); conn != nil {
-		for _, k := range tagKeys {
-			delete(conn.Tags, k)
-		}
+		deleteTags(conn.Tags, tagKeys)
+
+		return nil
+	}
+
+	if trig := b.findTriggerByARN(resourceARN); trig != nil {
+		deleteTags(trig.Tags, tagKeys)
+
+		return nil
+	}
+
+	if w := b.findWorkflowByARN(resourceARN); w != nil {
+		deleteTags(w.Tags, tagKeys)
 
 		return nil
 	}
@@ -1352,6 +1384,14 @@ func (b *InMemoryBackend) GetTags(resourceARN string) (map[string]string, error)
 
 	if conn := b.findConnectionByARN(resourceARN); conn != nil {
 		return maps.Clone(conn.Tags), nil
+	}
+
+	if t := b.findTriggerByARN(resourceARN); t != nil {
+		return maps.Clone(t.Tags), nil
+	}
+
+	if w := b.findWorkflowByARN(resourceARN); w != nil {
+		return maps.Clone(w.Tags), nil
 	}
 
 	return nil, ErrNotFound
@@ -1427,6 +1467,34 @@ func (b *InMemoryBackend) findConnectionByARN(resourceARN string) *Connection {
 	return c
 }
 
+func (b *InMemoryBackend) findTriggerByARN(resourceARN string) *Trigger {
+	name := glueResourceName(resourceARN, "trigger")
+	if name == "" {
+		return nil
+	}
+
+	t, ok := b.triggers[name]
+	if !ok {
+		return nil
+	}
+
+	return t
+}
+
+func (b *InMemoryBackend) findWorkflowByARN(resourceARN string) *Workflow {
+	name := glueResourceName(resourceARN, "workflow")
+	if name == "" {
+		return nil
+	}
+
+	w, ok := b.workflows[name]
+	if !ok {
+		return nil
+	}
+
+	return w
+}
+
 // --- Batch operations ---
 
 // BatchCreatePartition creates multiple partitions for a table.
@@ -1468,7 +1536,10 @@ func (b *InMemoryBackend) BatchCreatePartition(
 }
 
 // BatchDeletePartition deletes multiple partitions for a table.
-func (b *InMemoryBackend) BatchDeletePartition(dbName, tableName string, values []PartitionValueList) []PartitionError {
+func (b *InMemoryBackend) BatchDeletePartition(
+	dbName, tableName string,
+	values []PartitionValueList,
+) []PartitionError {
 	b.mu.Lock("BatchDeletePartition")
 	defer b.mu.Unlock()
 
@@ -1479,7 +1550,10 @@ func (b *InMemoryBackend) BatchDeletePartition(dbName, tableName string, values 
 		if _, ok := b.partitions[key]; !ok {
 			errs = append(errs, PartitionError{
 				PartitionValues: pvl.Values,
-				ErrorDetail:     ErrorDetail{ErrorCode: errEntityNotFoundCode, ErrorMessage: "partition not found"},
+				ErrorDetail: ErrorDetail{
+					ErrorCode:    errEntityNotFoundCode,
+					ErrorMessage: "partition not found",
+				},
 			})
 
 			continue
@@ -1502,8 +1576,11 @@ func (b *InMemoryBackend) BatchDeleteTable(dbName string, tableNames []string) [
 		key := tableKey(dbName, name)
 		if _, ok := b.tables[key]; !ok {
 			errs = append(errs, TableError{
-				TableName:   name,
-				ErrorDetail: ErrorDetail{ErrorCode: errEntityNotFoundCode, ErrorMessage: "table not found"},
+				TableName: name,
+				ErrorDetail: ErrorDetail{
+					ErrorCode:    errEntityNotFoundCode,
+					ErrorMessage: "table not found",
+				},
 			})
 
 			continue
@@ -1517,7 +1594,10 @@ func (b *InMemoryBackend) BatchDeleteTable(dbName string, tableNames []string) [
 }
 
 // BatchDeleteTableVersion deletes multiple table versions.
-func (b *InMemoryBackend) BatchDeleteTableVersion(dbName, tableName string, versionIDs []string) []TableVersionError {
+func (b *InMemoryBackend) BatchDeleteTableVersion(
+	dbName, tableName string,
+	versionIDs []string,
+) []TableVersionError {
 	b.mu.Lock("BatchDeleteTableVersion")
 	defer b.mu.Unlock()
 
@@ -1527,9 +1607,12 @@ func (b *InMemoryBackend) BatchDeleteTableVersion(dbName, tableName string, vers
 		key := tableVersionKey(dbName, tableName, vid)
 		if _, ok := b.tableVersions[key]; !ok {
 			errs = append(errs, TableVersionError{
-				TableName:   tableName,
-				VersionID:   vid,
-				ErrorDetail: ErrorDetail{ErrorCode: errEntityNotFoundCode, ErrorMessage: "table version not found"},
+				TableName: tableName,
+				VersionID: vid,
+				ErrorDetail: ErrorDetail{
+					ErrorCode:    errEntityNotFoundCode,
+					ErrorMessage: "table version not found",
+				},
 			})
 
 			continue
@@ -1612,7 +1695,9 @@ func (b *InMemoryBackend) BatchGetCrawlers(names []string) ([]*Crawler, []string
 }
 
 // BatchGetCustomEntityTypes retrieves multiple custom entity types by name.
-func (b *InMemoryBackend) BatchGetCustomEntityTypes(names []string) ([]*CustomEntityType, []string) {
+func (b *InMemoryBackend) BatchGetCustomEntityTypes(
+	names []string,
+) ([]*CustomEntityType, []string) {
 	b.mu.RLock("BatchGetCustomEntityTypes")
 	defer b.mu.RUnlock()
 
@@ -1636,7 +1721,9 @@ func (b *InMemoryBackend) BatchGetCustomEntityTypes(names []string) ([]*CustomEn
 }
 
 // BatchGetDataQualityResult retrieves multiple data quality results by ID.
-func (b *InMemoryBackend) BatchGetDataQualityResult(resultIDs []string) ([]*DataQualityResult, []ErrorDetail) {
+func (b *InMemoryBackend) BatchGetDataQualityResult(
+	resultIDs []string,
+) ([]*DataQualityResult, []ErrorDetail) {
 	b.mu.RLock("BatchGetDataQualityResult")
 	defer b.mu.RUnlock()
 
@@ -1828,7 +1915,10 @@ func (b *InMemoryBackend) AddPartitionInternal(dbName, tableName string, p *Part
 // --- Job run operations ---
 
 // StartJobRun creates a new job run record for the named job.
-func (b *InMemoryBackend) StartJobRun(jobName string, arguments map[string]string) (*JobRun, error) {
+func (b *InMemoryBackend) StartJobRun(
+	jobName string,
+	arguments map[string]string,
+) (*JobRun, error) {
 	b.mu.Lock("StartJobRun")
 	defer b.mu.Unlock()
 
@@ -2240,7 +2330,9 @@ func (b *InMemoryBackend) StartDataQualityRulesetEvaluationRun(
 }
 
 // GetDataQualityRulesetEvaluationRun retrieves an evaluation run by ID.
-func (b *InMemoryBackend) GetDataQualityRulesetEvaluationRun(runID string) (*DataQualityEvaluationRun, error) {
+func (b *InMemoryBackend) GetDataQualityRulesetEvaluationRun(
+	runID string,
+) (*DataQualityEvaluationRun, error) {
 	b.mu.RLock("GetDataQualityRulesetEvaluationRun")
 	defer b.mu.RUnlock()
 

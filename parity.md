@@ -625,6 +625,7 @@ Also missing at the platform level:
 >   managed-scaling policy editor, bootstrap-action list, steps, notebooks, and
 >   studios are all present and SDK-wired; no further work needed.
 >
+>
 > **Seventh pass (branch `parity/mega-v2`)** — Security/identity + Messaging/
 > engagement + remaining-misc service group (all wired to the live AWS JS SDK
 > through the gopherstack endpoint, lazily-constructed clients, matching each

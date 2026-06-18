@@ -79,9 +79,9 @@ func TestBatch2_Session_Timestamps_Present(t *testing.T) {
 		raw, ok := resp[field]
 		require.True(t, ok, "GetMacieSession must include %s", field)
 		ts, ok := raw.(string)
-		require.True(t, ok, "%s must be a string", field)
-		_, err := time.Parse(time.RFC3339Nano, ts)
-		assert.NoError(t, err, "%s must be RFC3339, got %q", field, ts)
+		require.True(t, ok, "%s must be an ISO8601 string, got %T", field, raw)
+		_, err := time.Parse(time.RFC3339, ts)
+		assert.NoError(t, err, "%s must be a valid RFC3339 timestamp, got %q", field, ts)
 	}
 }
 
@@ -98,7 +98,7 @@ func TestBatch2_Session_UpdatedAt_Advances(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &before))
 	createdAt := before["createdAt"].(string)
 
-	time.Sleep(2 * time.Millisecond)
+	time.Sleep(1001 * time.Millisecond)
 
 	doRequest(t, h, http.MethodPatch, "/macie",
 		map[string]string{"findingPublishingFrequency": "SIX_HOURS"})

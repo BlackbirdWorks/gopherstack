@@ -313,6 +313,162 @@ provider "aws" {
     ssoadmin        = %[1]q
     sts             = %[1]q
     swf             = %[1]q
+    apprunner       = %[1]q
+    comprehend      = %[1]q
+    datasync        = %[1]q
+    detective       = %[1]q
+    dlm             = %[1]q
+    ds              = %[1]q
+    gluedatabrew    = %[1]q
+    macie2          = %[1]q
+    medialive       = %[1]q
+    mediapackage    = %[1]q
+    polly           = %[1]q
+    quicksight      = %[1]q
+    rekognition     = %[1]q
+    rolesanywhere   = %[1]q
+    transcribe      = %[1]q
+    vpclattice      = %[1]q
+    wafv2           = %[1]q
+  }
+}
+`, addr)
+}
+
+// macie2ProviderBlock is like providerBlock but omits skip_requesting_account_id.
+// aws_macie2_account uses the caller's account ID as its Terraform resource ID;
+// with skip_requesting_account_id=true that ID is "", which removes the resource
+// from state immediately after creation ("root object was present, but now absent").
+// Our STS emulator returns "000000000000" so the provider gets a valid account ID.
+func macie2ProviderBlock(addr string) string {
+	return fmt.Sprintf(`terraform {
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+  required_version = ">= 1.0"
+}
+
+provider "aws" {
+  region                      = "us-east-1"
+  access_key                  = "test"
+  secret_key                  = "test"
+  skip_credentials_validation = true
+  skip_metadata_api_check     = true
+  s3_use_path_style           = true
+
+  # Endpoints are listed alphabetically — keep them sorted when adding new ones.
+  endpoints {
+    acm             = %[1]q
+    acmpca          = %[1]q
+    amplify         = %[1]q
+    apigateway      = %[1]q
+    apigatewayv2    = %[1]q
+    appconfig       = %[1]q
+    applicationautoscaling = %[1]q
+    athena          = %[1]q
+    appsync         = %[1]q
+    autoscaling     = %[1]q
+    backup          = %[1]q
+    batch           = %[1]q
+    bedrock         = %[1]q
+    ce              = %[1]q
+    cloudcontrol    = %[1]q
+    cloudformation  = %[1]q
+    cloudfront      = %[1]q
+    cloudtrail      = %[1]q
+    cloudwatch      = %[1]q
+    cloudwatchlogs  = %[1]q
+    codeartifact    = %[1]q
+    codebuild       = %[1]q
+    codecommit          = %[1]q
+    codepipeline        = %[1]q
+    codeconnections     = %[1]q
+    codedeploy          = %[1]q
+    codestarconnections = %[1]q
+    cognitoidentity          = %[1]q
+    cognitoidentityprovider  = %[1]q
+    configservice   = %[1]q
+    dms             = %[1]q
+    dynamodb        = %[1]q
+    ec2             = %[1]q
+    ecr             = %[1]q
+    ecs             = %[1]q
+    efs             = %[1]q
+    eks             = %[1]q
+    elb             = %[1]q
+    elbv2           = %[1]q
+    elasticache     = %[1]q
+    elasticbeanstalk = %[1]q
+    elasticsearch   = %[1]q
+    emrserverless   = %[1]q
+    emr             = %[1]q
+    events          = %[1]q
+    firehose        = %[1]q
+    fis             = %[1]q
+    glacier         = %[1]q
+    glue            = %[1]q
+    iam             = %[1]q
+    identitystore   = %[1]q
+    iot             = %[1]q
+    kafka           = %[1]q
+    kinesisanalyticsv2 = %[1]q
+    kinesis         = %[1]q
+    kinesisanalytics = %[1]q
+    kms             = %[1]q
+    lakeformation   = %[1]q
+    lambda          = %[1]q
+    mediaconvert    = %[1]q
+    mediastore      = %[1]q
+    memorydb        = %[1]q
+    mq              = %[1]q
+    mwaa            = %[1]q
+    opensearch      = %[1]q
+    organizations   = %[1]q
+    pinpoint        = %[1]q
+    pipes           = %[1]q
+    ram             = %[1]q
+    redshift        = %[1]q
+    redshiftdata    = %[1]q
+    resourcegroups  = %[1]q
+    resourcegroupstaggingapi = %[1]q
+    route53         = %[1]q
+    route53resolver = %[1]q
+    s3              = %[1]q
+    s3control       = %[1]q
+    s3tables        = %[1]q
+    sagemaker       = %[1]q
+    scheduler       = %[1]q
+    secretsmanager  = %[1]q
+    servicediscovery = %[1]q
+    serverlessrepo  = %[1]q
+    ses             = %[1]q
+    sesv2           = %[1]q
+    sfn             = %[1]q
+    shield          = %[1]q
+    sns             = %[1]q
+    sqs             = %[1]q
+    ssm             = %[1]q
+    ssoadmin        = %[1]q
+    sts             = %[1]q
+    swf             = %[1]q
+    apprunner       = %[1]q
+    comprehend      = %[1]q
+    datasync        = %[1]q
+    detective       = %[1]q
+    dlm             = %[1]q
+    ds              = %[1]q
+    gluedatabrew    = %[1]q
+    macie2          = %[1]q
+    medialive       = %[1]q
+    mediapackage    = %[1]q
+    polly           = %[1]q
+    quicksight      = %[1]q
+    rekognition     = %[1]q
+    rolesanywhere   = %[1]q
+    transcribe      = %[1]q
     vpclattice      = %[1]q
     wafv2           = %[1]q
   }
@@ -718,6 +874,11 @@ func applyTofu(t *testing.T, tofuBin, dir, hcl string) {
 		"TF_IN_AUTOMATION=1",
 		"TF_PLUGIN_CACHE_DIR="+tofuProviderCacheDir,
 		"TF_PLUGIN_CACHE_MAY_BREAK_DEPENDENCY_LOCK_FILE=true",
+		// Catch-all for services not covered by the provider endpoints block.
+		// The AWS provider v5.6.0+ reads this env var as a global endpoint
+		// override so services like forecast, mediatailor, personalize,
+		// translate, mediastoredata, and workmail route to gopherstack.
+		"AWS_ENDPOINT_URL="+endpoint,
 	)
 
 	run := func(failFatal bool, args ...string) bool {
@@ -1938,6 +2099,68 @@ func TestTerraform_CloudFormation(t *testing.T) {
 				require.NoError(t, err, "DescribeStacks should succeed after terraform apply")
 				require.Len(t, out.Stacks, 1)
 				assert.Equal(t, vars["StackName"].(string), aws.ToString(out.Stacks[0].StackName))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_CloudFormation_CustomResource exercises CFN extensibility types
+// (Custom::*, WaitConditionHandle/WaitCondition, Macro) via a Terraform-managed stack,
+// verifying that Gopherstack correctly handles all three resource classes end-to-end.
+func TestTerraform_CloudFormation_CustomResource(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "custom_resource_round_trip",
+			fixture: "cloudformation/custom_resource",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"StackName": "tf-cfn-ext-" + id,
+					"MacroName": "TfTestMacro" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+
+				client := createCloudFormationClient(t)
+				stackName := vars["StackName"].(string)
+
+				out, err := client.DescribeStacks(ctx, &cfnsvc.DescribeStacksInput{
+					StackName: aws.String(stackName),
+				})
+				require.NoError(t, err, "DescribeStacks should succeed after terraform apply")
+				require.Len(t, out.Stacks, 1)
+
+				s := out.Stacks[0]
+				assert.Equal(t, stackName, aws.ToString(s.StackName))
+				assert.Equal(t, "CREATE_COMPLETE", string(s.StackStatus),
+					"stack with CustomResource + WaitCondition + Macro should reach CREATE_COMPLETE")
+
+				// Verify Macro output is present.
+				macroName := vars["MacroName"].(string)
+				var foundMacro bool
+
+				for _, o := range s.Outputs {
+					if aws.ToString(o.OutputKey) == "MacroName" {
+						assert.Equal(t, macroName, aws.ToString(o.OutputValue),
+							"Macro physical ID should match registered macro name")
+						foundMacro = true
+					}
+				}
+
+				assert.True(t, foundMacro, "MacroName output should exist in stack outputs")
 			},
 		},
 	}

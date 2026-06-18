@@ -27,16 +27,12 @@ import {
 	DeleteSnapshotCommand,
 	CreateLaunchTemplateCommand,
 	RunInstancesCommand,
-	CreateSecurityGroupCommand,
-	DeleteSecurityGroupCommand,
 	AuthorizeSecurityGroupIngressCommand,
+	AuthorizeSecurityGroupEgressCommand,
 	RevokeSecurityGroupIngressCommand,
-	AllocateAddressCommand,
-	ReleaseAddressCommand,
-	AssociateAddressCommand,
-	DisassociateAddressCommand,
-	type SecurityGroup,
+	RevokeSecurityGroupEgressCommand,
 	type IpPermission,
+	type SecurityGroup,
 	type KeyPairInfo,
 	type Image,
 	type LaunchTemplate,
@@ -68,6 +64,11 @@ type EC2Instance = {
 	SubnetId?: string;
 	Tags?: Array<{ Key?: string; Value?: string }>;
 	VpcId?: string;
+	SecurityGroups?: Array<{ GroupId?: string; GroupName?: string }>;
+	Placement?: { AvailabilityZone?: string };
+	KeyName?: string;
+	Architecture?: string;
+	Platform?: string;
 };
 
 type TabName = 'instances' | 'secgroups' | 'keypairs' | 'amis' | 'launchtemplates' | 'vpcendpoints' | 'nacls' | 'vpcs' | 'volumes' | 'snapshots' | 'eips' | 'igws' | 'routetables' | 'natgateways';
@@ -102,22 +103,14 @@ let internetGateways = $state<InternetGateway[]>([]);
 let routeTables = $state<RouteTable[]>([]);
 let natGateways = $state<NatGateway[]>([]);
 let sgSearch = $state('');
-// Security group rule editor state
-let expandedSG = $state<string | null>(null);
-let showCreateSG = $state(false);
-let newSGName = $state('');
-let newSGDescription = $state('');
-let newSGVpcId = $state('');
-let creatingSG = $state(false);
-let ruleProtocol = $state<'tcp' | 'udp' | 'icmp'>('tcp');
-let ruleFromPort = $state(22);
-let ruleToPort = $state(22);
-let ruleCidr = $state('0.0.0.0/0');
+let selectedSg = $state<SecurityGroup | null>(null);
+let showSgRules = $state(false);
+let addRuleDirection = $state<'inbound' | 'outbound'>('inbound');
+let newRuleProtocol = $state('tcp');
+let newRuleFromPort = $state('80');
+let newRuleToPort = $state('80');
+let newRuleCidr = $state('0.0.0.0/0');
 let addingRule = $state(false);
-// Elastic IP allocate/associate state
-let showAllocateEIP = $state(false);
-let allocatingEIP = $state(false);
-let eipAssociateInstance = $state<Record<string, string>>({});
 let kpSearch = $state('');
 let amiSearch = $state('');
 let ltSearch = $state('');
@@ -161,54 +154,25 @@ async function loadSecurityGroups() {
 	}
 }
 
-async function createSecurityGroup() {
-	if (!newSGName.trim() || !newSGDescription.trim()) {
-		toast.error('Name and description are required');
-		return;
-	}
-	creatingSG = true;
-	try {
-		await ec2.send(new CreateSecurityGroupCommand({
-			GroupName: newSGName.trim(),
-			Description: newSGDescription.trim(),
-			VpcId: newSGVpcId.trim() || undefined
-		}));
-		toast.success(`Security group "${newSGName}" created`);
-		showCreateSG = false;
-		newSGName = '';
-		newSGDescription = '';
-		newSGVpcId = '';
-		await loadSecurityGroups();
-	} catch (e) {
-		toast.error(e instanceof Error ? e.message : 'Failed to create security group');
-	} finally {
-		creatingSG = false;
-	}
-}
-
-async function deleteSecurityGroup(groupId: string) {
-	if (!await confirmDestructive({ title: 'Delete Security Group', message: `Delete security group ${groupId}?` })) return;
-	try {
-		await ec2.send(new DeleteSecurityGroupCommand({ GroupId: groupId }));
-		toast.success('Security group deleted');
-		await loadSecurityGroups();
-	} catch (e) {
-		toast.error(e instanceof Error ? e.message : 'Failed to delete security group');
-	}
-}
-
-async function addIngressRule(groupId: string) {
+async function addSgRule() {
+	if (!selectedSg?.GroupId) return;
 	addingRule = true;
 	try {
 		const perm: IpPermission = {
-			IpProtocol: ruleProtocol,
-			FromPort: ruleProtocol === 'icmp' ? -1 : ruleFromPort,
-			ToPort: ruleProtocol === 'icmp' ? -1 : ruleToPort,
-			IpRanges: [{ CidrIp: ruleCidr }]
+			IpProtocol: newRuleProtocol === 'all' ? '-1' : newRuleProtocol,
+			FromPort: newRuleProtocol === 'all' ? undefined : parseInt(newRuleFromPort, 10),
+			ToPort: newRuleProtocol === 'all' ? undefined : parseInt(newRuleToPort, 10),
+			IpRanges: [{ CidrIp: newRuleCidr }]
 		};
-		await ec2.send(new AuthorizeSecurityGroupIngressCommand({ GroupId: groupId, IpPermissions: [perm] }));
-		toast.success('Ingress rule added');
-		await loadSecurityGroups();
+		if (addRuleDirection === 'inbound') {
+			await ec2.send(new AuthorizeSecurityGroupIngressCommand({ GroupId: selectedSg.GroupId, IpPermissions: [perm] }));
+		} else {
+			await ec2.send(new AuthorizeSecurityGroupEgressCommand({ GroupId: selectedSg.GroupId, IpPermissions: [perm] }));
+		}
+		toast.success('Rule added');
+		const data = await ec2.send(new DescribeSecurityGroupsCommand({ GroupIds: [selectedSg.GroupId] }));
+		selectedSg = data.SecurityGroups?.[0] ?? selectedSg;
+		securityGroups = securityGroups.map(sg => sg.GroupId === selectedSg?.GroupId ? selectedSg! : sg);
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to add rule');
 	} finally {
@@ -216,65 +180,29 @@ async function addIngressRule(groupId: string) {
 	}
 }
 
-async function revokeIngressRule(groupId: string, perm: IpPermission) {
-	if (!await confirmDestructive({ title: 'Revoke Rule', message: 'Remove this inbound rule?', confirmLabel: 'Revoke' })) return;
+async function revokeSgRule(direction: 'inbound' | 'outbound', perm: IpPermission) {
+	if (!selectedSg?.GroupId) return;
 	try {
-		await ec2.send(new RevokeSecurityGroupIngressCommand({ GroupId: groupId, IpPermissions: [perm] }));
-		toast.success('Rule revoked');
-		await loadSecurityGroups();
+		if (direction === 'inbound') {
+			await ec2.send(new RevokeSecurityGroupIngressCommand({ GroupId: selectedSg.GroupId, IpPermissions: [perm] }));
+		} else {
+			await ec2.send(new RevokeSecurityGroupEgressCommand({ GroupId: selectedSg.GroupId, IpPermissions: [perm] }));
+		}
+		toast.success('Rule removed');
+		const data = await ec2.send(new DescribeSecurityGroupsCommand({ GroupIds: [selectedSg.GroupId] }));
+		selectedSg = data.SecurityGroups?.[0] ?? selectedSg;
+		securityGroups = securityGroups.map(sg => sg.GroupId === selectedSg?.GroupId ? selectedSg! : sg);
 	} catch (e) {
-		toast.error(e instanceof Error ? e.message : 'Failed to revoke rule');
+		toast.error(e instanceof Error ? e.message : 'Failed to remove rule');
 	}
 }
 
-async function allocateEIP() {
-	allocatingEIP = true;
-	try {
-		await ec2.send(new AllocateAddressCommand({ Domain: 'vpc' }));
-		toast.success('Elastic IP allocated');
-		showAllocateEIP = false;
-		await loadElasticIPs();
-	} catch (e) {
-		toast.error(e instanceof Error ? e.message : 'Failed to allocate Elastic IP');
-	} finally {
-		allocatingEIP = false;
-	}
-}
-
-async function releaseEIP(addr: Address) {
-	if (!await confirmDestructive({ title: 'Release Elastic IP', message: `Release ${addr.PublicIp}?`, confirmLabel: 'Release' })) return;
-	try {
-		await ec2.send(new ReleaseAddressCommand({ AllocationId: addr.AllocationId, PublicIp: addr.AllocationId ? undefined : addr.PublicIp }));
-		toast.success('Elastic IP released');
-		await loadElasticIPs();
-	} catch (e) {
-		toast.error(e instanceof Error ? e.message : 'Failed to release Elastic IP');
-	}
-}
-
-async function associateEIP(addr: Address) {
-	const instanceId = eipAssociateInstance[addr.AllocationId ?? addr.PublicIp ?? ''];
-	if (!instanceId?.trim()) {
-		toast.error('Enter an instance ID');
-		return;
-	}
-	try {
-		await ec2.send(new AssociateAddressCommand({ AllocationId: addr.AllocationId, InstanceId: instanceId.trim() }));
-		toast.success('Elastic IP associated');
-		await loadElasticIPs();
-	} catch (e) {
-		toast.error(e instanceof Error ? e.message : 'Failed to associate Elastic IP');
-	}
-}
-
-async function disassociateEIP(addr: Address) {
-	try {
-		await ec2.send(new DisassociateAddressCommand({ AssociationId: addr.AssociationId, PublicIp: addr.AssociationId ? undefined : addr.PublicIp }));
-		toast.success('Elastic IP disassociated');
-		await loadElasticIPs();
-	} catch (e) {
-		toast.error(e instanceof Error ? e.message : 'Failed to disassociate Elastic IP');
-	}
+function formatIpPerm(perm: IpPermission): string {
+	const proto = perm.IpProtocol === '-1' ? 'All' : (perm.IpProtocol ?? '?').toUpperCase();
+	const ports = perm.IpProtocol === '-1' ? 'All' : perm.FromPort === perm.ToPort ? String(perm.FromPort ?? '?') : `${perm.FromPort}-${perm.ToPort}`;
+	const cidrs = perm.IpRanges?.map(r => r.CidrIp).join(', ') ?? '';
+	const sg = perm.UserIdGroupPairs?.map(p => p.GroupId).join(', ') ?? '';
+	return `${proto} ${ports} ${cidrs || sg}`;
 }
 
 async function loadKeyPairs() {
@@ -856,39 +784,11 @@ Details
 
 <!-- Security Groups Tab -->
 {#if activeTab === 'secgroups'}
-<div class="flex items-center gap-2 mb-3">
-<div class="relative flex-1">
+<div class="relative">
 <Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
 <input type="text" placeholder="Search security groups..." bind:value={sgSearch}
 class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white" />
 </div>
-<button onclick={() => { showCreateSG = true; }} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-1.5 text-sm whitespace-nowrap">
-<Plus class="w-4 h-4" /> Create Group
-</button>
-</div>
-{#if showCreateSG}
-<div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-4 mb-3 space-y-3">
-<h3 class="font-medium text-slate-900 dark:text-white">New Security Group</h3>
-<div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-<div>
-<label for="sg-name" class="block text-xs text-slate-500 dark:text-slate-400 mb-1">Name</label>
-<input id="sg-name" type="text" bind:value={newSGName} placeholder="my-sg" class="w-full px-3 py-2 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-white" />
-</div>
-<div>
-<label for="sg-desc" class="block text-xs text-slate-500 dark:text-slate-400 mb-1">Description</label>
-<input id="sg-desc" type="text" bind:value={newSGDescription} placeholder="description" class="w-full px-3 py-2 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-white" />
-</div>
-<div>
-<label for="sg-vpc" class="block text-xs text-slate-500 dark:text-slate-400 mb-1">VPC ID (optional)</label>
-<input id="sg-vpc" type="text" bind:value={newSGVpcId} placeholder="vpc-..." class="w-full px-3 py-2 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-white" />
-</div>
-</div>
-<div class="flex gap-2 justify-end">
-<button onclick={() => { showCreateSG = false; }} class="px-4 py-2 text-sm text-slate-600 dark:text-slate-400">Cancel</button>
-<button disabled={creatingSG} onclick={createSecurityGroup} class="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50">{creatingSG ? 'Creating...' : 'Create'}</button>
-</div>
-</div>
-{/if}
 {#if loading}
 <div class="text-center py-12"><div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500"></div></div>
 {:else if filteredSGs.length === 0}
@@ -909,7 +809,7 @@ class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 round
 </thead>
 <tbody class="divide-y divide-slate-100 dark:divide-slate-700">
 {#each filteredSGs as sg}
-<tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer" onclick={() => { expandedSG = expandedSG === sg.GroupId ? null : (sg.GroupId ?? null); }}>
+<tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer {selectedSg?.GroupId === sg.GroupId ? 'bg-blue-50 dark:bg-blue-900/20' : ''}" onclick={() => { selectedSg = sg; showSgRules = true; }}>
 <td class="px-4 py-3">
 <p class="font-medium text-slate-900 dark:text-white">{sg.GroupName}</p>
 {#if sg.Description}<p class="text-xs text-slate-500 dark:text-slate-400">{sg.Description}</p>{/if}
@@ -920,62 +820,102 @@ class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 round
 <span class="text-green-600 dark:text-green-400">{sg.IpPermissions?.length ?? 0} in</span>
 ·
 <span class="text-red-600 dark:text-red-400">{sg.IpPermissionsEgress?.length ?? 0} out</span>
-<span class="ml-2 text-xs text-indigo-500">{expandedSG === sg.GroupId ? 'Hide rules ▲' : 'Edit rules ▼'}</span>
 </td>
 </tr>
-{#if expandedSG === sg.GroupId}
-<tr class="bg-slate-50 dark:bg-slate-900/40">
-<td colspan="4" class="px-4 py-4">
-<div class="space-y-3">
-<h4 class="text-sm font-semibold text-slate-700 dark:text-slate-300">Inbound Rules</h4>
-{#if (sg.IpPermissions?.length ?? 0) === 0}
-<p class="text-xs text-slate-500 dark:text-slate-400">No inbound rules.</p>
+{/each}
+</tbody>
+</table>
+</div>
+{/if}
+
+<!-- SG Rule Detail Panel -->
+{#if showSgRules && selectedSg}
+<div class="mt-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
+<div class="flex items-center justify-between px-4 py-3 bg-slate-50 dark:bg-slate-700 border-b border-slate-200 dark:border-slate-600">
+<h3 class="font-semibold text-slate-900 dark:text-white">{selectedSg.GroupName} — Rules</h3>
+<button onclick={() => { showSgRules = false; selectedSg = null; }} class="text-slate-400 hover:text-slate-600 text-xl">&times;</button>
+</div>
+<div class="p-4 space-y-4">
+<!-- Inbound Rules -->
+<div>
+<h4 class="text-sm font-semibold text-green-700 dark:text-green-400 mb-2">Inbound Rules ({selectedSg.IpPermissions?.length ?? 0})</h4>
+{#if (selectedSg.IpPermissions?.length ?? 0) === 0}
+<p class="text-sm text-slate-500">No inbound rules.</p>
 {:else}
 <table class="w-full text-xs">
-<thead><tr class="text-slate-500 dark:text-slate-400">
-<th class="text-left py-1">Protocol</th><th class="text-left py-1">Port Range</th><th class="text-left py-1">Source</th><th></th>
-</tr></thead>
+<thead class="bg-slate-50 dark:bg-slate-700"><tr><th class="text-left px-3 py-2">Protocol</th><th class="text-left px-3 py-2">Port</th><th class="text-left px-3 py-2">Source</th><th class="px-3 py-2"></th></tr></thead>
 <tbody>
-{#each sg.IpPermissions ?? [] as perm}
-<tr class="border-t border-slate-200 dark:border-slate-700">
-<td class="py-1.5 font-mono">{perm.IpProtocol === '-1' ? 'All' : perm.IpProtocol}</td>
-<td class="py-1.5 font-mono">{perm.FromPort === -1 || perm.FromPort === undefined ? 'All' : (perm.FromPort === perm.ToPort ? perm.FromPort : `${perm.FromPort}-${perm.ToPort}`)}</td>
-<td class="py-1.5 font-mono">{(perm.IpRanges ?? []).map((r) => r.CidrIp).join(', ') || (perm.UserIdGroupPairs ?? []).map((g) => g.GroupId).join(', ') || '—'}</td>
-<td class="py-1.5 text-right"><button onclick={() => revokeIngressRule(sg.GroupId ?? '', perm)} class="text-red-600 hover:text-red-800 dark:text-red-400">Revoke</button></td>
+{#each selectedSg.IpPermissions ?? [] as perm}
+<tr class="border-b border-slate-100 dark:border-slate-700">
+<td class="px-3 py-2 font-mono">{perm.IpProtocol === '-1' ? 'All' : (perm.IpProtocol ?? '?').toUpperCase()}</td>
+<td class="px-3 py-2 font-mono">{perm.IpProtocol === '-1' ? 'All' : (perm.FromPort === perm.ToPort ? String(perm.FromPort ?? '?') : `${perm.FromPort}-${perm.ToPort}`)}</td>
+<td class="px-3 py-2 font-mono">{perm.IpRanges?.map(r => r.CidrIp).join(', ') ?? perm.UserIdGroupPairs?.map(p => p.GroupId).join(', ') ?? '?'}</td>
+<td class="px-3 py-2 text-right"><button onclick={() => revokeSgRule('inbound', perm)} class="text-red-500 hover:text-red-700 text-xs">Revoke</button></td>
 </tr>
 {/each}
 </tbody>
 </table>
 {/if}
-<div class="flex flex-wrap items-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-700">
+</div>
+<!-- Outbound Rules -->
 <div>
-<label class="block text-xs text-slate-500 dark:text-slate-400 mb-1" for="rule-proto-{sg.GroupId}">Protocol</label>
-<select id="rule-proto-{sg.GroupId}" bind:value={ruleProtocol} class="px-2 py-1.5 text-xs border border-slate-200 dark:border-slate-700 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white">
-<option value="tcp">tcp</option><option value="udp">udp</option><option value="icmp">icmp</option>
+<h4 class="text-sm font-semibold text-red-700 dark:text-red-400 mb-2">Outbound Rules ({selectedSg.IpPermissionsEgress?.length ?? 0})</h4>
+{#if (selectedSg.IpPermissionsEgress?.length ?? 0) === 0}
+<p class="text-sm text-slate-500">No outbound rules.</p>
+{:else}
+<table class="w-full text-xs">
+<thead class="bg-slate-50 dark:bg-slate-700"><tr><th class="text-left px-3 py-2">Protocol</th><th class="text-left px-3 py-2">Port</th><th class="text-left px-3 py-2">Destination</th><th class="px-3 py-2"></th></tr></thead>
+<tbody>
+{#each selectedSg.IpPermissionsEgress ?? [] as perm}
+<tr class="border-b border-slate-100 dark:border-slate-700">
+<td class="px-3 py-2 font-mono">{perm.IpProtocol === '-1' ? 'All' : (perm.IpProtocol ?? '?').toUpperCase()}</td>
+<td class="px-3 py-2 font-mono">{perm.IpProtocol === '-1' ? 'All' : (perm.FromPort === perm.ToPort ? String(perm.FromPort ?? '?') : `${perm.FromPort}-${perm.ToPort}`)}</td>
+<td class="px-3 py-2 font-mono">{perm.IpRanges?.map(r => r.CidrIp).join(', ') ?? perm.UserIdGroupPairs?.map(p => p.GroupId).join(', ') ?? '?'}</td>
+<td class="px-3 py-2 text-right"><button onclick={() => revokeSgRule('outbound', perm)} class="text-red-500 hover:text-red-700 text-xs">Revoke</button></td>
+</tr>
+{/each}
+</tbody>
+</table>
+{/if}
+</div>
+<!-- Add Rule -->
+<div class="pt-3 border-t border-slate-200 dark:border-slate-700">
+<h4 class="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3">Add Rule</h4>
+<div class="flex flex-wrap gap-2 items-end">
+<div>
+<label class="block text-xs text-slate-500 mb-1">Direction</label>
+<select bind:value={addRuleDirection} class="text-sm border border-slate-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 dark:text-white">
+<option value="inbound">Inbound</option>
+<option value="outbound">Outbound</option>
 </select>
 </div>
 <div>
-<label class="block text-xs text-slate-500 dark:text-slate-400 mb-1" for="rule-from-{sg.GroupId}">From Port</label>
-<input id="rule-from-{sg.GroupId}" type="number" bind:value={ruleFromPort} class="w-20 px-2 py-1.5 text-xs border border-slate-200 dark:border-slate-700 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white" />
+<label class="block text-xs text-slate-500 mb-1">Protocol</label>
+<select bind:value={newRuleProtocol} class="text-sm border border-slate-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 dark:text-white">
+<option value="tcp">TCP</option>
+<option value="udp">UDP</option>
+<option value="icmp">ICMP</option>
+<option value="all">All</option>
+</select>
+</div>
+{#if newRuleProtocol !== 'all'}
+<div>
+<label class="block text-xs text-slate-500 mb-1">From Port</label>
+<input type="number" bind:value={newRuleFromPort} class="w-20 text-sm border border-slate-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 dark:text-white" />
 </div>
 <div>
-<label class="block text-xs text-slate-500 dark:text-slate-400 mb-1" for="rule-to-{sg.GroupId}">To Port</label>
-<input id="rule-to-{sg.GroupId}" type="number" bind:value={ruleToPort} class="w-20 px-2 py-1.5 text-xs border border-slate-200 dark:border-slate-700 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white" />
+<label class="block text-xs text-slate-500 mb-1">To Port</label>
+<input type="number" bind:value={newRuleToPort} class="w-20 text-sm border border-slate-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 dark:text-white" />
 </div>
-<div>
-<label class="block text-xs text-slate-500 dark:text-slate-400 mb-1" for="rule-cidr-{sg.GroupId}">CIDR</label>
-<input id="rule-cidr-{sg.GroupId}" type="text" bind:value={ruleCidr} placeholder="0.0.0.0/0" class="w-36 px-2 py-1.5 text-xs border border-slate-200 dark:border-slate-700 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white" />
-</div>
-<button disabled={addingRule} onclick={() => addIngressRule(sg.GroupId ?? '')} class="px-3 py-1.5 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50">{addingRule ? 'Adding...' : 'Add Rule'}</button>
-<button onclick={() => deleteSecurityGroup(sg.GroupId ?? '')} class="ml-auto px-3 py-1.5 text-xs bg-red-600 text-white rounded hover:bg-red-700">Delete Group</button>
-</div>
-</div>
-</td>
-</tr>
 {/if}
-{/each}
-</tbody>
-</table>
+<div>
+<label class="block text-xs text-slate-500 mb-1">CIDR</label>
+<input type="text" bind:value={newRuleCidr} placeholder="0.0.0.0/0" class="w-36 text-sm border border-slate-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 dark:text-white" />
+</div>
+<button onclick={addSgRule} disabled={addingRule} class="text-white bg-blue-600 hover:bg-blue-700 font-medium rounded-lg text-sm px-4 py-2 disabled:opacity-50">{addingRule ? 'Adding…' : 'Add Rule'}</button>
+</div>
+</div>
+</div>
 </div>
 {/if}
 {/if}
@@ -1356,15 +1296,10 @@ class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 round
 
 <!-- Elastic IPs Tab -->
 {#if activeTab === 'eips'}
-<div class="flex items-center gap-2 mb-3">
-<div class="relative flex-1">
+<div class="relative">
 <Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
 <input type="text" placeholder="Search Elastic IPs..." bind:value={eipSearch}
 class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white" />
-</div>
-<button disabled={allocatingEIP} onclick={allocateEIP} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-1.5 text-sm whitespace-nowrap">
-<Plus class="w-4 h-4" /> {allocatingEIP ? 'Allocating...' : 'Allocate IP'}
-</button>
 </div>
 {#if loading}
 <div class="text-center py-12"><div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500"></div></div>
@@ -1382,7 +1317,6 @@ class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 round
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Public IP</th>
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Associated Instance</th>
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Association ID</th>
-<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Actions</th>
 </tr>
 </thead>
 <tbody class="divide-y divide-slate-100 dark:divide-slate-700">
@@ -1392,17 +1326,6 @@ class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 round
 <td class="px-4 py-3 text-slate-900 dark:text-white font-mono">{addr.PublicIp || '—'}</td>
 <td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">{#if addr.InstanceId}{addr.InstanceId}{:else}<span class="italic text-slate-400">unassociated</span>{/if}</td>
 <td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">{addr.AssociationId || '—'}</td>
-<td class="px-4 py-3">
-<div class="flex items-center gap-1.5 flex-wrap">
-{#if addr.AssociationId}
-<button onclick={() => disassociateEIP(addr)} class="px-2 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700">Disassociate</button>
-{:else}
-<input type="text" placeholder="i-..." bind:value={eipAssociateInstance[addr.AllocationId ?? addr.PublicIp ?? '']} class="w-24 px-2 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white" />
-<button onclick={() => associateEIP(addr)} class="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700">Associate</button>
-{/if}
-<button onclick={() => releaseEIP(addr)} class="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700">Release</button>
-</div>
-</td>
 </tr>
 {/each}
 </tbody>
@@ -1597,20 +1520,120 @@ class="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg
 {/if}
 
 {#if selectedInstance}
-<div class="fixed inset-0 bg-black/50 z-50 flex items-end justify-end">
-<div class="bg-white dark:bg-slate-800 w-full max-w-lg h-full overflow-y-auto p-6">
-<div class="flex items-center justify-between mb-6">
-<h2 class="text-xl font-bold text-slate-900 dark:text-white">{getName(selectedInstance)}</h2>
-<button onclick={() => selectedInstance = null} class="text-slate-400 hover:text-slate-600 text-2xl">&times;</button>
-</div>
-<div class="grid grid-cols-2 gap-4 text-sm">
-{#each [['Instance ID', selectedInstance.InstanceId], ['Type', selectedInstance.InstanceType], ['State', selectedInstance.State?.Name], ['Public IP', selectedInstance.PublicIpAddress || '—'], ['Private IP', selectedInstance.PrivateIpAddress || '—'], ['VPC', selectedInstance.VpcId || '—'], ['Subnet', selectedInstance.SubnetId || '—'], ['AMI', selectedInstance.ImageId || '—'], ['Launch Time', selectedInstance.LaunchTime ? new Date(selectedInstance.LaunchTime).toLocaleString() : '—']] as [label, val]}
-<div>
-<p class="text-slate-500 text-xs uppercase">{label}</p>
-<p class="font-mono text-slate-900 dark:text-white text-xs break-all">{val}</p>
-</div>
-{/each}
-</div>
+<div class="fixed inset-0 bg-black/50 z-50 flex items-end justify-end" role="none" onclick={(e) => { if (e.target === e.currentTarget) selectedInstance = null; }}>
+<div class="bg-white dark:bg-slate-800 w-full max-w-xl h-full overflow-y-auto shadow-2xl">
+	<!-- Header -->
+	<div class="flex items-start justify-between px-6 py-5 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50">
+		<div>
+			<h2 class="text-lg font-bold text-slate-900 dark:text-white">{getName(selectedInstance)}</h2>
+			<p class="text-xs font-mono text-slate-500 dark:text-slate-400 mt-0.5">{selectedInstance.InstanceId}</p>
+		</div>
+		<div class="flex items-center gap-3">
+			{#if selectedInstance.State?.Name}
+			<span class="px-2 py-1 rounded-full text-xs font-semibold {getStatusColor(selectedInstance.State.Name)}">{selectedInstance.State.Name}</span>
+			{/if}
+			<button onclick={() => selectedInstance = null} class="text-slate-400 hover:text-slate-600 text-2xl leading-none">&times;</button>
+		</div>
+	</div>
+	<div class="p-6 space-y-6">
+		<!-- Actions -->
+		<div class="flex flex-wrap gap-2">
+			{#if selectedInstance.State?.Name === 'stopped'}
+			<button onclick={() => { startInstance(selectedInstance?.InstanceId ?? ''); selectedInstance = null; }} class="px-3 py-1.5 bg-green-600 text-white rounded text-sm hover:bg-green-700 flex items-center gap-1"><Play class="w-3 h-3" /> Start</button>
+			{/if}
+			{#if selectedInstance.State?.Name === 'running'}
+			<button onclick={() => { stopInstance(selectedInstance?.InstanceId ?? ''); selectedInstance = null; }} class="px-3 py-1.5 bg-yellow-600 text-white rounded text-sm hover:bg-yellow-700 flex items-center gap-1"><Square class="w-3 h-3" /> Stop</button>
+			<button onclick={() => { rebootInstance(selectedInstance?.InstanceId ?? ''); selectedInstance = null; }} class="px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 flex items-center gap-1"><RotateCcw class="w-3 h-3" /> Reboot</button>
+			{/if}
+			{#if selectedInstance.State?.Name !== 'terminated'}
+			<button onclick={() => { terminateInstance(selectedInstance?.InstanceId ?? ''); selectedInstance = null; }} class="px-3 py-1.5 bg-red-600 text-white rounded text-sm hover:bg-red-700 flex items-center gap-1"><Trash2 class="w-3 h-3" /> Terminate</button>
+			{/if}
+		</div>
+
+		<!-- Core Info -->
+		<div>
+			<h3 class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-3">Compute</h3>
+			<div class="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+				{#each [
+					['Instance Type', selectedInstance.InstanceType ?? '—'],
+					['Architecture', selectedInstance.Architecture ?? '—'],
+					['AMI', selectedInstance.ImageId ?? '—'],
+					['Key Pair', selectedInstance.KeyName ?? '—'],
+					['Availability Zone', selectedInstance.Placement?.AvailabilityZone ?? '—'],
+					['Launch Time', selectedInstance.LaunchTime ? new Date(selectedInstance.LaunchTime).toLocaleString() : '—'],
+				] as [label, val]}
+				<div>
+					<p class="text-xs text-slate-500 dark:text-slate-400">{label}</p>
+					<p class="font-mono text-slate-900 dark:text-white text-xs break-all mt-0.5">{val}</p>
+				</div>
+				{/each}
+			</div>
+		</div>
+
+		<!-- Network -->
+		<div>
+			<h3 class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-3">Network</h3>
+			<div class="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+				{#each [
+					['Public IP', selectedInstance.PublicIpAddress ?? '—'],
+					['Private IP', selectedInstance.PrivateIpAddress ?? '—'],
+					['VPC', selectedInstance.VpcId ?? '—'],
+					['Subnet', selectedInstance.SubnetId ?? '—'],
+				] as [label, val]}
+				<div>
+					<p class="text-xs text-slate-500 dark:text-slate-400">{label}</p>
+					<p class="font-mono text-slate-900 dark:text-white text-xs break-all mt-0.5">{val}</p>
+				</div>
+				{/each}
+			</div>
+		</div>
+
+		<!-- Security Groups -->
+		{#if (selectedInstance.SecurityGroups?.length ?? 0) > 0}
+		<div>
+			<h3 class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-3">Security Groups</h3>
+			<div class="space-y-1.5">
+				{#each selectedInstance.SecurityGroups ?? [] as sg}
+				<div class="flex items-center justify-between p-2 bg-slate-50 dark:bg-slate-700/50 rounded text-xs">
+					<div>
+						<span class="font-semibold text-slate-800 dark:text-slate-200">{sg.GroupName}</span>
+						<span class="font-mono text-slate-500 dark:text-slate-400 ml-2">{sg.GroupId}</span>
+					</div>
+					<button onclick={() => {
+						const target = securityGroups.find(s => s.GroupId === sg.GroupId);
+						if (target) { selectedSg = target; showSgRules = true; }
+						selectedInstance = null;
+						activeTab = 'secgroups';
+						if (securityGroups.length === 0) loadSecurityGroups();
+					}} class="text-indigo-500 hover:text-indigo-700 text-xs font-medium">View Rules →</button>
+				</div>
+				{/each}
+			</div>
+		</div>
+		{/if}
+
+		<!-- Tags -->
+		{#if (selectedInstance.Tags?.length ?? 0) > 0}
+		<div>
+			<h3 class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-3">Tags</h3>
+			<div class="border border-slate-200 dark:border-slate-700 rounded overflow-hidden">
+				<table class="w-full text-xs">
+					<thead class="bg-slate-50 dark:bg-slate-700">
+						<tr><th class="text-left px-3 py-2 text-slate-600 dark:text-slate-300">Key</th><th class="text-left px-3 py-2 text-slate-600 dark:text-slate-300">Value</th></tr>
+					</thead>
+					<tbody class="divide-y divide-slate-100 dark:divide-slate-700">
+						{#each selectedInstance.Tags ?? [] as tag}
+						<tr>
+							<td class="px-3 py-2 font-mono text-slate-700 dark:text-slate-300">{tag.Key}</td>
+							<td class="px-3 py-2 font-mono text-slate-700 dark:text-slate-300 break-all">{tag.Value}</td>
+						</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		</div>
+		{/if}
+	</div>
 </div>
 </div>
 {/if}

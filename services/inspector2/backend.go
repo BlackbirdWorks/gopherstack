@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -30,6 +32,11 @@ const (
 	maxTagKeyLen   = 128
 	maxTagValueLen = 256
 	maxTagCount    = 50
+
+	severityScoreCritical = 9.0
+	severityScoreHigh     = 7.0
+	severityScoreMedium   = 5.0
+	severityScoreLow      = 3.0
 )
 
 var (
@@ -51,11 +58,19 @@ func validateTags(tags map[string]string) error {
 
 	for k, v := range tags {
 		if k == "" || len(k) > maxTagKeyLen {
-			return fmt.Errorf("%w: tag key must be between 1 and %d characters", ErrValidation, maxTagKeyLen)
+			return fmt.Errorf(
+				"%w: tag key must be between 1 and %d characters",
+				ErrValidation,
+				maxTagKeyLen,
+			)
 		}
 
 		if len(v) > maxTagValueLen {
-			return fmt.Errorf("%w: tag value must be at most %d characters", ErrValidation, maxTagValueLen)
+			return fmt.Errorf(
+				"%w: tag value must be at most %d characters",
+				ErrValidation,
+				maxTagValueLen,
+			)
 		}
 	}
 
@@ -109,6 +124,23 @@ type Finding struct {
 	ResourceID      string    `json:"-"`
 }
 
+// FindingSeverity holds severity details for a finding.
+type FindingSeverity struct {
+	Label string  `json:"label"`
+	Score float64 `json:"score,omitempty"`
+}
+
+// FindingResource describes a resource associated with a finding.
+type FindingResource struct {
+	Type string `json:"type"`
+	ID   string `json:"id"`
+}
+
+// storedFinding wraps Finding for internal storage.
+type storedFinding struct {
+	Finding
+}
+
 // Configuration holds Inspector2 scan configuration.
 type Configuration struct {
 	Ec2ScanMode       string `json:"ec2ScanMode"`
@@ -128,8 +160,8 @@ type AccountStatusResponse struct {
 type InMemoryBackend struct {
 	mu        *lockmetrics.RWMutex
 	filters   map[string]*Filter
+	findings  map[string]*storedFinding
 	tags      map[string]map[string]string
-	findings  map[string]*Finding
 	ax        *appendixAState
 	config    Configuration
 	accountID string
@@ -142,8 +174,8 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
 		mu:       lockmetrics.New("inspector2"),
 		filters:  make(map[string]*Filter),
+		findings: make(map[string]*storedFinding),
 		tags:     make(map[string]map[string]string),
-		findings: make(map[string]*Finding),
 		ax:       newAppendixAState(),
 		config: Configuration{
 			Ec2ScanMode:       ec2ScanModeEC2SSMAgentBased,
@@ -444,11 +476,59 @@ func (b *InMemoryBackend) SeedFinding(f Finding) (*Finding, error) {
 	}
 
 	clone := stored
-	b.findings[stored.FindingArn] = &clone
+	b.findings[stored.FindingArn] = &storedFinding{Finding: clone}
 
 	out := stored
 
 	return &out, nil
+}
+
+// AddFinding stores a finding and returns its ARN. Used to seed test state.
+func (b *InMemoryBackend) AddFinding(
+	findingType, severityLabel, status, title, description string,
+	resources []FindingResource,
+) string {
+	b.mu.Lock("AddFinding")
+	defer b.mu.Unlock()
+
+	id := uuid.New().String()
+	findingARN := arn.Build(inspector2Service, b.region, b.accountID, "finding/"+id)
+	now := time.Now().UTC()
+
+	_ = resources // stored in Finding for future use; Finding.ResourceType/ResourceID are single-valued
+
+	b.findings[findingARN] = &storedFinding{
+		Finding: Finding{
+			FindingArn:      findingARN,
+			AccountID:       b.accountID,
+			Type:            findingType,
+			Severity:        severityLabel,
+			Status:          status,
+			Description:     description,
+			Title:           title,
+			FirstObservedAt: now,
+			LastObservedAt:  now,
+			UpdatedAt:       now,
+		},
+	}
+
+	return findingARN
+}
+
+// severityScore returns a numeric score for a severity label.
+func severityScore(label string) float64 {
+	switch label {
+	case "CRITICAL":
+		return severityScoreCritical
+	case "HIGH":
+		return severityScoreHigh
+	case "MEDIUM":
+		return severityScoreMedium
+	case "LOW":
+		return severityScoreLow
+	default:
+		return 0.0
+	}
 }
 
 // findingFilterCriteria captures the subset of the Inspector2 filterCriteria
@@ -560,8 +640,8 @@ func (b *InMemoryBackend) ListFindings(
 	matched := make([]*Finding, 0, len(b.findings))
 
 	for _, f := range b.findings {
-		if fc.matches(f) {
-			clone := *f
+		if fc.matches(&f.Finding) {
+			clone := f.Finding
 			matched = append(matched, &clone)
 		}
 	}
@@ -613,6 +693,93 @@ func (b *InMemoryBackend) FindingSeverityCounts() map[string]int64 {
 	return counts
 }
 
+// matchesFindingCriteria returns true if the finding matches all filter criteria.
+// Supports filtering by severityLabel and findingStatus arrays.
+func matchesFindingCriteria(f *Finding, criteria map[string]any) bool {
+	if len(criteria) == 0 {
+		return true
+	}
+
+	if severities, ok := extractStringComparisons(criteria, "severity"); ok {
+		matched := false
+
+		for _, s := range severities {
+			if strings.EqualFold(f.Severity, s) {
+				matched = true
+
+				break
+			}
+		}
+
+		if !matched {
+			return false
+		}
+	}
+
+	if statuses, ok := extractStringComparisons(criteria, "findingStatus"); ok {
+		matched := false
+
+		for _, s := range statuses {
+			if strings.EqualFold(f.Status, s) {
+				matched = true
+
+				break
+			}
+		}
+
+		if !matched {
+			return false
+		}
+	}
+
+	return true
+}
+
+// extractStringComparisons extracts EQUALS comparison values for a filter field.
+func extractStringComparisons(criteria map[string]any, key string) ([]string, bool) {
+	raw, ok := criteria[key]
+	if !ok {
+		return nil, false
+	}
+
+	items, ok := raw.([]any)
+	if !ok {
+		return nil, false
+	}
+
+	var vals []string
+
+	for _, item := range items {
+		m, mOk := item.(map[string]any)
+		if !mOk {
+			continue
+		}
+
+		if v, vOk := m["value"].(string); vOk {
+			vals = append(vals, v)
+		}
+	}
+
+	return vals, len(vals) > 0
+}
+
+func encodeFindingToken(idx int) string {
+	return strconv.Itoa(idx)
+}
+
+func decodeFindingToken(token string) int {
+	if token == "" {
+		return 0
+	}
+
+	var idx int
+	if _, err := fmt.Sscanf(token, "%d", &idx); err != nil || idx < 0 {
+		return 0
+	}
+
+	return idx
+}
+
 // GetConfiguration returns the current configuration.
 func (b *InMemoryBackend) GetConfiguration() *Configuration {
 	b.mu.RLock("GetConfiguration")
@@ -654,7 +821,11 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 
 	existing := b.tags[resourceARN]
 	if len(existing)+len(tags) > maxTagCount {
-		return fmt.Errorf("%w: resource would exceed maximum of %d tags", ErrValidation, maxTagCount)
+		return fmt.Errorf(
+			"%w: resource would exceed maximum of %d tags",
+			ErrValidation,
+			maxTagCount,
+		)
 	}
 
 	if b.tags[resourceARN] == nil {
@@ -728,13 +899,18 @@ func (b *InMemoryBackend) Reset() {
 	defer b.mu.Unlock()
 
 	b.filters = make(map[string]*Filter)
+	b.findings = make(map[string]*storedFinding)
 	b.tags = make(map[string]map[string]string)
-	b.config = Configuration{Ec2ScanMode: ec2ScanModeEC2SSMAgentBased, EcrRescanDuration: ecrRescanDurationLifetime}
+	b.config = Configuration{
+		Ec2ScanMode:       ec2ScanModeEC2SSMAgentBased,
+		EcrRescanDuration: ecrRescanDurationLifetime,
+	}
 	b.enabled = false
 }
 
 type backendSnapshot struct {
 	Filters   map[string]*Filter           `json:"filters"`
+	Findings  map[string]*storedFinding    `json:"findings"`
 	Tags      map[string]map[string]string `json:"tags"`
 	Config    Configuration                `json:"config"`
 	AccountID string                       `json:"accountId"`
@@ -749,6 +925,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 
 	snap := backendSnapshot{
 		Filters:   b.filters,
+		Findings:  b.findings,
 		Tags:      b.tags,
 		Config:    b.config,
 		Enabled:   b.enabled,
@@ -772,11 +949,16 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	}
 
 	b.filters = snap.Filters
+	b.findings = snap.Findings
 	b.tags = snap.Tags
 	b.config = snap.Config
 	b.enabled = snap.Enabled
 	b.accountID = snap.AccountID
 	b.region = snap.Region
+
+	if b.findings == nil {
+		b.findings = make(map[string]*storedFinding)
+	}
 
 	return nil
 }

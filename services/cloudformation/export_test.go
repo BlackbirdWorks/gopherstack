@@ -1,5 +1,10 @@
 package cloudformation
 
+// RegisterForTest exposes MacroRegistry.register for test-only use.
+func (r *MacroRegistry) RegisterForTest(name, functionARN, description string) {
+	r.register(name, functionARN, description)
+}
+
 // TopoSortResources exposes topoSortResources for white-box testing.
 func TopoSortResources(resources map[string]TemplateResource) []string {
 	return topoSortResources(resources)

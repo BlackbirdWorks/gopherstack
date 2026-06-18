@@ -3,6 +3,7 @@ package models
 import (
 	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
@@ -230,6 +231,10 @@ func ToSDKQueryInput(input *QueryInput) (*dynamodb.QueryInput, error) {
 			return nil, keyErr
 		}
 		out.ExclusiveStartKey = key
+	}
+
+	if input.ConsistentRead {
+		out.ConsistentRead = aws.Bool(true)
 	}
 
 	return out, nil

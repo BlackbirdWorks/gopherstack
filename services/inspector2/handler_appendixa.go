@@ -168,6 +168,9 @@ const (
 	pathFreeTrialInfoBatchGet  = "/freetrialinfo/batchget"
 
 	pathClusterGet = "/cluster/get"
+
+	keyScanConfigurationArn = "scanConfigurationArn"
+	keyReportID             = "reportId"
 )
 
 // appendixAOps returns all appendix A operation names.
@@ -401,172 +404,85 @@ func classifyAppendixAPath(method, path string) string { //nolint:gocognit,funle
 	return opUnknown
 }
 
-//nolint:cyclop,gocyclo // dispatch table for 62 ops
-func (h *Handler) handleAppendixA(c *echo.Context) (bool, error) { //nolint:funlen // existing issue.
+func (h *Handler) handleAppendixA(c *echo.Context) (bool, error) {
 	op := classifyAppendixAPath(c.Request().Method, c.Request().URL.Path)
 	if op == opUnknown {
 		return false, nil
 	}
 
-	switch op {
-	// Members
-	case opAssociateMember:
-		return true, h.handleAssociateMember(c)
-	case opDisassociateMember:
-		return true, h.handleDisassociateMember(c)
-	case opGetMember:
-		return true, h.handleGetMember(c)
-	case opListMembers:
-		return true, h.handleListMembers(c)
-
-	// Delegated admin accounts
-	case opEnableDelegatedAdminAccount:
-		return true, h.handleEnableDelegatedAdminAccount(c)
-	case opDisableDelegatedAdminAccount:
-		return true, h.handleDisableDelegatedAdminAccount(c)
-	case opGetDelegatedAdminAccount:
-		return true, h.handleGetDelegatedAdminAccount(c)
-	case opListDelegatedAdminAccounts:
-		return true, h.handleListDelegatedAdminAccounts(c)
-
-	// Organization configuration
-	case opDescribeOrganizationConfiguration:
-		return true, h.handleDescribeOrganizationConfiguration(c)
-	case opUpdateOrganizationConfiguration:
-		return true, h.handleUpdateOrganizationConfiguration(c)
-
-	// EC2 Deep Inspection
-	case opGetEc2DeepInspectionConfiguration:
-		return true, h.handleGetEc2DeepInspectionConfiguration(c)
-	case opUpdateEc2DeepInspectionConfiguration:
-		return true, h.handleUpdateEc2DeepInspectionConfiguration(c)
-	case opUpdateOrgEc2DeepInspectionConfiguration:
-		return true, h.handleUpdateOrgEc2DeepInspectionConfiguration(c)
-	case opBatchGetMemberEc2DeepInspectionStatus:
-		return true, h.handleBatchGetMemberEc2DeepInspectionStatus(c)
-	case opBatchUpdateMemberEc2DeepInspectionStatus:
-		return true, h.handleBatchUpdateMemberEc2DeepInspectionStatus(c)
-
-	// Encryption Key
-	case opGetEncryptionKey:
-		return true, h.handleGetEncryptionKey(c)
-	case opResetEncryptionKey:
-		return true, h.handleResetEncryptionKey(c)
-	case opUpdateEncryptionKey:
-		return true, h.handleUpdateEncryptionKey(c)
-
-	// CIS Scan Configuration
-	case opCreateCisScanConfiguration:
-		return true, h.handleCreateCisScanConfiguration(c)
-	case opDeleteCisScanConfiguration:
-		return true, h.handleDeleteCisScanConfiguration(c)
-	case opUpdateCisScanConfiguration:
-		return true, h.handleUpdateCisScanConfiguration(c)
-	case opListCisScanConfigurations:
-		return true, h.handleListCisScanConfigurations(c)
-
-	// CIS Session
-	case opStartCisSession:
-		return true, h.handleStartCisSession(c)
-	case opStopCisSession:
-		return true, h.handleStopCisSession(c)
-	case opSendCisSessionHealth:
-		return true, h.handleSendCisSessionHealth(c)
-	case opSendCisSessionTelemetry:
-		return true, h.handleSendCisSessionTelemetry(c)
-	case opGetCisScanReport:
-		return true, h.handleGetCisScanReport(c)
-	case opGetCisScanResultDetails:
-		return true, h.handleGetCisScanResultDetails(c)
-	case opListCisScans:
-		return true, h.handleListCisScans(c)
-	case opListCisScanResultsAggregatedByChecks:
-		return true, h.handleListCisScanResultsAggregatedByChecks(c)
-	case opListCisScanResultsAggregatedByTargetResource:
-		return true, h.handleListCisScanResultsAggregatedByTargetResource(c)
-
-	// Code Security Integration
-	case opCreateCodeSecurityIntegration:
-		return true, h.handleCreateCodeSecurityIntegration(c)
-	case opDeleteCodeSecurityIntegration:
-		return true, h.handleDeleteCodeSecurityIntegration(c)
-	case opGetCodeSecurityIntegration:
-		return true, h.handleGetCodeSecurityIntegration(c)
-	case opUpdateCodeSecurityIntegration:
-		return true, h.handleUpdateCodeSecurityIntegration(c)
-	case opListCodeSecurityIntegrations:
-		return true, h.handleListCodeSecurityIntegrations(c)
-
-	// Code Security Scan Configuration
-	case opCreateCodeSecurityScanConfiguration:
-		return true, h.handleCreateCodeSecurityScanConfiguration(c)
-	case opDeleteCodeSecurityScanConfiguration:
-		return true, h.handleDeleteCodeSecurityScanConfiguration(c)
-	case opGetCodeSecurityScanConfiguration:
-		return true, h.handleGetCodeSecurityScanConfiguration(c)
-	case opUpdateCodeSecurityScanConfiguration:
-		return true, h.handleUpdateCodeSecurityScanConfiguration(c)
-	case opListCodeSecurityScanConfigurations:
-		return true, h.handleListCodeSecurityScanConfigurations(c)
-	case opBatchAssociateCodeSecurityScanConfiguration:
-		return true, h.handleBatchAssociateCodeSecurityScanConfiguration(c)
-	case opBatchDisassociateCodeSecurityScanConfiguration:
-		return true, h.handleBatchDisassociateCodeSecurityScanConfiguration(c)
-	case opListCodeSecurityScanConfigurationAssociations:
-		return true, h.handleListCodeSecurityScanConfigurationAssociations(c)
-	case opStartCodeSecurityScan:
-		return true, h.handleStartCodeSecurityScan(c)
-	case opGetCodeSecurityScan:
-		return true, h.handleGetCodeSecurityScan(c)
-
-	// Findings Report
-	case opCreateFindingsReport:
-		return true, h.handleCreateFindingsReport(c)
-	case opCancelFindingsReport:
-		return true, h.handleCancelFindingsReport(c)
-	case opGetFindingsReportStatus:
-		return true, h.handleGetFindingsReportStatus(c)
-
-	// SBOM Export
-	case opCreateSbomExport:
-		return true, h.handleCreateSbomExport(c)
-	case opCancelSbomExport:
-		return true, h.handleCancelSbomExport(c)
-	case opGetSbomExport:
-		return true, h.handleGetSbomExport(c)
-
-	// Coverage
-	case opListCoverage:
-		return true, h.handleListCoverage(c)
-	case opListCoverageStatistics:
-		return true, h.handleListCoverageStatistics(c)
-
-	// Aggregations / usage / permissions
-	case opListFindingAggregations:
-		return true, h.handleListFindingAggregations(c)
-	case opListUsageTotals:
-		return true, h.handleListUsageTotals(c)
-	case opListAccountPermissions:
-		return true, h.handleListAccountPermissions(c)
-
-	// Search
-	case opSearchVulnerabilities:
-		return true, h.handleSearchVulnerabilities(c)
-
-	// Batch ops
-	case opBatchGetCodeSnippet:
-		return true, h.handleBatchGetCodeSnippet(c)
-	case opBatchGetFindingDetails:
-		return true, h.handleBatchGetFindingDetails(c)
-	case opBatchGetFreeTrialInfo:
-		return true, h.handleBatchGetFreeTrialInfo(c)
-
-	// Clusters
-	case opGetClustersForImage:
-		return true, h.handleGetClustersForImage(c)
+	fn, ok := h.appendixAHandlerMap()[op]
+	if !ok {
+		return false, nil
 	}
 
-	return false, nil
+	return true, fn(c)
+}
+
+func (h *Handler) appendixAHandlerMap() map[string]func(*echo.Context) error {
+	return map[string]func(*echo.Context) error{
+		opAssociateMember:                                h.handleAssociateMember,
+		opDisassociateMember:                             h.handleDisassociateMember,
+		opGetMember:                                      h.handleGetMember,
+		opListMembers:                                    h.handleListMembers,
+		opEnableDelegatedAdminAccount:                    h.handleEnableDelegatedAdminAccount,
+		opDisableDelegatedAdminAccount:                   h.handleDisableDelegatedAdminAccount,
+		opGetDelegatedAdminAccount:                       h.handleGetDelegatedAdminAccount,
+		opListDelegatedAdminAccounts:                     h.handleListDelegatedAdminAccounts,
+		opDescribeOrganizationConfiguration:              h.handleDescribeOrganizationConfiguration,
+		opUpdateOrganizationConfiguration:                h.handleUpdateOrganizationConfiguration,
+		opGetEc2DeepInspectionConfiguration:              h.handleGetEc2DeepInspectionConfiguration,
+		opUpdateEc2DeepInspectionConfiguration:           h.handleUpdateEc2DeepInspectionConfiguration,
+		opUpdateOrgEc2DeepInspectionConfiguration:        h.handleUpdateOrgEc2DeepInspectionConfiguration,
+		opBatchGetMemberEc2DeepInspectionStatus:          h.handleBatchGetMemberEc2DeepInspectionStatus,
+		opBatchUpdateMemberEc2DeepInspectionStatus:       h.handleBatchUpdateMemberEc2DeepInspectionStatus,
+		opGetEncryptionKey:                               h.handleGetEncryptionKey,
+		opResetEncryptionKey:                             h.handleResetEncryptionKey,
+		opUpdateEncryptionKey:                            h.handleUpdateEncryptionKey,
+		opCreateCisScanConfiguration:                     h.handleCreateCisScanConfiguration,
+		opDeleteCisScanConfiguration:                     h.handleDeleteCisScanConfiguration,
+		opUpdateCisScanConfiguration:                     h.handleUpdateCisScanConfiguration,
+		opListCisScanConfigurations:                      h.handleListCisScanConfigurations,
+		opStartCisSession:                                h.handleStartCisSession,
+		opStopCisSession:                                 h.handleStopCisSession,
+		opSendCisSessionHealth:                           h.handleSendCisSessionHealth,
+		opSendCisSessionTelemetry:                        h.handleSendCisSessionTelemetry,
+		opGetCisScanReport:                               h.handleGetCisScanReport,
+		opGetCisScanResultDetails:                        h.handleGetCisScanResultDetails,
+		opListCisScans:                                   h.handleListCisScans,
+		opListCisScanResultsAggregatedByChecks:           h.handleListCisScanResultsAggregatedByChecks,
+		opListCisScanResultsAggregatedByTargetResource:   h.handleListCisScanResultsAggregatedByTargetResource,
+		opCreateCodeSecurityIntegration:                  h.handleCreateCodeSecurityIntegration,
+		opDeleteCodeSecurityIntegration:                  h.handleDeleteCodeSecurityIntegration,
+		opGetCodeSecurityIntegration:                     h.handleGetCodeSecurityIntegration,
+		opUpdateCodeSecurityIntegration:                  h.handleUpdateCodeSecurityIntegration,
+		opListCodeSecurityIntegrations:                   h.handleListCodeSecurityIntegrations,
+		opCreateCodeSecurityScanConfiguration:            h.handleCreateCodeSecurityScanConfiguration,
+		opDeleteCodeSecurityScanConfiguration:            h.handleDeleteCodeSecurityScanConfiguration,
+		opGetCodeSecurityScanConfiguration:               h.handleGetCodeSecurityScanConfiguration,
+		opUpdateCodeSecurityScanConfiguration:            h.handleUpdateCodeSecurityScanConfiguration,
+		opListCodeSecurityScanConfigurations:             h.handleListCodeSecurityScanConfigurations,
+		opBatchAssociateCodeSecurityScanConfiguration:    h.handleBatchAssociateCodeSecurityScanConfiguration,
+		opBatchDisassociateCodeSecurityScanConfiguration: h.handleBatchDisassociateCodeSecurityScanConfiguration,
+		opListCodeSecurityScanConfigurationAssociations:  h.handleListCodeSecurityScanConfigurationAssociations,
+		opStartCodeSecurityScan:                          h.handleStartCodeSecurityScan,
+		opGetCodeSecurityScan:                            h.handleGetCodeSecurityScan,
+		opCreateFindingsReport:                           h.handleCreateFindingsReport,
+		opCancelFindingsReport:                           h.handleCancelFindingsReport,
+		opGetFindingsReportStatus:                        h.handleGetFindingsReportStatus,
+		opCreateSbomExport:                               h.handleCreateSbomExport,
+		opCancelSbomExport:                               h.handleCancelSbomExport,
+		opGetSbomExport:                                  h.handleGetSbomExport,
+		opListCoverage:                                   h.handleListCoverage,
+		opListCoverageStatistics:                         h.handleListCoverageStatistics,
+		opListFindingAggregations:                        h.handleListFindingAggregations,
+		opListUsageTotals:                                h.handleListUsageTotals,
+		opListAccountPermissions:                         h.handleListAccountPermissions,
+		opSearchVulnerabilities:                          h.handleSearchVulnerabilities,
+		opBatchGetCodeSnippet:                            h.handleBatchGetCodeSnippet,
+		opBatchGetFindingDetails:                         h.handleBatchGetFindingDetails,
+		opBatchGetFreeTrialInfo:                          h.handleBatchGetFreeTrialInfo,
+		opGetClustersForImage:                            h.handleGetClustersForImage,
+	}
 }
 
 // --- Handler implementations ---
@@ -589,7 +505,10 @@ func (h *Handler) handleAssociateMember(c *echo.Context) error {
 		return h.mapError(c, assocErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"accountId": req.AccountID}) //nolint:goconst // existing issue.
+	return c.JSON(
+		http.StatusOK,
+		map[string]any{keyAccountID: req.AccountID},
+	)
 }
 
 func (h *Handler) handleDisassociateMember(c *echo.Context) error {
@@ -610,7 +529,7 @@ func (h *Handler) handleDisassociateMember(c *echo.Context) error {
 		return h.mapError(c, disassocErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"accountId": req.AccountID})
+	return c.JSON(http.StatusOK, map[string]any{keyAccountID: req.AccountID})
 }
 
 func (h *Handler) handleGetMember(c *echo.Context) error {
@@ -647,7 +566,10 @@ func (h *Handler) handleListMembers(c *echo.Context) error {
 
 	if len(body) > 0 {
 		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
+			return c.JSON(
+				http.StatusBadRequest,
+				errorResponse("ValidationException", "invalid JSON"),
+			)
 		}
 	}
 
@@ -754,7 +676,10 @@ func (h *Handler) handleUpdateOrganizationConfiguration(c *echo.Context) error {
 
 	if len(body) > 0 {
 		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
+			return c.JSON(
+				http.StatusBadRequest,
+				errorResponse("ValidationException", "invalid JSON"),
+			)
 		}
 	}
 
@@ -802,7 +727,10 @@ func (h *Handler) handleUpdateEc2DeepInspectionConfiguration(c *echo.Context) er
 
 	if len(body) > 0 {
 		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
+			return c.JSON(
+				http.StatusBadRequest,
+				errorResponse("ValidationException", "invalid JSON"),
+			)
 		}
 	}
 
@@ -834,7 +762,10 @@ func (h *Handler) handleUpdateOrgEc2DeepInspectionConfiguration(c *echo.Context)
 
 	if len(body) > 0 {
 		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
+			return c.JSON(
+				http.StatusBadRequest,
+				errorResponse("ValidationException", "invalid JSON"),
+			)
 		}
 	}
 
@@ -857,7 +788,10 @@ func (h *Handler) handleBatchGetMemberEc2DeepInspectionStatus(c *echo.Context) e
 
 	if len(body) > 0 {
 		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
+			return c.JSON(
+				http.StatusBadRequest,
+				errorResponse("ValidationException", "invalid JSON"),
+			)
 		}
 	}
 
@@ -881,11 +815,16 @@ func (h *Handler) handleBatchUpdateMemberEc2DeepInspectionStatus(c *echo.Context
 
 	if len(body) > 0 {
 		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
+			return c.JSON(
+				http.StatusBadRequest,
+				errorResponse("ValidationException", "invalid JSON"),
+			)
 		}
 	}
 
-	updated := h.Backend.BatchUpdateMemberEc2DeepInspectionStatus(req.AccountEc2DeepInspectionStatuses)
+	updated := h.Backend.BatchUpdateMemberEc2DeepInspectionStatus(
+		req.AccountEc2DeepInspectionStatuses,
+	)
 
 	return c.JSON(http.StatusOK, map[string]any{
 		"accounts":         updated,
@@ -922,7 +861,10 @@ func (h *Handler) handleResetEncryptionKey(c *echo.Context) error {
 
 	if len(body) > 0 {
 		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
+			return c.JSON(
+				http.StatusBadRequest,
+				errorResponse("ValidationException", "invalid JSON"),
+			)
 		}
 	}
 
@@ -973,12 +915,20 @@ func (h *Handler) handleCreateCisScanConfiguration(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 	}
 
-	cfg, createErr := h.Backend.CreateCisScanConfiguration(req.ScanName, req.Schedule, req.Targets, req.Tags)
+	cfg, createErr := h.Backend.CreateCisScanConfiguration(
+		req.ScanName,
+		req.Schedule,
+		req.Targets,
+		req.Tags,
+	)
 	if createErr != nil {
 		return h.mapError(c, createErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"scanConfigurationArn": cfg.Arn}) //nolint:goconst // existing issue.
+	return c.JSON(
+		http.StatusOK,
+		map[string]any{keyScanConfigurationArn: cfg.Arn},
+	)
 }
 
 func (h *Handler) handleDeleteCisScanConfiguration(c *echo.Context) error {
@@ -999,7 +949,7 @@ func (h *Handler) handleDeleteCisScanConfiguration(c *echo.Context) error {
 		return h.mapError(c, deleteErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"scanConfigurationArn": req.ScanConfigurationArn})
+	return c.JSON(http.StatusOK, map[string]any{keyScanConfigurationArn: req.ScanConfigurationArn})
 }
 
 func (h *Handler) handleUpdateCisScanConfiguration(c *echo.Context) error {
@@ -1029,7 +979,7 @@ func (h *Handler) handleUpdateCisScanConfiguration(c *echo.Context) error {
 		return h.mapError(c, updateErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"scanConfigurationArn": cfg.Arn})
+	return c.JSON(http.StatusOK, map[string]any{keyScanConfigurationArn: cfg.Arn})
 }
 
 func (h *Handler) handleListCisScanConfigurations(c *echo.Context) error {
@@ -1107,7 +1057,10 @@ func (h *Handler) handleSendCisSessionHealth(c *echo.Context) error {
 
 	if len(body) > 0 {
 		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
+			return c.JSON(
+				http.StatusBadRequest,
+				errorResponse("ValidationException", "invalid JSON"),
+			)
 		}
 	}
 
@@ -1131,7 +1084,10 @@ func (h *Handler) handleSendCisSessionTelemetry(c *echo.Context) error {
 
 	if len(body) > 0 {
 		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
+			return c.JSON(
+				http.StatusBadRequest,
+				errorResponse("ValidationException", "invalid JSON"),
+			)
 		}
 	}
 
@@ -1256,7 +1212,12 @@ func (h *Handler) handleCreateCodeSecurityIntegration(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 	}
 
-	integ, createErr := h.Backend.CreateCodeSecurityIntegration(req.Name, req.Type, req.Tags, req.Details)
+	integ, createErr := h.Backend.CreateCodeSecurityIntegration(
+		req.Name,
+		req.Type,
+		req.Tags,
+		req.Details,
+	)
 	if createErr != nil {
 		return h.mapError(c, createErr)
 	}
@@ -1373,7 +1334,7 @@ func (h *Handler) handleCreateCodeSecurityScanConfiguration(c *echo.Context) err
 		return h.mapError(c, createErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"scanConfigurationArn": cfg.Arn})
+	return c.JSON(http.StatusOK, map[string]any{keyScanConfigurationArn: cfg.Arn})
 }
 
 func (h *Handler) handleDeleteCodeSecurityScanConfiguration(c *echo.Context) error {
@@ -1442,7 +1403,7 @@ func (h *Handler) handleUpdateCodeSecurityScanConfiguration(c *echo.Context) err
 		return h.mapError(c, updateErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"scanConfigurationArn": cfg.Arn})
+	return c.JSON(http.StatusOK, map[string]any{keyScanConfigurationArn: cfg.Arn})
 }
 
 func (h *Handler) handleListCodeSecurityScanConfigurations(c *echo.Context) error {
@@ -1482,7 +1443,10 @@ func (h *Handler) handleBatchAssociateCodeSecurityScanConfiguration( //nolint:du
 		}
 	}
 
-	failed, assocErr := h.Backend.BatchAssociateCodeSecurityScanConfiguration(req.ScanConfigurationArn, resources)
+	failed, assocErr := h.Backend.BatchAssociateCodeSecurityScanConfiguration(
+		req.ScanConfigurationArn,
+		resources,
+	)
 	if assocErr != nil {
 		return h.mapError(c, assocErr)
 	}
@@ -1514,7 +1478,10 @@ func (h *Handler) handleBatchDisassociateCodeSecurityScanConfiguration( //nolint
 		}
 	}
 
-	failed, disErr := h.Backend.BatchDisassociateCodeSecurityScanConfiguration(req.ScanConfigurationArn, resources)
+	failed, disErr := h.Backend.BatchDisassociateCodeSecurityScanConfiguration(
+		req.ScanConfigurationArn,
+		resources,
+	)
 	if disErr != nil {
 		return h.mapError(c, disErr)
 	}
@@ -1536,7 +1503,9 @@ func (h *Handler) handleListCodeSecurityScanConfigurationAssociations(c *echo.Co
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 	}
 
-	assocs, listErr := h.Backend.ListCodeSecurityScanConfigurationAssociations(req.ScanConfigurationArn)
+	assocs, listErr := h.Backend.ListCodeSecurityScanConfigurationAssociations(
+		req.ScanConfigurationArn,
+	)
 	if listErr != nil {
 		return h.mapError(c, listErr)
 	}
@@ -1605,7 +1574,10 @@ func (h *Handler) handleCreateFindingsReport(c *echo.Context) error {
 
 	if len(body) > 0 {
 		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
+			return c.JSON(
+				http.StatusBadRequest,
+				errorResponse("ValidationException", "invalid JSON"),
+			)
 		}
 	}
 
@@ -1614,7 +1586,10 @@ func (h *Handler) handleCreateFindingsReport(c *echo.Context) error {
 		return h.mapError(c, createErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"reportId": report.ReportID}) //nolint:goconst // existing issue.
+	return c.JSON(
+		http.StatusOK,
+		map[string]any{keyReportID: report.ReportID},
+	)
 }
 
 func (h *Handler) handleCancelFindingsReport(c *echo.Context) error {
@@ -1635,7 +1610,7 @@ func (h *Handler) handleCancelFindingsReport(c *echo.Context) error {
 		return h.mapError(c, cancelErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"reportId": req.ReportID})
+	return c.JSON(http.StatusOK, map[string]any{keyReportID: req.ReportID})
 }
 
 func (h *Handler) handleGetFindingsReportStatus(c *echo.Context) error {
@@ -1650,7 +1625,10 @@ func (h *Handler) handleGetFindingsReportStatus(c *echo.Context) error {
 
 	if len(body) > 0 {
 		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
+			return c.JSON(
+				http.StatusBadRequest,
+				errorResponse("ValidationException", "invalid JSON"),
+			)
 		}
 	}
 
@@ -1679,7 +1657,10 @@ func (h *Handler) handleCreateSbomExport(c *echo.Context) error {
 
 	if len(body) > 0 {
 		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
+			return c.JSON(
+				http.StatusBadRequest,
+				errorResponse("ValidationException", "invalid JSON"),
+			)
 		}
 	}
 
@@ -1688,7 +1669,7 @@ func (h *Handler) handleCreateSbomExport(c *echo.Context) error {
 		return h.mapError(c, createErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"reportId": export.ReportID})
+	return c.JSON(http.StatusOK, map[string]any{keyReportID: export.ReportID})
 }
 
 func (h *Handler) handleCancelSbomExport(c *echo.Context) error {
@@ -1709,7 +1690,7 @@ func (h *Handler) handleCancelSbomExport(c *echo.Context) error {
 		return h.mapError(c, cancelErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"reportId": req.ReportID})
+	return c.JSON(http.StatusOK, map[string]any{keyReportID: req.ReportID})
 }
 
 func (h *Handler) handleGetSbomExport(c *echo.Context) error {
@@ -1769,7 +1750,10 @@ func (h *Handler) handleListCoverageStatistics(c *echo.Context) error {
 
 	if len(body) > 0 {
 		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
+			return c.JSON(
+				http.StatusBadRequest,
+				errorResponse("ValidationException", "invalid JSON"),
+			)
 		}
 	}
 
@@ -1794,7 +1778,10 @@ func (h *Handler) handleListFindingAggregations(c *echo.Context) error {
 
 	if len(body) > 0 {
 		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
+			return c.JSON(
+				http.StatusBadRequest,
+				errorResponse("ValidationException", "invalid JSON"),
+			)
 		}
 	}
 
@@ -1818,7 +1805,10 @@ func (h *Handler) handleListUsageTotals(c *echo.Context) error {
 
 	if len(body) > 0 {
 		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
+			return c.JSON(
+				http.StatusBadRequest,
+				errorResponse("ValidationException", "invalid JSON"),
+			)
 		}
 	}
 
@@ -1842,7 +1832,10 @@ func (h *Handler) handleListAccountPermissions(c *echo.Context) error {
 
 	if len(body) > 0 {
 		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
+			return c.JSON(
+				http.StatusBadRequest,
+				errorResponse("ValidationException", "invalid JSON"),
+			)
 		}
 	}
 
@@ -1871,11 +1864,17 @@ func (h *Handler) handleSearchVulnerabilities(c *echo.Context) error {
 
 	if len(body) > 0 {
 		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
+			return c.JSON(
+				http.StatusBadRequest,
+				errorResponse("ValidationException", "invalid JSON"),
+			)
 		}
 	}
 
-	vulns, nextToken, searchErr := h.Backend.SearchVulnerabilities(req.FilterCriteria, req.NextToken)
+	vulns, nextToken, searchErr := h.Backend.SearchVulnerabilities(
+		req.FilterCriteria,
+		req.NextToken,
+	)
 	if searchErr != nil {
 		return h.mapError(c, searchErr)
 	}
@@ -1966,7 +1965,10 @@ func (h *Handler) handleGetClustersForImage(c *echo.Context) error {
 
 	if len(body) > 0 {
 		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
+			return c.JSON(
+				http.StatusBadRequest,
+				errorResponse("ValidationException", "invalid JSON"),
+			)
 		}
 	}
 

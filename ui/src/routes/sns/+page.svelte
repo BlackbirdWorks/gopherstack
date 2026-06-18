@@ -94,12 +94,11 @@ let showPublishModal = $state(false);
 let publishing = $state(false);
 let pubSubject = $state('');
 let pubMessage = $state('');
-let pubAttributes = $state('{}');
+let pubAttrRows = $state<Array<{ name: string; type: string; value: string }>>([]);
+let pubAttrJsonMode = $state(false);
+let pubAttrJson = $state('{}');
 let pubDeduplicationId = $state('');
 let pubGroupId = $state('');
-// Structured message-attribute editor
-let pubAttrMode = $state<'fields' | 'json'>('fields');
-let pubAttrRows = $state<Array<{ name: string; dataType: 'String' | 'Number' | 'Binary'; value: string }>>([]);
 
 // ─── Platform Applications ────────────────────────────────────────────────────
 let platformApps = $state<PlatformApplication[]>([]);
@@ -122,21 +121,6 @@ return name.toLowerCase().includes(searchQuery.toLowerCase());
 const confirmedCount = $derived(
 subscriptions.filter((s) => s.SubscriptionArn !== 'PendingConfirmation').length
 );
-
-const pubAttrJsonError = $derived.by(() => {
-if (pubAttrMode !== 'json') return '';
-const t = pubAttributes.trim();
-if (!t || t === '{}') return '';
-try {
-const parsed = JSON.parse(t);
-if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-return 'Expected a JSON object of key-value pairs';
-}
-return '';
-} catch (e) {
-return (e as Error).message;
-}
-});
 
 const pendingCount = $derived(
 subscriptions.filter((s) => s.SubscriptionArn === 'PendingConfirmation').length
@@ -446,110 +430,46 @@ savingRedrive = false;
 }
 
 // ─── Publish ──────────────────────────────────────────────────────────────────
+function pubAttrsToSdk(): Record<string, { DataType: string; StringValue?: string; BinaryValue?: Uint8Array }> | undefined {
+	let rows: Array<{ name: string; type: string; value: string }>;
+	if (pubAttrJsonMode) {
+		try {
+			const parsed = JSON.parse(pubAttrJson);
+			rows = Object.entries(parsed).map(([k, v]) => ({ name: k, type: 'String', value: String(v) }));
+		} catch { return undefined; }
+	} else {
+		rows = pubAttrRows.filter(r => r.name.trim());
+	}
+	if (rows.length === 0) return undefined;
+	return Object.fromEntries(rows.map(r => [r.name, { DataType: r.type || 'String', StringValue: r.value }]));
+}
+
 async function publish() {
 if (!selectedTopic || !pubMessage.trim()) return;
-let attrs: Record<string, { DataType: string; StringValue: string }> | undefined;
-try {
-attrs = buildPublishAttrs();
-} catch (e) {
-toast.error((e as Error).message);
-return;
-}
-if (attrs && Object.keys(attrs).length === 0) attrs = undefined;
 publishing = true;
 try {
 await sns.send(new PublishCommand({
 TopicArn: selectedTopic.TopicArn,
 Subject: pubSubject || undefined,
 Message: pubMessage,
-MessageAttributes: attrs,
+MessageAttributes: pubAttrsToSdk(),
 MessageDeduplicationId: pubDeduplicationId || undefined,
 MessageGroupId: pubGroupId || undefined
 }));
 toast.success('Message published');
 showPublishModal = false;
-resetPublishForm();
+pubSubject = '';
+pubMessage = '';
+pubAttrRows = [];
+pubAttrJsonMode = false;
+pubAttrJson = '{}';
+pubDeduplicationId = '';
+pubGroupId = '';
 } catch (err: unknown) {
 toast.error(`Publish failed: ${(err as Error).message}`);
 } finally {
 publishing = false;
 }
-}
-
-// Build SNS MessageAttributes from either the structured rows or the raw JSON map.
-// Throws on validation errors (invalid JSON, blank attribute name, etc.).
-function buildPublishAttrs(): Record<string, { DataType: string; StringValue: string }> {
-const out: Record<string, { DataType: string; StringValue: string }> = {};
-if (pubAttrMode === 'fields') {
-for (const row of pubAttrRows) {
-const name = row.name.trim();
-if (!name) continue;
-if (row.dataType === 'Number' && row.value.trim() && Number.isNaN(Number(row.value.trim()))) {
-throw new Error(`Attribute "${name}" is typed Number but value is not numeric`);
-}
-out[name] = { DataType: row.dataType, StringValue: row.value };
-}
-return out;
-}
-const t = pubAttributes.trim();
-if (!t || t === '{}') return out;
-let parsed: unknown;
-try {
-parsed = JSON.parse(t);
-} catch (e) {
-throw new Error(`Invalid attributes JSON: ${(e as Error).message}`, { cause: e });
-}
-if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-throw new Error('Attributes JSON must be an object of key-value pairs');
-}
-for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
-out[k] = { DataType: typeof v === 'number' ? 'Number' : 'String', StringValue: String(v) };
-}
-return out;
-}
-
-function resetPublishForm() {
-pubSubject = '';
-pubMessage = '';
-pubAttributes = '{}';
-pubDeduplicationId = '';
-pubGroupId = '';
-pubAttrRows = [];
-pubAttrMode = 'fields';
-}
-
-function addPubAttrRow() {
-pubAttrRows = [...pubAttrRows, { name: '', dataType: 'String', value: '' }];
-}
-
-function removePubAttrRow(i: number) {
-pubAttrRows = pubAttrRows.filter((_, idx) => idx !== i);
-}
-
-// Sync between the two editor modes so switching does not lose data.
-function switchAttrMode(mode: 'fields' | 'json') {
-if (mode === pubAttrMode) return;
-if (mode === 'json') {
-const obj: Record<string, string> = {};
-for (const row of pubAttrRows) {
-if (row.name.trim()) obj[row.name.trim()] = row.value;
-}
-pubAttributes = JSON.stringify(obj, null, 2);
-} else {
-try {
-const parsed = JSON.parse(pubAttributes || '{}');
-if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-pubAttrRows = Object.entries(parsed as Record<string, unknown>).map(([name, v]) => ({
-name,
-dataType: typeof v === 'number' ? 'Number' : 'String',
-value: String(v)
-}));
-}
-} catch {
-// keep existing rows if JSON is invalid
-}
-}
-pubAttrMode = mode;
 }
 
 // ─── Topic Tags ───────────────────────────────────────────────────────────────
@@ -1431,46 +1351,48 @@ required
 ></textarea>
 </div>
 <div>
-<div class="flex items-center justify-between mb-1">
-<span class="block text-sm font-medium text-slate-700 dark:text-slate-300">Message Attributes</span>
-<div class="flex items-center gap-1">
-<button type="button" onclick={() => switchAttrMode('fields')} class="px-2 py-0.5 text-xs rounded {pubAttrMode === 'fields' ? 'bg-indigo-600 text-white' : 'text-slate-500 dark:text-slate-400 border border-slate-300 dark:border-slate-600'}">Fields</button>
-<button type="button" onclick={() => switchAttrMode('json')} class="px-2 py-0.5 text-xs rounded {pubAttrMode === 'json' ? 'bg-indigo-600 text-white' : 'text-slate-500 dark:text-slate-400 border border-slate-300 dark:border-slate-600'}">JSON</button>
-</div>
-</div>
-{#if pubAttrMode === 'fields'}
-<div class="space-y-2">
-{#each pubAttrRows as row, i}
-<div class="flex items-center gap-2">
-<input type="text" bind:value={row.name} placeholder="Name"
-class="flex-1 px-2 py-1.5 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500" />
-<select bind:value={row.dataType}
-class="px-2 py-1.5 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500">
-<option value="String">String</option>
-<option value="Number">Number</option>
-<option value="Binary">Binary</option>
-</select>
-<input type="text" bind:value={row.value} placeholder="Value"
-class="flex-1 px-2 py-1.5 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500" />
-<button type="button" onclick={() => removePubAttrRow(i)} class="p-1 text-slate-400 hover:text-red-500"><X class="w-4 h-4" /></button>
-</div>
-{/each}
-<button type="button" onclick={addPubAttrRow} class="text-xs text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1">
-<Plus class="w-3 h-3" /> Add Attribute
-</button>
-</div>
-{:else}
-<textarea
-id="sns-msg-attrs"
-bind:value={pubAttributes}
-rows={4}
-placeholder={`{\n  "key": "value"\n}`}
-class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm resize-none {pubAttrJsonError ? 'border-red-400 dark:border-red-500' : 'border-slate-200 dark:border-slate-600'}"
-></textarea>
-{#if pubAttrJsonError}
-<p class="text-xs text-red-500 mt-1">{pubAttrJsonError}</p>
-{/if}
-{/if}
+	<div class="flex items-center justify-between mb-1">
+		<label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Message Attributes</label>
+		<button type="button" onclick={() => {
+			if (!pubAttrJsonMode) {
+				pubAttrJson = pubAttrRows.filter(r => r.name.trim()).length
+					? JSON.stringify(Object.fromEntries(pubAttrRows.filter(r => r.name.trim()).map(r => [r.name, r.value])), null, 2)
+					: '{}';
+			} else {
+				try {
+					const parsed = JSON.parse(pubAttrJson);
+					pubAttrRows = Object.entries(parsed).map(([k, v]) => ({ name: k, type: 'String', value: String(v) }));
+				} catch { /* keep rows */ }
+			}
+			pubAttrJsonMode = !pubAttrJsonMode;
+		}} class="text-xs text-indigo-600 dark:text-indigo-400 hover:underline">
+			{pubAttrJsonMode ? 'Switch to fields' : 'Switch to JSON'}
+		</button>
+	</div>
+	{#if pubAttrJsonMode}
+		<textarea
+			bind:value={pubAttrJson}
+			rows={3}
+			placeholder={`{"key": "value"}`}
+			class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm resize-none"
+		></textarea>
+	{:else}
+		<div class="space-y-1">
+			{#each pubAttrRows as row, i}
+				<div class="flex gap-1 items-center">
+					<input type="text" bind:value={row.name} placeholder="Name" class="flex-1 min-w-0 px-2 py-1 text-xs bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded text-slate-900 dark:text-white" />
+					<select bind:value={row.type} class="px-1 py-1 text-xs bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded text-slate-900 dark:text-white">
+						<option value="String">String</option>
+						<option value="Number">Number</option>
+						<option value="Binary">Binary</option>
+					</select>
+					<input type="text" bind:value={row.value} placeholder="Value" class="flex-1 min-w-0 px-2 py-1 text-xs bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded text-slate-900 dark:text-white" />
+					<button type="button" onclick={() => { pubAttrRows = pubAttrRows.filter((_, j) => j !== i); }} class="text-red-400 hover:text-red-600 text-xs px-1">✕</button>
+				</div>
+			{/each}
+			<button type="button" onclick={() => { pubAttrRows = [...pubAttrRows, { name: '', type: 'String', value: '' }]; }} class="text-xs text-indigo-600 dark:text-indigo-400 hover:underline mt-1">+ Add attribute</button>
+		</div>
+	{/if}
 </div>
 {#if isFifo(selectedTopic?.TopicArn)}
 <div class="grid grid-cols-2 gap-4">
@@ -1497,8 +1419,8 @@ class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 da
 </div>
 {/if}
 <div class="flex justify-end gap-3 pt-2">
-<button type="button" onclick={() => { showPublishModal = false; resetPublishForm(); }} class="px-4 py-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">Cancel</button>
-<button type="submit" disabled={publishing || (pubAttrMode === 'json' && pubAttrJsonError !== '')} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-2">
+<button type="button" onclick={() => { showPublishModal = false; }} class="px-4 py-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">Cancel</button>
+<button type="submit" disabled={publishing} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-2">
 <Send class="w-4 h-4" />
 {publishing ? 'Publishing...' : 'Publish'}
 </button>

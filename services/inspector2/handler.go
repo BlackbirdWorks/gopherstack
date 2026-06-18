@@ -254,7 +254,10 @@ func (h *Handler) handleToggle(c *echo.Context, enable bool) error {
 
 	if len(body) > 0 {
 		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
+			return c.JSON(
+				http.StatusBadRequest,
+				errorResponse("ValidationException", "invalid JSON"),
+			)
 		}
 	}
 
@@ -323,7 +326,10 @@ func (h *Handler) handleCreateFilter(c *echo.Context) error {
 	}
 
 	if req.Name == "" {
-		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "name is required"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errorResponse("ValidationException", "name is required"),
+		)
 	}
 
 	if req.Action == "" {
@@ -365,10 +371,19 @@ func (h *Handler) handleUpdateFilter(c *echo.Context) error {
 	}
 
 	if req.FilterArn == "" {
-		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "filterArn is required"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errorResponse("ValidationException", "filterArn is required"),
+		)
 	}
 
-	f, updateErr := h.Backend.UpdateFilter(req.FilterArn, req.Action, req.Description, req.Reason, req.FilterCriteria)
+	f, updateErr := h.Backend.UpdateFilter(
+		req.FilterArn,
+		req.Action,
+		req.Description,
+		req.Reason,
+		req.FilterCriteria,
+	)
 	if updateErr != nil {
 		return h.mapError(c, updateErr)
 	}
@@ -392,7 +407,10 @@ func (h *Handler) handleDeleteFilter(c *echo.Context) error {
 	}
 
 	if req.Arn == "" {
-		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "arn is required"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errorResponse("ValidationException", "arn is required"),
+		)
 	}
 
 	if deleteErr := h.Backend.DeleteFilter(req.Arn); deleteErr != nil {
@@ -416,7 +434,10 @@ func (h *Handler) handleListFilters(c *echo.Context) error {
 
 	if len(body) > 0 {
 		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
+			return c.JSON(
+				http.StatusBadRequest,
+				errorResponse("ValidationException", "invalid JSON"),
+			)
 		}
 	}
 
@@ -549,7 +570,10 @@ func (h *Handler) handleUpdateConfiguration(c *echo.Context) error {
 
 	if len(body) > 0 {
 		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
+			return c.JSON(
+				http.StatusBadRequest,
+				errorResponse("ValidationException", "invalid JSON"),
+			)
 		}
 	}
 
@@ -574,7 +598,10 @@ func (h *Handler) handleUpdateConfiguration(c *echo.Context) error {
 func (h *Handler) handleListTagsForResource(c *echo.Context) error {
 	resourceARN := extractResourceARN(c.Request().URL.Path)
 	if resourceARN == "" {
-		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "resourceArn is required"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errorResponse("ValidationException", "resourceArn is required"),
+		)
 	}
 
 	tags, listErr := h.Backend.ListTagsForResource(resourceARN)
@@ -593,7 +620,10 @@ func (h *Handler) handleListTagsForResource(c *echo.Context) error {
 func (h *Handler) handleTagResource(c *echo.Context) error {
 	resourceARN := extractResourceARN(c.Request().URL.Path)
 	if resourceARN == "" {
-		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "resourceArn is required"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errorResponse("ValidationException", "resourceArn is required"),
+		)
 	}
 
 	body, err := httputils.ReadBody(c.Request())
@@ -620,7 +650,10 @@ func (h *Handler) handleTagResource(c *echo.Context) error {
 func (h *Handler) handleUntagResource(c *echo.Context) error {
 	resourceARN := extractResourceARN(c.Request().URL.Path)
 	if resourceARN == "" {
-		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "resourceArn is required"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errorResponse("ValidationException", "resourceArn is required"),
+		)
 	}
 
 	tagKeys := c.Request().URL.Query()["tagKeys"]
@@ -673,7 +706,10 @@ func (h *Handler) mapError(c *echo.Context, err error) error {
 		log := logger.Load(c.Request().Context())
 		log.Error("inspector2: unexpected error", "err", err)
 
-		return c.JSON(http.StatusInternalServerError, errorResponse("InternalServerException", "internal error"))
+		return c.JSON(
+			http.StatusInternalServerError,
+			errorResponse("InternalServerException", "internal error"),
+		)
 	}
 }
 

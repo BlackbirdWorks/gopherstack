@@ -152,19 +152,23 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return true
 		}
 
-		// Match paths sent by the SDK (e.g. GET /recipes, GET /profileJobs).
-		// Only unambiguous DataBrew-specific segments are listed here.
+		// Match paths sent by the SDK. Unambiguous segments match unconditionally;
+		// ambiguous segments (datasets, schedules, jobs) require a SigV4 service check.
 		firstSeg, _, _ := strings.Cut(strings.TrimPrefix(path, "/"), "/")
 		switch firstSeg {
 		case segRecipes, segProfileJobs, segRecipeJobs, segRulesets, segProjects:
 			return true
+		case segDatasets, segSchedules, segJobs:
+			return httputils.ExtractServiceFromRequest(c.Request()) == "databrew"
 		}
 
 		return false
 	}
 }
 
-func (h *Handler) MatchPriority() int { return service.PriorityPathVersioned }
+// MatchPriority returns PriorityPathVersioned+1 so DataBrew is evaluated before
+// IoT Analytics, which also claims /datasets at PriorityPathVersioned.
+func (h *Handler) MatchPriority() int { return service.PriorityPathVersioned + 1 }
 
 func (h *Handler) ExtractOperation(c *echo.Context) string {
 	op, _ := parseDataBrewRESTPath(c.Request().Method, c.Request().URL.Path)

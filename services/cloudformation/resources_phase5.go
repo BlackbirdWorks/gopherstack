@@ -2,6 +2,7 @@ package cloudformation
 
 import (
 	"context"
+<<<<<<< HEAD
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -29,11 +30,33 @@ const (
 // createPhase5Resource handles phase-5 resource types added for §K CloudFormation
 // resource-type coverage. It returns handled=false when resourceType is not a phase-5 type
 // so the caller can fall through to the remaining dispatch chain.
+=======
+	"errors"
+	"fmt"
+	"strings"
+
+	awsddb "github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+
+	appautoscalingbackend "github.com/blackbirdworks/gopherstack/services/applicationautoscaling"
+	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
+	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
+	ssmbackend "github.com/blackbirdworks/gopherstack/services/ssm"
+)
+
+const defaultGlueDB = "default"
+
+var errGluePartition = errors.New("glue partition create failed")
+
+// createPhase5Resource handles ApplicationAutoScaling, SecretsManager supplemental,
+// SSM supplemental, DynamoDB GlobalTable, Glue supplemental, and AppSync supplemental resources.
+>>>>>>> origin/main
 func (rc *ResourceCreator) createPhase5Resource(
 	ctx context.Context,
 	logicalID, resourceType string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
+<<<<<<< HEAD
 ) (string, bool, error) {
 	if physID, handled, err := rc.createPhase5LogsResource(
 		ctx, logicalID, resourceType, props, params, physicalIDs,
@@ -70,11 +93,87 @@ func (rc *ResourceCreator) deletePhase5Resource(
 
 func (rc *ResourceCreator) createPhase5LogsResource(
 	ctx context.Context,
+=======
+) (string, error) {
+	if id, ok, err := rc.createAppAutoScalingResource(logicalID, resourceType, props, params, physicalIDs); ok {
+		return id, err
+	}
+
+	if id, ok := rc.createSecretsManagerSupplementalResource(
+		logicalID, resourceType, props, params, physicalIDs,
+	); ok {
+		return id, nil
+	}
+
+	if id, ok, err := rc.createSSMSupplementalResource(ctx, logicalID, resourceType, props, params, physicalIDs); ok {
+		return id, err
+	}
+
+	if id, ok, err := rc.createDynamoDBSupplementalResource(
+		ctx, logicalID, resourceType, props, params, physicalIDs,
+	); ok {
+		return id, err
+	}
+
+	if id, ok, err := rc.createGlueSupplementalResource(logicalID, resourceType, props, params, physicalIDs); ok {
+		return id, err
+	}
+
+	if id, ok, err := rc.createAppSyncSupplementalResource(logicalID, resourceType, props, params, physicalIDs); ok {
+		return id, err
+	}
+
+	return logicalID + "-stub", nil
+}
+
+// deletePhase5Resource handles deletion of phase-5 resource types.
+func (rc *ResourceCreator) deletePhase5Resource(ctx context.Context, physicalID, resourceType string) error {
+	switch resourceType {
+	case "AWS::ApplicationAutoScaling::ScalableTarget":
+		return rc.deleteAppAutoScalingScalableTarget(physicalID)
+	case "AWS::ApplicationAutoScaling::ScalingPolicy":
+		return rc.deleteAppAutoScalingScalingPolicy(physicalID)
+	case "AWS::SecretsManager::RotationSchedule",
+		"AWS::SecretsManager::SecretTargetAttachment",
+		"AWS::DynamoDB::GlobalTable",
+		"AWS::Glue::Partition":
+		// config-only or logical resources; nothing to delete
+		return nil
+	case "AWS::SSM::MaintenanceWindow":
+		return rc.deleteSSMMaintenanceWindow(ctx, physicalID)
+	case "AWS::SSM::Association":
+		return rc.deleteSSMAssociation(ctx, physicalID)
+	case "AWS::Glue::Crawler":
+		return rc.deleteGlueCrawler(physicalID)
+	case "AWS::Glue::Table":
+		return rc.deleteGlueTable(physicalID)
+	case "AWS::Glue::Trigger":
+		return rc.deleteGlueTrigger(physicalID)
+	case "AWS::Glue::Connection":
+		return rc.deleteGlueConnection(physicalID)
+	case "AWS::AppSync::DataSource":
+		return rc.deleteAppSyncDataSource(physicalID)
+	case "AWS::AppSync::Resolver":
+		return rc.deleteAppSyncResolver(physicalID)
+	case "AWS::AppSync::FunctionConfiguration":
+		return rc.deleteAppSyncFunction(physicalID)
+	case "AWS::AppSync::ApiKey":
+		return rc.deleteAppSyncAPIKey(physicalID)
+	default:
+		return nil
+	}
+}
+
+// ---- ApplicationAutoScaling ----
+
+func (rc *ResourceCreator) createAppAutoScalingResource(
+>>>>>>> origin/main
 	logicalID, resourceType string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
 ) (string, bool, error) {
 	switch resourceType {
+<<<<<<< HEAD
 	case resTypeLogsLogStream:
 		id, err := rc.createLogsLogStream(ctx, logicalID, props, params, physicalIDs)
 
@@ -97,10 +196,22 @@ func (rc *ResourceCreator) createPhase5LogsResource(
 		return id, true, err
 	default:
 
+=======
+	case "AWS::ApplicationAutoScaling::ScalableTarget":
+		id, err := rc.createAppAutoScalingScalableTarget(logicalID, props, params, physicalIDs)
+
+		return id, true, err
+	case "AWS::ApplicationAutoScaling::ScalingPolicy":
+		id, err := rc.createAppAutoScalingScalingPolicy(logicalID, props, params, physicalIDs)
+
+		return id, true, err
+	default:
+>>>>>>> origin/main
 		return "", false, nil
 	}
 }
 
+<<<<<<< HEAD
 func (rc *ResourceCreator) deletePhase5LogsResource(
 	ctx context.Context,
 	resourceType, physicalID string,
@@ -132,10 +243,14 @@ const logsPhysIDSep = "|"
 
 func (rc *ResourceCreator) createLogsLogStream(
 	ctx context.Context,
+=======
+func (rc *ResourceCreator) createAppAutoScalingScalableTarget(
+>>>>>>> origin/main
 	logicalID string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
 ) (string, error) {
+<<<<<<< HEAD
 	if rc.backends.CloudWatchLogs == nil {
 		return logicalID + "-stub", nil
 	}
@@ -168,10 +283,76 @@ func (rc *ResourceCreator) deleteLogsLogStream(ctx context.Context, physicalID s
 
 func (rc *ResourceCreator) createLogsMetricFilter(
 	ctx context.Context,
+=======
+	if rc.backends.AppAutoScaling == nil {
+		return logicalID + "-stub", nil
+	}
+
+	serviceNamespace := strProp(props, "ServiceNamespace", params, physicalIDs)
+	resourceID := strProp(props, "ResourceId", params, physicalIDs)
+	scalableDimension := strProp(props, "ScalableDimension", params, physicalIDs)
+
+	if serviceNamespace == "" {
+		serviceNamespace = "ecs"
+	}
+	if resourceID == "" {
+		resourceID = "service/" + logicalID + "/default"
+	}
+	if scalableDimension == "" {
+		scalableDimension = "ecs:service:DesiredCount"
+	}
+
+	var minCap, maxCap int32 = 1, 10
+	if v, ok := props["MinCapacity"].(float64); ok {
+		minCap = int32(v)
+	}
+	if v, ok := props["MaxCapacity"].(float64); ok {
+		maxCap = int32(v)
+	}
+
+	roleARN := strProp(props, "RoleARN", params, physicalIDs)
+
+	target, err := rc.backends.AppAutoScaling.Backend.RegisterScalableTarget(
+		serviceNamespace, resourceID, scalableDimension, minCap, maxCap, nil, roleARN, nil,
+	)
+	if err != nil {
+		return "", fmt.Errorf("register scalable target %s: %w", resourceID, err)
+	}
+
+	return target.ARN, nil
+}
+
+func (rc *ResourceCreator) deleteAppAutoScalingScalableTarget(arn string) error {
+	if rc.backends.AppAutoScaling == nil {
+		return nil
+	}
+
+	// Physical ID is the ARN; parse serviceNamespace/resourceID/scalableDimension from it.
+	// Format: arn:aws:application-autoscaling:<region>:<account>:scalable-target/<uuid>
+	// We stored it by ARN index — use DeregisterScalableTarget with ARN lookup.
+	// The backend's DeregisterScalableTarget takes (serviceNamespace, resourceID, scalableDimension).
+	// We store the ARN as physical ID; find via DescribeScalableTargets with empty filter.
+	targets := rc.backends.AppAutoScaling.Backend.DescribeScalableTargets(
+		appautoscalingbackend.DescribeScalableTargetsFilter{},
+	)
+	for _, t := range targets {
+		if t.ARN == arn {
+			return rc.backends.AppAutoScaling.Backend.DeregisterScalableTarget(
+				t.ServiceNamespace, t.ResourceID, t.ScalableDimension,
+			)
+		}
+	}
+
+	return nil
+}
+
+func (rc *ResourceCreator) createAppAutoScalingScalingPolicy(
+>>>>>>> origin/main
 	logicalID string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
 ) (string, error) {
+<<<<<<< HEAD
 	if rc.backends.CloudWatchLogs == nil {
 		return logicalID + "-stub", nil
 	}
@@ -290,6 +471,9 @@ func (rc *ResourceCreator) createLogsResourcePolicy(
 	params, physicalIDs map[string]string,
 ) (string, error) {
 	if rc.backends.CloudWatchLogs == nil {
+=======
+	if rc.backends.AppAutoScaling == nil {
+>>>>>>> origin/main
 		return logicalID + "-stub", nil
 	}
 
@@ -298,6 +482,7 @@ func (rc *ResourceCreator) createLogsResourcePolicy(
 		policyName = logicalID
 	}
 
+<<<<<<< HEAD
 	policyDoc := strProp(props, "PolicyDocument", params, physicalIDs)
 
 	mem, ok := rc.backends.CloudWatchLogs.Backend.(*cwlogsbackend.InMemoryBackend)
@@ -845,12 +1030,53 @@ func defaultConnectionAuthParameters(authType string) *ebbackend.ConnectionAuthP
 				APIKeyName:  "x-api-key",
 				APIKeyValue: "cfn-managed",
 			},
+=======
+	serviceNamespace := strProp(props, "ServiceNamespace", params, physicalIDs)
+	resourceID := strProp(props, "ResourceId", params, physicalIDs)
+	scalableDimension := strProp(props, "ScalableDimension", params, physicalIDs)
+	policyType := strProp(props, "PolicyType", params, physicalIDs)
+
+	if serviceNamespace == "" {
+		serviceNamespace = "ecs"
+	}
+	if resourceID == "" {
+		resourceID = "service/" + logicalID + "/default"
+	}
+	if scalableDimension == "" {
+		scalableDimension = "ecs:service:DesiredCount"
+	}
+
+	policy, err := rc.backends.AppAutoScaling.Backend.PutScalingPolicy(
+		serviceNamespace, resourceID, scalableDimension, policyName, policyType, nil, nil,
+	)
+	if err != nil {
+		return "", fmt.Errorf("put scaling policy %s: %w", policyName, err)
+	}
+
+	return policy.ARN, nil
+}
+
+func (rc *ResourceCreator) deleteAppAutoScalingScalingPolicy(policyARN string) error {
+	if rc.backends.AppAutoScaling == nil {
+		return nil
+	}
+
+	policies := rc.backends.AppAutoScaling.Backend.DescribeScalingPolicies(
+		appautoscalingbackend.DescribeScalingPoliciesFilter{},
+	)
+	for _, p := range policies {
+		if p.ARN == policyARN {
+			return rc.backends.AppAutoScaling.Backend.DeleteScalingPolicy(
+				p.ServiceNamespace, p.ResourceID, p.ScalableDimension, p.PolicyName,
+			)
+>>>>>>> origin/main
 		}
 	}
 
 	return nil
 }
 
+<<<<<<< HEAD
 func (rc *ResourceCreator) deleteEventsConnection(ctx context.Context, name string) error {
 	if rc.backends.EventBridge == nil {
 		return nil
@@ -927,12 +1153,71 @@ func (rc *ResourceCreator) deleteStepFunctionsActivity(activityArn string) error
 }
 
 func (rc *ResourceCreator) createPhase5ManagedResource(
+=======
+// ---- SecretsManager supplemental ----
+
+func (rc *ResourceCreator) createSecretsManagerSupplementalResource(
+	logicalID, resourceType string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, bool) {
+	switch resourceType {
+	case "AWS::SecretsManager::RotationSchedule":
+		id := rc.createSecretsManagerRotationSchedule(logicalID, props, params, physicalIDs)
+
+		return id, true
+	case "AWS::SecretsManager::SecretTargetAttachment":
+		id := rc.createSecretsManagerSecretTargetAttachment(logicalID, props, params, physicalIDs)
+
+		return id, true
+	default:
+		return "", false
+	}
+}
+
+func (rc *ResourceCreator) createSecretsManagerRotationSchedule(
+	logicalID string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) string {
+	secretID := strProp(props, "SecretId", params, physicalIDs)
+	if secretID == "" {
+		secretID = logicalID
+	}
+
+	// Physical ID is the secret ID — the rotation is configured on the secret itself.
+	return secretID + "-rotation"
+}
+
+func (rc *ResourceCreator) createSecretsManagerSecretTargetAttachment(
+	logicalID string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) string {
+	secretID := strProp(props, "SecretId", params, physicalIDs)
+	targetID := strProp(props, "TargetId", params, physicalIDs)
+	targetType := strProp(props, "TargetType", params, physicalIDs)
+
+	// Physical ID encodes the attachment; no real backend operation needed.
+	id := secretID + ":attachment:" + targetType + ":" + targetID
+	if id == ":attachment::" {
+		id = logicalID + "-attachment"
+	}
+
+	return id
+}
+
+// ---- SSM supplemental ----
+
+func (rc *ResourceCreator) createSSMSupplementalResource(
+>>>>>>> origin/main
 	ctx context.Context,
 	logicalID, resourceType string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
 ) (string, bool, error) {
 	switch resourceType {
+<<<<<<< HEAD
 	case resTypeKMSAlias:
 		id, err := rc.createKMSAlias(ctx, logicalID, props, params, physicalIDs)
 
@@ -963,10 +1248,22 @@ func (rc *ResourceCreator) createPhase5ManagedResource(
 		return id, true, err
 	default:
 
+=======
+	case "AWS::SSM::MaintenanceWindow":
+		id, err := rc.createSSMMaintenanceWindow(ctx, logicalID, props, params, physicalIDs)
+
+		return id, true, err
+	case "AWS::SSM::Association":
+		id := rc.createSSMAssociation(ctx, logicalID, props, params, physicalIDs)
+
+		return id, true, nil
+	default:
+>>>>>>> origin/main
 		return "", false, nil
 	}
 }
 
+<<<<<<< HEAD
 func (rc *ResourceCreator) deletePhase5ManagedResource(
 	ctx context.Context,
 	resourceType, physicalID string,
@@ -1038,6 +1335,9 @@ func (rc *ResourceCreator) deleteKMSAlias(ctx context.Context, aliasName string)
 }
 
 func (rc *ResourceCreator) createSSMDocument(
+=======
+func (rc *ResourceCreator) createSSMMaintenanceWindow(
+>>>>>>> origin/main
 	ctx context.Context,
 	logicalID string,
 	props map[string]any,
@@ -1047,11 +1347,20 @@ func (rc *ResourceCreator) createSSMDocument(
 		return logicalID + "-stub", nil
 	}
 
+<<<<<<< HEAD
+=======
+	imb, ok := rc.backends.SSM.Backend.(*ssmbackend.InMemoryBackend)
+	if !ok {
+		return logicalID + "-stub", nil
+	}
+
+>>>>>>> origin/main
 	name := strProp(props, "Name", params, physicalIDs)
 	if name == "" {
 		name = logicalID
 	}
 
+<<<<<<< HEAD
 	content := documentContent(props, params, physicalIDs)
 	docType := strProp(props, "DocumentType", params, physicalIDs)
 	if docType == "" {
@@ -1087,10 +1396,46 @@ func documentContent(props map[string]any, params, physicalIDs map[string]string
 }
 
 func (rc *ResourceCreator) deleteSSMDocument(ctx context.Context, name string) error {
+=======
+	schedule := strProp(props, "Schedule", params, physicalIDs)
+	if schedule == "" {
+		schedule = "cron(0 2 ? * SUN *)"
+	}
+
+	var duration, cutoff int32 = 4, 1
+	if v, hasDuration := props["Duration"].(float64); hasDuration {
+		duration = int32(v)
+	}
+	if v, hasCutoff := props["Cutoff"].(float64); hasCutoff {
+		cutoff = int32(v)
+	}
+
+	allowUnassociated := false
+	if v, hasAllow := props["AllowUnassociatedTargets"].(bool); hasAllow {
+		allowUnassociated = v
+	}
+
+	out, err := imb.CreateMaintenanceWindow(ctx, &ssmbackend.CreateMaintenanceWindowInput{
+		Name:                     name,
+		Schedule:                 schedule,
+		Duration:                 duration,
+		Cutoff:                   cutoff,
+		AllowUnassociatedTargets: allowUnassociated,
+	})
+	if err != nil {
+		return "", fmt.Errorf("create SSM maintenance window %s: %w", name, err)
+	}
+
+	return out.WindowID, nil
+}
+
+func (rc *ResourceCreator) deleteSSMMaintenanceWindow(ctx context.Context, windowID string) error {
+>>>>>>> origin/main
 	if rc.backends.SSM == nil {
 		return nil
 	}
 
+<<<<<<< HEAD
 	_, err := rc.backends.SSM.Backend.DeleteDocument(ctx, &ssmbackend.DeleteDocumentInput{Name: name})
 
 	return err
@@ -1132,16 +1477,185 @@ func (rc *ResourceCreator) deleteSecretsManagerResourcePolicy(secretID string) e
 			SecretID: secretID,
 		},
 	)
+=======
+	imb, ok := rc.backends.SSM.Backend.(*ssmbackend.InMemoryBackend)
+	if !ok {
+		return nil
+	}
+
+	_, err := imb.DeleteMaintenanceWindow(ctx, &ssmbackend.DeleteMaintenanceWindowInput{
+		WindowID: windowID,
+	})
+>>>>>>> origin/main
 
 	return err
 }
 
+<<<<<<< HEAD
 func (rc *ResourceCreator) createCloudFrontFunction(
+=======
+func (rc *ResourceCreator) createSSMAssociation(
+	ctx context.Context,
+	logicalID string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) string {
+	if rc.backends.SSM == nil {
+		return logicalID + "-stub"
+	}
+
+	imb, ok := rc.backends.SSM.Backend.(*ssmbackend.InMemoryBackend)
+	if !ok {
+		return logicalID + "-stub"
+	}
+
+	name := strProp(props, "Name", params, physicalIDs)
+	if name == "" {
+		name = logicalID
+	}
+
+	assocName := strProp(props, "AssociationName", params, physicalIDs)
+
+	// SSM Association requires a document; if it doesn't exist, CreateAssociation errors.
+	// Treat errors as a stub to avoid propagating document-not-found failures.
+	out, _ := imb.CreateAssociation(ctx, &ssmbackend.CreateAssociationInput{
+		Name:            name,
+		AssociationName: assocName,
+	})
+	if out == nil || out.AssociationDescription.AssociationID == "" {
+		return logicalID + "-stub"
+	}
+
+	return out.AssociationDescription.AssociationID
+}
+
+func (rc *ResourceCreator) deleteSSMAssociation(ctx context.Context, assocID string) error {
+	if rc.backends.SSM == nil {
+		return nil
+	}
+
+	imb, ok := rc.backends.SSM.Backend.(*ssmbackend.InMemoryBackend)
+	if !ok {
+		return nil
+	}
+
+	_, err := imb.DeleteAssociation(ctx, &ssmbackend.DeleteAssociationInput{
+		AssociationID: assocID,
+	})
+
+	return err
+}
+
+// ---- DynamoDB supplemental ----
+
+func (rc *ResourceCreator) createDynamoDBSupplementalResource(
+	ctx context.Context,
+	logicalID, resourceType string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, bool, error) {
+	switch resourceType {
+	case "AWS::DynamoDB::GlobalTable":
+		id, err := rc.createDynamoDBGlobalTable(ctx, logicalID, props, params, physicalIDs)
+
+		return id, true, err
+	default:
+		return "", false, nil
+	}
+}
+
+func (rc *ResourceCreator) createDynamoDBGlobalTable(
+	ctx context.Context,
+>>>>>>> origin/main
 	logicalID string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
 ) (string, error) {
+<<<<<<< HEAD
 	if rc.backends.CloudFront == nil {
+=======
+	if rc.backends.DynamoDB == nil {
+		return logicalID + "-stub", nil
+	}
+
+	tableName := strProp(props, "TableName", params, physicalIDs)
+	if tableName == "" {
+		tableName = logicalID
+	}
+
+	// Build replication group from Replicas prop.
+	var replicas []ddbtypes.Replica
+	if replicaList, hasReplicas := props["Replicas"].([]any); hasReplicas {
+		for _, r := range replicaList {
+			if rm, isMap := r.(map[string]any); isMap {
+				if region, hasRegion := rm["Region"].(string); hasRegion && region != "" {
+					regionCopy := region
+					replicas = append(replicas, ddbtypes.Replica{RegionName: &regionCopy})
+				}
+			}
+		}
+	}
+
+	if len(replicas) == 0 {
+		region := "us-east-1"
+		replicas = []ddbtypes.Replica{{RegionName: &region}}
+	}
+
+	out, err := rc.backends.DynamoDB.Backend.CreateGlobalTable(ctx, &awsddb.CreateGlobalTableInput{
+		GlobalTableName:  &tableName,
+		ReplicationGroup: replicas,
+	})
+	if err != nil {
+		return "", fmt.Errorf("create DynamoDB global table %s: %w", tableName, err)
+	}
+
+	if out.GlobalTableDescription != nil && out.GlobalTableDescription.GlobalTableArn != nil {
+		return *out.GlobalTableDescription.GlobalTableArn, nil
+	}
+
+	return tableName, nil
+}
+
+// ---- Glue supplemental ----
+
+func (rc *ResourceCreator) createGlueSupplementalResource(
+	logicalID, resourceType string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, bool, error) {
+	switch resourceType {
+	case "AWS::Glue::Crawler":
+		id, err := rc.createGlueCrawler(logicalID, props, params, physicalIDs)
+
+		return id, true, err
+	case "AWS::Glue::Table":
+		id, err := rc.createGlueTable(logicalID, props, params, physicalIDs)
+
+		return id, true, err
+	case "AWS::Glue::Trigger":
+		id, err := rc.createGlueTrigger(logicalID, props, params, physicalIDs)
+
+		return id, true, err
+	case "AWS::Glue::Connection":
+		id, err := rc.createGlueConnection(logicalID, props, params, physicalIDs)
+
+		return id, true, err
+	case "AWS::Glue::Partition":
+		id, err := rc.createGluePartition(logicalID, props, params, physicalIDs)
+
+		return id, true, err
+	default:
+		return "", false, nil
+	}
+}
+
+func (rc *ResourceCreator) createGlueCrawler(
+	logicalID string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, error) {
+	if rc.backends.Glue == nil {
+>>>>>>> origin/main
 		return logicalID + "-stub", nil
 	}
 
@@ -1150,6 +1664,7 @@ func (rc *ResourceCreator) createCloudFrontFunction(
 		name = logicalID
 	}
 
+<<<<<<< HEAD
 	code := strProp(props, "FunctionCode", params, physicalIDs)
 	if code == "" {
 		code = "function handler(event) { return event.request; }"
@@ -1187,10 +1702,37 @@ func (rc *ResourceCreator) deleteCloudFrontFunction(name string) error {
 }
 
 func (rc *ResourceCreator) createCloudFrontCachePolicy(
+=======
+	role := strProp(props, "Role", params, physicalIDs)
+	if role == "" {
+		role = "AWSGlueServiceRole"
+	}
+
+	dbName := strProp(props, "DatabaseName", params, physicalIDs)
+
+	crawler, err := rc.backends.Glue.Backend.CreateCrawler(name, role, dbName, gluebackend.CrawlerTarget{}, nil)
+	if err != nil {
+		return "", fmt.Errorf("create Glue crawler %s: %w", name, err)
+	}
+
+	return crawler.Name, nil
+}
+
+func (rc *ResourceCreator) deleteGlueCrawler(name string) error {
+	if rc.backends.Glue == nil {
+		return nil
+	}
+
+	return rc.backends.Glue.Backend.DeleteCrawler(name)
+}
+
+func (rc *ResourceCreator) createGlueTable(
+>>>>>>> origin/main
 	logicalID string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
 ) (string, error) {
+<<<<<<< HEAD
 	if rc.backends.CloudFront == nil {
 		return logicalID + "-stub", nil
 	}
@@ -1250,10 +1792,54 @@ func (rc *ResourceCreator) deleteCloudFrontCachePolicy(id string) error {
 }
 
 func (rc *ResourceCreator) createCloudFrontOriginAccessControl(
+=======
+	if rc.backends.Glue == nil {
+		return logicalID + "-stub", nil
+	}
+
+	dbName := strProp(props, "DatabaseName", params, physicalIDs)
+	if dbName == "" {
+		dbName = defaultGlueDB
+	}
+
+	var tableName string
+	if ti, ok := props["TableInput"].(map[string]any); ok {
+		tableName = strProp(ti, "Name", params, physicalIDs)
+	}
+	if tableName == "" {
+		tableName = strings.ToLower(logicalID)
+	}
+
+	tableInput := gluebackend.TableInput{Name: tableName}
+	_, err := rc.backends.Glue.Backend.CreateTable(dbName, tableInput)
+	if err != nil {
+		return "", fmt.Errorf("create Glue table %s in database %s: %w", tableName, dbName, err)
+	}
+
+	return dbName + "/" + tableName, nil
+}
+
+func (rc *ResourceCreator) deleteGlueTable(physicalID string) error {
+	if rc.backends.Glue == nil {
+		return nil
+	}
+
+	const parts = 2
+	split := strings.SplitN(physicalID, "/", parts)
+	if len(split) < parts {
+		return nil
+	}
+
+	return rc.backends.Glue.Backend.DeleteTable(split[0], split[1])
+}
+
+func (rc *ResourceCreator) createGlueTrigger(
+>>>>>>> origin/main
 	logicalID string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
 ) (string, error) {
+<<<<<<< HEAD
 	if rc.backends.CloudFront == nil {
 		return logicalID + "-stub", nil
 	}
@@ -1313,10 +1899,47 @@ func (rc *ResourceCreator) deleteCloudFrontOriginAccessControl(id string) error 
 }
 
 func (rc *ResourceCreator) createCloudFrontResponseHeadersPolicy(
+=======
+	if rc.backends.Glue == nil {
+		return logicalID + "-stub", nil
+	}
+
+	name := strProp(props, "Name", params, physicalIDs)
+	if name == "" {
+		name = logicalID
+	}
+
+	triggerType := strProp(props, "Type", params, physicalIDs)
+	if triggerType == "" {
+		triggerType = "ON_DEMAND"
+	}
+
+	trigger, err := rc.backends.Glue.Backend.CreateTrigger(gluebackend.Trigger{
+		Name: name,
+		Type: triggerType,
+	}, nil)
+	if err != nil {
+		return "", fmt.Errorf("create Glue trigger %s: %w", name, err)
+	}
+
+	return trigger.Name, nil
+}
+
+func (rc *ResourceCreator) deleteGlueTrigger(name string) error {
+	if rc.backends.Glue == nil {
+		return nil
+	}
+
+	return rc.backends.Glue.Backend.DeleteTrigger(name)
+}
+
+func (rc *ResourceCreator) createGlueConnection(
+>>>>>>> origin/main
 	logicalID string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
 ) (string, error) {
+<<<<<<< HEAD
 	if rc.backends.CloudFront == nil {
 		return logicalID + "-stub", nil
 	}
@@ -1374,10 +1997,158 @@ func int64Val(v any) int64 {
 // strSliceProp resolves a property that is expected to be a list of strings (or refs).
 func strSliceProp(v any, params, physicalIDs map[string]string) []string {
 	list, ok := v.([]any)
+=======
+	if rc.backends.Glue == nil {
+		return logicalID + "-stub", nil
+	}
+
+	var connName, connType string
+	if ci, ok := props["ConnectionInput"].(map[string]any); ok {
+		connName = strProp(ci, "Name", params, physicalIDs)
+		connType = strProp(ci, "ConnectionType", params, physicalIDs)
+	}
+
+	if connName == "" {
+		connName = logicalID
+	}
+	if connType == "" {
+		connType = "JDBC"
+	}
+
+	conn, err := rc.backends.Glue.Backend.CreateConnection(connName, connType, nil, nil)
+	if err != nil {
+		return "", fmt.Errorf("create Glue connection %s: %w", connName, err)
+	}
+
+	return conn.Name, nil
+}
+
+func (rc *ResourceCreator) deleteGlueConnection(name string) error {
+	if rc.backends.Glue == nil {
+		return nil
+	}
+
+	return rc.backends.Glue.Backend.DeleteConnection(name)
+}
+
+func (rc *ResourceCreator) createGluePartition(
+	logicalID string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, error) {
+	if rc.backends.Glue == nil {
+		return logicalID + "-stub", nil
+	}
+
+	dbName := strProp(props, "DatabaseName", params, physicalIDs)
+	tableName := strProp(props, "TableName", params, physicalIDs)
+
+	if dbName == "" || tableName == "" {
+		return logicalID + "-stub", nil
+	}
+
+	var values []string
+	if pi, hasPartition := props["PartitionInput"].(map[string]any); hasPartition {
+		if vs, hasValues := pi["Values"].([]any); hasValues {
+			for _, v := range vs {
+				if s, isStr := v.(string); isStr {
+					values = append(values, s)
+				}
+			}
+		}
+	}
+
+	if len(values) == 0 {
+		values = []string{defaultGlueDB}
+	}
+
+	_, errs := rc.backends.Glue.Backend.BatchCreatePartition(dbName, tableName, []gluebackend.PartitionInput{
+		{Values: values},
+	})
+	if len(errs) > 0 {
+		return "", fmt.Errorf("%w in %s/%s: %s", errGluePartition, dbName, tableName, errs[0].ErrorDetail.ErrorMessage)
+	}
+
+	return dbName + "/" + tableName + "/" + strings.Join(values, ","), nil
+}
+
+// ---- AppSync supplemental ----
+
+func (rc *ResourceCreator) createAppSyncSupplementalResource(
+	logicalID, resourceType string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, bool, error) {
+	switch resourceType {
+	case "AWS::AppSync::DataSource":
+		id, err := rc.createAppSyncDataSource(logicalID, props, params, physicalIDs)
+
+		return id, true, err
+	case "AWS::AppSync::Resolver":
+		id, err := rc.createAppSyncResolver(logicalID, props, params, physicalIDs)
+
+		return id, true, err
+	case "AWS::AppSync::FunctionConfiguration":
+		id, err := rc.createAppSyncFunction(logicalID, props, params, physicalIDs)
+
+		return id, true, err
+	case "AWS::AppSync::ApiKey":
+		id, err := rc.createAppSyncAPIKey(logicalID, props, params, physicalIDs)
+
+		return id, true, err
+	default:
+		return "", false, nil
+	}
+}
+
+func (rc *ResourceCreator) createAppSyncDataSource(
+	logicalID string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, error) {
+	if rc.backends.AppSync == nil {
+		return logicalID + "-stub", nil
+	}
+
+	imb, ok := rc.backends.AppSync.Backend.(*appsyncbackend.InMemoryBackend)
+	if !ok {
+		return logicalID + "-stub", nil
+	}
+
+	apiID := strProp(props, "ApiId", params, physicalIDs)
+	name := strProp(props, "Name", params, physicalIDs)
+	dsType := strProp(props, "Type", params, physicalIDs)
+
+	if name == "" {
+		name = logicalID
+	}
+	if dsType == "" {
+		dsType = "NONE"
+	}
+
+	ds, err := imb.CreateDataSource(apiID, &appsyncbackend.DataSource{
+		Name: name,
+		Type: appsyncbackend.DataSourceType(dsType),
+	})
+	if err != nil {
+		return "", fmt.Errorf("create AppSync data source %s: %w", name, err)
+	}
+
+	return ds.DataSourceARN, nil
+}
+
+func (rc *ResourceCreator) deleteAppSyncDataSource(arn string) error {
+	if rc.backends.AppSync == nil {
+		return nil
+	}
+
+	imb, ok := rc.backends.AppSync.Backend.(*appsyncbackend.InMemoryBackend)
+>>>>>>> origin/main
 	if !ok {
 		return nil
 	}
 
+<<<<<<< HEAD
 	out := make([]string, 0, len(list))
 	for _, item := range list {
 		if s := resolve(item, params, physicalIDs); s != "" {
@@ -1437,4 +2208,201 @@ func arnResourceTail(s string) string {
 	}
 
 	return parts[len(parts)-1]
+=======
+	// ARN format: arn:aws:appsync:<region>:<account>:apis/<apiID>/datasources/<name>
+	apiID, name := parseAppSyncARNParts(arn, "datasources")
+	if apiID == "" || name == "" {
+		return nil
+	}
+
+	return imb.DeleteDataSource(apiID, name)
+}
+
+func (rc *ResourceCreator) createAppSyncResolver(
+	logicalID string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, error) {
+	if rc.backends.AppSync == nil {
+		return logicalID + "-stub", nil
+	}
+
+	imb, ok := rc.backends.AppSync.Backend.(*appsyncbackend.InMemoryBackend)
+	if !ok {
+		return logicalID + "-stub", nil
+	}
+
+	apiID := strProp(props, "ApiId", params, physicalIDs)
+	typeName := strProp(props, "TypeName", params, physicalIDs)
+	fieldName := strProp(props, "FieldName", params, physicalIDs)
+	dataSourceName := strProp(props, "DataSourceName", params, physicalIDs)
+	kind := strProp(props, "Kind", params, physicalIDs)
+
+	if typeName == "" {
+		typeName = "Query"
+	}
+	if fieldName == "" {
+		fieldName = strings.ToLower(logicalID)
+	}
+	if kind == "" {
+		kind = "UNIT"
+	}
+	if kind == "UNIT" && dataSourceName == "" {
+		dataSourceName = "none"
+	}
+
+	r, err := imb.CreateResolver(apiID, typeName, &appsyncbackend.Resolver{
+		FieldName:      fieldName,
+		Kind:           kind,
+		DataSourceName: dataSourceName,
+	})
+	if err != nil {
+		return "", fmt.Errorf("create AppSync resolver %s.%s: %w", typeName, fieldName, err)
+	}
+
+	return r.ResolverARN, nil
+}
+
+func (rc *ResourceCreator) deleteAppSyncResolver(arn string) error {
+	if rc.backends.AppSync == nil {
+		return nil
+	}
+
+	imb, ok := rc.backends.AppSync.Backend.(*appsyncbackend.InMemoryBackend)
+	if !ok {
+		return nil
+	}
+
+	// ARN format: arn:aws:appsync:<region>:<account>:apis/<apiID>/types/<typeName>/resolvers/<fieldName>
+	_, afterAPIs, hasAPIs := strings.Cut(arn, "apis/")
+	if !hasAPIs {
+		return nil
+	}
+
+	apiID, rest1, hasTypes := strings.Cut(afterAPIs, "/types/")
+	if !hasTypes {
+		return nil
+	}
+
+	typeName, fieldName, hasResolvers := strings.Cut(rest1, "/resolvers/")
+	if !hasResolvers {
+		return nil
+	}
+
+	return imb.DeleteResolver(apiID, typeName, fieldName)
+}
+
+func (rc *ResourceCreator) createAppSyncFunction(
+	logicalID string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, error) {
+	if rc.backends.AppSync == nil {
+		return logicalID + "-stub", nil
+	}
+
+	imb, ok := rc.backends.AppSync.Backend.(*appsyncbackend.InMemoryBackend)
+	if !ok {
+		return logicalID + "-stub", nil
+	}
+
+	apiID := strProp(props, "ApiId", params, physicalIDs)
+	name := strProp(props, "Name", params, physicalIDs)
+	dataSourceName := strProp(props, "DataSourceName", params, physicalIDs)
+
+	if name == "" {
+		name = logicalID
+	}
+	if dataSourceName == "" {
+		dataSourceName = "none"
+	}
+
+	f, err := imb.CreateFunction(apiID, &appsyncbackend.Function{
+		Name:           name,
+		DataSourceName: dataSourceName,
+	})
+	if err != nil {
+		return "", fmt.Errorf("create AppSync function %s: %w", name, err)
+	}
+
+	return f.FunctionARN, nil
+}
+
+func (rc *ResourceCreator) deleteAppSyncFunction(arn string) error {
+	if rc.backends.AppSync == nil {
+		return nil
+	}
+
+	imb, ok := rc.backends.AppSync.Backend.(*appsyncbackend.InMemoryBackend)
+	if !ok {
+		return nil
+	}
+
+	apiID, funcID := parseAppSyncARNParts(arn, "functions")
+	if apiID == "" || funcID == "" {
+		return nil
+	}
+
+	return imb.DeleteFunction(apiID, funcID)
+}
+
+func (rc *ResourceCreator) createAppSyncAPIKey(
+	logicalID string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, error) {
+	if rc.backends.AppSync == nil {
+		return logicalID + "-stub", nil
+	}
+
+	imb, ok := rc.backends.AppSync.Backend.(*appsyncbackend.InMemoryBackend)
+	if !ok {
+		return logicalID + "-stub", nil
+	}
+
+	apiID := strProp(props, "ApiId", params, physicalIDs)
+	description := strProp(props, "Description", params, physicalIDs)
+
+	key, err := imb.CreateAPIKey(apiID, description, 0)
+	if err != nil {
+		return "", fmt.Errorf("create AppSync API key for %s: %w", apiID, err)
+	}
+
+	return apiID + "/" + key.ID, nil
+}
+
+func (rc *ResourceCreator) deleteAppSyncAPIKey(physicalID string) error {
+	if rc.backends.AppSync == nil {
+		return nil
+	}
+
+	imb, ok := rc.backends.AppSync.Backend.(*appsyncbackend.InMemoryBackend)
+	if !ok {
+		return nil
+	}
+
+	const parts = 2
+	split := strings.SplitN(physicalID, "/", parts)
+	if len(split) < parts {
+		return nil
+	}
+
+	return imb.DeleteAPIKey(split[0], split[1])
+}
+
+// parseAppSyncARNParts extracts apiID and resource name from an AppSync ARN.
+// ARN format: arn:aws:appsync:<region>:<account>:apis/<apiID>/<resourceType>/<name>.
+func parseAppSyncARNParts(arn, resourceType string) (string, string) {
+	_, afterAPIs, hasAPIs := strings.Cut(arn, "apis/")
+	if !hasAPIs {
+		return "", ""
+	}
+
+	apiID, name, found := strings.Cut(afterAPIs, "/"+resourceType+"/")
+	if !found {
+		return "", ""
+	}
+
+	return apiID, name
+>>>>>>> origin/main
 }

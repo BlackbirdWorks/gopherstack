@@ -41,6 +41,29 @@
 
 	const availableFS = $derived(fileSystems.filter((f) => f.Lifecycle === 'AVAILABLE').length);
 
+	function getThroughput(fs: FileSystem): string {
+		let t: number | undefined;
+		let unit = 'MB/s';
+		if (fs.FileSystemType === 'LUSTRE') {
+			t = fs.LustreConfiguration?.PerUnitStorageThroughput;
+			unit = 'MB/s/TiB';
+		} else if (fs.FileSystemType === 'WINDOWS') {
+			t = fs.WindowsConfiguration?.ThroughputCapacity;
+		} else if (fs.FileSystemType === 'ONTAP') {
+			t = fs.OntapConfiguration?.ThroughputCapacity;
+		} else if (fs.FileSystemType === 'OPENZFS') {
+			t = fs.OpenZFSConfiguration?.ThroughputCapacity;
+		}
+		return t === undefined ? '—' : `${t} ${unit}`;
+	}
+
+	function getMountName(fs: FileSystem): string {
+		if (fs.FileSystemType === 'LUSTRE') {
+			return fs.LustreConfiguration?.MountName ?? fs.DNSName ?? '—';
+		}
+		return fs.DNSName ?? '—';
+	}
+
 	async function loadData() {
 		loading = true;
 		try {

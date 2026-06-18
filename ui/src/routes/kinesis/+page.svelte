@@ -889,12 +889,12 @@ class="px-3 py-2 text-sm font-medium whitespace-nowrap border-b-2 transition-col
 {:else if streamDetail}
 <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
 {#each [
+{ label: 'Status', value: streamDetail.StreamStatus ?? '—' },
 { label: 'Shard Count', value: String(streamDetail.OpenShardCount ?? 0) },
 { label: 'Retention (hours)', value: String(streamDetail.RetentionPeriodHours ?? 24) },
 { label: 'Encryption', value: streamDetail.EncryptionType ?? 'NONE' },
 { label: 'Stream Mode', value: streamDetail.StreamModeDetails?.StreamMode ?? 'PROVISIONED' },
 { label: 'Consumers', value: String(consumers.length) },
-{ label: 'Enhanced Metrics', value: String((streamDetail.EnhancedMonitoring ?? []).flatMap(e => e.ShardLevelMetrics ?? []).length) },
 { label: 'Created', value: streamDetail.StreamCreationTimestamp ? new Date((streamDetail.StreamCreationTimestamp as unknown as number) * 1000).toLocaleString() : '—' },
 ] as kv}
 <div class="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-3">
@@ -903,6 +903,17 @@ class="px-3 py-2 text-sm font-medium whitespace-nowrap border-b-2 transition-col
 </div>
 {/each}
 </div>
+<!-- Shard-level metrics -->
+{#if (streamDetail.EnhancedMonitoring ?? []).flatMap(e => e.ShardLevelMetrics ?? []).length > 0}
+<div class="mt-3 p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg">
+<p class="text-xs text-slate-500 dark:text-slate-400 mb-2 flex items-center gap-1"><Activity class="w-3 h-3" /> Shard-Level Metrics</p>
+<div class="flex flex-wrap gap-1">
+{#each (streamDetail.EnhancedMonitoring ?? []).flatMap(e => e.ShardLevelMetrics ?? []) as metric}
+<span class="px-1.5 py-0.5 text-xs rounded bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 font-mono">{metric}</span>
+{/each}
+</div>
+</div>
+{/if}
 <!-- ARN row -->
 <div class="mt-3 flex items-center gap-2 p-2 bg-slate-50 dark:bg-slate-700/50 rounded-lg">
 <span class="text-xs text-slate-500 dark:text-slate-400 flex-shrink-0">ARN:</span>

@@ -10,77 +10,19 @@
 		CreateEndpointCommand,
 		CreateTrainingJobCommand,
 		DescribeEndpointCommand,
-		UpdateEndpointWeightsAndCapacitiesCommand,
-		type SageMakerClient,
+		DescribeTrainingJobCommand,
 		type NotebookInstanceSummary,
 		type TrainingJobSummary,
 		type ModelSummary,
 		type EndpointSummary,
 		type PipelineSummary,
-		type ProductionVariantSummary
+		type DescribeEndpointOutput,
+		type DescribeTrainingJobResponse
 	} from '@aws-sdk/client-sagemaker';
 	import { toast } from 'svelte-sonner';
-	import { Brain, RefreshCw, Search, Server, Activity, Box, BookOpen, Plus, X, GitBranch, ChevronDown, ChevronRight, Save } from 'lucide-svelte';
+	import { Brain, RefreshCw, Search, Server, Activity, Box, BookOpen, Plus, X, GitBranch, ChevronRight } from 'lucide-svelte';
 
-	let sm: SageMakerClient | undefined;
-	function client(): SageMakerClient {
-		return (sm ??= getSageMakerClient());
-	}
-
-	// Endpoint A/B traffic-split: variant weight editor.
-	let expandedEndpoint = $state<string | null>(null);
-	let variants = $state<ProductionVariantSummary[]>([]);
-	let variantWeights = $state<Record<string, number>>({});
-	let loadingVariants = $state(false);
-	let savingWeights = $state(false);
-
-	async function toggleEndpointVariants(name: string) {
-		if (expandedEndpoint === name) {
-			expandedEndpoint = null;
-			return;
-		}
-		expandedEndpoint = name;
-		variants = [];
-		variantWeights = {};
-		loadingVariants = true;
-		try {
-			const resp = await client().send(new DescribeEndpointCommand({ EndpointName: name }));
-			variants = resp.ProductionVariants ?? [];
-			const w: Record<string, number> = {};
-			for (const v of variants) {
-				if (v.VariantName) w[v.VariantName] = v.CurrentWeight ?? 1;
-			}
-			variantWeights = w;
-		} catch (e) {
-			toast.error('Failed to load endpoint variants: ' + String(e));
-		} finally {
-			loadingVariants = false;
-		}
-	}
-
-	async function saveVariantWeights(name: string) {
-		savingWeights = true;
-		try {
-			await client().send(
-				new UpdateEndpointWeightsAndCapacitiesCommand({
-					EndpointName: name,
-					DesiredWeightsAndCapacities: variants.map((v) => ({
-						VariantName: v.VariantName ?? '',
-						DesiredWeight: variantWeights[v.VariantName ?? ''] ?? v.CurrentWeight ?? 1
-					}))
-				})
-			);
-			toast.success('Variant weights updated');
-			await toggleEndpointVariants(name);
-			expandedEndpoint = name;
-		} catch (e) {
-			toast.error('Failed to update weights: ' + String(e));
-		} finally {
-			savingWeights = false;
-		}
-	}
-
-	const totalWeight = $derived(Object.values(variantWeights).reduce((a, b) => a + (Number(b) || 0), 0));
+	const sm = getSageMakerClient();
 
 	let loading = $state(false);
 	let activeTab = $state<'notebooks' | 'training' | 'models' | 'endpoints' | 'pipelines'>('notebooks');
@@ -90,6 +32,12 @@
 	let models = $state<ModelSummary[]>([]);
 	let endpoints = $state<EndpointSummary[]>([]);
 	let pipelines = $state<PipelineSummary[]>([]);
+
+	// Detail panels
+	let selectedEndpoint = $state<DescribeEndpointOutput | null>(null);
+	let loadingEndpointDetail = $state(false);
+	let selectedTrainingJob = $state<DescribeTrainingJobResponse | null>(null);
+	let loadingTrainingDetail = $state(false);
 
 	// Create Endpoint dialog
 	let showCreateEndpoint = $state(false);
@@ -139,11 +87,11 @@
 		loading = true;
 		try {
 			const [nb, tj, mo, ep, pl] = await Promise.all([
-				client().send(new ListNotebookInstancesCommand({})),
-				client().send(new ListTrainingJobsCommand({})),
-				client().send(new ListModelsCommand({})),
-				client().send(new ListEndpointsCommand({})),
-				client().send(new ListPipelinesCommand({}))
+				sm.send(new ListNotebookInstancesCommand({})),
+				sm.send(new ListTrainingJobsCommand({})),
+				sm.send(new ListModelsCommand({})),
+				sm.send(new ListEndpointsCommand({})),
+				sm.send(new ListPipelinesCommand({}))
 			]);
 			notebooks = nb.NotebookInstances ?? [];
 			trainingJobs = tj.TrainingJobSummaries ?? [];
@@ -164,7 +112,7 @@
 		}
 		creatingEndpoint = true;
 		try {
-			await client().send(
+			await sm.send(
 				new CreateEndpointCommand({
 					EndpointName: newEndpointName.trim(),
 					EndpointConfigName: newEndpointConfigName.trim()
@@ -189,7 +137,7 @@
 		}
 		creatingTraining = true;
 		try {
-			await client().send(
+			await sm.send(
 				new CreateTrainingJobCommand({
 					TrainingJobName: newTrainingJobName.trim(),
 					RoleArn: newTrainingRoleArn.trim() || undefined,
@@ -217,6 +165,37 @@
 		} finally {
 			creatingTraining = false;
 		}
+	}
+
+	async function selectEndpoint(name: string) {
+		loadingEndpointDetail = true;
+		selectedEndpoint = null;
+		try {
+			const resp = await sm.send(new DescribeEndpointCommand({ EndpointName: name }));
+			selectedEndpoint = resp;
+		} catch (e) {
+			toast.error('Failed to load endpoint detail: ' + String(e));
+		} finally {
+			loadingEndpointDetail = false;
+		}
+	}
+
+	async function selectTrainingJob(name: string) {
+		loadingTrainingDetail = true;
+		selectedTrainingJob = null;
+		try {
+			const resp = await sm.send(new DescribeTrainingJobCommand({ TrainingJobName: name }));
+			selectedTrainingJob = resp;
+		} catch (e) {
+			toast.error('Failed to load training job detail: ' + String(e));
+		} finally {
+			loadingTrainingDetail = false;
+		}
+	}
+
+	function formatDate(d: Date | undefined): string {
+		if (!d) return '-';
+		return d.toLocaleString();
 	}
 
 	onMount(loadData);
@@ -514,21 +493,79 @@
 					</div>
 				{/if}
 			{:else if activeTab === 'training'}
-				{#if filteredTraining.length === 0}
+				{#if selectedTrainingJob}
+					<div class="space-y-4">
+						<div class="flex items-center gap-2 text-sm">
+							<button onclick={() => (selectedTrainingJob = null)} class="text-teal-600 hover:underline">Training Jobs</button>
+							<ChevronRight class="w-4 h-4 text-gray-400" />
+							<span class="font-medium text-gray-700 dark:text-gray-300">{selectedTrainingJob.TrainingJobName}</span>
+						</div>
+						<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+							{#each [
+								{ label: 'Status', value: selectedTrainingJob.TrainingJobStatus ?? '-' },
+								{ label: 'Secondary Status', value: selectedTrainingJob.SecondaryStatus ?? '-' },
+								{ label: 'Algorithm', value: selectedTrainingJob.AlgorithmSpecification?.AlgorithmName ?? selectedTrainingJob.AlgorithmSpecification?.TrainingImage ?? '-' },
+								{ label: 'Instance Type', value: selectedTrainingJob.ResourceConfig?.InstanceType ?? '-' },
+								{ label: 'Instance Count', value: String(selectedTrainingJob.ResourceConfig?.InstanceCount ?? '-') },
+								{ label: 'Created', value: formatDate(selectedTrainingJob.CreationTime) },
+								{ label: 'Started', value: formatDate(selectedTrainingJob.TrainingStartTime) },
+								{ label: 'Ended', value: formatDate(selectedTrainingJob.TrainingEndTime) },
+								{ label: 'Billable Seconds', value: String(selectedTrainingJob.BillableTimeInSeconds ?? '-') }
+							] as card}
+								<div class="bg-gray-50 dark:bg-slate-700/50 rounded-lg p-3">
+									<p class="text-xs text-gray-500 dark:text-gray-400 font-medium">{card.label}</p>
+									<p class="text-sm font-mono text-gray-900 dark:text-white mt-1 truncate">{card.value}</p>
+								</div>
+							{/each}
+						</div>
+						{#if selectedTrainingJob.FailureReason}
+							<div class="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+								<p class="text-xs font-medium text-red-700 dark:text-red-400 mb-1">Failure Reason</p>
+								<p class="text-sm text-red-600 dark:text-red-300">{selectedTrainingJob.FailureReason}</p>
+							</div>
+						{/if}
+						{#if selectedTrainingJob.HyperParameters && Object.keys(selectedTrainingJob.HyperParameters).length > 0}
+							<div>
+								<h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Hyperparameters</h3>
+								<div class="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+									<table class="w-full text-sm">
+										<thead class="bg-gray-50 dark:bg-gray-800 text-xs text-gray-500 uppercase">
+											<tr>
+												<th class="px-4 py-2 text-left">Key</th>
+												<th class="px-4 py-2 text-left">Value</th>
+											</tr>
+										</thead>
+										<tbody class="divide-y divide-gray-100 dark:divide-gray-800">
+											{#each Object.entries(selectedTrainingJob.HyperParameters) as [k, v]}
+												<tr>
+													<td class="px-4 py-2 font-mono text-xs text-gray-700 dark:text-gray-300">{k}</td>
+													<td class="px-4 py-2 font-mono text-xs text-gray-600 dark:text-gray-400">{v}</td>
+												</tr>
+											{/each}
+										</tbody>
+									</table>
+								</div>
+							</div>
+						{/if}
+					</div>
+				{:else if loadingTrainingDetail}
+					<div class="flex justify-center py-8"><div class="animate-spin w-6 h-6 border-4 border-teal-600 border-t-transparent rounded-full"></div></div>
+				{:else if filteredTraining.length === 0}
 					<div class="text-center py-8 text-gray-500 dark:text-gray-400">
 						No training jobs found
 					</div>
 				{:else}
 					<div class="space-y-2">
 						{#each filteredTraining as job}
-							<div
-								class="flex items-center justify-between p-3 rounded-lg bg-gray-50 dark:bg-slate-700/50"
+							<button
+								onclick={() => selectTrainingJob(job.TrainingJobName ?? '')}
+								class="w-full flex items-center justify-between p-3 rounded-lg bg-gray-50 dark:bg-slate-700/50 hover:bg-gray-100 dark:hover:bg-slate-700 text-left"
 							>
 								<div class="flex items-center gap-3">
 									<Activity class="w-5 h-5 text-blue-500" />
 									<div>
 										<p class="font-medium text-gray-900 dark:text-white">{job.TrainingJobName}</p>
-										<p class="text-xs text-gray-500 dark:text-gray-400">{job.TrainingJobArn}</p>
+										<p class="text-xs text-gray-500 dark:text-gray-400 font-mono">{job.TrainingJobArn}</p>
 									</div>
 								</div>
 								<span
@@ -540,7 +577,7 @@
 								>
 									{job.TrainingJobStatus}
 								</span>
-							</div>
+							</button>
 						{/each}
 					</div>
 				{/if}
@@ -561,62 +598,92 @@
 					</div>
 				{/if}
 			{:else if activeTab === 'endpoints'}
-				{#if filteredEndpoints.length === 0}
+				{#if selectedEndpoint}
+					<div class="space-y-4">
+						<div class="flex items-center gap-2 text-sm">
+							<button onclick={() => (selectedEndpoint = null)} class="text-teal-600 hover:underline">Endpoints</button>
+							<ChevronRight class="w-4 h-4 text-gray-400" />
+							<span class="font-medium text-gray-700 dark:text-gray-300">{selectedEndpoint.EndpointName}</span>
+						</div>
+						<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+							{#each [
+								{ label: 'Status', value: selectedEndpoint.EndpointStatus ?? '-' },
+								{ label: 'Config Name', value: selectedEndpoint.EndpointConfigName ?? '-' },
+								{ label: 'Created', value: formatDate(selectedEndpoint.CreationTime) },
+								{ label: 'Last Modified', value: formatDate(selectedEndpoint.LastModifiedTime) }
+							] as card}
+								<div class="bg-gray-50 dark:bg-slate-700/50 rounded-lg p-3">
+									<p class="text-xs text-gray-500 dark:text-gray-400 font-medium">{card.label}</p>
+									<p class="text-sm font-mono text-gray-900 dark:text-white mt-1 truncate">{card.value}</p>
+								</div>
+							{/each}
+						</div>
+						<div class="bg-gray-50 dark:bg-slate-700/30 rounded-lg p-3">
+							<p class="text-xs text-gray-500 dark:text-gray-400 font-medium mb-1">ARN</p>
+							<p class="text-xs font-mono text-gray-700 dark:text-gray-300 break-all">{selectedEndpoint.EndpointArn}</p>
+						</div>
+						{#if selectedEndpoint.FailureReason}
+							<div class="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+								<p class="text-xs font-medium text-red-700 dark:text-red-400 mb-1">Failure Reason</p>
+								<p class="text-sm text-red-600 dark:text-red-300">{selectedEndpoint.FailureReason}</p>
+							</div>
+						{/if}
+						{#if (selectedEndpoint.ProductionVariants ?? []).length > 0}
+							<div>
+								<h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Production Variants</h3>
+								<div class="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+									<table class="w-full text-sm">
+										<thead class="bg-gray-50 dark:bg-gray-800 text-xs text-gray-500 uppercase">
+											<tr>
+												<th class="px-4 py-2 text-left">Variant</th>
+												<th class="px-4 py-2 text-right">Current Instances</th>
+												<th class="px-4 py-2 text-right">Desired Instances</th>
+												<th class="px-4 py-2 text-right">Current Weight</th>
+											</tr>
+										</thead>
+										<tbody class="divide-y divide-gray-100 dark:divide-gray-800">
+											{#each selectedEndpoint.ProductionVariants ?? [] as v}
+												<tr>
+													<td class="px-4 py-2 font-medium">{v.VariantName}</td>
+													<td class="px-4 py-2 text-right text-gray-600 dark:text-gray-400">{v.CurrentInstanceCount ?? '-'}</td>
+													<td class="px-4 py-2 text-right text-gray-600 dark:text-gray-400">{v.DesiredInstanceCount ?? '-'}</td>
+													<td class="px-4 py-2 text-right text-gray-600 dark:text-gray-400">{v.CurrentWeight ?? '-'}</td>
+												</tr>
+											{/each}
+										</tbody>
+									</table>
+								</div>
+							</div>
+						{/if}
+					</div>
+				{:else if loadingEndpointDetail}
+					<div class="flex justify-center py-8"><div class="animate-spin w-6 h-6 border-4 border-teal-600 border-t-transparent rounded-full"></div></div>
+				{:else if filteredEndpoints.length === 0}
 					<div class="text-center py-8 text-gray-500 dark:text-gray-400">No endpoints found</div>
 				{:else}
 					<div class="space-y-2">
 						{#each filteredEndpoints as ep}
-							{@const epn = ep.EndpointName ?? ''}
-							<div class="rounded-lg bg-gray-50 dark:bg-slate-700/50">
-								<div class="flex items-center justify-between p-3">
-									<button onclick={() => toggleEndpointVariants(epn)} class="flex items-center gap-3 min-w-0 text-left">
-										{#if expandedEndpoint === epn}<ChevronDown class="w-4 h-4 text-gray-400 flex-shrink-0" />{:else}<ChevronRight class="w-4 h-4 text-gray-400 flex-shrink-0" />{/if}
-										<Server class="w-5 h-5 text-green-500 flex-shrink-0" />
-										<div class="min-w-0">
-											<p class="font-medium text-gray-900 dark:text-white truncate">{ep.EndpointName}</p>
-											<p class="text-xs text-gray-500 dark:text-gray-400 truncate">{ep.EndpointArn}</p>
-										</div>
-									</button>
-									<span
-										class="text-xs px-2 py-1 rounded-full flex-shrink-0 {ep.EndpointStatus === 'InService'
-											? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
-											: ep.EndpointStatus === 'Failed'
-												? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
-												: 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'}"
-									>
-										{ep.EndpointStatus}
-									</span>
-								</div>
-								{#if expandedEndpoint === epn}
-									<div class="px-3 pb-3 border-t border-slate-200 dark:border-slate-600 pt-3">
-										<p class="text-sm font-semibold text-gray-900 dark:text-white mb-2">A/B Traffic Split — Variant Weights</p>
-										{#if loadingVariants}
-											<p class="text-sm text-gray-500 dark:text-gray-400">Loading variants…</p>
-										{:else if variants.length === 0}
-											<p class="text-sm text-gray-500 dark:text-gray-400">No production variants found.</p>
-										{:else}
-											<div class="space-y-2">
-												{#each variants as v}
-													{@const vn = v.VariantName ?? ''}
-													<div class="flex items-center gap-3">
-														<span class="text-sm font-medium text-gray-900 dark:text-white w-40 truncate" title={vn}>{vn}</span>
-														<input type="number" min="0" step="0.1" bind:value={variantWeights[vn]} class="w-24 px-2 py-1 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white" />
-														<div class="flex-1 h-2 bg-gray-200 dark:bg-slate-600 rounded-full overflow-hidden">
-															<div class="h-full bg-teal-500" style="width: {totalWeight > 0 ? ((Number(variantWeights[vn]) || 0) / totalWeight) * 100 : 0}%"></div>
-														</div>
-														<span class="text-xs font-mono text-gray-500 dark:text-gray-400 w-14 text-right">{totalWeight > 0 ? (((Number(variantWeights[vn]) || 0) / totalWeight) * 100).toFixed(1) : '0.0'}%</span>
-														<span class="text-xs text-gray-400 w-24 truncate" title={v.CurrentInstanceCount != null ? v.CurrentInstanceCount + ' inst' : ''}>{v.CurrentInstanceCount != null ? v.CurrentInstanceCount + ' inst' : ''}</span>
-													</div>
-												{/each}
-											</div>
-											<button onclick={() => saveVariantWeights(epn)} disabled={savingWeights}
-												class="mt-3 flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-50">
-												<Save class="w-4 h-4" /> {savingWeights ? 'Saving…' : 'Update Weights'}
-											</button>
-										{/if}
+							<button
+								onclick={() => selectEndpoint(ep.EndpointName ?? '')}
+								class="w-full flex items-center justify-between p-3 rounded-lg bg-gray-50 dark:bg-slate-700/50 hover:bg-gray-100 dark:hover:bg-slate-700 text-left"
+							>
+								<div class="flex items-center gap-3">
+									<Server class="w-5 h-5 text-green-500" />
+									<div>
+										<p class="font-medium text-gray-900 dark:text-white">{ep.EndpointName}</p>
+										<p class="text-xs text-gray-500 dark:text-gray-400 font-mono">{ep.EndpointArn}</p>
 									</div>
-								{/if}
-							</div>
+								</div>
+								<span
+									class="text-xs px-2 py-1 rounded-full {ep.EndpointStatus === 'InService'
+										? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
+										: ep.EndpointStatus === 'Failed'
+											? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
+											: 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'}"
+								>
+									{ep.EndpointStatus}
+								</span>
+							</button>
 						{/each}
 					</div>
 				{/if}

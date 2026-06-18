@@ -4,7 +4,9 @@ import "time"
 
 // StorageBackend is the interface for DLM storage operations.
 type StorageBackend interface {
-	CreateLifecyclePolicy(description, executionRoleARN, state string, tags map[string]string) (*Policy, error)
+	CreateLifecyclePolicy(
+		description, executionRoleARN, state string, tags map[string]string, policyDetails map[string]any,
+	) (*Policy, error)
 	DeleteLifecyclePolicy(policyID string) error
 	GetLifecyclePolicies(policyIDs []string, state string) ([]*PolicySummary, error)
 	GetLifecyclePolicy(policyID string) (*Policy, error)
@@ -27,6 +29,7 @@ type Policy struct {
 	DateCreated      time.Time
 	DateModified     time.Time
 	Tags             map[string]string
+	PolicyDetails    map[string]any
 	Description      string
 	ExecutionRoleARN string
 	PolicyArn        string

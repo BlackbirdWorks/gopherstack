@@ -5,7 +5,7 @@ import (
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
-	"crypto/sha1" //nolint:gosec // AWS SNS SignatureVersion=1 requires SHA-1
+	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
@@ -328,7 +328,7 @@ type ArchivedMessage struct {
 }
 
 // notificationSigner holds the RSA key pair and self-signed certificate used to
-// sign SNS HTTP/HTTPS notification envelopes per AWS SignatureVersion=1 spec.
+// sign SNS HTTP/HTTPS notification envelopes per AWS SignatureVersion=2 spec.
 // The certificate is served at the URL stored in certURL so subscribers can
 // verify signatures without contacting the real AWS endpoint.
 type notificationSigner struct {
@@ -375,12 +375,11 @@ func newNotificationSigner() *notificationSigner {
 	}
 }
 
-// sign computes the RSA-SHA1 signature of the canonical notification string
-// per AWS SNS SignatureVersion=1 and returns it base64-encoded.
+// sign computes the RSA-SHA256 signature of the canonical notification string
+// per AWS SNS SignatureVersion=2 and returns it base64-encoded.
 func (s *notificationSigner) sign(canonical string) string {
-	//nolint:gosec // SHA-1 is mandated by the AWS SignatureVersion=1 spec
-	h := sha1.Sum([]byte(canonical))
-	sig, err := rsa.SignPKCS1v15(rand.Reader, s.privateKey, crypto.SHA1, h[:])
+	h := sha256.Sum256([]byte(canonical))
+	sig, err := rsa.SignPKCS1v15(rand.Reader, s.privateKey, crypto.SHA256, h[:])
 	if err != nil {
 		return "SIGN-ERROR"
 	}
@@ -428,11 +427,17 @@ type FirehosePutter interface {
 	PutRecordBatch(streamName string, records [][]byte) (int, error)
 }
 
+// SQSSender can send a message to an SQS queue identified by ARN, used for DLQ delivery.
+type SQSSender interface {
+	SendMessageToQueue(ctx context.Context, queueARN, messageBody string) error
+}
+
 // InMemoryBackend implements StorageBackend using an in-memory concurrency-safe store.
 type InMemoryBackend struct {
 	emitter              events.EventEmitter[*events.SNSPublishedEvent]
 	lambdaBackend        LambdaInvoker
 	firehoseBackend      FirehosePutter
+	sqsSender            SQSSender
 	svcCtx               context.Context
 	topicSubscriptions   map[string]map[string]*Subscription
 	httpClient           *http.Client
@@ -545,6 +550,14 @@ func (b *InMemoryBackend) SetFirehoseBackend(firehose FirehosePutter) {
 	defer b.mu.Unlock()
 
 	b.firehoseBackend = firehose
+}
+
+// SetSQSSender wires the SQS sender used to deliver failed messages to a subscription DLQ.
+func (b *InMemoryBackend) SetSQSSender(sender SQSSender) {
+	b.mu.Lock("SetSQSSender")
+	defer b.mu.Unlock()
+
+	b.sqsSender = sender
 }
 
 // CreateTopic creates a new SNS topic using the backend's default region.
@@ -1150,12 +1163,14 @@ func (b *InMemoryBackend) ListSubscriptionsByTopic(topicArn, nextToken string) (
 // httpDelivery holds the endpoint and message body for an HTTP/HTTPS delivery.
 type httpDelivery struct {
 	signer          *notificationSigner // nil disables signing
+	sqsSender       SQSSender           // optional; non-nil when subscription has a DLQ
 	endpoint        string
 	body            string
 	subject         string
 	messageID       string
 	topicARN        string
 	subscriptionARN string
+	redrivePolicy   string // JSON RedrivePolicy; non-empty when DLQ is configured
 	rawDelivery     bool
 }
 
@@ -1512,6 +1527,8 @@ func (b *InMemoryBackend) collectPublishTargets(
 				subject:         subject,
 				subscriptionARN: sub.SubscriptionArn,
 				rawDelivery:     sub.RawMessageDelivery,
+				redrivePolicy:   sub.RedrivePolicy,
+				sqsSender:       b.sqsSender,
 			})
 		}
 
@@ -2242,6 +2259,8 @@ type snsHTTPNotification struct {
 // to the endpoint. Standard AWS SNS headers are added when metadata is available.
 // When rawDelivery is false the body is wrapped in a SNS Notification JSON envelope
 // (matching what AWS SNS sends to http/https subscribers by default).
+// On network error or non-2xx response, the message is forwarded to the DLQ when
+// a RedrivePolicy is configured.
 func deliverHTTPWithMeta(parent context.Context, d httpDelivery, client *http.Client) {
 	ctx, cancel := context.WithTimeout(parent, snsHTTPTimeout)
 	defer cancel()
@@ -2271,7 +2290,7 @@ func deliverHTTPWithMeta(parent context.Context, d httpDelivery, client *http.Cl
 			TopicArn:         d.topicARN,
 			Message:          d.body,
 			Timestamp:        timestamp,
-			SignatureVersion: "1",
+			SignatureVersion: "2",
 			Signature:        signature,
 			SigningCertURL:   certURL,
 			UnsubscribeURL:   "https://sns.us-east-1.amazonaws.com/?Action=Unsubscribe&SubscriptionArn=" + d.subscriptionARN,
@@ -2292,6 +2311,8 @@ func deliverHTTPWithMeta(parent context.Context, d httpDelivery, client *http.Cl
 		strings.NewReader(body),
 	)
 	if err != nil {
+		sendSubscriptionDLQ(parent, d)
+
 		return
 	}
 
@@ -2311,11 +2332,39 @@ func deliverHTTPWithMeta(parent context.Context, d httpDelivery, client *http.Cl
 
 	resp, err := client.Do(req)
 	if err != nil {
+		sendSubscriptionDLQ(parent, d)
+
 		return
 	}
 
 	defer func() { _ = resp.Body.Close() }()
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxDeliveryResponseBytes))
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		sendSubscriptionDLQ(parent, d)
+	}
+}
+
+// sendSubscriptionDLQ delivers the message body to the DLQ configured in d.redrivePolicy when
+// d.sqsSender is non-nil. It is a no-op when either is absent.
+func sendSubscriptionDLQ(ctx context.Context, d httpDelivery) {
+	if d.sqsSender == nil || d.redrivePolicy == "" {
+		return
+	}
+
+	var policy struct {
+		DeadLetterTargetArn string `json:"deadLetterTargetArn"`
+	}
+
+	if err := json.Unmarshal([]byte(d.redrivePolicy), &policy); err != nil {
+		return
+	}
+
+	if policy.DeadLetterTargetArn == "" {
+		return
+	}
+
+	_ = d.sqsSender.SendMessageToQueue(ctx, policy.DeadLetterTargetArn, d.body)
 }
 
 // decodeToken decodes a base64 pagination token into an integer offset.
@@ -2889,6 +2938,7 @@ func (b *InMemoryBackend) replayMessagesToSubscription(sub Subscription, topicAr
 	emitter := b.emitter
 	client := b.httpClient
 	signer := b.signer
+	sqsSender := b.sqsSender
 	b.mu.RUnlock()
 
 	for _, msg := range toReplay {
@@ -2910,6 +2960,8 @@ func (b *InMemoryBackend) replayMessagesToSubscription(sub Subscription, topicAr
 				topicARN:        topicArn,
 				subscriptionARN: sub.SubscriptionArn,
 				rawDelivery:     sub.RawMessageDelivery,
+				redrivePolicy:   sub.RedrivePolicy,
+				sqsSender:       sqsSender,
 				signer:          signer,
 			}
 			deliverHTTPWithMeta(b.svcCtx, d, client)

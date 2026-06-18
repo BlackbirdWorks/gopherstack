@@ -11,6 +11,7 @@
 		ListTagsCommand,
 		AddTagsCommand,
 		DescribePackagesCommand,
+		ListPackagesForDomainCommand,
 		CreatePackageCommand,
 		DeletePackageCommand,
 		AssociatePackageCommand,
@@ -33,9 +34,13 @@
 	let tags = $state<{ Key: string; Value: string }[]>([]);
 	let loadingTags = $state(false);
 
-	// Packages
+	// Packages (all available)
 	let packages = $state<{ PackageID: string; PackageName: string; PackageType: string; PackageDescription: string; PackageStatus: string }[]>([]);
 	let loadingPackages = $state(false);
+
+	// Domain-associated packages
+	let domainPackages = $state<{ PackageID: string; PackageName: string; PackageType: string; DomainPackageStatus: string }[]>([]);
+	let loadingDomainPackages = $state(false);
 
 	// Create Package
 	let showCreatePackage = $state(false);
@@ -98,6 +103,7 @@
 	async function selectDomain(name: string) {
 		loadingDetail = true;
 		activeTab = 'overview';
+		domainPackages = [];
 		try {
 			const resp = await opensearch.send(new DescribeDomainCommand({ DomainName: name }));
 			selectedDomain = resp.DomainStatus ?? null;
@@ -113,6 +119,24 @@
 			toast.error('Failed to load domain details: ' + String(e));
 		} finally {
 			loadingDetail = false;
+		}
+		await loadDomainPackages(name);
+	}
+
+	async function loadDomainPackages(domainName: string) {
+		loadingDomainPackages = true;
+		try {
+			const resp = await opensearch.send(new ListPackagesForDomainCommand({ DomainName: domainName }));
+			domainPackages = (resp.DomainPackageDetailsList ?? []).map((p) => ({
+				PackageID: p.PackageID ?? '',
+				PackageName: p.PackageName ?? '',
+				PackageType: p.PackageType ?? '',
+				DomainPackageStatus: p.DomainPackageStatus ?? ''
+			}));
+		} catch (e) {
+			toast.error('Failed to load domain packages: ' + String(e));
+		} finally {
+			loadingDomainPackages = false;
 		}
 	}
 
@@ -410,6 +434,41 @@
 						<a href="{selectedDomain.Endpoint}/_dashboards" target="_blank" rel="noopener noreferrer" class="text-cyan-600 dark:text-cyan-400 text-sm hover:underline">{selectedDomain.Endpoint}/_dashboards</a>
 					</div>
 				{/if}
+
+				<!-- Package Associations -->
+				<div>
+					<h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Package Associations</h3>
+					{#if loadingDomainPackages}
+						<div class="flex items-center gap-2 text-sm text-gray-400 py-2"><div class="animate-spin w-4 h-4 border-2 border-cyan-600 border-t-transparent rounded-full"></div> Loading...</div>
+					{:else if domainPackages.length === 0}
+						<p class="text-sm text-gray-400 italic">No packages associated with this domain</p>
+					{:else}
+						<div class="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+							<table class="w-full text-sm">
+								<thead class="bg-gray-50 dark:bg-gray-800 text-xs text-gray-500 uppercase">
+									<tr>
+										<th class="px-4 py-2 text-left">Package</th>
+										<th class="px-4 py-2 text-left">Type</th>
+										<th class="px-4 py-2 text-left">Status</th>
+									</tr>
+								</thead>
+								<tbody class="divide-y divide-gray-100 dark:divide-gray-800">
+									{#each domainPackages as pkg}
+										<tr>
+											<td class="px-4 py-2 font-medium">{pkg.PackageName}</td>
+											<td class="px-4 py-2 text-gray-500">{pkg.PackageType}</td>
+											<td class="px-4 py-2">
+												<span class={`px-2 py-0.5 rounded text-xs font-medium ${pkg.DomainPackageStatus === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
+													{pkg.DomainPackageStatus}
+												</span>
+											</td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						</div>
+					{/if}
+				</div>
 			{/if}
 		{/if}
 

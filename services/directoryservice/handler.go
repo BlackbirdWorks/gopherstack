@@ -195,7 +195,11 @@ func (h *Handler) handleCreateDirectory(c *echo.Context) error { //nolint:dupl /
 		Description string `json:"Description"`
 		Password    string `json:"Password"`
 		Size        string `json:"Size"`
-		Tags        []struct {
+		VpcSettings *struct {
+			VpcID     string   `json:"VpcId"`
+			SubnetIDs []string `json:"SubnetIds"`
+		} `json:"VpcSettings"`
+		Tags []struct {
 			Key   string `json:"Key"`
 			Value string `json:"Value"`
 		} `json:"Tags"`
@@ -211,6 +215,14 @@ func (h *Handler) handleCreateDirectory(c *echo.Context) error { //nolint:dupl /
 
 	tags := reqTagsToTags(req.Tags)
 
+	var vpcSettings *DirectoryVpcSettings
+	if req.VpcSettings != nil {
+		vpcSettings = &DirectoryVpcSettings{
+			VpcID:     req.VpcSettings.VpcID,
+			SubnetIDs: req.VpcSettings.SubnetIDs,
+		}
+	}
+
 	d, createErr := h.Backend.CreateDirectory(
 		h.contextWithRegion(c),
 		req.Name,
@@ -218,6 +230,7 @@ func (h *Handler) handleCreateDirectory(c *echo.Context) error { //nolint:dupl /
 		req.Description,
 		req.Password,
 		DirectorySize(req.Size),
+		vpcSettings,
 		tags,
 	)
 	if createErr != nil {
@@ -241,7 +254,11 @@ func (h *Handler) handleCreateMicrosoftAD(c *echo.Context) error {
 		Description string `json:"Description"`
 		Password    string `json:"Password"`
 		Edition     string `json:"Edition"`
-		Tags        []struct {
+		VpcSettings *struct {
+			VpcID     string   `json:"VpcId"`
+			SubnetIDs []string `json:"SubnetIds"`
+		} `json:"VpcSettings"`
+		Tags []struct {
 			Key   string `json:"Key"`
 			Value string `json:"Value"`
 		} `json:"Tags"`
@@ -262,6 +279,14 @@ func (h *Handler) handleCreateMicrosoftAD(c *echo.Context) error {
 
 	tags := reqTagsToTags(req.Tags)
 
+	var vpcSettings *DirectoryVpcSettings
+	if req.VpcSettings != nil {
+		vpcSettings = &DirectoryVpcSettings{
+			VpcID:     req.VpcSettings.VpcID,
+			SubnetIDs: req.VpcSettings.SubnetIDs,
+		}
+	}
+
 	d, createErr := h.Backend.CreateMicrosoftAD(
 		h.contextWithRegion(c),
 		req.Name,
@@ -269,6 +294,7 @@ func (h *Handler) handleCreateMicrosoftAD(c *echo.Context) error {
 		req.Description,
 		req.Password,
 		edition,
+		vpcSettings,
 		tags,
 	)
 	if createErr != nil {
@@ -734,7 +760,7 @@ func errResp(code, message string) map[string]string {
 }
 
 func directoryToJSON(d *Directory) map[string]any {
-	return map[string]any{
+	out := map[string]any{
 		keyDirectoryID: d.DirectoryID,
 		"Name":         d.Name, //nolint:goconst // existing issue.
 		"ShortName":    d.ShortName,
@@ -748,6 +774,24 @@ func directoryToJSON(d *Directory) map[string]any {
 		"SsoEnabled":   d.SsoEnabled,
 		keyLaunchTime:  awstime.Epoch(d.LaunchTime),
 	}
+	if d.VpcSettings != nil {
+		secGroups := d.VpcSettings.SecurityGroupIDs
+		if secGroups == nil {
+			secGroups = []string{}
+		}
+		azs := d.VpcSettings.AvailabilityZones
+		if azs == nil {
+			azs = []string{}
+		}
+		out["VpcSettings"] = map[string]any{
+			"VpcId":             d.VpcSettings.VpcID,
+			"SubnetIds":         d.VpcSettings.SubnetIDs,
+			"SecurityGroupIds":  secGroups,
+			"AvailabilityZones": azs,
+		}
+	}
+
+	return out
 }
 
 func snapshotToJSON(s *Snapshot) map[string]any {

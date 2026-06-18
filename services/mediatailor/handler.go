@@ -14,7 +14,8 @@ import (
 )
 
 const (
-	matchPriority = service.PriorityPathVersioned
+	matchPriority      = service.PriorityPathVersioned
+	mediaTailorService = "mediatailor"
 
 	pathChannels         = "/channels"
 	pathChannel          = "/channel/"
@@ -181,10 +182,16 @@ func (h *Handler) GetSupportedOperations() []string {
 	}
 }
 
-// RouteMatcher returns a function that matches MediaTailor requests by path.
+// RouteMatcher returns a function that matches MediaTailor requests by path and
+// Authorization header. MediaTailor shares /channels paths with MediaPackage and
+// IoTAnalytics, so we distinguish by the service name in the AWS Signature header.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
+
+		if !isMediaTailorPath(path) {
+			return false
+		}
 
 		// The bare "/channels" path is shared with MediaPackage and IoT Analytics,
 		// which register matchers at the same priority. Claim it only for
@@ -194,7 +201,9 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return httputils.ExtractServiceFromRequest(c.Request()) == sigV4Service
 		}
 
-		return isMediaTailorPath(path)
+		svc := httputils.ExtractServiceFromRequest(c.Request())
+
+		return svc == "" || svc == mediaTailorService
 	}
 }
 

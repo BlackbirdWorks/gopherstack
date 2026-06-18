@@ -32,6 +32,7 @@ type storedPolicy struct {
 	DateCreated      time.Time         `json:"dateCreated"`
 	DateModified     time.Time         `json:"dateModified"`
 	Tags             map[string]string `json:"tags"`
+	PolicyDetails    map[string]any    `json:"policyDetails,omitempty"`
 	Description      string            `json:"description"`
 	ExecutionRoleARN string            `json:"executionRoleArn"`
 	PolicyArn        string            `json:"policyArn"`
@@ -52,6 +53,7 @@ func (p *storedPolicy) toPolicy() *Policy {
 		PolicyID:         p.PolicyID,
 		State:            p.State,
 		Tags:             tags,
+		PolicyDetails:    p.PolicyDetails,
 	}
 }
 
@@ -98,6 +100,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 func (b *InMemoryBackend) CreateLifecyclePolicy(
 	description, executionRoleARN, state string,
 	tags map[string]string,
+	policyDetails map[string]any,
 ) (*Policy, error) {
 	b.mu.Lock("CreateLifecyclePolicy")
 	defer b.mu.Unlock()
@@ -124,6 +127,7 @@ func (b *InMemoryBackend) CreateLifecyclePolicy(
 		PolicyID:         policyID,
 		State:            resolvedState,
 		Tags:             storedTags,
+		PolicyDetails:    policyDetails,
 	}
 	b.policies[policyID] = p
 	b.tags[policyARN] = storedTags

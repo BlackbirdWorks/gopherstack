@@ -743,7 +743,11 @@ func (b *InMemoryBackend) UpdateEnvironmentWithParams(
 		env.TierVersion = params.TierVersion
 	}
 
-	env.OptionSettings = updateOptionSettings(env.OptionSettings, params.OptionSettings, params.OptionsToRemove)
+	env.OptionSettings = updateOptionSettings(
+		env.OptionSettings,
+		params.OptionSettings,
+		params.OptionsToRemove,
+	)
 
 	b.appendEvent(region, appName, envName, "Environment update completed successfully.", eventSeverityInfo)
 
@@ -822,9 +826,21 @@ func (b *InMemoryBackend) CloneEnvironment(
 		return nil, fmt.Errorf("%w: environment %s already exists", ErrAlreadyExists, newEnvName)
 	}
 
+<<<<<<< HEAD
 	envID := b.nextEnvID(region)
 	envARN := arn.Build("elasticbeanstalk", region, b.accountID, "environment/"+srcAppName+"/"+newEnvName)
 	cname := newEnvName + "." + region + ".elasticbeanstalk.com"
+=======
+	b.envCounter++
+	envID := fmt.Sprintf("e-%08d", b.envCounter)
+	envARN := arn.Build(
+		"elasticbeanstalk",
+		b.region,
+		b.accountID,
+		"environment/"+srcAppName+"/"+newEnvName,
+	)
+	cname := newEnvName + "." + b.region + ".elasticbeanstalk.com"
+>>>>>>> origin/main
 
 	env := &Environment{
 		ApplicationName:   srcAppName,
@@ -898,9 +914,18 @@ func (b *InMemoryBackend) CreateApplicationVersionWithParams(
 
 	region := getRegion(ctx, b.region)
 	key := appVersionKey(appName, versionLabel)
+<<<<<<< HEAD
 
 	if _, ok := b.appVersionsStore(region)[key]; ok {
 		return nil, fmt.Errorf("%w: application version %s already exists", ErrAlreadyExists, versionLabel)
+=======
+	if _, ok := b.appVersions[key]; ok {
+		return nil, fmt.Errorf(
+			"%w: application version %s already exists",
+			ErrAlreadyExists,
+			versionLabel,
+		)
+>>>>>>> origin/main
 	}
 
 	vARN := arn.Build("elasticbeanstalk", region, b.accountID,
@@ -945,7 +970,10 @@ func (b *InMemoryBackend) CreateApplicationVersionWithParams(
 // DescribeApplicationVersions returns application versions, optionally filtered.
 // Results are sorted by VersionLabel for deterministic output.
 func (b *InMemoryBackend) DescribeApplicationVersions(
+<<<<<<< HEAD
 	ctx context.Context,
+=======
+>>>>>>> origin/main
 	appName string,
 	versionLabels []string,
 ) []*ApplicationVersion {
@@ -1028,7 +1056,10 @@ func (b *InMemoryBackend) ListTagsForResource(ctx context.Context, resourceARN s
 
 // UpdateTagsForResource updates tags on a resource identified by ARN.
 func (b *InMemoryBackend) UpdateTagsForResource(
+<<<<<<< HEAD
 	ctx context.Context,
+=======
+>>>>>>> origin/main
 	resourceARN string,
 	addTags, removeTags map[string]string,
 ) error {
@@ -1149,7 +1180,10 @@ func (b *InMemoryBackend) ApplyEnvironmentManagedAction(ctx context.Context, env
 
 // AddManagedActionHistory records a managed action history item for an environment (improvement #4).
 func (b *InMemoryBackend) AddManagedActionHistory(
+<<<<<<< HEAD
 	ctx context.Context,
+=======
+>>>>>>> origin/main
 	envName, actionID, actionType, actionDesc, status string,
 ) {
 	b.mu.Lock("AddManagedActionHistory")
@@ -1170,7 +1204,10 @@ func (b *InMemoryBackend) AddManagedActionHistory(
 
 // DescribeEnvironmentManagedActionHistory returns stored managed action history for an environment (improvement #4).
 func (b *InMemoryBackend) DescribeEnvironmentManagedActionHistory(
+<<<<<<< HEAD
 	ctx context.Context,
+=======
+>>>>>>> origin/main
 	envName string,
 ) []*ManagedActionHistory {
 	b.mu.RLock("DescribeEnvironmentManagedActionHistory")
@@ -1266,9 +1303,18 @@ func (b *InMemoryBackend) CreateConfigurationTemplate(
 
 	region := getRegion(ctx, b.region)
 	key := configTemplateKey(appName, templateName)
+<<<<<<< HEAD
 
 	if _, ok := b.configTemplatesStore(region)[key]; ok {
 		return nil, fmt.Errorf("%w: configuration template %s already exists", ErrAlreadyExists, templateName)
+=======
+	if _, ok := b.configTemplates[key]; ok {
+		return nil, fmt.Errorf(
+			"%w: configuration template %s already exists",
+			ErrAlreadyExists,
+			templateName,
+		)
+>>>>>>> origin/main
 	}
 
 	tmpl := &ConfigurationTemplate{
@@ -1313,8 +1359,17 @@ func (b *InMemoryBackend) CreatePlatformVersion(
 	b.mu.Lock("CreatePlatformVersion")
 	defer b.mu.Unlock()
 
+<<<<<<< HEAD
 	region := getRegion(ctx, b.region)
 	platformARN := arn.Build("elasticbeanstalk", region, "", "platform/"+platformName+"/"+platformVersion)
+=======
+	platformARN := arn.Build(
+		"elasticbeanstalk",
+		b.region,
+		"",
+		"platform/"+platformName+"/"+platformVersion,
+	)
+>>>>>>> origin/main
 
 	if _, ok := b.platformVersionsStore(region)[platformARN]; ok {
 		return nil, fmt.Errorf(

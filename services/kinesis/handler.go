@@ -258,6 +258,15 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.handleSubscribeToShardHTTP(c)
 		}
 
+		if service.IsCBORRequest(c.Request()) {
+			ctx := c.Request().Context()
+			log := logger.Load(ctx)
+			target := c.Request().Header.Get("X-Amz-Target")
+			action := strings.TrimPrefix(target, kinesisTargetPrefix)
+
+			return h.handleCBORRequest(ctx, c, log, action)
+		}
+
 		return service.HandleTarget(
 			c, logger.Load(c.Request().Context()),
 			"Kinesis", "application/x-amz-json-1.1",

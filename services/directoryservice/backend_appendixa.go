@@ -2179,7 +2179,7 @@ func (b *InMemoryBackend) CreateHybridAD(
 	}
 
 	st := b.state(region)
-	d := b.newStoredDirectory(name, shortName, description, DirectoryTypeMicrosoftAD, "", edition, tags)
+	d := b.newStoredDirectory(name, shortName, description, DirectoryTypeMicrosoftAD, "", edition, nil, tags)
 	st.directories[d.DirectoryID] = d
 	st.aliases[d.Alias] = d.DirectoryID
 
@@ -2455,7 +2455,7 @@ func (b *InMemoryBackend) ConnectDirectory(
 	}
 
 	st := b.state(region)
-	d := b.newStoredDirectory(name, shortName, description, DirectoryTypeADConnector, size, "", tags)
+	d := b.newStoredDirectory(name, shortName, description, DirectoryTypeADConnector, size, "", nil, tags)
 	st.directories[d.DirectoryID] = d
 	st.aliases[d.Alias] = d.DirectoryID
 

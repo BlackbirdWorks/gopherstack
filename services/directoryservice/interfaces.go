@@ -11,12 +11,14 @@ type StorageBackend interface {
 		ctx context.Context,
 		name, shortName, description, password string,
 		size DirectorySize,
+		vpcSettings *DirectoryVpcSettings,
 		tags []Tag,
 	) (*Directory, error)
 	CreateMicrosoftAD(
 		ctx context.Context,
 		name, shortName, description, password string,
 		edition DirectoryEdition,
+		vpcSettings *DirectoryVpcSettings,
 		tags []Tag,
 	) (*Directory, error)
 	DeleteDirectory(ctx context.Context, directoryID string) error
@@ -249,10 +251,19 @@ const (
 	SnapshotTypeManual SnapshotType = "Manual"
 )
 
+// DirectoryVpcSettings holds VPC networking settings for a directory.
+type DirectoryVpcSettings struct {
+	VpcID             string
+	SubnetIDs         []string
+	SecurityGroupIDs  []string
+	AvailabilityZones []string
+}
+
 // Directory represents an AWS Directory Service directory.
 // LaunchTime is first: time.Time's non-pointer prefix reduces GC pointer bytes.
 type Directory struct {
 	LaunchTime  time.Time
+	VpcSettings *DirectoryVpcSettings
 	DirectoryID string
 	Name        string
 	ShortName   string

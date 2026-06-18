@@ -37,8 +37,8 @@ AbortMultipartUploadCommand,
 GetBucketWebsiteCommand,
 PutBucketWebsiteCommand,
 DeleteBucketWebsiteCommand,
-GetBucketLoggingCommand,
-PutBucketLoggingCommand,
+GetObjectTaggingCommand,
+PutObjectTaggingCommand,
 type Bucket,
 type _Object,
 type ObjectVersion,
@@ -62,7 +62,7 @@ let bucketPage = $state(1);
 
 // Bucket detail state
 let selectedBucket = $state<string | null>(null);
-let activeDetailTab = $state<'objects' | 'properties' | 'tagging' | 'permissions' | 'lifecycle' | 'cors' | 'uploads' | 'analytics'>('objects');
+let activeDetailTab = $state<'objects' | 'properties' | 'tagging' | 'permissions' | 'lifecycle' | 'cors' | 'uploads'>('objects');
 type MultipartUploadEntry = { key: string; uploadId: string; initiated?: Date; partsCompleted: number; bytesUploaded: number; };
 let multipartUploads = $state<MultipartUploadEntry[]>([]);
 let loadingUploads = $state(false);
@@ -135,20 +135,15 @@ let copyTargetKey = $state('');
 let websiteConfig = $state<{ IndexDocument?: string; ErrorDocument?: string } | null>(null);
 let loadingWebsite = $state(false);
 
-// Access logging state
-let loggingEnabled = $state(false);
-let loggingTargetBucket = $state('');
-let loggingTargetPrefix = $state('');
-let loadingLogging = $state(false);
-let savingLogging = $state(false);
-
-// Storage analytics state (size by prefix, computed from listed objects)
-let analyticsLoading = $state(false);
-type PrefixStat = { prefix: string; count: number; bytes: number };
-let analyticsByPrefix = $state<PrefixStat[]>([]);
-let analyticsTotalBytes = $state(0);
-let analyticsTotalCount = $state(0);
-let analyticsTruncated = $state(false);
+// Object preview / tag editor state
+let previewObj = $state<_Object | null>(null);
+let previewContent = $state<string | null>(null);
+let previewObjectUrl = $state<string | null>(null);
+let previewType = $state<'image' | 'text' | 'json' | 'binary'>('text');
+let previewLoading = $state(false);
+let previewTags = $state<Tag[]>([]);
+let previewTagsLoading = $state(false);
+let previewTagsSaving = $state(false);
 
 // Bucket sort state
 let bucketSortOrder = $state<'alpha' | 'newest' | 'largest'>('alpha');
@@ -462,9 +457,79 @@ next.add(key);
 selectedObjects = next;
 }
 
-function inspectObject(obj: _Object) {
+function guessPreviewType(key: string): 'image' | 'text' | 'json' | 'binary' {
+const ext = key.split('.').pop()?.toLowerCase() ?? '';
+if (['jpg','jpeg','png','gif','svg','webp','bmp','ico'].includes(ext)) return 'image';
+if (['json'].includes(ext)) return 'json';
+if (['txt','md','csv','log','yaml','yml','xml','html','htm','sh','py','js','ts','css','tf','conf','ini','env'].includes(ext)) return 'text';
+return 'binary';
+}
+
+async function inspectObject(obj: _Object) {
 if (!selectedBucket || !obj.Key) return;
-goto(`/dashboard/s3/${selectedBucket}/${obj.Key}`);
+// revoke previous object URL to avoid memory leak
+if (previewObjectUrl) { URL.revokeObjectURL(previewObjectUrl); previewObjectUrl = null; }
+previewObj = obj;
+previewContent = null;
+previewObjectUrl = null;
+previewTags = [];
+previewLoading = true;
+previewTagsLoading = true;
+const type = guessPreviewType(obj.Key);
+previewType = type;
+try {
+	const res = await s3.send(new GetObjectCommand({ Bucket: selectedBucket, Key: obj.Key }));
+	const bytes = await res.Body?.transformToByteArray();
+	if (bytes) {
+		if (type === 'image') {
+			const blob = new Blob([bytes], { type: res.ContentType ?? 'image/*' });
+			previewObjectUrl = URL.createObjectURL(blob);
+		} else if (type === 'json') {
+			const text = new TextDecoder().decode(bytes);
+			try { previewContent = JSON.stringify(JSON.parse(text), null, 2); } catch { previewContent = text; }
+		} else if (type === 'text') {
+			previewContent = new TextDecoder().decode(bytes);
+		} else {
+			previewContent = `Binary file — ${bytes.length.toLocaleString()} bytes. Download to view.`;
+		}
+	}
+} catch (err: unknown) {
+	toast.error(`Preview failed: ${(err as Error).message}`);
+} finally {
+	previewLoading = false;
+}
+try {
+	const tagRes = await s3.send(new GetObjectTaggingCommand({ Bucket: selectedBucket, Key: obj.Key }));
+	previewTags = tagRes.TagSet ?? [];
+} catch {
+	previewTags = [];
+} finally {
+	previewTagsLoading = false;
+}
+}
+
+async function saveObjectTags() {
+if (!selectedBucket || !previewObj?.Key) return;
+previewTagsSaving = true;
+try {
+	await s3.send(new PutObjectTaggingCommand({
+		Bucket: selectedBucket,
+		Key: previewObj.Key,
+		Tagging: { TagSet: previewTags.filter(t => t.Key?.trim()) }
+	}));
+	toast.success('Tags saved');
+} catch (err: unknown) {
+	toast.error(`Save tags failed: ${(err as Error).message}`);
+} finally {
+	previewTagsSaving = false;
+}
+}
+
+function closePreview() {
+if (previewObjectUrl) { URL.revokeObjectURL(previewObjectUrl); previewObjectUrl = null; }
+previewObj = null;
+previewContent = null;
+previewTags = [];
 }
 
 async function loadPropertiesTab() {
@@ -874,90 +939,6 @@ async function deleteWebsite(): Promise<void> {
   }
 }
 
-function websiteEndpointUrl(): string {
-  if (!selectedBucket) return '';
-  return `${window.location.origin}/${selectedBucket}/${websiteConfig?.IndexDocument ?? 'index.html'}`;
-}
-
-async function loadLogging(): Promise<void> {
-  if (!selectedBucket) return;
-  loadingLogging = true;
-  try {
-    const res = await s3.send(new GetBucketLoggingCommand({ Bucket: selectedBucket }));
-    const le = res.LoggingEnabled;
-    loggingEnabled = !!le;
-    loggingTargetBucket = le?.TargetBucket ?? '';
-    loggingTargetPrefix = le?.TargetPrefix ?? '';
-  } catch (err: unknown) {
-    toast.error(`Failed to load access logging: ${(err as Error).message}`);
-  } finally {
-    loadingLogging = false;
-  }
-}
-
-async function saveLogging(): Promise<void> {
-  if (!selectedBucket) return;
-  if (loggingEnabled && !loggingTargetBucket.trim()) {
-    toast.error('Target bucket is required to enable access logging');
-    return;
-  }
-  savingLogging = true;
-  try {
-    await s3.send(new PutBucketLoggingCommand({
-      Bucket: selectedBucket,
-      BucketLoggingStatus: loggingEnabled
-        ? { LoggingEnabled: { TargetBucket: loggingTargetBucket.trim(), TargetPrefix: loggingTargetPrefix.trim() || `${selectedBucket}/` } }
-        : {}
-    }));
-    toast.success(loggingEnabled ? 'Access logging enabled' : 'Access logging disabled');
-    await loadLogging();
-  } catch (err: unknown) {
-    toast.error(`Failed to save access logging: ${(err as Error).message}`);
-  } finally {
-    savingLogging = false;
-  }
-}
-
-async function loadAnalytics(): Promise<void> {
-  if (!selectedBucket) return;
-  analyticsLoading = true;
-  analyticsByPrefix = [];
-  analyticsTotalBytes = 0;
-  analyticsTotalCount = 0;
-  analyticsTruncated = false;
-  try {
-    const stats = new Map<string, PrefixStat>();
-    let token: string | undefined;
-    let pages = 0;
-    do {
-      const res = await s3.send(new ListObjectsV2Command({ Bucket: selectedBucket, ContinuationToken: token, MaxKeys: 1000 }));
-      for (const obj of res.Contents ?? []) {
-        const key = obj.Key ?? '';
-        const size = obj.Size ?? 0;
-        analyticsTotalBytes += size;
-        analyticsTotalCount += 1;
-        const topPrefix = key.includes('/') ? key.slice(0, key.indexOf('/') + 1) : '(root)';
-        const cur = stats.get(topPrefix) ?? { prefix: topPrefix, count: 0, bytes: 0 };
-        cur.count += 1;
-        cur.bytes += size;
-        stats.set(topPrefix, cur);
-      }
-      token = res.IsTruncated ? res.NextContinuationToken : undefined;
-      pages += 1;
-      // Cap at 10k objects (10 pages) to keep the UI responsive on huge buckets.
-      if (pages >= 10) {
-        analyticsTruncated = !!token;
-        break;
-      }
-    } while (token);
-    analyticsByPrefix = Array.from(stats.values()).toSorted((a, b) => b.bytes - a.bytes);
-  } catch (err: unknown) {
-    toast.error(`Failed to compute analytics: ${(err as Error).message}`);
-  } finally {
-    analyticsLoading = false;
-  }
-}
-
 function fileIcon(key: string): string {
   const ext = key.split('.').pop()?.toLowerCase() ?? '';
   if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'ico'].includes(ext)) return '🖼️';
@@ -973,8 +954,7 @@ function fileIcon(key: string): string {
 
 async function switchTab(tab: typeof activeDetailTab) {
 activeDetailTab = tab;
-if (tab === 'properties') { await loadPropertiesTab(); await loadWebsite(); await loadLogging(); }
-else if (tab === 'analytics') await loadAnalytics();
+if (tab === 'properties') { await loadPropertiesTab(); await loadWebsite(); }
 else if (tab === 'tagging') await loadTagsTab();
 else if (tab === 'permissions') await loadPermissionsTab();
 else if (tab === 'lifecycle') await loadLifecycleTab();
@@ -1182,7 +1162,7 @@ Upload File
 <!-- Tabs -->
 <div class="border-b border-slate-200 dark:border-slate-700">
 <ul class="flex flex-wrap -mb-px text-sm font-medium text-center">
-{#each [['objects','Objects'],['uploads','Uploads'],['properties','Properties'],['analytics','Analytics'],['tagging','Tags'],['permissions','Permissions'],['lifecycle','Lifecycle'],['cors','CORS']] as [tab, label]}
+{#each [['objects','Objects'],['uploads','Uploads'],['properties','Properties'],['tagging','Tags'],['permissions','Permissions'],['lifecycle','Lifecycle'],['cors','CORS']] as [tab, label]}
 <li class="me-2">
 <button
 onclick={() => switchTab(tab as typeof activeDetailTab)}
@@ -1440,6 +1420,16 @@ class={`font-medium rounded-lg text-sm px-4 py-2 transition-colors ${bucketEncry
     <div class="text-sm text-slate-500">Loading...</div>
   {:else if websiteConfig}
     <p class="text-sm text-slate-600 dark:text-slate-400 mb-3">Status: <span class="font-medium text-green-600 dark:text-green-400">Enabled</span></p>
+    {#if selectedBucket}
+    {@const websiteUrl = `http://${selectedBucket}.s3-website-${getStoredRegion() || 'us-east-1'}.amazonaws.com`}
+    <div class="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+      <p class="text-xs font-medium text-blue-700 dark:text-blue-300 mb-1">Website Endpoint</p>
+      <div class="flex items-center gap-2">
+        <a href={websiteUrl} target="_blank" rel="noopener noreferrer" class="text-sm font-mono text-blue-600 dark:text-blue-400 hover:underline break-all flex-1">{websiteUrl}</a>
+        <button onclick={() => navigator.clipboard.writeText(websiteUrl).then(() => toast.success('URL copied')).catch(() => {})} class="shrink-0 text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 border border-blue-300 dark:border-blue-700 rounded px-2 py-0.5">Copy</button>
+      </div>
+    </div>
+    {/if}
     <div class="space-y-2 mb-4">
       <div>
         <label for="website-index-doc" class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Index Document</label>
@@ -1450,13 +1440,6 @@ class={`font-medium rounded-lg text-sm px-4 py-2 transition-colors ${bucketEncry
         <label for="website-error-doc" class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Error Document</label>
         <input type="text" id="website-error-doc" bind:value={websiteConfig.ErrorDocument} placeholder="error.html"
           class="border border-slate-300 dark:border-slate-600 rounded-lg p-2 text-sm bg-slate-50 dark:bg-slate-700 dark:text-white w-48" />
-      </div>
-    </div>
-    <div class="mb-4 p-3 bg-slate-50 dark:bg-slate-900/40 rounded-lg border border-slate-200 dark:border-slate-700">
-      <p class="text-xs text-slate-500 dark:text-slate-400 mb-1">Website endpoint</p>
-      <div class="flex items-center gap-2">
-        <a href={websiteEndpointUrl()} target="_blank" rel="noopener noreferrer" class="text-sm font-mono text-blue-600 dark:text-blue-400 hover:underline break-all">{websiteEndpointUrl()}</a>
-        <button onclick={() => { navigator.clipboard.writeText(websiteEndpointUrl()).then(() => toast.success('URL copied')).catch(() => toast.error('Copy failed')); }} class="shrink-0 text-xs text-slate-400 hover:text-blue-500">Copy</button>
       </div>
     </div>
     <div class="flex gap-2">
@@ -1472,94 +1455,6 @@ class={`font-medium rounded-lg text-sm px-4 py-2 transition-colors ${bucketEncry
       Enable
     </button>
   {/if}
-</div>
-
-<!-- Server Access Logging -->
-<div class="p-6 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl">
-  <h3 class="text-base font-semibold text-slate-900 dark:text-white mb-3">Server Access Logging</h3>
-  {#if loadingLogging}
-    <div class="text-sm text-slate-500">Loading...</div>
-  {:else}
-    <label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300 mb-3">
-      <input type="checkbox" bind:checked={loggingEnabled} />
-      Enable access logging
-    </label>
-    {#if loggingEnabled}
-      <div class="space-y-2 mb-4">
-        <div>
-          <label for="logging-target-bucket" class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Target Bucket</label>
-          <input type="text" id="logging-target-bucket" bind:value={loggingTargetBucket} placeholder="log-bucket-name"
-            class="border border-slate-300 dark:border-slate-600 rounded-lg p-2 text-sm bg-slate-50 dark:bg-slate-700 dark:text-white w-64" />
-        </div>
-        <div>
-          <label for="logging-target-prefix" class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Target Prefix</label>
-          <input type="text" id="logging-target-prefix" bind:value={loggingTargetPrefix} placeholder="logs/"
-            class="border border-slate-300 dark:border-slate-600 rounded-lg p-2 text-sm bg-slate-50 dark:bg-slate-700 dark:text-white w-64" />
-        </div>
-      </div>
-    {/if}
-    <button onclick={saveLogging} disabled={savingLogging} class="text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 font-medium rounded-lg text-sm px-4 py-2">{savingLogging ? 'Saving...' : 'Save Logging Config'}</button>
-  {/if}
-</div>
-{/if}
-</div>
-
-{:else if activeDetailTab === 'analytics'}
-<!-- Storage Analytics Tab -->
-<div class="space-y-4">
-{#if analyticsLoading}
-<div class="text-center py-8 text-slate-500">Computing storage analytics...</div>
-{:else}
-<div class="p-6 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl">
-<div class="flex items-center justify-between mb-4">
-<h3 class="text-base font-semibold text-slate-900 dark:text-white">Storage Analytics</h3>
-<button onclick={loadAnalytics} class="text-sm text-blue-600 hover:text-blue-700">Refresh</button>
-</div>
-<div class="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
-<div class="p-3 bg-slate-50 dark:bg-slate-900/40 rounded-lg">
-<p class="text-xs text-slate-500 dark:text-slate-400">Total Size</p>
-<p class="text-lg font-bold text-slate-900 dark:text-white">{formatBytes(analyticsTotalBytes)}</p>
-</div>
-<div class="p-3 bg-slate-50 dark:bg-slate-900/40 rounded-lg">
-<p class="text-xs text-slate-500 dark:text-slate-400">Object Count</p>
-<p class="text-lg font-bold text-slate-900 dark:text-white">{analyticsTotalCount.toLocaleString()}</p>
-</div>
-<div class="p-3 bg-slate-50 dark:bg-slate-900/40 rounded-lg">
-<p class="text-xs text-slate-500 dark:text-slate-400">Top-level Prefixes</p>
-<p class="text-lg font-bold text-slate-900 dark:text-white">{analyticsByPrefix.length}</p>
-</div>
-</div>
-{#if analyticsTruncated}
-<p class="text-xs text-amber-600 dark:text-amber-400 mb-2">Showing first 10,000 objects; totals are partial for very large buckets.</p>
-{/if}
-{#if analyticsByPrefix.length === 0}
-<p class="text-sm text-slate-500 dark:text-slate-400">No objects in this bucket.</p>
-{:else}
-<table class="w-full text-sm">
-<thead class="text-xs text-slate-700 uppercase bg-slate-50 dark:bg-slate-700 dark:text-slate-400">
-<tr>
-<th class="px-4 py-2 text-left">Prefix</th>
-<th class="px-4 py-2 text-right">Objects</th>
-<th class="px-4 py-2 text-right">Size</th>
-<th class="px-4 py-2 text-left">Share</th>
-</tr>
-</thead>
-<tbody>
-{#each analyticsByPrefix as ps}
-<tr class="border-b dark:border-slate-600">
-<td class="px-4 py-2 font-mono text-slate-900 dark:text-white">{ps.prefix}</td>
-<td class="px-4 py-2 text-right text-slate-700 dark:text-slate-300">{ps.count.toLocaleString()}</td>
-<td class="px-4 py-2 text-right text-slate-700 dark:text-slate-300">{formatBytes(ps.bytes)}</td>
-<td class="px-4 py-2">
-<div class="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-2">
-<div class="bg-blue-500 h-2 rounded-full" style={`width: ${analyticsTotalBytes > 0 ? Math.max(2, Math.round((ps.bytes / analyticsTotalBytes) * 100)) : 0}%`}></div>
-</div>
-</td>
-</tr>
-{/each}
-</tbody>
-</table>
-{/if}
 </div>
 {/if}
 </div>
@@ -2154,5 +2049,70 @@ class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300
 </div>
 </div>
 </div>
+</div>
+{/if}
+
+<!-- Object Preview / Tag Editor Modal -->
+{#if previewObj}
+<div class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" role="none" onclick={(e) => { if (e.target === e.currentTarget) closePreview(); }}>
+	<div class="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-3xl max-h-[88vh] flex flex-col overflow-hidden">
+		<!-- Header -->
+		<div class="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 shrink-0">
+			<div class="min-w-0">
+				<p class="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-0.5">Object Preview</p>
+				<p class="text-sm font-mono font-semibold text-slate-900 dark:text-white truncate">{previewObj.Key}</p>
+			</div>
+			<div class="flex items-center gap-2 ml-4 shrink-0">
+				<button onclick={() => downloadObject(previewObj?.Key ?? "")} class="text-xs px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">Download</button>
+				<button onclick={closePreview} class="text-slate-400 hover:text-slate-600 text-2xl leading-none">&times;</button>
+			</div>
+		</div>
+		<div class="flex-1 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-700">
+			<!-- Preview section -->
+			<div class="p-5">
+				<h3 class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-3">Content</h3>
+				{#if previewLoading}
+					<div class="flex items-center justify-center py-12"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500"></div></div>
+				{:else if previewType === "image" && previewObjectUrl}
+					<div class="flex items-center justify-center bg-slate-100 dark:bg-slate-900 rounded-lg p-4 max-h-80 overflow-hidden">
+						<img src={previewObjectUrl} alt={previewObj.Key} class="max-h-72 max-w-full object-contain rounded" />
+					</div>
+				{:else if previewType === "json" && previewContent}
+					<pre class="text-xs font-mono text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg p-4 overflow-x-auto max-h-72 overflow-y-auto whitespace-pre-wrap">{previewContent}</pre>
+				{:else if previewType === "text" && previewContent !== null}
+					<textarea readonly value={previewContent} rows="12" class="w-full text-xs font-mono border border-slate-200 dark:border-slate-700 rounded-lg p-3 bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-300 resize-none focus:outline-none"></textarea>
+				{:else if previewContent}
+					<p class="text-sm text-slate-500 dark:text-slate-400 italic text-center py-6">{previewContent}</p>
+				{/if}
+			</div>
+			<!-- Tags section -->
+			<div class="p-5">
+				<div class="flex items-center justify-between mb-3">
+					<h3 class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Object Tags</h3>
+					<button onclick={() => { previewTags = [...previewTags, { Key: '', Value: '' }]; }} class="text-xs text-indigo-600 hover:text-indigo-800 font-medium">+ Add Tag</button>
+				</div>
+				{#if previewTagsLoading}
+					<p class="text-xs text-slate-400 animate-pulse">Loading tags…</p>
+				{:else if previewTags.length === 0}
+					<p class="text-xs text-slate-400 italic">No tags. Click "+ Add Tag" to add one.</p>
+				{:else}
+					<div class="space-y-2">
+						{#each previewTags as tag, i}
+						<div class="flex items-center gap-2">
+							<input type="text" bind:value={tag.Key} placeholder="Key" class="flex-1 text-xs border border-slate-200 dark:border-slate-700 rounded-lg p-2 bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+							<input type="text" bind:value={tag.Value} placeholder="Value" class="flex-1 text-xs border border-slate-200 dark:border-slate-700 rounded-lg p-2 bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+							<button onclick={() => { previewTags = previewTags.filter((_, j) => j !== i); }} class="p-1.5 text-slate-400 hover:text-red-500">✕</button>
+						</div>
+						{/each}
+					</div>
+				{/if}
+				{#if !previewTagsLoading}
+				<button onclick={saveObjectTags} disabled={previewTagsSaving} class="mt-3 px-4 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 text-xs font-medium">
+					{previewTagsSaving ? 'Saving…' : 'Save Tags'}
+				</button>
+				{/if}
+			</div>
+		</div>
+	</div>
 </div>
 {/if}

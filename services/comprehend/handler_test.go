@@ -330,8 +330,7 @@ func TestResourceCRUDAndTags(t *testing.T) {
 				)
 			}
 			if test.trainingType {
-				// Advance training lifecycle to TRAINED before delete.
-				// 1st Describe (above) moved SUBMITTED→IN_PROGRESS; this call moves IN_PROGRESS→TRAINED.
+				// Extra describe (no-op in status since emulator starts at TRAINED).
 				request(t, handler, "Describe"+test.prefix, map[string]any{test.arnField: resourceARN})
 			}
 			request(t, handler, "Delete"+test.prefix, map[string]any{test.arnField: resourceARN})

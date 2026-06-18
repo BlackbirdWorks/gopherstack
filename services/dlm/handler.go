@@ -195,6 +195,7 @@ func classifyPath(method, path string) string {
 func (h *Handler) handleCreateLifecyclePolicy(c *echo.Context, body []byte) error {
 	var req struct {
 		Tags             map[string]string `json:"Tags"`
+		PolicyDetails    map[string]any    `json:"PolicyDetails"`
 		Description      string            `json:"Description"`
 		ExecutionRoleArn string            `json:"ExecutionRoleArn"`
 		State            string            `json:"State"`
@@ -204,7 +205,9 @@ func (h *Handler) handleCreateLifecyclePolicy(c *echo.Context, body []byte) erro
 		return c.JSON(http.StatusBadRequest, errBody(errInvalidRequest, "invalid request body"))
 	}
 
-	policy, err := h.Backend.CreateLifecyclePolicy(req.Description, req.ExecutionRoleArn, req.State, req.Tags)
+	policy, err := h.Backend.CreateLifecyclePolicy(
+		req.Description, req.ExecutionRoleArn, req.State, req.Tags, req.PolicyDetails,
+	)
 	if err != nil {
 		return h.mapError(c, err)
 	}
@@ -265,6 +268,13 @@ func (h *Handler) handleGetLifecyclePolicy(c *echo.Context, policyID string) err
 		return h.mapError(c, err)
 	}
 
+	policyDetails := map[string]any{
+		"PolicyType": "EBS_SNAPSHOT_MANAGEMENT",
+	}
+	if policy.PolicyDetails != nil {
+		policyDetails = policy.PolicyDetails
+	}
+
 	return c.JSON(http.StatusOK, map[string]any{
 		"Policy": map[string]any{
 			"PolicyId":         policy.PolicyID,
@@ -275,6 +285,7 @@ func (h *Handler) handleGetLifecyclePolicy(c *echo.Context, policyID string) err
 			"DateCreated":      policy.DateCreated,
 			"DateModified":     policy.DateModified,
 			"Tags":             policy.Tags,
+			"PolicyDetails":    policyDetails,
 		},
 	})
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -44,6 +45,7 @@ const (
 	keyInvalidPath             = "invalid path"
 
 	// URL path prefix constants.
+	pathPolicies         = "/policies"
 	pathRuleDestinations = "/rule-destinations"
 )
 
@@ -373,10 +375,16 @@ func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations()
 // ChaosRegions returns all regions this IoT instance handles.
 func (h *Handler) ChaosRegions() []string { return []string{config.DefaultRegion} }
 
-// RouteMatcher returns a function matching IoT control-plane requests by path prefix.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
-		return matchIoTPath(c.Request().URL.Path)
+		path := c.Request().URL.Path
+		if path == pathPolicies || strings.HasPrefix(path, pathPolicies+"/") {
+			svc := httputils.ExtractServiceFromRequest(c.Request())
+
+			return svc == "" || svc == "iot"
+		}
+
+		return matchIoTPath(path)
 	}
 }
 
@@ -391,8 +399,8 @@ func matchCoreIoTPath(path string) bool {
 		strings.HasPrefix(path, "/rules/") ||
 		path == "/rules" ||
 		strings.HasPrefix(path, "/target-policies/") ||
-		strings.HasPrefix(path, "/policies/") ||
-		path == "/policies" ||
+		strings.HasPrefix(path, pathPolicies+"/") ||
+		path == pathPolicies ||
 		path == "/endpoint" ||
 		strings.HasPrefix(path, "/accept-certificate-transfer/") ||
 		strings.HasPrefix(path, "/packages/") ||
@@ -815,7 +823,7 @@ func resolvePolicyAndCertOps(path, method string) string {
 	case strings.HasPrefix(path, "/target-policies/") && method == http.MethodPut:
 
 		return opAttachPolicy
-	case path == "/policies" && method == http.MethodGet:
+	case path == pathPolicies && method == http.MethodGet:
 
 		return opListPolicies
 	case strings.HasPrefix(path, "/policies/") && method == http.MethodPost:

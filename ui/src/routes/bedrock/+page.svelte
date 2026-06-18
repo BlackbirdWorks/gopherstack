@@ -5,6 +5,7 @@
 		ListFoundationModelsCommand,
 		ListCustomModelsCommand,
 		GetFoundationModelCommand,
+		GetCustomModelCommand,
 		CreateCustomModelCommand,
 		ListGuardrailsCommand,
 		CreateGuardrailCommand,
@@ -12,7 +13,8 @@
 		type BedrockClient,
 		type FoundationModelSummary,
 		type CustomModelSummary,
-		type GuardrailSummary
+		type GuardrailSummary,
+		type GetCustomModelResponse
 	} from '@aws-sdk/client-bedrock';
 	import {
 		InvokeModelCommand,
@@ -155,6 +157,9 @@
 
 	// Custom Models
 	let customModels = $state<CustomModelSummary[]>([]);
+	let selectedCustomModel = $state<CustomModelSummary | null>(null);
+	let customModelDetail = $state<GetCustomModelResponse | null>(null);
+	let loadingCustomDetail = $state(false);
 	let showCreateCustomModel = $state(false);
 	let newCustomModelName = $state('');
 	let newCustomModelBase = $state('');
@@ -262,6 +267,21 @@
 		}
 	}
 
+	async function selectCustomModel(model: CustomModelSummary) {
+		selectedCustomModel = model;
+		customModelDetail = null;
+		if (!model.modelArn) return;
+		loadingCustomDetail = true;
+		try {
+			const res = await bedrock.send(new GetCustomModelCommand({ modelIdentifier: model.modelArn }));
+			customModelDetail = res as GetCustomModelResponse;
+		} catch (e) {
+			toast.error(`Failed to load custom model details: ${e}`);
+		} finally {
+			loadingCustomDetail = false;
+		}
+	}
+
 	async function createCustomModel() {
 		if (!newCustomModelName.trim()) {
 			toast.error('Model name is required');
@@ -329,6 +349,8 @@
 		activeTab = tab;
 		searchQuery = '';
 		selectedModel = null;
+		selectedCustomModel = null;
+		customModelDetail = null;
 		if (tab === 'foundation') await loadFoundationModels();
 		else if (tab === 'custom') await loadCustomModels();
 		else if (tab === 'guardrails') await loadGuardrails();
@@ -636,14 +658,19 @@
 						<tr>
 							<th class="px-4 py-3 text-left font-medium">Model Name</th>
 							<th class="px-4 py-3 text-left font-medium">Base Model</th>
+							<th class="px-4 py-3 text-left font-medium">Type</th>
 							<th class="px-4 py-3 text-left font-medium">Created</th>
 						</tr>
 					</thead>
 					<tbody class="divide-y">
 						{#each filteredCustom as model}
-							<tr class="hover:bg-muted/30">
+							<tr
+								class="hover:bg-muted/30 cursor-pointer"
+								onclick={() => selectCustomModel(model)}
+							>
 								<td class="px-4 py-3 font-medium">{model.modelName}</td>
-								<td class="px-4 py-3 text-muted-foreground text-xs font-mono">{model.baseModelArn}</td>
+								<td class="px-4 py-3 text-muted-foreground text-xs font-mono">{model.baseModelName ?? model.baseModelArn}</td>
+								<td class="px-4 py-3 text-muted-foreground text-xs">{model.customizationType ?? '—'}</td>
 								<td class="px-4 py-3 text-muted-foreground text-xs">
 									{model.creationTime ? new Date(model.creationTime).toLocaleDateString() : '—'}
 								</td>
@@ -652,6 +679,90 @@
 					</tbody>
 				</table>
 			</div>
+
+			<!-- Custom Model Detail -->
+			{#if selectedCustomModel}
+				<div class="rounded-lg border p-5 space-y-4">
+					<div class="flex items-center justify-between">
+						<div class="flex items-center gap-2">
+							<Cpu class="h-5 w-5 text-violet-500" />
+							<h3 class="font-semibold">{selectedCustomModel.modelName}</h3>
+						</div>
+						<button onclick={() => { selectedCustomModel = null; customModelDetail = null; }} class="text-xs text-muted-foreground hover:text-foreground">
+							Close
+						</button>
+					</div>
+					{#if loadingCustomDetail}
+						<div class="flex justify-center py-6">
+							<RefreshCw class="h-6 w-6 animate-spin text-muted-foreground" />
+						</div>
+					{:else if customModelDetail}
+						<div class="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
+							<div>
+								<p class="text-muted-foreground">Status</p>
+								<span class="rounded-full px-2 py-0.5 text-xs font-medium {statusBadge(customModelDetail.modelStatus)}">
+									{customModelDetail.modelStatus ?? '—'}
+								</span>
+							</div>
+							<div>
+								<p class="text-muted-foreground">Customization Type</p>
+								<p>{customModelDetail.customizationType ?? '—'}</p>
+							</div>
+							<div>
+								<p class="text-muted-foreground">Created</p>
+								<p>{customModelDetail.creationTime ? new Date(customModelDetail.creationTime).toLocaleDateString() : '—'}</p>
+							</div>
+							<div class="col-span-2 sm:col-span-3">
+								<p class="text-muted-foreground">Base Model ARN</p>
+								<p class="font-mono text-xs break-all">{customModelDetail.baseModelArn ?? '—'}</p>
+							</div>
+							{#if customModelDetail.jobArn}
+								<div class="col-span-2 sm:col-span-3">
+									<p class="text-muted-foreground">Job ARN</p>
+									<p class="font-mono text-xs break-all">{customModelDetail.jobArn}</p>
+								</div>
+							{/if}
+							{#if customModelDetail.failureMessage}
+								<div class="col-span-2 sm:col-span-3">
+									<p class="text-muted-foreground">Failure Reason</p>
+									<p class="text-red-600 dark:text-red-400 text-xs">{customModelDetail.failureMessage}</p>
+								</div>
+							{/if}
+						</div>
+						{#if customModelDetail.trainingMetrics}
+							<div>
+								<p class="text-sm font-medium mb-2">Training Metrics</p>
+								<div class="rounded-md bg-muted/30 px-4 py-3 text-sm">
+									Training Loss: <span class="font-mono">{customModelDetail.trainingMetrics.trainingLoss?.toFixed(4) ?? '—'}</span>
+								</div>
+							</div>
+						{/if}
+						{#if customModelDetail.hyperParameters && Object.keys(customModelDetail.hyperParameters).length > 0}
+							<div>
+								<p class="text-sm font-medium mb-2">Hyperparameters</p>
+								<div class="rounded-lg border overflow-hidden">
+									<table class="w-full text-sm">
+										<thead class="bg-muted/50">
+											<tr>
+												<th class="px-3 py-2 text-left font-medium">Key</th>
+												<th class="px-3 py-2 text-left font-medium">Value</th>
+											</tr>
+										</thead>
+										<tbody class="divide-y">
+											{#each Object.entries(customModelDetail.hyperParameters) as [k, v]}
+												<tr>
+													<td class="px-3 py-2 font-mono text-xs">{k}</td>
+													<td class="px-3 py-2 font-mono text-xs">{v}</td>
+												</tr>
+											{/each}
+										</tbody>
+									</table>
+								</div>
+							</div>
+						{/if}
+					{/if}
+				</div>
+			{/if}
 		{/if}
 	{/if}
 

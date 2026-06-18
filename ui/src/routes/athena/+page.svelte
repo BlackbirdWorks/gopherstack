@@ -7,6 +7,7 @@
 		StartQueryExecutionCommand,
 		GetQueryExecutionCommand,
 		GetQueryResultsCommand,
+		GetQueryRuntimeStatisticsCommand,
 		StopQueryExecutionCommand,
 		ListQueryExecutionsCommand,
 		ListSessionsCommand,
@@ -24,12 +25,13 @@
 		type DataCatalogSummary,
 		type QueryExecution,
 		type ResultSet,
+		type QueryRuntimeStatistics,
 		type SessionSummary,
 		type NotebookMetadata,
 		type PreparedStatementSummary
 	} from '@aws-sdk/client-athena';
 	import { toast } from 'svelte-sonner';
-	import { Search, RefreshCw, Play, XCircle, Database, Clock, ChevronRight, Table, BookOpen, Terminal, Save, Trash2, Bookmark } from 'lucide-svelte';
+	import { Search, RefreshCw, Play, XCircle, Database, Clock, ChevronRight, Table, BookOpen, Terminal, Save, Trash2, Bookmark, BarChart2, Download } from 'lucide-svelte';
 
 	const athena = getAthenaClient();
 
@@ -44,6 +46,8 @@
 	let currentQueryId = $state<string | null>(null);
 	let queryResults = $state<ResultSet | null>(null);
 	let queryStatus = $state<QueryExecution | null>(null);
+	let queryRuntimeStats = $state<QueryRuntimeStatistics | null>(null);
+	let showRuntimeStats = $state(false);
 	let pollingInterval: ReturnType<typeof setInterval> | undefined;
 
 	// Work Groups
@@ -96,6 +100,8 @@
 		queryExecuting = true;
 		queryResults = null;
 		queryStatus = null;
+		queryRuntimeStats = null;
+		showRuntimeStats = false;
 		currentQueryId = null;
 		try {
 			const resp = await athena.send(new StartQueryExecutionCommand({
@@ -126,7 +132,7 @@
 				if (state === 'SUCCEEDED') {
 					queryExecuting = false;
 					clearInterval(pollingInterval);
-					await loadResults(queryId);
+					await Promise.all([loadResults(queryId), loadRuntimeStats(queryId)]);
 				} else if (state === 'FAILED' || state === 'CANCELLED') {
 					queryExecuting = false;
 					clearInterval(pollingInterval);
@@ -156,6 +162,15 @@
 		}
 	}
 
+	async function loadRuntimeStats(queryId: string) {
+		try {
+			const resp = await athena.send(new GetQueryRuntimeStatisticsCommand({ QueryExecutionId: queryId }));
+			queryRuntimeStats = resp.QueryRuntimeStatistics ?? null;
+		} catch {
+			// non-critical, ignore
+		}
+	}
+
 	async function stopQuery() {
 		if (!currentQueryId) return;
 		try {
@@ -166,6 +181,37 @@
 		} catch (e) {
 			toast.error('Failed to stop query: ' + String(e));
 		}
+	}
+
+	function exportResults(format: 'csv' | 'json') {
+		if (!queryResults) return;
+		const headers = (queryResults.ResultSetMetadata?.ColumnInfo ?? []).map((c) => c.Name ?? '');
+		const rows = (queryResults.Rows ?? []).slice(1).map((r) => (r.Data ?? []).map((d) => d.VarCharValue ?? ''));
+
+		let content: string;
+		let mime: string;
+		let ext: string;
+
+		if (format === 'csv') {
+			content = [headers, ...rows]
+				.map((row) => row.map((v) => `"${v.replaceAll('"', '""')}"`).join(','))
+				.join('\n');
+			mime = 'text/csv';
+			ext = 'csv';
+		} else {
+			const data = rows.map((r) => Object.fromEntries(headers.map((h, i) => [h, r[i] ?? ''])));
+			content = JSON.stringify(data, null, 2);
+			mime = 'application/json';
+			ext = 'json';
+		}
+
+		const blob = new Blob([content], { type: mime });
+		const url = URL.createObjectURL(blob);
+		const a = document.createElement('a');
+		a.href = url;
+		a.download = `athena-results-${currentQueryId?.slice(0, 8) ?? 'export'}.${ext}`;
+		a.click();
+		URL.revokeObjectURL(url);
 	}
 
 	async function loadWorkgroups() {
@@ -368,6 +414,12 @@
 		return `${(n / 1073741824).toFixed(1)} GB`;
 	}
 
+	function formatMs(ms: number | undefined): string {
+		if (!ms) return '-';
+		if (ms < 1000) return `${ms}ms`;
+		return `${(ms / 1000).toFixed(2)}s`;
+	}
+
 	const columnHeaders = $derived(
 		(queryResults?.ResultSetMetadata?.ColumnInfo ?? []).map((c) => c.Name ?? '')
 	);
@@ -375,34 +427,9 @@
 		(queryResults?.Rows ?? []).slice(1).map((r) => (r.Data ?? []).map((d) => d.VarCharValue ?? ''))
 	);
 
-	function triggerDownload(content: string, filename: string, mime: string) {
-		const blob = new Blob([content], { type: mime });
-		const url = URL.createObjectURL(blob);
-		const a = document.createElement('a');
-		a.href = url;
-		a.download = filename;
-		a.click();
-		URL.revokeObjectURL(url);
-	}
-
-	function csvEscape(v: string): string {
-		return /[",\n]/.test(v) ? `"${v.replaceAll('"', '""')}"` : v;
-	}
-
-	function exportResultsCsv() {
-		const header = columnHeaders.map((c) => csvEscape(c)).join(',');
-		const body = resultRows.map((row) => row.map((v) => csvEscape(v)).join(',')).join('\n');
-		triggerDownload([header, body].filter(Boolean).join('\n'), 'athena-results.csv', 'text/csv');
-	}
-
-	function exportResultsJson() {
-		const objects = resultRows.map((row) =>
-			Object.fromEntries(columnHeaders.map((col, i) => [col, row[i] ?? '']))
-		);
-		triggerDownload(JSON.stringify(objects, null, 2), 'athena-results.json', 'application/json');
-	}
-
-	onMount(loadWorkgroups);
+	onMount(() => {
+		loadWorkgroups();
+	});
 
 	onDestroy(() => {
 		if (pollingInterval !== undefined) {
@@ -490,13 +517,86 @@
 				{#if queryExecuting}
 					<div class="animate-spin w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full"></div>
 				{/if}
-				<div>
+				<div class="flex-1">
 					<div class="font-medium text-sm">{queryStatus.Status?.State} {queryExecuting ? '- Running...' : ''}</div>
 					<div class="text-xs text-gray-500 mt-0.5">
 						Scanned: {formatBytes(queryStatus.Statistics?.DataScannedInBytes)} | Runtime: {((queryStatus.Statistics?.TotalExecutionTimeInMillis ?? 0) / 1000).toFixed(2)}s
 					</div>
 				</div>
+				{#if queryRuntimeStats}
+					<button
+						onclick={() => { showRuntimeStats = !showRuntimeStats; }}
+						class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-xs hover:bg-gray-50 dark:hover:bg-gray-800"
+					>
+						<BarChart2 class="w-3.5 h-3.5" /> {showRuntimeStats ? 'Hide' : 'Show'} Stats
+					</button>
+				{/if}
 			</div>
+
+			<!-- Execution Runtime Statistics -->
+			{#if showRuntimeStats && queryRuntimeStats}
+				<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4 space-y-4">
+					<div class="flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-300">
+						<BarChart2 class="w-4 h-4 text-teal-500" /> Execution Detail
+					</div>
+
+					<!-- Timeline -->
+					{#if queryRuntimeStats.Timeline}
+						<div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+							<div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+								<div class="text-xs text-gray-500 mb-1">Queue Time</div>
+								<div class="text-sm font-medium">{formatMs(queryRuntimeStats.Timeline.QueryQueueTimeInMillis)}</div>
+							</div>
+							<div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+								<div class="text-xs text-gray-500 mb-1">Planning Time</div>
+								<div class="text-sm font-medium">{formatMs(queryRuntimeStats.Timeline.QueryPlanningTimeInMillis)}</div>
+							</div>
+							<div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+								<div class="text-xs text-gray-500 mb-1">Execution Time</div>
+								<div class="text-sm font-medium">{formatMs(queryRuntimeStats.Timeline.EngineExecutionTimeInMillis)}</div>
+							</div>
+							<div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+								<div class="text-xs text-gray-500 mb-1">Service Processing</div>
+								<div class="text-sm font-medium">{formatMs(queryRuntimeStats.Timeline.ServiceProcessingTimeInMillis)}</div>
+							</div>
+						</div>
+					{/if}
+
+					<!-- Rows/Bytes -->
+					{#if queryRuntimeStats.Rows || queryRuntimeStats.OutputStage}
+						<div class="grid grid-cols-2 md:grid-cols-3 gap-4">
+							{#if queryRuntimeStats.Rows}
+								<div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+									<div class="text-xs text-gray-500 mb-1">Input Rows</div>
+									<div class="text-sm font-medium">{queryRuntimeStats.Rows.InputRows?.toLocaleString() ?? '-'}</div>
+								</div>
+								<div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+									<div class="text-xs text-gray-500 mb-1">Input Bytes</div>
+									<div class="text-sm font-medium">{formatBytes(queryRuntimeStats.Rows.InputBytes)}</div>
+								</div>
+								<div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+									<div class="text-xs text-gray-500 mb-1">Output Rows</div>
+									<div class="text-sm font-medium">{queryRuntimeStats.Rows.OutputRows?.toLocaleString() ?? '-'}</div>
+								</div>
+							{/if}
+						</div>
+					{/if}
+
+					<!-- Output Stage -->
+					{#if queryRuntimeStats.OutputStage}
+						{@const stage = queryRuntimeStats.OutputStage}
+						<div>
+							<div class="text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">Output Stage</div>
+							<div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+								<div><span class="text-gray-500">State:</span> <span class="font-medium">{stage.State ?? '-'}</span></div>
+								<div><span class="text-gray-500">Output Rows:</span> <span class="font-medium">{stage.OutputRows?.toLocaleString() ?? '-'}</span></div>
+								<div><span class="text-gray-500">Output Bytes:</span> <span class="font-medium">{formatBytes(stage.OutputBytes)}</span></div>
+								<div><span class="text-gray-500">Input Stages:</span> <span class="font-medium">{stage.SubStages?.length ?? 0}</span></div>
+							</div>
+						</div>
+					{/if}
+				</div>
+			{/if}
 		{/if}
 
 		<!-- Results -->
@@ -504,9 +604,13 @@
 			<div>
 				<div class="flex items-center justify-between mb-2">
 					<div class="text-sm font-semibold text-gray-700 dark:text-gray-300">Results ({resultRows.length} rows)</div>
-					<div class="flex items-center gap-2">
-						<button onclick={exportResultsCsv} class="px-2.5 py-1 text-xs rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">Export CSV</button>
-						<button onclick={exportResultsJson} class="px-2.5 py-1 text-xs rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">Export JSON</button>
+					<div class="flex gap-2">
+						<button onclick={() => exportResults('csv')} class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-xs hover:bg-gray-50 dark:hover:bg-gray-800">
+							<Download class="w-3.5 h-3.5" /> CSV
+						</button>
+						<button onclick={() => exportResults('json')} class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-xs hover:bg-gray-50 dark:hover:bg-gray-800">
+							<Download class="w-3.5 h-3.5" /> JSON
+						</button>
 					</div>
 				</div>
 				<div class="overflow-auto max-h-96 rounded-xl border border-gray-200 dark:border-gray-700">
@@ -806,6 +910,42 @@
 									{qe.Status?.State}
 								</span>
 								<button onclick={() => { queryText = qe.Query ?? ''; activeTab = 'query'; }} class="text-teal-600 text-xs hover:underline whitespace-nowrap">Reuse</button>
+							</div>
+						</div>
+					</div>
+				{/each}
+			</div>
+		{/if}
+	{/if}
+
+	<!-- SAVED QUERIES -->
+	{#if activeTab === 'saved'}
+		{#if savedQueries.length === 0}
+			<div class="text-center py-16 text-gray-500 dark:text-gray-400">
+				<Save class="w-12 h-12 mx-auto mb-3 opacity-40" />
+				<p class="font-medium">No saved queries</p>
+				<p class="text-sm mt-1">Save queries from the Query Editor using the Save button.</p>
+			</div>
+		{:else}
+			<div class="space-y-3">
+				{#each savedQueries as sq}
+					<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+						<div class="flex items-start justify-between gap-4">
+							<div class="flex-1 min-w-0">
+								<div class="font-medium text-sm text-gray-900 dark:text-white">{sq.Name}</div>
+								<code class="text-xs text-gray-500 truncate block mt-1">{sq.QueryString}</code>
+								<div class="flex gap-3 mt-2 text-xs text-gray-400">
+									<span>Workgroup: {sq.WorkGroup}</span>
+									<span>DB: {sq.Database}</span>
+								</div>
+							</div>
+							<div class="flex items-center gap-2 shrink-0">
+								<button onclick={() => loadSavedIntoEditor(sq)} class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-600 text-white hover:bg-teal-700 text-xs font-medium">
+									<Play class="w-3.5 h-3.5" /> Load
+								</button>
+								<button onclick={() => deleteNamedQuery(sq.NamedQueryId)} class="text-red-500 hover:text-red-700 p-1.5">
+									<Trash2 class="w-4 h-4" />
+								</button>
 							</div>
 						</div>
 					</div>

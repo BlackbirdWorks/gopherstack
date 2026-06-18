@@ -337,7 +337,6 @@ func isOmicsPath(path string) bool {
 		"/import/annotations",
 		"/import/variant",
 		"/import/variants",
-		"/tags/",
 		pathConfiguration,
 		"/s3accesspolicy/",
 	}
@@ -346,6 +345,12 @@ func isOmicsPath(path string) bool {
 		if path == p || strings.HasPrefix(path, p+"/") || strings.HasPrefix(path, p+"?") {
 			return true
 		}
+	}
+
+	// Match /tags/{arn} only for Omics-owned resources (arn:aws:omics:...).
+	// Other services (e.g. FIS) also expose /tags/{arn}; we must not steal their requests.
+	if rest, ok := strings.CutPrefix(path, "/tags/"); ok {
+		return strings.Contains(rest, ":omics:")
 	}
 
 	return false

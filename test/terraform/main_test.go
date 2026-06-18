@@ -26,6 +26,7 @@ import (
 	appconfigsvc "github.com/aws/aws-sdk-go-v2/service/appconfig"
 	appconfigdatasvc "github.com/aws/aws-sdk-go-v2/service/appconfigdata"
 	applicationautoscalingsvc "github.com/aws/aws-sdk-go-v2/service/applicationautoscaling"
+	apprunnersdkv2 "github.com/aws/aws-sdk-go-v2/service/apprunner"
 	appsyncsdkv2 "github.com/aws/aws-sdk-go-v2/service/appsync"
 	athenasdkv2 "github.com/aws/aws-sdk-go-v2/service/athena"
 	autoscalingsvc "github.com/aws/aws-sdk-go-v2/service/autoscaling"
@@ -49,9 +50,15 @@ import (
 	codestarconnectionssvc "github.com/aws/aws-sdk-go-v2/service/codestarconnections"
 	cognitoidentitysvc "github.com/aws/aws-sdk-go-v2/service/cognitoidentity"
 	cognitoidpsvc "github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
+	comprehendsvc "github.com/aws/aws-sdk-go-v2/service/comprehend"
 	configsvc "github.com/aws/aws-sdk-go-v2/service/configservice"
 	cesvc "github.com/aws/aws-sdk-go-v2/service/costexplorer"
 	dmssvc "github.com/aws/aws-sdk-go-v2/service/databasemigrationservice"
+	databrewsvc "github.com/aws/aws-sdk-go-v2/service/databrew"
+	datasyncsvc "github.com/aws/aws-sdk-go-v2/service/datasync"
+	detectivesvc "github.com/aws/aws-sdk-go-v2/service/detective"
+	directoryservicesvc "github.com/aws/aws-sdk-go-v2/service/directoryservice"
+	dlmsvc "github.com/aws/aws-sdk-go-v2/service/dlm"
 	docdbsvc "github.com/aws/aws-sdk-go-v2/service/docdb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	dynamodbstreamssvc "github.com/aws/aws-sdk-go-v2/service/dynamodbstreams"
@@ -70,6 +77,7 @@ import (
 	ebsvc "github.com/aws/aws-sdk-go-v2/service/eventbridge"
 	firehosesvc "github.com/aws/aws-sdk-go-v2/service/firehose"
 	fissvc "github.com/aws/aws-sdk-go-v2/service/fis"
+	forecastsvc "github.com/aws/aws-sdk-go-v2/service/forecast"
 	glaciersvc "github.com/aws/aws-sdk-go-v2/service/glacier"
 	gluesvc "github.com/aws/aws-sdk-go-v2/service/glue"
 	iamsvc "github.com/aws/aws-sdk-go-v2/service/iam"
@@ -82,23 +90,33 @@ import (
 	kmssvc "github.com/aws/aws-sdk-go-v2/service/kms"
 	lakeformationsvc "github.com/aws/aws-sdk-go-v2/service/lakeformation"
 	lambdasvc "github.com/aws/aws-sdk-go-v2/service/lambda"
+	macie2svc "github.com/aws/aws-sdk-go-v2/service/macie2"
 	mediaconvertsvc "github.com/aws/aws-sdk-go-v2/service/mediaconvert"
+	medialivesvcc "github.com/aws/aws-sdk-go-v2/service/medialive"
+	mediapackagesvc "github.com/aws/aws-sdk-go-v2/service/mediapackage"
 	mediastoresvc "github.com/aws/aws-sdk-go-v2/service/mediastore"
+	mediastoredatasvc "github.com/aws/aws-sdk-go-v2/service/mediastoredata"
+	mediatailorsvc "github.com/aws/aws-sdk-go-v2/service/mediatailor"
 	memorydbsvc "github.com/aws/aws-sdk-go-v2/service/memorydb"
 	mqsvc "github.com/aws/aws-sdk-go-v2/service/mq"
 	mwaasvc "github.com/aws/aws-sdk-go-v2/service/mwaa"
 	neptunesvc "github.com/aws/aws-sdk-go-v2/service/neptune"
 	opensearchsvc "github.com/aws/aws-sdk-go-v2/service/opensearch"
 	organizationssvc "github.com/aws/aws-sdk-go-v2/service/organizations"
+	personalizesvc "github.com/aws/aws-sdk-go-v2/service/personalize"
 	pinpointsvc "github.com/aws/aws-sdk-go-v2/service/pinpoint"
 	pipessvc "github.com/aws/aws-sdk-go-v2/service/pipes"
+	pollysvc "github.com/aws/aws-sdk-go-v2/service/polly"
+	quicksightsvc "github.com/aws/aws-sdk-go-v2/service/quicksight"
 	ramsvc "github.com/aws/aws-sdk-go-v2/service/ram"
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
 	rdsdatasvc "github.com/aws/aws-sdk-go-v2/service/rdsdata"
 	redshiftsvc "github.com/aws/aws-sdk-go-v2/service/redshift"
 	redshiftdatasvc "github.com/aws/aws-sdk-go-v2/service/redshiftdata"
+	rekognitionsvc "github.com/aws/aws-sdk-go-v2/service/rekognition"
 	resourcegroupssvc "github.com/aws/aws-sdk-go-v2/service/resourcegroups"
 	taggingsvc "github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi"
+	rolesanywheresvc "github.com/aws/aws-sdk-go-v2/service/rolesanywhere"
 	route53svc "github.com/aws/aws-sdk-go-v2/service/route53"
 	route53resolversvc "github.com/aws/aws-sdk-go-v2/service/route53resolver"
 	s3svc "github.com/aws/aws-sdk-go-v2/service/s3"
@@ -119,9 +137,12 @@ import (
 	supportsvc "github.com/aws/aws-sdk-go-v2/service/support"
 	swfsvc "github.com/aws/aws-sdk-go-v2/service/swf"
 	timestreamquerysvc "github.com/aws/aws-sdk-go-v2/service/timestreamquery"
+	transcribesvc "github.com/aws/aws-sdk-go-v2/service/transcribe"
 	transfersvc "github.com/aws/aws-sdk-go-v2/service/transfer"
+	translatesvc "github.com/aws/aws-sdk-go-v2/service/translate"
 	verifiedpermissionssvc "github.com/aws/aws-sdk-go-v2/service/verifiedpermissions"
 	vpclatticesvc "github.com/aws/aws-sdk-go-v2/service/vpclattice"
+	workmailsvc "github.com/aws/aws-sdk-go-v2/service/workmail"
 	xraysvc "github.com/aws/aws-sdk-go-v2/service/xray"
 
 	"github.com/moby/moby/client"
@@ -831,7 +852,13 @@ func warmProviderCache(logger *slog.Logger) {
 	// resolve provider checksums from the local plugin cache without
 	// contacting registry.opentofu.org. All variants pin the same
 	// hashicorp/aws version so the lock file is reusable across them.
-	preInitDirMain = warmWithHCL(tofuBinaryPath, tofuProviderCacheDir, providerBlock(endpoint), nil, logger)
+	preInitDirMain = warmWithHCL(
+		tofuBinaryPath,
+		tofuProviderCacheDir,
+		providerBlock(endpoint),
+		nil,
+		logger,
+	)
 
 	// Read the lock file produced by the main warm-up so that subsequent
 	// calls can skip the registry entirely.
@@ -2344,12 +2371,19 @@ func createVPCLatticeClient(t *testing.T) *vpclatticesvc.Client {
 }
 
 // createClientWithEndpoint is a helper to create an AWS client with a base endpoint.
-func createClientWithEndpoint[T any, O any](t *testing.T, newFn func(aws.Config, ...func(*O)) *T, endpoint string) *T {
+func createClientWithEndpoint[T any, O any](
+	t *testing.T,
+	newFn func(aws.Config, ...func(*O)) *T,
+	endpoint string,
+) *T {
 	t.Helper()
 
 	return newFn(createTestConfig(t), func(o *O) {
 		// Use reflection to set BaseEndpoint because service options are not common interfaces.
-		reflect.ValueOf(o).Elem().FieldByName("BaseEndpoint").Set(reflect.ValueOf(aws.String(endpoint)))
+		reflect.ValueOf(o).
+			Elem().
+			FieldByName("BaseEndpoint").
+			Set(reflect.ValueOf(aws.String(endpoint)))
 	})
 }
 
@@ -2370,6 +2404,7 @@ func createS3TablesClient(t *testing.T) *s3tablessvc.Client {
 	})
 }
 
+<<<<<<< HEAD
 func createBedrockAgentClient(t *testing.T) *bedrockagentsvc.Client {
 	t.Helper()
 
@@ -2385,4 +2420,133 @@ func createBedrockAgentClient(t *testing.T) *bedrockagentsvc.Client {
 	return bedrockagentsvc.NewFromConfig(cfg, func(o *bedrockagentsvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
+=======
+func createAppRunnerClient(t *testing.T) *apprunnersdkv2.Client {
+	t.Helper()
+
+	return createClientWithEndpoint(t, apprunnersdkv2.NewFromConfig, endpoint)
+}
+
+func createComprehendClient(t *testing.T) *comprehendsvc.Client {
+	t.Helper()
+
+	return createClientWithEndpoint(t, comprehendsvc.NewFromConfig, endpoint)
+}
+
+func createDataBrewClient(t *testing.T) *databrewsvc.Client {
+	t.Helper()
+
+	return createClientWithEndpoint(t, databrewsvc.NewFromConfig, endpoint)
+}
+
+func createDataSyncClient(t *testing.T) *datasyncsvc.Client {
+	t.Helper()
+
+	return createClientWithEndpoint(t, datasyncsvc.NewFromConfig, endpoint)
+}
+
+func createDetectiveClient(t *testing.T) *detectivesvc.Client {
+	t.Helper()
+
+	return createClientWithEndpoint(t, detectivesvc.NewFromConfig, endpoint)
+}
+
+func createDirectoryServiceClient(t *testing.T) *directoryservicesvc.Client {
+	t.Helper()
+
+	return createClientWithEndpoint(t, directoryservicesvc.NewFromConfig, endpoint)
+}
+
+func createDLMClient(t *testing.T) *dlmsvc.Client {
+	t.Helper()
+
+	return createClientWithEndpoint(t, dlmsvc.NewFromConfig, endpoint)
+}
+
+func createForecastClient(t *testing.T) *forecastsvc.Client {
+	t.Helper()
+
+	return createClientWithEndpoint(t, forecastsvc.NewFromConfig, endpoint)
+}
+
+func createMacie2Client(t *testing.T) *macie2svc.Client {
+	t.Helper()
+
+	return createClientWithEndpoint(t, macie2svc.NewFromConfig, endpoint)
+}
+
+func createMediaLiveClient(t *testing.T) *medialivesvcc.Client {
+	t.Helper()
+
+	return createClientWithEndpoint(t, medialivesvcc.NewFromConfig, endpoint)
+}
+
+func createMediaPackageClient(t *testing.T) *mediapackagesvc.Client {
+	t.Helper()
+
+	return createClientWithEndpoint(t, mediapackagesvc.NewFromConfig, endpoint)
+}
+
+// createMediaStoreDataClient returns a mediastoredata client. In gopherstack the
+// container data-plane is served at the same base endpoint as all other services,
+// so we ignore the container name and point directly at endpoint.
+func createMediaStoreDataClient(t *testing.T, _ string) *mediastoredatasvc.Client {
+	t.Helper()
+
+	return createClientWithEndpoint(t, mediastoredatasvc.NewFromConfig, endpoint)
+}
+
+func createMediaTailorClient(t *testing.T) *mediatailorsvc.Client {
+	t.Helper()
+
+	return createClientWithEndpoint(t, mediatailorsvc.NewFromConfig, endpoint)
+}
+
+func createPersonalizeClient(t *testing.T) *personalizesvc.Client {
+	t.Helper()
+
+	return createClientWithEndpoint(t, personalizesvc.NewFromConfig, endpoint)
+}
+
+func createPollyClient(t *testing.T) *pollysvc.Client {
+	t.Helper()
+
+	return createClientWithEndpoint(t, pollysvc.NewFromConfig, endpoint)
+}
+
+func createQuickSightClient(t *testing.T) *quicksightsvc.Client {
+	t.Helper()
+
+	return createClientWithEndpoint(t, quicksightsvc.NewFromConfig, endpoint)
+}
+
+func createRekognitionClient(t *testing.T) *rekognitionsvc.Client {
+	t.Helper()
+
+	return createClientWithEndpoint(t, rekognitionsvc.NewFromConfig, endpoint)
+}
+
+func createRolesAnywhereClient(t *testing.T) *rolesanywheresvc.Client {
+	t.Helper()
+
+	return createClientWithEndpoint(t, rolesanywheresvc.NewFromConfig, endpoint)
+}
+
+func createTranscribeClient(t *testing.T) *transcribesvc.Client {
+	t.Helper()
+
+	return createClientWithEndpoint(t, transcribesvc.NewFromConfig, endpoint)
+}
+
+func createTranslateClient(t *testing.T) *translatesvc.Client {
+	t.Helper()
+
+	return createClientWithEndpoint(t, translatesvc.NewFromConfig, endpoint)
+}
+
+func createWorkMailClient(t *testing.T) *workmailsvc.Client {
+	t.Helper()
+
+	return createClientWithEndpoint(t, workmailsvc.NewFromConfig, endpoint)
+>>>>>>> origin/main
 }

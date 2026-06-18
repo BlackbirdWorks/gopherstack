@@ -80,6 +80,7 @@ func TestBackend_Reset(t *testing.T) {
 					"arn:aws:iam::000000000000:role/r",
 					"ENABLED",
 					nil,
+					nil,
 				)
 				require.NoError(t, err)
 			}
@@ -123,6 +124,7 @@ func TestBackend_SnapshotAndRestore(t *testing.T) {
 				"arn:aws:iam::000000000000:role/r",
 				"ENABLED",
 				map[string]string{"k": "v"},
+				nil,
 			)
 			require.NoError(t, err)
 
@@ -777,7 +779,7 @@ func TestBackend_GetLifecyclePolicies_MultipleIDFilter(t *testing.T) {
 			b := dlm.NewInMemoryBackend("000000000000", "us-east-1")
 			var ids []string
 			for i := range tc.createN {
-				p, err := b.CreateLifecyclePolicy(fmt.Sprintf("desc-%d", i), "role", "ENABLED", nil)
+				p, err := b.CreateLifecyclePolicy(fmt.Sprintf("desc-%d", i), "role", "ENABLED", nil, nil)
 				require.NoError(t, err)
 				ids = append(ids, p.PolicyID)
 			}
@@ -836,6 +838,7 @@ func TestBackend_UpdateLifecyclePolicy_PartialUpdate(t *testing.T) {
 				"arn:aws:iam::000000000000:role/original",
 				"ENABLED",
 				nil,
+				nil,
 			)
 			require.NoError(t, err)
 
@@ -872,7 +875,7 @@ func TestBackend_CreateLifecyclePolicy_DefaultState(t *testing.T) {
 			t.Parallel()
 
 			b := dlm.NewInMemoryBackend("000000000000", "us-east-1")
-			p, err := b.CreateLifecyclePolicy("desc", "role", tc.state, nil)
+			p, err := b.CreateLifecyclePolicy("desc", "role", tc.state, nil, nil)
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantState, p.State)
 		})
@@ -911,7 +914,7 @@ func TestBackend_UntagResource_MultipleKeys(t *testing.T) {
 			t.Parallel()
 
 			b := dlm.NewInMemoryBackend("000000000000", "us-east-1")
-			p, err := b.CreateLifecyclePolicy("desc", "role", "ENABLED", tc.initTags)
+			p, err := b.CreateLifecyclePolicy("desc", "role", "ENABLED", tc.initTags, nil)
 			require.NoError(t, err)
 
 			err = b.UntagResource(p.PolicyArn, tc.removeKeys)

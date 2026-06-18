@@ -43,6 +43,8 @@
 	let selectedDatabase = $state<Database | null>(null);
 	let tables = $state<Table[]>([]);
 	let loadingTables = $state(false);
+	let selectedTable = $state<Table | null>(null);
+	let expandedCrawler = $state<string | null>(null);
 
 	// Jobs
 	let jobs = $state<Job[]>([]);
@@ -404,12 +406,78 @@
 	{#if activeTab === 'catalog'}
 		{#if selectedDatabase}
 			<div class="flex items-center gap-2 text-sm mb-4">
-				<button onclick={() => { selectedDatabase = null; tables = []; }} class="text-sky-600 hover:underline">Databases</button>
+				<button onclick={() => { selectedDatabase = null; tables = []; selectedTable = null; }} class="text-sky-600 hover:underline">Databases</button>
 				<ChevronRight class="w-4 h-4 text-gray-400" />
-				<span class="font-medium">{selectedDatabase.Name}</span>
+				{#if selectedTable}
+					<button onclick={() => (selectedTable = null)} class="text-sky-600 hover:underline">{selectedDatabase.Name}</button>
+					<ChevronRight class="w-4 h-4 text-gray-400" />
+					<span class="font-medium">{selectedTable.Name}</span>
+				{:else}
+					<span class="font-medium">{selectedDatabase.Name}</span>
+				{/if}
 			</div>
 
-			{#if loadingTables}
+			{#if selectedTable}
+				<!-- Table Detail -->
+				<div class="space-y-4">
+					<div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+						{#each [
+							{ label: 'Type', value: selectedTable.TableType ?? '-' },
+							{ label: 'Columns', value: String((selectedTable.StorageDescriptor?.Columns ?? []).length) },
+							{ label: 'Partition Keys', value: String((selectedTable.PartitionKeys ?? []).length) },
+							{ label: 'Created', value: formatDate(selectedTable.CreateTime) }
+						] as card}
+							<div class="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-3">
+								<div class="text-xs text-gray-500">{card.label}</div>
+								<div class="text-sm font-medium text-gray-900 dark:text-white mt-1">{card.value}</div>
+							</div>
+						{/each}
+					</div>
+					{#if selectedTable.StorageDescriptor?.Location}
+						<div class="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-3">
+							<div class="text-xs text-gray-500 mb-1">Location</div>
+							<div class="text-xs font-mono text-sky-600 dark:text-sky-400 break-all">{selectedTable.StorageDescriptor.Location}</div>
+						</div>
+					{/if}
+					{#if (selectedTable.StorageDescriptor?.Columns ?? []).length > 0}
+						<div>
+							<h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Schema</h3>
+							<div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+								<table class="w-full text-sm">
+									<thead class="bg-gray-50 dark:bg-gray-800 text-xs text-gray-500 uppercase">
+										<tr>
+											<th class="px-4 py-2 text-left">#</th>
+											<th class="px-4 py-2 text-left">Column</th>
+											<th class="px-4 py-2 text-left">Type</th>
+											<th class="px-4 py-2 text-left">Comment</th>
+										</tr>
+									</thead>
+									<tbody class="divide-y divide-gray-100 dark:divide-gray-800">
+										{#each selectedTable.StorageDescriptor?.Columns ?? [] as col, i}
+											<tr>
+												<td class="px-4 py-2 text-xs text-gray-400">{i + 1}</td>
+												<td class="px-4 py-2 font-mono text-xs font-medium text-gray-900 dark:text-white">{col.Name}</td>
+												<td class="px-4 py-2 font-mono text-xs text-sky-600 dark:text-sky-400">{col.Type ?? '-'}</td>
+												<td class="px-4 py-2 text-xs text-gray-500">{col.Comment ?? '-'}</td>
+											</tr>
+										{/each}
+									</tbody>
+								</table>
+							</div>
+						</div>
+					{/if}
+					{#if (selectedTable.PartitionKeys ?? []).length > 0}
+						<div>
+							<h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Partition Keys</h3>
+							<div class="flex flex-wrap gap-2">
+								{#each selectedTable.PartitionKeys ?? [] as pk}
+									<span class="px-2 py-1 text-xs font-mono bg-orange-50 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 rounded border border-orange-200 dark:border-orange-800">{pk.Name}: {pk.Type}</span>
+								{/each}
+							</div>
+						</div>
+					{/if}
+				</div>
+			{:else if loadingTables}
 				<div class="flex justify-center py-12"><div class="animate-spin w-8 h-8 border-4 border-sky-600 border-t-transparent rounded-full"></div></div>
 			{:else}
 				<div class="relative mb-4">
@@ -433,7 +501,9 @@
 							<tbody class="divide-y divide-gray-100 dark:divide-gray-800">
 								{#each filteredTables as tbl}
 									<tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50">
-										<td class="px-4 py-3 font-medium text-sky-600 dark:text-sky-400">{tbl.Name}</td>
+										<td class="px-4 py-3">
+											<button onclick={() => (selectedTable = tbl)} class="font-medium text-sky-600 dark:text-sky-400 hover:underline text-left">{tbl.Name}</button>
+										</td>
 										<td class="px-4 py-3 text-xs text-gray-500">{tbl.TableType ?? '-'}</td>
 										<td class="px-4 py-3 text-gray-600 dark:text-gray-400">{(tbl.StorageDescriptor?.Columns ?? []).length}</td>
 										<td class="px-4 py-3 font-mono text-xs text-gray-500 truncate max-w-xs">{tbl.StorageDescriptor?.Location ?? '-'}</td>
@@ -627,7 +697,9 @@
 					<tbody class="divide-y divide-gray-100 dark:divide-gray-800">
 						{#each filteredCrawlers as crawler}
 							<tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
-								<td class="px-4 py-3 font-medium">{crawler.Name}</td>
+								<td class="px-4 py-3 font-medium">
+									<button onclick={() => (expandedCrawler = expandedCrawler === crawler.Name ? null : crawler.Name ?? null)} class="text-sky-600 dark:text-sky-400 hover:underline text-left">{crawler.Name}</button>
+								</td>
 								<td class="px-4 py-3"><span class={`px-2 py-0.5 rounded text-xs font-medium ${crawlerStatusClass(crawler.State)}`}>{crawler.State}</span></td>
 								<td class="px-4 py-3 text-xs text-gray-500">{crawler.DatabaseName ?? '-'}</td>
 								<td class="px-4 py-3 text-xs">
@@ -655,6 +727,37 @@
 									<button onclick={() => deleteCrawler(crawler.Name ?? '')} class="text-red-400 hover:text-red-600 p-1" title="Delete"><Trash2 class="w-4 h-4" /></button>
 								</td>
 							</tr>
+							{#if expandedCrawler === crawler.Name}
+								<tr class="bg-sky-50/50 dark:bg-sky-900/10">
+									<td colspan="7" class="px-6 py-4">
+										<div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+											<div>
+												<p class="font-semibold text-gray-600 dark:text-gray-400 mb-1">IAM Role</p>
+												<p class="font-mono text-gray-700 dark:text-gray-300 break-all">{crawler.Role ?? '-'}</p>
+											</div>
+											<div>
+												<p class="font-semibold text-gray-600 dark:text-gray-400 mb-1">Last Crawl</p>
+												<p class="text-gray-700 dark:text-gray-300">{crawler.LastCrawl?.Status ?? '-'} {crawler.LastCrawl?.StartTime ? `at ${formatDate(crawler.LastCrawl.StartTime)}` : ''}</p>
+												{#if crawler.LastCrawl?.ErrorMessage}
+													<p class="text-red-500 mt-1">{crawler.LastCrawl.ErrorMessage}</p>
+												{/if}
+											</div>
+											<div>
+												<p class="font-semibold text-gray-600 dark:text-gray-400 mb-1">S3 Targets</p>
+												{#if (crawler.Targets?.S3Targets ?? []).length > 0}
+													<ul class="space-y-1">
+														{#each crawler.Targets?.S3Targets ?? [] as t}
+															<li class="font-mono text-sky-600 dark:text-sky-400 break-all">{t.Path ?? '-'}</li>
+														{/each}
+													</ul>
+												{:else}
+													<p class="text-gray-400">No S3 targets</p>
+												{/if}
+											</div>
+										</div>
+									</td>
+								</tr>
+							{/if}
 						{/each}
 					</tbody>
 				</table>

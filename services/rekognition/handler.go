@@ -547,11 +547,11 @@ type describeStreamProcessorReq struct {
 }
 
 type describeStreamProcessorResp struct {
-	CreationTimestamp  string `json:"CreationTimestamp"`
-	Name               string `json:"Name"`
-	RoleArn            string `json:"RoleArn"`
-	Status             string `json:"Status"`
-	StreamProcessorArn string `json:"StreamProcessorArn"`
+	Name               string  `json:"Name"`
+	RoleArn            string  `json:"RoleArn"`
+	Status             string  `json:"Status"`
+	StreamProcessorArn string  `json:"StreamProcessorArn"`
+	CreationTimestamp  float64 `json:"CreationTimestamp"`
 }
 
 func (h *Handler) handleDescribeStreamProcessor(
@@ -568,7 +568,7 @@ func (h *Handler) handleDescribeStreamProcessor(
 	}
 
 	return &describeStreamProcessorResp{
-		CreationTimestamp:  proc.CreationTimestamp.Format("2006-01-02T15:04:05.000Z"),
+		CreationTimestamp:  float64(proc.CreationTimestamp.Unix()),
 		Name:               proc.Name,
 		RoleArn:            proc.RoleARN,
 		Status:             proc.Status,
