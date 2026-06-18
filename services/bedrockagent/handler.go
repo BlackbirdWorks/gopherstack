@@ -335,6 +335,8 @@ func (h *Handler) dispatchAgentID(
 		return h.handleUpdateAgent(ctx, c, agentID, body)
 	case suffix == "" && method == http.MethodDelete:
 		return h.handleDeleteAgent(ctx, c, agentID)
+	case suffix == "" && method == http.MethodPost:
+		return h.handlePrepareAgent(ctx, c, agentID)
 	case suffix == "/prepare" && method == http.MethodPost:
 		return h.handlePrepareAgent(ctx, c, agentID)
 	case strings.HasPrefix(suffix, "/agentversions"):
