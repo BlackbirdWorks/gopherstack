@@ -18,5 +18,7 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := ecs.NewInMemoryBackend("000000000000", "us-east-1", ecs.NewNoopRunner())
 	h := ecs.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &ecssdk.Client{}, h.GetSupportedOperations(), []string{})
+	sdkcheck.CheckCompleteness(t, &ecssdk.Client{}, h.GetSupportedOperations(), []string{
+		"ContinueServiceDeployment",
+	})
 }

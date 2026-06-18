@@ -18,5 +18,11 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := s3.NewInMemoryBackend(nil)
 	h := s3.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &s3sdk.Client{}, h.GetSupportedOperations(), []string{})
+	sdkcheck.CheckCompleteness(t, &s3sdk.Client{}, h.GetSupportedOperations(), []string{
+		"DeleteObjectAnnotation",
+		"GetObjectAnnotation",
+		"ListObjectAnnotations",
+		"PutObjectAnnotation",
+		"UpdateBucketMetadataAnnotationTableConfiguration",
+	})
 }

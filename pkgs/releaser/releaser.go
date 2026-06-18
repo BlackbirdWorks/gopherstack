@@ -235,14 +235,9 @@ func attemptCopilotGeneration(ctx context.Context, token, modelName, prompt stri
 	defer client.Stop() //nolint:errcheck // CLI stop is best-effort on return
 
 	session, err := client.CreateSession(ctx, &copilot.SessionConfig{
-		Model:     modelName,
-		ConfigDir: configDir,
-		OnPermissionRequest: func(
-			_ copilot.PermissionRequest,
-			_ copilot.PermissionInvocation,
-		) (copilot.PermissionRequestResult, error) {
-			return copilot.PermissionRequestResult{Kind: copilot.PermissionRequestResultKindApproved}, nil
-		},
+		Model:               modelName,
+		ConfigDirectory:     configDir,
+		OnPermissionRequest: copilot.PermissionHandler.ApproveAll,
 	})
 	if err != nil {
 		return "", fmt.Errorf("failed to create copilot session: %w", err)

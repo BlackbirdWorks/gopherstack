@@ -197,7 +197,7 @@ func (b *InMemoryBackend) Region() string { return b.defaultRegion }
 func (b *InMemoryBackend) AccountID() string { return b.accountID }
 
 // storeFor returns the regionStore for the given region, creating it on first use.
-// Caller must hold b.mu.
+// Caller must hold b.mu write lock.
 func (b *InMemoryBackend) storeFor(region string) *regionStore {
 	if b.stores[region] == nil {
 		b.stores[region] = &regionStore{
@@ -205,6 +205,12 @@ func (b *InMemoryBackend) storeFor(region string) *regionStore {
 		}
 	}
 
+	return b.stores[region]
+}
+
+// storeForRead returns the regionStore for the given region, or nil if none exists.
+// Caller must hold b.mu (read or write). Does not create a store.
+func (b *InMemoryBackend) storeForRead(region string) *regionStore {
 	return b.stores[region]
 }
 
@@ -340,7 +346,11 @@ func (b *InMemoryBackend) DescribeStatement(ctx context.Context, id string) (*St
 	b.mu.RLock("DescribeStatement")
 	defer b.mu.RUnlock()
 
-	store := b.storeFor(region)
+	store := b.storeForRead(region)
+	if store == nil {
+		return nil, fmt.Errorf("%w: statement %s not found", ErrNotFound, id)
+	}
+
 	stmt, ok := store.statements[id]
 
 	if !ok {
@@ -376,6 +386,27 @@ func (b *InMemoryBackend) CancelStatement(ctx context.Context, id string) error 
 	return nil
 }
 
+// statementMatchesFilter reports whether stmt satisfies every set field of filter.
+func statementMatchesFilter(stmt *Statement, filter ListStatementsFilter) bool {
+	if filter.ClusterIdentifier != "" && stmt.ClusterIdentifier != filter.ClusterIdentifier {
+		return false
+	}
+
+	if filter.WorkgroupName != "" && stmt.WorkgroupName != filter.WorkgroupName {
+		return false
+	}
+
+	if filter.Database != "" && stmt.Database != filter.Database {
+		return false
+	}
+
+	if filter.StatementName != "" && !strings.HasPrefix(stmt.StatementName, filter.StatementName) {
+		return false
+	}
+
+	return matchesStatementStatus(stmt.Status, filter.Status)
+}
+
 // ListStatements returns statements sorted by creation time (newest first).
 // An omitted Status matches AWS by returning only finished statements.
 // Returns the page slice and a next-token string (non-empty when more pages exist).
@@ -388,31 +419,17 @@ func (b *InMemoryBackend) ListStatements(
 	b.mu.RLock("ListStatements")
 	defer b.mu.RUnlock()
 
-	store := b.storeFor(region)
+	store := b.storeForRead(region)
+	if store == nil {
+		return nil, "", nil
+	}
+
 	result := make([]*Statement, 0, len(store.statements))
 
 	for _, stmt := range store.statements {
-		if filter.ClusterIdentifier != "" && stmt.ClusterIdentifier != filter.ClusterIdentifier {
-			continue
+		if statementMatchesFilter(stmt, filter) {
+			result = append(result, cloneStatement(stmt))
 		}
-
-		if filter.WorkgroupName != "" && stmt.WorkgroupName != filter.WorkgroupName {
-			continue
-		}
-
-		if filter.Database != "" && stmt.Database != filter.Database {
-			continue
-		}
-
-		if filter.StatementName != "" && !strings.HasPrefix(stmt.StatementName, filter.StatementName) {
-			continue
-		}
-
-		if !matchesStatementStatus(stmt.Status, filter.Status) {
-			continue
-		}
-
-		result = append(result, cloneStatement(stmt))
 	}
 
 	sort.Slice(result, func(i, j int) bool {
