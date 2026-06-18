@@ -419,6 +419,7 @@ func (b *InMemoryBackend) DeleteApplication(ctx context.Context, name string) er
 	delete(b.arnIndexStore(region), app.ApplicationARN)
 	delete(apps, name)
 	delete(b.snapshotsStore(region), name)
+	delete(b.versionsStore(region), name)
 	if b.operations[region] != nil {
 		delete(b.operations[region], name)
 	}
