@@ -131,3 +131,19 @@ func SSHPublicKeyCount(b *InMemoryBackend) int {
 func HandlerOpsLen(h *Handler) int {
 	return len(h.ops)
 }
+
+// SSHKeyBodyIndexCount returns the total number of entries in the sshKeyBodies index.
+// This is exported for use in tests only.
+func SSHKeyBodyIndexCount(b *InMemoryBackend) int {
+	b.mu.RLock("SSHKeyBodyIndexCount")
+	defer b.mu.RUnlock()
+
+	n := 0
+	for _, userMap := range b.sshKeyBodies {
+		for _, bodyMap := range userMap {
+			n += len(bodyMap)
+		}
+	}
+
+	return n
+}

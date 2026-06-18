@@ -695,6 +695,8 @@ type InMemoryBackend struct {
 	certificates    map[string]*Certificate
 	hostKeys        map[string]map[string]*HostKey                 // serverID -> hostKeyID -> HostKey
 	sshPublicKeys   map[string]map[string]map[string]*SSHPublicKey // serverID -> userName -> keyID -> SSHPublicKey
+	// sshKeyBodies indexes normalized SSH key bodies for O(1) duplicate detection.
+	sshKeyBodies    map[string]map[string]map[string]struct{} // serverID -> userName -> normalizedBody -> {}
 	executions      map[string]map[string]*Execution               // workflowID -> executionID -> Execution
 	tagsStore       map[string]map[string]string                   // arn -> tags
 	transferRecords map[string]*FileTransferResult                 // transferID -> FileTransferResult
@@ -718,6 +720,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		certificates:    make(map[string]*Certificate),
 		hostKeys:        make(map[string]map[string]*HostKey),
 		sshPublicKeys:   make(map[string]map[string]map[string]*SSHPublicKey),
+		sshKeyBodies:    make(map[string]map[string]map[string]struct{}),
 		executions:      make(map[string]map[string]*Execution),
 		tagsStore:       make(map[string]map[string]string),
 		transferRecords: make(map[string]*FileTransferResult),
@@ -979,6 +982,7 @@ func (b *InMemoryBackend) DeleteServer(serverID string) error {
 	delete(b.accesses, serverID)
 	delete(b.agreements, serverID)
 	delete(b.sshPublicKeys, serverID)
+	delete(b.sshKeyBodies, serverID)
 	delete(b.hostKeys, serverID)
 
 	return nil
@@ -1323,6 +1327,10 @@ func (b *InMemoryBackend) DeleteUser(serverID, userName string) error {
 		delete(serverKeys, userName)
 	}
 
+	if serverBodies, exists := b.sshKeyBodies[serverID]; exists {
+		delete(serverBodies, userName)
+	}
+
 	return nil
 }
 
@@ -1458,6 +1466,7 @@ func (b *InMemoryBackend) Reset() {
 	b.certificates = make(map[string]*Certificate)
 	b.hostKeys = make(map[string]map[string]*HostKey)
 	b.sshPublicKeys = make(map[string]map[string]map[string]*SSHPublicKey)
+	b.sshKeyBodies = make(map[string]map[string]map[string]struct{})
 	b.executions = make(map[string]map[string]*Execution)
 	b.tagsStore = make(map[string]map[string]string)
 	b.transferRecords = make(map[string]*FileTransferResult)
@@ -2761,6 +2770,15 @@ func (b *InMemoryBackend) ImportSSHPublicKey(
 		b.sshPublicKeys[serverID][userName] = make(map[string]*SSHPublicKey)
 	}
 
+	// Lazily initialize the body index for this server/user.
+	if _, ok := b.sshKeyBodies[serverID]; !ok {
+		b.sshKeyBodies[serverID] = make(map[string]map[string]struct{})
+	}
+
+	if _, ok := b.sshKeyBodies[serverID][userName]; !ok {
+		b.sshKeyBodies[serverID][userName] = make(map[string]struct{})
+	}
+
 	// AWS limits each user to 50 SSH public keys.
 	const maxSSHPublicKeysPerUser = 50
 	if len(b.sshPublicKeys[serverID][userName]) >= maxSSHPublicKeysPerUser {
@@ -2773,17 +2791,15 @@ func (b *InMemoryBackend) ImportSSHPublicKey(
 		)
 	}
 
-	// Check for duplicate key body.
+	// Check for duplicate key body using O(1) index.
 	normalizedBody := strings.TrimSpace(sshPublicKeyBody)
-	for _, existing := range b.sshPublicKeys[serverID][userName] {
-		if strings.TrimSpace(existing.SSHPublicKeyBody) == normalizedBody {
-			return nil, fmt.Errorf(
-				"%w: SSH public key body already exists for user %s on server %s",
-				ErrSSHPublicKeyDuplicate,
-				userName,
-				serverID,
-			)
-		}
+	if _, dup := b.sshKeyBodies[serverID][userName][normalizedBody]; dup {
+		return nil, fmt.Errorf(
+			"%w: SSH public key body already exists for user %s on server %s",
+			ErrSSHPublicKeyDuplicate,
+			userName,
+			serverID,
+		)
 	}
 
 	keyID := "key-" + uuid.NewString()[:8]
@@ -2799,6 +2815,7 @@ func (b *InMemoryBackend) ImportSSHPublicKey(
 		DateImported:     time.Now(),
 	}
 	b.sshPublicKeys[serverID][userName][keyID] = k
+	b.sshKeyBodies[serverID][userName][normalizedBody] = struct{}{}
 
 	return &SSHPublicKey{
 		SSHPublicKeyID:   k.SSHPublicKeyID,
@@ -2826,8 +2843,13 @@ func (b *InMemoryBackend) DeleteSSHPublicKey(serverID, userName, sshPublicKeyID 
 		return fmt.Errorf("%w: SSH key %s not found", ErrSSHPublicKeyNotFound, sshPublicKeyID)
 	}
 
-	if _, exists := userKeys[sshPublicKeyID]; !exists {
+	k, exists := userKeys[sshPublicKeyID]
+	if !exists {
 		return fmt.Errorf("%w: SSH key %s not found", ErrSSHPublicKeyNotFound, sshPublicKeyID)
+	}
+
+	if bodyIndex := b.sshKeyBodies[serverID][userName]; bodyIndex != nil {
+		delete(bodyIndex, strings.TrimSpace(k.SSHPublicKeyBody))
 	}
 
 	delete(userKeys, sshPublicKeyID)

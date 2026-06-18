@@ -165,6 +165,9 @@ type InMemoryBackend struct {
 	vaultLocks            map[vaultKey]*VaultLock
 	provisionedCapacity   map[string][]*ProvisionedCapacity
 	dataRetrievalPolicies map[string]string
+	// vaultsByAccountRegion indexes vault names by accountID+region for O(1) ListVaults
+	// instead of a full scan of all vaults across every account and region.
+	vaultsByAccountRegion map[string]map[string]map[string]struct{} // accountID -> region -> vaultName -> {}
 	// retrievalDelay is the simulated asynchronous retrieval window applied to newly
 	// initiated jobs. Jobs stay InProgress until CreationDate+retrievalDelay, matching
 	// AWS, which does not make archive/inventory output available immediately.
@@ -183,6 +186,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		vaultLocks:            make(map[vaultKey]*VaultLock),
 		provisionedCapacity:   make(map[string][]*ProvisionedCapacity),
 		dataRetrievalPolicies: make(map[string]string),
+		vaultsByAccountRegion: make(map[string]map[string]map[string]struct{}),
 		retrievalDelay:        defaultRetrievalDelay,
 	}
 }

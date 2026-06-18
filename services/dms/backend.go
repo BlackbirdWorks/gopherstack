@@ -1394,6 +1394,7 @@ func (b *InMemoryBackend) Reset() {
 	b.dataProvidersByARN = make(map[string]map[string]*DataProvider)
 	b.eventSubscriptions = make(map[string]map[string]*EventSubscription)
 	b.fleetAdvisorCollectors = make(map[string]map[string]*FleetAdvisorCollector)
+	b.fleetAdvisorCollectorsByID = make(map[string]map[string]*FleetAdvisorCollector)
 	b.instanceProfiles = make(map[string]map[string]*InstanceProfile)
 	b.instanceProfilesByARN = make(map[string]map[string]*InstanceProfile)
 	b.certificates = make(map[string]map[string]*Certificate)
@@ -1761,15 +1762,13 @@ func (b *InMemoryBackend) DeleteDataMigration(ctx context.Context, nameOrArn str
 		return &cp, nil
 	}
 
-	for id, dm := range store {
-		if dm.DataMigrationArn == nameOrArn {
-			cp := *dm
-			dm.Tags.Close()
-			delete(byARN, nameOrArn)
-			delete(store, id)
+	if dm, ok := byARN[nameOrArn]; ok {
+		cp := *dm
+		dm.Tags.Close()
+		delete(store, dm.DataMigrationName)
+		delete(byARN, nameOrArn)
 
-			return &cp, nil
-		}
+		return &cp, nil
 	}
 
 	return nil, fmt.Errorf("%w: data migration %s not found", ErrNotFound, nameOrArn)
@@ -1793,15 +1792,13 @@ func (b *InMemoryBackend) DeleteDataProvider(ctx context.Context, nameOrArn stri
 		return &cp, nil
 	}
 
-	for id, dp := range store {
-		if dp.DataProviderArn == nameOrArn {
-			cp := *dp
-			dp.Tags.Close()
-			delete(byARN, nameOrArn)
-			delete(store, id)
+	if dp, ok := byARN[nameOrArn]; ok {
+		cp := *dp
+		dp.Tags.Close()
+		delete(store, dp.DataProviderName)
+		delete(byARN, nameOrArn)
 
-			return &cp, nil
-		}
+		return &cp, nil
 	}
 
 	return nil, fmt.Errorf("%w: data provider %s not found", ErrNotFound, nameOrArn)
@@ -1873,14 +1870,12 @@ func (b *InMemoryBackend) DeleteInstanceProfile(ctx context.Context, nameOrArn s
 		return nil
 	}
 
-	for name, ip := range store {
-		if ip.InstanceProfileArn == nameOrArn {
-			ip.Tags.Close()
-			delete(byARN, nameOrArn)
-			delete(store, name)
+	if ip, ok := byARN[nameOrArn]; ok {
+		ip.Tags.Close()
+		delete(store, ip.InstanceProfileName)
+		delete(byARN, nameOrArn)
 
-			return nil
-		}
+		return nil
 	}
 
 	return fmt.Errorf("%w: instance profile %s not found", ErrNotFound, nameOrArn)
@@ -2018,15 +2013,13 @@ func (b *InMemoryBackend) ModifyDataProvider(
 // findDataProvider locates a data provider by name or ARN within the request
 // region (must hold a lock).
 func (b *InMemoryBackend) findDataProvider(ctx context.Context, nameOrArn string) *DataProvider {
-	store := b.dataProvidersStore(getRegion(ctx, b.region))
-	if dp, ok := store[nameOrArn]; ok {
+	region := getRegion(ctx, b.region)
+	if dp, ok := b.dataProvidersStore(region)[nameOrArn]; ok {
 		return dp
 	}
 
-	for _, dp := range store {
-		if dp.DataProviderArn == nameOrArn {
-			return dp
-		}
+	if dp, ok := b.dataProvidersByARNStore(region)[nameOrArn]; ok {
+		return dp
 	}
 
 	return nil
@@ -2090,15 +2083,13 @@ func (b *InMemoryBackend) ModifyInstanceProfile(
 // findInstanceProfile locates an instance profile by name or ARN within the
 // request region (must hold a lock).
 func (b *InMemoryBackend) findInstanceProfile(ctx context.Context, nameOrArn string) *InstanceProfile {
-	store := b.instanceProfilesStore(getRegion(ctx, b.region))
-	if ip, ok := store[nameOrArn]; ok {
+	region := getRegion(ctx, b.region)
+	if ip, ok := b.instanceProfilesStore(region)[nameOrArn]; ok {
 		return ip
 	}
 
-	for _, ip := range store {
-		if ip.InstanceProfileArn == nameOrArn {
-			return ip
-		}
+	if ip, ok := b.instanceProfilesByARNStore(region)[nameOrArn]; ok {
+		return ip
 	}
 
 	return nil
