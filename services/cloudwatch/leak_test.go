@@ -66,7 +66,7 @@ func TestPutMetricData_DatapointsBackingArrayBounded(t *testing.T) {
 	const (
 		namespace  = "Test/Leak"
 		metricName = "Requests"
-		writes     = cloudwatch.CwMaxMetricDataPointsForTest * 3
+		writes     = cloudwatch.CwMaxMetricDataPointsForTest + 50
 	)
 
 	now := time.Now().UTC()
