@@ -336,30 +336,30 @@ type InMemoryBackend struct {
 	// lookups in ListChildren and DeleteOrganizationalUnit.
 	accountChildrenByParent map[string]map[string]bool
 	mu                      *lockmetrics.RWMutex
-	region         string
-	accountID      string
-	accountCounter int
-	statusCounter  int
+	region                  string
+	accountID               string
+	accountCounter          int
+	statusCounter           int
 }
 
 // NewInMemoryBackend creates a new in-memory Organizations backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		accountID:        accountID,
-		region:           region,
-		accounts:         make(map[string]*Account),
-		ous:              make(map[string]*OrganizationalUnit),
-		policies:         make(map[string]*Policy),
-		policyTargets:    make(map[string][]string),
-		targetPolicies:   make(map[string][]string),
-		accountParent:    make(map[string]string),
-		ouParent:         make(map[string]string),
-		tags:             make(map[string]map[string]string),
-		createStatuses:   make(map[string]*CreateAccountStatus),
-		serviceAccess:    make(map[string]time.Time),
-		delegatedAdmins:  make(map[string]map[string]*DelegatedAdmin),
-		handshakes:       make(map[string]*Handshake),
-		emailToAccountID: make(map[string]string),
+		accountID:               accountID,
+		region:                  region,
+		accounts:                make(map[string]*Account),
+		ous:                     make(map[string]*OrganizationalUnit),
+		policies:                make(map[string]*Policy),
+		policyTargets:           make(map[string][]string),
+		targetPolicies:          make(map[string][]string),
+		accountParent:           make(map[string]string),
+		ouParent:                make(map[string]string),
+		tags:                    make(map[string]map[string]string),
+		createStatuses:          make(map[string]*CreateAccountStatus),
+		serviceAccess:           make(map[string]time.Time),
+		delegatedAdmins:         make(map[string]map[string]*DelegatedAdmin),
+		handshakes:              make(map[string]*Handshake),
+		emailToAccountID:        make(map[string]string),
 		ousByParent:             make(map[string]map[string]string),
 		accountChildrenByParent: make(map[string]map[string]bool),
 		accountCounter:          managementAccountCounter,

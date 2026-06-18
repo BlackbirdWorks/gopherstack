@@ -684,23 +684,23 @@ type Execution struct {
 
 // InMemoryBackend is the in-memory store for Transfer resources.
 type InMemoryBackend struct {
-	servers         map[string]*Server
-	users           map[string]map[string]*User      // serverID -> userName -> User
-	accesses        map[string]map[string]*Access    // serverID -> externalID -> Access
-	agreements      map[string]map[string]*Agreement // serverID -> agreementID -> Agreement
-	connectors      map[string]*Connector
-	profiles        map[string]*Profile
-	webApps         map[string]*WebApp
-	workflows       map[string]*Workflow
-	certificates    map[string]*Certificate
-	hostKeys        map[string]map[string]*HostKey                 // serverID -> hostKeyID -> HostKey
-	sshPublicKeys   map[string]map[string]map[string]*SSHPublicKey // serverID -> userName -> keyID -> SSHPublicKey
+	servers       map[string]*Server
+	users         map[string]map[string]*User      // serverID -> userName -> User
+	accesses      map[string]map[string]*Access    // serverID -> externalID -> Access
+	agreements    map[string]map[string]*Agreement // serverID -> agreementID -> Agreement
+	connectors    map[string]*Connector
+	profiles      map[string]*Profile
+	webApps       map[string]*WebApp
+	workflows     map[string]*Workflow
+	certificates  map[string]*Certificate
+	hostKeys      map[string]map[string]*HostKey                 // serverID -> hostKeyID -> HostKey
+	sshPublicKeys map[string]map[string]map[string]*SSHPublicKey // serverID -> userName -> keyID -> SSHPublicKey
 	// sshKeyBodies indexes normalized SSH key bodies for O(1) duplicate detection.
 	sshKeyBodies    map[string]map[string]map[string]struct{} // serverID -> userName -> normalizedBody -> {}
-	executions      map[string]map[string]*Execution               // workflowID -> executionID -> Execution
-	tagsStore       map[string]map[string]string                   // arn -> tags
-	transferRecords map[string]*FileTransferResult                 // transferID -> FileTransferResult
-	asyncOperations map[string]*AsyncOperationRecord               // operationID -> AsyncOperationRecord
+	executions      map[string]map[string]*Execution          // workflowID -> executionID -> Execution
+	tagsStore       map[string]map[string]string              // arn -> tags
+	transferRecords map[string]*FileTransferResult            // transferID -> FileTransferResult
+	asyncOperations map[string]*AsyncOperationRecord          // operationID -> AsyncOperationRecord
 	mu              *lockmetrics.RWMutex
 	accountID       string
 	region          string

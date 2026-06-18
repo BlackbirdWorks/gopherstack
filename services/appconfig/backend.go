@@ -51,17 +51,17 @@ type InMemoryBackend struct {
 	versionCounters       map[string]map[string]int32
 	deploymentCounters    map[string]map[string]int32
 	// Name-to-ID indexes for O(1) uniqueness checks and name-based resolution.
-	applicationsByName       map[string]string            // name → ID
-	environmentsByName       map[string]map[string]string // appID → name → envID
-	configProfilesByName     map[string]map[string]string // appID → name → profileID
-	deploymentStrategiesByName map[string]string          // name → ID
-	extensionsByName         map[string]string            // name → ID
+	applicationsByName         map[string]string            // name → ID
+	environmentsByName         map[string]map[string]string // appID → name → envID
+	configProfilesByName       map[string]map[string]string // appID → name → profileID
+	deploymentStrategiesByName map[string]string            // name → ID
+	extensionsByName           map[string]string            // name → ID
 	// versionLabelIndex enables O(1) label uniqueness checks for hosted config versions.
 	versionLabelIndex map[string]map[string]map[string]struct{} // appID → profileID → label → {}
-	mu                    *lockmetrics.RWMutex
-	paginationSecret      string
-	accountID             string
-	region                string
+	mu                *lockmetrics.RWMutex
+	paginationSecret  string
+	accountID         string
+	region            string
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend for AppConfig.

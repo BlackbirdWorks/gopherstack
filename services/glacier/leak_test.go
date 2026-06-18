@@ -47,7 +47,8 @@ func TestDeleteVault_IndexBounded(t *testing.T) {
 			}
 
 			require.Equal(t, 0, glacier.VaultCount(b), "vault store must be empty after delete")
-			require.Equal(t, 0, glacier.VaultIndexCount(b, accountID, region), "vault index must be empty after delete — no leak")
+			require.Equal(t, 0, glacier.VaultIndexCount(b, accountID, region),
+				"vault index must be empty after delete — no leak")
 		})
 	}
 }

@@ -40,7 +40,7 @@ func (b *InMemoryBackend) DeploymentStrategyCount() int {
 	return len(b.deploymentStrategies)
 }
 
-// DeploymentStrategyByNameCount returns the number of entries in the deployment strategy name index. Used only in tests.
+// DeploymentStrategyByNameCount returns the count of deployment strategy name index entries.
 func (b *InMemoryBackend) DeploymentStrategyByNameCount() int {
 	b.mu.RLock("DeploymentStrategyByNameCount")
 	defer b.mu.RUnlock()

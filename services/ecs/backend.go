@@ -306,8 +306,8 @@ type InMemoryBackend struct {
 	// getServicesForReconciler, avoiding the double nested-map loop + counting pass.
 	serviceIndex map[svcRef]bool
 	mu           *lockmetrics.RWMutex
-	accountID       string
-	region          string
+	accountID    string
+	region       string
 }
 
 // TaskRunner is the interface for launching container tasks.

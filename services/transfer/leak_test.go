@@ -44,8 +44,8 @@ func TestImportSSHPublicKey_BodyIndexBounded(t *testing.T) {
 			keyIDs := make([]string, 0, len(tc.keys))
 
 			for _, body := range tc.keys {
-				k, err := b.ImportSSHPublicKey(srv.ServerID, "alice", body)
-				require.NoError(t, err)
+				k, importErr := b.ImportSSHPublicKey(srv.ServerID, "alice", body)
+				require.NoError(t, importErr)
 				keyIDs = append(keyIDs, k.SSHPublicKeyID)
 			}
 
@@ -53,8 +53,8 @@ func TestImportSSHPublicKey_BodyIndexBounded(t *testing.T) {
 			require.Equal(t, len(tc.keys), transfer.SSHKeyBodyIndexCount(b), "body index before delete")
 
 			for _, id := range keyIDs {
-				err := b.DeleteSSHPublicKey(srv.ServerID, "alice", id)
-				require.NoError(t, err)
+				deleteErr := b.DeleteSSHPublicKey(srv.ServerID, "alice", id)
+				require.NoError(t, deleteErr)
 			}
 
 			require.Equal(t, 0, transfer.SSHPublicKeyCount(b), "key store must be empty after delete")
