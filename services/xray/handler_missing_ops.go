@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 const (
@@ -136,6 +138,7 @@ func (h *Handler) handleGetTraceSegmentDestination(_ context.Context, _ []byte) 
 type listRetrievedTracesInput struct {
 	RetrievalToken string `json:"RetrievalToken"`
 	NextToken      string `json:"NextToken"`
+	MaxResults     int    `json:"MaxResults"`
 }
 
 func (h *Handler) handleListRetrievedTraces(_ context.Context, body []byte) ([]byte, error) {
@@ -161,11 +164,16 @@ func (h *Handler) handleListRetrievedTraces(_ context.Context, body []byte) ([]b
 		})
 	}
 
-	return json.Marshal(map[string]any{
+	pg := page.New(traceViews, in.NextToken, in.MaxResults, 100)
+	resp := map[string]any{
 		"RetrievalStatus": status,
-		"Traces":          traceViews,
-		keyNextToken:      "",
-	})
+		"Traces":          pg.Data,
+	}
+	if pg.Next != "" {
+		resp[keyNextToken] = pg.Next
+	}
+
+	return json.Marshal(resp)
 }
 
 // --- ListTagsForResource ---

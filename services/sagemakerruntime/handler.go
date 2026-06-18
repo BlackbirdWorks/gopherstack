@@ -7,7 +7,6 @@ import (
 	"math"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -225,7 +224,7 @@ func setSessionResponseHeader(c *echo.Context, backend *InMemoryBackend, endpoin
 	}
 
 	session := backend.StartSession(endpointName)
-	c.Response().Header().Set(headerNewSessionID, session.ID+"; Expires="+session.ExpiresAt.Format(time.RFC3339))
+	c.Response().Header().Set(headerNewSessionID, session.ID+"; Expires="+session.ExpiresAt.UTC().Format("Mon, 02 Jan 2006 15:04:05 GMT"))
 }
 
 func setForwardedHeader(c *echo.Context, header string) {

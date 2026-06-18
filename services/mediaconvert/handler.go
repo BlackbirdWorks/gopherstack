@@ -11,6 +11,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -861,11 +862,15 @@ func (h *Handler) handleListJobs(c *echo.Context) error {
 		}
 	}
 
-	if maxResults > 0 && len(jobs) > maxResults {
-		jobs = jobs[:maxResults]
+	nextTokenIn := q.Get("nextToken")
+	pg := page.New(jobs, nextTokenIn, maxResults, 20)
+
+	out := jobsListOutput{Jobs: pg.Data, TotalCount: len(jobs)}
+	if pg.Next != "" {
+		out.NextToken = pg.Next
 	}
 
-	return c.JSON(http.StatusOK, jobsListOutput{Jobs: jobs, TotalCount: len(jobs)})
+	return c.JSON(http.StatusOK, out)
 }
 
 func (h *Handler) handleCancelJob(c *echo.Context, id string) error {
@@ -1259,11 +1264,15 @@ func (h *Handler) handleSearchJobs(c *echo.Context) error {
 		}
 	}
 
-	if maxResults > 0 && len(filtered) > maxResults {
-		filtered = filtered[:maxResults]
+	nextTokenIn := q.Get("nextToken")
+	pg := page.New(filtered, nextTokenIn, maxResults, 20)
+
+	out := searchJobsOutput{Jobs: pg.Data}
+	if pg.Next != "" {
+		out.NextToken = pg.Next
 	}
 
-	return c.JSON(http.StatusOK, searchJobsOutput{Jobs: filtered})
+	return c.JSON(http.StatusOK, out)
 }
 
 // --- StartJobsQuery handler ---

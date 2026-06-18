@@ -12,6 +12,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -192,7 +193,7 @@ func (h *Handler) execute(spec operationSpec, input map[string]any) (map[string]
 		return map[string]any{}, nil
 	case modeList:
 
-		return listOutput(spec, h.Backend.list(spec.kind)), nil
+		return listOutput(spec, h.Backend.list(spec.kind), input), nil
 	default:
 
 		return nil, fmt.Errorf("%w: unsupported operation mode", ErrValidation)
@@ -308,13 +309,24 @@ func resourceOutput(spec operationSpec, resource *Resource) map[string]any {
 	return output
 }
 
-func listOutput(spec operationSpec, resources []*Resource) map[string]any {
+func listOutput(spec operationSpec, resources []*Resource, input map[string]any) map[string]any {
+	maxResults := 0
+	if mr, ok := input["MaxResults"].(float64); ok {
+		maxResults = int(mr)
+	}
+	nextToken, _ := input["NextToken"].(string)
+
 	summaries := make([]map[string]any, 0, len(resources))
-	for _, resource := range resources {
-		summaries = append(summaries, resourceOutput(spec, resource))
+	for _, r := range resources {
+		summaries = append(summaries, resourceOutput(spec, r))
 	}
 
-	return map[string]any{spec.listField: summaries}
+	pg := page.New(summaries, nextToken, maxResults, 100)
+	out := map[string]any{spec.listField: pg.Data}
+	if pg.Next != "" {
+		out["NextToken"] = pg.Next
+	}
+	return out
 }
 
 func createFails(kind resourceKind, input map[string]any) bool {

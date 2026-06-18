@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -482,7 +483,8 @@ func (h *Handler) handleDeleteChannel(c *echo.Context, id string) error {
 }
 
 func (h *Handler) handleListChannels(c *echo.Context) error {
-	channels, nextToken, err := h.Backend.ListChannels(0, "")
+	maxResults := parseMediaPkgMaxResults(c.QueryParam("maxResults"))
+	channels, nextToken, err := h.Backend.ListChannels(maxResults, c.QueryParam("nextToken"))
 	if err != nil {
 		return h.mapError(c, err)
 	}
@@ -604,7 +606,8 @@ func (h *Handler) handleDeleteOriginEndpoint(c *echo.Context, id string) error {
 func (h *Handler) handleListOriginEndpoints(c *echo.Context) error {
 	channelID := c.QueryParam("channelId")
 
-	endpoints, nextToken, err := h.Backend.ListOriginEndpoints(channelID, 0, "")
+	maxResults := parseMediaPkgMaxResults(c.QueryParam("maxResults"))
+	endpoints, nextToken, err := h.Backend.ListOriginEndpoints(channelID, maxResults, c.QueryParam("nextToken"))
 	if err != nil {
 		return h.mapError(c, err)
 	}
@@ -744,7 +747,8 @@ func (h *Handler) handleListHarvestJobs(c *echo.Context) error {
 	includeChannelID := c.QueryParam("includeChannelId")
 	includeStatus := c.QueryParam("includeStatus")
 
-	jobs, nextToken, err := h.Backend.ListHarvestJobs(includeChannelID, includeStatus, 0, "")
+	maxResults := parseMediaPkgMaxResults(c.QueryParam("maxResults"))
+	jobs, nextToken, err := h.Backend.ListHarvestJobs(includeChannelID, includeStatus, maxResults, c.QueryParam("nextToken"))
 	if err != nil {
 		return h.mapError(c, err)
 	}
@@ -828,4 +832,13 @@ func stringsFromBody(body map[string]any, key string) []string {
 	}
 
 	return result
+}
+
+// parseMediaPkgMaxResults converts a query-parameter string to a non-negative int.
+func parseMediaPkgMaxResults(s string) int {
+	n, err := strconv.Atoi(s)
+	if err != nil || n < 0 {
+		return 0
+	}
+	return n
 }
