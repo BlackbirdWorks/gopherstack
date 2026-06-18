@@ -19,10 +19,10 @@ func TestSeedFinding_Defaults(t *testing.T) {
 
 	tests := []struct {
 		name         string
-		in           inspector2.Finding
 		wantSeverity string
 		wantStatus   string
 		wantType     string
+		in           inspector2.Finding
 		wantErr      bool
 	}{
 		{
