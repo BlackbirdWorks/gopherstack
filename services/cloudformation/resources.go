@@ -587,10 +587,10 @@ func (rc *ResourceCreator) createDataPlatformResource(
 	case "AWS::CloudWatch::CompositeAlarm":
 
 		return rc.createCloudWatchCompositeAlarm(logicalID, props, params, physicalIDs)
-	case "AWS::Route53::HostedZone":
+	case resTypeRoute53HostedZone:
 
 		return rc.createRoute53HostedZone(logicalID, props, params, physicalIDs)
-	case "AWS::Route53::RecordSet":
+	case resTypeRoute53RecordSet:
 
 		return rc.createRoute53RecordSet(logicalID, props, params, physicalIDs)
 	case "AWS::Route53::HealthCheck":
@@ -970,6 +970,22 @@ func (rc *ResourceCreator) createPhase3DataResource(
 	}
 }
 
+// createELBv2Resource handles ELBv2 resource creation.
+func (rc *ResourceCreator) createELBv2Resource(
+	logicalID, resourceType string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, error) {
+	switch resourceType {
+	case resTypeELBv2LB:
+		return rc.createELBv2LoadBalancer(logicalID, props, params, physicalIDs)
+	case resTypeELBv2TargetGroup:
+		return rc.createELBv2TargetGroup(logicalID, props, params, physicalIDs)
+	default:
+		return rc.createELBv2Listener(logicalID, props, params, physicalIDs)
+	}
+}
+
 // createPhase4Resource handles ELBv2, WAFv2, Backup, and RDS cluster resource creation.
 func (rc *ResourceCreator) createPhase4Resource(
 	logicalID, resourceType string,
@@ -977,15 +993,11 @@ func (rc *ResourceCreator) createPhase4Resource(
 	params, physicalIDs map[string]string,
 ) (string, error) {
 	switch resourceType {
-	case "AWS::ElasticLoadBalancingV2::LoadBalancer":
+	case resTypeELBv2LB,
+		resTypeELBv2TargetGroup,
+		"AWS::ElasticLoadBalancingV2::Listener":
 
-		return rc.createELBv2LoadBalancer(logicalID, props, params, physicalIDs)
-	case "AWS::ElasticLoadBalancingV2::TargetGroup":
-
-		return rc.createELBv2TargetGroup(logicalID, props, params, physicalIDs)
-	case "AWS::ElasticLoadBalancingV2::Listener":
-
-		return rc.createELBv2Listener(logicalID, props, params, physicalIDs)
+		return rc.createELBv2Resource(logicalID, resourceType, props, params, physicalIDs)
 	case "AWS::WAFv2::WebACL":
 
 		return rc.createWAFv2WebACL(logicalID, props, params, physicalIDs)
@@ -1320,6 +1332,18 @@ func (rc *ResourceCreator) deleteEC2CoreResource(resourceType, physicalID string
 	}
 }
 
+// deleteRoute53Resource handles Route53 resource deletions.
+func (rc *ResourceCreator) deleteRoute53Resource(resourceType, physicalID string) error {
+	switch resourceType {
+	case resTypeRoute53HostedZone:
+		return rc.deleteRoute53HostedZone(physicalID)
+	case resTypeRoute53RecordSet:
+		return nil // record sets are deleted with the hosted zone
+	default:
+		return rc.deleteRoute53HealthCheck(physicalID)
+	}
+}
+
 // deleteDataPlatformResource handles Kinesis, CloudWatch, Route53, ElastiCache,
 // SNS/SQS/S3 policies, and Scheduler resource deletions.
 func (rc *ResourceCreator) deleteDataPlatformResource(
@@ -1333,15 +1357,9 @@ func (rc *ResourceCreator) deleteDataPlatformResource(
 	case "AWS::CloudWatch::Alarm", "AWS::CloudWatch::CompositeAlarm":
 
 		return rc.deleteCloudWatchAlarm(physicalID)
-	case "AWS::Route53::HostedZone":
+	case resTypeRoute53HostedZone, resTypeRoute53RecordSet, "AWS::Route53::HealthCheck":
 
-		return rc.deleteRoute53HostedZone(physicalID)
-	case "AWS::Route53::RecordSet":
-
-		return nil // record sets are deleted with the hosted zone
-	case "AWS::Route53::HealthCheck":
-
-		return rc.deleteRoute53HealthCheck(physicalID)
+		return rc.deleteRoute53Resource(resourceType, physicalID)
 	case "AWS::ElastiCache::CacheCluster":
 
 		return rc.deleteElastiCacheCacheCluster(ctx, physicalID)

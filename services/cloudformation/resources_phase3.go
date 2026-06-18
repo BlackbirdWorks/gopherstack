@@ -1549,9 +1549,9 @@ func (rc *ResourceCreator) deletePhase3DataResource(physicalID, resourceType str
 // deletePhase4Resource handles ELBv2, WAFv2, Backup, and RDS cluster resource deletions.
 func (rc *ResourceCreator) deletePhase4Resource(physicalID, resourceType string) error {
 	switch resourceType {
-	case "AWS::ElasticLoadBalancingV2::LoadBalancer":
+	case resTypeELBv2LB:
 		return rc.deleteELBv2LoadBalancer(physicalID)
-	case "AWS::ElasticLoadBalancingV2::TargetGroup":
+	case resTypeELBv2TargetGroup:
 		return rc.deleteELBv2TargetGroup(physicalID)
 	case "AWS::ElasticLoadBalancingV2::Listener":
 		return rc.deleteELBv2Listener(physicalID)

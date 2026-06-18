@@ -38,6 +38,13 @@ const (
 	resTypeKMSKey         = "AWS::KMS::Key"
 )
 
+const (
+	resTypeRoute53HostedZone = "AWS::Route53::HostedZone"
+	resTypeRoute53RecordSet  = "AWS::Route53::RecordSet"
+	resTypeELBv2LB           = "AWS::ElasticLoadBalancingV2::LoadBalancer"
+	resTypeELBv2TargetGroup  = "AWS::ElasticLoadBalancingV2::TargetGroup"
+)
+
 const cfnNS = "http://cloudformation.amazonaws.com/doc/2010-05-15/"
 
 // errCodeValidation is the AWS CloudFormation generic validation error code.
