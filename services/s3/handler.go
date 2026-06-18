@@ -171,9 +171,11 @@ func (h *S3Handler) setOperation(ctx context.Context, op string) {
 }
 
 // GetSupportedOperations returns a list of supported S3 operations.
-//
-//nolint:funlen // enumerating all supported ops necessarily results in a long function
 func (h *S3Handler) GetSupportedOperations() []string {
+	return append(s3CoreOperations(), s3StubOperations()...)
+}
+
+func s3CoreOperations() []string {
 	return []string{
 		"CreateBucket",
 		"DeleteBucket",
@@ -269,7 +271,12 @@ func (h *S3Handler) GetSupportedOperations() []string {
 		"GetBucketMetricsConfiguration",
 		"DeleteBucketMetricsConfiguration",
 		"ListBucketMetricsConfigurations",
-		// Stub implementations.
+	}
+}
+
+// s3StubOperations returns S3 stub (not-implemented) operations.
+func s3StubOperations() []string {
+	return []string{
 		"GetBucketAbac",
 		"GetBucketAccelerateConfiguration",
 		"GetBucketPolicyStatus",
