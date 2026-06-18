@@ -135,3 +135,122 @@ func TestStartExecution_BelowThresholdNoEagerPrune(t *testing.T) {
 	require.Equal(t, belowThreshold, b.ExecutionCount(),
 		"below-threshold start must not eagerly prune expired executions")
 }
+
+// TestDeleteActivity_UnblocksInFlightInvokeActivity verifies that deleting an
+// activity while InvokeActivity is blocked on a worker response signals the
+// resultCh, preventing the goroutine from leaking indefinitely.
+func TestDeleteActivity_UnblocksInFlightInvokeActivity(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		tasks int
+	}{
+		{name: "single in-flight task", tasks: 1},
+		{name: "multiple in-flight tasks", tasks: 3},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := context.Background()
+			b := sfn.NewInMemoryBackendWithContext(ctx, "123456789012", "us-east-1")
+
+			act, err := b.CreateActivity(ctx, "test-activity")
+			require.NoError(t, err)
+
+			done := make(chan error, tc.tasks)
+
+			// Spin up InvokeActivity goroutines; each blocks waiting for a worker.
+			for range tc.tasks {
+				go func() {
+					_, invokeErr := b.InvokeActivity(ctx, act.ActivityArn, `{}`, 0)
+					done <- invokeErr
+				}()
+			}
+
+			// Drain the queue so every goroutine is past the send and blocking on resultCh.
+			for range tc.tasks {
+				task, getErr := b.GetActivityTask(ctx, act.ActivityArn, "worker")
+				require.NoError(t, getErr)
+				require.NotEmpty(t, task.TaskToken, "GetActivityTask must return a token")
+			}
+
+			// Verify all tokens are registered.
+			require.Equal(t, tc.tasks, b.TaskTokenCount())
+
+			// Delete the activity: must signal all blocked goroutines.
+			require.NoError(t, b.DeleteActivity(act.ActivityArn))
+
+			// All goroutines must unblock within a short window.
+			deadline := time.After(2 * time.Second)
+			for range tc.tasks {
+				select {
+				case invokeErr := <-done:
+					require.Error(t, invokeErr, "InvokeActivity must return an error after activity deletion")
+				case <-deadline:
+					t.Fatal("InvokeActivity goroutine did not unblock after DeleteActivity")
+				}
+			}
+
+			// Tokens must be cleaned up.
+			require.Equal(t, 0, b.TaskTokenCount(),
+				"task tokens must be evicted after DeleteActivity")
+		})
+	}
+}
+
+// TestSweepTaskTokens_EvictsStaleTokens verifies that SweepTaskTokens removes
+// task tokens older than the TTL and unblocks the waiting InvokeActivity goroutines,
+// bounding tasksByToken growth when workers never respond.
+func TestSweepTaskTokens_EvictsStaleTokens(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	b := sfn.NewInMemoryBackendWithContext(ctx, "123456789012", "us-east-1")
+
+	act, err := b.CreateActivity(ctx, "sweep-activity")
+	require.NoError(t, err)
+
+	const taskCount = 4
+
+	done := make(chan error, taskCount)
+	for range taskCount {
+		go func() {
+			_, invokeErr := b.InvokeActivity(ctx, act.ActivityArn, `{}`, 0)
+			done <- invokeErr
+		}()
+	}
+
+	// Drain queue so goroutines block on resultCh.
+	for range taskCount {
+		task, getErr := b.GetActivityTask(ctx, act.ActivityArn, "worker")
+		require.NoError(t, getErr)
+		require.NotEmpty(t, task.TaskToken)
+	}
+
+	require.Equal(t, taskCount, b.TaskTokenCount(), "all tokens must be registered")
+
+	// Sweep with default TTL — tokens are fresh, nothing evicted.
+	evicted := b.SweepTaskTokens()
+	require.Equal(t, 0, evicted, "fresh tokens must not be evicted")
+	require.Equal(t, taskCount, b.TaskTokenCount())
+
+	// Age the tokens past the TTL, then sweep again.
+	b.AgeTaskTokensForTest(sfn.DefaultTaskTokenTTLForTest + time.Second)
+	evicted = b.SweepTaskTokens()
+	require.Equal(t, taskCount, evicted, "all stale tokens must be evicted")
+	require.Equal(t, 0, b.TaskTokenCount(), "tasksByToken must be empty after sweep")
+
+	// All blocked goroutines must have been unblocked.
+	deadline := time.After(2 * time.Second)
+	for range taskCount {
+		select {
+		case invokeErr := <-done:
+			require.Error(t, invokeErr, "InvokeActivity must return an error after token eviction")
+		case <-deadline:
+			t.Fatal("InvokeActivity goroutine did not unblock after SweepTaskTokens")
+		}
+	}
+}

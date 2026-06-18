@@ -44,3 +44,15 @@ func (b *InMemoryBackend) ExpressGatewayServiceCount() int {
 
 	return len(b.expressGatewayServices)
 }
+
+// GetServicesForReconcilerForTest exposes getServicesForReconciler for tests.
+// Returns a slice of all service snapshots (same as the reconciler sees each tick).
+func (b *InMemoryBackend) GetServicesForReconcilerForTest() []Service {
+	snaps := b.getServicesForReconciler()
+	out := make([]Service, len(snaps))
+	for i, s := range snaps {
+		out[i] = s.service
+	}
+
+	return out
+}

@@ -89,3 +89,26 @@ func (b *InMemoryBackend) AlarmHistoryKeyCountForTest() int {
 
 	return len(b.alarmHistory)
 }
+
+// MetricPointsCapForTest returns the backing-array capacity of the points slice
+// for the named metric series in the given namespace and dimension key.
+// Used to verify that the cap-and-copy path bounds allocation, not just length.
+func (b *InMemoryBackend) MetricPointsCapForTest(namespace, metricKey string) int {
+	b.mu.RLock("MetricPointsCapForTest")
+	defer b.mu.RUnlock()
+
+	nsMetrics, ok := b.metrics[namespace]
+	if !ok {
+		return -1
+	}
+
+	rec, ok := nsMetrics[metricKey]
+	if !ok {
+		return -1
+	}
+
+	return cap(rec.Points)
+}
+
+// CwMaxMetricDataPointsForTest exposes the per-series data-point cap for tests.
+const CwMaxMetricDataPointsForTest = cwMaxMetricDataPoints

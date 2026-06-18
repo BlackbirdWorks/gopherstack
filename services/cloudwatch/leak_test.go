@@ -3,6 +3,7 @@ package cloudwatch_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -52,4 +53,34 @@ func TestDeleteAlarms_ReleasesAlarmHistory(t *testing.T) {
 				"alarm history must return to baseline after all alarms are deleted")
 		})
 	}
+}
+
+// TestPutMetricData_DatapointsBackingArrayBounded verifies that repeatedly writing
+// datapoints beyond cwMaxMetricDataPoints copies the tail into a fresh slice so that
+// the backing array capacity stays at the cap rather than growing without bound.
+func TestPutMetricData_DatapointsBackingArrayBounded(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatch.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+
+	const (
+		namespace  = "Test/Leak"
+		metricName = "Requests"
+		writes     = cloudwatch.CwMaxMetricDataPointsForTest + 50
+	)
+
+	now := time.Now().UTC()
+	for i := range writes {
+		_, err := b.PutMetricData(namespace, []cloudwatch.MetricDatum{{
+			MetricName: metricName,
+			Timestamp:  now.Add(time.Duration(i) * time.Second),
+			Value:      float64(i),
+		}})
+		require.NoError(t, err)
+	}
+
+	gotCap := b.MetricPointsCapForTest(namespace, metricName)
+	require.NotEqual(t, -1, gotCap, "metric series must exist")
+	require.LessOrEqual(t, gotCap, cloudwatch.CwMaxMetricDataPointsForTest,
+		"backing array capacity must not exceed the data-point cap after cap-and-copy")
 }

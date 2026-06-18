@@ -155,3 +155,12 @@ func JobCount(b *InMemoryBackend) int {
 
 	return total
 }
+
+// VaultIndexCount returns the number of entries in the vaultsByAccountRegion index
+// for a given accountID and region (for testing only).
+func VaultIndexCount(b *InMemoryBackend, accountID, region string) int {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	return len(b.vaultsByAccountRegion[accountID][region])
+}

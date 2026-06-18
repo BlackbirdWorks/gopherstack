@@ -1,6 +1,9 @@
 package stepfunctions
 
-import "slices"
+import (
+	"slices"
+	"time"
+)
 
 // RegionContextKeyForTest exposes regionContextKey for use in external test packages.
 type RegionContextKeyForTest = regionContextKey
@@ -126,4 +129,25 @@ func (b *InMemoryBackend) PendingTaskQueueLenForTest(activityARN string) int {
 	}
 
 	return len(q)
+}
+
+// TaskTokenCount returns the number of active task tokens in tasksByToken.
+func (b *InMemoryBackend) TaskTokenCount() int {
+	b.mu.RLock("TaskTokenCount")
+	defer b.mu.RUnlock()
+
+	return len(b.tasksByToken)
+}
+
+// DefaultTaskTokenTTLForTest exposes the default task token TTL for tests.
+const DefaultTaskTokenTTLForTest = defaultTaskTokenTTL
+
+// AgeTaskTokenForTest backdates the createdAt of all task tokens to simulate TTL expiry.
+func (b *InMemoryBackend) AgeTaskTokensForTest(d time.Duration) {
+	b.mu.Lock("AgeTaskTokensForTest")
+	defer b.mu.Unlock()
+
+	for _, entry := range b.tasksByToken {
+		entry.createdAt = entry.createdAt.Add(-d)
+	}
 }

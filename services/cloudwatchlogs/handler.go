@@ -369,9 +369,11 @@ func (h *Handler) getTags(resourceID string) map[string]string {
 func (h *Handler) Name() string { return "CloudWatchLogs" }
 
 // GetSupportedOperations returns all mocked CloudWatch Logs operations.
-//
-//nolint:funlen // large service with many operations
 func (h *Handler) GetSupportedOperations() []string {
+	return append(cwlCoreOps(), cwlCompletenessOps()...)
+}
+
+func cwlCoreOps() []string {
 	return []string{
 		"CreateLogGroup",
 		"DeleteLogGroup",
@@ -437,7 +439,12 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetScheduledQueryHistory",
 		"UpdateAnomaly",
 		"ListLogGroups",
-		// Completeness pass — previously notImplemented
+	}
+}
+
+// cwlCompletenessOps returns CloudWatch Logs operations added in the completeness pass.
+func cwlCompletenessOps() []string {
+	return []string{
 		"DeleteDataProtectionPolicy",
 		"DeleteDeliveryDestination",
 		"DeleteDeliveryDestinationPolicy",
