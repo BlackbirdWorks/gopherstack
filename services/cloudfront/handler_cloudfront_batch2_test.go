@@ -1,9 +1,16 @@
 package cloudfront_test
 
 import (
+	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/cloudfront"
 )
 
 // TestBatch2_DistributionTenantCRUD tests create, get, update, list, delete for DistributionTenant.
@@ -326,5 +333,227 @@ func TestBatch2_VerifyDNSConfiguration(t *testing.T) {
 	}
 	if !strings.Contains(resp, "PASSED") {
 		t.Errorf("expected PASSED, got: %s", resp)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Table-driven tests for formerly-stubbed operations with real state
+// ---------------------------------------------------------------------------
+
+func newBatch2Backend() *cloudfront.InMemoryBackend {
+	return cloudfront.NewInMemoryBackend("123456789012", "us-east-1")
+}
+
+func doBatch2Req(
+	t *testing.T,
+	h *cloudfront.Handler,
+	method, path string,
+) *httptest.ResponseRecorder {
+	t.Helper()
+
+	return cfRequest(t, h, method, path, "")
+}
+
+// TestGetManagedCertificateDetails_TableDriven validates cert details with real tenant state.
+func TestGetManagedCertificateDetails_TableDriven(t *testing.T) {
+	t.Parallel()
+
+	const prefix = "/2020-05-31/"
+
+	makeTenant := func(h *cloudfront.Handler, domain string) string {
+		const tenantTemplate = `<CreateDistributionTenantRequest>` +
+			`<DistributionId>d-001</DistributionId>` +
+			`<Domain>%s</Domain>` +
+			`</CreateDistributionTenantRequest>`
+		body := fmt.Sprintf(tenantTemplate, domain)
+		resp := cfOK(t, h, http.MethodPost, prefix+"distribution-tenant", body)
+
+		return extractXMLID(t, resp)
+	}
+
+	tests := []struct {
+		setup    func(h *cloudfront.Handler) string
+		name     string
+		wantBody []string
+		wantCode int
+	}{
+		{
+			name: "existing_tenant_returns_success_cert",
+			setup: func(h *cloudfront.Handler) string {
+				return makeTenant(h, "example.com")
+			},
+			wantCode: http.StatusOK,
+			wantBody: []string{"ManagedCertificateDetails", "SUCCESS", "example.com"},
+		},
+		{
+			name: "non_existent_tenant_returns_404",
+			setup: func(_ *cloudfront.Handler) string {
+				return "no-such-tenant"
+			},
+			wantCode: http.StatusNotFound,
+			wantBody: []string{"NoSuchDistributionTenant"},
+		},
+		{
+			name: "tenant_domain_appears_in_validation_tokens",
+			setup: func(h *cloudfront.Handler) string {
+				return makeTenant(h, "my-service.example.com")
+			},
+			wantCode: http.StatusOK,
+			wantBody: []string{"my-service.example.com", "ValidationTokens"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := cloudfront.NewHandler(newBatch2Backend())
+			tenantID := tt.setup(h)
+			certPath := prefix + "distribution-tenant/" + tenantID + "/managed-certificate-details"
+			rec := doBatch2Req(t, h, http.MethodGet, certPath)
+
+			assert.Equal(t, tt.wantCode, rec.Code)
+			for _, want := range tt.wantBody {
+				assert.Contains(t, rec.Body.String(), want)
+			}
+		})
+	}
+}
+
+// TestListDomainConflicts_TableDriven validates domain conflict detection with real state.
+func TestListDomainConflicts_TableDriven(t *testing.T) {
+	t.Parallel()
+
+	const prefix = "/2020-05-31/"
+
+	tests := []struct {
+		setup    func(b *cloudfront.InMemoryBackend)
+		name     string
+		domain   string
+		wantBody []string
+		wantNot  []string
+		wantCode int
+	}{
+		{
+			name:     "no_conflicts_returns_empty_list",
+			setup:    func(_ *cloudfront.InMemoryBackend) {},
+			domain:   "nonexistent.example.com",
+			wantCode: http.StatusOK,
+			wantBody: []string{"DomainConflictList", "<Quantity>0</Quantity>"},
+		},
+		{
+			name: "conflict_via_distribution_alias",
+			setup: func(b *cloudfront.InMemoryBackend) {
+				dist, err := b.CreateDistribution("ref-1", "test", true, nil)
+				require.NoError(t, err)
+				err = b.AssociateAlias(dist.ID, "conflict.example.com")
+				require.NoError(t, err)
+			},
+			domain:   "conflict.example.com",
+			wantCode: http.StatusOK,
+			wantBody: []string{"DomainConflictList", "conflict.example.com"},
+			wantNot:  []string{"<Quantity>0</Quantity>"},
+		},
+		{
+			name: "conflict_via_distribution_tenant_domain",
+			setup: func(b *cloudfront.InMemoryBackend) {
+				dist, err := b.CreateDistribution("ref-2", "test", true, nil)
+				require.NoError(t, err)
+				_, err = b.CreateDistributionTenant(dist.ID, "tenant-domain.example.com", nil)
+				require.NoError(t, err)
+			},
+			domain:   "tenant-domain.example.com",
+			wantCode: http.StatusOK,
+			wantBody: []string{"DomainConflictList", "tenant-domain.example.com"},
+			wantNot:  []string{"<Quantity>0</Quantity>"},
+		},
+		{
+			name:     "empty_domain_returns_empty_list",
+			setup:    func(_ *cloudfront.InMemoryBackend) {},
+			domain:   "",
+			wantCode: http.StatusOK,
+			wantBody: []string{"DomainConflictList", "<Quantity>0</Quantity>"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBatch2Backend()
+			tt.setup(b)
+			h := cloudfront.NewHandler(b)
+
+			path := prefix + "domain-conflict"
+			if tt.domain != "" {
+				path += "?Domain=" + tt.domain
+			}
+
+			rec := cfRequest(t, h, http.MethodPost, path, "")
+			assert.Equal(t, tt.wantCode, rec.Code)
+			for _, want := range tt.wantBody {
+				assert.Contains(t, rec.Body.String(), want)
+			}
+			for _, notWant := range tt.wantNot {
+				assert.NotContains(t, rec.Body.String(), notWant)
+			}
+		})
+	}
+}
+
+// TestTestConnectionFunction_TableDriven validates connection function test with real state.
+func TestTestConnectionFunction_TableDriven(t *testing.T) {
+	t.Parallel()
+
+	const prefix = "/2020-05-31/"
+
+	makeConnectionFunction := func(h *cloudfront.Handler, name string) string {
+		body := fmt.Sprintf(
+			`<CreateConnectionFunctionRequest><Name>%s</Name><Comment>test fn</Comment></CreateConnectionFunctionRequest>`,
+			name,
+		)
+		rec := cfRequest(t, h, http.MethodPost, prefix+"connection-function", body)
+		require.Equal(t, http.StatusCreated, rec.Code, "create connection function: %s", rec.Body.String())
+
+		return extractXMLID(t, rec.Body.String())
+	}
+
+	tests := []struct {
+		setup    func(h *cloudfront.Handler) string
+		name     string
+		wantBody []string
+		wantCode int
+	}{
+		{
+			name: "existing_function_returns_test_result",
+			setup: func(h *cloudfront.Handler) string {
+				return makeConnectionFunction(h, "my-test-fn")
+			},
+			wantCode: http.StatusOK,
+			wantBody: []string{"TestResult", "FunctionExecutionLogs", "Test passed"},
+		},
+		{
+			name: "non_existent_function_returns_404",
+			setup: func(_ *cloudfront.Handler) string {
+				return "no-such-fn"
+			},
+			wantCode: http.StatusNotFound,
+			wantBody: []string{"NoSuchConnectionFunction"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := cloudfront.NewHandler(newBatch2Backend())
+			fnID := tt.setup(h)
+			rec := cfRequest(t, h, http.MethodPost, prefix+"connection-function/"+fnID+"/test", "")
+
+			assert.Equal(t, tt.wantCode, rec.Code)
+			for _, want := range tt.wantBody {
+				assert.Contains(t, rec.Body.String(), want)
+			}
+		})
 	}
 }
