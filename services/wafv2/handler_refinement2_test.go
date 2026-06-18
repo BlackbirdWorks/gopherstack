@@ -564,3 +564,157 @@ func TestValidation_RuleGroupNamePattern(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code, "RuleGroup name with spaces/special chars should be rejected")
 }
+
+// ---- DescribeManagedRuleGroup: catalog hit returns real data, miss returns WAFNonexistentItemException ----
+
+func TestDescribeManagedRuleGroup(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		vendor     string
+		group      string
+		wantType   string
+		wantCap    float64
+		wantStatus int
+	}{
+		{
+			name:       "known AWS group returns catalog data",
+			vendor:     "AWS",
+			group:      "AWSManagedRulesCommonRuleSet",
+			wantStatus: http.StatusOK,
+			wantCap:    700,
+		},
+		{
+			name:       "another known AWS group",
+			vendor:     "AWS",
+			group:      "AWSManagedRulesKnownBadInputsRuleSet",
+			wantStatus: http.StatusOK,
+			wantCap:    200,
+		},
+		{
+			name:       "unknown vendor returns WAFNonexistentItemException",
+			vendor:     "UnknownVendor",
+			group:      "SomeRuleGroup",
+			wantStatus: http.StatusBadRequest,
+			wantType:   "WAFNonexistentItemException",
+		},
+		{
+			name:       "unknown rule group for known vendor returns WAFNonexistentItemException",
+			vendor:     "AWS",
+			group:      "NoSuchRuleGroup",
+			wantStatus: http.StatusBadRequest,
+			wantType:   "WAFNonexistentItemException",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doWafv2Request(t, h, "DescribeManagedRuleGroup", map[string]any{
+				"Scope":      "REGIONAL",
+				"VendorName": tc.vendor,
+				"Name":       tc.group,
+			})
+			require.Equal(t, tc.wantStatus, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+			if tc.wantType != "" {
+				assert.Equal(t, tc.wantType, resp["__type"])
+			}
+
+			if tc.wantCap > 0 {
+				gotCap, _ := resp["Capacity"].(float64)
+				assert.InDelta(t, tc.wantCap, gotCap, 0)
+			}
+		})
+	}
+}
+
+// ---- GenerateMobileSdkReleaseUrl: validates platform+version, rejects unknown combos ----
+
+func TestGenerateMobileSdkReleaseUrl(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		platform   string
+		version    string
+		wantType   string
+		wantStatus int
+		checkURL   bool
+	}{
+		{
+			name:       "Android 3.1.0 returns URL",
+			platform:   "Android",
+			version:    "3.1.0",
+			wantStatus: http.StatusOK,
+			checkURL:   true,
+		},
+		{
+			name:       "iOS 3.0.0 returns URL",
+			platform:   "iOS",
+			version:    "3.0.0",
+			wantStatus: http.StatusOK,
+			checkURL:   true,
+		},
+		{
+			name:       "unknown platform returns WAFNonexistentItemException",
+			platform:   "Windows",
+			version:    "3.1.0",
+			wantStatus: http.StatusBadRequest,
+			wantType:   "WAFNonexistentItemException",
+		},
+		{
+			name:       "unknown version returns WAFNonexistentItemException",
+			platform:   "Android",
+			version:    "99.0.0",
+			wantStatus: http.StatusBadRequest,
+			wantType:   "WAFNonexistentItemException",
+		},
+		{
+			name:       "missing platform rejected",
+			platform:   "",
+			version:    "3.1.0",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing version rejected",
+			platform:   "Android",
+			version:    "",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doWafv2Request(t, h, "GenerateMobileSdkReleaseUrl", map[string]any{
+				"Platform":       tc.platform,
+				"ReleaseVersion": tc.version,
+			})
+			require.Equal(t, tc.wantStatus, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+			if tc.wantType != "" {
+				assert.Equal(t, tc.wantType, resp["__type"])
+			}
+
+			if tc.checkURL {
+				url, ok := resp["Url"].(string)
+				require.True(t, ok, "Url field must be present")
+				assert.NotEmpty(t, url)
+				assert.Contains(t, url, tc.platform)
+				assert.Contains(t, url, tc.version)
+			}
+		})
+	}
+}
