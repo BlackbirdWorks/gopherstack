@@ -2,6 +2,7 @@ package eventbridge
 
 import (
 	"encoding/json"
+	"fmt"
 	"net"
 	"slices"
 	"strings"
@@ -23,11 +24,91 @@ func compilePattern(patternJSON string) (*compiledPattern, error) {
 		return nil, err
 	}
 
+	if err := validatePatternObject(pattern); err != nil {
+		return nil, err
+	}
+
 	return &compiledPattern{
 		pattern:               pattern,
 		sourceExactValues:     exactStringMatcherValues(pattern, "source"),
 		detailTypeExactValues: exactStringMatcherValues(pattern, "detail-type"),
 	}, nil
+}
+
+// knownMatchers is the set of valid EventBridge matcher object keys.
+var knownMatchers = map[string]bool{
+	"prefix":             true,
+	"suffix":             true,
+	"exists":             true,
+	"numeric":            true,
+	"anything-but":       true,
+	"cidr":               true,
+	"wildcard":           true,
+	"equals-ignore-case": true,
+}
+
+// validatePatternObject validates the structure of an EventBridge pattern object.
+// Each field value must be an array of matchers or a nested object.
+func validatePatternObject(pattern map[string]any) error {
+	for key, val := range pattern {
+		if key == "$or" {
+			alts, ok := val.([]any)
+			if !ok {
+				return fmt.Errorf("invalid event pattern: $or must be an array")
+			}
+			for _, alt := range alts {
+				subPat, ok := alt.(map[string]any)
+				if !ok {
+					return fmt.Errorf("invalid event pattern: $or elements must be objects")
+				}
+				if err := validatePatternObject(subPat); err != nil {
+					return err
+				}
+			}
+			continue
+		}
+		switch v := val.(type) {
+		case map[string]any:
+			// Nested object — recurse.
+			if err := validatePatternObject(v); err != nil {
+				return err
+			}
+		case []any:
+			if err := validateMatcherArray(key, v); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("invalid event pattern: value for field %q must be an array or object, got scalar", key)
+		}
+	}
+	return nil
+}
+
+// validateMatcherArray validates a pattern array for a single field.
+func validateMatcherArray(field string, matchers []any) error {
+	for _, m := range matchers {
+		switch mv := m.(type) {
+		case string, float64, bool, nil:
+			// Exact-match primitives are always valid.
+		case map[string]any:
+			if err := validateMatcherObject(field, mv); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("invalid event pattern: matcher for field %q has unsupported type", field)
+		}
+	}
+	return nil
+}
+
+// validateMatcherObject validates a single matcher object (e.g., {"prefix": "foo"}).
+func validateMatcherObject(field string, m map[string]any) error {
+	for key := range m {
+		if !knownMatchers[key] {
+			return fmt.Errorf("invalid event pattern: unknown matcher %q for field %q", key, field)
+		}
+	}
+	return nil
 }
 
 func exactStringMatcherValues(pattern map[string]any, key string) []string {
