@@ -16,7 +16,8 @@
     "no-alert": "error",
     "max-lines-per-function": "off",
     "max-lines": "off",
-    "max-depth": "off"
+    "max-depth": "off",
+    "require-unicode-regexp": "off"
   },
   "ignorePatterns": ["build/**", ".svelte-kit/**", "node_modules/**"],
   "overrides": [
