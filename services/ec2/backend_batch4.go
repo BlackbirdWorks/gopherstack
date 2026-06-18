@@ -40,18 +40,27 @@ type PrefixListEntry struct {
 	Description string `json:"description,omitempty"`
 }
 
+// ClientVpnTargetNetwork represents an associated target network for a Client VPN endpoint.
+type ClientVpnTargetNetwork struct {
+	AssociationID       string `json:"associationId,omitempty"`
+	SubnetID            string `json:"subnetId,omitempty"`
+	VPCID               string `json:"vpcId,omitempty"`
+	ClientVpnEndpointID string `json:"clientVpnEndpointId,omitempty"`
+	Status              string `json:"status,omitempty"`
+}
+
 // ClientVpnEndpoint represents an EC2 Client VPN endpoint.
 type ClientVpnEndpoint struct {
-	ClientVpnEndpointID      string              `json:"clientVpnEndpointId,omitempty"`
-	DNSName                  string              `json:"dnsName,omitempty"`
-	Status                   string              `json:"status,omitempty"`
-	Description              string              `json:"description,omitempty"`
-	ClientCidrBlock          string              `json:"clientCidrBlock,omitempty"`
-	DNSServers               []string            `json:"dnsServers,omitempty"`
-	VpnProtocol              string              `json:"vpnProtocol,omitempty"`
-	AssociatedTargetNetworks []string            `json:"associatedTargetNetworks,omitempty"`
-	Routes                   []ClientVpnRoute    `json:"routes,omitempty"`
-	AuthRules                []ClientVpnAuthRule `json:"authRules,omitempty"`
+	ClientVpnEndpointID string                    `json:"clientVpnEndpointId,omitempty"`
+	DNSName             string                    `json:"dnsName,omitempty"`
+	Status              string                    `json:"status,omitempty"`
+	Description         string                    `json:"description,omitempty"`
+	ClientCidrBlock     string                    `json:"clientCidrBlock,omitempty"`
+	DNSServers          []string                  `json:"dnsServers,omitempty"`
+	VpnProtocol         string                    `json:"vpnProtocol,omitempty"`
+	TargetNetworks      []*ClientVpnTargetNetwork `json:"targetNetworks,omitempty"`
+	Routes              []ClientVpnRoute          `json:"routes,omitempty"`
+	AuthRules           []ClientVpnAuthRule       `json:"authRules,omitempty"`
 }
 
 // ClientVpnRoute holds a single route for a Client VPN endpoint.
@@ -348,11 +357,12 @@ func (b *InMemoryBackend) DescribeClientVpnEndpoints(ids []string) []*ClientVpnE
 }
 
 // AssociateClientVpnTargetNetwork associates a subnet with a Client VPN endpoint.
+// Returns the generated association ID.
 func (b *InMemoryBackend) AssociateClientVpnTargetNetwork(
 	endpointID, subnetID string,
-) error {
+) (string, error) {
 	if endpointID == "" || subnetID == "" {
-		return fmt.Errorf("%w: ClientVpnEndpointId and SubnetId are required", ErrInvalidParameter)
+		return "", fmt.Errorf("%w: ClientVpnEndpointId and SubnetId are required", ErrInvalidParameter)
 	}
 
 	b.mu.Lock("AssociateClientVpnTargetNetwork")
@@ -360,25 +370,33 @@ func (b *InMemoryBackend) AssociateClientVpnTargetNetwork(
 
 	ep, ok := b.clientVpnEndpoints[endpointID]
 	if !ok {
-		return fmt.Errorf("%w: %s", ErrClientVpnEndpointNotFound, endpointID)
+		return "", fmt.Errorf("%w: %s", ErrClientVpnEndpointNotFound, endpointID)
 	}
 
-	for _, s := range ep.AssociatedTargetNetworks { //nolint:modernize // slices.Contains requires Go 1.21+
-		if s == subnetID {
-			return nil // already associated
+	for _, tn := range ep.TargetNetworks {
+		if tn.SubnetID == subnetID {
+			return tn.AssociationID, nil // already associated
 		}
 	}
-	ep.AssociatedTargetNetworks = append(ep.AssociatedTargetNetworks, subnetID)
 
-	return nil
+	assocID := "cvpn-assoc-" + uuid.New().String()[:17]
+	tn := &ClientVpnTargetNetwork{
+		AssociationID:       assocID,
+		SubnetID:            subnetID,
+		ClientVpnEndpointID: endpointID,
+		Status:              stateAssociated,
+	}
+	ep.TargetNetworks = append(ep.TargetNetworks, tn)
+
+	return assocID, nil
 }
 
-// DisassociateClientVpnTargetNetwork disassociates a subnet from a Client VPN endpoint.
+// DisassociateClientVpnTargetNetwork disassociates a target network by association ID.
 func (b *InMemoryBackend) DisassociateClientVpnTargetNetwork(
-	endpointID, subnetID string,
+	endpointID, assocID string,
 ) error {
-	if endpointID == "" || subnetID == "" {
-		return fmt.Errorf("%w: ClientVpnEndpointId and SubnetId are required", ErrInvalidParameter)
+	if endpointID == "" || assocID == "" {
+		return fmt.Errorf("%w: ClientVpnEndpointId and AssociationId are required", ErrInvalidParameter)
 	}
 
 	b.mu.Lock("DisassociateClientVpnTargetNetwork")
@@ -389,19 +407,30 @@ func (b *InMemoryBackend) DisassociateClientVpnTargetNetwork(
 		return fmt.Errorf("%w: %s", ErrClientVpnEndpointNotFound, endpointID)
 	}
 
-	var kept []string
-	for _, s := range ep.AssociatedTargetNetworks {
-		if s != subnetID {
-			kept = append(kept, s)
+	var kept []*ClientVpnTargetNetwork
+	found := false
+
+	for _, tn := range ep.TargetNetworks {
+		if tn.AssociationID == assocID {
+			found = true
+
+			continue
 		}
+
+		kept = append(kept, tn)
 	}
-	ep.AssociatedTargetNetworks = kept
+
+	if !found {
+		return fmt.Errorf("%w: association %s not found", ErrInvalidParameter, assocID)
+	}
+
+	ep.TargetNetworks = kept
 
 	return nil
 }
 
 // DescribeClientVpnTargetNetworks returns associated target networks for an endpoint.
-func (b *InMemoryBackend) DescribeClientVpnTargetNetworks(endpointID string) ([]string, error) {
+func (b *InMemoryBackend) DescribeClientVpnTargetNetworks(endpointID string) ([]*ClientVpnTargetNetwork, error) {
 	if endpointID == "" {
 		return nil, fmt.Errorf("%w: ClientVpnEndpointId is required", ErrInvalidParameter)
 	}
@@ -414,8 +443,11 @@ func (b *InMemoryBackend) DescribeClientVpnTargetNetworks(endpointID string) ([]
 		return nil, fmt.Errorf("%w: %s", ErrClientVpnEndpointNotFound, endpointID)
 	}
 
-	out := make([]string, len(ep.AssociatedTargetNetworks))
-	copy(out, ep.AssociatedTargetNetworks)
+	out := make([]*ClientVpnTargetNetwork, len(ep.TargetNetworks))
+	for i, tn := range ep.TargetNetworks {
+		cp := *tn
+		out[i] = &cp
+	}
 
 	return out, nil
 }

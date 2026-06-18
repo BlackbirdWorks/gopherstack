@@ -236,6 +236,9 @@ type Backend interface {
 	// DescribeNetworkAcls returns default (auto-generated) network ACLs, optionally filtered by VPC IDs.
 	DescribeNetworkAcls(vpcIDs []string) []*NetworkACL
 
+	// DescribeNetworkAclsFiltered returns both default and stored network ACLs, with optional VPC-ID filter.
+	DescribeNetworkAclsFiltered(vpcIDs []string) []*NetworkACL
+
 	// CreateNetworkACL creates a new non-default network ACL in a VPC.
 	CreateNetworkACL(vpcID string) (*StoredNetworkACL, error)
 
@@ -281,6 +284,12 @@ type Backend interface {
 	CreateVpcEndpoint(
 		vpcID, serviceName, endpointType string,
 		subnetIDs []string,
+	) (*VpcEndpoint, error)
+
+	// CreateVpcEndpointWithRouteTableIDs creates a VPC endpoint with subnet and route table associations.
+	CreateVpcEndpointWithRouteTableIDs(
+		vpcID, serviceName, endpointType string,
+		subnetIDs, routeTableIDs []string,
 	) (*VpcEndpoint, error)
 
 	// DescribeVpcEndpoints returns VPC endpoints, optionally filtered by IDs.
@@ -937,9 +946,9 @@ type Backend interface {
 	CreateClientVpnEndpoint(clientCidrBlock, description string, dnsServers []string) (*ClientVpnEndpoint, error)
 	DeleteClientVpnEndpoint(id string) error
 	DescribeClientVpnEndpoints(ids []string) []*ClientVpnEndpoint
-	AssociateClientVpnTargetNetwork(endpointID, subnetID string) error
-	DisassociateClientVpnTargetNetwork(endpointID, subnetID string) error
-	DescribeClientVpnTargetNetworks(endpointID string) ([]string, error)
+	AssociateClientVpnTargetNetwork(endpointID, subnetID string) (string, error)
+	DisassociateClientVpnTargetNetwork(endpointID, assocID string) error
+	DescribeClientVpnTargetNetworks(endpointID string) ([]*ClientVpnTargetNetwork, error)
 	CreateClientVpnRoute(endpointID, destinationCidr, description string) error
 	DeleteClientVpnRoute(endpointID, destinationCidr string) error
 	DescribeClientVpnRoutes(endpointID string) ([]ClientVpnRoute, error)
