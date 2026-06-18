@@ -35,6 +35,10 @@ const (
 	// maxAppEvents caps the number of ingested events retained per application so
 	// PutEvents cannot grow the appEvents slice without bound on a long-lived app.
 	maxAppEvents = 10000
+
+	// maxTemplateVersions caps the number of stored template versions per
+	// template so Update* calls cannot grow templateVersionHistory without bound.
+	maxTemplateVersions = 100
 )
 
 // ──────────────────────────────────────────────────
@@ -231,6 +235,10 @@ func (b *InMemoryBackend) UpdateVoiceTemplate(
 			TemplateVersion: nextVersion,
 		},
 	)
+
+	if h := b.templateVersionHistory[versionKey]; len(h) > maxTemplateVersions {
+		b.templateVersionHistory[versionKey] = h[len(h)-maxTemplateVersions:]
+	}
 
 	cp := *t
 	cp.Tags = nonNilTagsCopy(t.Tags)
@@ -468,6 +476,7 @@ func (b *InMemoryBackend) DeleteCampaign(appID, campaignID string) (*Campaign, e
 
 	delete(b.campaigns, campaignID)
 	delete(b.arnIndex, c.ARN)
+	delete(b.campaignVersions, appID+"/"+campaignID)
 
 	return cloneCampaign(c), nil
 }
@@ -565,6 +574,7 @@ func (b *InMemoryBackend) DeleteSegment(appID, segmentID string) (*Segment, erro
 
 	delete(b.segments, segmentID)
 	delete(b.arnIndex, s.ARN)
+	delete(b.segmentVersions, appID+"/"+segmentID)
 
 	return cloneSegment(s), nil
 }
@@ -786,6 +796,10 @@ func (b *InMemoryBackend) UpdateEmailTemplate(
 		},
 	)
 
+	if h := b.templateVersionHistory[versionKey]; len(h) > maxTemplateVersions {
+		b.templateVersionHistory[versionKey] = h[len(h)-maxTemplateVersions:]
+	}
+
 	if req.Subject != "" {
 		t.Subject = req.Subject
 	}
@@ -828,6 +842,7 @@ func (b *InMemoryBackend) DeleteEmailTemplate(templateName string) (*EmailTempla
 
 	delete(b.emailTemplates, templateName)
 	delete(b.arnIndex, t.ARN)
+	delete(b.templateVersionHistory, templateName+"/"+ChannelTypeEmail)
 
 	return cloneEmailTemplate(t), nil
 }
@@ -869,6 +884,10 @@ func (b *InMemoryBackend) UpdateInAppTemplate(
 		},
 	)
 
+	if h := b.templateVersionHistory[versionKey]; len(h) > maxTemplateVersions {
+		b.templateVersionHistory[versionKey] = h[len(h)-maxTemplateVersions:]
+	}
+
 	if len(req.Content) > 0 {
 		t.Content = cloneContentSlice(req.Content)
 	}
@@ -899,6 +918,7 @@ func (b *InMemoryBackend) DeleteInAppTemplate(templateName string) (*InAppTempla
 
 	delete(b.inAppTemplates, templateName)
 	delete(b.arnIndex, t.ARN)
+	delete(b.templateVersionHistory, templateName+"/"+templateTypeINAPP)
 
 	return cloneInAppTemplate(t), nil
 }
@@ -939,6 +959,10 @@ func (b *InMemoryBackend) UpdatePushTemplate(
 			TemplateVersion: nextVersion,
 		},
 	)
+
+	if h := b.templateVersionHistory[versionKey]; len(h) > maxTemplateVersions {
+		b.templateVersionHistory[versionKey] = h[len(h)-maxTemplateVersions:]
+	}
 
 	if req.Body != "" {
 		t.Body = req.Body
@@ -982,6 +1006,7 @@ func (b *InMemoryBackend) DeletePushTemplate(templateName string) (*PushTemplate
 
 	delete(b.pushTemplates, templateName)
 	delete(b.arnIndex, t.ARN)
+	delete(b.templateVersionHistory, templateName+"/"+templateTypePUSH)
 
 	return clonePushTemplate(t), nil
 }
@@ -1023,6 +1048,10 @@ func (b *InMemoryBackend) UpdateSmsTemplate(
 		},
 	)
 
+	if h := b.templateVersionHistory[versionKey]; len(h) > maxTemplateVersions {
+		b.templateVersionHistory[versionKey] = h[len(h)-maxTemplateVersions:]
+	}
+
 	if req.Body != "" {
 		t.Body = req.Body
 	}
@@ -1053,6 +1082,7 @@ func (b *InMemoryBackend) DeleteSmsTemplate(templateName string) (*SmsTemplate, 
 
 	delete(b.smsTemplates, templateName)
 	delete(b.arnIndex, t.ARN)
+	delete(b.templateVersionHistory, templateName+"/"+ChannelTypeSMS)
 
 	return cloneSmsTemplate(t), nil
 }

@@ -82,3 +82,84 @@ func TestPutEvents_CapsAppEvents(t *testing.T) {
 	require.LessOrEqual(t, pinpoint.AppEventCount(b, app.ID), pinpoint.MaxAppEvents,
 		"retained events must not exceed the cap")
 }
+
+// TestDeleteCampaign_ReleasesVersionHistory verifies that deleting a campaign
+// removes its version history entry so the campaignVersions map returns to baseline.
+func TestDeleteCampaign_ReleasesVersionHistory(t *testing.T) {
+	t.Parallel()
+
+	b := pinpoint.NewInMemoryBackend(leakRegion, leakAccountID)
+	app, err := b.CreateApp(leakRegion, leakAccountID, "campaign-leak-app", nil)
+	require.NoError(t, err)
+
+	campaignID, err := pinpoint.CreateCampaignIDForTest(b, leakRegion, leakAccountID, app.ID)
+	require.NoError(t, err)
+
+	require.Equal(t, 1, pinpoint.CampaignVersionCount(b, app.ID, campaignID),
+		"version entry must exist after create")
+
+	_, err = b.DeleteCampaign(app.ID, campaignID)
+	require.NoError(t, err)
+
+	require.Equal(t, 0, pinpoint.CampaignVersionCount(b, app.ID, campaignID),
+		"version entry must be removed after delete")
+}
+
+// TestDeleteSegment_ReleasesVersionHistory verifies that deleting a segment
+// removes its version history entry so the segmentVersions map returns to baseline.
+func TestDeleteSegment_ReleasesVersionHistory(t *testing.T) {
+	t.Parallel()
+
+	b := pinpoint.NewInMemoryBackend(leakRegion, leakAccountID)
+	app, err := b.CreateApp(leakRegion, leakAccountID, "segment-leak-app", nil)
+	require.NoError(t, err)
+
+	segmentID, err := pinpoint.CreateSegmentIDForTest(b, leakRegion, leakAccountID, app.ID)
+	require.NoError(t, err)
+
+	require.Equal(t, 1, pinpoint.SegmentVersionCount(b, app.ID, segmentID),
+		"version entry must exist after create")
+
+	_, err = b.DeleteSegment(app.ID, segmentID)
+	require.NoError(t, err)
+
+	require.Equal(t, 0, pinpoint.SegmentVersionCount(b, app.ID, segmentID),
+		"version entry must be removed after delete")
+}
+
+// TestDeleteEmailTemplate_ReleasesVersionHistory verifies that deleting a template
+// removes its version history from templateVersionHistory.
+func TestDeleteEmailTemplate_ReleasesVersionHistory(t *testing.T) {
+	t.Parallel()
+
+	b := pinpoint.NewInMemoryBackend(leakRegion, leakAccountID)
+
+	require.NoError(t, pinpoint.CreateEmailTemplateForTest(b, leakRegion, leakAccountID, "my-tpl"))
+
+	require.Equal(t, 1, pinpoint.TemplateVersionCount(b, "my-tpl", "EMAIL"),
+		"version entry must exist after create")
+
+	require.NoError(t, pinpoint.DeleteEmailTemplateForTest(b, "my-tpl"))
+
+	require.Equal(t, 0, pinpoint.TemplateVersionCount(b, "my-tpl", "EMAIL"),
+		"version history must be removed after delete")
+}
+
+// TestUpdateEmailTemplate_CapsVersionHistory verifies that repeated updates to a
+// template do not grow templateVersionHistory beyond maxTemplateVersions.
+func TestUpdateEmailTemplate_CapsVersionHistory(t *testing.T) {
+	t.Parallel()
+
+	b := pinpoint.NewInMemoryBackend(leakRegion, leakAccountID)
+
+	require.NoError(t, pinpoint.CreateEmailTemplateForTest(b, leakRegion, leakAccountID, "cap-tpl"))
+
+	const updates = pinpoint.MaxTemplateVersions * 2
+	for range updates {
+		require.NoError(t, pinpoint.UpdateEmailTemplateForTest(b, "cap-tpl"))
+	}
+
+	count := pinpoint.TemplateVersionCount(b, "cap-tpl", "EMAIL")
+	require.LessOrEqual(t, count, pinpoint.MaxTemplateVersions,
+		"template version history must not exceed the cap")
+}
