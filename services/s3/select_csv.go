@@ -10,6 +10,8 @@ import (
 	"strings"
 )
 
+var errMissingSQLColumn = errors.New("MissingSQLColumn")
+
 // evaluateCSVQuery reads all CSV rows from data, applies the SQL query, and streams results.
 // All rows are collected before evaluation so that ORDER BY and aggregate functions work correctly.
 func evaluateCSVQuery(
@@ -25,6 +27,13 @@ func evaluateCSVQuery(
 	rows, err := readCSVRows(r, fileHeaderInfo)
 	if err != nil {
 		return 0, err
+	}
+
+	// Validate named column references against actual headers when USE mode is active.
+	if fileHeaderInfo == csvFileHeaderInfoUse && len(rows) > 0 {
+		if valErr := validateCSVQueryColumns(query, rows[0]); valErr != nil {
+			return 0, valErr
+		}
 	}
 
 	resultRows, err := evalQuery(query, rows)
@@ -97,7 +106,7 @@ func readCSVRows(r *csv.Reader, fileHeaderInfo string) ([]map[string]string, err
 			firstRecord = false
 			headers = prepareCSVHeaders(fileHeaderInfo, rec)
 
-			if fileHeaderInfo == "USE" {
+			if fileHeaderInfo == csvFileHeaderInfoUse {
 				continue
 			}
 		}
@@ -122,7 +131,7 @@ func csvRecordToMap(headers []string, rec []string) map[string]string {
 func prepareCSVHeaders(fileHeaderInfo string, firstRecord []string) []string {
 	var headers []string
 	switch fileHeaderInfo {
-	case "USE":
+	case csvFileHeaderInfoUse:
 		headers = firstRecord
 	default: // IGNORE or NONE
 		for i := range firstRecord {
@@ -190,6 +199,32 @@ func serializeCSVRows(rows []map[string]string, csvOut *selectCSVOutput) []byte 
 	w.Flush()
 
 	return buf.Bytes()
+}
+
+// validateCSVQueryColumns validates that all named column references in the query
+// (non-positional, non-wildcard) exist in the provided header row.
+// Returns an error with code MissingSQLColumn if an unknown column is referenced.
+func validateCSVQueryColumns(q *sqlQuery, headerRow map[string]string) error {
+	if q.selectAll {
+		return nil
+	}
+	for _, col := range q.columns {
+		if ref, ok := col.expr.(*sqlColumnRef); ok {
+			name := ref.name
+			// Positional refs (_1, _2...) and qualified refs (alias.col) are always valid.
+			if len(name) > 0 && name[0] == '_' {
+				continue
+			}
+			if strings.Contains(name, ".") {
+				continue
+			}
+			if _, found := headerRow[name]; !found {
+				return fmt.Errorf("%w: column %q does not exist in table", errMissingSQLColumn, name)
+			}
+		}
+	}
+
+	return nil
 }
 
 // mapStringToAny converts map[string]string to map[string]any.

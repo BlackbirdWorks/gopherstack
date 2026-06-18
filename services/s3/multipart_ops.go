@@ -278,6 +278,8 @@ func (h *S3Handler) abortMultipartUpload(
 	r *http.Request,
 	bucketName, key string,
 ) {
+	h.setOperation(ctx, "AbortMultipartUpload")
+
 	uploadID := r.URL.Query().Get("uploadId")
 
 	if _, err := h.Backend.AbortMultipartUpload(ctx, &s3.AbortMultipartUploadInput{
@@ -318,6 +320,7 @@ func (h *S3Handler) listMultipartUploads(
 	out, err := h.Backend.ListMultipartUploads(ctx, &s3.ListMultipartUploadsInput{
 		Bucket:         aws.String(bucketName),
 		Prefix:         aws.String(q.Get("prefix")),
+		Delimiter:      aws.String(q.Get("delimiter")),
 		KeyMarker:      aws.String(q.Get("key-marker")),
 		UploadIdMarker: aws.String(q.Get("upload-id-marker")),
 		MaxUploads:     maxUploads,
@@ -343,6 +346,12 @@ func (h *S3Handler) listMultipartUploads(
 			Key:       aws.ToString(u.Key),
 			UploadID:  aws.ToString(u.UploadId),
 			Initiated: aws.ToTime(u.Initiated),
+		})
+	}
+
+	for _, cp := range out.CommonPrefixes {
+		result.CommonPrefixes = append(result.CommonPrefixes, CommonPrefixXML{
+			Prefix: aws.ToString(cp.Prefix),
 		})
 	}
 
@@ -413,9 +422,7 @@ func (h *S3Handler) listParts(
 	}
 
 	if out.NextPartNumberMarker != nil && *out.NextPartNumberMarker != "" {
-		if nextPNM, parseErr := strconv.Atoi(*out.NextPartNumberMarker); parseErr == nil {
-			result.NextPartNumberMarker = nextPNM
-		}
+		result.NextPartNumberMarker = *out.NextPartNumberMarker
 	}
 
 	for _, p := range out.Parts {

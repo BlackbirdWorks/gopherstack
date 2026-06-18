@@ -703,7 +703,7 @@ func (h *S3Handler) ServeWebsite(c *echo.Context) error {
 	var cfg WebsiteConfiguration
 	if xmlErr := xml.Unmarshal([]byte(websiteXML), &cfg); xmlErr != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"Code":    "InternalError",
+			"Code":    errCodeInternalError,
 			"Message": "Failed to parse website configuration",
 		})
 	}

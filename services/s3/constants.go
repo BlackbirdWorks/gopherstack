@@ -17,4 +17,6 @@ const (
 	sqlValTrue                = "true"
 	sqlValFalse               = "false"
 	aclPrivate                = "private"
+	errCodeInternalError      = "InternalError"
+	csvFileHeaderInfoUse      = "USE"
 )

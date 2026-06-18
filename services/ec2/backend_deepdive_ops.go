@@ -32,6 +32,7 @@ func (b *InMemoryBackend) CreateImage(instanceID, name, description string) (*AM
 		Description:    description,
 		Architecture:   archX8664,
 		RootDeviceName: "/dev/xvda",
+		State:          stateAvailable,
 	}
 	b.images[imageID] = image
 	b.imageUsageReports[imageID] = &ImageUsageReport{

@@ -196,7 +196,7 @@ func (h *S3Handler) headObject(
 
 	if errors.Is(err, ErrDeleteMarker) {
 		w.Header().Set("X-Amz-Delete-Marker", "true")
-		WriteError(ctx, w, r, ErrDeleteMarker)
+		w.WriteHeader(http.StatusNotFound)
 
 		return
 	}

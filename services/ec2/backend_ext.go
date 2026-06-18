@@ -26,7 +26,7 @@ var (
 	ErrRouteTableNotFound          = errors.New("InvalidRouteTableID.NotFound")
 	ErrNatGatewayNotFound          = errors.New("InvalidNatGatewayID.NotFound")
 	ErrNetworkInterfaceNotFound    = errors.New("InvalidNetworkInterfaceID.NotFound")
-	ErrNetworkInterfaceInUse       = errors.New("InvalidParameterValue.NetworkInterfaceInUse")
+	ErrNetworkInterfaceInUse       = errors.New("InvalidNetworkInterfaceID.InUse")
 	ErrAttachmentNotFound          = errors.New("InvalidAttachmentID.NotFound")
 	ErrSpotRequestNotFound         = errors.New("InvalidSpotInstanceRequestID.NotFound")
 	ErrPlacementGroupNotFound      = errors.New("InvalidPlacementGroup.NotFound")
@@ -178,6 +178,7 @@ type AMIStub struct {
 	Architecture   string `json:"architecture,omitempty"`
 	Platform       string `json:"platform,omitempty"`
 	RootDeviceName string `json:"rootDeviceName,omitempty"`
+	State          string `json:"state,omitempty"`
 }
 
 //nolint:gochecknoglobals // package-level stub data for describe operations
@@ -1213,9 +1214,7 @@ func (b *InMemoryBackend) RevokeSecurityGroupIngress(
 }
 
 // RevokeSecurityGroupEgress removes matching egress rules from a security group.
-// It validates the group exists (returning InvalidGroup.NotFound otherwise) and
-// removes each rule that matches. Like the AWS API, revoking a rule that is not
-// present is not an error — the operation is idempotent on the rule set.
+// Returns InvalidPermission.NotFound if any requested rule does not exist.
 func (b *InMemoryBackend) RevokeSecurityGroupEgress(
 	groupID string,
 	rules []SecurityGroupRule,
@@ -1226,6 +1225,12 @@ func (b *InMemoryBackend) RevokeSecurityGroupEgress(
 	sg, ok := b.securityGroups[groupID]
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrSecurityGroupNotFound, groupID)
+	}
+
+	for _, rule := range rules {
+		if !ruleExists(sg.EgressRules, rule) {
+			return fmt.Errorf("%w: rule not found in group %s", ErrNetworkInterfacePermissionNotFound, groupID)
+		}
 	}
 
 	for _, rule := range rules {

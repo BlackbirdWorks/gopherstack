@@ -468,6 +468,15 @@ func (b *InMemoryBackend) PutObject(
 
 	// Store tags outside bucket.mu to respect the lock ordering
 	// (b.mu must not be acquired while bucket.mu is held).
+	// When overwriting a non-versioned object (NullVersion) without new tags,
+	// evict any stale tags from the previous version to prevent b.tags from growing unbounded.
+	if newVersionID == NullVersion && input.Tagging == nil {
+		b.mu.Lock("PutObject.evictTags")
+		if b.tags != nil {
+			delete(b.tags, fmt.Sprintf("%s/%s/%s", bucketName, key, NullVersion))
+		}
+		b.mu.Unlock()
+	}
 	b.storeObjectTags(input.Tagging, bucketName, key, newVersionID)
 
 	logger.Load(ctx).DebugContext(ctx, "S3 Backend PutObject",
@@ -2293,18 +2302,24 @@ func (b *InMemoryBackend) ListMultipartUploads(
 		maxUploads = *input.MaxUploads
 	}
 
-	uploads := b.collectAndSortUploads(bucketName, aws.ToString(input.Prefix))
+	prefix := aws.ToString(input.Prefix)
+	delimiter := aws.ToString(input.Delimiter)
+
+	uploads := b.collectAndSortUploads(bucketName, prefix)
 	uploads = seekMultipartMarker(
 		uploads,
 		aws.ToString(input.KeyMarker),
 		aws.ToString(input.UploadIdMarker),
 	)
 
+	uploads, commonPrefixes := groupUploadsByDelimiter(uploads, prefix, delimiter)
+
 	isTruncated, nextKeyMarker, nextUploadIDMarker := truncateUploads(&uploads, maxUploads)
 
 	return &s3.ListMultipartUploadsOutput{
 		Bucket:             aws.String(bucketName),
 		Uploads:            uploads,
+		CommonPrefixes:     commonPrefixes,
 		MaxUploads:         aws.Int32(maxUploads),
 		IsTruncated:        aws.Bool(isTruncated),
 		NextKeyMarker:      aws.String(nextKeyMarker),
@@ -2366,6 +2381,33 @@ func seekMultipartMarker(
 
 // truncateUploads enforces the MaxUploads page size, returning the IsTruncated flag and
 // the next-page markers. The uploads slice is truncated in-place.
+func groupUploadsByDelimiter(
+	uploads []types.MultipartUpload,
+	prefix, delimiter string,
+) ([]types.MultipartUpload, []types.CommonPrefix) {
+	if delimiter == "" {
+		return uploads, nil
+	}
+	var filtered []types.MultipartUpload
+	var commonPrefixes []types.CommonPrefix
+	seen := make(map[string]struct{})
+	for _, u := range uploads {
+		key := aws.ToString(u.Key)
+		keyAfterPrefix := strings.TrimPrefix(key, prefix)
+		if idx := strings.Index(keyAfterPrefix, delimiter); idx >= 0 {
+			cp := prefix + keyAfterPrefix[:idx+len(delimiter)]
+			if _, ok := seen[cp]; !ok {
+				seen[cp] = struct{}{}
+				commonPrefixes = append(commonPrefixes, types.CommonPrefix{Prefix: aws.String(cp)})
+			}
+		} else {
+			filtered = append(filtered, u)
+		}
+	}
+
+	return filtered, commonPrefixes
+}
+
 func truncateUploads(uploads *[]types.MultipartUpload, maxUploads int32) (bool, string, string) {
 	uploadCount := int32(len(*uploads)) //nolint:gosec // G115: len is bounded by maxUploads limit
 	if uploadCount <= maxUploads {
