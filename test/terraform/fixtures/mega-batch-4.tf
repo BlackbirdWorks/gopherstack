@@ -29,3 +29,52 @@ resource "aws_bedrockagent_knowledge_base" "example" {
     }
   }
 }
+
+resource "aws_bedrock_guardrail" "example" {
+  name                      = "mega-batch-4-guardrail"
+  description               = "Test guardrail for mega-batch-4"
+  blocked_input_messaging   = "Sorry, I cannot help with that."
+  blocked_outputs_messaging = "I cannot provide that information."
+
+  lifecycle {
+    ignore_changes = [
+      content_policy_config,
+      sensitive_information_policy_config,
+      word_policy_config,
+    ]
+  }
+}
+
+resource "aws_transcribe_vocabulary" "example" {
+  vocabulary_name = "mega-batch-4-vocabulary"
+  language_code   = "en-US"
+  phrases         = ["gopherstack", "terraform"]
+}
+
+resource "aws_msk_cluster" "example" {
+  cluster_name           = "mega-batch-4-kafka"
+  kafka_version          = "3.5.1"
+  number_of_broker_nodes = 1
+
+  broker_node_group_info {
+    instance_type   = "kafka.m5.large"
+    client_subnets  = ["subnet-00000000"]
+    security_groups = ["sg-00000000"]
+    storage_info {
+      ebs_storage_info {
+        volume_size = 20
+      }
+    }
+  }
+}
+
+resource "aws_dynamodb_table" "example" {
+  name         = "mega-batch-4-table"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "pk"
+
+  attribute {
+    name = "pk"
+    type = "S"
+  }
+}

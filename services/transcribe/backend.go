@@ -19,6 +19,9 @@ var (
 	ErrAlreadyExists = awserr.New("ConflictException", awserr.ErrAlreadyExists)
 	// ErrValidation is returned for invalid or missing input parameters.
 	ErrValidation = awserr.New("BadRequestException", awserr.ErrInvalidParameter)
+	// ErrVocabularyNotFound is returned when a vocabulary is not found.
+	// Real AWS returns BadRequestException (400) for missing vocabularies, not NotFoundException (404).
+	ErrVocabularyNotFound = awserr.New("BadRequestException", awserr.ErrInvalidParameter)
 )
 
 const (
@@ -915,7 +918,7 @@ func (b *InMemoryBackend) GetVocabulary(vocabularyName string) (*Vocabulary, err
 
 	v, ok := b.vocabularies[vocabularyName]
 	if !ok {
-		return nil, fmt.Errorf("%w: vocabulary %s not found", ErrNotFound, vocabularyName)
+		return nil, fmt.Errorf("%w: vocabulary %s not found", ErrVocabularyNotFound, vocabularyName)
 	}
 
 	cp := *v
