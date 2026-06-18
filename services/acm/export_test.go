@@ -10,5 +10,6 @@ func (b *InMemoryBackend) TimerCountForTest() int {
 	for _, regionTimers := range b.timers {
 		total += len(regionTimers)
 	}
+
 	return total
 }

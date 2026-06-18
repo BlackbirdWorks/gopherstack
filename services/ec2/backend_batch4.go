@@ -51,16 +51,16 @@ type ClientVpnTargetNetwork struct {
 
 // ClientVpnEndpoint represents an EC2 Client VPN endpoint.
 type ClientVpnEndpoint struct {
-	ClientVpnEndpointID string              `json:"clientVpnEndpointId,omitempty"`
-	DNSName             string              `json:"dnsName,omitempty"`
-	Status              string              `json:"status,omitempty"`
-	Description         string              `json:"description,omitempty"`
-	ClientCidrBlock     string              `json:"clientCidrBlock,omitempty"`
-	DNSServers          []string            `json:"dnsServers,omitempty"`
-	VpnProtocol         string              `json:"vpnProtocol,omitempty"`
+	ClientVpnEndpointID string                    `json:"clientVpnEndpointId,omitempty"`
+	DNSName             string                    `json:"dnsName,omitempty"`
+	Status              string                    `json:"status,omitempty"`
+	Description         string                    `json:"description,omitempty"`
+	ClientCidrBlock     string                    `json:"clientCidrBlock,omitempty"`
+	DNSServers          []string                  `json:"dnsServers,omitempty"`
+	VpnProtocol         string                    `json:"vpnProtocol,omitempty"`
 	TargetNetworks      []*ClientVpnTargetNetwork `json:"targetNetworks,omitempty"`
-	Routes              []ClientVpnRoute    `json:"routes,omitempty"`
-	AuthRules           []ClientVpnAuthRule `json:"authRules,omitempty"`
+	Routes              []ClientVpnRoute          `json:"routes,omitempty"`
+	AuthRules           []ClientVpnAuthRule       `json:"authRules,omitempty"`
 }
 
 // ClientVpnRoute holds a single route for a Client VPN endpoint.

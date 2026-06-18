@@ -153,7 +153,14 @@ func TestDependentResourceRegionIsolation(t *testing.T) {
 	require.ErrorIs(t, backend.DeleteSnapshot(ctxWest, eastSnap.SnapshotID), ErrSnapshotNotFound)
 
 	// Trust isolation.
-	eastTrust, err := backend.CreateTrust(ctxEast, eastDir.DirectoryID, "remote.example.com", "pw", "Two-Way", "Forest")
+	eastTrust, err := backend.CreateTrust(
+		ctxEast,
+		eastDir.DirectoryID,
+		"remote.example.com",
+		"pw",
+		"Two-Way",
+		"Forest",
+	)
 	require.NoError(t, err)
 
 	_, err = backend.UpdateTrust(ctxWest, eastTrust, "Enabled")
@@ -168,7 +175,12 @@ func TestDependentResourceRegionIsolation(t *testing.T) {
 	assert.Empty(t, westTrusts)
 
 	// Certificate isolation.
-	eastCert, err := backend.RegisterCertificate(ctxEast, eastDir.DirectoryID, "cert-data", "ClientLDAPS")
+	eastCert, err := backend.RegisterCertificate(
+		ctxEast,
+		eastDir.DirectoryID,
+		"cert-data",
+		"ClientLDAPS",
+	)
 	require.NoError(t, err)
 
 	_, err = backend.DescribeCertificate(ctxWest, westDir.DirectoryID, eastCert)
@@ -181,7 +193,12 @@ func TestDependentResourceRegionIsolation(t *testing.T) {
 	// Conditional forwarder isolation.
 	require.NoError(
 		t,
-		backend.CreateConditionalForwarder(ctxEast, eastDir.DirectoryID, "fwd.example.com", []string{"10.0.0.1"}),
+		backend.CreateConditionalForwarder(
+			ctxEast,
+			eastDir.DirectoryID,
+			"fwd.example.com",
+			[]string{"10.0.0.1"},
+		),
 	)
 
 	westFwds, err := backend.DescribeConditionalForwarders(ctxWest, westDir.DirectoryID, nil)
@@ -193,14 +210,20 @@ func TestDependentResourceRegionIsolation(t *testing.T) {
 	assert.Len(t, eastFwds, 1)
 
 	// IP route isolation.
-	require.NoError(t, backend.AddIpRoutes(ctxEast, eastDir.DirectoryID, []IpRoute{{CidrIP: "10.0.0.0/16"}}))
+	require.NoError(
+		t,
+		backend.AddIpRoutes(ctxEast, eastDir.DirectoryID, []IpRoute{{CidrIP: "10.0.0.0/16"}}),
+	)
 
 	eastRoutes, _, err := backend.ListIpRoutes(ctxEast, eastDir.DirectoryID, 0, "")
 	require.NoError(t, err)
 	assert.Len(t, eastRoutes, 1)
 
 	// Tag isolation: tagging the east directory does not leak to the same-named west directory.
-	require.NoError(t, backend.AddTagsToResource(ctxEast, eastDir.DirectoryID, []Tag{{Key: "env", Value: "east"}}))
+	require.NoError(
+		t,
+		backend.AddTagsToResource(ctxEast, eastDir.DirectoryID, []Tag{{Key: "env", Value: "east"}}),
+	)
 
 	westTags, _, err := backend.ListTagsForResource(ctxWest, westDir.DirectoryID, 0, "")
 	require.NoError(t, err)
@@ -221,7 +244,16 @@ func TestADAssessmentRecordsContextRegion(t *testing.T) {
 
 	ctxWest := ctxRegion("us-west-2")
 
-	dir, err := backend.CreateMicrosoftAD(ctxWest, "corp.example.com", "corp", "", "", DirectoryEditionEnterprise, nil, nil)
+	dir, err := backend.CreateMicrosoftAD(
+		ctxWest,
+		"corp.example.com",
+		"corp",
+		"",
+		"",
+		DirectoryEditionEnterprise,
+		nil,
+		nil,
+	)
 	require.NoError(t, err)
 
 	assessID, err := backend.StartADAssessment(ctxWest, dir.DirectoryID)

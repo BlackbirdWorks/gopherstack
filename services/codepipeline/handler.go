@@ -1129,10 +1129,6 @@ type listPipelineExecutionsOutput struct {
 	PipelineExecutionSummaries []map[string]any `json:"pipelineExecutionSummaries"`
 }
 
-// maxPipelineExecutionResults is the AWS upper bound (and default) for the
-// MaxResults parameter on ListPipelineExecutions.
-const maxPipelineExecutionResults int32 = 100
-
 func (h *Handler) handleListPipelineExecutions(
 	ctx context.Context,
 	in *listPipelineExecutionsInput,

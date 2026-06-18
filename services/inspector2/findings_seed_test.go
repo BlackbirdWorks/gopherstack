@@ -33,8 +33,12 @@ func TestSeedFinding_Defaults(t *testing.T) {
 			wantType:     "PACKAGE_VULNERABILITY",
 		},
 		{
-			name:         "explicit_values",
-			in:           inspector2.Finding{Severity: inspector2.FindingSeverity{Label: "CRITICAL"}, Status: "SUPPRESSED", Type: "CODE_VULNERABILITY"},
+			name: "explicit_values",
+			in: inspector2.Finding{
+				Severity: inspector2.FindingSeverity{Label: "CRITICAL"},
+				Status:   "SUPPRESSED",
+				Type:     "CODE_VULNERABILITY",
+			},
 			wantSeverity: "CRITICAL",
 			wantStatus:   "SUPPRESSED",
 			wantType:     "CODE_VULNERABILITY",
@@ -83,12 +87,28 @@ func TestListFindings_FilterCriteria(t *testing.T) {
 
 		b := inspector2.NewInMemoryBackend("123456789012", "us-east-1")
 		_, err := b.SeedFinding(
-			inspector2.Finding{Severity: inspector2.FindingSeverity{Label: "CRITICAL"}, Type: "PACKAGE_VULNERABILITY", Status: "ACTIVE"},
+			inspector2.Finding{
+				Severity: inspector2.FindingSeverity{Label: "CRITICAL"},
+				Type:     "PACKAGE_VULNERABILITY",
+				Status:   "ACTIVE",
+			},
 		)
 		require.NoError(t, err)
-		_, err = b.SeedFinding(inspector2.Finding{Severity: inspector2.FindingSeverity{Label: "LOW"}, Type: "PACKAGE_VULNERABILITY", Status: "ACTIVE"})
+		_, err = b.SeedFinding(
+			inspector2.Finding{
+				Severity: inspector2.FindingSeverity{Label: "LOW"},
+				Type:     "PACKAGE_VULNERABILITY",
+				Status:   "ACTIVE",
+			},
+		)
 		require.NoError(t, err)
-		_, err = b.SeedFinding(inspector2.Finding{Severity: inspector2.FindingSeverity{Label: "HIGH"}, Type: "CODE_VULNERABILITY", Status: "SUPPRESSED"})
+		_, err = b.SeedFinding(
+			inspector2.Finding{
+				Severity: inspector2.FindingSeverity{Label: "HIGH"},
+				Type:     "CODE_VULNERABILITY",
+				Status:   "SUPPRESSED",
+			},
+		)
 		require.NoError(t, err)
 
 		return b
@@ -124,14 +144,18 @@ func TestListFindings_FilterCriteria(t *testing.T) {
 		{
 			name: "status_suppressed",
 			criteria: map[string]any{
-				"findingStatus": []any{map[string]any{"comparison": "EQUALS", "value": "SUPPRESSED"}},
+				"findingStatus": []any{
+					map[string]any{"comparison": "EQUALS", "value": "SUPPRESSED"},
+				},
 			},
 			wantCount: 1,
 		},
 		{
 			name: "type_and_status",
 			criteria: map[string]any{
-				"findingType":   []any{map[string]any{"comparison": "EQUALS", "value": "PACKAGE_VULNERABILITY"}},
+				"findingType": []any{
+					map[string]any{"comparison": "EQUALS", "value": "PACKAGE_VULNERABILITY"},
+				},
 				"findingStatus": []any{map[string]any{"comparison": "EQUALS", "value": "ACTIVE"}},
 			},
 			wantCount: 2,
@@ -162,7 +186,9 @@ func TestListFindings_Pagination(t *testing.T) {
 
 	b := inspector2.NewInMemoryBackend("123456789012", "us-east-1")
 	for range 5 {
-		_, err := b.SeedFinding(inspector2.Finding{Severity: inspector2.FindingSeverity{Label: "MEDIUM"}})
+		_, err := b.SeedFinding(
+			inspector2.Finding{Severity: inspector2.FindingSeverity{Label: "MEDIUM"}},
+		)
 		require.NoError(t, err)
 	}
 
@@ -203,7 +229,9 @@ func TestListFindingAggregations_SeededCounts(t *testing.T) {
 	assert.Empty(t, empty["responses"])
 
 	for _, sev := range []string{"CRITICAL", "CRITICAL", "HIGH", "LOW"} {
-		_, seedErr := b.SeedFinding(inspector2.Finding{Severity: inspector2.FindingSeverity{Label: sev}})
+		_, seedErr := b.SeedFinding(
+			inspector2.Finding{Severity: inspector2.FindingSeverity{Label: sev}},
+		)
 		require.NoError(t, seedErr)
 	}
 

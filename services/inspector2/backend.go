@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"maps"
 	"sort"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -109,20 +107,20 @@ type Filter struct {
 // ListFindings will then return and filter — behavior that exceeds LocalStack,
 // which always returns an empty list.
 type Finding struct {
-	FirstObservedAt time.Time `json:"firstObservedAt"`
-	LastObservedAt  time.Time `json:"lastObservedAt"`
-	UpdatedAt       time.Time `json:"updatedAt"`
-	FindingArn      string    `json:"findingArn"`
-	AccountID       string    `json:"awsAccountId"`
-	Type            string    `json:"type"`
-	Severity        FindingSeverity `json:"severity"`
-	Status          string    `json:"status"`
-	Title           string    `json:"title,omitempty"`
-	Description     string    `json:"description"`
+	FirstObservedAt time.Time         `json:"firstObservedAt"`
+	LastObservedAt  time.Time         `json:"lastObservedAt"`
+	UpdatedAt       time.Time         `json:"updatedAt"`
+	Description     string            `json:"description"`
+	AccountID       string            `json:"awsAccountId"`
+	Type            string            `json:"type"`
+	Status          string            `json:"status"`
+	Title           string            `json:"title,omitempty"`
+	FindingArn      string            `json:"findingArn"`
 	FixAvailable    string            `json:"fixAvailable,omitempty"`
-	Resources       []FindingResource `json:"resources,omitempty"`
 	ResourceType    string            `json:"-"`
 	ResourceID      string            `json:"-"`
+	Severity        FindingSeverity   `json:"severity"`
+	Resources       []FindingResource `json:"resources,omitempty"`
 }
 
 // FindingSeverity holds severity details for a finding.
@@ -691,93 +689,6 @@ func (b *InMemoryBackend) FindingSeverityCounts() map[string]int64 {
 	}
 
 	return counts
-}
-
-// matchesFindingCriteria returns true if the finding matches all filter criteria.
-// Supports filtering by severityLabel and findingStatus arrays.
-func matchesFindingCriteria(f *Finding, criteria map[string]any) bool {
-	if len(criteria) == 0 {
-		return true
-	}
-
-	if severities, ok := extractStringComparisons(criteria, "severity"); ok {
-		matched := false
-
-		for _, s := range severities {
-			if strings.EqualFold(f.Severity.Label, s) {
-				matched = true
-
-				break
-			}
-		}
-
-		if !matched {
-			return false
-		}
-	}
-
-	if statuses, ok := extractStringComparisons(criteria, "findingStatus"); ok {
-		matched := false
-
-		for _, s := range statuses {
-			if strings.EqualFold(f.Status, s) {
-				matched = true
-
-				break
-			}
-		}
-
-		if !matched {
-			return false
-		}
-	}
-
-	return true
-}
-
-// extractStringComparisons extracts EQUALS comparison values for a filter field.
-func extractStringComparisons(criteria map[string]any, key string) ([]string, bool) {
-	raw, ok := criteria[key]
-	if !ok {
-		return nil, false
-	}
-
-	items, ok := raw.([]any)
-	if !ok {
-		return nil, false
-	}
-
-	var vals []string
-
-	for _, item := range items {
-		m, mOk := item.(map[string]any)
-		if !mOk {
-			continue
-		}
-
-		if v, vOk := m["value"].(string); vOk {
-			vals = append(vals, v)
-		}
-	}
-
-	return vals, len(vals) > 0
-}
-
-func encodeFindingToken(idx int) string {
-	return strconv.Itoa(idx)
-}
-
-func decodeFindingToken(token string) int {
-	if token == "" {
-		return 0
-	}
-
-	var idx int
-	if _, err := fmt.Sscanf(token, "%d", &idx); err != nil || idx < 0 {
-		return 0
-	}
-
-	return idx
 }
 
 // GetConfiguration returns the current configuration.

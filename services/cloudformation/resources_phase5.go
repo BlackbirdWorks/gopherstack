@@ -31,6 +31,8 @@ const (
 	resTypeEventsConnection      = "AWS::Events::Connection"
 	resTypeStepFunctionsActivity = "AWS::StepFunctions::Activity"
 	resTypeKMSAlias              = "AWS::KMS::Alias"
+	resTypeAPIGatewayV2Integ     = "AWS::ApiGatewayV2::Integration"
+	resTypeAPIGatewayV2Route     = "AWS::ApiGatewayV2::Route"
 )
 
 const defaultGlueDB = "default"
@@ -1551,11 +1553,11 @@ func (rc *ResourceCreator) createPhase5APIGatewayV2Resource(
 	params, physicalIDs map[string]string,
 ) (string, bool, error) {
 	switch resourceType {
-	case "AWS::ApiGatewayV2::Integration":
+	case resTypeAPIGatewayV2Integ:
 		id, err := rc.createAPIGatewayV2Integration(logicalID, props, params, physicalIDs)
 
 		return id, true, err
-	case "AWS::ApiGatewayV2::Route":
+	case resTypeAPIGatewayV2Route:
 		id, err := rc.createAPIGatewayV2Route(logicalID, props, params, physicalIDs)
 
 		return id, true, err
@@ -1571,10 +1573,10 @@ func (rc *ResourceCreator) createPhase5APIGatewayV2Resource(
 
 func (rc *ResourceCreator) deletePhase5APIGatewayV2Resource(resourceType, physicalID string) (bool, error) {
 	switch resourceType {
-	case "AWS::ApiGatewayV2::Integration":
+	case resTypeAPIGatewayV2Integ:
 
 		return true, rc.deleteAPIGatewayV2Integration(physicalID)
-	case "AWS::ApiGatewayV2::Route":
+	case resTypeAPIGatewayV2Route:
 
 		return true, rc.deleteAPIGatewayV2Route(physicalID)
 	case "AWS::ApiGatewayV2::Authorizer":

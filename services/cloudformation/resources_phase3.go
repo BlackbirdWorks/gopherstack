@@ -1498,9 +1498,9 @@ func (rc *ResourceCreator) deletePhase3AppResource(physicalID, resourceType stri
 		return true, rc.deleteAPIGatewayV2API(physicalID)
 	case "AWS::ApiGatewayV2::Stage":
 		return true, rc.deleteAPIGatewayV2Stage(physicalID)
-	case "AWS::ApiGatewayV2::Integration":
+	case resTypeAPIGatewayV2Integ:
 		return true, rc.deleteAPIGatewayV2Integration(physicalID)
-	case "AWS::ApiGatewayV2::Route":
+	case resTypeAPIGatewayV2Route:
 		return true, rc.deleteAPIGatewayV2Route(physicalID)
 	case "AWS::CodeBuild::Project":
 		return true, rc.deleteCodeBuildProject(physicalID)
@@ -1571,6 +1571,7 @@ func (rc *ResourceCreator) deletePhase4Resource(physicalID, resourceType string)
 		return rc.deleteRDSDBClusterParameterGroup(physicalID)
 	default:
 		_, err := rc.deletePhase5Resource(context.Background(), resourceType, physicalID)
+
 		return err
 	}
 }

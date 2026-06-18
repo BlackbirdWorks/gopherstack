@@ -253,17 +253,17 @@ type Connection struct {
 // are created lazily via the *Store helpers. Callers must hold b.mu while
 // accessing the inner maps.
 type InMemoryBackend struct {
-	replicationInstances         map[string]map[string]*ReplicationInstance
-	endpoints                    map[string]map[string]*Endpoint
-	replicationTasks             map[string]map[string]*ReplicationTask
-	dataMigrations               map[string]map[string]*DataMigration
-	dataProviders                map[string]map[string]*DataProvider
-	eventSubscriptions           map[string]map[string]*EventSubscription
-	fleetAdvisorCollectors       map[string]map[string]*FleetAdvisorCollector
-	instanceProfiles             map[string]map[string]*InstanceProfile
-	replicationInstancesByARN    map[string]map[string]*ReplicationInstance
-	endpointsByARN               map[string]map[string]*Endpoint
-	replicationTasksByARN        map[string]map[string]*ReplicationTask
+	replicationInstances      map[string]map[string]*ReplicationInstance
+	endpoints                 map[string]map[string]*Endpoint
+	replicationTasks          map[string]map[string]*ReplicationTask
+	dataMigrations            map[string]map[string]*DataMigration
+	dataProviders             map[string]map[string]*DataProvider
+	eventSubscriptions        map[string]map[string]*EventSubscription
+	fleetAdvisorCollectors    map[string]map[string]*FleetAdvisorCollector
+	instanceProfiles          map[string]map[string]*InstanceProfile
+	replicationInstancesByARN map[string]map[string]*ReplicationInstance
+	endpointsByARN            map[string]map[string]*Endpoint
+	replicationTasksByARN     map[string]map[string]*ReplicationTask
 	// tasksByInstanceARN indexes task ARNs by the instance ARN they are attached to,
 	// enabling O(1) checks in DeleteReplicationInstance instead of scanning all tasks.
 	tasksByInstanceARN           map[string]map[string]struct{}

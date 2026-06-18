@@ -136,7 +136,11 @@ type ServiceBackends struct {
 
 // NestedStackCreator is a callback used to create and delete nested CloudFormation stacks.
 type NestedStackCreator interface {
-	CreateNestedStack(ctx context.Context, name, templateURL, templateBody string, params []Parameter) (string, error)
+	CreateNestedStack(
+		ctx context.Context,
+		name, templateURL, templateBody string,
+		params []Parameter,
+	) (string, error)
 	DeleteNestedStack(ctx context.Context, stackID string) error
 }
 
@@ -186,7 +190,14 @@ func (rc *ResourceCreator) Create(
 			return logicalID + "-" + uuid.New().String()[:8], nil
 		}
 
-		return rc.createCFNExtensibilityResource(ctx, logicalID, resourceType, props, params, physicalIDs)
+		return rc.createCFNExtensibilityResource(
+			ctx,
+			logicalID,
+			resourceType,
+			props,
+			params,
+			physicalIDs,
+		)
 	}
 
 	if rc.backends == nil {
@@ -262,7 +273,13 @@ func (rc *ResourceCreator) createNestedStack(
 	nestedParams := resolveNestedParams(props, params)
 
 	// Use logicalID as the child stack name.
-	return rc.nestedStackCreator.CreateNestedStack(ctx, logicalID, templateURL, templateBody, nestedParams)
+	return rc.nestedStackCreator.CreateNestedStack(
+		ctx,
+		logicalID,
+		templateURL,
+		templateBody,
+		nestedParams,
+	)
 }
 
 // resolveNestedParams extracts CloudFormation stack parameters from a resource property map,
@@ -392,7 +409,13 @@ func (rc *ResourceCreator) createPlatformResources(
 
 		return physID, true, err
 	case resTypeStepFunctionsStateMachine:
-		physID, err := rc.createStepFunctionsStateMachine(ctx, logicalID, props, params, physicalIDs)
+		physID, err := rc.createStepFunctionsStateMachine(
+			ctx,
+			logicalID,
+			props,
+			params,
+			physicalIDs,
+		)
 
 		return physID, true, err
 	case resTypeLogGroup:
@@ -530,7 +553,12 @@ func (rc *ResourceCreator) createEC2CoreResource(
 
 		return physID, true, err
 	case "AWS::EC2::SubnetRouteTableAssociation":
-		physID, err := rc.createEC2SubnetRouteTableAssociation(logicalID, props, params, physicalIDs)
+		physID, err := rc.createEC2SubnetRouteTableAssociation(
+			logicalID,
+			props,
+			params,
+			physicalIDs,
+		)
 
 		return physID, true, err
 	default:
@@ -718,7 +746,13 @@ func (rc *ResourceCreator) createMiscLegacyResource(
 
 		return physID, true, err
 	case "AWS::Firehose::DeliveryStream":
-		physID, err := rc.createFirehoseDeliveryStream(context.Background(), logicalID, props, params, physicalIDs)
+		physID, err := rc.createFirehoseDeliveryStream(
+			context.Background(),
+			logicalID,
+			props,
+			params,
+			physicalIDs,
+		)
 
 		return physID, true, err
 	case "AWS::Route53Resolver::ResolverEndpoint":
@@ -849,11 +883,11 @@ func (rc *ResourceCreator) createPhase3AppServiceResource(
 		physID, err := rc.createAPIGatewayV2Stage(logicalID, props, params, physicalIDs)
 
 		return physID, true, err
-	case "AWS::ApiGatewayV2::Integration":
+	case resTypeAPIGatewayV2Integ:
 		physID, err := rc.createAPIGatewayV2Integration(logicalID, props, params, physicalIDs)
 
 		return physID, true, err
-	case "AWS::ApiGatewayV2::Route":
+	case resTypeAPIGatewayV2Route:
 		physID, err := rc.createAPIGatewayV2Route(logicalID, props, params, physicalIDs)
 
 		return physID, true, err
@@ -970,13 +1004,21 @@ func (rc *ResourceCreator) createPhase4Resource(
 		return rc.createRDSDBClusterParameterGroup(logicalID, props, params, physicalIDs)
 	default:
 
-		id, handled, err := rc.createPhase5Resource(context.Background(), logicalID, resourceType, props, params, physicalIDs)
+		id, handled, err := rc.createPhase5Resource(
+			context.Background(),
+			logicalID,
+			resourceType,
+			props,
+			params,
+			physicalIDs,
+		)
 		if err != nil {
 			return "", err
 		}
 		if !handled {
 			return logicalID + "-stub", nil
 		}
+
 		return id, nil
 	}
 }
@@ -1001,7 +1043,14 @@ func (rc *ResourceCreator) Update(
 		return nil
 	}
 
-	_, err := rc.updateCFNExtensibilityResource(ctx, logicalID, resourceType, physicalID, newProps, oldProps)
+	_, err := rc.updateCFNExtensibilityResource(
+		ctx,
+		logicalID,
+		resourceType,
+		physicalID,
+		newProps,
+		oldProps,
+	)
 
 	return err
 }
@@ -1049,7 +1098,10 @@ func (rc *ResourceCreator) Delete(
 }
 
 // deleteCoreResource handles deletion of the original 7 core AWS resource types.
-func (rc *ResourceCreator) deleteCoreResource(ctx context.Context, resourceType, physicalID string) (bool, error) {
+func (rc *ResourceCreator) deleteCoreResource(
+	ctx context.Context,
+	resourceType, physicalID string,
+) (bool, error) {
 	switch resourceType {
 	case resTypeS3Bucket:
 
@@ -1079,7 +1131,10 @@ func (rc *ResourceCreator) deleteCoreResource(ctx context.Context, resourceType,
 }
 
 // deleteExtendedResource handles deletion of extended AWS resource types (Lambda, EventBridge, etc.).
-func (rc *ResourceCreator) deleteExtendedResource(ctx context.Context, resourceType, physicalID string) error {
+func (rc *ResourceCreator) deleteExtendedResource(
+	ctx context.Context,
+	resourceType, physicalID string,
+) error {
 	if handled, err := rc.deleteInfraResource(ctx, resourceType, physicalID); handled {
 		return err
 	}
@@ -1088,7 +1143,10 @@ func (rc *ResourceCreator) deleteExtendedResource(ctx context.Context, resourceT
 }
 
 // deleteInfraResource handles Lambda, EventBridge, StepFunctions, Logs, and APIGateway deletions.
-func (rc *ResourceCreator) deleteInfraResource(ctx context.Context, resourceType, physicalID string) (bool, error) {
+func (rc *ResourceCreator) deleteInfraResource(
+	ctx context.Context,
+	resourceType, physicalID string,
+) (bool, error) {
 	if handled, err := rc.deleteLambdaResource(resourceType, physicalID); handled {
 		return true, err
 	}
@@ -1121,7 +1179,10 @@ func (rc *ResourceCreator) deleteLambdaResource(resourceType, physicalID string)
 }
 
 // deletePlatformResource handles EventBridge, StepFunctions, Logs, and APIGateway deletions.
-func (rc *ResourceCreator) deletePlatformResource(ctx context.Context, resourceType, physicalID string) (bool, error) {
+func (rc *ResourceCreator) deletePlatformResource(
+	ctx context.Context,
+	resourceType, physicalID string,
+) (bool, error) {
 	switch resourceType {
 	case "AWS::Events::Rule":
 
@@ -1158,7 +1219,10 @@ func (rc *ResourceCreator) deletePlatformResource(ctx context.Context, resourceT
 
 // deleteServiceResource handles IAM, EC2, Kinesis, CloudWatch, Route53, ElastiCache,
 // SNS/SQS/S3 policies, and Scheduler resource deletions.
-func (rc *ResourceCreator) deleteServiceResource(ctx context.Context, resourceType, physicalID string) error {
+func (rc *ResourceCreator) deleteServiceResource(
+	ctx context.Context,
+	resourceType, physicalID string,
+) error {
 	if handled, err := rc.deleteIAMEC2Resource(resourceType, physicalID); handled {
 		return err
 	}
@@ -1237,7 +1301,10 @@ func (rc *ResourceCreator) deleteEC2CoreResource(resourceType, physicalID string
 
 // deleteDataPlatformResource handles Kinesis, CloudWatch, Route53, ElastiCache,
 // SNS/SQS/S3 policies, and Scheduler resource deletions.
-func (rc *ResourceCreator) deleteDataPlatformResource(ctx context.Context, resourceType, physicalID string) error {
+func (rc *ResourceCreator) deleteDataPlatformResource(
+	ctx context.Context,
+	resourceType, physicalID string,
+) error {
 	switch resourceType {
 	case "AWS::Kinesis::Stream":
 
@@ -1299,7 +1366,9 @@ func (rc *ResourceCreator) deleteNewServiceResource(physicalID, resourceType str
 }
 
 // deleteComputeStorageResource handles RDS, ECS, ECR, Lambda layer, Redshift, and OpenSearch deletions.
-func (rc *ResourceCreator) deleteComputeStorageResource(physicalID, resourceType string) (bool, error) {
+func (rc *ResourceCreator) deleteComputeStorageResource(
+	physicalID, resourceType string,
+) (bool, error) {
 	switch resourceType {
 	case resTypeRDSDB:
 
@@ -1501,7 +1570,10 @@ func parseDDBAttributeDefinitions(
 	return defs
 }
 
-func parseDDBKeySchema(props map[string]any, params, physicalIDs map[string]string) []ddbtypes.KeySchemaElement {
+func parseDDBKeySchema(
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) []ddbtypes.KeySchemaElement {
 	rawList, _ := props["KeySchema"].([]any)
 	schema := make([]ddbtypes.KeySchemaElement, 0, len(rawList))
 	for _, item := range rawList {
@@ -1665,7 +1737,10 @@ func (rc *ResourceCreator) deleteSSMParameter(ctx context.Context, physicalID st
 	if rc.backends.SSM == nil {
 		return nil
 	}
-	_, err := rc.backends.SSM.Backend.DeleteParameter(ctx, &ssmbackend.DeleteParameterInput{Name: physicalID})
+	_, err := rc.backends.SSM.Backend.DeleteParameter(
+		ctx,
+		&ssmbackend.DeleteParameterInput{Name: physicalID},
+	)
 
 	return err
 }
@@ -1840,7 +1915,11 @@ func (rc *ResourceCreator) deleteEventBridgeRule(_ context.Context, physicalID s
 	parts := strings.Split(physicalID, "/")
 	name := parts[len(parts)-1]
 
-	return rc.backends.EventBridge.Backend.DeleteRule(context.Background(), name, defaultEventBusName)
+	return rc.backends.EventBridge.Backend.DeleteRule(
+		context.Background(),
+		name,
+		defaultEventBusName,
+	)
 }
 
 // createStepFunctionsStateMachine creates a Step Functions state machine.
@@ -1982,7 +2061,10 @@ func (r *serviceBackendsResolver) ResolveSSMParameter(name string) (string, erro
 		return "", fmt.Errorf("%w: SSM backend is not available", ErrDynamicRefFailed)
 	}
 
-	out, err := r.ssm.Backend.GetParameter(context.Background(), &ssmbackend.GetParameterInput{Name: name})
+	out, err := r.ssm.Backend.GetParameter(
+		context.Background(),
+		&ssmbackend.GetParameterInput{Name: name},
+	)
 	if err != nil {
 		return "", err
 	}

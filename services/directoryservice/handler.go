@@ -183,7 +183,7 @@ func (h *Handler) contextWithRegion(c *echo.Context) context.Context {
 	return context.WithValue(c.Request().Context(), regionContextKey{}, region)
 }
 
-func (h *Handler) handleCreateDirectory(c *echo.Context) error { //nolint:dupl // existing issue.
+func (h *Handler) handleCreateDirectory(c *echo.Context) error {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid body"))
