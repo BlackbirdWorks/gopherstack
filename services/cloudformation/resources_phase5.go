@@ -656,7 +656,7 @@ func (rc *ResourceCreator) deleteAppAutoScalingScalableTarget(arn string) error 
 	// We stored it by ARN index — use DeregisterScalableTarget with ARN lookup.
 	// The backend's DeregisterScalableTarget takes (serviceNamespace, resourceID, scalableDimension).
 	// We store the ARN as physical ID; find via DescribeScalableTargets with empty filter.
-	targets := rc.backends.AppAutoScaling.Backend.DescribeScalableTargets(
+	targets, _ := rc.backends.AppAutoScaling.Backend.DescribeScalableTargets(
 		appautoscalingbackend.DescribeScalableTargetsFilter{},
 	)
 	for _, t := range targets {
@@ -714,7 +714,7 @@ func (rc *ResourceCreator) deleteAppAutoScalingScalingPolicy(policyARN string) e
 		return nil
 	}
 
-	policies := rc.backends.AppAutoScaling.Backend.DescribeScalingPolicies(
+	policies, _ := rc.backends.AppAutoScaling.Backend.DescribeScalingPolicies(
 		appautoscalingbackend.DescribeScalingPoliciesFilter{},
 	)
 	for _, p := range policies {
@@ -1574,88 +1574,6 @@ func (rc *ResourceCreator) deletePhase5APIGatewayV2Resource(resourceType, physic
 
 		return false, nil
 	}
-}
-
-func (rc *ResourceCreator) createAPIGatewayV2Integration(
-	logicalID string,
-	props map[string]any,
-	params, physicalIDs map[string]string,
-) (string, error) {
-	if rc.backends.APIGatewayV2 == nil {
-		return logicalID + "-stub", nil
-	}
-
-	apiID := strProp(props, "ApiId", params, physicalIDs)
-	integrationType := strProp(props, "IntegrationType", params, physicalIDs)
-	if integrationType == "" {
-		integrationType = "AWS_PROXY"
-	}
-
-	integ, err := rc.backends.APIGatewayV2.Backend.CreateIntegration(apiID, apigatewayv2backend.CreateIntegrationInput{
-		IntegrationType:      integrationType,
-		IntegrationURI:       strProp(props, "IntegrationUri", params, physicalIDs),
-		IntegrationMethod:    strProp(props, "IntegrationMethod", params, physicalIDs),
-		PayloadFormatVersion: strProp(props, "PayloadFormatVersion", params, physicalIDs),
-	})
-	if err != nil {
-		return "", fmt.Errorf("create API Gateway V2 integration: %w", err)
-	}
-
-	return apiID + apigwv2PhysIDSep + integ.IntegrationID, nil
-}
-
-func (rc *ResourceCreator) deleteAPIGatewayV2Integration(physicalID string) error {
-	if rc.backends.APIGatewayV2 == nil {
-		return nil
-	}
-
-	apiID, integID, ok := splitAPIGatewayV2PhysID(physicalID)
-	if !ok {
-		return nil
-	}
-
-	return rc.backends.APIGatewayV2.Backend.DeleteIntegration(apiID, integID)
-}
-
-func (rc *ResourceCreator) createAPIGatewayV2Route(
-	logicalID string,
-	props map[string]any,
-	params, physicalIDs map[string]string,
-) (string, error) {
-	if rc.backends.APIGatewayV2 == nil {
-		return logicalID + "-stub", nil
-	}
-
-	apiID := strProp(props, "ApiId", params, physicalIDs)
-	routeKey := strProp(props, "RouteKey", params, physicalIDs)
-	if routeKey == "" {
-		routeKey = "$default"
-	}
-
-	route, err := rc.backends.APIGatewayV2.Backend.CreateRoute(apiID, apigatewayv2backend.CreateRouteInput{
-		RouteKey:          routeKey,
-		Target:            strProp(props, "Target", params, physicalIDs),
-		AuthorizationType: strProp(props, "AuthorizationType", params, physicalIDs),
-		AuthorizerID:      strProp(props, "AuthorizerId", params, physicalIDs),
-	})
-	if err != nil {
-		return "", fmt.Errorf("create API Gateway V2 route %s: %w", routeKey, err)
-	}
-
-	return apiID + apigwv2PhysIDSep + route.RouteID, nil
-}
-
-func (rc *ResourceCreator) deleteAPIGatewayV2Route(physicalID string) error {
-	if rc.backends.APIGatewayV2 == nil {
-		return nil
-	}
-
-	apiID, routeID, ok := splitAPIGatewayV2PhysID(physicalID)
-	if !ok {
-		return nil
-	}
-
-	return rc.backends.APIGatewayV2.Backend.DeleteRoute(apiID, routeID)
 }
 
 func (rc *ResourceCreator) createAPIGatewayV2Authorizer(

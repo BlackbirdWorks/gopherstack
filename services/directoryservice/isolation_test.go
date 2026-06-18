@@ -27,12 +27,12 @@ func TestDirectoryRegionIsolation(t *testing.T) {
 
 	// 1. Create a directory in each region (same name is allowed across regions).
 	eastDir, err := backend.CreateMicrosoftAD(
-		ctxEast, "corp.example.com", "corp", "east dir", "", DirectoryEditionEnterprise, nil,
+		ctxEast, "corp.example.com", "corp", "east dir", "", DirectoryEditionEnterprise, nil, nil,
 	)
 	require.NoError(t, err)
 
 	westDir, err := backend.CreateMicrosoftAD(
-		ctxWest, "corp.example.com", "corp", "west dir", "", DirectoryEditionStandard, nil,
+		ctxWest, "corp.example.com", "corp", "west dir", "", DirectoryEditionStandard, nil, nil,
 	)
 	require.NoError(t, err)
 	assert.NotEqual(t, eastDir.DirectoryID, westDir.DirectoryID)
@@ -85,6 +85,7 @@ func TestDirectoryDefaultRegionFallback(t *testing.T) {
 		"",
 		DirectorySizeSmall,
 		nil,
+		nil,
 	)
 	require.NoError(t, err)
 
@@ -119,6 +120,7 @@ func TestDependentResourceRegionIsolation(t *testing.T) {
 		"",
 		DirectoryEditionEnterprise,
 		nil,
+		nil,
 	)
 	require.NoError(t, err)
 
@@ -129,6 +131,7 @@ func TestDependentResourceRegionIsolation(t *testing.T) {
 		"",
 		"",
 		DirectoryEditionEnterprise,
+		nil,
 		nil,
 	)
 	require.NoError(t, err)
@@ -218,7 +221,7 @@ func TestADAssessmentRecordsContextRegion(t *testing.T) {
 
 	ctxWest := ctxRegion("us-west-2")
 
-	dir, err := backend.CreateMicrosoftAD(ctxWest, "corp.example.com", "corp", "", "", DirectoryEditionEnterprise, nil)
+	dir, err := backend.CreateMicrosoftAD(ctxWest, "corp.example.com", "corp", "", "", DirectoryEditionEnterprise, nil, nil)
 	require.NoError(t, err)
 
 	assessID, err := backend.StartADAssessment(ctxWest, dir.DirectoryID)

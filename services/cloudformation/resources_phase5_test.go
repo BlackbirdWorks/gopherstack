@@ -628,7 +628,7 @@ func TestResourceCreator_AppAutoScaling_ScalableTarget_CreateDelete(t *testing.T
 	assert.Contains(t, physID, "scalable-target")
 
 	// Verify it is registered in the backend.
-	targets := backends.AppAutoScaling.Backend.DescribeScalableTargets(
+	targets, _ := backends.AppAutoScaling.Backend.DescribeScalableTargets(
 		appautoscalingbackend.DescribeScalableTargetsFilter{},
 	)
 	assert.Len(t, targets, 1)
@@ -638,7 +638,7 @@ func TestResourceCreator_AppAutoScaling_ScalableTarget_CreateDelete(t *testing.T
 	require.NoError(t, err)
 
 	// Verify it is deregistered.
-	targets = backends.AppAutoScaling.Backend.DescribeScalableTargets(
+	targets, _ = backends.AppAutoScaling.Backend.DescribeScalableTargets(
 		appautoscalingbackend.DescribeScalableTargetsFilter{},
 	)
 	assert.Empty(t, targets)
@@ -664,7 +664,7 @@ func TestResourceCreator_AppAutoScaling_ScalingPolicy_CreateDelete(t *testing.T)
 	require.NoError(t, err)
 	assert.NotEmpty(t, physID)
 
-	policies := backends.AppAutoScaling.Backend.DescribeScalingPolicies(
+	policies, _ := backends.AppAutoScaling.Backend.DescribeScalingPolicies(
 		appautoscalingbackend.DescribeScalingPoliciesFilter{},
 	)
 	assert.Len(t, policies, 1)
@@ -673,7 +673,7 @@ func TestResourceCreator_AppAutoScaling_ScalingPolicy_CreateDelete(t *testing.T)
 	err = rc.Delete(t.Context(), "AWS::ApplicationAutoScaling::ScalingPolicy", physID, nil)
 	require.NoError(t, err)
 
-	policies = backends.AppAutoScaling.Backend.DescribeScalingPolicies(
+	policies, _ = backends.AppAutoScaling.Backend.DescribeScalingPolicies(
 		appautoscalingbackend.DescribeScalingPoliciesFilter{},
 	)
 	assert.Empty(t, policies)

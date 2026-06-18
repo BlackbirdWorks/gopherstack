@@ -630,7 +630,6 @@ func (b *InMemoryBackend) DeleteReplicationInstance(ctx context.Context, arnOrID
 	region := getRegion(ctx, b.region)
 	store := b.replicationInstancesStore(region)
 	byARN := b.replicationInstancesByARNStore(region)
-	tasks := b.replicationTasksStore(region)
 
 	deleteInstance := func(ri *ReplicationInstance, id string) error {
 		// O(1) check via reverse index instead of scanning all tasks.

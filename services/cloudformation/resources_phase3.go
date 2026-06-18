@@ -1570,6 +1570,7 @@ func (rc *ResourceCreator) deletePhase4Resource(physicalID, resourceType string)
 	case "AWS::RDS::DBClusterParameterGroup":
 		return rc.deleteRDSDBClusterParameterGroup(physicalID)
 	default:
-		return rc.deletePhase5Resource(context.Background(), physicalID, resourceType)
+		_, err := rc.deletePhase5Resource(context.Background(), resourceType, physicalID)
+		return err
 	}
 }

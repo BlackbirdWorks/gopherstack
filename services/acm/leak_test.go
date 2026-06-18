@@ -33,6 +33,7 @@ func TestDeleteCertificate_StopsAutoValidateTimer(t *testing.T) {
 			arns := make([]string, 0, tc.count)
 			for i := range tc.count {
 				cert, err := b.RequestCertificate(
+					t.Context(),
 					"example.com",
 					"AMAZON_ISSUED",
 					"DNS",
@@ -51,7 +52,7 @@ func TestDeleteCertificate_StopsAutoValidateTimer(t *testing.T) {
 				"timer should be registered for each pending cert")
 
 			for _, certARN := range arns {
-				require.NoError(t, b.DeleteCertificate(certARN),
+				require.NoError(t, b.DeleteCertificate(t.Context(), certARN),
 					"DeleteCertificate must succeed")
 			}
 
@@ -73,6 +74,7 @@ func TestDeleteCertificate_TimersDoNotAccumulateAcrossCreateDelete(t *testing.T)
 
 	for i := range cycles {
 		cert, err := b.RequestCertificate(
+			t.Context(),
 			"cycle.example.com",
 			"AMAZON_ISSUED",
 			"DNS",
@@ -83,7 +85,7 @@ func TestDeleteCertificate_TimersDoNotAccumulateAcrossCreateDelete(t *testing.T)
 			nil,
 		)
 		require.NoError(t, err, "cycle %d: RequestCertificate failed", i)
-		require.NoError(t, b.DeleteCertificate(cert.ARN), "cycle %d: DeleteCertificate failed", i)
+		require.NoError(t, b.DeleteCertificate(t.Context(), cert.ARN), "cycle %d: DeleteCertificate failed", i)
 	}
 
 	require.Equal(t, 0, b.TimerCountForTest(),
