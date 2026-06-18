@@ -93,9 +93,9 @@ func TestBatch4_ClientVpnEndpoint(t *testing.T) { //nolint:paralleltest // exist
 	})
 
 	t.Run("associate target network", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		assocID, err := b.AssociateClientVpnTargetNetwork(epID, "subnet-default")
-		require.NoError(t, err)
-		require.NotEmpty(t, assocID)
+		assocID, assocErr := b.AssociateClientVpnTargetNetwork(epID, "subnet-default")
+		require.NoError(t, assocErr)
+		assert.NotEmpty(t, assocID)
 		networks, err := b.DescribeClientVpnTargetNetworks(epID)
 		require.NoError(t, err)
 		require.Len(t, networks, 1)
