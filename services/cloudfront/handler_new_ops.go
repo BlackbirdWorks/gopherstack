@@ -416,9 +416,9 @@ func (h *Handler) handleDeleteConnectionGroup(c *echo.Context, id string) error 
 func connectionFunctionXML(ns string, fn *ConnectionFunction) string {
 	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
 		`<ConnectionFunction xmlns="%s">`+
-		`<ARN>%s</ARN><Name>%s</Name><Comment>%s</Comment>`+
+		`<Id>%s</Id><ARN>%s</ARN><Name>%s</Name><Comment>%s</Comment>`+
 		`</ConnectionFunction>`,
-		ns, fn.ARN, fn.Name, fn.Comment)
+		ns, fn.ID, fn.ARN, fn.Name, fn.Comment)
 }
 
 func (h *Handler) handleGetConnectionFunction(c *echo.Context, id string) error {
@@ -498,7 +498,11 @@ func (h *Handler) handlePublishConnectionFunction(c *echo.Context, id string) er
 	return xmlResp(c, http.StatusOK, connectionFunctionXML(cfNS, fn))
 }
 
-func (h *Handler) handleTestConnectionFunction(c *echo.Context, _ string) error {
+func (h *Handler) handleTestConnectionFunction(c *echo.Context, id string) error {
+	if _, err := h.Backend.GetConnectionFunction(id); err != nil {
+		return h.handleError(c, err)
+	}
+
 	return xmlResp(c, http.StatusOK, fmt.Sprintf(
 		`<?xml version="1.0" encoding="UTF-8"?>`+
 			`<TestResult xmlns="%s">`+

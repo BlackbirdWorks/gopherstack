@@ -372,17 +372,25 @@ func (b *InMemoryBackend) DeleteConnectionGroup(id string) error {
 // ConnectionFunction extra operations (Get/Describe/List/Update/Delete/Publish/Test)
 // ---------------------------------------------------------------------------
 
-func (b *InMemoryBackend) GetConnectionFunction(id string) (*ConnectionFunction, error) {
+func (b *InMemoryBackend) GetConnectionFunction(idOrName string) (*ConnectionFunction, error) {
 	b.mu.RLock("GetConnectionFunction")
 	defer b.mu.RUnlock()
 
-	fn, ok := b.connectionFunctions[id]
-	if !ok {
-		return nil, ErrConnectionFunctionNotFound
-	}
-	cp := *fn
+	if fn, ok := b.connectionFunctions[idOrName]; ok {
+		cp := *fn
 
-	return &cp, nil
+		return &cp, nil
+	}
+
+	if uuid, ok := b.connectionFunctionByName[idOrName]; ok {
+		if fn, fnOK := b.connectionFunctions[uuid]; fnOK {
+			cp := *fn
+
+			return &cp, nil
+		}
+	}
+
+	return nil, ErrConnectionFunctionNotFound
 }
 
 func (b *InMemoryBackend) ListConnectionFunctions() []*ConnectionFunction {
@@ -399,32 +407,53 @@ func (b *InMemoryBackend) ListConnectionFunctions() []*ConnectionFunction {
 	return out
 }
 
-func (b *InMemoryBackend) UpdateConnectionFunction(id, comment string) (*ConnectionFunction, error) {
+func (b *InMemoryBackend) UpdateConnectionFunction(idOrName, comment string) (*ConnectionFunction, error) {
 	b.mu.Lock("UpdateConnectionFunction")
 	defer b.mu.Unlock()
 
-	fn, ok := b.connectionFunctions[id]
-	if !ok {
+	fn, id := b.resolveConnectionFunction(idOrName)
+	if fn == nil {
 		return nil, ErrConnectionFunctionNotFound
 	}
+
 	if comment != "" {
 		fn.Comment = comment
 	}
+	_ = id
 	cp := *fn
 
 	return &cp, nil
 }
 
-func (b *InMemoryBackend) DeleteConnectionFunction(id string) error {
+func (b *InMemoryBackend) DeleteConnectionFunction(idOrName string) error {
 	b.mu.Lock("DeleteConnectionFunction")
 	defer b.mu.Unlock()
 
-	if _, ok := b.connectionFunctions[id]; !ok {
+	fn, id := b.resolveConnectionFunction(idOrName)
+	if fn == nil {
 		return ErrConnectionFunctionNotFound
 	}
+
 	delete(b.connectionFunctions, id)
+	delete(b.connectionFunctionByName, fn.Name)
 
 	return nil
+}
+
+// resolveConnectionFunction returns the function and its UUID key by id or name.
+// Must be called with the lock held.
+func (b *InMemoryBackend) resolveConnectionFunction(idOrName string) (*ConnectionFunction, string) {
+	if fn, ok := b.connectionFunctions[idOrName]; ok {
+		return fn, idOrName
+	}
+
+	if uuid, ok := b.connectionFunctionByName[idOrName]; ok {
+		if fn, fnOK := b.connectionFunctions[uuid]; fnOK {
+			return fn, uuid
+		}
+	}
+
+	return nil, ""
 }
 
 // ---------------------------------------------------------------------------

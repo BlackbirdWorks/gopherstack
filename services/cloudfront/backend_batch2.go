@@ -434,3 +434,105 @@ func (b *InMemoryBackend) copyTenant(t *DistributionTenant) *DistributionTenant 
 
 	return &cp
 }
+
+// ---------------------------------------------------------------------------
+// ManagedCertificate types and methods
+// ---------------------------------------------------------------------------
+
+// ManagedCertificateValidationToken holds per-domain validation state.
+type ManagedCertificateValidationToken struct {
+	Domain           string
+	ValidationStatus string // "PENDING_VALIDATION" or "SUCCESS"
+}
+
+// ManagedCertificate holds certificate state for a distribution tenant.
+type ManagedCertificate struct {
+	TenantID         string
+	Status           string // "PENDING_VALIDATION" or "SUCCESS"
+	ValidationTokens []*ManagedCertificateValidationToken
+}
+
+// GetManagedCertificateDetails returns managed certificate details for a distribution tenant.
+// Returns a synthetic SUCCESS cert if no explicit record is found (in-memory default).
+func (b *InMemoryBackend) GetManagedCertificateDetails(tenantID string) (*ManagedCertificate, error) {
+	b.mu.RLock("GetManagedCertificateDetails")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.distributionTenants[tenantID]; !ok {
+		return nil, ErrDistributionTenantNotFound
+	}
+
+	if cert, ok := b.managedCertificates[tenantID]; ok {
+		cp := *cert
+		cp.ValidationTokens = make([]*ManagedCertificateValidationToken, len(cert.ValidationTokens))
+		for i, vt := range cert.ValidationTokens {
+			vtCp := *vt
+			cp.ValidationTokens[i] = &vtCp
+		}
+
+		return &cp, nil
+	}
+
+	// Default synthetic cert: auto-provisioned SUCCESS for the tenant's domain.
+	tenant := b.distributionTenants[tenantID]
+	domain := tenant.Domain
+	if domain == "" {
+		domain = tenantID + ".example.com"
+	}
+
+	return &ManagedCertificate{
+		TenantID: tenantID,
+		Status:   "SUCCESS",
+		ValidationTokens: []*ManagedCertificateValidationToken{
+			{Domain: domain, ValidationStatus: "SUCCESS"},
+		},
+	}, nil
+}
+
+// ---------------------------------------------------------------------------
+// ListDomainConflicts backend method
+// ---------------------------------------------------------------------------
+
+// DomainConflict represents a domain that conflicts across distributions or tenants.
+type DomainConflict struct {
+	Domain         string
+	DistributionID string
+	AccountID      string
+}
+
+// ListDomainConflicts returns domains that conflict for a given domain query.
+// Checks existing distribution aliases and tenant domains for the given domain pattern.
+func (b *InMemoryBackend) ListDomainConflicts(domain string) []*DomainConflict {
+	b.mu.RLock("ListDomainConflicts")
+	defer b.mu.RUnlock()
+
+	if domain == "" {
+		return nil
+	}
+
+	var out []*DomainConflict
+
+	for distID, aliases := range b.distributionAliases {
+		for _, alias := range aliases {
+			if alias == domain {
+				out = append(out, &DomainConflict{
+					Domain:         domain,
+					DistributionID: distID,
+					AccountID:      b.accountID,
+				})
+			}
+		}
+	}
+
+	for _, tenant := range b.distributionTenants {
+		if tenant.Domain == domain {
+			out = append(out, &DomainConflict{
+				Domain:         domain,
+				DistributionID: tenant.DistributionID,
+				AccountID:      b.accountID,
+			})
+		}
+	}
+
+	return out
+}

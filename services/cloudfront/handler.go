@@ -2911,17 +2911,9 @@ func (h *Handler) handleCreateConnectionFunction(c *echo.Context) error {
 		return h.handleError(c, createErr)
 	}
 
-	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
-		`<ConnectionFunction xmlns="%s">`+
-		`<ARN>%s</ARN>`+
-		`<Name>%s</Name>`+
-		`<Comment>%s</Comment>`+
-		`</ConnectionFunction>`,
-		cfNS, fn.ARN, fn.Name, fn.Comment)
+	c.Response().Header().Set("Location", cfPathPrefix+"connection-function/"+fn.ID)
 
-	c.Response().Header().Set("Location", cfPathPrefix+"connection-function/"+fn.Name)
-
-	return xmlResp(c, http.StatusCreated, resp)
+	return xmlResp(c, http.StatusCreated, connectionFunctionXML(cfNS, fn))
 }
 
 func (h *Handler) handleCreateConnectionGroup(c *echo.Context) error {
