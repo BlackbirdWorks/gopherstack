@@ -677,15 +677,17 @@ func TestActivity_DeleteActivityRemovesOutstandingTaskTokens(t *testing.T) {
 			err = tt.sendResult(b, task.TaskToken)
 			require.ErrorIs(t, err, stepfunctions.ErrTaskTokenNotFound)
 
-			cancelInvoke()
+			// DeleteActivity signals resultCh for in-flight tasks, so InvokeActivity
+			// must unblock and return an error without requiring context cancellation.
 			require.Eventually(t, func() bool {
 				select {
 				case invokeErr := <-invokeErrCh:
-					return errors.Is(invokeErr, context.Canceled)
+					return invokeErr != nil
 				default:
 					return false
 				}
 			}, 2*time.Second, 25*time.Millisecond)
+			cancelInvoke()
 		})
 	}
 }

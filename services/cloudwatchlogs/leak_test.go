@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -74,4 +75,61 @@ func TestParsedInsightsQueryCache_DeduplicatesIdenticalQueries(t *testing.T) {
 
 	require.Equal(t, 1, b.GetParsedInsightsQueryCacheSize(),
 		"identical query strings must produce exactly one cache entry")
+}
+
+// TestCompiledPatternCache_CappedAtMax verifies that the compiled metric-filter
+// pattern cache stays at or below its configured cap when many distinct patterns
+// are submitted via PutMetricFilter + PutLogEvents, preventing unbounded memory
+// growth on long-running backends.
+func TestCompiledPatternCache_CappedAtMax(t *testing.T) {
+	t.Parallel()
+
+	const overflow = cloudwatchlogs.MaxCompiledPatternCacheForTest + 100
+
+	tests := []struct {
+		name     string
+		patterns int
+	}{
+		{name: "at cap", patterns: cloudwatchlogs.MaxCompiledPatternCacheForTest},
+		{name: "one over cap", patterns: cloudwatchlogs.MaxCompiledPatternCacheForTest + 1},
+		{name: "well over cap", patterns: overflow},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := context.Background()
+			b := cloudwatchlogs.NewInMemoryBackend()
+
+			const group = "test-group"
+			const stream = "test-stream"
+
+			_, err := b.CreateLogGroup(ctx, group, "", "")
+			require.NoError(t, err)
+			_, err = b.CreateLogStream(ctx, group, stream)
+			require.NoError(t, err)
+
+			// Register one metric filter per unique pattern.
+			for i := range tc.patterns {
+				pattern := fmt.Sprintf("?unique-token-%d", i)
+				err = b.PutMetricFilter(ctx, group, fmt.Sprintf("f%d", i), pattern,
+					[]cloudwatchlogs.MetricTransformation{
+						{MetricName: "m", MetricNamespace: "ns", MetricValue: "1"},
+					})
+				require.NoError(t, err)
+			}
+
+			// PutLogEvents to trigger matchingMetricFilters → getCompiledPattern
+			// for every registered filter.
+			now := time.Now().UnixMilli()
+			_, err = b.PutLogEvents(ctx, group, stream, "",
+				[]cloudwatchlogs.InputLogEvent{{Timestamp: now, Message: "ping"}})
+			require.NoError(t, err)
+
+			got := b.GetCompiledPatternCacheSize()
+			require.LessOrEqual(t, got, cloudwatchlogs.MaxCompiledPatternCacheForTest,
+				"compiled pattern cache must not exceed the cap after %d unique patterns", tc.patterns)
+		})
+	}
 }

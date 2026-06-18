@@ -253,17 +253,19 @@ type Connection struct {
 // are created lazily via the *Store helpers. Callers must hold b.mu while
 // accessing the inner maps.
 type InMemoryBackend struct {
-	replicationInstances      map[string]map[string]*ReplicationInstance
-	endpoints                 map[string]map[string]*Endpoint
-	replicationTasks          map[string]map[string]*ReplicationTask
-	dataMigrations            map[string]map[string]*DataMigration
-	dataProviders             map[string]map[string]*DataProvider
-	eventSubscriptions        map[string]map[string]*EventSubscription
-	fleetAdvisorCollectors    map[string]map[string]*FleetAdvisorCollector
-	instanceProfiles          map[string]map[string]*InstanceProfile
-	replicationInstancesByARN map[string]map[string]*ReplicationInstance
-	endpointsByARN            map[string]map[string]*Endpoint
-	replicationTasksByARN     map[string]map[string]*ReplicationTask
+	replicationInstances   map[string]map[string]*ReplicationInstance
+	endpoints              map[string]map[string]*Endpoint
+	replicationTasks       map[string]map[string]*ReplicationTask
+	dataMigrations         map[string]map[string]*DataMigration
+	dataProviders          map[string]map[string]*DataProvider
+	eventSubscriptions     map[string]map[string]*EventSubscription
+	fleetAdvisorCollectors map[string]map[string]*FleetAdvisorCollector
+	// fleetAdvisorCollectorsByID indexes collectors by CollectorReferencedID (UUID) for O(1) delete by ID.
+	fleetAdvisorCollectorsByID map[string]map[string]*FleetAdvisorCollector
+	instanceProfiles           map[string]map[string]*InstanceProfile
+	replicationInstancesByARN  map[string]map[string]*ReplicationInstance
+	endpointsByARN             map[string]map[string]*Endpoint
+	replicationTasksByARN      map[string]map[string]*ReplicationTask
 	// tasksByInstanceARN indexes task ARNs by the instance ARN they are attached to,
 	// enabling O(1) checks in DeleteReplicationInstance instead of scanning all tasks.
 	tasksByInstanceARN           map[string]map[string]struct{}
@@ -294,6 +296,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		dataProviders:                make(map[string]map[string]*DataProvider),
 		eventSubscriptions:           make(map[string]map[string]*EventSubscription),
 		fleetAdvisorCollectors:       make(map[string]map[string]*FleetAdvisorCollector),
+		fleetAdvisorCollectorsByID:   make(map[string]map[string]*FleetAdvisorCollector),
 		instanceProfiles:             make(map[string]map[string]*InstanceProfile),
 		replicationInstancesByARN:    make(map[string]map[string]*ReplicationInstance),
 		endpointsByARN:               make(map[string]map[string]*Endpoint),
@@ -414,6 +417,14 @@ func (b *InMemoryBackend) fleetAdvisorCollectorsStore(region string) map[string]
 	}
 
 	return b.fleetAdvisorCollectors[region]
+}
+
+func (b *InMemoryBackend) fleetAdvisorCollectorsByIDStore(region string) map[string]*FleetAdvisorCollector {
+	if b.fleetAdvisorCollectorsByID[region] == nil {
+		b.fleetAdvisorCollectorsByID[region] = make(map[string]*FleetAdvisorCollector)
+	}
+
+	return b.fleetAdvisorCollectorsByID[region]
 }
 
 func (b *InMemoryBackend) instanceProfilesStore(region string) map[string]*InstanceProfile {
@@ -1269,6 +1280,7 @@ func (b *InMemoryBackend) CreateFleetAdvisorCollector(
 		Tags:                  t,
 	}
 	store[collectorName] = col
+	b.fleetAdvisorCollectorsByIDStore(region)[collectorID] = col
 	cp := *col
 
 	return &cp, nil
@@ -1382,6 +1394,7 @@ func (b *InMemoryBackend) Reset() {
 	b.dataProvidersByARN = make(map[string]map[string]*DataProvider)
 	b.eventSubscriptions = make(map[string]map[string]*EventSubscription)
 	b.fleetAdvisorCollectors = make(map[string]map[string]*FleetAdvisorCollector)
+	b.fleetAdvisorCollectorsByID = make(map[string]map[string]*FleetAdvisorCollector)
 	b.instanceProfiles = make(map[string]map[string]*InstanceProfile)
 	b.instanceProfilesByARN = make(map[string]map[string]*InstanceProfile)
 	b.certificates = make(map[string]map[string]*Certificate)
@@ -1544,11 +1557,12 @@ func (b *InMemoryBackend) AddEventSubscriptionInternal(name, snsTopicArn string)
 func (b *InMemoryBackend) AddFleetAdvisorCollectorInternal(name string) {
 	b.mu.Lock("AddFleetAdvisorCollectorInternal")
 	defer b.mu.Unlock()
+	collectorID := uuid.NewString()
 	store := b.fleetAdvisorCollectorsStore(b.region)
 	t := tags.New("dms.fleet-advisor-collector." + name + ".tags")
 	col := &FleetAdvisorCollector{
 		CollectorName:         name,
-		CollectorReferencedID: uuid.NewString(),
+		CollectorReferencedID: collectorID,
 		CollectorVersion:      "1.0.0",
 		CollectorHealthCheck:  "HEALTHY",
 		AccountID:             b.accountID,
@@ -1557,6 +1571,7 @@ func (b *InMemoryBackend) AddFleetAdvisorCollectorInternal(name string) {
 		Tags:                  t,
 	}
 	store[name] = col
+	b.fleetAdvisorCollectorsByIDStore(b.region)[collectorID] = col
 }
 
 // AddInstanceProfileInternal seeds an instance profile directly without HTTP.
@@ -1623,15 +1638,13 @@ func (b *InMemoryBackend) ModifyEndpoint(
 // findEndpoint locates an endpoint by identifier or ARN within the request
 // region (must hold a lock).
 func (b *InMemoryBackend) findEndpoint(ctx context.Context, arnOrID string) *Endpoint {
-	store := b.endpointsStore(getRegion(ctx, b.region))
-	if ep, ok := store[arnOrID]; ok {
+	region := getRegion(ctx, b.region)
+	if ep, ok := b.endpointsStore(region)[arnOrID]; ok {
 		return ep
 	}
 
-	for _, ep := range store {
-		if ep.EndpointArn == arnOrID {
-			return ep
-		}
+	if ep, ok := b.endpointsByARNStore(region)[arnOrID]; ok {
+		return ep
 	}
 
 	return nil
@@ -1680,15 +1693,13 @@ func (b *InMemoryBackend) ModifyReplicationInstance(
 // findReplicationInstance locates a replication instance by identifier or ARN
 // within the request region (must hold a lock).
 func (b *InMemoryBackend) findReplicationInstance(ctx context.Context, arnOrID string) *ReplicationInstance {
-	store := b.replicationInstancesStore(getRegion(ctx, b.region))
-	if ri, ok := store[arnOrID]; ok {
+	region := getRegion(ctx, b.region)
+	if ri, ok := b.replicationInstancesStore(region)[arnOrID]; ok {
 		return ri
 	}
 
-	for _, ri := range store {
-		if ri.ReplicationInstanceArn == arnOrID {
-			return ri
-		}
+	if ri, ok := b.replicationInstancesByARNStore(region)[arnOrID]; ok {
+		return ri
 	}
 
 	return nil
@@ -1751,15 +1762,13 @@ func (b *InMemoryBackend) DeleteDataMigration(ctx context.Context, nameOrArn str
 		return &cp, nil
 	}
 
-	for id, dm := range store {
-		if dm.DataMigrationArn == nameOrArn {
-			cp := *dm
-			dm.Tags.Close()
-			delete(byARN, nameOrArn)
-			delete(store, id)
+	if dm, ok := byARN[nameOrArn]; ok {
+		cp := *dm
+		dm.Tags.Close()
+		delete(store, dm.DataMigrationName)
+		delete(byARN, nameOrArn)
 
-			return &cp, nil
-		}
+		return &cp, nil
 	}
 
 	return nil, fmt.Errorf("%w: data migration %s not found", ErrNotFound, nameOrArn)
@@ -1783,15 +1792,13 @@ func (b *InMemoryBackend) DeleteDataProvider(ctx context.Context, nameOrArn stri
 		return &cp, nil
 	}
 
-	for id, dp := range store {
-		if dp.DataProviderArn == nameOrArn {
-			cp := *dp
-			dp.Tags.Close()
-			delete(byARN, nameOrArn)
-			delete(store, id)
+	if dp, ok := byARN[nameOrArn]; ok {
+		cp := *dp
+		dp.Tags.Close()
+		delete(store, dp.DataProviderName)
+		delete(byARN, nameOrArn)
 
-			return &cp, nil
-		}
+		return &cp, nil
 	}
 
 	return nil, fmt.Errorf("%w: data provider %s not found", ErrNotFound, nameOrArn)
@@ -1823,22 +1830,24 @@ func (b *InMemoryBackend) DeleteFleetAdvisorCollector(ctx context.Context, nameO
 	b.mu.Lock("DeleteFleetAdvisorCollector")
 	defer b.mu.Unlock()
 
-	store := b.fleetAdvisorCollectorsStore(getRegion(ctx, b.region))
+	region := getRegion(ctx, b.region)
+	store := b.fleetAdvisorCollectorsStore(region)
+	byID := b.fleetAdvisorCollectorsByIDStore(region)
 
 	if col, ok := store[nameOrID]; ok {
 		col.Tags.Close()
+		delete(byID, col.CollectorReferencedID)
 		delete(store, nameOrID)
 
 		return nil
 	}
 
-	for name, col := range store {
-		if col.CollectorReferencedID == nameOrID {
-			col.Tags.Close()
-			delete(store, name)
+	if col, ok := byID[nameOrID]; ok {
+		col.Tags.Close()
+		delete(store, col.CollectorName)
+		delete(byID, nameOrID)
 
-			return nil
-		}
+		return nil
 	}
 
 	return fmt.Errorf("%w: fleet advisor collector %s not found", ErrNotFound, nameOrID)
@@ -1861,14 +1870,12 @@ func (b *InMemoryBackend) DeleteInstanceProfile(ctx context.Context, nameOrArn s
 		return nil
 	}
 
-	for name, ip := range store {
-		if ip.InstanceProfileArn == nameOrArn {
-			ip.Tags.Close()
-			delete(byARN, nameOrArn)
-			delete(store, name)
+	if ip, ok := byARN[nameOrArn]; ok {
+		ip.Tags.Close()
+		delete(store, ip.InstanceProfileName)
+		delete(byARN, nameOrArn)
 
-			return nil
-		}
+		return nil
 	}
 
 	return fmt.Errorf("%w: instance profile %s not found", ErrNotFound, nameOrArn)
@@ -1965,15 +1972,13 @@ func (b *InMemoryBackend) ModifyDataMigration(
 // findDataMigration locates a data migration by name or ARN within the request
 // region (must hold a lock).
 func (b *InMemoryBackend) findDataMigration(ctx context.Context, nameOrArn string) *DataMigration {
-	store := b.dataMigrationsStore(getRegion(ctx, b.region))
-	if dm, ok := store[nameOrArn]; ok {
+	region := getRegion(ctx, b.region)
+	if dm, ok := b.dataMigrationsStore(region)[nameOrArn]; ok {
 		return dm
 	}
 
-	for _, dm := range store {
-		if dm.DataMigrationArn == nameOrArn {
-			return dm
-		}
+	if dm, ok := b.dataMigrationsByARNStore(region)[nameOrArn]; ok {
+		return dm
 	}
 
 	return nil
@@ -2008,15 +2013,13 @@ func (b *InMemoryBackend) ModifyDataProvider(
 // findDataProvider locates a data provider by name or ARN within the request
 // region (must hold a lock).
 func (b *InMemoryBackend) findDataProvider(ctx context.Context, nameOrArn string) *DataProvider {
-	store := b.dataProvidersStore(getRegion(ctx, b.region))
-	if dp, ok := store[nameOrArn]; ok {
+	region := getRegion(ctx, b.region)
+	if dp, ok := b.dataProvidersStore(region)[nameOrArn]; ok {
 		return dp
 	}
 
-	for _, dp := range store {
-		if dp.DataProviderArn == nameOrArn {
-			return dp
-		}
+	if dp, ok := b.dataProvidersByARNStore(region)[nameOrArn]; ok {
+		return dp
 	}
 
 	return nil
@@ -2080,15 +2083,13 @@ func (b *InMemoryBackend) ModifyInstanceProfile(
 // findInstanceProfile locates an instance profile by name or ARN within the
 // request region (must hold a lock).
 func (b *InMemoryBackend) findInstanceProfile(ctx context.Context, nameOrArn string) *InstanceProfile {
-	store := b.instanceProfilesStore(getRegion(ctx, b.region))
-	if ip, ok := store[nameOrArn]; ok {
+	region := getRegion(ctx, b.region)
+	if ip, ok := b.instanceProfilesStore(region)[nameOrArn]; ok {
 		return ip
 	}
 
-	for _, ip := range store {
-		if ip.InstanceProfileArn == nameOrArn {
-			return ip
-		}
+	if ip, ok := b.instanceProfilesByARNStore(region)[nameOrArn]; ok {
+		return ip
 	}
 
 	return nil

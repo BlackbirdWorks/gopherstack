@@ -54,3 +54,12 @@ func OperationsMapKeyCount(b *InMemoryBackend, region string) int {
 
 	return len(b.operations[region])
 }
+
+// VersionsMapKeyCount returns the number of application-name keys in the versions map
+// for the given region. Used to verify leak-free cleanup on DeleteApplication.
+func VersionsMapKeyCount(b *InMemoryBackend, region string) int {
+	b.mu.RLock("VersionsMapKeyCount")
+	defer b.mu.RUnlock()
+
+	return len(b.versions[region])
+}

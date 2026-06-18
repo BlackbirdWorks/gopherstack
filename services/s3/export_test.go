@@ -96,6 +96,20 @@ func PeekStoredBytes(b *InMemoryBackend, bucketName, key string) []byte {
 	return ver.Data
 }
 
+// PendingObjectLambdaRequestsCount returns the number of in-flight object
+// lambda request entries in pendingObjectLambdaRequests. Used in tests to
+// verify that entries are cleaned up on timeout or context cancellation.
+func (h *S3Handler) PendingObjectLambdaRequestsCount() int {
+	count := 0
+	h.pendingObjectLambdaRequests.Range(func(_, _ any) bool {
+		count++
+
+		return true
+	})
+
+	return count
+}
+
 // BackdateObjectForTest sets LastModified on all versions of key to t.
 // Used in lifecycle transition tests to simulate aged objects.
 func BackdateObjectForTest(b *InMemoryBackend, bucketName, key string, t time.Time) {

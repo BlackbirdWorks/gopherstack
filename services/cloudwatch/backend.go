@@ -420,9 +420,12 @@ func (b *InMemoryBackend) PutMetricData(
 
 		rec.Points = append(rec.Points, d)
 
-		// Cap data points to prevent unbounded memory growth.
+		// Cap data points: copy the tail into a fresh slice so the old backing
+		// array (which may be 2× or larger after repeated appends) can be GC'd.
 		if len(rec.Points) > cwMaxMetricDataPoints {
-			rec.Points = rec.Points[len(rec.Points)-cwMaxMetricDataPoints:]
+			fresh := make([]MetricDatum, cwMaxMetricDataPoints)
+			copy(fresh, rec.Points[len(rec.Points)-cwMaxMetricDataPoints:])
+			rec.Points = fresh
 		}
 	}
 

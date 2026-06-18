@@ -128,8 +128,19 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.vaultLocks = make(map[vaultKey]*VaultLock)
 	b.provisionedCapacity = make(map[string][]*ProvisionedCapacity)
 
+	b.vaultsByAccountRegion = make(map[string]map[string]map[string]struct{})
+
 	for _, vs := range snap.Vaults {
 		b.vaults[vs.Key] = vs.Vault
+
+		acct, region, name := vs.Key.AccountID, vs.Key.Region, vs.Key.VaultName
+		if b.vaultsByAccountRegion[acct] == nil {
+			b.vaultsByAccountRegion[acct] = make(map[string]map[string]struct{})
+		}
+		if b.vaultsByAccountRegion[acct][region] == nil {
+			b.vaultsByAccountRegion[acct][region] = make(map[string]struct{})
+		}
+		b.vaultsByAccountRegion[acct][region][name] = struct{}{}
 	}
 
 	for _, as := range snap.Archives {

@@ -1013,7 +1013,7 @@ func classifyLogEvents(
 // PutLogEvents appends log events to a stream and returns a PutLogEventsResult.
 // sequenceToken is optional; if provided and mismatched, returns ErrInvalidSequenceToken.
 // Events with timestamps outside the allowed window are tracked in RejectedLogEventsInfo.
-func (b *InMemoryBackend) PutLogEvents( //nolint:funlen // existing issue.
+func (b *InMemoryBackend) PutLogEvents(
 	ctx context.Context,
 	groupName, streamName, sequenceToken string,
 	events []InputLogEvent,
@@ -1074,17 +1074,10 @@ func (b *InMemoryBackend) PutLogEvents( //nolint:funlen // existing issue.
 	stream.LastIngestionTime = &now
 	nextToken := strconv.FormatInt(int64(len(groupEvents[groupName][streamName])), 10)
 
-	// Collect matching subscription filters for async delivery (while holding the lock).
+	// Collect matching subscription filters and metric filter matches while holding the lock.
 	filters := b.matchingFilters(region, groupName, acceptedEvents)
-	deliverer := b.deliverer
-	accountID := b.accountID
-	timeout := b.deliveryTimeout
-	workerSem := b.workerSem
-	svcCtx := b.ctx
 	eventsForDelivery := append([]InputLogEvent(nil), acceptedEvents...)
 	filtersForDelivery := cloneSubscriptionFilters(filters)
-
-	// Collect metric filter matches while holding the lock.
 	metricMatches := b.matchingMetricFilters(region, groupName, acceptedEvents)
 	emitter := b.metricEmitter
 
@@ -1095,33 +1088,34 @@ func (b *InMemoryBackend) PutLogEvents( //nolint:funlen // existing issue.
 		b.emitMetricFilterMatches(emitter, metricMatches)
 	}
 
-	if len(filters) > 0 && deliverer != nil {
-		b.wg.Go(func() {
-			// Acquire a worker slot or abort if the backend is shutting down.
-			select {
-			case workerSem <- struct{}{}:
-				defer func() { <-workerSem }()
-			case <-svcCtx.Done():
-				return
-			}
-
-			b.deliverToFilters(
-				svcCtx,
-				groupName,
-				streamName,
-				accountID,
-				eventsForDelivery,
-				filtersForDelivery,
-				deliverer,
-				timeout,
-			)
-		})
-	}
+	b.scheduleFilterDelivery(groupName, streamName, eventsForDelivery, filtersForDelivery)
 
 	return &PutLogEventsResult{
 		NextSequenceToken:     nextToken,
 		RejectedLogEventsInfo: rejectedInfo,
 	}, nil
+}
+
+// scheduleFilterDelivery asynchronously delivers accepted log events to matching
+// subscription filters. No-ops when there are no filters or no deliverer configured.
+func (b *InMemoryBackend) scheduleFilterDelivery(
+	groupName, streamName string,
+	events []InputLogEvent,
+	filters []*SubscriptionFilter,
+) {
+	if len(filters) == 0 || b.deliverer == nil {
+		return
+	}
+	b.wg.Go(func() {
+		// Acquire a worker slot or abort if the backend is shutting down.
+		select {
+		case b.workerSem <- struct{}{}:
+			defer func() { <-b.workerSem }()
+		case <-b.ctx.Done():
+			return
+		}
+		b.deliverToFilters(b.ctx, groupName, streamName, b.accountID, events, filters, b.deliverer, b.deliveryTimeout)
+	})
 }
 
 // appendEvents writes events into the stream, updates stream timestamp metadata,

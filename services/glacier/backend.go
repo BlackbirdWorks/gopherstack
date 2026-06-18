@@ -165,6 +165,9 @@ type InMemoryBackend struct {
 	vaultLocks            map[vaultKey]*VaultLock
 	provisionedCapacity   map[string][]*ProvisionedCapacity
 	dataRetrievalPolicies map[string]string
+	// vaultsByAccountRegion indexes vault names by accountID+region for O(1) ListVaults
+	// instead of a full scan of all vaults across every account and region.
+	vaultsByAccountRegion map[string]map[string]map[string]struct{} // accountID -> region -> vaultName -> {}
 	// retrievalDelay is the simulated asynchronous retrieval window applied to newly
 	// initiated jobs. Jobs stay InProgress until CreationDate+retrievalDelay, matching
 	// AWS, which does not make archive/inventory output available immediately.
@@ -183,6 +186,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		vaultLocks:            make(map[vaultKey]*VaultLock),
 		provisionedCapacity:   make(map[string][]*ProvisionedCapacity),
 		dataRetrievalPolicies: make(map[string]string),
+		vaultsByAccountRegion: make(map[string]map[string]map[string]struct{}),
 		retrievalDelay:        defaultRetrievalDelay,
 	}
 }
@@ -300,6 +304,14 @@ func (b *InMemoryBackend) CreateVault(accountID, region, vaultName string) (*Vau
 	b.jobs[key] = make(map[string]*Job)
 	b.multipartUploads[key] = make(map[string]*MultipartUpload)
 
+	if b.vaultsByAccountRegion[accountID] == nil {
+		b.vaultsByAccountRegion[accountID] = make(map[string]map[string]struct{})
+	}
+	if b.vaultsByAccountRegion[accountID][region] == nil {
+		b.vaultsByAccountRegion[accountID][region] = make(map[string]struct{})
+	}
+	b.vaultsByAccountRegion[accountID][region][vaultName] = struct{}{}
+
 	return v, nil
 }
 
@@ -339,6 +351,10 @@ func (b *InMemoryBackend) DeleteVault(accountID, region, vaultName string) error
 	delete(b.multipartUploads, key)
 	delete(b.vaultLocks, key)
 
+	if regionMap, ok := b.vaultsByAccountRegion[accountID]; ok {
+		delete(regionMap[region], vaultName)
+	}
+
 	return nil
 }
 
@@ -358,10 +374,12 @@ func (b *InMemoryBackend) ListVaults(accountID, region string) []*Vault {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	var result []*Vault
+	names := b.vaultsByAccountRegion[accountID][region]
+	result := make([]*Vault, 0, len(names))
 
-	for k, v := range b.vaults {
-		if k.AccountID == accountID && k.Region == region {
+	for name := range names {
+		key := vaultKey{AccountID: accountID, Region: region, VaultName: name}
+		if v, ok := b.vaults[key]; ok {
 			result = append(result, cloneVault(v))
 		}
 	}
@@ -889,6 +907,7 @@ func (b *InMemoryBackend) Reset() {
 	b.vaultLocks = make(map[vaultKey]*VaultLock)
 	b.provisionedCapacity = make(map[string][]*ProvisionedCapacity)
 	b.dataRetrievalPolicies = make(map[string]string)
+	b.vaultsByAccountRegion = make(map[string]map[string]map[string]struct{})
 }
 
 // ----------------------------------------
@@ -1266,6 +1285,14 @@ func (b *InMemoryBackend) AddVaultInternal(accountID, region string, v *Vault) {
 	}
 
 	b.vaults[key] = &cp
+
+	if b.vaultsByAccountRegion[accountID] == nil {
+		b.vaultsByAccountRegion[accountID] = make(map[string]map[string]struct{})
+	}
+	if b.vaultsByAccountRegion[accountID][region] == nil {
+		b.vaultsByAccountRegion[accountID][region] = make(map[string]struct{})
+	}
+	b.vaultsByAccountRegion[accountID][region][v.VaultName] = struct{}{}
 
 	if b.archives[key] == nil {
 		b.archives[key] = make(map[string]*Archive)
