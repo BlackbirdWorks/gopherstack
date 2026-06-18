@@ -1,6 +1,7 @@
 package elasticache_test
 
 import (
+	"context"
 	"net/http/httptest"
 	"testing"
 
@@ -56,7 +57,7 @@ func TestHandler_DescribeReplicationGroups_LogDeliveryConfigs_InResponse(t *test
 
 	b, client := newTestStackWithBackend(t)
 
-	_, err := b.CreateReplicationGroupFull(elasticache.ReplicationGroupCreateOpts{
+	_, err := b.CreateReplicationGroupFull(context.Background(), elasticache.ReplicationGroupCreateOpts{
 		ID:          "ld-rg",
 		Description: "log delivery test",
 		LogDeliveryConfigurations: []elasticache.LogDeliveryConfig{
@@ -316,10 +317,10 @@ func TestHandler_DescribeServerlessCache_UserGroupId(t *testing.T) {
 		Engine:      "redis",
 		UserGroupID: "grp-xyz",
 	}
-	_, err := b.CreateServerlessCacheFull(opts)
+	_, err := b.CreateServerlessCacheFull(context.Background(), opts)
 	require.NoError(t, err)
 
-	p, err := b.DescribeServerlessCaches("sc-ug", "", 0)
+	p, err := b.DescribeServerlessCaches(context.Background(), "sc-ug", "", 0)
 	require.NoError(t, err)
 	require.Len(t, p.Data, 1)
 	assert.Equal(t, "grp-xyz", p.Data[0].UserGroupID)

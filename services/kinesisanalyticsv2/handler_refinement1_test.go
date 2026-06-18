@@ -1,6 +1,7 @@
 package kinesisanalyticsv2_test
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -39,8 +40,9 @@ func TestRefinement1_Reset(t *testing.T) {
 		{
 			name: "with applications",
 			setup: func(b *kinesisanalyticsv2.InMemoryBackend) {
-				_, _ = b.CreateApplication("app-1", "FLINK-1_18", "", "", "", nil)
-				_, _ = b.CreateApplication("app-2", "FLINK-1_18", "", "", "", nil)
+				ctx := context.Background()
+				_, _ = b.CreateApplication(ctx, "app-1", "FLINK-1_18", "", "", "", nil)
+				_, _ = b.CreateApplication(ctx, "app-2", "FLINK-1_18", "", "", "", nil)
 			},
 		},
 	}
@@ -55,7 +57,7 @@ func TestRefinement1_Reset(t *testing.T) {
 
 			assert.Zero(t, kinesisanalyticsv2.ApplicationCount(b))
 
-			_, err := b.CreateApplication("post-reset", "FLINK-1_18", "", "", "", nil)
+			_, err := b.CreateApplication(context.Background(), "post-reset", "FLINK-1_18", "", "", "", nil)
 			require.NoError(t, err)
 		})
 	}
@@ -64,10 +66,11 @@ func TestRefinement1_Reset(t *testing.T) {
 func TestRefinement1_MultipleResetCycle(t *testing.T) {
 	t.Parallel()
 
+	ctx := context.Background()
 	b := newRefinementBackend()
 
 	for range 3 {
-		_, _ = b.CreateApplication("temp", "FLINK-1_18", "", "", "", nil)
+		_, _ = b.CreateApplication(ctx, "temp", "FLINK-1_18", "", "", "", nil)
 		b.Reset()
 		assert.Zero(t, kinesisanalyticsv2.ApplicationCount(b))
 	}
@@ -76,10 +79,11 @@ func TestRefinement1_MultipleResetCycle(t *testing.T) {
 func TestRefinement1_HandlerReset(t *testing.T) {
 	t.Parallel()
 
+	ctx := context.Background()
 	b := newRefinementBackend()
 	h := newRefinementHandler(b)
 
-	_, err := b.CreateApplication("reset-app", "FLINK-1_18", "", "", "", nil)
+	_, err := b.CreateApplication(ctx, "reset-app", "FLINK-1_18", "", "", "", nil)
 	require.NoError(t, err)
 
 	h.Reset()
@@ -121,10 +125,11 @@ func TestRefinement1_GetSupportedOperations_AllOps(t *testing.T) {
 func TestRefinement1_SeedHelper(t *testing.T) {
 	t.Parallel()
 
+	ctx := context.Background()
 	b := newRefinementBackend()
 	appARN := b.GenerateApplicationARN("seeded-app")
 
-	b.AddApplicationInternal(&kinesisanalyticsv2.Application{
+	b.AddApplicationInternal(ctx, &kinesisanalyticsv2.Application{
 		ApplicationARN:       appARN,
 		ApplicationName:      "seeded-app",
 		ApplicationStatus:    "READY",
@@ -134,7 +139,7 @@ func TestRefinement1_SeedHelper(t *testing.T) {
 
 	assert.Equal(t, 1, kinesisanalyticsv2.ApplicationCount(b))
 
-	app, err := b.DescribeApplication("seeded-app")
+	app, err := b.DescribeApplication(ctx, "seeded-app")
 	require.NoError(t, err)
 	assert.Equal(t, "seeded-app", app.ApplicationName)
 }
@@ -144,17 +149,18 @@ func TestRefinement1_SeedHelper(t *testing.T) {
 func TestRefinement1_ExportCountHelpers(t *testing.T) {
 	t.Parallel()
 
+	ctx := context.Background()
 	b := newRefinementBackend()
 
 	assert.Zero(t, kinesisanalyticsv2.ApplicationCount(b))
 	assert.Zero(t, kinesisanalyticsv2.SnapshotCount(b))
 
-	_, err := b.CreateApplication("count-app", "FLINK-1_18", "", "", "", nil)
+	_, err := b.CreateApplication(ctx, "count-app", "FLINK-1_18", "", "", "", nil)
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, kinesisanalyticsv2.ApplicationCount(b))
 
-	_, err = b.CreateApplicationSnapshot("count-app", "snap-1")
+	_, err = b.CreateApplicationSnapshot(ctx, "count-app", "snap-1")
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, kinesisanalyticsv2.SnapshotCount(b))
@@ -165,8 +171,10 @@ func TestRefinement1_ExportCountHelpers(t *testing.T) {
 func TestRefinement1_DescribeApplication_DeepCopy(t *testing.T) {
 	t.Parallel()
 
+	ctx := context.Background()
 	b := newRefinementBackend()
 	_, err := b.CreateApplication(
+		ctx,
 		"copy-app",
 		"FLINK-1_18",
 		"",
@@ -176,14 +184,14 @@ func TestRefinement1_DescribeApplication_DeepCopy(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	app1, err := b.DescribeApplication("copy-app")
+	app1, err := b.DescribeApplication(ctx, "copy-app")
 	require.NoError(t, err)
 
 	// Mutate returned copy
 	app1.Tags[0].Value = "mutated"
 	app1.ApplicationDescription = "mutated"
 
-	app2, err := b.DescribeApplication("copy-app")
+	app2, err := b.DescribeApplication(ctx, "copy-app")
 	require.NoError(t, err)
 
 	assert.Equal(t, "v", app2.Tags[0].Value, "mutation of returned copy must not affect stored state")
@@ -195,18 +203,19 @@ func TestRefinement1_DescribeApplication_DeepCopy(t *testing.T) {
 func TestRefinement1_UntagResource_NoSliceAliasing(t *testing.T) {
 	t.Parallel()
 
+	ctx := context.Background()
 	b := newRefinementBackend()
-	app, err := b.CreateApplication("untag-app", "FLINK-1_18", "", "", "", []kinesisanalyticsv2.Tag{
+	app, err := b.CreateApplication(ctx, "untag-app", "FLINK-1_18", "", "", "", []kinesisanalyticsv2.Tag{
 		{Key: "a", Value: "1"},
 		{Key: "b", Value: "2"},
 		{Key: "c", Value: "3"},
 	})
 	require.NoError(t, err)
 
-	err = b.UntagResource(app.ApplicationARN, []string{"b"})
+	err = b.UntagResource(ctx, app.ApplicationARN, []string{"b"})
 	require.NoError(t, err)
 
-	tags, err := b.ListTagsForResource(app.ApplicationARN)
+	tags, err := b.ListTagsForResource(ctx, app.ApplicationARN)
 	require.NoError(t, err)
 	assert.Len(t, tags, 2)
 	keys := []string{tags[0].Key, tags[1].Key}
@@ -218,15 +227,16 @@ func TestRefinement1_UntagResource_NoSliceAliasing(t *testing.T) {
 func TestRefinement1_ListTagsForResource_Sorted(t *testing.T) {
 	t.Parallel()
 
+	ctx := context.Background()
 	b := newRefinementBackend()
-	app, err := b.CreateApplication("sorted-tag-app", "FLINK-1_18", "", "", "", []kinesisanalyticsv2.Tag{
+	app, err := b.CreateApplication(ctx, "sorted-tag-app", "FLINK-1_18", "", "", "", []kinesisanalyticsv2.Tag{
 		{Key: "z", Value: "last"},
 		{Key: "a", Value: "first"},
 		{Key: "m", Value: "middle"},
 	})
 	require.NoError(t, err)
 
-	tags, err := b.ListTagsForResource(app.ApplicationARN)
+	tags, err := b.ListTagsForResource(ctx, app.ApplicationARN)
 	require.NoError(t, err)
 	require.Len(t, tags, 3)
 	assert.Equal(t, "a", tags[0].Key)
@@ -239,11 +249,12 @@ func TestRefinement1_ListTagsForResource_Sorted(t *testing.T) {
 func TestRefinement1_ListTagsForResource_NonNilWhenEmpty(t *testing.T) {
 	t.Parallel()
 
+	ctx := context.Background()
 	b := newRefinementBackend()
-	app, err := b.CreateApplication("no-tag-app", "FLINK-1_18", "", "", "", nil)
+	app, err := b.CreateApplication(ctx, "no-tag-app", "FLINK-1_18", "", "", "", nil)
 	require.NoError(t, err)
 
-	tags, err := b.ListTagsForResource(app.ApplicationARN)
+	tags, err := b.ListTagsForResource(ctx, app.ApplicationARN)
 	require.NoError(t, err)
 	assert.NotNil(t, tags)
 	assert.Empty(t, tags)
@@ -296,19 +307,20 @@ func TestRefinement1_CreateApplicationPresignedURL_RequiresURLType(t *testing.T)
 func TestRefinement1_DescribeApplicationSnapshot_DirectLookup(t *testing.T) {
 	t.Parallel()
 
+	ctx := context.Background()
 	b := newRefinementBackend()
 
-	_, err := b.CreateApplication("snap-direct-app", "FLINK-1_18", "", "", "", nil)
+	_, err := b.CreateApplication(ctx, "snap-direct-app", "FLINK-1_18", "", "", "", nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateApplicationSnapshot("snap-direct-app", "snap-direct")
+	_, err = b.CreateApplicationSnapshot(ctx, "snap-direct-app", "snap-direct")
 	require.NoError(t, err)
 
-	snap, err := b.DescribeApplicationSnapshot("snap-direct-app", "snap-direct")
+	snap, err := b.DescribeApplicationSnapshot(ctx, "snap-direct-app", "snap-direct")
 	require.NoError(t, err)
 	assert.Equal(t, "snap-direct", snap.SnapshotName)
 
-	_, err = b.DescribeApplicationSnapshot("snap-direct-app", "missing-snap")
+	_, err = b.DescribeApplicationSnapshot(ctx, "snap-direct-app", "missing-snap")
 	require.ErrorIs(t, err, kinesisanalyticsv2.ErrNotFound)
 }
 
@@ -353,17 +365,18 @@ func TestRefinement1_VpcConfiguration_NonNilSlices(t *testing.T) {
 func TestRefinement1_ListApplicationSnapshots_SortedByCreationTime(t *testing.T) {
 	t.Parallel()
 
+	ctx := context.Background()
 	b := newRefinementBackend()
 
-	_, err := b.CreateApplication("sort-snap-app", "FLINK-1_18", "", "", "", nil)
+	_, err := b.CreateApplication(ctx, "sort-snap-app", "FLINK-1_18", "", "", "", nil)
 	require.NoError(t, err)
 
 	for _, name := range []string{"snap-b", "snap-a", "snap-c"} {
-		_, err = b.CreateApplicationSnapshot("sort-snap-app", name)
+		_, err = b.CreateApplicationSnapshot(ctx, "sort-snap-app", name)
 		require.NoError(t, err)
 	}
 
-	snaps, _, err := b.ListApplicationSnapshots("sort-snap-app", "")
+	snaps, _, err := b.ListApplicationSnapshots(ctx, "sort-snap-app", "")
 	require.NoError(t, err)
 	require.Len(t, snaps, 3)
 
@@ -387,9 +400,11 @@ func TestRefinement1_ErrValidation_SentinelExists(t *testing.T) {
 func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	t.Parallel()
 
+	ctx := context.Background()
 	b := newRefinementBackend()
 
 	_, err := b.CreateApplication(
+		ctx,
 		"persist-app",
 		"FLINK-1_18",
 		"role-arn",
@@ -399,7 +414,7 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	_, err = b.CreateApplicationSnapshot("persist-app", "snap-1")
+	_, err = b.CreateApplicationSnapshot(ctx, "persist-app", "snap-1")
 	require.NoError(t, err)
 
 	h := newRefinementHandler(b)
@@ -413,7 +428,7 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	assert.Equal(t, 1, kinesisanalyticsv2.ApplicationCount(b2))
 	assert.Equal(t, 1, kinesisanalyticsv2.SnapshotCount(b2))
 
-	app, err := b2.DescribeApplication("persist-app")
+	app, err := b2.DescribeApplication(ctx, "persist-app")
 	require.NoError(t, err)
 	assert.Equal(t, "persist-app", app.ApplicationName)
 	assert.Equal(t, "FLINK-1_18", app.RuntimeEnvironment)
@@ -441,12 +456,13 @@ func TestRefinement1_PersistenceEmpty(t *testing.T) {
 func TestRefinement1_Persistence_NextIDPreserved(t *testing.T) {
 	t.Parallel()
 
+	ctx := context.Background()
 	b := newRefinementBackend()
 
-	_, err := b.CreateApplication("id-app", "SQL-1_0", "", "", "", nil)
+	_, err := b.CreateApplication(ctx, "id-app", "SQL-1_0", "", "", "", nil)
 	require.NoError(t, err)
 
-	err = b.AddApplicationCloudWatchLoggingOption("id-app", 0,
+	err = b.AddApplicationCloudWatchLoggingOption(ctx, "id-app", 0,
 		"arn:aws:logs:us-east-1:000000000000:log-group:g:log-stream:s", "")
 	require.NoError(t, err)
 
@@ -459,11 +475,11 @@ func TestRefinement1_Persistence_NextIDPreserved(t *testing.T) {
 	require.NoError(t, h2.Restore(data))
 
 	// Adding another CWL option on b2 should generate a new distinct ID
-	err = b2.AddApplicationCloudWatchLoggingOption("id-app", 0,
+	err = b2.AddApplicationCloudWatchLoggingOption(ctx, "id-app", 0,
 		"arn:aws:logs:us-east-1:000000000000:log-group:g:log-stream:s2", "")
 	require.NoError(t, err)
 
-	app, err := b2.DescribeApplication("id-app")
+	app, err := b2.DescribeApplication(ctx, "id-app")
 	require.NoError(t, err)
 	assert.Len(t, app.CloudWatchLoggingOptionDescs, 2)
 	assert.NotEqual(
@@ -489,13 +505,14 @@ func TestRefinement1_Provider_Init_WithLogger(t *testing.T) {
 func TestRefinement1_ConcurrentModification(t *testing.T) {
 	t.Parallel()
 
+	ctx := context.Background()
 	b := newRefinementBackend()
 
-	_, err := b.CreateApplication("ver-app", "FLINK-1_18", "", "", "", nil)
+	_, err := b.CreateApplication(ctx, "ver-app", "FLINK-1_18", "", "", "", nil)
 	require.NoError(t, err)
 
 	// version check: wrong version should fail
-	err = b.AddApplicationCloudWatchLoggingOption("ver-app", 99,
+	err = b.AddApplicationCloudWatchLoggingOption(ctx, "ver-app", 99,
 		"arn:aws:logs:us-east-1:000000000000:log-group:g:log-stream:s", "")
 	require.ErrorIs(t, err, kinesisanalyticsv2.ErrConcurrentModification)
 }

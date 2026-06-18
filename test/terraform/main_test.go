@@ -33,6 +33,7 @@ import (
 	backupsvc "github.com/aws/aws-sdk-go-v2/service/backup"
 	batchsvc "github.com/aws/aws-sdk-go-v2/service/batch"
 	bedrocksvc "github.com/aws/aws-sdk-go-v2/service/bedrock"
+	bedrockagentsvc "github.com/aws/aws-sdk-go-v2/service/bedrockagent"
 	bedrockruntimesvc "github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	cloudcontrolsvc "github.com/aws/aws-sdk-go-v2/service/cloudcontrol"
 	cfnsvc "github.com/aws/aws-sdk-go-v2/service/cloudformation"
@@ -2399,6 +2400,23 @@ func createS3TablesClient(t *testing.T) *s3tablessvc.Client {
 	require.NoError(t, err, "unable to load SDK config")
 
 	return s3tablessvc.NewFromConfig(cfg, func(o *s3tablessvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+func createBedrockAgentClient(t *testing.T) *bedrockagentsvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return bedrockagentsvc.NewFromConfig(cfg, func(o *bedrockagentsvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }

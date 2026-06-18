@@ -1,6 +1,7 @@
 package sagemaker
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"sort"
@@ -54,19 +55,21 @@ type CreateDeviceFleetOptions struct {
 }
 
 // CreateDeviceFleet creates a SageMaker device fleet.
-func (b *InMemoryBackend) CreateDeviceFleet(opts CreateDeviceFleetOptions) (*DeviceFleet, error) {
+func (b *InMemoryBackend) CreateDeviceFleet(ctx context.Context, opts CreateDeviceFleetOptions) (*DeviceFleet, error) {
 	b.mu.Lock("CreateDeviceFleet")
 	defer b.mu.Unlock()
+
+	region := getRegion(ctx, b.region)
 
 	if opts.DeviceFleetName == "" {
 		return nil, fmt.Errorf("%w: DeviceFleetName is required", ErrValidation)
 	}
 
-	if _, ok := b.deviceFleets[opts.DeviceFleetName]; ok {
+	if _, ok := b.deviceFleetsStore(region)[opts.DeviceFleetName]; ok {
 		return nil, fmt.Errorf("%w: device fleet %q already exists", ErrDeviceFleetAlreadyExists, opts.DeviceFleetName)
 	}
 
-	fleetARN := arn.Build("sagemaker", b.region, b.accountID, "device-fleet/"+opts.DeviceFleetName)
+	fleetARN := arn.Build("sagemaker", region, b.accountID, "device-fleet/"+opts.DeviceFleetName)
 	now := time.Now()
 
 	f := &DeviceFleet{
@@ -78,17 +81,19 @@ func (b *InMemoryBackend) CreateDeviceFleet(opts CreateDeviceFleetOptions) (*Dev
 		CreationTime:     now,
 		LastModifiedTime: now,
 	}
-	b.deviceFleets[opts.DeviceFleetName] = f
+	b.deviceFleetsStore(region)[opts.DeviceFleetName] = f
 
 	return cloneDeviceFleet(f), nil
 }
 
 // DescribeDeviceFleet returns a device fleet by name.
-func (b *InMemoryBackend) DescribeDeviceFleet(name string) (*DeviceFleet, error) {
+func (b *InMemoryBackend) DescribeDeviceFleet(ctx context.Context, name string) (*DeviceFleet, error) {
 	b.mu.RLock("DescribeDeviceFleet")
 	defer b.mu.RUnlock()
 
-	f, ok := b.deviceFleets[name]
+	region := getRegion(ctx, b.region)
+
+	f, ok := b.deviceFleetsStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: device fleet %q", ErrDeviceFleetNotFound, name)
 	}
@@ -97,49 +102,23 @@ func (b *InMemoryBackend) DescribeDeviceFleet(name string) (*DeviceFleet, error)
 }
 
 // ListDeviceFleets returns all device fleets with pagination.
-func (b *InMemoryBackend) ListDeviceFleets(nextToken string) ([]*DeviceFleet, string) {
+func (b *InMemoryBackend) ListDeviceFleets(ctx context.Context, nextToken string) ([]*DeviceFleet, string) {
 	b.mu.RLock("ListDeviceFleets")
 	defer b.mu.RUnlock()
 
-	keys := make([]string, 0, len(b.deviceFleets))
-	for k := range b.deviceFleets {
-		keys = append(keys, k)
-	}
+	region := getRegion(ctx, b.region)
 
-	sort.Strings(keys)
-
-	start := 0
-	if nextToken != "" {
-		for i, k := range keys {
-			if k == nextToken {
-				start = i
-
-				break
-			}
-		}
-	}
-
-	end := min(start+sagemakerDefaultPageSize, len(keys))
-
-	out := make([]*DeviceFleet, 0, end-start)
-	for _, k := range keys[start:end] {
-		out = append(out, cloneDeviceFleet(b.deviceFleets[k]))
-	}
-
-	next := ""
-	if end < len(keys) {
-		next = keys[end]
-	}
-
-	return out, next
+	return sagemakerListKeyPaged(b.deviceFleetsStore(region), nextToken, cloneDeviceFleet)
 }
 
 // UpdateDeviceFleet updates a device fleet's description or role ARN.
-func (b *InMemoryBackend) UpdateDeviceFleet(name, description, roleArn string) error {
+func (b *InMemoryBackend) UpdateDeviceFleet(ctx context.Context, name, description, roleArn string) error {
 	b.mu.Lock("UpdateDeviceFleet")
 	defer b.mu.Unlock()
 
-	f, ok := b.deviceFleets[name]
+	region := getRegion(ctx, b.region)
+
+	f, ok := b.deviceFleetsStore(region)[name]
 	if !ok {
 		return fmt.Errorf("%w: device fleet %q", ErrDeviceFleetNotFound, name)
 	}
@@ -158,15 +137,18 @@ func (b *InMemoryBackend) UpdateDeviceFleet(name, description, roleArn string) e
 }
 
 // DeleteDeviceFleet deletes a device fleet by name.
-func (b *InMemoryBackend) DeleteDeviceFleet(name string) error {
+func (b *InMemoryBackend) DeleteDeviceFleet(ctx context.Context, name string) error {
 	b.mu.Lock("DeleteDeviceFleet")
 	defer b.mu.Unlock()
 
-	if _, ok := b.deviceFleets[name]; !ok {
+	region := getRegion(ctx, b.region)
+	store := b.deviceFleetsStore(region)
+
+	if _, ok := store[name]; !ok {
 		return fmt.Errorf("%w: device fleet %q", ErrDeviceFleetNotFound, name)
 	}
 
-	delete(b.deviceFleets, name)
+	delete(store, name)
 
 	return nil
 }
@@ -212,23 +194,26 @@ type RegisterDeviceInput struct {
 }
 
 // RegisterDevices registers devices to a device fleet.
-func (b *InMemoryBackend) RegisterDevices(fleetName string, devices []RegisterDeviceInput) error {
+func (b *InMemoryBackend) RegisterDevices(ctx context.Context, fleetName string, devices []RegisterDeviceInput) error {
 	b.mu.Lock("RegisterDevices")
 	defer b.mu.Unlock()
 
-	if _, ok := b.deviceFleets[fleetName]; !ok {
+	region := getRegion(ctx, b.region)
+
+	if _, ok := b.deviceFleetsStore(region)[fleetName]; !ok {
 		return fmt.Errorf("%w: device fleet %q", ErrDeviceFleetNotFound, fleetName)
 	}
 
 	now := time.Now()
+	devicesStore := b.devicesStore(region)
 	for _, d := range devices {
 		if d.DeviceName == "" {
 			continue
 		}
 
 		k := deviceKey{fleetName: fleetName, deviceName: d.DeviceName}
-		deviceARN := arn.Build("sagemaker", b.region, b.accountID, "device/"+d.DeviceName)
-		b.devices[k] = &Device{
+		deviceARN := arn.Build("sagemaker", region, b.accountID, "device/"+d.DeviceName)
+		devicesStore[k] = &Device{
 			DeviceName:       d.DeviceName,
 			DeviceFleetName:  fleetName,
 			DeviceArn:        deviceARN,
@@ -244,23 +229,28 @@ func (b *InMemoryBackend) RegisterDevices(fleetName string, devices []RegisterDe
 }
 
 // DeregisterDevices removes devices from a device fleet.
-func (b *InMemoryBackend) DeregisterDevices(fleetName string, deviceNames []string) error {
+func (b *InMemoryBackend) DeregisterDevices(ctx context.Context, fleetName string, deviceNames []string) error {
 	b.mu.Lock("DeregisterDevices")
 	defer b.mu.Unlock()
 
+	region := getRegion(ctx, b.region)
+	store := b.devicesStore(region)
+
 	for _, name := range deviceNames {
-		delete(b.devices, deviceKey{fleetName: fleetName, deviceName: name})
+		delete(store, deviceKey{fleetName: fleetName, deviceName: name})
 	}
 
 	return nil
 }
 
 // DescribeDevice returns a device by fleet and device name.
-func (b *InMemoryBackend) DescribeDevice(fleetName, deviceName string) (*Device, error) {
+func (b *InMemoryBackend) DescribeDevice(ctx context.Context, fleetName, deviceName string) (*Device, error) {
 	b.mu.RLock("DescribeDevice")
 	defer b.mu.RUnlock()
 
-	d, ok := b.devices[deviceKey{fleetName: fleetName, deviceName: deviceName}]
+	region := getRegion(ctx, b.region)
+
+	d, ok := b.devicesStore(region)[deviceKey{fleetName: fleetName, deviceName: deviceName}]
 	if !ok {
 		return nil, fmt.Errorf("%w: device %q in fleet %q", ErrDeviceNotFound, deviceName, fleetName)
 	}
@@ -269,12 +259,15 @@ func (b *InMemoryBackend) DescribeDevice(fleetName, deviceName string) (*Device,
 }
 
 // ListDevices returns devices, optionally filtered by fleet name.
-func (b *InMemoryBackend) ListDevices(fleetFilter, nextToken string) ([]*Device, string) {
+func (b *InMemoryBackend) ListDevices(ctx context.Context, fleetFilter, nextToken string) ([]*Device, string) {
 	b.mu.RLock("ListDevices")
 	defer b.mu.RUnlock()
 
-	keys := make([]string, 0, len(b.devices))
-	for k := range b.devices {
+	region := getRegion(ctx, b.region)
+	store := b.devicesStore(region)
+
+	keys := make([]string, 0, len(store))
+	for k := range store {
 		if fleetFilter != "" && k.fleetName != fleetFilter {
 			continue
 		}
@@ -304,7 +297,7 @@ func (b *InMemoryBackend) ListDevices(fleetFilter, nextToken string) ([]*Device,
 			continue
 		}
 
-		if d, ok := b.devices[deviceKey{fleetName: parts[0], deviceName: parts[1]}]; ok {
+		if d, ok := store[deviceKey{fleetName: parts[0], deviceName: parts[1]}]; ok {
 			out = append(out, cloneDevice(d))
 		}
 	}
@@ -360,16 +353,19 @@ type CreateInferenceComponentOptions struct {
 
 // CreateInferenceComponent creates a SageMaker inference component.
 func (b *InMemoryBackend) CreateInferenceComponent(
+	ctx context.Context,
 	opts CreateInferenceComponentOptions,
 ) (*InferenceComponent, error) {
 	b.mu.Lock("CreateInferenceComponent")
 	defer b.mu.Unlock()
 
+	region := getRegion(ctx, b.region)
+
 	if opts.InferenceComponentName == "" {
 		return nil, fmt.Errorf("%w: InferenceComponentName is required", ErrValidation)
 	}
 
-	if _, ok := b.inferenceComponents[opts.InferenceComponentName]; ok {
+	if _, ok := b.inferenceComponentsStore(region)[opts.InferenceComponentName]; ok {
 		return nil, fmt.Errorf(
 			"%w: inference component %q already exists",
 			ErrInferenceComponentAlreadyExists,
@@ -379,7 +375,7 @@ func (b *InMemoryBackend) CreateInferenceComponent(
 
 	compARN := arn.Build(
 		"sagemaker",
-		b.region,
+		region,
 		b.accountID,
 		"inference-component/"+opts.InferenceComponentName,
 	)
@@ -397,17 +393,19 @@ func (b *InMemoryBackend) CreateInferenceComponent(
 		CreationTime:             now,
 		LastModifiedTime:         now,
 	}
-	b.inferenceComponents[opts.InferenceComponentName] = c
+	b.inferenceComponentsStore(region)[opts.InferenceComponentName] = c
 
 	return cloneInferenceComponent(c), nil
 }
 
 // DescribeInferenceComponent returns an inference component by name.
-func (b *InMemoryBackend) DescribeInferenceComponent(name string) (*InferenceComponent, error) {
+func (b *InMemoryBackend) DescribeInferenceComponent(ctx context.Context, name string) (*InferenceComponent, error) {
 	b.mu.RLock("DescribeInferenceComponent")
 	defer b.mu.RUnlock()
 
-	c, ok := b.inferenceComponents[name]
+	region := getRegion(ctx, b.region)
+
+	c, ok := b.inferenceComponentsStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: inference component %q", ErrInferenceComponentNotFound, name)
 	}
@@ -417,13 +415,17 @@ func (b *InMemoryBackend) DescribeInferenceComponent(name string) (*InferenceCom
 
 // ListInferenceComponents returns all inference components with pagination.
 func (b *InMemoryBackend) ListInferenceComponents(
+	ctx context.Context,
 	endpointFilter, nextToken string,
 ) ([]*InferenceComponent, string) {
 	b.mu.RLock("ListInferenceComponents")
 	defer b.mu.RUnlock()
 
-	keys := make([]string, 0, len(b.inferenceComponents))
-	for k, c := range b.inferenceComponents {
+	region := getRegion(ctx, b.region)
+	store := b.inferenceComponentsStore(region)
+
+	keys := make([]string, 0, len(store))
+	for k, c := range store {
 		if endpointFilter != "" && c.EndpointName != endpointFilter {
 			continue
 		}
@@ -448,7 +450,7 @@ func (b *InMemoryBackend) ListInferenceComponents(
 
 	out := make([]*InferenceComponent, 0, end-start)
 	for _, k := range keys[start:end] {
-		out = append(out, cloneInferenceComponent(b.inferenceComponents[k]))
+		out = append(out, cloneInferenceComponent(store[k]))
 	}
 
 	next := ""
@@ -460,11 +462,13 @@ func (b *InMemoryBackend) ListInferenceComponents(
 }
 
 // UpdateInferenceComponent updates an inference component's variant or copy count.
-func (b *InMemoryBackend) UpdateInferenceComponent(name, variantName string, copyCount int) error {
+func (b *InMemoryBackend) UpdateInferenceComponent(ctx context.Context, name, variantName string, copyCount int) error {
 	b.mu.Lock("UpdateInferenceComponent")
 	defer b.mu.Unlock()
 
-	c, ok := b.inferenceComponents[name]
+	region := getRegion(ctx, b.region)
+
+	c, ok := b.inferenceComponentsStore(region)[name]
 	if !ok {
 		return fmt.Errorf("%w: inference component %q", ErrInferenceComponentNotFound, name)
 	}
@@ -483,11 +487,13 @@ func (b *InMemoryBackend) UpdateInferenceComponent(name, variantName string, cop
 }
 
 // UpdateInferenceComponentRuntimeConfig updates the copy count for an inference component.
-func (b *InMemoryBackend) UpdateInferenceComponentRuntimeConfig(name string, copyCount int) error {
+func (b *InMemoryBackend) UpdateInferenceComponentRuntimeConfig(ctx context.Context, name string, copyCount int) error {
 	b.mu.Lock("UpdateInferenceComponentRuntimeConfig")
 	defer b.mu.Unlock()
 
-	c, ok := b.inferenceComponents[name]
+	region := getRegion(ctx, b.region)
+
+	c, ok := b.inferenceComponentsStore(region)[name]
 	if !ok {
 		return fmt.Errorf("%w: inference component %q", ErrInferenceComponentNotFound, name)
 	}
@@ -500,15 +506,18 @@ func (b *InMemoryBackend) UpdateInferenceComponentRuntimeConfig(name string, cop
 }
 
 // DeleteInferenceComponent deletes an inference component by name.
-func (b *InMemoryBackend) DeleteInferenceComponent(name string) error {
+func (b *InMemoryBackend) DeleteInferenceComponent(ctx context.Context, name string) error {
 	b.mu.Lock("DeleteInferenceComponent")
 	defer b.mu.Unlock()
 
-	if _, ok := b.inferenceComponents[name]; !ok {
+	region := getRegion(ctx, b.region)
+	store := b.inferenceComponentsStore(region)
+
+	if _, ok := store[name]; !ok {
 		return fmt.Errorf("%w: inference component %q", ErrInferenceComponentNotFound, name)
 	}
 
-	delete(b.inferenceComponents, name)
+	delete(store, name)
 
 	return nil
 }
@@ -551,51 +560,49 @@ type CreateClusterSchedulerConfigOptions struct {
 
 // CreateClusterSchedulerConfig creates a SageMaker cluster scheduler configuration.
 func (b *InMemoryBackend) CreateClusterSchedulerConfig(
+	ctx context.Context,
 	opts CreateClusterSchedulerConfigOptions,
 ) (*ClusterSchedulerConfig, error) {
-	b.mu.Lock("CreateClusterSchedulerConfig")
-	defer b.mu.Unlock()
-
 	if opts.ClusterSchedulerConfigName == "" {
 		return nil, fmt.Errorf("%w: ClusterSchedulerConfigName is required", ErrValidation)
 	}
 
-	if _, ok := b.clusterSchedulerConfigs[opts.ClusterSchedulerConfigName]; ok {
-		return nil, fmt.Errorf(
-			"%w: cluster scheduler config %q already exists",
-			ErrClusterSchedulerConfigAlreadyExists,
-			opts.ClusterSchedulerConfigName,
-		)
-	}
-
-	configARN := arn.Build(
-		"sagemaker",
-		b.region,
-		b.accountID,
-		"cluster-scheduler-config/"+opts.ClusterSchedulerConfigName,
+	return sagemakerCreate(ctx, b,
+		"CreateClusterSchedulerConfig", opts.ClusterSchedulerConfigName, "cluster-scheduler-config",
+		b.clusterSchedulerConfigsStore,
+		func(n string) error {
+			return fmt.Errorf(
+				"%w: cluster scheduler config %q already exists",
+				ErrClusterSchedulerConfigAlreadyExists,
+				n,
+			)
+		},
+		func(arnStr string, now time.Time) *ClusterSchedulerConfig {
+			return &ClusterSchedulerConfig{
+				ClusterSchedulerConfigName: opts.ClusterSchedulerConfigName,
+				ClusterSchedulerConfigArn:  arnStr,
+				ClusterArn:                 opts.ClusterArn,
+				Status:                     statusCreating,
+				Tags:                       mergeTags(nil, opts.Tags),
+				CreationTime:               now,
+				LastModifiedTime:           now,
+			}
+		},
+		cloneClusterSchedulerConfig,
 	)
-	now := time.Now()
-
-	c := &ClusterSchedulerConfig{
-		ClusterSchedulerConfigName: opts.ClusterSchedulerConfigName,
-		ClusterSchedulerConfigArn:  configARN,
-		ClusterArn:                 opts.ClusterArn,
-		Status:                     statusCreating,
-		Tags:                       mergeTags(nil, opts.Tags),
-		CreationTime:               now,
-		LastModifiedTime:           now,
-	}
-	b.clusterSchedulerConfigs[opts.ClusterSchedulerConfigName] = c
-
-	return cloneClusterSchedulerConfig(c), nil
 }
 
 // DescribeClusterSchedulerConfig returns a cluster scheduler config by name.
-func (b *InMemoryBackend) DescribeClusterSchedulerConfig(name string) (*ClusterSchedulerConfig, error) {
+func (b *InMemoryBackend) DescribeClusterSchedulerConfig(
+	ctx context.Context,
+	name string,
+) (*ClusterSchedulerConfig, error) {
 	b.mu.RLock("DescribeClusterSchedulerConfig")
 	defer b.mu.RUnlock()
 
-	c, ok := b.clusterSchedulerConfigs[name]
+	region := getRegion(ctx, b.region)
+
+	c, ok := b.clusterSchedulerConfigsStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: cluster scheduler config %q", ErrClusterSchedulerConfigNotFound, name)
 	}
@@ -604,49 +611,26 @@ func (b *InMemoryBackend) DescribeClusterSchedulerConfig(name string) (*ClusterS
 }
 
 // ListClusterSchedulerConfigs returns all cluster scheduler configs with pagination.
-func (b *InMemoryBackend) ListClusterSchedulerConfigs(nextToken string) ([]*ClusterSchedulerConfig, string) {
+func (b *InMemoryBackend) ListClusterSchedulerConfigs(
+	ctx context.Context,
+	nextToken string,
+) ([]*ClusterSchedulerConfig, string) {
 	b.mu.RLock("ListClusterSchedulerConfigs")
 	defer b.mu.RUnlock()
 
-	keys := make([]string, 0, len(b.clusterSchedulerConfigs))
-	for k := range b.clusterSchedulerConfigs {
-		keys = append(keys, k)
-	}
+	region := getRegion(ctx, b.region)
 
-	sort.Strings(keys)
-
-	start := 0
-	if nextToken != "" {
-		for i, k := range keys {
-			if k == nextToken {
-				start = i
-
-				break
-			}
-		}
-	}
-
-	end := min(start+sagemakerDefaultPageSize, len(keys))
-
-	out := make([]*ClusterSchedulerConfig, 0, end-start)
-	for _, k := range keys[start:end] {
-		out = append(out, cloneClusterSchedulerConfig(b.clusterSchedulerConfigs[k]))
-	}
-
-	next := ""
-	if end < len(keys) {
-		next = keys[end]
-	}
-
-	return out, next
+	return sagemakerListKeyPaged(b.clusterSchedulerConfigsStore(region), nextToken, cloneClusterSchedulerConfig)
 }
 
 // UpdateClusterSchedulerConfig updates a cluster scheduler config's cluster ARN.
-func (b *InMemoryBackend) UpdateClusterSchedulerConfig(name, clusterArn string) error {
+func (b *InMemoryBackend) UpdateClusterSchedulerConfig(ctx context.Context, name, clusterArn string) error {
 	b.mu.Lock("UpdateClusterSchedulerConfig")
 	defer b.mu.Unlock()
 
-	c, ok := b.clusterSchedulerConfigs[name]
+	region := getRegion(ctx, b.region)
+
+	c, ok := b.clusterSchedulerConfigsStore(region)[name]
 	if !ok {
 		return fmt.Errorf("%w: cluster scheduler config %q", ErrClusterSchedulerConfigNotFound, name)
 	}
@@ -661,15 +645,18 @@ func (b *InMemoryBackend) UpdateClusterSchedulerConfig(name, clusterArn string) 
 }
 
 // DeleteClusterSchedulerConfig deletes a cluster scheduler config by name.
-func (b *InMemoryBackend) DeleteClusterSchedulerConfig(name string) error {
+func (b *InMemoryBackend) DeleteClusterSchedulerConfig(ctx context.Context, name string) error {
 	b.mu.Lock("DeleteClusterSchedulerConfig")
 	defer b.mu.Unlock()
 
-	if _, ok := b.clusterSchedulerConfigs[name]; !ok {
+	region := getRegion(ctx, b.region)
+	store := b.clusterSchedulerConfigsStore(region)
+
+	if _, ok := store[name]; !ok {
 		return fmt.Errorf("%w: cluster scheduler config %q", ErrClusterSchedulerConfigNotFound, name)
 	}
 
-	delete(b.clusterSchedulerConfigs, name)
+	delete(store, name)
 
 	return nil
 }
@@ -711,45 +698,43 @@ type CreateComputeQuotaOptions struct {
 }
 
 // CreateComputeQuota creates a SageMaker compute quota.
-func (b *InMemoryBackend) CreateComputeQuota(opts CreateComputeQuotaOptions) (*ComputeQuota, error) {
-	b.mu.Lock("CreateComputeQuota")
-	defer b.mu.Unlock()
-
+func (b *InMemoryBackend) CreateComputeQuota(
+	ctx context.Context,
+	opts CreateComputeQuotaOptions,
+) (*ComputeQuota, error) {
 	if opts.ComputeQuotaName == "" {
 		return nil, fmt.Errorf("%w: ComputeQuotaName is required", ErrValidation)
 	}
 
-	if _, ok := b.computeQuotas[opts.ComputeQuotaName]; ok {
-		return nil, fmt.Errorf(
-			"%w: compute quota %q already exists",
-			ErrComputeQuotaAlreadyExists,
-			opts.ComputeQuotaName,
-		)
-	}
-
-	quotaARN := arn.Build("sagemaker", b.region, b.accountID, "compute-quota/"+opts.ComputeQuotaName)
-	now := time.Now()
-
-	q := &ComputeQuota{
-		ComputeQuotaName: opts.ComputeQuotaName,
-		ComputeQuotaArn:  quotaARN,
-		ClusterArn:       opts.ClusterArn,
-		Status:           statusCreated,
-		Tags:             mergeTags(nil, opts.Tags),
-		CreationTime:     now,
-		LastModifiedTime: now,
-	}
-	b.computeQuotas[opts.ComputeQuotaName] = q
-
-	return cloneComputeQuota(q), nil
+	return sagemakerCreate(ctx, b,
+		"CreateComputeQuota", opts.ComputeQuotaName, "compute-quota",
+		b.computeQuotasStore,
+		func(n string) error {
+			return fmt.Errorf("%w: compute quota %q already exists", ErrComputeQuotaAlreadyExists, n)
+		},
+		func(arnStr string, now time.Time) *ComputeQuota {
+			return &ComputeQuota{
+				ComputeQuotaName: opts.ComputeQuotaName,
+				ComputeQuotaArn:  arnStr,
+				ClusterArn:       opts.ClusterArn,
+				Status:           statusCreated,
+				Tags:             mergeTags(nil, opts.Tags),
+				CreationTime:     now,
+				LastModifiedTime: now,
+			}
+		},
+		cloneComputeQuota,
+	)
 }
 
 // DescribeComputeQuota returns a compute quota by name.
-func (b *InMemoryBackend) DescribeComputeQuota(name string) (*ComputeQuota, error) {
+func (b *InMemoryBackend) DescribeComputeQuota(ctx context.Context, name string) (*ComputeQuota, error) {
 	b.mu.RLock("DescribeComputeQuota")
 	defer b.mu.RUnlock()
 
-	q, ok := b.computeQuotas[name]
+	region := getRegion(ctx, b.region)
+
+	q, ok := b.computeQuotasStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: compute quota %q", ErrComputeQuotaNotFound, name)
 	}
@@ -758,49 +743,23 @@ func (b *InMemoryBackend) DescribeComputeQuota(name string) (*ComputeQuota, erro
 }
 
 // ListComputeQuotas returns all compute quotas with pagination.
-func (b *InMemoryBackend) ListComputeQuotas(nextToken string) ([]*ComputeQuota, string) {
+func (b *InMemoryBackend) ListComputeQuotas(ctx context.Context, nextToken string) ([]*ComputeQuota, string) {
 	b.mu.RLock("ListComputeQuotas")
 	defer b.mu.RUnlock()
 
-	keys := make([]string, 0, len(b.computeQuotas))
-	for k := range b.computeQuotas {
-		keys = append(keys, k)
-	}
+	region := getRegion(ctx, b.region)
 
-	sort.Strings(keys)
-
-	start := 0
-	if nextToken != "" {
-		for i, k := range keys {
-			if k == nextToken {
-				start = i
-
-				break
-			}
-		}
-	}
-
-	end := min(start+sagemakerDefaultPageSize, len(keys))
-
-	out := make([]*ComputeQuota, 0, end-start)
-	for _, k := range keys[start:end] {
-		out = append(out, cloneComputeQuota(b.computeQuotas[k]))
-	}
-
-	next := ""
-	if end < len(keys) {
-		next = keys[end]
-	}
-
-	return out, next
+	return sagemakerListKeyPaged(b.computeQuotasStore(region), nextToken, cloneComputeQuota)
 }
 
 // UpdateComputeQuota updates a compute quota's cluster ARN.
-func (b *InMemoryBackend) UpdateComputeQuota(name, clusterArn string) error {
+func (b *InMemoryBackend) UpdateComputeQuota(ctx context.Context, name, clusterArn string) error {
 	b.mu.Lock("UpdateComputeQuota")
 	defer b.mu.Unlock()
 
-	q, ok := b.computeQuotas[name]
+	region := getRegion(ctx, b.region)
+
+	q, ok := b.computeQuotasStore(region)[name]
 	if !ok {
 		return fmt.Errorf("%w: compute quota %q", ErrComputeQuotaNotFound, name)
 	}
@@ -815,15 +774,18 @@ func (b *InMemoryBackend) UpdateComputeQuota(name, clusterArn string) error {
 }
 
 // DeleteComputeQuota deletes a compute quota by name.
-func (b *InMemoryBackend) DeleteComputeQuota(name string) error {
+func (b *InMemoryBackend) DeleteComputeQuota(ctx context.Context, name string) error {
 	b.mu.Lock("DeleteComputeQuota")
 	defer b.mu.Unlock()
 
-	if _, ok := b.computeQuotas[name]; !ok {
+	region := getRegion(ctx, b.region)
+	store := b.computeQuotasStore(region)
+
+	if _, ok := store[name]; !ok {
 		return fmt.Errorf("%w: compute quota %q", ErrComputeQuotaNotFound, name)
 	}
 
-	delete(b.computeQuotas, name)
+	delete(store, name)
 
 	return nil
 }

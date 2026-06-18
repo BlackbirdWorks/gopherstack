@@ -2,6 +2,7 @@ package textract_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -545,7 +546,7 @@ func TestHandler_Snapshot_Restore(t *testing.T) {
 			h2 := newTestHandler(t)
 			require.NoError(t, h2.Restore(snap))
 
-			jobs := h2.Backend.ListJobs()
+			jobs := h2.Backend.ListJobs(context.Background())
 			assert.Len(t, jobs, tt.jobCount)
 		})
 	}

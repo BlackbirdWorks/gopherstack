@@ -1418,11 +1418,11 @@ func (h *Handler) handleListInputs(c *echo.Context) error {
 
 // Tags first, then strings, then slice: reduces GC pointer scan from 80 to 64 bytes.
 type inputSecurityGroupOutput struct {
-	Tags           map[string]string `json:"Tags"`
-	Arn            string            `json:"Arn"`
-	ID             string            `json:"Id"`
-	State          string            `json:"State"`
-	WhitelistRules []map[string]any  `json:"WhitelistRules"`
+	Tags           map[string]string `json:"tags"`
+	Arn            string            `json:"arn"`
+	ID             string            `json:"id"`
+	State          string            `json:"state"`
+	WhitelistRules []map[string]any  `json:"whitelistRules"`
 }
 
 func toGroupOutput(g *InputSecurityGroup) inputSecurityGroupOutput {
@@ -1433,7 +1433,7 @@ func toGroupOutput(g *InputSecurityGroup) inputSecurityGroupOutput {
 
 	rules := make([]map[string]any, 0, len(g.WhitelistRules))
 	for _, r := range g.WhitelistRules {
-		rules = append(rules, map[string]any{"Cidr": r.Cidr})
+		rules = append(rules, map[string]any{"cidr": r.Cidr})
 	}
 
 	return inputSecurityGroupOutput{
@@ -1446,16 +1446,22 @@ func toGroupOutput(g *InputSecurityGroup) inputSecurityGroupOutput {
 }
 
 func extractWhitelistRules(body map[string]any) []WhitelistRule {
-	raw, _ := body["WhitelistRules"].([]any)
+	raw, ok := body["whitelistRules"].([]any)
+	if !ok {
+		raw, _ = body["WhitelistRules"].([]any)
+	}
 	rules := make([]WhitelistRule, 0, len(raw))
 
 	for _, item := range raw {
-		m, ok := item.(map[string]any)
-		if !ok {
+		m, isMap := item.(map[string]any)
+		if !isMap {
 			continue
 		}
 
-		cidr, _ := m["Cidr"].(string)
+		cidr, hasCidr := m["cidr"].(string)
+		if !hasCidr {
+			cidr, _ = m["Cidr"].(string)
+		}
 		if cidr != "" {
 			rules = append(rules, WhitelistRule{Cidr: cidr})
 		}
@@ -1473,7 +1479,7 @@ func (h *Handler) handleCreateInputSecurityGroup(c *echo.Context, body map[strin
 		return respondErr(c, err)
 	}
 
-	return c.JSON(http.StatusCreated, map[string]any{"SecurityGroup": toGroupOutput(g)})
+	return c.JSON(http.StatusCreated, map[string]any{"securityGroup": toGroupOutput(g)})
 }
 
 func (h *Handler) handleDescribeInputSecurityGroup(c *echo.Context, groupID string) error {
@@ -1497,7 +1503,7 @@ func (h *Handler) handleUpdateInputSecurityGroup(
 		return respondErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"SecurityGroup": toGroupOutput(g)})
+	return c.JSON(http.StatusOK, map[string]any{"securityGroup": toGroupOutput(g)})
 }
 
 func (h *Handler) handleDeleteInputSecurityGroup(c *echo.Context, groupID string) error {
@@ -1516,16 +1522,21 @@ func (h *Handler) handleListInputSecurityGroups(c *echo.Context) error {
 
 	out := make([]map[string]any, 0, len(summaries))
 	for _, s := range summaries {
+		rules := make([]map[string]any, 0, len(s.WhitelistRules))
+		for _, r := range s.WhitelistRules {
+			rules = append(rules, map[string]any{"cidr": r.Cidr})
+		}
 		out = append(out, map[string]any{
-			keyArn:   s.ARN,
-			keyID:    s.ID,
-			keyState: s.State,
+			"arn":            s.ARN,
+			"id":             s.ID,
+			"state":          s.State,
+			"whitelistRules": rules,
 		})
 	}
 
-	resp := map[string]any{"InputSecurityGroups": out}
+	resp := map[string]any{"inputSecurityGroups": out}
 	if nextToken != "" {
-		resp["NextToken"] = nextToken
+		resp["nextToken"] = nextToken
 	}
 
 	return c.JSON(http.StatusOK, resp)
@@ -1882,7 +1893,10 @@ func (h *Handler) handleListMultiplexPrograms(c *echo.Context, multiplexID strin
 }
 
 func extractTags(body map[string]any) map[string]string {
-	raw, _ := body["Tags"].(map[string]any)
+	raw, hasTags := body["tags"].(map[string]any)
+	if !hasTags {
+		raw, _ = body["Tags"].(map[string]any)
+	}
 	if len(raw) == 0 {
 		return nil
 	}

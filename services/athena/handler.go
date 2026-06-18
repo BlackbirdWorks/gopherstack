@@ -283,8 +283,14 @@ type getQueryExecutionInput struct {
 }
 
 type listQueryExecutionsInput struct {
-	WorkGroup string `json:"WorkGroup"`
+	WorkGroup  string `json:"WorkGroup"`
+	NextToken  string `json:"NextToken"`
+	MaxResults int    `json:"MaxResults"`
 }
+
+// maxListQueryExecutionsPageSize is the AWS upper bound (and default) for the
+// MaxResults parameter on ListQueryExecutions.
+const maxListQueryExecutionsPageSize = 50
 
 type batchGetQueryExecutionInput struct {
 	QueryExecutionIDs []string `json:"QueryExecutionIds"`
@@ -598,7 +604,14 @@ func (h *Handler) queryExecutionOps() map[string]athenaActionFn {
 				return nil, err
 			}
 
-			return map[string]any{"QueryExecutionIds": ids, "NextToken": ""}, nil
+			ids, nextToken := paginateQueryExecutionIDs(ids, input.MaxResults, input.NextToken)
+
+			out := map[string]any{"QueryExecutionIds": ids}
+			if nextToken != "" {
+				out["NextToken"] = nextToken
+			}
+
+			return out, nil
 		},
 		"BatchGetQueryExecution": func(b []byte) (any, error) {
 			var input batchGetQueryExecutionInput
@@ -620,6 +633,38 @@ func (h *Handler) queryExecutionOps() map[string]athenaActionFn {
 // athenaMaxQueryResultsPageSize matches the AWS-documented maximum page size
 // for Athena GetQueryResults. The minimum is 1.
 const athenaMaxQueryResultsPageSize = 1000
+
+// paginateQueryExecutionIDs applies AWS-style MaxResults/NextToken pagination to
+// a list of query-execution IDs. The returned token is the first un-returned ID
+// (the next-page lookup includes the token element). An empty token means the
+// last page.
+func paginateQueryExecutionIDs(ids []string, maxResults int, nextToken string) ([]string, string) {
+	limit := maxListQueryExecutionsPageSize
+	if maxResults > 0 && maxResults < limit {
+		limit = maxResults
+	}
+
+	start := 0
+	if nextToken != "" {
+		for i, id := range ids {
+			if id == nextToken {
+				start = i
+
+				break
+			}
+		}
+	}
+
+	ids = ids[start:]
+
+	token := ""
+	if len(ids) > limit {
+		token = ids[limit]
+		ids = ids[:limit]
+	}
+
+	return ids, token
+}
 
 type getQueryResultsInput struct {
 	QueryExecutionID string `json:"QueryExecutionId"`

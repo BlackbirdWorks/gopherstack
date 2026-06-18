@@ -1,6 +1,7 @@
 package neptune
 
 import (
+	"context"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -51,9 +52,15 @@ func (h *Handler) Reset() {
 	h.Backend.Reset()
 }
 
-// clusterARN builds a Neptune cluster ARN using the backend's region and account.
-func (h *Handler) clusterARN(id string) string {
-	return arn.Build("neptune", h.Backend.Region(), h.Backend.AccountID(), "cluster:"+id)
+// clusterARN builds a Neptune cluster ARN using the request region and account.
+func (h *Handler) clusterARN(region, id string) string {
+	return arn.Build("neptune", region, h.Backend.AccountID(), "cluster:"+id)
+}
+
+// regionFromRequest resolves the AWS region for a request from its SigV4
+// credential scope, falling back to the backend's default region.
+func (h *Handler) regionFromRequest(c *echo.Context) string {
+	return httputils.ExtractRegionFromRequest(c.Request(), h.Backend.Region())
 }
 
 // GetSupportedOperations returns supported Neptune operations (sorted).
@@ -211,7 +218,9 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		if action == "" {
 			return h.writeError(c, http.StatusBadRequest, "MissingAction", "missing Action parameter")
 		}
-		resp, opErr := h.dispatch(action, vals)
+		// Attach the SigV4-derived region so backend ops route to the correct region store.
+		ctx := context.WithValue(r.Context(), regionContextKey{}, h.regionFromRequest(c))
+		resp, opErr := h.dispatch(ctx, action, vals)
 		if opErr != nil {
 			return h.handleOpError(c, action, opErr)
 		}
@@ -224,196 +233,196 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) dispatch(action string, vals url.Values) (any, error) {
+func (h *Handler) dispatch(ctx context.Context, action string, vals url.Values) (any, error) {
 	switch action {
 	case "CreateDBCluster":
-		return h.handleCreateDBCluster(vals)
+		return h.handleCreateDBCluster(ctx, vals)
 	case "DescribeDBClusters":
-		return h.handleDescribeDBClusters(vals)
+		return h.handleDescribeDBClusters(ctx, vals)
 	case "DeleteDBCluster":
-		return h.handleDeleteDBCluster(vals)
+		return h.handleDeleteDBCluster(ctx, vals)
 	case "ModifyDBCluster":
-		return h.handleModifyDBCluster(vals)
+		return h.handleModifyDBCluster(ctx, vals)
 	case "StopDBCluster":
-		return h.handleStopDBCluster(vals)
+		return h.handleStopDBCluster(ctx, vals)
 	case "StartDBCluster":
-		return h.handleStartDBCluster(vals)
+		return h.handleStartDBCluster(ctx, vals)
 	case "FailoverDBCluster":
-		return h.handleFailoverDBCluster(vals)
+		return h.handleFailoverDBCluster(ctx, vals)
 	case "CreateDBInstance":
-		return h.handleCreateDBInstance(vals)
+		return h.handleCreateDBInstance(ctx, vals)
 	case "DescribeDBInstances":
-		return h.handleDescribeDBInstances(vals)
+		return h.handleDescribeDBInstances(ctx, vals)
 	case "DeleteDBInstance":
-		return h.handleDeleteDBInstance(vals)
+		return h.handleDeleteDBInstance(ctx, vals)
 	case "ModifyDBInstance":
-		return h.handleModifyDBInstance(vals)
+		return h.handleModifyDBInstance(ctx, vals)
 	case "RebootDBInstance":
-		return h.handleRebootDBInstance(vals)
+		return h.handleRebootDBInstance(ctx, vals)
 	default:
-		return h.dispatchExtended(action, vals)
+		return h.dispatchExtended(ctx, action, vals)
 	}
 }
 
-func (h *Handler) dispatchExtended(action string, vals url.Values) (any, error) {
+func (h *Handler) dispatchExtended(ctx context.Context, action string, vals url.Values) (any, error) {
 	switch action {
 	case "CreateDBSubnetGroup":
-		return h.handleCreateDBSubnetGroup(vals)
+		return h.handleCreateDBSubnetGroup(ctx, vals)
 	case "DescribeDBSubnetGroups":
-		return h.handleDescribeDBSubnetGroups(vals)
+		return h.handleDescribeDBSubnetGroups(ctx, vals)
 	case "DeleteDBSubnetGroup":
-		return h.handleDeleteDBSubnetGroup(vals)
+		return h.handleDeleteDBSubnetGroup(ctx, vals)
 	case "CreateDBClusterParameterGroup":
-		return h.handleCreateDBClusterParameterGroup(vals)
+		return h.handleCreateDBClusterParameterGroup(ctx, vals)
 	case "DescribeDBClusterParameterGroups":
-		return h.handleDescribeDBClusterParameterGroups(vals)
+		return h.handleDescribeDBClusterParameterGroups(ctx, vals)
 	case "DeleteDBClusterParameterGroup":
-		return h.handleDeleteDBClusterParameterGroup(vals)
+		return h.handleDeleteDBClusterParameterGroup(ctx, vals)
 	case "ModifyDBClusterParameterGroup":
-		return h.handleModifyDBClusterParameterGroup(vals)
+		return h.handleModifyDBClusterParameterGroup(ctx, vals)
 	default:
-		return h.dispatchExtended2(action, vals)
+		return h.dispatchExtended2(ctx, action, vals)
 	}
 }
 
-func (h *Handler) dispatchExtended2(action string, vals url.Values) (any, error) {
+func (h *Handler) dispatchExtended2(ctx context.Context, action string, vals url.Values) (any, error) {
 	switch action {
 	case "CreateDBClusterSnapshot":
-		return h.handleCreateDBClusterSnapshot(vals)
+		return h.handleCreateDBClusterSnapshot(ctx, vals)
 	case "DescribeDBClusterSnapshots":
-		return h.handleDescribeDBClusterSnapshots(vals)
+		return h.handleDescribeDBClusterSnapshots(ctx, vals)
 	case "DeleteDBClusterSnapshot":
-		return h.handleDeleteDBClusterSnapshot(vals)
+		return h.handleDeleteDBClusterSnapshot(ctx, vals)
 	case "ListTagsForResource":
-		return h.handleListTagsForResource(vals)
+		return h.handleListTagsForResource(ctx, vals)
 	case "AddTagsToResource":
-		return h.handleAddTagsToResource(vals)
+		return h.handleAddTagsToResource(ctx, vals)
 	case "RemoveTagsFromResource":
-		return h.handleRemoveTagsFromResource(vals)
+		return h.handleRemoveTagsFromResource(ctx, vals)
 	case "DescribeDBEngineVersions":
-		return h.handleDescribeDBEngineVersions(vals)
+		return h.handleDescribeDBEngineVersions(ctx, vals)
 	case "DescribeOrderableDBInstanceOptions":
-		return h.handleDescribeOrderableDBInstanceOptions(vals)
+		return h.handleDescribeOrderableDBInstanceOptions(ctx, vals)
 	case "DescribeGlobalClusters":
-		return h.handleDescribeGlobalClusters(vals)
+		return h.handleDescribeGlobalClusters(ctx, vals)
 	default:
-		return h.dispatchNewOps(action, vals)
+		return h.dispatchNewOps(ctx, action, vals)
 	}
 }
 
-func (h *Handler) dispatchNewOps(action string, vals url.Values) (any, error) {
+func (h *Handler) dispatchNewOps(ctx context.Context, action string, vals url.Values) (any, error) {
 	switch action {
 	case "AddRoleToDBCluster":
-		return h.handleAddRoleToDBCluster(vals)
+		return h.handleAddRoleToDBCluster(ctx, vals)
 	case "AddSourceIdentifierToSubscription":
-		return h.handleAddSourceIdentifierToSubscription(vals)
+		return h.handleAddSourceIdentifierToSubscription(ctx, vals)
 	case "ApplyPendingMaintenanceAction":
-		return h.handleApplyPendingMaintenanceAction(vals)
+		return h.handleApplyPendingMaintenanceAction(ctx, vals)
 	case "CopyDBClusterParameterGroup":
-		return h.handleCopyDBClusterParameterGroup(vals)
+		return h.handleCopyDBClusterParameterGroup(ctx, vals)
 	case "CopyDBClusterSnapshot":
-		return h.handleCopyDBClusterSnapshot(vals)
+		return h.handleCopyDBClusterSnapshot(ctx, vals)
 	case "CopyDBParameterGroup":
-		return h.handleCopyDBParameterGroup(vals)
+		return h.handleCopyDBParameterGroup(ctx, vals)
 	case "CreateDBClusterEndpoint":
-		return h.handleCreateDBClusterEndpoint(vals)
+		return h.handleCreateDBClusterEndpoint(ctx, vals)
 	case "CreateDBParameterGroup":
-		return h.handleCreateDBParameterGroup(vals)
+		return h.handleCreateDBParameterGroup(ctx, vals)
 	case "CreateEventSubscription":
-		return h.handleCreateEventSubscription(vals)
+		return h.handleCreateEventSubscription(ctx, vals)
 	case "CreateGlobalCluster":
-		return h.handleCreateGlobalCluster(vals)
+		return h.handleCreateGlobalCluster(ctx, vals)
 	default:
-		return h.dispatchNewOps2(action, vals)
+		return h.dispatchNewOps2(ctx, action, vals)
 	}
 }
 
-func (h *Handler) dispatchNewOps2(action string, vals url.Values) (any, error) {
+func (h *Handler) dispatchNewOps2(ctx context.Context, action string, vals url.Values) (any, error) {
 	switch action {
 	case "DeleteDBClusterEndpoint":
-		return h.handleDeleteDBClusterEndpoint(vals)
+		return h.handleDeleteDBClusterEndpoint(ctx, vals)
 	case "DescribeDBClusterEndpoints":
-		return h.handleDescribeDBClusterEndpoints(vals)
+		return h.handleDescribeDBClusterEndpoints(ctx, vals)
 	case "ModifyDBClusterEndpoint":
-		return h.handleModifyDBClusterEndpoint(vals)
+		return h.handleModifyDBClusterEndpoint(ctx, vals)
 	case "DeleteDBParameterGroup":
-		return h.handleDeleteDBParameterGroup(vals)
+		return h.handleDeleteDBParameterGroup(ctx, vals)
 	case "DescribeDBParameterGroups":
-		return h.handleDescribeDBParameterGroups(vals)
+		return h.handleDescribeDBParameterGroups(ctx, vals)
 	case "DescribeDBParameters":
-		return h.handleDescribeDBParameters(vals)
+		return h.handleDescribeDBParameters(ctx, vals)
 	case "ModifyDBParameterGroup":
-		return h.handleModifyDBParameterGroup(vals)
+		return h.handleModifyDBParameterGroup(ctx, vals)
 	case "ResetDBParameterGroup":
-		return h.handleResetDBParameterGroup(vals)
+		return h.handleResetDBParameterGroup(ctx, vals)
 	case "DescribeDBClusterParameters":
-		return h.handleDescribeDBClusterParameters(vals)
+		return h.handleDescribeDBClusterParameters(ctx, vals)
 	case "DescribeDBClusterSnapshotAttributes":
-		return h.handleDescribeDBClusterSnapshotAttributes(vals)
+		return h.handleDescribeDBClusterSnapshotAttributes(ctx, vals)
 	case "ModifyDBClusterSnapshotAttribute":
-		return h.handleModifyDBClusterSnapshotAttribute(vals)
+		return h.handleModifyDBClusterSnapshotAttribute(ctx, vals)
 	case "ResetDBClusterParameterGroup":
-		return h.handleResetDBClusterParameterGroup(vals)
+		return h.handleResetDBClusterParameterGroup(ctx, vals)
 	default:
-		return h.dispatchNewOps3(action, vals)
+		return h.dispatchNewOps3(ctx, action, vals)
 	}
 }
 
-func (h *Handler) dispatchNewOps3(action string, vals url.Values) (any, error) {
+func (h *Handler) dispatchNewOps3(ctx context.Context, action string, vals url.Values) (any, error) {
 	switch action {
 	case "DeleteEventSubscription":
-		return h.handleDeleteEventSubscription(vals)
+		return h.handleDeleteEventSubscription(ctx, vals)
 	case "DescribeEventSubscriptions":
-		return h.handleDescribeEventSubscriptions(vals)
+		return h.handleDescribeEventSubscriptions(ctx, vals)
 	case "ModifyEventSubscription":
-		return h.handleModifyEventSubscription(vals)
+		return h.handleModifyEventSubscription(ctx, vals)
 	case "RemoveSourceIdentifierFromSubscription":
-		return h.handleRemoveSourceIdentifierFromSubscription(vals)
+		return h.handleRemoveSourceIdentifierFromSubscription(ctx, vals)
 	case "DescribeEventCategories":
-		return h.handleDescribeEventCategories(vals)
+		return h.handleDescribeEventCategories(ctx, vals)
 	case "DescribeEvents":
-		return h.handleDescribeEvents(vals)
+		return h.handleDescribeEvents(ctx, vals)
 	case "DeleteGlobalCluster":
-		return h.handleDeleteGlobalCluster(vals)
+		return h.handleDeleteGlobalCluster(ctx, vals)
 	case "FailoverGlobalCluster":
-		return h.handleFailoverGlobalCluster(vals)
+		return h.handleFailoverGlobalCluster(ctx, vals)
 	case "ModifyGlobalCluster":
-		return h.handleModifyGlobalCluster(vals)
+		return h.handleModifyGlobalCluster(ctx, vals)
 	case "RemoveFromGlobalCluster":
-		return h.handleRemoveFromGlobalCluster(vals)
+		return h.handleRemoveFromGlobalCluster(ctx, vals)
 	default:
-		return h.dispatchNewOps4(action, vals)
+		return h.dispatchNewOps4(ctx, action, vals)
 	}
 }
 
-func (h *Handler) dispatchNewOps4(action string, vals url.Values) (any, error) {
+func (h *Handler) dispatchNewOps4(ctx context.Context, action string, vals url.Values) (any, error) {
 	switch action {
 	case "SwitchoverGlobalCluster":
-		return h.handleSwitchoverGlobalCluster(vals)
+		return h.handleSwitchoverGlobalCluster(ctx, vals)
 	case "RemoveRoleFromDBCluster":
-		return h.handleRemoveRoleFromDBCluster(vals)
+		return h.handleRemoveRoleFromDBCluster(ctx, vals)
 	case "DescribeEngineDefaultClusterParameters":
-		return h.handleDescribeEngineDefaultClusterParameters(vals)
+		return h.handleDescribeEngineDefaultClusterParameters(ctx, vals)
 	case "DescribeEngineDefaultParameters":
-		return h.handleDescribeEngineDefaultParameters(vals)
+		return h.handleDescribeEngineDefaultParameters(ctx, vals)
 	case "DescribePendingMaintenanceActions":
-		return h.handleDescribePendingMaintenanceActions(vals)
+		return h.handleDescribePendingMaintenanceActions(ctx, vals)
 	case "DescribeValidDBInstanceModifications":
-		return h.handleDescribeValidDBInstanceModifications(vals)
+		return h.handleDescribeValidDBInstanceModifications(ctx, vals)
 	case "PromoteReadReplicaDBCluster":
-		return h.handlePromoteReadReplicaDBCluster(vals)
+		return h.handlePromoteReadReplicaDBCluster(ctx, vals)
 	case "RestoreDBClusterFromSnapshot":
-		return h.handleRestoreDBClusterFromSnapshot(vals)
+		return h.handleRestoreDBClusterFromSnapshot(ctx, vals)
 	case "RestoreDBClusterToPointInTime":
-		return h.handleRestoreDBClusterToPointInTime(vals)
+		return h.handleRestoreDBClusterToPointInTime(ctx, vals)
 	case "ModifyDBSubnetGroup":
-		return h.handleModifyDBSubnetGroup(vals)
+		return h.handleModifyDBSubnetGroup(ctx, vals)
 	default:
 		return nil, fmt.Errorf("%w: %s is not a valid Neptune action", ErrUnknownAction, action)
 	}
 }
 
-func (h *Handler) handleCreateDBCluster(vals url.Values) (any, error) {
+func (h *Handler) handleCreateDBCluster(ctx context.Context, vals url.Values) (any, error) {
 	id := vals.Get("DBClusterIdentifier")
 	paramGroupName := vals.Get("DBClusterParameterGroupName")
 	port := 0
@@ -442,12 +451,16 @@ func (h *Handler) handleCreateDBCluster(vals url.Values) (any, error) {
 	if err := validateTagEntries(tags); err != nil {
 		return nil, err
 	}
-	cluster, err := h.Backend.CreateDBCluster(id, paramGroupName, port, opts)
+	cluster, err := h.Backend.CreateDBCluster(ctx, id, paramGroupName, port, opts)
 	if err != nil {
 		return nil, err
 	}
 	if len(tags) > 0 {
-		_ = h.Backend.AddTagsToResource(h.clusterARN(cluster.DBClusterIdentifier), tags)
+		_ = h.Backend.AddTagsToResource(
+			ctx,
+			h.clusterARN(getRegion(ctx, h.Backend.Region()), cluster.DBClusterIdentifier),
+			tags,
+		)
 	}
 
 	return &createDBClusterResponse{
@@ -456,9 +469,9 @@ func (h *Handler) handleCreateDBCluster(vals url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleDescribeDBClusters(vals url.Values) (any, error) {
+func (h *Handler) handleDescribeDBClusters(ctx context.Context, vals url.Values) (any, error) {
 	id := vals.Get("DBClusterIdentifier")
-	clusters, err := h.Backend.DescribeDBClusters(id)
+	clusters, err := h.Backend.DescribeDBClusters(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -479,9 +492,9 @@ func (h *Handler) handleDescribeDBClusters(vals url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleDeleteDBCluster(vals url.Values) (any, error) {
+func (h *Handler) handleDeleteDBCluster(ctx context.Context, vals url.Values) (any, error) {
 	id := vals.Get("DBClusterIdentifier")
-	cluster, err := h.Backend.DeleteDBCluster(id)
+	cluster, err := h.Backend.DeleteDBCluster(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -492,7 +505,7 @@ func (h *Handler) handleDeleteDBCluster(vals url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleModifyDBCluster(vals url.Values) (any, error) {
+func (h *Handler) handleModifyDBCluster(ctx context.Context, vals url.Values) (any, error) {
 	id := vals.Get("DBClusterIdentifier")
 	paramGroupName := vals.Get("DBClusterParameterGroupName")
 	sv2, sv2Err := parseServerlessV2ScalingConfig(vals)
@@ -512,7 +525,7 @@ func (h *Handler) handleModifyDBCluster(vals url.Values) (any, error) {
 		DeletionProtectionSet:           rawDel != "",
 		ServerlessV2ScalingConfig:       sv2,
 	}
-	cluster, err := h.Backend.ModifyDBCluster(id, paramGroupName, opts)
+	cluster, err := h.Backend.ModifyDBCluster(ctx, id, paramGroupName, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -523,9 +536,9 @@ func (h *Handler) handleModifyDBCluster(vals url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleStopDBCluster(vals url.Values) (any, error) {
+func (h *Handler) handleStopDBCluster(ctx context.Context, vals url.Values) (any, error) {
 	id := vals.Get("DBClusterIdentifier")
-	cluster, err := h.Backend.StopDBCluster(id)
+	cluster, err := h.Backend.StopDBCluster(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -536,9 +549,9 @@ func (h *Handler) handleStopDBCluster(vals url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleStartDBCluster(vals url.Values) (any, error) {
+func (h *Handler) handleStartDBCluster(ctx context.Context, vals url.Values) (any, error) {
 	id := vals.Get("DBClusterIdentifier")
-	cluster, err := h.Backend.StartDBCluster(id)
+	cluster, err := h.Backend.StartDBCluster(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -549,9 +562,9 @@ func (h *Handler) handleStartDBCluster(vals url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleFailoverDBCluster(vals url.Values) (any, error) {
+func (h *Handler) handleFailoverDBCluster(ctx context.Context, vals url.Values) (any, error) {
 	id := vals.Get("DBClusterIdentifier")
-	cluster, err := h.Backend.FailoverDBCluster(id)
+	cluster, err := h.Backend.FailoverDBCluster(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -562,7 +575,7 @@ func (h *Handler) handleFailoverDBCluster(vals url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleCreateDBInstance(vals url.Values) (any, error) {
+func (h *Handler) handleCreateDBInstance(ctx context.Context, vals url.Values) (any, error) {
 	id := vals.Get("DBInstanceIdentifier")
 	clusterID := vals.Get("DBClusterIdentifier")
 	if clusterID == "" {
@@ -592,12 +605,12 @@ func (h *Handler) handleCreateDBInstance(vals url.Values) (any, error) {
 	if err := validateTagEntries(tags); err != nil {
 		return nil, err
 	}
-	inst, err := h.Backend.CreateDBInstance(id, clusterID, instanceClass, opts)
+	inst, err := h.Backend.CreateDBInstance(ctx, id, clusterID, instanceClass, opts)
 	if err != nil {
 		return nil, err
 	}
 	if len(tags) > 0 {
-		_ = h.Backend.AddTagsToResource(inst.DBInstanceArn, tags)
+		_ = h.Backend.AddTagsToResource(ctx, inst.DBInstanceArn, tags)
 	}
 
 	return &createDBInstanceResponse{
@@ -606,9 +619,9 @@ func (h *Handler) handleCreateDBInstance(vals url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleDescribeDBInstances(vals url.Values) (any, error) {
+func (h *Handler) handleDescribeDBInstances(ctx context.Context, vals url.Values) (any, error) {
 	id := vals.Get("DBInstanceIdentifier")
-	instances, err := h.Backend.DescribeDBInstances(id)
+	instances, err := h.Backend.DescribeDBInstances(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -629,9 +642,9 @@ func (h *Handler) handleDescribeDBInstances(vals url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleDeleteDBInstance(vals url.Values) (any, error) {
+func (h *Handler) handleDeleteDBInstance(ctx context.Context, vals url.Values) (any, error) {
 	id := vals.Get("DBInstanceIdentifier")
-	inst, err := h.Backend.DeleteDBInstance(id)
+	inst, err := h.Backend.DeleteDBInstance(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -642,7 +655,7 @@ func (h *Handler) handleDeleteDBInstance(vals url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleModifyDBInstance(vals url.Values) (any, error) {
+func (h *Handler) handleModifyDBInstance(ctx context.Context, vals url.Values) (any, error) {
 	id := vals.Get("DBInstanceIdentifier")
 	instanceClass := vals.Get("DBInstanceClass")
 	rawAuto := vals.Get("AutoMinorVersionUpgrade")
@@ -671,7 +684,7 @@ func (h *Handler) handleModifyDBInstance(vals url.Values) (any, error) {
 		PromotionTier:                   promotionTier,
 		PromotionTierSet:                promotionTierSet,
 	}
-	inst, err := h.Backend.ModifyDBInstance(id, instanceClass, opts)
+	inst, err := h.Backend.ModifyDBInstance(ctx, id, instanceClass, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -682,9 +695,9 @@ func (h *Handler) handleModifyDBInstance(vals url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleRebootDBInstance(vals url.Values) (any, error) {
+func (h *Handler) handleRebootDBInstance(ctx context.Context, vals url.Values) (any, error) {
 	id := vals.Get("DBInstanceIdentifier")
-	inst, err := h.Backend.RebootDBInstance(id)
+	inst, err := h.Backend.RebootDBInstance(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -695,12 +708,12 @@ func (h *Handler) handleRebootDBInstance(vals url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleCreateDBSubnetGroup(vals url.Values) (any, error) {
+func (h *Handler) handleCreateDBSubnetGroup(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("DBSubnetGroupName")
 	description := vals.Get("DBSubnetGroupDescription")
 	vpcID := vals.Get("VpcId")
 	subnetIDs := parseSubnetIDMembers(vals)
-	sg, err := h.Backend.CreateDBSubnetGroup(name, description, vpcID, subnetIDs)
+	sg, err := h.Backend.CreateDBSubnetGroup(ctx, name, description, vpcID, subnetIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -711,9 +724,9 @@ func (h *Handler) handleCreateDBSubnetGroup(vals url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleDescribeDBSubnetGroups(vals url.Values) (any, error) {
+func (h *Handler) handleDescribeDBSubnetGroups(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("DBSubnetGroupName")
-	sgs, err := h.Backend.DescribeDBSubnetGroups(name)
+	sgs, err := h.Backend.DescribeDBSubnetGroups(ctx, name)
 	if err != nil {
 		return nil, err
 	}
@@ -734,20 +747,20 @@ func (h *Handler) handleDescribeDBSubnetGroups(vals url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleDeleteDBSubnetGroup(vals url.Values) (any, error) {
+func (h *Handler) handleDeleteDBSubnetGroup(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("DBSubnetGroupName")
-	if err := h.Backend.DeleteDBSubnetGroup(name); err != nil {
+	if err := h.Backend.DeleteDBSubnetGroup(ctx, name); err != nil {
 		return nil, err
 	}
 
 	return &deleteDBSubnetGroupResponse{Xmlns: neptuneXMLNS}, nil
 }
 
-func (h *Handler) handleCreateDBClusterParameterGroup(vals url.Values) (any, error) {
+func (h *Handler) handleCreateDBClusterParameterGroup(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("DBClusterParameterGroupName")
 	family := vals.Get("DBParameterGroupFamily")
 	description := vals.Get("Description")
-	pg, err := h.Backend.CreateDBClusterParameterGroup(name, family, description)
+	pg, err := h.Backend.CreateDBClusterParameterGroup(ctx, name, family, description)
 	if err != nil {
 		return nil, err
 	}
@@ -758,9 +771,9 @@ func (h *Handler) handleCreateDBClusterParameterGroup(vals url.Values) (any, err
 	}, nil
 }
 
-func (h *Handler) handleDescribeDBClusterParameterGroups(vals url.Values) (any, error) {
+func (h *Handler) handleDescribeDBClusterParameterGroups(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("DBClusterParameterGroupName")
-	groups, err := h.Backend.DescribeDBClusterParameterGroups(name)
+	groups, err := h.Backend.DescribeDBClusterParameterGroups(ctx, name)
 	if err != nil {
 		return nil, err
 	}
@@ -778,18 +791,18 @@ func (h *Handler) handleDescribeDBClusterParameterGroups(vals url.Values) (any, 
 	}, nil
 }
 
-func (h *Handler) handleDeleteDBClusterParameterGroup(vals url.Values) (any, error) {
+func (h *Handler) handleDeleteDBClusterParameterGroup(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("DBClusterParameterGroupName")
-	if err := h.Backend.DeleteDBClusterParameterGroup(name); err != nil {
+	if err := h.Backend.DeleteDBClusterParameterGroup(ctx, name); err != nil {
 		return nil, err
 	}
 
 	return &deleteDBClusterParameterGroupResponse{Xmlns: neptuneXMLNS}, nil
 }
 
-func (h *Handler) handleModifyDBClusterParameterGroup(vals url.Values) (any, error) {
+func (h *Handler) handleModifyDBClusterParameterGroup(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("DBClusterParameterGroupName")
-	pg, err := h.Backend.ModifyDBClusterParameterGroup(name)
+	pg, err := h.Backend.ModifyDBClusterParameterGroup(ctx, name)
 	if err != nil {
 		return nil, err
 	}
@@ -800,10 +813,10 @@ func (h *Handler) handleModifyDBClusterParameterGroup(vals url.Values) (any, err
 	}, nil
 }
 
-func (h *Handler) handleCreateDBClusterSnapshot(vals url.Values) (any, error) {
+func (h *Handler) handleCreateDBClusterSnapshot(ctx context.Context, vals url.Values) (any, error) {
 	snapshotID := vals.Get("DBClusterSnapshotIdentifier")
 	clusterID := vals.Get("DBClusterIdentifier")
-	snap, err := h.Backend.CreateDBClusterSnapshot(snapshotID, clusterID)
+	snap, err := h.Backend.CreateDBClusterSnapshot(ctx, snapshotID, clusterID)
 	if err != nil {
 		return nil, err
 	}
@@ -814,10 +827,10 @@ func (h *Handler) handleCreateDBClusterSnapshot(vals url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleDescribeDBClusterSnapshots(vals url.Values) (any, error) {
+func (h *Handler) handleDescribeDBClusterSnapshots(ctx context.Context, vals url.Values) (any, error) {
 	snapshotID := vals.Get("DBClusterSnapshotIdentifier")
 	clusterID := vals.Get("DBClusterIdentifier")
-	snaps, err := h.Backend.DescribeDBClusterSnapshots(snapshotID, clusterID)
+	snaps, err := h.Backend.DescribeDBClusterSnapshots(ctx, snapshotID, clusterID)
 	if err != nil {
 		return nil, err
 	}
@@ -838,9 +851,9 @@ func (h *Handler) handleDescribeDBClusterSnapshots(vals url.Values) (any, error)
 	}, nil
 }
 
-func (h *Handler) handleDeleteDBClusterSnapshot(vals url.Values) (any, error) {
+func (h *Handler) handleDeleteDBClusterSnapshot(ctx context.Context, vals url.Values) (any, error) {
 	snapshotID := vals.Get("DBClusterSnapshotIdentifier")
-	snap, err := h.Backend.DeleteDBClusterSnapshot(snapshotID)
+	snap, err := h.Backend.DeleteDBClusterSnapshot(ctx, snapshotID)
 	if err != nil {
 		return nil, err
 	}
@@ -851,9 +864,9 @@ func (h *Handler) handleDeleteDBClusterSnapshot(vals url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleListTagsForResource(vals url.Values) (any, error) {
+func (h *Handler) handleListTagsForResource(ctx context.Context, vals url.Values) (any, error) {
 	arnStr := vals.Get("ResourceName")
-	tags, err := h.Backend.ListTagsForResource(arnStr)
+	tags, err := h.Backend.ListTagsForResource(ctx, arnStr)
 	if err != nil {
 		return nil, err
 	}
@@ -868,27 +881,27 @@ func (h *Handler) handleListTagsForResource(vals url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleAddTagsToResource(vals url.Values) (any, error) {
+func (h *Handler) handleAddTagsToResource(ctx context.Context, vals url.Values) (any, error) {
 	arnStr := vals.Get("ResourceName")
 	tags := parseTagEntries(vals)
-	if err := h.Backend.AddTagsToResource(arnStr, tags); err != nil {
+	if err := h.Backend.AddTagsToResource(ctx, arnStr, tags); err != nil {
 		return nil, err
 	}
 
 	return &addTagsToResourceResponse{Xmlns: neptuneXMLNS}, nil
 }
 
-func (h *Handler) handleRemoveTagsFromResource(vals url.Values) (any, error) {
+func (h *Handler) handleRemoveTagsFromResource(ctx context.Context, vals url.Values) (any, error) {
 	arnStr := vals.Get("ResourceName")
 	keys := parseTagKeyMembers(vals)
-	if err := h.Backend.RemoveTagsFromResource(arnStr, keys); err != nil {
+	if err := h.Backend.RemoveTagsFromResource(ctx, arnStr, keys); err != nil {
 		return nil, err
 	}
 
 	return &removeTagsFromResourceResponse{Xmlns: neptuneXMLNS}, nil
 }
 
-func (h *Handler) handleDescribeDBEngineVersions(_ url.Values) (any, error) {
+func (h *Handler) handleDescribeDBEngineVersions(_ context.Context, _ url.Values) (any, error) {
 	members := []xmlDBEngineVersion{
 		{
 			Engine:                 neptuneEngine,
@@ -946,7 +959,7 @@ func (h *Handler) handleDescribeDBEngineVersions(_ url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleDescribeOrderableDBInstanceOptions(_ url.Values) (any, error) {
+func (h *Handler) handleDescribeOrderableDBInstanceOptions(_ context.Context, _ url.Values) (any, error) {
 	engineVersions := []string{"1.2.0.0", "1.2.1.0", defaultEngineVersion, "1.3.1.0", "1.4.0.0"}
 	instanceClasses := []string{
 		"db.r5.large", "db.r5.xlarge", "db.r5.2xlarge", "db.r5.4xlarge", "db.r5.8xlarge",
@@ -972,8 +985,8 @@ func (h *Handler) handleDescribeOrderableDBInstanceOptions(_ url.Values) (any, e
 	}, nil
 }
 
-func (h *Handler) handleDescribeGlobalClusters(_ url.Values) (any, error) {
-	gcs := h.Backend.DescribeGlobalClusters()
+func (h *Handler) handleDescribeGlobalClusters(ctx context.Context, _ url.Values) (any, error) {
+	gcs := h.Backend.DescribeGlobalClusters(ctx)
 	members := make([]xmlGlobalCluster, 0, len(gcs))
 	for _, gc := range gcs {
 		cp := gc
@@ -988,20 +1001,20 @@ func (h *Handler) handleDescribeGlobalClusters(_ url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleAddRoleToDBCluster(vals url.Values) (any, error) {
+func (h *Handler) handleAddRoleToDBCluster(ctx context.Context, vals url.Values) (any, error) {
 	clusterID := vals.Get("DBClusterIdentifier")
 	roleARN := vals.Get("RoleArn")
-	if err := h.Backend.AddRoleToDBCluster(clusterID, roleARN); err != nil {
+	if err := h.Backend.AddRoleToDBCluster(ctx, clusterID, roleARN); err != nil {
 		return nil, err
 	}
 
 	return &addRoleToDBClusterResponse{Xmlns: neptuneXMLNS}, nil
 }
 
-func (h *Handler) handleAddSourceIdentifierToSubscription(vals url.Values) (any, error) {
+func (h *Handler) handleAddSourceIdentifierToSubscription(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("SubscriptionName")
 	sourceID := vals.Get("SourceIdentifier")
-	sub, err := h.Backend.AddSourceIdentifierToSubscription(name, sourceID)
+	sub, err := h.Backend.AddSourceIdentifierToSubscription(ctx, name, sourceID)
 	if err != nil {
 		return nil, err
 	}
@@ -1012,22 +1025,22 @@ func (h *Handler) handleAddSourceIdentifierToSubscription(vals url.Values) (any,
 	}, nil
 }
 
-func (h *Handler) handleApplyPendingMaintenanceAction(vals url.Values) (any, error) {
+func (h *Handler) handleApplyPendingMaintenanceAction(ctx context.Context, vals url.Values) (any, error) {
 	resourceID := vals.Get("ResourceIdentifier")
 	applyAction := vals.Get("ApplyAction")
 	optInType := vals.Get("OptInType")
-	if err := h.Backend.ApplyPendingMaintenanceAction(resourceID, applyAction, optInType); err != nil {
+	if err := h.Backend.ApplyPendingMaintenanceAction(ctx, resourceID, applyAction, optInType); err != nil {
 		return nil, err
 	}
 
 	return &applyPendingMaintenanceActionResponse{Xmlns: neptuneXMLNS}, nil
 }
 
-func (h *Handler) handleCopyDBClusterParameterGroup(vals url.Values) (any, error) {
+func (h *Handler) handleCopyDBClusterParameterGroup(ctx context.Context, vals url.Values) (any, error) {
 	sourceName := vals.Get("SourceDBClusterParameterGroupIdentifier")
 	targetName := vals.Get("TargetDBClusterParameterGroupIdentifier")
 	targetDescription := vals.Get("TargetDBClusterParameterGroupDescription")
-	pg, err := h.Backend.CopyDBClusterParameterGroup(sourceName, targetName, targetDescription)
+	pg, err := h.Backend.CopyDBClusterParameterGroup(ctx, sourceName, targetName, targetDescription)
 	if err != nil {
 		return nil, err
 	}
@@ -1038,10 +1051,10 @@ func (h *Handler) handleCopyDBClusterParameterGroup(vals url.Values) (any, error
 	}, nil
 }
 
-func (h *Handler) handleCopyDBClusterSnapshot(vals url.Values) (any, error) {
+func (h *Handler) handleCopyDBClusterSnapshot(ctx context.Context, vals url.Values) (any, error) {
 	sourceSnapshotID := vals.Get("SourceDBClusterSnapshotIdentifier")
 	targetSnapshotID := vals.Get("TargetDBClusterSnapshotIdentifier")
-	snap, err := h.Backend.CopyDBClusterSnapshot(sourceSnapshotID, targetSnapshotID)
+	snap, err := h.Backend.CopyDBClusterSnapshot(ctx, sourceSnapshotID, targetSnapshotID)
 	if err != nil {
 		return nil, err
 	}
@@ -1052,11 +1065,11 @@ func (h *Handler) handleCopyDBClusterSnapshot(vals url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleCopyDBParameterGroup(vals url.Values) (any, error) {
+func (h *Handler) handleCopyDBParameterGroup(ctx context.Context, vals url.Values) (any, error) {
 	sourceName := vals.Get("SourceDBParameterGroupIdentifier")
 	targetName := vals.Get("TargetDBParameterGroupIdentifier")
 	targetDescription := vals.Get("TargetDBParameterGroupDescription")
-	pg, err := h.Backend.CopyDBParameterGroup(sourceName, targetName, targetDescription)
+	pg, err := h.Backend.CopyDBParameterGroup(ctx, sourceName, targetName, targetDescription)
 	if err != nil {
 		return nil, err
 	}
@@ -1067,11 +1080,11 @@ func (h *Handler) handleCopyDBParameterGroup(vals url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleCreateDBClusterEndpoint(vals url.Values) (any, error) {
+func (h *Handler) handleCreateDBClusterEndpoint(ctx context.Context, vals url.Values) (any, error) {
 	endpointID := vals.Get("DBClusterEndpointIdentifier")
 	clusterID := vals.Get("DBClusterIdentifier")
 	endpointType := vals.Get("EndpointType")
-	ep, err := h.Backend.CreateDBClusterEndpoint(endpointID, clusterID, endpointType)
+	ep, err := h.Backend.CreateDBClusterEndpoint(ctx, endpointID, clusterID, endpointType)
 	if err != nil {
 		return nil, err
 	}
@@ -1082,11 +1095,11 @@ func (h *Handler) handleCreateDBClusterEndpoint(vals url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleCreateDBParameterGroup(vals url.Values) (any, error) {
+func (h *Handler) handleCreateDBParameterGroup(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("DBParameterGroupName")
 	family := vals.Get("DBParameterGroupFamily")
 	description := vals.Get("Description")
-	pg, err := h.Backend.CreateDBParameterGroup(name, family, description)
+	pg, err := h.Backend.CreateDBParameterGroup(ctx, name, family, description)
 	if err != nil {
 		return nil, err
 	}
@@ -1097,11 +1110,11 @@ func (h *Handler) handleCreateDBParameterGroup(vals url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleCreateEventSubscription(vals url.Values) (any, error) {
+func (h *Handler) handleCreateEventSubscription(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("SubscriptionName")
 	snsTopicARN := vals.Get("SnsTopicArn")
 	sourceIDs := parseSourceIDMembers(vals)
-	sub, err := h.Backend.CreateEventSubscription(name, snsTopicARN, sourceIDs)
+	sub, err := h.Backend.CreateEventSubscription(ctx, name, snsTopicARN, sourceIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -1112,10 +1125,10 @@ func (h *Handler) handleCreateEventSubscription(vals url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleCreateGlobalCluster(vals url.Values) (any, error) {
+func (h *Handler) handleCreateGlobalCluster(ctx context.Context, vals url.Values) (any, error) {
 	globalClusterID := vals.Get("GlobalClusterIdentifier")
 	sourceDBClusterID := vals.Get("SourceDBClusterIdentifier")
-	gc, err := h.Backend.CreateGlobalCluster(globalClusterID, sourceDBClusterID)
+	gc, err := h.Backend.CreateGlobalCluster(ctx, globalClusterID, sourceDBClusterID)
 	if err != nil {
 		return nil, err
 	}
@@ -1126,19 +1139,19 @@ func (h *Handler) handleCreateGlobalCluster(vals url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleDeleteDBClusterEndpoint(vals url.Values) (any, error) {
+func (h *Handler) handleDeleteDBClusterEndpoint(ctx context.Context, vals url.Values) (any, error) {
 	endpointID := vals.Get("DBClusterEndpointIdentifier")
-	if err := h.Backend.DeleteDBClusterEndpoint(endpointID); err != nil {
+	if err := h.Backend.DeleteDBClusterEndpoint(ctx, endpointID); err != nil {
 		return nil, err
 	}
 
 	return &deleteDBClusterEndpointResponse{Xmlns: neptuneXMLNS}, nil
 }
 
-func (h *Handler) handleDescribeDBClusterEndpoints(vals url.Values) (any, error) {
+func (h *Handler) handleDescribeDBClusterEndpoints(ctx context.Context, vals url.Values) (any, error) {
 	endpointID := vals.Get("DBClusterEndpointIdentifier")
 	clusterID := vals.Get("DBClusterIdentifier")
-	endpoints, err := h.Backend.DescribeDBClusterEndpoints(endpointID, clusterID)
+	endpoints, err := h.Backend.DescribeDBClusterEndpoints(ctx, endpointID, clusterID)
 	if err != nil {
 		return nil, err
 	}
@@ -1159,10 +1172,10 @@ func (h *Handler) handleDescribeDBClusterEndpoints(vals url.Values) (any, error)
 	}, nil
 }
 
-func (h *Handler) handleModifyDBClusterEndpoint(vals url.Values) (any, error) {
+func (h *Handler) handleModifyDBClusterEndpoint(ctx context.Context, vals url.Values) (any, error) {
 	endpointID := vals.Get("DBClusterEndpointIdentifier")
 	endpointType := vals.Get("EndpointType")
-	ep, err := h.Backend.ModifyDBClusterEndpoint(endpointID, endpointType)
+	ep, err := h.Backend.ModifyDBClusterEndpoint(ctx, endpointID, endpointType)
 	if err != nil {
 		return nil, err
 	}
@@ -1173,18 +1186,18 @@ func (h *Handler) handleModifyDBClusterEndpoint(vals url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleDeleteDBParameterGroup(vals url.Values) (any, error) {
+func (h *Handler) handleDeleteDBParameterGroup(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("DBParameterGroupName")
-	if err := h.Backend.DeleteDBParameterGroup(name); err != nil {
+	if err := h.Backend.DeleteDBParameterGroup(ctx, name); err != nil {
 		return nil, err
 	}
 
 	return &deleteDBParameterGroupResponse{Xmlns: neptuneXMLNS}, nil
 }
 
-func (h *Handler) handleDescribeDBParameterGroups(vals url.Values) (any, error) {
+func (h *Handler) handleDescribeDBParameterGroups(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("DBParameterGroupName")
-	groups, err := h.Backend.DescribeDBParameterGroups(name)
+	groups, err := h.Backend.DescribeDBParameterGroups(ctx, name)
 	if err != nil {
 		return nil, err
 	}
@@ -1205,10 +1218,10 @@ func (h *Handler) handleDescribeDBParameterGroups(vals url.Values) (any, error) 
 	}, nil
 }
 
-func (h *Handler) handleDescribeDBParameters(vals url.Values) (any, error) {
+func (h *Handler) handleDescribeDBParameters(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("DBParameterGroupName")
 	if name != "" {
-		if _, err := h.Backend.DescribeDBParameterGroups(name); err != nil {
+		if _, err := h.Backend.DescribeDBParameterGroups(ctx, name); err != nil {
 			return nil, err
 		}
 	}
@@ -1221,9 +1234,9 @@ func (h *Handler) handleDescribeDBParameters(vals url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleModifyDBParameterGroup(vals url.Values) (any, error) {
+func (h *Handler) handleModifyDBParameterGroup(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("DBParameterGroupName")
-	pg, err := h.Backend.ModifyDBParameterGroup(name)
+	pg, err := h.Backend.ModifyDBParameterGroup(ctx, name)
 	if err != nil {
 		return nil, err
 	}
@@ -1234,9 +1247,9 @@ func (h *Handler) handleModifyDBParameterGroup(vals url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleResetDBParameterGroup(vals url.Values) (any, error) {
+func (h *Handler) handleResetDBParameterGroup(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("DBParameterGroupName")
-	pg, err := h.Backend.ResetDBParameterGroup(name)
+	pg, err := h.Backend.ResetDBParameterGroup(ctx, name)
 	if err != nil {
 		return nil, err
 	}
@@ -1247,10 +1260,10 @@ func (h *Handler) handleResetDBParameterGroup(vals url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleDescribeDBClusterParameters(vals url.Values) (any, error) {
+func (h *Handler) handleDescribeDBClusterParameters(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("DBClusterParameterGroupName")
 	if name != "" {
-		if _, err := h.Backend.DescribeDBClusterParameterGroups(name); err != nil {
+		if _, err := h.Backend.DescribeDBClusterParameterGroups(ctx, name); err != nil {
 			return nil, err
 		}
 	}
@@ -1263,10 +1276,10 @@ func (h *Handler) handleDescribeDBClusterParameters(vals url.Values) (any, error
 	}, nil
 }
 
-func (h *Handler) handleDescribeDBClusterSnapshotAttributes(vals url.Values) (any, error) {
+func (h *Handler) handleDescribeDBClusterSnapshotAttributes(ctx context.Context, vals url.Values) (any, error) {
 	snapshotID := vals.Get("DBClusterSnapshotIdentifier")
 	if snapshotID != "" {
-		if _, err := h.Backend.DescribeDBClusterSnapshots(snapshotID, ""); err != nil {
+		if _, err := h.Backend.DescribeDBClusterSnapshots(ctx, snapshotID, ""); err != nil {
 			return nil, err
 		}
 	}
@@ -1281,10 +1294,10 @@ func (h *Handler) handleDescribeDBClusterSnapshotAttributes(vals url.Values) (an
 	}, nil
 }
 
-func (h *Handler) handleModifyDBClusterSnapshotAttribute(vals url.Values) (any, error) {
+func (h *Handler) handleModifyDBClusterSnapshotAttribute(ctx context.Context, vals url.Values) (any, error) {
 	snapshotID := vals.Get("DBClusterSnapshotIdentifier")
 	if snapshotID != "" {
-		if _, err := h.Backend.DescribeDBClusterSnapshots(snapshotID, ""); err != nil {
+		if _, err := h.Backend.DescribeDBClusterSnapshots(ctx, snapshotID, ""); err != nil {
 			return nil, err
 		}
 	}
@@ -1292,9 +1305,9 @@ func (h *Handler) handleModifyDBClusterSnapshotAttribute(vals url.Values) (any, 
 	return &modifyDBClusterSnapshotAttributeResponse{Xmlns: neptuneXMLNS}, nil
 }
 
-func (h *Handler) handleResetDBClusterParameterGroup(vals url.Values) (any, error) {
+func (h *Handler) handleResetDBClusterParameterGroup(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("DBClusterParameterGroupName")
-	pg, err := h.Backend.ResetDBClusterParameterGroup(name)
+	pg, err := h.Backend.ResetDBClusterParameterGroup(ctx, name)
 	if err != nil {
 		return nil, err
 	}
@@ -1305,9 +1318,9 @@ func (h *Handler) handleResetDBClusterParameterGroup(vals url.Values) (any, erro
 	}, nil
 }
 
-func (h *Handler) handleDeleteEventSubscription(vals url.Values) (any, error) {
+func (h *Handler) handleDeleteEventSubscription(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("SubscriptionName")
-	sub, err := h.Backend.DeleteEventSubscription(name)
+	sub, err := h.Backend.DeleteEventSubscription(ctx, name)
 	if err != nil {
 		return nil, err
 	}
@@ -1318,9 +1331,9 @@ func (h *Handler) handleDeleteEventSubscription(vals url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleDescribeEventSubscriptions(vals url.Values) (any, error) {
+func (h *Handler) handleDescribeEventSubscriptions(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("SubscriptionName")
-	subs, err := h.Backend.DescribeEventSubscriptions(name)
+	subs, err := h.Backend.DescribeEventSubscriptions(ctx, name)
 	if err != nil {
 		return nil, err
 	}
@@ -1341,10 +1354,10 @@ func (h *Handler) handleDescribeEventSubscriptions(vals url.Values) (any, error)
 	}, nil
 }
 
-func (h *Handler) handleModifyEventSubscription(vals url.Values) (any, error) {
+func (h *Handler) handleModifyEventSubscription(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("SubscriptionName")
 	snsTopicARN := vals.Get("SnsTopicArn")
-	sub, err := h.Backend.ModifyEventSubscription(name, snsTopicARN)
+	sub, err := h.Backend.ModifyEventSubscription(ctx, name, snsTopicARN)
 	if err != nil {
 		return nil, err
 	}
@@ -1355,10 +1368,10 @@ func (h *Handler) handleModifyEventSubscription(vals url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleRemoveSourceIdentifierFromSubscription(vals url.Values) (any, error) {
+func (h *Handler) handleRemoveSourceIdentifierFromSubscription(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("SubscriptionName")
 	sourceID := vals.Get("SourceIdentifier")
-	sub, err := h.Backend.RemoveSourceIdentifierFromSubscription(name, sourceID)
+	sub, err := h.Backend.RemoveSourceIdentifierFromSubscription(ctx, name, sourceID)
 	if err != nil {
 		return nil, err
 	}
@@ -1369,7 +1382,7 @@ func (h *Handler) handleRemoveSourceIdentifierFromSubscription(vals url.Values) 
 	}, nil
 }
 
-func (h *Handler) handleDescribeEventCategories(_ url.Values) (any, error) {
+func (h *Handler) handleDescribeEventCategories(_ context.Context, _ url.Values) (any, error) {
 	return &describeEventCategoriesResponse{
 		Xmlns: neptuneXMLNS,
 		EventCategoriesMapList: xmlEventCategoriesMapList{
@@ -1392,7 +1405,7 @@ func (h *Handler) handleDescribeEventCategories(_ url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleDescribeEvents(_ url.Values) (any, error) {
+func (h *Handler) handleDescribeEvents(_ context.Context, _ url.Values) (any, error) {
 	return &describeEventsResponse{
 		Xmlns: neptuneXMLNS,
 		Result: describeEventsResult{
@@ -1401,9 +1414,9 @@ func (h *Handler) handleDescribeEvents(_ url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleDeleteGlobalCluster(vals url.Values) (any, error) {
+func (h *Handler) handleDeleteGlobalCluster(ctx context.Context, vals url.Values) (any, error) {
 	globalClusterID := vals.Get("GlobalClusterIdentifier")
-	gc, err := h.Backend.DeleteGlobalCluster(globalClusterID)
+	gc, err := h.Backend.DeleteGlobalCluster(ctx, globalClusterID)
 	if err != nil {
 		return nil, err
 	}
@@ -1414,10 +1427,10 @@ func (h *Handler) handleDeleteGlobalCluster(vals url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleFailoverGlobalCluster(vals url.Values) (any, error) {
+func (h *Handler) handleFailoverGlobalCluster(ctx context.Context, vals url.Values) (any, error) {
 	globalClusterID := vals.Get("GlobalClusterIdentifier")
 	targetDBClusterID := vals.Get("TargetDbClusterIdentifier")
-	gc, err := h.Backend.FailoverGlobalCluster(globalClusterID, targetDBClusterID)
+	gc, err := h.Backend.FailoverGlobalCluster(ctx, globalClusterID, targetDBClusterID)
 	if err != nil {
 		return nil, err
 	}
@@ -1428,9 +1441,9 @@ func (h *Handler) handleFailoverGlobalCluster(vals url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleModifyGlobalCluster(vals url.Values) (any, error) {
+func (h *Handler) handleModifyGlobalCluster(ctx context.Context, vals url.Values) (any, error) {
 	globalClusterID := vals.Get("GlobalClusterIdentifier")
-	gc, err := h.Backend.ModifyGlobalCluster(globalClusterID)
+	gc, err := h.Backend.ModifyGlobalCluster(ctx, globalClusterID)
 	if err != nil {
 		return nil, err
 	}
@@ -1441,10 +1454,10 @@ func (h *Handler) handleModifyGlobalCluster(vals url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleRemoveFromGlobalCluster(vals url.Values) (any, error) {
+func (h *Handler) handleRemoveFromGlobalCluster(ctx context.Context, vals url.Values) (any, error) {
 	globalClusterID := vals.Get("GlobalClusterIdentifier")
 	dbClusterARN := vals.Get("DbClusterIdentifier")
-	gc, err := h.Backend.RemoveFromGlobalCluster(globalClusterID, dbClusterARN)
+	gc, err := h.Backend.RemoveFromGlobalCluster(ctx, globalClusterID, dbClusterARN)
 	if err != nil {
 		return nil, err
 	}
@@ -1455,10 +1468,10 @@ func (h *Handler) handleRemoveFromGlobalCluster(vals url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleSwitchoverGlobalCluster(vals url.Values) (any, error) {
+func (h *Handler) handleSwitchoverGlobalCluster(ctx context.Context, vals url.Values) (any, error) {
 	globalClusterID := vals.Get("GlobalClusterIdentifier")
 	targetDBClusterID := vals.Get("TargetDbClusterIdentifier")
-	gc, err := h.Backend.SwitchoverGlobalCluster(globalClusterID, targetDBClusterID)
+	gc, err := h.Backend.SwitchoverGlobalCluster(ctx, globalClusterID, targetDBClusterID)
 	if err != nil {
 		return nil, err
 	}
@@ -1469,17 +1482,17 @@ func (h *Handler) handleSwitchoverGlobalCluster(vals url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleRemoveRoleFromDBCluster(vals url.Values) (any, error) {
+func (h *Handler) handleRemoveRoleFromDBCluster(ctx context.Context, vals url.Values) (any, error) {
 	clusterID := vals.Get("DBClusterIdentifier")
 	roleARN := vals.Get("RoleArn")
-	if err := h.Backend.RemoveRoleFromDBCluster(clusterID, roleARN); err != nil {
+	if err := h.Backend.RemoveRoleFromDBCluster(ctx, clusterID, roleARN); err != nil {
 		return nil, err
 	}
 
 	return &removeRoleFromDBClusterResponse{Xmlns: neptuneXMLNS}, nil
 }
 
-func (h *Handler) handleDescribeEngineDefaultClusterParameters(vals url.Values) (any, error) {
+func (h *Handler) handleDescribeEngineDefaultClusterParameters(_ context.Context, vals url.Values) (any, error) {
 	family := vals.Get("DBParameterGroupFamily")
 	if family == "" {
 		family = pgFamilyNeptune13
@@ -1496,7 +1509,7 @@ func (h *Handler) handleDescribeEngineDefaultClusterParameters(vals url.Values) 
 	}, nil
 }
 
-func (h *Handler) handleDescribeEngineDefaultParameters(vals url.Values) (any, error) {
+func (h *Handler) handleDescribeEngineDefaultParameters(_ context.Context, vals url.Values) (any, error) {
 	family := vals.Get("DBParameterGroupFamily")
 	if family == "" {
 		family = pgFamilyNeptune13
@@ -1513,7 +1526,7 @@ func (h *Handler) handleDescribeEngineDefaultParameters(vals url.Values) (any, e
 	}, nil
 }
 
-func (h *Handler) handleDescribePendingMaintenanceActions(_ url.Values) (any, error) {
+func (h *Handler) handleDescribePendingMaintenanceActions(_ context.Context, _ url.Values) (any, error) {
 	return &describePendingMaintenanceActionsResponse{
 		Xmlns: neptuneXMLNS,
 		Result: describePendingMaintenanceActionsResult{
@@ -1522,7 +1535,7 @@ func (h *Handler) handleDescribePendingMaintenanceActions(_ url.Values) (any, er
 	}, nil
 }
 
-func (h *Handler) handleDescribeValidDBInstanceModifications(_ url.Values) (any, error) {
+func (h *Handler) handleDescribeValidDBInstanceModifications(_ context.Context, _ url.Values) (any, error) {
 	validClasses := []xmlValidStorageOption{
 		{DBInstanceClass: "db.r5.large"},
 		{DBInstanceClass: "db.r5.xlarge"},
@@ -1546,9 +1559,9 @@ func (h *Handler) handleDescribeValidDBInstanceModifications(_ url.Values) (any,
 	}, nil
 }
 
-func (h *Handler) handlePromoteReadReplicaDBCluster(vals url.Values) (any, error) {
+func (h *Handler) handlePromoteReadReplicaDBCluster(ctx context.Context, vals url.Values) (any, error) {
 	id := vals.Get("DBClusterIdentifier")
-	clusters, err := h.Backend.DescribeDBClusters(id)
+	clusters, err := h.Backend.DescribeDBClusters(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -1563,10 +1576,10 @@ func (h *Handler) handlePromoteReadReplicaDBCluster(vals url.Values) (any, error
 	}, nil
 }
 
-func (h *Handler) handleRestoreDBClusterFromSnapshot(vals url.Values) (any, error) {
+func (h *Handler) handleRestoreDBClusterFromSnapshot(ctx context.Context, vals url.Values) (any, error) {
 	snapshotID := vals.Get("DBClusterSnapshotIdentifier")
 	clusterID := vals.Get("DBClusterIdentifier")
-	cluster, err := h.Backend.RestoreDBClusterFromSnapshot(snapshotID, clusterID)
+	cluster, err := h.Backend.RestoreDBClusterFromSnapshot(ctx, snapshotID, clusterID)
 	if err != nil {
 		return nil, err
 	}
@@ -1577,10 +1590,10 @@ func (h *Handler) handleRestoreDBClusterFromSnapshot(vals url.Values) (any, erro
 	}, nil
 }
 
-func (h *Handler) handleRestoreDBClusterToPointInTime(vals url.Values) (any, error) {
+func (h *Handler) handleRestoreDBClusterToPointInTime(ctx context.Context, vals url.Values) (any, error) {
 	srcClusterID := vals.Get("SourceDBClusterIdentifier")
 	targetClusterID := vals.Get("DBClusterIdentifier")
-	cluster, err := h.Backend.RestoreDBClusterToPointInTime(srcClusterID, targetClusterID)
+	cluster, err := h.Backend.RestoreDBClusterToPointInTime(ctx, srcClusterID, targetClusterID)
 	if err != nil {
 		return nil, err
 	}
@@ -1591,10 +1604,10 @@ func (h *Handler) handleRestoreDBClusterToPointInTime(vals url.Values) (any, err
 	}, nil
 }
 
-func (h *Handler) handleModifyDBSubnetGroup(vals url.Values) (any, error) {
+func (h *Handler) handleModifyDBSubnetGroup(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("DBSubnetGroupName")
 	description := vals.Get("DBSubnetGroupDescription")
-	sg, err := h.Backend.ModifyDBSubnetGroup(name, description)
+	sg, err := h.Backend.ModifyDBSubnetGroup(ctx, name, description)
 	if err != nil {
 		return nil, err
 	}

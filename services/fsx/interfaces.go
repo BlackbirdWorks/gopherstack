@@ -1,6 +1,21 @@
 package fsx
 
-import "time"
+import (
+	"strconv"
+	"time"
+)
+
+// epochTime marshals to a JSON number of epoch seconds (with fractional
+// milliseconds), matching the AWS JSON-RPC timestamp wire format that the
+// FSx SDK deserializer expects.
+type epochTime time.Time
+
+// MarshalJSON renders the time as epoch seconds.
+func (t epochTime) MarshalJSON() ([]byte, error) {
+	ms := time.Time(t).UnixMilli()
+
+	return []byte(strconv.FormatFloat(float64(ms)/1000.0, 'f', -1, 64)), nil
+}
 
 // StorageBackend is the interface for FSx storage operations.
 type StorageBackend interface {
@@ -92,22 +107,49 @@ type StorageBackend interface {
 // FileSystem represents an Amazon FSx file system.
 // CreationTime is first so its non-pointer prefix reduces GC pointer bytes.
 type FileSystem struct {
-	CreationTime       time.Time `json:"CreationTime"`
-	FileSystemID       string    `json:"FileSystemId"`
-	FileSystemType     string    `json:"FileSystemType"`
-	Lifecycle          string    `json:"Lifecycle"`
-	ResourceARN        string    `json:"ResourceARN"`
-	StorageType        string    `json:"StorageType,omitempty"`
-	VpcID              string    `json:"VpcId,omitempty"`
-	OwnersID           string    `json:"OwnerId,omitempty"`
-	Tags               []Tag     `json:"Tags,omitempty"`
-	StorageCapacityGiB int32     `json:"StorageCapacity,omitempty"`
+	CreationTime        epochTime            `json:"CreationTime"`
+	LustreConfiguration *LustreConfiguration `json:"LustreConfiguration,omitempty"`
+	FileSystemID        string               `json:"FileSystemId"`
+	FileSystemType      string               `json:"FileSystemType"`
+	Lifecycle           string               `json:"Lifecycle"`
+	ResourceARN         string               `json:"ResourceARN"`
+	DNSName             string               `json:"DNSName,omitempty"`
+	StorageType         string               `json:"StorageType,omitempty"`
+	VpcID               string               `json:"VpcId,omitempty"`
+	OwnersID            string               `json:"OwnerId,omitempty"`
+	SubnetIDs           []string             `json:"SubnetIds,omitempty"`
+	NetworkInterfaceIDs []string             `json:"NetworkInterfaceIds,omitempty"`
+	Tags                []Tag                `json:"Tags,omitempty"`
+	StorageCapacityGiB  int32                `json:"StorageCapacity,omitempty"`
+}
+
+// LustreConfiguration describes the Lustre-specific configuration of an FSx
+// file system. AWS always returns this block (with at least DeploymentType,
+// MountName, and DataRepositoryConfiguration) for Lustre file systems.
+type LustreConfiguration struct {
+	DataRepositoryConfiguration *DataRepositoryConfiguration `json:"DataRepositoryConfiguration,omitempty"`
+	DeploymentType              string                       `json:"DeploymentType,omitempty"`
+	DataCompressionType         string                       `json:"DataCompressionType,omitempty"`
+	DriveCacheType              string                       `json:"DriveCacheType,omitempty"`
+	MountName                   string                       `json:"MountName,omitempty"`
+	WeeklyMaintenanceStartTime  string                       `json:"WeeklyMaintenanceStartTime,omitempty"`
+	PerUnitStorageThroughput    int32                        `json:"PerUnitStorageThroughput,omitempty"`
+}
+
+// DataRepositoryConfiguration describes the data repository linkage for a
+// Lustre file system. AWS returns this block (with a Lifecycle) on every
+// Lustre file system, even when no S3 repository is linked.
+type DataRepositoryConfiguration struct {
+	Lifecycle        string `json:"Lifecycle,omitempty"`
+	AutoImportPolicy string `json:"AutoImportPolicy,omitempty"`
+	ImportPath       string `json:"ImportPath,omitempty"`
+	ExportPath       string `json:"ExportPath,omitempty"`
 }
 
 // Backup represents an Amazon FSx backup.
 // CreationTime is first so its non-pointer prefix reduces GC pointer bytes.
 type Backup struct {
-	CreationTime time.Time   `json:"CreationTime"`
+	CreationTime epochTime   `json:"CreationTime"`
 	FileSystem   *FileSystem `json:"FileSystem,omitempty"`
 	BackupID     string      `json:"BackupId"`
 	BackupType   string      `json:"Type"`

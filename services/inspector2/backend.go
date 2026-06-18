@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"maps"
 	"sort"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -104,18 +102,24 @@ type Filter struct {
 	OwnerID     string            `json:"ownerId"`
 }
 
-// Finding represents an Inspector2 finding.
+// Finding represents an Inspector2 finding. The store is seedable so callers
+// (tests, fixtures, the dashboard) can inject realistic findings that
+// ListFindings will then return and filter — behavior that exceeds LocalStack,
+// which always returns an empty list.
 type Finding struct {
-	FindingArn      string            `json:"findingArn"`
-	AccountID       string            `json:"awsAccountId"`
-	Type            string            `json:"type"`
-	Severity        FindingSeverity   `json:"severity"`
-	Status          string            `json:"status"`
-	Description     string            `json:"description"`
-	Title           string            `json:"title,omitempty"`
 	FirstObservedAt time.Time         `json:"firstObservedAt"`
 	LastObservedAt  time.Time         `json:"lastObservedAt"`
 	UpdatedAt       time.Time         `json:"updatedAt"`
+	Description     string            `json:"description"`
+	AccountID       string            `json:"awsAccountId"`
+	Type            string            `json:"type"`
+	Status          string            `json:"status"`
+	Title           string            `json:"title,omitempty"`
+	FindingArn      string            `json:"findingArn"`
+	FixAvailable    string            `json:"fixAvailable,omitempty"`
+	ResourceType    string            `json:"-"`
+	ResourceID      string            `json:"-"`
+	Severity        FindingSeverity   `json:"severity"`
 	Resources       []FindingResource `json:"resources,omitempty"`
 }
 
@@ -383,6 +387,101 @@ func (b *InMemoryBackend) ListFilters(arns []string, action string) ([]*Filter, 
 	return result, nil
 }
 
+// Inspector2 finding severities and statuses (AWS Inspector2 API).
+const (
+	severityInformational = "INFORMATIONAL"
+	severityLow           = "LOW"
+	severityMedium        = "MEDIUM"
+	severityHigh          = "HIGH"
+	severityCritical      = "CRITICAL"
+	severityUntriaged     = "UNTRIAGED"
+
+	findingStatusActive     = "ACTIVE"
+	findingStatusSuppressed = "SUPPRESSED"
+	findingStatusClosed     = "CLOSED"
+
+	defaultFindingsPageSize = 50
+)
+
+// isValidFindingSeverity reports whether s is a recognized Inspector2 severity.
+func isValidFindingSeverity(s string) bool {
+	switch s {
+	case severityInformational, severityLow, severityMedium,
+		severityHigh, severityCritical, severityUntriaged:
+		return true
+	default:
+		return false
+	}
+}
+
+// isValidFindingStatus reports whether s is a recognized Inspector2 status.
+func isValidFindingStatus(s string) bool {
+	switch s {
+	case findingStatusActive, findingStatusSuppressed, findingStatusClosed:
+		return true
+	default:
+		return false
+	}
+}
+
+// SeedFinding injects a finding into the backend so ListFindings/aggregations
+// return realistic data. Unset fields are defaulted to AWS-plausible values. It
+// returns the stored finding (with a generated ARN when none was supplied).
+//
+// This is the additive capability that lets gopherstack exceed LocalStack, whose
+// Inspector2 ListFindings is hardwired to return an empty set.
+func (b *InMemoryBackend) SeedFinding(f Finding) (*Finding, error) {
+	b.mu.Lock("SeedFinding")
+	defer b.mu.Unlock()
+
+	stored := f
+	if stored.Severity.Label == "" {
+		stored.Severity = FindingSeverity{Label: severityMedium, Score: severityScore(severityMedium)}
+	}
+
+	if !isValidFindingSeverity(stored.Severity.Label) {
+		return nil, fmt.Errorf("%w: invalid finding severity %q", ErrValidation, stored.Severity.Label)
+	}
+
+	if stored.Status == "" {
+		stored.Status = findingStatusActive
+	}
+
+	if !isValidFindingStatus(stored.Status) {
+		return nil, fmt.Errorf("%w: invalid finding status %q", ErrValidation, stored.Status)
+	}
+
+	if stored.AccountID == "" {
+		stored.AccountID = b.accountID
+	}
+
+	if stored.Type == "" {
+		stored.Type = "PACKAGE_VULNERABILITY"
+	}
+
+	now := time.Now().UTC()
+	if stored.FirstObservedAt.IsZero() {
+		stored.FirstObservedAt = now
+	}
+
+	if stored.LastObservedAt.IsZero() {
+		stored.LastObservedAt = now
+	}
+
+	stored.UpdatedAt = now
+
+	if stored.FindingArn == "" {
+		stored.FindingArn = arn.Build(inspector2Service, b.region, stored.AccountID, "finding/"+uuid.NewString())
+	}
+
+	clone := stored
+	b.findings[stored.FindingArn] = &storedFinding{Finding: clone}
+
+	out := stored
+
+	return &out, nil
+}
+
 // AddFinding stores a finding and returns its ARN. Used to seed test state.
 func (b *InMemoryBackend) AddFinding(
 	findingType, severityLabel, status, title, description string,
@@ -395,21 +494,19 @@ func (b *InMemoryBackend) AddFinding(
 	findingARN := arn.Build(inspector2Service, b.region, b.accountID, "finding/"+id)
 	now := time.Now().UTC()
 
-	score := severityScore(severityLabel)
-
 	b.findings[findingARN] = &storedFinding{
 		Finding: Finding{
 			FindingArn:      findingARN,
 			AccountID:       b.accountID,
 			Type:            findingType,
-			Severity:        FindingSeverity{Label: severityLabel, Score: score},
+			Severity:        FindingSeverity{Label: severityLabel, Score: severityScore(severityLabel)},
 			Status:          status,
 			Description:     description,
 			Title:           title,
+			Resources:       resources,
 			FirstObservedAt: now,
 			LastObservedAt:  now,
 			UpdatedAt:       now,
-			Resources:       resources,
 		},
 	}
 
@@ -432,137 +529,166 @@ func severityScore(label string) float64 {
 	}
 }
 
-// ListFindings returns a page of findings, optionally filtered by severity or status.
+// findingFilterCriteria captures the subset of the Inspector2 filterCriteria
+// shape that ListFindings evaluates. Each slice is a set of string filters with
+// a comparison and value, matching the AWS StringFilter wire shape.
+type findingFilterCriteria struct {
+	severities   []stringFilter
+	findingTypes []stringFilter
+	statuses     []stringFilter
+	accountIDs   []stringFilter
+}
+
+type stringFilter struct {
+	comparison string
+	value      string
+}
+
+// parseFindingFilterCriteria decodes the AWS filterCriteria map into the subset
+// of string filters ListFindings supports. Unknown criteria keys are ignored
+// (AWS accepts a large criteria object; unsupported facets simply do not narrow
+// the result here rather than erroring).
+func parseFindingFilterCriteria(criteria map[string]any) findingFilterCriteria {
+	var fc findingFilterCriteria
+
+	fc.severities = extractStringFilters(criteria, "severity")
+	fc.findingTypes = extractStringFilters(criteria, "findingType")
+	fc.statuses = extractStringFilters(criteria, "findingStatus")
+	fc.accountIDs = extractStringFilters(criteria, "awsAccountId")
+
+	return fc
+}
+
+func extractStringFilters(criteria map[string]any, key string) []stringFilter {
+	raw, ok := criteria[key].([]any)
+	if !ok {
+		return nil
+	}
+
+	filters := make([]stringFilter, 0, len(raw))
+
+	for _, item := range raw {
+		m, isMap := item.(map[string]any)
+		if !isMap {
+			continue
+		}
+
+		cmp, _ := m["comparison"].(string)
+		val, _ := m["value"].(string)
+
+		if val == "" {
+			continue
+		}
+
+		if cmp == "" {
+			cmp = "EQUALS"
+		}
+
+		filters = append(filters, stringFilter{comparison: cmp, value: val})
+	}
+
+	return filters
+}
+
+func matchStringFilters(filters []stringFilter, actual string) bool {
+	if len(filters) == 0 {
+		return true
+	}
+
+	// AWS treats multiple filters on the same field as a logical OR.
+	for _, f := range filters {
+		switch f.comparison {
+		case "PREFIX":
+			if len(actual) >= len(f.value) && actual[:len(f.value)] == f.value {
+				return true
+			}
+		case "NOT_EQUALS":
+			if actual != f.value {
+				return true
+			}
+		default: // EQUALS and any unrecognized comparison
+			if actual == f.value {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+func (fc findingFilterCriteria) matches(f *Finding) bool {
+	return matchStringFilters(fc.severities, f.Severity.Label) &&
+		matchStringFilters(fc.findingTypes, f.Type) &&
+		matchStringFilters(fc.statuses, f.Status) &&
+		matchStringFilters(fc.accountIDs, f.AccountID)
+}
+
+// ListFindings returns a page of seeded findings filtered by the supplied
+// filterCriteria. With no seeded findings it returns an empty page (preserving
+// the prior always-empty contract for callers that never seed). Pagination uses
+// the finding ARN as a stable cursor over the sorted result set.
 func (b *InMemoryBackend) ListFindings(
-	filterCriteria map[string]any,
-	maxResults int32,
-	nextToken string,
+	maxResults int32, nextToken string, criteria map[string]any,
 ) ([]*Finding, string, error) {
 	b.mu.RLock("ListFindings")
 	defer b.mu.RUnlock()
 
-	all := make([]*Finding, 0, len(b.findings))
+	fc := parseFindingFilterCriteria(criteria)
+
+	matched := make([]*Finding, 0, len(b.findings))
 
 	for _, f := range b.findings {
-		if !matchesFindingCriteria(&f.Finding, filterCriteria) {
-			continue
+		if fc.matches(&f.Finding) {
+			clone := f.Finding
+			matched = append(matched, &clone)
 		}
-
-		cp := f.Finding
-		all = append(all, &cp)
 	}
 
-	sort.Slice(all, func(i, j int) bool {
-		return all[i].FindingArn < all[j].FindingArn
+	sort.Slice(matched, func(i, j int) bool {
+		return matched[i].FindingArn < matched[j].FindingArn
 	})
 
-	limit := int(maxResults)
-	if limit <= 0 {
-		limit = 100
+	pageSize := int(maxResults)
+	if pageSize <= 0 {
+		pageSize = defaultFindingsPageSize
 	}
 
-	start := decodeFindingToken(nextToken)
-	if start >= len(all) {
-		return []*Finding{}, "", nil
-	}
+	start := 0
 
-	end := start + limit
-	var next string
-
-	if end < len(all) {
-		next = encodeFindingToken(end)
-	} else {
-		end = len(all)
-	}
-
-	return all[start:end], next, nil
-}
-
-// matchesFindingCriteria returns true if the finding matches all filter criteria.
-// Supports filtering by severityLabel and findingStatus arrays.
-func matchesFindingCriteria(f *Finding, criteria map[string]any) bool {
-	if len(criteria) == 0 {
-		return true
-	}
-
-	if severities, ok := extractStringComparisons(criteria, "severity"); ok {
-		matched := false
-
-		for _, s := range severities {
-			if strings.EqualFold(f.Severity.Label, s) {
-				matched = true
+	if nextToken != "" {
+		for i, f := range matched {
+			if f.FindingArn == nextToken {
+				start = i
 
 				break
 			}
 		}
-
-		if !matched {
-			return false
-		}
 	}
 
-	if statuses, ok := extractStringComparisons(criteria, "findingStatus"); ok {
-		matched := false
+	end := min(start+pageSize, len(matched))
 
-		for _, s := range statuses {
-			if strings.EqualFold(f.Status, s) {
-				matched = true
+	page := matched[start:end]
 
-				break
-			}
-		}
-
-		if !matched {
-			return false
-		}
+	next := ""
+	if end < len(matched) {
+		next = matched[end].FindingArn
 	}
 
-	return true
+	return page, next, nil
 }
 
-// extractStringComparisons extracts EQUALS comparison values for a filter field.
-func extractStringComparisons(criteria map[string]any, key string) ([]string, bool) {
-	raw, ok := criteria[key]
-	if !ok {
-		return nil, false
+// FindingSeverityCounts returns the number of seeded findings grouped by
+// severity, used by ListFindingAggregations.
+func (b *InMemoryBackend) FindingSeverityCounts() map[string]int64 {
+	b.mu.RLock("FindingSeverityCounts")
+	defer b.mu.RUnlock()
+
+	counts := make(map[string]int64, len(b.findings))
+	for _, f := range b.findings {
+		counts[f.Severity.Label]++
 	}
 
-	items, ok := raw.([]any)
-	if !ok {
-		return nil, false
-	}
-
-	var vals []string
-
-	for _, item := range items {
-		m, mOk := item.(map[string]any)
-		if !mOk {
-			continue
-		}
-
-		if v, vOk := m["value"].(string); vOk {
-			vals = append(vals, v)
-		}
-	}
-
-	return vals, len(vals) > 0
-}
-
-func encodeFindingToken(idx int) string {
-	return strconv.Itoa(idx)
-}
-
-func decodeFindingToken(token string) int {
-	if token == "" {
-		return 0
-	}
-
-	var idx int
-	if _, err := fmt.Sscanf(token, "%d", &idx); err != nil || idx < 0 {
-		return 0
-	}
-
-	return idx
+	return counts
 }
 
 // GetConfiguration returns the current configuration.

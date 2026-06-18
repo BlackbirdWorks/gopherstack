@@ -9,11 +9,15 @@ import {
 	DescribeDBClustersCommand,
 	DescribeDBParameterGroupsCommand,
 	DescribeDBSubnetGroupsCommand,
+	DescribeDBParametersCommand,
+	ModifyDBParameterGroupCommand,
+	RestoreDBInstanceFromDBSnapshotCommand,
 	type DBInstance,
 	type DBSnapshot,
 	type DBCluster,
 	type DBParameterGroup,
-	type DBSubnetGroup
+	type DBSubnetGroup,
+	type Parameter
 } from '@aws-sdk/client-rds';
 import { toast } from 'svelte-sonner';
 import {
@@ -50,10 +54,90 @@ let expandedInstance = $state<string | null>(null);
 let activeTab = $state<'instances' | 'snapshots' | 'clusters' | 'paramgroups' | 'subnetgroups'>('instances');
 let paramGroups = $state<DBParameterGroup[]>([]);
 let subnetGroups = $state<DBSubnetGroup[]>([]);
+// Parameter-group editor state
+let expandedParamGroup = $state<string | null>(null);
+let pgParameters = $state<Parameter[]>([]);
+let pgParamsLoading = $state(false);
+let pgParamSearch = $state('');
+let pgEdits = $state<Record<string, string>>({});
+let savingPgParams = $state(false);
+// Snapshot restore state
+let restoreSnapshotId = $state<string | null>(null);
+let restoreInstanceId = $state('');
+let restoring = $state(false);
 
 onMount(async () => {
 	await loadInstances();
 });
+
+async function toggleParamGroup(name: string) {
+	if (expandedParamGroup === name) {
+		expandedParamGroup = null;
+		return;
+	}
+	expandedParamGroup = name;
+	pgParameters = [];
+	pgEdits = {};
+	pgParamSearch = '';
+	pgParamsLoading = true;
+	try {
+		const data = await rds.send(new DescribeDBParametersCommand({ DBParameterGroupName: name, MaxRecords: 100 }));
+		pgParameters = data.Parameters || [];
+	} catch (e) {
+		toast.error(e instanceof Error ? e.message : 'Failed to load parameters');
+	} finally {
+		pgParamsLoading = false;
+	}
+}
+
+async function savePgParams(name: string) {
+	const changed = Object.entries(pgEdits).filter(([k, v]) => {
+		const orig = pgParameters.find((p) => p.ParameterName === k);
+		return orig && v !== (orig.ParameterValue ?? '');
+	});
+	if (changed.length === 0) {
+		toast.error('No parameter changes to save');
+		return;
+	}
+	savingPgParams = true;
+	try {
+		await rds.send(new ModifyDBParameterGroupCommand({
+			DBParameterGroupName: name,
+			Parameters: changed.map(([k, v]) => {
+				const orig = pgParameters.find((p) => p.ParameterName === k);
+				return { ParameterName: k, ParameterValue: v, ApplyMethod: orig?.ApplyType === 'static' ? 'pending-reboot' : 'immediate' };
+			})
+		}));
+		toast.success(`Updated ${changed.length} parameter(s)`);
+		await toggleParamGroup(name);
+		expandedParamGroup = name;
+	} catch (e) {
+		toast.error(e instanceof Error ? e.message : 'Failed to update parameters');
+	} finally {
+		savingPgParams = false;
+	}
+}
+
+async function restoreSnapshot() {
+	if (!restoreSnapshotId || !restoreInstanceId.trim()) {
+		toast.error('New instance identifier is required');
+		return;
+	}
+	restoring = true;
+	try {
+		await rds.send(new RestoreDBInstanceFromDBSnapshotCommand({
+			DBSnapshotIdentifier: restoreSnapshotId,
+			DBInstanceIdentifier: restoreInstanceId.trim()
+		}));
+		toast.success(`Restoring snapshot to "${restoreInstanceId.trim()}"`);
+		restoreSnapshotId = null;
+		restoreInstanceId = '';
+	} catch (e) {
+		toast.error(e instanceof Error ? e.message : 'Failed to restore snapshot');
+	} finally {
+		restoring = false;
+	}
+}
 
 async function loadInstances() {
 	try {
@@ -483,6 +567,7 @@ let manualSnapshotCount = $derived(snapshots.filter(s => s.SnapshotType === 'man
 								<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Type</th>
 								<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Size</th>
 								<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Created</th>
+								<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Actions</th>
 							</tr>
 						</thead>
 						<tbody class="divide-y divide-slate-100 dark:divide-slate-700">
@@ -497,6 +582,17 @@ let manualSnapshotCount = $derived(snapshots.filter(s => s.SnapshotType === 'man
 									<td class="px-4 py-3 text-xs text-slate-500">{snap.SnapshotType || '—'}</td>
 									<td class="px-4 py-3 text-xs text-slate-500">{snap.AllocatedStorage ? snap.AllocatedStorage + ' GiB' : '—'}</td>
 									<td class="px-4 py-3 text-xs text-slate-500">{formatDate(snap.SnapshotCreateTime)}</td>
+									<td class="px-4 py-3">
+										{#if restoreSnapshotId === snap.DBSnapshotIdentifier}
+											<div class="flex items-center gap-1">
+												<input type="text" bind:value={restoreInstanceId} placeholder="new-instance-id" class="w-32 px-2 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white" />
+												<button disabled={restoring} onclick={restoreSnapshot} class="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50">{restoring ? '...' : 'Go'}</button>
+												<button onclick={() => { restoreSnapshotId = null; restoreInstanceId = ''; }} class="px-2 py-1 text-xs text-slate-500">Cancel</button>
+											</div>
+										{:else}
+											<button onclick={() => { restoreSnapshotId = snap.DBSnapshotIdentifier ?? null; restoreInstanceId = `${snap.DBInstanceIdentifier ?? 'restored'}-restore`; }} class="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700">Restore</button>
+										{/if}
+									</td>
 								</tr>
 							{/each}
 						</tbody>
@@ -562,17 +658,53 @@ let manualSnapshotCount = $derived(snapshots.filter(s => s.SnapshotType === 'man
 							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Name</th>
 							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Family</th>
 							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Description</th>
-							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">ARN</th>
+							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Parameters</th>
 						</tr>
 					</thead>
 					<tbody class="divide-y divide-slate-100 dark:divide-slate-700">
 						{#each paramGroups as pg}
-							<tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
+							<tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer" onclick={() => toggleParamGroup(pg.DBParameterGroupName ?? '')}>
 								<td class="px-4 py-3 font-medium text-slate-900 dark:text-white">{pg.DBParameterGroupName || '—'}</td>
 								<td class="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">{pg.DBParameterGroupFamily || '—'}</td>
 								<td class="px-4 py-3 text-sm text-slate-500 dark:text-slate-400 max-w-xs truncate">{pg.Description || '—'}</td>
-								<td class="px-4 py-3 font-mono text-xs text-slate-400 max-w-xs truncate">{pg.DBParameterGroupArn || '—'}</td>
+								<td class="px-4 py-3 text-xs text-blue-500">{expandedParamGroup === pg.DBParameterGroupName ? 'Hide ▲' : 'Edit ▼'}</td>
 							</tr>
+							{#if expandedParamGroup === pg.DBParameterGroupName}
+								<tr class="bg-slate-50 dark:bg-slate-900/40">
+									<td colspan="4" class="px-4 py-4">
+										{#if pgParamsLoading}
+											<p class="text-sm text-slate-500">Loading parameters...</p>
+										{:else}
+											<div class="flex items-center justify-between mb-2 gap-2">
+												<input type="text" bind:value={pgParamSearch} placeholder="Filter parameters..." class="flex-1 px-3 py-1.5 text-sm border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white" />
+												<button disabled={savingPgParams} onclick={() => savePgParams(pg.DBParameterGroupName ?? '')} class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 whitespace-nowrap">{savingPgParams ? 'Saving...' : 'Save Changes'}</button>
+											</div>
+											<div class="max-h-72 overflow-y-auto">
+												<table class="w-full text-xs">
+													<thead class="text-slate-500 dark:text-slate-400">
+														<tr><th class="text-left py-1">Parameter</th><th class="text-left py-1">Value</th><th class="text-left py-1">Apply</th></tr>
+													</thead>
+													<tbody>
+														{#each pgParameters.filter((p) => !pgParamSearch || (p.ParameterName ?? '').toLowerCase().includes(pgParamSearch.toLowerCase())) as param}
+															<tr class="border-t border-slate-200 dark:border-slate-700">
+																<td class="py-1.5 font-mono text-slate-700 dark:text-slate-300 pr-2">{param.ParameterName}</td>
+																<td class="py-1.5 pr-2">
+																	{#if param.IsModifiable}
+																		<input type="text" value={pgEdits[param.ParameterName ?? ''] ?? param.ParameterValue ?? ''} oninput={(e) => { pgEdits[param.ParameterName ?? ''] = e.currentTarget.value; }} class="w-40 px-2 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white" />
+																	{:else}
+																		<span class="text-slate-500 font-mono">{param.ParameterValue || '—'} <span class="text-[10px] italic">(read-only)</span></span>
+																	{/if}
+																</td>
+																<td class="py-1.5 text-slate-400">{param.ApplyType ?? '—'}</td>
+															</tr>
+														{/each}
+													</tbody>
+												</table>
+											</div>
+										{/if}
+									</td>
+								</tr>
+							{/if}
 						{/each}
 					</tbody>
 				</table>

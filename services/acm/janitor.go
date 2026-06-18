@@ -36,33 +36,10 @@ func (b *InMemoryBackend) sweepIdempotencyMaps(ctx context.Context) {
 	cutoffIdempotency := now.Add(-defaultIdempotencyRetention)
 	removedCount := 0
 
-	for token, entry := range b.idempotencyMap {
-		if entry.CreatedAt.Before(cutoffIdempotency) {
-			delete(b.idempotencyMap, token)
-			removedCount++
-		}
-	}
+	removedCount += sweepCertTokens(b.idempotencyMap, cutoffIdempotency)
+	removedCount += sweepAccountTokens(b.accountIdempotency, cutoffIdempotency)
 
-	for token, entry := range b.accountIdempotency {
-		if entry.CreatedAt.Before(cutoffIdempotency) {
-			delete(b.accountIdempotency, token)
-			removedCount++
-		}
-	}
-
-	// Abandoned pending validations (72h limit in AWS)
-	cutoffPending := now.Add(-72 * time.Hour)
-
-	for _, cert := range b.certs {
-		if cert.Status == statusPendingValidation && cert.CreatedAt.Before(cutoffPending) {
-			cert.Status = statusValidationTimedOut
-			cert.FailureReason = "VALIDATION_TIMED_OUT"
-		}
-
-		if cert.Status == statusIssued && !cert.NotAfter.IsZero() && cert.NotAfter.Before(now) {
-			cert.Status = statusExpired
-		}
-	}
+	b.sweepStaleCerts(now)
 
 	removedCount += b.sweepTimers()
 
@@ -74,25 +51,81 @@ func (b *InMemoryBackend) sweepIdempotencyMaps(ctx context.Context) {
 	telemetry.RecordWorkerTask("acm", "AcmJanitor", "success")
 }
 
+// sweepCertTokens removes expired RequestCertificate idempotency tokens across all
+// regions and returns the number removed.
+func sweepCertTokens(m map[string]map[string]certIdempotencyEntry, cutoff time.Time) int {
+	removed := 0
+	for _, regionTokens := range m {
+		for token, entry := range regionTokens {
+			if entry.CreatedAt.Before(cutoff) {
+				delete(regionTokens, token)
+				removed++
+			}
+		}
+	}
+
+	return removed
+}
+
+// sweepAccountTokens removes expired PutAccountConfiguration idempotency tokens across
+// all regions and returns the number removed.
+func sweepAccountTokens(m map[string]map[string]accountIdempotencyEntry, cutoff time.Time) int {
+	removed := 0
+	for _, regionTokens := range m {
+		for token, entry := range regionTokens {
+			if entry.CreatedAt.Before(cutoff) {
+				delete(regionTokens, token)
+				removed++
+			}
+		}
+	}
+
+	return removed
+}
+
+// sweepStaleCerts times out abandoned pending validations and expires certificates whose
+// NotAfter has passed, across all regions. Callers must hold b.mu.
+func (b *InMemoryBackend) sweepStaleCerts(now time.Time) {
+	// Abandoned pending validations (72h limit in AWS).
+	cutoffPending := now.Add(-72 * time.Hour)
+
+	for _, regionCerts := range b.certs {
+		for _, cert := range regionCerts {
+			if cert.Status == statusPendingValidation && cert.CreatedAt.Before(cutoffPending) {
+				cert.Status = statusValidationTimedOut
+				cert.FailureReason = "VALIDATION_TIMED_OUT"
+			}
+
+			if cert.Status == statusIssued && !cert.NotAfter.IsZero() && cert.NotAfter.Before(now) {
+				cert.Status = statusExpired
+			}
+		}
+	}
+}
+
 func (b *InMemoryBackend) sweepTimers() int {
 	removedCount := 0
-	for arn, timer := range b.timers {
-		cert, ok := b.certs[arn]
-		if !ok {
-			timer.Stop()
-			delete(b.timers, arn)
-			removedCount++
+	for region, regionTimers := range b.timers {
+		certs := b.certs[region]
+		for arn, timer := range regionTimers {
+			cert, ok := certs[arn]
+			if !ok {
+				timer.Stop()
+				delete(regionTimers, arn)
+				removedCount++
 
-			continue
-		}
+				continue
+			}
 
-		isPending := cert.Status == statusPendingValidation
-		hasRenewal := cert.RenewalSummary != nil && cert.RenewalSummary.RenewalStatus == renewalStatusPendingValidation
+			isPending := cert.Status == statusPendingValidation
+			hasRenewal := cert.RenewalSummary != nil &&
+				cert.RenewalSummary.RenewalStatus == renewalStatusPendingValidation
 
-		if !isPending && !hasRenewal {
-			timer.Stop()
-			delete(b.timers, arn)
-			removedCount++
+			if !isPending && !hasRenewal {
+				timer.Stop()
+				delete(regionTimers, arn)
+				removedCount++
+			}
 		}
 	}
 

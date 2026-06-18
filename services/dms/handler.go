@@ -735,12 +735,18 @@ func extractField(c *echo.Context, keys ...string) string {
 // Handler returns the Echo handler function for DMS requests.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		// Resolve the per-request region (from SigV4 / X-Amz-Region) and attach
+		// it to the context so backend operations are region-scoped.
+		region := httputils.ExtractRegionFromRequest(c.Request(), h.Backend.Region())
+
 		return service.HandleTarget(
 			c,
 			logger.Load(c.Request().Context()),
 			"AmazonDMSv20160101", contentType,
 			h.GetSupportedOperations(),
-			h.dispatch,
+			func(ctx context.Context, action string, body []byte) ([]byte, error) {
+				return h.dispatch(context.WithValue(ctx, regionContextKey{}, region), action, body)
+			},
 			h.handleError,
 		)
 	}
@@ -820,7 +826,7 @@ type createReplicationInstanceOutput struct {
 }
 
 func (h *Handler) handleCreateReplicationInstance(
-	_ context.Context, in *createReplicationInstanceInput,
+	ctx context.Context, in *createReplicationInstanceInput,
 ) (*createReplicationInstanceOutput, error) {
 	identifier := ptrStr(in.ReplicationInstanceIdentifier)
 	class := ptrStr(in.ReplicationInstanceClass)
@@ -835,6 +841,7 @@ func (h *Handler) handleCreateReplicationInstance(
 
 	kv := tagsToMap(in.Tags)
 	ri, err := h.Backend.CreateReplicationInstance(
+		ctx,
 		identifier, class,
 		ptrStr(in.EngineVersion),
 		ptrStr(in.AvailabilityZone),
@@ -865,7 +872,7 @@ type describeReplicationInstancesOutput struct {
 }
 
 func (h *Handler) handleDescribeReplicationInstances(
-	_ context.Context,
+	ctx context.Context,
 	in *describeReplicationInstancesInput,
 ) (*describeReplicationInstancesOutput, error) {
 	identifier := extractFilterValue(in.Filters, "replication-instance-id")
@@ -877,7 +884,7 @@ func (h *Handler) handleDescribeReplicationInstances(
 		lookup = arnFilter
 	}
 
-	list, err := h.Backend.DescribeReplicationInstances(lookup)
+	list, err := h.Backend.DescribeReplicationInstances(ctx, lookup)
 	if err != nil {
 		return nil, err
 	}
@@ -906,21 +913,21 @@ type deleteReplicationInstanceOutput struct {
 }
 
 func (h *Handler) handleDeleteReplicationInstance(
-	_ context.Context, in *deleteReplicationInstanceInput,
+	ctx context.Context, in *deleteReplicationInstanceInput,
 ) (*deleteReplicationInstanceOutput, error) {
 	arnOrID := ptrStr(in.ReplicationInstanceArn)
 	// Retrieve before deletion to return it in the response.
-	instances, err := h.Backend.DescribeReplicationInstances(arnOrID)
+	instances, err := h.Backend.DescribeReplicationInstances(ctx, arnOrID)
 	if err != nil {
 		// Try ARN lookup via delete directly.
-		if delErr := h.Backend.DeleteReplicationInstance(arnOrID); delErr != nil {
+		if delErr := h.Backend.DeleteReplicationInstance(ctx, arnOrID); delErr != nil {
 			return nil, delErr
 		}
 
 		return &deleteReplicationInstanceOutput{}, nil
 	}
 
-	if delErr := h.Backend.DeleteReplicationInstance(arnOrID); delErr != nil {
+	if delErr := h.Backend.DeleteReplicationInstance(ctx, arnOrID); delErr != nil {
 		return nil, delErr
 	}
 
@@ -949,7 +956,7 @@ type createEndpointOutput struct {
 }
 
 func (h *Handler) handleCreateEndpoint(
-	_ context.Context, in *createEndpointInput,
+	ctx context.Context, in *createEndpointInput,
 ) (*createEndpointOutput, error) {
 	identifier := ptrStr(in.EndpointIdentifier)
 	endpointType := ptrStr(in.EndpointType)
@@ -969,6 +976,7 @@ func (h *Handler) handleCreateEndpoint(
 
 	kv := tagsToMap(in.Tags)
 	ep, err := h.Backend.CreateEndpoint(
+		ctx,
 		identifier,
 		endpointType,
 		engineName,
@@ -997,7 +1005,7 @@ type describeEndpointsOutput struct {
 }
 
 func (h *Handler) handleDescribeEndpoints(
-	_ context.Context,
+	ctx context.Context,
 	in *describeEndpointsInput,
 ) (*describeEndpointsOutput, error) {
 	identifier := extractFilterValue(in.Filters, "endpoint-id")
@@ -1008,7 +1016,7 @@ func (h *Handler) handleDescribeEndpoints(
 		lookup = arnFilter
 	}
 
-	list, err := h.Backend.DescribeEndpoints(lookup)
+	list, err := h.Backend.DescribeEndpoints(ctx, lookup)
 	if err != nil {
 		return nil, err
 	}
@@ -1037,9 +1045,9 @@ type deleteEndpointOutput struct {
 }
 
 func (h *Handler) handleDeleteEndpoint(
-	_ context.Context, in *deleteEndpointInput,
+	ctx context.Context, in *deleteEndpointInput,
 ) (*deleteEndpointOutput, error) {
-	ep, err := h.Backend.DeleteEndpoint(ptrStr(in.EndpointArn))
+	ep, err := h.Backend.DeleteEndpoint(ctx, ptrStr(in.EndpointArn))
 	if err != nil {
 		return nil, err
 	}
@@ -1065,7 +1073,7 @@ type createReplicationTaskOutput struct {
 }
 
 func (h *Handler) handleCreateReplicationTask(
-	_ context.Context, in *createReplicationTaskInput,
+	ctx context.Context, in *createReplicationTaskInput,
 ) (*createReplicationTaskOutput, error) {
 	identifier := ptrStr(in.ReplicationTaskIdentifier)
 	sourceEndpointArn := ptrStr(in.SourceEndpointArn)
@@ -1095,6 +1103,7 @@ func (h *Handler) handleCreateReplicationTask(
 
 	kv := tagsToMap(in.Tags)
 	rt, err := h.Backend.CreateReplicationTask(
+		ctx,
 		identifier,
 		sourceEndpointArn,
 		targetEndpointArn,
@@ -1123,10 +1132,10 @@ type describeReplicationTasksOutput struct {
 }
 
 func (h *Handler) handleDescribeReplicationTasks(
-	_ context.Context, in *describeReplicationTasksInput,
+	ctx context.Context, in *describeReplicationTasksInput,
 ) (*describeReplicationTasksOutput, error) {
 	arnOrID := extractFilterValue(in.Filters, "replication-task-id", "replication-task-arn")
-	list, err := h.Backend.DescribeReplicationTasks(arnOrID)
+	list, err := h.Backend.DescribeReplicationTasks(ctx, arnOrID)
 	if err != nil {
 		return nil, err
 	}
@@ -1160,7 +1169,7 @@ func isValidStartReplicationTaskType(s string) bool {
 }
 
 func (h *Handler) handleStartReplicationTask(
-	_ context.Context, in *startReplicationTaskInput,
+	ctx context.Context, in *startReplicationTaskInput,
 ) (*startReplicationTaskOutput, error) {
 	taskType := ptrStr(in.StartReplicationTaskType)
 	if taskType == "" {
@@ -1175,7 +1184,7 @@ func (h *Handler) handleStartReplicationTask(
 		)
 	}
 
-	rt, err := h.Backend.StartReplicationTask(ptrStr(in.ReplicationTaskArn))
+	rt, err := h.Backend.StartReplicationTask(ctx, ptrStr(in.ReplicationTaskArn))
 	if err != nil {
 		return nil, err
 	}
@@ -1192,9 +1201,9 @@ type stopReplicationTaskOutput struct {
 }
 
 func (h *Handler) handleStopReplicationTask(
-	_ context.Context, in *stopReplicationTaskInput,
+	ctx context.Context, in *stopReplicationTaskInput,
 ) (*stopReplicationTaskOutput, error) {
-	rt, err := h.Backend.StopReplicationTask(ptrStr(in.ReplicationTaskArn))
+	rt, err := h.Backend.StopReplicationTask(ctx, ptrStr(in.ReplicationTaskArn))
 	if err != nil {
 		return nil, err
 	}
@@ -1211,9 +1220,9 @@ type deleteReplicationTaskOutput struct {
 }
 
 func (h *Handler) handleDeleteReplicationTask(
-	_ context.Context, in *deleteReplicationTaskInput,
+	ctx context.Context, in *deleteReplicationTaskInput,
 ) (*deleteReplicationTaskOutput, error) {
-	rt, err := h.Backend.DeleteReplicationTask(ptrStr(in.ReplicationTaskArn))
+	rt, err := h.Backend.DeleteReplicationTask(ctx, ptrStr(in.ReplicationTaskArn))
 	if err != nil {
 		return nil, err
 	}
@@ -1236,10 +1245,10 @@ type addTagsToResourceInput struct {
 type addTagsToResourceOutput struct{}
 
 func (h *Handler) handleAddTagsToResource(
-	_ context.Context, in *addTagsToResourceInput,
+	ctx context.Context, in *addTagsToResourceInput,
 ) (*addTagsToResourceOutput, error) {
 	kv := tagsToMap(in.Tags)
-	if err := h.Backend.AddTagsToResource(ptrStr(in.ResourceArn), kv); err != nil {
+	if err := h.Backend.AddTagsToResource(ctx, ptrStr(in.ResourceArn), kv); err != nil {
 		return nil, err
 	}
 
@@ -1255,9 +1264,9 @@ type listTagsForResourceOutput struct {
 }
 
 func (h *Handler) handleListTagsForResource(
-	_ context.Context, in *listTagsForResourceInput,
+	ctx context.Context, in *listTagsForResourceInput,
 ) (*listTagsForResourceOutput, error) {
-	kv, err := h.Backend.ListTagsForResource(ptrStr(in.ResourceArn))
+	kv, err := h.Backend.ListTagsForResource(ctx, ptrStr(in.ResourceArn))
 	if err != nil {
 		return nil, err
 	}
@@ -1496,7 +1505,7 @@ type applyPendingMaintenanceActionOutput struct {
 }
 
 func (h *Handler) handleApplyPendingMaintenanceAction(
-	_ context.Context, in *applyPendingMaintenanceActionInput,
+	ctx context.Context, in *applyPendingMaintenanceActionInput,
 ) (*applyPendingMaintenanceActionOutput, error) {
 	instanceArn := ptrStr(in.ReplicationInstanceArn)
 	if instanceArn == "" {
@@ -1504,6 +1513,7 @@ func (h *Handler) handleApplyPendingMaintenanceAction(
 	}
 
 	ri, err := h.Backend.ApplyPendingMaintenanceAction(
+		ctx,
 		instanceArn,
 		ptrStr(in.ApplyAction),
 		ptrStr(in.OptInType),
@@ -1537,9 +1547,9 @@ type batchStartRecommendationsOutput struct {
 }
 
 func (h *Handler) handleBatchStartRecommendations(
-	_ context.Context, _ *batchStartRecommendationsInput,
+	ctx context.Context, _ *batchStartRecommendationsInput,
 ) (*batchStartRecommendationsOutput, error) {
-	if err := h.Backend.BatchStartRecommendations(); err != nil {
+	if err := h.Backend.BatchStartRecommendations(ctx); err != nil {
 		return nil, err
 	}
 
@@ -1560,9 +1570,10 @@ type cancelMetadataModelConversionOutput struct {
 }
 
 func (h *Handler) handleCancelMetadataModelConversion(
-	_ context.Context, in *cancelMetadataModelConversionInput,
+	ctx context.Context, in *cancelMetadataModelConversionInput,
 ) (*cancelMetadataModelConversionOutput, error) {
 	reqID, err := h.Backend.CancelMetadataModelConversion(
+		ctx,
 		ptrStr(in.MigrationProjectIdentifier),
 		ptrStr(in.RequestIdentifier),
 	)
@@ -1585,9 +1596,10 @@ type cancelMetadataModelCreationOutput struct {
 }
 
 func (h *Handler) handleCancelMetadataModelCreation(
-	_ context.Context, in *cancelMetadataModelCreationInput,
+	ctx context.Context, in *cancelMetadataModelCreationInput,
 ) (*cancelMetadataModelCreationOutput, error) {
 	reqID, err := h.Backend.CancelMetadataModelCreation(
+		ctx,
 		ptrStr(in.MigrationProjectIdentifier),
 		ptrStr(in.RequestIdentifier),
 	)
@@ -1609,9 +1621,10 @@ type cancelReplicationTaskAssessmentRunOutput struct {
 }
 
 func (h *Handler) handleCancelReplicationTaskAssessmentRun(
-	_ context.Context, in *cancelReplicationTaskAssessmentRunInput,
+	ctx context.Context, in *cancelReplicationTaskAssessmentRunInput,
 ) (*cancelReplicationTaskAssessmentRunOutput, error) {
 	if err := h.Backend.CancelReplicationTaskAssessmentRun(
+		ctx,
 		ptrStr(in.ReplicationTaskAssessmentRunArn),
 	); err != nil {
 		return nil, err
@@ -1654,7 +1667,7 @@ type createDataMigrationOutput struct {
 }
 
 func (h *Handler) handleCreateDataMigration(
-	_ context.Context, in *createDataMigrationInput,
+	ctx context.Context, in *createDataMigrationInput,
 ) (*createDataMigrationOutput, error) {
 	name := ptrStr(in.DataMigrationName)
 	if name == "" {
@@ -1668,6 +1681,7 @@ func (h *Handler) handleCreateDataMigration(
 
 	kv := tagsToMap(in.Tags)
 	dm, err := h.Backend.CreateDataMigration(
+		ctx,
 		name,
 		ptrStr(in.MigrationProjectIdentifier),
 		migrationType,
@@ -1718,7 +1732,7 @@ type createDataProviderOutput struct {
 }
 
 func (h *Handler) handleCreateDataProvider(
-	_ context.Context, in *createDataProviderInput,
+	ctx context.Context, in *createDataProviderInput,
 ) (*createDataProviderOutput, error) {
 	name := ptrStr(in.DataProviderName)
 	if name == "" {
@@ -1731,7 +1745,7 @@ func (h *Handler) handleCreateDataProvider(
 	}
 
 	kv := tagsToMap(in.Tags)
-	dp, err := h.Backend.CreateDataProvider(name, engine, ptrStr(in.Description), kv)
+	dp, err := h.Backend.CreateDataProvider(ctx, name, engine, ptrStr(in.Description), kv)
 	if err != nil {
 		return nil, err
 	}
@@ -1775,7 +1789,7 @@ type createEventSubscriptionOutput struct {
 }
 
 func (h *Handler) handleCreateEventSubscription(
-	_ context.Context, in *createEventSubscriptionInput,
+	ctx context.Context, in *createEventSubscriptionInput,
 ) (*createEventSubscriptionOutput, error) {
 	name := ptrStr(in.SubscriptionName)
 	if name == "" {
@@ -1794,6 +1808,7 @@ func (h *Handler) handleCreateEventSubscription(
 
 	kv := tagsToMap(in.Tags)
 	es, err := h.Backend.CreateEventSubscription(
+		ctx,
 		name,
 		snsTopicArn,
 		ptrStr(in.SourceType),
@@ -1848,7 +1863,7 @@ type createFleetAdvisorCollectorOutput struct {
 }
 
 func (h *Handler) handleCreateFleetAdvisorCollector(
-	_ context.Context, in *createFleetAdvisorCollectorInput,
+	ctx context.Context, in *createFleetAdvisorCollectorInput,
 ) (*createFleetAdvisorCollectorOutput, error) {
 	name := ptrStr(in.CollectorName)
 	if name == "" {
@@ -1856,6 +1871,7 @@ func (h *Handler) handleCreateFleetAdvisorCollector(
 	}
 
 	col, err := h.Backend.CreateFleetAdvisorCollector(
+		ctx,
 		name,
 		ptrStr(in.Description),
 		ptrStr(in.ServiceAccessRoleArn),
@@ -1903,10 +1919,11 @@ type createInstanceProfileOutput struct {
 }
 
 func (h *Handler) handleCreateInstanceProfile(
-	_ context.Context, in *createInstanceProfileInput,
+	ctx context.Context, in *createInstanceProfileInput,
 ) (*createInstanceProfileOutput, error) {
 	kv := tagsToMap(in.Tags)
 	ip, err := h.Backend.CreateInstanceProfile(
+		ctx,
 		ptrStr(in.InstanceProfileName),
 		ptrStr(in.AvailabilityZone),
 		ptrStr(in.KmsKeyArn),
@@ -1965,7 +1982,7 @@ func mpToJSON(mp *MigrationProject) migrationProjectJSON {
 }
 
 func (h *Handler) handleCreateMigrationProject(
-	_ context.Context, in *createMigrationProjectInput,
+	ctx context.Context, in *createMigrationProjectInput,
 ) (*createMigrationProjectOutput, error) {
 	name := ptrStr(in.MigrationProjectName)
 	if name == "" {
@@ -1973,7 +1990,7 @@ func (h *Handler) handleCreateMigrationProject(
 	}
 
 	kv := tagsToMap(in.Tags)
-	mp, err := h.Backend.CreateMigrationProject(name, ptrStr(in.Description), kv)
+	mp, err := h.Backend.CreateMigrationProject(ctx, name, ptrStr(in.Description), kv)
 	if err != nil {
 		return nil, err
 	}
@@ -2014,7 +2031,7 @@ func rcToJSON(rc *ReplicationConfig) replicationConfigJSON {
 }
 
 func (h *Handler) handleCreateReplicationConfig(
-	_ context.Context, in *createReplicationConfigInput,
+	ctx context.Context, in *createReplicationConfigInput,
 ) (*createReplicationConfigOutput, error) {
 	identifier := ptrStr(in.ReplicationConfigIdentifier)
 	if identifier == "" {
@@ -2023,6 +2040,7 @@ func (h *Handler) handleCreateReplicationConfig(
 
 	kv := tagsToMap(in.Tags)
 	rc, err := h.Backend.CreateReplicationConfig(
+		ctx,
 		identifier,
 		ptrStr(in.ReplicationType),
 		ptrStr(in.SourceEndpointArn),
@@ -2066,7 +2084,7 @@ func rsgToJSON(sg *ReplicationSubnetGroup) replicationSubnetGroupFullJSON {
 }
 
 func (h *Handler) handleCreateReplicationSubnetGroup(
-	_ context.Context, in *createReplicationSubnetGroupInput,
+	ctx context.Context, in *createReplicationSubnetGroupInput,
 ) (*createReplicationSubnetGroupOutput, error) {
 	identifier := ptrStr(in.ReplicationSubnetGroupIdentifier)
 	if identifier == "" {
@@ -2075,6 +2093,7 @@ func (h *Handler) handleCreateReplicationSubnetGroup(
 
 	kv := tagsToMap(in.Tags)
 	sg, err := h.Backend.CreateReplicationSubnetGroup(
+		ctx,
 		identifier,
 		ptrStr(in.ReplicationSubnetGroupDescription),
 		"",
@@ -2110,9 +2129,9 @@ func certToJSON(c *Certificate) certificateJSON {
 }
 
 func (h *Handler) handleDeleteCertificate(
-	_ context.Context, in *deleteCertificateInput,
+	ctx context.Context, in *deleteCertificateInput,
 ) (*deleteCertificateOutput, error) {
-	cert, err := h.Backend.DeleteCertificate(ptrStr(in.CertificateArn))
+	cert, err := h.Backend.DeleteCertificate(ctx, ptrStr(in.CertificateArn))
 	if err != nil {
 		return nil, err
 	}
@@ -2148,9 +2167,9 @@ type deleteDataMigrationOutput struct {
 }
 
 func (h *Handler) handleDeleteDataMigration(
-	_ context.Context, in *deleteDataMigrationInput,
+	ctx context.Context, in *deleteDataMigrationInput,
 ) (*deleteDataMigrationOutput, error) {
-	dm, err := h.Backend.DeleteDataMigration(ptrStr(in.DataMigrationIdentifier))
+	dm, err := h.Backend.DeleteDataMigration(ctx, ptrStr(in.DataMigrationIdentifier))
 	if err != nil {
 		return nil, err
 	}
@@ -2169,9 +2188,9 @@ type deleteDataProviderOutput struct {
 }
 
 func (h *Handler) handleDeleteDataProvider(
-	_ context.Context, in *deleteDataProviderInput,
+	ctx context.Context, in *deleteDataProviderInput,
 ) (*deleteDataProviderOutput, error) {
-	dp, err := h.Backend.DeleteDataProvider(ptrStr(in.DataProviderArn))
+	dp, err := h.Backend.DeleteDataProvider(ctx, ptrStr(in.DataProviderArn))
 	if err != nil {
 		return nil, err
 	}
@@ -2190,9 +2209,9 @@ type deleteEventSubscriptionOutput struct {
 }
 
 func (h *Handler) handleDeleteEventSubscription(
-	_ context.Context, in *deleteEventSubscriptionInput,
+	ctx context.Context, in *deleteEventSubscriptionInput,
 ) (*deleteEventSubscriptionOutput, error) {
-	es, err := h.Backend.DeleteEventSubscription(ptrStr(in.SubscriptionName))
+	es, err := h.Backend.DeleteEventSubscription(ctx, ptrStr(in.SubscriptionName))
 	if err != nil {
 		return nil, err
 	}
@@ -2209,9 +2228,9 @@ type deleteFleetAdvisorCollectorInput struct {
 type deleteFleetAdvisorCollectorOutput struct{}
 
 func (h *Handler) handleDeleteFleetAdvisorCollector(
-	_ context.Context, in *deleteFleetAdvisorCollectorInput,
+	ctx context.Context, in *deleteFleetAdvisorCollectorInput,
 ) (*deleteFleetAdvisorCollectorOutput, error) {
-	if err := h.Backend.DeleteFleetAdvisorCollector(ptrStr(in.CollectorReferencedID)); err != nil {
+	if err := h.Backend.DeleteFleetAdvisorCollector(ctx, ptrStr(in.CollectorReferencedID)); err != nil {
 		return nil, err
 	}
 
@@ -2245,12 +2264,12 @@ type deleteInstanceProfileOutput struct {
 }
 
 func (h *Handler) handleDeleteInstanceProfile(
-	_ context.Context, in *deleteInstanceProfileInput,
+	ctx context.Context, in *deleteInstanceProfileInput,
 ) (*deleteInstanceProfileOutput, error) {
 	// We need to get the profile before deleting it for the response.
 	arnOrName := ptrStr(in.InstanceProfileArn)
 
-	profiles, _ := h.Backend.DescribeInstanceProfiles()
+	profiles, _ := h.Backend.DescribeInstanceProfiles(ctx)
 	var found *InstanceProfile
 	for _, p := range profiles {
 		if p.InstanceProfileArn == arnOrName || p.InstanceProfileName == arnOrName {
@@ -2260,7 +2279,7 @@ func (h *Handler) handleDeleteInstanceProfile(
 		}
 	}
 
-	if err := h.Backend.DeleteInstanceProfile(arnOrName); err != nil {
+	if err := h.Backend.DeleteInstanceProfile(ctx, arnOrName); err != nil {
 		return nil, err
 	}
 
@@ -2282,11 +2301,11 @@ type deleteMigrationProjectOutput struct {
 }
 
 func (h *Handler) handleDeleteMigrationProject(
-	_ context.Context, in *deleteMigrationProjectInput,
+	ctx context.Context, in *deleteMigrationProjectInput,
 ) (*deleteMigrationProjectOutput, error) {
 	nameOrArn := ptrStr(in.MigrationProjectArn)
 
-	projects, _ := h.Backend.DescribeMigrationProjects()
+	projects, _ := h.Backend.DescribeMigrationProjects(ctx)
 	var found *MigrationProject
 	for _, p := range projects {
 		if p.MigrationProjectArn == nameOrArn || p.MigrationProjectName == nameOrArn {
@@ -2296,7 +2315,7 @@ func (h *Handler) handleDeleteMigrationProject(
 		}
 	}
 
-	if err := h.Backend.DeleteMigrationProject(nameOrArn); err != nil {
+	if err := h.Backend.DeleteMigrationProject(ctx, nameOrArn); err != nil {
 		return nil, err
 	}
 
@@ -2318,11 +2337,11 @@ type deleteReplicationConfigOutput struct {
 }
 
 func (h *Handler) handleDeleteReplicationConfig(
-	_ context.Context, in *deleteReplicationConfigInput,
+	ctx context.Context, in *deleteReplicationConfigInput,
 ) (*deleteReplicationConfigOutput, error) {
 	identifierOrArn := ptrStr(in.ReplicationConfigArn)
 
-	configs, _ := h.Backend.DescribeReplicationConfigs()
+	configs, _ := h.Backend.DescribeReplicationConfigs(ctx)
 	var found *ReplicationConfig
 	for _, rc := range configs {
 		if rc.ReplicationConfigArn == identifierOrArn ||
@@ -2333,7 +2352,7 @@ func (h *Handler) handleDeleteReplicationConfig(
 		}
 	}
 
-	if err := h.Backend.DeleteReplicationConfig(identifierOrArn); err != nil {
+	if err := h.Backend.DeleteReplicationConfig(ctx, identifierOrArn); err != nil {
 		return nil, err
 	}
 
@@ -2353,9 +2372,9 @@ type deleteReplicationSubnetGroupInput struct {
 type deleteReplicationSubnetGroupOutput struct{}
 
 func (h *Handler) handleDeleteReplicationSubnetGroup(
-	_ context.Context, in *deleteReplicationSubnetGroupInput,
+	ctx context.Context, in *deleteReplicationSubnetGroupInput,
 ) (*deleteReplicationSubnetGroupOutput, error) {
-	if err := h.Backend.DeleteReplicationSubnetGroup(ptrStr(in.ReplicationSubnetGroupIdentifier)); err != nil {
+	if err := h.Backend.DeleteReplicationSubnetGroup(ctx, ptrStr(in.ReplicationSubnetGroupIdentifier)); err != nil {
 		return nil, err
 	}
 
@@ -2406,11 +2425,11 @@ const (
 )
 
 func (h *Handler) handleDescribeAccountAttributes(
-	_ context.Context, _ *describeAccountAttributesInput,
+	ctx context.Context, _ *describeAccountAttributesInput,
 ) (*describeAccountAttributesOutput, error) {
-	riCount := int64(len(h.Backend.mustDescribeReplicationInstances()))
-	epCount := int64(len(h.Backend.mustDescribeEndpoints()))
-	taskCount := int64(len(h.Backend.mustDescribeReplicationTasks()))
+	riCount := int64(len(h.Backend.mustDescribeReplicationInstances(ctx)))
+	epCount := int64(len(h.Backend.mustDescribeEndpoints(ctx)))
+	taskCount := int64(len(h.Backend.mustDescribeReplicationTasks(ctx)))
 
 	return &describeAccountAttributesOutput{
 		UniqueAccountIdentifier: h.Backend.AccountID(),
@@ -2460,9 +2479,9 @@ type describeCertificatesOutput struct {
 }
 
 func (h *Handler) handleDescribeCertificates(
-	_ context.Context, in *describeCertificatesInput,
+	ctx context.Context, in *describeCertificatesInput,
 ) (*describeCertificatesOutput, error) {
-	list, err := h.Backend.DescribeCertificates()
+	list, err := h.Backend.DescribeCertificates(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -2495,12 +2514,12 @@ type describeConnectionsOutput struct {
 }
 
 func (h *Handler) handleDescribeConnections(
-	_ context.Context, in *describeConnectionsInput,
+	ctx context.Context, in *describeConnectionsInput,
 ) (*describeConnectionsOutput, error) {
 	riArn := extractFilterValue(in.Filters, "replication-instance-id")
 	epArn := extractFilterValue(in.Filters, "endpoint-id")
 
-	list, err := h.Backend.DescribeConnections(riArn, epArn)
+	list, err := h.Backend.DescribeConnections(ctx, riArn, epArn)
 	if err != nil {
 		return nil, err
 	}
@@ -2551,9 +2570,9 @@ type describeDataMigrationsOutput struct {
 }
 
 func (h *Handler) handleDescribeDataMigrations(
-	_ context.Context, in *describeDataMigrationsInput,
+	ctx context.Context, in *describeDataMigrationsInput,
 ) (*describeDataMigrationsOutput, error) {
-	list, err := h.Backend.DescribeDataMigrations(ptrStr(in.DataMigrationIdentifier))
+	list, err := h.Backend.DescribeDataMigrations(ctx, ptrStr(in.DataMigrationIdentifier))
 	if err != nil {
 		return nil, err
 	}
@@ -2586,9 +2605,9 @@ type describeDataProvidersOutput struct {
 }
 
 func (h *Handler) handleDescribeDataProviders(
-	_ context.Context, in *describeDataProvidersInput,
+	ctx context.Context, in *describeDataProvidersInput,
 ) (*describeDataProvidersOutput, error) {
-	list, err := h.Backend.DescribeDataProviders(ptrStr(in.DataProviderIdentifier))
+	list, err := h.Backend.DescribeDataProviders(ctx, ptrStr(in.DataProviderIdentifier))
 	if err != nil {
 		return nil, err
 	}
@@ -2809,9 +2828,9 @@ type describeEventSubscriptionsOutput struct {
 }
 
 func (h *Handler) handleDescribeEventSubscriptions(
-	_ context.Context, in *describeEventSubscriptionsInput,
+	ctx context.Context, in *describeEventSubscriptionsInput,
 ) (*describeEventSubscriptionsOutput, error) {
-	list, err := h.Backend.DescribeEventSubscriptions(ptrStr(in.SubscriptionName))
+	list, err := h.Backend.DescribeEventSubscriptions(ctx, ptrStr(in.SubscriptionName))
 	if err != nil {
 		return nil, err
 	}
@@ -2890,9 +2909,9 @@ type describeFleetAdvisorCollectorsOutput struct {
 }
 
 func (h *Handler) handleDescribeFleetAdvisorCollectors(
-	_ context.Context, _ *describeFleetAdvisorCollectorsInput,
+	ctx context.Context, _ *describeFleetAdvisorCollectorsInput,
 ) (*describeFleetAdvisorCollectorsOutput, error) {
-	list, err := h.Backend.DescribeFleetAdvisorCollectors()
+	list, err := h.Backend.DescribeFleetAdvisorCollectors(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -3004,9 +3023,9 @@ type describeInstanceProfilesOutput struct {
 }
 
 func (h *Handler) handleDescribeInstanceProfiles(
-	_ context.Context, in *describeInstanceProfilesInput,
+	ctx context.Context, in *describeInstanceProfilesInput,
 ) (*describeInstanceProfilesOutput, error) {
-	list, err := h.Backend.DescribeInstanceProfiles()
+	list, err := h.Backend.DescribeInstanceProfiles(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -3187,9 +3206,9 @@ type describeMigrationProjectsOutput struct {
 }
 
 func (h *Handler) handleDescribeMigrationProjects(
-	_ context.Context, in *describeMigrationProjectsInput,
+	ctx context.Context, in *describeMigrationProjectsInput,
 ) (*describeMigrationProjectsOutput, error) {
-	list, err := h.Backend.DescribeMigrationProjects()
+	list, err := h.Backend.DescribeMigrationProjects(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -3434,9 +3453,9 @@ type describeReplicationConfigsOutput struct {
 }
 
 func (h *Handler) handleDescribeReplicationConfigs(
-	_ context.Context, in *describeReplicationConfigsInput,
+	ctx context.Context, in *describeReplicationConfigsInput,
 ) (*describeReplicationConfigsOutput, error) {
-	list, err := h.Backend.DescribeReplicationConfigs()
+	list, err := h.Backend.DescribeReplicationConfigs(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -3492,9 +3511,9 @@ type describeReplicationSubnetGroupsOutput struct {
 }
 
 func (h *Handler) handleDescribeReplicationSubnetGroups(
-	_ context.Context, in *describeReplicationSubnetGroupsInput,
+	ctx context.Context, in *describeReplicationSubnetGroupsInput,
 ) (*describeReplicationSubnetGroupsOutput, error) {
-	list, err := h.Backend.DescribeReplicationSubnetGroups()
+	list, err := h.Backend.DescribeReplicationSubnetGroups(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -3583,11 +3602,11 @@ type describeReplicationTableStatisticsOutput struct {
 }
 
 func (h *Handler) handleDescribeReplicationTableStatistics(
-	_ context.Context, in *describeReplicationTableStatisticsInput,
+	ctx context.Context, in *describeReplicationTableStatisticsInput,
 ) (*describeReplicationTableStatisticsOutput, error) {
 	taskArn := ptrStr(in.ReplicationTaskArn)
 
-	tasks, err := h.Backend.DescribeReplicationTasks(taskArn)
+	tasks, err := h.Backend.DescribeReplicationTasks(ctx, taskArn)
 	if err != nil {
 		return nil, err
 	}
@@ -3725,11 +3744,11 @@ type describeTableStatisticsOutput struct {
 }
 
 func (h *Handler) handleDescribeTableStatistics(
-	_ context.Context, in *describeTableStatisticsInput,
+	ctx context.Context, in *describeTableStatisticsInput,
 ) (*describeTableStatisticsOutput, error) {
 	taskArn := ptrStr(in.ReplicationTaskArn)
 
-	tasks, err := h.Backend.DescribeReplicationTasks(taskArn)
+	tasks, err := h.Backend.DescribeReplicationTasks(ctx, taskArn)
 	if err != nil {
 		return nil, err
 	}
@@ -3806,14 +3825,14 @@ type importCertificateOutput struct {
 }
 
 func (h *Handler) handleImportCertificate(
-	_ context.Context, in *importCertificateInput,
+	ctx context.Context, in *importCertificateInput,
 ) (*importCertificateOutput, error) {
 	identifier := ptrStr(in.CertificateIdentifier)
 	if identifier == "" {
 		return nil, fmt.Errorf("%w: CertificateIdentifier is required", ErrValidation)
 	}
 
-	cert, err := h.Backend.ImportCertificate(identifier, ptrStr(in.CertificatePem))
+	cert, err := h.Backend.ImportCertificate(ctx, identifier, ptrStr(in.CertificatePem))
 	if err != nil {
 		return nil, err
 	}
@@ -3856,9 +3875,10 @@ type modifyDataMigrationOutput struct {
 }
 
 func (h *Handler) handleModifyDataMigration(
-	_ context.Context, in *modifyDataMigrationInput,
+	ctx context.Context, in *modifyDataMigrationInput,
 ) (*modifyDataMigrationOutput, error) {
 	dm, err := h.Backend.ModifyDataMigration(
+		ctx,
 		ptrStr(in.DataMigrationIdentifier),
 		ptrStr(in.DataMigrationType),
 		ptrStr(in.ServiceAccessRoleArn),
@@ -3884,9 +3904,10 @@ type modifyDataProviderOutput struct {
 }
 
 func (h *Handler) handleModifyDataProvider(
-	_ context.Context, in *modifyDataProviderInput,
+	ctx context.Context, in *modifyDataProviderInput,
 ) (*modifyDataProviderOutput, error) {
 	dp, err := h.Backend.ModifyDataProvider(
+		ctx,
 		ptrStr(in.DataProviderArn),
 		ptrStr(in.Engine),
 		ptrStr(in.Description),
@@ -3913,9 +3934,10 @@ type modifyEndpointOutput struct {
 }
 
 func (h *Handler) handleModifyEndpoint(
-	_ context.Context, in *modifyEndpointInput,
+	ctx context.Context, in *modifyEndpointInput,
 ) (*modifyEndpointOutput, error) {
 	ep, err := h.Backend.ModifyEndpoint(
+		ctx,
 		ptrStr(in.EndpointArn),
 		ptrStr(in.ServerName),
 		ptrStr(in.DatabaseName),
@@ -3941,9 +3963,9 @@ type modifyEventSubscriptionOutput struct {
 }
 
 func (h *Handler) handleModifyEventSubscription(
-	_ context.Context, in *modifyEventSubscriptionInput,
+	ctx context.Context, in *modifyEventSubscriptionInput,
 ) (*modifyEventSubscriptionOutput, error) {
-	es, err := h.Backend.ModifyEventSubscription(ptrStr(in.SubscriptionName), in.Enabled)
+	es, err := h.Backend.ModifyEventSubscription(ctx, ptrStr(in.SubscriptionName), in.Enabled)
 	if err != nil {
 		return nil, err
 	}
@@ -3965,9 +3987,10 @@ type modifyInstanceProfileOutput struct {
 }
 
 func (h *Handler) handleModifyInstanceProfile(
-	_ context.Context, in *modifyInstanceProfileInput,
+	ctx context.Context, in *modifyInstanceProfileInput,
 ) (*modifyInstanceProfileOutput, error) {
 	ip, err := h.Backend.ModifyInstanceProfile(
+		ctx,
 		ptrStr(in.InstanceProfileArn),
 		ptrStr(in.AvailabilityZone),
 		ptrStr(in.Description),
@@ -3992,11 +4015,11 @@ type modifyMigrationProjectOutput struct {
 }
 
 func (h *Handler) handleModifyMigrationProject(
-	_ context.Context, in *modifyMigrationProjectInput,
+	ctx context.Context, in *modifyMigrationProjectInput,
 ) (*modifyMigrationProjectOutput, error) {
 	nameOrArn := ptrStr(in.MigrationProjectArn)
 
-	projects, _ := h.Backend.DescribeMigrationProjects()
+	projects, _ := h.Backend.DescribeMigrationProjects(ctx)
 	for _, mp := range projects {
 		if mp.MigrationProjectArn == nameOrArn || mp.MigrationProjectName == nameOrArn {
 			return &modifyMigrationProjectOutput{MigrationProject: mpToJSON(mp)}, nil
@@ -4018,11 +4041,11 @@ type modifyReplicationConfigOutput struct {
 }
 
 func (h *Handler) handleModifyReplicationConfig(
-	_ context.Context, in *modifyReplicationConfigInput,
+	ctx context.Context, in *modifyReplicationConfigInput,
 ) (*modifyReplicationConfigOutput, error) {
 	identifierOrArn := ptrStr(in.ReplicationConfigArn)
 
-	configs, _ := h.Backend.DescribeReplicationConfigs()
+	configs, _ := h.Backend.DescribeReplicationConfigs(ctx)
 	for _, rc := range configs {
 		if rc.ReplicationConfigArn == identifierOrArn ||
 			rc.ReplicationConfigIdentifier == identifierOrArn {
@@ -4049,9 +4072,10 @@ type modifyReplicationInstanceOutput struct {
 }
 
 func (h *Handler) handleModifyReplicationInstance(
-	_ context.Context, in *modifyReplicationInstanceInput,
+	ctx context.Context, in *modifyReplicationInstanceInput,
 ) (*modifyReplicationInstanceOutput, error) {
 	ri, err := h.Backend.ModifyReplicationInstance(
+		ctx,
 		ptrStr(in.ReplicationInstanceArn),
 		ptrStr(in.ReplicationInstanceClass),
 		ptrStr(in.EngineVersion),
@@ -4079,11 +4103,11 @@ type modifyReplicationSubnetGroupOutput struct {
 }
 
 func (h *Handler) handleModifyReplicationSubnetGroup(
-	_ context.Context, in *modifyReplicationSubnetGroupInput,
+	ctx context.Context, in *modifyReplicationSubnetGroupInput,
 ) (*modifyReplicationSubnetGroupOutput, error) {
 	identifier := ptrStr(in.ReplicationSubnetGroupIdentifier)
 
-	groups, _ := h.Backend.DescribeReplicationSubnetGroups()
+	groups, _ := h.Backend.DescribeReplicationSubnetGroups(ctx)
 	for _, sg := range groups {
 		if sg.ReplicationSubnetGroupIdentifier == identifier ||
 			sg.ReplicationSubnetGroupArn == identifier {
@@ -4108,9 +4132,10 @@ type modifyReplicationTaskOutput struct {
 }
 
 func (h *Handler) handleModifyReplicationTask(
-	_ context.Context, in *modifyReplicationTaskInput,
+	ctx context.Context, in *modifyReplicationTaskInput,
 ) (*modifyReplicationTaskOutput, error) {
 	rt, err := h.Backend.ModifyReplicationTask(
+		ctx,
 		ptrStr(in.ReplicationTaskArn),
 		ptrStr(in.MigrationType),
 		ptrStr(in.TableMappings),
@@ -4135,9 +4160,10 @@ type moveReplicationTaskOutput struct {
 }
 
 func (h *Handler) handleMoveReplicationTask(
-	_ context.Context, in *moveReplicationTaskInput,
+	ctx context.Context, in *moveReplicationTaskInput,
 ) (*moveReplicationTaskOutput, error) {
 	rt, err := h.Backend.MoveReplicationTask(
+		ctx,
 		ptrStr(in.ReplicationTaskArn),
 		ptrStr(in.TargetReplicationInstanceArn),
 	)
@@ -4161,9 +4187,9 @@ type rebootReplicationInstanceOutput struct {
 }
 
 func (h *Handler) handleRebootReplicationInstance(
-	_ context.Context, in *rebootReplicationInstanceInput,
+	ctx context.Context, in *rebootReplicationInstanceInput,
 ) (*rebootReplicationInstanceOutput, error) {
-	ri, err := h.Backend.RebootReplicationInstance(ptrStr(in.ReplicationInstanceArn))
+	ri, err := h.Backend.RebootReplicationInstance(ctx, ptrStr(in.ReplicationInstanceArn))
 	if err != nil {
 		return nil, err
 	}
@@ -4236,9 +4262,9 @@ type removeTagsFromResourceInput struct {
 type removeTagsFromResourceOutput struct{}
 
 func (h *Handler) handleRemoveTagsFromResource(
-	_ context.Context, in *removeTagsFromResourceInput,
+	ctx context.Context, in *removeTagsFromResourceInput,
 ) (*removeTagsFromResourceOutput, error) {
-	if err := h.Backend.RemoveTagsFromResource(ptrStr(in.ResourceArn), in.TagKeys); err != nil {
+	if err := h.Backend.RemoveTagsFromResource(ctx, ptrStr(in.ResourceArn), in.TagKeys); err != nil {
 		return nil, err
 	}
 
@@ -4275,9 +4301,9 @@ type startDataMigrationOutput struct {
 }
 
 func (h *Handler) handleStartDataMigration(
-	_ context.Context, in *startDataMigrationInput,
+	ctx context.Context, in *startDataMigrationInput,
 ) (*startDataMigrationOutput, error) {
-	dm, err := h.Backend.StartDataMigration(ptrStr(in.DataMigrationIdentifier))
+	dm, err := h.Backend.StartDataMigration(ctx, ptrStr(in.DataMigrationIdentifier))
 	if err != nil {
 		return nil, err
 	}
@@ -4498,9 +4524,9 @@ type stopDataMigrationOutput struct {
 }
 
 func (h *Handler) handleStopDataMigration(
-	_ context.Context, in *stopDataMigrationInput,
+	ctx context.Context, in *stopDataMigrationInput,
 ) (*stopDataMigrationOutput, error) {
-	dm, err := h.Backend.StopDataMigration(ptrStr(in.DataMigrationIdentifier))
+	dm, err := h.Backend.StopDataMigration(ctx, ptrStr(in.DataMigrationIdentifier))
 	if err != nil {
 		return nil, err
 	}
@@ -4554,9 +4580,10 @@ func connToJSON(c *Connection) connectionJSON {
 }
 
 func (h *Handler) handleTestConnection(
-	_ context.Context, in *testConnectionInput,
+	ctx context.Context, in *testConnectionInput,
 ) (*testConnectionOutput, error) {
 	conn, err := h.Backend.TestConnection(
+		ctx,
 		ptrStr(in.ReplicationInstanceArn),
 		ptrStr(in.EndpointArn),
 	)

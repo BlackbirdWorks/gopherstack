@@ -65,11 +65,11 @@ type OrgAdminAccount struct {
 }
 
 // OrgConfig holds org-level GuardDuty configuration.
-type OrgConfig struct { //nolint:govet // fieldalignment: bool fields after strings trades padding for readability
-	AutoEnable                bool           `json:"autoEnable"`
-	MemberAccountLimitReached bool           `json:"memberAccountLimitReached"`
+type OrgConfig struct {
 	DataSources               map[string]any `json:"dataSources"`
 	Features                  []OrgFeature   `json:"features"`
+	AutoEnable                bool           `json:"autoEnable"`
+	MemberAccountLimitReached bool           `json:"memberAccountLimitReached"`
 }
 
 // OrgFeature holds org-level feature configuration.
@@ -79,14 +79,14 @@ type OrgFeature struct {
 }
 
 // PublishingDestination represents a GuardDuty publishing destination.
-type PublishingDestination struct { //nolint:govet // fieldalignment: int64 after strings trades padding for readability
+type PublishingDestination struct {
+	DestinationProperties      DestinationProperties `json:"destinationProperties"`
 	DestinationID              string                `json:"destinationId"`
 	DestinationType            string                `json:"destinationType"`
 	Status                     string                `json:"status"`
 	ServicePrincipal           string                `json:"servicePrincipal,omitempty"`
-	PublishingFailureStartedAt int64                 `json:"publishingFailureStartedAt,omitempty"`
-	DestinationProperties      DestinationProperties `json:"destinationProperties"`
 	DetectorID                 string                `json:"-"`
+	PublishingFailureStartedAt int64                 `json:"publishingFailureStartedAt,omitempty"`
 }
 
 // DestinationProperties holds properties for a publishing destination.
@@ -116,42 +116,42 @@ type MalwareScanSettings struct {
 }
 
 // MalwareProtectionPlan represents a malware protection plan.
-type MalwareProtectionPlan struct { //nolint:govet // fieldalignment: time.Time after strings
+type MalwareProtectionPlan struct {
+	CreatedAt               time.Time         `json:"createdAt"`
+	ProtectedResource       map[string]any    `json:"protectedResource"`
+	Actions                 map[string]any    `json:"actions"`
+	Tags                    map[string]string `json:"tags,omitempty"`
 	MalwareProtectionPlanID string            `json:"malwareProtectionPlanId"`
 	Arn                     string            `json:"arn"`
 	Role                    string            `json:"role"`
 	Status                  string            `json:"status"`
-	CreatedAt               time.Time         `json:"createdAt"`
 	StatusReasons           []any             `json:"statusReasons"`
-	ProtectedResource       map[string]any    `json:"protectedResource"`
-	Actions                 map[string]any    `json:"actions"`
-	Tags                    map[string]string `json:"tags,omitempty"`
 }
 
 // ThreatEntitySet represents a GuardDuty threat entity set.
-type ThreatEntitySet struct { //nolint:govet // fieldalignment: time.Time after strings
+type ThreatEntitySet struct {
+	CreatedAt         time.Time         `json:"createdAt"`
+	UpdatedAt         time.Time         `json:"updatedAt"`
+	Tags              map[string]string `json:"tags,omitempty"`
 	ThreatEntitySetID string            `json:"threatEntitySetId"`
 	DetectorID        string            `json:"-"`
 	Name              string            `json:"name"`
 	Format            string            `json:"format"`
 	Location          string            `json:"location"`
 	Status            string            `json:"status"`
-	Tags              map[string]string `json:"tags,omitempty"`
-	CreatedAt         time.Time         `json:"createdAt"`
-	UpdatedAt         time.Time         `json:"updatedAt"`
 }
 
 // TrustedEntitySet represents a GuardDuty trusted entity set.
-type TrustedEntitySet struct { //nolint:govet // fieldalignment: time.Time after strings
+type TrustedEntitySet struct {
+	CreatedAt          time.Time         `json:"createdAt"`
+	UpdatedAt          time.Time         `json:"updatedAt"`
+	Tags               map[string]string `json:"tags,omitempty"`
 	TrustedEntitySetID string            `json:"trustedEntitySetId"`
 	DetectorID         string            `json:"-"`
 	Name               string            `json:"name"`
 	Format             string            `json:"format"`
 	Location           string            `json:"location"`
 	Status             string            `json:"status"`
-	Tags               map[string]string `json:"tags,omitempty"`
-	CreatedAt          time.Time         `json:"createdAt"`
-	UpdatedAt          time.Time         `json:"updatedAt"`
 }
 
 // --- member backend methods ---

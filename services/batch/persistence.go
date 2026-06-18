@@ -2,18 +2,21 @@ package batch
 
 import "encoding/json"
 
+// backendSnapshot is the serialisation form of the backend. All resource maps are
+// nested by region (outer key = region) so that region isolation survives a
+// snapshot/restore round-trip.
 type backendSnapshot struct {
-	ComputeEnvironments map[string]*ComputeEnvironment `json:"computeEnvironments"`
-	JobQueues           map[string]*JobQueue           `json:"jobQueues"`
-	JobDefinitions      map[string]*JobDefinition      `json:"jobDefinitions"`
-	Jobs                map[string]*Job                `json:"jobs"`
-	JobsByQueue         map[string][]string            `json:"jobsByQueue"`
-	JobDefRevisions     map[string]int32               `json:"jobDefRevisions"`
-	ConsumableResources map[string]*ConsumableResource `json:"consumableResources"`
-	SchedulingPolicies  map[string]*SchedulingPolicy   `json:"schedulingPolicies"`
-	ServiceEnvironments map[string]*ServiceEnvironment `json:"serviceEnvironments"`
-	AccountID           string                         `json:"accountID"`
-	Region              string                         `json:"region"`
+	ComputeEnvironments map[string]map[string]*ComputeEnvironment `json:"computeEnvironments"`
+	JobQueues           map[string]map[string]*JobQueue           `json:"jobQueues"`
+	JobDefinitions      map[string]map[string]*JobDefinition      `json:"jobDefinitions"`
+	Jobs                map[string]map[string]*Job                `json:"jobs"`
+	JobsByQueue         map[string]map[string][]string            `json:"jobsByQueue"`
+	JobDefRevisions     map[string]map[string]int32               `json:"jobDefRevisions"`
+	ConsumableResources map[string]map[string]*ConsumableResource `json:"consumableResources"`
+	SchedulingPolicies  map[string]map[string]*SchedulingPolicy   `json:"schedulingPolicies"`
+	ServiceEnvironments map[string]map[string]*ServiceEnvironment `json:"serviceEnvironments"`
+	AccountID           string                                    `json:"accountID"`
+	Region              string                                    `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -51,61 +54,72 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
-	if snap.ComputeEnvironments == nil {
-		snap.ComputeEnvironments = make(map[string]*ComputeEnvironment)
+	b.initMaps()
+
+	if snap.ComputeEnvironments != nil {
+		b.computeEnvironments = snap.ComputeEnvironments
 	}
 
-	if snap.JobQueues == nil {
-		snap.JobQueues = make(map[string]*JobQueue)
+	if snap.JobQueues != nil {
+		b.jobQueues = snap.JobQueues
 	}
 
-	if snap.JobDefinitions == nil {
-		snap.JobDefinitions = make(map[string]*JobDefinition)
+	if snap.JobDefinitions != nil {
+		b.jobDefinitions = snap.JobDefinitions
 	}
 
-	if snap.Jobs == nil {
-		snap.Jobs = make(map[string]*Job)
+	if snap.Jobs != nil {
+		b.jobs = snap.Jobs
 	}
 
-	if snap.JobsByQueue == nil {
-		snap.JobsByQueue = make(map[string][]string)
+	if snap.JobsByQueue != nil {
+		b.jobsByQueue = snap.JobsByQueue
 	}
 
-	if snap.JobDefRevisions == nil {
-		snap.JobDefRevisions = make(map[string]int32)
+	if snap.JobDefRevisions != nil {
+		b.jobDefRevisions = snap.JobDefRevisions
 	}
 
-	if snap.ConsumableResources == nil {
-		snap.ConsumableResources = make(map[string]*ConsumableResource)
+	if snap.ConsumableResources != nil {
+		b.consumableResources = snap.ConsumableResources
 	}
 
-	if snap.SchedulingPolicies == nil {
-		snap.SchedulingPolicies = make(map[string]*SchedulingPolicy)
+	if snap.SchedulingPolicies != nil {
+		b.schedulingPolicies = snap.SchedulingPolicies
 	}
 
-	if snap.ServiceEnvironments == nil {
-		snap.ServiceEnvironments = make(map[string]*ServiceEnvironment)
+	if snap.ServiceEnvironments != nil {
+		b.serviceEnvironments = snap.ServiceEnvironments
 	}
 
-	b.computeEnvironments = snap.ComputeEnvironments
-	b.jobQueues = snap.JobQueues
-	b.jobDefinitions = snap.JobDefinitions
-	b.jobs = snap.Jobs
-	b.jobsByQueue = snap.JobsByQueue
-	b.jobDefRevisions = snap.JobDefRevisions
-	b.consumableResources = snap.ConsumableResources
-	b.schedulingPolicies = snap.SchedulingPolicies
-	b.serviceEnvironments = snap.ServiceEnvironments
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
-	// Rebuild the name → ARN index from the restored scheduling policies.
-	b.schedulingPolicyByName = make(map[string]string, len(b.schedulingPolicies))
-	for arn, sp := range b.schedulingPolicies {
-		b.schedulingPolicyByName[sp.Name] = arn
-	}
+	// Rebuild the per-region name → ARN index and the job ARN → ID index from the
+	// restored state (these cross-index maps are not persisted directly).
+	b.rebuildIndexes()
 
 	return nil
+}
+
+// rebuildIndexes reconstructs the schedulingPolicyByName and jobsByARN cross-index
+// maps from the restored resource maps. Callers must hold the write lock.
+func (b *InMemoryBackend) rebuildIndexes() {
+	b.schedulingPolicyByName = make(map[string]map[string]string, len(b.schedulingPolicies))
+	for region, policies := range b.schedulingPolicies {
+		byName := b.schedulingPolicyByNameStore(region)
+		for policyARN, sp := range policies {
+			byName[sp.Name] = policyARN
+		}
+	}
+
+	b.jobsByARN = make(map[string]map[string]string, len(b.jobs))
+	for region, jobs := range b.jobs {
+		byARN := b.jobsByARNStore(region)
+		for jobID, j := range jobs {
+			byARN[j.JobARN] = jobID
+		}
+	}
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.

@@ -1,6 +1,7 @@
 package mwaa
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -209,6 +210,16 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	return h.ServeHTTP
 }
 
+// contextWithRegion returns the request context with the resolved AWS region attached
+// under regionContextKey so that backend operations are routed to the correct region.
+// The region is extracted from the request's SigV4 credential scope, falling back to
+// the handler's default region.
+func (h *Handler) contextWithRegion(c *echo.Context) context.Context {
+	region := httputils.ExtractRegionFromRequest(c.Request(), h.DefaultRegion)
+
+	return context.WithValue(c.Request().Context(), regionContextKey{}, region)
+}
+
 // ServeHTTP dispatches MWAA API requests.
 func (h *Handler) ServeHTTP(c *echo.Context) error {
 	path := c.Request().URL.Path
@@ -295,31 +306,41 @@ func (h *Handler) dispatchEnvironment(c *echo.Context, path string) error {
 	return writeErrorResponse(c, http.StatusMethodNotAllowed, "MethodNotAllowedException", "method not allowed")
 }
 
-func (h *Handler) handleCreateEnvironment(c *echo.Context, name string) error {
+// decodeJSONBody reads the request body and unmarshals it into target. On
+// failure it writes the appropriate MWAA error response and returns false so
+// the caller can return immediately.
+func decodeJSONBody(c *echo.Context, target any) bool {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
-		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "failed to read request body")
+		_ = writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "failed to read request body")
+
+		return false
 	}
 
-	var req createEnvironmentRequest
+	if jsonErr := json.Unmarshal(body, target); jsonErr != nil {
+		_ = writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
+		return false
 	}
 
-	region := httputils.ExtractRegionFromRequest(c.Request(), h.DefaultRegion)
+	return true
+}
 
-	env, err := h.Backend.CreateEnvironment(region, h.AccountID, name, &req)
+// writeEnvironmentResult maps a backend environment error to an MWAA error
+// response, or writes the environment ARN on success. It mirrors AWS, treating
+// ErrAlreadyExists as a 409 Conflict (only produced by CreateEnvironment).
+func writeEnvironmentResult(c *echo.Context, env *Environment, err error) error {
 	if err != nil {
-		if errors.Is(err, awserr.ErrAlreadyExists) {
+		switch {
+		case errors.Is(err, awserr.ErrAlreadyExists):
 			return writeErrorResponse(c, http.StatusConflict, "AlreadyExistsException", err.Error())
-		}
-
-		if errors.Is(err, awserr.ErrInvalidParameter) {
+		case errors.Is(err, awserr.ErrNotFound):
+			return writeErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+		case errors.Is(err, awserr.ErrInvalidParameter):
 			return writeErrorResponse(c, http.StatusBadRequest, "ValidationException", err.Error())
+		default:
+			return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
 		}
-
-		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
 	}
 
 	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, map[string]string{
@@ -329,8 +350,19 @@ func (h *Handler) handleCreateEnvironment(c *echo.Context, name string) error {
 	return nil
 }
 
+func (h *Handler) handleCreateEnvironment(c *echo.Context, name string) error {
+	var req createEnvironmentRequest
+	if !decodeJSONBody(c, &req) {
+		return nil
+	}
+
+	env, err := h.Backend.CreateEnvironment(h.contextWithRegion(c), name, &req)
+
+	return writeEnvironmentResult(c, env, err)
+}
+
 func (h *Handler) handleGetEnvironment(c *echo.Context, name string) error {
-	env, err := h.Backend.GetEnvironment(name)
+	env, err := h.Backend.GetEnvironment(h.contextWithRegion(c), name)
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return writeErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
@@ -347,52 +379,20 @@ func (h *Handler) handleGetEnvironment(c *echo.Context, name string) error {
 }
 
 func (h *Handler) handleDeleteEnvironment(c *echo.Context, name string) error {
-	env, err := h.Backend.DeleteEnvironment(name)
-	if err != nil {
-		if errors.Is(err, awserr.ErrNotFound) {
-			return writeErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
-		}
+	env, err := h.Backend.DeleteEnvironment(h.contextWithRegion(c), name)
 
-		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
-	}
-
-	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, map[string]string{
-		keyArn: env.ARN,
-	})
-
-	return nil
+	return writeEnvironmentResult(c, env, err)
 }
 
 func (h *Handler) handleUpdateEnvironment(c *echo.Context, name string) error {
-	body, err := httputils.ReadBody(c.Request())
-	if err != nil {
-		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "failed to read request body")
-	}
-
 	var req updateEnvironmentRequest
-
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
+	if !decodeJSONBody(c, &req) {
+		return nil
 	}
 
-	env, err := h.Backend.UpdateEnvironment(name, &req)
-	if err != nil {
-		if errors.Is(err, awserr.ErrNotFound) {
-			return writeErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
-		}
+	env, err := h.Backend.UpdateEnvironment(h.contextWithRegion(c), name, &req)
 
-		if errors.Is(err, awserr.ErrInvalidParameter) {
-			return writeErrorResponse(c, http.StatusBadRequest, "ValidationException", err.Error())
-		}
-
-		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
-	}
-
-	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, map[string]string{
-		keyArn: env.ARN,
-	})
-
-	return nil
+	return writeEnvironmentResult(c, env, err)
 }
 
 func (h *Handler) handleListEnvironments(c *echo.Context) error {
@@ -410,7 +410,7 @@ func (h *Handler) handleListEnvironments(c *echo.Context) error {
 		pageSize = n
 	}
 
-	names, outToken, err := h.Backend.ListEnvironmentsPage(nextToken, pageSize)
+	names, outToken, err := h.Backend.ListEnvironmentsPage(h.contextWithRegion(c), nextToken, pageSize)
 	if err != nil {
 		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
 	}
@@ -430,7 +430,7 @@ func (h *Handler) handleListEnvironments(c *echo.Context) error {
 }
 
 func (h *Handler) handleListTagsForResource(c *echo.Context, resourceARN string) error {
-	tags, err := h.Backend.ListTagsForResource(resourceARN)
+	tags, err := h.Backend.ListTagsForResource(h.contextWithRegion(c), resourceARN)
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return writeErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
@@ -464,7 +464,7 @@ func (h *Handler) handleTagResource(c *echo.Context, resourceARN string) error {
 		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
 	}
 
-	if tagErr := h.Backend.TagResource(resourceARN, req.Tags); tagErr != nil {
+	if tagErr := h.Backend.TagResource(h.contextWithRegion(c), resourceARN, req.Tags); tagErr != nil {
 		if errors.Is(tagErr, awserr.ErrNotFound) {
 			return writeErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", tagErr.Error())
 		}
@@ -484,7 +484,7 @@ func (h *Handler) handleTagResource(c *echo.Context, resourceARN string) error {
 func (h *Handler) handleUntagResource(c *echo.Context, resourceARN string) error {
 	tagKeys := c.Request().URL.Query()["tagKeys"]
 
-	if err := h.Backend.UntagResource(resourceARN, tagKeys); err != nil {
+	if err := h.Backend.UntagResource(h.contextWithRegion(c), resourceARN, tagKeys); err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return writeErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
 		}
@@ -498,7 +498,7 @@ func (h *Handler) handleUntagResource(c *echo.Context, resourceARN string) error
 }
 
 func (h *Handler) handleCreateCliToken(c *echo.Context, name string) error {
-	token, err := h.Backend.CreateCliToken(name)
+	token, err := h.Backend.CreateCliToken(h.contextWithRegion(c), name)
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return writeErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
@@ -516,7 +516,7 @@ func (h *Handler) handleCreateCliToken(c *echo.Context, name string) error {
 }
 
 func (h *Handler) handleCreateWebLoginToken(c *echo.Context, name string) error {
-	token, err := h.Backend.CreateWebLoginToken(name)
+	token, err := h.Backend.CreateWebLoginToken(h.contextWithRegion(c), name)
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return writeErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
@@ -554,7 +554,7 @@ func (h *Handler) handleInvokeRestAPI(c *echo.Context, name string) error {
 		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
 	}
 
-	resp, err := h.Backend.InvokeRestAPI(name, &req)
+	resp, err := h.Backend.InvokeRestAPI(h.contextWithRegion(c), name, &req)
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return writeErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
@@ -586,7 +586,7 @@ func (h *Handler) dispatchMetrics(c *echo.Context, path string) error {
 }
 
 func (h *Handler) handleGetMetrics(c *echo.Context, name string) error {
-	metrics, err := h.Backend.GetMetrics(name)
+	metrics, err := h.Backend.GetMetrics(h.contextWithRegion(c), name)
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return writeErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
@@ -618,7 +618,7 @@ func (h *Handler) handlePublishMetrics(c *echo.Context, name string) error {
 		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
 	}
 
-	if pubErr := h.Backend.PublishMetrics(name, &req); pubErr != nil {
+	if pubErr := h.Backend.PublishMetrics(h.contextWithRegion(c), name, &req); pubErr != nil {
 		if errors.Is(pubErr, awserr.ErrNotFound) {
 			return writeErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", pubErr.Error())
 		}

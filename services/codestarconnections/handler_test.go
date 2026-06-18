@@ -2,6 +2,7 @@ package codestarconnections_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -264,7 +265,7 @@ func TestHandler_GetConnection(t *testing.T) {
 		{
 			name: "happy path",
 			setupFn: func(h *codestarconnections.Handler) string {
-				conn, err := h.Backend.CreateConnection("test-conn", "GitHub", "", nil)
+				conn, err := h.Backend.CreateConnection(context.Background(), "test-conn", "GitHub", "", nil)
 				if err != nil {
 					return ""
 				}
@@ -324,8 +325,8 @@ func TestHandler_ListConnections(t *testing.T) {
 		{
 			name: "list all",
 			setupFn: func(h *codestarconnections.Handler) string {
-				_, _ = h.Backend.CreateConnection("conn1", "GitHub", "", nil)
-				_, _ = h.Backend.CreateConnection("conn2", "Bitbucket", "", nil)
+				_, _ = h.Backend.CreateConnection(context.Background(), "conn1", "GitHub", "", nil)
+				_, _ = h.Backend.CreateConnection(context.Background(), "conn2", "Bitbucket", "", nil)
 
 				return ""
 			},
@@ -335,8 +336,8 @@ func TestHandler_ListConnections(t *testing.T) {
 		{
 			name: "filter by provider type",
 			setupFn: func(h *codestarconnections.Handler) string {
-				_, _ = h.Backend.CreateConnection("conn1", "GitHub", "", nil)
-				_, _ = h.Backend.CreateConnection("conn2", "Bitbucket", "", nil)
+				_, _ = h.Backend.CreateConnection(context.Background(), "conn1", "GitHub", "", nil)
+				_, _ = h.Backend.CreateConnection(context.Background(), "conn2", "Bitbucket", "", nil)
 
 				return ""
 			},
@@ -346,13 +347,25 @@ func TestHandler_ListConnections(t *testing.T) {
 		{
 			name: "filter by host arn",
 			setupFn: func(h *codestarconnections.Handler) string {
-				host, err := h.Backend.CreateHost("my-host", "GitHubEnterpriseServer", "https://example.com", nil)
+				host, err := h.Backend.CreateHost(
+					context.Background(),
+					"my-host",
+					"GitHubEnterpriseServer",
+					"https://example.com",
+					nil,
+				)
 				if err != nil {
 					return ""
 				}
 
-				_, _ = h.Backend.CreateConnection("conn-with-host", "GitHubEnterpriseServer", host.HostArn, nil)
-				_, _ = h.Backend.CreateConnection("conn-without-host", "GitHub", "", nil)
+				_, _ = h.Backend.CreateConnection(
+					context.Background(),
+					"conn-with-host",
+					"GitHubEnterpriseServer",
+					host.HostArn,
+					nil,
+				)
+				_, _ = h.Backend.CreateConnection(context.Background(), "conn-without-host", "GitHub", "", nil)
 
 				return host.HostArn
 			},
@@ -396,7 +409,7 @@ func TestHandler_DeleteConnection(t *testing.T) {
 		{
 			name: "happy path",
 			setupFn: func(h *codestarconnections.Handler) string {
-				conn, err := h.Backend.CreateConnection("del-conn", "GitHub", "", nil)
+				conn, err := h.Backend.CreateConnection(context.Background(), "del-conn", "GitHub", "", nil)
 				if err != nil {
 					return ""
 				}
@@ -508,7 +521,13 @@ func TestHandler_GetHost(t *testing.T) {
 		{
 			name: "happy path",
 			setupFn: func(h *codestarconnections.Handler) string {
-				host, err := h.Backend.CreateHost("test-host", "GitHubEnterpriseServer", "https://example.com", nil)
+				host, err := h.Backend.CreateHost(
+					context.Background(),
+					"test-host",
+					"GitHubEnterpriseServer",
+					"https://example.com",
+					nil,
+				)
 				if err != nil {
 					return ""
 				}
@@ -557,8 +576,8 @@ func TestHandler_ListHosts(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	_, _ = h.Backend.CreateHost("host1", "GitHubEnterpriseServer", "https://a.com", nil)
-	_, _ = h.Backend.CreateHost("host2", "GitHubEnterpriseServer", "https://b.com", nil)
+	_, _ = h.Backend.CreateHost(context.Background(), "host1", "GitHubEnterpriseServer", "https://a.com", nil)
+	_, _ = h.Backend.CreateHost(context.Background(), "host2", "GitHubEnterpriseServer", "https://b.com", nil)
 
 	rec := doRequest(t, h, "ListHosts", map[string]any{})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -581,7 +600,13 @@ func TestHandler_DeleteHost(t *testing.T) {
 		{
 			name: "happy path",
 			setupFn: func(h *codestarconnections.Handler) string {
-				host, err := h.Backend.CreateHost("del-host", "GitHubEnterpriseServer", "https://x.com", nil)
+				host, err := h.Backend.CreateHost(
+					context.Background(),
+					"del-host",
+					"GitHubEnterpriseServer",
+					"https://x.com",
+					nil,
+				)
 				if err != nil {
 					return ""
 				}
@@ -630,7 +655,13 @@ func TestHandler_UpdateHost(t *testing.T) {
 		{
 			name: "happy path",
 			setupFn: func(h *codestarconnections.Handler) string {
-				host, err := h.Backend.CreateHost("upd-host", "GitHubEnterpriseServer", "https://old.com", nil)
+				host, err := h.Backend.CreateHost(
+					context.Background(),
+					"upd-host",
+					"GitHubEnterpriseServer",
+					"https://old.com",
+					nil,
+				)
 				if err != nil {
 					return ""
 				}
@@ -672,7 +703,7 @@ func TestHandler_TagResource_Connection(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	conn, err := h.Backend.CreateConnection("tagged-conn", "GitHub", "", nil)
+	conn, err := h.Backend.CreateConnection(context.Background(), "tagged-conn", "GitHub", "", nil)
 	require.NoError(t, err)
 
 	rec := doRequest(t, h, "TagResource", map[string]any{
@@ -711,7 +742,13 @@ func TestHandler_UntagResource(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	conn, err := h.Backend.CreateConnection("untag-conn", "GitHub", "", map[string]string{"env": "prod", "team": "ops"})
+	conn, err := h.Backend.CreateConnection(
+		context.Background(),
+		"untag-conn",
+		"GitHub",
+		"",
+		map[string]string{"env": "prod", "team": "ops"},
+	)
 	require.NoError(t, err)
 
 	rec := doRequest(t, h, "UntagResource", map[string]any{
@@ -720,7 +757,7 @@ func TestHandler_UntagResource(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	tags, err := h.Backend.ListTagsForResource(conn.ConnectionArn)
+	tags, err := h.Backend.ListTagsForResource(context.Background(), conn.ConnectionArn)
 	require.NoError(t, err)
 	assert.NotContains(t, tags, "env")
 	assert.Contains(t, tags, "team")
@@ -730,7 +767,13 @@ func TestHandler_ListTagsForResource(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	conn, err := h.Backend.CreateConnection("list-tags-conn", "GitHub", "", map[string]string{"k1": "v1"})
+	conn, err := h.Backend.CreateConnection(
+		context.Background(),
+		"list-tags-conn",
+		"GitHub",
+		"",
+		map[string]string{"k1": "v1"},
+	)
 	require.NoError(t, err)
 
 	rec := doRequest(t, h, "ListTagsForResource", map[string]any{"ResourceArn": conn.ConnectionArn})
@@ -868,6 +911,7 @@ func TestHandler_GetRepositoryLink(t *testing.T) {
 			name: "happy path",
 			setupFn: func(h *codestarconnections.Handler) string {
 				link, err := h.Backend.CreateRepositoryLink(
+					context.Background(),
 					"arn:aws:codestar-connections:us-east-1:000000000000:connection/abc",
 					"my-owner", "my-repo", "",
 				)
@@ -934,6 +978,7 @@ func TestHandler_DeleteRepositoryLink(t *testing.T) {
 			name: "happy path",
 			setupFn: func(h *codestarconnections.Handler) string {
 				link, err := h.Backend.CreateRepositoryLink(
+					context.Background(),
 					"arn:aws:codestar-connections:us-east-1:000000000000:connection/abc",
 					"owner", "repo", "",
 				)
@@ -986,10 +1031,12 @@ func TestHandler_ListRepositoryLinks(t *testing.T) {
 
 	h := newTestHandler(t)
 	_, _ = h.Backend.CreateRepositoryLink(
+		context.Background(),
 		"arn:aws:codestar-connections:us-east-1:000000000000:connection/abc",
 		"owner1", "repo1", "",
 	)
 	_, _ = h.Backend.CreateRepositoryLink(
+		context.Background(),
 		"arn:aws:codestar-connections:us-east-1:000000000000:connection/abc",
 		"owner2", "repo2", "",
 	)
@@ -1099,6 +1146,7 @@ func TestHandler_GetSyncConfiguration(t *testing.T) {
 			name: "happy path",
 			setupFn: func(h *codestarconnections.Handler) {
 				_, _ = h.Backend.CreateSyncConfiguration(
+					context.Background(),
 					"main", "config.yaml", "link-id", "my-stack",
 					"arn:aws:iam::000000000000:role/role", "CFN_STACK_SYNC",
 				)
@@ -1160,6 +1208,7 @@ func TestHandler_DeleteSyncConfiguration(t *testing.T) {
 			name: "happy path",
 			setupFn: func(h *codestarconnections.Handler) {
 				_, _ = h.Backend.CreateSyncConfiguration(
+					context.Background(),
 					"main", "config.yaml", "link-id", "del-stack",
 					"arn:aws:iam::000000000000:role/role", "CFN_STACK_SYNC",
 				)
@@ -1207,6 +1256,7 @@ func TestHandler_GetRepositorySyncStatus(t *testing.T) {
 			name: "happy path",
 			setupFn: func(h *codestarconnections.Handler) string {
 				link, err := h.Backend.CreateRepositoryLink(
+					context.Background(),
 					"arn:aws:codestar-connections:us-east-1:000000000000:connection/abc",
 					"owner", "repo", "",
 				)
@@ -1278,6 +1328,7 @@ func TestHandler_GetResourceSyncStatus(t *testing.T) {
 			name: "happy path",
 			setupFn: func(h *codestarconnections.Handler) {
 				_, _ = h.Backend.CreateSyncConfiguration(
+					context.Background(),
 					"main", "config.yaml", "link-id", "my-resource",
 					"arn:aws:iam::000000000000:role/role", "CFN_STACK_SYNC",
 				)
@@ -1339,6 +1390,7 @@ func TestHandler_GetSyncBlockerSummary(t *testing.T) {
 			name: "happy path",
 			setupFn: func(h *codestarconnections.Handler) {
 				_, _ = h.Backend.CreateSyncConfiguration(
+					context.Background(),
 					"main", "config.yaml", "link-id", "blocker-resource",
 					"arn:aws:iam::000000000000:role/role", "CFN_STACK_SYNC",
 				)
@@ -1400,7 +1452,7 @@ func TestHandler_RepositoryLink_SyncConfiguration_RoundTrip(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	conn, err := h.Backend.CreateConnection("my-conn", "GitHub", "", nil)
+	conn, err := h.Backend.CreateConnection(context.Background(), "my-conn", "GitHub", "", nil)
 	require.NoError(t, err)
 
 	// Create a repository link.
@@ -1504,9 +1556,9 @@ func TestRefinement1_Reset(t *testing.T) {
 	h := newTestHandler(t)
 
 	// Seed some state.
-	_, err := h.Backend.CreateConnection("c1", "GitHub", "", nil)
+	_, err := h.Backend.CreateConnection(context.Background(), "c1", "GitHub", "", nil)
 	require.NoError(t, err)
-	_, err = h.Backend.CreateHost("h1", "GitHub", "https://example.com", nil)
+	_, err = h.Backend.CreateHost(context.Background(), "h1", "GitHub", "https://example.com", nil)
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, h.Backend.ConnectionCount())
@@ -1538,7 +1590,7 @@ func TestRefinement1_HandlerOpsPreBuilt(t *testing.T) {
 	// Call Handler() multiple times and confirm responses are consistent (ops not rebuilt per call).
 	h := newTestHandler(t)
 
-	_, err := h.Backend.CreateConnection("conn-one", "GitHub", "", nil)
+	_, err := h.Backend.CreateConnection(context.Background(), "conn-one", "GitHub", "", nil)
 	require.NoError(t, err)
 
 	// Two separate calls; both must route correctly.
@@ -1880,14 +1932,14 @@ func TestRefinement1_TagsDeepCopy(t *testing.T) {
 
 	b := codestarconnections.NewInMemoryBackend("000000000000", "us-east-1")
 
-	conn, err := b.CreateConnection("dc-conn", "GitHub", "", map[string]string{"k": "v1"})
+	conn, err := b.CreateConnection(context.Background(), "dc-conn", "GitHub", "", map[string]string{"k": "v1"})
 	require.NoError(t, err)
 
 	// Modify the returned copy's tags.
 	conn.Tags["k"] = "mutated"
 
 	// Original stored conn must be unaffected.
-	got, err := b.GetConnection(conn.ConnectionArn)
+	got, err := b.GetConnection(context.Background(), conn.ConnectionArn)
 	require.NoError(t, err)
 	assert.Equal(t, "v1", got.Tags["k"])
 }
@@ -1912,7 +1964,7 @@ func TestRefinement1_SeedHelpers(t *testing.T) {
 		Status:  "AVAILABLE",
 		Tags:    map[string]string{},
 	})
-	b.AddRepositoryLinkInternal(&codestarconnections.RepositoryLink{
+	b.AddRepositoryLinkInternal(context.Background(), &codestarconnections.RepositoryLink{
 		RepositoryLinkID:  "seed-link-id",
 		RepositoryLinkArn: "arn:aws:codestar-connections:us-east-1:000000000000:repository-link/seed-link-id",
 		ConnectionArn:     "arn:aws:codestar-connections:us-east-1:000000000000:connection/seed1",
@@ -1936,13 +1988,21 @@ func TestRefinement1_ExportCountHelpers(t *testing.T) {
 	assert.Equal(t, 0, b.RepositoryLinkCount())
 	assert.Equal(t, 0, b.SyncConfigurationCount())
 
-	_, err := b.CreateConnection("c1", "GitHub", "", nil)
+	_, err := b.CreateConnection(context.Background(), "c1", "GitHub", "", nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateRepositoryLink("conn-arn", "owner", "repo", "")
+	_, err = b.CreateRepositoryLink(context.Background(), "conn-arn", "owner", "repo", "")
 	require.NoError(t, err)
 
-	_, err = b.CreateSyncConfiguration("main", "f", "link-id", "res", "role-arn", "CFN_STACK_SYNC")
+	_, err = b.CreateSyncConfiguration(
+		context.Background(),
+		"main",
+		"f",
+		"link-id",
+		"res",
+		"role-arn",
+		"CFN_STACK_SYNC",
+	)
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, b.ConnectionCount())
@@ -1956,13 +2016,21 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 
 	b := codestarconnections.NewInMemoryBackend("111111111111", "eu-west-1")
 
-	_, err := b.CreateConnection("persist-conn", "GitHub", "", map[string]string{"env": "test"})
+	_, err := b.CreateConnection(context.Background(), "persist-conn", "GitHub", "", map[string]string{"env": "test"})
 	require.NoError(t, err)
-	_, err = b.CreateHost("persist-host", "GitHub", "https://example.com", nil)
+	_, err = b.CreateHost(context.Background(), "persist-host", "GitHub", "https://example.com", nil)
 	require.NoError(t, err)
-	link, err := b.CreateRepositoryLink("conn-arn", "owner", "persist-repo", "")
+	link, err := b.CreateRepositoryLink(context.Background(), "conn-arn", "owner", "persist-repo", "")
 	require.NoError(t, err)
-	_, err = b.CreateSyncConfiguration("main", "f", link.RepositoryLinkID, "res", "arn:r", "CFN_STACK_SYNC")
+	_, err = b.CreateSyncConfiguration(
+		context.Background(),
+		"main",
+		"f",
+		link.RepositoryLinkID,
+		"res",
+		"arn:r",
+		"CFN_STACK_SYNC",
+	)
 	require.NoError(t, err)
 
 	snap := b.Snapshot()
@@ -1979,7 +2047,7 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	assert.Equal(t, "eu-west-1", b2.Region())
 
 	// Tag data must survive round trip.
-	conns := b2.ListConnections("", "")
+	conns := b2.ListConnections(context.Background(), "", "")
 	require.Len(t, conns, 1)
 	assert.Equal(t, "test", conns[0].Tags["env"])
 }
@@ -2092,20 +2160,20 @@ func TestRefinement1_ListRepositoryLinks_Sorted(t *testing.T) {
 	b := codestarconnections.NewInMemoryBackend("000000000000", "us-east-1")
 
 	// Seed links with known IDs so we can verify order.
-	b.AddRepositoryLinkInternal(&codestarconnections.RepositoryLink{
+	b.AddRepositoryLinkInternal(context.Background(), &codestarconnections.RepositoryLink{
 		RepositoryLinkID: "b-link",
 		ConnectionArn:    "arn1",
 		OwnerID:          "owner",
 		RepositoryName:   "repo-b",
 	})
-	b.AddRepositoryLinkInternal(&codestarconnections.RepositoryLink{
+	b.AddRepositoryLinkInternal(context.Background(), &codestarconnections.RepositoryLink{
 		RepositoryLinkID: "a-link",
 		ConnectionArn:    "arn1",
 		OwnerID:          "owner",
 		RepositoryName:   "repo-a",
 	})
 
-	links := b.ListRepositoryLinks()
+	links := b.ListRepositoryLinks(context.Background())
 	require.Len(t, links, 2)
 	assert.Equal(t, "a-link", links[0].RepositoryLinkID)
 	assert.Equal(t, "b-link", links[1].RepositoryLinkID)
@@ -2116,7 +2184,7 @@ func TestRefinement1_ConnectionTags_NonNil(t *testing.T) {
 	t.Parallel()
 
 	b := codestarconnections.NewInMemoryBackend("000000000000", "us-east-1")
-	conn, err := b.CreateConnection("no-tag-conn", "GitHub", "", nil)
+	conn, err := b.CreateConnection(context.Background(), "no-tag-conn", "GitHub", "", nil)
 	require.NoError(t, err)
 	require.NotNil(t, conn.Tags, "Tags must never be nil")
 }
@@ -2126,7 +2194,7 @@ func TestRefinement1_HostTags_NonNil(t *testing.T) {
 	t.Parallel()
 
 	b := codestarconnections.NewInMemoryBackend("000000000000", "us-east-1")
-	host, err := b.CreateHost("no-tag-host", "GitHub", "https://example.com", nil)
+	host, err := b.CreateHost(context.Background(), "no-tag-host", "GitHub", "https://example.com", nil)
 	require.NoError(t, err)
 	require.NotNil(t, host.Tags, "Tags must never be nil")
 }

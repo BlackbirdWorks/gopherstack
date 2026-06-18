@@ -21,10 +21,10 @@ const (
 func seedPipelineExecution(t *testing.T, b *sagemaker.InMemoryBackend) string {
 	t.Helper()
 
-	_, err := b.CreatePipeline("pipe", "{}", "role", nil)
+	_, err := b.CreatePipeline(context.Background(), "pipe", "{}", "role", nil)
 	require.NoError(t, err)
 
-	exec, err := b.StartPipelineExecution("pipe")
+	exec, err := b.StartPipelineExecution(context.Background(), "pipe")
 	require.NoError(t, err)
 
 	return exec.PipelineExecutionArn
@@ -34,7 +34,7 @@ func seedPipelineExecution(t *testing.T, b *sagemaker.InMemoryBackend) string {
 func statusOf(t *testing.T, b *sagemaker.InMemoryBackend, execArn string) string {
 	t.Helper()
 
-	pe, err := b.DescribePipelineExecution(execArn)
+	pe, err := b.DescribePipelineExecution(context.Background(), execArn)
 	require.NoError(t, err)
 
 	return pe.PipelineExecutionStatus
@@ -54,7 +54,7 @@ func TestPipelineExecutionTransitionsFire(t *testing.T) {
 			name: "retry transitions to Succeeded",
 			act: func(t *testing.T, b *sagemaker.InMemoryBackend, execArn string) string {
 				t.Helper()
-				retried, err := b.RetryPipelineExecution(execArn)
+				retried, err := b.RetryPipelineExecution(context.Background(), execArn)
 				require.NoError(t, err)
 
 				return retried.PipelineExecutionArn
@@ -65,7 +65,7 @@ func TestPipelineExecutionTransitionsFire(t *testing.T) {
 			name: "stop transitions to Stopped",
 			act: func(t *testing.T, b *sagemaker.InMemoryBackend, execArn string) string {
 				t.Helper()
-				_, err := b.StopPipelineExecution(execArn)
+				_, err := b.StopPipelineExecution(context.Background(), execArn)
 				require.NoError(t, err)
 
 				return execArn
@@ -104,7 +104,7 @@ func TestShutdownCancelsPendingTransitions(t *testing.T) {
 
 	// Schedule a Stopping -> Stopped transition (100ms delay), then immediately
 	// shut down. Shutdown cancels the lifecycle context before the timer fires.
-	_, err := b.StopPipelineExecution(execArn)
+	_, err := b.StopPipelineExecution(context.Background(), execArn)
 	require.NoError(t, err)
 
 	shutdownStart := time.Now()

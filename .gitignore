@@ -9,6 +9,7 @@ main
 **/main
 /gopherstack
 test/terraform/gopherstack
+test/terraform/bin/
 /bin/
 .DS_Store
 coverage.html
@@ -46,3 +47,4 @@ e2e.test
 *.db
 .beads-credential-key
 *.py
+node_modules/

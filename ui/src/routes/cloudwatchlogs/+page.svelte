@@ -208,6 +208,27 @@
 		insightsResults.length > 0 ? insightsResults[0].map((f) => f.field) : []
 	);
 
+	function csvEsc(v: string): string {
+		return /[",\n]/.test(v) ? `"${v.replaceAll('"', '""')}"` : v;
+	}
+
+	function exportInsightsCsv() {
+		if (insightsResults.length === 0) return;
+		const header = insightsResultFields.map((f) => csvEsc(f)).join(',');
+		const rows = insightsResults.map((row) => {
+			const lookup = new Map(row.map((f) => [f.field, f.value]));
+			return insightsResultFields.map((field) => csvEsc(lookup.get(field) ?? '')).join(',');
+		});
+		const csv = [header, ...rows].join('\n');
+		const blob = new Blob([csv], { type: 'text/csv' });
+		const url = URL.createObjectURL(blob);
+		const a = document.createElement('a');
+		a.href = url;
+		a.download = 'insights-results.csv';
+		a.click();
+		URL.revokeObjectURL(url);
+	}
+
 	// ─── Utility ──────────────────────────────────────────────────────────────
 	function formatBytes(bytes: number | undefined): string {
 		if (!bytes) return '0 B';
@@ -1097,7 +1118,10 @@
 				<!-- Results -->
 				{#if insightsResults.length > 0}
 					<div>
-						<p class="text-xs text-gray-500 dark:text-gray-400 mb-2">{insightsResults.length} rows</p>
+						<div class="flex items-center justify-between mb-2">
+							<p class="text-xs text-gray-500 dark:text-gray-400">{insightsResults.length} rows</p>
+							<button onclick={exportInsightsCsv} class="px-2.5 py-1 text-xs rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">Export CSV</button>
+						</div>
 						<div class="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700">
 							<table class="w-full text-xs">
 								<thead class="bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400">

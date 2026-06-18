@@ -3,12 +3,26 @@ package identitystore
 import "encoding/json"
 
 type backendSnapshot struct {
-	Users       map[string]*User            `json:"users"`
-	Groups      map[string]*Group           `json:"groups"`
-	Memberships map[string]*GroupMembership `json:"memberships"`
-	AccountID   string                      `json:"accountID"`
-	Region      string                      `json:"region"`
-	Counter     int                         `json:"counter"`
+	Users       map[string]map[string]*User            `json:"users"`
+	Groups      map[string]map[string]*Group           `json:"groups"`
+	Memberships map[string]map[string]*GroupMembership `json:"memberships"`
+	AccountID   string                                 `json:"accountID"`
+	Region      string                                 `json:"region"`
+	Counter     int                                    `json:"counter"`
+}
+
+func (s *backendSnapshot) ensureNonNil() {
+	if s.Users == nil {
+		s.Users = make(map[string]map[string]*User)
+	}
+
+	if s.Groups == nil {
+		s.Groups = make(map[string]map[string]*Group)
+	}
+
+	if s.Memberships == nil {
+		s.Memberships = make(map[string]map[string]*GroupMembership)
+	}
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -38,20 +52,10 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		return err
 	}
 
+	snap.ensureNonNil()
+
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
-
-	if snap.Users == nil {
-		snap.Users = make(map[string]*User)
-	}
-
-	if snap.Groups == nil {
-		snap.Groups = make(map[string]*Group)
-	}
-
-	if snap.Memberships == nil {
-		snap.Memberships = make(map[string]*GroupMembership)
-	}
 
 	b.users = snap.Users
 	b.groups = snap.Groups

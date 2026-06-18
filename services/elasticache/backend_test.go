@@ -1,6 +1,7 @@
 package elasticache_test
 
 import (
+	"context"
 	"strings"
 	"sync"
 	"testing"
@@ -72,7 +73,7 @@ func TestCreateCluster(t *testing.T) {
 				backend.SetDNSRegistrar(dns)
 			}
 
-			cluster, err := backend.CreateCluster("my-cache", "redis", "cache.t3.micro", 0)
+			cluster, err := backend.CreateCluster(context.Background(), "my-cache", "redis", "cache.t3.micro", 0)
 			require.NoError(t, err)
 
 			if tt.wantPrefix != "" {
@@ -106,12 +107,12 @@ func TestDeleteCluster_DNSDeregistration(t *testing.T) {
 			backend := elasticache.NewInMemoryBackend(elasticache.EngineStub, "123456789012", "us-east-1")
 			backend.SetDNSRegistrar(dns)
 
-			cluster, err := backend.CreateCluster("my-cache", "redis", "cache.t3.micro", 0)
+			cluster, err := backend.CreateCluster(context.Background(), "my-cache", "redis", "cache.t3.micro", 0)
 			require.NoError(t, err)
 
 			endpoint := cluster.Endpoint
 
-			err = backend.DeleteCluster("my-cache")
+			err = backend.DeleteCluster(context.Background(), "my-cache")
 			require.NoError(t, err)
 
 			assert.True(t, dns.deregistered[endpoint], "hostname should be deregistered from DNS on delete")
@@ -140,7 +141,7 @@ func TestCreateClusterWithOptions_AtomicNoLeak(t *testing.T) {
 
 			backend := elasticache.NewInMemoryBackend(elasticache.EngineEmbedded, "123456789012", "us-east-1")
 
-			_, err := backend.CreateClusterWithOptions(
+			_, err := backend.CreateClusterWithOptions(context.Background(),
 				"my-cache",
 				"redis",
 				"cache.t3.micro",
@@ -152,7 +153,7 @@ func TestCreateClusterWithOptions_AtomicNoLeak(t *testing.T) {
 			)
 			require.ErrorIs(t, err, tt.wantErr)
 
-			_, descErr := backend.DescribeClusters("my-cache", "", 0)
+			_, descErr := backend.DescribeClusters(context.Background(), "my-cache", "", 0)
 			require.ErrorIs(t, descErr, elasticache.ErrClusterNotFound)
 		})
 	}
@@ -199,7 +200,7 @@ func TestCreateClusterWithOptions_FamilyValidation(t *testing.T) {
 
 			backend := elasticache.NewInMemoryBackend(elasticache.EngineStub, "123456789012", "us-east-1")
 
-			_, err := backend.CreateClusterWithOptions(
+			_, err := backend.CreateClusterWithOptions(context.Background(),
 				"my-cache",
 				tt.engine,
 				"cache.t3.micro",
@@ -240,14 +241,14 @@ func TestListTagsForResource_NilTagsSafe(t *testing.T) {
 			backend2 := elasticache.NewInMemoryBackend(elasticache.EngineStub, "123456789012", "us-east-1")
 			require.NoError(t, backend2.Restore(snap))
 
-			_, err := backend2.CreateCluster("nil-tags-cluster", "redis", "cache.t3.micro", 0)
+			_, err := backend2.CreateCluster(context.Background(), "nil-tags-cluster", "redis", "cache.t3.micro", 0)
 			require.NoError(t, err)
 
-			p, err := backend2.DescribeClusters("nil-tags-cluster", "", 0)
+			p, err := backend2.DescribeClusters(context.Background(), "nil-tags-cluster", "", 0)
 			require.NoError(t, err)
 
 			clusterARN := p.Data[0].ARN
-			result, err := backend2.ListTagsForResource(clusterARN)
+			result, err := backend2.ListTagsForResource(context.Background(), clusterARN)
 			require.NoError(t, err)
 			assert.NotNil(t, result)
 		})
@@ -279,10 +280,10 @@ func TestDescribeEvents_RecordsOperations(t *testing.T) {
 
 			backend := elasticache.NewInMemoryBackend(elasticache.EngineStub, "123456789012", "us-east-1")
 
-			_, err := backend.CreateCluster(tt.clusterID, "redis", "cache.t3.micro", 0)
+			_, err := backend.CreateCluster(context.Background(), tt.clusterID, "redis", "cache.t3.micro", 0)
 			require.NoError(t, err)
 
-			p, err := backend.DescribeEvents("", "", "", time.Time{}, time.Time{}, 0, 0)
+			p, err := backend.DescribeEvents(context.Background(), "", "", "", time.Time{}, time.Time{}, 0, 0)
 			require.NoError(t, err)
 			require.NotEmpty(t, p.Data)
 
@@ -325,11 +326,11 @@ func TestFailoverReplicationGroup(t *testing.T) {
 			backend := elasticache.NewInMemoryBackend(elasticache.EngineStub, "123456789012", "us-east-1")
 
 			if tt.wantErr == nil {
-				_, err := backend.CreateReplicationGroup(tt.rgID, "test rg")
+				_, err := backend.CreateReplicationGroup(context.Background(), tt.rgID, "test rg")
 				require.NoError(t, err)
 			}
 
-			rg, err := backend.FailoverReplicationGroup(tt.rgID, "0001")
+			rg, err := backend.FailoverReplicationGroup(context.Background(), tt.rgID, "0001")
 
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
@@ -340,7 +341,16 @@ func TestFailoverReplicationGroup(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, "available", rg.Status)
 
-			p, evErr := backend.DescribeEvents(tt.rgID, "replication-group", "", time.Time{}, time.Time{}, 0, 0)
+			p, evErr := backend.DescribeEvents(
+				context.Background(),
+				tt.rgID,
+				"replication-group",
+				"",
+				time.Time{},
+				time.Time{},
+				0,
+				0,
+			)
 			require.NoError(t, evErr)
 
 			found := false
@@ -379,20 +389,20 @@ func TestAddRemoveTagsForResource(t *testing.T) {
 
 			backend := elasticache.NewInMemoryBackend(elasticache.EngineStub, "123456789012", "us-east-1")
 
-			c, err := backend.CreateCluster("tag-cluster", "redis", "cache.t3.micro", 0)
+			c, err := backend.CreateCluster(context.Background(), "tag-cluster", "redis", "cache.t3.micro", 0)
 			require.NoError(t, err)
 
-			err = backend.AddTagsToResource(c.ARN, tt.addTags)
+			err = backend.AddTagsToResource(context.Background(), c.ARN, tt.addTags)
 			require.NoError(t, err)
 
-			got, err := backend.ListTagsForResource(c.ARN)
+			got, err := backend.ListTagsForResource(context.Background(), c.ARN)
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantAfterAdd, got)
 
-			err = backend.RemoveTagsFromResource(c.ARN, tt.removeTags)
+			err = backend.RemoveTagsFromResource(context.Background(), c.ARN, tt.removeTags)
 			require.NoError(t, err)
 
-			got, err = backend.ListTagsForResource(c.ARN)
+			got, err = backend.ListTagsForResource(context.Background(), c.ARN)
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantAfterRemove, got)
 		})
@@ -431,10 +441,19 @@ func TestModifyCluster_ScalesAndEngineVersion(t *testing.T) {
 
 			backend := elasticache.NewInMemoryBackend(elasticache.EngineStub, "123456789012", "us-east-1")
 
-			_, err := backend.CreateCluster("mod-cluster", "redis", "cache.t3.micro", 0)
+			_, err := backend.CreateCluster(context.Background(), "mod-cluster", "redis", "cache.t3.micro", 0)
 			require.NoError(t, err)
 
-			modified, err := backend.ModifyCluster("mod-cluster", "", "", tt.engineVersion, "", "", tt.numCacheNodes)
+			modified, err := backend.ModifyCluster(
+				context.Background(),
+				"mod-cluster",
+				"",
+				"",
+				tt.engineVersion,
+				"",
+				"",
+				tt.numCacheNodes,
+			)
 			require.NoError(t, err)
 
 			assert.Equal(t, tt.wantVersion, modified.EngineVersion)
@@ -458,21 +477,21 @@ func TestBackend_Reset(t *testing.T) {
 
 			backend := elasticache.NewInMemoryBackend(elasticache.EngineStub, "123456789012", "us-east-1")
 
-			_, err := backend.CreateCluster("reset-cluster", "redis", "cache.t3.micro", 0)
+			_, err := backend.CreateCluster(context.Background(), "reset-cluster", "redis", "cache.t3.micro", 0)
 			require.NoError(t, err)
 
-			_, err = backend.CreateReplicationGroup("reset-rg", "test")
+			_, err = backend.CreateReplicationGroup(context.Background(), "reset-rg", "test")
 			require.NoError(t, err)
 
 			backend.Reset()
 
-			_, err = backend.DescribeClusters("reset-cluster", "", 0)
+			_, err = backend.DescribeClusters(context.Background(), "reset-cluster", "", 0)
 			require.ErrorIs(t, err, elasticache.ErrClusterNotFound)
 
-			_, err = backend.DescribeReplicationGroups("reset-rg", "", 0)
+			_, err = backend.DescribeReplicationGroups(context.Background(), "reset-rg", "", 0)
 			require.ErrorIs(t, err, elasticache.ErrReplicationGroupNotFound)
 
-			p, err := backend.DescribeEvents("", "", "", time.Time{}, time.Time{}, 0, 0)
+			p, err := backend.DescribeEvents(context.Background(), "", "", "", time.Time{}, time.Time{}, 0, 0)
 			require.NoError(t, err)
 			assert.Empty(t, p.Data)
 

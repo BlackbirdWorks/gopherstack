@@ -1,6 +1,7 @@
 package wafv2_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -1700,6 +1701,7 @@ func TestBatch2_Snapshot_IncludesManagedRuleSets(t *testing.T) {
 
 	// Populate managed rule set in b1.
 	_, err := b1.PutManagedRuleSetVersions(
+		context.Background(),
 		"snap-ms-001", "snap-ruleset", "REGIONAL", "", "Version_2.0",
 		map[string]any{
 			"Version_2.0": map[string]any{
@@ -1717,7 +1719,7 @@ func TestBatch2_Snapshot_IncludesManagedRuleSets(t *testing.T) {
 	require.NoError(t, b2.Restore(snap))
 
 	// Verify managed rule set was restored.
-	ms, err := b2.GetManagedRuleSet("snap-ms-001")
+	ms, err := b2.GetManagedRuleSet(context.Background(), "snap-ms-001")
 	require.NoError(t, err)
 	assert.Equal(t, "snap-ruleset", ms.Name)
 	assert.Equal(t, "Version_2.0", ms.RecommendedVersion)

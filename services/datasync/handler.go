@@ -718,13 +718,14 @@ type describeTaskExecutionInput struct {
 }
 
 type describeTaskExecutionOutput struct {
-	TaskExecutionArn         string `json:"TaskExecutionArn"`
-	Status                   string `json:"Status"`
-	StartTime                int64  `json:"StartTime"`
-	EstimatedFilesToTransfer int64  `json:"EstimatedFilesToTransfer"`
-	EstimatedBytesToTransfer int64  `json:"EstimatedBytesToTransfer"`
-	FilesTransferred         int64  `json:"FilesTransferred"`
-	BytesTransferred         int64  `json:"BytesTransferred"`
+	Options                  map[string]any `json:"Options,omitempty"`
+	TaskExecutionArn         string         `json:"TaskExecutionArn"`
+	Status                   string         `json:"Status"`
+	StartTime                int64          `json:"StartTime"`
+	EstimatedFilesToTransfer int64          `json:"EstimatedFilesToTransfer"`
+	EstimatedBytesToTransfer int64          `json:"EstimatedBytesToTransfer"`
+	FilesTransferred         int64          `json:"FilesTransferred"`
+	BytesTransferred         int64          `json:"BytesTransferred"`
 }
 
 func (h *Handler) handleDescribeTaskExecution(
@@ -744,6 +745,7 @@ func (h *Handler) handleDescribeTaskExecution(
 		TaskExecutionArn:         e.TaskExecutionArn,
 		Status:                   e.Status,
 		StartTime:                e.StartTime.Unix(),
+		Options:                  e.Options,
 		EstimatedFilesToTransfer: e.EstimatedFilesToTransfer,
 		EstimatedBytesToTransfer: e.EstimatedBytesToTransfer,
 		FilesTransferred:         e.FilesTransferred,
@@ -899,7 +901,8 @@ func (h *Handler) handleUpdateLocationS3(
 // --- UpdateTaskExecution ---
 
 type updateTaskExecutionInput struct {
-	TaskExecutionArn string `json:"TaskExecutionArn"`
+	Options          map[string]any `json:"Options"`
+	TaskExecutionArn string         `json:"TaskExecutionArn"`
 }
 
 type updateTaskExecutionOutput struct{}
@@ -912,7 +915,12 @@ func (h *Handler) handleUpdateTaskExecution(
 		return nil, fmt.Errorf("%w: TaskExecutionArn is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.UpdateTaskExecution(in.TaskExecutionArn); err != nil {
+	// AWS requires the Options member on UpdateTaskExecution.
+	if len(in.Options) == 0 {
+		return nil, fmt.Errorf("%w: Options is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.UpdateTaskExecution(in.TaskExecutionArn, in.Options); err != nil {
 		return nil, err
 	}
 

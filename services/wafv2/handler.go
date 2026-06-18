@@ -217,22 +217,22 @@ func (h *Handler) Handler() echo.HandlerFunc {
 func (h *Handler) buildDispatchTable(ctx context.Context) map[string]func([]byte) ([]byte, error) {
 	return map[string]func([]byte) ([]byte, error){
 		"CreateWebACL":          func(b []byte) ([]byte, error) { return h.handleCreateWebACL(ctx, b) },
-		"GetWebACL":             h.handleGetWebACL,
+		"GetWebACL":             func(b []byte) ([]byte, error) { return h.handleGetWebACL(ctx, b) },
 		"UpdateWebACL":          func(b []byte) ([]byte, error) { return h.handleUpdateWebACL(ctx, b) },
 		"DeleteWebACL":          func(b []byte) ([]byte, error) { return h.handleDeleteWebACL(ctx, b) },
-		"ListWebACLs":           h.handleListWebACLs,
+		"ListWebACLs":           func(b []byte) ([]byte, error) { return h.handleListWebACLs(ctx, b) },
 		"CreateIPSet":           func(b []byte) ([]byte, error) { return h.handleCreateIPSet(ctx, b) },
-		"GetIPSet":              h.handleGetIPSet,
+		"GetIPSet":              func(b []byte) ([]byte, error) { return h.handleGetIPSet(ctx, b) },
 		"UpdateIPSet":           func(b []byte) ([]byte, error) { return h.handleUpdateIPSet(ctx, b) },
 		"DeleteIPSet":           func(b []byte) ([]byte, error) { return h.handleDeleteIPSet(ctx, b) },
-		"ListIPSets":            h.handleListIPSets,
-		"TagResource":           h.handleTagResource,
-		"ListTagsForResource":   h.handleListTagsForResource,
-		"UntagResource":         h.handleUntagResource,
-		"AssociateWebACL":       h.handleAssociateWebACL,
-		"DisassociateWebACL":    h.handleDisassociateWebACL,
-		"GetWebACLForResource":  h.handleGetWebACLForResource,
-		"CheckCapacity":         h.handleCheckCapacity,
+		"ListIPSets":            func(b []byte) ([]byte, error) { return h.handleListIPSets(ctx, b) },
+		"TagResource":           func(b []byte) ([]byte, error) { return h.handleTagResource(ctx, b) },
+		"ListTagsForResource":   func(b []byte) ([]byte, error) { return h.handleListTagsForResource(ctx, b) },
+		"UntagResource":         func(b []byte) ([]byte, error) { return h.handleUntagResource(ctx, b) },
+		"AssociateWebACL":       func(b []byte) ([]byte, error) { return h.handleAssociateWebACL(ctx, b) },
+		"DisassociateWebACL":    func(b []byte) ([]byte, error) { return h.handleDisassociateWebACL(ctx, b) },
+		"GetWebACLForResource":  func(b []byte) ([]byte, error) { return h.handleGetWebACLForResource(ctx, b) },
+		"CheckCapacity":         func(b []byte) ([]byte, error) { return h.handleCheckCapacity(ctx, b) },
 		"CreateAPIKey":          func(b []byte) ([]byte, error) { return h.handleCreateAPIKey(ctx, b) },
 		"CreateRegexPatternSet": func(b []byte) ([]byte, error) { return h.handleCreateRegexPatternSet(ctx, b) },
 		"CreateRuleGroup":       func(b []byte) ([]byte, error) { return h.handleCreateRuleGroup(ctx, b) },
@@ -245,21 +245,21 @@ func (h *Handler) buildDispatchTable(ctx context.Context) map[string]func([]byte
 		},
 		"DeletePermissionPolicy": func(b []byte) ([]byte, error) { return h.handleDeletePermissionPolicy(ctx, b) },
 		"DeleteRegexPatternSet":  func(b []byte) ([]byte, error) { return h.handleDeleteRegexPatternSet(ctx, b) },
-		"GetRegexPatternSet":     h.handleGetRegexPatternSet,
-		"ListRegexPatternSets":   h.handleListRegexPatternSets,
+		"GetRegexPatternSet":     func(b []byte) ([]byte, error) { return h.handleGetRegexPatternSet(ctx, b) },
+		"ListRegexPatternSets":   func(b []byte) ([]byte, error) { return h.handleListRegexPatternSets(ctx, b) },
 		"UpdateRegexPatternSet":  func(b []byte) ([]byte, error) { return h.handleUpdateRegexPatternSet(ctx, b) },
-		"GetRuleGroup":           h.handleGetRuleGroup,
-		"ListRuleGroups":         h.handleListRuleGroups,
+		"GetRuleGroup":           func(b []byte) ([]byte, error) { return h.handleGetRuleGroup(ctx, b) },
+		"ListRuleGroups":         func(b []byte) ([]byte, error) { return h.handleListRuleGroups(ctx, b) },
 		"UpdateRuleGroup":        func(b []byte) ([]byte, error) { return h.handleUpdateRuleGroup(ctx, b) },
-		"ListAPIKeys":            h.handleListAPIKeys,
-		"GetDecryptedAPIKey":     h.handleGetDecryptedAPIKey,
+		"ListAPIKeys":            func(b []byte) ([]byte, error) { return h.handleListAPIKeys(ctx, b) },
+		"GetDecryptedAPIKey":     func(b []byte) ([]byte, error) { return h.handleGetDecryptedAPIKey(ctx, b) },
 		"PutLoggingConfiguration": func(b []byte) ([]byte, error) {
 			return h.handlePutLoggingConfiguration(ctx, b)
 		},
-		"GetLoggingConfiguration": h.handleGetLoggingConfiguration,
+		"GetLoggingConfiguration": func(b []byte) ([]byte, error) { return h.handleGetLoggingConfiguration(ctx, b) },
 		"PutPermissionPolicy":     func(b []byte) ([]byte, error) { return h.handlePutPermissionPolicy(ctx, b) },
-		"GetPermissionPolicy":     h.handleGetPermissionPolicy,
-		"ListResourcesForWebACL":  h.handleListResourcesForWebACL,
+		"GetPermissionPolicy":     func(b []byte) ([]byte, error) { return h.handleGetPermissionPolicy(ctx, b) },
+		"ListResourcesForWebACL":  func(b []byte) ([]byte, error) { return h.handleListResourcesForWebACL(ctx, b) },
 		"DeleteRuleGroup":         func(b []byte) ([]byte, error) { return h.handleDeleteRuleGroup(ctx, b) },
 		"DescribeAllManagedProducts": func(b []byte) ([]byte, error) {
 			return h.handleDescribeAllManagedProducts(b)
@@ -271,7 +271,7 @@ func (h *Handler) buildDispatchTable(ctx context.Context) map[string]func([]byte
 		"GenerateMobileSdkReleaseUrl": func(b []byte) ([]byte, error) {
 			return h.handleGenerateMobileSdkReleaseURL(b)
 		},
-		"GetManagedRuleSet":   h.handleGetManagedRuleSet,
+		"GetManagedRuleSet":   func(b []byte) ([]byte, error) { return h.handleGetManagedRuleSet(ctx, b) },
 		"GetMobileSdkRelease": h.handleGetMobileSdkRelease,
 		"GetRateBasedStatementManagedKeys": func(b []byte) ([]byte, error) {
 			return h.handleGetRateBasedStatementManagedKeys(b)
@@ -286,8 +286,8 @@ func (h *Handler) buildDispatchTable(ctx context.Context) map[string]func([]byte
 		"ListAvailableManagedRuleGroups": func(b []byte) ([]byte, error) {
 			return h.handleListAvailableManagedRuleGroups(b)
 		},
-		"ListLoggingConfigurations": h.handleListLoggingConfigurations,
-		"ListManagedRuleSets":       h.handleListManagedRuleSets,
+		"ListLoggingConfigurations": func(b []byte) ([]byte, error) { return h.handleListLoggingConfigurations(ctx, b) },
+		"ListManagedRuleSets":       func(b []byte) ([]byte, error) { return h.handleListManagedRuleSets(ctx, b) },
 		"ListMobileSdkReleases":     h.handleListMobileSdkReleases,
 		"PutManagedRuleSetVersions": func(b []byte) ([]byte, error) {
 			return h.handlePutManagedRuleSetVersions(ctx, b)
@@ -446,6 +446,7 @@ func (h *Handler) handleCreateWebACL(ctx context.Context, body []byte) ([]byte, 
 	}
 
 	w, err := h.Backend.CreateWebACL(
+		ctx,
 		req.Name,
 		req.Scope,
 		req.Description,
@@ -506,7 +507,7 @@ type getWebACLRequest struct {
 	Scope string `json:"Scope"`
 }
 
-func (h *Handler) handleGetWebACL(body []byte) ([]byte, error) {
+func (h *Handler) handleGetWebACL(ctx context.Context, body []byte) ([]byte, error) {
 	var req getWebACLRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -516,7 +517,7 @@ func (h *Handler) handleGetWebACL(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
 	}
 
-	w, err := h.Backend.GetWebACL(req.ID)
+	w, err := h.Backend.GetWebACL(ctx, req.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -637,6 +638,7 @@ func (h *Handler) handleUpdateWebACL(ctx context.Context, body []byte) ([]byte, 
 	}
 
 	w, err := h.Backend.UpdateWebACL(
+		ctx,
 		req.ID,
 		req.Description,
 		req.LockToken,
@@ -679,7 +681,7 @@ func (h *Handler) handleDeleteWebACL(ctx context.Context, body []byte) ([]byte, 
 		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.DeleteWebACL(req.ID, req.LockToken); err != nil {
+	if err := h.Backend.DeleteWebACL(ctx, req.ID, req.LockToken); err != nil {
 		return nil, err
 	}
 
@@ -699,13 +701,13 @@ type listWebACLsRequest struct {
 // handleListWebACLs handles the ListWebACLs request.
 //
 //nolint:dupl // list handlers share structural similarity but operate on different types
-func (h *Handler) handleListWebACLs(body []byte) ([]byte, error) {
+func (h *Handler) handleListWebACLs(ctx context.Context, body []byte) ([]byte, error) {
 	var req listWebACLsRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	webACLs := h.Backend.ListWebACLs()
+	webACLs := h.Backend.ListWebACLs(ctx)
 
 	// Filter by scope.
 	filtered := make([]*WebACL, 0, len(webACLs))
@@ -801,6 +803,7 @@ func (h *Handler) handleCreateIPSet(ctx context.Context, body []byte) ([]byte, e
 	}
 
 	s, err := h.Backend.CreateIPSet(
+		ctx,
 		req.Name,
 		req.Scope,
 		req.Description,
@@ -834,7 +837,7 @@ type getIPSetRequest struct {
 	Scope string `json:"Scope"`
 }
 
-func (h *Handler) handleGetIPSet(body []byte) ([]byte, error) {
+func (h *Handler) handleGetIPSet(ctx context.Context, body []byte) ([]byte, error) {
 	var req getIPSetRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -844,7 +847,7 @@ func (h *Handler) handleGetIPSet(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
 	}
 
-	s, err := h.Backend.GetIPSet(req.ID)
+	s, err := h.Backend.GetIPSet(ctx, req.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -890,7 +893,7 @@ func (h *Handler) handleUpdateIPSet(ctx context.Context, body []byte) ([]byte, e
 	}
 
 	// Validate CIDRs against stored IP version — fetch first.
-	existing, err := h.Backend.GetIPSet(req.ID)
+	existing, err := h.Backend.GetIPSet(ctx, req.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -901,7 +904,7 @@ func (h *Handler) handleUpdateIPSet(ctx context.Context, body []byte) ([]byte, e
 		}
 	}
 
-	s, err := h.Backend.UpdateIPSet(req.ID, req.Description, req.LockToken, req.Addresses)
+	s, err := h.Backend.UpdateIPSet(ctx, req.ID, req.Description, req.LockToken, req.Addresses)
 	if err != nil {
 		return nil, err
 	}
@@ -932,7 +935,7 @@ func (h *Handler) handleDeleteIPSet(ctx context.Context, body []byte) ([]byte, e
 		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.DeleteIPSet(req.ID, req.LockToken); err != nil {
+	if err := h.Backend.DeleteIPSet(ctx, req.ID, req.LockToken); err != nil {
 		return nil, err
 	}
 
@@ -950,13 +953,13 @@ type listIPSetsRequest struct {
 }
 
 //nolint:dupl // list handlers share structural similarity but operate on different types
-func (h *Handler) handleListIPSets(body []byte) ([]byte, error) {
+func (h *Handler) handleListIPSets(ctx context.Context, body []byte) ([]byte, error) {
 	var req listIPSetsRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	ipSets := h.Backend.ListIPSets()
+	ipSets := h.Backend.ListIPSets(ctx)
 
 	filtered := make([]*IPSet, 0, len(ipSets))
 
@@ -1002,7 +1005,7 @@ type tagResourceRequest struct {
 	Tags        []tagItem `json:"Tags"`
 }
 
-func (h *Handler) handleTagResource(body []byte) ([]byte, error) {
+func (h *Handler) handleTagResource(ctx context.Context, body []byte) ([]byte, error) {
 	var req tagResourceRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -1017,7 +1020,7 @@ func (h *Handler) handleTagResource(body []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	if err := h.Backend.TagResource(req.ResourceARN, tags); err != nil {
+	if err := h.Backend.TagResource(ctx, req.ResourceARN, tags); err != nil {
 		return nil, err
 	}
 
@@ -1029,7 +1032,7 @@ type listTagsForResourceRequest struct {
 	ResourceARN string `json:"ResourceARN"`
 }
 
-func (h *Handler) handleListTagsForResource(body []byte) ([]byte, error) {
+func (h *Handler) handleListTagsForResource(ctx context.Context, body []byte) ([]byte, error) {
 	var req listTagsForResourceRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -1039,7 +1042,7 @@ func (h *Handler) handleListTagsForResource(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: ResourceARN is required", errInvalidRequest)
 	}
 
-	tags, err := h.Backend.ListTagsForResource(req.ResourceARN)
+	tags, err := h.Backend.ListTagsForResource(ctx, req.ResourceARN)
 	if err != nil {
 		return nil, err
 	}
@@ -1058,7 +1061,7 @@ type untagResourceRequest struct {
 	TagKeys     []string `json:"TagKeys"`
 }
 
-func (h *Handler) handleUntagResource(body []byte) ([]byte, error) {
+func (h *Handler) handleUntagResource(ctx context.Context, body []byte) ([]byte, error) {
 	var req untagResourceRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -1068,7 +1071,7 @@ func (h *Handler) handleUntagResource(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: ResourceARN is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.UntagResource(req.ResourceARN, req.TagKeys); err != nil {
+	if err := h.Backend.UntagResource(ctx, req.ResourceARN, req.TagKeys); err != nil {
 		return nil, err
 	}
 
@@ -1134,7 +1137,7 @@ type associateWebACLRequest struct {
 	ResourceArn string `json:"ResourceArn"`
 }
 
-func (h *Handler) handleAssociateWebACL(body []byte) ([]byte, error) {
+func (h *Handler) handleAssociateWebACL(ctx context.Context, body []byte) ([]byte, error) {
 	var req associateWebACLRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -1152,7 +1155,7 @@ func (h *Handler) handleAssociateWebACL(body []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	if err := h.Backend.AssociateWebACL(req.WebACLArn, req.ResourceArn); err != nil {
+	if err := h.Backend.AssociateWebACL(ctx, req.WebACLArn, req.ResourceArn); err != nil {
 		return nil, err
 	}
 
@@ -1198,7 +1201,7 @@ type disassociateWebACLRequest struct {
 	ResourceArn string `json:"ResourceArn"`
 }
 
-func (h *Handler) handleDisassociateWebACL(body []byte) ([]byte, error) {
+func (h *Handler) handleDisassociateWebACL(ctx context.Context, body []byte) ([]byte, error) {
 	var req disassociateWebACLRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -1208,7 +1211,7 @@ func (h *Handler) handleDisassociateWebACL(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: ResourceArn is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.DisassociateWebACL(req.ResourceArn); err != nil {
+	if err := h.Backend.DisassociateWebACL(ctx, req.ResourceArn); err != nil {
 		return nil, err
 	}
 
@@ -1220,7 +1223,7 @@ type getWebACLForResourceRequest struct {
 	ResourceArn string `json:"ResourceArn"`
 }
 
-func (h *Handler) handleGetWebACLForResource(body []byte) ([]byte, error) {
+func (h *Handler) handleGetWebACLForResource(ctx context.Context, body []byte) ([]byte, error) {
 	var req getWebACLForResourceRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -1230,7 +1233,7 @@ func (h *Handler) handleGetWebACLForResource(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: ResourceArn is required", errInvalidRequest)
 	}
 
-	w, err := h.Backend.GetWebACLForResource(req.ResourceArn)
+	w, err := h.Backend.GetWebACLForResource(ctx, req.ResourceArn)
 	if err != nil {
 		return nil, err
 	}
@@ -1244,7 +1247,7 @@ type checkCapacityRequest struct {
 	Rules []map[string]any `json:"Rules"`
 }
 
-func (h *Handler) handleCheckCapacity(body []byte) ([]byte, error) {
+func (h *Handler) handleCheckCapacity(ctx context.Context, body []byte) ([]byte, error) {
 	var req checkCapacityRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -1254,7 +1257,7 @@ func (h *Handler) handleCheckCapacity(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: Scope is required", errInvalidRequest)
 	}
 
-	capacity, err := h.Backend.CheckCapacity(req.Scope, req.Rules)
+	capacity, err := h.Backend.CheckCapacity(ctx, req.Scope, req.Rules)
 	if err != nil {
 		return nil, err
 	}
@@ -1288,7 +1291,7 @@ func (h *Handler) handleCreateAPIKey(ctx context.Context, body []byte) ([]byte, 
 		)
 	}
 
-	a, err := h.Backend.CreateAPIKey(req.Scope, req.TokenDomains)
+	a, err := h.Backend.CreateAPIKey(ctx, req.Scope, req.TokenDomains)
 	if err != nil {
 		return nil, err
 	}
@@ -1330,7 +1333,7 @@ func (h *Handler) handleDeleteAPIKey(ctx context.Context, body []byte) ([]byte, 
 		lookupKey = string(decoded)
 	}
 
-	if err := h.Backend.DeleteAPIKey(req.Scope, lookupKey); err != nil {
+	if err := h.Backend.DeleteAPIKey(ctx, req.Scope, lookupKey); err != nil {
 		return nil, err
 	}
 
@@ -1391,6 +1394,7 @@ func (h *Handler) handleCreateRegexPatternSet(ctx context.Context, body []byte) 
 	}
 
 	rps, err := h.Backend.CreateRegexPatternSet(
+		ctx,
 		req.Name,
 		req.Scope,
 		req.Description,
@@ -1460,7 +1464,7 @@ func (h *Handler) handleDeleteRegexPatternSet(ctx context.Context, body []byte) 
 		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.DeleteRegexPatternSet(req.ID, req.LockToken); err != nil {
+	if err := h.Backend.DeleteRegexPatternSet(ctx, req.ID, req.LockToken); err != nil {
 		return nil, err
 	}
 
@@ -1526,6 +1530,7 @@ func (h *Handler) handleCreateRuleGroup(ctx context.Context, body []byte) ([]byt
 	}
 
 	rg, err := h.Backend.CreateRuleGroup(
+		ctx,
 		req.Name,
 		req.Scope,
 		req.Description,
@@ -1569,7 +1574,7 @@ func (h *Handler) handleDeleteFirewallManagerRuleGroups(ctx context.Context, bod
 		return nil, fmt.Errorf("%w: WebACLArn is required", errInvalidRequest)
 	}
 
-	w, err := h.Backend.DeleteFirewallManagerRuleGroups(req.WebACLArn)
+	w, err := h.Backend.DeleteFirewallManagerRuleGroups(ctx, req.WebACLArn)
 	if err != nil {
 		return nil, err
 	}
@@ -1597,7 +1602,7 @@ func (h *Handler) handleDeleteLoggingConfiguration(ctx context.Context, body []b
 		return nil, fmt.Errorf("%w: ResourceArn is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.DeleteLoggingConfiguration(req.ResourceArn); err != nil {
+	if err := h.Backend.DeleteLoggingConfiguration(ctx, req.ResourceArn); err != nil {
 		return nil, err
 	}
 
@@ -1622,7 +1627,7 @@ func (h *Handler) handleDeletePermissionPolicy(ctx context.Context, body []byte)
 		return nil, fmt.Errorf("%w: ResourceArn is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.DeletePermissionPolicy(req.ResourceArn); err != nil {
+	if err := h.Backend.DeletePermissionPolicy(ctx, req.ResourceArn); err != nil {
 		return nil, err
 	}
 
@@ -1639,7 +1644,7 @@ type getRegexPatternSetRequest struct {
 	Scope string `json:"Scope"`
 }
 
-func (h *Handler) handleGetRegexPatternSet(body []byte) ([]byte, error) {
+func (h *Handler) handleGetRegexPatternSet(ctx context.Context, body []byte) ([]byte, error) {
 	var req getRegexPatternSetRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -1649,7 +1654,7 @@ func (h *Handler) handleGetRegexPatternSet(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
 	}
 
-	r, err := h.Backend.GetRegexPatternSet(req.ID)
+	r, err := h.Backend.GetRegexPatternSet(ctx, req.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -1686,13 +1691,13 @@ type listRegexPatternSetsRequest struct {
 }
 
 //nolint:dupl // list handlers share structural similarity but operate on different types
-func (h *Handler) handleListRegexPatternSets(body []byte) ([]byte, error) {
+func (h *Handler) handleListRegexPatternSets(ctx context.Context, body []byte) ([]byte, error) {
 	var req listRegexPatternSetsRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	sets := h.Backend.ListRegexPatternSets()
+	sets := h.Backend.ListRegexPatternSets(ctx)
 
 	filtered := make([]*RegexPatternSet, 0, len(sets))
 
@@ -1760,7 +1765,7 @@ func (h *Handler) handleUpdateRegexPatternSet(ctx context.Context, body []byte) 
 		return nil, validateErr
 	}
 
-	r, err := h.Backend.UpdateRegexPatternSet(req.ID, req.Description, req.LockToken, entries)
+	r, err := h.Backend.UpdateRegexPatternSet(ctx, req.ID, req.Description, req.LockToken, entries)
 	if err != nil {
 		return nil, err
 	}
@@ -1779,7 +1784,7 @@ type getRuleGroupRequest struct {
 	ARN   string `json:"ARN"`
 }
 
-func (h *Handler) handleGetRuleGroup(body []byte) ([]byte, error) {
+func (h *Handler) handleGetRuleGroup(ctx context.Context, body []byte) ([]byte, error) {
 	var req getRuleGroupRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -1789,7 +1794,7 @@ func (h *Handler) handleGetRuleGroup(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
 	}
 
-	rg, err := h.Backend.GetRuleGroup(req.ID)
+	rg, err := h.Backend.GetRuleGroup(ctx, req.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -1829,13 +1834,13 @@ type listRuleGroupsRequest struct {
 }
 
 //nolint:dupl // list handlers share structural similarity but operate on different types
-func (h *Handler) handleListRuleGroups(body []byte) ([]byte, error) {
+func (h *Handler) handleListRuleGroups(ctx context.Context, body []byte) ([]byte, error) {
 	var req listRuleGroupsRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	groups := h.Backend.ListRuleGroups()
+	groups := h.Backend.ListRuleGroups(ctx)
 
 	filtered := make([]*RuleGroup, 0, len(groups))
 
@@ -1900,6 +1905,7 @@ func (h *Handler) handleUpdateRuleGroup(ctx context.Context, body []byte) ([]byt
 	}
 
 	rg, err := h.Backend.UpdateRuleGroup(
+		ctx,
 		req.ID,
 		req.Description,
 		string(req.VisibilityConfig),
@@ -1923,13 +1929,13 @@ type listAPIKeysRequest struct {
 	Limit      int    `json:"Limit"`
 }
 
-func (h *Handler) handleListAPIKeys(body []byte) ([]byte, error) {
+func (h *Handler) handleListAPIKeys(ctx context.Context, body []byte) ([]byte, error) {
 	var req listAPIKeysRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	keys := h.Backend.ListAPIKeys(req.Scope)
+	keys := h.Backend.ListAPIKeys(ctx, req.Scope)
 
 	// Apply pagination.
 	page, nextMarker := paginateByName(
@@ -1963,7 +1969,7 @@ type getDecryptedAPIKeyRequest struct {
 	APIKey string `json:"APIKey"`
 }
 
-func (h *Handler) handleGetDecryptedAPIKey(body []byte) ([]byte, error) {
+func (h *Handler) handleGetDecryptedAPIKey(ctx context.Context, body []byte) ([]byte, error) {
 	var req getDecryptedAPIKeyRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -1983,7 +1989,7 @@ func (h *Handler) handleGetDecryptedAPIKey(body []byte) ([]byte, error) {
 		lookupKey = string(decoded)
 	}
 
-	a, err := h.Backend.GetDecryptedAPIKey(req.Scope, lookupKey)
+	a, err := h.Backend.GetDecryptedAPIKey(ctx, req.Scope, lookupKey)
 	if err != nil {
 		return nil, err
 	}
@@ -2032,7 +2038,7 @@ func (h *Handler) handlePutLoggingConfiguration(ctx context.Context, body []byte
 		}
 	}
 
-	if err := h.Backend.PutLoggingConfiguration(resourceARN, req.LoggingConfiguration); err != nil {
+	if err := h.Backend.PutLoggingConfiguration(ctx, resourceARN, req.LoggingConfiguration); err != nil {
 		return nil, err
 	}
 
@@ -2069,7 +2075,7 @@ type getLoggingConfigurationRequest struct {
 	ResourceArn string `json:"ResourceArn"`
 }
 
-func (h *Handler) handleGetLoggingConfiguration(body []byte) ([]byte, error) {
+func (h *Handler) handleGetLoggingConfiguration(ctx context.Context, body []byte) ([]byte, error) {
 	var req getLoggingConfigurationRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -2079,7 +2085,7 @@ func (h *Handler) handleGetLoggingConfiguration(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: ResourceArn is required", errInvalidRequest)
 	}
 
-	cfgJSON, err := h.Backend.GetLoggingConfiguration(req.ResourceArn)
+	cfgJSON, err := h.Backend.GetLoggingConfiguration(ctx, req.ResourceArn)
 	if err != nil {
 		return nil, err
 	}
@@ -2110,7 +2116,7 @@ func (h *Handler) handlePutPermissionPolicy(ctx context.Context, body []byte) ([
 		return nil, fmt.Errorf("%w: ResourceArn is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.PutPermissionPolicy(req.ResourceArn, req.Policy); err != nil {
+	if err := h.Backend.PutPermissionPolicy(ctx, req.ResourceArn, req.Policy); err != nil {
 		return nil, err
 	}
 
@@ -2125,7 +2131,7 @@ type getPermissionPolicyRequest struct {
 	ResourceArn string `json:"ResourceArn"`
 }
 
-func (h *Handler) handleGetPermissionPolicy(body []byte) ([]byte, error) {
+func (h *Handler) handleGetPermissionPolicy(ctx context.Context, body []byte) ([]byte, error) {
 	var req getPermissionPolicyRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -2135,7 +2141,7 @@ func (h *Handler) handleGetPermissionPolicy(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: ResourceArn is required", errInvalidRequest)
 	}
 
-	policy, err := h.Backend.GetPermissionPolicy(req.ResourceArn)
+	policy, err := h.Backend.GetPermissionPolicy(ctx, req.ResourceArn)
 	if err != nil {
 		return nil, err
 	}
@@ -2149,7 +2155,7 @@ type listResourcesForWebACLRequest struct {
 	ResourceType string `json:"ResourceType"`
 }
 
-func (h *Handler) handleListResourcesForWebACL(body []byte) ([]byte, error) {
+func (h *Handler) handleListResourcesForWebACL(ctx context.Context, body []byte) ([]byte, error) {
 	var req listResourcesForWebACLRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -2159,7 +2165,7 @@ func (h *Handler) handleListResourcesForWebACL(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: WebACLArn is required", errInvalidRequest)
 	}
 
-	resources, err := h.Backend.ListResourcesForWebACL(req.WebACLArn)
+	resources, err := h.Backend.ListResourcesForWebACL(ctx, req.WebACLArn)
 	if err != nil {
 		return nil, err
 	}
@@ -2185,7 +2191,7 @@ func (h *Handler) handleDeleteRuleGroup(ctx context.Context, body []byte) ([]byt
 		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.DeleteRuleGroup(req.ID, req.LockToken); err != nil {
+	if err := h.Backend.DeleteRuleGroup(ctx, req.ID, req.LockToken); err != nil {
 		return nil, err
 	}
 
@@ -2307,7 +2313,7 @@ type getManagedRuleSetRequest struct {
 }
 
 // handleGetManagedRuleSet returns the stored managed rule set.
-func (h *Handler) handleGetManagedRuleSet(body []byte) ([]byte, error) {
+func (h *Handler) handleGetManagedRuleSet(ctx context.Context, body []byte) ([]byte, error) {
 	var req getManagedRuleSetRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -2317,7 +2323,7 @@ func (h *Handler) handleGetManagedRuleSet(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
 	}
 
-	ms, err := h.Backend.GetManagedRuleSet(req.ID)
+	ms, err := h.Backend.GetManagedRuleSet(ctx, req.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -2519,8 +2525,8 @@ func (h *Handler) handleListAvailableManagedRuleGroups(body []byte) ([]byte, err
 }
 
 // handleListLoggingConfigurations lists all logging configurations.
-func (h *Handler) handleListLoggingConfigurations(_ []byte) ([]byte, error) {
-	configs := h.Backend.ListLoggingConfigurations()
+func (h *Handler) handleListLoggingConfigurations(ctx context.Context, _ []byte) ([]byte, error) {
+	configs := h.Backend.ListLoggingConfigurations(ctx)
 	items := make([]any, 0, len(configs))
 
 	for _, cfg := range configs {
@@ -2541,13 +2547,13 @@ type listManagedRuleSetsRequest struct {
 }
 
 // handleListManagedRuleSets lists all stored managed rule sets, filtered by scope.
-func (h *Handler) handleListManagedRuleSets(body []byte) ([]byte, error) {
+func (h *Handler) handleListManagedRuleSets(ctx context.Context, body []byte) ([]byte, error) {
 	var req listManagedRuleSetsRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	sets := h.Backend.ListManagedRuleSets(req.Scope)
+	sets := h.Backend.ListManagedRuleSets(ctx, req.Scope)
 
 	items, nextMarker := paginateByName(
 		sets,
@@ -2625,6 +2631,7 @@ func (h *Handler) handlePutManagedRuleSetVersions(ctx context.Context, body []by
 	}
 
 	ms, err := h.Backend.PutManagedRuleSetVersions(
+		ctx,
 		req.ID,
 		req.Name,
 		req.Scope,
@@ -2663,6 +2670,7 @@ func (h *Handler) handleUpdateManagedRuleSetVersionExpiryDate(ctx context.Contex
 	}
 
 	ms, err := h.Backend.UpdateManagedRuleSetVersionExpiryDate(
+		ctx,
 		req.ID,
 		req.LockToken,
 		req.VersionToExpire,

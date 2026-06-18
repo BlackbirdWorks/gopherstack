@@ -153,14 +153,24 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	return "s3://" + bucket + "/" + key
 }
 
+// regionFromRequest resolves the AWS region for a request from its SigV4
+// credential scope, falling back to the backend's default region.
+func (h *Handler) regionFromRequest(c *echo.Context) string {
+	return httputils.ExtractRegionFromRequest(c.Request(), h.Backend.Region())
+}
+
 // Handler returns the Echo handler function.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		region := h.regionFromRequest(c)
+
 		return service.HandleTarget(
 			c, logger.Load(c.Request().Context()),
 			"Textract", "application/x-amz-json-1.1",
 			h.GetSupportedOperations(),
-			h.dispatch,
+			func(ctx context.Context, action string, body []byte) ([]byte, error) {
+				return h.dispatch(context.WithValue(ctx, regionContextKey{}, region), action, body)
+			},
 			h.handleError,
 		)
 	}
@@ -281,7 +291,7 @@ func documentURI(bucket, key string) string {
 }
 
 func (h *Handler) handleAnalyzeDocument(
-	_ context.Context,
+	ctx context.Context,
 	in *documentInput,
 ) (*analyzeDocumentResponse, error) {
 	uri := documentURI(in.Document.S3Object.Bucket, in.Document.S3Object.Name)
@@ -289,9 +299,9 @@ func (h *Handler) handleAnalyzeDocument(
 	var blocks []Block
 
 	if b, ok := h.Backend.(*InMemoryBackend); ok {
-		blocks = b.AnalyzeDocumentWithFeatures(uri, in.FeatureTypes, in.QueriesConfig)
+		blocks = b.AnalyzeDocumentWithFeatures(ctx, uri, in.FeatureTypes, in.QueriesConfig)
 	} else {
-		blocks = h.Backend.AnalyzeDocument(uri)
+		blocks = h.Backend.AnalyzeDocument(ctx, uri)
 	}
 
 	resp := &analyzeDocumentResponse{
@@ -305,11 +315,11 @@ func (h *Handler) handleAnalyzeDocument(
 }
 
 func (h *Handler) handleDetectDocumentText(
-	_ context.Context,
+	ctx context.Context,
 	in *documentInput,
 ) (*detectDocumentTextResponse, error) {
 	uri := documentURI(in.Document.S3Object.Bucket, in.Document.S3Object.Name)
-	blocks := h.Backend.DetectDocumentText(uri)
+	blocks := h.Backend.DetectDocumentText(ctx, uri)
 
 	resp := &detectDocumentTextResponse{
 		Blocks:                         blocks,
@@ -342,7 +352,7 @@ type startJobResponse struct {
 }
 
 func (h *Handler) handleStartDocumentAnalysis(
-	_ context.Context,
+	ctx context.Context,
 	in *asyncInput,
 ) (*startJobResponse, error) {
 	bucket := in.DocumentLocation.S3Object.Bucket
@@ -359,6 +369,7 @@ func (h *Handler) handleStartDocumentAnalysis(
 
 	if b, ok := h.Backend.(*InMemoryBackend); ok {
 		job, err = b.StartDocumentAnalysisWithOptions(
+			ctx,
 			uri,
 			in.FeatureTypes,
 			in.QueriesConfig,
@@ -367,7 +378,7 @@ func (h *Handler) handleStartDocumentAnalysis(
 			in.ClientRequestToken,
 		)
 	} else {
-		job, err = h.Backend.StartDocumentAnalysis(uri)
+		job, err = h.Backend.StartDocumentAnalysis(ctx, uri)
 	}
 
 	if err != nil {
@@ -398,14 +409,14 @@ type getDocumentAnalysisResponse struct {
 }
 
 func (h *Handler) handleGetDocumentAnalysis(
-	_ context.Context,
+	ctx context.Context,
 	in *getJobInput,
 ) (*getDocumentAnalysisResponse, error) {
 	if in.JobID == "" {
 		return nil, fmt.Errorf("%w: JobID is required", errInvalidRequest)
 	}
 
-	job, err := h.Backend.GetDocumentAnalysis(in.JobID)
+	job, err := h.Backend.GetDocumentAnalysis(ctx, in.JobID)
 	if err != nil {
 		return nil, err
 	}
@@ -426,7 +437,7 @@ func (h *Handler) handleGetDocumentAnalysis(
 }
 
 func (h *Handler) handleStartDocumentTextDetection(
-	_ context.Context,
+	ctx context.Context,
 	in *asyncInput,
 ) (*startJobResponse, error) {
 	bucket := in.DocumentLocation.S3Object.Bucket
@@ -443,6 +454,7 @@ func (h *Handler) handleStartDocumentTextDetection(
 
 	if b, ok := h.Backend.(*InMemoryBackend); ok {
 		job, err = b.StartDocumentTextDetectionWithOptions(
+			ctx,
 			uri,
 			in.OutputConfig,
 			in.NotificationChannel,
@@ -450,7 +462,7 @@ func (h *Handler) handleStartDocumentTextDetection(
 			in.ClientRequestToken,
 		)
 	} else {
-		job, err = h.Backend.StartDocumentTextDetection(uri)
+		job, err = h.Backend.StartDocumentTextDetection(ctx, uri)
 	}
 
 	if err != nil {
@@ -474,14 +486,14 @@ type getDocumentTextDetectionResponse struct {
 }
 
 func (h *Handler) handleGetDocumentTextDetection(
-	_ context.Context,
+	ctx context.Context,
 	in *getJobInput,
 ) (*getDocumentTextDetectionResponse, error) {
 	if in.JobID == "" {
 		return nil, fmt.Errorf("%w: JobID is required", errInvalidRequest)
 	}
 
-	job, err := h.Backend.GetDocumentTextDetection(in.JobID)
+	job, err := h.Backend.GetDocumentTextDetection(ctx, in.JobID)
 	if err != nil {
 		return nil, err
 	}
@@ -521,11 +533,11 @@ type analyzeExpenseResponse struct {
 }
 
 func (h *Handler) handleAnalyzeExpense(
-	_ context.Context,
+	ctx context.Context,
 	in *analyzeExpenseInput,
 ) (*analyzeExpenseResponse, error) {
 	uri := documentURI(in.Document.S3Object.Bucket, in.Document.S3Object.Name)
-	docs := h.Backend.AnalyzeExpense(uri)
+	docs := h.Backend.AnalyzeExpense(ctx, uri)
 
 	resp := &analyzeExpenseResponse{ExpenseDocuments: docs}
 	resp.DocumentMetadata.Pages = 1
@@ -554,7 +566,7 @@ type analyzeIDResponse struct {
 }
 
 func (h *Handler) handleAnalyzeID(
-	_ context.Context,
+	ctx context.Context,
 	in *analyzeIDInput,
 ) (*analyzeIDResponse, error) {
 	if len(in.DocumentPages) == 0 {
@@ -566,7 +578,7 @@ func (h *Handler) handleAnalyzeID(
 		uris = append(uris, documentURI(dp.S3Object.Bucket, dp.S3Object.Name))
 	}
 
-	docs := h.Backend.AnalyzeID(uris)
+	docs := h.Backend.AnalyzeID(ctx, uris)
 
 	resp := &analyzeIDResponse{
 		AnalyzeIDModelVersion: modelVersion10,
@@ -593,7 +605,7 @@ type createAdapterResponse struct {
 }
 
 func (h *Handler) handleCreateAdapter(
-	_ context.Context,
+	ctx context.Context,
 	in *createAdapterInput,
 ) (*createAdapterResponse, error) {
 	if in.AdapterName == "" {
@@ -605,11 +617,14 @@ func (h *Handler) handleCreateAdapter(
 
 	if b, ok := h.Backend.(*InMemoryBackend); ok {
 		adapter, err = b.CreateAdapterWithToken(
+			ctx,
 			in.AdapterName, in.Description, in.AutoUpdate,
 			in.FeatureTypes, in.Tags, in.ClientRequestToken,
 		)
 	} else {
-		adapter, err = h.Backend.CreateAdapter(in.AdapterName, in.Description, in.AutoUpdate, in.FeatureTypes, in.Tags)
+		adapter, err = h.Backend.CreateAdapter(
+			ctx, in.AdapterName, in.Description, in.AutoUpdate, in.FeatureTypes, in.Tags,
+		)
 	}
 
 	if err != nil {
@@ -636,14 +651,14 @@ type getAdapterResponse struct {
 }
 
 func (h *Handler) handleGetAdapter(
-	_ context.Context,
+	ctx context.Context,
 	in *getAdapterInput,
 ) (*getAdapterResponse, error) {
 	if in.AdapterID == "" {
 		return nil, fmt.Errorf("%w: AdapterId is required", errInvalidRequest)
 	}
 
-	adapter, err := h.Backend.GetAdapter(in.AdapterID)
+	adapter, err := h.Backend.GetAdapter(ctx, in.AdapterID)
 	if err != nil {
 		return nil, err
 	}
@@ -678,14 +693,14 @@ type updateAdapterResponse struct {
 }
 
 func (h *Handler) handleUpdateAdapter(
-	_ context.Context,
+	ctx context.Context,
 	in *updateAdapterInput,
 ) (*updateAdapterResponse, error) {
 	if in.AdapterID == "" {
 		return nil, fmt.Errorf("%w: AdapterId is required", errInvalidRequest)
 	}
 
-	adapter, err := h.Backend.UpdateAdapter(in.AdapterID, in.Description, in.AutoUpdate)
+	adapter, err := h.Backend.UpdateAdapter(ctx, in.AdapterID, in.Description, in.AutoUpdate)
 	if err != nil {
 		return nil, err
 	}
@@ -717,10 +732,10 @@ type adapterSummary struct {
 }
 
 func (h *Handler) handleListAdapters(
-	_ context.Context,
+	ctx context.Context,
 	_ *listAdaptersInput,
 ) (*listAdaptersResponse, error) {
-	adapters := h.Backend.ListAdapters()
+	adapters := h.Backend.ListAdapters(ctx)
 	summaries := make([]adapterSummary, 0, len(adapters))
 
 	for _, a := range adapters {
@@ -744,14 +759,14 @@ type deleteAdapterInput struct {
 type emptyResponse struct{}
 
 func (h *Handler) handleDeleteAdapter(
-	_ context.Context,
+	ctx context.Context,
 	in *deleteAdapterInput,
 ) (*emptyResponse, error) {
 	if in.AdapterID == "" {
 		return nil, fmt.Errorf("%w: AdapterId is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.DeleteAdapter(in.AdapterID); err != nil {
+	if err := h.Backend.DeleteAdapter(ctx, in.AdapterID); err != nil {
 		return nil, err
 	}
 
@@ -776,7 +791,7 @@ type createAdapterVersionResponse struct {
 }
 
 func (h *Handler) handleCreateAdapterVersion(
-	_ context.Context,
+	ctx context.Context,
 	in *createAdapterVersionInput,
 ) (*createAdapterVersionResponse, error) {
 	if in.AdapterID == "" {
@@ -788,12 +803,13 @@ func (h *Handler) handleCreateAdapterVersion(
 
 	if b, ok := h.Backend.(*InMemoryBackend); ok {
 		av, err = b.CreateAdapterVersionWithOptions(
+			ctx,
 			in.AdapterID, in.Tags,
 			in.DatasetConfig, in.OutputConfig,
 			in.KMSKeyId, in.ClientRequestToken,
 		)
 	} else {
-		av, err = h.Backend.CreateAdapterVersion(in.AdapterID, in.Tags)
+		av, err = h.Backend.CreateAdapterVersion(ctx, in.AdapterID, in.Tags)
 	}
 
 	if err != nil {
@@ -829,7 +845,7 @@ type getAdapterVersionResponse struct {
 }
 
 func (h *Handler) handleGetAdapterVersion(
-	_ context.Context,
+	ctx context.Context,
 	in *getAdapterVersionInput,
 ) (*getAdapterVersionResponse, error) {
 	if in.AdapterID == "" {
@@ -840,7 +856,7 @@ func (h *Handler) handleGetAdapterVersion(
 		return nil, fmt.Errorf("%w: AdapterVersion is required", errInvalidRequest)
 	}
 
-	av, err := h.Backend.GetAdapterVersion(in.AdapterID, in.AdapterVersion)
+	av, err := h.Backend.GetAdapterVersion(ctx, in.AdapterID, in.AdapterVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -879,14 +895,14 @@ type adapterVersionSummary struct {
 }
 
 func (h *Handler) handleListAdapterVersions(
-	_ context.Context,
+	ctx context.Context,
 	in *listAdapterVersionsInput,
 ) (*listAdapterVersionsResponse, error) {
 	if in.AdapterID == "" {
 		return nil, fmt.Errorf("%w: AdapterId is required", errInvalidRequest)
 	}
 
-	versions, err := h.Backend.ListAdapterVersions(in.AdapterID)
+	versions, err := h.Backend.ListAdapterVersions(ctx, in.AdapterID)
 	if err != nil {
 		return nil, err
 	}
@@ -914,7 +930,7 @@ type deleteAdapterVersionInput struct {
 }
 
 func (h *Handler) handleDeleteAdapterVersion(
-	_ context.Context,
+	ctx context.Context,
 	in *deleteAdapterVersionInput,
 ) (*emptyResponse, error) {
 	if in.AdapterID == "" {
@@ -925,7 +941,7 @@ func (h *Handler) handleDeleteAdapterVersion(
 		return nil, fmt.Errorf("%w: AdapterVersion is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.DeleteAdapterVersion(in.AdapterID, in.AdapterVersion); err != nil {
+	if err := h.Backend.DeleteAdapterVersion(ctx, in.AdapterID, in.AdapterVersion); err != nil {
 		return nil, err
 	}
 
@@ -939,14 +955,14 @@ type tagResourceInput struct {
 }
 
 func (h *Handler) handleTagResource(
-	_ context.Context,
+	ctx context.Context,
 	in *tagResourceInput,
 ) (*emptyResponse, error) {
 	if in.ResourceARN == "" {
 		return nil, fmt.Errorf("%w: ResourceARN is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.TagResource(in.ResourceARN, in.Tags); err != nil {
+	if err := h.Backend.TagResource(ctx, in.ResourceARN, in.Tags); err != nil {
 		return nil, err
 	}
 
@@ -960,14 +976,14 @@ type untagResourceInput struct {
 }
 
 func (h *Handler) handleUntagResource(
-	_ context.Context,
+	ctx context.Context,
 	in *untagResourceInput,
 ) (*emptyResponse, error) {
 	if in.ResourceARN == "" {
 		return nil, fmt.Errorf("%w: ResourceARN is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.UntagResource(in.ResourceARN, in.TagKeys); err != nil {
+	if err := h.Backend.UntagResource(ctx, in.ResourceARN, in.TagKeys); err != nil {
 		return nil, err
 	}
 
@@ -985,14 +1001,14 @@ type listTagsForResourceResponse struct {
 }
 
 func (h *Handler) handleListTagsForResource(
-	_ context.Context,
+	ctx context.Context,
 	in *listTagsForResourceInput,
 ) (*listTagsForResourceResponse, error) {
 	if in.ResourceARN == "" {
 		return nil, fmt.Errorf("%w: ResourceARN is required", errInvalidRequest)
 	}
 
-	tags, err := h.Backend.ListTagsForResource(in.ResourceARN)
+	tags, err := h.Backend.ListTagsForResource(ctx, in.ResourceARN)
 	if err != nil {
 		return nil, err
 	}
@@ -1020,14 +1036,14 @@ type getExpenseAnalysisResponse struct {
 }
 
 func (h *Handler) handleGetExpenseAnalysis(
-	_ context.Context,
+	ctx context.Context,
 	in *getExpenseAnalysisInput,
 ) (*getExpenseAnalysisResponse, error) {
 	if in.JobID == "" {
 		return nil, fmt.Errorf("%w: JobID is required", errInvalidRequest)
 	}
 
-	job, err := h.Backend.GetExpenseAnalysis(in.JobID)
+	job, err := h.Backend.GetExpenseAnalysis(ctx, in.JobID)
 	if err != nil {
 		return nil, err
 	}
@@ -1059,7 +1075,7 @@ type startExpenseAnalysisInput struct {
 }
 
 func (h *Handler) handleStartExpenseAnalysis(
-	_ context.Context,
+	ctx context.Context,
 	in *startExpenseAnalysisInput,
 ) (*startJobResponse, error) {
 	bucket := in.DocumentLocation.S3Object.Bucket
@@ -1071,7 +1087,7 @@ func (h *Handler) handleStartExpenseAnalysis(
 
 	uri := "s3://" + bucket + "/" + key
 
-	job, err := h.Backend.StartExpenseAnalysis(uri)
+	job, err := h.Backend.StartExpenseAnalysis(ctx, uri)
 	if err != nil {
 		return nil, err
 	}
@@ -1099,14 +1115,14 @@ type getLendingAnalysisResponse struct {
 }
 
 func (h *Handler) handleGetLendingAnalysis(
-	_ context.Context,
+	ctx context.Context,
 	in *getLendingAnalysisInput,
 ) (*getLendingAnalysisResponse, error) {
 	if in.JobID == "" {
 		return nil, fmt.Errorf("%w: JobID is required", errInvalidRequest)
 	}
 
-	job, err := h.Backend.GetLendingAnalysis(in.JobID)
+	job, err := h.Backend.GetLendingAnalysis(ctx, in.JobID)
 	if err != nil {
 		return nil, err
 	}
@@ -1140,14 +1156,14 @@ type getLendingAnalysisSummaryResponse struct {
 }
 
 func (h *Handler) handleGetLendingAnalysisSummary(
-	_ context.Context,
+	ctx context.Context,
 	in *getLendingAnalysisSummaryInput,
 ) (*getLendingAnalysisSummaryResponse, error) {
 	if in.JobID == "" {
 		return nil, fmt.Errorf("%w: JobID is required", errInvalidRequest)
 	}
 
-	job, err := h.Backend.GetLendingAnalysisSummary(in.JobID)
+	job, err := h.Backend.GetLendingAnalysisSummary(ctx, in.JobID)
 	if err != nil {
 		return nil, err
 	}
@@ -1178,7 +1194,7 @@ type startLendingAnalysisInput struct {
 }
 
 func (h *Handler) handleStartLendingAnalysis(
-	_ context.Context,
+	ctx context.Context,
 	in *startLendingAnalysisInput,
 ) (*startJobResponse, error) {
 	bucket := in.DocumentLocation.S3Object.Bucket
@@ -1190,7 +1206,7 @@ func (h *Handler) handleStartLendingAnalysis(
 
 	uri := "s3://" + bucket + "/" + key
 
-	job, err := h.Backend.StartLendingAnalysis(uri)
+	job, err := h.Backend.StartLendingAnalysis(ctx, uri)
 	if err != nil {
 		return nil, err
 	}

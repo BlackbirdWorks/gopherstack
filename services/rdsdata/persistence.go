@@ -3,14 +3,15 @@ package rdsdata
 import (
 	"encoding/json"
 	"log/slog"
+	"maps"
 )
 
 type backendSnapshot struct {
-	Transactions       map[string]*Transaction `json:"transactions"`
-	AccountID          string                  `json:"accountID"`
-	Region             string                  `json:"region"`
-	ExecutedStatements []ExecutedStatement     `json:"executedStatements"`
-	TxCounter          int                     `json:"txCounter"`
+	Transactions       map[string]map[string]*Transaction `json:"transactions"`
+	ExecutedStatements map[string][]ExecutedStatement     `json:"executedStatements"`
+	TxCounter          map[string]int                     `json:"txCounter"`
+	AccountID          string                             `json:"accountID"`
+	Region             string                             `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -18,15 +19,32 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	stmtsCopy := make([]ExecutedStatement, len(b.executedStatements))
-	copy(stmtsCopy, b.executedStatements)
+	txCopy := make(map[string]map[string]*Transaction, len(b.transactions))
+	for region, store := range b.transactions {
+		inner := make(map[string]*Transaction, len(store))
+		for k, v := range store {
+			cp := *v
+			inner[k] = &cp
+		}
+		txCopy[region] = inner
+	}
+
+	stmtsCopy := make(map[string][]ExecutedStatement, len(b.executedStatements))
+	for region, stmts := range b.executedStatements {
+		cp := make([]ExecutedStatement, len(stmts))
+		copy(cp, stmts)
+		stmtsCopy[region] = cp
+	}
+
+	counterCopy := make(map[string]int, len(b.txCounter))
+	maps.Copy(counterCopy, b.txCounter)
 
 	snap := backendSnapshot{
-		Transactions:       b.transactions,
+		Transactions:       txCopy,
 		ExecutedStatements: stmtsCopy,
+		TxCounter:          counterCopy,
 		AccountID:          b.accountID,
-		Region:             b.region,
-		TxCounter:          b.txCounter,
+		Region:             b.defaultRegion,
 	}
 
 	data, err := json.Marshal(snap)
@@ -54,9 +72,9 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 
 	b.transactions = snap.Transactions
 	b.executedStatements = snap.ExecutedStatements
-	b.accountID = snap.AccountID
-	b.region = snap.Region
 	b.txCounter = snap.TxCounter
+	b.accountID = snap.AccountID
+	b.defaultRegion = snap.Region
 
 	return nil
 }
@@ -64,10 +82,14 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 // ensureNonNilMaps initialises nil maps in the snapshot to empty maps.
 func ensureNonNilMaps(snap *backendSnapshot) {
 	if snap.Transactions == nil {
-		snap.Transactions = make(map[string]*Transaction)
+		snap.Transactions = make(map[string]map[string]*Transaction)
 	}
 
 	if snap.ExecutedStatements == nil {
-		snap.ExecutedStatements = []ExecutedStatement{}
+		snap.ExecutedStatements = make(map[string][]ExecutedStatement)
+	}
+
+	if snap.TxCounter == nil {
+		snap.TxCounter = make(map[string]int)
 	}
 }

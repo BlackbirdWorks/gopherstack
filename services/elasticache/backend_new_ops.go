@@ -1,6 +1,7 @@
 package elasticache
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sort"
@@ -135,24 +136,24 @@ type BatchUpdateResult struct {
 // ARN builders
 // ----------------------------------------
 
-func (b *InMemoryBackend) cacheSecurityGroupARN(name string) string {
-	return arn.Build("elasticache", b.region, b.accountID, "securitygroup:"+name)
+func (b *InMemoryBackend) cacheSecurityGroupARN(region, name string) string {
+	return arn.Build("elasticache", region, b.accountID, "securitygroup:"+name)
 }
 
 func (b *InMemoryBackend) globalReplicationGroupARN(id string) string {
 	return arn.Build("elasticache", b.region, b.accountID, "globalreplicationgroup:"+id)
 }
 
-func (b *InMemoryBackend) serverlessCacheARN(name string) string {
-	return arn.Build("elasticache", b.region, b.accountID, "serverlesscache:"+name)
+func (b *InMemoryBackend) serverlessCacheARN(region, name string) string {
+	return arn.Build("elasticache", region, b.accountID, "serverlesscache:"+name)
 }
 
-func (b *InMemoryBackend) serverlessCacheSnapshotARN(name string) string {
-	return arn.Build("elasticache", b.region, b.accountID, "serverlesssnapshot:"+name)
+func (b *InMemoryBackend) serverlessCacheSnapshotARN(region, name string) string {
+	return arn.Build("elasticache", region, b.accountID, "serverlesssnapshot:"+name)
 }
 
-func (b *InMemoryBackend) userARN(userID string) string {
-	return arn.Build("elasticache", b.region, b.accountID, "user:"+userID)
+func (b *InMemoryBackend) userARN(region, userID string) string {
+	return arn.Build("elasticache", region, b.accountID, "user:"+userID)
 }
 
 // ----------------------------------------
@@ -160,39 +161,47 @@ func (b *InMemoryBackend) userARN(userID string) string {
 // ----------------------------------------
 
 // CreateCacheSecurityGroup creates a new cache security group.
-func (b *InMemoryBackend) CreateCacheSecurityGroup(name, description string) (*CacheSecurityGroup, error) {
+func (b *InMemoryBackend) CreateCacheSecurityGroup(
+	ctx context.Context,
+	name, description string,
+) (*CacheSecurityGroup, error) {
 	b.mu.Lock("CreateCacheSecurityGroup")
 	defer b.mu.Unlock()
 
-	if _, exists := b.cacheSecurityGroups[name]; exists {
+	region := getRegion(ctx, b.region)
+	store := b.cacheSecurityGroupsStore(region)
+	if _, exists := store[name]; exists {
 		return nil, ErrCacheSecurityGroupAlreadyExists
 	}
 
 	sg := &CacheSecurityGroup{
 		Name:        name,
 		Description: description,
-		ARN:         b.cacheSecurityGroupARN(name),
+		ARN:         b.cacheSecurityGroupARN(region, name),
 		OwnerID:     b.accountID,
 		Tags:        tags.New("elasticache.sg." + name + ".tags"),
 	}
-	b.cacheSecurityGroups[name] = sg
+	store[name] = sg
 
 	return sg, nil
 }
 
 // AuthorizeCacheSecurityGroupIngress adds an EC2 security group authorization to the named cache security group.
 func (b *InMemoryBackend) AuthorizeCacheSecurityGroupIngress(
+	ctx context.Context,
 	name, ec2SecurityGroupName, ec2SecurityGroupOwnerID string,
 ) (*CacheSecurityGroup, error) {
 	b.mu.Lock("AuthorizeCacheSecurityGroupIngress")
 	defer b.mu.Unlock()
 
-	sg, ok := b.cacheSecurityGroups[name]
+	region := getRegion(ctx, b.region)
+	sg, ok := b.cacheSecurityGroupsStore(region)[name]
 	if !ok {
 		return nil, ErrCacheSecurityGroupNotFound
 	}
 
-	b.cacheSecurityGroupIngress[name] = append(b.cacheSecurityGroupIngress[name], EC2SecurityGroupMembership{
+	ingressStore := b.cacheSecurityGroupIngressStore(region)
+	ingressStore[name] = append(ingressStore[name], EC2SecurityGroupMembership{
 		EC2SecurityGroupName:    ec2SecurityGroupName,
 		EC2SecurityGroupOwnerID: ec2SecurityGroupOwnerID,
 		Status:                  "authorized",
@@ -209,6 +218,7 @@ func (b *InMemoryBackend) AuthorizeCacheSecurityGroupIngress(
 
 // CreateGlobalReplicationGroup creates a new global replication group.
 func (b *InMemoryBackend) CreateGlobalReplicationGroup(
+	ctx context.Context,
 	globalReplicationGroupIDSuffix, description, primaryReplicationGroupID string,
 ) (*GlobalReplicationGroup, error) {
 	b.mu.Lock("CreateGlobalReplicationGroup")
@@ -219,9 +229,10 @@ func (b *InMemoryBackend) CreateGlobalReplicationGroup(
 		return nil, ErrGlobalReplicationGroupExists
 	}
 
+	region := getRegion(ctx, b.region)
 	engine := engineRedis
 	engineVersion := versionRedis710
-	if rg, ok := b.replicationGroups[primaryReplicationGroupID]; ok {
+	if rg, ok := b.replicationGroupsStore(region)[primaryReplicationGroupID]; ok {
 		if rg.EngineVersion != "" {
 			engineVersion = rg.EngineVersion
 		}
@@ -231,7 +242,7 @@ func (b *InMemoryBackend) CreateGlobalReplicationGroup(
 	}
 
 	nodeGroupCount := int32(1)
-	if rg, ok := b.replicationGroups[primaryReplicationGroupID]; ok && len(rg.NodeGroups) > 0 {
+	if rg, ok := b.replicationGroupsStore(region)[primaryReplicationGroupID]; ok && len(rg.NodeGroups) > 0 {
 		var cnt int32
 		for range rg.NodeGroups {
 			cnt++
@@ -246,7 +257,7 @@ func (b *InMemoryBackend) CreateGlobalReplicationGroup(
 		ARN:                           b.globalReplicationGroupARN(id),
 		Engine:                        engine,
 		EngineVersion:                 engineVersion,
-		PrimaryReplicationGroupRegion: b.region,
+		PrimaryReplicationGroupRegion: region,
 		SecondaryReplicationGroups:    make(map[string]string),
 		CreatedAt:                     time.Now(),
 		Tags:                          tags.New("elasticache.grg." + id + ".tags"),
@@ -263,11 +274,16 @@ func (b *InMemoryBackend) CreateGlobalReplicationGroup(
 // ----------------------------------------
 
 // CreateServerlessCache creates a new serverless cache.
-func (b *InMemoryBackend) CreateServerlessCache(name, description, engine string) (*ServerlessCache, error) {
+func (b *InMemoryBackend) CreateServerlessCache(
+	ctx context.Context,
+	name, description, engine string,
+) (*ServerlessCache, error) {
 	b.mu.Lock("CreateServerlessCache")
 	defer b.mu.Unlock()
 
-	if _, exists := b.serverlessCaches[name]; exists {
+	region := getRegion(ctx, b.region)
+	store := b.serverlessCachesStore(region)
+	if _, exists := store[name]; exists {
 		return nil, ErrServerlessCacheAlreadyExists
 	}
 
@@ -276,8 +292,8 @@ func (b *InMemoryBackend) CreateServerlessCache(name, description, engine string
 	}
 
 	suffix := randomSuffix()
-	host := fmt.Sprintf("%s.serverless.%s.%s.cache.amazonaws.com", name, suffix, b.region)
-	readerHost := fmt.Sprintf("%s.serverless.%s.%s.cache.amazonaws.com", name+"-ro", suffix, b.region)
+	host := fmt.Sprintf("%s.serverless.%s.%s.cache.amazonaws.com", name, suffix, region)
+	readerHost := fmt.Sprintf("%s.serverless.%s.%s.cache.amazonaws.com", name+"-ro", suffix, region)
 	port := 6379
 	if engine == engineMemcached {
 		port = 11211
@@ -290,14 +306,14 @@ func (b *InMemoryBackend) CreateServerlessCache(name, description, engine string
 		Name:           name,
 		Description:    description,
 		Status:         statusServerlessAvailable,
-		ARN:            b.serverlessCacheARN(name),
+		ARN:            b.serverlessCacheARN(region, name),
 		Engine:         engine,
 		CreatedAt:      time.Now(),
 		Tags:           tags.New("elasticache.serverless." + name + ".tags"),
 		Endpoint:       ep,
 		ReaderEndpoint: readerEp,
 	}
-	b.serverlessCaches[name] = sc
+	store[name] = sc
 	b.appendEventLocked(name, "serverless-cache", "serverless cache created")
 
 	return sc, nil
@@ -309,29 +325,32 @@ func (b *InMemoryBackend) CreateServerlessCache(name, description, engine string
 
 // CreateServerlessCacheSnapshot creates a manual snapshot of a serverless cache.
 func (b *InMemoryBackend) CreateServerlessCacheSnapshot(
+	ctx context.Context,
 	snapshotName, serverlessCacheName string,
 ) (*ServerlessCacheSnapshot, error) {
 	b.mu.Lock("CreateServerlessCacheSnapshot")
 	defer b.mu.Unlock()
 
-	if _, exists := b.serverlessCacheSnapshots[snapshotName]; exists {
+	region := getRegion(ctx, b.region)
+	snapStore := b.serverlessCacheSnapshotsStore(region)
+	if _, exists := snapStore[snapshotName]; exists {
 		return nil, ErrServerlessCacheSnapshotExists
 	}
 
-	if _, ok := b.serverlessCaches[serverlessCacheName]; !ok {
+	if _, ok := b.serverlessCachesStore(region)[serverlessCacheName]; !ok {
 		return nil, ErrServerlessCacheNotFound
 	}
 
 	snap := &ServerlessCacheSnapshot{
 		Name:                snapshotName,
 		Status:              statusAvailable,
-		ARN:                 b.serverlessCacheSnapshotARN(snapshotName),
+		ARN:                 b.serverlessCacheSnapshotARN(region, snapshotName),
 		ServerlessCacheName: serverlessCacheName,
 		SnapshotType:        snapshotSourceManual,
 		CreatedAt:           time.Now(),
 		Tags:                tags.New("elasticache.serverlesssnap." + snapshotName + ".tags"),
 	}
-	b.serverlessCacheSnapshots[snapshotName] = snap
+	snapStore[snapshotName] = snap
 
 	return snap, nil
 }
@@ -342,26 +361,30 @@ func (b *InMemoryBackend) CreateServerlessCacheSnapshot(
 
 // CopyServerlessCacheSnapshot copies a serverless cache snapshot to a new name.
 func (b *InMemoryBackend) CopyServerlessCacheSnapshot(
+	ctx context.Context,
 	sourceSnapshotName, targetSnapshotName string,
 ) (*ServerlessCacheSnapshot, error) {
 	b.mu.Lock("CopyServerlessCacheSnapshot")
 	defer b.mu.Unlock()
 
-	src, ok := b.serverlessCacheSnapshots[sourceSnapshotName]
+	region := getRegion(ctx, b.region)
+	store := b.serverlessCacheSnapshotsStore(region)
+
+	src, ok := store[sourceSnapshotName]
 	if !ok {
 		return nil, ErrServerlessCacheSnapshotNotFound
 	}
 
-	if _, exists := b.serverlessCacheSnapshots[targetSnapshotName]; exists {
+	if _, exists := store[targetSnapshotName]; exists {
 		return nil, ErrServerlessCacheSnapshotExists
 	}
 
 	cp := *src
 	cp.Name = targetSnapshotName
-	cp.ARN = b.serverlessCacheSnapshotARN(targetSnapshotName)
+	cp.ARN = b.serverlessCacheSnapshotARN(region, targetSnapshotName)
 	cp.CreatedAt = time.Now()
 	cp.Tags = tags.New("elasticache.serverlesssnap." + targetSnapshotName + ".tags")
-	b.serverlessCacheSnapshots[targetSnapshotName] = &cp
+	store[targetSnapshotName] = &cp
 
 	result := cp
 
@@ -374,13 +397,16 @@ func (b *InMemoryBackend) CopyServerlessCacheSnapshot(
 
 // CreateUser creates a new ElastiCache user.
 func (b *InMemoryBackend) CreateUser(
+	ctx context.Context,
 	userID, userName, accessString, engine string,
 	noPasswordRequired bool,
 ) (*User, error) {
 	b.mu.Lock("CreateUser")
 	defer b.mu.Unlock()
 
-	if _, exists := b.users[userID]; exists {
+	region := getRegion(ctx, b.region)
+	store := b.usersStore(region)
+	if _, exists := store[userID]; exists {
 		return nil, ErrUserAlreadyExists
 	}
 
@@ -392,14 +418,14 @@ func (b *InMemoryBackend) CreateUser(
 		UserID:             userID,
 		UserName:           userName,
 		Status:             statusActive,
-		ARN:                b.userARN(userID),
+		ARN:                b.userARN(region, userID),
 		Engine:             engine,
 		AccessString:       accessString,
 		NoPasswordRequired: noPasswordRequired,
 		CreatedAt:          time.Now(),
 		Tags:               tags.New("elasticache.user." + userID + ".tags"),
 	}
-	b.users[userID] = u
+	store[userID] = u
 	b.appendEventLocked(userID, "user", "user created")
 
 	return u, nil
@@ -417,7 +443,15 @@ func (b *InMemoryBackend) batchUpdateActions(
 	}
 
 	for _, rgID := range replicationGroupIDs {
-		if _, ok := b.replicationGroups[rgID]; ok {
+		found := false
+		for _, regionRGs := range b.replicationGroups {
+			if _, ok := regionRGs[rgID]; ok {
+				found = true
+
+				break
+			}
+		}
+		if found {
 			result.ProcessedUpdateActions = append(result.ProcessedUpdateActions, UpdateActionResult{
 				ReplicationGroupID: rgID,
 				ServiceUpdateName:  serviceUpdateName,
@@ -433,7 +467,15 @@ func (b *InMemoryBackend) batchUpdateActions(
 	}
 
 	for _, clusterID := range cacheClusterIDs {
-		if _, ok := b.clusters[clusterID]; ok {
+		found := false
+		for _, regionClusters := range b.clusters {
+			if _, ok := regionClusters[clusterID]; ok {
+				found = true
+
+				break
+			}
+		}
+		if found {
 			result.ProcessedUpdateActions = append(result.ProcessedUpdateActions, UpdateActionResult{
 				CacheClusterID:     clusterID,
 				ServiceUpdateName:  serviceUpdateName,
@@ -464,6 +506,7 @@ func (b *InMemoryBackend) batchUpdateActions(
 
 // BatchApplyUpdateAction schedules a service update for the given replication groups and clusters.
 func (b *InMemoryBackend) BatchApplyUpdateAction(
+	_ context.Context,
 	replicationGroupIDs, cacheClusterIDs []string,
 	serviceUpdateName string,
 ) (*BatchUpdateResult, error) {
@@ -491,6 +534,7 @@ func (b *InMemoryBackend) BatchApplyUpdateAction(
 
 // BatchStopUpdateAction stops a pending service update for the given replication groups and clusters.
 func (b *InMemoryBackend) BatchStopUpdateAction(
+	_ context.Context,
 	replicationGroupIDs, cacheClusterIDs []string,
 	serviceUpdateName string,
 ) (*BatchUpdateResult, error) {
@@ -505,11 +549,16 @@ func (b *InMemoryBackend) BatchStopUpdateAction(
 // ----------------------------------------
 
 // CompleteMigration completes an online data migration from an external Redis server to this replication group.
-func (b *InMemoryBackend) CompleteMigration(replicationGroupID string, _ bool) (*ReplicationGroup, error) {
+func (b *InMemoryBackend) CompleteMigration(
+	ctx context.Context,
+	replicationGroupID string,
+	_ bool,
+) (*ReplicationGroup, error) {
 	b.mu.Lock("CompleteMigration")
 	defer b.mu.Unlock()
 
-	rg, ok := b.replicationGroups[replicationGroupID]
+	region := getRegion(ctx, b.region)
+	rg, ok := b.replicationGroupsStore(region)[replicationGroupID]
 	if !ok {
 		return nil, ErrReplicationGroupNotFound
 	}
@@ -528,7 +577,7 @@ func (b *InMemoryBackend) CompleteMigration(replicationGroupID string, _ bool) (
 func (b *InMemoryBackend) AddCacheSecurityGroupInternal(sg *CacheSecurityGroup) {
 	b.mu.Lock("AddCacheSecurityGroupInternal")
 	defer b.mu.Unlock()
-	b.cacheSecurityGroups[sg.Name] = sg
+	b.cacheSecurityGroupsStore(b.region)[sg.Name] = sg
 }
 
 // AddGlobalReplicationGroupInternal seeds a global replication group for testing.
@@ -542,19 +591,19 @@ func (b *InMemoryBackend) AddGlobalReplicationGroupInternal(grg *GlobalReplicati
 func (b *InMemoryBackend) AddServerlessCacheInternal(sc *ServerlessCache) {
 	b.mu.Lock("AddServerlessCacheInternal")
 	defer b.mu.Unlock()
-	b.serverlessCaches[sc.Name] = sc
+	b.serverlessCachesStore(b.region)[sc.Name] = sc
 }
 
 // AddServerlessCacheSnapshotInternal seeds a serverless cache snapshot for testing.
 func (b *InMemoryBackend) AddServerlessCacheSnapshotInternal(snap *ServerlessCacheSnapshot) {
 	b.mu.Lock("AddServerlessCacheSnapshotInternal")
 	defer b.mu.Unlock()
-	b.serverlessCacheSnapshots[snap.Name] = snap
+	b.serverlessCacheSnapshotsStore(b.region)[snap.Name] = snap
 }
 
 // AddUserInternal seeds a user for testing.
 func (b *InMemoryBackend) AddUserInternal(u *User) {
 	b.mu.Lock("AddUserInternal")
 	defer b.mu.Unlock()
-	b.users[u.UserID] = u
+	b.usersStore(b.region)[u.UserID] = u
 }

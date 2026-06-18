@@ -20,12 +20,14 @@
 		EnableAlarmActionsCommand,
 		DisableAlarmActionsCommand,
 		SetAlarmStateCommand,
+		GetMetricStatisticsCommand,
 		type MetricAlarm,
 		type DashboardEntry,
 		type Metric,
 		type MetricStreamEntry,
 		type AnomalyDetector,
-		type AlarmHistoryItem
+		type AlarmHistoryItem,
+		type Datapoint
 	} from '@aws-sdk/client-cloudwatch';
 	import {
 		DescribeMetricFiltersCommand,
@@ -79,6 +81,94 @@
 	// Metrics
 	let metrics = $state<Metric[]>([]);
 	let metricsSearch = $state('');
+
+	// Metric chart (time-series)
+	let showMetricChart = $state(false);
+	let chartMetric = $state<Metric | null>(null);
+	let chartStatistic = $state<'Average' | 'Sum' | 'Minimum' | 'Maximum' | 'SampleCount'>('Average');
+	let chartRangeHours = $state(3);
+	let chartPeriod = $state(300);
+	let chartDatapoints = $state<Datapoint[]>([]);
+	let loadingChart = $state(false);
+	let chartError = $state('');
+
+	function chartValue(d: Datapoint): number {
+		switch (chartStatistic) {
+			case 'Average':
+				return d.Average ?? 0;
+			case 'Sum':
+				return d.Sum ?? 0;
+			case 'Minimum':
+				return d.Minimum ?? 0;
+			case 'Maximum':
+				return d.Maximum ?? 0;
+			case 'SampleCount':
+				return d.SampleCount ?? 0;
+		}
+	}
+
+	async function openMetricChart(m: Metric) {
+		chartMetric = m;
+		showMetricChart = true;
+		chartDatapoints = [];
+		chartError = '';
+		await loadMetricChart();
+	}
+
+	async function loadMetricChart() {
+		if (!chartMetric?.Namespace || !chartMetric?.MetricName) return;
+		loadingChart = true;
+		chartError = '';
+		try {
+			const end = new Date();
+			const start = new Date(end.getTime() - chartRangeHours * 3600 * 1000);
+			const res = await cw.send(
+				new GetMetricStatisticsCommand({
+					Namespace: chartMetric.Namespace,
+					MetricName: chartMetric.MetricName,
+					Dimensions: chartMetric.Dimensions,
+					StartTime: start,
+					EndTime: end,
+					Period: chartPeriod,
+					Statistics: [chartStatistic]
+				})
+			);
+			chartDatapoints = (res.Datapoints ?? []).toSorted(
+				(a, b) => (a.Timestamp?.getTime() ?? 0) - (b.Timestamp?.getTime() ?? 0)
+			);
+			if (chartDatapoints.length === 0) {
+				chartError = 'No datapoints returned for this metric and time range.';
+			}
+		} catch (e) {
+			chartError = e instanceof Error ? e.message : String(e);
+		} finally {
+			loadingChart = false;
+		}
+	}
+
+	const chartGeometry = $derived(() => {
+		const w = 640;
+		const h = 200;
+		const pad = 32;
+		const vals = chartDatapoints.map((d) => chartValue(d));
+		if (vals.length === 0) return { w, h, pad, path: '', min: 0, max: 0, points: [] as { x: number; y: number; v: number; t?: Date }[] };
+		let min = Math.min(...vals);
+		let max = Math.max(...vals);
+		if (min === max) {
+			min -= 1;
+			max += 1;
+		}
+		const span = max - min;
+		const n = chartDatapoints.length;
+		const points = chartDatapoints.map((d, i) => {
+			const x = n === 1 ? w / 2 : pad + (i / (n - 1)) * (w - pad * 2);
+			const v = chartValue(d);
+			const y = h - pad - ((v - min) / span) * (h - pad * 2);
+			return { x, y, v, t: d.Timestamp };
+		});
+		const path = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+		return { w, h, pad, path, min, max, points };
+	});
 
 	// Dashboards
 	let dashboards = $state<DashboardEntry[]>([]);
@@ -715,7 +805,12 @@
 						</h3>
 						<div class="flex flex-wrap gap-1">
 							{#each nsMetrics.slice(0, 20) as m}
-								<span class="px-2 py-1 text-xs bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded">{m.MetricName}</span>
+								<button
+									type="button"
+									onclick={() => openMetricChart(m)}
+									title="Graph this metric"
+									class="px-2 py-1 text-xs bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded hover:bg-indigo-100 dark:hover:bg-indigo-900 hover:text-indigo-700 dark:hover:text-indigo-300 transition-colors"
+								>{m.MetricName}</button>
 							{/each}
 							{#if nsMetrics.length > 20}
 								<span class="px-2 py-1 text-xs text-slate-400">+{nsMetrics.length - 20} more</span>
@@ -979,6 +1074,87 @@
 					</button>
 				</div>
 			</form>
+		</div>
+	</div>
+{/if}
+
+<!-- Metric Chart Modal -->
+{#if showMetricChart && chartMetric}
+	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+		<div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 w-full max-w-3xl">
+			<div class="flex items-start justify-between mb-4">
+				<div>
+					<h2 class="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+						<BarChart2 class="w-5 h-5 text-indigo-500" />
+						{chartMetric.MetricName}
+					</h2>
+					<p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{chartMetric.Namespace}</p>
+					{#if chartMetric.Dimensions && chartMetric.Dimensions.length > 0}
+						<p class="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
+							{chartMetric.Dimensions.map((d) => `${d.Name}=${d.Value}`).join(', ')}
+						</p>
+					{/if}
+				</div>
+				<button type="button" onclick={() => { showMetricChart = false; chartMetric = null; }} class="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white">✕</button>
+			</div>
+
+			<div class="flex flex-wrap items-end gap-3 mb-4">
+				<div>
+					<label for="cw-chart-stat" class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Statistic</label>
+					<select id="cw-chart-stat" bind:value={chartStatistic} onchange={loadMetricChart} class="px-3 py-1.5 text-sm bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white">
+						<option value="Average">Average</option>
+						<option value="Sum">Sum</option>
+						<option value="Minimum">Minimum</option>
+						<option value="Maximum">Maximum</option>
+						<option value="SampleCount">SampleCount</option>
+					</select>
+				</div>
+				<div>
+					<label for="cw-chart-range" class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Time Range</label>
+					<select id="cw-chart-range" bind:value={chartRangeHours} onchange={loadMetricChart} class="px-3 py-1.5 text-sm bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white">
+						<option value={1}>Last 1h</option>
+						<option value={3}>Last 3h</option>
+						<option value={12}>Last 12h</option>
+						<option value={24}>Last 24h</option>
+						<option value={168}>Last 7d</option>
+					</select>
+				</div>
+				<div>
+					<label for="cw-chart-period" class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Period (s)</label>
+					<select id="cw-chart-period" bind:value={chartPeriod} onchange={loadMetricChart} class="px-3 py-1.5 text-sm bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white">
+						<option value={60}>60</option>
+						<option value={300}>300</option>
+						<option value={900}>900</option>
+						<option value={3600}>3600</option>
+					</select>
+				</div>
+				<button type="button" onclick={loadMetricChart} class="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-1.5">
+					<RefreshCw class="w-3.5 h-3.5" />Refresh
+				</button>
+			</div>
+
+			{#if loadingChart}
+				<div class="py-16 text-center text-slate-500 dark:text-slate-400">Loading datapoints...</div>
+			{:else if chartError}
+				<div class="py-16 text-center text-amber-600 dark:text-amber-400 text-sm">{chartError}</div>
+			{:else}
+				{@const g = chartGeometry()}
+				<div class="bg-slate-50 dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700 p-2">
+					<svg viewBox={`0 0 ${g.w} ${g.h}`} class="w-full" role="img" aria-label="Metric time series chart">
+						<line x1={g.pad} y1={g.h - g.pad} x2={g.w - g.pad} y2={g.h - g.pad} class="stroke-slate-300 dark:stroke-slate-600" stroke-width="1" />
+						<line x1={g.pad} y1={g.pad} x2={g.pad} y2={g.h - g.pad} class="stroke-slate-300 dark:stroke-slate-600" stroke-width="1" />
+						<text x={g.pad - 4} y={g.pad + 4} text-anchor="end" class="fill-slate-500 text-[10px]">{g.max.toFixed(2)}</text>
+						<text x={g.pad - 4} y={g.h - g.pad} text-anchor="end" class="fill-slate-500 text-[10px]">{g.min.toFixed(2)}</text>
+						<path d={g.path} fill="none" class="stroke-indigo-500" stroke-width="2" />
+						{#each g.points as p}
+							<circle cx={p.x} cy={p.y} r="2.5" class="fill-indigo-500">
+								<title>{p.t ? new Date(p.t).toLocaleString() : ''}: {p.v.toFixed(4)}</title>
+							</circle>
+						{/each}
+					</svg>
+				</div>
+				<p class="text-xs text-slate-500 dark:text-slate-400 mt-2">{chartDatapoints.length} datapoints · {chartStatistic}</p>
+			{/if}
 		</div>
 	</div>
 {/if}

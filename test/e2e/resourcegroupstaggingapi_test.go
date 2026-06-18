@@ -4,6 +4,7 @@
 package e2e_test
 
 import (
+	"context"
 	"net/http/httptest"
 	"testing"
 
@@ -21,7 +22,7 @@ const testTaggingARN = "arn:aws:s3:::e2e-tagged-bucket"
 func TestResourceGroupsTaggingAPIDashboard(t *testing.T) {
 	stack := newStack(t)
 
-	stack.ResourceGroupsTaggingHandler.Backend.RegisterProvider(func() []taggingbackend.TaggedResource {
+	stack.ResourceGroupsTaggingHandler.Backend.RegisterProvider(func(_ context.Context) []taggingbackend.TaggedResource {
 		return []taggingbackend.TaggedResource{
 			{
 				ResourceARN:  testTaggingARN,

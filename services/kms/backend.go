@@ -712,7 +712,11 @@ func (b *InMemoryBackend) ListKeys(ctx context.Context, input *ListKeysInput) (*
 	startIdx := parseMarker(input.Marker)
 	limit := int32(defaultListLimit)
 
-	if input.Limit != nil && *input.Limit > 0 {
+	if input.Limit != nil {
+		if *input.Limit < 1 || *input.Limit > 1000 {
+			return nil, fmt.Errorf("%w: Limit must be between 1 and 1000", ErrValidation)
+		}
+
 		limit = *input.Limit
 	}
 
@@ -1436,7 +1440,11 @@ func (b *InMemoryBackend) ListAliases(ctx context.Context, input *ListAliasesInp
 	startIdx := parseMarker(input.Marker)
 	limit := int32(defaultListLimit)
 
-	if input.Limit != nil && *input.Limit > 0 {
+	if input.Limit != nil {
+		if *input.Limit < 1 || *input.Limit > 1000 {
+			return nil, fmt.Errorf("%w: Limit must be between 1 and 1000", ErrValidation)
+		}
+
 		limit = *input.Limit
 	}
 

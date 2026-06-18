@@ -353,7 +353,7 @@ func TestListParts_Pagination(t *testing.T) {
 
 	assert.Len(t, result.Parts, 2)
 	assert.True(t, result.IsTruncated)
-	assert.Equal(t, 2, result.NextPartNumberMarker)
+	assert.Equal(t, "2", result.NextPartNumberMarker)
 	assert.Equal(t, 1, result.Parts[0].PartNumber)
 	assert.Equal(t, 2, result.Parts[1].PartNumber)
 

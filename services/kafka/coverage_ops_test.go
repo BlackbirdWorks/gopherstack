@@ -1,6 +1,7 @@
 package kafka_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -109,31 +110,37 @@ func TestKafkaCoverage_Topics(t *testing.T) {
 	clusterArn := createCoverageCluster(t, h, be, "topic-cluster")
 
 	// CreateTopic
-	topic, err := be.CreateTopic(clusterArn, "my-topic", 1, 3, nil)
+	topic, err := be.CreateTopic(context.Background(), clusterArn, "my-topic", 1, 3, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "my-topic", topic.TopicName)
 
 	// DescribeTopic (via DescribeTopicPartitions)
-	tp, err := be.DescribeTopicPartitions(clusterArn, "my-topic")
+	tp, err := be.DescribeTopicPartitions(context.Background(), clusterArn, "my-topic")
 	require.NoError(t, err)
 	assert.Equal(t, "my-topic", tp.TopicName)
 
 	// ListTopics
-	topics, err := be.ListTopics(clusterArn)
+	topics, err := be.ListTopics(context.Background(), clusterArn)
 	require.NoError(t, err)
 	assert.NotEmpty(t, topics)
 
 	// UpdateTopic
-	updated, err := be.UpdateTopic(clusterArn, "my-topic", 6, map[string]string{"retention.ms": "86400000"})
+	updated, err := be.UpdateTopic(
+		context.Background(),
+		clusterArn,
+		"my-topic",
+		6,
+		map[string]string{"retention.ms": "86400000"},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, int32(6), updated.NumPartitions)
 
 	// DeleteTopic
-	err = be.DeleteTopic(clusterArn, "my-topic")
+	err = be.DeleteTopic(context.Background(), clusterArn, "my-topic")
 	require.NoError(t, err)
 
 	// DescribeTopic after delete → not found
-	_, err = be.DescribeTopicPartitions(clusterArn, "my-topic")
+	_, err = be.DescribeTopicPartitions(context.Background(), clusterArn, "my-topic")
 	assert.Error(t, err)
 }
 
@@ -145,11 +152,11 @@ func TestKafkaCoverage_DescribeTopic(t *testing.T) {
 	_ = be
 	clusterArn := createCoverageCluster(t, h, be2, "dt-cluster")
 
-	_, err := be2.CreateTopic(clusterArn, "dt-topic", 1, 1, nil)
+	_, err := be2.CreateTopic(context.Background(), clusterArn, "dt-topic", 1, 1, nil)
 	require.NoError(t, err)
 
 	// DescribeTopic
-	topic, err := be2.DescribeTopic(clusterArn, "dt-topic")
+	topic, err := be2.DescribeTopic(context.Background(), clusterArn, "dt-topic")
 	require.NoError(t, err)
 	assert.Equal(t, "dt-topic", topic.TopicName)
 }
@@ -161,26 +168,26 @@ func TestKafkaCoverage_VpcConnections(t *testing.T) {
 	clusterArn := createCoverageCluster(t, h, be, "vpc-cluster")
 
 	// CreateVpcConnection
-	conn, err := be.CreateVpcConnection(clusterArn, "vpc-abc", "PLAINTEXT", nil)
+	conn, err := be.CreateVpcConnection(context.Background(), clusterArn, "vpc-abc", "PLAINTEXT", nil)
 	require.NoError(t, err)
 	connArn := conn.VpcConnectionArn
 
 	// DescribeVpcConnection
-	c, err := be.DescribeVpcConnection(connArn)
+	c, err := be.DescribeVpcConnection(context.Background(), connArn)
 	require.NoError(t, err)
 	assert.Equal(t, connArn, c.VpcConnectionArn)
 
 	// ListVpcConnections
-	conns := be.ListVpcConnections()
+	conns := be.ListVpcConnections(context.Background())
 	assert.NotEmpty(t, conns)
 
 	// ListClientVpcConnections
-	clientConns, err := be.ListClientVpcConnections(clusterArn)
+	clientConns, err := be.ListClientVpcConnections(context.Background(), clusterArn)
 	require.NoError(t, err)
 	assert.NotEmpty(t, clientConns)
 
 	// RejectClientVpcConnection
-	err = be.RejectClientVpcConnection(connArn)
+	err = be.RejectClientVpcConnection(context.Background(), connArn)
 	require.NoError(t, err)
 }
 
@@ -192,10 +199,10 @@ func TestKafkaCoverage_ClusterPolicy(t *testing.T) {
 
 	policy := `{"Version":"2012-10-17","Statement":[]}`
 
-	err := be.PutClusterPolicy(clusterArn, policy)
+	err := be.PutClusterPolicy(context.Background(), clusterArn, policy)
 	require.NoError(t, err)
 
-	p, err := be.GetClusterPolicy(clusterArn)
+	p, err := be.GetClusterPolicy(context.Background(), clusterArn)
 	require.NoError(t, err)
 	assert.Equal(t, policy, p)
 }
@@ -206,21 +213,21 @@ func TestKafkaCoverage_ClusterOperations(t *testing.T) {
 	h, be := newTestHandlerWithBackend(t)
 	clusterArn := createCoverageCluster(t, h, be, "ops-cluster")
 
-	_, err := be.UpdateBrokerCount(clusterArn, 2)
+	_, err := be.UpdateBrokerCount(context.Background(), clusterArn, 2)
 	require.NoError(t, err)
 
 	// ListClusterOperations
-	ops, err := be.ListClusterOperations(clusterArn)
+	ops, err := be.ListClusterOperations(context.Background(), clusterArn)
 	require.NoError(t, err)
 	assert.NotEmpty(t, ops)
 
 	// ListClusterOperationsV2
-	ops2, err := be.ListClusterOperationsV2(clusterArn)
+	ops2, err := be.ListClusterOperationsV2(context.Background(), clusterArn)
 	require.NoError(t, err)
 	assert.NotEmpty(t, ops2)
 
 	if len(ops2) > 0 {
-		op, opErr := be.DescribeClusterOperationV2(ops2[0].ClusterOperationArn)
+		op, opErr := be.DescribeClusterOperationV2(context.Background(), ops2[0].ClusterOperationArn)
 		require.NoError(t, opErr)
 		assert.Equal(t, ops2[0].ClusterOperationArn, op.ClusterOperationArn)
 	}
@@ -236,21 +243,27 @@ func TestKafkaCoverage_ConfigurationRevisions(t *testing.T) {
 	// Use backend directly for revision tests
 	_, be2 := newTestHandlerWithBackend(t)
 
-	cfg, err := be2.CreateConfiguration("cfg2", "", []string{"2.8.0"}, "auto.create.topics.enable=false")
+	cfg, err := be2.CreateConfiguration(
+		context.Background(),
+		"cfg2",
+		"",
+		[]string{"2.8.0"},
+		"auto.create.topics.enable=false",
+	)
 	require.NoError(t, err)
 
 	// DescribeConfigurationRevision
-	revision, err := be2.DescribeConfigurationRevision(cfg.Arn, 1)
+	revision, err := be2.DescribeConfigurationRevision(context.Background(), cfg.Arn, 1)
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), revision.Revision)
 
 	// ListConfigurationRevisions
-	revs, err := be2.ListConfigurationRevisions(cfg.Arn)
+	revs, err := be2.ListConfigurationRevisions(context.Background(), cfg.Arn)
 	require.NoError(t, err)
 	assert.NotEmpty(t, revs)
 
 	// UpdateConfiguration (description, serverProperties)
-	updated, err := be2.UpdateConfiguration(cfg.Arn, "v2 desc", "auto.create.topics.enable=true")
+	updated, err := be2.UpdateConfiguration(context.Background(), cfg.Arn, "v2 desc", "auto.create.topics.enable=true")
 	require.NoError(t, err)
 	assert.NotEmpty(t, updated.Arn)
 }

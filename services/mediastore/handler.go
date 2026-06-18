@@ -622,6 +622,21 @@ func (h *Handler) handleListTagsForResource(c *echo.Context, body []byte) error 
 // writeBackendError translates a backend error to an HTTP response.
 func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 	switch {
+	case errors.Is(err, ErrContainerNotFound):
+		// AWS MediaStore returns ContainerNotFoundException (not the generic
+		// ResourceNotFoundException) when a container does not exist. The
+		// terraform-provider-aws delete waiter matches this exact type to
+		// detect that a container has finished deleting, so it must be exact.
+
+		return writeError(c, http.StatusNotFound, "ContainerNotFoundException", err.Error())
+	case errors.Is(err, ErrPolicyNotFound),
+		errors.Is(err, ErrLifecyclePolicyNotFound),
+		errors.Is(err, ErrMetricPolicyNotFound):
+
+		return writeError(c, http.StatusNotFound, "PolicyNotFoundException", err.Error())
+	case errors.Is(err, ErrCorsPolicyNotFound):
+
+		return writeError(c, http.StatusNotFound, "CorsPolicyNotFoundException", err.Error())
 	case errors.Is(err, awserr.ErrNotFound):
 
 		return writeError(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())

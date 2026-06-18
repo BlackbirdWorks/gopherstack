@@ -1,6 +1,7 @@
 package kafka_test
 
 import (
+	"context"
 	"net/http"
 	"testing"
 
@@ -62,11 +63,19 @@ func TestBackend_CreateCluster(t *testing.T) {
 
 			// Pre-create if testing duplicate
 			if tt.wantErr {
-				_, err := b.CreateCluster("my-cluster", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil, nil)
+				_, err := b.CreateCluster(
+					context.Background(),
+					"my-cluster",
+					"2.8.0",
+					3,
+					kafka.BrokerNodeGroupInfo{},
+					nil,
+					nil,
+				)
 				require.NoError(t, err)
 			}
 
-			cluster, err := b.CreateCluster(
+			cluster, err := b.CreateCluster(context.Background(),
 				tt.clusterName,
 				"2.8.0",
 				3,
@@ -101,7 +110,15 @@ func TestBackend_DescribeCluster(t *testing.T) {
 		{
 			name: "existing_cluster",
 			setup: func(b *kafka.InMemoryBackend) string {
-				c, err := b.CreateCluster("my-cluster", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil, nil)
+				c, err := b.CreateCluster(
+					context.Background(),
+					"my-cluster",
+					"2.8.0",
+					3,
+					kafka.BrokerNodeGroupInfo{},
+					nil,
+					nil,
+				)
 				if err != nil {
 					return ""
 				}
@@ -125,7 +142,7 @@ func TestBackend_DescribeCluster(t *testing.T) {
 			b := newTestBackend(t)
 			arn := tt.setup(b)
 
-			cluster, err := b.DescribeCluster(arn)
+			cluster, err := b.DescribeCluster(context.Background(), arn)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -155,8 +172,24 @@ func TestBackend_ListClusters(t *testing.T) {
 		{
 			name: "multiple",
 			setup: func(b *kafka.InMemoryBackend) {
-				_, _ = b.CreateCluster("cluster-a", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil, nil)
-				_, _ = b.CreateCluster("cluster-b", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil, nil)
+				_, _ = b.CreateCluster(
+					context.Background(),
+					"cluster-a",
+					"2.8.0",
+					3,
+					kafka.BrokerNodeGroupInfo{},
+					nil,
+					nil,
+				)
+				_, _ = b.CreateCluster(
+					context.Background(),
+					"cluster-b",
+					"2.8.0",
+					3,
+					kafka.BrokerNodeGroupInfo{},
+					nil,
+					nil,
+				)
 			},
 			wantCount: 2,
 		},
@@ -169,7 +202,7 @@ func TestBackend_ListClusters(t *testing.T) {
 			b := newTestBackend(t)
 			tt.setup(b)
 
-			clusters := b.ListClusters()
+			clusters := b.ListClusters(context.Background())
 			assert.Len(t, clusters, tt.wantCount)
 		})
 	}
@@ -186,7 +219,15 @@ func TestBackend_DeleteCluster(t *testing.T) {
 		{
 			name: "success",
 			setup: func(b *kafka.InMemoryBackend) string {
-				c, _ := b.CreateCluster("my-cluster", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil, nil)
+				c, _ := b.CreateCluster(
+					context.Background(),
+					"my-cluster",
+					"2.8.0",
+					3,
+					kafka.BrokerNodeGroupInfo{},
+					nil,
+					nil,
+				)
 
 				return c.ClusterArn
 			},
@@ -207,7 +248,7 @@ func TestBackend_DeleteCluster(t *testing.T) {
 			b := newTestBackend(t)
 			arn := tt.setup(b)
 
-			err := b.DeleteCluster(arn)
+			err := b.DeleteCluster(context.Background(), arn)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -217,7 +258,7 @@ func TestBackend_DeleteCluster(t *testing.T) {
 
 			require.NoError(t, err)
 
-			_, err = b.DescribeCluster(arn)
+			_, err = b.DescribeCluster(context.Background(), arn)
 			require.Error(t, err)
 		})
 	}
@@ -241,7 +282,13 @@ func TestBackend_CreateConfiguration(t *testing.T) {
 			name:     "duplicate_name",
 			confName: "my-config",
 			setup: func(b *kafka.InMemoryBackend) {
-				_, _ = b.CreateConfiguration("my-config", "", []string{"2.8.0"}, "auto.create.topics.enable=false")
+				_, _ = b.CreateConfiguration(
+					context.Background(),
+					"my-config",
+					"",
+					[]string{"2.8.0"},
+					"auto.create.topics.enable=false",
+				)
 			},
 			wantErr: true,
 		},
@@ -254,7 +301,7 @@ func TestBackend_CreateConfiguration(t *testing.T) {
 			b := newTestBackend(t)
 			tt.setup(b)
 
-			config, err := b.CreateConfiguration(
+			config, err := b.CreateConfiguration(context.Background(),
 				tt.confName,
 				"test config",
 				[]string{"2.8.0"},
@@ -286,7 +333,7 @@ func TestBackend_DescribeConfiguration(t *testing.T) {
 		{
 			name: "existing_config",
 			setup: func(b *kafka.InMemoryBackend) string {
-				c, _ := b.CreateConfiguration("my-config", "", []string{"2.8.0"}, "")
+				c, _ := b.CreateConfiguration(context.Background(), "my-config", "", []string{"2.8.0"}, "")
 
 				return c.Arn
 			},
@@ -307,7 +354,7 @@ func TestBackend_DescribeConfiguration(t *testing.T) {
 			b := newTestBackend(t)
 			arn := tt.setup(b)
 
-			config, err := b.DescribeConfiguration(arn)
+			config, err := b.DescribeConfiguration(context.Background(), arn)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -335,7 +382,15 @@ func TestBackend_TagOperations(t *testing.T) {
 		{
 			name: "tag_and_untag_cluster",
 			setup: func(b *kafka.InMemoryBackend) string {
-				c, _ := b.CreateCluster("tagged-cluster", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil, nil)
+				c, _ := b.CreateCluster(
+					context.Background(),
+					"tagged-cluster",
+					"2.8.0",
+					3,
+					kafka.BrokerNodeGroupInfo{},
+					nil,
+					nil,
+				)
 
 				return c.ClusterArn
 			},
@@ -368,7 +423,7 @@ func TestBackend_TagOperations(t *testing.T) {
 			arn := tt.setup(b)
 
 			if tt.tags != nil {
-				err := b.TagResource(arn, tt.tags)
+				err := b.TagResource(context.Background(), arn, tt.tags)
 
 				if tt.wantErr {
 					require.Error(t, err)
@@ -380,18 +435,18 @@ func TestBackend_TagOperations(t *testing.T) {
 			}
 
 			if tt.removKeys != nil {
-				err := b.UntagResource(arn, tt.removKeys)
+				err := b.UntagResource(context.Background(), arn, tt.removKeys)
 				require.NoError(t, err)
 			}
 
 			if !tt.wantErr && tt.wantTags != nil {
-				got, err := b.GetTags(arn)
+				got, err := b.GetTags(context.Background(), arn)
 				require.NoError(t, err)
 				assert.Equal(t, tt.wantTags, got)
 			}
 
 			if tt.wantErr && tt.tags == nil {
-				_, err := b.GetTags(arn)
+				_, err := b.GetTags(context.Background(), arn)
 				require.Error(t, err)
 			}
 		})
@@ -410,7 +465,15 @@ func TestBackend_BatchAssociateScramSecret(t *testing.T) {
 		{
 			name: "success",
 			setup: func(b *kafka.InMemoryBackend) string {
-				c, _ := b.CreateCluster("my-cluster", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil, nil)
+				c, _ := b.CreateCluster(
+					context.Background(),
+					"my-cluster",
+					"2.8.0",
+					3,
+					kafka.BrokerNodeGroupInfo{},
+					nil,
+					nil,
+				)
 
 				return c.ClusterArn
 			},
@@ -433,7 +496,7 @@ func TestBackend_BatchAssociateScramSecret(t *testing.T) {
 			b := newTestBackend(t)
 			clusterArn := tt.setup(b)
 
-			errs, err := b.BatchAssociateScramSecret(clusterArn, tt.secretArns)
+			errs, err := b.BatchAssociateScramSecret(context.Background(), clusterArn, tt.secretArns)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -459,8 +522,16 @@ func TestBackend_BatchDisassociateScramSecret(t *testing.T) {
 		{
 			name: "success",
 			setup: func(b *kafka.InMemoryBackend) string {
-				c, _ := b.CreateCluster("my-cluster", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil, nil)
-				_, _ = b.BatchAssociateScramSecret(
+				c, _ := b.CreateCluster(
+					context.Background(),
+					"my-cluster",
+					"2.8.0",
+					3,
+					kafka.BrokerNodeGroupInfo{},
+					nil,
+					nil,
+				)
+				_, _ = b.BatchAssociateScramSecret(context.Background(),
 					c.ClusterArn,
 					[]string{"arn:aws:secretsmanager:us-east-1:000000000000:secret/my-secret"},
 				)
@@ -486,7 +557,7 @@ func TestBackend_BatchDisassociateScramSecret(t *testing.T) {
 			b := newTestBackend(t)
 			clusterArn := tt.setup(b)
 
-			errs, err := b.BatchDisassociateScramSecret(clusterArn, tt.secretArns)
+			errs, err := b.BatchDisassociateScramSecret(context.Background(), clusterArn, tt.secretArns)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -518,7 +589,13 @@ func TestBackend_CreateReplicator(t *testing.T) {
 			name:    "duplicate_name",
 			repName: "my-replicator",
 			setup: func(b *kafka.InMemoryBackend) {
-				_, _ = b.CreateReplicator("my-replicator", "", "arn:aws:iam::000000000000:role/my-role", nil)
+				_, _ = b.CreateReplicator(
+					context.Background(),
+					"my-replicator",
+					"",
+					"arn:aws:iam::000000000000:role/my-role",
+					nil,
+				)
 			},
 			wantErr: true,
 		},
@@ -531,7 +608,7 @@ func TestBackend_CreateReplicator(t *testing.T) {
 			b := newTestBackend(t)
 			tt.setup(b)
 
-			replicator, err := b.CreateReplicator(
+			replicator, err := b.CreateReplicator(context.Background(),
 				tt.repName,
 				"test replicator",
 				"arn:aws:iam::000000000000:role/my-role",
@@ -563,7 +640,13 @@ func TestBackend_DeleteReplicator(t *testing.T) {
 		{
 			name: "success",
 			setup: func(b *kafka.InMemoryBackend) string {
-				r, _ := b.CreateReplicator("my-replicator", "", "arn:aws:iam::000000000000:role/my-role", nil)
+				r, _ := b.CreateReplicator(
+					context.Background(),
+					"my-replicator",
+					"",
+					"arn:aws:iam::000000000000:role/my-role",
+					nil,
+				)
 
 				return r.ReplicatorArn
 			},
@@ -584,7 +667,7 @@ func TestBackend_DeleteReplicator(t *testing.T) {
 			b := newTestBackend(t)
 			replicatorArn := tt.setup(b)
 
-			err := b.DeleteReplicator(replicatorArn)
+			err := b.DeleteReplicator(context.Background(), replicatorArn)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -609,7 +692,15 @@ func TestBackend_CreateTopic(t *testing.T) {
 		{
 			name: "success",
 			setup: func(b *kafka.InMemoryBackend) string {
-				c, _ := b.CreateCluster("my-cluster", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil, nil)
+				c, _ := b.CreateCluster(
+					context.Background(),
+					"my-cluster",
+					"2.8.0",
+					3,
+					kafka.BrokerNodeGroupInfo{},
+					nil,
+					nil,
+				)
 
 				return c.ClusterArn
 			},
@@ -618,8 +709,16 @@ func TestBackend_CreateTopic(t *testing.T) {
 		{
 			name: "duplicate_topic",
 			setup: func(b *kafka.InMemoryBackend) string {
-				c, _ := b.CreateCluster("my-cluster", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil, nil)
-				_, _ = b.CreateTopic(c.ClusterArn, "my-topic", 1, 3, nil)
+				c, _ := b.CreateCluster(
+					context.Background(),
+					"my-cluster",
+					"2.8.0",
+					3,
+					kafka.BrokerNodeGroupInfo{},
+					nil,
+					nil,
+				)
+				_, _ = b.CreateTopic(context.Background(), c.ClusterArn, "my-topic", 1, 3, nil)
 
 				return c.ClusterArn
 			},
@@ -643,7 +742,7 @@ func TestBackend_CreateTopic(t *testing.T) {
 			b := newTestBackend(t)
 			clusterArn := tt.setup(b)
 
-			topic, err := b.CreateTopic(clusterArn, tt.topicName, 1, 3, nil)
+			topic, err := b.CreateTopic(context.Background(), clusterArn, tt.topicName, 1, 3, nil)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -669,8 +768,16 @@ func TestBackend_DeleteTopic(t *testing.T) {
 		{
 			name: "success",
 			setup: func(b *kafka.InMemoryBackend) (string, string) {
-				c, _ := b.CreateCluster("my-cluster", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil, nil)
-				_, _ = b.CreateTopic(c.ClusterArn, "my-topic", 1, 3, nil)
+				c, _ := b.CreateCluster(
+					context.Background(),
+					"my-cluster",
+					"2.8.0",
+					3,
+					kafka.BrokerNodeGroupInfo{},
+					nil,
+					nil,
+				)
+				_, _ = b.CreateTopic(context.Background(), c.ClusterArn, "my-topic", 1, 3, nil)
 
 				return c.ClusterArn, "my-topic"
 			},
@@ -678,7 +785,15 @@ func TestBackend_DeleteTopic(t *testing.T) {
 		{
 			name: "topic_not_found",
 			setup: func(b *kafka.InMemoryBackend) (string, string) {
-				c, _ := b.CreateCluster("my-cluster", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil, nil)
+				c, _ := b.CreateCluster(
+					context.Background(),
+					"my-cluster",
+					"2.8.0",
+					3,
+					kafka.BrokerNodeGroupInfo{},
+					nil,
+					nil,
+				)
 
 				return c.ClusterArn, "nonexistent-topic"
 			},
@@ -700,7 +815,7 @@ func TestBackend_DeleteTopic(t *testing.T) {
 			b := newTestBackend(t)
 			clusterArn, topicName := tt.setup(b)
 
-			err := b.DeleteTopic(clusterArn, topicName)
+			err := b.DeleteTopic(context.Background(), clusterArn, topicName)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -724,7 +839,15 @@ func TestBackend_CreateVpcConnection(t *testing.T) {
 		{
 			name: "success",
 			setup: func(b *kafka.InMemoryBackend) string {
-				c, _ := b.CreateCluster("my-cluster", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil, nil)
+				c, _ := b.CreateCluster(
+					context.Background(),
+					"my-cluster",
+					"2.8.0",
+					3,
+					kafka.BrokerNodeGroupInfo{},
+					nil,
+					nil,
+				)
 
 				return c.ClusterArn
 			},
@@ -745,7 +868,7 @@ func TestBackend_CreateVpcConnection(t *testing.T) {
 			b := newTestBackend(t)
 			clusterArn := tt.setup(b)
 
-			conn, err := b.CreateVpcConnection(clusterArn, "vpc-12345", "SASL_IAM", nil)
+			conn, err := b.CreateVpcConnection(context.Background(), clusterArn, "vpc-12345", "SASL_IAM", nil)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -772,8 +895,16 @@ func TestBackend_DeleteVpcConnection(t *testing.T) {
 		{
 			name: "success",
 			setup: func(b *kafka.InMemoryBackend) string {
-				c, _ := b.CreateCluster("my-cluster", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil, nil)
-				conn, _ := b.CreateVpcConnection(c.ClusterArn, "vpc-12345", "SASL_IAM", nil)
+				c, _ := b.CreateCluster(
+					context.Background(),
+					"my-cluster",
+					"2.8.0",
+					3,
+					kafka.BrokerNodeGroupInfo{},
+					nil,
+					nil,
+				)
+				conn, _ := b.CreateVpcConnection(context.Background(), c.ClusterArn, "vpc-12345", "SASL_IAM", nil)
 
 				return conn.VpcConnectionArn
 			},
@@ -794,7 +925,7 @@ func TestBackend_DeleteVpcConnection(t *testing.T) {
 			b := newTestBackend(t)
 			vpcConnectionArn := tt.setup(b)
 
-			err := b.DeleteVpcConnection(vpcConnectionArn)
+			err := b.DeleteVpcConnection(context.Background(), vpcConnectionArn)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -818,7 +949,15 @@ func TestBackend_DeleteClusterPolicy(t *testing.T) {
 		{
 			name: "success_no_policy",
 			setup: func(b *kafka.InMemoryBackend) string {
-				c, _ := b.CreateCluster("my-cluster", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil, nil)
+				c, _ := b.CreateCluster(
+					context.Background(),
+					"my-cluster",
+					"2.8.0",
+					3,
+					kafka.BrokerNodeGroupInfo{},
+					nil,
+					nil,
+				)
 
 				return c.ClusterArn
 			},
@@ -839,7 +978,7 @@ func TestBackend_DeleteClusterPolicy(t *testing.T) {
 			b := newTestBackend(t)
 			clusterArn := tt.setup(b)
 
-			err := b.DeleteClusterPolicy(clusterArn)
+			err := b.DeleteClusterPolicy(context.Background(), clusterArn)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -863,7 +1002,15 @@ func TestBackend_DescribeClusterOperation(t *testing.T) {
 		{
 			name: "success",
 			setup: func(b *kafka.InMemoryBackend) string {
-				c, _ := b.CreateCluster("my-cluster", "2.8.0", 3, kafka.BrokerNodeGroupInfo{}, nil, nil)
+				c, _ := b.CreateCluster(
+					context.Background(),
+					"my-cluster",
+					"2.8.0",
+					3,
+					kafka.BrokerNodeGroupInfo{},
+					nil,
+					nil,
+				)
 				op := b.AddClusterOperationInternal(c.ClusterArn, "UPDATE_BROKER_COUNT")
 
 				return op.ClusterOperationArn
@@ -885,7 +1032,7 @@ func TestBackend_DescribeClusterOperation(t *testing.T) {
 			b := newTestBackend(t)
 			clusterOperationArn := tt.setup(b)
 
-			op, err := b.DescribeClusterOperation(clusterOperationArn)
+			op, err := b.DescribeClusterOperation(context.Background(), clusterOperationArn)
 
 			if tt.wantErr {
 				require.Error(t, err)

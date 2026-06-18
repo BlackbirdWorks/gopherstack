@@ -5,20 +5,22 @@ import (
 	"log/slog"
 )
 
+// backendSnapshot persists the backend state. Regional resource maps are nested by
+// region (outer key = region). GlobalClusters are partition-scoped and stay flat.
 type backendSnapshot struct {
-	Clusters               map[string]*DBCluster               `json:"clusters"`
-	Instances              map[string]*DBInstance              `json:"instances"`
-	SubnetGroups           map[string]*DBSubnetGroup           `json:"subnetGroups"`
-	ClusterParameterGroups map[string]*DBClusterParameterGroup `json:"clusterParameterGroups"`
-	ClusterSnapshots       map[string]*DBClusterSnapshot       `json:"clusterSnapshots"`
-	ParameterGroups        map[string]*DBParameterGroup        `json:"parameterGroups"`
-	ClusterEndpoints       map[string]*DBClusterEndpoint       `json:"clusterEndpoints"`
-	EventSubscriptions     map[string]*EventSubscription       `json:"eventSubscriptions"`
-	GlobalClusters         map[string]*GlobalCluster           `json:"globalClusters"`
-	ClusterRoles           map[string][]string                 `json:"clusterRoles"`
-	Tags                   map[string][]Tag                    `json:"tags"`
-	AccountID              string                              `json:"accountID"`
-	Region                 string                              `json:"region"`
+	Clusters               map[string]map[string]*DBCluster               `json:"clusters"`
+	Instances              map[string]map[string]*DBInstance              `json:"instances"`
+	SubnetGroups           map[string]map[string]*DBSubnetGroup           `json:"subnetGroups"`
+	ClusterParameterGroups map[string]map[string]*DBClusterParameterGroup `json:"clusterParameterGroups"`
+	ClusterSnapshots       map[string]map[string]*DBClusterSnapshot       `json:"clusterSnapshots"`
+	ParameterGroups        map[string]map[string]*DBParameterGroup        `json:"parameterGroups"`
+	ClusterEndpoints       map[string]map[string]*DBClusterEndpoint       `json:"clusterEndpoints"`
+	EventSubscriptions     map[string]map[string]*EventSubscription       `json:"eventSubscriptions"`
+	ClusterRoles           map[string]map[string][]string                 `json:"clusterRoles"`
+	Tags                   map[string]map[string][]Tag                    `json:"tags"`
+	GlobalClusters         map[string]*GlobalCluster                      `json:"globalClusters"`
+	AccountID              string                                         `json:"accountID"`
+	Region                 string                                         `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -85,35 +87,35 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 // ensureNonNilMaps initialises nil maps in the snapshot to empty maps.
 func ensureNonNilMaps(snap *backendSnapshot) {
 	if snap.Clusters == nil {
-		snap.Clusters = make(map[string]*DBCluster)
+		snap.Clusters = make(map[string]map[string]*DBCluster)
 	}
 
 	if snap.Instances == nil {
-		snap.Instances = make(map[string]*DBInstance)
+		snap.Instances = make(map[string]map[string]*DBInstance)
 	}
 
 	if snap.SubnetGroups == nil {
-		snap.SubnetGroups = make(map[string]*DBSubnetGroup)
+		snap.SubnetGroups = make(map[string]map[string]*DBSubnetGroup)
 	}
 
 	if snap.ClusterParameterGroups == nil {
-		snap.ClusterParameterGroups = make(map[string]*DBClusterParameterGroup)
+		snap.ClusterParameterGroups = make(map[string]map[string]*DBClusterParameterGroup)
 	}
 
 	if snap.ClusterSnapshots == nil {
-		snap.ClusterSnapshots = make(map[string]*DBClusterSnapshot)
+		snap.ClusterSnapshots = make(map[string]map[string]*DBClusterSnapshot)
 	}
 
 	if snap.ParameterGroups == nil {
-		snap.ParameterGroups = make(map[string]*DBParameterGroup)
+		snap.ParameterGroups = make(map[string]map[string]*DBParameterGroup)
 	}
 
 	if snap.ClusterEndpoints == nil {
-		snap.ClusterEndpoints = make(map[string]*DBClusterEndpoint)
+		snap.ClusterEndpoints = make(map[string]map[string]*DBClusterEndpoint)
 	}
 
 	if snap.EventSubscriptions == nil {
-		snap.EventSubscriptions = make(map[string]*EventSubscription)
+		snap.EventSubscriptions = make(map[string]map[string]*EventSubscription)
 	}
 
 	if snap.GlobalClusters == nil {
@@ -121,11 +123,11 @@ func ensureNonNilMaps(snap *backendSnapshot) {
 	}
 
 	if snap.ClusterRoles == nil {
-		snap.ClusterRoles = make(map[string][]string)
+		snap.ClusterRoles = make(map[string]map[string][]string)
 	}
 
 	if snap.Tags == nil {
-		snap.Tags = make(map[string][]Tag)
+		snap.Tags = make(map[string]map[string][]Tag)
 	}
 }
 

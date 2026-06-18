@@ -175,11 +175,15 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function for CodeStar Connections requests.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		region := httputils.ExtractRegionFromRequest(c.Request(), h.Backend.Region())
+
 		return service.HandleTarget(
 			c, logger.Load(c.Request().Context()),
 			"CodeStarConnections", "application/x-amz-json-1.0",
 			h.GetSupportedOperations(),
-			h.dispatch,
+			func(ctx context.Context, action string, body []byte) ([]byte, error) {
+				return h.dispatch(context.WithValue(ctx, regionContextKey{}, region), action, body)
+			},
 			h.handleError,
 		)
 	}
@@ -282,7 +286,7 @@ type createConnectionOutput struct {
 }
 
 func (h *Handler) handleCreateConnection(
-	_ context.Context,
+	ctx context.Context,
 	in *createConnectionInput,
 ) (*createConnectionOutput, error) {
 	if in.ConnectionName == "" {
@@ -290,7 +294,7 @@ func (h *Handler) handleCreateConnection(
 	}
 
 	conn, err := h.Backend.CreateConnection(
-		in.ConnectionName, in.ProviderType, in.HostArn, tagsFromArray(in.Tags),
+		ctx, in.ConnectionName, in.ProviderType, in.HostArn, tagsFromArray(in.Tags),
 	)
 	if err != nil {
 		return nil, err
@@ -333,14 +337,14 @@ func connectionToView(c *Connection) connectionView {
 }
 
 func (h *Handler) handleGetConnection(
-	_ context.Context,
+	ctx context.Context,
 	in *getConnectionInput,
 ) (*getConnectionOutput, error) {
 	if in.ConnectionArn == "" {
 		return nil, fmt.Errorf("%w: ConnectionArn is required", errInvalidRequest)
 	}
 
-	conn, err := h.Backend.GetConnection(in.ConnectionArn)
+	conn, err := h.Backend.GetConnection(ctx, in.ConnectionArn)
 	if err != nil {
 		return nil, err
 	}
@@ -360,10 +364,10 @@ type listConnectionsOutput struct {
 }
 
 func (h *Handler) handleListConnections(
-	_ context.Context,
+	ctx context.Context,
 	in *listConnectionsInput,
 ) (*listConnectionsOutput, error) {
-	connections := h.Backend.ListConnections(in.ProviderTypeFilter, in.HostArnFilter)
+	connections := h.Backend.ListConnections(ctx, in.ProviderTypeFilter, in.HostArnFilter)
 
 	views := make([]connectionView, len(connections))
 	for i, c := range connections {
@@ -380,14 +384,14 @@ type deleteConnectionInput struct {
 type deleteConnectionOutput struct{}
 
 func (h *Handler) handleDeleteConnection(
-	_ context.Context,
+	ctx context.Context,
 	in *deleteConnectionInput,
 ) (*deleteConnectionOutput, error) {
 	if in.ConnectionArn == "" {
 		return nil, fmt.Errorf("%w: ConnectionArn is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.DeleteConnection(in.ConnectionArn); err != nil {
+	if err := h.Backend.DeleteConnection(ctx, in.ConnectionArn); err != nil {
 		return nil, err
 	}
 
@@ -409,14 +413,14 @@ type createHostOutput struct {
 }
 
 func (h *Handler) handleCreateHost(
-	_ context.Context,
+	ctx context.Context,
 	in *createHostInput,
 ) (*createHostOutput, error) {
 	if in.Name == "" {
 		return nil, fmt.Errorf("%w: Name is required", errInvalidRequest)
 	}
 
-	host, err := h.Backend.CreateHost(in.Name, in.ProviderType, in.ProviderEndpoint, tagsFromArray(in.Tags))
+	host, err := h.Backend.CreateHost(ctx, in.Name, in.ProviderType, in.ProviderEndpoint, tagsFromArray(in.Tags))
 	if err != nil {
 		return nil, err
 	}
@@ -455,14 +459,14 @@ func hostToView(h *Host) hostView {
 }
 
 func (h *Handler) handleGetHost(
-	_ context.Context,
+	ctx context.Context,
 	in *getHostInput,
 ) (*getHostOutput, error) {
 	if in.HostArn == "" {
 		return nil, fmt.Errorf("%w: HostArn is required", errInvalidRequest)
 	}
 
-	host, err := h.Backend.GetHost(in.HostArn)
+	host, err := h.Backend.GetHost(ctx, in.HostArn)
 	if err != nil {
 		return nil, err
 	}
@@ -480,10 +484,10 @@ type listHostsOutput struct {
 }
 
 func (h *Handler) handleListHosts(
-	_ context.Context,
+	ctx context.Context,
 	_ *listHostsInput,
 ) (*listHostsOutput, error) {
-	hosts := h.Backend.ListHosts()
+	hosts := h.Backend.ListHosts(ctx)
 
 	views := make([]hostView, len(hosts))
 	for i, host := range hosts {
@@ -500,14 +504,14 @@ type deleteHostInput struct {
 type deleteHostOutput struct{}
 
 func (h *Handler) handleDeleteHost(
-	_ context.Context,
+	ctx context.Context,
 	in *deleteHostInput,
 ) (*deleteHostOutput, error) {
 	if in.HostArn == "" {
 		return nil, fmt.Errorf("%w: HostArn is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.DeleteHost(in.HostArn); err != nil {
+	if err := h.Backend.DeleteHost(ctx, in.HostArn); err != nil {
 		return nil, err
 	}
 
@@ -522,14 +526,14 @@ type updateHostInput struct {
 type updateHostOutput struct{}
 
 func (h *Handler) handleUpdateHost(
-	_ context.Context,
+	ctx context.Context,
 	in *updateHostInput,
 ) (*updateHostOutput, error) {
 	if in.HostArn == "" {
 		return nil, fmt.Errorf("%w: HostArn is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.UpdateHost(in.HostArn, in.ProviderEndpoint); err != nil {
+	if err := h.Backend.UpdateHost(ctx, in.HostArn, in.ProviderEndpoint); err != nil {
 		return nil, err
 	}
 
@@ -547,14 +551,14 @@ type listTagsForResourceOutput struct {
 }
 
 func (h *Handler) handleListTagsForResource(
-	_ context.Context,
+	ctx context.Context,
 	in *listTagsForResourceInput,
 ) (*listTagsForResourceOutput, error) {
 	if in.ResourceArn == "" {
 		return nil, fmt.Errorf("%w: ResourceArn is required", errInvalidRequest)
 	}
 
-	tags, err := h.Backend.ListTagsForResource(in.ResourceArn)
+	tags, err := h.Backend.ListTagsForResource(ctx, in.ResourceArn)
 	if err != nil {
 		return nil, err
 	}
@@ -570,14 +574,14 @@ type tagResourceInput struct {
 type tagResourceOutput struct{}
 
 func (h *Handler) handleTagResource(
-	_ context.Context,
+	ctx context.Context,
 	in *tagResourceInput,
 ) (*tagResourceOutput, error) {
 	if in.ResourceArn == "" {
 		return nil, fmt.Errorf("%w: ResourceArn is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.TagResource(in.ResourceArn, tagsFromArray(in.Tags)); err != nil {
+	if err := h.Backend.TagResource(ctx, in.ResourceArn, tagsFromArray(in.Tags)); err != nil {
 		return nil, err
 	}
 
@@ -592,14 +596,14 @@ type untagResourceInput struct {
 type untagResourceOutput struct{}
 
 func (h *Handler) handleUntagResource(
-	_ context.Context,
+	ctx context.Context,
 	in *untagResourceInput,
 ) (*untagResourceOutput, error) {
 	if in.ResourceArn == "" {
 		return nil, fmt.Errorf("%w: ResourceArn is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.UntagResource(in.ResourceArn, in.TagKeys); err != nil {
+	if err := h.Backend.UntagResource(ctx, in.ResourceArn, in.TagKeys); err != nil {
 		return nil, err
 	}
 
@@ -630,7 +634,7 @@ type createRepositoryLinkOutput struct {
 }
 
 func (h *Handler) handleCreateRepositoryLink(
-	_ context.Context,
+	ctx context.Context,
 	in *createRepositoryLinkInput,
 ) (*createRepositoryLinkOutput, error) {
 	if in.ConnectionArn == "" {
@@ -646,7 +650,7 @@ func (h *Handler) handleCreateRepositoryLink(
 	}
 
 	link, err := h.Backend.CreateRepositoryLink(
-		in.ConnectionArn, in.OwnerID, in.RepositoryName, in.EncryptionKeyArn,
+		ctx, in.ConnectionArn, in.OwnerID, in.RepositoryName, in.EncryptionKeyArn,
 	)
 	if err != nil {
 		return nil, err
@@ -664,14 +668,14 @@ type getRepositoryLinkOutput struct {
 }
 
 func (h *Handler) handleGetRepositoryLink(
-	_ context.Context,
+	ctx context.Context,
 	in *getRepositoryLinkInput,
 ) (*getRepositoryLinkOutput, error) {
 	if in.RepositoryLinkID == "" {
 		return nil, fmt.Errorf("%w: RepositoryLinkId is required", errInvalidRequest)
 	}
 
-	link, err := h.Backend.GetRepositoryLink(in.RepositoryLinkID)
+	link, err := h.Backend.GetRepositoryLink(ctx, in.RepositoryLinkID)
 	if err != nil {
 		return nil, err
 	}
@@ -686,14 +690,14 @@ type deleteRepositoryLinkInput struct {
 type deleteRepositoryLinkOutput struct{}
 
 func (h *Handler) handleDeleteRepositoryLink(
-	_ context.Context,
+	ctx context.Context,
 	in *deleteRepositoryLinkInput,
 ) (*deleteRepositoryLinkOutput, error) {
 	if in.RepositoryLinkID == "" {
 		return nil, fmt.Errorf("%w: RepositoryLinkId is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.DeleteRepositoryLink(in.RepositoryLinkID); err != nil {
+	if err := h.Backend.DeleteRepositoryLink(ctx, in.RepositoryLinkID); err != nil {
 		return nil, err
 	}
 
@@ -710,10 +714,10 @@ type listRepositoryLinksOutput struct {
 }
 
 func (h *Handler) handleListRepositoryLinks(
-	_ context.Context,
+	ctx context.Context,
 	_ *listRepositoryLinksInput,
 ) (*listRepositoryLinksOutput, error) {
-	links := h.Backend.ListRepositoryLinks()
+	links := h.Backend.ListRepositoryLinks(ctx)
 
 	items := make([]repositoryLinkItem, len(links))
 	for i, link := range links {
@@ -763,7 +767,7 @@ type createSyncConfigurationOutput struct {
 }
 
 func (h *Handler) handleCreateSyncConfiguration(
-	_ context.Context,
+	ctx context.Context,
 	in *createSyncConfigurationInput,
 ) (*createSyncConfigurationOutput, error) {
 	if in.Branch == "" {
@@ -791,7 +795,7 @@ func (h *Handler) handleCreateSyncConfiguration(
 	}
 
 	cfg, err := h.Backend.CreateSyncConfiguration(
-		in.Branch, in.ConfigFile, in.RepositoryLinkID, in.ResourceName, in.RoleArn, in.SyncType,
+		ctx, in.Branch, in.ConfigFile, in.RepositoryLinkID, in.ResourceName, in.RoleArn, in.SyncType,
 	)
 	if err != nil {
 		return nil, err
@@ -810,7 +814,7 @@ type getSyncConfigurationOutput struct {
 }
 
 func (h *Handler) handleGetSyncConfiguration(
-	_ context.Context,
+	ctx context.Context,
 	in *getSyncConfigurationInput,
 ) (*getSyncConfigurationOutput, error) {
 	if in.ResourceName == "" {
@@ -821,7 +825,7 @@ func (h *Handler) handleGetSyncConfiguration(
 		return nil, fmt.Errorf("%w: SyncType is required", errInvalidRequest)
 	}
 
-	cfg, err := h.Backend.GetSyncConfiguration(in.ResourceName, in.SyncType)
+	cfg, err := h.Backend.GetSyncConfiguration(ctx, in.ResourceName, in.SyncType)
 	if err != nil {
 		return nil, err
 	}
@@ -837,10 +841,10 @@ type deleteSyncConfigurationInput struct {
 type deleteSyncConfigurationOutput struct{}
 
 func (h *Handler) handleDeleteSyncConfiguration(
-	_ context.Context,
+	ctx context.Context,
 	in *deleteSyncConfigurationInput,
 ) (*deleteSyncConfigurationOutput, error) {
-	if err := h.Backend.DeleteSyncConfiguration(in.ResourceName, in.SyncType); err != nil {
+	if err := h.Backend.DeleteSyncConfiguration(ctx, in.ResourceName, in.SyncType); err != nil {
 		return nil, err
 	}
 
@@ -887,7 +891,7 @@ type getRepositorySyncStatusOutput struct {
 }
 
 func (h *Handler) handleGetRepositorySyncStatus(
-	_ context.Context,
+	ctx context.Context,
 	in *getRepositorySyncStatusInput,
 ) (*getRepositorySyncStatusOutput, error) {
 	if in.RepositoryLinkID == "" {
@@ -902,7 +906,7 @@ func (h *Handler) handleGetRepositorySyncStatus(
 		return nil, fmt.Errorf("%w: SyncType is required", errInvalidRequest)
 	}
 
-	status, err := h.Backend.GetRepositorySyncStatus(in.RepositoryLinkID, in.Branch, in.SyncType)
+	status, err := h.Backend.GetRepositorySyncStatus(ctx, in.RepositoryLinkID, in.Branch, in.SyncType)
 	if err != nil {
 		return nil, err
 	}
@@ -934,7 +938,7 @@ type getResourceSyncStatusOutput struct {
 }
 
 func (h *Handler) handleGetResourceSyncStatus(
-	_ context.Context,
+	ctx context.Context,
 	in *getResourceSyncStatusInput,
 ) (*getResourceSyncStatusOutput, error) {
 	if in.ResourceName == "" {
@@ -945,7 +949,7 @@ func (h *Handler) handleGetResourceSyncStatus(
 		return nil, fmt.Errorf("%w: SyncType is required", errInvalidRequest)
 	}
 
-	status, err := h.Backend.GetResourceSyncStatus(in.ResourceName, in.SyncType)
+	status, err := h.Backend.GetResourceSyncStatus(ctx, in.ResourceName, in.SyncType)
 	if err != nil {
 		return nil, err
 	}
@@ -985,7 +989,7 @@ type getSyncBlockerSummaryOutput struct {
 }
 
 func (h *Handler) handleGetSyncBlockerSummary(
-	_ context.Context,
+	ctx context.Context,
 	in *getSyncBlockerSummaryInput,
 ) (*getSyncBlockerSummaryOutput, error) {
 	if in.ResourceName == "" {
@@ -996,7 +1000,7 @@ func (h *Handler) handleGetSyncBlockerSummary(
 		return nil, fmt.Errorf("%w: SyncType is required", errInvalidRequest)
 	}
 
-	summary, err := h.Backend.GetSyncBlockerSummary(in.ResourceName, in.SyncType)
+	summary, err := h.Backend.GetSyncBlockerSummary(ctx, in.ResourceName, in.SyncType)
 	if err != nil {
 		return nil, err
 	}
@@ -1055,14 +1059,14 @@ type listRepositorySyncDefinitionsOutput struct {
 }
 
 func (h *Handler) handleListRepositorySyncDefinitions(
-	_ context.Context,
+	ctx context.Context,
 	in *listRepositorySyncDefinitionsInput,
 ) (*listRepositorySyncDefinitionsOutput, error) {
 	if in.RepositoryLinkID == "" {
 		return nil, fmt.Errorf("%w: RepositoryLinkId is required", errInvalidRequest)
 	}
 
-	defs, err := h.Backend.ListRepositorySyncDefinitions(in.RepositoryLinkID, in.SyncType)
+	defs, err := h.Backend.ListRepositorySyncDefinitions(ctx, in.RepositoryLinkID, in.SyncType)
 	if err != nil {
 		return nil, err
 	}
@@ -1089,14 +1093,14 @@ type listSyncConfigurationsOutput struct {
 }
 
 func (h *Handler) handleListSyncConfigurations(
-	_ context.Context,
+	ctx context.Context,
 	in *listSyncConfigurationsInput,
 ) (*listSyncConfigurationsOutput, error) {
 	if in.RepositoryLinkID == "" {
 		return nil, fmt.Errorf("%w: RepositoryLinkId is required", errInvalidRequest)
 	}
 
-	cfgs := h.Backend.ListSyncConfigurations(in.RepositoryLinkID, in.SyncType)
+	cfgs := h.Backend.ListSyncConfigurations(ctx, in.RepositoryLinkID, in.SyncType)
 	items := make([]syncConfigurationItem, len(cfgs))
 
 	for i, cfg := range cfgs {
@@ -1119,14 +1123,14 @@ type updateRepositoryLinkOutput struct {
 }
 
 func (h *Handler) handleUpdateRepositoryLink(
-	_ context.Context,
+	ctx context.Context,
 	in *updateRepositoryLinkInput,
 ) (*updateRepositoryLinkOutput, error) {
 	if in.RepositoryLinkID == "" {
 		return nil, fmt.Errorf("%w: RepositoryLinkId is required", errInvalidRequest)
 	}
 
-	link, err := h.Backend.UpdateRepositoryLink(in.RepositoryLinkID, in.ConnectionArn, in.EncryptionKeyArn)
+	link, err := h.Backend.UpdateRepositoryLink(ctx, in.RepositoryLinkID, in.ConnectionArn, in.EncryptionKeyArn)
 	if err != nil {
 		return nil, err
 	}
@@ -1148,14 +1152,14 @@ type updateSyncBlockerOutput struct {
 }
 
 func (h *Handler) handleUpdateSyncBlocker(
-	_ context.Context,
+	ctx context.Context,
 	in *updateSyncBlockerInput,
 ) (*updateSyncBlockerOutput, error) {
 	if in.ID == "" {
 		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
 	}
 
-	summary, err := h.Backend.UpdateSyncBlocker(in.ID, in.ResolvedReason)
+	summary, err := h.Backend.UpdateSyncBlocker(ctx, in.ID, in.ResolvedReason)
 	if err != nil {
 		return nil, err
 	}
@@ -1184,7 +1188,7 @@ type updateSyncConfigurationOutput struct {
 }
 
 func (h *Handler) handleUpdateSyncConfiguration(
-	_ context.Context,
+	ctx context.Context,
 	in *updateSyncConfigurationInput,
 ) (*updateSyncConfigurationOutput, error) {
 	if in.ResourceName == "" {
@@ -1196,7 +1200,7 @@ func (h *Handler) handleUpdateSyncConfiguration(
 	}
 
 	cfg, err := h.Backend.UpdateSyncConfiguration(
-		in.ResourceName, in.SyncType, in.Branch, in.ConfigFile, in.RepositoryLinkID, in.RoleArn,
+		ctx, in.ResourceName, in.SyncType, in.Branch, in.ConfigFile, in.RepositoryLinkID, in.RoleArn,
 	)
 	if err != nil {
 		return nil, err

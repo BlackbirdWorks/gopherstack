@@ -230,15 +230,24 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	return ""
 }
 
+// contextWithRegion returns the request context with the resolved AWS region attached
+// under regionContextKey so that backend operations are routed to the correct region.
+func (h *Handler) contextWithRegion(c *echo.Context) context.Context {
+	region := httputils.ExtractRegionFromRequest(c.Request(), h.Backend.Region())
+
+	return context.WithValue(c.Request().Context(), regionContextKey{}, region)
+}
+
 // Handler returns the Echo handler function for Batch requests.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		r := c.Request()
 		path := r.URL.Path
-		log := logger.Load(r.Context())
+		ctx := h.contextWithRegion(c)
+		log := logger.Load(ctx)
 
 		if strings.HasPrefix(path, tagsPrefix) {
-			return h.handleTags(c, log)
+			return h.handleTags(ctx, c, log)
 		}
 
 		if r.Method != http.MethodPost {
@@ -247,7 +256,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		body, err := httputils.ReadBody(r)
 		if err != nil {
-			log.ErrorContext(r.Context(), "batch: failed to read request body", "error", err)
+			log.ErrorContext(ctx, "batch: failed to read request body", "error", err)
 
 			return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", "internal server error"))
 		}
@@ -260,14 +269,14 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			)
 		}
 
-		result, opErr := fn(r.Context(), body)
+		result, opErr := fn(ctx, body)
 		if opErr != nil {
 			return h.writeError(c, opErr)
 		}
 
 		out, marshalErr := json.Marshal(result)
 		if marshalErr != nil {
-			log.ErrorContext(r.Context(), "batch: failed to marshal response", "error", marshalErr)
+			log.ErrorContext(ctx, "batch: failed to marshal response", "error", marshalErr)
 
 			return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", "internal server error"))
 		}
@@ -317,7 +326,7 @@ func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 	}
 }
 
-func (h *Handler) handleTags(c *echo.Context, log *slog.Logger) error {
+func (h *Handler) handleTags(ctx context.Context, c *echo.Context, log *slog.Logger) error {
 	r := c.Request()
 	resourceARN, err := url.PathUnescape(strings.TrimPrefix(r.URL.Path, tagsPrefix))
 
@@ -327,18 +336,18 @@ func (h *Handler) handleTags(c *echo.Context, log *slog.Logger) error {
 
 	switch r.Method {
 	case http.MethodGet:
-		return h.handleListTagsForResource(c, resourceARN)
+		return h.handleListTagsForResource(ctx, c, resourceARN)
 	case http.MethodPost:
 		body, readErr := httputils.ReadBody(r)
 		if readErr != nil {
-			log.ErrorContext(r.Context(), "batch: failed to read tags body", "error", readErr)
+			log.ErrorContext(ctx, "batch: failed to read tags body", "error", readErr)
 
 			return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", "internal server error"))
 		}
 
-		return h.handleTagResource(c, resourceARN, body)
+		return h.handleTagResource(ctx, c, resourceARN, body)
 	case http.MethodDelete:
-		return h.handleUntagResource(c, resourceARN, r.URL.Query())
+		return h.handleUntagResource(ctx, c, resourceARN, r.URL.Query())
 	default:
 		return c.JSON(http.StatusMethodNotAllowed, errorResponse("ValidationException", "method not allowed"))
 	}
@@ -547,7 +556,7 @@ func updatePolicyFromInput(in *updatePolicyInput) *UpdatePolicy {
 }
 
 func (h *Handler) handleCreateComputeEnvironment(
-	_ context.Context,
+	ctx context.Context,
 	in *createComputeEnvironmentInput,
 ) (*createComputeEnvironmentOutput, error) {
 	state := in.State
@@ -556,6 +565,7 @@ func (h *Handler) handleCreateComputeEnvironment(
 	}
 
 	ce, err := h.Backend.CreateComputeEnvironment(
+		ctx,
 		in.ComputeEnvironmentName, in.Type, state, in.Tags, in.ServiceRole,
 		computeResourcesFromInput(in.ComputeResources),
 		eksConfigFromInput(in.EksConfiguration),
@@ -583,7 +593,7 @@ type describeComputeEnvironmentsOutput struct {
 }
 
 func (h *Handler) handleDescribeComputeEnvironments(
-	_ context.Context,
+	ctx context.Context,
 	in *describeComputeEnvironmentsInput,
 ) (*describeComputeEnvironmentsOutput, error) {
 	var maxResults int32
@@ -596,7 +606,7 @@ func (h *Handler) handleDescribeComputeEnvironments(
 		nextToken = *in.NextToken
 	}
 
-	ces, outToken := h.Backend.DescribeComputeEnvironments(in.ComputeEnvironments, maxResults, nextToken)
+	ces, outToken := h.Backend.DescribeComputeEnvironments(ctx, in.ComputeEnvironments, maxResults, nextToken)
 	out := &describeComputeEnvironmentsOutput{ComputeEnvironments: ces}
 
 	if outToken != "" {
@@ -620,10 +630,11 @@ type updateComputeEnvironmentOutput struct {
 }
 
 func (h *Handler) handleUpdateComputeEnvironment(
-	_ context.Context,
+	ctx context.Context,
 	in *updateComputeEnvironmentInput,
 ) (*updateComputeEnvironmentOutput, error) {
 	ce, err := h.Backend.UpdateComputeEnvironment(
+		ctx,
 		in.ComputeEnvironment, in.State, in.ServiceRole,
 		computeResourcesFromInput(in.ComputeResources),
 		updatePolicyFromInput(in.UpdatePolicy),
@@ -645,10 +656,10 @@ type deleteComputeEnvironmentInput struct {
 type emptyOutput struct{}
 
 func (h *Handler) handleDeleteComputeEnvironment(
-	_ context.Context,
+	ctx context.Context,
 	in *deleteComputeEnvironmentInput,
 ) (*emptyOutput, error) {
-	if err := h.Backend.DeleteComputeEnvironment(in.ComputeEnvironment); err != nil {
+	if err := h.Backend.DeleteComputeEnvironment(ctx, in.ComputeEnvironment); err != nil {
 		return nil, err
 	}
 
@@ -691,7 +702,7 @@ func jobStateTimeLimitActionsFromInput(in []jobStateTimeLimitActionInput) []JobS
 }
 
 func (h *Handler) handleCreateJobQueue(
-	_ context.Context,
+	ctx context.Context,
 	in *createJobQueueInput,
 ) (*createJobQueueOutput, error) {
 	state := in.State
@@ -700,6 +711,7 @@ func (h *Handler) handleCreateJobQueue(
 	}
 
 	jq, err := h.Backend.CreateJobQueue(
+		ctx,
 		in.JobQueueName,
 		in.Priority,
 		state,
@@ -730,7 +742,7 @@ type describeJobQueuesOutput struct {
 }
 
 func (h *Handler) handleDescribeJobQueues(
-	_ context.Context,
+	ctx context.Context,
 	in *describeJobQueuesInput,
 ) (*describeJobQueuesOutput, error) {
 	var maxResults int32
@@ -743,7 +755,7 @@ func (h *Handler) handleDescribeJobQueues(
 		nextToken = *in.NextToken
 	}
 
-	jqs, outToken := h.Backend.DescribeJobQueues(in.JobQueues, maxResults, nextToken)
+	jqs, outToken := h.Backend.DescribeJobQueues(ctx, in.JobQueues, maxResults, nextToken)
 	out := &describeJobQueuesOutput{JobQueues: jqs}
 
 	if outToken != "" {
@@ -768,10 +780,11 @@ type updateJobQueueOutput struct {
 }
 
 func (h *Handler) handleUpdateJobQueue(
-	_ context.Context,
+	ctx context.Context,
 	in *updateJobQueueInput,
 ) (*updateJobQueueOutput, error) {
 	jq, err := h.Backend.UpdateJobQueue(
+		ctx,
 		in.JobQueue, in.Priority, in.State, in.ComputeEnvironmentOrder,
 		jobStateTimeLimitActionsFromInput(in.JobStateTimeLimitActions),
 	)
@@ -790,10 +803,10 @@ type deleteJobQueueInput struct {
 }
 
 func (h *Handler) handleDeleteJobQueue(
-	_ context.Context,
+	ctx context.Context,
 	in *deleteJobQueueInput,
 ) (*emptyOutput, error) {
-	if err := h.Backend.DeleteJobQueue(in.JobQueue); err != nil {
+	if err := h.Backend.DeleteJobQueue(ctx, in.JobQueue); err != nil {
 		return nil, err
 	}
 
@@ -1106,7 +1119,7 @@ func consumableResourcePropertiesFromInput(in []consumableResourcePropertyInput)
 }
 
 func (h *Handler) handleRegisterJobDefinition(
-	_ context.Context,
+	ctx context.Context,
 	in *registerJobDefinitionInput,
 ) (*registerJobDefinitionOutput, error) {
 	var timeoutSeconds int32
@@ -1115,6 +1128,7 @@ func (h *Handler) handleRegisterJobDefinition(
 	}
 
 	jd, err := h.Backend.RegisterJobDefinition(
+		ctx,
 		in.JobDefinitionName,
 		in.Type,
 		in.Tags,
@@ -1155,7 +1169,7 @@ type describeJobDefinitionsOutput struct {
 }
 
 func (h *Handler) handleDescribeJobDefinitions(
-	_ context.Context,
+	ctx context.Context,
 	in *describeJobDefinitionsInput,
 ) (*describeJobDefinitionsOutput, error) {
 	var maxResults int32
@@ -1169,6 +1183,7 @@ func (h *Handler) handleDescribeJobDefinitions(
 	}
 
 	jds, outToken := h.Backend.DescribeJobDefinitions(
+		ctx,
 		in.JobDefinitions,
 		in.Status,
 		in.JobDefinitionName,
@@ -1189,10 +1204,10 @@ type deregisterJobDefinitionInput struct {
 }
 
 func (h *Handler) handleDeregisterJobDefinition(
-	_ context.Context,
+	ctx context.Context,
 	in *deregisterJobDefinitionInput,
 ) (*emptyOutput, error) {
-	if err := h.Backend.DeregisterJobDefinition(in.JobDefinition); err != nil {
+	if err := h.Backend.DeregisterJobDefinition(ctx, in.JobDefinition); err != nil {
 		return nil, err
 	}
 
@@ -1221,7 +1236,14 @@ type listJobsOutput struct {
 	JobSummaryList []jobSummary `json:"jobSummaryList"`
 }
 
-func (h *Handler) handleListJobs(_ context.Context, in *listJobsInput) (*listJobsOutput, error) {
+func (h *Handler) handleListJobs(ctx context.Context, in *listJobsInput) (*listJobsOutput, error) {
+	// AWS Batch ListJobs requires a grouping key; this simulator scopes jobs by
+	// job queue, so jobQueue is mandatory (AWS returns ClientException
+	// otherwise). jobStatus remains an optional filter.
+	if strings.TrimSpace(in.JobQueue) == "" {
+		return nil, fmt.Errorf("%w: jobQueue is required", ErrValidation)
+	}
+
 	var maxResults int32
 	if in.MaxResults != nil {
 		maxResults = *in.MaxResults
@@ -1232,7 +1254,7 @@ func (h *Handler) handleListJobs(_ context.Context, in *listJobsInput) (*listJob
 		nextToken = *in.NextToken
 	}
 
-	jobs, outToken, err := h.Backend.ListJobs(in.JobQueue, in.JobStatus, nextToken, maxResults)
+	jobs, outToken, err := h.Backend.ListJobs(ctx, in.JobQueue, in.JobStatus, nextToken, maxResults)
 	if err != nil {
 		return nil, err
 	}
@@ -1278,8 +1300,8 @@ type describeJobsOutput struct {
 	Jobs []jobDetail `json:"jobs"`
 }
 
-func (h *Handler) handleDescribeJobs(_ context.Context, in *describeJobsInput) (*describeJobsOutput, error) {
-	jobs := h.Backend.DescribeJobs(in.Jobs)
+func (h *Handler) handleDescribeJobs(ctx context.Context, in *describeJobsInput) (*describeJobsOutput, error) {
+	jobs := h.Backend.DescribeJobs(ctx, in.Jobs)
 
 	details := make([]jobDetail, 0, len(jobs))
 	for _, j := range jobs {
@@ -1328,7 +1350,7 @@ type submitJobOutput struct {
 	JobName string `json:"jobName"`
 }
 
-func (h *Handler) handleSubmitJob(_ context.Context, in *submitJobInput) (*submitJobOutput, error) {
+func (h *Handler) handleSubmitJob(ctx context.Context, in *submitJobInput) (*submitJobOutput, error) {
 	var overrides *ContainerOverrides
 	if in.ContainerOverrides != nil {
 		env := make([]KeyValuePair, len(in.ContainerOverrides.Environment))
@@ -1342,6 +1364,7 @@ func (h *Handler) handleSubmitJob(_ context.Context, in *submitJobInput) (*submi
 	}
 
 	j, err := h.Backend.SubmitJob(
+		ctx,
 		in.JobName,
 		in.JobQueue,
 		in.JobDefinition,
@@ -1372,8 +1395,8 @@ type terminateJobInput struct {
 	Reason string `json:"reason"`
 }
 
-func (h *Handler) handleTerminateJob(_ context.Context, in *terminateJobInput) (*emptyOutput, error) {
-	if err := h.Backend.TerminateJob(in.JobID, in.Reason); err != nil {
+func (h *Handler) handleTerminateJob(ctx context.Context, in *terminateJobInput) (*emptyOutput, error) {
+	if err := h.Backend.TerminateJob(ctx, in.JobID, in.Reason); err != nil {
 		return nil, err
 	}
 
@@ -1385,8 +1408,8 @@ type cancelJobInput struct {
 	Reason string `json:"reason"`
 }
 
-func (h *Handler) handleCancelJob(_ context.Context, in *cancelJobInput) (*emptyOutput, error) {
-	if err := h.Backend.CancelJob(in.JobID, in.Reason); err != nil {
+func (h *Handler) handleCancelJob(ctx context.Context, in *cancelJobInput) (*emptyOutput, error) {
+	if err := h.Backend.CancelJob(ctx, in.JobID, in.Reason); err != nil {
 		return nil, err
 	}
 
@@ -1399,8 +1422,8 @@ type listTagsForResourceOutput struct {
 	Tags map[string]string `json:"tags"`
 }
 
-func (h *Handler) handleListTagsForResource(c *echo.Context, resourceARN string) error {
-	tags, err := h.Backend.ListTagsForResource(resourceARN)
+func (h *Handler) handleListTagsForResource(ctx context.Context, c *echo.Context, resourceARN string) error {
+	tags, err := h.Backend.ListTagsForResource(ctx, resourceARN)
 	if err != nil {
 		return h.writeError(c, err)
 	}
@@ -1416,7 +1439,7 @@ type tagResourceInput struct {
 	Tags map[string]string `json:"tags"`
 }
 
-func (h *Handler) handleTagResource(c *echo.Context, resourceARN string, body []byte) error {
+func (h *Handler) handleTagResource(ctx context.Context, c *echo.Context, resourceARN string, body []byte) error {
 	var in tagResourceInput
 	if len(body) > 0 {
 		if err := json.Unmarshal(body, &in); err != nil {
@@ -1424,16 +1447,21 @@ func (h *Handler) handleTagResource(c *echo.Context, resourceARN string, body []
 		}
 	}
 
-	if err := h.Backend.TagResource(resourceARN, in.Tags); err != nil {
+	if err := h.Backend.TagResource(ctx, resourceARN, in.Tags); err != nil {
 		return h.writeError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, emptyOutput{})
 }
 
-func (h *Handler) handleUntagResource(c *echo.Context, resourceARN string, query url.Values) error {
+func (h *Handler) handleUntagResource(
+	ctx context.Context,
+	c *echo.Context,
+	resourceARN string,
+	query url.Values,
+) error {
 	tagKeys := query["tagKeys"]
-	if err := h.Backend.UntagResource(resourceARN, tagKeys); err != nil {
+	if err := h.Backend.UntagResource(ctx, resourceARN, tagKeys); err != nil {
 		return h.writeError(c, err)
 	}
 
@@ -1455,14 +1483,20 @@ type createConsumableResourceOutput struct {
 }
 
 func (h *Handler) handleCreateConsumableResource(
-	_ context.Context,
+	ctx context.Context,
 	in *createConsumableResourceInput,
 ) (*createConsumableResourceOutput, error) {
 	if in.ConsumableResourceName == "" {
 		return nil, fmt.Errorf("%w: consumableResourceName is required", ErrValidation)
 	}
 
-	cr, err := h.Backend.CreateConsumableResource(in.ConsumableResourceName, in.ResourceType, in.TotalQuantity, in.Tags)
+	cr, err := h.Backend.CreateConsumableResource(
+		ctx,
+		in.ConsumableResourceName,
+		in.ResourceType,
+		in.TotalQuantity,
+		in.Tags,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1478,14 +1512,14 @@ type deleteConsumableResourceInput struct {
 }
 
 func (h *Handler) handleDeleteConsumableResource(
-	_ context.Context,
+	ctx context.Context,
 	in *deleteConsumableResourceInput,
 ) (*emptyOutput, error) {
 	if in.ConsumableResource == "" {
 		return nil, fmt.Errorf("%w: consumableResource is required", ErrValidation)
 	}
 
-	if err := h.Backend.DeleteConsumableResource(in.ConsumableResource); err != nil {
+	if err := h.Backend.DeleteConsumableResource(ctx, in.ConsumableResource); err != nil {
 		return nil, err
 	}
 
@@ -1508,14 +1542,14 @@ type describeConsumableResourceOutput struct {
 }
 
 func (h *Handler) handleDescribeConsumableResource(
-	_ context.Context,
+	ctx context.Context,
 	in *describeConsumableResourceInput,
 ) (*describeConsumableResourceOutput, error) {
 	if in.ConsumableResource == "" {
 		return nil, fmt.Errorf("%w: consumableResource is required", ErrValidation)
 	}
 
-	cr, err := h.Backend.DescribeConsumableResource(in.ConsumableResource)
+	cr, err := h.Backend.DescribeConsumableResource(ctx, in.ConsumableResource)
 	if err != nil {
 		return nil, err
 	}
@@ -1545,14 +1579,14 @@ type createSchedulingPolicyOutput struct {
 }
 
 func (h *Handler) handleCreateSchedulingPolicy(
-	_ context.Context,
+	ctx context.Context,
 	in *createSchedulingPolicyInput,
 ) (*createSchedulingPolicyOutput, error) {
 	if in.Name == "" {
 		return nil, fmt.Errorf("%w: name is required", ErrValidation)
 	}
 
-	sp, err := h.Backend.CreateSchedulingPolicy(in.Name, in.Tags, nil)
+	sp, err := h.Backend.CreateSchedulingPolicy(ctx, in.Name, in.Tags, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1568,14 +1602,14 @@ type deleteSchedulingPolicyInput struct {
 }
 
 func (h *Handler) handleDeleteSchedulingPolicy(
-	_ context.Context,
+	ctx context.Context,
 	in *deleteSchedulingPolicyInput,
 ) (*emptyOutput, error) {
 	if in.Arn == "" {
 		return nil, fmt.Errorf("%w: arn is required", ErrValidation)
 	}
 
-	if err := h.Backend.DeleteSchedulingPolicy(in.Arn); err != nil {
+	if err := h.Backend.DeleteSchedulingPolicy(ctx, in.Arn); err != nil {
 		return nil, err
 	}
 
@@ -1597,7 +1631,7 @@ type createServiceEnvironmentOutput struct {
 }
 
 func (h *Handler) handleCreateServiceEnvironment(
-	_ context.Context,
+	ctx context.Context,
 	in *createServiceEnvironmentInput,
 ) (*createServiceEnvironmentOutput, error) {
 	if in.ServiceEnvironmentName == "" {
@@ -1609,6 +1643,7 @@ func (h *Handler) handleCreateServiceEnvironment(
 	}
 
 	se, err := h.Backend.CreateServiceEnvironment(
+		ctx,
 		in.ServiceEnvironmentName,
 		in.ServiceEnvironmentType,
 		in.State,
@@ -1629,14 +1664,14 @@ type deleteServiceEnvironmentInput struct {
 }
 
 func (h *Handler) handleDeleteServiceEnvironment(
-	_ context.Context,
+	ctx context.Context,
 	in *deleteServiceEnvironmentInput,
 ) (*emptyOutput, error) {
 	if in.ServiceEnvironment == "" {
 		return nil, fmt.Errorf("%w: serviceEnvironment is required", ErrValidation)
 	}
 
-	if err := h.Backend.DeleteServiceEnvironment(in.ServiceEnvironment); err != nil {
+	if err := h.Backend.DeleteServiceEnvironment(ctx, in.ServiceEnvironment); err != nil {
 		return nil, err
 	}
 
@@ -1663,14 +1698,14 @@ type updateConsumableResourceOutput struct {
 }
 
 func (h *Handler) handleUpdateConsumableResource(
-	_ context.Context,
+	ctx context.Context,
 	in *updateConsumableResourceInput,
 ) (*updateConsumableResourceOutput, error) {
 	if in.ConsumableResource == "" {
 		return nil, fmt.Errorf("%w: consumableResource is required", ErrValidation)
 	}
 
-	cr, err := h.Backend.UpdateConsumableResource(in.ConsumableResource, in.Operation, in.Quantity)
+	cr, err := h.Backend.UpdateConsumableResource(ctx, in.ConsumableResource, in.Operation, in.Quantity)
 	if err != nil {
 		return nil, err
 	}
@@ -1694,10 +1729,10 @@ type listConsumableResourcesOutput struct {
 }
 
 func (h *Handler) handleListConsumableResources(
-	_ context.Context,
+	ctx context.Context,
 	_ *struct{},
 ) (*listConsumableResourcesOutput, error) {
-	list := h.Backend.ListConsumableResources()
+	list := h.Backend.ListConsumableResources(ctx)
 
 	return &listConsumableResourcesOutput{ConsumableResourceSummaryList: list}, nil
 }
@@ -1713,10 +1748,10 @@ type describeSchedulingPoliciesOutput struct {
 }
 
 func (h *Handler) handleDescribeSchedulingPolicies(
-	_ context.Context,
+	ctx context.Context,
 	in *describeSchedulingPoliciesInput,
 ) (*describeSchedulingPoliciesOutput, error) {
-	list := h.Backend.DescribeSchedulingPolicies(in.Arns)
+	list := h.Backend.DescribeSchedulingPolicies(ctx, in.Arns)
 
 	return &describeSchedulingPoliciesOutput{SchedulingPolicies: list}, nil
 }
@@ -1728,10 +1763,10 @@ type listSchedulingPoliciesOutput struct {
 }
 
 func (h *Handler) handleListSchedulingPolicies(
-	_ context.Context,
+	ctx context.Context,
 	_ *struct{},
 ) (*listSchedulingPoliciesOutput, error) {
-	list := h.Backend.ListSchedulingPolicies()
+	list := h.Backend.ListSchedulingPolicies(ctx)
 
 	return &listSchedulingPoliciesOutput{SchedulingPolicies: list}, nil
 }
@@ -1743,14 +1778,14 @@ type updateSchedulingPolicyInput struct {
 }
 
 func (h *Handler) handleUpdateSchedulingPolicy(
-	_ context.Context,
+	ctx context.Context,
 	in *updateSchedulingPolicyInput,
 ) (*emptyOutput, error) {
 	if in.Arn == "" {
 		return nil, fmt.Errorf("%w: arn is required", ErrValidation)
 	}
 
-	if err := h.Backend.UpdateSchedulingPolicy(in.Arn, nil); err != nil {
+	if err := h.Backend.UpdateSchedulingPolicy(ctx, in.Arn, nil); err != nil {
 		return nil, err
 	}
 
@@ -1768,10 +1803,10 @@ type describeServiceEnvironmentsOutput struct {
 }
 
 func (h *Handler) handleDescribeServiceEnvironments(
-	_ context.Context,
+	ctx context.Context,
 	in *describeServiceEnvironmentsInput,
 ) (*describeServiceEnvironmentsOutput, error) {
-	list := h.Backend.DescribeServiceEnvironments(in.ServiceEnvironments)
+	list := h.Backend.DescribeServiceEnvironments(ctx, in.ServiceEnvironments)
 
 	return &describeServiceEnvironmentsOutput{ServiceEnvironments: list}, nil
 }
@@ -1789,14 +1824,14 @@ type updateServiceEnvironmentOutput struct {
 }
 
 func (h *Handler) handleUpdateServiceEnvironment(
-	_ context.Context,
+	ctx context.Context,
 	in *updateServiceEnvironmentInput,
 ) (*updateServiceEnvironmentOutput, error) {
 	if in.ServiceEnvironment == "" {
 		return nil, fmt.Errorf("%w: serviceEnvironment is required", ErrValidation)
 	}
 
-	se, err := h.Backend.UpdateServiceEnvironment(in.ServiceEnvironment, in.State)
+	se, err := h.Backend.UpdateServiceEnvironment(ctx, in.ServiceEnvironment, in.State)
 	if err != nil {
 		return nil, err
 	}
@@ -1821,14 +1856,14 @@ type submitServiceJobOutput struct {
 }
 
 func (h *Handler) handleSubmitServiceJob(
-	_ context.Context,
+	ctx context.Context,
 	in *submitServiceJobInput,
 ) (*submitServiceJobOutput, error) {
 	if in.ServiceJobName == "" {
 		return nil, fmt.Errorf("%w: serviceJobName is required", ErrValidation)
 	}
 
-	sj, err := h.Backend.SubmitServiceJob(in.ServiceJobName, in.ServiceEnvironment, in.Tags)
+	sj, err := h.Backend.SubmitServiceJob(ctx, in.ServiceJobName, in.ServiceEnvironment, in.Tags)
 	if err != nil {
 		return nil, err
 	}
@@ -1857,14 +1892,14 @@ type describeServiceJobOutput struct {
 }
 
 func (h *Handler) handleDescribeServiceJob(
-	_ context.Context,
+	ctx context.Context,
 	in *describeServiceJobInput,
 ) (*describeServiceJobOutput, error) {
 	if in.ServiceJob == "" {
 		return nil, fmt.Errorf("%w: serviceJob is required", ErrValidation)
 	}
 
-	sj, err := h.Backend.DescribeServiceJob(in.ServiceJob)
+	sj, err := h.Backend.DescribeServiceJob(ctx, in.ServiceJob)
 	if err != nil {
 		return nil, err
 	}
@@ -1891,8 +1926,8 @@ type listServiceJobsOutput struct {
 	ServiceJobs []*ServiceJob `json:"serviceJobs"`
 }
 
-func (h *Handler) handleListServiceJobs(_ context.Context, in *listServiceJobsInput) (*listServiceJobsOutput, error) {
-	list, err := h.Backend.ListServiceJobs(in.ServiceEnvironment)
+func (h *Handler) handleListServiceJobs(ctx context.Context, in *listServiceJobsInput) (*listServiceJobsOutput, error) {
+	list, err := h.Backend.ListServiceJobs(ctx, in.ServiceEnvironment)
 	if err != nil {
 		return nil, err
 	}
@@ -1905,12 +1940,12 @@ type terminateServiceJobInput struct {
 	Reason     string `json:"reason"`
 }
 
-func (h *Handler) handleTerminateServiceJob(_ context.Context, in *terminateServiceJobInput) (*emptyOutput, error) {
+func (h *Handler) handleTerminateServiceJob(ctx context.Context, in *terminateServiceJobInput) (*emptyOutput, error) {
 	if in.ServiceJob == "" {
 		return nil, fmt.Errorf("%w: serviceJob is required", ErrValidation)
 	}
 
-	if err := h.Backend.TerminateServiceJob(in.ServiceJob, in.Reason); err != nil {
+	if err := h.Backend.TerminateServiceJob(ctx, in.ServiceJob, in.Reason); err != nil {
 		return nil, err
 	}
 
@@ -1922,14 +1957,14 @@ type getJobQueueSnapshotInput struct {
 }
 
 func (h *Handler) handleGetJobQueueSnapshot(
-	_ context.Context,
+	ctx context.Context,
 	in *getJobQueueSnapshotInput,
 ) (*JobQueueSnapshot, error) {
 	if in.JobQueue == "" {
 		return nil, fmt.Errorf("%w: jobQueue is required", ErrValidation)
 	}
 
-	return h.Backend.GetJobQueueSnapshot(in.JobQueue)
+	return h.Backend.GetJobQueueSnapshot(ctx, in.JobQueue)
 }
 
 type listJobsByConsumableResourceInput struct {
@@ -1941,10 +1976,10 @@ type listJobsByConsumableResourceOutput struct {
 }
 
 func (h *Handler) handleListJobsByConsumableResource(
-	_ context.Context,
+	ctx context.Context,
 	in *listJobsByConsumableResourceInput,
 ) (*listJobsByConsumableResourceOutput, error) {
-	jobs, err := h.Backend.ListJobsByConsumableResource(in.ConsumableResource)
+	jobs, err := h.Backend.ListJobsByConsumableResource(ctx, in.ConsumableResource)
 	if err != nil {
 		return nil, err
 	}

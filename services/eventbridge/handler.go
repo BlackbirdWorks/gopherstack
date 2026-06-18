@@ -389,7 +389,7 @@ type createEventBusOutput struct {
 type deleteEventBusOutput struct{}
 
 type listEventBusesOutput struct {
-	NextToken  string     `json:"NextToken"`
+	NextToken  string     `json:"NextToken,omitempty"`
 	EventBuses []EventBus `json:"EventBuses"`
 }
 
@@ -400,7 +400,7 @@ type putRuleOutput struct {
 type deleteRuleOutput struct{}
 
 type listRulesOutput struct {
-	NextToken string `json:"NextToken"`
+	NextToken string `json:"NextToken,omitempty"`
 	Rules     []Rule `json:"Rules"`
 }
 
@@ -419,7 +419,7 @@ type removeTargetsOutput struct {
 }
 
 type listTargetsByRuleOutput struct {
-	NextToken string   `json:"NextToken"`
+	NextToken string   `json:"NextToken,omitempty"`
 	Targets   []Target `json:"Targets"`
 }
 

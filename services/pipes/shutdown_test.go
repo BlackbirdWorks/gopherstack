@@ -58,7 +58,7 @@ func TestBackendShutdown(t *testing.T) {
 				defer shutCancel()
 				b.Shutdown(shutCtx)
 
-				p, getErr := b.GetPipe("p1")
+				p, getErr := b.GetPipe(context.Background(), "p1")
 				require.NoError(t, getErr)
 				require.Equal(t, "CREATING", p.CurrentState,
 					"transition must not fire after shutdown")
@@ -67,7 +67,7 @@ func TestBackendShutdown(t *testing.T) {
 			}
 
 			require.Eventually(t, func() bool {
-				p, getErr := b.GetPipe("p1")
+				p, getErr := b.GetPipe(context.Background(), "p1")
 
 				return getErr == nil && p.CurrentState == "RUNNING"
 			}, time.Second, 5*time.Millisecond)

@@ -2,6 +2,7 @@ package emr_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -827,7 +828,7 @@ func TestEMR_Backend_ListTagsForResource(t *testing.T) {
 			t.Parallel()
 
 			b := emr.NewInMemoryBackend(testAccountID, testRegion)
-			cluster, err := b.RunJobFlow(emr.RunJobFlowParams{
+			cluster, err := b.RunJobFlow(context.Background(), emr.RunJobFlowParams{
 				Name: "test-cluster", ReleaseLabel: "emr-6.0.0",
 				Tags: []emr.Tag{{Key: "env", Value: "test"}},
 			})
@@ -838,7 +839,7 @@ func TestEMR_Backend_ListTagsForResource(t *testing.T) {
 				resourceID = cluster.ID
 			}
 
-			tags, err := b.ListTagsForResource(resourceID)
+			tags, err := b.ListTagsForResource(context.Background(), resourceID)
 			if tt.wantErr {
 				require.Error(t, err)
 
@@ -855,13 +856,13 @@ func TestEMR_Backend_ListTagsForResourceByARN(t *testing.T) {
 	t.Parallel()
 
 	b := emr.NewInMemoryBackend(testAccountID, testRegion)
-	cluster, err := b.RunJobFlow(emr.RunJobFlowParams{
+	cluster, err := b.RunJobFlow(context.Background(), emr.RunJobFlowParams{
 		Name: "test-cluster", ReleaseLabel: "emr-6.0.0",
 		Tags: []emr.Tag{{Key: "key", Value: "val"}},
 	})
 	require.NoError(t, err)
 
-	tags, err := b.ListTagsForResource(cluster.ARN)
+	tags, err := b.ListTagsForResource(context.Background(), cluster.ARN)
 	require.NoError(t, err)
 	require.Len(t, tags, 1)
 	assert.Equal(t, "key", tags[0].Key)
@@ -872,27 +873,33 @@ func TestEMR_TerminateJobFlows_Idempotent(t *testing.T) {
 	t.Parallel()
 
 	b := emr.NewInMemoryBackend(testAccountID, testRegion)
-	cluster, err := b.RunJobFlow(emr.RunJobFlowParams{Name: "idem-cluster", ReleaseLabel: "emr-6.0.0"})
+	cluster, err := b.RunJobFlow(
+		context.Background(),
+		emr.RunJobFlowParams{Name: "idem-cluster", ReleaseLabel: "emr-6.0.0"},
+	)
 	require.NoError(t, err)
 
 	// First termination succeeds.
-	require.NoError(t, b.TerminateJobFlows([]string{cluster.ID}))
+	require.NoError(t, b.TerminateJobFlows(context.Background(), []string{cluster.ID}))
 
 	// Second termination on an already-terminal cluster must be a no-op, not an error.
-	require.NoError(t, b.TerminateJobFlows([]string{cluster.ID}))
+	require.NoError(t, b.TerminateJobFlows(context.Background(), []string{cluster.ID}))
 }
 
 func TestEMR_TerminateJobFlows_SetsEndDateTime(t *testing.T) {
 	t.Parallel()
 
 	b := emr.NewInMemoryBackend(testAccountID, testRegion)
-	cluster, err := b.RunJobFlow(emr.RunJobFlowParams{Name: "timeline-cluster", ReleaseLabel: "emr-6.0.0"})
+	cluster, err := b.RunJobFlow(
+		context.Background(),
+		emr.RunJobFlowParams{Name: "timeline-cluster", ReleaseLabel: "emr-6.0.0"},
+	)
 	require.NoError(t, err)
 
 	before := time.Now().UnixMilli()
-	require.NoError(t, b.TerminateJobFlows([]string{cluster.ID}))
+	require.NoError(t, b.TerminateJobFlows(context.Background(), []string{cluster.ID}))
 
-	c, err := b.DescribeCluster(cluster.ID)
+	c, err := b.DescribeCluster(context.Background(), cluster.ID)
 	require.NoError(t, err)
 
 	endRaw, ok := c.Status.Timeline["EndDateTime"]

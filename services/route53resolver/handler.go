@@ -13,12 +13,16 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 const (
 	keyMessageField = "message"
+
+	defaultPageSizeSmall = 10
+	defaultPageSizeLarge = 100
 )
 
 const resolverTargetPrefix = "Route53Resolver."
@@ -228,11 +232,15 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		region := httputils.ExtractRegionFromRequest(c.Request(), h.Backend.Region())
+
 		return service.HandleTarget(
 			c, logger.Load(c.Request().Context()),
 			"Route53Resolver", "application/x-amz-json-1.1",
 			h.GetSupportedOperations(),
-			h.dispatch,
+			func(ctx context.Context, action string, body []byte) ([]byte, error) {
+				return h.dispatch(context.WithValue(ctx, regionContextKey{}, region), action, body)
+			},
 			h.handleError,
 		)
 	}
@@ -264,8 +272,20 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		})
 
 		return c.JSONBlob(http.StatusNotFound, payload)
+	case errors.Is(err, ErrInvalidParameter):
+		payload, _ := json.Marshal(service.JSONErrorResponse{
+			Type:    "InvalidParameterException",
+			Message: err.Error(),
+		})
+
+		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, ErrValidation):
-		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: err.Error()})
+		payload, _ := json.Marshal(service.JSONErrorResponse{
+			Type:    "InvalidRequestException",
+			Message: err.Error(),
+		})
+
+		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: err.Error()})
@@ -371,7 +391,10 @@ type createResolverEndpointOutput struct {
 
 type deleteResolverEndpointOutput struct{}
 
-type listResolverEndpointsInput struct{}
+type listResolverEndpointsInput struct {
+	NextToken  string `json:"NextToken"`
+	MaxResults int32  `json:"MaxResults"`
+}
 
 type listResolverEndpointsOutput struct {
 	NextToken         *string                  `json:"NextToken,omitempty"`
@@ -392,7 +415,10 @@ type getResolverRuleOutput struct {
 
 type deleteResolverRuleOutput struct{}
 
-type listResolverRulesInput struct{}
+type listResolverRulesInput struct {
+	NextToken  string `json:"NextToken"`
+	MaxResults int32  `json:"MaxResults"`
+}
 
 type listResolverRulesOutput struct {
 	NextToken     *string              `json:"NextToken,omitempty"`
@@ -471,7 +497,7 @@ func ruleToOutput(r *ResolverRule) resolverRuleOutput {
 }
 
 func (h *Handler) handleCreateResolverEndpoint(
-	_ context.Context,
+	ctx context.Context,
 	in *handleCreateResolverEndpointInput,
 ) (*createResolverEndpointOutput, error) {
 	ips := make([]IPAddress, 0, len(in.IPAddresses))
@@ -480,6 +506,7 @@ func (h *Handler) handleCreateResolverEndpoint(
 	}
 
 	ep, err := h.Backend.CreateResolverEndpoint(
+		ctx,
 		in.Name, in.Direction, in.VpcID, ips, in.SecurityGroupIDs, in.ResolverEndpointType,
 		in.Protocols, in.OutpostArn, in.PreferredInstanceType, in.CreatorRequestID,
 	)
@@ -489,7 +516,7 @@ func (h *Handler) handleCreateResolverEndpoint(
 
 	// Store tags if provided.
 	if len(in.Tags) > 0 {
-		tagErr := h.Backend.TagResource(ep.ARN, in.Tags)
+		tagErr := h.Backend.TagResource(ctx, ep.ARN, in.Tags)
 		if tagErr != nil {
 			return nil, tagErr
 		}
@@ -499,10 +526,10 @@ func (h *Handler) handleCreateResolverEndpoint(
 }
 
 func (h *Handler) handleDeleteResolverEndpoint(
-	_ context.Context,
+	ctx context.Context,
 	in *resolverEndpointIDInput,
 ) (*deleteResolverEndpointOutput, error) {
-	if err := h.Backend.DeleteResolverEndpoint(in.ResolverEndpointID); err != nil {
+	if err := h.Backend.DeleteResolverEndpoint(ctx, in.ResolverEndpointID); err != nil {
 		return nil, err
 	}
 
@@ -510,23 +537,29 @@ func (h *Handler) handleDeleteResolverEndpoint(
 }
 
 func (h *Handler) handleListResolverEndpoints(
-	_ context.Context,
-	_ *listResolverEndpointsInput,
+	ctx context.Context,
+	in *listResolverEndpointsInput,
 ) (*listResolverEndpointsOutput, error) {
-	eps := h.Backend.ListResolverEndpoints()
+	eps := h.Backend.ListResolverEndpoints(ctx)
 	items := make([]resolverEndpointOutput, 0, len(eps))
 	for _, ep := range eps {
 		items = append(items, endpointToOutput(ep))
 	}
+	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
+	pg := page.New(items, in.NextToken, int(in.MaxResults), defaultPageSizeSmall)
+	out := &listResolverEndpointsOutput{ResolverEndpoints: pg.Data}
+	if pg.Next != "" {
+		out.NextToken = &pg.Next
+	}
 
-	return &listResolverEndpointsOutput{ResolverEndpoints: items}, nil
+	return out, nil
 }
 
 func (h *Handler) handleGetResolverEndpoint(
-	_ context.Context,
+	ctx context.Context,
 	in *resolverEndpointIDInput,
 ) (*getResolverEndpointOutput, error) {
-	ep, err := h.Backend.GetResolverEndpoint(in.ResolverEndpointID)
+	ep, err := h.Backend.GetResolverEndpoint(ctx, in.ResolverEndpointID)
 	if err != nil {
 		return nil, err
 	}
@@ -535,10 +568,10 @@ func (h *Handler) handleGetResolverEndpoint(
 }
 
 func (h *Handler) handleListResolverEndpointIPAddresses(
-	_ context.Context,
+	ctx context.Context,
 	in *listResolverEndpointIPAddressesInput,
 ) (*listResolverEndpointIPAddressesOutput, error) {
-	ips, err := h.Backend.ListResolverEndpointIPAddresses(in.ResolverEndpointID)
+	ips, err := h.Backend.ListResolverEndpointIPAddresses(ctx, in.ResolverEndpointID)
 	if err != nil {
 		return nil, err
 	}
@@ -566,7 +599,7 @@ type handleCreateResolverRuleInput struct {
 }
 
 func (h *Handler) handleCreateResolverRule(
-	_ context.Context,
+	ctx context.Context,
 	in *handleCreateResolverRuleInput,
 ) (*createResolverRuleOutput, error) {
 	tips := make([]TargetIP, 0, len(in.TargetIps))
@@ -578,6 +611,7 @@ func (h *Handler) handleCreateResolverRule(
 	}
 
 	r, err := h.Backend.CreateResolverRule(
+		ctx,
 		in.Name,
 		in.DomainName,
 		in.RuleType,
@@ -593,10 +627,10 @@ func (h *Handler) handleCreateResolverRule(
 }
 
 func (h *Handler) handleGetResolverRule(
-	_ context.Context,
+	ctx context.Context,
 	in *resolverRuleIDInput,
 ) (*getResolverRuleOutput, error) {
-	r, err := h.Backend.GetResolverRule(in.ResolverRuleID)
+	r, err := h.Backend.GetResolverRule(ctx, in.ResolverRuleID)
 	if err != nil {
 		return nil, err
 	}
@@ -605,10 +639,10 @@ func (h *Handler) handleGetResolverRule(
 }
 
 func (h *Handler) handleDeleteResolverRule(
-	_ context.Context,
+	ctx context.Context,
 	in *resolverRuleIDInput,
 ) (*deleteResolverRuleOutput, error) {
-	if err := h.Backend.DeleteResolverRule(in.ResolverRuleID); err != nil {
+	if err := h.Backend.DeleteResolverRule(ctx, in.ResolverRuleID); err != nil {
 		return nil, err
 	}
 
@@ -616,16 +650,22 @@ func (h *Handler) handleDeleteResolverRule(
 }
 
 func (h *Handler) handleListResolverRules(
-	_ context.Context,
-	_ *listResolverRulesInput,
+	ctx context.Context,
+	in *listResolverRulesInput,
 ) (*listResolverRulesOutput, error) {
-	rules := h.Backend.ListResolverRules()
+	rules := h.Backend.ListResolverRules(ctx)
 	items := make([]resolverRuleOutput, 0, len(rules))
 	for _, r := range rules {
 		items = append(items, ruleToOutput(r))
 	}
+	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
+	pg := page.New(items, in.NextToken, int(in.MaxResults), defaultPageSizeSmall)
+	out := &listResolverRulesOutput{ResolverRules: pg.Data}
+	if pg.Next != "" {
+		out.NextToken = &pg.Next
+	}
 
-	return &listResolverRulesOutput{ResolverRules: items}, nil
+	return out, nil
 }
 
 type listTagsForResourceInput struct {
@@ -638,10 +678,10 @@ type listTagsForResourceOutput struct {
 
 // handleListTagsForResource returns tags for the given resource ARN.
 func (h *Handler) handleListTagsForResource(
-	_ context.Context,
+	ctx context.Context,
 	in *listTagsForResourceInput,
 ) (*listTagsForResourceOutput, error) {
-	kvs := h.Backend.ListTagsForResource(in.ResourceArn)
+	kvs := h.Backend.ListTagsForResource(ctx, in.ResourceArn)
 
 	return &listTagsForResourceOutput{Tags: kvs}, nil
 }
@@ -661,10 +701,10 @@ type untagResourceInput struct {
 type untagResourceOutput struct{}
 
 func (h *Handler) handleTagResource(
-	_ context.Context,
+	ctx context.Context,
 	in *tagResourceInput,
 ) (*tagResourceOutput, error) {
-	if err := h.Backend.TagResource(in.ResourceArn, in.Tags); err != nil {
+	if err := h.Backend.TagResource(ctx, in.ResourceArn, in.Tags); err != nil {
 		return nil, err
 	}
 
@@ -672,10 +712,10 @@ func (h *Handler) handleTagResource(
 }
 
 func (h *Handler) handleUntagResource(
-	_ context.Context,
+	ctx context.Context,
 	in *untagResourceInput,
 ) (*untagResourceOutput, error) {
-	if err := h.Backend.UntagResource(in.ResourceArn, in.TagKeys); err != nil {
+	if err := h.Backend.UntagResource(ctx, in.ResourceArn, in.TagKeys); err != nil {
 		return nil, err
 	}
 
@@ -822,20 +862,20 @@ func firewallRuleGroupToOutput(g *FirewallRuleGroup) firewallRuleGroupOutput {
 }
 
 func (h *Handler) handleCreateFirewallRuleGroup(
-	_ context.Context,
+	ctx context.Context,
 	in *createFirewallRuleGroupInput,
 ) (*createFirewallRuleGroupOutput, error) {
 	if in.Name == "" {
 		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
 	}
 
-	g, err := h.Backend.CreateFirewallRuleGroup(in.Name, in.CreatorRequestID)
+	g, err := h.Backend.CreateFirewallRuleGroup(ctx, in.Name, in.CreatorRequestID)
 	if err != nil {
 		return nil, err
 	}
 
 	if len(in.Tags) > 0 {
-		if tagErr := h.Backend.TagResource(g.ARN, in.Tags); tagErr != nil {
+		if tagErr := h.Backend.TagResource(ctx, g.ARN, in.Tags); tagErr != nil {
 			return nil, tagErr
 		}
 	}
@@ -879,7 +919,7 @@ func firewallRuleGroupAssociationToOutput(
 }
 
 func (h *Handler) handleAssociateFirewallRuleGroup(
-	_ context.Context,
+	ctx context.Context,
 	in *associateFirewallRuleGroupInput,
 ) (*associateFirewallRuleGroupOutput, error) {
 	if in.FirewallRuleGroupID == "" {
@@ -891,6 +931,7 @@ func (h *Handler) handleAssociateFirewallRuleGroup(
 	}
 
 	assoc, err := h.Backend.AssociateFirewallRuleGroup(
+		ctx,
 		in.FirewallRuleGroupID,
 		in.VpcID,
 		in.Name,
@@ -925,7 +966,7 @@ type associateResolverEndpointIPAddressOutput struct {
 }
 
 func (h *Handler) handleAssociateResolverEndpointIPAddress(
-	_ context.Context,
+	ctx context.Context,
 	in *associateResolverEndpointIPAddressInput,
 ) (*associateResolverEndpointIPAddressOutput, error) {
 	if in.ResolverEndpointID == "" {
@@ -933,7 +974,7 @@ func (h *Handler) handleAssociateResolverEndpointIPAddress(
 	}
 
 	ep, err := h.Backend.AssociateResolverEndpointIPAddress(
-		in.ResolverEndpointID, in.IPAddress.SubnetID, in.IPAddress.IP, in.IPAddress.Ipv6,
+		ctx, in.ResolverEndpointID, in.IPAddress.SubnetID, in.IPAddress.IP, in.IPAddress.Ipv6,
 	)
 	if err != nil {
 		return nil, err
@@ -971,7 +1012,7 @@ func queryLogConfigToOutput(c *ResolverQueryLogConfig) resolverQueryLogConfigOut
 }
 
 func (h *Handler) handleCreateResolverQueryLogConfig(
-	_ context.Context,
+	ctx context.Context,
 	in *createResolverQueryLogConfigInput,
 ) (*createResolverQueryLogConfigOutput, error) {
 	if in.Name == "" {
@@ -983,6 +1024,7 @@ func (h *Handler) handleCreateResolverQueryLogConfig(
 	}
 
 	cfg, err := h.Backend.CreateResolverQueryLogConfig(
+		ctx,
 		in.Name,
 		in.CreatorRequestID,
 		in.DestinationArn,
@@ -992,7 +1034,7 @@ func (h *Handler) handleCreateResolverQueryLogConfig(
 	}
 
 	if len(in.Tags) > 0 {
-		if tagErr := h.Backend.TagResource(cfg.ARN, in.Tags); tagErr != nil {
+		if tagErr := h.Backend.TagResource(ctx, cfg.ARN, in.Tags); tagErr != nil {
 			return nil, tagErr
 		}
 	}
@@ -1028,7 +1070,7 @@ func queryLogConfigAssociationToOutput(
 }
 
 func (h *Handler) handleAssociateResolverQueryLogConfig(
-	_ context.Context,
+	ctx context.Context,
 	in *associateResolverQueryLogConfigInput,
 ) (*associateResolverQueryLogConfigOutput, error) {
 	if in.ResolverQueryLogConfigID == "" {
@@ -1040,6 +1082,7 @@ func (h *Handler) handleAssociateResolverQueryLogConfig(
 	}
 
 	assoc, err := h.Backend.AssociateResolverQueryLogConfig(
+		ctx,
 		in.ResolverQueryLogConfigID,
 		in.ResourceID,
 	)
@@ -1075,7 +1118,7 @@ func ruleAssociationToOutput(a *ResolverRuleAssociation) resolverRuleAssociation
 }
 
 func (h *Handler) handleAssociateResolverRule(
-	_ context.Context,
+	ctx context.Context,
 	in *associateResolverRuleInput,
 ) (*associateResolverRuleOutput, error) {
 	if in.ResolverRuleID == "" {
@@ -1086,7 +1129,7 @@ func (h *Handler) handleAssociateResolverRule(
 		return nil, fmt.Errorf("%w: VPCId is required", ErrValidation)
 	}
 
-	assoc, err := h.Backend.AssociateResolverRule(in.ResolverRuleID, in.VPCId, in.Name)
+	assoc, err := h.Backend.AssociateResolverRule(ctx, in.ResolverRuleID, in.VPCId, in.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -1121,20 +1164,20 @@ func firewallDomainListToOutput(dl *FirewallDomainList) firewallDomainListOutput
 }
 
 func (h *Handler) handleCreateFirewallDomainList(
-	_ context.Context,
+	ctx context.Context,
 	in *createFirewallDomainListInput,
 ) (*createFirewallDomainListOutput, error) {
 	if in.Name == "" {
 		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
 	}
 
-	dl, err := h.Backend.CreateFirewallDomainList(in.Name, in.CreatorRequestID)
+	dl, err := h.Backend.CreateFirewallDomainList(ctx, in.Name, in.CreatorRequestID)
 	if err != nil {
 		return nil, err
 	}
 
 	if len(in.Tags) > 0 {
-		if tagErr := h.Backend.TagResource(dl.ARN, in.Tags); tagErr != nil {
+		if tagErr := h.Backend.TagResource(ctx, dl.ARN, in.Tags); tagErr != nil {
 			return nil, tagErr
 		}
 	}
@@ -1153,14 +1196,14 @@ type deleteFirewallDomainListOutput struct {
 }
 
 func (h *Handler) handleDeleteFirewallDomainList(
-	_ context.Context,
+	ctx context.Context,
 	in *deleteFirewallDomainListInput,
 ) (*deleteFirewallDomainListOutput, error) {
 	if in.FirewallDomainListID == "" {
 		return nil, fmt.Errorf("%w: FirewallDomainListId is required", ErrValidation)
 	}
 
-	dl, err := h.Backend.DeleteFirewallDomainList(in.FirewallDomainListID)
+	dl, err := h.Backend.DeleteFirewallDomainList(ctx, in.FirewallDomainListID)
 	if err != nil {
 		return nil, err
 	}
@@ -1211,7 +1254,7 @@ func firewallRuleToOutput(r *FirewallRule) firewallRuleOutput {
 }
 
 func (h *Handler) handleCreateFirewallRule(
-	_ context.Context,
+	ctx context.Context,
 	in *createFirewallRuleInput,
 ) (*createFirewallRuleOutput, error) {
 	if in.FirewallRuleGroupID == "" {
@@ -1235,7 +1278,7 @@ func (h *Handler) handleCreateFirewallRule(
 		)
 	}
 
-	rule, err := h.Backend.CreateFirewallRule(CreateFirewallRuleParams{
+	rule, err := h.Backend.CreateFirewallRule(ctx, CreateFirewallRuleParams{
 		FirewallRuleGroupID:  in.FirewallRuleGroupID,
 		Name:                 in.Name,
 		Action:               in.Action,
@@ -1285,7 +1328,7 @@ func outpostResolverToOutput(r *OutpostResolver) outpostResolverOutput {
 }
 
 func (h *Handler) handleCreateOutpostResolver(
-	_ context.Context,
+	ctx context.Context,
 	in *createOutpostResolverInput,
 ) (*createOutpostResolverOutput, error) {
 	if in.Name == "" {
@@ -1301,14 +1344,14 @@ func (h *Handler) handleCreateOutpostResolver(
 	}
 
 	r, err := h.Backend.CreateOutpostResolver(
-		in.Name, in.CreatorRequestID, in.OutpostArn, in.PreferredInstanceType, in.InstanceCount,
+		ctx, in.Name, in.CreatorRequestID, in.OutpostArn, in.PreferredInstanceType, in.InstanceCount,
 	)
 	if err != nil {
 		return nil, err
 	}
 
 	if len(in.Tags) > 0 {
-		if tagErr := h.Backend.TagResource(r.ARN, in.Tags); tagErr != nil {
+		if tagErr := h.Backend.TagResource(ctx, r.ARN, in.Tags); tagErr != nil {
 			return nil, tagErr
 		}
 	}
@@ -1383,13 +1426,13 @@ type deleteFirewallRuleOutput struct {
 }
 
 func (h *Handler) handleDeleteFirewallRule(
-	_ context.Context,
+	ctx context.Context,
 	in *deleteFirewallRuleInput,
 ) (*deleteFirewallRuleOutput, error) {
 	if in.FirewallRuleID == "" {
 		return nil, fmt.Errorf("%w: FirewallRuleId is required", ErrValidation)
 	}
-	rule, err := h.Backend.DeleteFirewallRule(in.FirewallRuleID)
+	rule, err := h.Backend.DeleteFirewallRule(ctx, in.FirewallRuleID)
 	if err != nil {
 		return nil, err
 	}
@@ -1418,13 +1461,13 @@ type updateFirewallRuleOutput struct {
 }
 
 func (h *Handler) handleUpdateFirewallRule(
-	_ context.Context,
+	ctx context.Context,
 	in *updateFirewallRuleInput,
 ) (*updateFirewallRuleOutput, error) {
 	if in.FirewallRuleID == "" {
 		return nil, fmt.Errorf("%w: FirewallRuleId is required", ErrValidation)
 	}
-	rule, err := h.Backend.UpdateFirewallRule(UpdateFirewallRuleParams{
+	rule, err := h.Backend.UpdateFirewallRule(ctx, UpdateFirewallRuleParams{
 		ID:                   in.FirewallRuleID,
 		Name:                 in.Name,
 		Action:               in.Action,
@@ -1448,23 +1491,32 @@ func (h *Handler) handleUpdateFirewallRule(
 
 type listFirewallRulesInput struct {
 	FirewallRuleGroupID string `json:"FirewallRuleGroupId"`
+	NextToken           string `json:"NextToken"`
+	MaxResults          int32  `json:"MaxResults"`
 }
 
 type listFirewallRulesOutput struct {
+	NextToken     *string              `json:"NextToken,omitempty"`
 	FirewallRules []firewallRuleOutput `json:"FirewallRules"`
 }
 
 func (h *Handler) handleListFirewallRules(
-	_ context.Context,
+	ctx context.Context,
 	in *listFirewallRulesInput,
 ) (*listFirewallRulesOutput, error) {
-	rules := h.Backend.ListFirewallRules(in.FirewallRuleGroupID)
+	rules := h.Backend.ListFirewallRules(ctx, in.FirewallRuleGroupID)
 	items := make([]firewallRuleOutput, 0, len(rules))
 	for _, r := range rules {
 		items = append(items, firewallRuleToOutput(r))
 	}
+	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
+	pg := page.New(items, in.NextToken, int(in.MaxResults), defaultPageSizeLarge)
+	out := &listFirewallRulesOutput{FirewallRules: pg.Data}
+	if pg.Next != "" {
+		out.NextToken = &pg.Next
+	}
 
-	return &listFirewallRulesOutput{FirewallRules: items}, nil
+	return out, nil
 }
 
 // --- DeleteFirewallRuleGroup ---
@@ -1478,13 +1530,13 @@ type deleteFirewallRuleGroupOutput struct {
 }
 
 func (h *Handler) handleDeleteFirewallRuleGroup(
-	_ context.Context,
+	ctx context.Context,
 	in *deleteFirewallRuleGroupInput,
 ) (*deleteFirewallRuleGroupOutput, error) {
 	if in.FirewallRuleGroupID == "" {
 		return nil, fmt.Errorf("%w: FirewallRuleGroupId is required", ErrValidation)
 	}
-	g, err := h.Backend.DeleteFirewallRuleGroup(in.FirewallRuleGroupID)
+	g, err := h.Backend.DeleteFirewallRuleGroup(ctx, in.FirewallRuleGroupID)
 	if err != nil {
 		return nil, err
 	}
@@ -1503,13 +1555,13 @@ type getFirewallRuleGroupOutput struct {
 }
 
 func (h *Handler) handleGetFirewallRuleGroup(
-	_ context.Context,
+	ctx context.Context,
 	in *getFirewallRuleGroupInput,
 ) (*getFirewallRuleGroupOutput, error) {
 	if in.FirewallRuleGroupID == "" {
 		return nil, fmt.Errorf("%w: FirewallRuleGroupId is required", ErrValidation)
 	}
-	g, err := h.Backend.GetFirewallRuleGroup(in.FirewallRuleGroupID)
+	g, err := h.Backend.GetFirewallRuleGroup(ctx, in.FirewallRuleGroupID)
 	if err != nil {
 		return nil, err
 	}
@@ -1519,7 +1571,10 @@ func (h *Handler) handleGetFirewallRuleGroup(
 
 // --- ListFirewallRuleGroups ---
 
-type listFirewallRuleGroupsInput struct{}
+type listFirewallRuleGroupsInput struct {
+	NextToken  string `json:"NextToken"`
+	MaxResults int32  `json:"MaxResults"`
+}
 
 type listFirewallRuleGroupsOutput struct {
 	NextToken          *string                   `json:"NextToken,omitempty"`
@@ -1527,16 +1582,22 @@ type listFirewallRuleGroupsOutput struct {
 }
 
 func (h *Handler) handleListFirewallRuleGroups(
-	_ context.Context,
-	_ *listFirewallRuleGroupsInput,
+	ctx context.Context,
+	in *listFirewallRuleGroupsInput,
 ) (*listFirewallRuleGroupsOutput, error) {
-	groups := h.Backend.ListFirewallRuleGroups()
+	groups := h.Backend.ListFirewallRuleGroups(ctx)
 	items := make([]firewallRuleGroupOutput, 0, len(groups))
 	for _, g := range groups {
 		items = append(items, firewallRuleGroupToOutput(g))
 	}
+	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
+	pg := page.New(items, in.NextToken, int(in.MaxResults), defaultPageSizeLarge)
+	out := &listFirewallRuleGroupsOutput{FirewallRuleGroups: pg.Data}
+	if pg.Next != "" {
+		out.NextToken = &pg.Next
+	}
 
-	return &listFirewallRuleGroupsOutput{FirewallRuleGroups: items}, nil
+	return out, nil
 }
 
 // --- GetFirewallRuleGroupPolicy ---
@@ -1550,13 +1611,13 @@ type getFirewallRuleGroupPolicyOutput struct {
 }
 
 func (h *Handler) handleGetFirewallRuleGroupPolicy(
-	_ context.Context,
+	ctx context.Context,
 	in *getFirewallRuleGroupPolicyInput,
 ) (*getFirewallRuleGroupPolicyOutput, error) {
 	if in.Arn == "" {
 		return nil, fmt.Errorf("%w: Arn is required", ErrValidation)
 	}
-	policy := h.Backend.GetFirewallRuleGroupPolicy(in.Arn)
+	policy := h.Backend.GetFirewallRuleGroupPolicy(ctx, in.Arn)
 
 	return &getFirewallRuleGroupPolicyOutput{FirewallRuleGroupPolicy: policy}, nil
 }
@@ -1573,13 +1634,13 @@ type putFirewallRuleGroupPolicyOutput struct {
 }
 
 func (h *Handler) handlePutFirewallRuleGroupPolicy(
-	_ context.Context,
+	ctx context.Context,
 	in *putFirewallRuleGroupPolicyInput,
 ) (*putFirewallRuleGroupPolicyOutput, error) {
 	if in.Arn == "" {
 		return nil, fmt.Errorf("%w: Arn is required", ErrValidation)
 	}
-	if err := h.Backend.PutFirewallRuleGroupPolicy(in.Arn, in.FirewallRuleGroupPolicy); err != nil {
+	if err := h.Backend.PutFirewallRuleGroupPolicy(ctx, in.Arn, in.FirewallRuleGroupPolicy); err != nil {
 		return nil, err
 	}
 
@@ -1597,13 +1658,13 @@ type getFirewallRuleGroupAssociationOutput struct {
 }
 
 func (h *Handler) handleGetFirewallRuleGroupAssociation(
-	_ context.Context,
+	ctx context.Context,
 	in *getFirewallRuleGroupAssociationInput,
 ) (*getFirewallRuleGroupAssociationOutput, error) {
 	if in.FirewallRuleGroupAssociationID == "" {
 		return nil, fmt.Errorf("%w: FirewallRuleGroupAssociationId is required", ErrValidation)
 	}
-	assoc, err := h.Backend.GetFirewallRuleGroupAssociation(in.FirewallRuleGroupAssociationID)
+	assoc, err := h.Backend.GetFirewallRuleGroupAssociation(ctx, in.FirewallRuleGroupAssociationID)
 	if err != nil {
 		return nil, err
 	}
@@ -1625,10 +1686,10 @@ type listFirewallRuleGroupAssociationsOutput struct {
 }
 
 func (h *Handler) handleListFirewallRuleGroupAssociations(
-	_ context.Context,
+	ctx context.Context,
 	in *listFirewallRuleGroupAssociationsInput,
 ) (*listFirewallRuleGroupAssociationsOutput, error) {
-	assocs := h.Backend.ListFirewallRuleGroupAssociations(in.VpcID, in.FirewallRuleGroupID)
+	assocs := h.Backend.ListFirewallRuleGroupAssociations(ctx, in.VpcID, in.FirewallRuleGroupID)
 	items := make([]firewallRuleGroupAssociationOutput, 0, len(assocs))
 	for _, a := range assocs {
 		items = append(items, firewallRuleGroupAssociationToOutput(a))
@@ -1648,13 +1709,13 @@ type disassociateFirewallRuleGroupOutput struct {
 }
 
 func (h *Handler) handleDisassociateFirewallRuleGroup(
-	_ context.Context,
+	ctx context.Context,
 	in *disassociateFirewallRuleGroupInput,
 ) (*disassociateFirewallRuleGroupOutput, error) {
 	if in.FirewallRuleGroupAssociationID == "" {
 		return nil, fmt.Errorf("%w: FirewallRuleGroupAssociationId is required", ErrValidation)
 	}
-	assoc, err := h.Backend.DisassociateFirewallRuleGroup(in.FirewallRuleGroupAssociationID)
+	assoc, err := h.Backend.DisassociateFirewallRuleGroup(ctx, in.FirewallRuleGroupAssociationID)
 	if err != nil {
 		return nil, err
 	}
@@ -1678,14 +1739,14 @@ type updateFirewallRuleGroupAssociationOutput struct {
 }
 
 func (h *Handler) handleUpdateFirewallRuleGroupAssociation(
-	_ context.Context,
+	ctx context.Context,
 	in *updateFirewallRuleGroupAssociationInput,
 ) (*updateFirewallRuleGroupAssociationOutput, error) {
 	if in.FirewallRuleGroupAssociationID == "" {
 		return nil, fmt.Errorf("%w: FirewallRuleGroupAssociationId is required", ErrValidation)
 	}
 	assoc, err := h.Backend.UpdateFirewallRuleGroupAssociation(
-		in.FirewallRuleGroupAssociationID, in.Name, in.MutationProtection, in.Priority,
+		ctx, in.FirewallRuleGroupAssociationID, in.Name, in.MutationProtection, in.Priority,
 	)
 	if err != nil {
 		return nil, err
@@ -1707,13 +1768,13 @@ type getFirewallDomainListOutput struct {
 }
 
 func (h *Handler) handleGetFirewallDomainList(
-	_ context.Context,
+	ctx context.Context,
 	in *getFirewallDomainListInput,
 ) (*getFirewallDomainListOutput, error) {
 	if in.FirewallDomainListID == "" {
 		return nil, fmt.Errorf("%w: FirewallDomainListId is required", ErrValidation)
 	}
-	dl, err := h.Backend.GetFirewallDomainList(in.FirewallDomainListID)
+	dl, err := h.Backend.GetFirewallDomainList(ctx, in.FirewallDomainListID)
 	if err != nil {
 		return nil, err
 	}
@@ -1723,7 +1784,10 @@ func (h *Handler) handleGetFirewallDomainList(
 
 // --- ListFirewallDomainLists ---
 
-type listFirewallDomainListsInput struct{}
+type listFirewallDomainListsInput struct {
+	NextToken  string `json:"NextToken"`
+	MaxResults int32  `json:"MaxResults"`
+}
 
 type listFirewallDomainListsOutput struct {
 	NextToken           *string                    `json:"NextToken,omitempty"`
@@ -1731,16 +1795,22 @@ type listFirewallDomainListsOutput struct {
 }
 
 func (h *Handler) handleListFirewallDomainLists(
-	_ context.Context,
-	_ *listFirewallDomainListsInput,
+	ctx context.Context,
+	in *listFirewallDomainListsInput,
 ) (*listFirewallDomainListsOutput, error) {
-	lists := h.Backend.ListFirewallDomainLists()
+	lists := h.Backend.ListFirewallDomainLists(ctx)
 	items := make([]firewallDomainListOutput, 0, len(lists))
 	for _, dl := range lists {
 		items = append(items, firewallDomainListToOutput(dl))
 	}
+	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
+	pg := page.New(items, in.NextToken, int(in.MaxResults), defaultPageSizeLarge)
+	out := &listFirewallDomainListsOutput{FirewallDomainLists: pg.Data}
+	if pg.Next != "" {
+		out.NextToken = &pg.Next
+	}
 
-	return &listFirewallDomainListsOutput{FirewallDomainLists: items}, nil
+	return out, nil
 }
 
 // --- ListFirewallDomains ---
@@ -1754,13 +1824,13 @@ type listFirewallDomainsOutput struct {
 }
 
 func (h *Handler) handleListFirewallDomains(
-	_ context.Context,
+	ctx context.Context,
 	in *listFirewallDomainsInput,
 ) (*listFirewallDomainsOutput, error) {
 	if in.FirewallDomainListID == "" {
 		return nil, fmt.Errorf("%w: FirewallDomainListId is required", ErrValidation)
 	}
-	domains, err := h.Backend.ListFirewallDomains(in.FirewallDomainListID)
+	domains, err := h.Backend.ListFirewallDomains(ctx, in.FirewallDomainListID)
 	if err != nil {
 		return nil, err
 	}
@@ -1781,7 +1851,7 @@ type updateFirewallDomainsOutput struct {
 }
 
 func (h *Handler) handleUpdateFirewallDomains(
-	_ context.Context,
+	ctx context.Context,
 	in *updateFirewallDomainsInput,
 ) (*updateFirewallDomainsOutput, error) {
 	if in.FirewallDomainListID == "" {
@@ -1790,7 +1860,7 @@ func (h *Handler) handleUpdateFirewallDomains(
 	if in.Operation == "" {
 		return nil, fmt.Errorf("%w: Operation is required", ErrValidation)
 	}
-	dl, err := h.Backend.UpdateFirewallDomains(in.FirewallDomainListID, in.Operation, in.Domains)
+	dl, err := h.Backend.UpdateFirewallDomains(ctx, in.FirewallDomainListID, in.Operation, in.Domains)
 	if err != nil {
 		return nil, err
 	}
@@ -1811,7 +1881,7 @@ type importFirewallDomainsOutput struct {
 }
 
 func (h *Handler) handleImportFirewallDomains(
-	_ context.Context,
+	ctx context.Context,
 	in *importFirewallDomainsInput,
 ) (*importFirewallDomainsOutput, error) {
 	if in.FirewallDomainListID == "" {
@@ -1824,6 +1894,7 @@ func (h *Handler) handleImportFirewallDomains(
 		return nil, fmt.Errorf("%w: Operation is required", ErrValidation)
 	}
 	dl, err := h.Backend.ImportFirewallDomains(
+		ctx,
 		in.FirewallDomainListID,
 		in.Operation,
 		in.DomainFileURL,
@@ -1846,13 +1917,13 @@ type getFirewallConfigOutput struct {
 }
 
 func (h *Handler) handleGetFirewallConfig(
-	_ context.Context,
+	ctx context.Context,
 	in *getFirewallConfigInput,
 ) (*getFirewallConfigOutput, error) {
 	if in.ResourceID == "" {
 		return nil, fmt.Errorf("%w: ResourceId is required", ErrValidation)
 	}
-	cfg := h.Backend.GetFirewallConfig(in.ResourceID)
+	cfg := h.Backend.GetFirewallConfig(ctx, in.ResourceID)
 
 	return &getFirewallConfigOutput{FirewallConfig: firewallConfigToOutput(cfg)}, nil
 }
@@ -1869,13 +1940,13 @@ type updateFirewallConfigOutput struct {
 }
 
 func (h *Handler) handleUpdateFirewallConfig(
-	_ context.Context,
+	ctx context.Context,
 	in *updateFirewallConfigInput,
 ) (*updateFirewallConfigOutput, error) {
 	if in.ResourceID == "" {
 		return nil, fmt.Errorf("%w: ResourceId is required", ErrValidation)
 	}
-	cfg, err := h.Backend.UpdateFirewallConfig(in.ResourceID, in.FirewallFailOpen)
+	cfg, err := h.Backend.UpdateFirewallConfig(ctx, in.ResourceID, in.FirewallFailOpen)
 	if err != nil {
 		return nil, err
 	}
@@ -1892,10 +1963,10 @@ type listFirewallConfigsOutput struct {
 }
 
 func (h *Handler) handleListFirewallConfigs(
-	_ context.Context,
+	ctx context.Context,
 	_ *listFirewallConfigsInput,
 ) (*listFirewallConfigsOutput, error) {
-	configs := h.Backend.ListFirewallConfigs()
+	configs := h.Backend.ListFirewallConfigs(ctx)
 	items := make([]firewallConfigOutput, 0, len(configs))
 	for _, c := range configs {
 		items = append(items, firewallConfigToOutput(c))
@@ -1915,13 +1986,13 @@ type getOutpostResolverOutput struct {
 }
 
 func (h *Handler) handleGetOutpostResolver(
-	_ context.Context,
+	ctx context.Context,
 	in *getOutpostResolverInput,
 ) (*getOutpostResolverOutput, error) {
 	if in.ID == "" {
 		return nil, fmt.Errorf("%w: Id is required", ErrValidation)
 	}
-	r, err := h.Backend.GetOutpostResolver(in.ID)
+	r, err := h.Backend.GetOutpostResolver(ctx, in.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -1940,13 +2011,13 @@ type deleteOutpostResolverOutput struct {
 }
 
 func (h *Handler) handleDeleteOutpostResolver(
-	_ context.Context,
+	ctx context.Context,
 	in *deleteOutpostResolverInput,
 ) (*deleteOutpostResolverOutput, error) {
 	if in.ID == "" {
 		return nil, fmt.Errorf("%w: Id is required", ErrValidation)
 	}
-	r, err := h.Backend.DeleteOutpostResolver(in.ID)
+	r, err := h.Backend.DeleteOutpostResolver(ctx, in.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -1963,10 +2034,10 @@ type listOutpostResolversOutput struct {
 }
 
 func (h *Handler) handleListOutpostResolvers(
-	_ context.Context,
+	ctx context.Context,
 	_ *listOutpostResolversInput,
 ) (*listOutpostResolversOutput, error) {
-	resolvers := h.Backend.ListOutpostResolvers()
+	resolvers := h.Backend.ListOutpostResolvers(ctx)
 	items := make([]outpostResolverOutput, 0, len(resolvers))
 	for _, r := range resolvers {
 		items = append(items, outpostResolverToOutput(r))
@@ -1989,13 +2060,14 @@ type updateOutpostResolverOutput struct {
 }
 
 func (h *Handler) handleUpdateOutpostResolver(
-	_ context.Context,
+	ctx context.Context,
 	in *updateOutpostResolverInput,
 ) (*updateOutpostResolverOutput, error) {
 	if in.ID == "" {
 		return nil, fmt.Errorf("%w: Id is required", ErrValidation)
 	}
 	r, err := h.Backend.UpdateOutpostResolver(
+		ctx,
 		in.ID,
 		in.Name,
 		in.PreferredInstanceType,
@@ -2019,13 +2091,13 @@ type deleteResolverQueryLogConfigOutput struct {
 }
 
 func (h *Handler) handleDeleteResolverQueryLogConfig(
-	_ context.Context,
+	ctx context.Context,
 	in *deleteResolverQueryLogConfigInput,
 ) (*deleteResolverQueryLogConfigOutput, error) {
 	if in.ResolverQueryLogConfigID == "" {
 		return nil, fmt.Errorf("%w: ResolverQueryLogConfigId is required", ErrValidation)
 	}
-	cfg, err := h.Backend.DeleteResolverQueryLogConfig(in.ResolverQueryLogConfigID)
+	cfg, err := h.Backend.DeleteResolverQueryLogConfig(ctx, in.ResolverQueryLogConfigID)
 	if err != nil {
 		return nil, err
 	}
@@ -2046,13 +2118,13 @@ type getResolverQueryLogConfigOutput struct {
 }
 
 func (h *Handler) handleGetResolverQueryLogConfig(
-	_ context.Context,
+	ctx context.Context,
 	in *getResolverQueryLogConfigInput,
 ) (*getResolverQueryLogConfigOutput, error) {
 	if in.ResolverQueryLogConfigID == "" {
 		return nil, fmt.Errorf("%w: ResolverQueryLogConfigId is required", ErrValidation)
 	}
-	cfg, err := h.Backend.GetResolverQueryLogConfig(in.ResolverQueryLogConfigID)
+	cfg, err := h.Backend.GetResolverQueryLogConfig(ctx, in.ResolverQueryLogConfigID)
 	if err != nil {
 		return nil, err
 	}
@@ -2072,10 +2144,10 @@ type listResolverQueryLogConfigsOutput struct {
 }
 
 func (h *Handler) handleListResolverQueryLogConfigs(
-	_ context.Context,
+	ctx context.Context,
 	_ *listResolverQueryLogConfigsInput,
 ) (*listResolverQueryLogConfigsOutput, error) {
-	configs := h.Backend.ListResolverQueryLogConfigs()
+	configs := h.Backend.ListResolverQueryLogConfigs(ctx)
 	items := make([]resolverQueryLogConfigOutput, 0, len(configs))
 	for _, c := range configs {
 		items = append(items, queryLogConfigToOutput(c))
@@ -2095,13 +2167,14 @@ type getResolverQueryLogConfigAssociationOutput struct {
 }
 
 func (h *Handler) handleGetResolverQueryLogConfigAssociation(
-	_ context.Context,
+	ctx context.Context,
 	in *getResolverQueryLogConfigAssociationInput,
 ) (*getResolverQueryLogConfigAssociationOutput, error) {
 	if in.ResolverQueryLogConfigAssociationID == "" {
 		return nil, fmt.Errorf("%w: ResolverQueryLogConfigAssociationId is required", ErrValidation)
 	}
 	assoc, err := h.Backend.GetResolverQueryLogConfigAssociation(
+		ctx,
 		in.ResolverQueryLogConfigAssociationID,
 	)
 	if err != nil {
@@ -2124,13 +2197,14 @@ type disassociateResolverQueryLogConfigOutput struct {
 }
 
 func (h *Handler) handleDisassociateResolverQueryLogConfig(
-	_ context.Context,
+	ctx context.Context,
 	in *disassociateResolverQueryLogConfigInput,
 ) (*disassociateResolverQueryLogConfigOutput, error) {
 	if in.ResolverQueryLogConfigAssociationID == "" {
 		return nil, fmt.Errorf("%w: ResolverQueryLogConfigAssociationId is required", ErrValidation)
 	}
 	assoc, err := h.Backend.DisassociateResolverQueryLogConfig(
+		ctx,
 		in.ResolverQueryLogConfigAssociationID,
 	)
 	if err != nil {
@@ -2153,10 +2227,10 @@ type listResolverQueryLogConfigAssociationsOutput struct {
 }
 
 func (h *Handler) handleListResolverQueryLogConfigAssociations(
-	_ context.Context,
+	ctx context.Context,
 	_ *listResolverQueryLogConfigAssociationsInput,
 ) (*listResolverQueryLogConfigAssociationsOutput, error) {
-	assocs := h.Backend.ListResolverQueryLogConfigAssociations()
+	assocs := h.Backend.ListResolverQueryLogConfigAssociations(ctx)
 	items := make([]resolverQueryLogConfigAssociationOutput, 0, len(assocs))
 	for _, a := range assocs {
 		items = append(items, queryLogConfigAssociationToOutput(a))
@@ -2178,13 +2252,13 @@ type getResolverQueryLogConfigPolicyOutput struct {
 }
 
 func (h *Handler) handleGetResolverQueryLogConfigPolicy(
-	_ context.Context,
+	ctx context.Context,
 	in *getResolverQueryLogConfigPolicyInput,
 ) (*getResolverQueryLogConfigPolicyOutput, error) {
 	if in.Arn == "" {
 		return nil, fmt.Errorf("%w: Arn is required", ErrValidation)
 	}
-	policy := h.Backend.GetResolverQueryLogConfigPolicy(in.Arn)
+	policy := h.Backend.GetResolverQueryLogConfigPolicy(ctx, in.Arn)
 
 	return &getResolverQueryLogConfigPolicyOutput{ResolverQueryLogConfigPolicy: policy}, nil
 }
@@ -2201,13 +2275,13 @@ type putResolverQueryLogConfigPolicyOutput struct {
 }
 
 func (h *Handler) handlePutResolverQueryLogConfigPolicy(
-	_ context.Context,
+	ctx context.Context,
 	in *putResolverQueryLogConfigPolicyInput,
 ) (*putResolverQueryLogConfigPolicyOutput, error) {
 	if in.Arn == "" {
 		return nil, fmt.Errorf("%w: Arn is required", ErrValidation)
 	}
-	if err := h.Backend.PutResolverQueryLogConfigPolicy(in.Arn, in.ResolverQueryLogConfigPolicy); err != nil {
+	if err := h.Backend.PutResolverQueryLogConfigPolicy(ctx, in.Arn, in.ResolverQueryLogConfigPolicy); err != nil {
 		return nil, err
 	}
 
@@ -2225,13 +2299,13 @@ type getResolverRuleAssociationOutput struct {
 }
 
 func (h *Handler) handleGetResolverRuleAssociation(
-	_ context.Context,
+	ctx context.Context,
 	in *getResolverRuleAssociationInput,
 ) (*getResolverRuleAssociationOutput, error) {
 	if in.ResolverRuleAssociationID == "" {
 		return nil, fmt.Errorf("%w: ResolverRuleAssociationId is required", ErrValidation)
 	}
-	assoc, err := h.Backend.GetResolverRuleAssociation(in.ResolverRuleAssociationID)
+	assoc, err := h.Backend.GetResolverRuleAssociation(ctx, in.ResolverRuleAssociationID)
 	if err != nil {
 		return nil, err
 	}
@@ -2252,13 +2326,13 @@ type disassociateResolverRuleOutput struct {
 }
 
 func (h *Handler) handleDisassociateResolverRule(
-	_ context.Context,
+	ctx context.Context,
 	in *disassociateResolverRuleInput,
 ) (*disassociateResolverRuleOutput, error) {
 	if in.ResolverRuleAssociationID == "" {
 		return nil, fmt.Errorf("%w: ResolverRuleAssociationId is required", ErrValidation)
 	}
-	assoc, err := h.Backend.DisassociateResolverRule(in.ResolverRuleAssociationID)
+	assoc, err := h.Backend.DisassociateResolverRule(ctx, in.ResolverRuleAssociationID)
 	if err != nil {
 		return nil, err
 	}
@@ -2277,10 +2351,10 @@ type listResolverRuleAssociationsOutput struct {
 }
 
 func (h *Handler) handleListResolverRuleAssociations(
-	_ context.Context,
+	ctx context.Context,
 	_ *listResolverRuleAssociationsInput,
 ) (*listResolverRuleAssociationsOutput, error) {
-	assocs := h.Backend.ListResolverRuleAssociations()
+	assocs := h.Backend.ListResolverRuleAssociations(ctx)
 	items := make([]resolverRuleAssociationOutput, 0, len(assocs))
 	for _, a := range assocs {
 		items = append(items, ruleAssociationToOutput(a))
@@ -2300,13 +2374,13 @@ type getResolverRulePolicyOutput struct {
 }
 
 func (h *Handler) handleGetResolverRulePolicy(
-	_ context.Context,
+	ctx context.Context,
 	in *getResolverRulePolicyInput,
 ) (*getResolverRulePolicyOutput, error) {
 	if in.Arn == "" {
 		return nil, fmt.Errorf("%w: Arn is required", ErrValidation)
 	}
-	policy := h.Backend.GetResolverRulePolicy(in.Arn)
+	policy := h.Backend.GetResolverRulePolicy(ctx, in.Arn)
 
 	return &getResolverRulePolicyOutput{ResolverRulePolicy: policy}, nil
 }
@@ -2323,13 +2397,13 @@ type putResolverRulePolicyOutput struct {
 }
 
 func (h *Handler) handlePutResolverRulePolicy(
-	_ context.Context,
+	ctx context.Context,
 	in *putResolverRulePolicyInput,
 ) (*putResolverRulePolicyOutput, error) {
 	if in.Arn == "" {
 		return nil, fmt.Errorf("%w: Arn is required", ErrValidation)
 	}
-	if err := h.Backend.PutResolverRulePolicy(in.Arn, in.ResolverRulePolicy); err != nil {
+	if err := h.Backend.PutResolverRulePolicy(ctx, in.Arn, in.ResolverRulePolicy); err != nil {
 		return nil, err
 	}
 
@@ -2350,13 +2424,14 @@ type updateResolverEndpointOutput struct {
 }
 
 func (h *Handler) handleUpdateResolverEndpoint(
-	_ context.Context,
+	ctx context.Context,
 	in *updateResolverEndpointInput,
 ) (*updateResolverEndpointOutput, error) {
 	if in.ResolverEndpointID == "" {
 		return nil, fmt.Errorf("%w: ResolverEndpointId is required", ErrValidation)
 	}
 	ep, err := h.Backend.UpdateResolverEndpoint(
+		ctx,
 		in.ResolverEndpointID,
 		in.Name,
 		in.ResolverEndpointType,
@@ -2387,7 +2462,7 @@ type disassociateResolverEndpointIPAddressOutput struct {
 }
 
 func (h *Handler) handleDisassociateResolverEndpointIPAddress(
-	_ context.Context,
+	ctx context.Context,
 	in *disassociateResolverEndpointIPAddressInput,
 ) (*disassociateResolverEndpointIPAddressOutput, error) {
 	if in.ResolverEndpointID == "" {
@@ -2397,6 +2472,7 @@ func (h *Handler) handleDisassociateResolverEndpointIPAddress(
 		return nil, fmt.Errorf("%w: IpAddress.IpId is required", ErrValidation)
 	}
 	ep, err := h.Backend.DisassociateResolverEndpointIPAddress(
+		ctx,
 		in.ResolverEndpointID,
 		in.IPAddress.IPID,
 	)
@@ -2425,7 +2501,7 @@ type updateResolverRuleOutput struct {
 }
 
 func (h *Handler) handleUpdateResolverRule(
-	_ context.Context,
+	ctx context.Context,
 	in *updateResolverRuleInput,
 ) (*updateResolverRuleOutput, error) {
 	if in.ResolverRuleID == "" {
@@ -2444,6 +2520,7 @@ func (h *Handler) handleUpdateResolverRule(
 	}
 
 	r, err := h.Backend.UpdateResolverRule(
+		ctx,
 		in.ResolverRuleID,
 		in.Config.Name,
 		in.Config.ResolverEndpointID,
@@ -2467,13 +2544,13 @@ type getResolverConfigOutput struct {
 }
 
 func (h *Handler) handleGetResolverConfig(
-	_ context.Context,
+	ctx context.Context,
 	in *getResolverConfigInput,
 ) (*getResolverConfigOutput, error) {
 	if in.ResourceID == "" {
 		return nil, fmt.Errorf("%w: ResourceId is required", ErrValidation)
 	}
-	cfg := h.Backend.GetResolverConfig(in.ResourceID)
+	cfg := h.Backend.GetResolverConfig(ctx, in.ResourceID)
 
 	return &getResolverConfigOutput{ResolverConfig: resolverConfigToOutput(cfg)}, nil
 }
@@ -2490,13 +2567,13 @@ type updateResolverConfigOutput struct {
 }
 
 func (h *Handler) handleUpdateResolverConfig(
-	_ context.Context,
+	ctx context.Context,
 	in *updateResolverConfigInput,
 ) (*updateResolverConfigOutput, error) {
 	if in.ResourceID == "" {
 		return nil, fmt.Errorf("%w: ResourceId is required", ErrValidation)
 	}
-	cfg, err := h.Backend.UpdateResolverConfig(in.ResourceID, in.AutodefinedReverse)
+	cfg, err := h.Backend.UpdateResolverConfig(ctx, in.ResourceID, in.AutodefinedReverse)
 	if err != nil {
 		return nil, err
 	}
@@ -2513,10 +2590,10 @@ type listResolverConfigsOutput struct {
 }
 
 func (h *Handler) handleListResolverConfigs(
-	_ context.Context,
+	ctx context.Context,
 	_ *listResolverConfigsInput,
 ) (*listResolverConfigsOutput, error) {
-	configs := h.Backend.ListResolverConfigs()
+	configs := h.Backend.ListResolverConfigs(ctx)
 	items := make([]resolverConfigOutput, 0, len(configs))
 	for _, c := range configs {
 		items = append(items, resolverConfigToOutput(c))
@@ -2536,13 +2613,13 @@ type getResolverDnssecConfigOutput struct {
 }
 
 func (h *Handler) handleGetResolverDnssecConfig(
-	_ context.Context,
+	ctx context.Context,
 	in *getResolverDnssecConfigInput,
 ) (*getResolverDnssecConfigOutput, error) {
 	if in.ResourceID == "" {
 		return nil, fmt.Errorf("%w: ResourceId is required", ErrValidation)
 	}
-	cfg := h.Backend.GetResolverDnssecConfig(in.ResourceID)
+	cfg := h.Backend.GetResolverDnssecConfig(ctx, in.ResourceID)
 
 	return &getResolverDnssecConfigOutput{
 		ResolverDNSSECConfig: resolverDnssecConfigToOutput(cfg),
@@ -2561,13 +2638,13 @@ type updateResolverDnssecConfigOutput struct {
 }
 
 func (h *Handler) handleUpdateResolverDnssecConfig(
-	_ context.Context,
+	ctx context.Context,
 	in *updateResolverDnssecConfigInput,
 ) (*updateResolverDnssecConfigOutput, error) {
 	if in.ResourceID == "" {
 		return nil, fmt.Errorf("%w: ResourceId is required", ErrValidation)
 	}
-	cfg, err := h.Backend.UpdateResolverDnssecConfig(in.ResourceID, in.Validation)
+	cfg, err := h.Backend.UpdateResolverDnssecConfig(ctx, in.ResourceID, in.Validation)
 	if err != nil {
 		return nil, err
 	}
@@ -2586,10 +2663,10 @@ type listResolverDnssecConfigsOutput struct {
 }
 
 func (h *Handler) handleListResolverDnssecConfigs(
-	_ context.Context,
+	ctx context.Context,
 	_ *listResolverDnssecConfigsInput,
 ) (*listResolverDnssecConfigsOutput, error) {
-	configs := h.Backend.ListResolverDnssecConfigs()
+	configs := h.Backend.ListResolverDnssecConfigs(ctx)
 	items := make([]resolverDnssecConfigOutput, 0, len(configs))
 	for _, c := range configs {
 		items = append(items, resolverDnssecConfigToOutput(c))

@@ -6,7 +6,11 @@
 		GetInsightsCommand,
 		DescribeHubCommand,
 		ListStandardsControlAssociationsCommand,
+		BatchUpdateFindingsCommand,
+		CreateInsightCommand,
+		DeleteInsightCommand,
 		type AwsSecurityFinding,
+		type AwsSecurityFindingFilters,
 		type Insight
 	} from '@aws-sdk/client-securityhub';
 	import { toast } from 'svelte-sonner';
@@ -18,7 +22,10 @@
 		CheckCircle,
 		XCircle,
 		BarChart2,
-		Filter
+		Filter,
+		Plus,
+		Trash2,
+		X
 	} from 'lucide-svelte';
 
 	const hub = getSecurityHubClient();
@@ -88,6 +95,33 @@
 		}
 	}
 
+	// Finding detail + workflow update
+	let selectedFinding = $state<AwsSecurityFinding | null>(null);
+	let updatingWorkflow = $state(false);
+
+	async function setWorkflowStatus(
+		finding: AwsSecurityFinding,
+		status: 'NEW' | 'NOTIFIED' | 'RESOLVED' | 'SUPPRESSED'
+	) {
+		if (!finding.Id || !finding.ProductArn) return;
+		updatingWorkflow = true;
+		try {
+			await hub.send(
+				new BatchUpdateFindingsCommand({
+					FindingIdentifiers: [{ Id: finding.Id, ProductArn: finding.ProductArn }],
+					Workflow: { Status: status }
+				})
+			);
+			toast.success(`Workflow set to ${status}`);
+			selectedFinding = null;
+			await loadFindings();
+		} catch (e) {
+			toast.error(`Failed to update finding: ${e}`);
+		} finally {
+			updatingWorkflow = false;
+		}
+	}
+
 	async function loadInsights() {
 		loading = true;
 		try {
@@ -97,6 +131,72 @@
 			toast.error(`Failed to load insights: ${e}`);
 		} finally {
 			loading = false;
+		}
+	}
+
+	// ── Custom insight creation (CreateInsight / DeleteInsight) ──────────────
+	let showInsightModal = $state(false);
+	let savingInsight = $state(false);
+	let deletingInsight = $state<string | null>(null);
+	let newInsightName = $state('');
+	let newInsightGroupBy = $state('ResourceType');
+	let newInsightSeverity = $state<'all' | 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'>('all');
+
+	const groupByAttributes = [
+		'ResourceType',
+		'SeverityLabel',
+		'ProductName',
+		'WorkflowStatus',
+		'ComplianceStatus',
+		'RecordState',
+		'ResourceId'
+	];
+
+	function openCreateInsight() {
+		newInsightName = '';
+		newInsightGroupBy = 'ResourceType';
+		newInsightSeverity = 'all';
+		showInsightModal = true;
+	}
+
+	async function createInsight() {
+		if (!newInsightName.trim()) {
+			toast.error('Insight name is required');
+			return;
+		}
+		savingInsight = true;
+		try {
+			const filters: AwsSecurityFindingFilters =
+				newInsightSeverity === 'all'
+					? { RecordState: [{ Value: 'ACTIVE', Comparison: 'EQUALS' }] }
+					: { SeverityLabel: [{ Value: newInsightSeverity, Comparison: 'EQUALS' }] };
+			await hub.send(
+				new CreateInsightCommand({
+					Name: newInsightName.trim(),
+					Filters: filters,
+					GroupByAttribute: newInsightGroupBy
+				})
+			);
+			toast.success(`Insight "${newInsightName.trim()}" created`);
+			showInsightModal = false;
+			await loadInsights();
+		} catch (e) {
+			toast.error(`Failed to create insight: ${e}`);
+		} finally {
+			savingInsight = false;
+		}
+	}
+
+	async function deleteInsight(arn: string) {
+		deletingInsight = arn;
+		try {
+			await hub.send(new DeleteInsightCommand({ InsightArn: arn }));
+			toast.success('Insight deleted');
+			await loadInsights();
+		} catch (e) {
+			toast.error(`Failed to delete insight: ${e}`);
+		} finally {
+			deletingInsight = null;
 		}
 	}
 
@@ -276,13 +376,15 @@
 					</thead>
 					<tbody class="divide-y">
 						{#each filteredFindings as finding}
-							<tr class="hover:bg-muted/30">
+							<tr class="hover:bg-muted/30 cursor-pointer" onclick={() => { selectedFinding = finding; }}>
 								<td class="px-4 py-3">
 									<span class="rounded-full px-2 py-0.5 text-xs font-medium {severityBadge(finding.Severity?.Label)}">
 										{finding.Severity?.Label ?? '—'}
 									</span>
 								</td>
-								<td class="px-4 py-3 font-medium max-w-[250px] truncate">{finding.Title ?? '—'}</td>
+								<td class="px-4 py-3 font-medium max-w-[250px] truncate">
+									<button class="text-left hover:text-primary hover:underline">{finding.Title ?? '—'}</button>
+								</td>
 								<td class="px-4 py-3 text-muted-foreground">{finding.ProductName ?? '—'}</td>
 								<td class="px-4 py-3">
 									{#if finding.Compliance?.Status}
@@ -306,6 +408,15 @@
 
 	<!-- Insights Tab -->
 	{#if activeTab === 'insights'}
+		<div class="mb-3 flex justify-end">
+			<button
+				onclick={openCreateInsight}
+				class="flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground hover:bg-primary/90"
+			>
+				<Plus class="h-4 w-4" />
+				Create Insight
+			</button>
+		</div>
 		{#if loading}
 			<div class="flex justify-center py-12">
 				<RefreshCw class="h-8 w-8 animate-spin text-muted-foreground" />
@@ -318,12 +429,131 @@
 		{:else}
 			<div class="space-y-3">
 				{#each insights as insight}
-					<div class="rounded-lg border p-4">
-						<div class="font-medium">{insight.Name}</div>
-						<div class="text-xs text-muted-foreground mt-1 font-mono">{insight.InsightArn}</div>
+					<div class="flex items-start justify-between gap-3 rounded-lg border p-4">
+						<div class="min-w-0">
+							<div class="font-medium">{insight.Name}</div>
+							{#if insight.GroupByAttribute}
+								<div class="mt-0.5 text-xs text-muted-foreground">Grouped by: <span class="font-medium">{insight.GroupByAttribute}</span></div>
+							{/if}
+							<div class="text-xs text-muted-foreground mt-1 font-mono truncate">{insight.InsightArn}</div>
+						</div>
+						<button
+							onclick={() => insight.InsightArn && deleteInsight(insight.InsightArn)}
+							disabled={deletingInsight === insight.InsightArn}
+							class="flex-shrink-0 rounded p-1.5 text-red-500 hover:bg-red-50 disabled:opacity-50 dark:hover:bg-red-950"
+							title="Delete insight"
+							aria-label="Delete insight"
+						>
+							{#if deletingInsight === insight.InsightArn}
+								<div class="h-4 w-4 animate-spin rounded-full border-b-2 border-red-500"></div>
+							{:else}
+								<Trash2 class="h-4 w-4" />
+							{/if}
+						</button>
 					</div>
 				{/each}
 			</div>
 		{/if}
 	{/if}
 </div>
+
+<!-- Create Insight Modal -->
+{#if showInsightModal}
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" tabindex="-1" onclick={(e) => { if (e.target === e.currentTarget) showInsightModal = false; }} onkeydown={(e) => e.key === 'Escape' && (showInsightModal = false)} role="dialog" aria-modal="true">
+		<div class="w-full max-w-md rounded-lg border bg-background shadow-xl" role="document">
+			<div class="flex items-center justify-between border-b px-5 py-3">
+				<h2 class="text-sm font-semibold">Create Custom Insight</h2>
+				<button onclick={() => { showInsightModal = false; }} class="text-muted-foreground hover:text-foreground" aria-label="Close"><X class="h-5 w-5" /></button>
+			</div>
+			<form class="space-y-4 p-5" onsubmit={(e) => { e.preventDefault(); createInsight(); }}>
+				<div>
+					<label for="insight-name" class="mb-1 block text-sm font-medium">Name</label>
+					<input id="insight-name" type="text" bind:value={newInsightName} placeholder="High-severity findings by resource" required class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
+				</div>
+				<div>
+					<label for="insight-groupby" class="mb-1 block text-sm font-medium">Group by attribute</label>
+					<select id="insight-groupby" bind:value={newInsightGroupBy} class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+						{#each groupByAttributes as attr}
+							<option value={attr}>{attr}</option>
+						{/each}
+					</select>
+				</div>
+				<div>
+					<label for="insight-severity" class="mb-1 block text-sm font-medium">Severity filter</label>
+					<select id="insight-severity" bind:value={newInsightSeverity} class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+						<option value="all">All active findings</option>
+						<option value="CRITICAL">Critical only</option>
+						<option value="HIGH">High only</option>
+						<option value="MEDIUM">Medium only</option>
+						<option value="LOW">Low only</option>
+					</select>
+				</div>
+				<div class="flex justify-end gap-2 pt-1">
+					<button type="button" onclick={() => { showInsightModal = false; }} class="rounded-md border px-4 py-2 text-sm hover:bg-accent">Cancel</button>
+					<button type="submit" disabled={savingInsight} class="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50">{savingInsight ? 'Creating...' : 'Create Insight'}</button>
+				</div>
+			</form>
+		</div>
+	</div>
+{/if}
+
+<!-- Finding Detail Drawer -->
+{#if selectedFinding}
+	<div class="fixed inset-0 z-50 flex justify-end bg-black/40">
+		<div class="h-full w-full max-w-xl overflow-y-auto bg-background shadow-xl">
+			<div class="sticky top-0 flex items-center justify-between border-b bg-background px-5 py-3">
+				<div class="flex items-center gap-2">
+					<Shield class="h-5 w-5 text-blue-500" />
+					<h2 class="text-sm font-semibold">Finding Detail</h2>
+					<span class="rounded-full px-2 py-0.5 text-xs font-medium {severityBadge(selectedFinding.Severity?.Label)}">{selectedFinding.Severity?.Label ?? "—"}</span>
+				</div>
+				<button onclick={() => { selectedFinding = null; }} class="text-muted-foreground hover:text-foreground"><X class="h-5 w-5" /></button>
+			</div>
+			<div class="space-y-4 p-5">
+				<div>
+					<h3 class="text-base font-semibold">{selectedFinding.Title ?? "—"}</h3>
+					<p class="mt-1 text-sm text-muted-foreground">{selectedFinding.Description ?? ""}</p>
+				</div>
+				<div class="grid grid-cols-2 gap-3 text-sm">
+					{#each [{ label: "Product", value: selectedFinding.ProductName ?? "—" }, { label: "Compliance", value: selectedFinding.Compliance?.Status ?? "—" }, { label: "Workflow", value: selectedFinding.Workflow?.Status ?? "NEW" }, { label: "Record State", value: selectedFinding.RecordState ?? "—" }, { label: "First Observed", value: selectedFinding.FirstObservedAt ?? "—" }, { label: "Last Observed", value: selectedFinding.LastObservedAt ?? "—" }] as row}
+						<div class="rounded-md border p-3">
+							<div class="text-xs text-muted-foreground">{row.label}</div>
+							<div class="mt-0.5 truncate font-mono text-xs">{row.value}</div>
+						</div>
+					{/each}
+				</div>
+				{#if selectedFinding.Remediation?.Recommendation}
+					<div class="rounded-md border border-blue-200 bg-blue-50 p-3 dark:border-blue-900/40 dark:bg-blue-900/20">
+						<div class="mb-1 text-xs font-semibold text-blue-700 dark:text-blue-300">Remediation</div>
+						<p class="text-sm text-blue-900 dark:text-blue-200">{selectedFinding.Remediation.Recommendation.Text ?? ""}</p>
+						{#if selectedFinding.Remediation.Recommendation.Url}
+							<a href={selectedFinding.Remediation.Recommendation.Url} target="_blank" rel="noopener noreferrer" class="mt-1 inline-block text-xs text-blue-600 underline">View guidance</a>
+						{/if}
+					</div>
+				{/if}
+				{#if (selectedFinding.Resources ?? []).length > 0}
+					<div>
+						<div class="mb-1 text-xs font-medium text-muted-foreground">Affected Resources</div>
+						<div class="rounded-md border divide-y">
+							{#each selectedFinding.Resources ?? [] as res}
+								<div class="p-3 text-xs">
+									<span class="rounded bg-muted px-1.5 py-0.5 font-medium">{res.Type ?? "—"}</span>
+									<span class="ml-2 font-mono text-muted-foreground break-all">{res.Id ?? "—"}</span>
+									{#if res.Region}<span class="ml-2 text-muted-foreground">({res.Region})</span>{/if}
+								</div>
+							{/each}
+						</div>
+					</div>
+				{/if}
+				<div class="border-t pt-4">
+					<div class="mb-2 text-xs font-medium text-muted-foreground">Set Workflow Status</div>
+					<div class="flex flex-wrap gap-2">
+						{#each (['NEW', 'NOTIFIED', 'RESOLVED', 'SUPPRESSED'] as const) as st}
+							<button onclick={() => setWorkflowStatus(selectedFinding!, st)} disabled={updatingWorkflow || selectedFinding.Workflow?.Status === st} class="rounded-md border px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-40">{st}</button>
+						{/each}
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+{/if}

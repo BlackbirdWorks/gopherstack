@@ -74,17 +74,20 @@ func (j *Janitor) sweepExpiredSecrets(ctx context.Context) {
 	j.Backend.mu.Lock("sweepExpiredSecrets")
 	purged := 0
 
-	for name, secret := range j.Backend.secrets {
-		if secret.DeletedDate != nil {
+	for region, regionSecrets := range j.Backend.secrets {
+		for name, secret := range regionSecrets {
+			if secret.DeletedDate == nil {
+				continue
+			}
 			// By default recovery window is 30 days. If the secret was deleted more than 30 days ago, purge it.
 			deletionTime := *secret.DeletedDate + float64(defaultRecoveryWindowDays*secondsPerDay)
 			if nowFloat >= deletionTime {
 				if secret.Tags != nil {
 					secret.Tags.Close()
 				}
-				delete(j.Backend.secrets, name)
-				delete(j.Backend.resourcePolicies, name)
-				delete(j.Backend.replicationConfigs, name)
+				delete(regionSecrets, name)
+				delete(j.Backend.resourcePoliciesStore(region), name)
+				delete(j.Backend.replicationConfigsStore(region), name)
 				purged++
 			}
 		}

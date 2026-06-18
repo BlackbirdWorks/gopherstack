@@ -367,7 +367,9 @@ func TestRefinement2_DescribeSecurityGroupRules(t *testing.T) {
 
 	rules, err := b.DescribeSecurityGroupRules(sg.ID)
 	require.NoError(t, err)
-	require.Len(t, rules, 1)
+	// 2 = 1 ingress rule added above + 1 default egress allow-all rule.
+	require.Len(t, rules, 2)
+	// DescribeSecurityGroupRules appends ingress first.
 	assert.False(t, rules[0].IsEgress)
 	assert.Equal(t, "tcp", rules[0].Protocol)
 }
@@ -392,7 +394,9 @@ func TestRefinement2_ModifySecurityGroupRules(t *testing.T) {
 
 	rules, err := b.DescribeSecurityGroupRules(sg.ID)
 	require.NoError(t, err)
-	require.Len(t, rules, 1)
+	// 2 = 1 modified ingress rule + 1 default egress allow-all rule.
+	require.Len(t, rules, 2)
+	// Ingress rules are returned first.
 	assert.Equal(t, 443, rules[0].FromPort)
 }
 

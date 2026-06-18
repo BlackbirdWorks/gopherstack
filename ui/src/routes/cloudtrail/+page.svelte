@@ -38,10 +38,29 @@
 		XCircle,
 		Clock,
 		Filter,
-		Database
+		Database,
+		ChevronRight,
+		ChevronDown
 	} from 'lucide-svelte';
 
-	const ct = getCloudTrailClient();
+	let ctClient: import('@aws-sdk/client-cloudtrail').CloudTrailClient | undefined;
+	function ct(): import('@aws-sdk/client-cloudtrail').CloudTrailClient {
+		return (ctClient ??= getCloudTrailClient());
+	}
+
+	// Server-side attribute filter (LookupAttributes)
+	const lookupAttributeKeys = [
+		'EventName',
+		'Username',
+		'EventSource',
+		'ResourceName',
+		'ResourceType',
+		'EventId',
+		'ReadOnly',
+		'AccessKeyId'
+	] as const;
+	let lookupAttrKey = $state<(typeof lookupAttributeKeys)[number]>('EventName');
+	let lookupAttrValue = $state('');
 
 	let loading = $state(false);
 	let activeTab = $state<'trails' | 'events' | 'datastores'>('trails');
@@ -68,6 +87,16 @@
 	let eventStartTime = $state('');
 	let eventEndTime = $state('');
 	let maxResults = $state(50);
+	let expandedEvent = $state<string | null>(null);
+
+	function prettyEvent(raw: string | undefined): string {
+		if (!raw) return 'No event detail available';
+		try {
+			return JSON.stringify(JSON.parse(raw), null, 2);
+		} catch {
+			return raw;
+		}
+	}
 
 	// Event Data Stores
 	let eventDataStores = $state<EventDataStore[]>([]);
@@ -105,14 +134,14 @@
 	async function loadTrails() {
 		loading = true;
 		try {
-			const res = await ct.send(new DescribeTrailsCommand({ includeShadowTrails: false }));
+			const res = await ct().send(new DescribeTrailsCommand({ includeShadowTrails: false }));
 			trails = res.trailList ?? [];
 			// Load statuses for all trails
 			await Promise.all(
 				trails.map(async (trail) => {
 					if (!trail.TrailARN) return;
 					try {
-						const status = await ct.send(
+						const status = await ct().send(
 							new GetTrailStatusCommand({ Name: trail.TrailARN })
 						);
 						trailStatuses[trail.TrailARN] = {
@@ -144,8 +173,8 @@
 		trailInsightSelectors = [];
 		try {
 			const [esRes, isRes] = await Promise.allSettled([
-				ct.send(new GetEventSelectorsCommand({ TrailName: trail.TrailARN })),
-				ct.send(new GetInsightSelectorsCommand({ TrailName: trail.TrailARN }))
+				ct().send(new GetEventSelectorsCommand({ TrailName: trail.TrailARN })),
+				ct().send(new GetInsightSelectorsCommand({ TrailName: trail.TrailARN }))
 			]);
 			if (esRes.status === 'fulfilled') {
 				trailEventSelectors = esRes.value.EventSelectors ?? [];
@@ -163,13 +192,17 @@
 		loadingEvents = true;
 		events = [];
 		try {
-			const params = { 
+			const attrs: LookupAttribute[] = [];
+			if (lookupAttrValue.trim()) {
+				attrs.push({ AttributeKey: lookupAttrKey, AttributeValue: lookupAttrValue.trim() });
+			}
+			const params = {
 				MaxResults: maxResults,
 				StartTime: eventStartTime ? new Date(eventStartTime) : undefined,
 				EndTime: eventEndTime ? new Date(eventEndTime) : undefined,
-				LookupAttributes: [] as LookupAttribute[]
+				LookupAttributes: attrs
 			};
-			const res = await ct.send(new LookupEventsCommand(params));
+			const res = await ct().send(new LookupEventsCommand(params));
 			events = res.Events ?? [];
 		} catch (e) {
 			toast.error(`Failed to lookup events: ${e}`);
@@ -183,10 +216,10 @@
 		const isLogging = trailStatuses[trail.TrailARN]?.IsLogging;
 		try {
 			if (isLogging) {
-				await ct.send(new StopLoggingCommand({ Name: trail.TrailARN }));
+				await ct().send(new StopLoggingCommand({ Name: trail.TrailARN }));
 				toast.success(`Stopped logging for ${trail.Name}`);
 			} else {
-				await ct.send(new StartLoggingCommand({ Name: trail.TrailARN }));
+				await ct().send(new StartLoggingCommand({ Name: trail.TrailARN }));
 				toast.success(`Started logging for ${trail.Name}`);
 			}
 			await loadTrails();
@@ -199,7 +232,7 @@
 		if (!newTrailName.trim() || !newTrailBucket.trim()) return;
 		creating = true;
 		try {
-			await ct.send(
+			await ct().send(
 				new CreateTrailCommand({
 					Name: newTrailName.trim(),
 					S3BucketName: newTrailBucket.trim(),
@@ -222,7 +255,7 @@
 	async function deleteTrail(trail: Trail) {
 		if (!trail.TrailARN || !await confirmDestructive({ title: 'Delete Trail', message: `Delete trail "${trail.Name}"? API activity will no longer be logged to this trail.` })) return;
 		try {
-			await ct.send(new DeleteTrailCommand({ Name: trail.TrailARN }));
+			await ct().send(new DeleteTrailCommand({ Name: trail.TrailARN }));
 			toast.success(`Trail "${trail.Name}" deleted`);
 			await loadTrails();
 		} catch (e) {
@@ -233,7 +266,7 @@
 	async function loadDataStores() {
 		loadingDataStores = true;
 		try {
-			const res = await ct.send(new ListEventDataStoresCommand({}));
+			const res = await ct().send(new ListEventDataStoresCommand({}));
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			eventDataStores = (res.EventDataStores ?? []) as any;
 		} catch (e) {
@@ -247,7 +280,7 @@
 		if (!newDSName.trim()) return;
 		creatingDS = true;
 		try {
-			await ct.send(
+			await ct().send(
 				new CreateEventDataStoreCommand({
 					Name: newDSName.trim(),
 					MultiRegionEnabled: newDSMultiRegion,
@@ -277,7 +310,7 @@
 		)
 			return;
 		try {
-			await ct.send(new DeleteEventDataStoreCommand({ EventDataStore: ds.EventDataStoreArn }));
+			await ct().send(new DeleteEventDataStoreCommand({ EventDataStore: ds.EventDataStoreArn }));
 			toast.success(`Event data store "${ds.Name}" deleted`);
 			await loadDataStores();
 		} catch (e) {
@@ -290,12 +323,12 @@
 		const isEnabled = ds.Status === 'ENABLED';
 		try {
 			if (isEnabled) {
-				await ct.send(
+				await ct().send(
 					new StopEventDataStoreIngestionCommand({ EventDataStore: ds.EventDataStoreArn })
 				);
 				toast.success(`Stopped ingestion for "${ds.Name}"`);
 			} else {
-				await ct.send(
+				await ct().send(
 					new StartEventDataStoreIngestionCommand({ EventDataStore: ds.EventDataStoreArn })
 				);
 				toast.success(`Started ingestion for "${ds.Name}"`);
@@ -595,8 +628,30 @@
 	{#if activeTab === 'events'}
 		<div class="space-y-4">
 			<div class="flex flex-wrap items-end gap-3 rounded-lg border p-4 bg-muted/20">
+				<div>
+					<label for="attr-key" class="block text-sm font-medium mb-1">Attribute</label>
+					<select
+						id="attr-key"
+						bind:value={lookupAttrKey}
+						class="rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+					>
+						{#each lookupAttributeKeys as k}
+							<option value={k}>{k}</option>
+						{/each}
+					</select>
+				</div>
+				<div class="min-w-[180px]">
+					<label for="attr-value" class="block text-sm font-medium mb-1">Attribute Value</label>
+					<input
+						id="attr-value"
+						type="text"
+						bind:value={lookupAttrValue}
+						placeholder="e.g. RunInstances"
+						class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+					/>
+				</div>
 				<div class="flex-1 min-w-[200px]">
-					<label for="event-filter" class="block text-sm font-medium mb-1">Filter (name/user/source)</label>
+					<label for="event-filter" class="block text-sm font-medium mb-1">Client filter (name/user/source)</label>
 					<div class="relative">
 						<Filter class="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
 						<input
@@ -666,6 +721,7 @@
 					<table class="w-full text-sm">
 						<thead class="bg-muted/50">
 							<tr>
+								<th class="px-2 py-3 text-left font-medium w-8"></th>
 								<th class="px-4 py-3 text-left font-medium">Time</th>
 								<th class="px-4 py-3 text-left font-medium">Event Name</th>
 								<th class="px-4 py-3 text-left font-medium">Source</th>
@@ -675,7 +731,17 @@
 						</thead>
 						<tbody class="divide-y">
 							{#each filteredEvents as event}
-								<tr class="hover:bg-muted/30">
+								<tr
+									class="hover:bg-muted/30 cursor-pointer"
+									onclick={() => (expandedEvent = expandedEvent === event.EventId ? null : (event.EventId ?? null))}
+								>
+									<td class="px-2 py-3 text-muted-foreground">
+										{#if expandedEvent === event.EventId}
+											<ChevronDown class="h-4 w-4" />
+										{:else}
+											<ChevronRight class="h-4 w-4" />
+										{/if}
+									</td>
 									<td class="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
 										{event.EventTime ? new Date(event.EventTime).toLocaleString() : '—'}
 									</td>
@@ -686,6 +752,13 @@
 										{event.Resources?.[0]?.ResourceName ?? '—'}
 									</td>
 								</tr>
+								{#if expandedEvent === event.EventId}
+									<tr class="bg-muted/20">
+										<td colspan="6" class="px-4 py-3">
+											<pre class="text-xs overflow-x-auto max-h-96 overflow-y-auto rounded-md bg-background border p-3 font-mono">{prettyEvent(event.CloudTrailEvent)}</pre>
+										</td>
+									</tr>
+								{/if}
 							{/each}
 						</tbody>
 					</table>

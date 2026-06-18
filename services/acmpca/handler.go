@@ -188,19 +188,24 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		region := httputils.ExtractRegionFromRequest(c.Request(), h.Backend.Region())
+		ctx := context.WithValue(c.Request().Context(), regionContextKey{}, region)
+
 		return service.HandleTarget(
-			c, logger.Load(c.Request().Context()),
+			c, logger.Load(ctx),
 			"ACMPCA", "application/x-amz-json-1.1",
 			h.GetSupportedOperations(),
-			h.dispatch,
+			func(_ context.Context, action string, body []byte) ([]byte, error) {
+				return h.dispatch(ctx, action, body)
+			},
 			h.handleError,
 		)
 	}
 }
 
 // dispatch routes the operation to the appropriate handler and marshals the response.
-func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byte, error) {
-	resp, err := h.dispatchJSON(action, body)
+func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
+	resp, err := h.dispatchJSON(ctx, action, body)
 	if err != nil {
 		return nil, err
 	}
@@ -481,74 +486,74 @@ type listTagsOutput struct {
 
 // ---- dispatch ----
 
-func (h *Handler) dispatchJSON(action string, body []byte) (any, error) {
+func (h *Handler) dispatchJSON(ctx context.Context, action string, body []byte) (any, error) {
 	switch action {
 	case "CreateCertificateAuthority":
-		return h.jsonCreateCA(body)
+		return h.jsonCreateCA(ctx, body)
 	case "DescribeCertificateAuthority":
-		return h.jsonDescribeCA(body)
+		return h.jsonDescribeCA(ctx, body)
 	case "ListCertificateAuthorities":
-		return h.jsonListCAs(body)
+		return h.jsonListCAs(ctx, body)
 	case "DeleteCertificateAuthority":
-		return h.jsonDeleteCA(body)
+		return h.jsonDeleteCA(ctx, body)
 	case "UpdateCertificateAuthority":
-		return h.jsonUpdateCA(body)
+		return h.jsonUpdateCA(ctx, body)
 	case "GetCertificateAuthorityCsr":
-		return h.jsonGetCsr(body)
+		return h.jsonGetCsr(ctx, body)
 	case "ImportCertificateAuthorityCertificate":
-		return h.jsonImportCACert(body)
+		return h.jsonImportCACert(ctx, body)
 	case "GetCertificateAuthorityCertificate":
-		return h.jsonGetCACert(body)
+		return h.jsonGetCACert(ctx, body)
 	default:
-		return h.dispatchCertAndTagOps(action, body)
+		return h.dispatchCertAndTagOps(ctx, action, body)
 	}
 }
 
-func (h *Handler) dispatchCertAndTagOps(action string, body []byte) (any, error) {
+func (h *Handler) dispatchCertAndTagOps(ctx context.Context, action string, body []byte) (any, error) {
 	switch action {
 	case "IssueCertificate":
-		return h.jsonIssueCert(body)
+		return h.jsonIssueCert(ctx, body)
 	case "GetCertificate":
-		return h.jsonGetCert(body)
+		return h.jsonGetCert(ctx, body)
 	case "RevokeCertificate":
-		return h.jsonRevokeCert(body)
+		return h.jsonRevokeCert(ctx, body)
 	case "ListPermissions":
-		return h.jsonListPermissions(body)
+		return h.jsonListPermissions(ctx, body)
 	case "TagCertificateAuthority":
-		return h.jsonTagCA(body)
+		return h.jsonTagCA(ctx, body)
 	case "UntagCertificateAuthority":
-		return h.jsonUntagCA(body)
+		return h.jsonUntagCA(ctx, body)
 	case "ListTagsForCertificateAuthority", "ListTags":
-		return h.jsonListTags(body)
+		return h.jsonListTags(ctx, body)
 	default:
-		return h.dispatchPermissionAndAuditOps(action, body)
+		return h.dispatchPermissionAndAuditOps(ctx, action, body)
 	}
 }
 
-func (h *Handler) dispatchPermissionAndAuditOps(action string, body []byte) (any, error) {
+func (h *Handler) dispatchPermissionAndAuditOps(ctx context.Context, action string, body []byte) (any, error) {
 	switch action {
 	case "CreateCertificateAuthorityAuditReport":
-		return h.jsonCreateAuditReport(body)
+		return h.jsonCreateAuditReport(ctx, body)
 	case "CreatePermission":
-		return h.jsonCreatePermission(body)
+		return h.jsonCreatePermission(ctx, body)
 	case "DeletePermission":
-		return h.jsonDeletePermission(body)
+		return h.jsonDeletePermission(ctx, body)
 	case "DeletePolicy":
-		return h.jsonDeletePolicy(body)
+		return h.jsonDeletePolicy(ctx, body)
 	case "DescribeCertificateAuthorityAuditReport":
-		return h.jsonDescribeAuditReport(body)
+		return h.jsonDescribeAuditReport(ctx, body)
 	case "GetPolicy":
-		return h.jsonGetPolicy(body)
+		return h.jsonGetPolicy(ctx, body)
 	case "PutPolicy":
-		return h.jsonPutPolicy(body)
+		return h.jsonPutPolicy(ctx, body)
 	case "RestoreCertificateAuthority":
-		return h.jsonRestoreCA(body)
+		return h.jsonRestoreCA(ctx, body)
 	default:
 		return nil, errUnknownACMPCAAction
 	}
 }
 
-func (h *Handler) jsonCreateCA(body []byte) (any, error) {
+func (h *Handler) jsonCreateCA(ctx context.Context, body []byte) (any, error) {
 	var input createCertificateAuthorityInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
@@ -567,7 +572,7 @@ func (h *Handler) jsonCreateCA(body []byte) (any, error) {
 		SigningAlgorithm: input.CertificateAuthorityConfiguration.SigningAlgorithm,
 	}
 
-	ca, err := h.Backend.CreateCertificateAuthority(input.CertificateAuthorityType, cfg)
+	ca, err := h.Backend.CreateCertificateAuthority(ctx, input.CertificateAuthorityType, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -584,13 +589,13 @@ func (h *Handler) jsonCreateCA(body []byte) (any, error) {
 	return &createCertificateAuthorityOutput{CertificateAuthorityArn: ca.ARN}, nil
 }
 
-func (h *Handler) jsonDescribeCA(body []byte) (any, error) {
+func (h *Handler) jsonDescribeCA(ctx context.Context, body []byte) (any, error) {
 	var input describeCertificateAuthorityInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
 	}
 
-	ca, err := h.Backend.DescribeCertificateAuthority(input.CertificateAuthorityArn)
+	ca, err := h.Backend.DescribeCertificateAuthority(ctx, input.CertificateAuthorityArn)
 	if err != nil {
 		return nil, err
 	}
@@ -598,11 +603,11 @@ func (h *Handler) jsonDescribeCA(body []byte) (any, error) {
 	return &describeCertificateAuthorityOutput{CertificateAuthority: toCAOutput(ca)}, nil
 }
 
-func (h *Handler) jsonListCAs(body []byte) (any, error) {
+func (h *Handler) jsonListCAs(ctx context.Context, body []byte) (any, error) {
 	var input listCertificateAuthoritiesInput
 	_ = json.Unmarshal(body, &input)
 
-	p := h.Backend.ListCertificateAuthorities(input.NextToken, input.MaxResults)
+	p := h.Backend.ListCertificateAuthorities(ctx, input.NextToken, input.MaxResults)
 	cas := make([]certAuthorityOutput, 0, len(p.Data))
 
 	for _, ca := range p.Data {
@@ -615,13 +620,14 @@ func (h *Handler) jsonListCAs(body []byte) (any, error) {
 	}, nil
 }
 
-func (h *Handler) jsonDeleteCA(body []byte) (any, error) {
+func (h *Handler) jsonDeleteCA(ctx context.Context, body []byte) (any, error) {
 	var input deleteCertificateAuthorityInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
 	}
 
 	if err := h.Backend.DeleteCertificateAuthority(
+		ctx,
 		input.CertificateAuthorityArn,
 		input.PermanentDeletionTimeInDays,
 	); err != nil {
@@ -633,26 +639,26 @@ func (h *Handler) jsonDeleteCA(body []byte) (any, error) {
 	return &deleteCertificateAuthorityOutput{}, nil
 }
 
-func (h *Handler) jsonUpdateCA(body []byte) (any, error) {
+func (h *Handler) jsonUpdateCA(ctx context.Context, body []byte) (any, error) {
 	var input updateCertificateAuthorityInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
 	}
 
-	if err := h.Backend.UpdateCertificateAuthority(input.CertificateAuthorityArn, input.Status); err != nil {
+	if err := h.Backend.UpdateCertificateAuthority(ctx, input.CertificateAuthorityArn, input.Status); err != nil {
 		return nil, err
 	}
 
 	return &updateCertificateAuthorityOutput{}, nil
 }
 
-func (h *Handler) jsonGetCsr(body []byte) (any, error) {
+func (h *Handler) jsonGetCsr(ctx context.Context, body []byte) (any, error) {
 	var input getCertificateAuthorityCsrInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
 	}
 
-	csr, err := h.Backend.GetCertificateAuthorityCsr(input.CertificateAuthorityArn)
+	csr, err := h.Backend.GetCertificateAuthorityCsr(ctx, input.CertificateAuthorityArn)
 	if err != nil {
 		return nil, err
 	}
@@ -660,13 +666,14 @@ func (h *Handler) jsonGetCsr(body []byte) (any, error) {
 	return &getCertificateAuthorityCsrOutput{Csr: csr}, nil
 }
 
-func (h *Handler) jsonImportCACert(body []byte) (any, error) {
+func (h *Handler) jsonImportCACert(ctx context.Context, body []byte) (any, error) {
 	var input importCertificateAuthorityCertificateInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
 	}
 
 	if err := h.Backend.ImportCertificateAuthorityCertificate(
+		ctx,
 		input.CertificateAuthorityArn,
 		input.Certificate,
 		input.CertificateChain,
@@ -677,13 +684,13 @@ func (h *Handler) jsonImportCACert(body []byte) (any, error) {
 	return &importCertificateAuthorityCertificateOutput{}, nil
 }
 
-func (h *Handler) jsonGetCACert(body []byte) (any, error) {
+func (h *Handler) jsonGetCACert(ctx context.Context, body []byte) (any, error) {
 	var input getCertificateAuthorityCertificateInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
 	}
 
-	certPEM, chainPEM, err := h.Backend.GetCertificateAuthorityCertificate(input.CertificateAuthorityArn)
+	certPEM, chainPEM, err := h.Backend.GetCertificateAuthorityCertificate(ctx, input.CertificateAuthorityArn)
 	if err != nil {
 		return nil, err
 	}
@@ -691,7 +698,7 @@ func (h *Handler) jsonGetCACert(body []byte) (any, error) {
 	return &getCertificateAuthorityCertificateOutput{Certificate: certPEM, CertificateChain: chainPEM}, nil
 }
 
-func (h *Handler) jsonIssueCert(body []byte) (any, error) {
+func (h *Handler) jsonIssueCert(ctx context.Context, body []byte) (any, error) {
 	var input issueCertificateInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
@@ -710,7 +717,7 @@ func (h *Handler) jsonIssueCert(body []byte) (any, error) {
 			ErrInvalidParameter, input.Validity.Type)
 	}
 
-	cert, err := h.Backend.IssueCertificate(input.CertificateAuthorityArn, input.Csr, days)
+	cert, err := h.Backend.IssueCertificate(ctx, input.CertificateAuthorityArn, input.Csr, days)
 	if err != nil {
 		return nil, err
 	}
@@ -718,19 +725,20 @@ func (h *Handler) jsonIssueCert(body []byte) (any, error) {
 	return &issueCertificateOutput{CertificateArn: cert.ARN}, nil
 }
 
-func (h *Handler) jsonGetCert(body []byte) (any, error) {
+func (h *Handler) jsonGetCert(ctx context.Context, body []byte) (any, error) {
 	var input getCertificateInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
 	}
 
-	cert, err := h.Backend.GetCertificate(input.CertificateAuthorityArn, input.CertificateArn)
+	cert, err := h.Backend.GetCertificate(ctx, input.CertificateAuthorityArn, input.CertificateArn)
 	if err != nil {
 		return nil, err
 	}
 
 	caChain := ""
 	if certPEM, _, chainErr := h.Backend.GetCertificateAuthorityCertificate(
+		ctx,
 		input.CertificateAuthorityArn,
 	); chainErr == nil &&
 		certPEM != "" {
@@ -740,13 +748,14 @@ func (h *Handler) jsonGetCert(body []byte) (any, error) {
 	return &getCertificateOutput{Certificate: cert.CertBody, CertificateChain: caChain}, nil
 }
 
-func (h *Handler) jsonRevokeCert(body []byte) (any, error) {
+func (h *Handler) jsonRevokeCert(ctx context.Context, body []byte) (any, error) {
 	var input revokeCertificateInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
 	}
 
 	if err := h.Backend.RevokeCertificate(
+		ctx,
 		input.CertificateAuthorityArn,
 		input.CertificateSerial,
 		input.RevocationReason,
@@ -757,13 +766,13 @@ func (h *Handler) jsonRevokeCert(body []byte) (any, error) {
 	return &revokeCertificateOutput{}, nil
 }
 
-func (h *Handler) jsonListPermissions(body []byte) (any, error) {
+func (h *Handler) jsonListPermissions(ctx context.Context, body []byte) (any, error) {
 	var input listPermissionsInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
 	}
 
-	p, err := h.Backend.ListPermissions(input.CertificateAuthorityArn, input.NextToken, input.MaxResults)
+	p, err := h.Backend.ListPermissions(ctx, input.CertificateAuthorityArn, input.NextToken, input.MaxResults)
 	if err != nil {
 		return nil, err
 	}
@@ -789,13 +798,14 @@ func (h *Handler) jsonListPermissions(body []byte) (any, error) {
 	}, nil
 }
 
-func (h *Handler) jsonCreatePermission(body []byte) (any, error) {
+func (h *Handler) jsonCreatePermission(ctx context.Context, body []byte) (any, error) {
 	var input createPermissionInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
 	}
 
 	if _, err := h.Backend.CreatePermission(
+		ctx,
 		input.CertificateAuthorityArn,
 		input.Principal,
 		input.SourceAccount,
@@ -807,13 +817,14 @@ func (h *Handler) jsonCreatePermission(body []byte) (any, error) {
 	return &createPermissionOutput{}, nil
 }
 
-func (h *Handler) jsonDeletePermission(body []byte) (any, error) {
+func (h *Handler) jsonDeletePermission(ctx context.Context, body []byte) (any, error) {
 	var input deletePermissionInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
 	}
 
 	if err := h.Backend.DeletePermission(
+		ctx,
 		input.CertificateAuthorityArn,
 		input.Principal,
 		input.SourceAccount,
@@ -824,13 +835,14 @@ func (h *Handler) jsonDeletePermission(body []byte) (any, error) {
 	return &deletePermissionOutput{}, nil
 }
 
-func (h *Handler) jsonCreateAuditReport(body []byte) (any, error) {
+func (h *Handler) jsonCreateAuditReport(ctx context.Context, body []byte) (any, error) {
 	var input createCertificateAuthorityAuditReportInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
 	}
 
 	report, err := h.Backend.CreateCertificateAuthorityAuditReport(
+		ctx,
 		input.CertificateAuthorityArn,
 		input.S3BucketName,
 		input.AuditReportResponseFormat,
@@ -845,13 +857,14 @@ func (h *Handler) jsonCreateAuditReport(body []byte) (any, error) {
 	}, nil
 }
 
-func (h *Handler) jsonDescribeAuditReport(body []byte) (any, error) {
+func (h *Handler) jsonDescribeAuditReport(ctx context.Context, body []byte) (any, error) {
 	var input describeCertificateAuthorityAuditReportInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
 	}
 
 	report, err := h.Backend.DescribeCertificateAuthorityAuditReport(
+		ctx,
 		input.CertificateAuthorityArn,
 		input.AuditReportID,
 	)
@@ -871,13 +884,13 @@ func (h *Handler) jsonDescribeAuditReport(body []byte) (any, error) {
 	return out, nil
 }
 
-func (h *Handler) jsonGetPolicy(body []byte) (any, error) {
+func (h *Handler) jsonGetPolicy(ctx context.Context, body []byte) (any, error) {
 	var input getPolicyInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
 	}
 
-	policy, err := h.Backend.GetPolicy(input.ResourceArn)
+	policy, err := h.Backend.GetPolicy(ctx, input.ResourceArn)
 	if err != nil {
 		return nil, err
 	}
@@ -885,52 +898,52 @@ func (h *Handler) jsonGetPolicy(body []byte) (any, error) {
 	return &getPolicyOutput{Policy: policy}, nil
 }
 
-func (h *Handler) jsonPutPolicy(body []byte) (any, error) {
+func (h *Handler) jsonPutPolicy(ctx context.Context, body []byte) (any, error) {
 	var input putPolicyInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
 	}
 
-	if err := h.Backend.PutPolicy(input.ResourceArn, input.Policy); err != nil {
+	if err := h.Backend.PutPolicy(ctx, input.ResourceArn, input.Policy); err != nil {
 		return nil, err
 	}
 
 	return &putPolicyOutput{}, nil
 }
 
-func (h *Handler) jsonDeletePolicy(body []byte) (any, error) {
+func (h *Handler) jsonDeletePolicy(ctx context.Context, body []byte) (any, error) {
 	var input deletePolicyInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
 	}
 
-	if err := h.Backend.DeletePolicy(input.ResourceArn); err != nil {
+	if err := h.Backend.DeletePolicy(ctx, input.ResourceArn); err != nil {
 		return nil, err
 	}
 
 	return &deletePolicyOutput{}, nil
 }
 
-func (h *Handler) jsonRestoreCA(body []byte) (any, error) {
+func (h *Handler) jsonRestoreCA(ctx context.Context, body []byte) (any, error) {
 	var input restoreCertificateAuthorityInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
 	}
 
-	if err := h.Backend.RestoreCertificateAuthority(input.CertificateAuthorityArn); err != nil {
+	if err := h.Backend.RestoreCertificateAuthority(ctx, input.CertificateAuthorityArn); err != nil {
 		return nil, err
 	}
 
 	return &restoreCertificateAuthorityOutput{}, nil
 }
 
-func (h *Handler) jsonTagCA(body []byte) (any, error) {
+func (h *Handler) jsonTagCA(ctx context.Context, body []byte) (any, error) {
 	var input tagCertificateAuthorityInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
 	}
 
-	if err := h.Backend.verifyCertificateAuthorityActive(input.CertificateAuthorityArn); err != nil {
+	if err := h.Backend.verifyCertificateAuthorityActive(ctx, input.CertificateAuthorityArn); err != nil {
 		return nil, err
 	}
 
@@ -944,13 +957,13 @@ func (h *Handler) jsonTagCA(body []byte) (any, error) {
 	return &tagCertificateAuthorityOutput{}, nil
 }
 
-func (h *Handler) jsonUntagCA(body []byte) (any, error) {
+func (h *Handler) jsonUntagCA(ctx context.Context, body []byte) (any, error) {
 	var input untagCertificateAuthorityInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
 	}
 
-	if err := h.Backend.verifyCertificateAuthorityActive(input.CertificateAuthorityArn); err != nil {
+	if err := h.Backend.verifyCertificateAuthorityActive(ctx, input.CertificateAuthorityArn); err != nil {
 		return nil, err
 	}
 
@@ -964,13 +977,13 @@ func (h *Handler) jsonUntagCA(body []byte) (any, error) {
 	return &untagCertificateAuthorityOutput{}, nil
 }
 
-func (h *Handler) jsonListTags(body []byte) (any, error) {
+func (h *Handler) jsonListTags(ctx context.Context, body []byte) (any, error) {
 	var input listTagsInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
 	}
 
-	if err := h.Backend.verifyCertificateAuthorityActive(input.CertificateAuthorityArn); err != nil {
+	if err := h.Backend.verifyCertificateAuthorityActive(ctx, input.CertificateAuthorityArn); err != nil {
 		return nil, err
 	}
 

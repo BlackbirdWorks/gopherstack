@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -1977,6 +1978,50 @@ func (h *Handler) handleDeletePolicy(c *echo.Context) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
+// iotDefaultPageSize is the AWS default/maximum page size for IoT list
+// operations that accept maxResults (ListThings, ListPolicies, ListTopicRules).
+const iotDefaultPageSize = 250
+
+// parseIoTPagination reads the maxResults and nextToken query parameters,
+// returning the page size (clamped to [1, iotDefaultPageSize]) and the decoded
+// start offset. An invalid or absent nextToken starts at offset 0.
+func parseIoTPagination(c *echo.Context) (int, int) {
+	pageSize := iotDefaultPageSize
+	if v := c.QueryParam("maxResults"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n < pageSize {
+			pageSize = n
+		}
+	}
+
+	start := 0
+	if tok := c.QueryParam("nextToken"); tok != "" {
+		if n, err := strconv.Atoi(tok); err == nil && n > 0 {
+			start = n
+		}
+	}
+
+	return pageSize, start
+}
+
+// paginateMaps applies offset-based pagination to a list of result maps,
+// returning the page and an opaque nextToken (the next start offset as a
+// string). An empty token indicates the last page.
+func paginateMaps[T any](items []T, pageSize, start int) ([]T, string) {
+	if start >= len(items) {
+		return items[len(items):], ""
+	}
+
+	items = items[start:]
+
+	nextToken := ""
+	if len(items) > pageSize {
+		nextToken = strconv.Itoa(start + pageSize)
+		items = items[:pageSize]
+	}
+
+	return items, nextToken
+}
+
 func (h *Handler) handleListPolicies(c *echo.Context) error {
 	policies := h.Backend.ListPolicies()
 
@@ -1988,7 +2033,15 @@ func (h *Handler) handleListPolicies(c *echo.Context) error {
 		})
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"policies": out})
+	pageSize, start := parseIoTPagination(c)
+	page, nextToken := paginateMaps(out, pageSize, start)
+
+	resp := map[string]any{"policies": page}
+	if nextToken != "" {
+		resp["nextMarker"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleListThings(c *echo.Context) error {
@@ -2005,7 +2058,15 @@ func (h *Handler) handleListThings(c *echo.Context) error {
 		})
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"things": out})
+	pageSize, start := parseIoTPagination(c)
+	page, nextToken := paginateMaps(out, pageSize, start)
+
+	resp := map[string]any{"things": page}
+	if nextToken != "" {
+		resp["nextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleListTopicRules(c *echo.Context) error {
@@ -2022,7 +2083,15 @@ func (h *Handler) handleListTopicRules(c *echo.Context) error {
 		})
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"rules": out})
+	pageSize, start := parseIoTPagination(c)
+	page, nextToken := paginateMaps(out, pageSize, start)
+
+	resp := map[string]any{"rules": page}
+	if nextToken != "" {
+		resp["nextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleUpdateThing(c *echo.Context) error {

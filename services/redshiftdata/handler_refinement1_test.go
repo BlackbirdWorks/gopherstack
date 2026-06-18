@@ -1,6 +1,7 @@
 package redshiftdata_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -35,7 +36,7 @@ func TestRefinement1_BackendReset(t *testing.T) {
 
 	b := redshiftdata.NewInMemoryBackend(testAccountID, testRegion)
 
-	_, err := b.ExecuteStatement("SELECT 1", "cluster", "", "mydb", "", "", "", false, "")
+	_, err := b.ExecuteStatement(context.Background(), "SELECT 1", "cluster", "", "mydb", "", "", "", false, "")
 	require.NoError(t, err)
 
 	b.Reset()
@@ -50,7 +51,7 @@ func TestRefinement1_HandlerReset(t *testing.T) {
 	b := redshiftdata.NewInMemoryBackend(testAccountID, testRegion)
 	h := redshiftdata.NewHandler(b)
 
-	_, err := b.ExecuteStatement("SELECT 1", "cluster", "", "mydb", "", "", "", false, "")
+	_, err := b.ExecuteStatement(context.Background(), "SELECT 1", "cluster", "", "mydb", "", "", "", false, "")
 	require.NoError(t, err)
 
 	h.Reset()
@@ -73,7 +74,9 @@ func TestRefinement1_Snapshot_Restore(t *testing.T) {
 
 	b := redshiftdata.NewInMemoryBackend(testAccountID, testRegion)
 
-	stmt, err := b.ExecuteStatement("SELECT 42", "cluster", "", "mydb", "", "", "test-stmt", false, "")
+	stmt, err := b.ExecuteStatement(
+		context.Background(), "SELECT 42", "cluster", "", "mydb", "", "", "test-stmt", false, "",
+	)
 	require.NoError(t, err)
 
 	snap := b.Snapshot()
@@ -82,7 +85,7 @@ func TestRefinement1_Snapshot_Restore(t *testing.T) {
 	b2 := redshiftdata.NewInMemoryBackend(testAccountID, testRegion)
 	require.NoError(t, b2.Restore(snap))
 
-	got, err := b2.DescribeStatement(stmt.ID)
+	got, err := b2.DescribeStatement(context.Background(), stmt.ID)
 	require.NoError(t, err)
 	assert.Equal(t, stmt.ID, got.ID)
 	assert.Equal(t, "SELECT 42", got.QueryString)
@@ -108,9 +111,9 @@ func TestRefinement1_AddStatementInternal(t *testing.T) {
 	t.Parallel()
 
 	b := redshiftdata.NewInMemoryBackend(testAccountID, testRegion)
-	redshiftdata.AddStatementInternal(b, "fixed-id", "SELECT 1", "mydb", "FINISHED", true)
+	redshiftdata.AddStatementInternal(b, testRegion, "fixed-id", "SELECT 1", "mydb", "FINISHED", true)
 
-	stmt, err := b.DescribeStatement("fixed-id")
+	stmt, err := b.DescribeStatement(context.Background(), "fixed-id")
 	require.NoError(t, err)
 	assert.Equal(t, "fixed-id", stmt.ID)
 	assert.Equal(t, "SELECT 1", stmt.QueryString)
@@ -233,7 +236,7 @@ func TestRefinement1_CancelStatement_AbortedIsTerminal(t *testing.T) {
 	t.Parallel()
 
 	b := redshiftdata.NewInMemoryBackend(testAccountID, testRegion)
-	redshiftdata.AddStatementInternal(b, "stmt-1", "SELECT 1", "mydb", "ABORTED", false)
+	redshiftdata.AddStatementInternal(b, testRegion, "stmt-1", "SELECT 1", "mydb", "ABORTED", false)
 
 	h := redshiftdata.NewHandler(b)
 
@@ -251,7 +254,7 @@ func TestRefinement1_CancelStatement_FailedIsTerminal(t *testing.T) {
 	t.Parallel()
 
 	b := redshiftdata.NewInMemoryBackend(testAccountID, testRegion)
-	redshiftdata.AddStatementInternal(b, "stmt-1", "SELECT 1", "mydb", "FAILED", false)
+	redshiftdata.AddStatementInternal(b, testRegion, "stmt-1", "SELECT 1", "mydb", "FAILED", false)
 
 	h := redshiftdata.NewHandler(b)
 
@@ -378,10 +381,10 @@ func TestRefinement1_Snapshot_PreservesStatementKeys(t *testing.T) {
 
 	b := redshiftdata.NewInMemoryBackend(testAccountID, testRegion)
 
-	stmt1, err := b.ExecuteStatement("SELECT 1", "cluster", "", "mydb", "", "", "", false, "")
+	stmt1, err := b.ExecuteStatement(context.Background(), "SELECT 1", "cluster", "", "mydb", "", "", "", false, "")
 	require.NoError(t, err)
 
-	stmt2, err := b.ExecuteStatement("SELECT 2", "cluster", "", "mydb", "", "", "", false, "")
+	stmt2, err := b.ExecuteStatement(context.Background(), "SELECT 2", "cluster", "", "mydb", "", "", "", false, "")
 	require.NoError(t, err)
 
 	snap := b.Snapshot()
@@ -391,10 +394,10 @@ func TestRefinement1_Snapshot_PreservesStatementKeys(t *testing.T) {
 	require.NoError(t, b2.Restore(snap))
 
 	// Both statements should still be accessible.
-	_, err = b2.DescribeStatement(stmt1.ID)
+	_, err = b2.DescribeStatement(context.Background(), stmt1.ID)
 	require.NoError(t, err)
 
-	_, err = b2.DescribeStatement(stmt2.ID)
+	_, err = b2.DescribeStatement(context.Background(), stmt2.ID)
 	require.NoError(t, err)
 
 	assert.Equal(t, 2, b2.StatementCount())
@@ -406,10 +409,10 @@ func TestRefinement1_DescribeStatement_CloneDoesNotMutate(t *testing.T) {
 	t.Parallel()
 
 	b := redshiftdata.NewInMemoryBackend(testAccountID, testRegion)
-	stmt, err := b.ExecuteStatement("SELECT 1", "cluster", "", "mydb", "", "", "", false, "")
+	stmt, err := b.ExecuteStatement(context.Background(), "SELECT 1", "cluster", "", "mydb", "", "", "", false, "")
 	require.NoError(t, err)
 
-	got, err := b.DescribeStatement(stmt.ID)
+	got, err := b.DescribeStatement(context.Background(), stmt.ID)
 	require.NoError(t, err)
 
 	// Mutate the returned copy.
@@ -417,7 +420,7 @@ func TestRefinement1_DescribeStatement_CloneDoesNotMutate(t *testing.T) {
 	got.QueryStrings = append(got.QueryStrings, "injected")
 
 	// Original should be unaffected.
-	original, err := b.DescribeStatement(stmt.ID)
+	original, err := b.DescribeStatement(context.Background(), stmt.ID)
 	require.NoError(t, err)
 	assert.Equal(t, "FINISHED", original.Status)
 	assert.Empty(t, original.QueryStrings)
@@ -433,7 +436,7 @@ func TestRefinement1_StatementCount_RaceCondition(t *testing.T) {
 
 	go func() {
 		for range 50 {
-			_, _ = b.ExecuteStatement("SELECT 1", "", "", "mydb", "", "", "", false, "")
+			_, _ = b.ExecuteStatement(context.Background(), "SELECT 1", "", "", "mydb", "", "", "", false, "")
 		}
 
 		close(done)
@@ -441,7 +444,7 @@ func TestRefinement1_StatementCount_RaceCondition(t *testing.T) {
 
 	for range 50 {
 		_ = b.StatementCount()
-		_, _, _ = b.ListStatements(redshiftdata.ListStatementsFilter{Status: "ALL"})
+		_, _, _ = b.ListStatements(context.Background(), redshiftdata.ListStatementsFilter{Status: "ALL"})
 	}
 
 	<-done

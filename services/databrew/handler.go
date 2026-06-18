@@ -187,6 +187,11 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		ctx := c.Request().Context()
 		log := logger.Load(ctx)
 
+		// Resolve the per-request region (from SigV4 / X-Amz-Region) and attach
+		// it to the context so backend operations are region-scoped.
+		region := httputils.ExtractRegionFromRequest(c.Request(), h.Backend.Region())
+		ctx = context.WithValue(ctx, regionContextKey{}, region)
+
 		action, name := parseDataBrewRESTPath(c.Request().Method, c.Request().URL.Path)
 		if action == opUnknown {
 			return c.String(http.StatusNotFound, "not found")
@@ -849,7 +854,7 @@ func (h *Handler) dispatchTags(ctx context.Context, action string, body []byte) 
 	return nil, false, nil
 }
 
-func (h *Handler) handleCreateDataset(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleCreateDataset(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		FormatOptions DatasetFormatOptions `json:"FormatOptions"`
 		Input         DatasetInput         `json:"Input"`
@@ -860,7 +865,7 @@ func (h *Handler) handleCreateDataset(_ context.Context, body []byte) ([]byte, e
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
-	ds, err := h.Backend.CreateDataset(req.Name, req.Format, req.Input, req.FormatOptions, req.Tags)
+	ds, err := h.Backend.CreateDataset(ctx, req.Name, req.Format, req.Input, req.FormatOptions, req.Tags)
 	if err != nil {
 		return nil, err
 	}
@@ -868,14 +873,14 @@ func (h *Handler) handleCreateDataset(_ context.Context, body []byte) ([]byte, e
 	return json.Marshal(map[string]string{keyName: ds.Name})
 }
 
-func (h *Handler) handleDescribeDataset(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeDataset(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Name string `json:"Name"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
-	ds, err := h.Backend.DescribeDataset(req.Name)
+	ds, err := h.Backend.DescribeDataset(ctx, req.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -883,7 +888,7 @@ func (h *Handler) handleDescribeDataset(_ context.Context, body []byte) ([]byte,
 	return json.Marshal(ds)
 }
 
-func (h *Handler) handleListDatasets(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleListDatasets(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		MaxResults string `json:"MaxResults"`
 		NextToken  string `json:"NextToken"`
@@ -891,12 +896,12 @@ func (h *Handler) handleListDatasets(_ context.Context, body []byte) ([]byte, er
 	_ = json.Unmarshal(body, &req)
 	maxResults, _ := strconv.Atoi(req.MaxResults)
 
-	datasets, next := h.Backend.ListDatasets(maxResults, req.NextToken)
+	datasets, next := h.Backend.ListDatasets(ctx, maxResults, req.NextToken)
 
 	return json.Marshal(map[string]any{"Datasets": datasets, nextTokenKey: next})
 }
 
-func (h *Handler) handleUpdateDataset(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleUpdateDataset(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		FormatOptions DatasetFormatOptions `json:"FormatOptions"`
 		Input         DatasetInput         `json:"Input"`
@@ -906,28 +911,28 @@ func (h *Handler) handleUpdateDataset(_ context.Context, body []byte) ([]byte, e
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
-	if err := h.Backend.UpdateDataset(req.Name, req.Format, req.Input, req.FormatOptions); err != nil {
+	if err := h.Backend.UpdateDataset(ctx, req.Name, req.Format, req.Input, req.FormatOptions); err != nil {
 		return nil, err
 	}
 
 	return json.Marshal(map[string]string{keyName: req.Name})
 }
 
-func (h *Handler) handleDeleteDataset(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleDeleteDataset(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Name string `json:"Name"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
-	if err := h.Backend.DeleteDataset(req.Name); err != nil {
+	if err := h.Backend.DeleteDataset(ctx, req.Name); err != nil {
 		return nil, err
 	}
 
 	return json.Marshal(map[string]string{keyName: req.Name})
 }
 
-func (h *Handler) handleCreateRecipe(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleCreateRecipe(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Tags        map[string]string `json:"Tags"`
 		Name        string            `json:"Name"`
@@ -937,7 +942,7 @@ func (h *Handler) handleCreateRecipe(_ context.Context, body []byte) ([]byte, er
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
-	r, err := h.Backend.CreateRecipe(req.Name, req.Description, req.Steps, req.Tags)
+	r, err := h.Backend.CreateRecipe(ctx, req.Name, req.Description, req.Steps, req.Tags)
 	if err != nil {
 		return nil, err
 	}
@@ -945,14 +950,14 @@ func (h *Handler) handleCreateRecipe(_ context.Context, body []byte) ([]byte, er
 	return json.Marshal(map[string]string{keyName: r.Name})
 }
 
-func (h *Handler) handleDescribeRecipe(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeRecipe(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Name string `json:"Name"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
-	r, err := h.Backend.DescribeRecipe(req.Name)
+	r, err := h.Backend.DescribeRecipe(ctx, req.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -960,7 +965,7 @@ func (h *Handler) handleDescribeRecipe(_ context.Context, body []byte) ([]byte, 
 	return json.Marshal(r)
 }
 
-func (h *Handler) handleListRecipes(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleListRecipes(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		MaxResults string `json:"MaxResults"`
 		NextToken  string `json:"NextToken"`
@@ -968,12 +973,12 @@ func (h *Handler) handleListRecipes(_ context.Context, body []byte) ([]byte, err
 	_ = json.Unmarshal(body, &req)
 	maxResults, _ := strconv.Atoi(req.MaxResults)
 
-	recipes, next := h.Backend.ListRecipes(maxResults, req.NextToken)
+	recipes, next := h.Backend.ListRecipes(ctx, maxResults, req.NextToken)
 
 	return json.Marshal(map[string]any{"Recipes": recipes, nextTokenKey: next})
 }
 
-func (h *Handler) handlePublishRecipe(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handlePublishRecipe(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Name        string `json:"Name"`
 		Description string `json:"Description"`
@@ -981,14 +986,14 @@ func (h *Handler) handlePublishRecipe(_ context.Context, body []byte) ([]byte, e
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
-	if err := h.Backend.PublishRecipe(req.Name, req.Description); err != nil {
+	if err := h.Backend.PublishRecipe(ctx, req.Name, req.Description); err != nil {
 		return nil, err
 	}
 
 	return json.Marshal(map[string]string{keyName: req.Name})
 }
 
-func (h *Handler) handleUpdateRecipe(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleUpdateRecipe(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Name        string       `json:"Name"`
 		Description string       `json:"Description"`
@@ -997,28 +1002,28 @@ func (h *Handler) handleUpdateRecipe(_ context.Context, body []byte) ([]byte, er
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
-	if err := h.Backend.UpdateRecipe(req.Name, req.Description, req.Steps); err != nil {
+	if err := h.Backend.UpdateRecipe(ctx, req.Name, req.Description, req.Steps); err != nil {
 		return nil, err
 	}
 
 	return json.Marshal(map[string]string{keyName: req.Name})
 }
 
-func (h *Handler) handleDeleteRecipe(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleDeleteRecipe(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Name string `json:"Name"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
-	if err := h.Backend.DeleteRecipe(req.Name); err != nil {
+	if err := h.Backend.DeleteRecipe(ctx, req.Name); err != nil {
 		return nil, err
 	}
 
 	return json.Marshal(map[string]string{keyName: req.Name})
 }
 
-func (h *Handler) handleCreateProject(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleCreateProject(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Tags        map[string]string `json:"Tags"`
 		Name        string            `json:"Name"`
@@ -1031,6 +1036,7 @@ func (h *Handler) handleCreateProject(_ context.Context, body []byte) ([]byte, e
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	p, err := h.Backend.CreateProject(
+		ctx,
 		req.Name,
 		req.DatasetName,
 		req.RecipeName,
@@ -1045,14 +1051,14 @@ func (h *Handler) handleCreateProject(_ context.Context, body []byte) ([]byte, e
 	return json.Marshal(map[string]string{keyName: p.Name})
 }
 
-func (h *Handler) handleDescribeProject(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeProject(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Name string `json:"Name"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
-	p, err := h.Backend.DescribeProject(req.Name)
+	p, err := h.Backend.DescribeProject(ctx, req.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -1060,7 +1066,7 @@ func (h *Handler) handleDescribeProject(_ context.Context, body []byte) ([]byte,
 	return json.Marshal(p)
 }
 
-func (h *Handler) handleListProjects(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleListProjects(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		MaxResults string `json:"MaxResults"`
 		NextToken  string `json:"NextToken"`
@@ -1068,12 +1074,12 @@ func (h *Handler) handleListProjects(_ context.Context, body []byte) ([]byte, er
 	_ = json.Unmarshal(body, &req)
 	maxResults, _ := strconv.Atoi(req.MaxResults)
 
-	projects, next := h.Backend.ListProjects(maxResults, req.NextToken)
+	projects, next := h.Backend.ListProjects(ctx, maxResults, req.NextToken)
 
 	return json.Marshal(map[string]any{"Projects": projects, nextTokenKey: next})
 }
 
-func (h *Handler) handleUpdateProject(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleUpdateProject(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Name        string `json:"Name"`
 		DatasetName string `json:"DatasetName"`
@@ -1083,28 +1089,28 @@ func (h *Handler) handleUpdateProject(_ context.Context, body []byte) ([]byte, e
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
-	if err := h.Backend.UpdateProject(req.Name, req.DatasetName, req.RoleArn, req.Sample); err != nil {
+	if err := h.Backend.UpdateProject(ctx, req.Name, req.DatasetName, req.RoleArn, req.Sample); err != nil {
 		return nil, err
 	}
 
 	return json.Marshal(map[string]string{keyName: req.Name})
 }
 
-func (h *Handler) handleDeleteProject(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleDeleteProject(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Name string `json:"Name"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
-	if err := h.Backend.DeleteProject(req.Name); err != nil {
+	if err := h.Backend.DeleteProject(ctx, req.Name); err != nil {
 		return nil, err
 	}
 
 	return json.Marshal(map[string]string{keyName: req.Name})
 }
 
-func (h *Handler) handleCreateProfileJob(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleCreateProfileJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Tags        map[string]string `json:"Tags"`
 		Name        string            `json:"Name"`
@@ -1119,6 +1125,7 @@ func (h *Handler) handleCreateProfileJob(_ context.Context, body []byte) ([]byte
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	j, err := h.Backend.CreateJob(
+		ctx,
 		req.Name,
 		"PROFILE",
 		req.DatasetName,
@@ -1135,7 +1142,7 @@ func (h *Handler) handleCreateProfileJob(_ context.Context, body []byte) ([]byte
 	return json.Marshal(map[string]string{keyName: j.Name})
 }
 
-func (h *Handler) handleCreateRecipeJob(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleCreateRecipeJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Tags        map[string]string `json:"Tags"`
 		Name        string            `json:"Name"`
@@ -1152,6 +1159,7 @@ func (h *Handler) handleCreateRecipeJob(_ context.Context, body []byte) ([]byte,
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	j, err := h.Backend.CreateJob(
+		ctx,
 		req.Name,
 		"RECIPE",
 		req.DatasetName,
@@ -1168,14 +1176,14 @@ func (h *Handler) handleCreateRecipeJob(_ context.Context, body []byte) ([]byte,
 	return json.Marshal(map[string]string{keyName: j.Name})
 }
 
-func (h *Handler) handleDescribeJob(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Name string `json:"Name"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
-	j, err := h.Backend.DescribeJob(req.Name)
+	j, err := h.Backend.DescribeJob(ctx, req.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -1183,7 +1191,7 @@ func (h *Handler) handleDescribeJob(_ context.Context, body []byte) ([]byte, err
 	return json.Marshal(j)
 }
 
-func (h *Handler) handleListJobs(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleListJobs(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		MaxResults string `json:"MaxResults"`
 		NextToken  string `json:"NextToken"`
@@ -1191,12 +1199,12 @@ func (h *Handler) handleListJobs(_ context.Context, body []byte) ([]byte, error)
 	_ = json.Unmarshal(body, &req)
 	maxResults, _ := strconv.Atoi(req.MaxResults)
 
-	jobs, next := h.Backend.ListJobs(maxResults, req.NextToken)
+	jobs, next := h.Backend.ListJobs(ctx, maxResults, req.NextToken)
 
 	return json.Marshal(map[string]any{"Jobs": jobs, nextTokenKey: next})
 }
 
-func (h *Handler) handleUpdateJob(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleUpdateJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Name        string   `json:"Name"`
 		RoleArn     string   `json:"RoleArn"`
@@ -1209,7 +1217,7 @@ func (h *Handler) handleUpdateJob(_ context.Context, body []byte) ([]byte, error
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	if err := h.Backend.UpdateJob(
-		req.Name, req.RoleArn, req.Outputs, req.MaxCapacity, req.MaxRetries, req.Timeout,
+		ctx, req.Name, req.RoleArn, req.Outputs, req.MaxCapacity, req.MaxRetries, req.Timeout,
 	); err != nil {
 		return nil, err
 	}
@@ -1217,28 +1225,28 @@ func (h *Handler) handleUpdateJob(_ context.Context, body []byte) ([]byte, error
 	return json.Marshal(map[string]string{keyName: req.Name})
 }
 
-func (h *Handler) handleDeleteJob(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleDeleteJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Name string `json:"Name"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
-	if err := h.Backend.DeleteJob(req.Name); err != nil {
+	if err := h.Backend.DeleteJob(ctx, req.Name); err != nil {
 		return nil, err
 	}
 
 	return json.Marshal(map[string]string{keyName: req.Name})
 }
 
-func (h *Handler) handleStartJobRun(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleStartJobRun(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Name string `json:"Name"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
-	run, err := h.Backend.StartJobRun(req.Name)
+	run, err := h.Backend.StartJobRun(ctx, req.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -1246,7 +1254,7 @@ func (h *Handler) handleStartJobRun(_ context.Context, body []byte) ([]byte, err
 	return json.Marshal(map[string]string{"RunID": run.RunID})
 }
 
-func (h *Handler) handleListJobRuns(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleListJobRuns(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Name       string `json:"Name"`
 		MaxResults string `json:"MaxResults"`
@@ -1257,7 +1265,7 @@ func (h *Handler) handleListJobRuns(_ context.Context, body []byte) ([]byte, err
 	}
 	maxResults, _ := strconv.Atoi(req.MaxResults)
 
-	runs, next, err := h.Backend.ListJobRuns(req.Name, maxResults, req.NextToken)
+	runs, next, err := h.Backend.ListJobRuns(ctx, req.Name, maxResults, req.NextToken)
 	if err != nil {
 		return nil, err
 	}
@@ -1265,7 +1273,7 @@ func (h *Handler) handleListJobRuns(_ context.Context, body []byte) ([]byte, err
 	return json.Marshal(map[string]any{"JobRuns": runs, nextTokenKey: next})
 }
 
-func (h *Handler) handleDescribeJobRun(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeJobRun(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Name  string `json:"Name"`
 		RunID string `json:"RunId"`
@@ -1273,7 +1281,7 @@ func (h *Handler) handleDescribeJobRun(_ context.Context, body []byte) ([]byte, 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
-	run, err := h.Backend.DescribeJobRun(req.Name, req.RunID)
+	run, err := h.Backend.DescribeJobRun(ctx, req.Name, req.RunID)
 	if err != nil {
 		return nil, err
 	}
@@ -1281,7 +1289,7 @@ func (h *Handler) handleDescribeJobRun(_ context.Context, body []byte) ([]byte, 
 	return json.Marshal(run)
 }
 
-func (h *Handler) handleStopJobRun(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleStopJobRun(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Name  string `json:"Name"`
 		RunID string `json:"RunId"`
@@ -1289,7 +1297,7 @@ func (h *Handler) handleStopJobRun(_ context.Context, body []byte) ([]byte, erro
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
-	run, err := h.Backend.StopJobRun(req.Name, req.RunID)
+	run, err := h.Backend.StopJobRun(ctx, req.Name, req.RunID)
 	if err != nil {
 		return nil, err
 	}
@@ -1297,7 +1305,7 @@ func (h *Handler) handleStopJobRun(_ context.Context, body []byte) ([]byte, erro
 	return json.Marshal(map[string]string{"RunId": run.RunID})
 }
 
-func (h *Handler) handleCreateRuleset(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleCreateRuleset(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Tags        map[string]string `json:"Tags"`
 		Name        string            `json:"Name"`
@@ -1308,7 +1316,7 @@ func (h *Handler) handleCreateRuleset(_ context.Context, body []byte) ([]byte, e
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
-	rs, err := h.Backend.CreateRuleset(req.Name, req.Description, req.TargetArn, req.Rules, req.Tags)
+	rs, err := h.Backend.CreateRuleset(ctx, req.Name, req.Description, req.TargetArn, req.Rules, req.Tags)
 	if err != nil {
 		return nil, err
 	}
@@ -1316,14 +1324,14 @@ func (h *Handler) handleCreateRuleset(_ context.Context, body []byte) ([]byte, e
 	return json.Marshal(map[string]string{keyName: rs.Name})
 }
 
-func (h *Handler) handleDescribeRuleset(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeRuleset(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Name string `json:"Name"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
-	rs, err := h.Backend.DescribeRuleset(req.Name)
+	rs, err := h.Backend.DescribeRuleset(ctx, req.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -1331,7 +1339,7 @@ func (h *Handler) handleDescribeRuleset(_ context.Context, body []byte) ([]byte,
 	return json.Marshal(rs)
 }
 
-func (h *Handler) handleListRulesets(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleListRulesets(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		MaxResults string `json:"MaxResults"`
 		NextToken  string `json:"NextToken"`
@@ -1339,12 +1347,12 @@ func (h *Handler) handleListRulesets(_ context.Context, body []byte) ([]byte, er
 	_ = json.Unmarshal(body, &req)
 	maxResults, _ := strconv.Atoi(req.MaxResults)
 
-	rulesets, next := h.Backend.ListRulesets(maxResults, req.NextToken)
+	rulesets, next := h.Backend.ListRulesets(ctx, maxResults, req.NextToken)
 
 	return json.Marshal(map[string]any{"Rulesets": rulesets, nextTokenKey: next})
 }
 
-func (h *Handler) handleUpdateRuleset(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleUpdateRuleset(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Name        string `json:"Name"`
 		Description string `json:"Description"`
@@ -1353,28 +1361,28 @@ func (h *Handler) handleUpdateRuleset(_ context.Context, body []byte) ([]byte, e
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
-	if err := h.Backend.UpdateRuleset(req.Name, req.Description, req.Rules); err != nil {
+	if err := h.Backend.UpdateRuleset(ctx, req.Name, req.Description, req.Rules); err != nil {
 		return nil, err
 	}
 
 	return json.Marshal(map[string]string{keyName: req.Name})
 }
 
-func (h *Handler) handleDeleteRuleset(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleDeleteRuleset(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Name string `json:"Name"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
-	if err := h.Backend.DeleteRuleset(req.Name); err != nil {
+	if err := h.Backend.DeleteRuleset(ctx, req.Name); err != nil {
 		return nil, err
 	}
 
 	return json.Marshal(map[string]string{keyName: req.Name})
 }
 
-func (h *Handler) handleCreateSchedule(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleCreateSchedule(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Tags           map[string]string `json:"Tags"`
 		Name           string            `json:"Name"`
@@ -1384,7 +1392,7 @@ func (h *Handler) handleCreateSchedule(_ context.Context, body []byte) ([]byte, 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
-	sc, err := h.Backend.CreateSchedule(req.Name, req.JobNames, req.CronExpression, req.Tags)
+	sc, err := h.Backend.CreateSchedule(ctx, req.Name, req.JobNames, req.CronExpression, req.Tags)
 	if err != nil {
 		return nil, err
 	}
@@ -1392,14 +1400,14 @@ func (h *Handler) handleCreateSchedule(_ context.Context, body []byte) ([]byte, 
 	return json.Marshal(map[string]string{keyName: sc.Name})
 }
 
-func (h *Handler) handleDescribeSchedule(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeSchedule(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Name string `json:"Name"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
-	sc, err := h.Backend.DescribeSchedule(req.Name)
+	sc, err := h.Backend.DescribeSchedule(ctx, req.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -1407,7 +1415,7 @@ func (h *Handler) handleDescribeSchedule(_ context.Context, body []byte) ([]byte
 	return json.Marshal(sc)
 }
 
-func (h *Handler) handleListSchedules(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleListSchedules(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		MaxResults string `json:"MaxResults"`
 		NextToken  string `json:"NextToken"`
@@ -1415,12 +1423,12 @@ func (h *Handler) handleListSchedules(_ context.Context, body []byte) ([]byte, e
 	_ = json.Unmarshal(body, &req)
 	maxResults, _ := strconv.Atoi(req.MaxResults)
 
-	schedules, next := h.Backend.ListSchedules(maxResults, req.NextToken)
+	schedules, next := h.Backend.ListSchedules(ctx, maxResults, req.NextToken)
 
 	return json.Marshal(map[string]any{"Schedules": schedules, nextTokenKey: next})
 }
 
-func (h *Handler) handleUpdateSchedule(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleUpdateSchedule(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Name           string   `json:"Name"`
 		CronExpression string   `json:"CronExpression"`
@@ -1429,28 +1437,28 @@ func (h *Handler) handleUpdateSchedule(_ context.Context, body []byte) ([]byte, 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
-	if err := h.Backend.UpdateSchedule(req.Name, req.JobNames, req.CronExpression); err != nil {
+	if err := h.Backend.UpdateSchedule(ctx, req.Name, req.JobNames, req.CronExpression); err != nil {
 		return nil, err
 	}
 
 	return json.Marshal(map[string]string{keyName: req.Name})
 }
 
-func (h *Handler) handleDeleteSchedule(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleDeleteSchedule(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Name string `json:"Name"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
-	if err := h.Backend.DeleteSchedule(req.Name); err != nil {
+	if err := h.Backend.DeleteSchedule(ctx, req.Name); err != nil {
 		return nil, err
 	}
 
 	return json.Marshal(map[string]string{keyName: req.Name})
 }
 
-func (h *Handler) handleTagResource(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleTagResource(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Tags        map[string]string `json:"Tags"`
 		ResourceArn string            `json:"ResourceArn"`
@@ -1458,14 +1466,14 @@ func (h *Handler) handleTagResource(_ context.Context, body []byte) ([]byte, err
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
-	if err := h.Backend.UpdateTagsByArn(req.ResourceArn, req.Tags, nil); err != nil {
+	if err := h.Backend.UpdateTagsByArn(ctx, req.ResourceArn, req.Tags, nil); err != nil {
 		return nil, err
 	}
 
 	return json.Marshal(map[string]any{})
 }
 
-func (h *Handler) handleUntagResource(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleUntagResource(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		ResourceArn string   `json:"ResourceArn"`
 		TagKeys     []string `json:"TagKeys"`
@@ -1473,21 +1481,21 @@ func (h *Handler) handleUntagResource(_ context.Context, body []byte) ([]byte, e
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
-	if err := h.Backend.UpdateTagsByArn(req.ResourceArn, nil, req.TagKeys); err != nil {
+	if err := h.Backend.UpdateTagsByArn(ctx, req.ResourceArn, nil, req.TagKeys); err != nil {
 		return nil, err
 	}
 
 	return json.Marshal(map[string]any{})
 }
 
-func (h *Handler) handleListTagsForResource(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleListTagsForResource(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		ResourceArn string `json:"ResourceArn"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
-	tags, err := h.Backend.FindTagsByArn(req.ResourceArn)
+	tags, err := h.Backend.FindTagsByArn(ctx, req.ResourceArn)
 	if err != nil {
 		return nil, err
 	}
@@ -1522,14 +1530,14 @@ func (h *Handler) handleDeleteRecipeVersion(_ context.Context, body []byte) ([]b
 	return json.Marshal(map[string]string{keyName: req.Name})
 }
 
-func (h *Handler) handleListRecipeVersions(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleListRecipeVersions(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Name string `json:"Name"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
-	r, err := h.Backend.DescribeRecipe(req.Name)
+	r, err := h.Backend.DescribeRecipe(ctx, req.Name)
 	if err != nil {
 		return nil, err
 	}

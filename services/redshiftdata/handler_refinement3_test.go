@@ -22,7 +22,7 @@ func TestRefinement3_Janitor_EvictsExpiredStatements(t *testing.T) {
 	b := redshiftdata.NewInMemoryBackend(testAccountID, testRegion)
 
 	// Seed a FINISHED statement that has already aged past the TTL.
-	stmt := redshiftdata.AddStatementInternal(b, "old-stmt", "SELECT 1", "dev", "FINISHED", true)
+	stmt := redshiftdata.AddStatementInternal(b, testRegion, "old-stmt", "SELECT 1", "dev", "FINISHED", true)
 	require.NotNil(t, stmt)
 
 	// Sweep with a cutoff in the future so the statement is considered expired.
@@ -41,7 +41,7 @@ func TestRefinement3_Janitor_DoesNotEvictNonTerminal(t *testing.T) {
 	b := redshiftdata.NewInMemoryBackend(testAccountID, testRegion)
 
 	// A STARTED statement (non-terminal) — must not be evicted.
-	redshiftdata.AddStatementInternal(b, "running-stmt", "SELECT 1", "dev", "STARTED", false)
+	redshiftdata.AddStatementInternal(b, testRegion, "running-stmt", "SELECT 1", "dev", "STARTED", false)
 
 	cutoff := time.Now().Add(time.Hour)
 	evicted := b.EvictExpiredStatements(cutoff)
@@ -55,8 +55,8 @@ func TestRefinement3_Janitor_SweepOnce(t *testing.T) {
 	t.Parallel()
 
 	b := redshiftdata.NewInMemoryBackend(testAccountID, testRegion)
-	redshiftdata.AddStatementInternal(b, "expired", "SELECT 1", "dev", "FINISHED", true)
-	redshiftdata.AddStatementInternal(b, "running", "SELECT 2", "dev", "STARTED", false)
+	redshiftdata.AddStatementInternal(b, testRegion, "expired", "SELECT 1", "dev", "FINISHED", true)
+	redshiftdata.AddStatementInternal(b, testRegion, "running", "SELECT 2", "dev", "STARTED", false)
 
 	j := redshiftdata.NewJanitor(b, time.Minute, time.Nanosecond) // very short TTL to force eviction
 	j.SweepOnce(context.Background())
@@ -78,7 +78,7 @@ func TestRefinement3_RingBuffer_Overflow(t *testing.T) {
 	overCount := 5
 
 	for i := range maxCap + overCount {
-		redshiftdata.AddStatementInternal(b, generateID(i), "SELECT 1", "dev", "FINISHED", false)
+		redshiftdata.AddStatementInternal(b, testRegion, generateID(i), "SELECT 1", "dev", "FINISHED", false)
 	}
 
 	// The backend should never exceed the cap.
@@ -113,14 +113,16 @@ func TestRefinement3_Concurrent_AccessSafe(t *testing.T) {
 	// Concurrent writes
 	for range goroutines {
 		wg.Go(func() {
-			_, _ = b.ExecuteStatement("SELECT 1", "", "", "dev", "", "", "", false, "")
+			_, _ = b.ExecuteStatement(context.Background(), "SELECT 1", "", "", "dev", "", "", "", false, "")
 		})
 	}
 
 	// Concurrent reads interleaved
 	for range goroutines {
 		wg.Go(func() {
-			stmts, _, _ := b.ListStatements(redshiftdata.ListStatementsFilter{Status: "ALL", MaxResults: 100})
+			stmts, _, _ := b.ListStatements(
+				context.Background(), redshiftdata.ListStatementsFilter{Status: "ALL", MaxResults: 100},
+			)
 			_ = stmts
 		})
 	}
@@ -189,10 +191,10 @@ func TestRefinement3_ListStatements_WorkgroupFilter(t *testing.T) {
 	b := redshiftdata.NewInMemoryBackend(testAccountID, testRegion)
 	h := redshiftdata.NewHandler(b)
 
-	_, err := b.ExecuteStatement("SELECT 1", "", "wg-a", "dev", "", "", "", false, "")
+	_, err := b.ExecuteStatement(context.Background(), "SELECT 1", "", "wg-a", "dev", "", "", "", false, "")
 	require.NoError(t, err)
 
-	_, err = b.ExecuteStatement("SELECT 2", "", "wg-b", "dev", "", "", "", false, "")
+	_, err = b.ExecuteStatement(context.Background(), "SELECT 2", "", "wg-b", "dev", "", "", "", false, "")
 	require.NoError(t, err)
 
 	rec := doRequest(t, h, "ListStatements", map[string]any{
@@ -375,9 +377,9 @@ func TestRefinement3_EvictExpiredStatements_UpdatesRingBuffer(t *testing.T) {
 
 	b := redshiftdata.NewInMemoryBackend(testAccountID, testRegion)
 
-	redshiftdata.AddStatementInternal(b, "s1", "SELECT 1", "dev", "FINISHED", true)
-	redshiftdata.AddStatementInternal(b, "s2", "SELECT 2", "dev", "FINISHED", true)
-	redshiftdata.AddStatementInternal(b, "s3", "SELECT 3", "dev", "STARTED", false) // must not be evicted
+	redshiftdata.AddStatementInternal(b, testRegion, "s1", "SELECT 1", "dev", "FINISHED", true)
+	redshiftdata.AddStatementInternal(b, testRegion, "s2", "SELECT 2", "dev", "FINISHED", true)
+	redshiftdata.AddStatementInternal(b, testRegion, "s3", "SELECT 3", "dev", "STARTED", false) // must not be evicted
 
 	evicted := b.EvictExpiredStatements(time.Now().Add(time.Hour))
 
@@ -385,7 +387,9 @@ func TestRefinement3_EvictExpiredStatements_UpdatesRingBuffer(t *testing.T) {
 	assert.Equal(t, 1, b.StatementCount())
 
 	// The remaining statement should still be fetchable via ListStatements.
-	stmts, _, _ := b.ListStatements(redshiftdata.ListStatementsFilter{Status: "ALL", MaxResults: 100})
+	stmts, _, _ := b.ListStatements(
+		context.Background(), redshiftdata.ListStatementsFilter{Status: "ALL", MaxResults: 100},
+	)
 	require.Len(t, stmts, 1)
 	assert.Equal(t, "STARTED", stmts[0].Status)
 }

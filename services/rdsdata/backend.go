@@ -1,12 +1,25 @@
 package rdsdata
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
+
+// regionContextKey is the context key under which the per-request AWS region is stored.
+type regionContextKey struct{}
+
+// getRegion extracts the region from ctx, falling back to defaultRegion when unset.
+func getRegion(ctx context.Context, defaultRegion string) string {
+	if r, ok := ctx.Value(regionContextKey{}).(string); ok && r != "" {
+		return r
+	}
+
+	return defaultRegion
+}
 
 const (
 	// transactionStatusActive is the active state for a transaction.
@@ -15,7 +28,7 @@ const (
 	transactionStatusCommitted = "Transaction committed"
 	// transactionStatusRolledBack is the status returned on successful rollback.
 	transactionStatusRolledBack = "Transaction rolled back"
-	// maxExecutedStatements is the maximum number of executed statements to retain.
+	// maxExecutedStatements is the maximum number of executed statements to retain per region.
 	maxExecutedStatements = 1000
 )
 
@@ -72,91 +85,133 @@ type SQLStatementResult struct {
 }
 
 // InMemoryBackend is an in-memory RDS Data backend.
+//
+// All resource maps are nested by region (outer key = region) so that
+// same-named resources are isolated across regions. The per-region inner maps
+// are created lazily via the *Store helpers. Callers must hold b.mu while
+// accessing the inner maps.
 type InMemoryBackend struct {
-	transactions       map[string]*Transaction
+	transactions       map[string]map[string]*Transaction
+	executedStatements map[string][]ExecutedStatement
+	txCounter          map[string]int
 	mu                 *lockmetrics.RWMutex
 	accountID          string
-	region             string
-	executedStatements []ExecutedStatement
-	txCounter          int
+	defaultRegion      string
 }
 
 // NewInMemoryBackend creates a new in-memory RDS Data backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		transactions:       make(map[string]*Transaction),
-		executedStatements: []ExecutedStatement{},
+		transactions:       make(map[string]map[string]*Transaction),
+		executedStatements: make(map[string][]ExecutedStatement),
+		txCounter:          make(map[string]int),
 		mu:                 lockmetrics.New("rdsdata"),
 		accountID:          accountID,
-		region:             region,
+		defaultRegion:      region,
 	}
 }
 
 // Region returns the AWS region this backend is configured for.
-func (b *InMemoryBackend) Region() string { return b.region }
+func (b *InMemoryBackend) Region() string { return b.defaultRegion }
 
 // AccountID returns the AWS account ID this backend is configured for.
 func (b *InMemoryBackend) AccountID() string { return b.accountID }
+
+// The *Store helpers return the per-region inner map, lazily creating it.
+// Callers must hold b.mu.
+
+func (b *InMemoryBackend) transactionsStore(region string) map[string]*Transaction {
+	if b.transactions[region] == nil {
+		b.transactions[region] = make(map[string]*Transaction)
+	}
+
+	return b.transactions[region]
+}
+
+func (b *InMemoryBackend) statementsStore(region string) []ExecutedStatement {
+	if b.executedStatements[region] == nil {
+		b.executedStatements[region] = []ExecutedStatement{}
+	}
+
+	return b.executedStatements[region]
+}
 
 // Reset clears all backend state. Useful for test isolation.
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.transactions = make(map[string]*Transaction)
-	b.executedStatements = []ExecutedStatement{}
-	b.txCounter = 0
+	b.transactions = make(map[string]map[string]*Transaction)
+	b.executedStatements = make(map[string][]ExecutedStatement)
+	b.txCounter = make(map[string]int)
 }
 
 // appendStatementLocked records an executed statement and trims the buffer to
 // maxExecutedStatements. The caller must hold b.mu (write lock).
-func (b *InMemoryBackend) appendStatementLocked(resourceARN, sql, transactionID string) {
-	b.executedStatements = append(b.executedStatements, ExecutedStatement{
+func (b *InMemoryBackend) appendStatementLocked(region, resourceARN, sql, transactionID string) {
+	stmts := b.statementsStore(region)
+	stmts = append(stmts, ExecutedStatement{
 		SQL:           sql,
 		ResourceARN:   resourceARN,
 		TransactionID: transactionID,
 	})
 
-	if len(b.executedStatements) > maxExecutedStatements {
+	if len(stmts) > maxExecutedStatements {
 		trimmed := make([]ExecutedStatement, maxExecutedStatements)
-		copy(trimmed, b.executedStatements[len(b.executedStatements)-maxExecutedStatements:])
-		b.executedStatements = trimmed
+		copy(trimmed, stmts[len(stmts)-maxExecutedStatements:])
+		stmts = trimmed
 	}
+
+	b.executedStatements[region] = stmts
 }
 
 // ExecuteStatement executes a SQL statement and returns an empty result set.
 func (b *InMemoryBackend) ExecuteStatement(
+	ctx context.Context,
 	resourceARN, sql, transactionID string,
 ) ([][]Field, []ColumnMetadata, int64, error) {
 	b.mu.Lock("ExecuteStatement")
 	defer b.mu.Unlock()
 
+	region := getRegion(ctx, b.defaultRegion)
+
 	if transactionID != "" {
-		if _, ok := b.transactions[transactionID]; !ok {
-			return nil, nil, 0, fmt.Errorf("%w: transaction %s not found", ErrTransactionNotFound, transactionID)
+		if _, ok := b.transactionsStore(region)[transactionID]; !ok {
+			return nil, nil, 0, fmt.Errorf(
+				"%w: transaction %s not found",
+				ErrTransactionNotFound,
+				transactionID,
+			)
 		}
 	}
 
-	b.appendStatementLocked(resourceARN, sql, transactionID)
+	b.appendStatementLocked(region, resourceARN, sql, transactionID)
 
 	return [][]Field{}, []ColumnMetadata{}, 0, nil
 }
 
 // BatchExecuteStatement executes a batch of SQL statements and returns results for each.
 func (b *InMemoryBackend) BatchExecuteStatement(
+	ctx context.Context,
 	resourceARN, sql, transactionID string,
 	parameterSets [][]SQLParameter,
 ) ([]UpdateResult, error) {
 	b.mu.Lock("BatchExecuteStatement")
 	defer b.mu.Unlock()
 
+	region := getRegion(ctx, b.defaultRegion)
+
 	if transactionID != "" {
-		if _, ok := b.transactions[transactionID]; !ok {
-			return nil, fmt.Errorf("%w: transaction %s not found", ErrTransactionNotFound, transactionID)
+		if _, ok := b.transactionsStore(region)[transactionID]; !ok {
+			return nil, fmt.Errorf(
+				"%w: transaction %s not found",
+				ErrTransactionNotFound,
+				transactionID,
+			)
 		}
 	}
 
-	b.appendStatementLocked(resourceARN, sql, transactionID)
+	b.appendStatementLocked(region, resourceARN, sql, transactionID)
 
 	if len(parameterSets) == 0 {
 		return []UpdateResult{}, nil
@@ -171,14 +226,16 @@ func (b *InMemoryBackend) BatchExecuteStatement(
 }
 
 // BeginTransaction starts a new transaction and returns its ID.
-func (b *InMemoryBackend) BeginTransaction(_ string) (string, error) {
+func (b *InMemoryBackend) BeginTransaction(ctx context.Context, _ string) (string, error) {
 	b.mu.Lock("BeginTransaction")
 	defer b.mu.Unlock()
 
-	b.txCounter++
-	id := fmt.Sprintf("txn-%06d", b.txCounter)
+	region := getRegion(ctx, b.defaultRegion)
 
-	b.transactions[id] = &Transaction{
+	b.txCounter[region]++
+	id := fmt.Sprintf("txn-%06d", b.txCounter[region])
+
+	b.transactionsStore(region)[id] = &Transaction{
 		TransactionID: id,
 		Status:        transactionStatusActive,
 	}
@@ -187,75 +244,96 @@ func (b *InMemoryBackend) BeginTransaction(_ string) (string, error) {
 }
 
 // CommitTransaction commits a transaction by ID.
-func (b *InMemoryBackend) CommitTransaction(transactionID string) (string, error) {
+func (b *InMemoryBackend) CommitTransaction(
+	ctx context.Context,
+	transactionID string,
+) (string, error) {
 	b.mu.Lock("CommitTransaction")
 	defer b.mu.Unlock()
 
-	if _, ok := b.transactions[transactionID]; !ok {
+	region := getRegion(ctx, b.defaultRegion)
+	store := b.transactionsStore(region)
+
+	if _, ok := store[transactionID]; !ok {
 		return "", fmt.Errorf("%w: transaction %s not found", ErrTransactionNotFound, transactionID)
 	}
 
-	delete(b.transactions, transactionID)
+	delete(store, transactionID)
 
 	return transactionStatusCommitted, nil
 }
 
 // RollbackTransaction rolls back a transaction by ID.
-func (b *InMemoryBackend) RollbackTransaction(transactionID string) (string, error) {
+func (b *InMemoryBackend) RollbackTransaction(
+	ctx context.Context,
+	transactionID string,
+) (string, error) {
 	b.mu.Lock("RollbackTransaction")
 	defer b.mu.Unlock()
 
-	if _, ok := b.transactions[transactionID]; !ok {
+	region := getRegion(ctx, b.defaultRegion)
+	store := b.transactionsStore(region)
+
+	if _, ok := store[transactionID]; !ok {
 		return "", fmt.Errorf("%w: transaction %s not found", ErrTransactionNotFound, transactionID)
 	}
 
-	delete(b.transactions, transactionID)
+	delete(store, transactionID)
 
 	return transactionStatusRolledBack, nil
 }
 
 // ExecuteSQL executes one or more SQL statements against the cluster.
 // This is a deprecated operation; use ExecuteStatement or BatchExecuteStatement instead.
-func (b *InMemoryBackend) ExecuteSQL(resourceARN, sqlStatements string) ([]SQLStatementResult, error) {
+func (b *InMemoryBackend) ExecuteSQL(
+	ctx context.Context,
+	resourceARN, sqlStatements string,
+) ([]SQLStatementResult, error) {
 	b.mu.Lock("ExecuteSql")
 	defer b.mu.Unlock()
 
-	b.appendStatementLocked(resourceARN, sqlStatements, "")
+	region := getRegion(ctx, b.defaultRegion)
+	b.appendStatementLocked(region, resourceARN, sqlStatements, "")
 
 	return []SQLStatementResult{{NumberOfRecordsUpdated: 0}}, nil
 }
 
-// ListExecutedStatements returns a copy of all executed statements.
-func (b *InMemoryBackend) ListExecutedStatements() []ExecutedStatement {
+// ListExecutedStatements returns a copy of all executed statements for the request's region.
+func (b *InMemoryBackend) ListExecutedStatements(ctx context.Context) []ExecutedStatement {
 	b.mu.RLock("ListExecutedStatements")
 	defer b.mu.RUnlock()
 
-	result := make([]ExecutedStatement, len(b.executedStatements))
-	copy(result, b.executedStatements)
+	region := getRegion(ctx, b.defaultRegion)
+	stmts := b.executedStatements[region]
+	result := make([]ExecutedStatement, len(stmts))
+	copy(result, stmts)
 
 	return result
 }
 
-// ListTransactions returns a deep copy of all active transactions.
-func (b *InMemoryBackend) ListTransactions() map[string]Transaction {
+// ListTransactions returns a deep copy of all active transactions for the request's region.
+func (b *InMemoryBackend) ListTransactions(ctx context.Context) map[string]Transaction {
 	b.mu.RLock("ListTransactions")
 	defer b.mu.RUnlock()
 
-	result := make(map[string]Transaction, len(b.transactions))
-	for k, v := range b.transactions {
+	region := getRegion(ctx, b.defaultRegion)
+	store := b.transactions[region]
+	result := make(map[string]Transaction, len(store))
+
+	for k, v := range store {
 		result[k] = *v
 	}
 
 	return result
 }
 
-// AddTransactionInternal directly inserts a transaction into the backend.
+// AddTransactionInternal directly inserts a transaction into the backend's default region.
 // This is intended only for seeding test data.
 func (b *InMemoryBackend) AddTransactionInternal(txID string) {
 	b.mu.Lock("AddTransactionInternal")
 	defer b.mu.Unlock()
 
-	b.transactions[txID] = &Transaction{
+	b.transactionsStore(b.defaultRegion)[txID] = &Transaction{
 		TransactionID: txID,
 		Status:        transactionStatusActive,
 	}

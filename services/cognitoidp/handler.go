@@ -564,23 +564,74 @@ func (h *Handler) handleDescribeUserPool(
 	return &describeUserPoolOutput{UserPool: poolToData(pool)}, nil
 }
 
+// cognitoMaxResultsCap is the AWS upper bound on MaxResults/Limit for the
+// Cognito IDP list operations (ListUserPools, ListUserPoolClients, ListUsers).
+const cognitoMaxResultsCap = 60
+
+// validateCognitoMaxResults clamps and validates a MaxResults/Limit value.
+// AWS rejects values < 1 or > 60 with InvalidParameterException. A zero value
+// means "unset" and defaults to the cap.
+func validateCognitoMaxResults(maxResults int) (int, error) {
+	if maxResults == 0 {
+		return cognitoMaxResultsCap, nil
+	}
+
+	if maxResults < 1 || maxResults > cognitoMaxResultsCap {
+		return 0, fmt.Errorf(
+			"%w: MaxResults must be between 1 and %d", ErrInvalidParameter, cognitoMaxResultsCap)
+	}
+
+	return maxResults, nil
+}
+
 type listUserPoolsInput struct {
-	MaxResults int `json:"MaxResults,omitempty"`
+	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults int    `json:"MaxResults,omitempty"`
 }
 
 type listUserPoolsOutput struct {
+	NextToken string         `json:"NextToken,omitempty"`
 	UserPools []userPoolData `json:"UserPools"`
 }
 
-func (h *Handler) handleListUserPools(_ context.Context, _ *listUserPoolsInput) (*listUserPoolsOutput, error) {
+func (h *Handler) handleListUserPools(
+	_ context.Context,
+	in *listUserPoolsInput,
+) (*listUserPoolsOutput, error) {
+	limit, err := validateCognitoMaxResults(in.MaxResults)
+	if err != nil {
+		return nil, err
+	}
+
+	// ListUserPools already returns pools sorted by Name, giving a stable
+	// ordering for pagination tokens.
 	pools := h.Backend.ListUserPools()
+
+	start := 0
+	if in.NextToken != "" {
+		for i, p := range pools {
+			if p.ID == in.NextToken {
+				start = i
+
+				break
+			}
+		}
+	}
+
+	pools = pools[start:]
+
+	nextToken := ""
+	if len(pools) > limit {
+		nextToken = pools[limit].ID
+		pools = pools[:limit]
+	}
 
 	items := make([]userPoolData, 0, len(pools))
 	for _, p := range pools {
 		items = append(items, poolToData(p))
 	}
 
-	return &listUserPoolsOutput{UserPools: items}, nil
+	return &listUserPoolsOutput{UserPools: items, NextToken: nextToken}, nil
 }
 
 type createUserPoolClientInput struct {
@@ -703,10 +754,12 @@ func (h *Handler) handleGetUserPoolMfaConfig(
 
 type listUserPoolClientsInput struct {
 	UserPoolID string `json:"UserPoolId,omitempty"`
+	NextToken  string `json:"NextToken,omitempty"`
 	MaxResults int    `json:"MaxResults,omitempty"`
 }
 
 type listUserPoolClientsOutput struct {
+	NextToken       string               `json:"NextToken,omitempty"`
 	UserPoolClients []userPoolClientData `json:"UserPoolClients"`
 }
 
@@ -714,9 +767,35 @@ func (h *Handler) handleListUserPoolClients(
 	_ context.Context,
 	in *listUserPoolClientsInput,
 ) (*listUserPoolClientsOutput, error) {
+	limit, err := validateCognitoMaxResults(in.MaxResults)
+	if err != nil {
+		return nil, err
+	}
+
+	// ListUserPoolClients already returns clients sorted by name, giving a
+	// stable ordering for pagination tokens.
 	clients, err := h.Backend.ListUserPoolClients(in.UserPoolID)
 	if err != nil {
 		return nil, err
+	}
+
+	start := 0
+	if in.NextToken != "" {
+		for i, c := range clients {
+			if c.ClientID == in.NextToken {
+				start = i
+
+				break
+			}
+		}
+	}
+
+	clients = clients[start:]
+
+	nextToken := ""
+	if len(clients) > limit {
+		nextToken = clients[limit].ClientID
+		clients = clients[:limit]
 	}
 
 	items := make([]userPoolClientData, 0, len(clients))
@@ -724,7 +803,7 @@ func (h *Handler) handleListUserPoolClients(
 		items = append(items, clientToData(c))
 	}
 
-	return &listUserPoolClientsOutput{UserPoolClients: items}, nil
+	return &listUserPoolClientsOutput{UserPoolClients: items, NextToken: nextToken}, nil
 }
 
 type attributeType struct {
@@ -1094,13 +1173,15 @@ func toUserSummary(u *User) *userSummary {
 }
 
 type listUsersInput struct {
-	UserPoolID string `json:"UserPoolId,omitempty"`
-	Filter     string `json:"Filter,omitempty"`
-	Limit      int    `json:"Limit,omitempty"`
+	UserPoolID      string `json:"UserPoolId,omitempty"`
+	Filter          string `json:"Filter,omitempty"`
+	PaginationToken string `json:"PaginationToken,omitempty"`
+	Limit           int    `json:"Limit,omitempty"`
 }
 
 type listUsersOutput struct {
-	Users []*userSummary `json:"Users"`
+	PaginationToken string         `json:"PaginationToken,omitempty"`
+	Users           []*userSummary `json:"Users"`
 }
 
 type userSummary struct {
@@ -1116,9 +1197,35 @@ func (h *Handler) handleListUsers(
 	_ context.Context,
 	in *listUsersInput,
 ) (*listUsersOutput, error) {
+	limit, err := validateCognitoMaxResults(in.Limit)
+	if err != nil {
+		return nil, err
+	}
+
+	// ListUsersFiltered already returns users sorted by username, giving a
+	// stable ordering for pagination tokens.
 	users, err := h.Backend.ListUsersFiltered(in.UserPoolID, in.Filter)
 	if err != nil {
 		return nil, err
+	}
+
+	start := 0
+	if in.PaginationToken != "" {
+		for i, u := range users {
+			if u.Username == in.PaginationToken {
+				start = i
+
+				break
+			}
+		}
+	}
+
+	users = users[start:]
+
+	nextToken := ""
+	if len(users) > limit {
+		nextToken = users[limit].Username
+		users = users[:limit]
 	}
 
 	summaries := make([]*userSummary, 0, len(users))
@@ -1126,7 +1233,7 @@ func (h *Handler) handleListUsers(
 		summaries = append(summaries, toUserSummary(u))
 	}
 
-	return &listUsersOutput{Users: summaries}, nil
+	return &listUsersOutput{Users: summaries, PaginationToken: nextToken}, nil
 }
 
 type forgotPasswordInput struct {

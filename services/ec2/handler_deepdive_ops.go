@@ -2,7 +2,9 @@ package ec2
 
 import (
 	"encoding/xml"
+	"fmt"
 	"net/url"
+	"strconv"
 	"time"
 )
 
@@ -66,6 +68,7 @@ func (h *Handler) handleCreateImage(vals url.Values, reqID string) (any, error) 
 		RequestID: reqID,
 		ImageID:   image.ImageID,
 		Name:      image.Name,
+		State:     image.State,
 	}, nil
 }
 
@@ -155,52 +158,82 @@ func (h *Handler) handleDescribeNetworkAcls(vals url.Values, reqID string) (any,
 	aclIDs := parseMemberList(vals, "NetworkAclId")
 
 	var vpcIDs []string
-	if vals, ok := filters["vpc-id"]; ok {
-		vpcIDs = vals
+	if v, ok := filters["vpc-id"]; ok {
+		vpcIDs = v
 	}
 
-	acls := h.Backend.DescribeNetworkAclsFiltered(vpcIDs)
+	acls := filterNetworkACLsByIDs(h.Backend.DescribeNetworkAclsFiltered(vpcIDs), aclIDs)
 
-	// filter by ACL IDs if provided
-	if len(aclIDs) > 0 {
-		aclIDSet := make(map[string]bool, len(aclIDs))
-		for _, id := range aclIDs {
-			aclIDSet[id] = true
+	maxResults := 0
+	if v := vals.Get("MaxResults"); v != "" {
+		if _, scanErr := fmt.Sscan(v, &maxResults); scanErr != nil || maxResults < 5 || maxResults > 1000 {
+			return nil, fmt.Errorf("%w: MaxResults must be between 5 and 1000", ErrInvalidParameter)
 		}
+	}
 
-		filtered := acls[:0:0]
-		for _, acl := range acls {
-			if aclIDSet[acl.ID] {
-				filtered = append(filtered, acl)
-			}
+	offset := 0
+	if tok := vals.Get("NextToken"); tok != "" {
+		_, _ = fmt.Sscan(tok, &offset)
+	}
+
+	var nextToken string
+	if maxResults > 0 {
+		if offset > len(acls) {
+			offset = len(acls)
 		}
-
-		acls = filtered
+		acls = acls[offset:]
+		if len(acls) > maxResults {
+			nextToken = strconv.Itoa(offset + maxResults)
+			acls = acls[:maxResults]
+		}
 	}
 
 	items := make([]networkACLItem, 0, len(acls))
 	for _, acl := range acls {
-		assocs := make([]networkACLAssocItem, 0, len(acl.AssociationIDs))
-		for _, aid := range acl.AssociationIDs {
-			assocs = append(assocs, networkACLAssocItem{
-				NetworkACLAssociationID: aid,
-				NetworkACLID:            acl.ID,
-			})
-		}
-
-		items = append(items, networkACLItem{
-			ID:           acl.ID,
-			VPCID:        acl.VPCID,
-			IsDefault:    acl.IsDefault,
-			Associations: networkACLAssocSet{Items: assocs},
-		})
+		items = append(items, toNetworkACLItem(acl))
 	}
 
 	return &describeNetworkAclsResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
 		Acls:      networkACLSet{Items: items},
+		NextToken: nextToken,
 	}, nil
+}
+
+func filterNetworkACLsByIDs(acls []*NetworkACL, ids []string) []*NetworkACL {
+	if len(ids) == 0 {
+		return acls
+	}
+	idSet := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		idSet[id] = true
+	}
+	filtered := acls[:0:0]
+	for _, acl := range acls {
+		if idSet[acl.ID] {
+			filtered = append(filtered, acl)
+		}
+	}
+
+	return filtered
+}
+
+func toNetworkACLItem(acl *NetworkACL) networkACLItem {
+	assocs := make([]networkACLAssocItem, 0, len(acl.AssociationIDs))
+	for _, aid := range acl.AssociationIDs {
+		assocs = append(assocs, networkACLAssocItem{
+			NetworkACLAssociationID: aid,
+			NetworkACLID:            acl.ID,
+		})
+	}
+
+	return networkACLItem{
+		ID:           acl.ID,
+		VPCID:        acl.VPCID,
+		IsDefault:    acl.IsDefault,
+		Associations: networkACLAssocSet{Items: assocs},
+	}
 }
 
 type createImageResponse struct {
@@ -209,6 +242,7 @@ type createImageResponse struct {
 	RequestID string   `xml:"requestId"`
 	ImageID   string   `xml:"imageId"`
 	Name      string   `xml:"name"`
+	State     string   `xml:"imageState"`
 }
 
 type imageUsageReportItem struct {
@@ -301,5 +335,6 @@ type describeNetworkAclsResponse struct {
 	XMLName   xml.Name      `xml:"DescribeNetworkAclsResponse"`
 	Xmlns     string        `xml:"xmlns,attr"`
 	RequestID string        `xml:"requestId"`
+	NextToken string        `xml:"nextToken,omitempty"`
 	Acls      networkACLSet `xml:"networkAclSet"`
 }

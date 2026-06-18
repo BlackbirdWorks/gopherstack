@@ -1,53 +1,76 @@
 package kinesisanalyticsv2
 
+import "context"
+
 // StorageBackend is the interface for the Kinesis Data Analytics v2 in-memory backend.
 type StorageBackend interface {
 	Region() string
 	AccountID() string
 	GenerateApplicationARN(name string) string
 
-	CreateApplication(name, runtimeEnv, serviceRole, description, mode string, tags []Tag) (*Application, error)
-	DescribeApplication(name string) (*Application, error)
-	ListApplications(nextToken string) ([]*Application, string)
-	UpdateApplication(name string, serviceRole, description string) (*Application, error)
-	DeleteApplication(name string) error
-	StartApplication(name string) error
-	StopApplication(name string) error
+	CreateApplication(
+		ctx context.Context, name, runtimeEnv, serviceRole, description, mode string, tags []Tag,
+	) (*Application, error)
+	DescribeApplication(ctx context.Context, name string) (*Application, error)
+	ListApplications(ctx context.Context, nextToken string) ([]*Application, string)
+	UpdateApplication(ctx context.Context, name string, serviceRole, description string) (*Application, error)
+	DeleteApplication(ctx context.Context, name string) error
+	StartApplication(ctx context.Context, name string) error
+	StopApplication(ctx context.Context, name string) error
 
-	CreateApplicationSnapshot(appName, snapshotName string) (*Snapshot, error)
-	DescribeApplicationSnapshot(appName, snapshotName string) (*Snapshot, error)
-	ListApplicationSnapshots(appName, nextToken string) ([]*Snapshot, string, error)
-	DeleteApplicationSnapshot(appName, snapshotName string) error
+	CreateApplicationSnapshot(ctx context.Context, appName, snapshotName string) (*Snapshot, error)
+	DescribeApplicationSnapshot(ctx context.Context, appName, snapshotName string) (*Snapshot, error)
+	ListApplicationSnapshots(ctx context.Context, appName, nextToken string) ([]*Snapshot, string, error)
+	DeleteApplicationSnapshot(ctx context.Context, appName, snapshotName string) error
 
-	TagResource(resourceARN string, tags []Tag) error
-	UntagResource(resourceARN string, tagKeys []string) error
-	ListTagsForResource(resourceARN string) ([]Tag, error)
+	TagResource(ctx context.Context, resourceARN string, tags []Tag) error
+	UntagResource(ctx context.Context, resourceARN string, tagKeys []string) error
+	ListTagsForResource(ctx context.Context, resourceARN string) ([]Tag, error)
 
-	AddApplicationCloudWatchLoggingOption(name string, currentVersionID int64, logStreamARN, roleARN string) error
-	AddApplicationInput(name string, currentVersionID int64, input InputDescription) error
+	AddApplicationCloudWatchLoggingOption(
+		ctx context.Context, name string, currentVersionID int64, logStreamARN, roleARN string,
+	) error
+	AddApplicationInput(ctx context.Context, name string, currentVersionID int64, input InputDescription) error
 	AddApplicationInputProcessingConfiguration(
+		ctx context.Context,
 		name string,
 		currentVersionID int64,
 		inputID string,
 		config *InputProcessingConfigurationDesc,
 	) error
-	AddApplicationOutput(name string, currentVersionID int64, output OutputDescription) error
-	AddApplicationReferenceDataSource(name string, currentVersionID int64, ref ReferenceDataSourceDescription) error
-	AddApplicationVpcConfiguration(name string, currentVersionID int64, vpc VpcConfigurationDescription) error
+	AddApplicationOutput(ctx context.Context, name string, currentVersionID int64, output OutputDescription) error
+	AddApplicationReferenceDataSource(
+		ctx context.Context, name string, currentVersionID int64, ref ReferenceDataSourceDescription,
+	) error
+	AddApplicationVpcConfiguration(
+		ctx context.Context, name string, currentVersionID int64, vpc VpcConfigurationDescription,
+	) error
 
-	DeleteApplicationCloudWatchLoggingOption(name string, currentVersionID int64, loggingOptionID string) error
-	DeleteApplicationInputProcessingConfiguration(name string, currentVersionID int64, inputID string) error
-	DeleteApplicationOutput(name string, currentVersionID int64, outputID string) error
-	DeleteApplicationReferenceDataSource(name string, currentVersionID int64, referenceID string) error
-	DeleteApplicationVpcConfiguration(name string, currentVersionID int64, vpcConfigurationID string) error
+	DeleteApplicationCloudWatchLoggingOption(
+		ctx context.Context, name string, currentVersionID int64, loggingOptionID string,
+	) error
+	DeleteApplicationInputProcessingConfiguration(
+		ctx context.Context, name string, currentVersionID int64, inputID string,
+	) error
+	DeleteApplicationOutput(ctx context.Context, name string, currentVersionID int64, outputID string) error
+	DeleteApplicationReferenceDataSource(
+		ctx context.Context, name string, currentVersionID int64, referenceID string,
+	) error
+	DeleteApplicationVpcConfiguration(
+		ctx context.Context, name string, currentVersionID int64, vpcConfigurationID string,
+	) error
 
-	DescribeApplicationOperation(name, operationID string) (*ApplicationOperation, error)
-	ListApplicationOperations(name, nextToken string) ([]*ApplicationOperation, string, error)
-	DescribeApplicationVersion(name string, versionID int64) (*Application, error)
-	ListApplicationVersions(name, nextToken string) ([]*ApplicationVersionSummary, string, error)
-	RollbackApplication(name string, currentVersionID int64) (*Application, error)
-	UpdateApplicationMaintenanceConfiguration(name string, maintenanceWindowStartTime string) (*Application, error)
-	DiscoverInputSchema(resourceARN, roleARN, inputStartingPosition string) (*DiscoveredSchema, error)
+	DescribeApplicationOperation(ctx context.Context, name, operationID string) (*ApplicationOperation, error)
+	ListApplicationOperations(ctx context.Context, name, nextToken string) ([]*ApplicationOperation, string, error)
+	DescribeApplicationVersion(ctx context.Context, name string, versionID int64) (*Application, error)
+	ListApplicationVersions(ctx context.Context, name, nextToken string) ([]*ApplicationVersionSummary, string, error)
+	RollbackApplication(ctx context.Context, name string, currentVersionID int64) (*Application, error)
+	UpdateApplicationMaintenanceConfiguration(
+		ctx context.Context, name string, maintenanceWindowStartTime string,
+	) (*Application, error)
+	DiscoverInputSchema(
+		ctx context.Context, resourceARN, roleARN, inputStartingPosition string,
+	) (*DiscoveredSchema, error)
 }
 
 // compile-time interface check.

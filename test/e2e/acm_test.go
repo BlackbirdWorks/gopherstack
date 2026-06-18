@@ -4,6 +4,7 @@
 package e2e_test
 
 import (
+	"context"
 	"net/http/httptest"
 	"testing"
 
@@ -17,6 +18,7 @@ func TestACMDashboard(t *testing.T) {
 	stack := newStack(t)
 
 	_, err := stack.ACMHandler.Backend.RequestCertificate(
+		context.Background(),
 		"e2e-test.example.com",
 		"AMAZON_ISSUED",
 		"",

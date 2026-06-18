@@ -64,6 +64,19 @@ func (b *InMemoryBackend) ExpireMFASessionForTest(session string) {
 	}
 }
 
+// ClearConfirmCodeForTest clears a user's stored confirmation code. For testing only.
+func (b *InMemoryBackend) ClearConfirmCodeForTest(poolID, username string) {
+	b.mu.Lock("ClearConfirmCodeForTest")
+	defer b.mu.Unlock()
+
+	if users, ok := b.users[poolID]; ok {
+		if u, ok2 := users[username]; ok2 {
+			u.ConfirmCode = ""
+			u.ConfirmCodeExpiresAt = time.Time{}
+		}
+	}
+}
+
 // ExpireConfirmCodeForTest sets a user's confirmation code expiry to the past. For testing only.
 func (b *InMemoryBackend) ExpireConfirmCodeForTest(poolID, username string) {
 	b.mu.Lock("ExpireConfirmCodeForTest")

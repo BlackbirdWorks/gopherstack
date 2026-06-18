@@ -87,10 +87,12 @@ func (db *InMemoryDB) EnableStream(ctx context.Context, tableName, viewType stri
 		viewType = streamViewTypeNewAndOldImages
 	}
 
+	region := getRegionFromContext(ctx, db)
+
 	table.mu.Lock("EnableStream")
 	table.StreamsEnabled = true
 	table.StreamViewType = viewType
-	table.StreamARN = db.buildStreamARN(tableName)
+	table.StreamARN = db.buildStreamARNInRegion(tableName, region)
 	newARN := table.StreamARN
 	// Initialize the first shard when enabling streams (clearing any prior shard history).
 	table.streamShards = []StreamShard{
@@ -524,49 +526,21 @@ func (db *InMemoryDB) resolveIterator(token string) (string, int64, error) {
 
 // ListStreams returns a list of all enabled streams, optionally filtered by table name.
 // Supports ExclusiveStartStreamArn and Limit for pagination.
+// Only streams whose ARN region matches the request region (from ctx) are returned.
 func (db *InMemoryDB) ListStreams(
-	_ context.Context,
+	ctx context.Context,
 	input *dynamodbstreams.ListStreamsInput,
 ) (*dynamodbstreams.ListStreamsOutput, error) {
 	filterTable := aws.ToString(input.TableName)
 	exclusiveStart := aws.ToString(input.ExclusiveStartStreamArn)
+	requestRegion := getRegionFromContext(ctx, db)
 
 	limit := maxListStreamsLimit
 	if input.Limit != nil && *input.Limit > 0 && int(*input.Limit) < limit {
 		limit = int(*input.Limit)
 	}
 
-	// Snapshot the streamARNIndex under db.mu (read lock). This avoids holding
-	// db.mu while also acquiring table.mu, which would invert the lock order
-	// (EnableStream/DisableStream take table.mu first, then db.mu).
-	type arnEntry struct {
-		table *Table
-		arn   string
-	}
-
-	db.mu.RLock("ListStreams")
-	entries := make([]arnEntry, 0, len(db.streamARNIndex))
-	for a, t := range db.streamARNIndex {
-		entries = append(entries, arnEntry{table: t, arn: a})
-	}
-	db.mu.RUnlock()
-
-	// Collect enabled, filtered streams and sort by ARN for deterministic pagination.
-	var collected []streamListEntry
-	for _, e := range entries {
-		e.table.mu.RLock("ListStreams.table")
-		name := e.table.Name
-		enabled := e.table.StreamsEnabled
-		e.table.mu.RUnlock()
-
-		if !enabled {
-			continue
-		}
-		if filterTable != "" && name != filterTable {
-			continue
-		}
-		collected = append(collected, streamListEntry{tableName: name, arn: e.arn})
-	}
+	collected := db.collectEnabledStreams(requestRegion, filterTable)
 
 	// Sort by ARN for stable pagination.
 	sortStreamListEntries(collected)
@@ -636,9 +610,64 @@ func (db *InMemoryDB) GetRecentEvents(tableName string) []models.StreamRecord {
 	return result
 }
 
-// buildStreamARN generates a stream ARN for the given table using the backend's account and region.
+// collectEnabledStreams snapshots the streamARNIndex and returns entries whose
+// region matches requestRegion and (if non-empty) whose table name matches filterTable.
+func (db *InMemoryDB) collectEnabledStreams(requestRegion, filterTable string) []streamListEntry {
+	type arnEntry struct {
+		table *Table
+		arn   string
+	}
+
+	// Snapshot under db.mu (read lock). This avoids holding db.mu while also
+	// acquiring table.mu, which would invert the lock order.
+	db.mu.RLock("ListStreams")
+	entries := make([]arnEntry, 0, len(db.streamARNIndex))
+	for a, t := range db.streamARNIndex {
+		entries = append(entries, arnEntry{table: t, arn: a})
+	}
+	db.mu.RUnlock()
+
+	var collected []streamListEntry
+	for _, e := range entries {
+		if arnRegion := streamARNRegion(e.arn); arnRegion != "" && arnRegion != requestRegion {
+			continue
+		}
+
+		e.table.mu.RLock("ListStreams.table")
+		name := e.table.Name
+		enabled := e.table.StreamsEnabled
+		e.table.mu.RUnlock()
+
+		if !enabled || (filterTable != "" && name != filterTable) {
+			continue
+		}
+
+		collected = append(collected, streamListEntry{tableName: name, arn: e.arn})
+	}
+
+	return collected
+}
+
+// buildStreamARN generates a stream ARN for the given table using the backend's default region.
 func (db *InMemoryDB) buildStreamARN(tableName string) string {
-	return arn.Build("dynamodb", db.defaultRegion, db.accountID, "table/"+tableName+"/stream/2024-01-01T00:00:00.000")
+	return db.buildStreamARNInRegion(tableName, db.defaultRegion)
+}
+
+// buildStreamARNInRegion generates a stream ARN for the given table in a specific region.
+func (db *InMemoryDB) buildStreamARNInRegion(tableName, region string) string {
+	return arn.Build("dynamodb", region, db.accountID, "table/"+tableName+"/stream/2024-01-01T00:00:00.000")
+}
+
+// streamARNRegion extracts the region from a DynamoDB stream ARN
+// (arn:aws:dynamodb:region:account:table/T/stream/label). Returns "" if unparseable.
+func streamARNRegion(streamARN string) string {
+	const regionIdx = 3
+	parts := strings.Split(streamARN, ":")
+	if len(parts) > regionIdx {
+		return parts[regionIdx]
+	}
+
+	return ""
 }
 
 // buildSDKRecord converts an internal StreamRecord to the AWS SDK type.

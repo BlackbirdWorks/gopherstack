@@ -2,6 +2,7 @@ package efs_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -109,18 +110,21 @@ func TestRefinement1_Reset(t *testing.T) {
 		{
 			name: "resets_file_systems",
 			setup: func(b *efs.InMemoryBackend) {
-				_, err := b.CreateFileSystem(fsReq("t1"))
+				_, err := b.CreateFileSystem(context.Background(), fsReq("t1"))
 				require.NoError(t, err)
-				_, err = b.CreateFileSystem(fsReq("t2"))
+				_, err = b.CreateFileSystem(context.Background(), fsReq("t2"))
 				require.NoError(t, err)
 			},
 		},
 		{
 			name: "resets_mount_targets",
 			setup: func(b *efs.InMemoryBackend) {
-				fs, err := b.CreateFileSystem(fsReq("t1"))
+				fs, err := b.CreateFileSystem(context.Background(), fsReq("t1"))
 				require.NoError(t, err)
-				_, err = b.CreateMountTarget(mtReq(fs.FileSystemID, "subnet-1"))
+				_, err = b.CreateMountTarget(
+					context.Background(),
+					mtReq(fs.FileSystemID, "subnet-1"),
+				)
 				require.NoError(t, err)
 			},
 		},
@@ -234,7 +238,7 @@ func TestRefinement1_ErrValidation(t *testing.T) {
 		{
 			name: "bad_performance_mode",
 			perform: func(b *efs.InMemoryBackend) error {
-				_, err := b.CreateFileSystem(efs.CreateFileSystemRequest{
+				_, err := b.CreateFileSystem(context.Background(), efs.CreateFileSystemRequest{
 					CreationToken:   "tok",
 					PerformanceMode: "badMode",
 				})
@@ -245,7 +249,7 @@ func TestRefinement1_ErrValidation(t *testing.T) {
 		{
 			name: "bad_throughput_mode",
 			perform: func(b *efs.InMemoryBackend) error {
-				_, err := b.CreateFileSystem(efs.CreateFileSystemRequest{
+				_, err := b.CreateFileSystem(context.Background(), efs.CreateFileSystemRequest{
 					CreationToken:  "tok",
 					ThroughputMode: "badMode",
 				})
@@ -289,7 +293,7 @@ func TestRefinement1_PerformanceModeValidation(t *testing.T) {
 
 			b := newRefinementBackend()
 			token := "token-perf-" + tt.name + "-" + string(rune('a'+i))
-			_, err := b.CreateFileSystem(efs.CreateFileSystemRequest{
+			_, err := b.CreateFileSystem(context.Background(), efs.CreateFileSystemRequest{
 				CreationToken:   token,
 				PerformanceMode: tt.mode,
 			})
@@ -326,7 +330,7 @@ func TestRefinement1_ThroughputModeValidation(t *testing.T) {
 
 			b := newRefinementBackend()
 			token := "token-thru-" + tt.name + "-" + string(rune('a'+i))
-			_, err := b.CreateFileSystem(efs.CreateFileSystemRequest{
+			_, err := b.CreateFileSystem(context.Background(), efs.CreateFileSystemRequest{
 				CreationToken:            token,
 				ThroughputMode:           tt.mode,
 				ProvisionedThroughputMib: tt.provisionedThroughputMib,
@@ -353,7 +357,7 @@ func TestRefinement1_ARNIndexes(t *testing.T) {
 		{
 			name: "file_system_arn_indexed",
 			perform: func(b *efs.InMemoryBackend) (string, error) {
-				fs, err := b.CreateFileSystem(fsReq("tok-arn"))
+				fs, err := b.CreateFileSystem(context.Background(), fsReq("tok-arn"))
 				if err != nil {
 					return "", err
 				}
@@ -365,11 +369,11 @@ func TestRefinement1_ARNIndexes(t *testing.T) {
 		{
 			name: "mount_target_arn_indexed",
 			perform: func(b *efs.InMemoryBackend) (string, error) {
-				fs, err := b.CreateFileSystem(fsReq("tok-mt-arn"))
+				fs, err := b.CreateFileSystem(context.Background(), fsReq("tok-mt-arn"))
 				if err != nil {
 					return "", err
 				}
-				mt, err := b.CreateMountTarget(mtReq(fs.FileSystemID, "sn-1"))
+				mt, err := b.CreateMountTarget(context.Background(), mtReq(fs.FileSystemID, "sn-1"))
 				if err != nil {
 					return "", err
 				}
@@ -381,11 +385,11 @@ func TestRefinement1_ARNIndexes(t *testing.T) {
 		{
 			name: "access_point_arn_indexed",
 			perform: func(b *efs.InMemoryBackend) (string, error) {
-				fs, err := b.CreateFileSystem(fsReq("tok-ap-arn"))
+				fs, err := b.CreateFileSystem(context.Background(), fsReq("tok-ap-arn"))
 				if err != nil {
 					return "", err
 				}
-				ap, err := b.CreateAccessPoint(apReq(fs.FileSystemID))
+				ap, err := b.CreateAccessPoint(context.Background(), apReq(fs.FileSystemID))
 				if err != nil {
 					return "", err
 				}
@@ -467,10 +471,16 @@ func TestRefinement1_SortedDescribeMountTargets(t *testing.T) {
 			fsID := createFS(t, h, "tok-mt-sort-"+tt.name)
 
 			for i := range tt.count {
-				rec := doRESTRefinement(t, h, http.MethodPost, "/2015-02-01/mount-targets", map[string]any{
-					"FileSystemId": fsID,
-					"SubnetId":     "sn-" + string(rune('a'+i)),
-				})
+				rec := doRESTRefinement(
+					t,
+					h,
+					http.MethodPost,
+					"/2015-02-01/mount-targets",
+					map[string]any{
+						"FileSystemId": fsID,
+						"SubnetId":     "sn-" + string(rune('a'+i)),
+					},
+				)
 				require.Equal(t, http.StatusOK, rec.Code)
 			}
 
@@ -510,9 +520,15 @@ func TestRefinement1_SortedDescribeAccessPoints(t *testing.T) {
 			fsID := createFS(t, h, "tok-ap-sort-"+tt.name)
 
 			for range tt.count {
-				rec := doRESTRefinement(t, h, http.MethodPost, "/2015-02-01/access-points", map[string]any{
-					"FileSystemId": fsID,
-				})
+				rec := doRESTRefinement(
+					t,
+					h,
+					http.MethodPost,
+					"/2015-02-01/access-points",
+					map[string]any{
+						"FileSystemId": fsID,
+					},
+				)
 				require.Equal(t, http.StatusOK, rec.Code)
 			}
 
@@ -602,37 +618,40 @@ func TestRefinement1_DeleteFileSystem_RequiresEmptyState(t *testing.T) {
 			t.Parallel()
 
 			b := newRefinementBackend()
-			fs, err := b.CreateFileSystem(fsReq("tok-del-" + tt.name))
+			fs, err := b.CreateFileSystem(context.Background(), fsReq("tok-del-"+tt.name))
 			require.NoError(t, err)
 
 			var mtIDs []string
 			for i := range tt.numMTs {
-				mt, mtErr := b.CreateMountTarget(mtReq(fs.FileSystemID, "sn-"+string(rune('a'+i))))
+				mt, mtErr := b.CreateMountTarget(
+					context.Background(),
+					mtReq(fs.FileSystemID, "sn-"+string(rune('a'+i))),
+				)
 				require.NoError(t, mtErr)
 				mtIDs = append(mtIDs, mt.MountTargetID)
 			}
 
 			var apIDs []string
 			for range tt.numAPs {
-				ap, apErr := b.CreateAccessPoint(apReq(fs.FileSystemID))
+				ap, apErr := b.CreateAccessPoint(context.Background(), apReq(fs.FileSystemID))
 				require.NoError(t, apErr)
 				apIDs = append(apIDs, ap.AccessPointID)
 			}
 
 			// First delete attempt.
-			err = b.DeleteFileSystem(fs.FileSystemID)
+			err = b.DeleteFileSystem(context.Background(), fs.FileSystemID)
 			if tt.wantErrOnFull {
 				require.ErrorIs(t, err, efs.ErrFileSystemInUse)
 
 				// Clean up dependents and retry.
 				for _, mtID := range mtIDs {
-					require.NoError(t, b.DeleteMountTarget(mtID))
+					require.NoError(t, b.DeleteMountTarget(context.Background(), mtID))
 				}
 				for _, apID := range apIDs {
-					require.NoError(t, b.DeleteAccessPoint(apID))
+					require.NoError(t, b.DeleteAccessPoint(context.Background(), apID))
 				}
 
-				err = b.DeleteFileSystem(fs.FileSystemID)
+				err = b.DeleteFileSystem(context.Background(), fs.FileSystemID)
 				require.NoError(t, err)
 			} else {
 				require.NoError(t, err)
@@ -660,7 +679,7 @@ func TestRefinement1_DescribeFileSystems_FilterMiss_EmptyList(t *testing.T) {
 			t.Parallel()
 
 			b := newRefinementBackend()
-			_, _, err := b.DescribeFileSystems(tt.id, "", "", 0)
+			_, _, err := b.DescribeFileSystems(context.Background(), tt.id, "", "", 0)
 			require.ErrorIs(t, err, efs.ErrNotFound)
 		})
 	}
@@ -675,7 +694,10 @@ func TestRefinement1_PutFileSystemPolicy(t *testing.T) {
 		policy string
 	}{
 		{name: "set_policy", policy: `{"Version":"2012-10-17","Statement":[]}`},
-		{name: "overwrite_policy", policy: `{"Version":"2012-10-17","Statement":[{"Effect":"Allow"}]}`},
+		{
+			name:   "overwrite_policy",
+			policy: `{"Version":"2012-10-17","Statement":[{"Effect":"Allow"}]}`,
+		},
 	}
 
 	for _, tt := range tests {
@@ -811,7 +833,7 @@ func TestRefinement1_TagResource_ARNIndex(t *testing.T) {
 			t.Parallel()
 
 			b := newRefinementBackend()
-			fs, err := b.CreateFileSystem(fsReq("tok-tag-arn-" + tt.name))
+			fs, err := b.CreateFileSystem(context.Background(), fsReq("tok-tag-arn-"+tt.name))
 			require.NoError(t, err)
 
 			resourceID := fs.FileSystemID
@@ -819,10 +841,10 @@ func TestRefinement1_TagResource_ARNIndex(t *testing.T) {
 				resourceID = fs.FileSystemArn
 			}
 
-			err = b.TagResource(resourceID, map[string]string{"env": "test"})
+			err = b.TagResource(context.Background(), resourceID, map[string]string{"env": "test"})
 			require.NoError(t, err)
 
-			tags, err := b.ListTagsForResource(resourceID)
+			tags, err := b.ListTagsForResource(context.Background(), resourceID)
 			require.NoError(t, err)
 			assert.Equal(t, "test", tags["env"])
 		})
@@ -907,24 +929,32 @@ func TestRefinement1_ExportCountHelpers(t *testing.T) {
 			t.Parallel()
 
 			b := newRefinementBackend()
-			fs, err := b.CreateFileSystem(fsReq("tok-counts-" + tt.name))
+			fs, err := b.CreateFileSystem(context.Background(), fsReq("tok-counts-"+tt.name))
 			require.NoError(t, err)
 
-			_, err = b.CreateMountTarget(mtReq(fs.FileSystemID, "sn-1"))
+			_, err = b.CreateMountTarget(context.Background(), mtReq(fs.FileSystemID, "sn-1"))
 			require.NoError(t, err)
 
-			_, err = b.CreateAccessPoint(apReq(fs.FileSystemID))
+			_, err = b.CreateAccessPoint(context.Background(), apReq(fs.FileSystemID))
 			require.NoError(t, err)
 
-			_, err = b.CreateReplicationConfiguration(fs.FileSystemID, []efs.ReplicationDestination{
-				{Region: "us-west-2"},
-			})
+			_, err = b.CreateReplicationConfiguration(
+				context.Background(),
+				fs.FileSystemID,
+				[]efs.ReplicationDestination{
+					{Region: "us-west-2"},
+				},
+			)
 			require.NoError(t, err)
 
-			err = b.PutBackupPolicy(fs.FileSystemID, "ENABLED")
+			err = b.PutBackupPolicy(context.Background(), fs.FileSystemID, "ENABLED")
 			require.NoError(t, err)
 
-			err = b.PutFileSystemPolicy(fs.FileSystemID, `{"Version":"2012-10-17"}`)
+			err = b.PutFileSystemPolicy(
+				context.Background(),
+				fs.FileSystemID,
+				`{"Version":"2012-10-17"}`,
+			)
 			require.NoError(t, err)
 
 			assert.Equal(t, tt.wantFS, efs.FileSystemCount(b))
@@ -955,13 +985,13 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 			t.Parallel()
 
 			b := newRefinementBackend()
-			fs, err := b.CreateFileSystem(fsReq("tok-persist-" + tt.name))
+			fs, err := b.CreateFileSystem(context.Background(), fsReq("tok-persist-"+tt.name))
 			require.NoError(t, err)
 
-			_, err = b.CreateMountTarget(mtReq(fs.FileSystemID, "sn-1"))
+			_, err = b.CreateMountTarget(context.Background(), mtReq(fs.FileSystemID, "sn-1"))
 			require.NoError(t, err)
 
-			_, err = b.CreateAccessPoint(apReq(fs.FileSystemID))
+			_, err = b.CreateAccessPoint(context.Background(), apReq(fs.FileSystemID))
 			require.NoError(t, err)
 
 			snap := b.Snapshot()

@@ -222,11 +222,10 @@ type DecryptOutput struct {
 // GenerateDataKeyInput is the request payload for GenerateDataKey.
 type GenerateDataKeyInput struct {
 	EncryptionContext map[string]string `json:"EncryptionContext,omitempty"`
-	// GrantTokens is an optional list of grant tokens used to authorize the operation.
-	GrantTokens   []string `json:"GrantTokens,omitempty"`
-	KeyID         string   `json:"KeyId"`
-	KeySpec       string   `json:"KeySpec,omitempty"`
-	NumberOfBytes *int32   `json:"NumberOfBytes,omitempty"`
+	NumberOfBytes     *int32            `json:"NumberOfBytes,omitempty"`
+	KeyID             string            `json:"KeyId"`
+	KeySpec           string            `json:"KeySpec,omitempty"`
+	GrantTokens       []string          `json:"GrantTokens,omitempty"`
 }
 
 // GenerateDataKeyOutput is the response payload for GenerateDataKey.
@@ -470,11 +469,10 @@ type ListRetirableGrantsInput struct {
 // GenerateDataKeyWithoutPlaintextInput is the request payload for GenerateDataKeyWithoutPlaintext.
 type GenerateDataKeyWithoutPlaintextInput struct {
 	EncryptionContext map[string]string `json:"EncryptionContext,omitempty"`
-	// GrantTokens is an optional list of grant tokens used to authorize the operation.
-	GrantTokens   []string `json:"GrantTokens,omitempty"`
-	KeyID         string   `json:"KeyId"`
-	KeySpec       string   `json:"KeySpec,omitempty"`
-	NumberOfBytes *int32   `json:"NumberOfBytes,omitempty"`
+	NumberOfBytes     *int32            `json:"NumberOfBytes,omitempty"`
+	KeyID             string            `json:"KeyId"`
+	KeySpec           string            `json:"KeySpec,omitempty"`
+	GrantTokens       []string          `json:"GrantTokens,omitempty"`
 }
 
 // GenerateDataKeyWithoutPlaintextOutput is the response payload for GenerateDataKeyWithoutPlaintext.

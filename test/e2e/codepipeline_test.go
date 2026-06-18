@@ -4,6 +4,7 @@
 package e2e_test
 
 import (
+	"context"
 	"net/http/httptest"
 	"testing"
 
@@ -19,6 +20,7 @@ func TestCodePipelineDashboard(t *testing.T) {
 	stack := newStack(t)
 
 	_, err := stack.CodePipelineHandler.Backend.CreatePipeline(
+		context.Background(),
 		codepipelinebackend.PipelineDeclaration{
 			Name:    "e2e-test-pipeline",
 			RoleArn: "arn:aws:iam::000000000000:role/pipeline-role",

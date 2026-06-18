@@ -1,6 +1,7 @@
 package scheduler_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -444,7 +445,7 @@ func TestSchedulerBackend_Reset(t *testing.T) {
 
 	b := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
 
-	_, err := b.CreateSchedule("s1", "",
+	_, err := b.CreateSchedule(context.Background(), "s1", "",
 		"rate(1 minute)",
 		"",
 		"",
@@ -452,14 +453,14 @@ func TestSchedulerBackend_Reset(t *testing.T) {
 		"ENABLED", scheduler.FlexibleTimeWindow{Mode: "OFF"})
 	require.NoError(t, err)
 
-	_, err = b.CreateScheduleGroup("g1", "", nil)
+	_, err = b.CreateScheduleGroup(context.Background(), "g1", "", nil)
 	require.NoError(t, err)
 
 	b.Reset()
 
-	schedules, _ := b.ListSchedules("", "", "", "", 0)
+	schedules, _ := b.ListSchedules(context.Background(), "", "", "", "", 0)
 	assert.Empty(t, schedules)
-	groups, _ := b.ListScheduleGroups("", "", 0)
+	groups, _ := b.ListScheduleGroups(context.Background(), "", "", 0)
 	require.Len(t, groups, 1)
 	assert.Equal(t, "default", groups[0].Name)
 }
@@ -469,7 +470,7 @@ func TestSchedulerBackend_SnapshotRestore_ScheduleGroups(t *testing.T) {
 
 	b := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
 
-	_, err := b.CreateScheduleGroup("production", "", map[string]string{"env": "prod"})
+	_, err := b.CreateScheduleGroup(context.Background(), "production", "", map[string]string{"env": "prod"})
 	require.NoError(t, err)
 
 	snap := b.Snapshot()
@@ -478,12 +479,12 @@ func TestSchedulerBackend_SnapshotRestore_ScheduleGroups(t *testing.T) {
 	fresh := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
 	require.NoError(t, fresh.Restore(snap))
 
-	g, err := fresh.GetScheduleGroup("production")
+	g, err := fresh.GetScheduleGroup(context.Background(), "production")
 	require.NoError(t, err)
 	assert.Equal(t, "production", g.Name)
 	assert.Equal(t, "ACTIVE", g.State)
 
-	def, err := fresh.GetScheduleGroup("default")
+	def, err := fresh.GetScheduleGroup(context.Background(), "default")
 	require.NoError(t, err)
 	assert.Equal(t, "default", def.Name)
 }

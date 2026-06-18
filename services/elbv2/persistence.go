@@ -9,7 +9,6 @@ import (
 // errBackendNotInMemory is returned when the Handler's backend cannot be cast to *InMemoryBackend.
 var errBackendNotInMemory = errors.New("elbv2: backend is not *InMemoryBackend")
 
-//nolint:govet // large struct
 type backendSnapshot struct {
 	LoadBalancers map[string]*LoadBalancer        `json:"loadBalancers"`
 	TargetGroups  map[string]*TargetGroup         `json:"targetGroups"`
@@ -17,9 +16,9 @@ type backendSnapshot struct {
 	Rules         map[string]*Rule                `json:"rules"`
 	TrustStores   map[string]*TrustStore          `json:"trustStores"`
 	TargetReadyAt map[string]map[string]time.Time `json:"targetReadyAt"`
-	RuleCounter   int                             `json:"ruleCounter"`
 	AccountID     string                          `json:"accountID"`
 	Region        string                          `json:"region"`
+	RuleCounter   int                             `json:"ruleCounter"`
 }
 
 // Snapshot serialises the backend state to JSON.

@@ -1,6 +1,7 @@
 package sagemaker
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"sort"
@@ -55,15 +56,20 @@ type CreateEdgePackagingJobOptions struct {
 }
 
 // CreateEdgePackagingJob creates a SageMaker edge packaging job.
-func (b *InMemoryBackend) CreateEdgePackagingJob(opts CreateEdgePackagingJobOptions) (*EdgePackagingJob, error) {
+func (b *InMemoryBackend) CreateEdgePackagingJob(
+	ctx context.Context,
+	opts CreateEdgePackagingJobOptions,
+) (*EdgePackagingJob, error) {
 	b.mu.Lock("CreateEdgePackagingJob")
 	defer b.mu.Unlock()
+
+	region := getRegion(ctx, b.region)
 
 	if opts.EdgePackagingJobName == "" {
 		return nil, fmt.Errorf("%w: EdgePackagingJobName is required", ErrValidation)
 	}
 
-	if _, ok := b.edgePackagingJobs[opts.EdgePackagingJobName]; ok {
+	if _, ok := b.edgePackagingJobsStore(region)[opts.EdgePackagingJobName]; ok {
 		return nil, fmt.Errorf(
 			"%w: edge packaging job %q already exists",
 			ErrEdgePackagingJobAlreadyExists,
@@ -71,7 +77,7 @@ func (b *InMemoryBackend) CreateEdgePackagingJob(opts CreateEdgePackagingJobOpti
 		)
 	}
 
-	jobARN := arn.Build("sagemaker", b.region, b.accountID, "edge-packaging-job/"+opts.EdgePackagingJobName)
+	jobARN := arn.Build("sagemaker", region, b.accountID, "edge-packaging-job/"+opts.EdgePackagingJobName)
 	now := time.Now()
 
 	j := &EdgePackagingJob{
@@ -86,17 +92,19 @@ func (b *InMemoryBackend) CreateEdgePackagingJob(opts CreateEdgePackagingJobOpti
 		CreationTime:           now,
 		LastModifiedTime:       now,
 	}
-	b.edgePackagingJobs[opts.EdgePackagingJobName] = j
+	b.edgePackagingJobsStore(region)[opts.EdgePackagingJobName] = j
 
 	return cloneEdgePackagingJob(j), nil
 }
 
 // DescribeEdgePackagingJob returns an edge packaging job by name.
-func (b *InMemoryBackend) DescribeEdgePackagingJob(name string) (*EdgePackagingJob, error) {
+func (b *InMemoryBackend) DescribeEdgePackagingJob(ctx context.Context, name string) (*EdgePackagingJob, error) {
 	b.mu.RLock("DescribeEdgePackagingJob")
 	defer b.mu.RUnlock()
 
-	j, ok := b.edgePackagingJobs[name]
+	region := getRegion(ctx, b.region)
+
+	j, ok := b.edgePackagingJobsStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: edge packaging job %q not found", ErrEdgePackagingJobNotFound, name)
 	}
@@ -105,11 +113,13 @@ func (b *InMemoryBackend) DescribeEdgePackagingJob(name string) (*EdgePackagingJ
 }
 
 // StopEdgePackagingJob stops an edge packaging job.
-func (b *InMemoryBackend) StopEdgePackagingJob(name string) error {
+func (b *InMemoryBackend) StopEdgePackagingJob(ctx context.Context, name string) error {
 	b.mu.Lock("StopEdgePackagingJob")
 	defer b.mu.Unlock()
 
-	j, ok := b.edgePackagingJobs[name]
+	region := getRegion(ctx, b.region)
+
+	j, ok := b.edgePackagingJobsStore(region)[name]
 	if !ok {
 		return fmt.Errorf("%w: edge packaging job %q not found", ErrEdgePackagingJobNotFound, name)
 	}
@@ -128,15 +138,18 @@ type ListEdgePackagingJobsFilter struct {
 
 // ListEdgePackagingJobs returns edge packaging jobs with optional filters.
 func (b *InMemoryBackend) ListEdgePackagingJobs(
+	ctx context.Context,
 	nextToken string,
 	filter ListEdgePackagingJobsFilter,
 ) ([]*EdgePackagingJob, string) {
 	b.mu.RLock("ListEdgePackagingJobs")
 	defer b.mu.RUnlock()
 
+	region := getRegion(ctx, b.region)
+
 	var keys []string
 
-	for name, j := range b.edgePackagingJobs {
+	for name, j := range b.edgePackagingJobsStore(region) {
 		if filter.StatusEquals != "" && j.EdgePackagingJobStatus != filter.StatusEquals {
 			continue
 		}
@@ -163,9 +176,11 @@ func (b *InMemoryBackend) ListEdgePackagingJobs(
 
 	end := min(start+sagemakerDefaultPageSize, len(keys))
 
+	store := b.edgePackagingJobsStore(region)
+
 	out := make([]*EdgePackagingJob, 0, end-start)
 	for _, k := range keys[start:end] {
-		out = append(out, cloneEdgePackagingJob(b.edgePackagingJobs[k]))
+		out = append(out, cloneEdgePackagingJob(store[k]))
 	}
 
 	next := ""
@@ -218,16 +233,19 @@ type CreateInferenceRecommendationsJobOptions struct {
 
 // CreateInferenceRecommendationsJob creates an inference recommendations job.
 func (b *InMemoryBackend) CreateInferenceRecommendationsJob(
+	ctx context.Context,
 	opts CreateInferenceRecommendationsJobOptions,
 ) (*InferenceRecommendationsJob, error) {
 	b.mu.Lock("CreateInferenceRecommendationsJob")
 	defer b.mu.Unlock()
 
+	region := getRegion(ctx, b.region)
+
 	if opts.JobName == "" {
 		return nil, fmt.Errorf("%w: JobName is required", ErrValidation)
 	}
 
-	if _, ok := b.inferenceRecommendationsJobs[opts.JobName]; ok {
+	if _, ok := b.inferenceRecommendationsJobsStore(region)[opts.JobName]; ok {
 		return nil, fmt.Errorf(
 			"%w: inference recommendations job %q already exists",
 			ErrInferenceRecommendationsJobAlreadyExists,
@@ -235,7 +253,7 @@ func (b *InMemoryBackend) CreateInferenceRecommendationsJob(
 		)
 	}
 
-	jobARN := arn.Build("sagemaker", b.region, b.accountID, "inference-recommendations-job/"+opts.JobName)
+	jobARN := arn.Build("sagemaker", region, b.accountID, "inference-recommendations-job/"+opts.JobName)
 	now := time.Now()
 
 	j := &InferenceRecommendationsJob{
@@ -249,17 +267,22 @@ func (b *InMemoryBackend) CreateInferenceRecommendationsJob(
 		CreationTime:     now,
 		LastModifiedTime: now,
 	}
-	b.inferenceRecommendationsJobs[opts.JobName] = j
+	b.inferenceRecommendationsJobsStore(region)[opts.JobName] = j
 
 	return cloneInferenceRecommendationsJob(j), nil
 }
 
 // DescribeInferenceRecommendationsJob returns an inference recommendations job by name.
-func (b *InMemoryBackend) DescribeInferenceRecommendationsJob(name string) (*InferenceRecommendationsJob, error) {
+func (b *InMemoryBackend) DescribeInferenceRecommendationsJob(
+	ctx context.Context,
+	name string,
+) (*InferenceRecommendationsJob, error) {
 	b.mu.RLock("DescribeInferenceRecommendationsJob")
 	defer b.mu.RUnlock()
 
-	j, ok := b.inferenceRecommendationsJobs[name]
+	region := getRegion(ctx, b.region)
+
+	j, ok := b.inferenceRecommendationsJobsStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: inference recommendations job %q not found",
@@ -272,11 +295,13 @@ func (b *InMemoryBackend) DescribeInferenceRecommendationsJob(name string) (*Inf
 }
 
 // StopInferenceRecommendationsJob stops an inference recommendations job.
-func (b *InMemoryBackend) StopInferenceRecommendationsJob(name string) error {
+func (b *InMemoryBackend) StopInferenceRecommendationsJob(ctx context.Context, name string) error {
 	b.mu.Lock("StopInferenceRecommendationsJob")
 	defer b.mu.Unlock()
 
-	j, ok := b.inferenceRecommendationsJobs[name]
+	region := getRegion(ctx, b.region)
+
+	j, ok := b.inferenceRecommendationsJobsStore(region)[name]
 	if !ok {
 		return fmt.Errorf(
 			"%w: inference recommendations job %q not found",
@@ -292,41 +317,20 @@ func (b *InMemoryBackend) StopInferenceRecommendationsJob(name string) error {
 }
 
 // ListInferenceRecommendationsJobs returns inference recommendations jobs.
-func (b *InMemoryBackend) ListInferenceRecommendationsJobs(nextToken string) ([]*InferenceRecommendationsJob, string) {
+func (b *InMemoryBackend) ListInferenceRecommendationsJobs(
+	ctx context.Context,
+	nextToken string,
+) ([]*InferenceRecommendationsJob, string) {
 	b.mu.RLock("ListInferenceRecommendationsJobs")
 	defer b.mu.RUnlock()
 
-	keys := make([]string, 0, len(b.inferenceRecommendationsJobs))
-	for k := range b.inferenceRecommendationsJobs {
-		keys = append(keys, k)
-	}
+	region := getRegion(ctx, b.region)
 
-	sort.Strings(keys)
-
-	start := 0
-	if nextToken != "" {
-		for i, k := range keys {
-			if k == nextToken {
-				start = i
-
-				break
-			}
-		}
-	}
-
-	end := min(start+sagemakerDefaultPageSize, len(keys))
-
-	out := make([]*InferenceRecommendationsJob, 0, end-start)
-	for _, k := range keys[start:end] {
-		out = append(out, cloneInferenceRecommendationsJob(b.inferenceRecommendationsJobs[k]))
-	}
-
-	next := ""
-	if end < len(keys) {
-		next = keys[end]
-	}
-
-	return out, next
+	return sagemakerListKeyPaged(
+		b.inferenceRecommendationsJobsStore(region),
+		nextToken,
+		cloneInferenceRecommendationsJob,
+	)
 }
 
 // ---------------------------------------------------------------------------
@@ -334,13 +338,18 @@ func (b *InMemoryBackend) ListInferenceRecommendationsJobs(nextToken string) ([]
 // ---------------------------------------------------------------------------
 
 // UpdateUserProfile updates a user profile in a domain. Returns the updated profile.
-func (b *InMemoryBackend) UpdateUserProfile(domainID, userProfileName string) (*UserProfile, error) {
+func (b *InMemoryBackend) UpdateUserProfile(
+	ctx context.Context,
+	domainID, userProfileName string,
+) (*UserProfile, error) {
 	b.mu.Lock("UpdateUserProfile")
 	defer b.mu.Unlock()
 
+	region := getRegion(ctx, b.region)
+
 	key := userProfileKey{DomainID: domainID, UserProfileName: userProfileName}
 
-	up, ok := b.userProfiles[key]
+	up, ok := b.userProfilesStore(region)[key]
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: user profile %q not found in domain %q",
@@ -356,13 +365,15 @@ func (b *InMemoryBackend) UpdateUserProfile(domainID, userProfileName string) (*
 }
 
 // UpdateSpace updates a space in a domain. Returns the updated space.
-func (b *InMemoryBackend) UpdateSpace(domainID, spaceName string) (*Space, error) {
+func (b *InMemoryBackend) UpdateSpace(ctx context.Context, domainID, spaceName string) (*Space, error) {
 	b.mu.Lock("UpdateSpace")
 	defer b.mu.Unlock()
 
+	region := getRegion(ctx, b.region)
+
 	key := spaceKey(domainID, spaceName)
 
-	s, ok := b.spaces[key]
+	s, ok := b.spacesStore(region)[key]
 	if !ok {
 		return nil, fmt.Errorf("%w: space %q not found in domain %q", ErrSpaceNotFound, spaceName, domainID)
 	}
@@ -373,16 +384,21 @@ func (b *InMemoryBackend) UpdateSpace(domainID, spaceName string) (*Space, error
 }
 
 // UpdateModelPackage updates the approval status of a model package (by name or ARN).
-func (b *InMemoryBackend) UpdateModelPackage(nameOrArn, approvalStatus string) (*ModelPackage, error) {
+func (b *InMemoryBackend) UpdateModelPackage(
+	ctx context.Context,
+	nameOrArn, approvalStatus string,
+) (*ModelPackage, error) {
 	b.mu.Lock("UpdateModelPackage")
 	defer b.mu.Unlock()
 
+	region := getRegion(ctx, b.region)
+
 	arnStr := nameOrArn
-	if v, ok := b.modelPackageARNIndex[nameOrArn]; ok {
+	if v, ok := b.modelPackageARNIndexStore(region)[nameOrArn]; ok {
 		arnStr = v
 	}
 
-	mp, ok := b.modelPackages[arnStr]
+	mp, ok := b.modelPackagesStore(region)[arnStr]
 	if !ok {
 		return nil, fmt.Errorf("%w: model package %q not found", ErrModelPackageNotFound, nameOrArn)
 	}
@@ -395,11 +411,16 @@ func (b *InMemoryBackend) UpdateModelPackage(nameOrArn, approvalStatus string) (
 }
 
 // UpdateMlflowTrackingServer updates an MLflow tracking server.
-func (b *InMemoryBackend) UpdateMlflowTrackingServer(name, mlflowVersion string) (*MlflowTrackingServer, error) {
+func (b *InMemoryBackend) UpdateMlflowTrackingServer(
+	ctx context.Context,
+	name, mlflowVersion string,
+) (*MlflowTrackingServer, error) {
 	b.mu.Lock("UpdateMlflowTrackingServer")
 	defer b.mu.Unlock()
 
-	s, ok := b.mlflowTrackingServers[name]
+	region := getRegion(ctx, b.region)
+
+	s, ok := b.mlflowTrackingServersStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: MLflow tracking server %q not found", ErrMlflowTrackingServerNotFound, name)
 	}
@@ -418,318 +439,106 @@ func (b *InMemoryBackend) UpdateMlflowTrackingServer(name, mlflowVersion string)
 // ---------------------------------------------------------------------------
 
 // ListMlflowTrackingServers returns all MLflow tracking servers.
-func (b *InMemoryBackend) ListMlflowTrackingServers(nextToken string) ([]*MlflowTrackingServer, string) {
+func (b *InMemoryBackend) ListMlflowTrackingServers(
+	ctx context.Context,
+	nextToken string,
+) ([]*MlflowTrackingServer, string) {
 	b.mu.RLock("ListMlflowTrackingServers")
 	defer b.mu.RUnlock()
 
-	keys := make([]string, 0, len(b.mlflowTrackingServers))
-	for k := range b.mlflowTrackingServers {
-		keys = append(keys, k)
-	}
+	region := getRegion(ctx, b.region)
 
-	sort.Strings(keys)
-
-	start := 0
-	if nextToken != "" {
-		for i, k := range keys {
-			if k == nextToken {
-				start = i
-
-				break
-			}
-		}
-	}
-
-	end := min(start+sagemakerDefaultPageSize, len(keys))
-
-	out := make([]*MlflowTrackingServer, 0, end-start)
-	for _, k := range keys[start:end] {
-		out = append(out, cloneMlflowTrackingServer(b.mlflowTrackingServers[k]))
-	}
-
-	next := ""
-	if end < len(keys) {
-		next = keys[end]
-	}
-
-	return out, next
+	return sagemakerListKeyPaged(b.mlflowTrackingServersStore(region), nextToken, cloneMlflowTrackingServer)
 }
 
 // ListModelCards returns all model cards.
-func (b *InMemoryBackend) ListModelCards(nextToken string) ([]*ModelCard, string) {
+func (b *InMemoryBackend) ListModelCards(ctx context.Context, nextToken string) ([]*ModelCard, string) {
 	b.mu.RLock("ListModelCards")
 	defer b.mu.RUnlock()
 
-	keys := make([]string, 0, len(b.modelCards))
-	for k := range b.modelCards {
-		keys = append(keys, k)
-	}
+	region := getRegion(ctx, b.region)
 
-	sort.Strings(keys)
-
-	start := 0
-	if nextToken != "" {
-		for i, k := range keys {
-			if k == nextToken {
-				start = i
-
-				break
-			}
-		}
-	}
-
-	end := min(start+sagemakerDefaultPageSize, len(keys))
-
-	out := make([]*ModelCard, 0, end-start)
-	for _, k := range keys[start:end] {
-		out = append(out, cloneModelCard(b.modelCards[k]))
-	}
-
-	next := ""
-	if end < len(keys) {
-		next = keys[end]
-	}
-
-	return out, next
+	return sagemakerListKeyPaged(b.modelCardsStore(region), nextToken, cloneModelCard)
 }
 
 // ListOptimizationJobs returns all optimization jobs.
-func (b *InMemoryBackend) ListOptimizationJobs(nextToken string) ([]*OptimizationJob, string) {
+func (b *InMemoryBackend) ListOptimizationJobs(ctx context.Context, nextToken string) ([]*OptimizationJob, string) {
 	b.mu.RLock("ListOptimizationJobs")
 	defer b.mu.RUnlock()
 
-	keys := make([]string, 0, len(b.optimizationJobs))
-	for k := range b.optimizationJobs {
-		keys = append(keys, k)
-	}
+	region := getRegion(ctx, b.region)
 
-	sort.Strings(keys)
-
-	start := 0
-	if nextToken != "" {
-		for i, k := range keys {
-			if k == nextToken {
-				start = i
-
-				break
-			}
-		}
-	}
-
-	end := min(start+sagemakerDefaultPageSize, len(keys))
-
-	out := make([]*OptimizationJob, 0, end-start)
-	for _, k := range keys[start:end] {
-		out = append(out, cloneOptimizationJob(b.optimizationJobs[k]))
-	}
-
-	next := ""
-	if end < len(keys) {
-		next = keys[end]
-	}
-
-	return out, next
+	return sagemakerListKeyPaged(b.optimizationJobsStore(region), nextToken, cloneOptimizationJob)
 }
 
 // ListStudioLifecycleConfigs returns all Studio lifecycle configs.
-func (b *InMemoryBackend) ListStudioLifecycleConfigs(nextToken string) ([]*StudioLifecycleConfig, string) {
+func (b *InMemoryBackend) ListStudioLifecycleConfigs(
+	ctx context.Context,
+	nextToken string,
+) ([]*StudioLifecycleConfig, string) {
 	b.mu.RLock("ListStudioLifecycleConfigs")
 	defer b.mu.RUnlock()
 
-	keys := make([]string, 0, len(b.studioLifecycleConfigs))
-	for k := range b.studioLifecycleConfigs {
-		keys = append(keys, k)
-	}
+	region := getRegion(ctx, b.region)
 
-	sort.Strings(keys)
-
-	start := 0
-	if nextToken != "" {
-		for i, k := range keys {
-			if k == nextToken {
-				start = i
-
-				break
-			}
-		}
-	}
-
-	end := min(start+sagemakerDefaultPageSize, len(keys))
-
-	out := make([]*StudioLifecycleConfig, 0, end-start)
-	for _, k := range keys[start:end] {
-		out = append(out, cloneStudioLifecycleConfig(b.studioLifecycleConfigs[k]))
-	}
-
-	next := ""
-	if end < len(keys) {
-		next = keys[end]
-	}
-
-	return out, next
+	return sagemakerListKeyPaged(b.studioLifecycleConfigsStore(region), nextToken, cloneStudioLifecycleConfig)
 }
 
 // ListInferenceExperiments returns all inference experiments.
-func (b *InMemoryBackend) ListInferenceExperiments(nextToken string) ([]*InferenceExperiment, string) {
+func (b *InMemoryBackend) ListInferenceExperiments(
+	ctx context.Context,
+	nextToken string,
+) ([]*InferenceExperiment, string) {
 	b.mu.RLock("ListInferenceExperiments")
 	defer b.mu.RUnlock()
 
-	keys := make([]string, 0, len(b.inferenceExperiments))
-	for k := range b.inferenceExperiments {
-		keys = append(keys, k)
-	}
+	region := getRegion(ctx, b.region)
 
-	sort.Strings(keys)
-
-	start := 0
-	if nextToken != "" {
-		for i, k := range keys {
-			if k == nextToken {
-				start = i
-
-				break
-			}
-		}
-	}
-
-	end := min(start+sagemakerDefaultPageSize, len(keys))
-
-	out := make([]*InferenceExperiment, 0, end-start)
-	for _, k := range keys[start:end] {
-		out = append(out, cloneInferenceExperiment(b.inferenceExperiments[k]))
-	}
-
-	next := ""
-	if end < len(keys) {
-		next = keys[end]
-	}
-
-	return out, next
+	return sagemakerListKeyPaged(b.inferenceExperimentsStore(region), nextToken, cloneInferenceExperiment)
 }
 
 // ListFlowDefinitions returns all flow definitions.
-func (b *InMemoryBackend) ListFlowDefinitions(nextToken string) ([]*FlowDefinition, string) {
+func (b *InMemoryBackend) ListFlowDefinitions(ctx context.Context, nextToken string) ([]*FlowDefinition, string) {
 	b.mu.RLock("ListFlowDefinitions")
 	defer b.mu.RUnlock()
 
-	keys := make([]string, 0, len(b.flowDefinitions))
-	for k := range b.flowDefinitions {
-		keys = append(keys, k)
-	}
+	region := getRegion(ctx, b.region)
 
-	sort.Strings(keys)
-
-	start := 0
-	if nextToken != "" {
-		for i, k := range keys {
-			if k == nextToken {
-				start = i
-
-				break
-			}
-		}
-	}
-
-	end := min(start+sagemakerDefaultPageSize, len(keys))
-
-	out := make([]*FlowDefinition, 0, end-start)
-	for _, k := range keys[start:end] {
-		out = append(out, cloneFlowDefinition(b.flowDefinitions[k]))
-	}
-
-	next := ""
-	if end < len(keys) {
-		next = keys[end]
-	}
-
-	return out, next
+	return sagemakerListKeyPaged(b.flowDefinitionsStore(region), nextToken, cloneFlowDefinition)
 }
 
 // ListHumanTaskUIs returns all human task UIs.
-func (b *InMemoryBackend) ListHumanTaskUIs(nextToken string) ([]*HumanTaskUI, string) {
+func (b *InMemoryBackend) ListHumanTaskUIs(ctx context.Context, nextToken string) ([]*HumanTaskUI, string) {
 	b.mu.RLock("ListHumanTaskUIs")
 	defer b.mu.RUnlock()
 
-	keys := make([]string, 0, len(b.humanTaskUis))
-	for k := range b.humanTaskUis {
-		keys = append(keys, k)
-	}
+	region := getRegion(ctx, b.region)
 
-	sort.Strings(keys)
-
-	start := 0
-	if nextToken != "" {
-		for i, k := range keys {
-			if k == nextToken {
-				start = i
-
-				break
-			}
-		}
-	}
-
-	end := min(start+sagemakerDefaultPageSize, len(keys))
-
-	out := make([]*HumanTaskUI, 0, end-start)
-	for _, k := range keys[start:end] {
-		out = append(out, cloneHumanTaskUI(b.humanTaskUis[k]))
-	}
-
-	next := ""
-	if end < len(keys) {
-		next = keys[end]
-	}
-
-	return out, next
+	return sagemakerListKeyPaged(b.humanTaskUisStore(region), nextToken, cloneHumanTaskUI)
 }
 
 // ListAppImageConfigs returns all App image configs.
-func (b *InMemoryBackend) ListAppImageConfigs(nextToken string) ([]*AppImageConfig, string) {
+func (b *InMemoryBackend) ListAppImageConfigs(ctx context.Context, nextToken string) ([]*AppImageConfig, string) {
 	b.mu.RLock("ListAppImageConfigs")
 	defer b.mu.RUnlock()
 
-	keys := make([]string, 0, len(b.appImageConfigs))
-	for k := range b.appImageConfigs {
-		keys = append(keys, k)
-	}
+	region := getRegion(ctx, b.region)
 
-	sort.Strings(keys)
-
-	start := 0
-	if nextToken != "" {
-		for i, k := range keys {
-			if k == nextToken {
-				start = i
-
-				break
-			}
-		}
-	}
-
-	end := min(start+sagemakerDefaultPageSize, len(keys))
-
-	out := make([]*AppImageConfig, 0, end-start)
-	for _, k := range keys[start:end] {
-		out = append(out, cloneAppImageConfig(b.appImageConfigs[k]))
-	}
-
-	next := ""
-	if end < len(keys) {
-		next = keys[end]
-	}
-
-	return out, next
+	return sagemakerListKeyPaged(b.appImageConfigsStore(region), nextToken, cloneAppImageConfig)
 }
 
 // ListTrainingJobsForHyperParameterTuningJob returns training jobs for an HP tuning job.
 // Since this emulator does not launch training jobs automatically, it always returns empty.
 func (b *InMemoryBackend) ListTrainingJobsForHyperParameterTuningJob(
+	ctx context.Context,
 	jobName, _ string,
 ) ([]*TrainingJob, string, error) {
 	b.mu.RLock("ListTrainingJobsForHyperParameterTuningJob")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.hpTuningJobs[jobName]; !ok {
+	region := getRegion(ctx, b.region)
+
+	if _, ok := b.hpTuningJobsStore(region)[jobName]; !ok {
 		return nil, "", fmt.Errorf("%w: HP tuning job %q not found", ErrHPTuningJobNotFound, jobName)
 	}
 

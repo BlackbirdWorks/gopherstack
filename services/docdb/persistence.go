@@ -5,57 +5,58 @@ import (
 	"log/slog"
 )
 
-// backendSnapshot is the JSON-serialisable snapshot of InMemoryBackend state.
+// backendSnapshot persists the backend state. Regional resource maps are nested by
+// region (outer key = region). GlobalClusters are partition-scoped and stay flat.
 type backendSnapshot struct {
-	Clusters               map[string]*DBCluster                         `json:"clusters"`
-	Instances              map[string]*DBInstance                        `json:"instances"`
-	SubnetGroups           map[string]*DBSubnetGroup                     `json:"subnetGroups"`
-	ClusterParameterGroups map[string]*DBClusterParameterGroup           `json:"clusterParameterGroups"`
-	ClusterSnapshots       map[string]*DBClusterSnapshot                 `json:"clusterSnapshots"`
-	SnapshotAttributes     map[string]*DBClusterSnapshotAttributesResult `json:"snapshotAttributes"`
-	EventSubscriptions     map[string]*EventSubscription                 `json:"eventSubscriptions"`
-	GlobalClusters         map[string]*GlobalCluster                     `json:"globalClusters"`
-	Tags                   map[string][]Tag                              `json:"tags"`
-	AccountID              string                                        `json:"accountID"`
-	Region                 string                                        `json:"region"`
+	Clusters               map[string]map[string]*DBCluster                         `json:"clusters"`
+	Instances              map[string]map[string]*DBInstance                        `json:"instances"`
+	SubnetGroups           map[string]map[string]*DBSubnetGroup                     `json:"subnetGroups"`
+	ClusterParameterGroups map[string]map[string]*DBClusterParameterGroup           `json:"clusterParameterGroups"`
+	ClusterSnapshots       map[string]map[string]*DBClusterSnapshot                 `json:"clusterSnapshots"`
+	SnapshotAttributes     map[string]map[string]*DBClusterSnapshotAttributesResult `json:"snapshotAttributes"`
+	EventSubscriptions     map[string]map[string]*EventSubscription                 `json:"eventSubscriptions"`
+	GlobalClusters         map[string]*GlobalCluster                                `json:"globalClusters"`
+	Tags                   map[string]map[string][]Tag                              `json:"tags"`
+	AccountID              string                                                   `json:"accountID"`
+	Region                 string                                                   `json:"region"`
 }
 
-// ensureNonNil initialises any nil maps so callers do not need to guard after Restore.
-func (s *backendSnapshot) ensureNonNil() {
-	if s.Clusters == nil {
-		s.Clusters = make(map[string]*DBCluster)
+// ensureNonNilMaps initialises nil maps in the snapshot to empty maps.
+func ensureNonNilMaps(snap *backendSnapshot) {
+	if snap.Clusters == nil {
+		snap.Clusters = make(map[string]map[string]*DBCluster)
 	}
 
-	if s.Instances == nil {
-		s.Instances = make(map[string]*DBInstance)
+	if snap.Instances == nil {
+		snap.Instances = make(map[string]map[string]*DBInstance)
 	}
 
-	if s.SubnetGroups == nil {
-		s.SubnetGroups = make(map[string]*DBSubnetGroup)
+	if snap.SubnetGroups == nil {
+		snap.SubnetGroups = make(map[string]map[string]*DBSubnetGroup)
 	}
 
-	if s.ClusterParameterGroups == nil {
-		s.ClusterParameterGroups = make(map[string]*DBClusterParameterGroup)
+	if snap.ClusterParameterGroups == nil {
+		snap.ClusterParameterGroups = make(map[string]map[string]*DBClusterParameterGroup)
 	}
 
-	if s.ClusterSnapshots == nil {
-		s.ClusterSnapshots = make(map[string]*DBClusterSnapshot)
+	if snap.ClusterSnapshots == nil {
+		snap.ClusterSnapshots = make(map[string]map[string]*DBClusterSnapshot)
 	}
 
-	if s.SnapshotAttributes == nil {
-		s.SnapshotAttributes = make(map[string]*DBClusterSnapshotAttributesResult)
+	if snap.SnapshotAttributes == nil {
+		snap.SnapshotAttributes = make(map[string]map[string]*DBClusterSnapshotAttributesResult)
 	}
 
-	if s.EventSubscriptions == nil {
-		s.EventSubscriptions = make(map[string]*EventSubscription)
+	if snap.EventSubscriptions == nil {
+		snap.EventSubscriptions = make(map[string]map[string]*EventSubscription)
 	}
 
-	if s.GlobalClusters == nil {
-		s.GlobalClusters = make(map[string]*GlobalCluster)
+	if snap.GlobalClusters == nil {
+		snap.GlobalClusters = make(map[string]*GlobalCluster)
 	}
 
-	if s.Tags == nil {
-		s.Tags = make(map[string][]Tag)
+	if snap.Tags == nil {
+		snap.Tags = make(map[string]map[string][]Tag)
 	}
 }
 
@@ -96,7 +97,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		return err
 	}
 
-	snap.ensureNonNil()
+	ensureNonNilMaps(&snap)
 
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
@@ -114,4 +115,14 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.region = snap.Region
 
 	return nil
+}
+
+// Snapshot implements persistence.Persistable by delegating to the backend.
+func (h *Handler) Snapshot() []byte {
+	return h.Backend.Snapshot()
+}
+
+// Restore implements persistence.Persistable by delegating to the backend.
+func (h *Handler) Restore(data []byte) error {
+	return h.Backend.Restore(data)
 }

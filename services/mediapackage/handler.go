@@ -5,11 +5,13 @@ import (
 	"errors"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -20,6 +22,11 @@ const (
 	pathOriginEndpoints = "/origin_endpoints"
 	pathHarvestJobs     = "/harvest_jobs"
 	pathTags            = "/tags/"
+
+	// sigV4Service is the SigV4 signing name MediaPackage SDK clients use. The
+	// "/channels" REST path is shared with IoT Analytics and MediaTailor, so we
+	// disambiguate the shared path by the request's SigV4 service name.
+	sigV4Service = "mediapackage"
 
 	keyMessage = "Message"
 
@@ -98,19 +105,21 @@ func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
 
-		pathMatch := path == pathChannels ||
-			strings.HasPrefix(path, pathChannels+"/") ||
-			path == pathOriginEndpoints ||
+		// The "/channels" path (bare and sub-paths) is shared with IoT Analytics
+		// and MediaTailor, which register matchers at the same priority. Claim it
+		// only when the request is SigV4-signed for the mediapackage service so
+		// routing is deterministic regardless of service registration order.
+		if path == pathChannels || strings.HasPrefix(path, pathChannels+"/") {
+			return httputils.ExtractServiceFromRequest(c.Request()) == sigV4Service
+		}
+
+		pathMatch := path == pathOriginEndpoints ||
 			strings.HasPrefix(path, pathOriginEndpoints+"/") ||
 			path == pathHarvestJobs ||
 			strings.HasPrefix(path, pathHarvestJobs+"/") ||
 			isMediaPackageTagPath(path)
 
-		if !pathMatch {
-			return false
-		}
-
-		return strings.Contains(c.Request().Header.Get("Authorization"), "/mediapackage/")
+		return pathMatch
 	}
 }
 
@@ -328,10 +337,16 @@ func (h *Handler) jsonError(c *echo.Context, status int, err error) error {
 	return c.JSON(status, map[string]any{keyMessage: err.Error()})
 }
 
+func (h *Handler) jsonErrorTyped(c *echo.Context, status int, errType string, err error) error {
+	return c.JSON(status, map[string]any{keyMessage: err.Error(), "__type": errType})
+}
+
 func (h *Handler) mapError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
-		return h.jsonError(c, http.StatusNotFound, err)
+		// Include __type so the AWS SDK can identify the NotFoundException
+		// and terraform destroy-wait converges correctly.
+		return h.jsonErrorTyped(c, http.StatusNotFound, ErrNotFound.Error(), err)
 	case errors.Is(err, awserr.ErrAlreadyExists):
 		return h.jsonError(c, http.StatusUnprocessableEntity, err)
 	case errors.Is(err, awserr.ErrInvalidParameter):
@@ -474,7 +489,8 @@ func (h *Handler) handleDeleteChannel(c *echo.Context, id string) error {
 }
 
 func (h *Handler) handleListChannels(c *echo.Context) error {
-	channels, nextToken, err := h.Backend.ListChannels(0, "")
+	maxResults := parseMediaPkgMaxResults(c.QueryParam("maxResults"))
+	channels, nextToken, err := h.Backend.ListChannels(maxResults, c.QueryParam("nextToken"))
 	if err != nil {
 		return h.mapError(c, err)
 	}
@@ -596,7 +612,8 @@ func (h *Handler) handleDeleteOriginEndpoint(c *echo.Context, id string) error {
 func (h *Handler) handleListOriginEndpoints(c *echo.Context) error {
 	channelID := c.QueryParam("channelId")
 
-	endpoints, nextToken, err := h.Backend.ListOriginEndpoints(channelID, 0, "")
+	maxResults := parseMediaPkgMaxResults(c.QueryParam("maxResults"))
+	endpoints, nextToken, err := h.Backend.ListOriginEndpoints(channelID, maxResults, c.QueryParam("nextToken"))
 	if err != nil {
 		return h.mapError(c, err)
 	}
@@ -669,11 +686,11 @@ type s3DestinationOutput struct {
 type harvestJobOutput struct {
 	S3Destination    *s3DestinationOutput `json:"s3Destination"`
 	Arn              string               `json:"arn"`
-	ChannelId        string               `json:"channelId"` //nolint:revive,staticcheck // existing issue.
+	ChannelID        string               `json:"channelId"`
 	CreatedAt        string               `json:"createdAt"`
 	EndTime          string               `json:"endTime"`
-	Id               string               `json:"id"`               //nolint:revive,staticcheck // existing issue.
-	OriginEndpointId string               `json:"originEndpointId"` //nolint:revive,staticcheck // existing issue.
+	ID               string               `json:"id"`
+	OriginEndpointID string               `json:"originEndpointId"`
 	StartTime        string               `json:"startTime"`
 	Status           string               `json:"status"`
 }
@@ -681,11 +698,11 @@ type harvestJobOutput struct {
 func toHarvestJobOutput(j *HarvestJob) harvestJobOutput {
 	out := harvestJobOutput{
 		Arn:              j.ARN,
-		ChannelId:        j.ChannelID,
+		ChannelID:        j.ChannelID,
 		CreatedAt:        j.CreatedAt,
 		EndTime:          j.EndTime,
-		Id:               j.ID,
-		OriginEndpointId: j.OriginEndpointID,
+		ID:               j.ID,
+		OriginEndpointID: j.OriginEndpointID,
 		StartTime:        j.StartTime,
 		Status:           j.Status,
 	}
@@ -736,7 +753,10 @@ func (h *Handler) handleListHarvestJobs(c *echo.Context) error {
 	includeChannelID := c.QueryParam("includeChannelId")
 	includeStatus := c.QueryParam("includeStatus")
 
-	jobs, nextToken, err := h.Backend.ListHarvestJobs(includeChannelID, includeStatus, 0, "")
+	maxResults := parseMediaPkgMaxResults(c.QueryParam("maxResults"))
+	jobs, nextToken, err := h.Backend.ListHarvestJobs(
+		includeChannelID, includeStatus, maxResults, c.QueryParam("nextToken"),
+	)
 	if err != nil {
 		return h.mapError(c, err)
 	}
@@ -820,4 +840,14 @@ func stringsFromBody(body map[string]any, key string) []string {
 	}
 
 	return result
+}
+
+// parseMediaPkgMaxResults converts a query-parameter string to a non-negative int.
+func parseMediaPkgMaxResults(s string) int {
+	n, err := strconv.Atoi(s)
+	if err != nil || n < 0 {
+		return 0
+	}
+
+	return n
 }

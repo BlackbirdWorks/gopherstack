@@ -105,7 +105,7 @@ func (h *Handler) ChaosServiceName() string { return memorydbService }
 func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations() }
 
 // ChaosRegions returns all regions this handler handles.
-func (h *Handler) ChaosRegions() []string { return []string{h.DefaultRegion} }
+func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} }
 
 // RouteMatcher returns a function that matches MemoryDB JSON 1.1 API requests.
 func (h *Handler) RouteMatcher() service.Matcher {
@@ -191,17 +191,20 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		log.DebugContext(ctx, "memorydb request", "op", op)
 
-		return h.dispatch(c, op, body)
+		region := httputils.ExtractRegionFromRequest(c.Request(), h.Backend.Region())
+		regionCtx := context.WithValue(ctx, regionContextKey{}, region)
+
+		return h.dispatch(regionCtx, c, op, body)
 	}
 }
 
 // dispatch routes to the appropriate handler based on the operation name.
-func (h *Handler) dispatch(c *echo.Context, op string, body []byte) error {
-	if handled, result := h.dispatchCoreOps(c, op, body); handled {
+func (h *Handler) dispatch(ctx context.Context, c *echo.Context, op string, body []byte) error {
+	if handled, result := h.dispatchCoreOps(ctx, c, op, body); handled {
 		return result
 	}
 
-	if handled, result := h.dispatchNewOps(c, op, body); handled {
+	if handled, result := h.dispatchNewOps(ctx, c, op, body); handled {
 		return result
 	}
 
@@ -211,7 +214,7 @@ func (h *Handler) dispatch(c *echo.Context, op string, body []byte) error {
 // memorydbCoreOps maps operation names to handler functions for core MemoryDB operations.
 //
 //nolint:gochecknoglobals // read-only dispatch table initialized once at startup
-var memorydbCoreOps = map[string]func(*Handler, *echo.Context, []byte) error{
+var memorydbCoreOps = map[string]func(*Handler, context.Context, *echo.Context, []byte) error{
 	"CreateCluster":           (*Handler).handleCreateCluster,
 	"DescribeClusters":        (*Handler).handleDescribeClusters,
 	"DeleteCluster":           (*Handler).handleDeleteCluster,
@@ -238,112 +241,122 @@ var memorydbCoreOps = map[string]func(*Handler, *echo.Context, []byte) error{
 }
 
 // dispatchCoreOps handles the original core operations.
-func (h *Handler) dispatchCoreOps(c *echo.Context, op string, body []byte) (bool, error) {
+func (h *Handler) dispatchCoreOps(ctx context.Context, c *echo.Context, op string, body []byte) (bool, error) {
 	if fn, ok := memorydbCoreOps[op]; ok {
-		return true, fn(h, c, body)
+		return true, fn(h, ctx, c, body)
 	}
 
 	return false, nil
 }
 
 // dispatchNewOps handles the new operations added in this release.
-func (h *Handler) dispatchNewOps(c *echo.Context, op string, body []byte) (bool, error) {
-	if ok, err := h.dispatchSnapshotAndEngineOps(c, op, body); ok {
+func (h *Handler) dispatchNewOps(ctx context.Context, c *echo.Context, op string, body []byte) (bool, error) {
+	if ok, err := h.dispatchSnapshotAndEngineOps(ctx, c, op, body); ok {
 		return true, err
 	}
 
-	if ok, err := h.dispatchMultiRegionOps(c, op, body); ok {
+	if ok, err := h.dispatchMultiRegionOps(ctx, c, op, body); ok {
 		return true, err
 	}
 
-	return h.dispatchParameterAndShardOps(c, op, body)
+	return h.dispatchParameterAndShardOps(ctx, c, op, body)
 }
 
 // dispatchSnapshotAndEngineOps handles snapshot, engine-version, and event operations.
-func (h *Handler) dispatchSnapshotAndEngineOps(c *echo.Context, op string, body []byte) (bool, error) {
+func (h *Handler) dispatchSnapshotAndEngineOps(
+	ctx context.Context,
+	c *echo.Context,
+	op string,
+	body []byte,
+) (bool, error) {
 	switch op {
 	case "CreateSnapshot":
 
-		return true, h.handleCreateSnapshot(c, body)
+		return true, h.handleCreateSnapshot(ctx, c, body)
 	case "DescribeSnapshots":
 
-		return true, h.handleDescribeSnapshots(c, body)
+		return true, h.handleDescribeSnapshots(ctx, c, body)
 	case "CopySnapshot":
 
-		return true, h.handleCopySnapshot(c, body)
+		return true, h.handleCopySnapshot(ctx, c, body)
 	case "DeleteSnapshot":
 
-		return true, h.handleDeleteSnapshot(c, body)
+		return true, h.handleDeleteSnapshot(ctx, c, body)
 	case "DescribeEngineVersions":
 
-		return true, h.handleDescribeEngineVersions(c, body)
+		return true, h.handleDescribeEngineVersions(ctx, c, body)
 	case "DescribeEvents":
 
-		return true, h.handleDescribeEvents(c, body)
+		return true, h.handleDescribeEvents(ctx, c, body)
 	case "BatchUpdateCluster":
 
-		return true, h.handleBatchUpdateCluster(c, body)
+		return true, h.handleBatchUpdateCluster(ctx, c, body)
 	case "DescribeServiceUpdates":
 
-		return true, h.handleDescribeServiceUpdates(c, body)
+		return true, h.handleDescribeServiceUpdates(ctx, c, body)
 	}
 
 	return false, nil
 }
 
 // dispatchMultiRegionOps handles multi-region cluster and parameter group operations.
-func (h *Handler) dispatchMultiRegionOps(c *echo.Context, op string, body []byte) (bool, error) {
+func (h *Handler) dispatchMultiRegionOps(ctx context.Context, c *echo.Context, op string, body []byte) (bool, error) {
 	switch op {
 	case "CreateMultiRegionCluster":
 
-		return true, h.handleCreateMultiRegionCluster(c, body)
+		return true, h.handleCreateMultiRegionCluster(ctx, c, body)
 	case "DeleteMultiRegionCluster":
 
-		return true, h.handleDeleteMultiRegionCluster(c, body)
+		return true, h.handleDeleteMultiRegionCluster(ctx, c, body)
 	case "DescribeMultiRegionClusters":
 
-		return true, h.handleDescribeMultiRegionClusters(c, body)
+		return true, h.handleDescribeMultiRegionClusters(ctx, c, body)
 	case "DescribeMultiRegionParameterGroups":
 
-		return true, h.handleDescribeMultiRegionParameterGroups(c, body)
+		return true, h.handleDescribeMultiRegionParameterGroups(ctx, c, body)
 	case "UpdateMultiRegionCluster":
 
-		return true, h.handleUpdateMultiRegionCluster(c, body)
+		return true, h.handleUpdateMultiRegionCluster(ctx, c, body)
 	case "ListAllowedMultiRegionClusterUpdates":
 
-		return true, h.handleListAllowedMultiRegionClusterUpdates(c, body)
+		return true, h.handleListAllowedMultiRegionClusterUpdates(ctx, c, body)
 	}
 
 	return false, nil
 }
 
 // dispatchParameterAndShardOps handles parameter group and shard operations.
-func (h *Handler) dispatchParameterAndShardOps(c *echo.Context, op string, body []byte) (bool, error) {
+func (h *Handler) dispatchParameterAndShardOps(
+	ctx context.Context,
+	c *echo.Context,
+	op string,
+	body []byte,
+) (bool, error) {
 	switch op {
 	case "DescribeParameters":
 
-		return true, h.handleDescribeParameters(c, body)
+		return true, h.handleDescribeParameters(ctx, c, body)
 	case "ResetParameterGroup":
 
-		return true, h.handleResetParameterGroup(c, body)
+		return true, h.handleResetParameterGroup(ctx, c, body)
 	case "FailoverShard":
 
-		return true, h.handleFailoverShard(c, body)
+		return true, h.handleFailoverShard(ctx, c, body)
 	case "ListAllowedNodeTypeUpdates":
 
-		return true, h.handleListAllowedNodeTypeUpdates(c, body)
+		return true, h.handleListAllowedNodeTypeUpdates(ctx, c, body)
 	case "DescribeReservedNodes":
 
-		return true, h.handleDescribeReservedNodes(c, body)
+		return true, h.handleDescribeReservedNodes(ctx, c, body)
 	case "DescribeReservedNodesOfferings":
 
-		return true, h.handleDescribeReservedNodesOfferings(c, body)
+		return true, h.handleDescribeReservedNodesOfferings(ctx, c, body)
 	case "PurchaseReservedNodesOffering":
 
-		return true, h.handlePurchaseReservedNodesOffering(c, body)
+		return true, h.handlePurchaseReservedNodesOffering(ctx, c, body)
 	case "DescribeMultiRegionParameters":
 
-		return true, h.handleDescribeMultiRegionParameters(c, body)
+		return true, h.handleDescribeMultiRegionParameters(ctx, c, body)
 	}
 
 	return false, nil
@@ -351,7 +364,7 @@ func (h *Handler) dispatchParameterAndShardOps(c *echo.Context, op string, body 
 
 // -- Cluster handlers ------------------------------------------------------------
 
-func (h *Handler) handleCreateCluster(c *echo.Context, body []byte) error {
+func (h *Handler) handleCreateCluster(ctx context.Context, c *echo.Context, body []byte) error {
 	var req createClusterRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -370,7 +383,7 @@ func (h *Handler) handleCreateCluster(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
 	}
 
-	cluster, err := h.Backend.CreateCluster(h.DefaultRegion, h.AccountID, &req)
+	cluster, err := h.Backend.CreateCluster(ctx, &req)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -378,14 +391,14 @@ func (h *Handler) handleCreateCluster(c *echo.Context, body []byte) error {
 	return c.JSON(http.StatusOK, createClusterResponse{Cluster: toClusterObject(cluster, true)})
 }
 
-func (h *Handler) handleDescribeClusters(c *echo.Context, body []byte) error {
+func (h *Handler) handleDescribeClusters(ctx context.Context, c *echo.Context, body []byte) error {
 	var req describeClusterRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
-	clusters, err := h.Backend.DescribeClusters(req.ClusterName)
+	clusters, err := h.Backend.DescribeClusters(ctx, req.ClusterName)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -423,7 +436,7 @@ func (h *Handler) handleDescribeClusters(c *echo.Context, body []byte) error {
 	return c.JSON(http.StatusOK, describeClusterResponse{Clusters: objs, NextToken: nextToken})
 }
 
-func (h *Handler) handleDeleteCluster(c *echo.Context, body []byte) error {
+func (h *Handler) handleDeleteCluster(ctx context.Context, c *echo.Context, body []byte) error {
 	var req deleteClusterRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -440,11 +453,9 @@ func (h *Handler) handleDeleteCluster(c *echo.Context, body []byte) error {
 	)
 
 	if req.FinalSnapshotName != "" {
-		cluster, err = h.Backend.DeleteClusterWithSnapshot(
-			h.DefaultRegion, h.AccountID, req.ClusterName, req.FinalSnapshotName,
-		)
+		cluster, err = h.Backend.DeleteClusterWithSnapshot(ctx, req.ClusterName, req.FinalSnapshotName)
 	} else {
-		cluster, err = h.Backend.DeleteCluster(req.ClusterName)
+		cluster, err = h.Backend.DeleteCluster(ctx, req.ClusterName)
 	}
 
 	if err != nil {
@@ -454,7 +465,7 @@ func (h *Handler) handleDeleteCluster(c *echo.Context, body []byte) error {
 	return c.JSON(http.StatusOK, deleteClusterResponse{Cluster: toClusterObject(cluster, true)})
 }
 
-func (h *Handler) handleUpdateCluster(c *echo.Context, body []byte) error {
+func (h *Handler) handleUpdateCluster(ctx context.Context, c *echo.Context, body []byte) error {
 	var req updateClusterRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -465,7 +476,7 @@ func (h *Handler) handleUpdateCluster(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "ClusterName is required")
 	}
 
-	cluster, err := h.Backend.UpdateCluster(&req)
+	cluster, err := h.Backend.UpdateCluster(ctx, &req)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -475,7 +486,7 @@ func (h *Handler) handleUpdateCluster(c *echo.Context, body []byte) error {
 
 // -- ACL handlers ----------------------------------------------------------------
 
-func (h *Handler) handleCreateACL(c *echo.Context, body []byte) error {
+func (h *Handler) handleCreateACL(ctx context.Context, c *echo.Context, body []byte) error {
 	var req createACLRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -490,7 +501,7 @@ func (h *Handler) handleCreateACL(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
 	}
 
-	acl, err := h.Backend.CreateACL(h.DefaultRegion, h.AccountID, &req)
+	acl, err := h.Backend.CreateACL(ctx, &req)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -498,20 +509,20 @@ func (h *Handler) handleCreateACL(c *echo.Context, body []byte) error {
 	return c.JSON(http.StatusOK, createACLResponse{ACL: toACLObject(acl, []string{})})
 }
 
-func (h *Handler) handleDescribeACLs(c *echo.Context, body []byte) error {
+func (h *Handler) handleDescribeACLs(ctx context.Context, c *echo.Context, body []byte) error {
 	var req describeACLRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
-	acls, err := h.Backend.DescribeACLs(req.ACLName)
+	acls, err := h.Backend.DescribeACLs(ctx, req.ACLName)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
 
 	// Fetch all clusters once to compute the Clusters field on each ACL.
-	allClusters, _ := h.Backend.DescribeClusters("")
+	allClusters, _ := h.Backend.DescribeClusters(ctx, "")
 
 	acls, nextToken := paginateItems(acls, req.NextToken, req.MaxResults, func(a *ACL) string { return a.Name })
 
@@ -525,7 +536,7 @@ func (h *Handler) handleDescribeACLs(c *echo.Context, body []byte) error {
 	return c.JSON(http.StatusOK, describeACLResponse{ACLs: objs, NextToken: nextToken})
 }
 
-func (h *Handler) handleDeleteACL(c *echo.Context, body []byte) error {
+func (h *Handler) handleDeleteACL(ctx context.Context, c *echo.Context, body []byte) error {
 	var req deleteACLRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -536,7 +547,7 @@ func (h *Handler) handleDeleteACL(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "ACLName is required")
 	}
 
-	acl, err := h.Backend.DeleteACL(req.ACLName)
+	acl, err := h.Backend.DeleteACL(ctx, req.ACLName)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -544,7 +555,7 @@ func (h *Handler) handleDeleteACL(c *echo.Context, body []byte) error {
 	return c.JSON(http.StatusOK, deleteACLResponse{ACL: toACLObject(acl, []string{})})
 }
 
-func (h *Handler) handleUpdateACL(c *echo.Context, body []byte) error {
+func (h *Handler) handleUpdateACL(ctx context.Context, c *echo.Context, body []byte) error {
 	var req updateACLRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -555,12 +566,12 @@ func (h *Handler) handleUpdateACL(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "ACLName is required")
 	}
 
-	acl, err := h.Backend.UpdateACL(&req)
+	acl, err := h.Backend.UpdateACL(ctx, &req)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
 
-	allClusters, _ := h.Backend.DescribeClusters("")
+	allClusters, _ := h.Backend.DescribeClusters(ctx, "")
 	clusterNames := clustersForACL(allClusters, acl.Name)
 
 	return c.JSON(http.StatusOK, updateACLResponse{ACL: toACLObject(acl, clusterNames)})
@@ -568,7 +579,7 @@ func (h *Handler) handleUpdateACL(c *echo.Context, body []byte) error {
 
 // -- SubnetGroup handlers --------------------------------------------------------
 
-func (h *Handler) handleCreateSubnetGroup(c *echo.Context, body []byte) error {
+func (h *Handler) handleCreateSubnetGroup(ctx context.Context, c *echo.Context, body []byte) error {
 	var req createSubnetGroupRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -583,7 +594,7 @@ func (h *Handler) handleCreateSubnetGroup(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
 	}
 
-	sg, err := h.Backend.CreateSubnetGroup(h.DefaultRegion, h.AccountID, &req)
+	sg, err := h.Backend.CreateSubnetGroup(ctx, &req)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -591,14 +602,14 @@ func (h *Handler) handleCreateSubnetGroup(c *echo.Context, body []byte) error {
 	return c.JSON(http.StatusOK, createSubnetGroupResponse{SubnetGroup: toSubnetGroupObject(sg)})
 }
 
-func (h *Handler) handleDescribeSubnetGroups(c *echo.Context, body []byte) error {
+func (h *Handler) handleDescribeSubnetGroups(ctx context.Context, c *echo.Context, body []byte) error {
 	var req describeSubnetGroupRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
-	sgs, err := h.Backend.DescribeSubnetGroups(req.SubnetGroupName)
+	sgs, err := h.Backend.DescribeSubnetGroups(ctx, req.SubnetGroupName)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -614,7 +625,7 @@ func (h *Handler) handleDescribeSubnetGroups(c *echo.Context, body []byte) error
 	return c.JSON(http.StatusOK, describeSubnetGroupResponse{SubnetGroups: objs, NextToken: nextToken})
 }
 
-func (h *Handler) handleDeleteSubnetGroup(c *echo.Context, body []byte) error {
+func (h *Handler) handleDeleteSubnetGroup(ctx context.Context, c *echo.Context, body []byte) error {
 	var req deleteSubnetGroupRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -625,7 +636,7 @@ func (h *Handler) handleDeleteSubnetGroup(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "SubnetGroupName is required")
 	}
 
-	sg, err := h.Backend.DeleteSubnetGroup(req.SubnetGroupName)
+	sg, err := h.Backend.DeleteSubnetGroup(ctx, req.SubnetGroupName)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -633,7 +644,7 @@ func (h *Handler) handleDeleteSubnetGroup(c *echo.Context, body []byte) error {
 	return c.JSON(http.StatusOK, deleteSubnetGroupResponse{SubnetGroup: toSubnetGroupObject(sg)})
 }
 
-func (h *Handler) handleUpdateSubnetGroup(c *echo.Context, body []byte) error {
+func (h *Handler) handleUpdateSubnetGroup(ctx context.Context, c *echo.Context, body []byte) error {
 	var req updateSubnetGroupRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -644,7 +655,7 @@ func (h *Handler) handleUpdateSubnetGroup(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "SubnetGroupName is required")
 	}
 
-	sg, err := h.Backend.UpdateSubnetGroup(&req)
+	sg, err := h.Backend.UpdateSubnetGroup(ctx, &req)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -654,7 +665,7 @@ func (h *Handler) handleUpdateSubnetGroup(c *echo.Context, body []byte) error {
 
 // -- User handlers ---------------------------------------------------------------
 
-func (h *Handler) handleCreateUser(c *echo.Context, body []byte) error {
+func (h *Handler) handleCreateUser(ctx context.Context, c *echo.Context, body []byte) error {
 	var req createUserRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -669,7 +680,7 @@ func (h *Handler) handleCreateUser(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
 	}
 
-	user, err := h.Backend.CreateUser(h.DefaultRegion, h.AccountID, &req)
+	user, err := h.Backend.CreateUser(ctx, &req)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -677,21 +688,21 @@ func (h *Handler) handleCreateUser(c *echo.Context, body []byte) error {
 	return c.JSON(http.StatusOK, createUserResponse{User: toUserObject(user, 0)})
 }
 
-func (h *Handler) handleDescribeUsers(c *echo.Context, body []byte) error {
+func (h *Handler) handleDescribeUsers(ctx context.Context, c *echo.Context, body []byte) error {
 	var req describeUserRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
-	users, err := h.Backend.DescribeUsers(req.UserName)
+	users, err := h.Backend.DescribeUsers(ctx, req.UserName)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
 
 	users, nextToken := paginateItems(users, req.NextToken, req.MaxResults, func(u *User) string { return u.Name })
 
-	allACLs, _ := h.Backend.DescribeACLs("")
+	allACLs, _ := h.Backend.DescribeACLs(ctx, "")
 
 	objs := make([]userObject, 0, len(users))
 
@@ -703,7 +714,7 @@ func (h *Handler) handleDescribeUsers(c *echo.Context, body []byte) error {
 	return c.JSON(http.StatusOK, describeUserResponse{Users: objs, NextToken: nextToken})
 }
 
-func (h *Handler) handleDeleteUser(c *echo.Context, body []byte) error {
+func (h *Handler) handleDeleteUser(ctx context.Context, c *echo.Context, body []byte) error {
 	var req deleteUserRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -714,7 +725,7 @@ func (h *Handler) handleDeleteUser(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "UserName is required")
 	}
 
-	user, err := h.Backend.DeleteUser(req.UserName)
+	user, err := h.Backend.DeleteUser(ctx, req.UserName)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -722,7 +733,7 @@ func (h *Handler) handleDeleteUser(c *echo.Context, body []byte) error {
 	return c.JSON(http.StatusOK, deleteUserResponse{User: toUserObject(user, 0)})
 }
 
-func (h *Handler) handleUpdateUser(c *echo.Context, body []byte) error {
+func (h *Handler) handleUpdateUser(ctx context.Context, c *echo.Context, body []byte) error {
 	var req updateUserRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -733,7 +744,7 @@ func (h *Handler) handleUpdateUser(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "UserName is required")
 	}
 
-	user, err := h.Backend.UpdateUser(&req)
+	user, err := h.Backend.UpdateUser(ctx, &req)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -743,7 +754,7 @@ func (h *Handler) handleUpdateUser(c *echo.Context, body []byte) error {
 
 // -- ParameterGroup handlers -----------------------------------------------------
 
-func (h *Handler) handleCreateParameterGroup(c *echo.Context, body []byte) error {
+func (h *Handler) handleCreateParameterGroup(ctx context.Context, c *echo.Context, body []byte) error {
 	var req createParameterGroupRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -758,7 +769,7 @@ func (h *Handler) handleCreateParameterGroup(c *echo.Context, body []byte) error
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
 	}
 
-	pg, err := h.Backend.CreateParameterGroup(h.DefaultRegion, h.AccountID, &req)
+	pg, err := h.Backend.CreateParameterGroup(ctx, &req)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -766,14 +777,14 @@ func (h *Handler) handleCreateParameterGroup(c *echo.Context, body []byte) error
 	return c.JSON(http.StatusOK, createParameterGroupResponse{ParameterGroup: toParameterGroupObject(pg)})
 }
 
-func (h *Handler) handleDescribeParameterGroups(c *echo.Context, body []byte) error {
+func (h *Handler) handleDescribeParameterGroups(ctx context.Context, c *echo.Context, body []byte) error {
 	var req describeParameterGroupRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
-	pgs, err := h.Backend.DescribeParameterGroups(req.ParameterGroupName)
+	pgs, err := h.Backend.DescribeParameterGroups(ctx, req.ParameterGroupName)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -794,7 +805,7 @@ func (h *Handler) handleDescribeParameterGroups(c *echo.Context, body []byte) er
 	return c.JSON(http.StatusOK, describeParameterGroupResponse{ParameterGroups: objs, NextToken: nextToken})
 }
 
-func (h *Handler) handleDeleteParameterGroup(c *echo.Context, body []byte) error {
+func (h *Handler) handleDeleteParameterGroup(ctx context.Context, c *echo.Context, body []byte) error {
 	var req deleteParameterGroupRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -805,7 +816,7 @@ func (h *Handler) handleDeleteParameterGroup(c *echo.Context, body []byte) error
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "ParameterGroupName is required")
 	}
 
-	pg, err := h.Backend.DeleteParameterGroup(req.ParameterGroupName)
+	pg, err := h.Backend.DeleteParameterGroup(ctx, req.ParameterGroupName)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -813,7 +824,7 @@ func (h *Handler) handleDeleteParameterGroup(c *echo.Context, body []byte) error
 	return c.JSON(http.StatusOK, deleteParameterGroupResponse{ParameterGroup: toParameterGroupObject(pg)})
 }
 
-func (h *Handler) handleUpdateParameterGroup(c *echo.Context, body []byte) error {
+func (h *Handler) handleUpdateParameterGroup(ctx context.Context, c *echo.Context, body []byte) error {
 	var req updateParameterGroupRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -824,7 +835,7 @@ func (h *Handler) handleUpdateParameterGroup(c *echo.Context, body []byte) error
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "ParameterGroupName is required")
 	}
 
-	pg, err := h.Backend.UpdateParameterGroup(&req)
+	pg, err := h.Backend.UpdateParameterGroup(ctx, &req)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -834,7 +845,7 @@ func (h *Handler) handleUpdateParameterGroup(c *echo.Context, body []byte) error
 
 // -- Tag handlers ----------------------------------------------------------------
 
-func (h *Handler) handleListTags(c *echo.Context, body []byte) error {
+func (h *Handler) handleListTags(ctx context.Context, c *echo.Context, body []byte) error {
 	var req listTagsRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -845,7 +856,7 @@ func (h *Handler) handleListTags(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "ResourceArn is required")
 	}
 
-	tags, err := h.Backend.ListTags(req.ResourceArn)
+	tags, err := h.Backend.ListTags(ctx, req.ResourceArn)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -853,7 +864,7 @@ func (h *Handler) handleListTags(c *echo.Context, body []byte) error {
 	return c.JSON(http.StatusOK, listTagsResponse{TagList: tagsToSlice(tags)})
 }
 
-func (h *Handler) handleTagResource(c *echo.Context, body []byte) error {
+func (h *Handler) handleTagResource(ctx context.Context, c *echo.Context, body []byte) error {
 	var req tagResourceRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -870,12 +881,12 @@ func (h *Handler) handleTagResource(c *echo.Context, body []byte) error {
 
 	tags := tagsFromSlice(req.Tags)
 
-	if err := h.Backend.TagResource(req.ResourceArn, tags); err != nil {
+	if err := h.Backend.TagResource(ctx, req.ResourceArn, tags); err != nil {
 		return h.writeBackendError(c, err)
 	}
 
 	// Return the resulting tag list (AWS behaviour).
-	result, err := h.Backend.ListTags(req.ResourceArn)
+	result, err := h.Backend.ListTags(ctx, req.ResourceArn)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -883,7 +894,7 @@ func (h *Handler) handleTagResource(c *echo.Context, body []byte) error {
 	return c.JSON(http.StatusOK, listTagsResponse{TagList: tagsToSlice(result)})
 }
 
-func (h *Handler) handleUntagResource(c *echo.Context, body []byte) error {
+func (h *Handler) handleUntagResource(ctx context.Context, c *echo.Context, body []byte) error {
 	var req untagResourceRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -894,12 +905,12 @@ func (h *Handler) handleUntagResource(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "ResourceArn is required")
 	}
 
-	if err := h.Backend.UntagResource(req.ResourceArn, req.TagKeys); err != nil {
+	if err := h.Backend.UntagResource(ctx, req.ResourceArn, req.TagKeys); err != nil {
 		return h.writeBackendError(c, err)
 	}
 
 	// Return the remaining tag list (AWS behaviour).
-	result, err := h.Backend.ListTags(req.ResourceArn)
+	result, err := h.Backend.ListTags(ctx, req.ResourceArn)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -909,7 +920,7 @@ func (h *Handler) handleUntagResource(c *echo.Context, body []byte) error {
 
 // -- Snapshot handlers -----------------------------------------------------------
 
-func (h *Handler) handleCreateSnapshot(c *echo.Context, body []byte) error {
+func (h *Handler) handleCreateSnapshot(ctx context.Context, c *echo.Context, body []byte) error {
 	var req createSnapshotRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -928,7 +939,7 @@ func (h *Handler) handleCreateSnapshot(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
 	}
 
-	s, err := h.Backend.CreateSnapshot(h.DefaultRegion, h.AccountID, &req)
+	s, err := h.Backend.CreateSnapshot(ctx, &req)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -936,7 +947,7 @@ func (h *Handler) handleCreateSnapshot(c *echo.Context, body []byte) error {
 	return c.JSON(http.StatusOK, createSnapshotResponse{Snapshot: toSnapshotObject(s)})
 }
 
-func (h *Handler) handleCopySnapshot(c *echo.Context, body []byte) error {
+func (h *Handler) handleCopySnapshot(ctx context.Context, c *echo.Context, body []byte) error {
 	var req copySnapshotRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -960,7 +971,7 @@ func (h *Handler) handleCopySnapshot(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
 	}
 
-	s, err := h.Backend.CopySnapshot(h.DefaultRegion, h.AccountID, &req)
+	s, err := h.Backend.CopySnapshot(ctx, &req)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -968,7 +979,7 @@ func (h *Handler) handleCopySnapshot(c *echo.Context, body []byte) error {
 	return c.JSON(http.StatusOK, copySnapshotResponse{Snapshot: toSnapshotObject(s)})
 }
 
-func (h *Handler) handleDeleteSnapshot(c *echo.Context, body []byte) error {
+func (h *Handler) handleDeleteSnapshot(ctx context.Context, c *echo.Context, body []byte) error {
 	var req deleteSnapshotRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -979,7 +990,7 @@ func (h *Handler) handleDeleteSnapshot(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "SnapshotName is required")
 	}
 
-	s, err := h.Backend.DeleteSnapshot(req.SnapshotName)
+	s, err := h.Backend.DeleteSnapshot(ctx, req.SnapshotName)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -987,14 +998,14 @@ func (h *Handler) handleDeleteSnapshot(c *echo.Context, body []byte) error {
 	return c.JSON(http.StatusOK, deleteSnapshotResponse{Snapshot: toSnapshotObject(s)})
 }
 
-func (h *Handler) handleDescribeSnapshots(c *echo.Context, body []byte) error {
+func (h *Handler) handleDescribeSnapshots(ctx context.Context, c *echo.Context, body []byte) error {
 	var req describeSnapshotRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
-	snapshots, err := h.Backend.DescribeSnapshots(req.SnapshotName, req.ClusterName, req.SnapshotType, req.Source)
+	snapshots, err := h.Backend.DescribeSnapshots(ctx, req.SnapshotName, req.ClusterName, req.SnapshotType, req.Source)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -1017,14 +1028,14 @@ func (h *Handler) handleDescribeSnapshots(c *echo.Context, body []byte) error {
 
 // -- EngineVersion handlers ------------------------------------------------------
 
-func (h *Handler) handleDescribeEngineVersions(c *echo.Context, body []byte) error {
+func (h *Handler) handleDescribeEngineVersions(ctx context.Context, c *echo.Context, body []byte) error {
 	var req describeEngineVersionsRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
-	versions, err := h.Backend.DescribeEngineVersions(&req)
+	versions, err := h.Backend.DescribeEngineVersions(ctx, &req)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -1046,14 +1057,14 @@ func (h *Handler) handleDescribeEngineVersions(c *echo.Context, body []byte) err
 
 // -- Event handlers --------------------------------------------------------------
 
-func (h *Handler) handleDescribeEvents(c *echo.Context, body []byte) error {
+func (h *Handler) handleDescribeEvents(ctx context.Context, c *echo.Context, body []byte) error {
 	var req describeEventsRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
-	events, err := h.Backend.DescribeEvents(&req)
+	events, err := h.Backend.DescribeEvents(ctx, &req)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -1074,7 +1085,7 @@ func (h *Handler) handleDescribeEvents(c *echo.Context, body []byte) error {
 
 // -- MultiRegionCluster handlers -------------------------------------------------
 
-func (h *Handler) handleCreateMultiRegionCluster(c *echo.Context, body []byte) error {
+func (h *Handler) handleCreateMultiRegionCluster(ctx context.Context, c *echo.Context, body []byte) error {
 	var req createMultiRegionClusterRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -1094,7 +1105,7 @@ func (h *Handler) handleCreateMultiRegionCluster(c *echo.Context, body []byte) e
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "NodeType is required")
 	}
 
-	mrc, err := h.Backend.CreateMultiRegionCluster(h.DefaultRegion, h.AccountID, &req)
+	mrc, err := h.Backend.CreateMultiRegionCluster(ctx, &req)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -1102,7 +1113,7 @@ func (h *Handler) handleCreateMultiRegionCluster(c *echo.Context, body []byte) e
 	return c.JSON(http.StatusOK, createMultiRegionClusterResponse{MultiRegionCluster: toMultiRegionClusterObject(mrc)})
 }
 
-func (h *Handler) handleDeleteMultiRegionCluster(c *echo.Context, body []byte) error {
+func (h *Handler) handleDeleteMultiRegionCluster(ctx context.Context, c *echo.Context, body []byte) error {
 	var req deleteMultiRegionClusterRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -1118,7 +1129,7 @@ func (h *Handler) handleDeleteMultiRegionCluster(c *echo.Context, body []byte) e
 		)
 	}
 
-	mrc, err := h.Backend.DeleteMultiRegionCluster(req.MultiRegionClusterName)
+	mrc, err := h.Backend.DeleteMultiRegionCluster(ctx, req.MultiRegionClusterName)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -1126,14 +1137,14 @@ func (h *Handler) handleDeleteMultiRegionCluster(c *echo.Context, body []byte) e
 	return c.JSON(http.StatusOK, deleteMultiRegionClusterResponse{MultiRegionCluster: toMultiRegionClusterObject(mrc)})
 }
 
-func (h *Handler) handleDescribeMultiRegionClusters(c *echo.Context, body []byte) error {
+func (h *Handler) handleDescribeMultiRegionClusters(ctx context.Context, c *echo.Context, body []byte) error {
 	var req describeMultiRegionClustersRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
-	mrcs, err := h.Backend.DescribeMultiRegionClusters(req.MultiRegionClusterName)
+	mrcs, err := h.Backend.DescribeMultiRegionClusters(ctx, req.MultiRegionClusterName)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -1149,14 +1160,14 @@ func (h *Handler) handleDescribeMultiRegionClusters(c *echo.Context, body []byte
 
 // -- MultiRegionParameterGroup handlers ------------------------------------------
 
-func (h *Handler) handleDescribeMultiRegionParameterGroups(c *echo.Context, body []byte) error {
+func (h *Handler) handleDescribeMultiRegionParameterGroups(ctx context.Context, c *echo.Context, body []byte) error {
 	var req describeMultiRegionParameterGroupsRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
-	mrpgs, err := h.Backend.DescribeMultiRegionParameterGroups(req.ParameterGroupName)
+	mrpgs, err := h.Backend.DescribeMultiRegionParameterGroups(ctx, req.ParameterGroupName)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -1177,7 +1188,7 @@ func (h *Handler) handleDescribeMultiRegionParameterGroups(c *echo.Context, body
 
 // -- BatchUpdateCluster handler --------------------------------------------------
 
-func (h *Handler) handleBatchUpdateCluster(c *echo.Context, body []byte) error {
+func (h *Handler) handleBatchUpdateCluster(ctx context.Context, c *echo.Context, body []byte) error {
 	var req batchUpdateClusterRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -1188,7 +1199,7 @@ func (h *Handler) handleBatchUpdateCluster(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "ClusterNames is required")
 	}
 
-	found := h.Backend.BatchUpdateCluster(req.ClusterNames)
+	found := h.Backend.BatchUpdateCluster(ctx, req.ClusterNames)
 
 	processedObjs := make([]clusterObject, 0, len(found))
 	unprocessedObjs := make([]unprocessedCluster, 0, len(req.ClusterNames))
@@ -1213,14 +1224,14 @@ func (h *Handler) handleBatchUpdateCluster(c *echo.Context, body []byte) error {
 
 // -- New handler functions (refinement check 2) ----------------------------------
 
-func (h *Handler) handleDescribeParameters(c *echo.Context, body []byte) error {
+func (h *Handler) handleDescribeParameters(ctx context.Context, c *echo.Context, body []byte) error {
 	var req describeParametersRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
-	params, err := h.Backend.DescribeParameters(req.ParameterGroupName)
+	params, err := h.Backend.DescribeParameters(ctx, req.ParameterGroupName)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -1243,14 +1254,14 @@ func (h *Handler) handleDescribeParameters(c *echo.Context, body []byte) error {
 	return c.JSON(http.StatusOK, describeParametersResponse{Parameters: objs})
 }
 
-func (h *Handler) handleResetParameterGroup(c *echo.Context, body []byte) error {
+func (h *Handler) handleResetParameterGroup(ctx context.Context, c *echo.Context, body []byte) error {
 	var req resetParameterGroupRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
-	pg, err := h.Backend.ResetParameterGroup(req.ParameterGroupName, req.ParameterNames, req.AllParameters)
+	pg, err := h.Backend.ResetParameterGroup(ctx, req.ParameterGroupName, req.ParameterNames, req.AllParameters)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -1258,7 +1269,7 @@ func (h *Handler) handleResetParameterGroup(c *echo.Context, body []byte) error 
 	return c.JSON(http.StatusOK, resetParameterGroupResponse{ParameterGroup: toParameterGroupObject(pg)})
 }
 
-func (h *Handler) handleFailoverShard(c *echo.Context, body []byte) error {
+func (h *Handler) handleFailoverShard(ctx context.Context, c *echo.Context, body []byte) error {
 	var req failoverShardRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -1269,7 +1280,7 @@ func (h *Handler) handleFailoverShard(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "ClusterName is required")
 	}
 
-	cl, err := h.Backend.FailoverShard(req.ClusterName, req.ShardName)
+	cl, err := h.Backend.FailoverShard(ctx, req.ClusterName, req.ShardName)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -1277,7 +1288,7 @@ func (h *Handler) handleFailoverShard(c *echo.Context, body []byte) error {
 	return c.JSON(http.StatusOK, failoverShardResponse{Cluster: toClusterObject(cl, true)})
 }
 
-func (h *Handler) handleListAllowedNodeTypeUpdates(c *echo.Context, body []byte) error {
+func (h *Handler) handleListAllowedNodeTypeUpdates(ctx context.Context, c *echo.Context, body []byte) error {
 	var req listAllowedNodeTypeUpdatesRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -1288,7 +1299,7 @@ func (h *Handler) handleListAllowedNodeTypeUpdates(c *echo.Context, body []byte)
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "ClusterName is required")
 	}
 
-	nodeTypes, err := h.Backend.ListAllowedNodeTypeUpdates(req.ClusterName)
+	nodeTypes, err := h.Backend.ListAllowedNodeTypeUpdates(ctx, req.ClusterName)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -1299,7 +1310,7 @@ func (h *Handler) handleListAllowedNodeTypeUpdates(c *echo.Context, body []byte)
 	})
 }
 
-func (h *Handler) handleListAllowedMultiRegionClusterUpdates(c *echo.Context, body []byte) error {
+func (h *Handler) handleListAllowedMultiRegionClusterUpdates(ctx context.Context, c *echo.Context, body []byte) error {
 	var req listAllowedMultiRegionClusterUpdatesRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -1315,7 +1326,7 @@ func (h *Handler) handleListAllowedMultiRegionClusterUpdates(c *echo.Context, bo
 		)
 	}
 
-	nodeTypes, err := h.Backend.ListAllowedMultiRegionClusterUpdates(req.MultiRegionClusterName)
+	nodeTypes, err := h.Backend.ListAllowedMultiRegionClusterUpdates(ctx, req.MultiRegionClusterName)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -1326,7 +1337,7 @@ func (h *Handler) handleListAllowedMultiRegionClusterUpdates(c *echo.Context, bo
 	})
 }
 
-func (h *Handler) handleUpdateMultiRegionCluster(c *echo.Context, body []byte) error {
+func (h *Handler) handleUpdateMultiRegionCluster(ctx context.Context, c *echo.Context, body []byte) error {
 	var req updateMultiRegionClusterRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -1342,7 +1353,7 @@ func (h *Handler) handleUpdateMultiRegionCluster(c *echo.Context, body []byte) e
 		)
 	}
 
-	mrc, err := h.Backend.UpdateMultiRegionCluster(&req)
+	mrc, err := h.Backend.UpdateMultiRegionCluster(ctx, &req)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -1350,12 +1361,12 @@ func (h *Handler) handleUpdateMultiRegionCluster(c *echo.Context, body []byte) e
 	return c.JSON(http.StatusOK, updateMultiRegionClusterResponse{MultiRegionCluster: toMultiRegionClusterObject(mrc)})
 }
 
-func (h *Handler) handleDescribeServiceUpdates(c *echo.Context, body []byte) error {
+func (h *Handler) handleDescribeServiceUpdates(ctx context.Context, c *echo.Context, body []byte) error {
 	var req describeServiceUpdatesRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
-	updates, err := h.Backend.DescribeServiceUpdates(&req)
+	updates, err := h.Backend.DescribeServiceUpdates(ctx, &req)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -1382,14 +1393,14 @@ func (h *Handler) handleDescribeServiceUpdates(c *echo.Context, body []byte) err
 
 // -- ReservedNode handlers -------------------------------------------------------
 
-func (h *Handler) handleDescribeReservedNodes(c *echo.Context, body []byte) error {
+func (h *Handler) handleDescribeReservedNodes(ctx context.Context, c *echo.Context, body []byte) error {
 	var req describeReservedNodesRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
-	nodes, err := h.Backend.DescribeReservedNodes(&req)
+	nodes, err := h.Backend.DescribeReservedNodes(ctx, &req)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -1397,14 +1408,14 @@ func (h *Handler) handleDescribeReservedNodes(c *echo.Context, body []byte) erro
 	return c.JSON(http.StatusOK, describeReservedNodesResponse{ReservedNodes: toReservedNodeSlice(nodes)})
 }
 
-func (h *Handler) handleDescribeReservedNodesOfferings(c *echo.Context, body []byte) error {
+func (h *Handler) handleDescribeReservedNodesOfferings(ctx context.Context, c *echo.Context, body []byte) error {
 	var req describeReservedNodesOfferingsRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
-	offerings, err := h.Backend.DescribeReservedNodesOfferings(&req)
+	offerings, err := h.Backend.DescribeReservedNodesOfferings(ctx, &req)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -1415,7 +1426,7 @@ func (h *Handler) handleDescribeReservedNodesOfferings(c *echo.Context, body []b
 	)
 }
 
-func (h *Handler) handlePurchaseReservedNodesOffering(c *echo.Context, body []byte) error {
+func (h *Handler) handlePurchaseReservedNodesOffering(ctx context.Context, c *echo.Context, body []byte) error {
 	var req purchaseReservedNodesOfferingRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -1431,7 +1442,7 @@ func (h *Handler) handlePurchaseReservedNodesOffering(c *echo.Context, body []by
 		)
 	}
 
-	rn, err := h.Backend.PurchaseReservedNodesOffering(h.DefaultRegion, h.AccountID, &req)
+	rn, err := h.Backend.PurchaseReservedNodesOffering(ctx, &req)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -1441,7 +1452,7 @@ func (h *Handler) handlePurchaseReservedNodesOffering(c *echo.Context, body []by
 
 // -- DescribeMultiRegionParameters handler ---------------------------------------
 
-func (h *Handler) handleDescribeMultiRegionParameters(c *echo.Context, body []byte) error {
+func (h *Handler) handleDescribeMultiRegionParameters(ctx context.Context, c *echo.Context, body []byte) error {
 	var req describeMultiRegionParametersRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -1452,7 +1463,7 @@ func (h *Handler) handleDescribeMultiRegionParameters(c *echo.Context, body []by
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "ParameterGroupName is required")
 	}
 
-	params, err := h.Backend.DescribeMultiRegionParameters(req.ParameterGroupName)
+	params, err := h.Backend.DescribeMultiRegionParameters(ctx, req.ParameterGroupName)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}

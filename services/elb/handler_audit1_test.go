@@ -1,6 +1,7 @@
 package elb_test
 
 import (
+	"context"
 	"encoding/xml"
 	"net/http"
 	"net/url"
@@ -247,7 +248,7 @@ func TestAudit1_AccessLog_SnapshotRestore(t *testing.T) {
 	b2 := elb.NewInMemoryBackend("123456789012", "us-east-1")
 	require.NoError(t, b2.Restore(snap))
 
-	attrs, err := b2.DescribeLoadBalancerAttributes("al-snap-lb")
+	attrs, err := b2.DescribeLoadBalancerAttributes(context.Background(), "al-snap-lb")
 	require.NoError(t, err)
 	assert.True(t, attrs.AccessLog.Enabled)
 	assert.Equal(t, "snap-bucket", attrs.AccessLog.S3BucketName)
@@ -281,7 +282,7 @@ func TestAudit1_AccessLog_UpdateBucket(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	attrs, err := h.Backend.DescribeLoadBalancerAttributes("al-upd-lb")
+	attrs, err := h.Backend.DescribeLoadBalancerAttributes(context.Background(), "al-upd-lb")
 	require.NoError(t, err)
 	assert.Equal(t, "new-bucket", attrs.AccessLog.S3BucketName)
 	assert.Equal(t, int32(5), attrs.AccessLog.EmitInterval)
@@ -454,7 +455,7 @@ func TestAudit1_CrossZoneLoadBalancing_DefaultFalse(t *testing.T) {
 	h := elb.NewHandler(b)
 	mustCreateLB(t, h, "czlb-default-lb")
 
-	attrs, err := b.DescribeLoadBalancerAttributes("czlb-default-lb")
+	attrs, err := b.DescribeLoadBalancerAttributes(context.Background(), "czlb-default-lb")
 	require.NoError(t, err)
 	assert.False(t, attrs.CrossZoneLoadBalancing)
 }
@@ -478,7 +479,7 @@ func TestAudit1_CrossZoneLoadBalancing_SnapshotRestore(t *testing.T) {
 	b2 := elb.NewInMemoryBackend("123456789012", "us-east-1")
 	require.NoError(t, b2.Restore(snap))
 
-	attrs, err := b2.DescribeLoadBalancerAttributes("czlb-snap-lb")
+	attrs, err := b2.DescribeLoadBalancerAttributes(context.Background(), "czlb-snap-lb")
 	require.NoError(t, err)
 	assert.True(t, attrs.CrossZoneLoadBalancing)
 }
@@ -525,7 +526,7 @@ func TestAudit1_ConnectionDraining_DefaultValues(t *testing.T) {
 	h := elb.NewHandler(b)
 	mustCreateLB(t, h, "cd-default-lb")
 
-	attrs, err := b.DescribeLoadBalancerAttributes("cd-default-lb")
+	attrs, err := b.DescribeLoadBalancerAttributes(context.Background(), "cd-default-lb")
 	require.NoError(t, err)
 	assert.False(t, attrs.ConnectionDraining)
 	assert.Equal(t, int32(300), attrs.ConnectionDrainingTimeout)
@@ -556,7 +557,7 @@ func TestAudit1_ConnectionDraining_Disable(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	attrs, err := h.Backend.DescribeLoadBalancerAttributes("cd-disable-lb")
+	attrs, err := h.Backend.DescribeLoadBalancerAttributes(context.Background(), "cd-disable-lb")
 	require.NoError(t, err)
 	assert.False(t, attrs.ConnectionDraining)
 }
@@ -604,7 +605,7 @@ func TestAudit1_ConnectionSettings_IdleTimeout_Default(t *testing.T) {
 	h := elb.NewHandler(b)
 	mustCreateLB(t, h, "cs-default-lb")
 
-	attrs, err := b.DescribeLoadBalancerAttributes("cs-default-lb")
+	attrs, err := b.DescribeLoadBalancerAttributes(context.Background(), "cs-default-lb")
 	require.NoError(t, err)
 	assert.Equal(t, int32(60), attrs.IdleTimeout)
 }
@@ -817,7 +818,7 @@ func TestAudit1_CreateLoadBalancer_InternetFacingDefault(t *testing.T) {
 	h := elb.NewHandler(b)
 	mustCreateLB(t, h, "scheme-default-lb")
 
-	lbs, err := b.DescribeLoadBalancers([]string{"scheme-default-lb"})
+	lbs, err := b.DescribeLoadBalancers(context.Background(), []string{"scheme-default-lb"})
 	require.NoError(t, err)
 	assert.Equal(t, "internet-facing", lbs[0].Scheme)
 }
@@ -912,7 +913,7 @@ func TestAudit1_CreateLoadBalancer_WithInitialTags(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	tagMap, err := b.DescribeTags([]string{"tagged-lb"})
+	tagMap, err := b.DescribeTags(context.Background(), []string{"tagged-lb"})
 	require.NoError(t, err)
 	tags := tagMap["tagged-lb"]
 	require.Len(t, tags, 2)
@@ -1460,7 +1461,7 @@ func TestAudit1_HealthCheck_TargetProtocolNormalized(t *testing.T) {
 		"HealthCheck.HealthyThreshold":   {"3"},
 	})
 
-	lbs, err := b.DescribeLoadBalancers([]string{"hc-norm-lb"})
+	lbs, err := b.DescribeLoadBalancers(context.Background(), []string{"hc-norm-lb"})
 	require.NoError(t, err)
 	require.NotNil(t, lbs[0].HealthCheck)
 	assert.Equal(t, "HTTP:80/health", lbs[0].HealthCheck.Target, "protocol must be uppercased")
@@ -1921,7 +1922,7 @@ func TestAudit1_BackendServerPolicies_SetAndDescribe(t *testing.T) {
 		"PolicyNames.member.1": {"proxy-pol"},
 	})
 
-	lbs, err := b.DescribeLoadBalancers([]string{"bsd-desc-lb"})
+	lbs, err := b.DescribeLoadBalancers(context.Background(), []string{"bsd-desc-lb"})
 	require.NoError(t, err)
 	require.Len(t, lbs, 1)
 	require.Len(t, lbs[0].BackendServerDescriptions, 1)
@@ -1960,7 +1961,7 @@ func TestAudit1_BackendServerPolicies_ClearByEmptyList(t *testing.T) {
 		"InstancePort":     {"8080"},
 	})
 
-	lbs, err := b.DescribeLoadBalancers([]string{"bsd-clear-lb"})
+	lbs, err := b.DescribeLoadBalancers(context.Background(), []string{"bsd-clear-lb"})
 	require.NoError(t, err)
 	bsd := lbs[0].BackendServerDescriptions
 	// Either removed or has empty policy list.
@@ -2268,7 +2269,7 @@ func TestAudit1_DesyncMitigationMode_DefaultDefensive(t *testing.T) {
 	h := elb.NewHandler(b)
 	mustCreateLB(t, h, "desync-def-lb")
 
-	attrs, err := b.DescribeLoadBalancerAttributes("desync-def-lb")
+	attrs, err := b.DescribeLoadBalancerAttributes(context.Background(), "desync-def-lb")
 	require.NoError(t, err)
 	assert.Equal(t, "defensive", attrs.DesyncMitigationMode)
 }
@@ -2572,7 +2573,7 @@ func TestAudit1_Persistence_FullState(t *testing.T) {
 	require.NoError(t, b2.Restore(snap))
 
 	// Verify LB exists.
-	lbs, err := b2.DescribeLoadBalancers([]string{"full-snap-lb"})
+	lbs, err := b2.DescribeLoadBalancers(context.Background(), []string{"full-snap-lb"})
 	require.NoError(t, err)
 	require.Len(t, lbs, 1)
 
@@ -2585,7 +2586,7 @@ func TestAudit1_Persistence_FullState(t *testing.T) {
 	assert.Equal(t, 1, b2.PolicyCount())
 
 	// Verify tags.
-	tagMap, err := b2.DescribeTags([]string{"full-snap-lb"})
+	tagMap, err := b2.DescribeTags(context.Background(), []string{"full-snap-lb"})
 	require.NoError(t, err)
 	require.Len(t, tagMap["full-snap-lb"], 1)
 	assert.Equal(t, "Env", tagMap["full-snap-lb"][0].Key)

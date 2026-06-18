@@ -6,12 +6,17 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"regexp"
 	"slices"
 	"sync"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
+
+// dbInstanceIDRegex matches valid RDS DBInstanceIdentifier values.
+// Must start with a letter, contain only alphanumeric and hyphens, 1–63 chars.
+var dbInstanceIDRegex = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9-]{0,62}$`)
 
 var (
 	// ErrInstanceNotFound is returned when an RDS instance does not exist.
@@ -28,6 +33,10 @@ var (
 	ErrSubnetGroupAlreadyExists = errors.New("DBSubnetGroupAlreadyExists")
 	// ErrInvalidParameter is returned for invalid input.
 	ErrInvalidParameter = errors.New("InvalidParameterValue")
+	// ErrInvalidParameterCombination is returned when a set of otherwise-valid
+	// parameters cannot be used together (e.g. MonitoringInterval>0 without a
+	// MonitoringRoleArn). AWS returns the InvalidParameterCombination error code.
+	ErrInvalidParameterCombination = errors.New("InvalidParameterCombination")
 	// ErrUnknownAction is returned for unrecognized RDS actions.
 	ErrUnknownAction = errors.New("InvalidAction")
 	// ErrInvalidDBInstanceState is returned when an instance operation is invalid given its current state.
@@ -982,6 +991,12 @@ func (b *InMemoryBackend) CreateDBInstance(
 ) (*DBInstance, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: DBInstanceIdentifier is required", ErrInvalidParameter)
+	}
+	if !dbInstanceIDRegex.MatchString(id) {
+		return nil, fmt.Errorf(
+			"%w: DBInstanceIdentifier %q is invalid (must start with a letter, 1–63 alphanumeric/hyphen chars)",
+			ErrInvalidParameter, id,
+		)
 	}
 
 	b.mu.Lock("CreateDBInstance")

@@ -1,6 +1,7 @@
 package sagemaker
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"sort"
@@ -77,21 +78,24 @@ func cloneModelPackageGroup(g *ModelPackageGroup) *ModelPackageGroup {
 
 // CreateModelPackageGroup creates a new model package group.
 func (b *InMemoryBackend) CreateModelPackageGroup(
+	ctx context.Context,
 	name, description string,
 	tags map[string]string,
 ) (*ModelPackageGroup, error) {
 	b.mu.Lock("CreateModelPackageGroup")
 	defer b.mu.Unlock()
 
+	region := getRegion(ctx, b.region)
+
 	if name == "" {
 		return nil, fmt.Errorf("%w: ModelPackageGroupName is required", ErrValidation)
 	}
 
-	if _, ok := b.modelPackageGroups[name]; ok {
+	if _, ok := b.modelPackageGroupsStore(region)[name]; ok {
 		return nil, fmt.Errorf("%w: model package group %q already exists", ErrValidation, name)
 	}
 
-	groupARN := arn.Build("sagemaker", b.region, b.accountID, "model-package-group/"+name)
+	groupARN := arn.Build("sagemaker", region, b.accountID, "model-package-group/"+name)
 
 	g := &ModelPackageGroup{
 		ModelPackageGroupName:        name,
@@ -101,17 +105,19 @@ func (b *InMemoryBackend) CreateModelPackageGroup(
 		Tags:                         mergeTags(nil, tags),
 		CreationTime:                 time.Now(),
 	}
-	b.modelPackageGroups[name] = g
+	b.modelPackageGroupsStore(region)[name] = g
 
 	return cloneModelPackageGroup(g), nil
 }
 
 // DescribeModelPackageGroup returns a model package group by name.
-func (b *InMemoryBackend) DescribeModelPackageGroup(name string) (*ModelPackageGroup, error) {
+func (b *InMemoryBackend) DescribeModelPackageGroup(ctx context.Context, name string) (*ModelPackageGroup, error) {
 	b.mu.RLock("DescribeModelPackageGroup")
 	defer b.mu.RUnlock()
 
-	g, ok := b.modelPackageGroups[name]
+	region := getRegion(ctx, b.region)
+
+	g, ok := b.modelPackageGroupsStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: model package group %q not found", ErrModelPackageGroupNotFound, name)
 	}
@@ -120,63 +126,38 @@ func (b *InMemoryBackend) DescribeModelPackageGroup(name string) (*ModelPackageG
 }
 
 // DeleteModelPackageGroup removes a model package group by name.
-func (b *InMemoryBackend) DeleteModelPackageGroup(name string) error {
+func (b *InMemoryBackend) DeleteModelPackageGroup(ctx context.Context, name string) error {
 	b.mu.Lock("DeleteModelPackageGroup")
 	defer b.mu.Unlock()
 
-	if _, ok := b.modelPackageGroups[name]; !ok {
+	region := getRegion(ctx, b.region)
+
+	if _, ok := b.modelPackageGroupsStore(region)[name]; !ok {
 		return fmt.Errorf("%w: model package group %q not found", ErrModelPackageGroupNotFound, name)
 	}
 
 	// AWS rejects deletion when model packages still exist in the group.
-	for _, mp := range b.modelPackages {
+	for _, mp := range b.modelPackagesStore(region) {
 		if mp.ModelPackageGroupName == name {
 			return fmt.Errorf("%w: model package group %q has model packages and cannot be deleted",
 				ErrModelPackageGroupHasPackages, name)
 		}
 	}
 
-	delete(b.modelPackageGroups, name)
+	store := b.modelPackageGroupsStore(region)
+	delete(store, name)
 
 	return nil
 }
 
 // ListModelPackageGroups returns all model package groups, sorted by name.
-func (b *InMemoryBackend) ListModelPackageGroups(nextToken string) ([]*ModelPackageGroup, string) {
+func (b *InMemoryBackend) ListModelPackageGroups(ctx context.Context, nextToken string) ([]*ModelPackageGroup, string) {
 	b.mu.RLock("ListModelPackageGroups")
 	defer b.mu.RUnlock()
 
-	keys := make([]string, 0, len(b.modelPackageGroups))
-	for k := range b.modelPackageGroups {
-		keys = append(keys, k)
-	}
+	region := getRegion(ctx, b.region)
 
-	sort.Strings(keys)
-
-	start := 0
-	if nextToken != "" {
-		for i, k := range keys {
-			if k == nextToken {
-				start = i
-
-				break
-			}
-		}
-	}
-
-	end := min(start+sagemakerDefaultPageSize, len(keys))
-
-	out := make([]*ModelPackageGroup, 0, end-start)
-	for _, k := range keys[start:end] {
-		out = append(out, cloneModelPackageGroup(b.modelPackageGroups[k]))
-	}
-
-	next := ""
-	if end < len(keys) {
-		next = keys[end]
-	}
-
-	return out, next
+	return sagemakerListKeyPaged(b.modelPackageGroupsStore(region), nextToken, cloneModelPackageGroup)
 }
 
 // ---------------------------------------------------------------------------
@@ -185,19 +166,22 @@ func (b *InMemoryBackend) ListModelPackageGroups(nextToken string) ([]*ModelPack
 
 // CreateModelPackage creates a model package.
 func (b *InMemoryBackend) CreateModelPackage(
+	ctx context.Context,
 	name, groupName, description string,
 	tags map[string]string,
 ) (*ModelPackage, error) {
 	b.mu.Lock("CreateModelPackage")
 	defer b.mu.Unlock()
 
+	region := getRegion(ctx, b.region)
+
 	if name == "" {
 		return nil, fmt.Errorf("%w: ModelPackageName is required", ErrValidation)
 	}
 
-	mpARN := arn.Build("sagemaker", b.region, b.accountID, "model-package/"+name)
+	mpARN := arn.Build("sagemaker", region, b.accountID, "model-package/"+name)
 
-	if _, ok := b.modelPackages[mpARN]; ok {
+	if _, ok := b.modelPackagesStore(region)[mpARN]; ok {
 		return nil, fmt.Errorf("%w: model package %q already exists", ErrValidation, name)
 	}
 
@@ -210,25 +194,27 @@ func (b *InMemoryBackend) CreateModelPackage(
 		Tags:                    mergeTags(nil, tags),
 		CreationTime:            time.Now(),
 	}
-	b.modelPackages[mpARN] = mp
-	b.modelPackageARNIndex[name] = mpARN
+	b.modelPackagesStore(region)[mpARN] = mp
+	b.modelPackageARNIndexStore(region)[name] = mpARN
 
 	return cloneModelPackage(mp), nil
 }
 
 // DescribeModelPackage returns a model package by name or ARN.
-func (b *InMemoryBackend) DescribeModelPackage(nameOrArn string) (*ModelPackage, error) {
+func (b *InMemoryBackend) DescribeModelPackage(ctx context.Context, nameOrArn string) (*ModelPackage, error) {
 	b.mu.RLock("DescribeModelPackage")
 	defer b.mu.RUnlock()
 
+	region := getRegion(ctx, b.region)
+
 	// Try direct ARN lookup first.
-	if mp, ok := b.modelPackages[nameOrArn]; ok {
+	if mp, ok := b.modelPackagesStore(region)[nameOrArn]; ok {
 		return cloneModelPackage(mp), nil
 	}
 
 	// Try name → ARN index.
-	if arnStr, ok := b.modelPackageARNIndex[nameOrArn]; ok {
-		if mp, found := b.modelPackages[arnStr]; found {
+	if arnStr, ok := b.modelPackageARNIndexStore(region)[nameOrArn]; ok {
+		if mp, found := b.modelPackagesStore(region)[arnStr]; found {
 			return cloneModelPackage(mp), nil
 		}
 	}
@@ -237,34 +223,43 @@ func (b *InMemoryBackend) DescribeModelPackage(nameOrArn string) (*ModelPackage,
 }
 
 // DeleteModelPackage removes a model package by name or ARN.
-func (b *InMemoryBackend) DeleteModelPackage(nameOrArn string) error {
+func (b *InMemoryBackend) DeleteModelPackage(ctx context.Context, nameOrArn string) error {
 	b.mu.Lock("DeleteModelPackage")
 	defer b.mu.Unlock()
 
+	region := getRegion(ctx, b.region)
+
 	arnStr := nameOrArn
-	if v, ok := b.modelPackageARNIndex[nameOrArn]; ok {
+	if v, ok := b.modelPackageARNIndexStore(region)[nameOrArn]; ok {
 		arnStr = v
 	}
 
-	if _, ok := b.modelPackages[arnStr]; !ok {
+	if _, ok := b.modelPackagesStore(region)[arnStr]; !ok {
 		return fmt.Errorf("%w: model package %q not found", ErrModelPackageNotFound, nameOrArn)
 	}
 
-	mp := b.modelPackages[arnStr]
-	delete(b.modelPackageARNIndex, mp.ModelPackageName)
-	delete(b.modelPackages, arnStr)
+	mp := b.modelPackagesStore(region)[arnStr]
+	arnIdxStore := b.modelPackageARNIndexStore(region)
+	delete(arnIdxStore, mp.ModelPackageName)
+	mpStore := b.modelPackagesStore(region)
+	delete(mpStore, arnStr)
 
 	return nil
 }
 
 // ListModelPackages returns model packages, optionally filtered by group name.
-func (b *InMemoryBackend) ListModelPackages(groupName, nextToken string) ([]*ModelPackage, string) {
+func (b *InMemoryBackend) ListModelPackages(
+	ctx context.Context,
+	groupName, nextToken string,
+) ([]*ModelPackage, string) {
 	b.mu.RLock("ListModelPackages")
 	defer b.mu.RUnlock()
 
+	region := getRegion(ctx, b.region)
+
 	var arns []string
-	for k := range b.modelPackages {
-		mp := b.modelPackages[k]
+	for k := range b.modelPackagesStore(region) {
+		mp := b.modelPackagesStore(region)[k]
 		if groupName == "" || mp.ModelPackageGroupName == groupName {
 			arns = append(arns, k)
 		}
@@ -287,7 +282,7 @@ func (b *InMemoryBackend) ListModelPackages(groupName, nextToken string) ([]*Mod
 
 	out := make([]*ModelPackage, 0, end-start)
 	for _, k := range arns[start:end] {
-		out = append(out, cloneModelPackage(b.modelPackages[k]))
+		out = append(out, cloneModelPackage(b.modelPackagesStore(region)[k]))
 	}
 
 	next := ""
@@ -321,21 +316,24 @@ func cloneAutoMLJob(j *AutoMLJob) *AutoMLJob {
 
 // CreateAutoMLJob creates an AutoML job.
 func (b *InMemoryBackend) CreateAutoMLJob(
+	ctx context.Context,
 	name, roleArn string,
 	tags map[string]string,
 ) (*AutoMLJob, error) {
 	b.mu.Lock("CreateAutoMLJob")
 	defer b.mu.Unlock()
 
+	region := getRegion(ctx, b.region)
+
 	if name == "" {
 		return nil, fmt.Errorf("%w: AutoMLJobName is required", ErrValidation)
 	}
 
-	if _, ok := b.autoMLJobs[name]; ok {
+	if _, ok := b.autoMLJobsStore(region)[name]; ok {
 		return nil, fmt.Errorf("%w: AutoML job %q already exists", ErrValidation, name)
 	}
 
-	jobARN := arn.Build("sagemaker", b.region, b.accountID, "automl-job/"+name)
+	jobARN := arn.Build("sagemaker", region, b.accountID, "automl-job/"+name)
 
 	j := &AutoMLJob{
 		AutoMLJobName:   name,
@@ -345,17 +343,19 @@ func (b *InMemoryBackend) CreateAutoMLJob(
 		Tags:            mergeTags(nil, tags),
 		CreationTime:    time.Now(),
 	}
-	b.autoMLJobs[name] = j
+	b.autoMLJobsStore(region)[name] = j
 
 	return cloneAutoMLJob(j), nil
 }
 
 // DescribeAutoMLJob returns an AutoML job by name.
-func (b *InMemoryBackend) DescribeAutoMLJob(name string) (*AutoMLJob, error) {
+func (b *InMemoryBackend) DescribeAutoMLJob(ctx context.Context, name string) (*AutoMLJob, error) {
 	b.mu.RLock("DescribeAutoMLJob")
 	defer b.mu.RUnlock()
 
-	j, ok := b.autoMLJobs[name]
+	region := getRegion(ctx, b.region)
+
+	j, ok := b.autoMLJobsStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: AutoML job %q not found", ErrAutoMLJobNotFound, name)
 	}
@@ -364,11 +364,13 @@ func (b *InMemoryBackend) DescribeAutoMLJob(name string) (*AutoMLJob, error) {
 }
 
 // StopAutoMLJob sets an AutoML job status to "Stopped".
-func (b *InMemoryBackend) StopAutoMLJob(name string) error {
+func (b *InMemoryBackend) StopAutoMLJob(ctx context.Context, name string) error {
 	b.mu.Lock("StopAutoMLJob")
 	defer b.mu.Unlock()
 
-	j, ok := b.autoMLJobs[name]
+	region := getRegion(ctx, b.region)
+
+	j, ok := b.autoMLJobsStore(region)[name]
 	if !ok {
 		return fmt.Errorf("%w: AutoML job %q not found", ErrAutoMLJobNotFound, name)
 	}
@@ -385,41 +387,13 @@ func (b *InMemoryBackend) StopAutoMLJob(name string) error {
 }
 
 // ListAutoMLJobs returns all AutoML jobs sorted by name.
-func (b *InMemoryBackend) ListAutoMLJobs(nextToken string) ([]*AutoMLJob, string) {
+func (b *InMemoryBackend) ListAutoMLJobs(ctx context.Context, nextToken string) ([]*AutoMLJob, string) {
 	b.mu.RLock("ListAutoMLJobs")
 	defer b.mu.RUnlock()
 
-	keys := make([]string, 0, len(b.autoMLJobs))
-	for k := range b.autoMLJobs {
-		keys = append(keys, k)
-	}
+	region := getRegion(ctx, b.region)
 
-	sort.Strings(keys)
-
-	start := 0
-	if nextToken != "" {
-		for i, k := range keys {
-			if k == nextToken {
-				start = i
-
-				break
-			}
-		}
-	}
-
-	end := min(start+sagemakerDefaultPageSize, len(keys))
-
-	out := make([]*AutoMLJob, 0, end-start)
-	for _, k := range keys[start:end] {
-		out = append(out, cloneAutoMLJob(b.autoMLJobs[k]))
-	}
-
-	next := ""
-	if end < len(keys) {
-		next = keys[end]
-	}
-
-	return out, next
+	return sagemakerListKeyPaged(b.autoMLJobsStore(region), nextToken, cloneAutoMLJob)
 }
 
 // ---------------------------------------------------------------------------
@@ -446,6 +420,7 @@ func cloneCodeRepository(r *CodeRepository) *CodeRepository {
 
 // CreateCodeRepository creates a code repository.
 func (b *InMemoryBackend) CreateCodeRepository(
+	ctx context.Context,
 	name string,
 	gitConfig map[string]string,
 	tags map[string]string,
@@ -453,15 +428,17 @@ func (b *InMemoryBackend) CreateCodeRepository(
 	b.mu.Lock("CreateCodeRepository")
 	defer b.mu.Unlock()
 
+	region := getRegion(ctx, b.region)
+
 	if name == "" {
 		return nil, fmt.Errorf("%w: CodeRepositoryName is required", ErrValidation)
 	}
 
-	if _, ok := b.codeRepositories[name]; ok {
+	if _, ok := b.codeRepositoriesStore(region)[name]; ok {
 		return nil, fmt.Errorf("%w: code repository %q already exists", ErrValidation, name)
 	}
 
-	repoARN := arn.Build("sagemaker", b.region, b.accountID, "code-repository/"+name)
+	repoARN := arn.Build("sagemaker", region, b.accountID, "code-repository/"+name)
 	now := time.Now()
 
 	r := &CodeRepository{
@@ -472,17 +449,19 @@ func (b *InMemoryBackend) CreateCodeRepository(
 		CreationTime:       now,
 		LastModifiedTime:   now,
 	}
-	b.codeRepositories[name] = r
+	b.codeRepositoriesStore(region)[name] = r
 
 	return cloneCodeRepository(r), nil
 }
 
 // DescribeCodeRepository returns a code repository by name.
-func (b *InMemoryBackend) DescribeCodeRepository(name string) (*CodeRepository, error) {
+func (b *InMemoryBackend) DescribeCodeRepository(ctx context.Context, name string) (*CodeRepository, error) {
 	b.mu.RLock("DescribeCodeRepository")
 	defer b.mu.RUnlock()
 
-	r, ok := b.codeRepositories[name]
+	region := getRegion(ctx, b.region)
+
+	r, ok := b.codeRepositoriesStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: code repository %q not found", ErrCodeRepositoryNotFound, name)
 	}
@@ -492,13 +471,16 @@ func (b *InMemoryBackend) DescribeCodeRepository(name string) (*CodeRepository, 
 
 // UpdateCodeRepository updates the git config of a code repository.
 func (b *InMemoryBackend) UpdateCodeRepository(
+	ctx context.Context,
 	name string,
 	gitConfig map[string]string,
 ) (*CodeRepository, error) {
 	b.mu.Lock("UpdateCodeRepository")
 	defer b.mu.Unlock()
 
-	r, ok := b.codeRepositories[name]
+	region := getRegion(ctx, b.region)
+
+	r, ok := b.codeRepositoriesStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: code repository %q not found", ErrCodeRepositoryNotFound, name)
 	}
@@ -513,55 +495,30 @@ func (b *InMemoryBackend) UpdateCodeRepository(
 }
 
 // DeleteCodeRepository removes a code repository by name.
-func (b *InMemoryBackend) DeleteCodeRepository(name string) error {
+func (b *InMemoryBackend) DeleteCodeRepository(ctx context.Context, name string) error {
 	b.mu.Lock("DeleteCodeRepository")
 	defer b.mu.Unlock()
 
-	if _, ok := b.codeRepositories[name]; !ok {
+	region := getRegion(ctx, b.region)
+
+	if _, ok := b.codeRepositoriesStore(region)[name]; !ok {
 		return fmt.Errorf("%w: code repository %q not found", ErrCodeRepositoryNotFound, name)
 	}
 
-	delete(b.codeRepositories, name)
+	store := b.codeRepositoriesStore(region)
+	delete(store, name)
 
 	return nil
 }
 
 // ListCodeRepositories returns all code repositories sorted by name.
-func (b *InMemoryBackend) ListCodeRepositories(nextToken string) ([]*CodeRepository, string) {
+func (b *InMemoryBackend) ListCodeRepositories(ctx context.Context, nextToken string) ([]*CodeRepository, string) {
 	b.mu.RLock("ListCodeRepositories")
 	defer b.mu.RUnlock()
 
-	keys := make([]string, 0, len(b.codeRepositories))
-	for k := range b.codeRepositories {
-		keys = append(keys, k)
-	}
+	region := getRegion(ctx, b.region)
 
-	sort.Strings(keys)
-
-	start := 0
-	if nextToken != "" {
-		for i, k := range keys {
-			if k == nextToken {
-				start = i
-
-				break
-			}
-		}
-	}
-
-	end := min(start+sagemakerDefaultPageSize, len(keys))
-
-	out := make([]*CodeRepository, 0, end-start)
-	for _, k := range keys[start:end] {
-		out = append(out, cloneCodeRepository(b.codeRepositories[k]))
-	}
-
-	next := ""
-	if end < len(keys) {
-		next = keys[end]
-	}
-
-	return out, next
+	return sagemakerListKeyPaged(b.codeRepositoriesStore(region), nextToken, cloneCodeRepository)
 }
 
 // ---------------------------------------------------------------------------
@@ -588,21 +545,24 @@ func cloneProject(p *Project) *Project {
 
 // CreateProject creates a SageMaker project.
 func (b *InMemoryBackend) CreateProject(
+	ctx context.Context,
 	name, description string,
 	tags map[string]string,
 ) (*Project, error) {
 	b.mu.Lock("CreateProject")
 	defer b.mu.Unlock()
 
+	region := getRegion(ctx, b.region)
+
 	if name == "" {
 		return nil, fmt.Errorf("%w: ProjectName is required", ErrValidation)
 	}
 
-	if _, ok := b.projects[name]; ok {
+	if _, ok := b.projectsStore(region)[name]; ok {
 		return nil, fmt.Errorf("%w: project %q already exists", ErrValidation, name)
 	}
 
-	projectARN := arn.Build("sagemaker", b.region, b.accountID, "project/"+name)
+	projectARN := arn.Build("sagemaker", region, b.accountID, "project/"+name)
 
 	p := &Project{
 		ProjectName:        name,
@@ -613,17 +573,19 @@ func (b *InMemoryBackend) CreateProject(
 		Tags:               mergeTags(nil, tags),
 		CreationTime:       time.Now(),
 	}
-	b.projects[name] = p
+	b.projectsStore(region)[name] = p
 
 	return cloneProject(p), nil
 }
 
 // DescribeProject returns a project by name.
-func (b *InMemoryBackend) DescribeProject(name string) (*Project, error) {
+func (b *InMemoryBackend) DescribeProject(ctx context.Context, name string) (*Project, error) {
 	b.mu.RLock("DescribeProject")
 	defer b.mu.RUnlock()
 
-	p, ok := b.projects[name]
+	region := getRegion(ctx, b.region)
+
+	p, ok := b.projectsStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: project %q not found", ErrProjectNotFound, name)
 	}
@@ -632,55 +594,30 @@ func (b *InMemoryBackend) DescribeProject(name string) (*Project, error) {
 }
 
 // DeleteProject removes a project by name.
-func (b *InMemoryBackend) DeleteProject(name string) error {
+func (b *InMemoryBackend) DeleteProject(ctx context.Context, name string) error {
 	b.mu.Lock("DeleteProject")
 	defer b.mu.Unlock()
 
-	if _, ok := b.projects[name]; !ok {
+	region := getRegion(ctx, b.region)
+
+	if _, ok := b.projectsStore(region)[name]; !ok {
 		return fmt.Errorf("%w: project %q not found", ErrProjectNotFound, name)
 	}
 
-	delete(b.projects, name)
+	store := b.projectsStore(region)
+	delete(store, name)
 
 	return nil
 }
 
 // ListProjects returns all projects sorted by name.
-func (b *InMemoryBackend) ListProjects(nextToken string) ([]*Project, string) {
+func (b *InMemoryBackend) ListProjects(ctx context.Context, nextToken string) ([]*Project, string) {
 	b.mu.RLock("ListProjects")
 	defer b.mu.RUnlock()
 
-	keys := make([]string, 0, len(b.projects))
-	for k := range b.projects {
-		keys = append(keys, k)
-	}
+	region := getRegion(ctx, b.region)
 
-	sort.Strings(keys)
-
-	start := 0
-	if nextToken != "" {
-		for i, k := range keys {
-			if k == nextToken {
-				start = i
-
-				break
-			}
-		}
-	}
-
-	end := min(start+sagemakerDefaultPageSize, len(keys))
-
-	out := make([]*Project, 0, end-start)
-	for _, k := range keys[start:end] {
-		out = append(out, cloneProject(b.projects[k]))
-	}
-
-	next := ""
-	if end < len(keys) {
-		next = keys[end]
-	}
-
-	return out, next
+	return sagemakerListKeyPaged(b.projectsStore(region), nextToken, cloneProject)
 }
 
 // ---------------------------------------------------------------------------
@@ -710,9 +647,15 @@ func spaceKey(domainID, spaceName string) string {
 }
 
 // CreateSpace creates a SageMaker Studio space.
-func (b *InMemoryBackend) CreateSpace(domainID, spaceName string, tags map[string]string) (*Space, error) {
+func (b *InMemoryBackend) CreateSpace(
+	ctx context.Context,
+	domainID, spaceName string,
+	tags map[string]string,
+) (*Space, error) {
 	b.mu.Lock("CreateSpace")
 	defer b.mu.Unlock()
+
+	region := getRegion(ctx, b.region)
 
 	if domainID == "" {
 		return nil, fmt.Errorf("%w: DomainID is required", ErrValidation)
@@ -724,11 +667,11 @@ func (b *InMemoryBackend) CreateSpace(domainID, spaceName string, tags map[strin
 
 	key := spaceKey(domainID, spaceName)
 
-	if _, ok := b.spaces[key]; ok {
+	if _, ok := b.spacesStore(region)[key]; ok {
 		return nil, fmt.Errorf("%w: space %q already exists in domain %q", ErrValidation, spaceName, domainID)
 	}
 
-	spaceARN := arn.Build("sagemaker", b.region, b.accountID, "space/"+domainID+"/"+spaceName)
+	spaceARN := arn.Build("sagemaker", region, b.accountID, "space/"+domainID+"/"+spaceName)
 	now := time.Now()
 
 	s := &Space{
@@ -740,17 +683,19 @@ func (b *InMemoryBackend) CreateSpace(domainID, spaceName string, tags map[strin
 		CreationTime:     now,
 		LastModifiedTime: now,
 	}
-	b.spaces[key] = s
+	b.spacesStore(region)[key] = s
 
 	return cloneSpace(s), nil
 }
 
 // DescribeSpace returns a space by domain ID and space name.
-func (b *InMemoryBackend) DescribeSpace(domainID, spaceName string) (*Space, error) {
+func (b *InMemoryBackend) DescribeSpace(ctx context.Context, domainID, spaceName string) (*Space, error) {
 	b.mu.RLock("DescribeSpace")
 	defer b.mu.RUnlock()
 
-	s, ok := b.spaces[spaceKey(domainID, spaceName)]
+	region := getRegion(ctx, b.region)
+
+	s, ok := b.spacesStore(region)[spaceKey(domainID, spaceName)]
 	if !ok {
 		return nil, fmt.Errorf("%w: space %q not found in domain %q", ErrSpaceNotFound, spaceName, domainID)
 	}
@@ -759,28 +704,33 @@ func (b *InMemoryBackend) DescribeSpace(domainID, spaceName string) (*Space, err
 }
 
 // DeleteSpace removes a space.
-func (b *InMemoryBackend) DeleteSpace(domainID, spaceName string) error {
+func (b *InMemoryBackend) DeleteSpace(ctx context.Context, domainID, spaceName string) error {
 	b.mu.Lock("DeleteSpace")
 	defer b.mu.Unlock()
 
+	region := getRegion(ctx, b.region)
+
 	key := spaceKey(domainID, spaceName)
 
-	if _, ok := b.spaces[key]; !ok {
+	if _, ok := b.spacesStore(region)[key]; !ok {
 		return fmt.Errorf("%w: space %q not found in domain %q", ErrSpaceNotFound, spaceName, domainID)
 	}
 
-	delete(b.spaces, key)
+	store := b.spacesStore(region)
+	delete(store, key)
 
 	return nil
 }
 
 // ListSpaces returns all spaces optionally filtered by domain ID.
-func (b *InMemoryBackend) ListSpaces(domainID, nextToken string) ([]*Space, string) {
+func (b *InMemoryBackend) ListSpaces(ctx context.Context, domainID, nextToken string) ([]*Space, string) {
 	b.mu.RLock("ListSpaces")
 	defer b.mu.RUnlock()
 
+	region := getRegion(ctx, b.region)
+
 	var keys []string
-	for k, s := range b.spaces {
+	for k, s := range b.spacesStore(region) {
 		if domainID == "" || s.DomainID == domainID {
 			keys = append(keys, k)
 		}
@@ -803,7 +753,7 @@ func (b *InMemoryBackend) ListSpaces(domainID, nextToken string) ([]*Space, stri
 
 	out := make([]*Space, 0, end-start)
 	for _, k := range keys[start:end] {
-		out = append(out, cloneSpace(b.spaces[k]))
+		out = append(out, cloneSpace(b.spacesStore(region)[k]))
 	}
 
 	next := ""
@@ -838,19 +788,25 @@ func cloneSMImage(img *SMImage) *SMImage {
 }
 
 // CreateImage creates a SageMaker image.
-func (b *InMemoryBackend) CreateImage(name, description, roleArn string, tags map[string]string) (*SMImage, error) {
+func (b *InMemoryBackend) CreateImage(
+	ctx context.Context,
+	name, description, roleArn string,
+	tags map[string]string,
+) (*SMImage, error) {
 	b.mu.Lock("CreateImage")
 	defer b.mu.Unlock()
+
+	region := getRegion(ctx, b.region)
 
 	if name == "" {
 		return nil, fmt.Errorf("%w: ImageName is required", ErrValidation)
 	}
 
-	if _, ok := b.smImages[name]; ok {
+	if _, ok := b.smImagesStore(region)[name]; ok {
 		return nil, fmt.Errorf("%w: image %q already exists", ErrValidation, name)
 	}
 
-	imageARN := arn.Build("sagemaker", b.region, b.accountID, "image/"+name)
+	imageARN := arn.Build("sagemaker", region, b.accountID, "image/"+name)
 	now := time.Now()
 
 	img := &SMImage{
@@ -863,17 +819,19 @@ func (b *InMemoryBackend) CreateImage(name, description, roleArn string, tags ma
 		CreationTime:     now,
 		LastModifiedTime: now,
 	}
-	b.smImages[name] = img
+	b.smImagesStore(region)[name] = img
 
 	return cloneSMImage(img), nil
 }
 
 // DescribeImage returns a SageMaker image by name.
-func (b *InMemoryBackend) DescribeImage(name string) (*SMImage, error) {
+func (b *InMemoryBackend) DescribeImage(ctx context.Context, name string) (*SMImage, error) {
 	b.mu.RLock("DescribeImage")
 	defer b.mu.RUnlock()
 
-	img, ok := b.smImages[name]
+	region := getRegion(ctx, b.region)
+
+	img, ok := b.smImagesStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: image %q not found", ErrSMImageNotFound, name)
 	}
@@ -882,60 +840,35 @@ func (b *InMemoryBackend) DescribeImage(name string) (*SMImage, error) {
 }
 
 // DeleteImage removes a SageMaker image by name.
-func (b *InMemoryBackend) DeleteImage(name string) error {
+func (b *InMemoryBackend) DeleteImage(ctx context.Context, name string) error {
 	b.mu.Lock("DeleteImage")
 	defer b.mu.Unlock()
 
-	if _, ok := b.smImages[name]; !ok {
+	region := getRegion(ctx, b.region)
+
+	if _, ok := b.smImagesStore(region)[name]; !ok {
 		return fmt.Errorf("%w: image %q not found", ErrSMImageNotFound, name)
 	}
 
 	// AWS rejects deletion when image versions still exist.
-	if versions, ok := b.imageVersions[name]; ok && len(versions) > 0 {
+	if versions, ok := b.imageVersionsStore(region)[name]; ok && len(versions) > 0 {
 		return fmt.Errorf("%w: image %q has versions and cannot be deleted", ErrImageHasVersions, name)
 	}
 
-	delete(b.smImages, name)
+	store := b.smImagesStore(region)
+	delete(store, name)
 
 	return nil
 }
 
 // ListImages returns all images sorted by name.
-func (b *InMemoryBackend) ListImages(nextToken string) ([]*SMImage, string) {
+func (b *InMemoryBackend) ListImages(ctx context.Context, nextToken string) ([]*SMImage, string) {
 	b.mu.RLock("ListImages")
 	defer b.mu.RUnlock()
 
-	keys := make([]string, 0, len(b.smImages))
-	for k := range b.smImages {
-		keys = append(keys, k)
-	}
+	region := getRegion(ctx, b.region)
 
-	sort.Strings(keys)
-
-	start := 0
-	if nextToken != "" {
-		for i, k := range keys {
-			if k == nextToken {
-				start = i
-
-				break
-			}
-		}
-	}
-
-	end := min(start+sagemakerDefaultPageSize, len(keys))
-
-	out := make([]*SMImage, 0, end-start)
-	for _, k := range keys[start:end] {
-		out = append(out, cloneSMImage(b.smImages[k]))
-	}
-
-	next := ""
-	if end < len(keys) {
-		next = keys[end]
-	}
-
-	return out, next
+	return sagemakerListKeyPaged(b.smImagesStore(region), nextToken, cloneSMImage)
 }
 
 // ---------------------------------------------------------------------------
@@ -959,20 +892,22 @@ func cloneImageVersion(v *ImageVersion) *ImageVersion {
 }
 
 // CreateImageVersion creates a new version for an image.
-func (b *InMemoryBackend) CreateImageVersion(imageName string) (*ImageVersion, error) {
+func (b *InMemoryBackend) CreateImageVersion(ctx context.Context, imageName string) (*ImageVersion, error) {
 	b.mu.Lock("CreateImageVersion")
 	defer b.mu.Unlock()
 
-	img, ok := b.smImages[imageName]
+	region := getRegion(ctx, b.region)
+
+	img, ok := b.smImagesStore(region)[imageName]
 	if !ok {
 		return nil, fmt.Errorf("%w: image %q not found", ErrSMImageNotFound, imageName)
 	}
 
-	b.imageVersionCounts[imageName]++
-	version := b.imageVersionCounts[imageName]
+	b.imageVersionCountsStore(region)[imageName]++
+	version := b.imageVersionCountsStore(region)[imageName]
 
 	versionARN := arn.Build(
-		"sagemaker", b.region, b.accountID,
+		"sagemaker", region, b.accountID,
 		"image-version/"+imageName+"/"+strconv.Itoa(version),
 	)
 	now := time.Now()
@@ -986,21 +921,27 @@ func (b *InMemoryBackend) CreateImageVersion(imageName string) (*ImageVersion, e
 		LastModifiedTime:   now,
 	}
 
-	if b.imageVersions[imageName] == nil {
-		b.imageVersions[imageName] = make(map[int]*ImageVersion)
+	if b.imageVersionsStore(region)[imageName] == nil {
+		b.imageVersionsStore(region)[imageName] = make(map[int]*ImageVersion)
 	}
 
-	b.imageVersions[imageName][version] = iv
+	b.imageVersionsStore(region)[imageName][version] = iv
 
 	return cloneImageVersion(iv), nil
 }
 
 // DescribeImageVersion returns an image version by image name and version number.
-func (b *InMemoryBackend) DescribeImageVersion(imageName string, version int) (*ImageVersion, error) {
+func (b *InMemoryBackend) DescribeImageVersion(
+	ctx context.Context,
+	imageName string,
+	version int,
+) (*ImageVersion, error) {
 	b.mu.RLock("DescribeImageVersion")
 	defer b.mu.RUnlock()
 
-	versions, ok := b.imageVersions[imageName]
+	region := getRegion(ctx, b.region)
+
+	versions, ok := b.imageVersionsStore(region)[imageName]
 	if !ok {
 		return nil, fmt.Errorf("%w: no versions found for image %q", ErrImageVersionNotFound, imageName)
 	}
@@ -1016,11 +957,13 @@ func (b *InMemoryBackend) DescribeImageVersion(imageName string, version int) (*
 }
 
 // DeleteImageVersion removes an image version.
-func (b *InMemoryBackend) DeleteImageVersion(imageName string, version int) error {
+func (b *InMemoryBackend) DeleteImageVersion(ctx context.Context, imageName string, version int) error {
 	b.mu.Lock("DeleteImageVersion")
 	defer b.mu.Unlock()
 
-	versions, ok := b.imageVersions[imageName]
+	region := getRegion(ctx, b.region)
+
+	versions, ok := b.imageVersionsStore(region)[imageName]
 	if !ok {
 		return fmt.Errorf("%w: no versions found for image %q", ErrImageVersionNotFound, imageName)
 	}
@@ -1035,11 +978,16 @@ func (b *InMemoryBackend) DeleteImageVersion(imageName string, version int) erro
 }
 
 // ListImageVersions returns all versions for an image sorted by version number.
-func (b *InMemoryBackend) ListImageVersions(imageName, nextToken string) ([]*ImageVersion, string) {
+func (b *InMemoryBackend) ListImageVersions(
+	ctx context.Context,
+	imageName, nextToken string,
+) ([]*ImageVersion, string) {
 	b.mu.RLock("ListImageVersions")
 	defer b.mu.RUnlock()
 
-	versions := b.imageVersions[imageName]
+	region := getRegion(ctx, b.region)
+
+	versions := b.imageVersionsStore(region)[imageName]
 
 	nums := make([]int, 0, len(versions))
 	for v := range versions {
@@ -1100,21 +1048,24 @@ func cloneCompilationJob(j *CompilationJob) *CompilationJob {
 
 // CreateCompilationJob creates a compilation job.
 func (b *InMemoryBackend) CreateCompilationJob(
+	ctx context.Context,
 	name, roleArn string,
 	tags map[string]string,
 ) (*CompilationJob, error) {
 	b.mu.Lock("CreateCompilationJob")
 	defer b.mu.Unlock()
 
+	region := getRegion(ctx, b.region)
+
 	if name == "" {
 		return nil, fmt.Errorf("%w: CompilationJobName is required", ErrValidation)
 	}
 
-	if _, ok := b.compilationJobs[name]; ok {
+	if _, ok := b.compilationJobsStore(region)[name]; ok {
 		return nil, fmt.Errorf("%w: compilation job %q already exists", ErrValidation, name)
 	}
 
-	jobARN := arn.Build("sagemaker", b.region, b.accountID, "compilation-job/"+name)
+	jobARN := arn.Build("sagemaker", region, b.accountID, "compilation-job/"+name)
 	now := time.Now()
 
 	j := &CompilationJob{
@@ -1126,17 +1077,19 @@ func (b *InMemoryBackend) CreateCompilationJob(
 		CreationTime:         now,
 		LastModifiedTime:     now,
 	}
-	b.compilationJobs[name] = j
+	b.compilationJobsStore(region)[name] = j
 
 	return cloneCompilationJob(j), nil
 }
 
 // DescribeCompilationJob returns a compilation job by name.
-func (b *InMemoryBackend) DescribeCompilationJob(name string) (*CompilationJob, error) {
+func (b *InMemoryBackend) DescribeCompilationJob(ctx context.Context, name string) (*CompilationJob, error) {
 	b.mu.RLock("DescribeCompilationJob")
 	defer b.mu.RUnlock()
 
-	j, ok := b.compilationJobs[name]
+	region := getRegion(ctx, b.region)
+
+	j, ok := b.compilationJobsStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: compilation job %q not found", ErrCompilationJobNotFound, name)
 	}
@@ -1145,25 +1098,30 @@ func (b *InMemoryBackend) DescribeCompilationJob(name string) (*CompilationJob, 
 }
 
 // DeleteCompilationJob removes a compilation job by name.
-func (b *InMemoryBackend) DeleteCompilationJob(name string) error {
+func (b *InMemoryBackend) DeleteCompilationJob(ctx context.Context, name string) error {
 	b.mu.Lock("DeleteCompilationJob")
 	defer b.mu.Unlock()
 
-	if _, ok := b.compilationJobs[name]; !ok {
+	region := getRegion(ctx, b.region)
+
+	if _, ok := b.compilationJobsStore(region)[name]; !ok {
 		return fmt.Errorf("%w: compilation job %q not found", ErrCompilationJobNotFound, name)
 	}
 
-	delete(b.compilationJobs, name)
+	store := b.compilationJobsStore(region)
+	delete(store, name)
 
 	return nil
 }
 
 // StopCompilationJob sets a compilation job status to "STOPPED".
-func (b *InMemoryBackend) StopCompilationJob(name string) error {
+func (b *InMemoryBackend) StopCompilationJob(ctx context.Context, name string) error {
 	b.mu.Lock("StopCompilationJob")
 	defer b.mu.Unlock()
 
-	j, ok := b.compilationJobs[name]
+	region := getRegion(ctx, b.region)
+
+	j, ok := b.compilationJobsStore(region)[name]
 	if !ok {
 		return fmt.Errorf("%w: compilation job %q not found", ErrCompilationJobNotFound, name)
 	}
@@ -1181,41 +1139,13 @@ func (b *InMemoryBackend) StopCompilationJob(name string) error {
 }
 
 // ListCompilationJobs returns all compilation jobs sorted by name.
-func (b *InMemoryBackend) ListCompilationJobs(nextToken string) ([]*CompilationJob, string) {
+func (b *InMemoryBackend) ListCompilationJobs(ctx context.Context, nextToken string) ([]*CompilationJob, string) {
 	b.mu.RLock("ListCompilationJobs")
 	defer b.mu.RUnlock()
 
-	keys := make([]string, 0, len(b.compilationJobs))
-	for k := range b.compilationJobs {
-		keys = append(keys, k)
-	}
+	region := getRegion(ctx, b.region)
 
-	sort.Strings(keys)
-
-	start := 0
-	if nextToken != "" {
-		for i, k := range keys {
-			if k == nextToken {
-				start = i
-
-				break
-			}
-		}
-	}
-
-	end := min(start+sagemakerDefaultPageSize, len(keys))
-
-	out := make([]*CompilationJob, 0, end-start)
-	for _, k := range keys[start:end] {
-		out = append(out, cloneCompilationJob(b.compilationJobs[k]))
-	}
-
-	next := ""
-	if end < len(keys) {
-		next = keys[end]
-	}
-
-	return out, next
+	return sagemakerListKeyPaged(b.compilationJobsStore(region), nextToken, cloneCompilationJob)
 }
 
 // ---------------------------------------------------------------------------
@@ -1241,21 +1171,24 @@ func cloneMonitoringSchedule(ms *MonitoringSchedule) *MonitoringSchedule {
 
 // CreateMonitoringSchedule creates a monitoring schedule.
 func (b *InMemoryBackend) CreateMonitoringSchedule(
+	ctx context.Context,
 	name string,
 	tags map[string]string,
 ) (*MonitoringSchedule, error) {
 	b.mu.Lock("CreateMonitoringSchedule")
 	defer b.mu.Unlock()
 
+	region := getRegion(ctx, b.region)
+
 	if name == "" {
 		return nil, fmt.Errorf("%w: MonitoringScheduleName is required", ErrValidation)
 	}
 
-	if _, ok := b.monitoringSchedules[name]; ok {
+	if _, ok := b.monitoringSchedulesStore(region)[name]; ok {
 		return nil, fmt.Errorf("%w: monitoring schedule %q already exists", ErrValidation, name)
 	}
 
-	schedARN := arn.Build("sagemaker", b.region, b.accountID, "monitoring-schedule/"+name)
+	schedARN := arn.Build("sagemaker", region, b.accountID, "monitoring-schedule/"+name)
 	now := time.Now()
 
 	ms := &MonitoringSchedule{
@@ -1266,17 +1199,19 @@ func (b *InMemoryBackend) CreateMonitoringSchedule(
 		CreationTime:             now,
 		LastModifiedTime:         now,
 	}
-	b.monitoringSchedules[name] = ms
+	b.monitoringSchedulesStore(region)[name] = ms
 
 	return cloneMonitoringSchedule(ms), nil
 }
 
 // DescribeMonitoringSchedule returns a monitoring schedule by name.
-func (b *InMemoryBackend) DescribeMonitoringSchedule(name string) (*MonitoringSchedule, error) {
+func (b *InMemoryBackend) DescribeMonitoringSchedule(ctx context.Context, name string) (*MonitoringSchedule, error) {
 	b.mu.RLock("DescribeMonitoringSchedule")
 	defer b.mu.RUnlock()
 
-	ms, ok := b.monitoringSchedules[name]
+	region := getRegion(ctx, b.region)
+
+	ms, ok := b.monitoringSchedulesStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: monitoring schedule %q not found", ErrMonitoringScheduleNotFound, name)
 	}
@@ -1285,25 +1220,30 @@ func (b *InMemoryBackend) DescribeMonitoringSchedule(name string) (*MonitoringSc
 }
 
 // DeleteMonitoringSchedule removes a monitoring schedule.
-func (b *InMemoryBackend) DeleteMonitoringSchedule(name string) error {
+func (b *InMemoryBackend) DeleteMonitoringSchedule(ctx context.Context, name string) error {
 	b.mu.Lock("DeleteMonitoringSchedule")
 	defer b.mu.Unlock()
 
-	if _, ok := b.monitoringSchedules[name]; !ok {
+	region := getRegion(ctx, b.region)
+
+	if _, ok := b.monitoringSchedulesStore(region)[name]; !ok {
 		return fmt.Errorf("%w: monitoring schedule %q not found", ErrMonitoringScheduleNotFound, name)
 	}
 
-	delete(b.monitoringSchedules, name)
+	store := b.monitoringSchedulesStore(region)
+	delete(store, name)
 
 	return nil
 }
 
 // StopMonitoringSchedule sets a monitoring schedule status to "Stopped".
-func (b *InMemoryBackend) StopMonitoringSchedule(name string) error {
+func (b *InMemoryBackend) StopMonitoringSchedule(ctx context.Context, name string) error {
 	b.mu.Lock("StopMonitoringSchedule")
 	defer b.mu.Unlock()
 
-	ms, ok := b.monitoringSchedules[name]
+	region := getRegion(ctx, b.region)
+
+	ms, ok := b.monitoringSchedulesStore(region)[name]
 	if !ok {
 		return fmt.Errorf("%w: monitoring schedule %q not found", ErrMonitoringScheduleNotFound, name)
 	}
@@ -1320,11 +1260,13 @@ func (b *InMemoryBackend) StopMonitoringSchedule(name string) error {
 }
 
 // StartMonitoringSchedule sets a monitoring schedule status to "Scheduled".
-func (b *InMemoryBackend) StartMonitoringSchedule(name string) error {
+func (b *InMemoryBackend) StartMonitoringSchedule(ctx context.Context, name string) error {
 	b.mu.Lock("StartMonitoringSchedule")
 	defer b.mu.Unlock()
 
-	ms, ok := b.monitoringSchedules[name]
+	region := getRegion(ctx, b.region)
+
+	ms, ok := b.monitoringSchedulesStore(region)[name]
 	if !ok {
 		return fmt.Errorf("%w: monitoring schedule %q not found", ErrMonitoringScheduleNotFound, name)
 	}
@@ -1342,11 +1284,13 @@ func (b *InMemoryBackend) StartMonitoringSchedule(name string) error {
 }
 
 // UpdateMonitoringSchedule updates a monitoring schedule (marks it modified).
-func (b *InMemoryBackend) UpdateMonitoringSchedule(name string) (*MonitoringSchedule, error) {
+func (b *InMemoryBackend) UpdateMonitoringSchedule(ctx context.Context, name string) (*MonitoringSchedule, error) {
 	b.mu.Lock("UpdateMonitoringSchedule")
 	defer b.mu.Unlock()
 
-	ms, ok := b.monitoringSchedules[name]
+	region := getRegion(ctx, b.region)
+
+	ms, ok := b.monitoringSchedulesStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: monitoring schedule %q not found", ErrMonitoringScheduleNotFound, name)
 	}
@@ -1357,41 +1301,16 @@ func (b *InMemoryBackend) UpdateMonitoringSchedule(name string) (*MonitoringSche
 }
 
 // ListMonitoringSchedules returns all monitoring schedules sorted by name.
-func (b *InMemoryBackend) ListMonitoringSchedules(nextToken string) ([]*MonitoringSchedule, string) {
+func (b *InMemoryBackend) ListMonitoringSchedules(
+	ctx context.Context,
+	nextToken string,
+) ([]*MonitoringSchedule, string) {
 	b.mu.RLock("ListMonitoringSchedules")
 	defer b.mu.RUnlock()
 
-	keys := make([]string, 0, len(b.monitoringSchedules))
-	for k := range b.monitoringSchedules {
-		keys = append(keys, k)
-	}
+	region := getRegion(ctx, b.region)
 
-	sort.Strings(keys)
-
-	start := 0
-	if nextToken != "" {
-		for i, k := range keys {
-			if k == nextToken {
-				start = i
-
-				break
-			}
-		}
-	}
-
-	end := min(start+sagemakerDefaultPageSize, len(keys))
-
-	out := make([]*MonitoringSchedule, 0, end-start)
-	for _, k := range keys[start:end] {
-		out = append(out, cloneMonitoringSchedule(b.monitoringSchedules[k]))
-	}
-
-	next := ""
-	if end < len(keys) {
-		next = keys[end]
-	}
-
-	return out, next
+	return sagemakerListKeyPaged(b.monitoringSchedulesStore(region), nextToken, cloneMonitoringSchedule)
 }
 
 // ---------------------------------------------------------------------------
@@ -1417,21 +1336,24 @@ func cloneWorkteam(w *Workteam) *Workteam {
 
 // CreateWorkteam creates a workteam.
 func (b *InMemoryBackend) CreateWorkteam(
+	ctx context.Context,
 	name, description string,
 	tags map[string]string,
 ) (*Workteam, error) {
 	b.mu.Lock("CreateWorkteam")
 	defer b.mu.Unlock()
 
+	region := getRegion(ctx, b.region)
+
 	if name == "" {
 		return nil, fmt.Errorf("%w: WorkteamName is required", ErrValidation)
 	}
 
-	if _, ok := b.workteams[name]; ok {
+	if _, ok := b.workteamsStore(region)[name]; ok {
 		return nil, fmt.Errorf("%w: workteam %q already exists", ErrValidation, name)
 	}
 
-	workteamARN := arn.Build("sagemaker", b.region, b.accountID, "workteam/"+name)
+	workteamARN := arn.Build("sagemaker", region, b.accountID, "workteam/"+name)
 	now := time.Now()
 
 	w := &Workteam{
@@ -1442,17 +1364,19 @@ func (b *InMemoryBackend) CreateWorkteam(
 		CreationTime:     now,
 		LastModifiedTime: now,
 	}
-	b.workteams[name] = w
+	b.workteamsStore(region)[name] = w
 
 	return cloneWorkteam(w), nil
 }
 
 // DescribeWorkteam returns a workteam by name.
-func (b *InMemoryBackend) DescribeWorkteam(name string) (*Workteam, error) {
+func (b *InMemoryBackend) DescribeWorkteam(ctx context.Context, name string) (*Workteam, error) {
 	b.mu.RLock("DescribeWorkteam")
 	defer b.mu.RUnlock()
 
-	w, ok := b.workteams[name]
+	region := getRegion(ctx, b.region)
+
+	w, ok := b.workteamsStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: workteam %q not found", ErrWorkteamNotFound, name)
 	}
@@ -1461,53 +1385,28 @@ func (b *InMemoryBackend) DescribeWorkteam(name string) (*Workteam, error) {
 }
 
 // DeleteWorkteam removes a workteam.
-func (b *InMemoryBackend) DeleteWorkteam(name string) error {
+func (b *InMemoryBackend) DeleteWorkteam(ctx context.Context, name string) error {
 	b.mu.Lock("DeleteWorkteam")
 	defer b.mu.Unlock()
 
-	if _, ok := b.workteams[name]; !ok {
+	region := getRegion(ctx, b.region)
+
+	if _, ok := b.workteamsStore(region)[name]; !ok {
 		return fmt.Errorf("%w: workteam %q not found", ErrWorkteamNotFound, name)
 	}
 
-	delete(b.workteams, name)
+	store := b.workteamsStore(region)
+	delete(store, name)
 
 	return nil
 }
 
 // ListWorkteams returns all workteams sorted by name.
-func (b *InMemoryBackend) ListWorkteams(nextToken string) ([]*Workteam, string) {
+func (b *InMemoryBackend) ListWorkteams(ctx context.Context, nextToken string) ([]*Workteam, string) {
 	b.mu.RLock("ListWorkteams")
 	defer b.mu.RUnlock()
 
-	keys := make([]string, 0, len(b.workteams))
-	for k := range b.workteams {
-		keys = append(keys, k)
-	}
+	region := getRegion(ctx, b.region)
 
-	sort.Strings(keys)
-
-	start := 0
-	if nextToken != "" {
-		for i, k := range keys {
-			if k == nextToken {
-				start = i
-
-				break
-			}
-		}
-	}
-
-	end := min(start+sagemakerDefaultPageSize, len(keys))
-
-	out := make([]*Workteam, 0, end-start)
-	for _, k := range keys[start:end] {
-		out = append(out, cloneWorkteam(b.workteams[k]))
-	}
-
-	next := ""
-	if end < len(keys) {
-		next = keys[end]
-	}
-
-	return out, next
+	return sagemakerListKeyPaged(b.workteamsStore(region), nextToken, cloneWorkteam)
 }

@@ -2,6 +2,7 @@ package codeconnections_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -129,8 +130,16 @@ func TestHandlerSliceMetadata(t *testing.T) {
 			got:      h.GetSupportedOperations(),
 			contains: "DeleteConnection",
 		},
-		{name: "GetSupportedOperations_TagResource", got: h.GetSupportedOperations(), contains: "TagResource"},
-		{name: "GetSupportedOperations_UntagResource", got: h.GetSupportedOperations(), contains: "UntagResource"},
+		{
+			name:     "GetSupportedOperations_TagResource",
+			got:      h.GetSupportedOperations(),
+			contains: "TagResource",
+		},
+		{
+			name:     "GetSupportedOperations_UntagResource",
+			got:      h.GetSupportedOperations(),
+			contains: "UntagResource",
+		},
 		{
 			name:     "GetSupportedOperations_ListTagsForResource",
 			got:      h.GetSupportedOperations(),
@@ -258,37 +267,47 @@ func TestExtractOperationAndResource(t *testing.T) {
 			wantOp: "ListConnections",
 		},
 		{
-			name:    "get_connection",
-			target:  ccTargetPrefix + "GetConnection",
-			body:    map[string]any{"ConnectionArn": "arn:aws:codeconnections:us-east-1:123:connection/abc"},
+			name:   "get_connection",
+			target: ccTargetPrefix + "GetConnection",
+			body: map[string]any{
+				"ConnectionArn": "arn:aws:codeconnections:us-east-1:123:connection/abc",
+			},
 			wantOp:  "GetConnection",
 			wantRes: "arn:aws:codeconnections:us-east-1:123:connection/abc",
 		},
 		{
-			name:    "delete_connection",
-			target:  ccTargetPrefix + "DeleteConnection",
-			body:    map[string]any{"ConnectionArn": "arn:aws:codeconnections:us-east-1:123:connection/abc"},
+			name:   "delete_connection",
+			target: ccTargetPrefix + "DeleteConnection",
+			body: map[string]any{
+				"ConnectionArn": "arn:aws:codeconnections:us-east-1:123:connection/abc",
+			},
 			wantOp:  "DeleteConnection",
 			wantRes: "arn:aws:codeconnections:us-east-1:123:connection/abc",
 		},
 		{
-			name:    "tag_resource",
-			target:  ccTargetPrefix + "TagResource",
-			body:    map[string]any{"ResourceArn": "arn:aws:codeconnections:us-east-1:123:connection/abc"},
+			name:   "tag_resource",
+			target: ccTargetPrefix + "TagResource",
+			body: map[string]any{
+				"ResourceArn": "arn:aws:codeconnections:us-east-1:123:connection/abc",
+			},
 			wantOp:  "TagResource",
 			wantRes: "arn:aws:codeconnections:us-east-1:123:connection/abc",
 		},
 		{
-			name:    "untag_resource",
-			target:  ccTargetPrefix + "UntagResource",
-			body:    map[string]any{"ResourceArn": "arn:aws:codeconnections:us-east-1:123:connection/abc"},
+			name:   "untag_resource",
+			target: ccTargetPrefix + "UntagResource",
+			body: map[string]any{
+				"ResourceArn": "arn:aws:codeconnections:us-east-1:123:connection/abc",
+			},
 			wantOp:  "UntagResource",
 			wantRes: "arn:aws:codeconnections:us-east-1:123:connection/abc",
 		},
 		{
-			name:    "list_tags_for_resource",
-			target:  ccTargetPrefix + "ListTagsForResource",
-			body:    map[string]any{"ResourceArn": "arn:aws:codeconnections:us-east-1:123:connection/abc"},
+			name:   "list_tags_for_resource",
+			target: ccTargetPrefix + "ListTagsForResource",
+			body: map[string]any{
+				"ResourceArn": "arn:aws:codeconnections:us-east-1:123:connection/abc",
+			},
 			wantOp:  "ListTagsForResource",
 			wantRes: "arn:aws:codeconnections:us-east-1:123:connection/abc",
 		},
@@ -591,7 +610,10 @@ func TestUntagResource(t *testing.T) {
 
 				return createConn(t, h, "conn", "GitHub")
 			},
-			tagsBefore:    []map[string]string{{"Key": "Team", "Value": "p"}, {"Key": "Env", "Value": "prod"}},
+			tagsBefore: []map[string]string{
+				{"Key": "Team", "Value": "p"},
+				{"Key": "Env", "Value": "prod"},
+			},
 			keysToRemove:  []string{"Team"},
 			wantStatus:    http.StatusOK,
 			wantTagsAfter: 1,
@@ -628,7 +650,12 @@ func TestUntagResource(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantStatus == http.StatusOK {
-				listRec := doJSON(t, h, "ListTagsForResource", map[string]any{"ResourceArn": connArn})
+				listRec := doJSON(
+					t,
+					h,
+					"ListTagsForResource",
+					map[string]any{"ResourceArn": connArn},
+				)
 				resp := parseResp(t, listRec)
 				tags, ok := resp["Tags"].([]any)
 				require.True(t, ok)
@@ -713,7 +740,11 @@ func TestMissingTarget(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler()
-			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(`{"ConnectionName":"test-conn"}`))
+			req := httptest.NewRequest(
+				http.MethodPost,
+				"/",
+				bytes.NewBufferString(`{"ConnectionName":"test-conn"}`),
+			)
 			req.Header.Set("Content-Type", "application/x-amz-json-1.0")
 			rec := httptest.NewRecorder()
 			e := echo.New()
@@ -773,9 +804,9 @@ func TestBackendListConnections(t *testing.T) {
 			name: "no_filter_returns_all",
 			setup: func(t *testing.T, b *codeconnections.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateConnection("c1", "GitHub", "", nil)
+				_, err := b.CreateConnection(context.Background(), "c1", "GitHub", "", nil)
 				require.NoError(t, err)
-				_, err = b.CreateConnection("c2", "GitLab", "", nil)
+				_, err = b.CreateConnection(context.Background(), "c2", "GitLab", "", nil)
 				require.NoError(t, err)
 			},
 			filter:    "",
@@ -785,9 +816,9 @@ func TestBackendListConnections(t *testing.T) {
 			name: "filter_by_provider",
 			setup: func(t *testing.T, b *codeconnections.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateConnection("c1", "GitHub", "", nil)
+				_, err := b.CreateConnection(context.Background(), "c1", "GitHub", "", nil)
 				require.NoError(t, err)
-				_, err = b.CreateConnection("c2", "GitLab", "", nil)
+				_, err = b.CreateConnection(context.Background(), "c2", "GitLab", "", nil)
 				require.NoError(t, err)
 			},
 			filter:       "GitHub",
@@ -808,7 +839,7 @@ func TestBackendListConnections(t *testing.T) {
 
 			b := codeconnections.NewInMemoryBackend("123456789012", "us-east-1")
 			tt.setup(t, b)
-			conns := b.ListConnections(tt.filter, "")
+			conns := b.ListConnections(context.Background(), tt.filter, "")
 			assert.Len(t, conns, tt.wantCount)
 
 			if tt.wantProvider != "" {
@@ -835,7 +866,7 @@ func TestBackendNotFoundErrors(t *testing.T) {
 			name:    "GetConnection_not_found",
 			wantErr: true,
 			call: func(b *codeconnections.InMemoryBackend) error {
-				_, err := b.GetConnection(missingArn)
+				_, err := b.GetConnection(context.Background(), missingArn)
 
 				return err
 			},
@@ -843,25 +874,29 @@ func TestBackendNotFoundErrors(t *testing.T) {
 		{
 			name:    "DeleteConnection_not_found",
 			wantErr: true,
-			call:    func(b *codeconnections.InMemoryBackend) error { return b.DeleteConnection(missingArn) },
+			call: func(b *codeconnections.InMemoryBackend) error {
+				return b.DeleteConnection(context.Background(), missingArn)
+			},
 		},
 		{
 			name:    "TagResource_not_found",
 			wantErr: true,
 			call: func(b *codeconnections.InMemoryBackend) error {
-				return b.TagResource(missingArn, map[string]string{"k": "v"})
+				return b.TagResource(context.Background(), missingArn, map[string]string{"k": "v"})
 			},
 		},
 		{
 			name:    "UntagResource_not_found",
 			wantErr: true,
-			call:    func(b *codeconnections.InMemoryBackend) error { return b.UntagResource(missingArn, []string{"k"}) },
+			call: func(b *codeconnections.InMemoryBackend) error {
+				return b.UntagResource(context.Background(), missingArn, []string{"k"})
+			},
 		},
 		{
 			name:    "ListTagsForResource_not_found",
 			wantErr: true,
 			call: func(b *codeconnections.InMemoryBackend) error {
-				_, err := b.ListTagsForResource(missingArn)
+				_, err := b.ListTagsForResource(context.Background(), missingArn)
 
 				return err
 			},
@@ -915,16 +950,26 @@ func TestBackendCreateAndGet(t *testing.T) {
 			t.Parallel()
 
 			b := codeconnections.NewInMemoryBackend("123456789012", "us-east-1")
-			conn, err := b.CreateConnection(tt.connName, tt.providerType, "", tt.inputTags)
+			conn, err := b.CreateConnection(
+				context.Background(),
+				tt.connName,
+				tt.providerType,
+				"",
+				tt.inputTags,
+			)
 			require.NoError(t, err)
 			assert.NotEmpty(t, conn.ConnectionArn)
 			assert.Equal(t, tt.connName, conn.ConnectionName)
 			assert.Equal(t, tt.providerType, conn.ProviderType)
 			assert.Equal(t, tt.wantStatus, conn.Status)
 			assert.Equal(t, "123456789012", conn.OwnerAccountID)
-			assert.Contains(t, conn.ConnectionArn, "arn:aws:codeconnections:us-east-1:123456789012:connection/")
+			assert.Contains(
+				t,
+				conn.ConnectionArn,
+				"arn:aws:codeconnections:us-east-1:123456789012:connection/",
+			)
 
-			got, err := b.GetConnection(conn.ConnectionArn)
+			got, err := b.GetConnection(context.Background(), conn.ConnectionArn)
 			require.NoError(t, err)
 			assert.Equal(t, conn.ConnectionArn, got.ConnectionArn)
 		})
@@ -1040,7 +1085,11 @@ func TestListConnectionsContinuation(t *testing.T) {
 }
 
 // createHost is a test helper that creates a host and returns its ARN.
-func createHost(t *testing.T, h *codeconnections.Handler, name, providerType, endpoint string) string {
+func createHost(
+	t *testing.T,
+	h *codeconnections.Handler,
+	name, providerType, endpoint string,
+) string {
 	t.Helper()
 
 	rec := doJSON(t, h, "CreateHost", map[string]any{
@@ -1060,7 +1109,11 @@ func createHost(t *testing.T, h *codeconnections.Handler, name, providerType, en
 }
 
 // createRepositoryLink is a test helper that creates a repository link and returns its ID.
-func createRepositoryLink(t *testing.T, h *codeconnections.Handler, connectionArn, ownerID, repoName string) string {
+func createRepositoryLink(
+	t *testing.T,
+	h *codeconnections.Handler,
+	connectionArn, ownerID, repoName string,
+) string {
 	t.Helper()
 
 	rec := doJSON(t, h, "CreateRepositoryLink", map[string]any{
@@ -1150,7 +1203,13 @@ func TestGetHost(t *testing.T) {
 			setupHostArn: func(t *testing.T, h *codeconnections.Handler) string {
 				t.Helper()
 
-				return createHost(t, h, "my-host", "GitHubEnterpriseServer", "https://ghe.example.com")
+				return createHost(
+					t,
+					h,
+					"my-host",
+					"GitHubEnterpriseServer",
+					"https://ghe.example.com",
+				)
 			},
 			wantStatus:     http.StatusOK,
 			wantName:       "my-host",
@@ -1206,7 +1265,13 @@ func TestDeleteHost(t *testing.T) {
 			setupHostArn: func(t *testing.T, h *codeconnections.Handler) string {
 				t.Helper()
 
-				return createHost(t, h, "my-host", "GitHubEnterpriseServer", "https://ghe.example.com")
+				return createHost(
+					t,
+					h,
+					"my-host",
+					"GitHubEnterpriseServer",
+					"https://ghe.example.com",
+				)
 			},
 			wantStatus: http.StatusOK,
 		},
@@ -1397,7 +1462,12 @@ func TestDeleteRepositoryLink(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantStatus == http.StatusOK {
-				getRec := doJSON(t, h, "GetRepositoryLink", map[string]any{"RepositoryLinkId": linkID})
+				getRec := doJSON(
+					t,
+					h,
+					"GetRepositoryLink",
+					map[string]any{"RepositoryLinkId": linkID},
+				)
 				assert.Equal(t, http.StatusBadRequest, getRec.Code)
 			}
 		})
@@ -1767,7 +1837,13 @@ func TestRefinement1_Reset(t *testing.T) {
 			name: "reset_clears_hosts",
 			setup: func(t *testing.T, h *codeconnections.Handler) {
 				t.Helper()
-				hostArn := createHost(t, h, "host-to-clear", "GitHubEnterpriseServer", "https://ghe.example.com")
+				hostArn := createHost(
+					t,
+					h,
+					"host-to-clear",
+					"GitHubEnterpriseServer",
+					"https://ghe.example.com",
+				)
 				h.Reset()
 				rec := doJSON(t, h, "GetHost", map[string]any{"HostArn": hostArn})
 				assert.Equal(t, http.StatusBadRequest, rec.Code)
@@ -1893,7 +1969,11 @@ func TestRefinement1_ProviderTypeValidation(t *testing.T) {
 		{name: "valid_gitlab", providerType: "GitLab", wantStatus: http.StatusOK},
 		{name: "valid_bitbucket", providerType: "Bitbucket", wantStatus: http.StatusOK},
 		{name: "valid_ghe", providerType: "GitHubEnterpriseServer", wantStatus: http.StatusOK},
-		{name: "invalid_provider", providerType: "InvalidProvider", wantStatus: http.StatusBadRequest},
+		{
+			name:         "invalid_provider",
+			providerType: "InvalidProvider",
+			wantStatus:   http.StatusBadRequest,
+		},
 		{name: "empty_provider_rejected", providerType: "", wantStatus: http.StatusBadRequest},
 	}
 
@@ -1957,11 +2037,20 @@ func TestRefinement1_TagsOnHosts(t *testing.T) {
 			t.Parallel()
 			h := newTestHandler()
 
-			hostArn := createHost(t, h, "tagged-host", "GitLabSelfManaged", "https://gitlab.example.com")
+			hostArn := createHost(
+				t,
+				h,
+				"tagged-host",
+				"GitLabSelfManaged",
+				"https://gitlab.example.com",
+			)
 
 			tagRec := doJSON(t, h, "TagResource", map[string]any{
 				"ResourceArn": hostArn,
-				"Tags":        []map[string]string{{"Key": "Env", "Value": "prod"}, {"Key": "Team", "Value": "infra"}},
+				"Tags": []map[string]string{
+					{"Key": "Env", "Value": "prod"},
+					{"Key": "Team", "Value": "infra"},
+				},
 			})
 			require.Equal(t, http.StatusOK, tagRec.Code)
 
@@ -2075,15 +2164,15 @@ func TestRefinement1_HostArnFilter(t *testing.T) {
 				OwnerAccountID: "123456789012",
 				Tags:           map[string]string{},
 			}
-			b.AddConnectionInternal(conn1)
-			b.AddConnectionInternal(conn2)
+			b.AddConnectionInternal(context.Background(), conn1)
+			b.AddConnectionInternal(context.Background(), conn2)
 
 			filter := ""
 			if tt.applyFilter {
 				filter = "arn:aws:codeconnections:us-east-1:123456789012:host/hst-1"
 			}
 
-			conns := b.ListConnections("", filter)
+			conns := b.ListConnections(context.Background(), "", filter)
 			assert.Len(t, conns, tt.wantCount)
 		})
 	}
@@ -2138,8 +2227,11 @@ func TestRefinement1_CreateHostWithTags(t *testing.T) {
 		wantTags int
 	}{
 		{
-			name:     "host_with_tags",
-			tags:     []map[string]string{{"Key": "Owner", "Value": "ops"}, {"Key": "Tier", "Value": "infra"}},
+			name: "host_with_tags",
+			tags: []map[string]string{
+				{"Key": "Owner", "Value": "ops"},
+				{"Key": "Tier", "Value": "infra"},
+			},
 			wantTags: 2,
 		},
 		{
@@ -2221,10 +2313,10 @@ func TestRefinement1_SnapshotRestore(t *testing.T) {
 			newBackend := codeconnections.NewInMemoryBackend("123456789012", "us-east-1")
 			require.NoError(t, newBackend.Restore(snap))
 
-			conns := newBackend.ListConnections("", "")
+			conns := newBackend.ListConnections(context.Background(), "", "")
 			assert.Len(t, conns, 2)
 
-			_, err := newBackend.GetRepositoryLink(linkID)
+			_, err := newBackend.GetRepositoryLink(context.Background(), linkID)
 			require.NoError(t, err)
 		})
 	}
@@ -2339,18 +2431,18 @@ func TestRefinement1_SeedHelpers(t *testing.T) {
 
 			switch tt.name {
 			case "add_connection_internal":
-				b.AddConnectionInternal(conn)
-				got, err := b.GetConnection(conn.ConnectionArn)
+				b.AddConnectionInternal(context.Background(), conn)
+				got, err := b.GetConnection(context.Background(), conn.ConnectionArn)
 				require.NoError(t, err)
 				assert.Equal(t, "seeded-conn", got.ConnectionName)
 			case "add_host_internal":
-				b.AddHostInternal(host)
-				got, err := b.GetHost(host.HostArn)
+				b.AddHostInternal(context.Background(), host)
+				got, err := b.GetHost(context.Background(), host.HostArn)
 				require.NoError(t, err)
 				assert.Equal(t, "seeded-host", got.Name)
 			case "add_repository_link_internal":
-				b.AddRepositoryLinkInternal(link)
-				got, err := b.GetRepositoryLink(link.RepositoryLinkID)
+				b.AddRepositoryLinkInternal(context.Background(), link)
+				got, err := b.GetRepositoryLink(context.Background(), link.RepositoryLinkID)
 				require.NoError(t, err)
 				assert.Equal(t, "my-org", got.OwnerID)
 			}

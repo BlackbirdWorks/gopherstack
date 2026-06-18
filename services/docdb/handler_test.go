@@ -1,6 +1,7 @@
 package docdb_test
 
 import (
+	"context"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -1476,7 +1477,7 @@ func TestRefinement1_SortedDescribeClusters(t *testing.T) {
 				b.AddDBClusterInternal(&docdb.DBCluster{DBClusterIdentifier: id})
 			}
 
-			got, err := b.DescribeDBClusters("")
+			got, err := b.DescribeDBClusters(context.Background(), "")
 			require.NoError(t, err)
 
 			gotIDs := make([]string, len(got))
@@ -1513,7 +1514,7 @@ func TestRefinement1_SortedDescribeInstances(t *testing.T) {
 				b.AddDBInstanceInternal(&docdb.DBInstance{DBInstanceIdentifier: id})
 			}
 
-			got, err := b.DescribeDBInstances("", "")
+			got, err := b.DescribeDBInstances(context.Background(), "", "")
 			require.NoError(t, err)
 
 			gotIDs := make([]string, len(got))
@@ -1550,7 +1551,7 @@ func TestRefinement1_SortedDescribeSubnetGroups(t *testing.T) {
 				b.AddDBSubnetGroupInternal(&docdb.DBSubnetGroup{DBSubnetGroupName: name})
 			}
 
-			got, err := b.DescribeDBSubnetGroups("")
+			got, err := b.DescribeDBSubnetGroups(context.Background(), "")
 			require.NoError(t, err)
 
 			gotNames := make([]string, len(got))
@@ -1587,7 +1588,7 @@ func TestRefinement1_SortedDescribeParameterGroups(t *testing.T) {
 				b.AddDBClusterParameterGroupInternal(&docdb.DBClusterParameterGroup{DBClusterParameterGroupName: name})
 			}
 
-			got, err := b.DescribeDBClusterParameterGroups("")
+			got, err := b.DescribeDBClusterParameterGroups(context.Background(), "")
 			require.NoError(t, err)
 
 			gotNames := make([]string, len(got))
@@ -1624,7 +1625,7 @@ func TestRefinement1_SortedDescribeSnapshots(t *testing.T) {
 				b.AddDBClusterSnapshotInternal(&docdb.DBClusterSnapshot{DBClusterSnapshotIdentifier: id})
 			}
 
-			got, err := b.DescribeDBClusterSnapshots("", "", "")
+			got, err := b.DescribeDBClusterSnapshots(context.Background(), "", "", "")
 			require.NoError(t, err)
 
 			gotIDs := make([]string, len(got))
@@ -1661,7 +1662,7 @@ func TestRefinement1_SortedDescribeGlobalClusters(t *testing.T) {
 				b.AddGlobalClusterInternal(&docdb.GlobalCluster{GlobalClusterIdentifier: id})
 			}
 
-			got := b.DescribeGlobalClusters("")
+			got := b.DescribeGlobalClusters(context.Background(), "")
 
 			gotIDs := make([]string, len(got))
 			for i, gc := range got {
@@ -1697,9 +1698,12 @@ func TestRefinement1_SortedListTags(t *testing.T) {
 			t.Parallel()
 
 			b := docdb.NewInMemoryBackend("000000000000", "us-east-1")
-			require.NoError(t, b.AddTagsToResource("arn:aws:rds:us-east-1:000000000000:cluster:test", tt.tags))
+			require.NoError(
+				t,
+				b.AddTagsToResource(context.Background(), "arn:aws:rds:us-east-1:000000000000:cluster:test", tt.tags),
+			)
 
-			got := b.ListTagsForResource("arn:aws:rds:us-east-1:000000000000:cluster:test")
+			got := b.ListTagsForResource(context.Background(), "arn:aws:rds:us-east-1:000000000000:cluster:test")
 
 			gotKeys := make([]string, len(got))
 			for i, t := range got {
@@ -1815,7 +1819,7 @@ func TestRefinement1_TagsOnCreate_Cluster(t *testing.T) {
 			resp := doRequest(t, h, vals)
 			require.Equal(t, http.StatusOK, resp.Code)
 
-			clusters, err := h.Backend.DescribeDBClusters(tt.id)
+			clusters, err := h.Backend.DescribeDBClusters(context.Background(), tt.id)
 			require.NoError(t, err)
 			require.Len(t, clusters, 1)
 
@@ -1859,7 +1863,7 @@ func TestRefinement1_TagsOnCreate_Instance(t *testing.T) {
 			resp := doRequest(t, h, vals)
 			require.Equal(t, http.StatusOK, resp.Code)
 
-			instances, err := h.Backend.DescribeDBInstances(tt.id, "")
+			instances, err := h.Backend.DescribeDBInstances(context.Background(), tt.id, "")
 			require.NoError(t, err)
 			require.Len(t, instances, 1)
 
@@ -1907,7 +1911,7 @@ func TestRefinement1_SnapshotClusterIdFilter(t *testing.T) {
 				DBClusterIdentifier:         "cluster-b",
 			})
 
-			got, err := b.DescribeDBClusterSnapshots("", tt.clusterID, "")
+			got, err := b.DescribeDBClusterSnapshots(context.Background(), "", tt.clusterID, "")
 			require.NoError(t, err)
 
 			assert.Len(t, got, tt.wantCount)
@@ -1989,6 +1993,7 @@ func TestRefinement1_OptInTypeValidation(t *testing.T) {
 
 			b := docdb.NewInMemoryBackend("000000000000", "us-east-1")
 			err := b.ApplyPendingMaintenanceAction(
+				context.Background(),
 				"arn:aws:rds:us-east-1:000000000000:cluster:c1",
 				"system-update",
 				tt.optInType,
@@ -2158,7 +2163,7 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 			err := b2.Restore(data)
 			require.NoError(t, err)
 
-			clusters, err := b2.DescribeDBClusters(tt.wantCluster)
+			clusters, err := b2.DescribeDBClusters(context.Background(), tt.wantCluster)
 			require.NoError(t, err)
 			require.Len(t, clusters, 1)
 
@@ -2184,7 +2189,7 @@ func TestRefinement1_DeleteCluster_RequiresId(t *testing.T) {
 			t.Parallel()
 
 			b := docdb.NewInMemoryBackend("000000000000", "us-east-1")
-			_, err := b.DeleteDBCluster(tt.id, nil)
+			_, err := b.DeleteDBCluster(context.Background(), tt.id, nil)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -4130,7 +4135,7 @@ func TestAudit_DeleteCluster_FinalSnapshot(t *testing.T) {
 			assert.Contains(t, rr.Body.String(), tt.wantContains)
 
 			if tt.wantSnapshotExists {
-				snaps, err := h.Backend.DescribeDBClusterSnapshots("final-snap", "", "")
+				snaps, err := h.Backend.DescribeDBClusterSnapshots(context.Background(), "final-snap", "", "")
 				require.NoError(t, err)
 				assert.Len(t, snaps, 1)
 			}
@@ -4368,7 +4373,7 @@ func TestAudit_CreateInstance_CopyTagsToSnapshot(t *testing.T) {
 			})
 			require.Equal(t, tt.wantStatus, rr.Code)
 
-			instances, err := h.Backend.DescribeDBInstances("copy-tags-inst", "")
+			instances, err := h.Backend.DescribeDBInstances(context.Background(), "copy-tags-inst", "")
 			require.NoError(t, err)
 			require.Len(t, instances, 1)
 			assert.Equal(t, tt.wantCopyTags, instances[0].CopyTagsToSnapshot)
@@ -4476,7 +4481,7 @@ func TestAudit_ModifyInstance_PromotionTier(t *testing.T) {
 			rr := doRequest(t, h, vals)
 			require.Equal(t, tt.wantStatus, rr.Code)
 
-			instances, err := h.Backend.DescribeDBInstances("tier-inst", "")
+			instances, err := h.Backend.DescribeDBInstances(context.Background(), "tier-inst", "")
 			require.NoError(t, err)
 			require.Len(t, instances, 1)
 			assert.Equal(t, tt.wantTier, instances[0].PromotionTier)
@@ -4618,7 +4623,7 @@ func TestAudit_ClusterVpcSGPersistedToBackend(t *testing.T) {
 			}
 			doRequest(t, h, vals)
 
-			clusters, err := h.Backend.DescribeDBClusters("sg-test-cluster")
+			clusters, err := h.Backend.DescribeDBClusters(context.Background(), "sg-test-cluster")
 			require.NoError(t, err)
 			require.Len(t, clusters, 1)
 			assert.Len(t, clusters[0].VpcSecurityGroupIDs, tt.wantLen)
@@ -4669,7 +4674,7 @@ func TestAudit_ModifyCluster_VpcSecurityGroups(t *testing.T) {
 			}
 			doRequest(t, h, vals)
 
-			clusters, err := h.Backend.DescribeDBClusters("modify-sg-cluster")
+			clusters, err := h.Backend.DescribeDBClusters(context.Background(), "modify-sg-cluster")
 			require.NoError(t, err)
 			require.Len(t, clusters, 1)
 			assert.Len(t, clusters[0].VpcSecurityGroupIDs, tt.wantLen)
@@ -4727,7 +4732,7 @@ func TestAudit_ModifyCluster_CloudwatchEnableDisable(t *testing.T) {
 			}
 			doRequest(t, h, vals)
 
-			clusters, err := h.Backend.DescribeDBClusters("cw-cluster")
+			clusters, err := h.Backend.DescribeDBClusters(context.Background(), "cw-cluster")
 			require.NoError(t, err)
 			require.Len(t, clusters, 1)
 			assert.Len(t, clusters[0].EnabledCloudwatchLogsExports, tt.wantLogCount)
@@ -4957,6 +4962,7 @@ func TestAudit_ClusterInheritedDefaults(t *testing.T) {
 
 			b := docdb.NewInMemoryBackend("000000000000", "us-east-1")
 			cluster, err := b.CreateDBCluster(
+				context.Background(),
 				"defaults-cluster", "", "", "admin", "", "", "", "",
 				0, false, false, 0, "", "", nil, nil, nil,
 			)
@@ -5005,6 +5011,7 @@ func TestAudit_InstanceInheritsClusterProperties(t *testing.T) {
 				})
 			}
 			inst, err := b.CreateDBInstance(
+				context.Background(),
 				"inherit-inst", tt.clusterID, "", "docdb", 1, nil, nil,
 			)
 			require.NoError(t, err)
@@ -6134,7 +6141,7 @@ func TestAudit2_AddTagsToResource_Validation(t *testing.T) {
 				"DBClusterIdentifier": {"tag-cluster"},
 				"Engine":              {"docdb"},
 			})
-			clusters, err := h.Backend.DescribeDBClusters("tag-cluster")
+			clusters, err := h.Backend.DescribeDBClusters(context.Background(), "tag-cluster")
 			require.NoError(t, err)
 			require.Len(t, clusters, 1)
 			clusterARN := clusters[0].DBClusterArn

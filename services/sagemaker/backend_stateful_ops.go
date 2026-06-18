@@ -1,6 +1,7 @@
 package sagemaker
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"sort"
@@ -301,20 +302,23 @@ func cloneTrialComponent(tc *TrialComponent) *TrialComponent {
 
 // CreateDomain creates a new SageMaker Studio domain.
 func (b *InMemoryBackend) CreateDomain(
+	ctx context.Context,
 	name, authMode string,
 	tags map[string]string,
 ) (*Domain, error) {
 	b.mu.Lock("CreateDomain")
 	defer b.mu.Unlock()
 
-	for _, d := range b.domains {
+	region := getRegion(ctx, b.region)
+
+	for _, d := range b.domainsStore(region) {
 		if d.DomainName == name {
 			return nil, fmt.Errorf("%w: domain %s already exists", ErrDomainAlreadyExists, name)
 		}
 	}
 
 	id := fmt.Sprintf("d-%s", generateID())
-	domainArn := arn.Build("sagemaker", b.region, b.accountID, "domain/"+id)
+	domainArn := arn.Build("sagemaker", region, b.accountID, "domain/"+id)
 	now := time.Now()
 
 	d := &Domain{
@@ -323,26 +327,28 @@ func (b *InMemoryBackend) CreateDomain(
 		DomainName:       name,
 		AuthMode:         authMode,
 		Status:           statusInService,
-		URL:              fmt.Sprintf("https://%s.studio.%s.sagemaker.aws", id, b.region),
+		URL:              fmt.Sprintf("https://%s.studio.%s.sagemaker.aws", id, region),
 		CreationTime:     now,
 		LastModifiedTime: now,
 		Tags:             mergeTags(nil, tags),
 	}
-	b.domains[id] = d
+	b.domainsStore(region)[id] = d
 
 	return cloneDomain(d), nil
 }
 
 // DescribeDomain returns a domain by ID or name.
-func (b *InMemoryBackend) DescribeDomain(idOrName string) (*Domain, error) {
+func (b *InMemoryBackend) DescribeDomain(ctx context.Context, idOrName string) (*Domain, error) {
 	b.mu.RLock("DescribeDomain")
 	defer b.mu.RUnlock()
 
-	if d, ok := b.domains[idOrName]; ok {
+	region := getRegion(ctx, b.region)
+
+	if d, ok := b.domainsStore(region)[idOrName]; ok {
 		return cloneDomain(d), nil
 	}
 
-	for _, d := range b.domains {
+	for _, d := range b.domainsStore(region) {
 		if d.DomainName == idOrName {
 			return cloneDomain(d), nil
 		}
@@ -352,43 +358,27 @@ func (b *InMemoryBackend) DescribeDomain(idOrName string) (*Domain, error) {
 }
 
 // ListDomains returns all domains sorted by name.
-func (b *InMemoryBackend) ListDomains(nextToken string) ([]*Domain, string) {
+func (b *InMemoryBackend) ListDomains(ctx context.Context, nextToken string) ([]*Domain, string) {
 	b.mu.RLock("ListDomains")
 	defer b.mu.RUnlock()
 
-	list := make([]*Domain, 0, len(b.domains))
+	region := getRegion(ctx, b.region)
 
-	for _, d := range b.domains {
-		list = append(list, cloneDomain(d))
-	}
-
-	sort.Slice(list, func(i, j int) bool { return list[i].DomainName < list[j].DomainName })
-
-	startIdx := parseNextToken(nextToken)
-	if startIdx >= len(list) {
-		return []*Domain{}, ""
-	}
-
-	end := startIdx + sagemakerDefaultPageSize
-	var outToken string
-
-	if end < len(list) {
-		outToken = strconv.Itoa(end)
-	} else {
-		end = len(list)
-	}
-
-	return list[startIdx:end], outToken
+	return sagemakerListPaged(b.domainsStore(region), nextToken, cloneDomain,
+		func(a, b *Domain) bool { return a.DomainName < b.DomainName })
 }
 
 // DeleteDomain deletes a domain by ID or name.
-func (b *InMemoryBackend) DeleteDomain(idOrName string) error {
+func (b *InMemoryBackend) DeleteDomain(ctx context.Context, idOrName string) error {
 	b.mu.Lock("DeleteDomain")
 	defer b.mu.Unlock()
 
-	for id, d := range b.domains {
+	region := getRegion(ctx, b.region)
+	store := b.domainsStore(region)
+
+	for id, d := range store {
 		if id == idOrName || d.DomainName == idOrName {
-			delete(b.domains, id)
+			delete(store, id)
 
 			return nil
 		}
@@ -398,11 +388,13 @@ func (b *InMemoryBackend) DeleteDomain(idOrName string) error {
 }
 
 // UpdateDomain updates a domain's status.
-func (b *InMemoryBackend) UpdateDomain(idOrName string) (*Domain, error) {
+func (b *InMemoryBackend) UpdateDomain(ctx context.Context, idOrName string) (*Domain, error) {
 	b.mu.Lock("UpdateDomain")
 	defer b.mu.Unlock()
 
-	for _, d := range b.domains {
+	region := getRegion(ctx, b.region)
+
+	for _, d := range b.domainsStore(region) {
 		if d.DomainID == idOrName || d.DomainName == idOrName {
 			d.LastModifiedTime = time.Now()
 
@@ -419,14 +411,17 @@ func (b *InMemoryBackend) UpdateDomain(idOrName string) (*Domain, error) {
 
 // CreateUserProfile creates a new user profile in a domain.
 func (b *InMemoryBackend) CreateUserProfile(
+	ctx context.Context,
 	domainID, name string,
 	tags map[string]string,
 ) (*UserProfile, error) {
 	b.mu.Lock("CreateUserProfile")
 	defer b.mu.Unlock()
 
+	region := getRegion(ctx, b.region)
+
 	key := userProfileKey{DomainID: domainID, UserProfileName: name}
-	if _, ok := b.userProfiles[key]; ok {
+	if _, ok := b.userProfilesStore(region)[key]; ok {
 		return nil, fmt.Errorf(
 			"%w: user profile %s in domain %s already exists",
 			ErrUserProfileAlreadyExists,
@@ -437,7 +432,7 @@ func (b *InMemoryBackend) CreateUserProfile(
 
 	upArn := arn.Build(
 		"sagemaker",
-		b.region,
+		region,
 		b.accountID,
 		fmt.Sprintf("user-profile/%s/%s", domainID, name),
 	)
@@ -452,19 +447,21 @@ func (b *InMemoryBackend) CreateUserProfile(
 		LastModifiedTime: now,
 		Tags:             mergeTags(nil, tags),
 	}
-	b.userProfiles[key] = up
+	b.userProfilesStore(region)[key] = up
 
 	return cloneUserProfile(up), nil
 }
 
 // DescribeUserProfile returns a user profile.
-func (b *InMemoryBackend) DescribeUserProfile(domainID, name string) (*UserProfile, error) {
+func (b *InMemoryBackend) DescribeUserProfile(ctx context.Context, domainID, name string) (*UserProfile, error) {
 	b.mu.RLock("DescribeUserProfile")
 	defer b.mu.RUnlock()
 
+	region := getRegion(ctx, b.region)
+
 	key := userProfileKey{DomainID: domainID, UserProfileName: name}
 
-	up, ok := b.userProfiles[key]
+	up, ok := b.userProfilesStore(region)[key]
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: user profile %q in domain %q not found",
@@ -480,13 +477,15 @@ func (b *InMemoryBackend) DescribeUserProfile(domainID, name string) (*UserProfi
 // ListUserProfiles returns user profiles for a domain sorted by name.
 //
 //nolint:dupl // UserProfile and App share pagination structure but are distinct resource types
-func (b *InMemoryBackend) ListUserProfiles(domainID, nextToken string) ([]*UserProfile, string) {
+func (b *InMemoryBackend) ListUserProfiles(ctx context.Context, domainID, nextToken string) ([]*UserProfile, string) {
 	b.mu.RLock("ListUserProfiles")
 	defer b.mu.RUnlock()
 
-	list := make([]*UserProfile, 0, len(b.userProfiles))
+	region := getRegion(ctx, b.region)
+	store := b.userProfilesStore(region)
+	list := make([]*UserProfile, 0, len(store))
 
-	for _, up := range b.userProfiles {
+	for _, up := range store {
 		if domainID == "" || up.DomainID == domainID {
 			list = append(list, cloneUserProfile(up))
 		}
@@ -515,12 +514,15 @@ func (b *InMemoryBackend) ListUserProfiles(domainID, nextToken string) ([]*UserP
 }
 
 // DeleteUserProfile deletes a user profile.
-func (b *InMemoryBackend) DeleteUserProfile(domainID, name string) error {
+func (b *InMemoryBackend) DeleteUserProfile(ctx context.Context, domainID, name string) error {
 	b.mu.Lock("DeleteUserProfile")
 	defer b.mu.Unlock()
 
+	region := getRegion(ctx, b.region)
+	store := b.userProfilesStore(region)
+
 	key := userProfileKey{DomainID: domainID, UserProfileName: name}
-	if _, ok := b.userProfiles[key]; !ok {
+	if _, ok := store[key]; !ok {
 		return fmt.Errorf(
 			"%w: user profile %q in domain %q not found",
 			ErrUserProfileNotFound,
@@ -529,7 +531,7 @@ func (b *InMemoryBackend) DeleteUserProfile(domainID, name string) error {
 		)
 	}
 
-	delete(b.userProfiles, key)
+	delete(store, key)
 
 	return nil
 }
@@ -540,11 +542,14 @@ func (b *InMemoryBackend) DeleteUserProfile(domainID, name string) error {
 
 // CreateApp creates a new SageMaker Studio app.
 func (b *InMemoryBackend) CreateApp(
+	ctx context.Context,
 	domainID, userProfile, appType, appName string,
 	tags map[string]string,
 ) (*App, error) {
 	b.mu.Lock("CreateApp")
 	defer b.mu.Unlock()
+
+	region := getRegion(ctx, b.region)
 
 	key := appKey{
 		DomainID:        domainID,
@@ -552,11 +557,11 @@ func (b *InMemoryBackend) CreateApp(
 		AppType:         appType,
 		AppName:         appName,
 	}
-	if _, ok := b.apps[key]; ok {
+	if _, ok := b.appsStore(region)[key]; ok {
 		return nil, fmt.Errorf("%w: app %s already exists", ErrAppAlreadyExists, appName)
 	}
 
-	appArn := arn.Build("sagemaker", b.region, b.accountID,
+	appArn := arn.Build("sagemaker", region, b.accountID,
 		fmt.Sprintf("app/%s/%s/%s/%s", domainID, userProfile, appType, appName))
 	now := time.Now()
 
@@ -570,17 +575,20 @@ func (b *InMemoryBackend) CreateApp(
 		CreationTime:    now,
 		Tags:            mergeTags(nil, tags),
 	}
-	b.apps[key] = a
+	b.appsStore(region)[key] = a
 
 	return cloneApp(a), nil
 }
 
 // DescribeApp returns an app.
 func (b *InMemoryBackend) DescribeApp(
+	ctx context.Context,
 	domainID, userProfile, appType, appName string,
 ) (*App, error) {
 	b.mu.RLock("DescribeApp")
 	defer b.mu.RUnlock()
+
+	region := getRegion(ctx, b.region)
 
 	key := appKey{
 		DomainID:        domainID,
@@ -589,7 +597,7 @@ func (b *InMemoryBackend) DescribeApp(
 		AppName:         appName,
 	}
 
-	a, ok := b.apps[key]
+	a, ok := b.appsStore(region)[key]
 	if !ok {
 		return nil, fmt.Errorf("%w: app %q not found", ErrAppNotFound, appName)
 	}
@@ -600,13 +608,15 @@ func (b *InMemoryBackend) DescribeApp(
 // ListApps returns all apps, optionally filtered by domain.
 //
 //nolint:dupl // App and UserProfile share pagination structure but are distinct resource types
-func (b *InMemoryBackend) ListApps(domainID, nextToken string) ([]*App, string) {
+func (b *InMemoryBackend) ListApps(ctx context.Context, domainID, nextToken string) ([]*App, string) {
 	b.mu.RLock("ListApps")
 	defer b.mu.RUnlock()
 
-	list := make([]*App, 0, len(b.apps))
+	region := getRegion(ctx, b.region)
+	store := b.appsStore(region)
+	list := make([]*App, 0, len(store))
 
-	for _, a := range b.apps {
+	for _, a := range store {
 		if domainID == "" || a.DomainID == domainID {
 			list = append(list, cloneApp(a))
 		}
@@ -632,9 +642,12 @@ func (b *InMemoryBackend) ListApps(domainID, nextToken string) ([]*App, string) 
 }
 
 // DeleteApp deletes an app (marks as Deleted).
-func (b *InMemoryBackend) DeleteApp(domainID, userProfile, appType, appName string) error {
+func (b *InMemoryBackend) DeleteApp(ctx context.Context, domainID, userProfile, appType, appName string) error {
 	b.mu.Lock("DeleteApp")
 	defer b.mu.Unlock()
+
+	region := getRegion(ctx, b.region)
+	store := b.appsStore(region)
 
 	key := appKey{
 		DomainID:        domainID,
@@ -642,11 +655,11 @@ func (b *InMemoryBackend) DeleteApp(domainID, userProfile, appType, appName stri
 		AppType:         appType,
 		AppName:         appName,
 	}
-	if _, ok := b.apps[key]; !ok {
+	if _, ok := store[key]; !ok {
 		return fmt.Errorf("%w: app %q not found", ErrAppNotFound, appName)
 	}
 
-	delete(b.apps, key)
+	delete(store, key)
 
 	return nil
 }
@@ -657,6 +670,7 @@ func (b *InMemoryBackend) DeleteApp(domainID, userProfile, appType, appName stri
 
 // CreateFeatureGroup creates a new feature group.
 func (b *InMemoryBackend) CreateFeatureGroup(
+	ctx context.Context,
 	name, recordID, eventTimeFeature string,
 	defs []FeatureDefinition,
 	tags map[string]string,
@@ -664,7 +678,9 @@ func (b *InMemoryBackend) CreateFeatureGroup(
 	b.mu.Lock("CreateFeatureGroup")
 	defer b.mu.Unlock()
 
-	if _, ok := b.featureGroups[name]; ok {
+	region := getRegion(ctx, b.region)
+
+	if _, ok := b.featureGroupsStore(region)[name]; ok {
 		return nil, fmt.Errorf(
 			"%w: feature group %s already exists",
 			ErrFeatureGroupAlreadyExists,
@@ -672,7 +688,7 @@ func (b *InMemoryBackend) CreateFeatureGroup(
 		)
 	}
 
-	fgArn := arn.Build("sagemaker", b.region, b.accountID, "feature-group/"+name)
+	fgArn := arn.Build("sagemaker", region, b.accountID, "feature-group/"+name)
 	storedDefs := make([]FeatureDefinition, len(defs))
 	copy(storedDefs, defs)
 
@@ -686,17 +702,19 @@ func (b *InMemoryBackend) CreateFeatureGroup(
 		CreationTime:                time.Now(),
 		Tags:                        mergeTags(nil, tags),
 	}
-	b.featureGroups[name] = fg
+	b.featureGroupsStore(region)[name] = fg
 
 	return cloneFeatureGroup(fg), nil
 }
 
 // DescribeFeatureGroup returns a feature group by name.
-func (b *InMemoryBackend) DescribeFeatureGroup(name string) (*FeatureGroup, error) {
+func (b *InMemoryBackend) DescribeFeatureGroup(ctx context.Context, name string) (*FeatureGroup, error) {
 	b.mu.RLock("DescribeFeatureGroup")
 	defer b.mu.RUnlock()
 
-	fg, ok := b.featureGroups[name]
+	region := getRegion(ctx, b.region)
+
+	fg, ok := b.featureGroupsStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: feature group %q not found", ErrFeatureGroupNotFound, name)
 	}
@@ -705,48 +723,29 @@ func (b *InMemoryBackend) DescribeFeatureGroup(name string) (*FeatureGroup, erro
 }
 
 // ListFeatureGroups returns all feature groups.
-func (b *InMemoryBackend) ListFeatureGroups(nextToken string) ([]*FeatureGroup, string) {
+func (b *InMemoryBackend) ListFeatureGroups(ctx context.Context, nextToken string) ([]*FeatureGroup, string) {
 	b.mu.RLock("ListFeatureGroups")
 	defer b.mu.RUnlock()
 
-	list := make([]*FeatureGroup, 0, len(b.featureGroups))
+	region := getRegion(ctx, b.region)
 
-	for _, fg := range b.featureGroups {
-		list = append(list, cloneFeatureGroup(fg))
-	}
-
-	sort.Slice(
-		list,
-		func(i, j int) bool { return list[i].FeatureGroupName < list[j].FeatureGroupName },
-	)
-
-	startIdx := parseNextToken(nextToken)
-	if startIdx >= len(list) {
-		return []*FeatureGroup{}, ""
-	}
-
-	end := startIdx + sagemakerDefaultPageSize
-	var outToken string
-
-	if end < len(list) {
-		outToken = strconv.Itoa(end)
-	} else {
-		end = len(list)
-	}
-
-	return list[startIdx:end], outToken
+	return sagemakerListPaged(b.featureGroupsStore(region), nextToken, cloneFeatureGroup,
+		func(a, b *FeatureGroup) bool { return a.FeatureGroupName < b.FeatureGroupName })
 }
 
 // DeleteFeatureGroup deletes a feature group.
-func (b *InMemoryBackend) DeleteFeatureGroup(name string) error {
+func (b *InMemoryBackend) DeleteFeatureGroup(ctx context.Context, name string) error {
 	b.mu.Lock("DeleteFeatureGroup")
 	defer b.mu.Unlock()
 
-	if _, ok := b.featureGroups[name]; !ok {
+	region := getRegion(ctx, b.region)
+	store := b.featureGroupsStore(region)
+
+	if _, ok := store[name]; !ok {
 		return fmt.Errorf("%w: feature group %q not found", ErrFeatureGroupNotFound, name)
 	}
 
-	delete(b.featureGroups, name)
+	delete(store, name)
 
 	return nil
 }
@@ -757,17 +756,20 @@ func (b *InMemoryBackend) DeleteFeatureGroup(name string) error {
 
 // CreatePipeline creates a new pipeline.
 func (b *InMemoryBackend) CreatePipeline(
+	ctx context.Context,
 	name, definition, roleArn string,
 	tags map[string]string,
 ) (*Pipeline, error) {
 	b.mu.Lock("CreatePipeline")
 	defer b.mu.Unlock()
 
-	if _, ok := b.pipelines[name]; ok {
+	region := getRegion(ctx, b.region)
+
+	if _, ok := b.pipelinesStore(region)[name]; ok {
 		return nil, fmt.Errorf("%w: pipeline %s already exists", ErrPipelineAlreadyExists, name)
 	}
 
-	pArn := arn.Build("sagemaker", b.region, b.accountID, "pipeline/"+name)
+	pArn := arn.Build("sagemaker", region, b.accountID, "pipeline/"+name)
 	now := time.Now()
 
 	p := &Pipeline{
@@ -780,17 +782,19 @@ func (b *InMemoryBackend) CreatePipeline(
 		LastModifiedTime:   now,
 		Tags:               mergeTags(nil, tags),
 	}
-	b.pipelines[name] = p
+	b.pipelinesStore(region)[name] = p
 
 	return clonePipeline(p), nil
 }
 
 // DescribePipeline returns a pipeline by name.
-func (b *InMemoryBackend) DescribePipeline(name string) (*Pipeline, error) {
+func (b *InMemoryBackend) DescribePipeline(ctx context.Context, name string) (*Pipeline, error) {
 	b.mu.RLock("DescribePipeline")
 	defer b.mu.RUnlock()
 
-	p, ok := b.pipelines[name]
+	region := getRegion(ctx, b.region)
+
+	p, ok := b.pipelinesStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: pipeline %q not found", ErrPipelineNotFound, name)
 	}
@@ -799,41 +803,24 @@ func (b *InMemoryBackend) DescribePipeline(name string) (*Pipeline, error) {
 }
 
 // ListPipelines returns all pipelines.
-func (b *InMemoryBackend) ListPipelines(nextToken string) ([]*Pipeline, string) {
+func (b *InMemoryBackend) ListPipelines(ctx context.Context, nextToken string) ([]*Pipeline, string) {
 	b.mu.RLock("ListPipelines")
 	defer b.mu.RUnlock()
 
-	list := make([]*Pipeline, 0, len(b.pipelines))
+	region := getRegion(ctx, b.region)
 
-	for _, p := range b.pipelines {
-		list = append(list, clonePipeline(p))
-	}
-
-	sort.Slice(list, func(i, j int) bool { return list[i].PipelineName < list[j].PipelineName })
-
-	startIdx := parseNextToken(nextToken)
-	if startIdx >= len(list) {
-		return []*Pipeline{}, ""
-	}
-
-	end := startIdx + sagemakerDefaultPageSize
-	var outToken string
-
-	if end < len(list) {
-		outToken = strconv.Itoa(end)
-	} else {
-		end = len(list)
-	}
-
-	return list[startIdx:end], outToken
+	return sagemakerListPaged(b.pipelinesStore(region), nextToken, clonePipeline,
+		func(a, b *Pipeline) bool { return a.PipelineName < b.PipelineName })
 }
 
 // UpdatePipeline updates a pipeline definition.
-func (b *InMemoryBackend) UpdatePipeline(name, definition string) (*Pipeline, error) {
+func (b *InMemoryBackend) UpdatePipeline(ctx context.Context, name, definition string) (*Pipeline, error) {
 	b.mu.Lock("UpdatePipeline")
 	defer b.mu.Unlock()
 
-	p, ok := b.pipelines[name]
+	region := getRegion(ctx, b.region)
+
+	p, ok := b.pipelinesStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: pipeline %q not found", ErrPipelineNotFound, name)
 	}
@@ -848,27 +835,32 @@ func (b *InMemoryBackend) UpdatePipeline(name, definition string) (*Pipeline, er
 }
 
 // DeletePipeline deletes a pipeline.
-func (b *InMemoryBackend) DeletePipeline(name string) (*Pipeline, error) {
+func (b *InMemoryBackend) DeletePipeline(ctx context.Context, name string) (*Pipeline, error) {
 	b.mu.Lock("DeletePipeline")
 	defer b.mu.Unlock()
 
-	p, ok := b.pipelines[name]
+	region := getRegion(ctx, b.region)
+	store := b.pipelinesStore(region)
+
+	p, ok := store[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: pipeline %q not found", ErrPipelineNotFound, name)
 	}
 
 	cp := clonePipeline(p)
-	delete(b.pipelines, name)
+	delete(store, name)
 
 	return cp, nil
 }
 
 // StartPipelineExecution creates a pipeline execution.
-func (b *InMemoryBackend) StartPipelineExecution(pipelineName string) (*PipelineExecution, error) {
+func (b *InMemoryBackend) StartPipelineExecution(ctx context.Context, pipelineName string) (*PipelineExecution, error) {
 	b.mu.Lock("StartPipelineExecution")
 	defer b.mu.Unlock()
 
-	p, ok := b.pipelines[pipelineName]
+	region := getRegion(ctx, b.region)
+
+	p, ok := b.pipelinesStore(region)[pipelineName]
 	if !ok {
 		return nil, fmt.Errorf("%w: pipeline %q not found", ErrPipelineNotFound, pipelineName)
 	}
@@ -882,17 +874,19 @@ func (b *InMemoryBackend) StartPipelineExecution(pipelineName string) (*Pipeline
 		PipelineExecutionStatus: pipelineStatusSucceeded,
 		StartTime:               time.Now(),
 	}
-	b.pipelineExecutions[execArn] = pe
+	b.pipelineExecutionsStore(region)[execArn] = pe
 
 	return clonePipelineExecution(pe), nil
 }
 
 // DescribePipelineExecution returns a pipeline execution.
-func (b *InMemoryBackend) DescribePipelineExecution(execArn string) (*PipelineExecution, error) {
+func (b *InMemoryBackend) DescribePipelineExecution(ctx context.Context, execArn string) (*PipelineExecution, error) {
 	b.mu.RLock("DescribePipelineExecution")
 	defer b.mu.RUnlock()
 
-	pe, ok := b.pipelineExecutions[execArn]
+	region := getRegion(ctx, b.region)
+
+	pe, ok := b.pipelineExecutionsStore(region)[execArn]
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: pipeline execution %q not found",
@@ -906,16 +900,20 @@ func (b *InMemoryBackend) DescribePipelineExecution(execArn string) (*PipelineEx
 
 // ListPipelineExecutions returns executions for a pipeline.
 func (b *InMemoryBackend) ListPipelineExecutions(
+	ctx context.Context,
 	pipelineName, nextToken string,
 ) ([]*PipelineExecution, string) {
 	b.mu.RLock("ListPipelineExecutions")
 	defer b.mu.RUnlock()
 
-	p, ok := b.pipelines[pipelineName]
-	list := make([]*PipelineExecution, 0, len(b.pipelineExecutions))
+	region := getRegion(ctx, b.region)
+
+	p, ok := b.pipelinesStore(region)[pipelineName]
+	execStore := b.pipelineExecutionsStore(region)
+	list := make([]*PipelineExecution, 0, len(execStore))
 
 	if ok {
-		for _, pe := range b.pipelineExecutions {
+		for _, pe := range execStore {
 			if pe.PipelineArn == p.PipelineArn {
 				list = append(list, clonePipelineExecution(pe))
 			}
@@ -949,17 +947,20 @@ func (b *InMemoryBackend) ListPipelineExecutions(
 
 // CreateExperiment creates a new experiment.
 func (b *InMemoryBackend) CreateExperiment(
+	ctx context.Context,
 	name string,
 	tags map[string]string,
 ) (*Experiment, error) {
 	b.mu.Lock("CreateExperiment")
 	defer b.mu.Unlock()
 
-	if _, ok := b.experiments[name]; ok {
+	region := getRegion(ctx, b.region)
+
+	if _, ok := b.experimentsStore(region)[name]; ok {
 		return nil, fmt.Errorf("%w: experiment %s already exists", ErrExperimentAlreadyExists, name)
 	}
 
-	expArn := arn.Build("sagemaker", b.region, b.accountID, "experiment/"+name)
+	expArn := arn.Build("sagemaker", region, b.accountID, "experiment/"+name)
 	now := time.Now()
 
 	e := &Experiment{
@@ -969,17 +970,19 @@ func (b *InMemoryBackend) CreateExperiment(
 		LastModifiedTime: now,
 		Tags:             mergeTags(nil, tags),
 	}
-	b.experiments[name] = e
+	b.experimentsStore(region)[name] = e
 
 	return cloneExperiment(e), nil
 }
 
 // DescribeExperiment returns an experiment by name.
-func (b *InMemoryBackend) DescribeExperiment(name string) (*Experiment, error) {
+func (b *InMemoryBackend) DescribeExperiment(ctx context.Context, name string) (*Experiment, error) {
 	b.mu.RLock("DescribeExperiment")
 	defer b.mu.RUnlock()
 
-	e, ok := b.experiments[name]
+	region := getRegion(ctx, b.region)
+
+	e, ok := b.experimentsStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: experiment %q not found", ErrExperimentNotFound, name)
 	}
@@ -988,47 +991,31 @@ func (b *InMemoryBackend) DescribeExperiment(name string) (*Experiment, error) {
 }
 
 // ListExperiments returns all experiments.
-func (b *InMemoryBackend) ListExperiments(nextToken string) ([]*Experiment, string) {
+func (b *InMemoryBackend) ListExperiments(ctx context.Context, nextToken string) ([]*Experiment, string) {
 	b.mu.RLock("ListExperiments")
 	defer b.mu.RUnlock()
 
-	list := make([]*Experiment, 0, len(b.experiments))
+	region := getRegion(ctx, b.region)
 
-	for _, e := range b.experiments {
-		list = append(list, cloneExperiment(e))
-	}
-
-	sort.Slice(list, func(i, j int) bool { return list[i].ExperimentName < list[j].ExperimentName })
-
-	startIdx := parseNextToken(nextToken)
-	if startIdx >= len(list) {
-		return []*Experiment{}, ""
-	}
-
-	end := startIdx + sagemakerDefaultPageSize
-	var outToken string
-
-	if end < len(list) {
-		outToken = strconv.Itoa(end)
-	} else {
-		end = len(list)
-	}
-
-	return list[startIdx:end], outToken
+	return sagemakerListPaged(b.experimentsStore(region), nextToken, cloneExperiment,
+		func(a, b *Experiment) bool { return a.ExperimentName < b.ExperimentName })
 }
 
 // DeleteExperiment deletes an experiment.
-func (b *InMemoryBackend) DeleteExperiment(name string) (*Experiment, error) {
+func (b *InMemoryBackend) DeleteExperiment(ctx context.Context, name string) (*Experiment, error) {
 	b.mu.Lock("DeleteExperiment")
 	defer b.mu.Unlock()
 
-	e, ok := b.experiments[name]
+	region := getRegion(ctx, b.region)
+	store := b.experimentsStore(region)
+
+	e, ok := store[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: experiment %q not found", ErrExperimentNotFound, name)
 	}
 
 	cp := cloneExperiment(e)
-	delete(b.experiments, name)
+	delete(store, name)
 
 	return cp, nil
 }
@@ -1039,17 +1026,20 @@ func (b *InMemoryBackend) DeleteExperiment(name string) (*Experiment, error) {
 
 // CreateTrial creates a new trial.
 func (b *InMemoryBackend) CreateTrial(
+	ctx context.Context,
 	name, experimentName string,
 	tags map[string]string,
 ) (*Trial, error) {
 	b.mu.Lock("CreateTrial")
 	defer b.mu.Unlock()
 
-	if _, ok := b.trials[name]; ok {
+	region := getRegion(ctx, b.region)
+
+	if _, ok := b.trialsStore(region)[name]; ok {
 		return nil, fmt.Errorf("%w: trial %s already exists", ErrTrialAlreadyExists, name)
 	}
 
-	trialArn := arn.Build("sagemaker", b.region, b.accountID, "experiment-trial/"+name)
+	trialArn := arn.Build("sagemaker", region, b.accountID, "experiment-trial/"+name)
 	now := time.Now()
 
 	t := &Trial{
@@ -1060,17 +1050,19 @@ func (b *InMemoryBackend) CreateTrial(
 		LastModifiedTime: now,
 		Tags:             mergeTags(nil, tags),
 	}
-	b.trials[name] = t
+	b.trialsStore(region)[name] = t
 
 	return cloneTrial(t), nil
 }
 
 // DescribeTrial returns a trial by name.
-func (b *InMemoryBackend) DescribeTrial(name string) (*Trial, error) {
+func (b *InMemoryBackend) DescribeTrial(ctx context.Context, name string) (*Trial, error) {
 	b.mu.RLock("DescribeTrial")
 	defer b.mu.RUnlock()
 
-	t, ok := b.trials[name]
+	region := getRegion(ctx, b.region)
+
+	t, ok := b.trialsStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: trial %q not found", ErrTrialNotFound, name)
 	}
@@ -1079,47 +1071,31 @@ func (b *InMemoryBackend) DescribeTrial(name string) (*Trial, error) {
 }
 
 // ListTrials returns all trials.
-func (b *InMemoryBackend) ListTrials(nextToken string) ([]*Trial, string) {
+func (b *InMemoryBackend) ListTrials(ctx context.Context, nextToken string) ([]*Trial, string) {
 	b.mu.RLock("ListTrials")
 	defer b.mu.RUnlock()
 
-	list := make([]*Trial, 0, len(b.trials))
+	region := getRegion(ctx, b.region)
 
-	for _, t := range b.trials {
-		list = append(list, cloneTrial(t))
-	}
-
-	sort.Slice(list, func(i, j int) bool { return list[i].TrialName < list[j].TrialName })
-
-	startIdx := parseNextToken(nextToken)
-	if startIdx >= len(list) {
-		return []*Trial{}, ""
-	}
-
-	end := startIdx + sagemakerDefaultPageSize
-	var outToken string
-
-	if end < len(list) {
-		outToken = strconv.Itoa(end)
-	} else {
-		end = len(list)
-	}
-
-	return list[startIdx:end], outToken
+	return sagemakerListPaged(b.trialsStore(region), nextToken, cloneTrial,
+		func(a, b *Trial) bool { return a.TrialName < b.TrialName })
 }
 
 // DeleteTrial deletes a trial.
-func (b *InMemoryBackend) DeleteTrial(name string) (*Trial, error) {
+func (b *InMemoryBackend) DeleteTrial(ctx context.Context, name string) (*Trial, error) {
 	b.mu.Lock("DeleteTrial")
 	defer b.mu.Unlock()
 
-	t, ok := b.trials[name]
+	region := getRegion(ctx, b.region)
+	store := b.trialsStore(region)
+
+	t, ok := store[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: trial %q not found", ErrTrialNotFound, name)
 	}
 
 	cp := cloneTrial(t)
-	delete(b.trials, name)
+	delete(store, name)
 
 	return cp, nil
 }
@@ -1130,13 +1106,16 @@ func (b *InMemoryBackend) DeleteTrial(name string) (*Trial, error) {
 
 // CreateTrialComponent creates a new trial component.
 func (b *InMemoryBackend) CreateTrialComponent(
+	ctx context.Context,
 	name string,
 	tags map[string]string,
 ) (*TrialComponent, error) {
 	b.mu.Lock("CreateTrialComponent")
 	defer b.mu.Unlock()
 
-	if _, ok := b.trialComponents[name]; ok {
+	region := getRegion(ctx, b.region)
+
+	if _, ok := b.trialComponentsStore(region)[name]; ok {
 		return nil, fmt.Errorf(
 			"%w: trial component %s already exists",
 			ErrTrialComponentAlreadyExists,
@@ -1144,7 +1123,7 @@ func (b *InMemoryBackend) CreateTrialComponent(
 		)
 	}
 
-	tcArn := arn.Build("sagemaker", b.region, b.accountID, "experiment-trial-component/"+name)
+	tcArn := arn.Build("sagemaker", region, b.accountID, "experiment-trial-component/"+name)
 	now := time.Now()
 
 	tc := &TrialComponent{
@@ -1154,17 +1133,19 @@ func (b *InMemoryBackend) CreateTrialComponent(
 		LastModifiedTime:   now,
 		Tags:               mergeTags(nil, tags),
 	}
-	b.trialComponents[name] = tc
+	b.trialComponentsStore(region)[name] = tc
 
 	return cloneTrialComponent(tc), nil
 }
 
 // DescribeTrialComponent returns a trial component by name.
-func (b *InMemoryBackend) DescribeTrialComponent(name string) (*TrialComponent, error) {
+func (b *InMemoryBackend) DescribeTrialComponent(ctx context.Context, name string) (*TrialComponent, error) {
 	b.mu.RLock("DescribeTrialComponent")
 	defer b.mu.RUnlock()
 
-	tc, ok := b.trialComponents[name]
+	region := getRegion(ctx, b.region)
+
+	tc, ok := b.trialComponentsStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: trial component %q not found", ErrTrialComponentNotFound, name)
 	}
@@ -1173,17 +1154,20 @@ func (b *InMemoryBackend) DescribeTrialComponent(name string) (*TrialComponent, 
 }
 
 // DeleteTrialComponent deletes a trial component.
-func (b *InMemoryBackend) DeleteTrialComponent(name string) (*TrialComponent, error) {
+func (b *InMemoryBackend) DeleteTrialComponent(ctx context.Context, name string) (*TrialComponent, error) {
 	b.mu.Lock("DeleteTrialComponent")
 	defer b.mu.Unlock()
 
-	tc, ok := b.trialComponents[name]
+	region := getRegion(ctx, b.region)
+	store := b.trialComponentsStore(region)
+
+	tc, ok := store[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: trial component %q not found", ErrTrialComponentNotFound, name)
 	}
 
 	cp := cloneTrialComponent(tc)
-	delete(b.trialComponents, name)
+	delete(store, name)
 
 	return cp, nil
 }
@@ -1194,13 +1178,16 @@ func (b *InMemoryBackend) DeleteTrialComponent(name string) (*TrialComponent, er
 
 // UpdateFeatureGroup mutates FeatureDefinitions on an existing feature group.
 func (b *InMemoryBackend) UpdateFeatureGroup(
+	ctx context.Context,
 	name string,
 	featureDefinitions []FeatureDefinition,
 ) (*FeatureGroup, error) {
 	b.mu.Lock("UpdateFeatureGroup")
 	defer b.mu.Unlock()
 
-	fg, ok := b.featureGroups[name]
+	region := getRegion(ctx, b.region)
+
+	fg, ok := b.featureGroupsStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: feature group %q not found", ErrFeatureGroupNotFound, name)
 	}
@@ -1214,12 +1201,15 @@ func (b *InMemoryBackend) UpdateFeatureGroup(
 
 // UpdateExperiment mutates DisplayName and Description on an experiment.
 func (b *InMemoryBackend) UpdateExperiment(
+	ctx context.Context,
 	name, displayName, description string,
 ) (*Experiment, error) {
 	b.mu.Lock("UpdateExperiment")
 	defer b.mu.Unlock()
 
-	e, ok := b.experiments[name]
+	region := getRegion(ctx, b.region)
+
+	e, ok := b.experimentsStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: experiment %q not found", ErrExperimentNotFound, name)
 	}
@@ -1236,11 +1226,13 @@ func (b *InMemoryBackend) UpdateExperiment(
 }
 
 // UpdateTrial mutates DisplayName on a trial.
-func (b *InMemoryBackend) UpdateTrial(name, displayName string) (*Trial, error) {
+func (b *InMemoryBackend) UpdateTrial(ctx context.Context, name, displayName string) (*Trial, error) {
 	b.mu.Lock("UpdateTrial")
 	defer b.mu.Unlock()
 
-	t, ok := b.trials[name]
+	region := getRegion(ctx, b.region)
+
+	t, ok := b.trialsStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: trial %q not found", ErrTrialNotFound, name)
 	}
@@ -1264,13 +1256,16 @@ type UpdateTrialComponentOptions struct {
 
 // UpdateTrialComponent mutates DisplayName, Parameters, and Artifacts on a trial component.
 func (b *InMemoryBackend) UpdateTrialComponent(
+	ctx context.Context,
 	name string,
 	opts UpdateTrialComponentOptions,
 ) (*TrialComponent, error) {
 	b.mu.Lock("UpdateTrialComponent")
 	defer b.mu.Unlock()
 
-	tc, ok := b.trialComponents[name]
+	region := getRegion(ctx, b.region)
+
+	tc, ok := b.trialComponentsStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: trial component %q not found", ErrTrialComponentNotFound, name)
 	}
@@ -1316,11 +1311,13 @@ type CreatePipelineOptions struct {
 }
 
 // CreatePipelineFull creates a pipeline with full AWS input fields.
-func (b *InMemoryBackend) CreatePipelineFull(opts CreatePipelineOptions) (*Pipeline, error) {
+func (b *InMemoryBackend) CreatePipelineFull(ctx context.Context, opts CreatePipelineOptions) (*Pipeline, error) {
 	b.mu.Lock("CreatePipelineFull")
 	defer b.mu.Unlock()
 
-	if _, ok := b.pipelines[opts.PipelineName]; ok {
+	region := getRegion(ctx, b.region)
+
+	if _, ok := b.pipelinesStore(region)[opts.PipelineName]; ok {
 		return nil, fmt.Errorf(
 			"%w: pipeline %s already exists",
 			ErrPipelineAlreadyExists,
@@ -1328,7 +1325,7 @@ func (b *InMemoryBackend) CreatePipelineFull(opts CreatePipelineOptions) (*Pipel
 		)
 	}
 
-	pArn := arn.Build("sagemaker", b.region, b.accountID, "pipeline/"+opts.PipelineName)
+	pArn := arn.Build("sagemaker", region, b.accountID, "pipeline/"+opts.PipelineName)
 	now := time.Now()
 
 	p := &Pipeline{
@@ -1344,20 +1341,23 @@ func (b *InMemoryBackend) CreatePipelineFull(opts CreatePipelineOptions) (*Pipel
 		LastModifiedTime:         now,
 		Tags:                     mergeTags(nil, opts.Tags),
 	}
-	b.pipelines[opts.PipelineName] = p
+	b.pipelinesStore(region)[opts.PipelineName] = p
 
 	return clonePipeline(p), nil
 }
 
 // UpdatePipelineFull updates a pipeline with full AWS input fields.
 func (b *InMemoryBackend) UpdatePipelineFull(
+	ctx context.Context,
 	name, definition, displayName, description, roleArn string,
 	parallelismConfig *ParallelismConfiguration,
 ) (*Pipeline, error) {
 	b.mu.Lock("UpdatePipelineFull")
 	defer b.mu.Unlock()
 
-	p, ok := b.pipelines[name]
+	region := getRegion(ctx, b.region)
+
+	p, ok := b.pipelinesStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: pipeline %q not found", ErrPipelineNotFound, name)
 	}
@@ -1393,12 +1393,15 @@ type StartPipelineExecutionOptions struct {
 
 // StartPipelineExecutionFull creates an execution with full AWS input fields.
 func (b *InMemoryBackend) StartPipelineExecutionFull(
+	ctx context.Context,
 	opts StartPipelineExecutionOptions,
 ) (*PipelineExecution, error) {
 	b.mu.Lock("StartPipelineExecutionFull")
 	defer b.mu.Unlock()
 
-	p, ok := b.pipelines[opts.PipelineName]
+	region := getRegion(ctx, b.region)
+
+	p, ok := b.pipelinesStore(region)[opts.PipelineName]
 	if !ok {
 		return nil, fmt.Errorf("%w: pipeline %q not found", ErrPipelineNotFound, opts.PipelineName)
 	}
@@ -1418,7 +1421,7 @@ func (b *InMemoryBackend) StartPipelineExecutionFull(
 		PipelineParameters:           params,
 		StartTime:                    time.Now(),
 	}
-	b.pipelineExecutions[execArn] = pe
+	b.pipelineExecutionsStore(region)[execArn] = pe
 
 	return clonePipelineExecution(pe), nil
 }

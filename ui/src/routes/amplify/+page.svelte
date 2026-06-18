@@ -4,14 +4,22 @@
 	import { getAmplifyClient } from '$lib/aws-client';
 	import {
 		ListAppsCommand,
-		GetAppCommand,
 		ListBranchesCommand,
 		ListJobsCommand,
 		DeleteAppCommand,
 		CreateAppCommand,
+		ListWebhooksCommand,
+		CreateWebhookCommand,
+		DeleteWebhookCommand,
+		StartJobCommand,
+		ListDomainAssociationsCommand,
+		CreateDomainAssociationCommand,
+		type AmplifyClient,
 		type App,
 		type Branch,
-		type JobSummary
+		type JobSummary,
+		type Webhook,
+		type DomainAssociation
 	} from '@aws-sdk/client-amplify';
 	import { toast } from 'svelte-sonner';
 	import { 
@@ -27,7 +35,10 @@
 		Link, Network, Gauge
 	} from 'lucide-svelte';
 
-	const amplify = getAmplifyClient();
+	let amplifyClient: AmplifyClient | undefined;
+	function amplify(): AmplifyClient {
+		return (amplifyClient ??= getAmplifyClient());
+	}
 
 	// State
 	let loading = $state(false);
@@ -54,7 +65,7 @@
 	async function loadApps() {
 		loading = true;
 		try {
-			const res = await amplify.send(new ListAppsCommand({}));
+			const res = await amplify().send(new ListAppsCommand({}));
 			apps = res.apps ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load apps: ${(err as Error).message}`);
@@ -70,11 +81,12 @@
 		jobs = [];
 		loadingDetails = true;
 		try {
-			const branchRes = await amplify.send(new ListBranchesCommand({ appId: app.appId }));
+			const branchRes = await amplify().send(new ListBranchesCommand({ appId: app.appId }));
 			branches = branchRes.branches ?? [];
 			if (branches.length > 0) {
 				await selectBranch(branches[0]);
 			}
+			await loadExtras(app);
 		} catch (err: unknown) {
 			toast.error(`Failed to load branches: ${(err as Error).message}`);
 		} finally {
@@ -86,7 +98,7 @@
 		selectedBranch = branch;
 		loadingDetails = true;
 		try {
-			const jobRes = await amplify.send(new ListJobsCommand({ 
+			const jobRes = await amplify().send(new ListJobsCommand({ 
 				appId: selectedApp?.appId, 
 				branchName: branch.branchName 
 			}));
@@ -98,11 +110,121 @@
 		}
 	}
 
+	// Webhooks (build triggers) + custom domains
+	let webhooks = $state<Webhook[]>([]);
+	let domains = $state<DomainAssociation[]>([]);
+	let loadingExtras = $state(false);
+	let newWebhookBranch = $state('');
+	let creatingWebhook = $state(false);
+	let triggeringWebhook = $state<string | null>(null);
+	let showDomainModal = $state(false);
+	let newDomainName = $state('');
+	let newDomainBranch = $state('');
+	let newDomainPrefix = $state('');
+	let creatingDomain = $state(false);
+
+	async function loadExtras(app: App) {
+		loadingExtras = true;
+		try {
+			const [whRes, domRes] = await Promise.all([
+				amplify().send(new ListWebhooksCommand({ appId: app.appId })),
+				amplify().send(new ListDomainAssociationsCommand({ appId: app.appId }))
+			]);
+			webhooks = whRes.webhooks ?? [];
+			domains = domRes.domainAssociations ?? [];
+		} catch (err: unknown) {
+			toast.error(`Failed to load webhooks/domains: ${(err as Error).message}`);
+		} finally {
+			loadingExtras = false;
+		}
+	}
+
+	async function createWebhook() {
+		if (!selectedApp || !newWebhookBranch.trim()) return;
+		creatingWebhook = true;
+		try {
+			await amplify().send(
+				new CreateWebhookCommand({
+					appId: selectedApp.appId,
+					branchName: newWebhookBranch.trim(),
+					description: `Build trigger for ${newWebhookBranch.trim()}`
+				})
+			);
+			toast.success(`Webhook created for ${newWebhookBranch}`);
+			newWebhookBranch = '';
+			await loadExtras(selectedApp);
+		} catch (err: unknown) {
+			toast.error(`Failed to create webhook: ${(err as Error).message}`);
+		} finally {
+			creatingWebhook = false;
+		}
+	}
+
+	async function deleteWebhook(id: string | undefined) {
+		if (!id || !selectedApp) return;
+		if (!(await confirmDestructive({ title: 'Delete Webhook', message: 'Delete this build-trigger webhook?' }))) return;
+		try {
+			await amplify().send(new DeleteWebhookCommand({ webhookId: id }));
+			toast.success('Webhook deleted');
+			await loadExtras(selectedApp);
+		} catch (err: unknown) {
+			toast.error(`Failed to delete webhook: ${(err as Error).message}`);
+		}
+	}
+
+	// Trigger a build for the webhook's branch (equivalent of POSTing to the
+	// webhook URL).
+	async function triggerWebhook(wh: Webhook) {
+		if (!selectedApp || !wh.branchName) return;
+		triggeringWebhook = wh.webhookId ?? wh.branchName;
+		try {
+			await amplify().send(
+				new StartJobCommand({
+					appId: selectedApp.appId,
+					branchName: wh.branchName,
+					jobType: 'RELEASE'
+				})
+			);
+			toast.success(`Build triggered for ${wh.branchName}`);
+			if (selectedBranch?.branchName === wh.branchName) await selectBranch(selectedBranch);
+		} catch (err: unknown) {
+			toast.error(`Failed to trigger build: ${(err as Error).message}`);
+		} finally {
+			triggeringWebhook = null;
+		}
+	}
+
+	async function createDomain() {
+		if (!selectedApp || !newDomainName.trim() || !newDomainBranch.trim()) return;
+		creatingDomain = true;
+		try {
+			await amplify().send(
+				new CreateDomainAssociationCommand({
+					appId: selectedApp.appId,
+					domainName: newDomainName.trim(),
+					subDomainSettings: [
+						{ prefix: newDomainPrefix.trim(), branchName: newDomainBranch.trim() }
+					]
+				})
+			);
+			toast.success(`Domain ${newDomainName} associated`);
+			showDomainModal = false;
+			newDomainName = '';
+			newDomainBranch = '';
+			newDomainPrefix = '';
+			await loadExtras(selectedApp);
+		} catch (err: unknown) {
+			toast.error(`Failed to associate domain: ${(err as Error).message}`);
+		} finally {
+			creatingDomain = false;
+		}
+	}
+
 	async function createApp() {
 		if (!newAppName.trim()) return;
 		creating = true;
 		try {
-			await amplify.send(new CreateAppCommand({
+			await amplify().send(new CreateAppCommand({
 				name: newAppName.trim(),
 				repository: repoUrl.trim()
 			}));
@@ -120,7 +242,7 @@
 	async function deleteApp(id: string | undefined) {
 		if (!id || !await confirmDestructive({ title: 'Delete Amplify App', message: 'Delete this Amplify app? All environments and hosting configurations will be removed.' })) return;
 		try {
-			await amplify.send(new DeleteAppCommand({ appId: id }));
+			await amplify().send(new DeleteAppCommand({ appId: id }));
 			toast.success(`App deleted`);
 			if (selectedApp?.appId === id) selectedApp = null;
 			await loadApps();
@@ -303,6 +425,96 @@
 										{/each}
 									</div>
 								</div>
+
+								<!-- Build Triggers (Webhooks) -->
+								<div class="space-y-4">
+									<h3 class="text-xs font-black text-slate-500 uppercase tracking-widest flex items-center gap-2 italic leading-none">
+										<Zap class="w-4 h-4 text-amber-500" />
+										Build Triggers
+									</h3>
+									<div class="flex gap-2">
+										<input
+											type="text"
+											bind:value={newWebhookBranch}
+											placeholder="branch name"
+											class="flex-1 px-3 py-2 bg-white/50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-xl text-xs font-mono outline-none focus:ring-2 focus:ring-amber-500"
+										/>
+										<button
+											onclick={createWebhook}
+											disabled={creatingWebhook || !newWebhookBranch.trim()}
+											class="px-3 py-2 bg-amber-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+										>
+											{creatingWebhook ? '...' : 'Add Hook'}
+										</button>
+									</div>
+									{#if loadingExtras}
+										<p class="text-[10px] text-slate-400 italic">Loading…</p>
+									{:else if webhooks.length === 0}
+										<p class="text-[10px] text-slate-400 italic">No build-trigger webhooks.</p>
+									{:else}
+										<div class="space-y-2">
+											{#each webhooks as wh}
+												<div class="flex items-center gap-2 p-2 rounded-xl bg-white/50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600">
+													<GitBranch class="w-3.5 h-3.5 text-amber-500 shrink-0" />
+													<span class="text-[10px] font-mono font-black truncate">{wh.branchName}</span>
+													<span class="text-[8px] text-slate-400 font-mono truncate flex-1">{wh.webhookId}</span>
+													<button
+														onclick={() => triggerWebhook(wh)}
+														disabled={triggeringWebhook === (wh.webhookId ?? wh.branchName)}
+														title="Trigger build"
+														class="rounded p-1 text-emerald-600 hover:bg-emerald-100 disabled:opacity-40 dark:hover:bg-emerald-900/30"
+													>
+														<Play class="w-3.5 h-3.5" />
+													</button>
+													<button
+														onclick={() => deleteWebhook(wh.webhookId)}
+														title="Delete webhook"
+														class="rounded p-1 text-rose-600 hover:bg-rose-100 dark:hover:bg-rose-900/30"
+													>
+														<Trash2 class="w-3.5 h-3.5" />
+													</button>
+												</div>
+											{/each}
+										</div>
+									{/if}
+								</div>
+
+								<!-- Custom Domains -->
+								<div class="space-y-4">
+									<div class="flex items-center justify-between">
+										<h3 class="text-xs font-black text-slate-500 uppercase tracking-widest flex items-center gap-2 italic leading-none">
+											<Globe class="w-4 h-4 text-amber-500" />
+											Custom Domains
+										</h3>
+										<button
+											onclick={() => (showDomainModal = true)}
+											class="flex items-center gap-1 px-2 py-1 bg-amber-600 text-white rounded-lg text-[9px] font-black uppercase tracking-widest"
+										>
+											<Plus class="w-3 h-3" /> Add
+										</button>
+									</div>
+									{#if loadingExtras}
+										<p class="text-[10px] text-slate-400 italic">Loading…</p>
+									{:else if domains.length === 0}
+										<p class="text-[10px] text-slate-400 italic">No custom domains associated.</p>
+									{:else}
+										<div class="space-y-2">
+											{#each domains as dom}
+												<div class="p-3 rounded-xl bg-white/50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600">
+													<div class="flex items-center justify-between">
+														<span class="text-[11px] font-black font-mono truncate">{dom.domainName}</span>
+														<span class="text-[8px] px-2 py-0.5 rounded bg-amber-500/10 text-amber-600 font-black uppercase tracking-widest">{dom.domainStatus}</span>
+													</div>
+													{#each dom.subDomains ?? [] as sd}
+														<div class="text-[9px] text-slate-400 font-mono mt-1 truncate">
+															{sd.subDomainSetting?.prefix || '@'} → {sd.subDomainSetting?.branchName}
+														</div>
+													{/each}
+												</div>
+											{/each}
+										</div>
+									{/if}
+								</div>
 							</div>
 						</div>
 					</div>
@@ -440,6 +652,36 @@
 						</button>
 					</div>
 				</form>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Domain Association Modal -->
+{#if showDomainModal}
+	<div class="fixed inset-0 z-50 flex items-center justify-center p-4">
+		<div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onclick={() => (showDomainModal = false)} onkeydown={(e) => { if (e.key === 'Escape') showDomainModal = false; }} role="presentation"></div>
+		<div class="relative w-full max-w-md bg-white dark:bg-slate-800 rounded-[2.5rem] shadow-2xl border border-amber-500/20 overflow-hidden">
+			<div class="p-8 space-y-5">
+				<h3 class="text-2xl font-black text-slate-900 dark:text-white uppercase tracking-tighter italic leading-none">Associate Custom Domain</h3>
+				<div>
+					<label for="dom-name" class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2 italic">Domain Name</label>
+					<input id="dom-name" type="text" bind:value={newDomainName} placeholder="example.com" class="w-full px-5 py-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl outline-none focus:ring-2 focus:ring-amber-500 font-mono text-xs" />
+				</div>
+				<div>
+					<label for="dom-branch" class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2 italic">Branch</label>
+					<input id="dom-branch" type="text" bind:value={newDomainBranch} placeholder="main" class="w-full px-5 py-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl outline-none focus:ring-2 focus:ring-amber-500 font-mono text-xs" />
+				</div>
+				<div>
+					<label for="dom-prefix" class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2 italic">Subdomain Prefix (blank = root)</label>
+					<input id="dom-prefix" type="text" bind:value={newDomainPrefix} placeholder="www" class="w-full px-5 py-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl outline-none focus:ring-2 focus:ring-amber-500 font-mono text-xs" />
+				</div>
+				<div class="flex gap-4 pt-2">
+					<button type="button" onclick={() => (showDomainModal = false)} class="flex-1 px-4 py-3 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-2xl font-black uppercase text-[10px] tracking-widest">Cancel</button>
+					<button onclick={createDomain} disabled={creatingDomain || !newDomainName.trim() || !newDomainBranch.trim()} class="flex-1 px-4 py-3 bg-amber-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest disabled:opacity-50">
+						{creatingDomain ? 'Associating…' : 'Associate'}
+					</button>
+				</div>
 			</div>
 		</div>
 	</div>

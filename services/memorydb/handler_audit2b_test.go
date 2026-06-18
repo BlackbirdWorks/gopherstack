@@ -956,7 +956,7 @@ func TestAudit2b_TagOperations(t *testing.T) {
 func TestAudit2b_Reset_ReseededDefaultGroups(t *testing.T) {
 	t.Parallel()
 
-	b := memorydb.NewInMemoryBackend()
+	b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
 
 	// Count default parameter groups before reset.
 	initialCount := memorydb.ParameterGroupCount(b)
@@ -1106,6 +1106,38 @@ func TestAudit2b_EnginePatchVersion_AllFamilies(t *testing.T) {
 				"engine=%s version=%s", tt.engine, tt.engineVersion)
 			assert.NotEqual(t, cl["EngineVersion"], cl["EnginePatchVersion"],
 				"EnginePatchVersion should differ from EngineVersion for most versions")
+		})
+	}
+}
+
+// -- UpdateCluster: SnsTopicStatus enum validation --------------------------------
+
+func TestAudit2b_UpdateCluster_SnsTopicStatusValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		snsTopicStatus string
+		wantStatus     int
+	}{
+		{"active accepted", "active", http.StatusOK},
+		{"inactive accepted", "inactive", http.StatusOK},
+		{"invalid value rejected", "enabled", http.StatusBadRequest},
+		{"garbage value rejected", "notvalid", http.StatusBadRequest},
+		{"empty string no-ops (no validation)", "", http.StatusOK},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler(t)
+			doCreateCluster(t, h, minimalClusterBody("sns-status-cluster"))
+
+			rec := doRequest(t, h, "UpdateCluster", map[string]any{
+				"ClusterName":    "sns-status-cluster",
+				"SnsTopicStatus": tt.snsTopicStatus,
+			})
+			assert.Equal(t, tt.wantStatus, rec.Code, "body: %s", rec.Body)
 		})
 	}
 }

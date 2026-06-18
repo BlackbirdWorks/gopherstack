@@ -1,6 +1,7 @@
 package sagemaker
 
 import (
+	"context"
 	"fmt"
 	"maps"
 )
@@ -35,13 +36,16 @@ func featureMetaKey(featureGroupName, featureName string) string {
 
 // PutRecord stores a feature record in a feature group.
 func (b *InMemoryBackend) PutRecord(
+	ctx context.Context,
 	featureGroupName string,
 	record map[string]string,
 ) error {
 	b.mu.Lock("PutRecord")
 	defer b.mu.Unlock()
 
-	fg, ok := b.featureGroups[featureGroupName]
+	region := getRegion(ctx, b.region)
+
+	fg, ok := b.featureGroupsStore(region)[featureGroupName]
 	if !ok {
 		return fmt.Errorf(
 			"%w: feature group %q not found",
@@ -64,20 +68,23 @@ func (b *InMemoryBackend) PutRecord(
 	cp := make(map[string]string, len(record))
 	maps.Copy(cp, record)
 
-	b.featureRecords[key] = &FeatureRecord{Record: cp}
+	b.featureRecordsStore(region)[key] = &FeatureRecord{Record: cp}
 
 	return nil
 }
 
 // GetRecord retrieves a feature record from a feature group.
 func (b *InMemoryBackend) GetRecord(
+	ctx context.Context,
 	featureGroupName, recordIDValue string,
 	featureNames []string,
 ) (*FeatureRecord, error) {
 	b.mu.RLock("GetRecord")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.featureGroups[featureGroupName]; !ok {
+	region := getRegion(ctx, b.region)
+
+	if _, ok := b.featureGroupsStore(region)[featureGroupName]; !ok {
 		return nil, fmt.Errorf(
 			"%w: feature group %q not found",
 			ErrFeatureGroupNotFound,
@@ -87,7 +94,7 @@ func (b *InMemoryBackend) GetRecord(
 
 	key := featureRecordKey(featureGroupName, recordIDValue)
 
-	rec, ok := b.featureRecords[key]
+	rec, ok := b.featureRecordsStore(region)[key]
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: record %q not found in feature group %q",
@@ -117,11 +124,13 @@ func (b *InMemoryBackend) GetRecord(
 }
 
 // DeleteRecord deletes a feature record from a feature group.
-func (b *InMemoryBackend) DeleteRecord(featureGroupName, recordIDValue string) error {
+func (b *InMemoryBackend) DeleteRecord(ctx context.Context, featureGroupName, recordIDValue string) error {
 	b.mu.Lock("DeleteRecord")
 	defer b.mu.Unlock()
 
-	if _, ok := b.featureGroups[featureGroupName]; !ok {
+	region := getRegion(ctx, b.region)
+
+	if _, ok := b.featureGroupsStore(region)[featureGroupName]; !ok {
 		return fmt.Errorf(
 			"%w: feature group %q not found",
 			ErrFeatureGroupNotFound,
@@ -130,7 +139,8 @@ func (b *InMemoryBackend) DeleteRecord(featureGroupName, recordIDValue string) e
 	}
 
 	key := featureRecordKey(featureGroupName, recordIDValue)
-	delete(b.featureRecords, key)
+	store := b.featureRecordsStore(region)
+	delete(store, key)
 
 	return nil
 }
@@ -146,6 +156,7 @@ type BatchGetRecordResult struct {
 
 // BatchGetRecord retrieves multiple feature records in a single call.
 func (b *InMemoryBackend) BatchGetRecord(
+	ctx context.Context,
 	identifiers []struct {
 		FeatureGroupName              string
 		RecordIdentifierValueAsString string
@@ -155,6 +166,8 @@ func (b *InMemoryBackend) BatchGetRecord(
 	b.mu.RLock("BatchGetRecord")
 	defer b.mu.RUnlock()
 
+	region := getRegion(ctx, b.region)
+
 	results := make([]BatchGetRecordResult, 0, len(identifiers))
 
 	for _, ident := range identifiers {
@@ -163,7 +176,7 @@ func (b *InMemoryBackend) BatchGetRecord(
 			RecordIdentifierValueAsString: ident.RecordIdentifierValueAsString,
 		}
 
-		fg, ok := b.featureGroups[ident.FeatureGroupName]
+		fg, ok := b.featureGroupsStore(region)[ident.FeatureGroupName]
 		if !ok {
 			result.ErrorCode = "ResourceNotFoundException"
 			result.ErrorMessage = "feature group " + ident.FeatureGroupName + " not found"
@@ -174,7 +187,7 @@ func (b *InMemoryBackend) BatchGetRecord(
 
 		key := featureRecordKey(fg.FeatureGroupName, ident.RecordIdentifierValueAsString)
 
-		rec, ok := b.featureRecords[key]
+		rec, ok := b.featureRecordsStore(region)[key]
 		if !ok {
 			result.ErrorCode = "ResourceNotFoundException"
 			result.ErrorMessage = "record " + ident.RecordIdentifierValueAsString + " not found"
@@ -206,12 +219,15 @@ func (b *InMemoryBackend) BatchGetRecord(
 
 // GetFeatureMetadata returns metadata for a feature in a feature group.
 func (b *InMemoryBackend) GetFeatureMetadata(
+	ctx context.Context,
 	featureGroupName, featureName string,
 ) (*FeatureMetadata, error) {
 	b.mu.RLock("GetFeatureMetadata")
 	defer b.mu.RUnlock()
 
-	fg, ok := b.featureGroups[featureGroupName]
+	region := getRegion(ctx, b.region)
+
+	fg, ok := b.featureGroupsStore(region)[featureGroupName]
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: feature group %q not found",
@@ -233,7 +249,7 @@ func (b *InMemoryBackend) GetFeatureMetadata(
 
 	key := featureMetaKey(featureGroupName, featureName)
 
-	meta, ok := b.featureMetadata[key]
+	meta, ok := b.featureMetadataStore(region)[key]
 	if !ok {
 		// Return default metadata if not explicitly set.
 		return &FeatureMetadata{
@@ -251,13 +267,16 @@ func (b *InMemoryBackend) GetFeatureMetadata(
 
 // UpdateFeatureMetadata updates metadata for a feature in a feature group.
 func (b *InMemoryBackend) UpdateFeatureMetadata(
+	ctx context.Context,
 	featureGroupName, featureName, description string,
 	parameters map[string]string,
 ) error {
 	b.mu.Lock("UpdateFeatureMetadata")
 	defer b.mu.Unlock()
 
-	if _, ok := b.featureGroups[featureGroupName]; !ok {
+	region := getRegion(ctx, b.region)
+
+	if _, ok := b.featureGroupsStore(region)[featureGroupName]; !ok {
 		return fmt.Errorf(
 			"%w: feature group %q not found",
 			ErrFeatureGroupNotFound,
@@ -267,7 +286,8 @@ func (b *InMemoryBackend) UpdateFeatureMetadata(
 
 	key := featureMetaKey(featureGroupName, featureName)
 
-	existing, ok := b.featureMetadata[key]
+	metaStore := b.featureMetadataStore(region)
+	existing, ok := metaStore[key]
 	if !ok {
 		existing = &FeatureMetadata{FeatureName: featureName}
 	}
@@ -283,7 +303,7 @@ func (b *InMemoryBackend) UpdateFeatureMetadata(
 		maps.Copy(existing.Parameters, parameters)
 	}
 
-	b.featureMetadata[key] = existing
+	metaStore[key] = existing
 
 	return nil
 }

@@ -17,7 +17,7 @@ import (
 func newTestHandler(t *testing.T) *memorydb.Handler {
 	t.Helper()
 
-	b := memorydb.NewInMemoryBackend()
+	b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
 	h := memorydb.NewHandler(b)
 	h.AccountID = testAccountID
 	h.DefaultRegion = testRegion

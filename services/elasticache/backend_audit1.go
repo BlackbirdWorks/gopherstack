@@ -1,6 +1,7 @@
 package elasticache
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -282,16 +283,22 @@ func majorVersion(v string) int {
 // ----------------------------------------
 
 // CreateReplicationGroupFull creates a replication group with the full set of options.
-func (b *InMemoryBackend) CreateReplicationGroupFull(opts ReplicationGroupCreateOpts) (*ReplicationGroup, error) {
+func (b *InMemoryBackend) CreateReplicationGroupFull(
+	ctx context.Context,
+	opts ReplicationGroupCreateOpts,
+) (*ReplicationGroup, error) {
 	b.mu.Lock("CreateReplicationGroupFull")
 	defer b.mu.Unlock()
 
-	if _, exists := b.replicationGroups[opts.ID]; exists {
+	region := getRegion(ctx, b.region)
+	rgStore := b.replicationGroupsStore(region)
+
+	if _, exists := rgStore[opts.ID]; exists {
 		return nil, ErrReplicationGroupAlreadyExists
 	}
 
 	if opts.ParameterGroupName != "" {
-		if _, ok := b.parameterGroups[opts.ParameterGroupName]; !ok {
+		if _, ok := b.parameterGroupsStore(region)[opts.ParameterGroupName]; !ok {
 			return nil, ErrParameterGroupNotFound
 		}
 	}
@@ -300,8 +307,8 @@ func (b *InMemoryBackend) CreateReplicationGroupFull(opts ReplicationGroupCreate
 		return nil, err
 	}
 
-	rg := b.buildReplicationGroupFromCreateOpts(opts)
-	b.replicationGroups[opts.ID] = rg
+	rg := b.buildReplicationGroupFromCreateOpts(region, opts)
+	rgStore[opts.ID] = rg
 	b.appendEventLocked(opts.ID, "replication-group", "replication group created")
 
 	cp := *rg
@@ -310,12 +317,15 @@ func (b *InMemoryBackend) CreateReplicationGroupFull(opts ReplicationGroupCreate
 }
 
 // buildReplicationGroupFromCreateOpts assembles the ReplicationGroup from opts.
-func (b *InMemoryBackend) buildReplicationGroupFromCreateOpts(opts ReplicationGroupCreateOpts) *ReplicationGroup {
+func (b *InMemoryBackend) buildReplicationGroupFromCreateOpts(
+	region string,
+	opts ReplicationGroupCreateOpts,
+) *ReplicationGroup {
 	rg := &ReplicationGroup{
 		ReplicationGroupID:         opts.ID,
 		Description:                opts.Description,
 		Status:                     statusAvailable,
-		ARN:                        b.replicationGroupARN(opts.ID),
+		ARN:                        b.replicationGroupARN(region, opts.ID),
 		Tags:                       tags.New("elasticache.rg." + opts.ID + ".tags"),
 		CreatedAt:                  time.Now(),
 		CacheParameterGroupName:    opts.ParameterGroupName,
@@ -391,19 +401,21 @@ func applyAuthToken(rg *ReplicationGroup, token string, enabled bool) {
 
 // ModifyReplicationGroupFull modifies a replication group with the full set of options.
 func (b *InMemoryBackend) ModifyReplicationGroupFull(
+	ctx context.Context,
 	id string,
 	opts ReplicationGroupModifyOpts,
 ) (*ReplicationGroup, error) {
 	b.mu.Lock("ModifyReplicationGroupFull")
 	defer b.mu.Unlock()
 
-	rg, exists := b.replicationGroups[id]
+	region := getRegion(ctx, b.region)
+	rg, exists := b.replicationGroupsStore(region)[id]
 	if !exists {
 		return nil, ErrReplicationGroupNotFound
 	}
 
 	if opts.ParameterGroupName != "" {
-		if _, ok := b.parameterGroups[opts.ParameterGroupName]; !ok {
+		if _, ok := b.parameterGroupsStore(region)[opts.ParameterGroupName]; !ok {
 			return nil, ErrParameterGroupNotFound
 		}
 	}
@@ -597,25 +609,27 @@ func applyPendingChanges(rg *ReplicationGroup, opts ReplicationGroupModifyOpts) 
 // ----------------------------------------
 
 // TriggerAutoSnapshot creates an automated snapshot for the given replication group.
-func (b *InMemoryBackend) TriggerAutoSnapshot(replicationGroupID string) (*CacheSnapshot, error) {
+func (b *InMemoryBackend) TriggerAutoSnapshot(ctx context.Context, replicationGroupID string) (*CacheSnapshot, error) {
 	b.mu.Lock("TriggerAutoSnapshot")
 	defer b.mu.Unlock()
 
-	rg, ok := b.replicationGroups[replicationGroupID]
+	region := getRegion(ctx, b.region)
+	rg, ok := b.replicationGroupsStore(region)[replicationGroupID]
 	if !ok {
 		return nil, ErrReplicationGroupNotFound
 	}
 
+	snapStore := b.snapshotsStore(region)
 	snapName := buildAutoSnapshotName(replicationGroupID)
-	if _, exists := b.snapshots[snapName]; exists {
+	if _, exists := snapStore[snapName]; exists {
 		return nil, ErrSnapshotAlreadyExists
 	}
 
-	snap := buildAutoSnapshot(b, snapName, rg)
-	b.snapshots[snapName] = snap
+	snap := buildAutoSnapshot(b, region, snapName, rg)
+	snapStore[snapName] = snap
 
 	b.appendEventLocked(replicationGroupID, "replication-group", "automated snapshot created: "+snapName)
-	pruneExpiredSnapshots(b, replicationGroupID, rg.SnapshotRetentionLimit)
+	pruneExpiredSnapshots(b, snapStore, replicationGroupID, rg.SnapshotRetentionLimit)
 
 	result := *snap
 
@@ -628,7 +642,7 @@ func buildAutoSnapshotName(replicationGroupID string) string {
 }
 
 // buildAutoSnapshot constructs the snapshot object.
-func buildAutoSnapshot(b *InMemoryBackend, snapName string, rg *ReplicationGroup) *CacheSnapshot {
+func buildAutoSnapshot(b *InMemoryBackend, region, snapName string, rg *ReplicationGroup) *CacheSnapshot {
 	ev := rg.EngineVersion
 	if ev == "" {
 		ev = defaultEngineVersion(engineRedis)
@@ -638,7 +652,7 @@ func buildAutoSnapshot(b *InMemoryBackend, snapName string, rg *ReplicationGroup
 		SnapshotName:       snapName,
 		ReplicationGroupID: rg.ReplicationGroupID,
 		Status:             statusAvailable,
-		ARN:                b.snapshotARN(snapName),
+		ARN:                b.snapshotARN(region, snapName),
 		SnapshotSource:     "automated",
 		Engine:             engineRedis,
 		EngineVersion:      ev,
@@ -661,13 +675,18 @@ func sortAutoSnapshots(snaps []CacheSnapshot) {
 }
 
 // pruneExpiredSnapshots removes automated snapshots beyond the retention limit (gap #14).
-func pruneExpiredSnapshots(b *InMemoryBackend, replicationGroupID string, retentionLimit int) {
+func pruneExpiredSnapshots(
+	_ *InMemoryBackend,
+	store map[string]*CacheSnapshot,
+	replicationGroupID string,
+	retentionLimit int,
+) {
 	if retentionLimit <= 0 {
 		return
 	}
 
 	var autoSnaps []CacheSnapshot
-	for _, s := range b.snapshots {
+	for _, s := range store {
 		if s.ReplicationGroupID == replicationGroupID && s.SnapshotSource == "automated" {
 			autoSnaps = append(autoSnaps, *s)
 		}
@@ -683,9 +702,9 @@ func pruneExpiredSnapshots(b *InMemoryBackend, replicationGroupID string, retent
 	excess := len(autoSnaps) - retentionLimit
 	for i := range excess {
 		snap := autoSnaps[i]
-		if s, ok := b.snapshots[snap.SnapshotName]; ok {
+		if s, ok := store[snap.SnapshotName]; ok {
 			s.Tags.Close()
-			delete(b.snapshots, snap.SnapshotName)
+			delete(store, snap.SnapshotName)
 		}
 	}
 }

@@ -1,6 +1,7 @@
 package route53resolver_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -18,11 +19,11 @@ import (
 func TestAudit_ResolverEndpoint_IPv6IPAddress(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // function field in anonymous struct causes false fieldalignment positive
-		name     string
+	tests := []struct {
 		body     map[string]any
-		wantCode int
 		checkFn  func(t *testing.T, ep map[string]any)
+		name     string
+		wantCode int
 	}{
 		{
 			name: "ipv4_address_stored",
@@ -86,11 +87,11 @@ func TestAudit_ResolverEndpoint_IPv6IPAddress(t *testing.T) {
 func TestAudit_ResolverEndpoint_Protocols(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // function field in anonymous struct causes false fieldalignment positive
-		name          string
+	tests := []struct {
 		body          map[string]any
-		wantCode      int
+		name          string
 		wantProtocols []any
+		wantCode      int
 	}{
 		{
 			name: "default_protocol_do53",
@@ -146,9 +147,9 @@ func TestAudit_ResolverEndpoint_Protocols(t *testing.T) {
 func TestAudit_ResolverEndpoint_OutpostFields(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // function field in anonymous struct causes false fieldalignment positive
-		name     string
+	tests := []struct {
 		body     map[string]any
+		name     string
 		wantCode int
 	}{
 		{
@@ -267,11 +268,11 @@ func TestAudit_ResolverEndpoint_TypeValidation(t *testing.T) {
 func TestAudit_UpdateResolverEndpoint_Extended(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // function field in anonymous struct causes false fieldalignment positive
-		name       string
+	tests := []struct {
 		updateBody map[string]any
-		wantCode   int
 		checkFn    func(t *testing.T, ep map[string]any)
+		name       string
+		wantCode   int
 	}{
 		{
 			name:       "update_name",
@@ -341,11 +342,11 @@ func TestAudit_UpdateResolverEndpoint_Extended(t *testing.T) {
 func TestAudit_AssociateResolverEndpointIpAddress_IPv6(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // function field in anonymous struct causes false fieldalignment positive
-		name     string
+	tests := []struct {
 		ipBody   map[string]any
-		wantCode int
 		checkFn  func(t *testing.T, ep map[string]any)
+		name     string
+		wantCode int
 	}{
 		{
 			name: "associate_ipv4",
@@ -425,9 +426,9 @@ func TestAudit_AssociateResolverEndpointIpAddress_IPv6(t *testing.T) {
 func TestAudit_ResolverRule_TargetIpWithIPv6AndProtocol(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // function field in anonymous struct causes false fieldalignment positive
-		name     string
+	tests := []struct {
 		targetIP map[string]any
+		name     string
 		wantCode int
 	}{
 		{
@@ -493,9 +494,9 @@ func TestAudit_ResolverRule_CreatorAndTimestamps(t *testing.T) {
 func TestAudit_ResolverRule_TypeEnforcement(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // function field in anonymous struct causes false fieldalignment positive
-		name     string
+	tests := []struct {
 		body     map[string]any
+		name     string
 		wantCode int
 	}{
 		{
@@ -682,12 +683,12 @@ func TestAudit_ResolverQueryLogConfig_DestinationArnValidation(t *testing.T) {
 func TestAudit_ResolverDnssecConfig_StatusValues(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // function field in anonymous struct causes false fieldalignment positive
+	tests := []struct {
 		name       string
 		action     string
 		validation string
-		wantCode   int
 		wantStatus string
+		wantCode   int
 	}{
 		{
 			name:       "get_default_disabled",
@@ -798,11 +799,11 @@ func TestAudit_FirewallDomainList_ManagedOwnerName(t *testing.T) {
 func TestAudit_FirewallRule_BlockOverrideFields(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // function field in anonymous struct causes false fieldalignment positive
-		name     string
+	tests := []struct {
 		body     func(groupID, dlID string) map[string]any
-		wantCode int
 		checkFn  func(t *testing.T, rule map[string]any)
+		name     string
+		wantCode int
 	}{
 		{
 			name: "block_nodata",
@@ -971,10 +972,10 @@ func TestAudit_UpdateFirewallRule_ExtendedFields(t *testing.T) {
 	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
 	ruleID := createResp["FirewallRule"].(map[string]any)["Id"].(string)
 
-	tests := []struct { //nolint:govet // function field in anonymous struct causes false fieldalignment positive
-		name    string
+	tests := []struct {
 		update  map[string]any
 		checkFn func(t *testing.T, rule map[string]any)
+		name    string
 	}{
 		{
 			name: "update_action_and_block_response",
@@ -1379,6 +1380,7 @@ func TestAudit_Backend_CreateEndpointTypeEnum(t *testing.T) {
 
 			b := route53resolver.NewInMemoryBackend("000000000000", "us-east-1")
 			_, err := b.CreateResolverEndpoint(
+				context.Background(),
 				"ep",
 				"INBOUND",
 				"vpc-1",
@@ -1442,6 +1444,7 @@ func TestAudit_Backend_RuleTypeEnforcement(t *testing.T) {
 
 			b := route53resolver.NewInMemoryBackend("000000000000", "us-east-1")
 			_, err := b.CreateResolverRule(
+				context.Background(),
 				"r1",
 				"example.com",
 				tt.ruleType,
@@ -1492,7 +1495,7 @@ func TestAudit_Backend_QueryLogDestinationValidation(t *testing.T) {
 			t.Parallel()
 
 			b := route53resolver.NewInMemoryBackend("000000000000", "us-east-1")
-			_, err := b.CreateResolverQueryLogConfig("qlc", "req-1", tt.destinationArn)
+			_, err := b.CreateResolverQueryLogConfig(context.Background(), "qlc", "req-1", tt.destinationArn)
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {
@@ -1508,7 +1511,7 @@ func TestAudit_Backend_DnssecDefaultDisabled(t *testing.T) {
 	t.Parallel()
 
 	b := route53resolver.NewInMemoryBackend("000000000000", "us-east-1")
-	cfg := b.GetResolverDnssecConfig("vpc-dnssec-new")
+	cfg := b.GetResolverDnssecConfig(context.Background(), "vpc-dnssec-new")
 
 	assert.Equal(t, "DISABLED", cfg.ValidationStatus)
 }
@@ -1534,7 +1537,7 @@ func TestAudit_Backend_DnssecTransitions(t *testing.T) {
 			t.Parallel()
 
 			b := route53resolver.NewInMemoryBackend("000000000000", "us-east-1")
-			cfg, err := b.UpdateResolverDnssecConfig("vpc-test", tt.validation)
+			cfg, err := b.UpdateResolverDnssecConfig(context.Background(), "vpc-test", tt.validation)
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {
@@ -1551,7 +1554,7 @@ func TestAudit_Backend_FirewallConfigNoArn(t *testing.T) {
 	t.Parallel()
 
 	b := route53resolver.NewInMemoryBackend("000000000000", "us-east-1")
-	cfg := b.GetFirewallConfig("vpc-fwc")
+	cfg := b.GetFirewallConfig(context.Background(), "vpc-fwc")
 
 	assert.NotEmpty(t, cfg.ID)
 	assert.NotEmpty(t, cfg.OwnerID)
@@ -1565,9 +1568,9 @@ func TestAudit_Backend_MutationProtectionDefault(t *testing.T) {
 	t.Parallel()
 
 	b := route53resolver.NewInMemoryBackend("000000000000", "us-east-1")
-	grp, _ := b.CreateFirewallRuleGroup("grp", "req-1")
+	grp, _ := b.CreateFirewallRuleGroup(context.Background(), "grp", "req-1")
 
-	assoc, err := b.AssociateFirewallRuleGroup(grp.ID, "vpc-test", "assoc", "req-2", "", 100)
+	assoc, err := b.AssociateFirewallRuleGroup(context.Background(), grp.ID, "vpc-test", "assoc", "req-2", "", 100)
 	require.NoError(t, err)
 	assert.Equal(t, "DISABLED", assoc.MutationProtection)
 }
@@ -1579,6 +1582,7 @@ func TestAudit_Backend_EndpointTimestampsRoundTrip(t *testing.T) {
 
 	b := route53resolver.NewInMemoryBackend("000000000000", "us-east-1")
 	ep, err := b.CreateResolverEndpoint(
+		context.Background(),
 		"ep-ts",
 		"INBOUND",
 		"vpc-1",
@@ -1598,7 +1602,7 @@ func TestAudit_Backend_EndpointTimestampsRoundTrip(t *testing.T) {
 	b2 := route53resolver.NewInMemoryBackend("000000000000", "us-east-1")
 	require.NoError(t, b2.Restore(snap))
 
-	ep2, err := b2.GetResolverEndpoint(ep.ID)
+	ep2, err := b2.GetResolverEndpoint(context.Background(), ep.ID)
 	require.NoError(t, err)
 	assert.Equal(t, ep.CreationTime, ep2.CreationTime)
 	assert.Equal(t, ep.ModificationTime, ep2.ModificationTime)
@@ -1611,10 +1615,10 @@ func TestAudit_Backend_FirewallRuleBlockOverrideRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	b := route53resolver.NewInMemoryBackend("000000000000", "us-east-1")
-	grp, _ := b.CreateFirewallRuleGroup("grp-bor", "req-bor")
-	dl, _ := b.CreateFirewallDomainList("dl-bor", "req-bor")
+	grp, _ := b.CreateFirewallRuleGroup(context.Background(), "grp-bor", "req-bor")
+	dl, _ := b.CreateFirewallDomainList(context.Background(), "dl-bor", "req-bor")
 
-	rule, err := b.CreateFirewallRule(route53resolver.CreateFirewallRuleParams{
+	rule, err := b.CreateFirewallRule(context.Background(), route53resolver.CreateFirewallRuleParams{
 		FirewallRuleGroupID:  grp.ID,
 		FirewallDomainListID: dl.ID,
 		Name:                 "rule-bor",
@@ -1631,7 +1635,7 @@ func TestAudit_Backend_FirewallRuleBlockOverrideRoundTrip(t *testing.T) {
 	b2 := route53resolver.NewInMemoryBackend("000000000000", "us-east-1")
 	require.NoError(t, b2.Restore(snap))
 
-	rules := b2.ListFirewallRules(grp.ID)
+	rules := b2.ListFirewallRules(context.Background(), grp.ID)
 	require.Len(t, rules, 1)
 	assert.Equal(t, rule.BlockOverrideDomain, rules[0].BlockOverrideDomain)
 	assert.Equal(t, rule.BlockOverrideDNSType, rules[0].BlockOverrideDNSType)

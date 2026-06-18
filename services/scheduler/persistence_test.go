@@ -1,6 +1,7 @@
 package scheduler_test
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -25,6 +26,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			name: "round_trip_preserves_state",
 			setup: func(b *scheduler.InMemoryBackend) string {
 				sched, err := b.CreateSchedule(
+					context.Background(),
 					"test-schedule",
 					"",
 					"rate(1 minute)",
@@ -46,7 +48,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *scheduler.InMemoryBackend, id string) {
 				t.Helper()
 
-				sched, err := b.GetSchedule(id, "")
+				sched, err := b.GetSchedule(context.Background(), id, "")
 				require.NoError(t, err)
 				assert.Equal(t, id, sched.Name)
 				assert.Equal(t, "rate(1 minute)", sched.ScheduleExpression)
@@ -56,6 +58,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			name: "restore_rebuilds_arn_index",
 			setup: func(b *scheduler.InMemoryBackend) string {
 				sched, err := b.CreateSchedule(
+					context.Background(),
 					"idx-schedule",
 					"",
 					"rate(5 minutes)",
@@ -78,10 +81,10 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 				t.Helper()
 
 				// TagResource uses the scheduleARNIndex; must succeed after restore.
-				err := b.TagResource(resourceARN, map[string]string{"env": "test"})
+				err := b.TagResource(context.Background(), resourceARN, map[string]string{"env": "test"})
 				require.NoError(t, err)
 
-				kv, err := b.ListTagsForResource(resourceARN)
+				kv, err := b.ListTagsForResource(context.Background(), resourceARN)
 				require.NoError(t, err)
 				assert.Equal(t, "test", kv["env"])
 			},
@@ -92,7 +95,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *scheduler.InMemoryBackend, _ string) {
 				t.Helper()
 
-				schedules, _ := b.ListSchedules("", "", "", "", 0)
+				schedules, _ := b.ListSchedules(context.Background(), "", "", "", "", 0)
 				assert.Empty(t, schedules)
 			},
 		},
@@ -131,6 +134,7 @@ func TestSchedulerHandler_Persistence(t *testing.T) {
 	h := scheduler.NewHandler(backend)
 
 	_, err := backend.CreateSchedule(
+		context.Background(),
 		"snap-schedule",
 		"",
 		"rate(5 minutes)",
@@ -152,7 +156,7 @@ func TestSchedulerHandler_Persistence(t *testing.T) {
 	freshH := scheduler.NewHandler(fresh)
 	require.NoError(t, freshH.Restore(snap))
 
-	schedules, _ := fresh.ListSchedules("", "", "", "", 0)
+	schedules, _ := fresh.ListSchedules(context.Background(), "", "", "", "", 0)
 	assert.Len(t, schedules, 1)
 }
 

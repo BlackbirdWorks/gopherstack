@@ -5,17 +5,20 @@ import (
 	"log/slog"
 )
 
+// backendSnapshot is the persisted form of the backend state. All resource maps
+// are nested by region (outer key = region) to mirror the in-memory layout and
+// keep same-named resources in different regions fully isolated across restarts.
 type backendSnapshot struct {
-	Clusters          map[string]*Cluster          `json:"clusters"`
-	Configurations    map[string]*Configuration    `json:"configurations"`
-	ScramSecrets      map[string][]string          `json:"scramSecrets"`
-	Replicators       map[string]*Replicator       `json:"replicators"`
-	Topics            map[string]*Topic            `json:"topics"`
-	VpcConnections    map[string]*VpcConnection    `json:"vpcConnections"`
-	ClusterPolicies   map[string]string            `json:"clusterPolicies"`
-	ClusterOperations map[string]*ClusterOperation `json:"clusterOperations"`
-	AccountID         string                       `json:"accountID"`
-	Region            string                       `json:"region"`
+	Clusters          map[string]map[string]*Cluster          `json:"clusters"`
+	Configurations    map[string]map[string]*Configuration    `json:"configurations"`
+	ScramSecrets      map[string]map[string][]string          `json:"scramSecrets"`
+	Replicators       map[string]map[string]*Replicator       `json:"replicators"`
+	Topics            map[string]map[string]*Topic            `json:"topics"`
+	VpcConnections    map[string]map[string]*VpcConnection    `json:"vpcConnections"`
+	ClusterPolicies   map[string]map[string]string            `json:"clusterPolicies"`
+	ClusterOperations map[string]map[string]*ClusterOperation `json:"clusterOperations"`
+	AccountID         string                                  `json:"accountID"`
+	Region            string                                  `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -74,64 +77,58 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	return nil
 }
 
-// ensureNonNilMaps initialises nil maps in the snapshot to empty maps.
+// ensureNonNilMaps initialises nil region maps in the snapshot to empty maps.
 func ensureNonNilMaps(snap *backendSnapshot) {
 	if snap.Clusters == nil {
-		snap.Clusters = make(map[string]*Cluster)
+		snap.Clusters = make(map[string]map[string]*Cluster)
 	}
 
 	if snap.Configurations == nil {
-		snap.Configurations = make(map[string]*Configuration)
+		snap.Configurations = make(map[string]map[string]*Configuration)
 	}
 
 	if snap.ScramSecrets == nil {
-		snap.ScramSecrets = make(map[string][]string)
+		snap.ScramSecrets = make(map[string]map[string][]string)
 	}
 
 	if snap.Replicators == nil {
-		snap.Replicators = make(map[string]*Replicator)
+		snap.Replicators = make(map[string]map[string]*Replicator)
 	}
 
 	if snap.Topics == nil {
-		snap.Topics = make(map[string]*Topic)
+		snap.Topics = make(map[string]map[string]*Topic)
 	}
 
 	if snap.VpcConnections == nil {
-		snap.VpcConnections = make(map[string]*VpcConnection)
+		snap.VpcConnections = make(map[string]map[string]*VpcConnection)
 	}
 
 	if snap.ClusterPolicies == nil {
-		snap.ClusterPolicies = make(map[string]string)
+		snap.ClusterPolicies = make(map[string]map[string]string)
 	}
 
 	if snap.ClusterOperations == nil {
-		snap.ClusterOperations = make(map[string]*ClusterOperation)
+		snap.ClusterOperations = make(map[string]map[string]*ClusterOperation)
 	}
 }
 
-// fixNilTags ensures restored resources have non-nil tag maps.
+// fixNilTags ensures restored resources have non-nil tag maps, across every region.
 func fixNilTags(snap *backendSnapshot) {
-	for _, c := range snap.Clusters {
-		if c.Tags == nil {
-			c.Tags = make(map[string]string)
-		}
-	}
+	fixRegionTags(snap.Clusters, func(c *Cluster) *map[string]string { return &c.Tags })
+	fixRegionTags(snap.Configurations, func(c *Configuration) *map[string]string { return &c.Tags })
+	fixRegionTags(snap.Replicators, func(r *Replicator) *map[string]string { return &r.Tags })
+	fixRegionTags(snap.VpcConnections, func(v *VpcConnection) *map[string]string { return &v.Tags })
+}
 
-	for _, c := range snap.Configurations {
-		if c.Tags == nil {
-			c.Tags = make(map[string]string)
-		}
-	}
-
-	for _, r := range snap.Replicators {
-		if r.Tags == nil {
-			r.Tags = make(map[string]string)
-		}
-	}
-
-	for _, v := range snap.VpcConnections {
-		if v.Tags == nil {
-			v.Tags = make(map[string]string)
+// fixRegionTags walks a region-nested resource map and replaces any nil tag map
+// (located via tagsOf) with an empty map so restored resources are tag-safe.
+func fixRegionTags[T any](byRegion map[string]map[string]*T, tagsOf func(*T) *map[string]string) {
+	for _, byKey := range byRegion {
+		for _, item := range byKey {
+			tags := tagsOf(item)
+			if *tags == nil {
+				*tags = make(map[string]string)
+			}
 		}
 	}
 }

@@ -2,6 +2,7 @@ package ec2
 
 import (
 	"encoding/xml"
+	"fmt"
 	"net/url"
 	"strconv"
 )
@@ -73,6 +74,30 @@ func (h *Handler) handleDescribeSnapshots(vals url.Values, reqID string) (any, e
 	ids := parseMemberList(vals, "SnapshotId")
 	snaps := h.Backend.DescribeSnapshots(ids)
 
+	maxResults := 0
+	if v := vals.Get("MaxResults"); v != "" {
+		if _, scanErr := fmt.Sscan(v, &maxResults); scanErr != nil || maxResults < 5 || maxResults > 1000 {
+			return nil, fmt.Errorf("%w: MaxResults must be between 5 and 1000", ErrInvalidParameter)
+		}
+	}
+
+	offset := 0
+	if tok := vals.Get("NextToken"); tok != "" {
+		_, _ = fmt.Sscan(tok, &offset)
+	}
+
+	var nextToken string
+	if maxResults > 0 {
+		if offset > len(snaps) {
+			offset = len(snaps)
+		}
+		snaps = snaps[offset:]
+		if len(snaps) > maxResults {
+			nextToken = strconv.Itoa(offset + maxResults)
+			snaps = snaps[:maxResults]
+		}
+	}
+
 	items := make([]snapshotItem, 0, len(snaps))
 	for _, s := range snaps {
 		items = append(items, snapshotItem{
@@ -90,6 +115,7 @@ func (h *Handler) handleDescribeSnapshots(vals url.Values, reqID string) (any, e
 		Xmlns:       ec2XMLNS,
 		RequestID:   reqID,
 		SnapshotSet: snapshotSet{Items: items},
+		NextToken:   nextToken,
 	}, nil
 }
 
@@ -365,6 +391,7 @@ type describeSnapshotsResponse struct {
 	XMLName     xml.Name    `xml:"DescribeSnapshotsResponse"`
 	Xmlns       string      `xml:"xmlns,attr"`
 	RequestID   string      `xml:"requestId"`
+	NextToken   string      `xml:"nextToken,omitempty"`
 	SnapshotSet snapshotSet `xml:"snapshotSet"`
 }
 

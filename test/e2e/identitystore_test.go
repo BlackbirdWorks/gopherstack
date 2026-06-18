@@ -21,7 +21,7 @@ func TestIdentityStoreDashboard(t *testing.T) {
 	stack := newStack(t)
 
 	// Seed a user.
-	user, err := stack.IdentityStoreHandler.Backend.CreateUser(testE2EStoreID, &identitystorebackend.CreateUserRequest{
+	user, err := stack.IdentityStoreHandler.Backend.CreateUser(t.Context(), testE2EStoreID, &identitystorebackend.CreateUserRequest{
 		UserName:    "alice.smith",
 		DisplayName: "Alice Smith",
 		Name:        &identitystorebackend.Name{GivenName: "Alice", FamilyName: "Smith"},
@@ -30,6 +30,7 @@ func TestIdentityStoreDashboard(t *testing.T) {
 
 	// Seed a group.
 	group, err := stack.IdentityStoreHandler.Backend.CreateGroup(
+		t.Context(),
 		testE2EStoreID,
 		&identitystorebackend.CreateGroupRequest{
 			DisplayName: "Engineering",
@@ -40,6 +41,7 @@ func TestIdentityStoreDashboard(t *testing.T) {
 
 	// Add user to group.
 	_, err = stack.IdentityStoreHandler.Backend.CreateGroupMembership(
+		t.Context(),
 		testE2EStoreID,
 		group.GroupID,
 		identitystorebackend.MemberID{UserID: user.UserID},

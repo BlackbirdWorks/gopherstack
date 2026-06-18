@@ -275,7 +275,7 @@ func TestPipesRunner_FilterCriteria(t *testing.T) {
 	sqsARN := "arn:aws:sqs:us-east-1:000000000000:filter-queue"
 	lambdaARN := "arn:aws:lambda:us-east-1:000000000000:function:my-fn"
 
-	_, err := backend.CreatePipe(pipes.CreatePipeInput{
+	_, err := backend.CreatePipe(context.Background(), pipes.CreatePipeInput{
 		Name:         "filter-pipe",
 		RoleARN:      "arn:aws:iam::000000000000:role/r",
 		Source:       sqsARN,
@@ -325,7 +325,7 @@ func TestPipesRunner_ConfigurableBatchSize(t *testing.T) {
 	t.Parallel()
 
 	backend := newTestPipeBackend(t)
-	_, err := backend.CreatePipe(pipes.CreatePipeInput{
+	_, err := backend.CreatePipe(context.Background(), pipes.CreatePipeInput{
 		Name:         "batch-pipe",
 		RoleARN:      "arn:aws:iam::000000000000:role/r",
 		Source:       "arn:aws:sqs:us-east-1:000000000000:batch-queue",
@@ -352,7 +352,7 @@ func TestPipesRunner_InputTemplate(t *testing.T) {
 	t.Parallel()
 
 	backend := newTestPipeBackend(t)
-	_, err := backend.CreatePipe(pipes.CreatePipeInput{
+	_, err := backend.CreatePipe(context.Background(), pipes.CreatePipeInput{
 		Name:         "template-pipe",
 		RoleARN:      "arn:aws:iam::000000000000:role/r",
 		Source:       "arn:aws:sqs:us-east-1:000000000000:tmpl-queue",

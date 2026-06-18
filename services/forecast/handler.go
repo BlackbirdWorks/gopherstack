@@ -10,7 +10,9 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -24,6 +26,8 @@ const (
 	modeList     operationMode = "list"
 	modeDelete   operationMode = "delete"
 	modeUpdate   operationMode = "update"
+
+	defaultListPageSize = 100
 )
 
 type operationSpec struct {
@@ -47,6 +51,9 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 
 // Name returns service registry name.
 func (h *Handler) Name() string { return "Forecast" }
+
+// Reset clears all backend state for the /_gopherstack/reset test hook.
+func (h *Handler) Reset() { h.Backend.Reset() }
 
 // ChaosServiceName returns fault injection service identifier.
 func (h *Handler) ChaosServiceName() string { return "forecast" }
@@ -188,7 +195,7 @@ func (h *Handler) execute(spec operationSpec, input map[string]any) (map[string]
 		return map[string]any{}, nil
 	case modeList:
 
-		return listOutput(spec, h.Backend.list(spec.kind)), nil
+		return listOutput(spec, h.Backend.list(spec.kind), input), nil
 	default:
 
 		return nil, fmt.Errorf("%w: unsupported operation mode", ErrValidation)
@@ -298,19 +305,31 @@ func resourceOutput(spec operationSpec, resource *Resource) map[string]any {
 	output[spec.nameField] = resource.Name
 	output[spec.arnField] = resource.ARN
 	output["Status"] = resource.Status
-	output["CreationTime"] = float64(resource.CreatedAt.Unix())
-	output["LastModificationTime"] = float64(resource.UpdatedAt.Unix())
+	output["CreationTime"] = awstime.Epoch(resource.CreatedAt)
+	output["LastModificationTime"] = awstime.Epoch(resource.UpdatedAt)
 
 	return output
 }
 
-func listOutput(spec operationSpec, resources []*Resource) map[string]any {
+func listOutput(spec operationSpec, resources []*Resource, input map[string]any) map[string]any {
+	maxResults := 0
+	if mr, ok := input["MaxResults"].(float64); ok {
+		maxResults = int(mr)
+	}
+	nextToken, _ := input["NextToken"].(string)
+
 	summaries := make([]map[string]any, 0, len(resources))
-	for _, resource := range resources {
-		summaries = append(summaries, resourceOutput(spec, resource))
+	for _, r := range resources {
+		summaries = append(summaries, resourceOutput(spec, r))
 	}
 
-	return map[string]any{spec.listField: summaries}
+	pg := page.New(summaries, nextToken, maxResults, defaultListPageSize)
+	out := map[string]any{spec.listField: pg.Data}
+	if pg.Next != "" {
+		out["NextToken"] = pg.Next
+	}
+
+	return out
 }
 
 func createFails(kind resourceKind, input map[string]any) bool {

@@ -22,6 +22,8 @@
 		CreateStackSetCommand,
 		DeleteStackSetCommand,
 		ListStackSetsCommand,
+		GetStackPolicyCommand,
+		SetStackPolicyCommand,
 		type Stack,
 		type StackResourceSummary,
 		type StackEvent,
@@ -54,10 +56,15 @@
 	let loading = $state(false);
 	let stacks = $state<Stack[]>([]);
 	let selectedStack = $state<Stack | null>(null);
-	let activeTab = $state<'overview' | 'resources' | 'events' | 'template' | 'changesets' | 'drift'>(
+	let activeTab = $state<'overview' | 'resources' | 'events' | 'template' | 'changesets' | 'drift' | 'policy'>(
 		'overview'
 	);
 	let searchQuery = $state('');
+
+	// Stack policy editor
+	let stackPolicy = $state('');
+	let loadingPolicy = $state(false);
+	let savingPolicy = $state(false);
 
 	// Resources & Events
 	let resources = $state<StackResourceSummary[]>([]);
@@ -356,7 +363,7 @@
 	}
 
 	async function handleTabChange(
-		tab: 'overview' | 'resources' | 'events' | 'template' | 'changesets' | 'drift'
+		tab: 'overview' | 'resources' | 'events' | 'template' | 'changesets' | 'drift' | 'policy'
 	) {
 		activeTab = tab;
 		if (!selectedStack) return;
@@ -365,6 +372,46 @@
 		if (tab === 'template' && !template) await loadTemplate(name);
 		if (tab === 'changesets') await loadChangeSets(name);
 		if (tab === 'drift') await loadDriftResults();
+		if (tab === 'policy') await loadStackPolicy(name);
+	}
+
+	async function loadStackPolicy(stackName: string) {
+		loadingPolicy = true;
+		stackPolicy = '';
+		try {
+			const resp = await cfn.send(new GetStackPolicyCommand({ StackName: stackName }));
+			if (resp.StackPolicyBody) {
+				try {
+					stackPolicy = JSON.stringify(JSON.parse(resp.StackPolicyBody), null, 2);
+				} catch {
+					stackPolicy = resp.StackPolicyBody;
+				}
+			}
+		} catch (e) {
+			toast.error('Failed to load stack policy: ' + String(e));
+		} finally {
+			loadingPolicy = false;
+		}
+	}
+
+	async function saveStackPolicy() {
+		if (!selectedStack) return;
+		let body = stackPolicy;
+		try {
+			body = JSON.stringify(JSON.parse(stackPolicy));
+		} catch {
+			toast.error('Stack policy is not valid JSON');
+			return;
+		}
+		savingPolicy = true;
+		try {
+			await cfn.send(new SetStackPolicyCommand({ StackName: selectedStack.StackName ?? '', StackPolicyBody: body }));
+			toast.success('Stack policy saved');
+		} catch (e) {
+			toast.error('Failed to save stack policy: ' + String(e));
+		} finally {
+			savingPolicy = false;
+		}
 	}
 
 	async function createStack() {
@@ -602,14 +649,14 @@
 
 		<!-- Tabs -->
 		<div class="flex gap-1 border-b border-gray-200 dark:border-gray-700">
-			{#each ['overview', 'resources', 'events', 'template', 'changesets', 'drift'] as tab}
+			{#each ['overview', 'resources', 'events', 'template', 'changesets', 'drift', 'policy'] as tab}
 				<button
-					onclick={() => handleTabChange(tab as 'overview' | 'resources' | 'events' | 'template' | 'changesets' | 'drift')}
+					onclick={() => handleTabChange(tab as 'overview' | 'resources' | 'events' | 'template' | 'changesets' | 'drift' | 'policy')}
 					class={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-1 ${activeTab === tab ? 'border-orange-500 text-orange-600 dark:text-orange-400' : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'}`}
 				>
 					{#if tab === 'changesets'}<GitCompare class="w-3.5 h-3.5" />{/if}
 					{#if tab === 'drift'}<ScanSearch class="w-3.5 h-3.5" />{/if}
-					{tab === 'changesets' ? 'Change Sets' : tab === 'drift' ? 'Drift' : tab.charAt(0).toUpperCase() + tab.slice(1)}
+					{tab === 'changesets' ? 'Change Sets' : tab === 'drift' ? 'Drift' : tab === 'policy' ? 'Stack Policy' : tab.charAt(0).toUpperCase() + tab.slice(1)}
 				</button>
 			{/each}
 			<button onclick={() => { showUpdateStack = true; updateTemplateBody = template; }} class="ml-auto px-4 py-2 text-sm text-orange-600 hover:underline">Update Stack</button>
@@ -874,6 +921,21 @@
 						<ScanSearch class="w-10 h-10 mx-auto mb-3 opacity-40" />
 						<p class="text-sm">Run drift detection to compare stack resources against their expected configuration</p>
 					</div>
+				{/if}
+			</div>
+		{/if}
+
+		{#if activeTab === 'policy'}
+			<div class="space-y-3">
+				<div class="flex items-center justify-between">
+					<h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300">Stack Policy (JSON)</h3>
+					<button onclick={saveStackPolicy} disabled={savingPolicy || loadingPolicy} class="px-3 py-1.5 rounded-lg bg-orange-600 text-white text-xs font-medium hover:bg-orange-700 disabled:opacity-50">{savingPolicy ? 'Saving...' : 'Save Policy'}</button>
+				</div>
+				{#if loadingPolicy}
+					<div class="flex justify-center py-8"><div class="animate-spin w-6 h-6 border-4 border-orange-600 border-t-transparent rounded-full"></div></div>
+				{:else}
+					<p class="text-xs text-gray-500 dark:text-gray-400">A stack policy protects resources from unintended updates. Define Allow/Deny statements for Update:* actions.</p>
+					<textarea bind:value={stackPolicy} rows="16" placeholder={'{\n  "Statement": [\n    {\n      "Effect": "Allow",\n      "Action": "Update:*",\n      "Principal": "*",\n      "Resource": "*"\n    }\n  ]\n}'} class="w-full px-3 py-2 font-mono text-xs rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"></textarea>
 				{/if}
 			</div>
 		{/if}

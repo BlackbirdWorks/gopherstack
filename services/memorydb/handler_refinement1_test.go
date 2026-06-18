@@ -29,9 +29,9 @@ func TestRefinement1_ErrNilAppContext(t *testing.T) {
 func TestRefinement1_ErrValidationSentinel(t *testing.T) {
 	t.Parallel()
 
-	b := memorydb.NewInMemoryBackend()
+	b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
 
-	_, err := b.CreateParameterGroup("us-east-1", "000000000000", &memorydb.ExportedCreateParameterGroupRequest{
+	_, err := b.CreateParameterGroup(context.Background(), &memorydb.ExportedCreateParameterGroupRequest{
 		ParameterGroupName: "no-family",
 		// Family intentionally omitted
 	})
@@ -43,7 +43,7 @@ func TestRefinement1_ErrValidationSentinel(t *testing.T) {
 func TestRefinement1_Reset(t *testing.T) {
 	t.Parallel()
 
-	b := memorydb.NewInMemoryBackend()
+	b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
 	b.AddClusterInternal("my-cluster", "db.r6g.large")
 	b.AddACLInternal("my-acl")
 	b.AddSnapshotInternal("my-snap", "my-cluster")
@@ -68,7 +68,7 @@ func TestRefinement1_Reset(t *testing.T) {
 func TestRefinement1_HandlerReset(t *testing.T) {
 	t.Parallel()
 
-	b := memorydb.NewInMemoryBackend()
+	b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
 	h := memorydb.NewHandler(b)
 	b.AddClusterInternal("cluster-x", "db.r6g.large")
 
@@ -81,7 +81,7 @@ func TestRefinement1_HandlerReset(t *testing.T) {
 func TestRefinement1_SeedHelpers(t *testing.T) {
 	t.Parallel()
 
-	b := memorydb.NewInMemoryBackend()
+	b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
 
 	tests := []struct {
 		seed    func()
@@ -141,7 +141,7 @@ func TestRefinement1_SeedHelpers(t *testing.T) {
 func TestRefinement1_ExportHelpers(t *testing.T) {
 	t.Parallel()
 
-	b := memorydb.NewInMemoryBackend()
+	b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
 	h := memorydb.NewHandler(b)
 
 	b.AddClusterInternal("cl1", "db.r6g.large")
@@ -181,7 +181,7 @@ func TestRefinement1_ExportHelpers(t *testing.T) {
 func TestRefinement1_ARNIndexSize(t *testing.T) {
 	t.Parallel()
 
-	b := memorydb.NewInMemoryBackend()
+	b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
 	initialSize := memorydb.ARNIndexSize(b) // open-access
 
 	b.AddClusterInternal("c1", "db.r6g.large")
@@ -223,7 +223,7 @@ func TestRefinement1_DescribeSnapshots(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := memorydb.NewInMemoryBackend()
+			b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
 			b.AddClusterInternal("my-cluster", "db.r6g.large")
 			b.AddSnapshotInternal("snap-a", "my-cluster")
 			b.AddSnapshotInternal("snap-b", "my-cluster")
@@ -303,7 +303,7 @@ func TestRefinement1_DeleteClusterWithFinalSnapshot(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := memorydb.NewInMemoryBackend()
+			b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
 			b.AddClusterInternal("snap-cluster", "db.r6g.large")
 			h := memorydb.NewHandler(b)
 
@@ -323,7 +323,7 @@ func TestRefinement1_DeleteClusterWithFinalSnapshot(t *testing.T) {
 func TestRefinement1_TagResourceReturnsTagList(t *testing.T) {
 	t.Parallel()
 
-	b := memorydb.NewInMemoryBackend()
+	b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
 	cluster := b.AddClusterInternal("tagtest", "db.r6g.large")
 	h := memorydb.NewHandler(b)
 
@@ -346,7 +346,7 @@ func TestRefinement1_TagResourceReturnsTagList(t *testing.T) {
 func TestRefinement1_UntagResourceReturnsTagList(t *testing.T) {
 	t.Parallel()
 
-	b := memorydb.NewInMemoryBackend()
+	b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
 	cluster := b.AddClusterInternal("untagtest", "db.r6g.large")
 	h := memorydb.NewHandler(b)
 
@@ -375,7 +375,7 @@ func TestRefinement1_UntagResourceReturnsTagList(t *testing.T) {
 func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	t.Parallel()
 
-	b1 := memorydb.NewInMemoryBackend()
+	b1 := memorydb.NewInMemoryBackend(testAccountID, testRegion)
 	b1.AddClusterInternal("cluster-a", "db.r6g.large")
 	b1.AddSnapshotInternal("snap-a", "cluster-a")
 	b1.AddUserInternal("user-a", "on ~*")
@@ -385,7 +385,7 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	data := b1.Snapshot()
 	require.NotNil(t, data)
 
-	b2 := memorydb.NewInMemoryBackend()
+	b2 := memorydb.NewInMemoryBackend(testAccountID, testRegion)
 	require.NoError(t, b2.Restore(data))
 
 	assert.Equal(t, 1, memorydb.ClusterCount(b2))
@@ -399,14 +399,14 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 func TestRefinement1_HandlerPersistence(t *testing.T) {
 	t.Parallel()
 
-	b := memorydb.NewInMemoryBackend()
+	b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
 	b.AddClusterInternal("h-cluster", "db.r6g.large")
 	h := memorydb.NewHandler(b)
 
 	data := h.Snapshot()
 	require.NotNil(t, data)
 
-	b2 := memorydb.NewInMemoryBackend()
+	b2 := memorydb.NewInMemoryBackend(testAccountID, testRegion)
 	h2 := memorydb.NewHandler(b2)
 	require.NoError(t, h2.Restore(data))
 
@@ -417,7 +417,7 @@ func TestRefinement1_HandlerPersistence(t *testing.T) {
 func TestRefinement1_MaxEventsCap(t *testing.T) {
 	t.Parallel()
 
-	b := memorydb.NewInMemoryBackend()
+	b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
 
 	for i := range 1200 {
 		b.AddEvent(&memorydb.ExportedEvent{
@@ -436,7 +436,7 @@ func TestRefinement1_MaxEventsCap(t *testing.T) {
 func TestRefinement1_GetSupportedOperations(t *testing.T) {
 	t.Parallel()
 
-	b := memorydb.NewInMemoryBackend()
+	b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
 	h := memorydb.NewHandler(b)
 
 	ops := h.GetSupportedOperations()
@@ -499,7 +499,7 @@ func TestRefinement1_UpdateACLSliceNoAlias(t *testing.T) {
 func TestRefinement1_PurgeIncludesSnapshots(t *testing.T) {
 	t.Parallel()
 
-	b := memorydb.NewInMemoryBackend()
+	b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
 	b.AddClusterInternal("purge-cluster", "db.r6g.large")
 	b.AddSnapshotInternal("old-snap", "purge-cluster")
 
@@ -528,7 +528,7 @@ func TestRefinement1_WriteBackendErrorValidation(t *testing.T) {
 func TestRefinement1_DescribeSnapshotCreatedAtField(t *testing.T) {
 	t.Parallel()
 
-	b := memorydb.NewInMemoryBackend()
+	b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
 	b.AddClusterInternal("cl", "db.r6g.large")
 	b.AddSnapshotInternal("ts-snap", "cl")
 	h := memorydb.NewHandler(b)
@@ -550,7 +550,7 @@ func TestRefinement1_DescribeSnapshotCreatedAtField(t *testing.T) {
 func TestRefinement1_ExtractResourceSnapshotName(t *testing.T) {
 	t.Parallel()
 
-	b := memorydb.NewInMemoryBackend()
+	b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
 	h := memorydb.NewHandler(b)
 
 	// The handler must parse SnapshotName when ExtractResource is called.
@@ -566,7 +566,7 @@ func TestRefinement1_ExtractResourceSnapshotName(t *testing.T) {
 func TestRefinement1_CloneClusterDeepCopy(t *testing.T) {
 	t.Parallel()
 
-	b := memorydb.NewInMemoryBackend()
+	b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
 	b.AddClusterInternal("copy-test", "db.r6g.large")
 	h := memorydb.NewHandler(b)
 
@@ -601,9 +601,9 @@ func TestRefinement1_SecurityGroupIDsStoredAndReturned(t *testing.T) {
 func TestRefinement1_MultiRegionParameterGroupNotFound(t *testing.T) {
 	t.Parallel()
 
-	b := memorydb.NewInMemoryBackend()
+	b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
 
-	_, err := b.DescribeMultiRegionParameterGroups("no-such")
+	_, err := b.DescribeMultiRegionParameterGroups(context.Background(), "no-such")
 
 	require.Error(t, err)
 	require.ErrorIs(t, err, memorydb.ErrMultiRegionParameterGroupNotFound)
@@ -622,7 +622,7 @@ func TestRefinement1_ErrValidationIs(t *testing.T) {
 func TestRefinement1_AddEventCapEnforced(t *testing.T) {
 	t.Parallel()
 
-	b := memorydb.NewInMemoryBackend()
+	b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
 
 	for range 100 {
 		b.AddEvent(&memorydb.ExportedEvent{
@@ -647,7 +647,7 @@ func TestRefinement1_AddEventCapEnforced(t *testing.T) {
 func TestRefinement1_CopySnapshotInheritsTags(t *testing.T) {
 	t.Parallel()
 
-	b := memorydb.NewInMemoryBackend()
+	b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
 	b.AddClusterInternal("inherit-cluster", "db.r6g.large")
 	b.AddSnapshotInternal("src-snap", "inherit-cluster")
 	h := memorydb.NewHandler(b)
@@ -667,7 +667,7 @@ func TestRefinement1_CopySnapshotInheritsTags(t *testing.T) {
 func TestRefinement1_PurgeWithCancelledContext(t *testing.T) {
 	t.Parallel()
 
-	b := memorydb.NewInMemoryBackend()
+	b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
 	b.AddClusterInternal("cancel-cluster", "db.r6g.large")
 
 	ctx, cancel := context.WithCancel(t.Context())

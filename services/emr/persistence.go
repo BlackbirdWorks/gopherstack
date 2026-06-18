@@ -14,52 +14,61 @@ type clusterExtra struct {
 	Steps                 []Step                 `json:"steps,omitempty"`
 }
 
+// backendSnapshot mirrors the region-nested backend maps (outer key = region).
 type backendSnapshot struct {
-	Clusters              map[string]*Cluster               `json:"clusters"`
-	ClusterExtras         map[string]*clusterExtra          `json:"clusterExtras,omitempty"`
-	ArnIndex              map[string]string                 `json:"arnIndex"`
-	SecurityConfigs       map[string]*SecurityConfiguration `json:"securityConfigs"`
-	Studios               map[string]*Studio                `json:"studios"`
-	StudioSessionMappings map[string]*StudioSessionMapping  `json:"studioSessionMappings"`
-	PersistentAppUIs      map[string]*PersistentAppUI       `json:"persistentAppUIs"`
-	NotebookExecutions    map[string]*NotebookExecution     `json:"notebookExecutions,omitempty"`
-	BlockPublicAccess     *BlockPublicAccessConfiguration   `json:"blockPublicAccess,omitempty"`
-	BlockPublicAccessMeta *blockPublicAccessMeta            `json:"blockPublicAccessMeta,omitempty"`
-	AccountID             string                            `json:"accountID"`
-	Region                string                            `json:"region"`
+	Clusters              map[string]map[string]*Cluster               `json:"clusters"`
+	ClusterExtras         map[string]map[string]*clusterExtra          `json:"clusterExtras,omitempty"`
+	ArnIndex              map[string]map[string]string                 `json:"arnIndex"`
+	SecurityConfigs       map[string]map[string]*SecurityConfiguration `json:"securityConfigs"`
+	Studios               map[string]map[string]*Studio                `json:"studios"`
+	StudioSessionMappings map[string]map[string]*StudioSessionMapping  `json:"studioSessionMappings"`
+	PersistentAppUIs      map[string]map[string]*PersistentAppUI       `json:"persistentAppUIs"`
+	NotebookExecutions    map[string]map[string]*NotebookExecution     `json:"notebookExecutions,omitempty"`
+	BlockPublicAccess     map[string]*BlockPublicAccessConfiguration   `json:"blockPublicAccess,omitempty"`
+	BlockPublicAccessMeta map[string]*blockPublicAccessMeta            `json:"blockPublicAccessMeta,omitempty"`
+	AccountID             string                                       `json:"accountID"`
+	Region                string                                       `json:"region"`
 }
 
 func (s *backendSnapshot) ensureNonNil() {
 	if s.Clusters == nil {
-		s.Clusters = make(map[string]*Cluster)
+		s.Clusters = make(map[string]map[string]*Cluster)
 	}
 
 	if s.ClusterExtras == nil {
-		s.ClusterExtras = make(map[string]*clusterExtra)
+		s.ClusterExtras = make(map[string]map[string]*clusterExtra)
 	}
 
 	if s.ArnIndex == nil {
-		s.ArnIndex = make(map[string]string)
+		s.ArnIndex = make(map[string]map[string]string)
 	}
 
 	if s.SecurityConfigs == nil {
-		s.SecurityConfigs = make(map[string]*SecurityConfiguration)
+		s.SecurityConfigs = make(map[string]map[string]*SecurityConfiguration)
 	}
 
 	if s.Studios == nil {
-		s.Studios = make(map[string]*Studio)
+		s.Studios = make(map[string]map[string]*Studio)
 	}
 
 	if s.StudioSessionMappings == nil {
-		s.StudioSessionMappings = make(map[string]*StudioSessionMapping)
+		s.StudioSessionMappings = make(map[string]map[string]*StudioSessionMapping)
 	}
 
 	if s.PersistentAppUIs == nil {
-		s.PersistentAppUIs = make(map[string]*PersistentAppUI)
+		s.PersistentAppUIs = make(map[string]map[string]*PersistentAppUI)
 	}
 
 	if s.NotebookExecutions == nil {
-		s.NotebookExecutions = make(map[string]*NotebookExecution)
+		s.NotebookExecutions = make(map[string]map[string]*NotebookExecution)
+	}
+
+	if s.BlockPublicAccess == nil {
+		s.BlockPublicAccess = make(map[string]*BlockPublicAccessConfiguration)
+	}
+
+	if s.BlockPublicAccessMeta == nil {
+		s.BlockPublicAccessMeta = make(map[string]*blockPublicAccessMeta)
 	}
 }
 
@@ -68,22 +77,15 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	extras := make(map[string]*clusterExtra, len(b.clusters))
+	extras := make(map[string]map[string]*clusterExtra, len(b.clusters))
 
-	for id, c := range b.clusters {
-		extras[id] = extractClusterExtra(c)
-	}
+	for region, clusters := range b.clusters {
+		regionExtras := make(map[string]*clusterExtra, len(clusters))
+		for id, c := range clusters {
+			regionExtras[id] = extractClusterExtra(c)
+		}
 
-	var bpa *BlockPublicAccessConfiguration
-	if b.blockPublicAccess != nil {
-		cp := *b.blockPublicAccess
-		bpa = &cp
-	}
-
-	var bpam *blockPublicAccessMeta
-	if b.blockPublicAccessMeta != nil {
-		cp := *b.blockPublicAccessMeta
-		bpam = &cp
+		extras[region] = regionExtras
 	}
 
 	snap := backendSnapshot{
@@ -95,8 +97,8 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		StudioSessionMappings: b.studioSessionMappings,
 		PersistentAppUIs:      b.persistentAppUIs,
 		NotebookExecutions:    b.notebookExecutions,
-		BlockPublicAccess:     bpa,
-		BlockPublicAccessMeta: bpam,
+		BlockPublicAccess:     cloneBlockPublicAccess(b.blockPublicAccess),
+		BlockPublicAccessMeta: cloneBlockPublicAccessMeta(b.blockPublicAccessMeta),
 		AccountID:             b.accountID,
 		Region:                b.region,
 	}
@@ -109,6 +111,40 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	}
 
 	return data
+}
+
+// cloneBlockPublicAccess deep-copies the per-region block-public-access configs.
+func cloneBlockPublicAccess(
+	src map[string]*BlockPublicAccessConfiguration,
+) map[string]*BlockPublicAccessConfiguration {
+	out := make(map[string]*BlockPublicAccessConfiguration, len(src))
+	for region, cfg := range src {
+		if cfg == nil {
+			continue
+		}
+
+		cp := *cfg
+		out[region] = &cp
+	}
+
+	return out
+}
+
+// cloneBlockPublicAccessMeta deep-copies the per-region block-public-access metadata.
+func cloneBlockPublicAccessMeta(
+	src map[string]*blockPublicAccessMeta,
+) map[string]*blockPublicAccessMeta {
+	out := make(map[string]*blockPublicAccessMeta, len(src))
+	for region, meta := range src {
+		if meta == nil {
+			continue
+		}
+
+		cp := *meta
+		out[region] = &cp
+	}
+
+	return out
 }
 
 func extractClusterExtra(c *Cluster) *clusterExtra {
@@ -143,7 +179,10 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	}
 
 	snap.ensureNonNil()
-	applyClusterExtras(snap.Clusters, snap.ClusterExtras)
+
+	for region, clusters := range snap.Clusters {
+		applyClusterExtras(clusters, snap.ClusterExtras[region])
+	}
 
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()

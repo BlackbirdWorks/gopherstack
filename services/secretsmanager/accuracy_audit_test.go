@@ -1,6 +1,7 @@
 package secretsmanager_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"slices"
@@ -25,7 +26,7 @@ func TestGetSecretValue_MismatchReturnsResourceNotFound(t *testing.T) {
 	t.Parallel()
 
 	b := sm.NewInMemoryBackend()
-	_, err := b.CreateSecret(&sm.CreateSecretInput{
+	_, err := b.CreateSecret(context.Background(), &sm.CreateSecretInput{
 		Name:               "mismatch-error-type",
 		SecretString:       "value",
 		ClientRequestToken: "ver-001",
@@ -33,7 +34,7 @@ func TestGetSecretValue_MismatchReturnsResourceNotFound(t *testing.T) {
 	require.NoError(t, err)
 
 	// ver-001 carries AWSCURRENT — requesting AWSPREVIOUS must return ErrVersionNotFound.
-	_, err = b.GetSecretValue(&sm.GetSecretValueInput{
+	_, err = b.GetSecretValue(context.Background(), &sm.GetSecretValueInput{
 		SecretID:     "mismatch-error-type",
 		VersionID:    "ver-001",
 		VersionStage: sm.StagingLabelPrevious,
@@ -75,14 +76,14 @@ func TestGetSecretValue_BothSuppliedAndMatch(t *testing.T) {
 	t.Parallel()
 
 	b := sm.NewInMemoryBackend()
-	_, err := b.CreateSecret(&sm.CreateSecretInput{
+	_, err := b.CreateSecret(context.Background(), &sm.CreateSecretInput{
 		Name:               "match-both",
 		SecretString:       "value",
 		ClientRequestToken: "ver-aaa",
 	})
 	require.NoError(t, err)
 
-	out, err := b.GetSecretValue(&sm.GetSecretValueInput{
+	out, err := b.GetSecretValue(context.Background(), &sm.GetSecretValueInput{
 		SecretID:     "match-both",
 		VersionID:    "ver-aaa",
 		VersionStage: sm.StagingLabelCurrent,
@@ -101,7 +102,7 @@ func TestCreateSecret_AddReplicaRegionsCreatesReplication(t *testing.T) {
 	t.Parallel()
 
 	b := sm.NewInMemoryBackend()
-	out, err := b.CreateSecret(&sm.CreateSecretInput{
+	out, err := b.CreateSecret(context.Background(), &sm.CreateSecretInput{
 		Name:         "create-with-replicas",
 		SecretString: "value",
 		AddReplicaRegions: []sm.ReplicaRegion{
@@ -122,7 +123,7 @@ func TestCreateSecret_AddReplicaRegionsCreatesReplication(t *testing.T) {
 	assert.Equal(t, "alias/my-key", regions["ap-southeast-1"].KmsKeyID)
 
 	// DescribeSecret should also show the replication status.
-	desc, err := b.DescribeSecret(&sm.DescribeSecretInput{SecretID: "create-with-replicas"})
+	desc, err := b.DescribeSecret(context.Background(), &sm.DescribeSecretInput{SecretID: "create-with-replicas"})
 	require.NoError(t, err)
 	require.Len(t, desc.ReplicationStatus, 2)
 }
@@ -133,7 +134,7 @@ func TestCreateSecret_AddReplicaRegionsWithValueSyncsInSync(t *testing.T) {
 	t.Parallel()
 
 	b := sm.NewInMemoryBackend()
-	_, err := b.CreateSecret(&sm.CreateSecretInput{
+	_, err := b.CreateSecret(context.Background(), &sm.CreateSecretInput{
 		Name:         "replica-insync",
 		SecretString: "secret-value",
 		AddReplicaRegions: []sm.ReplicaRegion{
@@ -142,7 +143,7 @@ func TestCreateSecret_AddReplicaRegionsWithValueSyncsInSync(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	desc, err := b.DescribeSecret(&sm.DescribeSecretInput{SecretID: "replica-insync"})
+	desc, err := b.DescribeSecret(context.Background(), &sm.DescribeSecretInput{SecretID: "replica-insync"})
 	require.NoError(t, err)
 	require.Len(t, desc.ReplicationStatus, 1)
 	assert.Equal(t, "InSync", desc.ReplicationStatus[0].Status)
@@ -154,7 +155,7 @@ func TestCreateSecret_AddReplicaRegionsNoValue(t *testing.T) {
 	t.Parallel()
 
 	b := sm.NewInMemoryBackend()
-	out, err := b.CreateSecret(&sm.CreateSecretInput{
+	out, err := b.CreateSecret(context.Background(), &sm.CreateSecretInput{
 		Name: "replica-no-value",
 		AddReplicaRegions: []sm.ReplicaRegion{
 			{Region: "ca-central-1"},
@@ -172,7 +173,7 @@ func TestCreateSecret_NoReplicaRegionsReturnsEmptyStatus(t *testing.T) {
 	t.Parallel()
 
 	b := sm.NewInMemoryBackend()
-	out, err := b.CreateSecret(&sm.CreateSecretInput{
+	out, err := b.CreateSecret(context.Background(), &sm.CreateSecretInput{
 		Name:         "no-replicas",
 		SecretString: "v",
 	})
@@ -217,11 +218,11 @@ func TestListSecrets_OwnedByMeFilterPassesAll(t *testing.T) {
 	b := sm.NewInMemoryBackend()
 
 	for _, name := range []string{"sec-a", "sec-b", "sec-c"} {
-		_, err := b.CreateSecret(&sm.CreateSecretInput{Name: name, SecretString: "v"})
+		_, err := b.CreateSecret(context.Background(), &sm.CreateSecretInput{Name: name, SecretString: "v"})
 		require.NoError(t, err)
 	}
 
-	out, err := b.ListSecrets(&sm.ListSecretsInput{
+	out, err := b.ListSecrets(context.Background(), &sm.ListSecretsInput{
 		Filters: []sm.SecretFilter{{Key: "owned-by-me", Values: []string{"true"}}},
 	})
 	require.NoError(t, err)
@@ -233,18 +234,18 @@ func TestListSecrets_OwnedByMeWithOtherFilters(t *testing.T) {
 	t.Parallel()
 
 	b := sm.NewInMemoryBackend()
-	_, err := b.CreateSecret(&sm.CreateSecretInput{
+	_, err := b.CreateSecret(context.Background(), &sm.CreateSecretInput{
 		Name:         "alpha-secret",
 		SecretString: "v",
 	})
 	require.NoError(t, err)
-	_, err = b.CreateSecret(&sm.CreateSecretInput{
+	_, err = b.CreateSecret(context.Background(), &sm.CreateSecretInput{
 		Name:         "beta-secret",
 		SecretString: "v",
 	})
 	require.NoError(t, err)
 
-	out, err := b.ListSecrets(&sm.ListSecretsInput{
+	out, err := b.ListSecrets(context.Background(), &sm.ListSecretsInput{
 		Filters: []sm.SecretFilter{
 			{Key: "owned-by-me", Values: []string{"true"}},
 			{Key: "name", Values: []string{"alpha"}},
@@ -416,17 +417,17 @@ func TestRotateSecret_CronScheduleTriggersRotation(t *testing.T) {
 	t.Parallel()
 
 	b := sm.NewInMemoryBackend()
-	_, err := b.CreateSecret(&sm.CreateSecretInput{
+	_, err := b.CreateSecret(context.Background(), &sm.CreateSecretInput{
 		Name:         "cron-sched-secret",
 		SecretString: "initial",
 	})
 	require.NoError(t, err)
 
-	before, err := b.GetSecretValue(&sm.GetSecretValueInput{SecretID: "cron-sched-secret"})
+	before, err := b.GetSecretValue(context.Background(), &sm.GetSecretValueInput{SecretID: "cron-sched-secret"})
 	require.NoError(t, err)
 
 	// Use a cron that fires every minute to trigger fast in tests.
-	_, err = b.RotateSecret(&sm.RotateSecretInput{
+	_, err = b.RotateSecret(context.Background(), &sm.RotateSecretInput{
 		SecretID: "cron-sched-secret",
 		RotationRules: &sm.RotationRulesType{
 			ScheduleExpression: "cron(* * * * ? *)",
@@ -438,7 +439,10 @@ func TestRotateSecret_CronScheduleTriggersRotation(t *testing.T) {
 	rotated := false
 
 	for time.Now().Before(deadline) {
-		current, currentErr := b.GetSecretValue(&sm.GetSecretValueInput{SecretID: "cron-sched-secret"})
+		current, currentErr := b.GetSecretValue(
+			context.Background(),
+			&sm.GetSecretValueInput{SecretID: "cron-sched-secret"},
+		)
 		require.NoError(t, currentErr)
 
 		if current.VersionID != before.VersionID {
@@ -459,13 +463,13 @@ func TestDescribeSecret_CronNextRotationDate(t *testing.T) {
 	t.Parallel()
 
 	b := sm.NewInMemoryBackend()
-	_, err := b.CreateSecret(&sm.CreateSecretInput{
+	_, err := b.CreateSecret(context.Background(), &sm.CreateSecretInput{
 		Name:         "cron-next-date",
 		SecretString: "v",
 	})
 	require.NoError(t, err)
 
-	_, err = b.RotateSecret(&sm.RotateSecretInput{
+	_, err = b.RotateSecret(context.Background(), &sm.RotateSecretInput{
 		SecretID: "cron-next-date",
 		RotationRules: &sm.RotationRulesType{
 			ScheduleExpression: "cron(0 0 * * ? *)",
@@ -473,7 +477,7 @@ func TestDescribeSecret_CronNextRotationDate(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	desc, err := b.DescribeSecret(&sm.DescribeSecretInput{SecretID: "cron-next-date"})
+	desc, err := b.DescribeSecret(context.Background(), &sm.DescribeSecretInput{SecretID: "cron-next-date"})
 	require.NoError(t, err)
 	require.NotNil(t, desc.NextRotationDate, "NextRotationDate must be set for cron schedule")
 
@@ -492,10 +496,10 @@ func TestReplication_KmsKeyStoredAndReturned(t *testing.T) {
 	t.Parallel()
 
 	b := sm.NewInMemoryBackend()
-	_, err := b.CreateSecret(&sm.CreateSecretInput{Name: "kms-rep", SecretString: "v"})
+	_, err := b.CreateSecret(context.Background(), &sm.CreateSecretInput{Name: "kms-rep", SecretString: "v"})
 	require.NoError(t, err)
 
-	_, err = b.ReplicateSecretToRegions(&sm.ReplicateSecretToRegionsInput{
+	_, err = b.ReplicateSecretToRegions(context.Background(), &sm.ReplicateSecretToRegionsInput{
 		SecretID: "kms-rep",
 		AddReplicaRegions: []sm.ReplicaRegion{
 			{Region: "eu-west-1", KmsKeyID: "arn:aws:kms:eu-west-1:123456789012:key/abc-123"},
@@ -503,7 +507,7 @@ func TestReplication_KmsKeyStoredAndReturned(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	desc, err := b.DescribeSecret(&sm.DescribeSecretInput{SecretID: "kms-rep"})
+	desc, err := b.DescribeSecret(context.Background(), &sm.DescribeSecretInput{SecretID: "kms-rep"})
 	require.NoError(t, err)
 	require.Len(t, desc.ReplicationStatus, 1)
 	assert.Equal(t, "arn:aws:kms:eu-west-1:123456789012:key/abc-123",
@@ -516,7 +520,7 @@ func TestReplication_CreateWithKmsKeyPreserved(t *testing.T) {
 	t.Parallel()
 
 	b := sm.NewInMemoryBackend()
-	createOut, err := b.CreateSecret(&sm.CreateSecretInput{
+	createOut, err := b.CreateSecret(context.Background(), &sm.CreateSecretInput{
 		Name:         "create-kms-rep",
 		SecretString: "v",
 		AddReplicaRegions: []sm.ReplicaRegion{
@@ -528,7 +532,7 @@ func TestReplication_CreateWithKmsKeyPreserved(t *testing.T) {
 	assert.Equal(t, "alias/replica-key", createOut.ReplicationStatus[0].KmsKeyID)
 
 	// Verify persistence in DescribeSecret.
-	desc, err := b.DescribeSecret(&sm.DescribeSecretInput{SecretID: "create-kms-rep"})
+	desc, err := b.DescribeSecret(context.Background(), &sm.DescribeSecretInput{SecretID: "create-kms-rep"})
 	require.NoError(t, err)
 	require.Len(t, desc.ReplicationStatus, 1)
 	assert.Equal(t, "alias/replica-key", desc.ReplicationStatus[0].KmsKeyID)
@@ -545,14 +549,14 @@ func TestPutSecretValue_EmptyVersionStagesAppliesAWSCURRENT(t *testing.T) {
 	t.Parallel()
 
 	b := sm.NewInMemoryBackend()
-	_, err := b.CreateSecret(&sm.CreateSecretInput{
+	_, err := b.CreateSecret(context.Background(), &sm.CreateSecretInput{
 		Name:         "empty-stages",
 		SecretString: "v1",
 	})
 	require.NoError(t, err)
 
 	// Capture v1's version ID before the second put.
-	desc1, err := b.DescribeSecret(&sm.DescribeSecretInput{SecretID: "empty-stages"})
+	desc1, err := b.DescribeSecret(context.Background(), &sm.DescribeSecretInput{SecretID: "empty-stages"})
 	require.NoError(t, err)
 	var v1ID string
 	for id, labels := range desc1.VersionIDsToStages {
@@ -563,7 +567,7 @@ func TestPutSecretValue_EmptyVersionStagesAppliesAWSCURRENT(t *testing.T) {
 	require.NotEmpty(t, v1ID)
 
 	// Put second value with no explicit VersionStages (nil slice).
-	put2, err := b.PutSecretValue(&sm.PutSecretValueInput{
+	put2, err := b.PutSecretValue(context.Background(), &sm.PutSecretValueInput{
 		SecretID:     "empty-stages",
 		SecretString: "v2",
 	})
@@ -572,7 +576,7 @@ func TestPutSecretValue_EmptyVersionStagesAppliesAWSCURRENT(t *testing.T) {
 		"new version must carry AWSCURRENT when VersionStages is empty")
 
 	// v1 must now carry AWSPREVIOUS.
-	desc2, err := b.DescribeSecret(&sm.DescribeSecretInput{SecretID: "empty-stages"})
+	desc2, err := b.DescribeSecret(context.Background(), &sm.DescribeSecretInput{SecretID: "empty-stages"})
 	require.NoError(t, err)
 	assert.Contains(t, desc2.VersionIDsToStages[v1ID], sm.StagingLabelPrevious,
 		"old AWSCURRENT version must be promoted to AWSPREVIOUS")
@@ -641,11 +645,11 @@ func TestListSecrets_PrimaryRegionFilter(t *testing.T) {
 
 	b := sm.NewInMemoryBackend()
 	for _, name := range []string{"pr-a", "pr-b"} {
-		_, err := b.CreateSecret(&sm.CreateSecretInput{Name: name, SecretString: "v"})
+		_, err := b.CreateSecret(context.Background(), &sm.CreateSecretInput{Name: name, SecretString: "v"})
 		require.NoError(t, err)
 	}
 
-	out, err := b.ListSecrets(&sm.ListSecretsInput{
+	out, err := b.ListSecrets(context.Background(), &sm.ListSecretsInput{
 		Filters: []sm.SecretFilter{{Key: "primary-region", Values: []string{"us-east-1"}}},
 	})
 	require.NoError(t, err)
@@ -686,14 +690,14 @@ func TestGetSecretValue_VersionIdOnlySucceeds(t *testing.T) {
 	t.Parallel()
 
 	b := sm.NewInMemoryBackend()
-	_, err := b.CreateSecret(&sm.CreateSecretInput{
+	_, err := b.CreateSecret(context.Background(), &sm.CreateSecretInput{
 		Name:               "ver-only",
 		SecretString:       "secret",
 		ClientRequestToken: "tok-123",
 	})
 	require.NoError(t, err)
 
-	out, err := b.GetSecretValue(&sm.GetSecretValueInput{
+	out, err := b.GetSecretValue(context.Background(), &sm.GetSecretValueInput{
 		SecretID:  "ver-only",
 		VersionID: "tok-123",
 	})
@@ -707,13 +711,13 @@ func TestGetSecretValue_VersionStageOnlySucceeds(t *testing.T) {
 	t.Parallel()
 
 	b := sm.NewInMemoryBackend()
-	_, err := b.CreateSecret(&sm.CreateSecretInput{
+	_, err := b.CreateSecret(context.Background(), &sm.CreateSecretInput{
 		Name:         "stage-only",
 		SecretString: "value",
 	})
 	require.NoError(t, err)
 
-	out, err := b.GetSecretValue(&sm.GetSecretValueInput{
+	out, err := b.GetSecretValue(context.Background(), &sm.GetSecretValueInput{
 		SecretID:     "stage-only",
 		VersionStage: sm.StagingLabelCurrent,
 	})
@@ -727,7 +731,7 @@ func TestRotateSecret_ScheduleExpressionPersisted(t *testing.T) {
 	t.Parallel()
 
 	b := sm.NewInMemoryBackend()
-	_, err := b.CreateSecret(&sm.CreateSecretInput{
+	_, err := b.CreateSecret(context.Background(), &sm.CreateSecretInput{
 		Name:         "cron-persist",
 		SecretString: "v",
 	})
@@ -735,7 +739,7 @@ func TestRotateSecret_ScheduleExpressionPersisted(t *testing.T) {
 
 	const expr = "cron(0 12 * * ? *)"
 	rotateImmediately := false
-	_, err = b.RotateSecret(&sm.RotateSecretInput{
+	_, err = b.RotateSecret(context.Background(), &sm.RotateSecretInput{
 		SecretID: "cron-persist",
 		RotationRules: &sm.RotationRulesType{
 			ScheduleExpression: expr,
@@ -744,7 +748,7 @@ func TestRotateSecret_ScheduleExpressionPersisted(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	desc, err := b.DescribeSecret(&sm.DescribeSecretInput{SecretID: "cron-persist"})
+	desc, err := b.DescribeSecret(context.Background(), &sm.DescribeSecretInput{SecretID: "cron-persist"})
 	require.NoError(t, err)
 	require.NotNil(t, desc.RotationRules)
 	assert.Equal(t, expr, desc.RotationRules.ScheduleExpression)
@@ -834,20 +838,20 @@ func TestCreateSecret_AddReplicaRegionsThenMoreReplicas(t *testing.T) {
 	t.Parallel()
 
 	b := sm.NewInMemoryBackend()
-	_, err := b.CreateSecret(&sm.CreateSecretInput{
+	_, err := b.CreateSecret(context.Background(), &sm.CreateSecretInput{
 		Name:              "grow-replicas",
 		SecretString:      "v",
 		AddReplicaRegions: []sm.ReplicaRegion{{Region: "us-west-2"}},
 	})
 	require.NoError(t, err)
 
-	_, err = b.ReplicateSecretToRegions(&sm.ReplicateSecretToRegionsInput{
+	_, err = b.ReplicateSecretToRegions(context.Background(), &sm.ReplicateSecretToRegionsInput{
 		SecretID:          "grow-replicas",
 		AddReplicaRegions: []sm.ReplicaRegion{{Region: "eu-west-1"}},
 	})
 	require.NoError(t, err)
 
-	desc, err := b.DescribeSecret(&sm.DescribeSecretInput{SecretID: "grow-replicas"})
+	desc, err := b.DescribeSecret(context.Background(), &sm.DescribeSecretInput{SecretID: "grow-replicas"})
 	require.NoError(t, err)
 	assert.Len(t, desc.ReplicationStatus, 2)
 
@@ -865,17 +869,17 @@ func TestGetSecretValue_MismatchAfterRotation(t *testing.T) {
 	t.Parallel()
 
 	b := sm.NewInMemoryBackend()
-	_, err := b.CreateSecret(&sm.CreateSecretInput{
+	_, err := b.CreateSecret(context.Background(), &sm.CreateSecretInput{
 		Name:               "rot-mismatch",
 		SecretString:       "v1",
 		ClientRequestToken: "v1-id",
 	})
 	require.NoError(t, err)
 
-	_, err = b.RotateSecret(&sm.RotateSecretInput{SecretID: "rot-mismatch"})
+	_, err = b.RotateSecret(context.Background(), &sm.RotateSecretInput{SecretID: "rot-mismatch"})
 	require.NoError(t, err)
 
-	desc, err := b.DescribeSecret(&sm.DescribeSecretInput{SecretID: "rot-mismatch"})
+	desc, err := b.DescribeSecret(context.Background(), &sm.DescribeSecretInput{SecretID: "rot-mismatch"})
 	require.NoError(t, err)
 
 	// Find the AWSCURRENT version and try to get it with AWSPREVIOUS — must fail.
@@ -889,7 +893,7 @@ func TestGetSecretValue_MismatchAfterRotation(t *testing.T) {
 	}
 	require.NotEmpty(t, currentID)
 
-	_, err = b.GetSecretValue(&sm.GetSecretValueInput{
+	_, err = b.GetSecretValue(context.Background(), &sm.GetSecretValueInput{
 		SecretID:     "rot-mismatch",
 		VersionID:    currentID,
 		VersionStage: sm.StagingLabelPrevious,

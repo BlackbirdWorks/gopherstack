@@ -6,22 +6,22 @@ import (
 )
 
 type backendSnapshot struct {
-	Clusters                   map[string]*Cluster                   `json:"clusters"`
-	ACLs                       map[string]*ACL                       `json:"acls"`
-	SubnetGroups               map[string]*SubnetGroup               `json:"subnetGroups"`
-	Users                      map[string]*User                      `json:"users"`
-	ParameterGroups            map[string]*ParameterGroup            `json:"parameterGroups"`
-	Snapshots                  map[string]*Snapshot                  `json:"snapshots"`
+	Clusters                   map[string]map[string]*Cluster        `json:"clusters"`
+	ACLs                       map[string]map[string]*ACL            `json:"acls"`
+	SubnetGroups               map[string]map[string]*SubnetGroup    `json:"subnetGroups"`
+	Users                      map[string]map[string]*User           `json:"users"`
+	ParameterGroups            map[string]map[string]*ParameterGroup `json:"parameterGroups"`
+	Snapshots                  map[string]map[string]*Snapshot       `json:"snapshots"`
 	MultiRegionClusters        map[string]*MultiRegionCluster        `json:"multiRegionClusters"`
 	MultiRegionParameterGroups map[string]*MultiRegionParameterGroup `json:"multiRegionParameterGroups"`
-	ReservedNodes              map[string]*ReservedNode              `json:"reservedNodes"`
-	ARNToResource              map[string]resourceRef                `json:"arnToResource"`
+	ReservedNodes              map[string]map[string]*ReservedNode   `json:"reservedNodes"`
+	ARNToResource              map[string]map[string]resourceRef     `json:"arnToResource"`
+	ServiceUpdates             map[string]*ServiceUpdate             `json:"serviceUpdates"`
+	Events                     map[string][]*Event                   `json:"events"`
 	AccountID                  string                                `json:"accountID"`
-	Region                     string                                `json:"region"`
-	Events                     []*Event                              `json:"events"`
+	DefaultRegion              string                                `json:"defaultRegion"`
 }
 
-// Snapshot serialises the backend state to JSON.
 func (b *InMemoryBackend) Snapshot() []byte {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -38,8 +38,9 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		ReservedNodes:              b.reservedNodes,
 		Events:                     b.events,
 		ARNToResource:              b.arnToResource,
+		ServiceUpdates:             b.serviceUpdates,
 		AccountID:                  b.accountID,
-		Region:                     b.region,
+		DefaultRegion:              b.defaultRegion,
 	}
 
 	data, err := json.Marshal(snap)
@@ -52,14 +53,11 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	return data
 }
 
-// Restore loads backend state from a JSON snapshot.
 func (b *InMemoryBackend) Restore(data []byte) error {
 	var snap backendSnapshot
-
 	if err := json.Unmarshal(data, &snap); err != nil {
 		return err
 	}
-
 	ensureNonNilMaps(&snap)
 	fixNilTagsInSnapshot(&snap)
 
@@ -77,135 +75,101 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.reservedNodes = snap.ReservedNodes
 	b.events = snap.Events
 	b.arnToResource = snap.ARNToResource
+	b.serviceUpdates = snap.ServiceUpdates
 	b.accountID = snap.AccountID
-	b.region = snap.Region
+	b.defaultRegion = snap.DefaultRegion
 
 	return nil
 }
 
-// ensureNonNilMaps initialises nil maps in the snapshot to empty maps.
 func ensureNonNilMaps(snap *backendSnapshot) {
 	if snap.Clusters == nil {
-		snap.Clusters = make(map[string]*Cluster)
+		snap.Clusters = make(map[string]map[string]*Cluster)
 	}
-
 	if snap.ACLs == nil {
-		snap.ACLs = make(map[string]*ACL)
+		snap.ACLs = make(map[string]map[string]*ACL)
 	}
-
 	if snap.SubnetGroups == nil {
-		snap.SubnetGroups = make(map[string]*SubnetGroup)
+		snap.SubnetGroups = make(map[string]map[string]*SubnetGroup)
 	}
-
 	if snap.Users == nil {
-		snap.Users = make(map[string]*User)
+		snap.Users = make(map[string]map[string]*User)
 	}
-
 	if snap.ParameterGroups == nil {
-		snap.ParameterGroups = make(map[string]*ParameterGroup)
+		snap.ParameterGroups = make(map[string]map[string]*ParameterGroup)
 	}
-
 	if snap.Snapshots == nil {
-		snap.Snapshots = make(map[string]*Snapshot)
+		snap.Snapshots = make(map[string]map[string]*Snapshot)
 	}
-
 	if snap.MultiRegionClusters == nil {
 		snap.MultiRegionClusters = make(map[string]*MultiRegionCluster)
 	}
-
 	if snap.MultiRegionParameterGroups == nil {
 		snap.MultiRegionParameterGroups = make(map[string]*MultiRegionParameterGroup)
 	}
-
 	if snap.ReservedNodes == nil {
-		snap.ReservedNodes = make(map[string]*ReservedNode)
+		snap.ReservedNodes = make(map[string]map[string]*ReservedNode)
 	}
-
 	if snap.ARNToResource == nil {
-		snap.ARNToResource = make(map[string]resourceRef)
+		snap.ARNToResource = make(map[string]map[string]resourceRef)
 	}
-
+	if snap.ServiceUpdates == nil {
+		snap.ServiceUpdates = make(map[string]*ServiceUpdate)
+	}
 	if snap.Events == nil {
-		snap.Events = []*Event{}
+		snap.Events = make(map[string][]*Event)
 	}
 }
 
-// fixNilTagsInSnapshot ensures all restored resources have non-nil tag maps.
-// Split into sub-helpers to keep cognitive complexity within bounds.
+func fixNestedMemoryDBTags[V any](nested map[string]map[string]V, fix func(V)) {
+	for _, region := range nested {
+		for _, item := range region {
+			fix(item)
+		}
+	}
+}
+
+func ensureMemoryDBMap(m map[string]string) map[string]string {
+	if m == nil {
+		return make(map[string]string)
+	}
+
+	return m
+}
+
 func fixNilTagsInSnapshot(snap *backendSnapshot) {
 	fixCoreResourceTags(snap)
 	fixExtendedResourceTags(snap)
 }
 
-// fixCoreResourceTags ensures clusters, ACLs, subnet groups and users have non-nil tags.
 func fixCoreResourceTags(snap *backendSnapshot) {
-	for _, c := range snap.Clusters {
-		if c.Tags == nil {
-			c.Tags = make(map[string]string)
-		}
-	}
-
-	for _, a := range snap.ACLs {
-		if a.Tags == nil {
-			a.Tags = make(map[string]string)
-		}
-	}
-
-	for _, sg := range snap.SubnetGroups {
-		if sg.Tags == nil {
-			sg.Tags = make(map[string]string)
-		}
-	}
-
-	for _, u := range snap.Users {
-		if u.Tags == nil {
-			u.Tags = make(map[string]string)
-		}
-	}
+	fixNestedMemoryDBTags(snap.Clusters, func(c *Cluster) { c.Tags = ensureMemoryDBMap(c.Tags) })
+	fixNestedMemoryDBTags(snap.ACLs, func(a *ACL) { a.Tags = ensureMemoryDBMap(a.Tags) })
+	fixNestedMemoryDBTags(snap.SubnetGroups, func(sg *SubnetGroup) { sg.Tags = ensureMemoryDBMap(sg.Tags) })
+	fixNestedMemoryDBTags(snap.Users, func(u *User) { u.Tags = ensureMemoryDBMap(u.Tags) })
 }
 
-// fixExtendedResourceTags ensures parameter groups, snapshots and multi-region resources
-// have non-nil tag maps (and that parameter groups have a non-nil parameter map).
 func fixExtendedResourceTags(snap *backendSnapshot) {
-	for _, pg := range snap.ParameterGroups {
-		if pg.Tags == nil {
-			pg.Tags = make(map[string]string)
-		}
-
-		if pg.Parameters == nil {
-			pg.Parameters = make(map[string]string)
-		}
-	}
-
-	for _, s := range snap.Snapshots {
-		if s.Tags == nil {
-			s.Tags = make(map[string]string)
-		}
-	}
+	fixNestedMemoryDBTags(snap.ParameterGroups, func(pg *ParameterGroup) {
+		pg.Tags = ensureMemoryDBMap(pg.Tags)
+		pg.Parameters = ensureMemoryDBMap(pg.Parameters)
+	})
+	fixNestedMemoryDBTags(snap.Snapshots, func(s *Snapshot) { s.Tags = ensureMemoryDBMap(s.Tags) })
 
 	for _, mrc := range snap.MultiRegionClusters {
-		if mrc.Tags == nil {
-			mrc.Tags = make(map[string]string)
-		}
+		mrc.Tags = ensureMemoryDBMap(mrc.Tags)
 	}
 
 	for _, mrpg := range snap.MultiRegionParameterGroups {
-		if mrpg.Tags == nil {
-			mrpg.Tags = make(map[string]string)
-		}
-
-		if mrpg.Parameters == nil {
-			mrpg.Parameters = make(map[string]string)
-		}
+		mrpg.Tags = ensureMemoryDBMap(mrpg.Tags)
+		mrpg.Parameters = ensureMemoryDBMap(mrpg.Parameters)
 	}
 }
 
-// Snapshot implements persistence.Persistable by delegating to the backend.
 func (h *Handler) Snapshot() []byte {
 	return h.Backend.Snapshot()
 }
 
-// Restore implements persistence.Persistable by delegating to the backend.
 func (h *Handler) Restore(data []byte) error {
 	return h.Backend.Restore(data)
 }

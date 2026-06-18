@@ -41,7 +41,12 @@ func a1Handler(t *testing.T) *codeconnections.Handler {
 	return codeconnections.NewHandler(codeconnections.NewInMemoryBackend(a1AccountID, a1Region))
 }
 
-func a1Do(t *testing.T, h *codeconnections.Handler, action string, body map[string]any) *httptest.ResponseRecorder {
+func a1Do(
+	t *testing.T,
+	h *codeconnections.Handler,
+	action string,
+	body map[string]any,
+) *httptest.ResponseRecorder {
 	t.Helper()
 
 	var bodyBytes []byte
@@ -114,7 +119,9 @@ func TestAudit1_ContentType_Error(t *testing.T) {
 		t,
 		h,
 		"GetConnection",
-		map[string]any{"ConnectionArn": "arn:aws:codeconnections:us-east-1:000000000000:connection/nonexistent"},
+		map[string]any{
+			"ConnectionArn": "arn:aws:codeconnections:us-east-1:000000000000:connection/nonexistent",
+		},
 	)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Contains(t, rec.Header().Get("Content-Type"), "application/x-amz-json-1.0")
@@ -128,7 +135,9 @@ func TestAudit1_ErrorEnvelope(t *testing.T) {
 		t,
 		h,
 		"GetConnection",
-		map[string]any{"ConnectionArn": "arn:aws:codeconnections:us-east-1:000000000000:connection/nonexistent"},
+		map[string]any{
+			"ConnectionArn": "arn:aws:codeconnections:us-east-1:000000000000:connection/nonexistent",
+		},
 	)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
@@ -458,8 +467,11 @@ func TestAudit1_Host_Create(t *testing.T) {
 			wantCode: http.StatusBadRequest,
 		},
 		{
-			name:     "missing provider type returns error",
-			body:     map[string]any{"Name": "bad-host", "ProviderEndpoint": "https://x.example.com"},
+			name: "missing provider type returns error",
+			body: map[string]any{
+				"Name":             "bad-host",
+				"ProviderEndpoint": "https://x.example.com",
+			},
 			wantCode: http.StatusBadRequest,
 		},
 	}

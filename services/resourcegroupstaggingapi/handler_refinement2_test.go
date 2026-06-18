@@ -1,6 +1,7 @@
 package resourcegroupstaggingapi_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -25,7 +26,7 @@ func TestRefinement2_GetResources_TooManyTagFilters(t *testing.T) {
 		filters[i] = resourcegroupstaggingapi.TagFilter{Key: "key"}
 	}
 
-	_, err := b.GetResources(&resourcegroupstaggingapi.GetResourcesInput{TagFilters: filters})
+	_, err := b.GetResources(context.Background(), &resourcegroupstaggingapi.GetResourcesInput{TagFilters: filters})
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, resourcegroupstaggingapi.ErrValidation, "expected ErrValidation, got %v", err)
@@ -42,7 +43,7 @@ func TestRefinement2_GetResources_ExactlyMaxTagFilters(t *testing.T) {
 		filters[i] = resourcegroupstaggingapi.TagFilter{Key: fmt.Sprintf("key%d", i)}
 	}
 
-	out, err := b.GetResources(&resourcegroupstaggingapi.GetResourcesInput{TagFilters: filters})
+	out, err := b.GetResources(context.Background(), &resourcegroupstaggingapi.GetResourcesInput{TagFilters: filters})
 
 	require.NoError(t, err)
 	assert.NotNil(t, out)
@@ -60,7 +61,10 @@ func TestRefinement2_GetResources_IncludeComplianceDetails(t *testing.T) {
 		},
 	})
 
-	out, err := b.GetResources(&resourcegroupstaggingapi.GetResourcesInput{IncludeComplianceDetails: true})
+	out, err := b.GetResources(
+		context.Background(),
+		&resourcegroupstaggingapi.GetResourcesInput{IncludeComplianceDetails: true},
+	)
 
 	require.NoError(t, err)
 	require.Len(t, out.ResourceTagMappingList, 1)
@@ -81,7 +85,10 @@ func TestRefinement2_GetResources_ExcludeCompliantResources_NoEffect(t *testing.
 	})
 
 	// ExcludeCompliantResources=false → all resources returned.
-	out, err := b.GetResources(&resourcegroupstaggingapi.GetResourcesInput{ExcludeCompliantResources: false})
+	out, err := b.GetResources(
+		context.Background(),
+		&resourcegroupstaggingapi.GetResourcesInput{ExcludeCompliantResources: false},
+	)
 
 	require.NoError(t, err)
 	assert.Len(t, out.ResourceTagMappingList, 1)
@@ -99,7 +106,10 @@ func TestRefinement2_GetResources_NoComplianceDetailsWhenNotRequested(t *testing
 		},
 	})
 
-	out, err := b.GetResources(&resourcegroupstaggingapi.GetResourcesInput{IncludeComplianceDetails: false})
+	out, err := b.GetResources(
+		context.Background(),
+		&resourcegroupstaggingapi.GetResourcesInput{IncludeComplianceDetails: false},
+	)
 
 	require.NoError(t, err)
 	require.Len(t, out.ResourceTagMappingList, 1)
@@ -113,7 +123,7 @@ func TestRefinement2_TagResources_EmptyARNList(t *testing.T) {
 
 	b := newBackend(t)
 
-	_, err := b.TagResources(&resourcegroupstaggingapi.TagResourcesInput{
+	_, err := b.TagResources(context.Background(), &resourcegroupstaggingapi.TagResourcesInput{
 		ResourceARNList: []string{},
 		Tags:            map[string]string{"env": "test"},
 	})
@@ -132,7 +142,7 @@ func TestRefinement2_TagResources_TooManyARNs(t *testing.T) {
 		arns[i] = "arn:aws:sqs:us-east-1:000000000000:q"
 	}
 
-	_, err := b.TagResources(&resourcegroupstaggingapi.TagResourcesInput{
+	_, err := b.TagResources(context.Background(), &resourcegroupstaggingapi.TagResourcesInput{
 		ResourceARNList: arns,
 		Tags:            map[string]string{"env": "test"},
 	})
@@ -146,7 +156,7 @@ func TestRefinement2_TagResources_EmptyTags(t *testing.T) {
 
 	b := newBackend(t)
 
-	_, err := b.TagResources(&resourcegroupstaggingapi.TagResourcesInput{
+	_, err := b.TagResources(context.Background(), &resourcegroupstaggingapi.TagResourcesInput{
 		ResourceARNList: []string{"arn:aws:sqs:us-east-1:000000000000:q1"},
 		Tags:            map[string]string{},
 	})
@@ -165,7 +175,7 @@ func TestRefinement2_TagResources_TooManyTags(t *testing.T) {
 		tags[fmt.Sprintf("key%d", i)] = "v"
 	}
 
-	_, err := b.TagResources(&resourcegroupstaggingapi.TagResourcesInput{
+	_, err := b.TagResources(context.Background(), &resourcegroupstaggingapi.TagResourcesInput{
 		ResourceARNList: []string{"arn:aws:sqs:us-east-1:000000000000:q1"},
 		Tags:            tags,
 	})
@@ -179,7 +189,7 @@ func TestRefinement2_TagResources_EmptyTagKey(t *testing.T) {
 
 	b := newBackend(t)
 
-	_, err := b.TagResources(&resourcegroupstaggingapi.TagResourcesInput{
+	_, err := b.TagResources(context.Background(), &resourcegroupstaggingapi.TagResourcesInput{
 		ResourceARNList: []string{"arn:aws:sqs:us-east-1:000000000000:q1"},
 		Tags:            map[string]string{"": "value"},
 	})
@@ -193,7 +203,7 @@ func TestRefinement2_TagResources_TagKeyTooLong(t *testing.T) {
 
 	b := newBackend(t)
 
-	_, err := b.TagResources(&resourcegroupstaggingapi.TagResourcesInput{
+	_, err := b.TagResources(context.Background(), &resourcegroupstaggingapi.TagResourcesInput{
 		ResourceARNList: []string{"arn:aws:sqs:us-east-1:000000000000:q1"},
 		Tags:            map[string]string{strings.Repeat("k", 129): "v"},
 	})
@@ -207,7 +217,7 @@ func TestRefinement2_TagResources_TagValueTooLong(t *testing.T) {
 
 	b := newBackend(t)
 
-	_, err := b.TagResources(&resourcegroupstaggingapi.TagResourcesInput{
+	_, err := b.TagResources(context.Background(), &resourcegroupstaggingapi.TagResourcesInput{
 		ResourceARNList: []string{"arn:aws:sqs:us-east-1:000000000000:q1"},
 		Tags:            map[string]string{"key": strings.Repeat("v", 257)},
 	})
@@ -227,7 +237,7 @@ func TestRefinement2_TagResources_ExactlyMaxARNs(t *testing.T) {
 	}
 
 	// No taggers registered → all 20 fail, but no validation error.
-	out, err := b.TagResources(&resourcegroupstaggingapi.TagResourcesInput{
+	out, err := b.TagResources(context.Background(), &resourcegroupstaggingapi.TagResourcesInput{
 		ResourceARNList: arns,
 		Tags:            map[string]string{"env": "test"},
 	})
@@ -243,7 +253,7 @@ func TestRefinement2_UntagResources_EmptyARNList(t *testing.T) {
 
 	b := newBackend(t)
 
-	_, err := b.UntagResources(&resourcegroupstaggingapi.UntagResourcesInput{
+	_, err := b.UntagResources(context.Background(), &resourcegroupstaggingapi.UntagResourcesInput{
 		ResourceARNList: []string{},
 		TagKeys:         []string{"env"},
 	})
@@ -262,7 +272,7 @@ func TestRefinement2_UntagResources_TooManyARNs(t *testing.T) {
 		arns[i] = "arn:aws:sqs:us-east-1:000000000000:q"
 	}
 
-	_, err := b.UntagResources(&resourcegroupstaggingapi.UntagResourcesInput{
+	_, err := b.UntagResources(context.Background(), &resourcegroupstaggingapi.UntagResourcesInput{
 		ResourceARNList: arns,
 		TagKeys:         []string{"env"},
 	})
@@ -276,7 +286,7 @@ func TestRefinement2_UntagResources_EmptyTagKeys(t *testing.T) {
 
 	b := newBackend(t)
 
-	_, err := b.UntagResources(&resourcegroupstaggingapi.UntagResourcesInput{
+	_, err := b.UntagResources(context.Background(), &resourcegroupstaggingapi.UntagResourcesInput{
 		ResourceARNList: []string{"arn:aws:sqs:us-east-1:000000000000:q1"},
 		TagKeys:         []string{},
 	})
@@ -301,7 +311,7 @@ func TestRefinement2_GetTagKeys_Pagination(t *testing.T) {
 		{ResourceARN: "arn:1", ResourceType: "sqs:queue", Tags: tags},
 	})
 
-	out := b.GetTagKeys(&resourcegroupstaggingapi.GetTagKeysInput{})
+	out := b.GetTagKeys(context.Background(), &resourcegroupstaggingapi.GetTagKeysInput{})
 
 	require.NotNil(t, out)
 	// All 10 keys returned; pagination token should be nil since < 100.
@@ -317,7 +327,7 @@ func TestRefinement2_GetTagKeys_NilToken(t *testing.T) {
 		{ResourceARN: "arn:1", ResourceType: "sqs:queue", Tags: map[string]string{"a": "1", "b": "2"}},
 	})
 
-	out := b.GetTagKeys(&resourcegroupstaggingapi.GetTagKeysInput{})
+	out := b.GetTagKeys(context.Background(), &resourcegroupstaggingapi.GetTagKeysInput{})
 
 	require.NotNil(t, out)
 	assert.Equal(t, []string{"a", "b"}, out.TagKeys)
@@ -336,7 +346,7 @@ func TestRefinement2_GetTagKeys_TokenResumption(t *testing.T) {
 
 	// Passing token = "bb" should start after "bb", returning ["cc"].
 	tok := "bb"
-	out := b.GetTagKeys(&resourcegroupstaggingapi.GetTagKeysInput{PaginationToken: &tok})
+	out := b.GetTagKeys(context.Background(), &resourcegroupstaggingapi.GetTagKeysInput{PaginationToken: &tok})
 
 	require.NotNil(t, out)
 	assert.Equal(t, []string{"cc"}, out.TagKeys)
@@ -354,7 +364,7 @@ func TestRefinement2_GetTagValues_NilKey(t *testing.T) {
 	})
 
 	// Key is nil → must return empty list, not panic.
-	out := b.GetTagValues(&resourcegroupstaggingapi.GetTagValuesInput{})
+	out := b.GetTagValues(context.Background(), &resourcegroupstaggingapi.GetTagValuesInput{})
 
 	require.NotNil(t, out)
 	assert.Empty(t, out.TagValues)
@@ -372,7 +382,10 @@ func TestRefinement2_GetTagValues_TokenResumption(t *testing.T) {
 
 	tok := "prod"
 	key := "env"
-	out := b.GetTagValues(&resourcegroupstaggingapi.GetTagValuesInput{Key: &key, PaginationToken: &tok})
+	out := b.GetTagValues(
+		context.Background(),
+		&resourcegroupstaggingapi.GetTagValuesInput{Key: &key, PaginationToken: &tok},
+	)
 
 	require.NotNil(t, out)
 	assert.Equal(t, []string{"staging"}, out.TagValues)
@@ -456,12 +469,12 @@ func TestRefinement2_SnapshotRestore_ClearsProviders(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	b.RegisterProvider(func() []resourcegroupstaggingapi.TaggedResource { return nil })
+	b.RegisterProvider(func(_ context.Context) []resourcegroupstaggingapi.TaggedResource { return nil })
 
 	snap := b.Snapshot()
 
 	b2 := newBackend(t)
-	b2.RegisterProvider(func() []resourcegroupstaggingapi.TaggedResource { return nil })
+	b2.RegisterProvider(func(_ context.Context) []resourcegroupstaggingapi.TaggedResource { return nil })
 	require.Equal(t, 1, resourcegroupstaggingapi.ProviderCount(b2))
 
 	require.NoError(t, b2.Restore(snap))
@@ -485,7 +498,7 @@ func TestRefinement2_GetTagKeys_Empty(t *testing.T) {
 
 	b := newBackend(t)
 
-	out := b.GetTagKeys(&resourcegroupstaggingapi.GetTagKeysInput{})
+	out := b.GetTagKeys(context.Background(), &resourcegroupstaggingapi.GetTagKeysInput{})
 
 	require.NotNil(t, out)
 	assert.NotNil(t, out.TagKeys, "TagKeys must be non-nil empty slice")
@@ -498,7 +511,7 @@ func TestRefinement2_GetTagValues_Empty(t *testing.T) {
 	b := newBackend(t)
 	key := "env"
 
-	out := b.GetTagValues(&resourcegroupstaggingapi.GetTagValuesInput{Key: &key})
+	out := b.GetTagValues(context.Background(), &resourcegroupstaggingapi.GetTagValuesInput{Key: &key})
 
 	require.NotNil(t, out)
 	assert.NotNil(t, out.TagValues)
@@ -569,7 +582,7 @@ func TestRefinement2_TagResources_DeepCopy_NoMutation(t *testing.T) {
 	b := newBackend(t)
 	var received map[string]string
 
-	b.RegisterARNTagger(func(_ string, tags map[string]string) (bool, error) {
+	b.RegisterARNTagger(func(_ context.Context, _ string, tags map[string]string) (bool, error) {
 		received = tags
 
 		return true, nil
@@ -577,7 +590,7 @@ func TestRefinement2_TagResources_DeepCopy_NoMutation(t *testing.T) {
 
 	original := map[string]string{"env": "test"}
 
-	out, err := b.TagResources(&resourcegroupstaggingapi.TagResourcesInput{
+	out, err := b.TagResources(context.Background(), &resourcegroupstaggingapi.TagResourcesInput{
 		ResourceARNList: []string{"arn:aws:sqs:us-east-1:000000000000:q1"},
 		Tags:            original,
 	})
@@ -594,8 +607,8 @@ func TestRefinement2_Reset_OnlyClears_ReportState(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	b.RegisterProvider(func() []resourcegroupstaggingapi.TaggedResource { return nil })
-	b.RegisterARNTagger(func(_ string, _ map[string]string) (bool, error) { return false, nil })
+	b.RegisterProvider(func(_ context.Context) []resourcegroupstaggingapi.TaggedResource { return nil })
+	b.RegisterARNTagger(func(_ context.Context, _ string, _ map[string]string) (bool, error) { return false, nil })
 	resourcegroupstaggingapi.AddReportStateInternal(b, "RUNNING", "", "")
 
 	b.Reset()

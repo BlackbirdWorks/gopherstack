@@ -467,10 +467,13 @@ func (h *Handler) listTasks(c *echo.Context) error {
 		out = append(out, buildTaskOutput(task))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"SynthesisTasks": out,
-		"NextToken":      token,
-	})
+	resp := map[string]any{"SynthesisTasks": out}
+	// AWS omits NextToken when there are no further results.
+	if token != "" {
+		resp["NextToken"] = token
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 type putLexiconInput struct {
@@ -528,12 +531,13 @@ func (h *Handler) listLexicons(c *echo.Context) error {
 		attributes = append(attributes, lexiconAttributes(lexicon))
 	}
 
-	nextToken := ""
+	resp := map[string]any{"Lexicons": attributes}
+	// AWS omits NextToken when there are no further results.
 	if end < len(lexicons) {
-		nextToken = strconv.Itoa(end)
+		resp["NextToken"] = strconv.Itoa(end)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"Lexicons": attributes, "NextToken": nextToken})
+	return c.JSON(http.StatusOK, resp)
 }
 
 func lexiconAttributes(lexicon *Lexicon) map[string]any {

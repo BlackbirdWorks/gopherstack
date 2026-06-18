@@ -116,7 +116,7 @@ func TestPipeSourceFiltering(t *testing.T) {
 			}
 
 			pipeName := "filter-pipe-" + tt.name
-			_, err := b.CreatePipe(pipes.CreatePipeInput{
+			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 				Name:             pipeName,
 				Source:           "arn:aws:sqs:us-east-1:000000000000:queue",
 				Target:           "arn:aws:lambda:us-east-1:000000000000:function:fn",
@@ -186,7 +186,7 @@ func TestPipeEnrichmentTracking(t *testing.T) {
 			r.SetLambdaInvoker(lambda)
 
 			pipeName := "enrich-pipe-" + tt.name
-			_, err := b.CreatePipe(pipes.CreatePipeInput{
+			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 				Name:         pipeName,
 				Source:       "arn:aws:sqs:us-east-1:000000000000:queue",
 				Target:       "arn:aws:lambda:us-east-1:000000000000:function:fn",
@@ -198,7 +198,7 @@ func TestPipeEnrichmentTracking(t *testing.T) {
 
 			pipes.PollAllPipesOnce(context.Background(), r)
 
-			count := b.GetEnrichmentCallCount(pipeName)
+			count := b.GetEnrichmentCallCount(context.Background(), pipeName)
 			assert.Equal(t, tt.wantCount, count, "enrichment call count mismatch")
 		})
 	}
@@ -238,7 +238,7 @@ func TestPipeStateTransitions(t *testing.T) {
 			b := newPipeBackend()
 			pipeName := "transition-" + tt.name
 
-			_, err := b.CreatePipe(pipes.CreatePipeInput{
+			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 				Name:         pipeName,
 				Source:       "arn:aws:sqs:us-east-1:000000000000:queue",
 				Target:       "arn:aws:lambda:us-east-1:000000000000:function:fn",
@@ -250,9 +250,9 @@ func TestPipeStateTransitions(t *testing.T) {
 			var result *pipes.Pipe
 			switch tt.action {
 			case "stop":
-				result, err = b.StopPipe(pipeName)
+				result, err = b.StopPipe(context.Background(), pipeName)
 			case "start":
-				result, err = b.StartPipe(pipeName)
+				result, err = b.StartPipe(context.Background(), pipeName)
 			}
 			require.NoError(t, err)
 
@@ -262,7 +262,7 @@ func TestPipeStateTransitions(t *testing.T) {
 
 			// Wait for the async transition to complete.
 			require.Eventually(t, func() bool {
-				p, e := b.GetPipe(pipeName)
+				p, e := b.GetPipe(context.Background(), pipeName)
 
 				return e == nil && p.CurrentState == tt.wantEventualFinal
 			}, 2*time.Second, 10*time.Millisecond,
@@ -276,7 +276,7 @@ func TestPipeStateTransitions_DoubleStart(t *testing.T) {
 	t.Parallel()
 
 	b := newPipeBackend()
-	_, err := b.CreatePipe(pipes.CreatePipeInput{
+	_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 		Name:         "double-start",
 		Source:       "arn:aws:sqs:us-east-1:000000000000:queue",
 		Target:       "arn:aws:lambda:us-east-1:000000000000:function:fn",
@@ -285,7 +285,7 @@ func TestPipeStateTransitions_DoubleStart(t *testing.T) {
 	require.NoError(t, err)
 
 	// Should fail since pipe is already RUNNING.
-	_, err = b.StartPipe("double-start")
+	_, err = b.StartPipe(context.Background(), "double-start")
 	require.Error(t, err)
 	require.ErrorIs(t, err, pipes.ErrValidation)
 }

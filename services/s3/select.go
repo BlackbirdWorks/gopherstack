@@ -139,7 +139,11 @@ func (h *S3Handler) selectObjectContent(
 			ErrorContext(ctx, "error evaluating query during streaming", "error", evalErr)
 		// Emit an exception event so the SDK receives a well-formed error
 		// rather than a truncated stream, which it would otherwise treat as success.
-		writeSelectErrorEvent(w, "InternalError", evalErr.Error())
+		errCode, errMsg := errCodeInternalError, evalErr.Error()
+		if code, msg, isSQLErr := parseSQLSelectError(evalErr); isSQLErr {
+			errCode, errMsg = code, msg
+		}
+		writeSelectErrorEvent(w, errCode, errMsg)
 
 		return
 	}
@@ -292,6 +296,20 @@ func (h *S3Handler) evaluateQuery(
 		// Default to CSV if nothing specified.
 		return evaluateCSVQuery(w, query, data, req)
 	}
+}
+
+// parseSQLSelectError checks if err is a known SQL-level select error (e.g. MissingSQLColumn)
+// and returns the AWS error code, message, and true if so.
+func parseSQLSelectError(err error) (string, string, bool) {
+	msg := err.Error()
+	for _, knownCode := range []string{"MissingSQLColumn", "ParseException", "InvalidExpressionType"} {
+		prefix := knownCode + ":"
+		if strings.HasPrefix(msg, prefix) {
+			return knownCode, strings.TrimSpace(msg[len(prefix):]), true
+		}
+	}
+
+	return "", "", false
 }
 
 // writeSelectErrorEvent writes an exception event into the event stream so the

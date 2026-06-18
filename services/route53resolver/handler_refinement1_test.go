@@ -654,3 +654,160 @@ func TestRefinement1_AssociateResolverEndpointIPAddress_Success(t *testing.T) {
 	require.True(t, ok)
 	assert.Len(t, ips, 1)
 }
+
+// --- Pagination: MaxResults + NextToken -----------------------------------------
+
+func TestRefinement1_ListResolverEndpoints_Pagination(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		maxResults int
+		wantLen    int
+		wantToken  bool
+	}{
+		{"MaxResults=1 limits to 1", 1, 1, true},
+		{"MaxResults=2 limits to 2", 2, 2, true},
+		{"MaxResults=100 returns all 3", 100, 3, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler(t)
+			for _, name := range []string{"ep-a", "ep-b", "ep-c"} {
+				doRequest(t, h, "CreateResolverEndpoint", map[string]any{"Name": name, "Direction": "INBOUND"})
+			}
+
+			rec := doRequest(t, h, "ListResolverEndpoints", map[string]any{"MaxResults": tt.maxResults})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			eps, _ := resp["ResolverEndpoints"].([]any)
+			assert.Len(t, eps, tt.wantLen)
+			nextToken, _ := resp["NextToken"].(string)
+			if tt.wantToken {
+				assert.NotEmpty(t, nextToken)
+			} else {
+				assert.Empty(t, nextToken)
+			}
+		})
+	}
+}
+
+func TestRefinement1_ListResolverRules_Pagination(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		maxResults int
+		wantLen    int
+		wantToken  bool
+	}{
+		{"MaxResults=1 limits to 1", 1, 1, true},
+		{"MaxResults=100 returns all 3", 100, 3, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler(t)
+			for _, d := range []string{"a.com", "b.com", "c.com"} {
+				doRequest(t, h, "CreateResolverRule", map[string]any{
+					"Name": "rule-" + d, "DomainName": d, "RuleType": "SYSTEM",
+				})
+			}
+
+			rec := doRequest(t, h, "ListResolverRules", map[string]any{"MaxResults": tt.maxResults})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			rules, _ := resp["ResolverRules"].([]any)
+			assert.Len(t, rules, tt.wantLen)
+			nextToken, _ := resp["NextToken"].(string)
+			if tt.wantToken {
+				assert.NotEmpty(t, nextToken)
+			} else {
+				assert.Empty(t, nextToken)
+			}
+		})
+	}
+}
+
+func TestRefinement1_ListFirewallRuleGroups_Pagination(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		maxResults int
+		wantLen    int
+		wantToken  bool
+	}{
+		{"MaxResults=1 limits to 1", 1, 1, true},
+		{"MaxResults=100 returns all 3", 100, 3, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler(t)
+			for _, name := range []string{"grp-a", "grp-b", "grp-c"} {
+				doRequest(t, h, "CreateFirewallRuleGroup", map[string]any{"Name": name})
+			}
+
+			rec := doRequest(t, h, "ListFirewallRuleGroups", map[string]any{"MaxResults": tt.maxResults})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			groups, _ := resp["FirewallRuleGroups"].([]any)
+			assert.Len(t, groups, tt.wantLen)
+			nextToken, _ := resp["NextToken"].(string)
+			if tt.wantToken {
+				assert.NotEmpty(t, nextToken)
+			} else {
+				assert.Empty(t, nextToken)
+			}
+		})
+	}
+}
+
+func TestRefinement1_ListResolverEndpoints_NextTokenContinuation(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	for _, name := range []string{"ep-x", "ep-y", "ep-z"} {
+		doRequest(t, h, "CreateResolverEndpoint", map[string]any{"Name": name, "Direction": "INBOUND"})
+	}
+
+	rec1 := doRequest(t, h, "ListResolverEndpoints", map[string]any{"MaxResults": 2})
+	require.Equal(t, http.StatusOK, rec1.Code)
+	var resp1 map[string]any
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1))
+	eps1, _ := resp1["ResolverEndpoints"].([]any)
+	require.Len(t, eps1, 2)
+	nextToken, _ := resp1["NextToken"].(string)
+	require.NotEmpty(t, nextToken)
+
+	rec2 := doRequest(t, h, "ListResolverEndpoints", map[string]any{
+		"MaxResults": 2,
+		"NextToken":  nextToken,
+	})
+	require.Equal(t, http.StatusOK, rec2.Code)
+	var resp2 map[string]any
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	eps2, _ := resp2["ResolverEndpoints"].([]any)
+	assert.NotEmpty(t, eps2)
+
+	names1 := make(map[string]bool)
+	for _, e := range eps1 {
+		em, _ := e.(map[string]any)
+		names1[em["Name"].(string)] = true
+	}
+	for _, e := range eps2 {
+		em, _ := e.(map[string]any)
+		assert.False(t, names1[em["Name"].(string)], "page 2 should not repeat page 1 items")
+	}
+}

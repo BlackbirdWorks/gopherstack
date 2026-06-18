@@ -1,6 +1,7 @@
 package resourcegroupstaggingapi_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -27,7 +28,7 @@ func seedResources(
 	b *resourcegroupstaggingapi.InMemoryBackend,
 	resources []resourcegroupstaggingapi.TaggedResource,
 ) {
-	b.RegisterProvider(func() []resourcegroupstaggingapi.TaggedResource {
+	b.RegisterProvider(func(_ context.Context) []resourcegroupstaggingapi.TaggedResource {
 		return resources
 	})
 }
@@ -39,11 +40,11 @@ func TestRefinement1_BackendReset(t *testing.T) {
 
 	b := newBackend(t)
 
-	b.RegisterProvider(func() []resourcegroupstaggingapi.TaggedResource {
+	b.RegisterProvider(func(_ context.Context) []resourcegroupstaggingapi.TaggedResource {
 		return []resourcegroupstaggingapi.TaggedResource{}
 	})
-	b.RegisterARNTagger(func(_ string, _ map[string]string) (bool, error) { return false, nil })
-	b.RegisterARNUntagger(func(_ string, _ []string) (bool, error) { return false, nil })
+	b.RegisterARNTagger(func(_ context.Context, _ string, _ map[string]string) (bool, error) { return false, nil })
+	b.RegisterARNUntagger(func(_ context.Context, _ string, _ []string) (bool, error) { return false, nil })
 	resourcegroupstaggingapi.AddReportStateInternal(b, "SUCCEEDED", "s3://bucket/path", "2025-01-01T00:00:00Z")
 
 	require.Equal(t, 1, resourcegroupstaggingapi.ProviderCount(b))
@@ -66,7 +67,7 @@ func TestRefinement1_HandlerReset(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	b.RegisterProvider(func() []resourcegroupstaggingapi.TaggedResource { return nil })
+	b.RegisterProvider(func(_ context.Context) []resourcegroupstaggingapi.TaggedResource { return nil })
 	resourcegroupstaggingapi.AddReportStateInternal(b, "SUCCEEDED", "s3://bucket/path", "2025-01-01T00:00:00Z")
 
 	h := resourcegroupstaggingapi.NewHandler(b)
@@ -148,7 +149,7 @@ func TestRefinement1_SnapshotClearsProvidersOnRestore(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	b.RegisterProvider(func() []resourcegroupstaggingapi.TaggedResource {
+	b.RegisterProvider(func(_ context.Context) []resourcegroupstaggingapi.TaggedResource {
 		return []resourcegroupstaggingapi.TaggedResource{}
 	})
 	require.Equal(t, 1, resourcegroupstaggingapi.ProviderCount(b))
@@ -183,7 +184,7 @@ func TestRefinement1_GetTagKeysPaginationToken(t *testing.T) {
 	})
 
 	tok := "ignored-token"
-	out := b.GetTagKeys(&resourcegroupstaggingapi.GetTagKeysInput{PaginationToken: &tok})
+	out := b.GetTagKeys(context.Background(), &resourcegroupstaggingapi.GetTagKeysInput{PaginationToken: &tok})
 
 	require.NotNil(t, out)
 	assert.Contains(t, out.TagKeys, "alpha")
@@ -193,7 +194,7 @@ func TestRefinement1_GetTagKeysEmpty(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	out := b.GetTagKeys(&resourcegroupstaggingapi.GetTagKeysInput{})
+	out := b.GetTagKeys(context.Background(), &resourcegroupstaggingapi.GetTagKeysInput{})
 
 	require.NotNil(t, out)
 	assert.Empty(t, out.TagKeys)
@@ -210,7 +211,7 @@ func TestRefinement1_GetTagValuesNilKey(t *testing.T) {
 	})
 
 	// Key is nil — no values should be returned.
-	out := b.GetTagValues(&resourcegroupstaggingapi.GetTagValuesInput{})
+	out := b.GetTagValues(context.Background(), &resourcegroupstaggingapi.GetTagValuesInput{})
 
 	require.NotNil(t, out)
 	assert.Empty(t, out.TagValues)
@@ -227,7 +228,7 @@ func TestRefinement1_GetTagValuesSorted(t *testing.T) {
 		{ResourceARN: "arn:3", Tags: map[string]string{"env": "dev"}},
 	})
 
-	out := b.GetTagValues(&resourcegroupstaggingapi.GetTagValuesInput{Key: &envKey})
+	out := b.GetTagValues(context.Background(), &resourcegroupstaggingapi.GetTagValuesInput{Key: &envKey})
 
 	require.NotNil(t, out)
 	assert.Equal(t, []string{"dev", "prod", "staging"}, out.TagValues)
@@ -243,7 +244,7 @@ func TestRefinement1_GetResourcesNonNilTagsSlice(t *testing.T) {
 		{ResourceARN: "arn:no-tags", ResourceType: "sqs:queue", Tags: map[string]string{}},
 	})
 
-	out, err := b.GetResources(&resourcegroupstaggingapi.GetResourcesInput{})
+	out, err := b.GetResources(context.Background(), &resourcegroupstaggingapi.GetResourcesInput{})
 
 	require.NoError(t, err)
 	require.Len(t, out.ResourceTagMappingList, 1)
@@ -261,14 +262,14 @@ func TestRefinement1_TagResourcesDeepCopyTags(t *testing.T) {
 
 	var receivedTags map[string]string
 
-	b.RegisterARNTagger(func(_ string, tags map[string]string) (bool, error) {
+	b.RegisterARNTagger(func(_ context.Context, _ string, tags map[string]string) (bool, error) {
 		receivedTags = tags
 
 		return true, nil
 	})
 
 	originalTags := map[string]string{"env": "prod"}
-	b.TagResources(&resourcegroupstaggingapi.TagResourcesInput{
+	b.TagResources(context.Background(), &resourcegroupstaggingapi.TagResourcesInput{
 		ResourceARNList: []string{"arn:aws:sqs:us-east-1:000000000000:q1"},
 		Tags:            originalTags,
 	})
@@ -286,7 +287,10 @@ func TestRefinement1_StartReportCreationSetsS3Location(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	_, err := b.StartReportCreation(&resourcegroupstaggingapi.StartReportCreationInput{S3Bucket: "report-bucket"})
+	_, err := b.StartReportCreation(
+		context.Background(),
+		&resourcegroupstaggingapi.StartReportCreationInput{S3Bucket: "report-bucket"},
+	)
 
 	require.NoError(t, err)
 	assert.Equal(t, "s3://report-bucket/AwsTagPolicies/report.csv", resourcegroupstaggingapi.ReportS3Location(b))
@@ -296,7 +300,10 @@ func TestRefinement1_StartReportCreationSetsSucceededStatus(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	_, err := b.StartReportCreation(&resourcegroupstaggingapi.StartReportCreationInput{S3Bucket: "bkt"})
+	_, err := b.StartReportCreation(
+		context.Background(),
+		&resourcegroupstaggingapi.StartReportCreationInput{S3Bucket: "bkt"},
+	)
 
 	require.NoError(t, err)
 	assert.Equal(t, "SUCCEEDED", resourcegroupstaggingapi.ReportStatus(b))
@@ -308,7 +315,10 @@ func TestRefinement1_StartReportCreationTimestampFromNowFunc(t *testing.T) {
 	b := newBackend(t)
 	resourcegroupstaggingapi.SetNowFunc(b, func() string { return "2025-12-31T23:59:59Z" })
 
-	_, err := b.StartReportCreation(&resourcegroupstaggingapi.StartReportCreationInput{S3Bucket: "bkt"})
+	_, err := b.StartReportCreation(
+		context.Background(),
+		&resourcegroupstaggingapi.StartReportCreationInput{S3Bucket: "bkt"},
+	)
 	require.NoError(t, err)
 
 	h := resourcegroupstaggingapi.NewHandler(b)
@@ -322,10 +332,16 @@ func TestRefinement1_StartReportCreationOverwritesPrevious(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	_, err := b.StartReportCreation(&resourcegroupstaggingapi.StartReportCreationInput{S3Bucket: "first"})
+	_, err := b.StartReportCreation(
+		context.Background(),
+		&resourcegroupstaggingapi.StartReportCreationInput{S3Bucket: "first"},
+	)
 	require.NoError(t, err)
 
-	_, err = b.StartReportCreation(&resourcegroupstaggingapi.StartReportCreationInput{S3Bucket: "second"})
+	_, err = b.StartReportCreation(
+		context.Background(),
+		&resourcegroupstaggingapi.StartReportCreationInput{S3Bucket: "second"},
+	)
 	require.NoError(t, err)
 
 	assert.Contains(t, resourcegroupstaggingapi.ReportS3Location(b), "second")
@@ -337,7 +353,7 @@ func TestRefinement1_DescribeReportCreationNoReport(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	out := b.DescribeReportCreation()
+	out := b.DescribeReportCreation(context.Background())
 
 	require.NotNil(t, out)
 	require.NotNil(t, out.Status)
@@ -350,10 +366,13 @@ func TestRefinement1_DescribeReportCreationAfterStart(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	_, err := b.StartReportCreation(&resourcegroupstaggingapi.StartReportCreationInput{S3Bucket: "my-bucket"})
+	_, err := b.StartReportCreation(
+		context.Background(),
+		&resourcegroupstaggingapi.StartReportCreationInput{S3Bucket: "my-bucket"},
+	)
 	require.NoError(t, err)
 
-	out := b.DescribeReportCreation()
+	out := b.DescribeReportCreation(context.Background())
 
 	require.NotNil(t, out)
 	require.NotNil(t, out.Status)
@@ -369,7 +388,7 @@ func TestRefinement1_GetComplianceSummaryEmptyList(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	out := b.GetComplianceSummary(&resourcegroupstaggingapi.GetComplianceSummaryInput{})
+	out := b.GetComplianceSummary(context.Background(), &resourcegroupstaggingapi.GetComplianceSummaryInput{})
 
 	require.NotNil(t, out)
 	assert.NotNil(t, out.SummaryList)
@@ -383,7 +402,7 @@ func TestRefinement1_ListRequiredTagsEmptyList(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	out := b.ListRequiredTags(&resourcegroupstaggingapi.ListRequiredTagsInput{})
+	out := b.ListRequiredTags(context.Background(), &resourcegroupstaggingapi.ListRequiredTagsInput{})
 
 	require.NotNil(t, out)
 	assert.NotNil(t, out.RequiredTags)

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -85,9 +86,6 @@ const (
 
 	// minSegmentsForResource is the minimum number of path segments for a resource op.
 	minSegmentsForResource = 2
-
-	// base10 is the radix for integer parsing in query string parameters.
-	base10 = 10
 )
 
 // Handler handles Roles Anywhere HTTP requests.
@@ -187,8 +185,14 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
+// regionFromRequest resolves the AWS region for a request from its SigV4
+// credential scope, falling back to the backend's default region.
+func (h *Handler) regionFromRequest(c *echo.Context) string {
+	return httputils.ExtractRegionFromRequest(c.Request(), h.Backend.Region())
+}
+
 func (h *Handler) handleREST(c *echo.Context) error {
-	ctx := c.Request().Context()
+	ctx := context.WithValue(c.Request().Context(), regionContextKey{}, h.regionFromRequest(c))
 	log := logger.Load(ctx)
 
 	op, _ := parseRESTPath(c.Request().Method, c.Request().URL.Path)
@@ -224,115 +228,60 @@ func (h *Handler) handleREST(c *echo.Context) error {
 }
 
 func (h *Handler) dispatch(
-	_ context.Context,
+	ctx context.Context,
 	op, path, query string,
 	body []byte,
 ) (any, int, error) {
-	if result, code, ok, err := h.dispatchTrustAnchorOps(op, path, query, body); ok {
+	// Trust anchor and profile share identical CRUD op sets; a map-based dispatch
+	// keeps cyclomatic complexity low while avoiding structurally-identical functions.
+	handlers := map[string]func() (any, int, error){
+		opCreateTrustAnchor:  func() (any, int, error) { return h.handleCreateTrustAnchor(ctx, body) },
+		opGetTrustAnchor:     func() (any, int, error) { return h.handleGetTrustAnchor(ctx, path) },
+		opListTrustAnchors:   func() (any, int, error) { return h.handleListTrustAnchors(ctx, query) },
+		opDeleteTrustAnchor:  func() (any, int, error) { return h.handleDeleteTrustAnchor(ctx, path) },
+		opUpdateTrustAnchor:  func() (any, int, error) { return h.handleUpdateTrustAnchor(ctx, path, body) },
+		opEnableTrustAnchor:  func() (any, int, error) { return h.handleEnableTrustAnchor(ctx, path) },
+		opDisableTrustAnchor: func() (any, int, error) { return h.handleDisableTrustAnchor(ctx, path) },
+		opCreateProfile:      func() (any, int, error) { return h.handleCreateProfile(ctx, body) },
+		opGetProfile:         func() (any, int, error) { return h.handleGetProfile(ctx, path) },
+		opListProfiles:       func() (any, int, error) { return h.handleListProfiles(ctx, query) },
+		opDeleteProfile:      func() (any, int, error) { return h.handleDeleteProfile(ctx, path) },
+		opUpdateProfile:      func() (any, int, error) { return h.handleUpdateProfile(ctx, path, body) },
+		opEnableProfile:      func() (any, int, error) { return h.handleEnableProfile(ctx, path) },
+		opDisableProfile:     func() (any, int, error) { return h.handleDisableProfile(ctx, path) },
+	}
+
+	if fn, ok := handlers[op]; ok {
+		return fn()
+	}
+
+	if result, code, ok, err := h.dispatchCrlOps(ctx, op, path, query, body); ok {
 		return result, code, err
 	}
 
-	if result, code, ok, err := h.dispatchProfileOps(op, path, query, body); ok {
+	if result, code, ok, err := h.dispatchSubjectOps(ctx, op, path, query); ok {
 		return result, code, err
 	}
 
-	if result, code, ok, err := h.dispatchCrlOps(op, path, query, body); ok {
+	if result, code, ok, err := h.dispatchMappingOps(ctx, op, path, query, body); ok {
 		return result, code, err
 	}
 
-	if result, code, ok, err := h.dispatchSubjectOps(op, path, query); ok {
+	if result, code, ok, err := h.dispatchNotificationOps(ctx, op, body); ok {
 		return result, code, err
 	}
 
-	if result, code, ok, err := h.dispatchMappingOps(op, path, query, body); ok {
-		return result, code, err
-	}
-
-	if result, code, ok, err := h.dispatchNotificationOps(op, body); ok {
-		return result, code, err
-	}
-
-	return h.dispatchTagOps(op, query, body)
+	return h.dispatchTagOps(ctx, op, query, body)
 }
 
-func (h *Handler) dispatchTrustAnchorOps(op, path, query string, body []byte) (any, int, bool, error) {
-	switch op {
-	case opCreateTrustAnchor:
-		r, c, e := h.handleCreateTrustAnchor(body)
-
-		return r, c, true, e
-	case opGetTrustAnchor:
-		r, c, e := h.handleGetTrustAnchor(path)
-
-		return r, c, true, e
-	case opListTrustAnchors:
-		r, c, e := h.handleListTrustAnchors(query)
-
-		return r, c, true, e
-	case opDeleteTrustAnchor:
-		c, e := h.handleDeleteTrustAnchor(path)
-
-		return nil, c, true, e
-	case opUpdateTrustAnchor:
-		r, c, e := h.handleUpdateTrustAnchor(path, body)
-
-		return r, c, true, e
-	case opEnableTrustAnchor:
-		r, c, e := h.handleEnableTrustAnchor(path)
-
-		return r, c, true, e
-	case opDisableTrustAnchor:
-		r, c, e := h.handleDisableTrustAnchor(path)
-
-		return r, c, true, e
-	}
-
-	return nil, 0, false, nil
-}
-
-func (h *Handler) dispatchProfileOps(op, path, query string, body []byte) (any, int, bool, error) {
-	switch op {
-	case opCreateProfile:
-		r, c, e := h.handleCreateProfile(body)
-
-		return r, c, true, e
-	case opGetProfile:
-		r, c, e := h.handleGetProfile(path)
-
-		return r, c, true, e
-	case opListProfiles:
-		r, c, e := h.handleListProfiles(query)
-
-		return r, c, true, e
-	case opDeleteProfile:
-		c, e := h.handleDeleteProfile(path)
-
-		return nil, c, true, e
-	case opUpdateProfile:
-		r, c, e := h.handleUpdateProfile(path, body)
-
-		return r, c, true, e
-	case opEnableProfile:
-		r, c, e := h.handleEnableProfile(path)
-
-		return r, c, true, e
-	case opDisableProfile:
-		r, c, e := h.handleDisableProfile(path)
-
-		return r, c, true, e
-	}
-
-	return nil, 0, false, nil
-}
-
-func (h *Handler) dispatchTagOps(op, query string, body []byte) (any, int, error) {
+func (h *Handler) dispatchTagOps(ctx context.Context, op, query string, body []byte) (any, int, error) {
 	switch op {
 	case opTagResource:
-		return h.handleTagResource(body)
+		return h.handleTagResource(ctx, body)
 	case opUntagResource:
-		return h.handleUntagResource(query)
+		return h.handleUntagResource(ctx, query)
 	case opListTagsForResource:
-		return h.handleListTagsForResource(query)
+		return h.handleListTagsForResource(ctx, query)
 	}
 
 	return nil, http.StatusNotFound, nil
@@ -340,7 +289,7 @@ func (h *Handler) dispatchTagOps(op, query string, body []byte) (any, int, error
 
 // ---- Trust Anchor handlers ----
 
-func (h *Handler) handleCreateTrustAnchor(body []byte) (any, int, error) {
+func (h *Handler) handleCreateTrustAnchor(ctx context.Context, body []byte) (any, int, error) {
 	var req struct {
 		Name   string            `json:"name"`
 		Source TrustAnchorSource `json:"source"`
@@ -351,7 +300,7 @@ func (h *Handler) handleCreateTrustAnchor(body []byte) (any, int, error) {
 		return nil, 0, ErrValidation
 	}
 
-	ta, err := h.Backend.CreateTrustAnchor(req.Name, req.Source, req.Tags)
+	ta, err := h.Backend.CreateTrustAnchor(ctx, req.Name, req.Source, req.Tags)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -359,10 +308,10 @@ func (h *Handler) handleCreateTrustAnchor(body []byte) (any, int, error) {
 	return map[string]any{keyTrustAnchor: trustAnchorToJSON(ta)}, http.StatusCreated, nil
 }
 
-func (h *Handler) handleGetTrustAnchor(path string) (any, int, error) {
+func (h *Handler) handleGetTrustAnchor(ctx context.Context, path string) (any, int, error) {
 	id := extractID(path, pathTrustanchor)
 
-	ta, err := h.Backend.GetTrustAnchor(id)
+	ta, err := h.Backend.GetTrustAnchor(ctx, id)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -370,10 +319,13 @@ func (h *Handler) handleGetTrustAnchor(path string) (any, int, error) {
 	return map[string]any{keyTrustAnchor: trustAnchorToJSON(ta)}, http.StatusOK, nil
 }
 
-func (h *Handler) handleListTrustAnchors(query string) (any, int, error) {
-	pageToken, maxResults := parsePageParams(query)
+func (h *Handler) handleListTrustAnchors(ctx context.Context, query string) (any, int, error) {
+	pageToken, maxResults, ppErr := parsePageParams(query)
+	if ppErr != nil {
+		return nil, 0, ppErr
+	}
 
-	all, next, err := h.Backend.ListTrustAnchors(pageToken, maxResults)
+	all, next, err := h.Backend.ListTrustAnchors(ctx, pageToken, maxResults)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -393,17 +345,17 @@ func (h *Handler) handleListTrustAnchors(query string) (any, int, error) {
 	return resp, http.StatusOK, nil
 }
 
-func (h *Handler) handleDeleteTrustAnchor(path string) (int, error) {
+func (h *Handler) handleDeleteTrustAnchor(ctx context.Context, path string) (any, int, error) {
 	id := extractID(path, pathTrustanchor)
 
-	if err := h.Backend.DeleteTrustAnchor(id); err != nil {
-		return 0, err
+	if err := h.Backend.DeleteTrustAnchor(ctx, id); err != nil {
+		return nil, 0, err
 	}
 
-	return http.StatusOK, nil
+	return nil, http.StatusOK, nil
 }
 
-func (h *Handler) handleUpdateTrustAnchor(path string, body []byte) (any, int, error) {
+func (h *Handler) handleUpdateTrustAnchor(ctx context.Context, path string, body []byte) (any, int, error) {
 	id := extractID(path, pathTrustanchor)
 
 	var req struct {
@@ -415,7 +367,7 @@ func (h *Handler) handleUpdateTrustAnchor(path string, body []byte) (any, int, e
 		return nil, 0, ErrValidation
 	}
 
-	ta, err := h.Backend.UpdateTrustAnchor(id, req.Name, req.Source)
+	ta, err := h.Backend.UpdateTrustAnchor(ctx, id, req.Name, req.Source)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -423,10 +375,10 @@ func (h *Handler) handleUpdateTrustAnchor(path string, body []byte) (any, int, e
 	return map[string]any{keyTrustAnchor: trustAnchorToJSON(ta)}, http.StatusOK, nil
 }
 
-func (h *Handler) handleEnableTrustAnchor(path string) (any, int, error) {
+func (h *Handler) handleEnableTrustAnchor(ctx context.Context, path string) (any, int, error) {
 	id := extractID(path, pathTrustanchor)
 
-	ta, err := h.Backend.EnableTrustAnchor(id)
+	ta, err := h.Backend.EnableTrustAnchor(ctx, id)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -434,10 +386,10 @@ func (h *Handler) handleEnableTrustAnchor(path string) (any, int, error) {
 	return map[string]any{keyTrustAnchor: trustAnchorToJSON(ta)}, http.StatusOK, nil
 }
 
-func (h *Handler) handleDisableTrustAnchor(path string) (any, int, error) {
+func (h *Handler) handleDisableTrustAnchor(ctx context.Context, path string) (any, int, error) {
 	id := extractID(path, pathTrustanchor)
 
-	ta, err := h.Backend.DisableTrustAnchor(id)
+	ta, err := h.Backend.DisableTrustAnchor(ctx, id)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -447,7 +399,7 @@ func (h *Handler) handleDisableTrustAnchor(path string) (any, int, error) {
 
 // ---- Profile handlers ----
 
-func (h *Handler) handleCreateProfile(body []byte) (any, int, error) {
+func (h *Handler) handleCreateProfile(ctx context.Context, body []byte) (any, int, error) {
 	var req struct {
 		DurationSeconds           *int32     `json:"durationSeconds"`
 		Name                      string     `json:"name"`
@@ -463,7 +415,7 @@ func (h *Handler) handleCreateProfile(body []byte) (any, int, error) {
 	}
 
 	p, err := h.Backend.CreateProfile(
-		req.Name, req.RoleArns, req.Tags,
+		ctx, req.Name, req.RoleArns, req.Tags,
 		req.DurationSeconds, req.ManagedPolicyArns,
 		req.SessionPolicy, req.RequireInstanceProperties,
 	)
@@ -474,10 +426,10 @@ func (h *Handler) handleCreateProfile(body []byte) (any, int, error) {
 	return map[string]any{keyProfile: profileToJSON(p)}, http.StatusCreated, nil
 }
 
-func (h *Handler) handleGetProfile(path string) (any, int, error) {
+func (h *Handler) handleGetProfile(ctx context.Context, path string) (any, int, error) {
 	id := extractID(path, pathProfile)
 
-	p, err := h.Backend.GetProfile(id)
+	p, err := h.Backend.GetProfile(ctx, id)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -485,10 +437,13 @@ func (h *Handler) handleGetProfile(path string) (any, int, error) {
 	return map[string]any{keyProfile: profileToJSON(p)}, http.StatusOK, nil
 }
 
-func (h *Handler) handleListProfiles(query string) (any, int, error) {
-	pageToken, maxResults := parsePageParams(query)
+func (h *Handler) handleListProfiles(ctx context.Context, query string) (any, int, error) {
+	pageToken, maxResults, ppErr := parsePageParams(query)
+	if ppErr != nil {
+		return nil, 0, ppErr
+	}
 
-	all, next, err := h.Backend.ListProfiles(pageToken, maxResults)
+	all, next, err := h.Backend.ListProfiles(ctx, pageToken, maxResults)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -508,17 +463,17 @@ func (h *Handler) handleListProfiles(query string) (any, int, error) {
 	return resp, http.StatusOK, nil
 }
 
-func (h *Handler) handleDeleteProfile(path string) (int, error) {
+func (h *Handler) handleDeleteProfile(ctx context.Context, path string) (any, int, error) {
 	id := extractID(path, pathProfile)
 
-	if err := h.Backend.DeleteProfile(id); err != nil {
-		return 0, err
+	if err := h.Backend.DeleteProfile(ctx, id); err != nil {
+		return nil, 0, err
 	}
 
-	return http.StatusOK, nil
+	return nil, http.StatusOK, nil
 }
 
-func (h *Handler) handleUpdateProfile(path string, body []byte) (any, int, error) {
+func (h *Handler) handleUpdateProfile(ctx context.Context, path string, body []byte) (any, int, error) {
 	id := extractID(path, pathProfile)
 
 	var req struct {
@@ -535,7 +490,7 @@ func (h *Handler) handleUpdateProfile(path string, body []byte) (any, int, error
 	}
 
 	p, err := h.Backend.UpdateProfile(
-		id, req.Name, req.RoleArns,
+		ctx, id, req.Name, req.RoleArns,
 		req.DurationSeconds, req.ManagedPolicyArns,
 		req.SessionPolicy, req.RequireInstanceProperties,
 	)
@@ -546,10 +501,10 @@ func (h *Handler) handleUpdateProfile(path string, body []byte) (any, int, error
 	return map[string]any{keyProfile: profileToJSON(p)}, http.StatusOK, nil
 }
 
-func (h *Handler) handleEnableProfile(path string) (any, int, error) {
+func (h *Handler) handleEnableProfile(ctx context.Context, path string) (any, int, error) {
 	id := extractID(path, pathProfile)
 
-	p, err := h.Backend.EnableProfile(id)
+	p, err := h.Backend.EnableProfile(ctx, id)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -557,10 +512,10 @@ func (h *Handler) handleEnableProfile(path string) (any, int, error) {
 	return map[string]any{keyProfile: profileToJSON(p)}, http.StatusOK, nil
 }
 
-func (h *Handler) handleDisableProfile(path string) (any, int, error) {
+func (h *Handler) handleDisableProfile(ctx context.Context, path string) (any, int, error) {
 	id := extractID(path, pathProfile)
 
-	p, err := h.Backend.DisableProfile(id)
+	p, err := h.Backend.DisableProfile(ctx, id)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -570,7 +525,7 @@ func (h *Handler) handleDisableProfile(path string) (any, int, error) {
 
 // ---- Tag handlers ----
 
-func (h *Handler) handleTagResource(body []byte) (any, int, error) {
+func (h *Handler) handleTagResource(ctx context.Context, body []byte) (any, int, error) {
 	var req struct {
 		ResourceArn string     `json:"resourceArn"`
 		Tags        []TagEntry `json:"tags"`
@@ -580,14 +535,14 @@ func (h *Handler) handleTagResource(body []byte) (any, int, error) {
 		return nil, 0, ErrValidation
 	}
 
-	if err := h.Backend.TagResource(req.ResourceArn, req.Tags); err != nil {
+	if err := h.Backend.TagResource(ctx, req.ResourceArn, req.Tags); err != nil {
 		return nil, 0, err
 	}
 
 	return nil, http.StatusOK, nil
 }
 
-func (h *Handler) handleUntagResource(query string) (any, int, error) {
+func (h *Handler) handleUntagResource(ctx context.Context, query string) (any, int, error) {
 	var resourceARN string
 
 	var tagKeys []string
@@ -602,14 +557,14 @@ func (h *Handler) handleUntagResource(query string) (any, int, error) {
 		}
 	}
 
-	if err := h.Backend.UntagResource(resourceARN, tagKeys); err != nil {
+	if err := h.Backend.UntagResource(ctx, resourceARN, tagKeys); err != nil {
 		return nil, 0, err
 	}
 
 	return nil, http.StatusOK, nil
 }
 
-func (h *Handler) handleListTagsForResource(query string) (any, int, error) {
+func (h *Handler) handleListTagsForResource(ctx context.Context, query string) (any, int, error) {
 	var resourceARN string
 
 	for part := range strings.SplitSeq(query, "&") {
@@ -618,7 +573,7 @@ func (h *Handler) handleListTagsForResource(query string) (any, int, error) {
 		}
 	}
 
-	tags, err := h.Backend.ListTagsForResource(resourceARN)
+	tags, err := h.Backend.ListTagsForResource(ctx, resourceARN)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -630,34 +585,34 @@ func (h *Handler) handleListTagsForResource(query string) (any, int, error) {
 	return map[string]any{keyTags: tags}, http.StatusOK, nil
 }
 
-func (h *Handler) dispatchCrlOps(op, path, query string, body []byte) (any, int, bool, error) {
+func (h *Handler) dispatchCrlOps(ctx context.Context, op, path, query string, body []byte) (any, int, bool, error) {
 	switch op {
 	case opImportCrl:
-		r, c, e := h.handleImportCrl(body)
+		r, c, e := h.handleImportCrl(ctx, body)
 
 		return r, c, true, e
 	case opGetCrl:
-		r, c, e := h.handleGetCrl(path)
+		r, c, e := h.handleGetCrl(ctx, path)
 
 		return r, c, true, e
 	case opListCrls:
-		r, c, e := h.handleListCrls(query)
+		r, c, e := h.handleListCrls(ctx, query)
 
 		return r, c, true, e
 	case opUpdateCrl:
-		r, c, e := h.handleUpdateCrl(path, body)
+		r, c, e := h.handleUpdateCrl(ctx, path, body)
 
 		return r, c, true, e
 	case opDeleteCrl:
-		r, c, e := h.handleDeleteCrl(path)
+		r, c, e := h.handleDeleteCrl(ctx, path)
 
 		return r, c, true, e
 	case opEnableCrl:
-		r, c, e := h.handleEnableCrl(path)
+		r, c, e := h.handleEnableCrl(ctx, path)
 
 		return r, c, true, e
 	case opDisableCrl:
-		r, c, e := h.handleDisableCrl(path)
+		r, c, e := h.handleDisableCrl(ctx, path)
 
 		return r, c, true, e
 	}
@@ -665,14 +620,14 @@ func (h *Handler) dispatchCrlOps(op, path, query string, body []byte) (any, int,
 	return nil, 0, false, nil
 }
 
-func (h *Handler) dispatchSubjectOps(op, path, query string) (any, int, bool, error) {
+func (h *Handler) dispatchSubjectOps(ctx context.Context, op, path, query string) (any, int, bool, error) {
 	switch op {
 	case opGetSubject:
-		r, c, e := h.handleGetSubject(path)
+		r, c, e := h.handleGetSubject(ctx, path)
 
 		return r, c, true, e
 	case opListSubjects:
-		r, c, e := h.handleListSubjects(query)
+		r, c, e := h.handleListSubjects(ctx, query)
 
 		return r, c, true, e
 	}
@@ -680,14 +635,14 @@ func (h *Handler) dispatchSubjectOps(op, path, query string) (any, int, bool, er
 	return nil, 0, false, nil
 }
 
-func (h *Handler) dispatchMappingOps(op, path, query string, body []byte) (any, int, bool, error) {
+func (h *Handler) dispatchMappingOps(ctx context.Context, op, path, query string, body []byte) (any, int, bool, error) {
 	switch op {
 	case opPutAttributeMapping:
-		r, c, e := h.handlePutAttributeMapping(path, body)
+		r, c, e := h.handlePutAttributeMapping(ctx, path, body)
 
 		return r, c, true, e
 	case opDeleteAttributeMapping:
-		r, c, e := h.handleDeleteAttributeMapping(path, query)
+		r, c, e := h.handleDeleteAttributeMapping(ctx, path, query)
 
 		return r, c, true, e
 	}
@@ -695,14 +650,14 @@ func (h *Handler) dispatchMappingOps(op, path, query string, body []byte) (any, 
 	return nil, 0, false, nil
 }
 
-func (h *Handler) dispatchNotificationOps(op string, body []byte) (any, int, bool, error) {
+func (h *Handler) dispatchNotificationOps(ctx context.Context, op string, body []byte) (any, int, bool, error) {
 	switch op {
 	case opPutNotificationSettings:
-		r, c, e := h.handlePutNotificationSettings(body)
+		r, c, e := h.handlePutNotificationSettings(ctx, body)
 
 		return r, c, true, e
 	case opResetNotificationSettings:
-		r, c, e := h.handleResetNotificationSettings(body)
+		r, c, e := h.handleResetNotificationSettings(ctx, body)
 
 		return r, c, true, e
 	}
@@ -712,7 +667,7 @@ func (h *Handler) dispatchNotificationOps(op string, body []byte) (any, int, boo
 
 // ---- CRL handlers ----
 
-func (h *Handler) handleImportCrl(body []byte) (any, int, error) {
+func (h *Handler) handleImportCrl(ctx context.Context, body []byte) (any, int, error) {
 	var req struct {
 		Enabled        *bool      `json:"enabled"`
 		Name           string     `json:"name"`
@@ -730,7 +685,7 @@ func (h *Handler) handleImportCrl(body []byte) (any, int, error) {
 		enabled = *req.Enabled
 	}
 
-	crl, err := h.Backend.ImportCrl(req.Name, req.CrlData, req.TrustAnchorArn, enabled, req.Tags)
+	crl, err := h.Backend.ImportCrl(ctx, req.Name, req.CrlData, req.TrustAnchorArn, enabled, req.Tags)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -738,10 +693,10 @@ func (h *Handler) handleImportCrl(body []byte) (any, int, error) {
 	return map[string]any{keyCrl: crlToJSON(crl)}, http.StatusCreated, nil
 }
 
-func (h *Handler) handleGetCrl(path string) (any, int, error) {
+func (h *Handler) handleGetCrl(ctx context.Context, path string) (any, int, error) {
 	id := extractID(path, pathCrl)
 
-	crl, err := h.Backend.GetCrl(id)
+	crl, err := h.Backend.GetCrl(ctx, id)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -749,10 +704,13 @@ func (h *Handler) handleGetCrl(path string) (any, int, error) {
 	return map[string]any{keyCrl: crlToJSON(crl)}, http.StatusOK, nil
 }
 
-func (h *Handler) handleListCrls(query string) (any, int, error) {
-	pageToken, maxResults := parsePageParams(query)
+func (h *Handler) handleListCrls(ctx context.Context, query string) (any, int, error) {
+	pageToken, maxResults, ppErr := parsePageParams(query)
+	if ppErr != nil {
+		return nil, 0, ppErr
+	}
 
-	all, next, err := h.Backend.ListCrls(pageToken, maxResults)
+	all, next, err := h.Backend.ListCrls(ctx, pageToken, maxResults)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -772,7 +730,7 @@ func (h *Handler) handleListCrls(query string) (any, int, error) {
 	return resp, http.StatusOK, nil
 }
 
-func (h *Handler) handleUpdateCrl(path string, body []byte) (any, int, error) {
+func (h *Handler) handleUpdateCrl(ctx context.Context, path string, body []byte) (any, int, error) {
 	id := extractID(path, pathCrl)
 
 	var req struct {
@@ -784,7 +742,7 @@ func (h *Handler) handleUpdateCrl(path string, body []byte) (any, int, error) {
 		return nil, 0, ErrValidation
 	}
 
-	crl, err := h.Backend.UpdateCrl(id, req.Name, req.CrlData)
+	crl, err := h.Backend.UpdateCrl(ctx, id, req.Name, req.CrlData)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -792,10 +750,10 @@ func (h *Handler) handleUpdateCrl(path string, body []byte) (any, int, error) {
 	return map[string]any{keyCrl: crlToJSON(crl)}, http.StatusOK, nil
 }
 
-func (h *Handler) handleDeleteCrl(path string) (any, int, error) {
+func (h *Handler) handleDeleteCrl(ctx context.Context, path string) (any, int, error) {
 	id := extractID(path, pathCrl)
 
-	crl, err := h.Backend.DeleteCrl(id)
+	crl, err := h.Backend.DeleteCrl(ctx, id)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -803,10 +761,10 @@ func (h *Handler) handleDeleteCrl(path string) (any, int, error) {
 	return map[string]any{keyCrl: crlToJSON(crl)}, http.StatusOK, nil
 }
 
-func (h *Handler) handleEnableCrl(path string) (any, int, error) {
+func (h *Handler) handleEnableCrl(ctx context.Context, path string) (any, int, error) {
 	id := extractID(path, pathCrl)
 
-	crl, err := h.Backend.EnableCrl(id)
+	crl, err := h.Backend.EnableCrl(ctx, id)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -814,10 +772,10 @@ func (h *Handler) handleEnableCrl(path string) (any, int, error) {
 	return map[string]any{keyCrl: crlToJSON(crl)}, http.StatusOK, nil
 }
 
-func (h *Handler) handleDisableCrl(path string) (any, int, error) {
+func (h *Handler) handleDisableCrl(ctx context.Context, path string) (any, int, error) {
 	id := extractID(path, pathCrl)
 
-	crl, err := h.Backend.DisableCrl(id)
+	crl, err := h.Backend.DisableCrl(ctx, id)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -827,10 +785,10 @@ func (h *Handler) handleDisableCrl(path string) (any, int, error) {
 
 // ---- Subject handlers ----
 
-func (h *Handler) handleGetSubject(path string) (any, int, error) {
+func (h *Handler) handleGetSubject(ctx context.Context, path string) (any, int, error) {
 	id := extractID(path, pathSubject)
 
-	s, err := h.Backend.GetSubject(id)
+	s, err := h.Backend.GetSubject(ctx, id)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -838,10 +796,13 @@ func (h *Handler) handleGetSubject(path string) (any, int, error) {
 	return map[string]any{keySubject: subjectToJSON(s)}, http.StatusOK, nil
 }
 
-func (h *Handler) handleListSubjects(query string) (any, int, error) {
-	pageToken, maxResults := parsePageParams(query)
+func (h *Handler) handleListSubjects(ctx context.Context, query string) (any, int, error) {
+	pageToken, maxResults, ppErr := parsePageParams(query)
+	if ppErr != nil {
+		return nil, 0, ppErr
+	}
 
-	all, next, err := h.Backend.ListSubjects(pageToken, maxResults)
+	all, next, err := h.Backend.ListSubjects(ctx, pageToken, maxResults)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -863,7 +824,7 @@ func (h *Handler) handleListSubjects(query string) (any, int, error) {
 
 // ---- Attribute mapping handlers ----
 
-func (h *Handler) handlePutAttributeMapping(path string, body []byte) (any, int, error) {
+func (h *Handler) handlePutAttributeMapping(ctx context.Context, path string, body []byte) (any, int, error) {
 	profileID := extractProfileIDFromMappingPath(path)
 
 	var req struct {
@@ -875,17 +836,17 @@ func (h *Handler) handlePutAttributeMapping(path string, body []byte) (any, int,
 		return nil, 0, ErrValidation
 	}
 
-	p, err := h.Backend.PutAttributeMapping(profileID, req.CertificateField, req.MappingRules)
+	p, err := h.Backend.PutAttributeMapping(ctx, profileID, req.CertificateField, req.MappingRules)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	mappings := h.Backend.GetAttributeMappings(profileID)
+	mappings := h.Backend.GetAttributeMappings(ctx, profileID)
 
 	return map[string]any{keyProfile: profileWithMappingsToJSON(p, mappings)}, http.StatusOK, nil
 }
 
-func (h *Handler) handleDeleteAttributeMapping(path, query string) (any, int, error) {
+func (h *Handler) handleDeleteAttributeMapping(ctx context.Context, path, query string) (any, int, error) {
 	profileID := extractProfileIDFromMappingPath(path)
 
 	var certificateField string
@@ -902,19 +863,19 @@ func (h *Handler) handleDeleteAttributeMapping(path, query string) (any, int, er
 		}
 	}
 
-	p, err := h.Backend.DeleteAttributeMapping(profileID, certificateField, specifiers)
+	p, err := h.Backend.DeleteAttributeMapping(ctx, profileID, certificateField, specifiers)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	mappings := h.Backend.GetAttributeMappings(profileID)
+	mappings := h.Backend.GetAttributeMappings(ctx, profileID)
 
 	return map[string]any{keyProfile: profileWithMappingsToJSON(p, mappings)}, http.StatusOK, nil
 }
 
 // ---- Notification settings handlers ----
 
-func (h *Handler) handlePutNotificationSettings(body []byte) (any, int, error) {
+func (h *Handler) handlePutNotificationSettings(ctx context.Context, body []byte) (any, int, error) {
 	var req struct {
 		TrustAnchorID        string                `json:"trustAnchorId"`
 		NotificationSettings []NotificationSetting `json:"notificationSettings"`
@@ -924,17 +885,17 @@ func (h *Handler) handlePutNotificationSettings(body []byte) (any, int, error) {
 		return nil, 0, ErrValidation
 	}
 
-	ta, err := h.Backend.PutNotificationSettings(req.TrustAnchorID, req.NotificationSettings)
+	ta, err := h.Backend.PutNotificationSettings(ctx, req.TrustAnchorID, req.NotificationSettings)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	settings := h.Backend.GetNotificationSettings(req.TrustAnchorID)
+	settings := h.Backend.GetNotificationSettings(ctx, req.TrustAnchorID)
 
 	return map[string]any{keyTrustAnchor: trustAnchorWithSettingsToJSON(ta, settings)}, http.StatusOK, nil
 }
 
-func (h *Handler) handleResetNotificationSettings(body []byte) (any, int, error) {
+func (h *Handler) handleResetNotificationSettings(ctx context.Context, body []byte) (any, int, error) {
 	var req struct {
 		TrustAnchorID           string                   `json:"trustAnchorId"`
 		NotificationSettingKeys []NotificationSettingKey `json:"notificationSettingKeys"`
@@ -944,12 +905,12 @@ func (h *Handler) handleResetNotificationSettings(body []byte) (any, int, error)
 		return nil, 0, ErrValidation
 	}
 
-	ta, err := h.Backend.ResetNotificationSettings(req.TrustAnchorID, req.NotificationSettingKeys)
+	ta, err := h.Backend.ResetNotificationSettings(ctx, req.TrustAnchorID, req.NotificationSettingKeys)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	settings := h.Backend.GetNotificationSettings(req.TrustAnchorID)
+	settings := h.Backend.GetNotificationSettings(ctx, req.TrustAnchorID)
 
 	return map[string]any{keyTrustAnchor: trustAnchorWithSettingsToJSON(ta, settings)}, http.StatusOK, nil
 }
@@ -1231,7 +1192,7 @@ func extractID(path, prefix string) string {
 }
 
 // parsePageParams extracts nextToken and maxResults from a query string.
-func parsePageParams(query string) (string, int) {
+func parsePageParams(query string) (string, int, error) {
 	var nextToken string
 
 	var maxResults int
@@ -1242,19 +1203,22 @@ func parsePageParams(query string) (string, int) {
 		}
 
 		if after, ok := strings.CutPrefix(part, "maxResults="); ok {
-			var n int
+			if after == "" {
+				continue
+			}
 
-			for _, c := range after {
-				if c >= '0' && c <= '9' {
-					n = n*base10 + int(c-'0')
-				}
+			// AWS rejects a non-numeric maxResults with ValidationException
+			// rather than silently coercing it to zero / dropping non-digits.
+			n, err := strconv.Atoi(after)
+			if err != nil || n < 0 {
+				return "", 0, ErrValidation
 			}
 
 			maxResults = n
 		}
 	}
 
-	return nextToken, maxResults
+	return nextToken, maxResults, nil
 }
 
 // ---- JSON serialization ----

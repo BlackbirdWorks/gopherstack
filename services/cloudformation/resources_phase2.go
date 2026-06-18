@@ -190,7 +190,7 @@ func (rc *ResourceCreator) createElastiCacheReplicationGroup(
 
 	description := strProp(props, "ReplicationGroupDescription", params, physicalIDs)
 
-	rg, err := rc.backends.ElastiCache.Backend.CreateReplicationGroup(id, description)
+	rg, err := rc.backends.ElastiCache.Backend.CreateReplicationGroup(context.Background(), id, description)
 	if err != nil {
 		return "", fmt.Errorf("create ElastiCache replication group %s: %w", id, err)
 	}
@@ -203,7 +203,7 @@ func (rc *ResourceCreator) deleteElastiCacheReplicationGroup(_ context.Context, 
 		return nil
 	}
 
-	return rc.backends.ElastiCache.Backend.DeleteReplicationGroup(id)
+	return rc.backends.ElastiCache.Backend.DeleteReplicationGroup(context.Background(), id)
 }
 
 func (rc *ResourceCreator) createElastiCacheSubnetGroup(
@@ -231,7 +231,7 @@ func (rc *ResourceCreator) createElastiCacheSubnetGroup(
 		}
 	}
 
-	grp, err := rc.backends.ElastiCache.Backend.CreateSubnetGroup(name, description, subnetIDs)
+	grp, err := rc.backends.ElastiCache.Backend.CreateSubnetGroup(context.Background(), name, description, subnetIDs)
 	if err != nil {
 		return "", fmt.Errorf("create ElastiCache subnet group %s: %w", name, err)
 	}
@@ -244,7 +244,7 @@ func (rc *ResourceCreator) deleteElastiCacheSubnetGroup(name string) error {
 		return nil
 	}
 
-	return rc.backends.ElastiCache.Backend.DeleteSubnetGroup(name)
+	return rc.backends.ElastiCache.Backend.DeleteSubnetGroup(context.Background(), name)
 }
 
 // ---- Route53 HealthCheck ----
@@ -850,6 +850,7 @@ func (rc *ResourceCreator) createRoute53ResolverEndpoint(
 	}
 
 	ep, err := rc.backends.Route53Resolver.Backend.CreateResolverEndpoint(
+		context.Background(),
 		name,
 		direction,
 		"",
@@ -873,7 +874,7 @@ func (rc *ResourceCreator) deleteRoute53ResolverEndpoint(id string) error {
 		return nil
 	}
 
-	return rc.backends.Route53Resolver.Backend.DeleteResolverEndpoint(id)
+	return rc.backends.Route53Resolver.Backend.DeleteResolverEndpoint(context.Background(), id)
 }
 
 func (rc *ResourceCreator) createRoute53ResolverRule(
@@ -898,7 +899,15 @@ func (rc *ResourceCreator) createRoute53ResolverRule(
 
 	endpointID := strProp(props, "ResolverEndpointId", params, physicalIDs)
 
-	rule, err := rc.backends.Route53Resolver.Backend.CreateResolverRule(name, domainName, ruleType, endpointID, "", nil)
+	rule, err := rc.backends.Route53Resolver.Backend.CreateResolverRule(
+		context.Background(),
+		name,
+		domainName,
+		ruleType,
+		endpointID,
+		"",
+		nil,
+	)
 	if err != nil {
 		return "", fmt.Errorf("create Route53Resolver rule %s: %w", name, err)
 	}
@@ -911,7 +920,7 @@ func (rc *ResourceCreator) deleteRoute53ResolverRule(id string) error {
 		return nil
 	}
 
-	return rc.backends.Route53Resolver.Backend.DeleteResolverRule(id)
+	return rc.backends.Route53Resolver.Backend.DeleteResolverRule(context.Background(), id)
 }
 
 // ---- SWF ----
@@ -1056,6 +1065,7 @@ func (rc *ResourceCreator) createACMCertificate(
 	}
 
 	cert, err := rc.backends.ACM.Backend.RequestCertificate(
+		context.Background(),
 		domainName,
 		"AMAZON_ISSUED",
 		validationMethod,
@@ -1077,7 +1087,7 @@ func (rc *ResourceCreator) deleteACMCertificate(arn string) error {
 		return nil
 	}
 
-	return rc.backends.ACM.Backend.DeleteCertificate(arn)
+	return rc.backends.ACM.Backend.DeleteCertificate(context.Background(), arn)
 }
 
 // ---- Cognito ----

@@ -98,26 +98,32 @@ func (j *Janitor) sweepInactiveJobDefinitions(ctx context.Context) {
 
 	var swept []string
 
-	for arnKey, jd := range j.Backend.jobDefinitions {
-		if jd.Status == jobDefStatusInactive && jd.DeregisteredAt != nil && jd.DeregisteredAt.Before(cutoff) {
-			swept = append(swept, arnKey)
-			delete(j.Backend.jobDefinitions, arnKey)
+	// Job definitions are nested by region; sweep each region independently so
+	// expired INACTIVE definitions and orphaned revision counters are cleaned up
+	// per region.
+	for region, defs := range j.Backend.jobDefinitions {
+		for arnKey, jd := range defs {
+			if jd.Status == jobDefStatusInactive && jd.DeregisteredAt != nil && jd.DeregisteredAt.Before(cutoff) {
+				swept = append(swept, arnKey)
+				delete(defs, arnKey)
+			}
 		}
-	}
 
-	// Remove revision counters for names that no longer have any definition
-	// (ACTIVE or INACTIVE). This prevents the jobDefRevisions map from growing
-	// without bound as job definition names cycle through their lifetimes.
-	// Build a set of names with surviving definitions first for O(n+m) complexity.
-	surviving := make(map[string]struct{}, len(j.Backend.jobDefinitions))
+		// Remove revision counters for names that no longer have any definition
+		// (ACTIVE or INACTIVE) in this region. This prevents the jobDefRevisions
+		// map from growing without bound as job definition names cycle through
+		// their lifetimes. Build a set of surviving names first for O(n+m).
+		surviving := make(map[string]struct{}, len(defs))
 
-	for _, jd := range j.Backend.jobDefinitions {
-		surviving[jd.JobDefinitionName] = struct{}{}
-	}
+		for _, jd := range defs {
+			surviving[jd.JobDefinitionName] = struct{}{}
+		}
 
-	for name := range j.Backend.jobDefRevisions {
-		if _, ok := surviving[name]; !ok {
-			delete(j.Backend.jobDefRevisions, name)
+		revisions := j.Backend.jobDefRevisions[region]
+		for name := range revisions {
+			if _, ok := surviving[name]; !ok {
+				delete(revisions, name)
+			}
 		}
 	}
 
@@ -146,18 +152,25 @@ func (j *Janitor) sweepCompletedJobs(ctx context.Context) {
 
 	var swept []string
 
-	for id, job := range j.Backend.jobs {
-		if !isTerminalJobStatus(job.Status) {
-			continue
-		}
+	// Jobs are nested by region; sweep completed/failed jobs in every region.
+	for region, jobs := range j.Backend.jobs {
+		for id, job := range jobs {
+			if !isTerminalJobStatus(job.Status) {
+				continue
+			}
 
-		if job.StoppedAt == nil {
-			continue
-		}
+			if job.StoppedAt == nil {
+				continue
+			}
 
-		if *job.StoppedAt < cutoffMs {
-			swept = append(swept, id)
-			delete(j.Backend.jobs, id)
+			if *job.StoppedAt < cutoffMs {
+				swept = append(swept, id)
+				delete(jobs, id)
+
+				if jobsByARN := j.Backend.jobsByARN[region]; jobsByARN != nil {
+					delete(jobsByARN, job.JobARN)
+				}
+			}
 		}
 	}
 

@@ -302,11 +302,11 @@ func (b *InMemoryBackend) CreateNetworkACL(vpcID string) (*StoredNetworkACL, err
 			// AWS default: deny all inbound and outbound
 			{
 				RuleNumber: naclDefaultDenyRuleNumber, Protocol: "-1",
-				CIDRBlock: "0.0.0.0/0", RuleAction: "deny", Egress: false,
+				CIDRBlock: cidrAllIPv4, RuleAction: "deny", Egress: false,
 			},
 			{
 				RuleNumber: naclDefaultDenyRuleNumber, Protocol: "-1",
-				CIDRBlock: "0.0.0.0/0", RuleAction: "deny", Egress: true,
+				CIDRBlock: cidrAllIPv4, RuleAction: "deny", Egress: true,
 			},
 		},
 	}

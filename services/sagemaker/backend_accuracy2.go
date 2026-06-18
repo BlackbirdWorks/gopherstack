@@ -110,7 +110,7 @@ type TransformJobOptions struct {
 }
 
 // CreateTransformJob creates a new batch transform job.
-func (b *InMemoryBackend) CreateTransformJob(opts TransformJobOptions) (*TransformJob, error) {
+func (b *InMemoryBackend) CreateTransformJob(ctx context.Context, opts TransformJobOptions) (*TransformJob, error) {
 	if opts.TransformJobName == "" {
 		return nil, fmt.Errorf("%w: TransformJobName is required", ErrValidation)
 	}
@@ -118,10 +118,12 @@ func (b *InMemoryBackend) CreateTransformJob(opts TransformJobOptions) (*Transfo
 		return nil, fmt.Errorf("%w: ModelName is required", ErrValidation)
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("CreateTransformJob")
 	defer b.mu.Unlock()
 
-	if _, ok := b.transformJobs[opts.TransformJobName]; ok {
+	if _, ok := b.transformJobsStore(region)[opts.TransformJobName]; ok {
 		return nil, fmt.Errorf(
 			"%w: transform job %s already exists",
 			ErrTransformJobAlreadyExists,
@@ -131,7 +133,7 @@ func (b *InMemoryBackend) CreateTransformJob(opts TransformJobOptions) (*Transfo
 
 	jobARN := arn.Build(
 		"sagemaker",
-		b.region,
+		region,
 		b.accountID,
 		"transform-job/"+opts.TransformJobName,
 	)
@@ -154,21 +156,23 @@ func (b *InMemoryBackend) CreateTransformJob(opts TransformJobOptions) (*Transfo
 		CreationTime:            now,
 		LastModifiedTime:        now,
 	}
-	b.transformJobs[opts.TransformJobName] = tj
-	b.transformJobARNIndex[jobARN] = opts.TransformJobName
+	b.transformJobsStore(region)[opts.TransformJobName] = tj
+	b.transformJobARNIndexStore(region)[jobARN] = opts.TransformJobName
 
 	b.runDelayed(b.lifecycleCtx, transformJobCompletionDelay, func() {
-		b.applyTransformJobCompletion(context.Background(), opts.TransformJobName)
+		b.applyTransformJobCompletion(ctx, opts.TransformJobName)
 	})
 
 	return cloneTransformJob(tj), nil
 }
 
-func (b *InMemoryBackend) applyTransformJobCompletion(_ context.Context, name string) {
+func (b *InMemoryBackend) applyTransformJobCompletion(ctx context.Context, name string) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("applyTransformJobCompletion")
 	defer b.mu.Unlock()
 
-	tj, ok := b.transformJobs[name]
+	tj, ok := b.transformJobsStore(region)[name]
 	if !ok || tj.TransformJobStatus != trainingJobStatusInProgress {
 		return
 	}
@@ -180,11 +184,13 @@ func (b *InMemoryBackend) applyTransformJobCompletion(_ context.Context, name st
 }
 
 // DescribeTransformJob returns a transform job by name.
-func (b *InMemoryBackend) DescribeTransformJob(name string) (*TransformJob, error) {
+func (b *InMemoryBackend) DescribeTransformJob(ctx context.Context, name string) (*TransformJob, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("DescribeTransformJob")
 	defer b.mu.RUnlock()
 
-	tj, ok := b.transformJobs[name]
+	tj, ok := b.transformJobsStore(region)[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: transform job %q not found", ErrTransformJobNotFound, name)
 	}
@@ -193,11 +199,13 @@ func (b *InMemoryBackend) DescribeTransformJob(name string) (*TransformJob, erro
 }
 
 // StopTransformJob transitions a transform job to Stopping then Stopped.
-func (b *InMemoryBackend) StopTransformJob(name string) error {
+func (b *InMemoryBackend) StopTransformJob(ctx context.Context, name string) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("StopTransformJob")
 	defer b.mu.Unlock()
 
-	tj, ok := b.transformJobs[name]
+	tj, ok := b.transformJobsStore(region)[name]
 	if !ok {
 		return fmt.Errorf("%w: transform job %q not found", ErrTransformJobNotFound, name)
 	}
@@ -216,7 +224,7 @@ func (b *InMemoryBackend) StopTransformJob(name string) error {
 	b.runDelayed(b.lifecycleCtx, transformJobStoppingDelay, func() {
 		b.mu.Lock("StopTransformJob.goroutine")
 		defer b.mu.Unlock()
-		if tj2, found := b.transformJobs[name]; found && tj2.TransformJobStatus == pipelineStatusStopping {
+		if tj2, found := b.transformJobsStore(region)[name]; found && tj2.TransformJobStatus == pipelineStatusStopping {
 			tj2.TransformJobStatus = "Stopped"
 			tj2.LastModifiedTime = time.Now()
 		}
@@ -233,15 +241,18 @@ type ListTransformJobsFilter struct {
 
 // ListTransformJobs returns transform jobs sorted by name with optional pagination.
 func (b *InMemoryBackend) ListTransformJobs(
+	ctx context.Context,
 	nextToken string,
 	filter ListTransformJobsFilter,
 ) ([]*TransformJob, string) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("ListTransformJobs")
 	defer b.mu.RUnlock()
 
-	list := make([]*TransformJob, 0, len(b.transformJobs))
+	list := make([]*TransformJob, 0, len(b.transformJobsStore(region)))
 
-	for _, tj := range b.transformJobs {
+	for _, tj := range b.transformJobsStore(region) {
 		if filter.StatusEquals != "" && tj.TransformJobStatus != filter.StatusEquals {
 			continue
 		}

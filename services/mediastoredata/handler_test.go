@@ -22,7 +22,7 @@ import (
 func newTestHandler(t *testing.T) *mediastoredata.Handler {
 	t.Helper()
 
-	return mediastoredata.NewHandler(mediastoredata.NewInMemoryBackend())
+	return mediastoredata.NewHandler(mediastoredata.NewInMemoryBackend("us-east-1"))
 }
 
 func doRequest(

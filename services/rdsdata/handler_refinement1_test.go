@@ -2,6 +2,7 @@ package rdsdata_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -36,10 +37,18 @@ func TestRefinement1_BackendReset(t *testing.T) {
 
 	b := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
 
-	_, err := b.BeginTransaction("arn:aws:rds:us-east-1:000000000000:cluster:test")
+	_, err := b.BeginTransaction(
+		context.Background(),
+		"arn:aws:rds:us-east-1:000000000000:cluster:test",
+	)
 	require.NoError(t, err)
 
-	_, _, _, err = b.ExecuteStatement("arn:aws:rds:us-east-1:000000000000:cluster:test", "SELECT 1", "")
+	_, _, _, err = b.ExecuteStatement(
+		context.Background(),
+		"arn:aws:rds:us-east-1:000000000000:cluster:test",
+		"SELECT 1",
+		"",
+	)
 	require.NoError(t, err)
 
 	b.Reset()
@@ -55,7 +64,10 @@ func TestRefinement1_HandlerReset(t *testing.T) {
 	b := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
 	h := rdsdata.NewHandler(b)
 
-	_, err := b.BeginTransaction("arn:aws:rds:us-east-1:000000000000:cluster:test")
+	_, err := b.BeginTransaction(
+		context.Background(),
+		"arn:aws:rds:us-east-1:000000000000:cluster:test",
+	)
 	require.NoError(t, err)
 
 	h.Reset()
@@ -69,10 +81,18 @@ func TestRefinement1_Snapshot_Restore(t *testing.T) {
 
 	b := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
 
-	_, err := b.BeginTransaction("arn:aws:rds:us-east-1:000000000000:cluster:test")
+	_, err := b.BeginTransaction(
+		context.Background(),
+		"arn:aws:rds:us-east-1:000000000000:cluster:test",
+	)
 	require.NoError(t, err)
 
-	_, _, _, err = b.ExecuteStatement("arn:aws:rds:us-east-1:000000000000:cluster:test", "SELECT 42", "")
+	_, _, _, err = b.ExecuteStatement(
+		context.Background(),
+		"arn:aws:rds:us-east-1:000000000000:cluster:test",
+		"SELECT 42",
+		"",
+	)
 	require.NoError(t, err)
 
 	snap := b.Snapshot()
@@ -84,7 +104,7 @@ func TestRefinement1_Snapshot_Restore(t *testing.T) {
 	assert.Equal(t, 1, rdsdata.TransactionCount(b2))
 	assert.Equal(t, 1, rdsdata.ExecutedStatementCount(b2))
 
-	stmts := b2.ListExecutedStatements()
+	stmts := b2.ListExecutedStatements(context.Background())
 	require.Len(t, stmts, 1)
 	assert.Equal(t, "SELECT 42", stmts[0].SQL)
 }
@@ -120,7 +140,7 @@ func TestRefinement1_AddTransactionInternal(t *testing.T) {
 	b := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
 	b.AddTransactionInternal("txn-seeded")
 
-	txns := b.ListTransactions()
+	txns := b.ListTransactions(context.Background())
 	assert.Contains(t, txns, "txn-seeded")
 }
 
@@ -131,7 +151,7 @@ func TestRefinement1_ExecutedStatementCount(t *testing.T) {
 	b := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
 	assert.Equal(t, 0, rdsdata.ExecutedStatementCount(b))
 
-	_, _, _, err := b.ExecuteStatement("arn", "SELECT 1", "")
+	_, _, _, err := b.ExecuteStatement(context.Background(), "arn", "SELECT 1", "")
 	require.NoError(t, err)
 	assert.Equal(t, 1, rdsdata.ExecutedStatementCount(b))
 }
@@ -143,7 +163,7 @@ func TestRefinement1_TransactionCount(t *testing.T) {
 	b := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
 	assert.Equal(t, 0, rdsdata.TransactionCount(b))
 
-	_, err := b.BeginTransaction("arn")
+	_, err := b.BeginTransaction(context.Background(), "arn")
 	require.NoError(t, err)
 	assert.Equal(t, 1, rdsdata.TransactionCount(b))
 }
@@ -154,10 +174,10 @@ func TestRefinement1_CommitTransaction_StatusConstant(t *testing.T) {
 
 	b := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
 
-	txID, err := b.BeginTransaction("arn")
+	txID, err := b.BeginTransaction(context.Background(), "arn")
 	require.NoError(t, err)
 
-	status, err := b.CommitTransaction(txID)
+	status, err := b.CommitTransaction(context.Background(), txID)
 	require.NoError(t, err)
 	assert.Equal(t, "Transaction committed", status)
 }
@@ -168,10 +188,10 @@ func TestRefinement1_RollbackTransaction_StatusConstant(t *testing.T) {
 
 	b := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
 
-	txID, err := b.BeginTransaction("arn")
+	txID, err := b.BeginTransaction(context.Background(), "arn")
 	require.NoError(t, err)
 
-	status, err := b.RollbackTransaction(txID)
+	status, err := b.RollbackTransaction(context.Background(), txID)
 	require.NoError(t, err)
 	assert.Equal(t, "Transaction rolled back", status)
 }
@@ -213,7 +233,7 @@ func TestRefinement1_ExecuteSQL_TracksStatement(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, 1, rdsdata.ExecutedStatementCount(b))
 
-	stmts := b.ListExecutedStatements()
+	stmts := b.ListExecutedStatements(context.Background())
 	require.Len(t, stmts, 1)
 	assert.Equal(t, "SELECT 99", stmts[0].SQL)
 }
@@ -409,19 +429,19 @@ func TestRefinement1_MultipleTransactions(t *testing.T) {
 
 	b := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
 
-	tx1, err := b.BeginTransaction("arn1")
+	tx1, err := b.BeginTransaction(context.Background(), "arn1")
 	require.NoError(t, err)
-	tx2, err := b.BeginTransaction("arn1")
+	tx2, err := b.BeginTransaction(context.Background(), "arn1")
 	require.NoError(t, err)
 
 	assert.NotEqual(t, tx1, tx2)
 	assert.Equal(t, 2, rdsdata.TransactionCount(b))
 
-	_, err = b.CommitTransaction(tx1)
+	_, err = b.CommitTransaction(context.Background(), tx1)
 	require.NoError(t, err)
 	assert.Equal(t, 1, rdsdata.TransactionCount(b))
 
-	_, err = b.RollbackTransaction(tx2)
+	_, err = b.RollbackTransaction(context.Background(), tx2)
 	require.NoError(t, err)
 	assert.Equal(t, 0, rdsdata.TransactionCount(b))
 }
@@ -434,7 +454,7 @@ func TestRefinement1_Snapshot_PreservesCounter(t *testing.T) {
 
 	// Create 3 transactions so counter is at 3.
 	for range 3 {
-		_, err := b.BeginTransaction("arn")
+		_, err := b.BeginTransaction(context.Background(), "arn")
 		require.NoError(t, err)
 	}
 
@@ -445,7 +465,7 @@ func TestRefinement1_Snapshot_PreservesCounter(t *testing.T) {
 	require.NoError(t, b2.Restore(snap))
 
 	// After restore, the next transaction ID should continue from 4.
-	txID, err := b2.BeginTransaction("arn")
+	txID, err := b2.BeginTransaction(context.Background(), "arn")
 	require.NoError(t, err)
 	assert.Equal(t, "txn-000004", txID)
 }
@@ -495,7 +515,7 @@ func TestRefinement1_ListExecutedStatements_Empty(t *testing.T) {
 	t.Parallel()
 
 	b := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
-	stmts := b.ListExecutedStatements()
+	stmts := b.ListExecutedStatements(context.Background())
 	assert.NotNil(t, stmts)
 	assert.Empty(t, stmts)
 }
@@ -505,7 +525,7 @@ func TestRefinement1_ListTransactions_Empty(t *testing.T) {
 	t.Parallel()
 
 	b := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
-	txns := b.ListTransactions()
+	txns := b.ListTransactions(context.Background())
 	assert.NotNil(t, txns)
 	assert.Empty(t, txns)
 }

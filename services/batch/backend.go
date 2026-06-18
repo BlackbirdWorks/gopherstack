@@ -1,6 +1,7 @@
 package batch
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"maps"
@@ -20,6 +21,18 @@ import (
 const (
 	statusValid = "VALID"
 )
+
+// regionContextKey is the context key under which the per-request AWS region is stored.
+type regionContextKey struct{}
+
+// getRegion extracts the region from ctx, falling back to defaultRegion when unset.
+func getRegion(ctx context.Context, defaultRegion string) string {
+	if r, ok := ctx.Value(regionContextKey{}).(string); ok && r != "" {
+		return r
+	}
+
+	return defaultRegion
+}
 
 var (
 	// ErrNotFound is returned when a requested resource does not exist.
@@ -685,19 +698,23 @@ type FrontOfQueueJob struct {
 }
 
 // InMemoryBackend stores AWS Batch state in memory.
+//
+// All resource maps (including the cross-index maps jobsByQueue, jobsByARN and
+// schedulingPolicyByName) are nested by region (outer key = region) so that
+// same-named resources in different regions are fully isolated.
 type InMemoryBackend struct {
-	computeEnvironments    map[string]*ComputeEnvironment
-	jobQueues              map[string]*JobQueue
-	jobDefinitions         map[string]*JobDefinition
-	jobs                   map[string]*Job     // job ID → Job
-	jobsByQueue            map[string][]string // queue name → []jobID
-	jobDefRevisions        map[string]int32
-	consumableResources    map[string]*ConsumableResource
-	schedulingPolicies     map[string]*SchedulingPolicy // ARN → SchedulingPolicy
-	serviceEnvironments    map[string]*ServiceEnvironment
-	serviceJobs            map[string]*ServiceJob // serviceJobID → ServiceJob
-	schedulingPolicyByName map[string]string      // name → ARN
-	jobsByARN              map[string]string      // job ARN → job ID
+	computeEnvironments    map[string]map[string]*ComputeEnvironment // region → name → CE
+	jobQueues              map[string]map[string]*JobQueue           // region → name → JQ
+	jobDefinitions         map[string]map[string]*JobDefinition      // region → ARN → JobDefinition
+	jobs                   map[string]map[string]*Job                // region → job ID → Job
+	jobsByQueue            map[string]map[string][]string            // region → queue name → []jobID
+	jobDefRevisions        map[string]map[string]int32               // region → name → revision counter
+	consumableResources    map[string]map[string]*ConsumableResource // region → name → CR
+	schedulingPolicies     map[string]map[string]*SchedulingPolicy   // region → ARN → SchedulingPolicy
+	serviceEnvironments    map[string]map[string]*ServiceEnvironment // region → name → SE
+	serviceJobs            map[string]map[string]*ServiceJob         // region → serviceJobID → ServiceJob
+	schedulingPolicyByName map[string]map[string]string              // region → name → ARN
+	jobsByARN              map[string]map[string]string              // region → job ARN → job ID
 	// ARN indexes for O(1) ARN-based lookups instead of linear scans.
 	cesByARN map[string]string // CE ARN → CE name
 	jqsByARN map[string]string // JQ ARN → JQ name
@@ -712,27 +729,133 @@ type InMemoryBackend struct {
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		computeEnvironments:    make(map[string]*ComputeEnvironment),
-		jobQueues:              make(map[string]*JobQueue),
-		jobDefinitions:         make(map[string]*JobDefinition),
-		jobs:                   make(map[string]*Job),
-		jobsByQueue:            make(map[string][]string),
-		jobDefRevisions:        make(map[string]int32),
-		consumableResources:    make(map[string]*ConsumableResource),
-		schedulingPolicies:     make(map[string]*SchedulingPolicy),
-		serviceEnvironments:    make(map[string]*ServiceEnvironment),
-		serviceJobs:            make(map[string]*ServiceJob),
-		schedulingPolicyByName: make(map[string]string),
-		jobsByARN:              make(map[string]string),
-		cesByARN:               make(map[string]string),
-		jqsByARN:               make(map[string]string),
-		crsByARN:               make(map[string]string),
-		ceToQueues:             make(map[string]map[string]struct{}),
-		accountID:              accountID,
-		region:                 region,
-		mu:                     lockmetrics.New("batch"),
+	b := &InMemoryBackend{
+		cesByARN:   make(map[string]string),
+		jqsByARN:   make(map[string]string),
+		crsByARN:   make(map[string]string),
+		ceToQueues: make(map[string]map[string]struct{}),
+		mu:         lockmetrics.New("batch"),
+		accountID:  accountID,
+		region:     region,
 	}
+	b.initMaps()
+
+	return b
+}
+
+// initMaps initialises all top-level region maps. Callers must hold b.mu (or be
+// in single-threaded setup).
+func (b *InMemoryBackend) initMaps() {
+	b.computeEnvironments = make(map[string]map[string]*ComputeEnvironment)
+	b.jobQueues = make(map[string]map[string]*JobQueue)
+	b.jobDefinitions = make(map[string]map[string]*JobDefinition)
+	b.jobs = make(map[string]map[string]*Job)
+	b.jobsByQueue = make(map[string]map[string][]string)
+	b.jobDefRevisions = make(map[string]map[string]int32)
+	b.consumableResources = make(map[string]map[string]*ConsumableResource)
+	b.schedulingPolicies = make(map[string]map[string]*SchedulingPolicy)
+	b.serviceEnvironments = make(map[string]map[string]*ServiceEnvironment)
+	b.serviceJobs = make(map[string]map[string]*ServiceJob)
+	b.schedulingPolicyByName = make(map[string]map[string]string)
+	b.jobsByARN = make(map[string]map[string]string)
+}
+
+// --- lazy per-region store helpers (callers must hold b.mu) ---
+
+func (b *InMemoryBackend) computeEnvironmentsStore(region string) map[string]*ComputeEnvironment {
+	if b.computeEnvironments[region] == nil {
+		b.computeEnvironments[region] = make(map[string]*ComputeEnvironment)
+	}
+
+	return b.computeEnvironments[region]
+}
+
+func (b *InMemoryBackend) jobQueuesStore(region string) map[string]*JobQueue {
+	if b.jobQueues[region] == nil {
+		b.jobQueues[region] = make(map[string]*JobQueue)
+	}
+
+	return b.jobQueues[region]
+}
+
+func (b *InMemoryBackend) jobDefinitionsStore(region string) map[string]*JobDefinition {
+	if b.jobDefinitions[region] == nil {
+		b.jobDefinitions[region] = make(map[string]*JobDefinition)
+	}
+
+	return b.jobDefinitions[region]
+}
+
+func (b *InMemoryBackend) jobsStore(region string) map[string]*Job {
+	if b.jobs[region] == nil {
+		b.jobs[region] = make(map[string]*Job)
+	}
+
+	return b.jobs[region]
+}
+
+func (b *InMemoryBackend) jobsByQueueStore(region string) map[string][]string {
+	if b.jobsByQueue[region] == nil {
+		b.jobsByQueue[region] = make(map[string][]string)
+	}
+
+	return b.jobsByQueue[region]
+}
+
+func (b *InMemoryBackend) jobDefRevisionsStore(region string) map[string]int32 {
+	if b.jobDefRevisions[region] == nil {
+		b.jobDefRevisions[region] = make(map[string]int32)
+	}
+
+	return b.jobDefRevisions[region]
+}
+
+func (b *InMemoryBackend) consumableResourcesStore(region string) map[string]*ConsumableResource {
+	if b.consumableResources[region] == nil {
+		b.consumableResources[region] = make(map[string]*ConsumableResource)
+	}
+
+	return b.consumableResources[region]
+}
+
+func (b *InMemoryBackend) schedulingPoliciesStore(region string) map[string]*SchedulingPolicy {
+	if b.schedulingPolicies[region] == nil {
+		b.schedulingPolicies[region] = make(map[string]*SchedulingPolicy)
+	}
+
+	return b.schedulingPolicies[region]
+}
+
+func (b *InMemoryBackend) serviceEnvironmentsStore(region string) map[string]*ServiceEnvironment {
+	if b.serviceEnvironments[region] == nil {
+		b.serviceEnvironments[region] = make(map[string]*ServiceEnvironment)
+	}
+
+	return b.serviceEnvironments[region]
+}
+
+func (b *InMemoryBackend) serviceJobsStore(region string) map[string]*ServiceJob {
+	if b.serviceJobs[region] == nil {
+		b.serviceJobs[region] = make(map[string]*ServiceJob)
+	}
+
+	return b.serviceJobs[region]
+}
+
+func (b *InMemoryBackend) schedulingPolicyByNameStore(region string) map[string]string {
+	if b.schedulingPolicyByName[region] == nil {
+		b.schedulingPolicyByName[region] = make(map[string]string)
+	}
+
+	return b.schedulingPolicyByName[region]
+}
+
+func (b *InMemoryBackend) jobsByARNStore(region string) map[string]string {
+	if b.jobsByARN[region] == nil {
+		b.jobsByARN[region] = make(map[string]string)
+	}
+
+	return b.jobsByARN[region]
 }
 
 // Reset clears all state from the backend.
@@ -740,18 +863,7 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.computeEnvironments = make(map[string]*ComputeEnvironment)
-	b.jobQueues = make(map[string]*JobQueue)
-	b.jobDefinitions = make(map[string]*JobDefinition)
-	b.jobs = make(map[string]*Job)
-	b.jobsByQueue = make(map[string][]string)
-	b.jobDefRevisions = make(map[string]int32)
-	b.consumableResources = make(map[string]*ConsumableResource)
-	b.schedulingPolicies = make(map[string]*SchedulingPolicy)
-	b.serviceEnvironments = make(map[string]*ServiceEnvironment)
-	b.serviceJobs = make(map[string]*ServiceJob)
-	b.schedulingPolicyByName = make(map[string]string)
-	b.jobsByARN = make(map[string]string)
+	b.initMaps()
 	b.cesByARN = make(map[string]string)
 	b.jqsByARN = make(map[string]string)
 	b.crsByARN = make(map[string]string)
@@ -761,14 +873,16 @@ func (b *InMemoryBackend) Reset() {
 // Region returns the AWS region this backend is configured for.
 func (b *InMemoryBackend) Region() string { return b.region }
 
-// lookupCEByNameOrARN returns a compute environment by name or ARN.
+// lookupCEByNameOrARN returns a compute environment by name or ARN within region.
 // Caller must hold at least a read lock.
-func (b *InMemoryBackend) lookupCEByNameOrARN(nameOrARN string) (*ComputeEnvironment, bool) {
-	if ce, ok := b.computeEnvironments[nameOrARN]; ok {
+func (b *InMemoryBackend) lookupCEByNameOrARN(region, nameOrARN string) (*ComputeEnvironment, bool) {
+	ces := b.computeEnvironmentsStore(region)
+	if ce, ok := ces[nameOrARN]; ok {
 		return ce, true
 	}
-	if name, ok2 := b.cesByARN[nameOrARN]; ok2 {
-		if ce, ok3 := b.computeEnvironments[name]; ok3 {
+
+	for _, ce := range ces {
+		if ce.ComputeEnvironmentArn == nameOrARN {
 			return ce, true
 		}
 	}
@@ -776,14 +890,16 @@ func (b *InMemoryBackend) lookupCEByNameOrARN(nameOrARN string) (*ComputeEnviron
 	return nil, false
 }
 
-// lookupJQByNameOrARN returns a job queue by name or ARN.
+// lookupJQByNameOrARN returns a job queue by name or ARN within region.
 // Caller must hold at least a read lock.
-func (b *InMemoryBackend) lookupJQByNameOrARN(nameOrARN string) (*JobQueue, bool) {
-	if jq, ok := b.jobQueues[nameOrARN]; ok {
+func (b *InMemoryBackend) lookupJQByNameOrARN(region, nameOrARN string) (*JobQueue, bool) {
+	jqs := b.jobQueuesStore(region)
+	if jq, ok := jqs[nameOrARN]; ok {
 		return jq, true
 	}
-	if name, ok2 := b.jqsByARN[nameOrARN]; ok2 {
-		if jq, ok3 := b.jobQueues[name]; ok3 {
+
+	for _, jq := range jqs {
+		if jq.JobQueueArn == nameOrARN {
 			return jq, true
 		}
 	}
@@ -791,15 +907,16 @@ func (b *InMemoryBackend) lookupJQByNameOrARN(nameOrARN string) (*JobQueue, bool
 	return nil, false
 }
 
-// lookupJobByIDOrARN returns a job by ID or ARN using the jobsByARN index for O(1) ARN lookup.
-// Caller must hold at least a read lock.
-func (b *InMemoryBackend) lookupJobByIDOrARN(idOrARN string) (*Job, bool) {
-	if j, ok := b.jobs[idOrARN]; ok {
+// lookupJobByIDOrARN returns a job by ID or ARN within region using the jobsByARN
+// index for O(1) ARN lookup. Caller must hold at least a read lock.
+func (b *InMemoryBackend) lookupJobByIDOrARN(region, idOrARN string) (*Job, bool) {
+	jobs := b.jobsStore(region)
+	if j, ok := jobs[idOrARN]; ok {
 		return j, true
 	}
 
-	if jobID, ok := b.jobsByARN[idOrARN]; ok {
-		if j, found := b.jobs[jobID]; found {
+	if jobID, ok := b.jobsByARNStore(region)[idOrARN]; ok {
+		if j, found := jobs[jobID]; found {
 			return j, true
 		}
 	}
@@ -811,6 +928,7 @@ func (b *InMemoryBackend) lookupJobByIDOrARN(idOrARN string) (*Job, bool) {
 //
 //nolint:gocognit,cyclop,funlen // Too complex to refactor given time constraints
 func (b *InMemoryBackend) CreateComputeEnvironment(
+	ctx context.Context,
 	name, ceType, state string,
 	tags map[string]string,
 	serviceRole string,
@@ -818,6 +936,8 @@ func (b *InMemoryBackend) CreateComputeEnvironment(
 	eksConfig *EksConfiguration,
 	updatePolicy *UpdatePolicy,
 ) (*ComputeEnvironment, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("CreateComputeEnvironment")
 	defer b.mu.Unlock()
 
@@ -875,11 +995,12 @@ func (b *InMemoryBackend) CreateComputeEnvironment(
 		return nil, err
 	}
 
-	if _, ok := b.computeEnvironments[name]; ok {
+	ces := b.computeEnvironmentsStore(region)
+	if _, ok := ces[name]; ok {
 		return nil, fmt.Errorf("%w: compute environment %s already exists", ErrAlreadyExists, name)
 	}
 
-	ceARN := arn.Build("batch", b.region, b.accountID, "compute-environment/"+name)
+	ceARN := arn.Build("batch", region, b.accountID, "compute-environment/"+name)
 
 	tagsCopy := make(map[string]string, len(tags))
 	maps.Copy(tagsCopy, tags)
@@ -914,7 +1035,7 @@ func (b *InMemoryBackend) CreateComputeEnvironment(
 		EksConfiguration:       eksCopy,
 		UpdatePolicy:           upCopy,
 	}
-	b.computeEnvironments[name] = ce
+	ces[name] = ce
 	b.cesByARN[ceARN] = name
 	cp := *ce
 
@@ -946,18 +1067,23 @@ func cloneComputeResources(cr *ComputeResources) *ComputeResources {
 //
 //nolint:dupl // Boilerplate pagination logic is similar to DescribeJobQueues
 func (b *InMemoryBackend) DescribeComputeEnvironments(
+	ctx context.Context,
 	names []string,
 	maxResults int32,
 	nextToken string,
 ) ([]*ComputeEnvironment, string) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("DescribeComputeEnvironments")
 	defer b.mu.RUnlock()
+
+	ces := b.computeEnvironmentsStore(region)
 
 	if len(names) > 0 {
 		list := make([]*ComputeEnvironment, 0, len(names))
 
 		for _, nameOrARN := range names {
-			if ce, ok := b.lookupCEByNameOrARN(nameOrARN); ok {
+			if ce, ok := b.lookupCEByNameOrARN(region, nameOrARN); ok {
 				cp := *ce
 				cp.Tags = tagsCloneOrEmpty(ce.Tags)
 				list = append(list, &cp)
@@ -967,8 +1093,8 @@ func (b *InMemoryBackend) DescribeComputeEnvironments(
 		return list, ""
 	}
 
-	all := make([]*ComputeEnvironment, 0, len(b.computeEnvironments))
-	for _, ce := range b.computeEnvironments {
+	all := make([]*ComputeEnvironment, 0, len(ces))
+	for _, ce := range ces {
 		cp := *ce
 		cp.Tags = tagsCloneOrEmpty(ce.Tags)
 		all = append(all, &cp)
@@ -981,14 +1107,17 @@ func (b *InMemoryBackend) DescribeComputeEnvironments(
 
 // UpdateComputeEnvironment updates the state, service role, compute resources, and/or update policy.
 func (b *InMemoryBackend) UpdateComputeEnvironment(
+	ctx context.Context,
 	nameOrARN, state, serviceRole string,
 	computeResources *ComputeResources,
 	updatePolicy *UpdatePolicy,
 ) (*ComputeEnvironment, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("UpdateComputeEnvironment")
 	defer b.mu.Unlock()
 
-	ce, ok := b.lookupCEByNameOrARN(nameOrARN)
+	ce, ok := b.lookupCEByNameOrARN(region, nameOrARN)
 	if !ok {
 		return nil, fmt.Errorf("%w: compute environment %s not found", ErrNotFound, nameOrARN)
 	}
@@ -1020,11 +1149,13 @@ func (b *InMemoryBackend) UpdateComputeEnvironment(
 }
 
 // DeleteComputeEnvironment removes a compute environment.
-func (b *InMemoryBackend) DeleteComputeEnvironment(nameOrARN string) error {
+func (b *InMemoryBackend) DeleteComputeEnvironment(ctx context.Context, nameOrARN string) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("DeleteComputeEnvironment")
 	defer b.mu.Unlock()
 
-	ce, ok := b.lookupCEByNameOrARN(nameOrARN)
+	ce, ok := b.lookupCEByNameOrARN(region, nameOrARN)
 	if !ok {
 		return fmt.Errorf("%w: compute environment %s not found", ErrNotFound, nameOrARN)
 	}
@@ -1046,7 +1177,7 @@ func (b *InMemoryBackend) DeleteComputeEnvironment(nameOrARN string) error {
 		)
 	}
 
-	delete(b.computeEnvironments, ce.ComputeEnvironmentName)
+	delete(b.computeEnvironmentsStore(region), ce.ComputeEnvironmentName)
 	delete(b.cesByARN, ce.ComputeEnvironmentArn)
 
 	return nil
@@ -1054,6 +1185,7 @@ func (b *InMemoryBackend) DeleteComputeEnvironment(nameOrARN string) error {
 
 // CreateJobQueue creates a new job queue.
 func (b *InMemoryBackend) CreateJobQueue(
+	ctx context.Context,
 	name string,
 	priority int32,
 	state string,
@@ -1062,6 +1194,8 @@ func (b *InMemoryBackend) CreateJobQueue(
 	schedulingPolicyArn string,
 	jobStateTimeLimitActions []JobStateTimeLimitAction,
 ) (*JobQueue, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("CreateJobQueue")
 	defer b.mu.Unlock()
 
@@ -1072,7 +1206,8 @@ func (b *InMemoryBackend) CreateJobQueue(
 		)
 	}
 
-	if _, ok := b.jobQueues[name]; ok {
+	jqs := b.jobQueuesStore(region)
+	if _, ok := jqs[name]; ok {
 		return nil, fmt.Errorf("%w: job queue %s already exists", ErrAlreadyExists, name)
 	}
 
@@ -1080,7 +1215,7 @@ func (b *InMemoryBackend) CreateJobQueue(
 		return nil, err
 	}
 
-	jqARN := arn.Build("batch", b.region, b.accountID, "job-queue/"+name)
+	jqARN := arn.Build("batch", region, b.accountID, "job-queue/"+name)
 
 	tagsCopy := make(map[string]string, len(tags))
 	maps.Copy(tagsCopy, tags)
@@ -1105,7 +1240,7 @@ func (b *InMemoryBackend) CreateJobQueue(
 		SchedulingPolicyArn:      schedulingPolicyArn,
 		JobStateTimeLimitActions: actionsCopy,
 	}
-	b.jobQueues[name] = jq
+	jqs[name] = jq
 	b.jqsByARN[jqARN] = name
 	// Register this queue as a reference for each compute environment it orders.
 	for _, ceOrder := range orderCopy {
@@ -1125,15 +1260,24 @@ func (b *InMemoryBackend) CreateJobQueue(
 // When names is empty, results are paginated using maxResults and nextToken.
 //
 //nolint:dupl // Boilerplate pagination logic is similar to DescribeComputeEnvironments
-func (b *InMemoryBackend) DescribeJobQueues(names []string, maxResults int32, nextToken string) ([]*JobQueue, string) {
+func (b *InMemoryBackend) DescribeJobQueues(
+	ctx context.Context,
+	names []string,
+	maxResults int32,
+	nextToken string,
+) ([]*JobQueue, string) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("DescribeJobQueues")
 	defer b.mu.RUnlock()
+
+	jqs := b.jobQueuesStore(region)
 
 	if len(names) > 0 {
 		list := make([]*JobQueue, 0, len(names))
 
 		for _, nameOrARN := range names {
-			if jq, ok := b.lookupJQByNameOrARN(nameOrARN); ok {
+			if jq, ok := b.lookupJQByNameOrARN(region, nameOrARN); ok {
 				cp := *jq
 				cp.Tags = tagsCloneOrEmpty(jq.Tags)
 				list = append(list, &cp)
@@ -1143,8 +1287,8 @@ func (b *InMemoryBackend) DescribeJobQueues(names []string, maxResults int32, ne
 		return list, ""
 	}
 
-	all := make([]*JobQueue, 0, len(b.jobQueues))
-	for _, jq := range b.jobQueues {
+	all := make([]*JobQueue, 0, len(jqs))
+	for _, jq := range jqs {
 		cp := *jq
 		cp.Tags = tagsCloneOrEmpty(jq.Tags)
 		all = append(all, &cp)
@@ -1157,16 +1301,19 @@ func (b *InMemoryBackend) DescribeJobQueues(names []string, maxResults int32, ne
 
 // UpdateJobQueue updates a job queue's state, priority, CE order, and/or time-limit actions.
 func (b *InMemoryBackend) UpdateJobQueue(
+	ctx context.Context,
 	nameOrARN string,
 	priority *int32,
 	state string,
 	ceOrder []ComputeEnvironmentOrder,
 	jobStateTimeLimitActions []JobStateTimeLimitAction,
 ) (*JobQueue, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("UpdateJobQueue")
 	defer b.mu.Unlock()
 
-	jq, ok := b.lookupJQByNameOrARN(nameOrARN)
+	jq, ok := b.lookupJQByNameOrARN(region, nameOrARN)
 	if !ok {
 		return nil, fmt.Errorf("%w: job queue %s not found", ErrNotFound, nameOrARN)
 	}
@@ -1215,11 +1362,13 @@ func (b *InMemoryBackend) UpdateJobQueue(
 
 // DeleteJobQueue removes a job queue and all associated jobs.
 // The queue must be in DISABLED state before deletion.
-func (b *InMemoryBackend) DeleteJobQueue(nameOrARN string) error {
+func (b *InMemoryBackend) DeleteJobQueue(ctx context.Context, nameOrARN string) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("DeleteJobQueue")
 	defer b.mu.Unlock()
 
-	jq, ok := b.lookupJQByNameOrARN(nameOrARN)
+	jq, ok := b.lookupJQByNameOrARN(region, nameOrARN)
 	if !ok {
 		return fmt.Errorf("%w: job queue %s not found", ErrNotFound, nameOrARN)
 	}
@@ -1230,15 +1379,19 @@ func (b *InMemoryBackend) DeleteJobQueue(nameOrARN string) error {
 
 	queueName := jq.JobQueueName
 
-	for _, jobID := range b.jobsByQueue[queueName] {
-		if j, ok2 := b.jobs[jobID]; ok2 {
-			delete(b.jobsByARN, j.JobARN)
+	jobs := b.jobsStore(region)
+	jobsByARN := b.jobsByARNStore(region)
+	jobsByQueue := b.jobsByQueueStore(region)
+
+	for _, jobID := range jobsByQueue[queueName] {
+		if j, ok2 := jobs[jobID]; ok2 {
+			delete(jobsByARN, j.JobARN)
 		}
 
-		delete(b.jobs, jobID)
+		delete(jobs, jobID)
 	}
 
-	delete(b.jobsByQueue, queueName)
+	delete(jobsByQueue, queueName)
 	delete(b.jqsByARN, jq.JobQueueArn)
 	// Remove this queue from the CE→queues reverse index.
 	for _, ceOrder := range jq.ComputeEnvironmentOrder {
@@ -1246,13 +1399,14 @@ func (b *InMemoryBackend) DeleteJobQueue(nameOrARN string) error {
 			delete(refs, queueName)
 		}
 	}
-	delete(b.jobQueues, queueName)
+	delete(b.jobQueuesStore(region), queueName)
 
 	return nil
 }
 
 // RegisterJobDefinition registers a new job definition (or a new revision).
 func (b *InMemoryBackend) RegisterJobDefinition(
+	ctx context.Context,
 	name, defType string,
 	tags map[string]string,
 	platformCapabilities []string,
@@ -1266,6 +1420,8 @@ func (b *InMemoryBackend) RegisterJobDefinition(
 	parameters map[string]string,
 	propagateTags bool,
 ) (*JobDefinition, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("RegisterJobDefinition")
 	defer b.mu.Unlock()
 
@@ -1280,10 +1436,11 @@ func (b *InMemoryBackend) RegisterJobDefinition(
 		return nil, err
 	}
 
-	b.jobDefRevisions[name]++
-	revision := b.jobDefRevisions[name]
+	revisions := b.jobDefRevisionsStore(region)
+	revisions[name]++
+	revision := revisions[name]
 
-	jdARN := arn.Build("batch", b.region, b.accountID, fmt.Sprintf("job-definition/%s:%d", name, revision))
+	jdARN := arn.Build("batch", region, b.accountID, fmt.Sprintf("job-definition/%s:%d", name, revision))
 
 	tagsCopy := make(map[string]string, len(tags))
 	maps.Copy(tagsCopy, tags)
@@ -1312,7 +1469,7 @@ func (b *InMemoryBackend) RegisterJobDefinition(
 		Parameters:                   maps.Clone(parameters),
 		PropagateTags:                propagateTags,
 	}
-	b.jobDefinitions[jdARN] = jd
+	b.jobDefinitionsStore(region)[jdARN] = jd
 	cp := *jd
 
 	return &cp, nil
@@ -1321,31 +1478,35 @@ func (b *InMemoryBackend) RegisterJobDefinition(
 // DescribeJobDefinitions returns job definitions, optionally filtered by names/ARNs.
 // When names is empty, results are paginated via maxResults/nextToken.
 func (b *InMemoryBackend) DescribeJobDefinitions(
+	ctx context.Context,
 	names []string,
 	status, jobDefinitionName string,
 	maxResults int32,
 	nextToken string,
 ) ([]*JobDefinition, string) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("DescribeJobDefinitions")
 	defer b.mu.RUnlock()
 
 	if len(names) == 0 {
-		return b.describeAllJobDefinitions(status, jobDefinitionName, maxResults, nextToken)
+		return b.describeAllJobDefinitions(region, status, jobDefinitionName, maxResults, nextToken)
 	}
 
-	list := b.describeJobDefinitionsByNames(names, status)
+	list := b.describeJobDefinitionsByNames(region, names, status)
 
 	return list, ""
 }
 
 func (b *InMemoryBackend) describeAllJobDefinitions(
-	status, jobDefinitionName string,
+	region, status, jobDefinitionName string,
 	maxResults int32,
 	nextToken string,
 ) ([]*JobDefinition, string) {
-	all := make([]*JobDefinition, 0, len(b.jobDefinitions))
+	defs := b.jobDefinitionsStore(region)
+	all := make([]*JobDefinition, 0, len(defs))
 
-	for _, jd := range b.jobDefinitions {
+	for _, jd := range defs {
 		if status != "" && jd.Status != status {
 			continue
 		}
@@ -1385,12 +1546,13 @@ func (b *InMemoryBackend) describeAllJobDefinitions(
 	return page, outToken
 }
 
-func (b *InMemoryBackend) describeJobDefinitionsByNames(names []string, status string) []*JobDefinition {
+func (b *InMemoryBackend) describeJobDefinitionsByNames(region string, names []string, status string) []*JobDefinition {
+	defs := b.jobDefinitionsStore(region)
 	seen := make(map[string]bool)
 	list := make([]*JobDefinition, 0, len(names))
 
 	for _, nameOrARN := range names {
-		if jd, ok := b.jobDefinitions[nameOrARN]; ok {
+		if jd, ok := defs[nameOrARN]; ok {
 			if !seen[jd.JobDefinitionArn] && (status == "" || jd.Status == status) {
 				seen[jd.JobDefinitionArn] = true
 				cp := *jd
@@ -1403,7 +1565,7 @@ func (b *InMemoryBackend) describeJobDefinitionsByNames(names []string, status s
 
 		baseName, _, _ := strings.Cut(nameOrARN, ":")
 
-		for _, jd := range b.jobDefinitions {
+		for _, jd := range defs {
 			if jd.JobDefinitionName == baseName && !seen[jd.JobDefinitionArn] && (status == "" || jd.Status == status) {
 				seen[jd.JobDefinitionArn] = true
 				cp := *jd
@@ -1423,14 +1585,18 @@ func (b *InMemoryBackend) describeJobDefinitionsByNames(names []string, status s
 // DeregisterJobDefinition marks a job definition as INACTIVE by ARN or name:revision.
 // INACTIVE definitions remain visible in DescribeJobDefinitions (matching AWS behavior)
 // and are swept by the janitor after the configured TTL.
-func (b *InMemoryBackend) DeregisterJobDefinition(arnOrNameRev string) error {
+func (b *InMemoryBackend) DeregisterJobDefinition(ctx context.Context, arnOrNameRev string) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("DeregisterJobDefinition")
 	defer b.mu.Unlock()
 
 	now := time.Now()
 
+	defs := b.jobDefinitionsStore(region)
+
 	// Try direct ARN lookup first.
-	if jd, ok := b.jobDefinitions[arnOrNameRev]; ok {
+	if jd, ok := defs[arnOrNameRev]; ok {
 		jd.Status = jobDefStatusInactive
 		jd.DeregisteredAt = &now
 
@@ -1438,7 +1604,7 @@ func (b *InMemoryBackend) DeregisterJobDefinition(arnOrNameRev string) error {
 	}
 
 	// Fall back to name:revision lookup (e.g. "my-job:3").
-	for _, jd := range b.jobDefinitions {
+	for _, jd := range defs {
 		nameRev := fmt.Sprintf("%s:%d", jd.JobDefinitionName, jd.Revision)
 		if nameRev == arnOrNameRev {
 			jd.Status = jobDefStatusInactive
@@ -1452,11 +1618,13 @@ func (b *InMemoryBackend) DeregisterJobDefinition(arnOrNameRev string) error {
 }
 
 // ListTagsForResource returns the tags for a resource identified by ARN.
-func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]string, error) {
+func (b *InMemoryBackend) ListTagsForResource(ctx context.Context, resourceARN string) (map[string]string, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
-	if tags, ok := b.findTagsByARN(resourceARN); ok {
+	if tags, ok := b.findTagsByARN(region, resourceARN); ok {
 		out := make(map[string]string, len(tags))
 		maps.Copy(out, tags)
 
@@ -1467,18 +1635,20 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 }
 
 // TagResource adds or updates tags on a resource identified by ARN.
-func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string) error {
+func (b *InMemoryBackend) TagResource(ctx context.Context, resourceARN string, tags map[string]string) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
-	existing, ok := b.findTagsByARN(resourceARN)
+	existing, ok := b.findTagsByARN(region, resourceARN)
 	if !ok {
 		return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 	}
 
 	if existing == nil {
-		b.initTagsByARN(resourceARN)
-		existing, _ = b.findTagsByARN(resourceARN)
+		b.initTagsByARN(region, resourceARN)
+		existing, _ = b.findTagsByARN(region, resourceARN)
 	}
 
 	// Validate combined tag count (new keys only).
@@ -1503,11 +1673,13 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 }
 
 // UntagResource removes tags from a resource identified by ARN.
-func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) error {
+func (b *InMemoryBackend) UntagResource(ctx context.Context, resourceARN string, tagKeys []string) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
-	existing, ok := b.findTagsByARN(resourceARN)
+	existing, ok := b.findTagsByARN(region, resourceARN)
 	if !ok {
 		return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 	}
@@ -1521,40 +1693,39 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 
 // findTagsByARN looks up the tags map for a resource by ARN.
 // Caller must hold at least a read lock.
-func (b *InMemoryBackend) findTagsByARN(resourceARN string) (map[string]string, bool) {
-	if tags, ok := b.findTagsInCoreResources(resourceARN); ok {
+func (b *InMemoryBackend) findTagsByARN(region, resourceARN string) (map[string]string, bool) {
+	if tags, ok := b.findTagsInCoreResources(region, resourceARN); ok {
 		return tags, true
 	}
 
-	return b.findTagsInPolicyResources(resourceARN)
+	return b.findTagsInPolicyResources(region, resourceARN)
 }
 
-func (b *InMemoryBackend) findTagsInCoreResources(resourceARN string) (map[string]string, bool) {
-	if ceName, ok := b.cesByARN[resourceARN]; ok {
-		if ce, ok2 := b.computeEnvironments[ceName]; ok2 {
+func (b *InMemoryBackend) findTagsInCoreResources(region, resourceARN string) (map[string]string, bool) {
+	for _, ce := range b.computeEnvironmentsStore(region) {
+		if ce.ComputeEnvironmentArn == resourceARN {
 			return ce.Tags, true
 		}
 	}
 
-	if jqName, ok := b.jqsByARN[resourceARN]; ok {
-		if jq, ok2 := b.jobQueues[jqName]; ok2 {
+	for _, jq := range b.jobQueuesStore(region) {
+		if jq.JobQueueArn == resourceARN {
 			return jq.Tags, true
 		}
 	}
 
-	if jd, ok := b.jobDefinitions[resourceARN]; ok {
+	if jd, ok := b.jobDefinitionsStore(region)[resourceARN]; ok {
 		return jd.Tags, true
 	}
 
-	// Use the jobs ARN index for O(1) lookup.
-	if jobID, ok := b.jobsByARN[resourceARN]; ok {
-		if j, ok2 := b.jobs[jobID]; ok2 {
+	for _, j := range b.jobsStore(region) {
+		if j.JobARN == resourceARN {
 			return j.Tags, true
 		}
 	}
 
-	if crName, ok := b.crsByARN[resourceARN]; ok {
-		if cr, ok2 := b.consumableResources[crName]; ok2 {
+	for _, cr := range b.consumableResourcesStore(region) {
+		if cr.ConsumableResourceArn == resourceARN {
 			return cr.Tags, true
 		}
 	}
@@ -1562,20 +1733,20 @@ func (b *InMemoryBackend) findTagsInCoreResources(resourceARN string) (map[strin
 	return nil, false
 }
 
-func (b *InMemoryBackend) findTagsInPolicyResources(resourceARN string) (map[string]string, bool) {
-	for _, sp := range b.schedulingPolicies {
+func (b *InMemoryBackend) findTagsInPolicyResources(region, resourceARN string) (map[string]string, bool) {
+	for _, sp := range b.schedulingPoliciesStore(region) {
 		if sp.Arn == resourceARN {
 			return sp.Tags, true
 		}
 	}
 
-	for _, se := range b.serviceEnvironments {
+	for _, se := range b.serviceEnvironmentsStore(region) {
 		if se.ServiceEnvironmentArn == resourceARN {
 			return se.Tags, true
 		}
 	}
 
-	for _, sj := range b.serviceJobs {
+	for _, sj := range b.serviceJobsStore(region) {
 		if sj.ServiceJobArn == resourceARN {
 			return sj.Tags, true
 		}
@@ -1586,16 +1757,16 @@ func (b *InMemoryBackend) findTagsInPolicyResources(resourceARN string) (map[str
 
 // initTagsByARN ensures a resource has an initialised tags map.
 // Caller must hold the write lock.
-func (b *InMemoryBackend) initTagsByARN(resourceARN string) {
-	if b.initTagsInCoreResources(resourceARN) {
+func (b *InMemoryBackend) initTagsByARN(region, resourceARN string) {
+	if b.initTagsInCoreResources(region, resourceARN) {
 		return
 	}
 
-	b.initTagsInPolicyResources(resourceARN)
+	b.initTagsInPolicyResources(region, resourceARN)
 }
 
-func (b *InMemoryBackend) initTagsInCoreResources(resourceARN string) bool {
-	for _, ce := range b.computeEnvironments {
+func (b *InMemoryBackend) initTagsInCoreResources(region, resourceARN string) bool {
+	for _, ce := range b.computeEnvironmentsStore(region) {
 		if ce.ComputeEnvironmentArn == resourceARN {
 			ce.Tags = make(map[string]string)
 
@@ -1603,7 +1774,7 @@ func (b *InMemoryBackend) initTagsInCoreResources(resourceARN string) bool {
 		}
 	}
 
-	for _, jq := range b.jobQueues {
+	for _, jq := range b.jobQueuesStore(region) {
 		if jq.JobQueueArn == resourceARN {
 			jq.Tags = make(map[string]string)
 
@@ -1611,13 +1782,13 @@ func (b *InMemoryBackend) initTagsInCoreResources(resourceARN string) bool {
 		}
 	}
 
-	if jd, ok := b.jobDefinitions[resourceARN]; ok {
+	if jd, ok := b.jobDefinitionsStore(region)[resourceARN]; ok {
 		jd.Tags = make(map[string]string)
 
 		return true
 	}
 
-	for _, j := range b.jobs {
+	for _, j := range b.jobsStore(region) {
 		if j.JobARN == resourceARN {
 			j.Tags = make(map[string]string)
 
@@ -1625,7 +1796,7 @@ func (b *InMemoryBackend) initTagsInCoreResources(resourceARN string) bool {
 		}
 	}
 
-	for _, cr := range b.consumableResources {
+	for _, cr := range b.consumableResourcesStore(region) {
 		if cr.ConsumableResourceArn == resourceARN {
 			cr.Tags = make(map[string]string)
 
@@ -1636,8 +1807,8 @@ func (b *InMemoryBackend) initTagsInCoreResources(resourceARN string) bool {
 	return false
 }
 
-func (b *InMemoryBackend) initTagsInPolicyResources(resourceARN string) {
-	for _, sp := range b.schedulingPolicies {
+func (b *InMemoryBackend) initTagsInPolicyResources(region, resourceARN string) {
+	for _, sp := range b.schedulingPoliciesStore(region) {
 		if sp.Arn == resourceARN {
 			sp.Tags = make(map[string]string)
 
@@ -1645,7 +1816,7 @@ func (b *InMemoryBackend) initTagsInPolicyResources(resourceARN string) {
 		}
 	}
 
-	for _, se := range b.serviceEnvironments {
+	for _, se := range b.serviceEnvironmentsStore(region) {
 		if se.ServiceEnvironmentArn == resourceARN {
 			se.Tags = make(map[string]string)
 
@@ -1653,7 +1824,7 @@ func (b *InMemoryBackend) initTagsInPolicyResources(resourceARN string) {
 		}
 	}
 
-	for _, sj := range b.serviceJobs {
+	for _, sj := range b.serviceJobsStore(region) {
 		if sj.ServiceJobArn == resourceARN {
 			sj.Tags = make(map[string]string)
 
@@ -1666,6 +1837,7 @@ func (b *InMemoryBackend) initTagsInPolicyResources(resourceARN string) {
 //
 //nolint:funlen // Too complex to refactor given time constraints
 func (b *InMemoryBackend) SubmitJob(
+	ctx context.Context,
 	name, queue, jobDefinition string,
 	tags map[string]string,
 	parameters map[string]string,
@@ -1679,6 +1851,8 @@ func (b *InMemoryBackend) SubmitJob(
 	schedulingPriorityOverride int32,
 	propagateTags bool,
 ) (*Job, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("SubmitJob")
 	defer b.mu.Unlock()
 
@@ -1686,7 +1860,7 @@ func (b *InMemoryBackend) SubmitJob(
 		return nil, fmt.Errorf("%w: jobName must be between 1 and %d characters", ErrValidation, maxJobNameLength)
 	}
 
-	jq, ok := b.lookupJQByNameOrARN(queue)
+	jq, ok := b.lookupJQByNameOrARN(region, queue)
 	if !ok {
 		return nil, fmt.Errorf("%w: job queue %s not found", ErrNotFound, queue)
 	}
@@ -1748,7 +1922,7 @@ func (b *InMemoryBackend) SubmitJob(
 
 	now := time.Now().UnixMilli()
 	jobID := uuid.NewString()
-	jobARN := arn.Build("batch", b.region, b.accountID, "job/"+jobID)
+	jobARN := arn.Build("batch", region, b.accountID, "job/"+jobID)
 
 	j := &Job{
 		JobID:                        jobID,
@@ -1770,9 +1944,10 @@ func (b *InMemoryBackend) SubmitJob(
 		SchedulingPriorityOverride:   schedulingPriorityOverride,
 		PropagateTags:                propagateTags,
 	}
-	b.jobs[jobID] = j
-	b.jobsByARN[jobARN] = jobID
-	b.jobsByQueue[jq.JobQueueName] = append(b.jobsByQueue[jq.JobQueueName], jobID)
+	b.jobsStore(region)[jobID] = j
+	b.jobsByARNStore(region)[jobARN] = jobID
+	jobsByQueue := b.jobsByQueueStore(region)
+	jobsByQueue[jq.JobQueueName] = append(jobsByQueue[jq.JobQueueName], jobID)
 
 	cp := *j
 	cp.Tags = tagsCloneOrEmpty(j.Tags)
@@ -1780,11 +1955,12 @@ func (b *InMemoryBackend) SubmitJob(
 	return &cp, nil
 }
 
-// listAllJobs returns all jobs across all queues filtered by status.
-func (b *InMemoryBackend) listAllJobs(status string) []*Job {
-	all := make([]*Job, 0, len(b.jobs))
+// listAllJobs returns all jobs across all queues in region filtered by status.
+func (b *InMemoryBackend) listAllJobs(region, status string) []*Job {
+	jobs := b.jobsStore(region)
+	all := make([]*Job, 0, len(jobs))
 
-	for _, j := range b.jobs {
+	for _, j := range jobs {
 		if status != "" && j.Status != status {
 			continue
 		}
@@ -1799,18 +1975,19 @@ func (b *InMemoryBackend) listAllJobs(status string) []*Job {
 	return all
 }
 
-// listQueueJobs returns jobs in the given queue filtered by status.
-func (b *InMemoryBackend) listQueueJobs(queue, status string) ([]*Job, error) {
-	jq, ok := b.lookupJQByNameOrARN(queue)
+// listQueueJobs returns jobs in the given queue in region filtered by status.
+func (b *InMemoryBackend) listQueueJobs(region, queue, status string) ([]*Job, error) {
+	jq, ok := b.lookupJQByNameOrARN(region, queue)
 	if !ok {
 		return nil, fmt.Errorf("%w: job queue %s not found", ErrNotFound, queue)
 	}
 
-	ids := b.jobsByQueue[jq.JobQueueName]
+	jobs := b.jobsStore(region)
+	ids := b.jobsByQueueStore(region)[jq.JobQueueName]
 	all := make([]*Job, 0, len(ids))
 
 	for _, id := range ids {
-		j, exists := b.jobs[id]
+		j, exists := jobs[id]
 		if !exists {
 			continue
 		}
@@ -1829,7 +2006,13 @@ func (b *InMemoryBackend) listQueueJobs(queue, status string) ([]*Job, error) {
 
 // ListJobs returns job summaries for a queue, optionally filtered by status.
 // Pagination is controlled via maxResults and nextToken (token encodes an integer offset).
-func (b *InMemoryBackend) ListJobs(queue, status, nextToken string, maxResults int32) ([]*Job, string, error) {
+func (b *InMemoryBackend) ListJobs(
+	ctx context.Context,
+	queue, status, nextToken string,
+	maxResults int32,
+) ([]*Job, string, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("ListJobs")
 	defer b.mu.RUnlock()
 
@@ -1846,9 +2029,9 @@ func (b *InMemoryBackend) ListJobs(queue, status, nextToken string, maxResults i
 	)
 
 	if queue == "" {
-		all = b.listAllJobs(status)
+		all = b.listAllJobs(region, status)
 	} else {
-		all, err = b.listQueueJobs(queue, status)
+		all, err = b.listQueueJobs(region, queue, status)
 		if err != nil {
 			return nil, "", err
 		}
@@ -1870,14 +2053,16 @@ func (b *InMemoryBackend) ListJobs(queue, status, nextToken string, maxResults i
 }
 
 // DescribeJobs returns full job details for the given job IDs or ARNs.
-func (b *InMemoryBackend) DescribeJobs(jobIDs []string) []*Job {
+func (b *InMemoryBackend) DescribeJobs(ctx context.Context, jobIDs []string) []*Job {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("DescribeJobs")
 	defer b.mu.RUnlock()
 
 	out := make([]*Job, 0, len(jobIDs))
 
 	for _, id := range jobIDs {
-		j, ok := b.lookupJobByIDOrARN(id)
+		j, ok := b.lookupJobByIDOrARN(region, id)
 		if !ok {
 			continue
 		}
@@ -1892,11 +2077,13 @@ func (b *InMemoryBackend) DescribeJobs(jobIDs []string) []*Job {
 
 // TerminateJob marks a job as FAILED with the given reason.
 // Valid for any non-terminal state. Accepts job ID or ARN.
-func (b *InMemoryBackend) TerminateJob(idOrARN, reason string) error {
+func (b *InMemoryBackend) TerminateJob(ctx context.Context, idOrARN, reason string) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("TerminateJob")
 	defer b.mu.Unlock()
 
-	j, ok := b.lookupJobByIDOrARN(idOrARN)
+	j, ok := b.lookupJobByIDOrARN(region, idOrARN)
 	if !ok {
 		return fmt.Errorf("%w: job %s not found", ErrNotFound, idOrARN)
 	}
@@ -1915,11 +2102,13 @@ func (b *InMemoryBackend) TerminateJob(idOrARN, reason string) error {
 
 // CancelJob cancels a job in SUBMITTED, PENDING, or RUNNABLE state.
 // Accepts job ID or ARN.
-func (b *InMemoryBackend) CancelJob(idOrARN, reason string) error {
+func (b *InMemoryBackend) CancelJob(ctx context.Context, idOrARN, reason string) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("CancelJob")
 	defer b.mu.Unlock()
 
-	j, ok := b.lookupJobByIDOrARN(idOrARN)
+	j, ok := b.lookupJobByIDOrARN(region, idOrARN)
 	if !ok {
 		return fmt.Errorf("%w: job %s not found", ErrNotFound, idOrARN)
 	}
@@ -1939,14 +2128,18 @@ func (b *InMemoryBackend) CancelJob(idOrARN, reason string) error {
 
 // CreateConsumableResource creates a new consumable resource.
 func (b *InMemoryBackend) CreateConsumableResource(
+	ctx context.Context,
 	name, resourceType string,
 	totalQuantity int64,
 	tags map[string]string,
 ) (*ConsumableResource, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("CreateConsumableResource")
 	defer b.mu.Unlock()
 
-	if _, ok := b.consumableResources[name]; ok {
+	crs := b.consumableResourcesStore(region)
+	if _, ok := crs[name]; ok {
 		return nil, fmt.Errorf("%w: consumable resource %s already exists", ErrAlreadyExists, name)
 	}
 
@@ -1962,7 +2155,7 @@ func (b *InMemoryBackend) CreateConsumableResource(
 		return nil, err
 	}
 
-	crARN := arn.Build("batch", b.region, b.accountID, "consumable-resource/"+name)
+	crARN := arn.Build("batch", region, b.accountID, "consumable-resource/"+name)
 
 	cr := &ConsumableResource{
 		ConsumableResourceName: name,
@@ -1974,7 +2167,7 @@ func (b *InMemoryBackend) CreateConsumableResource(
 		CreatedAt:              time.Now().UnixMilli(),
 		Tags:                   tagsCloneOrEmpty(tags),
 	}
-	b.consumableResources[name] = cr
+	crs[name] = cr
 	b.crsByARN[crARN] = name
 	cp := *cr
 
@@ -1982,27 +2175,34 @@ func (b *InMemoryBackend) CreateConsumableResource(
 }
 
 // DeleteConsumableResource removes a consumable resource by name or ARN.
-func (b *InMemoryBackend) DeleteConsumableResource(nameOrARN string) error {
+func (b *InMemoryBackend) DeleteConsumableResource(ctx context.Context, nameOrARN string) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("DeleteConsumableResource")
 	defer b.mu.Unlock()
 
-	cr, ok := b.lookupConsumableResourceByNameOrARN(nameOrARN)
+	cr, ok := b.lookupConsumableResourceByNameOrARN(region, nameOrARN)
 	if !ok {
 		return fmt.Errorf("%w: consumable resource %s not found", ErrNotFound, nameOrARN)
 	}
 
-	delete(b.consumableResources, cr.ConsumableResourceName)
+	delete(b.consumableResourcesStore(region), cr.ConsumableResourceName)
 	delete(b.crsByARN, cr.ConsumableResourceArn)
 
 	return nil
 }
 
 // DescribeConsumableResource returns details for a consumable resource identified by name or ARN.
-func (b *InMemoryBackend) DescribeConsumableResource(nameOrARN string) (*ConsumableResource, error) {
+func (b *InMemoryBackend) DescribeConsumableResource(
+	ctx context.Context,
+	nameOrARN string,
+) (*ConsumableResource, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("DescribeConsumableResource")
 	defer b.mu.RUnlock()
 
-	cr, ok := b.lookupConsumableResourceByNameOrARN(nameOrARN)
+	cr, ok := b.lookupConsumableResourceByNameOrARN(region, nameOrARN)
 	if !ok {
 		return nil, fmt.Errorf("%w: consumable resource %s not found", ErrNotFound, nameOrARN)
 	}
@@ -2015,12 +2215,14 @@ func (b *InMemoryBackend) DescribeConsumableResource(nameOrARN string) (*Consuma
 
 // lookupConsumableResourceByNameOrARN returns a consumable resource by name or ARN.
 // Caller must hold at least a read lock.
-func (b *InMemoryBackend) lookupConsumableResourceByNameOrARN(nameOrARN string) (*ConsumableResource, bool) {
-	if cr, ok := b.consumableResources[nameOrARN]; ok {
+func (b *InMemoryBackend) lookupConsumableResourceByNameOrARN(region, nameOrARN string) (*ConsumableResource, bool) {
+	crs := b.consumableResourcesStore(region)
+	if cr, ok := crs[nameOrARN]; ok {
 		return cr, true
 	}
-	if name, ok2 := b.crsByARN[nameOrARN]; ok2 {
-		if cr, ok3 := b.consumableResources[name]; ok3 {
+
+	for _, cr := range crs {
+		if cr.ConsumableResourceArn == nameOrARN {
 			return cr, true
 		}
 	}
@@ -2030,10 +2232,13 @@ func (b *InMemoryBackend) lookupConsumableResourceByNameOrARN(nameOrARN string) 
 
 // CreateSchedulingPolicy creates a new scheduling policy.
 func (b *InMemoryBackend) CreateSchedulingPolicy(
+	ctx context.Context,
 	name string,
 	tags map[string]string,
 	fairsharePolicy *FairsharePolicy,
 ) (*SchedulingPolicy, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("CreateSchedulingPolicy")
 	defer b.mu.Unlock()
 
@@ -2045,11 +2250,11 @@ func (b *InMemoryBackend) CreateSchedulingPolicy(
 		return nil, err
 	}
 
-	if _, ok := b.schedulingPolicyByName[name]; ok {
+	if _, ok := b.schedulingPolicyByNameStore(region)[name]; ok {
 		return nil, fmt.Errorf("%w: scheduling policy %s already exists", ErrAlreadyExists, name)
 	}
 
-	policyARN := arn.Build("batch", b.region, b.accountID, "scheduling-policy/"+name)
+	policyARN := arn.Build("batch", region, b.accountID, "scheduling-policy/"+name)
 
 	sp := &SchedulingPolicy{
 		Arn:             policyARN,
@@ -2057,8 +2262,8 @@ func (b *InMemoryBackend) CreateSchedulingPolicy(
 		Tags:            tagsCloneOrEmpty(tags),
 		FairsharePolicy: cloneFairsharePolicy(fairsharePolicy),
 	}
-	b.schedulingPolicies[policyARN] = sp
-	b.schedulingPolicyByName[name] = policyARN
+	b.schedulingPoliciesStore(region)[policyARN] = sp
+	b.schedulingPolicyByNameStore(region)[name] = policyARN
 	cp := *sp
 
 	return &cp, nil
@@ -2081,34 +2286,41 @@ func cloneFairsharePolicy(fp *FairsharePolicy) *FairsharePolicy {
 }
 
 // DeleteSchedulingPolicy removes a scheduling policy by ARN.
-func (b *InMemoryBackend) DeleteSchedulingPolicy(policyARN string) error {
+func (b *InMemoryBackend) DeleteSchedulingPolicy(ctx context.Context, policyARN string) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("DeleteSchedulingPolicy")
 	defer b.mu.Unlock()
 
-	sp, ok := b.schedulingPolicies[policyARN]
+	policies := b.schedulingPoliciesStore(region)
+	sp, ok := policies[policyARN]
 	if !ok {
 		return fmt.Errorf("%w: scheduling policy %s not found", ErrNotFound, policyARN)
 	}
 
-	delete(b.schedulingPolicyByName, sp.Name)
-	delete(b.schedulingPolicies, policyARN)
+	delete(b.schedulingPolicyByNameStore(region), sp.Name)
+	delete(policies, policyARN)
 
 	return nil
 }
 
 // CreateServiceEnvironment creates a new service environment.
 func (b *InMemoryBackend) CreateServiceEnvironment(
+	ctx context.Context,
 	name, envType, state string,
 	tags map[string]string,
 ) (*ServiceEnvironment, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("CreateServiceEnvironment")
 	defer b.mu.Unlock()
 
-	if _, ok := b.serviceEnvironments[name]; ok {
+	ses := b.serviceEnvironmentsStore(region)
+	if _, ok := ses[name]; ok {
 		return nil, fmt.Errorf("%w: service environment %s already exists", ErrAlreadyExists, name)
 	}
 
-	seARN := arn.Build("batch", b.region, b.accountID, "service-environment/"+name)
+	seARN := arn.Build("batch", region, b.accountID, "service-environment/"+name)
 
 	if state == "" {
 		state = stateEnabled
@@ -2122,35 +2334,38 @@ func (b *InMemoryBackend) CreateServiceEnvironment(
 		Status:                 statusValid,
 		Tags:                   tagsCloneOrEmpty(tags),
 	}
-	b.serviceEnvironments[name] = se
+	ses[name] = se
 	cp := *se
 
 	return &cp, nil
 }
 
 // DeleteServiceEnvironment removes a service environment by name or ARN.
-func (b *InMemoryBackend) DeleteServiceEnvironment(nameOrARN string) error {
+func (b *InMemoryBackend) DeleteServiceEnvironment(ctx context.Context, nameOrARN string) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("DeleteServiceEnvironment")
 	defer b.mu.Unlock()
 
-	se, ok := b.lookupServiceEnvironmentByNameOrARN(nameOrARN)
+	se, ok := b.lookupServiceEnvironmentByNameOrARN(region, nameOrARN)
 	if !ok {
 		return fmt.Errorf("%w: service environment %s not found", ErrNotFound, nameOrARN)
 	}
 
-	delete(b.serviceEnvironments, se.ServiceEnvironmentName)
+	delete(b.serviceEnvironmentsStore(region), se.ServiceEnvironmentName)
 
 	return nil
 }
 
-// lookupServiceEnvironmentByNameOrARN returns a service environment by name or ARN.
+// lookupServiceEnvironmentByNameOrARN returns a service environment by name or ARN within region.
 // Caller must hold at least a read lock.
-func (b *InMemoryBackend) lookupServiceEnvironmentByNameOrARN(nameOrARN string) (*ServiceEnvironment, bool) {
-	if se, ok := b.serviceEnvironments[nameOrARN]; ok {
+func (b *InMemoryBackend) lookupServiceEnvironmentByNameOrARN(region, nameOrARN string) (*ServiceEnvironment, bool) {
+	ses := b.serviceEnvironmentsStore(region)
+	if se, ok := ses[nameOrARN]; ok {
 		return se, true
 	}
 
-	for _, se := range b.serviceEnvironments {
+	for _, se := range ses {
 		if se.ServiceEnvironmentArn == nameOrARN {
 			return se, true
 		}
@@ -2161,13 +2376,16 @@ func (b *InMemoryBackend) lookupServiceEnvironmentByNameOrARN(nameOrARN string) 
 
 // UpdateConsumableResource updates the quantity of a consumable resource.
 func (b *InMemoryBackend) UpdateConsumableResource(
+	ctx context.Context,
 	nameOrARN, operation string,
 	quantity int64,
 ) (*ConsumableResource, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("UpdateConsumableResource")
 	defer b.mu.Unlock()
 
-	cr, ok := b.lookupConsumableResourceByNameOrARN(nameOrARN)
+	cr, ok := b.lookupConsumableResourceByNameOrARN(region, nameOrARN)
 	if !ok {
 		return nil, fmt.Errorf("%w: consumable resource %s not found", ErrNotFound, nameOrARN)
 	}
@@ -2219,13 +2437,16 @@ func (b *InMemoryBackend) UpdateConsumableResource(
 }
 
 // ListConsumableResources returns all consumable resources sorted by name.
-func (b *InMemoryBackend) ListConsumableResources() []*ConsumableResource {
+func (b *InMemoryBackend) ListConsumableResources(ctx context.Context) []*ConsumableResource {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("ListConsumableResources")
 	defer b.mu.RUnlock()
 
-	list := make([]*ConsumableResource, 0, len(b.consumableResources))
+	crs := b.consumableResourcesStore(region)
+	list := make([]*ConsumableResource, 0, len(crs))
 
-	for _, cr := range b.consumableResources {
+	for _, cr := range crs {
 		cp := *cr
 		cp.Tags = tagsCloneOrEmpty(cr.Tags)
 		list = append(list, &cp)
@@ -2239,13 +2460,16 @@ func (b *InMemoryBackend) ListConsumableResources() []*ConsumableResource {
 }
 
 // ListSchedulingPolicies returns all scheduling policies sorted by ARN.
-func (b *InMemoryBackend) ListSchedulingPolicies() []*SchedulingPolicy {
+func (b *InMemoryBackend) ListSchedulingPolicies(ctx context.Context) []*SchedulingPolicy {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("ListSchedulingPolicies")
 	defer b.mu.RUnlock()
 
-	list := make([]*SchedulingPolicy, 0, len(b.schedulingPolicies))
+	policies := b.schedulingPoliciesStore(region)
+	list := make([]*SchedulingPolicy, 0, len(policies))
 
-	for _, sp := range b.schedulingPolicies {
+	for _, sp := range policies {
 		cp := *sp
 		cp.Tags = tagsCloneOrEmpty(sp.Tags)
 		list = append(list, &cp)
@@ -2257,13 +2481,17 @@ func (b *InMemoryBackend) ListSchedulingPolicies() []*SchedulingPolicy {
 }
 
 // DescribeSchedulingPolicies returns scheduling policies, optionally filtered by ARNs.
-func (b *InMemoryBackend) DescribeSchedulingPolicies(arns []string) []*SchedulingPolicy {
+func (b *InMemoryBackend) DescribeSchedulingPolicies(ctx context.Context, arns []string) []*SchedulingPolicy {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("DescribeSchedulingPolicies")
 	defer b.mu.RUnlock()
 
+	policies := b.schedulingPoliciesStore(region)
+
 	if len(arns) == 0 {
-		list := make([]*SchedulingPolicy, 0, len(b.schedulingPolicies))
-		for _, sp := range b.schedulingPolicies {
+		list := make([]*SchedulingPolicy, 0, len(policies))
+		for _, sp := range policies {
 			cp := *sp
 			cp.Tags = tagsCloneOrEmpty(sp.Tags)
 			list = append(list, &cp)
@@ -2277,7 +2505,7 @@ func (b *InMemoryBackend) DescribeSchedulingPolicies(arns []string) []*Schedulin
 	list := make([]*SchedulingPolicy, 0, len(arns))
 
 	for _, a := range arns {
-		if sp, ok := b.schedulingPolicies[a]; ok {
+		if sp, ok := policies[a]; ok {
 			cp := *sp
 			cp.Tags = tagsCloneOrEmpty(sp.Tags)
 			list = append(list, &cp)
@@ -2288,13 +2516,16 @@ func (b *InMemoryBackend) DescribeSchedulingPolicies(arns []string) []*Schedulin
 }
 
 // DescribeServiceEnvironments returns service environments, optionally filtered by names/ARNs.
-func (b *InMemoryBackend) DescribeServiceEnvironments(names []string) []*ServiceEnvironment {
+func (b *InMemoryBackend) DescribeServiceEnvironments(ctx context.Context, names []string) []*ServiceEnvironment {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("DescribeServiceEnvironments")
 	defer b.mu.RUnlock()
 
 	if len(names) == 0 {
-		list := make([]*ServiceEnvironment, 0, len(b.serviceEnvironments))
-		for _, se := range b.serviceEnvironments {
+		ses := b.serviceEnvironmentsStore(region)
+		list := make([]*ServiceEnvironment, 0, len(ses))
+		for _, se := range ses {
 			cp := *se
 			cp.Tags = tagsCloneOrEmpty(se.Tags)
 			list = append(list, &cp)
@@ -2310,7 +2541,7 @@ func (b *InMemoryBackend) DescribeServiceEnvironments(names []string) []*Service
 	list := make([]*ServiceEnvironment, 0, len(names))
 
 	for _, nameOrARN := range names {
-		if se, ok := b.lookupServiceEnvironmentByNameOrARN(nameOrARN); ok {
+		if se, ok := b.lookupServiceEnvironmentByNameOrARN(region, nameOrARN); ok {
 			cp := *se
 			cp.Tags = tagsCloneOrEmpty(se.Tags)
 			list = append(list, &cp)
@@ -2321,11 +2552,17 @@ func (b *InMemoryBackend) DescribeServiceEnvironments(names []string) []*Service
 }
 
 // UpdateSchedulingPolicy updates a scheduling policy's fairshare configuration.
-func (b *InMemoryBackend) UpdateSchedulingPolicy(policyARN string, fairsharePolicy *FairsharePolicy) error {
+func (b *InMemoryBackend) UpdateSchedulingPolicy(
+	ctx context.Context,
+	policyARN string,
+	fairsharePolicy *FairsharePolicy,
+) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("UpdateSchedulingPolicy")
 	defer b.mu.Unlock()
 
-	sp, ok := b.schedulingPolicies[policyARN]
+	sp, ok := b.schedulingPoliciesStore(region)[policyARN]
 	if !ok {
 		return fmt.Errorf("%w: scheduling policy %s not found", ErrNotFound, policyARN)
 	}
@@ -2338,11 +2575,16 @@ func (b *InMemoryBackend) UpdateSchedulingPolicy(policyARN string, fairsharePoli
 }
 
 // UpdateServiceEnvironment updates the state of a service environment.
-func (b *InMemoryBackend) UpdateServiceEnvironment(nameOrARN, state string) (*ServiceEnvironment, error) {
+func (b *InMemoryBackend) UpdateServiceEnvironment(
+	ctx context.Context,
+	nameOrARN, state string,
+) (*ServiceEnvironment, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("UpdateServiceEnvironment")
 	defer b.mu.Unlock()
 
-	se, ok := b.lookupServiceEnvironmentByNameOrARN(nameOrARN)
+	se, ok := b.lookupServiceEnvironmentByNameOrARN(region, nameOrARN)
 	if !ok {
 		return nil, fmt.Errorf("%w: service environment %s not found", ErrNotFound, nameOrARN)
 	}
@@ -2358,14 +2600,20 @@ func (b *InMemoryBackend) UpdateServiceEnvironment(nameOrARN, state string) (*Se
 }
 
 // SubmitServiceJob creates a new service job in SUBMITTED status.
-func (b *InMemoryBackend) SubmitServiceJob(name, serviceEnv string, tags map[string]string) (*ServiceJob, error) {
+func (b *InMemoryBackend) SubmitServiceJob(
+	ctx context.Context,
+	name, serviceEnv string,
+	tags map[string]string,
+) (*ServiceJob, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("SubmitServiceJob")
 	defer b.mu.Unlock()
 
 	tagsCopy := tagsCloneOrEmpty(tags)
 	now := time.Now().UnixMilli()
 	jobID := uuid.NewString()
-	jobARN := arn.Build("batch", b.region, b.accountID, "service-job/"+jobID)
+	jobARN := arn.Build("batch", region, b.accountID, "service-job/"+jobID)
 
 	sj := &ServiceJob{
 		ServiceJobID:       jobID,
@@ -2376,18 +2624,20 @@ func (b *InMemoryBackend) SubmitServiceJob(name, serviceEnv string, tags map[str
 		CreatedAt:          now,
 		Tags:               tagsCopy,
 	}
-	b.serviceJobs[jobID] = sj
+	b.serviceJobsStore(region)[jobID] = sj
 	cp := *sj
 
 	return &cp, nil
 }
 
 // DescribeServiceJob returns a single service job by ID.
-func (b *InMemoryBackend) DescribeServiceJob(serviceJobID string) (*ServiceJob, error) {
+func (b *InMemoryBackend) DescribeServiceJob(ctx context.Context, serviceJobID string) (*ServiceJob, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("DescribeServiceJob")
 	defer b.mu.RUnlock()
 
-	sj, ok := b.serviceJobs[serviceJobID]
+	sj, ok := b.serviceJobsStore(region)[serviceJobID]
 	if !ok {
 		return nil, fmt.Errorf("%w: service job %s not found", ErrNotFound, serviceJobID)
 	}
@@ -2399,13 +2649,16 @@ func (b *InMemoryBackend) DescribeServiceJob(serviceJobID string) (*ServiceJob, 
 }
 
 // ListServiceJobs returns service jobs, optionally filtered by service environment.
-func (b *InMemoryBackend) ListServiceJobs(serviceEnv string) ([]*ServiceJob, error) {
+func (b *InMemoryBackend) ListServiceJobs(ctx context.Context, serviceEnv string) ([]*ServiceJob, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("ListServiceJobs")
 	defer b.mu.RUnlock()
 
-	list := make([]*ServiceJob, 0, len(b.serviceJobs))
+	sjs := b.serviceJobsStore(region)
+	list := make([]*ServiceJob, 0, len(sjs))
 
-	for _, sj := range b.serviceJobs {
+	for _, sj := range sjs {
 		if serviceEnv != "" && sj.ServiceEnvironment != serviceEnv {
 			continue
 		}
@@ -2420,11 +2673,13 @@ func (b *InMemoryBackend) ListServiceJobs(serviceEnv string) ([]*ServiceJob, err
 }
 
 // TerminateServiceJob marks a service job as FAILED.
-func (b *InMemoryBackend) TerminateServiceJob(serviceJobID, reason string) error {
+func (b *InMemoryBackend) TerminateServiceJob(ctx context.Context, serviceJobID, reason string) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("TerminateServiceJob")
 	defer b.mu.Unlock()
 
-	sj, ok := b.serviceJobs[serviceJobID]
+	sj, ok := b.serviceJobsStore(region)[serviceJobID]
 	if !ok {
 		return fmt.Errorf("%w: service job %s not found", ErrNotFound, serviceJobID)
 	}
@@ -2438,20 +2693,23 @@ func (b *InMemoryBackend) TerminateServiceJob(serviceJobID, reason string) error
 }
 
 // GetJobQueueSnapshot returns a snapshot of the front of a job queue.
-func (b *InMemoryBackend) GetJobQueueSnapshot(jobQueue string) (*JobQueueSnapshot, error) {
+func (b *InMemoryBackend) GetJobQueueSnapshot(ctx context.Context, jobQueue string) (*JobQueueSnapshot, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("GetJobQueueSnapshot")
 	defer b.mu.RUnlock()
 
-	jq, ok := b.lookupJQByNameOrARN(jobQueue)
+	jq, ok := b.lookupJQByNameOrARN(region, jobQueue)
 	if !ok {
 		return nil, fmt.Errorf("%w: job queue %s not found", ErrNotFound, jobQueue)
 	}
 
-	ids := b.jobsByQueue[jq.JobQueueName]
+	jobs := b.jobsStore(region)
+	ids := b.jobsByQueueStore(region)[jq.JobQueueName]
 	runnableJobs := make([]*Job, 0, len(ids))
 
 	for _, id := range ids {
-		j, ok2 := b.jobs[id]
+		j, ok2 := jobs[id]
 		if !ok2 {
 			continue
 		}
@@ -2487,13 +2745,18 @@ func (b *InMemoryBackend) GetJobQueueSnapshot(jobQueue string) (*JobQueueSnapsho
 
 // ListJobsByConsumableResource returns jobs that reference the named consumable resource
 // via their ConsumableResourceProperties.
-func (b *InMemoryBackend) ListJobsByConsumableResource(consumableResource string) ([]*Job, error) {
+func (b *InMemoryBackend) ListJobsByConsumableResource(
+	ctx context.Context,
+	consumableResource string,
+) ([]*Job, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("ListJobsByConsumableResource")
 	defer b.mu.RUnlock()
 
 	list := make([]*Job, 0)
 
-	for _, j := range b.jobs {
+	for _, j := range b.jobsStore(region) {
 		if jobReferencesConsumableResource(j, consumableResource) {
 			cp := *j
 			cp.Tags = tagsCloneOrEmpty(j.Tags)

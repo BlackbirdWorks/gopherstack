@@ -1967,19 +1967,22 @@ func TestHandler_Persistence_SnapshotRestoreWithNilTags(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			// A minimal snapshot with resource entries that have nil tags
+			// A minimal snapshot with resource entries that have nil tags.
+			// Clusters, acls, subnetGroups, users, parameterGroups, snapshots,
+			// reservedNodes, and arnToResource are now region-keyed (map[region]map[name]*T).
+			// Events is also region-keyed (map[region][]*Event).
 			snapJSON := `{
-				"clusters": {"cl": {"Name": "cl", "ARN": "arn:cl", "Tags": null}},
-				"acls": {"acl": {"Name": "acl", "ARN": "arn:acl", "Tags": null}},
-				"subnetGroups": {"sg": {"Name": "sg", "ARN": "arn:sg", "Tags": null}},
-				"users": {"u": {"Name": "u", "ARN": "arn:u", "Tags": null}},
-				"parameterGroups": {"pg": {"Name": "pg", "ARN": "arn:pg", "Tags": null, "Parameters": null}},
-				"snapshots": {"sn": {"Name": "sn", "ARN": "arn:sn", "Tags": null}},
+				"clusters": {"us-east-1": {"cl": {"Name": "cl", "ARN": "arn:cl", "Tags": null}}},
+				"acls": {"us-east-1": {"acl": {"Name": "acl", "ARN": "arn:acl", "Tags": null}}},
+				"subnetGroups": {"us-east-1": {"sg": {"Name": "sg", "ARN": "arn:sg", "Tags": null}}},
+				"users": {"us-east-1": {"u": {"Name": "u", "ARN": "arn:u", "Tags": null}}},
+				"parameterGroups": {"us-east-1": {"pg": {"Name": "pg", "ARN": "arn:pg", "Tags": null, "Parameters": null}}},
+				"snapshots": {"us-east-1": {"sn": {"Name": "sn", "ARN": "arn:sn", "Tags": null}}},
 				"multiRegionClusters": {"mrc": {"MultiRegionClusterName": "mrc", "Tags": null}},
 				"multiRegionParameterGroups": {"mrpg": {"Name": "mrpg", "Tags": null, "Parameters": null}},
 				"reservedNodes": {},
 				"arnToResource": {},
-				"events": []
+				"events": {}
 			}`
 
 			h := newTestHandler(t)

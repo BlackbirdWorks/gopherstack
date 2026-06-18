@@ -1,6 +1,7 @@
 package identitystore
 
 import (
+	"context"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -13,6 +14,18 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
+
+// regionContextKey is the context key under which the per-request AWS region is stored.
+type regionContextKey struct{}
+
+// getRegion extracts the region from ctx, falling back to defaultRegion when unset.
+func getRegion(ctx context.Context, defaultRegion string) string {
+	if r, ok := ctx.Value(regionContextKey{}).(string); ok && r != "" {
+		return r
+	}
+
+	return defaultRegion
+}
 
 // maxIsMemberInGroupsIDs is the maximum number of GroupIds allowed per IsMemberInGroups request.
 const maxIsMemberInGroupsIDs = 100
@@ -171,15 +184,19 @@ type GroupMembershipExistence struct {
 // ----------------------------------------
 
 // InMemoryBackend is the in-memory store for the Identity Store service.
+//
+// All resource maps are nested by region (outer key = region) so that
+// same-named resources are isolated across regions. Per-region inner maps
+// are created lazily via the *Store helpers. Callers must hold b.mu.
 type InMemoryBackend struct {
-	users             map[string]*User
-	groups            map[string]*Group
-	memberships       map[string]*GroupMembership
-	usersByName       map[string]string   // storeID#username -> userID
-	groupsByName      map[string]string   // storeID#displayName -> groupID
-	membershipKeys    map[string]string   // storeID#groupID#userID -> membershipID
-	usersByEmail      map[string]string   // storeID#email -> userID (primary email)
-	membershipsByUser map[string][]string // storeID#userID -> []membershipID
+	users             map[string]map[string]*User
+	groups            map[string]map[string]*Group
+	memberships       map[string]map[string]*GroupMembership
+	usersByName       map[string]map[string]string   // region -> storeID#username -> userID
+	groupsByName      map[string]map[string]string   // region -> storeID#displayName -> groupID
+	membershipKeys    map[string]map[string]string   // region -> storeID#groupID#userID -> membershipID
+	usersByEmail      map[string]map[string]string   // region -> storeID#email -> userID (primary email)
+	membershipsByUser map[string]map[string][]string // region -> storeID#userID -> []membershipID
 	mu                *lockmetrics.RWMutex
 	accountID         string
 	region            string
@@ -199,24 +216,92 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
 		accountID:         accountID,
 		region:            region,
-		users:             make(map[string]*User),
-		groups:            make(map[string]*Group),
-		memberships:       make(map[string]*GroupMembership),
-		usersByName:       make(map[string]string),
-		groupsByName:      make(map[string]string),
-		membershipKeys:    make(map[string]string),
-		usersByEmail:      make(map[string]string),
-		membershipsByUser: make(map[string][]string),
+		users:             make(map[string]map[string]*User),
+		groups:            make(map[string]map[string]*Group),
+		memberships:       make(map[string]map[string]*GroupMembership),
+		usersByName:       make(map[string]map[string]string),
+		groupsByName:      make(map[string]map[string]string),
+		membershipKeys:    make(map[string]map[string]string),
+		usersByEmail:      make(map[string]map[string]string),
+		membershipsByUser: make(map[string]map[string][]string),
 		mu:                lockmetrics.New("identitystore"),
 	}
 }
 
-// Region returns the backend region.
+// Region returns the backend default region.
 func (b *InMemoryBackend) Region() string { return b.region }
 
 // generateID creates a UUID-format unique ID matching the AWS Identity Store format.
 func (b *InMemoryBackend) generateID() string {
 	return uuid.New().String()
+}
+
+// ----------------------------------------
+// Per-region store helpers (callers must hold b.mu)
+// ----------------------------------------
+
+func (b *InMemoryBackend) usersStore(region string) map[string]*User {
+	if b.users[region] == nil {
+		b.users[region] = make(map[string]*User)
+	}
+
+	return b.users[region]
+}
+
+func (b *InMemoryBackend) groupsStore(region string) map[string]*Group {
+	if b.groups[region] == nil {
+		b.groups[region] = make(map[string]*Group)
+	}
+
+	return b.groups[region]
+}
+
+func (b *InMemoryBackend) membershipsStore(region string) map[string]*GroupMembership {
+	if b.memberships[region] == nil {
+		b.memberships[region] = make(map[string]*GroupMembership)
+	}
+
+	return b.memberships[region]
+}
+
+func (b *InMemoryBackend) usersByNameStore(region string) map[string]string {
+	if b.usersByName[region] == nil {
+		b.usersByName[region] = make(map[string]string)
+	}
+
+	return b.usersByName[region]
+}
+
+func (b *InMemoryBackend) groupsByNameStore(region string) map[string]string {
+	if b.groupsByName[region] == nil {
+		b.groupsByName[region] = make(map[string]string)
+	}
+
+	return b.groupsByName[region]
+}
+
+func (b *InMemoryBackend) membershipKeysStore(region string) map[string]string {
+	if b.membershipKeys[region] == nil {
+		b.membershipKeys[region] = make(map[string]string)
+	}
+
+	return b.membershipKeys[region]
+}
+
+func (b *InMemoryBackend) usersByEmailStore(region string) map[string]string {
+	if b.usersByEmail[region] == nil {
+		b.usersByEmail[region] = make(map[string]string)
+	}
+
+	return b.usersByEmail[region]
+}
+
+func (b *InMemoryBackend) membershipsByUserStore(region string) map[string][]string {
+	if b.membershipsByUser[region] == nil {
+		b.membershipsByUser[region] = make(map[string][]string)
+	}
+
+	return b.membershipsByUser[region]
 }
 
 // ----------------------------------------
@@ -253,7 +338,9 @@ type CreateGroupRequest struct {
 }
 
 // CreateUser creates a new user in the identity store.
-func (b *InMemoryBackend) CreateUser(storeID string, req *CreateUserRequest) (*User, error) {
+func (b *InMemoryBackend) CreateUser(ctx context.Context, storeID string, req *CreateUserRequest) (*User, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("CreateUser")
 	defer b.mu.Unlock()
 
@@ -262,7 +349,7 @@ func (b *InMemoryBackend) CreateUser(storeID string, req *CreateUserRequest) (*U
 	}
 
 	if req.UserName != "" {
-		if _, exists := b.usersByName[storeID+"#"+req.UserName]; exists {
+		if _, exists := b.usersByNameStore(region)[storeID+"#"+req.UserName]; exists {
 			return nil, fmt.Errorf("%w: user with UserName %q already exists", ErrConflict, req.UserName)
 		}
 	}
@@ -300,26 +387,28 @@ func (b *InMemoryBackend) CreateUser(storeID string, req *CreateUserRequest) (*U
 		ExternalIDs:     req.ExternalIDs,
 	}
 
-	b.users[userID] = user
+	b.usersStore(region)[userID] = user
 
 	if req.UserName != "" {
-		b.usersByName[storeID+"#"+req.UserName] = userID
+		b.usersByNameStore(region)[storeID+"#"+req.UserName] = userID
 	}
 
 	// Index primary email for O(1) GetUserID by email.
 	if pe := userPrimaryEmail(req.Emails); pe != "" {
-		b.usersByEmail[storeID+"#"+pe] = userID
+		b.usersByEmailStore(region)[storeID+"#"+pe] = userID
 	}
 
 	return copyUser(user), nil
 }
 
 // DescribeUser returns a user by ID.
-func (b *InMemoryBackend) DescribeUser(storeID, userID string) (*User, error) {
+func (b *InMemoryBackend) DescribeUser(ctx context.Context, storeID, userID string) (*User, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("DescribeUser")
 	defer b.mu.RUnlock()
 
-	user, ok := b.users[userID]
+	user, ok := b.usersStore(region)[userID]
 	if !ok || user.IdentityStoreID != storeID {
 		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userID)
 	}
@@ -328,13 +417,16 @@ func (b *InMemoryBackend) DescribeUser(storeID, userID string) (*User, error) {
 }
 
 // ListUsers lists all users for the given identity store, sorted by UserID.
-func (b *InMemoryBackend) ListUsers(storeID string) []*User {
+func (b *InMemoryBackend) ListUsers(ctx context.Context, storeID string) []*User {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("ListUsers")
 	defer b.mu.RUnlock()
 
-	result := make([]*User, 0, len(b.users))
+	store := b.usersStore(region)
+	result := make([]*User, 0, len(store))
 
-	for _, u := range b.users {
+	for _, u := range store {
 		if u.IdentityStoreID == storeID {
 			result = append(result, copyUser(u))
 		}
@@ -346,11 +438,13 @@ func (b *InMemoryBackend) ListUsers(storeID string) []*User {
 }
 
 // UpdateUser applies attribute operations to a user.
-func (b *InMemoryBackend) UpdateUser(storeID, userID string, ops []attributeOperation) error {
+func (b *InMemoryBackend) UpdateUser(ctx context.Context, storeID, userID string, ops []attributeOperation) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("UpdateUser")
 	defer b.mu.Unlock()
 
-	user, ok := b.users[userID]
+	user, ok := b.usersStore(region)[userID]
 	if !ok || user.IdentityStoreID != storeID {
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, userID)
 	}
@@ -358,7 +452,7 @@ func (b *InMemoryBackend) UpdateUser(storeID, userID string, ops []attributeOper
 	oldUserName := user.UserName
 	oldEmail := userPrimaryEmail(user.Emails)
 
-	if err := b.validateUsernameRename(storeID, oldUserName, ops); err != nil {
+	if err := b.validateUsernameRename(region, storeID, oldUserName, ops); err != nil {
 		return err
 	}
 
@@ -366,14 +460,14 @@ func (b *InMemoryBackend) UpdateUser(storeID, userID string, ops []attributeOper
 		applyUserAttribute(user, op.AttributePath, op.AttributeValue)
 	}
 
-	b.updateUserNameIndex(storeID, userID, oldUserName, user.UserName)
-	b.updateEmailIndex(storeID, userID, oldEmail, userPrimaryEmail(user.Emails))
+	b.updateUserNameIndex(region, storeID, userID, oldUserName, user.UserName)
+	b.updateEmailIndex(region, storeID, userID, oldEmail, userPrimaryEmail(user.Emails))
 
 	return nil
 }
 
 // validateUsernameRename checks that no username-rename operation would produce a conflict.
-func (b *InMemoryBackend) validateUsernameRename(storeID, oldName string, ops []attributeOperation) error {
+func (b *InMemoryBackend) validateUsernameRename(region, storeID, oldName string, ops []attributeOperation) error {
 	for _, op := range ops {
 		if strings.ToLower(op.AttributePath) != attrUserNameKey {
 			continue
@@ -384,7 +478,7 @@ func (b *InMemoryBackend) validateUsernameRename(storeID, oldName string, ops []
 			continue
 		}
 
-		if _, exists := b.usersByName[storeID+"#"+newName]; exists {
+		if _, exists := b.usersByNameStore(region)[storeID+"#"+newName]; exists {
 			return fmt.Errorf("%w: user with UserName %q already exists", ErrConflict, newName)
 		}
 	}
@@ -393,32 +487,32 @@ func (b *InMemoryBackend) validateUsernameRename(storeID, oldName string, ops []
 }
 
 // updateUserNameIndex maintains the usersByName index when a username changes.
-func (b *InMemoryBackend) updateUserNameIndex(storeID, userID, oldName, newName string) {
+func (b *InMemoryBackend) updateUserNameIndex(region, storeID, userID, oldName, newName string) {
 	if oldName == newName {
 		return
 	}
 
 	if oldName != "" {
-		delete(b.usersByName, storeID+"#"+oldName)
+		delete(b.usersByNameStore(region), storeID+"#"+oldName)
 	}
 
 	if newName != "" {
-		b.usersByName[storeID+"#"+newName] = userID
+		b.usersByNameStore(region)[storeID+"#"+newName] = userID
 	}
 }
 
 // updateEmailIndex maintains the usersByEmail index when a primary email changes.
-func (b *InMemoryBackend) updateEmailIndex(storeID, userID, oldEmail, newEmail string) {
+func (b *InMemoryBackend) updateEmailIndex(region, storeID, userID, oldEmail, newEmail string) {
 	if oldEmail == newEmail {
 		return
 	}
 
 	if oldEmail != "" {
-		delete(b.usersByEmail, storeID+"#"+oldEmail)
+		delete(b.usersByEmailStore(region), storeID+"#"+oldEmail)
 	}
 
 	if newEmail != "" {
-		b.usersByEmail[storeID+"#"+newEmail] = userID
+		b.usersByEmailStore(region)[storeID+"#"+newEmail] = userID
 	}
 }
 
@@ -929,46 +1023,54 @@ func groupMatchesFilters(g *Group, filters []ListFilter) bool {
 }
 
 // DeleteUser removes a user from the identity store.
-func (b *InMemoryBackend) DeleteUser(storeID, userID string) error {
+func (b *InMemoryBackend) DeleteUser(ctx context.Context, storeID, userID string) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("DeleteUser")
 	defer b.mu.Unlock()
 
-	user, ok := b.users[userID]
+	user, ok := b.usersStore(region)[userID]
 	if !ok || user.IdentityStoreID != storeID {
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, userID)
 	}
 
 	if user.UserName != "" {
-		delete(b.usersByName, storeID+"#"+user.UserName)
+		delete(b.usersByNameStore(region), storeID+"#"+user.UserName)
 	}
 
 	// Remove primary email from index.
 	if pe := userPrimaryEmail(user.Emails); pe != "" {
-		delete(b.usersByEmail, storeID+"#"+pe)
+		delete(b.usersByEmailStore(region), storeID+"#"+pe)
 	}
 
-	delete(b.users, userID)
+	delete(b.usersStore(region), userID)
 
 	// Use the inverted index for O(1) cascade membership deletion.
 	userKey := storeID + "#" + userID
-	for _, id := range b.membershipsByUser[userKey] {
-		if m, exists := b.memberships[id]; exists {
-			delete(b.membershipKeys, storeID+"#"+m.GroupID+"#"+userID)
-			delete(b.memberships, id)
+	memsByUser := b.membershipsByUserStore(region)
+	memberships := b.membershipsStore(region)
+	membershipKeys := b.membershipKeysStore(region)
+
+	for _, id := range memsByUser[userKey] {
+		if m, exists := memberships[id]; exists {
+			delete(membershipKeys, storeID+"#"+m.GroupID+"#"+userID)
+			delete(memberships, id)
 		}
 	}
 
-	delete(b.membershipsByUser, userKey)
+	delete(memsByUser, userKey)
 
 	return nil
 }
 
 // GetUserID looks up a user ID by alternate identifier (UserName, email, or ExternalId).
-func (b *InMemoryBackend) GetUserID(storeID, attrPath, attrValue string) (string, error) {
+func (b *InMemoryBackend) GetUserID(ctx context.Context, storeID, attrPath, attrValue string) (string, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("GetUserID")
 	defer b.mu.RUnlock()
 
-	uid, found := b.resolveUserByAttr(storeID, attrPath, attrValue)
+	uid, found := b.resolveUserByAttr(region, storeID, attrPath, attrValue)
 	if !found {
 		return "", fmt.Errorf("%w: no user found with %s=%q", ErrUserNotFound, attrPath, attrValue)
 	}
@@ -977,30 +1079,30 @@ func (b *InMemoryBackend) GetUserID(storeID, attrPath, attrValue string) (string
 }
 
 // resolveUserByAttr returns the user ID matching the given attribute path and value.
-func (b *InMemoryBackend) resolveUserByAttr(storeID, attrPath, attrValue string) (string, bool) {
+func (b *InMemoryBackend) resolveUserByAttr(region, storeID, attrPath, attrValue string) (string, bool) {
 	switch {
 	case strings.EqualFold(attrPath, attrUserNameKey):
-		uid, ok := b.usersByName[storeID+"#"+attrValue]
+		uid, ok := b.usersByNameStore(region)[storeID+"#"+attrValue]
 
 		return uid, ok
 	case strings.EqualFold(attrPath, "emails.value"):
-		return b.resolveUserByEmail(storeID, attrValue)
+		return b.resolveUserByEmail(region, storeID, attrValue)
 	case strings.EqualFold(attrPath, "externalid"):
-		return b.resolveUserByExternalID(storeID, attrValue)
+		return b.resolveUserByExternalID(region, storeID, attrValue)
 	}
 
 	return "", false
 }
 
 // resolveUserByEmail returns the user ID matching the given email address.
-func (b *InMemoryBackend) resolveUserByEmail(storeID, email string) (string, bool) {
+func (b *InMemoryBackend) resolveUserByEmail(region, storeID, email string) (string, bool) {
 	// Fast path via primary-email index.
-	if uid, ok := b.usersByEmail[storeID+"#"+email]; ok {
+	if uid, ok := b.usersByEmailStore(region)[storeID+"#"+email]; ok {
 		return uid, true
 	}
 
 	// Slow path: scan all non-primary emails.
-	for _, u := range b.users {
+	for _, u := range b.usersStore(region) {
 		if u.IdentityStoreID != storeID {
 			continue
 		}
@@ -1016,8 +1118,8 @@ func (b *InMemoryBackend) resolveUserByEmail(storeID, email string) (string, boo
 }
 
 // resolveUserByExternalID returns the user ID whose ExternalIDs contain the given ID.
-func (b *InMemoryBackend) resolveUserByExternalID(storeID, extID string) (string, bool) {
-	for _, u := range b.users {
+func (b *InMemoryBackend) resolveUserByExternalID(region, storeID, extID string) (string, bool) {
+	for _, u := range b.usersStore(region) {
 		if u.IdentityStoreID != storeID {
 			continue
 		}
@@ -1037,13 +1139,15 @@ func (b *InMemoryBackend) resolveUserByExternalID(storeID, extID string) (string
 // ----------------------------------------
 
 // CreateGroup creates a new group in the identity store.
-func (b *InMemoryBackend) CreateGroup(storeID string, req *CreateGroupRequest) (*Group, error) {
+func (b *InMemoryBackend) CreateGroup(ctx context.Context, storeID string, req *CreateGroupRequest) (*Group, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("CreateGroup")
 	defer b.mu.Unlock()
 
 	// Check uniqueness by DisplayName using index.
 	if req.DisplayName != "" {
-		if _, exists := b.groupsByName[storeID+"#"+req.DisplayName]; exists {
+		if _, exists := b.groupsByNameStore(region)[storeID+"#"+req.DisplayName]; exists {
 			return nil, fmt.Errorf("%w: group with DisplayName %q already exists", ErrConflict, req.DisplayName)
 		}
 	}
@@ -1061,21 +1165,23 @@ func (b *InMemoryBackend) CreateGroup(storeID string, req *CreateGroupRequest) (
 		ExternalIDs:     req.ExternalIDs,
 	}
 
-	b.groups[groupID] = group
+	b.groupsStore(region)[groupID] = group
 
 	if req.DisplayName != "" {
-		b.groupsByName[storeID+"#"+req.DisplayName] = groupID
+		b.groupsByNameStore(region)[storeID+"#"+req.DisplayName] = groupID
 	}
 
 	return copyGroup(group), nil
 }
 
 // DescribeGroup returns a group by ID.
-func (b *InMemoryBackend) DescribeGroup(storeID, groupID string) (*Group, error) {
+func (b *InMemoryBackend) DescribeGroup(ctx context.Context, storeID, groupID string) (*Group, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("DescribeGroup")
 	defer b.mu.RUnlock()
 
-	group, ok := b.groups[groupID]
+	group, ok := b.groupsStore(region)[groupID]
 	if !ok || group.IdentityStoreID != storeID {
 		return nil, fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupID)
 	}
@@ -1084,13 +1190,16 @@ func (b *InMemoryBackend) DescribeGroup(storeID, groupID string) (*Group, error)
 }
 
 // ListGroups lists all groups for the given identity store, sorted by GroupID.
-func (b *InMemoryBackend) ListGroups(storeID string) []*Group {
+func (b *InMemoryBackend) ListGroups(ctx context.Context, storeID string) []*Group {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("ListGroups")
 	defer b.mu.RUnlock()
 
-	result := make([]*Group, 0, len(b.groups))
+	store := b.groupsStore(region)
+	result := make([]*Group, 0, len(store))
 
-	for _, g := range b.groups {
+	for _, g := range store {
 		if g.IdentityStoreID == storeID {
 			result = append(result, copyGroup(g))
 		}
@@ -1102,16 +1211,18 @@ func (b *InMemoryBackend) ListGroups(storeID string) []*Group {
 }
 
 // UpdateGroup applies attribute operations to a group.
-func (b *InMemoryBackend) UpdateGroup(storeID, groupID string, ops []attributeOperation) error {
+func (b *InMemoryBackend) UpdateGroup(ctx context.Context, storeID, groupID string, ops []attributeOperation) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("UpdateGroup")
 	defer b.mu.Unlock()
 
-	group, ok := b.groups[groupID]
+	group, ok := b.groupsStore(region)[groupID]
 	if !ok || group.IdentityStoreID != storeID {
 		return fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupID)
 	}
 
-	if err := b.validateGroupOps(storeID, group.DisplayName, ops); err != nil {
+	if err := b.validateGroupOps(region, storeID, group.DisplayName, ops); err != nil {
 		return err
 	}
 
@@ -1119,13 +1230,13 @@ func (b *InMemoryBackend) UpdateGroup(storeID, groupID string, ops []attributeOp
 
 	applyGroupAttributes(group, ops)
 
-	b.updateGroupDisplayNameIndex(storeID, groupID, oldDisplayName, group.DisplayName)
+	b.updateGroupDisplayNameIndex(region, storeID, groupID, oldDisplayName, group.DisplayName)
 
 	return nil
 }
 
 // validateGroupOps checks for display-name conflicts before applying group updates.
-func (b *InMemoryBackend) validateGroupOps(storeID, currentDisplayName string, ops []attributeOperation) error {
+func (b *InMemoryBackend) validateGroupOps(region, storeID, currentDisplayName string, ops []attributeOperation) error {
 	for _, op := range ops {
 		if strings.ToLower(op.AttributePath) != attrDisplayName {
 			continue
@@ -1136,7 +1247,7 @@ func (b *InMemoryBackend) validateGroupOps(storeID, currentDisplayName string, o
 			continue
 		}
 
-		if _, exists := b.groupsByName[storeID+"#"+newName]; exists {
+		if _, exists := b.groupsByNameStore(region)[storeID+"#"+newName]; exists {
 			return fmt.Errorf("%w: group with DisplayName %q already exists", ErrConflict, newName)
 		}
 	}
@@ -1161,63 +1272,69 @@ func applyGroupAttributes(group *Group, ops []attributeOperation) {
 }
 
 // updateGroupDisplayNameIndex maintains the groupsByName index when a display name changes.
-func (b *InMemoryBackend) updateGroupDisplayNameIndex(storeID, groupID, oldName, newName string) {
+func (b *InMemoryBackend) updateGroupDisplayNameIndex(region, storeID, groupID, oldName, newName string) {
 	if oldName == newName {
 		return
 	}
 
 	if oldName != "" {
-		delete(b.groupsByName, storeID+"#"+oldName)
+		delete(b.groupsByNameStore(region), storeID+"#"+oldName)
 	}
 
 	if newName != "" {
-		b.groupsByName[storeID+"#"+newName] = groupID
+		b.groupsByNameStore(region)[storeID+"#"+newName] = groupID
 	}
 }
 
 // DeleteGroup removes a group from the identity store.
-func (b *InMemoryBackend) DeleteGroup(storeID, groupID string) error {
+func (b *InMemoryBackend) DeleteGroup(ctx context.Context, storeID, groupID string) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("DeleteGroup")
 	defer b.mu.Unlock()
 
-	group, ok := b.groups[groupID]
+	group, ok := b.groupsStore(region)[groupID]
 	if !ok || group.IdentityStoreID != storeID {
 		return fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupID)
 	}
 
 	if group.DisplayName != "" {
-		delete(b.groupsByName, storeID+"#"+group.DisplayName)
+		delete(b.groupsByNameStore(region), storeID+"#"+group.DisplayName)
 	}
 
-	delete(b.groups, groupID)
+	delete(b.groupsStore(region), groupID)
+
+	memberships := b.membershipsStore(region)
+	membershipKeys := b.membershipKeysStore(region)
+	memsByUser := b.membershipsByUserStore(region)
 
 	// Remove associated memberships. Collect IDs first to avoid map mutation during iteration.
 	var toDelete []string
 
-	for id, m := range b.memberships {
+	for id, m := range memberships {
 		if m.IdentityStoreID == storeID && m.GroupID == groupID {
 			toDelete = append(toDelete, id)
 		}
 	}
 
 	for _, id := range toDelete {
-		m := b.memberships[id]
-		delete(b.membershipKeys, storeID+"#"+groupID+"#"+m.MemberID.UserID)
-		delete(b.memberships, id)
+		m := memberships[id]
+		delete(membershipKeys, storeID+"#"+groupID+"#"+m.MemberID.UserID)
+		delete(memberships, id)
 
 		// Remove from per-user inverted index.
 		userKey := storeID + "#" + m.MemberID.UserID
-		updated := make([]string, 0, len(b.membershipsByUser[userKey]))
-		for _, mid := range b.membershipsByUser[userKey] {
+		updated := make([]string, 0, len(memsByUser[userKey]))
+		for _, mid := range memsByUser[userKey] {
 			if mid != id {
 				updated = append(updated, mid)
 			}
 		}
 
 		if len(updated) == 0 {
-			delete(b.membershipsByUser, userKey)
+			delete(memsByUser, userKey)
 		} else {
-			b.membershipsByUser[userKey] = updated
+			memsByUser[userKey] = updated
 		}
 	}
 
@@ -1225,12 +1342,14 @@ func (b *InMemoryBackend) DeleteGroup(storeID, groupID string) error {
 }
 
 // GetGroupID looks up a group ID by alternate identifier (DisplayName).
-func (b *InMemoryBackend) GetGroupID(storeID, attrPath, attrValue string) (string, error) {
+func (b *InMemoryBackend) GetGroupID(ctx context.Context, storeID, attrPath, attrValue string) (string, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("GetGroupID")
 	defer b.mu.RUnlock()
 
 	if strings.EqualFold(attrPath, "displayName") {
-		if gid, ok := b.groupsByName[storeID+"#"+attrValue]; ok {
+		if gid, ok := b.groupsByNameStore(region)[storeID+"#"+attrValue]; ok {
 			return gid, nil
 		}
 	}
@@ -1243,19 +1362,23 @@ func (b *InMemoryBackend) GetGroupID(storeID, attrPath, attrValue string) (strin
 // ----------------------------------------
 
 // CreateGroupMembership creates a membership between a user and a group.
-func (b *InMemoryBackend) CreateGroupMembership(storeID, groupID string, memberID MemberID) (*GroupMembership, error) {
+func (b *InMemoryBackend) CreateGroupMembership(
+	ctx context.Context, storeID, groupID string, memberID MemberID,
+) (*GroupMembership, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("CreateGroupMembership")
 	defer b.mu.Unlock()
 
 	// Validate group exists.
-	group, ok := b.groups[groupID]
+	group, ok := b.groupsStore(region)[groupID]
 	if !ok || group.IdentityStoreID != storeID {
 		return nil, fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupID)
 	}
 
 	// Validate user exists.
 	if memberID.UserID != "" {
-		user, userOK := b.users[memberID.UserID]
+		user, userOK := b.usersStore(region)[memberID.UserID]
 		if !userOK || user.IdentityStoreID != storeID {
 			return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, memberID.UserID)
 		}
@@ -1263,7 +1386,7 @@ func (b *InMemoryBackend) CreateGroupMembership(storeID, groupID string, memberI
 
 	// Check for duplicate membership using index.
 	key := storeID + "#" + groupID + "#" + memberID.UserID
-	if _, exists := b.membershipKeys[key]; exists {
+	if _, exists := b.membershipKeysStore(region)[key]; exists {
 		return nil, fmt.Errorf("%w: membership already exists", ErrConflict)
 	}
 
@@ -1275,22 +1398,27 @@ func (b *InMemoryBackend) CreateGroupMembership(storeID, groupID string, memberI
 		MemberID:        memberID,
 	}
 
-	b.memberships[membershipID] = membership
-	b.membershipKeys[key] = membershipID
+	b.membershipsStore(region)[membershipID] = membership
+	b.membershipKeysStore(region)[key] = membershipID
 
 	// Maintain inverted index for O(1) cascade deletes on user removal.
 	userKey := storeID + "#" + memberID.UserID
-	b.membershipsByUser[userKey] = append(b.membershipsByUser[userKey], membershipID)
+	memsByUser := b.membershipsByUserStore(region)
+	memsByUser[userKey] = append(memsByUser[userKey], membershipID)
 
 	return copyMembership(membership), nil
 }
 
 // DescribeGroupMembership returns a membership by ID.
-func (b *InMemoryBackend) DescribeGroupMembership(storeID, membershipID string) (*GroupMembership, error) {
+func (b *InMemoryBackend) DescribeGroupMembership(
+	ctx context.Context, storeID, membershipID string,
+) (*GroupMembership, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("DescribeGroupMembership")
 	defer b.mu.RUnlock()
 
-	m, ok := b.memberships[membershipID]
+	m, ok := b.membershipsStore(region)[membershipID]
 	if !ok || m.IdentityStoreID != storeID {
 		return nil, fmt.Errorf("%w: membership %q not found", ErrMembershipNotFound, membershipID)
 	}
@@ -1299,13 +1427,16 @@ func (b *InMemoryBackend) DescribeGroupMembership(storeID, membershipID string) 
 }
 
 // ListGroupMemberships lists all memberships for a group, sorted by MembershipID.
-func (b *InMemoryBackend) ListGroupMemberships(storeID, groupID string) []*GroupMembership {
+func (b *InMemoryBackend) ListGroupMemberships(ctx context.Context, storeID, groupID string) []*GroupMembership {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("ListGroupMemberships")
 	defer b.mu.RUnlock()
 
-	result := make([]*GroupMembership, 0, len(b.memberships))
+	store := b.membershipsStore(region)
+	result := make([]*GroupMembership, 0, len(store))
 
-	for _, m := range b.memberships {
+	for _, m := range store {
 		if m.IdentityStoreID == storeID && m.GroupID == groupID {
 			result = append(result, copyMembership(m))
 		}
@@ -1319,21 +1450,25 @@ func (b *InMemoryBackend) ListGroupMemberships(storeID, groupID string) []*Group
 }
 
 // DeleteGroupMembership removes a membership.
-func (b *InMemoryBackend) DeleteGroupMembership(storeID, membershipID string) error {
+func (b *InMemoryBackend) DeleteGroupMembership(ctx context.Context, storeID, membershipID string) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("DeleteGroupMembership")
 	defer b.mu.Unlock()
 
-	m, ok := b.memberships[membershipID]
+	memberships := b.membershipsStore(region)
+	m, ok := memberships[membershipID]
 	if !ok || m.IdentityStoreID != storeID {
 		return fmt.Errorf("%w: membership %q not found", ErrMembershipNotFound, membershipID)
 	}
 
-	delete(b.membershipKeys, storeID+"#"+m.GroupID+"#"+m.MemberID.UserID)
-	delete(b.memberships, membershipID)
+	delete(b.membershipKeysStore(region), storeID+"#"+m.GroupID+"#"+m.MemberID.UserID)
+	delete(memberships, membershipID)
 
 	// Remove from inverted index.
+	memsByUser := b.membershipsByUserStore(region)
 	userKey := storeID + "#" + m.MemberID.UserID
-	ids := b.membershipsByUser[userKey]
+	ids := memsByUser[userKey]
 	updated := make([]string, 0, len(ids))
 	for _, id := range ids {
 		if id != membershipID {
@@ -1342,21 +1477,25 @@ func (b *InMemoryBackend) DeleteGroupMembership(storeID, membershipID string) er
 	}
 
 	if len(updated) == 0 {
-		delete(b.membershipsByUser, userKey)
+		delete(memsByUser, userKey)
 	} else {
-		b.membershipsByUser[userKey] = updated
+		memsByUser[userKey] = updated
 	}
 
 	return nil
 }
 
 // GetGroupMembershipID looks up a membership ID by group and member.
-func (b *InMemoryBackend) GetGroupMembershipID(storeID, groupID string, memberID MemberID) (string, error) {
+func (b *InMemoryBackend) GetGroupMembershipID(
+	ctx context.Context, storeID, groupID string, memberID MemberID,
+) (string, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("GetGroupMembershipID")
 	defer b.mu.RUnlock()
 
 	key := storeID + "#" + groupID + "#" + memberID.UserID
-	if mid, ok := b.membershipKeys[key]; ok {
+	if mid, ok := b.membershipKeysStore(region)[key]; ok {
 		return mid, nil
 	}
 
@@ -1369,7 +1508,11 @@ func (b *InMemoryBackend) GetGroupMembershipID(storeID, groupID string, memberID
 }
 
 // ListGroupMembershipsForMember lists all group memberships for a given member, sorted by MembershipID.
-func (b *InMemoryBackend) ListGroupMembershipsForMember(storeID string, memberID MemberID) []*GroupMembership {
+func (b *InMemoryBackend) ListGroupMembershipsForMember(
+	ctx context.Context, storeID string, memberID MemberID,
+) []*GroupMembership {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("ListGroupMembershipsForMember")
 	defer b.mu.RUnlock()
 
@@ -1378,11 +1521,12 @@ func (b *InMemoryBackend) ListGroupMembershipsForMember(storeID string, memberID
 	}
 
 	userKey := storeID + "#" + memberID.UserID
-	ids := b.membershipsByUser[userKey]
+	ids := b.membershipsByUserStore(region)[userKey]
+	memberships := b.membershipsStore(region)
 	result := make([]*GroupMembership, 0, len(ids))
 
 	for _, id := range ids {
-		if m, ok := b.memberships[id]; ok {
+		if m, ok := memberships[id]; ok {
 			result = append(result, copyMembership(m))
 		}
 	}
@@ -1397,18 +1541,22 @@ func (b *InMemoryBackend) ListGroupMembershipsForMember(storeID string, memberID
 // IsMemberInGroups checks which of the given groups contain the specified member.
 // Uses the O(1) membershipKeys index instead of scanning all memberships.
 func (b *InMemoryBackend) IsMemberInGroups(
+	ctx context.Context,
 	storeID string,
 	memberID MemberID,
 	groupIDs []string,
 ) []GroupMembershipExistence {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("IsMemberInGroups")
 	defer b.mu.RUnlock()
 
+	membershipKeys := b.membershipKeysStore(region)
 	result := make([]GroupMembershipExistence, 0, len(groupIDs))
 
 	for _, id := range groupIDs {
 		key := storeID + "#" + id + "#" + memberID.UserID
-		_, exists := b.membershipKeys[key]
+		_, exists := membershipKeys[key]
 		result = append(result, GroupMembershipExistence{
 			GroupID:          id,
 			MemberID:         memberID,
@@ -1458,31 +1606,37 @@ func copyMembership(m *GroupMembership) *GroupMembership {
 }
 
 func (b *InMemoryBackend) rebuildIndexes() {
-	b.usersByName = make(map[string]string, len(b.users))
-	b.groupsByName = make(map[string]string, len(b.groups))
-	b.membershipKeys = make(map[string]string, len(b.memberships))
-	b.usersByEmail = make(map[string]string, len(b.users))
-	b.membershipsByUser = make(map[string][]string, len(b.memberships))
+	b.usersByName = make(map[string]map[string]string)
+	b.groupsByName = make(map[string]map[string]string)
+	b.membershipKeys = make(map[string]map[string]string)
+	b.usersByEmail = make(map[string]map[string]string)
+	b.membershipsByUser = make(map[string]map[string][]string)
 
-	for id, u := range b.users {
-		if u.UserName != "" {
-			b.usersByName[u.IdentityStoreID+"#"+u.UserName] = id
-		}
-		if pe := userPrimaryEmail(u.Emails); pe != "" {
-			b.usersByEmail[u.IdentityStoreID+"#"+pe] = id
+	for region, users := range b.users {
+		for id, u := range users {
+			if u.UserName != "" {
+				b.usersByNameStore(region)[u.IdentityStoreID+"#"+u.UserName] = id
+			}
+			if pe := userPrimaryEmail(u.Emails); pe != "" {
+				b.usersByEmailStore(region)[u.IdentityStoreID+"#"+pe] = id
+			}
 		}
 	}
-	for id, g := range b.groups {
-		if g.DisplayName != "" {
-			b.groupsByName[g.IdentityStoreID+"#"+g.DisplayName] = id
+	for region, groups := range b.groups {
+		for id, g := range groups {
+			if g.DisplayName != "" {
+				b.groupsByNameStore(region)[g.IdentityStoreID+"#"+g.DisplayName] = id
+			}
 		}
 	}
-	for id, m := range b.memberships {
-		key := m.IdentityStoreID + "#" + m.GroupID + "#" + m.MemberID.UserID
-		b.membershipKeys[key] = id
+	for region, memberships := range b.memberships {
+		for id, m := range memberships {
+			key := m.IdentityStoreID + "#" + m.GroupID + "#" + m.MemberID.UserID
+			b.membershipKeysStore(region)[key] = id
 
-		userKey := m.IdentityStoreID + "#" + m.MemberID.UserID
-		b.membershipsByUser[userKey] = append(b.membershipsByUser[userKey], id)
+			userKey := m.IdentityStoreID + "#" + m.MemberID.UserID
+			b.membershipsByUserStore(region)[userKey] = append(b.membershipsByUserStore(region)[userKey], id)
+		}
 	}
 }
 
@@ -1491,13 +1645,13 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.users = make(map[string]*User)
-	b.groups = make(map[string]*Group)
-	b.memberships = make(map[string]*GroupMembership)
-	b.usersByName = make(map[string]string)
-	b.groupsByName = make(map[string]string)
-	b.membershipKeys = make(map[string]string)
-	b.usersByEmail = make(map[string]string)
-	b.membershipsByUser = make(map[string][]string)
+	b.users = make(map[string]map[string]*User)
+	b.groups = make(map[string]map[string]*Group)
+	b.memberships = make(map[string]map[string]*GroupMembership)
+	b.usersByName = make(map[string]map[string]string)
+	b.groupsByName = make(map[string]map[string]string)
+	b.membershipKeys = make(map[string]map[string]string)
+	b.usersByEmail = make(map[string]map[string]string)
+	b.membershipsByUser = make(map[string]map[string][]string)
 	b.counter = 0
 }

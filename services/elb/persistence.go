@@ -39,24 +39,28 @@ type tagPair struct {
 }
 
 // backendSnapshot is the top-level JSON structure for Snapshot/Restore.
-// Version 2 adds IsVPC to lbSnapshot.
-const snapshotVersion = 2
+//
+// Version 2 added IsVPC to lbSnapshot. Version 3 nests LoadBalancers and
+// Policies by region (outer key = region) so that region-isolated state
+// round-trips correctly.
+const snapshotVersion = 3
 
 type backendSnapshot struct {
-	LoadBalancers map[string]*lbSnapshot         `json:"loadBalancers"`
-	Policies      map[string]*LoadBalancerPolicy `json:"policies"`
-	AccountID     string                         `json:"accountId"`
-	Region        string                         `json:"region"`
-	Version       int                            `json:"version,omitempty"`
+	// LoadBalancers and Policies are nested by region (outer key = region).
+	LoadBalancers map[string]map[string]*lbSnapshot         `json:"loadBalancers"`
+	Policies      map[string]map[string]*LoadBalancerPolicy `json:"policies"`
+	AccountID     string                                    `json:"accountId"`
+	Region        string                                    `json:"region"`
+	Version       int                                       `json:"version,omitempty"`
 }
 
 func (s *backendSnapshot) ensureNonNil() {
 	if s.LoadBalancers == nil {
-		s.LoadBalancers = make(map[string]*lbSnapshot)
+		s.LoadBalancers = make(map[string]map[string]*lbSnapshot)
 	}
 
 	if s.Policies == nil {
-		s.Policies = make(map[string]*LoadBalancerPolicy)
+		s.Policies = make(map[string]map[string]*LoadBalancerPolicy)
 	}
 }
 
@@ -157,9 +161,13 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	lbSnaps := make(map[string]*lbSnapshot, len(b.lbs))
-	for k, lb := range b.lbs {
-		lbSnaps[k] = toLBSnapshot(lb)
+	lbSnaps := make(map[string]map[string]*lbSnapshot, len(b.lbs))
+	for region, regionLBs := range b.lbs {
+		regionMap := make(map[string]*lbSnapshot, len(regionLBs))
+		for k, lb := range regionLBs {
+			regionMap[k] = toLBSnapshot(lb)
+		}
+		lbSnaps[region] = regionMap
 	}
 
 	snap := backendSnapshot{
@@ -194,20 +202,30 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	defer b.mu.Unlock()
 
 	// Close tags of any existing LBs before overwriting.
-	for _, lb := range b.lbs {
-		if lb.Tags != nil {
-			lb.Tags.Close()
+	for _, regionLBs := range b.lbs {
+		for _, lb := range regionLBs {
+			if lb.Tags != nil {
+				lb.Tags.Close()
+			}
 		}
 	}
 
-	newLBs := make(map[string]*LoadBalancer, len(snap.LoadBalancers))
-	for k, s := range snap.LoadBalancers {
-		newLBs[k] = fromLBSnapshot(s)
+	newLBs := make(map[string]map[string]*LoadBalancer, len(snap.LoadBalancers))
+	for region, regionLBs := range snap.LoadBalancers {
+		regionMap := make(map[string]*LoadBalancer, len(regionLBs))
+		for k, s := range regionLBs {
+			regionMap[k] = fromLBSnapshot(s)
+		}
+		newLBs[region] = regionMap
 	}
 
 	b.lbs = newLBs
 	b.policies = snap.Policies
 	b.accountID = snap.AccountID
+
+	if b.policies == nil {
+		b.policies = make(map[string]map[string]*LoadBalancerPolicy)
+	}
 
 	// Only adopt the persisted region when the backend has no region set yet,
 	// preventing region drift when a snapshot from a different region is loaded

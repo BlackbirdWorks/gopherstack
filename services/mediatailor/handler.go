@@ -30,6 +30,11 @@ const (
 	pathAlerts           = "/alerts"
 	pathConfigureLogs    = "/configureLogs/"
 
+	// sigV4Service is the SigV4 signing name MediaTailor SDK clients use. The
+	// bare "/channels" path is shared with MediaPackage and IoT Analytics, so we
+	// disambiguate it by the request's SigV4 service name.
+	sigV4Service = "mediatailor"
+
 	keyMessage            = "Message"
 	keyTags               = "Tags"
 	keyItems              = "Items"
@@ -182,8 +187,18 @@ func (h *Handler) GetSupportedOperations() []string {
 // IoTAnalytics, so we distinguish by the service name in the AWS Signature header.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
-		if !isMediaTailorPath(c.Request().URL.Path) {
+		path := c.Request().URL.Path
+
+		if !isMediaTailorPath(path) {
 			return false
+		}
+
+		// The bare "/channels" path is shared with MediaPackage and IoT Analytics,
+		// which register matchers at the same priority. Claim it only for
+		// SigV4-signed mediatailor requests so routing is deterministic regardless
+		// of service registration order.
+		if path == pathChannels {
+			return httputils.ExtractServiceFromRequest(c.Request()) == sigV4Service
 		}
 
 		svc := httputils.ExtractServiceFromRequest(c.Request())

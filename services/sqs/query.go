@@ -2,6 +2,7 @@ package sqs
 
 import (
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -95,15 +96,17 @@ func writeQueryError(c *echo.Context, code, message string, status int) error {
 }
 
 // buildQueryError builds a queryError from a backend error.
+// The Query (XML) protocol uses legacy error codes (e.g. AWS.SimpleQueueService.NonExistentQueue)
+// rather than the JSON-API codes (e.g. com.amazonaws.sqs#QueueDoesNotExist).
 func buildQueryError(err error) *queryError {
-	errType, message, status := errorDetails(err)
+	code, message, status := queryErrorDetails(err)
 
 	resp := XMLErrorResponse{
 		Xmlns:     sqsNamespace,
 		RequestID: queryRequestID,
 		Error: XMLError{
 			Type:    "Sender",
-			Code:    errType,
+			Code:    code,
 			Message: message,
 		},
 	}
@@ -112,6 +115,19 @@ func buildQueryError(err error) *queryError {
 	xmlBytes := append([]byte(xml.Header), b...)
 
 	return &queryError{xml: xmlBytes, status: status}
+}
+
+// queryErrorDetails returns the Query-protocol error code, message, and HTTP status for err.
+// The Query API uses legacy-style codes unlike the JSON API.
+func queryErrorDetails(err error) (string, string, int) {
+	if errors.Is(err, ErrQueueNotFound) {
+		return "AWS.SimpleQueueService.NonExistentQueue",
+			"The specified queue does not exist for this wsdl version.",
+			http.StatusBadRequest
+	}
+
+	// Fall through to shared JSON-API details for all other errors.
+	return errorDetails(err)
 }
 
 // marshalXML marshals v to XML bytes with the XML header prepended.

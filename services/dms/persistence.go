@@ -7,43 +7,44 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
+// backendSnapshot mirrors the region-nested backend maps (outer key = region).
 type backendSnapshot struct {
-	ReplicationInstances   map[string]*ReplicationInstance   `json:"replicationInstances"`
-	Endpoints              map[string]*Endpoint              `json:"endpoints"`
-	ReplicationTasks       map[string]*ReplicationTask       `json:"replicationTasks"`
-	DataMigrations         map[string]*DataMigration         `json:"dataMigrations"`
-	DataProviders          map[string]*DataProvider          `json:"dataProviders"`
-	EventSubscriptions     map[string]*EventSubscription     `json:"eventSubscriptions"`
-	FleetAdvisorCollectors map[string]*FleetAdvisorCollector `json:"fleetAdvisorCollectors"`
-	InstanceProfiles       map[string]*InstanceProfile       `json:"instanceProfiles"`
-	AccountID              string                            `json:"accountID"`
-	Region                 string                            `json:"region"`
+	ReplicationInstances   map[string]map[string]*ReplicationInstance   `json:"replicationInstances"`
+	Endpoints              map[string]map[string]*Endpoint              `json:"endpoints"`
+	ReplicationTasks       map[string]map[string]*ReplicationTask       `json:"replicationTasks"`
+	DataMigrations         map[string]map[string]*DataMigration         `json:"dataMigrations"`
+	DataProviders          map[string]map[string]*DataProvider          `json:"dataProviders"`
+	EventSubscriptions     map[string]map[string]*EventSubscription     `json:"eventSubscriptions"`
+	FleetAdvisorCollectors map[string]map[string]*FleetAdvisorCollector `json:"fleetAdvisorCollectors"`
+	InstanceProfiles       map[string]map[string]*InstanceProfile       `json:"instanceProfiles"`
+	AccountID              string                                       `json:"accountID"`
+	Region                 string                                       `json:"region"`
 }
 
 func (s *backendSnapshot) ensureNonNil() {
 	if s.ReplicationInstances == nil {
-		s.ReplicationInstances = make(map[string]*ReplicationInstance)
+		s.ReplicationInstances = make(map[string]map[string]*ReplicationInstance)
 	}
 	if s.Endpoints == nil {
-		s.Endpoints = make(map[string]*Endpoint)
+		s.Endpoints = make(map[string]map[string]*Endpoint)
 	}
 	if s.ReplicationTasks == nil {
-		s.ReplicationTasks = make(map[string]*ReplicationTask)
+		s.ReplicationTasks = make(map[string]map[string]*ReplicationTask)
 	}
 	if s.DataMigrations == nil {
-		s.DataMigrations = make(map[string]*DataMigration)
+		s.DataMigrations = make(map[string]map[string]*DataMigration)
 	}
 	if s.DataProviders == nil {
-		s.DataProviders = make(map[string]*DataProvider)
+		s.DataProviders = make(map[string]map[string]*DataProvider)
 	}
 	if s.EventSubscriptions == nil {
-		s.EventSubscriptions = make(map[string]*EventSubscription)
+		s.EventSubscriptions = make(map[string]map[string]*EventSubscription)
 	}
 	if s.FleetAdvisorCollectors == nil {
-		s.FleetAdvisorCollectors = make(map[string]*FleetAdvisorCollector)
+		s.FleetAdvisorCollectors = make(map[string]map[string]*FleetAdvisorCollector)
 	}
 	if s.InstanceProfiles == nil {
-		s.InstanceProfiles = make(map[string]*InstanceProfile)
+		s.InstanceProfiles = make(map[string]map[string]*InstanceProfile)
 	}
 }
 
@@ -104,16 +105,45 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	return nil
 }
 
-// rebuildARNIndexes reconstructs all ARN-keyed maps and reinitialises nil tag registries.
+// rebuildARNIndexes reconstructs all ARN-keyed maps (region-nested) and
+// reinitialises nil tag registries.
 func (b *InMemoryBackend) rebuildARNIndexes(snap *backendSnapshot) {
-	b.replicationInstancesByARN = rebuildRI(snap.ReplicationInstances)
-	b.endpointsByARN = rebuildEP(snap.Endpoints)
-	b.replicationTasksByARN = rebuildRT(snap.ReplicationTasks)
-	b.dataMigrationsByARN = rebuildDM(snap.DataMigrations)
-	b.dataProvidersByARN = rebuildDP(snap.DataProviders)
-	initEventSubscriptionTags(snap.EventSubscriptions)
-	initCollectorTags(snap.FleetAdvisorCollectors)
-	b.instanceProfilesByARN = rebuildIP(snap.InstanceProfiles)
+	b.replicationInstancesByARN = make(map[string]map[string]*ReplicationInstance, len(snap.ReplicationInstances))
+	for region, m := range snap.ReplicationInstances {
+		b.replicationInstancesByARN[region] = rebuildRI(m)
+	}
+
+	b.endpointsByARN = make(map[string]map[string]*Endpoint, len(snap.Endpoints))
+	for region, m := range snap.Endpoints {
+		b.endpointsByARN[region] = rebuildEP(m)
+	}
+
+	b.replicationTasksByARN = make(map[string]map[string]*ReplicationTask, len(snap.ReplicationTasks))
+	for region, m := range snap.ReplicationTasks {
+		b.replicationTasksByARN[region] = rebuildRT(m)
+	}
+
+	b.dataMigrationsByARN = make(map[string]map[string]*DataMigration, len(snap.DataMigrations))
+	for region, m := range snap.DataMigrations {
+		b.dataMigrationsByARN[region] = rebuildDM(m)
+	}
+
+	b.dataProvidersByARN = make(map[string]map[string]*DataProvider, len(snap.DataProviders))
+	for region, m := range snap.DataProviders {
+		b.dataProvidersByARN[region] = rebuildDP(m)
+	}
+
+	for _, m := range snap.EventSubscriptions {
+		initEventSubscriptionTags(m)
+	}
+	for _, m := range snap.FleetAdvisorCollectors {
+		initCollectorTags(m)
+	}
+
+	b.instanceProfilesByARN = make(map[string]map[string]*InstanceProfile, len(snap.InstanceProfiles))
+	for region, m := range snap.InstanceProfiles {
+		b.instanceProfilesByARN[region] = rebuildIP(m)
+	}
 }
 
 func rebuildRI(m map[string]*ReplicationInstance) map[string]*ReplicationInstance {

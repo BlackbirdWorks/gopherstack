@@ -7,6 +7,11 @@
 		DescribeWorkspaceBundlesCommand,
 		TerminateWorkspacesCommand,
 		CreateWorkspacesCommand,
+		StartWorkspacesCommand,
+		StopWorkspacesCommand,
+		RebootWorkspacesCommand,
+		RebuildWorkspacesCommand,
+		type WorkSpacesClient,
 		type Workspace,
 		type WorkspaceBundle
 	} from '@aws-sdk/client-workspaces';
@@ -35,10 +40,16 @@
 		UserCircle, MousePointer2,
 		Monitor as DesktopGui, Computer, HardDrive as HD,
 		Network as NetIcon,
-		LockKeyhole, UserCog, UserCheck, ShieldAlert
+		LockKeyhole, UserCog, UserCheck, ShieldAlert,
+		Square, RotateCcw, Wrench
 	} from 'lucide-svelte';
 
-	const workspaces = getWorkSpacesClient();
+	let workspacesClient: WorkSpacesClient | undefined;
+	function workspaces(): WorkSpacesClient {
+		return (workspacesClient ??= getWorkSpacesClient());
+	}
+
+	let showBundleCompare = $state(false);
 
 	// State
 	let loading = $state(false);
@@ -69,10 +80,10 @@
 	async function loadWorkSpaces() {
 		loading = true;
 		try {
-			const wsRes = await workspaces.send(new DescribeWorkspacesCommand({}));
+			const wsRes = await workspaces().send(new DescribeWorkspacesCommand({}));
 			workspaceList = wsRes.Workspaces ?? [];
 
-			const bundleRes = await workspaces.send(new DescribeWorkspaceBundlesCommand({}));
+			const bundleRes = await workspaces().send(new DescribeWorkspaceBundlesCommand({}));
 			bundles = bundleRes.Bundles ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load WorkSpaces: ${(err as Error).message}`);
@@ -84,7 +95,7 @@
 	async function terminateWorkspace(id: string | undefined) {
 		if (!id || !await confirmDestructive({ title: 'Terminate WorkSpace', message: 'Terminate this WorkSpace? All user profile data and persistent storage will be permanently purged.', confirmLabel: 'Terminate' })) return;
 		try {
-			await workspaces.send(new TerminateWorkspacesCommand({
+			await workspaces().send(new TerminateWorkspacesCommand({
 				TerminateWorkspaceRequests: [{ WorkspaceId: id }]
 			}));
 			toast.success(`Termination initiated for ${id}`);
@@ -99,7 +110,7 @@
 		if (!userName.trim() || !bundleId) return;
 		creating = true;
 		try {
-			await workspaces.send(new CreateWorkspacesCommand({
+			await workspaces().send(new CreateWorkspacesCommand({
 				Workspaces: [{
 					// Default mock dir
 					DirectoryId: 'd-1234567890',
@@ -124,6 +135,64 @@
 			toast.error(`Provisioning failed: ${(err as Error).message}`);
 		} finally {
 			creating = false;
+		}
+	}
+
+	let actioning = $state(false);
+
+	async function startWorkspace(id: string | undefined) {
+		if (!id) return;
+		actioning = true;
+		try {
+			await workspaces().send(new StartWorkspacesCommand({ StartWorkspaceRequests: [{ WorkspaceId: id }] }));
+			toast.success(`Start initiated for ${id}`);
+			await loadWorkSpaces();
+		} catch (err: unknown) {
+			toast.error(`Start failed: ${(err as Error).message}`);
+		} finally {
+			actioning = false;
+		}
+	}
+
+	async function stopWorkspace(id: string | undefined) {
+		if (!id) return;
+		actioning = true;
+		try {
+			await workspaces().send(new StopWorkspacesCommand({ StopWorkspaceRequests: [{ WorkspaceId: id }] }));
+			toast.success(`Stop initiated for ${id}`);
+			await loadWorkSpaces();
+		} catch (err: unknown) {
+			toast.error(`Stop failed: ${(err as Error).message}`);
+		} finally {
+			actioning = false;
+		}
+	}
+
+	async function rebootWorkspace(id: string | undefined) {
+		if (!id) return;
+		actioning = true;
+		try {
+			await workspaces().send(new RebootWorkspacesCommand({ RebootWorkspaceRequests: [{ WorkspaceId: id }] }));
+			toast.success(`Reboot initiated for ${id}`);
+			await loadWorkSpaces();
+		} catch (err: unknown) {
+			toast.error(`Reboot failed: ${(err as Error).message}`);
+		} finally {
+			actioning = false;
+		}
+	}
+
+	async function rebuildWorkspace(id: string | undefined) {
+		if (!id || !await confirmDestructive({ title: 'Rebuild WorkSpace', message: 'Rebuild this WorkSpace? The user volume is recreated from the last available snapshot; data not yet backed up is lost.', confirmLabel: 'Rebuild' })) return;
+		actioning = true;
+		try {
+			await workspaces().send(new RebuildWorkspacesCommand({ RebuildWorkspaceRequests: [{ WorkspaceId: id }] }));
+			toast.success(`Rebuild initiated for ${id}`);
+			await loadWorkSpaces();
+		} catch (err: unknown) {
+			toast.error(`Rebuild failed: ${(err as Error).message}`);
+		} finally {
+			actioning = false;
 		}
 	}
 
@@ -159,7 +228,15 @@
 			>
 				<RefreshCw class="w-5 h-5 text-slate-600 dark:text-slate-300 {loading ? 'animate-spin' : ''}" />
 			</button>
-			<button 
+			<button
+				onclick={() => (showBundleCompare = !showBundleCompare)}
+				class="flex items-center gap-2 px-4 py-2.5 bg-white/50 dark:bg-slate-700/50 hover:bg-white dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl font-black uppercase text-xs tracking-widest transition-all active:scale-95"
+				title="Compare bundles"
+			>
+				<Boxes class="w-5 h-5" />
+				Bundles
+			</button>
+			<button
 				onclick={() => showCreateModal = true}
 				class="flex items-center gap-2 px-5 py-2.5 bg-sky-600 hover:bg-sky-700 text-white rounded-xl font-black shadow-lg shadow-sky-600/20 transition-all active:scale-95 uppercase text-xs tracking-widest"
 			>
@@ -168,6 +245,49 @@
 			</button>
 		</div>
 	</div>
+
+	<!-- Bundle Comparison -->
+	{#if showBundleCompare}
+		<div class="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white/60 dark:bg-slate-800/40 p-6 shadow-xl">
+			<div class="mb-4 flex items-center justify-between">
+				<h2 class="text-sm font-black uppercase tracking-widest text-slate-700 dark:text-slate-200 italic">Bundle Comparison</h2>
+				<button onclick={() => (showBundleCompare = false)} class="text-xs text-slate-400 hover:text-slate-600">Close</button>
+			</div>
+			{#if bundles.length === 0}
+				<p class="text-sm text-slate-400 italic">No bundles available.</p>
+			{:else}
+				<div class="overflow-x-auto rounded-lg border border-slate-100 dark:border-slate-700/50">
+					<table class="w-full text-sm">
+						<thead class="bg-slate-50 dark:bg-slate-800/60 text-xs uppercase text-slate-500">
+							<tr>
+								<th class="px-4 py-2 text-left">Bundle</th>
+								<th class="px-4 py-2 text-left">Compute</th>
+								<th class="px-4 py-2 text-left">User Storage</th>
+								<th class="px-4 py-2 text-left">Root Storage</th>
+								<th class="px-4 py-2 text-left">Description</th>
+								<th class="px-4 py-2 text-left">Owner</th>
+							</tr>
+						</thead>
+						<tbody class="divide-y divide-slate-100 dark:divide-slate-800">
+							{#each bundles as bundle}
+								<tr class="hover:bg-slate-50 dark:hover:bg-slate-800/40 {bundleId === bundle.BundleId ? 'bg-sky-50 dark:bg-sky-900/20' : ''}">
+									<td class="px-4 py-2 font-medium text-slate-900 dark:text-white">
+										{bundle.Name}
+										<div class="text-[10px] text-slate-400 font-mono">{bundle.BundleId}</div>
+									</td>
+									<td class="px-4 py-2">{bundle.ComputeType?.Name ?? '—'}</td>
+									<td class="px-4 py-2">{bundle.UserStorage?.Capacity ? `${bundle.UserStorage.Capacity} GB` : '—'}</td>
+									<td class="px-4 py-2">{bundle.RootStorage?.Capacity ? `${bundle.RootStorage.Capacity} GB` : '—'}</td>
+									<td class="px-4 py-2 text-xs text-slate-500 max-w-[220px] truncate">{bundle.Description ?? '—'}</td>
+									<td class="px-4 py-2 text-xs text-slate-500">{bundle.Owner ?? '—'}</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			{/if}
+		</div>
+	{/if}
 
 	<!-- VDI Monitor -->
 	<div class="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -260,7 +380,39 @@
 							</div>
 						</div>
 						<div class="flex gap-2">
-							<button 
+							<button
+								onclick={() => startWorkspace(selectedWorkspace?.WorkspaceId)}
+								disabled={actioning || selectedWorkspace.State === 'AVAILABLE'}
+								class="p-2.5 bg-slate-900 dark:bg-black text-emerald-500 hover:bg-emerald-500/10 rounded-2xl transition-all border border-emerald-500/20 shadow-xl disabled:opacity-40"
+								title="Start WorkSpace"
+							>
+								<Play class="w-4 h-4" />
+							</button>
+							<button
+								onclick={() => stopWorkspace(selectedWorkspace?.WorkspaceId)}
+								disabled={actioning || selectedWorkspace.State === 'STOPPED'}
+								class="p-2.5 bg-slate-900 dark:bg-black text-amber-500 hover:bg-amber-500/10 rounded-2xl transition-all border border-amber-500/20 shadow-xl disabled:opacity-40"
+								title="Stop WorkSpace"
+							>
+								<Square class="w-4 h-4" />
+							</button>
+							<button
+								onclick={() => rebootWorkspace(selectedWorkspace?.WorkspaceId)}
+								disabled={actioning}
+								class="p-2.5 bg-slate-900 dark:bg-black text-sky-400 hover:bg-sky-500/10 rounded-2xl transition-all border border-sky-500/20 shadow-xl disabled:opacity-40"
+								title="Reboot WorkSpace"
+							>
+								<RotateCcw class="w-4 h-4" />
+							</button>
+							<button
+								onclick={() => rebuildWorkspace(selectedWorkspace?.WorkspaceId)}
+								disabled={actioning}
+								class="p-2.5 bg-slate-900 dark:bg-black text-indigo-400 hover:bg-indigo-500/10 rounded-2xl transition-all border border-indigo-500/20 shadow-xl disabled:opacity-40"
+								title="Rebuild WorkSpace"
+							>
+								<Wrench class="w-4 h-4" />
+							</button>
+							<button
 								onclick={() => terminateWorkspace(selectedWorkspace?.WorkspaceId)}
 								class="p-2.5 bg-slate-900 dark:bg-black text-rose-500 hover:bg-rose-500/10 rounded-2xl transition-all border border-rose-500/20 shadow-xl"
 								title="Explode environment"

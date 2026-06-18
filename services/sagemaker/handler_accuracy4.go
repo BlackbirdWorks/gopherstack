@@ -69,118 +69,118 @@ func accuracy4OpsSupported() []string {
 //
 //nolint:cyclop,funlen // large switch for 25 operations
 func (h *Handler) dispatchAccuracy4Ops(
-	_ context.Context,
+	ctx context.Context,
 	op string,
 	body []byte,
 ) ([]byte, bool, error) {
 	switch op {
 	// DeviceFleet
 	case opCreateDeviceFleet:
-		r, err := h.handleCreateDeviceFleet(body)
+		r, err := h.handleCreateDeviceFleet(ctx, body)
 
 		return r, true, err
 	case opDescribeDeviceFleet:
-		r, err := h.handleDescribeDeviceFleet(body)
+		r, err := h.handleDescribeDeviceFleet(ctx, body)
 
 		return r, true, err
 	case opListDeviceFleets:
-		r, err := h.handleListDeviceFleets(body)
+		r, err := h.handleListDeviceFleets(ctx, body)
 
 		return r, true, err
 	case opUpdateDeviceFleet:
-		r, err := h.handleUpdateDeviceFleet(body)
+		r, err := h.handleUpdateDeviceFleet(ctx, body)
 
 		return r, true, err
 	case opDeleteDeviceFleet:
-		r, err := h.handleDeleteDeviceFleet(body)
+		r, err := h.handleDeleteDeviceFleet(ctx, body)
 
 		return r, true, err
 
 	// Device
 	case opRegisterDevices:
-		r, err := h.handleRegisterDevices(body)
+		r, err := h.handleRegisterDevices(ctx, body)
 
 		return r, true, err
 	case opDeregisterDevices:
-		r, err := h.handleDeregisterDevices(body)
+		r, err := h.handleDeregisterDevices(ctx, body)
 
 		return r, true, err
 	case opDescribeDevice:
-		r, err := h.handleDescribeDevice(body)
+		r, err := h.handleDescribeDevice(ctx, body)
 
 		return r, true, err
 	case opListDevices:
-		r, err := h.handleListDevices(body)
+		r, err := h.handleListDevices(ctx, body)
 
 		return r, true, err
 
 	// InferenceComponent
 	case opCreateInferenceComponent:
-		r, err := h.handleCreateInferenceComponent(body)
+		r, err := h.handleCreateInferenceComponent(ctx, body)
 
 		return r, true, err
 	case opDescribeInferenceComponent:
-		r, err := h.handleDescribeInferenceComponent(body)
+		r, err := h.handleDescribeInferenceComponent(ctx, body)
 
 		return r, true, err
 	case opListInferenceComponents:
-		r, err := h.handleListInferenceComponents(body)
+		r, err := h.handleListInferenceComponents(ctx, body)
 
 		return r, true, err
 	case opUpdateInferenceComponent:
-		r, err := h.handleUpdateInferenceComponent(body)
+		r, err := h.handleUpdateInferenceComponent(ctx, body)
 
 		return r, true, err
 	case opUpdateInferenceComponentRuntimeConfig:
-		r, err := h.handleUpdateInferenceComponentRuntimeConfig(body)
+		r, err := h.handleUpdateInferenceComponentRuntimeConfig(ctx, body)
 
 		return r, true, err
 	case opDeleteInferenceComponent:
-		r, err := h.handleDeleteInferenceComponent(body)
+		r, err := h.handleDeleteInferenceComponent(ctx, body)
 
 		return r, true, err
 
 	// ClusterSchedulerConfig
 	case opCreateClusterSchedulerConfig:
-		r, err := h.handleCreateClusterSchedulerConfig(body)
+		r, err := h.handleCreateClusterSchedulerConfig(ctx, body)
 
 		return r, true, err
 	case opDescribeClusterSchedulerConfig:
-		r, err := h.handleDescribeClusterSchedulerConfig(body)
+		r, err := h.handleDescribeClusterSchedulerConfig(ctx, body)
 
 		return r, true, err
 	case opListClusterSchedulerConfigs:
-		r, err := h.handleListClusterSchedulerConfigs(body)
+		r, err := h.handleListClusterSchedulerConfigs(ctx, body)
 
 		return r, true, err
 	case opUpdateClusterSchedulerConfig:
-		r, err := h.handleUpdateClusterSchedulerConfig(body)
+		r, err := h.handleUpdateClusterSchedulerConfig(ctx, body)
 
 		return r, true, err
 	case opDeleteClusterSchedulerConfig:
-		r, err := h.handleDeleteClusterSchedulerConfig(body)
+		r, err := h.handleDeleteClusterSchedulerConfig(ctx, body)
 
 		return r, true, err
 
 	// ComputeQuota
 	case opCreateComputeQuota:
-		r, err := h.handleCreateComputeQuota(body)
+		r, err := h.handleCreateComputeQuota(ctx, body)
 
 		return r, true, err
 	case opDescribeComputeQuota:
-		r, err := h.handleDescribeComputeQuota(body)
+		r, err := h.handleDescribeComputeQuota(ctx, body)
 
 		return r, true, err
 	case opListComputeQuotas:
-		r, err := h.handleListComputeQuotas(body)
+		r, err := h.handleListComputeQuotas(ctx, body)
 
 		return r, true, err
 	case opUpdateComputeQuota:
-		r, err := h.handleUpdateComputeQuota(body)
+		r, err := h.handleUpdateComputeQuota(ctx, body)
 
 		return r, true, err
 	case opDeleteComputeQuota:
-		r, err := h.handleDeleteComputeQuota(body)
+		r, err := h.handleDeleteComputeQuota(ctx, body)
 
 		return r, true, err
 	}
@@ -192,7 +192,7 @@ func (h *Handler) dispatchAccuracy4Ops(
 // DeviceFleet handlers
 // ---------------------------------------------------------------------------
 
-func (h *Handler) handleCreateDeviceFleet(body []byte) ([]byte, error) {
+func (h *Handler) handleCreateDeviceFleet(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Tags            map[string]string `json:"Tags"`
 		DeviceFleetName string            `json:"DeviceFleetName"`
@@ -204,7 +204,7 @@ func (h *Handler) handleCreateDeviceFleet(body []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	if _, err := h.Backend.CreateDeviceFleet(CreateDeviceFleetOptions{
+	if _, err := h.Backend.CreateDeviceFleet(ctx, CreateDeviceFleetOptions{
 		DeviceFleetName: req.DeviceFleetName,
 		Description:     req.Description,
 		RoleArn:         req.RoleArn,
@@ -216,7 +216,7 @@ func (h *Handler) handleCreateDeviceFleet(body []byte) ([]byte, error) {
 	return json.Marshal(map[string]any{})
 }
 
-func (h *Handler) handleDescribeDeviceFleet(body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeDeviceFleet(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		DeviceFleetName string `json:"DeviceFleetName"`
 	}
@@ -225,7 +225,7 @@ func (h *Handler) handleDescribeDeviceFleet(body []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	f, err := h.Backend.DescribeDeviceFleet(req.DeviceFleetName)
+	f, err := h.Backend.DescribeDeviceFleet(ctx, req.DeviceFleetName)
 	if err != nil {
 		return nil, err
 	}
@@ -233,7 +233,7 @@ func (h *Handler) handleDescribeDeviceFleet(body []byte) ([]byte, error) {
 	return json.Marshal(f)
 }
 
-func (h *Handler) handleListDeviceFleets(body []byte) ([]byte, error) {
+func (h *Handler) handleListDeviceFleets(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		NextToken string `json:"NextToken"`
 	}
@@ -242,7 +242,7 @@ func (h *Handler) handleListDeviceFleets(body []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	fleets, next := h.Backend.ListDeviceFleets(req.NextToken)
+	fleets, next := h.Backend.ListDeviceFleets(ctx, req.NextToken)
 
 	items := make([]map[string]any, 0, len(fleets))
 	for _, f := range fleets {
@@ -257,7 +257,7 @@ func (h *Handler) handleListDeviceFleets(body []byte) ([]byte, error) {
 	return listResp("DeviceFleetSummaries", items, next)
 }
 
-func (h *Handler) handleUpdateDeviceFleet(body []byte) ([]byte, error) {
+func (h *Handler) handleUpdateDeviceFleet(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		DeviceFleetName string `json:"DeviceFleetName"`
 		Description     string `json:"Description"`
@@ -268,14 +268,14 @@ func (h *Handler) handleUpdateDeviceFleet(body []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	if err := h.Backend.UpdateDeviceFleet(req.DeviceFleetName, req.Description, req.RoleArn); err != nil {
+	if err := h.Backend.UpdateDeviceFleet(ctx, req.DeviceFleetName, req.Description, req.RoleArn); err != nil {
 		return nil, err
 	}
 
 	return json.Marshal(map[string]any{})
 }
 
-func (h *Handler) handleDeleteDeviceFleet(body []byte) ([]byte, error) {
+func (h *Handler) handleDeleteDeviceFleet(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		DeviceFleetName string `json:"DeviceFleetName"`
 	}
@@ -284,7 +284,7 @@ func (h *Handler) handleDeleteDeviceFleet(body []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	if err := h.Backend.DeleteDeviceFleet(req.DeviceFleetName); err != nil {
+	if err := h.Backend.DeleteDeviceFleet(ctx, req.DeviceFleetName); err != nil {
 		return nil, err
 	}
 
@@ -295,7 +295,7 @@ func (h *Handler) handleDeleteDeviceFleet(body []byte) ([]byte, error) {
 // Device handlers
 // ---------------------------------------------------------------------------
 
-func (h *Handler) handleRegisterDevices(body []byte) ([]byte, error) {
+func (h *Handler) handleRegisterDevices(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		DeviceFleetName string `json:"DeviceFleetName"`
 		Devices         []struct {
@@ -320,14 +320,14 @@ func (h *Handler) handleRegisterDevices(body []byte) ([]byte, error) {
 		})
 	}
 
-	if err := h.Backend.RegisterDevices(req.DeviceFleetName, inputs); err != nil {
+	if err := h.Backend.RegisterDevices(ctx, req.DeviceFleetName, inputs); err != nil {
 		return nil, err
 	}
 
 	return json.Marshal(map[string]any{})
 }
 
-func (h *Handler) handleDeregisterDevices(body []byte) ([]byte, error) {
+func (h *Handler) handleDeregisterDevices(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		DeviceFleetName string   `json:"DeviceFleetName"`
 		DeviceNames     []string `json:"DeviceNames"`
@@ -337,14 +337,14 @@ func (h *Handler) handleDeregisterDevices(body []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	if err := h.Backend.DeregisterDevices(req.DeviceFleetName, req.DeviceNames); err != nil {
+	if err := h.Backend.DeregisterDevices(ctx, req.DeviceFleetName, req.DeviceNames); err != nil {
 		return nil, err
 	}
 
 	return json.Marshal(map[string]any{})
 }
 
-func (h *Handler) handleDescribeDevice(body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeDevice(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		DeviceName      string `json:"DeviceName"`
 		DeviceFleetName string `json:"DeviceFleetName"`
@@ -354,7 +354,7 @@ func (h *Handler) handleDescribeDevice(body []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	d, err := h.Backend.DescribeDevice(req.DeviceFleetName, req.DeviceName)
+	d, err := h.Backend.DescribeDevice(ctx, req.DeviceFleetName, req.DeviceName)
 	if err != nil {
 		return nil, err
 	}
@@ -362,7 +362,7 @@ func (h *Handler) handleDescribeDevice(body []byte) ([]byte, error) {
 	return json.Marshal(d)
 }
 
-func (h *Handler) handleListDevices(body []byte) ([]byte, error) {
+func (h *Handler) handleListDevices(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		NextToken       string `json:"NextToken"`
 		DeviceFleetName string `json:"DeviceFleetName"`
@@ -372,7 +372,7 @@ func (h *Handler) handleListDevices(body []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	devices, next := h.Backend.ListDevices(req.DeviceFleetName, req.NextToken)
+	devices, next := h.Backend.ListDevices(ctx, req.DeviceFleetName, req.NextToken)
 
 	items := make([]map[string]any, 0, len(devices))
 	for _, d := range devices {
@@ -391,7 +391,7 @@ func (h *Handler) handleListDevices(body []byte) ([]byte, error) {
 // InferenceComponent handlers
 // ---------------------------------------------------------------------------
 
-func (h *Handler) handleCreateInferenceComponent(body []byte) ([]byte, error) {
+func (h *Handler) handleCreateInferenceComponent(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Tags          map[string]string `json:"Tags"`
 		RuntimeConfig *struct {
@@ -411,7 +411,7 @@ func (h *Handler) handleCreateInferenceComponent(body []byte) ([]byte, error) {
 		copyCount = req.RuntimeConfig.CopyCount
 	}
 
-	c, err := h.Backend.CreateInferenceComponent(CreateInferenceComponentOptions{
+	c, err := h.Backend.CreateInferenceComponent(ctx, CreateInferenceComponentOptions{
 		InferenceComponentName: req.InferenceComponentName,
 		EndpointName:           req.EndpointName,
 		VariantName:            req.VariantName,
@@ -427,7 +427,7 @@ func (h *Handler) handleCreateInferenceComponent(body []byte) ([]byte, error) {
 	})
 }
 
-func (h *Handler) handleDescribeInferenceComponent(body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeInferenceComponent(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		InferenceComponentName string `json:"InferenceComponentName"`
 	}
@@ -436,7 +436,7 @@ func (h *Handler) handleDescribeInferenceComponent(body []byte) ([]byte, error) 
 		return nil, err
 	}
 
-	c, err := h.Backend.DescribeInferenceComponent(req.InferenceComponentName)
+	c, err := h.Backend.DescribeInferenceComponent(ctx, req.InferenceComponentName)
 	if err != nil {
 		return nil, err
 	}
@@ -444,7 +444,7 @@ func (h *Handler) handleDescribeInferenceComponent(body []byte) ([]byte, error) 
 	return json.Marshal(c)
 }
 
-func (h *Handler) handleListInferenceComponents(body []byte) ([]byte, error) {
+func (h *Handler) handleListInferenceComponents(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		NextToken    string `json:"NextToken"`
 		EndpointName string `json:"EndpointNameEquals"`
@@ -454,7 +454,7 @@ func (h *Handler) handleListInferenceComponents(body []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	components, next := h.Backend.ListInferenceComponents(req.EndpointName, req.NextToken)
+	components, next := h.Backend.ListInferenceComponents(ctx, req.EndpointName, req.NextToken)
 
 	items := make([]map[string]any, 0, len(components))
 	for _, c := range components {
@@ -471,7 +471,7 @@ func (h *Handler) handleListInferenceComponents(body []byte) ([]byte, error) {
 	return listResp("InferenceComponents", items, next)
 }
 
-func (h *Handler) handleUpdateInferenceComponent(body []byte) ([]byte, error) {
+func (h *Handler) handleUpdateInferenceComponent(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		RuntimeConfig *struct {
 			CopyCount int `json:"CopyCount"`
@@ -489,11 +489,16 @@ func (h *Handler) handleUpdateInferenceComponent(body []byte) ([]byte, error) {
 		copyCount = req.RuntimeConfig.CopyCount
 	}
 
-	if err := h.Backend.UpdateInferenceComponent(req.InferenceComponentName, req.VariantName, copyCount); err != nil {
+	if err := h.Backend.UpdateInferenceComponent(
+		ctx,
+		req.InferenceComponentName,
+		req.VariantName,
+		copyCount,
+	); err != nil {
 		return nil, err
 	}
 
-	c, err := h.Backend.DescribeInferenceComponent(req.InferenceComponentName)
+	c, err := h.Backend.DescribeInferenceComponent(ctx, req.InferenceComponentName)
 	if err != nil {
 		return nil, err
 	}
@@ -503,7 +508,7 @@ func (h *Handler) handleUpdateInferenceComponent(body []byte) ([]byte, error) {
 	})
 }
 
-func (h *Handler) handleUpdateInferenceComponentRuntimeConfig(body []byte) ([]byte, error) {
+func (h *Handler) handleUpdateInferenceComponentRuntimeConfig(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		DesiredRuntimeConfig *struct {
 			CopyCount int `json:"CopyCount"`
@@ -520,11 +525,11 @@ func (h *Handler) handleUpdateInferenceComponentRuntimeConfig(body []byte) ([]by
 		copyCount = req.DesiredRuntimeConfig.CopyCount
 	}
 
-	if err := h.Backend.UpdateInferenceComponentRuntimeConfig(req.InferenceComponentName, copyCount); err != nil {
+	if err := h.Backend.UpdateInferenceComponentRuntimeConfig(ctx, req.InferenceComponentName, copyCount); err != nil {
 		return nil, err
 	}
 
-	c, err := h.Backend.DescribeInferenceComponent(req.InferenceComponentName)
+	c, err := h.Backend.DescribeInferenceComponent(ctx, req.InferenceComponentName)
 	if err != nil {
 		return nil, err
 	}
@@ -534,7 +539,7 @@ func (h *Handler) handleUpdateInferenceComponentRuntimeConfig(body []byte) ([]by
 	})
 }
 
-func (h *Handler) handleDeleteInferenceComponent(body []byte) ([]byte, error) {
+func (h *Handler) handleDeleteInferenceComponent(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		InferenceComponentName string `json:"InferenceComponentName"`
 	}
@@ -543,7 +548,7 @@ func (h *Handler) handleDeleteInferenceComponent(body []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	if err := h.Backend.DeleteInferenceComponent(req.InferenceComponentName); err != nil {
+	if err := h.Backend.DeleteInferenceComponent(ctx, req.InferenceComponentName); err != nil {
 		return nil, err
 	}
 
@@ -554,7 +559,7 @@ func (h *Handler) handleDeleteInferenceComponent(body []byte) ([]byte, error) {
 // ClusterSchedulerConfig handlers
 // ---------------------------------------------------------------------------
 
-func (h *Handler) handleCreateClusterSchedulerConfig(body []byte) ([]byte, error) {
+func (h *Handler) handleCreateClusterSchedulerConfig(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Tags                       map[string]string `json:"Tags"`
 		ClusterSchedulerConfigName string            `json:"ClusterSchedulerConfigName"`
@@ -565,7 +570,7 @@ func (h *Handler) handleCreateClusterSchedulerConfig(body []byte) ([]byte, error
 		return nil, err
 	}
 
-	c, err := h.Backend.CreateClusterSchedulerConfig(CreateClusterSchedulerConfigOptions{
+	c, err := h.Backend.CreateClusterSchedulerConfig(ctx, CreateClusterSchedulerConfigOptions{
 		ClusterSchedulerConfigName: req.ClusterSchedulerConfigName,
 		ClusterArn:                 req.ClusterArn,
 		Tags:                       req.Tags,
@@ -579,7 +584,7 @@ func (h *Handler) handleCreateClusterSchedulerConfig(body []byte) ([]byte, error
 	})
 }
 
-func (h *Handler) handleDescribeClusterSchedulerConfig(body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeClusterSchedulerConfig(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		ClusterSchedulerConfigName string `json:"ClusterSchedulerConfigName"`
 	}
@@ -588,7 +593,7 @@ func (h *Handler) handleDescribeClusterSchedulerConfig(body []byte) ([]byte, err
 		return nil, err
 	}
 
-	c, err := h.Backend.DescribeClusterSchedulerConfig(req.ClusterSchedulerConfigName)
+	c, err := h.Backend.DescribeClusterSchedulerConfig(ctx, req.ClusterSchedulerConfigName)
 	if err != nil {
 		return nil, err
 	}
@@ -596,7 +601,7 @@ func (h *Handler) handleDescribeClusterSchedulerConfig(body []byte) ([]byte, err
 	return json.Marshal(c)
 }
 
-func (h *Handler) handleListClusterSchedulerConfigs(body []byte) ([]byte, error) {
+func (h *Handler) handleListClusterSchedulerConfigs(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		NextToken string `json:"NextToken"`
 	}
@@ -605,7 +610,7 @@ func (h *Handler) handleListClusterSchedulerConfigs(body []byte) ([]byte, error)
 		return nil, err
 	}
 
-	configs, next := h.Backend.ListClusterSchedulerConfigs(req.NextToken)
+	configs, next := h.Backend.ListClusterSchedulerConfigs(ctx, req.NextToken)
 
 	items := make([]map[string]any, 0, len(configs))
 	for _, c := range configs {
@@ -621,7 +626,7 @@ func (h *Handler) handleListClusterSchedulerConfigs(body []byte) ([]byte, error)
 	return listResp("ClusterSchedulerConfigSummaries", items, next)
 }
 
-func (h *Handler) handleUpdateClusterSchedulerConfig(body []byte) ([]byte, error) {
+func (h *Handler) handleUpdateClusterSchedulerConfig(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		ClusterSchedulerConfigName string `json:"ClusterSchedulerConfigName"`
 		ClusterArn                 string `json:"ClusterArn"`
@@ -631,11 +636,11 @@ func (h *Handler) handleUpdateClusterSchedulerConfig(body []byte) ([]byte, error
 		return nil, err
 	}
 
-	if err := h.Backend.UpdateClusterSchedulerConfig(req.ClusterSchedulerConfigName, req.ClusterArn); err != nil {
+	if err := h.Backend.UpdateClusterSchedulerConfig(ctx, req.ClusterSchedulerConfigName, req.ClusterArn); err != nil {
 		return nil, err
 	}
 
-	c, err := h.Backend.DescribeClusterSchedulerConfig(req.ClusterSchedulerConfigName)
+	c, err := h.Backend.DescribeClusterSchedulerConfig(ctx, req.ClusterSchedulerConfigName)
 	if err != nil {
 		return nil, err
 	}
@@ -645,7 +650,7 @@ func (h *Handler) handleUpdateClusterSchedulerConfig(body []byte) ([]byte, error
 	})
 }
 
-func (h *Handler) handleDeleteClusterSchedulerConfig(body []byte) ([]byte, error) {
+func (h *Handler) handleDeleteClusterSchedulerConfig(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		ClusterSchedulerConfigName string `json:"ClusterSchedulerConfigName"`
 	}
@@ -654,7 +659,7 @@ func (h *Handler) handleDeleteClusterSchedulerConfig(body []byte) ([]byte, error
 		return nil, err
 	}
 
-	if err := h.Backend.DeleteClusterSchedulerConfig(req.ClusterSchedulerConfigName); err != nil {
+	if err := h.Backend.DeleteClusterSchedulerConfig(ctx, req.ClusterSchedulerConfigName); err != nil {
 		return nil, err
 	}
 
@@ -665,7 +670,7 @@ func (h *Handler) handleDeleteClusterSchedulerConfig(body []byte) ([]byte, error
 // ComputeQuota handlers
 // ---------------------------------------------------------------------------
 
-func (h *Handler) handleCreateComputeQuota(body []byte) ([]byte, error) {
+func (h *Handler) handleCreateComputeQuota(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Tags             map[string]string `json:"Tags"`
 		ComputeQuotaName string            `json:"ComputeQuotaName"`
@@ -676,7 +681,7 @@ func (h *Handler) handleCreateComputeQuota(body []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	q, err := h.Backend.CreateComputeQuota(CreateComputeQuotaOptions{
+	q, err := h.Backend.CreateComputeQuota(ctx, CreateComputeQuotaOptions{
 		ComputeQuotaName: req.ComputeQuotaName,
 		ClusterArn:       req.ClusterArn,
 		Tags:             req.Tags,
@@ -690,7 +695,7 @@ func (h *Handler) handleCreateComputeQuota(body []byte) ([]byte, error) {
 	})
 }
 
-func (h *Handler) handleDescribeComputeQuota(body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeComputeQuota(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		ComputeQuotaName string `json:"ComputeQuotaName"`
 	}
@@ -699,7 +704,7 @@ func (h *Handler) handleDescribeComputeQuota(body []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	q, err := h.Backend.DescribeComputeQuota(req.ComputeQuotaName)
+	q, err := h.Backend.DescribeComputeQuota(ctx, req.ComputeQuotaName)
 	if err != nil {
 		return nil, err
 	}
@@ -707,7 +712,7 @@ func (h *Handler) handleDescribeComputeQuota(body []byte) ([]byte, error) {
 	return json.Marshal(q)
 }
 
-func (h *Handler) handleListComputeQuotas(body []byte) ([]byte, error) {
+func (h *Handler) handleListComputeQuotas(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		NextToken string `json:"NextToken"`
 	}
@@ -716,7 +721,7 @@ func (h *Handler) handleListComputeQuotas(body []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	quotas, next := h.Backend.ListComputeQuotas(req.NextToken)
+	quotas, next := h.Backend.ListComputeQuotas(ctx, req.NextToken)
 
 	items := make([]map[string]any, 0, len(quotas))
 	for _, q := range quotas {
@@ -732,7 +737,7 @@ func (h *Handler) handleListComputeQuotas(body []byte) ([]byte, error) {
 	return listResp("ComputeQuotaSummaries", items, next)
 }
 
-func (h *Handler) handleUpdateComputeQuota(body []byte) ([]byte, error) {
+func (h *Handler) handleUpdateComputeQuota(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		ComputeQuotaName string `json:"ComputeQuotaName"`
 		ClusterArn       string `json:"ClusterArn"`
@@ -742,11 +747,11 @@ func (h *Handler) handleUpdateComputeQuota(body []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	if err := h.Backend.UpdateComputeQuota(req.ComputeQuotaName, req.ClusterArn); err != nil {
+	if err := h.Backend.UpdateComputeQuota(ctx, req.ComputeQuotaName, req.ClusterArn); err != nil {
 		return nil, err
 	}
 
-	q, err := h.Backend.DescribeComputeQuota(req.ComputeQuotaName)
+	q, err := h.Backend.DescribeComputeQuota(ctx, req.ComputeQuotaName)
 	if err != nil {
 		return nil, err
 	}
@@ -756,7 +761,7 @@ func (h *Handler) handleUpdateComputeQuota(body []byte) ([]byte, error) {
 	})
 }
 
-func (h *Handler) handleDeleteComputeQuota(body []byte) ([]byte, error) {
+func (h *Handler) handleDeleteComputeQuota(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		ComputeQuotaName string `json:"ComputeQuotaName"`
 	}
@@ -765,7 +770,7 @@ func (h *Handler) handleDeleteComputeQuota(body []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	if err := h.Backend.DeleteComputeQuota(req.ComputeQuotaName); err != nil {
+	if err := h.Backend.DeleteComputeQuota(ctx, req.ComputeQuotaName); err != nil {
 		return nil, err
 	}
 

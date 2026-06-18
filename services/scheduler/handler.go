@@ -411,21 +411,33 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.handleREST(c)
 		}
 
+		ctx := h.contextWithRegion(c)
+
 		return service.HandleTarget(
-			c, logger.Load(c.Request().Context()),
+			c, logger.Load(ctx),
 			"Scheduler", "application/x-amz-json-1.1",
 			h.GetSupportedOperations(),
-			h.dispatch,
+			func(_ context.Context, action string, body []byte) ([]byte, error) {
+				return h.dispatch(ctx, action, body)
+			},
 			h.handleError,
 		)
 	}
+}
+
+// contextWithRegion returns the request context with the resolved AWS region attached
+// under regionContextKey so that backend operations are routed to the correct region.
+func (h *Handler) contextWithRegion(c *echo.Context) context.Context {
+	region := httputils.ExtractRegionFromRequest(c.Request(), h.Backend.Region())
+
+	return context.WithValue(c.Request().Context(), regionContextKey{}, region)
 }
 
 // handleREST handles Scheduler REST API calls.
 // It extracts path parameters from the URL, injects them into the request body,
 // and dispatches to the existing handler logic.
 func (h *Handler) handleREST(c *echo.Context) error {
-	ctx := c.Request().Context()
+	ctx := h.contextWithRegion(c)
 
 	action, name := parseSchedulerRESTPath(c.Request().Method, c.Request().URL.Path)
 	if action == restOpUnknown {
@@ -625,7 +637,7 @@ type createScheduleOutput struct {
 	ScheduleArn string `json:"ScheduleArn"`
 }
 
-func (h *Handler) handleCreateSchedule(_ context.Context, in *scheduleInput) (*createScheduleOutput, error) {
+func (h *Handler) handleCreateSchedule(ctx context.Context, in *scheduleInput) (*createScheduleOutput, error) {
 	state := in.State
 	if state == "" {
 		state = scheduleStateEnabled
@@ -649,6 +661,7 @@ func (h *Handler) handleCreateSchedule(_ context.Context, in *scheduleInput) (*c
 	}
 
 	s, err := h.Backend.CreateSchedule(
+		ctx,
 		in.Name,
 		in.GroupName,
 		in.ScheduleExpression,
@@ -921,8 +934,8 @@ type getScheduleOutput struct {
 	CreationDate               float64                  `json:"CreationDate"`
 }
 
-func (h *Handler) handleGetSchedule(_ context.Context, in *scheduleNameInput) (*getScheduleOutput, error) {
-	s, err := h.Backend.GetSchedule(in.Name, in.GroupName)
+func (h *Handler) handleGetSchedule(ctx context.Context, in *scheduleNameInput) (*getScheduleOutput, error) {
+	s, err := h.Backend.GetSchedule(ctx, in.Name, in.GroupName)
 	if err != nil {
 		return nil, err
 	}
@@ -988,9 +1001,16 @@ type listSchedulesOutput struct {
 	Schedules []scheduleSummary `json:"Schedules"`
 }
 
-func (h *Handler) handleListSchedules(_ context.Context, in *listSchedulesInput) (*listSchedulesOutput, error) {
+func (h *Handler) handleListSchedules(ctx context.Context, in *listSchedulesInput) (*listSchedulesOutput, error) {
 	maxResults := parseMaxResults(in.MaxResults)
-	schedules, nextToken := h.Backend.ListSchedules(in.GroupName, in.NamePrefix, in.State, in.NextToken, maxResults)
+	schedules, nextToken := h.Backend.ListSchedules(
+		ctx,
+		in.GroupName,
+		in.NamePrefix,
+		in.State,
+		in.NextToken,
+		maxResults,
+	)
 	items := make([]scheduleSummary, 0, len(schedules))
 
 	for _, s := range schedules {
@@ -1018,15 +1038,15 @@ func voidOp(fn func() error) (*emptyOutput, error) {
 	return &emptyOutput{}, nil
 }
 
-func (h *Handler) handleDeleteSchedule(_ context.Context, in *scheduleNameInput) (*emptyOutput, error) {
-	return voidOp(func() error { return h.Backend.DeleteSchedule(in.Name, in.GroupName) })
+func (h *Handler) handleDeleteSchedule(ctx context.Context, in *scheduleNameInput) (*emptyOutput, error) {
+	return voidOp(func() error { return h.Backend.DeleteSchedule(ctx, in.Name, in.GroupName) })
 }
 
 type updateScheduleOutput struct {
 	ScheduleArn string `json:"ScheduleArn"`
 }
 
-func (h *Handler) handleUpdateSchedule(_ context.Context, in *scheduleInput) (*updateScheduleOutput, error) {
+func (h *Handler) handleUpdateSchedule(ctx context.Context, in *scheduleInput) (*updateScheduleOutput, error) {
 	var opts []ScheduleOption
 	if in.StartDate != nil {
 		opts = append(opts, WithStartDate(epochSecondsToTime(*in.StartDate)))
@@ -1045,6 +1065,7 @@ func (h *Handler) handleUpdateSchedule(_ context.Context, in *scheduleInput) (*u
 	}
 
 	s, err := h.Backend.UpdateSchedule(
+		ctx,
 		in.Name,
 		in.GroupName,
 		in.ScheduleExpression,
@@ -1070,8 +1091,8 @@ type handleTagResourceInput struct {
 	ResourceArn string            `json:"ResourceArn"`
 }
 
-func (h *Handler) handleTagResource(_ context.Context, in *handleTagResourceInput) (*emptyOutput, error) {
-	return voidOp(func() error { return h.Backend.TagResource(in.ResourceArn, in.Tags) })
+func (h *Handler) handleTagResource(ctx context.Context, in *handleTagResourceInput) (*emptyOutput, error) {
+	return voidOp(func() error { return h.Backend.TagResource(ctx, in.ResourceArn, in.Tags) })
 }
 
 type handleListTagsForResourceInput struct {
@@ -1083,10 +1104,10 @@ type listTagsForResourceOutput struct {
 }
 
 func (h *Handler) handleListTagsForResource(
-	_ context.Context,
+	ctx context.Context,
 	in *handleListTagsForResourceInput,
 ) (*listTagsForResourceOutput, error) {
-	kv, err := h.Backend.ListTagsForResource(in.ResourceArn)
+	kv, err := h.Backend.ListTagsForResource(ctx, in.ResourceArn)
 	if err != nil {
 		return nil, err
 	}
@@ -1100,8 +1121,8 @@ type handleUntagResourceInput struct {
 	TagKeys     []string `json:"TagKeys"`
 }
 
-func (h *Handler) handleUntagResource(_ context.Context, in *handleUntagResourceInput) (*emptyOutput, error) {
-	return voidOp(func() error { return h.Backend.UntagResource(in.ResourceArn, in.TagKeys) })
+func (h *Handler) handleUntagResource(ctx context.Context, in *handleUntagResourceInput) (*emptyOutput, error) {
+	return voidOp(func() error { return h.Backend.UntagResource(ctx, in.ResourceArn, in.TagKeys) })
 }
 
 // Schedule group handlers.
@@ -1117,10 +1138,10 @@ type createScheduleGroupOutput struct {
 }
 
 func (h *Handler) handleCreateScheduleGroup(
-	_ context.Context,
+	ctx context.Context,
 	in *createScheduleGroupInput,
 ) (*createScheduleGroupOutput, error) {
-	g, err := h.Backend.CreateScheduleGroup(in.Name, in.Description, in.Tags)
+	g, err := h.Backend.CreateScheduleGroup(ctx, in.Name, in.Description, in.Tags)
 	if err != nil {
 		return nil, err
 	}
@@ -1135,10 +1156,10 @@ type scheduleGroupNameInput struct {
 type deleteScheduleGroupOutput struct{}
 
 func (h *Handler) handleDeleteScheduleGroup(
-	_ context.Context,
+	ctx context.Context,
 	in *scheduleGroupNameInput,
 ) (*deleteScheduleGroupOutput, error) {
-	if err := h.Backend.DeleteScheduleGroup(in.Name); err != nil {
+	if err := h.Backend.DeleteScheduleGroup(ctx, in.Name); err != nil {
 		return nil, err
 	}
 
@@ -1156,10 +1177,10 @@ type getScheduleGroupOutput struct {
 }
 
 func (h *Handler) handleGetScheduleGroup(
-	_ context.Context,
+	ctx context.Context,
 	in *scheduleGroupNameInput,
 ) (*getScheduleGroupOutput, error) {
-	g, err := h.Backend.GetScheduleGroup(in.Name)
+	g, err := h.Backend.GetScheduleGroup(ctx, in.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -1201,11 +1222,11 @@ type listScheduleGroupsOutput struct {
 }
 
 func (h *Handler) handleListScheduleGroups(
-	_ context.Context,
+	ctx context.Context,
 	in *listScheduleGroupsInput,
 ) (*listScheduleGroupsOutput, error) {
 	maxResults := parseMaxResults(in.MaxResults)
-	groups, nextToken := h.Backend.ListScheduleGroups(in.NamePrefix, in.NextToken, maxResults)
+	groups, nextToken := h.Backend.ListScheduleGroups(ctx, in.NamePrefix, in.NextToken, maxResults)
 	items := make([]scheduleGroupSummary, 0, len(groups))
 
 	for _, g := range groups {

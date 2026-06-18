@@ -1,6 +1,7 @@
 package sns
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"time"
@@ -77,12 +78,15 @@ func buildLambdaPayload(
 }
 
 // deliverToLambdaSubscriptions invokes each Lambda-protocol subscription endpoint.
-// It is best-effort: errors are silently dropped so one bad endpoint does not block others.
+// On invocation failure, the message is forwarded to the subscription DLQ when
+// a RedrivePolicy is configured and a SQSSender is wired.
 func (b *InMemoryBackend) deliverToLambdaSubscriptions(ev *events.SNSPublishedEvent) {
 	lambda := b.lambdaBackend
 	if lambda == nil {
 		return
 	}
+
+	sqsSender := b.sqsSender
 
 	for _, sub := range ev.Subscriptions {
 		if sub.Protocol != protocolLambda {
@@ -90,8 +94,10 @@ func (b *InMemoryBackend) deliverToLambdaSubscriptions(ev *events.SNSPublishedEv
 		}
 
 		payload := buildLambdaPayload(ev, sub)
-		// Fire-and-forget; ignore response and error per SNS semantics.
-		_, _, _ = lambda.InvokeFunction(b.svcCtx, sub.Endpoint, snsLambdaInvocationType, payload)
+		_, _, err := lambda.InvokeFunction(b.svcCtx, sub.Endpoint, snsLambdaInvocationType, payload)
+		if err != nil && sub.RedrivePolicy != "" && sqsSender != nil {
+			sendLambdaDLQ(b.svcCtx, sqsSender, sub.RedrivePolicy, ev.Message)
+		}
 	}
 }
 
@@ -130,4 +136,16 @@ func firehoseStreamNameFromARN(endpoint string) string {
 	parts := strings.Split(endpoint, "/")
 
 	return parts[len(parts)-1]
+}
+
+// sendLambdaDLQ forwards a failed Lambda delivery to the DLQ configured in redrivePolicy.
+// It is a no-op when the SQSSender is nil or the policy cannot be parsed.
+func sendLambdaDLQ(ctx context.Context, sender SQSSender, redrivePolicy, body string) {
+	var policy struct {
+		DeadLetterTargetArn string `json:"deadLetterTargetArn"`
+	}
+	if err := json.Unmarshal([]byte(redrivePolicy), &policy); err != nil || policy.DeadLetterTargetArn == "" {
+		return
+	}
+	_ = sender.SendMessageToQueue(ctx, policy.DeadLetterTargetArn, body)
 }

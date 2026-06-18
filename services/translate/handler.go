@@ -10,6 +10,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -617,8 +618,8 @@ func terminologyToMap(t *Terminology) map[string]any {
 		"Format":              t.Format,
 		"SizeBytes":           t.SizeBytes,
 		"TermCount":           t.TermCount,
-		"CreatedAt":           float64(t.CreatedAt.Unix()),
-		"LastUpdatedAt":       float64(t.LastUpdatedAt.Unix()),
+		"CreatedAt":           awstime.Epoch(t.CreatedAt),
+		"LastUpdatedAt":       awstime.Epoch(t.LastUpdatedAt),
 		keySourceLanguageCode: t.SourceLanguage,
 	}
 
@@ -640,8 +641,8 @@ func parallelDataToMap(pd *ParallelData) map[string]any {
 		keyStatus:             pd.Status,
 		keySourceLanguageCode: pd.SourceLanguage,
 		"TargetLanguageCodes": pd.TargetLanguages,
-		"CreatedAt":           float64(pd.CreatedAt.Unix()),
-		"LastUpdatedAt":       float64(pd.LastUpdatedAt.Unix()),
+		"CreatedAt":           awstime.Epoch(pd.CreatedAt),
+		"LastUpdatedAt":       awstime.Epoch(pd.LastUpdatedAt),
 	}
 
 	if pd.ParallelDataConfig != nil {
@@ -662,7 +663,7 @@ func jobToMap(job *TranslationJob) map[string]any {
 		"DataAccessRoleArn":   job.DataAccessRoleARN,
 		keySourceLanguageCode: job.SourceLanguage,
 		"TargetLanguageCodes": job.TargetLanguages,
-		"SubmittedTime":       float64(job.SubmittedAt.Unix()),
+		"SubmittedTime":       awstime.Epoch(job.SubmittedAt),
 	}
 
 	if job.InputDataConfig != nil {

@@ -159,3 +159,108 @@ func TestParity_Query_ConsistentRead_GSI_Rejected(t *testing.T) {
 		})
 	}
 }
+
+// parityMarshal marshals v to JSON bytes for use with makeParityRequest.
+func parityMarshal(t *testing.T, v any) []byte {
+	t.Helper()
+	b, err := json.Marshal(v)
+	require.NoError(t, err)
+
+	return b
+}
+
+// lsiTableBody is the CreateTable body for a table with PK+SK and one LSI.
+func lsiTableBody(t *testing.T, tableName string) []byte {
+	t.Helper()
+
+	return parityMarshal(t, map[string]any{
+		"TableName": tableName,
+		"KeySchema": []map[string]any{
+			{"AttributeName": "pk", "KeyType": "HASH"},
+			{"AttributeName": "sk", "KeyType": "RANGE"},
+		},
+		"AttributeDefinitions": []map[string]any{
+			{"AttributeName": "pk", "AttributeType": "S"},
+			{"AttributeName": "sk", "AttributeType": "S"},
+			{"AttributeName": "lsi_sk", "AttributeType": "S"},
+		},
+		"LocalSecondaryIndexes": []map[string]any{
+			{
+				"IndexName": "LSI1",
+				"KeySchema": []map[string]any{
+					{"AttributeName": "pk", "KeyType": "HASH"},
+					{"AttributeName": "lsi_sk", "KeyType": "RANGE"},
+				},
+				"Projection": map[string]any{"ProjectionType": "ALL"},
+			},
+		},
+		"BillingMode": "PAY_PER_REQUEST",
+	})
+}
+
+// TestParity_PutItem_ItemCollectionMetrics_PKOnly verifies that
+// ItemCollectionMetrics.ItemCollectionKey contains only the partition key
+// attribute, not the full item or the sort key.
+func TestParity_PutItem_ItemCollectionMetrics_PKOnly(t *testing.T) {
+	t.Parallel()
+
+	h := dynamodb.NewHandler(dynamodb.NewInMemoryDB())
+
+	w := makeParityRequest(t, h, "DynamoDB_20120810.CreateTable", lsiTableBody(t, "coll-tbl"))
+	require.Equal(t, http.StatusOK, w.Code)
+
+	w = makeParityRequest(t, h, "DynamoDB_20120810.PutItem", parityMarshal(t, map[string]any{
+		"TableName": "coll-tbl",
+		"Item": map[string]any{
+			"pk":     map[string]any{"S": "user1"},
+			"sk":     map[string]any{"S": "ord1"},
+			"lsi_sk": map[string]any{"S": "lsi1"},
+			"data":   map[string]any{"S": "extra"},
+		},
+		"ReturnItemCollectionMetrics": "SIZE",
+	}))
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var out struct {
+		ItemCollectionMetrics *struct {
+			ItemCollectionKey   map[string]any `json:"ItemCollectionKey"`
+			SizeEstimateRangeGB []float64      `json:"SizeEstimateRangeGB"`
+		} `json:"ItemCollectionMetrics"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	require.NotNil(t, out.ItemCollectionMetrics)
+
+	// ItemCollectionKey must contain only the partition key, not sk or non-key attrs.
+	assert.Contains(t, out.ItemCollectionMetrics.ItemCollectionKey, "pk",
+		"ItemCollectionKey must include partition key")
+	assert.NotContains(t, out.ItemCollectionMetrics.ItemCollectionKey, "sk",
+		"ItemCollectionKey must not include sort key")
+	assert.NotContains(t, out.ItemCollectionMetrics.ItemCollectionKey, "data",
+		"ItemCollectionKey must not include non-key attributes")
+
+	// SizeEstimateRangeGB must be a valid non-negative range.
+	require.Len(t, out.ItemCollectionMetrics.SizeEstimateRangeGB, 2)
+	assert.GreaterOrEqual(t, out.ItemCollectionMetrics.SizeEstimateRangeGB[0], 0.0)
+}
+
+// TestParity_PutItem_LSI_NormalItemSucceeds verifies that normal-sized PutItem
+// on an LSI table does not falsely trigger the collection size limit.
+func TestParity_PutItem_LSI_NormalItemSucceeds(t *testing.T) {
+	t.Parallel()
+
+	h := dynamodb.NewHandler(dynamodb.NewInMemoryDB())
+	w := makeParityRequest(t, h, "DynamoDB_20120810.CreateTable", lsiTableBody(t, "lsi-ok-tbl"))
+	require.Equal(t, http.StatusOK, w.Code)
+
+	w = makeParityRequest(t, h, "DynamoDB_20120810.PutItem", parityMarshal(t, map[string]any{
+		"TableName": "lsi-ok-tbl",
+		"Item": map[string]any{
+			"pk":     map[string]any{"S": "user1"},
+			"sk":     map[string]any{"S": "ord1"},
+			"lsi_sk": map[string]any{"S": "lsi1"},
+		},
+		"ReturnItemCollectionMetrics": "SIZE",
+	}))
+	assert.Equal(t, http.StatusOK, w.Code,
+		"normal-sized item in LSI table must succeed without triggering size limit")
+}

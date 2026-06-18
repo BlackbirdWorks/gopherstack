@@ -1,6 +1,7 @@
 package resourcegroups_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -590,10 +591,10 @@ func TestAudit1_ReservedTagNamespaceOnAddTags(t *testing.T) {
 	doResourceGroupsRequest(t, h, "CreateGroup", map[string]any{"Name": "tag-test-group"})
 
 	b := h.Backend
-	g, err := b.GetGroup("tag-test-group")
+	g, err := b.GetGroup(context.Background(), "tag-test-group")
 	require.NoError(t, err)
 
-	_, err = b.AddTagsByARN(g.ARN, map[string]string{"aws:reserved": "val"})
+	_, err = b.AddTagsByARN(context.Background(), g.ARN, map[string]string{"aws:reserved": "val"})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, resourcegroups.ErrValidation)
 }
@@ -745,7 +746,7 @@ func TestAudit1_UntagViaDeleteVerb(t *testing.T) {
 	})
 
 	b := h.Backend
-	g, err := b.GetGroup("delete-tag-group")
+	g, err := b.GetGroup(context.Background(), "delete-tag-group")
 	require.NoError(t, err)
 
 	// DELETE /resources/{Arn}/tags with JSON body.
@@ -765,7 +766,7 @@ func TestAudit1_UntagViaDeleteVerb(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
 
 	// Verify "env" tag was removed.
-	tagMap, err := b.GetTagsByARN(g.ARN)
+	tagMap, err := b.GetTagsByARN(context.Background(), g.ARN)
 	require.NoError(t, err)
 	assert.NotContains(t, tagMap, "env")
 	assert.Contains(t, tagMap, "team")
@@ -867,7 +868,7 @@ func TestAudit1_BackendCreateGroupWithReservedTag(t *testing.T) {
 	t.Parallel()
 
 	b := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.CreateGroup(
+	_, err := b.CreateGroup(context.Background(),
 		"my-group",
 		"desc",
 		nil,
@@ -884,10 +885,10 @@ func TestAudit1_GroupingStatusOnUngroup(t *testing.T) {
 	t.Parallel()
 
 	b := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
-	_, _ = b.CreateGroup("status-group", "", nil, nil, nil)
-	_, _ = b.GroupResources("status-group", []string{"arn:aws:s3:::b1"})
+	_, _ = b.CreateGroup(context.Background(), "status-group", "", nil, nil, nil)
+	_, _ = b.GroupResources(context.Background(), "status-group", []string{"arn:aws:s3:::b1"})
 
-	result, err := b.UngroupResources(
+	result, err := b.UngroupResources(context.Background(),
 		"status-group",
 		[]string{"arn:aws:s3:::b1", "arn:aws:s3:::nonmember"},
 	)
@@ -898,7 +899,7 @@ func TestAudit1_GroupingStatusOnUngroup(t *testing.T) {
 	assert.Equal(t, "arn:aws:s3:::nonmember", result.Failed[0].ResourceArn)
 	assert.Equal(t, "RESOURCE_NOT_FOUND", result.Failed[0].ErrorCode)
 
-	statuses, err := b.ListGroupingStatuses("status-group")
+	statuses, err := b.ListGroupingStatuses(context.Background(), "status-group")
 	require.NoError(t, err)
 
 	var successCount, failCount int
@@ -966,13 +967,13 @@ func TestAudit1_CreateGroupAtomicConfig(t *testing.T) {
 
 	b := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
 
-	_, err := b.CreateGroup("atomic-group", "", nil, nil, []resourcegroups.GroupConfigurationItem{
+	_, err := b.CreateGroup(context.Background(), "atomic-group", "", nil, nil, []resourcegroups.GroupConfigurationItem{
 		{Type: "AWS::Invalid::Type"},
 	})
 	require.Error(t, err)
 
 	// Group must not have been created.
-	_, err = b.GetGroup("atomic-group")
+	_, err = b.GetGroup(context.Background(), "atomic-group")
 	assert.ErrorIs(t, err, resourcegroups.ErrNotFound)
 }
 

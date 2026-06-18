@@ -20,6 +20,7 @@ package pipes_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -166,7 +167,7 @@ func TestAudit_Lifecycle_CreatingToRunning(t *testing.T) {
 			t.Parallel()
 
 			b := auditNewBackend()
-			_, err := b.CreatePipe(pipes.CreatePipeInput{
+			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 				Name:         tt.name,
 				Source:       "arn:aws:sqs:us-west-2:123456789012:q",
 				Target:       "arn:aws:lambda:us-west-2:123456789012:function:fn",
@@ -175,7 +176,7 @@ func TestAudit_Lifecycle_CreatingToRunning(t *testing.T) {
 			require.NoError(t, err)
 
 			require.Eventually(t, func() bool {
-				p, getErr := b.GetPipe(tt.name)
+				p, getErr := b.GetPipe(context.Background(), tt.name)
 
 				return getErr == nil && p.CurrentState == tt.wantEventualState
 			}, 500*time.Millisecond, 5*time.Millisecond)
@@ -214,7 +215,7 @@ func TestAudit_Lifecycle_Updating(t *testing.T) {
 			if tt.wantEventualState == "STOPPED" {
 				desiredState = "STOPPED"
 			}
-			_, err := b.CreatePipe(pipes.CreatePipeInput{
+			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 				Name:         pipeName,
 				Source:       "arn:aws:sqs:us-west-2:123456789012:q",
 				Target:       "arn:aws:lambda:us-west-2:123456789012:function:fn",
@@ -224,7 +225,7 @@ func TestAudit_Lifecycle_Updating(t *testing.T) {
 			pipes.WaitPipeRunning(t, b, pipeName)
 
 			desc := tt.description
-			updated, err := b.UpdatePipe(pipeName, pipes.UpdatePipeInput{
+			updated, err := b.UpdatePipe(context.Background(), pipeName, pipes.UpdatePipeInput{
 				Description:  &desc,
 				DesiredState: desiredState,
 			})
@@ -232,7 +233,7 @@ func TestAudit_Lifecycle_Updating(t *testing.T) {
 			assert.Equal(t, "UPDATING", updated.CurrentState, "UpdatePipe should return UPDATING state")
 
 			require.Eventually(t, func() bool {
-				p, e := b.GetPipe(pipeName)
+				p, e := b.GetPipe(context.Background(), pipeName)
 
 				return e == nil && p.CurrentState == tt.wantEventualState
 			}, 500*time.Millisecond, 5*time.Millisecond)
@@ -257,7 +258,7 @@ func TestAudit_Lifecycle_Deleting(t *testing.T) {
 
 			b := auditNewBackend()
 			pipeName := tt.name + "-pipe"
-			_, err := b.CreatePipe(pipes.CreatePipeInput{
+			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 				Name:         pipeName,
 				Source:       "arn:aws:sqs:us-west-2:123456789012:q",
 				Target:       "arn:aws:lambda:us-west-2:123456789012:function:fn",
@@ -265,12 +266,12 @@ func TestAudit_Lifecycle_Deleting(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			deleted, err := b.DeletePipe(pipeName)
+			deleted, err := b.DeletePipe(context.Background(), pipeName)
 			require.NoError(t, err)
 			assert.Equal(t, "DELETING", deleted.CurrentState, "DeletePipe should return DELETING state")
 
 			require.Eventually(t, func() bool {
-				_, e := b.GetPipe(pipeName)
+				_, e := b.GetPipe(context.Background(), pipeName)
 
 				return e != nil
 			}, 500*time.Millisecond, 5*time.Millisecond, "pipe should be removed after DELETING transition")
@@ -1447,11 +1448,11 @@ func TestAudit_KmsKeyIdentifier_Update(t *testing.T) {
 			if tt.initialKey != "" {
 				inp.KmsKeyIdentifier = tt.initialKey
 			}
-			_, err := b.CreatePipe(inp)
+			_, err := b.CreatePipe(context.Background(), inp)
 			require.NoError(t, err)
 			pipes.WaitPipeRunning(t, b, tt.name+"-pipe")
 
-			updated, err := b.UpdatePipe(tt.name+"-pipe", pipes.UpdatePipeInput{
+			updated, err := b.UpdatePipe(context.Background(), tt.name+"-pipe", pipes.UpdatePipeInput{
 				KmsKeyIdentifier: tt.updatedKey,
 			})
 			require.NoError(t, err)
@@ -1707,7 +1708,7 @@ func TestAudit_Pagination_Limit(t *testing.T) {
 
 			b := auditNewBackend()
 			for i := range tt.numPipes {
-				_, err := b.CreatePipe(pipes.CreatePipeInput{
+				_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 					Name:         "pipe-" + string(rune('a'+i)) + "-" + tt.name,
 					Source:       "arn:aws:sqs:us-west-2:123456789012:q",
 					Target:       "arn:aws:lambda:us-west-2:123456789012:function:fn",
@@ -1739,7 +1740,7 @@ func TestAudit_Pagination_NextToken(t *testing.T) {
 
 	b := auditNewBackend()
 	for i := range 5 {
-		_, err := b.CreatePipe(pipes.CreatePipeInput{
+		_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 			Name:         "pag-pipe-" + string(rune('a'+i)),
 			Source:       "arn:aws:sqs:us-west-2:123456789012:q",
 			Target:       "arn:aws:lambda:us-west-2:123456789012:function:fn",
@@ -1799,7 +1800,7 @@ func TestAudit_Pagination_FilterByCurrentState(t *testing.T) {
 			t.Parallel()
 
 			b := auditNewBackend()
-			_, err := b.CreatePipe(pipes.CreatePipeInput{
+			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 				Name:         "filter-state-pipe-" + tt.name,
 				Source:       "arn:aws:sqs:us-west-2:123456789012:q",
 				Target:       "arn:aws:lambda:us-west-2:123456789012:function:fn",
@@ -1808,7 +1809,7 @@ func TestAudit_Pagination_FilterByCurrentState(t *testing.T) {
 			require.NoError(t, err)
 
 			// Query immediately — pipe should be in CREATING state
-			result := b.ListPipes(pipes.ListPipesFilter{CurrentState: tt.filterState})
+			result := b.ListPipes(context.Background(), pipes.ListPipesFilter{CurrentState: tt.filterState})
 			assert.GreaterOrEqual(t, len(result.Pipes), tt.wantMinCount)
 		})
 	}
@@ -1961,7 +1962,7 @@ func TestAudit_MarkPipeFailed(t *testing.T) {
 			t.Parallel()
 
 			b := auditNewBackend()
-			_, err := b.CreatePipe(pipes.CreatePipeInput{
+			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 				Name:         tt.name + "-pipe",
 				Source:       "arn:aws:sqs:us-west-2:123456789012:q",
 				Target:       "arn:aws:lambda:us-west-2:123456789012:function:fn",
@@ -1971,7 +1972,7 @@ func TestAudit_MarkPipeFailed(t *testing.T) {
 
 			b.MarkPipeFailed(tt.name+"-pipe", tt.failState, tt.failReason)
 
-			p, err := b.GetPipe(tt.name + "-pipe")
+			p, err := b.GetPipe(context.Background(), tt.name+"-pipe")
 			require.NoError(t, err)
 			assert.Equal(t, tt.failState, p.CurrentState)
 			assert.Equal(t, tt.failReason, p.StateReason)
@@ -2057,7 +2058,7 @@ func TestAudit_BatchSize_EffectiveFromAllSources(t *testing.T) {
 			t.Parallel()
 
 			b := auditNewBackend()
-			_, err := b.CreatePipe(pipes.CreatePipeInput{
+			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 				Name:             tt.name + "-pipe",
 				Source:           "arn:aws:sqs:us-west-2:123456789012:q",
 				Target:           "arn:aws:lambda:us-west-2:123456789012:function:fn",
@@ -2078,7 +2079,7 @@ func TestAudit_BatchSize_EffectiveFromAllSources(t *testing.T) {
 			// empty queue → reader called with expected batch size
 			// (no way to observe batch size without checking receiver)
 			// Just verify no panic and pipe state is intact
-			p, err := b.GetPipe(tt.name + "-pipe")
+			p, err := b.GetPipe(context.Background(), tt.name+"-pipe")
 			require.NoError(t, err)
 			assert.Equal(t, "RUNNING", p.CurrentState)
 		})
@@ -2120,11 +2121,11 @@ func TestAudit_EnrichmentParameters_Update(t *testing.T) {
 			if tt.initialTemplate != "" {
 				inp.EnrichmentParameters = &pipes.EnrichmentParameters{InputTemplate: tt.initialTemplate}
 			}
-			_, err := b.CreatePipe(inp)
+			_, err := b.CreatePipe(context.Background(), inp)
 			require.NoError(t, err)
 			pipes.WaitPipeRunning(t, b, tt.name+"-pipe")
 
-			updated, err := b.UpdatePipe(tt.name+"-pipe", pipes.UpdatePipeInput{
+			updated, err := b.UpdatePipe(context.Background(), tt.name+"-pipe", pipes.UpdatePipeInput{
 				EnrichmentParameters: &pipes.EnrichmentParameters{InputTemplate: tt.updatedTemplate},
 			})
 			require.NoError(t, err)
@@ -2211,7 +2212,7 @@ func TestAudit_UpdatePipe_UpdatesLastModifiedTime(t *testing.T) {
 			t.Parallel()
 
 			b := auditNewBackend()
-			_, err := b.CreatePipe(pipes.CreatePipeInput{
+			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 				Name:         tt.name + "-pipe",
 				Source:       "arn:aws:sqs:us-west-2:123456789012:q",
 				Target:       "arn:aws:lambda:us-west-2:123456789012:function:fn",
@@ -2220,16 +2221,16 @@ func TestAudit_UpdatePipe_UpdatesLastModifiedTime(t *testing.T) {
 			require.NoError(t, err)
 			pipes.WaitPipeRunning(t, b, tt.name+"-pipe")
 
-			before, _ := b.GetPipe(tt.name + "-pipe")
+			before, _ := b.GetPipe(context.Background(), tt.name+"-pipe")
 			time.Sleep(2 * time.Millisecond)
 
 			updatedDesc := "updated"
-			_, err = b.UpdatePipe(tt.name+"-pipe", pipes.UpdatePipeInput{
+			_, err = b.UpdatePipe(context.Background(), tt.name+"-pipe", pipes.UpdatePipeInput{
 				Description: &updatedDesc,
 			})
 			require.NoError(t, err)
 
-			after, _ := b.GetPipe(tt.name + "-pipe")
+			after, _ := b.GetPipe(context.Background(), tt.name+"-pipe")
 			assert.True(t, after.LastModifiedTime.After(before.LastModifiedTime),
 				"LastModifiedTime should increase after update")
 		})
@@ -2261,7 +2262,7 @@ func TestAudit_ListPipes_SourceTargetPrefix(t *testing.T) {
 				"arn:aws:states:us-west-2:123456789012:stateMachine:sm",
 			}
 			for i, target := range targets {
-				_, err := b.CreatePipe(pipes.CreatePipeInput{
+				_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
 					Name:         "prefix-pipe-" + string(rune('a'+i)) + "-" + tt.name,
 					Source:       "arn:aws:sqs:us-west-2:123456789012:q",
 					Target:       target,
@@ -2270,7 +2271,7 @@ func TestAudit_ListPipes_SourceTargetPrefix(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			result := b.ListPipes(pipes.ListPipesFilter{TargetPrefix: tt.targetPrefix})
+			result := b.ListPipes(context.Background(), pipes.ListPipesFilter{TargetPrefix: tt.targetPrefix})
 			assert.Len(t, result.Pipes, tt.wantCount)
 		})
 	}

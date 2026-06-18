@@ -47,7 +47,10 @@ func TestJanitor_RetentionSweep(t *testing.T) {
 			t.Parallel()
 
 			bk := kinesis.NewInMemoryBackend()
-			require.NoError(t, bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "sweep-stream"}))
+			require.NoError(
+				t,
+				bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{StreamName: "sweep-stream"}),
+			)
 			require.NoError(t, bk.SetRetentionPeriodForTest("sweep-stream", tt.retentionHrs))
 
 			// Push a record with an artificial past arrival time.
@@ -69,12 +72,12 @@ func TestJanitor_MultiStreamSweep(t *testing.T) {
 	bk := kinesis.NewInMemoryBackend()
 
 	// Stream A: 24-hour retention, record is 30 hours old (should be evicted).
-	require.NoError(t, bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "stream-a"}))
+	require.NoError(t, bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{StreamName: "stream-a"}))
 	require.NoError(t, bk.SetRetentionPeriodForTest("stream-a", 24))
 	require.NoError(t, bk.PushOldRecordForTest("stream-a", 0, 30*time.Hour))
 
 	// Stream B: 48-hour retention, record is 30 hours old (should be kept).
-	require.NoError(t, bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "stream-b"}))
+	require.NoError(t, bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{StreamName: "stream-b"}))
 	require.NoError(t, bk.SetRetentionPeriodForTest("stream-b", 48))
 	require.NoError(t, bk.PushOldRecordForTest("stream-b", 0, 30*time.Hour))
 
@@ -90,7 +93,7 @@ func TestJanitor_EmptyStream(t *testing.T) {
 	t.Parallel()
 
 	bk := kinesis.NewInMemoryBackend()
-	require.NoError(t, bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "empty"}))
+	require.NoError(t, bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{StreamName: "empty"}))
 
 	j := kinesis.NewJanitorForTest(bk, time.Minute)
 
@@ -132,13 +135,13 @@ func TestDeleteStream_CleansFaultEntry(t *testing.T) {
 	t.Parallel()
 
 	bk := kinesis.NewInMemoryBackend()
-	require.NoError(t, bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "fault-stream"}))
+	require.NoError(t, bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{StreamName: "fault-stream"}))
 
 	// Inject a fault for the stream.
 	bk.InjectFaultForTest("fault-stream")
 	assert.True(t, bk.HasFaultForTest("fault-stream"), "fault should be present before delete")
 
-	require.NoError(t, bk.DeleteStream(&kinesis.DeleteStreamInput{StreamName: "fault-stream"}))
+	require.NoError(t, bk.DeleteStream(context.Background(), &kinesis.DeleteStreamInput{StreamName: "fault-stream"}))
 
 	assert.False(t, bk.HasFaultForTest("fault-stream"), "fault entry should be removed after delete")
 }
@@ -150,9 +153,9 @@ func TestRingBuffer_WrapAround(t *testing.T) {
 
 	const maxCap = 10000
 	bk := kinesis.NewInMemoryBackend()
-	require.NoError(t, bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "ring-stream"}))
+	require.NoError(t, bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{StreamName: "ring-stream"}))
 
-	desc, err := bk.DescribeStream(&kinesis.DescribeStreamInput{StreamName: "ring-stream"})
+	desc, err := bk.DescribeStream(context.Background(), &kinesis.DescribeStreamInput{StreamName: "ring-stream"})
 	require.NoError(t, err)
 	shardID := desc.Shards[0].ShardID
 
@@ -160,7 +163,7 @@ func TestRingBuffer_WrapAround(t *testing.T) {
 	var lastSeq string
 
 	for range maxCap + 5 {
-		out, putErr := bk.PutRecord(&kinesis.PutRecordInput{
+		out, putErr := bk.PutRecord(context.Background(), &kinesis.PutRecordInput{
 			StreamName:   "ring-stream",
 			PartitionKey: "pk",
 			Data:         []byte("data"),
@@ -174,7 +177,7 @@ func TestRingBuffer_WrapAround(t *testing.T) {
 	assert.Equal(t, maxCap, bk.ShardRecordCountForTest("ring-stream", 0))
 
 	// The last pushed record must be readable.
-	iterOut, err := bk.GetShardIterator(&kinesis.GetShardIteratorInput{
+	iterOut, err := bk.GetShardIterator(context.Background(), &kinesis.GetShardIteratorInput{
 		StreamName:             "ring-stream",
 		ShardID:                shardID,
 		ShardIteratorType:      "AT_SEQUENCE_NUMBER",
@@ -182,7 +185,10 @@ func TestRingBuffer_WrapAround(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	recs, err := bk.GetRecords(&kinesis.GetRecordsInput{ShardIterator: iterOut.ShardIterator, Limit: 1})
+	recs, err := bk.GetRecords(
+		context.Background(),
+		&kinesis.GetRecordsInput{ShardIterator: iterOut.ShardIterator, Limit: 1},
+	)
 	require.NoError(t, err)
 	require.Len(t, recs.Records, 1)
 	assert.Equal(t, lastSeq, recs.Records[0].SequenceNumber)
@@ -194,9 +200,9 @@ func TestBinarySearch_FindSequencePosition(t *testing.T) {
 	t.Parallel()
 
 	bk := kinesis.NewInMemoryBackend()
-	require.NoError(t, bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "bsearch-stream"}))
+	require.NoError(t, bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{StreamName: "bsearch-stream"}))
 
-	desc, err := bk.DescribeStream(&kinesis.DescribeStreamInput{StreamName: "bsearch-stream"})
+	desc, err := bk.DescribeStream(context.Background(), &kinesis.DescribeStreamInput{StreamName: "bsearch-stream"})
 	require.NoError(t, err)
 	shardID := desc.Shards[0].ShardID
 
@@ -204,7 +210,7 @@ func TestBinarySearch_FindSequencePosition(t *testing.T) {
 	seqs := make([]string, 100)
 
 	for i := range 100 {
-		out, putErr := bk.PutRecord(&kinesis.PutRecordInput{
+		out, putErr := bk.PutRecord(context.Background(), &kinesis.PutRecordInput{
 			StreamName:   "bsearch-stream",
 			PartitionKey: "pk",
 			Data:         []byte("data"),
@@ -260,7 +266,7 @@ func TestBinarySearch_FindSequencePosition(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			iterOut, iterErr := bk.GetShardIterator(&kinesis.GetShardIteratorInput{
+			iterOut, iterErr := bk.GetShardIterator(context.Background(), &kinesis.GetShardIteratorInput{
 				StreamName:             "bsearch-stream",
 				ShardID:                shardID,
 				ShardIteratorType:      tt.iterType,
@@ -268,7 +274,7 @@ func TestBinarySearch_FindSequencePosition(t *testing.T) {
 			})
 			require.NoError(t, iterErr)
 
-			recs, recsErr := bk.GetRecords(&kinesis.GetRecordsInput{
+			recs, recsErr := bk.GetRecords(context.Background(), &kinesis.GetRecordsInput{
 				ShardIterator: iterOut.ShardIterator,
 				Limit:         10000,
 			})
@@ -318,7 +324,7 @@ func TestJanitor_WithTaskTimeout_ProviderPath(t *testing.T) {
 	bk := kinesis.NewInMemoryBackend()
 
 	// Push an old record that would normally be swept.
-	require.NoError(t, bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "timeout-test"}))
+	require.NoError(t, bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{StreamName: "timeout-test"}))
 	require.NoError(t, bk.SetRetentionPeriodForTest("timeout-test", 24))
 	require.NoError(t, bk.PushOldRecordForTest("timeout-test", 0, 30*time.Hour))
 

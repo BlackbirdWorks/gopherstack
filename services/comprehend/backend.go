@@ -313,14 +313,18 @@ func (b *InMemoryBackend) GetResource(resourceArn, resourceType string) (*Resour
 	return cloneResource(resource), nil
 }
 
-// ListResources returns resources of one type.
+// ListResources returns resources of one type. For classifier and recognizer
+// types, listing advances the async training lifecycle one step (mirroring a
+// status poll), consistent with how Describe advances it. This lets a
+// create→describe→list→delete flow reach a deletable (TRAINED) state.
 func (b *InMemoryBackend) ListResources(resourceType string) []*Resource {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
 	out := make([]*Resource, 0, len(b.resources))
 	for _, resource := range b.resources {
 		if resource.Type == resourceType {
+			advanceTrainingResource(resource)
 			out = append(out, cloneResource(resource))
 		}
 	}

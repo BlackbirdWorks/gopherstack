@@ -1,6 +1,7 @@
 package kinesisanalyticsv2
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -22,7 +23,7 @@ const (
 // Handler is the HTTP handler for the Kinesis Data Analytics v2 JSON API.
 type Handler struct {
 	Backend StorageBackend
-	ops     map[string]func(*echo.Context, []byte) error
+	ops     map[string]func(context.Context, *echo.Context, []byte) error
 }
 
 // NewHandler creates a new Kinesis Data Analytics v2 handler.
@@ -133,7 +134,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function for Kinesis Data Analytics v2 requests.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
-		ctx := c.Request().Context()
+		ctx := h.contextWithRegion(c)
 		log := logger.Load(ctx)
 
 		op := h.ExtractOperation(c)
@@ -155,13 +156,23 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "unknown operation: "+op)
 		}
 
-		return fn(c, body)
+		return fn(ctx, c, body)
 	}
 }
 
+// contextWithRegion returns the request context with the resolved AWS region attached
+// under regionContextKey so that backend operations are routed to the correct region.
+// The SigV4 credential-scope region in the Authorization header (extracted by
+// httputils.ExtractRegionFromRequest) takes precedence over the backend default.
+func (h *Handler) contextWithRegion(c *echo.Context) context.Context {
+	region := httputils.ExtractRegionFromRequest(c.Request(), h.Backend.Region())
+
+	return context.WithValue(c.Request().Context(), regionContextKey{}, region)
+}
+
 // buildOps constructs the dispatch map once at handler-creation time.
-func (h *Handler) buildOps() map[string]func(*echo.Context, []byte) error {
-	return map[string]func(*echo.Context, []byte) error{
+func (h *Handler) buildOps() map[string]func(context.Context, *echo.Context, []byte) error {
+	return map[string]func(context.Context, *echo.Context, []byte) error{
 		// Add operations
 		"AddApplicationCloudWatchLoggingOption":      h.handleAddApplicationCloudWatchLoggingOption,
 		"AddApplicationInput":                        h.handleAddApplicationInput,
@@ -530,7 +541,7 @@ type deleteApplicationOutputOutput struct {
 // Application handlers
 // ----------------------------------------
 
-func (h *Handler) handleAddApplicationCloudWatchLoggingOption(c *echo.Context, body []byte) error {
+func (h *Handler) handleAddApplicationCloudWatchLoggingOption(ctx context.Context, c *echo.Context, body []byte) error {
 	var in addApplicationCWLOptionInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
@@ -541,6 +552,7 @@ func (h *Handler) handleAddApplicationCloudWatchLoggingOption(c *echo.Context, b
 	}
 
 	if err := h.Backend.AddApplicationCloudWatchLoggingOption(
+		ctx,
 		in.ApplicationName,
 		in.CurrentApplicationVersionID,
 		in.CloudWatchLoggingOption.LogStreamARN,
@@ -549,7 +561,7 @@ func (h *Handler) handleAddApplicationCloudWatchLoggingOption(c *echo.Context, b
 		return h.handleError(c, err)
 	}
 
-	app, err := h.Backend.DescribeApplication(in.ApplicationName)
+	app, err := h.Backend.DescribeApplication(ctx, in.ApplicationName)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -563,6 +575,7 @@ func (h *Handler) handleAddApplicationCloudWatchLoggingOption(c *echo.Context, b
 
 //nolint:dupl // add input/output handlers share structure but are semantically distinct operations
 func (h *Handler) handleAddApplicationInput(
+	ctx context.Context,
 	c *echo.Context,
 	body []byte,
 ) error {
@@ -577,11 +590,11 @@ func (h *Handler) handleAddApplicationInput(
 
 	desc := buildInputDescription(in.Input)
 
-	if err := h.Backend.AddApplicationInput(in.ApplicationName, in.CurrentApplicationVersionID, desc); err != nil {
+	if err := h.Backend.AddApplicationInput(ctx, in.ApplicationName, in.CurrentApplicationVersionID, desc); err != nil {
 		return h.handleError(c, err)
 	}
 
-	app, err := h.Backend.DescribeApplication(in.ApplicationName)
+	app, err := h.Backend.DescribeApplication(ctx, in.ApplicationName)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -593,7 +606,9 @@ func (h *Handler) handleAddApplicationInput(
 	})
 }
 
-func (h *Handler) handleAddApplicationInputProcessingConfiguration(c *echo.Context, body []byte) error {
+func (h *Handler) handleAddApplicationInputProcessingConfiguration(
+	ctx context.Context, c *echo.Context, body []byte,
+) error {
 	var in addInputProcessingConfigInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
@@ -609,12 +624,12 @@ func (h *Handler) handleAddApplicationInputProcessingConfiguration(c *echo.Conte
 	}
 
 	if err := h.Backend.AddApplicationInputProcessingConfiguration(
-		in.ApplicationName, in.CurrentApplicationVersionID, in.InputID, config,
+		ctx, in.ApplicationName, in.CurrentApplicationVersionID, in.InputID, config,
 	); err != nil {
 		return h.handleError(c, err)
 	}
 
-	app, err := h.Backend.DescribeApplication(in.ApplicationName)
+	app, err := h.Backend.DescribeApplication(ctx, in.ApplicationName)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -639,6 +654,7 @@ func (h *Handler) handleAddApplicationInputProcessingConfiguration(c *echo.Conte
 
 //nolint:dupl // add input/output handlers share structure but are semantically distinct operations
 func (h *Handler) handleAddApplicationOutput(
+	ctx context.Context,
 	c *echo.Context,
 	body []byte,
 ) error {
@@ -653,11 +669,13 @@ func (h *Handler) handleAddApplicationOutput(
 
 	desc := buildOutputDescription(in.Output)
 
-	if err := h.Backend.AddApplicationOutput(in.ApplicationName, in.CurrentApplicationVersionID, desc); err != nil {
+	if err := h.Backend.AddApplicationOutput(
+		ctx, in.ApplicationName, in.CurrentApplicationVersionID, desc,
+	); err != nil {
 		return h.handleError(c, err)
 	}
 
-	app, err := h.Backend.DescribeApplication(in.ApplicationName)
+	app, err := h.Backend.DescribeApplication(ctx, in.ApplicationName)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -669,7 +687,7 @@ func (h *Handler) handleAddApplicationOutput(
 	})
 }
 
-func (h *Handler) handleAddApplicationReferenceDataSource(c *echo.Context, body []byte) error {
+func (h *Handler) handleAddApplicationReferenceDataSource(ctx context.Context, c *echo.Context, body []byte) error {
 	var in addApplicationRefDataSourceInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
@@ -691,12 +709,12 @@ func (h *Handler) handleAddApplicationReferenceDataSource(c *echo.Context, body 
 	}
 
 	if err := h.Backend.AddApplicationReferenceDataSource(
-		in.ApplicationName, in.CurrentApplicationVersionID, ref,
+		ctx, in.ApplicationName, in.CurrentApplicationVersionID, ref,
 	); err != nil {
 		return h.handleError(c, err)
 	}
 
-	app, err := h.Backend.DescribeApplication(in.ApplicationName)
+	app, err := h.Backend.DescribeApplication(ctx, in.ApplicationName)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -708,7 +726,7 @@ func (h *Handler) handleAddApplicationReferenceDataSource(c *echo.Context, body 
 	})
 }
 
-func (h *Handler) handleAddApplicationVpcConfiguration(c *echo.Context, body []byte) error {
+func (h *Handler) handleAddApplicationVpcConfiguration(ctx context.Context, c *echo.Context, body []byte) error {
 	var in addApplicationVpcConfigInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
@@ -724,12 +742,12 @@ func (h *Handler) handleAddApplicationVpcConfiguration(c *echo.Context, body []b
 	}
 
 	if err := h.Backend.AddApplicationVpcConfiguration(
-		in.ApplicationName, in.CurrentApplicationVersionID, vpc,
+		ctx, in.ApplicationName, in.CurrentApplicationVersionID, vpc,
 	); err != nil {
 		return h.handleError(c, err)
 	}
 
-	app, err := h.Backend.DescribeApplication(in.ApplicationName)
+	app, err := h.Backend.DescribeApplication(ctx, in.ApplicationName)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -748,7 +766,7 @@ func (h *Handler) handleAddApplicationVpcConfiguration(c *echo.Context, body []b
 	})
 }
 
-func (h *Handler) handleCreateApplicationPresignedURL(c *echo.Context, body []byte) error {
+func (h *Handler) handleCreateApplicationPresignedURL(ctx context.Context, c *echo.Context, body []byte) error {
 	var in createPresignedURLInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
@@ -759,7 +777,7 @@ func (h *Handler) handleCreateApplicationPresignedURL(c *echo.Context, body []by
 	}
 
 	// Verify the application exists.
-	app, err := h.Backend.DescribeApplication(in.ApplicationName)
+	app, err := h.Backend.DescribeApplication(ctx, in.ApplicationName)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -770,19 +788,21 @@ func (h *Handler) handleCreateApplicationPresignedURL(c *echo.Context, body []by
 	return c.JSON(http.StatusOK, createPresignedURLOutput{AuthorizedURL: presignedURL})
 }
 
-func (h *Handler) handleDeleteApplicationCloudWatchLoggingOption(c *echo.Context, body []byte) error {
+func (h *Handler) handleDeleteApplicationCloudWatchLoggingOption(
+	ctx context.Context, c *echo.Context, body []byte,
+) error {
 	var in deleteApplicationCWLOptionInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
 	if err := h.Backend.DeleteApplicationCloudWatchLoggingOption(
-		in.ApplicationName, in.CurrentApplicationVersionID, in.CloudWatchLoggingOptionID,
+		ctx, in.ApplicationName, in.CurrentApplicationVersionID, in.CloudWatchLoggingOptionID,
 	); err != nil {
 		return h.handleError(c, err)
 	}
 
-	app, err := h.Backend.DescribeApplication(in.ApplicationName)
+	app, err := h.Backend.DescribeApplication(ctx, in.ApplicationName)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -794,19 +814,21 @@ func (h *Handler) handleDeleteApplicationCloudWatchLoggingOption(c *echo.Context
 	})
 }
 
-func (h *Handler) handleDeleteApplicationInputProcessingConfiguration(c *echo.Context, body []byte) error {
+func (h *Handler) handleDeleteApplicationInputProcessingConfiguration(
+	ctx context.Context, c *echo.Context, body []byte,
+) error {
 	var in deleteInputProcessingConfigInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
 	if err := h.Backend.DeleteApplicationInputProcessingConfiguration(
-		in.ApplicationName, in.CurrentApplicationVersionID, in.InputID,
+		ctx, in.ApplicationName, in.CurrentApplicationVersionID, in.InputID,
 	); err != nil {
 		return h.handleError(c, err)
 	}
 
-	app, err := h.Backend.DescribeApplication(in.ApplicationName)
+	app, err := h.Backend.DescribeApplication(ctx, in.ApplicationName)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -817,19 +839,19 @@ func (h *Handler) handleDeleteApplicationInputProcessingConfiguration(c *echo.Co
 	})
 }
 
-func (h *Handler) handleDeleteApplicationOutput(c *echo.Context, body []byte) error {
+func (h *Handler) handleDeleteApplicationOutput(ctx context.Context, c *echo.Context, body []byte) error {
 	var in deleteApplicationOutputInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
 	if err := h.Backend.DeleteApplicationOutput(
-		in.ApplicationName, in.CurrentApplicationVersionID, in.OutputID,
+		ctx, in.ApplicationName, in.CurrentApplicationVersionID, in.OutputID,
 	); err != nil {
 		return h.handleError(c, err)
 	}
 
-	app, err := h.Backend.DescribeApplication(in.ApplicationName)
+	app, err := h.Backend.DescribeApplication(ctx, in.ApplicationName)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -840,7 +862,7 @@ func (h *Handler) handleDeleteApplicationOutput(c *echo.Context, body []byte) er
 	})
 }
 
-func (h *Handler) handleCreateApplication(c *echo.Context, body []byte) error {
+func (h *Handler) handleCreateApplication(ctx context.Context, c *echo.Context, body []byte) error {
 	var in createApplicationInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
@@ -855,6 +877,7 @@ func (h *Handler) handleCreateApplication(c *echo.Context, body []byte) error {
 	}
 
 	app, err := h.Backend.CreateApplication(
+		ctx,
 		in.ApplicationName,
 		in.RuntimeEnvironment,
 		in.ServiceExecutionRole,
@@ -871,13 +894,13 @@ func (h *Handler) handleCreateApplication(c *echo.Context, body []byte) error {
 	})
 }
 
-func (h *Handler) handleDescribeApplication(c *echo.Context, body []byte) error {
+func (h *Handler) handleDescribeApplication(ctx context.Context, c *echo.Context, body []byte) error {
 	var in describeApplicationInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
-	app, err := h.Backend.DescribeApplication(in.ApplicationName)
+	app, err := h.Backend.DescribeApplication(ctx, in.ApplicationName)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -887,13 +910,13 @@ func (h *Handler) handleDescribeApplication(c *echo.Context, body []byte) error 
 	})
 }
 
-func (h *Handler) handleListApplications(c *echo.Context, body []byte) error {
+func (h *Handler) handleListApplications(ctx context.Context, c *echo.Context, body []byte) error {
 	var in listApplicationsInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
-	apps, outToken := h.Backend.ListApplications(in.NextToken)
+	apps, outToken := h.Backend.ListApplications(ctx, in.NextToken)
 	summaries := make([]applicationSummary, 0, len(apps))
 
 	for _, app := range apps {
@@ -903,13 +926,14 @@ func (h *Handler) handleListApplications(c *echo.Context, body []byte) error {
 	return c.JSON(http.StatusOK, listApplicationsOutput{ApplicationSummaries: summaries, NextToken: outToken})
 }
 
-func (h *Handler) handleUpdateApplication(c *echo.Context, body []byte) error {
+func (h *Handler) handleUpdateApplication(ctx context.Context, c *echo.Context, body []byte) error {
 	var in updateApplicationInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
 	app, err := h.Backend.UpdateApplication(
+		ctx,
 		in.ApplicationName,
 		in.ServiceExecutionRoleUpdate,
 		in.ApplicationDescription,
@@ -923,39 +947,39 @@ func (h *Handler) handleUpdateApplication(c *echo.Context, body []byte) error {
 	})
 }
 
-func (h *Handler) handleDeleteApplication(c *echo.Context, body []byte) error {
+func (h *Handler) handleDeleteApplication(ctx context.Context, c *echo.Context, body []byte) error {
 	var in deleteApplicationInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
-	if err := h.Backend.DeleteApplication(in.ApplicationName); err != nil {
+	if err := h.Backend.DeleteApplication(ctx, in.ApplicationName); err != nil {
 		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, struct{}{})
 }
 
-func (h *Handler) handleStartApplication(c *echo.Context, body []byte) error {
+func (h *Handler) handleStartApplication(ctx context.Context, c *echo.Context, body []byte) error {
 	var in startStopApplicationInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
-	if err := h.Backend.StartApplication(in.ApplicationName); err != nil {
+	if err := h.Backend.StartApplication(ctx, in.ApplicationName); err != nil {
 		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, struct{}{})
 }
 
-func (h *Handler) handleStopApplication(c *echo.Context, body []byte) error {
+func (h *Handler) handleStopApplication(ctx context.Context, c *echo.Context, body []byte) error {
 	var in startStopApplicationInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
-	if err := h.Backend.StopApplication(in.ApplicationName); err != nil {
+	if err := h.Backend.StopApplication(ctx, in.ApplicationName); err != nil {
 		return h.handleError(c, err)
 	}
 
@@ -966,13 +990,13 @@ func (h *Handler) handleStopApplication(c *echo.Context, body []byte) error {
 // Snapshot handlers
 // ----------------------------------------
 
-func (h *Handler) handleCreateApplicationSnapshot(c *echo.Context, body []byte) error {
+func (h *Handler) handleCreateApplicationSnapshot(ctx context.Context, c *echo.Context, body []byte) error {
 	var in createSnapshotInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
-	snap, err := h.Backend.CreateApplicationSnapshot(in.ApplicationName, in.SnapshotName)
+	snap, err := h.Backend.CreateApplicationSnapshot(ctx, in.ApplicationName, in.SnapshotName)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -982,13 +1006,13 @@ func (h *Handler) handleCreateApplicationSnapshot(c *echo.Context, body []byte) 
 	}{SnapshotDetails: toSnapshotDetail(snap)})
 }
 
-func (h *Handler) handleDescribeApplicationSnapshot(c *echo.Context, body []byte) error {
+func (h *Handler) handleDescribeApplicationSnapshot(ctx context.Context, c *echo.Context, body []byte) error {
 	var in describeSnapshotInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
-	snap, err := h.Backend.DescribeApplicationSnapshot(in.ApplicationName, in.SnapshotName)
+	snap, err := h.Backend.DescribeApplicationSnapshot(ctx, in.ApplicationName, in.SnapshotName)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -996,13 +1020,13 @@ func (h *Handler) handleDescribeApplicationSnapshot(c *echo.Context, body []byte
 	return c.JSON(http.StatusOK, describeSnapshotOutput{SnapshotDetails: toSnapshotDetail(snap)})
 }
 
-func (h *Handler) handleListApplicationSnapshots(c *echo.Context, body []byte) error {
+func (h *Handler) handleListApplicationSnapshots(ctx context.Context, c *echo.Context, body []byte) error {
 	var in listSnapshotsInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
-	snaps, outToken, err := h.Backend.ListApplicationSnapshots(in.ApplicationName, in.NextToken)
+	snaps, outToken, err := h.Backend.ListApplicationSnapshots(ctx, in.ApplicationName, in.NextToken)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1015,13 +1039,13 @@ func (h *Handler) handleListApplicationSnapshots(c *echo.Context, body []byte) e
 	return c.JSON(http.StatusOK, listSnapshotsOutput{SnapshotSummaries: details, NextToken: outToken})
 }
 
-func (h *Handler) handleDeleteApplicationSnapshot(c *echo.Context, body []byte) error {
+func (h *Handler) handleDeleteApplicationSnapshot(ctx context.Context, c *echo.Context, body []byte) error {
 	var in deleteSnapshotInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
-	if err := h.Backend.DeleteApplicationSnapshot(in.ApplicationName, in.SnapshotName); err != nil {
+	if err := h.Backend.DeleteApplicationSnapshot(ctx, in.ApplicationName, in.SnapshotName); err != nil {
 		return h.handleError(c, err)
 	}
 
@@ -1032,39 +1056,39 @@ func (h *Handler) handleDeleteApplicationSnapshot(c *echo.Context, body []byte) 
 // Tag handlers
 // ----------------------------------------
 
-func (h *Handler) handleTagResource(c *echo.Context, body []byte) error {
+func (h *Handler) handleTagResource(ctx context.Context, c *echo.Context, body []byte) error {
 	var in tagResourceInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
-	if err := h.Backend.TagResource(in.ResourceARN, in.Tags); err != nil {
+	if err := h.Backend.TagResource(ctx, in.ResourceARN, in.Tags); err != nil {
 		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, struct{}{})
 }
 
-func (h *Handler) handleUntagResource(c *echo.Context, body []byte) error {
+func (h *Handler) handleUntagResource(ctx context.Context, c *echo.Context, body []byte) error {
 	var in untagResourceInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
-	if err := h.Backend.UntagResource(in.ResourceARN, in.TagKeys); err != nil {
+	if err := h.Backend.UntagResource(ctx, in.ResourceARN, in.TagKeys); err != nil {
 		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, struct{}{})
 }
 
-func (h *Handler) handleListTagsForResource(c *echo.Context, body []byte) error {
+func (h *Handler) handleListTagsForResource(ctx context.Context, c *echo.Context, body []byte) error {
 	var in listTagsInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
-	tags, err := h.Backend.ListTagsForResource(in.ResourceARN)
+	tags, err := h.Backend.ListTagsForResource(ctx, in.ResourceARN)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1197,19 +1221,19 @@ type discoverInputSchemaOutput struct {
 // New operation handlers
 // ----------------------------------------
 
-func (h *Handler) handleDeleteApplicationReferenceDataSource(c *echo.Context, body []byte) error {
+func (h *Handler) handleDeleteApplicationReferenceDataSource(ctx context.Context, c *echo.Context, body []byte) error {
 	var in deleteApplicationRefDataSourceInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
 	if err := h.Backend.DeleteApplicationReferenceDataSource(
-		in.ApplicationName, in.CurrentApplicationVersionID, in.ReferenceID,
+		ctx, in.ApplicationName, in.CurrentApplicationVersionID, in.ReferenceID,
 	); err != nil {
 		return h.handleError(c, err)
 	}
 
-	app, err := h.Backend.DescribeApplication(in.ApplicationName)
+	app, err := h.Backend.DescribeApplication(ctx, in.ApplicationName)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1220,19 +1244,19 @@ func (h *Handler) handleDeleteApplicationReferenceDataSource(c *echo.Context, bo
 	})
 }
 
-func (h *Handler) handleDeleteApplicationVpcConfiguration(c *echo.Context, body []byte) error {
+func (h *Handler) handleDeleteApplicationVpcConfiguration(ctx context.Context, c *echo.Context, body []byte) error {
 	var in deleteApplicationVpcConfigInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
 	if err := h.Backend.DeleteApplicationVpcConfiguration(
-		in.ApplicationName, in.CurrentApplicationVersionID, in.VpcConfigurationID,
+		ctx, in.ApplicationName, in.CurrentApplicationVersionID, in.VpcConfigurationID,
 	); err != nil {
 		return h.handleError(c, err)
 	}
 
-	app, err := h.Backend.DescribeApplication(in.ApplicationName)
+	app, err := h.Backend.DescribeApplication(ctx, in.ApplicationName)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1243,13 +1267,13 @@ func (h *Handler) handleDeleteApplicationVpcConfiguration(c *echo.Context, body 
 	})
 }
 
-func (h *Handler) handleDescribeApplicationOperation(c *echo.Context, body []byte) error {
+func (h *Handler) handleDescribeApplicationOperation(ctx context.Context, c *echo.Context, body []byte) error {
 	var in describeApplicationOperationInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
-	op, err := h.Backend.DescribeApplicationOperation(in.ApplicationName, in.OperationID)
+	op, err := h.Backend.DescribeApplicationOperation(ctx, in.ApplicationName, in.OperationID)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1263,13 +1287,13 @@ func (h *Handler) handleDescribeApplicationOperation(c *echo.Context, body []byt
 	})
 }
 
-func (h *Handler) handleListApplicationOperations(c *echo.Context, body []byte) error {
+func (h *Handler) handleListApplicationOperations(ctx context.Context, c *echo.Context, body []byte) error {
 	var in listApplicationOperationsInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
-	ops, outToken, err := h.Backend.ListApplicationOperations(in.ApplicationName, in.NextToken)
+	ops, outToken, err := h.Backend.ListApplicationOperations(ctx, in.ApplicationName, in.NextToken)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1289,13 +1313,13 @@ func (h *Handler) handleListApplicationOperations(c *echo.Context, body []byte) 
 	})
 }
 
-func (h *Handler) handleDescribeApplicationVersion(c *echo.Context, body []byte) error {
+func (h *Handler) handleDescribeApplicationVersion(ctx context.Context, c *echo.Context, body []byte) error {
 	var in describeApplicationVersionInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
-	app, err := h.Backend.DescribeApplicationVersion(in.ApplicationName, in.ApplicationVersionID)
+	app, err := h.Backend.DescribeApplicationVersion(ctx, in.ApplicationName, in.ApplicationVersionID)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1305,13 +1329,13 @@ func (h *Handler) handleDescribeApplicationVersion(c *echo.Context, body []byte)
 	})
 }
 
-func (h *Handler) handleListApplicationVersions(c *echo.Context, body []byte) error {
+func (h *Handler) handleListApplicationVersions(ctx context.Context, c *echo.Context, body []byte) error {
 	var in listApplicationVersionsInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
-	vers, outToken, err := h.Backend.ListApplicationVersions(in.ApplicationName, in.NextToken)
+	vers, outToken, err := h.Backend.ListApplicationVersions(ctx, in.ApplicationName, in.NextToken)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1330,13 +1354,13 @@ func (h *Handler) handleListApplicationVersions(c *echo.Context, body []byte) er
 	})
 }
 
-func (h *Handler) handleRollbackApplication(c *echo.Context, body []byte) error {
+func (h *Handler) handleRollbackApplication(ctx context.Context, c *echo.Context, body []byte) error {
 	var in rollbackApplicationInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
-	app, err := h.Backend.RollbackApplication(in.ApplicationName, in.CurrentApplicationVersionID)
+	app, err := h.Backend.RollbackApplication(ctx, in.ApplicationName, in.CurrentApplicationVersionID)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1346,14 +1370,16 @@ func (h *Handler) handleRollbackApplication(c *echo.Context, body []byte) error 
 	})
 }
 
-func (h *Handler) handleUpdateApplicationMaintenanceConfiguration(c *echo.Context, body []byte) error {
+func (h *Handler) handleUpdateApplicationMaintenanceConfiguration(
+	ctx context.Context, c *echo.Context, body []byte,
+) error {
 	var in updateMaintenanceConfigInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
 	startTime := in.ApplicationMaintenanceConfigUpdate.ApplicationMaintenanceWindowStartTimeUpdate
-	app, err := h.Backend.UpdateApplicationMaintenanceConfiguration(in.ApplicationName, startTime)
+	app, err := h.Backend.UpdateApplicationMaintenanceConfiguration(ctx, in.ApplicationName, startTime)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1366,13 +1392,13 @@ func (h *Handler) handleUpdateApplicationMaintenanceConfiguration(c *echo.Contex
 	})
 }
 
-func (h *Handler) handleDiscoverInputSchema(c *echo.Context, body []byte) error {
+func (h *Handler) handleDiscoverInputSchema(ctx context.Context, c *echo.Context, body []byte) error {
 	var in discoverInputSchemaInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
-	schema, err := h.Backend.DiscoverInputSchema(in.ResourceARN, in.RoleARN, in.InputStartingPosition)
+	schema, err := h.Backend.DiscoverInputSchema(ctx, in.ResourceARN, in.RoleARN, in.InputStartingPosition)
 	if err != nil {
 		return h.handleError(c, err)
 	}

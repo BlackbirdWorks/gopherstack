@@ -47,20 +47,21 @@ type persistedScheduleGroup struct {
 }
 
 type backendSnapshot struct {
-	Schedules      map[string]*persistedSchedule      `json:"schedules"`
-	ScheduleGroups map[string]*persistedScheduleGroup `json:"scheduleGroups"`
-	AccountID      string                             `json:"accountID"`
-	Region         string                             `json:"region"`
+	// Schedules and ScheduleGroups are nested by region (outer key = region).
+	Schedules      map[string]map[string]*persistedSchedule      `json:"schedules"`
+	ScheduleGroups map[string]map[string]*persistedScheduleGroup `json:"scheduleGroups"`
+	AccountID      string                                        `json:"accountID"`
+	Region         string                                        `json:"region"`
 }
 
 // ensureNonNilMaps guarantees the snapshot maps are always non-nil after decoding.
 func ensureNonNilMaps(snap *backendSnapshot) {
 	if snap.Schedules == nil {
-		snap.Schedules = make(map[string]*persistedSchedule)
+		snap.Schedules = make(map[string]map[string]*persistedSchedule)
 	}
 
 	if snap.ScheduleGroups == nil {
-		snap.ScheduleGroups = make(map[string]*persistedScheduleGroup)
+		snap.ScheduleGroups = make(map[string]map[string]*persistedScheduleGroup)
 	}
 }
 
@@ -86,57 +87,66 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	// Build persisted copies that do not carry live Prometheus state.
-	schedules := make(map[string]*persistedSchedule, len(b.schedules))
-	for key, s := range b.schedules {
-		var tagMap map[string]string
-		if s.Tags != nil {
-			tagMap = s.Tags.Clone()
-		}
+	schedules := make(map[string]map[string]*persistedSchedule, len(b.schedules))
+	for region, regionSchedules := range b.schedules {
+		regionMap := make(map[string]*persistedSchedule, len(regionSchedules))
+		for key, s := range regionSchedules {
+			var tagMap map[string]string
+			if s.Tags != nil {
+				tagMap = s.Tags.Clone()
+			}
 
-		schedules[key] = &persistedSchedule{
-			Name:                       s.Name,
-			ARN:                        s.ARN,
-			GroupName:                  s.GroupName,
-			ScheduleExpression:         s.ScheduleExpression,
-			ScheduleExpressionTimezone: s.ScheduleExpressionTimezone,
-			Description:                s.Description,
-			Target:                     s.Target,
-			State:                      s.State,
-			FlexibleTimeWindow:         s.FlexibleTimeWindow,
-			ActionAfterCompletion:      s.ActionAfterCompletion,
-			KmsKeyArn:                  s.KmsKeyArn,
-			AccountID:                  s.AccountID,
-			Region:                     s.Region,
-			CreationDate:               s.CreationDate.Format(snapshotTimeLayout),
-			LastModificationDate:       s.LastModificationDate.Format(snapshotTimeLayout),
-			Tags:                       tagMap,
-		}
+			ps := &persistedSchedule{
+				Name:                       s.Name,
+				ARN:                        s.ARN,
+				GroupName:                  s.GroupName,
+				ScheduleExpression:         s.ScheduleExpression,
+				ScheduleExpressionTimezone: s.ScheduleExpressionTimezone,
+				Description:                s.Description,
+				Target:                     s.Target,
+				State:                      s.State,
+				FlexibleTimeWindow:         s.FlexibleTimeWindow,
+				ActionAfterCompletion:      s.ActionAfterCompletion,
+				KmsKeyArn:                  s.KmsKeyArn,
+				AccountID:                  s.AccountID,
+				Region:                     s.Region,
+				CreationDate:               s.CreationDate.Format(snapshotTimeLayout),
+				LastModificationDate:       s.LastModificationDate.Format(snapshotTimeLayout),
+				Tags:                       tagMap,
+			}
 
-		if s.StartDate != nil {
-			schedules[key].StartDate = s.StartDate.Format(snapshotTimeLayout)
-		}
+			if s.StartDate != nil {
+				ps.StartDate = s.StartDate.Format(snapshotTimeLayout)
+			}
 
-		if s.EndDate != nil {
-			schedules[key].EndDate = s.EndDate.Format(snapshotTimeLayout)
+			if s.EndDate != nil {
+				ps.EndDate = s.EndDate.Format(snapshotTimeLayout)
+			}
+			regionMap[key] = ps
 		}
+		schedules[region] = regionMap
 	}
 
-	groups := make(map[string]*persistedScheduleGroup, len(b.scheduleGroups))
-	for name, g := range b.scheduleGroups {
-		var tagMap map[string]string
-		if g.Tags != nil {
-			tagMap = g.Tags.Clone()
-		}
+	groups := make(map[string]map[string]*persistedScheduleGroup, len(b.scheduleGroups))
+	for region, regionGroups := range b.scheduleGroups {
+		regionMap := make(map[string]*persistedScheduleGroup, len(regionGroups))
+		for name, g := range regionGroups {
+			var tagMap map[string]string
+			if g.Tags != nil {
+				tagMap = g.Tags.Clone()
+			}
 
-		groups[name] = &persistedScheduleGroup{
-			Name:                 g.Name,
-			ARN:                  g.ARN,
-			Description:          g.Description,
-			State:                g.State,
-			CreationDate:         g.CreationDate.Format(snapshotTimeLayout),
-			LastModificationDate: g.LastModificationDate.Format(snapshotTimeLayout),
-			Tags:                 tagMap,
+			regionMap[name] = &persistedScheduleGroup{
+				Name:                 g.Name,
+				ARN:                  g.ARN,
+				Description:          g.Description,
+				State:                g.State,
+				CreationDate:         g.CreationDate.Format(snapshotTimeLayout),
+				LastModificationDate: g.LastModificationDate.Format(snapshotTimeLayout),
+				Tags:                 tagMap,
+			}
 		}
+		groups[region] = regionMap
 	}
 
 	snap := backendSnapshot{
@@ -170,91 +180,124 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
-	// Release Prometheus metrics held by the current state.
-	for _, s := range b.schedules {
-		if s.Tags != nil {
-			s.Tags.Close()
-		}
-	}
-
-	for _, g := range b.scheduleGroups {
-		if g.Tags != nil {
-			g.Tags.Close()
-		}
-	}
+	b.closeAllTagMetrics()
 
 	// Rebuild live Schedule objects from their persisted counterparts.
-	b.schedules = make(map[string]*Schedule, len(snap.Schedules))
-	b.scheduleARNIndex = make(map[string]string, len(snap.Schedules))
+	b.schedules = make(map[string]map[string]*Schedule, len(snap.Schedules))
+	b.scheduleARNIndex = make(map[string]map[string]string, len(snap.Schedules))
 
-	for key, ps := range snap.Schedules {
-		groupName := ps.GroupName
-		if groupName == "" {
-			groupName = defaultGroupName
+	for region, regionSchedules := range snap.Schedules {
+		for key, ps := range regionSchedules {
+			s := scheduleFromPersisted(ps)
+			b.schedulesStore(region)[key] = s
+			b.scheduleARNStore(region)[s.ARN] = key
 		}
-
-		s := &Schedule{
-			Name:                       ps.Name,
-			ARN:                        ps.ARN,
-			GroupName:                  groupName,
-			ScheduleExpression:         ps.ScheduleExpression,
-			ScheduleExpressionTimezone: ps.ScheduleExpressionTimezone,
-			Description:                ps.Description,
-			Target:                     ps.Target,
-			State:                      ps.State,
-			FlexibleTimeWindow:         ps.FlexibleTimeWindow,
-			ActionAfterCompletion:      ps.ActionAfterCompletion,
-			KmsKeyArn:                  ps.KmsKeyArn,
-			AccountID:                  ps.AccountID,
-			Region:                     ps.Region,
-			CreationDate:               parseSnapshotTime(ps.CreationDate),
-			LastModificationDate:       parseSnapshotTime(ps.LastModificationDate),
-			Tags: tags.FromMap(
-				"scheduler.schedule."+groupName+"."+ps.Name+".tags",
-				ps.Tags,
-			),
-		}
-
-		if ps.StartDate != "" {
-			t := parseSnapshotTime(ps.StartDate)
-			s.StartDate = &t
-		}
-
-		if ps.EndDate != "" {
-			t := parseSnapshotTime(ps.EndDate)
-			s.EndDate = &t
-		}
-		b.schedules[key] = s
-		b.scheduleARNIndex[s.ARN] = key
 	}
 
 	// Rebuild live ScheduleGroup objects from their persisted counterparts.
-	b.scheduleGroups = make(map[string]*ScheduleGroup, len(snap.ScheduleGroups))
-	b.scheduleGroupARNIndex = make(map[string]string, len(snap.ScheduleGroups))
+	b.scheduleGroups = make(map[string]map[string]*ScheduleGroup, len(snap.ScheduleGroups))
+	b.scheduleGroupARNIndex = make(map[string]map[string]string, len(snap.ScheduleGroups))
 
-	for name, pg := range snap.ScheduleGroups {
-		g := &ScheduleGroup{
-			Name:                 pg.Name,
-			ARN:                  pg.ARN,
-			Description:          pg.Description,
-			State:                pg.State,
-			CreationDate:         parseSnapshotTime(pg.CreationDate),
-			LastModificationDate: parseSnapshotTime(pg.LastModificationDate),
-			Tags:                 tags.FromMap("scheduler.schedulegroup."+name+".tags", pg.Tags),
+	for region, regionGroups := range snap.ScheduleGroups {
+		// Initialise the region maps directly (without seeding a default group) so the
+		// restored snapshot's own "default" group is used as-is.
+		if b.scheduleGroups[region] == nil {
+			b.scheduleGroups[region] = make(map[string]*ScheduleGroup)
 		}
-		b.scheduleGroups[name] = g
-		b.scheduleGroupARNIndex[g.ARN] = name
+
+		for name, pg := range regionGroups {
+			g := scheduleGroupFromPersisted(name, pg)
+			b.scheduleGroups[region][name] = g
+			b.scheduleGroupARNStore(region)[g.ARN] = name
+		}
 	}
 
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
-	// Ensure the default group always exists after restore.
-	if _, ok := b.scheduleGroups[defaultGroupName]; !ok {
-		b.seedDefaultGroup()
+	// Ensure the default group always exists after restore in the default region.
+	// scheduleGroupsStore seeds the built-in "default" group when the region map is
+	// first created; if the region already existed we add it explicitly.
+	if _, ok := b.scheduleGroupsStore(b.region)[defaultGroupName]; !ok {
+		b.seedDefaultGroup(b.region)
 	}
 
 	return nil
+}
+
+// closeAllTagMetrics releases the Prometheus metrics held by all live schedules and
+// schedule groups across every region. Callers must hold b.mu.
+func (b *InMemoryBackend) closeAllTagMetrics() {
+	for _, regionSchedules := range b.schedules {
+		for _, s := range regionSchedules {
+			if s.Tags != nil {
+				s.Tags.Close()
+			}
+		}
+	}
+
+	for _, regionGroups := range b.scheduleGroups {
+		for _, g := range regionGroups {
+			if g.Tags != nil {
+				g.Tags.Close()
+			}
+		}
+	}
+}
+
+// scheduleFromPersisted rebuilds a live Schedule from its persisted representation.
+func scheduleFromPersisted(ps *persistedSchedule) *Schedule {
+	groupName := ps.GroupName
+	if groupName == "" {
+		groupName = defaultGroupName
+	}
+
+	s := &Schedule{
+		Name:                       ps.Name,
+		ARN:                        ps.ARN,
+		GroupName:                  groupName,
+		ScheduleExpression:         ps.ScheduleExpression,
+		ScheduleExpressionTimezone: ps.ScheduleExpressionTimezone,
+		Description:                ps.Description,
+		Target:                     ps.Target,
+		State:                      ps.State,
+		FlexibleTimeWindow:         ps.FlexibleTimeWindow,
+		ActionAfterCompletion:      ps.ActionAfterCompletion,
+		KmsKeyArn:                  ps.KmsKeyArn,
+		AccountID:                  ps.AccountID,
+		Region:                     ps.Region,
+		CreationDate:               parseSnapshotTime(ps.CreationDate),
+		LastModificationDate:       parseSnapshotTime(ps.LastModificationDate),
+		Tags: tags.FromMap(
+			"scheduler.schedule."+groupName+"."+ps.Name+".tags",
+			ps.Tags,
+		),
+	}
+
+	if ps.StartDate != "" {
+		t := parseSnapshotTime(ps.StartDate)
+		s.StartDate = &t
+	}
+
+	if ps.EndDate != "" {
+		t := parseSnapshotTime(ps.EndDate)
+		s.EndDate = &t
+	}
+
+	return s
+}
+
+// scheduleGroupFromPersisted rebuilds a live ScheduleGroup from its persisted representation.
+func scheduleGroupFromPersisted(name string, pg *persistedScheduleGroup) *ScheduleGroup {
+	return &ScheduleGroup{
+		Name:                 pg.Name,
+		ARN:                  pg.ARN,
+		Description:          pg.Description,
+		State:                pg.State,
+		CreationDate:         parseSnapshotTime(pg.CreationDate),
+		LastModificationDate: parseSnapshotTime(pg.LastModificationDate),
+		Tags:                 tags.FromMap("scheduler.schedulegroup."+name+".tags", pg.Tags),
+	}
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.

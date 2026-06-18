@@ -1,6 +1,7 @@
 package elasticache_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -20,7 +21,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 		{
 			name: "round_trip_preserves_state",
 			setup: func(b *elasticache.InMemoryBackend) string {
-				cluster, err := b.CreateCluster("test-cluster", "redis", "cache.t3.micro", 6379)
+				cluster, err := b.CreateCluster(context.Background(), "test-cluster", "redis", "cache.t3.micro", 6379)
 				if err != nil {
 					return ""
 				}
@@ -30,7 +31,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *elasticache.InMemoryBackend, id string) {
 				t.Helper()
 
-				p, err := b.DescribeClusters(id, "", 0)
+				p, err := b.DescribeClusters(context.Background(), id, "", 0)
 				clusters := p.Data
 				require.NoError(t, err)
 				require.Len(t, clusters, 1)

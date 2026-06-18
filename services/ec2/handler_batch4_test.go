@@ -104,12 +104,11 @@ func TestBatch4_ClientVpnEndpoint(t *testing.T) { //nolint:paralleltest // exist
 	})
 
 	t.Run("disassociate target network", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		// get the association ID first
-		networks, listErr := b.DescribeClientVpnTargetNetworks(epID)
-		require.NoError(t, listErr)
+		networks, err := b.DescribeClientVpnTargetNetworks(epID)
+		require.NoError(t, err)
 		require.Len(t, networks, 1)
 		require.NoError(t, b.DisassociateClientVpnTargetNetwork(epID, networks[0].AssociationID))
-		networks, err := b.DescribeClientVpnTargetNetworks(epID)
+		networks, err = b.DescribeClientVpnTargetNetworks(epID)
 		require.NoError(t, err)
 		assert.Empty(t, networks)
 	})

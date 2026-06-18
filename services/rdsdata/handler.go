@@ -149,6 +149,11 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		ctx := c.Request().Context()
 		log := logger.Load(ctx)
 
+		// Resolve the per-request region (from SigV4 / X-Amz-Region) and attach
+		// it to the context so backend operations are region-scoped.
+		region := httputils.ExtractRegionFromRequest(c.Request(), h.Backend.Region())
+		ctx = context.WithValue(ctx, regionContextKey{}, region)
+
 		body, err := httputils.ReadBody(c.Request())
 		if err != nil {
 			log.ErrorContext(ctx, "rdsdata: failed to read request body", "error", err)
@@ -249,7 +254,7 @@ func validateRequiredFields(fields ...requiredField) error {
 	return nil
 }
 
-func (h *Handler) handleExecuteStatement(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleExecuteStatement(ctx context.Context, body []byte) ([]byte, error) {
 	var req executeStatementRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -263,7 +268,7 @@ func (h *Handler) handleExecuteStatement(_ context.Context, body []byte) ([]byte
 		return nil, err
 	}
 
-	records, columns, updated, err := h.Backend.ExecuteStatement(req.ResourceArn, req.SQL, req.TransactionID)
+	records, columns, updated, err := h.Backend.ExecuteStatement(ctx, req.ResourceArn, req.SQL, req.TransactionID)
 	if err != nil {
 		return nil, err
 	}
@@ -292,7 +297,7 @@ type batchExecuteStatementResponse struct {
 	UpdateResults []UpdateResult `json:"updateResults"`
 }
 
-func (h *Handler) handleBatchExecuteStatement(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleBatchExecuteStatement(ctx context.Context, body []byte) ([]byte, error) {
 	var req batchExecuteStatementRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -306,7 +311,7 @@ func (h *Handler) handleBatchExecuteStatement(_ context.Context, body []byte) ([
 		return nil, err
 	}
 
-	results, err := h.Backend.BatchExecuteStatement(req.ResourceArn, req.SQL, req.TransactionID, req.ParameterSets)
+	results, err := h.Backend.BatchExecuteStatement(ctx, req.ResourceArn, req.SQL, req.TransactionID, req.ParameterSets)
 	if err != nil {
 		return nil, err
 	}
@@ -325,7 +330,7 @@ type beginTransactionResponse struct {
 	TransactionID string `json:"transactionId"`
 }
 
-func (h *Handler) handleBeginTransaction(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleBeginTransaction(ctx context.Context, body []byte) ([]byte, error) {
 	var req beginTransactionRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -338,7 +343,7 @@ func (h *Handler) handleBeginTransaction(_ context.Context, body []byte) ([]byte
 		return nil, err
 	}
 
-	txID, err := h.Backend.BeginTransaction(req.ResourceArn)
+	txID, err := h.Backend.BeginTransaction(ctx, req.ResourceArn)
 	if err != nil {
 		return nil, err
 	}
@@ -356,7 +361,7 @@ type commitTransactionResponse struct {
 	TransactionStatus string `json:"transactionStatus"`
 }
 
-func (h *Handler) handleCommitTransaction(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleCommitTransaction(ctx context.Context, body []byte) ([]byte, error) {
 	var req commitTransactionRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -370,7 +375,7 @@ func (h *Handler) handleCommitTransaction(_ context.Context, body []byte) ([]byt
 		return nil, err
 	}
 
-	status, err := h.Backend.CommitTransaction(req.TransactionID)
+	status, err := h.Backend.CommitTransaction(ctx, req.TransactionID)
 	if err != nil {
 		return nil, err
 	}
@@ -388,7 +393,7 @@ type rollbackTransactionResponse struct {
 	TransactionStatus string `json:"transactionStatus"`
 }
 
-func (h *Handler) handleRollbackTransaction(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleRollbackTransaction(ctx context.Context, body []byte) ([]byte, error) {
 	var req rollbackTransactionRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -402,7 +407,7 @@ func (h *Handler) handleRollbackTransaction(_ context.Context, body []byte) ([]b
 		return nil, err
 	}
 
-	status, err := h.Backend.RollbackTransaction(req.TransactionID)
+	status, err := h.Backend.RollbackTransaction(ctx, req.TransactionID)
 	if err != nil {
 		return nil, err
 	}
@@ -422,7 +427,7 @@ type executeSQLResponse struct {
 	SQLStatementResults []SQLStatementResult `json:"sqlStatementResults"`
 }
 
-func (h *Handler) handleExecuteSQL(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleExecuteSQL(ctx context.Context, body []byte) ([]byte, error) {
 	var req executeSQLRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -436,7 +441,7 @@ func (h *Handler) handleExecuteSQL(_ context.Context, body []byte) ([]byte, erro
 		return nil, err
 	}
 
-	results, err := h.Backend.ExecuteSQL(req.DBClusterOrInstanceArn, req.SQLStatements)
+	results, err := h.Backend.ExecuteSQL(ctx, req.DBClusterOrInstanceArn, req.SQLStatements)
 	if err != nil {
 		return nil, err
 	}

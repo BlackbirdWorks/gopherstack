@@ -139,10 +139,10 @@ type describeIpGroupsInput struct { //nolint:revive,staticcheck // existing issu
 }
 
 type workspacesIpGroupResp struct { //nolint:revive,staticcheck // existing issue.
-	GroupId   string       `json:"GroupId"` //nolint:revive,staticcheck // existing issue.
-	GroupName string       `json:"GroupName"`
-	GroupDesc string       `json:"GroupDesc"`
-	UserRules []ipRuleItem `json:"UserRules"`
+	GroupId   string       `json:"groupId"` //nolint:revive,staticcheck // existing issue.
+	GroupName string       `json:"groupName"`
+	GroupDesc string       `json:"groupDesc"`
+	UserRules []ipRuleItem `json:"userRules"`
 }
 
 type describeIpGroupsOutput struct { //nolint:revive,staticcheck // existing issue.

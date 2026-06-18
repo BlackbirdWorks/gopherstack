@@ -26,6 +26,7 @@ var (
 	ErrSpotFleetNotFound     = errors.New("InvalidSpotFleetRequestId.NotFound")
 	ErrCIDRConflict          = errors.New("InvalidVpc.Conflict")
 	ErrDryRunOperation       = errors.New("request would have succeeded, but DryRun flag is set")
+	ErrDuplicatePermission   = errors.New("InvalidPermission.Duplicate")
 )
 
 // EC2 instance state codes as defined by the AWS EC2 API.
@@ -55,6 +56,9 @@ const (
 
 	// lifecycleReconcileInterval is how often the reconciler advances transitional instance states.
 	lifecycleReconcileInterval = 50 * time.Millisecond
+
+	// cidrAllIPv4 is the IPv4 catch-all CIDR used in default security group egress rules.
+	cidrAllIPv4 = "0.0.0.0/0"
 )
 
 // InstanceState represents the state of an EC2 instance.
@@ -937,6 +941,10 @@ func (b *InMemoryBackend) CreateSecurityGroup(
 		Name:        name,
 		Description: description,
 		VPCID:       vpcID,
+		// Real AWS creates new security groups with a default allow-all egress rule.
+		EgressRules: []SecurityGroupRule{
+			{Protocol: "-1", IPRange: cidrAllIPv4},
+		},
 	}
 	b.securityGroups[id] = sg
 

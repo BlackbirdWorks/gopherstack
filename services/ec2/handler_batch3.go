@@ -332,6 +332,7 @@ type subnetCidrReservationItem2 struct {
 	SubnetID                string `xml:"subnetId"`
 	Cidr                    string `xml:"cidr"`
 	ReservationType         string `xml:"reservationType"`
+	State                   string `xml:"state,omitempty"`
 }
 
 type getSubnetCidrReservationsResponse struct {
@@ -962,6 +963,7 @@ func (h *Handler) handleGetSubnetCidrReservations(vals url.Values, reqID string)
 				SubnetID:                r.SubnetID,
 				Cidr:                    r.CIDR,
 				ReservationType:         r.ReservationType,
+				State:                   r.State,
 			},
 		)
 	}

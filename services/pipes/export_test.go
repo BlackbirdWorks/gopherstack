@@ -8,9 +8,9 @@ import (
 
 // PollAllPipesOnce triggers a single synchronous poll cycle for tests.
 func PollAllPipesOnce(ctx context.Context, r *Runner) {
-	res := r.backend.ListPipes(ListPipesFilter{CurrentState: stateRunning})
+	pipes := r.backend.allRunningPipes()
 
-	for _, p := range res.Pipes {
+	for _, p := range pipes {
 		r.pollPipe(ctx, p)
 	}
 }
@@ -20,7 +20,7 @@ func (b *InMemoryBackend) CreatePipeSimple(
 	name, roleARN, source, target, description, desiredState string,
 	tags map[string]string,
 ) (*Pipe, error) {
-	return b.CreatePipe(CreatePipeInput{
+	return b.CreatePipe(context.Background(), CreatePipeInput{
 		Name:         name,
 		RoleARN:      roleARN,
 		Source:       source,
@@ -33,7 +33,7 @@ func (b *InMemoryBackend) CreatePipeSimple(
 
 // ListPipesAll returns all pipes without filtering (test convenience).
 func (b *InMemoryBackend) ListPipesAll() []*Pipe {
-	return b.ListPipes(ListPipesFilter{}).Pipes
+	return b.ListPipes(context.Background(), ListPipesFilter{}).Pipes
 }
 
 // EpochMillisForTest exposes epochMillis for direct unit testing of timestamp precision.
@@ -47,7 +47,7 @@ func WaitPipeRunning(t *testing.T, b *InMemoryBackend, name string) {
 
 	deadline := time.Now().Add(500 * time.Millisecond)
 	for time.Now().Before(deadline) {
-		p, err := b.GetPipe(name)
+		p, err := b.GetPipe(context.Background(), name)
 		if err == nil && p.CurrentState == stateRunning {
 			return
 		}

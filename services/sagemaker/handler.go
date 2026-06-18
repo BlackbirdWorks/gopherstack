@@ -325,6 +325,9 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return c.String(http.StatusInternalServerError, "internal server error")
 		}
 
+		region := httputils.ExtractRegionFromRequest(c.Request(), h.Backend.Region())
+		ctx = context.WithValue(ctx, regionContextKey{}, region)
+
 		op := h.ExtractOperation(c)
 
 		result, dispErr := h.dispatch(ctx, op, body)
@@ -363,7 +366,7 @@ func (h *Handler) dispatchCoreOps(
 
 		return r, true, err
 	case "ListModels":
-		r, err := h.handleListModels(body)
+		r, err := h.handleListModels(ctx, body)
 
 		return r, true, err
 	case "DeleteModel":
@@ -377,7 +380,7 @@ func (h *Handler) dispatchCoreOps(
 
 		return r, true, err
 	case "ListEndpointConfigs":
-		r, err := h.handleListEndpointConfigs(body)
+		r, err := h.handleListEndpointConfigs(ctx, body)
 
 		return r, true, err
 	case "DeleteEndpointConfig":
@@ -470,7 +473,7 @@ func (h *Handler) dispatchLineageAndBatchOps(
 
 		return r, true, err
 	case "BatchDescribeModelPackage":
-		r, err := h.handleBatchDescribeModelPackage(body)
+		r, err := h.handleBatchDescribeModelPackage(ctx, body)
 
 		return r, true, err
 	case "BatchRebootClusterNodes":
@@ -507,7 +510,7 @@ func (h *Handler) dispatchEndpointOps(
 
 		return r, true, err
 	case "ListEndpoints":
-		r, err := h.handleListEndpoints(body)
+		r, err := h.handleListEndpoints(ctx, body)
 
 		return r, true, err
 	case "DeleteEndpoint":
@@ -557,7 +560,7 @@ func (h *Handler) dispatchTransformJobOps(
 
 		return r, true, err
 	case "ListTransformJobs":
-		r, err := h.handleListTransformJobs(body)
+		r, err := h.handleListTransformJobs(ctx, body)
 
 		return r, true, err
 	case "StopTransformJob":
@@ -580,7 +583,7 @@ func (h *Handler) dispatchTrainingOps(
 
 		return r, true, err
 	case "ListTrainingJobs":
-		r, err := h.handleListTrainingJobsFiltered(body)
+		r, err := h.handleListTrainingJobsFiltered(ctx, body)
 
 		return r, true, err
 	case "StopTrainingJob":
@@ -611,7 +614,7 @@ func (h *Handler) dispatchProcessingOps(
 	case "StopProcessingJob":
 		return nil, true, h.handleStopProcessingJob(ctx, body)
 	case "ListProcessingJobs":
-		r, err := h.handleListProcessingJobs(body)
+		r, err := h.handleListProcessingJobs(ctx, body)
 
 		return r, true, err
 	}
@@ -661,7 +664,7 @@ func (h *Handler) dispatchNotebookOps(
 
 		return r, true, err
 	case "ListNotebookInstances":
-		r, err := h.handleListNotebookInstances(body)
+		r, err := h.handleListNotebookInstances(ctx, body)
 
 		return r, true, err
 	case "DeleteNotebookInstance":
@@ -691,7 +694,7 @@ func (h *Handler) dispatchNotebookOps(
 	case "DeleteNotebookInstanceLifecycleConfig":
 		return nil, true, h.handleDeleteNotebookInstanceLifecycleConfig(ctx, body)
 	case "ListNotebookInstanceLifecycleConfigs":
-		r, err := h.handleListNotebookInstanceLifecycleConfigs(body)
+		r, err := h.handleListNotebookInstanceLifecycleConfigs(ctx, body)
 
 		return r, true, err
 	}
@@ -712,7 +715,7 @@ func (h *Handler) dispatchHPTuningJobOps(
 
 		return r, true, err
 	case "ListHyperParameterTuningJobs":
-		r, err := h.handleListHyperParameterTuningJobs(body)
+		r, err := h.handleListHyperParameterTuningJobs(ctx, body)
 
 		return r, true, err
 	case "StopHyperParameterTuningJob":
@@ -844,6 +847,7 @@ func (h *Handler) handleCreateModel(ctx context.Context, body []byte) ([]byte, e
 	tags := fromTagObjects(req.Tags)
 
 	m, err := h.Backend.CreateModel(
+		ctx,
 		req.ModelName,
 		req.ExecutionRoleArn,
 		req.PrimaryContainer,
@@ -856,6 +860,7 @@ func (h *Handler) handleCreateModel(ctx context.Context, body []byte) ([]byte, e
 
 	if req.VpcConfig != nil || req.EnableNetworkIsolation || req.InferenceExecutionConfig != nil {
 		if extErr := h.Backend.SetModelExtras(
+			ctx,
 			req.ModelName,
 			req.VpcConfig,
 			req.EnableNetworkIsolation,
@@ -871,7 +876,7 @@ func (h *Handler) handleCreateModel(ctx context.Context, body []byte) ([]byte, e
 	return json.Marshal(map[string]string{"ModelArn": m.ModelARN})
 }
 
-func (h *Handler) handleDescribeModel(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeModel(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		ModelName string `json:"ModelName"`
 	}
@@ -884,7 +889,7 @@ func (h *Handler) handleDescribeModel(_ context.Context, body []byte) ([]byte, e
 		return nil, fmt.Errorf("%w: ModelName is required", errInvalidRequest)
 	}
 
-	m, err := h.Backend.DescribeModel(req.ModelName)
+	m, err := h.Backend.DescribeModel(ctx, req.ModelName)
 	if err != nil {
 		return nil, err
 	}
@@ -908,7 +913,7 @@ func (h *Handler) handleDescribeModel(_ context.Context, body []byte) ([]byte, e
 	return json.Marshal(resp)
 }
 
-func (h *Handler) handleListModels(body []byte) ([]byte, error) {
+func (h *Handler) handleListModels(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		NextToken string `json:"NextToken"`
 	}
@@ -917,7 +922,7 @@ func (h *Handler) handleListModels(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	models, nextToken := h.Backend.ListModels(req.NextToken)
+	models, nextToken := h.Backend.ListModels(ctx, req.NextToken)
 	summaries := make([]modelSummary, 0, len(models))
 
 	for _, m := range models {
@@ -949,7 +954,7 @@ func (h *Handler) handleDeleteModel(ctx context.Context, body []byte) error {
 		return fmt.Errorf("%w: ModelName is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.DeleteModel(req.ModelName); err != nil {
+	if err := h.Backend.DeleteModel(ctx, req.ModelName); err != nil {
 		return err
 	}
 
@@ -1007,7 +1012,7 @@ func (h *Handler) handleCreateEndpointConfig(ctx context.Context, body []byte) (
 
 	tags := fromTagObjects(req.Tags)
 
-	ec, err := h.Backend.CreateEndpointConfig(req.EndpointConfigName, req.ProductionVariants, tags)
+	ec, err := h.Backend.CreateEndpointConfig(ctx, req.EndpointConfigName, req.ProductionVariants, tags)
 	if err != nil {
 		return nil, err
 	}
@@ -1018,6 +1023,7 @@ func (h *Handler) handleCreateEndpointConfig(ctx context.Context, body []byte) (
 
 	if hasExtras {
 		if extErr := h.Backend.SetEndpointConfigExtras(
+			ctx,
 			req.EndpointConfigName,
 			req.DataCaptureConfig,
 			req.AsyncInferenceConfig,
@@ -1044,7 +1050,7 @@ func (h *Handler) handleCreateEndpointConfig(ctx context.Context, body []byte) (
 	return json.Marshal(map[string]string{"EndpointConfigArn": ec.EndpointConfigARN})
 }
 
-func (h *Handler) handleDescribeEndpointConfig(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeEndpointConfig(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		EndpointConfigName string `json:"EndpointConfigName"`
 	}
@@ -1057,7 +1063,7 @@ func (h *Handler) handleDescribeEndpointConfig(_ context.Context, body []byte) (
 		return nil, fmt.Errorf("%w: EndpointConfigName is required", errInvalidRequest)
 	}
 
-	ec, err := h.Backend.DescribeEndpointConfig(req.EndpointConfigName)
+	ec, err := h.Backend.DescribeEndpointConfig(ctx, req.EndpointConfigName)
 	if err != nil {
 		return nil, err
 	}
@@ -1087,7 +1093,7 @@ func (h *Handler) handleDescribeEndpointConfig(_ context.Context, body []byte) (
 	return json.Marshal(resp)
 }
 
-func (h *Handler) handleListEndpointConfigs(body []byte) ([]byte, error) {
+func (h *Handler) handleListEndpointConfigs(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		NextToken string `json:"NextToken"`
 	}
@@ -1096,7 +1102,7 @@ func (h *Handler) handleListEndpointConfigs(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	configs, nextToken := h.Backend.ListEndpointConfigs(req.NextToken)
+	configs, nextToken := h.Backend.ListEndpointConfigs(ctx, req.NextToken)
 	summaries := make([]endpointConfigSummary, 0, len(configs))
 
 	for _, ec := range configs {
@@ -1128,7 +1134,7 @@ func (h *Handler) handleDeleteEndpointConfig(ctx context.Context, body []byte) e
 		return fmt.Errorf("%w: EndpointConfigName is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.DeleteEndpointConfig(req.EndpointConfigName); err != nil {
+	if err := h.Backend.DeleteEndpointConfig(ctx, req.EndpointConfigName); err != nil {
 		return err
 	}
 
@@ -1154,7 +1160,7 @@ func (h *Handler) handleAddTags(ctx context.Context, body []byte) ([]byte, error
 
 	tags := fromTagObjects(req.Tags)
 
-	if err := h.Backend.AddTags(req.ResourceArn, tags); err != nil {
+	if err := h.Backend.AddTags(ctx, req.ResourceArn, tags); err != nil {
 		return nil, err
 	}
 
@@ -1164,7 +1170,7 @@ func (h *Handler) handleAddTags(ctx context.Context, body []byte) ([]byte, error
 	return json.Marshal(map[string]any{})
 }
 
-func (h *Handler) handleListTags(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleListTags(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		ResourceArn string `json:"ResourceArn"`
 		NextToken   string `json:"NextToken"`
@@ -1178,7 +1184,7 @@ func (h *Handler) handleListTags(_ context.Context, body []byte) ([]byte, error)
 		return nil, fmt.Errorf("%w: ResourceArn is required", errInvalidRequest)
 	}
 
-	tags, err := h.Backend.ListTags(req.ResourceArn)
+	tags, err := h.Backend.ListTags(ctx, req.ResourceArn)
 	if err != nil {
 		return nil, err
 	}
@@ -1218,7 +1224,7 @@ func (h *Handler) handleDeleteTags(ctx context.Context, body []byte) error {
 		return fmt.Errorf("%w: ResourceArn is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.DeleteTags(req.ResourceArn, req.TagKeys); err != nil {
+	if err := h.Backend.DeleteTags(ctx, req.ResourceArn, req.TagKeys); err != nil {
 		return err
 	}
 
@@ -1253,6 +1259,7 @@ func (h *Handler) handleAddAssociation(ctx context.Context, body []byte) ([]byte
 	tags := fromTagObjects(req.Tags)
 
 	assoc, err := h.Backend.AddAssociation(
+		ctx,
 		req.SourceArn,
 		req.DestinationArn,
 		req.AssociationType,
@@ -1288,7 +1295,7 @@ func (h *Handler) handleAssociateTrialComponent(ctx context.Context, body []byte
 		return nil, fmt.Errorf("%w: TrialComponentName is required", errInvalidRequest)
 	}
 
-	assoc, err := h.Backend.AssociateTrialComponent(req.TrialName, req.TrialComponentName)
+	assoc, err := h.Backend.AssociateTrialComponent(ctx, req.TrialName, req.TrialComponentName)
 	if err != nil {
 		return nil, err
 	}
@@ -1335,7 +1342,7 @@ func (h *Handler) handleAttachClusterNodeVolume(ctx context.Context, body []byte
 		SizeInGB:   req.VolumeConfig.SizeInGB,
 	}
 
-	clusterArn, nodeID, err := h.Backend.AttachClusterNodeVolume(req.ClusterName, req.NodeID, vol)
+	clusterArn, nodeID, err := h.Backend.AttachClusterNodeVolume(ctx, req.ClusterName, req.NodeID, vol)
 	if err != nil {
 		return nil, err
 	}
@@ -1367,9 +1374,9 @@ func (h *Handler) batchClusterNodesWithFailures(
 	ctx context.Context,
 	clusterName, logMsg string,
 	nodes []ClusterNode,
-	fn func(string, []ClusterNode) (string, []string, error),
+	fn func(context.Context, string, []ClusterNode) (string, []string, error),
 ) ([]byte, error) {
-	clusterArn, failures, err := fn(clusterName, nodes)
+	clusterArn, failures, err := fn(ctx, clusterName, nodes)
 	if err != nil {
 		return nil, err
 	}
@@ -1443,6 +1450,7 @@ func (h *Handler) handleBatchDeleteClusterNodes(ctx context.Context, body []byte
 	}
 
 	clusterArn, errored, successful, err := h.Backend.BatchDeleteClusterNodes(
+		ctx,
 		req.ClusterName,
 		req.NodeIDs,
 	)
@@ -1488,13 +1496,13 @@ type batchDescribeModelPackageError struct {
 	ErrorMessage string `json:"ErrorMessage"`
 }
 
-func (h *Handler) handleBatchDescribeModelPackage(body []byte) ([]byte, error) {
+func (h *Handler) handleBatchDescribeModelPackage(ctx context.Context, body []byte) ([]byte, error) {
 	var req batchDescribeModelPackageRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	results := h.Backend.BatchDescribeModelPackage(req.ModelPackageArnList)
+	results := h.Backend.BatchDescribeModelPackage(ctx, req.ModelPackageArnList)
 
 	modelPackageMap := make(map[string]modelPackageSummary)
 	errorsMap := make(map[string]batchDescribeModelPackageError)
@@ -1542,6 +1550,7 @@ func (h *Handler) handleBatchRebootClusterNodes(ctx context.Context, body []byte
 	}
 
 	clusterArn, failures, successful, err := h.Backend.BatchRebootClusterNodes(
+		ctx,
 		req.ClusterName,
 		req.NodeIDs,
 	)
@@ -1626,6 +1635,7 @@ func (h *Handler) handleCreateAction(ctx context.Context, body []byte) ([]byte, 
 	}
 
 	a, err := h.Backend.CreateAction(
+		ctx,
 		req.ActionName,
 		req.ActionType,
 		req.Description,
@@ -1663,7 +1673,7 @@ func (h *Handler) handleCreateAlgorithm(ctx context.Context, body []byte) ([]byt
 
 	tags := fromTagObjects(req.Tags)
 
-	al, err := h.Backend.CreateAlgorithm(req.AlgorithmName, req.AlgorithmDescription, tags)
+	al, err := h.Backend.CreateAlgorithm(ctx, req.AlgorithmName, req.AlgorithmDescription, tags)
 	if err != nil {
 		return nil, err
 	}

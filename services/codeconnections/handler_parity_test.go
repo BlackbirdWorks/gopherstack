@@ -1,6 +1,7 @@
 package codeconnections_test
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 	"testing"
@@ -304,7 +305,13 @@ func TestParity_DeleteHost_CleansNameIndex(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler()
-			hostArn := createHost(t, h, "recycled-host", "GitHubEnterpriseServer", "https://a.example.com")
+			hostArn := createHost(
+				t,
+				h,
+				"recycled-host",
+				"GitHubEnterpriseServer",
+				"https://a.example.com",
+			)
 
 			delRec := doJSON(t, h, "DeleteHost", map[string]any{"HostArn": hostArn})
 			require.Equal(t, http.StatusOK, delRec.Code)
@@ -643,7 +650,13 @@ func TestParity_UpdateHost(t *testing.T) {
 			setupHostArn: func(t *testing.T, h *codeconnections.Handler) string {
 				t.Helper()
 
-				return createHost(t, h, "updateable-host", "GitHubEnterpriseServer", "https://old.example.com")
+				return createHost(
+					t,
+					h,
+					"updateable-host",
+					"GitHubEnterpriseServer",
+					"https://old.example.com",
+				)
 			},
 			newEndpoint: "https://new.example.com",
 			wantStatus:  http.StatusOK,
@@ -1081,7 +1094,13 @@ func TestParity_SnapshotRestore_HostsByName(t *testing.T) {
 			require.NoError(t, newBackend.Restore(snap))
 
 			// Attempting to create a host with same name should fail (name index restored).
-			_, err := newBackend.CreateHost("snap-host", "GitHubEnterpriseServer", "https://new.example.com", nil)
+			_, err := newBackend.CreateHost(
+				context.Background(),
+				"snap-host",
+				"GitHubEnterpriseServer",
+				"https://new.example.com",
+				nil,
+			)
 			require.Error(t, err, "duplicate host name should fail after restore")
 		})
 	}
@@ -1190,11 +1209,17 @@ func TestParity_Backend_CreateConnection_HostArn(t *testing.T) {
 			t.Parallel()
 
 			b := codeconnections.NewInMemoryBackend("123456789012", "us-east-1")
-			conn, err := b.CreateConnection("conn-"+strconv.Itoa(i), "GitHub", tt.hostArn, nil)
+			conn, err := b.CreateConnection(
+				context.Background(),
+				"conn-"+strconv.Itoa(i),
+				"GitHub",
+				tt.hostArn,
+				nil,
+			)
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantHostArn, conn.HostArn)
 
-			got, err := b.GetConnection(conn.ConnectionArn)
+			got, err := b.GetConnection(context.Background(), conn.ConnectionArn)
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantHostArn, got.HostArn)
 		})
@@ -1207,10 +1232,22 @@ func TestParity_Backend_CreateHost_NameUniqueness(t *testing.T) {
 
 	b := codeconnections.NewInMemoryBackend("123456789012", "us-east-1")
 
-	_, err := b.CreateHost("unique-host-x", "GitHubEnterpriseServer", "https://a.example.com", nil)
+	_, err := b.CreateHost(
+		context.Background(),
+		"unique-host-x",
+		"GitHubEnterpriseServer",
+		"https://a.example.com",
+		nil,
+	)
 	require.NoError(t, err, "first create should succeed")
 
-	_, err = b.CreateHost("unique-host-x", "GitHubEnterpriseServer", "https://b.example.com", nil)
+	_, err = b.CreateHost(
+		context.Background(),
+		"unique-host-x",
+		"GitHubEnterpriseServer",
+		"https://b.example.com",
+		nil,
+	)
 	require.Error(t, err, "duplicate host name must fail")
 }
 
@@ -1229,13 +1266,25 @@ func TestParity_Backend_HostsByName_DeleteRestores(t *testing.T) {
 			t.Parallel()
 
 			b := codeconnections.NewInMemoryBackend("123456789012", "us-east-1")
-			host, err := b.CreateHost("recycled-host", "GitHubEnterpriseServer", "https://a.example.com", nil)
+			host, err := b.CreateHost(
+				context.Background(),
+				"recycled-host",
+				"GitHubEnterpriseServer",
+				"https://a.example.com",
+				nil,
+			)
 			require.NoError(t, err)
 
-			err = b.DeleteHost(host.HostArn)
+			err = b.DeleteHost(context.Background(), host.HostArn)
 			require.NoError(t, err)
 
-			_, err = b.CreateHost("recycled-host", "GitHubEnterpriseServer", "https://b.example.com", nil)
+			_, err = b.CreateHost(
+				context.Background(),
+				"recycled-host",
+				"GitHubEnterpriseServer",
+				"https://b.example.com",
+				nil,
+			)
 			require.NoError(t, err, "name should be reusable after delete")
 		})
 	}
@@ -1256,7 +1305,7 @@ func TestParity_Backend_AddHostInternal_UpdatesNameIndex(t *testing.T) {
 			t.Parallel()
 
 			b := codeconnections.NewInMemoryBackend("123456789012", "us-east-1")
-			b.AddHostInternal(&codeconnections.Host{
+			b.AddHostInternal(context.Background(), &codeconnections.Host{
 				Name:             "seeded-host",
 				HostArn:          "arn:aws:codeconnections:us-east-1:123:host/seeded",
 				ProviderType:     "GitHubEnterpriseServer",
@@ -1265,7 +1314,13 @@ func TestParity_Backend_AddHostInternal_UpdatesNameIndex(t *testing.T) {
 				Tags:             map[string]string{},
 			})
 
-			_, err := b.CreateHost("seeded-host", "GitHubEnterpriseServer", "https://other.example.com", nil)
+			_, err := b.CreateHost(
+				context.Background(),
+				"seeded-host",
+				"GitHubEnterpriseServer",
+				"https://other.example.com",
+				nil,
+			)
 			require.Error(t, err, "AddHostInternal must populate name index")
 		})
 	}
@@ -1286,10 +1341,22 @@ func TestParity_Backend_ErrAlreadyExists_HostDuplicate(t *testing.T) {
 			t.Parallel()
 
 			b := codeconnections.NewInMemoryBackend("123456789012", "us-east-1")
-			_, err := b.CreateHost("dup-h", "GitHubEnterpriseServer", "https://a.example.com", nil)
+			_, err := b.CreateHost(
+				context.Background(),
+				"dup-h",
+				"GitHubEnterpriseServer",
+				"https://a.example.com",
+				nil,
+			)
 			require.NoError(t, err)
 
-			_, err = b.CreateHost("dup-h", "GitHubEnterpriseServer", "https://b.example.com", nil)
+			_, err = b.CreateHost(
+				context.Background(),
+				"dup-h",
+				"GitHubEnterpriseServer",
+				"https://b.example.com",
+				nil,
+			)
 			require.Error(t, err)
 			// The error should wrap ErrAlreadyExists.
 			assert.ErrorIs(t, err, codeconnections.ErrAlreadyExists)

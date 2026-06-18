@@ -1166,7 +1166,7 @@ func (h *Handler) writeError(c *echo.Context, err error) error {
 }
 
 func errorResponse(code, msg string) map[string]string {
-	return map[string]string{"message": msg, "type": code}
+	return map[string]string{"message": msg, "__type": code}
 }
 
 // parseBody parses JSON bytes into a value of type T.

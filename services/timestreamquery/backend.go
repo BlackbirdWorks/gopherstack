@@ -1,10 +1,12 @@
 package timestreamquery
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"maps"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -27,6 +29,32 @@ var (
 	// ErrValidation is returned when request input fails validation.
 	ErrValidation = errors.New("ValidationException")
 )
+
+// regionContextKey is the context key under which the per-request AWS region is stored.
+type regionContextKey struct{}
+
+// getRegion extracts the region from ctx, falling back to defaultRegion when unset.
+// Every backend operation resolves the caller's region from the request context and
+// operates only on that region's nested store.
+func getRegion(ctx context.Context, defaultRegion string) string {
+	if r, ok := ctx.Value(regionContextKey{}).(string); ok && r != "" {
+		return r
+	}
+
+	return defaultRegion
+}
+
+// regionFromARN extracts the region component (index 3) from an AWS ARN
+// (arn:partition:service:region:account:resource), falling back to defaultRegion.
+func regionFromARN(resourceARN, defaultRegion string) string {
+	parts := strings.Split(resourceARN, ":")
+	const regionIndex = 3
+	if len(parts) > regionIndex && parts[regionIndex] != "" {
+		return parts[regionIndex]
+	}
+
+	return defaultRegion
+}
 
 // ScheduledQuery represents a Timestream scheduled query.
 type ScheduledQuery struct {
@@ -85,28 +113,28 @@ const maxRetainedQueries = 10000
 // InMemoryBackend is the in-memory backend for the Timestream Query service.
 type InMemoryBackend struct {
 	mu               *lockmetrics.RWMutex
-	scheduledQueries map[string]*ScheduledQuery // keyed by name
-	arnIndex         map[string]string          // ARN → name
-	queries          map[string]*QueryResult
+	scheduledQueries map[string]map[string]*ScheduledQuery // region → name → ScheduledQuery
+	arnIndex         map[string]map[string]string          // region → ARN → name
+	queries          map[string]*QueryResult               // UUID-keyed; not region-isolated
+	accountSettings  map[string]AccountSettings            // region → settings
 	clientTokens     *clientTokenCache
 	pageStore        *nextTokenStore
-	accountSettings  AccountSettings
 	accountID        string
-	region           string
+	defaultRegion    string
 }
 
 // NewInMemoryBackend creates a new in-memory Timestream Query backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
 		mu:               lockmetrics.New("timestreamquery"),
-		scheduledQueries: make(map[string]*ScheduledQuery),
-		arnIndex:         make(map[string]string),
+		scheduledQueries: make(map[string]map[string]*ScheduledQuery),
+		arnIndex:         make(map[string]map[string]string),
 		queries:          make(map[string]*QueryResult),
+		accountSettings:  make(map[string]AccountSettings),
 		clientTokens:     newClientTokenCache(),
 		pageStore:        newNextTokenStore(),
-		accountSettings:  AccountSettings{QueryPricingModel: pricingModelComputeUnits},
 		accountID:        accountID,
-		region:           region,
+		defaultRegion:    region,
 	}
 }
 
@@ -115,22 +143,57 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.scheduledQueries = make(map[string]*ScheduledQuery)
-	b.arnIndex = make(map[string]string)
+	b.scheduledQueries = make(map[string]map[string]*ScheduledQuery)
+	b.arnIndex = make(map[string]map[string]string)
 	b.queries = make(map[string]*QueryResult)
+	b.accountSettings = make(map[string]AccountSettings)
 	b.clientTokens = newClientTokenCache()
 	b.pageStore = newNextTokenStore()
-	b.accountSettings = AccountSettings{QueryPricingModel: pricingModelComputeUnits}
 }
 
 // AccountID returns the account ID for the backend.
 func (b *InMemoryBackend) AccountID() string { return b.accountID }
 
-// Region returns the region for the backend.
-func (b *InMemoryBackend) Region() string { return b.region }
+// Region returns the default region for the backend.
+func (b *InMemoryBackend) Region() string { return b.defaultRegion }
+
+// The *Store helpers return the per-region inner map, lazily creating it.
+// Callers must hold b.mu.
+
+func (b *InMemoryBackend) scheduledQueriesStore(region string) map[string]*ScheduledQuery {
+	if b.scheduledQueries[region] == nil {
+		b.scheduledQueries[region] = make(map[string]*ScheduledQuery)
+	}
+
+	return b.scheduledQueries[region]
+}
+
+func (b *InMemoryBackend) arnIndexStore(region string) map[string]string {
+	if b.arnIndex[region] == nil {
+		b.arnIndex[region] = make(map[string]string)
+	}
+
+	return b.arnIndex[region]
+}
+
+// defaultAccountSettings returns the initial state for a region's account settings.
+func defaultAccountSettings() AccountSettings {
+	return AccountSettings{QueryPricingModel: pricingModelComputeUnits}
+}
+
+// accountSettingsFor returns the account settings for region, initialising defaults if absent.
+// Callers must hold b.mu.
+func (b *InMemoryBackend) accountSettingsFor(region string) AccountSettings {
+	if s, ok := b.accountSettings[region]; ok {
+		return s
+	}
+
+	return defaultAccountSettings()
+}
 
 // CreateScheduledQuery creates a new scheduled query.
 func (b *InMemoryBackend) CreateScheduledQuery(
+	ctx context.Context,
 	name, queryString, scheduleExpression, executionRoleArn,
 	notificationTopicArn, errorReportS3BucketName, targetDatabase, targetTable string,
 	tags map[string]string,
@@ -139,17 +202,20 @@ func (b *InMemoryBackend) CreateScheduledQuery(
 		return nil, err
 	}
 
+	region := getRegion(ctx, b.defaultRegion)
+
 	b.mu.Lock("CreateScheduledQuery")
 	defer b.mu.Unlock()
 
-	if _, exists := b.scheduledQueries[name]; exists {
+	sqs := b.scheduledQueriesStore(region)
+	if _, exists := sqs[name]; exists {
 		return nil, fmt.Errorf("%w: scheduled query %q already exists", ErrAlreadyExists, name)
 	}
 
-	arn := fmt.Sprintf(scheduledQueryArnFormat, b.region, b.accountID, name)
+	arnStr := fmt.Sprintf(scheduledQueryArnFormat, region, b.accountID, name)
 
 	sq := &ScheduledQuery{
-		Arn:                     arn,
+		Arn:                     arnStr,
 		Name:                    name,
 		QueryString:             queryString,
 		ScheduleExpression:      scheduleExpression,
@@ -167,18 +233,21 @@ func (b *InMemoryBackend) CreateScheduledQuery(
 		maps.Copy(sq.Tags, tags)
 	}
 
-	b.scheduledQueries[name] = sq
-	b.arnIndex[arn] = name
+	sqs[name] = sq
+	b.arnIndexStore(region)[arnStr] = name
 
 	return cloneScheduledQuery(sq), nil
 }
 
 // DescribeScheduledQuery returns details of a scheduled query by ARN.
-func (b *InMemoryBackend) DescribeScheduledQuery(arnStr string) (*ScheduledQuery, error) {
+// The region is resolved from the ARN itself, with context region as fallback.
+func (b *InMemoryBackend) DescribeScheduledQuery(ctx context.Context, arnStr string) (*ScheduledQuery, error) {
+	region := regionFromARN(arnStr, getRegion(ctx, b.defaultRegion))
+
 	b.mu.RLock("DescribeScheduledQuery")
 	defer b.mu.RUnlock()
 
-	sq, err := b.lookupByARN(arnStr)
+	sq, err := b.lookupByARN(region, arnStr)
 	if err != nil {
 		return nil, err
 	}
@@ -187,28 +256,35 @@ func (b *InMemoryBackend) DescribeScheduledQuery(arnStr string) (*ScheduledQuery
 }
 
 // DeleteScheduledQuery deletes a scheduled query by ARN.
-func (b *InMemoryBackend) DeleteScheduledQuery(arnStr string) error {
+// The region is resolved from the ARN itself, with context region as fallback.
+func (b *InMemoryBackend) DeleteScheduledQuery(ctx context.Context, arnStr string) error {
+	region := regionFromARN(arnStr, getRegion(ctx, b.defaultRegion))
+
 	b.mu.Lock("DeleteScheduledQuery")
 	defer b.mu.Unlock()
 
-	name, ok := b.arnIndex[arnStr]
+	idx := b.arnIndex[region]
+	name, ok := idx[arnStr]
 	if !ok {
 		return fmt.Errorf("%w: scheduled query %q not found", ErrNotFound, arnStr)
 	}
 
-	delete(b.scheduledQueries, name)
-	delete(b.arnIndex, arnStr)
+	delete(b.scheduledQueries[region], name)
+	delete(idx, arnStr)
 
 	return nil
 }
 
-// ListScheduledQueries returns all scheduled queries sorted by name.
-func (b *InMemoryBackend) ListScheduledQueries() []ScheduledQuerySummary {
+// ListScheduledQueries returns all scheduled queries for the request region sorted by name.
+func (b *InMemoryBackend) ListScheduledQueries(ctx context.Context) []ScheduledQuerySummary {
+	region := getRegion(ctx, b.defaultRegion)
+
 	b.mu.RLock("ListScheduledQueries")
 	defer b.mu.RUnlock()
 
-	names := make([]string, 0, len(b.scheduledQueries))
-	for name := range b.scheduledQueries {
+	sqs := b.scheduledQueries[region]
+	names := make([]string, 0, len(sqs))
+	for name := range sqs {
 		names = append(names, name)
 	}
 
@@ -217,7 +293,7 @@ func (b *InMemoryBackend) ListScheduledQueries() []ScheduledQuerySummary {
 	out := make([]ScheduledQuerySummary, 0, len(names))
 
 	for _, name := range names {
-		sq := b.scheduledQueries[name]
+		sq := sqs[name]
 		out = append(out, ScheduledQuerySummary{
 			Arn:   sq.Arn,
 			Name:  sq.Name,
@@ -230,16 +306,19 @@ func (b *InMemoryBackend) ListScheduledQueries() []ScheduledQuerySummary {
 
 // UpdateScheduledQuery updates the state of a scheduled query by ARN.
 // Only ENABLED and DISABLED are valid states.
-func (b *InMemoryBackend) UpdateScheduledQuery(arnStr, state string) error {
+// The region is resolved from the ARN itself, with context region as fallback.
+func (b *InMemoryBackend) UpdateScheduledQuery(ctx context.Context, arnStr, state string) error {
 	if state != scheduledQueryStateEnabled && state != scheduledQueryStateDisabled {
 		return fmt.Errorf("%w: State must be %s or %s",
 			ErrValidation, scheduledQueryStateEnabled, scheduledQueryStateDisabled)
 	}
 
+	region := regionFromARN(arnStr, getRegion(ctx, b.defaultRegion))
+
 	b.mu.Lock("UpdateScheduledQuery")
 	defer b.mu.Unlock()
 
-	sq, err := b.lookupByARN(arnStr)
+	sq, err := b.lookupByARN(region, arnStr)
 	if err != nil {
 		return err
 	}
@@ -250,11 +329,14 @@ func (b *InMemoryBackend) UpdateScheduledQuery(arnStr, state string) error {
 }
 
 // ExecuteScheduledQuery marks a scheduled query as executed at the given invocation time.
-func (b *InMemoryBackend) ExecuteScheduledQuery(arnStr string, invocationTime time.Time) error {
+// The region is resolved from the ARN itself, with context region as fallback.
+func (b *InMemoryBackend) ExecuteScheduledQuery(ctx context.Context, arnStr string, invocationTime time.Time) error {
+	region := regionFromARN(arnStr, getRegion(ctx, b.defaultRegion))
+
 	b.mu.Lock("ExecuteScheduledQuery")
 	defer b.mu.Unlock()
 
-	sq, err := b.lookupByARN(arnStr)
+	sq, err := b.lookupByARN(region, arnStr)
 	if err != nil {
 		return err
 	}
@@ -284,7 +366,8 @@ type QueryPage struct {
 }
 
 // QueryWithOptions executes a query with full options support (clientToken, pagination).
-func (b *InMemoryBackend) QueryWithOptions(opts QueryOptions) (*QueryPage, error) {
+// ctx is accepted for interface consistency; query results are not region-isolated.
+func (b *InMemoryBackend) QueryWithOptions(_ context.Context, opts QueryOptions) (*QueryPage, error) {
 	// Validate MaxRows.
 	maxRows, err := validateMaxRows(opts.MaxRows)
 	if err != nil {
@@ -393,7 +476,8 @@ func (b *InMemoryBackend) resumeFirstPage(queryID string, maxRows int) ([]Row, s
 }
 
 // Query runs a query and returns a result (legacy path, calls QueryWithOptions).
-func (b *InMemoryBackend) Query(queryString string) *QueryResult {
+// ctx is accepted for interface consistency; query results are not region-isolated.
+func (b *InMemoryBackend) Query(_ context.Context, queryString string) *QueryResult {
 	b.mu.Lock("Query")
 	defer b.mu.Unlock()
 
@@ -424,7 +508,8 @@ func (b *InMemoryBackend) Query(queryString string) *QueryResult {
 }
 
 // CancelQuery cancels a running query (simulated no-op if not found).
-func (b *InMemoryBackend) CancelQuery(queryID string) error {
+// ctx is accepted for interface consistency; query results are not region-isolated.
+func (b *InMemoryBackend) CancelQuery(_ context.Context, queryID string) error {
 	b.mu.Lock("CancelQuery")
 	defer b.mu.Unlock()
 
@@ -438,17 +523,16 @@ func (b *InMemoryBackend) CancelQuery(queryID string) error {
 	return nil
 }
 
-// lookupByARN finds a scheduled query by ARN using the ARN index. Must be called with the lock held.
-// The double lookup (ARN index → name, then name → struct) is intentional: the ARN index
-// may briefly diverge from scheduledQueries only if there is a bug, so the second check
-// is a defensive guard against index inconsistency.
-func (b *InMemoryBackend) lookupByARN(arnStr string) (*ScheduledQuery, error) {
-	name, ok := b.arnIndex[arnStr]
+// lookupByARN finds a scheduled query by ARN using the region's ARN index.
+// Must be called with the lock held.
+func (b *InMemoryBackend) lookupByARN(region, arnStr string) (*ScheduledQuery, error) {
+	idx := b.arnIndex[region]
+	name, ok := idx[arnStr]
 	if !ok {
 		return nil, fmt.Errorf("%w: scheduled query %q not found", ErrNotFound, arnStr)
 	}
 
-	sq, ok := b.scheduledQueries[name]
+	sq, ok := b.scheduledQueries[region][name]
 	if !ok {
 		return nil, fmt.Errorf("%w: scheduled query %q not found", ErrNotFound, arnStr)
 	}
@@ -457,11 +541,14 @@ func (b *InMemoryBackend) lookupByARN(arnStr string) (*ScheduledQuery, error) {
 }
 
 // TagResource adds tags to a resource identified by its ARN.
-func (b *InMemoryBackend) TagResource(arn string, tags map[string]string) error {
+// The region is resolved from the ARN itself, with context region as fallback.
+func (b *InMemoryBackend) TagResource(ctx context.Context, arnStr string, tags map[string]string) error {
+	region := regionFromARN(arnStr, getRegion(ctx, b.defaultRegion))
+
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
-	sq, err := b.lookupByARN(arn)
+	sq, err := b.lookupByARN(region, arnStr)
 	if err != nil {
 		return err
 	}
@@ -472,11 +559,14 @@ func (b *InMemoryBackend) TagResource(arn string, tags map[string]string) error 
 }
 
 // UntagResource removes tags from a resource identified by its ARN.
-func (b *InMemoryBackend) UntagResource(arn string, tagKeys []string) error {
+// The region is resolved from the ARN itself, with context region as fallback.
+func (b *InMemoryBackend) UntagResource(ctx context.Context, arnStr string, tagKeys []string) error {
+	region := regionFromARN(arnStr, getRegion(ctx, b.defaultRegion))
+
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
-	sq, err := b.lookupByARN(arn)
+	sq, err := b.lookupByARN(region, arnStr)
 	if err != nil {
 		return err
 	}
@@ -489,11 +579,14 @@ func (b *InMemoryBackend) UntagResource(arn string, tagKeys []string) error {
 }
 
 // ListTagsForResource returns tags for a resource identified by its ARN.
-func (b *InMemoryBackend) ListTagsForResource(arn string) ([]map[string]string, error) {
+// The region is resolved from the ARN itself, with context region as fallback.
+func (b *InMemoryBackend) ListTagsForResource(ctx context.Context, arnStr string) ([]map[string]string, error) {
+	region := regionFromARN(arnStr, getRegion(ctx, b.defaultRegion))
+
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
-	sq, err := b.lookupByARN(arn)
+	sq, err := b.lookupByARN(region, arnStr)
 	if err != nil {
 		return nil, err
 	}
@@ -531,13 +624,16 @@ func cloneScheduledQuery(sq *ScheduledQuery) *ScheduledQuery {
 	return &cp
 }
 
-// ListScheduledQueriesFull returns all scheduled queries with full details, sorted by name.
-func (b *InMemoryBackend) ListScheduledQueriesFull() []*ScheduledQuery {
+// ListScheduledQueriesFull returns all scheduled queries for the request region with full details, sorted by name.
+func (b *InMemoryBackend) ListScheduledQueriesFull(ctx context.Context) []*ScheduledQuery {
+	region := getRegion(ctx, b.defaultRegion)
+
 	b.mu.RLock("ListScheduledQueriesFull")
 	defer b.mu.RUnlock()
 
-	names := make([]string, 0, len(b.scheduledQueries))
-	for name := range b.scheduledQueries {
+	sqs := b.scheduledQueries[region]
+	names := make([]string, 0, len(sqs))
+	for name := range sqs {
 		names = append(names, name)
 	}
 
@@ -546,24 +642,29 @@ func (b *InMemoryBackend) ListScheduledQueriesFull() []*ScheduledQuery {
 	out := make([]*ScheduledQuery, 0, len(names))
 
 	for _, name := range names {
-		out = append(out, cloneScheduledQuery(b.scheduledQueries[name]))
+		out = append(out, cloneScheduledQuery(sqs[name]))
 	}
 
 	return out
 }
 
-// DescribeAccountSettings returns the current account-level settings.
-func (b *InMemoryBackend) DescribeAccountSettings() AccountSettings {
+// DescribeAccountSettings returns the current account-level settings for the request region.
+func (b *InMemoryBackend) DescribeAccountSettings(ctx context.Context) AccountSettings {
+	region := getRegion(ctx, b.defaultRegion)
+
 	b.mu.RLock("DescribeAccountSettings")
 	defer b.mu.RUnlock()
 
-	return b.accountSettings
+	return b.accountSettingsFor(region)
 }
 
 // PrepareQuery validates a query string and returns its column and parameter metadata.
 // It infers columns from the SELECT projection and parameters from ? markers.
 // When validateOnly is true, only parse errors are surfaced.
-func (b *InMemoryBackend) PrepareQuery(queryString string, validateOnly bool) (*PrepareQueryResult, error) {
+// ctx is accepted for interface consistency; PrepareQuery is stateless.
+func (b *InMemoryBackend) PrepareQuery(
+	_ context.Context, queryString string, validateOnly bool,
+) (*PrepareQueryResult, error) {
 	if queryString == "" {
 		return nil, fmt.Errorf("%w: QueryString is required", ErrValidation)
 	}
@@ -591,12 +692,18 @@ func isValidPricingModel(model string) bool {
 	return model == pricingModelBytesScanned || model == pricingModelComputeUnits
 }
 
-// UpdateAccountSettings updates the account-level settings and returns the new state.
+// UpdateAccountSettings updates the account-level settings for the request region and returns the new state.
 // Only non-empty queryPricingModel and non-nil maxQueryTCU values are applied;
 // omitted fields preserve their current values.
-func (b *InMemoryBackend) UpdateAccountSettings(queryPricingModel string, maxQueryTCU *int32) (AccountSettings, error) {
+func (b *InMemoryBackend) UpdateAccountSettings(
+	ctx context.Context, queryPricingModel string, maxQueryTCU *int32,
+) (AccountSettings, error) {
+	region := getRegion(ctx, b.defaultRegion)
+
 	b.mu.Lock("UpdateAccountSettings")
 	defer b.mu.Unlock()
+
+	settings := b.accountSettingsFor(region)
 
 	if queryPricingModel != "" {
 		if !isValidPricingModel(queryPricingModel) {
@@ -607,7 +714,7 @@ func (b *InMemoryBackend) UpdateAccountSettings(queryPricingModel string, maxQue
 			)
 		}
 
-		b.accountSettings.QueryPricingModel = queryPricingModel
+		settings.QueryPricingModel = queryPricingModel
 	}
 
 	if maxQueryTCU != nil {
@@ -615,20 +722,25 @@ func (b *InMemoryBackend) UpdateAccountSettings(queryPricingModel string, maxQue
 			return AccountSettings{}, fmt.Errorf("%w: MaxQueryTCU must be a positive integer", ErrValidation)
 		}
 
-		b.accountSettings.MaxQueryTCU = maxQueryTCU
+		settings.MaxQueryTCU = maxQueryTCU
 	}
 
 	now := time.Now()
-	b.accountSettings.LastUpdatedTime = &now
+	settings.LastUpdatedTime = &now
+	b.accountSettings[region] = settings
 
-	return b.accountSettings, nil
+	return settings, nil
 }
 
-// ListScheduledQueriesEnriched returns paged enriched scheduled query summaries (gaps #18, #19).
-func (b *InMemoryBackend) ListScheduledQueriesEnriched(nextToken string, maxResults int32) ListScheduledQueriesResult {
+// ListScheduledQueriesEnriched returns paged enriched scheduled query summaries for the request region.
+func (b *InMemoryBackend) ListScheduledQueriesEnriched(
+	ctx context.Context, nextToken string, maxResults int32,
+) ListScheduledQueriesResult {
+	region := getRegion(ctx, b.defaultRegion)
+
 	b.mu.RLock("ListScheduledQueriesEnriched")
-	all := make([]*ScheduledQuery, 0, len(b.scheduledQueries))
-	for _, sq := range b.scheduledQueries {
+	all := make([]*ScheduledQuery, 0, len(b.scheduledQueries[region]))
+	for _, sq := range b.scheduledQueries[region] {
 		all = append(all, cloneScheduledQuery(sq))
 	}
 	b.mu.RUnlock()
@@ -638,6 +750,7 @@ func (b *InMemoryBackend) ListScheduledQueriesEnriched(nextToken string, maxResu
 
 // AddScheduledQueryInternal is a test-only seed helper that stores a scheduled query directly,
 // bypassing normal validation. It is used to pre-populate backend state in tests.
+// The region is resolved from the ARN embedded in sq.Arn, falling back to defaultRegion.
 func (b *InMemoryBackend) AddScheduledQueryInternal(sq *ScheduledQuery) {
 	b.mu.Lock("AddScheduledQueryInternal")
 	defer b.mu.Unlock()
@@ -646,6 +759,8 @@ func (b *InMemoryBackend) AddScheduledQueryInternal(sq *ScheduledQuery) {
 		sq.Tags = make(map[string]string)
 	}
 
-	b.scheduledQueries[sq.Name] = sq
-	b.arnIndex[sq.Arn] = sq.Name
+	region := regionFromARN(sq.Arn, b.defaultRegion)
+
+	b.scheduledQueriesStore(region)[sq.Name] = sq
+	b.arnIndexStore(region)[sq.Arn] = sq.Name
 }

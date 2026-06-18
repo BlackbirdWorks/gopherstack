@@ -2,6 +2,7 @@ package codeartifact_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -1655,18 +1656,18 @@ func TestBackend_Reset(t *testing.T) {
 
 	b := codeartifact.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
 
-	_, err := b.CreateDomain("reset-domain", "", nil)
+	_, err := b.CreateDomain(context.Background(), "reset-domain", "", nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateRepository("reset-domain", "reset-repo", "", nil)
+	_, err = b.CreateRepository(context.Background(), "reset-domain", "reset-repo", "", nil)
 	require.NoError(t, err)
 
 	b.Reset()
 
-	_, err = b.DescribeDomain("reset-domain")
+	_, err = b.DescribeDomain(context.Background(), "reset-domain")
 	require.Error(t, err)
 
-	_, err = b.DescribeRepository("reset-domain", "reset-repo")
+	_, err = b.DescribeRepository(context.Background(), "reset-domain", "reset-repo")
 	require.Error(t, err)
 }
 

@@ -14,11 +14,14 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
 const (
 	keyTypeField = "__type"
+
+	defaultResourcePoliciesPageSize = 25
 )
 
 const (
@@ -1561,18 +1564,25 @@ func toResourcePolicyView(p *ResourcePolicy) resourcePolicyView {
 	}
 }
 
-func (h *Handler) handleListResourcePolicies(_ context.Context, _ []byte) ([]byte, error) {
+func (h *Handler) handleListResourcePolicies(_ context.Context, body []byte) ([]byte, error) {
+	var in struct {
+		NextToken  string `json:"NextToken"`
+		MaxResults int    `json:"MaxResults"`
+	}
+	if len(body) > 0 {
+		_ = json.Unmarshal(body, &in)
+	}
+
 	policies := h.Backend.ListResourcePolicies()
 	views := make([]resourcePolicyView, 0, len(policies))
-
 	for i := range policies {
 		views = append(views, toResourcePolicyView(&policies[i]))
 	}
 
-	return json.Marshal(map[string]any{
-		"ResourcePolicies": views,
-		keyNextToken:       "",
-	})
+	pg := page.New(views, in.NextToken, in.MaxResults, defaultResourcePoliciesPageSize)
+	resp := map[string]any{"ResourcePolicies": pg.Data, keyNextToken: pg.Next}
+
+	return json.Marshal(resp)
 }
 
 // --- PutResourcePolicy ---

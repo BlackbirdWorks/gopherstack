@@ -1,6 +1,7 @@
 package acmpca
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	cryptorand "crypto/rand"
@@ -21,6 +22,18 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
+
+// regionContextKey is the context key under which the per-request AWS region is stored.
+type regionContextKey struct{}
+
+// getRegion extracts the region from ctx, falling back to defaultRegion when unset.
+func getRegion(ctx context.Context, defaultRegion string) string {
+	if r, ok := ctx.Value(regionContextKey{}).(string); ok && r != "" {
+		return r
+	}
+
+	return defaultRegion
+}
 
 var (
 	// ErrCANotFound is returned when a Certificate Authority is not found.
@@ -150,13 +163,15 @@ type AuditReport struct {
 }
 
 // InMemoryBackend is the in-memory store for ACM PCA resources.
+// InMemoryBackend stores ACM PCA state. All resource maps are nested by region
+// (outer key = region) so that resources are isolated per region.
 type InMemoryBackend struct {
-	cas             map[string]*CertificateAuthority
-	certs           map[string]*IssuedCertificate
-	certsByCASerial map[string]string // caARN+"#"+serial → certARN (O(1) RevokeCertificate)
-	permissions     map[string]*Permission
-	auditReports    map[string]*AuditReport
-	policies        map[string]string
+	cas             map[string]map[string]*CertificateAuthority
+	certs           map[string]map[string]*IssuedCertificate
+	certsByCASerial map[string]map[string]string // region → caARN+"#"+serial → certARN
+	permissions     map[string]map[string]*Permission
+	auditReports    map[string]map[string]*AuditReport
+	policies        map[string]map[string]string
 	mu              *lockmetrics.RWMutex
 	accountID       string
 	region          string
@@ -165,12 +180,12 @@ type InMemoryBackend struct {
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		cas:             make(map[string]*CertificateAuthority),
-		certs:           make(map[string]*IssuedCertificate),
-		certsByCASerial: make(map[string]string),
-		permissions:     make(map[string]*Permission),
-		auditReports:    make(map[string]*AuditReport),
-		policies:        make(map[string]string),
+		cas:             make(map[string]map[string]*CertificateAuthority),
+		certs:           make(map[string]map[string]*IssuedCertificate),
+		certsByCASerial: make(map[string]map[string]string),
+		permissions:     make(map[string]map[string]*Permission),
+		auditReports:    make(map[string]map[string]*AuditReport),
+		policies:        make(map[string]map[string]string),
 		accountID:       accountID,
 		region:          region,
 		mu:              lockmetrics.New("acmpca"),
@@ -180,8 +195,60 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 // Region returns the AWS region this backend is configured for.
 func (b *InMemoryBackend) Region() string { return b.region }
 
+// The *Store helpers return the per-region inner map, lazily creating it.
+// Callers must hold b.mu.
+
+func (b *InMemoryBackend) casStore(region string) map[string]*CertificateAuthority {
+	if b.cas[region] == nil {
+		b.cas[region] = make(map[string]*CertificateAuthority)
+	}
+
+	return b.cas[region]
+}
+
+func (b *InMemoryBackend) certsStore(region string) map[string]*IssuedCertificate {
+	if b.certs[region] == nil {
+		b.certs[region] = make(map[string]*IssuedCertificate)
+	}
+
+	return b.certs[region]
+}
+
+func (b *InMemoryBackend) certsByCASerialStore(region string) map[string]string {
+	if b.certsByCASerial[region] == nil {
+		b.certsByCASerial[region] = make(map[string]string)
+	}
+
+	return b.certsByCASerial[region]
+}
+
+func (b *InMemoryBackend) permissionsStore(region string) map[string]*Permission {
+	if b.permissions[region] == nil {
+		b.permissions[region] = make(map[string]*Permission)
+	}
+
+	return b.permissions[region]
+}
+
+func (b *InMemoryBackend) auditReportsStore(region string) map[string]*AuditReport {
+	if b.auditReports[region] == nil {
+		b.auditReports[region] = make(map[string]*AuditReport)
+	}
+
+	return b.auditReports[region]
+}
+
+func (b *InMemoryBackend) policiesStore(region string) map[string]string {
+	if b.policies[region] == nil {
+		b.policies[region] = make(map[string]string)
+	}
+
+	return b.policies[region]
+}
+
 // CreateCertificateAuthority creates a new Certificate Authority.
 func (b *InMemoryBackend) CreateCertificateAuthority(
+	ctx context.Context,
 	caType string,
 	cfg CertificateAuthorityConfiguration,
 ) (*CertificateAuthority, error) {
@@ -193,6 +260,8 @@ func (b *InMemoryBackend) CreateCertificateAuthority(
 		return nil, fmt.Errorf("%w: CertificateAuthorityType must be ROOT or SUBORDINATE", ErrInvalidParameter)
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("CreateCertificateAuthority")
 	defer b.mu.Unlock()
 
@@ -201,7 +270,7 @@ func (b *InMemoryBackend) CreateCertificateAuthority(
 		return nil, err
 	}
 
-	caARN := arn.Build("acm-pca", b.region, b.accountID, caResourceIDPrefix+id)
+	caARN := arn.Build("acm-pca", region, b.accountID, caResourceIDPrefix+id)
 
 	if cfg.KeyAlgorithm == "" {
 		cfg.KeyAlgorithm = defaultKeyAlgorithm
@@ -232,7 +301,7 @@ func (b *InMemoryBackend) CreateCertificateAuthority(
 		privKey:                           privKey,
 	}
 
-	b.cas[caARN] = ca
+	b.casStore(region)[caARN] = ca
 
 	// For ROOT CAs we auto-sign and activate to make Terraform apply succeed without
 	// requiring a multi-step workflow.
@@ -268,11 +337,13 @@ func (b *InMemoryBackend) selfSignAndActivate(ca *CertificateAuthority, now time
 }
 
 // verifyCertificateAuthorityActive checks that the CA exists and is not DELETED.
-func (b *InMemoryBackend) verifyCertificateAuthorityActive(caARN string) error {
+func (b *InMemoryBackend) verifyCertificateAuthorityActive(ctx context.Context, caARN string) error {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("verifyCertificateAuthorityActive")
 	defer b.mu.RUnlock()
 
-	ca, ok := b.cas[caARN]
+	ca, ok := b.casStore(region)[caARN]
 	if !ok {
 		return fmt.Errorf("%w: CA %s not found", ErrCANotFound, caARN)
 	}
@@ -285,15 +356,19 @@ func (b *InMemoryBackend) verifyCertificateAuthorityActive(caARN string) error {
 }
 
 // DescribeCertificateAuthority returns the CA with the given ARN.
-func (b *InMemoryBackend) DescribeCertificateAuthority(caARN string) (*CertificateAuthority, error) {
+func (b *InMemoryBackend) DescribeCertificateAuthority(
+	ctx context.Context, caARN string,
+) (*CertificateAuthority, error) {
 	if err := validateRequiredParameter(caARN, "CertificateAuthorityArn"); err != nil {
 		return nil, err
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("DescribeCertificateAuthority")
 	defer b.mu.RUnlock()
 
-	ca, ok := b.cas[caARN]
+	ca, ok := b.casStore(region)[caARN]
 	if !ok {
 		return nil, fmt.Errorf("%w: CA %s not found", ErrCANotFound, caARN)
 	}
@@ -304,11 +379,16 @@ func (b *InMemoryBackend) DescribeCertificateAuthority(caARN string) (*Certifica
 }
 
 // ListCertificateAuthorities returns a paginated list of CAs sorted by ARN.
-func (b *InMemoryBackend) ListCertificateAuthorities(nextToken string, maxItems int) page.Page[CertificateAuthority] {
+func (b *InMemoryBackend) ListCertificateAuthorities(
+	ctx context.Context, nextToken string, maxItems int,
+) page.Page[CertificateAuthority] {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("ListCertificateAuthorities")
 
-	cas := make([]CertificateAuthority, 0, len(b.cas))
-	for _, ca := range b.cas {
+	casMap := b.casStore(region)
+	cas := make([]CertificateAuthority, 0, len(casMap))
+	for _, ca := range casMap {
 		cas = append(cas, copyCA(ca))
 	}
 	b.mu.RUnlock()
@@ -319,7 +399,9 @@ func (b *InMemoryBackend) ListCertificateAuthorities(nextToken string, maxItems 
 }
 
 // DeleteCertificateAuthority marks the CA as DELETED.
-func (b *InMemoryBackend) DeleteCertificateAuthority(caARN string, permanentDeletionDays int32) error {
+func (b *InMemoryBackend) DeleteCertificateAuthority(
+	ctx context.Context, caARN string, permanentDeletionDays int32,
+) error {
 	if permanentDeletionDays != 0 &&
 		(permanentDeletionDays < permanentDeletionMinDays || permanentDeletionDays > permanentDeletionMaxDays) {
 		return fmt.Errorf(
@@ -330,10 +412,12 @@ func (b *InMemoryBackend) DeleteCertificateAuthority(caARN string, permanentDele
 		)
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("DeleteCertificateAuthority")
 	defer b.mu.Unlock()
 
-	ca, ok := b.cas[caARN]
+	ca, ok := b.casStore(region)[caARN]
 	if !ok {
 		return fmt.Errorf("%w: CA %s not found", ErrCANotFound, caARN)
 	}
@@ -355,7 +439,7 @@ func (b *InMemoryBackend) DeleteCertificateAuthority(caARN string, permanentDele
 }
 
 // UpdateCertificateAuthority updates the CA status.
-func (b *InMemoryBackend) UpdateCertificateAuthority(caARN, status string) error {
+func (b *InMemoryBackend) UpdateCertificateAuthority(ctx context.Context, caARN, status string) error {
 	if err := validateRequiredParameter(caARN, "CertificateAuthorityArn"); err != nil {
 		return err
 	}
@@ -364,10 +448,12 @@ func (b *InMemoryBackend) UpdateCertificateAuthority(caARN, status string) error
 		return fmt.Errorf("%w: status must be ACTIVE or DISABLED", ErrInvalidParameter)
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("UpdateCertificateAuthority")
 	defer b.mu.Unlock()
 
-	ca, ok := b.cas[caARN]
+	ca, ok := b.casStore(region)[caARN]
 	if !ok {
 		return fmt.Errorf("%w: CA %s not found", ErrCANotFound, caARN)
 	}
@@ -380,15 +466,17 @@ func (b *InMemoryBackend) UpdateCertificateAuthority(caARN, status string) error
 }
 
 // GetCertificateAuthorityCsr returns the CSR PEM for the given CA.
-func (b *InMemoryBackend) GetCertificateAuthorityCsr(caARN string) (string, error) {
+func (b *InMemoryBackend) GetCertificateAuthorityCsr(ctx context.Context, caARN string) (string, error) {
 	if err := validateRequiredParameter(caARN, "CertificateAuthorityArn"); err != nil {
 		return "", err
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("GetCertificateAuthorityCsr")
 	defer b.mu.RUnlock()
 
-	ca, ok := b.cas[caARN]
+	ca, ok := b.casStore(region)[caARN]
 	if !ok {
 		return "", fmt.Errorf("%w: CA %s not found", ErrCANotFound, caARN)
 	}
@@ -398,15 +486,19 @@ func (b *InMemoryBackend) GetCertificateAuthorityCsr(caARN string) (string, erro
 
 // ImportCertificateAuthorityCertificate imports a signed certificate for the CA, activating it.
 // It parses the certificate to extract NotBefore/NotAfter and stores the optional chain.
-func (b *InMemoryBackend) ImportCertificateAuthorityCertificate(caARN, certPEM, chainPEM string) error {
+func (b *InMemoryBackend) ImportCertificateAuthorityCertificate(
+	ctx context.Context, caARN, certPEM, chainPEM string,
+) error {
 	if err := validateRequiredParameter(caARN, "CertificateAuthorityArn"); err != nil {
 		return err
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("ImportCertificateAuthorityCertificate")
 	defer b.mu.Unlock()
 
-	ca, ok := b.cas[caARN]
+	ca, ok := b.casStore(region)[caARN]
 	if !ok {
 		return fmt.Errorf("%w: CA %s not found", ErrCANotFound, caARN)
 	}
@@ -432,15 +524,19 @@ func (b *InMemoryBackend) ImportCertificateAuthorityCertificate(caARN, certPEM, 
 }
 
 // GetCertificateAuthorityCertificate returns the certificate body and chain PEM for the given CA.
-func (b *InMemoryBackend) GetCertificateAuthorityCertificate(caARN string) (string, string, error) {
+func (b *InMemoryBackend) GetCertificateAuthorityCertificate(
+	ctx context.Context, caARN string,
+) (string, string, error) {
 	if err := validateRequiredParameter(caARN, "CertificateAuthorityArn"); err != nil {
 		return "", "", err
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("GetCertificateAuthorityCertificate")
 	defer b.mu.RUnlock()
 
-	ca, ok := b.cas[caARN]
+	ca, ok := b.casStore(region)[caARN]
 	if !ok {
 		return "", "", fmt.Errorf("%w: CA %s not found", ErrCANotFound, caARN)
 	}
@@ -453,7 +549,9 @@ func (b *InMemoryBackend) GetCertificateAuthorityCertificate(caARN string) (stri
 }
 
 // IssueCertificate issues a new certificate signed by the given CA.
-func (b *InMemoryBackend) IssueCertificate(caARN, csrPEM string, validityDays int) (*IssuedCertificate, error) {
+func (b *InMemoryBackend) IssueCertificate(
+	ctx context.Context, caARN, csrPEM string, validityDays int,
+) (*IssuedCertificate, error) {
 	if err := validateRequiredParameter(caARN, "CertificateAuthorityArn"); err != nil {
 		return nil, err
 	}
@@ -462,10 +560,12 @@ func (b *InMemoryBackend) IssueCertificate(caARN, csrPEM string, validityDays in
 		return nil, err
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("IssueCertificate")
 	defer b.mu.Unlock()
 
-	ca, ok := b.cas[caARN]
+	ca, ok := b.casStore(region)[caARN]
 	if !ok {
 		return nil, fmt.Errorf("%w: CA %s not found", ErrCANotFound, caARN)
 	}
@@ -488,7 +588,7 @@ func (b *InMemoryBackend) IssueCertificate(caARN, csrPEM string, validityDays in
 		return nil, err
 	}
 
-	certARN := arn.Build("acm-pca", b.region, b.accountID,
+	certARN := arn.Build("acm-pca", region, b.accountID,
 		caResourceIDPrefix+extractCAID(caARN)+"/"+certResourceIDPrefix+id)
 
 	now := time.Now().UTC()
@@ -503,8 +603,8 @@ func (b *InMemoryBackend) IssueCertificate(caARN, csrPEM string, validityDays in
 		NotAfter:  now.Add(time.Duration(validityDays) * 24 * time.Hour),
 	}
 
-	b.certs[certARN] = cert
-	b.certsByCASerial[caARN+"#"+serial] = certARN
+	b.certsStore(region)[certARN] = cert
+	b.certsByCASerialStore(region)[caARN+"#"+serial] = certARN
 
 	cp := *cert
 
@@ -513,11 +613,13 @@ func (b *InMemoryBackend) IssueCertificate(caARN, csrPEM string, validityDays in
 
 // GetCertificate returns the certificate for the given CA and certificate ARN.
 // It validates that the certificate belongs to the specified CA.
-func (b *InMemoryBackend) GetCertificate(caARN, certARN string) (*IssuedCertificate, error) {
+func (b *InMemoryBackend) GetCertificate(ctx context.Context, caARN, certARN string) (*IssuedCertificate, error) {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("GetCertificate")
 	defer b.mu.RUnlock()
 
-	cert, ok := b.certs[certARN]
+	cert, ok := b.certsStore(region)[certARN]
 	if !ok {
 		return nil, fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
 	}
@@ -532,7 +634,7 @@ func (b *InMemoryBackend) GetCertificate(caARN, certARN string) (*IssuedCertific
 }
 
 // RevokeCertificate revokes the given certificate using the O(1) serial index.
-func (b *InMemoryBackend) RevokeCertificate(caARN, serial, revocationReason string) error {
+func (b *InMemoryBackend) RevokeCertificate(ctx context.Context, caARN, serial, revocationReason string) error {
 	if revocationReason != "" {
 		switch revocationReason {
 		case revocationReasonUnspecified, revocationReasonKeyCompromise, revocationReasonCACompromise,
@@ -544,10 +646,13 @@ func (b *InMemoryBackend) RevokeCertificate(caARN, serial, revocationReason stri
 		}
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("RevokeCertificate")
 	defer b.mu.Unlock()
 
-	ca, ok := b.cas[caARN]
+	cas := b.casStore(region)
+	ca, ok := cas[caARN]
 	if !ok {
 		return fmt.Errorf("%w: CA %s not found", ErrCANotFound, caARN)
 	}
@@ -556,30 +661,34 @@ func (b *InMemoryBackend) RevokeCertificate(caARN, serial, revocationReason stri
 		return fmt.Errorf("%w: CA %s is DELETED", ErrInvalidState, caARN)
 	}
 
-	certARN, ok := b.certsByCASerial[caARN+"#"+serial]
+	certARN, ok := b.certsByCASerialStore(region)[caARN+"#"+serial]
 	if !ok {
 		return fmt.Errorf("%w: certificate with serial %s not found", ErrCertNotFound, serial)
 	}
 
-	b.certs[certARN].Status = certStatusRevoked
+	certs := b.certsStore(region)
+	certs[certARN].Status = certStatusRevoked
 	now := time.Now().UTC()
-	b.certs[certARN].RevokedAt = &now
-	b.certs[certARN].RevocationReason = revocationReason
+	certs[certARN].RevokedAt = &now
+	certs[certARN].RevocationReason = revocationReason
 
 	return nil
 }
 
 // ListCertificates returns a paginated list of certificates issued by the given CA.
 func (b *InMemoryBackend) ListCertificates(
+	ctx context.Context,
 	caARN string,
 	nextToken string,
 	maxItems int,
 ) page.Page[IssuedCertificate] {
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("ListCertificates")
 	defer b.mu.RUnlock()
 
 	var certs []IssuedCertificate
-	for _, c := range b.certs {
+	for _, c := range b.certsStore(region) {
 		if c.CAARN == caARN {
 			certs = append(certs, *c)
 		}
@@ -592,6 +701,7 @@ func (b *InMemoryBackend) ListCertificates(
 
 // CreateCertificateAuthorityAuditReport creates a new audit report for the given CA.
 func (b *InMemoryBackend) CreateCertificateAuthorityAuditReport(
+	ctx context.Context,
 	caARN string,
 	s3BucketName string,
 	responseFormat string,
@@ -609,10 +719,12 @@ func (b *InMemoryBackend) CreateCertificateAuthorityAuditReport(
 		return nil, fmt.Errorf("%w: AuditReportResponseFormat must be JSON or CSV", ErrInvalidParameter)
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("CreateCertificateAuthorityAuditReport")
 	defer b.mu.Unlock()
 
-	auditCA, ok := b.cas[caARN]
+	auditCA, ok := b.casStore(region)[caARN]
 	if !ok {
 		return nil, fmt.Errorf("%w: CA %s not found", ErrCANotFound, caARN)
 	}
@@ -634,7 +746,7 @@ func (b *InMemoryBackend) CreateCertificateAuthorityAuditReport(
 		S3Key:                   fmt.Sprintf("%s%s.%s", reportResourcePrefix, id, strings.ToLower(format)),
 		Status:                  auditReportStatus,
 	}
-	b.auditReports[id] = report
+	b.auditReportsStore(region)[id] = report
 
 	cp := copyAuditReport(report)
 
@@ -643,6 +755,7 @@ func (b *InMemoryBackend) CreateCertificateAuthorityAuditReport(
 
 // DescribeCertificateAuthorityAuditReport returns the audit report for the given CA.
 func (b *InMemoryBackend) DescribeCertificateAuthorityAuditReport(
+	ctx context.Context,
 	caARN string,
 	auditReportID string,
 ) (*AuditReport, error) {
@@ -654,14 +767,16 @@ func (b *InMemoryBackend) DescribeCertificateAuthorityAuditReport(
 		return nil, err
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("DescribeCertificateAuthorityAuditReport")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.cas[caARN]; !ok {
+	if _, ok := b.casStore(region)[caARN]; !ok {
 		return nil, fmt.Errorf("%w: CA %s not found", ErrCANotFound, caARN)
 	}
 
-	report, ok := b.auditReports[auditReportID]
+	report, ok := b.auditReportsStore(region)[auditReportID]
 	if !ok || report.CertificateAuthorityArn != caARN {
 		return nil, fmt.Errorf("%w: audit report %s not found", ErrAuditReportNotFound, auditReportID)
 	}
@@ -673,6 +788,7 @@ func (b *InMemoryBackend) DescribeCertificateAuthorityAuditReport(
 
 // CreatePermission creates a permission on the given CA.
 func (b *InMemoryBackend) CreatePermission(
+	ctx context.Context,
 	caARN string,
 	principal string,
 	sourceAccount string,
@@ -698,10 +814,12 @@ func (b *InMemoryBackend) CreatePermission(
 		}
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("CreatePermission")
 	defer b.mu.Unlock()
 
-	if _, ok := b.cas[caARN]; !ok {
+	if _, ok := b.casStore(region)[caARN]; !ok {
 		return nil, fmt.Errorf("%w: CA %s not found", ErrCANotFound, caARN)
 	}
 
@@ -713,7 +831,7 @@ func (b *InMemoryBackend) CreatePermission(
 		Principal:               principal,
 		SourceAccount:           sourceAccount,
 	}
-	b.permissions[key] = permission
+	b.permissionsStore(region)[key] = permission
 
 	cp := copyPermission(permission)
 
@@ -721,7 +839,7 @@ func (b *InMemoryBackend) CreatePermission(
 }
 
 // DeletePermission deletes a permission on the given CA.
-func (b *InMemoryBackend) DeletePermission(caARN, principal, sourceAccount string) error {
+func (b *InMemoryBackend) DeletePermission(ctx context.Context, caARN, principal, sourceAccount string) error {
 	if err := validateRequiredParameter(caARN, "CertificateAuthorityArn"); err != nil {
 		return err
 	}
@@ -730,38 +848,46 @@ func (b *InMemoryBackend) DeletePermission(caARN, principal, sourceAccount strin
 		return err
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("DeletePermission")
 	defer b.mu.Unlock()
 
-	if _, ok := b.cas[caARN]; !ok {
+	if _, ok := b.casStore(region)[caARN]; !ok {
 		return fmt.Errorf("%w: CA %s not found", ErrCANotFound, caARN)
 	}
 
 	key := permissionKey(caARN, principal, sourceAccount)
-	if _, ok := b.permissions[key]; !ok {
+	permissions := b.permissionsStore(region)
+	if _, ok := permissions[key]; !ok {
 		return fmt.Errorf("%w: permission for principal %s not found", ErrPermissionNotFound, principal)
 	}
 
-	delete(b.permissions, key)
+	delete(permissions, key)
 
 	return nil
 }
 
 // ListPermissions lists permissions on the given CA.
-func (b *InMemoryBackend) ListPermissions(caARN, nextToken string, maxItems int) (page.Page[Permission], error) {
+func (b *InMemoryBackend) ListPermissions(
+	ctx context.Context, caARN, nextToken string, maxItems int,
+) (page.Page[Permission], error) {
 	if err := validateRequiredParameter(caARN, "CertificateAuthorityArn"); err != nil {
 		return page.Page[Permission]{}, err
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("ListPermissions")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.cas[caARN]; !ok {
+	if _, ok := b.casStore(region)[caARN]; !ok {
 		return page.Page[Permission]{}, fmt.Errorf("%w: CA %s not found", ErrCANotFound, caARN)
 	}
 
-	perms := make([]Permission, 0, len(b.permissions))
-	for _, perm := range b.permissions {
+	permissions := b.permissionsStore(region)
+	perms := make([]Permission, 0, len(permissions))
+	for _, perm := range permissions {
 		if perm.CertificateAuthorityArn == caARN {
 			perms = append(perms, copyPermission(perm))
 		}
@@ -779,7 +905,7 @@ func (b *InMemoryBackend) ListPermissions(caARN, nextToken string, maxItems int)
 }
 
 // PutPolicy stores a resource policy on the given CA.
-func (b *InMemoryBackend) PutPolicy(caARN, policy string) error {
+func (b *InMemoryBackend) PutPolicy(ctx context.Context, caARN, policy string) error {
 	if err := validateRequiredParameter(caARN, "ResourceArn"); err != nil {
 		return err
 	}
@@ -788,32 +914,36 @@ func (b *InMemoryBackend) PutPolicy(caARN, policy string) error {
 		return fmt.Errorf("%w: Policy is required", ErrInvalidParameter)
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("PutPolicy")
 	defer b.mu.Unlock()
 
-	if _, ok := b.cas[caARN]; !ok {
+	if _, ok := b.casStore(region)[caARN]; !ok {
 		return fmt.Errorf("%w: CA %s not found", ErrCANotFound, caARN)
 	}
 
-	b.policies[caARN] = policy
+	b.policiesStore(region)[caARN] = policy
 
 	return nil
 }
 
 // GetPolicy returns the resource policy for the given CA.
-func (b *InMemoryBackend) GetPolicy(caARN string) (string, error) {
+func (b *InMemoryBackend) GetPolicy(ctx context.Context, caARN string) (string, error) {
 	if err := validateRequiredParameter(caARN, "ResourceArn"); err != nil {
 		return "", err
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.RLock("GetPolicy")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.cas[caARN]; !ok {
+	if _, ok := b.casStore(region)[caARN]; !ok {
 		return "", fmt.Errorf("%w: CA %s not found", ErrCANotFound, caARN)
 	}
 
-	policy, ok := b.policies[caARN]
+	policy, ok := b.policiesStore(region)[caARN]
 	if !ok {
 		return "", fmt.Errorf("%w: policy for CA %s not found", ErrPolicyNotFound, caARN)
 	}
@@ -822,37 +952,42 @@ func (b *InMemoryBackend) GetPolicy(caARN string) (string, error) {
 }
 
 // DeletePolicy deletes the resource policy for the given CA.
-func (b *InMemoryBackend) DeletePolicy(caARN string) error {
+func (b *InMemoryBackend) DeletePolicy(ctx context.Context, caARN string) error {
 	if err := validateRequiredParameter(caARN, "ResourceArn"); err != nil {
 		return err
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("DeletePolicy")
 	defer b.mu.Unlock()
 
-	if _, ok := b.cas[caARN]; !ok {
+	if _, ok := b.casStore(region)[caARN]; !ok {
 		return fmt.Errorf("%w: CA %s not found", ErrCANotFound, caARN)
 	}
 
-	if _, ok := b.policies[caARN]; !ok {
+	policies := b.policiesStore(region)
+	if _, ok := policies[caARN]; !ok {
 		return fmt.Errorf("%w: policy for CA %s not found", ErrPolicyNotFound, caARN)
 	}
 
-	delete(b.policies, caARN)
+	delete(policies, caARN)
 
 	return nil
 }
 
 // RestoreCertificateAuthority restores a deleted CA into the DISABLED state.
-func (b *InMemoryBackend) RestoreCertificateAuthority(caARN string) error {
+func (b *InMemoryBackend) RestoreCertificateAuthority(ctx context.Context, caARN string) error {
 	if err := validateRequiredParameter(caARN, "CertificateAuthorityArn"); err != nil {
 		return err
 	}
 
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("RestoreCertificateAuthority")
 	defer b.mu.Unlock()
 
-	ca, ok := b.cas[caARN]
+	ca, ok := b.casStore(region)[caARN]
 	if !ok {
 		return fmt.Errorf("%w: CA %s not found", ErrCANotFound, caARN)
 	}
@@ -1087,10 +1222,10 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.cas = make(map[string]*CertificateAuthority)
-	b.certs = make(map[string]*IssuedCertificate)
-	b.certsByCASerial = make(map[string]string)
-	b.permissions = make(map[string]*Permission)
-	b.auditReports = make(map[string]*AuditReport)
-	b.policies = make(map[string]string)
+	b.cas = make(map[string]map[string]*CertificateAuthority)
+	b.certs = make(map[string]map[string]*IssuedCertificate)
+	b.certsByCASerial = make(map[string]map[string]string)
+	b.permissions = make(map[string]map[string]*Permission)
+	b.auditReports = make(map[string]map[string]*AuditReport)
+	b.policies = make(map[string]map[string]string)
 }

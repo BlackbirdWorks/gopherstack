@@ -1,6 +1,7 @@
 package redshiftdata
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"strings"
@@ -19,7 +20,7 @@ const (
 	statusFailed = "FAILED"
 	// statusAborted is the ABORTED status for a SQL statement (cancelled).
 	statusAborted = "ABORTED"
-	// maxStatementHistory is the maximum number of statements to retain in memory.
+	// maxStatementHistory is the maximum number of statements to retain in memory per region.
 	maxStatementHistory = 1000
 	// resultFormatCSV is the CSV result format returned by GetStatementResultV2.
 	resultFormatCSV = "CSV"
@@ -39,6 +40,8 @@ const (
 	demoResultRows = int64(1)
 	// demoResultSize is the simulated result payload size in bytes for FINISHED statements.
 	demoResultSize = int64(64)
+	// statusAll matches all statement statuses in ListStatements.
+	statusAll = "ALL"
 )
 
 var (
@@ -51,6 +54,18 @@ var (
 	// ErrNoResultSet is returned when fetching results for a statement with no result set.
 	ErrNoResultSet = awserr.New("ValidationException", awserr.ErrInvalidParameter)
 )
+
+// regionContextKey is the context key under which the per-request AWS region is stored.
+type regionContextKey struct{}
+
+// getRegion extracts the region from ctx, falling back to defaultRegion when unset.
+func getRegion(ctx context.Context, defaultRegion string) string {
+	if r, ok := ctx.Value(regionContextKey{}).(string); ok && r != "" {
+		return r
+	}
+
+	return defaultRegion
+}
 
 // SubStatementData represents a single sub-statement within a batch, matching
 // the SubStatementData shape returned by AWS DescribeStatement for batch runs.
@@ -95,16 +110,63 @@ type Statement struct {
 	WithEvent bool `json:"withEvent"`
 }
 
-// InMemoryBackend is an in-memory store for Redshift Data API statements.
-type InMemoryBackend struct {
+// regionStore holds per-region statement storage and its ring buffer.
+type regionStore struct {
 	statements map[string]*Statement
-	mu         *lockmetrics.RWMutex
-	accountID  string
-	region     string
 	// ring buffer for ordered eviction – head points to the oldest slot.
 	ringBuf  [maxStatementHistory]string
-	ringLen  int // number of entries currently filled
-	ringHead int // index of the oldest entry when ringLen == maxStatementHistory
+	ringLen  int
+	ringHead int
+}
+
+// addStatement inserts a statement and evicts the oldest via the ring buffer if
+// the cap is exceeded. Caller must hold the backend write lock.
+func (s *regionStore) addStatement(stmt *Statement) {
+	s.statements[stmt.ID] = stmt
+
+	if s.ringLen < maxStatementHistory {
+		tail := (s.ringHead + s.ringLen) % maxStatementHistory
+		s.ringBuf[tail] = stmt.ID
+		s.ringLen++
+
+		return
+	}
+
+	delete(s.statements, s.ringBuf[s.ringHead])
+	s.ringBuf[s.ringHead] = stmt.ID
+	s.ringHead = (s.ringHead + 1) % maxStatementHistory
+}
+
+// compactRingBuffer rebuilds the ring buffer from the current statements map,
+// preserving insertion order. Must be called with the backend write lock held.
+func (s *regionStore) compactRingBuffer() {
+	kept := make([]string, 0, s.ringLen)
+
+	for i := range s.ringLen {
+		id := s.ringBuf[(s.ringHead+i)%maxStatementHistory]
+		if _, ok := s.statements[id]; ok {
+			kept = append(kept, id)
+		}
+	}
+
+	s.ringHead = 0
+	s.ringLen = len(kept)
+
+	copy(s.ringBuf[:], kept)
+
+	for i := s.ringLen; i < maxStatementHistory; i++ {
+		s.ringBuf[i] = ""
+	}
+}
+
+// InMemoryBackend is an in-memory store for Redshift Data API statements.
+// All regional resource maps are nested by region (outer key = region) so that
+// the same-named statement in two regions are fully isolated.
+type InMemoryBackend struct {
+	stores        map[string]*regionStore
+	mu            *lockmetrics.RWMutex
+	accountID     string
+	defaultRegion string
 }
 
 // ListStatementsFilter controls statement filtering and pagination.
@@ -121,55 +183,42 @@ type ListStatementsFilter struct {
 // NewInMemoryBackend creates a new in-memory Redshift Data backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		statements: make(map[string]*Statement),
-		accountID:  accountID,
-		region:     region,
-		mu:         lockmetrics.New("redshiftdata"),
+		stores:        make(map[string]*regionStore),
+		accountID:     accountID,
+		defaultRegion: region,
+		mu:            lockmetrics.New("redshiftdata"),
 	}
 }
 
 // Region returns the AWS region this backend is configured for.
-func (b *InMemoryBackend) Region() string { return b.region }
+func (b *InMemoryBackend) Region() string { return b.defaultRegion }
 
 // AccountID returns the AWS account ID this backend is configured for.
 func (b *InMemoryBackend) AccountID() string { return b.accountID }
 
-// Reset clears all stored statements and resets the ring buffer.
+// storeFor returns the regionStore for the given region, creating it on first use.
+// Caller must hold b.mu.
+func (b *InMemoryBackend) storeFor(region string) *regionStore {
+	if b.stores[region] == nil {
+		b.stores[region] = &regionStore{
+			statements: make(map[string]*Statement),
+		}
+	}
+
+	return b.stores[region]
+}
+
+// Reset clears all stored statements across all regions.
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.statements = make(map[string]*Statement)
-	b.ringLen = 0
-	b.ringHead = 0
-	for i := range b.ringBuf {
-		b.ringBuf[i] = ""
-	}
-}
-
-// addStatement inserts a statement and evicts the oldest via the ring buffer if
-// the cap is exceeded. O(1) rather than the former O(n) slice shift.
-// Caller must hold the write lock.
-func (b *InMemoryBackend) addStatement(stmt *Statement) {
-	b.statements[stmt.ID] = stmt
-
-	if b.ringLen < maxStatementHistory {
-		// Buffer not yet full: place entry at tail.
-		tail := (b.ringHead + b.ringLen) % maxStatementHistory
-		b.ringBuf[tail] = stmt.ID
-		b.ringLen++
-
-		return
-	}
-
-	// Buffer full: evict the oldest entry (at ringHead) before writing.
-	delete(b.statements, b.ringBuf[b.ringHead])
-	b.ringBuf[b.ringHead] = stmt.ID
-	b.ringHead = (b.ringHead + 1) % maxStatementHistory
+	b.stores = make(map[string]*regionStore)
 }
 
 // ExecuteStatement creates and immediately completes a SQL statement.
 func (b *InMemoryBackend) ExecuteStatement(
+	ctx context.Context,
 	sql, clusterIdentifier, workgroupName, database, dbUser, secretARN, statementName string,
 	withEvent bool, resultFormat string,
 ) (*Statement, error) {
@@ -185,6 +234,8 @@ func (b *InMemoryBackend) ExecuteStatement(
 	if err != nil {
 		return nil, err
 	}
+
+	region := getRegion(ctx, b.defaultRegion)
 
 	b.mu.Lock("ExecuteStatement")
 	defer b.mu.Unlock()
@@ -213,13 +264,14 @@ func (b *InMemoryBackend) ExecuteStatement(
 		ResultRows: demoResultRows,
 		ResultSize: demoResultSize,
 	}
-	b.addStatement(stmt)
+	b.storeFor(region).addStatement(stmt)
 
 	return cloneStatement(stmt), nil
 }
 
 // BatchExecuteStatement creates and immediately completes a batch SQL statement.
 func (b *InMemoryBackend) BatchExecuteStatement(
+	ctx context.Context,
 	sqls []string, clusterIdentifier, workgroupName, database, dbUser, secretARN, statementName string,
 	withEvent bool, resultFormat string,
 ) (*Statement, error) {
@@ -236,12 +288,13 @@ func (b *InMemoryBackend) BatchExecuteStatement(
 		return nil, err
 	}
 
+	region := getRegion(ctx, b.defaultRegion)
+
 	b.mu.Lock("BatchExecuteStatement")
 	defer b.mu.Unlock()
 
 	now := time.Now()
 
-	// Build sub-statement data for each SQL in the batch.
 	subs := make([]SubStatementData, len(sqls))
 	for i, sql := range sqls {
 		subs[i] = SubStatementData{
@@ -275,17 +328,21 @@ func (b *InMemoryBackend) BatchExecuteStatement(
 		UpdatedAt:         now,
 		DurationMs:        1,
 	}
-	b.addStatement(stmt)
+	b.storeFor(region).addStatement(stmt)
 
 	return cloneStatement(stmt), nil
 }
 
 // DescribeStatement returns the details of a statement by ID.
-func (b *InMemoryBackend) DescribeStatement(id string) (*Statement, error) {
+func (b *InMemoryBackend) DescribeStatement(ctx context.Context, id string) (*Statement, error) {
+	region := getRegion(ctx, b.defaultRegion)
+
 	b.mu.RLock("DescribeStatement")
 	defer b.mu.RUnlock()
 
-	stmt, ok := b.statements[id]
+	store := b.storeFor(region)
+	stmt, ok := store.statements[id]
+
 	if !ok {
 		return nil, fmt.Errorf("%w: statement %s not found", ErrNotFound, id)
 	}
@@ -294,11 +351,15 @@ func (b *InMemoryBackend) DescribeStatement(id string) (*Statement, error) {
 }
 
 // CancelStatement marks a statement as aborted.
-func (b *InMemoryBackend) CancelStatement(id string) error {
+func (b *InMemoryBackend) CancelStatement(ctx context.Context, id string) error {
+	region := getRegion(ctx, b.defaultRegion)
+
 	b.mu.Lock("CancelStatement")
 	defer b.mu.Unlock()
 
-	stmt, ok := b.statements[id]
+	store := b.storeFor(region)
+	stmt, ok := store.statements[id]
+
 	if !ok {
 		return fmt.Errorf("%w: statement %s not found", ErrNotFound, id)
 	}
@@ -318,13 +379,19 @@ func (b *InMemoryBackend) CancelStatement(id string) error {
 // ListStatements returns statements sorted by creation time (newest first).
 // An omitted Status matches AWS by returning only finished statements.
 // Returns the page slice and a next-token string (non-empty when more pages exist).
-func (b *InMemoryBackend) ListStatements(filter ListStatementsFilter) ([]*Statement, string, error) {
+func (b *InMemoryBackend) ListStatements(
+	ctx context.Context,
+	filter ListStatementsFilter,
+) ([]*Statement, string, error) {
+	region := getRegion(ctx, b.defaultRegion)
+
 	b.mu.RLock("ListStatements")
 	defer b.mu.RUnlock()
 
-	result := make([]*Statement, 0, len(b.statements))
+	store := b.storeFor(region)
+	result := make([]*Statement, 0, len(store.statements))
 
-	for _, stmt := range b.statements {
+	for _, stmt := range store.statements {
 		if filter.ClusterIdentifier != "" && stmt.ClusterIdentifier != filter.ClusterIdentifier {
 			continue
 		}
@@ -372,8 +439,6 @@ func (b *InMemoryBackend) ListStatements(filter ListStatementsFilter) ([]*Statem
 		return result, "", nil
 	}
 
-	// Return the first page and a synthetic next-token (the ID of the first item
-	// on the next page), matching the real AWS behaviour.
 	return result[:limit], result[limit].ID, nil
 }
 
@@ -403,7 +468,7 @@ func matchesStatementStatus(actual, requested string) bool {
 		return actual == statusFinished
 	}
 
-	return requested == "ALL" || actual == requested
+	return requested == statusAll || actual == requested
 }
 
 func statementPageStart(statements []*Statement, nextToken string) (int, error) {
@@ -421,57 +486,38 @@ func statementPageStart(statements []*Statement, nextToken string) (int, error) 
 }
 
 // EvictExpiredStatements removes terminal statements whose UpdatedAt is older
-// than the given cutoff. It returns the number of evicted statements.
-// Only terminal states (FINISHED, FAILED, ABORTED) are eligible for eviction;
-// in-flight statements are never removed.
+// than the given cutoff across all regions. Returns the number of evicted statements.
+// Only terminal states (FINISHED, FAILED, ABORTED) are eligible for eviction.
 func (b *InMemoryBackend) EvictExpiredStatements(cutoff time.Time) int {
 	b.mu.Lock("EvictExpiredStatements")
 	defer b.mu.Unlock()
 
-	var toDelete []string
+	total := 0
 
-	for id, stmt := range b.statements {
-		terminal := stmt.Status == statusFinished ||
-			stmt.Status == statusFailed ||
-			stmt.Status == statusAborted
-		if terminal && stmt.UpdatedAt.Before(cutoff) {
-			toDelete = append(toDelete, id)
+	for _, store := range b.stores {
+		var toDelete []string
+
+		for id, stmt := range store.statements {
+			terminal := stmt.Status == statusFinished ||
+				stmt.Status == statusFailed ||
+				stmt.Status == statusAborted
+			if terminal && stmt.UpdatedAt.Before(cutoff) {
+				toDelete = append(toDelete, id)
+			}
 		}
-	}
 
-	for _, id := range toDelete {
-		delete(b.statements, id)
-	}
-
-	// Compact the ring buffer to remove evicted IDs.
-	if len(toDelete) > 0 {
-		b.compactRingBuffer()
-	}
-
-	return len(toDelete)
-}
-
-// compactRingBuffer rebuilds the ring buffer from the current statements map,
-// preserving insertion order. Must be called with the write lock held.
-func (b *InMemoryBackend) compactRingBuffer() {
-	kept := make([]string, 0, b.ringLen)
-
-	for i := range b.ringLen {
-		id := b.ringBuf[(b.ringHead+i)%maxStatementHistory]
-		if _, ok := b.statements[id]; ok {
-			kept = append(kept, id)
+		for _, id := range toDelete {
+			delete(store.statements, id)
 		}
+
+		if len(toDelete) > 0 {
+			store.compactRingBuffer()
+		}
+
+		total += len(toDelete)
 	}
 
-	b.ringHead = 0
-	b.ringLen = len(kept)
-
-	copy(b.ringBuf[:], kept)
-
-	// Zero out unused slots.
-	for i := b.ringLen; i < maxStatementHistory; i++ {
-		b.ringBuf[i] = ""
-	}
+	return total
 }
 
 // cloneStatement returns a deep copy of stmt.

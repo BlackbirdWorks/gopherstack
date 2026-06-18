@@ -106,7 +106,7 @@ func (h *Handler) ChaosServiceName() string { return timestreamQueryService }
 // ChaosOperations returns the operations subject to chaos injection.
 func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations() }
 
-// ChaosRegions returns the regions for chaos injection.
+// ChaosRegions returns the default region for chaos injection.
 func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} }
 
 // RouteMatcher returns a matcher that identifies Timestream Query requests.
@@ -181,7 +181,10 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function for Timestream Query requests.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
-		ctx := c.Request().Context()
+		// Resolve the per-request region (from SigV4 / X-Amz-Region) and attach
+		// it to the context so backend operations are region-scoped.
+		region := httputils.ExtractRegionFromRequest(c.Request(), h.Backend.Region())
+		ctx := context.WithValue(c.Request().Context(), regionContextKey{}, region)
 		log := logger.Load(ctx)
 
 		body, err := httputils.ReadBody(c.Request())
@@ -208,52 +211,52 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) dispatch(_ context.Context, op string, body []byte, host string) ([]byte, error) {
+func (h *Handler) dispatch(ctx context.Context, op string, body []byte, host string) ([]byte, error) {
 	switch op {
 	case "DescribeEndpoints":
 		return h.handleDescribeEndpoints(host)
 	case "Query":
-		return h.handleQuery(body)
+		return h.handleQuery(ctx, body)
 	case "CancelQuery":
-		return h.handleCancelQuery(body)
+		return h.handleCancelQuery(ctx, body)
 	default:
-		return h.dispatchScheduledQueryAndTagOps(op, body)
+		return h.dispatchScheduledQueryAndTagOps(ctx, op, body)
 	}
 }
 
-func (h *Handler) dispatchScheduledQueryAndTagOps(op string, body []byte) ([]byte, error) {
+func (h *Handler) dispatchScheduledQueryAndTagOps(ctx context.Context, op string, body []byte) ([]byte, error) {
 	switch op {
 	case "CreateScheduledQuery":
-		return h.handleCreateScheduledQuery(body)
+		return h.handleCreateScheduledQuery(ctx, body)
 	case "DeleteScheduledQuery":
-		return h.handleDeleteScheduledQuery(body)
+		return h.handleDeleteScheduledQuery(ctx, body)
 	case "DescribeScheduledQuery":
-		return h.handleDescribeScheduledQuery(body)
+		return h.handleDescribeScheduledQuery(ctx, body)
 	case "ExecuteScheduledQuery":
-		return h.handleExecuteScheduledQuery(body)
+		return h.handleExecuteScheduledQuery(ctx, body)
 	case "ListScheduledQueries":
-		return h.handleListScheduledQueries(body)
+		return h.handleListScheduledQueries(ctx, body)
 	case "UpdateScheduledQuery":
-		return h.handleUpdateScheduledQuery(body)
+		return h.handleUpdateScheduledQuery(ctx, body)
 	case opTagResource:
-		return h.handleTagResource(body)
+		return h.handleTagResource(ctx, body)
 	case opUntagResource:
-		return h.handleUntagResource(body)
+		return h.handleUntagResource(ctx, body)
 	case opListTagsForResource:
-		return h.handleListTagsForResource(body)
+		return h.handleListTagsForResource(ctx, body)
 	default:
-		return h.dispatchAccountOps(op, body)
+		return h.dispatchAccountOps(ctx, op, body)
 	}
 }
 
-func (h *Handler) dispatchAccountOps(op string, body []byte) ([]byte, error) {
+func (h *Handler) dispatchAccountOps(ctx context.Context, op string, body []byte) ([]byte, error) {
 	switch op {
 	case "DescribeAccountSettings":
-		return h.handleDescribeAccountSettings()
+		return h.handleDescribeAccountSettings(ctx)
 	case "PrepareQuery":
-		return h.handlePrepareQuery(body)
+		return h.handlePrepareQuery(ctx, body)
 	case "UpdateAccountSettings":
-		return h.handleUpdateAccountSettings(body)
+		return h.handleUpdateAccountSettings(ctx, body)
 	default:
 		return nil, fmt.Errorf("%w: %s", ErrUnknownOperation, op)
 	}
@@ -270,7 +273,7 @@ func (h *Handler) handleDescribeEndpoints(host string) ([]byte, error) {
 	})
 }
 
-func (h *Handler) handleQuery(body []byte) ([]byte, error) {
+func (h *Handler) handleQuery(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		QueryInsights *struct {
 			Mode string `json:"Mode"`
@@ -294,7 +297,7 @@ func (h *Handler) handleQuery(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: QueryString is required", ErrValidation)
 	}
 
-	page, err := h.Backend.QueryWithOptions(QueryOptions{
+	page, err := h.Backend.QueryWithOptions(ctx, QueryOptions{
 		QueryString:  req.QueryString,
 		ClientToken:  req.ClientToken,
 		NextToken:    req.NextToken,
@@ -352,7 +355,7 @@ func marshalColumnInfos(cols []ColumnInfo) []map[string]any {
 	return out
 }
 
-func (h *Handler) handleCancelQuery(body []byte) ([]byte, error) {
+func (h *Handler) handleCancelQuery(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		QueryID string `json:"QueryId"`
 	}
@@ -365,7 +368,7 @@ func (h *Handler) handleCancelQuery(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: QueryId is required", ErrValidation)
 	}
 
-	if err := h.Backend.CancelQuery(req.QueryID); err != nil {
+	if err := h.Backend.CancelQuery(ctx, req.QueryID); err != nil {
 		return nil, err
 	}
 
@@ -401,7 +404,7 @@ type createScheduledQueryInput struct {
 	} `json:"Tags"`
 }
 
-func (h *Handler) handleCreateScheduledQuery(body []byte) ([]byte, error) {
+func (h *Handler) handleCreateScheduledQuery(ctx context.Context, body []byte) ([]byte, error) {
 	var req createScheduledQueryInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -449,6 +452,7 @@ func (h *Handler) handleCreateScheduledQuery(body []byte) ([]byte, error) {
 	}
 
 	sq, err := h.Backend.CreateScheduledQuery(
+		ctx,
 		req.Name, req.QueryString,
 		req.ScheduleConfiguration.ScheduleExpression,
 		req.ScheduledQueryExecutionRoleArn,
@@ -465,7 +469,7 @@ func (h *Handler) handleCreateScheduledQuery(body []byte) ([]byte, error) {
 	})
 }
 
-func (h *Handler) handleDeleteScheduledQuery(body []byte) ([]byte, error) {
+func (h *Handler) handleDeleteScheduledQuery(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		ScheduledQueryArn string `json:"ScheduledQueryArn"`
 	}
@@ -478,14 +482,14 @@ func (h *Handler) handleDeleteScheduledQuery(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: ScheduledQueryArn is required", ErrValidation)
 	}
 
-	if err := h.Backend.DeleteScheduledQuery(req.ScheduledQueryArn); err != nil {
+	if err := h.Backend.DeleteScheduledQuery(ctx, req.ScheduledQueryArn); err != nil {
 		return nil, err
 	}
 
 	return nil, nil
 }
 
-func (h *Handler) handleDescribeScheduledQuery(body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeScheduledQuery(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		ScheduledQueryArn string `json:"ScheduledQueryArn"`
 	}
@@ -498,7 +502,7 @@ func (h *Handler) handleDescribeScheduledQuery(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: ScheduledQueryArn is required", ErrValidation)
 	}
 
-	sq, err := h.Backend.DescribeScheduledQuery(req.ScheduledQueryArn)
+	sq, err := h.Backend.DescribeScheduledQuery(ctx, req.ScheduledQueryArn)
 	if err != nil {
 		return nil, err
 	}
@@ -508,7 +512,7 @@ func (h *Handler) handleDescribeScheduledQuery(body []byte) ([]byte, error) {
 	})
 }
 
-func (h *Handler) handleExecuteScheduledQuery(body []byte) ([]byte, error) {
+func (h *Handler) handleExecuteScheduledQuery(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		ScheduledQueryArn string  `json:"ScheduledQueryArn"`
 		InvocationTime    float64 `json:"InvocationTime"`
@@ -528,14 +532,14 @@ func (h *Handler) handleExecuteScheduledQuery(body []byte) ([]byte, error) {
 
 	invocationTime := time.Unix(int64(req.InvocationTime), 0)
 
-	if err := h.Backend.ExecuteScheduledQuery(req.ScheduledQueryArn, invocationTime); err != nil {
+	if err := h.Backend.ExecuteScheduledQuery(ctx, req.ScheduledQueryArn, invocationTime); err != nil {
 		return nil, err
 	}
 
 	return nil, nil
 }
 
-func (h *Handler) handleListScheduledQueries(body []byte) ([]byte, error) {
+func (h *Handler) handleListScheduledQueries(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		NextToken  string `json:"NextToken"`
 		MaxResults int32  `json:"MaxResults"`
@@ -544,7 +548,7 @@ func (h *Handler) handleListScheduledQueries(body []byte) ([]byte, error) {
 		_ = json.Unmarshal(body, &req)
 	}
 
-	result := h.Backend.ListScheduledQueriesEnriched(req.NextToken, req.MaxResults)
+	result := h.Backend.ListScheduledQueriesEnriched(ctx, req.NextToken, req.MaxResults)
 
 	resp := map[string]any{
 		"ScheduledQueries": result.Items,
@@ -556,7 +560,7 @@ func (h *Handler) handleListScheduledQueries(body []byte) ([]byte, error) {
 	return json.Marshal(resp)
 }
 
-func (h *Handler) handleUpdateScheduledQuery(body []byte) ([]byte, error) {
+func (h *Handler) handleUpdateScheduledQuery(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		ScheduledQueryArn string `json:"ScheduledQueryArn"`
 		State             string `json:"State"`
@@ -574,14 +578,14 @@ func (h *Handler) handleUpdateScheduledQuery(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: State is required", ErrValidation)
 	}
 
-	if err := h.Backend.UpdateScheduledQuery(req.ScheduledQueryArn, req.State); err != nil {
+	if err := h.Backend.UpdateScheduledQuery(ctx, req.ScheduledQueryArn, req.State); err != nil {
 		return nil, err
 	}
 
 	return nil, nil
 }
 
-func (h *Handler) handleTagResource(body []byte) ([]byte, error) {
+func (h *Handler) handleTagResource(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		ResourceARN string `json:"ResourceARN"`
 		Tags        []struct {
@@ -604,14 +608,14 @@ func (h *Handler) handleTagResource(body []byte) ([]byte, error) {
 		tags[t.Key] = t.Value
 	}
 
-	if err := h.Backend.TagResource(req.ResourceARN, tags); err != nil {
+	if err := h.Backend.TagResource(ctx, req.ResourceARN, tags); err != nil {
 		return nil, err
 	}
 
 	return json.Marshal(map[string]any{})
 }
 
-func (h *Handler) handleUntagResource(body []byte) ([]byte, error) {
+func (h *Handler) handleUntagResource(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		ResourceARN string   `json:"ResourceARN"`
 		TagKeys     []string `json:"TagKeys"`
@@ -625,14 +629,14 @@ func (h *Handler) handleUntagResource(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: ResourceARN is required", ErrValidation)
 	}
 
-	if err := h.Backend.UntagResource(req.ResourceARN, req.TagKeys); err != nil {
+	if err := h.Backend.UntagResource(ctx, req.ResourceARN, req.TagKeys); err != nil {
 		return nil, err
 	}
 
 	return json.Marshal(map[string]any{})
 }
 
-func (h *Handler) handleListTagsForResource(body []byte) ([]byte, error) {
+func (h *Handler) handleListTagsForResource(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		ResourceARN string `json:"ResourceARN"`
 	}
@@ -645,7 +649,7 @@ func (h *Handler) handleListTagsForResource(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: ResourceARN is required", ErrValidation)
 	}
 
-	tags, err := h.Backend.ListTagsForResource(req.ResourceARN)
+	tags, err := h.Backend.ListTagsForResource(ctx, req.ResourceARN)
 	if err != nil {
 		return nil, err
 	}
@@ -655,8 +659,8 @@ func (h *Handler) handleListTagsForResource(body []byte) ([]byte, error) {
 	})
 }
 
-func (h *Handler) handleDescribeAccountSettings() ([]byte, error) {
-	settings := h.Backend.DescribeAccountSettings()
+func (h *Handler) handleDescribeAccountSettings(ctx context.Context) ([]byte, error) {
+	settings := h.Backend.DescribeAccountSettings(ctx)
 
 	return json.Marshal(buildAccountSettingsResponse(settings))
 }
@@ -678,7 +682,7 @@ func buildAccountSettingsResponse(settings AccountSettings) map[string]any {
 	return resp
 }
 
-func (h *Handler) handlePrepareQuery(body []byte) ([]byte, error) {
+func (h *Handler) handlePrepareQuery(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		QueryString  string `json:"QueryString"`
 		ValidateOnly bool   `json:"ValidateOnly"`
@@ -692,7 +696,7 @@ func (h *Handler) handlePrepareQuery(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: QueryString is required", ErrValidation)
 	}
 
-	result, err := h.Backend.PrepareQuery(req.QueryString, req.ValidateOnly)
+	result, err := h.Backend.PrepareQuery(ctx, req.QueryString, req.ValidateOnly)
 	if err != nil {
 		return nil, err
 	}
@@ -704,7 +708,7 @@ func (h *Handler) handlePrepareQuery(body []byte) ([]byte, error) {
 	})
 }
 
-func (h *Handler) handleUpdateAccountSettings(body []byte) ([]byte, error) {
+func (h *Handler) handleUpdateAccountSettings(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		MaxQueryTCU       *int32 `json:"MaxQueryTCU"`
 		QueryPricingModel string `json:"QueryPricingModel"`
@@ -714,7 +718,7 @@ func (h *Handler) handleUpdateAccountSettings(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("invalid request: %w", err)
 	}
 
-	settings, err := h.Backend.UpdateAccountSettings(req.QueryPricingModel, req.MaxQueryTCU)
+	settings, err := h.Backend.UpdateAccountSettings(ctx, req.QueryPricingModel, req.MaxQueryTCU)
 	if err != nil {
 		return nil, err
 	}

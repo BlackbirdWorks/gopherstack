@@ -897,6 +897,7 @@ func populateNewestHandlers(h *handlers) {
 
 	if ddbBk, ok := h.ddb.Backend.(ddbbackend.StreamsBackend); ok {
 		h.dynamodbStreams = dynamodbstreamsbackend.NewHandler(ddbBk)
+		h.dynamodbStreams.DefaultRegion = config.DefaultRegion
 	}
 
 	h.eks = eksbackend.NewHandler(
@@ -979,8 +980,10 @@ func populateLatestHandlers(h *handlers) {
 	h.mediastore.AccountID = config.DefaultAccountID
 	h.mediastore.DefaultRegion = config.DefaultRegion
 
-	h.mediastoredata = mediastoredatabackend.NewHandler(mediastoredatabackend.NewInMemoryBackend())
-	h.memorydb = memorydbbackend.NewHandler(memorydbbackend.NewInMemoryBackend())
+	h.mediastoredata = mediastoredatabackend.NewHandler(mediastoredatabackend.NewInMemoryBackend(config.DefaultRegion))
+	h.memorydb = memorydbbackend.NewHandler(
+		memorydbbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
 	h.memorydb.AccountID = config.DefaultAccountID
 	h.memorydb.DefaultRegion = config.DefaultRegion
 

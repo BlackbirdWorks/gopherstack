@@ -8,6 +8,7 @@ import (
 	"maps"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -243,7 +244,7 @@ func (h *Handler) handleDescribeCollection(
 
 	return &describeCollectionResp{
 		CollectionARN:     coll.CollectionARN,
-		CreationTimestamp: float64(coll.CreationTimestamp.Unix()),
+		CreationTimestamp: epochSeconds(coll.CreationTimestamp),
 		FaceCount:         int64(len(faces)),
 		FaceModelVersion:  coll.FaceModelVersion,
 	}, nil
@@ -720,4 +721,10 @@ func (h *Handler) handleListTagsForResource(
 	}
 
 	return &listTagsForResourceResp{Tags: tags}, nil
+}
+
+// epochSeconds renders a timestamp as AWS JSON epoch seconds (with fractional
+// nanoseconds), matching what the Rekognition SDK deserializer expects.
+func epochSeconds(t time.Time) float64 {
+	return float64(t.Unix()) + float64(t.Nanosecond())/1e9
 }

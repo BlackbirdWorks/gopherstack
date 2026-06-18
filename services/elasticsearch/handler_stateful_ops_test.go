@@ -1,6 +1,7 @@
 package elasticsearch_test
 
 import (
+	"context"
 	"net/http"
 	"testing"
 
@@ -175,7 +176,7 @@ func testStatefulConnections(t *testing.T) {
 	t.Helper()
 
 	backend := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
-	backend.AddInboundConnectionInternal(elasticsearch.InboundConnection{
+	backend.AddInboundConnectionInternal(context.Background(), elasticsearch.InboundConnection{
 		ConnectionID: "connection-state", ConnectionStatus: "PENDING_ACCEPTANCE",
 	})
 	h := elasticsearch.NewHandler(backend)
@@ -199,17 +200,21 @@ func testStatefulSnapshot(t *testing.T) {
 	t.Helper()
 
 	backend := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
-	_, err := backend.CreateDomain("saved-domain", "", elasticsearch.ClusterConfig{}, elasticsearch.EBSOptions{})
+	_, err := backend.CreateDomain(
+		context.Background(), "saved-domain", "", elasticsearch.ClusterConfig{}, elasticsearch.EBSOptions{},
+	)
 	require.NoError(t, err)
-	require.NoError(t, backend.AuthorizeVpcEndpointAccess("saved-domain", "222222222222"))
-	_, err = backend.PurchaseReservedElasticsearchInstanceOffering("offer-t3-small-1y", "saved-reservation", 1)
+	require.NoError(t, backend.AuthorizeVpcEndpointAccess(context.Background(), "saved-domain", "222222222222"))
+	_, err = backend.PurchaseReservedElasticsearchInstanceOffering(
+		context.Background(), "offer-t3-small-1y", "saved-reservation", 1,
+	)
 	require.NoError(t, err)
 
 	restored := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
 	require.NoError(t, restored.Restore(backend.Snapshot()))
 
-	accounts, err := restored.ListVpcEndpointAccess("saved-domain")
+	accounts, err := restored.ListVpcEndpointAccess(context.Background(), "saved-domain")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"222222222222"}, accounts)
-	assert.Len(t, restored.DescribeReservedElasticsearchInstances(), 1)
+	assert.Len(t, restored.DescribeReservedElasticsearchInstances(context.Background()), 1)
 }

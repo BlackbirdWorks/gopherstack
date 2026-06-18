@@ -31,7 +31,7 @@ func (h *Handler) handleCreateTransformJob(ctx context.Context, body []byte) ([]
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	tj, err := h.Backend.CreateTransformJob(TransformJobOptions{
+	tj, err := h.Backend.CreateTransformJob(ctx, TransformJobOptions{
 		TransformJobName:        req.TransformJobName,
 		ModelName:               req.ModelName,
 		RoleArn:                 req.RoleArn,
@@ -53,7 +53,7 @@ func (h *Handler) handleCreateTransformJob(ctx context.Context, body []byte) ([]
 	return json.Marshal(map[string]string{"TransformJobArn": tj.TransformJobArn})
 }
 
-func (h *Handler) handleDescribeTransformJob(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeTransformJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		TransformJobName string `json:"TransformJobName"`
 	}
@@ -66,7 +66,7 @@ func (h *Handler) handleDescribeTransformJob(_ context.Context, body []byte) ([]
 		return nil, fmt.Errorf("%w: TransformJobName is required", errInvalidRequest)
 	}
 
-	tj, err := h.Backend.DescribeTransformJob(req.TransformJobName)
+	tj, err := h.Backend.DescribeTransformJob(ctx, req.TransformJobName)
 	if err != nil {
 		return nil, err
 	}
@@ -117,7 +117,7 @@ func (h *Handler) handleStopTransformJob(ctx context.Context, body []byte) error
 		return fmt.Errorf("%w: TransformJobName is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.StopTransformJob(req.TransformJobName); err != nil {
+	if err := h.Backend.StopTransformJob(ctx, req.TransformJobName); err != nil {
 		return err
 	}
 
@@ -135,7 +135,7 @@ type transformJobSummary struct {
 	LastModifiedTime   float64 `json:"LastModifiedTime"`
 }
 
-func (h *Handler) handleListTransformJobs(body []byte) ([]byte, error) {
+func (h *Handler) handleListTransformJobs(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		NextToken    string `json:"NextToken"`
 		StatusEquals string `json:"StatusEquals,omitempty"`
@@ -151,7 +151,7 @@ func (h *Handler) handleListTransformJobs(body []byte) ([]byte, error) {
 		NameContains: req.NameContains,
 	}
 
-	jobs, nextToken := h.Backend.ListTransformJobs(req.NextToken, filter)
+	jobs, nextToken := h.Backend.ListTransformJobs(ctx, req.NextToken, filter)
 	summaries := make([]transformJobSummary, 0, len(jobs))
 
 	for _, tj := range jobs {
@@ -191,7 +191,7 @@ func (h *Handler) handleUpdateFeatureGroup(ctx context.Context, body []byte) ([]
 		return nil, fmt.Errorf("%w: FeatureGroupName is required", errInvalidRequest)
 	}
 
-	fg, err := h.Backend.UpdateFeatureGroup(req.FeatureGroupName, req.FeatureDefinitions)
+	fg, err := h.Backend.UpdateFeatureGroup(ctx, req.FeatureGroupName, req.FeatureDefinitions)
 	if err != nil {
 		return nil, err
 	}
@@ -220,7 +220,7 @@ func (h *Handler) handleUpdateExperiment(ctx context.Context, body []byte) ([]by
 		return nil, fmt.Errorf("%w: ExperimentName is required", errInvalidRequest)
 	}
 
-	e, err := h.Backend.UpdateExperiment(req.ExperimentName, req.DisplayName, req.Description)
+	e, err := h.Backend.UpdateExperiment(ctx, req.ExperimentName, req.DisplayName, req.Description)
 	if err != nil {
 		return nil, err
 	}
@@ -244,7 +244,7 @@ func (h *Handler) handleUpdateTrial(ctx context.Context, body []byte) ([]byte, e
 		return nil, fmt.Errorf("%w: TrialName is required", errInvalidRequest)
 	}
 
-	t, err := h.Backend.UpdateTrial(req.TrialName, req.DisplayName)
+	t, err := h.Backend.UpdateTrial(ctx, req.TrialName, req.DisplayName)
 	if err != nil {
 		return nil, err
 	}
@@ -280,7 +280,7 @@ func (h *Handler) handleUpdateTrialComponent(ctx context.Context, body []byte) (
 		OutputArtifacts: req.OutputArtifacts,
 	}
 
-	tc, err := h.Backend.UpdateTrialComponent(req.TrialComponentName, opts)
+	tc, err := h.Backend.UpdateTrialComponent(ctx, req.TrialComponentName, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -318,7 +318,7 @@ func (h *Handler) handleCreatePipelineFull(ctx context.Context, body []byte) ([]
 		return nil, fmt.Errorf("%w: PipelineName is required", errInvalidRequest)
 	}
 
-	p, err := h.Backend.CreatePipelineFull(CreatePipelineOptions{
+	p, err := h.Backend.CreatePipelineFull(ctx, CreatePipelineOptions{
 		PipelineName:             req.PipelineName,
 		PipelineDefinition:       req.PipelineDefinition,
 		PipelineDisplayName:      req.PipelineDisplayName,
@@ -355,6 +355,7 @@ func (h *Handler) handleUpdatePipelineFull(ctx context.Context, body []byte) ([]
 	}
 
 	p, err := h.Backend.UpdatePipelineFull(
+		ctx,
 		req.PipelineName,
 		req.PipelineDefinition,
 		req.PipelineDisplayName,
@@ -391,7 +392,7 @@ func (h *Handler) handleStartPipelineExecutionFull(
 		return nil, fmt.Errorf("%w: PipelineName is required", errInvalidRequest)
 	}
 
-	pe, err := h.Backend.StartPipelineExecutionFull(StartPipelineExecutionOptions{
+	pe, err := h.Backend.StartPipelineExecutionFull(ctx, StartPipelineExecutionOptions{
 		PipelineName:                 req.PipelineName,
 		PipelineExecutionDisplayName: req.PipelineExecutionDisplayName,
 		PipelineExecutionDescription: req.PipelineExecutionDescription,
@@ -417,7 +418,7 @@ func (h *Handler) handleStartPipelineExecutionFull(
 // ---------------------------------------------------------------------------
 
 func (h *Handler) handleListPipelineParametersForExecution(
-	_ context.Context,
+	ctx context.Context,
 	body []byte,
 ) ([]byte, error) {
 	var req struct {
@@ -433,7 +434,7 @@ func (h *Handler) handleListPipelineParametersForExecution(
 		return nil, fmt.Errorf("%w: PipelineExecutionArn is required", errInvalidRequest)
 	}
 
-	pe, err := h.Backend.DescribePipelineExecution(req.PipelineExecutionArn)
+	pe, err := h.Backend.DescribePipelineExecution(ctx, req.PipelineExecutionArn)
 	if err != nil {
 		return nil, err
 	}

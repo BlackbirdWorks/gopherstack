@@ -8,6 +8,9 @@
 		CreateGraphqlApiCommand,
 		DeleteGraphqlApiCommand,
 		ListDataSourcesCommand,
+		CreateDataSourceCommand,
+		DeleteDataSourceCommand,
+		StartSchemaCreationCommand,
 		ListFunctionsCommand,
 		ListResolversCommand,
 		GetResolverCommand,
@@ -16,7 +19,8 @@
 		type GraphqlApi,
 		type DataSource,
 		type FunctionConfiguration,
-		type Resolver
+		type Resolver,
+		DataSourceType
 	} from '@aws-sdk/client-appsync';
 	import { toast } from 'svelte-sonner';
 	import {
@@ -62,6 +66,8 @@
 	let editingResolver = $state<Resolver | null>(null);
 	let resolverRequestVTL = $state('');
 	let resolverResponseVTL = $state('');
+	let resolverKind = $state<'UNIT' | 'PIPELINE'>('UNIT');
+	let resolverPipelineFns = $state<string[]>([]);
 	let savingResolver = $state(false);
 
 	// GraphQL executor
@@ -153,6 +159,106 @@
 		}
 	}
 
+	// Create data source
+	let showCreateDS = $state(false);
+	let creatingDS = $state(false);
+	let dsName = $state('');
+	let dsDescription = $state('');
+	let dsType = $state<string>('AMAZON_DYNAMODB');
+	let dsServiceRoleArn = $state('');
+	let dsTableName = $state('');
+	let dsAwsRegion = $state('us-east-1');
+	let dsLambdaArn = $state('');
+	let dsHttpEndpoint = $state('');
+
+	async function createDataSource() {
+		if (!selectedApiId) return;
+		if (!dsName.trim()) {
+			toast.error('Data source name is required');
+			return;
+		}
+		creatingDS = true;
+		try {
+			await appsync.send(
+				new CreateDataSourceCommand({
+					apiId: selectedApiId,
+					name: dsName.trim(),
+					description: dsDescription.trim() || undefined,
+					type: dsType as DataSourceType,
+					serviceRoleArn: dsServiceRoleArn.trim() || undefined,
+					dynamodbConfig:
+						dsType === DataSourceType.AMAZON_DYNAMODB
+							? { tableName: dsTableName.trim(), awsRegion: dsAwsRegion.trim() }
+							: undefined,
+					lambdaConfig:
+						dsType === DataSourceType.AWS_LAMBDA
+							? { lambdaFunctionArn: dsLambdaArn.trim() }
+							: undefined,
+					httpConfig:
+						dsType === DataSourceType.HTTP ? { endpoint: dsHttpEndpoint.trim() } : undefined
+				})
+			);
+			toast.success(`Data source "${dsName}" created`);
+			showCreateDS = false;
+			dsName = '';
+			dsDescription = '';
+			dsServiceRoleArn = '';
+			dsTableName = '';
+			dsLambdaArn = '';
+			dsHttpEndpoint = '';
+			await loadDataSources();
+		} catch (e) {
+			toast.error(`Failed to create data source: ${e}`);
+		} finally {
+			creatingDS = false;
+		}
+	}
+
+	async function deleteDataSource(name: string | undefined) {
+		if (!name || !selectedApiId) return;
+		if (
+			!(await confirmDestructive({
+				title: 'Delete Data Source',
+				message: `Delete data source "${name}"?`
+			}))
+		)
+			return;
+		try {
+			await appsync.send(new DeleteDataSourceCommand({ apiId: selectedApiId, name }));
+			toast.success('Data source deleted');
+			await loadDataSources();
+		} catch (e) {
+			toast.error(`Failed to delete data source: ${e}`);
+		}
+	}
+
+	// Schema upload (SDL)
+	let showSchemaUpload = $state(false);
+	let schemaSdl = $state('');
+	let uploadingSchema = $state(false);
+
+	async function uploadSchema() {
+		if (!selectedApiId || !schemaSdl.trim()) {
+			toast.error('Schema SDL is required');
+			return;
+		}
+		uploadingSchema = true;
+		try {
+			await appsync.send(
+				new StartSchemaCreationCommand({
+					apiId: selectedApiId,
+					definition: new TextEncoder().encode(schemaSdl)
+				})
+			);
+			toast.success('Schema creation started');
+			showSchemaUpload = false;
+		} catch (e) {
+			toast.error(`Failed to upload schema: ${e}`);
+		} finally {
+			uploadingSchema = false;
+		}
+	}
+
 	async function loadFunctions(apiId?: string) {
 		loading = true;
 		const id = apiId ?? selectedApiId;
@@ -196,16 +302,40 @@
 		editingResolver = resolver;
 		resolverRequestVTL = resolver.requestMappingTemplate ?? '';
 		resolverResponseVTL = resolver.responseMappingTemplate ?? '';
+		resolverKind = resolver.kind === 'PIPELINE' ? 'PIPELINE' : 'UNIT';
+		resolverPipelineFns = [...(resolver.pipelineConfig?.functions ?? [])];
+		// Ensure pipeline-function list is populated for the picker.
+		if (functions.length === 0) loadFunctions();
 	}
 
 	function closeResolverEditor() {
 		editingResolver = null;
 		resolverRequestVTL = '';
 		resolverResponseVTL = '';
+		resolverKind = 'UNIT';
+		resolverPipelineFns = [];
+	}
+
+	function togglePipelineFn(functionId: string) {
+		resolverPipelineFns = resolverPipelineFns.includes(functionId)
+			? resolverPipelineFns.filter((f) => f !== functionId)
+			: [...resolverPipelineFns, functionId];
+	}
+
+	function movePipelineFn(index: number, dir: -1 | 1) {
+		const target = index + dir;
+		if (target < 0 || target >= resolverPipelineFns.length) return;
+		const next = [...resolverPipelineFns];
+		[next[index], next[target]] = [next[target], next[index]];
+		resolverPipelineFns = next;
 	}
 
 	async function saveResolver() {
 		if (!editingResolver || !selectedApiId) return;
+		if (resolverKind === 'PIPELINE' && resolverPipelineFns.length === 0) {
+			toast.error('A pipeline resolver needs at least one function');
+			return;
+		}
 		savingResolver = true;
 		try {
 			await appsync.send(
@@ -213,7 +343,11 @@
 					apiId: selectedApiId,
 					typeName: editingResolver.typeName,
 					fieldName: editingResolver.fieldName,
-					dataSourceName: editingResolver.dataSourceName,
+					kind: resolverKind,
+					// UNIT resolvers bind a data source; PIPELINE resolvers run a function list.
+					dataSourceName: resolverKind === 'UNIT' ? editingResolver.dataSourceName : undefined,
+					pipelineConfig:
+						resolverKind === 'PIPELINE' ? { functions: resolverPipelineFns } : undefined,
 					requestMappingTemplate: resolverRequestVTL || undefined,
 					responseMappingTemplate: resolverResponseVTL || undefined
 				})
@@ -226,6 +360,10 @@
 		} finally {
 			savingResolver = false;
 		}
+	}
+
+	function fnName(id: string): string {
+		return functions.find((f) => f.functionId === id)?.name ?? id;
 	}
 
 	async function executeGraphQL() {
@@ -496,6 +634,16 @@
 
 	<!-- Data Sources Tab -->
 	{#if activeTab === 'datasources'}
+		{#if selectedApiId}
+			<div class="flex items-center justify-end gap-2">
+				<button onclick={() => { showSchemaUpload = true; }} class="flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm hover:bg-muted">
+					<Code class="h-4 w-4" /> Upload Schema (SDL)
+				</button>
+				<button onclick={() => { showCreateDS = true; }} class="flex items-center gap-2 rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:bg-primary/90">
+					<Plus class="h-4 w-4" /> Create Data Source
+				</button>
+			</div>
+		{/if}
 		{#if !selectedApiId}
 			<div class="flex flex-col items-center justify-center py-12 text-muted-foreground">
 				<Database class="h-12 w-12 mb-3 opacity-30" />
@@ -518,6 +666,7 @@
 							<th class="px-4 py-3 text-left font-medium">Name</th>
 							<th class="px-4 py-3 text-left font-medium">Type</th>
 							<th class="px-4 py-3 text-left font-medium">ARN</th>
+							<th class="px-4 py-3 text-right font-medium"></th>
 						</tr>
 					</thead>
 					<tbody class="divide-y">
@@ -529,6 +678,11 @@
 								</td>
 								<td class="px-4 py-3 text-xs text-muted-foreground truncate max-w-[300px]">
 									{ds.dataSourceArn ?? '—'}
+								</td>
+								<td class="px-4 py-3 text-right">
+									<button onclick={() => deleteDataSource(ds.name)} class="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded" title="Delete data source">
+										<Trash2 class="h-4 w-4" />
+									</button>
 								</td>
 							</tr>
 						{/each}
@@ -655,6 +809,51 @@
 									</button>
 								</div>
 							</div>
+
+							<div>
+								<label for="resolver-kind" class="block text-xs font-medium mb-1 text-muted-foreground">Resolver Kind</label>
+								<select
+									id="resolver-kind"
+									bind:value={resolverKind}
+									class="rounded-md border bg-background px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-primary"
+								>
+									<option value="UNIT">UNIT (single data source)</option>
+									<option value="PIPELINE">PIPELINE (function chain)</option>
+								</select>
+							</div>
+
+							{#if resolverKind === 'PIPELINE'}
+								<div class="rounded-md border p-3 space-y-3">
+									<p class="text-xs font-medium text-muted-foreground">Pipeline functions (executed in order)</p>
+									{#if resolverPipelineFns.length > 0}
+										<ol class="space-y-1.5">
+											{#each resolverPipelineFns as fnId, idx}
+												<li class="flex items-center gap-2 rounded-md bg-muted/50 px-2 py-1.5 text-xs">
+													<span class="font-mono text-muted-foreground">{idx + 1}.</span>
+													<span class="flex-1 truncate">{fnName(fnId)}</span>
+													<button onclick={() => movePipelineFn(idx, -1)} disabled={idx === 0} class="px-1 text-muted-foreground hover:text-foreground disabled:opacity-30" aria-label="Move up">↑</button>
+													<button onclick={() => movePipelineFn(idx, 1)} disabled={idx === resolverPipelineFns.length - 1} class="px-1 text-muted-foreground hover:text-foreground disabled:opacity-30" aria-label="Move down">↓</button>
+													<button onclick={() => togglePipelineFn(fnId)} class="px-1 text-red-500 hover:text-red-600" aria-label="Remove">✕</button>
+												</li>
+											{/each}
+										</ol>
+									{:else}
+										<p class="text-xs text-muted-foreground italic">No functions added yet.</p>
+									{/if}
+									{#if functions.filter((f) => f.functionId && !resolverPipelineFns.includes(f.functionId)).length > 0}
+										<div class="flex flex-wrap gap-1.5 pt-1 border-t">
+											{#each functions.filter((f) => f.functionId && !resolverPipelineFns.includes(f.functionId)) as fn}
+												<button
+													onclick={() => fn.functionId && togglePipelineFn(fn.functionId)}
+													class="rounded-md border px-2 py-1 text-xs hover:bg-accent"
+												>+ {fn.name}</button>
+											{/each}
+										</div>
+									{:else if functions.length === 0}
+										<p class="text-xs text-muted-foreground">No functions available. Create one in the Functions tab.</p>
+									{/if}
+								</div>
+							{/if}
 
 							<div>
 								<label class="block text-xs font-medium mb-1 text-muted-foreground">Request Mapping Template (VTL)</label>
@@ -795,6 +994,83 @@
 					class="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
 				>
 					{creating ? 'Creating...' : 'Create API'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Create Data Source Modal -->
+{#if showCreateDS}
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+		<div class="w-full max-w-md rounded-lg border bg-background p-6 shadow-xl">
+			<h2 class="mb-4 text-lg font-semibold">Create Data Source</h2>
+			<div class="space-y-3">
+				<div>
+					<label for="ds-name" class="mb-1 block text-sm font-medium">Name</label>
+					<input id="ds-name" bind:value={dsName} type="text" placeholder="myDataSource" class="w-full rounded-md border bg-background px-3 py-2 text-sm" />
+				</div>
+				<div>
+					<label for="ds-type" class="mb-1 block text-sm font-medium">Type</label>
+					<select id="ds-type" bind:value={dsType} class="w-full rounded-md border bg-background px-3 py-2 text-sm">
+						<option value="AMAZON_DYNAMODB">Amazon DynamoDB</option>
+						<option value="AWS_LAMBDA">AWS Lambda</option>
+						<option value="HTTP">HTTP</option>
+						<option value="NONE">None (local)</option>
+						<option value="RELATIONAL_DATABASE">Relational Database</option>
+					</select>
+				</div>
+				{#if dsType === 'AMAZON_DYNAMODB'}
+					<div>
+						<label for="ds-table" class="mb-1 block text-sm font-medium">Table Name</label>
+						<input id="ds-table" bind:value={dsTableName} type="text" placeholder="MyTable" class="w-full rounded-md border bg-background px-3 py-2 text-sm" />
+					</div>
+					<div>
+						<label for="ds-region" class="mb-1 block text-sm font-medium">AWS Region</label>
+						<input id="ds-region" bind:value={dsAwsRegion} type="text" placeholder="us-east-1" class="w-full rounded-md border bg-background px-3 py-2 text-sm" />
+					</div>
+				{:else if dsType === 'AWS_LAMBDA'}
+					<div>
+						<label for="ds-lambda" class="mb-1 block text-sm font-medium">Lambda Function ARN</label>
+						<input id="ds-lambda" bind:value={dsLambdaArn} type="text" placeholder="arn:aws:lambda:..." class="w-full rounded-md border bg-background px-3 py-2 text-sm" />
+					</div>
+				{:else if dsType === 'HTTP'}
+					<div>
+						<label for="ds-http" class="mb-1 block text-sm font-medium">Endpoint</label>
+						<input id="ds-http" bind:value={dsHttpEndpoint} type="text" placeholder="https://api.example.com" class="w-full rounded-md border bg-background px-3 py-2 text-sm" />
+					</div>
+				{/if}
+				<div>
+					<label for="ds-role" class="mb-1 block text-sm font-medium">Service Role ARN (optional)</label>
+					<input id="ds-role" bind:value={dsServiceRoleArn} type="text" placeholder="arn:aws:iam::..." class="w-full rounded-md border bg-background px-3 py-2 text-sm" />
+				</div>
+			</div>
+			<div class="mt-6 flex justify-end gap-3">
+				<button onclick={() => { showCreateDS = false; }} class="rounded-md border px-4 py-2 text-sm hover:bg-accent">Cancel</button>
+				<button onclick={createDataSource} disabled={creatingDS || !dsName.trim()} class="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
+					{creatingDS ? 'Creating...' : 'Create'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Upload Schema (SDL) Modal -->
+{#if showSchemaUpload}
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+		<div class="w-full max-w-2xl rounded-lg border bg-background p-6 shadow-xl">
+			<h2 class="mb-4 text-lg font-semibold">Upload GraphQL Schema (SDL)</h2>
+			<textarea
+				bind:value={schemaSdl}
+				rows="14"
+				placeholder={'type Query {\n  hello: String\n}'}
+				class="w-full rounded-md border bg-background px-3 py-2 font-mono text-xs"
+			></textarea>
+			<p class="mt-2 text-xs text-muted-foreground">Submits the SDL via StartSchemaCreation. Schema processing runs asynchronously on the API.</p>
+			<div class="mt-6 flex justify-end gap-3">
+				<button onclick={() => { showSchemaUpload = false; }} class="rounded-md border px-4 py-2 text-sm hover:bg-accent">Cancel</button>
+				<button onclick={uploadSchema} disabled={uploadingSchema || !schemaSdl.trim()} class="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
+					{uploadingSchema ? 'Uploading...' : 'Upload Schema'}
 				</button>
 			</div>
 		</div>

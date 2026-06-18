@@ -66,7 +66,7 @@ func TestParity_ValidationException_Returns400(t *testing.T) {
 			var resp map[string]any
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 
-			errType, _ := resp["type"].(string)
+			errType, _ := resp["__type"].(string)
 			assert.Contains(t, errType, "ValidationException",
 				"error type must be ValidationException")
 		})
@@ -141,8 +141,8 @@ func TestParity_ValidationException_ErrorShape(t *testing.T) {
 			var resp map[string]any
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 
-			_, hasType := resp["type"]
-			assert.True(t, hasType, "error response must have 'type' field")
+			_, hasType := resp["__type"]
+			assert.True(t, hasType, "error response must have '__type' field")
 
 			_, hasMsg := resp["message"]
 			assert.True(t, hasMsg, "error response must have 'message' field")

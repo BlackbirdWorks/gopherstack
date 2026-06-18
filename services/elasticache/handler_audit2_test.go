@@ -1,6 +1,7 @@
 package elasticache_test
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -313,13 +314,13 @@ func TestBackend_UserGroupIds_AddRemove(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	_, err := b.CreateUser("u1", "user1", "on ~* +@all", "redis", false)
+	_, err := b.CreateUser(context.Background(), "u1", "user1", "on ~* +@all", "redis", false)
 	require.NoError(t, err)
 
-	_, err = b.CreateUserGroup("ug1", "group 1", "redis", []string{"u1"})
+	_, err = b.CreateUserGroup(context.Background(), "ug1", "group 1", "redis", []string{"u1"})
 	require.NoError(t, err)
 
-	rg, err := b.CreateReplicationGroupFull(elasticache.ReplicationGroupCreateOpts{
+	rg, err := b.CreateReplicationGroupFull(context.Background(), elasticache.ReplicationGroupCreateOpts{
 		ID:           "ug-backend-rg",
 		Description:  "user group backend test",
 		UserGroupIDs: []string{"ug1"},
@@ -328,10 +329,14 @@ func TestBackend_UserGroupIds_AddRemove(t *testing.T) {
 	assert.Contains(t, rg.UserGroupIDs, "ug1")
 
 	// Modify: remove ug1.
-	rg2, err := b.ModifyReplicationGroupFull("ug-backend-rg", elasticache.ReplicationGroupModifyOpts{
-		UserGroupIDsToRemove: []string{"ug1"},
-		ApplyImmediately:     true,
-	})
+	rg2, err := b.ModifyReplicationGroupFull(
+		context.Background(),
+		"ug-backend-rg",
+		elasticache.ReplicationGroupModifyOpts{
+			UserGroupIDsToRemove: []string{"ug1"},
+			ApplyImmediately:     true,
+		},
+	)
 	require.NoError(t, err)
 	assert.NotContains(t, rg2.UserGroupIDs, "ug1")
 }
@@ -755,13 +760,13 @@ func TestBackend_Persistence_UserGroupIds(t *testing.T) {
 
 	b1 := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	_, err := b1.CreateUser("persist-user", "persist-user", "on ~* +@all", "redis", false)
+	_, err := b1.CreateUser(context.Background(), "persist-user", "persist-user", "on ~* +@all", "redis", false)
 	require.NoError(t, err)
 
-	_, err = b1.CreateUserGroup("persist-ug", "persist group", "redis", []string{"persist-user"})
+	_, err = b1.CreateUserGroup(context.Background(), "persist-ug", "persist group", "redis", []string{"persist-user"})
 	require.NoError(t, err)
 
-	_, err = b1.CreateReplicationGroupFull(elasticache.ReplicationGroupCreateOpts{
+	_, err = b1.CreateReplicationGroupFull(context.Background(), elasticache.ReplicationGroupCreateOpts{
 		ID:           "persist-ug-rg",
 		Description:  "persist user groups",
 		UserGroupIDs: []string{"persist-ug"},
@@ -775,7 +780,7 @@ func TestBackend_Persistence_UserGroupIds(t *testing.T) {
 	err = b2.Restore(snap)
 	require.NoError(t, err)
 
-	page, err := b2.DescribeReplicationGroups("persist-ug-rg", "", 0)
+	page, err := b2.DescribeReplicationGroups(context.Background(), "persist-ug-rg", "", 0)
 	require.NoError(t, err)
 	require.Len(t, page.Data, 1)
 	assert.Contains(t, page.Data[0].UserGroupIDs, "persist-ug")
@@ -919,14 +924,14 @@ func TestBackend_TriggerAutoSnapshot_Engine(t *testing.T) {
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	_, err := b.CreateReplicationGroupFull(elasticache.ReplicationGroupCreateOpts{
+	_, err := b.CreateReplicationGroupFull(context.Background(), elasticache.ReplicationGroupCreateOpts{
 		ID:          "engine-snap-rg",
 		Description: "engine snapshot test",
 		Engine:      "redis",
 	})
 	require.NoError(t, err)
 
-	snap, err := b.TriggerAutoSnapshot("engine-snap-rg")
+	snap, err := b.TriggerAutoSnapshot(context.Background(), "engine-snap-rg")
 	require.NoError(t, err)
 	assert.Equal(t, "automated", snap.SnapshotSource)
 	assert.NotEmpty(t, snap.ARN)

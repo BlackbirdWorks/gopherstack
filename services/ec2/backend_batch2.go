@@ -71,6 +71,7 @@ type SubnetCIDRReservation struct {
 	ReservationType         string `json:"reservationType,omitempty"`
 	Description             string `json:"description,omitempty"`
 	OwnerID                 string `json:"ownerID,omitempty"`
+	State                   string `json:"state,omitempty"`
 }
 
 // ---- VPC Endpoint Connection Notifications ----
@@ -1016,6 +1017,7 @@ func (b *InMemoryBackend) CreateSubnetCidrReservation(
 		ReservationType:         reservationType,
 		Description:             description,
 		OwnerID:                 b.AccountID,
+		State:                   "assigned",
 	}
 	b.subnetCIDRReservations[subnetID] = append(b.subnetCIDRReservations[subnetID], reservation)
 

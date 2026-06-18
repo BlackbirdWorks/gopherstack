@@ -1352,7 +1352,29 @@ func (h *Handler) validateCreateFunctionInput(c *echo.Context, input *CreateFunc
 		return false
 	}
 
+	if !h.validateSnapStartInput(c, input.SnapStart) {
+		return false
+	}
+
 	return h.validateEphemeralStorageInput(c, input.EphemeralStorage)
+}
+
+// validateSnapStartInput checks the optional SnapStart.ApplyOn value. AWS only
+// accepts "None" or "PublishedVersions"; anything else is rejected with
+// InvalidParameterValueException. A nil config (omitted) is valid.
+func (h *Handler) validateSnapStartInput(c *echo.Context, s *SnapStart) bool {
+	if s == nil || s.ApplyOn == "" {
+		return true
+	}
+
+	if s.ApplyOn != "None" && s.ApplyOn != "PublishedVersions" {
+		_ = h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+			"SnapStart.ApplyOn must be one of [PublishedVersions, None]")
+
+		return false
+	}
+
+	return true
 }
 
 // validateEphemeralStorageInput checks the optional EphemeralStorage field and writes an error

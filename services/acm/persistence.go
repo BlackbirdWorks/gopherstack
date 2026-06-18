@@ -7,13 +7,14 @@ import (
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
+// backendSnapshot mirrors the region-nested backend maps (outer key = region).
 type backendSnapshot struct {
-	Certs              map[string]*Certificate            `json:"certs"`
-	IdempotencyMap     map[string]certIdempotencyEntry    `json:"idempotencyMap,omitempty"`
-	AccountIdempotency map[string]accountIdempotencyEntry `json:"accountIdempotency,omitempty"`
-	AccountID          string                             `json:"accountID"`
-	Region             string                             `json:"region"`
-	AccountConfig      AccountConfig                      `json:"accountConfig"`
+	Certs              map[string]map[string]*Certificate            `json:"certs"`
+	IdempotencyMap     map[string]map[string]certIdempotencyEntry    `json:"idempotencyMap,omitempty"`
+	AccountIdempotency map[string]map[string]accountIdempotencyEntry `json:"accountIdempotency,omitempty"`
+	AccountConfig      map[string]AccountConfig                      `json:"accountConfig"`
+	AccountID          string                                        `json:"accountID"`
+	Region             string                                        `json:"region"`
 }
 
 type handlerSnapshot struct {
@@ -57,20 +58,19 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	defer b.mu.Unlock()
 
 	if snap.Certs == nil {
-		snap.Certs = make(map[string]*Certificate)
+		snap.Certs = make(map[string]map[string]*Certificate)
 	}
 
 	if snap.IdempotencyMap == nil {
-		snap.IdempotencyMap = make(map[string]certIdempotencyEntry)
+		snap.IdempotencyMap = make(map[string]map[string]certIdempotencyEntry)
 	}
 
 	if snap.AccountIdempotency == nil {
-		snap.AccountIdempotency = make(map[string]accountIdempotencyEntry)
+		snap.AccountIdempotency = make(map[string]map[string]accountIdempotencyEntry)
 	}
 
-	// Preserve default if snapshot was taken before accountConfig was tracked.
-	if snap.AccountConfig.DaysBeforeExpiry == 0 {
-		snap.AccountConfig.DaysBeforeExpiry = defaultDaysBeforeExpiry
+	if snap.AccountConfig == nil {
+		snap.AccountConfig = make(map[string]AccountConfig)
 	}
 
 	b.certs = snap.Certs
@@ -79,19 +79,24 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.accountConfig = snap.AccountConfig
 	b.accountID = snap.AccountID
 	b.region = snap.Region
+	b.timers = make(map[string]map[string]*time.Timer)
 
-	// Restart timers for pending validations.
-	for arn, cert := range b.certs {
-		if cert.Status == statusPendingValidation {
-			t := time.AfterFunc(autoValidateDelayMS*time.Millisecond, func(a string) func() {
-				return func() { b.autoValidate(a) }
-			}(arn))
-			b.timers[arn] = t
-		} else if cert.RenewalSummary != nil && cert.RenewalSummary.RenewalStatus == renewalStatusPendingValidation {
-			t := time.AfterFunc(autoValidateDelayMS*time.Millisecond, func(a string) func() {
-				return func() { b.autoValidateRenewal(a) }
-			}(arn))
-			b.timers[arn] = t
+	// Restart timers for pending validations, per region.
+	for region, regionCerts := range b.certs {
+		for arn, cert := range regionCerts {
+			switch {
+			case cert.Status == statusPendingValidation:
+				t := time.AfterFunc(autoValidateDelayMS*time.Millisecond, func(r, a string) func() {
+					return func() { b.autoValidate(r, a) }
+				}(region, arn))
+				b.timersStore(region)[arn] = t
+			case cert.RenewalSummary != nil &&
+				cert.RenewalSummary.RenewalStatus == renewalStatusPendingValidation:
+				t := time.AfterFunc(autoValidateDelayMS*time.Millisecond, func(r, a string) func() {
+					return func() { b.autoValidateRenewal(r, a) }
+				}(region, arn))
+				b.timersStore(region)[arn] = t
+			}
 		}
 	}
 

@@ -716,7 +716,8 @@ func TestIssue8_QueryErrorResponse(t *testing.T) {
 	rec := doQueryRequest(t, h, vals)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Contains(t, rec.Body.String(), "ErrorResponse")
-	assert.Contains(t, rec.Body.String(), "QueueDoesNotExist")
+	// Query API uses legacy error code, not JSON-API "QueueDoesNotExist".
+	assert.Contains(t, rec.Body.String(), "AWS.SimpleQueueService.NonExistentQueue")
 }
 
 func TestIssue8_QueryUnknownActionError(t *testing.T) {

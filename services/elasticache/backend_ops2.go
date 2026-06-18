@@ -1,6 +1,7 @@
 package elasticache
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"slices"
@@ -90,12 +91,12 @@ type UpdateAction struct {
 	UpdateActionStatus string
 }
 
-func (b *InMemoryBackend) userGroupARN(id string) string {
-	return arn.Build("elasticache", b.region, b.accountID, "usergroup:"+id)
+func (b *InMemoryBackend) userGroupARN(region, id string) string {
+	return arn.Build("elasticache", region, b.accountID, "usergroup:"+id)
 }
 
-func (b *InMemoryBackend) reservedCacheNodeARN(id string) string {
-	return arn.Build("elasticache", b.region, b.accountID, "reserved-instance:"+id)
+func (b *InMemoryBackend) reservedCacheNodeARN(region, id string) string {
+	return arn.Build("elasticache", region, b.accountID, "reserved-instance:"+id)
 }
 
 // reservedOneYearSeconds is the duration in seconds for a 1-year reserved cache node.
@@ -209,58 +210,56 @@ func builtinCacheEngineVersions() []CacheEngineVersion {
 }
 
 // DeleteUser deletes a user by ID.
-func (b *InMemoryBackend) DeleteUser(userID string) (*User, error) {
+func (b *InMemoryBackend) DeleteUser(ctx context.Context, userID string) (*User, error) {
 	b.mu.Lock("DeleteUser")
 	defer b.mu.Unlock()
 
-	u, ok := b.users[userID]
+	region := getRegion(ctx, b.region)
+	store := b.usersStore(region)
+	u, ok := store[userID]
 	if !ok {
 		return nil, ErrUserNotFound
 	}
 
-	for _, ug := range b.userGroups {
+	for _, ug := range b.userGroupsStore(region) {
 		if slices.Contains(ug.UserIDs, userID) {
 			return nil, fmt.Errorf("user %q belongs to group %q: %w", userID, ug.UserGroupID, ErrUserNotInGroup)
 		}
 	}
 
 	result := *u
-	delete(b.users, userID)
+	delete(store, userID)
 	b.appendEventLocked(userID, "user", "user deleted")
 
 	return &result, nil
 }
 
 // DescribeUsers returns a paginated list of users, optionally filtered by userID.
-func (b *InMemoryBackend) DescribeUsers(userID, marker string, maxRecords int) (page.Page[User], error) {
+func (b *InMemoryBackend) DescribeUsers(
+	ctx context.Context,
+	userID, marker string,
+	maxRecords int,
+) (page.Page[User], error) {
 	b.mu.RLock("DescribeUsers")
 	defer b.mu.RUnlock()
 
-	if userID != "" {
-		u, ok := b.users[userID]
-		if !ok {
-			return page.Page[User]{}, ErrUserNotFound
-		}
+	region := getRegion(ctx, b.region)
 
-		return page.Page[User]{Data: []User{*u}}, nil
-	}
-
-	out := make([]User, 0, len(b.users))
-	for _, u := range b.users {
-		out = append(out, *u)
-	}
-
-	sort.Slice(out, func(i, j int) bool { return out[i].UserID < out[j].UserID })
-
-	return page.New(out, marker, maxRecords, elasticacheDefaultMaxRecords), nil
+	return describePaged(b.usersStore(region), userID, ErrUserNotFound, nil,
+		func(u User) string { return u.UserID }, marker, maxRecords)
 }
 
 // ModifyUser modifies a user's access string and/or password settings.
-func (b *InMemoryBackend) ModifyUser(userID, accessString string, noPasswordRequired bool) (*User, error) {
+func (b *InMemoryBackend) ModifyUser(
+	ctx context.Context,
+	userID, accessString string,
+	noPasswordRequired bool,
+) (*User, error) {
 	b.mu.Lock("ModifyUser")
 	defer b.mu.Unlock()
 
-	u, ok := b.users[userID]
+	region := getRegion(ctx, b.region)
+	u, ok := b.usersStore(region)[userID]
 	if !ok {
 		return nil, ErrUserNotFound
 	}
@@ -276,11 +275,17 @@ func (b *InMemoryBackend) ModifyUser(userID, accessString string, noPasswordRequ
 }
 
 // CreateUserGroup creates a new user group.
-func (b *InMemoryBackend) CreateUserGroup(groupID, description, engine string, userIDs []string) (*UserGroup, error) {
+func (b *InMemoryBackend) CreateUserGroup(
+	ctx context.Context,
+	groupID, description, engine string,
+	userIDs []string,
+) (*UserGroup, error) {
 	b.mu.Lock("CreateUserGroup")
 	defer b.mu.Unlock()
 
-	if _, exists := b.userGroups[groupID]; exists {
+	region := getRegion(ctx, b.region)
+	store := b.userGroupsStore(region)
+	if _, exists := store[groupID]; exists {
 		return nil, ErrUserGroupAlreadyExists
 	}
 
@@ -292,65 +297,63 @@ func (b *InMemoryBackend) CreateUserGroup(groupID, description, engine string, u
 		UserGroupID: groupID,
 		Description: description,
 		Status:      statusActive,
-		ARN:         b.userGroupARN(groupID),
+		ARN:         b.userGroupARN(region, groupID),
 		Engine:      engine,
 		UserIDs:     userIDs,
 		CreatedAt:   time.Now(),
 		Tags:        tags.New("elasticache.usergroup." + groupID + ".tags"),
 	}
-	b.userGroups[groupID] = ug
+	store[groupID] = ug
 	b.appendEventLocked(groupID, "user-group", "user group created")
 
 	return ug, nil
 }
 
 // DeleteUserGroup deletes a user group by ID.
-func (b *InMemoryBackend) DeleteUserGroup(groupID string) (*UserGroup, error) {
+func (b *InMemoryBackend) DeleteUserGroup(ctx context.Context, groupID string) (*UserGroup, error) {
 	b.mu.Lock("DeleteUserGroup")
 	defer b.mu.Unlock()
 
-	ug, ok := b.userGroups[groupID]
+	region := getRegion(ctx, b.region)
+	store := b.userGroupsStore(region)
+	ug, ok := store[groupID]
 	if !ok {
 		return nil, ErrUserGroupNotFound
 	}
 
 	result := *ug
-	delete(b.userGroups, groupID)
+	delete(store, groupID)
 	b.appendEventLocked(groupID, "user-group", "user group deleted")
 
 	return &result, nil
 }
 
 // DescribeUserGroups returns a paginated list of user groups, optionally filtered by groupID.
-func (b *InMemoryBackend) DescribeUserGroups(groupID, marker string, maxRecords int) (page.Page[UserGroup], error) {
+func (b *InMemoryBackend) DescribeUserGroups(
+	ctx context.Context,
+	groupID, marker string,
+	maxRecords int,
+) (page.Page[UserGroup], error) {
 	b.mu.RLock("DescribeUserGroups")
 	defer b.mu.RUnlock()
 
-	if groupID != "" {
-		ug, ok := b.userGroups[groupID]
-		if !ok {
-			return page.Page[UserGroup]{}, ErrUserGroupNotFound
-		}
+	region := getRegion(ctx, b.region)
 
-		return page.Page[UserGroup]{Data: []UserGroup{*ug}}, nil
-	}
-
-	out := make([]UserGroup, 0, len(b.userGroups))
-	for _, ug := range b.userGroups {
-		out = append(out, *ug)
-	}
-
-	sort.Slice(out, func(i, j int) bool { return out[i].UserGroupID < out[j].UserGroupID })
-
-	return page.New(out, marker, maxRecords, elasticacheDefaultMaxRecords), nil
+	return describePaged(b.userGroupsStore(region), groupID, ErrUserGroupNotFound, nil,
+		func(ug UserGroup) string { return ug.UserGroupID }, marker, maxRecords)
 }
 
 // ModifyUserGroup adds or removes users from a user group.
-func (b *InMemoryBackend) ModifyUserGroup(groupID string, userIDsToAdd, userIDsToRemove []string) (*UserGroup, error) {
+func (b *InMemoryBackend) ModifyUserGroup(
+	ctx context.Context,
+	groupID string,
+	userIDsToAdd, userIDsToRemove []string,
+) (*UserGroup, error) {
 	b.mu.Lock("ModifyUserGroup")
 	defer b.mu.Unlock()
 
-	ug, ok := b.userGroups[groupID]
+	region := getRegion(ctx, b.region)
+	ug, ok := b.userGroupsStore(region)[groupID]
 	if !ok {
 		return nil, ErrUserGroupNotFound
 	}
@@ -375,7 +378,11 @@ func (b *InMemoryBackend) ModifyUserGroup(groupID string, userIDsToAdd, userIDsT
 }
 
 // DeleteGlobalReplicationGroup deletes a global replication group.
-func (b *InMemoryBackend) DeleteGlobalReplicationGroup(id string, _ bool) (*GlobalReplicationGroup, error) {
+func (b *InMemoryBackend) DeleteGlobalReplicationGroup(
+	_ context.Context,
+	id string,
+	_ bool,
+) (*GlobalReplicationGroup, error) {
 	b.mu.Lock("DeleteGlobalReplicationGroup")
 	defer b.mu.Unlock()
 
@@ -393,6 +400,7 @@ func (b *InMemoryBackend) DeleteGlobalReplicationGroup(id string, _ bool) (*Glob
 
 // DescribeGlobalReplicationGroups returns a paginated list of global replication groups.
 func (b *InMemoryBackend) DescribeGlobalReplicationGroups(
+	_ context.Context,
 	id, marker string,
 	maxRecords int,
 ) (page.Page[GlobalReplicationGroup], error) {
@@ -421,7 +429,10 @@ func (b *InMemoryBackend) DescribeGlobalReplicationGroups(
 }
 
 // DisassociateGlobalReplicationGroup removes a secondary replication group from a global replication group.
-func (b *InMemoryBackend) DisassociateGlobalReplicationGroup(id, _, _ string) (*GlobalReplicationGroup, error) {
+func (b *InMemoryBackend) DisassociateGlobalReplicationGroup(
+	_ context.Context,
+	id, _, _ string,
+) (*GlobalReplicationGroup, error) {
 	b.mu.Lock("DisassociateGlobalReplicationGroup")
 	defer b.mu.Unlock()
 
@@ -436,7 +447,10 @@ func (b *InMemoryBackend) DisassociateGlobalReplicationGroup(id, _, _ string) (*
 }
 
 // FailoverGlobalReplicationGroup promotes a secondary region to primary.
-func (b *InMemoryBackend) FailoverGlobalReplicationGroup(id, _, _ string) (*GlobalReplicationGroup, error) {
+func (b *InMemoryBackend) FailoverGlobalReplicationGroup(
+	_ context.Context,
+	id, _, _ string,
+) (*GlobalReplicationGroup, error) {
 	b.mu.Lock("FailoverGlobalReplicationGroup")
 	defer b.mu.Unlock()
 
@@ -452,6 +466,7 @@ func (b *InMemoryBackend) FailoverGlobalReplicationGroup(id, _, _ string) (*Glob
 
 // IncreaseNodeGroupsInGlobalReplicationGroup increases the node group count.
 func (b *InMemoryBackend) IncreaseNodeGroupsInGlobalReplicationGroup(
+	_ context.Context,
 	id string,
 	nodeGroupCount int32,
 ) (*GlobalReplicationGroup, error) {
@@ -474,6 +489,7 @@ func (b *InMemoryBackend) IncreaseNodeGroupsInGlobalReplicationGroup(
 
 // DecreaseNodeGroupsInGlobalReplicationGroup decreases the node group count.
 func (b *InMemoryBackend) DecreaseNodeGroupsInGlobalReplicationGroup(
+	_ context.Context,
 	id string,
 	nodeGroupCount int32,
 ) (*GlobalReplicationGroup, error) {
@@ -496,6 +512,7 @@ func (b *InMemoryBackend) DecreaseNodeGroupsInGlobalReplicationGroup(
 
 // ModifyGlobalReplicationGroup modifies a global replication group.
 func (b *InMemoryBackend) ModifyGlobalReplicationGroup(
+	_ context.Context,
 	id, description, engineVersion string,
 	automaticFailoverEnabled bool,
 ) (*GlobalReplicationGroup, error) {
@@ -522,7 +539,10 @@ func (b *InMemoryBackend) ModifyGlobalReplicationGroup(
 }
 
 // RebalanceSlotsInGlobalReplicationGroup rebalances slots.
-func (b *InMemoryBackend) RebalanceSlotsInGlobalReplicationGroup(id string) (*GlobalReplicationGroup, error) {
+func (b *InMemoryBackend) RebalanceSlotsInGlobalReplicationGroup(
+	_ context.Context,
+	id string,
+) (*GlobalReplicationGroup, error) {
 	b.mu.Lock("RebalanceSlotsInGlobalReplicationGroup")
 	defer b.mu.Unlock()
 
@@ -538,39 +558,32 @@ func (b *InMemoryBackend) RebalanceSlotsInGlobalReplicationGroup(id string) (*Gl
 
 // DescribeReservedCacheNodes returns a paginated list of reserved cache nodes.
 func (b *InMemoryBackend) DescribeReservedCacheNodes(
+	ctx context.Context,
 	id, cacheNodeType, offeringType, marker string,
 	maxRecords int,
 ) (page.Page[ReservedCacheNode], error) {
 	b.mu.RLock("DescribeReservedCacheNodes")
 	defer b.mu.RUnlock()
 
-	if id != "" {
-		rcn, ok := b.reservedCacheNodes[id]
-		if !ok {
-			return page.Page[ReservedCacheNode]{}, ErrReservedCacheNodeNotFound
-		}
+	region := getRegion(ctx, b.region)
 
-		return page.Page[ReservedCacheNode]{Data: []ReservedCacheNode{*rcn}}, nil
-	}
-
-	out := make([]ReservedCacheNode, 0, len(b.reservedCacheNodes))
-	for _, rcn := range b.reservedCacheNodes {
-		if cacheNodeType != "" && rcn.CacheNodeType != cacheNodeType {
-			continue
-		}
-		if offeringType != "" && rcn.OfferingType != offeringType {
-			continue
-		}
-		out = append(out, *rcn)
-	}
-
-	sort.Slice(out, func(i, j int) bool { return out[i].ReservedCacheNodeID < out[j].ReservedCacheNodeID })
-
-	return page.New(out, marker, maxRecords, elasticacheDefaultMaxRecords), nil
+	return describePaged(
+		b.reservedCacheNodesStore(region),
+		id,
+		ErrReservedCacheNodeNotFound,
+		func(rcn ReservedCacheNode) bool {
+			return (cacheNodeType == "" || rcn.CacheNodeType == cacheNodeType) &&
+				(offeringType == "" || rcn.OfferingType == offeringType)
+		},
+		func(rcn ReservedCacheNode) string { return rcn.ReservedCacheNodeID },
+		marker,
+		maxRecords,
+	)
 }
 
 // DescribeReservedCacheNodesOfferings returns a paginated list of reserved cache node offerings.
 func (b *InMemoryBackend) DescribeReservedCacheNodesOfferings(
+	_ context.Context,
 	offeringID, cacheNodeType, offeringType, marker string,
 	maxRecords int,
 ) (page.Page[ReservedCacheNodesOffering], error) {
@@ -605,6 +618,7 @@ func (b *InMemoryBackend) DescribeReservedCacheNodesOfferings(
 
 // PurchaseReservedCacheNodesOffering purchases a reserved cache node offering.
 func (b *InMemoryBackend) PurchaseReservedCacheNodesOffering(
+	ctx context.Context,
 	offeringID, reservedCacheNodeID string,
 	cacheNodeCount int32,
 ) (*ReservedCacheNode, error) {
@@ -634,13 +648,15 @@ func (b *InMemoryBackend) PurchaseReservedCacheNodesOffering(
 		reservedCacheNodeID = fmt.Sprintf("rcn-%s-%s", offeringID[:8], randomSuffix())
 	}
 
-	if _, exists := b.reservedCacheNodes[reservedCacheNodeID]; exists {
+	region := getRegion(ctx, b.region)
+	store := b.reservedCacheNodesStore(region)
+	if _, exists := store[reservedCacheNodeID]; exists {
 		return nil, fmt.Errorf("reserved cache node %q: %w", reservedCacheNodeID, ErrReservedCacheNodeAlreadyExists)
 	}
 
 	rcn := &ReservedCacheNode{
 		ReservedCacheNodeID: reservedCacheNodeID,
-		ARN:                 b.reservedCacheNodeARN(reservedCacheNodeID),
+		ARN:                 b.reservedCacheNodeARN(region, reservedCacheNodeID),
 		CacheNodeType:       found.CacheNodeType,
 		Duration:            found.Duration,
 		FixedPrice:          found.FixedPrice,
@@ -652,41 +668,48 @@ func (b *InMemoryBackend) PurchaseReservedCacheNodesOffering(
 		CacheNodeCount:      cacheNodeCount,
 		StartTime:           time.Now(),
 	}
-	b.reservedCacheNodes[reservedCacheNodeID] = rcn
+	store[reservedCacheNodeID] = rcn
 	b.appendEventLocked(reservedCacheNodeID, "reserved-cache-node", "reserved cache node purchased")
 
 	return rcn, nil
 }
 
 // DeleteServerlessCache deletes a serverless cache.
-func (b *InMemoryBackend) DeleteServerlessCache(name string) (*ServerlessCache, error) {
+func (b *InMemoryBackend) DeleteServerlessCache(ctx context.Context, name string) (*ServerlessCache, error) {
 	b.mu.Lock("DeleteServerlessCache")
 	defer b.mu.Unlock()
 
-	sc, ok := b.serverlessCaches[name]
+	region := getRegion(ctx, b.region)
+	store := b.serverlessCachesStore(region)
+	sc, ok := store[name]
 	if !ok {
 		return nil, ErrServerlessCacheNotFound
 	}
 
 	result := *sc
-	delete(b.serverlessCaches, name)
+	delete(store, name)
 	b.appendEventLocked(name, "serverless-cache", "serverless cache deleted")
 
 	return &result, nil
 }
 
 // DeleteServerlessCacheSnapshot deletes a serverless cache snapshot.
-func (b *InMemoryBackend) DeleteServerlessCacheSnapshot(name string) (*ServerlessCacheSnapshot, error) {
+func (b *InMemoryBackend) DeleteServerlessCacheSnapshot(
+	ctx context.Context,
+	name string,
+) (*ServerlessCacheSnapshot, error) {
 	b.mu.Lock("DeleteServerlessCacheSnapshot")
 	defer b.mu.Unlock()
 
-	snap, ok := b.serverlessCacheSnapshots[name]
+	region := getRegion(ctx, b.region)
+	store := b.serverlessCacheSnapshotsStore(region)
+	snap, ok := store[name]
 	if !ok {
 		return nil, ErrServerlessCacheSnapshotNotFound
 	}
 
 	result := *snap
-	delete(b.serverlessCacheSnapshots, name)
+	delete(store, name)
 	b.appendEventLocked(name, "serverless-cache-snapshot", "serverless cache snapshot deleted")
 
 	return &result, nil
@@ -694,41 +717,33 @@ func (b *InMemoryBackend) DeleteServerlessCacheSnapshot(name string) (*Serverles
 
 // DescribeServerlessCaches returns a paginated list of serverless caches.
 func (b *InMemoryBackend) DescribeServerlessCaches(
+	ctx context.Context,
 	name, marker string,
 	maxRecords int,
 ) (page.Page[ServerlessCache], error) {
 	b.mu.RLock("DescribeServerlessCaches")
 	defer b.mu.RUnlock()
 
-	if name != "" {
-		sc, ok := b.serverlessCaches[name]
-		if !ok {
-			return page.Page[ServerlessCache]{}, ErrServerlessCacheNotFound
-		}
+	region := getRegion(ctx, b.region)
 
-		return page.Page[ServerlessCache]{Data: []ServerlessCache{*sc}}, nil
-	}
-
-	out := make([]ServerlessCache, 0, len(b.serverlessCaches))
-	for _, sc := range b.serverlessCaches {
-		out = append(out, *sc)
-	}
-
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-
-	return page.New(out, marker, maxRecords, elasticacheDefaultMaxRecords), nil
+	return describePaged(b.serverlessCachesStore(region), name, ErrServerlessCacheNotFound, nil,
+		func(sc ServerlessCache) string { return sc.Name }, marker, maxRecords)
 }
 
 // DescribeServerlessCacheSnapshots returns a paginated list of serverless cache snapshots.
 func (b *InMemoryBackend) DescribeServerlessCacheSnapshots(
+	ctx context.Context,
 	serverlessCacheName, snapshotName, marker string,
 	maxRecords int,
 ) (page.Page[ServerlessCacheSnapshot], error) {
 	b.mu.RLock("DescribeServerlessCacheSnapshots")
 	defer b.mu.RUnlock()
 
+	region := getRegion(ctx, b.region)
+	store := b.serverlessCacheSnapshotsStore(region)
+
 	if snapshotName != "" {
-		snap, ok := b.serverlessCacheSnapshots[snapshotName]
+		snap, ok := store[snapshotName]
 		if !ok {
 			return page.Page[ServerlessCacheSnapshot]{}, ErrServerlessCacheSnapshotNotFound
 		}
@@ -736,8 +751,8 @@ func (b *InMemoryBackend) DescribeServerlessCacheSnapshots(
 		return page.Page[ServerlessCacheSnapshot]{Data: []ServerlessCacheSnapshot{*snap}}, nil
 	}
 
-	out := make([]ServerlessCacheSnapshot, 0, len(b.serverlessCacheSnapshots))
-	for _, snap := range b.serverlessCacheSnapshots {
+	out := make([]ServerlessCacheSnapshot, 0, len(store))
+	for _, snap := range store {
 		if serverlessCacheName != "" && snap.ServerlessCacheName != serverlessCacheName {
 			continue
 		}
@@ -751,11 +766,15 @@ func (b *InMemoryBackend) DescribeServerlessCacheSnapshots(
 }
 
 // ExportServerlessCacheSnapshot exports a serverless cache snapshot to S3.
-func (b *InMemoryBackend) ExportServerlessCacheSnapshot(snapshotName, _ string) (*ServerlessCacheSnapshot, error) {
+func (b *InMemoryBackend) ExportServerlessCacheSnapshot(
+	ctx context.Context,
+	snapshotName, _ string,
+) (*ServerlessCacheSnapshot, error) {
 	b.mu.Lock("ExportServerlessCacheSnapshot")
 	defer b.mu.Unlock()
 
-	snap, ok := b.serverlessCacheSnapshots[snapshotName]
+	region := getRegion(ctx, b.region)
+	snap, ok := b.serverlessCacheSnapshotsStore(region)[snapshotName]
 	if !ok {
 		return nil, ErrServerlessCacheSnapshotNotFound
 	}
@@ -766,11 +785,15 @@ func (b *InMemoryBackend) ExportServerlessCacheSnapshot(snapshotName, _ string) 
 }
 
 // ModifyServerlessCache modifies a serverless cache.
-func (b *InMemoryBackend) ModifyServerlessCache(name, description string) (*ServerlessCache, error) {
+func (b *InMemoryBackend) ModifyServerlessCache(
+	ctx context.Context,
+	name, description string,
+) (*ServerlessCache, error) {
 	b.mu.Lock("ModifyServerlessCache")
 	defer b.mu.Unlock()
 
-	sc, ok := b.serverlessCaches[name]
+	region := getRegion(ctx, b.region)
+	sc, ok := b.serverlessCachesStore(region)[name]
 	if !ok {
 		return nil, ErrServerlessCacheNotFound
 	}
@@ -785,11 +808,12 @@ func (b *InMemoryBackend) ModifyServerlessCache(name, description string) (*Serv
 }
 
 // StartMigration starts a migration for a replication group.
-func (b *InMemoryBackend) StartMigration(replicationGroupID string) (*ReplicationGroup, error) {
+func (b *InMemoryBackend) StartMigration(ctx context.Context, replicationGroupID string) (*ReplicationGroup, error) {
 	b.mu.Lock("StartMigration")
 	defer b.mu.Unlock()
 
-	rg, ok := b.replicationGroups[replicationGroupID]
+	region := getRegion(ctx, b.region)
+	rg, ok := b.replicationGroupsStore(region)[replicationGroupID]
 	if !ok {
 		return nil, ErrReplicationGroupNotFound
 	}
@@ -801,11 +825,12 @@ func (b *InMemoryBackend) StartMigration(replicationGroupID string) (*Replicatio
 }
 
 // TestMigration tests a migration for a replication group.
-func (b *InMemoryBackend) TestMigration(replicationGroupID string) (*ReplicationGroup, error) {
+func (b *InMemoryBackend) TestMigration(ctx context.Context, replicationGroupID string) (*ReplicationGroup, error) {
 	b.mu.Lock("TestMigration")
 	defer b.mu.Unlock()
 
-	rg, ok := b.replicationGroups[replicationGroupID]
+	region := getRegion(ctx, b.region)
+	rg, ok := b.replicationGroupsStore(region)[replicationGroupID]
 	if !ok {
 		return nil, ErrReplicationGroupNotFound
 	}
@@ -817,13 +842,15 @@ func (b *InMemoryBackend) TestMigration(replicationGroupID string) (*Replication
 
 // IncreaseReplicaCount increases the replica count for a replication group.
 func (b *InMemoryBackend) IncreaseReplicaCount(
+	ctx context.Context,
 	replicationGroupID string,
 	newReplicaCount int32,
 ) (*ReplicationGroup, error) {
 	b.mu.Lock("IncreaseReplicaCount")
 	defer b.mu.Unlock()
 
-	rg, ok := b.replicationGroups[replicationGroupID]
+	region := getRegion(ctx, b.region)
+	rg, ok := b.replicationGroupsStore(region)[replicationGroupID]
 	if !ok {
 		return nil, ErrReplicationGroupNotFound
 	}
@@ -841,13 +868,15 @@ func (b *InMemoryBackend) IncreaseReplicaCount(
 
 // DecreaseReplicaCount decreases the replica count for a replication group.
 func (b *InMemoryBackend) DecreaseReplicaCount(
+	ctx context.Context,
 	replicationGroupID string,
 	newReplicaCount int32,
 ) (*ReplicationGroup, error) {
 	b.mu.Lock("DecreaseReplicaCount")
 	defer b.mu.Unlock()
 
-	rg, ok := b.replicationGroups[replicationGroupID]
+	region := getRegion(ctx, b.region)
+	rg, ok := b.replicationGroupsStore(region)[replicationGroupID]
 	if !ok {
 		return nil, ErrReplicationGroupNotFound
 	}
@@ -866,13 +895,15 @@ func (b *InMemoryBackend) DecreaseReplicaCount(
 // ModifyReplicationGroupShardConfiguration modifies the shard configuration of a replication group.
 // Cluster mode must be enabled to use this operation.
 func (b *InMemoryBackend) ModifyReplicationGroupShardConfiguration(
+	ctx context.Context,
 	replicationGroupID string,
 	nodeGroupCount int32,
 ) (*ReplicationGroup, error) {
 	b.mu.Lock("ModifyReplicationGroupShardConfiguration")
 	defer b.mu.Unlock()
 
-	rg, ok := b.replicationGroups[replicationGroupID]
+	region := getRegion(ctx, b.region)
+	rg, ok := b.replicationGroupsStore(region)[replicationGroupID]
 	if !ok {
 		return nil, ErrReplicationGroupNotFound
 	}
@@ -894,6 +925,7 @@ func (b *InMemoryBackend) ModifyReplicationGroupShardConfiguration(
 
 // DescribeCacheEngineVersions returns engine versions, optionally filtered.
 func (b *InMemoryBackend) DescribeCacheEngineVersions(
+	_ context.Context,
 	engine, family, engineVersion, marker string,
 	maxRecords int,
 ) (page.Page[CacheEngineVersion], error) {
@@ -923,11 +955,16 @@ func (b *InMemoryBackend) DescribeCacheEngineVersions(
 }
 
 // RebootCacheCluster reboots a cache cluster.
-func (b *InMemoryBackend) RebootCacheCluster(clusterID string, nodeIDs []string) (*Cluster, error) {
+func (b *InMemoryBackend) RebootCacheCluster(
+	ctx context.Context,
+	clusterID string,
+	nodeIDs []string,
+) (*Cluster, error) {
 	b.mu.Lock("RebootCacheCluster")
 	defer b.mu.Unlock()
 
-	c, ok := b.clusters[clusterID]
+	region := getRegion(ctx, b.region)
+	c, ok := b.clustersStore(region)[clusterID]
 	if !ok {
 		return nil, ErrClusterNotFound
 	}
@@ -947,60 +984,53 @@ func (b *InMemoryBackend) RebootCacheCluster(clusterID string, nodeIDs []string)
 }
 
 // DeleteCacheSecurityGroup deletes a cache security group.
-func (b *InMemoryBackend) DeleteCacheSecurityGroup(name string) error {
+func (b *InMemoryBackend) DeleteCacheSecurityGroup(ctx context.Context, name string) error {
 	b.mu.Lock("DeleteCacheSecurityGroup")
 	defer b.mu.Unlock()
 
-	if _, ok := b.cacheSecurityGroups[name]; !ok {
+	region := getRegion(ctx, b.region)
+	sgStore := b.cacheSecurityGroupsStore(region)
+	if _, ok := sgStore[name]; !ok {
 		return ErrCacheSecurityGroupNotFound
 	}
 
-	delete(b.cacheSecurityGroups, name)
-	delete(b.cacheSecurityGroupIngress, name)
+	delete(sgStore, name)
+	delete(b.cacheSecurityGroupIngressStore(region), name)
 
 	return nil
 }
 
 // DescribeCacheSecurityGroups returns a paginated list of cache security groups.
 func (b *InMemoryBackend) DescribeCacheSecurityGroups(
+	ctx context.Context,
 	name, marker string,
 	maxRecords int,
 ) (page.Page[CacheSecurityGroup], error) {
 	b.mu.RLock("DescribeCacheSecurityGroups")
 	defer b.mu.RUnlock()
 
-	if name != "" {
-		sg, ok := b.cacheSecurityGroups[name]
-		if !ok {
-			return page.Page[CacheSecurityGroup]{}, ErrCacheSecurityGroupNotFound
-		}
+	region := getRegion(ctx, b.region)
 
-		return page.Page[CacheSecurityGroup]{Data: []CacheSecurityGroup{*sg}}, nil
-	}
-
-	out := make([]CacheSecurityGroup, 0, len(b.cacheSecurityGroups))
-	for _, sg := range b.cacheSecurityGroups {
-		out = append(out, *sg)
-	}
-
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-
-	return page.New(out, marker, maxRecords, elasticacheDefaultMaxRecords), nil
+	return describePaged(b.cacheSecurityGroupsStore(region), name, ErrCacheSecurityGroupNotFound, nil,
+		func(sg CacheSecurityGroup) string { return sg.Name }, marker, maxRecords)
 }
 
 // RevokeCacheSecurityGroupIngress removes an EC2 security group authorization.
 func (b *InMemoryBackend) RevokeCacheSecurityGroupIngress(
+	ctx context.Context,
 	name, ec2SecurityGroupName, ec2SecurityGroupOwnerID string,
 ) (*CacheSecurityGroup, error) {
 	b.mu.Lock("RevokeCacheSecurityGroupIngress")
 	defer b.mu.Unlock()
 
-	sg, ok := b.cacheSecurityGroups[name]
+	region := getRegion(ctx, b.region)
+	sg, ok := b.cacheSecurityGroupsStore(region)[name]
 	if !ok {
 		return nil, ErrCacheSecurityGroupNotFound
 	}
 
-	ingress := b.cacheSecurityGroupIngress[name]
+	ingressStore := b.cacheSecurityGroupIngressStore(region)
+	ingress := ingressStore[name]
 	filtered := make([]EC2SecurityGroupMembership, 0, len(ingress))
 
 	for _, entry := range ingress {
@@ -1012,7 +1042,7 @@ func (b *InMemoryBackend) RevokeCacheSecurityGroupIngress(
 		filtered = append(filtered, entry)
 	}
 
-	b.cacheSecurityGroupIngress[name] = filtered
+	ingressStore[name] = filtered
 	result := *sg
 
 	return &result, nil
@@ -1020,6 +1050,7 @@ func (b *InMemoryBackend) RevokeCacheSecurityGroupIngress(
 
 // DescribeEngineDefaultParameters returns the default parameters for a parameter group family.
 func (b *InMemoryBackend) DescribeEngineDefaultParameters(
+	_ context.Context,
 	cacheParameterGroupFamily string,
 	marker string,
 	maxRecords int,
@@ -1244,6 +1275,7 @@ func builtinRedisPersistenceParameters() []CacheParameter {
 
 // DescribeServiceUpdates returns service updates, filtered by name and status.
 func (b *InMemoryBackend) DescribeServiceUpdates(
+	_ context.Context,
 	serviceUpdateName string,
 	marker string,
 	maxRecords int,
@@ -1259,6 +1291,7 @@ func (b *InMemoryBackend) DescribeServiceUpdates(
 
 // DescribeUpdateActions returns update actions, filtered by service update name.
 func (b *InMemoryBackend) DescribeUpdateActions(
+	_ context.Context,
 	serviceUpdateName string,
 	marker string,
 	maxRecords int,
@@ -1272,7 +1305,7 @@ func (b *InMemoryBackend) DescribeUpdateActions(
 }
 
 // ListAllowedNodeTypeModifications returns a list of allowed node type modifications.
-func (b *InMemoryBackend) ListAllowedNodeTypeModifications(_, _ string) ([]string, error) {
+func (b *InMemoryBackend) ListAllowedNodeTypeModifications(_ context.Context, _, _ string) ([]string, error) {
 	return []string{
 		nodeTypeT3Micro, "cache.t3.small", "cache.t3.medium",
 		"cache.m6g.large", "cache.m6g.xlarge",
@@ -1284,5 +1317,5 @@ func (b *InMemoryBackend) ListAllowedNodeTypeModifications(_, _ string) ([]strin
 func (b *InMemoryBackend) AddUserGroupInternal(ug *UserGroup) {
 	b.mu.Lock("AddUserGroupInternal")
 	defer b.mu.Unlock()
-	b.userGroups[ug.UserGroupID] = ug
+	b.userGroupsStore(b.region)[ug.UserGroupID] = ug
 }

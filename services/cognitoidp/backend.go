@@ -192,6 +192,10 @@ type refreshTokenEntry struct {
 	PoolID    string    `json:"poolId,omitempty"`
 	ClientID  string    `json:"clientId,omitempty"`
 	Username  string    `json:"username,omitempty"`
+	// AuthTime is the original authentication time (Unix seconds) of the
+	// session that minted this refresh-token chain. AWS Cognito preserves
+	// auth_time across REFRESH_TOKEN_AUTH; it is not reset on each refresh.
+	AuthTime int64 `json:"authTime,omitempty"`
 }
 
 // mfaSessionTTL is the lifetime of an MFA or challenge session token.
@@ -532,11 +536,23 @@ func (b *InMemoryBackend) ConfirmSignUp(clientID, username, confirmationCode str
 		return fmt.Errorf("%w: confirmation code is required", ErrCodeMismatch)
 	}
 
+	// Re-confirming an already-confirmed user is idempotent (the stored code is
+	// cleared on first confirmation). Short-circuit before code matching so a
+	// cleared code does not look like an empty-code bypass.
+	if user.Status == UserStatusConfirmed {
+		return nil
+	}
+
+	// Check expiry before a code mismatch so an expired code surfaces
+	// ExpiredCodeException rather than CodeMismatchException (AWS ordering).
 	if !user.ConfirmCodeExpiresAt.IsZero() && time.Now().After(user.ConfirmCodeExpiresAt) {
 		return fmt.Errorf("%w: confirmation code has expired", ErrExpiredCode)
 	}
 
-	if user.ConfirmCode != "" && confirmationCode != user.ConfirmCode {
+	// If no code was ever stored for an unconfirmed user, there is nothing to
+	// match against — any supplied code is a mismatch. Without this guard an
+	// empty stored code would let an arbitrary code confirm the user.
+	if user.ConfirmCode == "" || confirmationCode != user.ConfirmCode {
 		return fmt.Errorf("%w: invalid confirmation code", ErrCodeMismatch)
 	}
 
@@ -650,6 +666,11 @@ func (b *InMemoryBackend) AdminSetUserPassword(userPoolID, username, password st
 	b.mu.Lock("AdminSetUserPassword")
 	defer b.mu.Unlock()
 
+	pool, ok := b.pools[userPoolID]
+	if !ok {
+		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
 	poolUsers, ok := b.users[userPoolID]
 	if !ok {
 		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
@@ -658,6 +679,13 @@ func (b *InMemoryBackend) AdminSetUserPassword(userPoolID, username, password st
 	user, ok := poolUsers[username]
 	if !ok {
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
+	}
+
+	// AWS enforces the pool's password policy on AdminSetUserPassword, just as
+	// it does on ConfirmForgotPassword. An invalid password is rejected with
+	// InvalidPasswordException.
+	if err := validatePassword(pool.PasswordPolicy, password); err != nil {
+		return err
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcryptCost)
@@ -1096,6 +1124,7 @@ func (b *InMemoryBackend) issueTokensLocked(pool *UserPool, clientID string, use
 		PoolID:    pool.ID,
 		ClientID:  clientID,
 		Username:  user.Username,
+		AuthTime:  now.Unix(),
 		ExpiresAt: now.UTC().Add(defaultRefreshTokenTTL),
 	})
 
@@ -1148,12 +1177,21 @@ func (b *InMemoryBackend) InitiateAuthRefreshToken(clientID, refreshToken string
 		scopes = c.AllowedOAuthScopes
 	}
 
+	// Preserve the original authentication time across refresh; AWS Cognito
+	// does not reset auth_time on REFRESH_TOKEN_AUTH. Legacy entries minted
+	// before AuthTime was tracked fall back to the refresh moment.
+	authTime := entry.AuthTime
+	if authTime == 0 {
+		authTime = now.Unix()
+		entry.AuthTime = authTime
+	}
+
 	tokens, err := pool.issuer.Issue(TokenParams{
 		ClientID: clientID,
 		Username: user.Username,
 		UserSub:  user.Sub,
 		Groups:   groups,
-		AuthTime: now.Unix(),
+		AuthTime: authTime,
 		Scopes:   scopes,
 	})
 	if err != nil {

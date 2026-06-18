@@ -2,6 +2,7 @@ package batch_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -1385,7 +1386,8 @@ func TestBatch_PersistenceSnapshotRestore(t *testing.T) {
 	b := batch.NewInMemoryBackend("000000000000", "us-east-1")
 
 	// Create compute environment.
-	ce, err := b.CreateComputeEnvironment("test-ce", "MANAGED", "ENABLED", nil, "", nil, nil, nil)
+	ce, err := b.CreateComputeEnvironment(
+		context.Background(), "test-ce", "MANAGED", "ENABLED", nil, "", nil, nil, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, ce.ComputeEnvironmentArn)
 
@@ -1393,17 +1395,19 @@ func TestBatch_PersistenceSnapshotRestore(t *testing.T) {
 	ceOrder := []batch.ComputeEnvironmentOrder{
 		{ComputeEnvironment: ce.ComputeEnvironmentArn, Order: 1},
 	}
-	jq, err := b.CreateJobQueue("test-jq", 10, "ENABLED", ceOrder, nil, "", nil)
+	jq, err := b.CreateJobQueue(context.Background(), "test-jq", 10, "ENABLED", ceOrder, nil, "", nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, jq.JobQueueArn)
 
 	// Register job definition.
-	jd, err := b.RegisterJobDefinition("test-jd", "container", nil, nil, 0, 0, nil, nil, nil, nil, nil, nil, false)
+	jd, err := b.RegisterJobDefinition(
+		context.Background(), "test-jd", "container", nil, nil, 0, 0, nil, nil, nil, nil, nil, nil, false)
 	require.NoError(t, err)
 	require.NotEmpty(t, jd.JobDefinitionArn)
 
 	// Submit a job.
 	job, err := b.SubmitJob(
+		context.Background(),
 		"test-job",
 		jq.JobQueueName,
 		jd.JobDefinitionArn,
@@ -1432,28 +1436,28 @@ func TestBatch_PersistenceSnapshotRestore(t *testing.T) {
 	require.NoError(t, h2.Restore(snap))
 
 	// Compute environment is restored.
-	ces, _ := b2.DescribeComputeEnvironments([]string{"test-ce"}, 0, "")
+	ces, _ := b2.DescribeComputeEnvironments(context.Background(), []string{"test-ce"}, 0, "")
 	require.Len(t, ces, 1)
 	assert.Equal(t, "test-ce", ces[0].ComputeEnvironmentName)
 
 	// Job queue is restored.
-	jqs, _ := b2.DescribeJobQueues([]string{"test-jq"}, 0, "")
+	jqs, _ := b2.DescribeJobQueues(context.Background(), []string{"test-jq"}, 0, "")
 	require.Len(t, jqs, 1)
 	assert.Equal(t, "test-jq", jqs[0].JobQueueName)
 
 	// Job definition is restored.
-	jds, _ := b2.DescribeJobDefinitions([]string{"test-jd"}, "", "", 0, "")
+	jds, _ := b2.DescribeJobDefinitions(context.Background(), []string{"test-jd"}, "", "", 0, "")
 	require.NotEmpty(t, jds)
 	assert.Equal(t, "test-jd", jds[0].JobDefinitionName)
 
 	// Submitted job is restored.
-	jobs := b2.DescribeJobs([]string{job.JobID})
+	jobs := b2.DescribeJobs(context.Background(), []string{job.JobID})
 	require.Len(t, jobs, 1)
 	assert.Equal(t, "test-job", jobs[0].JobName)
 	assert.Equal(t, jq.JobQueueName, jobs[0].JobQueue)
 
 	// jobsByQueue index is rebuilt — ListJobs must return the submitted job.
-	listed, _, err := b2.ListJobs(jq.JobQueueName, "", "", 0)
+	listed, _, err := b2.ListJobs(context.Background(), jq.JobQueueName, "", "", 0)
 	require.NoError(t, err)
 	require.Len(t, listed, 1)
 	assert.Equal(t, job.JobID, listed[0].JobID)
@@ -3142,8 +3146,14 @@ func TestHandler_ListJobs_NoQueue(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
+	// AWS Batch ListJobs requires a grouping key (jobQueue here); without one it
+	// returns a ClientException (HTTP 400), it does not list all jobs.
 	rec = post(t, h, "/v1/listjobs", map[string]any{})
-	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	// With the queue specified, the submitted job is returned.
+	rec = post(t, h, "/v1/listjobs", map[string]any{"jobQueue": "q1"})
+	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
 	mustUnmarshal(t, rec, &out)

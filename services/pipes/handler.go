@@ -254,7 +254,8 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
-		ctx := c.Request().Context()
+		region := httputils.ExtractRegionFromRequest(c.Request(), h.Backend.Region())
+		ctx := context.WithValue(c.Request().Context(), regionContextKey{}, region)
 		log := logger.Load(ctx)
 
 		path := c.Request().URL.Path
@@ -461,7 +462,7 @@ func toPipeResponse(p *Pipe) pipeResponse {
 	}
 }
 
-func (h *Handler) handleCreatePipe(_ context.Context, path string, body []byte) ([]byte, error) {
+func (h *Handler) handleCreatePipe(ctx context.Context, path string, body []byte) ([]byte, error) {
 	name := extractPipeName(path)
 	if name == "" {
 		return nil, fmt.Errorf("%w: missing pipe name in path", errInvalidRequest)
@@ -472,7 +473,7 @@ func (h *Handler) handleCreatePipe(_ context.Context, path string, body []byte) 
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	p, err := h.Backend.CreatePipe(CreatePipeInput{
+	p, err := h.Backend.CreatePipe(ctx, CreatePipeInput{
 		Name:                    name,
 		RoleARN:                 req.RoleArn,
 		Source:                  req.Source,
@@ -496,13 +497,13 @@ func (h *Handler) handleCreatePipe(_ context.Context, path string, body []byte) 
 	return json.Marshal(toPipeResponse(p))
 }
 
-func (h *Handler) handleDescribePipe(_ context.Context, path string) ([]byte, error) {
+func (h *Handler) handleDescribePipe(ctx context.Context, path string) ([]byte, error) {
 	name := extractPipeName(path)
 	if name == "" {
 		return nil, fmt.Errorf("%w: missing pipe name in path", errInvalidRequest)
 	}
 
-	p, err := h.Backend.GetPipe(name)
+	p, err := h.Backend.GetPipe(ctx, name)
 	if err != nil {
 		return nil, err
 	}
@@ -528,7 +529,7 @@ type listPipesResponse struct {
 	Pipes     []pipeSummary `json:"Pipes"`
 }
 
-func (h *Handler) handleListPipes(_ context.Context, query url.Values) ([]byte, error) {
+func (h *Handler) handleListPipes(ctx context.Context, query url.Values) ([]byte, error) {
 	f := ListPipesFilter{
 		NamePrefix:   query.Get("NamePrefix"),
 		DesiredState: query.Get("DesiredState"),
@@ -547,7 +548,7 @@ func (h *Handler) handleListPipes(_ context.Context, query url.Values) ([]byte, 
 		f.Limit = n
 	}
 
-	res := h.Backend.ListPipes(f)
+	res := h.Backend.ListPipes(ctx, f)
 	items := make([]pipeSummary, 0, len(res.Pipes))
 
 	for _, p := range res.Pipes {
@@ -568,13 +569,13 @@ func (h *Handler) handleListPipes(_ context.Context, query url.Values) ([]byte, 
 	return json.Marshal(listPipesResponse{Pipes: items, NextToken: res.NextToken})
 }
 
-func (h *Handler) handleDeletePipe(_ context.Context, path string) ([]byte, error) {
+func (h *Handler) handleDeletePipe(ctx context.Context, path string) ([]byte, error) {
 	name := extractPipeName(path)
 	if name == "" {
 		return nil, fmt.Errorf("%w: missing pipe name in path", errInvalidRequest)
 	}
 
-	p, err := h.Backend.DeletePipe(name)
+	p, err := h.Backend.DeletePipe(ctx, name)
 	if err != nil {
 		return nil, err
 	}
@@ -582,7 +583,7 @@ func (h *Handler) handleDeletePipe(_ context.Context, path string) ([]byte, erro
 	return json.Marshal(toPipeResponse(p))
 }
 
-func (h *Handler) handleUpdatePipe(_ context.Context, path string, body []byte) ([]byte, error) {
+func (h *Handler) handleUpdatePipe(ctx context.Context, path string, body []byte) ([]byte, error) {
 	name := extractPipeName(path)
 	if name == "" {
 		return nil, fmt.Errorf("%w: missing pipe name in path", errInvalidRequest)
@@ -593,7 +594,7 @@ func (h *Handler) handleUpdatePipe(_ context.Context, path string, body []byte) 
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	p, err := h.Backend.UpdatePipe(name, UpdatePipeInput{
+	p, err := h.Backend.UpdatePipe(ctx, name, UpdatePipeInput{
 		RoleARN:                 req.RoleArn,
 		Target:                  req.Target,
 		Description:             req.Description,
@@ -614,13 +615,13 @@ func (h *Handler) handleUpdatePipe(_ context.Context, path string, body []byte) 
 	return json.Marshal(toPipeResponse(p))
 }
 
-func (h *Handler) handleStartPipe(_ context.Context, path string) ([]byte, error) {
+func (h *Handler) handleStartPipe(ctx context.Context, path string) ([]byte, error) {
 	name := extractPipeName(path)
 	if name == "" {
 		return nil, fmt.Errorf("%w: missing pipe name in path", errInvalidRequest)
 	}
 
-	p, err := h.Backend.StartPipe(name)
+	p, err := h.Backend.StartPipe(ctx, name)
 	if err != nil {
 		return nil, err
 	}
@@ -628,13 +629,13 @@ func (h *Handler) handleStartPipe(_ context.Context, path string) ([]byte, error
 	return json.Marshal(toPipeResponse(p))
 }
 
-func (h *Handler) handleStopPipe(_ context.Context, path string) ([]byte, error) {
+func (h *Handler) handleStopPipe(ctx context.Context, path string) ([]byte, error) {
 	name := extractPipeName(path)
 	if name == "" {
 		return nil, fmt.Errorf("%w: missing pipe name in path", errInvalidRequest)
 	}
 
-	p, err := h.Backend.StopPipe(name)
+	p, err := h.Backend.StopPipe(ctx, name)
 	if err != nil {
 		return nil, err
 	}
@@ -646,7 +647,7 @@ type tagResourceRequest struct {
 	Tags map[string]string `json:"Tags"`
 }
 
-func (h *Handler) handleTagResource(_ context.Context, path string, body []byte) ([]byte, error) {
+func (h *Handler) handleTagResource(ctx context.Context, path string, body []byte) ([]byte, error) {
 	resourceARN, err := extractTagsARN(path)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -657,7 +658,7 @@ func (h *Handler) handleTagResource(_ context.Context, path string, body []byte)
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, unmarshalErr)
 	}
 
-	if tagErr := h.Backend.TagResource(resourceARN, req.Tags); tagErr != nil {
+	if tagErr := h.Backend.TagResource(ctx, resourceARN, req.Tags); tagErr != nil {
 		return nil, tagErr
 	}
 
@@ -665,7 +666,7 @@ func (h *Handler) handleTagResource(_ context.Context, path string, body []byte)
 }
 
 func (h *Handler) handleUntagResource(
-	_ context.Context,
+	ctx context.Context,
 	path string,
 	query url.Values,
 ) ([]byte, error) {
@@ -676,7 +677,7 @@ func (h *Handler) handleUntagResource(
 
 	tagKeys := query["tagKeys"]
 
-	if untagErr := h.Backend.UntagResource(resourceARN, tagKeys); untagErr != nil {
+	if untagErr := h.Backend.UntagResource(ctx, resourceARN, tagKeys); untagErr != nil {
 		return nil, untagErr
 	}
 
@@ -687,13 +688,13 @@ type listTagsResponse struct {
 	Tags map[string]string `json:"Tags"`
 }
 
-func (h *Handler) handleListTagsForResource(_ context.Context, path string) ([]byte, error) {
+func (h *Handler) handleListTagsForResource(ctx context.Context, path string) ([]byte, error) {
 	resourceARN, err := extractTagsARN(path)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	tags, err := h.Backend.ListTagsForResource(resourceARN)
+	tags, err := h.Backend.ListTagsForResource(ctx, resourceARN)
 	if err != nil {
 		return nil, err
 	}

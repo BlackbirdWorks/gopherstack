@@ -1,6 +1,7 @@
 package memorydb_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -15,7 +16,7 @@ const (
 )
 
 func newTestBackend() *memorydb.InMemoryBackend {
-	return memorydb.NewInMemoryBackend()
+	return memorydb.NewInMemoryBackend(testAccountID, testRegion)
 }
 
 func TestBackend_Cluster_Lifecycle(t *testing.T) {
@@ -47,7 +48,7 @@ func TestBackend_Cluster_Lifecycle(t *testing.T) {
 				ACLName:     tt.aclName,
 			}
 
-			c, err := b.CreateCluster(testRegion, testAccountID, req)
+			c, err := b.CreateCluster(context.Background(), req)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -60,16 +61,16 @@ func TestBackend_Cluster_Lifecycle(t *testing.T) {
 			assert.NotEmpty(t, c.ARN)
 			assert.Equal(t, "available", c.Status)
 
-			clusters, err := b.DescribeClusters(tt.clusterName)
+			clusters, err := b.DescribeClusters(context.Background(), tt.clusterName)
 			require.NoError(t, err)
 			require.Len(t, clusters, 1)
 			assert.Equal(t, tt.clusterName, clusters[0].Name)
 
-			deleted, err := b.DeleteCluster(tt.clusterName)
+			deleted, err := b.DeleteCluster(context.Background(), tt.clusterName)
 			require.NoError(t, err)
 			assert.Equal(t, tt.clusterName, deleted.Name)
 
-			_, err = b.DescribeClusters(tt.clusterName)
+			_, err = b.DescribeClusters(context.Background(), tt.clusterName)
 			require.Error(t, err)
 		})
 	}
@@ -99,10 +100,10 @@ func TestBackend_Cluster_DuplicateName(t *testing.T) {
 				ACLName:     "open-access",
 			}
 
-			_, err := b.CreateCluster(testRegion, testAccountID, req)
+			_, err := b.CreateCluster(context.Background(), req)
 			require.NoError(t, err)
 
-			_, err = b.CreateCluster(testRegion, testAccountID, req)
+			_, err = b.CreateCluster(context.Background(), req)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -136,7 +137,7 @@ func TestBackend_ACL_Lifecycle(t *testing.T) {
 				ACLName: tt.aclName,
 			}
 
-			a, err := b.CreateACL(testRegion, testAccountID, req)
+			a, err := b.CreateACL(context.Background(), req)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -148,14 +149,14 @@ func TestBackend_ACL_Lifecycle(t *testing.T) {
 			assert.Equal(t, tt.aclName, a.Name)
 			assert.NotEmpty(t, a.ARN)
 
-			acls, err := b.DescribeACLs(tt.aclName)
+			acls, err := b.DescribeACLs(context.Background(), tt.aclName)
 			require.NoError(t, err)
 			require.Len(t, acls, 1)
 
-			_, err = b.DeleteACL(tt.aclName)
+			_, err = b.DeleteACL(context.Background(), tt.aclName)
 			require.NoError(t, err)
 
-			_, err = b.DescribeACLs(tt.aclName)
+			_, err = b.DescribeACLs(context.Background(), tt.aclName)
 			require.Error(t, err)
 		})
 	}
@@ -185,7 +186,7 @@ func TestBackend_SubnetGroup_Lifecycle(t *testing.T) {
 				SubnetIDs:       []string{"subnet-1", "subnet-2"},
 			}
 
-			sg, err := b.CreateSubnetGroup(testRegion, testAccountID, req)
+			sg, err := b.CreateSubnetGroup(context.Background(), req)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -197,11 +198,11 @@ func TestBackend_SubnetGroup_Lifecycle(t *testing.T) {
 			assert.Equal(t, tt.sgName, sg.Name)
 			assert.NotEmpty(t, sg.ARN)
 
-			sgs, err := b.DescribeSubnetGroups(tt.sgName)
+			sgs, err := b.DescribeSubnetGroups(context.Background(), tt.sgName)
 			require.NoError(t, err)
 			require.Len(t, sgs, 1)
 
-			_, err = b.DeleteSubnetGroup(tt.sgName)
+			_, err = b.DeleteSubnetGroup(context.Background(), tt.sgName)
 			require.NoError(t, err)
 		})
 	}
@@ -235,7 +236,7 @@ func TestBackend_User_Lifecycle(t *testing.T) {
 				},
 			}
 
-			u, err := b.CreateUser(testRegion, testAccountID, req)
+			u, err := b.CreateUser(context.Background(), req)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -247,11 +248,11 @@ func TestBackend_User_Lifecycle(t *testing.T) {
 			assert.Equal(t, tt.userName, u.Name)
 			assert.NotEmpty(t, u.ARN)
 
-			users, err := b.DescribeUsers(tt.userName)
+			users, err := b.DescribeUsers(context.Background(), tt.userName)
 			require.NoError(t, err)
 			require.Len(t, users, 1)
 
-			_, err = b.DeleteUser(tt.userName)
+			_, err = b.DeleteUser(context.Background(), tt.userName)
 			require.NoError(t, err)
 		})
 	}
@@ -282,18 +283,18 @@ func TestBackend_ParameterGroup_Lifecycle(t *testing.T) {
 				Family:             tt.family,
 			}
 
-			pg, err := b.CreateParameterGroup(testRegion, testAccountID, req)
+			pg, err := b.CreateParameterGroup(context.Background(), req)
 
 			require.NoError(t, err)
 			assert.Equal(t, tt.pgName, pg.Name)
 			assert.Equal(t, tt.family, pg.Family)
 			assert.NotEmpty(t, pg.ARN)
 
-			pgs, err := b.DescribeParameterGroups(tt.pgName)
+			pgs, err := b.DescribeParameterGroups(context.Background(), tt.pgName)
 			require.NoError(t, err)
 			require.Len(t, pgs, 1)
 
-			_, err = b.DeleteParameterGroup(tt.pgName)
+			_, err = b.DeleteParameterGroup(context.Background(), tt.pgName)
 			require.NoError(t, err)
 		})
 	}
@@ -330,21 +331,21 @@ func TestBackend_Tags(t *testing.T) {
 				ACLName:     "open-access",
 			}
 
-			c, err := b.CreateCluster(testRegion, testAccountID, req)
+			c, err := b.CreateCluster(context.Background(), req)
 			require.NoError(t, err)
 
-			err = b.TagResource(c.ARN, tt.tags)
+			err = b.TagResource(context.Background(), c.ARN, tt.tags)
 			require.NoError(t, err)
 
-			got, err := b.ListTags(c.ARN)
+			got, err := b.ListTags(context.Background(), c.ARN)
 			require.NoError(t, err)
 			assert.Equal(t, "test", got["Env"])
 			assert.Equal(t, "ops", got["Team"])
 
-			err = b.UntagResource(c.ARN, tt.removedKeys)
+			err = b.UntagResource(context.Background(), c.ARN, tt.removedKeys)
 			require.NoError(t, err)
 
-			got, err = b.ListTags(c.ARN)
+			got, err = b.ListTags(context.Background(), c.ARN)
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantTags, got)
 		})
@@ -370,7 +371,7 @@ func TestBackend_OpenAccessACL_Preseeded(t *testing.T) {
 
 			b := newTestBackend()
 
-			acls, err := b.DescribeACLs(tt.aclName)
+			acls, err := b.DescribeACLs(context.Background(), tt.aclName)
 			require.NoError(t, err)
 			require.Len(t, acls, 1)
 			assert.Equal(t, tt.aclName, acls[0].Name)

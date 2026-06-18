@@ -6,6 +6,9 @@
 		GetEnvironmentCommand,
 		CreateEnvironmentCommand,
 		DeleteEnvironmentCommand,
+		CreateWebLoginTokenCommand,
+		CreateCliTokenCommand,
+		type MWAAClient,
 		type Environment
 	} from '@aws-sdk/client-mwaa';
 	import { toast } from 'svelte-sonner';
@@ -21,10 +24,15 @@
 		Activity,
 		Plus,
 		Trash2,
-		BarChart2
+		BarChart2,
+		ExternalLink,
+		Terminal
 	} from 'lucide-svelte';
 
-	const mwaa = getMWAAClient();
+	let mwaaClient: MWAAClient | undefined;
+	function mwaa(): MWAAClient {
+		return (mwaaClient ??= getMWAAClient());
+	}
 
 	type Tab = 'environments' | 'metrics';
 
@@ -102,7 +110,7 @@
 	async function loadEnvironmentNames() {
 		loading = true;
 		try {
-			const res = await mwaa.send(new ListEnvironmentsCommand({}));
+			const res = await mwaa().send(new ListEnvironmentsCommand({}));
 			environmentNames = res.Environments ?? [];
 			await loadEnvironmentDetails(environmentNames);
 		} catch (err: unknown) {
@@ -115,7 +123,7 @@
 	async function loadEnvironmentDetails(names: string[]) {
 		const toLoad = names.filter((n) => !loadedNames.has(n));
 		const results = await Promise.allSettled(
-			toLoad.map((name) => mwaa.send(new GetEnvironmentCommand({ Name: name })))
+			toLoad.map((name) => mwaa().send(new GetEnvironmentCommand({ Name: name })))
 		);
 		const loaded: Environment[] = [];
 		results.forEach((r, i) => {
@@ -131,12 +139,48 @@
 		loadingDetail = true;
 		selectedEnv = null;
 		try {
-			const res = await mwaa.send(new GetEnvironmentCommand({ Name: name }));
+			const res = await mwaa().send(new GetEnvironmentCommand({ Name: name }));
 			selectedEnv = res.Environment ?? null;
 		} catch (err: unknown) {
 			toast.error(`Failed to get environment: ${(err as Error).message}`);
 		} finally {
 			loadingDetail = false;
+		}
+	}
+
+	// Airflow Web UI access + CLI token (CreateWebLoginToken / CreateCliToken).
+	let tokenLoading = $state(false);
+	let cliToken = $state<{ token?: string; hostname?: string } | null>(null);
+
+	async function openAirflowUi(name: string) {
+		tokenLoading = true;
+		try {
+			const res = await mwaa().send(new CreateWebLoginTokenCommand({ Name: name }));
+			if (res.WebServerHostname && res.WebToken) {
+				const url = `https://${res.WebServerHostname}/aws_mwaa/aws-console-sso?login=true#${res.WebToken}`;
+				window.open(url, '_blank', 'noopener');
+				toast.success('Opening Airflow web UI…');
+			} else {
+				toast.error('No web login token returned');
+			}
+		} catch (err: unknown) {
+			toast.error(`Failed to create web login token: ${(err as Error).message}`);
+		} finally {
+			tokenLoading = false;
+		}
+	}
+
+	async function getCliToken(name: string) {
+		tokenLoading = true;
+		cliToken = null;
+		try {
+			const res = await mwaa().send(new CreateCliTokenCommand({ Name: name }));
+			cliToken = { token: res.CliToken, hostname: res.WebServerHostname };
+			toast.success('CLI token generated');
+		} catch (err: unknown) {
+			toast.error(`Failed to create CLI token: ${(err as Error).message}`);
+		} finally {
+			tokenLoading = false;
 		}
 	}
 
@@ -166,7 +210,7 @@
 		if (!newSourceBucketArn.trim()) { toast.error('Source Bucket ARN is required'); return; }
 		creating = true;
 		try {
-			await mwaa.send(new CreateEnvironmentCommand({
+			await mwaa().send(new CreateEnvironmentCommand({
 				Name: newName.trim(),
 				DagS3Path: newDagS3Path.trim(),
 				ExecutionRoleArn: newExecutionRoleArn.trim(),
@@ -196,7 +240,7 @@
 		if (!deleteTarget) return;
 		deleting = true;
 		try {
-			await mwaa.send(new DeleteEnvironmentCommand({ Name: deleteTarget }));
+			await mwaa().send(new DeleteEnvironmentCommand({ Name: deleteTarget }));
 			toast.success(`Environment "${deleteTarget}" deleted`);
 			if (selectedEnv?.Name === deleteTarget) selectedEnv = null;
 			deleteTarget = '';
@@ -415,6 +459,20 @@
 							</div>
 							<div class="flex items-center gap-2">
 								<button
+									onclick={() => { if (selectedEnv?.Name) openAirflowUi(selectedEnv.Name); }}
+									disabled={tokenLoading}
+									class="flex items-center gap-1.5 px-3 py-1.5 text-sm text-teal-600 dark:text-teal-400 border border-teal-300 dark:border-teal-700 rounded-lg hover:bg-teal-50 dark:hover:bg-teal-900/20 transition-colors disabled:opacity-50"
+								>
+									<ExternalLink class="w-4 h-4" />Open Airflow UI
+								</button>
+								<button
+									onclick={() => { if (selectedEnv?.Name) getCliToken(selectedEnv.Name); }}
+									disabled={tokenLoading}
+									class="flex items-center gap-1.5 px-3 py-1.5 text-sm text-slate-600 dark:text-slate-300 border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors disabled:opacity-50"
+								>
+									<Terminal class="w-4 h-4" />CLI Token
+								</button>
+								<button
 									onclick={() => { if (selectedEnv?.Name) loadMetrics(selectedEnv.Name); }}
 									class="flex items-center gap-1.5 px-3 py-1.5 text-sm text-teal-600 dark:text-teal-400 border border-teal-300 dark:border-teal-700 rounded-lg hover:bg-teal-50 dark:hover:bg-teal-900/20 transition-colors"
 								>
@@ -460,6 +518,17 @@
 										class="text-sm font-medium text-teal-600 dark:text-teal-400 hover:underline truncate block"
 									>{selectedEnv.WebserverUrl}</a>
 								</div>
+							</div>
+						{/if}
+
+						{#if cliToken}
+							<div class="bg-slate-900 rounded-lg p-3 space-y-2">
+								<div class="flex items-center justify-between">
+									<p class="text-xs font-semibold text-slate-300 flex items-center gap-2"><Terminal class="w-3.5 h-3.5" /> Airflow CLI Token</p>
+									<button onclick={() => (cliToken = null)} class="text-xs text-slate-400 hover:text-slate-200">Clear</button>
+								</div>
+								<p class="text-[10px] text-slate-400">Endpoint: <span class="font-mono">{cliToken.hostname}</span></p>
+								<pre class="overflow-x-auto rounded bg-black/40 p-2 text-[10px] font-mono text-teal-300 break-all whitespace-pre-wrap">{cliToken.token}</pre>
 							</div>
 						{/if}
 

@@ -1,6 +1,7 @@
 package kinesis_test
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"testing"
@@ -81,14 +82,14 @@ func TestKinesisBackend_FindSequencePositionGaps(t *testing.T) {
 	t.Parallel()
 
 	bk := kinesis.NewInMemoryBackend()
-	require.NoError(t, bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "gap-stream"}))
+	require.NoError(t, bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{StreamName: "gap-stream"}))
 
-	desc, err := bk.DescribeStream(&kinesis.DescribeStreamInput{StreamName: "gap-stream"})
+	desc, err := bk.DescribeStream(context.Background(), &kinesis.DescribeStreamInput{StreamName: "gap-stream"})
 	require.NoError(t, err)
 	shardID := desc.Shards[0].ShardID
 
 	// Put a record - get seq "00000000000000000001"
-	out1, err := bk.PutRecord(&kinesis.PutRecordInput{
+	out1, err := bk.PutRecord(context.Background(), &kinesis.PutRecordInput{
 		StreamName:   "gap-stream",
 		PartitionKey: "pk",
 		Data:         []byte("first"),
@@ -96,7 +97,7 @@ func TestKinesisBackend_FindSequencePositionGaps(t *testing.T) {
 	require.NoError(t, err)
 
 	// Put another - get seq "00000000000000000002"
-	out2, err := bk.PutRecord(&kinesis.PutRecordInput{
+	out2, err := bk.PutRecord(context.Background(), &kinesis.PutRecordInput{
 		StreamName:   "gap-stream",
 		PartitionKey: "pk",
 		Data:         []byte("second"),
@@ -104,7 +105,7 @@ func TestKinesisBackend_FindSequencePositionGaps(t *testing.T) {
 	require.NoError(t, err)
 
 	// AT_SEQUENCE_NUMBER for out1.SequenceNumber should return index 0 (inclusive)
-	iterOut, err := bk.GetShardIterator(&kinesis.GetShardIteratorInput{
+	iterOut, err := bk.GetShardIterator(context.Background(), &kinesis.GetShardIteratorInput{
 		StreamName:             "gap-stream",
 		ShardID:                shardID,
 		ShardIteratorType:      "AT_SEQUENCE_NUMBER",
@@ -112,7 +113,7 @@ func TestKinesisBackend_FindSequencePositionGaps(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	records, err := bk.GetRecords(&kinesis.GetRecordsInput{
+	records, err := bk.GetRecords(context.Background(), &kinesis.GetRecordsInput{
 		ShardIterator: iterOut.ShardIterator,
 		Limit:         10,
 	})
@@ -121,7 +122,7 @@ func TestKinesisBackend_FindSequencePositionGaps(t *testing.T) {
 	assert.Equal(t, out1.SequenceNumber, records.Records[0].SequenceNumber)
 
 	// AFTER_SEQUENCE_NUMBER for out1 should start at index 1
-	iterOut2, err := bk.GetShardIterator(&kinesis.GetShardIteratorInput{
+	iterOut2, err := bk.GetShardIterator(context.Background(), &kinesis.GetShardIteratorInput{
 		StreamName:             "gap-stream",
 		ShardID:                shardID,
 		ShardIteratorType:      "AFTER_SEQUENCE_NUMBER",
@@ -129,7 +130,7 @@ func TestKinesisBackend_FindSequencePositionGaps(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	records2, err := bk.GetRecords(&kinesis.GetRecordsInput{
+	records2, err := bk.GetRecords(context.Background(), &kinesis.GetRecordsInput{
 		ShardIterator: iterOut2.ShardIterator,
 		Limit:         10,
 	})
@@ -139,7 +140,7 @@ func TestKinesisBackend_FindSequencePositionGaps(t *testing.T) {
 
 	// AT_SEQUENCE_NUMBER for a sequence number that is lexicographically larger than all records
 	// should return empty (positions at end)
-	iterOut3, err := bk.GetShardIterator(&kinesis.GetShardIteratorInput{
+	iterOut3, err := bk.GetShardIterator(context.Background(), &kinesis.GetShardIteratorInput{
 		StreamName:             "gap-stream",
 		ShardID:                shardID,
 		ShardIteratorType:      "AT_SEQUENCE_NUMBER",
@@ -147,7 +148,7 @@ func TestKinesisBackend_FindSequencePositionGaps(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	records3, err := bk.GetRecords(&kinesis.GetRecordsInput{
+	records3, err := bk.GetRecords(context.Background(), &kinesis.GetRecordsInput{
 		ShardIterator: iterOut3.ShardIterator,
 		Limit:         10,
 	})
@@ -159,13 +160,13 @@ func TestKinesisBackend_GetRecordsDeletedStream(t *testing.T) {
 	t.Parallel()
 
 	bk := kinesis.NewInMemoryBackend()
-	require.NoError(t, bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "deleted-stream"}))
+	require.NoError(t, bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{StreamName: "deleted-stream"}))
 
-	desc, err := bk.DescribeStream(&kinesis.DescribeStreamInput{StreamName: "deleted-stream"})
+	desc, err := bk.DescribeStream(context.Background(), &kinesis.DescribeStreamInput{StreamName: "deleted-stream"})
 	require.NoError(t, err)
 	shardID := desc.Shards[0].ShardID
 
-	iterOut, err := bk.GetShardIterator(&kinesis.GetShardIteratorInput{
+	iterOut, err := bk.GetShardIterator(context.Background(), &kinesis.GetShardIteratorInput{
 		StreamName:        "deleted-stream",
 		ShardID:           shardID,
 		ShardIteratorType: "TRIM_HORIZON",
@@ -173,10 +174,10 @@ func TestKinesisBackend_GetRecordsDeletedStream(t *testing.T) {
 	require.NoError(t, err)
 
 	// Delete stream
-	require.NoError(t, bk.DeleteStream(&kinesis.DeleteStreamInput{StreamName: "deleted-stream"}))
+	require.NoError(t, bk.DeleteStream(context.Background(), &kinesis.DeleteStreamInput{StreamName: "deleted-stream"}))
 
 	// GetRecords should return stream not found
-	_, err = bk.GetRecords(&kinesis.GetRecordsInput{ShardIterator: iterOut.ShardIterator})
+	_, err = bk.GetRecords(context.Background(), &kinesis.GetRecordsInput{ShardIterator: iterOut.ShardIterator})
 	assert.ErrorIs(t, err, kinesis.ErrStreamNotFound)
 }
 
@@ -184,13 +185,16 @@ func TestKinesisBackend_GetRecordsInvalidShard(t *testing.T) {
 	t.Parallel()
 
 	bk := kinesis.NewInMemoryBackend()
-	require.NoError(t, bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "shard-gone-stream"}))
+	require.NoError(
+		t,
+		bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{StreamName: "shard-gone-stream"}),
+	)
 
-	desc, err := bk.DescribeStream(&kinesis.DescribeStreamInput{StreamName: "shard-gone-stream"})
+	desc, err := bk.DescribeStream(context.Background(), &kinesis.DescribeStreamInput{StreamName: "shard-gone-stream"})
 	require.NoError(t, err)
 	shardID := desc.Shards[0].ShardID
 
-	iterOut, err := bk.GetShardIterator(&kinesis.GetShardIteratorInput{
+	iterOut, err := bk.GetShardIterator(context.Background(), &kinesis.GetShardIteratorInput{
 		StreamName:        "shard-gone-stream",
 		ShardID:           shardID,
 		ShardIteratorType: "TRIM_HORIZON",
@@ -199,10 +203,13 @@ func TestKinesisBackend_GetRecordsInvalidShard(t *testing.T) {
 
 	// Delete and recreate the stream (new shards will have the same IDs so this won't test the gap,
 	// but we can test invalid shard via ListShards with wrong stream name)
-	require.NoError(t, bk.DeleteStream(&kinesis.DeleteStreamInput{StreamName: "shard-gone-stream"}))
+	require.NoError(
+		t,
+		bk.DeleteStream(context.Background(), &kinesis.DeleteStreamInput{StreamName: "shard-gone-stream"}),
+	)
 
 	// Recreate stream (iterator now points to deleted stream)
-	_, err = bk.GetRecords(&kinesis.GetRecordsInput{ShardIterator: iterOut.ShardIterator})
+	_, err = bk.GetRecords(context.Background(), &kinesis.GetRecordsInput{ShardIterator: iterOut.ShardIterator})
 	assert.Error(t, err)
 }
 
@@ -211,12 +218,12 @@ func TestKinesisBackend_ListStreamsLimit(t *testing.T) {
 
 	bk := kinesis.NewInMemoryBackend()
 	for i := range 5 {
-		require.NoError(t, bk.CreateStream(&kinesis.CreateStreamInput{
+		require.NoError(t, bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 			StreamName: fmt.Sprintf("limit-stream-%d", i),
 		}))
 	}
 
-	out, err := bk.ListStreams(&kinesis.ListStreamsInput{Limit: 3})
+	out, err := bk.ListStreams(context.Background(), &kinesis.ListStreamsInput{Limit: 3})
 	require.NoError(t, err)
 	assert.Len(t, out.StreamNames, 3)
 	assert.True(t, out.HasMoreStreams)
@@ -229,10 +236,10 @@ func TestListStreams_Sorted(t *testing.T) {
 	bk := kinesis.NewInMemoryBackend()
 
 	for _, name := range []string{"charlie", "alpha", "bravo"} {
-		require.NoError(t, bk.CreateStream(&kinesis.CreateStreamInput{StreamName: name}))
+		require.NoError(t, bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{StreamName: name}))
 	}
 
-	out, err := bk.ListStreams(&kinesis.ListStreamsInput{})
+	out, err := bk.ListStreams(context.Background(), &kinesis.ListStreamsInput{})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"alpha", "bravo", "charlie"}, out.StreamNames)
 }
@@ -247,7 +254,7 @@ func TestListStreams_Pagination(t *testing.T) {
 
 	bk := kinesis.NewInMemoryBackend()
 	for _, n := range []string{"a", "b", "c", "d", "e"} {
-		require.NoError(t, bk.CreateStream(&kinesis.CreateStreamInput{StreamName: n}))
+		require.NoError(t, bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{StreamName: n}))
 	}
 
 	tests := []struct {
@@ -289,7 +296,7 @@ func TestListStreams_Pagination(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			out, err := bk.ListStreams(tt.input)
+			out, err := bk.ListStreams(context.Background(), tt.input)
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, out.StreamNames)
 			assert.Equal(t, tt.wantMore, out.HasMoreStreams)
@@ -311,28 +318,34 @@ func TestIncreaseDecreaseRetentionPeriod(t *testing.T) {
 		{
 			name: "increase_from_24_to_48",
 			setup: func(bk *kinesis.InMemoryBackend) {
-				_ = bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "s"})
+				_ = bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{StreamName: "s"})
 			},
 			action: func(bk *kinesis.InMemoryBackend) error {
-				return bk.IncreaseStreamRetentionPeriod(&kinesis.IncreaseStreamRetentionPeriodInput{
-					StreamName:           "s",
-					RetentionPeriodHours: 48,
-				})
+				return bk.IncreaseStreamRetentionPeriod(
+					context.Background(),
+					&kinesis.IncreaseStreamRetentionPeriodInput{
+						StreamName:           "s",
+						RetentionPeriodHours: 48,
+					},
+				)
 			},
 		},
 		{
 			name: "decrease_from_48_to_24",
 			setup: func(bk *kinesis.InMemoryBackend) {
-				_ = bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "s"})
-				_ = bk.IncreaseStreamRetentionPeriod(&kinesis.IncreaseStreamRetentionPeriodInput{
+				_ = bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{StreamName: "s"})
+				_ = bk.IncreaseStreamRetentionPeriod(context.Background(), &kinesis.IncreaseStreamRetentionPeriodInput{
 					StreamName: "s", RetentionPeriodHours: 48,
 				})
 			},
 			action: func(bk *kinesis.InMemoryBackend) error {
-				return bk.DecreaseStreamRetentionPeriod(&kinesis.DecreaseStreamRetentionPeriodInput{
-					StreamName:           "s",
-					RetentionPeriodHours: 24,
-				})
+				return bk.DecreaseStreamRetentionPeriod(
+					context.Background(),
+					&kinesis.DecreaseStreamRetentionPeriodInput{
+						StreamName:           "s",
+						RetentionPeriodHours: 24,
+					},
+				)
 			},
 		},
 		{
@@ -340,33 +353,42 @@ func TestIncreaseDecreaseRetentionPeriod(t *testing.T) {
 			setup:   func(_ *kinesis.InMemoryBackend) {},
 			wantErr: true,
 			action: func(bk *kinesis.InMemoryBackend) error {
-				return bk.IncreaseStreamRetentionPeriod(&kinesis.IncreaseStreamRetentionPeriodInput{
-					StreamName: "missing", RetentionPeriodHours: 48,
-				})
+				return bk.IncreaseStreamRetentionPeriod(
+					context.Background(),
+					&kinesis.IncreaseStreamRetentionPeriodInput{
+						StreamName: "missing", RetentionPeriodHours: 48,
+					},
+				)
 			},
 		},
 		{
 			name: "increase_same_value_is_noop",
 			setup: func(bk *kinesis.InMemoryBackend) {
-				_ = bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "s"})
+				_ = bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{StreamName: "s"})
 			},
 			wantErr: false, // idempotent: same value → success
 			action: func(bk *kinesis.InMemoryBackend) error {
-				return bk.IncreaseStreamRetentionPeriod(&kinesis.IncreaseStreamRetentionPeriodInput{
-					StreamName: "s", RetentionPeriodHours: 24, // same as default — no-op
-				})
+				return bk.IncreaseStreamRetentionPeriod(
+					context.Background(),
+					&kinesis.IncreaseStreamRetentionPeriodInput{
+						StreamName: "s", RetentionPeriodHours: 24, // same as default — no-op
+					},
+				)
 			},
 		},
 		{
 			name: "increase_above_max_rejected",
 			setup: func(bk *kinesis.InMemoryBackend) {
-				_ = bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "s"})
+				_ = bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{StreamName: "s"})
 			},
 			wantErr: true,
 			action: func(bk *kinesis.InMemoryBackend) error {
-				return bk.IncreaseStreamRetentionPeriod(&kinesis.IncreaseStreamRetentionPeriodInput{
-					StreamName: "s", RetentionPeriodHours: 9999,
-				})
+				return bk.IncreaseStreamRetentionPeriod(
+					context.Background(),
+					&kinesis.IncreaseStreamRetentionPeriodInput{
+						StreamName: "s", RetentionPeriodHours: 9999,
+					},
+				)
 			},
 		},
 		{
@@ -374,39 +396,48 @@ func TestIncreaseDecreaseRetentionPeriod(t *testing.T) {
 			setup:   func(_ *kinesis.InMemoryBackend) {},
 			wantErr: true,
 			action: func(bk *kinesis.InMemoryBackend) error {
-				return bk.DecreaseStreamRetentionPeriod(&kinesis.DecreaseStreamRetentionPeriodInput{
-					StreamName: "missing", RetentionPeriodHours: 24,
-				})
+				return bk.DecreaseStreamRetentionPeriod(
+					context.Background(),
+					&kinesis.DecreaseStreamRetentionPeriodInput{
+						StreamName: "missing", RetentionPeriodHours: 24,
+					},
+				)
 			},
 		},
 		{
 			name: "decrease_below_min_rejected",
 			setup: func(bk *kinesis.InMemoryBackend) {
-				_ = bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "s"})
-				_ = bk.IncreaseStreamRetentionPeriod(&kinesis.IncreaseStreamRetentionPeriodInput{
+				_ = bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{StreamName: "s"})
+				_ = bk.IncreaseStreamRetentionPeriod(context.Background(), &kinesis.IncreaseStreamRetentionPeriodInput{
 					StreamName: "s", RetentionPeriodHours: 48,
 				})
 			},
 			wantErr: true,
 			action: func(bk *kinesis.InMemoryBackend) error {
-				return bk.DecreaseStreamRetentionPeriod(&kinesis.DecreaseStreamRetentionPeriodInput{
-					StreamName: "s", RetentionPeriodHours: 10, // below 24h minimum
-				})
+				return bk.DecreaseStreamRetentionPeriod(
+					context.Background(),
+					&kinesis.DecreaseStreamRetentionPeriodInput{
+						StreamName: "s", RetentionPeriodHours: 10, // below 24h minimum
+					},
+				)
 			},
 		},
 		{
 			name: "decrease_same_value_is_noop",
 			setup: func(bk *kinesis.InMemoryBackend) {
-				_ = bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "s"})
-				_ = bk.IncreaseStreamRetentionPeriod(&kinesis.IncreaseStreamRetentionPeriodInput{
+				_ = bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{StreamName: "s"})
+				_ = bk.IncreaseStreamRetentionPeriod(context.Background(), &kinesis.IncreaseStreamRetentionPeriodInput{
 					StreamName: "s", RetentionPeriodHours: 48,
 				})
 			},
 			wantErr: false, // idempotent: same value → success
 			action: func(bk *kinesis.InMemoryBackend) error {
-				return bk.DecreaseStreamRetentionPeriod(&kinesis.DecreaseStreamRetentionPeriodInput{
-					StreamName: "s", RetentionPeriodHours: 48, // same as current — no-op
-				})
+				return bk.DecreaseStreamRetentionPeriod(
+					context.Background(),
+					&kinesis.DecreaseStreamRetentionPeriodInput{
+						StreamName: "s", RetentionPeriodHours: 48, // same as current — no-op
+					},
+				)
 			},
 		},
 	}
@@ -436,13 +467,13 @@ func TestDeleteStream_ClosesTags(t *testing.T) {
 	t.Parallel()
 
 	bk := kinesis.NewInMemoryBackend()
-	require.NoError(t, bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "tagged-stream"}))
+	require.NoError(t, bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{StreamName: "tagged-stream"}))
 
 	// Delete should not panic (Close is safe to call).
-	require.NoError(t, bk.DeleteStream(&kinesis.DeleteStreamInput{StreamName: "tagged-stream"}))
+	require.NoError(t, bk.DeleteStream(context.Background(), &kinesis.DeleteStreamInput{StreamName: "tagged-stream"}))
 
 	// Recreating with the same name should succeed (Tags registry released).
-	require.NoError(t, bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "tagged-stream"}))
+	require.NoError(t, bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{StreamName: "tagged-stream"}))
 }
 
 // TestPutRecords_ThroughputErrorCode verifies that when FIS throughput fault is active,
@@ -452,11 +483,11 @@ func TestPutRecords_ThroughputErrorCode(t *testing.T) {
 	t.Parallel()
 
 	bk := kinesis.NewInMemoryBackend()
-	require.NoError(t, bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "fault-stream"}))
+	require.NoError(t, bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{StreamName: "fault-stream"}))
 
 	bk.InjectFaultForTest("fault-stream")
 
-	out, err := bk.PutRecords(&kinesis.PutRecordsInput{
+	out, err := bk.PutRecords(context.Background(), &kinesis.PutRecordsInput{
 		StreamName: "fault-stream",
 		Records: []kinesis.PutRecordsEntry{
 			{PartitionKey: "pk", Data: []byte("data")},
@@ -472,10 +503,13 @@ func TestSplitShard_Basic(t *testing.T) {
 	t.Parallel()
 
 	bk := kinesis.NewInMemoryBackend()
-	require.NoError(t, bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "split-stream", ShardCount: 1}))
+	require.NoError(
+		t,
+		bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{StreamName: "split-stream", ShardCount: 1}),
+	)
 
 	// Get the initial shard list.
-	listOut, err := bk.ListShards(&kinesis.ListShardsInput{StreamName: "split-stream"})
+	listOut, err := bk.ListShards(context.Background(), &kinesis.ListShardsInput{StreamName: "split-stream"})
 	require.NoError(t, err)
 	require.Len(t, listOut.Shards, 1)
 
@@ -483,7 +517,7 @@ func TestSplitShard_Basic(t *testing.T) {
 	// Split at a midpoint well inside the shard range.
 	splitKey := "170141183460469231731687303715884105728" // 2^127 / 1
 
-	err = bk.SplitShard(&kinesis.SplitShardInput{
+	err = bk.SplitShard(context.Background(), &kinesis.SplitShardInput{
 		StreamName:         "split-stream",
 		ShardToSplit:       parentID,
 		NewStartingHashKey: splitKey,
@@ -491,7 +525,7 @@ func TestSplitShard_Basic(t *testing.T) {
 	require.NoError(t, err)
 
 	// Default list (open shards only) should now have 2 shards.
-	listOut, err = bk.ListShards(&kinesis.ListShardsInput{StreamName: "split-stream"})
+	listOut, err = bk.ListShards(context.Background(), &kinesis.ListShardsInput{StreamName: "split-stream"})
 	require.NoError(t, err)
 	assert.Len(t, listOut.Shards, 2, "split should produce 2 open child shards")
 
@@ -501,7 +535,7 @@ func TestSplitShard_Basic(t *testing.T) {
 	}
 
 	// Full list includes the closed parent + 2 children.
-	fullOut, err := bk.ListShards(&kinesis.ListShardsInput{
+	fullOut, err := bk.ListShards(context.Background(), &kinesis.ListShardsInput{
 		StreamName:  "split-stream",
 		ShardFilter: "FROM_TRIM_HORIZON",
 	})
@@ -513,16 +547,19 @@ func TestMergeShards_Basic(t *testing.T) {
 	t.Parallel()
 
 	bk := kinesis.NewInMemoryBackend()
-	require.NoError(t, bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "merge-stream", ShardCount: 2}))
+	require.NoError(
+		t,
+		bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{StreamName: "merge-stream", ShardCount: 2}),
+	)
 
-	listOut, err := bk.ListShards(&kinesis.ListShardsInput{StreamName: "merge-stream"})
+	listOut, err := bk.ListShards(context.Background(), &kinesis.ListShardsInput{StreamName: "merge-stream"})
 	require.NoError(t, err)
 	require.Len(t, listOut.Shards, 2)
 
 	shard1 := listOut.Shards[0].ShardID
 	shard2 := listOut.Shards[1].ShardID
 
-	err = bk.MergeShards(&kinesis.MergeShardsInput{
+	err = bk.MergeShards(context.Background(), &kinesis.MergeShardsInput{
 		StreamName:           "merge-stream",
 		ShardToMerge:         shard1,
 		AdjacentShardToMerge: shard2,
@@ -530,7 +567,7 @@ func TestMergeShards_Basic(t *testing.T) {
 	require.NoError(t, err)
 
 	// Only 1 open shard (the merged one).
-	openOut, err := bk.ListShards(&kinesis.ListShardsInput{StreamName: "merge-stream"})
+	openOut, err := bk.ListShards(context.Background(), &kinesis.ListShardsInput{StreamName: "merge-stream"})
 	require.NoError(t, err)
 	assert.Len(t, openOut.Shards, 1)
 
@@ -539,7 +576,7 @@ func TestMergeShards_Basic(t *testing.T) {
 	assert.Equal(t, shard2, merged.AdjacentParentShardID)
 
 	// Full list: 2 closed parents + 1 open merged = 3.
-	fullOut, err := bk.ListShards(&kinesis.ListShardsInput{
+	fullOut, err := bk.ListShards(context.Background(), &kinesis.ListShardsInput{
 		StreamName:  "merge-stream",
 		ShardFilter: "FROM_TRIM_HORIZON",
 	})
@@ -551,34 +588,34 @@ func TestStreamEncryption_StartStop(t *testing.T) {
 	t.Parallel()
 
 	bk := kinesis.NewInMemoryBackend()
-	require.NoError(t, bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "enc-stream"}))
+	require.NoError(t, bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{StreamName: "enc-stream"}))
 
 	// Initially no encryption.
-	descOut, err := bk.DescribeStream(&kinesis.DescribeStreamInput{StreamName: "enc-stream"})
+	descOut, err := bk.DescribeStream(context.Background(), &kinesis.DescribeStreamInput{StreamName: "enc-stream"})
 	require.NoError(t, err)
 	assert.Equal(t, "NONE", descOut.EncryptionType)
 	assert.Empty(t, descOut.KeyID)
 
 	// Start encryption.
-	require.NoError(t, bk.StartStreamEncryption(&kinesis.StartStreamEncryptionInput{
+	require.NoError(t, bk.StartStreamEncryption(context.Background(), &kinesis.StartStreamEncryptionInput{
 		StreamName:     "enc-stream",
 		EncryptionType: "KMS",
 		KeyID:          "alias/aws/kinesis",
 	}))
 
-	descOut, err = bk.DescribeStream(&kinesis.DescribeStreamInput{StreamName: "enc-stream"})
+	descOut, err = bk.DescribeStream(context.Background(), &kinesis.DescribeStreamInput{StreamName: "enc-stream"})
 	require.NoError(t, err)
 	assert.Equal(t, "KMS", descOut.EncryptionType)
 	assert.Equal(t, "alias/aws/kinesis", descOut.KeyID)
 
 	// Stop encryption.
-	require.NoError(t, bk.StopStreamEncryption(&kinesis.StopStreamEncryptionInput{
+	require.NoError(t, bk.StopStreamEncryption(context.Background(), &kinesis.StopStreamEncryptionInput{
 		StreamName:     "enc-stream",
 		EncryptionType: "KMS",
 		KeyID:          "alias/aws/kinesis",
 	}))
 
-	descOut, err = bk.DescribeStream(&kinesis.DescribeStreamInput{StreamName: "enc-stream"})
+	descOut, err = bk.DescribeStream(context.Background(), &kinesis.DescribeStreamInput{StreamName: "enc-stream"})
 	require.NoError(t, err)
 	assert.Equal(t, "NONE", descOut.EncryptionType)
 	assert.Empty(t, descOut.KeyID)
@@ -588,12 +625,15 @@ func TestConsumerRegistrationAndList(t *testing.T) {
 	t.Parallel()
 
 	bk := kinesis.NewInMemoryBackend()
-	require.NoError(t, bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "consumer-lifecycle2"}))
+	require.NoError(
+		t,
+		bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{StreamName: "consumer-lifecycle2"}),
+	)
 
 	streamARN := "arn:aws:kinesis:us-east-1:123456789012:stream/consumer-lifecycle2"
 
 	// Register two consumers.
-	regOut1, err := bk.RegisterStreamConsumer(&kinesis.RegisterStreamConsumerInput{
+	regOut1, err := bk.RegisterStreamConsumer(context.Background(), &kinesis.RegisterStreamConsumerInput{
 		StreamARN:    streamARN,
 		ConsumerName: "app-1",
 	})
@@ -601,37 +641,40 @@ func TestConsumerRegistrationAndList(t *testing.T) {
 	assert.Equal(t, "app-1", regOut1.Consumer.ConsumerName)
 	assert.NotEmpty(t, regOut1.Consumer.ConsumerARN)
 
-	_, err = bk.RegisterStreamConsumer(&kinesis.RegisterStreamConsumerInput{
+	_, err = bk.RegisterStreamConsumer(context.Background(), &kinesis.RegisterStreamConsumerInput{
 		StreamARN:    streamARN,
 		ConsumerName: "app-2",
 	})
 	require.NoError(t, err)
 
 	// Duplicate registration should fail.
-	_, err = bk.RegisterStreamConsumer(&kinesis.RegisterStreamConsumerInput{
+	_, err = bk.RegisterStreamConsumer(context.Background(), &kinesis.RegisterStreamConsumerInput{
 		StreamARN:    streamARN,
 		ConsumerName: "app-1",
 	})
 	require.Error(t, err)
 
 	// ListStreamConsumers returns both.
-	listOut, err := bk.ListStreamConsumers(&kinesis.ListStreamConsumersInput{StreamARN: streamARN})
+	listOut, err := bk.ListStreamConsumers(
+		context.Background(),
+		&kinesis.ListStreamConsumersInput{StreamARN: streamARN},
+	)
 	require.NoError(t, err)
 	assert.Len(t, listOut.Consumers, 2)
 
 	// DescribeStreamConsumer by ARN.
-	descOut, err := bk.DescribeStreamConsumer(&kinesis.DescribeStreamConsumerInput{
+	descOut, err := bk.DescribeStreamConsumer(context.Background(), &kinesis.DescribeStreamConsumerInput{
 		ConsumerARN: regOut1.Consumer.ConsumerARN,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "app-1", descOut.ConsumerDescription.ConsumerName)
 
 	// Deregister.
-	require.NoError(t, bk.DeregisterStreamConsumer(&kinesis.DeregisterStreamConsumerInput{
+	require.NoError(t, bk.DeregisterStreamConsumer(context.Background(), &kinesis.DeregisterStreamConsumerInput{
 		ConsumerARN: regOut1.Consumer.ConsumerARN,
 	}))
 
-	listOut, err = bk.ListStreamConsumers(&kinesis.ListStreamConsumersInput{StreamARN: streamARN})
+	listOut, err = bk.ListStreamConsumers(context.Background(), &kinesis.ListStreamConsumersInput{StreamARN: streamARN})
 	require.NoError(t, err)
 	assert.Len(t, listOut.Consumers, 1)
 	assert.Equal(t, "app-2", listOut.Consumers[0].ConsumerName)
@@ -641,30 +684,36 @@ func TestSubscribeToShard_ReturnsRecords(t *testing.T) {
 	t.Parallel()
 
 	bk := kinesis.NewInMemoryBackend()
-	require.NoError(t, bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "subscribe-stream", ShardCount: 1}))
+	require.NoError(
+		t,
+		bk.CreateStream(
+			context.Background(),
+			&kinesis.CreateStreamInput{StreamName: "subscribe-stream", ShardCount: 1},
+		),
+	)
 
 	streamARN := "arn:aws:kinesis:us-east-1:123456789012:stream/subscribe-stream"
 
-	regOut, err := bk.RegisterStreamConsumer(&kinesis.RegisterStreamConsumerInput{
+	regOut, err := bk.RegisterStreamConsumer(context.Background(), &kinesis.RegisterStreamConsumerInput{
 		StreamARN:    streamARN,
 		ConsumerName: "reader",
 	})
 	require.NoError(t, err)
 
 	// Put some records.
-	_, err = bk.PutRecord(&kinesis.PutRecordInput{
+	_, err = bk.PutRecord(context.Background(), &kinesis.PutRecordInput{
 		StreamName:   "subscribe-stream",
 		PartitionKey: "pk1",
 		Data:         []byte("hello"),
 	})
 	require.NoError(t, err)
 
-	shardOut, err := bk.ListShards(&kinesis.ListShardsInput{StreamName: "subscribe-stream"})
+	shardOut, err := bk.ListShards(context.Background(), &kinesis.ListShardsInput{StreamName: "subscribe-stream"})
 	require.NoError(t, err)
 	require.Len(t, shardOut.Shards, 1)
 	shardID := shardOut.Shards[0].ShardID
 
-	subOut, err := bk.SubscribeToShard(&kinesis.SubscribeToShardInput{
+	subOut, err := bk.SubscribeToShard(context.Background(), &kinesis.SubscribeToShardInput{
 		ConsumerARN: regOut.Consumer.ConsumerARN,
 		ShardID:     shardID,
 		StartingPosition: kinesis.StartingPosition{
@@ -680,15 +729,18 @@ func TestListShards_AfterShardID(t *testing.T) {
 	t.Parallel()
 
 	bk := kinesis.NewInMemoryBackend()
-	require.NoError(t, bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "filter-stream", ShardCount: 4}))
+	require.NoError(
+		t,
+		bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{StreamName: "filter-stream", ShardCount: 4}),
+	)
 
 	// List all 4 shards.
-	allOut, err := bk.ListShards(&kinesis.ListShardsInput{StreamName: "filter-stream"})
+	allOut, err := bk.ListShards(context.Background(), &kinesis.ListShardsInput{StreamName: "filter-stream"})
 	require.NoError(t, err)
 	require.Len(t, allOut.Shards, 4)
 
 	// Use ExclusiveStartShardID to skip first two.
-	filtOut, err := bk.ListShards(&kinesis.ListShardsInput{
+	filtOut, err := bk.ListShards(context.Background(), &kinesis.ListShardsInput{
 		StreamName:            "filter-stream",
 		ExclusiveStartShardID: allOut.Shards[1].ShardID,
 	})
@@ -728,18 +780,21 @@ func TestDeregisterStreamConsumer_ByIdentifier(t *testing.T) {
 			t.Parallel()
 
 			bk := kinesis.NewInMemoryBackend()
-			require.NoError(t, bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "consumer-stream"}))
+			require.NoError(
+				t,
+				bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{StreamName: "consumer-stream"}),
+			)
 
-			registered, err := bk.RegisterStreamConsumer(&kinesis.RegisterStreamConsumerInput{
+			registered, err := bk.RegisterStreamConsumer(context.Background(), &kinesis.RegisterStreamConsumerInput{
 				StreamARN:    "arn:aws:kinesis:us-east-1:123456789012:stream/consumer-stream",
 				ConsumerName: "consumer-a",
 			})
 			require.NoError(t, err)
 
-			err = bk.DeregisterStreamConsumer(tt.input(registered.Consumer.ConsumerARN))
+			err = bk.DeregisterStreamConsumer(context.Background(), tt.input(registered.Consumer.ConsumerARN))
 			require.NoError(t, err)
 
-			listOut, err := bk.ListStreamConsumers(&kinesis.ListStreamConsumersInput{
+			listOut, err := bk.ListStreamConsumers(context.Background(), &kinesis.ListStreamConsumersInput{
 				StreamARN: "arn:aws:kinesis:us-east-1:123456789012:stream/consumer-stream",
 			})
 			require.NoError(t, err)

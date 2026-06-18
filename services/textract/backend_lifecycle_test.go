@@ -29,11 +29,11 @@ func TestInMemoryBackend_Shutdown(t *testing.T) {
 			name: "document analysis",
 			run: func(t *testing.T, b *textract.InMemoryBackend) func() string {
 				t.Helper()
-				job, err := b.StartDocumentAnalysis("s3://bucket/doc.pdf")
+				job, err := b.StartDocumentAnalysis(context.Background(), "s3://bucket/doc.pdf")
 				require.NoError(t, err)
 
 				return func() string {
-					got, gErr := b.GetDocumentAnalysis(job.JobID)
+					got, gErr := b.GetDocumentAnalysis(context.Background(), job.JobID)
 					require.NoError(t, gErr)
 
 					return got.JobStatus
@@ -45,11 +45,11 @@ func TestInMemoryBackend_Shutdown(t *testing.T) {
 			name: "document text detection",
 			run: func(t *testing.T, b *textract.InMemoryBackend) func() string {
 				t.Helper()
-				job, err := b.StartDocumentTextDetection("s3://bucket/doc.pdf")
+				job, err := b.StartDocumentTextDetection(context.Background(), "s3://bucket/doc.pdf")
 				require.NoError(t, err)
 
 				return func() string {
-					got, gErr := b.GetDocumentTextDetection(job.JobID)
+					got, gErr := b.GetDocumentTextDetection(context.Background(), job.JobID)
 					require.NoError(t, gErr)
 
 					return got.JobStatus
@@ -61,11 +61,11 @@ func TestInMemoryBackend_Shutdown(t *testing.T) {
 			name: "expense analysis",
 			run: func(t *testing.T, b *textract.InMemoryBackend) func() string {
 				t.Helper()
-				job, err := b.StartExpenseAnalysis("s3://bucket/doc.pdf")
+				job, err := b.StartExpenseAnalysis(context.Background(), "s3://bucket/doc.pdf")
 				require.NoError(t, err)
 
 				return func() string {
-					got, gErr := b.GetExpenseAnalysis(job.JobID)
+					got, gErr := b.GetExpenseAnalysis(context.Background(), job.JobID)
 					require.NoError(t, gErr)
 
 					return got.JobStatus
@@ -77,11 +77,11 @@ func TestInMemoryBackend_Shutdown(t *testing.T) {
 			name: "lending analysis",
 			run: func(t *testing.T, b *textract.InMemoryBackend) func() string {
 				t.Helper()
-				job, err := b.StartLendingAnalysis("s3://bucket/doc.pdf")
+				job, err := b.StartLendingAnalysis(context.Background(), "s3://bucket/doc.pdf")
 				require.NoError(t, err)
 
 				return func() string {
-					got, gErr := b.GetLendingAnalysis(job.JobID)
+					got, gErr := b.GetLendingAnalysis(context.Background(), job.JobID)
 					require.NoError(t, gErr)
 
 					return got.JobStatus

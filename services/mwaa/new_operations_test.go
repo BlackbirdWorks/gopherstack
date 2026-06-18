@@ -1,6 +1,7 @@
 package mwaa_test
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -492,7 +493,7 @@ func TestHandler_CreateEnvironment_InvalidJSON(t *testing.T) {
 
 			// Test the create environment validation path via backend directly.
 			b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-			_, err := b.CreateEnvironment(testRegion, testAccountID, "env-err", &mwaa.ExportedCreateEnvironmentRequest{
+			_, err := b.CreateEnvironment(context.Background(), "env-err", &mwaa.ExportedCreateEnvironmentRequest{
 				DagS3Path:        "dags/",
 				ExecutionRoleArn: "arn:r",
 				SourceBucketArn:  "arn:b",
@@ -543,8 +544,7 @@ func TestBackend_UpdateEnvironment_MinMaxValidation(t *testing.T) {
 
 			b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 			_, err := b.CreateEnvironment(
-				testRegion,
-				testAccountID,
+				context.Background(),
 				"env-update",
 				&mwaa.ExportedCreateEnvironmentRequest{
 					DagS3Path:        "dags/",
@@ -553,9 +553,9 @@ func TestBackend_UpdateEnvironment_MinMaxValidation(t *testing.T) {
 				},
 			)
 			require.NoError(t, err)
-			_, _ = b.GetEnvironment("env-update")
+			_, _ = b.GetEnvironment(context.Background(), "env-update")
 
-			_, err = b.UpdateEnvironment("env-update", tt.updateReq)
+			_, err = b.UpdateEnvironment(context.Background(), "env-update", tt.updateReq)
 			if tt.wantErr {
 				require.Error(t, err)
 			} else {
@@ -1186,11 +1186,11 @@ func TestBackend_InvokeRestApi(t *testing.T) {
 			b := newTestBackend()
 
 			if tt.seed {
-				_, err := b.CreateEnvironment(testRegion, testAccountID, tt.envName, newCreateReq())
+				_, err := b.CreateEnvironment(context.Background(), tt.envName, newCreateReq())
 				require.NoError(t, err)
 			}
 
-			resp, err := b.InvokeRestAPI(tt.envName, tt.req)
+			resp, err := b.InvokeRestAPI(context.Background(), tt.envName, tt.req)
 			if tt.wantErr {
 				require.Error(t, err)
 
@@ -1246,11 +1246,11 @@ func TestBackend_PublishMetrics(t *testing.T) {
 			b := newTestBackend()
 
 			if tt.seed {
-				_, err := b.CreateEnvironment(testRegion, testAccountID, tt.envName, newCreateReq())
+				_, err := b.CreateEnvironment(context.Background(), tt.envName, newCreateReq())
 				require.NoError(t, err)
 			}
 
-			err := b.PublishMetrics(tt.envName, tt.req)
+			err := b.PublishMetrics(context.Background(), tt.envName, tt.req)
 			if tt.wantErr {
 				require.Error(t, err)
 

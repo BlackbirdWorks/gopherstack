@@ -26,12 +26,13 @@ type secretSnapshot struct {
 	RotationEnabled   bool                      `json:"rotationEnabled,omitempty"`
 }
 
+// backendSnapshot mirrors the region-nested backend maps (outer key = region).
 type backendSnapshot struct {
-	Secrets            map[string]*secretSnapshot         `json:"secrets"`
-	ResourcePolicies   map[string]string                  `json:"resourcePolicies,omitempty"`
-	ReplicationConfigs map[string][]ReplicationStatusType `json:"replicationConfigs,omitempty"`
-	AccountID          string                             `json:"accountID"`
-	Region             string                             `json:"region"`
+	Secrets            map[string]map[string]*secretSnapshot         `json:"secrets"`
+	ResourcePolicies   map[string]map[string]string                  `json:"resourcePolicies,omitempty"`
+	ReplicationConfigs map[string]map[string][]ReplicationStatusType `json:"replicationConfigs,omitempty"`
+	AccountID          string                                        `json:"accountID"`
+	Region             string                                        `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -40,25 +41,29 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	secrets := make(map[string]*secretSnapshot, len(b.secrets))
-	for k, s := range b.secrets {
-		secrets[k] = &secretSnapshot{
-			ARN:               s.ARN,
-			Name:              s.Name,
-			Description:       s.Description,
-			KmsKeyID:          s.KmsKeyID,
-			RotationLambdaARN: s.RotationLambdaARN,
-			RotationRules:     cloneRotationRules(s.RotationRules),
-			Tags:              s.Tags,
-			DeletedDate:       s.DeletedDate,
-			LastChangedDate:   s.LastChangedDate,
-			LastRotatedDate:   s.LastRotatedDate,
-			LastAccessedDate:  s.LastAccessedDate,
-			CreatedDate:       s.CreatedDate,
-			Versions:          s.Versions,
-			CurrentVersionID:  s.CurrentVersionID,
-			RotationEnabled:   s.RotationEnabled,
+	secrets := make(map[string]map[string]*secretSnapshot, len(b.secrets))
+	for region, regionSecrets := range b.secrets {
+		regionMap := make(map[string]*secretSnapshot, len(regionSecrets))
+		for k, s := range regionSecrets {
+			regionMap[k] = &secretSnapshot{
+				ARN:               s.ARN,
+				Name:              s.Name,
+				Description:       s.Description,
+				KmsKeyID:          s.KmsKeyID,
+				RotationLambdaARN: s.RotationLambdaARN,
+				RotationRules:     cloneRotationRules(s.RotationRules),
+				Tags:              s.Tags,
+				DeletedDate:       s.DeletedDate,
+				LastChangedDate:   s.LastChangedDate,
+				LastRotatedDate:   s.LastRotatedDate,
+				LastAccessedDate:  s.LastAccessedDate,
+				CreatedDate:       s.CreatedDate,
+				Versions:          s.Versions,
+				CurrentVersionID:  s.CurrentVersionID,
+				RotationEnabled:   s.RotationEnabled,
+			}
 		}
+		secrets[region] = regionMap
 	}
 
 	snap := backendSnapshot{
@@ -93,81 +98,94 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 
 	// Close Tags on any secrets that are being replaced to prevent
 	// Prometheus registry leaks.
-	for _, secret := range b.secrets {
-		if secret.Tags != nil {
-			secret.Tags.Close()
+	for _, regionSecrets := range b.secrets {
+		for _, secret := range regionSecrets {
+			if secret.Tags != nil {
+				secret.Tags.Close()
+			}
 		}
 	}
 
 	if snap.Secrets == nil {
-		snap.Secrets = make(map[string]*secretSnapshot)
+		snap.Secrets = make(map[string]map[string]*secretSnapshot)
 	}
 
-	b.secrets = make(map[string]*Secret, len(snap.Secrets))
+	b.secrets = make(map[string]map[string]*Secret, len(snap.Secrets))
 
-	for k, ss := range snap.Secrets {
-		if ss.Versions == nil {
-			ss.Versions = make(map[string]*SecretVersion)
+	for region, regionSecrets := range snap.Secrets {
+		regionMap := make(map[string]*Secret, len(regionSecrets))
+		for k, ss := range regionSecrets {
+			regionMap[k] = secretFromSnapshot(ss)
 		}
-
-		b.secrets[k] = &Secret{
-			ARN:               ss.ARN,
-			Name:              ss.Name,
-			Description:       ss.Description,
-			KmsKeyID:          ss.KmsKeyID,
-			RotationLambdaARN: ss.RotationLambdaARN,
-			RotationRules:     cloneRotationRules(ss.RotationRules),
-			Tags:              ss.Tags,
-			DeletedDate:       ss.DeletedDate,
-			LastChangedDate:   ss.LastChangedDate,
-			LastRotatedDate:   ss.LastRotatedDate,
-			LastAccessedDate:  ss.LastAccessedDate,
-			CreatedDate:       ss.CreatedDate,
-			Versions:          ss.Versions,
-			CurrentVersionID:  ss.CurrentVersionID,
-			RotationEnabled:   ss.RotationEnabled,
-		}
+		b.secrets[region] = regionMap
 	}
 
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
 	if snap.ResourcePolicies == nil {
-		snap.ResourcePolicies = make(map[string]string)
+		snap.ResourcePolicies = make(map[string]map[string]string)
 	}
 
 	b.resourcePolicies = snap.ResourcePolicies
 
 	if snap.ReplicationConfigs == nil {
-		snap.ReplicationConfigs = make(map[string][]ReplicationStatusType)
+		snap.ReplicationConfigs = make(map[string]map[string][]ReplicationStatusType)
 	}
 
 	b.replicationConfigs = snap.ReplicationConfigs
 
 	b.ensureNonNilMaps()
-	for _, secret := range b.secrets {
-		if secret.RotationRules != nil && secret.RotationEnabled {
-			b.ensureRotationScheduler()
+	for _, regionSecrets := range b.secrets {
+		for _, secret := range regionSecrets {
+			if secret.RotationRules != nil && secret.RotationEnabled {
+				b.ensureRotationScheduler()
 
-			break
+				return nil
+			}
 		}
 	}
 
 	return nil
 }
 
+// secretFromSnapshot rebuilds a live Secret from its persisted representation.
+func secretFromSnapshot(ss *secretSnapshot) *Secret {
+	if ss.Versions == nil {
+		ss.Versions = make(map[string]*SecretVersion)
+	}
+
+	return &Secret{
+		ARN:               ss.ARN,
+		Name:              ss.Name,
+		Description:       ss.Description,
+		KmsKeyID:          ss.KmsKeyID,
+		RotationLambdaARN: ss.RotationLambdaARN,
+		RotationRules:     cloneRotationRules(ss.RotationRules),
+		Tags:              ss.Tags,
+		DeletedDate:       ss.DeletedDate,
+		LastChangedDate:   ss.LastChangedDate,
+		LastRotatedDate:   ss.LastRotatedDate,
+		LastAccessedDate:  ss.LastAccessedDate,
+		CreatedDate:       ss.CreatedDate,
+		Versions:          ss.Versions,
+		CurrentVersionID:  ss.CurrentVersionID,
+		RotationEnabled:   ss.RotationEnabled,
+	}
+}
+
 // ensureNonNilMaps initialises any nil maps to avoid nil-map panics.
 func (b *InMemoryBackend) ensureNonNilMaps() {
 	if b.secrets == nil {
-		b.secrets = make(map[string]*Secret)
+		b.secrets = make(map[string]map[string]*Secret)
 	}
 
 	if b.resourcePolicies == nil {
-		b.resourcePolicies = make(map[string]string)
+		b.resourcePolicies = make(map[string]map[string]string)
 	}
 
 	if b.replicationConfigs == nil {
-		b.replicationConfigs = make(map[string][]ReplicationStatusType)
+		b.replicationConfigs = make(map[string]map[string][]ReplicationStatusType)
 	}
 }
 

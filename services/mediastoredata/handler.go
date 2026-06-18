@@ -1,6 +1,7 @@
 package mediastoredata
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -16,6 +17,8 @@ import (
 
 const (
 	itemTypeObject = "OBJECT"
+	// maxListItemsResults is the AWS upper bound on ListItems MaxResults.
+	maxListItemsResults = 1000
 )
 
 const (
@@ -56,7 +59,7 @@ func (h *Handler) ChaosServiceName() string { return "mediastoredata" }
 func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations() }
 
 // ChaosRegions returns all regions this handler instance handles.
-func (h *Handler) ChaosRegions() []string { return []string{"us-east-1"} }
+func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} }
 
 // RouteMatcher returns a function that matches MediaStore Data requests.
 // It identifies requests by the "mediastoredata" marker in the User-Agent
@@ -97,6 +100,16 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 // ExtractResource extracts the path from the URL.
 func (h *Handler) ExtractResource(c *echo.Context) string {
 	return c.Request().URL.Path
+}
+
+// requestContext returns the request context enriched with the per-request AWS
+// region (from SigV4 credential scope, falling back to the backend default).
+// Backend operations call getRegion on this context to route to the correct
+// region-isolated store.
+func (h *Handler) requestContext(c *echo.Context) context.Context {
+	region := httputils.ExtractRegionFromRequest(c.Request(), h.Backend.Region())
+
+	return context.WithValue(c.Request().Context(), regionContextKey{}, region)
 }
 
 // Handler returns the Echo handler function.
@@ -157,7 +170,9 @@ func (h *Handler) handlePutObject(c *echo.Context) error {
 	storageClass := r.Header.Get("X-Amz-Storage-Class")
 	uploadAvailability := r.Header.Get("X-Amz-Upload-Availability")
 
-	obj, putErr := h.Backend.PutObject(path, body, contentType, cacheControl, storageClass, uploadAvailability)
+	obj, putErr := h.Backend.PutObject(
+		h.requestContext(c), path, body, contentType, cacheControl, storageClass, uploadAvailability,
+	)
 	if putErr != nil {
 		return h.writeError(c, putErr)
 	}
@@ -176,7 +191,7 @@ func (h *Handler) handlePutObject(c *echo.Context) error {
 func (h *Handler) handleGetObject(c *echo.Context) error {
 	r := c.Request()
 
-	obj, err := h.Backend.GetObject(r.URL.Path)
+	obj, err := h.Backend.GetObject(h.requestContext(c), r.URL.Path)
 	if err != nil {
 		return h.writeError(c, err)
 	}
@@ -243,7 +258,7 @@ func (h *Handler) handleRangeGet(c *echo.Context, obj *Object, rangeHdr string) 
 func (h *Handler) handleDeleteObject(c *echo.Context) error {
 	r := c.Request()
 
-	if err := h.Backend.DeleteObject(r.URL.Path); err != nil {
+	if err := h.Backend.DeleteObject(h.requestContext(c), r.URL.Path); err != nil {
 		return h.writeError(c, err)
 	}
 
@@ -276,12 +291,19 @@ func (h *Handler) handleListItems(c *echo.Context) error {
 	}
 
 	if raw := q.Get("MaxResults"); raw != "" {
-		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
-			in.MaxResults = n
+		// AWS MediaStore Data bounds ListItems MaxResults to 1-1000.
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 || n > maxListItemsResults {
+			return c.JSON(http.StatusBadRequest, errorResponse(
+				"ValidationException",
+				"MaxResults must be between 1 and 1000",
+			))
 		}
+
+		in.MaxResults = n
 	}
 
-	result := h.Backend.ListItems(in)
+	result := h.Backend.ListItems(h.requestContext(c), in)
 	entries := make([]itemEntry, 0, len(result.Items))
 
 	for _, item := range result.Items {
@@ -313,7 +335,7 @@ func (h *Handler) handleListItems(c *echo.Context) error {
 func (h *Handler) handleDescribeObject(c *echo.Context) error {
 	r := c.Request()
 
-	obj, err := h.Backend.GetObject(r.URL.Path)
+	obj, err := h.Backend.GetObject(h.requestContext(c), r.URL.Path)
 	if err != nil {
 		return h.writeError(c, err)
 	}

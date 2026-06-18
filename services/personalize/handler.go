@@ -11,6 +11,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -59,6 +60,9 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 
 // Name returns service name.
 func (h *Handler) Name() string { return "Personalize" }
+
+// Reset clears all backend state for the /_gopherstack/reset test hook.
+func (h *Handler) Reset() { h.Backend.Reset() }
 
 // ChaosServiceName returns service key for fault matching.
 func (h *Handler) ChaosServiceName() string { return "personalize" }
@@ -1243,8 +1247,8 @@ func (h *Handler) describeAlgorithm(input map[string]any) (map[string]any, error
 			"algorithmArn":         algorithmArn,
 			keyName:                "user-personalization",
 			keyStatus:              statusActive,
-			keyCreationDateTime:    float64(time.Now().Unix()),
-			keyLastUpdatedDateTime: float64(time.Now().Unix()),
+			keyCreationDateTime:    awstime.Epoch(time.Now().UTC()),
+			keyLastUpdatedDateTime: awstime.Epoch(time.Now().UTC()),
 		},
 	}, nil
 }
@@ -1259,8 +1263,8 @@ func (h *Handler) describeFeatureTransformation(input map[string]any) (map[strin
 			"featureTransformationArn": ftArn,
 			keyName:                    "aws-feature-transformation",
 			keyStatus:                  statusActive,
-			keyCreationDateTime:        float64(time.Now().Unix()),
-			keyLastUpdatedDateTime:     float64(time.Now().Unix()),
+			keyCreationDateTime:        awstime.Epoch(time.Now().UTC()),
+			keyLastUpdatedDateTime:     awstime.Epoch(time.Now().UTC()),
 		},
 	}, nil
 }
@@ -1307,8 +1311,8 @@ func datasetGroupToMap(dg *DatasetGroup) map[string]any {
 		"kmsKeyArn":            dg.KmsKeyArn,
 		keyRoleArn:             dg.RoleArn,
 		keyStatus:              dg.Status,
-		keyCreationDateTime:    float64(dg.CreationDateTime.Unix()),
-		keyLastUpdatedDateTime: float64(dg.LastUpdatedDateTime.Unix()),
+		keyCreationDateTime:    awstime.Epoch(dg.CreationDateTime),
+		keyLastUpdatedDateTime: awstime.Epoch(dg.LastUpdatedDateTime),
 	}
 }
 
@@ -1320,8 +1324,8 @@ func datasetToMap(ds *Dataset) map[string]any {
 		keyName:                ds.Name,
 		"datasetType":          ds.DatasetType,
 		keyStatus:              ds.Status,
-		keyCreationDateTime:    float64(ds.CreationDateTime.Unix()),
-		keyLastUpdatedDateTime: float64(ds.LastUpdatedDateTime.Unix()),
+		keyCreationDateTime:    awstime.Epoch(ds.CreationDateTime),
+		keyLastUpdatedDateTime: awstime.Epoch(ds.LastUpdatedDateTime),
 	}
 }
 
@@ -1331,8 +1335,8 @@ func schemaToMap(s *Schema) map[string]any {
 		keyName:                s.Name,
 		"schema":               s.Schema,
 		keyDomain:              s.Domain,
-		keyCreationDateTime:    float64(s.CreationDateTime.Unix()),
-		keyLastUpdatedDateTime: float64(s.LastUpdatedDateTime.Unix()),
+		keyCreationDateTime:    awstime.Epoch(s.CreationDateTime),
+		keyLastUpdatedDateTime: awstime.Epoch(s.LastUpdatedDateTime),
 	}
 }
 
@@ -1345,8 +1349,8 @@ func solutionToMap(sol *Solution) map[string]any {
 		"performAutoML":        sol.PerformAutoML,
 		"performHPO":           sol.PerformHPO,
 		keyStatus:              sol.Status,
-		keyCreationDateTime:    float64(sol.CreationDateTime.Unix()),
-		keyLastUpdatedDateTime: float64(sol.LastUpdatedDateTime.Unix()),
+		keyCreationDateTime:    awstime.Epoch(sol.CreationDateTime),
+		keyLastUpdatedDateTime: awstime.Epoch(sol.LastUpdatedDateTime),
 	}
 }
 
@@ -1357,8 +1361,8 @@ func solutionVersionToMap(sv *SolutionVersion) map[string]any {
 		keyStatus:              sv.Status,
 		"trainingMode":         sv.TrainingMode,
 		"trainingHours":        sv.TrainingHours,
-		keyCreationDateTime:    float64(sv.CreationDateTime.Unix()),
-		keyLastUpdatedDateTime: float64(sv.LastUpdatedDateTime.Unix()),
+		keyCreationDateTime:    awstime.Epoch(sv.CreationDateTime),
+		keyLastUpdatedDateTime: awstime.Epoch(sv.LastUpdatedDateTime),
 	}
 }
 
@@ -1369,8 +1373,8 @@ func campaignToMap(c *Campaign) map[string]any {
 		keySolutionVersionArn:  c.SolutionVersionArn,
 		"minProvisionedTPS":    c.MinProvisionedTPS,
 		keyStatus:              c.Status,
-		keyCreationDateTime:    float64(c.CreationDateTime.Unix()),
-		keyLastUpdatedDateTime: float64(c.LastUpdatedDateTime.Unix()),
+		keyCreationDateTime:    awstime.Epoch(c.CreationDateTime),
+		keyLastUpdatedDateTime: awstime.Epoch(c.LastUpdatedDateTime),
 	}
 }
 
@@ -1381,8 +1385,8 @@ func eventTrackerToMap(et *EventTracker) map[string]any {
 		keyDatasetGroupArn:     et.DatasetGroupArn,
 		"trackingId":           et.TrackingID,
 		keyStatus:              et.Status,
-		keyCreationDateTime:    float64(et.CreationDateTime.Unix()),
-		keyLastUpdatedDateTime: float64(et.LastUpdatedDateTime.Unix()),
+		keyCreationDateTime:    awstime.Epoch(et.CreationDateTime),
+		keyLastUpdatedDateTime: awstime.Epoch(et.LastUpdatedDateTime),
 	}
 }
 
@@ -1393,8 +1397,8 @@ func filterToMap(f *Filter) map[string]any {
 		keyDatasetGroupArn:     f.DatasetGroupArn,
 		"filterExpression":     f.FilterExpression,
 		keyStatus:              f.Status,
-		keyCreationDateTime:    float64(f.CreationDateTime.Unix()),
-		keyLastUpdatedDateTime: float64(f.LastUpdatedDateTime.Unix()),
+		keyCreationDateTime:    awstime.Epoch(f.CreationDateTime),
+		keyLastUpdatedDateTime: awstime.Epoch(f.LastUpdatedDateTime),
 	}
 }
 
@@ -1408,8 +1412,8 @@ func recommenderToMap(r *Recommender) map[string]any {
 		"recommenderConfig": map[string]any{
 			"minRecommendationRequestsPerSecond": r.MinRecommendationRequestsPerSecond,
 		},
-		keyCreationDateTime:    float64(r.CreationDateTime.Unix()),
-		keyLastUpdatedDateTime: float64(r.LastUpdatedDateTime.Unix()),
+		keyCreationDateTime:    awstime.Epoch(r.CreationDateTime),
+		keyLastUpdatedDateTime: awstime.Epoch(r.LastUpdatedDateTime),
 	}
 }
 
@@ -1420,8 +1424,8 @@ func metricAttributionToMap(ma *MetricAttribution) map[string]any {
 		keyDatasetGroupArn:      ma.DatasetGroupArn,
 		"metricsOutputConfig":   ma.MetricsOutputConfig,
 		keyStatus:               ma.Status,
-		keyCreationDateTime:     float64(ma.CreationDateTime.Unix()),
-		keyLastUpdatedDateTime:  float64(ma.LastUpdatedDateTime.Unix()),
+		keyCreationDateTime:     awstime.Epoch(ma.CreationDateTime),
+		keyLastUpdatedDateTime:  awstime.Epoch(ma.LastUpdatedDateTime),
 	}
 }
 
@@ -1433,8 +1437,8 @@ func datasetImportJobToMap(job *DatasetImportJob) map[string]any {
 		keyRoleArn:             job.RoleArn,
 		"dataSource":           job.DataSource,
 		keyStatus:              job.Status,
-		keyCreationDateTime:    float64(job.CreationDateTime.Unix()),
-		keyLastUpdatedDateTime: float64(job.LastUpdatedDateTime.Unix()),
+		keyCreationDateTime:    awstime.Epoch(job.CreationDateTime),
+		keyLastUpdatedDateTime: awstime.Epoch(job.LastUpdatedDateTime),
 	}
 }
 
@@ -1446,8 +1450,8 @@ func datasetExportJobToMap(job *DatasetExportJob) map[string]any {
 		keyRoleArn:             job.RoleArn,
 		keyJobOutput:           job.JobOutput,
 		keyStatus:              job.Status,
-		keyCreationDateTime:    float64(job.CreationDateTime.Unix()),
-		keyLastUpdatedDateTime: float64(job.LastUpdatedDateTime.Unix()),
+		keyCreationDateTime:    awstime.Epoch(job.CreationDateTime),
+		keyLastUpdatedDateTime: awstime.Epoch(job.LastUpdatedDateTime),
 	}
 }
 
@@ -1460,8 +1464,8 @@ func batchInferenceJobToMap(job *BatchInferenceJob) map[string]any {
 		"jobInput":             job.JobInput,
 		keyJobOutput:           job.JobOutput,
 		keyStatus:              job.Status,
-		keyCreationDateTime:    float64(job.CreationDateTime.Unix()),
-		keyLastUpdatedDateTime: float64(job.LastUpdatedDateTime.Unix()),
+		keyCreationDateTime:    awstime.Epoch(job.CreationDateTime),
+		keyLastUpdatedDateTime: awstime.Epoch(job.LastUpdatedDateTime),
 	}
 }
 
@@ -1474,8 +1478,8 @@ func batchSegmentJobToMap(job *BatchSegmentJob) map[string]any {
 		"jobInput":             job.JobInput,
 		keyJobOutput:           job.JobOutput,
 		keyStatus:              job.Status,
-		keyCreationDateTime:    float64(job.CreationDateTime.Unix()),
-		keyLastUpdatedDateTime: float64(job.LastUpdatedDateTime.Unix()),
+		keyCreationDateTime:    awstime.Epoch(job.CreationDateTime),
+		keyLastUpdatedDateTime: awstime.Epoch(job.LastUpdatedDateTime),
 	}
 }
 
@@ -1488,8 +1492,8 @@ func dataDeletionJobToMap(job *DataDeletionJob) map[string]any {
 		"dataSource":           job.DataSource,
 		keyStatus:              job.Status,
 		"numDeleted":           job.NumDeleted,
-		keyCreationDateTime:    float64(job.CreationDateTime.Unix()),
-		keyLastUpdatedDateTime: float64(job.LastUpdatedDateTime.Unix()),
+		keyCreationDateTime:    awstime.Epoch(job.CreationDateTime),
+		keyLastUpdatedDateTime: awstime.Epoch(job.LastUpdatedDateTime),
 	}
 }
 

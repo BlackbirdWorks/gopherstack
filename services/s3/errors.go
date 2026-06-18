@@ -295,7 +295,7 @@ func WriteError(ctx context.Context, w http.ResponseWriter, r *http.Request, err
 	}
 
 	httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
-		Code:    "InternalError",
+		Code:    errCodeInternalError,
 		Message: "We encountered an internal error. Please try again.",
 	}, http.StatusInternalServerError)
 }

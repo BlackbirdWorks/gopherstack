@@ -14,6 +14,7 @@
 		DeleteQueueCommand,
 		DeleteJobTemplateCommand,
 		CancelJobCommand,
+		type MediaConvertClient,
 		type Job,
 		type Queue,
 		type JobTemplate,
@@ -39,7 +40,10 @@
 		Package
 	} from 'lucide-svelte';
 
-	const mediaConvert = getMediaConvertClient();
+	let mediaConvertClient: MediaConvertClient | undefined;
+	function mediaConvert(): MediaConvertClient {
+		return (mediaConvertClient ??= getMediaConvertClient());
+	}
 
 	let loading = $state(false);
 	let activeTab = $state<'jobs' | 'queues' | 'templates' | 'presets'>('queues');
@@ -65,6 +69,13 @@
 	let createJobQueue = $state('');
 	let createJobTemplate = $state('');
 	let createJobSubmitting = $state(false);
+	// Input/output settings editor.
+	let createJobInputUri = $state('');
+	let createJobOutputDest = $state('');
+	let createJobContainer = $state<'MP4' | 'MOV' | 'M3U8' | 'WEBM' | 'MKV'>('MP4');
+	let createJobVideoCodec = $state<'H_264' | 'H_265' | 'AV1' | 'PRORES' | 'VP9'>('H_264');
+	let createJobAudioCodec = $state<'AAC' | 'MP3' | 'AC3' | 'OPUS'>('AAC');
+	let createJobPreset = $state('');
 
 	// Queue create/edit modal state
 	let showQueueModal = $state(false);
@@ -135,7 +146,7 @@
 	async function loadJobs() {
 		loading = true;
 		try {
-			const res = await mediaConvert.send(new ListJobsCommand({ MaxResults: 100 }));
+			const res = await mediaConvert().send(new ListJobsCommand({ MaxResults: 100 }));
 			jobs = res.Jobs ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load jobs: ${(err as Error).message}`);
@@ -147,7 +158,7 @@
 	async function loadQueues() {
 		loading = true;
 		try {
-			const res = await mediaConvert.send(new ListQueuesCommand({}));
+			const res = await mediaConvert().send(new ListQueuesCommand({}));
 			queues = res.Queues ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load queues: ${(err as Error).message}`);
@@ -159,7 +170,7 @@
 	async function loadTemplates() {
 		loading = true;
 		try {
-			const res = await mediaConvert.send(new ListJobTemplatesCommand({ MaxResults: 100 }));
+			const res = await mediaConvert().send(new ListJobTemplatesCommand({ MaxResults: 100 }));
 			templates = res.JobTemplates ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load templates: ${(err as Error).message}`);
@@ -171,7 +182,7 @@
 	async function loadPresets() {
 		loading = true;
 		try {
-			const res = await mediaConvert.send(new ListPresetsCommand({ MaxResults: 100 }));
+			const res = await mediaConvert().send(new ListPresetsCommand({ MaxResults: 100 }));
 			presets = res.Presets ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load presets: ${(err as Error).message}`);
@@ -227,7 +238,42 @@
 		createJobRole = '';
 		createJobQueue = '';
 		createJobTemplate = '';
+		createJobInputUri = '';
+		createJobOutputDest = '';
+		createJobContainer = 'MP4';
+		createJobVideoCodec = 'H_264';
+		createJobAudioCodec = 'AAC';
+		createJobPreset = '';
 		showCreateJob = true;
+	}
+
+	// Map a container choice to the MediaConvert container type + extension.
+	const containerExt: Record<string, string> = { MP4: '.mp4', MOV: '.mov', M3U8: '.m3u8', WEBM: '.webm', MKV: '.mkv' };
+
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	function buildJobSettings(): any {
+		const inputs = createJobInputUri.trim()
+			? [{ FileInput: createJobInputUri.trim(), AudioSelectors: { 'Audio Selector 1': { DefaultSelection: 'DEFAULT' } } }]
+			: [];
+		// When a preset is chosen, the output references it by name; otherwise build inline codec settings.
+		const output = createJobPreset.trim()
+			? { Preset: createJobPreset.trim() }
+			: {
+					ContainerSettings: { Container: createJobContainer },
+					VideoDescription: { CodecSettings: { Codec: createJobVideoCodec } },
+					AudioDescriptions: [{ CodecSettings: { Codec: createJobAudioCodec } }]
+				};
+		const outputGroups = [
+			{
+				Name: 'File Group',
+				OutputGroupSettings: {
+					Type: 'FILE_GROUP_SETTINGS',
+					FileGroupSettings: createJobOutputDest.trim() ? { Destination: createJobOutputDest.trim() } : {}
+				},
+				Outputs: [{ ...output, Extension: containerExt[createJobContainer] }]
+			}
+		];
+		return { Inputs: inputs, OutputGroups: outputGroups };
 	}
 
 	async function submitCreateJob() {
@@ -237,11 +283,11 @@
 		}
 		createJobSubmitting = true;
 		try {
-			await mediaConvert.send(new CreateJobCommand({
+			await mediaConvert().send(new CreateJobCommand({
 				Role: createJobRole.trim(),
 				Queue: createJobQueue.trim() || undefined,
 				JobTemplate: createJobTemplate.trim() || undefined,
-				Settings: { Inputs: [] }
+				Settings: buildJobSettings()
 			}));
 			toast.success('Job created');
 			showCreateJob = false;
@@ -257,7 +303,7 @@
 	function cancelJobPrompt(job: Job) {
 		confirmThen(`Cancel job ${job.Id}?`, async () => {
 			try {
-				await mediaConvert.send(new CancelJobCommand({ Id: job.Id }));
+				await mediaConvert().send(new CancelJobCommand({ Id: job.Id }));
 				toast.success('Job canceled');
 				selectedJob = null;
 				jobs = [];
@@ -286,7 +332,7 @@
 		queueSubmitting = true;
 		try {
 			if (queueModalMode === 'create') {
-				await mediaConvert.send(new CreateQueueCommand({
+				await mediaConvert().send(new CreateQueueCommand({
 					Name: queueName.trim(),
 					Description: queueDescription.trim() || undefined,
 					// eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -294,7 +340,7 @@
 				}));
 				toast.success('Queue created');
 			} else {
-				await mediaConvert.send(new UpdateQueueCommand({
+				await mediaConvert().send(new UpdateQueueCommand({
 					Name: selectedQueue?.Name ?? queueName,
 					Description: queueDescription.trim() || undefined,
 					// eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -316,7 +362,7 @@
 		const newStatus = queue.Status === 'ACTIVE' ? 'PAUSED' : 'ACTIVE';
 		try {
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			await mediaConvert.send(new UpdateQueueCommand({ Name: queue.Name, Status: newStatus as any }));
+			await mediaConvert().send(new UpdateQueueCommand({ Name: queue.Name, Status: newStatus as any }));
 			toast.success(`Queue ${newStatus === 'ACTIVE' ? 'resumed' : 'paused'}`);
 			queues = [];
 			await loadQueues();
@@ -329,7 +375,7 @@
 	function deleteQueuePrompt(queue: Queue) {
 		confirmThen(`Delete queue "${queue.Name}"?`, async () => {
 			try {
-				await mediaConvert.send(new DeleteQueueCommand({ Name: queue.Name }));
+				await mediaConvert().send(new DeleteQueueCommand({ Name: queue.Name }));
 				toast.success('Queue deleted');
 				selectedQueue = null;
 				queues = [];
@@ -371,7 +417,7 @@
 		const editingName = selectedTemplate?.Name ?? templateName;
 		try {
 			if (templateModalMode === 'create') {
-				await mediaConvert.send(new CreateJobTemplateCommand({
+				await mediaConvert().send(new CreateJobTemplateCommand({
 					Name: templateName.trim(),
 					Description: templateDescription.trim() || undefined,
 					Category: templateCategory.trim() || undefined,
@@ -381,7 +427,7 @@
 				}));
 				toast.success('Template created');
 			} else {
-				await mediaConvert.send(new UpdateJobTemplateCommand({
+				await mediaConvert().send(new UpdateJobTemplateCommand({
 					Name: editingName,
 					Description: templateDescription.trim() || undefined,
 					Category: templateCategory.trim() || undefined,
@@ -408,7 +454,7 @@
 	function deleteTemplatePrompt(t: JobTemplate) {
 		confirmThen(`Delete template "${t.Name}"?`, async () => {
 			try {
-				await mediaConvert.send(new DeleteJobTemplateCommand({ Name: t.Name }));
+				await mediaConvert().send(new DeleteJobTemplateCommand({ Name: t.Name }));
 				toast.success('Template deleted');
 				selectedTemplate = null;
 				templates = [];
@@ -905,7 +951,7 @@
 <!-- Create Job Modal -->
 {#if showCreateJob}
 	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-		<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-xl w-full max-w-md mx-4 p-6 space-y-4">
+		<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-xl w-full max-w-lg mx-4 p-6 space-y-4 max-h-[90vh] overflow-y-auto">
 			<div class="flex items-center justify-between">
 				<h2 class="text-lg font-bold text-slate-900 dark:text-white">Create Job</h2>
 				<button onclick={() => showCreateJob = false} class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
@@ -928,6 +974,52 @@
 					<input type="text" bind:value={createJobTemplate} placeholder="Template name"
 						class="mt-1 w-full px-3 py-2 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-rose-500" />
 				</label>
+
+				<div class="border-t border-slate-200 dark:border-slate-700 pt-3 space-y-3">
+					<p class="text-sm font-semibold text-slate-900 dark:text-white">Input / Output Settings</p>
+					<label class="block">
+						<span class="text-sm font-medium text-slate-700 dark:text-slate-300">Input file (S3 source)</span>
+						<input type="text" bind:value={createJobInputUri} placeholder="s3://my-bucket/input.mov"
+							class="mt-1 w-full px-3 py-2 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-rose-500" />
+					</label>
+					<label class="block">
+						<span class="text-sm font-medium text-slate-700 dark:text-slate-300">Output destination (S3)</span>
+						<input type="text" bind:value={createJobOutputDest} placeholder="s3://my-bucket/output/"
+							class="mt-1 w-full px-3 py-2 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-rose-500" />
+					</label>
+					<label class="block">
+						<span class="text-sm font-medium text-slate-700 dark:text-slate-300">Apply preset (optional — overrides codec choices)</span>
+						<select bind:value={createJobPreset}
+							class="mt-1 w-full px-3 py-2 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-rose-500">
+							<option value="">— Inline codec settings —</option>
+							{#each presets as p}
+								<option value={p.Name}>{p.Name}</option>
+							{/each}
+						</select>
+					</label>
+					{#if !createJobPreset}
+						<div class="grid grid-cols-3 gap-3">
+							<label class="block">
+								<span class="text-xs font-medium text-slate-700 dark:text-slate-300">Container</span>
+								<select bind:value={createJobContainer} class="mt-1 w-full px-2 py-2 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white text-sm">
+									{#each ['MP4', 'MOV', 'M3U8', 'WEBM', 'MKV'] as c}<option value={c}>{c}</option>{/each}
+								</select>
+							</label>
+							<label class="block">
+								<span class="text-xs font-medium text-slate-700 dark:text-slate-300">Video codec</span>
+								<select bind:value={createJobVideoCodec} class="mt-1 w-full px-2 py-2 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white text-sm">
+									{#each ['H_264', 'H_265', 'AV1', 'PRORES', 'VP9'] as c}<option value={c}>{c}</option>{/each}
+								</select>
+							</label>
+							<label class="block">
+								<span class="text-xs font-medium text-slate-700 dark:text-slate-300">Audio codec</span>
+								<select bind:value={createJobAudioCodec} class="mt-1 w-full px-2 py-2 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white text-sm">
+									{#each ['AAC', 'MP3', 'AC3', 'OPUS'] as c}<option value={c}>{c}</option>{/each}
+								</select>
+							</label>
+						</div>
+					{/if}
+				</div>
 			</div>
 			<div class="flex items-center justify-end gap-3 pt-2">
 				<button onclick={() => showCreateJob = false} class="px-4 py-2 text-sm text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors">Cancel</button>

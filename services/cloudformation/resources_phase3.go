@@ -146,7 +146,7 @@ func (rc *ResourceCreator) createEFSFileSystem(
 
 	token := logicalID + "-token"
 
-	fs, err := rc.backends.EFS.Backend.CreateFileSystem(efsbackend.CreateFileSystemRequest{
+	fs, err := rc.backends.EFS.Backend.CreateFileSystem(context.Background(), efsbackend.CreateFileSystemRequest{
 		CreationToken:   token,
 		PerformanceMode: performanceMode,
 		ThroughputMode:  throughputMode,
@@ -164,7 +164,7 @@ func (rc *ResourceCreator) deleteEFSFileSystem(id string) error {
 		return nil
 	}
 
-	return rc.backends.EFS.Backend.DeleteFileSystem(id)
+	return rc.backends.EFS.Backend.DeleteFileSystem(context.Background(), id)
 }
 
 func (rc *ResourceCreator) createEFSMountTarget(
@@ -179,7 +179,7 @@ func (rc *ResourceCreator) createEFSMountTarget(
 	fileSystemID := strProp(props, "FileSystemId", params, physicalIDs)
 	subnetID := strProp(props, "SubnetId", params, physicalIDs)
 
-	mt, err := rc.backends.EFS.Backend.CreateMountTarget(efsbackend.CreateMountTargetRequest{
+	mt, err := rc.backends.EFS.Backend.CreateMountTarget(context.Background(), efsbackend.CreateMountTargetRequest{
 		FileSystemID: fileSystemID,
 		SubnetID:     subnetID,
 	})
@@ -195,7 +195,7 @@ func (rc *ResourceCreator) deleteEFSMountTarget(id string) error {
 		return nil
 	}
 
-	return rc.backends.EFS.Backend.DeleteMountTarget(id)
+	return rc.backends.EFS.Backend.DeleteMountTarget(context.Background(), id)
 }
 
 // ---- Batch ----
@@ -220,6 +220,7 @@ func (rc *ResourceCreator) createBatchComputeEnvironment(
 	}
 
 	ce, err := rc.backends.Batch.Backend.CreateComputeEnvironment(
+		context.Background(),
 		name,
 		ceType,
 		"ENABLED",
@@ -242,11 +243,14 @@ func (rc *ResourceCreator) deleteBatchComputeEnvironment(arnOrName string) error
 	}
 
 	// AWS requires DISABLED state before deletion.
-	if _, err := rc.backends.Batch.Backend.UpdateComputeEnvironment(arnOrName, "DISABLED", "", nil, nil); err != nil {
+	_, err := rc.backends.Batch.Backend.UpdateComputeEnvironment(
+		context.Background(), arnOrName, "DISABLED", "", nil, nil,
+	)
+	if err != nil {
 		return fmt.Errorf("disable Batch compute environment %s: %w", arnOrName, err)
 	}
 
-	return rc.backends.Batch.Backend.DeleteComputeEnvironment(arnOrName)
+	return rc.backends.Batch.Backend.DeleteComputeEnvironment(context.Background(), arnOrName)
 }
 
 func (rc *ResourceCreator) createBatchJobQueue(
@@ -289,7 +293,16 @@ func (rc *ResourceCreator) createBatchJobQueue(
 		}
 	}
 
-	jq, err := rc.backends.Batch.Backend.CreateJobQueue(name, priority, "ENABLED", ceOrder, nil, "", nil)
+	jq, err := rc.backends.Batch.Backend.CreateJobQueue(
+		context.Background(),
+		name,
+		priority,
+		"ENABLED",
+		ceOrder,
+		nil,
+		"",
+		nil,
+	)
 	if err != nil {
 		return "", fmt.Errorf("create Batch job queue %s: %w", name, err)
 	}
@@ -304,11 +317,13 @@ func (rc *ResourceCreator) deleteBatchJobQueue(arnOrName string) error {
 
 	// AWS requires DISABLED state before deletion.
 	disabled := "DISABLED"
-	if _, err := rc.backends.Batch.Backend.UpdateJobQueue(arnOrName, nil, disabled, nil, nil); err != nil {
+	if _, err := rc.backends.Batch.Backend.UpdateJobQueue(
+		context.Background(), arnOrName, nil, disabled, nil, nil,
+	); err != nil {
 		return fmt.Errorf("disable Batch job queue %s: %w", arnOrName, err)
 	}
 
-	return rc.backends.Batch.Backend.DeleteJobQueue(arnOrName)
+	return rc.backends.Batch.Backend.DeleteJobQueue(context.Background(), arnOrName)
 }
 
 func (rc *ResourceCreator) createBatchJobDefinition(
@@ -331,6 +346,7 @@ func (rc *ResourceCreator) createBatchJobDefinition(
 	}
 
 	jd, err := rc.backends.Batch.Backend.RegisterJobDefinition(
+		context.Background(),
 		name,
 		defType,
 		nil,
@@ -357,7 +373,7 @@ func (rc *ResourceCreator) deleteBatchJobDefinition(arnOrNameRev string) error {
 		return nil
 	}
 
-	return rc.backends.Batch.Backend.DeregisterJobDefinition(arnOrNameRev)
+	return rc.backends.Batch.Backend.DeregisterJobDefinition(context.Background(), arnOrNameRev)
 }
 
 // ---- CloudFront ----
@@ -872,6 +888,7 @@ func (rc *ResourceCreator) createDocDBCluster(
 	paramGroupName := strProp(props, "DBClusterParameterGroupName", params, physicalIDs)
 
 	cluster, err := rc.backends.DocDB.Backend.CreateDBCluster(
+		context.Background(),
 		id,
 		engine,
 		"",
@@ -904,7 +921,7 @@ func (rc *ResourceCreator) deleteDocDBCluster(arn string) error {
 
 	id := resourceNameFromARN(arn)
 
-	_, err := rc.backends.DocDB.Backend.DeleteDBCluster(id, nil)
+	_, err := rc.backends.DocDB.Backend.DeleteDBCluster(context.Background(), id, nil)
 
 	return err
 }
@@ -927,7 +944,16 @@ func (rc *ResourceCreator) createDocDBInstance(
 	instanceClass := strProp(props, "DBInstanceClass", params, physicalIDs)
 	engine := strProp(props, "Engine", params, physicalIDs)
 
-	instance, err := rc.backends.DocDB.Backend.CreateDBInstance(id, clusterID, instanceClass, engine, 0, nil, nil)
+	instance, err := rc.backends.DocDB.Backend.CreateDBInstance(
+		context.Background(),
+		id,
+		clusterID,
+		instanceClass,
+		engine,
+		0,
+		nil,
+		nil,
+	)
 	if err != nil {
 		return "", fmt.Errorf("create DocDB instance %s: %w", id, err)
 	}
@@ -942,7 +968,7 @@ func (rc *ResourceCreator) deleteDocDBInstance(arn string) error {
 
 	id := resourceNameFromARN(arn)
 
-	_, err := rc.backends.DocDB.Backend.DeleteDBInstance(id)
+	_, err := rc.backends.DocDB.Backend.DeleteDBInstance(context.Background(), id)
 
 	return err
 }
@@ -965,7 +991,9 @@ func (rc *ResourceCreator) createNeptuneCluster(
 
 	paramGroupName := strProp(props, "DBClusterParameterGroupName", params, physicalIDs)
 
-	cluster, err := rc.backends.Neptune.Backend.CreateDBCluster(id, paramGroupName, 0, neptune.DBClusterCreateOptions{})
+	cluster, err := rc.backends.Neptune.Backend.CreateDBCluster(
+		context.Background(), id, paramGroupName, 0, neptune.DBClusterCreateOptions{},
+	)
 	if err != nil {
 		return "", fmt.Errorf("create Neptune cluster %s: %w", id, err)
 	}
@@ -980,7 +1008,7 @@ func (rc *ResourceCreator) deleteNeptuneCluster(arn string) error {
 
 	id := resourceNameFromARN(arn)
 
-	_, err := rc.backends.Neptune.Backend.DeleteDBCluster(id)
+	_, err := rc.backends.Neptune.Backend.DeleteDBCluster(context.Background(), id)
 
 	return err
 }
@@ -1003,7 +1031,7 @@ func (rc *ResourceCreator) createNeptuneInstance(
 	instanceClass := strProp(props, "DBInstanceClass", params, physicalIDs)
 
 	instance, err := rc.backends.Neptune.Backend.CreateDBInstance(
-		id, clusterID, instanceClass, neptune.DBInstanceCreateOptions{},
+		context.Background(), id, clusterID, instanceClass, neptune.DBInstanceCreateOptions{},
 	)
 	if err != nil {
 		return "", fmt.Errorf("create Neptune instance %s: %w", id, err)
@@ -1019,7 +1047,7 @@ func (rc *ResourceCreator) deleteNeptuneInstance(arn string) error {
 
 	id := resourceNameFromARN(arn)
 
-	_, err := rc.backends.Neptune.Backend.DeleteDBInstance(id)
+	_, err := rc.backends.Neptune.Backend.DeleteDBInstance(context.Background(), id)
 
 	return err
 }
@@ -1058,7 +1086,9 @@ func (rc *ResourceCreator) createMSKCluster(
 		brokerInfo.InstanceType = "kafka.m5.large"
 	}
 
-	cluster, err := rc.backends.Kafka.Backend.CreateCluster(name, kafkaVersion, numBrokers, brokerInfo, nil, nil)
+	cluster, err := rc.backends.Kafka.Backend.CreateCluster(
+		context.Background(), name, kafkaVersion, numBrokers, brokerInfo, nil, nil,
+	)
 	if err != nil {
 		return "", fmt.Errorf("create MSK cluster %s: %w", name, err)
 	}
@@ -1071,7 +1101,7 @@ func (rc *ResourceCreator) deleteMSKCluster(arn string) error {
 		return nil
 	}
 
-	return rc.backends.Kafka.Backend.DeleteCluster(arn)
+	return rc.backends.Kafka.Backend.DeleteCluster(context.Background(), arn)
 }
 
 // ---- Transfer ----
@@ -1201,7 +1231,7 @@ func (rc *ResourceCreator) createCodePipelinePipeline(
 		decl.Name = name
 	}
 
-	pipeline, err := rc.backends.CodePipeline.Backend.CreatePipeline(decl, nil)
+	pipeline, err := rc.backends.CodePipeline.Backend.CreatePipeline(context.Background(), decl, nil)
 	if err != nil {
 		return "", fmt.Errorf("create CodePipeline pipeline %s: %w", name, err)
 	}
@@ -1216,7 +1246,7 @@ func (rc *ResourceCreator) deleteCodePipelinePipeline(arn string) error {
 
 	name := resourceNameFromARN(arn)
 
-	return rc.backends.CodePipeline.Backend.DeletePipeline(name)
+	return rc.backends.CodePipeline.Backend.DeletePipeline(context.Background(), name)
 }
 
 // ---- IoT ----
@@ -1319,7 +1349,7 @@ func (rc *ResourceCreator) createPipesPipe(
 	target := strProp(props, "Target", params, physicalIDs)
 	description := strProp(props, "Description", params, physicalIDs)
 
-	pipe, err := rc.backends.Pipes.Backend.CreatePipe(pipes.CreatePipeInput{
+	pipe, err := rc.backends.Pipes.Backend.CreatePipe(context.Background(), pipes.CreatePipeInput{
 		Name:        name,
 		RoleARN:     roleARN,
 		Source:      source,
@@ -1340,7 +1370,7 @@ func (rc *ResourceCreator) deletePipesPipe(arn string) error {
 
 	name := resourceNameFromARN(arn)
 
-	_, err := rc.backends.Pipes.Backend.DeletePipe(name)
+	_, err := rc.backends.Pipes.Backend.DeletePipe(context.Background(), name)
 
 	return err
 }
@@ -1366,7 +1396,7 @@ func (rc *ResourceCreator) createEMRCluster(
 		releaseLabel = "emr-6.0.0"
 	}
 
-	cluster, err := rc.backends.EMR.Backend.RunJobFlow(emr.RunJobFlowParams{
+	cluster, err := rc.backends.EMR.Backend.RunJobFlow(context.Background(), emr.RunJobFlowParams{
 		Name:         name,
 		ReleaseLabel: releaseLabel,
 	})
@@ -1384,7 +1414,7 @@ func (rc *ResourceCreator) deleteEMRCluster(arn string) error {
 
 	id := resourceNameFromARN(arn)
 
-	return rc.backends.EMR.Backend.TerminateJobFlows([]string{id})
+	return rc.backends.EMR.Backend.TerminateJobFlows(context.Background(), []string{id})
 }
 
 // ---- CloudWatch Dashboard ----
@@ -1468,9 +1498,9 @@ func (rc *ResourceCreator) deletePhase3AppResource(physicalID, resourceType stri
 		return true, rc.deleteAPIGatewayV2API(physicalID)
 	case "AWS::ApiGatewayV2::Stage":
 		return true, rc.deleteAPIGatewayV2Stage(physicalID)
-	case "AWS::ApiGatewayV2::Integration":
+	case resTypeAPIGatewayV2Integ:
 		return true, rc.deleteAPIGatewayV2Integration(physicalID)
-	case "AWS::ApiGatewayV2::Route":
+	case resTypeAPIGatewayV2Route:
 		return true, rc.deleteAPIGatewayV2Route(physicalID)
 	case "AWS::CodeBuild::Project":
 		return true, rc.deleteCodeBuildProject(physicalID)
@@ -1519,9 +1549,9 @@ func (rc *ResourceCreator) deletePhase3DataResource(physicalID, resourceType str
 // deletePhase4Resource handles ELBv2, WAFv2, Backup, and RDS cluster resource deletions.
 func (rc *ResourceCreator) deletePhase4Resource(physicalID, resourceType string) error {
 	switch resourceType {
-	case "AWS::ElasticLoadBalancingV2::LoadBalancer":
+	case resTypeELBv2LB:
 		return rc.deleteELBv2LoadBalancer(physicalID)
-	case "AWS::ElasticLoadBalancingV2::TargetGroup":
+	case resTypeELBv2TargetGroup:
 		return rc.deleteELBv2TargetGroup(physicalID)
 	case "AWS::ElasticLoadBalancingV2::Listener":
 		return rc.deleteELBv2Listener(physicalID)
@@ -1540,6 +1570,8 @@ func (rc *ResourceCreator) deletePhase4Resource(physicalID, resourceType string)
 	case "AWS::RDS::DBClusterParameterGroup":
 		return rc.deleteRDSDBClusterParameterGroup(physicalID)
 	default:
-		return rc.deletePhase5Resource(context.Background(), physicalID, resourceType)
+		_, err := rc.deletePhase5Resource(context.Background(), resourceType, physicalID)
+
+		return err
 	}
 }

@@ -105,11 +105,14 @@ func fromPersistedSnap(p persistedSnapshot) *Snapshot {
 	}
 }
 
+// backendSnapshot is the persisted form of the backend state. All resource maps are
+// nested by region (outer key = region) to mirror the in-memory layout and keep
+// same-named resources in different regions fully isolated across restarts.
 type backendSnapshot struct {
-	Applications    map[string]persistedApplication `json:"applications"`
-	ApplicationARNs map[string]string               `json:"application_arns"`
-	Snapshots       map[string][]persistedSnapshot  `json:"snapshots"`
-	NextID          int64                           `json:"next_id"`
+	Applications    map[string]map[string]persistedApplication `json:"applications"`
+	ApplicationARNs map[string]map[string]string               `json:"application_arns"`
+	Snapshots       map[string]map[string][]persistedSnapshot  `json:"snapshots"`
+	NextID          int64                                      `json:"next_id"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -117,21 +120,33 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	appsCopy := make(map[string]persistedApplication, len(b.applications))
-	for k, v := range b.applications {
-		appsCopy[k] = toPersistedApp(v)
+	appsCopy := make(map[string]map[string]persistedApplication, len(b.applications))
+	for region, regionApps := range b.applications {
+		regionCopy := make(map[string]persistedApplication, len(regionApps))
+		for k, v := range regionApps {
+			regionCopy[k] = toPersistedApp(v)
+		}
+		appsCopy[region] = regionCopy
 	}
 
-	arnCopy := make(map[string]string, len(b.applicationARNs))
-	maps.Copy(arnCopy, b.applicationARNs)
+	arnCopy := make(map[string]map[string]string, len(b.applicationARNs))
+	for region, regionARNs := range b.applicationARNs {
+		regionCopy := make(map[string]string, len(regionARNs))
+		maps.Copy(regionCopy, regionARNs)
+		arnCopy[region] = regionCopy
+	}
 
-	snapsCopy := make(map[string][]persistedSnapshot, len(b.snapshots))
-	for k, v := range b.snapshots {
-		sl := make([]persistedSnapshot, len(v))
-		for i, s := range v {
-			sl[i] = toPersistedSnap(s)
+	snapsCopy := make(map[string]map[string][]persistedSnapshot, len(b.snapshots))
+	for region, regionSnaps := range b.snapshots {
+		regionCopy := make(map[string][]persistedSnapshot, len(regionSnaps))
+		for k, v := range regionSnaps {
+			sl := make([]persistedSnapshot, len(v))
+			for i, s := range v {
+				sl[i] = toPersistedSnap(s)
+			}
+			regionCopy[k] = sl
 		}
-		snapsCopy[k] = sl
+		snapsCopy[region] = regionCopy
 	}
 
 	snap := backendSnapshot{
@@ -162,23 +177,31 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
-	apps := make(map[string]*Application, len(snap.Applications))
-	for k, v := range snap.Applications {
-		apps[k] = fromPersistedApp(v)
+	apps := make(map[string]map[string]*Application, len(snap.Applications))
+	for region, regionApps := range snap.Applications {
+		regionLive := make(map[string]*Application, len(regionApps))
+		for k, v := range regionApps {
+			regionLive[k] = fromPersistedApp(v)
+		}
+		apps[region] = regionLive
 	}
 
-	snapshots := make(map[string][]*Snapshot, len(snap.Snapshots))
-	for k, v := range snap.Snapshots {
-		sl := make([]*Snapshot, len(v))
-		for i, s := range v {
-			sl[i] = fromPersistedSnap(s)
+	snapshots := make(map[string]map[string][]*Snapshot, len(snap.Snapshots))
+	for region, regionSnaps := range snap.Snapshots {
+		regionLive := make(map[string][]*Snapshot, len(regionSnaps))
+		for k, v := range regionSnaps {
+			sl := make([]*Snapshot, len(v))
+			for i, s := range v {
+				sl[i] = fromPersistedSnap(s)
+			}
+			regionLive[k] = sl
 		}
-		snapshots[k] = sl
+		snapshots[region] = regionLive
 	}
 
 	arnIndex := snap.ApplicationARNs
 	if arnIndex == nil {
-		arnIndex = make(map[string]string)
+		arnIndex = make(map[string]map[string]string)
 	}
 
 	b.applications = apps

@@ -2,6 +2,7 @@ package resourcegroups_test
 
 import (
 	"bytes"
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -264,7 +265,7 @@ func TestRefinement1_ListGroups_Sorted(t *testing.T) {
 		doResourceGroupsRequest(t, h, "CreateGroup", map[string]any{"Name": name})
 	}
 
-	groups := b.ListGroups(nil)
+	groups := b.ListGroups(context.Background(), nil)
 	require.Len(t, groups, 3)
 	assert.Equal(t, "a-group", groups[0].Name)
 	assert.Equal(t, "m-group", groups[1].Name)
@@ -277,7 +278,7 @@ func TestRefinement1_PutGroupConfiguration_DeepCopy(t *testing.T) {
 	t.Parallel()
 
 	b := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
-	_, _ = b.CreateGroup("g1", "", nil, nil, nil)
+	_, _ = b.CreateGroup(context.Background(), "g1", "", nil, nil, nil)
 
 	params := []resourcegroups.GroupConfigurationParameter{
 		{Name: "allowed-resource-types", Values: []string{"v1", "v2"}},
@@ -286,12 +287,12 @@ func TestRefinement1_PutGroupConfiguration_DeepCopy(t *testing.T) {
 		{Type: "AWS::ResourceGroups::Generic", Parameters: params},
 	}
 
-	require.NoError(t, b.PutGroupConfiguration("g1", items))
+	require.NoError(t, b.PutGroupConfiguration(context.Background(), "g1", items))
 
 	// Mutate the original slice after storing.
 	params[0].Values[0] = "mutated"
 
-	got, err := b.GetGroupConfigurationItems("g1")
+	got, err := b.GetGroupConfigurationItems(context.Background(), "g1")
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 	require.Len(t, got[0].Parameters, 1)
@@ -304,9 +305,9 @@ func TestRefinement1_GroupResources_NoDuplicates(t *testing.T) {
 	t.Parallel()
 
 	b := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
-	_, _ = b.CreateGroup("g1", "", nil, nil, nil)
+	_, _ = b.CreateGroup(context.Background(), "g1", "", nil, nil, nil)
 
-	_, err := b.GroupResources("g1", []string{"arn:aws:s3:::b1", "arn:aws:s3:::b1"})
+	_, err := b.GroupResources(context.Background(), "g1", []string{"arn:aws:s3:::b1", "arn:aws:s3:::b1"})
 	require.NoError(t, err)
 
 	// Should only store one copy.
@@ -474,16 +475,16 @@ func TestRefinement1_ListTagSyncTasks_Sorted(t *testing.T) {
 
 	b := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
 
-	_, _ = b.CreateGroup("g1", "", nil, nil, nil)
-	_, _ = b.CreateGroup("g2", "", nil, nil, nil)
+	_, _ = b.CreateGroup(context.Background(), "g1", "", nil, nil, nil)
+	_, _ = b.CreateGroup(context.Background(), "g2", "", nil, nil, nil)
 
 	// Start multiple tasks for determinism check.
-	_, err1 := b.StartTagSyncTask("g1", "arn:aws:iam::000000000000:role/r", "k", "v", nil)
-	_, err2 := b.StartTagSyncTask("g2", "arn:aws:iam::000000000000:role/r", "k", "v", nil)
+	_, err1 := b.StartTagSyncTask(context.Background(), "g1", "arn:aws:iam::000000000000:role/r", "k", "v", nil)
+	_, err2 := b.StartTagSyncTask(context.Background(), "g2", "arn:aws:iam::000000000000:role/r", "k", "v", nil)
 	require.NoError(t, err1)
 	require.NoError(t, err2)
 
-	tasks, err := b.ListTagSyncTasks(nil)
+	tasks, err := b.ListTagSyncTasks(context.Background(), nil)
 	require.NoError(t, err)
 	require.Len(t, tasks, 2)
 
@@ -495,14 +496,14 @@ func TestRefinement1_SearchResources_DeduplicatesAcrossGroups(t *testing.T) {
 	t.Parallel()
 
 	b := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
-	_, _ = b.CreateGroup("g1", "", nil, nil, nil)
-	_, _ = b.CreateGroup("g2", "", nil, nil, nil)
+	_, _ = b.CreateGroup(context.Background(), "g1", "", nil, nil, nil)
+	_, _ = b.CreateGroup(context.Background(), "g2", "", nil, nil, nil)
 
 	// Same ARN added to both groups.
-	_, _ = b.GroupResources("g1", []string{"arn:aws:s3:::shared"})
-	_, _ = b.GroupResources("g2", []string{"arn:aws:s3:::shared"})
+	_, _ = b.GroupResources(context.Background(), "g1", []string{"arn:aws:s3:::shared"})
+	_, _ = b.GroupResources(context.Background(), "g2", []string{"arn:aws:s3:::shared"})
 
-	results, err := b.SearchResources(nil)
+	results, err := b.SearchResources(context.Background(), nil)
 	require.NoError(t, err)
 	assert.Len(t, results, 1)
 }
@@ -534,12 +535,12 @@ func TestRefinement1_PersistenceIncludesNewState(t *testing.T) {
 	t.Parallel()
 
 	b := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
-	_, _ = b.CreateGroup("g1", "desc", nil, nil, nil)
-	_, _ = b.GroupResources("g1", []string{"arn:aws:s3:::b1"})
-	_ = b.PutGroupConfiguration("g1", []resourcegroups.GroupConfigurationItem{
+	_, _ = b.CreateGroup(context.Background(), "g1", "desc", nil, nil, nil)
+	_, _ = b.GroupResources(context.Background(), "g1", []string{"arn:aws:s3:::b1"})
+	_ = b.PutGroupConfiguration(context.Background(), "g1", []resourcegroups.GroupConfigurationItem{
 		{Type: "AWS::EC2::CapacityReservationPool"},
 	})
-	_, _ = b.StartTagSyncTask("g1", "arn:aws:iam::000000000000:role/r", "k", "v", nil)
+	_, _ = b.StartTagSyncTask(context.Background(), "g1", "arn:aws:iam::000000000000:role/r", "k", "v", nil)
 
 	snap := b.Snapshot()
 	require.NotNil(t, snap)
@@ -559,8 +560,8 @@ func TestRefinement1_PersistenceTagsRenamedAfterRestore(t *testing.T) {
 	t.Parallel()
 
 	b := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
-	g, _ := b.CreateGroup("tagged", "", nil, nil, nil)
-	_, _ = b.AddTagsByARN(g.ARN, map[string]string{"owner": "alice"})
+	g, _ := b.CreateGroup(context.Background(), "tagged", "", nil, nil, nil)
+	_, _ = b.AddTagsByARN(context.Background(), g.ARN, map[string]string{"owner": "alice"})
 
 	snap := b.Snapshot()
 	require.NotNil(t, snap)
@@ -568,7 +569,7 @@ func TestRefinement1_PersistenceTagsRenamedAfterRestore(t *testing.T) {
 	b2 := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
 	require.NoError(t, b2.Restore(snap))
 
-	tags, err := b2.GetTagsByARN(g.ARN)
+	tags, err := b2.GetTagsByARN(context.Background(), g.ARN)
 	require.NoError(t, err)
 	assert.Equal(t, "alice", tags["owner"])
 }
@@ -645,12 +646,12 @@ func TestRefinement1_ListTagSyncTasks_FilteredByGroupName(t *testing.T) {
 	t.Parallel()
 
 	b := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
-	_, _ = b.CreateGroup("g1", "", nil, nil, nil)
-	_, _ = b.CreateGroup("g2", "", nil, nil, nil)
-	_, _ = b.StartTagSyncTask("g1", "arn:aws:iam::000000000000:role/r", "", "", nil)
-	_, _ = b.StartTagSyncTask("g2", "arn:aws:iam::000000000000:role/r", "", "", nil)
+	_, _ = b.CreateGroup(context.Background(), "g1", "", nil, nil, nil)
+	_, _ = b.CreateGroup(context.Background(), "g2", "", nil, nil, nil)
+	_, _ = b.StartTagSyncTask(context.Background(), "g1", "arn:aws:iam::000000000000:role/r", "", "", nil)
+	_, _ = b.StartTagSyncTask(context.Background(), "g2", "arn:aws:iam::000000000000:role/r", "", "", nil)
 
-	tasks, err := b.ListTagSyncTasks([]resourcegroups.ListTagSyncTasksFilter{
+	tasks, err := b.ListTagSyncTasks(context.Background(), []resourcegroups.ListTagSyncTasksFilter{
 		{GroupName: "g1"},
 	})
 	require.NoError(t, err)
@@ -663,9 +664,9 @@ func TestRefinement1_CloneConfigItems_NilInput(t *testing.T) {
 	t.Parallel()
 
 	b := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
-	_, _ = b.CreateGroup("g1", "", nil, nil, nil)
+	_, _ = b.CreateGroup(context.Background(), "g1", "", nil, nil, nil)
 
-	items, err := b.GetGroupConfigurationItems("g1")
+	items, err := b.GetGroupConfigurationItems(context.Background(), "g1")
 	require.NoError(t, err)
 	assert.NotNil(t, items)
 	assert.Empty(t, items)

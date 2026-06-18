@@ -45,7 +45,7 @@ type ListBucketV2Result struct {
 	Name                  string            `xml:"Name"`
 	EncodingType          string            `xml:"EncodingType,omitempty"`
 	Contents              []ObjectXML       `xml:"Contents"`
-	CommonPrefixes        []CommonPrefixXML `xml:"CommonPrefixes"`
+	CommonPrefixes        []CommonPrefixXML `xml:"CommonPrefixes,omitempty"`
 	KeyCount              int               `xml:"KeyCount"`
 	MaxKeys               int               `xml:"MaxKeys"`
 	IsTruncated           bool              `xml:"IsTruncated"`
@@ -302,12 +302,13 @@ type ListMultipartUploadsResult struct {
 	Xmlns              string            `xml:"xmlns,attr,omitempty"`
 	Bucket             string            `xml:"Bucket"`
 	Delimiter          string            `xml:"Delimiter,omitempty"`
-	Prefix             string            `xml:"Prefix,omitempty"`
+	Prefix             string            `xml:"Prefix"`
 	KeyMarker          string            `xml:"KeyMarker,omitempty"`
 	UploadIDMarker     string            `xml:"UploadIdMarker,omitempty"`
 	NextKeyMarker      string            `xml:"NextKeyMarker,omitempty"`
 	NextUploadIDMarker string            `xml:"NextUploadIdMarker,omitempty"`
 	Uploads            []MultipartUpload `xml:"Upload"`
+	CommonPrefixes     []CommonPrefixXML `xml:"CommonPrefixes,omitempty"`
 	MaxUploads         int               `xml:"MaxUploads"`
 	IsTruncated        bool              `xml:"IsTruncated"`
 }
@@ -363,9 +364,9 @@ type ListPartsResult struct {
 	Bucket               string    `xml:"Bucket"`
 	Key                  string    `xml:"Key"`
 	UploadID             string    `xml:"UploadId"`
+	NextPartNumberMarker string    `xml:"NextPartNumberMarker,omitempty"`
 	Parts                []PartXML `xml:"Part"`
 	PartNumberMarker     int       `xml:"PartNumberMarker"`
-	NextPartNumberMarker int       `xml:"NextPartNumberMarker,omitempty"`
 	MaxParts             int       `xml:"MaxParts"`
 	IsTruncated          bool      `xml:"IsTruncated"`
 }

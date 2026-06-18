@@ -3,6 +3,7 @@
 package mediastoredata_test
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -15,7 +16,7 @@ import (
 )
 
 func newTestBackend() *mediastoredata.InMemoryBackend {
-	return mediastoredata.NewInMemoryBackend()
+	return mediastoredata.NewInMemoryBackend("us-east-1")
 }
 
 func TestBackend_PutObject(t *testing.T) {
@@ -89,7 +90,7 @@ func TestBackend_PutObject(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend()
-			obj, err := b.PutObject(tt.path, tt.body, tt.contentType, "", tt.storageClass, "")
+			obj, err := b.PutObject(context.Background(), tt.path, tt.body, tt.contentType, "", tt.storageClass, "")
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -148,11 +149,11 @@ func TestBackend_GetObject(t *testing.T) {
 			b := newTestBackend()
 
 			if tt.putPath != "" {
-				_, err := b.PutObject(tt.putPath, tt.body, "video/mp4", "", "TEMPORAL", "")
+				_, err := b.PutObject(context.Background(), tt.putPath, tt.body, "video/mp4", "", "TEMPORAL", "")
 				require.NoError(t, err)
 			}
 
-			obj, err := b.GetObject(tt.getPath)
+			obj, err := b.GetObject(context.Background(), tt.getPath)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -199,11 +200,11 @@ func TestBackend_DeleteObject(t *testing.T) {
 			b := newTestBackend()
 
 			if tt.createFirst {
-				_, err := b.PutObject(tt.path, []byte("data"), "video/mp4", "", "TEMPORAL", "")
+				_, err := b.PutObject(context.Background(), tt.path, []byte("data"), "video/mp4", "", "TEMPORAL", "")
 				require.NoError(t, err)
 			}
 
-			err := b.DeleteObject(tt.path)
+			err := b.DeleteObject(context.Background(), tt.path)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -216,7 +217,7 @@ func TestBackend_DeleteObject(t *testing.T) {
 
 			require.NoError(t, err)
 
-			_, err = b.GetObject(tt.path)
+			_, err = b.GetObject(context.Background(), tt.path)
 			require.ErrorIs(t, err, awserr.ErrNotFound)
 		})
 	}
@@ -256,11 +257,11 @@ func TestBackend_UpdateObjectMetadata(t *testing.T) {
 			b := newTestBackend()
 
 			if tt.createFirst {
-				_, err := b.PutObject(tt.path, []byte("data"), "video/mp4", "", "TEMPORAL", "")
+				_, err := b.PutObject(context.Background(), tt.path, []byte("data"), "video/mp4", "", "TEMPORAL", "")
 				require.NoError(t, err)
 			}
 
-			err := b.UpdateObjectMetadata(tt.path, tt.contentType, tt.cacheCtrl)
+			err := b.UpdateObjectMetadata(context.Background(), tt.path, tt.contentType, tt.cacheCtrl)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -273,7 +274,7 @@ func TestBackend_UpdateObjectMetadata(t *testing.T) {
 
 			require.NoError(t, err)
 
-			obj, err := b.GetObject(tt.path)
+			obj, err := b.GetObject(context.Background(), tt.path)
 			require.NoError(t, err)
 			assert.Equal(t, tt.contentType, obj.ContentType)
 			assert.Equal(t, tt.cacheCtrl, obj.CacheControl)
@@ -298,10 +299,13 @@ func TestBackend_UploadAvailability(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend()
-			_, err := b.PutObject("/avail/file.mp4", []byte("data"), "video/mp4", "", "TEMPORAL", tt.uploadAvailability)
+			_, err := b.PutObject(
+				context.Background(),
+				"/avail/file.mp4", []byte("data"), "video/mp4", "", "TEMPORAL", tt.uploadAvailability,
+			)
 			require.NoError(t, err)
 
-			obj, err := b.GetObject("/avail/file.mp4")
+			obj, err := b.GetObject(context.Background(), "/avail/file.mp4")
 			require.NoError(t, err)
 			assert.Equal(t, tt.uploadAvailability, obj.UploadAvailability)
 		})
@@ -310,6 +314,8 @@ func TestBackend_UploadAvailability(t *testing.T) {
 
 func TestBackend_Stats_RunningCounters(t *testing.T) {
 	t.Parallel()
+
+	ctx := context.Background()
 
 	tests := []struct {
 		ops       func(b *mediastoredata.InMemoryBackend)
@@ -326,8 +332,8 @@ func TestBackend_Stats_RunningCounters(t *testing.T) {
 		{
 			name: "two_objects_summed",
 			ops: func(b *mediastoredata.InMemoryBackend) {
-				_, _ = b.PutObject("/a.mp4", []byte("hello"), "video/mp4", "", "TEMPORAL", "")
-				_, _ = b.PutObject("/b.mp4", []byte("world!"), "video/mp4", "", "TEMPORAL", "")
+				_, _ = b.PutObject(ctx, "/a.mp4", []byte("hello"), "video/mp4", "", "TEMPORAL", "")
+				_, _ = b.PutObject(ctx, "/b.mp4", []byte("world!"), "video/mp4", "", "TEMPORAL", "")
 			},
 			wantCount: 2,
 			wantBytes: 11,
@@ -335,8 +341,8 @@ func TestBackend_Stats_RunningCounters(t *testing.T) {
 		{
 			name: "delete_decrements",
 			ops: func(b *mediastoredata.InMemoryBackend) {
-				_, _ = b.PutObject("/x.mp4", []byte("data"), "video/mp4", "", "TEMPORAL", "")
-				_ = b.DeleteObject("/x.mp4")
+				_, _ = b.PutObject(ctx, "/x.mp4", []byte("data"), "video/mp4", "", "TEMPORAL", "")
+				_ = b.DeleteObject(ctx, "/x.mp4")
 			},
 			wantCount: 0,
 			wantBytes: 0,
@@ -344,8 +350,8 @@ func TestBackend_Stats_RunningCounters(t *testing.T) {
 		{
 			name: "overwrite_replaces_bytes",
 			ops: func(b *mediastoredata.InMemoryBackend) {
-				_, _ = b.PutObject("/ov.mp4", []byte("short"), "video/mp4", "", "TEMPORAL", "")
-				_, _ = b.PutObject("/ov.mp4", []byte("longer content"), "video/mp4", "", "TEMPORAL", "")
+				_, _ = b.PutObject(ctx, "/ov.mp4", []byte("short"), "video/mp4", "", "TEMPORAL", "")
+				_, _ = b.PutObject(ctx, "/ov.mp4", []byte("longer content"), "video/mp4", "", "TEMPORAL", "")
 			},
 			wantCount: 1,
 			wantBytes: 14,
@@ -359,7 +365,7 @@ func TestBackend_Stats_RunningCounters(t *testing.T) {
 			b := newTestBackend()
 			tt.ops(b)
 
-			stats := b.Stats()
+			stats := b.Stats(ctx)
 			assert.Equal(t, tt.wantCount, stats.ObjectCount)
 			assert.Equal(t, tt.wantBytes, stats.TotalBytes)
 		})
@@ -368,6 +374,8 @@ func TestBackend_Stats_RunningCounters(t *testing.T) {
 
 func TestBackend_ListItems_FolderSemantics(t *testing.T) {
 	t.Parallel()
+
+	ctx := context.Background()
 
 	tests := []struct {
 		wantTypes  map[string]string
@@ -413,11 +421,11 @@ func TestBackend_ListItems_FolderSemantics(t *testing.T) {
 			b := newTestBackend()
 
 			for _, path := range tt.objects {
-				_, err := b.PutObject(path, []byte("data"), "video/mp4", "", "TEMPORAL", "")
+				_, err := b.PutObject(ctx, path, []byte("data"), "video/mp4", "", "TEMPORAL", "")
 				require.NoError(t, err)
 			}
 
-			out := b.ListItems(mediastoredata.ListItemsInput{FolderPath: tt.folderPath})
+			out := b.ListItems(ctx, mediastoredata.ListItemsInput{FolderPath: tt.folderPath})
 			require.NotNil(t, out)
 
 			names := make([]string, 0, len(out.Items))
@@ -438,6 +446,8 @@ func TestBackend_ListItems_FolderSemantics(t *testing.T) {
 
 func TestBackend_ListItems_HMACPagination(t *testing.T) {
 	t.Parallel()
+
+	ctx := context.Background()
 
 	tests := []struct {
 		name          string
@@ -472,7 +482,9 @@ func TestBackend_ListItems_HMACPagination(t *testing.T) {
 			b := newTestBackend()
 
 			for i := range tt.objectCount {
-				_, err := b.PutObject(fmt.Sprintf("/obj%02d.mp4", i), []byte("data"), "video/mp4", "", "TEMPORAL", "")
+				_, err := b.PutObject(
+					ctx, fmt.Sprintf("/obj%02d.mp4", i), []byte("data"), "video/mp4", "", "TEMPORAL", "",
+				)
 				require.NoError(t, err)
 			}
 
@@ -483,7 +495,7 @@ func TestBackend_ListItems_HMACPagination(t *testing.T) {
 			)
 
 			for {
-				out := b.ListItems(mediastoredata.ListItemsInput{
+				out := b.ListItems(ctx, mediastoredata.ListItemsInput{
 					MaxResults: tt.pageSize,
 					NextToken:  nextToken,
 				})
@@ -504,6 +516,8 @@ func TestBackend_ListItems_HMACPagination(t *testing.T) {
 
 func TestBackend_ListItems_NoNameCollision(t *testing.T) {
 	t.Parallel()
+
+	ctx := context.Background()
 
 	tests := []struct {
 		name        string
@@ -526,11 +540,11 @@ func TestBackend_ListItems_NoNameCollision(t *testing.T) {
 			b := newTestBackend()
 
 			for _, path := range tt.objects {
-				_, err := b.PutObject(path, []byte("x"), "application/octet-stream", "", "TEMPORAL", "")
+				_, err := b.PutObject(ctx, path, []byte("x"), "application/octet-stream", "", "TEMPORAL", "")
 				require.NoError(t, err)
 			}
 
-			out := b.ListItems(mediastoredata.ListItemsInput{FolderPath: tt.folderPath})
+			out := b.ListItems(ctx, mediastoredata.ListItemsInput{FolderPath: tt.folderPath})
 
 			seen := make(map[string]int)
 			for _, item := range out.Items {

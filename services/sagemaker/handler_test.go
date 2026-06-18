@@ -2,6 +2,7 @@ package sagemaker_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -256,7 +257,7 @@ func TestHandler_DescribeModel(t *testing.T) {
 			setup: func(t *testing.T, h *sagemaker.Handler) {
 				t.Helper()
 
-				_, err := h.Backend.CreateModel("my-model", "arn:aws:iam::000000000000:role/test",
+				_, err := h.Backend.CreateModel(context.Background(), "my-model", "arn:aws:iam::000000000000:role/test",
 					&sagemaker.ContainerDefinition{Image: "my-image"}, nil, nil)
 				require.NoError(t, err)
 			},
@@ -303,10 +304,24 @@ func TestHandler_ListModels(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	_, err := h.Backend.CreateModel("model-a", "arn:aws:iam::000000000000:role/test", nil, nil, nil)
+	_, err := h.Backend.CreateModel(
+		context.Background(),
+		"model-a",
+		"arn:aws:iam::000000000000:role/test",
+		nil,
+		nil,
+		nil,
+	)
 	require.NoError(t, err)
 
-	_, err = h.Backend.CreateModel("model-b", "arn:aws:iam::000000000000:role/test", nil, nil, nil)
+	_, err = h.Backend.CreateModel(
+		context.Background(),
+		"model-b",
+		"arn:aws:iam::000000000000:role/test",
+		nil,
+		nil,
+		nil,
+	)
 	require.NoError(t, err)
 
 	rec := doSageMakerRequest(t, h, "ListModels", map[string]any{})
@@ -334,7 +349,7 @@ func TestHandler_DeleteModel(t *testing.T) {
 			setup: func(t *testing.T, h *sagemaker.Handler) {
 				t.Helper()
 
-				_, err := h.Backend.CreateModel(
+				_, err := h.Backend.CreateModel(context.Background(),
 					"to-delete",
 					"arn:aws:iam::000000000000:role/test",
 					nil,
@@ -438,7 +453,7 @@ func TestHandler_DescribeEndpointConfig(t *testing.T) {
 			setup: func(t *testing.T, h *sagemaker.Handler) {
 				t.Helper()
 
-				_, err := h.Backend.CreateEndpointConfig("my-config", nil, nil)
+				_, err := h.Backend.CreateEndpointConfig(context.Background(), "my-config", nil, nil)
 				require.NoError(t, err)
 			},
 			body:     map[string]any{"EndpointConfigName": "my-config"},
@@ -488,7 +503,7 @@ func TestHandler_DeleteEndpointConfig(t *testing.T) {
 			setup: func(t *testing.T, h *sagemaker.Handler) {
 				t.Helper()
 
-				_, err := h.Backend.CreateEndpointConfig("to-delete", nil, nil)
+				_, err := h.Backend.CreateEndpointConfig(context.Background(), "to-delete", nil, nil)
 				require.NoError(t, err)
 			},
 			body:     map[string]any{"EndpointConfigName": "to-delete"},
@@ -522,7 +537,7 @@ func TestHandler_Tags(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	m, err := h.Backend.CreateModel(
+	m, err := h.Backend.CreateModel(context.Background(),
 		"tagged-model",
 		"arn:aws:iam::000000000000:role/test",
 		nil,
@@ -655,10 +670,10 @@ func TestHandler_ListEndpointConfigs(t *testing.T) {
 			setup: func(t *testing.T, h *sagemaker.Handler) {
 				t.Helper()
 
-				_, err := h.Backend.CreateEndpointConfig("config-a", nil, nil)
+				_, err := h.Backend.CreateEndpointConfig(context.Background(), "config-a", nil, nil)
 				require.NoError(t, err)
 
-				_, err = h.Backend.CreateEndpointConfig("config-b", nil, nil)
+				_, err = h.Backend.CreateEndpointConfig(context.Background(), "config-b", nil, nil)
 				require.NoError(t, err)
 			},
 			wantCode:   http.StatusOK,
@@ -731,7 +746,7 @@ func TestHandler_Tags_EndpointConfig(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	ec, err := h.Backend.CreateEndpointConfig("tagged-config", nil, nil)
+	ec, err := h.Backend.CreateEndpointConfig(context.Background(), "tagged-config", nil, nil)
 	require.NoError(t, err)
 
 	// Add tags to endpoint config.
@@ -801,7 +816,7 @@ func TestHandler_ListModelsPagination(t *testing.T) {
 			h := newTestHandler(t)
 
 			for i := range tt.count {
-				_, err := h.Backend.CreateModel(
+				_, err := h.Backend.CreateModel(context.Background(),
 					fmt.Sprintf("model-%04d", i),
 					"arn:aws:iam::000000000000:role/test",
 					nil, nil, nil,
@@ -876,7 +891,7 @@ func TestHandler_ListEndpointConfigsPagination(t *testing.T) {
 			h := newTestHandler(t)
 
 			for i := range tt.count {
-				_, err := h.Backend.CreateEndpointConfig(
+				_, err := h.Backend.CreateEndpointConfig(context.Background(),
 					fmt.Sprintf("cfg-%04d", i),
 					nil,
 					nil,

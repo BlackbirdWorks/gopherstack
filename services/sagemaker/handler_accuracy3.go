@@ -100,13 +100,13 @@ func (h *Handler) dispatchEdgeAndInferenceOps(
 
 		return r, true, err
 	case opDescribeEdgePackagingJob:
-		r, err := h.handleDescribeEdgePackagingJob(body)
+		r, err := h.handleDescribeEdgePackagingJob(ctx, body)
 
 		return r, true, err
 	case opStopEdgePackagingJob:
-		return nil, true, h.handleStopEdgePackagingJob(body)
+		return nil, true, h.handleStopEdgePackagingJob(ctx, body)
 	case opListEdgePackagingJobs:
-		r, err := h.handleListEdgePackagingJobs(body)
+		r, err := h.handleListEdgePackagingJobs(ctx, body)
 
 		return r, true, err
 	case opCreateInferenceRecommendationsJob:
@@ -114,21 +114,21 @@ func (h *Handler) dispatchEdgeAndInferenceOps(
 
 		return r, true, err
 	case opDescribeInferenceRecommendationsJob:
-		r, err := h.handleDescribeInferenceRecommendationsJob(body)
+		r, err := h.handleDescribeInferenceRecommendationsJob(ctx, body)
 
 		return r, true, err
 	case opStopInferenceRecommendationsJob:
-		return nil, true, h.handleStopInferenceRecommendationsJob(body)
+		return nil, true, h.handleStopInferenceRecommendationsJob(ctx, body)
 	case opListInferenceRecommendationsJobs:
-		r, err := h.handleListInferenceRecommendationsJobs(body)
+		r, err := h.handleListInferenceRecommendationsJobs(ctx, body)
 
 		return r, true, err
 	case opListInferenceRecommendationsJobSteps:
-		r, err := h.handleListInferenceRecommendationsJobSteps(body)
+		r, err := h.handleListInferenceRecommendationsJobSteps(ctx, body)
 
 		return r, true, err
 	case opListTrainingJobsForHyperParameterTuningJob:
-		r, err := h.handleListTrainingJobsForHyperParameterTuningJob(body)
+		r, err := h.handleListTrainingJobsForHyperParameterTuningJob(ctx, body)
 
 		return r, true, err
 	}
@@ -143,7 +143,7 @@ func (h *Handler) dispatchListAndUpdateOps(
 ) ([]byte, bool, error) {
 	switch op {
 	case opListMlflowTrackingServers:
-		r, err := h.handleListMlflowTrackingServers(body)
+		r, err := h.handleListMlflowTrackingServers(ctx, body)
 
 		return r, true, err
 	case opUpdateMlflowTrackingServer:
@@ -151,15 +151,15 @@ func (h *Handler) dispatchListAndUpdateOps(
 
 		return r, true, err
 	case opListModelCards:
-		r, err := h.handleListModelCards(body)
+		r, err := h.handleListModelCards(ctx, body)
 
 		return r, true, err
 	case opListModelCardVersions:
-		r, err := h.handleListModelCardVersions(body)
+		r, err := h.handleListModelCardVersions(ctx, body)
 
 		return r, true, err
 	case opListModelCardExportJobs:
-		r, err := h.handleListModelCardExportJobs(body)
+		r, err := h.handleListModelCardExportJobs(ctx, body)
 
 		return r, true, err
 	case opUpdateModelPackage:
@@ -175,27 +175,27 @@ func (h *Handler) dispatchListAndUpdateOps(
 
 		return r, true, err
 	case opListOptimizationJobs:
-		r, err := h.handleListOptimizationJobs(body)
+		r, err := h.handleListOptimizationJobs(ctx, body)
 
 		return r, true, err
 	case opListStudioLifecycleConfigs:
-		r, err := h.handleListStudioLifecycleConfigs(body)
+		r, err := h.handleListStudioLifecycleConfigs(ctx, body)
 
 		return r, true, err
 	case opListInferenceExperiments:
-		r, err := h.handleListInferenceExperiments(body)
+		r, err := h.handleListInferenceExperiments(ctx, body)
 
 		return r, true, err
 	case opListFlowDefinitions:
-		r, err := h.handleListFlowDefinitions(body)
+		r, err := h.handleListFlowDefinitions(ctx, body)
 
 		return r, true, err
 	case opListHumanTaskUis:
-		r, err := h.handleListHumanTaskUIs(body)
+		r, err := h.handleListHumanTaskUIs(ctx, body)
 
 		return r, true, err
 	case opListAppImageConfigs:
-		r, err := h.handleListAppImageConfigs(body)
+		r, err := h.handleListAppImageConfigs(ctx, body)
 
 		return r, true, err
 	}
@@ -225,7 +225,7 @@ func (h *Handler) handleCreateEdgePackagingJob(ctx context.Context, body []byte)
 		return nil, fmt.Errorf("%w: EdgePackagingJobName is required", errInvalidRequest)
 	}
 
-	j, err := h.Backend.CreateEdgePackagingJob(CreateEdgePackagingJobOptions{
+	j, err := h.Backend.CreateEdgePackagingJob(ctx, CreateEdgePackagingJobOptions{
 		EdgePackagingJobName: req.EdgePackagingJobName,
 		ModelName:            req.ModelName,
 		ModelVersion:         req.ModelVersion,
@@ -237,12 +237,10 @@ func (h *Handler) handleCreateEdgePackagingJob(ctx context.Context, body []byte)
 		return nil, err
 	}
 
-	_ = ctx
-
 	return json.Marshal(map[string]string{keyEdgePackagingJobArn: j.EdgePackagingJobArn})
 }
 
-func (h *Handler) handleDescribeEdgePackagingJob(body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeEdgePackagingJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		EdgePackagingJobName string `json:"EdgePackagingJobName"`
 	}
@@ -255,7 +253,7 @@ func (h *Handler) handleDescribeEdgePackagingJob(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: EdgePackagingJobName is required", errInvalidRequest)
 	}
 
-	j, err := h.Backend.DescribeEdgePackagingJob(req.EdgePackagingJobName)
+	j, err := h.Backend.DescribeEdgePackagingJob(ctx, req.EdgePackagingJobName)
 	if err != nil {
 		return nil, err
 	}
@@ -291,7 +289,7 @@ func (h *Handler) handleDescribeEdgePackagingJob(body []byte) ([]byte, error) {
 	return json.Marshal(resp)
 }
 
-func (h *Handler) handleStopEdgePackagingJob(body []byte) error {
+func (h *Handler) handleStopEdgePackagingJob(ctx context.Context, body []byte) error {
 	var req struct {
 		EdgePackagingJobName string `json:"EdgePackagingJobName"`
 	}
@@ -304,7 +302,7 @@ func (h *Handler) handleStopEdgePackagingJob(body []byte) error {
 		return fmt.Errorf("%w: EdgePackagingJobName is required", errInvalidRequest)
 	}
 
-	return h.Backend.StopEdgePackagingJob(req.EdgePackagingJobName)
+	return h.Backend.StopEdgePackagingJob(ctx, req.EdgePackagingJobName)
 }
 
 type edgePackagingJobSummary struct {
@@ -317,7 +315,7 @@ type edgePackagingJobSummary struct {
 	LastModifiedTime       float64 `json:"LastModifiedTime"`
 }
 
-func (h *Handler) handleListEdgePackagingJobs(body []byte) ([]byte, error) {
+func (h *Handler) handleListEdgePackagingJobs(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		NextToken    string `json:"NextToken"`
 		StatusEquals string `json:"StatusEquals,omitempty"`
@@ -328,7 +326,7 @@ func (h *Handler) handleListEdgePackagingJobs(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	jobs, nextToken := h.Backend.ListEdgePackagingJobs(req.NextToken, ListEdgePackagingJobsFilter{
+	jobs, nextToken := h.Backend.ListEdgePackagingJobs(ctx, req.NextToken, ListEdgePackagingJobsFilter{
 		StatusEquals: req.StatusEquals,
 		NameContains: req.NameContains,
 	})
@@ -375,7 +373,7 @@ func (h *Handler) handleCreateInferenceRecommendationsJob(ctx context.Context, b
 		return nil, fmt.Errorf("%w: JobName is required", errInvalidRequest)
 	}
 
-	j, err := h.Backend.CreateInferenceRecommendationsJob(CreateInferenceRecommendationsJobOptions{
+	j, err := h.Backend.CreateInferenceRecommendationsJob(ctx, CreateInferenceRecommendationsJobOptions{
 		JobName:        req.JobName,
 		JobType:        req.JobType,
 		JobDescription: req.JobDescription,
@@ -386,12 +384,10 @@ func (h *Handler) handleCreateInferenceRecommendationsJob(ctx context.Context, b
 		return nil, err
 	}
 
-	_ = ctx
-
 	return json.Marshal(map[string]string{keyJobArn: j.JobArn})
 }
 
-func (h *Handler) handleDescribeInferenceRecommendationsJob(body []byte) ([]byte, error) {
+func (h *Handler) handleDescribeInferenceRecommendationsJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		JobName string `json:"JobName"`
 	}
@@ -404,7 +400,7 @@ func (h *Handler) handleDescribeInferenceRecommendationsJob(body []byte) ([]byte
 		return nil, fmt.Errorf("%w: JobName is required", errInvalidRequest)
 	}
 
-	j, err := h.Backend.DescribeInferenceRecommendationsJob(req.JobName)
+	j, err := h.Backend.DescribeInferenceRecommendationsJob(ctx, req.JobName)
 	if err != nil {
 		return nil, err
 	}
@@ -433,7 +429,7 @@ func (h *Handler) handleDescribeInferenceRecommendationsJob(body []byte) ([]byte
 	return json.Marshal(resp)
 }
 
-func (h *Handler) handleStopInferenceRecommendationsJob(body []byte) error {
+func (h *Handler) handleStopInferenceRecommendationsJob(ctx context.Context, body []byte) error {
 	var req struct {
 		JobName string `json:"JobName"`
 	}
@@ -446,7 +442,7 @@ func (h *Handler) handleStopInferenceRecommendationsJob(body []byte) error {
 		return fmt.Errorf("%w: JobName is required", errInvalidRequest)
 	}
 
-	return h.Backend.StopInferenceRecommendationsJob(req.JobName)
+	return h.Backend.StopInferenceRecommendationsJob(ctx, req.JobName)
 }
 
 type inferenceRecommendationsJobSummary struct {
@@ -458,7 +454,7 @@ type inferenceRecommendationsJobSummary struct {
 	LastModifiedTime float64 `json:"LastModifiedTime"`
 }
 
-func (h *Handler) handleListInferenceRecommendationsJobs(body []byte) ([]byte, error) {
+func (h *Handler) handleListInferenceRecommendationsJobs(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		NextToken string `json:"NextToken"`
 	}
@@ -467,7 +463,7 @@ func (h *Handler) handleListInferenceRecommendationsJobs(body []byte) ([]byte, e
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	jobs, nextToken := h.Backend.ListInferenceRecommendationsJobs(req.NextToken)
+	jobs, nextToken := h.Backend.ListInferenceRecommendationsJobs(ctx, req.NextToken)
 
 	summaries := make([]inferenceRecommendationsJobSummary, 0, len(jobs))
 	for _, j := range jobs {
@@ -489,7 +485,7 @@ func (h *Handler) handleListInferenceRecommendationsJobs(body []byte) ([]byte, e
 	return json.Marshal(resp)
 }
 
-func (h *Handler) handleListInferenceRecommendationsJobSteps(body []byte) ([]byte, error) {
+func (h *Handler) handleListInferenceRecommendationsJobSteps(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		JobName   string `json:"JobName"`
 		NextToken string `json:"NextToken"`
@@ -503,7 +499,7 @@ func (h *Handler) handleListInferenceRecommendationsJobSteps(body []byte) ([]byt
 		return nil, fmt.Errorf("%w: JobName is required", errInvalidRequest)
 	}
 
-	if _, err := h.Backend.DescribeInferenceRecommendationsJob(req.JobName); err != nil {
+	if _, err := h.Backend.DescribeInferenceRecommendationsJob(ctx, req.JobName); err != nil {
 		return nil, err
 	}
 
@@ -514,7 +510,7 @@ func (h *Handler) handleListInferenceRecommendationsJobSteps(body []byte) ([]byt
 // MLflow tracking server handlers (list + update)
 // ---------------------------------------------------------------------------
 
-func (h *Handler) handleListMlflowTrackingServers(body []byte) ([]byte, error) {
+func (h *Handler) handleListMlflowTrackingServers(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		NextToken string `json:"NextToken"`
 	}
@@ -523,7 +519,7 @@ func (h *Handler) handleListMlflowTrackingServers(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	servers, nextToken := h.Backend.ListMlflowTrackingServers(req.NextToken)
+	servers, nextToken := h.Backend.ListMlflowTrackingServers(ctx, req.NextToken)
 
 	items := make([]map[string]any, 0, len(servers))
 	for _, s := range servers {
@@ -558,12 +554,10 @@ func (h *Handler) handleUpdateMlflowTrackingServer(ctx context.Context, body []b
 		return nil, fmt.Errorf("%w: TrackingServerName is required", errInvalidRequest)
 	}
 
-	s, err := h.Backend.UpdateMlflowTrackingServer(req.TrackingServerName, req.MlflowVersion)
+	s, err := h.Backend.UpdateMlflowTrackingServer(ctx, req.TrackingServerName, req.MlflowVersion)
 	if err != nil {
 		return nil, err
 	}
-
-	_ = ctx
 
 	return json.Marshal(map[string]string{keyTrackingServerArn: s.TrackingServerArn})
 }
@@ -572,7 +566,7 @@ func (h *Handler) handleUpdateMlflowTrackingServer(ctx context.Context, body []b
 // ModelCard list handlers
 // ---------------------------------------------------------------------------
 
-func (h *Handler) handleListModelCards(body []byte) ([]byte, error) {
+func (h *Handler) handleListModelCards(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		NextToken string `json:"NextToken"`
 	}
@@ -581,7 +575,7 @@ func (h *Handler) handleListModelCards(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	cards, nextToken := h.Backend.ListModelCards(req.NextToken)
+	cards, nextToken := h.Backend.ListModelCards(ctx, req.NextToken)
 
 	items := make([]map[string]any, 0, len(cards))
 	for _, c := range cards {
@@ -598,7 +592,7 @@ func (h *Handler) handleListModelCards(body []byte) ([]byte, error) {
 	return listResp("ModelCardSummaries", items, nextToken)
 }
 
-func (h *Handler) handleListModelCardVersions(body []byte) ([]byte, error) {
+func (h *Handler) handleListModelCardVersions(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		ModelCardName string `json:"ModelCardName"`
 		NextToken     string `json:"NextToken"`
@@ -612,7 +606,7 @@ func (h *Handler) handleListModelCardVersions(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: ModelCardName is required", errInvalidRequest)
 	}
 
-	card, err := h.Backend.DescribeModelCard(req.ModelCardName)
+	card, err := h.Backend.DescribeModelCard(ctx, req.ModelCardName)
 	if err != nil {
 		return nil, err
 	}
@@ -631,7 +625,7 @@ func (h *Handler) handleListModelCardVersions(body []byte) ([]byte, error) {
 	return json.Marshal(map[string]any{"ModelCardVersionSummaryList": summaries})
 }
 
-func (h *Handler) handleListModelCardExportJobs(body []byte) ([]byte, error) {
+func (h *Handler) handleListModelCardExportJobs(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		ModelCardName string `json:"ModelCardName"`
 		NextToken     string `json:"NextToken"`
@@ -642,7 +636,7 @@ func (h *Handler) handleListModelCardExportJobs(body []byte) ([]byte, error) {
 	}
 
 	if req.ModelCardName != "" {
-		if _, err := h.Backend.DescribeModelCard(req.ModelCardName); err != nil {
+		if _, err := h.Backend.DescribeModelCard(ctx, req.ModelCardName); err != nil {
 			return nil, err
 		}
 	}
@@ -668,12 +662,10 @@ func (h *Handler) handleUpdateModelPackage(ctx context.Context, body []byte) ([]
 		return nil, fmt.Errorf("%w: ModelPackageName is required", errInvalidRequest)
 	}
 
-	mp, err := h.Backend.UpdateModelPackage(req.ModelPackageName, req.ModelApprovalStatus)
+	mp, err := h.Backend.UpdateModelPackage(ctx, req.ModelPackageName, req.ModelApprovalStatus)
 	if err != nil {
 		return nil, err
 	}
-
-	_ = ctx
 
 	return json.Marshal(map[string]string{keyModelPackageArn: mp.ModelPackageArn})
 }
@@ -696,12 +688,10 @@ func (h *Handler) handleUpdateSpace(ctx context.Context, body []byte) ([]byte, e
 		return nil, fmt.Errorf("%w: SpaceName is required", errInvalidRequest)
 	}
 
-	s, err := h.Backend.UpdateSpace(req.DomainID, req.SpaceName)
+	s, err := h.Backend.UpdateSpace(ctx, req.DomainID, req.SpaceName)
 	if err != nil {
 		return nil, err
 	}
-
-	_ = ctx
 
 	return json.Marshal(map[string]string{keySpaceArn: s.SpaceArn})
 }
@@ -724,12 +714,10 @@ func (h *Handler) handleUpdateUserProfile(ctx context.Context, body []byte) ([]b
 		return nil, fmt.Errorf("%w: UserProfileName is required", errInvalidRequest)
 	}
 
-	up, err := h.Backend.UpdateUserProfile(req.DomainID, req.UserProfileName)
+	up, err := h.Backend.UpdateUserProfile(ctx, req.DomainID, req.UserProfileName)
 	if err != nil {
 		return nil, err
 	}
-
-	_ = ctx
 
 	return json.Marshal(map[string]string{keyUserProfileArn: up.UserProfileArn})
 }
@@ -738,7 +726,7 @@ func (h *Handler) handleUpdateUserProfile(ctx context.Context, body []byte) ([]b
 // Batch3 resource list handlers
 // ---------------------------------------------------------------------------
 
-func (h *Handler) handleListOptimizationJobs(body []byte) ([]byte, error) {
+func (h *Handler) handleListOptimizationJobs(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		NextToken string `json:"NextToken"`
 	}
@@ -747,7 +735,7 @@ func (h *Handler) handleListOptimizationJobs(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	jobs, nextToken := h.Backend.ListOptimizationJobs(req.NextToken)
+	jobs, nextToken := h.Backend.ListOptimizationJobs(ctx, req.NextToken)
 
 	items := make([]map[string]any, 0, len(jobs))
 	for _, j := range jobs {
@@ -763,7 +751,7 @@ func (h *Handler) handleListOptimizationJobs(body []byte) ([]byte, error) {
 	return listResp("OptimizationJobSummaries", items, nextToken)
 }
 
-func (h *Handler) handleListStudioLifecycleConfigs(body []byte) ([]byte, error) {
+func (h *Handler) handleListStudioLifecycleConfigs(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		NextToken string `json:"NextToken"`
 	}
@@ -772,7 +760,7 @@ func (h *Handler) handleListStudioLifecycleConfigs(body []byte) ([]byte, error) 
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	configs, nextToken := h.Backend.ListStudioLifecycleConfigs(req.NextToken)
+	configs, nextToken := h.Backend.ListStudioLifecycleConfigs(ctx, req.NextToken)
 
 	items := make([]map[string]any, 0, len(configs))
 	for _, c := range configs {
@@ -787,7 +775,7 @@ func (h *Handler) handleListStudioLifecycleConfigs(body []byte) ([]byte, error) 
 	return listResp("StudioLifecycleConfigs", items, nextToken)
 }
 
-func (h *Handler) handleListInferenceExperiments(body []byte) ([]byte, error) {
+func (h *Handler) handleListInferenceExperiments(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		NextToken string `json:"NextToken"`
 	}
@@ -796,7 +784,7 @@ func (h *Handler) handleListInferenceExperiments(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	exps, nextToken := h.Backend.ListInferenceExperiments(req.NextToken)
+	exps, nextToken := h.Backend.ListInferenceExperiments(ctx, req.NextToken)
 
 	items := make([]map[string]any, 0, len(exps))
 	for _, e := range exps {
@@ -817,7 +805,7 @@ func (h *Handler) handleListInferenceExperiments(body []byte) ([]byte, error) {
 	return listResp("InferenceExperiments", items, nextToken)
 }
 
-func (h *Handler) handleListFlowDefinitions(body []byte) ([]byte, error) {
+func (h *Handler) handleListFlowDefinitions(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		NextToken string `json:"NextToken"`
 	}
@@ -826,7 +814,7 @@ func (h *Handler) handleListFlowDefinitions(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	defs, nextToken := h.Backend.ListFlowDefinitions(req.NextToken)
+	defs, nextToken := h.Backend.ListFlowDefinitions(ctx, req.NextToken)
 
 	items := make([]map[string]any, 0, len(defs))
 	for _, d := range defs {
@@ -841,7 +829,7 @@ func (h *Handler) handleListFlowDefinitions(body []byte) ([]byte, error) {
 	return listResp("FlowDefinitionSummaries", items, nextToken)
 }
 
-func (h *Handler) handleListHumanTaskUIs(body []byte) ([]byte, error) {
+func (h *Handler) handleListHumanTaskUIs(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		NextToken string `json:"NextToken"`
 	}
@@ -850,7 +838,7 @@ func (h *Handler) handleListHumanTaskUIs(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	uis, nextToken := h.Backend.ListHumanTaskUIs(req.NextToken)
+	uis, nextToken := h.Backend.ListHumanTaskUIs(ctx, req.NextToken)
 
 	items := make([]map[string]any, 0, len(uis))
 	for _, u := range uis {
@@ -864,7 +852,7 @@ func (h *Handler) handleListHumanTaskUIs(body []byte) ([]byte, error) {
 	return listResp("HumanTaskUiSummaries", items, nextToken)
 }
 
-func (h *Handler) handleListAppImageConfigs(body []byte) ([]byte, error) {
+func (h *Handler) handleListAppImageConfigs(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		NextToken string `json:"NextToken"`
 	}
@@ -873,7 +861,7 @@ func (h *Handler) handleListAppImageConfigs(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	configs, nextToken := h.Backend.ListAppImageConfigs(req.NextToken)
+	configs, nextToken := h.Backend.ListAppImageConfigs(ctx, req.NextToken)
 
 	items := make([]map[string]any, 0, len(configs))
 	for _, c := range configs {
@@ -888,7 +876,7 @@ func (h *Handler) handleListAppImageConfigs(body []byte) ([]byte, error) {
 	return listResp("AppImageConfigs", items, nextToken)
 }
 
-func (h *Handler) handleListTrainingJobsForHyperParameterTuningJob(body []byte) ([]byte, error) {
+func (h *Handler) handleListTrainingJobsForHyperParameterTuningJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		HyperParameterTuningJobName string `json:"HyperParameterTuningJobName"`
 		NextToken                   string `json:"NextToken"`
@@ -902,7 +890,11 @@ func (h *Handler) handleListTrainingJobsForHyperParameterTuningJob(body []byte) 
 		return nil, fmt.Errorf("%w: HyperParameterTuningJobName is required", errInvalidRequest)
 	}
 
-	jobs, _, err := h.Backend.ListTrainingJobsForHyperParameterTuningJob(req.HyperParameterTuningJobName, req.NextToken)
+	jobs, _, err := h.Backend.ListTrainingJobsForHyperParameterTuningJob(
+		ctx,
+		req.HyperParameterTuningJobName,
+		req.NextToken,
+	)
 	if err != nil {
 		return nil, err
 	}

@@ -4,6 +4,7 @@
 package resourcegroupstaggingapi
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"maps"
@@ -17,6 +18,18 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
+
+// regionContextKey is the context key under which the per-request AWS region is stored.
+type regionContextKey struct{}
+
+// getRegion extracts the region from ctx, falling back to defaultRegion when unset.
+func getRegion(ctx context.Context, defaultRegion string) string {
+	if r, ok := ctx.Value(regionContextKey{}).(string); ok && r != "" {
+		return r
+	}
+
+	return defaultRegion
+}
 
 // ErrMissingS3Bucket is returned when StartReportCreation is called without an S3 bucket.
 var ErrMissingS3Bucket = errors.New("S3Bucket is required")
@@ -104,22 +117,26 @@ type TagFilter struct {
 
 // ResourceProvider is a function that enumerates tagged resources for a service.
 // Registered providers are called on every GetResources request.
-type ResourceProvider func() []TaggedResource
+// The context carries the per-request AWS region so providers can filter accordingly.
+type ResourceProvider func(ctx context.Context) []TaggedResource
 
 // FilteredResourceProvider is a resource provider that accepts tag and resource-type
 // filters so that it can perform provider-side filter pushdown. When filters are
 // non-empty the provider is expected to return only resources that satisfy them;
 // when both slices are empty the provider must return all resources.
-type FilteredResourceProvider func(tagFilters []TagFilter, typeFilters []string) []TaggedResource
+// The context carries the per-request AWS region.
+type FilteredResourceProvider func(ctx context.Context, tagFilters []TagFilter, typeFilters []string) []TaggedResource
 
 // ARNTagger applies a set of tags to the resource identified by the given ARN.
 // It returns true when it handled the ARN (even on error) and false when the ARN
 // belongs to a different service and should be tried by the next registered tagger.
-type ARNTagger func(arn string, tags map[string]string) (bool, error)
+// The context carries the per-request AWS region.
+type ARNTagger func(ctx context.Context, arn string, tags map[string]string) (bool, error)
 
 // ARNUntagger removes the specified tag keys from the resource identified by the
 // given ARN. Same handled/not-handled semantics as ARNTagger.
-type ARNUntagger func(arn string, keys []string) (bool, error)
+// The context carries the per-request AWS region.
+type ARNUntagger func(ctx context.Context, arn string, keys []string) (bool, error)
 
 // resourceCache holds a cached snapshot of GetResources results.
 type resourceCache struct {
@@ -132,13 +149,15 @@ const resourceCacheTTL = 30 * time.Second
 
 // InMemoryBackend is the in-memory store for the Resource Groups Tagging API.
 // It maintains a registry of service-specific resource providers and tagging adapters.
+// Report state and the resource cache are nested by region so that same-named resources
+// created in different regions are fully isolated.
 type InMemoryBackend struct {
 	mu                *lockmetrics.RWMutex
-	reportState       *reportCreationState
+	reportStates      map[string]*reportCreationState // region → report state
+	caches            map[string]*resourceCache       // region → resource cache
 	nowFunc           func() string
-	cache             *resourceCache
 	accountID         string
-	region            string
+	defaultRegion     string
 	providers         []ResourceProvider
 	filteredProviders []FilteredResourceProvider
 	taggers           []ARNTagger
@@ -148,9 +167,11 @@ type InMemoryBackend struct {
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		accountID: accountID,
-		region:    region,
-		mu:        lockmetrics.New("resourcegroupstaggingapi"),
+		accountID:     accountID,
+		defaultRegion: region,
+		mu:            lockmetrics.New("resourcegroupstaggingapi"),
+		reportStates:  make(map[string]*reportCreationState),
+		caches:        make(map[string]*resourceCache),
 	}
 
 	b.nowFunc = b.defaultNow
@@ -163,22 +184,22 @@ func (b *InMemoryBackend) defaultNow() string {
 	return time.Now().UTC().Format(time.RFC3339)
 }
 
-// Region returns the AWS region this backend is configured for.
-func (b *InMemoryBackend) Region() string { return b.region }
+// Region returns the default AWS region this backend is configured for.
+func (b *InMemoryBackend) Region() string { return b.defaultRegion }
 
 // AccountID returns the AWS account ID this backend is configured for.
 func (b *InMemoryBackend) AccountID() string { return b.accountID }
 
-// Reset clears dynamic per-test state (reportState) but intentionally preserves
-// the registered providers, taggers, and untaggers. These are wired at server
-// startup by wireResourceGroupsTagging and must persist across service resets,
-// otherwise the cross-service tagging integration breaks.
+// Reset clears dynamic per-test state (all region report states and caches) but
+// intentionally preserves the registered providers, taggers, and untaggers. These
+// are wired at server startup by wireResourceGroupsTagging and must persist across
+// service resets, otherwise the cross-service tagging integration breaks.
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.reportState = nil
-	b.cache = nil
+	clear(b.reportStates)
+	clear(b.caches)
 }
 
 // now returns the current time string using nowFunc.
@@ -193,7 +214,7 @@ func (b *InMemoryBackend) RegisterProvider(p ResourceProvider) {
 	defer b.mu.Unlock()
 
 	b.providers = append(b.providers, p)
-	b.cache = nil
+	clear(b.caches)
 }
 
 // RegisterFilteredProvider adds a filter-aware resource provider to the registry.
@@ -204,7 +225,7 @@ func (b *InMemoryBackend) RegisterFilteredProvider(p FilteredResourceProvider) {
 	defer b.mu.Unlock()
 
 	b.filteredProviders = append(b.filteredProviders, p)
-	b.cache = nil
+	clear(b.caches)
 }
 
 // RegisterARNTagger adds an ARN-based tagger to the registry.
@@ -227,30 +248,37 @@ func (b *InMemoryBackend) RegisterARNUntagger(u ARNUntagger) {
 }
 
 // getResources collects all resources from registered providers.
-// Plain providers are called without filters; filtered providers receive the
+// Plain providers are called with ctx; filtered providers receive ctx and the
 // supplied filters so they can perform provider-side pushdown.
-// When tagFilters and typeFilters are both empty the cache is consulted first.
+// When tagFilters and typeFilters are both empty the per-region cache is consulted first.
 // Caller must hold at least a read lock.
-func (b *InMemoryBackend) getResources(tagFilters []TagFilter, typeFilters []string) []TaggedResource {
+func (b *InMemoryBackend) getResources(
+	ctx context.Context,
+	tagFilters []TagFilter,
+	typeFilters []string,
+) []TaggedResource {
+	region := getRegion(ctx, b.defaultRegion)
 	useCache := len(tagFilters) == 0 && len(typeFilters) == 0
 
-	if useCache && b.cache != nil && time.Now().Before(b.cache.expiresAt) {
-		return b.cache.resources
+	if useCache {
+		if c := b.caches[region]; c != nil && time.Now().Before(c.expiresAt) {
+			return c.resources
+		}
 	}
 
 	perProvider := make([][]TaggedResource, 0, len(b.providers)+len(b.filteredProviders))
 	for _, p := range b.providers {
-		perProvider = append(perProvider, p())
+		perProvider = append(perProvider, p(ctx))
 	}
 
 	for _, p := range b.filteredProviders {
-		perProvider = append(perProvider, p(tagFilters, typeFilters))
+		perProvider = append(perProvider, p(ctx, tagFilters, typeFilters))
 	}
 
 	all := deduplicateResources(slices.Concat(perProvider...))
 
 	if useCache {
-		b.cache = &resourceCache{
+		b.caches[region] = &resourceCache{
 			resources: all,
 			expiresAt: time.Now().Add(resourceCacheTTL),
 		}
@@ -259,9 +287,9 @@ func (b *InMemoryBackend) getResources(tagFilters []TagFilter, typeFilters []str
 	return all
 }
 
-// invalidateCache clears the resource cache. Caller must hold a write lock.
+// invalidateCache clears all per-region resource caches. Caller must hold a write lock.
 func (b *InMemoryBackend) invalidateCache() {
-	b.cache = nil
+	clear(b.caches)
 }
 
 // GetResourcesInput is the request payload for GetResources.
@@ -537,7 +565,7 @@ func deduplicateResources(all []TaggedResource) []TaggedResource {
 // When filtered providers are registered the filters are pushed down to them;
 // the returned results are still post-filtered to ensure correctness from
 // plain providers.
-func (b *InMemoryBackend) GetResources(input *GetResourcesInput) (*GetResourcesOutput, error) {
+func (b *InMemoryBackend) GetResources(ctx context.Context, input *GetResourcesInput) (*GetResourcesOutput, error) {
 	if err := validateGetResourcesInput(input); err != nil {
 		return nil, err
 	}
@@ -546,7 +574,7 @@ func (b *InMemoryBackend) GetResources(input *GetResourcesInput) (*GetResourcesO
 	b.mu.Lock("GetResources")
 	defer b.mu.Unlock()
 
-	all := b.getResources(input.TagFilters, input.ResourceTypeFilters)
+	all := b.getResources(ctx, input.TagFilters, input.ResourceTypeFilters)
 	all = applyResourceTypeFilter(all, input.ResourceTypeFilters)
 	all = applyTagFilters(all, input.TagFilters)
 
@@ -744,11 +772,11 @@ type GetTagKeysOutput struct {
 
 // GetTagKeys returns all unique tag keys across all registered resource providers.
 // Keys are returned in sorted order, with optional cursor-based pagination.
-func (b *InMemoryBackend) GetTagKeys(input *GetTagKeysInput) *GetTagKeysOutput {
+func (b *InMemoryBackend) GetTagKeys(ctx context.Context, input *GetTagKeysInput) *GetTagKeysOutput {
 	b.mu.Lock("GetTagKeys")
 	defer b.mu.Unlock()
 
-	all := b.getResources(nil, nil)
+	all := b.getResources(ctx, nil, nil)
 	keySet := make(map[string]struct{})
 
 	for _, r := range all {
@@ -785,7 +813,7 @@ type GetTagValuesOutput struct {
 
 // GetTagValues returns all unique values for the given tag key.
 // Values are returned in sorted order, with optional cursor-based pagination.
-func (b *InMemoryBackend) GetTagValues(input *GetTagValuesInput) *GetTagValuesOutput {
+func (b *InMemoryBackend) GetTagValues(ctx context.Context, input *GetTagValuesInput) *GetTagValuesOutput {
 	b.mu.Lock("GetTagValues")
 	defer b.mu.Unlock()
 
@@ -793,7 +821,7 @@ func (b *InMemoryBackend) GetTagValues(input *GetTagValuesInput) *GetTagValuesOu
 		return &GetTagValuesOutput{TagValues: []string{}}
 	}
 
-	all := b.getResources(nil, nil)
+	all := b.getResources(ctx, nil, nil)
 	valSet := make(map[string]struct{})
 	key := *input.Key
 
@@ -885,7 +913,7 @@ func validateTagEntries(tags map[string]string) error {
 	return nil
 }
 
-func (b *InMemoryBackend) TagResources(input *TagResourcesInput) (*TagResourcesOutput, error) {
+func (b *InMemoryBackend) TagResources(ctx context.Context, input *TagResourcesInput) (*TagResourcesOutput, error) {
 	if err := validateTagResourcesInput(input); err != nil {
 		return nil, err
 	}
@@ -908,7 +936,7 @@ func (b *InMemoryBackend) TagResources(input *TagResourcesInput) (*TagResourcesO
 		var handled bool
 
 		for _, t := range taggers {
-			ok, err := t(arn, tagsCopy)
+			ok, err := t(ctx, arn, tagsCopy)
 			if ok {
 				handled = true
 				if err != nil {
@@ -955,7 +983,10 @@ type UntagResourcesOutput struct {
 }
 
 // UntagResources removes the specified tag keys from the given resources.
-func (b *InMemoryBackend) UntagResources(input *UntagResourcesInput) (*UntagResourcesOutput, error) {
+func (b *InMemoryBackend) UntagResources(
+	ctx context.Context,
+	input *UntagResourcesInput,
+) (*UntagResourcesOutput, error) {
 	if len(input.ResourceARNList) == 0 {
 		return nil, fmt.Errorf("%w: ResourceARNList must not be empty", ErrValidation)
 	}
@@ -987,7 +1018,7 @@ func (b *InMemoryBackend) UntagResources(input *UntagResourcesInput) (*UntagReso
 		var handled bool
 
 		for _, u := range untaggers {
-			ok, err := u(arn, input.TagKeys)
+			ok, err := u(ctx, arn, input.TagKeys)
 			if ok {
 				handled = true
 				if err != nil {
@@ -1046,7 +1077,10 @@ type StartReportCreationOutput struct{}
 
 // StartReportCreation records a new report creation request.
 // In the in-memory backend, the report is immediately set to SUCCEEDED.
-func (b *InMemoryBackend) StartReportCreation(input *StartReportCreationInput) (*StartReportCreationOutput, error) {
+func (b *InMemoryBackend) StartReportCreation(
+	ctx context.Context,
+	input *StartReportCreationInput,
+) (*StartReportCreationOutput, error) {
 	if input.S3Bucket == "" {
 		return nil, ErrMissingS3Bucket
 	}
@@ -1054,7 +1088,8 @@ func (b *InMemoryBackend) StartReportCreation(input *StartReportCreationInput) (
 	b.mu.Lock("StartReportCreation")
 	defer b.mu.Unlock()
 
-	b.reportState = &reportCreationState{
+	region := getRegion(ctx, b.defaultRegion)
+	b.reportStates[region] = &reportCreationState{
 		S3Location: "s3://" + input.S3Bucket + "/" + reportS3PathTemplate,
 		StartDate:  b.now(),
 		Status:     reportStatusSucceeded,
@@ -1079,19 +1114,22 @@ type DescribeReportCreationOutput struct {
 }
 
 // DescribeReportCreation returns the status of the most recent StartReportCreation operation.
-func (b *InMemoryBackend) DescribeReportCreation() *DescribeReportCreationOutput {
+func (b *InMemoryBackend) DescribeReportCreation(ctx context.Context) *DescribeReportCreationOutput {
 	b.mu.RLock("DescribeReportCreation")
 	defer b.mu.RUnlock()
 
-	if b.reportState == nil {
+	region := getRegion(ctx, b.defaultRegion)
+	state := b.reportStates[region]
+
+	if state == nil {
 		s := reportStatusNoReport
 
 		return &DescribeReportCreationOutput{Status: &s}
 	}
 
-	s3Loc := b.reportState.S3Location
-	startDate := b.reportState.StartDate
-	status := b.reportState.Status
+	s3Loc := state.S3Location
+	startDate := state.StartDate
+	status := state.Status
 
 	return &DescribeReportCreationOutput{
 		S3Location: &s3Loc,
@@ -1140,7 +1178,10 @@ type GetComplianceSummaryOutput struct {
 // The in-memory backend has no tag policy, so all resources are always compliant and
 // NonCompliantResources is always 0.  Filters and pagination are honoured so callers
 // get accurate (empty) results rather than a stub.
-func (b *InMemoryBackend) GetComplianceSummary(input *GetComplianceSummaryInput) *GetComplianceSummaryOutput {
+func (b *InMemoryBackend) GetComplianceSummary(
+	ctx context.Context,
+	input *GetComplianceSummaryInput,
+) *GetComplianceSummaryOutput {
 	b.mu.Lock("GetComplianceSummary")
 	defer b.mu.Unlock()
 
@@ -1161,7 +1202,7 @@ func (b *InMemoryBackend) GetComplianceSummary(input *GetComplianceSummaryInput)
 		}
 	}
 
-	all := b.getResources(nil, nil)
+	all := b.getResources(ctx, nil, nil)
 
 	// Apply filters.
 	if len(input.ResourceTypeFilters) > 0 {
@@ -1208,6 +1249,6 @@ type ListRequiredTagsOutput struct {
 
 // ListRequiredTags returns required tags for supported resource types.
 // The in-memory backend always returns an empty list.
-func (b *InMemoryBackend) ListRequiredTags(_ *ListRequiredTagsInput) *ListRequiredTagsOutput {
+func (b *InMemoryBackend) ListRequiredTags(_ context.Context, _ *ListRequiredTagsInput) *ListRequiredTagsOutput {
 	return &ListRequiredTagsOutput{RequiredTags: []RequiredTag{}}
 }

@@ -10,24 +10,31 @@ func MapToTagsForTest(m map[string]string) []Tag {
 	return mapToTags(m)
 }
 
-// ApplicationCount returns the number of applications stored in the backend.
+// ApplicationCount returns the number of applications stored in the backend across all regions.
 // Exported for use in tests only.
 func ApplicationCount(b *InMemoryBackend) int {
 	b.mu.RLock("ApplicationCount")
 	defer b.mu.RUnlock()
 
-	return len(b.applications)
+	total := 0
+	for _, regionApps := range b.applications {
+		total += len(regionApps)
+	}
+
+	return total
 }
 
-// SnapshotCount returns the total number of snapshots across all applications.
+// SnapshotCount returns the total number of snapshots across all applications and regions.
 // Exported for use in tests only.
 func SnapshotCount(b *InMemoryBackend) int {
 	b.mu.RLock("SnapshotCount")
 	defer b.mu.RUnlock()
 
 	total := 0
-	for _, snaps := range b.snapshots {
-		total += len(snaps)
+	for _, regionSnaps := range b.snapshots {
+		for _, snaps := range regionSnaps {
+			total += len(snaps)
+		}
 	}
 
 	return total
@@ -37,4 +44,13 @@ func SnapshotCount(b *InMemoryBackend) int {
 // Exported for use in tests only.
 func HandlerOpsLen(h *Handler) int {
 	return len(h.ops)
+}
+
+// OperationsMapKeyCount returns the number of application-name keys in the operations map
+// for the given region. Used to verify leak-free cleanup on DeleteApplication.
+func OperationsMapKeyCount(b *InMemoryBackend, region string) int {
+	b.mu.RLock("OperationsMapKeyCount")
+	defer b.mu.RUnlock()
+
+	return len(b.operations[region])
 }

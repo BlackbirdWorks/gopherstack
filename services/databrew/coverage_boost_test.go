@@ -1,6 +1,7 @@
 package databrew_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -108,6 +109,7 @@ func TestCreateRuleset_Success(t *testing.T) {
 		{Name: "rule1", CheckExpression: "ROWCOUNT > 0"},
 	}
 	rs, err := b.CreateRuleset(
+		context.Background(),
 		"my-ruleset",
 		"desc",
 		"arn:aws:glue:us-east-1:123456789012:table/db/tbl",
@@ -125,25 +127,32 @@ func TestCreateRuleset_Success(t *testing.T) {
 func TestCreateRuleset_EmptyName(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateRuleset("", "desc", "arn:x", nil, nil)
+	_, err := b.CreateRuleset(context.Background(), "", "desc", "arn:x", nil, nil)
 	require.Error(t, err)
 }
 
 func TestCreateRuleset_Duplicate(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateRuleset("rs", "desc", "arn:x", nil, nil)
+	_, err := b.CreateRuleset(context.Background(), "rs", "desc", "arn:x", nil, nil)
 	require.NoError(t, err)
-	_, err = b.CreateRuleset("rs", "desc", "arn:x", nil, nil)
+	_, err = b.CreateRuleset(context.Background(), "rs", "desc", "arn:x", nil, nil)
 	require.Error(t, err)
 }
 
 func TestDescribeRuleset_Success(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateRuleset("rs1", "desc", "arn:x", []databrew.Rule{{Name: "r1", CheckExpression: "x > 0"}}, nil)
+	_, err := b.CreateRuleset(
+		context.Background(),
+		"rs1",
+		"desc",
+		"arn:x",
+		[]databrew.Rule{{Name: "r1", CheckExpression: "x > 0"}},
+		nil,
+	)
 	require.NoError(t, err)
-	rs, err := b.DescribeRuleset("rs1")
+	rs, err := b.DescribeRuleset(context.Background(), "rs1")
 	require.NoError(t, err)
 	assert.Equal(t, "rs1", rs.Name)
 	assert.Len(t, rs.Rules, 1)
@@ -152,18 +161,18 @@ func TestDescribeRuleset_Success(t *testing.T) {
 func TestDescribeRuleset_NotFound(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.DescribeRuleset("no-such")
+	_, err := b.DescribeRuleset(context.Background(), "no-such")
 	require.Error(t, err)
 }
 
 func TestListRulesets(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateRuleset("rs1", "", "arn:x", nil, nil)
+	_, err := b.CreateRuleset(context.Background(), "rs1", "", "arn:x", nil, nil)
 	require.NoError(t, err)
-	_, err = b.CreateRuleset("rs2", "", "arn:y", nil, nil)
+	_, err = b.CreateRuleset(context.Background(), "rs2", "", "arn:y", nil, nil)
 	require.NoError(t, err)
-	list, _ := b.ListRulesets(100, "")
+	list, _ := b.ListRulesets(context.Background(), 100, "")
 	assert.Len(t, list, 2)
 }
 
@@ -172,13 +181,13 @@ func TestListRulesets_Pagination(t *testing.T) {
 	b := newTestBackend()
 	for i := range 5 {
 		name := []string{"rs-a", "rs-b", "rs-c", "rs-d", "rs-e"}[i]
-		_, err := b.CreateRuleset(name, "", "arn:x", nil, nil)
+		_, err := b.CreateRuleset(context.Background(), name, "", "arn:x", nil, nil)
 		require.NoError(t, err)
 	}
-	page1, next := b.ListRulesets(2, "")
+	page1, next := b.ListRulesets(context.Background(), 2, "")
 	assert.Len(t, page1, 2)
 	assert.NotEmpty(t, next)
-	page2, next2 := b.ListRulesets(2, next)
+	page2, next2 := b.ListRulesets(context.Background(), 2, next)
 	assert.NotEmpty(t, page2)
 	_ = next2
 }
@@ -186,12 +195,12 @@ func TestListRulesets_Pagination(t *testing.T) {
 func TestUpdateRuleset_Success(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateRuleset("upd-rs", "old", "arn:x", nil, nil)
+	_, err := b.CreateRuleset(context.Background(), "upd-rs", "old", "arn:x", nil, nil)
 	require.NoError(t, err)
 	rules := []databrew.Rule{{Name: "new-rule", CheckExpression: "ROWCOUNT > 10"}}
-	err = b.UpdateRuleset("upd-rs", "new desc", rules)
+	err = b.UpdateRuleset(context.Background(), "upd-rs", "new desc", rules)
 	require.NoError(t, err)
-	rs, err := b.DescribeRuleset("upd-rs")
+	rs, err := b.DescribeRuleset(context.Background(), "upd-rs")
 	require.NoError(t, err)
 	assert.Equal(t, "new desc", rs.Description)
 	assert.Len(t, rs.Rules, 1)
@@ -200,25 +209,25 @@ func TestUpdateRuleset_Success(t *testing.T) {
 func TestUpdateRuleset_NotFound(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	err := b.UpdateRuleset("no-such", "", nil)
+	err := b.UpdateRuleset(context.Background(), "no-such", "", nil)
 	require.Error(t, err)
 }
 
 func TestDeleteRuleset_Success(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateRuleset("del-rs", "", "arn:x", nil, nil)
+	_, err := b.CreateRuleset(context.Background(), "del-rs", "", "arn:x", nil, nil)
 	require.NoError(t, err)
-	err = b.DeleteRuleset("del-rs")
+	err = b.DeleteRuleset(context.Background(), "del-rs")
 	require.NoError(t, err)
-	_, err = b.DescribeRuleset("del-rs")
+	_, err = b.DescribeRuleset(context.Background(), "del-rs")
 	require.Error(t, err)
 }
 
 func TestDeleteRuleset_NotFound(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	err := b.DeleteRuleset("no-such")
+	err := b.DeleteRuleset(context.Background(), "no-such")
 	require.Error(t, err)
 }
 
@@ -228,6 +237,7 @@ func TestCreateSchedule_Success(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
 	sc, err := b.CreateSchedule(
+		context.Background(),
 		"my-schedule",
 		[]string{"job1", "job2"},
 		"cron(0 12 * * ? *)",
@@ -244,25 +254,31 @@ func TestCreateSchedule_Success(t *testing.T) {
 func TestCreateSchedule_EmptyName(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateSchedule("", nil, "cron(...)", nil)
+	_, err := b.CreateSchedule(context.Background(), "", nil, "cron(...)", nil)
 	require.Error(t, err)
 }
 
 func TestCreateSchedule_Duplicate(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateSchedule("sc", nil, "cron(...)", nil)
+	_, err := b.CreateSchedule(context.Background(), "sc", nil, "cron(...)", nil)
 	require.NoError(t, err)
-	_, err = b.CreateSchedule("sc", nil, "cron(...)", nil)
+	_, err = b.CreateSchedule(context.Background(), "sc", nil, "cron(...)", nil)
 	require.Error(t, err)
 }
 
 func TestDescribeSchedule_Success(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateSchedule("sc1", []string{"j1"}, "cron(0 8 * * ? *)", nil)
+	_, err := b.CreateSchedule(
+		context.Background(),
+		"sc1",
+		[]string{"j1"},
+		"cron(0 8 * * ? *)",
+		nil,
+	)
 	require.NoError(t, err)
-	sc, err := b.DescribeSchedule("sc1")
+	sc, err := b.DescribeSchedule(context.Background(), "sc1")
 	require.NoError(t, err)
 	assert.Equal(t, "sc1", sc.Name)
 	assert.Equal(t, []string{"j1"}, sc.JobNames)
@@ -271,29 +287,40 @@ func TestDescribeSchedule_Success(t *testing.T) {
 func TestDescribeSchedule_NotFound(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.DescribeSchedule("no-such")
+	_, err := b.DescribeSchedule(context.Background(), "no-such")
 	require.Error(t, err)
 }
 
 func TestListSchedules(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateSchedule("sc1", nil, "cron(...)", nil)
+	_, err := b.CreateSchedule(context.Background(), "sc1", nil, "cron(...)", nil)
 	require.NoError(t, err)
-	_, err = b.CreateSchedule("sc2", nil, "cron(...)", nil)
+	_, err = b.CreateSchedule(context.Background(), "sc2", nil, "cron(...)", nil)
 	require.NoError(t, err)
-	list, _ := b.ListSchedules(100, "")
+	list, _ := b.ListSchedules(context.Background(), 100, "")
 	assert.Len(t, list, 2)
 }
 
 func TestUpdateSchedule_Success(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateSchedule("upd-sc", []string{"j1"}, "cron(0 8 * * ? *)", nil)
+	_, err := b.CreateSchedule(
+		context.Background(),
+		"upd-sc",
+		[]string{"j1"},
+		"cron(0 8 * * ? *)",
+		nil,
+	)
 	require.NoError(t, err)
-	err = b.UpdateSchedule("upd-sc", []string{"j1", "j2"}, "cron(0 12 * * ? *)")
+	err = b.UpdateSchedule(
+		context.Background(),
+		"upd-sc",
+		[]string{"j1", "j2"},
+		"cron(0 12 * * ? *)",
+	)
 	require.NoError(t, err)
-	sc, err := b.DescribeSchedule("upd-sc")
+	sc, err := b.DescribeSchedule(context.Background(), "upd-sc")
 	require.NoError(t, err)
 	assert.Equal(t, "cron(0 12 * * ? *)", sc.CronExpression)
 	assert.Len(t, sc.JobNames, 2)
@@ -302,25 +329,25 @@ func TestUpdateSchedule_Success(t *testing.T) {
 func TestUpdateSchedule_NotFound(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	err := b.UpdateSchedule("no-such", nil, "")
+	err := b.UpdateSchedule(context.Background(), "no-such", nil, "")
 	require.Error(t, err)
 }
 
 func TestDeleteSchedule_Success(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateSchedule("del-sc", nil, "cron(...)", nil)
+	_, err := b.CreateSchedule(context.Background(), "del-sc", nil, "cron(...)", nil)
 	require.NoError(t, err)
-	err = b.DeleteSchedule("del-sc")
+	err = b.DeleteSchedule(context.Background(), "del-sc")
 	require.NoError(t, err)
-	_, err = b.DescribeSchedule("del-sc")
+	_, err = b.DescribeSchedule(context.Background(), "del-sc")
 	require.Error(t, err)
 }
 
 func TestDeleteSchedule_NotFound(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	err := b.DeleteSchedule("no-such")
+	err := b.DeleteSchedule(context.Background(), "no-such")
 	require.Error(t, err)
 }
 
@@ -329,11 +356,11 @@ func TestDeleteSchedule_NotFound(t *testing.T) {
 func TestStopJobRun_Success(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateJob("stop-j", "PROFILE", "ds", "", "", "", nil, nil)
+	_, err := b.CreateJob(context.Background(), "stop-j", "PROFILE", "ds", "", "", "", nil, nil)
 	require.NoError(t, err)
-	run, err := b.StartJobRun("stop-j")
+	run, err := b.StartJobRun(context.Background(), "stop-j")
 	require.NoError(t, err)
-	stopped, err := b.StopJobRun("stop-j", run.RunID)
+	stopped, err := b.StopJobRun(context.Background(), "stop-j", run.RunID)
 	require.NoError(t, err)
 	assert.Equal(t, "STOPPED", stopped.State)
 }
@@ -341,18 +368,18 @@ func TestStopJobRun_Success(t *testing.T) {
 func TestStopJobRun_AlreadySucceeded(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateJob("stop-j2", "PROFILE", "ds", "", "", "", nil, nil)
+	_, err := b.CreateJob(context.Background(), "stop-j2", "PROFILE", "ds", "", "", "", nil, nil)
 	require.NoError(t, err)
-	run, err := b.StartJobRun("stop-j2")
+	run, err := b.StartJobRun(context.Background(), "stop-j2")
 	require.NoError(t, err)
 	// Wait for the async transition.
 	require.Eventually(t, func() bool {
-		runs, _, listErr := b.ListJobRuns("stop-j2", 100, "")
+		runs, _, listErr := b.ListJobRuns(context.Background(), "stop-j2", 100, "")
 
 		return listErr == nil && len(runs) == 1 && runs[0].State == "SUCCEEDED"
 	}, 3*time.Second, 25*time.Millisecond)
 	// Stopping a SUCCEEDED run should be a no-op (returns the run).
-	stopped, err := b.StopJobRun("stop-j2", run.RunID)
+	stopped, err := b.StopJobRun(context.Background(), "stop-j2", run.RunID)
 	require.NoError(t, err)
 	assert.Equal(t, "SUCCEEDED", stopped.State)
 }
@@ -360,29 +387,29 @@ func TestStopJobRun_AlreadySucceeded(t *testing.T) {
 func TestStopJobRun_NotFound_NoRuns(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.StopJobRun("no-such-job", "any-run-id")
+	_, err := b.StopJobRun(context.Background(), "no-such-job", "any-run-id")
 	require.Error(t, err)
 }
 
 func TestStopJobRun_RunIDNotFound(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateJob("stop-j3", "PROFILE", "ds", "", "", "", nil, nil)
+	_, err := b.CreateJob(context.Background(), "stop-j3", "PROFILE", "ds", "", "", "", nil, nil)
 	require.NoError(t, err)
-	_, err = b.StartJobRun("stop-j3")
+	_, err = b.StartJobRun(context.Background(), "stop-j3")
 	require.NoError(t, err)
-	_, err = b.StopJobRun("stop-j3", "nonexistent-run-id")
+	_, err = b.StopJobRun(context.Background(), "stop-j3", "nonexistent-run-id")
 	require.Error(t, err)
 }
 
 func TestDescribeJobRun_Success(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateJob("desc-j", "PROFILE", "ds", "", "", "", nil, nil)
+	_, err := b.CreateJob(context.Background(), "desc-j", "PROFILE", "ds", "", "", "", nil, nil)
 	require.NoError(t, err)
-	run, err := b.StartJobRun("desc-j")
+	run, err := b.StartJobRun(context.Background(), "desc-j")
 	require.NoError(t, err)
-	got, err := b.DescribeJobRun("desc-j", run.RunID)
+	got, err := b.DescribeJobRun(context.Background(), "desc-j", run.RunID)
 	require.NoError(t, err)
 	assert.Equal(t, run.RunID, got.RunID)
 	assert.Equal(t, "desc-j", got.JobName)
@@ -391,18 +418,18 @@ func TestDescribeJobRun_Success(t *testing.T) {
 func TestDescribeJobRun_NotFound_NoRuns(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.DescribeJobRun("no-such-job", "any-run-id")
+	_, err := b.DescribeJobRun(context.Background(), "no-such-job", "any-run-id")
 	require.Error(t, err)
 }
 
 func TestDescribeJobRun_RunIDNotFound(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateJob("desc-j2", "PROFILE", "ds", "", "", "", nil, nil)
+	_, err := b.CreateJob(context.Background(), "desc-j2", "PROFILE", "ds", "", "", "", nil, nil)
 	require.NoError(t, err)
-	_, err = b.StartJobRun("desc-j2")
+	_, err = b.StartJobRun(context.Background(), "desc-j2")
 	require.NoError(t, err)
-	_, err = b.DescribeJobRun("desc-j2", "no-such-run")
+	_, err = b.DescribeJobRun(context.Background(), "desc-j2", "no-such-run")
 	require.Error(t, err)
 }
 
@@ -412,6 +439,7 @@ func TestFindTagsByArn_Dataset(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
 	ds, err := b.CreateDataset(
+		context.Background(),
 		"tagged-ds",
 		"CSV",
 		s3Input("b", ""),
@@ -419,7 +447,7 @@ func TestFindTagsByArn_Dataset(t *testing.T) {
 		map[string]string{"k": "v"},
 	)
 	require.NoError(t, err)
-	tags, err := b.FindTagsByArn(ds.Arn)
+	tags, err := b.FindTagsByArn(context.Background(), ds.Arn)
 	require.NoError(t, err)
 	assert.Equal(t, "v", tags["k"])
 }
@@ -427,9 +455,15 @@ func TestFindTagsByArn_Dataset(t *testing.T) {
 func TestFindTagsByArn_Recipe(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	r, err := b.CreateRecipe("tagged-r", "", nil, map[string]string{"env": "test"})
+	r, err := b.CreateRecipe(
+		context.Background(),
+		"tagged-r",
+		"",
+		nil,
+		map[string]string{"env": "test"},
+	)
 	require.NoError(t, err)
-	tags, err := b.FindTagsByArn(r.Arn)
+	tags, err := b.FindTagsByArn(context.Background(), r.Arn)
 	require.NoError(t, err)
 	assert.Equal(t, "test", tags["env"])
 }
@@ -437,9 +471,17 @@ func TestFindTagsByArn_Recipe(t *testing.T) {
 func TestFindTagsByArn_Project(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	p, err := b.CreateProject("tagged-p", "ds", "r", "", databrew.Sample{}, map[string]string{"x": "y"})
+	p, err := b.CreateProject(
+		context.Background(),
+		"tagged-p",
+		"ds",
+		"r",
+		"",
+		databrew.Sample{},
+		map[string]string{"x": "y"},
+	)
 	require.NoError(t, err)
-	tags, err := b.FindTagsByArn(p.Arn)
+	tags, err := b.FindTagsByArn(context.Background(), p.Arn)
 	require.NoError(t, err)
 	assert.Equal(t, "y", tags["x"])
 }
@@ -447,9 +489,19 @@ func TestFindTagsByArn_Project(t *testing.T) {
 func TestFindTagsByArn_Job(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	j, err := b.CreateJob("tagged-j", "PROFILE", "ds", "", "", "", nil, map[string]string{"a": "b"})
+	j, err := b.CreateJob(
+		context.Background(),
+		"tagged-j",
+		"PROFILE",
+		"ds",
+		"",
+		"",
+		"",
+		nil,
+		map[string]string{"a": "b"},
+	)
 	require.NoError(t, err)
-	tags, err := b.FindTagsByArn(j.Arn)
+	tags, err := b.FindTagsByArn(context.Background(), j.Arn)
 	require.NoError(t, err)
 	assert.Equal(t, "b", tags["a"])
 }
@@ -457,9 +509,16 @@ func TestFindTagsByArn_Job(t *testing.T) {
 func TestFindTagsByArn_Ruleset(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	rs, err := b.CreateRuleset("tagged-rs", "", "arn:x", nil, map[string]string{"m": "n"})
+	rs, err := b.CreateRuleset(
+		context.Background(),
+		"tagged-rs",
+		"",
+		"arn:x",
+		nil,
+		map[string]string{"m": "n"},
+	)
 	require.NoError(t, err)
-	tags, err := b.FindTagsByArn(rs.Arn)
+	tags, err := b.FindTagsByArn(context.Background(), rs.Arn)
 	require.NoError(t, err)
 	assert.Equal(t, "n", tags["m"])
 }
@@ -467,9 +526,15 @@ func TestFindTagsByArn_Ruleset(t *testing.T) {
 func TestFindTagsByArn_Schedule(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	sc, err := b.CreateSchedule("tagged-sc", nil, "cron(...)", map[string]string{"p": "q"})
+	sc, err := b.CreateSchedule(
+		context.Background(),
+		"tagged-sc",
+		nil,
+		"cron(...)",
+		map[string]string{"p": "q"},
+	)
 	require.NoError(t, err)
-	tags, err := b.FindTagsByArn(sc.Arn)
+	tags, err := b.FindTagsByArn(context.Background(), sc.Arn)
 	require.NoError(t, err)
 	assert.Equal(t, "q", tags["p"])
 }
@@ -477,7 +542,10 @@ func TestFindTagsByArn_Schedule(t *testing.T) {
 func TestFindTagsByArn_NotFound(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.FindTagsByArn("arn:aws:databrew:us-east-1:123456789012:dataset/nonexistent")
+	_, err := b.FindTagsByArn(
+		context.Background(),
+		"arn:aws:databrew:us-east-1:123456789012:dataset/nonexistent",
+	)
 	require.Error(t, err)
 }
 
@@ -485,6 +553,7 @@ func TestUpdateTagsByArn_AddAndRemove_Dataset(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
 	ds, err := b.CreateDataset(
+		context.Background(),
 		"tag-upd-ds",
 		"CSV",
 		s3Input("b", ""),
@@ -492,9 +561,14 @@ func TestUpdateTagsByArn_AddAndRemove_Dataset(t *testing.T) {
 		map[string]string{"old": "val"},
 	)
 	require.NoError(t, err)
-	err = b.UpdateTagsByArn(ds.Arn, map[string]string{"new": "tag"}, []string{"old"})
+	err = b.UpdateTagsByArn(
+		context.Background(),
+		ds.Arn,
+		map[string]string{"new": "tag"},
+		[]string{"old"},
+	)
 	require.NoError(t, err)
-	tags, err := b.FindTagsByArn(ds.Arn)
+	tags, err := b.FindTagsByArn(context.Background(), ds.Arn)
 	require.NoError(t, err)
 	assert.Equal(t, "tag", tags["new"])
 	assert.Empty(t, tags["old"])
@@ -503,11 +577,11 @@ func TestUpdateTagsByArn_AddAndRemove_Dataset(t *testing.T) {
 func TestUpdateTagsByArn_Recipe(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	r, err := b.CreateRecipe("tag-upd-r", "", nil, nil)
+	r, err := b.CreateRecipe(context.Background(), "tag-upd-r", "", nil, nil)
 	require.NoError(t, err)
-	err = b.UpdateTagsByArn(r.Arn, map[string]string{"key": "val"}, nil)
+	err = b.UpdateTagsByArn(context.Background(), r.Arn, map[string]string{"key": "val"}, nil)
 	require.NoError(t, err)
-	tags, err := b.FindTagsByArn(r.Arn)
+	tags, err := b.FindTagsByArn(context.Background(), r.Arn)
 	require.NoError(t, err)
 	assert.Equal(t, "val", tags["key"])
 }
@@ -515,11 +589,19 @@ func TestUpdateTagsByArn_Recipe(t *testing.T) {
 func TestUpdateTagsByArn_Project(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	p, err := b.CreateProject("tag-upd-p", "ds", "r", "", databrew.Sample{}, nil)
+	p, err := b.CreateProject(
+		context.Background(),
+		"tag-upd-p",
+		"ds",
+		"r",
+		"",
+		databrew.Sample{},
+		nil,
+	)
 	require.NoError(t, err)
-	err = b.UpdateTagsByArn(p.Arn, map[string]string{"key": "val"}, nil)
+	err = b.UpdateTagsByArn(context.Background(), p.Arn, map[string]string{"key": "val"}, nil)
 	require.NoError(t, err)
-	tags, err := b.FindTagsByArn(p.Arn)
+	tags, err := b.FindTagsByArn(context.Background(), p.Arn)
 	require.NoError(t, err)
 	assert.Equal(t, "val", tags["key"])
 }
@@ -527,11 +609,11 @@ func TestUpdateTagsByArn_Project(t *testing.T) {
 func TestUpdateTagsByArn_Job(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	j, err := b.CreateJob("tag-upd-j", "PROFILE", "ds", "", "", "", nil, nil)
+	j, err := b.CreateJob(context.Background(), "tag-upd-j", "PROFILE", "ds", "", "", "", nil, nil)
 	require.NoError(t, err)
-	err = b.UpdateTagsByArn(j.Arn, map[string]string{"key": "val"}, nil)
+	err = b.UpdateTagsByArn(context.Background(), j.Arn, map[string]string{"key": "val"}, nil)
 	require.NoError(t, err)
-	tags, err := b.FindTagsByArn(j.Arn)
+	tags, err := b.FindTagsByArn(context.Background(), j.Arn)
 	require.NoError(t, err)
 	assert.Equal(t, "val", tags["key"])
 }
@@ -539,11 +621,11 @@ func TestUpdateTagsByArn_Job(t *testing.T) {
 func TestUpdateTagsByArn_Ruleset(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	rs, err := b.CreateRuleset("tag-upd-rs", "", "arn:x", nil, nil)
+	rs, err := b.CreateRuleset(context.Background(), "tag-upd-rs", "", "arn:x", nil, nil)
 	require.NoError(t, err)
-	err = b.UpdateTagsByArn(rs.Arn, map[string]string{"key": "val"}, nil)
+	err = b.UpdateTagsByArn(context.Background(), rs.Arn, map[string]string{"key": "val"}, nil)
 	require.NoError(t, err)
-	tags, err := b.FindTagsByArn(rs.Arn)
+	tags, err := b.FindTagsByArn(context.Background(), rs.Arn)
 	require.NoError(t, err)
 	assert.Equal(t, "val", tags["key"])
 }
@@ -551,11 +633,11 @@ func TestUpdateTagsByArn_Ruleset(t *testing.T) {
 func TestUpdateTagsByArn_Schedule(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	sc, err := b.CreateSchedule("tag-upd-sc", nil, "cron(...)", nil)
+	sc, err := b.CreateSchedule(context.Background(), "tag-upd-sc", nil, "cron(...)", nil)
 	require.NoError(t, err)
-	err = b.UpdateTagsByArn(sc.Arn, map[string]string{"key": "val"}, nil)
+	err = b.UpdateTagsByArn(context.Background(), sc.Arn, map[string]string{"key": "val"}, nil)
 	require.NoError(t, err)
-	tags, err := b.FindTagsByArn(sc.Arn)
+	tags, err := b.FindTagsByArn(context.Background(), sc.Arn)
 	require.NoError(t, err)
 	assert.Equal(t, "val", tags["key"])
 }
@@ -564,6 +646,7 @@ func TestUpdateTagsByArn_NotFound(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
 	err := b.UpdateTagsByArn(
+		context.Background(),
 		"arn:aws:databrew:us-east-1:123456789012:dataset/nonexistent",
 		map[string]string{"k": "v"},
 		nil,
@@ -576,16 +659,38 @@ func TestUpdateTagsByArn_NotFound(t *testing.T) {
 func TestCreateProject_InvalidSampleType(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateProject("bad-p", "", "r", "", databrew.Sample{Type: "INVALID"}, nil)
+	_, err := b.CreateProject(
+		context.Background(),
+		"bad-p",
+		"",
+		"r",
+		"",
+		databrew.Sample{Type: "INVALID"},
+		nil,
+	)
 	require.Error(t, err)
 }
 
 func TestUpdateProject_InvalidSampleType(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateProject("upd-bad-p", "", "r", "", databrew.Sample{}, nil)
+	_, err := b.CreateProject(
+		context.Background(),
+		"upd-bad-p",
+		"",
+		"r",
+		"",
+		databrew.Sample{},
+		nil,
+	)
 	require.NoError(t, err)
-	err = b.UpdateProject("upd-bad-p", "", "", databrew.Sample{Type: "INVALID"})
+	err = b.UpdateProject(
+		context.Background(),
+		"upd-bad-p",
+		"",
+		"",
+		databrew.Sample{Type: "INVALID"},
+	)
 	require.Error(t, err)
 }
 
@@ -600,7 +705,14 @@ func TestCreateDataset_DatabaseSource(t *testing.T) {
 			DatabaseTableName:  "table",
 		},
 	}
-	ds, err := b.CreateDataset("db-ds", "PARQUET", input, databrew.DatasetFormatOptions{}, nil)
+	ds, err := b.CreateDataset(
+		context.Background(),
+		"db-ds",
+		"PARQUET",
+		input,
+		databrew.DatasetFormatOptions{},
+		nil,
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "DATABASE", ds.Source)
 }
@@ -613,9 +725,15 @@ func TestHandlerUpdateProfileJob(t *testing.T) {
 	databrewReq(t, h, http.MethodPost, "/databrew/v1/profileJobs", map[string]any{
 		"Name": "upd-profile-j",
 	})
-	rec := databrewReq(t, h, http.MethodPut, "/databrew/v1/profileJobs/upd-profile-j", map[string]any{
-		"RoleArn": "arn:aws:iam::123456789012:role/NewRole",
-	})
+	rec := databrewReq(
+		t,
+		h,
+		http.MethodPut,
+		"/databrew/v1/profileJobs/upd-profile-j",
+		map[string]any{
+			"RoleArn": "arn:aws:iam::123456789012:role/NewRole",
+		},
+	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
@@ -646,7 +764,13 @@ func TestHandlerUpdateJob_NotFound(t *testing.T) {
 func TestHandlerDescribeJobRun(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler()
-	databrewReq(t, h, http.MethodPost, "/databrew/v1/profileJobs", map[string]any{"Name": "djr-job"})
+	databrewReq(
+		t,
+		h,
+		http.MethodPost,
+		"/databrew/v1/profileJobs",
+		map[string]any{"Name": "djr-job"},
+	)
 	runRec := databrewReq(t, h, http.MethodPost, "/databrew/v1/jobs/djr-job/startJobRun", nil)
 	require.Equal(t, http.StatusOK, runRec.Code)
 	var startResp map[string]any
@@ -661,7 +785,13 @@ func TestHandlerDescribeJobRun(t *testing.T) {
 func TestHandlerStopJobRun(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler()
-	databrewReq(t, h, http.MethodPost, "/databrew/v1/profileJobs", map[string]any{"Name": "sjr-job"})
+	databrewReq(
+		t,
+		h,
+		http.MethodPost,
+		"/databrew/v1/profileJobs",
+		map[string]any{"Name": "sjr-job"},
+	)
 	runRec := databrewReq(t, h, http.MethodPost, "/databrew/v1/jobs/sjr-job/startJobRun", nil)
 	require.Equal(t, http.StatusOK, runRec.Code)
 	var startResp map[string]any
@@ -830,7 +960,14 @@ func TestHandlerTagResource(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	b := databrew.NewInMemoryBackend("123456789012", "us-east-1")
-	ds, err := b.CreateDataset("tag-ds2", "CSV", s3Input("b", ""), databrew.DatasetFormatOptions{}, nil)
+	ds, err := b.CreateDataset(
+		context.Background(),
+		"tag-ds2",
+		"CSV",
+		s3Input("b", ""),
+		databrew.DatasetFormatOptions{},
+		nil,
+	)
 	require.NoError(t, err)
 
 	h2 := databrew.NewHandler(b)
@@ -844,6 +981,7 @@ func TestHandlerListTagsForResource(t *testing.T) {
 	t.Parallel()
 	b := databrew.NewInMemoryBackend("123456789012", "us-east-1")
 	ds, err := b.CreateDataset(
+		context.Background(),
 		"list-tag-ds",
 		"CSV",
 		s3Input("b", ""),
@@ -864,6 +1002,7 @@ func TestHandlerUntagResource(t *testing.T) {
 	t.Parallel()
 	b := databrew.NewInMemoryBackend("123456789012", "us-east-1")
 	ds, err := b.CreateDataset(
+		context.Background(),
 		"untag-ds",
 		"CSV",
 		s3Input("b", ""),
@@ -873,7 +1012,13 @@ func TestHandlerUntagResource(t *testing.T) {
 	require.NoError(t, err)
 
 	h := databrew.NewHandler(b)
-	rec := databrewReq(t, h, http.MethodDelete, "/databrew/v1/tags/"+ds.Arn+"?tagKeys=remove-me", nil)
+	rec := databrewReq(
+		t,
+		h,
+		http.MethodDelete,
+		"/databrew/v1/tags/"+ds.Arn+"?tagKeys=remove-me",
+		nil,
+	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
@@ -924,9 +1069,15 @@ func TestHandlerStartProjectSession(t *testing.T) {
 	databrewReq(t, h, http.MethodPost, "/databrew/v1/projects", map[string]any{
 		"Name": "sess-proj", "RecipeName": "r1",
 	})
-	rec := databrewReq(t, h, http.MethodPut, "/databrew/v1/projects/sess-proj/startProjectSession", map[string]any{
-		"AssumeControl": true,
-	})
+	rec := databrewReq(
+		t,
+		h,
+		http.MethodPut,
+		"/databrew/v1/projects/sess-proj/startProjectSession",
+		map[string]any{
+			"AssumeControl": true,
+		},
+	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
@@ -995,18 +1146,18 @@ func TestProvider_Init_Success(t *testing.T) {
 func TestListJobRuns_Pagination(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateJob("pag-j", "PROFILE", "ds", "", "", "", nil, nil)
+	_, err := b.CreateJob(context.Background(), "pag-j", "PROFILE", "ds", "", "", "", nil, nil)
 	require.NoError(t, err)
 	for range 5 {
-		_, err = b.StartJobRun("pag-j")
+		_, err = b.StartJobRun(context.Background(), "pag-j")
 		require.NoError(t, err)
 	}
-	page1, next, err := b.ListJobRuns("pag-j", 2, "")
+	page1, next, err := b.ListJobRuns(context.Background(), "pag-j", 2, "")
 	require.NoError(t, err)
 	assert.Len(t, page1, 2)
 	assert.NotEmpty(t, next)
 
-	page2, _, err := b.ListJobRuns("pag-j", 2, next)
+	page2, _, err := b.ListJobRuns(context.Background(), "pag-j", 2, next)
 	require.NoError(t, err)
 	assert.NotEmpty(t, page2)
 }

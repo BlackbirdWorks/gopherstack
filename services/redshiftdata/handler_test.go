@@ -2,6 +2,7 @@ package redshiftdata_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -901,7 +902,7 @@ func TestInMemoryBackend_StatementCap_OldestEvicted(t *testing.T) {
 	// Create exactly the cap worth of statements.
 	var firstID string
 	for i := range redshiftdata.MaxStatementHistoryForTest {
-		stmt, err := backend.ExecuteStatement(
+		stmt, err := backend.ExecuteStatement(context.Background(),
 			"SELECT 1", "cluster", "", "db", "", "", "", false,
 			"",
 		)
@@ -914,16 +915,16 @@ func TestInMemoryBackend_StatementCap_OldestEvicted(t *testing.T) {
 	require.Equal(t, redshiftdata.MaxStatementHistoryForTest, backend.StatementCount())
 
 	// The first statement is still present before overflow.
-	_, err := backend.DescribeStatement(firstID)
+	_, err := backend.DescribeStatement(context.Background(), firstID)
 	require.NoError(t, err)
 
 	// One more statement pushes the oldest out.
-	_, err = backend.ExecuteStatement("SELECT 2", "cluster", "", "db", "", "", "", false, "")
+	_, err = backend.ExecuteStatement(context.Background(), "SELECT 2", "cluster", "", "db", "", "", "", false, "")
 	require.NoError(t, err)
 
 	assert.LessOrEqual(t, backend.StatementCount(), redshiftdata.MaxStatementHistoryForTest)
 
 	// The first statement is now evicted.
-	_, err = backend.DescribeStatement(firstID)
+	_, err = backend.DescribeStatement(context.Background(), firstID)
 	require.Error(t, err)
 }

@@ -196,7 +196,7 @@ func (h *S3Handler) headObject(
 
 	if errors.Is(err, ErrDeleteMarker) {
 		w.Header().Set("X-Amz-Delete-Marker", "true")
-		WriteError(ctx, w, r, ErrDeleteMarker)
+		w.WriteHeader(http.StatusMethodNotAllowed)
 
 		return
 	}
@@ -858,10 +858,13 @@ func (h *S3Handler) deleteObjects(
 		return
 	}
 
+	// AWS caps DeleteObjects at 1000 keys per request and rejects a larger
+	// request with HTTP 400 MalformedXML (the request fails XML schema
+	// validation), not a generic InvalidArgument.
 	if len(req.Objects) > maxDeleteObjects {
 		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
-			Code:    errInvalidArgument,
-			Message: "You have attempted to delete more objects than allowed by the service's max-delete limit (1000).",
+			Code:    errMalformedXML,
+			Message: errMalformedXMLMsg,
 		}, http.StatusBadRequest)
 
 		return

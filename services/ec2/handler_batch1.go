@@ -613,8 +613,21 @@ func (h *Handler) handleModifyVolume(vals url.Values, reqID string) (any, error)
 	sizeStr := vals.Get("Size")
 	iopsStr := vals.Get("Iops")
 
-	size, _ := strconv.Atoi(sizeStr)
-	iops, _ := strconv.Atoi(iopsStr)
+	var size, iops int
+	if sizeStr != "" {
+		var parseErr error
+		size, parseErr = strconv.Atoi(sizeStr)
+		if parseErr != nil {
+			return nil, fmt.Errorf("%w: invalid Size value: %s", ErrInvalidParameter, sizeStr)
+		}
+	}
+	if iopsStr != "" {
+		var parseErr error
+		iops, parseErr = strconv.Atoi(iopsStr)
+		if parseErr != nil {
+			return nil, fmt.Errorf("%w: invalid Iops value: %s", ErrInvalidParameter, iopsStr)
+		}
+	}
 
 	mod, err := h.Backend.ModifyVolume(volumeID, volumeType, size, iops)
 	if err != nil {

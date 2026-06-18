@@ -16,7 +16,8 @@ import (
 func TestMediaStoreDataDashboard(t *testing.T) {
 	stack := newStack(t)
 
-	stack.MediaStoreDataHandler.Backend.PutObject(
+	_, _ = stack.MediaStoreDataHandler.Backend.PutObject(
+		t.Context(),
 		"/videos/e2e-clip.mp4",
 		[]byte("e2e video content"),
 		"video/mp4",

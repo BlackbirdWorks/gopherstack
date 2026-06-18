@@ -354,6 +354,7 @@ type subnetCidrReservationItem struct {
 	ReservationType         string `xml:"reservationType"`
 	Description             string `xml:"description,omitempty"`
 	OwnerID                 string `xml:"ownerId"`
+	State                   string `xml:"state,omitempty"`
 }
 
 type createSubnetCidrReservationResponse struct {
@@ -1157,6 +1158,7 @@ func (h *Handler) handleCreateSubnetCidrReservation(vals url.Values, reqID strin
 			ReservationType:         reservation.ReservationType,
 			Description:             reservation.Description,
 			OwnerID:                 reservation.OwnerID,
+			State:                   reservation.State,
 		},
 	}, nil
 }

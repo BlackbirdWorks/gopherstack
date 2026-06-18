@@ -20,7 +20,11 @@ const (
 
 const (
 	keyMessageField  = "message"
+	keyTypeField     = "__type"
 	errGoneException = "GoneException"
+	// amznErrorTypeHeader carries the modeled error type in the AWS rest-json
+	// protocol; the SDK reads the exception type from this header.
+	amznErrorTypeHeader = "X-Amzn-Errortype"
 )
 
 const (
@@ -51,6 +55,20 @@ type Handler struct {
 // NewHandler creates a new API Gateway Management API Handler.
 func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{Backend: backend}
+}
+
+// writeGoneException emits a GoneException (HTTP 410) in the AWS rest-json
+// shape: the modeled type travels in both the X-Amzn-Errortype header and the
+// body's __type field, with a human-readable message (not the type) in
+// "message". The SDK resolves the exception from these, not from the message.
+func writeGoneException(c *echo.Context, connectionID string) error {
+	c.Response().Header().Set(amznErrorTypeHeader, errGoneException)
+
+	return c.JSON(http.StatusGone, map[string]string{
+		keyTypeField:    errGoneException,
+		keyMessageField: "the connection is no longer available",
+		keyConnectionID: connectionID,
+	})
 }
 
 // Name returns the service name.
@@ -173,10 +191,7 @@ func (h *Handler) handlePostToConnection(c *echo.Context, connectionID string) e
 		log.Error("api gateway management api: post to connection failed", keyConnectionID, connectionID, "error", err)
 
 		if errors.Is(err, awserr.ErrNotFound) {
-			return c.JSON(
-				http.StatusGone,
-				map[string]string{keyMessageField: errGoneException, keyConnectionID: connectionID},
-			)
+			return writeGoneException(c, connectionID)
 		}
 
 		if errors.Is(err, ErrPayloadTooLarge) {
@@ -197,10 +212,7 @@ func (h *Handler) handleGetConnection(c *echo.Context, connectionID string) erro
 		log.Error("api gateway management api: get connection failed", keyConnectionID, connectionID, "error", err)
 
 		if errors.Is(err, awserr.ErrNotFound) {
-			return c.JSON(
-				http.StatusGone,
-				map[string]string{keyMessageField: errGoneException, keyConnectionID: connectionID},
-			)
+			return writeGoneException(c, connectionID)
 		}
 
 		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
@@ -216,10 +228,7 @@ func (h *Handler) handleDeleteConnection(c *echo.Context, connectionID string) e
 		log.Error("api gateway management api: delete connection failed", keyConnectionID, connectionID, "error", err)
 
 		if errors.Is(err, awserr.ErrNotFound) {
-			return c.JSON(
-				http.StatusGone,
-				map[string]string{keyMessageField: errGoneException, keyConnectionID: connectionID},
-			)
+			return writeGoneException(c, connectionID)
 		}
 
 		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})

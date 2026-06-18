@@ -133,11 +133,17 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		// Resolve the per-request region (from SigV4 / X-Amz-Region) and attach
+		// it to the context so backend operations are region-scoped.
+		region := httputils.ExtractRegionFromRequest(c.Request(), h.Backend.Region())
+
 		return service.HandleTarget(
 			c, logger.Load(c.Request().Context()),
 			"AWSCognitoIdentityService", contentType,
 			h.GetSupportedOperations(),
-			h.dispatch,
+			func(ctx context.Context, action string, body []byte) ([]byte, error) {
+				return h.dispatch(context.WithValue(ctx, regionContextKey{}, region), action, body)
+			},
 			h.handleError,
 		)
 	}
@@ -261,12 +267,13 @@ type createIdentityPoolInput struct {
 }
 
 func (h *Handler) handleCreateIdentityPool(
-	_ context.Context,
+	ctx context.Context,
 	in *createIdentityPoolInput,
 ) (*identityPoolOutput, error) {
 	providers := toBackendProviders(in.IdentityProviders)
 
 	pool, err := h.Backend.CreateIdentityPool(
+		ctx,
 		in.IdentityPoolName,
 		in.AllowUnauthenticatedIdentities,
 		in.AllowClassicFlow,
@@ -289,14 +296,14 @@ type deleteIdentityPoolInput struct {
 type deleteIdentityPoolOutput struct{}
 
 func (h *Handler) handleDeleteIdentityPool(
-	_ context.Context,
+	ctx context.Context,
 	in *deleteIdentityPoolInput,
 ) (*deleteIdentityPoolOutput, error) {
 	if in.IdentityPoolID == "" {
 		return nil, fmt.Errorf("%w: IdentityPoolId is required", ErrInvalidParameter)
 	}
 
-	if err := h.Backend.DeleteIdentityPool(in.IdentityPoolID); err != nil {
+	if err := h.Backend.DeleteIdentityPool(ctx, in.IdentityPoolID); err != nil {
 		return nil, err
 	}
 
@@ -308,14 +315,14 @@ type describeIdentityPoolInput struct {
 }
 
 func (h *Handler) handleDescribeIdentityPool(
-	_ context.Context,
+	ctx context.Context,
 	in *describeIdentityPoolInput,
 ) (*identityPoolOutput, error) {
 	if in.IdentityPoolID == "" {
 		return nil, fmt.Errorf("%w: IdentityPoolId is required", ErrInvalidParameter)
 	}
 
-	pool, err := h.Backend.DescribeIdentityPool(in.IdentityPoolID)
+	pool, err := h.Backend.DescribeIdentityPool(ctx, in.IdentityPoolID)
 	if err != nil {
 		return nil, err
 	}
@@ -339,10 +346,10 @@ type listIdentityPoolsOutput struct {
 }
 
 func (h *Handler) handleListIdentityPools(
-	_ context.Context,
+	ctx context.Context,
 	in *listIdentityPoolsInput,
 ) (*listIdentityPoolsOutput, error) {
-	pools, nextToken := h.Backend.ListIdentityPools(in.MaxResults, in.NextToken)
+	pools, nextToken := h.Backend.ListIdentityPools(ctx, in.MaxResults, in.NextToken)
 
 	items := make([]identityPoolShortDescription, 0, len(pools))
 	for _, p := range pools {
@@ -367,7 +374,7 @@ type updateIdentityPoolInput struct {
 }
 
 func (h *Handler) handleUpdateIdentityPool(
-	_ context.Context,
+	ctx context.Context,
 	in *updateIdentityPoolInput,
 ) (*identityPoolOutput, error) {
 	if in.IdentityPoolID == "" {
@@ -377,6 +384,7 @@ func (h *Handler) handleUpdateIdentityPool(
 	providers := toBackendProviders(in.IdentityProviders)
 
 	pool, err := h.Backend.UpdateIdentityPool(
+		ctx,
 		in.IdentityPoolID,
 		in.IdentityPoolName,
 		in.AllowUnauthenticatedIdentities,
@@ -403,12 +411,12 @@ type getIDOutput struct {
 	IdentityID string `json:"IdentityId"`
 }
 
-func (h *Handler) handleGetID(_ context.Context, in *getIDInput) (*getIDOutput, error) {
+func (h *Handler) handleGetID(ctx context.Context, in *getIDInput) (*getIDOutput, error) {
 	if in.IdentityPoolID == "" {
 		return nil, fmt.Errorf("%w: IdentityPoolId is required", ErrInvalidParameter)
 	}
 
-	identity, err := h.Backend.GetID(in.IdentityPoolID, in.AccountID, in.Logins)
+	identity, err := h.Backend.GetID(ctx, in.IdentityPoolID, in.AccountID, in.Logins)
 	if err != nil {
 		return nil, err
 	}
@@ -434,10 +442,10 @@ type getCredentialsForIdentityOutput struct {
 }
 
 func (h *Handler) handleGetCredentialsForIdentity(
-	_ context.Context,
+	ctx context.Context,
 	in *getCredentialsForIdentityInput,
 ) (*getCredentialsForIdentityOutput, error) {
-	creds, err := h.Backend.GetCredentialsForIdentity(in.IdentityID, in.Logins)
+	creds, err := h.Backend.GetCredentialsForIdentity(ctx, in.IdentityID, in.Logins)
 	if err != nil {
 		return nil, err
 	}
@@ -464,10 +472,10 @@ type getOpenIDTokenOutput struct {
 }
 
 func (h *Handler) handleGetOpenIDToken(
-	_ context.Context,
+	ctx context.Context,
 	in *getOpenIDTokenInput,
 ) (*getOpenIDTokenOutput, error) {
-	token, err := h.Backend.GetOpenIDToken(in.IdentityID, in.Logins)
+	token, err := h.Backend.GetOpenIDToken(ctx, in.IdentityID, in.Logins)
 	if err != nil {
 		return nil, err
 	}
@@ -504,7 +512,7 @@ type setIdentityPoolRolesInput struct {
 type setIdentityPoolRolesOutput struct{}
 
 func (h *Handler) handleSetIdentityPoolRoles(
-	_ context.Context,
+	ctx context.Context,
 	in *setIdentityPoolRolesInput,
 ) (*setIdentityPoolRolesOutput, error) {
 	if in.IdentityPoolID == "" {
@@ -543,6 +551,7 @@ func (h *Handler) handleSetIdentityPoolRoles(
 	}
 
 	if err := h.Backend.SetIdentityPoolRoles(
+		ctx,
 		in.IdentityPoolID,
 		in.Roles["authenticated"],
 		in.Roles["unauthenticated"],
@@ -582,14 +591,14 @@ type getIdentityPoolRolesOutput struct {
 }
 
 func (h *Handler) handleGetIdentityPoolRoles(
-	_ context.Context,
+	ctx context.Context,
 	in *getIdentityPoolRolesInput,
 ) (*getIdentityPoolRolesOutput, error) {
 	if in.IdentityPoolID == "" {
 		return nil, fmt.Errorf("%w: IdentityPoolId is required", ErrInvalidParameter)
 	}
 
-	roles, err := h.Backend.GetIdentityPoolRoles(in.IdentityPoolID)
+	roles, err := h.Backend.GetIdentityPoolRoles(ctx, in.IdentityPoolID)
 	if err != nil {
 		return nil, err
 	}
@@ -684,14 +693,14 @@ type deleteIdentitiesOutput struct {
 }
 
 func (h *Handler) handleDeleteIdentities(
-	_ context.Context,
+	ctx context.Context,
 	in *deleteIdentitiesInput,
 ) (*deleteIdentitiesOutput, error) {
 	if len(in.IdentityIDsToDelete) == 0 {
 		return nil, fmt.Errorf("%w: IdentityIdsToDelete must not be empty", ErrInvalidParameter)
 	}
 
-	unprocessed, err := h.Backend.DeleteIdentities(in.IdentityIDsToDelete)
+	unprocessed, err := h.Backend.DeleteIdentities(ctx, in.IdentityIDsToDelete)
 	if err != nil {
 		return nil, err
 	}
@@ -716,14 +725,14 @@ type describeIdentityOutput struct {
 }
 
 func (h *Handler) handleDescribeIdentity(
-	_ context.Context,
+	ctx context.Context,
 	in *describeIdentityInput,
 ) (*describeIdentityOutput, error) {
 	if in.IdentityID == "" {
 		return nil, fmt.Errorf("%w: IdentityId is required", ErrInvalidParameter)
 	}
 
-	desc, err := h.Backend.DescribeIdentity(in.IdentityID)
+	desc, err := h.Backend.DescribeIdentity(ctx, in.IdentityID)
 	if err != nil {
 		return nil, err
 	}
@@ -754,10 +763,11 @@ type getOpenIDTokenForDeveloperIdentityOutput struct {
 }
 
 func (h *Handler) handleGetOpenIDTokenForDeveloperIdentity(
-	_ context.Context,
+	ctx context.Context,
 	in *getOpenIDTokenForDeveloperIdentityInput,
 ) (*getOpenIDTokenForDeveloperIdentityOutput, error) {
 	result, err := h.Backend.GetOpenIDTokenForDeveloperIdentity(
+		ctx,
 		in.IdentityPoolID,
 		in.IdentityID,
 		in.Logins,
@@ -786,10 +796,10 @@ type getPrincipalTagAttributeMapOutput struct {
 }
 
 func (h *Handler) handleGetPrincipalTagAttributeMap(
-	_ context.Context,
+	ctx context.Context,
 	in *getPrincipalTagAttributeMapInput,
 ) (*getPrincipalTagAttributeMapOutput, error) {
-	mapping, err := h.Backend.GetPrincipalTagAttributeMap(in.IdentityPoolID, in.IdentityProviderName)
+	mapping, err := h.Backend.GetPrincipalTagAttributeMap(ctx, in.IdentityPoolID, in.IdentityProviderName)
 	if err != nil {
 		return nil, err
 	}
@@ -823,10 +833,10 @@ type listIdentitiesOutput struct {
 }
 
 func (h *Handler) handleListIdentities(
-	_ context.Context,
+	ctx context.Context,
 	in *listIdentitiesInput,
 ) (*listIdentitiesOutput, error) {
-	result, err := h.Backend.ListIdentities(in.IdentityPoolID, in.MaxResults, in.HideDisabled, in.NextToken)
+	result, err := h.Backend.ListIdentities(ctx, in.IdentityPoolID, in.MaxResults, in.HideDisabled, in.NextToken)
 	if err != nil {
 		return nil, err
 	}
@@ -862,10 +872,10 @@ type listTagsForResourceOutput struct {
 }
 
 func (h *Handler) handleListTagsForResource(
-	_ context.Context,
+	ctx context.Context,
 	in *listTagsForResourceInput,
 ) (*listTagsForResourceOutput, error) {
-	tags, err := h.Backend.ListTagsForResource(in.ResourceArn)
+	tags, err := h.Backend.ListTagsForResource(ctx, in.ResourceArn)
 	if err != nil {
 		return nil, err
 	}
@@ -893,10 +903,11 @@ type lookupDeveloperIdentityOutput struct {
 }
 
 func (h *Handler) handleLookupDeveloperIdentity(
-	_ context.Context,
+	ctx context.Context,
 	in *lookupDeveloperIdentityInput,
 ) (*lookupDeveloperIdentityOutput, error) {
 	result, err := h.Backend.LookupDeveloperIdentity(
+		ctx,
 		in.IdentityPoolID,
 		in.IdentityID,
 		in.DeveloperUserIdentifier,
@@ -929,10 +940,11 @@ type mergeDeveloperIdentitiesOutput struct {
 }
 
 func (h *Handler) handleMergeDeveloperIdentities(
-	_ context.Context,
+	ctx context.Context,
 	in *mergeDeveloperIdentitiesInput,
 ) (*mergeDeveloperIdentitiesOutput, error) {
 	identity, err := h.Backend.MergeDeveloperIdentities(
+		ctx,
 		in.SourceUserIdentifier,
 		in.DestinationUserIdentifier,
 		in.DeveloperProviderName,
@@ -960,10 +972,11 @@ type setPrincipalTagAttributeMapOutput struct {
 }
 
 func (h *Handler) handleSetPrincipalTagAttributeMap(
-	_ context.Context,
+	ctx context.Context,
 	in *setPrincipalTagAttributeMapInput,
 ) (*setPrincipalTagAttributeMapOutput, error) {
 	mapping, err := h.Backend.SetPrincipalTagAttributeMap(
+		ctx,
 		in.IdentityPoolID,
 		in.IdentityProviderName,
 		in.UseDefaults,
@@ -989,10 +1002,10 @@ type tagResourceInput struct {
 type tagResourceOutput struct{}
 
 func (h *Handler) handleTagResource(
-	_ context.Context,
+	ctx context.Context,
 	in *tagResourceInput,
 ) (*tagResourceOutput, error) {
-	if err := h.Backend.TagResource(in.ResourceArn, in.Tags); err != nil {
+	if err := h.Backend.TagResource(ctx, in.ResourceArn, in.Tags); err != nil {
 		return nil, err
 	}
 
@@ -1009,10 +1022,11 @@ type unlinkDeveloperIdentityInput struct {
 type unlinkDeveloperIdentityOutput struct{}
 
 func (h *Handler) handleUnlinkDeveloperIdentity(
-	_ context.Context,
+	ctx context.Context,
 	in *unlinkDeveloperIdentityInput,
 ) (*unlinkDeveloperIdentityOutput, error) {
 	if err := h.Backend.UnlinkDeveloperIdentity(
+		ctx,
 		in.IdentityID,
 		in.IdentityPoolID,
 		in.DeveloperProviderName,
@@ -1033,10 +1047,10 @@ type unlinkIdentityInput struct {
 type unlinkIdentityOutput struct{}
 
 func (h *Handler) handleUnlinkIdentity(
-	_ context.Context,
+	ctx context.Context,
 	in *unlinkIdentityInput,
 ) (*unlinkIdentityOutput, error) {
-	if err := h.Backend.UnlinkIdentity(in.IdentityID, in.Logins, in.LoginsToRemove); err != nil {
+	if err := h.Backend.UnlinkIdentity(ctx, in.IdentityID, in.Logins, in.LoginsToRemove); err != nil {
 		return nil, err
 	}
 
@@ -1051,10 +1065,10 @@ type untagResourceInput struct {
 type untagResourceOutput struct{}
 
 func (h *Handler) handleUntagResource(
-	_ context.Context,
+	ctx context.Context,
 	in *untagResourceInput,
 ) (*untagResourceOutput, error) {
-	if err := h.Backend.UntagResource(in.ResourceArn, in.TagKeys); err != nil {
+	if err := h.Backend.UntagResource(ctx, in.ResourceArn, in.TagKeys); err != nil {
 		return nil, err
 	}
 

@@ -9,6 +9,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -98,8 +99,12 @@ func (h *Handler) ExtractResource(_ *echo.Context) string {
 // Handler returns the Echo handler function.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		region := httputils.ExtractRegionFromRequest(c.Request(), h.Backend.Region())
+		ctx := context.WithValue(c.Request().Context(), regionContextKey{}, region)
+		c.SetRequest(c.Request().WithContext(ctx))
+
 		return service.HandleTarget(
-			c, logger.Load(c.Request().Context()),
+			c, logger.Load(ctx),
 			"ResourceGroupsTaggingAPI", "application/x-amz-json-1.1",
 			h.GetSupportedOperations(),
 			h.dispatch,
@@ -166,50 +171,50 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	return c.JSONBlob(code, payload)
 }
 
-func (h *Handler) handleGetResources(_ context.Context, in *GetResourcesInput) (*GetResourcesOutput, error) {
-	return h.Backend.GetResources(in)
+func (h *Handler) handleGetResources(ctx context.Context, in *GetResourcesInput) (*GetResourcesOutput, error) {
+	return h.Backend.GetResources(ctx, in)
 }
 
-func (h *Handler) handleGetTagKeys(_ context.Context, in *GetTagKeysInput) (*GetTagKeysOutput, error) {
-	return h.Backend.GetTagKeys(in), nil
+func (h *Handler) handleGetTagKeys(ctx context.Context, in *GetTagKeysInput) (*GetTagKeysOutput, error) {
+	return h.Backend.GetTagKeys(ctx, in), nil
 }
 
-func (h *Handler) handleGetTagValues(_ context.Context, in *GetTagValuesInput) (*GetTagValuesOutput, error) {
-	return h.Backend.GetTagValues(in), nil
+func (h *Handler) handleGetTagValues(ctx context.Context, in *GetTagValuesInput) (*GetTagValuesOutput, error) {
+	return h.Backend.GetTagValues(ctx, in), nil
 }
 
-func (h *Handler) handleTagResources(_ context.Context, in *TagResourcesInput) (*TagResourcesOutput, error) {
-	return h.Backend.TagResources(in)
+func (h *Handler) handleTagResources(ctx context.Context, in *TagResourcesInput) (*TagResourcesOutput, error) {
+	return h.Backend.TagResources(ctx, in)
 }
 
-func (h *Handler) handleUntagResources(_ context.Context, in *UntagResourcesInput) (*UntagResourcesOutput, error) {
-	return h.Backend.UntagResources(in)
+func (h *Handler) handleUntagResources(ctx context.Context, in *UntagResourcesInput) (*UntagResourcesOutput, error) {
+	return h.Backend.UntagResources(ctx, in)
 }
 
 func (h *Handler) handleStartReportCreation(
-	_ context.Context,
+	ctx context.Context,
 	in *StartReportCreationInput,
 ) (*StartReportCreationOutput, error) {
-	return h.Backend.StartReportCreation(in)
+	return h.Backend.StartReportCreation(ctx, in)
 }
 
 func (h *Handler) handleDescribeReportCreation(
-	_ context.Context,
+	ctx context.Context,
 	_ *DescribeReportCreationInput,
 ) (*DescribeReportCreationOutput, error) {
-	return h.Backend.DescribeReportCreation(), nil
+	return h.Backend.DescribeReportCreation(ctx), nil
 }
 
 func (h *Handler) handleGetComplianceSummary(
-	_ context.Context,
+	ctx context.Context,
 	in *GetComplianceSummaryInput,
 ) (*GetComplianceSummaryOutput, error) {
-	return h.Backend.GetComplianceSummary(in), nil
+	return h.Backend.GetComplianceSummary(ctx, in), nil
 }
 
 func (h *Handler) handleListRequiredTags(
-	_ context.Context,
+	ctx context.Context,
 	in *ListRequiredTagsInput,
 ) (*ListRequiredTagsOutput, error) {
-	return h.Backend.ListRequiredTags(in), nil
+	return h.Backend.ListRequiredTags(ctx, in), nil
 }

@@ -211,9 +211,9 @@ func (r *Runner) run(ctx context.Context) {
 }
 
 func (r *Runner) pollAllPipes(ctx context.Context) {
-	res := r.backend.ListPipes(ListPipesFilter{CurrentState: stateRunning})
+	pipes := r.backend.allRunningPipes()
 
-	for _, p := range res.Pipes {
+	for _, p := range pipes {
 		select {
 		case r.sem <- struct{}{}:
 		default:
@@ -271,7 +271,8 @@ func (r *Runner) pollSQSPipe(ctx context.Context, p *Pipe) {
 
 	// Invoke enrichment if configured. Enriched payload replaces the default one.
 	if p.Enrichment != "" {
-		r.backend.RecordEnrichmentCall(p.Name)
+		pipeCtx := context.WithValue(ctx, regionContextKey{}, p.Region)
+		r.backend.RecordEnrichmentCall(pipeCtx, p.Name)
 
 		enriched, enrichErr := r.invokeEnrichment(ctx, p, payload)
 		if enrichErr != nil {

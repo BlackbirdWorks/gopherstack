@@ -627,7 +627,7 @@ func TestTimestreamQueryBackend_ListScheduledQueriesFull(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 			}
 
-			queries := backend.ListScheduledQueriesFull()
+			queries := backend.ListScheduledQueriesFull(t.Context())
 			assert.Len(t, queries, tt.wantCount)
 
 			if len(queries) > 1 {
@@ -775,7 +775,7 @@ func TestTimestreamQueryBackend_QueryCap(t *testing.T) {
 	b := timestreamquery.NewInMemoryBackend("123456789012", "us-east-1")
 
 	for range timestreamquery.MaxRetainedQueries + 100 {
-		_ = b.Query("SELECT 1")
+		_ = b.Query(t.Context(), "SELECT 1")
 	}
 
 	assert.LessOrEqual(t, timestreamquery.QueryCount(b),
@@ -788,15 +788,15 @@ func TestTimestreamQueryBackend_CancelEvictedIsNotFound(t *testing.T) {
 
 	b := timestreamquery.NewInMemoryBackend("123456789012", "us-east-1")
 
-	first := b.Query("SELECT 1")
+	first := b.Query(t.Context(), "SELECT 1")
 	for range timestreamquery.MaxRetainedQueries + 1 {
-		_ = b.Query("SELECT 1")
+		_ = b.Query(t.Context(), "SELECT 1")
 	}
 
 	// `first` may or may not have been evicted (random map iter); if it
 	// was, CancelQuery must report ErrNotFound rather than silently succeed
 	// or panic.
-	err := b.CancelQuery(first.QueryID)
+	err := b.CancelQuery(t.Context(), first.QueryID)
 	if err != nil {
 		require.ErrorIs(t, err, timestreamquery.ErrNotFound)
 	}

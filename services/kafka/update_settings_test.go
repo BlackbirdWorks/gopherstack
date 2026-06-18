@@ -1,6 +1,7 @@
 package kafka_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -28,7 +29,7 @@ func TestBackend_UpdateSettings(t *testing.T) {
 			opType: "UPDATE_CONNECTIVITY",
 			apply: func(t *testing.T, b *kafka.InMemoryBackend, arn string) string {
 				t.Helper()
-				op, err := b.UpdateConnectivity(arn, kafka.UpdateConnectivitySettings{
+				op, err := b.UpdateConnectivity(context.Background(), arn, kafka.UpdateConnectivitySettings{
 					ConnectivityInfo: &kafka.ConnectivityInfo{
 						PublicAccess: &kafka.PublicAccess{Type: "SERVICE_PROVIDED_EIPS"},
 					},
@@ -53,7 +54,7 @@ func TestBackend_UpdateSettings(t *testing.T) {
 			opType: "UPDATE_MONITORING",
 			apply: func(t *testing.T, b *kafka.InMemoryBackend, arn string) string {
 				t.Helper()
-				op, err := b.UpdateMonitoring(arn, kafka.UpdateMonitoringSettings{
+				op, err := b.UpdateMonitoring(context.Background(), arn, kafka.UpdateMonitoringSettings{
 					EnhancedMonitoring: "PER_TOPIC_PER_BROKER",
 					OpenMonitoring: &kafka.OpenMonitoring{
 						Prometheus: &kafka.PrometheusInfo{
@@ -83,7 +84,7 @@ func TestBackend_UpdateSettings(t *testing.T) {
 			opType: "UPDATE_SECURITY",
 			apply: func(t *testing.T, b *kafka.InMemoryBackend, arn string) string {
 				t.Helper()
-				op, err := b.UpdateSecurity(arn, kafka.UpdateSecuritySettings{
+				op, err := b.UpdateSecurity(context.Background(), arn, kafka.UpdateSecuritySettings{
 					ClientAuthentication: &kafka.ClientAuthentication{
 						Sasl: &kafka.SaslSettings{Iam: &kafka.SaslIam{Enabled: true}},
 					},
@@ -113,7 +114,7 @@ func TestBackend_UpdateSettings(t *testing.T) {
 			opType: "UPDATE_STORAGE",
 			apply: func(t *testing.T, b *kafka.InMemoryBackend, arn string) string {
 				t.Helper()
-				op, err := b.UpdateStorage(arn, kafka.UpdateStorageSettings{
+				op, err := b.UpdateStorage(context.Background(), arn, kafka.UpdateStorageSettings{
 					StorageMode:  "TIERED",
 					VolumeSizeGB: 2048,
 					ProvisionedThroughput: &kafka.ProvisionedThroughput{
@@ -146,7 +147,7 @@ func TestBackend_UpdateSettings(t *testing.T) {
 			opType: "UPDATE_REBALANCING",
 			apply: func(t *testing.T, b *kafka.InMemoryBackend, arn string) string {
 				t.Helper()
-				op, err := b.UpdateRebalancing(arn)
+				op, err := b.UpdateRebalancing(context.Background(), arn)
 				require.NoError(t, err)
 
 				return op.ClusterOperationArn
@@ -164,7 +165,7 @@ func TestBackend_UpdateSettings(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend(t)
-			cluster, err := b.CreateCluster("c1", "3.5.1", 3, kafka.BrokerNodeGroupInfo{
+			cluster, err := b.CreateCluster(context.Background(), "c1", "3.5.1", 3, kafka.BrokerNodeGroupInfo{
 				InstanceType:  "kafka.m5.large",
 				ClientSubnets: []string{"subnet-1"},
 			}, nil, nil)
@@ -173,12 +174,12 @@ func TestBackend_UpdateSettings(t *testing.T) {
 			opArn := tt.apply(t, b, cluster.ClusterArn)
 			assert.NotEmpty(t, opArn)
 
-			op, descErr := b.DescribeClusterOperation(opArn)
+			op, descErr := b.DescribeClusterOperation(context.Background(), opArn)
 			require.NoError(t, descErr)
 			assert.Equal(t, tt.opType, op.OperationType)
 			assert.Equal(t, cluster.ClusterArn, op.ClusterArn)
 
-			updated, getErr := b.DescribeCluster(cluster.ClusterArn)
+			updated, getErr := b.DescribeCluster(context.Background(), cluster.ClusterArn)
 			require.NoError(t, getErr)
 
 			tt.verify(t, updated, op)
@@ -193,14 +194,14 @@ func TestBackend_UpdateSettings_NotFound(t *testing.T) {
 	b := newTestBackend(t)
 	missing := "arn:aws:kafka:us-east-1:000000000000:cluster/missing/abc"
 
-	_, err := b.UpdateConnectivity(missing, kafka.UpdateConnectivitySettings{})
+	_, err := b.UpdateConnectivity(context.Background(), missing, kafka.UpdateConnectivitySettings{})
 	require.Error(t, err)
-	_, err = b.UpdateMonitoring(missing, kafka.UpdateMonitoringSettings{})
+	_, err = b.UpdateMonitoring(context.Background(), missing, kafka.UpdateMonitoringSettings{})
 	require.Error(t, err)
-	_, err = b.UpdateSecurity(missing, kafka.UpdateSecuritySettings{})
+	_, err = b.UpdateSecurity(context.Background(), missing, kafka.UpdateSecuritySettings{})
 	require.Error(t, err)
-	_, err = b.UpdateStorage(missing, kafka.UpdateStorageSettings{})
+	_, err = b.UpdateStorage(context.Background(), missing, kafka.UpdateStorageSettings{})
 	require.Error(t, err)
-	_, err = b.UpdateRebalancing(missing)
+	_, err = b.UpdateRebalancing(context.Background(), missing)
 	require.Error(t, err)
 }

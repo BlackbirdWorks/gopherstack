@@ -1,6 +1,7 @@
 package docdb
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"slices"
@@ -12,6 +13,33 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
+
+// regionContextKey is the context key under which the per-request AWS region is stored.
+type regionContextKey struct{}
+
+// getRegion extracts the region from ctx, falling back to defaultRegion when unset.
+// DocDB resources are isolated per region: every backend operation resolves the
+// caller's region from the request context and operates only on that region's
+// nested store.
+func getRegion(ctx context.Context, defaultRegion string) string {
+	if r, ok := ctx.Value(regionContextKey{}).(string); ok && r != "" {
+		return r
+	}
+
+	return defaultRegion
+}
+
+// regionFromARN extracts the region component (index 3) from an AWS ARN
+// (arn:partition:service:region:account:resource), falling back to defaultRegion.
+func regionFromARN(resourceARN, defaultRegion string) string {
+	parts := strings.Split(resourceARN, ":")
+	const regionIndex = 3
+	if len(parts) > regionIndex && parts[regionIndex] != "" {
+		return parts[regionIndex]
+	}
+
+	return defaultRegion
+}
 
 var (
 	ErrClusterNotFound                    = awserr.New("DBClusterNotFoundFault", awserr.ErrNotFound)
@@ -300,16 +328,22 @@ type EventCategoryMap struct {
 	EventCategories []string
 }
 
+// InMemoryBackend is the in-memory store for DocDB resources.
+//
+// All resource maps except globalClusters are nested by region (outer key =
+// region) so same-named resources are isolated across regions. Per-region inner
+// maps are created lazily via the *Store helpers. Callers must hold b.mu while
+// accessing the inner maps. GlobalClusters are partition-scoped and remain flat.
 type InMemoryBackend struct {
-	clusters               map[string]*DBCluster
-	instances              map[string]*DBInstance
-	subnetGroups           map[string]*DBSubnetGroup
-	clusterParameterGroups map[string]*DBClusterParameterGroup
-	clusterSnapshots       map[string]*DBClusterSnapshot
-	eventSubscriptions     map[string]*EventSubscription
+	clusters               map[string]map[string]*DBCluster
+	instances              map[string]map[string]*DBInstance
+	subnetGroups           map[string]map[string]*DBSubnetGroup
+	clusterParameterGroups map[string]map[string]*DBClusterParameterGroup
+	clusterSnapshots       map[string]map[string]*DBClusterSnapshot
+	eventSubscriptions     map[string]map[string]*EventSubscription
 	globalClusters         map[string]*GlobalCluster
-	snapshotAttributes     map[string]*DBClusterSnapshotAttributesResult
-	tags                   map[string][]Tag
+	snapshotAttributes     map[string]map[string]*DBClusterSnapshotAttributesResult
+	tags                   map[string]map[string][]Tag
 	mu                     *lockmetrics.RWMutex
 	accountID              string
 	region                 string
@@ -317,19 +351,89 @@ type InMemoryBackend struct {
 
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		clusters:               make(map[string]*DBCluster),
-		instances:              make(map[string]*DBInstance),
-		subnetGroups:           make(map[string]*DBSubnetGroup),
-		clusterParameterGroups: make(map[string]*DBClusterParameterGroup),
-		clusterSnapshots:       make(map[string]*DBClusterSnapshot),
-		eventSubscriptions:     make(map[string]*EventSubscription),
+		clusters:               make(map[string]map[string]*DBCluster),
+		instances:              make(map[string]map[string]*DBInstance),
+		subnetGroups:           make(map[string]map[string]*DBSubnetGroup),
+		clusterParameterGroups: make(map[string]map[string]*DBClusterParameterGroup),
+		clusterSnapshots:       make(map[string]map[string]*DBClusterSnapshot),
+		eventSubscriptions:     make(map[string]map[string]*EventSubscription),
 		globalClusters:         make(map[string]*GlobalCluster),
-		snapshotAttributes:     make(map[string]*DBClusterSnapshotAttributesResult),
-		tags:                   make(map[string][]Tag),
+		snapshotAttributes:     make(map[string]map[string]*DBClusterSnapshotAttributesResult),
+		tags:                   make(map[string]map[string][]Tag),
 		accountID:              accountID,
 		region:                 region,
 		mu:                     lockmetrics.New("docdb"),
 	}
+}
+
+// Region returns the backend's configured default AWS region.
+func (b *InMemoryBackend) Region() string { return b.region }
+
+// The following lazy per-region store helpers return the resource map for the
+// given region, creating it on first use. Callers must hold b.mu.
+
+func (b *InMemoryBackend) clustersStore(region string) map[string]*DBCluster {
+	if b.clusters[region] == nil {
+		b.clusters[region] = make(map[string]*DBCluster)
+	}
+
+	return b.clusters[region]
+}
+
+func (b *InMemoryBackend) instancesStore(region string) map[string]*DBInstance {
+	if b.instances[region] == nil {
+		b.instances[region] = make(map[string]*DBInstance)
+	}
+
+	return b.instances[region]
+}
+
+func (b *InMemoryBackend) subnetGroupsStore(region string) map[string]*DBSubnetGroup {
+	if b.subnetGroups[region] == nil {
+		b.subnetGroups[region] = make(map[string]*DBSubnetGroup)
+	}
+
+	return b.subnetGroups[region]
+}
+
+func (b *InMemoryBackend) clusterParameterGroupsStore(region string) map[string]*DBClusterParameterGroup {
+	if b.clusterParameterGroups[region] == nil {
+		b.clusterParameterGroups[region] = make(map[string]*DBClusterParameterGroup)
+	}
+
+	return b.clusterParameterGroups[region]
+}
+
+func (b *InMemoryBackend) clusterSnapshotsStore(region string) map[string]*DBClusterSnapshot {
+	if b.clusterSnapshots[region] == nil {
+		b.clusterSnapshots[region] = make(map[string]*DBClusterSnapshot)
+	}
+
+	return b.clusterSnapshots[region]
+}
+
+func (b *InMemoryBackend) eventSubscriptionsStore(region string) map[string]*EventSubscription {
+	if b.eventSubscriptions[region] == nil {
+		b.eventSubscriptions[region] = make(map[string]*EventSubscription)
+	}
+
+	return b.eventSubscriptions[region]
+}
+
+func (b *InMemoryBackend) snapshotAttributesStore(region string) map[string]*DBClusterSnapshotAttributesResult {
+	if b.snapshotAttributes[region] == nil {
+		b.snapshotAttributes[region] = make(map[string]*DBClusterSnapshotAttributesResult)
+	}
+
+	return b.snapshotAttributes[region]
+}
+
+func (b *InMemoryBackend) tagsStore(region string) map[string][]Tag {
+	if b.tags[region] == nil {
+		b.tags[region] = make(map[string][]Tag)
+	}
+
+	return b.tags[region]
 }
 
 // Reset clears all stored state, returning the backend to an empty state.
@@ -337,42 +441,40 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.clusters = make(map[string]*DBCluster)
-	b.instances = make(map[string]*DBInstance)
-	b.subnetGroups = make(map[string]*DBSubnetGroup)
-	b.clusterParameterGroups = make(map[string]*DBClusterParameterGroup)
-	b.clusterSnapshots = make(map[string]*DBClusterSnapshot)
-	b.eventSubscriptions = make(map[string]*EventSubscription)
+	b.clusters = make(map[string]map[string]*DBCluster)
+	b.instances = make(map[string]map[string]*DBInstance)
+	b.subnetGroups = make(map[string]map[string]*DBSubnetGroup)
+	b.clusterParameterGroups = make(map[string]map[string]*DBClusterParameterGroup)
+	b.clusterSnapshots = make(map[string]map[string]*DBClusterSnapshot)
+	b.eventSubscriptions = make(map[string]map[string]*EventSubscription)
 	b.globalClusters = make(map[string]*GlobalCluster)
-	b.snapshotAttributes = make(map[string]*DBClusterSnapshotAttributesResult)
-	b.tags = make(map[string][]Tag)
+	b.snapshotAttributes = make(map[string]map[string]*DBClusterSnapshotAttributesResult)
+	b.tags = make(map[string]map[string][]Tag)
 }
 
-func (b *InMemoryBackend) Region() string { return b.region }
-
-// clusterARN returns the ARN for a DB cluster.
-func (b *InMemoryBackend) clusterARN(id string) string {
-	return arn.Build("rds", b.region, b.accountID, "cluster:"+id)
+// clusterARN returns the ARN for a DB cluster in the given region.
+func (b *InMemoryBackend) clusterARN(region, id string) string {
+	return arn.Build("rds", region, b.accountID, "cluster:"+id)
 }
 
-// instanceARN returns the ARN for a DB instance.
-func (b *InMemoryBackend) instanceARN(id string) string {
-	return arn.Build("rds", b.region, b.accountID, "db:"+id)
+// instanceARN returns the ARN for a DB instance in the given region.
+func (b *InMemoryBackend) instanceARN(region, id string) string {
+	return arn.Build("rds", region, b.accountID, "db:"+id)
 }
 
-// subnetGroupARN returns the ARN for a DB subnet group.
-func (b *InMemoryBackend) subnetGroupARN(name string) string {
-	return arn.Build("rds", b.region, b.accountID, "subgrp:"+name)
+// subnetGroupARN returns the ARN for a DB subnet group in the given region.
+func (b *InMemoryBackend) subnetGroupARN(region, name string) string {
+	return arn.Build("rds", region, b.accountID, "subgrp:"+name)
 }
 
-// clusterParameterGroupARN returns the ARN for a DB cluster parameter group.
-func (b *InMemoryBackend) clusterParameterGroupARN(name string) string {
-	return arn.Build("rds", b.region, b.accountID, "cluster-pg:"+name)
+// clusterParameterGroupARN returns the ARN for a DB cluster parameter group in the given region.
+func (b *InMemoryBackend) clusterParameterGroupARN(region, name string) string {
+	return arn.Build("rds", region, b.accountID, "cluster-pg:"+name)
 }
 
-// clusterSnapshotARN returns the ARN for a DB cluster snapshot.
-func (b *InMemoryBackend) clusterSnapshotARN(id string) string {
-	return arn.Build("rds", b.region, b.accountID, "cluster-snapshot:"+id)
+// clusterSnapshotARN returns the ARN for a DB cluster snapshot in the given region.
+func (b *InMemoryBackend) clusterSnapshotARN(region, id string) string {
+	return arn.Build("rds", region, b.accountID, "cluster-snapshot:"+id)
 }
 
 // globalClusterARN returns the ARN for a global cluster.
@@ -410,6 +512,7 @@ func validateCreateDBClusterParams(
 }
 
 func (b *InMemoryBackend) CreateDBCluster(
+	ctx context.Context,
 	id, engine, engineVersion, masterUser, masterUserPassword, dbName, paramGroupName, subnetGroupName string,
 	port int,
 	storageEncrypted, deletionProtection bool,
@@ -424,9 +527,11 @@ func (b *InMemoryBackend) CreateDBCluster(
 	); err != nil {
 		return nil, err
 	}
+	region := getRegion(ctx, b.region)
 	b.mu.Lock("CreateDBCluster")
 	defer b.mu.Unlock()
-	if _, exists := b.clusters[id]; exists {
+	clusters := b.clustersStore(region)
+	if _, exists := clusters[id]; exists {
 		return nil, fmt.Errorf("%w: cluster %s already exists", ErrClusterAlreadyExists, id)
 	}
 	if engine == "" {
@@ -450,9 +555,9 @@ func (b *InMemoryBackend) CreateDBCluster(
 	if preferredMaintenanceWindow == "" {
 		preferredMaintenanceWindow = defaultMaintenanceWindow
 	}
-	clusterArn := b.clusterARN(id)
-	endpoint := fmt.Sprintf("%s.cluster.docdb.%s.amazonaws.com", id, b.region)
-	readerEndpoint := fmt.Sprintf("%s.cluster-ro.docdb.%s.amazonaws.com", id, b.region)
+	clusterArn := b.clusterARN(region, id)
+	endpoint := fmt.Sprintf("%s.cluster.docdb.%s.amazonaws.com", id, region)
+	readerEndpoint := fmt.Sprintf("%s.cluster-ro.docdb.%s.amazonaws.com", id, region)
 	azs := make([]string, len(availabilityZones))
 	copy(azs, availabilityZones)
 
@@ -501,9 +606,9 @@ func (b *InMemoryBackend) CreateDBCluster(
 		EnabledCloudwatchLogsExports:     enabledCloudwatchLogsExports,
 		IAMDatabaseAuthenticationEnabled: iamDatabaseAuthenticationEnabled,
 	}
-	b.clusters[id] = cluster
+	clusters[id] = cluster
 	if len(tags) > 0 {
-		b.tags[clusterArn] = tagsFromMap(tags)
+		b.tagsStore(region)[clusterArn] = tagsFromMap(tags)
 	}
 
 	return copyCluster(cluster), nil
@@ -517,19 +622,21 @@ type CreateDBClusterOptions struct {
 	IAMDatabaseAuthenticationEnabled bool
 }
 
-func (b *InMemoryBackend) DescribeDBClusters(id string) ([]DBCluster, error) {
+func (b *InMemoryBackend) DescribeDBClusters(ctx context.Context, id string) ([]DBCluster, error) {
+	region := getRegion(ctx, b.region)
 	b.mu.RLock("DescribeDBClusters")
 	defer b.mu.RUnlock()
+	clusters := b.clustersStore(region)
 	if id != "" {
-		c, exists := b.clusters[id]
+		c, exists := clusters[id]
 		if !exists {
 			return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 		}
 
 		return []DBCluster{*copyCluster(c)}, nil
 	}
-	result := make([]DBCluster, 0, len(b.clusters))
-	for _, c := range b.clusters {
+	result := make([]DBCluster, 0, len(clusters))
+	for _, c := range clusters {
 		result = append(result, *copyCluster(c))
 	}
 	sort.Slice(result, func(i, j int) bool {
@@ -539,20 +646,27 @@ func (b *InMemoryBackend) DescribeDBClusters(id string) ([]DBCluster, error) {
 	return result, nil
 }
 
-func (b *InMemoryBackend) DeleteDBCluster(id string, opts *DeleteDBClusterOptions) (*DBCluster, error) {
+func (b *InMemoryBackend) DeleteDBCluster(
+	ctx context.Context,
+	id string,
+	opts *DeleteDBClusterOptions,
+) (*DBCluster, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: DBClusterIdentifier is required", ErrInvalidParameter)
 	}
+	region := getRegion(ctx, b.region)
 	b.mu.Lock("DeleteDBCluster")
 	defer b.mu.Unlock()
-	c, exists := b.clusters[id]
+	clusters := b.clustersStore(region)
+	c, exists := clusters[id]
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 	}
 	if c.DeletionProtection {
 		return nil, fmt.Errorf("%w: cluster %s has deletion protection enabled", ErrInvalidClusterState, id)
 	}
-	for _, inst := range b.instances {
+	instances := b.instancesStore(region)
+	for _, inst := range instances {
 		if inst.DBClusterIdentifier == id {
 			return nil, fmt.Errorf("%w: cluster %s still has instances, delete them first", ErrInvalidClusterState, id)
 		}
@@ -562,7 +676,8 @@ func (b *InMemoryBackend) DeleteDBCluster(id string, opts *DeleteDBClusterOption
 	// Create a final snapshot if requested.
 	if opts != nil && !opts.SkipFinalSnapshot && opts.FinalDBClusterSnapshotIdentifier != "" {
 		snapID := opts.FinalDBClusterSnapshotIdentifier
-		if _, snapExists := b.clusterSnapshots[snapID]; snapExists {
+		snapshots := b.clusterSnapshotsStore(region)
+		if _, snapExists := snapshots[snapID]; snapExists {
 			return nil, fmt.Errorf(
 				"%w: cluster snapshot %s already exists",
 				ErrClusterSnapshotAlreadyExists,
@@ -579,13 +694,13 @@ func (b *InMemoryBackend) DeleteDBCluster(id string, opts *DeleteDBClusterOption
 			SnapshotType:                "manual",
 			PercentProgress:             snapshotPercentageComplete,
 			SnapshotCreateTime:          time.Now().UTC().Format(time.RFC3339),
-			DBClusterArn:                b.clusterARN(id),
+			DBClusterArn:                b.clusterARN(region, id),
 		}
-		b.clusterSnapshots[snapID] = snap
+		snapshots[snapID] = snap
 	}
 
-	delete(b.clusters, id)
-	delete(b.tags, b.clusterARN(id))
+	delete(clusters, id)
+	delete(b.tagsStore(region), b.clusterARN(region, id))
 
 	return cp, nil
 }
@@ -597,15 +712,17 @@ type DeleteDBClusterOptions struct {
 }
 
 func (b *InMemoryBackend) ModifyDBCluster(
+	ctx context.Context,
 	id, paramGroupName string,
 	deletionProtection *bool,
 	backupRetentionPeriod int,
 	preferredBackupWindow, preferredMaintenanceWindow string,
 	opts *ModifyDBClusterOptions,
 ) (*DBCluster, error) {
+	region := getRegion(ctx, b.region)
 	b.mu.Lock("ModifyDBCluster")
 	defer b.mu.Unlock()
-	c, exists := b.clusters[id]
+	c, exists := b.clustersStore(region)[id]
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 	}
@@ -683,10 +800,11 @@ type ModifyDBClusterOptions struct {
 	Port                int
 }
 
-func (b *InMemoryBackend) StopDBCluster(id string) (*DBCluster, error) {
+func (b *InMemoryBackend) StopDBCluster(ctx context.Context, id string) (*DBCluster, error) {
+	region := getRegion(ctx, b.region)
 	b.mu.Lock("StopDBCluster")
 	defer b.mu.Unlock()
-	c, exists := b.clusters[id]
+	c, exists := b.clustersStore(region)[id]
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 	}
@@ -698,10 +816,11 @@ func (b *InMemoryBackend) StopDBCluster(id string) (*DBCluster, error) {
 	return copyCluster(c), nil
 }
 
-func (b *InMemoryBackend) StartDBCluster(id string) (*DBCluster, error) {
+func (b *InMemoryBackend) StartDBCluster(ctx context.Context, id string) (*DBCluster, error) {
+	region := getRegion(ctx, b.region)
 	b.mu.Lock("StartDBCluster")
 	defer b.mu.Unlock()
-	c, exists := b.clusters[id]
+	c, exists := b.clustersStore(region)[id]
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 	}
@@ -713,10 +832,11 @@ func (b *InMemoryBackend) StartDBCluster(id string) (*DBCluster, error) {
 	return copyCluster(c), nil
 }
 
-func (b *InMemoryBackend) FailoverDBCluster(id string) (*DBCluster, error) {
+func (b *InMemoryBackend) FailoverDBCluster(ctx context.Context, id string) (*DBCluster, error) {
+	region := getRegion(ctx, b.region)
 	b.mu.Lock("FailoverDBCluster")
 	defer b.mu.Unlock()
-	c, exists := b.clusters[id]
+	c, exists := b.clustersStore(region)[id]
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 	}
@@ -728,6 +848,7 @@ func (b *InMemoryBackend) FailoverDBCluster(id string) (*DBCluster, error) {
 }
 
 func (b *InMemoryBackend) CreateDBInstance(
+	ctx context.Context,
 	id, clusterID, instanceClass, engine string,
 	promotionTier int,
 	tags map[string]string,
@@ -745,13 +866,16 @@ func (b *InMemoryBackend) CreateDBInstance(
 	if err := validateTags(tags); err != nil {
 		return nil, err
 	}
+	region := getRegion(ctx, b.region)
 	b.mu.Lock("CreateDBInstance")
 	defer b.mu.Unlock()
-	if _, exists := b.instances[id]; exists {
+	instances := b.instancesStore(region)
+	if _, exists := instances[id]; exists {
 		return nil, fmt.Errorf("%w: instance %s already exists", ErrInstanceAlreadyExists, id)
 	}
+	clusters := b.clustersStore(region)
 	if clusterID != "" {
-		if _, exists := b.clusters[clusterID]; !exists {
+		if _, exists := clusters[clusterID]; !exists {
 			return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
 		}
 	}
@@ -766,15 +890,15 @@ func (b *InMemoryBackend) CreateDBInstance(
 	var clusterAZ string
 	var clusterSubnetGroupName string
 	if clusterID != "" {
-		if parentCluster, exists := b.clusters[clusterID]; exists {
+		if parentCluster, exists := clusters[clusterID]; exists {
 			clusterEngineVersion = parentCluster.EngineVersion
 			clusterStorageEncrypted = parentCluster.StorageEncrypted
 			clusterAZ = firstAZ(parentCluster.AvailabilityZones)
 			clusterSubnetGroupName = parentCluster.DBSubnetGroupName
 		}
 	}
-	instanceArn := b.instanceARN(id)
-	endpoint := fmt.Sprintf("%s.docdb.%s.amazonaws.com", id, b.region)
+	instanceArn := b.instanceARN(region, id)
+	endpoint := fmt.Sprintf("%s.docdb.%s.amazonaws.com", id, region)
 
 	var (
 		caCertID           string
@@ -803,9 +927,9 @@ func (b *InMemoryBackend) CreateDBInstance(
 		CACertificateIdentifier: caCertID,
 		CopyTagsToSnapshot:      copyTagsToSnapshot,
 	}
-	b.instances[id] = inst
+	instances[id] = inst
 	if len(tags) > 0 {
-		b.tags[instanceArn] = tagsFromMap(tags)
+		b.tagsStore(region)[instanceArn] = tagsFromMap(tags)
 	}
 
 	return copyInstance(inst), nil
@@ -817,19 +941,21 @@ type CreateDBInstanceOptions struct {
 	CopyTagsToSnapshot      bool
 }
 
-func (b *InMemoryBackend) DescribeDBInstances(id, clusterID string) ([]DBInstance, error) {
+func (b *InMemoryBackend) DescribeDBInstances(ctx context.Context, id, clusterID string) ([]DBInstance, error) {
+	region := getRegion(ctx, b.region)
 	b.mu.RLock("DescribeDBInstances")
 	defer b.mu.RUnlock()
+	instances := b.instancesStore(region)
 	if id != "" {
-		inst, exists := b.instances[id]
+		inst, exists := instances[id]
 		if !exists {
 			return nil, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, id)
 		}
 
 		return []DBInstance{*copyInstance(inst)}, nil
 	}
-	result := make([]DBInstance, 0, len(b.instances))
-	for _, inst := range b.instances {
+	result := make([]DBInstance, 0, len(instances))
+	for _, inst := range instances {
 		if clusterID != "" && inst.DBClusterIdentifier != clusterID {
 			continue
 		}
@@ -850,11 +976,12 @@ type DBClusterMemberEntry struct {
 }
 
 // GetClusterMembers returns the instances that belong to a given cluster, ordered by identifier.
-func (b *InMemoryBackend) GetClusterMembers(clusterID string) []DBClusterMemberEntry {
+func (b *InMemoryBackend) GetClusterMembers(ctx context.Context, clusterID string) []DBClusterMemberEntry {
+	region := getRegion(ctx, b.region)
 	b.mu.RLock("GetClusterMembers")
 	defer b.mu.RUnlock()
 	var members []DBClusterMemberEntry
-	for _, inst := range b.instances {
+	for _, inst := range b.instancesStore(region) {
 		if inst.DBClusterIdentifier == clusterID {
 			members = append(members, DBClusterMemberEntry{
 				DBInstanceIdentifier: inst.DBInstanceIdentifier,
@@ -873,32 +1000,36 @@ func (b *InMemoryBackend) GetClusterMembers(clusterID string) []DBClusterMemberE
 	return members
 }
 
-func (b *InMemoryBackend) DeleteDBInstance(id string) (*DBInstance, error) {
+func (b *InMemoryBackend) DeleteDBInstance(ctx context.Context, id string) (*DBInstance, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: DBInstanceIdentifier is required", ErrInvalidParameter)
 	}
+	region := getRegion(ctx, b.region)
 	b.mu.Lock("DeleteDBInstance")
 	defer b.mu.Unlock()
-	inst, exists := b.instances[id]
+	instances := b.instancesStore(region)
+	inst, exists := instances[id]
 	if !exists {
 		return nil, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, id)
 	}
 	cp := copyInstance(inst)
-	delete(b.instances, id)
-	delete(b.tags, b.instanceARN(id))
+	delete(instances, id)
+	delete(b.tagsStore(region), b.instanceARN(region, id))
 
 	return cp, nil
 }
 
 func (b *InMemoryBackend) ModifyDBInstance(
+	ctx context.Context,
 	id, instanceClass string,
 	autoMinorVersionUpgrade *bool,
 	preferredMaintenanceWindow string,
 	opts *ModifyDBInstanceOptions,
 ) (*DBInstance, error) {
+	region := getRegion(ctx, b.region)
 	b.mu.Lock("ModifyDBInstance")
 	defer b.mu.Unlock()
-	inst, exists := b.instances[id]
+	inst, exists := b.instancesStore(region)[id]
 	if !exists {
 		return nil, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, id)
 	}
@@ -940,10 +1071,11 @@ type ModifyDBInstanceOptions struct {
 	CACertificateIdentifier string
 }
 
-func (b *InMemoryBackend) RebootDBInstance(id string) (*DBInstance, error) {
+func (b *InMemoryBackend) RebootDBInstance(ctx context.Context, id string) (*DBInstance, error) {
+	region := getRegion(ctx, b.region)
 	b.mu.Lock("RebootDBInstance")
 	defer b.mu.Unlock()
-	inst, exists := b.instances[id]
+	inst, exists := b.instancesStore(region)[id]
 	if !exists {
 		return nil, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, id)
 	}
@@ -952,6 +1084,7 @@ func (b *InMemoryBackend) RebootDBInstance(id string) (*DBInstance, error) {
 }
 
 func (b *InMemoryBackend) CreateDBSubnetGroup(
+	ctx context.Context,
 	name, description, vpcID string,
 	subnetIDs []string,
 	tags map[string]string,
@@ -959,14 +1092,16 @@ func (b *InMemoryBackend) CreateDBSubnetGroup(
 	if name == "" {
 		return nil, fmt.Errorf("%w: DBSubnetGroupName is required", ErrInvalidParameter)
 	}
+	region := getRegion(ctx, b.region)
 	b.mu.Lock("CreateDBSubnetGroup")
 	defer b.mu.Unlock()
-	if _, exists := b.subnetGroups[name]; exists {
+	subnetGroups := b.subnetGroupsStore(region)
+	if _, exists := subnetGroups[name]; exists {
 		return nil, fmt.Errorf("%w: subnet group %s already exists", ErrSubnetGroupAlreadyExists, name)
 	}
 	ids := make([]string, len(subnetIDs))
 	copy(ids, subnetIDs)
-	sgArn := b.subnetGroupARN(name)
+	sgArn := b.subnetGroupARN(region, name)
 	sg := &DBSubnetGroup{
 		DBSubnetGroupName:        name,
 		DBSubnetGroupDescription: description,
@@ -976,9 +1111,9 @@ func (b *InMemoryBackend) CreateDBSubnetGroup(
 		DBSubnetGroupArn:         sgArn,
 		Tags:                     copyTags(tags),
 	}
-	b.subnetGroups[name] = sg
+	subnetGroups[name] = sg
 	if len(tags) > 0 {
-		b.tags[sgArn] = tagsFromMap(tags)
+		b.tagsStore(region)[sgArn] = tagsFromMap(tags)
 	}
 	cp := *sg
 	cp.SubnetIDs = make([]string, len(ids))
@@ -988,11 +1123,13 @@ func (b *InMemoryBackend) CreateDBSubnetGroup(
 	return &cp, nil
 }
 
-func (b *InMemoryBackend) DescribeDBSubnetGroups(name string) ([]DBSubnetGroup, error) {
+func (b *InMemoryBackend) DescribeDBSubnetGroups(ctx context.Context, name string) ([]DBSubnetGroup, error) {
+	region := getRegion(ctx, b.region)
 	b.mu.RLock("DescribeDBSubnetGroups")
 	defer b.mu.RUnlock()
+	subnetGroups := b.subnetGroupsStore(region)
 	if name != "" {
-		sg, exists := b.subnetGroups[name]
+		sg, exists := subnetGroups[name]
 		if !exists {
 			return nil, fmt.Errorf("%w: subnet group %s not found", ErrSubnetGroupNotFound, name)
 		}
@@ -1003,8 +1140,8 @@ func (b *InMemoryBackend) DescribeDBSubnetGroups(name string) ([]DBSubnetGroup, 
 
 		return []DBSubnetGroup{cp}, nil
 	}
-	result := make([]DBSubnetGroup, 0, len(b.subnetGroups))
-	for _, sg := range b.subnetGroups {
+	result := make([]DBSubnetGroup, 0, len(subnetGroups))
+	for _, sg := range subnetGroups {
 		cp := *sg
 		cp.SubnetIDs = make([]string, len(sg.SubnetIDs))
 		copy(cp.SubnetIDs, sg.SubnetIDs)
@@ -1018,13 +1155,15 @@ func (b *InMemoryBackend) DescribeDBSubnetGroups(name string) ([]DBSubnetGroup, 
 	return result, nil
 }
 
-func (b *InMemoryBackend) DeleteDBSubnetGroup(name string) error {
+func (b *InMemoryBackend) DeleteDBSubnetGroup(ctx context.Context, name string) error {
+	region := getRegion(ctx, b.region)
 	b.mu.Lock("DeleteDBSubnetGroup")
 	defer b.mu.Unlock()
-	if _, exists := b.subnetGroups[name]; !exists {
+	subnetGroups := b.subnetGroupsStore(region)
+	if _, exists := subnetGroups[name]; !exists {
 		return fmt.Errorf("%w: subnet group %s not found", ErrSubnetGroupNotFound, name)
 	}
-	for _, c := range b.clusters {
+	for _, c := range b.clustersStore(region) {
 		if c.DBSubnetGroupName == name {
 			return fmt.Errorf(
 				"%w: subnet group %s is used by cluster %s",
@@ -1034,22 +1173,25 @@ func (b *InMemoryBackend) DeleteDBSubnetGroup(name string) error {
 			)
 		}
 	}
-	delete(b.subnetGroups, name)
-	delete(b.tags, b.subnetGroupARN(name))
+	delete(subnetGroups, name)
+	delete(b.tagsStore(region), b.subnetGroupARN(region, name))
 
 	return nil
 }
 
 func (b *InMemoryBackend) CreateDBClusterParameterGroup(
+	ctx context.Context,
 	name, family, description string,
 	tags map[string]string,
 ) (*DBClusterParameterGroup, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: DBClusterParameterGroupName is required", ErrInvalidParameter)
 	}
+	region := getRegion(ctx, b.region)
 	b.mu.Lock("CreateDBClusterParameterGroup")
 	defer b.mu.Unlock()
-	if _, exists := b.clusterParameterGroups[name]; exists {
+	pgStore := b.clusterParameterGroupsStore(region)
+	if _, exists := pgStore[name]; exists {
 		return nil, fmt.Errorf(
 			"%w: cluster parameter group %s already exists",
 			ErrClusterParameterGroupAlreadyExists,
@@ -1060,13 +1202,13 @@ func (b *InMemoryBackend) CreateDBClusterParameterGroup(
 		DBClusterParameterGroupName: name,
 		DBParameterGroupFamily:      family,
 		Description:                 description,
-		DBClusterParameterGroupArn:  b.clusterParameterGroupARN(name),
+		DBClusterParameterGroupArn:  b.clusterParameterGroupARN(region, name),
 		Tags:                        copyTags(tags),
 	}
-	b.clusterParameterGroups[name] = pg
-	pgArn := b.clusterParameterGroupARN(name)
+	pgStore[name] = pg
+	pgArn := b.clusterParameterGroupARN(region, name)
 	if len(tags) > 0 {
-		b.tags[pgArn] = tagsFromMap(tags)
+		b.tagsStore(region)[pgArn] = tagsFromMap(tags)
 	}
 	cp := *pg
 	cp.Tags = copyTags(pg.Tags)
@@ -1074,11 +1216,16 @@ func (b *InMemoryBackend) CreateDBClusterParameterGroup(
 	return &cp, nil
 }
 
-func (b *InMemoryBackend) DescribeDBClusterParameterGroups(name string) ([]DBClusterParameterGroup, error) {
+func (b *InMemoryBackend) DescribeDBClusterParameterGroups(
+	ctx context.Context,
+	name string,
+) ([]DBClusterParameterGroup, error) {
+	region := getRegion(ctx, b.region)
 	b.mu.RLock("DescribeDBClusterParameterGroups")
 	defer b.mu.RUnlock()
+	pgStore := b.clusterParameterGroupsStore(region)
 	if name != "" {
-		pg, exists := b.clusterParameterGroups[name]
+		pg, exists := pgStore[name]
 		if !exists {
 			return nil, fmt.Errorf("%w: cluster parameter group %s not found", ErrClusterParameterGroupNotFound, name)
 		}
@@ -1087,8 +1234,8 @@ func (b *InMemoryBackend) DescribeDBClusterParameterGroups(name string) ([]DBClu
 
 		return []DBClusterParameterGroup{cp}, nil
 	}
-	result := make([]DBClusterParameterGroup, 0, len(b.clusterParameterGroups))
-	for _, pg := range b.clusterParameterGroups {
+	result := make([]DBClusterParameterGroup, 0, len(pgStore))
+	for _, pg := range pgStore {
 		cp := *pg
 		cp.Tags = copyTags(pg.Tags)
 		result = append(result, cp)
@@ -1100,13 +1247,15 @@ func (b *InMemoryBackend) DescribeDBClusterParameterGroups(name string) ([]DBClu
 	return result, nil
 }
 
-func (b *InMemoryBackend) DeleteDBClusterParameterGroup(name string) error {
+func (b *InMemoryBackend) DeleteDBClusterParameterGroup(ctx context.Context, name string) error {
+	region := getRegion(ctx, b.region)
 	b.mu.Lock("DeleteDBClusterParameterGroup")
 	defer b.mu.Unlock()
-	if _, exists := b.clusterParameterGroups[name]; !exists {
+	pgStore := b.clusterParameterGroupsStore(region)
+	if _, exists := pgStore[name]; !exists {
 		return fmt.Errorf("%w: cluster parameter group %s not found", ErrClusterParameterGroupNotFound, name)
 	}
-	for _, c := range b.clusters {
+	for _, c := range b.clustersStore(region) {
 		if c.DBClusterParameterGroupName == name {
 			return fmt.Errorf(
 				"%w: parameter group %s is used by cluster %s",
@@ -1116,16 +1265,20 @@ func (b *InMemoryBackend) DeleteDBClusterParameterGroup(name string) error {
 			)
 		}
 	}
-	delete(b.clusterParameterGroups, name)
-	delete(b.tags, b.clusterParameterGroupARN(name))
+	delete(pgStore, name)
+	delete(b.tagsStore(region), b.clusterParameterGroupARN(region, name))
 
 	return nil
 }
 
-func (b *InMemoryBackend) ModifyDBClusterParameterGroup(name string) (*DBClusterParameterGroup, error) {
+func (b *InMemoryBackend) ModifyDBClusterParameterGroup(
+	ctx context.Context,
+	name string,
+) (*DBClusterParameterGroup, error) {
+	region := getRegion(ctx, b.region)
 	b.mu.Lock("ModifyDBClusterParameterGroup")
 	defer b.mu.Unlock()
-	pg, exists := b.clusterParameterGroups[name]
+	pg, exists := b.clusterParameterGroupsStore(region)[name]
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster parameter group %s not found", ErrClusterParameterGroupNotFound, name)
 	}
@@ -1136,6 +1289,7 @@ func (b *InMemoryBackend) ModifyDBClusterParameterGroup(name string) (*DBCluster
 }
 
 func (b *InMemoryBackend) CreateDBClusterSnapshot(
+	ctx context.Context,
 	snapshotID, clusterID string,
 	tags map[string]string,
 ) (*DBClusterSnapshot, error) {
@@ -1145,12 +1299,14 @@ func (b *InMemoryBackend) CreateDBClusterSnapshot(
 	if clusterID == "" {
 		return nil, fmt.Errorf("%w: DBClusterIdentifier is required", ErrInvalidParameter)
 	}
+	region := getRegion(ctx, b.region)
 	b.mu.Lock("CreateDBClusterSnapshot")
 	defer b.mu.Unlock()
-	if _, exists := b.clusterSnapshots[snapshotID]; exists {
+	snapshots := b.clusterSnapshotsStore(region)
+	if _, exists := snapshots[snapshotID]; exists {
 		return nil, fmt.Errorf("%w: cluster snapshot %s already exists", ErrClusterSnapshotAlreadyExists, snapshotID)
 	}
-	c, exists := b.clusters[clusterID]
+	c, exists := b.clustersStore(region)[clusterID]
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
 	}
@@ -1164,13 +1320,13 @@ func (b *InMemoryBackend) CreateDBClusterSnapshot(
 		SnapshotType:                "manual",
 		PercentProgress:             snapshotPercentageComplete,
 		SnapshotCreateTime:          time.Now().UTC().Format(time.RFC3339),
-		DBClusterArn:                b.clusterARN(clusterID),
+		DBClusterArn:                b.clusterARN(region, clusterID),
 		Tags:                        copyTags(tags),
 	}
-	b.clusterSnapshots[snapshotID] = snap
-	snapArn := b.clusterSnapshotARN(snapshotID)
+	snapshots[snapshotID] = snap
+	snapArn := b.clusterSnapshotARN(region, snapshotID)
 	if len(tags) > 0 {
-		b.tags[snapArn] = tagsFromMap(tags)
+		b.tagsStore(region)[snapArn] = tagsFromMap(tags)
 	}
 	cp := *snap
 	cp.Tags = copyTags(snap.Tags)
@@ -1179,12 +1335,15 @@ func (b *InMemoryBackend) CreateDBClusterSnapshot(
 }
 
 func (b *InMemoryBackend) DescribeDBClusterSnapshots(
+	ctx context.Context,
 	snapshotID, clusterID, snapshotType string,
 ) ([]DBClusterSnapshot, error) {
+	region := getRegion(ctx, b.region)
 	b.mu.RLock("DescribeDBClusterSnapshots")
 	defer b.mu.RUnlock()
+	snapshots := b.clusterSnapshotsStore(region)
 	if snapshotID != "" {
-		snap, exists := b.clusterSnapshots[snapshotID]
+		snap, exists := snapshots[snapshotID]
 		if !exists {
 			return nil, fmt.Errorf("%w: cluster snapshot %s not found", ErrClusterSnapshotNotFound, snapshotID)
 		}
@@ -1193,8 +1352,8 @@ func (b *InMemoryBackend) DescribeDBClusterSnapshots(
 
 		return []DBClusterSnapshot{cp}, nil
 	}
-	result := make([]DBClusterSnapshot, 0, len(b.clusterSnapshots))
-	for _, snap := range b.clusterSnapshots {
+	result := make([]DBClusterSnapshot, 0, len(snapshots))
+	for _, snap := range snapshots {
 		if clusterID != "" && snap.DBClusterIdentifier != clusterID {
 			continue
 		}
@@ -1212,31 +1371,35 @@ func (b *InMemoryBackend) DescribeDBClusterSnapshots(
 	return result, nil
 }
 
-func (b *InMemoryBackend) DeleteDBClusterSnapshot(snapshotID string) (*DBClusterSnapshot, error) {
+func (b *InMemoryBackend) DeleteDBClusterSnapshot(ctx context.Context, snapshotID string) (*DBClusterSnapshot, error) {
 	if snapshotID == "" {
 		return nil, fmt.Errorf("%w: DBClusterSnapshotIdentifier is required", ErrInvalidParameter)
 	}
+	region := getRegion(ctx, b.region)
 	b.mu.Lock("DeleteDBClusterSnapshot")
 	defer b.mu.Unlock()
-	snap, exists := b.clusterSnapshots[snapshotID]
+	snapshots := b.clusterSnapshotsStore(region)
+	snap, exists := snapshots[snapshotID]
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster snapshot %s not found", ErrClusterSnapshotNotFound, snapshotID)
 	}
 	cp := *snap
 	cp.Tags = copyTags(snap.Tags)
-	delete(b.clusterSnapshots, snapshotID)
-	delete(b.tags, b.clusterSnapshotARN(snapshotID))
+	delete(snapshots, snapshotID)
+	delete(b.tagsStore(region), b.clusterSnapshotARN(region, snapshotID))
 
 	return &cp, nil
 }
 
-func (b *InMemoryBackend) AddTagsToResource(arn string, tags []Tag) error {
+func (b *InMemoryBackend) AddTagsToResource(ctx context.Context, arnStr string, tags []Tag) error {
 	if err := validateTagList(tags); err != nil {
 		return err
 	}
+	region := regionFromARN(arnStr, getRegion(ctx, b.region))
 	b.mu.Lock("AddTagsToResource")
 	defer b.mu.Unlock()
-	current := b.tags[arn]
+	tagStore := b.tagsStore(region)
+	current := tagStore[arnStr]
 	idx := make(map[string]int, len(current))
 	for i, t := range current {
 		idx[t.Key] = i
@@ -1249,32 +1412,35 @@ func (b *InMemoryBackend) AddTagsToResource(arn string, tags []Tag) error {
 			current = append(current, t)
 		}
 	}
-	b.tags[arn] = current
+	tagStore[arnStr] = current
 
 	return nil
 }
 
-func (b *InMemoryBackend) RemoveTagsFromResource(arn string, keys []string) {
+func (b *InMemoryBackend) RemoveTagsFromResource(ctx context.Context, arnStr string, keys []string) {
+	region := regionFromARN(arnStr, getRegion(ctx, b.region))
 	b.mu.Lock("RemoveTagsFromResource")
 	defer b.mu.Unlock()
+	tagStore := b.tagsStore(region)
 	remove := make(map[string]bool, len(keys))
 	for _, k := range keys {
 		remove[k] = true
 	}
-	current := b.tags[arn]
+	current := tagStore[arnStr]
 	kept := make([]Tag, 0, len(current))
 	for _, t := range current {
 		if !remove[t.Key] {
 			kept = append(kept, t)
 		}
 	}
-	b.tags[arn] = kept
+	tagStore[arnStr] = kept
 }
 
-func (b *InMemoryBackend) ListTagsForResource(arn string) []Tag {
+func (b *InMemoryBackend) ListTagsForResource(ctx context.Context, arnStr string) []Tag {
+	region := regionFromARN(arnStr, getRegion(ctx, b.region))
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
-	src := b.tags[arn]
+	src := b.tagsStore(region)[arnStr]
 	cp := make([]Tag, len(src))
 	copy(cp, src)
 	sort.Slice(cp, func(i, j int) bool {
@@ -1286,6 +1452,7 @@ func (b *InMemoryBackend) ListTagsForResource(arn string) []Tag {
 
 // AddSourceIdentifierToSubscription adds a source identifier to an event subscription.
 func (b *InMemoryBackend) AddSourceIdentifierToSubscription(
+	ctx context.Context,
 	subscriptionName, sourceID string,
 ) (*EventSubscription, error) {
 	if subscriptionName == "" {
@@ -1294,9 +1461,10 @@ func (b *InMemoryBackend) AddSourceIdentifierToSubscription(
 	if sourceID == "" {
 		return nil, fmt.Errorf("%w: SourceIdentifier is required", ErrInvalidParameter)
 	}
+	region := getRegion(ctx, b.region)
 	b.mu.Lock("AddSourceIdentifierToSubscription")
 	defer b.mu.Unlock()
-	sub, exists := b.eventSubscriptions[subscriptionName]
+	sub, exists := b.eventSubscriptionsStore(region)[subscriptionName]
 	if !exists {
 		return nil, fmt.Errorf("%w: subscription %s not found", ErrEventSubscriptionNotFound, subscriptionName)
 	}
@@ -1310,6 +1478,7 @@ func (b *InMemoryBackend) AddSourceIdentifierToSubscription(
 
 // ApplyPendingMaintenanceAction applies a pending maintenance action to a resource.
 func (b *InMemoryBackend) ApplyPendingMaintenanceAction(
+	_ context.Context,
 	resourceARN, action, optInType string,
 ) error {
 	if resourceARN == "" {
@@ -1337,6 +1506,7 @@ func (b *InMemoryBackend) ApplyPendingMaintenanceAction(
 
 // CopyDBClusterParameterGroup copies a DB cluster parameter group.
 func (b *InMemoryBackend) CopyDBClusterParameterGroup(
+	ctx context.Context,
 	sourceGroupName, targetName, targetDescription string,
 ) (*DBClusterParameterGroup, error) {
 	if sourceGroupName == "" {
@@ -1345,9 +1515,11 @@ func (b *InMemoryBackend) CopyDBClusterParameterGroup(
 	if targetName == "" {
 		return nil, fmt.Errorf("%w: TargetDBClusterParameterGroupIdentifier is required", ErrInvalidParameter)
 	}
+	region := getRegion(ctx, b.region)
 	b.mu.Lock("CopyDBClusterParameterGroup")
 	defer b.mu.Unlock()
-	src, exists := b.clusterParameterGroups[sourceGroupName]
+	pgStore := b.clusterParameterGroupsStore(region)
+	src, exists := pgStore[sourceGroupName]
 	if !exists {
 		return nil, fmt.Errorf(
 			"%w: cluster parameter group %s not found",
@@ -1355,7 +1527,7 @@ func (b *InMemoryBackend) CopyDBClusterParameterGroup(
 			sourceGroupName,
 		)
 	}
-	if _, ok := b.clusterParameterGroups[targetName]; ok {
+	if _, ok := pgStore[targetName]; ok {
 		return nil, fmt.Errorf(
 			"%w: cluster parameter group %s already exists",
 			ErrClusterParameterGroupAlreadyExists,
@@ -1370,9 +1542,9 @@ func (b *InMemoryBackend) CopyDBClusterParameterGroup(
 		DBClusterParameterGroupName: targetName,
 		DBParameterGroupFamily:      src.DBParameterGroupFamily,
 		Description:                 desc,
-		DBClusterParameterGroupArn:  b.clusterParameterGroupARN(targetName),
+		DBClusterParameterGroupArn:  b.clusterParameterGroupARN(region, targetName),
 	}
-	b.clusterParameterGroups[targetName] = pg
+	pgStore[targetName] = pg
 	cp := *pg
 	cp.Tags = copyTags(pg.Tags)
 
@@ -1381,6 +1553,7 @@ func (b *InMemoryBackend) CopyDBClusterParameterGroup(
 
 // CopyDBClusterSnapshot copies a DB cluster snapshot.
 func (b *InMemoryBackend) CopyDBClusterSnapshot(
+	ctx context.Context,
 	sourceSnapshotID, targetSnapshotID string,
 ) (*DBClusterSnapshot, error) {
 	if sourceSnapshotID == "" {
@@ -1389,13 +1562,15 @@ func (b *InMemoryBackend) CopyDBClusterSnapshot(
 	if targetSnapshotID == "" {
 		return nil, fmt.Errorf("%w: TargetDBClusterSnapshotIdentifier is required", ErrInvalidParameter)
 	}
+	region := getRegion(ctx, b.region)
 	b.mu.Lock("CopyDBClusterSnapshot")
 	defer b.mu.Unlock()
-	src, exists := b.clusterSnapshots[sourceSnapshotID]
+	snapshots := b.clusterSnapshotsStore(region)
+	src, exists := snapshots[sourceSnapshotID]
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster snapshot %s not found", ErrClusterSnapshotNotFound, sourceSnapshotID)
 	}
-	if _, ok := b.clusterSnapshots[targetSnapshotID]; ok {
+	if _, ok := snapshots[targetSnapshotID]; ok {
 		return nil, fmt.Errorf(
 			"%w: cluster snapshot %s already exists",
 			ErrClusterSnapshotAlreadyExists,
@@ -1413,7 +1588,7 @@ func (b *InMemoryBackend) CopyDBClusterSnapshot(
 		SnapshotType:                src.SnapshotType,
 		PercentProgress:             src.PercentProgress,
 	}
-	b.clusterSnapshots[targetSnapshotID] = snap
+	snapshots[targetSnapshotID] = snap
 	cp := *snap
 	cp.Tags = copyTags(snap.Tags)
 
@@ -1422,15 +1597,18 @@ func (b *InMemoryBackend) CopyDBClusterSnapshot(
 
 // CreateEventSubscription creates an event subscription.
 func (b *InMemoryBackend) CreateEventSubscription(
+	ctx context.Context,
 	name, snsTopicARN, sourceType string,
 	eventCategories, sourceIDs []string,
 ) (*EventSubscription, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: SubscriptionName is required", ErrInvalidParameter)
 	}
+	region := getRegion(ctx, b.region)
 	b.mu.Lock("CreateEventSubscription")
 	defer b.mu.Unlock()
-	if _, exists := b.eventSubscriptions[name]; exists {
+	subStore := b.eventSubscriptionsStore(region)
+	if _, exists := subStore[name]; exists {
 		return nil, fmt.Errorf("%w: subscription %s already exists", ErrEventSubscriptionAlreadyExists, name)
 	}
 	cats := make([]string, len(eventCategories))
@@ -1445,13 +1623,14 @@ func (b *InMemoryBackend) CreateEventSubscription(
 		EventCategories:  cats,
 		SourceIDs:        ids,
 	}
-	b.eventSubscriptions[name] = sub
+	subStore[name] = sub
 
 	return copyEventSubscription(sub), nil
 }
 
 // CreateGlobalCluster creates a global cluster.
 func (b *InMemoryBackend) CreateGlobalCluster(
+	_ context.Context,
 	id, sourceDBClusterID, engine, engineVersion string,
 ) (*GlobalCluster, error) {
 	if id == "" {
@@ -1483,21 +1662,23 @@ func (b *InMemoryBackend) CreateGlobalCluster(
 }
 
 // DeleteEventSubscription deletes an event subscription.
-func (b *InMemoryBackend) DeleteEventSubscription(name string) (*EventSubscription, error) {
+func (b *InMemoryBackend) DeleteEventSubscription(ctx context.Context, name string) (*EventSubscription, error) {
+	region := getRegion(ctx, b.region)
 	b.mu.Lock("DeleteEventSubscription")
 	defer b.mu.Unlock()
-	sub, exists := b.eventSubscriptions[name]
+	subStore := b.eventSubscriptionsStore(region)
+	sub, exists := subStore[name]
 	if !exists {
 		return nil, fmt.Errorf("%w: subscription %s not found", ErrEventSubscriptionNotFound, name)
 	}
 	cp := copyEventSubscription(sub)
-	delete(b.eventSubscriptions, name)
+	delete(subStore, name)
 
 	return cp, nil
 }
 
 // DeleteGlobalCluster deletes a global cluster.
-func (b *InMemoryBackend) DeleteGlobalCluster(id string) (*GlobalCluster, error) {
+func (b *InMemoryBackend) DeleteGlobalCluster(_ context.Context, id string) (*GlobalCluster, error) {
 	b.mu.Lock("DeleteGlobalCluster")
 	defer b.mu.Unlock()
 	gc, exists := b.globalClusters[id]
@@ -1511,7 +1692,7 @@ func (b *InMemoryBackend) DeleteGlobalCluster(id string) (*GlobalCluster, error)
 }
 
 // DescribeCertificates returns certificate information.
-func (b *InMemoryBackend) DescribeCertificates(certificateID string) []Certificate {
+func (b *InMemoryBackend) DescribeCertificates(_ context.Context, certificateID string) []Certificate {
 	certs := []Certificate{
 		{
 			CertificateIdentifier: "rds-ca-2019",
@@ -1541,13 +1722,17 @@ func (b *InMemoryBackend) DescribeCertificates(certificateID string) []Certifica
 }
 
 // DescribeDBClusterParameters returns the parameters for a DB cluster parameter group.
-func (b *InMemoryBackend) DescribeDBClusterParameters(groupName string) ([]DBClusterParameter, error) {
+func (b *InMemoryBackend) DescribeDBClusterParameters(
+	ctx context.Context,
+	groupName string,
+) ([]DBClusterParameter, error) {
+	region := getRegion(ctx, b.region)
 	b.mu.RLock("DescribeDBClusterParameters")
 	defer b.mu.RUnlock()
 	if groupName == "" {
 		return nil, fmt.Errorf("%w: DBClusterParameterGroupName is required", ErrInvalidParameter)
 	}
-	if _, exists := b.clusterParameterGroups[groupName]; !exists {
+	if _, exists := b.clusterParameterGroupsStore(region)[groupName]; !exists {
 		return nil, fmt.Errorf("%w: cluster parameter group %s not found", ErrClusterParameterGroupNotFound, groupName)
 	}
 	params := []DBClusterParameter{
@@ -1575,7 +1760,7 @@ func (b *InMemoryBackend) DescribeDBClusterParameters(groupName string) ([]DBClu
 }
 
 // DescribeGlobalClusters returns global clusters, optionally filtered by ID, sorted by identifier.
-func (b *InMemoryBackend) DescribeGlobalClusters(id string) []GlobalCluster {
+func (b *InMemoryBackend) DescribeGlobalClusters(_ context.Context, id string) []GlobalCluster {
 	b.mu.RLock("DescribeGlobalClusters")
 	defer b.mu.RUnlock()
 	if id != "" {
@@ -1599,19 +1784,21 @@ func (b *InMemoryBackend) DescribeGlobalClusters(id string) []GlobalCluster {
 }
 
 // DescribeEventSubscriptions returns event subscriptions, optionally filtered by name.
-func (b *InMemoryBackend) DescribeEventSubscriptions(name string) []EventSubscription {
+func (b *InMemoryBackend) DescribeEventSubscriptions(ctx context.Context, name string) []EventSubscription {
+	region := getRegion(ctx, b.region)
 	b.mu.RLock("DescribeEventSubscriptions")
 	defer b.mu.RUnlock()
+	subStore := b.eventSubscriptionsStore(region)
 	if name != "" {
-		sub, exists := b.eventSubscriptions[name]
+		sub, exists := subStore[name]
 		if !exists {
 			return []EventSubscription{}
 		}
 
 		return []EventSubscription{*copyEventSubscription(sub)}
 	}
-	result := make([]EventSubscription, 0, len(b.eventSubscriptions))
-	for _, sub := range b.eventSubscriptions {
+	result := make([]EventSubscription, 0, len(subStore))
+	for _, sub := range subStore {
 		result = append(result, *copyEventSubscription(sub))
 	}
 	sort.Slice(result, func(i, j int) bool {
@@ -1623,15 +1810,17 @@ func (b *InMemoryBackend) DescribeEventSubscriptions(name string) []EventSubscri
 
 // ModifyEventSubscription modifies an event subscription.
 func (b *InMemoryBackend) ModifyEventSubscription(
+	ctx context.Context,
 	name, snsTopicARN, sourceType string,
 	eventCategories []string,
 ) (*EventSubscription, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: SubscriptionName is required", ErrInvalidParameter)
 	}
+	region := getRegion(ctx, b.region)
 	b.mu.Lock("ModifyEventSubscription")
 	defer b.mu.Unlock()
-	sub, exists := b.eventSubscriptions[name]
+	sub, exists := b.eventSubscriptionsStore(region)[name]
 	if !exists {
 		return nil, fmt.Errorf("%w: subscription %s not found", ErrEventSubscriptionNotFound, name)
 	}
@@ -1652,6 +1841,7 @@ func (b *InMemoryBackend) ModifyEventSubscription(
 
 // RemoveSourceIdentifierFromSubscription removes a source identifier from an event subscription.
 func (b *InMemoryBackend) RemoveSourceIdentifierFromSubscription(
+	ctx context.Context,
 	subscriptionName, sourceID string,
 ) (*EventSubscription, error) {
 	if subscriptionName == "" {
@@ -1660,9 +1850,10 @@ func (b *InMemoryBackend) RemoveSourceIdentifierFromSubscription(
 	if sourceID == "" {
 		return nil, fmt.Errorf("%w: SourceIdentifier is required", ErrInvalidParameter)
 	}
+	region := getRegion(ctx, b.region)
 	b.mu.Lock("RemoveSourceIdentifierFromSubscription")
 	defer b.mu.Unlock()
-	sub, exists := b.eventSubscriptions[subscriptionName]
+	sub, exists := b.eventSubscriptionsStore(region)[subscriptionName]
 	if !exists {
 		return nil, fmt.Errorf("%w: subscription %s not found", ErrEventSubscriptionNotFound, subscriptionName)
 	}
@@ -1679,23 +1870,28 @@ func (b *InMemoryBackend) RemoveSourceIdentifierFromSubscription(
 
 // DescribePendingMaintenanceActions returns pending maintenance actions for resources.
 // This implementation returns an empty list (in-memory emulation has no real pending actions).
-func (b *InMemoryBackend) DescribePendingMaintenanceActions(_ string) []ResourcePendingMaintenanceActions {
+func (b *InMemoryBackend) DescribePendingMaintenanceActions(
+	_ context.Context,
+	_ string,
+) []ResourcePendingMaintenanceActions {
 	return []ResourcePendingMaintenanceActions{}
 }
 
 // DescribeDBClusterSnapshotAttributes returns attributes for a cluster snapshot.
 func (b *InMemoryBackend) DescribeDBClusterSnapshotAttributes(
+	ctx context.Context,
 	snapshotID string,
 ) (*DBClusterSnapshotAttributesResult, error) {
 	if snapshotID == "" {
 		return nil, fmt.Errorf("%w: DBClusterSnapshotIdentifier is required", ErrInvalidParameter)
 	}
+	region := getRegion(ctx, b.region)
 	b.mu.RLock("DescribeDBClusterSnapshotAttributes")
 	defer b.mu.RUnlock()
-	if _, exists := b.clusterSnapshots[snapshotID]; !exists {
+	if _, exists := b.clusterSnapshotsStore(region)[snapshotID]; !exists {
 		return nil, fmt.Errorf("%w: cluster snapshot %s not found", ErrClusterSnapshotNotFound, snapshotID)
 	}
-	result, ok := b.snapshotAttributes[snapshotID]
+	result, ok := b.snapshotAttributesStore(region)[snapshotID]
 	if !ok {
 		return &DBClusterSnapshotAttributesResult{
 			DBClusterSnapshotIdentifier: snapshotID,
@@ -1784,6 +1980,7 @@ func copySnapshotAttributesResult(result *DBClusterSnapshotAttributesResult) *DB
 }
 
 func (b *InMemoryBackend) ModifyDBClusterSnapshotAttribute(
+	ctx context.Context,
 	snapshotID, attributeName string,
 	valuesToAdd, valuesToRemove []string,
 ) (*DBClusterSnapshotAttributesResult, error) {
@@ -1793,12 +1990,14 @@ func (b *InMemoryBackend) ModifyDBClusterSnapshotAttribute(
 	if attributeName == "" {
 		return nil, fmt.Errorf("%w: AttributeName is required", ErrInvalidParameter)
 	}
+	region := getRegion(ctx, b.region)
 	b.mu.Lock("ModifyDBClusterSnapshotAttribute")
 	defer b.mu.Unlock()
-	if _, exists := b.clusterSnapshots[snapshotID]; !exists {
+	if _, exists := b.clusterSnapshotsStore(region)[snapshotID]; !exists {
 		return nil, fmt.Errorf("%w: cluster snapshot %s not found", ErrClusterSnapshotNotFound, snapshotID)
 	}
-	result, ok := b.snapshotAttributes[snapshotID]
+	attrStore := b.snapshotAttributesStore(region)
+	result, ok := attrStore[snapshotID]
 	if !ok {
 		result = &DBClusterSnapshotAttributesResult{
 			DBClusterSnapshotIdentifier: snapshotID,
@@ -1807,13 +2006,14 @@ func (b *InMemoryBackend) ModifyDBClusterSnapshotAttribute(
 	}
 	attr := findOrCreateAttribute(result, attributeName)
 	applySnapshotAttributeChanges(attr, valuesToAdd, valuesToRemove)
-	b.snapshotAttributes[snapshotID] = result
+	attrStore[snapshotID] = result
 
 	return copySnapshotAttributesResult(result), nil
 }
 
 // DescribeEngineDefaultClusterParameters returns the default parameters for an engine family.
 func (b *InMemoryBackend) DescribeEngineDefaultClusterParameters(
+	_ context.Context,
 	_ string,
 ) []DBClusterParameter {
 	return []DBClusterParameter{
@@ -1839,10 +2039,14 @@ func (b *InMemoryBackend) DescribeEngineDefaultClusterParameters(
 }
 
 // ResetDBClusterParameterGroup resets a parameter group to its default values.
-func (b *InMemoryBackend) ResetDBClusterParameterGroup(name string) (*DBClusterParameterGroup, error) {
+func (b *InMemoryBackend) ResetDBClusterParameterGroup(
+	ctx context.Context,
+	name string,
+) (*DBClusterParameterGroup, error) {
+	region := getRegion(ctx, b.region)
 	b.mu.Lock("ResetDBClusterParameterGroup")
 	defer b.mu.Unlock()
-	pg, exists := b.clusterParameterGroups[name]
+	pg, exists := b.clusterParameterGroupsStore(region)[name]
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster parameter group %s not found", ErrClusterParameterGroupNotFound, name)
 	}
@@ -1854,15 +2058,17 @@ func (b *InMemoryBackend) ResetDBClusterParameterGroup(name string) (*DBClusterP
 
 // ModifyDBSubnetGroup modifies a DB subnet group.
 func (b *InMemoryBackend) ModifyDBSubnetGroup(
+	ctx context.Context,
 	name, description string,
 	subnetIDs []string,
 ) (*DBSubnetGroup, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: DBSubnetGroupName is required", ErrInvalidParameter)
 	}
+	region := getRegion(ctx, b.region)
 	b.mu.Lock("ModifyDBSubnetGroup")
 	defer b.mu.Unlock()
-	sg, exists := b.subnetGroups[name]
+	sg, exists := b.subnetGroupsStore(region)[name]
 	if !exists {
 		return nil, fmt.Errorf("%w: subnet group %s not found", ErrSubnetGroupNotFound, name)
 	}
@@ -1883,7 +2089,11 @@ func (b *InMemoryBackend) ModifyDBSubnetGroup(
 }
 
 // ModifyGlobalCluster modifies a global cluster.
-func (b *InMemoryBackend) ModifyGlobalCluster(id, newID string, deletionProtection *bool) (*GlobalCluster, error) {
+func (b *InMemoryBackend) ModifyGlobalCluster(
+	_ context.Context,
+	id, newID string,
+	deletionProtection *bool,
+) (*GlobalCluster, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: GlobalClusterIdentifier is required", ErrInvalidParameter)
 	}
@@ -1908,7 +2118,7 @@ func (b *InMemoryBackend) ModifyGlobalCluster(id, newID string, deletionProtecti
 }
 
 // FailoverGlobalCluster initiates a failover for a global cluster.
-func (b *InMemoryBackend) FailoverGlobalCluster(id, _ string) (*GlobalCluster, error) {
+func (b *InMemoryBackend) FailoverGlobalCluster(_ context.Context, id, _ string) (*GlobalCluster, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: GlobalClusterIdentifier is required", ErrInvalidParameter)
 	}
@@ -1925,7 +2135,10 @@ func (b *InMemoryBackend) FailoverGlobalCluster(id, _ string) (*GlobalCluster, e
 }
 
 // RemoveFromGlobalCluster removes a DB cluster from a global cluster.
-func (b *InMemoryBackend) RemoveFromGlobalCluster(globalClusterID, _ string) (*GlobalCluster, error) {
+func (b *InMemoryBackend) RemoveFromGlobalCluster(
+	_ context.Context,
+	globalClusterID, _ string,
+) (*GlobalCluster, error) {
 	if globalClusterID == "" {
 		return nil, fmt.Errorf("%w: GlobalClusterIdentifier is required", ErrInvalidParameter)
 	}
@@ -1941,7 +2154,7 @@ func (b *InMemoryBackend) RemoveFromGlobalCluster(globalClusterID, _ string) (*G
 }
 
 // SwitchoverGlobalCluster initiates a switchover for a global cluster.
-func (b *InMemoryBackend) SwitchoverGlobalCluster(id, _ string) (*GlobalCluster, error) {
+func (b *InMemoryBackend) SwitchoverGlobalCluster(_ context.Context, id, _ string) (*GlobalCluster, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: GlobalClusterIdentifier is required", ErrInvalidParameter)
 	}
@@ -1959,6 +2172,7 @@ func (b *InMemoryBackend) SwitchoverGlobalCluster(id, _ string) (*GlobalCluster,
 
 // RestoreDBClusterFromSnapshot restores a new cluster from a snapshot.
 func (b *InMemoryBackend) RestoreDBClusterFromSnapshot(
+	ctx context.Context,
 	snapshotID, clusterID, engine string,
 ) (*DBCluster, error) {
 	if snapshotID == "" {
@@ -1967,13 +2181,16 @@ func (b *InMemoryBackend) RestoreDBClusterFromSnapshot(
 	if clusterID == "" {
 		return nil, fmt.Errorf("%w: DBClusterIdentifier is required", ErrInvalidParameter)
 	}
+	region := getRegion(ctx, b.region)
 	b.mu.Lock("RestoreDBClusterFromSnapshot")
 	defer b.mu.Unlock()
-	snap, snapExists := b.clusterSnapshots[snapshotID]
+	snapshots := b.clusterSnapshotsStore(region)
+	snap, snapExists := snapshots[snapshotID]
 	if !snapExists {
 		return nil, fmt.Errorf("%w: cluster snapshot %s not found", ErrClusterSnapshotNotFound, snapshotID)
 	}
-	if _, clusterExists := b.clusters[clusterID]; clusterExists {
+	clusters := b.clustersStore(region)
+	if _, clusterExists := clusters[clusterID]; clusterExists {
 		return nil, fmt.Errorf("%w: cluster %s already exists", ErrClusterAlreadyExists, clusterID)
 	}
 	if engine == "" {
@@ -1984,16 +2201,16 @@ func (b *InMemoryBackend) RestoreDBClusterFromSnapshot(
 		engineVersion = defaultEngineVersion
 	}
 	var paramGroupName, subnetGroupName string
-	if src, exists := b.clusters[snap.DBClusterIdentifier]; exists {
+	if src, exists := clusters[snap.DBClusterIdentifier]; exists {
 		paramGroupName = src.DBClusterParameterGroupName
 		subnetGroupName = src.DBSubnetGroupName
 	}
 	if paramGroupName == "" {
 		paramGroupName = "default.docdb4.0"
 	}
-	clusterArn := b.clusterARN(clusterID)
-	endpoint := fmt.Sprintf("%s.cluster.docdb.%s.amazonaws.com", clusterID, b.region)
-	readerEndpoint := fmt.Sprintf("%s.cluster-ro.docdb.%s.amazonaws.com", clusterID, b.region)
+	clusterArn := b.clusterARN(region, clusterID)
+	endpoint := fmt.Sprintf("%s.cluster.docdb.%s.amazonaws.com", clusterID, region)
+	readerEndpoint := fmt.Sprintf("%s.cluster-ro.docdb.%s.amazonaws.com", clusterID, region)
 	cluster := &DBCluster{
 		DBClusterIdentifier:         clusterID,
 		Engine:                      engine,
@@ -2008,13 +2225,14 @@ func (b *InMemoryBackend) RestoreDBClusterFromSnapshot(
 		StorageEncrypted:            snap.StorageEncrypted,
 		ClusterCreateTime:           time.Now().UTC().Format(time.RFC3339),
 	}
-	b.clusters[clusterID] = cluster
+	clusters[clusterID] = cluster
 
 	return copyCluster(cluster), nil
 }
 
 // RestoreDBClusterToPointInTime restores a new cluster to a point in time from a source cluster.
 func (b *InMemoryBackend) RestoreDBClusterToPointInTime(
+	ctx context.Context,
 	sourceClusterID, targetClusterID string,
 ) (*DBCluster, error) {
 	if sourceClusterID == "" {
@@ -2023,18 +2241,20 @@ func (b *InMemoryBackend) RestoreDBClusterToPointInTime(
 	if targetClusterID == "" {
 		return nil, fmt.Errorf("%w: DBClusterIdentifier is required", ErrInvalidParameter)
 	}
+	region := getRegion(ctx, b.region)
 	b.mu.Lock("RestoreDBClusterToPointInTime")
 	defer b.mu.Unlock()
-	src, srcExists := b.clusters[sourceClusterID]
+	clusters := b.clustersStore(region)
+	src, srcExists := clusters[sourceClusterID]
 	if !srcExists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, sourceClusterID)
 	}
-	if _, targetExists := b.clusters[targetClusterID]; targetExists {
+	if _, targetExists := clusters[targetClusterID]; targetExists {
 		return nil, fmt.Errorf("%w: cluster %s already exists", ErrClusterAlreadyExists, targetClusterID)
 	}
-	clusterArn := b.clusterARN(targetClusterID)
-	endpoint := fmt.Sprintf("%s.cluster.docdb.%s.amazonaws.com", targetClusterID, b.region)
-	readerEndpoint := fmt.Sprintf("%s.cluster-ro.docdb.%s.amazonaws.com", targetClusterID, b.region)
+	clusterArn := b.clusterARN(region, targetClusterID)
+	endpoint := fmt.Sprintf("%s.cluster.docdb.%s.amazonaws.com", targetClusterID, region)
+	readerEndpoint := fmt.Sprintf("%s.cluster-ro.docdb.%s.amazonaws.com", targetClusterID, region)
 	cluster := &DBCluster{
 		DBClusterIdentifier:         targetClusterID,
 		Engine:                      src.Engine,
@@ -2053,7 +2273,7 @@ func (b *InMemoryBackend) RestoreDBClusterToPointInTime(
 		PreferredMaintenanceWindow:  src.PreferredMaintenanceWindow,
 		ClusterCreateTime:           time.Now().UTC().Format(time.RFC3339),
 	}
-	b.clusters[targetClusterID] = cluster
+	clusters[targetClusterID] = cluster
 
 	return copyCluster(cluster), nil
 }
@@ -2066,7 +2286,7 @@ type DBEngineVersion struct {
 }
 
 // DescribeDBEngineVersions returns available engine versions, optionally filtered.
-func (b *InMemoryBackend) DescribeDBEngineVersions(engine, engineVersion string) []DBEngineVersion {
+func (b *InMemoryBackend) DescribeDBEngineVersions(_ context.Context, engine, engineVersion string) []DBEngineVersion {
 	all := []DBEngineVersion{
 		{Engine: docDBEngine, EngineVersion: defaultEngineVersion, DBEngineDescription: "Amazon DocumentDB"},
 		{Engine: docDBEngine, EngineVersion: docDBEngineVersion5, DBEngineDescription: "Amazon DocumentDB"},
@@ -2086,7 +2306,7 @@ func (b *InMemoryBackend) DescribeDBEngineVersions(engine, engineVersion string)
 }
 
 // DescribeEventCategories returns the event categories for DocDB.
-func (b *InMemoryBackend) DescribeEventCategories(sourceType string) []EventCategoryMap {
+func (b *InMemoryBackend) DescribeEventCategories(_ context.Context, sourceType string) []EventCategoryMap {
 	clusterCategories := []string{
 		"availability", eventCatBackup, "configuration change",
 		eventCatCreate, eventCatDelete, "failover", "maintenance", eventCatNotify,
@@ -2120,42 +2340,42 @@ func (b *InMemoryBackend) DescribeEventCategories(sourceType string) []EventCate
 func (b *InMemoryBackend) AddDBClusterInternal(cluster *DBCluster) {
 	b.mu.Lock("AddDBClusterInternal")
 	defer b.mu.Unlock()
-	b.clusters[cluster.DBClusterIdentifier] = cluster
+	b.clustersStore(b.region)[cluster.DBClusterIdentifier] = cluster
 }
 
 // AddDBInstanceInternal seeds an instance directly for testing.
 func (b *InMemoryBackend) AddDBInstanceInternal(inst *DBInstance) {
 	b.mu.Lock("AddDBInstanceInternal")
 	defer b.mu.Unlock()
-	b.instances[inst.DBInstanceIdentifier] = inst
+	b.instancesStore(b.region)[inst.DBInstanceIdentifier] = inst
 }
 
 // AddDBSubnetGroupInternal seeds a subnet group directly for testing.
 func (b *InMemoryBackend) AddDBSubnetGroupInternal(sg *DBSubnetGroup) {
 	b.mu.Lock("AddDBSubnetGroupInternal")
 	defer b.mu.Unlock()
-	b.subnetGroups[sg.DBSubnetGroupName] = sg
+	b.subnetGroupsStore(b.region)[sg.DBSubnetGroupName] = sg
 }
 
 // AddDBClusterParameterGroupInternal seeds a parameter group directly for testing.
 func (b *InMemoryBackend) AddDBClusterParameterGroupInternal(pg *DBClusterParameterGroup) {
 	b.mu.Lock("AddDBClusterParameterGroupInternal")
 	defer b.mu.Unlock()
-	b.clusterParameterGroups[pg.DBClusterParameterGroupName] = pg
+	b.clusterParameterGroupsStore(b.region)[pg.DBClusterParameterGroupName] = pg
 }
 
 // AddDBClusterSnapshotInternal seeds a snapshot directly for testing.
 func (b *InMemoryBackend) AddDBClusterSnapshotInternal(snap *DBClusterSnapshot) {
 	b.mu.Lock("AddDBClusterSnapshotInternal")
 	defer b.mu.Unlock()
-	b.clusterSnapshots[snap.DBClusterSnapshotIdentifier] = snap
+	b.clusterSnapshotsStore(b.region)[snap.DBClusterSnapshotIdentifier] = snap
 }
 
 // AddEventSubscriptionInternal seeds an event subscription directly for testing.
 func (b *InMemoryBackend) AddEventSubscriptionInternal(sub *EventSubscription) {
 	b.mu.Lock("AddEventSubscriptionInternal")
 	defer b.mu.Unlock()
-	b.eventSubscriptions[sub.SubscriptionName] = sub
+	b.eventSubscriptionsStore(b.region)[sub.SubscriptionName] = sub
 }
 
 // AddGlobalClusterInternal seeds a global cluster directly for testing.

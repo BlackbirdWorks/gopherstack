@@ -414,6 +414,19 @@ func (db *InMemoryDB) SweepIterators() {
 	db.iteratorStore.Sweep()
 }
 
+// InjectExpiredShardIteratorForTest adds an already-expired iterator token to the store.
+func (db *InMemoryDB) InjectExpiredShardIteratorForTest(tableName string) string {
+	token, _ := db.iteratorStore.Put(tableName, 0)
+	db.iteratorStore.ExpireAllShardIteratorsForTest()
+
+	return token
+}
+
+// IteratorStoreExpireAllForTest backdates every iterator to be expired.
+func (db *InMemoryDB) IteratorStoreExpireAllForTest() {
+	db.iteratorStore.ExpireAllShardIteratorsForTest()
+}
+
 // ParseSeqNum exposes parseSeqNum for tests.
 func ParseSeqNum(s string) (int64, error) {
 	return parseSeqNum(s)

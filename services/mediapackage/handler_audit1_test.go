@@ -50,6 +50,57 @@ func doRequest(t *testing.T, h *mediapackage.Handler, method, path string, body 
 	return rec
 }
 
+// TestHandler_RouteMatcher_ChannelsServiceGating verifies that the shared
+// "/channels" REST path (also used by IoT Analytics and MediaTailor) is only
+// claimed by MediaPackage for SigV4-signed mediapackage requests, while the
+// MediaPackage-exclusive paths match regardless of signing service.
+func TestHandler_RouteMatcher_ChannelsServiceGating(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		path    string
+		service string
+		want    bool
+	}{
+		{name: "channels with mediapackage service", path: "/channels", service: "mediapackage", want: true},
+		{name: "channel sub with mediapackage service", path: "/channels/c1", service: "mediapackage", want: true},
+		{name: "channels with iotanalytics service", path: "/channels", service: "iotanalytics", want: false},
+		{name: "channels with mediatailor service", path: "/channels", service: "mediatailor", want: false},
+		{name: "channels without service", path: "/channels", want: false},
+		{name: "origin endpoints without service", path: "/origin_endpoints", want: true},
+		{name: "harvest jobs without service", path: "/harvest_jobs", want: true},
+		{
+			name: "mediapackage tag path without service",
+			path: "/tags/arn:aws:mediapackage:us-east-1:000000000000:channels/c1",
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			matcher := h.RouteMatcher()
+
+			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			if tt.service != "" {
+				req.Header.Set(
+					"Authorization",
+					"AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20240101/us-east-1/"+tt.service+"/aws4_request",
+				)
+			}
+
+			rec := httptest.NewRecorder()
+			e := echo.New()
+			c := e.NewContext(req, rec)
+
+			assert.Equal(t, tt.want, matcher(c))
+		})
+	}
+}
+
 func createTestChannel(t *testing.T, h *mediapackage.Handler) string {
 	t.Helper()
 
@@ -243,8 +294,8 @@ func TestAudit1_Channel_ConfigureLogs(t *testing.T) {
 	channelID := createTestChannel(t, h)
 
 	rec := doRequest(t, h, http.MethodPut, "/channels/"+channelID+"/configure_logs", map[string]any{
-		"EgressAccessLogs":  map[string]any{"LogGroupName": "/aws/MediaPackage/EgressAccessLogs"},
-		"IngressAccessLogs": map[string]any{"LogGroupName": "/aws/MediaPackage/IngressAccessLogs"},
+		"egressAccessLogs":  map[string]any{"logGroupName": "/aws/MediaPackage/EgressAccessLogs"},
+		"ingressAccessLogs": map[string]any{"logGroupName": "/aws/MediaPackage/IngressAccessLogs"},
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 

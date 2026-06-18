@@ -1,6 +1,7 @@
 package secretsmanager_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -20,7 +21,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 		{
 			name: "round_trip_preserves_state",
 			setup: func(b *secretsmanager.InMemoryBackend) string {
-				out, err := b.CreateSecret(&secretsmanager.CreateSecretInput{
+				out, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
 					Name:         "test-secret",
 					Description:  "test description",
 					SecretString: "my-secret-value",
@@ -34,7 +35,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *secretsmanager.InMemoryBackend, id string) {
 				t.Helper()
 
-				out, err := b.DescribeSecret(&secretsmanager.DescribeSecretInput{SecretID: id})
+				out, err := b.DescribeSecret(context.Background(), &secretsmanager.DescribeSecretInput{SecretID: id})
 				require.NoError(t, err)
 				assert.Equal(t, id, out.Name)
 				assert.Equal(t, "test description", out.Description)
@@ -84,7 +85,10 @@ func TestSecretsManagerHandler_Persistence(t *testing.T) {
 	backend := secretsmanager.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
 	h := secretsmanager.NewHandler(backend)
 
-	_, err := backend.CreateSecret(&secretsmanager.CreateSecretInput{Name: "snap-secret", SecretString: "snap-value"})
+	_, err := backend.CreateSecret(
+		context.Background(),
+		&secretsmanager.CreateSecretInput{Name: "snap-secret", SecretString: "snap-value"},
+	)
 	require.NoError(t, err)
 
 	snap := h.Snapshot()
@@ -94,7 +98,7 @@ func TestSecretsManagerHandler_Persistence(t *testing.T) {
 	freshH := secretsmanager.NewHandler(fresh)
 	require.NoError(t, freshH.Restore(snap))
 
-	out, err := fresh.DescribeSecret(&secretsmanager.DescribeSecretInput{SecretID: "snap-secret"})
+	out, err := fresh.DescribeSecret(context.Background(), &secretsmanager.DescribeSecretInput{SecretID: "snap-secret"})
 	require.NoError(t, err)
 	assert.Equal(t, "snap-secret", out.Name)
 }
