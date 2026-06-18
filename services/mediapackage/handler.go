@@ -118,11 +118,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			strings.HasPrefix(path, pathHarvestJobs+"/") ||
 			isMediaPackageTagPath(path)
 
-		if !pathMatch {
-			return false
-		}
-
-		return strings.Contains(c.Request().Header.Get("Authorization"), "/mediapackage/")
+		return pathMatch
 	}
 }
 

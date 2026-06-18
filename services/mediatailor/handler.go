@@ -211,6 +211,7 @@ func isMediaTailorPath(path string) bool {
 	return path == pathPlaybackConfig ||
 		strings.HasPrefix(path, pathPlaybackConfig+"/") ||
 		path == pathPlaybackConfigs ||
+		path == pathChannels ||
 		strings.HasPrefix(path, pathChannel) ||
 		path == pathSourceLocations ||
 		strings.HasPrefix(path, pathSourceLocation) ||
