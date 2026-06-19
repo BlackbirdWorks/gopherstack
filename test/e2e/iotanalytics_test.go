@@ -4,6 +4,7 @@
 package e2e_test
 
 import (
+	"context"
 	"net/http/httptest"
 	"testing"
 
@@ -16,9 +17,10 @@ import (
 func TestIoTAnalyticsDashboard(t *testing.T) {
 	stack := newStack(t)
 
-	_, err := stack.IoTAnalyticsHandler.Backend.CreateChannel("e2e_test_channel", map[string]string{
-		"env": "e2e",
-	}, nil, nil)
+	_, err := stack.IoTAnalyticsHandler.Backend.CreateChannel(
+		context.Background(), "e2e_test_channel", map[string]string{
+			"env": "e2e",
+		}, nil, nil)
 	require.NoError(t, err)
 
 	server := httptest.NewServer(stack.Echo)
