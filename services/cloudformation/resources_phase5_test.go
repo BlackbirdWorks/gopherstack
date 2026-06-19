@@ -894,3 +894,39 @@ func TestResourceCreator_AppSync_Supplemental_CreateDelete(t *testing.T) {
 		})
 	}
 }
+
+// TestResourceCreator_GluePartition_MissingProps ensures creating a Glue Partition without
+// required DatabaseName/TableName returns an error instead of a stub physical ID.
+func TestResourceCreator_GluePartition_MissingProps(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		props map[string]any
+		name  string
+	}{
+		{
+			name:  "missing_both",
+			props: map[string]any{},
+		},
+		{
+			name:  "missing_table",
+			props: map[string]any{"DatabaseName": "mydb"},
+		},
+		{
+			name:  "missing_database",
+			props: map[string]any{"TableName": "mytable"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backends := newPhase5ServiceBackends()
+			rc := cloudformation.NewResourceCreator(backends)
+
+			_, err := rc.Create(t.Context(), "MyPartition", "AWS::Glue::Partition", tt.props, nil, nil)
+			require.Error(t, err)
+		})
+	}
+}

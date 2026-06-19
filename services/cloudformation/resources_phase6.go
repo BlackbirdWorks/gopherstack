@@ -2,6 +2,7 @@ package cloudformation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -14,6 +15,8 @@ import (
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 )
+
+var errNoFlowLogs = errors.New("create EC2 flow log: no flow logs returned")
 
 // cfnKeyTypeAPIKey is the string used for API_KEY across AppSync and APIGW usage plan keys.
 const cfnKeyTypeAPIKey = "API_KEY"
@@ -1326,7 +1329,7 @@ func (rc *ResourceCreator) createEC2FlowLog(
 		return "", fmt.Errorf("create EC2 flow log: %w", err)
 	}
 	if len(logs) == 0 {
-		return logicalID + "-stub", nil
+		return "", errNoFlowLogs
 	}
 
 	return logs[0].FlowLogID, nil

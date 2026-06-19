@@ -3,12 +3,15 @@ package cloudformation
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
 	elbv2backend "github.com/blackbirdworks/gopherstack/services/elbv2"
 	rds "github.com/blackbirdworks/gopherstack/services/rds"
 )
+
+var errNoEC2Instances = errors.New("create EC2 instance: no instances returned")
 
 const wafScopeRegional = "REGIONAL"
 
@@ -41,7 +44,7 @@ func (rc *ResourceCreator) createEC2Instance(
 	}
 
 	if len(instances) == 0 {
-		return logicalID + "-stub", nil
+		return "", errNoEC2Instances
 	}
 
 	return instances[0].ID, nil
