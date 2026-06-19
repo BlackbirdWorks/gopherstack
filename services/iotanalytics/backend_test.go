@@ -55,7 +55,8 @@ func TestInMemoryBackend_Channel(t *testing.T) {
 				require.Error(t, err)
 				assert.Equal(t, iotanalytics.ErrChannelNotFound, err)
 			default:
-				ch, err := b.CreateChannel(context.Background(), tt.channelName, map[string]string{"env": "test"}, nil, nil)
+				ch, err := b.CreateChannel(
+					context.Background(), tt.channelName, map[string]string{"env": "test"}, nil, nil)
 				require.NoError(t, err)
 				assert.Equal(t, tt.channelName, ch.Name)
 				assert.Equal(t, "ACTIVE", ch.Status)

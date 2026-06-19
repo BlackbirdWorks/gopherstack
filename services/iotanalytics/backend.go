@@ -288,8 +288,8 @@ func (b *InMemoryBackend) Reset() {
 
 // arnIdentity resolves the region and account for ARN construction from the
 // request ctxbag, falling back to the service default region when none is set.
-func arnIdentity(ctx context.Context) (region, account string) {
-	region = awsmeta.Region(ctx)
+func arnIdentity(ctx context.Context) (string, string) {
+	region := awsmeta.Region(ctx)
 	if region == "" {
 		region = defaultRegion
 	}
