@@ -203,12 +203,12 @@ type InMemoryBackend struct {
 	schemaVersions  map[string][]*SchemaVersion   // "registryName/schemaName" → ordered versions
 	codeBindings    map[string]*CodeBinding       // "registryName/schemaName/language" → binding
 	workerSem       chan struct{}
-	ruleIndex    map[string]map[string]map[ruleIndexKey]map[string]*Rule
+	ruleIndex       map[string]map[string]map[ruleIndexKey]map[string]*Rule
 	// targetsByARN indexes (region → ARN → set of "busKey/ruleName" targetKeys)
 	// for O(1) ListRuleNamesByTarget lookups. Kept consistent on PutTargets /
 	// RemoveTargets / DeleteRule / DeleteEventBus / Reset.
-	targetsByARN map[string]map[string]map[string]struct{}
-	patternCache sync.Map
+	targetsByARN    map[string]map[string]map[string]struct{}
+	patternCache    sync.Map
 	region          string
 	accountID       string
 	eventLog        []EventLogEntry
@@ -270,8 +270,8 @@ func NewInMemoryBackendWithContext(
 		workerSem:       make(chan struct{}, defaultDeliveryWorkers),
 		shutdownTimeout: defaultShutdownTimeout,
 		deliveryTimeout: defaultDeliveryTimeout,
-		ruleIndex:    make(map[string]map[string]map[ruleIndexKey]map[string]*Rule),
-		targetsByARN: make(map[string]map[string]map[string]struct{}),
+		ruleIndex:       make(map[string]map[string]map[ruleIndexKey]map[string]*Rule),
+		targetsByARN:    make(map[string]map[string]map[string]struct{}),
 	}
 	// Create the default event bus in the backend's own region.
 	b.busesStore(b.region)[defaultEventBusName] = &EventBus{

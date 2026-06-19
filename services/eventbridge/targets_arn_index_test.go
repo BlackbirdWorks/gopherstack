@@ -2,6 +2,7 @@ package eventbridge_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -11,20 +12,29 @@ import (
 )
 
 const (
-	testBusName  = "default"
-	testRuleName = "rule-arn-index-test"
-	testTargetID = "target-1"
-	testTargetID2 = "target-2"
-	testARN      = "arn:aws:lambda:us-east-1:000000000000:function:my-fn"
-	testARN2     = "arn:aws:lambda:us-east-1:000000000000:function:other-fn"
-	testRegion   = "us-east-1"
+	arnTestBusName   = "default"
+	arnTestRuleName  = "rule-arn-index-test"
+	arnTestTargetID  = "target-1"
+	arnTestTargetID2 = "target-2"
+	arnTestARN       = "arn:aws:lambda:us-east-1:000000000000:function:my-fn"
+	arnTestARN2      = "arn:aws:lambda:us-east-1:000000000000:function:other-fn"
+	arnTestRegion    = "us-east-1"
 )
 
-func newEB(t *testing.T) *eventbridge.InMemoryBackend {
+func newEBBackend(t *testing.T) *eventbridge.InMemoryBackend {
 	t.Helper()
-	b := eventbridge.NewInMemoryBackendWithConfig("000000000000", testRegion)
-	t.Cleanup(func() { _ = b.Shutdown(context.Background()) })
+	b := eventbridge.NewInMemoryBackendWithConfig("000000000000", arnTestRegion)
+	t.Cleanup(func() { b.Close() })
 	return b
+}
+
+func putTestRule(t *testing.T, b *eventbridge.InMemoryBackend, name string) {
+	t.Helper()
+	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
+		Name:               name,
+		ScheduleExpression: "rate(1 minute)",
+	})
+	require.NoError(t, err)
 }
 
 // TestEBTargetsByARNIndexConsistency verifies that the targetsByARN index stays
@@ -35,65 +45,59 @@ func TestEBTargetsByARNIndexConsistency(t *testing.T) {
 
 	t.Run("put_and_remove", func(t *testing.T) {
 		t.Parallel()
-		b := newEB(t)
+		b := newEBBackend(t)
+		putTestRule(t, b, arnTestRuleName)
 
-		_, err := b.CreateRule(context.Background(), testRuleName, testBusName, "", "rate(1 minute)", "")
-		require.NoError(t, err)
-
-		failed, err := b.PutTargets(context.Background(), testRuleName, testBusName, []eventbridge.Target{
-			{ID: testTargetID, Arn: testARN},
+		failed, err := b.PutTargets(context.Background(), arnTestRuleName, arnTestBusName, []eventbridge.Target{
+			{ID: arnTestTargetID, Arn: arnTestARN},
 		})
 		require.NoError(t, err)
 		require.Empty(t, failed)
 
 		ok, msg := b.ARNIndexConsistent()
 		require.True(t, ok, "index inconsistent after PutTargets: %s", msg)
-		assert.Equal(t, 1, b.TargetsByARNCount(testRegion, testARN))
+		assert.Equal(t, 1, b.TargetsByARNCount(arnTestRegion, arnTestARN))
 
-		failed, err = b.RemoveTargets(context.Background(), testRuleName, testBusName, []string{testTargetID})
+		failed, err = b.RemoveTargets(context.Background(), arnTestRuleName, arnTestBusName, []string{arnTestTargetID})
 		require.NoError(t, err)
 		require.Empty(t, failed)
 
 		ok, msg = b.ARNIndexConsistent()
 		require.True(t, ok, "index inconsistent after RemoveTargets: %s", msg)
-		assert.Equal(t, 0, b.TargetsByARNCount(testRegion, testARN))
+		assert.Equal(t, 0, b.TargetsByARNCount(arnTestRegion, arnTestARN))
 	})
 
 	t.Run("delete_rule_removes_entries", func(t *testing.T) {
 		t.Parallel()
-		b := newEB(t)
+		b := newEBBackend(t)
+		putTestRule(t, b, arnTestRuleName)
 
-		_, err := b.CreateRule(context.Background(), testRuleName, testBusName, "", "rate(1 minute)", "")
-		require.NoError(t, err)
-
-		failed, err := b.PutTargets(context.Background(), testRuleName, testBusName, []eventbridge.Target{
-			{ID: testTargetID, Arn: testARN},
-			{ID: testTargetID2, Arn: testARN2},
+		failed, err := b.PutTargets(context.Background(), arnTestRuleName, arnTestBusName, []eventbridge.Target{
+			{ID: arnTestTargetID, Arn: arnTestARN},
+			{ID: arnTestTargetID2, Arn: arnTestARN2},
 		})
 		require.NoError(t, err)
 		require.Empty(t, failed)
 
-		require.Equal(t, 1, b.TargetsByARNCount(testRegion, testARN))
-		require.Equal(t, 1, b.TargetsByARNCount(testRegion, testARN2))
+		require.Equal(t, 1, b.TargetsByARNCount(arnTestRegion, arnTestARN))
+		require.Equal(t, 1, b.TargetsByARNCount(arnTestRegion, arnTestARN2))
 
-		err = b.DeleteRule(context.Background(), testRuleName, testBusName)
+		err = b.DeleteRule(context.Background(), arnTestRuleName, arnTestBusName)
 		require.NoError(t, err)
 
 		ok, msg := b.ARNIndexConsistent()
 		require.True(t, ok, "index inconsistent after DeleteRule: %s", msg)
-		assert.Equal(t, 0, b.TargetsByARNCount(testRegion, testARN))
-		assert.Equal(t, 0, b.TargetsByARNCount(testRegion, testARN2))
+		assert.Equal(t, 0, b.TargetsByARNCount(arnTestRegion, arnTestARN))
+		assert.Equal(t, 0, b.TargetsByARNCount(arnTestRegion, arnTestARN2))
 	})
 
 	t.Run("reset_clears_index", func(t *testing.T) {
 		t.Parallel()
-		b := newEB(t)
+		b := newEBBackend(t)
+		putTestRule(t, b, arnTestRuleName)
 
-		_, err := b.CreateRule(context.Background(), testRuleName, testBusName, "", "rate(1 minute)", "")
-		require.NoError(t, err)
-
-		_, err = b.PutTargets(context.Background(), testRuleName, testBusName, []eventbridge.Target{
-			{ID: testTargetID, Arn: testARN},
+		_, err := b.PutTargets(context.Background(), arnTestRuleName, arnTestBusName, []eventbridge.Target{
+			{ID: arnTestTargetID, Arn: arnTestARN},
 		})
 		require.NoError(t, err)
 
@@ -101,31 +105,29 @@ func TestEBTargetsByARNIndexConsistency(t *testing.T) {
 
 		ok, msg := b.ARNIndexConsistent()
 		require.True(t, ok, "index inconsistent after Reset: %s", msg)
-		assert.Equal(t, 0, b.TargetsByARNCount(testRegion, testARN))
+		assert.Equal(t, 0, b.TargetsByARNCount(arnTestRegion, arnTestARN))
 	})
 
 	t.Run("update_target_arn", func(t *testing.T) {
 		t.Parallel()
-		b := newEB(t)
+		b := newEBBackend(t)
+		putTestRule(t, b, arnTestRuleName)
 
-		_, err := b.CreateRule(context.Background(), testRuleName, testBusName, "", "rate(1 minute)", "")
-		require.NoError(t, err)
-
-		_, err = b.PutTargets(context.Background(), testRuleName, testBusName, []eventbridge.Target{
-			{ID: testTargetID, Arn: testARN},
+		_, err := b.PutTargets(context.Background(), arnTestRuleName, arnTestBusName, []eventbridge.Target{
+			{ID: arnTestTargetID, Arn: arnTestARN},
 		})
 		require.NoError(t, err)
 
 		// Update the same target ID with a different ARN.
-		_, err = b.PutTargets(context.Background(), testRuleName, testBusName, []eventbridge.Target{
-			{ID: testTargetID, Arn: testARN2},
+		_, err = b.PutTargets(context.Background(), arnTestRuleName, arnTestBusName, []eventbridge.Target{
+			{ID: arnTestTargetID, Arn: arnTestARN2},
 		})
 		require.NoError(t, err)
 
 		ok, msg := b.ARNIndexConsistent()
 		require.True(t, ok, "index inconsistent after ARN update: %s", msg)
-		assert.Equal(t, 0, b.TargetsByARNCount(testRegion, testARN), "old ARN must be removed")
-		assert.Equal(t, 1, b.TargetsByARNCount(testRegion, testARN2), "new ARN must be present")
+		assert.Equal(t, 0, b.TargetsByARNCount(arnTestRegion, arnTestARN), "old ARN must be removed")
+		assert.Equal(t, 1, b.TargetsByARNCount(arnTestRegion, arnTestARN2), "new ARN must be present")
 	})
 }
 
@@ -134,45 +136,47 @@ func TestEBTargetsByARNIndexConsistency(t *testing.T) {
 func TestEBListRuleNamesByTargetUsesIndex(t *testing.T) {
 	t.Parallel()
 
-	b := newEB(t)
+	b := newEBBackend(t)
 
 	const numRules = 10
 	for i := range numRules {
 		ruleName := fmt.Sprintf("rule-%d", i)
-		_, err := b.CreateRule(context.Background(), ruleName, testBusName, "", "rate(1 minute)", "")
-		require.NoError(t, err)
+		putTestRule(t, b, ruleName)
 
 		// Put the same ARN on rules 0,2,4,... (even-indexed rules).
 		if i%2 == 0 {
-			_, err = b.PutTargets(context.Background(), ruleName, testBusName, []eventbridge.Target{
-				{ID: testTargetID, Arn: testARN},
+			_, err := b.PutTargets(context.Background(), ruleName, arnTestBusName, []eventbridge.Target{
+				{ID: arnTestTargetID, Arn: arnTestARN},
 			})
 			require.NoError(t, err)
 		}
 	}
 
-	names, _, err := b.ListRuleNamesByTarget(context.Background(), testARN, testBusName, "")
+	names, _, err := b.ListRuleNamesByTarget(context.Background(), arnTestARN, arnTestBusName, "")
 	require.NoError(t, err)
 	assert.Len(t, names, numRules/2, "expected exactly half of rules to match")
 }
 
-// BenchmarkEBListRuleNamesByTarget benchmarks ListRuleNamesByTarget with a large
-// number of rules to demonstrate the O(matched-rules) index behaviour.
+// BenchmarkEBListRuleNamesByTarget benchmarks ListRuleNamesByTarget with many rules
+// to demonstrate the O(matched-rules) index lookup vs O(all-rules×all-targets).
 func BenchmarkEBListRuleNamesByTarget(b *testing.B) {
-	backend := eventbridge.NewInMemoryBackendWithConfig("000000000000", testRegion)
-	defer func() { _ = backend.Shutdown(context.Background()) }()
+	backend := eventbridge.NewInMemoryBackendWithConfig("000000000000", arnTestRegion)
+	defer backend.Close()
 
 	const numRules = 200
 	for i := range numRules {
 		ruleName := fmt.Sprintf("bench-rule-%d", i)
-		_, err := backend.CreateRule(context.Background(), ruleName, testBusName, "", "rate(1 minute)", "")
+		_, err := backend.PutRule(context.Background(), eventbridge.PutRuleInput{
+			Name:               ruleName,
+			ScheduleExpression: "rate(1 minute)",
+		})
 		if err != nil {
 			b.Fatal(err)
 		}
-		// Only one rule has the target ARN we'll search for.
+		// Only rule-0 has the target ARN being searched.
 		if i == 0 {
-			_, err = backend.PutTargets(context.Background(), ruleName, testBusName, []eventbridge.Target{
-				{ID: testTargetID, Arn: testARN},
+			_, err = backend.PutTargets(context.Background(), ruleName, arnTestBusName, []eventbridge.Target{
+				{ID: arnTestTargetID, Arn: arnTestARN},
 			})
 			if err != nil {
 				b.Fatal(err)
@@ -183,7 +187,7 @@ func BenchmarkEBListRuleNamesByTarget(b *testing.B) {
 	b.ResetTimer()
 	b.ReportAllocs()
 	for range b.N {
-		names, _, err := backend.ListRuleNamesByTarget(context.Background(), testARN, testBusName, "")
+		names, _, err := backend.ListRuleNamesByTarget(context.Background(), arnTestARN, arnTestBusName, "")
 		if err != nil {
 			b.Fatal(err)
 		}

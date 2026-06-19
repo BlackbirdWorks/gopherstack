@@ -264,7 +264,7 @@ type InMemoryBackend struct {
 	// grantsByKey indexes grants by keyID for O(1) ListGrants and grant-count
 	// checks on the CreateGrant hot path. Kept consistent with grants on every
 	// create/revoke/retire.
-	grantsByKey map[string]map[string]map[string]*Grant
+	grantsByKey          map[string]map[string]map[string]*Grant
 	policies             map[string]map[string]string
 	keyMaterials         map[string]map[string]*keyMaterial
 	keyMaterialHistory   map[string]map[string][]*keyMaterial
