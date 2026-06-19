@@ -288,58 +288,30 @@ func getRegion(ctx context.Context) string {
 }
 
 func (b *InMemoryBackend) parametersStore(region string) map[string]Parameter {
-	if b.parameters[region] == nil {
-		b.parameters[region] = make(map[string]Parameter)
-	}
-
 	return b.parameters[region]
 }
 
 func (b *InMemoryBackend) historyStore(region string) map[string][]ParameterHistory {
-	if b.history[region] == nil {
-		b.history[region] = make(map[string][]ParameterHistory)
-	}
-
 	return b.history[region]
 }
 
 func (b *InMemoryBackend) tagsStore(region string) map[string]*tags.Tags {
-	if b.tags[region] == nil {
-		b.tags[region] = make(map[string]*tags.Tags)
-	}
-
 	return b.tags[region]
 }
 
 func (b *InMemoryBackend) documentsStore(region string) map[string]Document {
-	if b.documents[region] == nil {
-		b.documents[region] = make(map[string]Document)
-	}
-
 	return b.documents[region]
 }
 
 func (b *InMemoryBackend) documentVersionsStore(region string) map[string][]DocumentVersion {
-	if b.documentVersions[region] == nil {
-		b.documentVersions[region] = make(map[string][]DocumentVersion)
-	}
-
 	return b.documentVersions[region]
 }
 
 func (b *InMemoryBackend) documentPermissionsStore(region string) map[string][]string {
-	if b.documentPermissions[region] == nil {
-		b.documentPermissions[region] = make(map[string][]string)
-	}
-
 	return b.documentPermissions[region]
 }
 
 func (b *InMemoryBackend) commandsStore(region string) map[string]Command {
-	if b.commands[region] == nil {
-		b.commands[region] = make(map[string]Command)
-	}
-
 	return b.commands[region]
 }
 
@@ -362,214 +334,110 @@ func (b *InMemoryBackend) expireCommandsLocked(region string, now float64) {
 }
 
 func (b *InMemoryBackend) commandInvocationsStore(region string) map[string][]CommandInvocation {
-	if b.commandInvocations[region] == nil {
-		b.commandInvocations[region] = make(map[string][]CommandInvocation)
-	}
-
 	return b.commandInvocations[region]
 }
 
 func (b *InMemoryBackend) activationsStore(region string) map[string]Activation {
-	if b.activations[region] == nil {
-		b.activations[region] = make(map[string]Activation)
-	}
-
 	return b.activations[region]
 }
 
 func (b *InMemoryBackend) associationsStore(region string) map[string]Association {
-	if b.associations[region] == nil {
-		b.associations[region] = make(map[string]Association)
-	}
-
 	return b.associations[region]
 }
 
 func (b *InMemoryBackend) maintenanceWindowsStore(region string) map[string]MaintenanceWindow {
-	if b.maintenanceWindows[region] == nil {
-		b.maintenanceWindows[region] = make(map[string]MaintenanceWindow)
-	}
-
 	return b.maintenanceWindows[region]
 }
 
 func (b *InMemoryBackend) maintenanceWindowTargetsStore(
 	region string,
 ) map[string]MaintenanceWindowTarget {
-	if b.maintenanceWindowTargets[region] == nil {
-		b.maintenanceWindowTargets[region] = make(map[string]MaintenanceWindowTarget)
-	}
-
 	return b.maintenanceWindowTargets[region]
 }
 
 func (b *InMemoryBackend) maintenanceWindowTasksStore(
 	region string,
 ) map[string]MaintenanceWindowTask {
-	if b.maintenanceWindowTasks[region] == nil {
-		b.maintenanceWindowTasks[region] = make(map[string]MaintenanceWindowTask)
-	}
-
 	return b.maintenanceWindowTasks[region]
 }
 
 func (b *InMemoryBackend) sessionsStore(region string) map[string]Session {
-	if b.sessions[region] == nil {
-		b.sessions[region] = make(map[string]Session)
-	}
-
 	return b.sessions[region]
 }
 
 func (b *InMemoryBackend) patchGroupToBaselineStore(region string) map[string]string {
-	if b.patchGroupToBaseline[region] == nil {
-		b.patchGroupToBaseline[region] = make(map[string]string)
-	}
-
 	return b.patchGroupToBaseline[region]
 }
 
 func (b *InMemoryBackend) opsItemsStore(region string) map[string]OpsItem {
-	if b.opsItems[region] == nil {
-		b.opsItems[region] = make(map[string]OpsItem)
-	}
-
 	return b.opsItems[region]
 }
 
 func (b *InMemoryBackend) opsItemRelatedItemsStore(region string) map[string][]OpsItemRelatedItem {
-	if b.opsItemRelatedItems[region] == nil {
-		b.opsItemRelatedItems[region] = make(map[string][]OpsItemRelatedItem)
-	}
-
 	return b.opsItemRelatedItems[region]
 }
 
 func (b *InMemoryBackend) opsMetadataStore(region string) map[string]OpsMetadata {
-	if b.opsMetadata[region] == nil {
-		b.opsMetadata[region] = make(map[string]OpsMetadata)
-	}
-
 	return b.opsMetadata[region]
 }
 
 func (b *InMemoryBackend) patchBaselinesStore(region string) map[string]PatchBaseline {
-	if b.patchBaselines[region] == nil {
-		b.patchBaselines[region] = make(map[string]PatchBaseline)
-	}
-
 	return b.patchBaselines[region]
 }
 
 func (b *InMemoryBackend) inventoryStore(region string) map[string][]InventoryItem {
-	if b.inventory[region] == nil {
-		b.inventory[region] = make(map[string][]InventoryItem)
-	}
-
 	return b.inventory[region]
 }
 
 func (b *InMemoryBackend) complianceStore(region string) map[string][]ComplianceItem {
-	if b.compliance[region] == nil {
-		b.compliance[region] = make(map[string][]ComplianceItem)
-	}
-
 	return b.compliance[region]
 }
 
 func (b *InMemoryBackend) resourceDataSyncsStore(region string) map[string]*ResourceDataSync {
-	if b.resourceDataSyncs[region] == nil {
-		b.resourceDataSyncs[region] = make(map[string]*ResourceDataSync)
-	}
-
 	return b.resourceDataSyncs[region]
 }
 
 func (b *InMemoryBackend) parameterLabelsStore(region string) map[string]map[int64][]string {
-	if b.parameterLabels[region] == nil {
-		b.parameterLabels[region] = make(map[string]map[int64][]string)
-	}
-
 	return b.parameterLabels[region]
 }
 
 func (b *InMemoryBackend) automationExecutionsStore(region string) map[string]*AutomationExecution {
-	if b.automationExecutions[region] == nil {
-		b.automationExecutions[region] = make(map[string]*AutomationExecution)
-	}
-
 	return b.automationExecutions[region]
 }
 
 func (b *InMemoryBackend) serviceSettingsStore(region string) map[string]*ServiceSetting {
-	if b.serviceSettings[region] == nil {
-		b.serviceSettings[region] = make(map[string]*ServiceSetting)
-	}
-
 	return b.serviceSettings[region]
 }
 
 func (b *InMemoryBackend) resourcePoliciesStore(region string) map[string][]*ResourcePolicy {
-	if b.resourcePolicies[region] == nil {
-		b.resourcePolicies[region] = make(map[string][]*ResourcePolicy)
-	}
-
 	return b.resourcePolicies[region]
 }
 
 func (b *InMemoryBackend) executionPreviewsStore(region string) map[string]*ExecutionPreview {
-	if b.executionPreviews[region] == nil {
-		b.executionPreviews[region] = make(map[string]*ExecutionPreview)
-	}
-
 	return b.executionPreviews[region]
 }
 
 func (b *InMemoryBackend) miscResourceTagsStore(region string) map[string]map[string]string {
-	if b.miscResourceTags[region] == nil {
-		b.miscResourceTags[region] = make(map[string]map[string]string)
-	}
-
 	return b.miscResourceTags[region]
 }
 
 func (b *InMemoryBackend) resourceIDToOpsMetadataArnStore(region string) map[string]string {
-	if b.resourceIDToOpsMetadataArn[region] == nil {
-		b.resourceIDToOpsMetadataArn[region] = make(map[string]string)
-	}
-
 	return b.resourceIDToOpsMetadataArn[region]
 }
 
 func (b *InMemoryBackend) opsItemEventsStore(region string) []OpsItemEventSummary {
-	if b.opsItemEvents[region] == nil {
-		b.opsItemEvents[region] = []OpsItemEventSummary{}
-	}
-
 	return b.opsItemEvents[region]
 }
 
 func (b *InMemoryBackend) instancePatchStatesStore(region string) map[string]*InstancePatchState {
-	if b.instancePatchStates[region] == nil {
-		b.instancePatchStates[region] = make(map[string]*InstancePatchState)
-	}
-
 	return b.instancePatchStates[region]
 }
 
 func (b *InMemoryBackend) instancePatchesStore(region string) map[string][]PatchComplianceData {
-	if b.instancePatches[region] == nil {
-		b.instancePatches[region] = make(map[string][]PatchComplianceData)
-	}
-
 	return b.instancePatches[region]
 }
 
 func (b *InMemoryBackend) instancePropertiesStore(region string) map[string]*InstanceProperty {
-	if b.instanceProperties[region] == nil {
-		b.instanceProperties[region] = make(map[string]*InstanceProperty)
-	}
-
 	return b.instanceProperties[region]
 }
 
