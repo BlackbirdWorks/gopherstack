@@ -159,8 +159,14 @@ Remaining (verify file:line before starting):
   thread `ctx` and build the `execute-api` endpoint hostname + routing-rule ARN from
   `regionFromCtx(ctx)` (CFN provisioners pass `context.Background()` → default region, no
   regression). A second reference exemplar alongside IoT Analytics.
-- **SecurityHub** — standards ARNs hardcode `us-east-1`
-  (`services/securityhub/backend.go:~189-217`).
+- **SecurityHub** — the built-in standards ARNs hardcode `us-east-1`
+  (`services/securityhub/backend.go:~189-217`). More involved than a single builder: the
+  ARNs are package-level static data threaded through `DescribeStandards`,
+  `BatchEnableStandards` (subscription matching), `GetEnabledStandards`, and
+  `DescribeStandardsControls`, with tests asserting `us-east-1` ARNs. Fix needs region
+  templated at request time across those 4 methods, with matching normalized on the
+  region-less standard path. (Note: the CIS 1.2.0 `ruleset` ARN is genuinely region-less in
+  AWS — keep it as-is.)
 - **MemoryDB** (`services/memorydb/handler.go:~1600`) and **Kafka/MSK**
   (`services/kafka/handler.go:~1500`) silently fall back to `us-east-1` when the region is
   empty/unparseable instead of using the ctxbag region.
