@@ -993,9 +993,9 @@ func TestAudit1_Personalize_GetRecommendations(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		input          map[string]any
-		name           string
-		wantItemCount  int
+		input         map[string]any
+		name          string
+		wantItemCount int
 	}{
 		{
 			name: "default_25_items",

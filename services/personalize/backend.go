@@ -270,11 +270,11 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	} {
 		ftArn := arn.Build("personalize", region, accountID, "feature-transformation/"+name)
 		builtinFTs[ftArn] = &storedFeatureTransformation{
-			ARN:         ftArn,
-			Name:        name,
-			Status:      statusActive,
+			ARN:          ftArn,
+			Name:         name,
+			Status:       statusActive,
 			CreationTime: epoch,
-			LastUpdated: epoch,
+			LastUpdated:  epoch,
 		}
 	}
 

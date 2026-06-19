@@ -784,3 +784,103 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 
 	return result, nil
 }
+
+// CreatePackagingConfiguration creates a new packaging configuration.
+func (b *InMemoryBackend) CreatePackagingConfiguration(id, packagingGroupID, description string, tags map[string]string) (*PackagingConfiguration, error) {
+	b.mu.Lock("CreatePackagingConfiguration")
+	defer b.mu.Unlock()
+
+	if id == "" {
+		return nil, fmt.Errorf("%w: id required", ErrInvalidParameter)
+	}
+	if _, exists := b.packagingConfigurations[id]; exists {
+		return nil, ErrConflict
+	}
+
+	t := make(map[string]string, len(tags))
+	maps.Copy(t, tags)
+
+	pc := &storedPackagingConfiguration{
+		Tags:             t,
+		ARN:              b.buildPackagingConfigARN(id),
+		ID:               id,
+		PackagingGroupID: packagingGroupID,
+		Description:      description,
+		CreatedAt:        time.Now().UTC().Format(time.RFC3339),
+	}
+	b.packagingConfigurations[id] = pc
+	return pc.toPackagingConfiguration(), nil
+}
+
+// DescribePackagingConfiguration returns a packaging configuration by ID.
+func (b *InMemoryBackend) DescribePackagingConfiguration(id string) (*PackagingConfiguration, error) {
+	b.mu.RLock("DescribePackagingConfiguration")
+	defer b.mu.RUnlock()
+
+	pc, ok := b.packagingConfigurations[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: packagingConfiguration %s not found", ErrNotFound, id)
+	}
+	return pc.toPackagingConfiguration(), nil
+}
+
+// DeletePackagingConfiguration removes a packaging configuration.
+func (b *InMemoryBackend) DeletePackagingConfiguration(id string) error {
+	b.mu.Lock("DeletePackagingConfiguration")
+	defer b.mu.Unlock()
+
+	if _, ok := b.packagingConfigurations[id]; !ok {
+		return fmt.Errorf("%w: packagingConfiguration %s not found", ErrNotFound, id)
+	}
+	delete(b.packagingConfigurations, id)
+	return nil
+}
+
+// ListPackagingConfigurations returns all packaging configurations.
+func (b *InMemoryBackend) ListPackagingConfigurations(maxResults int, nextToken string) ([]*PackagingConfiguration, string, error) {
+	b.mu.RLock("ListPackagingConfigurations")
+	defer b.mu.RUnlock()
+
+	all := make([]*storedPackagingConfiguration, 0, len(b.packagingConfigurations))
+	for _, pc := range b.packagingConfigurations {
+		all = append(all, pc)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
+
+	p := page.New(all, nextToken, maxResults, defaultMaxResults)
+
+	result := make([]*PackagingConfiguration, 0, len(p.Data))
+	for _, pc := range p.Data {
+		result = append(result, pc.toPackagingConfiguration())
+	}
+
+	return result, p.Next, nil
+}
+
+// PutChannelLifecyclePolicy stores a lifecycle policy on a channel.
+func (b *InMemoryBackend) PutChannelLifecyclePolicy(channelID, policy string) error {
+	b.mu.Lock("PutChannelLifecyclePolicy")
+	defer b.mu.Unlock()
+
+	ch, ok := b.channels[channelID]
+	if !ok {
+		return fmt.Errorf("%w: channel %s not found", ErrNotFound, channelID)
+	}
+	ch.LifecyclePolicy = &policy
+	return nil
+}
+
+// GetChannelLifecyclePolicy retrieves the lifecycle policy for a channel.
+func (b *InMemoryBackend) GetChannelLifecyclePolicy(channelID string) (string, error) {
+	b.mu.RLock("GetChannelLifecyclePolicy")
+	defer b.mu.RUnlock()
+
+	ch, ok := b.channels[channelID]
+	if !ok {
+		return "", fmt.Errorf("%w: channel %s not found", ErrNotFound, channelID)
+	}
+	if ch.LifecyclePolicy == nil {
+		return "", fmt.Errorf("%w: no lifecycle policy for channel %s", ErrNotFound, channelID)
+	}
+	return *ch.LifecyclePolicy, nil
+}

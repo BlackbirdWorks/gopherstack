@@ -264,8 +264,8 @@ func (h *Handler) buildOps() map[string]opFunc {
 		"UntagResource":       h.untagResource,
 		"ListTagsForResource": h.listTagsForResource,
 		// Personalize Runtime
-		"GetRecommendations":      h.getRecommendations,
-		"GetPersonalizedRanking":  h.getPersonalizedRanking,
+		"GetRecommendations":     h.getRecommendations,
+		"GetPersonalizedRanking": h.getPersonalizedRanking,
 	}
 }
 
@@ -1331,7 +1331,7 @@ func (h *Handler) getPersonalizedRanking(input map[string]any) (map[string]any, 
 	}
 
 	return map[string]any{
-		"recommendationId":  uuid.NewString(),
+		"recommendationId":    uuid.NewString(),
 		"personalizedRanking": ranked,
 	}, nil
 }
