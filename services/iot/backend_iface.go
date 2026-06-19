@@ -329,6 +329,12 @@ type StorageBackend interface {
 	ListCommands() []*IoTCommand
 	GetCommandExecution(commandID, executionID string) (*IoTCommandExecution, error)
 	ListCommandExecutions(commandID string) []*IoTCommandExecution
+	DeleteCommandExecution(commandID, executionID string) error
+
+	// New ops 2: additional state operations.
+	UpdateThingType(thingTypeName, description string) error
+	UpdateThingGroupsForThing(thingName string, toAdd, toRemove []string) error
+	DisassociateSbomFromPackageVersion(packageName, versionName string) error
 }
 
 // Snapshottable is an optional interface that a StorageBackend may implement

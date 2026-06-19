@@ -47,21 +47,46 @@ func resolveOTAUpdateOps(path, method string) string {
 }
 
 // resolvePackageVersionOps resolves ops on /packages/{name}/versions[/{versionName}].
+//
+//nolint:cyclop // mechanical routing switch
 func resolvePackageVersionOps(parts []string, method string) string {
 	if len(parts) == pathSplitTwo && parts[1] == pathSegmentVersions && method == http.MethodGet {
 		return opListPackageVersions
 	}
-	if len(parts) == pathSplitThree && parts[1] == pathSegmentVersions {
-		switch method {
-		case http.MethodPut:
-			return opCreatePackageVersion
-		case http.MethodGet:
-			return opGetPackageVersion
-		case http.MethodDelete:
-			return opDeletePackageVersion
-		case http.MethodPatch:
-			return opUpdatePackageVersion
+	if len(parts) < pathSplitThree || parts[1] != pathSegmentVersions {
+		return unknownOperation
+	}
+	// parts[2] may be "1.0.0" or "1.0.0/sbom" or "1.0.0/sbom-validation-results"
+	// Split parts[2] further to detect sub-paths.
+	versionAndSub := strings.SplitN(parts[2], "/", pathSplitTwo)
+	if len(versionAndSub) == pathSplitTwo {
+		// Has sub-path beyond the version name.
+		switch versionAndSub[1] {
+		case "sbom":
+			if method == http.MethodPut {
+				return opAssociateSbomWithPackageVersion
+			}
+			if method == http.MethodDelete {
+				return opDisassociateSbomFromPackageVersion
+			}
+		case "sbom-validation-results":
+			if method == http.MethodGet {
+				return opListSbomValidationResults
+			}
 		}
+
+		return unknownOperation
+	}
+
+	switch method {
+	case http.MethodPut:
+		return opCreatePackageVersion
+	case http.MethodGet:
+		return opGetPackageVersion
+	case http.MethodDelete:
+		return opDeletePackageVersion
+	case http.MethodPatch:
+		return opUpdatePackageVersion
 	}
 
 	return unknownOperation
@@ -155,6 +180,7 @@ func resolveV2LoggingOps(path, method string) string {
 	return unknownOperation
 }
 
+//nolint:cyclop // mechanical routing switch
 func resolveCommandOps(path, method string) string {
 	if path == "/commands" && method == http.MethodGet {
 		return opListCommands
@@ -183,8 +209,11 @@ func resolveCommandOps(path, method string) string {
 			}
 		case pathSplitThree:
 			if parts[1] == pathSegmentExecutions {
-				if method == http.MethodGet {
+				switch method {
+				case http.MethodGet:
 					return opGetCommandExecution
+				case http.MethodDelete:
+					return opDeleteCommandExecution
 				}
 			}
 		}
@@ -268,6 +297,10 @@ func resolveBatch3Op(path, method string) string {
 		return op
 	}
 	if op := resolveCommandOps(path, method); op != unknownOperation {
+		return op
+	}
+
+	if op := resolveRemainingOps(path, method); op != unknownOperation {
 		return op
 	}
 
@@ -925,7 +958,7 @@ func (h *Handler) handleListCommandExecutions(c *echo.Context) error {
 // dispatchBatch3Ops dispatches batch-3 operations.
 // ---------------------------------------------------------------------------
 
-//nolint:funlen,gocyclo,cyclop // mechanical routing switch
+//nolint:funlen,gocyclo,cyclop,dupl // mechanical routing switch
 func (h *Handler) dispatchBatch3Ops(c *echo.Context, op string) (bool, error) {
 	switch op {
 	// OTA Updates
@@ -1092,5 +1125,5 @@ func (h *Handler) dispatchBatch3Ops(c *echo.Context, op string) (bool, error) {
 		return true, h.handleListCommandExecutions(c)
 	}
 
-	return false, nil
+	return h.dispatchRemainingOps(c, op)
 }
