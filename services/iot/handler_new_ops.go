@@ -184,6 +184,10 @@ func resolveAuthorizerOps(path, method string) string {
 	switch {
 	case path == "/authorizers" && method == http.MethodGet:
 		return opListAuthorizers
+	// /authorizer/{name}/test must be checked before generic POST.
+	case strings.HasPrefix(path, "/authorizer/") &&
+		strings.HasSuffix(path, "/test") && method == http.MethodPost:
+		return opTestInvokeAuthorizer
 	case strings.HasPrefix(path, "/authorizer/") && method == http.MethodPost:
 		return opCreateAuthorizer
 	case strings.HasPrefix(path, "/authorizer/") && method == http.MethodGet:

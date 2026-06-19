@@ -1,11 +1,25 @@
 package iot
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
+)
+
+// String constants used in handler_new_ops2 responses.
+const (
+	keyTaskID              = "taskId"
+	keyTasks               = "tasks"
+	keyThingGroups         = "thingGroups"
+	keyPrincipals          = "principals"
+	keyVersionID           = "versionId"
+	pathAuditConfiguration = "/audit/configuration"
+	certStatusPendingXfer  = "PENDING_TRANSFER"
+	indexStatusActive      = "ACTIVE"
+	taskStatusCanceled     = "CANCELED"
 )
 
 // ---------------------------------------------------------------------------
@@ -27,6 +41,7 @@ func resolveRemainingOps(path, method string) string {
 	return resolveRemainingMiscOps(path, method)
 }
 
+//nolint:cyclop,gocyclo // mechanical routing switch
 func resolveRemainingDetectOps(path, method string) string {
 	switch {
 	case strings.HasPrefix(path, "/detect/mitigationactions/tasks/") &&
@@ -63,6 +78,7 @@ func resolveRemainingDetectOps(path, method string) string {
 	return unknownOperation
 }
 
+//nolint:cyclop,gocyclo // mechanical routing switch
 func resolveRemainingIndexOps(path, method string) string {
 	switch {
 	case path == "/indexing/config" && method == http.MethodGet:
@@ -90,6 +106,7 @@ func resolveRemainingIndexOps(path, method string) string {
 	return unknownOperation
 }
 
+//nolint:cyclop,gocyclo // mechanical routing switch
 func resolveRemainingCertAndThingOps(path, method string) string {
 	switch {
 	case path == "/certificates-out-going" && method == http.MethodGet:
@@ -122,6 +139,7 @@ func resolveRemainingCertAndThingOps(path, method string) string {
 	return unknownOperation
 }
 
+//nolint:cyclop,gocyclo // mechanical routing switch
 func resolveRemainingMiscOps(path, method string) string {
 	switch {
 	case path == "/thing-registration-tasks" && method == http.MethodPost:
@@ -139,7 +157,7 @@ func resolveRemainingMiscOps(path, method string) string {
 		return opListManagedJobTemplates
 	case strings.HasPrefix(path, "/managed-job-templates/") && method == http.MethodGet:
 		return opDescribeManagedJobTemplate
-	case path == "/audit/configuration" && method == http.MethodDelete:
+	case path == pathAuditConfiguration && method == http.MethodDelete:
 		return opDeleteAccountAuditConfiguration
 	case path == "/audit/relatedResources" && method == http.MethodGet:
 		return opListRelatedResourcesForAuditFinding
@@ -165,19 +183,19 @@ func (h *Handler) handleCancelDetectMitigationActionsTask(c *echo.Context) error
 }
 
 func (h *Handler) handleStartDetectMitigationActionsTask(c *echo.Context) error {
-	return c.JSON(http.StatusOK, map[string]any{"taskId": uuid.NewString()})
+	return c.JSON(http.StatusOK, map[string]any{keyTaskID: uuid.NewString()})
 }
 
 func (h *Handler) handleDescribeDetectMitigationActionsTask(c *echo.Context) error {
 	taskID := strings.TrimPrefix(c.Request().URL.Path, "/detect/mitigationactions/tasks/")
 	return c.JSON(http.StatusOK, map[string]any{
-		"taskId":     taskID,
-		"taskStatus": "CANCELED",
+		keyTaskID:     taskID,
+		"taskStatus": taskStatusCanceled,
 	})
 }
 
 func (h *Handler) handleListDetectMitigationActionsTasks(c *echo.Context) error {
-	return c.JSON(http.StatusOK, map[string]any{"tasks": []any{}})
+	return c.JSON(http.StatusOK, map[string]any{keyTasks: []any{}})
 }
 
 func (h *Handler) handleListDetectMitigationActionsExecutions(c *echo.Context) error {
@@ -185,20 +203,20 @@ func (h *Handler) handleListDetectMitigationActionsExecutions(c *echo.Context) e
 }
 
 func (h *Handler) handleStartAuditMitigationActionsTask(c *echo.Context) error {
-	return c.JSON(http.StatusOK, map[string]any{"taskId": uuid.NewString()})
+	return c.JSON(http.StatusOK, map[string]any{keyTaskID: uuid.NewString()})
 }
 
 func (h *Handler) handleDescribeAuditMitigationActionsTask(c *echo.Context) error {
 	trimmed := strings.TrimPrefix(c.Request().URL.Path, "/audit/mitigationactions/tasks/")
 	taskID := strings.TrimSuffix(trimmed, "/cancel")
 	return c.JSON(http.StatusOK, map[string]any{
-		"taskId":     taskID,
-		"taskStatus": "CANCELED",
+		keyTaskID:     taskID,
+		"taskStatus": taskStatusCanceled,
 	})
 }
 
 func (h *Handler) handleListAuditMitigationActionsTasks(c *echo.Context) error {
-	return c.JSON(http.StatusOK, map[string]any{"tasks": []any{}})
+	return c.JSON(http.StatusOK, map[string]any{keyTasks: []any{}})
 }
 
 func (h *Handler) handleListAuditMitigationActionsExecutions(c *echo.Context) error {
@@ -252,13 +270,13 @@ func (h *Handler) handleDescribeIndex(c *echo.Context) error {
 	name := strings.TrimPrefix(c.Request().URL.Path, "/indices/")
 	return c.JSON(http.StatusOK, map[string]any{
 		"indexName":   name,
-		"indexStatus": "ACTIVE",
+		"indexStatus": indexStatusActive,
 		"schema":      "",
 	})
 }
 
 func (h *Handler) handleSearchIndex(c *echo.Context) error {
-	return c.JSON(http.StatusOK, map[string]any{"things": []any{}, "thingGroups": []any{}})
+	return c.JSON(http.StatusOK, map[string]any{"things": []any{}, keyThingGroups: []any{}})
 }
 
 func (h *Handler) handleGetCardinality(c *echo.Context) error {
@@ -289,12 +307,12 @@ func (h *Handler) handleListOutgoingCertificates(c *echo.Context) error {
 	certs := h.Backend.ListCertificates()
 	var out []map[string]any
 	for _, cert := range certs {
-		if cert.Status == "PENDING_TRANSFER" {
+		if cert.Status == certStatusPendingXfer {
 			out = append(out, map[string]any{
 				"certificateArn": cert.ARN,
 				"certificateId":  cert.CertificateID,
 				"status":         cert.Status,
-				"creationDate":   cert.CreatedAt,
+				keyCreationDate:   cert.CreatedAt,
 			})
 		}
 	}
@@ -316,7 +334,7 @@ func (h *Handler) handleUpdateEncryptionConfiguration(c *echo.Context) error {
 func (h *Handler) handleTestAuthorization(c *echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{
 		"allowed": []map[string]any{
-			{"policyName": "", "allowed": true},
+			{keyPolicyName: "", "allowed": true},
 		},
 	})
 }
@@ -354,12 +372,12 @@ func (h *Handler) handleConfirmTopicRuleDestination(c *echo.Context) error {
 
 func (h *Handler) handleGetThingConnectivityData(c *echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{
-		"thingName":             "",
-		"connected":             false,
-		"timestamp":             0,
-		"disconnectReason":      "AUTH_ERROR",
-		"disconnectedFrom":      "",
-		"mqttClientId":          "",
+		keyThingName:        "",
+		"connected":        false,
+		"timestamp":        0,
+		"disconnectReason": "AUTH_ERROR",
+		"disconnectedFrom": "",
+		"mqttClientId":     "",
 	})
 }
 
@@ -374,17 +392,17 @@ func (h *Handler) handleListThingPrincipalsV2(c *echo.Context) error {
 	summaries := make([]map[string]any, len(principals))
 	for i, p := range principals {
 		summaries[i] = map[string]any{
-			"principal": p,
+			"principal":          p,
 			"thingPrincipalType": "EXCLUSIVE_GROUP",
 		}
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"principals": summaries})
+	return c.JSON(http.StatusOK, map[string]any{keyPrincipals: summaries})
 }
 
 func (h *Handler) handleUpdateThingGroupsForThing(c *echo.Context) error {
 	var req struct {
-		ThingName           string   `json:"thingName"`
+		ThingName           string   `json:keyThingName`
 		ThingGroupsToAdd    []string `json:"thingGroupsToAdd"`
 		ThingGroupsToRemove []string `json:"thingGroupsToRemove"`
 	}
@@ -414,7 +432,7 @@ func (h *Handler) handleRegisterThing(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"thingName": out.ThingName,
+		keyThingName: out.ThingName,
 		"thingArn":  out.ThingARN,
 	})
 }
@@ -422,7 +440,7 @@ func (h *Handler) handleRegisterThing(c *echo.Context) error {
 // --- Thing registration tasks (no real state) ---
 
 func (h *Handler) handleStartThingRegistrationTask(c *echo.Context) error {
-	return c.JSON(http.StatusOK, map[string]any{"taskId": uuid.NewString()})
+	return c.JSON(http.StatusOK, map[string]any{keyTaskID: uuid.NewString()})
 }
 
 func (h *Handler) handleListThingRegistrationTasks(c *echo.Context) error {
@@ -523,7 +541,7 @@ func (h *Handler) handleDeleteCommandExecution(c *echo.Context) error {
 // Dispatch for remaining ops
 // ---------------------------------------------------------------------------
 
-//nolint:funlen,gocyclo,cyclop // mechanical routing switch
+//nolint:funlen,gocyclo,cyclop,dupl // mechanical routing switch
 func (h *Handler) dispatchRemainingOps(c *echo.Context, op string) (bool, error) {
 	switch op {
 	// Detect mitigation
@@ -656,12 +674,12 @@ func (h *Handler) handleDescribeProvisioningTemplateVersion(c *echo.Context) err
 		return respondErr(c, err)
 	}
 	for _, v := range versions {
-		if v.VersionID == versionIDStr {
+		if fmt.Sprintf("%d", v.VersionID) == versionIDStr {
 			return c.JSON(http.StatusOK, map[string]any{
-				"templateName": templateName,
-				"versionId":    v.VersionID,
+				"templateName":     templateName,
+				keyVersionID:        v.VersionID,
 				"isDefaultVersion": v.IsDefaultVersion,
-				"creationDate": v.CreatedAt,
+				keyCreationDate:     v.CreationDate,
 			})
 		}
 	}

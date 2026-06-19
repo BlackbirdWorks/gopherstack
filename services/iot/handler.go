@@ -534,6 +534,10 @@ func resolveOperation(path, method string) string {
 	case path == "/things" && method == http.MethodGet:
 
 		return opListThings
+	// /things/register must be checked before generic /things/{name} routing.
+	case path == "/things/register" && method == http.MethodPost:
+
+		return opRegisterThing
 	// Batch 2: /things/{name}/thing-groups, /things/{name}/jobs before generic thing routing
 	case strings.HasPrefix(path, "/things/") &&
 		strings.HasSuffix(path, "/thing-groups") &&

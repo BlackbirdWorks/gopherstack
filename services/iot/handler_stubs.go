@@ -1,17 +1,8 @@
 package iot
 
-import (
-	"net/http"
+import "github.com/labstack/echo/v5"
 
-	"github.com/labstack/echo/v5"
-)
-
-// handleStub returns 501 Not Implemented for stub operations.
-func (h *Handler) handleStub(c *echo.Context, operation string) error {
-	return c.String(http.StatusNotImplemented, operation+" not implemented")
-}
-
-// Stub operation name constants — remaining unimplemented ops.
+// Stub operation name constants — all ops are now implemented.
 const (
 	opCancelCertificateTransfer             = "CancelCertificateTransfer"
 	opCancelDetectMitigationActionsTask     = "CancelDetectMitigationActionsTask"
