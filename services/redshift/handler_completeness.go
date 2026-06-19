@@ -16,6 +16,8 @@ const (
 	redshiftDefaultPort = 5439
 	// minClusterNodes is the minimum number of nodes for a node config option stub.
 	minClusterNodes = 2
+	// identityCenterTokenExpiryMinutes is the validity window for a generated IdentityCenter auth token.
+	identityCenterTokenExpiryMinutes = 15
 )
 
 // buildOpsCompleteness returns stub dispatch entries for all previously
@@ -889,7 +891,7 @@ func (h *Handler) handleGetIdentityCenterAuthToken(params url.Values) (any, erro
 		return nil, fmt.Errorf("%w: IdentityCenterApplicationArn is required", ErrInvalidParameter)
 	}
 
-	expiry := time.Now().UTC().Add(15 * time.Minute)
+	expiry := time.Now().UTC().Add(identityCenterTokenExpiryMinutes * time.Minute)
 
 	hash := sha256.Sum256([]byte(appArn + expiry.Format(time.RFC3339)))
 	token := "ict-" + hex.EncodeToString(hash[:16])
