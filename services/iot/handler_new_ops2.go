@@ -375,7 +375,7 @@ func (h *Handler) handleConfirmTopicRuleDestination(c *echo.Context) error {
 
 func (h *Handler) handleGetThingConnectivityData(c *echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{
-		keyThingName:        "",
+		keyThingName:       "",
 		"connected":        false,
 		"timestamp":        0,
 		"disconnectReason": "AUTH_ERROR",
@@ -438,7 +438,7 @@ func (h *Handler) handleRegisterThing(c *echo.Context) error {
 
 	return c.JSON(http.StatusOK, map[string]any{
 		keyThingName: out.ThingName,
-		"thingArn":  out.ThingARN,
+		"thingArn":   out.ThingARN,
 	})
 }
 
@@ -682,9 +682,9 @@ func (h *Handler) handleDescribeProvisioningTemplateVersion(c *echo.Context) err
 		if strconv.Itoa(int(v.VersionID)) == versionIDStr {
 			return c.JSON(http.StatusOK, map[string]any{
 				"templateName":     templateName,
-				keyVersionID:        v.VersionID,
+				keyVersionID:       v.VersionID,
 				"isDefaultVersion": v.IsDefaultVersion,
-				keyCreationDate:     v.CreationDate,
+				keyCreationDate:    v.CreationDate,
 			})
 		}
 	}

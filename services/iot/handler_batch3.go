@@ -48,7 +48,7 @@ func resolveOTAUpdateOps(path, method string) string {
 
 // resolvePackageVersionOps resolves ops on /packages/{name}/versions[/{versionName}].
 //
-//nolint:cyclop,gocyclo // mechanical routing switch
+//nolint:cyclop // mechanical routing switch
 func resolvePackageVersionOps(parts []string, method string) string {
 	if len(parts) == pathSplitTwo && parts[1] == pathSegmentVersions && method == http.MethodGet {
 		return opListPackageVersions
@@ -180,7 +180,7 @@ func resolveV2LoggingOps(path, method string) string {
 	return unknownOperation
 }
 
-//nolint:cyclop,gocyclo // mechanical routing switch
+//nolint:cyclop // mechanical routing switch
 func resolveCommandOps(path, method string) string {
 	if path == "/commands" && method == http.MethodGet {
 		return opListCommands
