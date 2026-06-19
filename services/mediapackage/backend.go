@@ -252,17 +252,17 @@ func (b *InMemoryBackend) buildHarvestJobARN(id string) string {
 	return arn.Build("mediapackage", b.region, b.accountID, resourceTypeHarvestJob+"/"+id)
 }
 
-func newIngestEndpoints(channelID string) []storedIngestEndpoint {
+func newIngestEndpoints(region, channelID string) []storedIngestEndpoint {
 	return []storedIngestEndpoint{
 		{
 			ID:       uuid.NewString(),
-			URL:      fmt.Sprintf("https://ingest1.mediapackage.us-east-1.amazonaws.com/in/v2/%s/channel", channelID),
+			URL:      fmt.Sprintf("https://ingest1.mediapackage.%s.amazonaws.com/in/v2/%s/channel", region, channelID),
 			Username: uuid.NewString(),
 			Password: uuid.NewString(),
 		},
 		{
 			ID:       uuid.NewString(),
-			URL:      fmt.Sprintf("https://ingest2.mediapackage.us-east-1.amazonaws.com/in/v2/%s/channel", channelID),
+			URL:      fmt.Sprintf("https://ingest2.mediapackage.%s.amazonaws.com/in/v2/%s/channel", region, channelID),
 			Username: uuid.NewString(),
 			Password: uuid.NewString(),
 		},
@@ -290,7 +290,7 @@ func (b *InMemoryBackend) CreateChannel(id, description string, tags map[string]
 		ID:              id,
 		Description:     description,
 		Tags:            tagsCopy,
-		IngestEndpoints: newIngestEndpoints(id),
+		IngestEndpoints: newIngestEndpoints(b.region, id),
 	}
 
 	b.channels[id] = ch
@@ -402,7 +402,7 @@ func (b *InMemoryBackend) RotateChannelCredentials(id string) (*Channel, error) 
 		return nil, fmt.Errorf("%w: channel %q not found", ErrNotFound, id)
 	}
 
-	ch.IngestEndpoints = newIngestEndpoints(id)
+	ch.IngestEndpoints = newIngestEndpoints(b.region, id)
 
 	return ch.toChannel(), nil
 }
@@ -455,7 +455,8 @@ func (b *InMemoryBackend) CreateOriginEndpoint(
 		Description:  description,
 		ManifestName: manifestName,
 		URL: fmt.Sprintf(
-			"https://cf.mediapackage.us-east-1.amazonaws.com/out/v1/%s/%s.m3u8",
+			"https://cf.mediapackage.%s.amazonaws.com/out/v1/%s/%s.m3u8",
+			b.region,
 			id,
 			manifestName,
 		),

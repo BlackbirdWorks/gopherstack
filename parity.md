@@ -159,6 +159,19 @@ Remaining (verify file:line before starting):
   thread `ctx` and build the `execute-api` endpoint hostname + routing-rule ARN from
   `regionFromCtx(ctx)` (CFN provisioners pass `context.Background()` → default region, no
   regression). A second reference exemplar alongside IoT Analytics.
+- ~~**MediaPackage**~~ — *done*: ingest (`newIngestEndpoints`) and egress (`CreateOriginEndpoint`)
+  endpoint URLs hardcoded `us-east-1` while the resource ARNs already used the backend's
+  configured `region`; the URLs now use `b.region` too (consistency fix). Note: this service
+  carries a construction-time `b.region` field, so it is in the "region-on-backend" class
+  below, not the per-request-ctx class — the URLs now at least honor the configured region.
+- **Region-on-backend services (larger migration).** Several services store `region`/`accountID`
+  on the backend at construction (from CLI) and build ARNs from those fields, so they already
+  honor the *configured* region but not the *per-request* ctxbag region. Converting these to
+  per-request `awsmeta.Region(ctx)` is a multi-site change per service (threading `ctx` through
+  every `Create*`). Largest/most-used: **IoT** (~13 ARN sites in `services/iot/backend.go` via
+  `b.region`/`b.accountID`), plus **Athena** (package-level `arnRegion`/`arnAccount` consts),
+  **Personalize**, **EFS** (managed-KMS-key const). Lower priority than the literal-`us-east-1`
+  bugs since they already reflect the configured region.
 - **SecurityHub** — the built-in standards ARNs hardcode `us-east-1`
   (`services/securityhub/backend.go:~189-217`). More involved than a single builder: the
   ARNs are package-level static data threaded through `DescribeStandards`,
