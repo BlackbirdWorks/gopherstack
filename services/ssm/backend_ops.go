@@ -98,9 +98,9 @@ func (b *InMemoryBackend) UpdateDocumentDefaultVersion(
 func (b *InMemoryBackend) UpdateDocumentMetadata(
 	ctx context.Context,
 	input *UpdateDocumentMetadataInput,
-) (*StubOutput, error) {
+) (*UpdateDocumentMetadataOutput, error) {
 	if input.Name == "" {
-		return &StubOutput{}, nil
+		return &UpdateDocumentMetadataOutput{}, nil
 	}
 
 	region := getRegion(ctx)
@@ -111,7 +111,7 @@ func (b *InMemoryBackend) UpdateDocumentMetadata(
 		return nil, fmt.Errorf("%w: document %q not found", ErrDocumentNotFound, input.Name)
 	}
 
-	return &StubOutput{}, nil
+	return &UpdateDocumentMetadataOutput{}, nil
 }
 
 // ListDocumentMetadataHistory returns an empty approval history.
@@ -156,13 +156,13 @@ func (b *InMemoryBackend) ListDocumentMetadataHistory(
 func (b *InMemoryBackend) PutInventory(
 	ctx context.Context,
 	input *PutInventoryInput,
-) (*StubOutput, error) {
+) (*PutInventoryOutput, error) {
 	if input.InstanceID == "" && len(input.Items) > 0 {
 		return nil, fmt.Errorf("%w: InstanceId is required", ErrValidationException)
 	}
 
 	if input.InstanceID == "" {
-		return &StubOutput{}, nil
+		return &PutInventoryOutput{}, nil
 	}
 
 	region := getRegion(ctx)
@@ -189,7 +189,7 @@ func (b *InMemoryBackend) PutInventory(
 
 	store[input.InstanceID] = merged
 
-	return &StubOutput{}, nil
+	return &PutInventoryOutput{}, nil
 }
 
 // GetInventory returns stored inventory entities across all instances.
@@ -380,7 +380,7 @@ func (b *InMemoryBackend) ListInventoryEntries(
 func (b *InMemoryBackend) DeleteInventory(
 	ctx context.Context,
 	input *DeleteInventoryInput,
-) (*StubOutput, error) {
+) (*DeleteInventoryOutput, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("DeleteInventory")
 	defer b.mu.Unlock()
@@ -401,7 +401,7 @@ func (b *InMemoryBackend) DeleteInventory(
 		}
 	}
 
-	return &StubOutput{}, nil
+	return &DeleteInventoryOutput{}, nil
 }
 
 // DescribeInventoryDeletions returns an empty list.
@@ -424,13 +424,13 @@ func (b *InMemoryBackend) DescribeInventoryDeletions(
 func (b *InMemoryBackend) PutComplianceItems(
 	ctx context.Context,
 	input *PutComplianceItemsInput,
-) (*StubOutput, error) {
+) (*PutComplianceItemsOutput, error) {
 	if input.ResourceID == "" && len(input.Items) > 0 {
 		return nil, fmt.Errorf("%w: ResourceId is required", ErrValidationException)
 	}
 
 	if input.ResourceID == "" {
-		return &StubOutput{}, nil
+		return &PutComplianceItemsOutput{}, nil
 	}
 
 	region := getRegion(ctx)
@@ -453,7 +453,7 @@ func (b *InMemoryBackend) PutComplianceItems(
 
 	b.complianceStore(region)[input.ResourceID] = newItems
 
-	return &StubOutput{}, nil
+	return &PutComplianceItemsOutput{}, nil
 }
 
 // ListComplianceItems returns stored compliance items, optionally filtered by ResourceId/ResourceType.
@@ -1256,7 +1256,7 @@ func (b *InMemoryBackend) UpdateMaintenanceWindowTask(
 func (b *InMemoryBackend) DeleteOpsItem(
 	ctx context.Context,
 	input *DeleteOpsItemInput,
-) (*StubOutput, error) {
+) (*DeleteOpsItemOutput, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("DeleteOpsItem")
 	defer b.mu.Unlock()
@@ -1269,7 +1269,7 @@ func (b *InMemoryBackend) DeleteOpsItem(
 	delete(opsItems, input.OpsItemID)
 	delete(b.opsItemRelatedItemsStore(region), input.OpsItemID)
 
-	return &StubOutput{}, nil
+	return &DeleteOpsItemOutput{}, nil
 }
 
 // DisassociateOpsItemRelatedItem removes a related item from an OpsItem.
@@ -1277,9 +1277,9 @@ func (b *InMemoryBackend) DeleteOpsItem(
 func (b *InMemoryBackend) DisassociateOpsItemRelatedItem(
 	ctx context.Context,
 	input *DisassociateOpsItemRelatedItemInput,
-) (*StubOutput, error) {
+) (*DisassociateOpsItemRelatedItemOutput, error) {
 	if input.OpsItemID == "" {
-		return &StubOutput{}, nil
+		return &DisassociateOpsItemRelatedItemOutput{}, nil
 	}
 
 	region := getRegion(ctx)
@@ -1290,7 +1290,7 @@ func (b *InMemoryBackend) DisassociateOpsItemRelatedItem(
 	items, exists := store[input.OpsItemID]
 	if !exists {
 		// No-op if OpsItem doesn't have any related items.
-		return &StubOutput{}, nil
+		return &DisassociateOpsItemRelatedItemOutput{}, nil
 	}
 
 	filtered := items[:0]
@@ -1302,7 +1302,7 @@ func (b *InMemoryBackend) DisassociateOpsItemRelatedItem(
 
 	store[input.OpsItemID] = filtered
 
-	return &StubOutput{}, nil
+	return &DisassociateOpsItemRelatedItemOutput{}, nil
 }
 
 // ListOpsItemRelatedItems returns stored related items for an OpsItem.
@@ -1429,7 +1429,7 @@ func (b *InMemoryBackend) ListOpsItemEvents(
 func (b *InMemoryBackend) DeleteOpsMetadata(
 	ctx context.Context,
 	input *DeleteOpsMetadataInput,
-) (*StubOutput, error) {
+) (*DeleteOpsMetadataOutput, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("DeleteOpsMetadata")
 	defer b.mu.Unlock()
@@ -1443,5 +1443,5 @@ func (b *InMemoryBackend) DeleteOpsMetadata(
 	delete(b.resourceIDToOpsMetadataArnStore(region), meta.ResourceID)
 	delete(opsMetadata, input.OpsMetadataArn)
 
-	return &StubOutput{}, nil
+	return &DeleteOpsMetadataOutput{}, nil
 }
