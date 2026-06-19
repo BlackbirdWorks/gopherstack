@@ -102,12 +102,15 @@ func (b *InMemoryBackend) deliverToLambdaSubscriptions(ev *events.SNSPublishedEv
 }
 
 // deliverToFirehoseSubscriptions puts each Firehose-protocol subscription message as a batch record.
-// The stream name is extracted from the subscription endpoint ARN.
+// On delivery failure, the message is forwarded to the subscription DLQ when a RedrivePolicy is
+// configured and a SQSSender is wired — matching the HTTP/HTTPS and Lambda paths.
 func (b *InMemoryBackend) deliverToFirehoseSubscriptions(ev *events.SNSPublishedEvent) {
 	firehose := b.firehoseBackend
 	if firehose == nil {
 		return
 	}
+
+	sqsSender := b.sqsSender
 
 	for _, sub := range ev.Subscriptions {
 		if sub.Protocol != protocolFirehose {
@@ -119,8 +122,10 @@ func (b *InMemoryBackend) deliverToFirehoseSubscriptions(ev *events.SNSPublished
 			continue
 		}
 
-		// Deliver the raw message body as a single record.
-		_, _ = firehose.PutRecordBatch(streamName, [][]byte{[]byte(ev.Message)})
+		_, err := firehose.PutRecordBatch(streamName, [][]byte{[]byte(ev.Message)})
+		if err != nil && sub.RedrivePolicy != "" && sqsSender != nil {
+			sendLambdaDLQ(b.svcCtx, sqsSender, sub.RedrivePolicy, ev.Message)
+		}
 	}
 }
 

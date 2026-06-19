@@ -47,3 +47,9 @@ func MatchesFilterPolicyMessageBodyForTest(policy string, message string) (bool,
 func WaitDeliveriesForTest(b *InMemoryBackend) {
 	b.deliveryWg.Wait()
 }
+
+// SigningCertURLForTest exposes the signer's certURL so tests can verify it
+// reflects the correct region rather than a hardcoded us-east-1.
+func SigningCertURLForTest(b *InMemoryBackend) string {
+	return b.signer.certURL
+}
