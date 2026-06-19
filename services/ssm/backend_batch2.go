@@ -48,6 +48,9 @@ func (b *InMemoryBackend) CreateResourceDataSync(
 		syncName = "default-sync"
 	}
 
+	if b.resourceDataSyncs[region] == nil {
+		b.resourceDataSyncs[region] = make(map[string]*ResourceDataSync)
+	}
 	syncs := b.resourceDataSyncsStore(region)
 	if _, exists := syncs[syncName]; exists {
 		return nil, ErrResourceDataSyncExists
@@ -304,6 +307,9 @@ func (b *InMemoryBackend) UpdateServiceSetting(
 	b.mu.Lock("UpdateServiceSetting")
 	defer b.mu.Unlock()
 
+	if b.serviceSettings[region] == nil {
+		b.serviceSettings[region] = make(map[string]*ServiceSetting)
+	}
 	b.serviceSettingsStore(region)[input.SettingID] = &ServiceSetting{
 		SettingID:    input.SettingID,
 		SettingValue: input.SettingValue,
@@ -366,6 +372,9 @@ func (b *InMemoryBackend) PutResourcePolicy(
 		PolicyHash: uuid.NewString(),
 		Policy:     input.Policy,
 	}
+	if b.resourcePolicies[region] == nil {
+		b.resourcePolicies[region] = make(map[string][]*ResourcePolicy)
+	}
 	policies := b.resourcePoliciesStore(region)
 	policies[input.ResourceARN] = append(policies[input.ResourceARN], policy)
 
@@ -385,6 +394,9 @@ func (b *InMemoryBackend) DeleteResourcePolicy(
 		return &DeleteResourcePolicyOutput{}, nil
 	}
 
+	if b.resourcePolicies[region] == nil {
+		b.resourcePolicies[region] = make(map[string][]*ResourcePolicy)
+	}
 	policies := b.resourcePoliciesStore(region)
 	existing := policies[input.ResourceARN]
 	updated := existing[:0]
@@ -429,6 +441,9 @@ func (b *InMemoryBackend) LabelParameterVersion(
 		version = param.Version
 	}
 
+	if b.parameterLabels[region] == nil {
+		b.parameterLabels[region] = make(map[string]map[int64][]string)
+	}
 	parameterLabels := b.parameterLabelsStore(region)
 	if parameterLabels[input.Name] == nil {
 		parameterLabels[input.Name] = make(map[int64][]string)
@@ -534,6 +549,9 @@ func (b *InMemoryBackend) StartAutomationExecution(
 		StartTime:             time.Now().UTC(),
 		ExecutionType:         "Standard",
 		Mode:                  mode,
+	}
+	if b.automationExecutions[region] == nil {
+		b.automationExecutions[region] = make(map[string]*AutomationExecution)
 	}
 	b.automationExecutionsStore(region)[execID] = exec
 
@@ -660,6 +678,9 @@ func (b *InMemoryBackend) StartChangeRequestExecution(
 		StartTime:             time.Now().UTC(),
 		ExecutionType:         "ChangeRequest",
 	}
+	if b.automationExecutions[region] == nil {
+		b.automationExecutions[region] = make(map[string]*AutomationExecution)
+	}
 	b.automationExecutionsStore(region)[execID] = exec
 
 	return &StartChangeRequestExecutionOutputFull{AutomationExecutionID: execID}, nil
@@ -677,6 +698,9 @@ func (b *InMemoryBackend) StartExecutionPreview(
 	defer b.mu.Unlock()
 
 	previewID := previewIDPrefix + uuid.NewString()
+	if b.executionPreviews[region] == nil {
+		b.executionPreviews[region] = make(map[string]*ExecutionPreview)
+	}
 	b.executionPreviewsStore(region)[previewID] = &ExecutionPreview{
 		ExecutionPreviewID: previewID,
 		Status:             "Running",

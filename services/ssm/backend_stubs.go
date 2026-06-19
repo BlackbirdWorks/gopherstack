@@ -1515,6 +1515,9 @@ func (b *InMemoryBackend) RegisterPatchBaselineForPatchGroup(
 		return nil, ErrPatchBaselineNotFound
 	}
 
+	if b.patchGroupToBaseline[region] == nil {
+		b.patchGroupToBaseline[region] = make(map[string]string)
+	}
 	b.patchGroupToBaselineStore(region)[input.PatchGroup] = input.BaselineID
 
 	return &RegisterPatchBaselineForPatchGroupOutput{
@@ -1547,6 +1550,9 @@ func (b *InMemoryBackend) RegisterTargetWithMaintenanceWindow(
 		Name:           input.Name,
 	}
 
+	if b.maintenanceWindowTargets[region] == nil {
+		b.maintenanceWindowTargets[region] = make(map[string]MaintenanceWindowTarget)
+	}
 	b.maintenanceWindowTargetsStore(region)[targetID] = target
 
 	return &RegisterTargetWithMaintenanceWindowOutput{WindowTargetID: targetID}, nil
@@ -1579,6 +1585,9 @@ func (b *InMemoryBackend) RegisterTaskWithMaintenanceWindow(
 		MaxErrors:      input.MaxErrors,
 	}
 
+	if b.maintenanceWindowTasks[region] == nil {
+		b.maintenanceWindowTasks[region] = make(map[string]MaintenanceWindowTask)
+	}
 	b.maintenanceWindowTasksStore(region)[taskID] = task
 
 	return &RegisterTaskWithMaintenanceWindowOutput{WindowTaskID: taskID}, nil
@@ -1616,6 +1625,9 @@ func (b *InMemoryBackend) StartSession(
 		}
 	}
 
+	if b.sessions[region] == nil {
+		b.sessions[region] = make(map[string]Session)
+	}
 	b.sessionsStore(region)[sessionID] = sess
 
 	return &StartSessionOutput{

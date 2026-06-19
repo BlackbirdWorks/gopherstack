@@ -579,6 +579,9 @@ func (b *InMemoryBackend) PutParameter(
 	b.mu.Lock("PutParameter")
 	defer b.mu.Unlock()
 
+	if b.parameters[region] == nil {
+		b.parameters[region] = make(map[string]Parameter)
+	}
 	params := b.parametersStore(region)
 	existing, exists := params[input.Name]
 	if exists && !input.Overwrite {
@@ -632,6 +635,9 @@ func (b *InMemoryBackend) PutParameter(
 		AllowedPattern:   input.AllowedPattern,
 		DataType:         dataType,
 		Description:      input.Description,
+	}
+	if b.history[region] == nil {
+		b.history[region] = make(map[string][]ParameterHistory)
 	}
 	history := b.historyStore(region)
 	history[input.Name] = append(history[input.Name], paramHistory)
@@ -1197,6 +1203,9 @@ func (b *InMemoryBackend) AddTagsToResource(
 		if _, ok := params[name]; !ok {
 			return ErrParameterNotFound
 		}
+		if b.tags[region] == nil {
+			b.tags[region] = make(map[string]*tags.Tags)
+		}
 		tagsStore := b.tagsStore(region)
 		if tagsStore[name] == nil {
 			tagsStore[name] = tags.New("ssm." + name + ".tags")
@@ -1211,6 +1220,9 @@ func (b *InMemoryBackend) AddTagsToResource(
 	b.mu.Lock("AddTagsToResource")
 	defer b.mu.Unlock()
 
+	if b.miscResourceTags[region] == nil {
+		b.miscResourceTags[region] = make(map[string]map[string]string)
+	}
 	miscTags := b.miscResourceTagsStore(region)
 	if miscTags[input.ResourceID] == nil {
 		miscTags[input.ResourceID] = make(map[string]string)
@@ -1329,6 +1341,12 @@ func (b *InMemoryBackend) registerDefaultDocuments(region string) {
 		},
 	}
 
+	if b.documents[region] == nil {
+		b.documents[region] = make(map[string]Document)
+	}
+	if b.documentVersions[region] == nil {
+		b.documentVersions[region] = make(map[string][]DocumentVersion)
+	}
 	documents := b.documentsStore(region)
 	documentVersions := b.documentVersionsStore(region)
 
@@ -1372,6 +1390,9 @@ func (b *InMemoryBackend) CreateDocument(
 	b.mu.Lock("CreateDocument")
 	defer b.mu.Unlock()
 
+	if b.documents[region] == nil {
+		b.documents[region] = make(map[string]Document)
+	}
 	store := b.documentsStore(region)
 	if _, exists := store[input.Name]; exists {
 		return nil, ErrDocumentAlreadyExists
@@ -1406,6 +1427,9 @@ func (b *InMemoryBackend) CreateDocument(
 	}
 
 	store[input.Name] = doc
+	if b.documentVersions[region] == nil {
+		b.documentVersions[region] = make(map[string][]DocumentVersion)
+	}
 	versionStore := b.documentVersionsStore(region)
 	versionStore[input.Name] = []DocumentVersion{
 		{
@@ -1683,6 +1707,9 @@ func (b *InMemoryBackend) ModifyDocumentPermission(
 		return nil, ErrDocumentNotFound
 	}
 
+	if b.documentPermissions[region] == nil {
+		b.documentPermissions[region] = make(map[string][]string)
+	}
 	store := b.documentPermissionsStore(region)
 	current := store[input.Name]
 
@@ -1785,6 +1812,9 @@ func (b *InMemoryBackend) SendCommand(
 		OutputS3Region:     input.OutputS3Region,
 	}
 
+	if b.commands[region] == nil {
+		b.commands[region] = make(map[string]Command)
+	}
 	b.commandsStore(region)[cmdID] = cmd
 
 	invocations := make([]CommandInvocation, 0, len(input.InstanceIDs))
@@ -1799,6 +1829,9 @@ func (b *InMemoryBackend) SendCommand(
 			Comment:           input.Comment,
 		}
 		invocations = append(invocations, inv)
+	}
+	if b.commandInvocations[region] == nil {
+		b.commandInvocations[region] = make(map[string][]CommandInvocation)
 	}
 	b.commandInvocationsStore(region)[cmdID] = invocations
 
@@ -2121,9 +2154,15 @@ func (b *InMemoryBackend) CreateActivation(
 		CreatedDate:         now,
 	}
 
+	if b.activations[region] == nil {
+		b.activations[region] = make(map[string]Activation)
+	}
 	b.activationsStore(region)[activationID] = act
 
 	if len(input.Tags) > 0 {
+		if b.miscResourceTags[region] == nil {
+			b.miscResourceTags[region] = make(map[string]map[string]string)
+		}
 		miscTags := b.miscResourceTagsStore(region)
 		if miscTags[activationID] == nil {
 			miscTags[activationID] = make(map[string]string)
@@ -2200,6 +2239,9 @@ func (b *InMemoryBackend) CreateAssociation(
 		LastUpdateAssociationDate: now,
 	}
 
+	if b.associations[region] == nil {
+		b.associations[region] = make(map[string]Association)
+	}
 	b.associationsStore(region)[assocID] = assoc
 
 	return &CreateAssociationOutput{AssociationDescription: assoc}, nil
@@ -2221,6 +2263,9 @@ func (b *InMemoryBackend) CreateAssociationBatch(
 
 	now := UnixTimeFloat(time.Now())
 	docs := b.documentsStore(region)
+	if b.associations[region] == nil {
+		b.associations[region] = make(map[string]Association)
+	}
 	assocs := b.associationsStore(region)
 
 	for _, entry := range input.Entries {
@@ -2297,9 +2342,15 @@ func (b *InMemoryBackend) CreateMaintenanceWindow(
 		ModifiedDate:             now,
 	}
 
+	if b.maintenanceWindows[region] == nil {
+		b.maintenanceWindows[region] = make(map[string]MaintenanceWindow)
+	}
 	b.maintenanceWindowsStore(region)[windowID] = mw
 
 	if len(input.Tags) > 0 {
+		if b.miscResourceTags[region] == nil {
+			b.miscResourceTags[region] = make(map[string]map[string]string)
+		}
 		miscTags := b.miscResourceTagsStore(region)
 		if miscTags[windowID] == nil {
 			miscTags[windowID] = make(map[string]string)
@@ -2348,6 +2399,9 @@ func (b *InMemoryBackend) CreateOpsItem(
 		LastModifiedTime: now,
 	}
 
+	if b.opsItems[region] == nil {
+		b.opsItems[region] = make(map[string]OpsItem)
+	}
 	b.opsItemsStore(region)[opsItemID] = item
 
 	b.opsItemEvents[region] = append(b.opsItemEvents[region], OpsItemEventSummary{
@@ -2356,6 +2410,9 @@ func (b *InMemoryBackend) CreateOpsItem(
 	})
 
 	if len(input.Tags) > 0 {
+		if b.miscResourceTags[region] == nil {
+			b.miscResourceTags[region] = make(map[string]map[string]string)
+		}
 		miscTags := b.miscResourceTagsStore(region)
 		if miscTags[opsItemID] == nil {
 			miscTags[opsItemID] = make(map[string]string)
@@ -2392,6 +2449,9 @@ func (b *InMemoryBackend) AssociateOpsItemRelatedItem(
 		ResourceURI:     input.ResourceURI,
 	}
 
+	if b.opsItemRelatedItems[region] == nil {
+		b.opsItemRelatedItems[region] = make(map[string][]OpsItemRelatedItem)
+	}
 	store := b.opsItemRelatedItemsStore(region)
 	store[input.OpsItemID] = append(store[input.OpsItemID], related)
 
@@ -2411,6 +2471,9 @@ func (b *InMemoryBackend) CreateOpsMetadata(
 	b.mu.Lock("CreateOpsMetadata")
 	defer b.mu.Unlock()
 
+	if b.resourceIDToOpsMetadataArn[region] == nil {
+		b.resourceIDToOpsMetadataArn[region] = make(map[string]string)
+	}
 	resToArn := b.resourceIDToOpsMetadataArnStore(region)
 	if _, exists := resToArn[input.ResourceID]; exists {
 		return nil, fmt.Errorf(
@@ -2432,6 +2495,9 @@ func (b *InMemoryBackend) CreateOpsMetadata(
 		LastModifiedDate: now,
 	}
 
+	if b.opsMetadata[region] == nil {
+		b.opsMetadata[region] = make(map[string]OpsMetadata)
+	}
 	b.opsMetadataStore(region)[arn] = meta
 	resToArn[input.ResourceID] = arn
 
@@ -2472,9 +2538,15 @@ func (b *InMemoryBackend) CreatePatchBaseline(
 		ModifiedDate:                   now,
 	}
 
+	if b.patchBaselines[region] == nil {
+		b.patchBaselines[region] = make(map[string]PatchBaseline)
+	}
 	b.patchBaselinesStore(region)[baselineID] = bl
 
 	if len(input.Tags) > 0 {
+		if b.miscResourceTags[region] == nil {
+			b.miscResourceTags[region] = make(map[string]map[string]string)
+		}
 		miscTags := b.miscResourceTagsStore(region)
 		if miscTags[baselineID] == nil {
 			miscTags[baselineID] = make(map[string]string)
