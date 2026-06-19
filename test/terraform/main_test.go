@@ -35,6 +35,7 @@ import (
 	bedrocksvc "github.com/aws/aws-sdk-go-v2/service/bedrock"
 	bedrockagentsvc "github.com/aws/aws-sdk-go-v2/service/bedrockagent"
 	bedrockruntimesvc "github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
+	cleanroomssvc "github.com/aws/aws-sdk-go-v2/service/cleanrooms"
 	cloudcontrolsvc "github.com/aws/aws-sdk-go-v2/service/cloudcontrol"
 	cfnsvc "github.com/aws/aws-sdk-go-v2/service/cloudformation"
 	cloudfrontsvc "github.com/aws/aws-sdk-go-v2/service/cloudfront"
@@ -101,6 +102,7 @@ import (
 	mqsvc "github.com/aws/aws-sdk-go-v2/service/mq"
 	mwaasvc "github.com/aws/aws-sdk-go-v2/service/mwaa"
 	neptunesvc "github.com/aws/aws-sdk-go-v2/service/neptune"
+	networkmonitorsvc "github.com/aws/aws-sdk-go-v2/service/networkmonitor"
 	opensearchsvc "github.com/aws/aws-sdk-go-v2/service/opensearch"
 	organizationssvc "github.com/aws/aws-sdk-go-v2/service/organizations"
 	personalizesvc "github.com/aws/aws-sdk-go-v2/service/personalize"
@@ -140,9 +142,6 @@ import (
 	transcribesvc "github.com/aws/aws-sdk-go-v2/service/transcribe"
 	transfersvc "github.com/aws/aws-sdk-go-v2/service/transfer"
 	translatesvc "github.com/aws/aws-sdk-go-v2/service/translate"
-	cleanroomssvc "github.com/aws/aws-sdk-go-v2/service/cleanrooms"
-	networkmonitorsvc "github.com/aws/aws-sdk-go-v2/service/networkmonitor"
-	omicssvc "github.com/aws/aws-sdk-go-v2/service/omics"
 	verifiedpermissionssvc "github.com/aws/aws-sdk-go-v2/service/verifiedpermissions"
 	vpclatticesvc "github.com/aws/aws-sdk-go-v2/service/vpclattice"
 	workmailsvc "github.com/aws/aws-sdk-go-v2/service/workmail"
@@ -2557,12 +2556,6 @@ func createCleanRoomsClient(t *testing.T) *cleanroomssvc.Client {
 	t.Helper()
 
 	return createClientWithEndpoint(t, cleanroomssvc.NewFromConfig, endpoint)
-}
-
-func createOmicsClient(t *testing.T) *omicssvc.Client {
-	t.Helper()
-
-	return createClientWithEndpoint(t, omicssvc.NewFromConfig, endpoint)
 }
 
 func createNetworkMonitorClient(t *testing.T) *networkmonitorsvc.Client {

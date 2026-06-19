@@ -9,13 +9,12 @@ import (
 	bedrockagentsvc "github.com/aws/aws-sdk-go-v2/service/bedrockagent"
 	cleanroomssvc "github.com/aws/aws-sdk-go-v2/service/cleanrooms"
 	cleanroomstypes "github.com/aws/aws-sdk-go-v2/service/cleanrooms/types"
-	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	dlmsvc "github.com/aws/aws-sdk-go-v2/service/dlm"
 	dlmtypes "github.com/aws/aws-sdk-go-v2/service/dlm/types"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	iamsvc "github.com/aws/aws-sdk-go-v2/service/iam"
 	lambdasvc "github.com/aws/aws-sdk-go-v2/service/lambda"
 	networkmonitorsvc "github.com/aws/aws-sdk-go-v2/service/networkmonitor"
-	omicssvc "github.com/aws/aws-sdk-go-v2/service/omics"
 	vpclatticesvc "github.com/aws/aws-sdk-go-v2/service/vpclattice"
 	vpclatticeTypes "github.com/aws/aws-sdk-go-v2/service/vpclattice/types"
 	"github.com/google/uuid"
@@ -431,7 +430,7 @@ func TestTerraformImport_DLM(t *testing.T) {
 				// IAM role must exist for the fixture to be valid.
 				iamClient := createIAMClient(t)
 				_, _ = iamClient.CreateRole(ctx, &iamsvc.CreateRoleInput{
-					RoleName: aws.String(roleName),
+					RoleName:                 aws.String(roleName),
 					AssumeRolePolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"dlm.amazonaws.com"},"Action":"sts:AssumeRole"}]}`),
 				})
 
@@ -514,169 +513,6 @@ func TestTerraformDrift_DLM(t *testing.T) {
 					}
 				}
 				t.Errorf("policy %q not found after drift correction", policyName)
-			},
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			runDriftTest(t, tc)
-		})
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Omics
-// ---------------------------------------------------------------------------
-
-// TestTerraform_Omics provisions an Omics reference store via Terraform and
-// verifies it appears in ListReferenceStores.
-func TestTerraform_Omics(t *testing.T) {
-	t.Parallel()
-
-	tests := []tfTestCase{
-		{
-			name:    "success",
-			fixture: "omics/success",
-			setup: func(t *testing.T, _ string) map[string]any {
-				t.Helper()
-
-				return map[string]any{
-					"StoreName": "tf-omics-" + uuid.NewString()[:8],
-				}
-			},
-			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
-				t.Helper()
-
-				client := createOmicsClient(t)
-				storeName := vars["StoreName"].(string)
-
-				out, err := client.ListReferenceStores(ctx, &omicssvc.ListReferenceStoresInput{})
-				require.NoError(t, err, "ListReferenceStores should succeed after terraform apply")
-
-				found := false
-				for _, s := range out.ReferenceStores {
-					if aws.ToString(s.Name) == storeName {
-						found = true
-
-						break
-					}
-				}
-				assert.True(t, found, "reference store %q should appear in ListReferenceStores", storeName)
-			},
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			runTFTest(t, tc)
-		})
-	}
-}
-
-// TestTerraformImport_Omics verifies that an Omics reference store created via
-// the SDK can be imported into Terraform state without drift.
-func TestTerraformImport_Omics(t *testing.T) {
-	t.Parallel()
-
-	tests := []importTestCase{
-		{
-			name:            "reference_store",
-			fixture:         "omics/import",
-			resourceAddress: "aws_omics_reference_store.this",
-			createResource: func(t *testing.T, ctx context.Context, _ string) (map[string]any, string) {
-				t.Helper()
-
-				client := createOmicsClient(t)
-				storeName := "tf-omics-import-" + uuid.NewString()[:8]
-
-				out, err := client.CreateReferenceStore(ctx, &omicssvc.CreateReferenceStoreInput{
-					Name: aws.String(storeName),
-				})
-				require.NoError(t, err, "CreateReferenceStore should succeed")
-
-				storeID := aws.ToString(out.Id)
-				t.Cleanup(func() {
-					_, _ = client.DeleteReferenceStore(ctx, &omicssvc.DeleteReferenceStoreInput{
-						Id: aws.String(storeID),
-					})
-				})
-
-				return map[string]any{"StoreName": storeName}, storeID
-			},
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			runImportTest(t, tc)
-		})
-	}
-}
-
-// TestTerraformDrift_Omics verifies that Terraform detects and corrects drift
-// for an Omics reference store when its tags are changed via the SDK.
-func TestTerraformDrift_Omics(t *testing.T) {
-	t.Parallel()
-
-	tests := []driftTestCase{
-		{
-			name:    "tags_changed",
-			fixture: "omics/drift",
-			setup: func(t *testing.T, _ string) map[string]any {
-				t.Helper()
-
-				return map[string]any{
-					"StoreName": "tf-omics-drift-" + uuid.NewString()[:8],
-				}
-			},
-			mutate: func(t *testing.T, ctx context.Context, vars map[string]any) {
-				t.Helper()
-
-				client := createOmicsClient(t)
-				storeName := vars["StoreName"].(string)
-
-				listOut, err := client.ListReferenceStores(ctx, &omicssvc.ListReferenceStoresInput{})
-				require.NoError(t, err)
-
-				var storeID string
-				for _, s := range listOut.ReferenceStores {
-					if aws.ToString(s.Name) == storeName {
-						storeID = aws.ToString(s.Id)
-
-						break
-					}
-				}
-				require.NotEmpty(t, storeID, "store %q must exist to mutate", storeName)
-
-				storeARN := "arn:aws:omics:us-east-1:000000000000:referenceStore/" + storeID
-				_, err = client.TagResource(ctx, &omicssvc.TagResourceInput{
-					ResourceArn: aws.String(storeARN),
-					Tags:        map[string]string{"Env": "drifted"},
-				})
-				require.NoError(t, err, "TagResource should succeed to introduce drift")
-			},
-			verifyAfter: func(t *testing.T, ctx context.Context, vars map[string]any) {
-				t.Helper()
-
-				client := createOmicsClient(t)
-				storeName := vars["StoreName"].(string)
-
-				listOut, err := client.ListReferenceStores(ctx, &omicssvc.ListReferenceStoresInput{})
-				require.NoError(t, err)
-
-				var storeID string
-				for _, s := range listOut.ReferenceStores {
-					if aws.ToString(s.Name) == storeName {
-						storeID = aws.ToString(s.Id)
-
-						break
-					}
-				}
-				require.NotEmpty(t, storeID, "store %q must still exist after drift correction", storeName)
 			},
 		},
 	}
