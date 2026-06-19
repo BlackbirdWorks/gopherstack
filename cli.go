@@ -56,6 +56,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/dashboard"
 	"github.com/blackbirdworks/gopherstack/demo"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	gopherDNS "github.com/blackbirdworks/gopherstack/pkgs/dns"
@@ -2057,6 +2058,7 @@ func buildEchoServer(
 	e.Use(logger.APIConsoleMiddleware())
 	e.Use(telemetry.MemoryStatsMiddleware)
 	e.Pre(logger.EchoMiddleware(log))
+	e.Pre(awsMetaMiddleware(cli.Region, cli.AccountID))
 
 	// Optional, opt-in SigV4 signature validation. Off by default so existing
 	// clients (which sign with dummy creds) are not rejected.
@@ -5423,6 +5425,44 @@ func panicRecoveryMiddleware() echo.MiddlewareFunc {
 					})
 				}
 			}()
+
+			return next(c)
+		}
+	}
+}
+
+// awsMetaMiddleware populates the per-request AWS metadata ctxbag (account,
+// region, partition, request ID) and threads the same fields onto the context
+// logger so every record emitted via logger.Load(ctx) is tagged uniformly.
+// Backends read identity through awsmeta.Region(ctx)/awsmeta.Account(ctx)
+// rather than re-deriving it from the raw request, giving every service a
+// single, consistent source of request-scoped metadata and logging.
+func awsMetaMiddleware(defaultRegion, defaultAccount string) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error {
+			req := c.Request()
+			meta := awsmeta.FromRequest(req, defaultRegion)
+
+			// FromRequest defaults the account to awsmeta.DefaultAccount; honor
+			// the operator-configured account when no per-request override was
+			// supplied via the X-Amz-Account-Id header.
+			if meta.Account == awsmeta.DefaultAccount && defaultAccount != "" {
+				meta.Account = defaultAccount
+			}
+
+			// The request-id is set on the response (not the request) by
+			// RequestIDMiddleware; carry it through so logs and metadata agree.
+			if meta.RequestID == "" {
+				meta.RequestID = c.Response().Header().Get("X-Amz-Request-Id")
+			}
+
+			ctx := awsmeta.Set(req.Context(), meta)
+			ctx = logger.AddAttrs(ctx,
+				slog.String("region", meta.Region),
+				slog.String("account", meta.Account),
+				slog.String("request_id", meta.RequestID),
+			)
+			c.SetRequest(req.WithContext(ctx))
 
 			return next(c)
 		}

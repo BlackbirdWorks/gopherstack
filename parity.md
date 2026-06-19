@@ -2278,3 +2278,109 @@ re-architecture and are explicitly left as standalone follow-ups:
 
 No stubs, no `//nolint`, no regressions: every previously-green test still
 passes alongside the new table-driven suites.
+
+---
+
+# Cross-cutting ctxbag (awsmeta) + consistent-logger wiring (pass-9, 2026-06-19)
+
+This pass tackles the platform-wide requirement that **every service obtain AWS
+request metadata (region/account/partition/request-id) from the context "ctxbag"
+and emit logs through a single, request-scoped logger**. The infrastructure for
+this already existed but was dormant; this pass activates it centrally so all
+~154 services benefit without per-handler churn, and re-verifies several stale
+§D leak findings.
+
+## The gap (verified by grep over the whole tree)
+
+- `pkgs/awsmeta` (Metadata carried on `context.Context` via the typed
+  `pkgs/ctxval` key) is the canonical ctxbag, but **`awsmeta.Set` /
+  `awsmeta.FromRequest` were never called in production code** — only
+  `services/ecr/backend.go:470` *read* `awsmeta.Region(ctx)`, and since nothing
+  ever populated it, ECR silently fell back to its construction-time region on
+  every call.
+- `pkgs/logger` documents that services must NOT embed a `*slog.Logger` and
+  should tag records via `logger.WithService(ctx, name)` at the service boundary,
+  yet **`logger.WithService` had zero callers** — records carried no `service`
+  attribute and no request-scoped identity.
+- Services instead each derived region per-request from the raw `*http.Request`
+  (`httputils.ExtractRegionFromRequest`) or from a `DefaultRegion` struct field,
+  duplicating logic and giving no single source of truth.
+
+## Implemented (with table-driven tests)
+
+- **Central ctxbag population** (`cli.go` `awsMetaMiddleware`, wired as an
+  `e.Pre` immediately after `logger.EchoMiddleware`): every request now builds
+  `awsmeta.FromRequest(r, cli.Region)`, applies the operator-configured account
+  (`cli.AccountID`) when no `X-Amz-Account-Id` override is present, back-fills the
+  `X-Amz-Request-Id` from the response header set by `RequestIDMiddleware`, and
+  stores the Metadata on the request context. Every service can now read
+  identity uniformly via `awsmeta.Region(ctx)` / `awsmeta.Account(ctx)` /
+  `awsmeta.Partition(ctx)`. ECR's existing `awsmeta.Region(ctx)` read is now
+  actually fed (region follows the SigV4 scope of the request instead of the
+  construction default). Tests: `cli_test.go::TestAWSMetaMiddleware_PopulatesCtxbag`
+  (default fallback, SigV4-scope override, account-header override).
+- **Logger tracked like the ctxbag** (same middleware): the request logger is
+  enriched with `region` / `account` / `request_id` attributes via
+  `logger.AddAttrs`, so the logger is threaded as request-scoped metadata exactly
+  like the awsmeta bag rather than being a process-global singleton.
+- **Strict req → service logger scoping** (`pkgs/service/registry.go`
+  `withServiceLogger`, applied as the outermost wrapper in `Register`): every
+  registered service handler now runs inside `logger.WithService(ctx, name)`, so
+  all downstream `logger.Load(ctx)` records carry `service=<name>`. Because
+  `slog.Logger.With` returns a *new* logger stored on a child of the per-request
+  context, the process-wide base logger is **never mutated** and concurrent
+  requests for different services cannot clobber one another's logger. Tests:
+  `pkgs/service/registry_logger_test.go` —
+  `TestRegisterScopesLoggerToService` (tag present) and
+  `TestRegisterLoggerScopingIsRequestIsolated` (two services sharing a base
+  logger, run concurrently, each see only their own `service=` tag with no
+  bleed).
+
+This makes the ctxbag + consistent-logger contract **active for all services at
+once** at the request boundary. Migrating individual backends to *read* region
+from `awsmeta.Region(ctx)` instead of their `DefaultRegion` struct field is now a
+safe, incremental follow-up (the context value is guaranteed populated), tracked
+below.
+
+## §D leak findings re-verified against current code (corrections)
+
+A fresh read of the cited §D items shows most were already closed by earlier
+passes; recording them so they are not re-flagged:
+
+- **ECR `layerUploads`** — NOT a leak: `InitiateLayerUpload` prunes entries older
+  than a 24h TTL inline, `DeleteRepository` drops a repo's uploads, and
+  `CompleteLayerUpload` deletes on completion (`services/ecr/backend.go`).
+- **EventBridge event log** — NOT a leak: capped to the last `maxEventLogSize`
+  (1000) entries via a sliding window (`services/eventbridge/backend.go`).
+- **AppRunner `svc.Operations`** — NOT a leak: capped per service to
+  `maxOperationsPerService` (200) with the dropped prefix copied out so the
+  backing array is released for GC (`services/apprunner/backend.go`).
+- **EFS `archiveData`** — NOT a leak: no such whole-body cache exists in current
+  code (the field referenced by the historical note is gone).
+- **Route53 handler `tags` map** — NOT a leak: the only two taggable Route53
+  resource types (`hostedzone`, `healthcheck`) both call
+  `deleteTagsForResource` on delete (`services/route53/handler.go:1121,1932`), so
+  no entries are stranded. (An earlier audit note misattributed line 1932 to
+  traffic-policy deletion; it is in fact `deleteHealthCheck`.)
+
+## Still genuinely open (follow-ups)
+
+- **LakeFormation `permissions`** (`services/lakeformation/backend.go`) — an
+  unbounded `[]*PermissionEntry`. `RevokePermissions` does drop zero-permission
+  entries, so this is grant-proportional state rather than a churn leak; a hard
+  cap would discard real grants, so the right fix is a `(principal,resource)`-keyed
+  map (also fixing the O(n) `findPermissionEntry` scan). Deferred — needs a
+  backend-shape change, not a one-liner.
+- **Per-backend region migration** — backends that still hold a `DefaultRegion`
+  field can incrementally switch to `awsmeta.Region(ctx)` (with the field as the
+  fallback default) now that the ctxbag is always populated. Non-urgent; no
+  behavioural gap remains because the per-request region they derive matches what
+  the middleware now stores.
+
+## Quality gates
+
+`go build ./...`, `go vet ./pkgs/service/...`, and `gofmt -l` are clean on every
+touched file; the new and existing tests for `pkgs/service`, `pkgs/awsmeta`,
+`pkgs/logger`, and the `main` middleware suite all pass with `-count=1`.
+(`golangci-lint` could not run in this environment: the installed binary is built
+with go1.25 while the module targets go1.26.4.)
