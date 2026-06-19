@@ -463,18 +463,22 @@ const (
 type Handler struct {
 	Backend     StorageBackend
 	appendixOps map[string]appendixHandlerFn
+	statefulOps map[string]echo.HandlerFunc
 	accountID   string
 	region      string
 }
 
 // NewHandler creates a new QuickSight handler.
 func NewHandler(b StorageBackend) *Handler {
-	return &Handler{
+	h := &Handler{
 		Backend:     b,
 		appendixOps: buildAppendixOps(),
 		accountID:   b.AccountID(),
 		region:      b.Region(),
 	}
+	h.statefulOps = h.buildStatefulAppendixOps()
+
+	return h
 }
 
 // Name returns the service name.
@@ -2476,7 +2480,7 @@ func (h *Handler) handleUpdateDataSource(c *echo.Context) error {
 		keyDataSourceID: ds.DataSourceID,
 		keyRequestID:    reqIDPlaceholder,
 		keyStatus:       http.StatusOK,
-		"UpdateStatus":  ds.Status,
+		keyUpdateStatus: ds.Status,
 	})
 }
 
