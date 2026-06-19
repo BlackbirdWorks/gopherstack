@@ -35,7 +35,6 @@ import (
 	bedrocksvc "github.com/aws/aws-sdk-go-v2/service/bedrock"
 	bedrockagentsvc "github.com/aws/aws-sdk-go-v2/service/bedrockagent"
 	bedrockruntimesvc "github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
-	cleanroomssvc "github.com/aws/aws-sdk-go-v2/service/cleanrooms"
 	cloudcontrolsvc "github.com/aws/aws-sdk-go-v2/service/cloudcontrol"
 	cfnsvc "github.com/aws/aws-sdk-go-v2/service/cloudformation"
 	cloudfrontsvc "github.com/aws/aws-sdk-go-v2/service/cloudfront"
@@ -59,7 +58,6 @@ import (
 	datasyncsvc "github.com/aws/aws-sdk-go-v2/service/datasync"
 	detectivesvc "github.com/aws/aws-sdk-go-v2/service/detective"
 	directoryservicesvc "github.com/aws/aws-sdk-go-v2/service/directoryservice"
-	dlmsvc "github.com/aws/aws-sdk-go-v2/service/dlm"
 	docdbsvc "github.com/aws/aws-sdk-go-v2/service/docdb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	dynamodbstreamssvc "github.com/aws/aws-sdk-go-v2/service/dynamodbstreams"
@@ -2459,12 +2457,6 @@ func createDirectoryServiceClient(t *testing.T) *directoryservicesvc.Client {
 	return createClientWithEndpoint(t, directoryservicesvc.NewFromConfig, endpoint)
 }
 
-func createDLMClient(t *testing.T) *dlmsvc.Client {
-	t.Helper()
-
-	return createClientWithEndpoint(t, dlmsvc.NewFromConfig, endpoint)
-}
-
 func createForecastClient(t *testing.T) *forecastsvc.Client {
 	t.Helper()
 
@@ -2550,12 +2542,6 @@ func createWorkMailClient(t *testing.T) *workmailsvc.Client {
 	t.Helper()
 
 	return createClientWithEndpoint(t, workmailsvc.NewFromConfig, endpoint)
-}
-
-func createCleanRoomsClient(t *testing.T) *cleanroomssvc.Client {
-	t.Helper()
-
-	return createClientWithEndpoint(t, cleanroomssvc.NewFromConfig, endpoint)
 }
 
 func createNetworkMonitorClient(t *testing.T) *networkmonitorsvc.Client {
