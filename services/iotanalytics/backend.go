@@ -1123,34 +1123,39 @@ func (b *InMemoryBackend) AddPipelineInternal(name string) *Pipeline {
 // resolveARNResource checks whether a resource ARN corresponds to an existing resource.
 // Returns true if the resource exists.
 func (b *InMemoryBackend) resolveARNResource(arn string) bool {
-	const (
-		channelPrefix   = "arn:aws:iotanalytics:us-east-1:000000000000:channel/"
-		datastorePrefix = "arn:aws:iotanalytics:us-east-1:000000000000:datastore/"
-		datasetPrefix   = "arn:aws:iotanalytics:us-east-1:000000000000:dataset/"
-		pipelinePrefix  = "arn:aws:iotanalytics:us-east-1:000000000000:pipeline/"
-	)
+	// ARN format: arn:aws:iotanalytics:<region>:<account>:<resourceType>/<name>
+	// Parse without assuming a specific region or account.
+	parts := strings.SplitN(arn, ":", 6)
+	if len(parts) != 6 || parts[0] != "arn" || parts[1] != "aws" || parts[2] != "iotanalytics" {
+		return false
+	}
 
-	switch {
-	case strings.HasPrefix(arn, channelPrefix):
-		name := strings.TrimPrefix(arn, channelPrefix)
+	resource := parts[5]
+	slash := strings.IndexByte(resource, '/')
+	if slash < 0 {
+		return false
+	}
+
+	resourceType := resource[:slash]
+	name := resource[slash+1:]
+
+	switch resourceType {
+	case "channel":
 		_, ok := b.channels[name]
 
 		return ok
 
-	case strings.HasPrefix(arn, datastorePrefix):
-		name := strings.TrimPrefix(arn, datastorePrefix)
+	case "datastore":
 		_, ok := b.datastores[name]
 
 		return ok
 
-	case strings.HasPrefix(arn, datasetPrefix):
-		name := strings.TrimPrefix(arn, datasetPrefix)
+	case "dataset":
 		_, ok := b.datasets[name]
 
 		return ok
 
-	case strings.HasPrefix(arn, pipelinePrefix):
-		name := strings.TrimPrefix(arn, pipelinePrefix)
+	case "pipeline":
 		_, ok := b.pipelines[name]
 
 		return ok

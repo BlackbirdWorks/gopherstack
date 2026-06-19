@@ -19,6 +19,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -497,7 +499,7 @@ func (h *Handler) runAuthorizer(
 	}
 
 	// Build the authorizer event based on type.
-	event := h.buildAuthorizerEvent(r, auth, apiID, stageName)
+	event := h.buildAuthorizerEvent(ctx, r, auth, apiID, stageName)
 
 	payload, _ := json.Marshal(event)
 
@@ -610,7 +612,7 @@ func (h *Handler) runRequestValidator(
 }
 
 // buildAuthorizerEvent constructs the event payload for the Lambda authorizer.
-func (h *Handler) buildAuthorizerEvent(r *http.Request, auth *Authorizer, apiID, stageName string) AuthorizerEvent {
+func (h *Handler) buildAuthorizerEvent(ctx context.Context, r *http.Request, auth *Authorizer, apiID, stageName string) AuthorizerEvent {
 	headers := make(map[string]string)
 	for k, vs := range r.Header {
 		if len(vs) > 0 {
@@ -647,8 +649,13 @@ func (h *Handler) buildAuthorizerEvent(r *http.Request, auth *Authorizer, apiID,
 		}
 	}
 
-	methodArn := fmt.Sprintf("arn:aws:execute-api:us-east-1:000000000000:%s/%s/%s%s",
-		apiID, stageName, r.Method, resourcePath)
+	region := awsmeta.Region(ctx)
+	if region == "" {
+		region = config.DefaultRegion
+	}
+
+	methodArn := fmt.Sprintf("arn:aws:execute-api:%s:%s:%s/%s/%s%s",
+		region, awsmeta.Account(ctx), apiID, stageName, r.Method, resourcePath)
 
 	event := AuthorizerEvent{
 		Type:                  auth.Type,

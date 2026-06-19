@@ -655,7 +655,7 @@ func (h *Handler) createWirelessGatewayTaskDefinition(c *echo.Context) error {
 	body := readStubBody(c)
 	_ = json.Unmarshal(body, &req)
 
-	def, err := h.Backend.CreateWirelessGatewayTaskDefinition(req.Name, req.AutoCreateTasks)
+	def, err := h.Backend.CreateWirelessGatewayTaskDefinition(h.AccountID, h.DefaultRegion, req.Name, req.AutoCreateTasks)
 	if err != nil {
 		return handleError(c, err)
 	}

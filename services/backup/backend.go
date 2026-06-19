@@ -397,6 +397,9 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 // Region returns the AWS region this backend is configured for.
 func (b *InMemoryBackend) Region() string { return b.region }
 
+// AccountID returns the AWS account ID this backend is configured for.
+func (b *InMemoryBackend) AccountID() string { return b.accountID }
+
 // isValidVaultName reports whether name is an acceptable AWS Backup vault name:
 // 2–50 alphanumeric or hyphen characters.
 func isValidVaultName(name string) bool {

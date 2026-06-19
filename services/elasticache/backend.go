@@ -161,6 +161,7 @@ type Cluster struct {
 	Endpoint                   string
 	NodeType                   string
 	ARN                        string
+	Region                     string
 	CacheParameterGroupName    string
 	PreferredMaintenanceWindow string
 	SnapshotWindow             string
@@ -841,6 +842,7 @@ func (b *InMemoryBackend) createClusterLocked(
 		NodeType:                   nodeType,
 		NumCacheNodes:              numCacheNodes,
 		ARN:                        b.clusterARN(region, id),
+		Region:                     region,
 		Tags:                       tags.New("elasticache.cluster." + id + ".tags"),
 		CreatedAt:                  time.Now(),
 		CacheParameterGroupName:    paramGroupName,

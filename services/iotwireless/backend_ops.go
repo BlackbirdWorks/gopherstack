@@ -382,14 +382,14 @@ func (b *InMemoryBackend) DeleteWirelessGatewayTask(gatewayID string) error {
 
 // CreateWirelessGatewayTaskDefinition creates a new gateway task definition.
 func (b *InMemoryBackend) CreateWirelessGatewayTaskDefinition(
-	name string,
+	accountID, region, name string,
 	autoCreateTasks bool,
 ) (*GatewayTaskDefinition, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	id := uuid.NewString()
-	arn := wirelessGatewayTaskDefARN(id)
+	arn := wirelessGatewayTaskDefARN(accountID, region, id)
 
 	def := &GatewayTaskDefinition{
 		ID:              id,
@@ -450,8 +450,8 @@ func (b *InMemoryBackend) DeleteWirelessGatewayTaskDefinition(id string) error {
 }
 
 // wirelessGatewayTaskDefARN generates an ARN for a wireless gateway task definition.
-func wirelessGatewayTaskDefARN(id string) string {
-	return "arn:aws:iotwireless:us-east-1:000000000000:WirelessGatewayTaskDefinition/" + id
+func wirelessGatewayTaskDefARN(accountID, region, id string) string {
+	return fmt.Sprintf("arn:aws:iotwireless:%s:%s:WirelessGatewayTaskDefinition/%s", region, accountID, id)
 }
 
 // --- Position operations ---

@@ -13,6 +13,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -4076,7 +4077,8 @@ func (h *Handler) dispatchStubTieringOps(
 	case opCreateTieringConfiguration:
 		err := h.Backend.CreateTieringConfiguration(route.resource)
 		if err != nil {
-			vaultArn := "arn:aws:backup:" + h.Backend.Region() + ":000000000000:backup-vault:" + route.resource
+			account := awsmeta.Account(c.Request().Context())
+			vaultArn := "arn:aws:backup:" + h.Backend.Region() + ":" + account + ":backup-vault:" + route.resource
 
 			return true, c.JSON(http.StatusOK, map[string]any{keyBackupVaultArn: vaultArn})
 		}

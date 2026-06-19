@@ -16,6 +16,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -1599,12 +1600,12 @@ func enginePatchVersionFor(engine, engineVersion string) string {
 func toClusterObject(c *Cluster, showShards bool) clusterObject {
 	region := c.Region
 	if region == "" {
-		region = "us-east-1"
+		region = config.DefaultRegion
 	}
 
 	var shards []shardObject
 	if showShards {
-		shards = buildShards(c.Name, c.NumShards, c.NumReplicasPerShard, c.Port)
+		shards = buildShards(c.Name, c.NumShards, c.NumReplicasPerShard, c.Port, region)
 	}
 
 	sgs := make([]securityGroupMembership, 0, len(c.SecurityGroupIDs))
@@ -1648,7 +1649,7 @@ func toClusterObject(c *Cluster, showShards bool) clusterObject {
 }
 
 // buildShards constructs a slice of shardObjects with evenly-distributed slots and nodes.
-func buildShards(clusterName string, numShards, numReplicas, port int32) []shardObject {
+func buildShards(clusterName string, numShards, numReplicas, port int32, region string) []shardObject {
 	const totalSlots = 16384
 
 	const maxShards = 256
@@ -1660,7 +1661,7 @@ func buildShards(clusterName string, numShards, numReplicas, port int32) []shard
 
 	slotsPerShard := totalSlots / nShards
 
-	zones := []string{"us-east-1a", "us-east-1b", "us-east-1c"}
+	zones := []string{region + "a", region + "b", region + "c"}
 
 	// No capacity hint — user-derived values in the make capacity position
 	// trigger CodeQL go/slice-memory-allocation-excessive-size even after
@@ -1689,7 +1690,7 @@ func buildShards(clusterName string, numShards, numReplicas, port int32) []shard
 				AvailabilityZone: zones[ni%len(zones)],
 				CreateTime:       float64(time.Now().Unix()),
 				Endpoint: &endpointObject{
-					Address: nodeName + ".memorydb.us-east-1.amazonaws.com",
+					Address: nodeName + ".memorydb." + region + ".amazonaws.com",
 					Port:    port,
 				},
 			})
