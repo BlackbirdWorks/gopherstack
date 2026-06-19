@@ -38,7 +38,7 @@ const (
 func (b *InMemoryBackend) CreateResourceDataSync(
 	ctx context.Context,
 	input *CreateResourceDataSyncInput,
-) (*StubOutput, error) {
+) (*CreateResourceDataSyncOutput, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("CreateResourceDataSync")
 	defer b.mu.Unlock()
@@ -61,20 +61,20 @@ func (b *InMemoryBackend) CreateResourceDataSync(
 		LastSyncTime:    time.Now().UTC(),
 	}
 
-	return &StubOutput{}, nil
+	return &CreateResourceDataSyncOutput{}, nil
 }
 
 // DeleteResourceDataSync removes a resource data sync by name.
 func (b *InMemoryBackend) DeleteResourceDataSync(
 	ctx context.Context,
 	input *DeleteResourceDataSyncInput,
-) (*StubOutput, error) {
+) (*DeleteResourceDataSyncOutput, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("DeleteResourceDataSync")
 	defer b.mu.Unlock()
 
 	if input.SyncName == "" {
-		return &StubOutput{}, nil
+		return &DeleteResourceDataSyncOutput{}, nil
 	}
 
 	syncs := b.resourceDataSyncsStore(region)
@@ -84,7 +84,7 @@ func (b *InMemoryBackend) DeleteResourceDataSync(
 
 	delete(syncs, input.SyncName)
 
-	return &StubOutput{}, nil
+	return &DeleteResourceDataSyncOutput{}, nil
 }
 
 // ListResourceDataSync returns all resource data syncs.
@@ -113,20 +113,20 @@ func (b *InMemoryBackend) ListResourceDataSync(
 func (b *InMemoryBackend) UpdateResourceDataSync(
 	ctx context.Context,
 	input *UpdateResourceDataSyncInput,
-) (*StubOutput, error) {
+) (*UpdateResourceDataSyncOutput, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("UpdateResourceDataSync")
 	defer b.mu.Unlock()
 
 	if input.SyncName == "" {
-		return &StubOutput{}, nil
+		return &UpdateResourceDataSyncOutput{}, nil
 	}
 
 	if sync, exists := b.resourceDataSyncsStore(region)[input.SyncName]; exists {
 		sync.LastSyncTime = time.Now().UTC()
 	}
 
-	return &StubOutput{}, nil
+	return &UpdateResourceDataSyncOutput{}, nil
 }
 
 // --- Activation lifecycle ---
@@ -136,7 +136,7 @@ func (b *InMemoryBackend) UpdateResourceDataSync(
 func (b *InMemoryBackend) DeregisterManagedInstance(
 	ctx context.Context,
 	input *DeregisterManagedInstanceInput,
-) (*StubOutput, error) {
+) (*DeregisterManagedInstanceOutput, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("DeregisterManagedInstance")
 	defer b.mu.Unlock()
@@ -148,14 +148,14 @@ func (b *InMemoryBackend) DeregisterManagedInstance(
 		delete(b.miscResourceTagsStore(region), input.InstanceID)
 	}
 
-	return &StubOutput{}, nil
+	return &DeregisterManagedInstanceOutput{}, nil
 }
 
 // UpdateManagedInstanceRole updates the IAM role for a managed instance's activation.
 func (b *InMemoryBackend) UpdateManagedInstanceRole(
 	ctx context.Context,
 	input *UpdateManagedInstanceRoleInput,
-) (*StubOutput, error) {
+) (*UpdateManagedInstanceRoleOutput, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("UpdateManagedInstanceRole")
 	defer b.mu.Unlock()
@@ -166,7 +166,7 @@ func (b *InMemoryBackend) UpdateManagedInstanceRole(
 		activations[input.InstanceID] = act
 	}
 
-	return &StubOutput{}, nil
+	return &UpdateManagedInstanceRoleOutput{}, nil
 }
 
 // --- Session Manager ---
@@ -299,7 +299,7 @@ func (b *InMemoryBackend) GetServiceSetting(
 func (b *InMemoryBackend) UpdateServiceSetting(
 	ctx context.Context,
 	input *UpdateServiceSettingInput,
-) (*StubOutput, error) {
+) (*UpdateServiceSettingOutput, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("UpdateServiceSetting")
 	defer b.mu.Unlock()
@@ -310,7 +310,7 @@ func (b *InMemoryBackend) UpdateServiceSetting(
 		Status:       settingStatusCustomized,
 	}
 
-	return &StubOutput{}, nil
+	return &UpdateServiceSettingOutput{}, nil
 }
 
 // ResetServiceSetting removes any custom value for a service setting.
@@ -376,13 +376,13 @@ func (b *InMemoryBackend) PutResourcePolicy(
 func (b *InMemoryBackend) DeleteResourcePolicy(
 	ctx context.Context,
 	input *DeleteResourcePolicyInput,
-) (*StubOutput, error) {
+) (*DeleteResourcePolicyOutput, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("DeleteResourcePolicy")
 	defer b.mu.Unlock()
 
 	if input.ResourceARN == "" {
-		return &StubOutput{}, nil
+		return &DeleteResourcePolicyOutput{}, nil
 	}
 
 	policies := b.resourcePoliciesStore(region)
@@ -397,7 +397,7 @@ func (b *InMemoryBackend) DeleteResourcePolicy(
 
 	policies[input.ResourceARN] = updated
 
-	return &StubOutput{}, nil
+	return &DeleteResourcePolicyOutput{}, nil
 }
 
 // --- Parameter Labels ---
@@ -585,7 +585,7 @@ func (b *InMemoryBackend) DescribeAutomationExecutions(
 func (b *InMemoryBackend) StopAutomationExecution(
 	ctx context.Context,
 	input *StopAutomationExecutionInput,
-) (*StubOutput, error) {
+) (*StopAutomationExecutionOutput, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("StopAutomationExecution")
 	defer b.mu.Unlock()
@@ -596,7 +596,7 @@ func (b *InMemoryBackend) StopAutomationExecution(
 		exec.EndTime = &now
 	}
 
-	return &StubOutput{}, nil
+	return &StopAutomationExecutionOutput{}, nil
 }
 
 // SendAutomationSignal sends a signal to an automation execution.
@@ -604,14 +604,14 @@ func (b *InMemoryBackend) StopAutomationExecution(
 func (b *InMemoryBackend) SendAutomationSignal(
 	ctx context.Context,
 	input *SendAutomationSignalInput,
-) (*StubOutput, error) {
+) (*SendAutomationSignalOutput, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("SendAutomationSignal")
 	defer b.mu.Unlock()
 
 	exec, exists := b.automationExecutionsStore(region)[input.AutomationExecutionID]
 	if !exists {
-		return &StubOutput{}, nil
+		return &SendAutomationSignalOutput{}, nil
 	}
 
 	switch input.SignalType {
@@ -623,7 +623,7 @@ func (b *InMemoryBackend) SendAutomationSignal(
 		exec.Status = automationStatusStopped
 	}
 
-	return &StubOutput{}, nil
+	return &SendAutomationSignalOutput{}, nil
 }
 
 // DescribeAutomationStepExecutions returns step executions for an automation.
@@ -816,7 +816,7 @@ func (b *InMemoryBackend) UpdateAssociationStatus(
 func (b *InMemoryBackend) StartAssociationsOnce(
 	ctx context.Context,
 	input *StartAssociationsOnceInput,
-) (*StubOutput, error) {
+) (*StartAssociationsOnceOutput, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("StartAssociationsOnce")
 	defer b.mu.Unlock()
@@ -831,7 +831,7 @@ func (b *InMemoryBackend) StartAssociationsOnce(
 		}
 	}
 
-	return &StubOutput{}, nil
+	return &StartAssociationsOnceOutput{}, nil
 }
 
 // ListAssociationVersions returns the version history of an association.
