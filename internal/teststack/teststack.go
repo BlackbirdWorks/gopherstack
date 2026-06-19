@@ -845,7 +845,7 @@ func populateNewestHandlers(h *handlers) {
 	h.appConfig = appconfigbackend.NewHandler(
 		appconfigbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
-	h.athena = athenabackend.NewHandler(athenabackend.NewInMemoryBackend())
+	h.athena = athenabackend.NewHandler(athenabackend.NewInMemoryBackend(config.DefaultRegion, config.DefaultAccountID))
 	h.autoscaling = autoscalingbackend.NewHandler(autoscalingbackend.NewInMemoryBackend())
 	h.appAutoScaling = applicationautoscalingbackend.NewHandler(
 		applicationautoscalingbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),

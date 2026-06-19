@@ -1547,7 +1547,7 @@ func (rc *ResourceCreator) createLambdaURL(
 			}
 		}
 	}
-	cfg, err := imb.CreateFunctionURLConfig(functionName, authType, cors, invokeMode)
+	cfg, err := imb.CreateFunctionURLConfig(context.Background(), functionName, authType, cors, invokeMode)
 	if err != nil {
 		return "", fmt.Errorf("create Lambda function URL %s: %w", functionName, err)
 	}
