@@ -160,6 +160,12 @@ func resolveProvisioningTemplateOps(path, method string) string {
 		strings.Contains(path, "/versions/") &&
 		method == http.MethodDelete:
 		return opDeleteProvisioningTemplateVersion
+	// GET /provisioning-templates/{templateName}/versions/{versionId} → DescribeProvisioningTemplateVersion
+	case strings.HasPrefix(path, "/provisioning-templates/") &&
+		strings.Contains(path, "/versions/") &&
+		!strings.HasSuffix(path, "/versions") &&
+		method == http.MethodGet:
+		return opDescribeProvisioningTemplateVersion
 	// GET /provisioning-templates/{templateName} → DescribeProvisioningTemplate
 	case strings.HasPrefix(path, "/provisioning-templates/") && method == http.MethodGet:
 		return opDescribeProvisioningTemplate
@@ -178,6 +184,10 @@ func resolveAuthorizerOps(path, method string) string {
 	switch {
 	case path == "/authorizers" && method == http.MethodGet:
 		return opListAuthorizers
+	// /authorizer/{name}/test must be checked before generic POST.
+	case strings.HasPrefix(path, "/authorizer/") &&
+		strings.HasSuffix(path, "/test") && method == http.MethodPost:
+		return opTestInvokeAuthorizer
 	case strings.HasPrefix(path, "/authorizer/") && method == http.MethodPost:
 		return opCreateAuthorizer
 	case strings.HasPrefix(path, "/authorizer/") && method == http.MethodGet:

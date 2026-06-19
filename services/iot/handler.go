@@ -363,6 +363,58 @@ func (h *Handler) GetSupportedOperations() []string {
 		opListJobExecutionsForThing,
 	)
 
+	// Batch 3 ops (previously in allStubOps).
+	core = append(core,
+		opCreateOTAUpdate, opGetOTAUpdate, opDeleteOTAUpdate, opListOTAUpdates,
+		opCreatePackage, opGetPackage, opUpdatePackage, opDeletePackage, opListPackages,
+		opCreatePackageVersion, opGetPackageVersion, opUpdatePackageVersion,
+		opDeletePackageVersion, opListPackageVersions,
+		opGetPackageConfiguration, opUpdatePackageConfiguration,
+		opCreateAuditSuppression, opDescribeAuditSuppression, opUpdateAuditSuppression,
+		opDeleteAuditSuppression, opListAuditSuppressions,
+		opDescribeAuditFinding, opListAuditFindings,
+		opGetV2LoggingOptions, opSetV2LoggingOptions, opSetV2LoggingLevel,
+		opDeleteV2LoggingLevel, opListV2LoggingLevels,
+		opGetLoggingOptions, opSetLoggingOptions,
+		opCreateProvisioningClaim,
+		opCreateKeysAndCertificate,
+		opTransferCertificate, opRejectCertificateTransfer,
+		opDescribeEventConfigurations, opUpdateEventConfigurations,
+		opDetachSecurityProfile, opListTargetsForSecurityProfile, opListSecurityProfilesForTarget,
+		opCreateDynamicThingGroup, opDeleteDynamicThingGroup, opUpdateDynamicThingGroup,
+		opCreateCommand, opGetCommand, opUpdateCommand, opDeleteCommand, opListCommands,
+		opGetCommandExecution, opListCommandExecutions,
+	)
+
+	// New ops 2 — all formerly-stubbed ops now implemented in dispatchRemainingOps.
+	core = append(core,
+		opCancelDetectMitigationActionsTask, opStartDetectMitigationActionsTask,
+		opDescribeDetectMitigationActionsTask, opListDetectMitigationActionsTasks,
+		opListDetectMitigationActionsExecutions,
+		opStartAuditMitigationActionsTask, opDescribeAuditMitigationActionsTask,
+		opListAuditMitigationActionsTasks, opListAuditMitigationActionsExecutions,
+		opListActiveViolations, opListViolationEvents, opPutVerificationStateOnViolation,
+		opGetBehaviorModelTrainingSummaries, opValidateSecurityProfileBehaviors,
+		opGetIndexingConfiguration, opUpdateIndexingConfiguration,
+		opListIndices, opDescribeIndex, opSearchIndex,
+		opGetCardinality, opGetStatistics, opGetPercentiles, opGetBucketsAggregation,
+		opListMetricValues,
+		opListOutgoingCertificates,
+		opDescribeEncryptionConfiguration, opUpdateEncryptionConfiguration,
+		opTestAuthorization, opTestInvokeAuthorizer,
+		opDetachPrincipalPolicy,
+		opConfirmTopicRuleDestination,
+		opGetThingConnectivityData, opListThingPrincipalsV2,
+		opUpdateThingGroupsForThing, opRegisterThing,
+		opStartThingRegistrationTask, opListThingRegistrationTasks,
+		opListThingRegistrationTaskReports, opStopThingRegistrationTask, opDescribeThingRegistrationTask,
+		opListManagedJobTemplates, opDescribeManagedJobTemplate,
+		opDeleteAccountAuditConfiguration, opListRelatedResourcesForAuditFinding,
+		opDisassociateSbomFromPackageVersion, opListSbomValidationResults,
+		opUpdateThingType, opDeleteCommandExecution,
+		opDescribeProvisioningTemplateVersion,
+	)
+
 	return append(core, allStubOps()...)
 }
 
@@ -486,6 +538,10 @@ func resolveOperation(path, method string) string {
 	case path == "/things" && method == http.MethodGet:
 
 		return opListThings
+	// /things/register must be checked before generic /things/{name} routing.
+	case path == "/things/register" && method == http.MethodPost:
+
+		return opRegisterThing
 	// Batch 2: /things/{name}/thing-groups, /things/{name}/jobs before generic thing routing
 	case strings.HasPrefix(path, "/things/") &&
 		strings.HasSuffix(path, "/thing-groups") &&
@@ -637,6 +693,9 @@ func resolveThingTypeOps(path, method string) string {
 	case strings.HasPrefix(path, "/thing-types/") && method == http.MethodDelete:
 
 		return opDeleteThingType
+	case strings.HasPrefix(path, "/thing-types/") && method == http.MethodPatch:
+
+		return opUpdateThingType
 	}
 
 	return unknownOperation
@@ -889,6 +948,16 @@ func resolveJobAndAuditOps(path, method string) string {
 }
 
 func thingOperation(path, method string) string {
+	// GET /things/{thingName}/principals/v2 → ListThingPrincipalsV2 (must check before /principals)
+	if method == http.MethodGet && strings.HasSuffix(path, "/principals/v2") {
+		return opListThingPrincipalsV2
+	}
+
+	// GET /things/{thingName}/connectivity-data → GetThingConnectivityData
+	if method == http.MethodGet && strings.HasSuffix(path, "/connectivity-data") {
+		return opGetThingConnectivityData
+	}
+
 	// GET /things/{thingName}/principals → ListThingPrincipals
 	if method == http.MethodGet && strings.HasSuffix(path, "/principals") {
 		return opListThingPrincipals
