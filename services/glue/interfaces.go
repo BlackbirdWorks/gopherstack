@@ -352,6 +352,10 @@ type StorageBackend interface {
 	DeleteIntegration(name string) error
 	ListIntegrations() []*Integration
 	ModifyIntegration(name string) error
+	CreateIntegrationResourceProperty(resourceArn string, sourceProps, targetProps map[string]string) (*IntegrationResourceProperty, error)
+	GetIntegrationResourceProperty(resourceArn string) (*IntegrationResourceProperty, error)
+	CreateIntegrationTableProperties(resourceArn, tableName string, sourceConfig, targetConfig map[string]any) error
+	GetIntegrationTableProperties(resourceArn, tableName string) (*IntegrationTableProperties, error)
 
 	// GlueIdentityCenter operations.
 	CreateGlueIdentityCenterConfiguration(instanceARN string) error
@@ -368,9 +372,10 @@ type StorageBackend interface {
 	GetMLTaskRuns(transformID string) ([]*MLTaskRun, error)
 	CancelMLTaskRun(transformID, taskRunID string) error
 
-	// DataQuality listing operations.
+	// DataQuality listing and model operations.
 	ListDataQualityEvaluationRuns() []*DataQualityEvaluationRun
 	ListDataQualityResults() []*DataQualityResult
+	GetDataQualityModelResult(profileID string) (string, error)
 
 	// CatalogImport operations.
 	ImportCatalogToGlue(catalogID string) error

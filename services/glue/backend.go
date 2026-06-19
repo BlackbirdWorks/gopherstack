@@ -382,6 +382,8 @@ type InMemoryBackend struct {
 	columnStatTaskRuns        map[string]*ColumnStatisticsTaskRun       // key: runID
 	materializedViewRuns      map[string]*MaterializedViewRefreshRun    // key: taskRunID
 	integrations              map[string]*Integration                   // key: integrationName
+	integrationResourceProps  map[string]*IntegrationResourceProperty   // key: resourceARN
+	integrationTableProps     map[string]*IntegrationTableProperties    // key: "resourceARN|tableName"
 	mlTaskRuns                map[string]*MLTaskRun                     // key: "transformID|taskRunID"
 	catalogImports            map[string]*CatalogImportStatus           // key: catalogID or accountID
 	schemaVersionMetadata     map[string]map[string]string              // key: schemaVersionID → key → value
@@ -441,6 +443,8 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		columnStatTaskRuns:        make(map[string]*ColumnStatisticsTaskRun),
 		materializedViewRuns:      make(map[string]*MaterializedViewRefreshRun),
 		integrations:              make(map[string]*Integration),
+		integrationResourceProps:  make(map[string]*IntegrationResourceProperty),
+		integrationTableProps:     make(map[string]*IntegrationTableProperties),
 		mlTaskRuns:                make(map[string]*MLTaskRun),
 		catalogImports:            make(map[string]*CatalogImportStatus),
 		schemaVersionMetadata:     make(map[string]map[string]string),
@@ -621,6 +625,8 @@ func (b *InMemoryBackend) Reset() {
 	b.columnStatTaskRuns = make(map[string]*ColumnStatisticsTaskRun)
 	b.materializedViewRuns = make(map[string]*MaterializedViewRefreshRun)
 	b.integrations = make(map[string]*Integration)
+	b.integrationResourceProps = make(map[string]*IntegrationResourceProperty)
+	b.integrationTableProps = make(map[string]*IntegrationTableProperties)
 	b.mlTaskRuns = make(map[string]*MLTaskRun)
 	b.catalogImports = make(map[string]*CatalogImportStatus)
 	b.schemaVersionMetadata = make(map[string]map[string]string)

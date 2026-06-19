@@ -1397,3 +1397,48 @@ func TestHandler_IdcApplication_Lifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Contains(t, rec.Body.String(), "IdcApplicationNotExistsFault")
 }
+
+// ---- GetIdentityCenterAuthToken ----
+
+func TestRedshiftHandler_GetIdentityCenterAuthToken(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		body         string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name:     "missing_arn_returns_400",
+			body:     "Action=GetIdentityCenterAuthToken&Version=2012-12-01",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:         "with_arn_returns_token",
+			body:         "Action=GetIdentityCenterAuthToken&Version=2012-12-01&IdentityCenterApplicationArn=arn:aws:sso::123:application/app-abc",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"<AuthToken>ict-", "<AuthTokenExpiration>"},
+		},
+		{
+			name:         "different_arn_returns_different_token",
+			body:         "Action=GetIdentityCenterAuthToken&Version=2012-12-01&IdentityCenterApplicationArn=arn:aws:sso::456:application/app-xyz",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"<AuthToken>ict-"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newRedshiftHandler()
+			rec := postRedshiftForm(t, h, tc.body)
+			assert.Equal(t, tc.wantCode, rec.Code, rec.Body.String())
+
+			for _, want := range tc.wantContains {
+				assert.Contains(t, rec.Body.String(), want)
+			}
+		})
+	}
+}

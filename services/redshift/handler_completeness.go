@@ -1,8 +1,12 @@
 package redshift
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/xml"
+	"fmt"
 	"net/url"
+	"time"
 )
 
 const (
@@ -879,10 +883,20 @@ type identityCenterAuthTokenResponse struct {
 	} `xml:"GetIdentityCenterAuthTokenResult"`
 }
 
-func (h *Handler) handleGetIdentityCenterAuthToken(_ url.Values) (any, error) {
+func (h *Handler) handleGetIdentityCenterAuthToken(params url.Values) (any, error) {
+	appArn := params.Get("IdentityCenterApplicationArn")
+	if appArn == "" {
+		return nil, fmt.Errorf("%w: IdentityCenterApplicationArn is required", ErrInvalidParameter)
+	}
+
+	expiry := time.Now().UTC().Add(15 * time.Minute)
+
+	hash := sha256.Sum256([]byte(appArn + expiry.Format(time.RFC3339)))
+	token := "ict-" + hex.EncodeToString(hash[:16])
+
 	resp := &identityCenterAuthTokenResponse{Xmlns: redshiftXMLNS}
-	resp.Result.AuthToken = "stub-auth-token"
-	resp.Result.AuthTokenExpiration = "2099-01-01T00:00:00Z"
+	resp.Result.AuthToken = token
+	resp.Result.AuthTokenExpiration = expiry.Format(time.RFC3339)
 
 	return resp, nil
 }

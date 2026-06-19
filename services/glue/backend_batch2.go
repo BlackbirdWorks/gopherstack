@@ -780,7 +780,103 @@ func (b *InMemoryBackend) DeleteGlueIdentityCenterConfiguration() error {
 	return nil
 }
 
-// --- DataQualityModel stubs (stateless) ---
+// --- IntegrationResourceProperty ---
+
+// IntegrationResourceProperty stores resource-level properties for a Zero-ETL integration.
+type IntegrationResourceProperty struct {
+	CreatedAt        time.Time         `json:"CreateTime"`
+	ResourceArn      string            `json:"ResourceArn"`
+	SourceProperties map[string]string `json:"SourceProperties,omitempty"`
+	TargetProperties map[string]string `json:"TargetProperties,omitempty"`
+}
+
+// CreateIntegrationResourceProperty stores properties for an integration resource.
+func (b *InMemoryBackend) CreateIntegrationResourceProperty(resourceArn string, sourceProps, targetProps map[string]string) (*IntegrationResourceProperty, error) {
+	if resourceArn == "" {
+		return nil, fmt.Errorf("%w: ResourceArn is required", ErrValidation)
+	}
+
+	b.mu.Lock("CreateIntegrationResourceProperty")
+	defer b.mu.Unlock()
+
+	prop := &IntegrationResourceProperty{
+		CreatedAt:        time.Now(),
+		ResourceArn:      resourceArn,
+		SourceProperties: sourceProps,
+		TargetProperties: targetProps,
+	}
+	b.integrationResourceProps[resourceArn] = prop
+
+	return prop, nil
+}
+
+// GetIntegrationResourceProperty retrieves stored resource properties.
+func (b *InMemoryBackend) GetIntegrationResourceProperty(resourceArn string) (*IntegrationResourceProperty, error) {
+	if resourceArn == "" {
+		return nil, fmt.Errorf("%w: ResourceArn is required", ErrValidation)
+	}
+
+	b.mu.RLock("GetIntegrationResourceProperty")
+	defer b.mu.RUnlock()
+
+	prop, ok := b.integrationResourceProps[resourceArn]
+	if !ok {
+		return nil, fmt.Errorf("resource property for %q not found: %w", resourceArn, ErrNotFound)
+	}
+
+	return prop, nil
+}
+
+// --- IntegrationTableProperties ---
+
+// IntegrationTableProperties stores table-level properties for a Zero-ETL integration.
+type IntegrationTableProperties struct {
+	ResourceArn       string         `json:"ResourceArn"`
+	TableName         string         `json:"TableName"`
+	SourceTableConfig map[string]any `json:"SourceTableConfig,omitempty"`
+	TargetTableConfig map[string]any `json:"TargetTableConfig,omitempty"`
+}
+
+// CreateIntegrationTableProperties stores properties for an integration table.
+func (b *InMemoryBackend) CreateIntegrationTableProperties(resourceArn, tableName string, sourceConfig, targetConfig map[string]any) error {
+	if resourceArn == "" || tableName == "" {
+		return fmt.Errorf("%w: ResourceArn and TableName are required", ErrValidation)
+	}
+
+	b.mu.Lock("CreateIntegrationTableProperties")
+	defer b.mu.Unlock()
+
+	key := resourceArn + "|" + tableName
+	b.integrationTableProps[key] = &IntegrationTableProperties{
+		ResourceArn:       resourceArn,
+		TableName:         tableName,
+		SourceTableConfig: sourceConfig,
+		TargetTableConfig: targetConfig,
+	}
+
+	return nil
+}
+
+// GetIntegrationTableProperties retrieves stored table properties.
+func (b *InMemoryBackend) GetIntegrationTableProperties(resourceArn, tableName string) (*IntegrationTableProperties, error) {
+	if resourceArn == "" || tableName == "" {
+		return nil, fmt.Errorf("%w: ResourceArn and TableName are required", ErrValidation)
+	}
+
+	b.mu.RLock("GetIntegrationTableProperties")
+	defer b.mu.RUnlock()
+
+	key := resourceArn + "|" + tableName
+
+	prop, ok := b.integrationTableProps[key]
+	if !ok {
+		return nil, fmt.Errorf("table property for %q/%q not found: %w", resourceArn, tableName, ErrNotFound)
+	}
+
+	return prop, nil
+}
+
+// --- DataQualityModel (stateless) ---
 
 // GetDataQualityModel returns a data quality model result (stateless stub).
 func (b *InMemoryBackend) GetDataQualityModel(_ string) (string, error) {

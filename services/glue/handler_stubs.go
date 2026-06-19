@@ -230,7 +230,7 @@ func (h *Handler) handleCancelMLTaskRun(
 	in *cancelMLTaskRunInput,
 ) (*emptyOutput, error) {
 	if in.TransformID == "" || in.TaskRunID == "" {
-		return &emptyOutput{}, nil
+		return nil, fmt.Errorf("%w: TransformId and TaskRunId are required", ErrValidation)
 	}
 
 	return &emptyOutput{}, h.Backend.CancelMLTaskRun(in.TransformID, in.TaskRunID)
@@ -246,6 +246,10 @@ func (h *Handler) handleCancelStatement(
 	_ context.Context,
 	in *cancelStatementInput,
 ) (*emptyOutput, error) {
+	if in.SessionID == "" {
+		return nil, fmt.Errorf("%w: SessionId is required", ErrValidation)
+	}
+
 	return &emptyOutput{}, h.Backend.CancelStatement(in.SessionID, in.StatementID)
 }
 
@@ -435,23 +439,52 @@ func (h *Handler) handleCreateIntegration(
 }
 
 // createIntegrationResourcePropertyInput holds input for CreateIntegrationResourceProperty.
-type createIntegrationResourcePropertyInput struct{}
+type createIntegrationResourcePropertyInput struct {
+	ResourceArn      string            `json:"ResourceArn"`
+	SourceProperties map[string]string `json:"SourceProperties,omitempty"`
+	TargetProperties map[string]string `json:"TargetProperties,omitempty"`
+}
+
+// createIntegrationResourcePropertyOutput holds the result for CreateIntegrationResourceProperty.
+type createIntegrationResourcePropertyOutput struct {
+	ResourceArn      string            `json:"ResourceArn"`
+	SourceProperties map[string]string `json:"SourceProperties,omitempty"`
+	TargetProperties map[string]string `json:"TargetProperties,omitempty"`
+	CreateTime       string            `json:"CreateTime,omitempty"`
+}
 
 func (h *Handler) handleCreateIntegrationResourceProperty(
 	_ context.Context,
-	_ *createIntegrationResourcePropertyInput,
-) (*emptyOutput, error) {
-	return &emptyOutput{}, nil
+	in *createIntegrationResourcePropertyInput,
+) (*createIntegrationResourcePropertyOutput, error) {
+	prop, err := h.Backend.CreateIntegrationResourceProperty(in.ResourceArn, in.SourceProperties, in.TargetProperties)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createIntegrationResourcePropertyOutput{
+		ResourceArn:      prop.ResourceArn,
+		SourceProperties: prop.SourceProperties,
+		TargetProperties: prop.TargetProperties,
+		CreateTime:       prop.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+	}, nil
 }
 
 // createIntegrationTablePropertiesInput holds input for CreateIntegrationTableProperties.
-type createIntegrationTablePropertiesInput struct{}
+type createIntegrationTablePropertiesInput struct {
+	ResourceArn       string         `json:"ResourceArn"`
+	TableName         string         `json:"TableName"`
+	SourceTableConfig map[string]any `json:"SourceTableConfig,omitempty"`
+	TargetTableConfig map[string]any `json:"TargetTableConfig,omitempty"`
+}
 
 func (h *Handler) handleCreateIntegrationTableProperties(
 	_ context.Context,
-	_ *createIntegrationTablePropertiesInput,
+	in *createIntegrationTablePropertiesInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, nil
+	return &emptyOutput{}, h.Backend.CreateIntegrationTableProperties(
+		in.ResourceArn, in.TableName, in.SourceTableConfig, in.TargetTableConfig,
+	)
 }
 
 // createMLTransformInput holds input for CreateMLTransform.
@@ -1297,7 +1330,9 @@ func (h *Handler) handleDeleteWorkflow(
 }
 
 // describeConnectionTypeInput holds input for DescribeConnectionType.
-type describeConnectionTypeInput struct{}
+type describeConnectionTypeInput struct {
+	ConnectionType string `json:"ConnectionType"`
+}
 
 // describeConnectionTypeOutput holds the result for DescribeConnectionType.
 type describeConnectionTypeOutput struct {
@@ -1306,9 +1341,13 @@ type describeConnectionTypeOutput struct {
 
 func (h *Handler) handleDescribeConnectionType(
 	_ context.Context,
-	_ *describeConnectionTypeInput,
+	in *describeConnectionTypeInput,
 ) (*describeConnectionTypeOutput, error) {
-	return &describeConnectionTypeOutput{}, nil
+	if in.ConnectionType == "" {
+		return nil, fmt.Errorf("%w: ConnectionType is required", ErrValidation)
+	}
+
+	return &describeConnectionTypeOutput{ConnectionType: in.ConnectionType}, nil
 }
 
 // describeEntityInput holds input for DescribeEntity.
@@ -1400,7 +1439,7 @@ func (h *Handler) handleGetBlueprintRun(
 	in *getBlueprintRunInput,
 ) (*getBlueprintRunOutput, error) {
 	if in.RunID == "" {
-		return &getBlueprintRunOutput{}, nil
+		return nil, fmt.Errorf("%w: RunId is required", ErrValidation)
 	}
 
 	run, err := h.Backend.GetBlueprintRun(in.BlueprintName, in.RunID)
@@ -1612,19 +1651,16 @@ func (h *Handler) handleGetColumnStatisticsTaskRun(
 	_ context.Context,
 	in *getColumnStatisticsTaskRunInput,
 ) (*getColumnStatisticsTaskRunOutput, error) {
-	if in.ColumnStatisticsTaskRunID != "" {
-		run, err := h.Backend.GetColumnStatisticsTaskRun(in.ColumnStatisticsTaskRunID)
-		if err == nil {
-			return &getColumnStatisticsTaskRunOutput{ColumnStatisticsTaskRun: run}, nil
-		}
+	if in.ColumnStatisticsTaskRunID == "" {
+		return nil, fmt.Errorf("%w: ColumnStatisticsTaskRunId is required", ErrValidation)
 	}
 
-	runs := h.Backend.GetColumnStatisticsTaskRuns()
-	if len(runs) == 0 {
-		return &getColumnStatisticsTaskRunOutput{}, nil
+	run, err := h.Backend.GetColumnStatisticsTaskRun(in.ColumnStatisticsTaskRunID)
+	if err != nil {
+		return nil, err
 	}
 
-	return &getColumnStatisticsTaskRunOutput{ColumnStatisticsTaskRun: runs[0]}, nil
+	return &getColumnStatisticsTaskRunOutput{ColumnStatisticsTaskRun: run}, nil
 }
 
 // getColumnStatisticsTaskRunsInput holds input for GetColumnStatisticsTaskRuns.
@@ -1753,18 +1789,32 @@ func (h *Handler) handleGetDataQualityModel(
 }
 
 // getDataQualityModelResultInput holds input for GetDataQualityModelResult.
-type getDataQualityModelResultInput struct{}
+type getDataQualityModelResultInput struct {
+	ProfileId   string `json:"ProfileId"`
+	StatisticId string `json:"StatisticId,omitempty"`
+}
 
 // getDataQualityModelResultOutput holds the result for GetDataQualityModelResult.
 type getDataQualityModelResultOutput struct {
 	CompletedOn float64 `json:"CompletedOn"`
+	ProfileId   string  `json:"ProfileId,omitempty"`
+	Status      string  `json:"Status,omitempty"`
 }
 
 func (h *Handler) handleGetDataQualityModelResult(
 	_ context.Context,
-	_ *getDataQualityModelResultInput,
+	in *getDataQualityModelResultInput,
 ) (*getDataQualityModelResultOutput, error) {
-	return &getDataQualityModelResultOutput{}, nil
+	if in.ProfileId == "" {
+		return nil, fmt.Errorf("%w: ProfileId is required", ErrValidation)
+	}
+
+	status, err := h.Backend.GetDataQualityModelResult(in.ProfileId)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getDataQualityModelResultOutput{ProfileId: in.ProfileId, Status: status}, nil
 }
 
 // getDataQualityResultInput holds input for GetDataQualityResult.
@@ -1906,34 +1956,62 @@ func (h *Handler) handleGetGlueIdentityCenterConfiguration(
 }
 
 // getIntegrationResourcePropertyInput holds input for GetIntegrationResourceProperty.
-type getIntegrationResourcePropertyInput struct{}
+type getIntegrationResourcePropertyInput struct {
+	ResourceArn string `json:"ResourceArn"`
+}
 
 // getIntegrationResourcePropertyOutput holds the result for GetIntegrationResourceProperty.
 type getIntegrationResourcePropertyOutput struct {
-	ResourceArn string `json:"ResourceArn"`
+	ResourceArn      string            `json:"ResourceArn"`
+	SourceProperties map[string]string `json:"SourceProperties,omitempty"`
+	TargetProperties map[string]string `json:"TargetProperties,omitempty"`
 }
 
 func (h *Handler) handleGetIntegrationResourceProperty(
 	_ context.Context,
-	_ *getIntegrationResourcePropertyInput,
+	in *getIntegrationResourcePropertyInput,
 ) (*getIntegrationResourcePropertyOutput, error) {
-	return &getIntegrationResourcePropertyOutput{}, nil
+	prop, err := h.Backend.GetIntegrationResourceProperty(in.ResourceArn)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getIntegrationResourcePropertyOutput{
+		ResourceArn:      prop.ResourceArn,
+		SourceProperties: prop.SourceProperties,
+		TargetProperties: prop.TargetProperties,
+	}, nil
 }
 
 // getIntegrationTablePropertiesInput holds input for GetIntegrationTableProperties.
-type getIntegrationTablePropertiesInput struct{}
-
-// getIntegrationTablePropertiesOutput holds the result for GetIntegrationTableProperties.
-type getIntegrationTablePropertiesOutput struct {
+type getIntegrationTablePropertiesInput struct {
 	ResourceArn string `json:"ResourceArn"`
 	TableName   string `json:"TableName"`
 }
 
+// getIntegrationTablePropertiesOutput holds the result for GetIntegrationTableProperties.
+type getIntegrationTablePropertiesOutput struct {
+	ResourceArn       string         `json:"ResourceArn"`
+	TableName         string         `json:"TableName"`
+	SourceTableConfig map[string]any `json:"SourceTableConfig,omitempty"`
+	TargetTableConfig map[string]any `json:"TargetTableConfig,omitempty"`
+}
+
 func (h *Handler) handleGetIntegrationTableProperties(
 	_ context.Context,
-	_ *getIntegrationTablePropertiesInput,
+	in *getIntegrationTablePropertiesInput,
 ) (*getIntegrationTablePropertiesOutput, error) {
-	return &getIntegrationTablePropertiesOutput{}, nil
+	prop, err := h.Backend.GetIntegrationTableProperties(in.ResourceArn, in.TableName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getIntegrationTablePropertiesOutput{
+		ResourceArn:       prop.ResourceArn,
+		TableName:         prop.TableName,
+		SourceTableConfig: prop.SourceTableConfig,
+		TargetTableConfig: prop.TargetTableConfig,
+	}, nil
 }
 
 // getMLTaskRunInput holds input for GetMLTaskRun.
