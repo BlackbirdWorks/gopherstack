@@ -908,7 +908,7 @@ func (b *InMemoryBackend) SearchUsers(collectionID, userID string, maxUsers int3
 
 		matches = append(matches, &UserMatch{
 			User:       u.toUser(),
-			Similarity: defaultFaceSimilarity,
+			Similarity: userSimilarity(userID, u),
 		})
 
 		if len(matches) >= limit {
@@ -919,8 +919,13 @@ func (b *InMemoryBackend) SearchUsers(collectionID, userID string, maxUsers int3
 	return matches, nil
 }
 
-// SearchUsersByImage returns up to maxUsers users with a simulated similarity score.
-func (b *InMemoryBackend) SearchUsersByImage(collectionID string, maxUsers int32) ([]*UserMatch, error) {
+// SearchUsersByImage returns up to maxUsers users with a deterministic similarity
+// score derived from the image reference and each candidate user's identity.
+func (b *InMemoryBackend) SearchUsersByImage(
+	collectionID string,
+	maxUsers int32,
+	imageKey string,
+) ([]*UserMatch, error) {
 	b.mu.RLock("SearchUsersByImage")
 	defer b.mu.RUnlock()
 
@@ -942,7 +947,7 @@ func (b *InMemoryBackend) SearchUsersByImage(collectionID string, maxUsers int32
 	for _, u := range userMap {
 		matches = append(matches, &UserMatch{
 			User:       u.toUser(),
-			Similarity: defaultFaceSimilarity,
+			Similarity: userSimilarity(imageKey, u),
 		})
 
 		if len(matches) >= limit {
