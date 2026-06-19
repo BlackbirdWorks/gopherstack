@@ -892,14 +892,14 @@ func applyTranslation(text, sourceLang, targetLang string, terms []*Terminology)
 // applyCSVTerminology parses a simple two-column CSV (source,target) and replaces
 // occurrences of source terms in text with the corresponding target terms.
 func applyCSVTerminology(text string, csvBytes []byte) string {
-	lines := strings.Split(string(csvBytes), "\n")
-	for _, line := range lines {
+	const csvColumns = 2 // source,target
+	for line := range strings.SplitSeq(string(csvBytes), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		parts := strings.SplitN(line, ",", 2)
-		if len(parts) != 2 {
+		parts := strings.SplitN(line, ",", csvColumns)
+		if len(parts) != csvColumns {
 			continue
 		}
 		src := strings.TrimSpace(parts[0])

@@ -436,6 +436,7 @@ func deriveTranscriptText(jobName, mediaURI string) string {
 	if filename != "" {
 		return "Transcription of audio file " + filename + " for job " + jobName + "."
 	}
+
 	return "Transcription result for job " + jobName + "."
 }
 
@@ -458,6 +459,7 @@ func mediaURIFilename(uri string) string {
 	if idx := strings.LastIndexByte(s, '.'); idx >= 0 {
 		s = s[:idx]
 	}
+
 	return s
 }
 

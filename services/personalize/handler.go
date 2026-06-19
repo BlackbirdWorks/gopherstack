@@ -83,6 +83,7 @@ func (h *Handler) MatchPriority() int { return service.PriorityHeaderExact }
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		target := c.Request().Header.Get("X-Amz-Target")
+
 		return strings.HasPrefix(target, personalizeTargetPrefix) ||
 			strings.HasPrefix(target, personalizeRuntimeTargetPrefix)
 	}
@@ -91,8 +92,8 @@ func (h *Handler) RouteMatcher() service.Matcher {
 // ExtractOperation returns the operation name from the request target.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
 	target := c.Request().Header.Get("X-Amz-Target")
-	if strings.HasPrefix(target, personalizeRuntimeTargetPrefix) {
-		return strings.TrimPrefix(target, personalizeRuntimeTargetPrefix)
+	if op, ok := strings.CutPrefix(target, personalizeRuntimeTargetPrefix); ok {
+		return op
 	}
 
 	return strings.TrimPrefix(target, personalizeTargetPrefix)
@@ -1350,10 +1351,14 @@ func syntheticItemList(seed string, n int) []map[string]any {
 }
 
 func deterministicScore(seed string, rank int) float64 {
+	const (
+		scoreBuckets = 1000  // hash buckets mapped into a [0,1) base score
+		rankDecay    = 100.0 // divisor controlling per-rank score decay
+	)
 	h := fnv.New32a()
 	_, _ = h.Write([]byte(seed))
-	base := float64(h.Sum32()%1000) / 1000.0
-	decay := float64(rank) / 100.0
+	base := float64(h.Sum32()%scoreBuckets) / float64(scoreBuckets)
+	decay := float64(rank) / rankDecay
 	score := base - decay
 	if score < 0 {
 		score = 0
@@ -1619,7 +1624,7 @@ func extractTagsFromSlice(input map[string]any, key string) map[string]string {
 	return tags
 }
 
-func intField(m map[string]any, key string) int { //nolint:unparam // key always "maxResults" by design
+func intField(m map[string]any, key string) int {
 	switch v := m[key].(type) {
 	case float64:
 		return int(v)

@@ -456,8 +456,8 @@ func (h *Handler) handleSearchFaces(_ context.Context, req *searchFacesReq) (*se
 }
 
 type searchFacesByImageReq struct {
-	Image        imageRef `json:"Image"`
 	CollectionID string   `json:"CollectionId"`
+	Image        imageRef `json:"Image"`
 	MaxFaces     int32    `json:"MaxFaces"`
 }
 

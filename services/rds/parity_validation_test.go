@@ -42,8 +42,8 @@ func TestRDS_CreateDBInstance_IdentifierValidation(t *testing.T) {
 		dbInstanceID     string
 		dbInstanceClass  string
 		engine           string
-		wantCode         int
 		wantErrorContain string
+		wantCode         int
 	}{
 		{
 			name:            "valid_identifier",

@@ -1103,23 +1103,34 @@ func (h *Handler) handleDetectLabels(_ context.Context, req *detectLabelsReq) (*
 	}, nil
 }
 
+// Synthetic confidence scores for generic scene labels, in descending order.
+const (
+	confPerson     = 95.5
+	confHuman      = 94.8
+	confOutdoor    = 87.3
+	confNature     = 73.2
+	confSky        = 68.9
+	confVegetation = 62.1
+	confAnimal     = 55.4
+)
+
 // plausibleLabels returns a set of generic scene labels above the confidence threshold.
 func plausibleLabels(minConfidence float64, maxLabels int32) []labelEntry {
 	all := []labelEntry{
-		{Name: "Person", Confidence: 95.5},
-		{Name: "Human", Confidence: 94.8},
-		{Name: "Outdoor", Confidence: 87.3},
-		{Name: "Nature", Confidence: 73.2},
-		{Name: "Sky", Confidence: 68.9},
-		{Name: "Vegetation", Confidence: 62.1},
-		{Name: "Animal", Confidence: 55.4},
+		{Name: "Person", Confidence: confPerson},
+		{Name: "Human", Confidence: confHuman},
+		{Name: "Outdoor", Confidence: confOutdoor},
+		{Name: "Nature", Confidence: confNature},
+		{Name: "Sky", Confidence: confSky},
+		{Name: "Vegetation", Confidence: confVegetation},
+		{Name: "Animal", Confidence: confAnimal},
 	}
 	out := make([]labelEntry, 0, len(all))
 	for _, l := range all {
 		if l.Confidence >= minConfidence {
 			out = append(out, l)
 		}
-		if maxLabels > 0 && int32(len(out)) >= maxLabels {
+		if maxLabels > 0 && len(out) >= int(maxLabels) {
 			break
 		}
 	}
@@ -1161,9 +1172,11 @@ func plausibleTextDetections(req *detectTextReq) []textDetectionEntry {
 		label = req.Image.S3Object.Name
 	}
 
+	const textConfidence = 97.2
+
 	return []textDetectionEntry{
-		{Id: 0, DetectedText: label, Type: "LINE", Confidence: 97.2},
-		{Id: 1, DetectedText: label, Type: "WORD", Confidence: 97.2},
+		{Id: 0, DetectedText: label, Type: "LINE", Confidence: textConfidence},
+		{Id: 1, DetectedText: label, Type: "WORD", Confidence: textConfidence},
 	}
 }
 
@@ -1212,8 +1225,9 @@ func (h *Handler) handleDetectModerationLabels(
 	// which indicates the caller wants to see all possible labels.
 	labels := []moderationLabelEntry{}
 	if req.MinConfidence > 0 && req.MinConfidence <= 10.0 {
+		const suggestiveConfidence = 7.5
 		labels = []moderationLabelEntry{
-			{Name: "Suggestive", ParentName: "", Confidence: 7.5},
+			{Name: "Suggestive", ParentName: "", Confidence: suggestiveConfidence},
 		}
 	}
 

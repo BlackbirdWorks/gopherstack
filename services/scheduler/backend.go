@@ -74,6 +74,11 @@ const (
 	// flexibleTimeWindowModeFlexible means a flexible time window is applied.
 	flexibleTimeWindowModeFlexible = "FLEXIBLE"
 
+	// cronFieldCount is the number of space-separated fields a valid EventBridge
+	// Scheduler cron() expression must contain:
+	// minutes hours day-of-month month day-of-week year.
+	cronFieldCount = 6
+
 	// Name validation limits.
 	scheduleNameMaxLen = 64
 	// RetryPolicy field limits per AWS spec.
@@ -871,10 +876,13 @@ func validateScheduleExpression(expr string) error {
 		}
 		inner := expr[len("cron(") : len(expr)-1]
 		fields := strings.Fields(inner)
-		if len(fields) != 6 {
+		if len(fields) != cronFieldCount {
 			return fmt.Errorf(
-				"%w: ScheduleExpression cron expression must have exactly 6 fields (minutes hours day-of-month month day-of-week year), got %d",
-				ErrValidation, len(fields),
+				"%w: ScheduleExpression cron expression must have exactly %d fields "+
+					"(minutes hours day-of-month month day-of-week year), got %d",
+				ErrValidation,
+				cronFieldCount,
+				len(fields),
 			)
 		}
 	default:

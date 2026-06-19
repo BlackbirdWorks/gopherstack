@@ -172,9 +172,9 @@ func TestSynthesizeSpeechFormats(t *testing.T) {
 		rate         string
 		textType     string
 		contentType  string
+		bodyContains string
 		marks        []string
-		bodyMagic    []byte // expected bytes prefix for audio formats
-		bodyContains string // expected substring for JSON formats
+		bodyMagic    []byte
 	}{
 		{
 			name: "mp3", format: "mp3", rate: "22050", textType: "text", contentType: "audio/mpeg",

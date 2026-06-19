@@ -7,7 +7,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strings"
 	"sync"
 	"testing"
 
@@ -28,8 +27,8 @@ func (f *failingFirehosePutter) PutRecordBatch(_ string, _ [][]byte) (int, error
 }
 
 type successFirehosePutter struct {
-	mu      sync.Mutex
 	records [][]byte
+	mu      sync.Mutex
 }
 
 func (s *successFirehosePutter) PutRecordBatch(_ string, records [][]byte) (int, error) {
@@ -145,8 +144,8 @@ func TestParityB_SetSubscriptionAttributes_DLQ_ExistenceCheck(t *testing.T) {
 	tests := []struct {
 		name       string
 		dlqARN     string
-		wantErr    bool
 		errContain string
+		wantErr    bool
 	}{
 		{
 			name:    "existing_queue_accepted",
@@ -233,7 +232,7 @@ func TestParityB_CertURL_UsesRegion(t *testing.T) {
 
 			expected := "https://sns." + tt.region + ".amazonaws.com/SimpleNotificationService.pem"
 			assert.Equal(t, expected, certURL, "certURL must use backend region, not hardcoded us-east-1")
-			assert.True(t, strings.Contains(certURL, tt.region), "certURL must embed region %s", tt.region)
+			assert.Contains(t, certURL, tt.region, "certURL must embed region %s", tt.region)
 		})
 	}
 }

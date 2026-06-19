@@ -221,12 +221,12 @@ type DataDeletionJob struct {
 
 // storedFeatureTransformation represents a built-in feature transformation.
 type storedFeatureTransformation struct {
-	ARN           string
-	Name          string
-	Status        string
 	CreationTime  time.Time
 	LastUpdated   time.Time
 	DefaultValues map[string]string
+	ARN           string
+	Name          string
+	Status        string
 }
 
 // InMemoryBackend stores Amazon Personalize state.

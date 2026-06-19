@@ -13,6 +13,7 @@ import (
 
 func newPipesBackend(t *testing.T) *pipes.InMemoryBackend {
 	t.Helper()
+
 	return pipes.NewInMemoryBackend("000000000000", "us-east-1")
 }
 

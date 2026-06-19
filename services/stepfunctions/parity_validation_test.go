@@ -18,12 +18,17 @@ func TestCreateStateMachine_NameValidation(t *testing.T) {
 	tests := []struct {
 		name     string
 		smName   string
-		wantCode int
 		wantType string
+		wantCode int
 	}{
 		{name: "valid_name", smName: "my-state-machine", wantCode: http.StatusOK},
 		{name: "empty_name", smName: "", wantCode: http.StatusBadRequest, wantType: "InvalidName"},
-		{name: "too_long_81_chars", smName: strings.Repeat("a", 81), wantCode: http.StatusBadRequest, wantType: "InvalidName"},
+		{
+			name:     "too_long_81_chars",
+			smName:   strings.Repeat("a", 81),
+			wantCode: http.StatusBadRequest,
+			wantType: "InvalidName",
+		},
 		{name: "invalid_chars", smName: "bad<name>!", wantCode: http.StatusBadRequest, wantType: "InvalidName"},
 	}
 
@@ -60,8 +65,8 @@ func TestUpdateStateMachine_ArnValidation(t *testing.T) {
 	tests := []struct {
 		name     string
 		arn      string
-		wantCode int
 		wantType string
+		wantCode int
 	}{
 		{
 			name:     "empty_arn_returns_ValidationException",

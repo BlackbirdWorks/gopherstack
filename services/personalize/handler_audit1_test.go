@@ -865,8 +865,10 @@ func TestAudit1_Personalize_ReadOnlyResources(t *testing.T) {
 
 	h := a1PersonalizeHandler(t)
 
+	ftArn := "arn:aws:personalize:us-east-1:000000000000:" +
+		"feature-transformation/aws-feature-transformation"
 	rec := a1PersonalizeDo(t, h, "DescribeFeatureTransformation", map[string]any{
-		"featureTransformationArn": "arn:aws:personalize:us-east-1:000000000000:feature-transformation/aws-feature-transformation",
+		"featureTransformationArn": ftArn,
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 	ft := a1PersonalizeUnmarshal(t, rec)["featureTransformation"].(map[string]any)
@@ -940,9 +942,9 @@ func TestAudit1_Personalize_DescribeFeatureTransformation(t *testing.T) {
 	tests := []struct {
 		name       string
 		arnOrName  string
-		wantStatus int
 		wantName   string
 		wantErr    string
+		wantStatus int
 	}{
 		{
 			name:       "known_arn_aws_feature_transformation",
@@ -951,8 +953,9 @@ func TestAudit1_Personalize_DescribeFeatureTransformation(t *testing.T) {
 			wantName:   "aws-feature-transformation",
 		},
 		{
-			name:       "known_arn_bandits",
-			arnOrName:  "arn:aws:personalize:us-east-1:000000000000:feature-transformation/aws-explicit-contextual-bandits-feature-transformation",
+			name: "known_arn_bandits",
+			arnOrName: "arn:aws:personalize:us-east-1:000000000000:feature-transformation/" +
+				"aws-explicit-contextual-bandits-feature-transformation",
 			wantStatus: http.StatusOK,
 			wantName:   "aws-explicit-contextual-bandits-feature-transformation",
 		},

@@ -30,6 +30,12 @@ const (
 	defaultFaceConfidence = 99.9
 	defaultFaceSimilarity = 90.0
 
+	// SearchFacesByImage synthetic similarity tuning.
+	defaultSearchMaxFaces = 5
+	minSearchSimilarity   = 75.0 // similarity range floor
+	searchSimilaritySpan  = 24   // similarity range width: yields [75.0, 99.0]
+	seedStride            = 7    // per-face seed multiplier for score variation
+
 	maxTagCount        = 200
 	maxTagKeyLen       = 128
 	maxTagValueLen     = 256
@@ -494,7 +500,11 @@ func (b *InMemoryBackend) SearchFaces(collectionID, faceID string, maxFaces int3
 // SearchFacesByImage searches for faces matching an image (simulated).
 // imageKey is a stable string derived from the image reference (S3 path or byte length)
 // and is used to vary similarity scores per image rather than returning a fixed value.
-func (b *InMemoryBackend) SearchFacesByImage(collectionID string, maxFaces int32, imageKey string) ([]*FaceMatch, error) {
+func (b *InMemoryBackend) SearchFacesByImage(
+	collectionID string,
+	maxFaces int32,
+	imageKey string,
+) ([]*FaceMatch, error) {
 	b.mu.RLock("SearchFacesByImage")
 	defer b.mu.RUnlock()
 
@@ -504,7 +514,7 @@ func (b *InMemoryBackend) SearchFacesByImage(collectionID string, maxFaces int32
 
 	limit := int(maxFaces)
 	if limit <= 0 {
-		limit = 5
+		limit = defaultSearchMaxFaces
 	}
 
 	// Derive a per-image seed from the imageKey so similarity varies by image.
@@ -513,7 +523,7 @@ func (b *InMemoryBackend) SearchFacesByImage(collectionID string, maxFaces int32
 
 	for i, f := range b.faces[collectionID] {
 		// Vary similarity in [75.0, 99.0] using image seed and face index.
-		similarity := 75.0 + float64((seed+uint32(i)*7)%24)
+		similarity := minSearchSimilarity + float64((seed+uint32(i)*seedStride)%searchSimilaritySpan)
 		matches = append(matches, &FaceMatch{
 			Similarity: similarity,
 			Face:       f.toFace(),

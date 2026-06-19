@@ -350,13 +350,19 @@ func TestBatch2_SynthesizeSpeech_DefaultSampleRate(t *testing.T) {
 		name           string
 		engine         string
 		format         string
-		wantSampleRate uint32 // 0 means skip WAV header check (MP3/OGG)
 		wantMagic      []byte
+		wantSampleRate uint32
 	}{
 		{name: "standard_mp3_defaults_22050", engine: "standard", format: "mp3", wantMagic: []byte{0xFF, 0xFB}},
 		{name: "neural_mp3_defaults_24000", engine: "neural", format: "mp3", wantMagic: []byte{0xFF, 0xFB}},
 		{name: "generative_mp3_defaults_24000", engine: "generative", format: "mp3", wantMagic: []byte{0xFF, 0xFB}},
-		{name: "standard_pcm_defaults_16000", engine: "standard", format: "pcm", wantSampleRate: 16000, wantMagic: []byte("RIFF")},
+		{
+			name:           "standard_pcm_defaults_16000",
+			engine:         "standard",
+			format:         "pcm",
+			wantSampleRate: 16000,
+			wantMagic:      []byte("RIFF"),
+		},
 	}
 
 	for _, tc := range tests {

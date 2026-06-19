@@ -21,8 +21,8 @@ func TestCreateSchedule_ScheduleExpression_Validation(t *testing.T) {
 	tests := []struct {
 		name     string
 		expr     string
-		wantCode int
 		wantType string
+		wantCode int
 	}{
 		{
 			name:     "valid_rate_expression",

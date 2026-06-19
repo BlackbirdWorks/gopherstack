@@ -47,6 +47,17 @@ const (
 	maxTagCount       = 50
 	maxTagKeyLen      = 128
 	maxTagValueLen    = 256
+
+	// Speech-mark synthetic timing: roughly 80ms per character.
+	msPerCharacter = 80
+
+	// WAV/PCM container constants.
+	defaultWAVSampleRate = 22050
+	wavBitsPerByte       = 8
+	wavHeaderMinusRIFF   = 36 // total header bytes minus the 8-byte RIFF chunk descriptor
+	wavHeaderSize        = 44 // full RIFF/WAV header length
+	wavPCMChunkSize      = 16 // PCM fmt subchunk size
+	wavSilentDataLen     = 4  // two silent 16-bit samples
 )
 
 var (
@@ -693,10 +704,10 @@ func taskExtension(format string) string {
 func speechMarks(options SynthesisOptions) []byte {
 	lines := make([]string, 0, len(options.SpeechMarkTypes))
 	offset := 0
-	for _, word := range strings.Fields(options.Text) {
+	for word := range strings.FieldsSeq(options.Text) {
 		start := strings.Index(options.Text[offset:], word) + offset
 		end := start + len(word)
-		timeMs := offset * 80 // ~80ms per character as rough timing
+		timeMs := offset * msPerCharacter // ~80ms per character as rough timing
 		for _, mark := range options.SpeechMarkTypes {
 			switch mark {
 			case "word":
@@ -743,7 +754,7 @@ func syntheticAudioBytes(opts SynthesisOptions) []byte {
 
 // minimalWAV returns a 46-byte RIFF/WAV file with two silent PCM samples.
 func minimalWAV(sampleRateStr string) []byte {
-	sampleRate := uint32(22050)
+	sampleRate := uint32(defaultWAVSampleRate)
 	switch sampleRateStr {
 	case "8000":
 		sampleRate = 8000
@@ -757,19 +768,19 @@ func minimalWAV(sampleRateStr string) []byte {
 		sampleRate = 48000
 	}
 	const numChannels = uint16(1)
-	const bitsPerSample = uint16(16)
-	const dataLen = uint32(4) // 2 silent 16-bit samples
-	byteRate := sampleRate * uint32(numChannels) * uint32(bitsPerSample) / 8
-	blockAlign := numChannels * bitsPerSample / 8
-	fileSize := 36 + dataLen
+	const bitsPerSample = uint16(wavPCMChunkSize)
+	const dataLen = uint32(wavSilentDataLen) // 2 silent 16-bit samples
+	byteRate := sampleRate * uint32(numChannels) * uint32(bitsPerSample) / wavBitsPerByte
+	blockAlign := numChannels * bitsPerSample / wavBitsPerByte
+	fileSize := wavHeaderMinusRIFF + dataLen
 
-	buf := make([]byte, 0, 44+dataLen)
+	buf := make([]byte, 0, wavHeaderSize+dataLen)
 	buf = append(buf, 'R', 'I', 'F', 'F')
 	buf = binary.LittleEndian.AppendUint32(buf, fileSize)
 	buf = append(buf, 'W', 'A', 'V', 'E')
 	buf = append(buf, 'f', 'm', 't', ' ')
-	buf = binary.LittleEndian.AppendUint32(buf, 16) // PCM chunk size
-	buf = binary.LittleEndian.AppendUint16(buf, 1)  // PCM format
+	buf = binary.LittleEndian.AppendUint32(buf, wavPCMChunkSize) // PCM chunk size
+	buf = binary.LittleEndian.AppendUint16(buf, 1)               // PCM format
 	buf = binary.LittleEndian.AppendUint16(buf, numChannels)
 	buf = binary.LittleEndian.AppendUint32(buf, sampleRate)
 	buf = binary.LittleEndian.AppendUint32(buf, byteRate)
@@ -789,8 +800,10 @@ func minimalMP3Frame() []byte {
 		0xFF, 0xFB, 0x90, 0x00, // sync + MPEG1 Layer3 128kbps 44100Hz stereo no-padding
 		// 417 bytes of silence (128kbps frame at 44100 is 417 bytes)
 	}
-	frame := make([]byte, 4+413) // header + silence
+	const mp3FrameTotalLen = 417 // 128kbps frame at 44100Hz: 4-byte header + 413 bytes silence
+	frame := make([]byte, mp3FrameTotalLen)
 	copy(frame, minimalMP3FrameBytes)
+
 	return frame
 }
 

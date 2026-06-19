@@ -1449,8 +1449,11 @@ func (b *InMemoryBackend) checkDLQExists(policy string) error {
 	var parsed struct {
 		DeadLetterTargetArn string `json:"deadLetterTargetArn"`
 	}
-	if err := json.Unmarshal([]byte(policy), &parsed); err != nil || parsed.DeadLetterTargetArn == "" {
-		return nil // shape already validated by validateRedrivePolicy
+	// Shape is already validated by validateRedrivePolicy, so an unmarshal failure
+	// here cannot happen for a well-formed policy; ignore it and skip verification.
+	_ = json.Unmarshal([]byte(policy), &parsed)
+	if parsed.DeadLetterTargetArn == "" {
+		return nil
 	}
 
 	exists, err := checker.QueueExists(b.svcCtx, parsed.DeadLetterTargetArn)
@@ -2328,9 +2331,17 @@ func deliverHTTPWithMeta(parent context.Context, d httpDelivery, client *http.Cl
 
 		// Derive region from topic ARN (arn:aws:sns:<region>:…) so the fallback
 		// certURL reflects the actual region rather than a hardcoded us-east-1.
+		// ARN layout: arn:aws:sns:<region>:<account>:<topic>; region is the 4th
+		// colon-separated field, and splitting into 6 keeps the topic name intact.
+		const (
+			arnFieldCount   = 6
+			arnRegionIndex  = 3
+			arnMinFieldsReg = 4
+		)
 		topicRegion := "us-east-1"
-		if parts := strings.SplitN(d.topicARN, ":", 6); len(parts) >= 4 && parts[3] != "" {
-			topicRegion = parts[3]
+		if parts := strings.SplitN(d.topicARN, ":", arnFieldCount); len(parts) >= arnMinFieldsReg &&
+			parts[arnRegionIndex] != "" {
+			topicRegion = parts[arnRegionIndex]
 		}
 		certURL := fmt.Sprintf("https://sns.%s.amazonaws.com/SimpleNotificationService.pem", topicRegion)
 		signature := "MOCK-SIGNATURE"

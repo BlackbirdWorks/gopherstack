@@ -11,18 +11,19 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/transcribe"
 )
 
-// TestTranscribe_BadParams_NotInternalFailure asserts bad params return BadRequestException, not InternalFailureException.
+// TestTranscribe_BadParams_NotInternalFailure asserts bad params return
+// BadRequestException, not InternalFailureException.
 func TestTranscribe_BadParams_NotInternalFailure(t *testing.T) {
 	t.Parallel()
 
 	const wantType = "BadRequestException"
 
 	tests := []struct {
+		body     map[string]any
 		name     string
 		action   string
-		body     map[string]any
-		wantCode int
 		wantType string
+		wantCode int
 	}{
 		{
 			name:     "StartTranscriptionJob_missing_name",

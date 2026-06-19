@@ -19,12 +19,17 @@ func TestCreateQueue_NameValidation(t *testing.T) {
 	tests := []struct {
 		name      string
 		queueName string
-		wantCode  int
 		wantType  string
+		wantCode  int
 	}{
 		{name: "valid_name", queueName: "my-queue", wantCode: http.StatusOK},
 		{name: "empty_name", queueName: "", wantCode: http.StatusBadRequest, wantType: wantType},
-		{name: "too_long_81_chars", queueName: strings.Repeat("a", 81), wantCode: http.StatusBadRequest, wantType: wantType},
+		{
+			name:      "too_long_81_chars",
+			queueName: strings.Repeat("a", 81),
+			wantCode:  http.StatusBadRequest,
+			wantType:  wantType,
+		},
 		{name: "invalid_chars_space", queueName: "bad queue", wantCode: http.StatusBadRequest, wantType: wantType},
 		{name: "valid_80_chars", queueName: strings.Repeat("a", 80), wantCode: http.StatusOK},
 	}
@@ -54,9 +59,9 @@ func TestReceiveMessage_MaxNumberOfMessages_Validation(t *testing.T) {
 
 	tests := []struct {
 		name                string
+		wantType            string
 		maxNumberOfMessages int
 		wantCode            int
-		wantType            string
 	}{
 		{name: "valid_max_10", maxNumberOfMessages: 10, wantCode: http.StatusOK},
 		{name: "valid_max_1", maxNumberOfMessages: 1, wantCode: http.StatusOK},
