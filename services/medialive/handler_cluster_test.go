@@ -266,3 +266,69 @@ func TestNode_NotFound(t *testing.T) {
 		})
 	}
 }
+
+func TestListClusterAlerts(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		setupCluster  bool
+		forceState    string
+		wantStatus    int
+		wantAlertCode string
+		wantEmpty     bool
+	}{
+		{
+			name:         "cluster not found returns 404",
+			setupCluster: false,
+			wantStatus:   http.StatusNotFound,
+		},
+		{
+			name:         "active cluster returns empty alerts",
+			setupCluster: true,
+			forceState:   "",
+			wantStatus:   http.StatusOK,
+			wantEmpty:    true,
+		},
+		{
+			name:          "non-active cluster returns synthetic alert",
+			setupCluster:  true,
+			forceState:    "DELETING",
+			wantStatus:    http.StatusOK,
+			wantAlertCode: "CLUSTER_NOT_READY",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			clusterID := "missing-cluster-id"
+
+			if tt.setupCluster {
+				clusterID = createTestCluster(t, h)
+				if tt.forceState != "" {
+					medialive.ForceClusterState(h.Backend.(*medialive.InMemoryBackend), clusterID, tt.forceState)
+				}
+			}
+
+			rec := doRequest(t, h, http.MethodGet, "/prod/clusters/"+clusterID+"/alerts", nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				alerts := resp["Alerts"].([]any)
+
+				if tt.wantEmpty {
+					assert.Empty(t, alerts)
+				} else {
+					require.NotEmpty(t, alerts)
+					first := alerts[0].(map[string]any)
+					assert.Equal(t, tt.wantAlertCode, first["AlertCode"])
+				}
+			}
+		})
+	}
+}

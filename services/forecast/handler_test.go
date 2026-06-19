@@ -134,6 +134,13 @@ func TestHandler_ResourceLifecycles(t *testing.T) {
 			createBody: map[string]any{"ExplainabilityExportName": "explain-export", "ExplainabilityArn": "explain"},
 		},
 		{
+			name: "explainability", create: "CreateExplainability",
+			describe: "DescribeExplainability", list: "ListExplainabilities",
+			delete: "DeleteExplainability", arnField: "ExplainabilityArn",
+			status: "Status", listField: "Explainabilities",
+			createBody: map[string]any{"ExplainabilityName": "forecast-explain", "ResourceArn": "predictor"},
+		},
+		{
 			name: "what_if_analysis", create: "CreateWhatIfAnalysis", describe: "DescribeWhatIfAnalysis",
 			list: "ListWhatIfAnalyses", delete: "DeleteWhatIfAnalysis", arnField: "WhatIfAnalysisArn",
 			status: "Status", listField: "WhatIfAnalyses",

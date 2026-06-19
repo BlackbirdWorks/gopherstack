@@ -1928,6 +1928,7 @@ type inputDeviceOutput struct {
 	ConnectionState         string            `json:"ConnectionState"`
 	DeviceSettingsSyncState string            `json:"DeviceSettingsSyncState"`
 	DeviceUpdateStatus      string            `json:"DeviceUpdateStatus"`
+	MaintenanceWindowActive bool              `json:"MaintenanceWindowActive"`
 }
 
 func toInputDeviceOutput(d *InputDevice) inputDeviceOutput {
@@ -1947,6 +1948,7 @@ func toInputDeviceOutput(d *InputDevice) inputDeviceOutput {
 		ConnectionState:         d.ConnectionState,
 		DeviceSettingsSyncState: d.DeviceSettingsSyncState,
 		DeviceUpdateStatus:      d.DeviceUpdateStatus,
+		MaintenanceWindowActive: d.MaintenanceWindowActive,
 	}
 }
 

@@ -219,27 +219,38 @@ type DataDeletionJob struct {
 	NumDeleted          int32
 }
 
+// storedFeatureTransformation represents a built-in feature transformation.
+type storedFeatureTransformation struct {
+	ARN           string
+	Name          string
+	Status        string
+	CreationTime  time.Time
+	LastUpdated   time.Time
+	DefaultValues map[string]string
+}
+
 // InMemoryBackend stores Amazon Personalize state.
 type InMemoryBackend struct {
-	datasetGroups      map[string]*DatasetGroup
-	datasets           map[string]*Dataset
-	schemas            map[string]*Schema
-	solutions          map[string]*Solution
-	solutionVersions   map[string]*SolutionVersion
-	campaigns          map[string]*Campaign
-	datasetImportJobs  map[string]*DatasetImportJob
-	datasetExportJobs  map[string]*DatasetExportJob
-	batchInferenceJobs map[string]*BatchInferenceJob
-	batchSegmentJobs   map[string]*BatchSegmentJob
-	eventTrackers      map[string]*EventTracker
-	filters            map[string]*Filter
-	recommenders       map[string]*Recommender
-	metricAttributions map[string]*MetricAttribution
-	dataDeletionJobs   map[string]*DataDeletionJob
-	tags               map[string]map[string]string
-	accountID          string
-	region             string
-	mu                 sync.RWMutex
+	datasetGroups          map[string]*DatasetGroup
+	datasets               map[string]*Dataset
+	schemas                map[string]*Schema
+	solutions              map[string]*Solution
+	solutionVersions       map[string]*SolutionVersion
+	campaigns              map[string]*Campaign
+	datasetImportJobs      map[string]*DatasetImportJob
+	datasetExportJobs      map[string]*DatasetExportJob
+	batchInferenceJobs     map[string]*BatchInferenceJob
+	batchSegmentJobs       map[string]*BatchSegmentJob
+	eventTrackers          map[string]*EventTracker
+	filters                map[string]*Filter
+	recommenders           map[string]*Recommender
+	metricAttributions     map[string]*MetricAttribution
+	dataDeletionJobs       map[string]*DataDeletionJob
+	featureTransformations map[string]*storedFeatureTransformation
+	tags                   map[string]map[string]string
+	accountID              string
+	region                 string
+	mu                     sync.RWMutex
 }
 
 // NewInMemoryBackend returns a stateful Amazon Personalize backend.
@@ -251,26 +262,57 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		region = defaultRegion
 	}
 
-	return &InMemoryBackend{
-		datasetGroups:      make(map[string]*DatasetGroup),
-		datasets:           make(map[string]*Dataset),
-		schemas:            make(map[string]*Schema),
-		solutions:          make(map[string]*Solution),
-		solutionVersions:   make(map[string]*SolutionVersion),
-		campaigns:          make(map[string]*Campaign),
-		datasetImportJobs:  make(map[string]*DatasetImportJob),
-		datasetExportJobs:  make(map[string]*DatasetExportJob),
-		batchInferenceJobs: make(map[string]*BatchInferenceJob),
-		batchSegmentJobs:   make(map[string]*BatchSegmentJob),
-		eventTrackers:      make(map[string]*EventTracker),
-		filters:            make(map[string]*Filter),
-		recommenders:       make(map[string]*Recommender),
-		metricAttributions: make(map[string]*MetricAttribution),
-		dataDeletionJobs:   make(map[string]*DataDeletionJob),
-		tags:               make(map[string]map[string]string),
-		accountID:          accountID,
-		region:             region,
+	epoch := time.Date(2017, 1, 1, 0, 0, 0, 0, time.UTC)
+	builtinFTs := map[string]*storedFeatureTransformation{}
+	for _, name := range []string{
+		"aws-feature-transformation",
+		"aws-explicit-contextual-bandits-feature-transformation",
+	} {
+		ftArn := arn.Build("personalize", region, accountID, "feature-transformation/"+name)
+		builtinFTs[ftArn] = &storedFeatureTransformation{
+			ARN:         ftArn,
+			Name:        name,
+			Status:      statusActive,
+			CreationTime: epoch,
+			LastUpdated: epoch,
+		}
 	}
+
+	return &InMemoryBackend{
+		datasetGroups:          make(map[string]*DatasetGroup),
+		datasets:               make(map[string]*Dataset),
+		schemas:                make(map[string]*Schema),
+		solutions:              make(map[string]*Solution),
+		solutionVersions:       make(map[string]*SolutionVersion),
+		campaigns:              make(map[string]*Campaign),
+		datasetImportJobs:      make(map[string]*DatasetImportJob),
+		datasetExportJobs:      make(map[string]*DatasetExportJob),
+		batchInferenceJobs:     make(map[string]*BatchInferenceJob),
+		batchSegmentJobs:       make(map[string]*BatchSegmentJob),
+		eventTrackers:          make(map[string]*EventTracker),
+		filters:                make(map[string]*Filter),
+		recommenders:           make(map[string]*Recommender),
+		metricAttributions:     make(map[string]*MetricAttribution),
+		dataDeletionJobs:       make(map[string]*DataDeletionJob),
+		featureTransformations: builtinFTs,
+		tags:                   make(map[string]map[string]string),
+		accountID:              accountID,
+		region:                 region,
+	}
+}
+
+// GetFeatureTransformation looks up a feature transformation by ARN or name.
+func (b *InMemoryBackend) GetFeatureTransformation(arnOrName string) (*storedFeatureTransformation, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	for _, ft := range b.featureTransformations {
+		if ft.ARN == arnOrName || ft.Name == arnOrName {
+			return ft, nil
+		}
+	}
+
+	return nil, fmt.Errorf("%w: feature transformation %q not found", ErrNotFound, arnOrName)
 }
 
 // Reset clears all in-memory Personalize state for the /_gopherstack/reset
@@ -295,6 +337,22 @@ func (b *InMemoryBackend) Reset() {
 	b.metricAttributions = make(map[string]*MetricAttribution)
 	b.dataDeletionJobs = make(map[string]*DataDeletionJob)
 	b.tags = make(map[string]map[string]string)
+	// featureTransformations are read-only builtins; re-seed to restore after reset.
+	epoch := time.Date(2017, 1, 1, 0, 0, 0, 0, time.UTC)
+	b.featureTransformations = make(map[string]*storedFeatureTransformation)
+	for _, name := range []string{
+		"aws-feature-transformation",
+		"aws-explicit-contextual-bandits-feature-transformation",
+	} {
+		ftArn := b.personalizeARN("feature-transformation", name)
+		b.featureTransformations[ftArn] = &storedFeatureTransformation{
+			ARN:          ftArn,
+			Name:         name,
+			Status:       statusActive,
+			CreationTime: epoch,
+			LastUpdated:  epoch,
+		}
+	}
 }
 
 // Region returns the configured region.

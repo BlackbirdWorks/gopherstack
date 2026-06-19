@@ -631,6 +631,68 @@ func TestDirectoryService_DeleteDirectoryRemovesSnapshots(t *testing.T) {
 	assert.Empty(t, snaps)
 }
 
+func TestRestoreFromSnapshot_TableDriven(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		setup    func(h *directoryservice.Handler) string
+		wantCode int
+	}{
+		{
+			name: "valid snapshot restores directory",
+			setup: func(h *directoryservice.Handler) string {
+				createRec := doRequest(t, h, "CreateDirectory", map[string]any{
+					"Name": "corp.example.com", "Password": "Admin1234!", "Size": "Small",
+				})
+				var createResp map[string]any
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+				dirID := createResp["DirectoryId"].(string)
+				snapRec := doRequest(t, h, "CreateSnapshot", map[string]any{"DirectoryId": dirID})
+				var snapResp map[string]any
+				require.NoError(t, json.Unmarshal(snapRec.Body.Bytes(), &snapResp))
+				return snapResp["SnapshotId"].(string)
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "non-existent snapshot returns 400",
+			setup: func(_ *directoryservice.Handler) string {
+				return "s-0000000000"
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "orphaned snapshot (directory deleted) returns 400",
+			setup: func(h *directoryservice.Handler) string {
+				createRec := doRequest(t, h, "CreateDirectory", map[string]any{
+					"Name": "corp.example.com", "Password": "Admin1234!", "Size": "Small",
+				})
+				var createResp map[string]any
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+				dirID := createResp["DirectoryId"].(string)
+				snapRec := doRequest(t, h, "CreateSnapshot", map[string]any{"DirectoryId": dirID})
+				var snapResp map[string]any
+				require.NoError(t, json.Unmarshal(snapRec.Body.Bytes(), &snapResp))
+				snapID := snapResp["SnapshotId"].(string)
+				doRequest(t, h, "DeleteDirectory", map[string]any{"DirectoryId": dirID})
+				return snapID
+			},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler(t)
+			snapID := tt.setup(h)
+			rec := doRequest(t, h, "RestoreFromSnapshot", map[string]any{"SnapshotId": snapID})
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
 // TestDirectoryService_UnknownOperation verifies that an unrecognised operation is
 // rejected with an AWS-style 400 InvalidRequestException rather than 501.
 func TestDirectoryService_UnknownOperation(t *testing.T) {
