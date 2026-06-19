@@ -2,7 +2,6 @@ package stepfunctions_test
 
 import (
 	"context"
-	"log/slog"
 	"testing"
 	"time"
 
@@ -678,13 +677,6 @@ func TestSetLambdaInvoker(t *testing.T) {
 	b := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 	// Setting nil is a no-op but shouldn't panic.
 	b.SetLambdaInvoker(nil)
-}
-
-func TestSetLogger(t *testing.T) {
-	t.Parallel()
-	b := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
-	// SetLogger with a real logger should not panic.
-	b.SetLogger(slog.Default())
 }
 
 func TestStartExecutionASL(t *testing.T) {

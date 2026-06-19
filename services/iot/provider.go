@@ -3,7 +3,6 @@ package iot
 import (
 	"errors"
 	"fmt"
-	"log/slog"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -35,7 +34,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		backend = NewInMemoryBackend()
 	}
 
-	broker := NewBroker(backend, backend.MQTTPort(), slog.Default())
+	broker := NewBroker(backend, backend.MQTTPort())
 	handler := NewHandler(backend, broker)
 
 	return handler, nil

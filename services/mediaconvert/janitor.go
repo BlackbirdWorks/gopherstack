@@ -2,8 +2,9 @@ package mediaconvert
 
 import (
 	"context"
-	"log/slog"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 const (
@@ -27,17 +28,17 @@ func runJanitor(ctx context.Context, b *InMemoryBackend) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			janitorTick(b)
+			janitorTick(ctx, b)
 		}
 	}
 }
 
 // janitorTick performs one cycle: advance job phases and sweep tokens.
-func janitorTick(b *InMemoryBackend) {
+func janitorTick(ctx context.Context, b *InMemoryBackend) {
 	advanced := b.AdvanceJobPhase()
 	b.SweepExpiredTokens()
 
 	if advanced {
-		slog.Default().Debug("mediaconvert: janitor advanced job phase(s)")
+		logger.Load(ctx).Debug("mediaconvert: janitor advanced job phase(s)")
 	}
 }

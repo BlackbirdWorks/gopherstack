@@ -1072,7 +1072,7 @@ func TestRefinement1_BrokerPublish_NotStarted(t *testing.T) {
 			t.Parallel()
 
 			b := newRefBackend()
-			broker := iot.NewBroker(b, 0, nil)
+			broker := iot.NewBroker(b, 0)
 			err := broker.Publish("sensor/temp", []byte("25"), false, 0)
 			require.ErrorIs(t, err, tt.wantErr)
 		})
@@ -1101,7 +1101,7 @@ func TestRefinement1_HandlerBroker(t *testing.T) {
 				h := iot.NewHandler(b, nil)
 				assert.Nil(t, h.Broker())
 			} else {
-				broker := iot.NewBroker(b, 0, nil)
+				broker := iot.NewBroker(b, 0)
 				h := iot.NewHandler(b, broker)
 				assert.Equal(t, broker, h.Broker())
 			}

@@ -3,7 +3,6 @@ package ecs
 import (
 	"errors"
 	"fmt"
-	"log/slog"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -40,11 +39,6 @@ func (p *Provider) Init(appCtx *service.AppContext) (service.Registerable, error
 		}
 	}
 
-	log := appCtx.Logger
-	if log == nil {
-		log = slog.Default()
-	}
-
 	runner, err := newTaskRunner()
 	if err != nil {
 		return nil, fmt.Errorf("init ECS task runner: %w", err)
@@ -59,7 +53,7 @@ func (p *Provider) Init(appCtx *service.AppContext) (service.Registerable, error
 		go janitor.Run(appCtx.JanitorCtx)
 	}
 
-	log.Info("ECS service initialized")
+	appCtx.Logger.Info("ECS service initialized")
 
 	return NewHandler(backend), nil
 }

@@ -553,6 +553,7 @@ func (b *InMemoryBackend) functionURLHostname(functionName string) string {
 // The mutex is released before port allocation and listener startup (IO) to avoid
 // holding the lock during potentially slow system calls.
 func (b *InMemoryBackend) CreateFunctionURLConfig(
+	ctx context.Context,
 	functionName, authType string,
 	cors *FunctionURLCors,
 	invokeMode string,
@@ -574,7 +575,7 @@ func (b *InMemoryBackend) CreateFunctionURLConfig(
 	b.mu.Unlock()
 
 	// Allocate port and start listener outside the lock (IO).
-	urlStr, startErr := b.allocateAndStartURLServerUnlocked(functionName)
+	urlStr, startErr := b.allocateAndStartURLServerUnlocked(ctx, functionName)
 	if startErr != nil {
 		return nil, startErr
 	}
@@ -627,8 +628,8 @@ func (b *InMemoryBackend) CreateFunctionURLConfig(
 
 // allocateAndStartURLServerUnlocked allocates a port and starts the HTTP listener
 // without holding b.mu. The caller must commit srv to b.functionURLServers under the lock.
-func (b *InMemoryBackend) allocateAndStartURLServerUnlocked(functionName string) (string, error) {
-	urlStr, srv, err := b.doAllocateAndStart(functionName)
+func (b *InMemoryBackend) allocateAndStartURLServerUnlocked(ctx context.Context, functionName string) (string, error) {
+	urlStr, srv, err := b.doAllocateAndStart(ctx, functionName)
 	if err != nil {
 		return "", err
 	}
@@ -644,7 +645,7 @@ func (b *InMemoryBackend) allocateAndStartURLServerUnlocked(functionName string)
 
 // doAllocateAndStart is the core port-alloc + listener startup logic used by
 // allocateAndStartURLServerUnlocked.
-func (b *InMemoryBackend) doAllocateAndStart(functionName string) (string, *functionURLServer, error) {
+func (b *InMemoryBackend) doAllocateAndStart(ctx context.Context, functionName string) (string, *functionURLServer, error) {
 	if b.portAlloc == nil {
 		return fmt.Sprintf("http://localhost/%s/", functionName), nil, nil
 	}
@@ -654,7 +655,7 @@ func (b *InMemoryBackend) doAllocateAndStart(functionName string) (string, *func
 		return "", nil, fmt.Errorf("%w: port allocation failed: %w", ErrLambdaUnavailable, allocErr)
 	}
 
-	srv, listenErr := b.startFunctionURLServer(functionName, port)
+	srv, listenErr := b.startFunctionURLServer(ctx, functionName, port)
 	if listenErr != nil {
 		_ = b.portAlloc.Release(port)
 
@@ -726,7 +727,7 @@ const functionURLReadHeaderTimeout = 30 * time.Second
 
 // startFunctionURLServer starts an HTTP server on the given port that converts HTTP requests
 // to Lambda invocation events and returns the function's response.
-func (b *InMemoryBackend) startFunctionURLServer(functionName string, port int) (*functionURLServer, error) {
+func (b *InMemoryBackend) startFunctionURLServer(ctx context.Context, functionName string, port int) (*functionURLServer, error) {
 	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
 	lc := &net.ListenConfig{}
 	ln, err := lc.Listen(context.Background(), "tcp", addr)
@@ -742,9 +743,11 @@ func (b *InMemoryBackend) startFunctionURLServer(functionName string, port int) 
 		ReadHeaderTimeout: functionURLReadHeaderTimeout,
 	}
 
+	log := logger.Load(ctx)
+
 	go func() {
 		if serveErr := srv.Serve(ln); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
-			slog.Default().Warn("lambda: function URL server stopped", "function", functionName, "error", serveErr)
+			log.Warn("lambda: function URL server stopped", "function", functionName, "error", serveErr)
 		}
 	}()
 
@@ -1687,6 +1690,8 @@ func (b *InMemoryBackend) enqueueAsyncInvocation(
 	timeout time.Duration,
 	trackConcurrency bool,
 ) {
+	log := logger.Load(ctx)
+
 	// Fast path: try a non-blocking enqueue without spawning a goroutine.
 	// Even on the fast path we still need a goroutine to clean up srv.pending on
 	// container timeout, so only skip the goroutine when there's nothing to track
@@ -1696,7 +1701,7 @@ func (b *InMemoryBackend) enqueueAsyncInvocation(
 		case srv.queue <- inv:
 			// Invocation queued; spawn a minimal goroutine only to clean up srv.pending
 			// if the container picks up the invocation but never responds.
-			go b.waitAndCleanPending(srv, inv, timeout, false, functionName)
+			go b.waitAndCleanPending(log, srv, inv, timeout, false, functionName)
 
 			return
 		default:
@@ -1707,7 +1712,7 @@ func (b *InMemoryBackend) enqueueAsyncInvocation(
 	select {
 	case b.asyncEnqueueWaiters <- struct{}{}:
 	default:
-		logger.Load(ctx).WarnContext(ctx, "lambda: async invocation dropped: enqueue waiters saturated",
+		log.WarnContext(ctx, "lambda: async invocation dropped: enqueue waiters saturated",
 			"function", functionName, "requestID", inv.requestID)
 
 		if trackConcurrency {
@@ -1727,10 +1732,10 @@ func (b *InMemoryBackend) enqueueAsyncInvocation(
 
 		select {
 		case srv.queue <- inv:
-			b.waitAndCleanPending(srv, inv, timeout, trackConcurrency, functionName)
+			b.waitAndCleanPending(log, srv, inv, timeout, trackConcurrency, functionName)
 
 		case <-enqueueCtx.Done():
-			logger.Load(ctx).WarnContext(ctx, "lambda: async invocation dropped: queue full",
+			log.WarnContext(ctx, "lambda: async invocation dropped: queue full",
 				"function", functionName, "requestID", inv.requestID)
 
 			if trackConcurrency {
@@ -1748,13 +1753,14 @@ const defaultAsyncMaxRetryAttempts = 2
 // the retry loop and, once all attempts are exhausted or completed, releases the
 // concurrency slot if one was acquired.
 func (b *InMemoryBackend) waitAndCleanPending(
+	log *slog.Logger,
 	srv *runtimeServer,
 	inv *pendingInvocation,
 	timeout time.Duration,
 	trackConcurrency bool,
 	functionName string,
 ) {
-	b.runAsyncInvocationRetryLoop(srv, inv, timeout, functionName)
+	b.runAsyncInvocationRetryLoop(log, srv, inv, timeout, functionName)
 
 	if trackConcurrency {
 		b.releaseConcurrencySlot(functionName)
@@ -1765,6 +1771,7 @@ func (b *InMemoryBackend) waitAndCleanPending(
 // according to the function's event invoke configuration (MaximumRetryAttempts,
 // MaximumEventAgeInSeconds). Default retry count mirrors AWS Lambda: 2 retries.
 func (b *InMemoryBackend) runAsyncInvocationRetryLoop(
+	log *slog.Logger,
 	srv *runtimeServer,
 	inv *pendingInvocation,
 	timeout time.Duration,
@@ -1789,14 +1796,14 @@ func (b *InMemoryBackend) runAsyncInvocationRetryLoop(
 			if !result.isError {
 				b.dispatchInvocationLog(context.Background(), functionName, inv.payload, result.payload)
 			} else {
-				slog.Default().Warn("lambda: async invocation failed after retries",
+				log.Warn("lambda: async invocation failed after retries",
 					"function", functionName, "attempts", attempt+1)
 			}
 
 			return
 		}
 
-		newInv := scheduleAsyncRetry(srv, inv, timeout, maxEventAgeDL, attempt+1, functionName)
+		newInv := scheduleAsyncRetry(log, srv, inv, timeout, maxEventAgeDL, attempt+1, functionName)
 		if newInv == nil {
 			return // retry dropped (queue full or event too old)
 		}
@@ -1871,6 +1878,7 @@ func waitForAsyncResult(
 // It returns the new invocation on success or nil if the event is too old or the queue
 // remains full after asyncInvocationEnqueueTimeout.
 func scheduleAsyncRetry(
+	log *slog.Logger,
 	srv *runtimeServer,
 	original *pendingInvocation,
 	timeout time.Duration,
@@ -1879,7 +1887,7 @@ func scheduleAsyncRetry(
 	functionName string,
 ) *pendingInvocation {
 	if !maxEventAgeDL.IsZero() && time.Now().After(maxEventAgeDL) {
-		slog.Default().Warn("lambda: async retry dropped: event age exceeded",
+		log.Warn("lambda: async retry dropped: event age exceeded",
 			"function", functionName, "attempt", attempt)
 
 		return nil
@@ -1900,7 +1908,7 @@ func scheduleAsyncRetry(
 	case srv.queue <- newInv:
 		return newInv
 	case <-ctx.Done():
-		slog.Default().Warn("lambda: async retry dropped: queue full",
+		log.Warn("lambda: async retry dropped: queue full",
 			"function", functionName, "requestID", newInv.requestID, "attempt", attempt)
 
 		return nil
@@ -2452,7 +2460,7 @@ func (b *InMemoryBackend) startContainer(
 	// Extract layer zips and prepare the /opt mount for both Zip and Image functions.
 	layerMount, layerDirs, layerErr := b.prepareLayerMount(fn)
 	if layerErr != nil {
-		slog.Default().WarnContext(ctx, "lambda: layer extraction failed",
+		logger.Load(ctx).WarnContext(ctx, "lambda: layer extraction failed",
 			"function", fn.FunctionName, "error", layerErr)
 	}
 

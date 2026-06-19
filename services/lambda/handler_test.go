@@ -2065,7 +2065,7 @@ func TestFunctionUrl_HTTP_ForwardsToLambda(t *testing.T) {
 			}
 			require.NoError(t, bk.CreateFunction(fn))
 
-			cfg, createErr := bk.CreateFunctionURLConfig(tt.funcName, "NONE", nil, "")
+			cfg, createErr := bk.CreateFunctionURLConfig(t.Context(), tt.funcName, "NONE", nil, "")
 			require.NoError(t, createErr)
 			assert.NotEmpty(t, cfg.FunctionURL)
 			assert.Contains(t, cfg.FunctionURL, "http://")

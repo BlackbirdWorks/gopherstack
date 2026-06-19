@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net"
 	"net/http"
 	"strconv"
@@ -17,6 +16,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 // ErrInvocationTimeout is returned when a Lambda invocation exceeds its deadline.
@@ -94,11 +94,13 @@ func (s *runtimeServer) start(ctx context.Context) error {
 		return fmt.Errorf("runtime server listen on :%d: %w", s.port, err)
 	}
 
+	log := logger.Load(ctx)
+
 	go func() {
 		defer close(s.done)
 
 		if serveErr := s.srv.Serve(ln); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
-			slog.Default().ErrorContext(ctx, "lambda runtime server error", "port", s.port, "error", serveErr)
+			log.ErrorContext(ctx, "lambda runtime server error", "port", s.port, "error", serveErr)
 		}
 	}()
 
@@ -238,7 +240,7 @@ func (s *runtimeServer) handleInvocationResult(w http.ResponseWriter, r *http.Re
 		}
 
 		// Log but continue — partial body may still be useful.
-		slog.Default().
+		logger.Load(r.Context()).
 			WarnContext(r.Context(), "lambda: error reading invocation result body", "requestID", requestID, "error", readErr)
 	}
 
@@ -251,7 +253,7 @@ func (s *runtimeServer) handleInvocationResult(w http.ResponseWriter, r *http.Re
 
 	inv, isInv := raw.(*pendingInvocation)
 	if !isInv {
-		slog.Default().ErrorContext(r.Context(), "lambda: unexpected type in pending invocations map")
+		logger.Load(r.Context()).ErrorContext(r.Context(), "lambda: unexpected type in pending invocations map")
 		http.Error(w, "internal error", http.StatusInternalServerError)
 
 		return
@@ -288,10 +290,10 @@ func (s *runtimeServer) handleInitError(w http.ResponseWriter, r *http.Request) 
 		}
 
 		// Log but continue — partial body may still be useful.
-		slog.Default().WarnContext(r.Context(), "lambda: error reading init error body", "error", readErr)
+		logger.Load(r.Context()).WarnContext(r.Context(), "lambda: error reading init error body", "error", readErr)
 	}
 
-	slog.Default().ErrorContext(r.Context(), "lambda runtime init error", "error", string(body))
+	logger.Load(r.Context()).ErrorContext(r.Context(), "lambda runtime init error", "error", string(body))
 
 	// Deliver the init error to the first pending invocation so the caller gets an
 	// immediate error response instead of timing out.
