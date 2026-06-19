@@ -619,6 +619,7 @@ func (rc *ResourceCreator) createAPIGatewayV2DomainName(
 		domainName = logicalID
 	}
 	_, err := rc.backends.APIGatewayV2.Backend.CreateDomainName(
+		context.Background(),
 		apigatewayv2backend.CreateDomainNameInput{
 			DomainNameValue: domainName,
 		},

@@ -754,7 +754,7 @@ func (h *Handler) handleDomainNamesPath(c *echo.Context, method, path string) er
 		switch method {
 		case http.MethodPost:
 			return handleCreateNoParent(c, "domain name", func(input CreateDomainNameInput) (*DomainName, error) {
-				return h.Backend.CreateDomainName(input)
+				return h.Backend.CreateDomainName(c.Request().Context(), input)
 			})
 		case http.MethodGet:
 			return h.handleGetDomainNames(c)
@@ -828,7 +828,7 @@ func (h *Handler) handleRoutingRulesCollection(c *echo.Context, method, domainNa
 	case http.MethodPost:
 		return handleCreate(c, domainName, "routing rule", ErrDomainNameNotFound,
 			func(input CreateRoutingRuleInput) (*RoutingRule, error) {
-				return h.Backend.CreateRoutingRule(domainName, input)
+				return h.Backend.CreateRoutingRule(c.Request().Context(), domainName, input)
 			})
 	case http.MethodGet:
 		rules, err := h.Backend.ListRoutingRules(domainName)
@@ -1107,7 +1107,7 @@ func (h *Handler) handleCreateAPI(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, notFoundResponse{Message: msgInvalidBody})
 	}
 
-	api, err := h.Backend.CreateAPI(input)
+	api, err := h.Backend.CreateAPI(c.Request().Context(), input)
 	if err != nil {
 		log.Error("apigatewayv2: create api failed", "error", err)
 
@@ -1200,7 +1200,7 @@ func (h *Handler) handleImportAPI(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, notFoundResponse{Message: msgInvalidBody})
 	}
 
-	api, err := h.Backend.CreateAPI(CreateAPIInput{
+	api, err := h.Backend.CreateAPI(c.Request().Context(), CreateAPIInput{
 		Name:         "imported-api",
 		ProtocolType: protocolTypeHTTP,
 		Description:  input.Body,
