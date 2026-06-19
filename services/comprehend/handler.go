@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/labstack/echo/v5"
 
@@ -549,27 +550,132 @@ func inputTags(input map[string]any) []Tag {
 	return tags
 }
 
+var (
+	positiveWords = []string{
+		"great", "love", "excellent", "wonderful", "amazing", "good", "happy", "best",
+		"fantastic", "awesome", "beautiful", "perfect", "superb", "outstanding", "brilliant",
+		"delightful", "pleased", "enjoy", "liked", "satisfied",
+	}
+	negativeWords = []string{
+		"bad", "hate", "terrible", "awful", "horrible", "worst", "angry", "sad",
+		"disappointing", "poor", "dreadful", "disgusting", "upset", "frustrating",
+		"dislike", "failed", "useless", "broken", "wrong", "awful",
+	}
+)
+
 func (h *Handler) detectSentiment(input map[string]any) (map[string]any, error) {
 	text, err := documentText(input)
 	if err != nil {
 		return nil, err
 	}
-	sentiment := "NEUTRAL"
 	lower := strings.ToLower(text)
+	words := strings.Fields(lower)
+	wordSet := make(map[string]bool, len(words))
+	for _, w := range words {
+		wordSet[strings.Trim(w, ".,!?;:")] = true
+	}
+
+	posCount, negCount := 0, 0
+	for _, w := range positiveWords {
+		if wordSet[w] || strings.Contains(lower, w) {
+			posCount++
+		}
+	}
+	for _, w := range negativeWords {
+		if wordSet[w] || strings.Contains(lower, w) {
+			negCount++
+		}
+	}
+
+	var sentiment string
+	var posScore, negScore, neuScore, mixScore float64
 	switch {
-	case strings.Contains(lower, "great") || strings.Contains(lower, "love") || strings.Contains(lower, "excellent"):
+	case posCount > 0 && negCount > 0:
+		sentiment = "MIXED"
+		posScore, negScore = 0.45, 0.45
+		neuScore, mixScore = 0.05, 0.05
+	case posCount > 0:
 		sentiment = "POSITIVE"
-	case strings.Contains(lower, "bad") || strings.Contains(lower, "hate") || strings.Contains(lower, "terrible"):
+		posScore = 0.92 + float64(posCount)*0.01
+		if posScore > 0.99 {
+			posScore = 0.99
+		}
+		negScore, neuScore, mixScore = 0.01, 0.06, 0.01
+	case negCount > 0:
 		sentiment = "NEGATIVE"
+		negScore = 0.92 + float64(negCount)*0.01
+		if negScore > 0.99 {
+			negScore = 0.99
+		}
+		posScore, neuScore, mixScore = 0.01, 0.06, 0.01
+	default:
+		sentiment = "NEUTRAL"
+		neuScore = neutralSentimentScore
+		posScore, negScore, mixScore = lowSentimentScore, lowSentimentScore, lowSentimentScore
 	}
 
 	return map[string]any{
 		"Sentiment": sentiment,
 		"SentimentScore": map[string]float64{
-			"Positive": lowSentimentScore, "Negative": lowSentimentScore,
-			"Neutral": neutralSentimentScore, "Mixed": lowSentimentScore,
+			"Positive": posScore, "Negative": negScore,
+			"Neutral": neuScore, "Mixed": mixScore,
 		},
 	}, nil
+}
+
+var (
+	orgSuffixes = []string{
+		" inc", " inc.", " corp", " corp.", " ltd", " ltd.", " llc", " co.", " company",
+		" university", " institute", " foundation", " association", " corporation",
+		" group", " holdings", " technologies", " solutions",
+	}
+	locSuffixes = []string{
+		" street", " avenue", " road", " drive", " boulevard", " lane", " way",
+		" city", " town", " village", " county", " state", " country", " nation",
+		" river", " lake", " mountain", " park",
+	}
+	locPrefixes = []string{
+		"mount ", "lake ", "north ", "south ", "east ", "west ", "new ",
+	}
+	quantityWords = []string{
+		"thousand", "million", "billion", "percent", "kg", "lb", "km", "mile",
+	}
+	dateWords = []string{
+		"january", "february", "march", "april", "may", "june", "july", "august",
+		"september", "october", "november", "december", "monday", "tuesday",
+		"wednesday", "thursday", "friday", "saturday", "sunday", "yesterday",
+		"tomorrow", "today",
+	}
+)
+
+func entityType(word, textLower string) string {
+	wl := strings.ToLower(word)
+	for _, sfx := range orgSuffixes {
+		if strings.HasSuffix(textLower, wl+sfx) || strings.Contains(textLower, wl+sfx+" ") {
+			return "ORGANIZATION"
+		}
+	}
+	for _, sfx := range locSuffixes {
+		if strings.HasSuffix(wl, strings.TrimSpace(sfx)) {
+			return "LOCATION"
+		}
+	}
+	for _, pfx := range locPrefixes {
+		if strings.HasPrefix(wl, strings.TrimSpace(pfx)) {
+			return "LOCATION"
+		}
+	}
+	for _, q := range quantityWords {
+		if strings.Contains(wl, q) {
+			return "QUANTITY"
+		}
+	}
+	for _, d := range dateWords {
+		if strings.EqualFold(word, d) {
+			return "DATE"
+		}
+	}
+	return "PERSON"
 }
 
 func (h *Handler) detectEntities(input map[string]any) (map[string]any, error) {
@@ -577,12 +683,19 @@ func (h *Handler) detectEntities(input map[string]any) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	textLower := strings.ToLower(text)
 	entities := make([]map[string]any, 0)
 	for word := range strings.FieldsSeq(text) {
-		cleaned := strings.Trim(word, ".,!?")
-		if cleaned != "" && unicode.IsUpper(rune(cleaned[0])) {
-			entities = append(entities, matchResult(text, cleaned, "PERSON"))
+		cleaned := strings.Trim(word, ".,!?;:")
+		if cleaned == "" {
+			continue
 		}
+		r, _ := utf8.DecodeRuneInString(cleaned)
+		if !unicode.IsUpper(r) {
+			continue
+		}
+		kind := entityType(cleaned, textLower)
+		entities = append(entities, matchResult(text, cleaned, kind))
 	}
 
 	return map[string]any{"Entities": entities}, nil
@@ -641,13 +754,62 @@ func (h *Handler) detectSyntax(input map[string]any) (map[string]any, error) {
 }
 
 func (h *Handler) detectDominantLanguage(input map[string]any) (map[string]any, error) {
-	if _, err := documentText(input); err != nil {
+	text, err := documentText(input)
+	if err != nil {
 		return nil, err
 	}
 
+	lang := dominantLanguage(text)
+
 	return map[string]any{
-		"Languages": []map[string]any{{fieldLanguageCode: defaultLanguageCode, fieldScore: defaultScore}},
+		"Languages": []map[string]any{{fieldLanguageCode: lang, fieldScore: defaultScore}},
 	}, nil
+}
+
+func dominantLanguage(text string) string {
+	var cjk, cyrillic, arabic, devanagari, hebrew, latin, nonAscii int
+	for _, r := range text {
+		switch {
+		case r >= 0x4E00 && r <= 0x9FFF: // CJK Unified Ideographs
+			cjk++
+		case r >= 0x3040 && r <= 0x30FF: // Hiragana/Katakana
+			cjk++
+		case r >= 0xAC00 && r <= 0xD7AF: // Hangul
+			cjk++
+		case r >= 0x0400 && r <= 0x04FF: // Cyrillic
+			cyrillic++
+		case r >= 0x0600 && r <= 0x06FF: // Arabic
+			arabic++
+		case r >= 0x0590 && r <= 0x05FF: // Hebrew
+			hebrew++
+		case r >= 0x0900 && r <= 0x097F: // Devanagari
+			devanagari++
+		case r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z':
+			latin++
+		case r > 127:
+			nonAscii++
+		}
+	}
+	total := cjk + cyrillic + arabic + devanagari + hebrew + nonAscii
+	if total == 0 {
+		return "en"
+	}
+	switch {
+	case cjk*2 > total:
+		return "zh"
+	case cyrillic*2 > total:
+		return "ru"
+	case arabic*2 > total:
+		return "ar"
+	case devanagari*2 > total:
+		return "hi"
+	case hebrew*2 > total:
+		return "he"
+	case nonAscii > latin:
+		return "fr"
+	default:
+		return "en"
+	}
 }
 
 func (h *Handler) detectToxicContent(input map[string]any) (map[string]any, error) {
