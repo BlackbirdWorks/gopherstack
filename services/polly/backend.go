@@ -705,7 +705,7 @@ func speechMarks(options SynthesisOptions) []byte {
 			case "sentence":
 				lines = append(lines, fmt.Sprintf(`{"time":0,"type":"sentence","start":0,"end":%d,"value":%q}`,
 					len(options.Text), options.Text))
-			case "ssml":
+			case textTypeSSML:
 				lines = append(lines, fmt.Sprintf(`{"time":0,"type":"ssml","start":0,"end":%d,"value":"<speak>"}`,
 					len(options.Text)))
 			case "viseme":
@@ -783,13 +783,12 @@ func minimalWAV(sampleRateStr string) []byte {
 }
 
 // minimalMP3Frame returns a minimal valid MPEG-1 Layer 3 frame header (silent frame).
-// Frame sync: 0xFFE0 | layer(01) | bitrate(1001=128k) | samplerate(00=44100) | padding(0) | stereo(00)
-var minimalMP3FrameBytes = []byte{
-	0xFF, 0xFB, 0x90, 0x00, // sync + MPEG1 Layer3 128kbps 44100Hz stereo no-padding
-	// 417 bytes of silence (128kbps frame at 44100 is 417 bytes)
-}
-
+// Frame sync: 0xFFE0 | layer(01) | bitrate(1001=128k) | samplerate(00=44100) | padding(0) | stereo(00).
 func minimalMP3Frame() []byte {
+	minimalMP3FrameBytes := []byte{
+		0xFF, 0xFB, 0x90, 0x00, // sync + MPEG1 Layer3 128kbps 44100Hz stereo no-padding
+		// 417 bytes of silence (128kbps frame at 44100 is 417 bytes)
+	}
 	frame := make([]byte, 4+413) // header + silence
 	copy(frame, minimalMP3FrameBytes)
 	return frame
@@ -841,9 +840,9 @@ func validOutputFormats() []string {
 	return []string{outputFormatMP3, outputFormatOGG, outputFormatPCM, outputFormatJSON}
 }
 
-func validTextTypes() []string { return []string{textTypeText, "ssml"} }
+func validTextTypes() []string { return []string{textTypeText, textTypeSSML} }
 
-func validSpeechMarkTypes() []string { return []string{"sentence", "ssml", "viseme", "word"} }
+func validSpeechMarkTypes() []string { return []string{"sentence", textTypeSSML, "viseme", "word"} }
 
 func validTaskStatuses() []string {
 	return []string{taskStatusScheduled, taskStatusProgress, taskStatusCompleted, taskStatusFailed}

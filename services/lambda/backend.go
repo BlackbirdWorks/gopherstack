@@ -405,6 +405,18 @@ func (b *InMemoryBackend) SetDynamoDBStreamsReader(r DynamoDBStreamsReader) {
 	}
 }
 
+// esmFunctionName normalizes a function reference (bare name or full function ARN)
+// to the bare function name used for event-source-mapping indexing.
+func esmFunctionName(functionName string) string {
+	if strings.HasPrefix(functionName, "arn:aws:lambda:") {
+		parts := strings.Split(functionName, ":")
+
+		return parts[len(parts)-1]
+	}
+
+	return functionName
+}
+
 // CreateEventSourceMapping creates a new event source mapping.
 func (b *InMemoryBackend) CreateEventSourceMapping(input *CreateEventSourceMappingInput) (*EventSourceMapping, error) {
 	b.mu.Lock("CreateEventSourceMapping")
@@ -430,7 +442,9 @@ func (b *InMemoryBackend) CreateEventSourceMapping(input *CreateEventSourceMappi
 		startingPosition = "TRIM_HORIZON"
 	}
 
-	fnARN := arn.Build("lambda", b.region, b.accountID, "function:"+input.FunctionName)
+	// The function may be supplied as a bare name or a full function ARN. Normalize
+	// to the bare name so the stored index key matches lookups by name.
+	fnARN := arn.Build("lambda", b.region, b.accountID, "function:"+esmFunctionName(input.FunctionName))
 
 	m := &EventSourceMapping{
 		UUID:                                id,
@@ -497,7 +511,7 @@ func (b *InMemoryBackend) ListEventSourceMappings(
 	var result []*EventSourceMapping
 
 	if functionName != "" {
-		fnARN := arn.Build("lambda", b.region, b.accountID, "function:"+functionName)
+		fnARN := arn.Build("lambda", b.region, b.accountID, "function:"+esmFunctionName(functionName))
 		ids := b.esmByFunctionARN[fnARN]
 		result = make([]*EventSourceMapping, 0, len(ids))
 		for id := range ids {

@@ -1921,12 +1921,11 @@ func (b *InMemoryBackend) StartDomainMaintenance(
 		CreatedAt:     now,
 		UpdatedAt:     now,
 	}
-	maintenances := append(b.domainMaintenances[domainName], m)
+	b.domainMaintenances[domainName] = append(b.domainMaintenances[domainName], m)
 	// Trim to the cap, keeping the most recent entries.
-	if len(maintenances) > maxMaintenancesPerDomain {
-		maintenances = maintenances[len(maintenances)-maxMaintenancesPerDomain:]
+	if len(b.domainMaintenances[domainName]) > maxMaintenancesPerDomain {
+		b.domainMaintenances[domainName] = b.domainMaintenances[domainName][len(b.domainMaintenances[domainName])-maxMaintenancesPerDomain:]
 	}
-	b.domainMaintenances[domainName] = maintenances
 
 	cp := *m
 

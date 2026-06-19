@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -313,6 +314,18 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	return c.JSON(status, errorResponse{Message: err.Error()})
 }
 
+// epochSeconds converts a *time.Time to a pointer to fractional epoch seconds,
+// matching the AWS networkmonitor wire format (Iso8601Timestamp = JSON Number).
+func epochSeconds(t *time.Time) *float64 {
+	if t == nil {
+		return nil
+	}
+
+	secs := float64(t.UnixNano()) / float64(time.Second)
+
+	return &secs
+}
+
 // extractMonitorName extracts the monitor name from /monitors/{name}[/...].
 func extractMonitorName(path string) string {
 	trimmed := strings.TrimPrefix(path, "/monitors/")
@@ -415,8 +428,8 @@ func (h *Handler) handleGetMonitor(ctx context.Context, path string) ([]byte, er
 		AggregationPeriod: m.AggregationPeriod,
 		Probes:            m.Probes,
 		Tags:              m.Tags,
-		CreatedAt:         m.CreatedAt,
-		ModifiedAt:        m.ModifiedAt,
+		CreatedAt:         epochSeconds(m.CreatedAt),
+		ModifiedAt:        epochSeconds(m.ModifiedAt),
 	}
 
 	return json.Marshal(resp)

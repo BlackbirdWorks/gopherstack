@@ -182,12 +182,11 @@ func (b *InMemoryBackend) UpgradeDomain(domainName, upgradeName string) error {
 	}
 
 	key := upgradeHistoryKey(domainName)
-	history := append(b.upgradeHistory[key], uh)
+	b.upgradeHistory[key] = append(b.upgradeHistory[key], uh)
 	// Trim to the cap, keeping the most recent entries.
-	if len(history) > maxUpgradeHistoryPerDomain {
-		history = history[len(history)-maxUpgradeHistoryPerDomain:]
+	if len(b.upgradeHistory[key]) > maxUpgradeHistoryPerDomain {
+		b.upgradeHistory[key] = b.upgradeHistory[key][len(b.upgradeHistory[key])-maxUpgradeHistoryPerDomain:]
 	}
-	b.upgradeHistory[key] = history
 
 	return nil
 }
