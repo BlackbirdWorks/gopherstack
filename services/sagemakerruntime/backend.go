@@ -13,6 +13,24 @@ const maxInvocationHistory = 1000
 // MaxInvocationHistory is the exported value for testing.
 const MaxInvocationHistory = maxInvocationHistory
 
+// maxSessions bounds the number of stateful endpoint sessions retained in memory.
+// InvokeEndpoint with a NEW session header is a per-request hot path; without a
+// cap the sessions map would grow without bound in a long-running emulator. When
+// the cap is exceeded the oldest session (by CreatedAt) is evicted FIFO-style.
+const maxSessions = 1000
+
+// MaxSessions is the exported value for testing.
+const MaxSessions = maxSessions
+
+// maxAsyncInvocations bounds the number of accepted async inference records
+// retained in memory. RecordAsyncInvocation runs on every InvokeEndpointAsync
+// request; without a cap the map would grow without bound. When the cap is
+// exceeded the oldest record (by CreatedAt) is evicted FIFO-style.
+const maxAsyncInvocations = 1000
+
+// MaxAsyncInvocations is the exported value for testing.
+const MaxAsyncInvocations = maxAsyncInvocations
+
 const sessionDuration = 5 * time.Minute
 
 // Invocation records a single SageMaker Runtime endpoint invocation.
@@ -121,6 +139,7 @@ func (b *InMemoryBackend) StartSession(endpointName string) *Session {
 		ExpiresAt:     now.Add(sessionDuration),
 	}
 	b.sessions[session.ID] = session
+	evictOldest(b.sessions, maxSessions, func(s *Session) time.Time { return s.CreatedAt })
 
 	return cloneSession(session)
 }
@@ -167,6 +186,7 @@ func (b *InMemoryBackend) RecordAsyncInvocation(endpointName, requestedID, input
 		CreatedAt:      time.Now().UTC(),
 	}
 	b.asyncInvocations[inferenceID] = invocation
+	evictOldest(b.asyncInvocations, maxAsyncInvocations, func(a *AsyncInvocation) time.Time { return a.CreatedAt })
 
 	return cloneAsyncInvocation(invocation)
 }
@@ -182,6 +202,34 @@ func (b *InMemoryBackend) ListAsyncInvocations() []*AsyncInvocation {
 	}
 
 	return out
+}
+
+// evictOldest enforces a FIFO size bound on m: while the map exceeds maxSize, it
+// repeatedly removes the entry with the oldest timestamp (as reported by createdAt).
+// This keeps long-running sessions/async-invocation maps from growing without bound.
+func evictOldest[V any](m map[string]V, maxSize int, createdAt func(V) time.Time) {
+	for len(m) > maxSize {
+		var (
+			oldestKey  string
+			oldestTime time.Time
+			found      bool
+		)
+
+		for k, v := range m {
+			t := createdAt(v)
+			if !found || t.Before(oldestTime) {
+				oldestKey = k
+				oldestTime = t
+				found = true
+			}
+		}
+
+		if !found {
+			return
+		}
+
+		delete(m, oldestKey)
+	}
 }
 
 func cloneSession(session *Session) *Session {
