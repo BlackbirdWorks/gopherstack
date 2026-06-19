@@ -36,26 +36,24 @@ embedded DNS, init hooks, persistence, and the ctxbag/logger middleware are wire
 These break SDK/Terraform/CFN round-trips or silently drop data. Highest ROI.
 
 ### Emulation accuracy
-- **DLQ / RedrivePolicy delivery paths.** Failed HTTP/Lambda/SQS deliveries are dropped
-  instead of routed to a DLQ:
-  - SNS subscription delivery + `replayMessagesToSubscription` ignore `RedrivePolicy`
-    (`services/sns/backend.go`); `SetSubscriptionAttributes` accepts a `RedrivePolicy`
-    without validating the target SQS DLQ exists.
-  - EventBridge `deliverToTargetBounded` ignores target `RedrivePolicy`/DLQ
-    (`services/eventbridge/delivery.go`).
-- **Pagination — ignored `MaxResults`/absent `NextToken`** (clients loop forever or
-  miss pages): RDS `DescribeDB*ParameterGroups`/`DescribeDBParameters`/`DescribeOptionGroups`
-  (`services/rds/handler.go`); API Gateway v2 list ops (`services/apigatewayv2/handler.go`);
-  MQ uses name-based cursors that break on concurrent add/remove (`services/mq/handler.go`).
-- **DynamoDB validation gaps.** Accepts `ConsistentRead=true` on GSI/LSI queries (AWS →
-  `ValidationException`, `item_ops_query.go`); `BatchGetItem` returns duplicate keys twice
-  (`item_ops_batch.go`); `UpdateTable` doesn't re-check the 20-GSI ceiling (`table_ops.go`).
-- **S3 `CompleteMultipartUpload`** does not reject an empty parts list (AWS →
-  `InvalidRequest`) (`services/s3/backend_memory.go`).
-- **Persistence hooks that drop state.** DAX `Snapshot()`/`Restore()` are declared but
-  unimplemented (`services/dax/interface.go`), so DAX state vanishes on snapshot/restore.
-  Audit every backend whose `persistence.go` enumerates named fields — any field added
-  later without updating `backendSnapshot` silently drops on restore.
+*(2026-06-19 re-verification: EventBridge DLQ, RDS + API Gateway v2 pagination, DynamoDB
+GSI-ConsistentRead + BatchGetItem-duplicate validation, S3 empty-parts rejection, DAX
+Snapshot/Restore, and EC2 RevokeSecurityGroupEgress were all confirmed FIXED and removed
+from this list. Re-verify before re-adding.)*
+- **SNS DLQ — Lambda/Firehose subscription paths.** HTTP/HTTPS delivery correctly routes
+  failures to the subscription DLQ, but `deliverToLambdaSubscriptions` /
+  `deliverToFirehoseSubscriptions` (`services/sns/backend.go:1831-1832`) deliver through the
+  event emitter with no DLQ/redrive on failure. Also, `SetSubscriptionAttributes`
+  (`services/sns/backend.go:~1031`) validates the `RedrivePolicy` JSON shape but does **not**
+  verify the `deadLetterTargetArn` SQS queue actually exists.
+- **MQ pagination** uses name-based cursors (`brokers[maxResults-1].BrokerName`) that break
+  consistency when items are added/removed between pages; AWS uses opaque tokens
+  (`services/mq/handler.go`). *(Verify — other pagination items in this area are now fixed.)*
+- **DynamoDB `UpdateTable`** does not re-validate the 20-GSI per-table ceiling on the add
+  path (`services/dynamodb/table_ops.go`). *(Verify.)*
+- **Persistence hooks that drop state.** Audit every backend whose `persistence.go`
+  enumerates named fields — any field added later without updating `backendSnapshot`
+  silently drops on restore. (DAX is now implemented; use it as the reference pattern.)
 
 ### Tests (lock the above in)
 - **Cross-service event e2e** asserting the *target received* the event: S3→Lambda,
