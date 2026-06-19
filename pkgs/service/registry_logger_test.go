@@ -20,9 +20,9 @@ import (
 // loggingService records the logger it observed (via logger.Load) and emits a
 // record so the test can assert the service tag is present.
 type loggingService struct {
+	seen     chan context.Context
 	name     string
 	priority int
-	seen     chan context.Context
 }
 
 func (s *loggingService) Name() string { return s.name }
