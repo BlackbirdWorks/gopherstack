@@ -85,11 +85,14 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 	b.ruleIndex = make(map[string]map[string]map[ruleIndexKey]map[string]*Rule)
+	b.targetsByARN = make(map[string]map[string]map[string]struct{})
 	b.patternCache = sync.Map{}
 
 	if err := b.rebuildRuleIndexesLocked(); err != nil {
 		return err
 	}
+
+	b.rebuildTargetsByARNLocked()
 
 	return nil
 }
@@ -144,6 +147,18 @@ func (b *InMemoryBackend) rebuildRuleIndexesLocked() error {
 	}
 
 	return nil
+}
+
+// rebuildTargetsByARNLocked rebuilds the targetsByARN index from b.targets.
+// Must be called with the write lock held.
+func (b *InMemoryBackend) rebuildTargetsByARNLocked() {
+	for region, regionTargets := range b.targets {
+		for targetKey, tMap := range regionTargets {
+			for _, t := range tMap {
+				b.arnIndexAdd(region, t.Arn, targetKey)
+			}
+		}
+	}
 }
 
 // handlerSnapshot is the full persisted state for a Handler, combining both

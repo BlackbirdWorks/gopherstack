@@ -348,8 +348,23 @@ func (b *InMemoryBackend) applySnapshot(snap *backendSnapshot) error {
 	b.accountID = snap.AccountID
 	b.defaultRegion = snap.Region
 	b.clearResolutionCache()
+	b.rebuildGrantIndexesLocked()
 
 	return nil
+}
+
+// rebuildGrantIndexesLocked rebuilds grantsByToken and grantsByKey from the
+// canonical grants map. Must be called with the write lock held.
+func (b *InMemoryBackend) rebuildGrantIndexesLocked() {
+	b.grantsByToken = make(map[string]map[string]*Grant)
+	b.grantsByKey = make(map[string]map[string]map[string]*Grant)
+
+	for region, regionGrants := range b.grants {
+		for _, g := range regionGrants {
+			b.grantsByTokenStore(region)[g.GrantToken] = g
+			b.grantsByKeyStore(region, g.KeyID)[g.GrantID] = g
+		}
+	}
 }
 
 // restoreFlat handles the legacy flat snapshot format by migrating all data under defaultRegion.

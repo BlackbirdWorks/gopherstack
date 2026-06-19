@@ -155,6 +155,41 @@ func (b *InMemoryBackend) KeyMaterialHistoryLenForTest(keyID string) int {
 	return 0
 }
 
+// GrantsByKeyCount returns the number of entries in the grantsByKey index for the given region+key.
+func GrantsByKeyCount(b *InMemoryBackend, region, keyID string) int {
+	b.mu.RLock("GrantsByKeyCount")
+	defer b.mu.RUnlock()
+
+	if rm := b.grantsByKey[region]; rm != nil {
+		return len(rm[keyID])
+	}
+
+	return 0
+}
+
+// GrantIndexesConsistent checks that grantsByToken and grantsByKey are consistent
+// with the canonical grants map. Returns false and a description if not.
+func GrantIndexesConsistent(b *InMemoryBackend) (bool, string) {
+	b.mu.RLock("GrantIndexesConsistent")
+	defer b.mu.RUnlock()
+
+	for region, regionGrants := range b.grants {
+		for grantID, g := range regionGrants {
+			if _, ok := b.grantsByToken[region][g.GrantToken]; !ok {
+				return false, fmt.Sprintf("grant %s token %s missing from grantsByToken[%s]", grantID, g.GrantToken, region)
+			}
+
+			if rm := b.grantsByKey[region]; rm == nil {
+				return false, fmt.Sprintf("grantsByKey[%s] is nil", region)
+			} else if _, ok := rm[g.KeyID][grantID]; !ok {
+				return false, fmt.Sprintf("grant %s missing from grantsByKey[%s][%s]", grantID, region, g.KeyID)
+			}
+		}
+	}
+
+	return true, ""
+}
+
 // ErrForceRotateKeyNotFound is returned by ForceRotateForTest when keyID is absent.
 var ErrForceRotateKeyNotFound = errors.New("key not found")
 

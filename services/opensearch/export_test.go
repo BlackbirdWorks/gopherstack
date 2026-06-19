@@ -57,3 +57,25 @@ func ARNIndexSize(b *InMemoryBackend) int {
 func HandlerOpsLen(h *Handler) int {
 	return len(h.GetSupportedOperations())
 }
+
+// UpgradeHistoryLen returns the number of upgrade history entries for a domain.
+func UpgradeHistoryLen(b *InMemoryBackend, domainName string) int {
+	b.mu.RLock("UpgradeHistoryLen")
+	defer b.mu.RUnlock()
+
+	return len(b.upgradeHistory[upgradeHistoryKey(domainName)])
+}
+
+// MaintenancesLen returns the number of maintenance records for a domain.
+func MaintenancesLen(b *InMemoryBackend, domainName string) int {
+	b.mu.RLock("MaintenancesLen")
+	defer b.mu.RUnlock()
+
+	return len(b.domainMaintenances[domainName])
+}
+
+// MaxUpgradeHistoryPerDomain exposes the cap constant for testing.
+const MaxUpgradeHistoryPerDomain = maxUpgradeHistoryPerDomain
+
+// MaxMaintenancesPerDomain exposes the cap constant for testing.
+const MaxMaintenancesPerDomain = maxMaintenancesPerDomain

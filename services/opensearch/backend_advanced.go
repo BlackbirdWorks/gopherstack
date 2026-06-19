@@ -105,6 +105,11 @@ const (
 	upgradeProgressComplete = float64(100)
 	// autoTuneScheduleLookahead is the look-ahead duration for the next auto-tune window.
 	autoTuneScheduleLookahead = 24 * time.Hour
+	// maxUpgradeHistoryPerDomain caps the number of upgrade history entries kept
+	// per domain to prevent unbounded memory growth in long-running backends.
+	maxUpgradeHistoryPerDomain = 100
+	// maxMaintenancesPerDomain caps the number of maintenance records kept per domain.
+	maxMaintenancesPerDomain = 200
 	// maxDataNodesR6gLarge is the max data-node count for r6g.large.search.
 	maxDataNodesR6gLarge = 40
 	// maxDataNodesR6gXLarge is the max data-node count for r6g.xlarge.search.
@@ -177,7 +182,12 @@ func (b *InMemoryBackend) UpgradeDomain(domainName, upgradeName string) error {
 	}
 
 	key := upgradeHistoryKey(domainName)
-	b.upgradeHistory[key] = append(b.upgradeHistory[key], uh)
+	history := append(b.upgradeHistory[key], uh)
+	// Trim to the cap, keeping the most recent entries.
+	if len(history) > maxUpgradeHistoryPerDomain {
+		history = history[len(history)-maxUpgradeHistoryPerDomain:]
+	}
+	b.upgradeHistory[key] = history
 
 	return nil
 }

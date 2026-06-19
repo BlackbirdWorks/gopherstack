@@ -260,7 +260,11 @@ type InMemoryBackend struct {
 	// grantsByToken indexes grants by their GrantToken for O(1) lookup on the
 	// encrypt/decrypt grant-validation hot path. Kept consistent with grants on
 	// every create/revoke/retire.
-	grantsByToken        map[string]map[string]*Grant
+	grantsByToken map[string]map[string]*Grant
+	// grantsByKey indexes grants by keyID for O(1) ListGrants and grant-count
+	// checks on the CreateGrant hot path. Kept consistent with grants on every
+	// create/revoke/retire.
+	grantsByKey map[string]map[string]map[string]*Grant
 	policies             map[string]map[string]string
 	keyMaterials         map[string]map[string]*keyMaterial
 	keyMaterialHistory   map[string]map[string][]*keyMaterial
@@ -283,6 +287,7 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		aliases:            make(map[string]map[string]*Alias),
 		grants:             make(map[string]map[string]*Grant),
 		grantsByToken:      make(map[string]map[string]*Grant),
+		grantsByKey:        make(map[string]map[string]map[string]*Grant),
 		policies:           make(map[string]map[string]string),
 		keyMaterials:       make(map[string]map[string]*keyMaterial),
 		keyMaterialHistory: make(map[string]map[string][]*keyMaterial),
@@ -339,6 +344,19 @@ func (b *InMemoryBackend) grantsByTokenStore(region string) map[string]*Grant {
 	b.grantsByToken[region] = m
 
 	return m
+}
+
+// grantsByKeyStore returns (creating lazily) the per-key grants map for a region.
+func (b *InMemoryBackend) grantsByKeyStore(region, keyID string) map[string]*Grant {
+	if b.grantsByKey[region] == nil {
+		b.grantsByKey[region] = make(map[string]map[string]*Grant)
+	}
+
+	if b.grantsByKey[region][keyID] == nil {
+		b.grantsByKey[region][keyID] = make(map[string]*Grant)
+	}
+
+	return b.grantsByKey[region][keyID]
 }
 
 // policiesStore returns (creating lazily) the per-region policies map.
@@ -2162,13 +2180,7 @@ func (b *InMemoryBackend) CreateGrant(ctx context.Context, input *CreateGrantInp
 		return nil, keyStateError(key)
 	}
 
-	grantCount := 0
-	for _, g := range b.grantsStore(region) {
-		if g.KeyID == keyID {
-			grantCount++
-		}
-	}
-	if grantCount >= maxGrantsPerKey {
+	if len(b.grantsByKeyStore(region, keyID)) >= maxGrantsPerKey {
 		return nil, fmt.Errorf("%w: grant limit of %d exceeded for key %q", ErrLimitExceeded, maxGrantsPerKey, keyID)
 	}
 
@@ -2189,6 +2201,7 @@ func (b *InMemoryBackend) CreateGrant(ctx context.Context, input *CreateGrantInp
 	}
 	b.grantsStore(region)[grantID] = grant
 	b.grantsByTokenStore(region)[grantToken] = grant
+	b.grantsByKeyStore(region, keyID)[grantID] = grant
 
 	return &CreateGrantOutput{GrantID: grantID, GrantToken: grantToken}, nil
 }
@@ -2284,12 +2297,9 @@ func (b *InMemoryBackend) ListGrants(ctx context.Context, input *ListGrantsInput
 	}
 
 	var grants []Grant
-	for _, g := range b.grantsStore(region) {
-		if g.KeyID != keyID {
-			continue
-		}
+	for grantID, g := range b.grantsByKey[region][keyID] {
 		// Filter by GrantId if specified.
-		if input.GrantID != "" && g.GrantID != input.GrantID {
+		if input.GrantID != "" && grantID != input.GrantID {
 			continue
 		}
 		grants = append(grants, *g)
@@ -2347,6 +2357,9 @@ func (b *InMemoryBackend) RevokeGrant(ctx context.Context, input *RevokeGrantInp
 
 	delete(b.grantsStore(region), input.GrantID)
 	delete(b.grantsByTokenStore(region), grant.GrantToken)
+	if rm := b.grantsByKey[region]; rm != nil {
+		delete(rm[grant.KeyID], input.GrantID)
+	}
 
 	return nil
 }
@@ -2364,6 +2377,9 @@ func (b *InMemoryBackend) RetireGrant(ctx context.Context, input *RetireGrantInp
 			if g, ok := regionMap[input.GrantToken]; ok {
 				delete(b.grantsStore(r), g.GrantID)
 				delete(regionMap, input.GrantToken)
+				if rm := b.grantsByKey[r]; rm != nil {
+					delete(rm[g.KeyID], g.GrantID)
+				}
 
 				return nil
 			}
@@ -2394,6 +2410,9 @@ func (b *InMemoryBackend) RetireGrant(ctx context.Context, input *RetireGrantInp
 
 	delete(b.grantsStore(region), input.GrantID)
 	delete(b.grantsByTokenStore(region), grant.GrantToken)
+	if rm := b.grantsByKey[region]; rm != nil {
+		delete(rm[grant.KeyID], input.GrantID)
+	}
 
 	return nil
 }
@@ -2963,6 +2982,7 @@ func (b *InMemoryBackend) Reset() {
 	b.aliases = make(map[string]map[string]*Alias)
 	b.grants = make(map[string]map[string]*Grant)
 	b.grantsByToken = make(map[string]map[string]*Grant)
+	b.grantsByKey = make(map[string]map[string]map[string]*Grant)
 	b.policies = make(map[string]map[string]string)
 	b.keyMaterials = make(map[string]map[string]*keyMaterial)
 	b.keyMaterialHistory = make(map[string]map[string][]*keyMaterial)
