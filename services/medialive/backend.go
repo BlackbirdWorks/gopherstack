@@ -205,6 +205,7 @@ type storedInputDevice struct {
 	// DeviceSettingsSyncState and DeviceUpdateStatus: SYNCED/SYNCING, UP_TO_DATE/etc.
 	DeviceSettingsSyncState string `json:"deviceSettingsSyncState"`
 	DeviceUpdateStatus      string `json:"deviceUpdateStatus"`
+	MaintenanceWindowActive bool   `json:"maintenanceWindowActive"`
 }
 
 func (d *storedInputDevice) toDevice() *InputDevice {
@@ -222,6 +223,7 @@ func (d *storedInputDevice) toDevice() *InputDevice {
 		ConnectionState:         d.ConnectionState,
 		DeviceSettingsSyncState: d.DeviceSettingsSyncState,
 		DeviceUpdateStatus:      d.DeviceUpdateStatus,
+		MaintenanceWindowActive: d.MaintenanceWindowActive,
 	}
 }
 
@@ -3833,15 +3835,17 @@ func (b *InMemoryBackend) StopInputDevice(deviceID string) error {
 	return nil
 }
 
-// StartInputDeviceMaintenanceWindow opens a maintenance window (existence check only).
+// StartInputDeviceMaintenanceWindow opens a maintenance window for the device.
 func (b *InMemoryBackend) StartInputDeviceMaintenanceWindow(deviceID string) error {
-	b.mu.RLock("StartInputDeviceMaintenanceWindow")
-	defer b.mu.RUnlock()
+	b.mu.Lock("StartInputDeviceMaintenanceWindow")
+	defer b.mu.Unlock()
 
-	if _, ok := b.inputDevices[deviceID]; !ok {
+	d, ok := b.inputDevices[deviceID]
+	if !ok {
 		return fmt.Errorf("%w: inputDevice %s not found", ErrNotFound, deviceID)
 	}
 
+	d.MaintenanceWindowActive = true
 	return nil
 }
 
