@@ -1415,14 +1415,16 @@ func TestRedshiftHandler_GetIdentityCenterAuthToken(t *testing.T) {
 			wantCode: http.StatusBadRequest,
 		},
 		{
-			name:         "with_arn_returns_token",
-			body:         "Action=GetIdentityCenterAuthToken&Version=2012-12-01&IdentityCenterApplicationArn=arn:aws:sso::123:application/app-abc",
+			name: "with_arn_returns_token",
+			body: "Action=GetIdentityCenterAuthToken&Version=2012-12-01" +
+				"&IdentityCenterApplicationArn=arn:aws:sso::123:application/app-abc",
 			wantCode:     http.StatusOK,
 			wantContains: []string{"<AuthToken>ict-", "<AuthTokenExpiration>"},
 		},
 		{
-			name:         "different_arn_returns_different_token",
-			body:         "Action=GetIdentityCenterAuthToken&Version=2012-12-01&IdentityCenterApplicationArn=arn:aws:sso::456:application/app-xyz",
+			name: "different_arn_returns_different_token",
+			body: "Action=GetIdentityCenterAuthToken&Version=2012-12-01" +
+				"&IdentityCenterApplicationArn=arn:aws:sso::456:application/app-xyz",
 			wantCode:     http.StatusOK,
 			wantContains: []string{"<AuthToken>ict-"},
 		},

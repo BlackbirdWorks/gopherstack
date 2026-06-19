@@ -328,8 +328,20 @@ func TestCoverage_BackendGetForecast_VariousBuckets(t *testing.T) {
 		granularity string
 		wantBuckets int
 	}{
-		{name: "monthly_3_buckets", start: "2026-06-01", end: "2026-09-01", granularity: "MONTHLY", wantBuckets: 3},
-		{name: "daily_7_buckets", start: "2026-06-01", end: "2026-06-08", granularity: "DAILY", wantBuckets: 7},
+		{
+			name:        "monthly_3_buckets",
+			start:       "2026-06-01",
+			end:         "2026-09-01",
+			granularity: "MONTHLY",
+			wantBuckets: 3,
+		},
+		{
+			name:        "daily_7_buckets",
+			start:       "2026-06-01",
+			end:         "2026-06-08",
+			granularity: "DAILY",
+			wantBuckets: 7,
+		},
 	}
 
 	for _, tt := range tests {
@@ -775,7 +787,13 @@ func TestCoverage_GetCostAndUsage_AlternateMetrics(t *testing.T) {
 	}
 }
 
-func doRequestWithMeta(t *testing.T, h *ce.Handler, meta *awsmeta.Metadata, action string, body any) *httptest.ResponseRecorder {
+func doRequestWithMeta(
+	t *testing.T,
+	h *ce.Handler,
+	meta *awsmeta.Metadata,
+	action string,
+	body any,
+) *httptest.ResponseRecorder {
 	t.Helper()
 
 	bodyBytes, err := json.Marshal(body)
@@ -804,7 +822,11 @@ func TestCeRegion_SavingsPlansCoverageUsesCtxRegion(t *testing.T) {
 	}{
 		{name: "default region", region: "us-east-1", wantRegion: "us-east-1"},
 		{name: "eu-west-1 cross-region", region: "eu-west-1", wantRegion: "eu-west-1"},
-		{name: "ap-southeast-2 cross-region", region: "ap-southeast-2", wantRegion: "ap-southeast-2"},
+		{
+			name:       "ap-southeast-2 cross-region",
+			region:     "ap-southeast-2",
+			wantRegion: "ap-southeast-2",
+		},
 	}
 
 	for _, tt := range tests {
@@ -849,12 +871,18 @@ func TestCeRegion_SavingsPlansPurchaseRecommendationUsesCtxRegion(t *testing.T) 
 
 			h := ce.NewHandler(ce.NewInMemoryBackend("000000000000", tt.region))
 			meta := &awsmeta.Metadata{Account: "222233334444", Region: tt.region, Partition: "aws"}
-			rec := doRequestWithMeta(t, h, meta, "GetSavingsPlansPurchaseRecommendation", map[string]any{
-				"SavingsPlansType":     "COMPUTE_SP",
-				"TermInYears":          "ONE_YEAR",
-				"PaymentOption":        "NO_UPFRONT",
-				"LookbackPeriodInDays": "THIRTY_DAYS",
-			})
+			rec := doRequestWithMeta(
+				t,
+				h,
+				meta,
+				"GetSavingsPlansPurchaseRecommendation",
+				map[string]any{
+					"SavingsPlansType":     "COMPUTE_SP",
+					"TermInYears":          "ONE_YEAR",
+					"PaymentOption":        "NO_UPFRONT",
+					"LookbackPeriodInDays": "THIRTY_DAYS",
+				},
+			)
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out struct {
