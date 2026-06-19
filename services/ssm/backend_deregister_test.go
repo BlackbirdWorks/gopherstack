@@ -3,6 +3,7 @@ package ssm_test
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"net/http"
 	"testing"
 
@@ -21,9 +22,9 @@ func TestDeregisterPatchBaselineForPatchGroup_TableDriven(t *testing.T) {
 		name           string
 		baselineID     string
 		patchGroup     string
-		wantStatus     int
 		wantBaselineID string
 		wantPatchGroup string
+		wantStatus     int
 	}{
 		{
 			name:           "deregisters_and_returns_ids",
@@ -71,11 +72,11 @@ func TestDeregisterTargetFromMaintenanceWindow_TableDriven(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name           string
-		targetExists   bool
-		wantStatus     int
-		wantWindowID   bool
-		wantTargetID   bool
+		name         string
+		wantStatus   int
+		targetExists bool
+		wantWindowID bool
+		wantTargetID bool
 	}{
 		{
 			name:         "registered_target_deregisters_with_ids",
@@ -97,22 +98,30 @@ func TestDeregisterTargetFromMaintenanceWindow_TableDriven(t *testing.T) {
 
 			h, b := newTestHandler(t)
 
-			mw, err := b.CreateMaintenanceWindow(context.Background(), &ssm.CreateMaintenanceWindowInput{
-				Name:     "test-win",
-				Schedule: "cron(0 9 ? * MON *)",
-				Duration: 2,
-				Cutoff:   1,
-			})
+			mw, err := b.CreateMaintenanceWindow(
+				context.Background(),
+				&ssm.CreateMaintenanceWindowInput{
+					Name:     "test-win",
+					Schedule: "cron(0 9 ? * MON *)",
+					Duration: 2,
+					Cutoff:   1,
+				},
+			)
 			require.NoError(t, err)
 
 			var windowTargetID string
 			if tt.targetExists {
-				reg, err := b.RegisterTargetWithMaintenanceWindow(context.Background(), &ssm.RegisterTargetWithMaintenanceWindowInput{
-					WindowID:     mw.WindowID,
-					ResourceType: "INSTANCE",
-					Targets:      []ssm.WindowTarget{{Key: "InstanceIds", Values: []string{"i-1234"}}},
-				})
-				require.NoError(t, err)
+				reg, regErr := b.RegisterTargetWithMaintenanceWindow(
+					context.Background(),
+					&ssm.RegisterTargetWithMaintenanceWindowInput{
+						WindowID:     mw.WindowID,
+						ResourceType: "INSTANCE",
+						Targets: []ssm.WindowTarget{
+							{Key: "InstanceIds", Values: []string{"i-1234"}},
+						},
+					},
+				)
+				require.NoError(t, regErr)
 				windowTargetID = reg.WindowTargetID
 			} else {
 				windowTargetID = "wt-nonexistent"
@@ -146,8 +155,8 @@ func TestDeregisterTaskFromMaintenanceWindow_TableDriven(t *testing.T) {
 
 	tests := []struct {
 		name         string
-		taskExists   bool
 		wantStatus   int
+		taskExists   bool
 		wantWindowID bool
 		wantTaskID   bool
 	}{
@@ -171,22 +180,28 @@ func TestDeregisterTaskFromMaintenanceWindow_TableDriven(t *testing.T) {
 
 			h, b := newTestHandler(t)
 
-			mw, err := b.CreateMaintenanceWindow(context.Background(), &ssm.CreateMaintenanceWindowInput{
-				Name:     "test-win",
-				Schedule: "cron(0 9 ? * MON *)",
-				Duration: 2,
-				Cutoff:   1,
-			})
+			mw, err := b.CreateMaintenanceWindow(
+				context.Background(),
+				&ssm.CreateMaintenanceWindowInput{
+					Name:     "test-win",
+					Schedule: "cron(0 9 ? * MON *)",
+					Duration: 2,
+					Cutoff:   1,
+				},
+			)
 			require.NoError(t, err)
 
 			var windowTaskID string
 			if tt.taskExists {
-				reg, err := b.RegisterTaskWithMaintenanceWindow(context.Background(), &ssm.RegisterTaskWithMaintenanceWindowInput{
-					WindowID: mw.WindowID,
-					TaskArn:  "arn:aws:lambda:us-east-1:123456789012:function:MyFunc",
-					TaskType: "LAMBDA",
-				})
-				require.NoError(t, err)
+				reg, regErr := b.RegisterTaskWithMaintenanceWindow(
+					context.Background(),
+					&ssm.RegisterTaskWithMaintenanceWindowInput{
+						WindowID: mw.WindowID,
+						TaskArn:  "arn:aws:lambda:us-east-1:123456789012:function:MyFunc",
+						TaskType: "LAMBDA",
+					},
+				)
+				require.NoError(t, regErr)
 				windowTaskID = reg.WindowTaskID
 			} else {
 				windowTaskID = "wt-nonexistent-task"
@@ -218,10 +233,10 @@ func TestDeleteActivation_TableDriven(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		setupFirst   bool
-		wantStatus   int
-		wantErrMsg   string
+		name       string
+		wantErrMsg string
+		wantStatus int
+		setupFirst bool
 	}{
 		{
 			name:       "deletes_existing_activation",
@@ -269,9 +284,9 @@ func TestDeleteAssociation_TableDriven(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		setupFirst bool
-		wantStatus int
 		wantErrMsg string
+		wantStatus int
+		setupFirst bool
 	}{
 		{
 			name:       "deletes_existing_association",
@@ -318,11 +333,11 @@ func TestUpdateOpsItem_TableDriven(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		setupFirst bool
 		update     map[string]any
-		wantStatus int
+		name       string
 		wantErrMsg string
+		wantStatus int
+		setupFirst bool
 	}{
 		{
 			name:       "updates_title_and_status",
@@ -358,9 +373,7 @@ func TestUpdateOpsItem_TableDriven(t *testing.T) {
 			}
 
 			payload := map[string]any{"OpsItemId": opsItemID}
-			for k, v := range tt.update {
-				payload[k] = v
-			}
+			maps.Copy(payload, tt.update)
 
 			body, _ := json.Marshal(payload)
 			rec := doRequest(t, h, "UpdateOpsItem", string(body))

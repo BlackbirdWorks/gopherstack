@@ -943,7 +943,10 @@ type UpdateServiceSettingInput struct {
 }
 
 // DeleteActivation removes a stored activation by ID.
-func (b *InMemoryBackend) DeleteActivation(ctx context.Context, input *DeleteActivationInput) (*DeleteActivationOutput, error) {
+func (b *InMemoryBackend) DeleteActivation(
+	ctx context.Context,
+	input *DeleteActivationInput,
+) (*DeleteActivationOutput, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("DeleteActivation")
 	defer b.mu.Unlock()
@@ -960,7 +963,10 @@ func (b *InMemoryBackend) DeleteActivation(ctx context.Context, input *DeleteAct
 }
 
 // DeleteAssociation removes a stored association by ID.
-func (b *InMemoryBackend) DeleteAssociation(ctx context.Context, input *DeleteAssociationInput) (*DeleteAssociationOutput, error) {
+func (b *InMemoryBackend) DeleteAssociation(
+	ctx context.Context,
+	input *DeleteAssociationInput,
+) (*DeleteAssociationOutput, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("DeleteAssociation")
 	defer b.mu.Unlock()
@@ -1231,7 +1237,9 @@ func (b *InMemoryBackend) DescribeMaintenanceWindows(
 	}
 
 	if startIdx >= len(all) {
-		return &DescribeMaintenanceWindowsOutput{WindowIdentities: []MaintenanceWindowIdentity{}}, nil
+		return &DescribeMaintenanceWindowsOutput{
+			WindowIdentities: []MaintenanceWindowIdentity{},
+		}, nil
 	}
 
 	end := startIdx + int(maxResults)
@@ -1426,7 +1434,10 @@ func (b *InMemoryBackend) GetMaintenanceWindow(
 }
 
 // GetOpsItem retrieves an OpsItem by ID.
-func (b *InMemoryBackend) GetOpsItem(ctx context.Context, input *GetOpsItemInput) (*GetOpsItemOutput, error) {
+func (b *InMemoryBackend) GetOpsItem(
+	ctx context.Context,
+	input *GetOpsItemInput,
+) (*GetOpsItemOutput, error) {
 	region := getRegion(ctx)
 	b.mu.RLock("GetOpsItem")
 	defer b.mu.RUnlock()
@@ -1574,7 +1585,10 @@ func (b *InMemoryBackend) RegisterTaskWithMaintenanceWindow(
 }
 
 // StartSession creates a new SSM Session Manager session.
-func (b *InMemoryBackend) StartSession(ctx context.Context, input *StartSessionInput) (*StartSessionOutput, error) {
+func (b *InMemoryBackend) StartSession(
+	ctx context.Context,
+	input *StartSessionInput,
+) (*StartSessionOutput, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("StartSession")
 	defer b.mu.Unlock()
@@ -1716,7 +1730,10 @@ func (b *InMemoryBackend) UpdateMaintenanceWindow(
 }
 
 // UpdateOpsItem updates an OpsItem including OperationalData.
-func (b *InMemoryBackend) UpdateOpsItem(ctx context.Context, input *UpdateOpsItemInput) (*UpdateOpsItemOutput, error) {
+func (b *InMemoryBackend) UpdateOpsItem(
+	ctx context.Context,
+	input *UpdateOpsItemInput,
+) (*UpdateOpsItemOutput, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("UpdateOpsItem")
 	defer b.mu.Unlock()

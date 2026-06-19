@@ -20,11 +20,11 @@ import (
 func TestDescribeAssociationExecutionTargets(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // test struct readability over field alignment
+	tests := []struct {
 		input         ssm.DescribeAssociationExecutionTargetsInput
-		targets       []ssm.AssociationTarget
 		name          string
 		assocInstance string
+		targets       []ssm.AssociationTarget
 		wantCount     int
 	}{
 		{

@@ -7,19 +7,40 @@ type StorageBackend interface {
 	PutParameter(ctx context.Context, input *PutParameterInput) (*PutParameterOutput, error)
 	GetParameter(ctx context.Context, input *GetParameterInput) (*GetParameterOutput, error)
 	GetParameters(ctx context.Context, input *GetParametersInput) (*GetParametersOutput, error)
-	DeleteParameter(ctx context.Context, input *DeleteParameterInput) (*DeleteParameterOutput, error)
-	DeleteParameters(ctx context.Context, input *DeleteParametersInput) (*DeleteParametersOutput, error)
-	GetParameterHistory(ctx context.Context, input *GetParameterHistoryInput) (*GetParameterHistoryOutput, error)
-	GetParametersByPath(ctx context.Context, input *GetParametersByPathInput) (*GetParametersByPathOutput, error)
-	DescribeParameters(ctx context.Context, input *DescribeParametersInput) (*DescribeParametersOutput, error)
+	DeleteParameter(
+		ctx context.Context,
+		input *DeleteParameterInput,
+	) (*DeleteParameterOutput, error)
+	DeleteParameters(
+		ctx context.Context,
+		input *DeleteParametersInput,
+	) (*DeleteParametersOutput, error)
+	GetParameterHistory(
+		ctx context.Context,
+		input *GetParameterHistoryInput,
+	) (*GetParameterHistoryOutput, error)
+	GetParametersByPath(
+		ctx context.Context,
+		input *GetParametersByPathInput,
+	) (*GetParametersByPathOutput, error)
+	DescribeParameters(
+		ctx context.Context,
+		input *DescribeParametersInput,
+	) (*DescribeParametersOutput, error)
 	AddTagsToResource(ctx context.Context, input *AddTagsToResourceInput) error
 	RemoveTagsFromResource(ctx context.Context, input *RemoveTagsFromResourceInput) error
-	ListTagsForResource(ctx context.Context, input *ListTagsForResourceInput) (*ListTagsForResourceOutput, error)
+	ListTagsForResource(
+		ctx context.Context,
+		input *ListTagsForResourceInput,
+	) (*ListTagsForResourceOutput, error)
 	ListAll(ctx context.Context) []Parameter
 	// Document operations.
 	CreateDocument(ctx context.Context, input *CreateDocumentInput) (*CreateDocumentOutput, error)
 	GetDocument(ctx context.Context, input *GetDocumentInput) (*GetDocumentOutput, error)
-	DescribeDocument(ctx context.Context, input *DescribeDocumentInput) (*DescribeDocumentOutput, error)
+	DescribeDocument(
+		ctx context.Context,
+		input *DescribeDocumentInput,
+	) (*DescribeDocumentOutput, error)
 	ListDocuments(ctx context.Context, input *ListDocumentsInput) (*ListDocumentsOutput, error)
 	UpdateDocument(ctx context.Context, input *UpdateDocumentInput) (*UpdateDocumentOutput, error)
 	DeleteDocument(ctx context.Context, input *DeleteDocumentInput) (*DeleteDocumentOutput, error)
@@ -31,11 +52,17 @@ type StorageBackend interface {
 		ctx context.Context,
 		input *ModifyDocumentPermissionInput,
 	) (*ModifyDocumentPermissionOutput, error)
-	ListDocumentVersions(ctx context.Context, input *ListDocumentVersionsInput) (*ListDocumentVersionsOutput, error)
+	ListDocumentVersions(
+		ctx context.Context,
+		input *ListDocumentVersionsInput,
+	) (*ListDocumentVersionsOutput, error)
 	// Command operations.
 	SendCommand(ctx context.Context, input *SendCommandInput) (*SendCommandOutput, error)
 	ListCommands(ctx context.Context, input *ListCommandsInput) (*ListCommandsOutput, error)
-	GetCommandInvocation(ctx context.Context, input *GetCommandInvocationInput) (*GetCommandInvocationOutput, error)
+	GetCommandInvocation(
+		ctx context.Context,
+		input *GetCommandInvocationInput,
+	) (*GetCommandInvocationOutput, error)
 	ListCommandInvocations(
 		ctx context.Context,
 		input *ListCommandInvocationsInput,
@@ -46,8 +73,14 @@ type StorageBackend interface {
 		_ context.Context,
 		input *CancelMaintenanceWindowExecutionInput,
 	) (*CancelMaintenanceWindowExecutionOutput, error)
-	CreateActivation(ctx context.Context, input *CreateActivationInput) (*CreateActivationOutput, error)
-	CreateAssociation(ctx context.Context, input *CreateAssociationInput) (*CreateAssociationOutput, error)
+	CreateActivation(
+		ctx context.Context,
+		input *CreateActivationInput,
+	) (*CreateActivationOutput, error)
+	CreateAssociation(
+		ctx context.Context,
+		input *CreateAssociationInput,
+	) (*CreateAssociationOutput, error)
 	CreateAssociationBatch(
 		ctx context.Context,
 		input *CreateAssociationBatchInput,
@@ -57,8 +90,14 @@ type StorageBackend interface {
 		input *CreateMaintenanceWindowInput,
 	) (*CreateMaintenanceWindowOutput, error)
 	CreateOpsItem(ctx context.Context, input *CreateOpsItemInput) (*CreateOpsItemOutput, error)
-	CreateOpsMetadata(ctx context.Context, input *CreateOpsMetadataInput) (*CreateOpsMetadataOutput, error)
-	CreatePatchBaseline(ctx context.Context, input *CreatePatchBaselineInput) (*CreatePatchBaselineOutput, error)
+	CreateOpsMetadata(
+		ctx context.Context,
+		input *CreateOpsMetadataInput,
+	) (*CreateOpsMetadataOutput, error)
+	CreatePatchBaseline(
+		ctx context.Context,
+		input *CreatePatchBaselineInput,
+	) (*CreatePatchBaselineOutput, error)
 	AssociateOpsItemRelatedItem(
 		ctx context.Context,
 		input *AssociateOpsItemRelatedItemInput,
@@ -68,7 +107,10 @@ type StorageBackend interface {
 		ctx context.Context,
 		input *UpdateDocumentDefaultVersionInput,
 	) (*UpdateDocumentDefaultVersionOutput, error)
-	UpdateDocumentMetadata(ctx context.Context, input *UpdateDocumentMetadataInput) (*UpdateDocumentMetadataOutput, error)
+	UpdateDocumentMetadata(
+		ctx context.Context,
+		input *UpdateDocumentMetadataInput,
+	) (*UpdateDocumentMetadataOutput, error)
 	ListDocumentMetadataHistory(
 		ctx context.Context,
 		input *ListDocumentMetadataHistoryInput,
@@ -76,16 +118,31 @@ type StorageBackend interface {
 	// Inventory operations (Group 2).
 	PutInventory(ctx context.Context, input *PutInventoryInput) (*PutInventoryOutput, error)
 	GetInventory(ctx context.Context, input *GetInventoryInput) (*GetInventoryOutput, error)
-	GetInventorySchema(_ context.Context, input *GetInventorySchemaInput) (*GetInventorySchemaOutput, error)
-	ListInventoryEntries(ctx context.Context, input *ListInventoryEntriesInput) (*ListInventoryEntriesOutput, error)
-	DeleteInventory(ctx context.Context, input *DeleteInventoryInput) (*DeleteInventoryOutput, error)
+	GetInventorySchema(
+		_ context.Context,
+		input *GetInventorySchemaInput,
+	) (*GetInventorySchemaOutput, error)
+	ListInventoryEntries(
+		ctx context.Context,
+		input *ListInventoryEntriesInput,
+	) (*ListInventoryEntriesOutput, error)
+	DeleteInventory(
+		ctx context.Context,
+		input *DeleteInventoryInput,
+	) (*DeleteInventoryOutput, error)
 	DescribeInventoryDeletions(
 		_ context.Context,
 		_ *DescribeInventoryDeletionsInput,
 	) (*DescribeInventoryDeletionsOutput, error)
 	// Compliance operations (Group 3).
-	PutComplianceItems(ctx context.Context, input *PutComplianceItemsInput) (*PutComplianceItemsOutput, error)
-	ListComplianceItems(ctx context.Context, input *ListComplianceItemsInput) (*ListComplianceItemsOutput, error)
+	PutComplianceItems(
+		ctx context.Context,
+		input *PutComplianceItemsInput,
+	) (*PutComplianceItemsOutput, error)
+	ListComplianceItems(
+		ctx context.Context,
+		input *ListComplianceItemsInput,
+	) (*ListComplianceItemsOutput, error)
 	ListComplianceSummaries(
 		ctx context.Context,
 		_ *ListComplianceSummariesInput,
@@ -95,7 +152,10 @@ type StorageBackend interface {
 		_ *ListResourceComplianceSummariesInput,
 	) (*ListResourceComplianceSummariesOutput, error)
 	// Patch baseline operations (Group 4).
-	GetPatchBaseline(ctx context.Context, input *GetPatchBaselineInput) (*GetPatchBaselineOutput, error)
+	GetPatchBaseline(
+		ctx context.Context,
+		input *GetPatchBaselineInput,
+	) (*GetPatchBaselineOutput, error)
 	GetDefaultPatchBaseline(
 		ctx context.Context,
 		input *GetDefaultPatchBaselineInput,
@@ -116,14 +176,26 @@ type StorageBackend interface {
 		ctx context.Context,
 		input *DeregisterPatchBaselineForPatchGroupInput,
 	) (*DeregisterPatchBaselineForPatchGroupOutput, error)
-	DeletePatchBaseline(ctx context.Context, input *DeletePatchBaselineInput) (*DeletePatchBaselineOutput, error)
+	DeletePatchBaseline(
+		ctx context.Context,
+		input *DeletePatchBaselineInput,
+	) (*DeletePatchBaselineOutput, error)
 	DescribePatchBaselines(
 		ctx context.Context,
 		input *DescribePatchBaselinesInput,
 	) (*DescribePatchBaselinesOutput, error)
-	DescribePatchGroups(ctx context.Context, input *DescribePatchGroupsInput) (*DescribePatchGroupsOutput, error)
-	DescribePatchGroupState(_ context.Context, _ *DescribePatchGroupStateInput) (*DescribePatchGroupStateOutput, error)
-	DescribePatchProperties(_ context.Context, _ *DescribePatchPropertiesInput) (*DescribePatchPropertiesOutput, error)
+	DescribePatchGroups(
+		ctx context.Context,
+		input *DescribePatchGroupsInput,
+	) (*DescribePatchGroupsOutput, error)
+	DescribePatchGroupState(
+		_ context.Context,
+		_ *DescribePatchGroupStateInput,
+	) (*DescribePatchGroupStateOutput, error)
+	DescribePatchProperties(
+		_ context.Context,
+		_ *DescribePatchPropertiesInput,
+	) (*DescribePatchPropertiesOutput, error)
 	DescribeEffectivePatchesForPatchBaseline(
 		ctx context.Context,
 		input *DescribeEffectivePatchesForPatchBaselineInput,
@@ -133,7 +205,10 @@ type StorageBackend interface {
 		input *GetDeployablePatchSnapshotForInstanceInput,
 	) (*GetDeployablePatchSnapshotForInstanceOutput, error)
 	// Maintenance window operations (Group 5).
-	GetMaintenanceWindow(ctx context.Context, input *GetMaintenanceWindowInput) (*GetMaintenanceWindowOutput, error)
+	GetMaintenanceWindow(
+		ctx context.Context,
+		input *GetMaintenanceWindowInput,
+	) (*GetMaintenanceWindowOutput, error)
 	DeleteMaintenanceWindow(
 		ctx context.Context,
 		input *DeleteMaintenanceWindowInput,
@@ -189,26 +264,65 @@ type StorageBackend interface {
 	// OpsItem operations (Group 6).
 	GetOpsItem(ctx context.Context, input *GetOpsItemInput) (*GetOpsItemOutput, error)
 	DeleteOpsItem(ctx context.Context, input *DeleteOpsItemInput) (*DeleteOpsItemOutput, error)
-	DescribeOpsItems(ctx context.Context, input *DescribeOpsItemsInput) (*DescribeOpsItemsOutput, error)
+	DescribeOpsItems(
+		ctx context.Context,
+		input *DescribeOpsItemsInput,
+	) (*DescribeOpsItemsOutput, error)
 	UpdateOpsItem(ctx context.Context, input *UpdateOpsItemInput) (*UpdateOpsItemOutput, error)
-	DisassociateOpsItemRelatedItem(ctx context.Context, input *DisassociateOpsItemRelatedItemInput) (*DisassociateOpsItemRelatedItemOutput, error)
+	DisassociateOpsItemRelatedItem(
+		ctx context.Context,
+		input *DisassociateOpsItemRelatedItemInput,
+	) (*DisassociateOpsItemRelatedItemOutput, error)
 	ListOpsItemRelatedItems(
 		ctx context.Context,
 		input *ListOpsItemRelatedItemsInput,
 	) (*ListOpsItemRelatedItemsOutput, error)
-	ListOpsItemEvents(ctx context.Context, input *ListOpsItemEventsInput) (*ListOpsItemEventsOutput, error)
+	ListOpsItemEvents(
+		ctx context.Context,
+		input *ListOpsItemEventsInput,
+	) (*ListOpsItemEventsOutput, error)
 	GetOpsMetadata(ctx context.Context, input *GetOpsMetadataInput) (*GetOpsMetadataOutput, error)
-	UpdateOpsMetadata(ctx context.Context, input *UpdateOpsMetadataInput) (*UpdateOpsMetadataOutput, error)
-	DeleteOpsMetadata(ctx context.Context, input *DeleteOpsMetadataInput) (*DeleteOpsMetadataOutput, error)
+	UpdateOpsMetadata(
+		ctx context.Context,
+		input *UpdateOpsMetadataInput,
+	) (*UpdateOpsMetadataOutput, error)
+	DeleteOpsMetadata(
+		ctx context.Context,
+		input *DeleteOpsMetadataInput,
+	) (*DeleteOpsMetadataOutput, error)
 	// Remaining operations.
-	CreateResourceDataSync(ctx context.Context, input *CreateResourceDataSyncInput) (*CreateResourceDataSyncOutput, error)
-	DeleteActivation(ctx context.Context, input *DeleteActivationInput) (*DeleteActivationOutput, error)
-	DeleteAssociation(ctx context.Context, input *DeleteAssociationInput) (*DeleteAssociationOutput, error)
-	DeleteResourceDataSync(ctx context.Context, input *DeleteResourceDataSyncInput) (*DeleteResourceDataSyncOutput, error)
-	DeleteResourcePolicy(ctx context.Context, input *DeleteResourcePolicyInput) (*DeleteResourcePolicyOutput, error)
-	DeregisterManagedInstance(ctx context.Context, input *DeregisterManagedInstanceInput) (*DeregisterManagedInstanceOutput, error)
-	DescribeActivations(ctx context.Context, _ *DescribeActivationsInput) (*DescribeActivationsOutput, error)
-	DescribeAssociation(ctx context.Context, input *DescribeAssociationInput) (*DescribeAssociationOutput, error)
+	CreateResourceDataSync(
+		ctx context.Context,
+		input *CreateResourceDataSyncInput,
+	) (*CreateResourceDataSyncOutput, error)
+	DeleteActivation(
+		ctx context.Context,
+		input *DeleteActivationInput,
+	) (*DeleteActivationOutput, error)
+	DeleteAssociation(
+		ctx context.Context,
+		input *DeleteAssociationInput,
+	) (*DeleteAssociationOutput, error)
+	DeleteResourceDataSync(
+		ctx context.Context,
+		input *DeleteResourceDataSyncInput,
+	) (*DeleteResourceDataSyncOutput, error)
+	DeleteResourcePolicy(
+		ctx context.Context,
+		input *DeleteResourcePolicyInput,
+	) (*DeleteResourcePolicyOutput, error)
+	DeregisterManagedInstance(
+		ctx context.Context,
+		input *DeregisterManagedInstanceInput,
+	) (*DeregisterManagedInstanceOutput, error)
+	DescribeActivations(
+		ctx context.Context,
+		_ *DescribeActivationsInput,
+	) (*DescribeActivationsOutput, error)
+	DescribeAssociation(
+		ctx context.Context,
+		input *DescribeAssociationInput,
+	) (*DescribeAssociationOutput, error)
 	DescribeAssociationExecutionTargets(
 		_ context.Context,
 		input *DescribeAssociationExecutionTargetsInput,
@@ -249,7 +363,10 @@ type StorageBackend interface {
 		_ context.Context,
 		_ *DescribeInstancePatchStatesForPatchGroupInput,
 	) (*DescribeInstancePatchStatesForPatchGroupOutput, error)
-	DescribeInstancePatches(_ context.Context, _ *DescribeInstancePatchesInput) (*DescribeInstancePatchesOutput, error)
+	DescribeInstancePatches(
+		_ context.Context,
+		_ *DescribeInstancePatchesInput,
+	) (*DescribeInstancePatchesOutput, error)
 	DescribeInstanceProperties(
 		_ context.Context,
 		_ *DescribeInstancePropertiesInput,
@@ -270,15 +387,27 @@ type StorageBackend interface {
 		ctx context.Context,
 		input *DescribeMaintenanceWindowScheduleInput,
 	) (*DescribeMaintenanceWindowScheduleOutputFull, error)
-	DescribeSessions(ctx context.Context, input *DescribeSessionsInput) (*DescribeSessionsOutputFull, error)
+	DescribeSessions(
+		ctx context.Context,
+		input *DescribeSessionsInput,
+	) (*DescribeSessionsOutputFull, error)
 	GetAccessToken(_ context.Context, input *GetAccessTokenInput) (*GetAccessTokenOutputFull, error)
 	GetAutomationExecution(
 		ctx context.Context,
 		input *GetAutomationExecutionInput,
 	) (*GetAutomationExecutionOutputFull, error)
-	GetCalendarState(ctx context.Context, input *GetCalendarStateInput) (*GetCalendarStateOutputFull, error)
-	GetConnectionStatus(ctx context.Context, input *GetConnectionStatusInput) (*GetConnectionStatusOutputFull, error)
-	GetExecutionPreview(ctx context.Context, input *GetExecutionPreviewInput) (*GetExecutionPreviewOutputFull, error)
+	GetCalendarState(
+		ctx context.Context,
+		input *GetCalendarStateInput,
+	) (*GetCalendarStateOutputFull, error)
+	GetConnectionStatus(
+		ctx context.Context,
+		input *GetConnectionStatusInput,
+	) (*GetConnectionStatusOutputFull, error)
+	GetExecutionPreview(
+		ctx context.Context,
+		input *GetExecutionPreviewInput,
+	) (*GetExecutionPreviewOutputFull, error)
 	GetMaintenanceWindowExecution(
 		_ context.Context,
 		input *GetMaintenanceWindowExecutionInput,
@@ -292,8 +421,14 @@ type StorageBackend interface {
 		input *GetMaintenanceWindowExecutionTaskInvocationInput,
 	) (*GetMaintenanceWindowExecutionTaskInvocationOutputFull, error)
 	GetOpsSummary(ctx context.Context, _ *GetOpsSummaryInput) (*GetOpsSummaryOutputFull, error)
-	GetResourcePolicies(ctx context.Context, input *GetResourcePoliciesInput) (*GetResourcePoliciesOutputFull, error)
-	GetServiceSetting(ctx context.Context, input *GetServiceSettingInput) (*GetServiceSettingOutputFull, error)
+	GetResourcePolicies(
+		ctx context.Context,
+		input *GetResourcePoliciesInput,
+	) (*GetResourcePoliciesOutputFull, error)
+	GetServiceSetting(
+		ctx context.Context,
+		input *GetServiceSettingInput,
+	) (*GetServiceSettingOutputFull, error)
 	LabelParameterVersion(
 		ctx context.Context,
 		input *LabelParameterVersionInput,
@@ -304,15 +439,39 @@ type StorageBackend interface {
 	) (*ListAssociationVersionsOutputFull, error)
 	ListAssociations(ctx context.Context, _ *ListAssociationsInput) (*ListAssociationsOutput, error)
 	ListNodes(ctx context.Context, _ *ListNodesInput) (*ListNodesOutputFull, error)
-	ListNodesSummary(ctx context.Context, _ *ListNodesSummaryInput) (*ListNodesSummaryOutputFull, error)
-	ListOpsMetadata(ctx context.Context, _ *ListOpsMetadataInput) (*ListOpsMetadataOutputFull, error)
-	ListResourceDataSync(ctx context.Context, _ *ListResourceDataSyncInput) (*ListResourceDataSyncOutputFull, error)
-	PutResourcePolicy(ctx context.Context, input *PutResourcePolicyInput) (*PutResourcePolicyOutputFull, error)
-	ResetServiceSetting(ctx context.Context, input *ResetServiceSettingInput) (*ResetServiceSettingOutputFull, error)
+	ListNodesSummary(
+		ctx context.Context,
+		_ *ListNodesSummaryInput,
+	) (*ListNodesSummaryOutputFull, error)
+	ListOpsMetadata(
+		ctx context.Context,
+		_ *ListOpsMetadataInput,
+	) (*ListOpsMetadataOutputFull, error)
+	ListResourceDataSync(
+		ctx context.Context,
+		_ *ListResourceDataSyncInput,
+	) (*ListResourceDataSyncOutputFull, error)
+	PutResourcePolicy(
+		ctx context.Context,
+		input *PutResourcePolicyInput,
+	) (*PutResourcePolicyOutputFull, error)
+	ResetServiceSetting(
+		ctx context.Context,
+		input *ResetServiceSettingInput,
+	) (*ResetServiceSettingOutputFull, error)
 	ResumeSession(ctx context.Context, input *ResumeSessionInput) (*ResumeSessionOutputFull, error)
-	SendAutomationSignal(ctx context.Context, input *SendAutomationSignalInput) (*SendAutomationSignalOutput, error)
-	StartAccessRequest(_ context.Context, input *StartAccessRequestInput) (*StartAccessRequestOutputFull, error)
-	StartAssociationsOnce(ctx context.Context, input *StartAssociationsOnceInput) (*StartAssociationsOnceOutput, error)
+	SendAutomationSignal(
+		ctx context.Context,
+		input *SendAutomationSignalInput,
+	) (*SendAutomationSignalOutput, error)
+	StartAccessRequest(
+		_ context.Context,
+		input *StartAccessRequestInput,
+	) (*StartAccessRequestOutputFull, error)
+	StartAssociationsOnce(
+		ctx context.Context,
+		input *StartAssociationsOnceInput,
+	) (*StartAssociationsOnceOutput, error)
 	StartAutomationExecution(
 		ctx context.Context,
 		input *StartAutomationExecutionInput,
@@ -326,21 +485,42 @@ type StorageBackend interface {
 		input *StartExecutionPreviewInput,
 	) (*StartExecutionPreviewOutputFull, error)
 	StartSession(ctx context.Context, input *StartSessionInput) (*StartSessionOutput, error)
-	StopAutomationExecution(ctx context.Context, input *StopAutomationExecutionInput) (*StopAutomationExecutionOutput, error)
-	TerminateSession(ctx context.Context, input *TerminateSessionInput) (*TerminateSessionOutput, error)
+	StopAutomationExecution(
+		ctx context.Context,
+		input *StopAutomationExecutionInput,
+	) (*StopAutomationExecutionOutput, error)
+	TerminateSession(
+		ctx context.Context,
+		input *TerminateSessionInput,
+	) (*TerminateSessionOutput, error)
 	UnlabelParameterVersion(
 		ctx context.Context,
 		input *UnlabelParameterVersionInput,
 	) (*UnlabelParameterVersionOutputFull, error)
-	UpdateAssociation(ctx context.Context, input *UpdateAssociationInput) (*UpdateAssociationOutput, error)
+	UpdateAssociation(
+		ctx context.Context,
+		input *UpdateAssociationInput,
+	) (*UpdateAssociationOutput, error)
 	UpdateAssociationStatus(
 		ctx context.Context,
 		input *UpdateAssociationStatusInput,
 	) (*UpdateAssociationStatusOutputFull, error)
-	UpdateManagedInstanceRole(ctx context.Context, input *UpdateManagedInstanceRoleInput) (*UpdateManagedInstanceRoleOutput, error)
-	UpdatePatchBaseline(ctx context.Context, input *UpdatePatchBaselineInput) (*UpdatePatchBaselineOutput, error)
-	UpdateResourceDataSync(ctx context.Context, input *UpdateResourceDataSyncInput) (*UpdateResourceDataSyncOutput, error)
-	UpdateServiceSetting(ctx context.Context, input *UpdateServiceSettingInput) (*UpdateServiceSettingOutput, error)
+	UpdateManagedInstanceRole(
+		ctx context.Context,
+		input *UpdateManagedInstanceRoleInput,
+	) (*UpdateManagedInstanceRoleOutput, error)
+	UpdatePatchBaseline(
+		ctx context.Context,
+		input *UpdatePatchBaselineInput,
+	) (*UpdatePatchBaselineOutput, error)
+	UpdateResourceDataSync(
+		ctx context.Context,
+		input *UpdateResourceDataSyncInput,
+	) (*UpdateResourceDataSyncOutput, error)
+	UpdateServiceSetting(
+		ctx context.Context,
+		input *UpdateServiceSettingInput,
+	) (*UpdateServiceSettingOutput, error)
 }
 
 // Compile-time assertion: InMemoryBackend must implement StorageBackend.
