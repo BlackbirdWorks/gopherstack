@@ -900,8 +900,9 @@ func (h *Handler) handleSearchUsers(_ context.Context, req *searchUsersReq) (*se
 }
 
 type searchUsersByImageReq struct {
-	CollectionId string `json:"CollectionId"` //nolint:revive,staticcheck // existing issue.
-	MaxUsers     int32  `json:"MaxUsers"`
+	CollectionId string   `json:"CollectionId"` //nolint:revive,staticcheck // existing issue.
+	Image        imageRef `json:"Image"`
+	MaxUsers     int32    `json:"MaxUsers"`
 }
 
 type searchUsersByImageResp struct {
@@ -916,7 +917,7 @@ func (h *Handler) handleSearchUsersByImage(
 		return nil, fmt.Errorf("%w: CollectionId is required", ErrValidation)
 	}
 
-	matches, err := h.Backend.SearchUsersByImage(req.CollectionId, req.MaxUsers)
+	matches, err := h.Backend.SearchUsersByImage(req.CollectionId, req.MaxUsers, imageRefKey(req.Image))
 	if err != nil {
 		return nil, err
 	}

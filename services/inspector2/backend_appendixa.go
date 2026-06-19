@@ -36,6 +36,21 @@ var (
 	ErrCisSessionNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 )
 
+// CIS scan and check status values (AWS Inspector2 CIS API).
+const (
+	cisScanStatusCompleted = "COMPLETED"
+
+	cisCheckStatusPassed = "PASSED"
+	cisCheckStatusFailed = "FAILED"
+
+	cisLevel1        = "LEVEL_1"
+	cisPlatform      = "AMAZON_LINUX_2"
+	cisReportSuccess = "SUCCEEDED"
+
+	keyScanArn  = "scanArn"
+	keyPlatform = "platform"
+)
+
 // --- domain types ---
 
 // Member represents an Inspector2 member account.
@@ -102,6 +117,35 @@ type CisSession struct {
 	ScanJobID    string    `json:"scanJobId"`
 	SessionToken string    `json:"sessionToken"`
 	Status       string    `json:"status"`
+}
+
+// CisCheckResult is a single CIS benchmark check outcome for one target resource.
+type CisCheckResult struct {
+	CheckID      string `json:"checkId"`
+	CheckDescr   string `json:"checkDescription"`
+	Level        string `json:"level"`
+	Platform     string `json:"platform"`
+	Status       string `json:"status"`
+	TargetID     string `json:"targetResourceId"`
+	AccountID    string `json:"accountId"`
+	StatusReason string `json:"statusReason,omitempty"`
+}
+
+// CisScan is a completed CIS scan run produced from a scan configuration. It
+// carries the per-check results so the report, result-detail and aggregation
+// operations all derive from the same stored state rather than canned data.
+type CisScan struct {
+	ScheduledAt          time.Time         `json:"scheduledBy"`
+	FinishedAt           time.Time         `json:"finishedAt"`
+	ScanArn              string            `json:"scanArn"`
+	ScanConfigurationArn string            `json:"scanConfigurationArn"`
+	ScanName             string            `json:"scanName"`
+	Status               string            `json:"status"`
+	SecurityLevel        string            `json:"securityLevel"`
+	TargetAccountID      string            `json:"targetAccountId"`
+	Results              []*CisCheckResult `json:"results"`
+	TotalChecks          int               `json:"totalChecks"`
+	FailedChecks         int               `json:"failedChecks"`
 }
 
 // CodeSecurityIntegration represents a code security integration.
@@ -184,21 +228,22 @@ type AccountPermission struct {
 
 // appendixAState holds all appendix A data.
 type appendixAState struct {
-	CodeSecurityIntegrations map[string]*CodeSecurityIntegration
-	CisScanConfigs           map[string]*CisScanConfiguration
-	SbomExports              map[string]*SbomExport
-	FindingsReports          map[string]*FindingsReport
-	CodeSecurityScans        map[string]map[string]any
-	MemberEc2Status          map[string]*MemberEc2DeepInspectionStatus
-	DelegatedAdmins          map[string]*DelegatedAdminAccount
-	CodeSecurityScanConfigs  map[string]*CodeSecurityScanConfiguration
-	EncryptionKeys           map[string]*EncryptionKey
-	Members                  map[string]*Member
-	CisSessions              map[string]*CisSession
-	ScanConfigAssociations   map[string][]*CodeSecurityScanConfigurationAssociation
-	Ec2DeepConfig            Ec2DeepInspectionConfig
-	OrgEc2Config             OrgEc2DeepInspectionConfig
-	OrgConfig                OrgConfiguration
+	CodeSecurityIntegrations map[string]*CodeSecurityIntegration                    `json:"codeSecurityIntegrations"`
+	CisScanConfigs           map[string]*CisScanConfiguration                       `json:"cisScanConfigs"`
+	CisScans                 map[string]*CisScan                                    `json:"cisScans"`
+	SbomExports              map[string]*SbomExport                                 `json:"sbomExports"`
+	FindingsReports          map[string]*FindingsReport                             `json:"findingsReports"`
+	CodeSecurityScans        map[string]map[string]any                              `json:"codeSecurityScans"`
+	MemberEc2Status          map[string]*MemberEc2DeepInspectionStatus              `json:"memberEc2Status"`
+	DelegatedAdmins          map[string]*DelegatedAdminAccount                      `json:"delegatedAdmins"`
+	CodeSecurityScanConfigs  map[string]*CodeSecurityScanConfiguration              `json:"codeSecurityScanConfigs"`
+	EncryptionKeys           map[string]*EncryptionKey                              `json:"encryptionKeys"`
+	Members                  map[string]*Member                                     `json:"members"`
+	CisSessions              map[string]*CisSession                                 `json:"cisSessions"`
+	ScanConfigAssociations   map[string][]*CodeSecurityScanConfigurationAssociation `json:"scanConfigAssociations"`
+	Ec2DeepConfig            Ec2DeepInspectionConfig                                `json:"ec2DeepConfig"`
+	OrgEc2Config             OrgEc2DeepInspectionConfig                             `json:"orgEc2Config"`
+	OrgConfig                OrgConfiguration                                       `json:"orgConfig"`
 }
 
 func newAppendixAState() *appendixAState {
@@ -208,6 +253,7 @@ func newAppendixAState() *appendixAState {
 		MemberEc2Status:          make(map[string]*MemberEc2DeepInspectionStatus),
 		EncryptionKeys:           make(map[string]*EncryptionKey),
 		CisScanConfigs:           make(map[string]*CisScanConfiguration),
+		CisScans:                 make(map[string]*CisScan),
 		CisSessions:              make(map[string]*CisSession),
 		CodeSecurityIntegrations: make(map[string]*CodeSecurityIntegration),
 		CodeSecurityScanConfigs:  make(map[string]*CodeSecurityScanConfiguration),
@@ -226,6 +272,10 @@ func newAppendixAState() *appendixAState {
 
 func (b *InMemoryBackend) buildCisScanConfigARN() string {
 	return arn.Build(inspector2Service, b.region, b.accountID, "cis-scan-configuration/"+uuid.New().String())
+}
+
+func (b *InMemoryBackend) buildCisScanARN() string {
+	return arn.Build(inspector2Service, b.region, b.accountID, "cis-scan/"+uuid.New().String())
 }
 
 func (b *InMemoryBackend) buildCodeSecurityIntegrationARN() string {
@@ -574,7 +624,106 @@ func (b *InMemoryBackend) CreateCisScanConfiguration(
 	}
 	b.ax.CisScanConfigs[cfgARN] = cfg
 
+	// Materialize a completed scan run for the config so the result/report/
+	// aggregation operations reflect real configuration state instead of canned
+	// data. Real AWS runs scans asynchronously on the configured schedule; we
+	// model the steady-state outcome at creation time.
+	scan := b.buildCisScanForConfig(cfg)
+	b.ax.CisScans[scan.ScanArn] = scan
+
 	return cfg, nil
+}
+
+// cisCheckCatalog is a small representative slice of the CIS benchmark checks
+// that a scan evaluates per target. Results are derived deterministically from
+// these so report/detail/aggregation operations stay internally consistent.
+func cisCheckCatalog() []CisCheckResult {
+	return []CisCheckResult{
+		{
+			CheckID:    "1.1.1",
+			CheckDescr: "Ensure mounting of cramfs filesystems is disabled",
+			Level:      cisLevel1,
+			Platform:   cisPlatform,
+			Status:     cisCheckStatusPassed,
+		},
+		{
+			CheckID:    "1.3.1",
+			CheckDescr: "Ensure AIDE is installed",
+			Level:      cisLevel1,
+			Platform:   cisPlatform,
+			Status:     cisCheckStatusFailed,
+		},
+		{
+			CheckID:    "5.2.1",
+			CheckDescr: "Ensure permissions on /etc/ssh/sshd_config are configured",
+			Level:      cisLevel1,
+			Platform:   cisPlatform,
+			Status:     cisCheckStatusPassed,
+		},
+	}
+}
+
+// cisTargetAccounts extracts the account IDs a scan targets, defaulting to the
+// backend account when the configuration does not name any.
+func (b *InMemoryBackend) cisTargetAccounts(targets map[string]any) []string {
+	var accounts []string
+
+	if raw, ok := targets["accountIds"].([]any); ok {
+		for _, v := range raw {
+			if id, isStr := v.(string); isStr && id != "" {
+				accounts = append(accounts, id)
+			}
+		}
+	}
+
+	if len(accounts) == 0 {
+		accounts = []string{b.accountID}
+	}
+
+	return accounts
+}
+
+// buildCisScanForConfig constructs a completed scan, including per-target check
+// results, from a scan configuration. Caller must hold the write lock.
+func (b *InMemoryBackend) buildCisScanForConfig(cfg *CisScanConfiguration) *CisScan {
+	now := time.Now().UTC()
+	accounts := b.cisTargetAccounts(cfg.Targets)
+	catalog := cisCheckCatalog()
+
+	results := make([]*CisCheckResult, 0, len(accounts)*len(catalog))
+	failed := 0
+
+	for _, acct := range accounts {
+		targetID := "i-" + uuid.New().String()[:17]
+
+		for i := range catalog {
+			res := catalog[i]
+			res.AccountID = acct
+			res.TargetID = targetID
+
+			if res.Status == cisCheckStatusFailed {
+				failed++
+				res.StatusReason = "remediation required"
+			}
+
+			rc := res
+			results = append(results, &rc)
+		}
+	}
+
+	return &CisScan{
+		ScanArn:              b.buildCisScanARN(),
+		ScanConfigurationArn: cfg.Arn,
+		ScanName:             cfg.Name,
+		Status:               cisScanStatusCompleted,
+		SecurityLevel:        cisLevel1,
+		ScheduledAt:          now,
+		FinishedAt:           now,
+		TargetAccountID:      accounts[0],
+		TotalChecks:          len(results),
+		FailedChecks:         failed,
+		Results:              results,
+	}
 }
 
 // DeleteCisScanConfiguration deletes a CIS scan configuration.
@@ -587,6 +736,14 @@ func (b *InMemoryBackend) DeleteCisScanConfiguration(configARN string) error {
 	}
 
 	delete(b.ax.CisScanConfigs, configARN)
+
+	// Drop any scans materialized from this configuration so list/result
+	// operations stop reporting them.
+	for scanARN, s := range b.ax.CisScans {
+		if s.ScanConfigurationArn == configARN {
+			delete(b.ax.CisScans, scanARN)
+		}
+	}
 
 	return nil
 }
@@ -690,34 +847,242 @@ func (b *InMemoryBackend) SendCisSessionTelemetry(_ string, _ map[string]any) er
 	return nil
 }
 
-// GetCisScanReport returns a stub CIS scan report.
-func (b *InMemoryBackend) GetCisScanReport(_ string) (map[string]any, error) {
+// findCisScan returns the stored scan for either its scan ARN or the ARN of the
+// configuration that produced it. Caller must hold at least an RLock.
+func (b *InMemoryBackend) findCisScan(scanOrConfigARN string) *CisScan {
+	if s, ok := b.ax.CisScans[scanOrConfigARN]; ok {
+		return s
+	}
+
+	for _, s := range b.ax.CisScans {
+		if s.ScanConfigurationArn == scanOrConfigARN {
+			return s
+		}
+	}
+
+	return nil
+}
+
+// GetCisScanReport returns the report for a completed CIS scan. The status and
+// counts are drawn from the stored scan produced by its configuration. For an
+// unrecognized scan ARN it returns a benign SUCCEEDED report with no findings,
+// matching AWS, which does not error on missing report targets.
+func (b *InMemoryBackend) GetCisScanReport(scanArn string) (map[string]any, error) {
+	b.mu.RLock("GetCisScanReport")
+	defer b.mu.RUnlock()
+
+	scan := b.findCisScan(scanArn)
+	if scan == nil {
+		return map[string]any{
+			keyStatus: cisReportSuccess,
+			"url":     "",
+		}, nil
+	}
+
 	return map[string]any{
-		"status": "SUCCEEDED", //nolint:goconst // existing issue.
-		"url":    "",
+		keyStatus:      cisReportSuccess,
+		"url":          "",
+		keyScanArn:     scan.ScanArn,
+		"totalChecks":  scan.TotalChecks,
+		"failedChecks": scan.FailedChecks,
 	}, nil
 }
 
-// GetCisScanResultDetails returns stub CIS scan result details.
-func (b *InMemoryBackend) GetCisScanResultDetails(_ string) (map[string]any, error) {
-	return map[string]any{
-		"checkResults": []any{},
-	}, nil
+// GetCisScanResultDetails returns the per-check results for a CIS scan. Results
+// reflect the scan generated for the configuration; an unknown scan ARN yields
+// an empty result set rather than an error (AWS behavior for absent scans).
+func (b *InMemoryBackend) GetCisScanResultDetails(scanArn string) (map[string]any, error) {
+	b.mu.RLock("GetCisScanResultDetails")
+	defer b.mu.RUnlock()
+
+	scan := b.findCisScan(scanArn)
+	if scan == nil {
+		return map[string]any{"checkResults": []any{}}, nil
+	}
+
+	checkResults := make([]map[string]any, 0, len(scan.Results))
+	for _, r := range scan.Results {
+		entry := map[string]any{
+			keyScanArn:         scan.ScanArn,
+			"checkId":          r.CheckID,
+			"checkDescription": r.CheckDescr,
+			"level":            r.Level,
+			keyPlatform:        r.Platform,
+			keyStatus:          r.Status,
+			keyAccountID:       r.AccountID,
+			"targetResourceId": r.TargetID,
+		}
+		if r.StatusReason != "" {
+			entry["statusReason"] = r.StatusReason
+		}
+
+		checkResults = append(checkResults, entry)
+	}
+
+	return map[string]any{"checkResults": checkResults}, nil
 }
 
-// ListCisScans returns stub CIS scans.
+// ListCisScans returns all completed CIS scans, sorted by scan ARN for stable
+// pagination-free ordering. Each entry summarizes the scan produced from a
+// configuration.
 func (b *InMemoryBackend) ListCisScans() ([]map[string]any, error) {
-	return []map[string]any{}, nil
+	b.mu.RLock("ListCisScans")
+	defer b.mu.RUnlock()
+
+	arns := make([]string, 0, len(b.ax.CisScans))
+	for a := range b.ax.CisScans {
+		arns = append(arns, a)
+	}
+
+	sort.Strings(arns)
+
+	result := make([]map[string]any, 0, len(arns))
+
+	for _, a := range arns {
+		s := b.ax.CisScans[a]
+		result = append(result, map[string]any{
+			keyScanArn:              s.ScanArn,
+			keyScanConfigurationArn: s.ScanConfigurationArn,
+			"scanName":              s.ScanName,
+			keyStatus:               s.Status,
+			"securityLevel":         s.SecurityLevel,
+			"scheduledBy":           s.ScheduledAt.Format(time.RFC3339),
+			"failedChecks":          s.FailedChecks,
+			"totalChecks":           s.TotalChecks,
+			"targetAccountId":       s.TargetAccountID,
+		})
+	}
+
+	return result, nil
 }
 
-// ListCisScanResultsAggregatedByChecks returns stub results.
-func (b *InMemoryBackend) ListCisScanResultsAggregatedByChecks(_ string) ([]map[string]any, error) {
-	return []map[string]any{}, nil
+// ListCisScanResultsAggregatedByChecks groups a scan's results by check ID,
+// reporting passed/failed/skipped counts per check. An unknown scan ARN yields
+// an empty aggregation list.
+func (b *InMemoryBackend) ListCisScanResultsAggregatedByChecks(scanArn string) ([]map[string]any, error) {
+	b.mu.RLock("ListCisScanResultsAggregatedByChecks")
+	defer b.mu.RUnlock()
+
+	scan := b.findCisScan(scanArn)
+	if scan == nil {
+		return []map[string]any{}, nil
+	}
+
+	type checkAgg struct {
+		descr        string
+		level        string
+		platform     string
+		passed       int64
+		failed       int64
+		skipped      int64
+		firstSeenIdx int
+	}
+
+	aggs := make(map[string]*checkAgg)
+	order := make([]string, 0)
+
+	for i, r := range scan.Results {
+		a, ok := aggs[r.CheckID]
+		if !ok {
+			a = &checkAgg{descr: r.CheckDescr, level: r.Level, platform: r.Platform, firstSeenIdx: i}
+			aggs[r.CheckID] = a
+			order = append(order, r.CheckID)
+		}
+
+		switch r.Status {
+		case cisCheckStatusPassed:
+			a.passed++
+		case cisCheckStatusFailed:
+			a.failed++
+		default:
+			a.skipped++
+		}
+	}
+
+	sort.Strings(order)
+
+	result := make([]map[string]any, 0, len(order))
+	for _, id := range order {
+		a := aggs[id]
+		result = append(result, map[string]any{
+			keyScanArn:         scan.ScanArn,
+			"checkId":          id,
+			"checkDescription": a.descr,
+			"level":            a.level,
+			keyPlatform:        a.platform,
+			"statusCounts": map[string]any{
+				"passed":  a.passed,
+				"failed":  a.failed,
+				"skipped": a.skipped,
+			},
+		})
+	}
+
+	return result, nil
 }
 
-// ListCisScanResultsAggregatedByTargetResource returns stub results.
-func (b *InMemoryBackend) ListCisScanResultsAggregatedByTargetResource(_ string) ([]map[string]any, error) {
-	return []map[string]any{}, nil
+// ListCisScanResultsAggregatedByTargetResource groups a scan's results by target
+// resource, reporting passed/failed/skipped counts per resource. An unknown scan
+// ARN yields an empty aggregation list.
+func (b *InMemoryBackend) ListCisScanResultsAggregatedByTargetResource(
+	scanArn string,
+) ([]map[string]any, error) {
+	b.mu.RLock("ListCisScanResultsAggregatedByTargetResource")
+	defer b.mu.RUnlock()
+
+	scan := b.findCisScan(scanArn)
+	if scan == nil {
+		return []map[string]any{}, nil
+	}
+
+	type targetAgg struct {
+		accountID string
+		platform  string
+		passed    int64
+		failed    int64
+		skipped   int64
+	}
+
+	aggs := make(map[string]*targetAgg)
+	order := make([]string, 0)
+
+	for _, r := range scan.Results {
+		a, ok := aggs[r.TargetID]
+		if !ok {
+			a = &targetAgg{accountID: r.AccountID, platform: r.Platform}
+			aggs[r.TargetID] = a
+			order = append(order, r.TargetID)
+		}
+
+		switch r.Status {
+		case cisCheckStatusPassed:
+			a.passed++
+		case cisCheckStatusFailed:
+			a.failed++
+		default:
+			a.skipped++
+		}
+	}
+
+	sort.Strings(order)
+
+	result := make([]map[string]any, 0, len(order))
+	for _, tid := range order {
+		a := aggs[tid]
+		result = append(result, map[string]any{
+			keyScanArn:         scan.ScanArn,
+			"targetResourceId": tid,
+			keyAccountID:       a.accountID,
+			keyPlatform:        a.platform,
+			"statusCounts": map[string]any{
+				"passed":  a.passed,
+				"failed":  a.failed,
+				"skipped": a.skipped,
+			},
+		})
+	}
+
+	return result, nil
 }
 
 // --- Code Security Integration ---
@@ -1030,7 +1395,7 @@ func (b *InMemoryBackend) StartCodeSecurityScan(resourceID string) (map[string]a
 	scan := map[string]any{
 		"scanId":     scanID,
 		"resourceId": resourceID,
-		"status":     "IN_PROGRESS",
+		keyStatus:    "IN_PROGRESS",
 	}
 	b.ax.CodeSecurityScans[scanID] = scan
 
@@ -1232,7 +1597,7 @@ func (b *InMemoryBackend) ListUsageTotals(_ []string) ([]map[string]any, error) 
 	return []map[string]any{
 		{
 			keyAccountID: b.accountID,
-			"status":     "ACTIVE",
+			keyStatus:    "ACTIVE",
 			"usage":      []any{},
 		},
 	}, nil
@@ -1281,10 +1646,10 @@ func (b *InMemoryBackend) BatchGetFreeTrialInfo(accountIDs []string) (map[string
 			"accountId": id,
 			"freeTrialInfo": []map[string]any{
 				{
-					"end":    time.Now().UTC().AddDate(0, 0, 30).Format(time.RFC3339), //nolint:mnd // existing issue.
-					"start":  time.Now().UTC().Format(time.RFC3339),
-					"status": "ACTIVE",
-					"type":   "EC2",
+					"end":     time.Now().UTC().AddDate(0, 0, 30).Format(time.RFC3339), //nolint:mnd // existing issue.
+					"start":   time.Now().UTC().Format(time.RFC3339),
+					keyStatus: "ACTIVE",
+					"type":    "EC2",
 				},
 			},
 		})

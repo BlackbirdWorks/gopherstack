@@ -812,6 +812,7 @@ func (b *InMemoryBackend) Reset() {
 	b.filters = make(map[string]*Filter)
 	b.findings = make(map[string]*storedFinding)
 	b.tags = make(map[string]map[string]string)
+	b.ax = newAppendixAState()
 	b.config = Configuration{
 		Ec2ScanMode:       ec2ScanModeEC2SSMAgentBased,
 		EcrRescanDuration: ecrRescanDurationLifetime,
@@ -823,6 +824,7 @@ type backendSnapshot struct {
 	Filters   map[string]*Filter           `json:"filters"`
 	Findings  map[string]*storedFinding    `json:"findings"`
 	Tags      map[string]map[string]string `json:"tags"`
+	Appendix  *appendixAState              `json:"appendix"`
 	Config    Configuration                `json:"config"`
 	AccountID string                       `json:"accountId"`
 	Region    string                       `json:"region"`
@@ -838,6 +840,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Filters:   b.filters,
 		Findings:  b.findings,
 		Tags:      b.tags,
+		Appendix:  b.ax,
 		Config:    b.config,
 		Enabled:   b.enabled,
 		AccountID: b.accountID,
@@ -869,6 +872,10 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 
 	if b.findings == nil {
 		b.findings = make(map[string]*storedFinding)
+	}
+
+	if snap.Appendix != nil {
+		b.ax = snap.Appendix
 	}
 
 	return nil

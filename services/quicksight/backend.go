@@ -242,16 +242,21 @@ func (a *storedAnalysis) toAnalysis() *Analysis {
 
 // state is the serializable snapshot of the backend.
 type state struct {
-	Namespaces   map[string]*storedNamespace  `json:"namespaces"`
-	Groups       map[string]*storedGroup      `json:"groups"`
-	GroupMembers map[string]bool              `json:"groupMembers"`
-	Users        map[string]*storedUser       `json:"users"`
-	DataSources  map[string]*storedDataSource `json:"dataSources"`
-	DataSets     map[string]*storedDataSet    `json:"dataSets"`
-	Ingestions   map[string]*storedIngestion  `json:"ingestions"`
-	Dashboards   map[string]*storedDashboard  `json:"dashboards"`
-	Analyses     map[string]*storedAnalysis   `json:"analyses"`
-	Tags         map[string]map[string]string `json:"tags"`
+	Namespaces     map[string]*storedNamespace     `json:"namespaces"`
+	Groups         map[string]*storedGroup         `json:"groups"`
+	GroupMembers   map[string]bool                 `json:"groupMembers"`
+	Users          map[string]*storedUser          `json:"users"`
+	DataSources    map[string]*storedDataSource    `json:"dataSources"`
+	DataSets       map[string]*storedDataSet       `json:"dataSets"`
+	Ingestions     map[string]*storedIngestion     `json:"ingestions"`
+	Dashboards     map[string]*storedDashboard     `json:"dashboards"`
+	Analyses       map[string]*storedAnalysis      `json:"analyses"`
+	Folders        map[string]*storedFolder        `json:"folders"`
+	Templates      map[string]*storedTemplate      `json:"templates"`
+	Themes         map[string]*storedTheme         `json:"themes"`
+	VPCConnections map[string]*storedVPCConnection `json:"vpcConnections"`
+	Brands         map[string]*storedBrand         `json:"brands"`
+	Tags           map[string]map[string]string    `json:"tags"`
 }
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
@@ -266,26 +271,37 @@ type InMemoryBackend struct {
 	ingestions   map[string]*storedIngestion
 	dashboards   map[string]*storedDashboard
 	analyses     map[string]*storedAnalysis
-	tags         map[string]map[string]string
-	accountID    string
-	region       string
+	folders      map[string]*storedFolder
+	templates    map[string]*storedTemplate
+	themes       map[string]*storedTheme
+	// vpcConnections and brands round out the stateful Appendix-A families.
+	vpcConnections map[string]*storedVPCConnection
+	brands         map[string]*storedBrand
+	tags           map[string]map[string]string
+	accountID      string
+	region         string
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		accountID:    accountID,
-		region:       region,
-		namespaces:   make(map[string]*storedNamespace),
-		groups:       make(map[string]*storedGroup),
-		groupMembers: make(map[string]bool),
-		users:        make(map[string]*storedUser),
-		dataSources:  make(map[string]*storedDataSource),
-		dataSets:     make(map[string]*storedDataSet),
-		ingestions:   make(map[string]*storedIngestion),
-		dashboards:   make(map[string]*storedDashboard),
-		analyses:     make(map[string]*storedAnalysis),
-		tags:         make(map[string]map[string]string),
+		accountID:      accountID,
+		region:         region,
+		namespaces:     make(map[string]*storedNamespace),
+		groups:         make(map[string]*storedGroup),
+		groupMembers:   make(map[string]bool),
+		users:          make(map[string]*storedUser),
+		dataSources:    make(map[string]*storedDataSource),
+		dataSets:       make(map[string]*storedDataSet),
+		ingestions:     make(map[string]*storedIngestion),
+		dashboards:     make(map[string]*storedDashboard),
+		analyses:       make(map[string]*storedAnalysis),
+		folders:        make(map[string]*storedFolder),
+		templates:      make(map[string]*storedTemplate),
+		themes:         make(map[string]*storedTheme),
+		vpcConnections: make(map[string]*storedVPCConnection),
+		brands:         make(map[string]*storedBrand),
+		tags:           make(map[string]map[string]string),
 	}
 	b.mu = lockmetrics.New("quicksight")
 
@@ -321,6 +337,11 @@ func (b *InMemoryBackend) Reset() {
 	b.ingestions = make(map[string]*storedIngestion)
 	b.dashboards = make(map[string]*storedDashboard)
 	b.analyses = make(map[string]*storedAnalysis)
+	b.folders = make(map[string]*storedFolder)
+	b.templates = make(map[string]*storedTemplate)
+	b.themes = make(map[string]*storedTheme)
+	b.vpcConnections = make(map[string]*storedVPCConnection)
+	b.brands = make(map[string]*storedBrand)
 	b.tags = make(map[string]map[string]string)
 
 	b.namespaces[nsKey(b.accountID, defaultNamespace)] = &storedNamespace{
@@ -338,16 +359,21 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	s := state{
-		Namespaces:   b.namespaces,
-		Groups:       b.groups,
-		GroupMembers: b.groupMembers,
-		Users:        b.users,
-		DataSources:  b.dataSources,
-		DataSets:     b.dataSets,
-		Ingestions:   b.ingestions,
-		Dashboards:   b.dashboards,
-		Analyses:     b.analyses,
-		Tags:         b.tags,
+		Namespaces:     b.namespaces,
+		Groups:         b.groups,
+		GroupMembers:   b.groupMembers,
+		Users:          b.users,
+		DataSources:    b.dataSources,
+		DataSets:       b.dataSets,
+		Ingestions:     b.ingestions,
+		Dashboards:     b.dashboards,
+		Analyses:       b.analyses,
+		Folders:        b.folders,
+		Templates:      b.templates,
+		Themes:         b.themes,
+		VPCConnections: b.vpcConnections,
+		Brands:         b.brands,
+		Tags:           b.tags,
 	}
 
 	data, _ := json.Marshal(s)
@@ -374,9 +400,36 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.ingestions = s.Ingestions
 	b.dashboards = s.Dashboards
 	b.analyses = s.Analyses
+	b.folders = s.Folders
+	b.templates = s.Templates
+	b.themes = s.Themes
+	b.vpcConnections = s.VPCConnections
+	b.brands = s.Brands
 	b.tags = s.Tags
 
+	b.ensureAppendixMaps()
+
 	return nil
+}
+
+// ensureAppendixMaps initializes any Appendix-A maps that were nil in a restored
+// snapshot (e.g. snapshots taken before these families were added).
+func (b *InMemoryBackend) ensureAppendixMaps() {
+	if b.folders == nil {
+		b.folders = make(map[string]*storedFolder)
+	}
+	if b.templates == nil {
+		b.templates = make(map[string]*storedTemplate)
+	}
+	if b.themes == nil {
+		b.themes = make(map[string]*storedTheme)
+	}
+	if b.vpcConnections == nil {
+		b.vpcConnections = make(map[string]*storedVPCConnection)
+	}
+	if b.brands == nil {
+		b.brands = make(map[string]*storedBrand)
+	}
 }
 
 // ---- key helpers ----

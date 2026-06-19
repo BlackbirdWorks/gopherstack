@@ -77,6 +77,41 @@ type StorageBackend interface {
 	ListAnalyses(accountID string, maxResults int32, nextToken string) ([]*Analysis, string, error)
 	RestoreAnalysis(accountID, analysisID string) (*Analysis, error)
 
+	// Folders
+	CreateFolder(accountID, folderID, name, folderType string) (*Folder, error)
+	DescribeFolder(accountID, folderID string) (*Folder, error)
+	UpdateFolder(accountID, folderID, name string) (*Folder, error)
+	DeleteFolder(accountID, folderID string) error
+	ListFolders(accountID string) ([]*Folder, error)
+
+	// Templates
+	CreateTemplate(accountID, templateID, name string) (*Template, error)
+	DescribeTemplate(accountID, templateID string) (*Template, error)
+	UpdateTemplate(accountID, templateID, name string) (*Template, error)
+	DeleteTemplate(accountID, templateID string) error
+	ListTemplates(accountID string) ([]*Template, error)
+
+	// Themes
+	CreateTheme(accountID, themeID, name string) (*Theme, error)
+	DescribeTheme(accountID, themeID string) (*Theme, error)
+	UpdateTheme(accountID, themeID, name string) (*Theme, error)
+	DeleteTheme(accountID, themeID string) error
+	ListThemes(accountID string) ([]*Theme, error)
+
+	// VPC Connections
+	CreateVPCConnection(accountID, vpcConnectionID, name string) (*VPCConnection, error)
+	DescribeVPCConnection(accountID, vpcConnectionID string) (*VPCConnection, error)
+	UpdateVPCConnection(accountID, vpcConnectionID, name string) (*VPCConnection, error)
+	DeleteVPCConnection(accountID, vpcConnectionID string) (*VPCConnection, error)
+	ListVPCConnections(accountID string) ([]*VPCConnection, error)
+
+	// Brands
+	CreateBrand(accountID, brandID, name string) (*Brand, error)
+	DescribeBrand(accountID, brandID string) (*Brand, error)
+	UpdateBrand(accountID, brandID, name string) (*Brand, error)
+	DeleteBrand(accountID, brandID string) error
+	ListBrands(accountID string) ([]*Brand, error)
+
 	// Tags
 	TagResource(resourceARN string, tags map[string]string) error
 	UntagResource(resourceARN string, tagKeys []string) error
@@ -85,6 +120,59 @@ type StorageBackend interface {
 	AccountID() string
 	Region() string
 	Reset()
+}
+
+// Folder represents a QuickSight folder.
+type Folder struct {
+	CreatedTime     time.Time
+	LastUpdatedTime time.Time
+	FolderID        string
+	Arn             string
+	Name            string
+	FolderType      string
+}
+
+// Template represents a QuickSight template.
+type Template struct {
+	CreatedTime     time.Time
+	LastUpdatedTime time.Time
+	TemplateID      string
+	Arn             string
+	Name            string
+	Status          string
+	VersionNumber   int64
+}
+
+// Theme represents a QuickSight theme.
+type Theme struct {
+	CreatedTime     time.Time
+	LastUpdatedTime time.Time
+	ThemeID         string
+	Arn             string
+	Name            string
+	Status          string
+	VersionNumber   int64
+}
+
+// VPCConnection represents a QuickSight VPC connection.
+type VPCConnection struct {
+	CreatedTime       time.Time
+	LastUpdatedTime   time.Time
+	VPCConnectionID   string
+	Arn               string
+	Name              string
+	Status            string
+	AvailabilityState string
+}
+
+// Brand represents a QuickSight brand.
+type Brand struct {
+	CreatedTime     time.Time
+	LastUpdatedTime time.Time
+	BrandID         string
+	Arn             string
+	Name            string
+	Status          string
 }
 
 // Namespace represents a QuickSight namespace.

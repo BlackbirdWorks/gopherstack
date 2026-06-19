@@ -9,9 +9,54 @@ import (
 // appendixHandlerFn is a function that builds the response body for one Appendix-A op.
 type appendixHandlerFn func(resID, subID string) map[string]any
 
+// buildStatefulAppendixOps returns the op→handler map for Appendix-A operations
+// backed by real backend state (Create persists, Describe/List reflect state,
+// Update mutates, Delete removes). It is a flat map literal, so its cyclomatic
+// complexity is 1.
+func (h *Handler) buildStatefulAppendixOps() map[string]echo.HandlerFunc {
+	return map[string]echo.HandlerFunc{
+		// ---- Folders ----
+		opCreateFolder:   h.handleCreateFolder,
+		opDescribeFolder: h.handleDescribeFolder,
+		opUpdateFolder:   h.handleUpdateFolder,
+		opDeleteFolder:   h.handleDeleteFolder,
+		opListFolders:    h.handleListFolders,
+		// ---- Templates ----
+		opCreateTemplate:   h.handleCreateTemplate,
+		opDescribeTemplate: h.handleDescribeTemplate,
+		opUpdateTemplate:   h.handleUpdateTemplate,
+		opDeleteTemplate:   h.handleDeleteTemplate,
+		opListTemplates:    h.handleListTemplates,
+		// ---- Themes ----
+		opCreateTheme:   h.handleCreateTheme,
+		opDescribeTheme: h.handleDescribeTheme,
+		opUpdateTheme:   h.handleUpdateTheme,
+		opDeleteTheme:   h.handleDeleteTheme,
+		opListThemes:    h.handleListThemes,
+		// ---- VPC Connections ----
+		opCreateVPCConnection:   h.handleCreateVPCConnection,
+		opDescribeVPCConnection: h.handleDescribeVPCConnection,
+		opUpdateVPCConnection:   h.handleUpdateVPCConnection,
+		opDeleteVPCConnection:   h.handleDeleteVPCConnection,
+		opListVPCConnections:    h.handleListVPCConnections,
+		// ---- Brands ----
+		opCreateBrand:   h.handleCreateBrand,
+		opDescribeBrand: h.handleDescribeBrand,
+		opUpdateBrand:   h.handleUpdateBrand,
+		opDeleteBrand:   h.handleDeleteBrand,
+		opListBrands:    h.handleListBrands,
+	}
+}
+
 // dispatchNew handles all Appendix-A operations that are not dispatched by the
 // legacy type-specific helpers (namespace/group/user/datasource/dataset/dashboard/analysis/tag).
+// Stateful resource families (folders/templates/themes/vpc-connections/brands) are
+// served from real backend state; the remaining ops fall back to the canned-map.
 func (h *Handler) dispatchNew(c *echo.Context, op string) error {
+	if fn, ok := h.statefulOps[op]; ok {
+		return fn(c)
+	}
+
 	segs := pathSegsFromCtx(c)
 	resID := seg(segs, segResID)
 	subID := seg(segs, segSubResID)
@@ -39,11 +84,6 @@ func buildAppendixOps() map[string]appendixHandlerFn { //nolint:funlen // existi
 	withList := func(key string) appendixHandlerFn {
 		return func(_, _ string) map[string]any { return reqID(map[string]any{key: []any{}}) }
 	}
-	withNested := func(outerKey, innerKey string) appendixHandlerFn {
-		return func(resID, _ string) map[string]any {
-			return reqID(map[string]any{outerKey: map[string]any{innerKey: resID}})
-		}
-	}
 	withIDAndPerms := func(key string) appendixHandlerFn {
 		return func(resID, _ string) map[string]any {
 			return reqID(map[string]any{key: resID, "Permissions": []any{}})
@@ -63,12 +103,7 @@ func buildAppendixOps() map[string]appendixHandlerFn { //nolint:funlen // existi
 	}
 
 	return map[string]appendixHandlerFn{
-		// ---- Folders ----
-		opCreateFolder:                withID("FolderId"),
-		opDescribeFolder:              withNested("Folder", "FolderId"),
-		opUpdateFolder:                withID("FolderId"),
-		opDeleteFolder:                withID("FolderId"),
-		opListFolders:                 withList("FolderSummaryList"),
+		// ---- Folders (core CRUD is stateful; sub-resources canned) ----
 		opSearchFolders:               withList("FolderSummaryList"),
 		opDescribeFolderPermissions:   withIDAndPerms("FolderId"),
 		opUpdateFolderPermissions:     withIDAndPerms("FolderId"),
@@ -80,12 +115,7 @@ func buildAppendixOps() map[string]appendixHandlerFn { //nolint:funlen // existi
 		opListFolderMembers:      withList("FolderMemberList"),
 		opListFoldersForResource: withList("Folders"),
 
-		// ---- Templates ----
-		opCreateTemplate:             withID("TemplateId"),
-		opDescribeTemplate:           withNested("Template", "TemplateId"),
-		opUpdateTemplate:             withID("TemplateId"),
-		opDeleteTemplate:             withID("TemplateId"),
-		opListTemplates:              withList("TemplateSummaryList"),
+		// ---- Templates (core CRUD is stateful; sub-resources canned) ----
 		opListTemplateVersions:       withList("TemplateVersionSummaryList"),
 		opDescribeTemplateDefinition: withID("TemplateId"),
 		opDescribeTemplatePerms:      withIDAndPerms("TemplateId"),
@@ -96,12 +126,7 @@ func buildAppendixOps() map[string]appendixHandlerFn { //nolint:funlen // existi
 		opDeleteTemplateAlias:        withID("TemplateId"),
 		opListTemplateAliases:        withList("TemplateAliasList"),
 
-		// ---- Themes ----
-		opCreateTheme:        withID("ThemeId"),
-		opDescribeTheme:      withNested("Theme", "ThemeId"),
-		opUpdateTheme:        withID("ThemeId"),
-		opDeleteTheme:        withID("ThemeId"),
-		opListThemes:         withList("ThemeSummaryList"),
+		// ---- Themes (core CRUD is stateful; sub-resources canned) ----
 		opListThemeVersions:  withList("ThemeVersionSummaryList"),
 		opDescribeThemePerms: withIDAndPerms("ThemeId"),
 		opUpdateThemePerms:   withIDAndPerms("ThemeId"),
@@ -132,16 +157,7 @@ func buildAppendixOps() map[string]appendixHandlerFn { //nolint:funlen // existi
 		opBatchDeleteTopicAnswers:      withID("TopicId"),
 		opListTopicReviewedAnswers:     withID("TopicId"),
 
-		// ---- VPC Connections ----
-		opCreateVPCConnection: func(_, _ string) map[string]any {
-			return reqID(map[string]any{"VPCConnectionId": "new-vpc"})
-		},
-		opDescribeVPCConnection: func(resID, _ string) map[string]any {
-			return reqID(map[string]any{"VPCConnection": map[string]any{"VPCConnectionId": resID}})
-		},
-		opUpdateVPCConnection: withID("VPCConnectionId"),
-		opDeleteVPCConnection: withID("VPCConnectionId"),
-		opListVPCConnections:  withList("VPCConnectionSummaries"),
+		// ---- VPC Connections: core CRUD is stateful (see statefulAppendixHandler) ----
 
 		// ---- IAM Policy Assignments ----
 		opCreateIAMPolicyAssignment: func(_, _ string) map[string]any {
@@ -235,12 +251,7 @@ func buildAppendixOps() map[string]appendixHandlerFn { //nolint:funlen // existi
 		opDescribeDataSourcePerms: withIDAndPerms("DataSourceId"),
 		opUpdateDataSourcePerms:   withIDAndPerms("DataSourceId"),
 
-		// ---- Brands ----
-		opCreateBrand:   withID("BrandId"),
-		opDescribeBrand: withNested("Brand", "BrandId"),
-		opUpdateBrand:   withID("BrandId"),
-		opDeleteBrand:   withID("BrandId"),
-		opListBrands:    withList("Brands"),
+		// ---- Brands (core CRUD is stateful; assignment/published-version canned) ----
 		opDescribeBrandAssignment: func(_, _ string) map[string]any {
 			return reqID(map[string]any{"BrandAssignment": map[string]any{}})
 		},
