@@ -153,8 +153,13 @@ multi-region Terraform). Fix pattern: thread `ctx` into the `Create*` path and b
 from `awsmeta.Region(ctx)` / `awsmeta.Account(ctx)` with a default-region fallback — see
 **IoT Analytics** (`services/iotanalytics/backend.go`), done as the reference exemplar.
 Remaining (verify file:line before starting):
-- **API Gateway** — `DomainNameAccessAssociation` ARN hardcodes `us-east-1`
-  (`services/apigateway/backend.go:~1666`).
+- **API Gateway v1** — `CreateDomainName` regional-domain hostname (`backend.go:~1623`) and
+  `CreateDomainNameAccessAssociation` ARN (`backend.go:~1666`) hardcode `us-east-1`. **Blocked
+  on a dispatch refactor:** the handler dispatches via `actionFn = func([]byte) (int, any,
+  error)` with 106 closures and no `ctx`, so threading the request region requires widening
+  `actionFn` to carry `context.Context` (or the request) across all 106 sites first. The
+  backend methods themselves are trivial to make ctx-aware once the dispatch carries it. Do
+  the `actionFn` signature change as its own PR, then this becomes a 2-line fix.
 - ~~**API Gateway v2**~~ — *done*: `CreateAPI`/`CreateDomainName`/`CreateRoutingRule` now
   thread `ctx` and build the `execute-api` endpoint hostname + routing-rule ARN from
   `regionFromCtx(ctx)` (CFN provisioners pass `context.Background()` → default region, no
