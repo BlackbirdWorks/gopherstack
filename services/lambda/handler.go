@@ -1973,7 +1973,13 @@ func (h *Handler) handleCreateFunctionURLConfig(c *echo.Context, name string) er
 		input.AuthType = "NONE"
 	}
 
-	cfg, createErr := lambdaBk.CreateFunctionURLConfig(name, input.AuthType, input.Cors, input.InvokeMode)
+	cfg, createErr := lambdaBk.CreateFunctionURLConfig(
+		c.Request().Context(),
+		name,
+		input.AuthType,
+		input.Cors,
+		input.InvokeMode,
+	)
 	if createErr != nil {
 		if errors.Is(createErr, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",

@@ -657,12 +657,20 @@ func (b *InMemoryBackend) GetSnapshotLimits(ctx context.Context, directoryID str
 func (b *InMemoryBackend) RestoreFromSnapshot(ctx context.Context, snapshotID string) error {
 	region := getRegion(ctx, b.region)
 
-	b.mu.RLock("RestoreFromSnapshot")
-	defer b.mu.RUnlock()
+	b.mu.Lock("RestoreFromSnapshot")
+	defer b.mu.Unlock()
 
-	if _, ok := b.state(region).snapshots[snapshotID]; !ok {
+	snap, ok := b.state(region).snapshots[snapshotID]
+	if !ok {
 		return ErrSnapshotNotFound
 	}
+
+	dir, ok := b.state(region).directories[snap.DirectoryID]
+	if !ok {
+		return ErrDirectoryNotFound
+	}
+
+	dir.Stage = string(DirectoryStageRestoring)
 
 	return nil
 }

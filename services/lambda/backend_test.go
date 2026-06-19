@@ -392,7 +392,7 @@ func TestInMemoryBackend_SetDNSRegistrar(t *testing.T) {
 	}
 	require.NoError(t, backend.CreateFunction(fn))
 
-	cfg, err := backend.CreateFunctionURLConfig("dns-test-fn", "NONE", nil, "")
+	cfg, err := backend.CreateFunctionURLConfig(t.Context(), "dns-test-fn", "NONE", nil, "")
 	require.NoError(t, err)
 	assert.NotEmpty(t, cfg.FunctionURL)
 
@@ -678,7 +678,7 @@ func TestFunctionURLConfig_HTTPEndpoint(t *testing.T) {
 	}
 	require.NoError(t, backend.CreateFunction(fn))
 
-	cfg, err := backend.CreateFunctionURLConfig("http-test-fn", "NONE", nil, "")
+	cfg, err := backend.CreateFunctionURLConfig(t.Context(), "http-test-fn", "NONE", nil, "")
 	require.NoError(t, err)
 	assert.Contains(t, cfg.FunctionURL, "127.0.0.1", "URL should use loopback when no DNS")
 
@@ -769,7 +769,7 @@ func TestInMemoryBackend_Close_StopsFunctionURLServers(t *testing.T) {
 	}
 	require.NoError(t, backend.CreateFunction(fn))
 
-	cfg, err := backend.CreateFunctionURLConfig("close-url-fn", "NONE", nil, "")
+	cfg, err := backend.CreateFunctionURLConfig(t.Context(), "close-url-fn", "NONE", nil, "")
 	require.NoError(t, err)
 
 	// Server should be reachable before Close.
@@ -832,7 +832,7 @@ func TestInMemoryBackend_Close_MultipleURLServers(t *testing.T) {
 		}
 		require.NoError(t, backend.CreateFunction(fn))
 
-		cfg, cfgErr := backend.CreateFunctionURLConfig(name, "NONE", nil, "")
+		cfg, cfgErr := backend.CreateFunctionURLConfig(t.Context(), name, "NONE", nil, "")
 		require.NoError(t, cfgErr)
 
 		urls = append(urls, cfg.FunctionURL)

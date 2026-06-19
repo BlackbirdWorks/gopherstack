@@ -3,7 +3,6 @@ package ecr
 import (
 	"errors"
 	"fmt"
-	"log/slog"
 	"os"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -47,11 +46,6 @@ func (p *Provider) Init(appCtx *service.AppContext) (service.Registerable, error
 		region = config.DefaultRegion
 	}
 
-	log := appCtx.Logger
-	if log == nil {
-		log = slog.Default()
-	}
-
 	localRegistryEnabled := os.Getenv(enableLocalRegistryEnv) == "1"
 
 	// The endpoint for repository URIs is set to the Gopherstack server address.
@@ -60,14 +54,14 @@ func (p *Provider) Init(appCtx *service.AppContext) (service.Registerable, error
 	backend := NewInMemoryBackend(accountID, region, "")
 
 	if localRegistryEnabled {
-		log.Info("ECR local registry enabled; starting embedded Docker registry v2")
+		appCtx.Logger.Info("ECR local registry enabled; starting embedded Docker registry v2")
 
 		rh := newDistributionRegistry(appCtx.JanitorCtx)
 
 		return NewHandler(backend, rh), nil
 	}
 
-	log.Warn(
+	appCtx.Logger.Warn(
 		"ECR local registry is disabled; docker push/pull will not work. Set GOPHERSTACK_ENABLE_LOCAL_REGISTRY=1 to enable",
 	)
 

@@ -205,6 +205,7 @@ type storedInputDevice struct {
 	// DeviceSettingsSyncState and DeviceUpdateStatus: SYNCED/SYNCING, UP_TO_DATE/etc.
 	DeviceSettingsSyncState string `json:"deviceSettingsSyncState"`
 	DeviceUpdateStatus      string `json:"deviceUpdateStatus"`
+	MaintenanceWindowActive bool   `json:"maintenanceWindowActive"`
 }
 
 func (d *storedInputDevice) toDevice() *InputDevice {
@@ -222,6 +223,7 @@ func (d *storedInputDevice) toDevice() *InputDevice {
 		ConnectionState:         d.ConnectionState,
 		DeviceSettingsSyncState: d.DeviceSettingsSyncState,
 		DeviceUpdateStatus:      d.DeviceUpdateStatus,
+		MaintenanceWindowActive: d.MaintenanceWindowActive,
 	}
 }
 
@@ -2253,7 +2255,7 @@ func (b *InMemoryBackend) CreateNodeRegistrationScript(clusterID string) (string
 	return "#!/bin/bash\n# Node registration script for cluster " + clusterID + "\n", nil
 }
 
-// ListClusterAlerts returns alerts for a Cluster (always empty in emulation).
+// ListClusterAlerts returns alerts for a Cluster.
 func (b *InMemoryBackend) ListClusterAlerts(
 	clusterID string,
 	_ int,
@@ -2262,11 +2264,26 @@ func (b *InMemoryBackend) ListClusterAlerts(
 	b.mu.RLock("ListClusterAlerts")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.clusters[clusterID]; !ok {
+	cl, ok := b.clusters[clusterID]
+	if !ok {
 		return nil, "", fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
 	}
 
-	return []map[string]any{}, "", nil
+	var alerts []map[string]any
+	if cl.State != clusterStateActive {
+		alerts = []map[string]any{
+			{
+				"AlertCode":    "CLUSTER_NOT_READY",
+				"AlertMessage": "Cluster is not in ACTIVE state",
+				"SetTime":      "1970-01-01T00:00:00Z",
+				"ClearedTime":  nil,
+			},
+		}
+	} else {
+		alerts = []map[string]any{}
+	}
+
+	return alerts, "", nil
 }
 
 // --- Signal Map operations ---
@@ -3833,14 +3850,17 @@ func (b *InMemoryBackend) StopInputDevice(deviceID string) error {
 	return nil
 }
 
-// StartInputDeviceMaintenanceWindow opens a maintenance window (existence check only).
+// StartInputDeviceMaintenanceWindow opens a maintenance window for the device.
 func (b *InMemoryBackend) StartInputDeviceMaintenanceWindow(deviceID string) error {
-	b.mu.RLock("StartInputDeviceMaintenanceWindow")
-	defer b.mu.RUnlock()
+	b.mu.Lock("StartInputDeviceMaintenanceWindow")
+	defer b.mu.Unlock()
 
-	if _, ok := b.inputDevices[deviceID]; !ok {
+	d, ok := b.inputDevices[deviceID]
+	if !ok {
 		return fmt.Errorf("%w: inputDevice %s not found", ErrNotFound, deviceID)
 	}
+
+	d.MaintenanceWindowActive = true
 
 	return nil
 }

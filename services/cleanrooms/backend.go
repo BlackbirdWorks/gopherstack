@@ -51,27 +51,34 @@ type MemberSummary struct {
 type Collaboration struct {
 	Tags                    map[string]string `json:"tags,omitempty"`
 	CollaborationIdentifier string            `json:"collaborationIdentifier"`
-	Arn                     string            `json:"arn"`
-	Name                    string            `json:"name"`
-	Description             string            `json:"description,omitempty"`
-	CreatorAccountID        string            `json:"creatorAccountId"`
-	CreatorDisplayName      string            `json:"creatorDisplayName"`
-	QueryLogStatus          string            `json:"queryLogStatus,omitempty"`
-	MemberAbilities         []string          `json:"memberAbilities,omitempty"`
-	Members                 []*MemberSummary  `json:"members,omitempty"`
-	CreateTime              float64           `json:"createTime,omitempty"`
-	UpdateTime              float64           `json:"updateTime,omitempty"`
+	// ID mirrors CollaborationIdentifier under the canonical AWS API key ("id").
+	// The AWS SDK/Terraform provider read this resource via the "id" field, so it
+	// must be emitted in addition to the legacy "collaborationIdentifier" key.
+	ID                 string           `json:"id"`
+	Arn                string           `json:"arn"`
+	Name               string           `json:"name"`
+	Description        string           `json:"description,omitempty"`
+	CreatorAccountID   string           `json:"creatorAccountId"`
+	CreatorDisplayName string           `json:"creatorDisplayName"`
+	MemberStatus       string           `json:"memberStatus"`
+	QueryLogStatus     string           `json:"queryLogStatus,omitempty"`
+	MemberAbilities    []string         `json:"memberAbilities,omitempty"`
+	Members            []*MemberSummary `json:"members,omitempty"`
+	CreateTime         float64          `json:"createTime,omitempty"`
+	UpdateTime         float64          `json:"updateTime,omitempty"`
 }
 
 type CollaborationSummary struct {
-	CollaborationIdentifier string  `json:"collaborationIdentifier"`
-	Arn                     string  `json:"arn"`
-	Name                    string  `json:"name"`
-	CreatorAccountID        string  `json:"creatorAccountId"`
-	CreatorDisplayName      string  `json:"creatorDisplayName"`
-	MemberStatus            string  `json:"memberStatus"`
-	CreateTime              float64 `json:"createTime,omitempty"`
-	UpdateTime              float64 `json:"updateTime,omitempty"`
+	CollaborationIdentifier string `json:"collaborationIdentifier"`
+	// ID mirrors CollaborationIdentifier under the canonical AWS API key ("id").
+	ID                 string  `json:"id"`
+	Arn                string  `json:"arn"`
+	Name               string  `json:"name"`
+	CreatorAccountID   string  `json:"creatorAccountId"`
+	CreatorDisplayName string  `json:"creatorDisplayName"`
+	MemberStatus       string  `json:"memberStatus"`
+	CreateTime         float64 `json:"createTime,omitempty"`
+	UpdateTime         float64 `json:"updateTime,omitempty"`
 }
 
 type Membership struct {
@@ -780,11 +787,13 @@ func (b *InMemoryBackend) CreateCollaboration(
 	}
 	collab := &Collaboration{
 		CollaborationIdentifier: id,
+		ID:                      id,
 		Arn:                     b.collaborationARN(id),
 		Name:                    name,
 		Description:             description,
 		CreatorAccountID:        b.accountID,
 		CreatorDisplayName:      creatorDisplayName,
+		MemberStatus:            statusActive,
 		MemberAbilities:         creatorMemberAbilities,
 		Members:                 memberSummaries,
 		QueryLogStatus:          queryLogStatus,
@@ -820,6 +829,7 @@ func (b *InMemoryBackend) ListCollaborations(
 	for _, c := range b.collaborations {
 		items = append(items, &CollaborationSummary{
 			CollaborationIdentifier: c.CollaborationIdentifier,
+			ID:                      c.CollaborationIdentifier,
 			Arn:                     c.Arn,
 			Name:                    c.Name,
 			CreatorAccountID:        c.CreatorAccountID,

@@ -116,9 +116,13 @@ type updateProbeRequest struct {
 }
 
 // getMonitorResponse is the response body for GET /monitors/{monitorName}.
+// The AWS networkmonitor API models createdAt/modifiedAt as epoch-second
+// timestamps (Iso8601Timestamp wire format = JSON Number), so they are emitted
+// as numbers rather than RFC3339 strings; otherwise the SDK fails to
+// deserialize the response.
 type getMonitorResponse struct {
-	CreatedAt         *time.Time        `json:"createdAt"`
-	ModifiedAt        *time.Time        `json:"modifiedAt"`
+	CreatedAt         *float64          `json:"createdAt,omitempty"`
+	ModifiedAt        *float64          `json:"modifiedAt,omitempty"`
 	Tags              map[string]string `json:"tags,omitempty"`
 	MonitorArn        string            `json:"monitorArn"`
 	MonitorName       string            `json:"monitorName"`

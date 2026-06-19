@@ -51,6 +51,47 @@ func (db *InMemoryDB) CreateTableInRegion(
 	return db.CreateTable(context.WithValue(ctx, regionContextKey{}, region), input)
 }
 
+// validateCreateTableInput validates a CreateTable request before any shared state
+// is touched. It returns a validation error describing the first failure encountered.
+func validateCreateTableInput(input *dynamodb.CreateTableInput) error {
+	if input.BillingMode != "" &&
+		input.BillingMode != types.BillingModeProvisioned &&
+		input.BillingMode != types.BillingModePayPerRequest {
+		return NewValidationException(fmt.Sprintf(
+			"1 validation error detected: Value '%s' at 'billingMode' failed to satisfy constraint:"+
+				" Member must satisfy enum value set: [PROVISIONED, PAY_PER_REQUEST]",
+			input.BillingMode,
+		))
+	}
+
+	if err := validateAttributeDefinitions(input); err != nil {
+		return err
+	}
+
+	if err := validateCreateTableKeySchema(models.FromSDKKeySchema(input.KeySchema)); err != nil {
+		return err
+	}
+
+	if err := validateProvisionedThroughput(input.ProvisionedThroughput, input.BillingMode); err != nil {
+		return err
+	}
+
+	// Enforce GSI/LSI count limits before constructing the table.
+	if err := validateGSICount(nil, len(input.GlobalSecondaryIndexes)); err != nil {
+		return err
+	}
+
+	if err := validateGSIThroughput(input.GlobalSecondaryIndexes, input.BillingMode); err != nil {
+		return err
+	}
+
+	if err := validateLSICount(models.FromSDKLocalSecondaryIndexes(input.LocalSecondaryIndexes)); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (db *InMemoryDB) CreateTable(
 	ctx context.Context,
 	input *dynamodb.CreateTableInput,
@@ -66,28 +107,7 @@ func (db *InMemoryDB) CreateTable(
 	// touch no shared state and can run concurrently with other requests. Building
 	// the struct before the lock keeps the critical section to a handful of map ops,
 	// significantly reducing contention when thousands of tables are created together.
-	if err := validateAttributeDefinitions(input); err != nil {
-		return nil, err
-	}
-
-	if err := validateCreateTableKeySchema(models.FromSDKKeySchema(input.KeySchema)); err != nil {
-		return nil, err
-	}
-
-	if err := validateProvisionedThroughput(input.ProvisionedThroughput, input.BillingMode); err != nil {
-		return nil, err
-	}
-
-	// Enforce GSI/LSI count limits before constructing the table.
-	if err := validateGSICount(nil, len(input.GlobalSecondaryIndexes)); err != nil {
-		return nil, err
-	}
-
-	if err := validateGSIThroughput(input.GlobalSecondaryIndexes, input.BillingMode); err != nil {
-		return nil, err
-	}
-
-	if err := validateLSICount(models.FromSDKLocalSecondaryIndexes(input.LocalSecondaryIndexes)); err != nil {
+	if err := validateCreateTableInput(input); err != nil {
 		return nil, err
 	}
 

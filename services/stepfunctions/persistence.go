@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -53,7 +54,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 
 	data, err := json.Marshal(snap)
 	if err != nil {
-		b.logger.Warn("persistence: snapshot marshal failed", "service", "stepfunctions", "error", err)
+		logger.Load(b.svcCtx).Warn("persistence: snapshot marshal failed", "service", "stepfunctions", "error", err)
 
 		return nil
 	}

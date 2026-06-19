@@ -169,6 +169,9 @@ func (b *InMemoryBackend) PutInventory(
 	b.mu.Lock("PutInventory")
 	defer b.mu.Unlock()
 
+	if b.inventory[region] == nil {
+		b.inventory[region] = make(map[string][]InventoryItem)
+	}
 	store := b.inventoryStore(region)
 	existing := store[input.InstanceID]
 
@@ -451,6 +454,9 @@ func (b *InMemoryBackend) PutComplianceItems(
 		newItems = append(newItems, ci)
 	}
 
+	if b.compliance[region] == nil {
+		b.compliance[region] = make(map[string][]ComplianceItem)
+	}
 	b.complianceStore(region)[input.ResourceID] = newItems
 
 	return &PutComplianceItemsOutput{}, nil
@@ -785,6 +791,9 @@ func (b *InMemoryBackend) RegisterDefaultPatchBaseline(
 		)
 	}
 
+	if b.patchGroupToBaseline[region] == nil {
+		b.patchGroupToBaseline[region] = make(map[string]string)
+	}
 	store := b.patchGroupToBaselineStore(region)
 	store["default"] = input.BaselineID
 

@@ -548,7 +548,11 @@ func TestAudit1_TranslateText(t *testing.T) {
 				t.Helper()
 
 				m := unmarshalJSON(t, body)
-				assert.Equal(t, "Hello world", m["TranslatedText"])
+				// Translation must differ from source (real-ish transform, not echo)
+				// and must contain the original text.
+				translated, _ := m["TranslatedText"].(string)
+				assert.Contains(t, translated, "Hello world")
+				assert.NotEqual(t, "Hello world", translated, "translated text should differ from source")
 				assert.Equal(t, "en", m["SourceLanguageCode"])
 				assert.Equal(t, "fr", m["TargetLanguageCode"])
 			},

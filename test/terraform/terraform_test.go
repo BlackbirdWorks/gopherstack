@@ -329,6 +329,8 @@ provider "aws" {
     rekognition     = %[1]q
     rolesanywhere   = %[1]q
     transcribe      = %[1]q
+    cleanrooms      = %[1]q
+    networkmonitor  = %[1]q
     vpclattice      = %[1]q
     wafv2           = %[1]q
   }
@@ -471,6 +473,8 @@ provider "aws" {
     rekognition     = %[1]q
     rolesanywhere   = %[1]q
     transcribe      = %[1]q
+    cleanrooms      = %[1]q
+    networkmonitor  = %[1]q
     vpclattice      = %[1]q
     wafv2           = %[1]q
   }

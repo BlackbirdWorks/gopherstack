@@ -57,3 +57,21 @@ func WaitPipeRunning(t *testing.T, b *InMemoryBackend, name string) {
 
 	t.Fatalf("pipe %q did not reach RUNNING state within 500ms", name)
 }
+
+// EnrichmentCallCountForTest returns the enrichment call count for a pipe in the default region.
+func (b *InMemoryBackend) EnrichmentCallCountForTest(pipeName string) int64 {
+	return b.GetEnrichmentCallCount(context.Background(), pipeName)
+}
+
+// EnrichmentIndexSizeForTest returns the total number of entries in the enrichment counter map
+// for the default region (used to verify that deleted pipes are pruned).
+func (b *InMemoryBackend) EnrichmentIndexSizeForTest() int {
+	b.mu.RLock("EnrichmentIndexSizeForTest")
+	defer b.mu.RUnlock()
+
+	if m := b.enrichmentCallCount[b.region]; m != nil {
+		return len(m)
+	}
+
+	return 0
+}

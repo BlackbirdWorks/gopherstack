@@ -354,6 +354,61 @@ func TestHandlerListInputDeviceTransfers(t *testing.T) {
 	}
 }
 
+func TestStartInputDeviceMaintenanceWindow(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		deviceID   string
+		wantStatus int
+		claim      bool
+		checkFlag  bool
+	}{
+		{
+			name:       "not found returns 404",
+			deviceID:   "hd-notfound-mw",
+			claim:      false,
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "found sets maintenance window active",
+			deviceID:   "hd-mw1",
+			claim:      true,
+			wantStatus: http.StatusOK,
+			checkFlag:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			if tt.claim {
+				claimTestDevice(t, h, tt.deviceID)
+			}
+
+			rec := doRequest(
+				t,
+				h,
+				http.MethodPost,
+				"/prod/inputDevices/"+tt.deviceID+"/startInputDeviceMaintenanceWindow",
+				nil,
+			)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.checkFlag {
+				rec2 := doRequest(t, h, http.MethodGet, "/prod/inputDevices/"+tt.deviceID, nil)
+				require.Equal(t, http.StatusOK, rec2.Code)
+
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+				assert.Equal(t, true, resp["MaintenanceWindowActive"])
+			}
+		})
+	}
+}
+
 func TestBackendInputDeviceCount(t *testing.T) {
 	t.Parallel()
 

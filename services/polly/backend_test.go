@@ -55,7 +55,10 @@ func TestBackendSynthesisDefaults(t *testing.T) {
 	audio, err := backend.SynthesizeSpeech(polly.SynthesisOptions{Text: "hello", VoiceID: "Joanna"})
 	require.NoError(t, err)
 	assert.Equal(t, "audio/mpeg", audio.ContentType)
-	assert.Contains(t, string(audio.Data), "mp3:22050")
+	// MP3 output starts with MPEG sync bytes (0xFF 0xFB).
+	require.Greater(t, len(audio.Data), 1)
+	assert.Equal(t, byte(0xFF), audio.Data[0])
+	assert.Equal(t, byte(0xFB), audio.Data[1])
 }
 
 func TestLexiconNameValidation(t *testing.T) {

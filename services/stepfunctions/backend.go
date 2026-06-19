@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"regexp"
 	"slices"
 	"sort"
@@ -19,6 +18,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/services/stepfunctions/asl"
 )
 
@@ -44,6 +44,7 @@ var (
 	ErrActivityTaskFailed              = errors.New("ActivityTaskFailed")
 	ErrHeartbeatTimeout                = errors.New("States.HeartbeatTimeout")
 	ErrInvalidExecutionInput           = errors.New("InvalidExecutionInput")
+	ErrValidation                      = errors.New("ValidationException")
 )
 
 const (
@@ -187,7 +188,6 @@ type InMemoryBackend struct {
 	// so we only emit a single warning per execution.
 	historyTruncated map[string]bool
 	stateMachines    map[string]*StateMachine
-	logger           *slog.Logger
 	mu               *lockmetrics.RWMutex
 	accountID        string
 	region           string
@@ -269,7 +269,6 @@ func newInMemoryBackend(svcCtx context.Context, accountID, region string) *InMem
 		smAliases:            make(map[string][]string),
 		executionDefinitions: make(map[string]string),
 		historyTruncated:     make(map[string]bool),
-		logger:               slog.Default(),
 		mu:                   lockmetrics.New("stepfunctions"),
 		settings:             DefaultSettings(),
 	}
@@ -335,13 +334,6 @@ func (b *InMemoryBackend) SetDynamoDBIntegration(ddb asl.DynamoDBIntegration) {
 	b.mu.Lock("SetDynamoDBIntegration")
 	defer b.mu.Unlock()
 	b.ddbIntegration = ddb
-}
-
-// SetLogger sets the logger for the backend.
-func (b *InMemoryBackend) SetLogger(log *slog.Logger) {
-	b.mu.Lock("SetLogger")
-	defer b.mu.Unlock()
-	b.logger = log
 }
 
 func (b *InMemoryBackend) smARN(region, name string) string {
@@ -1113,7 +1105,7 @@ func (b *InMemoryBackend) checkHistoryCapacity(execARN string) ([]*HistoryEvent,
 
 	if !b.historyTruncated[execARN] {
 		b.historyTruncated[execARN] = true
-		b.logger.Warn(
+		logger.Load(b.svcCtx).Warn(
 			"stepfunctions: execution history truncated at maxHistoryEvents",
 			"executionArn", execARN,
 			"maxHistoryEvents", maxHistoryEvents,

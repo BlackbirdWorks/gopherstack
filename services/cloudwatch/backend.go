@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"math"
 	"slices"
 	"sort"
@@ -17,6 +16,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 const (
@@ -1630,21 +1630,22 @@ func (b *InMemoryBackend) executeActions(
 	snsPub SNSPublisher,
 	lambdaInv LambdaInvoker,
 ) {
+	log := logger.Load(ctx)
+
 	for _, action := range actions {
 		switch {
 		case strings.HasPrefix(action, "arn:aws:sns:"):
 			if snsPub != nil {
 				if err := snsPub.PublishToTopic(action, string(payload)); err != nil {
-					slog.Default().WarnContext(ctx, "cloudwatch: alarm SNS action delivery failed",
+					log.WarnContext(ctx, "cloudwatch: alarm SNS action delivery failed",
 						"topic_arn", action, "error", err)
 				}
 			}
 		case strings.HasPrefix(action, "arn:aws:lambda:"):
 			if lambdaInv != nil {
 				if _, _, err := lambdaInv.InvokeFunction(ctx, action, "Event", payload); err != nil {
-					slog.Default().
-						WarnContext(ctx, "cloudwatch: alarm Lambda action delivery failed",
-							"function_arn", action, "error", err)
+					log.WarnContext(ctx, "cloudwatch: alarm Lambda action delivery failed",
+						"function_arn", action, "error", err)
 				}
 			}
 			// EC2 and Auto Scaling actions are stubbed (no-op).

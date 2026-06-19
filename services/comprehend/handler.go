@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/labstack/echo/v5"
 
@@ -549,27 +550,150 @@ func inputTags(input map[string]any) []Tag {
 	return tags
 }
 
+func positiveWordList() []string {
+	return []string{
+		"great", "love", "excellent", "wonderful", "amazing", "good", "happy", "best",
+		"fantastic", "awesome", "beautiful", "perfect", "superb", "outstanding", "brilliant",
+		"delightful", "pleased", "enjoy", "liked", "satisfied",
+	}
+}
+
+func negativeWordList() []string {
+	return []string{
+		"bad", "hate", "terrible", "awful", "horrible", "worst", "angry", "sad",
+		"disappointing", "poor", "dreadful", "disgusting", "upset", "frustrating",
+		"dislike", "failed", "useless", "broken", "wrong", "awful",
+	}
+}
+
+const (
+	sentimentMixedScore   = 0.45
+	sentimentBaseScore    = 0.92
+	sentimentMinScore     = 0.01
+	sentimentNeutralScore = 0.06
+	sentimentMaxScore     = 0.99
+	sentimentMixedMin     = 0.05
+)
+
+func countSentimentWords(wordSet map[string]bool, lower string, words []string) int {
+	count := 0
+	for _, w := range words {
+		if wordSet[w] || strings.Contains(lower, w) {
+			count++
+		}
+	}
+
+	return count
+}
+
+func sentimentResult(posCount, negCount int) (string, float64, float64, float64, float64) {
+	switch {
+	case posCount > 0 && negCount > 0:
+		return "MIXED", sentimentMixedScore, sentimentMixedScore, sentimentMixedMin, sentimentMixedMin
+	case posCount > 0:
+		ps := min(sentimentBaseScore+float64(posCount)*sentimentMinScore, sentimentMaxScore)
+
+		return "POSITIVE", ps, sentimentMinScore, sentimentNeutralScore, sentimentMinScore
+	case negCount > 0:
+		ns := min(sentimentBaseScore+float64(negCount)*sentimentMinScore, sentimentMaxScore)
+
+		return "NEGATIVE", sentimentMinScore, ns, sentimentNeutralScore, sentimentMinScore
+	default:
+		return "NEUTRAL", lowSentimentScore, lowSentimentScore, neutralSentimentScore, lowSentimentScore
+	}
+}
+
 func (h *Handler) detectSentiment(input map[string]any) (map[string]any, error) {
 	text, err := documentText(input)
 	if err != nil {
 		return nil, err
 	}
-	sentiment := "NEUTRAL"
 	lower := strings.ToLower(text)
-	switch {
-	case strings.Contains(lower, "great") || strings.Contains(lower, "love") || strings.Contains(lower, "excellent"):
-		sentiment = "POSITIVE"
-	case strings.Contains(lower, "bad") || strings.Contains(lower, "hate") || strings.Contains(lower, "terrible"):
-		sentiment = "NEGATIVE"
+	words := strings.Fields(lower)
+	wordSet := make(map[string]bool, len(words))
+	for _, w := range words {
+		wordSet[strings.Trim(w, ".,!?;:")] = true
 	}
+
+	posCount := countSentimentWords(wordSet, lower, positiveWordList())
+	negCount := countSentimentWords(wordSet, lower, negativeWordList())
+	sentiment, posScore, negScore, neuScore, mixScore := sentimentResult(posCount, negCount)
 
 	return map[string]any{
 		"Sentiment": sentiment,
 		"SentimentScore": map[string]float64{
-			"Positive": lowSentimentScore, "Negative": lowSentimentScore,
-			"Neutral": neutralSentimentScore, "Mixed": lowSentimentScore,
+			"Positive": posScore, "Negative": negScore,
+			"Neutral": neuScore, "Mixed": mixScore,
 		},
 	}, nil
+}
+
+func orgSuffixList() []string {
+	return []string{
+		" inc", " inc.", " corp", " corp.", " ltd", " ltd.", " llc", " co.", " company",
+		" university", " institute", " foundation", " association", " corporation",
+		" group", " holdings", " technologies", " solutions",
+	}
+}
+
+func locSuffixList() []string {
+	return []string{
+		" street", " avenue", " road", " drive", " boulevard", " lane", " way",
+		" city", " town", " village", " county", " state", " country", " nation",
+		" river", " lake", " mountain", " park",
+	}
+}
+
+func locPrefixList() []string {
+	return []string{
+		"mount ", "lake ", "north ", "south ", "east ", "west ", "new ",
+	}
+}
+
+func quantityWordList() []string {
+	return []string{
+		"thousand", "million", "billion", "percent", "kg", "lb", "km", "mile",
+	}
+}
+
+func dateWordList() []string {
+	return []string{
+		"january", "february", "march", "april", "may", "june", "july", "august",
+		"september", "october", "november", "december", "monday", "tuesday",
+		"wednesday", "thursday", "friday", "saturday", "sunday", "yesterday",
+		"tomorrow", "today",
+	}
+}
+
+func entityType(word, textLower string) string {
+	wl := strings.ToLower(word)
+	for _, sfx := range orgSuffixList() {
+		if strings.HasSuffix(textLower, wl+sfx) || strings.Contains(textLower, wl+sfx+" ") {
+			return "ORGANIZATION"
+		}
+	}
+	for _, sfx := range locSuffixList() {
+		if strings.HasSuffix(wl, strings.TrimSpace(sfx)) {
+			return "LOCATION"
+		}
+	}
+	for _, pfx := range locPrefixList() {
+		if strings.HasPrefix(wl, strings.TrimSpace(pfx)) {
+			return "LOCATION"
+		}
+	}
+	for _, q := range quantityWordList() {
+		if strings.Contains(wl, q) {
+			return "QUANTITY"
+		}
+	}
+	for _, d := range dateWordList() {
+		if strings.EqualFold(word, d) {
+			return "DATE"
+		}
+	}
+
+	return "PERSON"
 }
 
 func (h *Handler) detectEntities(input map[string]any) (map[string]any, error) {
@@ -577,12 +701,19 @@ func (h *Handler) detectEntities(input map[string]any) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	textLower := strings.ToLower(text)
 	entities := make([]map[string]any, 0)
 	for word := range strings.FieldsSeq(text) {
-		cleaned := strings.Trim(word, ".,!?")
-		if cleaned != "" && unicode.IsUpper(rune(cleaned[0])) {
-			entities = append(entities, matchResult(text, cleaned, "PERSON"))
+		cleaned := strings.Trim(word, ".,!?;:")
+		if cleaned == "" {
+			continue
 		}
+		r, _ := utf8.DecodeRuneInString(cleaned)
+		if !unicode.IsUpper(r) {
+			continue
+		}
+		kind := entityType(cleaned, textLower)
+		entities = append(entities, matchResult(text, cleaned, kind))
 	}
 
 	return map[string]any{"Entities": entities}, nil
@@ -641,13 +772,84 @@ func (h *Handler) detectSyntax(input map[string]any) (map[string]any, error) {
 }
 
 func (h *Handler) detectDominantLanguage(input map[string]any) (map[string]any, error) {
-	if _, err := documentText(input); err != nil {
+	text, err := documentText(input)
+	if err != nil {
 		return nil, err
 	}
 
+	lang := dominantLanguage(text)
+
 	return map[string]any{
-		"Languages": []map[string]any{{fieldLanguageCode: defaultLanguageCode, fieldScore: defaultScore}},
+		"Languages": []map[string]any{{fieldLanguageCode: lang, fieldScore: defaultScore}},
 	}, nil
+}
+
+const asciiMaxChar = 127
+
+type scriptCounts struct {
+	cjk, cyrillic, arabic, devanagari, hebrew, latin, nonASCII int
+}
+
+func isCJK(r rune) bool {
+	return (r >= 0x4E00 && r <= 0x9FFF) || // CJK Unified Ideographs
+		(r >= 0x3040 && r <= 0x30FF) || // Hiragana/Katakana
+		(r >= 0xAC00 && r <= 0xD7AF) // Hangul
+}
+
+func isLatinLetter(r rune) bool {
+	return (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z')
+}
+
+func classifyRune(r rune, c *scriptCounts) {
+	switch {
+	case isCJK(r):
+		c.cjk++
+	case r >= 0x0400 && r <= 0x04FF: // Cyrillic
+		c.cyrillic++
+	case r >= 0x0600 && r <= 0x06FF: // Arabic
+		c.arabic++
+	case r >= 0x0590 && r <= 0x05FF: // Hebrew
+		c.hebrew++
+	case r >= 0x0900 && r <= 0x097F: // Devanagari
+		c.devanagari++
+	case isLatinLetter(r):
+		c.latin++
+	case r > asciiMaxChar:
+		c.nonASCII++
+	}
+}
+
+func countScripts(text string) scriptCounts {
+	var c scriptCounts
+	for _, r := range text {
+		classifyRune(r, &c)
+	}
+
+	return c
+}
+
+func dominantLanguage(text string) string {
+	c := countScripts(text)
+	total := c.cjk + c.cyrillic + c.arabic + c.devanagari + c.hebrew + c.nonASCII
+	if total == 0 {
+		return "en"
+	}
+	switch {
+	case c.cjk*2 > total:
+		return "zh"
+	case c.cyrillic*2 > total:
+		return "ru"
+	case c.arabic*2 > total:
+		return "ar"
+	case c.devanagari*2 > total:
+		return "hi"
+	case c.hebrew*2 > total:
+		return "he"
+	case c.nonASCII > c.latin:
+		return "fr"
+	default:
+		return "en"
+	}
 }
 
 func (h *Handler) detectToxicContent(input map[string]any) (map[string]any, error) {

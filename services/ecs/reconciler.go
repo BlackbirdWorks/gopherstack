@@ -53,9 +53,6 @@ func (r *Reconciler) clusterSem(clusterName string) chan struct{} {
 // Start launches the reconciliation loop. It runs until ctx is cancelled.
 func (r *Reconciler) Start(ctx context.Context) {
 	log := logger.Load(ctx)
-	if log == nil {
-		log = slog.Default()
-	}
 
 	ticker := time.NewTicker(r.interval)
 	defer ticker.Stop()
@@ -72,12 +69,7 @@ func (r *Reconciler) Start(ctx context.Context) {
 
 // RunOnce performs a single reconciliation pass. Exported for testing.
 func (r *Reconciler) RunOnce(ctx context.Context) {
-	log := logger.Load(ctx)
-	if log == nil {
-		log = slog.Default()
-	}
-
-	r.reconcile(ctx, log)
+	r.reconcile(ctx, logger.Load(ctx))
 }
 
 // reconcile performs a single pass over all services.

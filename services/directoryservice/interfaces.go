@@ -233,8 +233,9 @@ const (
 type DirectoryStage string
 
 const (
-	DirectoryStageActive  DirectoryStage = "Active"
-	DirectoryStageDeleted DirectoryStage = "Deleted"
+	DirectoryStageActive    DirectoryStage = "Active"
+	DirectoryStageDeleted   DirectoryStage = "Deleted"
+	DirectoryStageRestoring DirectoryStage = "Restoring"
 )
 
 // SnapshotStatus matches the AWS SnapshotStatus enum.

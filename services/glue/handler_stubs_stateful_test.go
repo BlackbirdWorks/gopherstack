@@ -271,9 +271,9 @@ func TestCancelMLTaskRun(t *testing.T) {
 		wantCode int
 	}{
 		{
-			name:     "both_ids_empty_returns_ok",
+			name:     "both_ids_empty_returns_400",
 			input:    map[string]any{},
-			wantCode: http.StatusOK,
+			wantCode: http.StatusBadRequest,
 		},
 		{
 			name:     "unknown_run_returns_400",
@@ -470,9 +470,9 @@ func TestBlueprintRun_ErrorPropagation(t *testing.T) {
 		wantCode int
 	}{
 		{
-			name:     "empty_run_id_returns_ok",
+			name:     "empty_run_id_returns_400",
 			input:    map[string]any{"BlueprintName": "bp", "RunId": ""},
-			wantCode: http.StatusOK,
+			wantCode: http.StatusBadRequest,
 		},
 		{
 			name:     "unknown_run_id_returns_400",
@@ -1308,6 +1308,188 @@ func TestResumeWorkflowRun_Stateful(t *testing.T) {
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 				assert.Equal(t, runID, out.RunID)
 			}
+		})
+	}
+}
+
+// TestIntegrationResourceProperty verifies CreateIntegrationResourceProperty stores and
+// GetIntegrationResourceProperty retrieves properties by ARN.
+func TestIntegrationResourceProperty(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		createInput map[string]any
+		getInput    map[string]any
+		name        string
+		wantCreate  int
+		wantGet     int
+	}{
+		{
+			name:        "missing_arn_returns_400",
+			createInput: map[string]any{},
+			wantCreate:  http.StatusBadRequest,
+		},
+		{
+			name: "create_and_retrieve",
+			createInput: map[string]any{
+				"ResourceArn":      "arn:aws:glue:us-east-1:123:resource/r1",
+				"SourceProperties": map[string]any{"key": "val"},
+			},
+			getInput:   map[string]any{"ResourceArn": "arn:aws:glue:us-east-1:123:resource/r1"},
+			wantCreate: http.StatusOK,
+			wantGet:    http.StatusOK,
+		},
+		{
+			name:     "get_missing_returns_400",
+			getInput: map[string]any{"ResourceArn": "arn:aws:glue:us-east-1:123:resource/no-such"},
+			wantGet:  http.StatusBadRequest,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			if tc.createInput != nil {
+				rec := doGlueRequest(t, h, "CreateIntegrationResourceProperty", tc.createInput)
+				assert.Equal(t, tc.wantCreate, rec.Code, "create")
+			}
+
+			if tc.getInput != nil {
+				rec := doGlueRequest(t, h, "GetIntegrationResourceProperty", tc.getInput)
+				assert.Equal(t, tc.wantGet, rec.Code, "get")
+			}
+		})
+	}
+}
+
+// TestIntegrationTableProperties verifies create/get table property round-trip.
+func TestIntegrationTableProperties(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		createInput map[string]any
+		getInput    map[string]any
+		name        string
+		wantCreate  int
+		wantGet     int
+	}{
+		{
+			name:        "missing_fields_returns_400",
+			createInput: map[string]any{},
+			wantCreate:  http.StatusBadRequest,
+		},
+		{
+			name:        "create_and_retrieve",
+			createInput: map[string]any{"ResourceArn": "arn:aws:glue:us-east-1:123:table/t1", "TableName": "orders"},
+			getInput:    map[string]any{"ResourceArn": "arn:aws:glue:us-east-1:123:table/t1", "TableName": "orders"},
+			wantCreate:  http.StatusOK,
+			wantGet:     http.StatusOK,
+		},
+		{
+			name:     "get_missing_returns_400",
+			getInput: map[string]any{"ResourceArn": "arn:aws:glue:us-east-1:123:table/t1", "TableName": "no-such"},
+			wantGet:  http.StatusBadRequest,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			if tc.createInput != nil {
+				rec := doGlueRequest(t, h, "CreateIntegrationTableProperties", tc.createInput)
+				assert.Equal(t, tc.wantCreate, rec.Code, "create")
+			}
+
+			if tc.getInput != nil {
+				rec := doGlueRequest(t, h, "GetIntegrationTableProperties", tc.getInput)
+				assert.Equal(t, tc.wantGet, rec.Code, "get")
+			}
+		})
+	}
+}
+
+// TestDescribeConnectionType verifies required-field validation.
+func TestDescribeConnectionType(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		input    map[string]any
+		name     string
+		wantCode int
+	}{
+		{name: "missing_type_returns_400", input: map[string]any{}, wantCode: http.StatusBadRequest},
+		{name: "known_type_returns_200", input: map[string]any{"ConnectionType": "JDBC"}, wantCode: http.StatusOK},
+		{
+			name:     "custom_type_returns_200",
+			input:    map[string]any{"ConnectionType": "CUSTOM_CONN"},
+			wantCode: http.StatusOK,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doGlueRequest(t, h, "DescribeConnectionType", tc.input)
+			assert.Equal(t, tc.wantCode, rec.Code)
+		})
+	}
+}
+
+// TestCancelStatement_Validation verifies SessionId is required.
+func TestCancelStatement_Validation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		input    map[string]any
+		name     string
+		wantCode int
+	}{
+		{name: "missing_session_id_returns_400", input: map[string]any{}, wantCode: http.StatusBadRequest},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doGlueRequest(t, h, "CancelStatement", tc.input)
+			assert.Equal(t, tc.wantCode, rec.Code)
+		})
+	}
+}
+
+// TestGetDataQualityModelResult_Validation verifies ProfileId is required.
+func TestGetDataQualityModelResult_Validation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		input    map[string]any
+		name     string
+		wantCode int
+	}{
+		{name: "missing_profile_id_returns_400", input: map[string]any{}, wantCode: http.StatusBadRequest},
+		{
+			name:     "with_profile_id_returns_200",
+			input:    map[string]any{"ProfileId": "profile-123"},
+			wantCode: http.StatusOK,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doGlueRequest(t, h, "GetDataQualityModelResult", tc.input)
+			assert.Equal(t, tc.wantCode, rec.Code)
 		})
 	}
 }

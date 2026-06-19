@@ -13,7 +13,7 @@ type StorageBackend interface {
 	DeleteFaces(collectionID string, faceIDs []string) ([]string, error)
 	ListFaces(collectionID string, maxResults int32, nextToken string) ([]*Face, string, error)
 	SearchFaces(collectionID, faceID string, maxFaces int32) ([]*FaceMatch, error)
-	SearchFacesByImage(collectionID string, maxFaces int32) ([]*FaceMatch, error)
+	SearchFacesByImage(collectionID string, maxFaces int32, imageKey string) ([]*FaceMatch, error)
 
 	CreateStreamProcessor(name, roleARN string, tags map[string]string) (*StreamProcessor, error)
 	DeleteStreamProcessor(name string) error

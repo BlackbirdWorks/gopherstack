@@ -93,7 +93,7 @@ func TestGetQueryResults_SQLExecution(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := athena.NewInMemoryBackend()
+			b := athena.NewInMemoryBackend("", "")
 			b.InsertRows(catalog, database, table, rows)
 
 			h := athena.NewHandler(b)
@@ -167,7 +167,7 @@ func TestGetQueryResults_Pagination(t *testing.T) {
 		testRows = append(testRows, map[string]any{"n": i})
 	}
 
-	b := athena.NewInMemoryBackend()
+	b := athena.NewInMemoryBackend("", "")
 	b.InsertRows(catalog, database, table, testRows)
 
 	h := athena.NewHandler(b)
@@ -217,7 +217,7 @@ func TestGetQueryResults_Pagination(t *testing.T) {
 func TestGetQueryResults_CatalogQualifiedTable(t *testing.T) {
 	t.Parallel()
 
-	b := athena.NewInMemoryBackend()
+	b := athena.NewInMemoryBackend("", "")
 	b.InsertRows("AwsDataCatalog", "mydb", "orders", []map[string]any{
 		{"order_id": "ORD-001", "status": "shipped"},
 		{"order_id": "ORD-002", "status": "pending"},

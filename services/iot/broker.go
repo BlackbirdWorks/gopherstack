@@ -4,13 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"sync/atomic"
 
 	mqtt "github.com/mochi-mqtt/server/v2"
 	"github.com/mochi-mqtt/server/v2/hooks/auth"
 	"github.com/mochi-mqtt/server/v2/listeners"
 	"github.com/mochi-mqtt/server/v2/packets"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 // ErrBrokerNotStarted is returned when a publish is attempted before the broker is started.
@@ -21,15 +22,13 @@ type Broker struct {
 	// server is accessed atomically to avoid data races between Start and Publish.
 	server  atomic.Pointer[mqtt.Server]
 	backend *InMemoryBackend
-	logger  *slog.Logger
 	port    int
 }
 
-// NewBroker creates a new Broker using the given backend, port, and logger.
-func NewBroker(backend *InMemoryBackend, port int, logger *slog.Logger) *Broker {
+// NewBroker creates a new Broker using the given backend and port.
+func NewBroker(backend *InMemoryBackend, port int) *Broker {
 	return &Broker{
 		backend: backend,
-		logger:  logger,
 		port:    port,
 	}
 }
@@ -37,8 +36,10 @@ func NewBroker(backend *InMemoryBackend, port int, logger *slog.Logger) *Broker 
 // Start initialises the MQTT server, registers the rule hook, and begins listening.
 // It blocks until ctx is cancelled.
 func (b *Broker) Start(ctx context.Context) error {
+	log := logger.Load(ctx)
+
 	s := mqtt.New(&mqtt.Options{
-		Logger:       b.logger,
+		Logger:       log,
 		InlineClient: true,
 	})
 
@@ -48,7 +49,6 @@ func (b *Broker) Start(ctx context.Context) error {
 
 	hook := &ruleHook{
 		backend: b.backend,
-		logger:  b.logger,
 		ctx:     ctx,
 	}
 
@@ -102,7 +102,6 @@ type ruleHook struct {
 	mqtt.HookBase
 
 	backend *InMemoryBackend
-	logger  *slog.Logger
 	ctx     context.Context //nolint:containedctx // required to propagate broker lifecycle context into hook callbacks
 }
 
@@ -117,13 +116,14 @@ func (h *ruleHook) Provides(b byte) bool {
 // OnPublish is called for every MQTT message published to the broker.
 func (h *ruleHook) OnPublish(_ *mqtt.Client, pk packets.Packet) (packets.Packet, error) {
 	dispatcher := h.backend.GetDispatcher()
+	log := logger.Load(h.ctx)
 
 	for _, rule := range h.backend.GetRules() {
 		if !EvaluateRule(rule, pk.TopicName, pk.Payload) {
 			continue
 		}
 
-		h.logger.Info("iot rule matched", "rule", rule.RuleName, "topic", pk.TopicName)
+		log.Info("iot rule matched", "rule", rule.RuleName, "topic", pk.TopicName)
 		h.dispatchActions(rule, dispatcher, pk.Payload)
 	}
 
@@ -135,16 +135,18 @@ func (h *ruleHook) dispatchActions(rule *TopicRule, dispatcher RuleDispatcher, p
 		return
 	}
 
+	log := logger.Load(h.ctx)
+
 	for _, action := range rule.Actions {
 		if action.SQS != nil {
 			if err := dispatcher.SendToSQS(action.SQS.QueueURL, string(payload)); err != nil {
-				h.logger.Error("iot sqs action failed", "rule", rule.RuleName, "error", err)
+				log.Error("iot sqs action failed", "rule", rule.RuleName, "error", err)
 			}
 		}
 
 		if action.Lambda != nil {
 			if err := dispatcher.InvokeLambda(h.ctx, action.Lambda.FunctionARN, payload); err != nil {
-				h.logger.Error("iot lambda action failed", "rule", rule.RuleName, "error", err)
+				log.Error("iot lambda action failed", "rule", rule.RuleName, "error", err)
 			}
 		}
 	}

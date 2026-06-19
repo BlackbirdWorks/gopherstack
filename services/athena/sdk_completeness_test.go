@@ -16,7 +16,7 @@ import (
 func TestSDKCompleteness(t *testing.T) {
 	t.Parallel()
 
-	backend := athena.NewInMemoryBackend()
+	backend := athena.NewInMemoryBackend("", "")
 	h := athena.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &athenasdk.Client{}, h.GetSupportedOperations(), []string{})
 }

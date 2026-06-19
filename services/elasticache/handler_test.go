@@ -1892,3 +1892,57 @@ func TestCreateClusterWithParameterGroup(t *testing.T) {
 		})
 	}
 }
+
+func TestCreateCacheCluster_CustomerAZUsesRegion(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		region string
+		wantAZ string
+	}{
+		{name: "us-east-1 default", region: "us-east-1", wantAZ: "us-east-1a"},
+		{name: "eu-west-1 cross-region", region: "eu-west-1", wantAZ: "eu-west-1a"},
+		{name: "ap-southeast-2 cross-region", region: "ap-southeast-2", wantAZ: "ap-southeast-2a"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", tt.region)
+			handler := elasticache.NewHandler(backend)
+			handler.Region = tt.region
+
+			e := echo.New()
+			registry := service.NewRegistry()
+			_ = registry.Register(handler)
+			router := service.NewServiceRouter(registry)
+			e.Use(router.RouteHandler())
+
+			srv := httptest.NewServer(e)
+			t.Cleanup(srv.Close)
+
+			cfg, err := awscfg.LoadDefaultConfig(
+				t.Context(),
+				awscfg.WithRegion(tt.region),
+				awscfg.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("test", "test", "")),
+			)
+			require.NoError(t, err)
+
+			client := elasticachesdk.NewFromConfig(cfg, func(o *elasticachesdk.Options) {
+				o.BaseEndpoint = aws.String(srv.URL)
+			})
+
+			out, err := client.CreateCacheCluster(context.Background(), &elasticachesdk.CreateCacheClusterInput{
+				CacheClusterId: aws.String("xr-cluster"),
+				Engine:         aws.String("redis"),
+			})
+			require.NoError(t, err)
+			require.NotNil(t, out.CacheCluster)
+			require.NotEmpty(t, out.CacheCluster.CacheNodes)
+			assert.Equal(t, tt.wantAZ,
+				strings.ToLower(aws.ToString(out.CacheCluster.CacheNodes[0].CustomerAvailabilityZone)))
+		})
+	}
+}

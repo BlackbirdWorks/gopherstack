@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+
 	awsddb "github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
@@ -97,14 +99,14 @@ type Server struct {
 
 // NewServer creates a DAX data-plane server backed by the given DynamoDB
 // backend.
-func NewServer(backend Backend, logger *slog.Logger) *Server {
-	if logger == nil {
-		logger = slog.Default()
+func NewServer(backend Backend, log *slog.Logger) *Server {
+	if log == nil {
+		log = logger.Load(context.Background())
 	}
 
 	return &Server{
 		backend:  backend,
-		logger:   logger,
+		logger:   log,
 		conns:    make(map[net.Conn]struct{}),
 		schemas:  make(map[string]keySchema),
 		attrToID: make(map[string]int64),

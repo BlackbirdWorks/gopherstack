@@ -59,13 +59,35 @@ func a1PersonalizeDo(
 ) *httptest.ResponseRecorder {
 	t.Helper()
 
+	return a1PersonalizeDoWithPrefix(t, h, "AmazonPersonalize.", action, body)
+}
+
+func a1PersonalizeRuntimeDo(
+	t *testing.T,
+	h *personalize.Handler,
+	action string,
+	body map[string]any,
+) *httptest.ResponseRecorder {
+	t.Helper()
+
+	return a1PersonalizeDoWithPrefix(t, h, "AmazonPersonalizeRuntime.", action, body)
+}
+
+func a1PersonalizeDoWithPrefix(
+	t *testing.T,
+	h *personalize.Handler,
+	prefix, action string,
+	body map[string]any,
+) *httptest.ResponseRecorder {
+	t.Helper()
+
 	payload, err := json.Marshal(body)
 	require.NoError(t, err)
 
 	e := echo.New()
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(string(payload)))
 	req.Header.Set("Content-Type", "application/x-amz-json-1.1")
-	req.Header.Set("X-Amz-Target", "AmazonPersonalize."+action)
+	req.Header.Set("X-Amz-Target", prefix+action)
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 	require.NoError(t, h.Handler()(c))
@@ -843,8 +865,10 @@ func TestAudit1_Personalize_ReadOnlyResources(t *testing.T) {
 
 	h := a1PersonalizeHandler(t)
 
+	ftArn := "arn:aws:personalize:us-east-1:000000000000:" +
+		"feature-transformation/aws-feature-transformation"
 	rec := a1PersonalizeDo(t, h, "DescribeFeatureTransformation", map[string]any{
-		"featureTransformationArn": "arn:aws:personalize:::feature-transformation/native-recipe-hrnn",
+		"featureTransformationArn": ftArn,
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 	ft := a1PersonalizeUnmarshal(t, rec)["featureTransformation"].(map[string]any)
@@ -908,6 +932,156 @@ func TestAudit1_Personalize_TagRoundTrip(t *testing.T) {
 	remaining := tags[0].(map[string]any)
 	assert.Equal(t, "team", remaining["tagKey"])
 	assert.Equal(t, "ml", remaining["tagValue"])
+}
+
+// --- FeatureTransformation real lookup ---
+
+func TestAudit1_Personalize_DescribeFeatureTransformation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		arnOrName  string
+		wantName   string
+		wantErr    string
+		wantStatus int
+	}{
+		{
+			name:       "known_arn_aws_feature_transformation",
+			arnOrName:  "arn:aws:personalize:us-east-1:000000000000:feature-transformation/aws-feature-transformation",
+			wantStatus: http.StatusOK,
+			wantName:   "aws-feature-transformation",
+		},
+		{
+			name: "known_arn_bandits",
+			arnOrName: "arn:aws:personalize:us-east-1:000000000000:feature-transformation/" +
+				"aws-explicit-contextual-bandits-feature-transformation",
+			wantStatus: http.StatusOK,
+			wantName:   "aws-explicit-contextual-bandits-feature-transformation",
+		},
+		{
+			name:       "unknown_arn_returns_404",
+			arnOrName:  "arn:aws:personalize:us-east-1:000000000000:feature-transformation/not-a-real-one",
+			wantStatus: http.StatusBadRequest,
+			wantErr:    "ResourceNotFoundException",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := a1PersonalizeHandler(t)
+			rec := a1PersonalizeDo(t, h, "DescribeFeatureTransformation", map[string]any{
+				"featureTransformationArn": tt.arnOrName,
+			})
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			m := a1PersonalizeUnmarshal(t, rec)
+			if tt.wantErr != "" {
+				assert.Equal(t, tt.wantErr, m["__type"])
+			} else {
+				ft := m["featureTransformation"].(map[string]any)
+				assert.Equal(t, tt.wantName, ft["name"])
+				assert.Equal(t, "ACTIVE", ft["status"])
+				assert.Equal(t, tt.arnOrName, ft["featureTransformationArn"])
+			}
+		})
+	}
+}
+
+// --- GetRecommendations / GetPersonalizedRanking ---
+
+func TestAudit1_Personalize_GetRecommendations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		input         map[string]any
+		name          string
+		wantItemCount int
+	}{
+		{
+			name: "default_25_items",
+			input: map[string]any{
+				"campaignArn": "arn:aws:personalize:us-east-1:000000000000:campaign/my-campaign",
+				"userId":      "user-123",
+			},
+			wantItemCount: 25,
+		},
+		{
+			name: "explicit_numResults_5",
+			input: map[string]any{
+				"campaignArn": "arn:aws:personalize:us-east-1:000000000000:campaign/my-campaign",
+				"userId":      "user-456",
+				"numResults":  float64(5),
+			},
+			wantItemCount: 5,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := a1PersonalizeHandler(t)
+			rec := a1PersonalizeRuntimeDo(t, h, "GetRecommendations", tt.input)
+
+			require.Equal(t, http.StatusOK, rec.Code)
+			m := a1PersonalizeUnmarshal(t, rec)
+			assert.NotEmpty(t, m["recommendationId"])
+			itemList, ok := m["itemList"].([]any)
+			require.True(t, ok)
+			assert.Len(t, itemList, tt.wantItemCount)
+			first := itemList[0].(map[string]any)
+			assert.NotEmpty(t, first["itemId"])
+			_, hasScore := first["score"]
+			assert.True(t, hasScore)
+		})
+	}
+}
+
+func TestAudit1_Personalize_GetPersonalizedRanking(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		inputList []any
+	}{
+		{
+			name:      "three_items_returned_ranked",
+			inputList: []any{"item-a", "item-b", "item-c"},
+		},
+		{
+			name:      "single_item",
+			inputList: []any{"item-x"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := a1PersonalizeHandler(t)
+			rec := a1PersonalizeRuntimeDo(t, h, "GetPersonalizedRanking", map[string]any{
+				"campaignArn": "arn:aws:personalize:us-east-1:000000000000:campaign/my-campaign",
+				"userId":      "user-789",
+				"inputList":   tt.inputList,
+			})
+
+			require.Equal(t, http.StatusOK, rec.Code)
+			m := a1PersonalizeUnmarshal(t, rec)
+			assert.NotEmpty(t, m["recommendationId"])
+			ranked, ok := m["personalizedRanking"].([]any)
+			require.True(t, ok)
+			assert.Len(t, ranked, len(tt.inputList))
+			for i, v := range ranked {
+				item := v.(map[string]any)
+				assert.Equal(t, tt.inputList[i], item["itemId"])
+				_, hasScore := item["score"]
+				assert.True(t, hasScore)
+			}
+		})
+	}
 }
 
 // --- Error paths ---

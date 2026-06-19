@@ -153,7 +153,7 @@ func TestLambdaFunctionURL_HTTPEndpoint(t *testing.T) {
 	}
 	require.NoError(t, backend.CreateFunction(fn))
 
-	cfg, createErr := backend.CreateFunctionURLConfig(fnName, "NONE", nil, "")
+	cfg, createErr := backend.CreateFunctionURLConfig(t.Context(), fnName, "NONE", nil, "")
 	require.NoError(t, createErr)
 	assert.NotEmpty(t, cfg.FunctionURL)
 

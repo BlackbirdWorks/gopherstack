@@ -204,6 +204,10 @@ type InMemoryBackend struct {
 	codeBindings    map[string]*CodeBinding       // "registryName/schemaName/language" → binding
 	workerSem       chan struct{}
 	ruleIndex       map[string]map[string]map[ruleIndexKey]map[string]*Rule
+	// targetsByARN indexes (region → ARN → set of "busKey/ruleName" targetKeys)
+	// for O(1) ListRuleNamesByTarget lookups. Kept consistent on PutTargets /
+	// RemoveTargets / DeleteRule / DeleteEventBus / Reset.
+	targetsByARN    map[string]map[string]map[string]struct{}
 	patternCache    sync.Map
 	region          string
 	accountID       string
@@ -267,6 +271,7 @@ func NewInMemoryBackendWithContext(
 		shutdownTimeout: defaultShutdownTimeout,
 		deliveryTimeout: defaultDeliveryTimeout,
 		ruleIndex:       make(map[string]map[string]map[ruleIndexKey]map[string]*Rule),
+		targetsByARN:    make(map[string]map[string]map[string]struct{}),
 	}
 	// Create the default event bus in the backend's own region.
 	b.busesStore(b.region)[defaultEventBusName] = &EventBus{
@@ -402,6 +407,62 @@ func (b *InMemoryBackend) targetsStore(region string) map[string]map[string]*Tar
 	}
 
 	return b.targets[region]
+}
+
+// targetsByARNStore returns (lazily creating) the per-region ARN→targetKeys index.
+// Callers must hold b.mu.
+func (b *InMemoryBackend) targetsByARNStore(region string) map[string]map[string]struct{} {
+	if b.targetsByARN[region] == nil {
+		b.targetsByARN[region] = make(map[string]map[string]struct{})
+	}
+
+	return b.targetsByARN[region]
+}
+
+// arnIndexAdd adds targetKey to the ARN index for the given region.
+// Callers must hold b.mu.
+func (b *InMemoryBackend) arnIndexAdd(region, arn, targetKey string) {
+	idx := b.targetsByARNStore(region)
+	if idx[arn] == nil {
+		idx[arn] = make(map[string]struct{})
+	}
+
+	idx[arn][targetKey] = struct{}{}
+}
+
+// arnIndexRemoveTarget removes targetKey from the ARN index entry for the given arn.
+// Callers must hold b.mu.
+func (b *InMemoryBackend) arnIndexRemoveTarget(region, arn, targetKey string) {
+	idx := b.targetsByARN[region]
+	if idx == nil {
+		return
+	}
+
+	delete(idx[arn], targetKey)
+
+	if len(idx[arn]) == 0 {
+		delete(idx, arn)
+	}
+}
+
+// arnIndexRemoveRule removes all ARN entries for the given targetKey (i.e. a rule was deleted).
+// Callers must hold b.mu.
+func (b *InMemoryBackend) arnIndexRemoveRule(region, targetKey string, tMap map[string]*Target) {
+	if tMap == nil {
+		return
+	}
+
+	idx := b.targetsByARN[region]
+	if idx == nil {
+		return
+	}
+
+	for _, t := range tMap {
+		delete(idx[t.Arn], targetKey)
+		if len(idx[t.Arn]) == 0 {
+			delete(idx, t.Arn)
+		}
+	}
 }
 
 // ruleIndexStore returns the rule index map for the given region, lazily creating it.
@@ -691,7 +752,9 @@ func (b *InMemoryBackend) DeleteEventBus(ctx context.Context, name string) error
 	targets := b.targetsStore(region)
 	if busRules, ok := rules[busKey]; ok {
 		for ruleName := range busRules {
-			delete(targets, b.targetKey(name, ruleName))
+			tk := b.targetKey(name, ruleName)
+			b.arnIndexRemoveRule(region, tk, targets[tk])
+			delete(targets, tk)
 		}
 
 		delete(rules, busKey)
@@ -888,7 +951,9 @@ func (b *InMemoryBackend) DeleteRule(ctx context.Context, name, eventBusName str
 	b.removeRuleFromIndex(region, busKey, rule)
 	delete(busRules, name)
 	// Also remove targets for this rule.
-	delete(b.targetsStore(region), b.targetKey(eventBusName, name))
+	targetKey := b.targetKey(eventBusName, name)
+	b.arnIndexRemoveRule(region, targetKey, b.targetsStore(region)[targetKey])
+	delete(b.targetsStore(region), targetKey)
 
 	return nil
 }
@@ -1051,8 +1116,13 @@ func (b *InMemoryBackend) PutTargets(ctx context.Context,
 				continue
 			}
 		}
+		// Maintain ARN index: remove old entry if this target ID already exists with a different ARN.
+		if existingTarget, targetExists := targetsStore[key][t.ID]; targetExists && existingTarget.Arn != t.Arn {
+			b.arnIndexRemoveTarget(region, existingTarget.Arn, key)
+		}
 		cp := t
 		targetsStore[key][t.ID] = &cp
+		b.arnIndexAdd(region, t.Arn, key)
 	}
 
 	return failed, nil
@@ -1077,7 +1147,8 @@ func (b *InMemoryBackend) RemoveTargets(ctx context.Context,
 
 	var failed []FailedEntry
 	for _, id := range ids {
-		if _, exists := ruleTargets[id]; !exists {
+		t, exists := ruleTargets[id]
+		if !exists {
 			failed = append(failed, FailedEntry{
 				TargetID:     id,
 				ErrorCode:    "ResourceNotFoundException",
@@ -1086,6 +1157,7 @@ func (b *InMemoryBackend) RemoveTargets(ctx context.Context,
 
 			continue
 		}
+		b.arnIndexRemoveTarget(region, t.Arn, key)
 		delete(ruleTargets, id)
 	}
 
@@ -1273,6 +1345,7 @@ func (b *InMemoryBackend) Reset() {
 	b.schemaVersions = make(map[string][]*SchemaVersion)
 	b.codeBindings = make(map[string]*CodeBinding)
 	b.ruleIndex = make(map[string]map[string]map[ruleIndexKey]map[string]*Rule)
+	b.targetsByARN = make(map[string]map[string]map[string]struct{})
 	b.patternCache = sync.Map{}
 
 	// Re-create the default event bus so it is always available after reset.
@@ -2363,19 +2436,12 @@ func (b *InMemoryBackend) ListRuleNamesByTarget(ctx context.Context,
 	b.mu.RLock("ListRuleNamesByTarget")
 	defer b.mu.RUnlock()
 
-	// Within a region-scoped target map, keys have format: "busName/ruleName".
+	// Use the ARN index for O(matched-rules) lookup instead of O(all-rules×all-targets).
 	prefix := ebBusKey(eventBusName) + "/"
 	var names []string
-	for targetKey, tMap := range b.targetsStore(region) {
-		if !strings.HasPrefix(targetKey, prefix) {
-			continue
-		}
-		for _, t := range tMap {
-			if t.Arn == targetARN {
-				names = append(names, strings.TrimPrefix(targetKey, prefix))
-
-				break
-			}
+	for targetKey := range b.targetsByARN[region][targetARN] {
+		if after, ok := strings.CutPrefix(targetKey, prefix); ok {
+			names = append(names, after)
 		}
 	}
 

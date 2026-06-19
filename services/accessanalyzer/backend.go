@@ -221,7 +221,8 @@ func (b *InMemoryBackend) DeleteAnalyzer(name string) error {
 	return nil
 }
 
-// CreateArchiveRule adds an archive rule to an analyzer.
+// CreateArchiveRule adds an archive rule to an analyzer and immediately archives
+// all active findings for that analyzer (AWS auto-apply behavior).
 func (b *InMemoryBackend) CreateArchiveRule(
 	analyzerName, ruleName string,
 	filter map[string]FilterCriterion,
@@ -248,6 +249,13 @@ func (b *InMemoryBackend) CreateArchiveRule(
 	}
 
 	rules[ruleName] = rule
+
+	for _, f := range b.findings[analyzerName] {
+		if f.Status == FindingStatusActive {
+			f.Status = FindingStatusArchived
+			f.UpdatedAt = now
+		}
+	}
 
 	return copyArchiveRule(rule), nil
 }

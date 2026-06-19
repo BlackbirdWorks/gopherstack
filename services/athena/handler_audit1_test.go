@@ -32,7 +32,7 @@ import (
 func a1Handler(t *testing.T) *athena.Handler {
 	t.Helper()
 
-	return athena.NewHandler(athena.NewInMemoryBackend())
+	return athena.NewHandler(athena.NewInMemoryBackend("", ""))
 }
 
 func a1Do(t *testing.T, h *athena.Handler, action, body string) *httptest.ResponseRecorder {

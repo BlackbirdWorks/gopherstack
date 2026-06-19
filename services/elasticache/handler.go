@@ -14,6 +14,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -955,6 +956,11 @@ func clusterToXML(cl *Cluster, status string) cacheClusterXML {
 		n = 1
 	}
 
+	region := cl.Region
+	if region == "" {
+		region = config.DefaultRegion
+	}
+
 	nodes := make([]cacheNode, 0, n)
 	for i := range n {
 		nodeID := fmt.Sprintf("%04d", i+1)
@@ -962,7 +968,7 @@ func clusterToXML(cl *Cluster, status string) cacheClusterXML {
 			CacheNodeID:              nodeID,
 			CacheNodeStatus:          status,
 			CacheNodeCreateTime:      cl.CreatedAt.UTC().Format(time.RFC3339),
-			CustomerAvailabilityZone: "us-east-1a",
+			CustomerAvailabilityZone: region + "a",
 			Endpoint: cacheEndpoint{
 				Address: cl.Endpoint,
 				Port:    cl.Port,

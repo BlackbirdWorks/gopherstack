@@ -339,8 +339,9 @@ type notificationSigner struct {
 
 // newNotificationSigner generates a fresh RSA-2048 key pair and a self-signed
 // x.509 certificate. The returned signer is valid for the lifetime of the
-// backend instance.
-func newNotificationSigner() *notificationSigner {
+// backend instance. region is used to construct the default certURL so the
+// embedded SigningCertURL reflects the correct AWS region.
+func newNotificationSigner(region string) *notificationSigner {
 	key, err := rsa.GenerateKey(rand.Reader, rsaKeyBits)
 	if err != nil {
 		// Key generation failure is unrecoverable; panic with a clear message
@@ -371,7 +372,9 @@ func newNotificationSigner() *notificationSigner {
 		privateKey: key,
 		certPEM:    certPEM,
 		// certURL is set later via SetSigningCertBaseURL when the server address is known.
-		certURL: "https://sns.us-east-1.amazonaws.com/SimpleNotificationService.pem",
+		// The initial value uses the backend region so URLs are correct before
+		// SetSigningCertBaseURL is called (e.g. in non-HTTP test scenarios).
+		certURL: fmt.Sprintf("https://sns.%s.amazonaws.com/SimpleNotificationService.pem", region),
 	}
 }
 
@@ -432,12 +435,19 @@ type SQSSender interface {
 	SendMessageToQueue(ctx context.Context, queueARN, messageBody string) error
 }
 
+// SQSQueueChecker can verify whether an SQS queue identified by ARN exists.
+// Used to validate RedrivePolicy.deadLetterTargetArn during SetSubscriptionAttributes.
+type SQSQueueChecker interface {
+	QueueExists(ctx context.Context, queueARN string) (bool, error)
+}
+
 // InMemoryBackend implements StorageBackend using an in-memory concurrency-safe store.
 type InMemoryBackend struct {
 	emitter              events.EventEmitter[*events.SNSPublishedEvent]
 	lambdaBackend        LambdaInvoker
 	firehoseBackend      FirehosePutter
 	sqsSender            SQSSender
+	sqsChecker           SQSQueueChecker
 	svcCtx               context.Context
 	topicSubscriptions   map[string]map[string]*Subscription
 	httpClient           *http.Client
@@ -498,7 +508,7 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 		mu:                   lockmetrics.New("sns"),
 		httpClient:           &http.Client{Timeout: snsHTTPTimeout},
 		workerSem:            make(chan struct{}, snsMaxConcurrentDeliveries),
-		signer:               newNotificationSigner(),
+		signer:               newNotificationSigner(region),
 	}
 }
 
@@ -558,6 +568,15 @@ func (b *InMemoryBackend) SetSQSSender(sender SQSSender) {
 	defer b.mu.Unlock()
 
 	b.sqsSender = sender
+}
+
+// SetSQSChecker wires the SQS queue checker used to verify deadLetterTargetArn existence
+// during SetSubscriptionAttributes. When nil, the existence check is skipped.
+func (b *InMemoryBackend) SetSQSChecker(checker SQSQueueChecker) {
+	b.mu.Lock("SetSQSChecker")
+	defer b.mu.Unlock()
+
+	b.sqsChecker = checker
 }
 
 // CreateTopic creates a new SNS topic using the backend's default region.
@@ -1032,6 +1051,9 @@ func (b *InMemoryBackend) SetSubscriptionAttributes(subscriptionArn, attrName, a
 		if err := validateRedrivePolicy(attrValue); err != nil {
 			return err
 		}
+		if err := b.checkDLQExists(attrValue); err != nil {
+			return err
+		}
 	}
 
 	// Validate and parse ReplayPolicy before acquiring the lock so JSON parsing
@@ -1409,6 +1431,39 @@ func validateRedrivePolicy(policy string) error {
 	if len(parts) < 6 || parts[0] != "arn" || parts[2] != "sqs" {
 		return fmt.Errorf(
 			"%w: RedrivePolicy.deadLetterTargetArn must be a valid SQS queue ARN, got %s",
+			ErrInvalidParameter, parsed.DeadLetterTargetArn,
+		)
+	}
+
+	return nil
+}
+
+// checkDLQExists verifies that the SQS queue named in a RedrivePolicy JSON exists,
+// when a SQSQueueChecker is wired. Returns nil when no checker is configured.
+func (b *InMemoryBackend) checkDLQExists(policy string) error {
+	checker := b.sqsChecker
+	if checker == nil {
+		return nil
+	}
+
+	var parsed struct {
+		DeadLetterTargetArn string `json:"deadLetterTargetArn"`
+	}
+	// Shape is already validated by validateRedrivePolicy, so an unmarshal failure
+	// here cannot happen for a well-formed policy; ignore it and skip verification.
+	_ = json.Unmarshal([]byte(policy), &parsed)
+	if parsed.DeadLetterTargetArn == "" {
+		return nil
+	}
+
+	exists, err := checker.QueueExists(b.svcCtx, parsed.DeadLetterTargetArn)
+	if err != nil {
+		return fmt.Errorf("%w: could not verify deadLetterTargetArn: %s", ErrInvalidParameter, err.Error())
+	}
+
+	if !exists {
+		return fmt.Errorf(
+			"%w: deadLetterTargetArn queue does not exist: %s",
 			ErrInvalidParameter, parsed.DeadLetterTargetArn,
 		)
 	}
@@ -2274,7 +2329,21 @@ func deliverHTTPWithMeta(parent context.Context, d httpDelivery, client *http.Cl
 	if !d.rawDelivery && d.messageID != "" {
 		timestamp := time.Now().UTC().Format(time.RFC3339)
 
-		certURL := "https://sns.us-east-1.amazonaws.com/SimpleNotificationService.pem"
+		// Derive region from topic ARN (arn:aws:sns:<region>:…) so the fallback
+		// certURL reflects the actual region rather than a hardcoded us-east-1.
+		// ARN layout: arn:aws:sns:<region>:<account>:<topic>; region is the 4th
+		// colon-separated field, and splitting into 6 keeps the topic name intact.
+		const (
+			arnFieldCount   = 6
+			arnRegionIndex  = 3
+			arnMinFieldsReg = 4
+		)
+		topicRegion := "us-east-1"
+		if parts := strings.SplitN(d.topicARN, ":", arnFieldCount); len(parts) >= arnMinFieldsReg &&
+			parts[arnRegionIndex] != "" {
+			topicRegion = parts[arnRegionIndex]
+		}
+		certURL := fmt.Sprintf("https://sns.%s.amazonaws.com/SimpleNotificationService.pem", topicRegion)
 		signature := "MOCK-SIGNATURE"
 		if d.signer != nil {
 			certURL = d.signer.certURL

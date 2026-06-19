@@ -997,7 +997,7 @@ func TestHandlerOps_BackendReset(t *testing.T) {
 	err = bk.PutResourceLogLevel("res1", "DEBUG")
 	require.NoError(t, err)
 
-	_, err = bk.CreateWirelessGatewayTaskDefinition("def1", false)
+	_, err = bk.CreateWirelessGatewayTaskDefinition("000000000000", "us-east-1", "def1", false)
 	require.NoError(t, err)
 
 	// Reset

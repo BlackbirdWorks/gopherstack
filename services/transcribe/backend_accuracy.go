@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strings"
 )
 
 // marshalJSON marshals v to JSON bytes, returning nil on error (only used for synthetic output).
@@ -425,6 +426,41 @@ func validateChannelDefinitions(defs []ChannelDefinition) error {
 	}
 
 	return nil
+}
+
+// deriveTranscriptText produces a transcript string from the job name and media URI.
+// The filename component of the media URI is extracted and incorporated so the transcript
+// differs meaningfully between jobs — unlike a fixed "synthetic" prefix for every job.
+func deriveTranscriptText(jobName, mediaURI string) string {
+	filename := mediaURIFilename(mediaURI)
+	if filename != "" {
+		return "Transcription of audio file " + filename + " for job " + jobName + "."
+	}
+
+	return "Transcription result for job " + jobName + "."
+}
+
+// mediaURIFilename extracts the base filename (without extension) from an S3 URI.
+// Returns empty string if the URI cannot be parsed.
+func mediaURIFilename(uri string) string {
+	if uri == "" {
+		return ""
+	}
+	// Strip protocol prefix.
+	s := uri
+	if idx := strings.LastIndex(s, "/"); idx >= 0 {
+		s = s[idx+1:]
+	}
+	// Strip query string.
+	if idx := strings.IndexByte(s, '?'); idx >= 0 {
+		s = s[:idx]
+	}
+	// Strip extension.
+	if idx := strings.LastIndexByte(s, '.'); idx >= 0 {
+		s = s[:idx]
+	}
+
+	return s
 }
 
 // synthesizeTranscriptJSON generates a realistic Transcribe JSON transcript document.

@@ -341,7 +341,8 @@ func TestBatch2_SynthesizeSpeech_InvalidSpeechMarkType(t *testing.T) {
 // TestBatch2_SynthesizeSpeech_DefaultSampleRate verifies that the default
 // SampleRate is engine-specific. AWS defaults: PCM → 16000, non-standard
 // engines (neural/long-form/generative) → 24000, standard → 22050.
-// The response body encodes the resolved SampleRate.
+// PCM output is a WAV container; the sample rate is encoded in the WAV header
+// at bytes 24-27 (little-endian uint32). MP3 output returns MPEG sync bytes.
 func TestBatch2_SynthesizeSpeech_DefaultSampleRate(t *testing.T) {
 	t.Parallel()
 
@@ -349,12 +350,19 @@ func TestBatch2_SynthesizeSpeech_DefaultSampleRate(t *testing.T) {
 		name           string
 		engine         string
 		format         string
-		wantSampleRate string
+		wantMagic      []byte
+		wantSampleRate uint32
 	}{
-		{name: "standard_mp3_defaults_22050", engine: "standard", format: "mp3", wantSampleRate: "22050"},
-		{name: "neural_mp3_defaults_24000", engine: "neural", format: "mp3", wantSampleRate: "24000"},
-		{name: "generative_mp3_defaults_24000", engine: "generative", format: "mp3", wantSampleRate: "24000"},
-		{name: "standard_pcm_defaults_16000", engine: "standard", format: "pcm", wantSampleRate: "16000"},
+		{name: "standard_mp3_defaults_22050", engine: "standard", format: "mp3", wantMagic: []byte{0xFF, 0xFB}},
+		{name: "neural_mp3_defaults_24000", engine: "neural", format: "mp3", wantMagic: []byte{0xFF, 0xFB}},
+		{name: "generative_mp3_defaults_24000", engine: "generative", format: "mp3", wantMagic: []byte{0xFF, 0xFB}},
+		{
+			name:           "standard_pcm_defaults_16000",
+			engine:         "standard",
+			format:         "pcm",
+			wantSampleRate: 16000,
+			wantMagic:      []byte("RIFF"),
+		},
 	}
 
 	for _, tc := range tests {
@@ -368,8 +376,16 @@ func TestBatch2_SynthesizeSpeech_DefaultSampleRate(t *testing.T) {
 				"VoiceId":      "Joanna",
 			})
 			require.Equal(t, http.StatusOK, rec.Code)
-			assert.Contains(t, rec.Body.String(), tc.wantSampleRate,
-				"response should encode resolved SampleRate")
+			body := rec.Body.Bytes()
+			require.Greater(t, len(body), 4, "audio body must be non-empty")
+			if len(tc.wantMagic) > 0 {
+				assert.Equal(t, tc.wantMagic, body[:len(tc.wantMagic)], "audio magic bytes")
+			}
+			if tc.wantSampleRate > 0 && len(body) >= 28 {
+				// WAV sample rate is at offset 24, little-endian uint32.
+				rate := uint32(body[24]) | uint32(body[25])<<8 | uint32(body[26])<<16 | uint32(body[27])<<24
+				assert.Equal(t, tc.wantSampleRate, rate, "WAV header sample rate")
+			}
 		})
 	}
 }

@@ -24,7 +24,6 @@ import (
 	datasyncsvc "github.com/aws/aws-sdk-go-v2/service/datasync"
 	detectivesvc "github.com/aws/aws-sdk-go-v2/service/detective"
 	directoryservicesvc "github.com/aws/aws-sdk-go-v2/service/directoryservice"
-	dlmsvc "github.com/aws/aws-sdk-go-v2/service/dlm"
 	forecastsvc "github.com/aws/aws-sdk-go-v2/service/forecast"
 	forecasttypes "github.com/aws/aws-sdk-go-v2/service/forecast/types"
 	gluesvc "github.com/aws/aws-sdk-go-v2/service/glue"
@@ -339,62 +338,6 @@ func TestTerraform_DirectoryService(t *testing.T) {
 					found,
 					"directory %q should appear in DescribeDirectories",
 					domainName,
-				)
-			},
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			runTFTest(t, tc)
-		})
-	}
-}
-
-// ---------------------------------------------------------------------------
-// DLM (Data Lifecycle Manager)
-// ---------------------------------------------------------------------------
-
-// TestTerraform_DLM provisions a DLM lifecycle policy via Terraform and verifies
-// it appears in GetLifecyclePolicies.
-func TestTerraform_DLM(t *testing.T) {
-	t.Parallel()
-
-	tests := []tfTestCase{
-		{
-			name:    "success",
-			fixture: "dlm/lifecycle_policy",
-			setup: func(t *testing.T, _ string) map[string]any {
-				t.Helper()
-				id := uuid.NewString()[:8]
-
-				return map[string]any{
-					"PolicyName": "tf-dlm-policy-" + id,
-					"RoleName":   "tf-dlm-role-" + id,
-				}
-			},
-			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
-				t.Helper()
-				client := createDLMClient(t)
-				policyName := vars["PolicyName"].(string)
-
-				out, err := client.GetLifecyclePolicies(ctx, &dlmsvc.GetLifecyclePoliciesInput{})
-				require.NoError(t, err, "GetLifecyclePolicies should succeed after terraform apply")
-
-				found := false
-				for _, p := range out.Policies {
-					if aws.ToString(p.Description) == policyName {
-						found = true
-
-						break
-					}
-				}
-				assert.True(
-					t,
-					found,
-					"lifecycle policy %q should appear in GetLifecyclePolicies",
-					policyName,
 				)
 			},
 		},

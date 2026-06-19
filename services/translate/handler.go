@@ -501,8 +501,11 @@ func (h *Handler) translateText(input map[string]any) (map[string]any, error) {
 		sourceLang = "auto"
 	}
 
+	termNames := strSliceField(input, "TerminologyNames")
+	translated := applyTranslation(text, sourceLang, targetLang, h.Backend.LookupTerminologies(termNames))
+
 	return map[string]any{
-		"TranslatedText":      text,
+		"TranslatedText":      translated,
 		keySourceLanguageCode: sourceLang,
 		keyTargetLanguageCode: targetLang,
 		"AppliedSettings":     map[string]any{},
@@ -526,8 +529,11 @@ func (h *Handler) translateDocument(input map[string]any) (map[string]any, error
 		content, _ = doc["Content"].(string)
 	}
 
+	termNames := strSliceField(input, "TerminologyNames")
+	translated := applyTranslation(content, sourceLang, targetLang, h.Backend.LookupTerminologies(termNames))
+
 	return map[string]any{
-		"TranslatedDocument":  map[string]any{"Content": content},
+		"TranslatedDocument":  map[string]any{"Content": translated},
 		keySourceLanguageCode: sourceLang,
 		keyTargetLanguageCode: targetLang,
 		"AppliedSettings":     map[string]any{},
@@ -849,4 +855,59 @@ func knownLanguages() []map[string]any {
 		{keyLanguageCode: "vi", keyLanguageName: "Vietnamese"},
 		{keyLanguageCode: "cy", keyLanguageName: "Welsh"},
 	}
+}
+
+// applyTranslation applies terminology substitutions and a simple language transform.
+// Terminologies take priority; remaining text gets a minimal transform to avoid echo.
+func applyTranslation(text, sourceLang, targetLang string, terms []*Terminology) string {
+	if text == "" || sourceLang == targetLang {
+		return text
+	}
+
+	// Apply terminology CSV substitutions first.
+	for _, term := range terms {
+		if term.TerminologyData == nil || len(term.TerminologyData.File) == 0 {
+			continue
+		}
+		text = applyCSVTerminology(text, term.TerminologyData.File)
+	}
+
+	// Simple lang-to-prefix map for a handful of common targets, so output
+	// differs visibly from the source without requiring a real translation engine.
+	langPrefixes := map[string]string{
+		"es": "es: ", "fr": "fr: ", "de": "de: ", "ja": "ja: ", "zh": "zh: ",
+		"pt": "pt: ", "it": "it: ", "ru": "ru: ", "ar": "ar: ", "ko": "ko: ",
+		"nl": "nl: ", "pl": "pl: ", "sv": "sv: ", "tr": "tr: ", "hi": "hi: ",
+	}
+
+	// Only add prefix if text doesn't already have one (avoids double-prefixing on retry).
+	prefix := langPrefixes[targetLang]
+	if prefix != "" && !strings.HasPrefix(text, prefix) {
+		text = prefix + text
+	}
+
+	return text
+}
+
+// applyCSVTerminology parses a simple two-column CSV (source,target) and replaces
+// occurrences of source terms in text with the corresponding target terms.
+func applyCSVTerminology(text string, csvBytes []byte) string {
+	const csvColumns = 2 // source,target
+	for line := range strings.SplitSeq(string(csvBytes), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		parts := strings.SplitN(line, ",", csvColumns)
+		if len(parts) != csvColumns {
+			continue
+		}
+		src := strings.TrimSpace(parts[0])
+		tgt := strings.TrimSpace(parts[1])
+		if src != "" && tgt != "" {
+			text = strings.ReplaceAll(text, src, tgt)
+		}
+	}
+
+	return text
 }

@@ -118,6 +118,52 @@ func TestCreateArchiveRule_DuplicateRejected(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestCreateArchiveRule_AutoArchivesExistingActiveFindings(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		wantArchived  int
+		wantActive    int
+		preFindingCnt int
+	}{
+		{
+			name:          "archives_all_active_findings_on_rule_creation",
+			preFindingCnt: 3,
+			wantArchived:  3,
+			wantActive:    0,
+		},
+		{
+			name:          "no_findings_no_error",
+			preFindingCnt: 0,
+			wantArchived:  0,
+			wantActive:    0,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend(t)
+			_, _ = b.CreateAnalyzer("auto-arc-analyzer", accessanalyzer.AnalyzerTypeAccount, nil)
+
+			for i := range tc.preFindingCnt {
+				_, _ = b.AddFinding("auto-arc-analyzer", "AWS::S3::Bucket",
+					"arn:aws:s3:::bucket-"+string(rune('a'+i)), nil, nil, nil)
+			}
+
+			_, err := b.CreateArchiveRule("auto-arc-analyzer", "auto-rule", nil)
+			require.NoError(t, err)
+
+			archived, _, _ := b.ListFindings("auto-arc-analyzer", nil, "ARCHIVED", 0, "")
+			active, _, _ := b.ListFindings("auto-arc-analyzer", nil, "ACTIVE", 0, "")
+			assert.Len(t, archived, tc.wantArchived)
+			assert.Len(t, active, tc.wantActive)
+		})
+	}
+}
+
 func TestGetArchiveRule_NotFound(t *testing.T) {
 	t.Parallel()
 

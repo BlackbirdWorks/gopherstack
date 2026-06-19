@@ -1,8 +1,6 @@
 package lambda
 
 import (
-	"log/slog"
-
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -35,7 +33,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	var runtime container.Runtime
 
 	rt, err := container.NewRuntime(container.Config{
-		Logger:      slog.Default(),
+		Logger:      ctx.Logger,
 		PoolSize:    settings.PoolSize,
 		IdleTimeout: settings.IdleTimeout,
 		Runtime:     container.RuntimeName(settings.ContainerRuntime),

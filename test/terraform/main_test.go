@@ -58,7 +58,6 @@ import (
 	datasyncsvc "github.com/aws/aws-sdk-go-v2/service/datasync"
 	detectivesvc "github.com/aws/aws-sdk-go-v2/service/detective"
 	directoryservicesvc "github.com/aws/aws-sdk-go-v2/service/directoryservice"
-	dlmsvc "github.com/aws/aws-sdk-go-v2/service/dlm"
 	docdbsvc "github.com/aws/aws-sdk-go-v2/service/docdb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	dynamodbstreamssvc "github.com/aws/aws-sdk-go-v2/service/dynamodbstreams"
@@ -101,6 +100,7 @@ import (
 	mqsvc "github.com/aws/aws-sdk-go-v2/service/mq"
 	mwaasvc "github.com/aws/aws-sdk-go-v2/service/mwaa"
 	neptunesvc "github.com/aws/aws-sdk-go-v2/service/neptune"
+	networkmonitorsvc "github.com/aws/aws-sdk-go-v2/service/networkmonitor"
 	opensearchsvc "github.com/aws/aws-sdk-go-v2/service/opensearch"
 	organizationssvc "github.com/aws/aws-sdk-go-v2/service/organizations"
 	personalizesvc "github.com/aws/aws-sdk-go-v2/service/personalize"
@@ -2457,12 +2457,6 @@ func createDirectoryServiceClient(t *testing.T) *directoryservicesvc.Client {
 	return createClientWithEndpoint(t, directoryservicesvc.NewFromConfig, endpoint)
 }
 
-func createDLMClient(t *testing.T) *dlmsvc.Client {
-	t.Helper()
-
-	return createClientWithEndpoint(t, dlmsvc.NewFromConfig, endpoint)
-}
-
 func createForecastClient(t *testing.T) *forecastsvc.Client {
 	t.Helper()
 
@@ -2548,4 +2542,10 @@ func createWorkMailClient(t *testing.T) *workmailsvc.Client {
 	t.Helper()
 
 	return createClientWithEndpoint(t, workmailsvc.NewFromConfig, endpoint)
+}
+
+func createNetworkMonitorClient(t *testing.T) *networkmonitorsvc.Client {
+	t.Helper()
+
+	return createClientWithEndpoint(t, networkmonitorsvc.NewFromConfig, endpoint)
 }

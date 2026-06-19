@@ -1090,11 +1090,52 @@ type detectLabelsResp struct { //nolint:govet // existing issue.
 	OrientationCorrection string       `json:"OrientationCorrection"`
 }
 
-func (h *Handler) handleDetectLabels(_ context.Context, _ *detectLabelsReq) (*detectLabelsResp, error) {
+func (h *Handler) handleDetectLabels(_ context.Context, req *detectLabelsReq) (*detectLabelsResp, error) {
+	minConf := req.MinConfidence
+	if minConf <= 0 {
+		minConf = 50.0
+	}
+	labels := plausibleLabels(minConf, req.MaxLabels)
+
 	return &detectLabelsResp{
-		Labels:                []labelEntry{},
+		Labels:                labels,
 		OrientationCorrection: "ROTATE_0",
 	}, nil
+}
+
+// Synthetic confidence scores for generic scene labels, in descending order.
+const (
+	confPerson     = 95.5
+	confHuman      = 94.8
+	confOutdoor    = 87.3
+	confNature     = 73.2
+	confSky        = 68.9
+	confVegetation = 62.1
+	confAnimal     = 55.4
+)
+
+// plausibleLabels returns a set of generic scene labels above the confidence threshold.
+func plausibleLabels(minConfidence float64, maxLabels int32) []labelEntry {
+	all := []labelEntry{
+		{Name: "Person", Confidence: confPerson},
+		{Name: "Human", Confidence: confHuman},
+		{Name: "Outdoor", Confidence: confOutdoor},
+		{Name: "Nature", Confidence: confNature},
+		{Name: "Sky", Confidence: confSky},
+		{Name: "Vegetation", Confidence: confVegetation},
+		{Name: "Animal", Confidence: confAnimal},
+	}
+	out := make([]labelEntry, 0, len(all))
+	for _, l := range all {
+		if l.Confidence >= minConfidence {
+			out = append(out, l)
+		}
+		if maxLabels > 0 && len(out) >= int(maxLabels) {
+			break
+		}
+	}
+
+	return out
 }
 
 type detectTextReq struct { //nolint:govet // existing issue.
@@ -1114,11 +1155,29 @@ type detectTextResp struct { //nolint:govet // existing issue.
 	TextModelVersion string               `json:"TextModelVersion"`
 }
 
-func (h *Handler) handleDetectText(_ context.Context, _ *detectTextReq) (*detectTextResp, error) {
+func (h *Handler) handleDetectText(_ context.Context, req *detectTextReq) (*detectTextResp, error) {
+	detections := plausibleTextDetections(req)
+
 	return &detectTextResp{
-		TextDetections:   []textDetectionEntry{},
+		TextDetections:   detections,
 		TextModelVersion: "3.1",
 	}, nil
+}
+
+// plausibleTextDetections returns minimal text detection results derived from the image reference.
+func plausibleTextDetections(req *detectTextReq) []textDetectionEntry {
+	// Derive a plausible text value from the image S3 key when available.
+	label := "SAMPLE TEXT"
+	if req.Image.S3Object != nil && req.Image.S3Object.Name != "" {
+		label = req.Image.S3Object.Name
+	}
+
+	const textConfidence = 97.2
+
+	return []textDetectionEntry{
+		{Id: 0, DetectedText: label, Type: "LINE", Confidence: textConfidence},
+		{Id: 1, DetectedText: label, Type: "WORD", Confidence: textConfidence},
+	}
 }
 
 type detectCustomLabelsReq struct {
@@ -1160,10 +1219,20 @@ type detectModerationLabelsResp struct { //nolint:govet // existing issue.
 }
 
 func (h *Handler) handleDetectModerationLabels(
-	_ context.Context, _ *detectModerationLabelsReq,
+	_ context.Context, req *detectModerationLabelsReq,
 ) (*detectModerationLabelsResp, error) {
+	// Default: content is clean. Only return labels if MinConfidence is very low,
+	// which indicates the caller wants to see all possible labels.
+	labels := []moderationLabelEntry{}
+	if req.MinConfidence > 0 && req.MinConfidence <= 10.0 {
+		const suggestiveConfidence = 7.5
+		labels = []moderationLabelEntry{
+			{Name: "Suggestive", ParentName: "", Confidence: suggestiveConfidence},
+		}
+	}
+
 	return &detectModerationLabelsResp{
-		ModerationLabels:       []moderationLabelEntry{},
+		ModerationLabels:       labels,
 		ModerationModelVersion: "4.0",
 	}, nil
 }

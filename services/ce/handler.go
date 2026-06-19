@@ -12,6 +12,8 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -25,7 +27,7 @@ const (
 	defaultGranularity      = "MONTHLY"
 	handlerZeroAmount       = "0.0000"
 	handlerSavingsPlansType = "COMPUTE_SP"
-	handlerRegionDefault    = "us-east-1"
+	handlerRegionDefault    = config.DefaultRegion
 	handlerCoverPct         = "65.0000"
 	handlerROI              = "25.0000"
 	handlerSPUtilPct        = "85.0000"
@@ -293,6 +295,15 @@ func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 			h.handleUpdateCostAllocationTagsStatus,
 		),
 	}
+}
+
+// ceRegion returns the request-scoped region from ctx, falling back to the handler default.
+func ceRegion(ctx context.Context) string {
+	if r := awsmeta.Region(ctx); r != "" {
+		return r
+	}
+
+	return handlerRegionDefault
 }
 
 func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
@@ -1675,7 +1686,7 @@ type getSavingsPlansCoverageOutput struct {
 }
 
 func (h *Handler) handleGetSavingsPlansCoverage(
-	_ context.Context,
+	ctx context.Context,
 	in *getSavingsPlansCoverageInput,
 ) (*getSavingsPlansCoverageOutput, error) {
 	start, end := defaultStartDate, defaultEndDate
@@ -1694,7 +1705,7 @@ func (h *Handler) handleGetSavingsPlansCoverage(
 		{
 			Attributes: map[string]string{
 				"SavingsPlansType": handlerSavingsPlansType,
-				"Region":           "us-east-1",
+				"Region":           ceRegion(ctx),
 			},
 			Coverage: map[string]string{
 				"OnDemandCost":              spUtil.Savings.OnDemandCostEquivalent,
@@ -1739,7 +1750,7 @@ type getSavingsPlansPurchaseRecommendationOutput struct {
 }
 
 func (h *Handler) handleGetSavingsPlansPurchaseRecommendation(
-	_ context.Context,
+	ctx context.Context,
 	in *getSavingsPlansPurchaseRecommendationInput,
 ) (*getSavingsPlansPurchaseRecommendationOutput, error) {
 	end := "2024-01-01"
@@ -1760,11 +1771,11 @@ func (h *Handler) handleGetSavingsPlansPurchaseRecommendation(
 			RecommendationDetails: []map[string]any{
 				{
 					"SavingsPlansDetails": map[string]string{
-						"Region":         "us-east-1",
+						"Region":         ceRegion(ctx),
 						"InstanceFamily": "m5",
 						"OfferingId":     "synthetic-sp-offer-1",
 					},
-					"AccountId":             "000000000000",
+					"AccountId":             awsmeta.Account(ctx),
 					"UpfrontCost":           handlerZeroAmount,
 					"EstimatedROI":          handlerROI,
 					handlerCurrencyCode:     metricUnitUSD,

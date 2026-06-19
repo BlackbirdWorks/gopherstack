@@ -405,3 +405,42 @@ func TestDetective_Tags(t *testing.T) { //nolint:paralleltest // existing issue.
 		})
 	}
 }
+
+func TestDetective_UnknownOperation_Returns400(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	tests := []struct {
+		name     string
+		method   string
+		path     string
+		wantCode int
+	}{
+		{
+			name:     "unknown POST path returns 400 InvalidInputException",
+			method:   http.MethodPost,
+			path:     "/unknown/operation",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "DELETE on non-tag path returns 400",
+			method:   http.MethodDelete,
+			path:     "/graph",
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := doRequest(t, h, tc.method, tc.path, map[string]any{})
+			assert.Equal(t, tc.wantCode, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			assert.Equal(t, "InvalidInputException", resp["__type"])
+		})
+	}
+}

@@ -399,3 +399,55 @@ func TestCreateResourceARNsFallBackToDefaultRegion(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "arn:aws:iotanalytics:us-east-1:000000000000:channel/ch2", ch.ARN)
 }
+
+func TestResolveARNResource_CrossRegion(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		arn     string
+		wantErr bool
+	}{
+		{
+			name:    "channel default region resolves",
+			arn:     "arn:aws:iotanalytics:us-east-1:000000000000:channel/chxr",
+			wantErr: false,
+		},
+		{
+			name:    "channel eu-west-1 cross-region resolves",
+			arn:     "arn:aws:iotanalytics:eu-west-1:111122223333:channel/chxr",
+			wantErr: false,
+		},
+		{
+			name:    "datastore ap-southeast-2 cross-region resolves",
+			arn:     "arn:aws:iotanalytics:ap-southeast-2:999988887777:datastore/dsxr",
+			wantErr: false,
+		},
+		{
+			name:    "unknown resource type not found",
+			arn:     "arn:aws:iotanalytics:us-east-1:000000000000:unknown/chxr",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := iotanalytics.NewInMemoryBackend()
+			ctx := context.Background()
+
+			_, err := b.CreateChannel(ctx, "chxr", nil, nil, nil)
+			require.NoError(t, err)
+			_, err = b.CreateDatastore(ctx, "dsxr", nil, nil, nil, nil, nil)
+			require.NoError(t, err)
+
+			_, err = b.ListTagsForResource(tt.arn)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}

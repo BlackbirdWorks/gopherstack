@@ -64,7 +64,7 @@ func TestJanitor_SweepCompletedExecutions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backend := athena.NewInMemoryBackend()
+			backend := athena.NewInMemoryBackend("", "")
 
 			// Create a query execution with the given completion state.
 			id, err := backend.StartQueryExecution("SELECT 1", "primary",
@@ -93,7 +93,7 @@ func TestJanitor_SweepCompletedExecutions(t *testing.T) {
 func TestJanitor_PreservesActiveExecutions(t *testing.T) {
 	t.Parallel()
 
-	backend := athena.NewInMemoryBackend()
+	backend := athena.NewInMemoryBackend("", "")
 
 	// Create an execution that just completed (within TTL).
 	recentID, err := backend.StartQueryExecution("SELECT 2", "primary",
@@ -123,7 +123,7 @@ func TestJanitor_PreservesActiveExecutions(t *testing.T) {
 func TestJanitor_RunContext(t *testing.T) {
 	t.Parallel()
 
-	backend := athena.NewInMemoryBackend()
+	backend := athena.NewInMemoryBackend("", "")
 	janitor := athena.NewJanitor(backend, 10*time.Millisecond, time.Hour)
 
 	ctx, cancel := context.WithCancel(t.Context())
@@ -176,7 +176,7 @@ func TestAthenaJanitor_TaskTimeout_WithJanitor(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := athena.NewInMemoryBackend()
+			b := athena.NewInMemoryBackend("", "")
 			h := athena.NewHandler(b)
 
 			h.WithJanitor(time.Minute, tt.executionTTL, tt.taskTimeout)
@@ -213,7 +213,7 @@ func TestAthenaJanitor_DefaultInterval(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := athena.NewHandler(athena.NewInMemoryBackend())
+			h := athena.NewHandler(athena.NewInMemoryBackend("", ""))
 			h.WithJanitor(tt.interval, 0)
 
 			assert.Equal(t, tt.want, h.GetJanitorInterval())

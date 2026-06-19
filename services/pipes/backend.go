@@ -1355,6 +1355,10 @@ func (b *InMemoryBackend) completeDeleteTransition(region, name string) {
 	if p.CurrentState == stateDeleting {
 		delete(b.pipeARNIndexStore(region), p.ARN)
 		delete(store, name)
+		// Prune the per-pipe enrichment counter to prevent unbounded growth.
+		if cc := b.enrichmentCallCount[region]; cc != nil {
+			delete(cc, name)
+		}
 	}
 }
 
