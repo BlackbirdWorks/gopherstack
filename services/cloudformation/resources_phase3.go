@@ -553,7 +553,7 @@ func (rc *ResourceCreator) createAPIGatewayV2API(
 		protocolType = "HTTP"
 	}
 
-	api, err := rc.backends.APIGatewayV2.Backend.CreateAPI(apigatewayv2backend.CreateAPIInput{
+	api, err := rc.backends.APIGatewayV2.Backend.CreateAPI(context.Background(), apigatewayv2backend.CreateAPIInput{
 		Name:         name,
 		ProtocolType: protocolType,
 		Description:  strProp(props, "Description", params, physicalIDs),

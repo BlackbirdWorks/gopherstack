@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -705,6 +706,78 @@ func TestPanicRecoveryMiddleware_RecoversPanic(t *testing.T) {
 			_ = wrapped(c)
 
 			assert.Equal(t, tt.wantStatusCode, rec.Code)
+		})
+	}
+}
+
+func TestAWSMetaMiddleware_PopulatesCtxbag(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		authHeader    string
+		accountHeader string
+		defaultRegion string
+		defaultAcct   string
+		wantRegion    string
+		wantAccount   string
+	}{
+		{
+			name:          "falls back to configured defaults",
+			defaultRegion: "eu-west-1",
+			defaultAcct:   "111122223333",
+			wantRegion:    "eu-west-1",
+			wantAccount:   "111122223333",
+		},
+		{
+			name:          "sigv4 scope overrides default region",
+			authHeader:    "AWS4-HMAC-SHA256 Credential=AKIA/20260606/ap-south-1/s3/aws4_request",
+			defaultRegion: "us-east-1",
+			defaultAcct:   "111122223333",
+			wantRegion:    "ap-south-1",
+			wantAccount:   "111122223333",
+		},
+		{
+			name:          "account header overrides configured account",
+			accountHeader: "444455556666",
+			defaultRegion: "us-east-1",
+			defaultAcct:   "111122223333",
+			wantRegion:    "us-east-1",
+			wantAccount:   "444455556666",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var gotRegion, gotAccount string
+
+			handler := func(c *echo.Context) error {
+				ctx := c.Request().Context()
+				gotRegion = awsmeta.Region(ctx)
+				gotAccount = awsmeta.Account(ctx)
+
+				return c.NoContent(http.StatusOK)
+			}
+
+			wrapped := awsMetaMiddleware(tt.defaultRegion, tt.defaultAcct)(handler)
+
+			req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+			if tt.authHeader != "" {
+				req.Header.Set("Authorization", tt.authHeader)
+			}
+
+			if tt.accountHeader != "" {
+				req.Header.Set("X-Amz-Account-Id", tt.accountHeader)
+			}
+
+			rec := httptest.NewRecorder()
+			c := echo.New().NewContext(req, rec)
+
+			require.NoError(t, wrapped(c))
+			assert.Equal(t, tt.wantRegion, gotRegion)
+			assert.Equal(t, tt.wantAccount, gotAccount)
 		})
 	}
 }

@@ -679,7 +679,8 @@ func (h *Handler) handleCreateChannel(c *echo.Context, body []byte) error {
 
 	tags := tagsToMap(req.Tags)
 
-	ch, err := h.Backend.CreateChannel(req.ChannelName, tags, req.ChannelStorage, req.RetentionPeriod)
+	ch, err := h.Backend.CreateChannel(
+		c.Request().Context(), req.ChannelName, tags, req.ChannelStorage, req.RetentionPeriod)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -795,6 +796,7 @@ func (h *Handler) handleCreateDatastore(c *echo.Context, body []byte) error {
 	tags := tagsToMap(req.Tags)
 
 	ds, err := h.Backend.CreateDatastore(
+		c.Request().Context(),
 		req.DatastoreName,
 		tags,
 		req.DatastoreStorage,
@@ -920,6 +922,7 @@ func (h *Handler) handleCreateDataset(c *echo.Context, body []byte) error {
 	tags := tagsToMap(req.Tags)
 
 	ds, err := h.Backend.CreateDataset(
+		c.Request().Context(),
 		req.DatasetName,
 		tags,
 		req.Actions,
@@ -1046,7 +1049,7 @@ func (h *Handler) handleCreatePipeline(c *echo.Context, body []byte) error {
 
 	tags := tagsToMap(req.Tags)
 
-	p, err := h.Backend.CreatePipeline(req.PipelineName, tags, req.PipelineActivities)
+	p, err := h.Backend.CreatePipeline(c.Request().Context(), req.PipelineName, tags, req.PipelineActivities)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}

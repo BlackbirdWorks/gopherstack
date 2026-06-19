@@ -1,6 +1,7 @@
 package apigatewayv2
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/binary"
 	"errors"
@@ -11,10 +12,28 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
-func applyDomainNameDefaults(in []DomainNameConfiguration, domain string) []DomainNameConfiguration {
+// defaultRegion is used for ARNs and execute-api endpoints when the request
+// context carries no region (e.g. an unsigned request).
+const defaultRegion = "us-east-1"
+
+// regionFromCtx returns the request-scoped region from the ctxbag, falling back
+// to the service default so endpoints/ARNs are always well-formed.
+func regionFromCtx(ctx context.Context) string {
+	if r := awsmeta.Region(ctx); r != "" {
+		return r
+	}
+
+	return defaultRegion
+}
+
+func applyDomainNameDefaults(
+	in []DomainNameConfiguration,
+	domain, region string,
+) []DomainNameConfiguration {
 	configs := make([]DomainNameConfiguration, len(in))
 	copy(configs, in)
 
@@ -32,7 +51,7 @@ func applyDomainNameDefaults(in []DomainNameConfiguration, domain string) []Doma
 		}
 
 		if configs[i].APIGatewayDomainName == "" {
-			configs[i].APIGatewayDomainName = domain + ".execute-api.us-east-1.amazonaws.com"
+			configs[i].APIGatewayDomainName = domain + ".execute-api." + region + ".amazonaws.com"
 		}
 
 		if configs[i].HostedZoneID == "" {
@@ -97,7 +116,7 @@ var (
 // StorageBackend is the interface for the API Gateway v2 in-memory store.
 type StorageBackend interface {
 	// APIs
-	CreateAPI(input CreateAPIInput) (*API, error)
+	CreateAPI(ctx context.Context, input CreateAPIInput) (*API, error)
 	GetAPI(apiID string) (*API, error)
 	GetAPIs() ([]API, error)
 	DeleteAPI(apiID string) error
@@ -138,7 +157,7 @@ type StorageBackend interface {
 	UpdateAuthorizer(apiID, authorizerID string, input UpdateAuthorizerInput) (*Authorizer, error)
 
 	// Domain Names
-	CreateDomainName(input CreateDomainNameInput) (*DomainName, error)
+	CreateDomainName(ctx context.Context, input CreateDomainNameInput) (*DomainName, error)
 
 	// API Mappings
 	CreateAPIMapping(domainName string, input CreateAPIMappingInput) (*APIMapping, error)
@@ -178,7 +197,11 @@ type StorageBackend interface {
 	DeleteVpcLink(vpcLinkID string) error
 
 	// Routing rules
-	CreateRoutingRule(domainName string, input CreateRoutingRuleInput) (*RoutingRule, error)
+	CreateRoutingRule(
+		ctx context.Context,
+		domainName string,
+		input CreateRoutingRuleInput,
+	) (*RoutingRule, error)
 	GetRoutingRule(domainName, routingRuleID string) (*RoutingRule, error)
 	ListRoutingRules(domainName string) ([]RoutingRule, error)
 	PutRoutingRule(domainName, routingRuleID string, input PutRoutingRuleInput) (*RoutingRule, error)
@@ -395,7 +418,7 @@ func randomID() string {
 // --- APIs ---
 
 // CreateAPI creates a new HTTP API.
-func (b *InMemoryBackend) CreateAPI(input CreateAPIInput) (*API, error) {
+func (b *InMemoryBackend) CreateAPI(ctx context.Context, input CreateAPIInput) (*API, error) {
 	if input.Name == "" {
 		return nil, fmt.Errorf("%w: name is required", ErrBadRequest)
 	}
@@ -427,7 +450,7 @@ func (b *InMemoryBackend) CreateAPI(input CreateAPIInput) (*API, error) {
 		RouteSelectionExpression:  rse,
 		Version:                   input.Version,
 		Tags:                      copyTags(input.Tags),
-		APIEndpoint:               "https://" + id + ".execute-api.us-east-1.amazonaws.com",
+		APIEndpoint:               "https://" + id + ".execute-api." + regionFromCtx(ctx) + ".amazonaws.com",
 		CreatedDate:               isoTime{time.Now()},
 		APIKeySelectionExpression: input.APIKeySelectionExpression,
 		DisableSchemaValidation:   input.DisableSchemaValidation,
@@ -1383,7 +1406,10 @@ func (b *InMemoryBackend) UpdateAuthorizer(
 // --- Domain Names ---
 
 // CreateDomainName creates a new custom domain name.
-func (b *InMemoryBackend) CreateDomainName(input CreateDomainNameInput) (*DomainName, error) {
+func (b *InMemoryBackend) CreateDomainName(
+	ctx context.Context,
+	input CreateDomainNameInput,
+) (*DomainName, error) {
 	if input.DomainNameValue == "" {
 		return nil, fmt.Errorf("%w: domainName is required", ErrBadRequest)
 	}
@@ -1397,7 +1423,8 @@ func (b *InMemoryBackend) CreateDomainName(input CreateDomainNameInput) (*Domain
 
 	domainNameConfigs := []DomainNameConfiguration{}
 	if len(input.DomainNameConfigurations) > 0 {
-		domainNameConfigs = applyDomainNameDefaults(input.DomainNameConfigurations, input.DomainNameValue)
+		domainNameConfigs = applyDomainNameDefaults(
+			input.DomainNameConfigurations, input.DomainNameValue, regionFromCtx(ctx))
 	}
 
 	dn := &DomainName{
@@ -1810,7 +1837,11 @@ func (b *InMemoryBackend) DeleteVpcLink(vpcLinkID string) error {
 // --- Routing Rules ---
 
 // CreateRoutingRule creates a routing rule under a domain name.
-func (b *InMemoryBackend) CreateRoutingRule(domainName string, input CreateRoutingRuleInput) (*RoutingRule, error) {
+func (b *InMemoryBackend) CreateRoutingRule(
+	ctx context.Context,
+	domainName string,
+	input CreateRoutingRuleInput,
+) (*RoutingRule, error) {
 	b.mu.Lock("CreateRoutingRule")
 	defer b.mu.Unlock()
 
@@ -1822,12 +1853,13 @@ func (b *InMemoryBackend) CreateRoutingRule(domainName string, input CreateRouti
 	}
 	id := randomID()
 	rule := &RoutingRule{
-		RoutingRuleID:  id,
-		RoutingRuleARN: "arn:aws:apigateway:us-east-1::/domainnames/" + domainName + "/routingrules/" + id,
-		DomainName:     domainName,
-		Priority:       input.Priority,
-		Actions:        input.Actions,
-		Conditions:     input.Conditions,
+		RoutingRuleID: id,
+		RoutingRuleARN: "arn:aws:apigateway:" + regionFromCtx(ctx) +
+			"::/domainnames/" + domainName + "/routingrules/" + id,
+		DomainName: domainName,
+		Priority:   input.Priority,
+		Actions:    input.Actions,
+		Conditions: input.Conditions,
 	}
 	b.routingRules[domainName][id] = rule
 

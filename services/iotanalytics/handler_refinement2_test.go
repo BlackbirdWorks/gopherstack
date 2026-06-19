@@ -1,6 +1,7 @@
 package iotanalytics_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -1093,7 +1094,7 @@ func TestRefinement2_BackendDirect_RetentionPeriodValidation(t *testing.T) {
 			t.Parallel()
 
 			b := iotanalytics.NewInMemoryBackend()
-			_, err := b.CreateChannel("ret_ch", nil, nil, tt.retention)
+			_, err := b.CreateChannel(context.Background(), "ret_ch", nil, nil, tt.retention)
 
 			if tt.wantErr {
 				require.Error(t, err)

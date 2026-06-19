@@ -1,10 +1,13 @@
 package iotanalytics_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 
 	"github.com/blackbirdworks/gopherstack/services/iotanalytics"
 )
@@ -52,7 +55,8 @@ func TestInMemoryBackend_Channel(t *testing.T) {
 				require.Error(t, err)
 				assert.Equal(t, iotanalytics.ErrChannelNotFound, err)
 			default:
-				ch, err := b.CreateChannel(tt.channelName, map[string]string{"env": "test"}, nil, nil)
+				ch, err := b.CreateChannel(
+					context.Background(), tt.channelName, map[string]string{"env": "test"}, nil, nil)
 				require.NoError(t, err)
 				assert.Equal(t, tt.channelName, ch.Name)
 				assert.Equal(t, "ACTIVE", ch.Status)
@@ -121,7 +125,7 @@ func TestInMemoryBackend_Datastore(t *testing.T) {
 				require.Error(t, err)
 				assert.Equal(t, iotanalytics.ErrDatastoreNotFound, err)
 			default:
-				ds, err := b.CreateDatastore(tt.datastoreName, nil, nil, nil, nil, nil)
+				ds, err := b.CreateDatastore(context.Background(), tt.datastoreName, nil, nil, nil, nil, nil)
 				require.NoError(t, err)
 				assert.Equal(t, tt.datastoreName, ds.Name)
 				assert.Equal(t, "ACTIVE", ds.Status)
@@ -183,7 +187,7 @@ func TestInMemoryBackend_Dataset(t *testing.T) {
 				require.Error(t, err)
 				assert.Equal(t, iotanalytics.ErrDatasetNotFound, err)
 			default:
-				ds, err := b.CreateDataset(tt.datasetName, nil, nil, nil, nil, nil, nil)
+				ds, err := b.CreateDataset(context.Background(), tt.datasetName, nil, nil, nil, nil, nil, nil)
 				require.NoError(t, err)
 				assert.Equal(t, tt.datasetName, ds.Name)
 
@@ -241,7 +245,7 @@ func TestInMemoryBackend_Pipeline(t *testing.T) {
 				require.Error(t, err)
 				assert.Equal(t, iotanalytics.ErrPipelineNotFound, err)
 			default:
-				p, err := b.CreatePipeline(tt.pipelineName, nil, nil)
+				p, err := b.CreatePipeline(context.Background(), tt.pipelineName, nil, nil)
 				require.NoError(t, err)
 				assert.Equal(t, tt.pipelineName, p.Name)
 
@@ -293,7 +297,7 @@ func TestInMemoryBackend_Tags(t *testing.T) {
 
 			b := iotanalytics.NewInMemoryBackend()
 
-			ch, err := b.CreateChannel(tt.channelName, nil, nil, nil)
+			ch, err := b.CreateChannel(context.Background(), tt.channelName, nil, nil, nil)
 			require.NoError(t, err)
 
 			tagList := make([]iotanalytics.ExportedTagDTO, 0, len(tt.tags))
@@ -325,7 +329,7 @@ func TestInMemoryBackend_DatasetContentCap(t *testing.T) {
 
 	b := iotanalytics.NewInMemoryBackend()
 
-	_, err := b.CreateDataset("capped_ds", nil, nil, nil, nil, nil, nil)
+	_, err := b.CreateDataset(context.Background(), "capped_ds", nil, nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 
 	// Fill to exactly the cap.
@@ -358,4 +362,40 @@ func TestInMemoryBackend_DatasetContentCap(t *testing.T) {
 	// The newest version must be present.
 	_, err = b.GetDatasetContent("capped_ds", newest.VersionID)
 	assert.NoError(t, err, "newest version must be retained")
+}
+
+func TestCreateResourceARNsUseCtxbagRegionAndAccount(t *testing.T) {
+	t.Parallel()
+
+	ctx := awsmeta.Set(context.Background(), &awsmeta.Metadata{
+		Account:   "222233334444",
+		Region:    "eu-west-2",
+		Partition: "aws",
+	})
+
+	b := iotanalytics.NewInMemoryBackend()
+
+	ch, err := b.CreateChannel(ctx, "ch1", nil, nil, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "arn:aws:iotanalytics:eu-west-2:222233334444:channel/ch1", ch.ARN)
+
+	ds, err := b.CreateDatastore(ctx, "ds1", nil, nil, nil, nil, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "arn:aws:iotanalytics:eu-west-2:222233334444:datastore/ds1", ds.ARN)
+
+	p, err := b.CreatePipeline(ctx, "p1", nil, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "arn:aws:iotanalytics:eu-west-2:222233334444:pipeline/p1", p.ARN)
+}
+
+func TestCreateResourceARNsFallBackToDefaultRegion(t *testing.T) {
+	t.Parallel()
+
+	b := iotanalytics.NewInMemoryBackend()
+
+	// Background context carries no ctxbag: region falls back to the service
+	// default and the account to the awsmeta default, keeping ARNs well-formed.
+	ch, err := b.CreateChannel(context.Background(), "ch2", nil, nil, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "arn:aws:iotanalytics:us-east-1:000000000000:channel/ch2", ch.ARN)
 }

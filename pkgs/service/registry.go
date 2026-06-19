@@ -6,6 +6,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 )
 
@@ -90,6 +91,13 @@ func (r *Registry) Register(svc Registerable, mws ...Middleware) error {
 		h = mw(h)
 	}
 
+	// Scope the request logger to this service as the outermost wrapper so it
+	// runs first and every downstream record carries service=<name>. This
+	// derives a child logger on the per-request context (slog.With never
+	// mutates the shared base logger), giving strict req -> service scoping
+	// without any service handler having to opt in.
+	h = withServiceLogger(name, h)
+
 	entry := &Entry{
 		Registerable:   svc,
 		Matcher:        matcher,
@@ -101,6 +109,20 @@ func (r *Registry) Register(svc Registerable, mws ...Middleware) error {
 	r.lookup[name] = entry
 
 	return nil
+}
+
+// withServiceLogger returns a handler that tags the per-request context logger
+// with service=name before delegating to next. logger.WithService derives a new
+// logger via slog.With and stores it on a child of the request context, so the
+// process-wide base logger is never mutated and concurrent requests cannot
+// clobber one another's logger.
+func withServiceLogger(name string, next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c *echo.Context) error {
+		ctx := logger.WithService(c.Request().Context(), name)
+		c.SetRequest(c.Request().WithContext(ctx))
+
+		return next(c)
+	}
 }
 
 // GetAll returns all registered services in registration order.
