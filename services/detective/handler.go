@@ -263,7 +263,7 @@ func (h *Handler) handleREST(c *echo.Context) error { //nolint:cyclop,funlen // 
 	case opUpdateOrganizationConfiguration:
 		return h.handleUpdateOrganizationConfiguration(c)
 	default:
-		return c.JSON(http.StatusNotImplemented, errorResponse("NotImplementedException", "operation not implemented"))
+		return c.JSON(http.StatusBadRequest, errorResponse("InvalidInputException", "unknown operation"))
 	}
 }
 
