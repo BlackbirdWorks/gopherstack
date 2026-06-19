@@ -140,6 +140,9 @@ import (
 	transcribesvc "github.com/aws/aws-sdk-go-v2/service/transcribe"
 	transfersvc "github.com/aws/aws-sdk-go-v2/service/transfer"
 	translatesvc "github.com/aws/aws-sdk-go-v2/service/translate"
+	cleanroomssvc "github.com/aws/aws-sdk-go-v2/service/cleanrooms"
+	networkmonitorsvc "github.com/aws/aws-sdk-go-v2/service/networkmonitor"
+	omicssvc "github.com/aws/aws-sdk-go-v2/service/omics"
 	verifiedpermissionssvc "github.com/aws/aws-sdk-go-v2/service/verifiedpermissions"
 	vpclatticesvc "github.com/aws/aws-sdk-go-v2/service/vpclattice"
 	workmailsvc "github.com/aws/aws-sdk-go-v2/service/workmail"
@@ -2548,4 +2551,22 @@ func createWorkMailClient(t *testing.T) *workmailsvc.Client {
 	t.Helper()
 
 	return createClientWithEndpoint(t, workmailsvc.NewFromConfig, endpoint)
+}
+
+func createCleanRoomsClient(t *testing.T) *cleanroomssvc.Client {
+	t.Helper()
+
+	return createClientWithEndpoint(t, cleanroomssvc.NewFromConfig, endpoint)
+}
+
+func createOmicsClient(t *testing.T) *omicssvc.Client {
+	t.Helper()
+
+	return createClientWithEndpoint(t, omicssvc.NewFromConfig, endpoint)
+}
+
+func createNetworkMonitorClient(t *testing.T) *networkmonitorsvc.Client {
+	t.Helper()
+
+	return createClientWithEndpoint(t, networkmonitorsvc.NewFromConfig, endpoint)
 }
