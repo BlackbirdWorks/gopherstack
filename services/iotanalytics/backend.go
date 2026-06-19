@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 )
 
 const (
@@ -22,7 +23,7 @@ const (
 	maxRetentionDays      = 2147483647
 	// defaultRegion is used when the request context carries no region (e.g.
 	// an unsigned request); ARNs must still be well-formed.
-	defaultRegion = "us-east-1"
+	defaultRegion = config.DefaultRegion
 )
 
 // StorageBackend is the interface for the IoT Analytics backend.

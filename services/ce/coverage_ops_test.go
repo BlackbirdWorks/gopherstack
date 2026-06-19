@@ -1,13 +1,18 @@
 package ce_test
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/services/ce"
 )
 
@@ -766,6 +771,103 @@ func TestCoverage_GetCostAndUsage_AlternateMetrics(t *testing.T) {
 			}
 			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
 			assert.NotEmpty(t, out.ResultsByTime)
+		})
+	}
+}
+
+func doRequestWithMeta(t *testing.T, h *ce.Handler, meta *awsmeta.Metadata, action string, body any) *httptest.ResponseRecorder {
+	t.Helper()
+
+	bodyBytes, err := json.Marshal(body)
+	require.NoError(t, err)
+
+	ctx := awsmeta.Set(context.Background(), meta)
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(bodyBytes)).WithContext(ctx)
+	req.Header.Set("Content-Type", "application/x-amz-json-1.1")
+	req.Header.Set("X-Amz-Target", "AWSInsightsIndexService."+action)
+
+	rec := httptest.NewRecorder()
+	c := echo.New().NewContext(req, rec)
+
+	require.NoError(t, h.Handler()(c))
+
+	return rec
+}
+
+func TestCeRegion_SavingsPlansCoverageUsesCtxRegion(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		region     string
+		wantRegion string
+	}{
+		{name: "default region", region: "us-east-1", wantRegion: "us-east-1"},
+		{name: "eu-west-1 cross-region", region: "eu-west-1", wantRegion: "eu-west-1"},
+		{name: "ap-southeast-2 cross-region", region: "ap-southeast-2", wantRegion: "ap-southeast-2"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := ce.NewHandler(ce.NewInMemoryBackend("000000000000", tt.region))
+			meta := &awsmeta.Metadata{Account: "111122223333", Region: tt.region, Partition: "aws"}
+			rec := doRequestWithMeta(t, h, meta, "GetSavingsPlansCoverage", map[string]any{
+				"TimePeriod":  map[string]string{"Start": "2026-01-01", "End": "2026-02-01"},
+				"Granularity": "MONTHLY",
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out struct {
+				SavingsPlansCoverages []struct {
+					Attributes map[string]string `json:"Attributes"`
+				} `json:"SavingsPlansCoverages"`
+			}
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NotEmpty(t, out.SavingsPlansCoverages)
+			assert.Equal(t, tt.wantRegion, out.SavingsPlansCoverages[0].Attributes["Region"])
+		})
+	}
+}
+
+func TestCeRegion_SavingsPlansPurchaseRecommendationUsesCtxRegion(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		region     string
+		wantRegion string
+	}{
+		{name: "eu-west-2 cross-region", region: "eu-west-2", wantRegion: "eu-west-2"},
+		{name: "us-west-2 cross-region", region: "us-west-2", wantRegion: "us-west-2"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := ce.NewHandler(ce.NewInMemoryBackend("000000000000", tt.region))
+			meta := &awsmeta.Metadata{Account: "222233334444", Region: tt.region, Partition: "aws"}
+			rec := doRequestWithMeta(t, h, meta, "GetSavingsPlansPurchaseRecommendation", map[string]any{
+				"SavingsPlansType":     "COMPUTE_SP",
+				"TermInYears":          "ONE_YEAR",
+				"PaymentOption":        "NO_UPFRONT",
+				"LookbackPeriodInDays": "THIRTY_DAYS",
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out struct {
+				SavingsPlansPurchaseRecommendation struct {
+					RecommendationDetails []map[string]any `json:"SavingsPlansPurchaseRecommendationDetails"`
+				} `json:"SavingsPlansPurchaseRecommendation"`
+			}
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			details := out.SavingsPlansPurchaseRecommendation.RecommendationDetails
+			require.NotEmpty(t, details)
+			spDetails, ok := details[0]["SavingsPlansDetails"].(map[string]any)
+			require.True(t, ok)
+			assert.Equal(t, tt.wantRegion, spDetails["Region"])
 		})
 	}
 }

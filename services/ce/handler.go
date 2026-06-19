@@ -13,6 +13,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -26,7 +27,7 @@ const (
 	defaultGranularity      = "MONTHLY"
 	handlerZeroAmount       = "0.0000"
 	handlerSavingsPlansType = "COMPUTE_SP"
-	handlerRegionDefault    = "us-east-1"
+	handlerRegionDefault    = config.DefaultRegion
 	handlerCoverPct         = "65.0000"
 	handlerROI              = "25.0000"
 	handlerSPUtilPct        = "85.0000"
