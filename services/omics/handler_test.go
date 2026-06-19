@@ -2,7 +2,10 @@ package omics_test
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -641,6 +644,247 @@ func TestOmics_RouteMatcher_TagPaths(t *testing.T) {
 			c := e.NewContext(req, rec)
 			matcher := h.RouteMatcher()
 			assert.Equal(t, tt.wantMatch, matcher(c), "path: %s", tt.path)
+		})
+	}
+}
+
+func doRequestRaw(t *testing.T, h *omics.Handler, method, path string, contentType string, body []byte) *httptest.ResponseRecorder {
+	t.Helper()
+
+	req := httptest.NewRequest(method, path, bytes.NewReader(body))
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+
+	rec := httptest.NewRecorder()
+	e := echo.New()
+	c := e.NewContext(req, rec)
+	require.NoError(t, h.Handler()(c))
+
+	return rec
+}
+
+func TestOmics_GetReference_Binary(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		setup    func(t *testing.T, h *omics.Handler) string // returns reference path
+		wantCode int
+	}{
+		{
+			name: "GetReference returns 404 for unknown store",
+			setup: func(t *testing.T, h *omics.Handler) string {
+				t.Helper()
+				return "/referencestore/unknownstore/reference/unknownref"
+			},
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name: "GetReference returns 404 for unknown reference",
+			setup: func(t *testing.T, h *omics.Handler) string {
+				t.Helper()
+				rec := doRequest(t, h, http.MethodPost, "/referencestore", map[string]any{"name": "s"})
+				require.Equal(t, http.StatusCreated, rec.Code)
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				return fmt.Sprintf("/referencestore/%s/reference/doesnotexist", resp["id"])
+			},
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name: "GetReference returns 200 with binary body for imported reference",
+			setup: func(t *testing.T, h *omics.Handler) string {
+				t.Helper()
+				rec := doRequest(t, h, http.MethodPost, "/referencestore", map[string]any{"name": "s"})
+				require.Equal(t, http.StatusCreated, rec.Code)
+				var storeResp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &storeResp))
+				storeID := storeResp["id"].(string)
+
+				rec2 := doRequest(t, h, http.MethodPost,
+					fmt.Sprintf("/referencestore/%s/importjob", storeID),
+					map[string]any{
+						"roleArn": "arn:aws:iam::000000000000:role/test",
+						"sources": []map[string]any{{"sourceFile": "s3://b/ref.fa", "name": "ref1"}},
+					},
+				)
+				require.Equal(t, http.StatusCreated, rec2.Code)
+
+				// List references to get the created reference ID.
+				rec3 := doRequest(t, h, http.MethodPost,
+					fmt.Sprintf("/referencestore/%s/references", storeID),
+					nil,
+				)
+				require.Equal(t, http.StatusOK, rec3.Code)
+				var listResp map[string]any
+				require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &listResp))
+				refs := listResp["references"].([]any)
+				require.Len(t, refs, 1)
+				refID := refs[0].(map[string]any)["id"].(string)
+
+				return fmt.Sprintf("/referencestore/%s/reference/%s", storeID, refID)
+			},
+			wantCode: http.StatusOK,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler(t)
+			path := tc.setup(t, h)
+			rec := doRequestRaw(t, h, http.MethodGet, path, "", nil)
+			assert.Equal(t, tc.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestOmics_UploadReadSetPart_And_GetReadSet(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		run      func(t *testing.T, h *omics.Handler)
+	}{
+		{
+			name: "UploadReadSetPart missing partNumber returns 400",
+			run: func(t *testing.T, h *omics.Handler) {
+				t.Helper()
+				rec := doRequest(t, h, http.MethodPost, "/sequencestore", map[string]any{"name": "s"})
+				require.Equal(t, http.StatusCreated, rec.Code)
+				var storeResp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &storeResp))
+				storeID := storeResp["id"].(string)
+
+				rec2 := doRequestRaw(t, h, http.MethodPut,
+					fmt.Sprintf("/sequencestore/%s/upload/fakeid/part", storeID),
+					"application/octet-stream",
+					[]byte("data"),
+				)
+				assert.Equal(t, http.StatusBadRequest, rec2.Code)
+			},
+		},
+		{
+			name: "UploadReadSetPart unknown upload returns 404",
+			run: func(t *testing.T, h *omics.Handler) {
+				t.Helper()
+				rec := doRequest(t, h, http.MethodPost, "/sequencestore", map[string]any{"name": "s"})
+				require.Equal(t, http.StatusCreated, rec.Code)
+				var storeResp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &storeResp))
+				storeID := storeResp["id"].(string)
+
+				rec2 := doRequestRaw(t, h, http.MethodPut,
+					fmt.Sprintf("/sequencestore/%s/upload/fakeid/part?partNumber=1&partSource=SOURCE1", storeID),
+					"application/octet-stream",
+					[]byte("data"),
+				)
+				assert.Equal(t, http.StatusNotFound, rec2.Code)
+			},
+		},
+		{
+			name: "UploadReadSetPart returns real SHA256 checksum",
+			run: func(t *testing.T, h *omics.Handler) {
+				t.Helper()
+				rec := doRequest(t, h, http.MethodPost, "/sequencestore", map[string]any{"name": "s"})
+				require.Equal(t, http.StatusCreated, rec.Code)
+				var storeResp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &storeResp))
+				storeID := storeResp["id"].(string)
+
+				rec2 := doRequest(t, h, http.MethodPost,
+					fmt.Sprintf("/sequencestore/%s/upload", storeID),
+					map[string]any{"name": "rs", "sequenceType": "GENERIC"},
+				)
+				require.Equal(t, http.StatusCreated, rec2.Code)
+				var uploadResp map[string]any
+				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &uploadResp))
+				uploadID := uploadResp["uploadId"].(string)
+
+				payload := []byte("ACGT sequence data")
+				expectedSum := sha256.Sum256(payload)
+				expectedChecksum := hex.EncodeToString(expectedSum[:])
+
+				rec3 := doRequestRaw(t, h, http.MethodPut,
+					fmt.Sprintf("/sequencestore/%s/upload/%s/part?partNumber=1&partSource=SOURCE1", storeID, uploadID),
+					"application/octet-stream",
+					payload,
+				)
+				require.Equal(t, http.StatusOK, rec3.Code)
+				var partResp map[string]any
+				require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &partResp))
+				assert.Equal(t, expectedChecksum, partResp["checksum"])
+				assert.Equal(t, "SHA256", partResp["checksumAlgorithm"])
+			},
+		},
+		{
+			name: "GetReadSet streams bytes after complete multipart upload",
+			run: func(t *testing.T, h *omics.Handler) {
+				t.Helper()
+				rec := doRequest(t, h, http.MethodPost, "/sequencestore", map[string]any{"name": "s"})
+				require.Equal(t, http.StatusCreated, rec.Code)
+				var storeResp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &storeResp))
+				storeID := storeResp["id"].(string)
+
+				rec2 := doRequest(t, h, http.MethodPost,
+					fmt.Sprintf("/sequencestore/%s/upload", storeID),
+					map[string]any{"name": "rs", "sequenceType": "GENERIC"},
+				)
+				require.Equal(t, http.StatusCreated, rec2.Code)
+				var uploadResp map[string]any
+				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &uploadResp))
+				uploadID := uploadResp["uploadId"].(string)
+
+				payload := []byte("hello omics")
+				rec3 := doRequestRaw(t, h, http.MethodPut,
+					fmt.Sprintf("/sequencestore/%s/upload/%s/part?partNumber=1&partSource=SOURCE1", storeID, uploadID),
+					"application/octet-stream",
+					payload,
+				)
+				require.Equal(t, http.StatusOK, rec3.Code)
+
+				rec4 := doRequest(t, h, http.MethodPost,
+					fmt.Sprintf("/sequencestore/%s/upload/%s/complete", storeID, uploadID),
+					nil,
+				)
+				require.Equal(t, http.StatusOK, rec4.Code)
+				var rsResp map[string]any
+				require.NoError(t, json.Unmarshal(rec4.Body.Bytes(), &rsResp))
+				rsID := rsResp["id"].(string)
+
+				rec5 := doRequestRaw(t, h, http.MethodGet,
+					fmt.Sprintf("/sequencestore/%s/readset/%s", storeID, rsID),
+					"", nil,
+				)
+				require.Equal(t, http.StatusOK, rec5.Code)
+				assert.Equal(t, payload, rec5.Body.Bytes())
+			},
+		},
+		{
+			name: "GetReadSet returns 404 for unknown read set",
+			run: func(t *testing.T, h *omics.Handler) {
+				t.Helper()
+				rec := doRequest(t, h, http.MethodPost, "/sequencestore", map[string]any{"name": "s"})
+				require.Equal(t, http.StatusCreated, rec.Code)
+				var storeResp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &storeResp))
+				storeID := storeResp["id"].(string)
+
+				rec2 := doRequestRaw(t, h, http.MethodGet,
+					fmt.Sprintf("/sequencestore/%s/readset/doesnotexist", storeID),
+					"", nil,
+				)
+				assert.Equal(t, http.StatusNotFound, rec2.Code)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			tc.run(t, newTestHandler(t))
 		})
 	}
 }

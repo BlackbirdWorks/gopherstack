@@ -2,6 +2,8 @@ package omics
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -67,6 +69,9 @@ type regionState struct {
 	readSetImportJobs     map[string]map[string]*ReadSetImportJob
 	multipartUploads      map[string]map[string]*MultipartReadSetUpload
 	uploadParts           map[string]map[string][]*ReadSetUploadPart
+	uploadPartData        map[string]map[string]map[string]map[int][]byte // storeID→uploadID→source→partNum→bytes
+	readSetBytes          map[string]map[string][]byte                    // storeID→readSetID→bytes
+	referenceBytes        map[string]map[string][]byte                    // storeID→refID→bytes
 	runGroups             map[string]*RunGroup
 	runs                  map[string]*Run
 	runTasks              map[string]map[string]*RunTask
@@ -97,6 +102,9 @@ func newRegionState() *regionState {
 		readSetImportJobs:     make(map[string]map[string]*ReadSetImportJob),
 		multipartUploads:      make(map[string]map[string]*MultipartReadSetUpload),
 		uploadParts:           make(map[string]map[string][]*ReadSetUploadPart),
+		uploadPartData:        make(map[string]map[string]map[string]map[int][]byte),
+		readSetBytes:          make(map[string]map[string][]byte),
+		referenceBytes:        make(map[string]map[string][]byte),
 		runGroups:             make(map[string]*RunGroup),
 		runs:                  make(map[string]*Run),
 		runTasks:              make(map[string]map[string]*RunTask),
@@ -250,6 +258,7 @@ func (b *InMemoryBackend) CreateReferenceStore(
 	st.referenceStores[rs.ID] = rs
 	st.references[rs.ID] = make(map[string]*ReferenceMetadata)
 	st.referenceImportJobs[rs.ID] = make(map[string]*ReferenceImportJob)
+	st.referenceBytes[rs.ID] = make(map[string][]byte)
 
 	if tags != nil {
 		st.tags[rs.Arn] = copyTags(tags)
@@ -276,6 +285,7 @@ func (b *InMemoryBackend) DeleteReferenceStore(id string) error {
 	delete(st.referenceStores, id)
 	delete(st.references, id)
 	delete(st.referenceImportJobs, id)
+	delete(st.referenceBytes, id)
 
 	return nil
 }
@@ -470,6 +480,7 @@ func (b *InMemoryBackend) StartReferenceImportJob(
 			UpdateTime:   time.Now().UTC(),
 		}
 		st.references[referenceStoreID][refID] = ref
+		st.referenceBytes[referenceStoreID][refID] = []byte{}
 	}
 
 	st.referenceImportJobs[referenceStoreID][job.ID] = job
@@ -575,6 +586,8 @@ func (b *InMemoryBackend) CreateSequenceStore(
 	st.readSetImportJobs[ss.ID] = make(map[string]*ReadSetImportJob)
 	st.multipartUploads[ss.ID] = make(map[string]*MultipartReadSetUpload)
 	st.uploadParts[ss.ID] = make(map[string][]*ReadSetUploadPart)
+	st.uploadPartData[ss.ID] = make(map[string]map[string]map[int][]byte)
+	st.readSetBytes[ss.ID] = make(map[string][]byte)
 
 	if tags != nil {
 		st.tags[ss.Arn] = copyTags(tags)
@@ -605,6 +618,8 @@ func (b *InMemoryBackend) DeleteSequenceStore(id string) error {
 	delete(st.readSetImportJobs, id)
 	delete(st.multipartUploads, id)
 	delete(st.uploadParts, id)
+	delete(st.uploadPartData, id)
+	delete(st.readSetBytes, id)
 
 	return nil
 }
@@ -1099,6 +1114,7 @@ func (b *InMemoryBackend) CreateMultipartReadSetUpload(
 	}
 	st.multipartUploads[sequenceStoreID][upload.UploadID] = upload
 	st.uploadParts[sequenceStoreID][upload.UploadID] = nil
+	st.uploadPartData[sequenceStoreID][upload.UploadID] = make(map[string]map[int][]byte)
 
 	result := *upload
 
@@ -1122,6 +1138,7 @@ func (b *InMemoryBackend) AbortMultipartReadSetUpload(sequenceStoreID, uploadID 
 
 	delete(st.multipartUploads[sequenceStoreID], uploadID)
 	delete(st.uploadParts[sequenceStoreID], uploadID)
+	delete(st.uploadPartData[sequenceStoreID], uploadID)
 
 	return nil
 }
@@ -1162,8 +1179,26 @@ func (b *InMemoryBackend) CompleteMultipartReadSetUpload(
 		Tags:         maps.Clone(upload.Tags),
 	}
 	st.readSets[sequenceStoreID][rsID] = rs
+
+	// Concatenate stored part bytes (SOURCE1 then SOURCE2, in part-number order) as the read set body.
+	partData := st.uploadPartData[sequenceStoreID][uploadID]
+	var combined []byte
+	for _, src := range []string{"SOURCE1", "SOURCE2"} {
+		srcParts := partData[src]
+		partNums := make([]int, 0, len(srcParts))
+		for n := range srcParts {
+			partNums = append(partNums, n)
+		}
+		sort.Ints(partNums)
+		for _, n := range partNums {
+			combined = append(combined, srcParts[n]...)
+		}
+	}
+	st.readSetBytes[sequenceStoreID][rsID] = combined
+
 	delete(st.multipartUploads[sequenceStoreID], uploadID)
 	delete(st.uploadParts[sequenceStoreID], uploadID)
+	delete(st.uploadPartData[sequenceStoreID], uploadID)
 
 	result := *rs
 
@@ -1252,6 +1287,87 @@ func (b *InMemoryBackend) ListReadSetUploadParts(
 	}
 
 	return result, outToken, nil
+}
+
+// UploadReadSetPart stores binary data for a single part and returns its SHA256 checksum.
+func (b *InMemoryBackend) UploadReadSetPart(
+	sequenceStoreID, uploadID string,
+	partNumber int,
+	partSource string,
+	data []byte,
+) (string, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	st := b.region(b.defaultRegion)
+
+	if _, ok := st.sequenceStores[sequenceStoreID]; !ok {
+		return "", fmt.Errorf("%w: sequence store %s not found", ErrNotFound, sequenceStoreID)
+	}
+
+	if _, ok := st.multipartUploads[sequenceStoreID][uploadID]; !ok {
+		return "", fmt.Errorf("%w: upload %s not found", ErrNotFound, uploadID)
+	}
+
+	if st.uploadPartData[sequenceStoreID][uploadID] == nil {
+		st.uploadPartData[sequenceStoreID][uploadID] = make(map[string]map[int][]byte)
+	}
+	if st.uploadPartData[sequenceStoreID][uploadID][partSource] == nil {
+		st.uploadPartData[sequenceStoreID][uploadID][partSource] = make(map[int][]byte)
+	}
+	st.uploadPartData[sequenceStoreID][uploadID][partSource][partNumber] = data
+
+	// Update or append the upload part metadata.
+	parts := st.uploadParts[sequenceStoreID][uploadID]
+	found := false
+	for _, p := range parts {
+		if p.PartNumber == partNumber && p.Source == partSource {
+			p.PartSize = int64(len(data))
+			p.LastUpdatedTime = time.Now().UTC()
+			found = true
+			break
+		}
+	}
+	if !found {
+		parts = append(parts, &ReadSetUploadPart{
+			PartNumber:      partNumber,
+			Source:          partSource,
+			PartSize:        int64(len(data)),
+			LastUpdatedTime: time.Now().UTC(),
+		})
+		st.uploadParts[sequenceStoreID][uploadID] = parts
+	}
+
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+// GetReadSetBytes returns the stored binary body for a read set.
+func (b *InMemoryBackend) GetReadSetBytes(sequenceStoreID, id string) ([]byte, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	st := b.region(b.defaultRegion)
+
+	if _, ok := st.readSets[sequenceStoreID][id]; !ok {
+		return nil, fmt.Errorf("%w: read set %s not found", ErrNotFound, id)
+	}
+
+	return st.readSetBytes[sequenceStoreID][id], nil
+}
+
+// GetReferenceBytes returns the stored binary body for a reference.
+func (b *InMemoryBackend) GetReferenceBytes(referenceStoreID, id string) ([]byte, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	st := b.region(b.defaultRegion)
+
+	if _, ok := st.references[referenceStoreID][id]; !ok {
+		return nil, fmt.Errorf("%w: reference %s not found", ErrNotFound, id)
+	}
+
+	return st.referenceBytes[referenceStoreID][id], nil
 }
 
 // ────────────────────────────────────────────────────────────────────────────
