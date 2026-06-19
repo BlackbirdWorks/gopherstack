@@ -155,8 +155,10 @@ from `awsmeta.Region(ctx)` / `awsmeta.Account(ctx)` with a default-region fallba
 Remaining (verify file:line before starting):
 - **API Gateway** — `DomainNameAccessAssociation` ARN hardcodes `us-east-1`
   (`services/apigateway/backend.go:~1666`).
-- **API Gateway v2** — `RoutingRuleARN`/domain-name ARN hardcodes `us-east-1`
-  (`services/apigatewayv2/backend.go:~1826`).
+- **API Gateway v2** — three region-dependent sites, all hardcoded `us-east-1`: the
+  client-visible `execute-api.<region>.amazonaws.com` endpoint hostname in `CreateApi`
+  (`backend.go:~430`) and `CreateDomainName` (`backend.go:~35`), plus the routing-rule ARN
+  in `CreateRoutingRule` (`backend.go:~1826`). Thread `ctx` through all three Create paths.
 - **SecurityHub** — standards ARNs hardcode `us-east-1`
   (`services/securityhub/backend.go:~189-217`).
 - **MemoryDB** (`services/memorydb/handler.go:~1600`) and **Kafka/MSK**
