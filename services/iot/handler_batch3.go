@@ -183,8 +183,11 @@ func resolveCommandOps(path, method string) string {
 			}
 		case pathSplitThree:
 			if parts[1] == pathSegmentExecutions {
-				if method == http.MethodGet {
+				switch method {
+				case http.MethodGet:
 					return opGetCommandExecution
+				case http.MethodDelete:
+					return opDeleteCommandExecution
 				}
 			}
 		}
@@ -268,6 +271,10 @@ func resolveBatch3Op(path, method string) string {
 		return op
 	}
 	if op := resolveCommandOps(path, method); op != unknownOperation {
+		return op
+	}
+
+	if op := resolveRemainingOps(path, method); op != unknownOperation {
 		return op
 	}
 
@@ -1092,5 +1099,5 @@ func (h *Handler) dispatchBatch3Ops(c *echo.Context, op string) (bool, error) {
 		return true, h.handleListCommandExecutions(c)
 	}
 
-	return false, nil
+	return h.dispatchRemainingOps(c, op)
 }

@@ -160,6 +160,12 @@ func resolveProvisioningTemplateOps(path, method string) string {
 		strings.Contains(path, "/versions/") &&
 		method == http.MethodDelete:
 		return opDeleteProvisioningTemplateVersion
+	// GET /provisioning-templates/{templateName}/versions/{versionId} → DescribeProvisioningTemplateVersion
+	case strings.HasPrefix(path, "/provisioning-templates/") &&
+		strings.Contains(path, "/versions/") &&
+		!strings.HasSuffix(path, "/versions") &&
+		method == http.MethodGet:
+		return opDescribeProvisioningTemplateVersion
 	// GET /provisioning-templates/{templateName} → DescribeProvisioningTemplate
 	case strings.HasPrefix(path, "/provisioning-templates/") && method == http.MethodGet:
 		return opDescribeProvisioningTemplate
