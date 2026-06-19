@@ -615,7 +615,7 @@ func TestBackend_StopCalculation_Cancellable(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backend := athena.NewInMemoryBackend()
+			backend := athena.NewInMemoryBackend("", "")
 			sid, _, err := backend.StartSession("primary", "", "",
 				athena.EngineConfiguration{}, athena.SessionConfiguration{}, "")
 			require.NoError(t, err)

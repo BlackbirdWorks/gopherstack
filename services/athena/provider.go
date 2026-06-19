@@ -1,6 +1,7 @@
 package athena
 
 import (
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -22,11 +23,20 @@ func (p *Provider) Name() string { return "Athena" }
 func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	var settings Settings
 
+	region := config.DefaultRegion
+	accountID := config.DefaultAccountID
+
 	if cp, ok := ctx.Config.(ConfigProvider); ok {
 		settings = cp.GetAthenaSettings()
 	}
 
-	backend := NewInMemoryBackend()
+	if cp, ok := ctx.Config.(config.Provider); ok {
+		cfg := cp.GetGlobalConfig()
+		region = cfg.GetRegion()
+		accountID = cfg.GetAccountID()
+	}
+
+	backend := NewInMemoryBackend(region, accountID)
 	handler := NewHandler(backend)
 	handler.WithJanitor(settings.JanitorInterval, settings.ExecutionTTL, ctx.JanitorTimeout)
 

@@ -17,7 +17,7 @@ import (
 func newTestHandler(t *testing.T) *athena.Handler {
 	t.Helper()
 
-	return athena.NewHandler(athena.NewInMemoryBackend())
+	return athena.NewHandler(athena.NewInMemoryBackend("", ""))
 }
 
 func doRequest(t *testing.T, h *athena.Handler, action, body string) *httptest.ResponseRecorder {
@@ -2251,4 +2251,52 @@ func TestHandler_CapacityReservation_UpdateLastAllocation(t *testing.T) {
 	assert.InDelta(t, float64(8), cr["TargetDpus"], 0.001)
 	lastAlloc := cr["LastAllocation"].(map[string]any)
 	assert.Equal(t, "SUCCEEDED", lastAlloc["Status"])
+}
+
+func TestBackend_ARNsUseRegionAndAccount(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		region    string
+		accountID string
+	}{
+		{
+			name:      "default us-east-1",
+			region:    "us-east-1",
+			accountID: "000000000000",
+		},
+		{
+			name:      "eu-west-1 cross-region",
+			region:    "eu-west-1",
+			accountID: "111122223333",
+		},
+		{
+			name:      "ap-southeast-2 cross-region",
+			region:    "ap-southeast-2",
+			accountID: "999988887777",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := athena.NewInMemoryBackend(tt.region, tt.accountID)
+
+			err := b.CreateWorkGroup("my-wg", "test", "ENABLED", athena.WorkGroupConfiguration{}, map[string]string{"env": "test"})
+			require.NoError(t, err)
+
+			wgARN := "arn:aws:athena:" + tt.region + ":" + tt.accountID + ":workgroup/my-wg"
+			gotTags, err := b.ListTagsForResource(wgARN)
+			require.NoError(t, err)
+			require.Len(t, gotTags, 1)
+			assert.Equal(t, "env", gotTags[0].Key)
+
+			presigned, err := b.CreatePresignedNotebookURL("sess-1")
+			require.NoError(t, err)
+			assert.Contains(t, presigned, tt.region)
+			assert.Contains(t, presigned, "sess-1")
+		})
+	}
 }

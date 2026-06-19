@@ -2635,3 +2635,54 @@ func TestAudit_DescribeSnapshots_Pagination(t *testing.T) {
 	assert.Len(t, snaps, 2)
 	assert.NotEmpty(t, resp["NextToken"])
 }
+
+func TestCluster_ShardAZsAndFQDNsUseRegion(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		region string
+	}{
+		{name: "us-east-1 default", region: "us-east-1"},
+		{name: "eu-west-1 cross-region", region: "eu-west-1"},
+		{name: "ap-southeast-2 cross-region", region: "ap-southeast-2"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := memorydb.NewInMemoryBackend("123456789012", tt.region)
+			h := memorydb.NewHandler(b)
+			h.AccountID = "123456789012"
+			h.DefaultRegion = tt.region
+
+			cl := createClusterObj(t, h, map[string]any{
+				"ClusterName": "xr-cluster",
+				"NodeType":    "db.r6g.large",
+				"ACLName":     "open-access",
+				"NumShards":   1,
+				"NumReplicas": 1,
+			})
+
+			shards, ok := cl["Shards"].([]any)
+			require.True(t, ok, "Shards field missing")
+			require.NotEmpty(t, shards)
+
+			shard := shards[0].(map[string]any)
+			nodes, ok := shard["Nodes"].([]any)
+			require.True(t, ok, "Nodes field missing")
+			require.NotEmpty(t, nodes)
+
+			node := nodes[0].(map[string]any)
+			az, _ := node["AvailabilityZone"].(string)
+			assert.True(t, strings.HasPrefix(az, tt.region),
+				"AZ %q should start with region %q", az, tt.region)
+
+			ep := node["Endpoint"].(map[string]any)
+			addr, _ := ep["Address"].(string)
+			assert.Contains(t, addr, ".memorydb."+tt.region+".amazonaws.com",
+				"node FQDN %q should contain region %q", addr, tt.region)
+		})
+	}
+}

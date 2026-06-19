@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -19,11 +20,7 @@ const (
 
 	defaultWorkGroup = "primary"
 	awsDataCatalog   = "AwsDataCatalog"
-	arnRegion        = "us-east-1"
-	arnAccount       = "000000000000"
 	millisToSeconds  = 1000.0
-
-	presignedURLBase = "https://athena.us-east-1.amazonaws.com/notebooks/presigned/"
 
 	stateAuto       = "AUTO"
 	stateSucceeded  = "SUCCEEDED"
@@ -403,11 +400,21 @@ type InMemoryBackend struct {
 	capacityAssignments  map[string]*CapacityAssignmentConfiguration // key: capacity reservation name
 	databases            map[string]map[string]*Database             // catalog -> name -> db
 	tables               map[string]map[string]*TableMetadata        // "catalog/database" -> name -> table
+	region               string
+	accountID            string
 	mu                   *lockmetrics.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend and seeds the default "primary" workgroup.
-func NewInMemoryBackend() *InMemoryBackend {
+func NewInMemoryBackend(region, accountID string) *InMemoryBackend {
+	if region == "" {
+		region = config.DefaultRegion
+	}
+
+	if accountID == "" {
+		accountID = config.DefaultAccountID
+	}
+
 	b := &InMemoryBackend{
 		workGroups:           make(map[string]*WorkGroup),
 		namedQueries:         make(map[string]*NamedQuery),
@@ -425,6 +432,8 @@ func NewInMemoryBackend() *InMemoryBackend {
 		capacityAssignments:  make(map[string]*CapacityAssignmentConfiguration),
 		databases:            make(map[string]map[string]*Database),
 		tables:               make(map[string]map[string]*TableMetadata),
+		region:               region,
+		accountID:            accountID,
 		mu:                   lockmetrics.New("athena"),
 	}
 
@@ -482,12 +491,12 @@ func randomID() string {
 	return string(b)
 }
 
-func workGroupARN(name string) string {
-	return fmt.Sprintf("arn:aws:athena:%s:%s:workgroup/%s", arnRegion, arnAccount, name)
+func (b *InMemoryBackend) workGroupARN(name string) string {
+	return fmt.Sprintf("arn:aws:athena:%s:%s:workgroup/%s", b.region, b.accountID, name)
 }
 
-func dataCatalogARN(name string) string {
-	return fmt.Sprintf("arn:aws:athena:%s:%s:datacatalog/%s", arnRegion, arnAccount, name)
+func (b *InMemoryBackend) dataCatalogARN(name string) string {
+	return fmt.Sprintf("arn:aws:athena:%s:%s:datacatalog/%s", b.region, b.accountID, name)
 }
 
 // --- WorkGroups ---
@@ -546,7 +555,7 @@ func (b *InMemoryBackend) CreateWorkGroup(
 		CreationTime:  now,
 	}
 
-	arn := workGroupARN(name)
+	arn := b.workGroupARN(name)
 	if len(tags) > 0 {
 		b.resourceTags[arn] = copyTags(tags)
 	}
@@ -642,7 +651,7 @@ func (b *InMemoryBackend) DeleteWorkGroup(name string) error {
 	}
 
 	delete(b.workGroups, name)
-	delete(b.resourceTags, workGroupARN(name))
+	delete(b.resourceTags, b.workGroupARN(name))
 
 	return nil
 }
@@ -800,7 +809,7 @@ func (b *InMemoryBackend) CreateDataCatalog(
 		Status:         status,
 	}
 
-	arn := dataCatalogARN(name)
+	arn := b.dataCatalogARN(name)
 	if len(tags) > 0 {
 		b.resourceTags[arn] = copyTags(tags)
 	}
@@ -895,7 +904,7 @@ func (b *InMemoryBackend) DeleteDataCatalog(name string) error {
 	}
 
 	delete(b.dataCatalogs, name)
-	delete(b.resourceTags, dataCatalogARN(name))
+	delete(b.resourceTags, b.dataCatalogARN(name))
 
 	return nil
 }
@@ -1363,7 +1372,7 @@ func (b *InMemoryBackend) CreateNotebook(workGroup, name string, tags map[string
 	b.notebookNames[nameKey] = struct{}{}
 
 	if len(tags) > 0 {
-		notebookARN := fmt.Sprintf("arn:aws:athena:%s:%s:notebook/%s", arnRegion, arnAccount, id)
+		notebookARN := fmt.Sprintf("arn:aws:athena:%s:%s:notebook/%s", b.region, b.accountID, id)
 		b.resourceTags[notebookARN] = copyTags(tags)
 	}
 
@@ -1372,7 +1381,7 @@ func (b *InMemoryBackend) CreateNotebook(workGroup, name string, tags map[string
 
 // CreatePresignedNotebookURL generates a presigned URL for a notebook session.
 func (b *InMemoryBackend) CreatePresignedNotebookURL(sessionID string) (string, error) {
-	return presignedURLBase + sessionID, nil
+	return fmt.Sprintf("https://athena.%s.amazonaws.com/notebooks/presigned/%s", b.region, sessionID), nil
 }
 
 // DeleteNotebook removes a notebook by its ID.
