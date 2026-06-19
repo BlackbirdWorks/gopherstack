@@ -2284,7 +2284,9 @@ func TestBackend_ARNsUseRegionAndAccount(t *testing.T) {
 
 			b := athena.NewInMemoryBackend(tt.region, tt.accountID)
 
-			err := b.CreateWorkGroup("my-wg", "test", "ENABLED", athena.WorkGroupConfiguration{}, map[string]string{"env": "test"})
+			err := b.CreateWorkGroup(
+				"my-wg", "test", "ENABLED", athena.WorkGroupConfiguration{}, map[string]string{"env": "test"},
+			)
 			require.NoError(t, err)
 
 			wgARN := "arn:aws:athena:" + tt.region + ":" + tt.accountID + ":workgroup/my-wg"

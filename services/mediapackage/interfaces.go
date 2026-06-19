@@ -41,7 +41,10 @@ type StorageBackend interface {
 	ListTagsForResource(resourceARN string) (map[string]string, error)
 
 	// PackagingConfiguration CRUD
-	CreatePackagingConfiguration(id, packagingGroupID, description string, tags map[string]string) (*PackagingConfiguration, error)
+	CreatePackagingConfiguration(
+		id, packagingGroupID, description string,
+		tags map[string]string,
+	) (*PackagingConfiguration, error)
 	DescribePackagingConfiguration(id string) (*PackagingConfiguration, error)
 	DeletePackagingConfiguration(id string) error
 	ListPackagingConfigurations(maxResults int, nextToken string) ([]*PackagingConfiguration, string, error)

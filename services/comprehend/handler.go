@@ -550,69 +550,56 @@ func inputTags(input map[string]any) []Tag {
 	return tags
 }
 
-func countSentimentWords(lower string) (posCount, negCount int) {
-	positiveWords := []string{
+func positiveWordList() []string {
+	return []string{
 		"great", "love", "excellent", "wonderful", "amazing", "good", "happy", "best",
 		"fantastic", "awesome", "beautiful", "perfect", "superb", "outstanding", "brilliant",
 		"delightful", "pleased", "enjoy", "liked", "satisfied",
 	}
-	negativeWords := []string{
+}
+
+func negativeWordList() []string {
+	return []string{
 		"bad", "hate", "terrible", "awful", "horrible", "worst", "angry", "sad",
 		"disappointing", "poor", "dreadful", "disgusting", "upset", "frustrating",
 		"dislike", "failed", "useless", "broken", "wrong", "awful",
 	}
-
-	words := strings.Fields(lower)
-	wordSet := make(map[string]bool, len(words))
-	for _, w := range words {
-		wordSet[strings.Trim(w, ".,!?;:")] = true
-	}
-
-	for _, w := range positiveWords {
-		if wordSet[w] || strings.Contains(lower, w) {
-			posCount++
-		}
-	}
-	for _, w := range negativeWords {
-		if wordSet[w] || strings.Contains(lower, w) {
-			negCount++
-		}
-	}
-
-	return posCount, negCount
 }
 
-func classifySentiment(posCount, negCount int) (string, map[string]float64) {
-	var sentiment string
-	var posScore, negScore, neuScore, mixScore float64
-	switch {
-	case posCount > 0 && negCount > 0:
-		sentiment = "MIXED"
-		posScore, negScore = 0.45, 0.45
-		neuScore, mixScore = 0.05, 0.05
-	case posCount > 0:
-		sentiment = "POSITIVE"
-		posScore = 0.92 + float64(posCount)*0.01
-		if posScore > 0.99 {
-			posScore = 0.99
+const (
+	sentimentMixedScore   = 0.45
+	sentimentBaseScore    = 0.92
+	sentimentMinScore     = 0.01
+	sentimentNeutralScore = 0.06
+	sentimentMaxScore     = 0.99
+	sentimentMixedMin     = 0.05
+)
+
+func countSentimentWords(wordSet map[string]bool, lower string, words []string) int {
+	count := 0
+	for _, w := range words {
+		if wordSet[w] || strings.Contains(lower, w) {
+			count++
 		}
-		negScore, neuScore, mixScore = 0.01, 0.06, 0.01
-	case negCount > 0:
-		sentiment = "NEGATIVE"
-		negScore = 0.92 + float64(negCount)*0.01
-		if negScore > 0.99 {
-			negScore = 0.99
-		}
-		posScore, neuScore, mixScore = 0.01, 0.06, 0.01
-	default:
-		sentiment = "NEUTRAL"
-		neuScore = neutralSentimentScore
-		posScore, negScore, mixScore = lowSentimentScore, lowSentimentScore, lowSentimentScore
 	}
 
-	return sentiment, map[string]float64{
-		"Positive": posScore, "Negative": negScore,
-		"Neutral": neuScore, "Mixed": mixScore,
+	return count
+}
+
+func sentimentResult(posCount, negCount int) (string, float64, float64, float64, float64) {
+	switch {
+	case posCount > 0 && negCount > 0:
+		return "MIXED", sentimentMixedScore, sentimentMixedScore, sentimentMixedMin, sentimentMixedMin
+	case posCount > 0:
+		ps := min(sentimentBaseScore+float64(posCount)*sentimentMinScore, sentimentMaxScore)
+
+		return "POSITIVE", ps, sentimentMinScore, sentimentNeutralScore, sentimentMinScore
+	case negCount > 0:
+		ns := min(sentimentBaseScore+float64(negCount)*sentimentMinScore, sentimentMaxScore)
+
+		return "NEGATIVE", sentimentMinScore, ns, sentimentNeutralScore, sentimentMinScore
+	default:
+		return "NEUTRAL", lowSentimentScore, lowSentimentScore, neutralSentimentScore, lowSentimentScore
 	}
 }
 
@@ -621,66 +608,91 @@ func (h *Handler) detectSentiment(input map[string]any) (map[string]any, error) 
 	if err != nil {
 		return nil, err
 	}
+	lower := strings.ToLower(text)
+	words := strings.Fields(lower)
+	wordSet := make(map[string]bool, len(words))
+	for _, w := range words {
+		wordSet[strings.Trim(w, ".,!?;:")] = true
+	}
 
-	posCount, negCount := countSentimentWords(strings.ToLower(text))
-	sentiment, score := classifySentiment(posCount, negCount)
+	posCount := countSentimentWords(wordSet, lower, positiveWordList())
+	negCount := countSentimentWords(wordSet, lower, negativeWordList())
+	sentiment, posScore, negScore, neuScore, mixScore := sentimentResult(posCount, negCount)
 
 	return map[string]any{
-		"Sentiment":      sentiment,
-		"SentimentScore": score,
+		"Sentiment": sentiment,
+		"SentimentScore": map[string]float64{
+			"Positive": posScore, "Negative": negScore,
+			"Neutral": neuScore, "Mixed": mixScore,
+		},
 	}, nil
 }
 
-func entityType(word, textLower string) string {
-	orgSuffixes := []string{
+func orgSuffixList() []string {
+	return []string{
 		" inc", " inc.", " corp", " corp.", " ltd", " ltd.", " llc", " co.", " company",
 		" university", " institute", " foundation", " association", " corporation",
 		" group", " holdings", " technologies", " solutions",
 	}
-	locSuffixes := []string{
+}
+
+func locSuffixList() []string {
+	return []string{
 		" street", " avenue", " road", " drive", " boulevard", " lane", " way",
 		" city", " town", " village", " county", " state", " country", " nation",
 		" river", " lake", " mountain", " park",
 	}
-	locPrefixes := []string{
+}
+
+func locPrefixList() []string {
+	return []string{
 		"mount ", "lake ", "north ", "south ", "east ", "west ", "new ",
 	}
-	quantityWords := []string{
+}
+
+func quantityWordList() []string {
+	return []string{
 		"thousand", "million", "billion", "percent", "kg", "lb", "km", "mile",
 	}
-	dateWords := []string{
+}
+
+func dateWordList() []string {
+	return []string{
 		"january", "february", "march", "april", "may", "june", "july", "august",
 		"september", "october", "november", "december", "monday", "tuesday",
 		"wednesday", "thursday", "friday", "saturday", "sunday", "yesterday",
 		"tomorrow", "today",
 	}
+}
 
+func entityType(word, textLower string) string {
 	wl := strings.ToLower(word)
-	for _, sfx := range orgSuffixes {
+	for _, sfx := range orgSuffixList() {
 		if strings.HasSuffix(textLower, wl+sfx) || strings.Contains(textLower, wl+sfx+" ") {
 			return "ORGANIZATION"
 		}
 	}
-	for _, sfx := range locSuffixes {
+	for _, sfx := range locSuffixList() {
 		if strings.HasSuffix(wl, strings.TrimSpace(sfx)) {
 			return "LOCATION"
 		}
 	}
-	for _, pfx := range locPrefixes {
+	for _, pfx := range locPrefixList() {
 		if strings.HasPrefix(wl, strings.TrimSpace(pfx)) {
 			return "LOCATION"
 		}
 	}
-	for _, q := range quantityWords {
+	for _, q := range quantityWordList() {
 		if strings.Contains(wl, q) {
 			return "QUANTITY"
 		}
 	}
-	for _, d := range dateWords {
+	for _, d := range dateWordList() {
 		if strings.EqualFold(word, d) {
 			return "DATE"
 		}
 	}
+
 	return "PERSON"
 }
 
@@ -772,34 +784,45 @@ func (h *Handler) detectDominantLanguage(input map[string]any) (map[string]any, 
 	}, nil
 }
 
-// scriptCounts holds per-script rune tallies for language detection.
+const asciiMaxChar = 127
+
 type scriptCounts struct {
-	cjk, cyrillic, arabic, devanagari, hebrew, latin, nonAscii int
+	cjk, cyrillic, arabic, devanagari, hebrew, latin, nonASCII int
+}
+
+func isCJK(r rune) bool {
+	return (r >= 0x4E00 && r <= 0x9FFF) || // CJK Unified Ideographs
+		(r >= 0x3040 && r <= 0x30FF) || // Hiragana/Katakana
+		(r >= 0xAC00 && r <= 0xD7AF) // Hangul
+}
+
+func isLatinLetter(r rune) bool {
+	return (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z')
+}
+
+func classifyRune(r rune, c *scriptCounts) {
+	switch {
+	case isCJK(r):
+		c.cjk++
+	case r >= 0x0400 && r <= 0x04FF: // Cyrillic
+		c.cyrillic++
+	case r >= 0x0600 && r <= 0x06FF: // Arabic
+		c.arabic++
+	case r >= 0x0590 && r <= 0x05FF: // Hebrew
+		c.hebrew++
+	case r >= 0x0900 && r <= 0x097F: // Devanagari
+		c.devanagari++
+	case isLatinLetter(r):
+		c.latin++
+	case r > asciiMaxChar:
+		c.nonASCII++
+	}
 }
 
 func countScripts(text string) scriptCounts {
 	var c scriptCounts
 	for _, r := range text {
-		switch {
-		case r >= 0x4E00 && r <= 0x9FFF: // CJK Unified Ideographs
-			c.cjk++
-		case r >= 0x3040 && r <= 0x30FF: // Hiragana/Katakana
-			c.cjk++
-		case r >= 0xAC00 && r <= 0xD7AF: // Hangul
-			c.cjk++
-		case r >= 0x0400 && r <= 0x04FF: // Cyrillic
-			c.cyrillic++
-		case r >= 0x0600 && r <= 0x06FF: // Arabic
-			c.arabic++
-		case r >= 0x0590 && r <= 0x05FF: // Hebrew
-			c.hebrew++
-		case r >= 0x0900 && r <= 0x097F: // Devanagari
-			c.devanagari++
-		case r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z':
-			c.latin++
-		case r > 127:
-			c.nonAscii++
-		}
+		classifyRune(r, &c)
 	}
 
 	return c
@@ -807,7 +830,7 @@ func countScripts(text string) scriptCounts {
 
 func dominantLanguage(text string) string {
 	c := countScripts(text)
-	total := c.cjk + c.cyrillic + c.arabic + c.devanagari + c.hebrew + c.nonAscii
+	total := c.cjk + c.cyrillic + c.arabic + c.devanagari + c.hebrew + c.nonASCII
 	if total == 0 {
 		return "en"
 	}
@@ -822,7 +845,7 @@ func dominantLanguage(text string) string {
 		return "hi"
 	case c.hebrew*2 > total:
 		return "he"
-	case c.nonAscii > c.latin:
+	case c.nonASCII > c.latin:
 		return "fr"
 	default:
 		return "en"

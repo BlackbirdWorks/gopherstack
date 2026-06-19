@@ -17,10 +17,10 @@ func TestCreateTable_BillingMode_EnumValidation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
 		billingMode types.BillingMode
-		wantErr     bool
+		name        string
 		wantContain string
+		wantErr     bool
 	}{
 		{
 			name:        "valid_provisioned",
@@ -96,9 +96,10 @@ func TestUpdateTable_GSI_Ceiling(t *testing.T) {
 
 	const gsiCount = 20
 	gsis := make([]types.GlobalSecondaryIndex, gsiCount)
-	attrDefs := []types.AttributeDefinition{
-		{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
-	}
+	attrDefs := make([]types.AttributeDefinition, 0, 1+len(gsis))
+	attrDefs = append(attrDefs, types.AttributeDefinition{
+		AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS,
+	})
 
 	for i := range gsis {
 		an := fmt.Sprintf("gk%d", i)
@@ -124,7 +125,9 @@ func TestUpdateTable_GSI_Ceiling(t *testing.T) {
 		AttributeDefinitions:   attrDefs,
 		GlobalSecondaryIndexes: gsis,
 		BillingMode:            types.BillingModeProvisioned,
-		ProvisionedThroughput:  &types.ProvisionedThroughput{ReadCapacityUnits: aws.Int64(5), WriteCapacityUnits: aws.Int64(5)},
+		ProvisionedThroughput: &types.ProvisionedThroughput{
+			ReadCapacityUnits: aws.Int64(5), WriteCapacityUnits: aws.Int64(5),
+		},
 	})
 	require.NoError(t, err)
 

@@ -39,6 +39,6 @@ func janitorTick(ctx context.Context, b *InMemoryBackend) {
 	b.SweepExpiredTokens()
 
 	if advanced {
-		logger.Load(ctx).Debug("mediaconvert: janitor advanced job phase(s)")
+		logger.Load(ctx).DebugContext(ctx, "mediaconvert: janitor advanced job phase(s)")
 	}
 }

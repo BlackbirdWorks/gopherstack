@@ -3861,6 +3861,7 @@ func (b *InMemoryBackend) StartInputDeviceMaintenanceWindow(deviceID string) err
 	}
 
 	d.MaintenanceWindowActive = true
+
 	return nil
 }
 

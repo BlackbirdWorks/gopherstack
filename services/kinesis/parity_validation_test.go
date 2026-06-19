@@ -15,10 +15,10 @@ func TestCreateStream_ShardCount_Validation(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		shardCount int
 		streamMode string
-		wantCode   int
 		wantType   string
+		shardCount int
+		wantCode   int
 	}{
 		{
 			name:       "valid_provisioned_shard_1",

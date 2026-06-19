@@ -272,10 +272,10 @@ func TestListClusterAlerts(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		setupCluster  bool
 		forceState    string
-		wantStatus    int
 		wantAlertCode string
+		wantStatus    int
+		setupCluster  bool
 		wantEmpty     bool
 	}{
 		{

@@ -711,8 +711,8 @@ func TestCreateWirelessGatewayTaskDefinition_ARNUsesRegionAndAccount(t *testing.
 			b := iotwireless.NewInMemoryBackend()
 			def, err := b.CreateWirelessGatewayTaskDefinition(tt.accountID, tt.region, "taskdef", false)
 			require.NoError(t, err)
-			assert.True(t, len(def.ARN) > len(tt.wantARN), "ARN too short")
-			assert.True(t, def.ARN[:len(tt.wantARN)] == tt.wantARN,
+			assert.Greater(t, len(def.ARN), len(tt.wantARN), "ARN too short")
+			assert.Equal(t, tt.wantARN, def.ARN[:len(tt.wantARN)],
 				"ARN %q does not start with %q", def.ARN, tt.wantARN)
 		})
 	}

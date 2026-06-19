@@ -176,7 +176,12 @@ func GrantIndexesConsistent(b *InMemoryBackend) (bool, string) {
 	for region, regionGrants := range b.grants {
 		for grantID, g := range regionGrants {
 			if _, ok := b.grantsByToken[region][g.GrantToken]; !ok {
-				return false, fmt.Sprintf("grant %s token %s missing from grantsByToken[%s]", grantID, g.GrantToken, region)
+				return false, fmt.Sprintf(
+					"grant %s token %s missing from grantsByToken[%s]",
+					grantID,
+					g.GrantToken,
+					region,
+				)
 			}
 
 			if rm := b.grantsByKey[region]; rm == nil {

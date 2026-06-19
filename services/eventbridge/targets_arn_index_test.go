@@ -25,6 +25,7 @@ func newEBBackend(t *testing.T) *eventbridge.InMemoryBackend {
 	t.Helper()
 	b := eventbridge.NewInMemoryBackendWithConfig("000000000000", arnTestRegion)
 	t.Cleanup(func() { b.Close() })
+
 	return b
 }
 

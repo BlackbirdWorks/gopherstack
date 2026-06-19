@@ -190,14 +190,16 @@ func (h *Handler) handleREST(c *echo.Context) error {
 	}
 
 	handlers := map[string]func() error{
-		opCreateChannel:                  func() error { return h.handleCreateChannel(c, body) },
-		opDescribeChannel:                func() error { return h.handleDescribeChannel(c, resource) },
-		opUpdateChannel:                  func() error { return h.handleUpdateChannel(c, resource, body) },
-		opDeleteChannel:                  func() error { return h.handleDeleteChannel(c, resource) },
-		opListChannels:                   func() error { return h.handleListChannels(c) },
-		opConfigureLogs:                  func() error { return h.handleConfigureLogs(c, resource, body) },
-		opRotateChannelCred:              func() error { return h.handleRotateChannelCredentials(c, resource) },
-		opRotateIngestEndpointCred:       func() error { return h.handleRotateIngestEndpointCredentials(c, c.Request().URL.Path) },
+		opCreateChannel:     func() error { return h.handleCreateChannel(c, body) },
+		opDescribeChannel:   func() error { return h.handleDescribeChannel(c, resource) },
+		opUpdateChannel:     func() error { return h.handleUpdateChannel(c, resource, body) },
+		opDeleteChannel:     func() error { return h.handleDeleteChannel(c, resource) },
+		opListChannels:      func() error { return h.handleListChannels(c) },
+		opConfigureLogs:     func() error { return h.handleConfigureLogs(c, resource, body) },
+		opRotateChannelCred: func() error { return h.handleRotateChannelCredentials(c, resource) },
+		opRotateIngestEndpointCred: func() error {
+			return h.handleRotateIngestEndpointCredentials(c, c.Request().URL.Path)
+		},
 		opCreateOriginEndpoint:           func() error { return h.handleCreateOriginEndpoint(c, body) },
 		opDescribeOriginEndpoint:         func() error { return h.handleDescribeOriginEndpoint(c, resource) },
 		opUpdateOriginEndpoint:           func() error { return h.handleUpdateOriginEndpoint(c, resource, body) },
@@ -929,6 +931,7 @@ func (h *Handler) handleCreatePackagingConfiguration(c *echo.Context, body map[s
 	if err != nil {
 		return h.mapError(c, err)
 	}
+
 	return c.JSON(http.StatusCreated, toPackagingConfigOutput(pc))
 }
 
@@ -937,6 +940,7 @@ func (h *Handler) handleDescribePackagingConfiguration(c *echo.Context, id strin
 	if err != nil {
 		return h.mapError(c, err)
 	}
+
 	return c.JSON(http.StatusOK, toPackagingConfigOutput(pc))
 }
 
@@ -944,6 +948,7 @@ func (h *Handler) handleDeletePackagingConfiguration(c *echo.Context, id string)
 	if err := h.Backend.DeletePackagingConfiguration(id); err != nil {
 		return h.mapError(c, err)
 	}
+
 	return c.JSON(http.StatusAccepted, map[string]any{})
 }
 
@@ -962,6 +967,7 @@ func (h *Handler) handleListPackagingConfigurations(c *echo.Context) error {
 	if nextToken != "" {
 		resp["nextToken"] = nextToken
 	}
+
 	return c.JSON(http.StatusOK, resp)
 }
 
@@ -970,6 +976,7 @@ func (h *Handler) handlePutChannelLifecyclePolicy(c *echo.Context, channelID str
 	if err := h.Backend.PutChannelLifecyclePolicy(channelID, policy); err != nil {
 		return h.mapError(c, err)
 	}
+
 	return c.JSON(http.StatusOK, map[string]any{})
 }
 
@@ -978,6 +985,7 @@ func (h *Handler) handleGetChannelLifecyclePolicy(c *echo.Context, channelID str
 	if err != nil {
 		return h.mapError(c, err)
 	}
+
 	return c.JSON(http.StatusOK, map[string]any{"policy": policy})
 }
 

@@ -622,7 +622,7 @@ func (b *InMemoryBackend) CreateFunctionURLConfig(
 			delete(b.functionURLServers, functionName)
 
 			go func(s *functionURLServer) {
-				shutdownCtx, cancel := context.WithTimeout(context.Background(), containerShutdownTimeout)
+				shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), containerShutdownTimeout)
 				defer cancel()
 				_ = s.server.Shutdown(shutdownCtx)
 
@@ -659,7 +659,10 @@ func (b *InMemoryBackend) allocateAndStartURLServerUnlocked(ctx context.Context,
 
 // doAllocateAndStart is the core port-alloc + listener startup logic used by
 // allocateAndStartURLServerUnlocked.
-func (b *InMemoryBackend) doAllocateAndStart(ctx context.Context, functionName string) (string, *functionURLServer, error) {
+func (b *InMemoryBackend) doAllocateAndStart(
+	ctx context.Context,
+	functionName string,
+) (string, *functionURLServer, error) {
 	if b.portAlloc == nil {
 		return fmt.Sprintf("http://localhost/%s/", functionName), nil, nil
 	}
@@ -741,7 +744,11 @@ const functionURLReadHeaderTimeout = 30 * time.Second
 
 // startFunctionURLServer starts an HTTP server on the given port that converts HTTP requests
 // to Lambda invocation events and returns the function's response.
-func (b *InMemoryBackend) startFunctionURLServer(ctx context.Context, functionName string, port int) (*functionURLServer, error) {
+func (b *InMemoryBackend) startFunctionURLServer(
+	ctx context.Context,
+	functionName string,
+	port int,
+) (*functionURLServer, error) {
 	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
 	lc := &net.ListenConfig{}
 	ln, err := lc.Listen(context.Background(), "tcp", addr)
@@ -761,7 +768,7 @@ func (b *InMemoryBackend) startFunctionURLServer(ctx context.Context, functionNa
 
 	go func() {
 		if serveErr := srv.Serve(ln); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
-			log.Warn("lambda: function URL server stopped", "function", functionName, "error", serveErr)
+			log.WarnContext(ctx, "lambda: function URL server stopped", "function", functionName, "error", serveErr)
 		}
 	}()
 

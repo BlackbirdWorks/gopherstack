@@ -142,7 +142,10 @@ type StorageBackend interface {
 	CreateWirelessGatewayTask(gatewayID, taskDefID string) (*GatewayTask, error)
 	GetWirelessGatewayTask(gatewayID string) (*GatewayTask, error)
 	DeleteWirelessGatewayTask(gatewayID string) error
-	CreateWirelessGatewayTaskDefinition(accountID, region, name string, autoCreateTasks bool) (*GatewayTaskDefinition, error)
+	CreateWirelessGatewayTaskDefinition(
+		accountID, region, name string,
+		autoCreateTasks bool,
+	) (*GatewayTaskDefinition, error)
 	GetWirelessGatewayTaskDefinition(id string) (*GatewayTaskDefinition, error)
 	ListWirelessGatewayTaskDefinitions() []*GatewayTaskDefinition
 	DeleteWirelessGatewayTaskDefinition(id string) error

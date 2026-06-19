@@ -635,8 +635,8 @@ func TestRestoreFromSnapshot_TableDriven(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
 		setup    func(h *directoryservice.Handler) string
+		name     string
 		wantCode int
 	}{
 		{
@@ -651,6 +651,7 @@ func TestRestoreFromSnapshot_TableDriven(t *testing.T) {
 				snapRec := doRequest(t, h, "CreateSnapshot", map[string]any{"DirectoryId": dirID})
 				var snapResp map[string]any
 				require.NoError(t, json.Unmarshal(snapRec.Body.Bytes(), &snapResp))
+
 				return snapResp["SnapshotId"].(string)
 			},
 			wantCode: http.StatusOK,
@@ -676,6 +677,7 @@ func TestRestoreFromSnapshot_TableDriven(t *testing.T) {
 				require.NoError(t, json.Unmarshal(snapRec.Body.Bytes(), &snapResp))
 				snapID := snapResp["SnapshotId"].(string)
 				doRequest(t, h, "DeleteDirectory", map[string]any{"DirectoryId": dirID})
+
 				return snapID
 			},
 			wantCode: http.StatusBadRequest,

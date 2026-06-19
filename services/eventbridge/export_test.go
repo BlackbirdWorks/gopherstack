@@ -177,7 +177,9 @@ func (b *InMemoryBackend) ARNIndexConsistent() (bool, string) {
 				if rm := b.targetsByARN[region]; rm == nil {
 					return false, fmt.Sprintf("targetsByARN[%s] is nil but canonical has entries", region)
 				} else if _, ok := rm[t.Arn][targetKey]; !ok {
-					return false, fmt.Sprintf("targetKey %s ARN %s missing from targetsByARN[%s]", targetKey, t.Arn, region)
+					return false, fmt.Sprintf(
+						"targetKey %s ARN %s missing from targetsByARN[%s]", targetKey, t.Arn, region,
+					)
 				}
 			}
 		}

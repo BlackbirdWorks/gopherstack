@@ -360,8 +360,8 @@ func TestStartInputDeviceMaintenanceWindow(t *testing.T) {
 	tests := []struct {
 		name       string
 		deviceID   string
-		claim      bool
 		wantStatus int
+		claim      bool
 		checkFlag  bool
 	}{
 		{
@@ -388,7 +388,13 @@ func TestStartInputDeviceMaintenanceWindow(t *testing.T) {
 				claimTestDevice(t, h, tt.deviceID)
 			}
 
-			rec := doRequest(t, h, http.MethodPost, "/prod/inputDevices/"+tt.deviceID+"/startInputDeviceMaintenanceWindow", nil)
+			rec := doRequest(
+				t,
+				h,
+				http.MethodPost,
+				"/prod/inputDevices/"+tt.deviceID+"/startInputDeviceMaintenanceWindow",
+				nil,
+			)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.checkFlag {

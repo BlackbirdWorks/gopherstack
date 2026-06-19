@@ -1117,8 +1117,8 @@ func (b *InMemoryBackend) PutTargets(ctx context.Context,
 			}
 		}
 		// Maintain ARN index: remove old entry if this target ID already exists with a different ARN.
-		if existing, exists := targetsStore[key][t.ID]; exists && existing.Arn != t.Arn {
-			b.arnIndexRemoveTarget(region, existing.Arn, key)
+		if existingTarget, targetExists := targetsStore[key][t.ID]; targetExists && existingTarget.Arn != t.Arn {
+			b.arnIndexRemoveTarget(region, existingTarget.Arn, key)
 		}
 		cp := t
 		targetsStore[key][t.ID] = &cp
@@ -2440,8 +2440,8 @@ func (b *InMemoryBackend) ListRuleNamesByTarget(ctx context.Context,
 	prefix := ebBusKey(eventBusName) + "/"
 	var names []string
 	for targetKey := range b.targetsByARN[region][targetARN] {
-		if strings.HasPrefix(targetKey, prefix) {
-			names = append(names, strings.TrimPrefix(targetKey, prefix))
+		if after, ok := strings.CutPrefix(targetKey, prefix); ok {
+			names = append(names, after)
 		}
 	}
 

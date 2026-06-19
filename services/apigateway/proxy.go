@@ -612,7 +612,9 @@ func (h *Handler) runRequestValidator(
 }
 
 // buildAuthorizerEvent constructs the event payload for the Lambda authorizer.
-func (h *Handler) buildAuthorizerEvent(ctx context.Context, r *http.Request, auth *Authorizer, apiID, stageName string) AuthorizerEvent {
+func (h *Handler) buildAuthorizerEvent(
+	ctx context.Context, r *http.Request, auth *Authorizer, apiID, stageName string,
+) AuthorizerEvent {
 	headers := make(map[string]string)
 	for k, vs := range r.Header {
 		if len(vs) > 0 {

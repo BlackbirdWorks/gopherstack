@@ -352,7 +352,10 @@ type StorageBackend interface {
 	DeleteIntegration(name string) error
 	ListIntegrations() []*Integration
 	ModifyIntegration(name string) error
-	CreateIntegrationResourceProperty(resourceArn string, sourceProps, targetProps map[string]string) (*IntegrationResourceProperty, error)
+	CreateIntegrationResourceProperty(
+		resourceArn string,
+		sourceProps, targetProps map[string]string,
+	) (*IntegrationResourceProperty, error)
 	GetIntegrationResourceProperty(resourceArn string) (*IntegrationResourceProperty, error)
 	CreateIntegrationTableProperties(resourceArn, tableName string, sourceConfig, targetConfig map[string]any) error
 	GetIntegrationTableProperties(resourceArn, tableName string) (*IntegrationTableProperties, error)

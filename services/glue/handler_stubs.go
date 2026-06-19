@@ -440,9 +440,9 @@ func (h *Handler) handleCreateIntegration(
 
 // createIntegrationResourcePropertyInput holds input for CreateIntegrationResourceProperty.
 type createIntegrationResourcePropertyInput struct {
-	ResourceArn      string            `json:"ResourceArn"`
 	SourceProperties map[string]string `json:"SourceProperties,omitempty"`
 	TargetProperties map[string]string `json:"TargetProperties,omitempty"`
+	ResourceArn      string            `json:"ResourceArn"`
 }
 
 // createIntegrationResourcePropertyOutput holds the result for CreateIntegrationResourceProperty.
@@ -472,10 +472,10 @@ func (h *Handler) handleCreateIntegrationResourceProperty(
 
 // createIntegrationTablePropertiesInput holds input for CreateIntegrationTableProperties.
 type createIntegrationTablePropertiesInput struct {
-	ResourceArn       string         `json:"ResourceArn"`
-	TableName         string         `json:"TableName"`
 	SourceTableConfig map[string]any `json:"SourceTableConfig,omitempty"`
 	TargetTableConfig map[string]any `json:"TargetTableConfig,omitempty"`
+	ResourceArn       string         `json:"ResourceArn"`
+	TableName         string         `json:"TableName"`
 }
 
 func (h *Handler) handleCreateIntegrationTableProperties(
@@ -1790,31 +1790,31 @@ func (h *Handler) handleGetDataQualityModel(
 
 // getDataQualityModelResultInput holds input for GetDataQualityModelResult.
 type getDataQualityModelResultInput struct {
-	ProfileId   string `json:"ProfileId"`
-	StatisticId string `json:"StatisticId,omitempty"`
+	ProfileID   string `json:"ProfileId"`
+	StatisticID string `json:"StatisticId,omitempty"`
 }
 
 // getDataQualityModelResultOutput holds the result for GetDataQualityModelResult.
 type getDataQualityModelResultOutput struct {
-	CompletedOn float64 `json:"CompletedOn"`
-	ProfileId   string  `json:"ProfileId,omitempty"`
+	ProfileID   string  `json:"ProfileId,omitempty"`
 	Status      string  `json:"Status,omitempty"`
+	CompletedOn float64 `json:"CompletedOn"`
 }
 
 func (h *Handler) handleGetDataQualityModelResult(
 	_ context.Context,
 	in *getDataQualityModelResultInput,
 ) (*getDataQualityModelResultOutput, error) {
-	if in.ProfileId == "" {
+	if in.ProfileID == "" {
 		return nil, fmt.Errorf("%w: ProfileId is required", ErrValidation)
 	}
 
-	status, err := h.Backend.GetDataQualityModelResult(in.ProfileId)
+	status, err := h.Backend.GetDataQualityModelResult(in.ProfileID)
 	if err != nil {
 		return nil, err
 	}
 
-	return &getDataQualityModelResultOutput{ProfileId: in.ProfileId, Status: status}, nil
+	return &getDataQualityModelResultOutput{ProfileID: in.ProfileID, Status: status}, nil
 }
 
 // getDataQualityResultInput holds input for GetDataQualityResult.
@@ -1962,9 +1962,9 @@ type getIntegrationResourcePropertyInput struct {
 
 // getIntegrationResourcePropertyOutput holds the result for GetIntegrationResourceProperty.
 type getIntegrationResourcePropertyOutput struct {
-	ResourceArn      string            `json:"ResourceArn"`
 	SourceProperties map[string]string `json:"SourceProperties,omitempty"`
 	TargetProperties map[string]string `json:"TargetProperties,omitempty"`
+	ResourceArn      string            `json:"ResourceArn"`
 }
 
 func (h *Handler) handleGetIntegrationResourceProperty(
@@ -1991,10 +1991,10 @@ type getIntegrationTablePropertiesInput struct {
 
 // getIntegrationTablePropertiesOutput holds the result for GetIntegrationTableProperties.
 type getIntegrationTablePropertiesOutput struct {
-	ResourceArn       string         `json:"ResourceArn"`
-	TableName         string         `json:"TableName"`
 	SourceTableConfig map[string]any `json:"SourceTableConfig,omitempty"`
 	TargetTableConfig map[string]any `json:"TargetTableConfig,omitempty"`
+	ResourceArn       string         `json:"ResourceArn"`
+	TableName         string         `json:"TableName"`
 }
 
 func (h *Handler) handleGetIntegrationTableProperties(

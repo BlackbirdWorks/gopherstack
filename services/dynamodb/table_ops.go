@@ -58,7 +58,8 @@ func validateCreateTableInput(input *dynamodb.CreateTableInput) error {
 		input.BillingMode != types.BillingModeProvisioned &&
 		input.BillingMode != types.BillingModePayPerRequest {
 		return NewValidationException(fmt.Sprintf(
-			"1 validation error detected: Value '%s' at 'billingMode' failed to satisfy constraint: Member must satisfy enum value set: [PROVISIONED, PAY_PER_REQUEST]",
+			"1 validation error detected: Value '%s' at 'billingMode' failed to satisfy constraint:"+
+				" Member must satisfy enum value set: [PROVISIONED, PAY_PER_REQUEST]",
 			input.BillingMode,
 		))
 	}

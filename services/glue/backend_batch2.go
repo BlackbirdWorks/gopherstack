@@ -785,13 +785,16 @@ func (b *InMemoryBackend) DeleteGlueIdentityCenterConfiguration() error {
 // IntegrationResourceProperty stores resource-level properties for a Zero-ETL integration.
 type IntegrationResourceProperty struct {
 	CreatedAt        time.Time         `json:"CreateTime"`
-	ResourceArn      string            `json:"ResourceArn"`
 	SourceProperties map[string]string `json:"SourceProperties,omitempty"`
 	TargetProperties map[string]string `json:"TargetProperties,omitempty"`
+	ResourceArn      string            `json:"ResourceArn"`
 }
 
 // CreateIntegrationResourceProperty stores properties for an integration resource.
-func (b *InMemoryBackend) CreateIntegrationResourceProperty(resourceArn string, sourceProps, targetProps map[string]string) (*IntegrationResourceProperty, error) {
+func (b *InMemoryBackend) CreateIntegrationResourceProperty(
+	resourceArn string,
+	sourceProps, targetProps map[string]string,
+) (*IntegrationResourceProperty, error) {
 	if resourceArn == "" {
 		return nil, fmt.Errorf("%w: ResourceArn is required", ErrValidation)
 	}
@@ -831,14 +834,17 @@ func (b *InMemoryBackend) GetIntegrationResourceProperty(resourceArn string) (*I
 
 // IntegrationTableProperties stores table-level properties for a Zero-ETL integration.
 type IntegrationTableProperties struct {
-	ResourceArn       string         `json:"ResourceArn"`
-	TableName         string         `json:"TableName"`
 	SourceTableConfig map[string]any `json:"SourceTableConfig,omitempty"`
 	TargetTableConfig map[string]any `json:"TargetTableConfig,omitempty"`
+	ResourceArn       string         `json:"ResourceArn"`
+	TableName         string         `json:"TableName"`
 }
 
 // CreateIntegrationTableProperties stores properties for an integration table.
-func (b *InMemoryBackend) CreateIntegrationTableProperties(resourceArn, tableName string, sourceConfig, targetConfig map[string]any) error {
+func (b *InMemoryBackend) CreateIntegrationTableProperties(
+	resourceArn, tableName string,
+	sourceConfig, targetConfig map[string]any,
+) error {
 	if resourceArn == "" || tableName == "" {
 		return fmt.Errorf("%w: ResourceArn and TableName are required", ErrValidation)
 	}
@@ -858,7 +864,9 @@ func (b *InMemoryBackend) CreateIntegrationTableProperties(resourceArn, tableNam
 }
 
 // GetIntegrationTableProperties retrieves stored table properties.
-func (b *InMemoryBackend) GetIntegrationTableProperties(resourceArn, tableName string) (*IntegrationTableProperties, error) {
+func (b *InMemoryBackend) GetIntegrationTableProperties(
+	resourceArn, tableName string,
+) (*IntegrationTableProperties, error) {
 	if resourceArn == "" || tableName == "" {
 		return nil, fmt.Errorf("%w: ResourceArn and TableName are required", ErrValidation)
 	}

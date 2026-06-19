@@ -1330,16 +1330,19 @@ func TestIntegrationResourceProperty(t *testing.T) {
 			wantCreate:  http.StatusBadRequest,
 		},
 		{
-			name:        "create_and_retrieve",
-			createInput: map[string]any{"ResourceArn": "arn:aws:glue:us-east-1:123:resource/r1", "SourceProperties": map[string]any{"key": "val"}},
-			getInput:    map[string]any{"ResourceArn": "arn:aws:glue:us-east-1:123:resource/r1"},
-			wantCreate:  http.StatusOK,
-			wantGet:     http.StatusOK,
+			name: "create_and_retrieve",
+			createInput: map[string]any{
+				"ResourceArn":      "arn:aws:glue:us-east-1:123:resource/r1",
+				"SourceProperties": map[string]any{"key": "val"},
+			},
+			getInput:   map[string]any{"ResourceArn": "arn:aws:glue:us-east-1:123:resource/r1"},
+			wantCreate: http.StatusOK,
+			wantGet:    http.StatusOK,
 		},
 		{
-			name:       "get_missing_returns_400",
-			getInput:   map[string]any{"ResourceArn": "arn:aws:glue:us-east-1:123:resource/no-such"},
-			wantGet:    http.StatusBadRequest,
+			name:     "get_missing_returns_400",
+			getInput: map[string]any{"ResourceArn": "arn:aws:glue:us-east-1:123:resource/no-such"},
+			wantGet:  http.StatusBadRequest,
 		},
 	}
 
@@ -1422,7 +1425,11 @@ func TestDescribeConnectionType(t *testing.T) {
 	}{
 		{name: "missing_type_returns_400", input: map[string]any{}, wantCode: http.StatusBadRequest},
 		{name: "known_type_returns_200", input: map[string]any{"ConnectionType": "JDBC"}, wantCode: http.StatusOK},
-		{name: "custom_type_returns_200", input: map[string]any{"ConnectionType": "CUSTOM_CONN"}, wantCode: http.StatusOK},
+		{
+			name:     "custom_type_returns_200",
+			input:    map[string]any{"ConnectionType": "CUSTOM_CONN"},
+			wantCode: http.StatusOK,
+		},
 	}
 
 	for _, tc := range tests {
@@ -1469,7 +1476,11 @@ func TestGetDataQualityModelResult_Validation(t *testing.T) {
 		wantCode int
 	}{
 		{name: "missing_profile_id_returns_400", input: map[string]any{}, wantCode: http.StatusBadRequest},
-		{name: "with_profile_id_returns_200", input: map[string]any{"ProfileId": "profile-123"}, wantCode: http.StatusOK},
+		{
+			name:     "with_profile_id_returns_200",
+			input:    map[string]any{"ProfileId": "profile-123"},
+			wantCode: http.StatusOK,
+		},
 	}
 
 	for _, tc := range tests {

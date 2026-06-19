@@ -17,13 +17,14 @@ import (
 func TestCreateRole_AssumeRolePolicyDocument_Validation(t *testing.T) {
 	t.Parallel()
 
-	validPolicyDoc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}`
+	validPolicyDoc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow",` +
+		`"Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}`
 
 	tests := []struct {
 		name        string
+		wantErrCode string
 		policyDoc   string
 		wantCode    int
-		wantErrCode string
 	}{
 		{
 			name:      "valid_json_policy_accepted",

@@ -1125,19 +1125,17 @@ func (b *InMemoryBackend) AddPipelineInternal(name string) *Pipeline {
 func (b *InMemoryBackend) resolveARNResource(arn string) bool {
 	// ARN format: arn:aws:iotanalytics:<region>:<account>:<resourceType>/<name>
 	// Parse without assuming a specific region or account.
-	parts := strings.SplitN(arn, ":", 6)
-	if len(parts) != 6 || parts[0] != "arn" || parts[1] != "aws" || parts[2] != "iotanalytics" {
+	const arnSplitParts = 6
+	parts := strings.SplitN(arn, ":", arnSplitParts)
+	if len(parts) != arnSplitParts || parts[0] != "arn" || parts[1] != "aws" || parts[2] != "iotanalytics" {
 		return false
 	}
 
 	resource := parts[5]
-	slash := strings.IndexByte(resource, '/')
-	if slash < 0 {
+	resourceType, name, found := strings.Cut(resource, "/")
+	if !found {
 		return false
 	}
-
-	resourceType := resource[:slash]
-	name := resource[slash+1:]
 
 	switch resourceType {
 	case "channel":

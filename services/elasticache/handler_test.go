@@ -1941,7 +1941,8 @@ func TestCreateCacheCluster_CustomerAZUsesRegion(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, out.CacheCluster)
 			require.NotEmpty(t, out.CacheCluster.CacheNodes)
-			assert.Equal(t, tt.wantAZ, strings.ToLower(aws.ToString(out.CacheCluster.CacheNodes[0].CustomerAvailabilityZone)))
+			assert.Equal(t, tt.wantAZ,
+				strings.ToLower(aws.ToString(out.CacheCluster.CacheNodes[0].CustomerAvailabilityZone)))
 		})
 	}
 }

@@ -18,8 +18,8 @@ func TestKMSGrantsByKeyIndexConsistency(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name   string
 		remove func(t *testing.T, b *kms.InMemoryBackend, keyID, grantID, grantToken string)
+		name   string
 	}{
 		{
 			name: "revoke_by_id",
@@ -211,9 +211,9 @@ func BenchmarkKMSListGrants(b *testing.B) {
 	b.ResetTimer()
 	b.ReportAllocs()
 	for range b.N {
-		out, err := backend.ListGrants(context.Background(), &kms.ListGrantsInput{KeyID: keyID})
-		if err != nil {
-			b.Fatal(err)
+		out, err2 := backend.ListGrants(context.Background(), &kms.ListGrantsInput{KeyID: keyID})
+		if err2 != nil {
+			b.Fatal(err2)
 		}
 		if len(out.Grants) != 100 {
 			b.Fatalf("expected 100 grants, got %d", len(out.Grants))

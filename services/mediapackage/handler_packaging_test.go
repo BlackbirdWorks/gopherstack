@@ -35,7 +35,11 @@ func TestPackagingConfiguration_Create(t *testing.T) {
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(body, &resp))
 				assert.Equal(t, "pc1", resp["id"])
-				assert.Contains(t, resp["arn"], "arn:aws:mediapackage:us-east-1:000000000000:packaging_configurations/pc1")
+				assert.Contains(
+					t,
+					resp["arn"],
+					"arn:aws:mediapackage:us-east-1:000000000000:packaging_configurations/pc1",
+				)
 				assert.Equal(t, "g1", resp["packagingGroupId"])
 				assert.NotEmpty(t, resp["createdAt"])
 			},
@@ -99,12 +103,12 @@ func TestChannelLifecyclePolicy(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body        any
 		name        string
-		createFirst bool
 		method      string
 		channelID   string
-		body        any
 		wantCode    int
+		createFirst bool
 	}{
 		{
 			name:      "put lifecycle policy on missing channel returns 404",

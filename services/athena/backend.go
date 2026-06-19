@@ -384,25 +384,25 @@ type StorageBackend interface {
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	workGroups           map[string]*WorkGroup
-	namedQueries         map[string]*NamedQuery
-	dataCatalogs         map[string]*DataCatalog
-	queryExecutions      map[string]*QueryExecution
-	queryResults         map[string]*sqlResult       // executionID -> computed result set
-	tableData            map[string][]map[string]any // "catalog/database/table" -> rows
-	resourceTags         map[string]map[string]string
-	preparedStatements   map[string]*PreparedStatement // key: "workGroup/name"
 	capacityReservations map[string]*CapacityReservation
-	notebooks            map[string]*Notebook // key: notebookID
-	notebookNames        map[string]struct{}  // key: "workGroup/name", for uniqueness
+	notebookNames        map[string]struct{}
+	dataCatalogs         map[string]*DataCatalog
+	notebooks            map[string]*Notebook
+	queryResults         map[string]*sqlResult
+	tableData            map[string][]map[string]any
+	resourceTags         map[string]map[string]string
+	preparedStatements   map[string]*PreparedStatement
+	namedQueries         map[string]*NamedQuery
+	workGroups           map[string]*WorkGroup
+	queryExecutions      map[string]*QueryExecution
 	sessions             map[string]*Session
 	calculations         map[string]*CalculationExecution
-	capacityAssignments  map[string]*CapacityAssignmentConfiguration // key: capacity reservation name
-	databases            map[string]map[string]*Database             // catalog -> name -> db
-	tables               map[string]map[string]*TableMetadata        // "catalog/database" -> name -> table
-	region               string
-	accountID            string
+	capacityAssignments  map[string]*CapacityAssignmentConfiguration
+	databases            map[string]map[string]*Database
+	tables               map[string]map[string]*TableMetadata
 	mu                   *lockmetrics.RWMutex
+	accountID            string
+	region               string
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend and seeds the default "primary" workgroup.

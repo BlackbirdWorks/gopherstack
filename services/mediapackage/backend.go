@@ -46,11 +46,11 @@ type storedIngestEndpoint struct {
 
 type storedChannel struct {
 	Tags            map[string]string      `json:"tags"`
+	LifecyclePolicy *string                `json:"lifecyclePolicy,omitempty"`
 	ARN             string                 `json:"arn"`
 	ID              string                 `json:"id"`
 	Description     string                 `json:"description"`
 	IngestEndpoints []storedIngestEndpoint `json:"ingestEndpoints"`
-	LifecyclePolicy *string                `json:"lifecyclePolicy,omitempty"`
 }
 
 func (c *storedChannel) toChannel() *Channel {
@@ -142,6 +142,7 @@ type storedPackagingConfiguration struct {
 func (p *storedPackagingConfiguration) toPackagingConfiguration() *PackagingConfiguration {
 	tags := make(map[string]string, len(p.Tags))
 	maps.Copy(tags, p.Tags)
+
 	return &PackagingConfiguration{
 		Tags:             tags,
 		ARN:              p.ARN,
@@ -786,7 +787,10 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 }
 
 // CreatePackagingConfiguration creates a new packaging configuration.
-func (b *InMemoryBackend) CreatePackagingConfiguration(id, packagingGroupID, description string, tags map[string]string) (*PackagingConfiguration, error) {
+func (b *InMemoryBackend) CreatePackagingConfiguration(
+	id, packagingGroupID, description string,
+	tags map[string]string,
+) (*PackagingConfiguration, error) {
 	b.mu.Lock("CreatePackagingConfiguration")
 	defer b.mu.Unlock()
 
@@ -809,6 +813,7 @@ func (b *InMemoryBackend) CreatePackagingConfiguration(id, packagingGroupID, des
 		CreatedAt:        time.Now().UTC().Format(time.RFC3339),
 	}
 	b.packagingConfigurations[id] = pc
+
 	return pc.toPackagingConfiguration(), nil
 }
 
@@ -821,6 +826,7 @@ func (b *InMemoryBackend) DescribePackagingConfiguration(id string) (*PackagingC
 	if !ok {
 		return nil, fmt.Errorf("%w: packagingConfiguration %s not found", ErrNotFound, id)
 	}
+
 	return pc.toPackagingConfiguration(), nil
 }
 
@@ -833,11 +839,15 @@ func (b *InMemoryBackend) DeletePackagingConfiguration(id string) error {
 		return fmt.Errorf("%w: packagingConfiguration %s not found", ErrNotFound, id)
 	}
 	delete(b.packagingConfigurations, id)
+
 	return nil
 }
 
 // ListPackagingConfigurations returns all packaging configurations.
-func (b *InMemoryBackend) ListPackagingConfigurations(maxResults int, nextToken string) ([]*PackagingConfiguration, string, error) {
+func (b *InMemoryBackend) ListPackagingConfigurations(
+	maxResults int,
+	nextToken string,
+) ([]*PackagingConfiguration, string, error) {
 	b.mu.RLock("ListPackagingConfigurations")
 	defer b.mu.RUnlock()
 
@@ -867,6 +877,7 @@ func (b *InMemoryBackend) PutChannelLifecyclePolicy(channelID, policy string) er
 		return fmt.Errorf("%w: channel %s not found", ErrNotFound, channelID)
 	}
 	ch.LifecyclePolicy = &policy
+
 	return nil
 }
 
@@ -882,5 +893,6 @@ func (b *InMemoryBackend) GetChannelLifecyclePolicy(channelID string) (string, e
 	if ch.LifecyclePolicy == nil {
 		return "", fmt.Errorf("%w: no lifecycle policy for channel %s", ErrNotFound, channelID)
 	}
+
 	return *ch.LifecyclePolicy, nil
 }
