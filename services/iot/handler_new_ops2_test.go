@@ -8,31 +8,32 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/iot"
 )
 
-func newHandlerForNewOps2Test(t *testing.T) (*iot.Handler, *iot.InMemoryBackend) {
+func newHandlerForNewOps2Test(t *testing.T) *iot.Handler {
 	t.Helper()
 	b := iot.NewInMemoryBackend()
-	h := iot.NewHandler(b, nil)
 
-	return h, b
+	return iot.NewHandler(b, nil)
 }
 
 // TestNewOps2_DetectMitigationActions tests the detect mitigation action ops.
 func TestNewOps2_DetectMitigationActions(t *testing.T) {
 	t.Parallel()
-	h, _ := newHandlerForNewOps2Test(t)
+	h := newHandlerForNewOps2Test(t)
 
 	tests := []struct {
+		body   map[string]any
 		method string
 		path   string
-		body   map[string]any
 	}{
-		{http.MethodPost, "/detect/mitigationactions/tasks", map[string]any{
-			"target": map[string]any{"violationIds": []string{"v1"}},
-		}},
-		{http.MethodGet, "/detect/mitigationactions/tasks", nil},
-		{http.MethodGet, "/detect/mitigationactions/tasks/task-123", nil},
-		{http.MethodPut, "/detect/mitigationactions/tasks/task-123/cancel", nil},
-		{http.MethodGet, "/detect/mitigationactions/executions", nil},
+		{
+			method: http.MethodPost,
+			path:   "/detect/mitigationactions/tasks",
+			body:   map[string]any{"target": map[string]any{"violationIds": []string{"v1"}}},
+		},
+		{method: http.MethodGet, path: "/detect/mitigationactions/tasks"},
+		{method: http.MethodGet, path: "/detect/mitigationactions/tasks/task-123"},
+		{method: http.MethodPut, path: "/detect/mitigationactions/tasks/task-123/cancel"},
+		{method: http.MethodGet, path: "/detect/mitigationactions/executions"},
 	}
 
 	for _, tc := range tests {
@@ -46,19 +47,21 @@ func TestNewOps2_DetectMitigationActions(t *testing.T) {
 // TestNewOps2_AuditMitigationActions tests audit mitigation action ops.
 func TestNewOps2_AuditMitigationActions(t *testing.T) {
 	t.Parallel()
-	h, _ := newHandlerForNewOps2Test(t)
+	h := newHandlerForNewOps2Test(t)
 
 	tests := []struct {
+		body   map[string]any
 		method string
 		path   string
-		body   map[string]any
 	}{
-		{http.MethodPost, "/audit/mitigationactions/tasks", map[string]any{
-			"target": map[string]any{"auditTaskId": "t1"},
-		}},
-		{http.MethodGet, "/audit/mitigationactions/tasks", nil},
-		{http.MethodGet, "/audit/mitigationactions/tasks/task-123", nil},
-		{http.MethodGet, "/audit/mitigationactions/executions", nil},
+		{
+			method: http.MethodPost,
+			path:   "/audit/mitigationactions/tasks",
+			body:   map[string]any{"target": map[string]any{"auditTaskId": "t1"}},
+		},
+		{method: http.MethodGet, path: "/audit/mitigationactions/tasks"},
+		{method: http.MethodGet, path: "/audit/mitigationactions/tasks/task-123"},
+		{method: http.MethodGet, path: "/audit/mitigationactions/executions"},
 	}
 
 	for _, tc := range tests {
@@ -72,22 +75,26 @@ func TestNewOps2_AuditMitigationActions(t *testing.T) {
 // TestNewOps2_ViolationsAndBehavior tests violation and behavior ops.
 func TestNewOps2_ViolationsAndBehavior(t *testing.T) {
 	t.Parallel()
-	h, _ := newHandlerForNewOps2Test(t)
+	h := newHandlerForNewOps2Test(t)
 
 	tests := []struct {
+		body   map[string]any
 		method string
 		path   string
-		body   map[string]any
 	}{
-		{http.MethodGet, "/active-violations", nil},
-		{http.MethodGet, "/violation-events", nil},
-		{http.MethodPatch, "/violations/verification-state/v-abc", map[string]any{
-			"verificationState": "TRUE_POSITIVE",
-		}},
-		{http.MethodGet, "/behavior-model-training/summaries", nil},
-		{http.MethodPost, "/security-profile-behaviors/validate", map[string]any{
-			"behaviors": []any{},
-		}},
+		{method: http.MethodGet, path: "/active-violations"},
+		{method: http.MethodGet, path: "/violation-events"},
+		{
+			method: http.MethodPatch,
+			path:   "/violations/verification-state/v-abc",
+			body:   map[string]any{"verificationState": "TRUE_POSITIVE"},
+		},
+		{method: http.MethodGet, path: "/behavior-model-training/summaries"},
+		{
+			method: http.MethodPost,
+			path:   "/security-profile-behaviors/validate",
+			body:   map[string]any{"behaviors": []any{}},
+		},
 	}
 
 	for _, tc := range tests {
@@ -101,47 +108,75 @@ func TestNewOps2_ViolationsAndBehavior(t *testing.T) {
 // TestNewOps2_Indexing tests indexing configuration and search ops.
 func TestNewOps2_Indexing(t *testing.T) {
 	t.Parallel()
-	h, _ := newHandlerForNewOps2Test(t)
+	h := newHandlerForNewOps2Test(t)
 
 	tests := []struct {
-		method string
-		path   string
 		body   map[string]any
 		check  func(t *testing.T, out map[string]any)
+		method string
+		path   string
 	}{
-		{http.MethodGet, "/indexing/config", nil, nil},
-		{http.MethodPost, "/indexing/config", map[string]any{
-			"thingIndexingConfiguration": map[string]any{"thingIndexingMode": "OFF"},
-		}, nil},
-		{http.MethodGet, "/indices", nil, func(t *testing.T, out map[string]any) {
-			t.Helper()
-			names, _ := out["indexNames"].([]any)
-			if len(names) == 0 {
-				t.Error("expected at least one index name")
-			}
-		}},
-		{http.MethodGet, "/indices/AWS_Things", nil, func(t *testing.T, out map[string]any) {
-			t.Helper()
-			if out["indexName"] != "AWS_Things" {
-				t.Errorf("expected indexName=AWS_Things, got %v", out["indexName"])
-			}
-		}},
-		{http.MethodPost, "/indices/search", map[string]any{"queryString": "thingName:foo"}, nil},
-		{http.MethodPost, "/indices/cardinality", map[string]any{"queryString": "*"}, func(t *testing.T, out map[string]any) {
-			t.Helper()
-			if _, ok := out["cardinality"]; !ok {
-				t.Error("missing cardinality field")
-			}
-		}},
-		{http.MethodPost, "/indices/statistics", map[string]any{"queryString": "*", "aggregationField": "connectivity.connected"}, func(t *testing.T, out map[string]any) {
-			t.Helper()
-			if _, ok := out["statistics"]; !ok {
-				t.Error("missing statistics field")
-			}
-		}},
-		{http.MethodPost, "/indices/percentiles", map[string]any{"queryString": "*"}, nil},
-		{http.MethodPost, "/indices/buckets-aggregation", map[string]any{"queryString": "*", "aggregationField": "shadow.hasDelta"}, nil},
-		{http.MethodGet, "/metric-values", nil, nil},
+		{method: http.MethodGet, path: "/indexing/config"},
+		{
+			method: http.MethodPost,
+			path:   "/indexing/config",
+			body:   map[string]any{"thingIndexingConfiguration": map[string]any{"thingIndexingMode": "OFF"}},
+		},
+		{
+			method: http.MethodGet,
+			path:   "/indices",
+			check: func(t *testing.T, out map[string]any) {
+				t.Helper()
+				names, _ := out["indexNames"].([]any)
+				if len(names) == 0 {
+					t.Error("expected at least one index name")
+				}
+			},
+		},
+		{
+			method: http.MethodGet,
+			path:   "/indices/AWS_Things",
+			check: func(t *testing.T, out map[string]any) {
+				t.Helper()
+				if out["indexName"] != "AWS_Things" {
+					t.Errorf("expected indexName=AWS_Things, got %v", out["indexName"])
+				}
+			},
+		},
+		{
+			method: http.MethodPost,
+			path:   "/indices/search",
+			body:   map[string]any{"queryString": "thingName:foo"},
+		},
+		{
+			method: http.MethodPost,
+			path:   "/indices/cardinality",
+			body:   map[string]any{"queryString": "*"},
+			check: func(t *testing.T, out map[string]any) {
+				t.Helper()
+				if _, ok := out["cardinality"]; !ok {
+					t.Error("missing cardinality field")
+				}
+			},
+		},
+		{
+			method: http.MethodPost,
+			path:   "/indices/statistics",
+			body:   map[string]any{"queryString": "*", "aggregationField": "connectivity.connected"},
+			check: func(t *testing.T, out map[string]any) {
+				t.Helper()
+				if _, ok := out["statistics"]; !ok {
+					t.Error("missing statistics field")
+				}
+			},
+		},
+		{method: http.MethodPost, path: "/indices/percentiles", body: map[string]any{"queryString": "*"}},
+		{
+			method: http.MethodPost,
+			path:   "/indices/buckets-aggregation",
+			body:   map[string]any{"queryString": "*", "aggregationField": "shadow.hasDelta"},
+		},
+		{method: http.MethodGet, path: "/metric-values"},
 	}
 
 	for _, tc := range tests {
@@ -160,24 +195,28 @@ func TestNewOps2_CertificatesAndAuth(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body   map[string]any
 		name   string
 		method string
 		path   string
-		body   map[string]any
 	}{
-		{"ListOutgoing", http.MethodGet, "/certificates-out-going", nil},
-		{"DescribeEncryption", http.MethodGet, "/encryption-configuration", nil},
-		{"UpdateEncryption", http.MethodPatch, "/encryption-configuration", map[string]any{"keyType": "NONE"}},
-		{"TestAuth", http.MethodPost, "/test-authorization", map[string]any{
-			"authInfos": []any{},
-		}},
-		{"ConfirmDestination", http.MethodGet, "/confirmdestination/some-token", nil},
+		{name: "ListOutgoing", method: http.MethodGet, path: "/certificates-out-going"},
+		{name: "DescribeEncryption", method: http.MethodGet, path: "/encryption-configuration"},
+		{
+			name: "UpdateEncryption", method: http.MethodPatch,
+			path: "/encryption-configuration", body: map[string]any{"keyType": "NONE"},
+		},
+		{
+			name: "TestAuth", method: http.MethodPost,
+			path: "/test-authorization", body: map[string]any{"authInfos": []any{}},
+		},
+		{name: "ConfirmDestination", method: http.MethodGet, path: "/confirmdestination/some-token"},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			h, _ := newHandlerForNewOps2Test(t)
+			h := newHandlerForNewOps2Test(t)
 			iotOK(t, h, tc.method, tc.path, tc.body)
 		})
 	}
@@ -186,7 +225,7 @@ func TestNewOps2_CertificatesAndAuth(t *testing.T) {
 // TestNewOps2_TestInvokeAuthorizer tests TestInvokeAuthorizer.
 func TestNewOps2_TestInvokeAuthorizer(t *testing.T) {
 	t.Parallel()
-	h, _ := newHandlerForNewOps2Test(t)
+	h := newHandlerForNewOps2Test(t)
 
 	out := iotOK(t, h, http.MethodPost, "/authorizer/my-auth/test", map[string]any{
 		"token": "some-token",
@@ -199,7 +238,7 @@ func TestNewOps2_TestInvokeAuthorizer(t *testing.T) {
 // TestNewOps2_DetachPrincipalPolicy tests DetachPrincipalPolicy.
 func TestNewOps2_DetachPrincipalPolicy(t *testing.T) {
 	t.Parallel()
-	h, _ := newHandlerForNewOps2Test(t)
+	h := newHandlerForNewOps2Test(t)
 
 	// Create policy and attach via the legacy /target-policies path (AttachPrincipalPolicy).
 	iotOK(t, h, http.MethodPost, "/policies/my-policy", map[string]any{
@@ -217,7 +256,7 @@ func TestNewOps2_DetachPrincipalPolicy(t *testing.T) {
 // TestNewOps2_ThingPrincipalsV2 tests ListThingPrincipalsV2.
 func TestNewOps2_ThingPrincipalsV2(t *testing.T) {
 	t.Parallel()
-	h, _ := newHandlerForNewOps2Test(t)
+	h := newHandlerForNewOps2Test(t)
 
 	iotOK(t, h, http.MethodPost, "/things/my-thing", nil)
 
@@ -230,7 +269,7 @@ func TestNewOps2_ThingPrincipalsV2(t *testing.T) {
 // TestNewOps2_ThingConnectivityData tests GetThingConnectivityData.
 func TestNewOps2_ThingConnectivityData(t *testing.T) {
 	t.Parallel()
-	h, _ := newHandlerForNewOps2Test(t)
+	h := newHandlerForNewOps2Test(t)
 
 	iotOK(t, h, http.MethodPost, "/things/my-thing", nil)
 	iotOK(t, h, http.MethodGet, "/things/my-thing/connectivity-data", nil)
@@ -239,17 +278,16 @@ func TestNewOps2_ThingConnectivityData(t *testing.T) {
 // TestNewOps2_UpdateThingGroupsForThing tests UpdateThingGroupsForThing.
 func TestNewOps2_UpdateThingGroupsForThing(t *testing.T) {
 	t.Parallel()
-	h, _ := newHandlerForNewOps2Test(t)
+	h := newHandlerForNewOps2Test(t)
 
 	iotOK(t, h, http.MethodPost, "/things/my-thing", nil)
 	iotOK(t, h, http.MethodPost, "/thing-groups/my-group", nil)
 
-	out := iotOK(t, h, http.MethodPut, "/thing-groups/updateThingGroupsForThing", map[string]any{
+	iotOK(t, h, http.MethodPut, "/thing-groups/updateThingGroupsForThing", map[string]any{
 		"thingName":           "my-thing",
 		"thingGroupsToAdd":    []string{"my-group"},
 		"thingGroupsToRemove": []string{},
 	})
-	_ = out
 
 	// Verify thing is in group.
 	members := iotOK(t, h, http.MethodGet, "/thing-groups/my-group/things", nil)
@@ -284,7 +322,7 @@ func TestNewOps2_UpdateThingGroupsForThing(t *testing.T) {
 // TestNewOps2_RegisterThing tests RegisterThing.
 func TestNewOps2_RegisterThing(t *testing.T) {
 	t.Parallel()
-	h, _ := newHandlerForNewOps2Test(t)
+	h := newHandlerForNewOps2Test(t)
 
 	out := iotOK(t, h, http.MethodPost, "/things/register", map[string]any{
 		"templateName": "my-template",
@@ -300,20 +338,26 @@ func TestNewOps2_RegisterThing(t *testing.T) {
 // TestNewOps2_ThingRegistrationTasks tests ThingRegistrationTask ops.
 func TestNewOps2_ThingRegistrationTasks(t *testing.T) {
 	t.Parallel()
-	h, _ := newHandlerForNewOps2Test(t)
+	h := newHandlerForNewOps2Test(t)
 
 	tests := []struct {
+		body   map[string]any
 		name   string
 		method string
 		path   string
-		body   map[string]any
 	}{
-		{"Start", http.MethodPost, "/thing-registration-tasks", map[string]any{
-			"templateBody": `{}`, "inputFileBucket": "bucket", "inputFileKey": "key", "roleArn": "arn:aws:iam::000:role/r",
-		}},
-		{"List", http.MethodGet, "/thing-registration-tasks", nil},
-		{"Reports", http.MethodGet, "/thing-registration-tasks/task-123/reports", nil},
-		{"Stop", http.MethodPut, "/thing-registration-tasks/task-123", nil},
+		{
+			name:   "Start",
+			method: http.MethodPost,
+			path:   "/thing-registration-tasks",
+			body: map[string]any{
+				"templateBody": `{}`, "inputFileBucket": "bucket",
+				"inputFileKey": "key", "roleArn": "arn:aws:iam::000:role/r",
+			},
+		},
+		{name: "List", method: http.MethodGet, path: "/thing-registration-tasks"},
+		{name: "Reports", method: http.MethodGet, path: "/thing-registration-tasks/task-123/reports"},
+		{name: "Stop", method: http.MethodPut, path: "/thing-registration-tasks/task-123"},
 	}
 
 	for _, tc := range tests {
@@ -336,7 +380,7 @@ func TestNewOps2_ThingRegistrationTasks(t *testing.T) {
 // TestNewOps2_ManagedJobTemplates tests ManagedJobTemplate ops.
 func TestNewOps2_ManagedJobTemplates(t *testing.T) {
 	t.Parallel()
-	h, _ := newHandlerForNewOps2Test(t)
+	h := newHandlerForNewOps2Test(t)
 
 	out := iotOK(t, h, http.MethodGet, "/managed-job-templates", nil)
 	if _, ok := out["managedJobTemplates"]; !ok {
@@ -352,7 +396,7 @@ func TestNewOps2_ManagedJobTemplates(t *testing.T) {
 // TestNewOps2_DeleteAccountAuditConfiguration tests DeleteAccountAuditConfiguration.
 func TestNewOps2_DeleteAccountAuditConfiguration(t *testing.T) {
 	t.Parallel()
-	h, _ := newHandlerForNewOps2Test(t)
+	h := newHandlerForNewOps2Test(t)
 
 	iotOK(t, h, http.MethodDelete, "/audit/configuration", nil)
 }
@@ -360,7 +404,7 @@ func TestNewOps2_DeleteAccountAuditConfiguration(t *testing.T) {
 // TestNewOps2_ListRelatedResourcesForAuditFinding tests ListRelatedResourcesForAuditFinding.
 func TestNewOps2_ListRelatedResourcesForAuditFinding(t *testing.T) {
 	t.Parallel()
-	h, _ := newHandlerForNewOps2Test(t)
+	h := newHandlerForNewOps2Test(t)
 
 	out := iotOK(t, h, http.MethodGet, "/audit/relatedResources", nil)
 	if _, ok := out["relatedResources"]; !ok {
@@ -371,7 +415,7 @@ func TestNewOps2_ListRelatedResourcesForAuditFinding(t *testing.T) {
 // TestNewOps2_SbomOps tests SBOM-related ops.
 func TestNewOps2_SbomOps(t *testing.T) {
 	t.Parallel()
-	h, _ := newHandlerForNewOps2Test(t)
+	h := newHandlerForNewOps2Test(t)
 
 	// Create package and version first.
 	iotOK(t, h, http.MethodPut, "/packages/my-pkg", map[string]any{"description": "p"})
@@ -395,7 +439,7 @@ func TestNewOps2_SbomOps(t *testing.T) {
 // TestNewOps2_UpdateThingType tests UpdateThingType.
 func TestNewOps2_UpdateThingType(t *testing.T) {
 	t.Parallel()
-	h, _ := newHandlerForNewOps2Test(t)
+	h := newHandlerForNewOps2Test(t)
 
 	iotOK(t, h, http.MethodPost, "/thing-types/my-type", map[string]any{
 		"thingTypeProperties": map[string]any{"thingTypeDescription": "original"},
@@ -416,7 +460,7 @@ func TestNewOps2_UpdateThingType(t *testing.T) {
 // Command executions are created by devices (not the control plane), so we test the not-found path.
 func TestNewOps2_DeleteCommandExecution(t *testing.T) {
 	t.Parallel()
-	h, _ := newHandlerForNewOps2Test(t)
+	h := newHandlerForNewOps2Test(t)
 
 	rec := iotRequest(t, h, http.MethodDelete, "/commands/cmd-1/executions/exec-1", nil)
 	if rec.Code == http.StatusOK {
@@ -427,7 +471,7 @@ func TestNewOps2_DeleteCommandExecution(t *testing.T) {
 // TestNewOps2_DescribeProvisioningTemplateVersion tests DescribeProvisioningTemplateVersion.
 func TestNewOps2_DescribeProvisioningTemplateVersion(t *testing.T) {
 	t.Parallel()
-	h, _ := newHandlerForNewOps2Test(t)
+	h := newHandlerForNewOps2Test(t)
 
 	// Create template and a version.
 	iotOK(t, h, http.MethodPost, "/provisioning-templates", map[string]any{
@@ -450,7 +494,11 @@ func TestNewOps2_DescribeProvisioningTemplateVersion(t *testing.T) {
 	firstVer, _ := versions[0].(map[string]any)
 	versionID := fmt.Sprintf("%.0f", firstVer["versionId"])
 
-	out := iotOK(t, h, http.MethodGet, fmt.Sprintf("/provisioning-templates/my-template/versions/%s", versionID), nil)
+	out := iotOK(
+		t, h, http.MethodGet,
+		fmt.Sprintf("/provisioning-templates/my-template/versions/%s", versionID),
+		nil,
+	)
 	if out["templateName"] != "my-template" {
 		t.Errorf("expected templateName=my-template, got %v", out["templateName"])
 	}

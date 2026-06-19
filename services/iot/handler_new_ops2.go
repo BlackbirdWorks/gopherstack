@@ -1,8 +1,8 @@
 package iot
 
 import (
-	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -12,6 +12,7 @@ import (
 // String constants used in handler_new_ops2 responses.
 const (
 	keyTaskID              = "taskId"
+	keyTaskStatus          = "taskStatus"
 	keyTasks               = "tasks"
 	keyThingGroups         = "thingGroups"
 	keyPrincipals          = "principals"
@@ -26,7 +27,6 @@ const (
 // Route resolver for remaining (previously-stub) operations
 // ---------------------------------------------------------------------------
 
-//nolint:cyclop,gocyclo // mechanical routing switch
 func resolveRemainingOps(path, method string) string {
 	if op := resolveRemainingDetectOps(path, method); op != unknownOperation {
 		return op
@@ -41,7 +41,7 @@ func resolveRemainingOps(path, method string) string {
 	return resolveRemainingMiscOps(path, method)
 }
 
-//nolint:cyclop,gocyclo // mechanical routing switch
+//nolint:cyclop // mechanical routing switch
 func resolveRemainingDetectOps(path, method string) string {
 	switch {
 	case strings.HasPrefix(path, "/detect/mitigationactions/tasks/") &&
@@ -78,7 +78,7 @@ func resolveRemainingDetectOps(path, method string) string {
 	return unknownOperation
 }
 
-//nolint:cyclop,gocyclo // mechanical routing switch
+//nolint:cyclop // mechanical routing switch
 func resolveRemainingIndexOps(path, method string) string {
 	switch {
 	case path == "/indexing/config" && method == http.MethodGet:
@@ -106,7 +106,7 @@ func resolveRemainingIndexOps(path, method string) string {
 	return unknownOperation
 }
 
-//nolint:cyclop,gocyclo // mechanical routing switch
+//nolint:cyclop // mechanical routing switch
 func resolveRemainingCertAndThingOps(path, method string) string {
 	switch {
 	case path == "/certificates-out-going" && method == http.MethodGet:
@@ -139,7 +139,7 @@ func resolveRemainingCertAndThingOps(path, method string) string {
 	return unknownOperation
 }
 
-//nolint:cyclop,gocyclo // mechanical routing switch
+//nolint:cyclop // mechanical routing switch
 func resolveRemainingMiscOps(path, method string) string {
 	switch {
 	case path == "/thing-registration-tasks" && method == http.MethodPost:
@@ -188,9 +188,10 @@ func (h *Handler) handleStartDetectMitigationActionsTask(c *echo.Context) error 
 
 func (h *Handler) handleDescribeDetectMitigationActionsTask(c *echo.Context) error {
 	taskID := strings.TrimPrefix(c.Request().URL.Path, "/detect/mitigationactions/tasks/")
+
 	return c.JSON(http.StatusOK, map[string]any{
 		keyTaskID:     taskID,
-		"taskStatus": taskStatusCanceled,
+		keyTaskStatus: taskStatusCanceled,
 	})
 }
 
@@ -209,9 +210,10 @@ func (h *Handler) handleStartAuditMitigationActionsTask(c *echo.Context) error {
 func (h *Handler) handleDescribeAuditMitigationActionsTask(c *echo.Context) error {
 	trimmed := strings.TrimPrefix(c.Request().URL.Path, "/audit/mitigationactions/tasks/")
 	taskID := strings.TrimSuffix(trimmed, "/cancel")
+
 	return c.JSON(http.StatusOK, map[string]any{
 		keyTaskID:     taskID,
-		"taskStatus": taskStatusCanceled,
+		keyTaskStatus: taskStatusCanceled,
 	})
 }
 
@@ -268,6 +270,7 @@ func (h *Handler) handleListIndices(c *echo.Context) error {
 
 func (h *Handler) handleDescribeIndex(c *echo.Context) error {
 	name := strings.TrimPrefix(c.Request().URL.Path, "/indices/")
+
 	return c.JSON(http.StatusOK, map[string]any{
 		"indexName":   name,
 		"indexStatus": indexStatusActive,
@@ -276,7 +279,7 @@ func (h *Handler) handleDescribeIndex(c *echo.Context) error {
 }
 
 func (h *Handler) handleSearchIndex(c *echo.Context) error {
-	return c.JSON(http.StatusOK, map[string]any{"things": []any{}, keyThingGroups: []any{}})
+	return c.JSON(http.StatusOK, map[string]any{keyThings: []any{}, keyThingGroups: []any{}})
 }
 
 func (h *Handler) handleGetCardinality(c *echo.Context) error {
@@ -312,7 +315,7 @@ func (h *Handler) handleListOutgoingCertificates(c *echo.Context) error {
 				"certificateArn": cert.ARN,
 				"certificateId":  cert.CertificateID,
 				"status":         cert.Status,
-				keyCreationDate:   cert.CreatedAt,
+				keyCreationDate:  cert.CreatedAt,
 			})
 		}
 	}
@@ -402,14 +405,16 @@ func (h *Handler) handleListThingPrincipalsV2(c *echo.Context) error {
 
 func (h *Handler) handleUpdateThingGroupsForThing(c *echo.Context) error {
 	var req struct {
-		ThingName           string   `json:keyThingName`
+		ThingName           string   `json:"thingName"`
 		ThingGroupsToAdd    []string `json:"thingGroupsToAdd"`
 		ThingGroupsToRemove []string `json:"thingGroupsToRemove"`
 	}
 	if err := readBody(c, &req); err != nil {
 		return err
 	}
-	if err := h.Backend.UpdateThingGroupsForThing(req.ThingName, req.ThingGroupsToAdd, req.ThingGroupsToRemove); err != nil {
+	if err := h.Backend.UpdateThingGroupsForThing(
+		req.ThingName, req.ThingGroupsToAdd, req.ThingGroupsToRemove,
+	); err != nil {
 		return respondErr(c, err)
 	}
 
@@ -418,8 +423,8 @@ func (h *Handler) handleUpdateThingGroupsForThing(c *echo.Context) error {
 
 func (h *Handler) handleRegisterThing(c *echo.Context) error {
 	var req struct {
-		TemplateName string         `json:"templateName"`
 		Parameters   map[string]any `json:"parameters"`
+		TemplateName string         `json:"templateName"`
 	}
 	_ = readBody(c, &req)
 	thingName, _ := req.Parameters["ThingName"].(string)
@@ -674,7 +679,7 @@ func (h *Handler) handleDescribeProvisioningTemplateVersion(c *echo.Context) err
 		return respondErr(c, err)
 	}
 	for _, v := range versions {
-		if fmt.Sprintf("%d", v.VersionID) == versionIDStr {
+		if strconv.Itoa(int(v.VersionID)) == versionIDStr {
 			return c.JSON(http.StatusOK, map[string]any{
 				"templateName":     templateName,
 				keyVersionID:        v.VersionID,
