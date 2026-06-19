@@ -238,6 +238,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		opGenerateDataKeyWithoutPlaintext,
 		opGenerateMac,
 		"GenerateRandom",
+		"GetKeyLastUsage",
 		"GetKeyPolicy",
 		"GetKeyRotationStatus",
 		"GetParametersForImport",
@@ -349,6 +350,9 @@ func (h *Handler) buildDispatchTable() map[string]kmsActionFn {
 	maps.Copy(table, h.buildGrantPolicyActions())
 	maps.Copy(table, h.buildTagActions())
 	maps.Copy(table, h.buildNewOpsActions())
+	table["GetKeyLastUsage"] = unmarshalAction(func(ctx context.Context, i *GetKeyLastUsageInput) (any, error) {
+		return h.Backend.GetKeyLastUsage(ctx, i)
+	})
 
 	return table
 }
