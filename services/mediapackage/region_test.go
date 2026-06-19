@@ -1,7 +1,6 @@
 package mediapackage_test
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -30,6 +29,6 @@ func TestEndpointURLsFollowConfiguredRegion(t *testing.T) {
 
 	ep, err := b.CreateOriginEndpoint("chan1", "ep1", "d", "index", 0, 0, "ALLOW", nil, nil)
 	require.NoError(t, err)
-	assert.True(t, strings.Contains(ep.URL, "cf.mediapackage.eu-central-1.amazonaws.com"),
-		"egress URL should carry the configured region, got %q", ep.URL)
+	assert.Contains(t, ep.URL, "cf.mediapackage.eu-central-1.amazonaws.com",
+		"egress URL should carry the configured region")
 }
