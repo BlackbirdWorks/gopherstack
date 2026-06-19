@@ -320,7 +320,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		r := c.Request()
 		if err := r.ParseForm(); err != nil {
-			return h.writeError(c, http.StatusInternalServerError, "InternalFailure", "failed to read request body")
+			return h.writeError(c, http.StatusBadRequest, "ValidationException", "failed to read request body")
 		}
 
 		vals := r.Form

@@ -529,6 +529,10 @@ func (h *Handler) updateStateMachineAction(b []byte) (any, error) {
 		return nil, err
 	}
 
+	if input.StateMachineArn == "" {
+		return nil, fmt.Errorf("%w: stateMachineArn must not be empty", ErrValidation)
+	}
+
 	updateDate, err := h.Backend.UpdateStateMachine(input.StateMachineArn, input.Definition, input.RoleArn)
 	if err != nil {
 		return nil, err
@@ -1263,6 +1267,7 @@ func classifyError(reqErr error) (string, int) {
 		{ErrInvalidRoutingConfiguration, "InvalidRoutingConfiguration", http.StatusBadRequest},
 		{ErrTagPolicyViolation, "TagPolicyViolation", http.StatusBadRequest},
 		{ErrTaskTokenAlreadyExists, "TaskTokenAlreadyExists", http.StatusBadRequest},
+		{ErrValidation, "ValidationException", http.StatusBadRequest},
 		{errUnknownOperation, "UnknownOperationException", http.StatusBadRequest},
 	}
 

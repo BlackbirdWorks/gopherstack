@@ -44,6 +44,7 @@ var (
 	ErrActivityTaskFailed              = errors.New("ActivityTaskFailed")
 	ErrHeartbeatTimeout                = errors.New("States.HeartbeatTimeout")
 	ErrInvalidExecutionInput           = errors.New("InvalidExecutionInput")
+	ErrValidation                      = errors.New("ValidationException")
 )
 
 const (

@@ -66,6 +66,15 @@ func (db *InMemoryDB) CreateTable(
 	// touch no shared state and can run concurrently with other requests. Building
 	// the struct before the lock keeps the critical section to a handful of map ops,
 	// significantly reducing contention when thousands of tables are created together.
+	if input.BillingMode != "" &&
+		input.BillingMode != types.BillingModeProvisioned &&
+		input.BillingMode != types.BillingModePayPerRequest {
+		return nil, NewValidationException(fmt.Sprintf(
+			"1 validation error detected: Value '%s' at 'billingMode' failed to satisfy constraint: Member must satisfy enum value set: [PROVISIONED, PAY_PER_REQUEST]",
+			input.BillingMode,
+		))
+	}
+
 	if err := validateAttributeDefinitions(input); err != nil {
 		return nil, err
 	}

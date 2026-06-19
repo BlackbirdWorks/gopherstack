@@ -319,6 +319,10 @@ func (b *InMemoryBackend) CreateSchedule(
 		return nil, fmt.Errorf("%w: ScheduleExpression is required", ErrValidation)
 	}
 
+	if err := validateScheduleExpression(expr); err != nil {
+		return nil, err
+	}
+
 	if target.ARN == "" {
 		return nil, fmt.Errorf("%w: Target.Arn is required", ErrValidation)
 	}
@@ -492,6 +496,12 @@ func (b *InMemoryBackend) UpdateSchedule(
 
 	if err := validateTarget(target); err != nil {
 		return nil, err
+	}
+
+	if expr != "" {
+		if err := validateScheduleExpression(expr); err != nil {
+			return nil, err
+		}
 	}
 
 	if groupName == "" {
@@ -840,6 +850,41 @@ func cloneScheduleGroup(g *ScheduleGroup) *ScheduleGroup {
 	}
 
 	return &cp
+}
+
+// validateScheduleExpression checks that the ScheduleExpression has a valid prefix and format.
+// AWS Scheduler accepts: rate(value unit), cron(fields), at(datetime).
+// A cron expression must have exactly 6 space-separated fields inside cron(...).
+func validateScheduleExpression(expr string) error {
+	switch {
+	case strings.HasPrefix(expr, "rate("):
+		if !strings.HasSuffix(expr, ")") {
+			return fmt.Errorf("%w: ScheduleExpression rate expression must end with ')'", ErrValidation)
+		}
+	case strings.HasPrefix(expr, "at("):
+		if !strings.HasSuffix(expr, ")") {
+			return fmt.Errorf("%w: ScheduleExpression at expression must end with ')'", ErrValidation)
+		}
+	case strings.HasPrefix(expr, "cron("):
+		if !strings.HasSuffix(expr, ")") {
+			return fmt.Errorf("%w: ScheduleExpression cron expression must end with ')'", ErrValidation)
+		}
+		inner := expr[len("cron(") : len(expr)-1]
+		fields := strings.Fields(inner)
+		if len(fields) != 6 {
+			return fmt.Errorf(
+				"%w: ScheduleExpression cron expression must have exactly 6 fields (minutes hours day-of-month month day-of-week year), got %d",
+				ErrValidation, len(fields),
+			)
+		}
+	default:
+		return fmt.Errorf(
+			"%w: ScheduleExpression must start with rate(), cron(), or at(); got %q",
+			ErrValidation, expr,
+		)
+	}
+
+	return nil
 }
 
 // validateScheduleState returns ErrValidation if state is not a valid value.
