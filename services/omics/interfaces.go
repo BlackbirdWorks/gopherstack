@@ -102,6 +102,14 @@ type StorageBackend interface {
 		maxResults int,
 		nextToken string,
 	) ([]*ReadSetUploadPart, string, error)
+	UploadReadSetPart(
+		sequenceStoreID, uploadID string,
+		partNumber int,
+		partSource string,
+		data []byte,
+	) (string, error)
+	GetReadSetBytes(sequenceStoreID, id string) ([]byte, error)
+	GetReferenceBytes(referenceStoreID, id string) ([]byte, error)
 
 	// RunGroup
 	CreateRunGroup(

@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -1236,12 +1238,12 @@ func (h *Handler) handleDeleteReference(c *echo.Context, storeID, id string) err
 }
 
 func (h *Handler) handleGetReference(c *echo.Context, storeID, id string) error {
-	// GetReference returns binary data; respond with 200 and empty body as stub
-	if _, err := h.Backend.GetReferenceMetadata(storeID, id); err != nil {
+	data, err := h.Backend.GetReferenceBytes(storeID, id)
+	if err != nil {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{})
+	return c.Blob(http.StatusOK, "application/octet-stream", data)
 }
 
 func (h *Handler) handleGetReferenceMetadata(c *echo.Context, storeID, id string) error {
@@ -1417,12 +1419,12 @@ func (h *Handler) handleBatchDeleteReadSet(c *echo.Context, storeID string) erro
 }
 
 func (h *Handler) handleGetReadSet(c *echo.Context, storeID, id string) error {
-	// GetReadSet returns binary streaming data; return 200 empty as stub
-	if _, err := h.Backend.GetReadSetMetadata(storeID, id); err != nil {
+	data, err := h.Backend.GetReadSetBytes(storeID, id)
+	if err != nil {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{})
+	return c.Blob(http.StatusOK, "application/octet-stream", data)
 }
 
 func (h *Handler) handleGetReadSetMetadata(c *echo.Context, storeID, id string) error {
@@ -1688,14 +1690,34 @@ func (h *Handler) handleListReadSetUploadParts(c *echo.Context, storeID, uploadI
 }
 
 func (h *Handler) handleUploadReadSetPart(c *echo.Context, storeID, uploadID string) error {
-	// Binary upload stub - validate the store/upload exist then return 200
-	if _, _, err := h.Backend.ListMultipartReadSetUploads(storeID, 1, ""); err != nil {
+	partNumberStr := c.QueryParam("partNumber")
+	partNumber, err := strconv.Atoi(partNumberStr)
+	if err != nil || partNumber < 1 {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "partNumber must be a positive integer"))
+	}
+
+	partSource := c.QueryParam("partSource")
+	if partSource == "" {
+		partSource = "SOURCE1"
+	}
+
+	data, err := io.ReadAll(c.Request().Body)
+	if err != nil {
+		return c.JSON(
+			http.StatusInternalServerError,
+			errResp("InternalFailureException", "failed to read request body"),
+		)
+	}
+
+	checksum, err := h.Backend.UploadReadSetPart(storeID, uploadID, partNumber, partSource, data)
+	if err != nil {
 		return h.mapError(c, err)
 	}
 
-	_ = uploadID
-
-	return c.JSON(http.StatusOK, map[string]any{"checksum": "stub"})
+	return c.JSON(http.StatusOK, map[string]any{
+		"checksum":          checksum,
+		"checksumAlgorithm": "SHA256",
+	})
 }
 
 func (h *Handler) handleCreateRunGroup(c *echo.Context) error {

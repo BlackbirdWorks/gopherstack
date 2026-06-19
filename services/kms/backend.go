@@ -247,6 +247,7 @@ type StorageBackend interface {
 	GenerateMac(ctx context.Context, input *GenerateMacInput) (*GenerateMacOutput, error)
 	GenerateRandom(ctx context.Context, input *GenerateRandomInput) (*GenerateRandomOutput, error)
 	VerifyMac(ctx context.Context, input *VerifyMacInput) (*VerifyMacOutput, error)
+	GetKeyLastUsage(ctx context.Context, input *GetKeyLastUsageInput) (*GetKeyLastUsageOutput, error)
 }
 
 // ensure InMemoryBackend satisfies StorageBackend at compile time.
@@ -273,6 +274,9 @@ type InMemoryBackend struct {
 	accountID            string
 	defaultRegion        string
 	keyIDResolutionCache sync.Map
+	// lastUsage tracks the last successful cryptographic operation per key.
+	// Key format: "region:keyID" → *KeyLastUsageData.
+	lastUsage sync.Map
 }
 
 // NewInMemoryBackend creates and returns a new empty KMS backend with default account/region.
@@ -819,6 +823,8 @@ func (b *InMemoryBackend) Encrypt(ctx context.Context, input *EncryptInput) (*En
 		return nil, err
 	}
 
+	b.recordLastUsage(region, key.KeyID, "Encrypt")
+
 	return &EncryptOutput{
 		CiphertextBlob:      blob,
 		KeyID:               key.Arn,
@@ -927,6 +933,8 @@ func (b *InMemoryBackend) Decrypt(ctx context.Context, input *DecryptInput) (*De
 		)
 	}
 
+	b.recordLastUsage(region, key.KeyID, "Decrypt")
+
 	return &DecryptOutput{
 		Plaintext:           plaintext,
 		KeyID:               key.Arn,
@@ -1030,6 +1038,8 @@ func (b *InMemoryBackend) GenerateDataKey(
 		return nil, encErr
 	}
 
+	b.recordLastUsage(region, key.KeyID, "GenerateDataKey")
+
 	return &GenerateDataKeyOutput{
 		CiphertextBlob: blob,
 		Plaintext:      plaintextKey,
@@ -1111,6 +1121,9 @@ func (b *InMemoryBackend) ReEncrypt(ctx context.Context, input *ReEncryptInput) 
 		return nil, encErr
 	}
 
+	b.recordLastUsage(region, sourceKey.KeyID, "ReEncrypt")
+	b.recordLastUsage(region, destKey.KeyID, "ReEncrypt")
+
 	return &ReEncryptOutput{
 		CiphertextBlob:                 blob,
 		KeyID:                          destKey.Arn,
@@ -1172,6 +1185,8 @@ func (b *InMemoryBackend) Sign(ctx context.Context, input *SignInput) (*SignOutp
 		return nil, signErr
 	}
 
+	b.recordLastUsage(region, key.KeyID, "Sign")
+
 	return &SignOutput{
 		KeyID:            key.Arn,
 		Signature:        sig,
@@ -1230,6 +1245,8 @@ func (b *InMemoryBackend) Verify(ctx context.Context, input *VerifyInput) (*Veri
 	if verifyErr != nil {
 		return nil, verifyErr
 	}
+
+	b.recordLastUsage(region, key.KeyID, "Verify")
 
 	return &VerifyOutput{
 		KeyID:            key.Arn,
@@ -2478,6 +2495,13 @@ func (b *InMemoryBackend) GenerateDataKeyWithoutPlaintext(
 		return nil, err
 	}
 
+	// Override the operation name recorded by GenerateDataKey to reflect the actual caller.
+	// out.KeyID is the key ARN; the canonical UUID follows the last "/".
+	region := getRegion(ctx, b.defaultRegion)
+	if idx := strings.LastIndexByte(out.KeyID, '/'); idx >= 0 {
+		b.recordLastUsage(region, out.KeyID[idx+1:], "GenerateDataKeyWithoutPlaintext")
+	}
+
 	return &GenerateDataKeyWithoutPlaintextOutput{
 		KeyID:          out.KeyID,
 		CiphertextBlob: out.CiphertextBlob,
@@ -3258,6 +3282,8 @@ func (b *InMemoryBackend) DeriveSharedSecret(
 		algo = algoECDH
 	}
 
+	b.recordLastUsage(region, key.KeyID, "DeriveSharedSecret")
+
 	return &DeriveSharedSecretOutput{
 		KeyID:                 key.Arn,
 		SharedSecret:          sharedSecret,
@@ -3318,6 +3344,8 @@ func (b *InMemoryBackend) GenerateDataKeyPair(
 		return nil, fmt.Errorf("encrypting private key: %w", err)
 	}
 
+	b.recordLastUsage(region, wrapKey.KeyID, "GenerateDataKeyPair")
+
 	return &GenerateDataKeyPairOutput{
 		KeyID:                    wrapKey.Arn,
 		KeyPairSpec:              input.KeyPairSpec,
@@ -3339,6 +3367,12 @@ func (b *InMemoryBackend) GenerateDataKeyPairWithoutPlaintext(
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	// Override the operation name recorded by GenerateDataKeyPair to reflect the actual caller.
+	region := getRegion(ctx, b.defaultRegion)
+	if idx := strings.LastIndexByte(out.KeyID, '/'); idx >= 0 {
+		b.recordLastUsage(region, out.KeyID[idx+1:], "GenerateDataKeyPairWithoutPlaintext")
 	}
 
 	return &GenerateDataKeyPairWithoutPlaintextOutput{
@@ -3389,6 +3423,8 @@ func (b *InMemoryBackend) GenerateMac(ctx context.Context, input *GenerateMacInp
 	if err != nil {
 		return nil, err
 	}
+
+	b.recordLastUsage(region, key.KeyID, "GenerateMac")
 
 	return &GenerateMacOutput{
 		KeyID:        key.Arn,
@@ -3467,11 +3503,54 @@ func (b *InMemoryBackend) VerifyMac(ctx context.Context, input *VerifyMacInput) 
 		return nil, fmt.Errorf("%w: MAC verification failed", ErrInvalidSignature)
 	}
 
+	b.recordLastUsage(region, key.KeyID, "VerifyMac")
+
 	return &VerifyMacOutput{
 		KeyID:        key.Arn,
 		MacAlgorithm: input.MacAlgorithm,
 		MacValid:     true,
 	}, nil
+}
+
+// recordLastUsage stores the last successful cryptographic operation for the given key.
+// It is safe to call concurrently without holding any lock.
+func (b *InMemoryBackend) recordLastUsage(region, canonicalKeyID, operation string) {
+	b.lastUsage.Store(region+":"+canonicalKeyID, &KeyLastUsageData{
+		Operation:         operation,
+		Timestamp:         UnixTimeFloat(time.Now()),
+		CloudTrailEventID: uuid.New().String(),
+		KmsRequestID:      uuid.New().String(),
+	})
+}
+
+// GetKeyLastUsage returns the last successful cryptographic operation performed with the specified key.
+func (b *InMemoryBackend) GetKeyLastUsage(
+	ctx context.Context,
+	input *GetKeyLastUsageInput,
+) (*GetKeyLastUsageOutput, error) {
+	b.mu.RLock("GetKeyLastUsage")
+	defer b.mu.RUnlock()
+
+	region := getRegion(ctx, b.defaultRegion)
+
+	key, err := b.lookupKey(ctx, input.KeyID)
+	if err != nil {
+		return nil, err
+	}
+
+	out := &GetKeyLastUsageOutput{
+		KeyID:             key.KeyID,
+		KeyCreationDate:   key.CreationDate,
+		TrackingStartDate: key.CreationDate,
+	}
+
+	if v, loaded := b.lastUsage.Load(region + ":" + key.KeyID); loaded {
+		if lu, ok := v.(*KeyLastUsageData); ok {
+			out.KeyLastUsage = lu
+		}
+	}
+
+	return out, nil
 }
 
 // AddKeyInternal inserts a key directly into the backend without going through CreateKey.
