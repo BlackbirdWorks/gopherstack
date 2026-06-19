@@ -648,7 +648,9 @@ func TestOmics_RouteMatcher_TagPaths(t *testing.T) {
 	}
 }
 
-func doRequestRaw(t *testing.T, h *omics.Handler, method, path string, contentType string, body []byte) *httptest.ResponseRecorder {
+func doRequestRaw(
+	t *testing.T, h *omics.Handler, method, path, contentType string, body []byte,
+) *httptest.ResponseRecorder {
 	t.Helper()
 
 	req := httptest.NewRequest(method, path, bytes.NewReader(body))
@@ -668,14 +670,15 @@ func TestOmics_GetReference_Binary(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
 		setup    func(t *testing.T, h *omics.Handler) string // returns reference path
+		name     string
 		wantCode int
 	}{
 		{
 			name: "GetReference returns 404 for unknown store",
-			setup: func(t *testing.T, h *omics.Handler) string {
+			setup: func(t *testing.T, _ *omics.Handler) string {
 				t.Helper()
+
 				return "/referencestore/unknownstore/reference/unknownref"
 			},
 			wantCode: http.StatusNotFound,
@@ -684,10 +687,13 @@ func TestOmics_GetReference_Binary(t *testing.T) {
 			name: "GetReference returns 404 for unknown reference",
 			setup: func(t *testing.T, h *omics.Handler) string {
 				t.Helper()
+
 				rec := doRequest(t, h, http.MethodPost, "/referencestore", map[string]any{"name": "s"})
 				require.Equal(t, http.StatusCreated, rec.Code)
+
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
 				return fmt.Sprintf("/referencestore/%s/reference/doesnotexist", resp["id"])
 			},
 			wantCode: http.StatusNotFound,
@@ -744,8 +750,8 @@ func TestOmics_UploadReadSetPart_And_GetReadSet(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		run      func(t *testing.T, h *omics.Handler)
+		run  func(t *testing.T, h *omics.Handler)
+		name string
 	}{
 		{
 			name: "UploadReadSetPart missing partNumber returns 400",

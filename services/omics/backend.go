@@ -1325,9 +1325,11 @@ func (b *InMemoryBackend) UploadReadSetPart(
 			p.PartSize = int64(len(data))
 			p.LastUpdatedTime = time.Now().UTC()
 			found = true
+
 			break
 		}
 	}
+
 	if !found {
 		parts = append(parts, &ReadSetUploadPart{
 			PartNumber:      partNumber,
@@ -1339,6 +1341,7 @@ func (b *InMemoryBackend) UploadReadSetPart(
 	}
 
 	sum := sha256.Sum256(data)
+
 	return hex.EncodeToString(sum[:]), nil
 }
 

@@ -1703,7 +1703,10 @@ func (h *Handler) handleUploadReadSetPart(c *echo.Context, storeID, uploadID str
 
 	data, err := io.ReadAll(c.Request().Body)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, errResp("InternalFailureException", "failed to read request body"))
+		return c.JSON(
+			http.StatusInternalServerError,
+			errResp("InternalFailureException", "failed to read request body"),
+		)
 	}
 
 	checksum, err := h.Backend.UploadReadSetPart(storeID, uploadID, partNumber, partSource, data)
