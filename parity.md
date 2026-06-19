@@ -334,6 +334,16 @@ false-positive pattern excluded: a handler that calls `h.Backend.X(...)` and the
   the void-op false-positive pattern). `networkmonitor` Delete/Tag ops similar — verify.
 
 ### Performance / resource leaks (new)
+- **SSM data race (confirmed via `-race`, merge-blocking flake)** — the lazy per-region map
+  initializers `opsItemRelatedItemsStore` (`services/ssm/backend.go:440-446`) and its siblings
+  (`opsItemsStore` `:432-438`, `opsMetadataStore` `:448+`, etc.) do `map[region] == nil` →
+  `map[region] = make(...)` with **no lock held**, while read-path callers like
+  `ListOpsItemRelatedItems` (`backend_ops.go:1319`) invoke them concurrently. Under `-race`
+  with parallel subtests (`TestSSMBounds_ListOpsItemRelatedItems`) the detector aborts the test
+  binary, failing every in-flight test (~122 at once). **Fix:** guard the lazy-init under
+  `b.mu.Lock()` (or pre-create the region maps on first write under the existing lock, and make
+  the `*Store` getters read-only). HIGH — it's nondeterministic and intermittently fails CI's
+  `-race` unit job.
 - **KMS `findGrantByToken`** (`kms/backend.go:2227-2233`) — O(regions × tokens) nested scan on
   the Encrypt/Decrypt hot path; needs a token→grant index. **KMS `ListGrants`**
   (`:2287-2298`) — O(n) scan of all grants, no keyID index. (Supersedes the older single-line
