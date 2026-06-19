@@ -216,6 +216,21 @@ func (b *InMemoryBackend) GetTerminology(name string) (*Terminology, error) {
 	return t, nil
 }
 
+// LookupTerminologies returns terminology entries for the given names (missing names skipped).
+func (b *InMemoryBackend) LookupTerminologies(names []string) []*Terminology {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	out := make([]*Terminology, 0, len(names))
+	for _, name := range names {
+		if t, ok := b.terminologies[name]; ok {
+			out = append(out, t)
+		}
+	}
+
+	return out
+}
+
 // DeleteTerminology removes a terminology by name.
 func (b *InMemoryBackend) DeleteTerminology(name string) error {
 	b.mu.Lock()

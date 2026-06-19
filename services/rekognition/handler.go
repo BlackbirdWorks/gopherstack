@@ -456,8 +456,9 @@ func (h *Handler) handleSearchFaces(_ context.Context, req *searchFacesReq) (*se
 }
 
 type searchFacesByImageReq struct {
-	CollectionID string `json:"CollectionId"`
-	MaxFaces     int32  `json:"MaxFaces"`
+	Image        imageRef `json:"Image"`
+	CollectionID string   `json:"CollectionId"`
+	MaxFaces     int32    `json:"MaxFaces"`
 }
 
 type searchFacesByImageResp struct {
@@ -473,7 +474,8 @@ func (h *Handler) handleSearchFacesByImage(
 		return nil, fmt.Errorf("%w: CollectionId is required", ErrValidation)
 	}
 
-	matches, err := h.Backend.SearchFacesByImage(req.CollectionID, req.MaxFaces)
+	imageKey := imageRefKey(req.Image)
+	matches, err := h.Backend.SearchFacesByImage(req.CollectionID, req.MaxFaces, imageKey)
 	if err != nil {
 		return nil, err
 	}
@@ -496,6 +498,15 @@ func (h *Handler) handleSearchFacesByImage(
 		FaceMatches:      entries,
 		FaceModelVersion: faceModelVersion,
 	}, nil
+}
+
+// imageRefKey returns a stable string derived from the image reference for similarity hashing.
+func imageRefKey(img imageRef) string {
+	if img.S3Object != nil {
+		return img.S3Object.Bucket + "/" + img.S3Object.Name
+	}
+	// Use length of inline bytes as a cheap image-dependent discriminator.
+	return fmt.Sprintf("bytes:%d", len(img.Bytes))
 }
 
 // --- Stream processor requests ---

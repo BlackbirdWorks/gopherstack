@@ -1,6 +1,7 @@
 package polly
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"slices"
@@ -286,7 +287,7 @@ func (b *InMemoryBackend) SynthesizeSpeech(options SynthesisOptions) (*Synthesiz
 		}, nil
 	}
 
-	data := fmt.Appendf(nil, "POLLY:%s:%s:%s:%s", normal.OutputFormat, normal.SampleRate, normal.VoiceID, normal.Text)
+	data := syntheticAudioBytes(normal)
 
 	return &SynthesizedSpeech{
 		Data:              data,
@@ -691,12 +692,133 @@ func taskExtension(format string) string {
 
 func speechMarks(options SynthesisOptions) []byte {
 	lines := make([]string, 0, len(options.SpeechMarkTypes))
-	for _, mark := range options.SpeechMarkTypes {
-		lines = append(lines, fmt.Sprintf(`{"time":0,"type":"%s","start":0,"end":%d,"value":%q}`,
-			mark, len(options.Text), options.Text))
+	offset := 0
+	for _, word := range strings.Fields(options.Text) {
+		start := strings.Index(options.Text[offset:], word) + offset
+		end := start + len(word)
+		timeMs := offset * 80 // ~80ms per character as rough timing
+		for _, mark := range options.SpeechMarkTypes {
+			switch mark {
+			case "word":
+				lines = append(lines, fmt.Sprintf(`{"time":%d,"type":"word","start":%d,"end":%d,"value":%q}`,
+					timeMs, start, end, word))
+			case "sentence":
+				lines = append(lines, fmt.Sprintf(`{"time":0,"type":"sentence","start":0,"end":%d,"value":%q}`,
+					len(options.Text), options.Text))
+			case "ssml":
+				lines = append(lines, fmt.Sprintf(`{"time":0,"type":"ssml","start":0,"end":%d,"value":"<speak>"}`,
+					len(options.Text)))
+			case "viseme":
+				lines = append(lines, fmt.Sprintf(`{"time":%d,"type":"viseme","value":"p"}`, timeMs))
+			}
+		}
+		offset = end
+	}
+	if len(lines) == 0 {
+		for _, mark := range options.SpeechMarkTypes {
+			lines = append(lines, fmt.Sprintf(`{"time":0,"type":"%s","start":0,"end":%d,"value":%q}`,
+				mark, len(options.Text), options.Text))
+		}
 	}
 
 	return []byte(strings.Join(lines, "\n") + "\n")
+}
+
+// syntheticAudioBytes returns minimal but format-correct audio bytes for the given output format.
+// PCM → RIFF/WAV container with one silent frame.
+// MP3 → minimal MPEG-1 Layer 3 sync frame header.
+// OGG → OGG capture pattern + minimal Vorbis identification.
+func syntheticAudioBytes(opts SynthesisOptions) []byte {
+	switch opts.OutputFormat {
+	case outputFormatPCM:
+		return minimalWAV(opts.SampleRate)
+	case outputFormatMP3:
+		return minimalMP3Frame()
+	case outputFormatOGG:
+		return minimalOGG()
+	default:
+		return minimalWAV(opts.SampleRate)
+	}
+}
+
+// minimalWAV returns a 46-byte RIFF/WAV file with two silent PCM samples.
+func minimalWAV(sampleRateStr string) []byte {
+	sampleRate := uint32(22050)
+	switch sampleRateStr {
+	case "8000":
+		sampleRate = 8000
+	case "16000":
+		sampleRate = 16000
+	case "24000":
+		sampleRate = 24000
+	case "44100":
+		sampleRate = 44100
+	case "48000":
+		sampleRate = 48000
+	}
+	const numChannels = uint16(1)
+	const bitsPerSample = uint16(16)
+	const dataLen = uint32(4) // 2 silent 16-bit samples
+	byteRate := sampleRate * uint32(numChannels) * uint32(bitsPerSample) / 8
+	blockAlign := numChannels * bitsPerSample / 8
+	fileSize := 36 + dataLen
+
+	buf := make([]byte, 0, 44+dataLen)
+	buf = append(buf, 'R', 'I', 'F', 'F')
+	buf = binary.LittleEndian.AppendUint32(buf, fileSize)
+	buf = append(buf, 'W', 'A', 'V', 'E')
+	buf = append(buf, 'f', 'm', 't', ' ')
+	buf = binary.LittleEndian.AppendUint32(buf, 16) // PCM chunk size
+	buf = binary.LittleEndian.AppendUint16(buf, 1)  // PCM format
+	buf = binary.LittleEndian.AppendUint16(buf, numChannels)
+	buf = binary.LittleEndian.AppendUint32(buf, sampleRate)
+	buf = binary.LittleEndian.AppendUint32(buf, byteRate)
+	buf = binary.LittleEndian.AppendUint16(buf, blockAlign)
+	buf = binary.LittleEndian.AppendUint16(buf, bitsPerSample)
+	buf = append(buf, 'd', 'a', 't', 'a')
+	buf = binary.LittleEndian.AppendUint32(buf, dataLen)
+	buf = append(buf, 0, 0, 0, 0) // two silent 16-bit samples
+
+	return buf
+}
+
+// minimalMP3Frame returns a minimal valid MPEG-1 Layer 3 frame header (silent frame).
+// Frame sync: 0xFFE0 | layer(01) | bitrate(1001=128k) | samplerate(00=44100) | padding(0) | stereo(00)
+var minimalMP3FrameBytes = []byte{
+	0xFF, 0xFB, 0x90, 0x00, // sync + MPEG1 Layer3 128kbps 44100Hz stereo no-padding
+	// 417 bytes of silence (128kbps frame at 44100 is 417 bytes)
+}
+
+func minimalMP3Frame() []byte {
+	frame := make([]byte, 4+413) // header + silence
+	copy(frame, minimalMP3FrameBytes)
+	return frame
+}
+
+// minimalOGG returns the OGG capture pattern + minimal Vorbis identification page.
+func minimalOGG() []byte {
+	// OGG page header magic: "OggS" capture pattern
+	return []byte{
+		'O', 'g', 'g', 'S', // capture pattern
+		0x00,                   // version
+		0x02,                   // header type: beginning of stream
+		0, 0, 0, 0, 0, 0, 0, 0, // granule position
+		1, 0, 0, 0, // serial number
+		0, 0, 0, 0, // page sequence
+		0, 0, 0, 0, // checksum placeholder
+		1,    // number of segments
+		0x1E, // segment table: 30-byte vorbis id header
+		// Vorbis identification header (minimal)
+		0x01,                         // packet type: identification
+		'v', 'o', 'r', 'b', 'i', 's', // codec id
+		0, 0, 0, 0, // version
+		0x01,                   // channels
+		0x44, 0xAC, 0x00, 0x00, // sample rate 44100
+		0, 0, 0, 0, // max bitrate
+		0, 0, 0, 0, // nominal bitrate
+		0, 0, 0, 0, // min bitrate
+		0x01, // blocksize
+	}
 }
 
 func parseToken(token string, total int) (int, error) {
