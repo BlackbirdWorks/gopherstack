@@ -563,3 +563,48 @@ Per-service tasks:
 - [ ] **workmail** — audit `services/workmail`: AWS emulation accuracy; Terraform + integration tests; match/exceed LocalStack; perf + resource-leak fixes; region support via ctxbag (`awsmeta.Region(ctx)`/`awsmeta.Account(ctx)`); consistent logger (`logger.Load(ctx)`, no embedded `*slog.Logger`).
 - [ ] **workspaces** — audit `services/workspaces`: AWS emulation accuracy; Terraform + integration tests; match/exceed LocalStack; perf + resource-leak fixes; region support via ctxbag (`awsmeta.Region(ctx)`/`awsmeta.Account(ctx)`); consistent logger (`logger.Load(ctx)`, no embedded `*slog.Logger`).
 - [ ] **xray** — audit `services/xray`: AWS emulation accuracy; Terraform + integration tests; match/exceed LocalStack; perf + resource-leak fixes; region support via ctxbag (`awsmeta.Region(ctx)`/`awsmeta.Account(ctx)`); consistent logger (`logger.Load(ctx)`, no embedded `*slog.Logger`).
+
+---
+
+## 2026-06-19 — Full 154-service scan: concrete findings
+
+Methodology: aggregated grep/read sweep across `services/` and `test/` on `parity-batch`
+(post-#2329). The ctxbag/logger helpers live in `pkgs/awsmeta` and `pkgs/logger`; the
+ctxbag is populated per-request by `awsMetaMiddleware`. Findings below are evidence
+with `file:line`; re-verify before starting (codebase moves fast). These augment the
+generic per-service checklist above with specific targets.
+
+### A. Stubs / non-real emulation — highest priority ("no stubs that lie")
+- **quicksight** — `services/quicksight/handler.go:911,912,932,933,964,965,990,991,1012,1013,1042,1043,1066,1067,1090,1091,1108,1109`: ~18 Appendix-A ops return canned/empty bodies and route unmapped ops to `UnsupportedOperationException`. Back themes/templates/folders/ingestions/permissions with real backend state so Create→Describe/List/Delete round-trip.
+- **rekognition** — `services/rekognition/handler.go:130` (NotImplemented route), `services/rekognition/backend.go:59` (stub); appendix confidence values are canned.
+- **inspector2** — `services/inspector2/handler.go:205,206`: `NotImplementedException` routing; CIS scan ops return stub data.
+- **kms** — `services/kms/handler.go:1052`: stubbed op — verify and implement real behavior.
+- **omics** — `services/omics/handler.go:656`: `NotImplementedException` default; read-set/reference ops return empty bodies / `{"checksum":"stub"}`. (No AWS terraform endpoint — e2e/unit only.)
+- **s3** — `services/s3/errors.go:150`: verify (likely a legitimate error mapping, low risk).
+- Single stub-marker files to verify each: **personalize, kinesisanalytics, elasticache, dlm, awsconfig, apigatewayv2**.
+
+### B. Logger discipline — `slog.Default()` in prod instead of `logger.Load(ctx)` (~70 services)
+Each of these calls `slog.Default()` in non-test code, bypassing the per-request scoped
+logger (violates the "consistent logger" principle). Replace with `logger.Load(ctx)`:
+cloudfront, codestarconnections, cognitoidentity, cognitoidp, dax, dms, docdb, dynamodb, ec2, efs, eks, elasticbeanstalk, elasticsearch, elb, emr, emrserverless, eventbridge, firehose, fis, glacier, iot, iotanalytics, iotwireless, kafka, kinesis, kinesisanalytics, kinesisanalyticsv2, kms, lakeformation, lambda, managedblockchain, mediaconvert, memorydb, mq, mwaa, neptune, networkmonitor, opensearch, organizations, pinpoint, ram, rds, rdsdata, redshift, redshiftdata, resourcegroups, resourcegroupstaggingapi, route53, route53resolver, s3control, s3tables, sagemaker, scheduler, secretsmanager, serverlessrepo, servicediscovery, ses, sesv2, shield, ssm, ssoadmin, sts, support, swf, textract, timestreamquery, timestreamwrite, transcribe, transfer, verifiedpermissions, wafv2, xray.
+- Also verify `*slog.Logger` is not held on a struct (vs passed as a param) in: batch, dax, dynamodb, ecs, kinesis, lambda, resourcegroups.
+
+### C. Region — hardcoded `"us-east-1"` in prod instead of `awsmeta.Region(ctx)`
+cloudformation (3 sites), route53 (2), and one site each in: support, sts, ssm, sns, s3, rds, personalize, kms, kafka, iotanalytics, iot, forecast, elbv2, elb, ec2, dynamodb, cognitoidp, cognitoidentity. Confirm each is a request-servable path (not a legitimate region-keyed constant like Route53 hosted-zone IDs) before changing.
+
+### D. Terraform fixtures
+59 fixture dirs exist under `test/terraform/` (core + several `-comprehensive`/grouped:
+e.g. `cognito` covers cognitoidp/cognitoidentity, `ec2-core`/`ec2-advanced`/`ec2-networking`,
+`sqs-sns-comprehensive`, `security-comprehensive`, `dns-cdn-comprehensive`,
+`caching-messaging-comprehensive`). Many services are covered indirectly — per-service
+work items should **first confirm** no grouped fixture already exercises the service,
+then add a dedicated fixture only where a real Terraform-managed round-trip is missing.
+
+### E. Resource-leak candidates (heuristic: `make(map[...])` with no `delete(` in the service)
+Verify bounded growth / delete-path cleanup in: **dynamodbstreams, resourcegroupstaggingapi, sagemakerruntime**.
+
+### F. Deprecated services — REMOVE, do not test
+- **qldb**, **qldbsession** — AWS removed QLDB; both have **zero unit tests**. Delete rather than audit (do not re-add).
+
+### G. Integration coverage — strength, not a gap
+`test/integration/` has ~230 per-service `<service>_test.go` files; integration coverage is broad. Per-service work should extend existing files, not assume absence.
