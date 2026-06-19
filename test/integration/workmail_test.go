@@ -403,6 +403,7 @@ func TestIntegration_WorkMail_MailDomains(t *testing.T) {
 			for _, d := range listOut.MailDomains {
 				if aws.ToString(d.DomainName) == tt.domain {
 					found = true
+
 					break
 				}
 			}
