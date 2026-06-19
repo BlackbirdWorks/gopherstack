@@ -111,6 +111,15 @@ logic is a differentiator:
 - **CloudFront** — 60+ stubbed APIs return minimal empty XML rather than data/errors.
 - **EC2** — `RevokeSecurityGroupEgress` is a no-op (AWS → `InvalidPermission.NotFound`).
 - **OpsWorks** — largely unimplemented (`UnsupportedOperationException`).
+- **Glue stubs + missing validation** (`services/glue/handler_stubs.go`): `CreateIntegration{Resource,Table}Property` accept empty input and
+  return success with no backend call (~440-455); `DescribeConnectionType`,
+  `GetDataQualityModelResult`, `GetIntegration{ResourceProperty,TableProperties}` return empty
+  structs (~1307,1763,1916,1932); `CancelMLTaskRun` / `GetBlueprintRun` /
+  `GetColumnStatisticsTaskRun` / `CancelStatement` return success on missing required IDs instead
+  of `ValidationException` (~228,1398,1615,245). Lowest-risk wins: add the required-field
+  validation first.
+- **Redshift** — `GetIdentityCenterAuthToken` returns a hardcoded `stub-auth-token` valid until
+  2099, ignoring all input (`services/redshift/handler_completeness.go:~882`).
 
 ### Tests
 - **Terraform fixtures** (`success.tf` + `import.tf` + `drift.tf`) for the still-unfixtured
@@ -136,9 +145,24 @@ logic is a differentiator:
 The ctxbag is populated for every request, so backends can migrate off their
 `DefaultRegion` struct field to `awsmeta.Region(ctx)` (keeping the field as fallback
 default) one service at a time. Track per-service; no behavioural gap remains because the
-per-request region they derive already matches what the middleware stores. Audit for any
-remaining hardcoded `"us-east-1"` in non-test production paths and route them through the
-ctxbag.
+per-request region they derive already matches what the middleware stores.
+
+**Confirmed region-support gaps — hardcoded region/account in ARN builders** (a resource
+created in `eu-west-1` still reports a `us-east-1` ARN, breaking region-aware clients and
+multi-region Terraform). Fix pattern: thread `ctx` into the `Create*` path and build ARNs
+from `awsmeta.Region(ctx)` / `awsmeta.Account(ctx)` with a default-region fallback — see
+**IoT Analytics** (`services/iotanalytics/backend.go`), done as the reference exemplar.
+Remaining (verify file:line before starting):
+- **API Gateway** — `DomainNameAccessAssociation` ARN hardcodes `us-east-1`
+  (`services/apigateway/backend.go:~1666`).
+- **API Gateway v2** — `RoutingRuleARN`/domain-name ARN hardcodes `us-east-1`
+  (`services/apigatewayv2/backend.go:~1826`).
+- **SecurityHub** — standards ARNs hardcode `us-east-1`
+  (`services/securityhub/backend.go:~189-217`).
+- **MemoryDB** (`services/memorydb/handler.go:~1600`) and **Kafka/MSK**
+  (`services/kafka/handler.go:~1500`) silently fall back to `us-east-1` when the region is
+  empty/unparseable instead of using the ctxbag region.
+- Sweep `services/` for other `:us-east-1:` literals in non-test ARN construction.
 
 ### Platform features vs LocalStack
 - **Multi-account / multi-region isolation** *(largest gap)* — state is not partitioned by
