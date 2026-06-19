@@ -122,12 +122,12 @@ logic is a differentiator:
   2099, ignoring all input (`services/redshift/handler_completeness.go:~882`).
 
 ### Tests
-- **Terraform fixtures** (`success.tf` + `import.tf` + `drift.tf`) for the still-unfixtured
-  services — Terraform is the strongest parity signal (validates shapes, waiters, drift):
-  `apprunner`, `comprehend`, `databrew`, `datasync`, `directoryservice`, `dlm`, `detective`,
-  `forecast`, `macie2`, `medialive`, `mediapackage`, `mediastoredata`, `mediatailor`,
-  `personalize`, `polly`, `quicksight`, `rekognition`, `rolesanywhere`, `transcribe`,
-  `translate`, `workmail`.
+- **Terraform fixtures** (`success.tf` + `import.tf` + `drift.tf`) — Terraform is the strongest
+  parity signal (validates shapes, waiters, drift). **NOTE: this list is stale** — 19 of the
+  originally-listed services were since fixtured. See the *Audit refresh (2026-06-19) → Test
+  coverage* section below for the accurate current gap lists (Terraform-missing: accessanalyzer,
+  account, appmesh, bedrockagent, cleanrooms, dax, inspector2, networkmonitor, omics, opsworks;
+  plus ~84 single-resource fixtures needing import/drift).
 - **`*-comprehensive` multi-resource Terraform modules** for Logs (Metric/Subscription
   filters), Cognito (IdentityPool + role attachment), Glue (Crawler/Table/Trigger), AppSync
   (DataSource/Resolver) — common in real stacks, currently un-fixtured at resource level.
@@ -265,6 +265,110 @@ Lambda/EventBridge; SNS→SQS/Lambda/Firehose/HTTP(S)/email; Lambda ESM for SQS/
 Kinesis; EventBridge rule→8 targets w/ retries+DLQ; Pipes + Scheduler; CloudWatch alarm→SNS;
 Firehose→S3+Lambda transform; Step Functions task integrations; CW-Logs subscription→Lambda/
 Kinesis/Firehose.
+
+---
+
+## Audit refresh — new findings (2026-06-19, four parallel sweeps)
+
+A fresh four-way audit (region/ctxbag/logger · emulation accuracy · perf/leaks · test
+coverage). Only NEW items not already listed above are recorded here; each is file:line-cited
+and tagged with confidence. **Documentation only — nothing fixed in this pass.** Known
+false-positive pattern excluded: a handler that calls `h.Backend.X(...)` and then returns
+`nil, nil` is the correct empty-envelope shape for void ops (Tag/Untag/Delete) — NOT a stub.
+
+### Region / ctxbag / account literals (new)
+- **apigateway/proxy.go:559** — `buildAuthorizerEvent` hardcodes `us-east-1` + `000000000000`
+  in the Lambda-authorizer `methodArn`; the func has `*http.Request` (ctx reachable but unused).
+- **iotanalytics/backend.go:1127-1130** — `resolveARNResource` ARN-prefix matching still
+  hardcodes `us-east-1:000000000000` (follow-up to the Create-path fix already shipped: prefix
+  matching wasn't updated, so cross-region ARNs won't resolve). EASY.
+- **iotwireless/backend_ops.go:~71** — `wirelessGatewayTaskDefARN` hardcodes
+  `us-east-1:000000000000`; backend has region/account fields. EASY.
+- **backup/handler.go:4079** — `handleCreateTieringConfiguration` uses `h.Backend.Region()` for
+  region but hardcodes `000000000000` for the account in the vault ARN. EASY.
+- **memorydb/handler.go:1663,1692** — `buildShards` hardcodes AZs `us-east-1a/b/c` and the
+  `*.memorydb.us-east-1.amazonaws.com` endpoint FQDN (region/AZ should derive from request).
+- **elasticache/handler.go:965** — `toCacheCluster` hardcodes `CustomerAvailabilityZone:
+  "us-east-1a"`.
+- **ce/handler.go:1697,1763,1767** — `handleGetSavingsPlansCoverage` /
+  `…PurchaseRecommendation` emit synthetic `Region: us-east-1` + `AccountId: 000000000000`
+  (handlers have ctx; not using awsmeta). EASY.
+- **sns/backend.go:374,2277** — SNS message-signing `certURL` hardcodes
+  `https://sns.us-east-1.amazonaws.com/...` (region-specific in real AWS); signer built at init.
+- **athena/backend.go:22,26** — package-level `arnRegion="us-east-1"` const + presigned-notebook
+  URL base hardcode region (region-on-backend/static-const class).
+- Verify: **route53/handler.go:~2064** (observer-region fallback), **transfer/handler.go:~3176**
+  (account in mock callback) — lower-value, confirm before acting.
+
+### Logger discipline (new) — pkgs/logger forbids embedded `*slog.Logger`; use `logger.Load(ctx)`
+- **Embedded logger struct fields:** `stepfunctions/backend.go:190` (`InMemoryBackend.logger`,
+  set via `SetLogger`), `iot/broker.go:24` (`Broker.logger`) + `:105` (`ruleHook.logger`),
+  `dax/dataplane/server.go:85` (`Server.logger`). These pin a logger at construction instead of
+  inheriting the request-scoped one.
+- **Ad-hoc `slog.Default()` in production logic** (~55 non-persistence sites): `lambda/provider.go:38`,
+  `lambda/backend.go` (async/URL-server/layer paths), `lambda/runtime_api.go` (init/pending),
+  `ecs/reconciler.go` (2), `ecs/provider.go`, `ecr/provider.go`, `iot/provider.go`,
+  `mediaconvert/janitor.go`, `cloudwatch/backend.go` (SNS-action delivery). Background loops
+  (reconcilers/janitors) have no request ctx, so these need a service-scoped logger captured at
+  startup rather than `slog.Default()`.
+
+### Emulation accuracy — validation / error-code / pagination (new, verify each)
+- **stepfunctions/handler.go:480-521** — `createStateMachineAction` doesn't validate `Name`
+  presence/pattern (AWS → `ValidationException`); `updateStateMachineAction` (526-554) doesn't
+  validate `StateMachineArn` format.
+- **rds/handler.go:323** — form-parse failure returns `500` instead of `400 ValidationException`.
+- **resourcegroups/handler.go:381-397** — `handleCreateGroup` doesn't validate non-empty `Name`.
+- **detective/handler.go:266** — returns `501 NotImplementedException` where AWS returns
+  `400 InvalidInputException`.
+- **transcribe/handler.go** — returns generic `InternalFailureException` where AWS returns
+  `ValidationException` for invalid params.
+- Name/enum validation gaps (return success on invalid input where AWS rejects): SNS CreateTopic
+  FIFO `.fifo`-suffix rule when `FifoTopic=true` (`sns/handler.go:462`); SQS CreateQueue name
+  pattern + 80-char limit; SQS ReceiveMessage `MaxNumberOfMessages>10`; Lambda CreateFunction
+  name rules; EventBridge PutRule / CreateEventBus name length/pattern; DynamoDB CreateTable
+  `BillingMode` enum; Kinesis CreateStream `ShardCount>0`; APIGW CreateIntegration required
+  `Type`; Scheduler CreateSchedule cron format; IAM CreateRole `AssumeRolePolicyDocument` valid
+  JSON. (All "verify against current code" — several may already validate.)
+- **Possible lying stub:** `s3tables/handler.go:726` `DeleteTableBucketEncryption` returns
+  `nil,nil` with no apparent backend mutation — verify it actually clears config (distinct from
+  the void-op false-positive pattern). `networkmonitor` Delete/Tag ops similar — verify.
+
+### Performance / resource leaks (new)
+- **KMS `findGrantByToken`** (`kms/backend.go:2227-2233`) — O(regions × tokens) nested scan on
+  the Encrypt/Decrypt hot path; needs a token→grant index. **KMS `ListGrants`**
+  (`:2287-2298`) — O(n) scan of all grants, no keyID index. (Supersedes the older single-line
+  KMS note above with exact location.)
+- **EventBridge `ListRuleNamesByTarget`** (`eventbridge/backend.go:2369-2380`) — O(targets ×
+  rules) triple-nested scan, no TargetArn→rule index.
+- **OpenSearch** (`opensearch/backend.go:497,499`) — `upgradeHistory` and `domainMaintenances`
+  are append-only per-domain lists with no cap/TTL (unbounded under long-running/stress use).
+- **Pipes** (`pipes/backend.go:844`) — `enrichmentCallCount` global counter increments
+  unbounded; verify whether it's pruned per-pipe / reset.
+- Verify: **OpenSearch** package-association bidirectional index (`backend.go:479-484`) — confirm
+  `packageAssociations`/`domainPackages` are updated atomically to avoid index drift.
+- **Corrections (re-verified as already OK/fixed — do not re-flag):** SSM
+  `GetParametersByPath` is now O(log n + k) via `paramNamesSorted`; CloudWatch Logs
+  metric-filter matching is bounded by per-group filter caps; SSM param history capped at 100;
+  CloudWatch `alarmHistory` rolling-trimmed; ACM cert timers `Stop()`ed in `DeleteCertificate`;
+  StepFunctions `pendingTaskQueues` channel closed+deleted on `DeleteActivity`.
+
+### Test coverage — corrected current inventory (supersedes the stale §H list above)
+Since the prior audit, **19 services gained Terraform fixtures and integration tests**
+(apprunner, comprehend, databrew, datasync, directoryservice, detective, forecast, macie2,
+medialive, mediapackage, mediastoredata, mediatailor, personalize, polly, quicksight,
+rekognition, rolesanywhere, transcribe, translate, workmail). Accurate remaining gaps:
+- **No SDK integration test (10):** account, bedrockagent, cleanrooms, dlm, networkmonitor,
+  omics, opsworks, qldb, qldbsession, vpclattice. (account/opsworks blocked on SDK modules not
+  in `go.mod`; qldb/qldbsession are deprecated — likely drop rather than test.)
+- **No Terraform fixture/module (12):** accessanalyzer, account, appmesh, bedrockagent,
+  cleanrooms, dax, inspector2, networkmonitor, omics, opsworks, qldb, qldbsession.
+- **Both gaps (highest priority):** account, bedrockagent, cleanrooms, dlm, omics, opsworks,
+  networkmonitor, vpclattice.
+- **Thin coverage:** only **5** fixtures have full success+import+drift (dynamodb, s3,
+  secretsmanager, sns, sqs); ~84 of ~157 fixtures are single-resource `success.tf` only —
+  adding `import.tf`/`drift.tf` + multi-resource modules is the biggest parity-signal win.
+  Single-op integration smoke tests to expand: bedrockruntime, ce, detective, shield,
+  rekognition, forecast.
 
 ---
 
