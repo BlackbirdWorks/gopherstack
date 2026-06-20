@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/dms"
 )
 
 // ── ValidationException for missing required fields ──────────────────────────
@@ -261,6 +263,284 @@ func TestAudit2_CreateEventSubscription_Duplicate(t *testing.T) {
 	var errBody map[string]any
 	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &errBody))
 	assert.Equal(t, "ResourceAlreadyExistsFault", errBody["__type"])
+}
+
+// ── CreateReplicationTask validates referenced ARNs exist ──────────────────────
+
+func TestAudit2_CreateReplicationTask_ARNValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name              string
+		omitSource        bool
+		omitTarget        bool
+		omitInstance      bool
+		badSourceArn      bool
+		badTargetArn      bool
+		badInstanceArn    bool
+	}{
+		{name: "nonexistent_source_endpoint", badSourceArn: true},
+		{name: "nonexistent_target_endpoint", badTargetArn: true},
+		{name: "nonexistent_replication_instance", badInstanceArn: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestDMSHandler()
+
+			riRec := doDMS(t, h, "CreateReplicationInstance", map[string]any{
+				"ReplicationInstanceIdentifier": "arn-ri",
+				"ReplicationInstanceClass":      "dms.t3.medium",
+			})
+			require.Equal(t, http.StatusOK, riRec.Code)
+			riArn := parseJSON(t, riRec)["ReplicationInstance"].(map[string]any)["ReplicationInstanceArn"].(string)
+
+			srcRec := doDMS(t, h, "CreateEndpoint", map[string]any{
+				"EndpointIdentifier": "arn-src",
+				"EndpointType":       "source",
+				"EngineName":         "mysql",
+			})
+			require.Equal(t, http.StatusOK, srcRec.Code)
+			srcArn := parseJSON(t, srcRec)["Endpoint"].(map[string]any)["EndpointArn"].(string)
+
+			tgtRec := doDMS(t, h, "CreateEndpoint", map[string]any{
+				"EndpointIdentifier": "arn-tgt",
+				"EndpointType":       "target",
+				"EngineName":         "s3",
+			})
+			require.Equal(t, http.StatusOK, tgtRec.Code)
+			tgtArn := parseJSON(t, tgtRec)["Endpoint"].(map[string]any)["EndpointArn"].(string)
+
+			useSrcArn := srcArn
+			useTgtArn := tgtArn
+			useRiArn := riArn
+
+			if tt.badSourceArn {
+				useSrcArn = "arn:aws:dms:us-east-1:123:endpoint:nonexistent-src"
+			}
+
+			if tt.badTargetArn {
+				useTgtArn = "arn:aws:dms:us-east-1:123:endpoint:nonexistent-tgt"
+			}
+
+			if tt.badInstanceArn {
+				useRiArn = "arn:aws:dms:us-east-1:123:rep:nonexistent-ri"
+			}
+
+			rec := doDMS(t, h, "CreateReplicationTask", map[string]any{
+				"ReplicationTaskIdentifier": "arn-task",
+				"SourceEndpointArn":         useSrcArn,
+				"TargetEndpointArn":         useTgtArn,
+				"ReplicationInstanceArn":    useRiArn,
+				"MigrationType":             "full-load",
+			})
+
+			require.Equal(t, http.StatusNotFound, rec.Code)
+
+			var body map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			assert.Equal(t, "ResourceNotFoundFault", body["__type"],
+				"non-existent ARN in CreateReplicationTask must return ResourceNotFoundFault")
+		})
+	}
+}
+
+// ── DeleteEndpoint rejects endpoints in use by tasks ─────────────────────────
+
+func TestAudit2_DeleteEndpoint_RejectsIfInUse(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		isSource   bool
+	}{
+		{name: "source_endpoint_in_use", isSource: true},
+		{name: "target_endpoint_in_use", isSource: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestDMSHandler()
+
+			riRec := doDMS(t, h, "CreateReplicationInstance", map[string]any{
+				"ReplicationInstanceIdentifier": "ep-inuse-ri",
+				"ReplicationInstanceClass":      "dms.t3.medium",
+			})
+			require.Equal(t, http.StatusOK, riRec.Code)
+			riArn := parseJSON(t, riRec)["ReplicationInstance"].(map[string]any)["ReplicationInstanceArn"].(string)
+
+			srcRec := doDMS(t, h, "CreateEndpoint", map[string]any{
+				"EndpointIdentifier": "ep-inuse-src",
+				"EndpointType":       "source",
+				"EngineName":         "mysql",
+			})
+			require.Equal(t, http.StatusOK, srcRec.Code)
+			srcArn := parseJSON(t, srcRec)["Endpoint"].(map[string]any)["EndpointArn"].(string)
+
+			tgtRec := doDMS(t, h, "CreateEndpoint", map[string]any{
+				"EndpointIdentifier": "ep-inuse-tgt",
+				"EndpointType":       "target",
+				"EngineName":         "s3",
+			})
+			require.Equal(t, http.StatusOK, tgtRec.Code)
+			tgtArn := parseJSON(t, tgtRec)["Endpoint"].(map[string]any)["EndpointArn"].(string)
+
+			taskRec := doDMS(t, h, "CreateReplicationTask", map[string]any{
+				"ReplicationTaskIdentifier": "ep-inuse-task",
+				"SourceEndpointArn":         srcArn,
+				"TargetEndpointArn":         tgtArn,
+				"ReplicationInstanceArn":    riArn,
+				"MigrationType":             "full-load",
+			})
+			require.Equal(t, http.StatusOK, taskRec.Code)
+
+			// Delete whichever endpoint is in use — must fail with state error.
+			deleteArn := tgtArn
+			if tt.isSource {
+				deleteArn = srcArn
+			}
+
+			delRec := doDMS(t, h, "DeleteEndpoint", map[string]any{
+				"EndpointArn": deleteArn,
+			})
+			require.Equal(t, http.StatusBadRequest, delRec.Code)
+
+			var body map[string]any
+			require.NoError(t, json.Unmarshal(delRec.Body.Bytes(), &body))
+			assert.Equal(t, "InvalidResourceStateFault", body["__type"],
+				"deleting an endpoint used by a task must return InvalidResourceStateFault")
+		})
+	}
+}
+
+// ── Assessment run lifecycle: start, describe, delete, cancel ─────────────────
+
+func TestAudit2_AssessmentRun_Lifecycle(t *testing.T) {
+	t.Parallel()
+
+	// Helper to build RI + endpoints + task.
+	setupTask := func(t *testing.T, h *dms.Handler, prefix string) string {
+		t.Helper()
+
+		riRec := doDMS(t, h, "CreateReplicationInstance", map[string]any{
+			"ReplicationInstanceIdentifier": prefix + "-ri",
+			"ReplicationInstanceClass":      "dms.t3.medium",
+		})
+		require.Equal(t, http.StatusOK, riRec.Code)
+		riArn := parseJSON(t, riRec)["ReplicationInstance"].(map[string]any)["ReplicationInstanceArn"].(string)
+
+		srcRec := doDMS(t, h, "CreateEndpoint", map[string]any{
+			"EndpointIdentifier": prefix + "-src",
+			"EndpointType":       "source",
+			"EngineName":         "mysql",
+		})
+		require.Equal(t, http.StatusOK, srcRec.Code)
+		srcArn := parseJSON(t, srcRec)["Endpoint"].(map[string]any)["EndpointArn"].(string)
+
+		tgtRec := doDMS(t, h, "CreateEndpoint", map[string]any{
+			"EndpointIdentifier": prefix + "-tgt",
+			"EndpointType":       "target",
+			"EngineName":         "s3",
+		})
+		require.Equal(t, http.StatusOK, tgtRec.Code)
+		tgtArn := parseJSON(t, tgtRec)["Endpoint"].(map[string]any)["EndpointArn"].(string)
+
+		taskRec := doDMS(t, h, "CreateReplicationTask", map[string]any{
+			"ReplicationTaskIdentifier": prefix + "-task",
+			"SourceEndpointArn":         srcArn,
+			"TargetEndpointArn":         tgtArn,
+			"ReplicationInstanceArn":    riArn,
+			"MigrationType":             "full-load",
+		})
+		require.Equal(t, http.StatusOK, taskRec.Code)
+
+		return parseJSON(t, taskRec)["ReplicationTask"].(map[string]any)["ReplicationTaskArn"].(string)
+	}
+
+	t.Run("start_nonexistent_task_returns_404", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestDMSHandler()
+		rec := doDMS(t, h, "StartReplicationTaskAssessmentRun", map[string]any{
+			"ReplicationTaskArn":   "arn:aws:dms:us-east-1:123:task:nonexistent",
+			"ServiceAccessRoleArn": "arn:aws:iam::123:role/role",
+			"ResultLocationBucket": "my-bucket",
+			"AssessmentRunName":    "test-run",
+		})
+		require.Equal(t, http.StatusNotFound, rec.Code)
+	})
+
+	t.Run("start_stores_run_describable_deletable", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestDMSHandler()
+		taskArn := setupTask(t, h, "ar-lifecycle")
+
+		// Start assessment run.
+		startRec := doDMS(t, h, "StartReplicationTaskAssessmentRun", map[string]any{
+			"ReplicationTaskArn":   taskArn,
+			"ServiceAccessRoleArn": "arn:aws:iam::123:role/role",
+			"ResultLocationBucket": "my-bucket",
+			"AssessmentRunName":    "my-run",
+		})
+		require.Equal(t, http.StatusOK, startRec.Code)
+		runBody := parseJSON(t, startRec)["ReplicationTaskAssessmentRun"].(map[string]any)
+		runArn, _ := runBody["ReplicationTaskAssessmentRunArn"].(string)
+		assert.NotEmpty(t, runArn, "assessment run ARN must be non-empty")
+
+		// DescribeReplicationTaskAssessmentRuns must return it.
+		descRec := doDMS(t, h, "DescribeReplicationTaskAssessmentRuns", map[string]any{})
+		require.Equal(t, http.StatusOK, descRec.Code)
+		runs := parseJSON(t, descRec)["ReplicationTaskAssessmentRuns"].([]any)
+		assert.Len(t, runs, 1)
+
+		// DeleteReplicationTaskAssessmentRun must succeed.
+		delRec := doDMS(t, h, "DeleteReplicationTaskAssessmentRun", map[string]any{
+			"ReplicationTaskAssessmentRunArn": runArn,
+		})
+		require.Equal(t, http.StatusOK, delRec.Code)
+
+		// Second delete must return 404.
+		del2Rec := doDMS(t, h, "DeleteReplicationTaskAssessmentRun", map[string]any{
+			"ReplicationTaskAssessmentRunArn": runArn,
+		})
+		require.Equal(t, http.StatusNotFound, del2Rec.Code)
+	})
+
+	t.Run("cancel_existing_run_succeeds", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestDMSHandler()
+		taskArn := setupTask(t, h, "ar-cancel")
+
+		startRec := doDMS(t, h, "StartReplicationTaskAssessmentRun", map[string]any{
+			"ReplicationTaskArn":   taskArn,
+			"ServiceAccessRoleArn": "arn:aws:iam::123:role/role",
+			"ResultLocationBucket": "bucket",
+			"AssessmentRunName":    "cancel-run",
+		})
+		require.Equal(t, http.StatusOK, startRec.Code)
+		runArn := parseJSON(t, startRec)["ReplicationTaskAssessmentRun"].(map[string]any)["ReplicationTaskAssessmentRunArn"].(string)
+
+		cancelRec := doDMS(t, h, "CancelReplicationTaskAssessmentRun", map[string]any{
+			"ReplicationTaskAssessmentRunArn": runArn,
+		})
+		require.Equal(t, http.StatusOK, cancelRec.Code)
+	})
+
+	t.Run("cancel_nonexistent_run_returns_404", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestDMSHandler()
+		rec := doDMS(t, h, "CancelReplicationTaskAssessmentRun", map[string]any{
+			"ReplicationTaskAssessmentRunArn": "arn:aws:dms:us-east-1:123:assessment-run:nonexistent",
+		})
+		require.Equal(t, http.StatusNotFound, rec.Code)
+	})
 }
 
 // ── CreateReplicationTask MigrationType validation ────────────────────────────

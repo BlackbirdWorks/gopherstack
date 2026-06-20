@@ -236,6 +236,14 @@ type ReplicationConfig struct {
 	Region                      string
 }
 
+// AssessmentRun represents a DMS pre-migration assessment run.
+type AssessmentRun struct {
+	ReplicationTaskAssessmentRunArn string
+	ReplicationTaskArn              string
+	AssessmentRunName               string
+	Status                          string
+}
+
 // Connection represents a DMS connection between a replication instance and an endpoint.
 type Connection struct {
 	ReplicationInstanceArn        string
@@ -280,6 +288,7 @@ type InMemoryBackend struct {
 	replicationConfigs           map[string]map[string]*ReplicationConfig
 	replicationConfigsByARN      map[string]map[string]*ReplicationConfig
 	connections                  map[string]map[string]*Connection // inner key: "riArn:epArn"
+	assessmentRuns               map[string]map[string]*AssessmentRun // inner key: ARN
 	mu                           *lockmetrics.RWMutex
 	accountID                    string
 	region                       string
@@ -313,6 +322,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		replicationConfigs:           make(map[string]map[string]*ReplicationConfig),
 		replicationConfigsByARN:      make(map[string]map[string]*ReplicationConfig),
 		connections:                  make(map[string]map[string]*Connection),
+		assessmentRuns:               make(map[string]map[string]*AssessmentRun),
 		accountID:                    accountID,
 		region:                       region,
 		paginationSecret:             uuid.NewString(),
@@ -505,6 +515,14 @@ func (b *InMemoryBackend) connectionsStore(region string) map[string]*Connection
 	}
 
 	return b.connections[region]
+}
+
+func (b *InMemoryBackend) assessmentRunsStore(region string) map[string]*AssessmentRun {
+	if b.assessmentRuns[region] == nil {
+		b.assessmentRuns[region] = make(map[string]*AssessmentRun)
+	}
+
+	return b.assessmentRuns[region]
 }
 
 // AccountID returns the AWS account ID this backend is configured for.
@@ -752,6 +770,7 @@ func (b *InMemoryBackend) DescribeEndpoints(ctx context.Context, identifierOrArn
 }
 
 // DeleteEndpoint deletes an endpoint by ARN or identifier.
+// Real AWS rejects deletion if the endpoint is still referenced by any replication task.
 func (b *InMemoryBackend) DeleteEndpoint(ctx context.Context, arnOrID string) (*Endpoint, error) {
 	b.mu.Lock("DeleteEndpoint")
 	defer b.mu.Unlock()
@@ -760,23 +779,33 @@ func (b *InMemoryBackend) DeleteEndpoint(ctx context.Context, arnOrID string) (*
 	store := b.endpointsStore(region)
 	byARN := b.endpointsByARNStore(region)
 
-	// Try by identifier first.
-	if ep, ok := store[arnOrID]; ok {
+	deleteEndpoint := func(ep *Endpoint, id string) (*Endpoint, error) {
+		// Scan tasks to check if any reference this endpoint as source or target.
+		for _, rt := range b.replicationTasksStore(region) {
+			if rt.SourceEndpointArn == ep.EndpointArn || rt.TargetEndpointArn == ep.EndpointArn {
+				return nil, fmt.Errorf(
+					"%w: endpoint %s is in use by replication task %s; delete the task first",
+					ErrInvalidState,
+					arnOrID,
+					rt.ReplicationTaskIdentifier,
+				)
+			}
+		}
 		cp := *ep
 		ep.Tags.Close()
 		delete(byARN, ep.EndpointArn)
-		delete(store, arnOrID)
+		delete(store, id)
 
 		return &cp, nil
 	}
+
+	// Try by identifier first.
+	if ep, ok := store[arnOrID]; ok {
+		return deleteEndpoint(ep, arnOrID)
+	}
 	// Try by ARN index.
 	if ep, ok := byARN[arnOrID]; ok {
-		cp := *ep
-		ep.Tags.Close()
-		delete(byARN, arnOrID)
-		delete(store, ep.EndpointIdentifier)
-
-		return &cp, nil
+		return deleteEndpoint(ep, ep.EndpointIdentifier)
 	}
 
 	return nil, fmt.Errorf("%w: endpoint %s not found", ErrNotFound, arnOrID)
@@ -801,6 +830,23 @@ func (b *InMemoryBackend) CreateReplicationTask(
 			"%w: replication task %s already exists",
 			ErrAlreadyExists,
 			identifier,
+		)
+	}
+
+	// Validate referenced resources exist (real AWS returns ResourceNotFoundFault).
+	if _, ok := b.endpointsByARNStore(region)[sourceEndpointArn]; !ok {
+		return nil, fmt.Errorf("%w: source endpoint %s not found", ErrNotFound, sourceEndpointArn)
+	}
+
+	if _, ok := b.endpointsByARNStore(region)[targetEndpointArn]; !ok {
+		return nil, fmt.Errorf("%w: target endpoint %s not found", ErrNotFound, targetEndpointArn)
+	}
+
+	if _, ok := b.replicationInstancesByARNStore(region)[replicationInstanceArn]; !ok {
+		return nil, fmt.Errorf(
+			"%w: replication instance %s not found",
+			ErrNotFound,
+			replicationInstanceArn,
 		)
 	}
 
@@ -1077,19 +1123,95 @@ func (b *InMemoryBackend) CancelMetadataModelCreation(
 
 // CancelReplicationTaskAssessmentRun cancels a single premigration assessment run.
 func (b *InMemoryBackend) CancelReplicationTaskAssessmentRun(
-	_ context.Context,
+	ctx context.Context,
 	replicationTaskAssessmentRunArn string,
 ) error {
 	if replicationTaskAssessmentRunArn == "" {
 		return fmt.Errorf("%w: ReplicationTaskAssessmentRunArn is required", ErrValidation)
 	}
 
-	// In-memory: there are no real assessment runs to cancel; return not-found.
-	return fmt.Errorf(
-		"%w: assessment run %s not found",
-		ErrNotFound,
-		replicationTaskAssessmentRunArn,
-	)
+	b.mu.Lock("CancelReplicationTaskAssessmentRun")
+	defer b.mu.Unlock()
+
+	store := b.assessmentRunsStore(getRegion(ctx, b.region))
+
+	run, ok := store[replicationTaskAssessmentRunArn]
+	if !ok {
+		return fmt.Errorf(
+			"%w: assessment run %s not found",
+			ErrNotFound,
+			replicationTaskAssessmentRunArn,
+		)
+	}
+
+	run.Status = "cancelling"
+
+	return nil
+}
+
+// StartAssessmentRun creates and stores a new premigration assessment run.
+func (b *InMemoryBackend) StartAssessmentRun(
+	ctx context.Context,
+	taskArn, serviceAccessRoleArn, resultLocationBucket, assessmentRunName string,
+) (*AssessmentRun, error) {
+	b.mu.Lock("StartAssessmentRun")
+	defer b.mu.Unlock()
+
+	region := getRegion(ctx, b.region)
+
+	if _, ok := b.replicationTasksByARNStore(region)[taskArn]; !ok {
+		return nil, fmt.Errorf("%w: replication task %s not found", ErrNotFound, taskArn)
+	}
+
+	runARN := arn.Build("dms", region, b.accountID, "assessment-run:"+uuid.NewString())
+	run := &AssessmentRun{
+		ReplicationTaskAssessmentRunArn: runARN,
+		ReplicationTaskArn:              taskArn,
+		AssessmentRunName:               assessmentRunName,
+		Status:                          statusRunning,
+	}
+	b.assessmentRunsStore(region)[runARN] = run
+	cp := *run
+
+	return &cp, nil
+}
+
+// DeleteAssessmentRun removes a stored assessment run.
+func (b *InMemoryBackend) DeleteAssessmentRun(ctx context.Context, runArn string) (*AssessmentRun, error) {
+	b.mu.Lock("DeleteAssessmentRun")
+	defer b.mu.Unlock()
+
+	store := b.assessmentRunsStore(getRegion(ctx, b.region))
+
+	run, ok := store[runArn]
+	if !ok {
+		return nil, fmt.Errorf("%w: assessment run %s not found", ErrNotFound, runArn)
+	}
+
+	cp := *run
+	delete(store, runArn)
+
+	return &cp, nil
+}
+
+// DescribeAssessmentRuns returns stored assessment runs, optionally filtered by task ARN.
+func (b *InMemoryBackend) DescribeAssessmentRuns(ctx context.Context, taskArn string) ([]*AssessmentRun, error) {
+	b.mu.RLock("DescribeAssessmentRuns")
+	defer b.mu.RUnlock()
+
+	store := b.assessmentRunsStore(getRegion(ctx, b.region))
+	list := make([]*AssessmentRun, 0, len(store))
+
+	for _, run := range store {
+		if taskArn != "" && run.ReplicationTaskArn != taskArn {
+			continue
+		}
+
+		cp := *run
+		list = append(list, &cp)
+	}
+
+	return list, nil
 }
 
 func isValidMigrationType(s string) bool {
@@ -1415,6 +1537,7 @@ func (b *InMemoryBackend) Reset() {
 	b.replicationConfigs = make(map[string]map[string]*ReplicationConfig)
 	b.replicationConfigsByARN = make(map[string]map[string]*ReplicationConfig)
 	b.connections = make(map[string]map[string]*Connection)
+	b.assessmentRuns = make(map[string]map[string]*AssessmentRun)
 }
 
 // AddReplicationInstanceInternal seeds a replication instance directly without HTTP.

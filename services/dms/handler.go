@@ -2413,13 +2413,21 @@ type deleteReplicationTaskAssessmentRunOutput struct {
 }
 
 func (h *Handler) handleDeleteReplicationTaskAssessmentRun(
-	_ context.Context, in *deleteReplicationTaskAssessmentRunInput,
+	ctx context.Context, in *deleteReplicationTaskAssessmentRunInput,
 ) (*deleteReplicationTaskAssessmentRunOutput, error) {
-	return nil, fmt.Errorf(
-		"%w: assessment run %s not found",
-		ErrNotFound,
-		ptrStr(in.ReplicationTaskAssessmentRunArn),
-	)
+	run, err := h.Backend.DeleteAssessmentRun(ctx, ptrStr(in.ReplicationTaskAssessmentRunArn))
+	if err != nil {
+		return nil, err
+	}
+
+	return &deleteReplicationTaskAssessmentRunOutput{
+		ReplicationTaskAssessmentRun: map[string]any{
+			"ReplicationTaskAssessmentRunArn": run.ReplicationTaskAssessmentRunArn,
+			"ReplicationTaskArn":              run.ReplicationTaskArn,
+			"AssessmentRunName":               run.AssessmentRunName,
+			"Status":                          run.Status,
+		},
+	}, nil
 }
 
 // --- DescribeAccountAttributes handler ---
@@ -3682,10 +3690,27 @@ type describeReplicationTaskAssessmentRunsOutput struct {
 }
 
 func (h *Handler) handleDescribeReplicationTaskAssessmentRuns(
-	_ context.Context, _ *describeReplicationTaskAssessmentRunsInput,
+	ctx context.Context, in *describeReplicationTaskAssessmentRunsInput,
 ) (*describeReplicationTaskAssessmentRunsOutput, error) {
+	taskArn := extractFilterValue(in.Filters, "replication-task-arn")
+
+	runs, err := h.Backend.DescribeAssessmentRuns(ctx, taskArn)
+	if err != nil {
+		return nil, err
+	}
+
+	list := make([]map[string]any, 0, len(runs))
+	for _, run := range runs {
+		list = append(list, map[string]any{
+			"ReplicationTaskAssessmentRunArn": run.ReplicationTaskAssessmentRunArn,
+			"ReplicationTaskArn":              run.ReplicationTaskArn,
+			"AssessmentRunName":               run.AssessmentRunName,
+			"Status":                          run.Status,
+		})
+	}
+
 	return &describeReplicationTaskAssessmentRunsOutput{
-		ReplicationTaskAssessmentRuns: []map[string]any{},
+		ReplicationTaskAssessmentRuns: list,
 	}, nil
 }
 
@@ -4527,12 +4552,25 @@ type startReplicationTaskAssessmentRunOutput struct {
 }
 
 func (h *Handler) handleStartReplicationTaskAssessmentRun(
-	_ context.Context, _ *startReplicationTaskAssessmentRunInput,
+	ctx context.Context, in *startReplicationTaskAssessmentRunInput,
 ) (*startReplicationTaskAssessmentRunOutput, error) {
+	run, err := h.Backend.StartAssessmentRun(
+		ctx,
+		ptrStr(in.ReplicationTaskArn),
+		ptrStr(in.ServiceAccessRoleArn),
+		ptrStr(in.ResultLocationBucket),
+		ptrStr(in.AssessmentRunName),
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	return &startReplicationTaskAssessmentRunOutput{
 		ReplicationTaskAssessmentRun: map[string]any{
-			"ReplicationTaskAssessmentRunArn": uuid.NewString(),
-			"Status":                          statusRunning,
+			"ReplicationTaskAssessmentRunArn": run.ReplicationTaskAssessmentRunArn,
+			"ReplicationTaskArn":              run.ReplicationTaskArn,
+			"AssessmentRunName":               run.AssessmentRunName,
+			"Status":                          run.Status,
 		},
 	}, nil
 }
