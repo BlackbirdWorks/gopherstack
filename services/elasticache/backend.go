@@ -44,6 +44,7 @@ const (
 
 const (
 	snapshotSourceManual        = "manual"
+	snapshotSourceAutomated     = "automated"
 	dataTypeString              = "string"
 	dataTypeInteger             = "integer"
 	allowedValuesYesNo          = "yes,no"
@@ -1746,9 +1747,9 @@ func (b *InMemoryBackend) DescribeSnapshots(
 	wantSource := ""
 	switch snapshotSource {
 	case "system":
-		wantSource = "automated"
+		wantSource = snapshotSourceAutomated
 	case "user":
-		wantSource = "manual"
+		wantSource = snapshotSourceManual
 	}
 
 	return describePaged(b.snapshotsStore(region), snapshotName, ErrSnapshotNotFound, func(s CacheSnapshot) bool {

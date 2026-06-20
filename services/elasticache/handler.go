@@ -1650,7 +1650,9 @@ func (h *Handler) describeSnapshots(ctx context.Context, c *echo.Context, form u
 	snapshotSource := form.Get("SnapshotSource")
 	marker, maxRecords := parsePagination(form)
 
-	p, err := h.Backend.DescribeSnapshots(ctx, snapshotName, clusterID, replicationGroupID, snapshotSource, marker, maxRecords)
+	p, err := h.Backend.DescribeSnapshots(
+		ctx, snapshotName, clusterID, replicationGroupID, snapshotSource, marker, maxRecords,
+	)
 	if err != nil {
 		if errors.Is(err, ErrSnapshotNotFound) {
 			return xmlError(c, http.StatusBadRequest, "SnapshotNotFoundFault", "Snapshot not found")

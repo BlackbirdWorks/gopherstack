@@ -653,7 +653,7 @@ func buildAutoSnapshot(b *InMemoryBackend, region, snapName string, rg *Replicat
 		ReplicationGroupID: rg.ReplicationGroupID,
 		Status:             statusAvailable,
 		ARN:                b.snapshotARN(region, snapName),
-		SnapshotSource:     "automated",
+		SnapshotSource:     snapshotSourceAutomated,
 		Engine:             engineRedis,
 		EngineVersion:      ev,
 		NodeType:           rg.CacheNodeType,
