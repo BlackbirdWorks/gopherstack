@@ -108,11 +108,11 @@ const (
 const (
 	agreementStatusActive   = "ACTIVE"
 	agreementStatusInactive = "INACTIVE"
-	defaultHostKeyType  = "ssh-rsa"
-	sshKeyTypeEd25519   = "ssh-ed25519"
-	sshKeyTypeECDSAP256 = "ecdsa-sha2-nistp256"
-	sshKeyTypeECDSAP384 = "ecdsa-sha2-nistp384"
-	sshKeyTypeECDSAP521 = "ecdsa-sha2-nistp521"
+	defaultHostKeyType      = "ssh-rsa"
+	sshKeyTypeEd25519       = "ssh-ed25519"
+	sshKeyTypeECDSAP256     = "ecdsa-sha2-nistp256"
+	sshKeyTypeECDSAP384     = "ecdsa-sha2-nistp384"
+	sshKeyTypeECDSAP521     = "ecdsa-sha2-nistp521"
 )
 
 // Workflow step state status constants (SendWorkflowStepState).
