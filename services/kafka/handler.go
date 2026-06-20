@@ -1143,8 +1143,10 @@ type createConfigurationInput struct {
 }
 
 type createConfigurationOutput struct {
-	Arn  string `json:"arn"`
-	Name string `json:"name"`
+	Arn            string                `json:"arn"`
+	Name           string                `json:"name"`
+	State          string                `json:"state"`
+	LatestRevision configurationRevision `json:"latestRevision"`
 }
 
 type configurationRevision struct {
@@ -1577,8 +1579,13 @@ func (h *Handler) handleCreateConfiguration(ctx context.Context, c *echo.Context
 	}
 
 	return c.JSON(http.StatusOK, createConfigurationOutput{
-		Arn:  config.Arn,
-		Name: config.Name,
+		Arn:   config.Arn,
+		Name:  config.Name,
+		State: ClusterStateActive,
+		LatestRevision: configurationRevision{
+			Revision:    1,
+			Description: config.Description,
+		},
 	})
 }
 
@@ -2296,7 +2303,15 @@ func (h *Handler) handleUpdateConfiguration(ctx context.Context, c *echo.Context
 		return h.writeBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, createConfigurationOutput{Arn: config.Arn, Name: config.Name})
+	return c.JSON(http.StatusOK, createConfigurationOutput{
+		Arn:   config.Arn,
+		Name:  config.Name,
+		State: ClusterStateActive,
+		LatestRevision: configurationRevision{
+			Revision:    1,
+			Description: config.Description,
+		},
+	})
 }
 
 // ----------------------------------------
@@ -2377,6 +2392,41 @@ func (h *Handler) handleRebootBroker(ctx context.Context, c *echo.Context, clust
 // Cluster update handlers
 // ----------------------------------------
 
+// requireCurrentVersion validates that the supplied currentVersion matches the
+// cluster's recorded CurrentVersion, enforcing AWS MSK's optimistic-lock guard.
+// It writes an error response and returns (false, err) when validation fails so
+// callers can do: if ok, err := h.requireCurrentVersion(...); !ok { return err }.
+func (h *Handler) requireCurrentVersion(
+	ctx context.Context,
+	c *echo.Context,
+	clusterArn, version string,
+) (bool, error) {
+	if version == "" {
+		return false, h.writeError(
+			c,
+			http.StatusBadRequest,
+			"BadRequestException",
+			"currentVersion is required",
+		)
+	}
+
+	cl, err := h.Backend.DescribeCluster(ctx, clusterArn)
+	if err != nil {
+		return false, h.writeBackendError(c, err)
+	}
+
+	if cl.CurrentVersion != version {
+		return false, h.writeError(
+			c,
+			http.StatusBadRequest,
+			"BadRequestException",
+			"The specified cluster version is not current. Current version: "+cl.CurrentVersion+".",
+		)
+	}
+
+	return true, nil
+}
+
 type updateBrokerCountInput struct {
 	CurrentVersion            string `json:"currentVersion"`
 	TargetNumberOfBrokerNodes int32  `json:"targetNumberOfBrokerNodes"`
@@ -2418,6 +2468,10 @@ func (h *Handler) handleUpdateBrokerCount(ctx context.Context, c *echo.Context, 
 		)
 	}
 
+	if ok, err := h.requireCurrentVersion(ctx, c, clusterArn, in.CurrentVersion); !ok {
+		return err
+	}
+
 	op, err := h.Backend.UpdateBrokerCount(ctx, clusterArn, in.TargetNumberOfBrokerNodes)
 	if err != nil {
 		return h.writeBackendError(c, err)
@@ -2443,6 +2497,10 @@ func (h *Handler) handleUpdateBrokerStorage(
 			"BadRequestException",
 			"invalid request body: "+err.Error(),
 		)
+	}
+
+	if ok, err := h.requireCurrentVersion(ctx, c, clusterArn, in.CurrentVersion); !ok {
+		return err
 	}
 
 	var volumeSize int32
@@ -2472,6 +2530,10 @@ func (h *Handler) handleUpdateBrokerType(ctx context.Context, c *echo.Context, c
 		)
 	}
 
+	if ok, err := h.requireCurrentVersion(ctx, c, clusterArn, in.CurrentVersion); !ok {
+		return err
+	}
+
 	op, err := h.Backend.UpdateBrokerType(ctx, clusterArn, in.TargetInstanceType)
 	if err != nil {
 		return h.writeBackendError(c, err)
@@ -2497,6 +2559,10 @@ func (h *Handler) handleUpdateClusterConfiguration(
 			"BadRequestException",
 			"invalid request body: "+err.Error(),
 		)
+	}
+
+	if ok, err := h.requireCurrentVersion(ctx, c, clusterArn, in.CurrentVersion); !ok {
+		return err
 	}
 
 	op, err := h.Backend.UpdateClusterConfiguration(ctx,
@@ -2530,6 +2596,10 @@ func (h *Handler) handleUpdateClusterKafkaVersion(
 		)
 	}
 
+	if ok, err := h.requireCurrentVersion(ctx, c, clusterArn, in.CurrentVersion); !ok {
+		return err
+	}
+
 	op, err := h.Backend.UpdateClusterKafkaVersion(ctx, clusterArn, in.TargetKafkaVersion)
 	if err != nil {
 		return h.writeBackendError(c, err)
@@ -2551,6 +2621,10 @@ func (h *Handler) handleUpdateConnectivity(ctx context.Context, c *echo.Context,
 	var in updateConnectivityInput
 	if err := decodeJSONBody(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "BadRequestException", err.Error())
+	}
+
+	if ok, err := h.requireCurrentVersion(ctx, c, clusterArn, in.CurrentVersion); !ok {
+		return err
 	}
 
 	op, err := h.Backend.UpdateConnectivity(ctx, clusterArn, UpdateConnectivitySettings{
@@ -2578,6 +2652,10 @@ func (h *Handler) handleUpdateMonitoring(ctx context.Context, c *echo.Context, c
 	var in updateMonitoringInput
 	if err := decodeJSONBody(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "BadRequestException", err.Error())
+	}
+
+	if ok, err := h.requireCurrentVersion(ctx, c, clusterArn, in.CurrentVersion); !ok {
+		return err
 	}
 
 	op, err := h.Backend.UpdateMonitoring(ctx, clusterArn, UpdateMonitoringSettings{
@@ -2620,6 +2698,10 @@ func (h *Handler) handleUpdateSecurity(ctx context.Context, c *echo.Context, clu
 		return h.writeError(c, http.StatusBadRequest, "BadRequestException", err.Error())
 	}
 
+	if ok, err := h.requireCurrentVersion(ctx, c, clusterArn, in.CurrentVersion); !ok {
+		return err
+	}
+
 	op, err := h.Backend.UpdateSecurity(ctx, clusterArn, UpdateSecuritySettings{
 		ClientAuthentication: in.ClientAuthentication,
 		EncryptionInfo:       in.EncryptionInfo,
@@ -2646,6 +2728,10 @@ func (h *Handler) handleUpdateStorage(ctx context.Context, c *echo.Context, clus
 	var in updateStorageInput
 	if err := decodeJSONBody(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "BadRequestException", err.Error())
+	}
+
+	if ok, err := h.requireCurrentVersion(ctx, c, clusterArn, in.CurrentVersion); !ok {
+		return err
 	}
 
 	op, err := h.Backend.UpdateStorage(ctx, clusterArn, UpdateStorageSettings{

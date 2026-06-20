@@ -126,7 +126,10 @@ func TestBatch2_UpdateBrokerCount_Persists(t *testing.T) {
 
 			resp, code := b2ParseOp(t, h, http.MethodPut,
 				"/api/v2/clusters/"+encoded+"/broker-count",
-				map[string]any{"targetNumberOfBrokerNodes": tt.targetBrokers})
+				map[string]any{
+					"currentVersion":            kafka.DefaultClusterVersion,
+					"targetNumberOfBrokerNodes": tt.targetBrokers,
+				})
 			require.Equal(t, http.StatusOK, code)
 			assert.NotEmpty(t, resp["clusterOperationArn"])
 
@@ -152,7 +155,10 @@ func TestBatch2_UpdateBrokerCount_NotFound(t *testing.T) {
 	h := b2NewHandler(t)
 	_, code := b2ParseOp(t, h, http.MethodPut,
 		"/api/v2/clusters/arn%3Aaws%3Akafka%3Aus-east-1%3A000000000000%3Acluster%2Fmissing%2F1/broker-count",
-		map[string]any{"targetNumberOfBrokerNodes": int32(6)})
+		map[string]any{
+			"currentVersion":            kafka.DefaultClusterVersion,
+			"targetNumberOfBrokerNodes": int32(6),
+		})
 	assert.Equal(t, http.StatusNotFound, code)
 }
 
@@ -170,6 +176,7 @@ func TestBatch2_UpdateBrokerStorage_Persists(t *testing.T) {
 	resp, code := b2ParseOp(t, h, http.MethodPut,
 		"/api/v2/clusters/"+encoded+"/broker-storage",
 		map[string]any{
+			"currentVersion": kafka.DefaultClusterVersion,
 			"targetBrokerEBSVolumeInfo": []map[string]any{
 				{"kafkaBrokerNodeId": "0", "volumeSizeGB": int32(200)},
 			},
@@ -197,7 +204,7 @@ func TestBatch2_UpdateBrokerStorage_NotFound(t *testing.T) {
 	h := b2NewHandler(t)
 	_, code := b2ParseOp(t, h, http.MethodPut,
 		"/api/v2/clusters/arn%3Aaws%3Akafka%3Aus-east-1%3A000000000000%3Acluster%2Fmissing%2F1/broker-storage",
-		map[string]any{})
+		map[string]any{"currentVersion": kafka.DefaultClusterVersion})
 	assert.Equal(t, http.StatusNotFound, code)
 }
 
@@ -214,7 +221,10 @@ func TestBatch2_UpdateBrokerType_Persists(t *testing.T) {
 
 	resp, code := b2ParseOp(t, h, http.MethodPut,
 		"/api/v2/clusters/"+encoded+"/broker-type",
-		map[string]any{"targetInstanceType": "kafka.m5.xlarge"})
+		map[string]any{
+			"currentVersion":     kafka.DefaultClusterVersion,
+			"targetInstanceType": "kafka.m5.xlarge",
+		})
 	require.Equal(t, http.StatusOK, code)
 	assert.NotEmpty(t, resp["clusterOperationArn"])
 
@@ -236,7 +246,10 @@ func TestBatch2_UpdateBrokerType_NotFound(t *testing.T) {
 	h := b2NewHandler(t)
 	_, code := b2ParseOp(t, h, http.MethodPut,
 		"/api/v2/clusters/arn%3Aaws%3Akafka%3Aus-east-1%3A000000000000%3Acluster%2Fmissing%2F1/broker-type",
-		map[string]any{"targetInstanceType": "kafka.m5.xlarge"})
+		map[string]any{
+			"currentVersion":     kafka.DefaultClusterVersion,
+			"targetInstanceType": "kafka.m5.xlarge",
+		})
 	assert.Equal(t, http.StatusNotFound, code)
 }
 
@@ -253,7 +266,10 @@ func TestBatch2_UpdateClusterKafkaVersion_Persists(t *testing.T) {
 
 	resp, code := b2ParseOp(t, h, http.MethodPut,
 		"/api/v2/clusters/"+encoded+"/kafka-version",
-		map[string]any{"targetKafkaVersion": "3.5.1"})
+		map[string]any{
+			"currentVersion":     kafka.DefaultClusterVersion,
+			"targetKafkaVersion": "3.5.1",
+		})
 	require.Equal(t, http.StatusOK, code)
 	assert.NotEmpty(t, resp["clusterOperationArn"])
 
@@ -274,7 +290,10 @@ func TestBatch2_UpdateClusterKafkaVersion_NotFound(t *testing.T) {
 	h := b2NewHandler(t)
 	_, code := b2ParseOp(t, h, http.MethodPut,
 		"/api/v2/clusters/arn%3Aaws%3Akafka%3Aus-east-1%3A000000000000%3Acluster%2Fmissing%2F1/kafka-version",
-		map[string]any{"targetKafkaVersion": "3.5.1"})
+		map[string]any{
+			"currentVersion":     kafka.DefaultClusterVersion,
+			"targetKafkaVersion": "3.5.1",
+		})
 	assert.Equal(t, http.StatusNotFound, code)
 }
 
@@ -306,7 +325,8 @@ func TestBatch2_StubUpdateOps_HappyPath(t *testing.T) {
 			encoded := b2EncodedPath(clusterArn)
 
 			resp, code := b2ParseOp(t, h, http.MethodPut,
-				"/api/v2/clusters/"+encoded+tt.suffix, map[string]any{})
+				"/api/v2/clusters/"+encoded+tt.suffix,
+				map[string]any{"currentVersion": kafka.DefaultClusterVersion})
 			assert.Equal(t, http.StatusOK, code, "suffix=%s", tt.suffix)
 			assert.NotEmpty(t, resp["clusterOperationArn"],
 				"should return clusterOperationArn for %s", tt.name)
@@ -336,7 +356,8 @@ func TestBatch2_StubUpdateOps_NotFound(t *testing.T) {
 
 			h := b2NewHandler(t)
 			_, code := b2ParseOp(t, h, http.MethodPut,
-				"/api/v2/clusters/"+missingARN+tt.suffix, map[string]any{})
+				"/api/v2/clusters/"+missingARN+tt.suffix,
+				map[string]any{"currentVersion": kafka.DefaultClusterVersion})
 			assert.Equal(t, http.StatusNotFound, code, "suffix=%s", tt.suffix)
 		})
 	}
@@ -400,14 +421,20 @@ func TestBatch2_ClusterOperationTracking_V1(t *testing.T) {
 	// Trigger two update ops.
 	resp1, code := b2ParseOp(t, h, http.MethodPut,
 		"/api/v2/clusters/"+encoded+"/broker-count",
-		map[string]any{"targetNumberOfBrokerNodes": int32(6)})
+		map[string]any{
+			"currentVersion":            kafka.DefaultClusterVersion,
+			"targetNumberOfBrokerNodes": int32(6),
+		})
 	require.Equal(t, http.StatusOK, code)
 	op1Arn, _ := resp1["clusterOperationArn"].(string)
 	require.NotEmpty(t, op1Arn)
 
 	resp2, code := b2ParseOp(t, h, http.MethodPut,
 		"/api/v2/clusters/"+encoded+"/broker-type",
-		map[string]any{"targetInstanceType": "kafka.m5.xlarge"})
+		map[string]any{
+			"currentVersion":     kafka.DefaultClusterVersion,
+			"targetInstanceType": "kafka.m5.xlarge",
+		})
 	require.Equal(t, http.StatusOK, code)
 	op2Arn, _ := resp2["clusterOperationArn"].(string)
 	require.NotEmpty(t, op2Arn)
@@ -456,7 +483,8 @@ func TestBatch2_ClusterOperationTracking_V2(t *testing.T) {
 	encoded := b2EncodedPath(clusterArn)
 
 	resp, code := b2ParseOp(t, h, http.MethodPut,
-		"/api/v2/clusters/"+encoded+"/monitoring", map[string]any{})
+		"/api/v2/clusters/"+encoded+"/monitoring",
+		map[string]any{"currentVersion": kafka.DefaultClusterVersion})
 	require.Equal(t, http.StatusOK, code)
 	opArn, _ := resp["clusterOperationArn"].(string)
 	require.NotEmpty(t, opArn)
@@ -895,6 +923,7 @@ func TestBatch2_UpdateClusterConfiguration_V2Path(t *testing.T) {
 	resp, code := b2ParseOp(t, h, http.MethodPut,
 		"/api/v2/clusters/"+encoded+"/configuration",
 		map[string]any{
+			"currentVersion": kafka.DefaultClusterVersion,
 			"configurationInfo": map[string]any{
 				"arn":      configArn,
 				"revision": int64(1),
