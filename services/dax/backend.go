@@ -5,6 +5,7 @@ import (
 	"maps"
 	"math/rand/v2"
 	"net"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -45,6 +46,10 @@ var (
 	ErrNodeNotFound = awserr.New("NodeNotFoundFault", awserr.ErrNotFound)
 	// ErrTagQuotaExceeded is returned when adding tags would exceed the per-resource limit.
 	ErrTagQuotaExceeded = awserr.New("TagQuotaPerResourceExceeded", awserr.ErrInvalidParameter)
+	// ErrSubnetGroupInUse is returned when attempting to delete a subnet group used by a cluster.
+	ErrSubnetGroupInUse = awserr.New("SubnetGroupInUseFault", awserr.ErrConflict)
+	// ErrParameterGroupInUse is returned when attempting to delete a parameter group used by a cluster.
+	ErrParameterGroupInUse = awserr.New("ParameterGroupInUseFault", awserr.ErrConflict)
 )
 
 const (
@@ -56,6 +61,12 @@ const (
 
 	// maxClustersDefault is the default maximum number of clusters per describe call.
 	maxClustersDefault = 100
+
+	// maxPageSizeDefault is the default page size for paginated describe calls.
+	maxPageSizeDefault = 100
+
+	// maxEventsDefault is the default page size for DescribeEvents.
+	maxEventsDefault = 100
 
 	// paramApplyStatusInSync is the value reported for parameter group status when in sync.
 	paramApplyStatusInSync = "in-sync"
@@ -77,7 +88,23 @@ const (
 
 	// minutesPerHour is the number of minutes in an hour.
 	minutesPerHour = 60
+
+	// maxClusterNameLength is the maximum allowed length for a DAX cluster name.
+	maxClusterNameLength = 20
+
+	// maxResourceNameLength is the maximum allowed length for parameter/subnet group names.
+	maxResourceNameLength = 255
+
+	// defaultVpcID is the placeholder VPC ID returned for subnet groups when no real VPC exists.
+	defaultVpcID = "vpc-00000000"
 )
+
+// clusterNameRegexp validates DAX cluster names: 1-20 chars, starts with letter,
+// only alphanumeric and hyphens, no consecutive hyphens, no trailing hyphen.
+var clusterNameRegexp = regexp.MustCompile(`^[a-zA-Z]([a-zA-Z0-9-]*[a-zA-Z0-9])?$`) //nolint:gochecknoglobals
+
+// resourceNameRegexp validates parameter group and subnet group names.
+var resourceNameRegexp = regexp.MustCompile(`^[a-zA-Z]([a-zA-Z0-9-]*[a-zA-Z0-9])?$`) //nolint:gochecknoglobals
 
 // maintenanceWindowDays maps random seeds to day abbreviations for the maintenance window.
 //
@@ -178,10 +205,70 @@ func randomMaintenanceWindow() string {
 	return fmt.Sprintf("%s:%02d:%02d-%s:%02d:%02d", day, hour, minute, day, endHour, endMinute)
 }
 
+// validateClusterName validates the DAX cluster name format per AWS constraints.
+func validateClusterName(name string) error {
+	if name == "" {
+		return fmt.Errorf("%w: ClusterName is required", ErrInvalidParameterValue)
+	}
+
+	if len(name) > maxClusterNameLength {
+		return fmt.Errorf(
+			"%w: ClusterName %q exceeds maximum length of %d characters",
+			ErrInvalidParameterValue, name, maxClusterNameLength,
+		)
+	}
+
+	if !clusterNameRegexp.MatchString(name) {
+		return fmt.Errorf(
+			"%w: ClusterName %q is invalid: must start with a letter, contain only letters, numbers, and hyphens, and not end with a hyphen",
+			ErrInvalidParameterValue, name,
+		)
+	}
+
+	if strings.Contains(name, "--") {
+		return fmt.Errorf(
+			"%w: ClusterName %q is invalid: must not contain consecutive hyphens",
+			ErrInvalidParameterValue, name,
+		)
+	}
+
+	return nil
+}
+
+// validateResourceName validates a parameter group or subnet group name.
+func validateResourceName(name, kind string) error {
+	if name == "" {
+		return fmt.Errorf("%w: %s is required", ErrInvalidParameterValue, kind)
+	}
+
+	if len(name) > maxResourceNameLength {
+		return fmt.Errorf(
+			"%w: %s %q exceeds maximum length of %d characters",
+			ErrInvalidParameterValue, kind, name, maxResourceNameLength,
+		)
+	}
+
+	if !resourceNameRegexp.MatchString(name) {
+		return fmt.Errorf(
+			"%w: %s %q is invalid: must start with a letter, contain only letters, numbers, and hyphens, and not end with a hyphen",
+			ErrInvalidParameterValue, kind, name,
+		)
+	}
+
+	if strings.Contains(name, "--") {
+		return fmt.Errorf(
+			"%w: %s %q is invalid: must not contain consecutive hyphens",
+			ErrInvalidParameterValue, kind, name,
+		)
+	}
+
+	return nil
+}
+
 // validateCreateCluster validates the CreateCluster input before acquiring the lock.
 func validateCreateCluster(input *CreateClusterInput) error {
-	if input.ClusterName == "" {
-		return fmt.Errorf("%w: ClusterName is required", ErrInvalidARN)
+	if err := validateClusterName(input.ClusterName); err != nil {
+		return err
 	}
 
 	if input.NodeType == "" {
@@ -194,6 +281,15 @@ func validateCreateCluster(input *CreateClusterInput) error {
 
 	if input.IamRoleArn == "" {
 		return fmt.Errorf("%w: IamRoleArn is required", ErrInvalidARN)
+	}
+
+	if input.ReplicationFactor < minReplicationFactor {
+		return fmt.Errorf(
+			"%w: ReplicationFactor %d is below minimum of %d",
+			ErrInvalidParameterCombination,
+			input.ReplicationFactor,
+			minReplicationFactor,
+		)
 	}
 
 	if input.ReplicationFactor > maxReplicationFactor {
@@ -221,10 +317,6 @@ func validateCreateCluster(input *CreateClusterInput) error {
 
 // applyCreateClusterDefaults fills in default values for optional fields.
 func applyCreateClusterDefaults(input *CreateClusterInput) {
-	if input.ReplicationFactor < minReplicationFactor {
-		input.ReplicationFactor = minReplicationFactor
-	}
-
 	if input.SubnetGroupName == "" {
 		input.SubnetGroupName = DefaultSubnetGroupName
 	}
@@ -854,8 +946,8 @@ func (b *InMemoryBackend) ListTags(
 
 // CreateParameterGroup creates a DAX parameter group.
 func (b *InMemoryBackend) CreateParameterGroup(name, description string) (*ParameterGroup, error) {
-	if name == "" {
-		return nil, fmt.Errorf("%w: ParameterGroupName is required", ErrParameterGroupNotFound)
+	if err := validateResourceName(name, "ParameterGroupName"); err != nil {
+		return nil, err
 	}
 
 	b.mu.Lock("CreateParameterGroup")
@@ -886,14 +978,18 @@ func (b *InMemoryBackend) CreateParameterGroup(name, description string) (*Param
 	return &cp, nil
 }
 
-// DescribeParameterGroups returns DAX parameter groups.
+// DescribeParameterGroups returns DAX parameter groups with pagination.
 func (b *InMemoryBackend) DescribeParameterGroups(
 	names []string,
-	_ int,
-	_ string,
+	maxResults int,
+	nextToken string,
 ) ([]*ParameterGroup, string, error) {
 	b.mu.RLock("DescribeParameterGroups")
 	defer b.mu.RUnlock()
+
+	if maxResults <= 0 {
+		maxResults = maxPageSizeDefault
+	}
 
 	var all []*ParameterGroup
 
@@ -907,18 +1003,42 @@ func (b *InMemoryBackend) DescribeParameterGroups(
 			cp := paramGroupCopy(pg)
 			all = append(all, cp)
 		}
-	} else {
-		for _, pg := range b.paramGroups {
-			cp := paramGroupCopy(pg)
-			all = append(all, cp)
-		}
-
-		sort.Slice(all, func(i, j int) bool {
-			return all[i].ParameterGroupName < all[j].ParameterGroupName
-		})
+		// Named lookup: return all matches without pagination.
+		return all, "", nil
 	}
 
-	return all, "", nil
+	for _, pg := range b.paramGroups {
+		cp := paramGroupCopy(pg)
+		all = append(all, cp)
+	}
+
+	sort.Slice(all, func(i, j int) bool {
+		return all[i].ParameterGroupName < all[j].ParameterGroupName
+	})
+
+	start := 0
+	if nextToken != "" {
+		for i, pg := range all {
+			if pg.ParameterGroupName == nextToken {
+				start = i
+				break
+			}
+		}
+	}
+
+	if start >= len(all) {
+		return []*ParameterGroup{}, "", nil
+	}
+
+	end := start + maxResults
+	newNextToken := ""
+	if end < len(all) {
+		newNextToken = all[end].ParameterGroupName
+	} else {
+		end = len(all)
+	}
+
+	return all[start:end], newNextToken, nil
 }
 
 // UpdateParameterGroup updates parameter values in a parameter group.
@@ -969,7 +1089,7 @@ func (b *InMemoryBackend) DeleteParameterGroup(name string) error {
 	for _, cluster := range b.clusters {
 		if cluster.ParameterGroup.ParameterGroupName == name {
 			return fmt.Errorf("%w: parameter group %s is in use by cluster %s",
-				ErrInvalidClusterState, name, cluster.ClusterName)
+				ErrParameterGroupInUse, name, cluster.ClusterName)
 		}
 	}
 
@@ -978,14 +1098,58 @@ func (b *InMemoryBackend) DeleteParameterGroup(name string) error {
 	return nil
 }
 
-// DescribeParameters returns the parameters for a specific parameter group.
+// buildParameter constructs a Parameter from a name, value, and source.
+func buildParameter(name, value, source string) *Parameter {
+	return &Parameter{
+		ParameterName:  name,
+		ParameterValue: value,
+		Description:    defaultParameterDescriptions[name],
+		Source:         source,
+		DataType:       "integer",
+		IsModifiable:   "TRUE",
+		ChangeType:     "requires-reboot",
+		AllowedValues:  defaultParameterAllowedValues[name],
+		ParameterType:  ParameterTypeDefault,
+	}
+}
+
+// paginateParameters applies pagination to a sorted parameter slice.
+func paginateParameters(all []*Parameter, maxResults int, nextToken string) ([]*Parameter, string) {
+	start := 0
+	if nextToken != "" {
+		idx, err := strconv.Atoi(nextToken)
+		if err == nil && idx >= 0 && idx < len(all) {
+			start = idx
+		}
+	}
+
+	if start >= len(all) {
+		return []*Parameter{}, ""
+	}
+
+	end := start + maxResults
+	newNextToken := ""
+	if end < len(all) {
+		newNextToken = strconv.Itoa(end)
+	} else {
+		end = len(all)
+	}
+
+	return all[start:end], newNextToken
+}
+
+// DescribeParameters returns the parameters for a specific parameter group with pagination.
 func (b *InMemoryBackend) DescribeParameters(
 	paramGroupName string,
-	_ int,
-	_ string,
+	maxResults int,
+	nextToken string,
 ) ([]*Parameter, string, error) {
 	if paramGroupName == "" {
 		return nil, "", fmt.Errorf("%w: ParameterGroupName is required", ErrParameterGroupNotFound)
+	}
+
+	if maxResults <= 0 {
+		maxResults = maxPageSizeDefault
 	}
 
 	b.mu.RLock("DescribeParameters")
@@ -999,56 +1163,42 @@ func (b *InMemoryBackend) DescribeParameters(
 	params := make([]*Parameter, 0, len(pg.Parameters))
 
 	for name, value := range pg.Parameters {
-		_, isDefault := defaultParameterValues[name]
 		source := "user"
-
-		if isDefault && value == defaultParameterValues[name] {
+		if def, isDefault := defaultParameterValues[name]; isDefault && value == def {
 			source = "system"
 		}
 
-		p := &Parameter{
-			ParameterName:  name,
-			ParameterValue: value,
-			Description:    defaultParameterDescriptions[name],
-			Source:         source,
-			DataType:       "integer",
-			IsModifiable:   "TRUE",
-			ChangeType:     "requires-reboot",
-		}
-
-		params = append(params, p)
+		params = append(params, buildParameter(name, value, source))
 	}
 
 	sort.Slice(params, func(i, j int) bool {
 		return params[i].ParameterName < params[j].ParameterName
 	})
 
-	return params, "", nil
+	page, token := paginateParameters(params, maxResults, nextToken)
+
+	return page, token, nil
 }
 
-// DescribeDefaultParameters returns the default DAX 1.0 parameter definitions.
-func (b *InMemoryBackend) DescribeDefaultParameters(_ int, _ string) ([]*Parameter, string, error) {
+// DescribeDefaultParameters returns the default DAX 1.0 parameter definitions with pagination.
+func (b *InMemoryBackend) DescribeDefaultParameters(maxResults int, nextToken string) ([]*Parameter, string, error) {
+	if maxResults <= 0 {
+		maxResults = maxPageSizeDefault
+	}
+
 	params := make([]*Parameter, 0, len(defaultParameterValues))
 
 	for name, value := range defaultParameterValues {
-		p := &Parameter{
-			ParameterName:  name,
-			ParameterValue: value,
-			Description:    defaultParameterDescriptions[name],
-			Source:         "system",
-			DataType:       "integer",
-			IsModifiable:   "TRUE",
-			ChangeType:     "requires-reboot",
-		}
-
-		params = append(params, p)
+		params = append(params, buildParameter(name, value, "system"))
 	}
 
 	sort.Slice(params, func(i, j int) bool {
 		return params[i].ParameterName < params[j].ParameterName
 	})
 
-	return params, "", nil
+	page, token := paginateParameters(params, maxResults, nextToken)
+
+	return page, token, nil
 }
 
 // ResetParameterGroup resets parameter group parameters to defaults.

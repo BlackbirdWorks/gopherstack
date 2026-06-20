@@ -131,6 +131,18 @@ type SubnetGroup struct {
 	Subnets         []SubnetEntry `json:"subnets"`
 }
 
+// ParameterType values distinguish individual versus per-node-type parameters.
+const (
+	ParameterTypeDefault          = "DEFAULT"
+	ParameterTypeNodeTypeSpecific = "NODE_TYPE_SPECIFIC"
+)
+
+// defaultParameterAllowedValues are the allowed value ranges for each default parameter.
+var defaultParameterAllowedValues = map[string]string{ //nolint:gochecknoglobals // package-level lookup table
+	"query-ttl-millis":  "0-2147483647",
+	"record-ttl-millis": "0-2147483647",
+}
+
 // Parameter represents a DAX parameter with metadata.
 type Parameter struct {
 	ParameterName  string `json:"parameterName"`
@@ -140,6 +152,8 @@ type Parameter struct {
 	DataType       string `json:"dataType"`
 	IsModifiable   string `json:"isModifiable"`
 	ChangeType     string `json:"changeType"`
+	AllowedValues  string `json:"allowedValues,omitempty"`
+	ParameterType  string `json:"parameterType,omitempty"`
 }
 
 // ParameterNameValue is a name-value pair for parameter updates.
