@@ -394,7 +394,7 @@ func TestInsightSelectors(t *testing.T) {
 			},
 		},
 		{
-			name: "clear_insight_selectors_clears_has_insight_selectors",
+			name: "clear_insight_selectors_causes_insight_not_enabled_error",
 			ops: func(t *testing.T, h *awsAccuracyHandler) {
 				t.Helper()
 				doCloudTrailOp(t, h.h, "CreateTrail", map[string]any{
@@ -412,32 +412,30 @@ func TestInsightSelectors(t *testing.T) {
 					"TrailName":        "clear-insight-trail",
 					"InsightSelectors": []any{},
 				})
+				// AWS returns InsightNotEnabledException when no selectors are configured.
 				rec := doCloudTrailOp(t, h.h, "GetInsightSelectors", map[string]any{
 					"TrailName": "clear-insight-trail",
 				})
-				assert.Equal(t, http.StatusOK, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 				resp := parseCloudTrailResp(t, rec)
-				sels, ok := resp["InsightSelectors"].([]any)
-				require.True(t, ok)
-				assert.Empty(t, sels)
+				assert.Equal(t, "InsightNotEnabledException", resp["__type"])
 			},
 		},
 		{
-			name: "get_insight_selectors_empty_on_new_trail",
+			name: "get_insight_selectors_returns_insight_not_enabled_on_new_trail",
 			ops: func(t *testing.T, h *awsAccuracyHandler) {
 				t.Helper()
 				doCloudTrailOp(t, h.h, "CreateTrail", map[string]any{
 					"Name":         "empty-insight-trail",
 					"S3BucketName": "bucket",
 				})
+				// AWS returns InsightNotEnabledException when trail has no insight selectors.
 				rec := doCloudTrailOp(t, h.h, "GetInsightSelectors", map[string]any{
 					"TrailName": "empty-insight-trail",
 				})
-				assert.Equal(t, http.StatusOK, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 				resp := parseCloudTrailResp(t, rec)
-				sels, ok := resp["InsightSelectors"].([]any)
-				require.True(t, ok)
-				assert.Empty(t, sels)
+				assert.Equal(t, "InsightNotEnabledException", resp["__type"])
 			},
 		},
 		{
