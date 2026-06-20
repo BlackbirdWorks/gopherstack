@@ -412,6 +412,7 @@ type getMedicalTranscriptionJobInput struct {
 type medicalTranscriptionJobOutput struct {
 	Settings                         *MedicalTranscriptionSettings `json:"Settings,omitempty"`
 	Media                            *Media                        `json:"Media,omitempty"`
+	Transcript                       *transcriptOutput             `json:"Transcript,omitempty"`
 	Tags                             map[string]string             `json:"Tags,omitempty"`
 	CreationTime                     *string                       `json:"CreationTime,omitempty"`
 	StartTime                        *string                       `json:"StartTime,omitempty"`
@@ -429,6 +430,19 @@ type medicalTranscriptionJobOutput struct {
 	MediaSampleRateHertz             int32                         `json:"MediaSampleRateHertz,omitempty"`
 }
 
+func buildMedicalTranscriptURI(job *MedicalTranscriptionJob) string {
+	if job.OutputBucketName != "" {
+		key := job.OutputKey
+		if key == "" {
+			key = job.MedicalTranscriptionJobName + ".json"
+		}
+
+		return "s3://" + job.OutputBucketName + "/" + key
+	}
+
+	return "s3://synthetic-transcripts/" + job.MedicalTranscriptionJobName + ".json"
+}
+
 func buildMedicalTranscriptionJobOutput(job *MedicalTranscriptionJob) *medicalTranscriptionJobOutput {
 	out := &medicalTranscriptionJobOutput{
 		MedicalTranscriptionJobName:      job.MedicalTranscriptionJobName,
@@ -444,6 +458,7 @@ func buildMedicalTranscriptionJobOutput(job *MedicalTranscriptionJob) *medicalTr
 		MediaSampleRateHertz:             job.MediaSampleRateHertz,
 		Settings:                         job.Settings,
 		Tags:                             job.Tags,
+		Transcript:                       &transcriptOutput{TranscriptFileURI: buildMedicalTranscriptURI(job)},
 	}
 	if !job.CreationTime.IsZero() {
 		s := job.CreationTime.Format(time.RFC3339)
