@@ -25,9 +25,18 @@ const (
 	backupTypeUserInitiated = "USER_INITIATED"
 
 	fileSystemTypeLustre            = "LUSTRE"
+	fileSystemTypeWindows           = "WINDOWS"
+	fileSystemTypeONTAP             = "ONTAP"
+	fileSystemTypeOpenZFS           = "OPENZFS"
 	dataRepositoryLifecycleDisabled = "DISABLED"
 	lustreDeploymentTypeScratch1    = "SCRATCH_1"
 	lustreMountNameLen              = 8
+
+	// Minimum StorageCapacity (GiB) enforced by real AWS FSx per file system type.
+	minStorageCapacityLustre  = 1200
+	minStorageCapacityWindows = 32
+	minStorageCapacityONTAP   = 1024
+	minStorageCapacityOpenZFS = 64
 
 	maxResultsDefault  = 2147483647
 	maxTagKeyLen       = 128
@@ -295,6 +304,26 @@ type createLustreConfiguration struct {
 func (b *InMemoryBackend) CreateFileSystem(input *createFileSystemInput) (*FileSystem, error) {
 	if input.FileSystemType == "" {
 		return nil, ErrValidation
+	}
+
+	minCapByType := map[string]int32{
+		fileSystemTypeLustre:  minStorageCapacityLustre,
+		fileSystemTypeWindows: minStorageCapacityWindows,
+		fileSystemTypeONTAP:   minStorageCapacityONTAP,
+		fileSystemTypeOpenZFS: minStorageCapacityOpenZFS,
+	}
+	minCap, ok := minCapByType[input.FileSystemType]
+	if !ok {
+		return nil, fmt.Errorf("%w: unsupported FileSystemType %q", ErrValidation, input.FileSystemType)
+	}
+
+	if input.StorageCapacityGiB == 0 {
+		input.StorageCapacityGiB = minCap
+	} else if input.StorageCapacityGiB < minCap {
+		return nil, fmt.Errorf(
+			"%w: StorageCapacity %d GiB is below the minimum of %d GiB for %s",
+			ErrValidation, input.StorageCapacityGiB, minCap, input.FileSystemType,
+		)
 	}
 
 	if err := validateTags(input.Tags); err != nil {
