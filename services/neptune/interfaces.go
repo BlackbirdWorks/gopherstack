@@ -16,8 +16,8 @@ type StorageBackend interface {
 		port int,
 		opts DBClusterCreateOptions,
 	) (*DBCluster, error)
-	DescribeDBClusters(ctx context.Context, id string) ([]DBCluster, error)
-	DeleteDBCluster(ctx context.Context, id string) (*DBCluster, error)
+	DescribeDBClusters(ctx context.Context, id string, filters DBClusterFilters) ([]DBCluster, error)
+	DeleteDBCluster(ctx context.Context, id string, opts DBClusterDeleteOptions) (*DBCluster, error)
 	ModifyDBCluster(ctx context.Context, id, paramGroupName string, opts DBClusterModifyOptions) (*DBCluster, error)
 	StopDBCluster(ctx context.Context, id string) (*DBCluster, error)
 	StartDBCluster(ctx context.Context, id string) (*DBCluster, error)
@@ -29,7 +29,7 @@ type StorageBackend interface {
 		id, clusterID, instanceClass string,
 		opts DBInstanceCreateOptions,
 	) (*DBInstance, error)
-	DescribeDBInstances(ctx context.Context, id string) ([]DBInstance, error)
+	DescribeDBInstances(ctx context.Context, id, clusterFilter string) ([]DBInstance, error)
 	DeleteDBInstance(ctx context.Context, id string) (*DBInstance, error)
 	ModifyDBInstance(ctx context.Context, id, instanceClass string, opts DBInstanceModifyOptions) (*DBInstance, error)
 	RebootDBInstance(ctx context.Context, id string) (*DBInstance, error)
@@ -54,7 +54,7 @@ type StorageBackend interface {
 
 	// Cluster snapshot operations
 	CreateDBClusterSnapshot(ctx context.Context, snapshotID, clusterID string) (*DBClusterSnapshot, error)
-	DescribeDBClusterSnapshots(ctx context.Context, snapshotID, clusterID string) ([]DBClusterSnapshot, error)
+	DescribeDBClusterSnapshots(ctx context.Context, snapshotID, clusterID, snapshotTypeFilter string) ([]DBClusterSnapshot, error)
 	DeleteDBClusterSnapshot(ctx context.Context, snapshotID string) (*DBClusterSnapshot, error)
 
 	// Tag operations
@@ -79,8 +79,9 @@ type StorageBackend interface {
 	CreateDBParameterGroup(ctx context.Context, name, family, description string) (*DBParameterGroup, error)
 	CreateEventSubscription(
 		ctx context.Context,
-		name, snsTopicARN string,
+		name, snsTopicARN, sourceType string,
 		sourceIDs []string,
+		enabled bool,
 	) (*EventSubscription, error)
 	CreateGlobalCluster(ctx context.Context, globalClusterID, sourceDBClusterID string) (*GlobalCluster, error)
 	DescribeGlobalClusters(ctx context.Context) []GlobalCluster
