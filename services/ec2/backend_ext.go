@@ -37,8 +37,9 @@ var (
 
 // Attribute name and boolean-string constants shared across backend and handler.
 const (
-	attrSourceDest = "sourceDestCheck"
-	ec2BooleanTrue = "true"
+	attrSourceDest    = "sourceDestCheck"
+	ec2BooleanTrue    = "true"
+	volTypeDefaultGP2 = "gp2"
 )
 
 // KeyPair represents an EC2 key pair.
@@ -63,6 +64,8 @@ type Volume struct {
 	State      string            `json:"state,omitempty"`
 	KmsKeyID   string            `json:"kmsKeyId,omitempty"`
 	Size       int               `json:"size,omitempty"`
+	Iops       int               `json:"iops,omitempty"`
+	Throughput int               `json:"throughput,omitempty"`
 	Encrypted  bool              `json:"encrypted,omitempty"`
 }
 
@@ -544,7 +547,7 @@ func (b *InMemoryBackend) CreateVolume(az, volType string, size int) (*Volume, e
 	}
 
 	if volType == "" {
-		volType = "gp2"
+		volType = volTypeDefaultGP2
 	}
 
 	if size <= 0 {
