@@ -30,6 +30,10 @@ var (
 )
 
 func validateAnalyzeDocumentFeatureTypes(featureTypes []string) error {
+	if len(featureTypes) == 0 {
+		return fmt.Errorf("%w: FeatureTypes must contain at least one value", errInvalidRequest)
+	}
+
 	for _, ft := range featureTypes {
 		switch ft {
 		case featureTypeTables, featureTypeForms, featureTypeQueries,

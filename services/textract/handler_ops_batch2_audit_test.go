@@ -132,46 +132,21 @@ func TestBatch2_JobTypeIsolation_GetDocumentTextDetection_RejectsAnalysisJobID(t
 // AnalyzeDocument feature-type isolation
 // ---------------------------------------------------------------------------
 
-// TestBatch2_AnalyzeDocument_NoFeatureTypes_NoStructuredBlocks verifies that when
-// AnalyzeDocument is called without any FeatureTypes, the response contains only
-// basic text blocks (PAGE, LINE, WORD) and no structured blocks such as
-// KEY_VALUE_SET or TABLE. AWS requires explicit feature-type opt-in.
-func TestBatch2_AnalyzeDocument_NoFeatureTypes_NoStructuredBlocks(t *testing.T) {
+// TestBatch2_AnalyzeDocument_NoFeatureTypes_Rejected verifies that AnalyzeDocument
+// returns ValidationException (400) when FeatureTypes is omitted. AWS requires at
+// least one feature type to be specified; an absent or empty list is not accepted.
+func TestBatch2_AnalyzeDocument_NoFeatureTypes_Rejected(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name      string
-		blockType string
-	}{
-		{name: "no KEY_VALUE_SET without FORMS", blockType: "KEY_VALUE_SET"},
-		{name: "no TABLE without TABLES", blockType: "TABLE"},
-		{name: "no QUERY without QUERIES", blockType: "QUERY"},
-		{name: "no SIGNATURE without SIGNATURES", blockType: "SIGNATURE"},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := b2TextractHandler(t)
-			rec := doTextractRequest(t, h, "AnalyzeDocument", map[string]any{
-				"Document": map[string]any{
-					"S3Object": map[string]any{"Bucket": "b", "Name": "doc.pdf"},
-				},
-				// FeatureTypes intentionally omitted (nil / empty slice).
-			})
-			require.Equal(t, http.StatusOK, rec.Code)
-
-			resp := b2TextractUnmarshal(t, rec.Body.Bytes())
-			raw, _ := resp["Blocks"].([]any)
-
-			for _, blk := range raw {
-				bm, _ := blk.(map[string]any)
-				assert.NotEqual(t, tc.blockType, bm["BlockType"],
-					"block type %s must not appear without the corresponding FeatureType", tc.blockType)
-			}
-		})
-	}
+	h := b2TextractHandler(t)
+	rec := doTextractRequest(t, h, "AnalyzeDocument", map[string]any{
+		"Document": map[string]any{
+			"S3Object": map[string]any{"Bucket": "b", "Name": "doc.pdf"},
+		},
+		// FeatureTypes intentionally omitted.
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code,
+		"AnalyzeDocument without FeatureTypes must return 400")
 }
 
 // TestBatch2_AnalyzeDocument_QueriesWithoutQueriesConfig_NoQueryBlocks verifies that
