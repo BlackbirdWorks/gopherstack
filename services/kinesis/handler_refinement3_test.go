@@ -967,6 +967,57 @@ func TestRefinement3_DescribeStream_OpenShardNoEndingSequenceNumber(t *testing.T
 	assert.Empty(t, descResp.StreamDescription.Shards[0].SequenceNumberRange.EndingSequenceNumber)
 }
 
+// TestRefinement3_DescribeStream_OpenShardWithRecordsNoEndingSeq verifies that an
+// OPEN shard that already holds records still reports no EndingSequenceNumber.
+// In real AWS, EndingSequenceNumber is reported only for CLOSED shards — a
+// KCL-style consumer treats its presence as the signal a shard is closed and it
+// should advance to the child shards. Reporting it on an open-but-populated shard
+// would make a consumer prematurely abandon a live shard.
+func TestRefinement3_DescribeStream_OpenShardWithRecordsNoEndingSeq(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "CreateStream", map[string]any{
+		"StreamName": "open-shard-with-records",
+		"ShardCount": 1,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Write several records into the single (still open) shard.
+	for i := range 3 {
+		rec = doRequest(t, h, "PutRecord", map[string]any{
+			"StreamName":   "open-shard-with-records",
+			"PartitionKey": fmt.Sprintf("pk-%d", i),
+			"Data":         []byte("payload"),
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	var descResp struct {
+		StreamDescription struct {
+			Shards []struct {
+				ShardID             string `json:"ShardId"`
+				SequenceNumberRange struct {
+					StartingSequenceNumber string `json:"StartingSequenceNumber"`
+					EndingSequenceNumber   string `json:"EndingSequenceNumber"`
+				} `json:"SequenceNumberRange"`
+			} `json:"Shards"`
+		} `json:"StreamDescription"`
+	}
+	rec = doRequest(t, h, "DescribeStream", map[string]any{"StreamName": "open-shard-with-records"})
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.Len(t, descResp.StreamDescription.Shards, 1)
+
+	shard := descResp.StreamDescription.Shards[0]
+	// A populated open shard still has a starting sequence number...
+	assert.NotEmpty(t, shard.SequenceNumberRange.StartingSequenceNumber)
+	// ...but must NOT report an ending sequence number while it remains open.
+	assert.Empty(t, shard.SequenceNumberRange.EndingSequenceNumber,
+		"open shard with records must not report EndingSequenceNumber")
+}
+
 // ---------------------------------------------------------------------------
 // Issue 11: ExplicitHashKey upper bound validation
 // ---------------------------------------------------------------------------
