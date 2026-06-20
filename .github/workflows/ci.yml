@@ -16,6 +16,7 @@ permissions:
   checks: write
   pull-requests: write
   security-events: write
+  packages: write
 
 env:
   GH_CI_TOKEN: ${{ secrets.GH_TOKEN != '' && secrets.GH_TOKEN || github.token }}
