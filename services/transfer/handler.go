@@ -42,6 +42,7 @@ const (
 	keyPartnerProfileID = "PartnerProfileId"
 	keyArn              = "Arn"
 	keyTags             = "Tags"
+	keyWebAppID         = "WebAppId"
 )
 
 var (
@@ -2316,7 +2317,7 @@ func (h *Handler) handleDescribeWebAppCustomization(
 
 	return &describeWebAppCustomizationOutput{
 		WebAppCustomization: map[string]any{
-			"WebAppId":    c.WebAppID,
+			keyWebAppID:   c.WebAppID,
 			"Title":       c.Title,
 			"LogoFile":    c.LogoFile,
 			"FaviconFile": c.FaviconFile,

@@ -686,7 +686,6 @@ type Execution struct {
 	Status              string            `json:"status"` // "IN_PROGRESS", "COMPLETED", "EXCEPTION", "HANDLING_EXCEPTION"
 }
 
-// InMemoryBackend is the in-memory store for Transfer resources.
 // WebAppCustomization holds per-web-app branding customization.
 type WebAppCustomization struct {
 	WebAppID    string
@@ -695,6 +694,7 @@ type WebAppCustomization struct {
 	FaviconFile string
 }
 
+// InMemoryBackend is the in-memory store for Transfer resources.
 type InMemoryBackend struct {
 	servers              map[string]*Server
 	users                map[string]map[string]*User      // serverID -> userName -> User
@@ -705,9 +705,9 @@ type InMemoryBackend struct {
 	webApps              map[string]*WebApp
 	webAppCustomizations map[string]*WebAppCustomization // webAppID -> customization
 	workflows            map[string]*Workflow
-	certificates  map[string]*Certificate
-	hostKeys      map[string]map[string]*HostKey                 // serverID -> hostKeyID -> HostKey
-	sshPublicKeys map[string]map[string]map[string]*SSHPublicKey // serverID -> userName -> keyID -> SSHPublicKey
+	certificates         map[string]*Certificate
+	hostKeys             map[string]map[string]*HostKey                 // serverID -> hostKeyID -> HostKey
+	sshPublicKeys        map[string]map[string]map[string]*SSHPublicKey // serverID -> userName -> keyID -> SSHPublicKey
 	// sshKeyBodies indexes normalized SSH key bodies for O(1) duplicate detection.
 	sshKeyBodies    map[string]map[string]map[string]struct{} // serverID -> userName -> normalizedBody -> {}
 	executions      map[string]map[string]*Execution          // workflowID -> executionID -> Execution
@@ -722,26 +722,26 @@ type InMemoryBackend struct {
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		servers:         make(map[string]*Server),
-		users:           make(map[string]map[string]*User),
-		accesses:        make(map[string]map[string]*Access),
-		agreements:      make(map[string]map[string]*Agreement),
-		connectors:      make(map[string]*Connector),
-		profiles:        make(map[string]*Profile),
+		servers:              make(map[string]*Server),
+		users:                make(map[string]map[string]*User),
+		accesses:             make(map[string]map[string]*Access),
+		agreements:           make(map[string]map[string]*Agreement),
+		connectors:           make(map[string]*Connector),
+		profiles:             make(map[string]*Profile),
 		webApps:              make(map[string]*WebApp),
 		webAppCustomizations: make(map[string]*WebAppCustomization),
 		workflows:            make(map[string]*Workflow),
-		certificates:    make(map[string]*Certificate),
-		hostKeys:        make(map[string]map[string]*HostKey),
-		sshPublicKeys:   make(map[string]map[string]map[string]*SSHPublicKey),
-		sshKeyBodies:    make(map[string]map[string]map[string]struct{}),
-		executions:      make(map[string]map[string]*Execution),
-		tagsStore:       make(map[string]map[string]string),
-		transferRecords: make(map[string]*FileTransferResult),
-		asyncOperations: make(map[string]*AsyncOperationRecord),
-		accountID:       accountID,
-		region:          region,
-		mu:              lockmetrics.New("transfer"),
+		certificates:         make(map[string]*Certificate),
+		hostKeys:             make(map[string]map[string]*HostKey),
+		sshPublicKeys:        make(map[string]map[string]map[string]*SSHPublicKey),
+		sshKeyBodies:         make(map[string]map[string]map[string]struct{}),
+		executions:           make(map[string]map[string]*Execution),
+		tagsStore:            make(map[string]map[string]string),
+		transferRecords:      make(map[string]*FileTransferResult),
+		asyncOperations:      make(map[string]*AsyncOperationRecord),
+		accountID:            accountID,
+		region:               region,
+		mu:                   lockmetrics.New("transfer"),
 	}
 }
 
@@ -2313,7 +2313,9 @@ func (b *InMemoryBackend) DescribeWebAppCustomization(webAppID string) (*WebAppC
 }
 
 // UpdateWebAppCustomization sets or overwrites the customization for a web app.
-func (b *InMemoryBackend) UpdateWebAppCustomization(webAppID, title, logoFile, faviconFile string) (*WebAppCustomization, error) {
+func (b *InMemoryBackend) UpdateWebAppCustomization(
+	webAppID, title, logoFile, faviconFile string,
+) (*WebAppCustomization, error) {
 	b.mu.Lock("UpdateWebAppCustomization")
 	defer b.mu.Unlock()
 
