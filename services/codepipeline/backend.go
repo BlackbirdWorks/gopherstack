@@ -1399,11 +1399,26 @@ func (b *InMemoryBackend) GetPipelineState(ctx context.Context, pipelineName str
 			outState = &tsCopy
 		}
 
+		actionExecs := b.actionExecutionsStore(region)[pipelineName]
 		actionStates := make([]map[string]any, len(stage.Actions))
 		for j, action := range stage.Actions {
-			actionStates[j] = map[string]any{
+			state := map[string]any{
 				"actionName": action.Name,
 			}
+			// Walk backwards to find the most recent execution for this stage/action pair.
+			for _, ae := range slices.Backward(actionExecs) {
+				if ae.StageName == stage.Name && ae.ActionName == action.Name {
+					state["latestExecution"] = map[string]any{
+						"actionExecutionId": ae.ActionExecutionID,
+						keyStatus:           ae.Status,
+						"startTime":         float64(ae.StartTime.Unix()),
+						"lastUpdateTime":    float64(ae.LastUpdateTime.Unix()),
+					}
+
+					break
+				}
+			}
+			actionStates[j] = state
 		}
 
 		states[i] = StageState{

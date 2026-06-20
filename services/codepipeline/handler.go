@@ -1089,7 +1089,7 @@ func (h *Handler) handleGetPipelineExecution(
 		PipelineExecution: map[string]any{
 			"pipelineName":        exec.PipelineName,
 			"pipelineExecutionId": exec.PipelineExecutionID,
-			"status":              exec.Status,
+			keyStatus:             exec.Status,
 			"pipelineVersion":     exec.PipelineVersion,
 		},
 	}, nil
@@ -1468,6 +1468,15 @@ func (h *Handler) handlePollForJobs(
 		return nil, err
 	}
 
+	const maxJobsPerPoll = 10
+	limit := in.MaxBatchSize
+	if limit <= 0 || limit > maxJobsPerPoll {
+		limit = maxJobsPerPoll
+	}
+	if int(limit) < len(jobs) {
+		jobs = jobs[:limit]
+	}
+
 	items := make([]map[string]any, len(jobs))
 	for i, j := range jobs {
 		items[i] = map[string]any{keyJobID: j.ID, keyNonce: j.Nonce}
@@ -1499,6 +1508,15 @@ func (h *Handler) handlePollForThirdPartyJobs(
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	const maxJobsPerPoll = 10
+	limit := in.MaxBatchSize
+	if limit <= 0 || limit > maxJobsPerPoll {
+		limit = maxJobsPerPoll
+	}
+	if int(limit) < len(jobs) {
+		jobs = jobs[:limit]
 	}
 
 	items := make([]map[string]any, len(jobs))
