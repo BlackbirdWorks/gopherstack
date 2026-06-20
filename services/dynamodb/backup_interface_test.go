@@ -991,7 +991,7 @@ func TestInMemoryDB_DeleteItem_ReturnValues(t *testing.T) {
 			wantConsumedCap:  true,
 		},
 		{
-			name: "return_all_old_with_item_collection_metrics",
+			name: "return_all_old_item_collection_metrics_omitted_without_lsi",
 			setup: func(t *testing.T, db *dynamodb.InMemoryDB) {
 				t.Helper()
 				createTableHelper(t, db, "T", "pk")
@@ -1058,7 +1058,10 @@ func TestInMemoryDB_DeleteItem_ReturnValues(t *testing.T) {
 			}
 
 			if tt.wantCollectionSize {
-				assert.NotNil(t, out.ItemCollectionMetrics)
+				// Table "T" has no local secondary index, so AWS never returns
+				// ItemCollectionMetrics even when ReturnItemCollectionMetrics=SIZE.
+				assert.Nil(t, out.ItemCollectionMetrics,
+					"ItemCollectionMetrics must be omitted for non-LSI tables")
 			}
 		})
 	}

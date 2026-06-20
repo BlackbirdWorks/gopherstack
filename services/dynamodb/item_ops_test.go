@@ -110,7 +110,10 @@ func TestPutItem(t *testing.T) {
 			},
 		},
 		{
-			name: "ReturnItemCollectionMetrics",
+			// AWS only returns ItemCollectionMetrics for tables that have at least
+			// one local secondary index; a plain table must omit them even when
+			// ReturnItemCollectionMetrics=SIZE is requested.
+			name: "ReturnItemCollectionMetrics omitted without LSI",
 			setup: func(db *dynamodb.InMemoryDB) {
 				createTableHelper(t, db, "ItemsTable", "id")
 			},
@@ -123,13 +126,11 @@ func TestPutItem(t *testing.T) {
 				t.Helper()
 				require.NoError(t, err)
 				output := resp.(*dynamodb_sdk.PutItemOutput)
-				require.NotNil(
+				assert.Nil(
 					t,
 					output.ItemCollectionMetrics,
-					"Expected ItemCollectionMetrics to be returned",
+					"ItemCollectionMetrics must be omitted for tables without an LSI",
 				)
-				pkVal := output.ItemCollectionMetrics.ItemCollectionKey["id"].(*types.AttributeValueMemberS).Value
-				assert.Equal(t, "1", pkVal)
 			},
 		},
 	}

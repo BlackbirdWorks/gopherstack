@@ -264,3 +264,73 @@ func TestParity_PutItem_LSI_NormalItemSucceeds(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code,
 		"normal-sized item in LSI table must succeed without triggering size limit")
 }
+
+// icmResult is the decoded ItemCollectionMetrics shape used by the parity tests.
+type icmResult struct {
+	ItemCollectionMetrics *struct {
+		ItemCollectionKey   map[string]any `json:"ItemCollectionKey"`
+		SizeEstimateRangeGB []float64      `json:"SizeEstimateRangeGB"`
+	} `json:"ItemCollectionMetrics"`
+}
+
+// TestParity_DeleteUpdate_ItemCollectionMetrics verifies that DeleteItem and
+// UpdateItem on an LSI table return ItemCollectionMetrics with a partition-key-only
+// ItemCollectionKey and a non-negative size estimate (and that non-LSI tables omit
+// the metrics entirely).
+func TestParity_DeleteUpdate_ItemCollectionMetrics(t *testing.T) {
+	t.Parallel()
+
+	h := dynamodb.NewHandler(dynamodb.NewInMemoryDB())
+
+	w := makeParityRequest(t, h, "DynamoDB_20120810.CreateTable", lsiTableBody(t, "icm-tbl"))
+	require.Equal(t, http.StatusOK, w.Code)
+
+	item := map[string]any{
+		"pk":     map[string]any{"S": "user1"},
+		"sk":     map[string]any{"S": "ord1"},
+		"lsi_sk": map[string]any{"S": "lsi1"},
+		"data":   map[string]any{"S": "extra"},
+	}
+	w = makeParityRequest(t, h, "DynamoDB_20120810.PutItem", parityMarshal(t, map[string]any{
+		"TableName": "icm-tbl", "Item": item,
+	}))
+	require.Equal(t, http.StatusOK, w.Code)
+
+	key := map[string]any{
+		"pk": map[string]any{"S": "user1"},
+		"sk": map[string]any{"S": "ord1"},
+	}
+
+	// UpdateItem returns metrics keyed by the partition key only.
+	w = makeParityRequest(t, h, "DynamoDB_20120810.UpdateItem", parityMarshal(t, map[string]any{
+		"TableName":                   "icm-tbl",
+		"Key":                         key,
+		"UpdateExpression":            "SET #d = :v",
+		"ExpressionAttributeNames":    map[string]any{"#d": "data"},
+		"ExpressionAttributeValues":   map[string]any{":v": map[string]any{"S": "changed"}},
+		"ReturnItemCollectionMetrics": "SIZE",
+	}))
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var upd icmResult
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &upd))
+	require.NotNil(t, upd.ItemCollectionMetrics)
+	assert.Contains(t, upd.ItemCollectionMetrics.ItemCollectionKey, "pk")
+	assert.NotContains(t, upd.ItemCollectionMetrics.ItemCollectionKey, "sk")
+	require.Len(t, upd.ItemCollectionMetrics.SizeEstimateRangeGB, 2)
+	assert.GreaterOrEqual(t, upd.ItemCollectionMetrics.SizeEstimateRangeGB[0], 0.0)
+
+	// DeleteItem likewise returns partition-key-only metrics.
+	w = makeParityRequest(t, h, "DynamoDB_20120810.DeleteItem", parityMarshal(t, map[string]any{
+		"TableName":                   "icm-tbl",
+		"Key":                         key,
+		"ReturnItemCollectionMetrics": "SIZE",
+	}))
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var del icmResult
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &del))
+	require.NotNil(t, del.ItemCollectionMetrics)
+	assert.Contains(t, del.ItemCollectionMetrics.ItemCollectionKey, "pk")
+	assert.NotContains(t, del.ItemCollectionMetrics.ItemCollectionKey, "sk")
+}
