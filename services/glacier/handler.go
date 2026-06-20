@@ -763,7 +763,7 @@ func (h *Handler) handleListVaults(c *echo.Context, accountID string) error {
 		if start < len(items) {
 			items = items[start+1:]
 		} else {
-			items = nil
+			items = items[:0]
 		}
 	}
 
@@ -1099,7 +1099,7 @@ func paginateJobList(
 		if start < len(items) {
 			items = items[start+1:]
 		} else {
-			items = nil
+			items = items[:0]
 		}
 	}
 
@@ -1246,6 +1246,7 @@ func (h *Handler) writeInventoryCSV(c *echo.Context, j *Job, vaultName string, a
 }
 
 // handleArchiveJobOutput streams stored archive bytes with Range support.
+// If the job was initiated with a RetrievalByteRange, only that byte slice is served.
 func (h *Handler) handleArchiveJobOutput(c *echo.Context, j *Job) error {
 	c.Response().Header().Set("Content-Type", "application/octet-stream")
 
@@ -1265,9 +1266,42 @@ func (h *Handler) handleArchiveJobOutput(c *echo.Context, j *Job) error {
 		return c.NoContent(http.StatusOK)
 	}
 
+	// Honour RetrievalByteRange set at job initiation time (e.g. "0-1048575").
+	if j.RetrievalByteRange != "" {
+		data = sliceRetrievalRange(data, j.RetrievalByteRange)
+	}
+
 	c.Response().Header().Set("Content-Range", fmt.Sprintf("bytes 0-%d/%d", len(data)-1, len(data)))
 
 	return h.serveWithRange(c, data)
+}
+
+// sliceRetrievalRange slices data to the byte range specified in rangeStr ("START-END").
+// Returns data unchanged if rangeStr is malformed or out of bounds.
+func sliceRetrievalRange(data []byte, rangeStr string) []byte {
+	dash := strings.IndexByte(rangeStr, '-')
+	if dash <= 0 || dash == len(rangeStr)-1 {
+		return data
+	}
+
+	start, err1 := strconv.ParseInt(rangeStr[:dash], 10, 64)
+	end, err2 := strconv.ParseInt(rangeStr[dash+1:], 10, 64)
+
+	if err1 != nil || err2 != nil || start < 0 || end < start {
+		return data
+	}
+
+	total := int64(len(data))
+
+	if start >= total {
+		return data[:0]
+	}
+
+	if end >= total {
+		end = total - 1
+	}
+
+	return data[start : end+1]
 }
 
 // serveWithRange serves payload with optional HTTP Range support.
@@ -1850,7 +1884,7 @@ func paginateUploadList(
 		if start < len(items) {
 			items = items[start+1:]
 		} else {
-			items = nil
+			items = items[:0]
 		}
 	}
 
@@ -1914,7 +1948,7 @@ func paginatePartList(c *echo.Context, parts []MultipartPart) ([]MultipartPart, 
 		if start < len(parts) {
 			parts = parts[start+1:]
 		} else {
-			parts = nil
+			parts = parts[:0]
 		}
 	}
 

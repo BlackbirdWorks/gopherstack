@@ -135,6 +135,10 @@ type StorageBackend interface {
 	ListProvisionedCapacity(accountID string) []*ProvisionedCapacity
 	PurchaseProvisionedCapacity(accountID string) (*ProvisionedCapacity, error)
 
+	// SetJobInventorySize persists the computed InventorySizeInBytes on a completed
+	// inventory-retrieval job so that subsequent DescribeJob calls return it.
+	SetJobInventorySize(accountID, region, vaultName, jobID string, size int64)
+
 	Reset()
 }
 
@@ -1396,6 +1400,21 @@ func (b *InMemoryBackend) SetDataRetrievalPolicy(accountID string, policy []byte
 	defer b.mu.Unlock()
 
 	b.dataRetrievalPolicies[accountID] = string(policy)
+}
+
+// SetJobInventorySize stores the computed inventory size on the job.
+// No-op if the job does not exist.
+func (b *InMemoryBackend) SetJobInventorySize(accountID, region, vaultName, jobID string, size int64) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
+
+	if jobs, ok := b.jobs[key]; ok {
+		if j, ok := jobs[jobID]; ok {
+			j.InventorySizeInBytes = size
+		}
+	}
 }
 
 // AddJobInternal adds a job directly to the backend for testing.
