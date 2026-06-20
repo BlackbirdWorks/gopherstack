@@ -205,6 +205,7 @@
   },
   "overrides": {
     "cookie": "1.0.2",
-    "fast-xml-parser": "5.6.0"
+    "fast-xml-parser": "5.7.3",
+    "undici": "7.28.0"
   }
 }
