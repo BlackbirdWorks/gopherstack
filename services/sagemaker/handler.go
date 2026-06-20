@@ -844,6 +844,10 @@ func (h *Handler) handleCreateModel(ctx context.Context, body []byte) ([]byte, e
 		return nil, fmt.Errorf("%w: ModelName is required", errInvalidRequest)
 	}
 
+	if req.ExecutionRoleArn == "" {
+		return nil, fmt.Errorf("%w: ExecutionRoleArn is required", errInvalidRequest)
+	}
+
 	tags := fromTagObjects(req.Tags)
 
 	m, err := h.Backend.CreateModel(
