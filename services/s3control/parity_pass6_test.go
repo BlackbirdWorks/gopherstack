@@ -1,11 +1,25 @@
 package s3control_test
 
 import (
-	"fmt"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+)
+
+const (
+	agLocationPath = "/v20180820/accessgrantsinstance/location"
+	agLocationXML  = `<CreateAccessGrantsLocationRequest>` +
+		`<LocationScope>s3://</LocationScope>` +
+		`<IAMRoleArn>arn:aws:iam::000000000000:role/MyRole</IAMRoleArn>` +
+		`</CreateAccessGrantsLocationRequest>`
+	agLocationNoRoleXML = `<CreateAccessGrantsLocationRequest>` +
+		`<LocationScope>s3://</LocationScope>` +
+		`</CreateAccessGrantsLocationRequest>`
+	agLocationEmptyRoleXML = `<CreateAccessGrantsLocationRequest>` +
+		`<LocationScope>s3://</LocationScope>` +
+		`<IAMRoleArn></IAMRoleArn>` +
+		`</CreateAccessGrantsLocationRequest>`
 )
 
 // TestParity_CreateAccessGrantsLocation_RequiresIAMRoleArn verifies that
@@ -15,8 +29,6 @@ import (
 func TestParity_CreateAccessGrantsLocation_RequiresIAMRoleArn(t *testing.T) {
 	t.Parallel()
 
-	const path = "/v20180820/accessgrantsinstance/location"
-
 	tests := []struct {
 		name     string
 		body     string
@@ -24,20 +36,17 @@ func TestParity_CreateAccessGrantsLocation_RequiresIAMRoleArn(t *testing.T) {
 	}{
 		{
 			name:     "absent_iam_role_arn_rejected",
-			body:     `<CreateAccessGrantsLocationRequest><LocationScope>s3://</LocationScope></CreateAccessGrantsLocationRequest>`,
+			body:     agLocationNoRoleXML,
 			wantCode: http.StatusBadRequest,
 		},
 		{
-			name: "empty_iam_role_arn_rejected",
-			body: fmt.Sprintf(
-				`<CreateAccessGrantsLocationRequest><LocationScope>s3://</LocationScope><IAMRoleArn>%s</IAMRoleArn></CreateAccessGrantsLocationRequest>`,
-				"",
-			),
+			name:     "empty_iam_role_arn_rejected",
+			body:     agLocationEmptyRoleXML,
 			wantCode: http.StatusBadRequest,
 		},
 		{
-			name: "valid_iam_role_arn_accepted",
-			body: `<CreateAccessGrantsLocationRequest><LocationScope>s3://</LocationScope><IAMRoleArn>arn:aws:iam::000000000000:role/MyRole</IAMRoleArn></CreateAccessGrantsLocationRequest>`,
+			name:     "valid_iam_role_arn_accepted",
+			body:     agLocationXML,
 			wantCode: http.StatusOK,
 		},
 	}
@@ -47,7 +56,7 @@ func TestParity_CreateAccessGrantsLocation_RequiresIAMRoleArn(t *testing.T) {
 			t.Parallel()
 
 			h := newTestS3ControlHandler(t)
-			rec := doS3Request(t, h, http.MethodPost, path, tt.body)
+			rec := doS3Request(t, h, http.MethodPost, agLocationPath, tt.body)
 			assert.Equal(t, tt.wantCode, rec.Code,
 				"CreateAccessGrantsLocation status for case %q", tt.name)
 		})

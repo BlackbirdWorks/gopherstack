@@ -626,11 +626,10 @@ func TestS3Control_CreateAccessGrantsLocation(t *testing.T) {
 			wantBodyContains: "AccessGrantsLocationArn",
 		},
 		{
-			name:             "creates_location_with_empty_body",
-			accountID:        "000000000000",
-			body:             `<CreateAccessGrantsLocationRequest></CreateAccessGrantsLocationRequest>`,
-			wantStatus:       http.StatusOK,
-			wantBodyContains: "AccessGrantsLocationId",
+			name:       "empty_body_missing_role_rejected",
+			accountID:  "000000000000",
+			body:       `<CreateAccessGrantsLocationRequest></CreateAccessGrantsLocationRequest>`,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
