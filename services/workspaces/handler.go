@@ -153,14 +153,14 @@ type createWorkspacesInput struct {
 
 type createWorkspaceSpec struct {
 	WorkspaceProperties         *createWorkspaceProps `json:"WorkspaceProperties,omitempty"`
-	Tags                        []tagItem             `json:"Tags"`
 	UserName                    string                `json:"UserName"`
 	DirectoryID                 string                `json:"DirectoryId"`
 	BundleID                    string                `json:"BundleId"`
 	SubnetID                    string                `json:"SubnetId"`
 	VolumeEncryptionKey         string                `json:"VolumeEncryptionKey"`
-	UserVolumeEncryptionEnabled bool                  `json:"UserVolumeEncryptionEnabled"` //nolint:tagliatelle
-	RootVolumeEncryptionEnabled bool                  `json:"RootVolumeEncryptionEnabled"` //nolint:tagliatelle
+	Tags                        []tagItem             `json:"Tags"`
+	UserVolumeEncryptionEnabled bool                  `json:"UserVolumeEncryptionEnabled"` //nolint:tagliatelle // JSON
+	RootVolumeEncryptionEnabled bool                  `json:"RootVolumeEncryptionEnabled"` //nolint:tagliatelle // JSON
 }
 
 type createWorkspaceProps struct {
@@ -654,12 +654,12 @@ type describeDirectoriesOutput struct {
 }
 
 type dirResp struct {
-	SubnetIds     []string `json:"SubnetIds,omitempty"` //nolint:revive // AWS API uses SubnetIds capitalization
 	DirectoryID   string   `json:"DirectoryId"`
 	DirectoryName string   `json:"DirectoryName,omitempty"`
 	DirectoryType string   `json:"DirectoryType,omitempty"`
 	Alias         string   `json:"Alias,omitempty"`
 	State         string   `json:"State"`
+	SubnetIds     []string `json:"SubnetIds,omitempty"` //nolint:revive // AWS API uses SubnetIds capitalization
 }
 
 func (h *Handler) handleDescribeWorkspaceDirectories(

@@ -89,9 +89,9 @@ func describeWorkspacesPage(
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 
-	var ids []string
-
 	wsList, _ := resp["Workspaces"].([]any)
+	ids := make([]string, 0, len(wsList))
+
 	for _, w := range wsList {
 		ids = append(ids, w.(map[string]any)["WorkspaceId"].(string))
 	}

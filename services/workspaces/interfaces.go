@@ -226,13 +226,13 @@ type BundleStorage struct {
 // WorkspaceBundle holds WorkSpace bundle details.
 type WorkspaceBundle struct {
 	ComputeType BundleComputeType
-	UserStorage BundleStorage
-	RootStorage BundleStorage
 	BundleID    string
 	Name        string
 	Owner       string
 	Description string
 	ImageID     string
+	UserStorage BundleStorage
+	RootStorage BundleStorage
 }
 
 // WorkspaceDirectory holds WorkSpace directory details.
