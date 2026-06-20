@@ -551,7 +551,7 @@ func TestBackend_TriggerAutoSnapshot_PrunesOldSnapshots(t *testing.T) {
 	require.NoError(t, err)
 
 	// Only 1 automated snapshot should remain.
-	page, err := b.DescribeSnapshots(context.Background(), "", "", "prune-snap-rg", "", 100)
+	page, err := b.DescribeSnapshots(context.Background(), "", "", "prune-snap-rg", "", "", 100)
 	require.NoError(t, err)
 
 	autoCount := 0

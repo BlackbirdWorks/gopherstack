@@ -16,7 +16,7 @@ func TestRegionIsolation_Clusters(t *testing.T) {
 		t.Fatalf("create cluster east: %v", err)
 	}
 
-	eastClusters, err := b.DescribeClusters(ctxEast, "my-cluster", "", 100)
+	eastClusters, err := b.DescribeClusters(ctxEast, "my-cluster", "", 100, false)
 	if err != nil {
 		t.Fatalf("describe clusters east: %v", err)
 	}
@@ -24,7 +24,7 @@ func TestRegionIsolation_Clusters(t *testing.T) {
 		t.Fatalf("expected 1 cluster in us-east-1, got %d", len(eastClusters.Data))
 	}
 
-	westClusters, err := b.DescribeClusters(ctxWest, "", "", 100)
+	westClusters, err := b.DescribeClusters(ctxWest, "", "", 100, false)
 	if err != nil {
 		t.Fatalf("describe clusters west: %v", err)
 	}
