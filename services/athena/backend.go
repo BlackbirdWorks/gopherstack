@@ -28,6 +28,9 @@ const (
 	stateCancelled  = "CANCELLED"
 	stateCancelling = "CANCELLING"
 
+	workGroupStateEnabled  = "ENABLED"
+	workGroupStateDisabled = "DISABLED"
+
 	columnTypeString = "string"
 )
 
@@ -439,7 +442,7 @@ func NewInMemoryBackend(region, accountID string) *InMemoryBackend {
 
 	b.workGroups[defaultWorkGroup] = &WorkGroup{
 		Name:  defaultWorkGroup,
-		State: "ENABLED",
+		State: workGroupStateEnabled,
 	}
 
 	b.seedDefaultMetadata()
@@ -510,11 +513,14 @@ const athenaMinBytesScannedCutoff int64 = 10 * 1024 * 1024
 // the two valid AWS values ("ENABLED" or "DISABLED"). An empty string is
 // accepted where the caller treats it as "use default".
 func validateWorkGroupState(state string) error {
-	if state == "" || state == "ENABLED" || state == "DISABLED" {
+	if state == "" || state == workGroupStateEnabled || state == workGroupStateDisabled {
 		return nil
 	}
 
-	return fmt.Errorf("%w: State %q is invalid; must be ENABLED or DISABLED", ErrValidation, state)
+	return fmt.Errorf(
+		"%w: State %q is invalid; must be %s or %s",
+		ErrValidation, state, workGroupStateEnabled, workGroupStateDisabled,
+	)
 }
 
 // validateWorkGroupConfiguration enforces AWS-documented bounds for workgroup
@@ -557,7 +563,7 @@ func (b *InMemoryBackend) CreateWorkGroup(
 	}
 
 	if state == "" {
-		state = "ENABLED"
+		state = workGroupStateEnabled
 	}
 
 	now := float64(time.Now().UnixMilli()) / millisToSeconds

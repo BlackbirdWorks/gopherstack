@@ -191,7 +191,7 @@ func TestParity_ListDataCatalogs_NextTokenOmittedWhenEmpty(t *testing.T) {
 
 	_, hasNextToken := resp["NextToken"]
 	assert.False(t, hasNextToken,
-		"ListDataCatalogs must not include NextToken when there is no next page (got %q instead of omitting)", resp["NextToken"])
+		"ListDataCatalogs must not include NextToken on last page; got %q", resp["NextToken"])
 }
 
 func TestParity_GetQueryResults_NonSucceededQueryRejected(t *testing.T) {
