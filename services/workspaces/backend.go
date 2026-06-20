@@ -1,10 +1,14 @@
 package workspaces
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"maps"
+	"sort"
+	"strings"
 	"time"
+	"unicode"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -22,7 +26,30 @@ const (
 	statePending          = "PENDING"
 	errMsgNotFound        = "Workspace not found"
 	ownerAmazon           = "Amazon"
+
+	// describeWorkspacesMaxResults is the AWS maximum results per page.
+	describeWorkspacesMaxResults = 25
+	// maxTagsPerResource is the AWS limit for tags per resource.
+	maxTagsPerResource = 50
+	// maxWorkspacesPerCreate is the AWS limit per CreateWorkspaces call.
+	maxWorkspacesPerCreate = 25
+	// maxTagKeyLen is the AWS limit for tag key length.
+	maxTagKeyLen = 128
+	// maxTagValueLen is the AWS limit for tag value length.
+	maxTagValueLen = 256
 )
+
+// validComputeTypeNames is the set of valid compute type names for WorkSpace properties.
+var validComputeTypeNames = map[string]struct{}{
+	"VALUE": {}, "STANDARD": {}, "PERFORMANCE": {}, "POWER": {},
+	"GRAPHICS": {}, "GRAPHICSPRO": {}, "POWERPRO": {},
+	"GRAPHICS_G4DN": {}, "GRAPHICSPRO_G4DN": {},
+}
+
+// validRunningModes is the set of valid running modes for WorkSpace properties.
+var validRunningModes = map[string]struct{}{
+	"ALWAYS_ON": {}, "AUTO_STOP": {},
+}
 
 var (
 	// ErrWorkspaceNotFound is returned when a workspace does not exist.
@@ -33,17 +60,20 @@ var (
 
 // storedWorkspace holds a workspace with all persisted fields.
 type storedWorkspace struct {
-	Properties   *WorkspaceProperties `json:"properties,omitempty"`
-	Tags         map[string]string    `json:"tags"`
-	WorkspaceID  string               `json:"workspaceId"`
-	DirectoryID  string               `json:"directoryId"`
-	UserName     string               `json:"userName"`
-	BundleID     string               `json:"bundleId"`
-	State        string               `json:"state"`
-	ComputerName string               `json:"computerName"`
-	SubnetID     string               `json:"subnetId"`
-	ErrorCode    string               `json:"errorCode"`
-	ErrorMessage string               `json:"errorMessage"`
+	Properties                  *WorkspaceProperties `json:"properties,omitempty"`
+	Tags                        map[string]string    `json:"tags"`
+	WorkspaceID                 string               `json:"workspaceId"`
+	DirectoryID                 string               `json:"directoryId"`
+	UserName                    string               `json:"userName"`
+	BundleID                    string               `json:"bundleId"`
+	State                       string               `json:"state"`
+	ComputerName                string               `json:"computerName"`
+	SubnetID                    string               `json:"subnetId"`
+	VolumeEncryptionKey         string               `json:"volumeEncryptionKey,omitempty"`
+	ErrorCode                   string               `json:"errorCode"`
+	ErrorMessage                string               `json:"errorMessage"`
+	UserVolumeEncryptionEnabled bool                 `json:"userVolumeEncryptionEnabled"`
+	RootVolumeEncryptionEnabled bool                 `json:"rootVolumeEncryptionEnabled"`
 }
 
 func (w *storedWorkspace) toWorkspace() *Workspace {

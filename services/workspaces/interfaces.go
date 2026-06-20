@@ -2,9 +2,22 @@ package workspaces
 
 import "time"
 
+// WorkspaceCreationSpec holds all fields for creating a workspace.
+type WorkspaceCreationSpec struct {
+	Properties                  *WorkspaceProperties
+	Tags                        map[string]string
+	UserName                    string
+	DirectoryID                 string
+	BundleID                    string
+	SubnetID                    string
+	VolumeEncryptionKey         string
+	UserVolumeEncryptionEnabled bool
+	RootVolumeEncryptionEnabled bool
+}
+
 // StorageBackend is the interface for WorkSpaces storage operations.
 type StorageBackend interface {
-	CreateWorkspace(userID, directoryID, bundleID string, tags map[string]string) (*Workspace, error)
+	CreateWorkspace(spec *WorkspaceCreationSpec) (*Workspace, error)
 	DescribeWorkspaces(
 		workspaceIDs, directoryID, userID, bundleID []string,
 		limit int32, nextToken string,
@@ -197,12 +210,26 @@ type FailedRequest struct {
 	ErrorMessage string
 }
 
+// BundleComputeType holds the compute type name for a bundle.
+type BundleComputeType struct {
+	Name string
+}
+
+// BundleStorage holds storage capacity for a bundle.
+type BundleStorage struct {
+	Capacity int32
+}
+
 // WorkspaceBundle holds WorkSpace bundle details.
 type WorkspaceBundle struct {
+	ComputeType BundleComputeType
+	UserStorage BundleStorage
+	RootStorage BundleStorage
 	BundleID    string
 	Name        string
 	Owner       string
 	Description string
+	ImageID     string
 }
 
 // WorkspaceDirectory holds WorkSpace directory details.
@@ -212,6 +239,7 @@ type WorkspaceDirectory struct {
 	DirectoryType string
 	Alias         string
 	State         string
+	SubnetIDs     []string
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)
