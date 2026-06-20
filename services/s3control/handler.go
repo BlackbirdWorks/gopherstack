@@ -1604,6 +1604,10 @@ func (h *Handler) handleCreateAccessGrantsLocation(c *echo.Context) error {
 		return c.String(http.StatusBadRequest, "invalid request body")
 	}
 
+	if body.IAMRoleArn == "" {
+		return c.String(http.StatusBadRequest, "IAMRoleArn is required")
+	}
+
 	loc := h.Backend.CreateAccessGrantsLocation(accountID, body.LocationScope, body.IAMRoleArn)
 
 	return writeXML(c, createAccessGrantsLocationResponseXML{
