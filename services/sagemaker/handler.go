@@ -1010,6 +1010,12 @@ func (h *Handler) handleCreateEndpointConfig(ctx context.Context, body []byte) (
 		return nil, fmt.Errorf("%w: EndpointConfigName is required", errInvalidRequest)
 	}
 
+	if len(req.ProductionVariants) == 0 {
+		return nil, fmt.Errorf(
+			"%w: At least one ProductionVariant must be specified", errInvalidRequest,
+		)
+	}
+
 	tags := fromTagObjects(req.Tags)
 
 	ec, err := h.Backend.CreateEndpointConfig(ctx, req.EndpointConfigName, req.ProductionVariants, tags)
