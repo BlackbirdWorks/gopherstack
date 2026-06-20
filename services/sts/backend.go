@@ -1592,17 +1592,31 @@ func deriveRoleID(roleArn string) string {
 }
 
 // buildAssumedRoleArn constructs the assumed-role ARN from the source role ARN.
+// AWS strips any IAM path from the role: a role at arn:aws:iam::ACCT:role/team/dev/MyRole
+// yields the assumed-role ARN arn:aws:sts::ACCT:assumed-role/MyRole/SESSION — only the
+// final role-name segment is carried over, not the intermediate path components.
 func buildAssumedRoleArn(roleArn, sessionName string) string {
-	// arn:aws:iam::ACCOUNT:role/ROLE_NAME  →  arn:aws:sts::ACCOUNT:assumed-role/ROLE_NAME/SESSION
+	// arn:aws:iam::ACCOUNT:role/[PATH/]ROLE_NAME  →  arn:aws:sts::ACCOUNT:assumed-role/ROLE_NAME/SESSION
 	parts := strings.SplitN(roleArn, ":", arnComponentCount)
 	if len(parts) < arnComponentCount {
 		return roleArn + "/" + sessionName
 	}
 
 	account := parts[4]
-	rolePath := strings.TrimPrefix(parts[5], "role/")
+	roleName := roleNameFromResource(parts[5])
 
-	return arn.Build("sts", "", account, "assumed-role/"+rolePath+"/"+sessionName)
+	return arn.Build("sts", "", account, "assumed-role/"+roleName+"/"+sessionName)
+}
+
+// roleNameFromResource extracts the bare role name from an IAM role resource segment,
+// dropping the "role/" prefix and any leading path (e.g. "role/team/dev/MyRole" → "MyRole").
+func roleNameFromResource(resource string) string {
+	name := strings.TrimPrefix(resource, "role/")
+	if idx := strings.LastIndex(name, "/"); idx != -1 {
+		name = name[idx+1:]
+	}
+
+	return name
 }
 
 // extractAccountFromPrincipal returns the account portion of an ARN or the principal itself
