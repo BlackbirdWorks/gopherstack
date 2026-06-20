@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -705,6 +706,24 @@ func errorResponse(code, msg string) map[string]string {
 	return map[string]string{"__type": code, "message": msg}
 }
 
+// paginateSlice applies NextToken-based pagination to a sorted slice.
+// It returns the page and the next token (empty string when no more pages).
+func paginateSlice[T any](items []T, nextToken string, limit int) ([]T, string) {
+	start := 0
+	if nextToken != "" {
+		if idx, err := strconv.Atoi(nextToken); err == nil && idx > 0 && idx < len(items) {
+			start = idx
+		}
+	}
+
+	end := start + limit
+	if end >= len(items) {
+		return items[start:], ""
+	}
+
+	return items[start:end], strconv.Itoa(end)
+}
+
 // --- Database handlers ---
 
 type createDatabaseInput struct {
@@ -739,16 +758,34 @@ func (h *Handler) handleGetDatabase(_ context.Context, in *getDatabaseInput) (*g
 	return &getDatabaseOutput{Database: db}, nil
 }
 
-type getDatabasesInput struct{}
+// maxGetDatabasesResults is the AWS-enforced upper bound for GetDatabases MaxResults.
+const maxGetDatabasesResults = 100
+
+type getDatabasesInput struct {
+	MaxResults *int32 `json:"MaxResults,omitempty"`
+	NextToken  string `json:"NextToken,omitempty"`
+}
 
 type getDatabasesOutput struct {
 	DatabaseList []*Database `json:"DatabaseList"`
+	NextToken    string      `json:"NextToken,omitempty"`
 }
 
-func (h *Handler) handleGetDatabases(_ context.Context, _ *getDatabasesInput) (*getDatabasesOutput, error) {
+func (h *Handler) handleGetDatabases(_ context.Context, in *getDatabasesInput) (*getDatabasesOutput, error) {
+	if in.MaxResults != nil && (*in.MaxResults < 1 || *in.MaxResults > maxGetDatabasesResults) {
+		return nil, fmt.Errorf("%w: MaxResults must be between 1 and %d", ErrValidation, maxGetDatabasesResults)
+	}
+
 	dbs := h.Backend.GetDatabases()
 
-	return &getDatabasesOutput{DatabaseList: dbs}, nil
+	limit := maxGetDatabasesResults
+	if in.MaxResults != nil {
+		limit = int(*in.MaxResults)
+	}
+
+	page, next := paginateSlice(dbs, in.NextToken, limit)
+
+	return &getDatabasesOutput{DatabaseList: page, NextToken: next}, nil
 }
 
 type updateDatabaseInput struct {
@@ -809,21 +846,38 @@ func (h *Handler) handleGetTable(_ context.Context, in *getTableInput) (*getTabl
 	return &getTableOutput{Table: t}, nil
 }
 
+// maxGetTablesResults is the AWS-enforced upper bound for GetTables MaxResults.
+const maxGetTablesResults = 100
+
 type getTablesInput struct {
 	DatabaseName string `json:"DatabaseName"`
+	MaxResults   *int32 `json:"MaxResults,omitempty"`
+	NextToken    string `json:"NextToken,omitempty"`
 }
 
 type getTablesOutput struct {
 	TableList []*Table `json:"TableList"`
+	NextToken string   `json:"NextToken,omitempty"`
 }
 
 func (h *Handler) handleGetTables(_ context.Context, in *getTablesInput) (*getTablesOutput, error) {
+	if in.MaxResults != nil && (*in.MaxResults < 1 || *in.MaxResults > maxGetTablesResults) {
+		return nil, fmt.Errorf("%w: MaxResults must be between 1 and %d", ErrValidation, maxGetTablesResults)
+	}
+
 	tables, err := h.Backend.GetTables(in.DatabaseName)
 	if err != nil {
 		return nil, err
 	}
 
-	return &getTablesOutput{TableList: tables}, nil
+	limit := maxGetTablesResults
+	if in.MaxResults != nil {
+		limit = int(*in.MaxResults)
+	}
+
+	page, next := paginateSlice(tables, in.NextToken, limit)
+
+	return &getTablesOutput{TableList: page, NextToken: next}, nil
 }
 
 type updateTableInput struct {
