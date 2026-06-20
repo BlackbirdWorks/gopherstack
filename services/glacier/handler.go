@@ -1159,10 +1159,10 @@ func (h *Handler) handleInventoryJobOutput(c *echo.Context, j *Job, vaultName st
 	}
 
 	if j.InventoryFormat != "" && j.InventoryFormat != defaultInventoryFormat {
-		return h.writeInventoryCSV(c, j, archives)
+		return h.writeInventoryCSV(c, j, vaultName, archives)
 	}
 
-	return h.writeInventoryJSON(c, j, archives)
+	return h.writeInventoryJSON(c, j, vaultName, archives)
 }
 
 type inventoryArchiveItem struct {
@@ -1173,7 +1173,7 @@ type inventoryArchiveItem struct {
 	Size               int64  `json:"Size"`
 }
 
-func (h *Handler) writeInventoryJSON(c *echo.Context, j *Job, archives []*Archive) error {
+func (h *Handler) writeInventoryJSON(c *echo.Context, j *Job, vaultName string, archives []*Archive) error {
 	items := make([]inventoryArchiveItem, 0, len(archives))
 
 	for _, a := range archives {
@@ -1200,6 +1200,11 @@ func (h *Handler) writeInventoryJSON(c *echo.Context, j *Job, archives []*Archiv
 		)
 	}
 
+	// Populate InventorySizeInBytes on the job so DescribeJob returns it.
+	if j.InventorySizeInBytes == 0 {
+		h.Backend.SetJobInventorySize(h.AccountID, h.DefaultRegion, vaultName, j.JobID, int64(len(payload)))
+	}
+
 	c.Response().Header().Set("Content-Type", "application/json")
 	c.Response().
 		Header().
@@ -1208,7 +1213,7 @@ func (h *Handler) writeInventoryJSON(c *echo.Context, j *Job, archives []*Archiv
 	return h.serveWithRange(c, payload)
 }
 
-func (h *Handler) writeInventoryCSV(c *echo.Context, j *Job, archives []*Archive) error {
+func (h *Handler) writeInventoryCSV(c *echo.Context, j *Job, vaultName string, archives []*Archive) error {
 	var buf bytes.Buffer
 
 	buf.WriteString("ArchiveId,ArchiveDescription,CreationDate,Size,SHA256TreeHash\n")
@@ -1217,9 +1222,7 @@ func (h *Handler) writeInventoryCSV(c *echo.Context, j *Job, archives []*Archive
 		fmt.Fprintf(
 			&buf,
 			"%s,%s,%s,%d,%s\n",
-			csvField(
-				a.ArchiveID,
-			),
+			csvField(a.ArchiveID),
 			csvField(a.Description),
 			csvField(a.CreationDate),
 			a.Size,
@@ -1229,12 +1232,15 @@ func (h *Handler) writeInventoryCSV(c *echo.Context, j *Job, archives []*Archive
 
 	payload := buf.Bytes()
 
+	// Populate InventorySizeInBytes on the job so DescribeJob returns it.
+	if j.InventorySizeInBytes == 0 {
+		h.Backend.SetJobInventorySize(h.AccountID, h.DefaultRegion, vaultName, j.JobID, int64(len(payload)))
+	}
+
 	c.Response().Header().Set("Content-Type", "text/csv")
 	c.Response().
 		Header().
 		Set("Content-Range", fmt.Sprintf("bytes 0-%d/%d", len(payload)-1, len(payload)))
-
-	_ = j // suppress unused warning
 
 	return h.serveWithRange(c, payload)
 }
