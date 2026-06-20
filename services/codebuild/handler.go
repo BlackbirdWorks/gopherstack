@@ -487,8 +487,8 @@ func (h *Handler) handleListProjects(
 // --- Build operations ---
 
 type startBuildInput struct {
-	EnvironmentVariablesOverride []EnvironmentVariable `json:"environmentVariablesOverride"`
 	ProjectName                  string                `json:"projectName"`
+	EnvironmentVariablesOverride []EnvironmentVariable `json:"environmentVariablesOverride"`
 }
 
 type startBuildOutput struct {

@@ -734,7 +734,7 @@ func (b *InMemoryBackend) ListProjects() []string {
 }
 
 // StartBuild creates a new build for the given project, copying environment/source/artifacts from the project.
-// envOverrides, if non-empty, replaces project-level env vars by name and appends any new ones — matching real AWS StartBuild semantics.
+// envOverrides replaces project-level env vars by name and appends new ones, matching real AWS StartBuild semantics.
 func (b *InMemoryBackend) StartBuild(projectName string, envOverrides []EnvironmentVariable) (*Build, error) {
 	b.mu.Lock("StartBuild")
 	defer b.mu.Unlock()
@@ -753,14 +753,15 @@ func (b *InMemoryBackend) StartBuild(projectName string, envOverrides []Environm
 	artifacts := proj.Artifacts
 
 	if len(envOverrides) > 0 {
-		merged := make([]EnvironmentVariable, len(env.EnvironmentVariables))
-		copy(merged, env.EnvironmentVariables)
+		merged := make([]EnvironmentVariable, 0, len(env.EnvironmentVariables)+len(envOverrides))
+		merged = append(merged, env.EnvironmentVariables...)
 		for _, ov := range envOverrides {
 			replaced := false
 			for i, ev := range merged {
 				if ev.Name == ov.Name {
 					merged[i] = ov
 					replaced = true
+
 					break
 				}
 			}
