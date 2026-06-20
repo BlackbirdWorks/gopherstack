@@ -646,6 +646,16 @@ func (b *InMemoryBackend) DeleteSecret(ctx context.Context, input *DeleteSecretI
 
 	now := UnixTimeFloat(b.now())
 
+	// AWS rejects combining ForceDeleteWithoutRecovery with RecoveryWindowInDays:
+	// the two parameters are mutually exclusive. Real AWS returns
+	// InvalidParameterException for this combination.
+	if input.ForceDeleteWithoutRecovery && input.RecoveryWindowInDays != nil {
+		return nil, fmt.Errorf(
+			"%w: you can't use ForceDeleteWithoutRecovery in conjunction with RecoveryWindowInDays",
+			ErrInvalidParameter,
+		)
+	}
+
 	if input.ForceDeleteWithoutRecovery {
 		if secret.Tags != nil {
 			secret.Tags.Close()
