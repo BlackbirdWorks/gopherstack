@@ -895,6 +895,7 @@ func (b *InMemoryBackend) StartReplicationTask(ctx context.Context, arnOrID stri
 }
 
 // StopReplicationTask transitions a replication task to stopped status.
+// Real AWS rejects stopping a task that is not currently running.
 func (b *InMemoryBackend) StopReplicationTask(ctx context.Context, arnOrID string) (*ReplicationTask, error) {
 	b.mu.Lock("StopReplicationTask")
 	defer b.mu.Unlock()
@@ -902,6 +903,15 @@ func (b *InMemoryBackend) StopReplicationTask(ctx context.Context, arnOrID strin
 	rt := b.findTask(ctx, arnOrID)
 	if rt == nil {
 		return nil, fmt.Errorf("%w: replication task %s not found", ErrNotFound, arnOrID)
+	}
+
+	if rt.Status != statusRunning {
+		return nil, fmt.Errorf(
+			"%w: replication task %s cannot be stopped; current status is %s",
+			ErrInvalidState,
+			arnOrID,
+			rt.Status,
+		)
 	}
 
 	rt.Status = statusStopped
@@ -2644,6 +2654,92 @@ func (b *InMemoryBackend) DescribeReplicationConfigs(ctx context.Context) ([]*Re
 	}
 
 	return list, nil
+}
+
+// DeleteConnection removes a connection record created by TestConnection.
+func (b *InMemoryBackend) DeleteConnection(
+	ctx context.Context,
+	replicationInstanceArn, endpointArn string,
+) (*Connection, error) {
+	b.mu.Lock("DeleteConnection")
+	defer b.mu.Unlock()
+
+	store := b.connectionsStore(getRegion(ctx, b.region))
+	key := replicationInstanceArn + ":" + endpointArn
+
+	conn, ok := store[key]
+	if !ok {
+		return nil, fmt.Errorf("%w: connection not found", ErrNotFound)
+	}
+
+	cp := *conn
+	delete(store, key)
+
+	return &cp, nil
+}
+
+// ModifyMigrationProject updates the description of an existing migration project.
+func (b *InMemoryBackend) ModifyMigrationProject(
+	ctx context.Context,
+	nameOrArn, description string,
+) (*MigrationProject, error) {
+	b.mu.Lock("ModifyMigrationProject")
+	defer b.mu.Unlock()
+
+	region := getRegion(ctx, b.region)
+	store := b.migrationProjectsStore(region)
+
+	if mp, ok := store[nameOrArn]; ok {
+		mp.Description = description
+		cp := *mp
+
+		return &cp, nil
+	}
+
+	for _, mp := range store {
+		if mp.MigrationProjectArn == nameOrArn {
+			mp.Description = description
+			cp := *mp
+
+			return &cp, nil
+		}
+	}
+
+	return nil, fmt.Errorf("%w: migration project %s not found", ErrNotFound, nameOrArn)
+}
+
+// ModifyReplicationConfig updates the replication type of an existing replication config.
+func (b *InMemoryBackend) ModifyReplicationConfig(
+	ctx context.Context,
+	identifierOrArn, replicationType string,
+) (*ReplicationConfig, error) {
+	b.mu.Lock("ModifyReplicationConfig")
+	defer b.mu.Unlock()
+
+	region := getRegion(ctx, b.region)
+	store := b.replicationConfigsStore(region)
+
+	if rc, ok := store[identifierOrArn]; ok {
+		if replicationType != "" {
+			rc.ReplicationType = replicationType
+		}
+		cp := *rc
+
+		return &cp, nil
+	}
+
+	for _, rc := range store {
+		if rc.ReplicationConfigArn == identifierOrArn {
+			if replicationType != "" {
+				rc.ReplicationType = replicationType
+			}
+			cp := *rc
+
+			return &cp, nil
+		}
+	}
+
+	return nil, fmt.Errorf("%w: replication config %s not found", ErrNotFound, identifierOrArn)
 }
 
 // DescribeCertificates returns all certificates.

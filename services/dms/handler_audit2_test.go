@@ -262,3 +262,336 @@ func TestAudit2_CreateEventSubscription_Duplicate(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &errBody))
 	assert.Equal(t, "ResourceAlreadyExistsFault", errBody["__type"])
 }
+
+// ── CreateReplicationTask MigrationType validation ────────────────────────────
+
+func TestAudit2_CreateReplicationTask_InvalidMigrationType(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		migrationType string
+	}{
+		{name: "bad_type", migrationType: "bad-type"},
+		{name: "empty_after_required_check", migrationType: "full_load"},
+		{name: "cdc_caps", migrationType: "CDC"},
+		{name: "unknown", migrationType: "incremental"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestDMSHandler()
+			rec := doDMS(t, h, "CreateReplicationTask", map[string]any{
+				"ReplicationTaskIdentifier": "task-1",
+				"SourceEndpointArn":         "arn:aws:dms:us-east-1:123:endpoint:src",
+				"TargetEndpointArn":         "arn:aws:dms:us-east-1:123:endpoint:tgt",
+				"ReplicationInstanceArn":    "arn:aws:dms:us-east-1:123:rep:ri",
+				"MigrationType":             tt.migrationType,
+			})
+
+			require.Equal(t, http.StatusBadRequest, rec.Code)
+
+			var body map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			assert.Equal(t, "ValidationException", body["__type"],
+				"invalid MigrationType must return ValidationException")
+		})
+	}
+}
+
+// ── StopReplicationTask state validation ──────────────────────────────────────
+
+func TestAudit2_StopReplicationTask_NotRunning(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		stop bool // whether to stop it before trying a second stop
+	}{
+		{name: "stop_ready_task", stop: false},
+		{name: "stop_already_stopped_task", stop: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestDMSHandler()
+
+			riRec := doDMS(t, h, "CreateReplicationInstance", map[string]any{
+				"ReplicationInstanceIdentifier": "stop-ri",
+				"ReplicationInstanceClass":      "dms.t3.medium",
+			})
+			require.Equal(t, http.StatusOK, riRec.Code)
+			riArn := parseJSON(t, riRec)["ReplicationInstance"].(map[string]any)["ReplicationInstanceArn"].(string)
+
+			srcRec := doDMS(t, h, "CreateEndpoint", map[string]any{
+				"EndpointIdentifier": "stop-src",
+				"EndpointType":       "source",
+				"EngineName":         "mysql",
+			})
+			require.Equal(t, http.StatusOK, srcRec.Code)
+			srcArn := parseJSON(t, srcRec)["Endpoint"].(map[string]any)["EndpointArn"].(string)
+
+			tgtRec := doDMS(t, h, "CreateEndpoint", map[string]any{
+				"EndpointIdentifier": "stop-tgt",
+				"EndpointType":       "target",
+				"EngineName":         "s3",
+			})
+			require.Equal(t, http.StatusOK, tgtRec.Code)
+			tgtArn := parseJSON(t, tgtRec)["Endpoint"].(map[string]any)["EndpointArn"].(string)
+
+			taskRec := doDMS(t, h, "CreateReplicationTask", map[string]any{
+				"ReplicationTaskIdentifier": "stop-task",
+				"SourceEndpointArn":         srcArn,
+				"TargetEndpointArn":         tgtArn,
+				"ReplicationInstanceArn":    riArn,
+				"MigrationType":             "full-load",
+			})
+			require.Equal(t, http.StatusOK, taskRec.Code)
+			taskArn := parseJSON(t, taskRec)["ReplicationTask"].(map[string]any)["ReplicationTaskArn"].(string)
+
+			if tt.stop {
+				// Start then stop to put it in stopped state.
+				startRec := doDMS(t, h, "StartReplicationTask", map[string]any{
+					"ReplicationTaskArn":       taskArn,
+					"StartReplicationTaskType": "start-replication",
+				})
+				require.Equal(t, http.StatusOK, startRec.Code)
+
+				stopRec := doDMS(t, h, "StopReplicationTask", map[string]any{
+					"ReplicationTaskArn": taskArn,
+				})
+				require.Equal(t, http.StatusOK, stopRec.Code)
+			}
+
+			// Stop a non-running task (ready or already stopped) — must fail.
+			rec := doDMS(t, h, "StopReplicationTask", map[string]any{
+				"ReplicationTaskArn": taskArn,
+			})
+
+			require.Equal(t, http.StatusBadRequest, rec.Code)
+
+			var body map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			assert.Equal(t, "InvalidResourceStateFault", body["__type"],
+				"stopping a non-running task must return InvalidResourceStateFault")
+		})
+	}
+}
+
+// ── DeleteConnection works after TestConnection ───────────────────────────────
+
+func TestAudit2_DeleteConnection_AfterTestConnection(t *testing.T) {
+	t.Parallel()
+
+	h := newTestDMSHandler()
+
+	riRec := doDMS(t, h, "CreateReplicationInstance", map[string]any{
+		"ReplicationInstanceIdentifier": "del-conn-ri",
+		"ReplicationInstanceClass":      "dms.t3.medium",
+	})
+	require.Equal(t, http.StatusOK, riRec.Code)
+	riArn := parseJSON(t, riRec)["ReplicationInstance"].(map[string]any)["ReplicationInstanceArn"].(string)
+
+	epRec := doDMS(t, h, "CreateEndpoint", map[string]any{
+		"EndpointIdentifier": "del-conn-ep",
+		"EndpointType":       "source",
+		"EngineName":         "mysql",
+	})
+	require.Equal(t, http.StatusOK, epRec.Code)
+	epArn := parseJSON(t, epRec)["Endpoint"].(map[string]any)["EndpointArn"].(string)
+
+	// TestConnection records the connection.
+	testRec := doDMS(t, h, "TestConnection", map[string]any{
+		"ReplicationInstanceArn": riArn,
+		"EndpointArn":            epArn,
+	})
+	require.Equal(t, http.StatusOK, testRec.Code)
+
+	// DeleteConnection must succeed (not 404).
+	delRec := doDMS(t, h, "DeleteConnection", map[string]any{
+		"ReplicationInstanceArn": riArn,
+		"EndpointArn":            epArn,
+	})
+	require.Equal(t, http.StatusOK, delRec.Code)
+
+	conn := parseJSON(t, delRec)["Connection"].(map[string]any)
+	assert.Equal(t, riArn, conn["ReplicationInstanceArn"])
+	assert.Equal(t, epArn, conn["EndpointArn"])
+	assert.Equal(t, "successful", conn["Status"])
+
+	// A second delete must return 404.
+	del2Rec := doDMS(t, h, "DeleteConnection", map[string]any{
+		"ReplicationInstanceArn": riArn,
+		"EndpointArn":            epArn,
+	})
+	require.Equal(t, http.StatusNotFound, del2Rec.Code)
+}
+
+// ── ModifyMigrationProject actually persists description ──────────────────────
+
+func TestAudit2_ModifyMigrationProject_UpdatesDescription(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		lookupByArn bool
+	}{
+		{name: "lookup_by_name", lookupByArn: false},
+		{name: "lookup_by_arn", lookupByArn: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestDMSHandler()
+
+			createRec := doDMS(t, h, "CreateMigrationProject", map[string]any{
+				"MigrationProjectName": "mp-modify",
+				"Description":          "original",
+			})
+			require.Equal(t, http.StatusOK, createRec.Code)
+			mp := parseJSON(t, createRec)["MigrationProject"].(map[string]any)
+			mpName := mp["MigrationProjectName"].(string)
+			mpArn := mp["MigrationProjectArn"].(string)
+
+			lookupKey := mpName
+			if tt.lookupByArn {
+				lookupKey = mpArn
+			}
+
+			modRec := doDMS(t, h, "ModifyMigrationProject", map[string]any{
+				"MigrationProjectArn": lookupKey,
+				"Description":         "updated description",
+			})
+			require.Equal(t, http.StatusOK, modRec.Code)
+
+			updated := parseJSON(t, modRec)["MigrationProject"].(map[string]any)
+			assert.Equal(t, "updated description", updated["Description"],
+				"ModifyMigrationProject must persist the updated description")
+		})
+	}
+}
+
+// ── ModifyReplicationConfig actually persists ReplicationType ─────────────────
+
+func TestAudit2_ModifyReplicationConfig_UpdatesReplicationType(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		lookupByArn bool
+	}{
+		{name: "lookup_by_identifier", lookupByArn: false},
+		{name: "lookup_by_arn", lookupByArn: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestDMSHandler()
+
+			createRec := doDMS(t, h, "CreateReplicationConfig", map[string]any{
+				"ReplicationConfigIdentifier": "rc-modify",
+				"ReplicationType":             "full-load",
+				"SourceEndpointArn":           "arn:aws:dms:us-east-1:123:endpoint:src",
+				"TargetEndpointArn":           "arn:aws:dms:us-east-1:123:endpoint:tgt",
+			})
+			require.Equal(t, http.StatusOK, createRec.Code)
+			rc := parseJSON(t, createRec)["ReplicationConfig"].(map[string]any)
+			rcIdentifier := rc["ReplicationConfigIdentifier"].(string)
+			rcArn := rc["ReplicationConfigArn"].(string)
+
+			lookupKey := rcIdentifier
+			if tt.lookupByArn {
+				lookupKey = rcArn
+			}
+
+			modRec := doDMS(t, h, "ModifyReplicationConfig", map[string]any{
+				"ReplicationConfigArn": lookupKey,
+				"ReplicationType":      "cdc",
+			})
+			require.Equal(t, http.StatusOK, modRec.Code)
+
+			updated := parseJSON(t, modRec)["ReplicationConfig"].(map[string]any)
+			assert.Equal(t, "cdc", updated["ReplicationType"],
+				"ModifyReplicationConfig must persist the updated ReplicationType")
+		})
+	}
+}
+
+// ── StartReplicationTaskAssessment validates task existence ───────────────────
+
+func TestAudit2_StartReplicationTaskAssessment(t *testing.T) {
+	t.Parallel()
+
+	t.Run("not_found_returns_404", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestDMSHandler()
+		rec := doDMS(t, h, "StartReplicationTaskAssessment", map[string]any{
+			"ReplicationTaskArn": "arn:aws:dms:us-east-1:123:task:nonexistent",
+		})
+		require.Equal(t, http.StatusNotFound, rec.Code)
+
+		var body map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+		assert.Equal(t, "ResourceNotFoundFault", body["__type"])
+	})
+
+	t.Run("returns_task_on_success", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestDMSHandler()
+
+		riRec := doDMS(t, h, "CreateReplicationInstance", map[string]any{
+			"ReplicationInstanceIdentifier": "assess-ri",
+			"ReplicationInstanceClass":      "dms.t3.medium",
+		})
+		require.Equal(t, http.StatusOK, riRec.Code)
+		riArn := parseJSON(t, riRec)["ReplicationInstance"].(map[string]any)["ReplicationInstanceArn"].(string)
+
+		srcRec := doDMS(t, h, "CreateEndpoint", map[string]any{
+			"EndpointIdentifier": "assess-src",
+			"EndpointType":       "source",
+			"EngineName":         "mysql",
+		})
+		require.Equal(t, http.StatusOK, srcRec.Code)
+		srcArn := parseJSON(t, srcRec)["Endpoint"].(map[string]any)["EndpointArn"].(string)
+
+		tgtRec := doDMS(t, h, "CreateEndpoint", map[string]any{
+			"EndpointIdentifier": "assess-tgt",
+			"EndpointType":       "target",
+			"EngineName":         "s3",
+		})
+		require.Equal(t, http.StatusOK, tgtRec.Code)
+		tgtArn := parseJSON(t, tgtRec)["Endpoint"].(map[string]any)["EndpointArn"].(string)
+
+		taskRec := doDMS(t, h, "CreateReplicationTask", map[string]any{
+			"ReplicationTaskIdentifier": "assess-task",
+			"SourceEndpointArn":         srcArn,
+			"TargetEndpointArn":         tgtArn,
+			"ReplicationInstanceArn":    riArn,
+			"MigrationType":             "full-load",
+		})
+		require.Equal(t, http.StatusOK, taskRec.Code)
+		taskArn := parseJSON(t, taskRec)["ReplicationTask"].(map[string]any)["ReplicationTaskArn"].(string)
+
+		assessRec := doDMS(t, h, "StartReplicationTaskAssessment", map[string]any{
+			"ReplicationTaskArn": taskArn,
+		})
+		require.Equal(t, http.StatusOK, assessRec.Code)
+
+		rt := parseJSON(t, assessRec)["ReplicationTask"].(map[string]any)
+		assert.Equal(t, taskArn, rt["ReplicationTaskArn"],
+			"StartReplicationTaskAssessment must return the actual task ARN")
+		// Status must not be the old hardcoded "test-failed".
+		assert.NotEqual(t, "test-failed", rt["Status"],
+			"StartReplicationTaskAssessment must not return test-failed as initial status")
+	})
+}
