@@ -903,6 +903,26 @@ func (b *InMemoryBackend) DeleteRoute(apiID, routeID string) error {
 	return nil
 }
 
+// setRouteKey validates newKey for protocolType and ensures it is not a duplicate
+// among routes (excluding the route being updated), then sets r.RouteKey.
+func setRouteKey(r *Route, routes map[string]*Route, routeID, newKey, protocolType string) error {
+	if protocolType == protocolTypeHTTP {
+		if err := validateHTTPRouteKey(newKey); err != nil {
+			return err
+		}
+	}
+
+	for id, existing := range routes {
+		if id != routeID && existing.RouteKey == newKey {
+			return fmt.Errorf("%w: route key %q already exists", ErrAlreadyExists, newKey)
+		}
+	}
+
+	r.RouteKey = newKey
+
+	return nil
+}
+
 // UpdateRoute updates fields on an existing route.
 func (b *InMemoryBackend) UpdateRoute(apiID, routeID string, input UpdateRouteInput) (*Route, error) {
 	b.mu.Lock("UpdateRoute")
@@ -919,19 +939,9 @@ func (b *InMemoryBackend) UpdateRoute(apiID, routeID string, input UpdateRouteIn
 	}
 
 	if input.RouteKey != "" {
-		if d.api.ProtocolType == protocolTypeHTTP {
-			if err := validateHTTPRouteKey(input.RouteKey); err != nil {
-				return nil, err
-			}
+		if err := setRouteKey(r, d.routes, routeID, input.RouteKey, d.api.ProtocolType); err != nil {
+			return nil, err
 		}
-
-		// Check for duplicate route key (excluding the current route).
-		for id, existing := range d.routes {
-			if id != routeID && existing.RouteKey == input.RouteKey {
-				return nil, fmt.Errorf("%w: route key %q already exists", ErrAlreadyExists, input.RouteKey)
-			}
-		}
-		r.RouteKey = input.RouteKey
 	}
 
 	if input.Target != "" {

@@ -1246,8 +1246,8 @@ func TestInMemoryBackend_WebSocketRouteKey_NoFormatValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := b.CreateRoute(api.APIID, apigatewayv2.CreateRouteInput{RouteKey: tt.routeKey})
-			require.NoError(t, err)
+			_, routeErr := b.CreateRoute(api.APIID, apigatewayv2.CreateRouteInput{RouteKey: tt.routeKey})
+			require.NoError(t, routeErr)
 		})
 	}
 }
