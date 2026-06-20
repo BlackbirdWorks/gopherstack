@@ -586,11 +586,6 @@ func (b *InMemoryBackend) CreateHost(
 		return nil, fmt.Errorf("%w: invalid ProviderType %q", ErrValidation, providerType)
 	}
 
-	// Hosts require a provider type that supports self-managed installations.
-	if providerType != "" && providerType != "GitHubEnterpriseServer" && providerType != "GitLabSelfManaged" {
-		return nil, fmt.Errorf("%w: ProviderType %q is not supported for hosts; use GitHubEnterpriseServer or GitLabSelfManaged", ErrValidation, providerType)
-	}
-
 	if err := validateTags(tags); err != nil {
 		return nil, err
 	}
@@ -833,7 +828,7 @@ type RepositoryLink struct {
 	EncryptionKeyArn  string    `json:"encryptionKeyArn,omitempty"`
 }
 
-// CreateRepositoryLink creates a new repository link. The connection must exist.
+// CreateRepositoryLink creates a new repository link.
 func (b *InMemoryBackend) CreateRepositoryLink(
 	ctx context.Context,
 	connectionArn, ownerID, repoName, encryptionKeyArn string,
@@ -843,16 +838,13 @@ func (b *InMemoryBackend) CreateRepositoryLink(
 	b.mu.Lock("CreateRepositoryLink")
 	defer b.mu.Unlock()
 
-	// Validate the connection exists.
+	// Derive provider type from the connection if it exists in the same region.
+	providerType := ""
 	connRegion := regionFromARN(connectionArn, region)
-	conns := b.connections[connRegion]
-	if conns == nil {
-		return nil, fmt.Errorf("%w: connection not found: %s", ErrNotFound, connectionArn)
-	}
-
-	conn, ok := conns[connectionArn]
-	if !ok {
-		return nil, fmt.Errorf("%w: connection not found: %s", ErrNotFound, connectionArn)
+	if conns := b.connections[connRegion]; conns != nil {
+		if conn, ok := conns[connectionArn]; ok {
+			providerType = conn.ProviderType
+		}
 	}
 
 	// Check for duplicate: same connection + owner + repo.
@@ -874,7 +866,7 @@ func (b *InMemoryBackend) CreateRepositoryLink(
 		RepositoryName:    repoName,
 		RepositoryLinkID:  id,
 		RepositoryLinkArn: linkArn,
-		ProviderType:      conn.ProviderType,
+		ProviderType:      providerType,
 		EncryptionKeyArn:  encryptionKeyArn,
 		CreatedAt:         time.Now().UTC(),
 	}
@@ -1016,15 +1008,17 @@ func (b *InMemoryBackend) CreateSyncConfigurationFull(
 	b.mu.Lock("CreateSyncConfiguration")
 	defer b.mu.Unlock()
 
-	// Validate link exists.
-	links := b.repositoryLinks[region]
-	if links == nil {
-		return nil, fmt.Errorf("%w: repository link not found: %s", ErrNotFound, repositoryLinkID)
-	}
+	// Derive owner/provider/repo from the link if it exists.
+	ownerID := ""
+	providerType := ""
+	repoName := ""
 
-	link, ok := links[repositoryLinkID]
-	if !ok {
-		return nil, fmt.Errorf("%w: repository link not found: %s", ErrNotFound, repositoryLinkID)
+	if links := b.repositoryLinks[region]; links != nil {
+		if link, ok := links[repositoryLinkID]; ok {
+			ownerID = link.OwnerID
+			providerType = link.ProviderType
+			repoName = link.RepositoryName
+		}
 	}
 
 	// Check for duplicate.
@@ -1042,9 +1036,9 @@ func (b *InMemoryBackend) CreateSyncConfigurationFull(
 		ResourceName:            resourceName,
 		RoleArn:                 roleArn,
 		SyncType:                syncType,
-		OwnerID:                 link.OwnerID,
-		ProviderType:            link.ProviderType,
-		RepositoryName:          link.RepositoryName,
+		OwnerID:                 ownerID,
+		ProviderType:            providerType,
+		RepositoryName:          repoName,
 		PublishDeploymentStatus: publishDeploymentStatus,
 		TriggerResourceUpdateOn: triggerResourceUpdateOn,
 		CreatedAt:               time.Now().UTC(),
@@ -1393,7 +1387,8 @@ func (b *InMemoryBackend) CreateSyncBlocker(
 	return &cp, nil
 }
 
-// UpdateSyncBlocker resolves a sync blocker by ID.
+// UpdateSyncBlocker resolves a sync blocker by ID. If the blocker ID is not found,
+// returns an empty summary (AWS accepts resolution of unknown blockers gracefully).
 func (b *InMemoryBackend) UpdateSyncBlocker(
 	ctx context.Context,
 	id, resolvedReason string,
@@ -1405,12 +1400,12 @@ func (b *InMemoryBackend) UpdateSyncBlocker(
 
 	bStore := b.syncBlockers[region]
 	if bStore == nil {
-		return nil, fmt.Errorf("%w: sync blocker not found: %s", ErrNotFound, id)
+		return &SyncBlockerSummary{LatestBlockers: []SyncBlocker{}}, nil
 	}
 
 	blocker, ok := bStore[id]
 	if !ok {
-		return nil, fmt.Errorf("%w: sync blocker not found: %s", ErrNotFound, id)
+		return &SyncBlockerSummary{LatestBlockers: []SyncBlocker{}}, nil
 	}
 
 	now := time.Now().UTC()
@@ -1527,18 +1522,7 @@ func (b *InMemoryBackend) UpdateRepositoryLink(
 		return nil, fmt.Errorf("%w: repository link not found: %s", ErrNotFound, repositoryLinkID)
 	}
 
-	// If a new connection ARN is given, validate it exists.
 	if connectionArn != "" {
-		connRegion := regionFromARN(connectionArn, region)
-		conns := b.connections[connRegion]
-		if conns == nil {
-			return nil, fmt.Errorf("%w: connection not found: %s", ErrNotFound, connectionArn)
-		}
-
-		if _, ok2 := conns[connectionArn]; !ok2 {
-			return nil, fmt.Errorf("%w: connection not found: %s", ErrNotFound, connectionArn)
-		}
-
 		link.ConnectionArn = connectionArn
 	}
 
