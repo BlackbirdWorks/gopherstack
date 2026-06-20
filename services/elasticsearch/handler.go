@@ -635,7 +635,21 @@ type describeDomainsRequest struct {
 
 // describeDomainsResponse is the response for DescribeElasticsearchDomains.
 type describeDomainsResponse struct {
-	DomainStatusList []domainStatusJSON `json:"DomainStatusList"`
+	DomainStatusList   []domainStatusJSON      `json:"DomainStatusList"`
+	UnprocessedDomains []unprocessedDomainJSON `json:"UnprocessedDomains"`
+}
+
+// unprocessedDomainJSON represents a domain name that could not be described,
+// matching the AWS DescribeElasticsearchDomains UnprocessedDomains field.
+type unprocessedDomainJSON struct {
+	DomainName   string             `json:"DomainName"`
+	ErrorDetails domainErrorDetails `json:"ErrorDetails"`
+}
+
+// domainErrorDetails carries the error type and message for unprocessed domains.
+type domainErrorDetails struct {
+	ErrorType    string `json:"ErrorType"`
+	ErrorMessage string `json:"ErrorMessage"`
 }
 
 // updateDomainConfigRequest is the request body for UpdateElasticsearchDomainConfig.
@@ -1018,18 +1032,32 @@ func (h *Handler) handleDescribeElasticsearchDomains(w http.ResponseWriter, r *h
 	}
 
 	list := make([]domainStatusJSON, 0, len(req.DomainNames))
+	var unprocessed []unprocessedDomainJSON
 	ctx := h.reqContext(r)
 
 	for _, name := range req.DomainNames {
 		d, descErr := h.Backend.DescribeDomain(ctx, name)
 		if descErr != nil {
+			unprocessed = append(unprocessed, unprocessedDomainJSON{
+				DomainName: name,
+				ErrorDetails: domainErrorDetails{
+					ErrorType:    "ResourceNotFoundException",
+					ErrorMessage: fmt.Sprintf("Domain not found: %s", name),
+				},
+			})
+
 			continue
 		}
 
 		list = append(list, toDomainStatusJSON(d))
 	}
 
-	h.writeJSON(r, w, describeDomainsResponse{DomainStatusList: list})
+	// AWS always emits both arrays (never null), even when empty.
+	if unprocessed == nil {
+		unprocessed = []unprocessedDomainJSON{}
+	}
+
+	h.writeJSON(r, w, describeDomainsResponse{DomainStatusList: list, UnprocessedDomains: unprocessed})
 }
 
 func (h *Handler) handleUpdateDomainConfig(w http.ResponseWriter, r *http.Request, name string) {
@@ -1203,6 +1231,7 @@ func (h *Handler) handleAddTags(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	seen := make(map[string]bool, len(req.TagList))
 	for _, t := range req.TagList {
 		if len(t.Key) == 0 || len(t.Key) > maxTagKeyLen {
 			h.writeError(r, w, http.StatusBadRequest, "ValidationException",
@@ -1217,6 +1246,15 @@ func (h *Handler) handleAddTags(w http.ResponseWriter, r *http.Request) {
 
 			return
 		}
+
+		if seen[t.Key] {
+			h.writeError(r, w, http.StatusBadRequest, "ValidationException",
+				fmt.Sprintf("Duplicate tag key: %s", t.Key))
+
+			return
+		}
+
+		seen[t.Key] = true
 	}
 
 	tagMap := make(map[string]string, len(req.TagList))
