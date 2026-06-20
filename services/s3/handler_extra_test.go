@@ -453,14 +453,48 @@ func TestHandler_GetObject_Range(t *testing.T) {
 			wantBody:   "89",
 		},
 		{
-			name:       "inverted range returns 416",
+			// start (10) >= object size (10): syntactically valid but
+			// unsatisfiable -> S3 returns 416 InvalidRange.
+			name:       "start beyond size returns 416 InvalidRange",
 			rangeHdr:   "bytes=10-5",
 			wantStatus: http.StatusRequestedRangeNotSatisfiable,
+			wantRange:  "bytes */10",
+		},
+		{
+			// start far beyond size is likewise unsatisfiable.
+			name:       "start far beyond size returns 416",
+			rangeHdr:   "bytes=100-200",
+			wantStatus: http.StatusRequestedRangeNotSatisfiable,
+			wantRange:  "bytes */10",
+		},
+		{
+			// last-byte-pos < first-byte-pos with start in-bounds is malformed;
+			// S3 ignores the Range header and returns the full object with 200.
+			name:       "inverted in-bounds range ignored returns full object",
+			rangeHdr:   "bytes=5-2",
+			wantStatus: http.StatusOK,
+			wantBody:   "0123456789",
+		},
+		{
+			// end past the object size clamps to the last byte.
+			name:       "end past size clamps to last byte",
+			rangeHdr:   "bytes=8-100",
+			wantStatus: http.StatusPartialContent,
+			wantBody:   "89",
+			wantRange:  "bytes 8-9/10",
 		},
 		{
 			name:       "unsupported range unit falls back to 200",
 			rangeHdr:   "bits=0-5",
 			wantStatus: http.StatusOK,
+			wantBody:   "0123456789",
+		},
+		{
+			// Non-numeric range value is malformed -> ignored, full object.
+			name:       "malformed numeric range ignored returns full object",
+			rangeHdr:   "bytes=abc-def",
+			wantStatus: http.StatusOK,
+			wantBody:   "0123456789",
 		},
 	}
 
@@ -483,6 +517,13 @@ func TestHandler_GetObject_Range(t *testing.T) {
 
 			if tt.wantRange != "" {
 				assert.Equal(t, tt.wantRange, rec.Header().Get("Content-Range"))
+			}
+
+			if tt.wantStatus == http.StatusRequestedRangeNotSatisfiable {
+				body := rec.Body.String()
+				assert.Contains(t, body, "<Code>InvalidRange</Code>")
+				assert.Contains(t, body, "<ActualObjectSize>10</ActualObjectSize>")
+				assert.Contains(t, body, "<RangeRequested>"+tt.rangeHdr+"</RangeRequested>")
 			}
 		})
 	}

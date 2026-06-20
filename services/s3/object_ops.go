@@ -706,7 +706,7 @@ func (h *S3Handler) serveObjectBody(
 		return true
 	}
 
-	if h.serveRange(ctx, w, data, rangeHeader) {
+	if h.serveRange(ctx, w, r, data, rangeHeader) {
 		return true
 	}
 
@@ -1344,23 +1344,41 @@ func (h *S3Handler) getStoredChecksum(out objectCommonDetails) (string, string) 
 	}
 }
 
+// rangeResult classifies the outcome of parsing a Range header, so the caller
+// can reproduce S3's three distinct behaviors:
+//   - rangeOK: a satisfiable range -> 206 Partial Content.
+//   - rangeIgnore: a malformed/unparseable range (e.g. unknown unit, or
+//     last-byte-pos < first-byte-pos) -> S3 ignores it and returns the full
+//     object with 200 OK.
+//   - rangeUnsatisfiable: a syntactically valid range whose first-byte-pos is
+//     at or beyond the object size -> 416 with an InvalidRange XML body.
+type rangeResult int
+
+const (
+	rangeIgnore rangeResult = iota
+	rangeOK
+	rangeUnsatisfiable
+)
+
 func (h *S3Handler) serveRange(
 	ctx context.Context,
 	w http.ResponseWriter,
+	r *http.Request,
 	data []byte,
 	rangeHeader string,
 ) bool {
 	total := int64(len(data))
-	start, end, ok := parseRange(rangeHeader, total)
+	start, end, result := parseRange(rangeHeader, total)
 
-	if !ok {
-		if !strings.HasPrefix(rangeHeader, "bytes=") {
-			return false
-		}
-
-		w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
+	switch result {
+	case rangeIgnore:
+		// Malformed range: fall through to a normal full-object response (200).
+		return false
+	case rangeUnsatisfiable:
+		h.writeInvalidRange(ctx, w, r, rangeHeader, total)
 
 		return true
+	case rangeOK:
 	}
 
 	w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, total))
@@ -1375,55 +1393,99 @@ func (h *S3Handler) serveRange(
 	return true
 }
 
-// parseRange parses a "bytes=X-Y" Range header and returns clamped [start, end] indices.
-func parseRange(header string, size int64) (int64, int64, bool) {
+// writeInvalidRange emits S3's 416 response for an unsatisfiable Range request:
+// a Content-Range header advertising the actual size and an InvalidRange XML
+// body carrying the rejected range and object size.
+func (h *S3Handler) writeInvalidRange(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	rangeHeader string,
+	size int64,
+) {
+	// Drop the full-object Content-Length set earlier by setCommonHeaders so the
+	// XML error body's length is advertised correctly instead.
+	w.Header().Del("Content-Length")
+	w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", size))
+	httputils.WriteS3ErrorResponse(ctx, w, r, InvalidRangeError{
+		Code:             "InvalidRange",
+		Message:          "The requested range is not satisfiable",
+		RangeRequested:   rangeHeader,
+		ActualObjectSize: size,
+		Resource:         r.URL.Path,
+	}, http.StatusRequestedRangeNotSatisfiable)
+}
+
+// parseRange parses a "bytes=X-Y" Range header and returns clamped [start, end]
+// indices together with a rangeResult classifying how S3 should respond.
+func parseRange(header string, size int64) (int64, int64, rangeResult) {
 	if !strings.HasPrefix(header, "bytes=") {
-		return 0, 0, false
+		return 0, 0, rangeIgnore
 	}
 
 	const rangeSpecMaxParts = 2
+	// S3 honors only the first range when several are supplied.
 	spec := strings.TrimSpace(strings.SplitN(header[len("bytes="):], ",", rangeSpecMaxParts)[0])
 	startStr, endStr, found := strings.Cut(spec, "-")
 	if !found {
-		return 0, 0, false
+		return 0, 0, rangeIgnore
 	}
 
-	var start, end int64
+	start, end, ok := computeRangeBounds(startStr, endStr, size)
+	if !ok {
+		return 0, 0, rangeIgnore
+	}
+
+	// A first-byte-pos at or beyond the object size is unsatisfiable: S3 returns
+	// 416 InvalidRange. A suffix range ("-N") always resolves to a satisfiable
+	// window (clamped to the object), so it is never unsatisfiable here.
+	if start >= size {
+		return 0, 0, rangeUnsatisfiable
+	}
+
+	// last-byte-pos < first-byte-pos is malformed; S3 ignores it (full object).
+	if start > end {
+		return 0, 0, rangeIgnore
+	}
+
+	if end >= size {
+		end = size - 1
+	}
+
+	return start, end, rangeOK
+}
+
+// computeRangeBounds resolves the raw first/last byte positions from the two
+// halves of a "X-Y" range spec. The bool is false when the spec is malformed.
+func computeRangeBounds(startStr, endStr string, size int64) (int64, int64, bool) {
 	switch {
 	case startStr == "":
 		n, err := strconv.ParseInt(endStr, 10, 64)
 		if err != nil || n <= 0 {
 			return 0, 0, false
 		}
-		start = max(size-n, 0)
-		end = size - 1
+
+		return max(size-n, 0), size - 1, true
 	case endStr == "":
-		var err error
-		start, err = strconv.ParseInt(startStr, 10, 64)
-		if err != nil {
+		start, err := strconv.ParseInt(startStr, 10, 64)
+		if err != nil || start < 0 {
 			return 0, 0, false
 		}
-		end = size - 1
+
+		return start, size - 1, true
 	default:
-		var err error
-		start, err = strconv.ParseInt(startStr, 10, 64)
-		if err != nil {
+		start, err := strconv.ParseInt(startStr, 10, 64)
+		if err != nil || start < 0 {
 			return 0, 0, false
 		}
-		end, err = strconv.ParseInt(endStr, 10, 64)
-		if err != nil {
+
+		end, err := strconv.ParseInt(endStr, 10, 64)
+		if err != nil || end < 0 {
 			return 0, 0, false
 		}
-	}
 
-	if start > end || start >= size {
-		return 0, 0, false
+		return start, end, true
 	}
-	if end >= size {
-		end = size - 1
-	}
-
-	return start, end, true
 }
 
 // checkConditionalHeaders evaluates HTTP conditional request headers per AWS/HTTP spec.

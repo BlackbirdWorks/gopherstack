@@ -149,8 +149,8 @@ func (h *S3Handler) uploadPartCopy(
 			return
 		}
 
-		start, end, ok := parseRange(srcRange, int64(len(data)))
-		if !ok {
+		start, end, result := parseRange(srcRange, int64(len(data)))
+		if result != rangeOK {
 			WriteError(ctx, w, r, ErrInvalidArgument)
 
 			return
