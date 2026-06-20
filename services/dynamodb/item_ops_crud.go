@@ -128,6 +128,23 @@ func (db *InMemoryDB) findMatchForPut(table *Table, item map[string]any) (map[st
 	return nil, -1
 }
 
+// conditionalCheckFailed builds a ConditionalCheckFailedException, attaching the
+// existing item when the caller requested ReturnValuesOnConditionCheckFailure=ALL_OLD.
+// This mirrors AWS, which returns the current item in the error body so clients doing
+// optimistic locking can inspect it without issuing a follow-up read.
+func conditionalCheckFailed(
+	rv types.ReturnValuesOnConditionCheckFailure,
+	oldItem map[string]any,
+) *Error {
+	if rv == types.ReturnValuesOnConditionCheckFailureAllOld && oldItem != nil {
+		// oldItem is already in DynamoDB wire form (e.g. {"pk":{"S":"a"}}), which is
+		// exactly the shape AWS returns in the ConditionalCheckFailedException body.
+		return NewConditionalCheckFailedExceptionWithItem("The conditional request failed", oldItem)
+	}
+
+	return NewConditionalCheckFailedException("The conditional request failed")
+}
+
 func (db *InMemoryDB) checkPutCondition(
 	ctx context.Context,
 	input *dynamodb.PutItemInput,
@@ -157,7 +174,7 @@ func (db *InMemoryDB) checkPutCondition(
 		return err
 	}
 	if !match {
-		return NewConditionalCheckFailedException("The conditional request failed")
+		return conditionalCheckFailed(input.ReturnValuesOnConditionCheckFailure, oldItem)
 	}
 
 	return nil
@@ -498,7 +515,7 @@ func (db *InMemoryDB) checkDeleteCondition(
 	}
 
 	if !match {
-		return NewConditionalCheckFailedException("The conditional request failed")
+		return conditionalCheckFailed(input.ReturnValuesOnConditionCheckFailure, oldItem)
 	}
 
 	return nil
@@ -661,7 +678,7 @@ func (db *InMemoryDB) checkUpdateCondition(
 		return err
 	}
 	if !match {
-		return NewConditionalCheckFailedException("The conditional request failed")
+		return conditionalCheckFailed(input.ReturnValuesOnConditionCheckFailure, item)
 	}
 
 	return nil

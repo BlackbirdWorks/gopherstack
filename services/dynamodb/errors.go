@@ -25,8 +25,12 @@ var (
 )
 
 type Error struct {
-	Type                string               `json:"__type"`
-	Message             string               `json:"message"`
+	Type    string `json:"__type"`
+	Message string `json:"message"`
+	// Item carries the existing item on a ConditionalCheckFailedException when the
+	// request set ReturnValuesOnConditionCheckFailure=ALL_OLD. AWS returns it so
+	// optimistic-locking clients can inspect the current item without a re-read.
+	Item                any                  `json:"Item,omitempty"`
 	CancellationReasons []CancellationReason `json:"CancellationReasons,omitempty"`
 }
 
@@ -47,6 +51,17 @@ func NewConditionalCheckFailedException(msg string) *Error {
 	return &Error{
 		Type:    "com.amazonaws.dynamodb.v20120810#ConditionalCheckFailedException",
 		Message: msg,
+	}
+}
+
+// NewConditionalCheckFailedExceptionWithItem returns a ConditionalCheckFailedException
+// that also carries the existing item (already in DynamoDB wire/SDK attribute form).
+// Pass a nil item to omit it.
+func NewConditionalCheckFailedExceptionWithItem(msg string, item any) *Error {
+	return &Error{
+		Type:    "com.amazonaws.dynamodb.v20120810#ConditionalCheckFailedException",
+		Message: msg,
+		Item:    item,
 	}
 }
 

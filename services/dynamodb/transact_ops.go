@@ -644,8 +644,10 @@ func (db *InMemoryDB) checkTransactCondExprRaw(
 		}
 
 		if rv == types.ReturnValuesOnConditionCheckFailureAllOld && item != nil {
-			sdkItem, _ := models.ToSDKItem(item)
-			reason.Item = sdkItem
+			// item is already in DynamoDB wire form ({"attr":{"S":...}}), which is the
+			// shape AWS returns in CancellationReasons[].Item. Marshalling the smithy SDK
+			// union types instead would emit {"Value":...} and break SDK parsing.
+			reason.Item = item
 		}
 		reasons[idx] = reason
 
