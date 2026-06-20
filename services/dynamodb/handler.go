@@ -21,6 +21,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -367,8 +368,12 @@ func (h *DynamoDBHandler) Handler() echo.HandlerFunc {
 		}
 		action := parts[1]
 
-		// Extract region from request and add to context
-		region := extractRegionFromAuth(c.Request(), h.DefaultRegion)
+		// Resolve region from the central awsmeta identity (populated by the global
+		// middleware), falling back to local SigV4/header extraction when absent.
+		region := awsmeta.Region(ctx)
+		if region == "" {
+			region = extractRegionFromAuth(c.Request(), h.DefaultRegion)
+		}
 		ctx = context.WithValue(ctx, regionContextKey{}, region)
 
 		if service.IsCBORRequest(c.Request()) {

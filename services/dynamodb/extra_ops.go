@@ -1384,9 +1384,11 @@ func (db *InMemoryDB) ImportTable(
 	}
 
 	tableName := aws.ToString(tcp.TableName)
-	importARN := arn.Build("dynamodb", db.defaultRegion, db.accountID,
+	region := getRegionFromContext(ctx, db)
+	account := accountFromContext(ctx, db)
+	importARN := arn.Build("dynamodb", region, account,
 		"table/import/"+uuid.New().String())
-	tableARN := arn.Build("dynamodb", db.defaultRegion, db.accountID, "table/"+tableName)
+	tableARN := arn.Build("dynamodb", region, account, "table/"+tableName)
 	start := time.Now()
 
 	// Create the target table; surface CreateTable errors (e.g. ResourceInUse).
