@@ -126,13 +126,7 @@ jobs:
         with:
           name: release-artifacts
           path: dist/*
-
-      - name: Delete artifacts
-        uses: geekyeggo/delete-artifact@v5
-        if: always()
-        with:
-          name: '*'
-          failOnError: false
+          retention-days: 1
 
   cleanup-releases:
     runs-on: ubuntu-latest
