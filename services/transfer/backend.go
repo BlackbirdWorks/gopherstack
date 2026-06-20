@@ -108,8 +108,11 @@ const (
 const (
 	agreementStatusActive   = "ACTIVE"
 	agreementStatusInactive = "INACTIVE"
-	defaultHostKeyType      = "ssh-rsa"
-	sshKeyTypeEd25519       = "ssh-ed25519"
+	defaultHostKeyType  = "ssh-rsa"
+	sshKeyTypeEd25519   = "ssh-ed25519"
+	sshKeyTypeECDSAP256 = "ecdsa-sha2-nistp256"
+	sshKeyTypeECDSAP384 = "ecdsa-sha2-nistp384"
+	sshKeyTypeECDSAP521 = "ecdsa-sha2-nistp521"
 )
 
 // Workflow step state status constants (SendWorkflowStepState).
@@ -3101,7 +3104,7 @@ func computeSSHKeyFingerprintAndType(keyBody string) (string, string) {
 
 	// Detect type from prefix.
 	switch parts[0] {
-	case defaultHostKeyType, "ecdsa-sha2-nistp256", "ecdsa-sha2-nistp384", "ecdsa-sha2-nistp521", sshKeyTypeEd25519:
+	case defaultHostKeyType, sshKeyTypeECDSAP256, sshKeyTypeECDSAP384, sshKeyTypeECDSAP521, sshKeyTypeEd25519:
 		return fp, parts[0]
 	default:
 		return fp, ""
@@ -3118,7 +3121,7 @@ func detectHostKeyType(hostKeyBody string) string {
 	switch prefix[0] {
 	case defaultHostKeyType:
 		return defaultHostKeyType
-	case "ecdsa-sha2-nistp256", "ecdsa-sha2-nistp384", "ecdsa-sha2-nistp521":
+	case sshKeyTypeECDSAP256, sshKeyTypeECDSAP384, sshKeyTypeECDSAP521:
 		return prefix[0]
 	case sshKeyTypeEd25519:
 		return sshKeyTypeEd25519

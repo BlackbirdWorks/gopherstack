@@ -2642,7 +2642,7 @@ func (h *Handler) handleDescribeHostKey(
 	hkMap := map[string]any{
 		"HostKeyId":    hk.HostKeyID,
 		keyDescription: hk.Description,
-		"Type":         hk.Type,
+		keyStepType:    hk.Type,
 		"DateImported": hk.CreatedAt.Format(time.RFC3339),
 		keyArn:         hostKeyARN(hk.AccountID, hk.Region, hk.ServerID, hk.HostKeyID),
 		keyTags:        tagsToList(hk.Tags),
@@ -2690,7 +2690,7 @@ func (h *Handler) handleListHostKeys(
 		item := map[string]any{
 			"HostKeyId":    hk.HostKeyID,
 			keyDescription: hk.Description,
-			"Type":         hk.Type,
+			keyStepType:    hk.Type,
 			"DateImported": hk.CreatedAt.Format(time.RFC3339),
 			keyArn:         hostKeyARN(hk.AccountID, hk.Region, hk.ServerID, hk.HostKeyID),
 		}
@@ -2971,168 +2971,128 @@ func (h *Handler) handleListFileTransferResults(
 
 // securityPolicyDef holds the static attributes of a named AWS Transfer security policy.
 type securityPolicyDef struct {
-	Fips                 bool
 	Type                 string   // "SERVER" or "CONNECTOR"
 	Protocols            []string // e.g. ["SFTP"] or ["SFTP","FTPS"]
-	SshCiphers           []string
-	SshKexs              []string
-	SshMacs              []string
-	TlsCiphers           []string // non-empty only for SERVER policies
-	SshHostKeyAlgorithms []string // non-empty only for CONNECTOR policies
+	SSHCiphers           []string
+	SSHKexs              []string
+	SSHMacs              []string
+	TLSCiphers           []string // non-empty only for SERVER policies
+	SSHHostKeyAlgorithms []string // non-empty only for CONNECTOR policies
+	Fips                 bool
 }
 
-// knownSecurityPolicies is the authoritative catalog of AWS Transfer security
-// policies in the order returned by ListSecurityPolicies.
-var knownSecurityPolicies = []struct {
+const (
+	secPolicyTypeServer    = "SERVER"
+	secPolicyTypeConnector = "CONNECTOR"
+)
+
+// Security policy SSH/TLS algorithm name constants (avoids repeated string literals).
+const (
+	sshKexNistp384             = "ecdh-sha2-nistp384"
+	sshKexNistp256             = "ecdh-sha2-nistp256"
+	sshKexDH16                 = "diffie-hellman-group16-sha512"
+	sshMacETMSHA256            = "hmac-sha2-256-etm@openssh.com"
+	sshMacETMSHA512            = "hmac-sha2-512-etm@openssh.com"
+	tlsCipherAES256GCM         = "TLS_AES_256_GCM_SHA384"
+	tlsCipherECDHERSAAES256GCM = "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"
+)
+
+// securityPolicyCatalog returns the ordered catalog of AWS Transfer security
+// policies. It is a function (not a var) to avoid package-level mutable state.
+func securityPolicyCatalog() []struct {
 	name string
 	def  securityPolicyDef
-}{
-	{
-		"TransferSecurityPolicy-2024-01",
-		securityPolicyDef{
-			Type:       "SERVER",
-			Protocols:  []string{"SFTP", "FTPS"},
-			SshCiphers: []string{"aes128-gcm@openssh.com", "aes256-gcm@openssh.com", "aes256-ctr", "aes192-ctr", "aes128-ctr"},
-			SshKexs:    []string{"curve25519-sha256", "ecdh-sha2-nistp384", "ecdh-sha2-nistp256", "diffie-hellman-group16-sha512"},
-			SshMacs:    []string{"hmac-sha2-256-etm@openssh.com", "hmac-sha2-512-etm@openssh.com", "hmac-sha2-256"},
-			TlsCiphers: []string{"TLS_AES_256_GCM_SHA384", "TLS_AES_128_GCM_SHA256", "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384", "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"},
-		},
-	},
-	{
-		"TransferSecurityPolicy-2023-05",
-		securityPolicyDef{
-			Type:       "SERVER",
-			Protocols:  []string{"SFTP", "FTPS"},
-			SshCiphers: []string{"aes128-gcm@openssh.com", "aes256-gcm@openssh.com", "aes256-ctr", "aes192-ctr", "aes128-ctr"},
-			SshKexs:    []string{"curve25519-sha256", "ecdh-sha2-nistp384", "ecdh-sha2-nistp256", "diffie-hellman-group16-sha512"},
-			SshMacs:    []string{"hmac-sha2-256-etm@openssh.com", "hmac-sha2-512-etm@openssh.com", "hmac-sha2-256"},
-			TlsCiphers: []string{"TLS_AES_256_GCM_SHA384", "TLS_AES_128_GCM_SHA256", "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384", "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"},
-		},
-	},
-	{
-		"TransferSecurityPolicy-2022-03",
-		securityPolicyDef{
-			Type:       "SERVER",
-			Protocols:  []string{"SFTP", "FTPS"},
-			SshCiphers: []string{"aes128-gcm@openssh.com", "aes256-gcm@openssh.com", "aes256-ctr", "aes192-ctr", "aes128-ctr"},
-			SshKexs:    []string{"ecdh-sha2-nistp384", "ecdh-sha2-nistp256", "diffie-hellman-group16-sha512", "diffie-hellman-group14-sha256"},
-			SshMacs:    []string{"hmac-sha2-256-etm@openssh.com", "hmac-sha2-512-etm@openssh.com", "hmac-sha2-256"},
-			TlsCiphers: []string{"TLS_AES_256_GCM_SHA384", "TLS_AES_128_GCM_SHA256", "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384", "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"},
-		},
-	},
-	{
-		"TransferSecurityPolicy-2020-06",
-		securityPolicyDef{
-			Type:       "SERVER",
-			Protocols:  []string{"SFTP", "FTPS"},
-			SshCiphers: []string{"aes128-gcm@openssh.com", "aes256-gcm@openssh.com", "aes256-ctr", "aes192-ctr", "aes128-ctr"},
-			SshKexs:    []string{"ecdh-sha2-nistp384", "ecdh-sha2-nistp256", "diffie-hellman-group16-sha512", "diffie-hellman-group14-sha256"},
-			SshMacs:    []string{"hmac-sha2-256-etm@openssh.com", "hmac-sha2-512-etm@openssh.com", "hmac-sha2-256", "hmac-sha2-512"},
-			TlsCiphers: []string{"TLS_AES_256_GCM_SHA384", "TLS_AES_128_GCM_SHA256", "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384", "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"},
-		},
-	},
-	{
-		"TransferSecurityPolicy-FIPS-2024-01",
-		securityPolicyDef{
-			Fips:       true,
-			Type:       "SERVER",
-			Protocols:  []string{"SFTP", "FTPS"},
-			SshCiphers: []string{"aes256-ctr", "aes192-ctr", "aes128-ctr"},
-			SshKexs:    []string{"ecdh-sha2-nistp384", "ecdh-sha2-nistp256", "diffie-hellman-group16-sha512"},
-			SshMacs:    []string{"hmac-sha2-256-etm@openssh.com", "hmac-sha2-512-etm@openssh.com", "hmac-sha2-256"},
-			TlsCiphers: []string{"TLS_AES_256_GCM_SHA384", "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384", "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"},
-		},
-	},
-	{
-		"TransferSecurityPolicy-FIPS-2023-05",
-		securityPolicyDef{
-			Fips:       true,
-			Type:       "SERVER",
-			Protocols:  []string{"SFTP", "FTPS"},
-			SshCiphers: []string{"aes256-ctr", "aes192-ctr", "aes128-ctr"},
-			SshKexs:    []string{"ecdh-sha2-nistp384", "ecdh-sha2-nistp256", "diffie-hellman-group16-sha512"},
-			SshMacs:    []string{"hmac-sha2-256-etm@openssh.com", "hmac-sha2-512-etm@openssh.com", "hmac-sha2-256"},
-			TlsCiphers: []string{"TLS_AES_256_GCM_SHA384", "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384", "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"},
-		},
-	},
-	{
-		"TransferSecurityPolicy-FIPS-2020-06",
-		securityPolicyDef{
-			Fips:       true,
-			Type:       "SERVER",
-			Protocols:  []string{"SFTP"},
-			SshCiphers: []string{"aes256-ctr", "aes192-ctr", "aes128-ctr"},
-			SshKexs:    []string{"ecdh-sha2-nistp384", "ecdh-sha2-nistp256", "diffie-hellman-group16-sha512"},
-			SshMacs:    []string{"hmac-sha2-256-etm@openssh.com", "hmac-sha2-512-etm@openssh.com"},
-			TlsCiphers: []string{"TLS_AES_256_GCM_SHA384", "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"},
-		},
-	},
-	{
-		"TransferSecurityPolicy-PQ-SSH-2023-04",
-		securityPolicyDef{
-			Type:      "SERVER",
-			Protocols: []string{"SFTP"},
-			SshCiphers: []string{"aes128-gcm@openssh.com", "aes256-gcm@openssh.com", "aes256-ctr", "aes192-ctr", "aes128-ctr"},
-			SshKexs: []string{
-				"ecdh-sha2-nistp256-kyber-512r3-sha256-d00@openquantumsafe.org",
-				"curve25519-sha256",
-				"ecdh-sha2-nistp384",
-				"ecdh-sha2-nistp256",
-				"diffie-hellman-group16-sha512",
-			},
-			SshMacs: []string{"hmac-sha2-256-etm@openssh.com", "hmac-sha2-512-etm@openssh.com", "hmac-sha2-256"},
-		},
-	},
-	{
-		"TransferSecurityPolicy-PQ-SSH-FIPS-2023-04",
-		securityPolicyDef{
-			Fips:      true,
-			Type:      "SERVER",
-			Protocols: []string{"SFTP"},
-			SshCiphers: []string{"aes256-ctr", "aes192-ctr", "aes128-ctr"},
-			SshKexs: []string{
-				"ecdh-sha2-nistp256-kyber-512r3-sha256-d00@openquantumsafe.org",
-				"ecdh-sha2-nistp384",
-				"ecdh-sha2-nistp256",
-				"diffie-hellman-group16-sha512",
-			},
-			SshMacs: []string{"hmac-sha2-256-etm@openssh.com", "hmac-sha2-512-etm@openssh.com"},
-		},
-	},
-	{
-		"TransferSecurityPolicy-Connector-2023-05",
-		securityPolicyDef{
-			Type:                 "CONNECTOR",
-			Protocols:            []string{"SFTP"},
-			SshCiphers:           []string{"aes128-gcm@openssh.com", "aes256-gcm@openssh.com", "aes256-ctr", "aes192-ctr", "aes128-ctr"},
-			SshKexs:              []string{"curve25519-sha256", "ecdh-sha2-nistp384", "ecdh-sha2-nistp256", "diffie-hellman-group16-sha512"},
-			SshMacs:              []string{"hmac-sha2-256-etm@openssh.com", "hmac-sha2-512-etm@openssh.com", "hmac-sha2-256"},
-			SshHostKeyAlgorithms: []string{"ecdsa-sha2-nistp384", "ecdsa-sha2-nistp256", "rsa-sha2-512", "rsa-sha2-256"},
-		},
-	},
-	{
-		"TransferSecurityPolicy-FIPS-Connector-2023-05",
-		securityPolicyDef{
-			Fips:                 true,
-			Type:                 "CONNECTOR",
-			Protocols:            []string{"SFTP"},
-			SshCiphers:           []string{"aes256-ctr", "aes192-ctr", "aes128-ctr"},
-			SshKexs:              []string{"ecdh-sha2-nistp384", "ecdh-sha2-nistp256", "diffie-hellman-group16-sha512"},
-			SshMacs:              []string{"hmac-sha2-256-etm@openssh.com", "hmac-sha2-512-etm@openssh.com"},
-			SshHostKeyAlgorithms: []string{"ecdsa-sha2-nistp384", "ecdsa-sha2-nistp256", "rsa-sha2-512", "rsa-sha2-256"},
-		},
-	},
-}
+} {
+	sftp := []string{protocolSFTP}
+	sftpFTPS := []string{protocolSFTP, protocolFTPS}
+	stdCiphers := []string{"aes128-gcm@openssh.com", "aes256-gcm@openssh.com", "aes256-ctr", "aes192-ctr", "aes128-ctr"}
+	fipsCiphers := []string{"aes256-ctr", "aes192-ctr", "aes128-ctr"}
+	stdKexs := []string{"curve25519-sha256", sshKexNistp384, sshKexNistp256, sshKexDH16}
+	legacyKexs := []string{sshKexNistp384, sshKexNistp256, sshKexDH16, "diffie-hellman-group14-sha256"}
+	fipsKexs := []string{sshKexNistp384, sshKexNistp256, sshKexDH16}
+	pqKex := "ecdh-sha2-nistp256-kyber-512r3-sha256-d00@openquantumsafe.org"
+	pqKexs := []string{pqKex, "curve25519-sha256", sshKexNistp384, sshKexNistp256, sshKexDH16}
+	pqFIPSKexs := []string{pqKex, sshKexNistp384, sshKexNistp256, sshKexDH16}
+	stdMacs := []string{sshMacETMSHA256, sshMacETMSHA512, "hmac-sha2-256"}
+	legacyMacs := []string{sshMacETMSHA256, sshMacETMSHA512, "hmac-sha2-256", "hmac-sha2-512"}
+	fipsMacs := []string{sshMacETMSHA256, sshMacETMSHA512}
+	stdTLS := []string{
+		tlsCipherAES256GCM, "TLS_AES_128_GCM_SHA256",
+		tlsCipherECDHERSAAES256GCM, "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384",
+	}
+	legacyTLS := []string{
+		tlsCipherAES256GCM, "TLS_AES_128_GCM_SHA256",
+		tlsCipherECDHERSAAES256GCM, "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
+	}
+	fipsTLS := []string{tlsCipherAES256GCM, tlsCipherECDHERSAAES256GCM, "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"}
+	fipsLegacyTLS := []string{tlsCipherAES256GCM, tlsCipherECDHERSAAES256GCM}
+	connHKAlgs := []string{sshKeyTypeECDSAP384, sshKeyTypeECDSAP256, "rsa-sha2-512", "rsa-sha2-256"}
 
-// securityPolicyIndex maps policy names to their definitions for O(1) lookup.
-var securityPolicyIndex = func() map[string]*securityPolicyDef {
-	m := make(map[string]*securityPolicyDef, len(knownSecurityPolicies))
-	for i := range knownSecurityPolicies {
-		m[knownSecurityPolicies[i].name] = &knownSecurityPolicies[i].def
+	type entry = struct {
+		name string
+		def  securityPolicyDef
 	}
 
-	return m
-}()
+	return []entry{
+		{"TransferSecurityPolicy-2024-01", securityPolicyDef{
+			Type: secPolicyTypeServer, Protocols: sftpFTPS,
+			SSHCiphers: stdCiphers, SSHKexs: stdKexs, SSHMacs: stdMacs, TLSCiphers: stdTLS,
+		}},
+		{"TransferSecurityPolicy-2023-05", securityPolicyDef{
+			Type: secPolicyTypeServer, Protocols: sftpFTPS,
+			SSHCiphers: stdCiphers, SSHKexs: stdKexs, SSHMacs: stdMacs, TLSCiphers: stdTLS,
+		}},
+		{"TransferSecurityPolicy-2022-03", securityPolicyDef{
+			Type: secPolicyTypeServer, Protocols: sftpFTPS,
+			SSHCiphers: stdCiphers, SSHKexs: legacyKexs, SSHMacs: stdMacs, TLSCiphers: legacyTLS,
+		}},
+		{"TransferSecurityPolicy-2020-06", securityPolicyDef{
+			Type: secPolicyTypeServer, Protocols: sftpFTPS,
+			SSHCiphers: stdCiphers, SSHKexs: legacyKexs, SSHMacs: legacyMacs, TLSCiphers: legacyTLS,
+		}},
+		{"TransferSecurityPolicy-FIPS-2024-01", securityPolicyDef{
+			Type: secPolicyTypeServer, Protocols: sftpFTPS, Fips: true,
+			SSHCiphers: fipsCiphers, SSHKexs: fipsKexs, SSHMacs: stdMacs, TLSCiphers: fipsTLS,
+		}},
+		{"TransferSecurityPolicy-FIPS-2023-05", securityPolicyDef{
+			Type: secPolicyTypeServer, Protocols: sftpFTPS, Fips: true,
+			SSHCiphers: fipsCiphers, SSHKexs: fipsKexs, SSHMacs: stdMacs, TLSCiphers: fipsTLS,
+		}},
+		{"TransferSecurityPolicy-FIPS-2020-06", securityPolicyDef{
+			Type: secPolicyTypeServer, Protocols: sftp, Fips: true,
+			SSHCiphers: fipsCiphers, SSHKexs: fipsKexs, SSHMacs: fipsMacs, TLSCiphers: fipsLegacyTLS,
+		}},
+		{"TransferSecurityPolicy-PQ-SSH-2023-04", securityPolicyDef{
+			Type: secPolicyTypeServer, Protocols: sftp,
+			SSHCiphers: stdCiphers, SSHKexs: pqKexs, SSHMacs: stdMacs,
+		}},
+		{"TransferSecurityPolicy-PQ-SSH-FIPS-2023-04", securityPolicyDef{
+			Type: secPolicyTypeServer, Protocols: sftp, Fips: true,
+			SSHCiphers: fipsCiphers, SSHKexs: pqFIPSKexs, SSHMacs: fipsMacs,
+		}},
+		{"TransferSecurityPolicy-Connector-2023-05", securityPolicyDef{
+			Type: secPolicyTypeConnector, Protocols: sftp,
+			SSHCiphers: stdCiphers, SSHKexs: stdKexs, SSHMacs: stdMacs, SSHHostKeyAlgorithms: connHKAlgs,
+		}},
+		{"TransferSecurityPolicy-FIPS-Connector-2023-05", securityPolicyDef{
+			Type: secPolicyTypeConnector, Protocols: sftp, Fips: true,
+			SSHCiphers: fipsCiphers, SSHKexs: fipsKexs, SSHMacs: fipsMacs, SSHHostKeyAlgorithms: connHKAlgs,
+		}},
+	}
+}
+
+// lookupSecurityPolicy returns the definition for the named policy, or nil if unknown.
+func lookupSecurityPolicy(name string) *securityPolicyDef {
+	for _, e := range securityPolicyCatalog() {
+		if e.name == name {
+			d := e.def
+
+			return &d
+		}
+	}
+
+	return nil
+}
 
 // ErrSecurityPolicyNotFound is returned when a named security policy is not found.
 var ErrSecurityPolicyNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
@@ -3149,27 +3109,27 @@ func (h *Handler) handleDescribeSecurityPolicy(
 		return nil, fmt.Errorf("%w: SecurityPolicyName is required", errInvalidRequest)
 	}
 
-	pol, ok := securityPolicyIndex[in.SecurityPolicyName]
-	if !ok {
+	pol := lookupSecurityPolicy(in.SecurityPolicyName)
+	if pol == nil {
 		return nil, fmt.Errorf("%w: security policy %q not found", ErrSecurityPolicyNotFound, in.SecurityPolicyName)
 	}
 
 	body := map[string]any{
 		"SecurityPolicyName": in.SecurityPolicyName,
 		"Fips":               pol.Fips,
-		"Type":               pol.Type,
+		keyStepType:          pol.Type,
 		"Protocols":          pol.Protocols,
-		"SshCiphers":         pol.SshCiphers,
-		"SshKexs":            pol.SshKexs,
-		"SshMacs":            pol.SshMacs,
+		"SshCiphers":         pol.SSHCiphers,
+		"SshKexs":            pol.SSHKexs,
+		"SshMacs":            pol.SSHMacs,
 	}
 
-	if len(pol.TlsCiphers) > 0 {
-		body["TlsCiphers"] = pol.TlsCiphers
+	if len(pol.TLSCiphers) > 0 {
+		body["TlsCiphers"] = pol.TLSCiphers
 	}
 
-	if len(pol.SshHostKeyAlgorithms) > 0 {
-		body["SshHostKeyAlgorithms"] = pol.SshHostKeyAlgorithms
+	if len(pol.SSHHostKeyAlgorithms) > 0 {
+		body["SshHostKeyAlgorithms"] = pol.SSHHostKeyAlgorithms
 	}
 
 	return &map[string]any{"SecurityPolicy": body}, nil
@@ -3181,16 +3141,18 @@ type listSecurityPoliciesInput struct {
 }
 
 type listSecurityPoliciesOutput struct {
-	SecurityPolicyNames []string `json:"SecurityPolicyNames"`
 	NextToken           string   `json:"NextToken,omitempty"`
+	SecurityPolicyNames []string `json:"SecurityPolicyNames"`
 }
 
 func (h *Handler) handleListSecurityPolicies(
 	_ context.Context,
 	in *listSecurityPoliciesInput,
 ) (*listSecurityPoliciesOutput, error) {
-	names := make([]string, len(knownSecurityPolicies))
-	for i, p := range knownSecurityPolicies {
+	catalog := securityPolicyCatalog()
+	names := make([]string, len(catalog))
+
+	for i, p := range catalog {
 		names[i] = p.name
 	}
 
