@@ -158,6 +158,81 @@ func TestUpdateItem_ComplexPaths(t *testing.T) {
 				assert.Equal(t, "c", tags[1].(map[string]any)["S"])
 			},
 		},
+		{
+			// AWS: SET at an index beyond the end of the list appends the value
+			// to the end rather than erroring or padding with NULLs.
+			name: "SET List Element Beyond End Appends",
+			setup: func(t *testing.T, db *dynamodb.InMemoryDB) {
+				t.Helper()
+				putInput := models.PutItemInput{
+					TableName: tableName,
+					Item: map[string]any{
+						"pk": map[string]any{"S": "append-list"},
+						"tags": map[string]any{
+							"L": []any{
+								map[string]any{"S": "a"},
+								map[string]any{"S": "b"},
+							},
+						},
+					},
+				}
+				sdkPut, _ := models.ToSDKPutItemInput(&putInput)
+				_, err := db.PutItem(t.Context(), sdkPut)
+				require.NoError(t, err)
+			},
+			input: `{
+				"TableName": "` + tableName + `",
+				"Key": {"pk": {"S": "append-list"}},
+				"UpdateExpression": "SET tags[99] = :val",
+				"ExpressionAttributeValues": {":val": {"S": "appended"}}
+			}`,
+			verifyFunc: func(t *testing.T, db *dynamodb.InMemoryDB) {
+				t.Helper()
+				item := getItem(t, db, tableName, "append-list")
+				tags := item["tags"].(map[string]any)["L"].([]any)
+				// Should be [a, b, appended] — no NULL padding between b and appended.
+				require.Len(t, tags, 3)
+				assert.Equal(t, "a", tags[0].(map[string]any)["S"])
+				assert.Equal(t, "b", tags[1].(map[string]any)["S"])
+				assert.Equal(t, "appended", tags[2].(map[string]any)["S"])
+			},
+		},
+		{
+			// AWS: REMOVE of an out-of-range list index is silently ignored.
+			name: "REMOVE List Element Out Of Range Is NoOp",
+			setup: func(t *testing.T, db *dynamodb.InMemoryDB) {
+				t.Helper()
+				putInput := models.PutItemInput{
+					TableName: tableName,
+					Item: map[string]any{
+						"pk": map[string]any{"S": "remove-oob"},
+						"tags": map[string]any{
+							"L": []any{
+								map[string]any{"S": "a"},
+								map[string]any{"S": "b"},
+							},
+						},
+					},
+				}
+				sdkPut, _ := models.ToSDKPutItemInput(&putInput)
+				_, err := db.PutItem(t.Context(), sdkPut)
+				require.NoError(t, err)
+			},
+			input: `{
+				"TableName": "` + tableName + `",
+				"Key": {"pk": {"S": "remove-oob"}},
+				"UpdateExpression": "REMOVE tags[50]"
+			}`,
+			verifyFunc: func(t *testing.T, db *dynamodb.InMemoryDB) {
+				t.Helper()
+				item := getItem(t, db, tableName, "remove-oob")
+				tags := item["tags"].(map[string]any)["L"].([]any)
+				// Unchanged: [a, b].
+				require.Len(t, tags, 2)
+				assert.Equal(t, "a", tags[0].(map[string]any)["S"])
+				assert.Equal(t, "b", tags[1].(map[string]any)["S"])
+			},
+		},
 	}
 
 	for _, tc := range tests {

@@ -1213,24 +1213,67 @@ func (e *Evaluator) mutateList(
 		return nil, err
 	}
 
+	inRange := elem.Index >= 0 && elem.Index < len(list)
+
 	if isLast {
-		list = e.mutateListAtIndex(list, elem.Index, value, isRemove)
-	} else {
-		next := list[elem.Index]
-		updatedNext, mutErr := e.mutate(next, path[1:], value, isRemove)
+		newList, mutErr := e.mutateListAtIndex(list, elem.Index, value, isRemove, inRange)
 		if mutErr != nil {
 			return nil, mutErr
 		}
-		list[elem.Index] = updatedNext
+
+		return e.wrapList(newList, isWrapped), nil
 	}
 
-	if isWrapped {
-		return map[string]any{"L": list}, nil
+	newList, mutErr := e.mutateListNested(list, path, elem.Index, inRange, value, isRemove)
+	if mutErr != nil {
+		return nil, mutErr
 	}
+
+	return e.wrapList(newList, isWrapped), nil
+}
+
+// mutateListNested descends into a list element to apply the remaining path.
+// The element must already exist for the path to resolve: for SET an
+// out-of-range index is an error (DynamoDB cannot create a nested path under a
+// non-existent list slot), while for REMOVE it is a silent no-op (matching AWS).
+func (e *Evaluator) mutateListNested(
+	list []any,
+	path []PathElement,
+	index int,
+	inRange bool,
+	value any,
+	isRemove bool,
+) ([]any, error) {
+	if !inRange {
+		if isRemove {
+			return list, nil
+		}
+
+		return nil, fmt.Errorf("%w: %d", ErrIndexOutOfRange, index)
+	}
+
+	updatedNext, err := e.mutate(list[index], path[1:], value, isRemove)
+	if err != nil {
+		return nil, err
+	}
+	list[index] = updatedNext
 
 	return list, nil
 }
 
+// wrapList re-wraps a list slice in DynamoDB list-attribute form when the
+// original value was wrapped (i.e. {"L": [...]}).
+func (e *Evaluator) wrapList(list []any, isWrapped bool) any {
+	if isWrapped {
+		return map[string]any{"L": list}
+	}
+
+	return list
+}
+
+// resolveList extracts the underlying []any slice from a list attribute value.
+// Bounds checking is intentionally left to the caller so that AWS-specific
+// out-of-range semantics (append on SET, no-op on REMOVE) can be applied.
 func (e *Evaluator) resolveList(current any, index int) ([]any, bool, error) {
 	var list []any
 	var isWrapped bool
@@ -1253,19 +1296,48 @@ func (e *Evaluator) resolveList(current any, index int) ([]any, bool, error) {
 		return nil, false, fmt.Errorf("%w: %d", ErrExpectedListForIndex, index)
 	}
 
-	if index < 0 || index >= len(list) {
-		return nil, false, fmt.Errorf("%w: %d", ErrIndexOutOfRange, index)
-	}
-
 	return list, isWrapped, nil
 }
 
-func (e *Evaluator) mutateListAtIndex(list []any, index int, value any, isRemove bool) []any {
+// mutateListAtIndex applies a SET or REMOVE to a list at the given index.
+//
+// DynamoDB out-of-range semantics (matching real AWS):
+//   - SET at an index >= len(list): the value is appended to the end of the
+//     list. DynamoDB does not pad with NULLs or create sparse slots, and it
+//     never errors. Multiple appends in one UpdateItem resolve to the end.
+//   - REMOVE at an out-of-range index: silently ignored (no-op), the same as
+//     REMOVE of a non-existent attribute path.
+func (e *Evaluator) mutateListAtIndex(
+	list []any,
+	index int,
+	value any,
+	isRemove bool,
+	inRange bool,
+) ([]any, error) {
+	if index < 0 {
+		// Negative indices are not valid document paths. Treat REMOVE as a
+		// no-op and SET as an error to avoid corrupting the list.
+		if isRemove {
+			return list, nil
+		}
+
+		return nil, fmt.Errorf("%w: %d", ErrIndexOutOfRange, index)
+	}
+
 	if isRemove {
-		// Remove element and shift
-		return append(list[:index], list[index+1:]...)
+		if !inRange {
+			return list, nil // REMOVE of a non-existent index is a no-op.
+		}
+		// Remove element and shift.
+		return append(list[:index], list[index+1:]...), nil
+	}
+
+	if !inRange {
+		// SET beyond the end of the list appends to the end (AWS clamps the
+		// index rather than creating sparse NULL slots).
+		return append(list, value), nil
 	}
 	list[index] = value
 
-	return list
+	return list, nil
 }
