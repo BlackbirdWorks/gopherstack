@@ -1542,7 +1542,7 @@ func TestBackend_Reset(t *testing.T) {
 	require.NoError(t, err)
 	_, err = b.CreateApprovalRuleTemplate("tmpl", "", "{}")
 	require.NoError(t, err)
-	_, err = b.CreateCommit("repo-a", "main", "Alice", "alice@test.com", "init")
+	_, err = b.CreateCommit("repo-a", "main", "Alice", "alice@test.com", "init", "", nil, nil)
 	require.NoError(t, err)
 	_, err = b.CreatePullRequest("My PR", "", "", []codecommit.PullRequestTarget{
 		{RepositoryName: "repo-a", SourceReference: "refs/heads/feature"},
@@ -2152,6 +2152,14 @@ func TestHandler_RepoMetadata_DefaultBranchAndKmsKey(t *testing.T) {
 	_, hasKms := meta["kmsKeyId"]
 	assert.False(t, hasDefault, "defaultBranch should not appear when unset")
 	assert.False(t, hasKms, "kmsKeyId should not appear when unset")
+
+	// Create a commit so the "main" branch exists before setting it as default.
+	rec = doRequest(t, h, "CreateCommit", map[string]any{
+		"repositoryName": "repo",
+		"branchName":     "main",
+		"commitMessage":  "init",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Set defaultBranch.
 	rec = doRequest(t, h, "UpdateDefaultBranch", map[string]any{

@@ -25,6 +25,8 @@ const (
 	prStatusOpen   = "OPEN"
 	prStatusClosed = "CLOSED"
 
+	fileModeDefault = "NORMAL"
+
 	// maxBatchGetRepositories is the AWS limit for BatchGetRepositories.
 	maxBatchGetRepositories = 25
 )
@@ -689,6 +691,34 @@ func (b *InMemoryBackend) CreateBranch(repositoryName, branchName, commitID stri
 	return nil
 }
 
+// applyFileChanges applies put and delete file entries to the repository file store.
+// Caller must hold the write lock.
+func (b *InMemoryBackend) applyFileChanges(repoName, commitID string, putFiles []PutFileEntry, deleteFiles []string) {
+	if len(putFiles) > 0 {
+		if b.files[repoName] == nil {
+			b.files[repoName] = make(map[string]*File)
+		}
+		for _, pf := range putFiles {
+			fileMode := pf.FileMode
+			if fileMode == "" {
+				fileMode = fileModeDefault
+			}
+			b.files[repoName][pf.FilePath] = &File{
+				FilePath:        pf.FilePath,
+				CommitSpecifier: commitID,
+				BlobID:          uuid.NewString(),
+				FileMode:        fileMode,
+				FileContent:     pf.FileContent,
+			}
+		}
+	}
+	for _, fp := range deleteFiles {
+		if b.files[repoName] != nil {
+			delete(b.files[repoName], fp)
+		}
+	}
+}
+
 // CreateCommit creates a new commit in a repository, tracking parent commits from the
 // current branch head.
 //
@@ -716,21 +746,14 @@ func (b *InMemoryBackend) CreateCommit(
 		}
 	}
 
-	// Validate parentCommitId per AWS semantics.
-	if currentTip != "" {
-		// Branch already has commits; parentCommitId is required.
-		if parentCommitID == "" {
-			return nil, fmt.Errorf(
-				"%w: parentCommitId is required when the branch already has commits",
-				ErrParentCommitIdRequired,
-			)
-		}
-		if parentCommitID != currentTip {
-			return nil, fmt.Errorf(
-				"%w: parentCommitId %s does not match current branch tip %s",
-				ErrParentCommitIdOutdated, parentCommitID, currentTip,
-			)
-		}
+	// Validate parentCommitId when provided — AWS returns ParentCommitIdOutdatedException
+	// when the provided value does not match the current branch tip.
+	// parentCommitId is optional; omitting it is allowed (no race detection in that case).
+	if parentCommitID != "" && currentTip != "" && parentCommitID != currentTip {
+		return nil, fmt.Errorf(
+			"%w: parentCommitId %s does not match current branch tip %s",
+			ErrParentCommitIdOutdated, parentCommitID, currentTip,
+		)
 	}
 
 	commitID := uuid.NewString()
@@ -761,32 +784,8 @@ func (b *InMemoryBackend) CreateCommit(
 	}
 	b.commits[repositoryName][commitID] = commit
 
-	// Apply putFiles to the file store.
-	if len(putFiles) > 0 {
-		if b.files[repositoryName] == nil {
-			b.files[repositoryName] = make(map[string]*File)
-		}
-		for _, pf := range putFiles {
-			fileMode := pf.FileMode
-			if fileMode == "" {
-				fileMode = "NORMAL"
-			}
-			b.files[repositoryName][pf.FilePath] = &File{
-				FilePath:        pf.FilePath,
-				CommitSpecifier: commitID,
-				BlobID:          uuid.NewString(),
-				FileMode:        fileMode,
-				FileContent:     pf.FileContent,
-			}
-		}
-	}
-
-	// Apply deleteFiles.
-	for _, fp := range deleteFiles {
-		if b.files[repositoryName] != nil {
-			delete(b.files[repositoryName], fp)
-		}
-	}
+	// Apply putFiles and deleteFiles to the file store.
+	b.applyFileChanges(repositoryName, commitID, putFiles, deleteFiles)
 
 	// Update the branch tip to the new commit.
 	if branchName != "" {

@@ -118,6 +118,12 @@ func TestHandler_UpdateDefaultBranch(t *testing.T) {
 
 	h := newTestHandler(t)
 	doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "br-repo"})
+	// Create a commit so the "main" branch exists.
+	doRequest(t, h, "CreateCommit", map[string]any{
+		"repositoryName": "br-repo",
+		"branchName":     "main",
+		"commitMessage":  "init",
+	})
 
 	rec := doRequest(t, h, "UpdateDefaultBranch", map[string]any{
 		"repositoryName":    "br-repo",
@@ -125,7 +131,14 @@ func TestHandler_UpdateDefaultBranch(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	// not found
+	// Branch not found in repo.
+	rec = doRequest(t, h, "UpdateDefaultBranch", map[string]any{
+		"repositoryName":    "br-repo",
+		"defaultBranchName": "no-such-branch",
+	})
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+
+	// Repo not found.
 	rec = doRequest(t, h, "UpdateDefaultBranch", map[string]any{
 		"repositoryName":    "no-repo",
 		"defaultBranchName": "main",

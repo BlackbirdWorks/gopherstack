@@ -177,7 +177,10 @@ func (b *InMemoryBackend) UpdateDefaultBranch(repoName, branchName string) error
 			return fmt.Errorf("%w: branch %s not found in repository %s", ErrBranchNotFound, branchName, repoName)
 		}
 	} else if branchName != "" {
-		return fmt.Errorf("%w: branch %s not found in repository %s (no branches exist)", ErrBranchNotFound, branchName, repoName)
+		return fmt.Errorf(
+			"%w: branch %s not found in repository %s (no branches exist)",
+			ErrBranchNotFound, branchName, repoName,
+		)
 	}
 	r.DefaultBranch = branchName
 	r.LastModifiedDate = time.Now().UTC()
@@ -774,7 +777,7 @@ func (b *InMemoryBackend) PutFile(repoName, branchName, filePath string, content
 		FilePath:        filePath,
 		CommitSpecifier: branchName,
 		BlobID:          blobID,
-		FileMode:        "NORMAL",
+		FileMode:        fileModeDefault,
 		FileContent:     content,
 	}
 
@@ -856,6 +859,35 @@ func (b *InMemoryBackend) GetFolder(repoName, _ /* commitSpecifier */, folderPat
 	sort.Strings(paths)
 
 	return paths, nil
+}
+
+// GetFolderFiles returns file metadata (path, blobId, fileMode) for files under a folder path.
+// This provides richer info than GetFolder for handler responses matching the AWS API shape.
+func (b *InMemoryBackend) GetFolderFiles(repoName, _ /* commitSpecifier */, folderPath string) ([]*File, error) {
+	b.mu.RLock("GetFolderFiles")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.repositories[repoName]; !ok {
+		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
+	}
+
+	repoFiles := b.files[repoName]
+	var files []*File
+	prefix := folderPath
+	if prefix != "" && prefix[len(prefix)-1] != '/' {
+		prefix += "/"
+	}
+	for fp, f := range repoFiles {
+		if prefix == "" || fp == folderPath || len(fp) > len(prefix) && fp[:len(prefix)] == prefix {
+			cp := *f
+			files = append(files, &cp)
+		}
+	}
+	sort.Slice(files, func(i, j int) bool {
+		return files[i].FilePath < files[j].FilePath
+	})
+
+	return files, nil
 }
 
 // DeleteFile removes a file and creates a delete commit.
