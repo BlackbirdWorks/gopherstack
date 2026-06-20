@@ -159,8 +159,8 @@ type createWorkspaceSpec struct {
 	BundleID                    string                `json:"BundleId"`
 	SubnetID                    string                `json:"SubnetId"`
 	VolumeEncryptionKey         string                `json:"VolumeEncryptionKey"`
-	UserVolumeEncryptionEnabled bool                  `json:"UserVolumeEncryptionEnabled"`
-	RootVolumeEncryptionEnabled bool                  `json:"RootVolumeEncryptionEnabled"`
+	UserVolumeEncryptionEnabled bool                  `json:"UserVolumeEncryptionEnabled"` //nolint:tagliatelle
+	RootVolumeEncryptionEnabled bool                  `json:"RootVolumeEncryptionEnabled"` //nolint:tagliatelle
 }
 
 type createWorkspaceProps struct {
@@ -605,14 +605,14 @@ type bundleStorageResp struct {
 }
 
 type bundleResp struct {
-	ComputeType bundleComputeTypeResp `json:"ComputeType,omitempty"`
-	UserStorage bundleStorageResp     `json:"UserStorage,omitempty"`
-	RootStorage bundleStorageResp     `json:"RootStorage,omitempty"`
 	BundleID    string                `json:"BundleId"`
 	Name        string                `json:"Name"`
 	Owner       string                `json:"Owner"`
 	Description string                `json:"Description"`
 	ImageID     string                `json:"ImageId,omitempty"`
+	ComputeType bundleComputeTypeResp `json:"ComputeType"`
+	UserStorage bundleStorageResp     `json:"UserStorage"`
+	RootStorage bundleStorageResp     `json:"RootStorage"`
 }
 
 func (h *Handler) handleDescribeWorkspaceBundles(
@@ -654,7 +654,7 @@ type describeDirectoriesOutput struct {
 }
 
 type dirResp struct {
-	SubnetIds     []string `json:"SubnetIds,omitempty"` //nolint:revive,staticcheck // AWS API uses SubnetIds
+	SubnetIds     []string `json:"SubnetIds,omitempty"` //nolint:revive // AWS API uses SubnetIds capitalization
 	DirectoryID   string   `json:"DirectoryId"`
 	DirectoryName string   `json:"DirectoryName,omitempty"`
 	DirectoryType string   `json:"DirectoryType,omitempty"`

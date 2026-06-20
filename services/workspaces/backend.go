@@ -41,6 +41,17 @@ const (
 // stateRegistered is the registration state for workspace directories.
 const stateRegistered = "REGISTERED"
 
+// Bundle storage capacities in GiB matching real Amazon-owned bundle defaults.
+const (
+	bundleValueUserGiB       int32 = 10
+	bundleStandardUserGiB    int32 = 50
+	bundlePerformanceUserGiB int32 = 100
+	bundlePowerUserGiB       int32 = 100
+	bundlePowerProUserGiB    int32 = 100
+	bundleStdRootGiB         int32 = 80
+	bundlePowerRootGiB       int32 = 175
+)
+
 func isValidComputeTypeName(name string) bool {
 	switch name {
 	case "VALUE", "STANDARD", "PERFORMANCE", "POWER",
@@ -312,7 +323,6 @@ func validateTagEntry(key, value string) error {
 
 	return nil
 }
-
 
 // buildFilter converts a string slice to a set for O(1) membership tests.
 // An empty result means "no filter" (accept all).
@@ -686,8 +696,8 @@ func hardcodedBundles() []*WorkspaceBundle {
 			Owner:       ownerAmazon,
 			Description: "Value with Windows 10 and Office 2019",
 			ComputeType: BundleComputeType{Name: "VALUE"},
-			UserStorage: BundleStorage{Capacity: 10},
-			RootStorage: BundleStorage{Capacity: 80},
+			UserStorage: BundleStorage{Capacity: bundleValueUserGiB},
+			RootStorage: BundleStorage{Capacity: bundleStdRootGiB},
 		},
 		{
 			BundleID:    "wsb-gm4d5tx2v",
@@ -695,8 +705,8 @@ func hardcodedBundles() []*WorkspaceBundle {
 			Owner:       ownerAmazon,
 			Description: "Standard with Windows 10 and Office 2019",
 			ComputeType: BundleComputeType{Name: "STANDARD"},
-			UserStorage: BundleStorage{Capacity: 50},
-			RootStorage: BundleStorage{Capacity: 80},
+			UserStorage: BundleStorage{Capacity: bundleStandardUserGiB},
+			RootStorage: BundleStorage{Capacity: bundleStdRootGiB},
 		},
 		{
 			BundleID:    "wsb-b0s22j3d7",
@@ -704,8 +714,8 @@ func hardcodedBundles() []*WorkspaceBundle {
 			Owner:       ownerAmazon,
 			Description: "Performance with Windows 10 and Office 2019",
 			ComputeType: BundleComputeType{Name: "PERFORMANCE"},
-			UserStorage: BundleStorage{Capacity: 100},
-			RootStorage: BundleStorage{Capacity: 80},
+			UserStorage: BundleStorage{Capacity: bundlePerformanceUserGiB},
+			RootStorage: BundleStorage{Capacity: bundleStdRootGiB},
 		},
 		{
 			BundleID:    "wsb-clj85qzj1",
@@ -713,8 +723,8 @@ func hardcodedBundles() []*WorkspaceBundle {
 			Owner:       ownerAmazon,
 			Description: "Power with Windows 10 and Office 2019",
 			ComputeType: BundleComputeType{Name: "POWER"},
-			UserStorage: BundleStorage{Capacity: 100},
-			RootStorage: BundleStorage{Capacity: 175},
+			UserStorage: BundleStorage{Capacity: bundlePowerUserGiB},
+			RootStorage: BundleStorage{Capacity: bundlePowerRootGiB},
 		},
 		{
 			BundleID:    "wsb-1b5w9hkng",
@@ -722,8 +732,8 @@ func hardcodedBundles() []*WorkspaceBundle {
 			Owner:       ownerAmazon,
 			Description: "PowerPro with Windows 10 and Office 2019",
 			ComputeType: BundleComputeType{Name: "POWERPRO"},
-			UserStorage: BundleStorage{Capacity: 100},
-			RootStorage: BundleStorage{Capacity: 175},
+			UserStorage: BundleStorage{Capacity: bundlePowerProUserGiB},
+			RootStorage: BundleStorage{Capacity: bundlePowerRootGiB},
 		},
 	}
 }

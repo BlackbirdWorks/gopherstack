@@ -47,7 +47,7 @@ import (
 // Helpers
 // ---------------------------------------------------------------------------
 
-func createWorkspaceWithSpec(t *testing.T, h *workspaces.Handler, userID, dirID, bundleID string) string {
+func createWorkspaceWithSpec(t *testing.T, h *workspaces.Handler, userID, dirID string) string {
 	t.Helper()
 
 	rec := doTargetRequest(t, h, "CreateWorkspaces", map[string]any{
@@ -55,7 +55,7 @@ func createWorkspaceWithSpec(t *testing.T, h *workspaces.Handler, userID, dirID,
 			{
 				"UserName":    userID,
 				"DirectoryId": dirID,
-				"BundleId":    bundleID,
+				"BundleId":    "wsb-bh8rsxt14",
 			},
 		},
 	})
@@ -71,7 +71,7 @@ func createWorkspaceWithSpec(t *testing.T, h *workspaces.Handler, userID, dirID,
 
 func describeWorkspacesPage(
 	t *testing.T, h *workspaces.Handler, nextToken string, limit int,
-) (ids []string, token string) {
+) ([]string, string) {
 	t.Helper()
 
 	body := map[string]any{}
@@ -89,14 +89,16 @@ func describeWorkspacesPage(
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 
+	var ids []string
+
 	wsList, _ := resp["Workspaces"].([]any)
 	for _, w := range wsList {
 		ids = append(ids, w.(map[string]any)["WorkspaceId"].(string))
 	}
 
-	token, _ = resp["NextToken"].(string)
+	nextPage, _ := resp["NextToken"].(string)
 
-	return ids, token
+	return ids, nextPage
 }
 
 // ---------------------------------------------------------------------------
@@ -109,9 +111,9 @@ func TestParity3_Pagination_Limit1(t *testing.T) {
 	h := newTestHandler(t)
 
 	// Create 3 workspaces so we can paginate through them.
-	var createdIDs []string
+	createdIDs := make([]string, 0, 3)
 	for i := range 3 {
-		id := createWorkspaceWithSpec(t, h, fmt.Sprintf("user%d", i), "d-abc123", "wsb-bh8rsxt14")
+		id := createWorkspaceWithSpec(t, h, fmt.Sprintf("user%d", i), "d-abc123")
 		createdIDs = append(createdIDs, id)
 	}
 
@@ -143,7 +145,7 @@ func TestParity3_Pagination_DefaultLimit25(t *testing.T) {
 
 	// Create exactly 26 workspaces to trigger pagination.
 	for i := range 26 {
-		createWorkspaceWithSpec(t, h, fmt.Sprintf("user%d", i), "d-abc123", "wsb-bh8rsxt14")
+		createWorkspaceWithSpec(t, h, fmt.Sprintf("user%d", i), "d-abc123")
 	}
 
 	// First page: no explicit limit → defaults to 25.
@@ -157,7 +159,9 @@ func TestParity3_Pagination_DefaultLimit25(t *testing.T) {
 	assert.Empty(t, token2)
 
 	// No overlap between pages.
-	combined := append(page1, page2...)
+	combined := make([]string, 0, len(page1)+len(page2))
+	combined = append(combined, page1...)
+	combined = append(combined, page2...)
 	seen := make(map[string]struct{})
 
 	for _, id := range combined {
@@ -175,11 +179,11 @@ func TestParity3_Pagination_SortedByID(t *testing.T) {
 	h := newTestHandler(t)
 
 	for i := range 5 {
-		createWorkspaceWithSpec(t, h, fmt.Sprintf("user%d", i), "d-abc123", "wsb-bh8rsxt14")
+		createWorkspaceWithSpec(t, h, fmt.Sprintf("user%d", i), "d-abc123")
 	}
 
 	// Collect all IDs via 5 single-item pages.
-	var collected []string
+	collected := make([]string, 0, 5)
 	token := ""
 
 	for range 5 {
@@ -202,7 +206,7 @@ func TestParity3_Pagination_ExplicitLimitCappedAt25(t *testing.T) {
 	h := newTestHandler(t)
 
 	for i := range 30 {
-		createWorkspaceWithSpec(t, h, fmt.Sprintf("user%d", i), "d-abc123", "wsb-bh8rsxt14")
+		createWorkspaceWithSpec(t, h, fmt.Sprintf("user%d", i), "d-abc123")
 	}
 
 	// Even if the client requests limit=100, we cap at 25.
@@ -214,9 +218,9 @@ func TestParity3_Pagination_FilteredByDirectoryID(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	createWorkspaceWithSpec(t, h, "u1", "d-aaa", "wsb-bh8rsxt14")
-	createWorkspaceWithSpec(t, h, "u2", "d-bbb", "wsb-bh8rsxt14")
-	createWorkspaceWithSpec(t, h, "u3", "d-aaa", "wsb-bh8rsxt14")
+	createWorkspaceWithSpec(t, h, "u1", "d-aaa")
+	createWorkspaceWithSpec(t, h, "u2", "d-bbb")
+	createWorkspaceWithSpec(t, h, "u3", "d-aaa")
 
 	rec := doTargetRequest(t, h, "DescribeWorkspaces", map[string]any{
 		"DirectoryId": "d-aaa",
@@ -550,8 +554,6 @@ func TestParity3_ModifyWorkspaceProperties_ValidComputeTypes_Accept(t *testing.T
 	}
 
 	for _, ct := range validTypes {
-		ct := ct
-
 		t.Run(ct, func(t *testing.T) {
 			t.Parallel()
 
@@ -572,8 +574,6 @@ func TestParity3_ModifyWorkspaceProperties_ValidRunningModes_Accept(t *testing.T
 	t.Parallel()
 
 	for _, mode := range []string{"ALWAYS_ON", "AUTO_STOP"} {
-		mode := mode
-
 		t.Run(mode, func(t *testing.T) {
 			t.Parallel()
 
@@ -598,9 +598,9 @@ func TestParity3_ModifyWorkspaceProperties_AutoStopTimeout_Validation(t *testing
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		timeout     int
-		wantCode    int
+		name     string
+		timeout  int
+		wantCode int
 	}{
 		{name: "60_accepted", timeout: 60, wantCode: http.StatusOK},
 		{name: "120_accepted", timeout: 120, wantCode: http.StatusOK},
@@ -612,8 +612,6 @@ func TestParity3_ModifyWorkspaceProperties_AutoStopTimeout_Validation(t *testing
 	}
 
 	for _, tc := range tests {
-		tc := tc
-
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -664,8 +662,8 @@ func TestParity3_DescribeWorkspaceBundles_ComputeTypeAndStorage(t *testing.T) {
 
 		if hasUserStorage {
 			us := usRaw.(map[string]any)
-			cap, _ := us["Capacity"].(float64)
-			assert.Greater(t, cap, float64(0), "bundle %s UserStorage.Capacity must be > 0", bundleID)
+			capacity, _ := us["Capacity"].(float64)
+			assert.Greater(t, capacity, float64(0), "bundle %s UserStorage.Capacity must be > 0", bundleID)
 		}
 
 		rsRaw, hasRootStorage := bun["RootStorage"]
@@ -673,8 +671,8 @@ func TestParity3_DescribeWorkspaceBundles_ComputeTypeAndStorage(t *testing.T) {
 
 		if hasRootStorage {
 			rs := rsRaw.(map[string]any)
-			cap, _ := rs["Capacity"].(float64)
-			assert.Greater(t, cap, float64(0), "bundle %s RootStorage.Capacity must be > 0", bundleID)
+			capacity, _ := rs["Capacity"].(float64)
+			assert.Greater(t, capacity, float64(0), "bundle %s RootStorage.Capacity must be > 0", bundleID)
 		}
 	}
 }
@@ -905,8 +903,8 @@ func TestParity3_ConnectionStatus_AllWorkspaces_NoFilter(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	id1 := createWorkspaceWithSpec(t, h, "u1", "d-aaa", "wsb-bh8rsxt14")
-	id2 := createWorkspaceWithSpec(t, h, "u2", "d-aaa", "wsb-bh8rsxt14")
+	id1 := createWorkspaceWithSpec(t, h, "u1", "d-aaa")
+	id2 := createWorkspaceWithSpec(t, h, "u2", "d-aaa")
 
 	// No WorkspaceIds filter → return all.
 	rec := doTargetRequest(t, h, "DescribeWorkspacesConnectionStatus", map[string]any{
@@ -1006,7 +1004,7 @@ func TestParity3_MigrateWorkspace_SourceRemovedTargetCreated(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 
 	// Original workspace must no longer exist.
-	assert.Equal(t, "", workspaces.WorkspaceState(backend, srcID),
+	assert.Empty(t, workspaces.WorkspaceState(backend, srcID),
 		"source workspace must be removed after migration")
 
 	// A new workspace must exist.
@@ -1051,8 +1049,8 @@ func TestParity3_DescribeWorkspaces_MultipleIDs_AllReturned(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	id1 := createWorkspaceWithSpec(t, h, "u1", "d-aaa", "wsb-bh8rsxt14")
-	id2 := createWorkspaceWithSpec(t, h, "u2", "d-aaa", "wsb-bh8rsxt14")
+	id1 := createWorkspaceWithSpec(t, h, "u1", "d-aaa")
+	id2 := createWorkspaceWithSpec(t, h, "u2", "d-aaa")
 
 	rec := doTargetRequest(t, h, "DescribeWorkspaces", map[string]any{
 		"WorkspaceIds": []string{id1, id2},
@@ -1069,9 +1067,9 @@ func TestParity3_DescribeWorkspaces_FilterByUserName(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	createWorkspaceWithSpec(t, h, "alice", "d-aaa", "wsb-bh8rsxt14")
-	createWorkspaceWithSpec(t, h, "bob", "d-aaa", "wsb-bh8rsxt14")
-	createWorkspaceWithSpec(t, h, "alice", "d-aaa", "wsb-bh8rsxt14")
+	createWorkspaceWithSpec(t, h, "alice", "d-aaa")
+	createWorkspaceWithSpec(t, h, "bob", "d-aaa")
+	createWorkspaceWithSpec(t, h, "alice", "d-aaa")
 
 	rec := doTargetRequest(t, h, "DescribeWorkspaces", map[string]any{
 		"UserName":    "alice",
