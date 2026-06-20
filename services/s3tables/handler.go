@@ -716,7 +716,7 @@ func (h *Handler) handleDeleteTableBucketEncryption(ctx context.Context, r *http
 
 	bucketARN := segs[1]
 
-	if _, err := h.Backend.GetTableBucket(bucketARN); err != nil {
+	if err := h.Backend.DeleteTableBucketEncryption(bucketARN); err != nil {
 		return nil, err
 	}
 

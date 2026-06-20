@@ -18,6 +18,8 @@ type StorageBackend interface {
 	PutTableBucketPolicy(bucketARN, policy string) error
 	DeleteTableBucketPolicy(bucketARN string) error
 
+	DeleteTableBucketEncryption(bucketARN string) error
+
 	// BucketReplication operations
 	PutTableBucketReplication(bucketARN string, cfg *BucketReplicationConfig) error
 	GetTableBucketReplication(bucketARN string) (*BucketReplicationConfig, error)
