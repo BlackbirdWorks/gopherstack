@@ -2227,8 +2227,8 @@ type getPartitionsInput struct {
 
 // getPartitionsOutput holds the result for GetPartitions.
 type getPartitionsOutput struct {
-	Partitions []*Partition `json:"Partitions"`
 	NextToken  string       `json:"NextToken,omitempty"`
+	Partitions []*Partition `json:"Partitions"`
 }
 
 func (h *Handler) handleGetPartitions(

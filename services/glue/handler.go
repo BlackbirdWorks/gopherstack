@@ -767,8 +767,8 @@ type getDatabasesInput struct {
 }
 
 type getDatabasesOutput struct {
-	DatabaseList []*Database `json:"DatabaseList"`
 	NextToken    string      `json:"NextToken,omitempty"`
+	DatabaseList []*Database `json:"DatabaseList"`
 }
 
 func (h *Handler) handleGetDatabases(_ context.Context, in *getDatabasesInput) (*getDatabasesOutput, error) {
@@ -856,8 +856,8 @@ type getTablesInput struct {
 }
 
 type getTablesOutput struct {
-	TableList []*Table `json:"TableList"`
 	NextToken string   `json:"NextToken,omitempty"`
+	TableList []*Table `json:"TableList"`
 }
 
 func (h *Handler) handleGetTables(_ context.Context, in *getTablesInput) (*getTablesOutput, error) {
