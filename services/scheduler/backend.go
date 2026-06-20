@@ -487,26 +487,36 @@ func (b *InMemoryBackend) UpdateSchedule(
 	ftw FlexibleTimeWindow,
 	opts ...ScheduleOption,
 ) (*Schedule, error) {
-	if state != "" {
-		if err := validateScheduleState(state); err != nil {
-			return nil, err
-		}
+	if expr == "" {
+		return nil, fmt.Errorf("%w: ScheduleExpression is required", ErrValidation)
 	}
 
-	if ftw.Mode != "" {
-		if err := validateFlexibleTimeWindowMode(ftw.Mode); err != nil {
-			return nil, err
-		}
+	if err := validateScheduleExpression(expr); err != nil {
+		return nil, err
+	}
+
+	if target.ARN == "" {
+		return nil, fmt.Errorf("%w: Target.Arn is required", ErrValidation)
+	}
+
+	if target.RoleARN == "" {
+		return nil, fmt.Errorf("%w: Target.RoleArn is required", ErrValidation)
+	}
+
+	if ftw.Mode == "" {
+		return nil, fmt.Errorf("%w: FlexibleTimeWindow.Mode is required", ErrValidation)
+	}
+
+	if err := validateScheduleState(state); err != nil {
+		return nil, err
+	}
+
+	if err := validateFlexibleTimeWindowMode(ftw.Mode); err != nil {
+		return nil, err
 	}
 
 	if err := validateTarget(target); err != nil {
 		return nil, err
-	}
-
-	if expr != "" {
-		if err := validateScheduleExpression(expr); err != nil {
-			return nil, err
-		}
 	}
 
 	if groupName == "" {
