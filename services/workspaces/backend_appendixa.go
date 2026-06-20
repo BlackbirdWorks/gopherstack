@@ -3,6 +3,7 @@ package workspaces
 import (
 	"fmt"
 	"maps"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
@@ -875,8 +876,8 @@ func (b *InMemoryBackend) TerminateWorkspacesPoolSession(sessionID string) error
 // Directory Registration
 // ---------------------------------------------------------------------------
 
-// RegisterWorkspaceDirectory registers a directory.
-func (b *InMemoryBackend) RegisterWorkspaceDirectory(directoryID string, _ []string) error {
+// RegisterWorkspaceDirectory registers a directory and stores subnet IDs.
+func (b *InMemoryBackend) RegisterWorkspaceDirectory(directoryID string, subnetIDs []string) error {
 	b.mu.Lock("RegisterWorkspaceDirectory")
 	defer b.mu.Unlock()
 
@@ -887,7 +888,11 @@ func (b *InMemoryBackend) RegisterWorkspaceDirectory(directoryID string, _ []str
 		}
 	}
 
-	b.dirSettings[directoryID].Properties["State"] = "REGISTERED"
+	b.dirSettings[directoryID].Properties["State"] = stateRegistered
+
+	if len(subnetIDs) > 0 {
+		b.dirSettings[directoryID].Properties["SubnetIds"] = strings.Join(subnetIDs, ",")
+	}
 
 	return nil
 }

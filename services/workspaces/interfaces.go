@@ -174,17 +174,20 @@ type StorageBackend interface {
 
 // Workspace holds full WorkSpace details.
 type Workspace struct {
-	Properties   *WorkspaceProperties
-	Tags         map[string]string
-	WorkspaceID  string
-	DirectoryID  string
-	UserName     string
-	BundleID     string
-	State        string
-	ComputerName string
-	SubnetID     string
-	ErrorCode    string
-	ErrorMessage string
+	Properties                  *WorkspaceProperties
+	Tags                        map[string]string
+	WorkspaceID                 string
+	DirectoryID                 string
+	UserName                    string
+	BundleID                    string
+	State                       string
+	ComputerName                string
+	SubnetID                    string
+	VolumeEncryptionKey         string
+	ErrorCode                   string
+	ErrorMessage                string
+	UserVolumeEncryptionEnabled bool
+	RootVolumeEncryptionEnabled bool
 }
 
 // WorkspaceConnectionStatus holds connection status for a WorkSpace.

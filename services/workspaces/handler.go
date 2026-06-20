@@ -152,10 +152,23 @@ type createWorkspacesInput struct {
 }
 
 type createWorkspaceSpec struct {
-	UserName    string    `json:"UserName"`
-	DirectoryID string    `json:"DirectoryId"`
-	BundleID    string    `json:"BundleId"`
-	Tags        []tagItem `json:"Tags"`
+	WorkspaceProperties         *createWorkspaceProps `json:"WorkspaceProperties,omitempty"`
+	Tags                        []tagItem             `json:"Tags"`
+	UserName                    string                `json:"UserName"`
+	DirectoryID                 string                `json:"DirectoryId"`
+	BundleID                    string                `json:"BundleId"`
+	SubnetID                    string                `json:"SubnetId"`
+	VolumeEncryptionKey         string                `json:"VolumeEncryptionKey"`
+	UserVolumeEncryptionEnabled bool                  `json:"UserVolumeEncryptionEnabled"`
+	RootVolumeEncryptionEnabled bool                  `json:"RootVolumeEncryptionEnabled"`
+}
+
+type createWorkspaceProps struct {
+	ComputeTypeName                     string `json:"ComputeTypeName"`
+	RunningMode                         string `json:"RunningMode"`
+	RootVolumeSizeGib                   int32  `json:"RootVolumeSizeGib"`
+	RunningModeAutoStopTimeoutInMinutes int32  `json:"RunningModeAutoStopTimeoutInMinutes"`
+	UserVolumeSizeGib                   int32  `json:"UserVolumeSizeGib"`
 }
 
 type createWorkspacesOutput struct {
@@ -164,17 +177,55 @@ type createWorkspacesOutput struct {
 }
 
 type pendingWorkspace struct {
-	WorkspaceID string `json:"WorkspaceId"`
-	DirectoryID string `json:"DirectoryId"`
-	UserName    string `json:"UserName"`
-	BundleID    string `json:"BundleId"`
-	State       string `json:"State"`
+	WorkspaceProperties         *workspacePropertiesResp `json:"WorkspaceProperties,omitempty"`
+	WorkspaceID                 string                   `json:"WorkspaceId"`
+	DirectoryID                 string                   `json:"DirectoryId"`
+	UserName                    string                   `json:"UserName"`
+	BundleID                    string                   `json:"BundleId"`
+	SubnetID                    string                   `json:"SubnetId,omitempty"`
+	VolumeEncryptionKey         string                   `json:"VolumeEncryptionKey,omitempty"`
+	State                       string                   `json:"State"`
+	UserVolumeEncryptionEnabled bool                     `json:"UserVolumeEncryptionEnabled,omitempty"`
+	RootVolumeEncryptionEnabled bool                     `json:"RootVolumeEncryptionEnabled,omitempty"`
 }
 
 func (h *Handler) handleCreateWorkspaces(
 	_ context.Context,
 	req *createWorkspacesInput,
 ) (*createWorkspacesOutput, error) {
+	if len(req.Workspaces) == 0 {
+		return nil, awserr.Newf(errInvalidParameterValues, awserr.ErrInvalidParameter,
+			"Workspaces list must not be empty")
+	}
+
+	if len(req.Workspaces) > maxWorkspacesPerCreate {
+		return nil, awserr.Newf(errInvalidParameterValues, awserr.ErrInvalidParameter,
+			"too many workspaces: maximum is %d per request", maxWorkspacesPerCreate)
+	}
+
+	// Validate required fields for all workspace specs upfront.
+	for i, spec := range req.Workspaces {
+		if spec.UserName == "" {
+			return nil, awserr.Newf(errInvalidParameterValues, awserr.ErrInvalidParameter,
+				"workspace[%d]: UserName is required", i)
+		}
+
+		if spec.DirectoryID == "" {
+			return nil, awserr.Newf(errInvalidParameterValues, awserr.ErrInvalidParameter,
+				"workspace[%d]: DirectoryId is required", i)
+		}
+
+		if spec.BundleID == "" {
+			return nil, awserr.Newf(errInvalidParameterValues, awserr.ErrInvalidParameter,
+				"workspace[%d]: BundleId is required", i)
+		}
+
+		if len(spec.Tags) > maxTagsPerResource {
+			return nil, awserr.Newf(errInvalidParameterValues, awserr.ErrInvalidParameter,
+				"workspace[%d]: too many tags (%d); maximum is %d", i, len(spec.Tags), maxTagsPerResource)
+		}
+	}
+
 	pending := make([]pendingWorkspace, 0, len(req.Workspaces))
 
 	for _, spec := range req.Workspaces {
@@ -183,18 +234,56 @@ func (h *Handler) handleCreateWorkspaces(
 			tags[t.Key] = t.Value
 		}
 
-		ws, err := h.Backend.CreateWorkspace(spec.UserName, spec.DirectoryID, spec.BundleID, tags)
+		var props *WorkspaceProperties
+
+		if spec.WorkspaceProperties != nil {
+			props = &WorkspaceProperties{
+				ComputeTypeName:                     spec.WorkspaceProperties.ComputeTypeName,
+				RunningMode:                         spec.WorkspaceProperties.RunningMode,
+				RootVolumeSizeGib:                   spec.WorkspaceProperties.RootVolumeSizeGib,
+				RunningModeAutoStopTimeoutInMinutes: spec.WorkspaceProperties.RunningModeAutoStopTimeoutInMinutes,
+				UserVolumeSizeGib:                   spec.WorkspaceProperties.UserVolumeSizeGib,
+			}
+		}
+
+		ws, err := h.Backend.CreateWorkspace(&WorkspaceCreationSpec{
+			UserName:                    spec.UserName,
+			DirectoryID:                 spec.DirectoryID,
+			BundleID:                    spec.BundleID,
+			SubnetID:                    spec.SubnetID,
+			VolumeEncryptionKey:         spec.VolumeEncryptionKey,
+			UserVolumeEncryptionEnabled: spec.UserVolumeEncryptionEnabled,
+			RootVolumeEncryptionEnabled: spec.RootVolumeEncryptionEnabled,
+			Tags:                        tags,
+			Properties:                  props,
+		})
 		if err != nil {
 			return nil, err
 		}
 
-		pending = append(pending, pendingWorkspace{
-			WorkspaceID: ws.WorkspaceID,
-			DirectoryID: ws.DirectoryID,
-			UserName:    ws.UserName,
-			BundleID:    ws.BundleID,
-			State:       ws.State,
-		})
+		pw := pendingWorkspace{
+			WorkspaceID:                 ws.WorkspaceID,
+			DirectoryID:                 ws.DirectoryID,
+			UserName:                    ws.UserName,
+			BundleID:                    ws.BundleID,
+			SubnetID:                    ws.SubnetID,
+			VolumeEncryptionKey:         ws.VolumeEncryptionKey,
+			UserVolumeEncryptionEnabled: ws.UserVolumeEncryptionEnabled,
+			RootVolumeEncryptionEnabled: ws.RootVolumeEncryptionEnabled,
+			State:                       ws.State,
+		}
+
+		if ws.Properties != nil {
+			pw.WorkspaceProperties = &workspacePropertiesResp{
+				ComputeTypeName:                     ws.Properties.ComputeTypeName,
+				RunningMode:                         ws.Properties.RunningMode,
+				RootVolumeSizeGib:                   ws.Properties.RootVolumeSizeGib,
+				RunningModeAutoStopTimeoutInMinutes: ws.Properties.RunningModeAutoStopTimeoutInMinutes,
+				UserVolumeSizeGib:                   ws.Properties.UserVolumeSizeGib,
+			}
+		}
+
+		pending = append(pending, pw)
 	}
 
 	return &createWorkspacesOutput{
@@ -220,13 +309,20 @@ type describeWorkspacesOutput struct {
 }
 
 type workspaceResp struct {
-	WorkspaceProperties *workspacePropertiesResp `json:"WorkspaceProperties,omitempty"`
-	Tags                map[string]string        `json:"Tags,omitempty"`
-	WorkspaceID         string                   `json:"WorkspaceId"`
-	DirectoryID         string                   `json:"DirectoryId"`
-	UserName            string                   `json:"UserName"`
-	BundleID            string                   `json:"BundleId"`
-	State               string                   `json:"State"`
+	WorkspaceProperties         *workspacePropertiesResp `json:"WorkspaceProperties,omitempty"`
+	Tags                        map[string]string        `json:"Tags,omitempty"`
+	WorkspaceID                 string                   `json:"WorkspaceId"`
+	DirectoryID                 string                   `json:"DirectoryId"`
+	UserName                    string                   `json:"UserName"`
+	BundleID                    string                   `json:"BundleId"`
+	SubnetID                    string                   `json:"SubnetId,omitempty"`
+	VolumeEncryptionKey         string                   `json:"VolumeEncryptionKey,omitempty"`
+	ComputerName                string                   `json:"ComputerName,omitempty"`
+	ErrorCode                   string                   `json:"ErrorCode,omitempty"`
+	ErrorMessage                string                   `json:"ErrorMessage,omitempty"`
+	State                       string                   `json:"State"`
+	UserVolumeEncryptionEnabled bool                     `json:"UserVolumeEncryptionEnabled,omitempty"`
+	RootVolumeEncryptionEnabled bool                     `json:"RootVolumeEncryptionEnabled,omitempty"`
 }
 
 func (h *Handler) handleDescribeWorkspaces(
@@ -263,12 +359,19 @@ func (h *Handler) handleDescribeWorkspaces(
 
 func toWorkspaceResp(ws *Workspace) workspaceResp {
 	item := workspaceResp{
-		WorkspaceID: ws.WorkspaceID,
-		DirectoryID: ws.DirectoryID,
-		UserName:    ws.UserName,
-		BundleID:    ws.BundleID,
-		State:       ws.State,
-		Tags:        ws.Tags,
+		WorkspaceID:                 ws.WorkspaceID,
+		DirectoryID:                 ws.DirectoryID,
+		UserName:                    ws.UserName,
+		BundleID:                    ws.BundleID,
+		State:                       ws.State,
+		SubnetID:                    ws.SubnetID,
+		VolumeEncryptionKey:         ws.VolumeEncryptionKey,
+		UserVolumeEncryptionEnabled: ws.UserVolumeEncryptionEnabled,
+		RootVolumeEncryptionEnabled: ws.RootVolumeEncryptionEnabled,
+		ComputerName:                ws.ComputerName,
+		ErrorCode:                   ws.ErrorCode,
+		ErrorMessage:                ws.ErrorMessage,
+		Tags:                        ws.Tags,
 	}
 
 	if ws.Properties != nil {
@@ -436,6 +539,11 @@ type createTagsInput struct {
 }
 
 func (h *Handler) handleCreateTags(_ context.Context, req *createTagsInput) (*emptyOutput, error) {
+	if req.ResourceID == "" {
+		return nil, awserr.Newf(errInvalidParameterValues, awserr.ErrInvalidParameter,
+			"ResourceId is required")
+	}
+
 	tags := make(map[string]string, len(req.Tags))
 	for _, t := range req.Tags {
 		tags[t.Key] = t.Value
@@ -488,11 +596,23 @@ type describeBundlesOutput struct {
 	Bundles   []bundleResp `json:"Bundles"`
 }
 
+type bundleComputeTypeResp struct {
+	Name string `json:"Name,omitempty"`
+}
+
+type bundleStorageResp struct {
+	Capacity int32 `json:"Capacity,omitempty"`
+}
+
 type bundleResp struct {
-	BundleID    string `json:"BundleId"`
-	Name        string `json:"Name"`
-	Owner       string `json:"Owner"`
-	Description string `json:"Description"`
+	ComputeType bundleComputeTypeResp `json:"ComputeType,omitempty"`
+	UserStorage bundleStorageResp     `json:"UserStorage,omitempty"`
+	RootStorage bundleStorageResp     `json:"RootStorage,omitempty"`
+	BundleID    string                `json:"BundleId"`
+	Name        string                `json:"Name"`
+	Owner       string                `json:"Owner"`
+	Description string                `json:"Description"`
+	ImageID     string                `json:"ImageId,omitempty"`
 }
 
 func (h *Handler) handleDescribeWorkspaceBundles(
@@ -511,6 +631,10 @@ func (h *Handler) handleDescribeWorkspaceBundles(
 			Name:        bun.Name,
 			Owner:       bun.Owner,
 			Description: bun.Description,
+			ImageID:     bun.ImageID,
+			ComputeType: bundleComputeTypeResp{Name: bun.ComputeType.Name},
+			UserStorage: bundleStorageResp{Capacity: bun.UserStorage.Capacity},
+			RootStorage: bundleStorageResp{Capacity: bun.RootStorage.Capacity},
 		})
 	}
 
@@ -530,11 +654,12 @@ type describeDirectoriesOutput struct {
 }
 
 type dirResp struct {
-	DirectoryID   string `json:"DirectoryId"`
-	DirectoryName string `json:"DirectoryName"`
-	DirectoryType string `json:"DirectoryType"`
-	Alias         string `json:"Alias"`
-	State         string `json:"State"`
+	SubnetIds     []string `json:"SubnetIds,omitempty"` //nolint:revive,staticcheck // AWS API uses SubnetIds
+	DirectoryID   string   `json:"DirectoryId"`
+	DirectoryName string   `json:"DirectoryName,omitempty"`
+	DirectoryType string   `json:"DirectoryType,omitempty"`
+	Alias         string   `json:"Alias,omitempty"`
+	State         string   `json:"State"`
 }
 
 func (h *Handler) handleDescribeWorkspaceDirectories(
@@ -553,6 +678,7 @@ func (h *Handler) handleDescribeWorkspaceDirectories(
 			DirectoryType: d.DirectoryType,
 			Alias:         d.Alias,
 			State:         d.State,
+			SubnetIds:     d.SubnetIDs,
 		})
 	}
 
