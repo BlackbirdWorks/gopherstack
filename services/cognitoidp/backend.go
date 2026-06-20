@@ -812,6 +812,18 @@ func (b *InMemoryBackend) ForgotPassword(clientID, username string) (string, err
 		return "", fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
 	}
 
+	if !user.Enabled {
+		return "", fmt.Errorf("%w: User is disabled", ErrNotAuthorized)
+	}
+
+	if user.Status == UserStatusUnconfirmed {
+		return "", fmt.Errorf(
+			"%w: Cannot reset password for the user as there is no registered/verified"+
+				" email or phone_number",
+			ErrInvalidParameter,
+		)
+	}
+
 	code := randomAlphanumeric(confirmCodeLen)
 	user.ConfirmCode = code
 	user.ConfirmCodeExpiresAt = time.Now().Add(confirmCodeTTL)
