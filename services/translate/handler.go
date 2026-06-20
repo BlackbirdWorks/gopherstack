@@ -502,13 +502,15 @@ func (h *Handler) translateText(input map[string]any) (map[string]any, error) {
 	}
 
 	termNames := strSliceField(input, "TerminologyNames")
-	translated := applyTranslation(text, sourceLang, targetLang, h.Backend.LookupTerminologies(termNames))
+	terms := h.Backend.LookupTerminologies(termNames)
+	translated := applyTranslation(text, sourceLang, targetLang, terms)
 
 	return map[string]any{
-		"TranslatedText":      translated,
-		keySourceLanguageCode: sourceLang,
-		keyTargetLanguageCode: targetLang,
-		"AppliedSettings":     map[string]any{},
+		"TranslatedText":       translated,
+		keySourceLanguageCode:  sourceLang,
+		keyTargetLanguageCode:  targetLang,
+		"AppliedSettings":      map[string]any{},
+		"AppliedTerminologies": buildAppliedTerminologies(terms),
 	}, nil
 }
 
@@ -530,13 +532,15 @@ func (h *Handler) translateDocument(input map[string]any) (map[string]any, error
 	}
 
 	termNames := strSliceField(input, "TerminologyNames")
-	translated := applyTranslation(content, sourceLang, targetLang, h.Backend.LookupTerminologies(termNames))
+	terms := h.Backend.LookupTerminologies(termNames)
+	translated := applyTranslation(content, sourceLang, targetLang, terms)
 
 	return map[string]any{
-		"TranslatedDocument":  map[string]any{"Content": translated},
-		keySourceLanguageCode: sourceLang,
-		keyTargetLanguageCode: targetLang,
-		"AppliedSettings":     map[string]any{},
+		"TranslatedDocument":   map[string]any{"Content": translated},
+		keySourceLanguageCode:  sourceLang,
+		keyTargetLanguageCode:  targetLang,
+		"AppliedSettings":      map[string]any{},
+		"AppliedTerminologies": buildAppliedTerminologies(terms),
 	}, nil
 }
 
@@ -855,6 +859,22 @@ func knownLanguages() []map[string]any {
 		{keyLanguageCode: "vi", keyLanguageName: "Vietnamese"},
 		{keyLanguageCode: "cy", keyLanguageName: "Welsh"},
 	}
+}
+
+// buildAppliedTerminologies builds the AppliedTerminologies response field from
+// terminologies that were found in the backend. Real AWS returns each applied
+// terminology by name; the Terms slice lists matched pairs (empty if none matched).
+func buildAppliedTerminologies(terms []*Terminology) []map[string]any {
+	out := make([]map[string]any, 0, len(terms))
+
+	for _, t := range terms {
+		out = append(out, map[string]any{
+			"Name":  t.Name,
+			"Terms": []any{},
+		})
+	}
+
+	return out
 }
 
 // applyTranslation applies terminology substitutions and a simple language transform.
