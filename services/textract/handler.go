@@ -29,6 +29,23 @@ var (
 	errInvalidRequest = errors.New("invalid request")
 )
 
+func validateAnalyzeDocumentFeatureTypes(featureTypes []string) error {
+	for _, ft := range featureTypes {
+		switch ft {
+		case featureTypeTables, featureTypeForms, featureTypeQueries,
+			featureTypeSignatures, featureTypeLayout:
+		default:
+			return fmt.Errorf(
+				"%w: invalid FeatureType %q (valid: TABLES, FORMS, QUERIES, SIGNATURES, LAYOUT)",
+				errInvalidRequest,
+				ft,
+			)
+		}
+	}
+
+	return nil
+}
+
 // Handler is the Echo HTTP handler for Amazon Textract operations.
 type Handler struct {
 	Backend StorageBackend
@@ -294,6 +311,10 @@ func (h *Handler) handleAnalyzeDocument(
 	ctx context.Context,
 	in *documentInput,
 ) (*analyzeDocumentResponse, error) {
+	if err := validateAnalyzeDocumentFeatureTypes(in.FeatureTypes); err != nil {
+		return nil, err
+	}
+
 	uri := documentURI(in.Document.S3Object.Bucket, in.Document.S3Object.Name)
 
 	var blocks []Block
@@ -355,6 +376,10 @@ func (h *Handler) handleStartDocumentAnalysis(
 	ctx context.Context,
 	in *asyncInput,
 ) (*startJobResponse, error) {
+	if err := validateAnalyzeDocumentFeatureTypes(in.FeatureTypes); err != nil {
+		return nil, err
+	}
+
 	bucket := in.DocumentLocation.S3Object.Bucket
 	key := in.DocumentLocation.S3Object.Name
 
