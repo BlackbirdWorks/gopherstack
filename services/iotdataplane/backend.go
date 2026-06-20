@@ -64,7 +64,8 @@ const keyTimestamp = "timestamp"
 var shadowNameRe = regexp.MustCompile(`^[a-zA-Z0-9:_-]+$`)
 
 // thingNameRe validates IoT thing names: alphanumeric, colon, underscore, hyphen, dot.
-var thingNameRe = regexp.MustCompile(`^[a-zA-Z0-9:_.\\-]+$`)
+// Hyphen at end of character class avoids range interpretation.
+var thingNameRe = regexp.MustCompile(`^[a-zA-Z0-9:_.-]+$`)
 
 // validateThingName checks that a thing name meets AWS IoT naming rules.
 func validateThingName(name string) error {
@@ -77,7 +78,7 @@ func validateThingName(name string) error {
 	}
 
 	if !thingNameRe.MatchString(name) {
-		return fmt.Errorf("%w: thing name must match [a-zA-Z0-9:_.\\-]+", ErrValidation)
+		return fmt.Errorf("%w: thing name must match [a-zA-Z0-9:_.-]+", ErrValidation)
 	}
 
 	return nil
@@ -588,6 +589,10 @@ func (b *InMemoryBackend) UpdateThingShadow(thingName, shadowName string, docume
 // DeleteThingShadow removes the document for the named shadow of a thing and
 // returns the last known shadow state (AWS DeleteThingShadow response contract).
 func (b *InMemoryBackend) DeleteThingShadow(thingName, shadowName string) ([]byte, error) {
+	if err := validateThingName(thingName); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("DeleteThingShadow")
 	defer b.mu.Unlock()
 
@@ -622,6 +627,10 @@ func (b *InMemoryBackend) DeleteThingShadow(thingName, shadowName string) ([]byt
 // ListNamedShadowsForThing returns the sorted list of named shadow names for the given thing.
 // The classic (unnamed) shadow is excluded from this list.
 func (b *InMemoryBackend) ListNamedShadowsForThing(thingName string) ([]string, error) {
+	if err := validateThingName(thingName); err != nil {
+		return nil, err
+	}
+
 	b.mu.RLock("ListNamedShadowsForThing")
 	defer b.mu.RUnlock()
 
