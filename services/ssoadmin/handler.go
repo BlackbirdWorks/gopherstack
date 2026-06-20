@@ -891,6 +891,18 @@ func (h *Handler) handleAttachManagedPolicyToPermissionSet(c *echo.Context, body
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
+	if req.InstanceArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "InstanceArn is required")
+	}
+
+	if req.PermissionSetArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "PermissionSetArn is required")
+	}
+
+	if req.ManagedPolicyArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "ManagedPolicyArn is required")
+	}
+
 	name := req.ManagedPolicyArn
 	parts := strings.Split(req.ManagedPolicyArn, "/")
 	if len(parts) > 0 {
