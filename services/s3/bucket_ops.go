@@ -572,6 +572,7 @@ func (h *S3Handler) listObjects(
 	prefix := r.URL.Query().Get("prefix")
 	delimiter := r.URL.Query().Get("delimiter")
 	marker := r.URL.Query().Get("marker")
+	encodingType := r.URL.Query().Get("encoding-type")
 
 	logger.Load(ctx).DebugContext(
 		ctx,
@@ -627,13 +628,14 @@ func (h *S3Handler) listObjects(
 	)
 
 	resp := ListBucketResult{
-		Name:        bucketName,
-		Prefix:      prefix,
-		Delimiter:   delimiter,
-		Marker:      marker,
-		NextMarker:  nextMarker,
-		MaxKeys:     int(maxKeys),
-		IsTruncated: isTruncated,
+		Name:         bucketName,
+		Prefix:       encodeListKey(encodingType, prefix),
+		Delimiter:    encodeListKey(encodingType, delimiter),
+		Marker:       encodeListKey(encodingType, marker),
+		NextMarker:   encodeListKey(encodingType, nextMarker),
+		EncodingType: encodingType,
+		MaxKeys:      int(maxKeys),
+		IsTruncated:  isTruncated,
 	}
 
 	seenPrefixes := make(map[string]struct{})
@@ -645,13 +647,17 @@ func (h *S3Handler) listObjects(
 		prefix,
 		delimiter,
 		seenPrefixes,
+		encodingType,
 	)
 	// Merge backend-level common prefixes (populated when delimiter is set).
 	for _, cp := range out.CommonPrefixes {
 		p := aws.ToString(cp.Prefix)
 		if _, seen := seenPrefixes[p]; !seen {
 			seenPrefixes[p] = struct{}{}
-			resp.CommonPrefixes = append(resp.CommonPrefixes, CommonPrefixXML{Prefix: p})
+			resp.CommonPrefixes = append(
+				resp.CommonPrefixes,
+				CommonPrefixXML{Prefix: encodeListKey(encodingType, p)},
+			)
 		}
 	}
 
@@ -690,6 +696,7 @@ func (h *S3Handler) mapObjectsToXML(
 	objects []types.Object,
 	prefix, delimiter string,
 	seenPrefixes map[string]struct{},
+	encodingType string,
 ) ([]ObjectXML, []CommonPrefixXML) {
 	var contents []ObjectXML
 	var commonPrefixes []CommonPrefixXML
@@ -699,7 +706,10 @@ func (h *S3Handler) mapObjectsToXML(
 		if cp, isCommon := commonPrefixFor(key, prefix, delimiter); isCommon {
 			if _, seen := seenPrefixes[cp]; !seen {
 				seenPrefixes[cp] = struct{}{}
-				commonPrefixes = append(commonPrefixes, CommonPrefixXML{Prefix: cp})
+				commonPrefixes = append(
+					commonPrefixes,
+					CommonPrefixXML{Prefix: encodeListKey(encodingType, cp)},
+				)
 			}
 
 			continue
@@ -711,7 +721,7 @@ func (h *S3Handler) mapObjectsToXML(
 		}
 
 		contents = append(contents, ObjectXML{
-			Key:               key,
+			Key:               encodeListKey(encodingType, key),
 			LastModified:      obj.LastModified.Format(time.RFC3339),
 			Size:              *obj.Size,
 			ETag:              aws.ToString(obj.ETag),
@@ -831,6 +841,7 @@ func (h *S3Handler) listObjectVersions(
 	keyMarker := q.Get("key-marker")
 	versionIDMarker := q.Get("version-id-marker")
 	delimiter := q.Get("delimiter")
+	encodingType := q.Get("encoding-type")
 
 	// n is provably in [0, defaultMaxKeys] before the int32 conversion: it
 	// starts at the constant default and is only reassigned to a parsed value
@@ -867,14 +878,15 @@ func (h *S3Handler) listObjectVersions(
 
 	resp := ListVersionsResult{
 		Name:                bucketName,
-		Prefix:              prefix,
-		KeyMarker:           keyMarker,
+		Prefix:              encodeListKey(encodingType, prefix),
+		KeyMarker:           encodeListKey(encodingType, keyMarker),
 		VersionIDMarker:     versionIDMarker,
-		NextKeyMarker:       aws.ToString(out.NextKeyMarker),
+		NextKeyMarker:       encodeListKey(encodingType, aws.ToString(out.NextKeyMarker)),
 		NextVersionIDMarker: aws.ToString(out.NextVersionIdMarker),
 		MaxKeys:             int(maxKeys),
 		IsTruncated:         aws.ToBool(out.IsTruncated),
-		Delimiter:           delimiter,
+		Delimiter:           encodeListKey(encodingType, delimiter),
+		EncodingType:        encodingType,
 	}
 
 	// Map SDK types to XML
@@ -888,7 +900,7 @@ func (h *S3Handler) listObjectVersions(
 			etag = *v.ETag
 		}
 		resp.Versions = append(resp.Versions, ObjectVersionXML{
-			Key:          *v.Key,
+			Key:          encodeListKey(encodingType, *v.Key),
 			VersionID:    *v.VersionId,
 			IsLatest:     *v.IsLatest,
 			LastModified: v.LastModified.Format(time.RFC3339),
@@ -904,7 +916,7 @@ func (h *S3Handler) listObjectVersions(
 
 	for _, d := range out.DeleteMarkers {
 		resp.DeleteMarkers = append(resp.DeleteMarkers, DeleteMarkerXML{
-			Key:          *d.Key,
+			Key:          encodeListKey(encodingType, *d.Key),
 			VersionID:    *d.VersionId,
 			IsLatest:     *d.IsLatest,
 			LastModified: d.LastModified.Format(time.RFC3339),
@@ -918,7 +930,7 @@ func (h *S3Handler) listObjectVersions(
 	for _, cp := range out.CommonPrefixes {
 		resp.CommonPrefixes = append(
 			resp.CommonPrefixes,
-			CommonPrefixXML{Prefix: aws.ToString(cp.Prefix)},
+			CommonPrefixXML{Prefix: encodeListKey(encodingType, aws.ToString(cp.Prefix))},
 		)
 	}
 

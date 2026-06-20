@@ -28,6 +28,7 @@ type ListBucketResult struct {
 	Delimiter      string            `xml:"Delimiter,omitempty"`
 	Marker         string            `xml:"Marker,omitempty"`
 	NextMarker     string            `xml:"NextMarker,omitempty"`
+	EncodingType   string            `xml:"EncodingType,omitempty"`
 	Contents       []ObjectXML       `xml:"Contents"`
 	CommonPrefixes []CommonPrefixXML `xml:"CommonPrefixes,omitempty"`
 	MaxKeys        int               `xml:"MaxKeys"`
@@ -193,6 +194,7 @@ type ListVersionsResult struct {
 	NextKeyMarker       string             `xml:"NextKeyMarker,omitempty"`
 	NextVersionIDMarker string             `xml:"NextVersionIdMarker,omitempty"`
 	Delimiter           string             `xml:"Delimiter,omitempty"`
+	EncodingType        string             `xml:"EncodingType,omitempty"`
 	CommonPrefixes      []CommonPrefixXML  `xml:"CommonPrefixes"`
 	Versions            []ObjectVersionXML `xml:"Version"`
 	DeleteMarkers       []DeleteMarkerXML  `xml:"DeleteMarker"`
@@ -324,6 +326,7 @@ type ListMultipartUploadsResult struct {
 	UploadIDMarker     string            `xml:"UploadIdMarker,omitempty"`
 	NextKeyMarker      string            `xml:"NextKeyMarker,omitempty"`
 	NextUploadIDMarker string            `xml:"NextUploadIdMarker,omitempty"`
+	EncodingType       string            `xml:"EncodingType,omitempty"`
 	Uploads            []MultipartUpload `xml:"Upload"`
 	CommonPrefixes     []CommonPrefixXML `xml:"CommonPrefixes,omitempty"`
 	MaxUploads         int               `xml:"MaxUploads"`

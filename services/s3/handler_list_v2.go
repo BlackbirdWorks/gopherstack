@@ -87,15 +87,16 @@ func (h *S3Handler) renderListObjectsV2Response(
 ) {
 	isTruncated := q.Get("is-truncated") == "true"
 	nextCont := q.Get("next-continuation-token")
+	encodingType := q.Get("encoding-type")
 
 	resp := ListBucketV2Result{
 		Name:                  bucketName,
-		Prefix:                q.Get("prefix"),
-		Delimiter:             q.Get("delimiter"),
+		Prefix:                encodeListKey(encodingType, q.Get("prefix")),
+		Delimiter:             encodeListKey(encodingType, q.Get("delimiter")),
 		ContinuationToken:     q.Get("continuation-token"),
-		StartAfter:            q.Get("start-after"),
+		StartAfter:            encodeListKey(encodingType, q.Get("start-after")),
 		MaxKeys:               defaultMaxKeys,
-		EncodingType:          q.Get("encoding-type"),
+		EncodingType:          encodingType,
 		IsTruncated:           isTruncated,
 		NextContinuationToken: nextCont,
 	}
@@ -111,12 +112,13 @@ func (h *S3Handler) renderListObjectsV2Response(
 		q.Get("prefix"),
 		q.Get("delimiter"),
 		seenPrefixes,
+		encodingType,
 	)
 	// Add common prefixes from backend (if any)
 	for _, cp := range commonPrefixes {
 		resp.CommonPrefixes = append(
 			resp.CommonPrefixes,
-			CommonPrefixXML{Prefix: aws.ToString(cp.Prefix)},
+			CommonPrefixXML{Prefix: encodeListKey(encodingType, aws.ToString(cp.Prefix))},
 		)
 	}
 	resp.KeyCount = len(resp.Contents) + len(resp.CommonPrefixes)

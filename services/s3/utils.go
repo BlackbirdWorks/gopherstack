@@ -7,8 +7,20 @@ import (
 	"encoding/binary"
 	"hash/crc32"
 	"net/http"
+	"net/url"
 	"strings"
 )
+
+// encodeListKey URL-encodes v when the request asked for encoding-type=url, which
+// is what the AWS SDK URL-decodes on receipt. Returns v unchanged otherwise.
+// Apply to Key/Prefix/Delimiter/markers — NOT to opaque continuation tokens.
+func encodeListKey(encodingType, v string) string {
+	if strings.EqualFold(encodingType, "url") {
+		return url.QueryEscape(v)
+	}
+
+	return v
+}
 
 func parseUserMetadata(h http.Header) map[string]string {
 	meta := make(map[string]string)
