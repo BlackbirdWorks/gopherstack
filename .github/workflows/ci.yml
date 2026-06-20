@@ -16,6 +16,7 @@ permissions:
   checks: write
   pull-requests: write
   security-events: write
+  packages: write
 
 env:
   GH_CI_TOKEN: ${{ secrets.GH_TOKEN != '' && secrets.GH_TOKEN || github.token }}
@@ -580,3 +581,25 @@ jobs:
                 body: body
               });
             }
+
+  cleanup-packages:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete old packages
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSIONS=$(gh api -H "Accept: application/vnd.github+json" /orgs/${{ github.repository_owner }}/packages/container/gopherstack/versions --jq '.[].id')
+          readarray -t VERSION_ARRAY <<<"$VERSIONS"
+          COUNT=${#VERSION_ARRAY[@]}
+          echo "Found $COUNT package versions"
+          if [ "$COUNT" -gt 2 ]; then
+            for ID in "${VERSION_ARRAY[@]:2}"; do
+              if [ -n "$ID" ]; then
+                echo "Deleting package version ID: $ID"
+                gh api --method DELETE -H "Accept: application/vnd.github+json" /orgs/${{ github.repository_owner }}/packages/container/gopherstack/versions/$ID || true
+              fi
+            done
+          else
+            echo "2 or fewer versions exist. Nothing to delete."
+          fi
