@@ -39,6 +39,17 @@ PutBucketWebsiteCommand,
 DeleteBucketWebsiteCommand,
 GetObjectTaggingCommand,
 PutObjectTaggingCommand,
+PutObjectLockConfigurationCommand,
+GetBucketLoggingCommand,
+PutBucketLoggingCommand,
+GetBucketOwnershipControlsCommand,
+PutBucketOwnershipControlsCommand,
+DeleteBucketOwnershipControlsCommand,
+GetBucketNotificationConfigurationCommand,
+GetBucketReplicationCommand,
+DeleteBucketReplicationCommand,
+GetPublicAccessBlockCommand,
+PutPublicAccessBlockCommand,
 type Bucket,
 type _Object,
 type ObjectVersion,
@@ -62,7 +73,7 @@ let bucketPage = $state(1);
 
 // Bucket detail state
 let selectedBucket = $state<string | null>(null);
-let activeDetailTab = $state<'objects' | 'properties' | 'tagging' | 'permissions' | 'lifecycle' | 'cors' | 'uploads'>('objects');
+let activeDetailTab = $state<'objects' | 'properties' | 'tagging' | 'permissions' | 'lifecycle' | 'cors' | 'uploads' | 'objectlock' | 'notifications' | 'replication' | 'logging' | 'ownership'>('objects');
 type MultipartUploadEntry = { key: string; uploadId: string; initiated?: Date; partsCompleted: number; bytesUploaded: number; };
 let multipartUploads = $state<MultipartUploadEntry[]>([]);
 let loadingUploads = $state(false);
@@ -956,10 +967,196 @@ async function switchTab(tab: typeof activeDetailTab) {
 activeDetailTab = tab;
 if (tab === 'properties') { await loadPropertiesTab(); await loadWebsite(); }
 else if (tab === 'tagging') await loadTagsTab();
-else if (tab === 'permissions') await loadPermissionsTab();
+else if (tab === 'permissions') { await loadPermissionsTab(); await loadPublicAccessBlock(); }
 else if (tab === 'lifecycle') await loadLifecycleTab();
 else if (tab === 'cors') await loadCorsTab();
 else if (tab === 'uploads') await loadMultipartUploads();
+else if (tab === 'objectlock') await loadObjectLock();
+else if (tab === 'notifications') await loadNotifications();
+else if (tab === 'replication') await loadReplication();
+else if (tab === 'logging') await loadLogging();
+else if (tab === 'ownership') await loadOwnership();
+}
+
+// --- Public Access Block (within Permissions tab) ---
+let pab = $state({ BlockPublicAcls: false, IgnorePublicAcls: false, BlockPublicPolicy: false, RestrictPublicBuckets: false });
+async function loadPublicAccessBlock(): Promise<void> {
+if (!selectedBucket) return;
+try {
+const res = await s3.send(new GetPublicAccessBlockCommand({ Bucket: selectedBucket }));
+const c = res.PublicAccessBlockConfiguration ?? {};
+pab = {
+BlockPublicAcls: c.BlockPublicAcls ?? false,
+IgnorePublicAcls: c.IgnorePublicAcls ?? false,
+BlockPublicPolicy: c.BlockPublicPolicy ?? false,
+RestrictPublicBuckets: c.RestrictPublicBuckets ?? false,
+};
+} catch {
+pab = { BlockPublicAcls: false, IgnorePublicAcls: false, BlockPublicPolicy: false, RestrictPublicBuckets: false };
+}
+}
+async function savePublicAccessBlock(): Promise<void> {
+if (!selectedBucket) return;
+try {
+await s3.send(new PutPublicAccessBlockCommand({ Bucket: selectedBucket, PublicAccessBlockConfiguration: { ...pab } }));
+toast.success('Public access block saved');
+} catch (err: unknown) {
+toast.error(`Failed to save public access block: ${(err as Error).message}`);
+}
+}
+
+// --- Object Lock ---
+let objectLockEnabled = $state(false);
+let objectLockMode = $state<'GOVERNANCE' | 'COMPLIANCE'>('GOVERNANCE');
+let objectLockDays = $state(0);
+let loadingObjectLock = $state(false);
+async function loadObjectLock(): Promise<void> {
+if (!selectedBucket) return;
+loadingObjectLock = true;
+try {
+const res = await s3.send(new GetObjectLockConfigurationCommand({ Bucket: selectedBucket }));
+const cfg = res.ObjectLockConfiguration;
+objectLockEnabled = cfg?.ObjectLockEnabled === 'Enabled';
+const rule = cfg?.Rule?.DefaultRetention;
+objectLockMode = (rule?.Mode as 'GOVERNANCE' | 'COMPLIANCE') ?? 'GOVERNANCE';
+objectLockDays = rule?.Days ?? 0;
+} catch {
+objectLockEnabled = false;
+objectLockDays = 0;
+} finally {
+loadingObjectLock = false;
+}
+}
+async function saveObjectLock(): Promise<void> {
+if (!selectedBucket) return;
+try {
+await s3.send(new PutObjectLockConfigurationCommand({
+Bucket: selectedBucket,
+ObjectLockConfiguration: {
+ObjectLockEnabled: 'Enabled',
+Rule: objectLockDays > 0 ? { DefaultRetention: { Mode: objectLockMode, Days: objectLockDays } } : undefined,
+},
+}));
+toast.success('Object lock configuration saved');
+} catch (err: unknown) {
+toast.error(`Failed to save object lock: ${(err as Error).message}`);
+}
+}
+
+// --- Notifications (read-only summary) ---
+let notificationConfig = $state('');
+let loadingNotifications = $state(false);
+async function loadNotifications(): Promise<void> {
+if (!selectedBucket) return;
+loadingNotifications = true;
+try {
+const res = await s3.send(new GetBucketNotificationConfigurationCommand({ Bucket: selectedBucket }));
+notificationConfig = JSON.stringify({
+QueueConfigurations: res.QueueConfigurations ?? [],
+TopicConfigurations: res.TopicConfigurations ?? [],
+LambdaFunctionConfigurations: res.LambdaFunctionConfigurations ?? [],
+EventBridgeConfiguration: res.EventBridgeConfiguration ?? null,
+}, null, 2);
+} catch (err: unknown) {
+notificationConfig = `// ${(err as Error).message}`;
+} finally {
+loadingNotifications = false;
+}
+}
+
+// --- Replication (read + delete) ---
+let replicationConfig = $state('');
+let loadingReplication = $state(false);
+async function loadReplication(): Promise<void> {
+if (!selectedBucket) return;
+loadingReplication = true;
+try {
+const res = await s3.send(new GetBucketReplicationCommand({ Bucket: selectedBucket }));
+replicationConfig = JSON.stringify(res.ReplicationConfiguration ?? {}, null, 2);
+} catch {
+replicationConfig = '';
+} finally {
+loadingReplication = false;
+}
+}
+async function deleteReplication(): Promise<void> {
+if (!selectedBucket) return;
+try {
+await s3.send(new DeleteBucketReplicationCommand({ Bucket: selectedBucket }));
+replicationConfig = '';
+toast.success('Replication configuration deleted');
+} catch (err: unknown) {
+toast.error(`Failed to delete replication: ${(err as Error).message}`);
+}
+}
+
+// --- Logging ---
+let loggingTargetBucket = $state('');
+let loggingTargetPrefix = $state('');
+let loadingLogging = $state(false);
+async function loadLogging(): Promise<void> {
+if (!selectedBucket) return;
+loadingLogging = true;
+try {
+const res = await s3.send(new GetBucketLoggingCommand({ Bucket: selectedBucket }));
+loggingTargetBucket = res.LoggingEnabled?.TargetBucket ?? '';
+loggingTargetPrefix = res.LoggingEnabled?.TargetPrefix ?? '';
+} catch {
+loggingTargetBucket = '';
+loggingTargetPrefix = '';
+} finally {
+loadingLogging = false;
+}
+}
+async function saveLogging(): Promise<void> {
+if (!selectedBucket) return;
+try {
+const bucketLoggingStatus = loggingTargetBucket
+? { LoggingEnabled: { TargetBucket: loggingTargetBucket, TargetPrefix: loggingTargetPrefix } }
+: {};
+await s3.send(new PutBucketLoggingCommand({ Bucket: selectedBucket, BucketLoggingStatus: bucketLoggingStatus }));
+toast.success('Logging configuration saved');
+} catch (err: unknown) {
+toast.error(`Failed to save logging: ${(err as Error).message}`);
+}
+}
+
+// --- Ownership Controls ---
+let ownership = $state<'BucketOwnerEnforced' | 'BucketOwnerPreferred' | 'ObjectWriter'>('BucketOwnerEnforced');
+let loadingOwnership = $state(false);
+async function loadOwnership(): Promise<void> {
+if (!selectedBucket) return;
+loadingOwnership = true;
+try {
+const res = await s3.send(new GetBucketOwnershipControlsCommand({ Bucket: selectedBucket }));
+const rule = res.OwnershipControls?.Rules?.[0];
+ownership = (rule?.ObjectOwnership as typeof ownership) ?? 'BucketOwnerEnforced';
+} catch {
+ownership = 'BucketOwnerEnforced';
+} finally {
+loadingOwnership = false;
+}
+}
+async function saveOwnership(): Promise<void> {
+if (!selectedBucket) return;
+try {
+await s3.send(new PutBucketOwnershipControlsCommand({
+Bucket: selectedBucket,
+OwnershipControls: { Rules: [{ ObjectOwnership: ownership }] },
+}));
+toast.success('Ownership controls saved');
+} catch (err: unknown) {
+toast.error(`Failed to save ownership controls: ${(err as Error).message}`);
+}
+}
+async function deleteOwnership(): Promise<void> {
+if (!selectedBucket) return;
+try {
+await s3.send(new DeleteBucketOwnershipControlsCommand({ Bucket: selectedBucket }));
+toast.success('Ownership controls deleted');
+} catch (err: unknown) {
+toast.error(`Failed to delete ownership controls: ${(err as Error).message}`);
+}
 }
 
 async function loadMultipartUploads(): Promise<void> {
@@ -1162,7 +1359,7 @@ Upload File
 <!-- Tabs -->
 <div class="border-b border-slate-200 dark:border-slate-700">
 <ul class="flex flex-wrap -mb-px text-sm font-medium text-center">
-{#each [['objects','Objects'],['uploads','Uploads'],['properties','Properties'],['tagging','Tags'],['permissions','Permissions'],['lifecycle','Lifecycle'],['cors','CORS']] as [tab, label]}
+{#each [['objects','Objects'],['uploads','Uploads'],['properties','Properties'],['tagging','Tags'],['permissions','Permissions'],['lifecycle','Lifecycle'],['cors','CORS'],['objectlock','Object Lock'],['notifications','Notifications'],['replication','Replication'],['logging','Logging'],['ownership','Ownership']] as [tab, label]}
 <li class="me-2">
 <button
 onclick={() => switchTab(tab as typeof activeDetailTab)}
@@ -1529,9 +1726,15 @@ class="w-full font-mono text-xs p-3 border border-slate-300 dark:border-slate-60
 <button onclick={deletePolicy} class="text-white bg-red-600 hover:bg-red-700 font-medium rounded-lg text-sm px-4 py-2">Delete Policy</button>
 </div>
 </div>
-<div class="p-6 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-xl">
-<h3 class="text-base font-semibold text-amber-800 dark:text-amber-300 mb-2">Public Access Block</h3>
-<p class="text-sm text-amber-700 dark:text-amber-400">Public access block settings are not enforced in local development environments. In production, these settings restrict public access to bucket contents regardless of bucket policy.</p>
+<div class="p-6 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl">
+<h3 class="text-base font-semibold text-slate-900 dark:text-white mb-3">Public Access Block</h3>
+<div class="space-y-2">
+<label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300"><input type="checkbox" bind:checked={pab.BlockPublicAcls} class="w-4 h-4" /> Block public ACLs</label>
+<label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300"><input type="checkbox" bind:checked={pab.IgnorePublicAcls} class="w-4 h-4" /> Ignore public ACLs</label>
+<label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300"><input type="checkbox" bind:checked={pab.BlockPublicPolicy} class="w-4 h-4" /> Block public bucket policies</label>
+<label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300"><input type="checkbox" bind:checked={pab.RestrictPublicBuckets} class="w-4 h-4" /> Restrict public buckets</label>
+</div>
+<button onclick={savePublicAccessBlock} class="mt-3 text-white bg-blue-600 hover:bg-blue-700 font-medium rounded-lg text-sm px-4 py-2">Save Public Access Block</button>
 </div>
 {/if}
 </div>
@@ -1723,6 +1926,113 @@ class="w-4 h-4 text-blue-600"
 <button onclick={addCorsRule} class="text-white bg-blue-600 hover:bg-blue-700 font-medium rounded-lg text-sm px-4 py-2">Add Rule</button>
 </div>
 </div>
+</div>
+</div>
+{/if}
+</div>
+{:else if activeDetailTab === 'objectlock'}
+<!-- Object Lock Tab -->
+<div class="space-y-4">
+{#if loadingObjectLock}
+<div class="text-center py-8 text-slate-500">Loading object lock...</div>
+{:else}
+<div class="p-6 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl space-y-4">
+<h3 class="text-base font-semibold text-slate-900 dark:text-white">Object Lock</h3>
+<p class="text-sm text-slate-500 dark:text-slate-400">Status: {objectLockEnabled ? 'Enabled' : 'Disabled'}. Configure a default retention period applied to new objects.</p>
+<div class="flex gap-3 items-end">
+<div>
+<label for="ol-mode" class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Default Mode</label>
+<select id="ol-mode" bind:value={objectLockMode} class="border border-slate-300 dark:border-slate-600 rounded-lg p-2 text-sm bg-slate-50 dark:bg-slate-700 dark:text-white">
+<option value="GOVERNANCE">GOVERNANCE</option>
+<option value="COMPLIANCE">COMPLIANCE</option>
+</select>
+</div>
+<div>
+<label for="ol-days" class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Retention Days</label>
+<input type="number" id="ol-days" bind:value={objectLockDays} min="0" class="border border-slate-300 dark:border-slate-600 rounded-lg p-2 text-sm bg-slate-50 dark:bg-slate-700 dark:text-white w-28" />
+</div>
+<button onclick={saveObjectLock} class="text-white bg-blue-600 hover:bg-blue-700 font-medium rounded-lg text-sm px-4 py-2">Save</button>
+</div>
+</div>
+{/if}
+</div>
+
+{:else if activeDetailTab === 'notifications'}
+<!-- Notifications Tab -->
+<div class="space-y-4">
+{#if loadingNotifications}
+<div class="text-center py-8 text-slate-500">Loading notifications...</div>
+{:else}
+<div class="p-6 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl space-y-3">
+<div class="flex items-center justify-between">
+<h3 class="text-base font-semibold text-slate-900 dark:text-white">Event Notifications</h3>
+<button onclick={loadNotifications} class="py-1.5 px-3 text-xs font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600 dark:hover:bg-slate-700">Refresh</button>
+</div>
+<p class="text-sm text-slate-500 dark:text-slate-400">Configured SQS/SNS/Lambda/EventBridge targets for this bucket.</p>
+<textarea readonly rows="12" class="w-full font-mono text-xs p-3 border border-slate-300 dark:border-slate-600 rounded-lg bg-slate-50 dark:bg-slate-700 dark:text-white">{notificationConfig}</textarea>
+</div>
+{/if}
+</div>
+
+{:else if activeDetailTab === 'replication'}
+<!-- Replication Tab -->
+<div class="space-y-4">
+{#if loadingReplication}
+<div class="text-center py-8 text-slate-500">Loading replication...</div>
+{:else}
+<div class="p-6 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl space-y-3">
+<h3 class="text-base font-semibold text-slate-900 dark:text-white">Replication</h3>
+{#if replicationConfig === ''}
+<p class="text-sm text-slate-500 dark:text-slate-400">No replication configuration on this bucket.</p>
+{:else}
+<textarea readonly rows="12" class="w-full font-mono text-xs p-3 border border-slate-300 dark:border-slate-600 rounded-lg bg-slate-50 dark:bg-slate-700 dark:text-white">{replicationConfig}</textarea>
+<button onclick={deleteReplication} class="text-white bg-red-600 hover:bg-red-700 font-medium rounded-lg text-sm px-4 py-2">Delete Replication</button>
+{/if}
+</div>
+{/if}
+</div>
+
+{:else if activeDetailTab === 'logging'}
+<!-- Logging Tab -->
+<div class="space-y-4">
+{#if loadingLogging}
+<div class="text-center py-8 text-slate-500">Loading logging...</div>
+{:else}
+<div class="p-6 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl space-y-3">
+<h3 class="text-base font-semibold text-slate-900 dark:text-white">Server Access Logging</h3>
+<p class="text-sm text-slate-500 dark:text-slate-400">Deliver access logs to a target bucket/prefix. Leave the target bucket empty to disable.</p>
+<div class="flex gap-3 items-end flex-wrap">
+<div>
+<label for="log-target" class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Target Bucket</label>
+<input type="text" id="log-target" bind:value={loggingTargetBucket} class="border border-slate-300 dark:border-slate-600 rounded-lg p-2 text-sm bg-slate-50 dark:bg-slate-700 dark:text-white" />
+</div>
+<div>
+<label for="log-prefix" class="block text-xs text-slate-600 dark:text-slate-400 mb-1">Target Prefix</label>
+<input type="text" id="log-prefix" bind:value={loggingTargetPrefix} class="border border-slate-300 dark:border-slate-600 rounded-lg p-2 text-sm bg-slate-50 dark:bg-slate-700 dark:text-white" />
+</div>
+<button onclick={saveLogging} class="text-white bg-blue-600 hover:bg-blue-700 font-medium rounded-lg text-sm px-4 py-2">Save</button>
+</div>
+</div>
+{/if}
+</div>
+
+{:else if activeDetailTab === 'ownership'}
+<!-- Ownership Controls Tab -->
+<div class="space-y-4">
+{#if loadingOwnership}
+<div class="text-center py-8 text-slate-500">Loading ownership controls...</div>
+{:else}
+<div class="p-6 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl space-y-3">
+<h3 class="text-base font-semibold text-slate-900 dark:text-white">Object Ownership</h3>
+<p class="text-sm text-slate-500 dark:text-slate-400">Controls ACL availability. BucketOwnerEnforced disables ACLs (recommended).</p>
+<select bind:value={ownership} class="border border-slate-300 dark:border-slate-600 rounded-lg p-2 text-sm bg-slate-50 dark:bg-slate-700 dark:text-white">
+<option value="BucketOwnerEnforced">BucketOwnerEnforced</option>
+<option value="BucketOwnerPreferred">BucketOwnerPreferred</option>
+<option value="ObjectWriter">ObjectWriter</option>
+</select>
+<div class="flex gap-2">
+<button onclick={saveOwnership} class="text-white bg-blue-600 hover:bg-blue-700 font-medium rounded-lg text-sm px-4 py-2">Save</button>
+<button onclick={deleteOwnership} class="text-white bg-red-600 hover:bg-red-700 font-medium rounded-lg text-sm px-4 py-2">Delete</button>
 </div>
 </div>
 {/if}
