@@ -287,7 +287,7 @@ type InMemoryBackend struct {
 	migrationProjectsByARN       map[string]map[string]*MigrationProject
 	replicationConfigs           map[string]map[string]*ReplicationConfig
 	replicationConfigsByARN      map[string]map[string]*ReplicationConfig
-	connections                  map[string]map[string]*Connection // inner key: "riArn:epArn"
+	connections                  map[string]map[string]*Connection    // inner key: "riArn:epArn"
 	assessmentRuns               map[string]map[string]*AssessmentRun // inner key: ARN
 	mu                           *lockmetrics.RWMutex
 	accountID                    string
@@ -1152,7 +1152,7 @@ func (b *InMemoryBackend) CancelReplicationTaskAssessmentRun(
 // StartAssessmentRun creates and stores a new premigration assessment run.
 func (b *InMemoryBackend) StartAssessmentRun(
 	ctx context.Context,
-	taskArn, serviceAccessRoleArn, resultLocationBucket, assessmentRunName string,
+	taskArn, _, _, assessmentRunName string,
 ) (*AssessmentRun, error) {
 	b.mu.Lock("StartAssessmentRun")
 	defer b.mu.Unlock()

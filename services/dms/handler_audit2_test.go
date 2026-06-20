@@ -271,13 +271,13 @@ func TestAudit2_CreateReplicationTask_ARNValidation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name              string
-		omitSource        bool
-		omitTarget        bool
-		omitInstance      bool
-		badSourceArn      bool
-		badTargetArn      bool
-		badInstanceArn    bool
+		name           string
+		omitSource     bool
+		omitTarget     bool
+		omitInstance   bool
+		badSourceArn   bool
+		badTargetArn   bool
+		badInstanceArn bool
 	}{
 		{name: "nonexistent_source_endpoint", badSourceArn: true},
 		{name: "nonexistent_target_endpoint", badTargetArn: true},
@@ -353,8 +353,8 @@ func TestAudit2_DeleteEndpoint_RejectsIfInUse(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		isSource   bool
+		name     string
+		isSource bool
 	}{
 		{name: "source_endpoint_in_use", isSource: true},
 		{name: "target_endpoint_in_use", isSource: false},
@@ -524,7 +524,8 @@ func TestAudit2_AssessmentRun_Lifecycle(t *testing.T) {
 			"AssessmentRunName":    "cancel-run",
 		})
 		require.Equal(t, http.StatusOK, startRec.Code)
-		runArn := parseJSON(t, startRec)["ReplicationTaskAssessmentRun"].(map[string]any)["ReplicationTaskAssessmentRunArn"].(string)
+		runBody2 := parseJSON(t, startRec)["ReplicationTaskAssessmentRun"].(map[string]any)
+		runArn, _ := runBody2["ReplicationTaskAssessmentRunArn"].(string)
 
 		cancelRec := doDMS(t, h, "CancelReplicationTaskAssessmentRun", map[string]any{
 			"ReplicationTaskAssessmentRunArn": runArn,

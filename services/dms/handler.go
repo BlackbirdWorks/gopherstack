@@ -140,6 +140,12 @@ const (
 	dmsTargetPrefix    = "AmazonDMSv20160101."
 	contentType        = "application/x-amz-json-1.1"
 	dmsDefaultPageSize = 100
+
+	// JSON map keys used in assessment-run responses.
+	keyAssessmentRunArn  = "ReplicationTaskAssessmentRunArn"
+	keyAssessmentTaskArn = "ReplicationTaskArn"
+	keyAssessmentRunName = "AssessmentRunName"
+	keyStatus            = "Status"
 )
 
 // errUnknownAction is returned when an unsupported DMS action is requested.
@@ -1644,8 +1650,8 @@ func (h *Handler) handleCancelReplicationTaskAssessmentRun(
 
 	return &cancelReplicationTaskAssessmentRunOutput{
 		ReplicationTaskAssessmentRun: map[string]any{
-			"ReplicationTaskAssessmentRunArn": ptrStr(in.ReplicationTaskAssessmentRunArn),
-			"Status":                          "cancelling",
+			keyAssessmentRunArn: ptrStr(in.ReplicationTaskAssessmentRunArn),
+			keyStatus:           "cancelling",
 		},
 	}, nil
 }
@@ -2422,10 +2428,10 @@ func (h *Handler) handleDeleteReplicationTaskAssessmentRun(
 
 	return &deleteReplicationTaskAssessmentRunOutput{
 		ReplicationTaskAssessmentRun: map[string]any{
-			"ReplicationTaskAssessmentRunArn": run.ReplicationTaskAssessmentRunArn,
-			"ReplicationTaskArn":              run.ReplicationTaskArn,
-			"AssessmentRunName":               run.AssessmentRunName,
-			"Status":                          run.Status,
+			keyAssessmentRunArn:  run.ReplicationTaskAssessmentRunArn,
+			keyAssessmentTaskArn: run.ReplicationTaskArn,
+			keyAssessmentRunName: run.AssessmentRunName,
+			keyStatus:            run.Status,
 		},
 	}, nil
 }
@@ -3702,10 +3708,10 @@ func (h *Handler) handleDescribeReplicationTaskAssessmentRuns(
 	list := make([]map[string]any, 0, len(runs))
 	for _, run := range runs {
 		list = append(list, map[string]any{
-			"ReplicationTaskAssessmentRunArn": run.ReplicationTaskAssessmentRunArn,
-			"ReplicationTaskArn":              run.ReplicationTaskArn,
-			"AssessmentRunName":               run.AssessmentRunName,
-			"Status":                          run.Status,
+			keyAssessmentRunArn:  run.ReplicationTaskAssessmentRunArn,
+			keyAssessmentTaskArn: run.ReplicationTaskArn,
+			keyAssessmentRunName: run.AssessmentRunName,
+			keyStatus:            run.Status,
 		})
 	}
 
@@ -4567,10 +4573,10 @@ func (h *Handler) handleStartReplicationTaskAssessmentRun(
 
 	return &startReplicationTaskAssessmentRunOutput{
 		ReplicationTaskAssessmentRun: map[string]any{
-			"ReplicationTaskAssessmentRunArn": run.ReplicationTaskAssessmentRunArn,
-			"ReplicationTaskArn":              run.ReplicationTaskArn,
-			"AssessmentRunName":               run.AssessmentRunName,
-			"Status":                          run.Status,
+			keyAssessmentRunArn:  run.ReplicationTaskAssessmentRunArn,
+			keyAssessmentTaskArn: run.ReplicationTaskArn,
+			keyAssessmentRunName: run.AssessmentRunName,
+			keyStatus:            run.Status,
 		},
 	}, nil
 }
