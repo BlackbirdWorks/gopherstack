@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -1156,6 +1157,8 @@ type xmlRestoreAccessList struct {
 type xmlSnapshot struct {
 	SnapshotIdentifier            string               `xml:"SnapshotIdentifier"`
 	ClusterIdentifier             string               `xml:"ClusterIdentifier"`
+	SnapshotType                  string               `xml:"SnapshotType,omitempty"`
+	SnapshotCreateTime            string               `xml:"SnapshotCreateTime,omitempty"`
 	Status                        string               `xml:"Status"`
 	AccountsWithRestoreAccess     xmlRestoreAccessList `xml:"AccountsWithRestoreAccess"`
 	ManualSnapshotRetentionPeriod int                  `xml:"ManualSnapshotRetentionPeriod"`
@@ -1173,9 +1176,16 @@ func snapshotToXML(snap *Snapshot) xmlSnapshot {
 		accounts = append(accounts, xmlAccountWithRestoreAccess(a))
 	}
 
+	var createTime string
+	if !snap.SnapshotCreateTime.IsZero() {
+		createTime = snap.SnapshotCreateTime.UTC().Format(time.RFC3339)
+	}
+
 	return xmlSnapshot{
 		SnapshotIdentifier:            snap.SnapshotIdentifier,
 		ClusterIdentifier:             snap.ClusterIdentifier,
+		SnapshotType:                  snap.SnapshotType,
+		SnapshotCreateTime:            createTime,
 		Status:                        snap.Status,
 		ManualSnapshotRetentionPeriod: snap.ManualSnapshotRetentionPeriod,
 		AccountsWithRestoreAccess:     xmlRestoreAccessList{Members: accounts},
