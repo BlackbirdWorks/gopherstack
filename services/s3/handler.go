@@ -132,6 +132,12 @@ func (h *S3Handler) StartWorker(ctx context.Context) error {
 	h.notificationCtx = ctx
 	h.notificationMu.Unlock()
 
+	// Wire the service context into the backend so background replication is
+	// parented to it (cancelled on shutdown) rather than to request contexts.
+	if b, ok := h.Backend.(*InMemoryBackend); ok {
+		b.SetServiceContext(ctx)
+	}
+
 	if h.janitor != nil {
 		go h.janitor.Run(ctx)
 	}

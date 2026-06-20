@@ -118,6 +118,11 @@ type InMemoryBackend struct {
 	compressor          Compressor
 	defaultRegion       string
 	compressionMinBytes int
+	// serviceCtx is the long-lived service context (set via SetServiceContext from
+	// the handler's StartWorker). Background work — replication — is parented to it
+	// so it is cancelled on shutdown rather than orphaned on context.Background().
+	serviceCtx   context.Context
+	serviceCtxMu sync.RWMutex
 	// replicationWg tracks all in-flight replication goroutines.
 	// DrainReplicationGoroutines blocks until they all finish.
 	replicationWg sync.WaitGroup
@@ -139,6 +144,32 @@ func (b *InMemoryBackend) WithSkipMultipartSizeCheck() *InMemoryBackend {
 // operations that spawn replication goroutines and subsequent state assertions.
 func (b *InMemoryBackend) DrainReplicationGoroutines() {
 	b.replicationWg.Wait()
+}
+
+// SetServiceContext wires the long-lived service context used to parent background
+// work (replication). Called from the handler's StartWorker. When set, in-flight
+// replication is cancelled on service shutdown rather than left orphaned.
+func (b *InMemoryBackend) SetServiceContext(ctx context.Context) {
+	b.serviceCtxMu.Lock()
+	b.serviceCtx = ctx
+	b.serviceCtxMu.Unlock()
+}
+
+// replicationContext builds the context for a replication goroutine: parented to
+// the service context (so shutdown cancels it) and carrying the request's logger,
+// but never the request's cancellation or its SSE key. When no service context is
+// wired (e.g. unit tests), it detaches from the request via context.WithoutCancel
+// rather than falling back to context.Background().
+func (b *InMemoryBackend) replicationContext(reqCtx context.Context) context.Context {
+	b.serviceCtxMu.RLock()
+	base := b.serviceCtx
+	b.serviceCtxMu.RUnlock()
+
+	if base == nil {
+		base = context.WithoutCancel(reqCtx)
+	}
+
+	return logger.Save(base, logger.Load(reqCtx))
 }
 
 func NewInMemoryBackend(compressor Compressor) *InMemoryBackend {
@@ -484,9 +515,11 @@ func (b *InMemoryBackend) PutObject(
 		"contentType", aws.ToString(input.ContentType),
 		"versionId", newVersionID)
 
-	// Async replication to configured destination buckets.
+	// Async replication to configured destination buckets, parented to the
+	// service context (cancellable on shutdown) rather than the request context.
+	repCtx := b.replicationContext(ctx)
 	b.replicationWg.Go(func() {
-		b.triggerReplication(ctx, bucketName, key, finalQuotedETag)
+		b.triggerReplication(repCtx, bucketName, key, finalQuotedETag)
 	})
 
 	return &s3.PutObjectOutput{
@@ -880,10 +913,13 @@ func (b *InMemoryBackend) DeleteObject(
 		b.mu.Unlock()
 	}
 
-	// Async delete-marker replication when versioning created a delete marker.
+	// Async delete-marker replication when versioning created a delete marker,
+	// parented to the service context rather than the request context.
 	if out.DeleteMarker != nil && aws.ToBool(out.DeleteMarker) {
+		repCtx := b.replicationContext(ctx)
+		key := *input.Key
 		b.replicationWg.Go(func() {
-			b.triggerDeleteMarkerReplication(ctx, bucketName, *input.Key)
+			b.triggerDeleteMarkerReplication(repCtx, bucketName, key)
 		})
 	}
 
