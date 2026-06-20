@@ -430,3 +430,108 @@ func TestAudit3_GovCloudAccount_HasGovCloudID(t *testing.T) {
 	assert.True(t, hasGovCloud, "CreateGovCloudAccount response must include GovCloudAccountId")
 	assert.NotEmpty(t, govID, "GovCloudAccountId must not be empty")
 }
+
+// ---------------------------------------------------------------------------
+// Item 27: TagResource / UntagResource / ListTagsForResource — TargetNotFoundException
+// for non-existent resources (not InvalidInputException)
+// ---------------------------------------------------------------------------
+
+// TestAudit3_TagOps_NonExistentResource_TargetNotFoundException verifies that tag
+// operations on a resource ID that does not exist return TargetNotFoundException (not
+// InvalidInputException).  Real AWS raises TargetNotFoundException for unknown resource
+// IDs in all three tag operations.
+func TestAudit3_TagOps_NonExistentResource_TargetNotFoundException(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		fn   func(b *organizations.InMemoryBackend) error
+		name string
+	}{
+		{
+			name: "TagResource",
+			fn: func(b *organizations.InMemoryBackend) error {
+				return b.TagResource("ou-xxxx-nonexistent", []organizations.Tag{{Key: "k", Value: "v"}})
+			},
+		},
+		{
+			name: "UntagResource",
+			fn: func(b *organizations.InMemoryBackend) error {
+				return b.UntagResource("ou-xxxx-nonexistent", []string{"k"})
+			},
+		},
+		{
+			name: "ListTagsForResource",
+			fn: func(b *organizations.InMemoryBackend) error {
+				_, err := b.ListTagsForResource("ou-xxxx-nonexistent")
+
+				return err
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b, _ := newOrgBackend(t)
+
+			err := tt.fn(b)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "TargetNotFoundException",
+				"%s on unknown resource must return TargetNotFoundException, got: %v", tt.name, err)
+		})
+	}
+}
+
+// TestAudit3_TagOps_NonExistentResource_ViaHandler verifies the HTTP response includes
+// TargetNotFoundException (not InvalidInputException) when tagging a non-existent resource.
+func TestAudit3_TagOps_NonExistentResource_ViaHandler(t *testing.T) {
+	t.Parallel()
+
+	const bogusID = "ou-xxxx-nonexistent1"
+
+	tests := []struct {
+		op   string
+		body map[string]any
+		name string
+	}{
+		{
+			name: "TagResource",
+			op:   "TagResource",
+			body: map[string]any{
+				"ResourceId": bogusID,
+				"Tags":       []map[string]string{{"Key": "k", "Value": "v"}},
+			},
+		},
+		{
+			name: "UntagResource",
+			op:   "UntagResource",
+			body: map[string]any{
+				"ResourceId": bogusID,
+				"TagKeys":    []string{"k"},
+			},
+		},
+		{
+			name: "ListTagsForResource",
+			op:   "ListTagsForResource",
+			body: map[string]any{"ResourceId": bogusID},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			doRequest(t, h, "CreateOrganization", map[string]any{"FeatureSet": "ALL"})
+
+			rec := doRequest(t, h, tt.op, tt.body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+			var errResp map[string]string
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&errResp))
+			assert.Equal(t, "TargetNotFoundException", errResp["__type"],
+				"%s on unknown resource must return TargetNotFoundException", tt.name)
+		})
+	}
+}
