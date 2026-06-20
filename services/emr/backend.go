@@ -77,14 +77,15 @@ const (
 	timelineKeyCreation = "CreationDateTime"
 	timelineKeyEnd      = "EndDateTime"
 
-	listClustersPageSize     = 50
-	listSecConfigsPageSize   = 50
-	listReleaseLabelsPage    = 50
-	listInstanceTypesPage    = 50
-	listStepsPageSize        = 50
-	listInstancesPageSize    = 500
-	listStudiosPageSize      = 50
-	listNotebookExecPageSize = 50
+	listClustersPageSize          = 50
+	listSecConfigsPageSize        = 50
+	listReleaseLabelsPage         = 50
+	listInstanceTypesPage         = 50
+	listStepsPageSize             = 50
+	listInstancesPageSize         = 500
+	listStudiosPageSize           = 50
+	listNotebookExecPageSize      = 50
+	listBootstrapActionsPageSize  = 50
 
 	instanceGroupStateRunning = "RUNNING"
 
@@ -215,6 +216,25 @@ type Configuration struct {
 type Application struct {
 	Name    string `json:"Name"`
 	Version string `json:"Version,omitempty"`
+}
+
+// BootstrapActionScript holds the script path and arguments for a bootstrap action.
+type BootstrapActionScript struct {
+	Path string   `json:"Path"`
+	Args []string `json:"Args,omitempty"`
+}
+
+// BootstrapActionConfig is the full bootstrap action specification used in RunJobFlow input.
+type BootstrapActionConfig struct {
+	Name                  string                `json:"Name"`
+	ScriptBootstrapAction BootstrapActionScript `json:"ScriptBootstrapAction"`
+}
+
+// Command is the flattened representation of a bootstrap action returned by ListBootstrapActions.
+type Command struct {
+	Name       string   `json:"Name"`
+	ScriptPath string   `json:"ScriptPath"`
+	Args       []string `json:"Args,omitempty"`
 }
 
 // StepHadoopJarStep defines the JAR execution for a step.
@@ -477,6 +497,7 @@ type Cluster struct {
 	SecurityConfiguration       string        `json:"SecurityConfiguration,omitempty"`
 	CustomAmiID                 string        `json:"CustomAmiId,omitempty"`
 	instanceGroups              []InstanceGroup
+	bootstrapActions            []BootstrapActionConfig
 	Tags                        []Tag           `json:"Tags"`
 	Applications                []Application   `json:"Applications,omitempty"`
 	Configurations              []Configuration `json:"Configurations,omitempty"`
@@ -622,12 +643,13 @@ type RunJobFlowParams struct {
 	Applications            []Application       `json:"Applications,omitempty"`
 	Configurations          []Configuration     `json:"Configurations,omitempty"`
 	Steps                   []StepSpec          `json:"Steps,omitempty"`
-	Instances               RunJobFlowInstances `json:"Instances"`
-	StepConcurrencyLevel    int                 `json:"StepConcurrencyLevel,omitempty"`
-	EbsRootVolumeSize       int                 `json:"EbsRootVolumeSize,omitempty"`
-	EbsRootVolumeIops       int                 `json:"EbsRootVolumeIops,omitempty"`
-	EbsRootVolumeThroughput int                 `json:"EbsRootVolumeThroughput,omitempty"`
-	VisibleToAllUsers       bool                `json:"VisibleToAllUsers"`
+	Instances               RunJobFlowInstances    `json:"Instances"`
+	BootstrapActions        []BootstrapActionConfig `json:"BootstrapActions,omitempty"`
+	StepConcurrencyLevel    int                    `json:"StepConcurrencyLevel,omitempty"`
+	EbsRootVolumeSize       int                    `json:"EbsRootVolumeSize,omitempty"`
+	EbsRootVolumeIops       int                    `json:"EbsRootVolumeIops,omitempty"`
+	EbsRootVolumeThroughput int                    `json:"EbsRootVolumeThroughput,omitempty"`
+	VisibleToAllUsers       bool                   `json:"VisibleToAllUsers"`
 }
 
 // ListClustersParams holds filter and pagination params for ListClusters.
@@ -829,6 +851,26 @@ func cloneConfigurations(cfgs []Configuration) []Configuration {
 	return out
 }
 
+// cloneBootstrapActions deep-copies a slice of BootstrapActionConfig.
+func cloneBootstrapActions(src []BootstrapActionConfig) []BootstrapActionConfig {
+	if src == nil {
+		return nil
+	}
+
+	out := make([]BootstrapActionConfig, len(src))
+	for i, ba := range src {
+		out[i] = BootstrapActionConfig{
+			Name: ba.Name,
+			ScriptBootstrapAction: BootstrapActionScript{
+				Path: ba.ScriptBootstrapAction.Path,
+				Args: slices.Clone(ba.ScriptBootstrapAction.Args),
+			},
+		}
+	}
+
+	return out
+}
+
 // cloneConfiguration deep-copies a single Configuration (recursive).
 func cloneConfiguration(c Configuration) Configuration {
 	cp := Configuration{
@@ -967,6 +1009,7 @@ func (b *InMemoryBackend) RunJobFlow(ctx context.Context, params RunJobFlowParam
 		KeepJobFlowAliveWhenNoSteps: params.Instances.KeepJobFlowAliveWhenNoSteps,
 		instanceGroups:              groups,
 		steps:                       steps,
+		bootstrapActions:            cloneBootstrapActions(params.BootstrapActions),
 	}
 	b.clustersStore(region)[id] = cluster
 	b.arnIndexStore(region)[clusterARN] = id
@@ -1022,6 +1065,8 @@ func (c Cluster) clone() Cluster {
 		cp.steps = make([]Step, len(c.steps))
 		copy(cp.steps, c.steps)
 	}
+
+	cp.bootstrapActions = cloneBootstrapActions(c.bootstrapActions)
 
 	if c.managedScalingPolicy != nil {
 		msp := *c.managedScalingPolicy
@@ -1498,6 +1543,32 @@ func (b *InMemoryBackend) ListSteps(
 	p := page.New(filtered, marker, listStepsPageSize, listStepsPageSize)
 
 	return p.Data, p.Next
+}
+
+// ListBootstrapActions returns the bootstrap actions for a cluster, paginated.
+func (b *InMemoryBackend) ListBootstrapActions(ctx context.Context, clusterID, marker string) ([]Command, string, error) {
+	region := getRegion(ctx, b.region)
+
+	b.mu.RLock("ListBootstrapActions")
+	defer b.mu.RUnlock()
+
+	cluster, ok := b.clustersStore(region)[clusterID]
+	if !ok {
+		return nil, "", fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
+	}
+
+	commands := make([]Command, len(cluster.bootstrapActions))
+	for i, ba := range cluster.bootstrapActions {
+		commands[i] = Command{
+			Name:       ba.Name,
+			ScriptPath: ba.ScriptBootstrapAction.Path,
+			Args:       slices.Clone(ba.ScriptBootstrapAction.Args),
+		}
+	}
+
+	p := page.New(commands, marker, listBootstrapActionsPageSize, listBootstrapActionsPageSize)
+
+	return p.Data, p.Next, nil
 }
 
 func filterSteps(steps []Step, stateSet, idSet map[string]bool) []Step {

@@ -7,11 +7,12 @@ import (
 
 // clusterExtra holds the unexported cluster fields that are persisted separately.
 type clusterExtra struct {
-	ManagedScalingPolicy  *ManagedScalingPolicy  `json:"managedScalingPolicy,omitempty"`
-	AutoTerminationPolicy *AutoTerminationPolicy `json:"autoTerminationPolicy,omitempty"`
-	InstanceGroups        []InstanceGroup        `json:"instanceGroups,omitempty"`
-	InstanceFleets        []InstanceFleet        `json:"instanceFleets,omitempty"`
-	Steps                 []Step                 `json:"steps,omitempty"`
+	ManagedScalingPolicy  *ManagedScalingPolicy   `json:"managedScalingPolicy,omitempty"`
+	AutoTerminationPolicy *AutoTerminationPolicy  `json:"autoTerminationPolicy,omitempty"`
+	InstanceGroups        []InstanceGroup         `json:"instanceGroups,omitempty"`
+	InstanceFleets        []InstanceFleet         `json:"instanceFleets,omitempty"`
+	Steps                 []Step                  `json:"steps,omitempty"`
+	BootstrapActions      []BootstrapActionConfig `json:"bootstrapActions,omitempty"`
 }
 
 // backendSnapshot mirrors the region-nested backend maps (outer key = region).
@@ -149,9 +150,10 @@ func cloneBlockPublicAccessMeta(
 
 func extractClusterExtra(c *Cluster) *clusterExtra {
 	ex := &clusterExtra{
-		InstanceGroups: make([]InstanceGroup, len(c.instanceGroups)),
-		InstanceFleets: make([]InstanceFleet, len(c.instanceFleets)),
-		Steps:          make([]Step, len(c.steps)),
+		InstanceGroups:   make([]InstanceGroup, len(c.instanceGroups)),
+		InstanceFleets:   make([]InstanceFleet, len(c.instanceFleets)),
+		Steps:            make([]Step, len(c.steps)),
+		BootstrapActions: cloneBootstrapActions(c.bootstrapActions),
 	}
 
 	copy(ex.InstanceGroups, c.instanceGroups)
@@ -213,6 +215,7 @@ func applyClusterExtras(clusters map[string]*Cluster, extras map[string]*cluster
 		c.instanceGroups = ex.InstanceGroups
 		c.instanceFleets = ex.InstanceFleets
 		c.steps = ex.Steps
+		c.bootstrapActions = ex.BootstrapActions
 		c.managedScalingPolicy = ex.ManagedScalingPolicy
 		c.autoTerminationPolicy = ex.AutoTerminationPolicy
 	}
