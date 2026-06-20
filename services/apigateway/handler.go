@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -962,6 +963,17 @@ func (h *Handler) handleRESTAPI(c *echo.Context) error {
 		return c.String(http.StatusInternalServerError, "internal server error")
 	}
 
+	// OpenAPI import (ImportRestApi / PutRestApi) carries the raw spec document
+	// as the HTTP body. These are detected here because they share REST paths
+	// with CreateRestApi (POST /restapis) and UpdateRestApi (PUT /restapis/{id})
+	// but are distinguished by the request method/query, and the body must be
+	// passed through verbatim rather than treated as a flat field object.
+	if importAction, importBody, isImport := detectImportRESTAPI(
+		c.Request().Method, action, pathParams, c.Request().URL.Query(), body,
+	); isImport {
+		return h.dispatchAndRespond(ctx, c, importAction, importBody, contentTypeJSON)
+	}
+
 	// GET requests have no body; normalise to an empty JSON object so that
 	// json.Unmarshal calls in the action handlers don't fail with
 	// "unexpected end of JSON input".
@@ -986,17 +998,63 @@ func (h *Handler) handleRESTAPI(c *echo.Context) error {
 		}
 	}
 
+	return h.dispatchAndRespond(ctx, c, action, body, contentTypeJSON)
+}
+
+// dispatchAndRespond runs an action through the dispatch table and writes the
+// HTTP response, including correct handling of 204 No Content responses.
+func (h *Handler) dispatchAndRespond(
+	ctx context.Context, c *echo.Context, action string, body []byte, contentType string,
+) error {
 	statusCode, response, reqErr := h.dispatch(ctx, action, body)
 	if reqErr != nil {
 		return h.handleError(ctx, c, action, reqErr)
 	}
 
-	c.Response().Header().Set("Content-Type", contentTypeJSON)
+	c.Response().Header().Set("Content-Type", contentType)
 	if statusCode == http.StatusNoContent {
 		return c.NoContent(http.StatusNoContent)
 	}
 
 	return c.JSONBlob(statusCode, response)
+}
+
+// detectImportRESTAPI recognises ImportRestApi (POST /restapis?mode=import) and
+// PutRestApi (PUT /restapis/{id}) requests, returning the resolved action and a
+// JSON-encoded typed input whose Body field carries the raw spec document. The
+// AWS SDK sends the OpenAPI/Swagger document as the verbatim HTTP body, so it
+// must not be merged with path/query parameters like other operations.
+func detectImportRESTAPI(
+	method, action string, pathParams map[string]string, query url.Values, body []byte,
+) (string, []byte, bool) {
+	switch {
+	case action == opCreateRestAPI && method == http.MethodPost && query.Get("mode") == "import":
+		in := ImportRestAPIInput{
+			Body:           body,
+			FailOnWarnings: query.Get("failonwarnings") == litTrue,
+		}
+		encoded, err := json.Marshal(in)
+		if err != nil {
+			return "", nil, false
+		}
+
+		return opImportRestAPI, encoded, true
+	case action == opPutRestAPI && method == http.MethodPut && pathParams[keyRestAPIID] != "":
+		in := PutRestAPIInput{
+			RestAPIID:      pathParams[keyRestAPIID],
+			Mode:           query.Get("mode"),
+			FailOnWarnings: query.Get("failonwarnings") == litTrue,
+			Body:           body,
+		}
+		encoded, err := json.Marshal(in)
+		if err != nil {
+			return "", nil, false
+		}
+
+		return opPutRestAPI, encoded, true
+	}
+
+	return "", nil, false
 }
 
 // normalizePatchBody converts a JSON patch array (RFC 6902) to a flat JSON object.
@@ -1353,6 +1411,10 @@ func parseAPIGWRestAPIsDepth2(method, apiID string) (string, map[string]string, 
 		return opDeleteRestAPI, params, true
 	case http.MethodPatch:
 		return opUpdateRestAPI, params, true
+	case http.MethodPut:
+		// PUT /restapis/{id} is PutRestApi (OpenAPI import into an existing
+		// API). The body is the raw spec; detectImportRESTAPI handles it.
+		return opPutRestAPI, params, true
 	}
 
 	return apiGWUnknownOp, nil, false

@@ -224,6 +224,10 @@ type StorageBackend interface {
 
 	// OpenAPI export.
 	GetExport(restAPIID, stageName, exportType string) (map[string]any, error)
+
+	// OpenAPI import.
+	ImportRestAPI(input ImportRestAPIInput) (*RestAPI, error)
+	PutRestAPI(input PutRestAPIInput) (*RestAPI, error)
 }
 
 const apiIDChars = "abcdefghijklmnopqrstuvwxyz0123456789"
@@ -265,7 +269,11 @@ const (
 	exportKeyBody        = "body"
 )
 
-const paramLocationHeader = "header"
+const (
+	paramLocationHeader = "header"
+	paramLocationPath   = "path"
+	paramLocationQuery  = "querystring"
+)
 
 // stageInvokeURL returns the gopherstack proxy path for a deployed stage.
 // The full URL is relative — clients prepend their gopherstack base URL.

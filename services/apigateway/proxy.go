@@ -1486,7 +1486,7 @@ func applyIntegrationRequestParams(incoming *http.Request, outgoing *http.Reques
 		switch paramType {
 		case paramLocationHeader:
 			outgoing.Header.Set(paramName, value)
-		case "querystring":
+		case paramLocationQuery:
 			outQuery.Set(paramName, value)
 		}
 	}
@@ -1516,10 +1516,10 @@ func resolveRequestParamSource(r *http.Request, src string) string {
 	case paramLocationHeader:
 
 		return r.Header.Get(srcName)
-	case "querystring":
+	case paramLocationQuery:
 
 		return r.URL.Query().Get(srcName)
-	case "path":
+	case paramLocationPath:
 		// Return the named path segment from the raw URL path.
 		// This is a best-effort approximation: the actual value depends on route matching.
 		segments := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
