@@ -244,6 +244,124 @@ func TestPattern_AnythingButMatch(t *testing.T) {
 	}
 }
 
+// TestPattern_AnythingButNested covers the object form of anything-but, which
+// negates a nested matcher (prefix/suffix/wildcard/equals-ignore-case/numeric).
+// AWS EventBridge supports these; see the content-filtering documentation.
+func TestPattern_AnythingButNested(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		pattern string
+		event   string
+		want    bool
+	}{
+		{
+			name:    "anything-but prefix - excluded",
+			pattern: `{"detail": {"state": [{"anything-but": {"prefix": "init"}}]}}`,
+			event:   `{"detail": {"state": "initializing"}}`,
+			want:    false,
+		},
+		{
+			name:    "anything-but prefix - allowed",
+			pattern: `{"detail": {"state": [{"anything-but": {"prefix": "init"}}]}}`,
+			event:   `{"detail": {"state": "running"}}`,
+			want:    true,
+		},
+		{
+			name:    "anything-but prefix list - excluded",
+			pattern: `{"detail": {"x": [{"anything-but": {"prefix": ["a", "b"]}}]}}`,
+			event:   `{"detail": {"x": "apple"}}`,
+			want:    false,
+		},
+		{
+			name:    "anything-but suffix - excluded",
+			pattern: `{"detail": {"state": [{"anything-but": {"suffix": "ing"}}]}}`,
+			event:   `{"detail": {"state": "running"}}`,
+			want:    false,
+		},
+		{
+			name:    "anything-but equals-ignore-case - excluded",
+			pattern: `{"detail": {"state": [{"anything-but": {"equals-ignore-case": "INIT"}}]}}`,
+			event:   `{"detail": {"state": "init"}}`,
+			want:    false,
+		},
+		{
+			name:    "anything-but wildcard - excluded",
+			pattern: `{"detail": {"state": [{"anything-but": {"wildcard": "*ing"}}]}}`,
+			event:   `{"detail": {"state": "running"}}`,
+			want:    false,
+		},
+		{
+			name:    "anything-but numeric - excluded",
+			pattern: `{"detail": {"n": [{"anything-but": {"numeric": [">", 5]}}]}}`,
+			event:   `{"detail": {"n": 10}}`,
+			want:    false,
+		},
+		{
+			name:    "anything-but numeric - allowed",
+			pattern: `{"detail": {"n": [{"anything-but": {"numeric": [">", 5]}}]}}`,
+			event:   `{"detail": {"n": 3}}`,
+			want:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := eventbridge.MatchPatternForTest(tt.pattern, tt.event)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// TestPattern_PrefixSuffixIgnoreCase covers the case-insensitive nested form of
+// the prefix and suffix matchers, which AWS EventBridge supports via
+// {"prefix": {"equals-ignore-case": "..."}}.
+func TestPattern_PrefixSuffixIgnoreCase(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		pattern string
+		event   string
+		want    bool
+	}{
+		{
+			name:    "prefix ignore-case - match",
+			pattern: `{"detail": {"c": [{"prefix": {"equals-ignore-case": "ABC"}}]}}`,
+			event:   `{"detail": {"c": "abcdef"}}`,
+			want:    true,
+		},
+		{
+			name:    "prefix ignore-case - no match",
+			pattern: `{"detail": {"c": [{"prefix": {"equals-ignore-case": "ABC"}}]}}`,
+			event:   `{"detail": {"c": "xyzabc"}}`,
+			want:    false,
+		},
+		{
+			name:    "suffix ignore-case - match",
+			pattern: `{"detail": {"c": [{"suffix": {"equals-ignore-case": "XYZ"}}]}}`,
+			event:   `{"detail": {"c": "fooxyz"}}`,
+			want:    true,
+		},
+		{
+			name:    "suffix ignore-case - no match",
+			pattern: `{"detail": {"c": [{"suffix": {"equals-ignore-case": "XYZ"}}]}}`,
+			event:   `{"detail": {"c": "xyzfoo"}}`,
+			want:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := eventbridge.MatchPatternForTest(tt.pattern, tt.event)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func TestPattern_CIDRMatch(t *testing.T) {
 	t.Parallel()
 

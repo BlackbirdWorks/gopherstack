@@ -312,21 +312,19 @@ func matchStringMatcher(m map[string]any, eventVal any) bool {
 	es, esOk := eventVal.(string)
 
 	if prefix, ok := m["prefix"]; ok {
-		ps, psOk := prefix.(string)
-		if !psOk || !esOk {
+		if !esOk {
 			return false
 		}
 
-		return strings.HasPrefix(es, ps)
+		return matchPrefixMatcher(prefix, es)
 	}
 
 	if suffix, ok := m["suffix"]; ok {
-		ss, ssOk := suffix.(string)
-		if !ssOk || !esOk {
+		if !esOk {
 			return false
 		}
 
-		return strings.HasSuffix(es, ss)
+		return matchSuffixMatcher(suffix, es)
 	}
 
 	if wildcardVal, ok := m["wildcard"]; ok {
@@ -348,6 +346,48 @@ func matchStringMatcher(m map[string]any, eventVal any) bool {
 	}
 
 	return false
+}
+
+// matchPrefixMatcher matches a prefix matcher value against the event string.
+// AWS supports both a plain string prefix and a case-insensitive form:
+//
+//	{"prefix": "foo"}
+//	{"prefix": {"equals-ignore-case": "FOO"}}
+func matchPrefixMatcher(prefix any, es string) bool {
+	switch p := prefix.(type) {
+	case string:
+		return strings.HasPrefix(es, p)
+	case map[string]any:
+		ci, ok := p["equals-ignore-case"].(string)
+		if !ok {
+			return false
+		}
+
+		return len(es) >= len(ci) && strings.EqualFold(es[:len(ci)], ci)
+	default:
+		return false
+	}
+}
+
+// matchSuffixMatcher matches a suffix matcher value against the event string.
+// AWS supports both a plain string suffix and a case-insensitive form:
+//
+//	{"suffix": "foo"}
+//	{"suffix": {"equals-ignore-case": "FOO"}}
+func matchSuffixMatcher(suffix any, es string) bool {
+	switch s := suffix.(type) {
+	case string:
+		return strings.HasSuffix(es, s)
+	case map[string]any:
+		ci, ok := s["equals-ignore-case"].(string)
+		if !ok {
+			return false
+		}
+
+		return len(es) >= len(ci) && strings.EqualFold(es[len(es)-len(ci):], ci)
+	default:
+		return false
+	}
 }
 
 // matchNumeric applies numeric comparison rules like [">", 5, "<", 10].
@@ -394,14 +434,56 @@ func compareNumeric(op string, num, val float64) bool {
 	}
 }
 
-// matchAnythingBut matches when the event value is NOT in the provided set.
+// matchAnythingBut matches when the event value does NOT satisfy the negated rule.
+//
+// AWS supports several anything-but forms:
+//
+//	{"anything-but": "foo"}                      — scalar exclusion
+//	{"anything-but": ["a", "b"]}                 — list exclusion
+//	{"anything-but": {"prefix": "init"}}         — negated prefix (scalar or list)
+//	{"anything-but": {"suffix": "ing"}}          — negated suffix (scalar or list)
+//	{"anything-but": {"wildcard": "*ing"}}       — negated wildcard
+//	{"anything-but": {"equals-ignore-case": "x"}}— negated case-insensitive equality
+//	{"anything-but": {"numeric": [">", 5]}}      — negated numeric comparison
 func matchAnythingBut(v, eventVal any) bool {
 	switch ab := v.(type) {
 	case []any:
 		return !slices.Contains(ab, eventVal)
+	case map[string]any:
+		return !matchAnythingButObject(ab, eventVal)
 	default:
 		return eventVal != v
 	}
+}
+
+// matchAnythingButObject reports whether eventVal satisfies the inner matcher of an
+// object-form anything-but rule. Its result is negated by the caller. The inner
+// value may itself be a list, in which case satisfying any element counts as a match.
+func matchAnythingButObject(ab map[string]any, eventVal any) bool {
+	if numericRules, ok := ab["numeric"]; ok {
+		return matchNumeric(numericRules, eventVal)
+	}
+
+	for _, key := range []string{"prefix", "suffix", "wildcard", "equals-ignore-case"} {
+		inner, ok := ab[key]
+		if !ok {
+			continue
+		}
+
+		if list, isList := inner.([]any); isList {
+			for _, item := range list {
+				if matchStringMatcher(map[string]any{key: item}, eventVal) {
+					return true
+				}
+			}
+
+			return false
+		}
+
+		return matchStringMatcher(map[string]any{key: inner}, eventVal)
+	}
+
+	return false
 }
 
 // toFloat64 converts a numeric value to float64.
