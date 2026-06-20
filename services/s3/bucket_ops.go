@@ -1500,6 +1500,15 @@ func (h *S3Handler) putBucketReplication(
 		return
 	}
 
+	if cfg.Role == "" || len(cfg.Rules) == 0 {
+		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
+			Code:    errMalformedXML,
+			Message: errMalformedXMLMsg,
+		}, http.StatusBadRequest)
+
+		return
+	}
+
 	if err = h.Backend.PutBucketReplication(ctx, bucket, string(body)); err != nil {
 		WriteError(ctx, w, r, err)
 
