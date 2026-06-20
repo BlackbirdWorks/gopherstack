@@ -458,6 +458,13 @@ func (b *InMemoryBackend) SendEmail(in SendEmailInput) (string, error) {
 		return "", fmt.Errorf("%w: Source is required", ErrInvalidParameter)
 	}
 
+	if len(in.To)+len(in.Cc)+len(in.Bcc) == 0 {
+		return "", fmt.Errorf(
+			"%w: Destination must contain at least one ToAddress, CcAddress, or BccAddress",
+			ErrInvalidParameter,
+		)
+	}
+
 	// AWS SES caps a single message at 10 MiB total (subject + body + headers).
 	const maxMessageBytes = 10 * 1024 * 1024
 	if len(in.Subject)+len(in.BodyHTML)+len(in.BodyText) > maxMessageBytes {
