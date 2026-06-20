@@ -76,10 +76,10 @@ const (
 
 // Validation limits.
 const (
-	maxConnectionNameLen  = 32
-	maxTagKeyLen          = 128
-	maxTagValueLen        = 256
-	maxTagsPerResource    = 200
+	maxConnectionNameLen   = 32
+	maxTagKeyLen           = 128
+	maxTagValueLen         = 256
+	maxTagsPerResource     = 200
 	maxProviderEndpointLen = 512
 )
 
@@ -126,8 +126,8 @@ func validPublishDeploymentStatus() map[string]bool {
 // validTriggerResourceUpdateOn is the set of accepted values.
 func validTriggerResourceUpdateOn() map[string]bool {
 	return map[string]bool{
-		"ANY_CHANGE":   true,
-		"FILE_CHANGE":  true,
+		"ANY_CHANGE":  true,
+		"FILE_CHANGE": true,
 	}
 }
 
@@ -222,19 +222,19 @@ func repositorySyncStatusKey(repositoryLinkID, branch, syncType string) string {
 // are created lazily via the *Store helpers. Callers must hold b.mu while
 // accessing the inner maps.
 type InMemoryBackend struct {
-	connections              map[string]map[string]*Connection        // region → ARN → Connection
-	connectionsByName        map[string]map[string]string             // region → name → ARN
-	hosts                    map[string]map[string]*Host              // region → ARN → Host
-	hostsByName              map[string]map[string]string             // region → name → ARN
-	repositoryLinks          map[string]map[string]*RepositoryLink    // region → ID → RepositoryLink
-	syncConfigurations       map[string]map[string]*SyncConfiguration // region → key → SyncConfiguration
-	repositorySyncStatuses   map[string]map[string]*RepositorySyncStatus // region → statusKey → status
-	resourceSyncStatuses     map[string]map[string]*ResourceSyncStatus   // region → key → status
-	syncBlockers             map[string]map[string]*SyncBlocker           // region → blockerID → blocker
-	syncBlockersByResource   map[string]map[string][]string               // region → configKey → []blockerID
-	mu                       *lockmetrics.RWMutex
-	accountID                string
-	defaultRegion            string
+	connections            map[string]map[string]*Connection           // region → ARN → Connection
+	connectionsByName      map[string]map[string]string                // region → name → ARN
+	hosts                  map[string]map[string]*Host                 // region → ARN → Host
+	hostsByName            map[string]map[string]string                // region → name → ARN
+	repositoryLinks        map[string]map[string]*RepositoryLink       // region → ID → RepositoryLink
+	syncConfigurations     map[string]map[string]*SyncConfiguration    // region → key → SyncConfiguration
+	repositorySyncStatuses map[string]map[string]*RepositorySyncStatus // region → statusKey → status
+	resourceSyncStatuses   map[string]map[string]*ResourceSyncStatus   // region → key → status
+	syncBlockers           map[string]map[string]*SyncBlocker          // region → blockerID → blocker
+	syncBlockersByResource map[string]map[string][]string              // region → configKey → []blockerID
+	mu                     *lockmetrics.RWMutex
+	accountID              string
+	defaultRegion          string
 }
 
 // NewInMemoryBackend creates a new backend for the given account and region.
@@ -579,7 +579,8 @@ func (b *InMemoryBackend) CreateHost(
 	}
 
 	if len(providerEndpoint) > maxProviderEndpointLen {
-		return nil, fmt.Errorf("%w: ProviderEndpoint must not exceed %d characters", ErrValidation, maxProviderEndpointLen)
+		return nil, fmt.Errorf("%w: ProviderEndpoint must not exceed %d characters",
+			ErrValidation, maxProviderEndpointLen)
 	}
 
 	if providerType != "" && !validProviderTypes()[providerType] {
@@ -917,7 +918,8 @@ func (b *InMemoryBackend) DeleteRepositoryLink(ctx context.Context, repositoryLi
 	}
 
 	if b.syncConfigHasReferenceToLinkLocked(region, repositoryLinkID) {
-		return fmt.Errorf("%w: repository link %q has active sync configurations; delete them first", ErrResourceInUse, repositoryLinkID)
+		return fmt.Errorf("%w: repository link %q has active sync configurations; delete them first",
+			ErrResourceInUse, repositoryLinkID)
 	}
 
 	delete(links, repositoryLinkID)
@@ -978,10 +980,13 @@ func (b *InMemoryBackend) CreateSyncConfiguration(
 	ctx context.Context,
 	branch, configFile, repositoryLinkID, resourceName, roleArn, syncType string,
 ) (*SyncConfiguration, error) {
-	return b.CreateSyncConfigurationFull(ctx, branch, configFile, repositoryLinkID, resourceName, roleArn, syncType, "", "")
+	return b.CreateSyncConfigurationFull(
+		ctx, branch, configFile, repositoryLinkID, resourceName, roleArn, syncType, "", "",
+	)
 }
 
-// CreateSyncConfigurationFull creates a sync configuration with optional PublishDeploymentStatus and TriggerResourceUpdateOn.
+// CreateSyncConfigurationFull creates a sync configuration with optional
+// PublishDeploymentStatus and TriggerResourceUpdateOn.
 func (b *InMemoryBackend) CreateSyncConfigurationFull(
 	ctx context.Context,
 	branch, configFile, repositoryLinkID, resourceName, roleArn, syncType,
@@ -1026,7 +1031,8 @@ func (b *InMemoryBackend) CreateSyncConfigurationFull(
 	key := syncConfigKey(resourceName, syncType)
 
 	if _, exists := cfgs[key]; exists {
-		return nil, fmt.Errorf("%w: sync configuration for %q/%q already exists", ErrAlreadyExists, resourceName, syncType)
+		return nil, fmt.Errorf("%w: sync configuration for %q/%q already exists",
+			ErrAlreadyExists, resourceName, syncType)
 	}
 
 	cfg := &SyncConfiguration{
@@ -1540,7 +1546,9 @@ func (b *InMemoryBackend) UpdateSyncConfiguration(
 	ctx context.Context,
 	resourceName, syncType, branch, configFile, repositoryLinkID, roleArn string,
 ) (*SyncConfiguration, error) {
-	return b.UpdateSyncConfigurationFull(ctx, resourceName, syncType, branch, configFile, repositoryLinkID, roleArn, "", "")
+	return b.UpdateSyncConfigurationFull(
+		ctx, resourceName, syncType, branch, configFile, repositoryLinkID, roleArn, "", "",
+	)
 }
 
 // UpdateSyncConfigurationFull updates a sync configuration including optional publish/trigger fields.

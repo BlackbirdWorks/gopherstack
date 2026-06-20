@@ -300,10 +300,10 @@ func TestAudit2_DeleteHost_ResourceInUse(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		setupConn    bool
-		wantStatus   int
-		wantErrType  string
+		name        string
+		wantErrType string
+		wantStatus  int
+		setupConn   bool
 	}{
 		{
 			name:       "delete host without connections succeeds",
@@ -389,9 +389,9 @@ func TestAudit2_DeleteRepositoryLink_ResourceInUse(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		createSync  bool
-		wantStatus  int
 		wantErrType string
+		wantStatus  int
+		createSync  bool
 	}{
 		{
 			name:       "delete link without sync configs succeeds",
@@ -609,9 +609,9 @@ func TestAudit2_SyncConfiguration_PublishAndTrigger(t *testing.T) {
 		name                    string
 		publishDeploymentStatus string
 		triggerResourceUpdateOn string
-		wantStatus              int
 		wantPublish             string
 		wantTrigger             string
+		wantStatus              int
 	}{
 		{
 			name:                    "ENABLED publish and ANY_CHANGE trigger",
@@ -1229,9 +1229,11 @@ func TestAudit2_ErrorTypes(t *testing.T) {
 		wantErrType string
 	}{
 		{
-			name:        "not found returns ResourceNotFoundException",
-			action:      "GetConnection",
-			body:        map[string]any{"ConnectionArn": "arn:aws:codestar-connections:us-east-1:000000000000:connection/nonexistent"},
+			name:   "not found returns ResourceNotFoundException",
+			action: "GetConnection",
+			body: map[string]any{
+				"ConnectionArn": "arn:aws:codestar-connections:us-east-1:000000000000:connection/nonexistent",
+			},
 			wantErrType: "ResourceNotFoundException",
 		},
 		{

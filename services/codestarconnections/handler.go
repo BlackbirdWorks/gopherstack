@@ -365,8 +365,8 @@ type listConnectionsInput struct {
 }
 
 type listConnectionsOutput struct {
-	Connections []connectionView `json:"Connections"`
 	NextToken   string           `json:"NextToken,omitempty"`
+	Connections []connectionView `json:"Connections"`
 }
 
 func (h *Handler) handleListConnections(
@@ -488,8 +488,8 @@ type listHostsInput struct {
 }
 
 type listHostsOutput struct {
-	Hosts     []hostView `json:"Hosts"`
 	NextToken string     `json:"NextToken,omitempty"`
+	Hosts     []hostView `json:"Hosts"`
 }
 
 func (h *Handler) handleListHosts(
@@ -721,8 +721,8 @@ type listRepositoryLinksInput struct {
 }
 
 type listRepositoryLinksOutput struct {
-	RepositoryLinks []repositoryLinkItem `json:"RepositoryLinks"`
 	NextToken       string               `json:"NextToken,omitempty"`
+	RepositoryLinks []repositoryLinkItem `json:"RepositoryLinks"`
 }
 
 func (h *Handler) handleListRepositoryLinks(
@@ -1127,8 +1127,8 @@ type listSyncConfigurationsInput struct {
 }
 
 type listSyncConfigurationsOutput struct {
-	SyncConfigurations []syncConfigurationItem `json:"SyncConfigurations"`
 	NextToken          string                  `json:"NextToken,omitempty"`
+	SyncConfigurations []syncConfigurationItem `json:"SyncConfigurations"`
 }
 
 func (h *Handler) handleListSyncConfigurations(
