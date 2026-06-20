@@ -904,12 +904,52 @@ func checkAllTGArnsFound(arns []string, result []TargetGroup) error {
 	return nil
 }
 
+// checkAllTGNamesFound returns ErrTargetGroupNotFound if any queried name is absent from result.
+func checkAllTGNamesFound(names []string, result []TargetGroup) error {
+	for _, n := range names {
+		found := false
+		for _, tg := range result {
+			if tg.TargetGroupName == n {
+				found = true
+
+				break
+			}
+		}
+
+		if !found {
+			return ErrTargetGroupNotFound
+		}
+	}
+
+	return nil
+}
+
 // checkAllArnsFound returns ErrLoadBalancerNotFound if any of the queried ARNs are absent from result.
 func checkAllArnsFound(arns []string, result []LoadBalancer) error {
 	for _, a := range arns {
 		found := false
 		for _, lb := range result {
 			if lb.LoadBalancerArn == a {
+				found = true
+
+				break
+			}
+		}
+
+		if !found {
+			return ErrLoadBalancerNotFound
+		}
+	}
+
+	return nil
+}
+
+// checkAllLBNamesFound returns ErrLoadBalancerNotFound if any of the queried names are absent from result.
+func checkAllLBNamesFound(names []string, result []LoadBalancer) error {
+	for _, n := range names {
+		found := false
+		for _, lb := range result {
+			if lb.LoadBalancerName == n {
 				found = true
 
 				break
@@ -956,6 +996,12 @@ func (b *InMemoryBackend) DescribeLoadBalancers(arns []string, names []string) (
 
 	if len(arns) > 0 {
 		if err := checkAllArnsFound(arns, result); err != nil {
+			return nil, err
+		}
+	}
+
+	if len(names) > 0 {
+		if err := checkAllLBNamesFound(names, result); err != nil {
 			return nil, err
 		}
 	}
@@ -1430,6 +1476,18 @@ func (b *InMemoryBackend) DescribeTargetGroups(arns []string, names []string, lb
 
 	result := b.filterTargetGroupsLocked(arns, names, lbArn, tgLBMap)
 	sortTargetGroupsByName(result)
+
+	if len(arns) > 0 {
+		if err := checkAllTGArnsFound(arns, result); err != nil {
+			return nil, err
+		}
+	}
+
+	if len(names) > 0 {
+		if err := checkAllTGNamesFound(names, result); err != nil {
+			return nil, err
+		}
+	}
 
 	return result, nil
 }

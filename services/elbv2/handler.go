@@ -835,18 +835,27 @@ func (h *Handler) handleDescribeTargetHealth(vals url.Values) (any, error) {
 		return nil, err
 	}
 
-	// When specific targets are requested, filter to only those targets.
+	// When specific targets are requested, include only those targets.
+	// Targets that are requested but not registered get state "unused" with
+	// reason "Target.NotRegistered", matching real AWS behaviour.
 	requestedTargets := parseTargets(vals, "Targets.member")
 	if len(requestedTargets) > 0 {
-		filter := make(map[string]bool, len(requestedTargets))
-		for _, t := range requestedTargets {
-			filter[t.ID+":"+strconv.Itoa(int(t.Port))] = true
+		registeredMap := make(map[string]TargetHealthDescription, len(targets))
+		for _, t := range targets {
+			registeredMap[t.Target.ID+":"+strconv.Itoa(int(t.Target.Port))] = t
 		}
 
-		filtered := targets[:0]
-		for _, t := range targets {
-			if filter[t.Target.ID+":"+strconv.Itoa(int(t.Target.Port))] {
-				filtered = append(filtered, t)
+		filtered := make([]TargetHealthDescription, 0, len(requestedTargets))
+		for _, rt := range requestedTargets {
+			key := rt.ID + ":" + strconv.Itoa(int(rt.Port))
+			if registered, ok := registeredMap[key]; ok {
+				filtered = append(filtered, registered)
+			} else {
+				filtered = append(filtered, TargetHealthDescription{
+					Target:       rt,
+					HealthState:  "unused",
+					HealthReason: "Target.NotRegistered",
+				})
 			}
 		}
 
