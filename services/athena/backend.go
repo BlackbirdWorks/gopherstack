@@ -506,6 +506,17 @@ func (b *InMemoryBackend) dataCatalogARN(name string) string {
 // per-query data-scan limit (10 MB).
 const athenaMinBytesScannedCutoff int64 = 10 * 1024 * 1024
 
+// validateWorkGroupState reports an error if state is non-empty and not one of
+// the two valid AWS values ("ENABLED" or "DISABLED"). An empty string is
+// accepted where the caller treats it as "use default".
+func validateWorkGroupState(state string) error {
+	if state == "" || state == "ENABLED" || state == "DISABLED" {
+		return nil
+	}
+
+	return fmt.Errorf("%w: State %q is invalid; must be ENABLED or DISABLED", ErrValidation, state)
+}
+
 // validateWorkGroupConfiguration enforces AWS-documented bounds for workgroup
 // configuration knobs. Currently this only checks BytesScannedCutoffPerQuery
 // (a positive value < 10 MiB is rejected; zero means "unlimited" and is
@@ -528,6 +539,10 @@ func (b *InMemoryBackend) CreateWorkGroup(
 ) error {
 	if name == "" {
 		return fmt.Errorf("%w: Name is required", ErrValidation)
+	}
+
+	if err := validateWorkGroupState(state); err != nil {
+		return err
 	}
 
 	if err := validateWorkGroupConfiguration(cfg); err != nil {
@@ -608,6 +623,10 @@ func (b *InMemoryBackend) ListWorkGroups() ([]WorkGroupSummary, error) {
 
 // UpdateWorkGroup updates an existing workgroup.
 func (b *InMemoryBackend) UpdateWorkGroup(name, description, state string, cfg *WorkGroupConfiguration) error {
+	if err := validateWorkGroupState(state); err != nil {
+		return err
+	}
+
 	if cfg != nil {
 		if err := validateWorkGroupConfiguration(*cfg); err != nil {
 			return err
@@ -918,6 +937,10 @@ func (b *InMemoryBackend) StartQueryExecution(
 	rc ResultConfiguration,
 	execParams []string,
 ) (string, error) {
+	if query == "" {
+		return "", fmt.Errorf("%w: QueryString is required", ErrValidation)
+	}
+
 	if workGroup == "" {
 		workGroup = defaultWorkGroup
 	}

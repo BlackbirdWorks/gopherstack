@@ -531,7 +531,7 @@ func (h *Handler) dataCatalogOps() map[string]athenaActionFn {
 				return nil, err
 			}
 
-			return map[string]any{"DataCatalogsSummary": list, "NextToken": ""}, nil
+			return map[string]any{"DataCatalogsSummary": list}, nil
 		},
 		"UpdateDataCatalog": func(b []byte) (any, error) {
 			var input updateDataCatalogInput
@@ -691,8 +691,16 @@ func (h *Handler) handleGetQueryResults(b []byte) (any, error) {
 		)
 	}
 
-	if _, err := h.Backend.GetQueryExecution(input.QueryExecutionID); err != nil {
+	qe, err := h.Backend.GetQueryExecution(input.QueryExecutionID)
+	if err != nil {
 		return nil, err
+	}
+
+	if qe.Status.State != stateSucceeded {
+		return nil, fmt.Errorf(
+			"%w: query has not yet finished. Current state: %s",
+			ErrValidation, qe.Status.State,
+		)
 	}
 
 	page, err := h.Backend.GetQueryResults(input.QueryExecutionID, input.NextToken, input.MaxResults)
