@@ -31,6 +31,10 @@ const (
 	minAllocatedStorage = 20
 	maxAllocatedStorage = 65536
 
+	// AWS bounds for BackupRetentionPeriod on DB clusters (1–35 days; 0 disables backups for instances).
+	minClusterBackupRetention = 1
+	maxClusterBackupRetention = 35
+
 	monitoringInterval5  = 5
 	monitoringInterval10 = 10
 	monitoringInterval15 = 15
@@ -1753,6 +1757,23 @@ func (h *Handler) handleCreateDBCluster(vals url.Values) (any, error) {
 		}
 	}
 
+	backupRetention := minClusterBackupRetention
+	if rawBR := vals.Get("BackupRetentionPeriod"); rawBR != "" {
+		v, err := strconv.Atoi(rawBR)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid BackupRetentionPeriod %q", ErrInvalidParameter, rawBR)
+		}
+
+		if v < minClusterBackupRetention || v > maxClusterBackupRetention {
+			return nil, fmt.Errorf(
+				"%w: BackupRetentionPeriod must be between %d and %d; got %d",
+				ErrInvalidParameter, minClusterBackupRetention, maxClusterBackupRetention, v,
+			)
+		}
+
+		backupRetention = v
+	}
+
 	clusterOpts := DBClusterOptions{
 		EngineVersion:                vals.Get("EngineVersion"),
 		KmsKeyID:                     vals.Get("KmsKeyId"),
@@ -1765,6 +1786,7 @@ func (h *Handler) handleCreateDBCluster(vals url.Values) (any, error) {
 		EnabledCloudwatchLogsExports: parseMultiValueParam(vals, "EnableCloudwatchLogsExports.member"),
 		AvailabilityZones:            parseMultiValueParam(vals, "AvailabilityZones.AvailabilityZone"),
 		BacktrackWindow:              backtrackWindow,
+		BackupRetentionPeriod:        backupRetention,
 		MonitoringInterval:           monitoringInterval,
 		MultiAZ:                      vals.Get("MultiAZ") == formTrue,
 		StorageEncrypted:             vals.Get("StorageEncrypted") == formTrue,
@@ -2367,6 +2389,7 @@ func toXMLCluster(c *DBCluster) xmlDBCluster {
 		MonitoringRoleArn:               c.MonitoringRoleArn,
 		ClusterCreateTime:               clusterCreateTime,
 		BacktrackWindow:                 c.BacktrackWindow,
+		BackupRetentionPeriod:           c.BackupRetentionPeriod,
 		MonitoringInterval:              c.MonitoringInterval,
 		MultiAZ:                         c.MultiAZ,
 		StorageEncrypted:                c.StorageEncrypted,
@@ -2636,6 +2659,7 @@ type xmlDBCluster struct {
 	MonitoringRoleArn                string                   `xml:"MonitoringRoleArn,omitempty"`
 	ClusterCreateTime                string                   `xml:"ClusterCreateTime,omitempty"`
 	Port                             int                      `xml:"Port"`
+	BackupRetentionPeriod            int                      `xml:"BackupRetentionPeriod"`
 	BacktrackWindow                  int64                    `xml:"BacktrackWindow,omitempty"`
 	MonitoringInterval               int                      `xml:"MonitoringInterval,omitempty"`
 	MultiAZ                          bool                     `xml:"MultiAZ,omitempty"`
