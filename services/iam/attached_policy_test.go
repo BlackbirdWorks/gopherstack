@@ -32,7 +32,7 @@ func TestListAttachedUserPolicies(t *testing.T) {
 			name:           "success",
 			setupUser:      "alice",
 			setupPolicy:    "MyPolicy",
-			policyDoc:      `{"Version":"2012-10-17","Statement":[]}`,
+			policyDoc:      `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
 			userName:       "alice",
 			wantCount:      1,
 			wantPolicyName: "MyPolicy",
@@ -94,7 +94,7 @@ func TestListAttachedRolePolicies(t *testing.T) {
 			name:           "success",
 			setupRole:      "MyRole",
 			setupPolicy:    "RolePolicy",
-			policyDoc:      `{"Version":"2012-10-17","Statement":[]}`,
+			policyDoc:      `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
 			roleName:       "MyRole",
 			wantCount:      1,
 			wantPolicyName: "RolePolicy",
@@ -147,7 +147,11 @@ func TestAttachUserPolicyIdempotent(t *testing.T) {
 	_, err := b.CreateUser("bob", "/", "")
 	require.NoError(t, err)
 
-	pol, err := b.CreatePolicy("Pol", "/", `{}`)
+	pol, err := b.CreatePolicy(
+		"Pol",
+		"/",
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+	)
 	require.NoError(t, err)
 
 	// Attach twice — should not duplicate.
@@ -188,7 +192,11 @@ func TestGetPolicy(t *testing.T) {
 
 			var polArn string
 			if tt.setupPolicy != "" {
-				pol, err := b.CreatePolicy(tt.setupPolicy, "/", `{"Version":"2012-10-17"}`)
+				pol, err := b.CreatePolicy(
+					tt.setupPolicy,
+					"/",
+					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+				)
 				require.NoError(t, err)
 				polArn = pol.Arn
 			}
@@ -216,13 +224,21 @@ func TestGetPolicyVersion(t *testing.T) {
 
 	b := newIAMBackend(t)
 
-	pol, err := b.CreatePolicy("VersionedPol", "/", `{"Version":"2012-10-17","Statement":[]}`)
+	pol, err := b.CreatePolicy(
+		"VersionedPol",
+		"/",
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+	)
 	require.NoError(t, err)
 
 	// "v1" is always the default version in Gopherstack.
 	got, err := b.GetPolicyVersion(pol.Arn, "v1")
 	require.NoError(t, err)
-	assert.JSONEq(t, `{"Version":"2012-10-17","Statement":[]}`, got.PolicyDocument)
+	assert.JSONEq(
+		t,
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+		got.PolicyDocument,
+	)
 }
 
 func TestListPolicyVersions(t *testing.T) {
@@ -253,12 +269,16 @@ func TestListPolicyVersions(t *testing.T) {
 			t.Parallel()
 
 			b := newIAMBackend(t)
-			pol, err := b.CreatePolicy("VersionedPol", "/", `{"Version":"2012-10-17","Statement":[]}`)
+			pol, err := b.CreatePolicy(
+				"VersionedPol",
+				"/",
+				`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+			)
 			require.NoError(t, err)
 
 			_, err = b.CreatePolicyVersion(
 				pol.Arn,
-				`{"Version":"2012-10-17","Statement":[{"Effect":"Deny"}]}`,
+				`{"Version":"2012-10-17","Statement":[{"Effect":"Deny","Action":"*","Resource":"*"}]}`,
 				tt.setAsDefault,
 			)
 			require.NoError(t, err)
@@ -303,7 +323,11 @@ func TestDeletePolicyConflict_GroupAttachment(t *testing.T) {
 			t.Parallel()
 
 			b := newIAMBackend(t)
-			pol, err := b.CreatePolicy("GroupManagedPolicy", "/", `{"Version":"2012-10-17","Statement":[]}`)
+			pol, err := b.CreatePolicy(
+				"GroupManagedPolicy",
+				"/",
+				`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+			)
 			require.NoError(t, err)
 
 			_, err = b.CreateGroup("devs", "/")
@@ -354,7 +378,11 @@ func TestDeleteConflict_UserWithAttachedPolicy(t *testing.T) {
 			require.NoError(t, err)
 
 			if tt.attachPolicy {
-				pol, pErr := b.CreatePolicy("MyPolicy", "/", `{"Version":"2012-10-17","Statement":[]}`)
+				pol, pErr := b.CreatePolicy(
+					"MyPolicy",
+					"/",
+					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+				)
 				require.NoError(t, pErr)
 				require.NoError(t, b.AttachUserPolicy("alice", pol.Arn))
 			}
@@ -395,11 +423,20 @@ func TestDeleteConflict_RoleWithAttachedPolicy(t *testing.T) {
 
 			b := newIAMBackend(t)
 
-			_, err := b.CreateRole("MyRole", "/", `{"Version":"2012-10-17","Statement":[]}`, "")
+			_, err := b.CreateRole(
+				"MyRole",
+				"/",
+				`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+				"",
+			)
 			require.NoError(t, err)
 
 			if tt.attachPolicy {
-				pol, pErr := b.CreatePolicy("RolePolicy", "/", `{"Version":"2012-10-17","Statement":[]}`)
+				pol, pErr := b.CreatePolicy(
+					"RolePolicy",
+					"/",
+					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+				)
 				require.NoError(t, pErr)
 				require.NoError(t, b.AttachRolePolicy("MyRole", pol.Arn))
 			}
@@ -440,7 +477,11 @@ func TestDeleteConflict_PolicyAttachedToEntity(t *testing.T) {
 
 			b := newIAMBackend(t)
 
-			pol, err := b.CreatePolicy("StuckPolicy", "/", `{"Version":"2012-10-17","Statement":[]}`)
+			pol, err := b.CreatePolicy(
+				"StuckPolicy",
+				"/",
+				`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+			)
 			require.NoError(t, err)
 
 			if tt.attachToUser {
@@ -475,7 +516,7 @@ func TestMalformedPolicyDocument(t *testing.T) {
 		},
 		{
 			name: "valid_json_create_policy",
-			doc:  `{"Version":"2012-10-17","Statement":[]}`,
+			doc:  `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
 		},
 		{
 			name: "empty_doc_allowed",
@@ -515,7 +556,7 @@ func TestMalformedPolicyDocument_CreateRole(t *testing.T) {
 		},
 		{
 			name:     "valid_json_trust_policy",
-			trustDoc: `{"Version":"2012-10-17","Statement":[]}`,
+			trustDoc: `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
 		},
 		{
 			name:     "empty_trust_policy_allowed",

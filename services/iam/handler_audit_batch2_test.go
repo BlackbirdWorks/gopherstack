@@ -675,7 +675,7 @@ func TestHandler_GetPolicyVersion_VersionIdNotHardcoded(t *testing.T) {
 			e := echo.New()
 			h, b := newTestHandler(t)
 
-			doc := `{"Version":"2012-10-17","Statement":[]}`
+			doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 			p, err := b.CreatePolicy("GPVPolicy-"+tc.name, "/", doc)
 			require.NoError(t, err)
 
@@ -740,7 +740,7 @@ func TestHandler_GetPolicy_ReturnsAWSFields(t *testing.T) {
 			e := echo.New()
 			h, b := newTestHandler(t)
 
-			doc := `{"Version":"2012-10-17","Statement":[]}`
+			doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 			p, err := b.CreatePolicy("GPFieldsPolicy-"+tc.name, "/", doc)
 			require.NoError(t, err)
 
@@ -770,7 +770,7 @@ func TestHandler_GetPolicy_DefaultVersionIdUpdatesAfterNewDefault(t *testing.T) 
 	e := echo.New()
 	h, b := newTestHandler(t)
 
-	doc := `{"Version":"2012-10-17","Statement":[]}`
+	doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 	p, err := b.CreatePolicy("GPDefVer", "/", doc)
 	require.NoError(t, err)
 

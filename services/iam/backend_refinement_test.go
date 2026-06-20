@@ -372,7 +372,11 @@ func TestBackendRefinement_PolicyVersionMgmt(t *testing.T) {
 			t.Parallel()
 
 			b := iam.NewInMemoryBackend()
-			pol, err := b.CreatePolicy("MyPolicy", "/", `{"Version":"2012-10-17","Statement":[]}`)
+			pol, err := b.CreatePolicy(
+				"MyPolicy",
+				"/",
+				`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+			)
 			require.NoError(t, err)
 
 			_, err = b.CreatePolicyVersion(
@@ -416,7 +420,12 @@ func TestBackendRefinement_ListEntitiesForPolicy(t *testing.T) {
 			setup: func(b *iam.InMemoryBackend, policyArn string) {
 				_, _ = b.CreateUser("alice", "/", "")
 				_, _ = b.CreateGroup("Admins", "/")
-				_, _ = b.CreateRole("DevRole", "/", `{"Version":"2012-10-17","Statement":[]}`, "")
+				_, _ = b.CreateRole(
+					"DevRole",
+					"/",
+					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+					"",
+				)
 				_ = b.AttachUserPolicy("alice", policyArn)
 				_ = b.AttachGroupPolicy("Admins", policyArn)
 				_ = b.AttachRolePolicy("DevRole", policyArn)
@@ -449,7 +458,11 @@ func TestBackendRefinement_ListEntitiesForPolicy(t *testing.T) {
 			var policyArn string
 
 			if !tt.wantErr {
-				pol, err := b.CreatePolicy("TestPolicy", "/", `{"Version":"2012-10-17","Statement":[]}`)
+				pol, err := b.CreatePolicy(
+					"TestPolicy",
+					"/",
+					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+				)
 				require.NoError(t, err)
 				policyArn = pol.Arn
 			} else {
@@ -565,7 +578,12 @@ func TestBackendRefinement_UpdateRole(t *testing.T) {
 			t.Parallel()
 
 			b := iam.NewInMemoryBackend()
-			_, _ = b.CreateRole("MyRole", "/", `{"Version":"2012-10-17","Statement":[]}`, "")
+			_, _ = b.CreateRole(
+				"MyRole",
+				"/",
+				`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+				"",
+			)
 
 			err := b.UpdateRole(tt.roleName, tt.description)
 			if tt.wantErr {
@@ -773,8 +791,10 @@ func TestBackendRefinement_SimulateCustomPolicy(t *testing.T) {
 			wantDecisions: []string{"allowed"},
 		},
 		{
-			name:          "implicit_deny",
-			policies:      []string{`{"Version":"2012-10-17","Statement":[]}`},
+			name: "implicit_deny",
+			policies: []string{
+				`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"ec2:DescribeInstances","Resource":"*"}]}`,
+			},
 			actions:       []string{"s3:GetObject"},
 			resources:     []string{"*"},
 			wantDecisions: []string{"implicitDeny"},

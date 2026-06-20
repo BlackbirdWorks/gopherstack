@@ -888,7 +888,7 @@ func TestGetPolicyVersion_VersionIdMatchesRequested(t *testing.T) {
 			t.Parallel()
 
 			b := newBackend(t)
-			doc := `{"Version":"2012-10-17","Statement":[]}`
+			doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 			p, err := b.CreatePolicy("VersionIdPolicy-"+tc.name, "/", doc)
 			require.NoError(t, err)
 
@@ -917,7 +917,7 @@ func TestPolicy_UpdateDateSetOnCreate(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	doc := `{"Version":"2012-10-17","Statement":[]}`
+	doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 	p, err := b.CreatePolicy("UpdateDatePolicy", "/", doc)
 	require.NoError(t, err)
 
@@ -929,7 +929,7 @@ func TestPolicy_DefaultVersionIdSetOnCreate(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	doc := `{"Version":"2012-10-17","Statement":[]}`
+	doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 	p, err := b.CreatePolicy("DefaultVerPolicy", "/", doc)
 	require.NoError(t, err)
 
@@ -941,7 +941,7 @@ func TestPolicy_IsAttachableTrueOnCreate(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	doc := `{"Version":"2012-10-17","Statement":[]}`
+	doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 	p, err := b.CreatePolicy("IsAttachablePolicy", "/", doc)
 	require.NoError(t, err)
 
@@ -999,7 +999,7 @@ func TestPolicy_AttachmentCount(t *testing.T) {
 			t.Parallel()
 
 			b := newBackend(t)
-			doc := `{"Version":"2012-10-17","Statement":[]}`
+			doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 			p, err := b.CreatePolicy("AttCountPolicy-"+tc.name, "/", doc)
 			require.NoError(t, err)
 
@@ -1029,7 +1029,7 @@ func TestPolicy_UpdateDateAdvancesOnNewDefault(t *testing.T) {
 			t.Parallel()
 
 			b := newBackend(t)
-			doc := `{"Version":"2012-10-17","Statement":[]}`
+			doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 			p, err := b.CreatePolicy("UpdateDateAdv-"+tc.name, "/", doc)
 			require.NoError(t, err)
 
@@ -1062,7 +1062,7 @@ func TestPolicy_DefaultVersionIdAfterSetDefault(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	doc := `{"Version":"2012-10-17","Statement":[]}`
+	doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 	p, err := b.CreatePolicy("DefVerAfterSet", "/", doc)
 	require.NoError(t, err)
 
