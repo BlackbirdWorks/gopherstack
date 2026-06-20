@@ -54,6 +54,9 @@ var (
 	ErrInvalidKeyUsage = errors.New("InvalidKeyUsageException")
 	// ErrInvalidCiphertext is returned when the ciphertext cannot be decrypted.
 	ErrInvalidCiphertext = errors.New("InvalidCiphertextException")
+	// ErrIncorrectKey is returned when the KMS key identified by a caller-supplied KeyId
+	// (Decrypt) or SourceKeyId (ReEncrypt) is not the key that encrypted the ciphertext.
+	ErrIncorrectKey = errors.New("IncorrectKeyException")
 	// ErrGrantNotFound is returned when the specified grant does not exist.
 	ErrGrantNotFound = errors.New("NotFoundException: grant not found")
 	// ErrCiphertextTooShort is returned when the ciphertext is too short.
@@ -859,6 +862,32 @@ func (*InMemoryBackend) encryptPayload(
 }
 
 // Decrypt decrypts the given ciphertext blob.
+// verifyKeyIDHint validates a caller-supplied key identifier (Decrypt's KeyId or
+// ReEncrypt's SourceKeyId) against the key ID embedded in the ciphertext blob.
+// When the hint is empty it is a no-op (AWS reads the key from the symmetric blob
+// metadata). When the hint resolves to a different key, AWS KMS rejects the request
+// with IncorrectKeyException rather than silently using the embedded key.
+// Must be called with at least a read lock held.
+func (b *InMemoryBackend) verifyKeyIDHint(ctx context.Context, hint, embeddedKeyID, paramName string) error {
+	if hint == "" {
+		return nil
+	}
+
+	hintResolved, _, err := b.resolveKeyID(ctx, hint)
+	if err != nil {
+		return err
+	}
+
+	if hintResolved != embeddedKeyID {
+		return fmt.Errorf(
+			"%w: provided %s %q does not match the key that encrypted the ciphertext",
+			ErrIncorrectKey, paramName, hint,
+		)
+	}
+
+	return nil
+}
+
 func (b *InMemoryBackend) Decrypt(ctx context.Context, input *DecryptInput) (*DecryptOutput, error) {
 	if err := validateEncryptionContextSize(input.EncryptionContext); err != nil {
 		return nil, err
@@ -877,18 +906,8 @@ func (b *InMemoryBackend) Decrypt(ctx context.Context, input *DecryptInput) (*De
 	keyID := strings.TrimRight(string(input.CiphertextBlob[:keyIDPrefixLen]), "\x00")
 
 	// If the caller provided a KeyId hint, verify it matches the embedded key ID.
-	if input.KeyID != "" {
-		hintResolved, _, hintErr := b.resolveKeyID(ctx, input.KeyID)
-		if hintErr != nil {
-			return nil, hintErr
-		}
-
-		if hintResolved != keyID {
-			return nil, fmt.Errorf(
-				"%w: provided KeyId %q does not match the key that encrypted the ciphertext",
-				ErrInvalidCiphertext, input.KeyID,
-			)
-		}
+	if err := b.verifyKeyIDHint(ctx, input.KeyID, keyID, "KeyId"); err != nil {
+		return nil, err
 	}
 
 	key, lookupErr := b.lookupKey(ctx, keyID)
@@ -1064,6 +1083,13 @@ func (b *InMemoryBackend) ReEncrypt(ctx context.Context, input *ReEncryptInput) 
 	}
 
 	sourceKeyID := strings.TrimRight(string(input.CiphertextBlob[:keyIDPrefixLen]), "\x00")
+
+	// If the caller supplied a SourceKeyId hint, AWS KMS uses only that key and
+	// rejects the request with IncorrectKeyException when it is not the key that
+	// encrypted the source ciphertext.
+	if err := b.verifyKeyIDHint(ctx, input.SourceKeyID, sourceKeyID, "SourceKeyId"); err != nil {
+		return nil, err
+	}
 
 	// Validate source key state and usage before decrypting.
 	sourceKey, sourceErr := b.lookupKey(ctx, sourceKeyID)

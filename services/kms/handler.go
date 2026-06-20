@@ -1050,6 +1050,7 @@ func kmsErrorTable() []kmsErrorEntry {
 		{ErrInvalidKeyUsage, "InvalidKeyUsageException"},
 		{ErrAliasAlreadyExists, "AlreadyExistsException"},
 		{ErrCustomKeyStoreAlreadyExists, "CustomKeyStoreNameInUseException"},
+		{ErrIncorrectKey, "IncorrectKeyException"},
 		{ErrInvalidCiphertext, awsErrInvalidCiphertext},
 		{ErrCiphertextTooShort, awsErrInvalidCiphertext},
 		{ErrInvalidSignature, "KMSInvalidSignatureException"},
