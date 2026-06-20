@@ -22,6 +22,7 @@ import (
 const (
 	firehoseTargetPrefix = "Firehose_20150804."
 	errFieldMessage      = "message"
+	errFieldType         = "__type"
 )
 
 var (
@@ -207,11 +208,17 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	switch {
 	case errors.Is(err, ErrNotFound):
 		return c.JSON(http.StatusNotFound,
-			map[string]any{"__type": "ResourceNotFoundException", errFieldMessage: err.Error()})
-	case errors.Is(err, ErrAlreadyExists), errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
-		errors.Is(err, awserr.ErrInvalidParameter), errors.Is(err, ErrValidation),
-		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
-		return c.JSON(http.StatusBadRequest, map[string]string{errFieldMessage: err.Error()})
+			map[string]any{errFieldType: "ResourceNotFoundException", errFieldMessage: err.Error()})
+	case errors.Is(err, ErrAlreadyExists):
+		return c.JSON(http.StatusBadRequest,
+			map[string]any{errFieldType: "ResourceInUseException", errFieldMessage: err.Error()})
+	case errors.Is(err, errUnknownAction):
+		return c.JSON(http.StatusBadRequest,
+			map[string]any{errFieldType: "UnknownOperationException", errFieldMessage: err.Error()})
+	case errors.Is(err, errInvalidRequest), errors.Is(err, awserr.ErrInvalidParameter),
+		errors.Is(err, ErrValidation), errors.As(err, &syntaxErr), errors.As(err, &typeErr):
+		return c.JSON(http.StatusBadRequest,
+			map[string]any{errFieldType: "InvalidArgumentException", errFieldMessage: err.Error()})
 	default:
 		return c.JSON(http.StatusInternalServerError, map[string]string{errFieldMessage: err.Error()})
 	}
@@ -738,9 +745,17 @@ type handlePutRecordBatchInput struct {
 	Records            []firehoseRecord `json:"Records"`
 }
 
+// putRecordBatchEntry holds the per-record response from PutRecordBatch.
+// On success RecordId is populated; on failure ErrorCode and ErrorMessage are set.
+type putRecordBatchEntry struct {
+	RecordID     string `json:"RecordId,omitempty"`
+	ErrorCode    string `json:"ErrorCode,omitempty"`
+	ErrorMessage string `json:"ErrorMessage,omitempty"`
+}
+
 type putRecordBatchOutput struct {
-	RequestResponses []struct{} `json:"RequestResponses"`
-	FailedPutCount   int        `json:"FailedPutCount"`
+	RequestResponses []putRecordBatchEntry `json:"RequestResponses"`
+	FailedPutCount   int                   `json:"FailedPutCount"`
 }
 
 func (h *Handler) handlePutRecordBatch(
@@ -762,9 +777,14 @@ func (h *Handler) handlePutRecordBatch(
 		return nil, err
 	}
 
+	responses := make([]putRecordBatchEntry, len(records))
+	for i := range records {
+		responses[i] = putRecordBatchEntry{RecordID: newRecordID()}
+	}
+
 	return &putRecordBatchOutput{
 		FailedPutCount:   failedCount,
-		RequestResponses: []struct{}{},
+		RequestResponses: responses,
 	}, nil
 }
 
