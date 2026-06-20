@@ -501,6 +501,7 @@ func TestAccuracy_StartDocumentAnalysis_ClientRequestToken_Idempotency(t *testin
 		"DocumentLocation": map[string]any{
 			"S3Object": map[string]any{"Bucket": "b", "Name": "doc.pdf"},
 		},
+		"FeatureTypes":       []string{"TABLES"},
 		"ClientRequestToken": "unique-token-abc123",
 	}
 

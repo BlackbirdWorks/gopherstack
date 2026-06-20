@@ -128,10 +128,10 @@ func TestHandler_AnalyzeDocument(t *testing.T) {
 			wantBlocks: true,
 		},
 		{
-			name:       "empty body still returns blocks",
+			name:       "empty body rejects with 400 (FeatureTypes required)",
 			body:       map[string]any{},
-			wantStatus: http.StatusOK,
-			wantBlocks: true,
+			wantStatus: http.StatusBadRequest,
+			wantBlocks: false,
 		},
 	}
 
@@ -527,6 +527,7 @@ func TestHandler_Snapshot_Restore(t *testing.T) {
 								"Name":   "doc.pdf",
 							},
 						},
+						"FeatureTypes": []string{"TABLES"},
 					})
 				} else {
 					doTextractRequest(t, h, "StartDocumentTextDetection", map[string]any{

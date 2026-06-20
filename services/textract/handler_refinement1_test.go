@@ -92,6 +92,7 @@ func TestRefinement1_HandlerReset(t *testing.T) {
 		"DocumentLocation": map[string]any{
 			"S3Object": map[string]any{"Bucket": "b", "Name": "k"},
 		},
+		"FeatureTypes": []string{"TABLES"},
 	})
 
 	h.Reset()

@@ -15,9 +15,9 @@ func TestParity_AnalyzeDocumentRequiresNonEmptyFeatureTypes(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		featureTypes []string
 		name         string
 		op           string
+		featureTypes []string
 		wantCode     int
 	}{
 		{

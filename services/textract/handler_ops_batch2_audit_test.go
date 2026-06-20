@@ -58,6 +58,7 @@ func startDocumentAnalysisJob(t *testing.T, h *textract.Handler) string {
 		"DocumentLocation": map[string]any{
 			"S3Object": map[string]any{"Bucket": "my-bucket", "Name": "file.pdf"},
 		},
+		"FeatureTypes": []string{"TABLES"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -354,6 +355,7 @@ func TestBatch2_AsyncJob_InitialStatus_InProgress(t *testing.T) {
 		"DocumentLocation": map[string]any{
 			"S3Object": map[string]any{"Bucket": "b", "Name": "k"},
 		},
+		"FeatureTypes": []string{"TABLES"},
 	})
 	require.Equal(t, http.StatusOK, startRec.Code)
 
@@ -403,11 +405,16 @@ func TestBatch2_GetExpenseAnalysis_RejectsDocumentAnalysisJobID(t *testing.T) {
 
 			h := b2TextractHandler(t)
 
-			startRec := doTextractRequest(t, h, tc.startAction, map[string]any{
+			startBody := map[string]any{
 				"DocumentLocation": map[string]any{
 					"S3Object": map[string]any{"Bucket": "b", "Name": "k"},
 				},
-			})
+			}
+			if tc.startAction == "StartDocumentAnalysis" {
+				startBody["FeatureTypes"] = []string{"TABLES"}
+			}
+
+			startRec := doTextractRequest(t, h, tc.startAction, startBody)
 			require.Equal(t, http.StatusOK, startRec.Code)
 
 			var startResp map[string]string
