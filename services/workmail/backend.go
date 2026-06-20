@@ -3,8 +3,10 @@ package workmail
 import (
 	"errors"
 	"fmt"
+	"net"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -25,6 +27,8 @@ var (
 	ErrLimitExceeded = errors.New("LimitExceededException")
 	// ErrMailDomainState is returned for domain state issues.
 	ErrMailDomainState = errors.New("MailDomainStateException")
+	// ErrEntityState is returned when an operation violates entity state constraints.
+	ErrEntityState = errors.New("EntityStateException")
 )
 
 const (
@@ -330,6 +334,14 @@ func (b *InMemoryBackend) CreateUser(orgID, name, displayName, password, role st
 	}
 	_ = org
 
+	if name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
+	}
+	validRoles := map[string]bool{"USER": true, "RESOURCE": true, "SYSTEM_USER": true}
+	if role != "" && !validRoles[role] {
+		return nil, fmt.Errorf("%w: invalid Role %q, must be USER, RESOURCE, or SYSTEM_USER", ErrValidation, role)
+	}
+
 	b.ensureOrgMaps(orgID)
 	for _, u := range b.users[orgID] {
 		if u.Name == name {
@@ -432,6 +444,10 @@ func (b *InMemoryBackend) DeleteUser(orgID, entityID string) error {
 		return fmt.Errorf("%w: user %q not found", ErrNotFound, entityID)
 	}
 
+	if u.State == stateEnabled {
+		return fmt.Errorf("%w: user %q is in ENABLED state and cannot be deleted; call DeregisterFromWorkMail first", ErrEntityState, entityID)
+	}
+
 	actualID := u.UserID
 	if u.Email != "" {
 		delete(b.usersByEmail[orgID], u.Email)
@@ -458,6 +474,7 @@ func (b *InMemoryBackend) ListUsers(orgID string, maxResults int32, nextToken st
 			Email:       u.Email,
 			DisplayName: u.DisplayName,
 			State:       u.State,
+			Role:        u.Role,
 		})
 	}
 	sort.Slice(users, func(i, j int) bool { return users[i].Name < users[j].Name })
@@ -653,6 +670,30 @@ func (b *InMemoryBackend) UpdatePrimaryEmailAddress(orgID, entityID, email strin
 		return nil
 	}
 
+	if g := b.findGroup(orgID, entityID); g != nil {
+		if g.Email != "" {
+			delete(b.groupsByEmail[orgID], g.Email)
+			delete(b.globalAliases, g.Email)
+		}
+		g.Email = email
+		b.groupsByEmail[orgID][email] = g.GroupID
+		b.globalAliases[email] = &trackedAlias{orgID: orgID, entityID: g.GroupID}
+
+		return nil
+	}
+
+	if r := b.findResource(orgID, entityID); r != nil {
+		if r.Email != "" {
+			delete(b.resourcesByEmail[orgID], r.Email)
+			delete(b.globalAliases, r.Email)
+		}
+		r.Email = email
+		b.resourcesByEmail[orgID][email] = r.ResourceID
+		b.globalAliases[email] = &trackedAlias{orgID: orgID, entityID: r.ResourceID}
+
+		return nil
+	}
+
 	return fmt.Errorf("%w: entity %q not found", ErrNotFound, entityID)
 }
 
@@ -681,6 +722,11 @@ func (b *InMemoryBackend) CreateGroup(orgID, name string, hidden bool) (*Group, 
 	if _, ok := b.organizations[orgID]; !ok {
 		return nil, fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
 	}
+
+	if name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
+	}
+
 	b.ensureOrgMaps(orgID)
 	for _, g := range b.groups[orgID] {
 		if g.Name == name {
@@ -750,6 +796,10 @@ func (b *InMemoryBackend) DeleteGroup(orgID, entityID string) error {
 	g := b.findGroup(orgID, entityID)
 	if g == nil {
 		return fmt.Errorf("%w: group %q not found", ErrNotFound, entityID)
+	}
+
+	if g.State == stateEnabled {
+		return fmt.Errorf("%w: group %q is in ENABLED state and cannot be deleted; call DeregisterFromWorkMail first", ErrEntityState, entityID)
 	}
 
 	if g.Email != "" {
@@ -921,6 +971,15 @@ func (b *InMemoryBackend) CreateResource(orgID, name, resourceType, description 
 	if _, ok := b.organizations[orgID]; !ok {
 		return nil, fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
 	}
+
+	if name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
+	}
+	validTypes := map[string]bool{"ROOM": true, "EQUIPMENT": true}
+	if resourceType != "" && !validTypes[resourceType] {
+		return nil, fmt.Errorf("%w: invalid Type %q, must be ROOM or EQUIPMENT", ErrValidation, resourceType)
+	}
+
 	b.ensureOrgMaps(orgID)
 	for _, r := range b.resources[orgID] {
 		if r.Name == name {
@@ -997,6 +1056,10 @@ func (b *InMemoryBackend) DeleteResource(orgID, entityID string) error {
 	r := b.findResource(orgID, entityID)
 	if r == nil {
 		return fmt.Errorf("%w: resource %q not found", ErrNotFound, entityID)
+	}
+
+	if r.State == stateEnabled {
+		return fmt.Errorf("%w: resource %q is in ENABLED state and cannot be deleted; call DeregisterFromWorkMail first", ErrEntityState, entityID)
 	}
 
 	if r.Email != "" {
@@ -1502,7 +1565,7 @@ func (b *InMemoryBackend) DeleteAccessControlRule(orgID, name string) error {
 }
 
 // GetAccessControlEffect evaluates access control rules.
-func (b *InMemoryBackend) GetAccessControlEffect(orgID, _, _, _ string) (string, []string, error) {
+func (b *InMemoryBackend) GetAccessControlEffect(orgID, ipAddr, action, userID string) (string, []string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -1510,8 +1573,69 @@ func (b *InMemoryBackend) GetAccessControlEffect(orgID, _, _, _ string) (string,
 		return "", nil, fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
 	}
 
-	// default effect when no rules match
+	rules := make([]*AccessControlRule, 0, len(b.accessRules[orgID]))
+	for _, r := range b.accessRules[orgID] {
+		rules = append(rules, r)
+	}
+	// AWS evaluates rules in creation order; sort by DateCreated for determinism
+	sort.Slice(rules, func(i, j int) bool {
+		return rules[i].DateCreated.Before(rules[j].DateCreated)
+	})
+
+	for _, rule := range rules {
+		if !ruleMatchesRequest(rule, ipAddr, action, userID) {
+			continue
+		}
+
+		return rule.Effect, []string{rule.Name}, nil
+	}
+
 	return effectAllow, []string{}, nil
+}
+
+// ruleMatchesRequest returns true when ALL non-empty condition lists match.
+func ruleMatchesRequest(rule *AccessControlRule, ipAddr, action, userID string) bool {
+	if len(rule.IPRanges) > 0 && !matchesCIDRList(ipAddr, rule.IPRanges) {
+		return false
+	}
+	if len(rule.NotIPRanges) > 0 && matchesCIDRList(ipAddr, rule.NotIPRanges) {
+		return false
+	}
+	if len(rule.Actions) > 0 && !slices.Contains(rule.Actions, action) {
+		return false
+	}
+	if len(rule.NotActions) > 0 && slices.Contains(rule.NotActions, action) {
+		return false
+	}
+	if len(rule.UserIDs) > 0 && !slices.Contains(rule.UserIDs, userID) {
+		return false
+	}
+	if len(rule.NotUserIDs) > 0 && slices.Contains(rule.NotUserIDs, userID) {
+		return false
+	}
+
+	return true
+}
+
+func matchesCIDRList(ipAddr string, cidrs []string) bool {
+	ip := net.ParseIP(ipAddr)
+	if ip == nil {
+		return false
+	}
+	for _, cidr := range cidrs {
+		if !strings.Contains(cidr, "/") {
+			cidr += "/32"
+		}
+		_, network, err := net.ParseCIDR(cidr)
+		if err != nil {
+			continue
+		}
+		if network.Contains(ip) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // ListAccessControlRules returns all access control rules.
@@ -2573,13 +2697,8 @@ func paginate[T any](items []T, maxResults int32, nextToken string) ([]T, string
 
 	start := 0
 	if nextToken != "" {
-		for i, item := range items {
-			// Use fmt.Sprintf for stable comparison via token = ID field of first skipped item.
-			if fmt.Sprintf("%v", item) == nextToken {
-				start = i
-
-				break
-			}
+		if idx, err := strconv.Atoi(nextToken); err == nil && idx > 0 && idx < len(items) {
+			start = idx
 		}
 	}
 
@@ -2592,7 +2711,5 @@ func paginate[T any](items []T, maxResults int32, nextToken string) ([]T, string
 		return items[start:], ""
 	}
 
-	next := fmt.Sprintf("%v", items[end])
-
-	return items[start:end], next
+	return items[start:end], strconv.Itoa(end)
 }

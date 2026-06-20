@@ -127,6 +127,8 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		code, status = "LimitExceededException", http.StatusBadRequest
 	case errors.Is(err, ErrMailDomainState):
 		code, status = "MailDomainStateException", http.StatusBadRequest
+	case errors.Is(err, ErrEntityState):
+		code, status = "EntityStateException", http.StatusBadRequest
 	case isUnknownOp(err):
 		code, status = "InvalidParameterException", http.StatusBadRequest
 	}
@@ -668,12 +670,13 @@ type describeGroupReq struct {
 }
 
 type describeGroupResp struct {
-	GroupID      string `json:"GroupId"`
-	Name         string `json:"Name"`
-	Email        string `json:"Email,omitempty"`
-	State        string `json:"State"`
-	EnabledDate  int64  `json:"EnabledDate,omitempty"`
-	DisabledDate int64  `json:"DisabledDate,omitempty"`
+	GroupID                     string `json:"GroupId"`
+	Name                        string `json:"Name"`
+	Email                       string `json:"Email,omitempty"`
+	State                       string `json:"State"`
+	EnabledDate                 int64  `json:"EnabledDate,omitempty"`
+	DisabledDate                int64  `json:"DisabledDate,omitempty"`
+	HiddenFromGlobalAddressList bool   `json:"HiddenFromGlobalAddressList"`
 }
 
 func (h *Handler) handleDescribeGroup(_ context.Context, req *describeGroupReq) (*describeGroupResp, error) {
