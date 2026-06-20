@@ -1088,7 +1088,10 @@ func (b *InMemoryBackend) UpdateParameterGroup(input UpdateParameterGroupInput) 
 		}
 
 		if pv.ParameterValue == "" {
-			return nil, fmt.Errorf("%w: value for %q must be a non-negative integer", ErrInvalidParameterValue, pv.ParameterName)
+			return nil, fmt.Errorf(
+				"%w: value for %q must be a non-negative integer",
+				ErrInvalidParameterValue, pv.ParameterName,
+			)
 		}
 
 		val, err := strconv.ParseInt(pv.ParameterValue, 10, 64)

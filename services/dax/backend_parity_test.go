@@ -54,7 +54,7 @@ func TestValidateClusterName(t *testing.T) {
 			if tt.wantErr {
 				require.Error(t, err)
 				if tt.errSentinel != nil {
-					assert.ErrorIs(t, err, tt.errSentinel)
+					require.ErrorIs(t, err, tt.errSentinel)
 				}
 			} else {
 				require.NoError(t, err)
@@ -74,11 +74,26 @@ func TestCreateClusterReplicationFactorBounds(t *testing.T) {
 		replicationFactor int
 		wantErr           bool
 	}{
-		{name: "zero is rejected", replicationFactor: 0, wantErr: true, errSentinel: dax.ErrInvalidParameterCombination},
-		{name: "negative is rejected", replicationFactor: -1, wantErr: true, errSentinel: dax.ErrInvalidParameterCombination},
+		{
+			name:              "zero is rejected",
+			replicationFactor: 0,
+			wantErr:           true,
+			errSentinel:       dax.ErrInvalidParameterCombination,
+		},
+		{
+			name:              "negative is rejected",
+			replicationFactor: -1,
+			wantErr:           true,
+			errSentinel:       dax.ErrInvalidParameterCombination,
+		},
 		{name: "one is valid", replicationFactor: 1, wantErr: false},
 		{name: "ten is valid max", replicationFactor: 10, wantErr: false},
-		{name: "eleven exceeds max", replicationFactor: 11, wantErr: true, errSentinel: dax.ErrInvalidParameterCombination},
+		{
+			name:              "eleven exceeds max",
+			replicationFactor: 11,
+			wantErr:           true,
+			errSentinel:       dax.ErrInvalidParameterCombination,
+		},
 	}
 
 	for _, tt := range tests {
@@ -95,7 +110,7 @@ func TestCreateClusterReplicationFactorBounds(t *testing.T) {
 			if tt.wantErr {
 				require.Error(t, err)
 				if tt.errSentinel != nil {
-					assert.ErrorIs(t, err, tt.errSentinel)
+					require.ErrorIs(t, err, tt.errSentinel)
 				}
 			} else {
 				require.NoError(t, err)
@@ -182,9 +197,9 @@ func TestCreateParameterGroupNameValidation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		pgName    string
-		wantErr   bool
+		name    string
+		pgName  string
+		wantErr bool
 	}{
 		{name: "valid", pgName: "my-pg", wantErr: false},
 		{name: "starts with digit", pgName: "1pg", wantErr: true},
@@ -402,7 +417,8 @@ func TestParameterResponseFields(t *testing.T) {
 
 	for _, p := range params {
 		assert.NotEmpty(t, p.AllowedValues, "param %s should have AllowedValues", p.ParameterName)
-		assert.Equal(t, dax.ParameterTypeDefault, p.ParameterType, "param %s should have ParameterType", p.ParameterName)
+		assert.Equal(t, dax.ParameterTypeDefault, p.ParameterType,
+			"param %s should have ParameterType", p.ParameterName)
 		assert.Equal(t, "integer", p.DataType, "param %s DataType should be integer", p.ParameterName)
 		assert.Equal(t, "TRUE", p.IsModifiable, "param %s IsModifiable should be TRUE", p.ParameterName)
 		assert.Equal(t, "requires-reboot", p.ChangeType, "param %s ChangeType", p.ParameterName)
@@ -512,7 +528,7 @@ func TestDecreaseReplicationFactorNodeIDsCount(t *testing.T) {
 			if tt.wantErr {
 				require.Error(t, err)
 				if tt.errSentinel != nil {
-					assert.ErrorIs(t, err, tt.errSentinel)
+					require.ErrorIs(t, err, tt.errSentinel)
 				}
 			} else {
 				require.NoError(t, err)
