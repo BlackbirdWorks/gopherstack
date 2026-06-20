@@ -425,6 +425,82 @@ func (b *InMemoryBackend) GetThingShadow(thingName, shadowName string) ([]byte, 
 	return buildShadowResponse(entry, "")
 }
 
+// shadowUpdateInput holds the parsed fields from an UpdateThingShadow request body.
+type shadowUpdateInput struct {
+	StateDesired  json.RawMessage
+	StateReported json.RawMessage
+	ClientToken   string
+	Version       *int
+}
+
+// parseShadowUpdateDoc validates and parses an UpdateThingShadow request body.
+// It enforces the "state" key requirement, null/type checks, and clientToken length.
+func parseShadowUpdateDoc(document []byte) (*shadowUpdateInput, error) {
+	// Outer document uses RawMessage for State so we can detect absent vs null.
+	var outer struct {
+		ClientToken string          `json:"clientToken,omitempty"`
+		State       json.RawMessage `json:"state"`
+		Version     *int            `json:"version,omitempty"`
+	}
+
+	if err := json.Unmarshal(document, &outer); err != nil {
+		return nil, fmt.Errorf("%w: invalid JSON document", ErrValidation)
+	}
+
+	if len(outer.State) == 0 {
+		return nil, fmt.Errorf("%w: missing required field: state", ErrValidation)
+	}
+
+	if isJSONNull(outer.State) {
+		return nil, fmt.Errorf("%w: state must be a JSON object, not null", ErrValidation)
+	}
+
+	if err := validateClientToken(outer.ClientToken); err != nil {
+		return nil, err
+	}
+
+	var stateDoc struct {
+		Desired  json.RawMessage `json:"desired"`
+		Reported json.RawMessage `json:"reported"`
+	}
+
+	if err := json.Unmarshal(outer.State, &stateDoc); err != nil {
+		return nil, fmt.Errorf("%w: state must be a valid JSON object", ErrValidation)
+	}
+
+	return &shadowUpdateInput{
+		StateDesired:  stateDoc.Desired,
+		StateReported: stateDoc.Reported,
+		ClientToken:   outer.ClientToken,
+		Version:       outer.Version,
+	}, nil
+}
+
+// applyShadowStateSection merges a raw state section into existing state.
+// raw absent (nil) → keep existing; raw null → clear; raw object → merge patch.
+func applyShadowStateSection(
+	existing map[string]json.RawMessage,
+	existingMeta map[string]int64,
+	raw json.RawMessage,
+	sectionName string,
+	ts int64,
+) (map[string]json.RawMessage, map[string]int64, error) {
+	if len(raw) == 0 {
+		return existing, existingMeta, nil
+	}
+
+	if isJSONNull(raw) {
+		return nil, nil, nil
+	}
+
+	var patch map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &patch); err != nil {
+		return nil, nil, fmt.Errorf("%w: state.%s must be a JSON object", ErrValidation, sectionName)
+	}
+
+	return mergeStateFields(existing, patch), updateMetaFields(existingMeta, patch, ts), nil
+}
+
 // UpdateThingShadow merges the desired/reported state from document into the stored shadow.
 // AWS merge semantics: null values on individual keys delete them; a null section wipes the
 // entire section; missing sections are left unchanged. The state key is required.
@@ -439,42 +515,9 @@ func (b *InMemoryBackend) UpdateThingShadow(thingName, shadowName string, docume
 		return nil, err
 	}
 
-	// Parse the outer document using json.RawMessage for the state section so we can
-	// distinguish "section absent" (nil RawMessage) from "section explicitly null".
-	var rawDoc struct {
-		State       json.RawMessage `json:"state"`
-		Version     *int            `json:"version,omitempty"`
-		ClientToken string          `json:"clientToken,omitempty"`
-	}
-
-	if err := json.Unmarshal(document, &rawDoc); err != nil {
-		return nil, fmt.Errorf("%w: invalid JSON document", ErrValidation)
-	}
-
-	// The "state" key is required per AWS IoT Shadow spec.
-	if len(rawDoc.State) == 0 {
-		return nil, fmt.Errorf("%w: missing required field: state", ErrValidation)
-	}
-
-	// state: null is not a valid document.
-	if isJSONNull(rawDoc.State) {
-		return nil, fmt.Errorf("%w: state must be a JSON object, not null", ErrValidation)
-	}
-
-	// Validate clientToken length.
-	if err := validateClientToken(rawDoc.ClientToken); err != nil {
+	input, err := parseShadowUpdateDoc(document)
+	if err != nil {
 		return nil, err
-	}
-
-	// Parse the state section — desired and reported use RawMessage to distinguish
-	// "absent" (nil) from "explicit null" (wipe entire section) from "object" (merge).
-	var stateDoc struct {
-		Desired  json.RawMessage `json:"desired"`
-		Reported json.RawMessage `json:"reported"`
-	}
-
-	if err := json.Unmarshal(rawDoc.State, &stateDoc); err != nil {
-		return nil, fmt.Errorf("%w: state must be a valid JSON object", ErrValidation)
 	}
 
 	b.mu.Lock("UpdateThingShadow")
@@ -486,38 +529,19 @@ func (b *InMemoryBackend) UpdateThingShadow(thingName, shadowName string, docume
 
 	current := b.shadows[thingName][shadowName]
 
-	// Enforce per-thing shadow cap when creating a new shadow.
 	if current == nil && len(b.shadows[thingName]) >= maxShadowsPerThing {
 		return nil, fmt.Errorf("%w: shadow limit (%d) per thing exceeded for %s",
 			ErrValidation, maxShadowsPerThing, thingName)
 	}
 
-	// Optimistic-locking version check.
-	if rawDoc.Version != nil {
-		currentVersion := 0
-		if current != nil {
-			currentVersion = current.version
-		}
-
-		if *rawDoc.Version != currentVersion {
-			return nil, fmt.Errorf("%w: expected %d, got %d",
-				ErrVersionConflict, currentVersion, *rawDoc.Version)
-		}
+	if err := checkVersionConflict(input.Version, current); err != nil {
+		return nil, err
 	}
 
-	newVersion := 1
-	if current != nil {
-		if current.version >= maxShadowVersion {
-			newVersion = 1
-		} else {
-			newVersion = current.version + 1
-		}
-	}
-
+	newVersion := nextShadowVersion(current)
 	now := time.Now()
 	ts := now.Unix()
 
-	// Carry forward existing state and metadata.
 	var existingDesired, existingReported map[string]json.RawMessage
 	var existingMetaDesired, existingMetaReported map[string]int64
 
@@ -528,42 +552,16 @@ func (b *InMemoryBackend) UpdateThingShadow(thingName, shadowName string, docume
 		existingMetaReported = current.metaReported
 	}
 
-	newDesired := existingDesired
-	newMetaDesired := existingMetaDesired
-
-	if len(stateDoc.Desired) > 0 {
-		if isJSONNull(stateDoc.Desired) {
-			// Explicit null wipes the entire desired section.
-			newDesired = nil
-			newMetaDesired = nil
-		} else {
-			var desiredPatch map[string]json.RawMessage
-			if err := json.Unmarshal(stateDoc.Desired, &desiredPatch); err != nil {
-				return nil, fmt.Errorf("%w: state.desired must be a JSON object", ErrValidation)
-			}
-
-			newDesired = mergeStateFields(existingDesired, desiredPatch)
-			newMetaDesired = updateMetaFields(existingMetaDesired, desiredPatch, ts)
-		}
+	newDesired, newMetaDesired, err := applyShadowStateSection(
+		existingDesired, existingMetaDesired, input.StateDesired, "desired", ts)
+	if err != nil {
+		return nil, err
 	}
 
-	newReported := existingReported
-	newMetaReported := existingMetaReported
-
-	if len(stateDoc.Reported) > 0 {
-		if isJSONNull(stateDoc.Reported) {
-			// Explicit null wipes the entire reported section.
-			newReported = nil
-			newMetaReported = nil
-		} else {
-			var reportedPatch map[string]json.RawMessage
-			if err := json.Unmarshal(stateDoc.Reported, &reportedPatch); err != nil {
-				return nil, fmt.Errorf("%w: state.reported must be a JSON object", ErrValidation)
-			}
-
-			newReported = mergeStateFields(existingReported, reportedPatch)
-			newMetaReported = updateMetaFields(existingMetaReported, reportedPatch, ts)
-		}
+	newReported, newMetaReported, err := applyShadowStateSection(
+		existingReported, existingMetaReported, input.StateReported, "reported", ts)
+	if err != nil {
+		return nil, err
 	}
 
 	newEntry := &shadowEntry{
@@ -575,8 +573,7 @@ func (b *InMemoryBackend) UpdateThingShadow(thingName, shadowName string, docume
 		metaReported: newMetaReported,
 	}
 
-	// Build the response before writing state so a marshal error cannot leave a partial update.
-	resp, err := buildShadowResponse(newEntry, rawDoc.ClientToken)
+	resp, err := buildShadowResponse(newEntry, input.ClientToken)
 	if err != nil {
 		return nil, err
 	}
@@ -584,6 +581,33 @@ func (b *InMemoryBackend) UpdateThingShadow(thingName, shadowName string, docume
 	b.shadows[thingName][shadowName] = newEntry
 
 	return resp, nil
+}
+
+// checkVersionConflict returns ErrVersionConflict if the request version doesn't match current.
+func checkVersionConflict(requestVersion *int, current *shadowEntry) error {
+	if requestVersion == nil {
+		return nil
+	}
+
+	currentVersion := 0
+	if current != nil {
+		currentVersion = current.version
+	}
+
+	if *requestVersion != currentVersion {
+		return fmt.Errorf("%w: expected %d, got %d", ErrVersionConflict, currentVersion, *requestVersion)
+	}
+
+	return nil
+}
+
+// nextShadowVersion returns version+1 for the current entry, or 1 if nil or at rollover cap.
+func nextShadowVersion(current *shadowEntry) int {
+	if current == nil || current.version >= maxShadowVersion {
+		return 1
+	}
+
+	return current.version + 1
 }
 
 // DeleteThingShadow removes the document for the named shadow of a thing and
