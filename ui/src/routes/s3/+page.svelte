@@ -50,6 +50,16 @@ GetBucketReplicationCommand,
 DeleteBucketReplicationCommand,
 GetPublicAccessBlockCommand,
 PutPublicAccessBlockCommand,
+GetBucketAclCommand,
+PutBucketAclCommand,
+ListBucketAnalyticsConfigurationsCommand,
+DeleteBucketAnalyticsConfigurationCommand,
+ListBucketMetricsConfigurationsCommand,
+DeleteBucketMetricsConfigurationCommand,
+ListBucketInventoryConfigurationsCommand,
+DeleteBucketInventoryConfigurationCommand,
+ListBucketIntelligentTieringConfigurationsCommand,
+DeleteBucketIntelligentTieringConfigurationCommand,
 type Bucket,
 type _Object,
 type ObjectVersion,
@@ -73,7 +83,7 @@ let bucketPage = $state(1);
 
 // Bucket detail state
 let selectedBucket = $state<string | null>(null);
-let activeDetailTab = $state<'objects' | 'properties' | 'tagging' | 'permissions' | 'lifecycle' | 'cors' | 'uploads' | 'objectlock' | 'notifications' | 'replication' | 'logging' | 'ownership'>('objects');
+let activeDetailTab = $state<'objects' | 'properties' | 'tagging' | 'permissions' | 'lifecycle' | 'cors' | 'uploads' | 'objectlock' | 'notifications' | 'replication' | 'logging' | 'ownership' | 'analytics' | 'metrics' | 'inventory' | 'tiering'>('objects');
 type MultipartUploadEntry = { key: string; uploadId: string; initiated?: Date; partsCompleted: number; bytesUploaded: number; };
 let multipartUploads = $state<MultipartUploadEntry[]>([]);
 let loadingUploads = $state(false);
@@ -967,7 +977,7 @@ async function switchTab(tab: typeof activeDetailTab) {
 activeDetailTab = tab;
 if (tab === 'properties') { await loadPropertiesTab(); await loadWebsite(); }
 else if (tab === 'tagging') await loadTagsTab();
-else if (tab === 'permissions') { await loadPermissionsTab(); await loadPublicAccessBlock(); }
+else if (tab === 'permissions') { await loadPermissionsTab(); await loadPublicAccessBlock(); await loadAcl(); }
 else if (tab === 'lifecycle') await loadLifecycleTab();
 else if (tab === 'cors') await loadCorsTab();
 else if (tab === 'uploads') await loadMultipartUploads();
@@ -976,6 +986,76 @@ else if (tab === 'notifications') await loadNotifications();
 else if (tab === 'replication') await loadReplication();
 else if (tab === 'logging') await loadLogging();
 else if (tab === 'ownership') await loadOwnership();
+else if (tab === 'analytics') await loadConfigList('analytics');
+else if (tab === 'metrics') await loadConfigList('metrics');
+else if (tab === 'inventory') await loadConfigList('inventory');
+else if (tab === 'tiering') await loadConfigList('tiering');
+}
+
+// --- Bucket ACL (within Permissions tab) ---
+let cannedAcl = $state<'private' | 'public-read' | 'public-read-write' | 'authenticated-read'>('private');
+let aclGrantCount = $state(0);
+async function loadAcl(): Promise<void> {
+if (!selectedBucket) return;
+try {
+const res = await s3.send(new GetBucketAclCommand({ Bucket: selectedBucket }));
+aclGrantCount = (res.Grants ?? []).length;
+} catch {
+aclGrantCount = 0;
+}
+}
+async function applyAcl(): Promise<void> {
+if (!selectedBucket) return;
+try {
+await s3.send(new PutBucketAclCommand({ Bucket: selectedBucket, ACL: cannedAcl }));
+toast.success('Bucket ACL applied');
+await loadAcl();
+} catch (err: unknown) {
+toast.error(`Failed to apply ACL: ${(err as Error).message}`);
+}
+}
+
+// --- Storage-class/observability config tabs (Analytics/Metrics/Inventory/Int-Tiering) ---
+type ConfigKind = 'analytics' | 'metrics' | 'inventory' | 'tiering';
+let configList = $state<string[]>([]);
+let loadingConfig = $state(false);
+async function loadConfigList(kind: ConfigKind): Promise<void> {
+if (!selectedBucket) return;
+loadingConfig = true;
+try {
+let ids: string[] = [];
+if (kind === 'analytics') {
+const r = await s3.send(new ListBucketAnalyticsConfigurationsCommand({ Bucket: selectedBucket }));
+ids = (r.AnalyticsConfigurationList ?? []).map((c) => c.Id ?? '');
+} else if (kind === 'metrics') {
+const r = await s3.send(new ListBucketMetricsConfigurationsCommand({ Bucket: selectedBucket }));
+ids = (r.MetricsConfigurationList ?? []).map((c) => c.Id ?? '');
+} else if (kind === 'inventory') {
+const r = await s3.send(new ListBucketInventoryConfigurationsCommand({ Bucket: selectedBucket }));
+ids = (r.InventoryConfigurationList ?? []).map((c) => c.Id ?? '');
+} else {
+const r = await s3.send(new ListBucketIntelligentTieringConfigurationsCommand({ Bucket: selectedBucket }));
+ids = (r.IntelligentTieringConfigurationList ?? []).map((c) => c.Id ?? '');
+}
+configList = ids.filter((id) => id !== '');
+} catch {
+configList = [];
+} finally {
+loadingConfig = false;
+}
+}
+async function deleteConfig(kind: ConfigKind, id: string): Promise<void> {
+if (!selectedBucket) return;
+try {
+if (kind === 'analytics') await s3.send(new DeleteBucketAnalyticsConfigurationCommand({ Bucket: selectedBucket, Id: id }));
+else if (kind === 'metrics') await s3.send(new DeleteBucketMetricsConfigurationCommand({ Bucket: selectedBucket, Id: id }));
+else if (kind === 'inventory') await s3.send(new DeleteBucketInventoryConfigurationCommand({ Bucket: selectedBucket, Id: id }));
+else await s3.send(new DeleteBucketIntelligentTieringConfigurationCommand({ Bucket: selectedBucket, Id: id }));
+toast.success('Configuration deleted');
+await loadConfigList(kind);
+} catch (err: unknown) {
+toast.error(`Failed to delete configuration: ${(err as Error).message}`);
+}
 }
 
 // --- Public Access Block (within Permissions tab) ---
@@ -1359,7 +1439,7 @@ Upload File
 <!-- Tabs -->
 <div class="border-b border-slate-200 dark:border-slate-700">
 <ul class="flex flex-wrap -mb-px text-sm font-medium text-center">
-{#each [['objects','Objects'],['uploads','Uploads'],['properties','Properties'],['tagging','Tags'],['permissions','Permissions'],['lifecycle','Lifecycle'],['cors','CORS'],['objectlock','Object Lock'],['notifications','Notifications'],['replication','Replication'],['logging','Logging'],['ownership','Ownership']] as [tab, label]}
+{#each [['objects','Objects'],['uploads','Uploads'],['properties','Properties'],['tagging','Tags'],['permissions','Permissions'],['lifecycle','Lifecycle'],['cors','CORS'],['objectlock','Object Lock'],['notifications','Notifications'],['replication','Replication'],['logging','Logging'],['ownership','Ownership'],['analytics','Analytics'],['metrics','Metrics'],['inventory','Inventory'],['tiering','Int-Tiering']] as [tab, label]}
 <li class="me-2">
 <button
 onclick={() => switchTab(tab as typeof activeDetailTab)}
@@ -1736,6 +1816,19 @@ class="w-full font-mono text-xs p-3 border border-slate-300 dark:border-slate-60
 </div>
 <button onclick={savePublicAccessBlock} class="mt-3 text-white bg-blue-600 hover:bg-blue-700 font-medium rounded-lg text-sm px-4 py-2">Save Public Access Block</button>
 </div>
+<div class="p-6 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl">
+<h3 class="text-base font-semibold text-slate-900 dark:text-white mb-3">Bucket ACL</h3>
+<p class="text-sm text-slate-500 dark:text-slate-400 mb-3">Current grants: {aclGrantCount}. Apply a canned ACL:</p>
+<div class="flex gap-2 items-center">
+<select bind:value={cannedAcl} class="border border-slate-300 dark:border-slate-600 rounded-lg p-2 text-sm bg-slate-50 dark:bg-slate-700 dark:text-white">
+<option value="private">private</option>
+<option value="public-read">public-read</option>
+<option value="public-read-write">public-read-write</option>
+<option value="authenticated-read">authenticated-read</option>
+</select>
+<button onclick={applyAcl} class="text-white bg-blue-600 hover:bg-blue-700 font-medium rounded-lg text-sm px-4 py-2">Apply ACL</button>
+</div>
+</div>
 {/if}
 </div>
 
@@ -2036,6 +2129,34 @@ class="w-4 h-4 text-blue-600"
 </div>
 </div>
 {/if}
+</div>
+
+{:else if activeDetailTab === 'analytics' || activeDetailTab === 'metrics' || activeDetailTab === 'inventory' || activeDetailTab === 'tiering'}
+<!-- Storage analytics/metrics/inventory/intelligent-tiering config tabs -->
+<div class="space-y-4">
+<div class="p-6 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl space-y-3">
+<div class="flex items-center justify-between">
+<h3 class="text-base font-semibold text-slate-900 dark:text-white capitalize">{activeDetailTab} Configurations</h3>
+<button onclick={() => switchTab(activeDetailTab)} class="py-1.5 px-3 text-xs font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600 dark:hover:bg-slate-700">Refresh</button>
+</div>
+{#if loadingConfig}
+<div class="text-center py-8 text-slate-500">Loading...</div>
+{:else if configList.length === 0}
+<p class="text-sm text-slate-500 dark:text-slate-400">No configurations. Create them via the AWS SDK/CLI; they are stored and returned here.</p>
+{:else}
+<table class="w-full text-sm">
+<thead class="text-xs text-slate-700 uppercase bg-slate-50 dark:bg-slate-700 dark:text-slate-400"><tr><th class="px-4 py-2 text-left">Id</th><th class="px-4 py-2"></th></tr></thead>
+<tbody>
+{#each configList as id}
+<tr class="border-b border-slate-200 dark:border-slate-700">
+<td class="px-4 py-2 font-mono text-xs text-slate-900 dark:text-white">{id}</td>
+<td class="px-4 py-2 text-right"><button onclick={() => deleteConfig(activeDetailTab as ConfigKind, id)} class="text-xs text-red-600 hover:text-red-800 dark:text-red-400">Delete</button></td>
+</tr>
+{/each}
+</tbody>
+</table>
+{/if}
+</div>
 </div>
 {/if}
 
