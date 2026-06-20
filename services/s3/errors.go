@@ -51,6 +51,7 @@ var (
 	ErrNoSuchTagSet               = errors.New("NoSuchTagSet")
 	ErrBadChecksum                = errors.New("BadDigest")
 	ErrDeleteMarker               = errors.New("DeleteMarker")
+	ErrLatestDeleteMarker         = errors.New("LatestDeleteMarker")
 	ErrEntityTooSmall             = errors.New("EntityTooSmall")
 	ErrAccessDenied               = errors.New(errAccessDenied)
 	ErrKeyTooLongError            = errors.New("KeyTooLongError")
@@ -165,6 +166,11 @@ func coreErrorTableObject() []s3ErrorEntry {
 			"MethodNotAllowed",
 			"The specified method is not allowed against this resource.",
 			http.StatusMethodNotAllowed,
+		}},
+		{ErrLatestDeleteMarker, s3ErrorInfo{
+			"NoSuchKey",
+			"The specified key does not exist.",
+			http.StatusNotFound,
 		}},
 		{ErrEntityTooSmall, s3ErrorInfo{
 			"EntityTooSmall",

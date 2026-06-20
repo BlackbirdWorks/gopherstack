@@ -642,8 +642,19 @@ func (b *InMemoryBackend) GetObject(
 		ver = findLatestVersion(obj.Versions)
 	}
 
-	if ver == nil || ver.Deleted {
+	if ver == nil {
 		return nil, ErrNoSuchKey
+	}
+
+	if ver.Deleted {
+		// GET of a delete marker: AWS returns 405 for a versioned request (with
+		// x-amz-delete-marker + Allow: DELETE) and 404 for the latest version
+		// (with x-amz-delete-marker). The handler sets the headers.
+		if versionID != nil && *versionID != "" {
+			return nil, ErrDeleteMarker
+		}
+
+		return nil, ErrLatestDeleteMarker
 	}
 
 	// Copy data + metadata under the lock; decryption + decompression
@@ -795,9 +806,10 @@ func (b *InMemoryBackend) HeadObject(
 		return nil, ErrDeleteMarker
 	}
 
-	// If no version specified and latest is a delete marker, return 404.
+	// If no version specified and latest is a delete marker, return 404 with the
+	// x-amz-delete-marker header (set by the handler).
 	if ver.Deleted {
-		return nil, ErrNoSuchKey
+		return nil, ErrLatestDeleteMarker
 	}
 
 	logger.Load(ctx).DebugContext(ctx, "S3 Backend HeadObject",

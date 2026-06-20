@@ -187,6 +187,14 @@ func (h *S3Handler) headObject(
 	})
 	var nsb *types.NoSuchBucket
 	var nsk *types.NoSuchKey
+	if errors.Is(err, ErrLatestDeleteMarker) {
+		// HEAD of a key whose latest version is a delete marker: 404 + header.
+		w.Header().Set("X-Amz-Delete-Marker", "true")
+		w.WriteHeader(http.StatusNotFound)
+
+		return
+	}
+
 	if errors.As(err, &nsb) || errors.As(err, &nsk) ||
 		errors.Is(err, ErrNoSuchBucket) || errors.Is(err, ErrNoSuchKey) {
 		w.WriteHeader(http.StatusNotFound)
@@ -196,6 +204,7 @@ func (h *S3Handler) headObject(
 
 	if errors.Is(err, ErrDeleteMarker) {
 		w.Header().Set("X-Amz-Delete-Marker", "true")
+		w.Header().Set("Allow", "DELETE")
 		w.WriteHeader(http.StatusMethodNotAllowed)
 
 		return
@@ -610,7 +619,13 @@ func (h *S3Handler) getObject(
 		Key:       aws.String(key),
 		VersionId: vid,
 	})
-	if errors.Is(err, ErrNoSuchBucket) || errors.Is(err, ErrNoSuchKey) {
+	if errors.Is(err, ErrDeleteMarker) || errors.Is(err, ErrLatestDeleteMarker) {
+		// GET of a delete marker: 405 (versioned) or 404 (latest), both carrying
+		// x-amz-delete-marker. WriteError renders the correct code/status.
+		w.Header().Set("X-Amz-Delete-Marker", "true")
+		if errors.Is(err, ErrDeleteMarker) {
+			w.Header().Set("Allow", "DELETE")
+		}
 		WriteError(ctx, w, r, err)
 
 		return
