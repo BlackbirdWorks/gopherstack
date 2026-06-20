@@ -13,7 +13,10 @@ const (
 	keyStartTime = "StartTime"
 	keyEndTime   = "EndTime"
 
-	defaultTracesPageSize = 100
+	defaultTracesPageSize       = 100
+	defaultServiceGraphPageSize = 100
+	defaultTimeSeriesPageSize   = 100
+	defaultTagsPageSize         = 50
 )
 
 // --- GetServiceGraph ---
@@ -40,9 +43,11 @@ func (h *Handler) handleGetServiceGraph(_ context.Context, body []byte) ([]byte,
 
 	services := h.Backend.GetServiceGraph(time.Unix(int64(in.StartTime), 0), time.Unix(int64(in.EndTime), 0))
 
+	pg := page.New(services, in.NextToken, 0, defaultServiceGraphPageSize)
+
 	return json.Marshal(map[string]any{
-		keyServices:                services,
-		keyNextToken:               "",
+		keyServices:                pg.Data,
+		keyNextToken:               pg.Next,
 		"ContainsOldGroupVersions": false,
 		keyStartTime:               in.StartTime,
 		keyEndTime:                 in.EndTime,
@@ -90,10 +95,12 @@ func (h *Handler) handleGetTimeSeriesServiceStatistics(_ context.Context, body [
 		period,
 	)
 
+	pg := page.New(stats, in.NextToken, 0, defaultTimeSeriesPageSize)
+
 	return json.Marshal(map[string]any{
-		"TimeSeriesServiceStatistics": stats,
+		"TimeSeriesServiceStatistics": pg.Data,
 		"ContainsOldGroupVersions":    false,
-		keyNextToken:                  "",
+		keyNextToken:                  pg.Next,
 	})
 }
 
@@ -118,9 +125,11 @@ func (h *Handler) handleGetTraceGraph(_ context.Context, body []byte) ([]byte, e
 
 	services := h.Backend.GetTraceGraph(in.TraceIDs)
 
+	pg := page.New(services, in.NextToken, 0, defaultServiceGraphPageSize)
+
 	return json.Marshal(map[string]any{
-		keyServices:  services,
-		keyNextToken: "",
+		keyServices:  pg.Data,
+		keyNextToken: pg.Next,
 	})
 }
 
@@ -199,9 +208,11 @@ func (h *Handler) handleListTagsForResource(_ context.Context, body []byte) ([]b
 
 	tags := h.Backend.ListTagsForResource(in.ResourceARN)
 
+	pg := page.New(tags, in.NextToken, 0, defaultTagsPageSize)
+
 	return json.Marshal(map[string]any{
-		"Tags":       tags,
-		keyNextToken: "",
+		"Tags":       pg.Data,
+		keyNextToken: pg.Next,
 	})
 }
 

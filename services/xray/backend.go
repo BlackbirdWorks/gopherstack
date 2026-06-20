@@ -164,6 +164,7 @@ type EncryptionConfig struct {
 // Insight represents an X-Ray insight.
 type Insight struct {
 	StartTime time.Time `json:"startTime"`
+	EndTime   time.Time `json:"endTime,omitzero"`
 	InsightID string    `json:"insightId"`
 	GroupARN  string    `json:"groupARN"`
 	GroupName string    `json:"groupName"`
