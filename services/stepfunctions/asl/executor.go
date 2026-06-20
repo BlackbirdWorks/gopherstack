@@ -2148,9 +2148,68 @@ func matchStringLiteralCondition(rule *ChoiceRule, varVal any) (bool, bool) {
 		return ok && s <= *rule.StringLessThanEquals, true
 	case rule.StringGreaterThanEquals != nil:
 		return ok && s >= *rule.StringGreaterThanEquals, true
+	case rule.StringMatches != nil:
+		return ok && stringMatchesPattern(s, *rule.StringMatches), true
 	}
 
 	return false, false
+}
+
+// stringMatchesPattern implements the AWS Step Functions StringMatches glob
+// comparator. The wildcard '*' matches zero or more characters. A backslash
+// escapes the next character, so "\\*" matches a literal asterisk and "\\\\"
+// matches a literal backslash. The match is anchored at both ends.
+func stringMatchesPattern(s, pattern string) bool {
+	return globMatch(s, pattern)
+}
+
+// globMatch performs anchored wildcard matching with backslash escaping using a
+// two-pointer algorithm with backtracking. This is linear in practice and avoids
+// catastrophic backtracking on patterns with many wildcards.
+func globMatch(s, pattern string) bool {
+	si, pi := 0, 0
+	starPi, starSi := -1, 0
+
+	for si < len(s) {
+		switch {
+		case pi < len(pattern) && pattern[pi] == '\\' && pi+1 < len(pattern):
+			// Escaped literal: the character after the backslash must match exactly.
+			if s[si] == pattern[pi+1] {
+				si++
+				pi += 2
+
+				continue
+			}
+		case pi < len(pattern) && pattern[pi] == '*':
+			// Record the wildcard position so we can backtrack and consume more of s.
+			starPi = pi
+			starSi = si
+			pi++
+
+			continue
+		case pi < len(pattern) && pattern[pi] == s[si]:
+			si++
+			pi++
+
+			continue
+		}
+
+		// Mismatch: backtrack to the last '*', expanding what it consumes by one.
+		if starPi == -1 {
+			return false
+		}
+
+		pi = starPi + 1
+		starSi++
+		si = starSi
+	}
+
+	// Consume any trailing wildcards in the pattern.
+	for pi < len(pattern) && pattern[pi] == '*' {
+		pi++
+	}
+
+	return pi == len(pattern)
 }
 
 // matchStringPathCondition checks path-based string comparison conditions.

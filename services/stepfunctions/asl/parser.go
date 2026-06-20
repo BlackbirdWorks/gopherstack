@@ -127,6 +127,7 @@ type ChoiceRule struct {
 	StringGreaterThanPath       *string `json:"StringGreaterThanPath,omitempty"`
 	StringLessThanEqualsPath    *string `json:"StringLessThanEqualsPath,omitempty"`
 	StringGreaterThanEqualsPath *string `json:"StringGreaterThanEqualsPath,omitempty"`
+	StringMatches               *string `json:"StringMatches,omitempty"`
 
 	// Timestamp comparisons (ISO 8601 / RFC3339 strings)
 	TimestampEquals                *string `json:"TimestampEquals,omitempty"`
