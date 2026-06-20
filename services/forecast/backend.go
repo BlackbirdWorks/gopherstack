@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"maps"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -56,6 +57,14 @@ const (
 	itemCountBase  = 100
 	itemCountMod   = 900
 )
+
+// maxResourceNameLen is the maximum number of characters allowed in any Amazon
+// Forecast resource name (DatasetName, PredictorName, etc.).
+const maxResourceNameLen = 256
+
+// resourceNameRegex matches valid Amazon Forecast resource names:
+// only alphanumeric characters, underscores, and hyphens are allowed.
+var resourceNameRegex = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
 var (
 	// ErrNotFound is returned when a requested Forecast resource is absent.
@@ -157,6 +166,21 @@ func (b *InMemoryBackend) AccountID() string { return b.accountID }
 func (b *InMemoryBackend) create(kind resourceKind, name string, data map[string]any, failed bool) (*Resource, error) {
 	if strings.TrimSpace(name) == "" {
 		return nil, fmt.Errorf("%w: resource name is required", ErrValidation)
+	}
+
+	if len(name) > maxResourceNameLen {
+		return nil, fmt.Errorf(
+			"%w: resource name must not exceed %d characters; got %d",
+			ErrValidation, maxResourceNameLen, len(name),
+		)
+	}
+
+	if !resourceNameRegex.MatchString(name) {
+		return nil, fmt.Errorf(
+			"%w: resource name %q contains invalid characters "+
+				"(only alphanumeric, underscore, and hyphen are allowed)",
+			ErrValidation, name,
+		)
 	}
 
 	b.mu.Lock()
