@@ -19,6 +19,7 @@ func TestHandler_RegisterTaskDefinition_RequiresCompatibilities(t *testing.T) {
 	rec := doECSRequest(t, h, "RegisterTaskDefinition", map[string]any{
 		"family":                  "myapp",
 		"requiresCompatibilities": []string{"FARGATE"},
+		"networkMode":             "awsvpc",
 		"cpu":                     "256",
 		"memory":                  "512",
 		"containerDefinitions": []map[string]any{
@@ -43,6 +44,7 @@ func TestHandler_RegisterTaskDefinition_FargateValidation_BadCPU(t *testing.T) {
 	rec := doECSRequest(t, h, "RegisterTaskDefinition", map[string]any{
 		"family":                  "myapp",
 		"requiresCompatibilities": []string{"FARGATE"},
+		"networkMode":             "awsvpc",
 		"cpu":                     "128",
 		"memory":                  "512",
 		"containerDefinitions": []map[string]any{
@@ -61,6 +63,7 @@ func TestHandler_RegisterTaskDefinition_FargateValidation_BadMemory(t *testing.T
 	rec := doECSRequest(t, h, "RegisterTaskDefinition", map[string]any{
 		"family":                  "myapp",
 		"requiresCompatibilities": []string{"FARGATE"},
+		"networkMode":             "awsvpc",
 		"cpu":                     "256",
 		"memory":                  "9999",
 		"containerDefinitions": []map[string]any{
@@ -837,6 +840,9 @@ func TestHandler_DescribeTaskDefinition_RequiresCompatibilities_RoundTrip(t *tes
 	_ = doECSRequest(t, h, "RegisterTaskDefinition", map[string]any{
 		"family":                  "myapp",
 		"requiresCompatibilities": []string{"FARGATE", "EC2"},
+		"networkMode":             "awsvpc",
+		"cpu":                     "256",
+		"memory":                  "512",
 		"containerDefinitions":    []map[string]any{{"name": "app", "image": "nginx"}},
 	})
 

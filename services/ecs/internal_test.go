@@ -427,7 +427,7 @@ func TestDeleteCluster_CascadesContainerStops(t *testing.T) { //nolint:parallelt
 			if tt.numTasks > 0 {
 				cds := make([]ContainerDefinition, tt.cdsPerTask)
 				for i := range cds {
-					cds[i] = ContainerDefinition{Image: "img:latest"}
+					cds[i] = ContainerDefinition{Name: fmt.Sprintf("c%d", i), Image: "img:latest"}
 				}
 
 				_, err = backend.RegisterTaskDefinition(RegisterTaskDefinitionInput{
@@ -578,7 +578,7 @@ func TestBackend_RunTask_FailedRunnerSetsSTOPPED(t *testing.T) { //nolint:parall
 
 			_, err = backend.RegisterTaskDefinition(RegisterTaskDefinitionInput{
 				Family:               "fail-task",
-				ContainerDefinitions: []ContainerDefinition{{Image: "bad:image"}},
+				ContainerDefinitions: []ContainerDefinition{{Name: "app", Image: "bad:image"}},
 			})
 			require.NoError(t, err)
 
@@ -614,7 +614,7 @@ func TestBackend_StopTask_LockReleasedBeforeDockerCall(t *testing.T) { //nolint:
 
 	_, err = backend.RegisterTaskDefinition(RegisterTaskDefinitionInput{
 		Family:               "svc-task",
-		ContainerDefinitions: []ContainerDefinition{{Image: "app:latest"}},
+		ContainerDefinitions: []ContainerDefinition{{Name: "app", Image: "app:latest"}},
 	})
 	require.NoError(t, err)
 

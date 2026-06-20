@@ -379,7 +379,16 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 }
 
 // errorCode extracts the AWS-style error code from a wrapped error.
-// It walks the error chain and returns the first message that is not a sentinel.
+//
+// Errors are typically built as fmt.Errorf("%w: detail", ErrXxx), where ErrXxx
+// is an awserr wrapper whose own message is the bare exception code (for
+// example "ClientException"). The chain therefore looks like:
+//
+//	fmt.wrapError("ClientException: detail") -> awserr("ClientException") -> sentinel
+//
+// AWS surfaces only the bare code in the response __type / x-amzn-errortype, so
+// errorCode walks to the deepest non-sentinel message in the chain, which is the
+// bare code rather than the human-readable detail.
 func errorCode(err error) string {
 	// isSentinel returns true for AWS error sentinel messages that should not be used as error codes.
 	isSentinel := func(msg string) bool {
@@ -391,14 +400,16 @@ func errorCode(err error) string {
 		return false
 	}
 
+	code := "ServerException"
+
 	for currentErr := err; currentErr != nil; currentErr = errors.Unwrap(currentErr) {
 		msg := currentErr.Error()
 		if !isSentinel(msg) {
-			return msg
+			code = msg
 		}
 	}
 
-	return "ServerException"
+	return code
 }
 
 // ----- Cluster handlers -----
