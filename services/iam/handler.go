@@ -36,6 +36,9 @@ const (
 	opListInstanceProfilesForRole = "ListInstanceProfilesForRole"
 	xmlElemPolicy                 = "Policy"
 	notApplicable                 = "N/A"
+
+	minMaxSessionDuration = 3600
+	maxMaxSessionDuration = 43200
 )
 
 // Handler is the Echo HTTP handler for IAM operations.
@@ -497,13 +500,19 @@ func (h *Handler) iamRoleDispatchTable() map[string]iamActionFn {
 			}
 
 			if msd := vals.Get("MaxSessionDuration"); msd != "" {
-				if d, parseErr := strconv.ParseInt(msd, 10, 32); parseErr == nil {
-					if updateErr := h.Backend.UpdateRoleMaxSessionDuration(r.RoleName, int32(d)); updateErr != nil {
-						return nil, fmt.Errorf("updating max session duration for role %s: %w", r.RoleName, updateErr)
-					}
-
-					r.MaxSessionDuration = int32(d)
+				d, parseErr := strconv.ParseInt(msd, 10, 32)
+				if parseErr != nil || d < minMaxSessionDuration || d > maxMaxSessionDuration {
+					return nil, fmt.Errorf(
+						"%w: MaxSessionDuration must be between %d and %d",
+						ErrValidationError, minMaxSessionDuration, maxMaxSessionDuration,
+					)
 				}
+
+				if updateErr := h.Backend.UpdateRoleMaxSessionDuration(r.RoleName, int32(d)); updateErr != nil {
+					return nil, fmt.Errorf("updating max session duration for role %s: %w", r.RoleName, updateErr)
+				}
+
+				r.MaxSessionDuration = int32(d)
 			}
 
 			return &CreateRoleResponse{
@@ -1578,6 +1587,8 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 		code = "InvalidInput"
 	case errors.Is(reqErr, ErrInvalidPassword):
 		code = "InvalidInput"
+	case errors.Is(reqErr, ErrValidationError):
+		code = "ValidationError"
 	default:
 		code = "InternalFailure"
 		statusCode = http.StatusInternalServerError

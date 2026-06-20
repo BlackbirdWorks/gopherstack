@@ -68,6 +68,8 @@ var (
 	ErrInvalidPassword = errors.New("InvalidInput")
 	// ErrLimitExceeded is returned when an inline policy or other entity exceeds an AWS quota.
 	ErrLimitExceeded = errors.New("LimitExceeded")
+	// ErrValidationError is returned when a parameter fails AWS constraint validation (e.g. MaxSessionDuration bounds).
+	ErrValidationError = errors.New("ValidationError")
 )
 
 // AWS IAM inline policy size limits (UTF-8 bytes, including whitespace) per
