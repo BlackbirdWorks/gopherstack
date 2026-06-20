@@ -164,7 +164,11 @@ func TestRefinement4_ThingName_ValidationOnListNamedShadows(t *testing.T) {
 	}{
 		{name: "valid", thingName: "valid.thing", wantCode: http.StatusOK},
 		{name: "invalid_bang", thingName: "bad!name", wantCode: http.StatusBadRequest},
-		{name: "too_long", thingName: strings.Repeat("x", iotdataplane.MaxThingNameLength+1), wantCode: http.StatusBadRequest},
+		{
+			name:      "too_long",
+			thingName: strings.Repeat("x", iotdataplane.MaxThingNameLength+1),
+			wantCode:  http.StatusBadRequest,
+		},
 	}
 
 	for _, tt := range tests {
@@ -376,7 +380,7 @@ func TestRefinement4_ShadowDesiredNull_LeavesReportedIntact(t *testing.T) {
 
 	reported, hasReported := state["reported"].(map[string]any)
 	require.True(t, hasReported, "reported must still be present")
-	assert.Equal(t, float64(25), reported["sensor"])
+	assert.InDelta(t, float64(25), reported["sensor"], 0)
 }
 
 func TestRefinement4_ShadowReportedNull_WipesReported(t *testing.T) {
@@ -384,7 +388,8 @@ func TestRefinement4_ShadowReportedNull_WipesReported(t *testing.T) {
 
 	b := iotdataplane.NewInMemoryBackend()
 
-	_, err := b.UpdateThingShadow("dev", "", []byte(`{"state":{"desired":{"mode":"cool"},"reported":{"temp":72,"fan":"on"}}}`))
+	_, err := b.UpdateThingShadow("dev", "", []byte(
+		`{"state":{"desired":{"mode":"cool"},"reported":{"temp":72,"fan":"on"}}}`))
 	require.NoError(t, err)
 
 	// Wipe reported section.
@@ -456,7 +461,7 @@ func TestRefinement4_ShadowDesiredNull_ThenResetDesired(t *testing.T) {
 
 	state := doc["state"].(map[string]any)
 	desired := state["desired"].(map[string]any)
-	assert.Equal(t, float64(65), desired["temp"])
+	assert.InDelta(t, float64(65), desired["temp"], 0)
 	// Old key from before the wipe must not reappear.
 	_, hasFan := desired["fan"]
 	assert.False(t, hasFan)
@@ -782,8 +787,8 @@ func TestRefinement4_NamedShadow_IndependentVersions(t *testing.T) {
 	require.NoError(t, json.Unmarshal(alphaResp, &alpha))
 	require.NoError(t, json.Unmarshal(betaResp, &beta))
 
-	assert.Equal(t, float64(3), alpha["version"], "alpha must be at version 3")
-	assert.Equal(t, float64(1), beta["version"], "beta must be at version 1")
+	assert.InDelta(t, float64(3), alpha["version"], 0, "alpha must be at version 3")
+	assert.InDelta(t, float64(1), beta["version"], 0, "beta must be at version 1")
 }
 
 // ── Shadow update idempotency and merge correctness ──────────────────────────
@@ -802,11 +807,11 @@ func TestRefinement4_ShadowUpdate_EmptyDesiredPatch_NoOpForKeys(t *testing.T) {
 
 	var r2 map[string]any
 	require.NoError(t, json.Unmarshal(resp2, &r2))
-	assert.Equal(t, float64(2), r2["version"])
+	assert.InDelta(t, float64(2), r2["version"], 0)
 
 	state := r2["state"].(map[string]any)
 	desired := state["desired"].(map[string]any)
-	assert.Equal(t, float64(72), desired["temp"], "existing key must survive empty patch")
+	assert.InDelta(t, float64(72), desired["temp"], 0, "existing key must survive empty patch")
 	assert.Equal(t, "on", desired["fan"])
 }
 
@@ -835,10 +840,10 @@ func TestRefinement4_ShadowUpdate_MultiplePatchesAccumulate(t *testing.T) {
 
 	state := doc["state"].(map[string]any)
 	desired := state["desired"].(map[string]any)
-	assert.Equal(t, float64(1), desired["a"])
-	assert.Equal(t, float64(2), desired["b"])
-	assert.Equal(t, float64(3), desired["c"])
-	assert.Equal(t, float64(4), doc["version"])
+	assert.InDelta(t, float64(1), desired["a"], 0)
+	assert.InDelta(t, float64(2), desired["b"], 0)
+	assert.InDelta(t, float64(3), desired["c"], 0)
+	assert.InDelta(t, float64(4), doc["version"], 0)
 }
 
 // ── Shadow optimistic locking with state required ─────────────────────────────
@@ -847,9 +852,9 @@ func TestRefinement4_ShadowVersionLock_WithStateRequired(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantErr error
 		name    string
 		body    string
-		wantErr error
 	}{
 		{
 			name:    "correct_version_succeeds",
@@ -1194,7 +1199,8 @@ func TestRefinement4_ListThingsWithShadows_Pagination(t *testing.T) {
 	assert.NotEmpty(t, nextToken)
 
 	// Second page using token.
-	rec2 := doRequest(t, h, http.MethodGet, "/api/things/shadow/ListThingsWithShadows?pageSize=2&nextToken="+nextToken, nil)
+	paginatedURL := "/api/things/shadow/ListThingsWithShadows?pageSize=2&nextToken=" + nextToken
+	rec2 := doRequest(t, h, http.MethodGet, paginatedURL, nil)
 	var page2 map[string]any
 	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2))
 	things2 := page2["things"].([]any)
@@ -1272,9 +1278,9 @@ func TestRefinement4_ErrorShapes_AllTypes(t *testing.T) {
 		name      string
 		method    string
 		path      string
+		wantError string
 		body      []byte
 		wantCode  int
-		wantError string
 	}{
 		{
 			name:      "shadow_not_found",
@@ -1390,7 +1396,7 @@ func TestRefinement4_Persistence_NullWipeSurvivesRoundTrip(t *testing.T) {
 
 	reported, hasReported := state["reported"].(map[string]any)
 	require.True(t, hasReported, "reported must survive restore")
-	assert.Equal(t, float64(72), reported["temp"])
+	assert.InDelta(t, float64(72), reported["temp"], 0)
 }
 
 // ── Topic validation edge cases ───────────────────────────────────────────────
@@ -1433,7 +1439,9 @@ func TestRefinement4_TopicValidation_Matrix(t *testing.T) {
 // ── Helper functions used by this test file ───────────────────────────────────
 
 // doRequestWithContentType issues a handler request with a specific Content-Type header.
-func doRequestWithContentType(t *testing.T, h *iotdataplane.Handler, method, path, contentType string, body []byte) *httptest.ResponseRecorder {
+func doRequestWithContentType(
+	t *testing.T, h *iotdataplane.Handler, method, path, contentType string, body []byte,
+) *httptest.ResponseRecorder {
 	t.Helper()
 
 	var bodyReader *bytes.Reader

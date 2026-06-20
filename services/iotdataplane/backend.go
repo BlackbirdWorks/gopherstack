@@ -427,10 +427,10 @@ func (b *InMemoryBackend) GetThingShadow(thingName, shadowName string) ([]byte, 
 
 // shadowUpdateInput holds the parsed fields from an UpdateThingShadow request body.
 type shadowUpdateInput struct {
+	Version       *int
+	ClientToken   string
 	StateDesired  json.RawMessage
 	StateReported json.RawMessage
-	ClientToken   string
-	Version       *int
 }
 
 // parseShadowUpdateDoc validates and parses an UpdateThingShadow request body.
@@ -438,9 +438,9 @@ type shadowUpdateInput struct {
 func parseShadowUpdateDoc(document []byte) (*shadowUpdateInput, error) {
 	// Outer document uses RawMessage for State so we can detect absent vs null.
 	var outer struct {
+		Version     *int            `json:"version,omitempty"`
 		ClientToken string          `json:"clientToken,omitempty"`
 		State       json.RawMessage `json:"state"`
-		Version     *int            `json:"version,omitempty"`
 	}
 
 	if err := json.Unmarshal(document, &outer); err != nil {
@@ -534,8 +534,8 @@ func (b *InMemoryBackend) UpdateThingShadow(thingName, shadowName string, docume
 			ErrValidation, maxShadowsPerThing, thingName)
 	}
 
-	if err := checkVersionConflict(input.Version, current); err != nil {
-		return nil, err
+	if conflictErr := checkVersionConflict(input.Version, current); conflictErr != nil {
+		return nil, conflictErr
 	}
 
 	newVersion := nextShadowVersion(current)
