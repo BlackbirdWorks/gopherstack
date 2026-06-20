@@ -438,7 +438,7 @@ func TestSendBulkTemplatedEmail_PerDestination(t *testing.T) {
 		{To: []string{"b@example.com"}, Cc: []string{"cc@example.com"}},
 	}
 
-	msgIDs, err := b.SendBulkTemplatedEmail("sender@example.com", "t", destinations)
+	msgIDs, err := b.SendBulkTemplatedEmail("sender@example.com", "t", "", destinations)
 	require.NoError(t, err)
 	assert.Len(t, msgIDs, 2)
 
