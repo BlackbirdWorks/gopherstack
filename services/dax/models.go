@@ -72,14 +72,14 @@ var validNodeTypes = map[string]bool{ //nolint:gochecknoglobals // package-level
 
 // defaultParameterValues are the canonical DAX 1.0 parameter defaults.
 var defaultParameterValues = map[string]string{ //nolint:gochecknoglobals // package-level lookup table
-	"query-ttl-millis":  "300000",
-	"record-ttl-millis": "300000",
+	paramQueryTTL:  "300000",
+	paramRecordTTL: "300000",
 }
 
 // defaultParameterDescriptions provides human-readable descriptions for default parameters.
 var defaultParameterDescriptions = map[string]string{ //nolint:gochecknoglobals // package-level lookup table
-	"query-ttl-millis":  "The number of milliseconds for which query results are cached.",
-	"record-ttl-millis": "The number of milliseconds for which individual item results are cached.",
+	paramQueryTTL:  "The number of milliseconds for which query results are cached.",
+	paramRecordTTL: "The number of milliseconds for which individual item results are cached.",
 }
 
 // Endpoint represents a DAX cluster endpoint.
@@ -137,10 +137,16 @@ const (
 	ParameterTypeNodeTypeSpecific = "NODE_TYPE_SPECIFIC"
 )
 
+// paramQueryTTL is the canonical DAX parameter name for query result TTL.
+const paramQueryTTL = "query-ttl-millis"
+
+// paramRecordTTL is the canonical DAX parameter name for individual item TTL.
+const paramRecordTTL = "record-ttl-millis"
+
 // defaultParameterAllowedValues are the allowed value ranges for each default parameter.
 var defaultParameterAllowedValues = map[string]string{ //nolint:gochecknoglobals // package-level lookup table
-	"query-ttl-millis":  "0-2147483647",
-	"record-ttl-millis": "0-2147483647",
+	paramQueryTTL:  "0-2147483647",
+	paramRecordTTL: "0-2147483647",
 }
 
 // Parameter represents a DAX parameter with metadata.

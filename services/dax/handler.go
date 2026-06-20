@@ -418,6 +418,8 @@ type parameterResponse struct {
 	DataType       string `json:"DataType,omitempty"`
 	IsModifiable   string `json:"IsModifiable,omitempty"`
 	ChangeType     string `json:"ChangeType,omitempty"`
+	AllowedValues  string `json:"AllowedValues,omitempty"`
+	ParameterType  string `json:"ParameterType,omitempty"`
 }
 
 type subnetGroupResponse struct {
@@ -540,6 +542,8 @@ func toParameterResponse(p *Parameter) parameterResponse {
 		DataType:       p.DataType,
 		IsModifiable:   p.IsModifiable,
 		ChangeType:     p.ChangeType,
+		AllowedValues:  p.AllowedValues,
+		ParameterType:  p.ParameterType,
 	}
 }
 

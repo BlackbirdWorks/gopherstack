@@ -65,9 +65,6 @@ const (
 	// maxPageSizeDefault is the default page size for paginated describe calls.
 	maxPageSizeDefault = 100
 
-	// maxEventsDefault is the default page size for DescribeEvents.
-	maxEventsDefault = 100
-
 	// paramApplyStatusInSync is the value reported for parameter group status when in sync.
 	paramApplyStatusInSync = "in-sync"
 
@@ -94,17 +91,15 @@ const (
 
 	// maxResourceNameLength is the maximum allowed length for parameter/subnet group names.
 	maxResourceNameLength = 255
-
-	// defaultVpcID is the placeholder VPC ID returned for subnet groups when no real VPC exists.
-	defaultVpcID = "vpc-00000000"
 )
 
-// clusterNameRegexp validates DAX cluster names: 1-20 chars, starts with letter,
-// only alphanumeric and hyphens, no consecutive hyphens, no trailing hyphen.
-var clusterNameRegexp = regexp.MustCompile(`^[a-zA-Z]([a-zA-Z0-9-]*[a-zA-Z0-9])?$`) //nolint:gochecknoglobals
+// nameRegexp validates DAX resource names: must start with a letter, contain only
+// letters/digits/hyphens, and not end with a hyphen. Used for clusters, parameter groups,
+// and subnet groups.
+var nameRegexp = regexp.MustCompile(`^[a-zA-Z]([a-zA-Z0-9-]*[a-zA-Z0-9])?$`)
 
-// resourceNameRegexp validates parameter group and subnet group names.
-var resourceNameRegexp = regexp.MustCompile(`^[a-zA-Z]([a-zA-Z0-9-]*[a-zA-Z0-9])?$`) //nolint:gochecknoglobals
+// vpcSuffixMaxLen is the maximum length of the VPC ID suffix derived from a subnet ID.
+const vpcSuffixMaxLen = 8
 
 // maintenanceWindowDays maps random seeds to day abbreviations for the maintenance window.
 //
@@ -218,9 +213,10 @@ func validateClusterName(name string) error {
 		)
 	}
 
-	if !clusterNameRegexp.MatchString(name) {
+	if !nameRegexp.MatchString(name) {
 		return fmt.Errorf(
-			"%w: ClusterName %q is invalid: must start with a letter, contain only letters, numbers, and hyphens, and not end with a hyphen",
+			"%w: ClusterName %q is invalid: must start with a letter, "+
+				"contain only letters, numbers, and hyphens, and not end with a hyphen",
 			ErrInvalidParameterValue, name,
 		)
 	}
@@ -248,9 +244,10 @@ func validateResourceName(name, kind string) error {
 		)
 	}
 
-	if !resourceNameRegexp.MatchString(name) {
+	if !nameRegexp.MatchString(name) {
 		return fmt.Errorf(
-			"%w: %s %q is invalid: must start with a letter, contain only letters, numbers, and hyphens, and not end with a hyphen",
+			"%w: %s %q is invalid: must start with a letter, "+
+				"contain only letters, numbers, and hyphens, and not end with a hyphen",
 			ErrInvalidParameterValue, kind, name,
 		)
 	}
@@ -1021,6 +1018,7 @@ func (b *InMemoryBackend) DescribeParameterGroups(
 		for i, pg := range all {
 			if pg.ParameterGroupName == nextToken {
 				start = i
+
 				break
 			}
 		}
@@ -1237,8 +1235,12 @@ func (b *InMemoryBackend) CreateSubnetGroup(
 	name, description string,
 	subnetIDs []string,
 ) (*SubnetGroup, error) {
-	if name == "" {
-		return nil, fmt.Errorf("%w: SubnetGroupName is required", ErrSubnetGroupNotFound)
+	if err := validateResourceName(name, "SubnetGroupName"); err != nil {
+		return nil, err
+	}
+
+	if len(subnetIDs) == 0 {
+		return nil, fmt.Errorf("%w: at least one SubnetId is required", ErrInvalidParameterValue)
 	}
 
 	b.mu.Lock("CreateSubnetGroup")
@@ -1249,10 +1251,12 @@ func (b *InMemoryBackend) CreateSubnetGroup(
 	}
 
 	subnets := subnetEntriesFromIDs(subnetIDs, b.Region)
+	vpcID := vpcIDFromSubnets(subnetIDs)
 
 	sg := &SubnetGroup{
 		SubnetGroupName: name,
 		Description:     description,
+		VpcID:           vpcID,
 		Subnets:         subnets,
 	}
 
@@ -1264,14 +1268,18 @@ func (b *InMemoryBackend) CreateSubnetGroup(
 	return subnetGroupCopy(sg), nil
 }
 
-// DescribeSubnetGroups returns DAX subnet groups.
+// DescribeSubnetGroups returns DAX subnet groups with pagination.
 func (b *InMemoryBackend) DescribeSubnetGroups(
 	names []string,
-	_ int,
-	_ string,
+	maxResults int,
+	nextToken string,
 ) ([]*SubnetGroup, string, error) {
 	b.mu.RLock("DescribeSubnetGroups")
 	defer b.mu.RUnlock()
+
+	if maxResults <= 0 {
+		maxResults = maxPageSizeDefault
+	}
 
 	var all []*SubnetGroup
 
@@ -1284,17 +1292,42 @@ func (b *InMemoryBackend) DescribeSubnetGroups(
 
 			all = append(all, subnetGroupCopy(sg))
 		}
-	} else {
-		for _, sg := range b.subnetGroups {
-			all = append(all, subnetGroupCopy(sg))
-		}
 
-		sort.Slice(all, func(i, j int) bool {
-			return all[i].SubnetGroupName < all[j].SubnetGroupName
-		})
+		return all, "", nil
 	}
 
-	return all, "", nil
+	for _, sg := range b.subnetGroups {
+		all = append(all, subnetGroupCopy(sg))
+	}
+
+	sort.Slice(all, func(i, j int) bool {
+		return all[i].SubnetGroupName < all[j].SubnetGroupName
+	})
+
+	start := 0
+	if nextToken != "" {
+		for i, sg := range all {
+			if sg.SubnetGroupName == nextToken {
+				start = i
+
+				break
+			}
+		}
+	}
+
+	if start >= len(all) {
+		return []*SubnetGroup{}, "", nil
+	}
+
+	end := start + maxResults
+	newNextToken := ""
+	if end < len(all) {
+		newNextToken = all[end].SubnetGroupName
+	} else {
+		end = len(all)
+	}
+
+	return all[start:end], newNextToken, nil
 }
 
 // UpdateSubnetGroup updates a subnet group's description and/or subnet list.
@@ -1317,6 +1350,7 @@ func (b *InMemoryBackend) UpdateSubnetGroup(input UpdateSubnetGroupInput) (*Subn
 
 	if len(input.SubnetIDs) > 0 {
 		sg.Subnets = subnetEntriesFromIDs(input.SubnetIDs, b.Region)
+		sg.VpcID = vpcIDFromSubnets(input.SubnetIDs)
 	}
 
 	b.emitEventLocked(input.SubnetGroupName, EventSourceTypeSubnetGroup,
@@ -1554,4 +1588,24 @@ func subnetEntriesFromIDs(ids []string, region string) []SubnetEntry {
 	}
 
 	return entries
+}
+
+// vpcIDFromSubnets returns a deterministic placeholder VPC ID derived from the first subnet ID.
+// Real AWS would look up the actual VPC; in emulation we derive a plausible ID from the subnet.
+func vpcIDFromSubnets(subnetIDs []string) string {
+	if len(subnetIDs) == 0 {
+		return "vpc-00000000"
+	}
+
+	first := subnetIDs[0]
+	if idx := strings.LastIndexByte(first, '-'); idx >= 0 && idx < len(first)-1 {
+		suffix := first[idx+1:]
+		if len(suffix) > vpcSuffixMaxLen {
+			suffix = suffix[:vpcSuffixMaxLen]
+		}
+
+		return "vpc-" + suffix
+	}
+
+	return "vpc-00000000"
 }
