@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"sort"
 	"strings"
@@ -1636,6 +1637,10 @@ func (h *Handler) handleSignalWorkflowExecution(
 	_ context.Context,
 	in *handleSignalWorkflowExecutionInput,
 ) (*signalWorkflowExecutionOutput, error) {
+	if in.SignalName == "" {
+		return nil, fmt.Errorf("%w: signalName is required", ErrValidation)
+	}
+
 	if err := h.Backend.SignalWorkflowExecution(
 		in.Domain,
 		in.WorkflowID,
