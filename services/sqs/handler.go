@@ -775,14 +775,21 @@ func (h *Handler) handleReceiveMessage(
 			attrs = map[string]string{}
 		}
 
+		// AWS computes MD5OfMessageAttributes over only the attributes actually
+		// returned to the consumer. When the caller requests a subset via
+		// MessageAttributeNames, the digest must cover that subset so SDK-side
+		// checksum verification passes (it would otherwise fail against the
+		// send-time digest computed over the full attribute set).
+		returnedAttrs := filterMsgAttrs(msg.MessageAttributes, req.MessageAttributeNames)
+
 		msgs = append(msgs, jsonReceivedMessage{
 			MessageID:              msg.MessageID,
 			ReceiptHandle:          msg.ReceiptHandle,
 			MD5OfBody:              msg.MD5OfBody,
-			MD5OfMessageAttributes: msg.MD5OfMessageAttributes,
+			MD5OfMessageAttributes: computeMD5OfMessageAttributes(returnedAttrs),
 			Body:                   msg.Body,
 			Attributes:             filterSystemAttrs(attrs, effectiveAttrNames),
-			MessageAttributes:      filterJSONMsgAttrs(msg.MessageAttributes, req.MessageAttributeNames),
+			MessageAttributes:      toJSONMsgAttrs(returnedAttrs),
 		})
 	}
 
@@ -1389,16 +1396,23 @@ func toJSONMsgAttrs(attrs map[string]MessageAttributeValue) map[string]jsonMsgAt
 	return result
 }
 
-func filterJSONMsgAttrs(attrs map[string]MessageAttributeValue, requested []string) map[string]jsonMsgAttr {
+// filterMsgAttrs returns the subset of message attributes the consumer asked
+// for via the ReceiveMessage MessageAttributeNames parameter. AWS supports
+// exact names, the "All"/".*" wildcards, and "<prefix>.*" prefix wildcards.
+// The result is the internal MessageAttributeValue representation so callers
+// can recompute MD5OfMessageAttributes over exactly the returned subset.
+func filterMsgAttrs(
+	attrs map[string]MessageAttributeValue, requested []string,
+) map[string]MessageAttributeValue {
 	if len(attrs) == 0 || len(requested) == 0 {
-		return map[string]jsonMsgAttr{}
+		return nil
 	}
 
 	// AWS SDKs may send either "All" or ".*" to request all message attributes.
 	// Both are treated as wildcards that return every attribute, matching the
 	// behaviour of the real SQS service.
 	if containsStr(requested, attrAll) || containsStr(requested, ".*") {
-		return toJSONMsgAttrs(attrs)
+		return attrs
 	}
 
 	exact := make(map[string]struct{}, len(requested))
@@ -1413,17 +1427,17 @@ func filterJSONMsgAttrs(attrs map[string]MessageAttributeValue, requested []stri
 		exact[name] = struct{}{}
 	}
 
-	result := make(map[string]jsonMsgAttr)
+	result := make(map[string]MessageAttributeValue)
 	for name, value := range attrs {
 		if _, ok := exact[name]; ok {
-			result[name] = jsonMsgAttr(value)
+			result[name] = value
 
 			continue
 		}
 
 		for _, prefix := range prefixes {
 			if strings.HasPrefix(name, prefix) {
-				result[name] = jsonMsgAttr(value)
+				result[name] = value
 
 				break
 			}
