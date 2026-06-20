@@ -340,6 +340,7 @@ type describeEventsRequest struct {
 	EndTime    string `json:"EndTime"`
 	NextToken  string `json:"NextToken"`
 	MaxResults int    `json:"MaxResults"`
+	Duration   int    `json:"Duration"` // minutes to look back; applied when StartTime is absent
 }
 
 type tagItem struct {
@@ -1060,6 +1061,12 @@ func (h *Handler) handleDescribeEvents(body []byte) (any, error) {
 		endTime = &t
 	}
 
+	// Duration (minutes) sets StartTime to now - Duration when StartTime is absent.
+	if req.Duration > 0 && startTime == nil {
+		t := time.Now().UTC().Add(-time.Duration(req.Duration) * time.Minute)
+		startTime = &t
+	}
+
 	events, nextToken, err := h.Backend.DescribeEvents(
 		req.SourceName,
 		req.SourceType,
@@ -1123,6 +1130,10 @@ func (h *Handler) mapError(err error) (int, map[string]any) {
 		return http.StatusBadRequest, daxError("ParameterGroupAlreadyExistsFault", err.Error())
 	case errors.Is(err, ErrSubnetGroupAlreadyExists):
 		return http.StatusBadRequest, daxError("SubnetGroupAlreadyExistsFault", err.Error())
+	case errors.Is(err, ErrSubnetGroupInUse):
+		return http.StatusBadRequest, daxError("SubnetGroupInUseFault", err.Error())
+	case errors.Is(err, ErrParameterGroupInUse):
+		return http.StatusBadRequest, daxError("ParameterGroupInUseFault", err.Error())
 	case errors.Is(err, ErrInvalidClusterState):
 		return http.StatusBadRequest, daxError("InvalidClusterStateFault", err.Error())
 
