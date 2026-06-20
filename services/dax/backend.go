@@ -91,6 +91,9 @@ const (
 
 	// maxResourceNameLength is the maximum allowed length for parameter/subnet group names.
 	maxResourceNameLength = 255
+
+	// listTagsPageSize is the number of tags returned per ListTags page.
+	listTagsPageSize = 10
 )
 
 // nameRegexp validates DAX resource names: must start with a letter, contain only
@@ -763,18 +766,11 @@ func (b *InMemoryBackend) DecreaseReplicationFactor(input DecreaseReplicationFac
 	}
 
 	if len(input.NodeIDsToRemove) > 0 {
-		// Remove specific nodes; keep up to NewReplicationFactor.
-		removeSet := make(map[string]bool, len(input.NodeIDsToRemove))
-		for _, id := range input.NodeIDsToRemove {
-			removeSet[id] = true
-		}
-
-		kept := make([]Node, 0, input.NewReplicationFactor)
-
-		for _, n := range cluster.Nodes {
-			if !removeSet[n.NodeID] {
-				kept = append(kept, n)
-			}
+		kept, err := removeSpecificNodes(
+			cluster.Nodes, input.NodeIDsToRemove, input.ClusterName, input.NewReplicationFactor,
+		)
+		if err != nil {
+			return nil, err
 		}
 
 		cluster.Nodes = kept
@@ -919,7 +915,7 @@ func (b *InMemoryBackend) UntagResource(resourceArn string, tagKeys []string) (m
 // ListTags returns tags for a DAX resource with optional pagination.
 func (b *InMemoryBackend) ListTags(
 	resourceArn string,
-	_ string,
+	nextToken string,
 ) (map[string]string, string, error) {
 	if resourceArn == "" {
 		return nil, "", fmt.Errorf("%w: ResourceName is required", ErrInvalidARN)
@@ -932,13 +928,42 @@ func (b *InMemoryBackend) ListTags(
 		return nil, "", fmt.Errorf("%w: %s", ErrTagNotFound, resourceArn)
 	}
 
-	tags := make(map[string]string)
+	allTags := b.tags[resourceArn]
 
-	if t, ok := b.tags[resourceArn]; ok {
-		maps.Copy(tags, t)
+	keys := make([]string, 0, len(allTags))
+	for k := range allTags {
+		keys = append(keys, k)
 	}
 
-	return tags, "", nil
+	sort.Strings(keys)
+
+	startIdx := 0
+
+	if nextToken != "" {
+		for i, k := range keys {
+			if k == nextToken {
+				startIdx = i
+
+				break
+			}
+		}
+	}
+
+	end := min(startIdx+listTagsPageSize, len(keys))
+
+	page := keys[startIdx:end]
+	result := make(map[string]string, len(page))
+
+	for _, k := range page {
+		result[k] = allTags[k]
+	}
+
+	var outToken string
+	if end < len(keys) {
+		outToken = keys[end]
+	}
+
+	return result, outToken, nil
 }
 
 // CreateParameterGroup creates a DAX parameter group.
@@ -1059,6 +1084,20 @@ func (b *InMemoryBackend) UpdateParameterGroup(input UpdateParameterGroupInput) 
 				"%w: unknown parameter %q",
 				ErrInvalidParameterValue,
 				pv.ParameterName,
+			)
+		}
+
+		if pv.ParameterValue == "" {
+			return nil, fmt.Errorf("%w: value for %q must be a non-negative integer", ErrInvalidParameterValue, pv.ParameterName)
+		}
+
+		val, err := strconv.ParseInt(pv.ParameterValue, 10, 64)
+		if err != nil || val < 0 {
+			return nil, fmt.Errorf(
+				"%w: value for %q must be a non-negative integer, got %q",
+				ErrInvalidParameterValue,
+				pv.ParameterName,
+				pv.ParameterValue,
 			)
 		}
 
@@ -1375,7 +1414,7 @@ func (b *InMemoryBackend) DeleteSubnetGroup(name string) error {
 	for _, cluster := range b.clusters {
 		if cluster.SubnetGroupName == name {
 			return fmt.Errorf("%w: subnet group %s is in use by cluster %s",
-				ErrInvalidClusterState, name, cluster.ClusterName)
+				ErrSubnetGroupInUse, name, cluster.ClusterName)
 		}
 	}
 
@@ -1588,6 +1627,48 @@ func subnetEntriesFromIDs(ids []string, region string) []SubnetEntry {
 	}
 
 	return entries
+}
+
+// removeSpecificNodes validates NodeIDsToRemove count and existence, then returns the kept nodes.
+func removeSpecificNodes(nodes []Node, nodeIDsToRemove []string, clusterName string, newFactor int) ([]Node, error) {
+	expectedRemoveCount := len(nodes) - newFactor
+	if len(nodeIDsToRemove) != expectedRemoveCount {
+		return nil, fmt.Errorf(
+			"%w: NodeIDsToRemove has %d entries but %d nodes must be removed to reach factor %d",
+			ErrInvalidParameterCombination,
+			len(nodeIDsToRemove),
+			expectedRemoveCount,
+			newFactor,
+		)
+	}
+
+	existingIDs := make(map[string]bool, len(nodes))
+	for _, n := range nodes {
+		existingIDs[n.NodeID] = true
+	}
+
+	for _, id := range nodeIDsToRemove {
+		if !existingIDs[id] {
+			return nil, fmt.Errorf(
+				"%w: node %s does not exist in cluster %s",
+				ErrNodeNotFound, id, clusterName,
+			)
+		}
+	}
+
+	removeSet := make(map[string]bool, len(nodeIDsToRemove))
+	for _, id := range nodeIDsToRemove {
+		removeSet[id] = true
+	}
+
+	kept := make([]Node, 0, newFactor)
+	for _, n := range nodes {
+		if !removeSet[n.NodeID] {
+			kept = append(kept, n)
+		}
+	}
+
+	return kept, nil
 }
 
 // vpcIDFromSubnets returns a deterministic placeholder VPC ID derived from the first subnet ID.
