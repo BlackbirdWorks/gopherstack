@@ -244,3 +244,173 @@ func TestBatch2_DescribeFileSystemPolicy_AfterPut(t *testing.T) {
 		})
 	}
 }
+
+// TestBatch2_MountTargetArn verifies that CreateMountTarget and DescribeMountTargets
+// responses include MountTargetArn, matching the AWS EFS MountTargetDescription shape.
+func TestBatch2_MountTargetArn(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		via  string // "create" or "describe"
+	}{
+		{name: "create_response_includes_arn", via: "create"},
+		{name: "describe_response_includes_arn", via: "describe"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newRefinementHandler()
+			fsID := createFS(t, h, "mt-arn-"+tt.name)
+
+			rec := doRESTRefinement(t, h, http.MethodPost, "/2015-02-01/mount-targets", map[string]any{
+				"FileSystemId": fsID,
+				"SubnetId":     "subnet-aabbcc",
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var mtARN string
+			if tt.via == "create" {
+				resp := parseRefinementResp(t, rec)
+				mtARN, _ = resp["MountTargetArn"].(string)
+			} else {
+				rec2 := doRESTRefinement(t, h, http.MethodGet, "/2015-02-01/mount-targets", nil)
+				require.Equal(t, http.StatusOK, rec2.Code)
+				mts := parseRefinementResp(t, rec2)["MountTargets"].([]any)
+				require.Len(t, mts, 1)
+				mtARN, _ = mts[0].(map[string]any)["MountTargetArn"].(string)
+			}
+
+			assert.NotEmpty(t, mtARN)
+			assert.Contains(t, mtARN, "mount-target/fsmt-")
+		})
+	}
+}
+
+// TestBatch2_DescribeMountTargets_AccessPointIdFilter verifies that passing ?AccessPointId=
+// to DescribeMountTargets returns mount targets for the file system the access point belongs
+// to, matching real AWS EFS behavior.
+func TestBatch2_DescribeMountTargets_AccessPointIdFilter(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		wantErr    string
+		wantCount  int
+		wantStatus int
+		hasMT      bool
+	}{
+		{
+			name:       "access_point_with_mount_target_returns_it",
+			hasMT:      true,
+			wantStatus: http.StatusOK,
+			wantCount:  1,
+		},
+		{
+			name:       "access_point_without_mount_target_returns_empty",
+			hasMT:      false,
+			wantStatus: http.StatusOK,
+			wantCount:  0,
+		},
+		{
+			name:       "nonexistent_access_point_returns_404",
+			wantStatus: http.StatusNotFound,
+			wantErr:    "AccessPointNotFound",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newRefinementHandler()
+
+			if tt.wantStatus == http.StatusNotFound {
+				rec := doRESTRefinement(
+					t, h, http.MethodGet,
+					"/2015-02-01/mount-targets?AccessPointId=fsap-notexist",
+					nil,
+				)
+				assert.Equal(t, tt.wantStatus, rec.Code)
+				resp := parseRefinementResp(t, rec)
+				assert.Equal(t, tt.wantErr, resp["ErrorCode"])
+
+				return
+			}
+
+			fsID := createFS(t, h, "mt-ap-filter-"+tt.name)
+
+			// Create access point on the file system.
+			rec := doRESTRefinement(t, h, http.MethodPost, "/2015-02-01/access-points", map[string]any{
+				"FileSystemId": fsID,
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+			apID := parseRefinementResp(t, rec)["AccessPointId"].(string)
+
+			if tt.hasMT {
+				rec2 := doRESTRefinement(t, h, http.MethodPost, "/2015-02-01/mount-targets", map[string]any{
+					"FileSystemId": fsID,
+					"SubnetId":     "subnet-1122",
+				})
+				require.Equal(t, http.StatusOK, rec2.Code)
+			}
+
+			rec3 := doRESTRefinement(
+				t, h, http.MethodGet,
+				"/2015-02-01/mount-targets?AccessPointId="+apID,
+				nil,
+			)
+			assert.Equal(t, tt.wantStatus, rec3.Code)
+
+			mts := parseRefinementResp(t, rec3)["MountTargets"].([]any)
+			assert.Len(t, mts, tt.wantCount)
+
+			if tt.wantCount > 0 {
+				mt := mts[0].(map[string]any)
+				assert.Equal(t, fsID, mt["FileSystemId"])
+				assert.NotEmpty(t, mt["MountTargetArn"])
+			}
+		})
+	}
+}
+
+// TestBatch2_DescribeMountTargets_BackendAccessPointFilter verifies the backend
+// DescribeAccessPoints can be used to resolve an access point to its file system,
+// enabling the AccessPointId filter in the handler layer.
+func TestBatch2_DescribeMountTargets_BackendAccessPointFilter(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		apExists bool
+	}{
+		{name: "existing_access_point_resolves_to_fs", apExists: true},
+		{name: "missing_access_point_returns_not_found", apExists: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newRefinementBackend()
+			fs, createErr := b.CreateFileSystem(context.Background(), fsReq("ap-resolve-"+tt.name))
+			require.NoError(t, createErr)
+
+			if tt.apExists {
+				ap, apErr := b.CreateAccessPoint(context.Background(), apReq(fs.FileSystemID))
+				require.NoError(t, apErr)
+
+				// Access point should resolve to the same file system.
+				aps, _, descErr := b.DescribeAccessPoints(context.Background(), "", ap.AccessPointID, "", 1)
+				require.NoError(t, descErr)
+				require.Len(t, aps, 1)
+				assert.Equal(t, fs.FileSystemID, aps[0].FileSystemID)
+			} else {
+				_, _, descErr := b.DescribeAccessPoints(context.Background(), "", "fsap-missing", "", 1)
+				require.ErrorIs(t, descErr, efs.ErrAccessPointNotFound)
+			}
+		})
+	}
+}
