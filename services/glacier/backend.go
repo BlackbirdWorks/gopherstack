@@ -38,10 +38,6 @@ var (
 	ErrInvalidTag = errors.New("InvalidParameterValueException: invalid tag key or value")
 )
 
-// vaultNameRegex matches valid Amazon Glacier vault names:
-// only letters, digits, underscores, hyphens, and periods are allowed.
-var vaultNameRegex = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
-
 const (
 	lockStateInProgress = "InProgress"
 	lockStateLocked     = "Locked"
@@ -69,8 +65,6 @@ const (
 	jobInputArchiveRetrieval = "archive-retrieval"
 	// jobInputInventoryRetrieval is the type value sent by SDK/clients for inventory retrieval (request).
 	jobInputInventoryRetrieval = "inventory-retrieval"
-	// maxVaultNameLen is the maximum length of a vault name (AWS Glacier limit).
-	maxVaultNameLen = 255
 	// maxVaultTags is the maximum number of tags allowed on a single vault.
 	maxVaultTags = 10
 	// maxTagKeyLen is the maximum byte length of a tag key.
@@ -291,21 +285,6 @@ func (b *InMemoryBackend) CreateVault(accountID, region, vaultName string) (*Vau
 
 	if vaultName == "" {
 		return nil, ErrValidation
-	}
-
-	if len(vaultName) > maxVaultNameLen {
-		return nil, fmt.Errorf(
-			"%w: vault name must not exceed %d characters; got %d",
-			ErrValidation, maxVaultNameLen, len(vaultName),
-		)
-	}
-
-	if !vaultNameRegex.MatchString(vaultName) {
-		return nil, fmt.Errorf(
-			"%w: vault name %q contains invalid characters "+
-				"(only letters, digits, underscores, hyphens, and periods are allowed)",
-			ErrValidation, vaultName,
-		)
 	}
 
 	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
