@@ -155,16 +155,8 @@ type BatchGetPolicyItem struct {
 
 // BatchGetPolicyResult holds the results of a BatchGetPolicy call.
 type BatchGetPolicyResult struct {
-	Results []batchGetPolicyOutputItem `json:"results"`
-	Errors  []batchGetPolicyErrorItem  `json:"errors"`
-}
-
-type batchGetPolicyOutputItem struct {
-	PolicyStoreID   string `json:"policyStoreId"`
-	PolicyID        string `json:"policyId"`
-	PolicyType      string `json:"policyType"`
-	CreatedDate     string `json:"createdDate"`
-	LastUpdatedDate string `json:"lastUpdatedDate"`
+	Results []Policy                  `json:"results"`
+	Errors  []batchGetPolicyErrorItem `json:"errors"`
 }
 
 type batchGetPolicyErrorItem struct {
@@ -1110,7 +1102,7 @@ func (b *InMemoryBackend) BatchGetPolicy(items []BatchGetPolicyItem) BatchGetPol
 	b.mu.RUnlock()
 
 	result := BatchGetPolicyResult{
-		Results: make([]batchGetPolicyOutputItem, 0, len(items)),
+		Results: make([]Policy, 0, len(items)),
 		Errors:  make([]batchGetPolicyErrorItem, 0, len(items)),
 	}
 
@@ -1118,13 +1110,7 @@ func (b *InMemoryBackend) BatchGetPolicy(items []BatchGetPolicyItem) BatchGetPol
 		if e.err != nil {
 			result.Errors = append(result.Errors, *e.err)
 		} else {
-			result.Results = append(result.Results, batchGetPolicyOutputItem{
-				PolicyStoreID:   e.policy.PolicyStoreID,
-				PolicyID:        e.policy.PolicyID,
-				PolicyType:      e.policy.PolicyType,
-				CreatedDate:     e.policy.CreatedDate.UTC().Format(timeFormat),
-				LastUpdatedDate: e.policy.LastUpdated.UTC().Format(timeFormat),
-			})
+			result.Results = append(result.Results, *e.policy)
 		}
 	}
 
