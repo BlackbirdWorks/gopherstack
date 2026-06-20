@@ -49,14 +49,14 @@ func TestParity_DeleteTableBucketEncryptionClearsConfig(t *testing.T) {
 						"sseAlgorithm": "AES256",
 					},
 				})
-				require.Equal(t, http.StatusOK, rec.Code)
+				require.Equal(t, http.StatusNoContent, rec.Code)
 
 				rec = doS3TablesRequest(t, h, http.MethodGet, encPath, nil)
 				require.Equal(t, http.StatusOK, rec.Code, "encryption should be present before delete")
 			}
 
 			rec := doS3TablesRequest(t, h, http.MethodDelete, encPath, nil)
-			assert.Equal(t, http.StatusOK, rec.Code, "DeleteTableBucketEncryption should succeed")
+			assert.Equal(t, http.StatusNoContent, rec.Code, "DeleteTableBucketEncryption should succeed")
 
 			rec = doS3TablesRequest(t, h, http.MethodGet, encPath, nil)
 			assert.Equal(t, tt.wantGetAfter, rec.Code,
