@@ -488,3 +488,112 @@ func TestBatch2_DisassociateVPC_WithMultipleVPCs_Succeeds(t *testing.T) {
 		})
 	}
 }
+
+// TestChangeResourceRecordSets_DeleteExactMatch verifies AWS's DELETE
+// exact-match rule: a DELETE must supply the same TTL and the same (unordered)
+// set of resource record values that the record currently holds, otherwise
+// Route 53 returns InvalidChangeBatch ("...the values provided do not match the
+// current values"). A bare delete (no TTL, no values) is still accepted.
+func TestChangeResourceRecordSets_DeleteExactMatch(t *testing.T) {
+	t.Parallel()
+
+	const (
+		recName = "host.example.com"
+		recType = "A"
+	)
+
+	type deleteSpec struct {
+		records []string
+		ttl     int64
+	}
+
+	tests := []struct {
+		name      string
+		del       deleteSpec
+		wantError bool
+	}{
+		{
+			name:      "exact match both values succeeds",
+			del:       deleteSpec{ttl: 300, records: []string{"1.2.3.4", "5.6.7.8"}},
+			wantError: false,
+		},
+		{
+			name:      "exact match values out of order succeeds",
+			del:       deleteSpec{ttl: 300, records: []string{"5.6.7.8", "1.2.3.4"}},
+			wantError: false,
+		},
+		{
+			name:      "wrong ttl fails",
+			del:       deleteSpec{ttl: 60, records: []string{"1.2.3.4", "5.6.7.8"}},
+			wantError: true,
+		},
+		{
+			name:      "wrong value fails",
+			del:       deleteSpec{ttl: 300, records: []string{"9.9.9.9", "5.6.7.8"}},
+			wantError: true,
+		},
+		{
+			name:      "missing a value fails",
+			del:       deleteSpec{ttl: 300, records: []string{"1.2.3.4"}},
+			wantError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := route53.NewInMemoryBackend()
+			hz, err := b.CreateHostedZone("example.com", "ref-"+tt.name, "", false)
+			require.NoError(t, err)
+
+			// Seed a multi-value A record (TTL 300, values 1.2.3.4 + 5.6.7.8).
+			_, err = b.ChangeResourceRecordSets(hz.ID, []route53.Change{{
+				Action: route53.ChangeActionCreate,
+				ResourceRecordSet: route53.ResourceRecordSet{
+					Name: recName,
+					Type: recType,
+					TTL:  300,
+					Records: []route53.ResourceRecord{
+						{Value: "1.2.3.4"},
+						{Value: "5.6.7.8"},
+					},
+				},
+			}})
+			require.NoError(t, err)
+
+			recs := make([]route53.ResourceRecord, len(tt.del.records))
+			for i, v := range tt.del.records {
+				recs[i] = route53.ResourceRecord{Value: v}
+			}
+
+			_, err = b.ChangeResourceRecordSets(hz.ID, []route53.Change{{
+				Action: route53.ChangeActionDelete,
+				ResourceRecordSet: route53.ResourceRecordSet{
+					Name:    recName,
+					Type:    recType,
+					TTL:     tt.del.ttl,
+					Records: recs,
+				},
+			}})
+
+			if tt.wantError {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "InvalidChangeBatch")
+				assert.Contains(t, err.Error(), "do not match the current values")
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			// Record must be gone after a successful delete.
+			page, lerr := b.ListResourceRecordSets(hz.ID, recName, recType, "", 10)
+			require.NoError(t, lerr)
+			for _, r := range page.Records {
+				assert.NotEqualf(t, recName+".", r.Name,
+					"record %s %s should have been deleted", r.Name, r.Type)
+			}
+		})
+	}
+}

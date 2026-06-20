@@ -874,13 +874,22 @@ func validateChange(zd *zoneData, ch Change) error {
 
 	if ch.Action == ChangeActionDelete {
 		key := recordSetKey(rrs.Name, rrs.Type, rrs.SetIdentifier)
-		if _, exists := zd.records[key]; !exists {
+		existing, exists := zd.records[key]
+		if !exists {
 			return fmt.Errorf(
 				"%w: record set %s %s not found for DELETE",
 				ErrInvalidAction,
 				rrs.Name,
 				rrs.Type,
 			)
+		}
+
+		// AWS requires a DELETE to specify values that exactly match the existing
+		// record set (TTL and all resource record values, or the AliasTarget).
+		// If they do not match, Route 53 returns InvalidChangeBatch rather than
+		// silently deleting the record.
+		if err := deleteValuesMatch(existing, &rrs); err != nil {
+			return err
 		}
 	}
 
@@ -897,6 +906,90 @@ func validateChange(zd *zoneData, ch Change) error {
 	}
 
 	return nil
+}
+
+// deleteValuesMatch enforces AWS's DELETE exact-match rule. When deleting a
+// resource record set you must supply the same TTL and the same set of resource
+// record values (or the same AliasTarget) that the record currently holds. If
+// the supplied change omits values/TTL entirely (a bare name+type delete) AWS
+// still accepts it, so we only enforce a match when the caller actually provided
+// values to compare against.
+func deleteValuesMatch(existing, want *ResourceRecordSet) error {
+	// Alias vs non-alias mismatch is always an error when an AliasTarget is given.
+	if want.AliasTarget != nil || existing.AliasTarget != nil {
+		if !aliasTargetsEqual(existing.AliasTarget, want.AliasTarget) {
+			return deleteMismatchErr(want)
+		}
+
+		return nil
+	}
+
+	// Bare delete: no values and no TTL supplied — accept (matches AWS, which
+	// keys the delete on name+type+SetIdentifier in that case).
+	if len(want.Records) == 0 && want.TTL == 0 {
+		return nil
+	}
+
+	if want.TTL != 0 && want.TTL != existing.TTL {
+		return deleteMismatchErr(want)
+	}
+
+	if len(want.Records) > 0 && !sameValueSet(rrsValues(existing), rrsValues(want)) {
+		return deleteMismatchErr(want)
+	}
+
+	return nil
+}
+
+// aliasTargetsEqual reports whether two AliasTargets are equivalent for the
+// purpose of DELETE matching (DNS name compared case-insensitively, ignoring a
+// trailing dot, alongside hosted-zone ID and EvaluateTargetHealth).
+func aliasTargetsEqual(a, b *AliasTarget) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+
+	aName := strings.ToLower(strings.TrimSuffix(a.DNSName, "."))
+	bName := strings.ToLower(strings.TrimSuffix(b.DNSName, "."))
+
+	return aName == bName &&
+		a.HostedZoneID == b.HostedZoneID &&
+		a.EvaluateTargetHealth == b.EvaluateTargetHealth
+}
+
+// sameValueSet reports whether two value slices contain the same multiset of
+// values, irrespective of order (Route 53 treats resource record values as an
+// unordered set).
+func sameValueSet(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+
+	counts := make(map[string]int, len(a))
+	for _, v := range a {
+		counts[v]++
+	}
+
+	for _, v := range b {
+		counts[v]--
+		if counts[v] < 0 {
+			return false
+		}
+	}
+
+	return true
+}
+
+// deleteMismatchErr builds the AWS-style InvalidChangeBatch error returned when
+// a DELETE does not match the current values of the record set.
+func deleteMismatchErr(rrs *ResourceRecordSet) error {
+	return fmt.Errorf(
+		"%w: Tried to delete resource record set [name='%s', type='%s'] "+
+			"but the values provided do not match the current values",
+		ErrInvalidAction,
+		rrs.Name,
+		rrs.Type,
+	)
 }
 
 // dnsOp represents a pending DNS registration to apply after record mutation.
