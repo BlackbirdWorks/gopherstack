@@ -233,9 +233,8 @@ func ValidateItemSize(item map[string]any) error {
 		return err // Internal validation error
 	}
 	if size > MaxItemSize {
-		return NewValidationException(
-			fmt.Sprintf("Item size %d exceeds limit %d", size, MaxItemSize),
-		)
+		// Matches AWS DynamoDB's ValidationException wording.
+		return NewValidationException("Item size has exceeded the maximum allowed size")
 	}
 
 	return nil
@@ -276,17 +275,24 @@ func validateKeyAttribute(k models.KeySchemaElement, val any) error {
 	// AWS key size limit is based on the attribute value size alone (name + value bytes).
 	attrSize := int(int64(len(k.AttributeName)) + CalculateAttrSize(val))
 
-	limit := MaxPartitionKeySize
+	// AWS phrases the partition-key and sort-key overflow messages differently.
 	if k.KeyType == "RANGE" {
-		limit = MaxSortKeySize
+		if attrSize > MaxSortKeySize {
+			return NewValidationException(fmt.Sprintf(
+				"One or more parameter values were invalid: "+
+					"Aggregated size of all range keys has exceeded the size limit of %d bytes",
+				MaxSortKeySize,
+			))
+		}
+
+		return nil
 	}
 
-	if attrSize > limit {
+	if attrSize > MaxPartitionKeySize {
 		return NewValidationException(fmt.Sprintf(
-			"Key element %s size %d exceeds limit %d",
-			k.AttributeName,
-			attrSize,
-			limit,
+			"One or more parameter values were invalid: "+
+				"Size of hashkey has exceeded the maximum size limit of %d bytes",
+			MaxPartitionKeySize,
 		))
 	}
 
