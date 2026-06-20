@@ -127,6 +127,8 @@ func validatePEMPublicKey(encodedKey string) error {
 var (
 	// ErrNotFound is returned when a requested distribution does not exist.
 	ErrNotFound = awserr.New("NoSuchDistribution", awserr.ErrNotFound)
+	// ErrDistributionNotDisabled is returned when attempting to delete an enabled distribution.
+	ErrDistributionNotDisabled = awserr.New("DistributionNotDisabled", awserr.ErrConflict)
 	// ErrOAINotFound is returned when a requested OAI does not exist.
 	ErrOAINotFound = awserr.New("NoSuchCloudFrontOriginAccessIdentity", awserr.ErrNotFound)
 	// ErrCachePolicyNotFound is returned when a requested cache policy does not exist.
@@ -844,6 +846,10 @@ func (b *InMemoryBackend) DeleteDistribution(id string) error {
 	d, ok := b.distributions[id]
 	if !ok {
 		return fmt.Errorf("%w: distribution %s not found", ErrNotFound, id)
+	}
+
+	if d.Enabled {
+		return fmt.Errorf("%w: distribution %s must be disabled before deletion", ErrDistributionNotDisabled, id)
 	}
 
 	delete(b.distributionARNs, b.distributionARN(id))
