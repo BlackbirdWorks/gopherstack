@@ -590,12 +590,25 @@ type createBranchInput struct {
 	CommitID       string `json:"commitId"`
 }
 
+type createCommitPutFileEntry struct {
+	FilePath    string `json:"filePath"`
+	FileContent string `json:"fileContent"` // base64-encoded
+	FileMode    string `json:"fileMode"`
+}
+
+type createCommitDeleteFileEntry struct {
+	FilePath string `json:"filePath"`
+}
+
 type createCommitInput struct {
-	RepositoryName string `json:"repositoryName"`
-	BranchName     string `json:"branchName"`
-	AuthorName     string `json:"authorName"`
-	Email          string `json:"email"`
-	CommitMessage  string `json:"commitMessage"`
+	RepositoryName string                        `json:"repositoryName"`
+	BranchName     string                        `json:"branchName"`
+	AuthorName     string                        `json:"authorName"`
+	Email          string                        `json:"email"`
+	CommitMessage  string                        `json:"commitMessage"`
+	ParentCommitId string                        `json:"parentCommitId"`
+	PutFiles       []createCommitPutFileEntry    `json:"putFiles"`
+	DeleteFiles    []createCommitDeleteFileEntry `json:"deleteFiles"`
 }
 
 type pullRequestTargetInput struct {

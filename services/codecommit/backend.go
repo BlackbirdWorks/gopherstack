@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -56,10 +57,48 @@ var (
 	ErrInvalidRepositoryName = awserr.New("InvalidRepositoryNameException", awserr.ErrInvalidParameter)
 	// ErrMaxRepositoriesExceeded is returned when too many repositories are requested.
 	ErrMaxRepositoriesExceeded = awserr.New("MaximumRepositoryNamesExceededException", awserr.ErrInvalidParameter)
+	// ErrBranchNameRequired is returned when a branch name is missing.
+	ErrBranchNameRequired = awserr.New("BranchNameRequiredException", awserr.ErrInvalidParameter)
+	// ErrInvalidBranchName is returned when a branch name contains invalid characters.
+	ErrInvalidBranchName = awserr.New("InvalidBranchNameException", awserr.ErrInvalidParameter)
+	// ErrParentCommitIdRequired is returned when parentCommitId is missing for a branch with commits.
+	ErrParentCommitIdRequired = awserr.New("ParentCommitIdRequiredException", awserr.ErrInvalidParameter)
+	// ErrParentCommitIdOutdated is returned when parentCommitId doesn't match branch tip.
+	ErrParentCommitIdOutdated = awserr.New("ParentCommitIdOutdatedException", awserr.ErrConflict)
+	// ErrSameFileContent is returned when putFiles has no actual changes.
+	ErrSameFileContent = awserr.New("SameFileContentException", awserr.ErrConflict)
+	// ErrFilePathConflicts is returned when a file path conflicts with an existing path.
+	ErrFilePathConflicts = awserr.New("FilePathConflictsWithSubmodulePathException", awserr.ErrConflict)
 )
 
 // repoNameRe matches valid CodeCommit repository names: alphanumeric, _, -, .
 var repoNameRe = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
+
+// branchNameRe matches valid CodeCommit branch names.
+// Branch names may contain alphanumeric characters, slashes, dashes, underscores, and dots.
+// They may not begin or end with a slash, and may not contain consecutive slashes.
+var branchNameRe = regexp.MustCompile(`^[a-zA-Z0-9._\-/]+$`)
+
+// validateBranchName returns an error if the branch name is empty or contains invalid characters.
+func validateBranchName(name string) error {
+	if name == "" {
+		return fmt.Errorf("%w: branch name is required", ErrBranchNameRequired)
+	}
+	if len(name) > 256 {
+		return fmt.Errorf("%w: branch name must be 256 characters or fewer", ErrInvalidBranchName)
+	}
+	if !branchNameRe.MatchString(name) {
+		return fmt.Errorf("%w: branch name contains invalid characters", ErrInvalidBranchName)
+	}
+	// No leading/trailing slash; no consecutive slashes
+	if name[0] == '/' || name[len(name)-1] == '/' {
+		return fmt.Errorf("%w: branch name may not begin or end with a slash", ErrInvalidBranchName)
+	}
+	if strings.Contains(name, "//") {
+		return fmt.Errorf("%w: branch name may not contain consecutive slashes", ErrInvalidBranchName)
+	}
+	return nil
+}
 
 // ValidateRepositoryName returns an error if name is not a valid CodeCommit repository name.
 func ValidateRepositoryName(name string) error {
@@ -98,16 +137,24 @@ type Branch struct {
 
 // Commit represents a CodeCommit commit.
 type Commit struct {
-	CommitID       string   `json:"commitId"`
-	TreeID         string   `json:"treeId"`
-	Message        string   `json:"message,omitempty"`
-	AdditionalData string   `json:"additionalData,omitempty"`
-	AuthorName     string   `json:"authorName,omitempty"`
-	AuthorEmail    string   `json:"authorEmail,omitempty"`
-	CommitterName  string   `json:"committerName,omitempty"`
-	CommitterEmail string   `json:"committerEmail,omitempty"`
-	RepositoryName string   `json:"repositoryName"`
-	Parents        []string `json:"parents,omitempty"`
+	CreatedAt      time.Time `json:"createdAt"`
+	CommitID       string    `json:"commitId"`
+	TreeID         string    `json:"treeId"`
+	Message        string    `json:"message,omitempty"`
+	AdditionalData string    `json:"additionalData,omitempty"`
+	AuthorName     string    `json:"authorName,omitempty"`
+	AuthorEmail    string    `json:"authorEmail,omitempty"`
+	CommitterName  string    `json:"committerName,omitempty"`
+	CommitterEmail string    `json:"committerEmail,omitempty"`
+	RepositoryName string    `json:"repositoryName"`
+	Parents        []string  `json:"parents,omitempty"`
+}
+
+// PutFileEntry describes a file to add or overwrite in a CreateCommit call.
+type PutFileEntry struct {
+	FilePath    string `json:"filePath"`
+	FileContent []byte `json:"fileContent"`
+	FileMode    string `json:"fileMode"`
 }
 
 // PullRequestTarget represents a target for a pull request.
@@ -301,8 +348,8 @@ func (b *InMemoryBackend) GetRepository(name string) (*Repository, error) {
 	return &cp, nil
 }
 
-// DeleteRepository deletes a repository by name and cascades to branches, commits and
-// template associations for that repository.
+// DeleteRepository deletes a repository by name and cascades to branches, commits,
+// template associations, files, triggers, and pull requests targeting this repository.
 func (b *InMemoryBackend) DeleteRepository(name string) (*Repository, error) {
 	b.mu.Lock("DeleteRepository")
 	defer b.mu.Unlock()
@@ -316,10 +363,27 @@ func (b *InMemoryBackend) DeleteRepository(name string) (*Repository, error) {
 	delete(b.repositoriesByARN, r.ARN)
 	r.Tags.Close()
 
-	// Cascade: remove branches, commits, template-associations for this repo.
+	// Cascade: remove branches, commits, template-associations, files, triggers.
 	delete(b.branches, name)
 	delete(b.commits, name)
 	delete(b.repoTemplateAssoc, name)
+	delete(b.files, name)
+	delete(b.triggers, name)
+
+	// Cascade: remove pull requests that target this repository.
+	for prID, pr := range b.pullRequests {
+		for _, t := range pr.PullRequestTargets {
+			if t.RepositoryName == name {
+				delete(b.pullRequests, prID)
+				delete(b.prApprovals, prID)
+				delete(b.prApprovalRules, prID)
+				delete(b.prOverrides, prID)
+				delete(b.prOverriders, prID)
+				delete(b.prEvents, prID)
+				break
+			}
+		}
+	}
 
 	return &cp, nil
 }
@@ -588,6 +652,10 @@ type BatchAssociationError struct {
 
 // CreateBranch creates a new branch in a repository.
 func (b *InMemoryBackend) CreateBranch(repositoryName, branchName, commitID string) error {
+	if err := validateBranchName(branchName); err != nil {
+		return err
+	}
+
 	b.mu.Lock("CreateBranch")
 	defer b.mu.Unlock()
 
@@ -623,8 +691,13 @@ func (b *InMemoryBackend) CreateBranch(repositoryName, branchName, commitID stri
 
 // CreateCommit creates a new commit in a repository, tracking parent commits from the
 // current branch head.
+//
+// parentCommitID must match the current branch tip when the branch already has commits;
+// AWS returns ParentCommitIdRequiredException if omitted and ParentCommitIdOutdatedException
+// if it does not match the current tip.
 func (b *InMemoryBackend) CreateCommit(
-	repositoryName, branchName, authorName, authorEmail, message string,
+	repositoryName, branchName, authorName, authorEmail, message, parentCommitID string,
+	putFiles []PutFileEntry, deleteFiles []string,
 ) (*Commit, error) {
 	b.mu.Lock("CreateCommit")
 	defer b.mu.Unlock()
@@ -633,17 +706,41 @@ func (b *InMemoryBackend) CreateCommit(
 		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repositoryName)
 	}
 
-	commitID := uuid.NewString()
-	treeID := uuid.NewString()
-
-	// Track parent commit: if the branch already has a head commit, record it as parent.
-	var parents []string
+	// Determine current branch tip (if any).
+	var currentTip string
 	if branchName != "" {
 		if repoBranches := b.branches[repositoryName]; repoBranches != nil {
 			if existing, ok := repoBranches[branchName]; ok {
-				parents = []string{existing.CommitID}
+				currentTip = existing.CommitID
 			}
 		}
+	}
+
+	// Validate parentCommitId per AWS semantics.
+	if currentTip != "" {
+		// Branch already has commits; parentCommitId is required.
+		if parentCommitID == "" {
+			return nil, fmt.Errorf(
+				"%w: parentCommitId is required when the branch already has commits",
+				ErrParentCommitIdRequired,
+			)
+		}
+		if parentCommitID != currentTip {
+			return nil, fmt.Errorf(
+				"%w: parentCommitId %s does not match current branch tip %s",
+				ErrParentCommitIdOutdated, parentCommitID, currentTip,
+			)
+		}
+	}
+
+	commitID := uuid.NewString()
+	treeID := uuid.NewString()
+	now := time.Now().UTC()
+
+	// Track parent commit.
+	var parents []string
+	if currentTip != "" {
+		parents = []string{currentTip}
 	}
 
 	commit := &Commit{
@@ -656,12 +753,40 @@ func (b *InMemoryBackend) CreateCommit(
 		CommitterEmail: authorEmail,
 		RepositoryName: repositoryName,
 		Parents:        parents,
+		CreatedAt:      now,
 	}
 
 	if b.commits[repositoryName] == nil {
 		b.commits[repositoryName] = make(map[string]*Commit)
 	}
 	b.commits[repositoryName][commitID] = commit
+
+	// Apply putFiles to the file store.
+	if len(putFiles) > 0 {
+		if b.files[repositoryName] == nil {
+			b.files[repositoryName] = make(map[string]*File)
+		}
+		for _, pf := range putFiles {
+			fileMode := pf.FileMode
+			if fileMode == "" {
+				fileMode = "NORMAL"
+			}
+			b.files[repositoryName][pf.FilePath] = &File{
+				FilePath:        pf.FilePath,
+				CommitSpecifier: commitID,
+				BlobID:          uuid.NewString(),
+				FileMode:        fileMode,
+				FileContent:     pf.FileContent,
+			}
+		}
+	}
+
+	// Apply deleteFiles.
+	for _, fp := range deleteFiles {
+		if b.files[repositoryName] != nil {
+			delete(b.files[repositoryName], fp)
+		}
+	}
 
 	// Update the branch tip to the new commit.
 	if branchName != "" {
@@ -949,7 +1074,8 @@ func (b *InMemoryBackend) GetPullRequest(prID string) (*PullRequest, error) {
 
 // ListPullRequests returns pull request IDs for a repository, optionally filtered by status.
 // IDs are returned in numeric descending order (newest first), matching AWS behaviour.
-func (b *InMemoryBackend) ListPullRequests(repositoryName, pullRequestStatus string) ([]string, error) {
+// pullRequestStatus accepts "OPEN", "CLOSED", or "MERGED" (empty means return all).
+func (b *InMemoryBackend) ListPullRequests(repositoryName, pullRequestStatus, authorARN string) ([]string, error) {
 	b.mu.RLock("ListPullRequests")
 	defer b.mu.RUnlock()
 
@@ -961,6 +1087,9 @@ func (b *InMemoryBackend) ListPullRequests(repositoryName, pullRequestStatus str
 
 	for id, pr := range b.pullRequests {
 		if pullRequestStatus != "" && pr.PullRequestStatus != pullRequestStatus {
+			continue
+		}
+		if authorARN != "" && pr.AuthorARN != authorARN {
 			continue
 		}
 
