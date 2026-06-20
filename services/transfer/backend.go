@@ -23,6 +23,7 @@ import (
 
 const (
 	protocolSFTP = "SFTP"
+	protocolFTPS = "FTPS"
 )
 
 var (
