@@ -27,6 +27,11 @@ func (h *S3Handler) createMultipartUpload(
 	h.setOperation(ctx, "CreateMultipartUpload")
 
 	tagging := r.Header.Get("X-Amz-Tagging")
+	if err := validateTaggingHeader(tagging); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
 
 	// Capture SSE config at session-init time and pin it on the upload via
 	// ctx. CompleteMultipartUpload reads it back to apply envelope encryption

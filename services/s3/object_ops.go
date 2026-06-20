@@ -309,6 +309,13 @@ func (h *S3Handler) putObject(
 		return
 	}
 
+	// Reject invalid tag sets (>10 tags, over-long key/value) before writing.
+	if err := validateTaggingHeader(r.Header.Get("X-Amz-Tagging")); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
 	// Conditional PUT: AWS S3 supports If-Match and If-None-Match on PutObject.
 	// `If-None-Match: *` is the canonical "create only if absent" pattern used by
 	// S3-based distributed locks; If-Match enforces ETag-based optimistic updates.
@@ -488,6 +495,23 @@ func (h *S3Handler) copyObject(
 		WriteError(ctx, w, r, err)
 
 		return
+	}
+
+	// AWS rejects copying an object onto itself unless some attribute changes.
+	if srcB, srcK, _, ok := parseCopySource(r.Header.Get("X-Amz-Copy-Source")); ok &&
+		srcB == destBucket && srcK == destKey && !copyChangesAttributes(r) {
+		WriteError(ctx, w, r, ErrCopySelfNoChange)
+
+		return
+	}
+
+	// Reject invalid replacement tag sets before copying.
+	if tagging, replace := buildCopyTagging(r); replace {
+		if err := validateTaggingHeader(tagging); err != nil {
+			WriteError(ctx, w, r, err)
+
+			return
+		}
 	}
 
 	srcVer, err := h.copySourceData(ctx, r)
@@ -973,6 +997,12 @@ func (h *S3Handler) putObjectTagging(
 			Key:   aws.String(t.Key),
 			Value: aws.String(t.Value),
 		})
+	}
+
+	if err := validateObjectTags(tags); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
 	}
 
 	versionID := r.URL.Query().Get("versionId")

@@ -52,6 +52,9 @@ var (
 	ErrBadChecksum                = errors.New("BadDigest")
 	ErrDeleteMarker               = errors.New("DeleteMarker")
 	ErrLatestDeleteMarker         = errors.New("LatestDeleteMarker")
+	ErrTooManyTags                = errors.New("BadRequest")
+	ErrInvalidTag                 = errors.New("InvalidTag")
+	ErrCopySelfNoChange           = errors.New("CopySelfNoChange")
 	ErrEntityTooSmall             = errors.New("EntityTooSmall")
 	ErrAccessDenied               = errors.New(errAccessDenied)
 	ErrKeyTooLongError            = errors.New("KeyTooLongError")
@@ -171,6 +174,23 @@ func coreErrorTableObject() []s3ErrorEntry {
 			"NoSuchKey",
 			"The specified key does not exist.",
 			http.StatusNotFound,
+		}},
+		{ErrTooManyTags, s3ErrorInfo{
+			"BadRequest",
+			"Object tags cannot be greater than 10",
+			http.StatusBadRequest,
+		}},
+		{ErrInvalidTag, s3ErrorInfo{
+			"InvalidTag",
+			"The TagKey or TagValue you have provided is invalid or too long.",
+			http.StatusBadRequest,
+		}},
+		{ErrCopySelfNoChange, s3ErrorInfo{
+			"InvalidRequest",
+			"This copy request is illegal because it is trying to copy an object to " +
+				"itself without changing the object's metadata, storage class, website " +
+				"redirect location or encryption attributes.",
+			http.StatusBadRequest,
 		}},
 		{ErrEntityTooSmall, s3ErrorInfo{
 			"EntityTooSmall",

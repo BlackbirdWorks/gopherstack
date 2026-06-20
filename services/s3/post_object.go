@@ -100,6 +100,11 @@ func (h *S3Handler) handlePostObject(
 		Metadata:           userMeta,
 	}
 	if v := fields["x-amz-tagging"]; v != "" {
+		if err := validateTaggingHeader(v); err != nil {
+			WriteError(ctx, w, r, err)
+
+			return
+		}
 		put.Tagging = aws.String(v)
 	}
 
