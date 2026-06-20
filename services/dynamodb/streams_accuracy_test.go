@@ -364,6 +364,53 @@ func TestUnit_Streams_Shards_ShardSplitOnRingBufferWrap(t *testing.T) {
 	assert.Equal(t, int64(0), second.EndingSequenceNum, "second shard must still be open")
 }
 
+func TestUnit_Streams_GetRecords_ClosedShardReturnsNilIterator(t *testing.T) {
+	t.Parallel()
+
+	db := ddb.NewInMemoryDB()
+	ctx := t.Context()
+
+	_, err := db.CreateTable(ctx, makeCreateTableInput("ClosedShardTable", "pk"))
+	require.NoError(t, err)
+	require.NoError(t, db.EnableStream(ctx, "ClosedShardTable", "KEYS_ONLY"))
+
+	// Force a shard split so the first shard becomes closed (has an EndingSequenceNumber).
+	for i := range 1001 {
+		_, err = db.PutItem(ctx, makePutItemN("ClosedShardTable", i))
+		require.NoError(t, err)
+	}
+
+	shards := db.StreamShards("ClosedShardTable")
+	require.GreaterOrEqual(t, len(shards), 2, "expected a shard split")
+	require.NotEqual(t, int64(0), shards[0].EndingSequenceNum, "first shard must be closed")
+
+	table, ok := db.GetTable("ClosedShardTable")
+	require.True(t, ok)
+
+	iterOut, err := db.GetShardIterator(ctx, &dynamodbstreams.GetShardIteratorInput{
+		StreamArn:         aws.String(table.StreamARN),
+		ShardId:           aws.String(shards[0].ShardID),
+		ShardIteratorType: streamstypes.ShardIteratorTypeTrimHorizon,
+	})
+	require.NoError(t, err)
+
+	// Draining a closed shard must eventually yield a nil NextShardIterator so
+	// consumers know to advance to the child shard.
+	iter := iterOut.ShardIterator
+	gotNil := false
+	for range 5 {
+		recOut, recErr := db.GetRecords(ctx, &dynamodbstreams.GetRecordsInput{ShardIterator: iter})
+		require.NoError(t, recErr)
+		if recOut.NextShardIterator == nil {
+			gotNil = true
+
+			break
+		}
+		iter = recOut.NextShardIterator
+	}
+	assert.True(t, gotNil, "GetRecords on a drained closed shard must return a nil NextShardIterator")
+}
+
 func TestUnit_Streams_Shards_DescribeStreamReturnsGenealogy(t *testing.T) {
 	t.Parallel()
 
