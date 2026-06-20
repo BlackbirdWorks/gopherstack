@@ -14,6 +14,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -25,6 +26,8 @@ var (
 	errUnknownAction  = awserr.New("UnknownOperationException", awserr.ErrNotFound)
 	errInvalidRequest = errors.New("invalid request")
 )
+
+const defaultCSCMaxResults = 100
 
 // Handler is the Echo HTTP handler for CodeStar Connections operations.
 type Handler struct {
@@ -215,6 +218,8 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	switch {
 	case errors.Is(err, ErrNotFound):
 		errType, statusCode = "ResourceNotFoundException", http.StatusBadRequest
+	case errors.Is(err, ErrResourceInUse):
+		errType, statusCode = "ResourceInUseException", http.StatusBadRequest
 	case errors.Is(err, ErrAlreadyExists):
 		errType, statusCode = "InvalidInputException", http.StatusBadRequest
 	case errors.Is(err, ErrValidation):
@@ -356,11 +361,12 @@ type listConnectionsInput struct {
 	ProviderTypeFilter string `json:"ProviderTypeFilter"`
 	HostArnFilter      string `json:"HostArnFilter"`
 	NextToken          string `json:"NextToken"`
-	MaxResults         int32  `json:"MaxResults"`
+	MaxResults         int    `json:"MaxResults"`
 }
 
 type listConnectionsOutput struct {
 	Connections []connectionView `json:"Connections"`
+	NextToken   string           `json:"NextToken,omitempty"`
 }
 
 func (h *Handler) handleListConnections(
@@ -374,7 +380,9 @@ func (h *Handler) handleListConnections(
 		views[i] = connectionToView(c)
 	}
 
-	return &listConnectionsOutput{Connections: views}, nil
+	p := page.New(views, in.NextToken, in.MaxResults, defaultCSCMaxResults)
+
+	return &listConnectionsOutput{Connections: p.Data, NextToken: p.Next}, nil
 }
 
 type deleteConnectionInput struct {
@@ -476,16 +484,17 @@ func (h *Handler) handleGetHost(
 
 type listHostsInput struct {
 	NextToken  string `json:"NextToken"`
-	MaxResults int32  `json:"MaxResults"`
+	MaxResults int    `json:"MaxResults"`
 }
 
 type listHostsOutput struct {
-	Hosts []hostView `json:"Hosts"`
+	Hosts     []hostView `json:"Hosts"`
+	NextToken string     `json:"NextToken,omitempty"`
 }
 
 func (h *Handler) handleListHosts(
 	ctx context.Context,
-	_ *listHostsInput,
+	in *listHostsInput,
 ) (*listHostsOutput, error) {
 	hosts := h.Backend.ListHosts(ctx)
 
@@ -494,7 +503,9 @@ func (h *Handler) handleListHosts(
 		views[i] = hostToView(host)
 	}
 
-	return &listHostsOutput{Hosts: views}, nil
+	p := page.New(views, in.NextToken, in.MaxResults, defaultCSCMaxResults)
+
+	return &listHostsOutput{Hosts: p.Data, NextToken: p.Next}, nil
 }
 
 type deleteHostInput struct {
@@ -706,16 +717,17 @@ func (h *Handler) handleDeleteRepositoryLink(
 
 type listRepositoryLinksInput struct {
 	NextToken  string `json:"NextToken"`
-	MaxResults int32  `json:"MaxResults"`
+	MaxResults int    `json:"MaxResults"`
 }
 
 type listRepositoryLinksOutput struct {
 	RepositoryLinks []repositoryLinkItem `json:"RepositoryLinks"`
+	NextToken       string               `json:"NextToken,omitempty"`
 }
 
 func (h *Handler) handleListRepositoryLinks(
 	ctx context.Context,
-	_ *listRepositoryLinksInput,
+	in *listRepositoryLinksInput,
 ) (*listRepositoryLinksOutput, error) {
 	links := h.Backend.ListRepositoryLinks(ctx)
 
@@ -724,7 +736,9 @@ func (h *Handler) handleListRepositoryLinks(
 		items[i] = repositoryLinkToItem(link)
 	}
 
-	return &listRepositoryLinksOutput{RepositoryLinks: items}, nil
+	p := page.New(items, in.NextToken, in.MaxResults, defaultCSCMaxResults)
+
+	return &listRepositoryLinksOutput{RepositoryLinks: p.Data, NextToken: p.Next}, nil
 }
 
 func repositoryLinkToItem(link *RepositoryLink) repositoryLinkItem {
@@ -742,24 +756,28 @@ func repositoryLinkToItem(link *RepositoryLink) repositoryLinkItem {
 // --- SyncConfiguration operations ---
 
 type createSyncConfigurationInput struct {
-	Branch           string `json:"Branch"`
-	ConfigFile       string `json:"ConfigFile"`
-	RepositoryLinkID string `json:"RepositoryLinkId"`
-	ResourceName     string `json:"ResourceName"`
-	RoleArn          string `json:"RoleArn"`
-	SyncType         string `json:"SyncType"`
+	Branch                  string `json:"Branch"`
+	ConfigFile              string `json:"ConfigFile"`
+	RepositoryLinkID        string `json:"RepositoryLinkId"`
+	ResourceName            string `json:"ResourceName"`
+	RoleArn                 string `json:"RoleArn"`
+	SyncType                string `json:"SyncType"`
+	PublishDeploymentStatus string `json:"PublishDeploymentStatus"`
+	TriggerResourceUpdateOn string `json:"TriggerResourceUpdateOn"`
 }
 
 type syncConfigurationItem struct {
-	Branch           string `json:"Branch"`
-	ConfigFile       string `json:"ConfigFile"`
-	OwnerID          string `json:"OwnerId"`
-	ProviderType     string `json:"ProviderType"`
-	RepositoryLinkID string `json:"RepositoryLinkId"`
-	RepositoryName   string `json:"RepositoryName"`
-	ResourceName     string `json:"ResourceName"`
-	RoleArn          string `json:"RoleArn"`
-	SyncType         string `json:"SyncType"`
+	Branch                  string `json:"Branch"`
+	ConfigFile              string `json:"ConfigFile"`
+	OwnerID                 string `json:"OwnerId"`
+	ProviderType            string `json:"ProviderType"`
+	RepositoryLinkID        string `json:"RepositoryLinkId"`
+	RepositoryName          string `json:"RepositoryName"`
+	ResourceName            string `json:"ResourceName"`
+	RoleArn                 string `json:"RoleArn"`
+	SyncType                string `json:"SyncType"`
+	PublishDeploymentStatus string `json:"PublishDeploymentStatus,omitempty"`
+	TriggerResourceUpdateOn string `json:"TriggerResourceUpdateOn,omitempty"`
 }
 
 type createSyncConfigurationOutput struct {
@@ -794,8 +812,9 @@ func (h *Handler) handleCreateSyncConfiguration(
 		return nil, fmt.Errorf("%w: SyncType is required", errInvalidRequest)
 	}
 
-	cfg, err := h.Backend.CreateSyncConfiguration(
+	cfg, err := h.Backend.CreateSyncConfigurationFull(
 		ctx, in.Branch, in.ConfigFile, in.RepositoryLinkID, in.ResourceName, in.RoleArn, in.SyncType,
+		in.PublishDeploymentStatus, in.TriggerResourceUpdateOn,
 	)
 	if err != nil {
 		return nil, err
@@ -844,6 +863,14 @@ func (h *Handler) handleDeleteSyncConfiguration(
 	ctx context.Context,
 	in *deleteSyncConfigurationInput,
 ) (*deleteSyncConfigurationOutput, error) {
+	if in.ResourceName == "" {
+		return nil, fmt.Errorf("%w: ResourceName is required", errInvalidRequest)
+	}
+
+	if in.SyncType == "" {
+		return nil, fmt.Errorf("%w: SyncType is required", errInvalidRequest)
+	}
+
 	if err := h.Backend.DeleteSyncConfiguration(ctx, in.ResourceName, in.SyncType); err != nil {
 		return nil, err
 	}
@@ -853,15 +880,17 @@ func (h *Handler) handleDeleteSyncConfiguration(
 
 func syncConfigToItem(cfg *SyncConfiguration) syncConfigurationItem {
 	return syncConfigurationItem{
-		Branch:           cfg.Branch,
-		ConfigFile:       cfg.ConfigFile,
-		OwnerID:          cfg.OwnerID,
-		ProviderType:     cfg.ProviderType,
-		RepositoryLinkID: cfg.RepositoryLinkID,
-		RepositoryName:   cfg.RepositoryName,
-		ResourceName:     cfg.ResourceName,
-		RoleArn:          cfg.RoleArn,
-		SyncType:         cfg.SyncType,
+		Branch:                  cfg.Branch,
+		ConfigFile:              cfg.ConfigFile,
+		OwnerID:                 cfg.OwnerID,
+		ProviderType:            cfg.ProviderType,
+		RepositoryLinkID:        cfg.RepositoryLinkID,
+		RepositoryName:          cfg.RepositoryName,
+		ResourceName:            cfg.ResourceName,
+		RoleArn:                 cfg.RoleArn,
+		SyncType:                cfg.SyncType,
+		PublishDeploymentStatus: cfg.PublishDeploymentStatus,
+		TriggerResourceUpdateOn: cfg.TriggerResourceUpdateOn,
 	}
 }
 
@@ -971,11 +1000,13 @@ type getSyncBlockerSummaryInput struct {
 }
 
 type syncBlockerItem struct {
-	ID            string `json:"Id"`
-	Type          string `json:"Type"`
-	Status        string `json:"Status"`
-	CreatedAt     string `json:"CreatedAt"`
-	CreatedReason string `json:"CreatedReason"`
+	ID             string `json:"Id"`
+	Type           string `json:"Type"`
+	Status         string `json:"Status"`
+	CreatedAt      string `json:"CreatedAt"`
+	CreatedReason  string `json:"CreatedReason"`
+	ResolvedAt     string `json:"ResolvedAt,omitempty"`
+	ResolvedReason string `json:"ResolvedReason,omitempty"`
 }
 
 type syncBlockerSummaryItem struct {
@@ -1007,13 +1038,20 @@ func (h *Handler) handleGetSyncBlockerSummary(
 
 	blockers := make([]syncBlockerItem, len(summary.LatestBlockers))
 	for i, b := range summary.LatestBlockers {
-		blockers[i] = syncBlockerItem{
+		item := syncBlockerItem{
 			ID:            b.ID,
 			Type:          b.Type,
 			Status:        b.Status,
 			CreatedAt:     b.CreatedAt.Format(time.RFC3339),
 			CreatedReason: b.CreatedReason,
 		}
+
+		if b.ResolvedAt != nil {
+			item.ResolvedAt = b.ResolvedAt.Format(time.RFC3339)
+			item.ResolvedReason = b.ResolvedReason
+		}
+
+		blockers[i] = item
 	}
 
 	return &getSyncBlockerSummaryOutput{
@@ -1085,11 +1123,12 @@ type listSyncConfigurationsInput struct {
 	RepositoryLinkID string `json:"RepositoryLinkId"`
 	SyncType         string `json:"SyncType"`
 	NextToken        string `json:"NextToken"`
-	MaxResults       int32  `json:"MaxResults"`
+	MaxResults       int    `json:"MaxResults"`
 }
 
 type listSyncConfigurationsOutput struct {
 	SyncConfigurations []syncConfigurationItem `json:"SyncConfigurations"`
+	NextToken          string                  `json:"NextToken,omitempty"`
 }
 
 func (h *Handler) handleListSyncConfigurations(
@@ -1107,7 +1146,9 @@ func (h *Handler) handleListSyncConfigurations(
 		items[i] = syncConfigToItem(cfg)
 	}
 
-	return &listSyncConfigurationsOutput{SyncConfigurations: items}, nil
+	p := page.New(items, in.NextToken, in.MaxResults, defaultCSCMaxResults)
+
+	return &listSyncConfigurationsOutput{SyncConfigurations: p.Data, NextToken: p.Next}, nil
 }
 
 // --- UpdateRepositoryLink ---
@@ -1148,6 +1189,8 @@ type updateSyncBlockerInput struct {
 }
 
 type updateSyncBlockerOutput struct {
+	ResourceName       string                 `json:"ResourceName"`
+	ParentResourceName string                 `json:"ParentResourceName,omitempty"`
 	SyncBlockerSummary syncBlockerSummaryItem `json:"SyncBlockerSummary"`
 }
 
@@ -1164,10 +1207,29 @@ func (h *Handler) handleUpdateSyncBlocker(
 		return nil, err
 	}
 
+	blockers := make([]syncBlockerItem, len(summary.LatestBlockers))
+	for i, b := range summary.LatestBlockers {
+		item := syncBlockerItem{
+			ID:            b.ID,
+			Type:          b.Type,
+			Status:        b.Status,
+			CreatedAt:     b.CreatedAt.Format(time.RFC3339),
+			CreatedReason: b.CreatedReason,
+		}
+
+		if b.ResolvedAt != nil {
+			item.ResolvedAt = b.ResolvedAt.Format(time.RFC3339)
+			item.ResolvedReason = b.ResolvedReason
+		}
+
+		blockers[i] = item
+	}
+
 	return &updateSyncBlockerOutput{
+		ResourceName: summary.ResourceName,
 		SyncBlockerSummary: syncBlockerSummaryItem{
 			ResourceName:   summary.ResourceName,
-			LatestBlockers: []syncBlockerItem{},
+			LatestBlockers: blockers,
 		},
 	}, nil
 }
@@ -1175,12 +1237,14 @@ func (h *Handler) handleUpdateSyncBlocker(
 // --- UpdateSyncConfiguration ---
 
 type updateSyncConfigurationInput struct {
-	ResourceName     string `json:"ResourceName"`
-	SyncType         string `json:"SyncType"`
-	Branch           string `json:"Branch"`
-	ConfigFile       string `json:"ConfigFile"`
-	RepositoryLinkID string `json:"RepositoryLinkId"`
-	RoleArn          string `json:"RoleArn"`
+	ResourceName            string `json:"ResourceName"`
+	SyncType                string `json:"SyncType"`
+	Branch                  string `json:"Branch"`
+	ConfigFile              string `json:"ConfigFile"`
+	RepositoryLinkID        string `json:"RepositoryLinkId"`
+	RoleArn                 string `json:"RoleArn"`
+	PublishDeploymentStatus string `json:"PublishDeploymentStatus"`
+	TriggerResourceUpdateOn string `json:"TriggerResourceUpdateOn"`
 }
 
 type updateSyncConfigurationOutput struct {
@@ -1199,8 +1263,9 @@ func (h *Handler) handleUpdateSyncConfiguration(
 		return nil, fmt.Errorf("%w: SyncType is required", errInvalidRequest)
 	}
 
-	cfg, err := h.Backend.UpdateSyncConfiguration(
+	cfg, err := h.Backend.UpdateSyncConfigurationFull(
 		ctx, in.ResourceName, in.SyncType, in.Branch, in.ConfigFile, in.RepositoryLinkID, in.RoleArn,
+		in.PublishDeploymentStatus, in.TriggerResourceUpdateOn,
 	)
 	if err != nil {
 		return nil, err
