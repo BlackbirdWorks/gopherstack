@@ -77,15 +77,15 @@ const (
 	timelineKeyCreation = "CreationDateTime"
 	timelineKeyEnd      = "EndDateTime"
 
-	listClustersPageSize          = 50
-	listSecConfigsPageSize        = 50
-	listReleaseLabelsPage         = 50
-	listInstanceTypesPage         = 50
-	listStepsPageSize             = 50
-	listInstancesPageSize         = 500
-	listStudiosPageSize           = 50
-	listNotebookExecPageSize      = 50
-	listBootstrapActionsPageSize  = 50
+	listClustersPageSize         = 50
+	listSecConfigsPageSize       = 50
+	listReleaseLabelsPage        = 50
+	listInstanceTypesPage        = 50
+	listStepsPageSize            = 50
+	listInstancesPageSize        = 500
+	listStudiosPageSize          = 50
+	listNotebookExecPageSize     = 50
+	listBootstrapActionsPageSize = 50
 
 	instanceGroupStateRunning = "RUNNING"
 
@@ -630,26 +630,26 @@ type RunJobFlowInstances struct {
 
 // RunJobFlowParams is the full input for creating a new cluster.
 type RunJobFlowParams struct {
-	SecurityConfiguration   string              `json:"SecurityConfiguration,omitempty"`
-	ReleaseLabel            string              `json:"ReleaseLabel"`
-	OSReleaseLabel          string              `json:"OSReleaseLabel,omitempty"`
-	LogURI                  string              `json:"LogUri,omitempty"`
-	ServiceRole             string              `json:"ServiceRole,omitempty"`
-	AutoScalingRole         string              `json:"AutoScalingRole,omitempty"`
-	Name                    string              `json:"Name"`
-	ScaleDownBehavior       string              `json:"ScaleDownBehavior,omitempty"`
-	CustomAmiID             string              `json:"CustomAmiId,omitempty"`
-	Tags                    []Tag               `json:"Tags,omitempty"`
-	Applications            []Application       `json:"Applications,omitempty"`
-	Configurations          []Configuration     `json:"Configurations,omitempty"`
-	Steps                   []StepSpec          `json:"Steps,omitempty"`
-	Instances               RunJobFlowInstances    `json:"Instances"`
+	SecurityConfiguration   string                  `json:"SecurityConfiguration,omitempty"`
+	ReleaseLabel            string                  `json:"ReleaseLabel"`
+	OSReleaseLabel          string                  `json:"OSReleaseLabel,omitempty"`
+	LogURI                  string                  `json:"LogUri,omitempty"`
+	ServiceRole             string                  `json:"ServiceRole,omitempty"`
+	AutoScalingRole         string                  `json:"AutoScalingRole,omitempty"`
+	Name                    string                  `json:"Name"`
+	ScaleDownBehavior       string                  `json:"ScaleDownBehavior,omitempty"`
+	CustomAmiID             string                  `json:"CustomAmiId,omitempty"`
+	Tags                    []Tag                   `json:"Tags,omitempty"`
+	Applications            []Application           `json:"Applications,omitempty"`
+	Configurations          []Configuration         `json:"Configurations,omitempty"`
+	Steps                   []StepSpec              `json:"Steps,omitempty"`
 	BootstrapActions        []BootstrapActionConfig `json:"BootstrapActions,omitempty"`
-	StepConcurrencyLevel    int                    `json:"StepConcurrencyLevel,omitempty"`
-	EbsRootVolumeSize       int                    `json:"EbsRootVolumeSize,omitempty"`
-	EbsRootVolumeIops       int                    `json:"EbsRootVolumeIops,omitempty"`
-	EbsRootVolumeThroughput int                    `json:"EbsRootVolumeThroughput,omitempty"`
-	VisibleToAllUsers       bool                   `json:"VisibleToAllUsers"`
+	Instances               RunJobFlowInstances     `json:"Instances"`
+	StepConcurrencyLevel    int                     `json:"StepConcurrencyLevel,omitempty"`
+	EbsRootVolumeSize       int                     `json:"EbsRootVolumeSize,omitempty"`
+	EbsRootVolumeIops       int                     `json:"EbsRootVolumeIops,omitempty"`
+	EbsRootVolumeThroughput int                     `json:"EbsRootVolumeThroughput,omitempty"`
+	VisibleToAllUsers       bool                    `json:"VisibleToAllUsers"`
 }
 
 // ListClustersParams holds filter and pagination params for ListClusters.
@@ -1546,7 +1546,10 @@ func (b *InMemoryBackend) ListSteps(
 }
 
 // ListBootstrapActions returns the bootstrap actions for a cluster, paginated.
-func (b *InMemoryBackend) ListBootstrapActions(ctx context.Context, clusterID, marker string) ([]Command, string, error) {
+func (b *InMemoryBackend) ListBootstrapActions(
+	ctx context.Context,
+	clusterID, marker string,
+) ([]Command, string, error) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.RLock("ListBootstrapActions")
