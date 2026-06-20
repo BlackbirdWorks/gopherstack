@@ -1104,8 +1104,10 @@ func (h *DynamoDBHandler) updateContinuousBackups(ctx context.Context, body []by
 }
 
 type exportTableToPointInTimeInput struct {
-	TableArn string `json:"TableArn"`
-	S3Bucket string `json:"S3Bucket"`
+	TableArn     string `json:"TableArn"`
+	S3Bucket     string `json:"S3Bucket"`
+	S3Prefix     string `json:"S3Prefix,omitempty"`
+	ExportFormat string `json:"ExportFormat,omitempty"`
 }
 
 type exportDescriptionFields struct {
@@ -1148,7 +1150,7 @@ func generateExportID() string {
 	return fmt.Sprintf("%016x-%s", time.Now().UnixMilli(), uuid.New().String()[:exportIDSuffixLen])
 }
 
-func (h *DynamoDBHandler) exportTableToPointInTime(_ context.Context, body []byte) (any, error) {
+func (h *DynamoDBHandler) exportTableToPointInTime(ctx context.Context, body []byte) (any, error) {
 	var req exportTableToPointInTimeInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
@@ -1188,9 +1190,23 @@ func (h *DynamoDBHandler) exportTableToPointInTime(_ context.Context, body []byt
 		S3Bucket:     req.S3Bucket,
 	}
 
-	// Persist the export so ListExports and DescribeExport return it.
+	// Persist the export so ListExports and DescribeExport return it, and write the
+	// actual data to S3 when a backend is wired (re-importable DynamoDB-JSON.gz).
 	if b, ok := h.Backend.(*InMemoryDB); ok {
 		b.storeExport(desc)
+
+		if req.S3Bucket != "" {
+			base := strings.TrimSuffix(req.S3Prefix, "/")
+			if base != "" {
+				base += "/"
+			}
+			objBase := fmt.Sprintf("%sAWSDynamoDB/%s", base, generateExportID())
+			dataKey := objBase + "/data/00000.json.gz"
+			manifestKey := objBase + "/manifest-summary.json"
+			if _, err := b.exportTableToS3(ctx, req.TableArn, req.S3Bucket, dataKey, manifestKey); err != nil {
+				return nil, err
+			}
+		}
 	}
 
 	return &exportTableToPointInTimeOutput{ExportDescription: desc}, nil
@@ -1217,14 +1233,8 @@ func (h *DynamoDBHandler) describeExport(_ context.Context, body []byte) (any, e
 		}
 	}
 
-	// Fall back to synthesising a response for unknown ARNs (e.g. ARNs generated
-	// before export tracking was added, or from external injection).
-	return &exportTableToPointInTimeOutput{
-		ExportDescription: exportDescriptionFields{
-			ExportArn:    req.ExportArn,
-			ExportStatus: "COMPLETED",
-		},
-	}, nil
+	// AWS returns ExportNotFoundException for an unknown ARN, not a fake COMPLETED.
+	return nil, NewExportNotFoundException("Export not found: " + req.ExportArn)
 }
 
 type describeTableReplicaAutoScalingInput struct {
@@ -1467,9 +1477,38 @@ type describeImportInput struct {
 }
 
 type importTableDescriptionWire struct {
-	ImportArn    string `json:"ImportArn,omitempty"`
-	ImportStatus string `json:"ImportStatus,omitempty"`
-	TableArn     string `json:"TableArn,omitempty"`
+	ImportArn          string `json:"ImportArn,omitempty"`
+	ImportStatus       string `json:"ImportStatus,omitempty"`
+	TableArn           string `json:"TableArn,omitempty"`
+	InputFormat        string `json:"InputFormat,omitempty"`
+	FailureCode        string `json:"FailureCode,omitempty"`
+	FailureMessage     string `json:"FailureMessage,omitempty"`
+	ImportedItemCount  int64  `json:"ImportedItemCount,omitempty"`
+	ProcessedItemCount int64  `json:"ProcessedItemCount,omitempty"`
+	ProcessedSizeBytes int64  `json:"ProcessedSizeBytes,omitempty"`
+	ErrorCount         int64  `json:"ErrorCount,omitempty"`
+}
+
+// importDescriptionWireFromSDK maps the SDK import description to the wire shape.
+func importDescriptionWireFromSDK(d *types.ImportTableDescription) importTableDescriptionWire {
+	w := importTableDescriptionWire{}
+	if d == nil {
+		return w
+	}
+	w.ImportArn = derefStr(d.ImportArn)
+	w.ImportStatus = string(d.ImportStatus)
+	w.TableArn = derefStr(d.TableArn)
+	w.InputFormat = string(d.InputFormat)
+	w.FailureCode = derefStr(d.FailureCode)
+	w.FailureMessage = derefStr(d.FailureMessage)
+	w.ImportedItemCount = d.ImportedItemCount
+	w.ProcessedItemCount = d.ProcessedItemCount
+	w.ErrorCount = d.ErrorCount
+	if d.ProcessedSizeBytes != nil {
+		w.ProcessedSizeBytes = *d.ProcessedSizeBytes
+	}
+
+	return w
 }
 
 type describeImportOutput struct {
@@ -1781,13 +1820,8 @@ func (h *DynamoDBHandler) handleDescribeImport(ctx context.Context, body []byte)
 		return nil, err
 	}
 
-	d := out.ImportTableDescription
-
 	return &describeImportOutput{
-		ImportTableDescription: importTableDescriptionWire{
-			ImportArn:    derefStr(d.ImportArn),
-			ImportStatus: string(d.ImportStatus),
-		},
+		ImportTableDescription: importDescriptionWireFromSDK(out.ImportTableDescription),
 	}, nil
 }
 
@@ -2329,18 +2363,26 @@ func (h *DynamoDBHandler) handleExecuteTransaction(ctx context.Context, body []b
 // --- ImportTable handler ---
 
 type importTableS3BucketSourceWire struct {
-	S3Bucket string `json:"S3Bucket"`
-	S3Prefix string `json:"S3BucketKeyPrefix,omitempty"`
+	S3Bucket      string `json:"S3Bucket"`
+	S3KeyPrefix   string `json:"S3KeyPrefix,omitempty"`
+	S3BucketOwner string `json:"S3BucketOwner,omitempty"`
 }
 
-type importTableCreationParametersWire struct {
-	TableName string `json:"TableName"`
+type importTableCsvOptionsWire struct {
+	Delimiter  string   `json:"Delimiter,omitempty"`
+	HeaderList []string `json:"HeaderList,omitempty"`
+}
+
+type importTableInputFormatOptionsWire struct {
+	Csv *importTableCsvOptionsWire `json:"Csv,omitempty"`
 }
 
 type importTableInput struct {
-	S3BucketSource          importTableS3BucketSourceWire     `json:"S3BucketSource"`
-	TableCreationParameters importTableCreationParametersWire `json:"TableCreationParameters"`
-	InputFormat             string                            `json:"InputFormat,omitempty"`
+	S3BucketSource          importTableS3BucketSourceWire      `json:"S3BucketSource"`
+	TableCreationParameters models.CreateTableInput            `json:"TableCreationParameters"`
+	InputFormatOptions      *importTableInputFormatOptionsWire `json:"InputFormatOptions,omitempty"`
+	InputFormat             string                             `json:"InputFormat,omitempty"`
+	InputCompressionType    string                             `json:"InputCompressionType,omitempty"`
 }
 
 type importTableOutput struct {
@@ -2353,30 +2395,45 @@ func (h *DynamoDBHandler) handleImportTable(ctx context.Context, body []byte) (a
 		return nil, err
 	}
 
-	bucket := req.S3BucketSource.S3Bucket
-	tableName := req.TableCreationParameters.TableName
+	// Reuse the CreateTable conversion so KeySchema / AttributeDefinitions / GSIs /
+	// throughput are all carried into the imported table.
+	cti := models.ToSDKCreateTableInput(&req.TableCreationParameters)
 
-	out, err := h.Backend.ImportTable(ctx, &sdkDDB.ImportTableInput{
+	in := &sdkDDB.ImportTableInput{
+		InputFormat:          types.InputFormat(req.InputFormat),
+		InputCompressionType: types.InputCompressionType(req.InputCompressionType),
 		S3BucketSource: &types.S3BucketSource{
-			S3Bucket: &bucket,
+			S3Bucket:      aws.String(req.S3BucketSource.S3Bucket),
+			S3KeyPrefix:   aws.String(req.S3BucketSource.S3KeyPrefix),
+			S3BucketOwner: aws.String(req.S3BucketSource.S3BucketOwner),
 		},
 		TableCreationParameters: &types.TableCreationParameters{
-			TableName: &tableName,
+			TableName:              cti.TableName,
+			KeySchema:              cti.KeySchema,
+			AttributeDefinitions:   cti.AttributeDefinitions,
+			BillingMode:            cti.BillingMode,
+			GlobalSecondaryIndexes: cti.GlobalSecondaryIndexes,
+			ProvisionedThroughput:  cti.ProvisionedThroughput,
 		},
-	})
+	}
+
+	if req.InputFormatOptions != nil && req.InputFormatOptions.Csv != nil {
+		in.InputFormatOptions = &types.InputFormatOptions{
+			Csv: &types.CsvOptions{
+				Delimiter:  aws.String(req.InputFormatOptions.Csv.Delimiter),
+				HeaderList: req.InputFormatOptions.Csv.HeaderList,
+			},
+		}
+	}
+
+	out, err := h.Backend.ImportTable(ctx, in)
 	if err != nil {
 		return nil, err
 	}
 
-	desc := importTableDescriptionWire{}
-	if out.ImportTableDescription != nil {
-		d := out.ImportTableDescription
-		desc.ImportArn = derefStr(d.ImportArn)
-		desc.ImportStatus = string(d.ImportStatus)
-		desc.TableArn = derefStr(d.TableArn)
-	}
-
-	return &importTableOutput{ImportTableDescription: desc}, nil
+	return &importTableOutput{
+		ImportTableDescription: importDescriptionWireFromSDK(out.ImportTableDescription),
+	}, nil
 }
 
 // --- ListImports handler ---

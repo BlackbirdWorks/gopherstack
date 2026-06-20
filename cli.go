@@ -2693,6 +2693,10 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	// Wire Firehose → S3 and Lambda for actual record delivery and transformation.
 	wireFirehoseDelivery(byName["Firehose"], byName["S3"], byName["Lambda"])
 
+	// Wire DynamoDB → S3 so ImportTable reads source objects and
+	// ExportTableToPointInTime writes real export data.
+	wireDynamoDBS3(byName["DynamoDB"], byName["S3"])
+
 	// Wire Lambda invoker → SecretsManager rotation.
 	wireSecretsManagerLambda(byName["SecretsManager"], byName["Lambda"])
 
@@ -5077,6 +5081,30 @@ func wireFirehoseDelivery(firehoseReg, s3Reg, lambdaReg service.Registerable) {
 				fhBk.SetLambdaBackend(lambdaBk)
 			}
 		}
+	}
+}
+
+// wireDynamoDBS3 connects the DynamoDB backend to the S3 backend so that
+// ImportTable can read source objects and ExportTableToPointInTime can write
+// export data to S3.
+func wireDynamoDBS3(ddbReg, s3Reg service.Registerable) {
+	ddbH, ok := ddbReg.(*ddbbackend.DynamoDBHandler)
+	if !ok {
+		return
+	}
+
+	s3H, s3Ok := s3Reg.(*s3backend.S3Handler)
+	if !s3Ok {
+		return
+	}
+
+	s3Bk, bkOk := s3H.Backend.(*s3backend.InMemoryBackend)
+	if !bkOk {
+		return
+	}
+
+	if ddbBk, ddbBkOk := ddbH.Backend.(*ddbbackend.InMemoryDB); ddbBkOk {
+		ddbBk.SetS3Backend(s3Bk)
 	}
 }
 

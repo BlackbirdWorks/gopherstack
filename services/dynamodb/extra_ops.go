@@ -926,29 +926,15 @@ func (db *InMemoryDB) DescribeImport(
 	}
 
 	importARN := *input.ImportArn
-	now := time.Now()
 
-	// Look up from persistent store first.
-	if imp, ok := db.lookupImport(importARN); ok {
-		tableARN := imp.TableArn
-
-		return &dynamodb.DescribeImportOutput{
-			ImportTableDescription: &types.ImportTableDescription{
-				ImportArn:    &importARN,
-				ImportStatus: types.ImportStatusCompleted,
-				TableArn:     &tableARN,
-				EndTime:      &now,
-			},
-		}, nil
+	imp, ok := db.lookupImport(importARN)
+	if !ok {
+		// AWS returns ImportNotFoundException for an unknown ARN, not a fake COMPLETED.
+		return nil, NewImportNotFoundException("Import not found: " + importARN)
 	}
 
-	// Fallback: synthetic response for unknown ARNs.
 	return &dynamodb.DescribeImportOutput{
-		ImportTableDescription: &types.ImportTableDescription{
-			ImportArn:    &importARN,
-			ImportStatus: types.ImportStatusCompleted,
-			EndTime:      &now,
-		},
+		ImportTableDescription: importDescriptionFromRecord(imp),
 	}, nil
 }
 
@@ -1376,11 +1362,12 @@ func (db *InMemoryDB) ExecuteTransaction(
 
 // --- ImportTable ---
 
-// ImportTable generates a synthetic import ARN, stores the import metadata, and returns COMPLETED status.
-// The in-memory backend does not perform real S3 imports, but persists the record so that
-// DescribeImport and ListImports return accurate results.
+// ImportTable creates the target table from TableCreationParameters and, when an
+// S3 backend is wired, populates it from the source objects (DYNAMODB_JSON or CSV,
+// optionally gzip-compressed). It records accurate counts so DescribeImport and
+// ListImports report real progress. ION input is reported as a FAILED import.
 func (db *InMemoryDB) ImportTable(
-	_ context.Context,
+	ctx context.Context,
 	input *dynamodb.ImportTableInput,
 ) (*dynamodb.ImportTableOutput, error) {
 	if input.TableCreationParameters == nil {
@@ -1391,36 +1378,100 @@ func (db *InMemoryDB) ImportTable(
 		return nil, NewValidationException("S3BucketSource.S3Bucket is required")
 	}
 
-	importARN := arn.Build("dynamodb", db.defaultRegion, db.accountID,
-		"table/import/"+uuid.New().String())
-	now := time.Now()
-
-	tableARN := ""
-	if input.TableCreationParameters.TableName != nil {
-		tableARN = arn.Build("dynamodb", db.defaultRegion, db.accountID,
-			"table/"+*input.TableCreationParameters.TableName)
+	tcp := input.TableCreationParameters
+	if aws.ToString(tcp.TableName) == "" {
+		return nil, NewValidationException("TableCreationParameters.TableName is required")
 	}
 
-	bucket := aws.ToString(input.S3BucketSource.S3Bucket)
-	inputFormat := string(input.InputFormat)
+	tableName := aws.ToString(tcp.TableName)
+	importARN := arn.Build("dynamodb", db.defaultRegion, db.accountID,
+		"table/import/"+uuid.New().String())
+	tableARN := arn.Build("dynamodb", db.defaultRegion, db.accountID, "table/"+tableName)
+	start := time.Now()
 
-	db.storeImport(storedImport{
-		ImportArn:    importARN,
-		ImportStatus: string(types.ImportStatusCompleted),
-		TableArn:     tableARN,
-		S3Bucket:     bucket,
-		InputFormat:  inputFormat,
-	})
+	// Create the target table; surface CreateTable errors (e.g. ResourceInUse).
+	if _, err := db.CreateTable(ctx, createInputFromImportParams(tcp)); err != nil {
+		return nil, err
+	}
+
+	rec := storedImport{
+		ImportArn:        importARN,
+		TableArn:         tableARN,
+		S3Bucket:         aws.ToString(input.S3BucketSource.S3Bucket),
+		S3Prefix:         aws.ToString(input.S3BucketSource.S3KeyPrefix),
+		InputFormat:      string(input.InputFormat),
+		InputCompression: string(input.InputCompressionType),
+		StartTime:        start,
+		CreatedAt:        start,
+	}
+
+	res, importErr := db.importFromS3(
+		ctx, tableName, input.S3BucketSource,
+		input.InputFormat, input.InputCompressionType, input.InputFormatOptions,
+	)
+	rec.EndTime = time.Now()
+	rec.ImportedItemCount = res.imported
+	rec.ProcessedItemCount = res.processed
+	rec.ProcessedSizeBytes = res.bytes
+	rec.ErrorCount = res.errors
+
+	if importErr != nil {
+		rec.ImportStatus = string(types.ImportStatusFailed)
+		rec.FailureCode = "InputFormatError"
+		rec.FailureMessage = importErr.Error()
+	} else {
+		rec.ImportStatus = string(types.ImportStatusCompleted)
+	}
+
+	db.storeImport(rec)
 
 	return &dynamodb.ImportTableOutput{
-		ImportTableDescription: &types.ImportTableDescription{
-			ImportArn:    &importARN,
-			ImportStatus: types.ImportStatusCompleted,
-			TableArn:     &tableARN,
-			StartTime:    &now,
-			EndTime:      &now,
-		},
+		ImportTableDescription: importDescriptionFromRecord(rec),
 	}, nil
+}
+
+// createInputFromImportParams maps TableCreationParameters to a CreateTableInput.
+func createInputFromImportParams(tcp *types.TableCreationParameters) *dynamodb.CreateTableInput {
+	return &dynamodb.CreateTableInput{
+		TableName:              tcp.TableName,
+		KeySchema:              tcp.KeySchema,
+		AttributeDefinitions:   tcp.AttributeDefinitions,
+		BillingMode:            tcp.BillingMode,
+		GlobalSecondaryIndexes: tcp.GlobalSecondaryIndexes,
+		ProvisionedThroughput:  tcp.ProvisionedThroughput,
+		OnDemandThroughput:     tcp.OnDemandThroughput,
+		SSESpecification:       tcp.SSESpecification,
+	}
+}
+
+// importDescriptionFromRecord builds the SDK description from a stored import.
+func importDescriptionFromRecord(rec storedImport) *types.ImportTableDescription {
+	desc := &types.ImportTableDescription{
+		ImportArn:          aws.String(rec.ImportArn),
+		ImportStatus:       types.ImportStatus(rec.ImportStatus),
+		TableArn:           aws.String(rec.TableArn),
+		InputFormat:        types.InputFormat(rec.InputFormat),
+		ImportedItemCount:  rec.ImportedItemCount,
+		ProcessedItemCount: rec.ProcessedItemCount,
+		ProcessedSizeBytes: aws.Int64(rec.ProcessedSizeBytes),
+		ErrorCount:         rec.ErrorCount,
+		S3BucketSource: &types.S3BucketSource{
+			S3Bucket:    aws.String(rec.S3Bucket),
+			S3KeyPrefix: aws.String(rec.S3Prefix),
+		},
+	}
+	if !rec.StartTime.IsZero() {
+		desc.StartTime = aws.Time(rec.StartTime)
+	}
+	if !rec.EndTime.IsZero() {
+		desc.EndTime = aws.Time(rec.EndTime)
+	}
+	if rec.FailureCode != "" {
+		desc.FailureCode = aws.String(rec.FailureCode)
+		desc.FailureMessage = aws.String(rec.FailureMessage)
+	}
+
+	return desc
 }
 
 // --- ListImports ---
@@ -1436,10 +1487,15 @@ func (db *InMemoryDB) ListImports(
 	for _, imp := range stored {
 		importARN := imp.ImportArn
 		tableARN := imp.TableArn
+		status := imp.ImportStatus
+		if status == "" {
+			status = string(types.ImportStatusCompleted)
+		}
 		summaries = append(summaries, types.ImportSummary{
 			ImportArn:    &importARN,
-			ImportStatus: types.ImportStatusCompleted,
+			ImportStatus: types.ImportStatus(status),
 			TableArn:     &tableARN,
+			InputFormat:  types.InputFormat(imp.InputFormat),
 		})
 	}
 

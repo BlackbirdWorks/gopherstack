@@ -187,6 +187,22 @@ func NewBackupInUseException(msg string) *Error {
 	}
 }
 
+// NewImportNotFoundException indicates the requested import ARN does not exist.
+func NewImportNotFoundException(msg string) *Error {
+	return &Error{
+		Type:    "com.amazonaws.dynamodb.v20120810#ImportNotFoundException",
+		Message: msg,
+	}
+}
+
+// NewExportNotFoundException indicates the requested export ARN does not exist.
+func NewExportNotFoundException(msg string) *Error {
+	return &Error{
+		Type:    "com.amazonaws.dynamodb.v20120810#ExportNotFoundException",
+		Message: msg,
+	}
+}
+
 func (e *Error) Error() string {
 	return fmt.Sprintf("%s: %s", e.Type, e.Message)
 }
