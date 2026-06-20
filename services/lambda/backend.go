@@ -148,6 +148,14 @@ type QualifierInvoker interface {
 	) ([]byte, int, error)
 }
 
+// QualifierResolver is an optional extension of StorageBackend that resolves a
+// qualifier (version number or alias name) to a function configuration for
+// GetFunction/GetFunctionConfiguration. Backends implement this to support
+// ?Qualifier= on the read paths.
+type QualifierResolver interface {
+	GetFunctionByQualifier(name, qualifier string) (*FunctionConfiguration, error)
+}
+
 // S3CodeFetcher can retrieve zip bytes from an S3-compatible store.
 // It is used by InMemoryBackend to pull Zip Lambda code from S3.
 type S3CodeFetcher interface {
@@ -1020,6 +1028,76 @@ func (b *InMemoryBackend) GetFunction(name string) (*FunctionConfiguration, erro
 	return fn, nil
 }
 
+// GetFunctionByQualifier returns the configuration for a specific qualifier
+// (version number, alias name, "$LATEST", or empty for $LATEST).
+//
+// Matching real AWS GetFunction/GetFunctionConfiguration behaviour:
+//   - "" or "$LATEST" returns the live function configuration unchanged.
+//   - A numeric version returns the immutable published snapshot, with
+//     FunctionArn suffixed ":<version>" and Version set to that number.
+//   - An alias name resolves to the alias's primary target version, but the
+//     returned FunctionArn is suffixed with the alias name (":<alias>") — AWS
+//     echoes the qualifier you asked for in the ARN while reporting the
+//     resolved Version. Weighted routing config does NOT affect GetFunction.
+//
+// Returns ErrFunctionNotFound when the function does not exist and
+// ErrVersionNotFound when the qualifier resolves to no known version/alias.
+func (b *InMemoryBackend) GetFunctionByQualifier(
+	name, qualifier string,
+) (*FunctionConfiguration, error) {
+	if qualifier == "" || qualifier == versionLatest {
+		return b.GetFunction(name)
+	}
+
+	b.mu.RLock("GetFunctionByQualifier")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.functions[name]; !ok {
+		return nil, ErrFunctionNotFound
+	}
+
+	// Resolve an alias qualifier to its primary target version, but remember the
+	// alias name so the returned ARN carries the alias suffix (AWS behaviour).
+	resolved := qualifier
+	aliasSuffix := ""
+
+	if aliasMap := b.aliases[name]; aliasMap != nil {
+		if alias, ok := aliasMap[qualifier]; ok {
+			resolved = alias.FunctionVersion
+			aliasSuffix = qualifier
+		}
+	}
+
+	if resolved == versionLatest {
+		// Alias points at $LATEST: return the live config but with the alias ARN.
+		fn := b.functions[name]
+		cfg := versionToConfig(fnToVersion(fn))
+		cfg.FunctionArn = buildVersionARN(b.region, b.accountID, name, aliasSuffix)
+
+		return cfg, nil
+	}
+
+	vMap := b.versionIndex[name]
+	if vMap == nil {
+		return nil, ErrVersionNotFound
+	}
+
+	v, ok := vMap[resolved]
+	if !ok {
+		return nil, ErrVersionNotFound
+	}
+
+	cfg := versionToConfig(v)
+
+	// For an alias qualifier, AWS returns the ARN with the alias suffix while
+	// the Version field reports the resolved numeric version.
+	if aliasSuffix != "" {
+		cfg.FunctionArn = buildVersionARN(b.region, b.accountID, name, aliasSuffix)
+	}
+
+	return cfg, nil
+}
+
 // ListFunctions returns a page of Lambda function configurations sorted by name.
 func (b *InMemoryBackend) ListFunctions(marker string, maxItems int) page.Page[*FunctionConfiguration] {
 	b.mu.RLock("ListFunctions")
@@ -1539,6 +1617,43 @@ func versionToFn(v *FunctionVersion) *FunctionConfiguration {
 		LastModified: v.CreatedAt,
 		State:        v.State,
 		SnapStart:    v.SnapStart,
+	}
+}
+
+// versionToConfig builds a complete FunctionConfiguration response from an
+// immutable version snapshot. Unlike versionToFn (used for the invocation hot
+// path, which only needs runtime-critical fields), this preserves every
+// control-plane field AWS returns from GetFunction on a published version,
+// including Version, Layers, VpcConfig, TracingConfig, and the version ARN.
+func versionToConfig(v *FunctionVersion) *FunctionConfiguration {
+	return &FunctionConfiguration{
+		FunctionName:      v.FunctionName,
+		FunctionArn:       v.FunctionArn,
+		Description:       v.Description,
+		Runtime:           v.Runtime,
+		Handler:           v.Handler,
+		Role:              v.Role,
+		MemorySize:        v.MemorySize,
+		Timeout:           v.Timeout,
+		PackageType:       v.PackageType,
+		ImageURI:          v.ImageURI,
+		ImageConfig:       v.ImageConfig,
+		Environment:       deepCopyEnvironment(v.Environment),
+		VpcConfig:         v.VpcConfig,
+		TracingConfig:     v.TracingConfig,
+		FileSystemConfigs: v.FileSystemConfigs,
+		DeadLetterConfig:  v.DeadLetterConfig,
+		Layers:            deepCopyFunctionLayers(v.Layers),
+		CodeSize:          v.CodeSize,
+		CodeSha256:        v.CodeSha256,
+		RevisionID:        v.RevisionID,
+		LastModified:      v.CreatedAt,
+		State:             v.State,
+		Version:           v.Version,
+		SnapStart:         copySnapStart(v.SnapStart),
+		// Published versions are immutable: their last-update status is always
+		// Successful (AWS never reports Pending/InProgress for a numbered version).
+		LastUpdateStatus: LastUpdateStatusSuccessful,
 	}
 }
 
@@ -2367,6 +2482,59 @@ var runtimeBaseImages = map[string]string{
 // Returns "" if the runtime is unknown.
 func baseImageForRuntime(runtime string) string {
 	return runtimeBaseImages[runtime]
+}
+
+// deprecatedRuntimes are AWS Lambda runtime identifiers that are valid (AWS
+// recognises them and CreateFunction is accepted) but are past their
+// deprecation date and can no longer be executed. We accept them at the
+// control plane for parity — real AWS returns InvalidParameterValueException
+// only for runtimes it has never heard of, not for deprecated ones — but they
+// are deliberately absent from runtimeBaseImages so the Docker run path treats
+// them as unknown.
+//
+//nolint:gochecknoglobals // intentional package-level lookup set
+var deprecatedRuntimes = map[string]struct{}{
+	"nodejs":         {},
+	"nodejs4.3":      {},
+	"nodejs4.3-edge": {},
+	"nodejs6.10":     {},
+	"nodejs8.10":     {},
+	"nodejs10.x":     {},
+	"nodejs12.x":     {},
+	"nodejs14.x":     {},
+	"nodejs16.x":     {},
+	"python2.7":      {},
+	"python3.6":      {},
+	"python3.7":      {},
+	"python3.8":      {},
+	"java8":          {},
+	"java8.al2":      {},
+	"dotnetcore1.0":  {},
+	"dotnetcore2.0":  {},
+	"dotnetcore2.1":  {},
+	"dotnetcore3.1":  {},
+	"dotnet5.0":      {},
+	"dotnet6":        {},
+	"dotnet7":        {},
+	"go1.x":          {},
+	"ruby2.5":        {},
+	"ruby2.7":        {},
+	"provided.al2":   {}, // still runnable, but listed here as a safety net
+}
+
+// isValidRuntime reports whether a runtime identifier is one AWS Lambda
+// recognises — either a currently runnable runtime (runtimeBaseImages) or a
+// known-but-deprecated one. Unknown identifiers are rejected by CreateFunction
+// with InvalidParameterValueException, matching real AWS, which enforces an
+// enum constraint on the 'runtime' member.
+func isValidRuntime(runtime string) bool {
+	if _, ok := runtimeBaseImages[runtime]; ok {
+		return true
+	}
+
+	_, ok := deprecatedRuntimes[runtime]
+
+	return ok
 }
 
 // extractZip extracts zip bytes into a new temporary directory and returns the directory path.

@@ -1437,6 +1437,16 @@ func (h *Handler) validateCreateFunctionCode(c *echo.Context, input *CreateFunct
 			return false
 		}
 
+		if !isValidRuntime(input.Runtime) {
+			_ = h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+				fmt.Sprintf(
+					"Value %q at 'runtime' failed to satisfy constraint: "+
+						"Member must satisfy enum value set", input.Runtime,
+				))
+
+			return false
+		}
+
 		if input.Code.ZipFile == nil && (input.Code.S3Bucket == "" || input.Code.S3Key == "") {
 			_ = h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
 				"Code.ZipFile or Code.S3Bucket+Code.S3Key is required for Zip package type")
@@ -1557,20 +1567,47 @@ func (h *Handler) handleCreateFunction(c *echo.Context) error {
 }
 
 func (h *Handler) handleGetFunction(c *echo.Context, name string) error {
-	fn, err := h.Backend.GetFunction(name)
-	if err != nil {
-		if errors.Is(err, ErrFunctionNotFound) {
-			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				"Function not found: "+name)
-		}
+	qualifier := c.Request().URL.Query().Get("Qualifier")
+	if !h.validateQualifier(c, qualifier) {
+		return nil
+	}
 
-		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
+	fn, err := h.resolveFunctionForRead(name, qualifier)
+	if err != nil {
+		return h.writeQualifiedReadError(c, name, qualifier, err)
 	}
 
 	return c.JSON(http.StatusOK, &GetFunctionOutput{
 		Configuration: fn,
 		Code:          buildCodeLocation(fn),
 	})
+}
+
+// resolveFunctionForRead returns the function configuration for the given
+// qualifier. When the qualifier is empty or "$LATEST", or the backend does not
+// support qualifier resolution, it falls back to the live configuration.
+func (h *Handler) resolveFunctionForRead(name, qualifier string) (*FunctionConfiguration, error) {
+	if qualifier != "" && qualifier != versionLatest {
+		if qr, ok := h.Backend.(QualifierResolver); ok {
+			return qr.GetFunctionByQualifier(name, qualifier)
+		}
+	}
+
+	return h.Backend.GetFunction(name)
+}
+
+// writeQualifiedReadError maps a qualifier-resolution error to the AWS response.
+func (h *Handler) writeQualifiedReadError(c *echo.Context, name, qualifier string, err error) error {
+	switch {
+	case errors.Is(err, ErrFunctionNotFound):
+		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+			"Function not found: "+name)
+	case errors.Is(err, ErrVersionNotFound):
+		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+			fmt.Sprintf("Function not found: %s:%s", name, qualifier))
+	default:
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
+	}
 }
 
 // parsePaginationParams extracts Marker and MaxItems from the request query string.
@@ -1738,6 +1775,14 @@ func (h *Handler) handleUpdateFunctionConfiguration(c *echo.Context, name string
 
 	if !h.validateMemoryAndTimeout(c, input.MemorySize, input.Timeout) {
 		return nil
+	}
+
+	if input.Runtime != "" && !isValidRuntime(input.Runtime) {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+			fmt.Sprintf(
+				"Value %q at 'runtime' failed to satisfy constraint: "+
+					"Member must satisfy enum value set", input.Runtime,
+			))
 	}
 
 	if input.EphemeralStorage != nil {
@@ -3124,14 +3169,14 @@ func (h *Handler) handleRemovePermission(c *echo.Context, name string) error {
 // handleGetFunctionConfiguration handles GET /2015-03-31/functions/{name}/configuration.
 // Real AWS returns the function configuration without the code location.
 func (h *Handler) handleGetFunctionConfiguration(c *echo.Context, name string) error {
-	fn, err := h.Backend.GetFunction(name)
-	if err != nil {
-		if errors.Is(err, ErrFunctionNotFound) {
-			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				"Function not found: "+name)
-		}
+	qualifier := c.Request().URL.Query().Get("Qualifier")
+	if !h.validateQualifier(c, qualifier) {
+		return nil
+	}
 
-		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
+	fn, err := h.resolveFunctionForRead(name, qualifier)
+	if err != nil {
+		return h.writeQualifiedReadError(c, name, qualifier, err)
 	}
 
 	// GetFunctionConfiguration returns the configuration only (no code location).
