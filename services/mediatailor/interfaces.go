@@ -1,5 +1,7 @@
 package mediatailor
 
+import "time"
+
 // StorageBackend is the interface for MediaTailor storage operations.
 type StorageBackend interface {
 	// PlaybackConfiguration
@@ -12,7 +14,7 @@ type StorageBackend interface {
 	ListPlaybackConfigurations(maxResults int, nextToken string) ([]*PlaybackConfigurationSummary, string, error)
 
 	// Channel
-	CreateChannel(name, playbackMode string, outputs []OutputItem, tags map[string]string) (*Channel, error)
+	CreateChannel(name, playbackMode, tier string, outputs []OutputItem, tags map[string]string) (*Channel, error)
 	DescribeChannel(name string) (*Channel, error)
 	UpdateChannel(name string, outputs []OutputItem) (*Channel, error)
 	DeleteChannel(name string) error
@@ -56,7 +58,11 @@ type StorageBackend interface {
 	ListLiveSources(sourceLocationName string, maxResults int, nextToken string) ([]*LiveSourceSummary, string, error)
 
 	// PrefetchSchedule
-	CreatePrefetchSchedule(playbackConfigName, name string) (*PrefetchSchedule, error)
+	CreatePrefetchSchedule(
+		playbackConfigName, name, streamID string,
+		retrieval *PrefetchRetrieval,
+		consumption *PrefetchConsumption,
+	) (*PrefetchSchedule, error)
 	GetPrefetchSchedule(playbackConfigName, name string) (*PrefetchSchedule, error)
 	DeletePrefetchSchedule(playbackConfigName, name string) error
 	ListPrefetchSchedules(
@@ -131,7 +137,10 @@ type Channel struct {
 	Name         string
 	PlaybackMode string
 	ChannelState string
+	Tier         string
 	Outputs      []OutputItem
+	CreationTime time.Time
+	LastModified time.Time
 }
 
 // ChannelSummary is a channel in a list response.
@@ -141,19 +150,31 @@ type ChannelSummary struct {
 	ARN          string
 	PlaybackMode string
 	ChannelState string
+	Tier         string
+	CreationTime time.Time
+	LastModified time.Time
 }
 
 // OutputItem represents a channel output configuration.
-// HlsPlaylistSettings first: reduces GC pointer scan.
+// Pointer fields first: reduces GC pointer scan.
 type OutputItem struct {
-	HlsPlaylistSettings *HlsPlaylistSettings `json:"hlsPlaylistSettings,omitempty"`
-	ManifestName        string               `json:"manifestName"`
-	SourceGroup         string               `json:"sourceGroup"`
+	HlsPlaylistSettings  *HlsPlaylistSettings  `json:"hlsPlaylistSettings,omitempty"`
+	DashPlaylistSettings *DashPlaylistSettings  `json:"dashPlaylistSettings,omitempty"`
+	ManifestName         string                 `json:"manifestName"`
+	SourceGroup          string                 `json:"sourceGroup"`
 }
 
 // HlsPlaylistSettings holds HLS playlist configuration.
 type HlsPlaylistSettings struct {
 	ManifestWindowSeconds int `json:"manifestWindowSeconds"`
+}
+
+// DashPlaylistSettings holds DASH playlist configuration.
+type DashPlaylistSettings struct {
+	ManifestWindowSeconds  int `json:"manifestWindowSeconds"`
+	MinBufferTimeSeconds   int `json:"minBufferTimeSeconds"`
+	MinUpdatePeriodSeconds int `json:"minUpdatePeriodSeconds"`
+	SuggestedPresentationDelaySeconds int `json:"suggestedPresentationDelaySeconds"`
 }
 
 // SourceLocation represents a MediaTailor source location.
@@ -162,6 +183,8 @@ type SourceLocation struct {
 	Name                 string
 	ARN                  string
 	HTTPConfigurationURL string
+	CreationTime         time.Time
+	LastModified         time.Time
 }
 
 // SourceLocationSummary is a source location in a list response.
@@ -170,6 +193,8 @@ type SourceLocationSummary struct {
 	Name                 string
 	ARN                  string
 	HTTPConfigurationURL string
+	CreationTime         time.Time
+	LastModified         time.Time
 }
 
 // VodSource represents a MediaTailor VOD source.
@@ -180,6 +205,8 @@ type VodSource struct {
 	SourceLocationName        string
 	VodSourceName             string
 	HTTPPackageConfigurations []HTTPPackageConfiguration
+	CreationTime              time.Time
+	LastModified              time.Time
 }
 
 // VodSourceSummary is a VOD source in a list response.
@@ -188,6 +215,8 @@ type VodSourceSummary struct {
 	SourceLocationName string
 	VodSourceName      string
 	ARN                string
+	CreationTime       time.Time
+	LastModified       time.Time
 }
 
 // HTTPPackageConfiguration is a packaging configuration for a VOD source.
@@ -205,6 +234,8 @@ type LiveSource struct {
 	SourceLocationName        string
 	LiveSourceName            string
 	HTTPPackageConfigurations []HTTPPackageConfiguration
+	CreationTime              time.Time
+	LastModified              time.Time
 }
 
 // LiveSourceSummary is a live source in a list response.
@@ -213,13 +244,32 @@ type LiveSourceSummary struct {
 	SourceLocationName string
 	LiveSourceName     string
 	ARN                string
+	CreationTime       time.Time
+	LastModified       time.Time
+}
+
+// PrefetchRetrieval holds the retrieval configuration for a prefetch schedule.
+type PrefetchRetrieval struct {
+	DynamicVariables map[string]string
+	StartTime        time.Time
+	EndTime          time.Time
+}
+
+// PrefetchConsumption holds the consumption configuration for a prefetch schedule.
+type PrefetchConsumption struct {
+	StartTime time.Time
+	EndTime   time.Time
 }
 
 // PrefetchSchedule represents a MediaTailor prefetch schedule.
 type PrefetchSchedule struct {
+	Retrieval                 *PrefetchRetrieval
+	Consumption               *PrefetchConsumption
 	ARN                       string
 	Name                      string
 	PlaybackConfigurationName string
+	StreamID                  string
+	CreationTime              time.Time
 }
 
 // Program represents a MediaTailor program within a channel.
@@ -231,13 +281,21 @@ type Program struct {
 	SourceLocationName string
 	VodSourceName      string
 	LiveSourceName     string
+	ScheduledStartTime time.Time
+	DurationInSeconds  int64
+	CreationTime       time.Time
 }
 
 // ProgramScheduleEntry is a program as returned in a channel schedule.
 type ProgramScheduleEntry struct {
-	ARN         string
-	ChannelName string
-	ProgramName string
+	ARN                        string
+	ChannelName                string
+	ProgramName                string
+	SourceLocationName         string
+	VodSourceName              string
+	LiveSourceName             string
+	ScheduleEntryType          string
+	ApproximateDurationSeconds int64
 }
 
 // Function represents a MediaTailor function.
