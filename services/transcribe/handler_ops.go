@@ -15,6 +15,7 @@ type callAnalyticsJobOutput struct {
 	Tags                   map[string]string      `json:"Tags,omitempty"`
 	Settings               *CallAnalyticsSettings `json:"Settings,omitempty"`
 	Media                  *Media                 `json:"Media,omitempty"`
+	Transcript             *transcriptOutput      `json:"Transcript,omitempty"`
 	CreationTime           *string                `json:"CreationTime,omitempty"`
 	StartTime              *string                `json:"StartTime,omitempty"`
 	CompletionTime         *string                `json:"CompletionTime,omitempty"`
@@ -56,6 +57,12 @@ func buildCallAnalyticsJobOutput(job *CallAnalyticsJob) *callAnalyticsJobOutput 
 	if job.Media.MediaFileURI != "" || job.Media.RedactedMediaFileURI != "" {
 		m := job.Media
 		out.Media = &m
+	}
+
+	if job.CallAnalyticsJobStatus == jobStatusCompleted {
+		out.Transcript = &transcriptOutput{
+			TranscriptFileURI: "s3://synthetic-transcripts/" + job.CallAnalyticsJobName + ".json",
+		}
 	}
 
 	return out
