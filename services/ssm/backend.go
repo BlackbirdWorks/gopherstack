@@ -50,6 +50,8 @@ var (
 )
 
 const (
+	StringType        = "String"
+	StringListType    = "StringList"
 	SecureStringType  = "SecureString"
 	mockKMSKeyStr     = "gopherstack-mock-kms-key-32byte!"
 	maxHistoryResults = 50
@@ -490,6 +492,18 @@ const (
 	maxAdvancedValueBytes = 8192
 )
 
+// isValidParameterType returns true when t is one of the three supported SSM
+// parameter types. Real AWS rejects missing or unrecognised types with
+// ValidationException.
+func isValidParameterType(t string) bool {
+	switch t {
+	case StringType, StringListType, SecureStringType:
+		return true
+	}
+
+	return false
+}
+
 // isValidDataType returns true when dt is a supported SSM DataType value.
 func isValidDataType(dt string) bool {
 	switch dt {
@@ -665,12 +679,23 @@ func (b *InMemoryBackend) versionForLabel(region, name, label string) (int64, bo
 	return 0, false
 }
 
-func (b *InMemoryBackend) PutParameter(
-	ctx context.Context,
-	input *PutParameterInput,
-) (*PutParameterOutput, error) {
+type putParameterValidated struct {
+	dataType string
+	tier     string
+}
+
+// validatePutParameterInput validates the pre-lock fields of a PutParameter
+// request and returns the resolved dataType and tier.
+func validatePutParameterInput(input *PutParameterInput) (putParameterValidated, error) {
 	if err := validateParameterName(input.Name); err != nil {
-		return nil, err
+		return putParameterValidated{}, err
+	}
+
+	if !isValidParameterType(input.Type) {
+		return putParameterValidated{}, fmt.Errorf(
+			"%w: invalid Type %q, must be String, StringList, or SecureString",
+			ErrValidationException, input.Type,
+		)
 	}
 
 	dataType := input.DataType
@@ -679,18 +704,34 @@ func (b *InMemoryBackend) PutParameter(
 	}
 
 	if !isValidDataType(dataType) {
-		return nil, fmt.Errorf("%w: invalid DataType %q", ErrValidationException, dataType)
+		return putParameterValidated{}, fmt.Errorf(
+			"%w: invalid DataType %q", ErrValidationException, dataType,
+		)
 	}
 
 	if err := validateAllowedPattern(input.AllowedPattern, input.Value); err != nil {
-		return nil, err
+		return putParameterValidated{}, err
 	}
 
 	tier, err := resolveTier(input.Tier, input.Value)
 	if err != nil {
+		return putParameterValidated{}, err
+	}
+
+	return putParameterValidated{dataType: dataType, tier: tier}, nil
+}
+
+func (b *InMemoryBackend) PutParameter(
+	ctx context.Context,
+	input *PutParameterInput,
+) (*PutParameterOutput, error) {
+	validated, err := validatePutParameterInput(input)
+	if err != nil {
 		return nil, err
 	}
 
+	dataType := validated.dataType
+	tier := validated.tier
 	region := getRegion(ctx)
 
 	b.mu.Lock("PutParameter")
