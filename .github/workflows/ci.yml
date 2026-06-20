@@ -16,6 +16,7 @@ permissions:
   checks: write
   pull-requests: write
   security-events: write
+  packages: write
 
 # Only the latest commit per PR (or ref) needs CI. A new push cancels any
 # still-running CI for the same PR so rapid commit bursts don't pile up runs;
