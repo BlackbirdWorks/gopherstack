@@ -2543,13 +2543,34 @@ func (b *InMemoryBackend) evaluateMetricAlarmState(alarm MetricAlarm, now time.T
 		datapointsToAlarm = evalPeriods
 	}
 
-	breachCount, evaluatedCount := countBreachingPeriods(
+	breachCount, evaluatedCount, realDataCount := countBreachingPeriods(
 		bucketValues,
 		evalPeriods,
 		treatMissing,
 		alarm.Threshold,
 		alarm.ComparisonOperator,
 	)
+
+	// TreatMissingData=ignore: missing datapoints are disregarded and the alarm
+	// is evaluated only against the datapoints that are present. When there is no
+	// real data in the evaluation window, AWS maintains the current alarm state
+	// rather than transitioning (it does NOT go to INSUFFICIENT_DATA on ignore).
+	if treatMissing == "ignore" {
+		if realDataCount == 0 {
+			// No data to decide on — keep whatever state the alarm is in.
+			if alarm.StateValue == "" {
+				return alarmStateInsufficientData
+			}
+
+			return alarm.StateValue
+		}
+
+		if breachCount >= datapointsToAlarm {
+			return alarmStateAlarm
+		}
+
+		return alarmStateOK
+	}
 
 	if breachCount >= datapointsToAlarm {
 		return alarmStateAlarm
@@ -2587,15 +2608,19 @@ func buildBucketValues(
 	return bucketValues
 }
 
-// countBreachingPeriods tallies breach and evaluated counts across all evaluation periods.
+// countBreachingPeriods tallies breach, evaluated, and real-datapoint counts
+// across all evaluation periods. The third return value (realDataCount) counts
+// only periods that have an actual datapoint, independent of treatMissing —
+// callers use it to implement TreatMissingData=ignore (maintain state when no
+// real data is present).
 func countBreachingPeriods(
 	bucketValues map[int]float64,
 	evalPeriods int,
 	treatMissing string,
 	threshold float64,
 	comparisonOperator string,
-) (int, int) {
-	var breachCount, evaluatedCount int
+) (int, int, int) {
+	var breachCount, evaluatedCount, realDataCount int
 
 	for i := range evalPeriods {
 		val, hasData := bucketValues[i]
@@ -2612,6 +2637,7 @@ func countBreachingPeriods(
 			continue
 		}
 
+		realDataCount++
 		evaluatedCount++
 
 		if breachesThreshold(val, threshold, comparisonOperator) {
@@ -2619,7 +2645,7 @@ func countBreachingPeriods(
 		}
 	}
 
-	return breachCount, evaluatedCount
+	return breachCount, evaluatedCount, realDataCount
 }
 
 // extractDatapointValue extracts the relevant statistic value from a Datapoint.
