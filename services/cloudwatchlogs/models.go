@@ -36,12 +36,31 @@ type InputLogEvent struct {
 	Timestamp int64  `json:"timestamp"`
 }
 
-// OutputLogEvent represents a single log event returned by GetLogEvents/FilterLogEvents.
+// OutputLogEvent represents a single log event returned by GetLogEvents.
 type OutputLogEvent struct {
 	Message       string `json:"message"`
 	Ptr           string `json:"ptr,omitempty"`
 	IngestionTime int64  `json:"ingestionTime"`
 	Timestamp     int64  `json:"timestamp"`
+}
+
+// FilteredLogEvent represents a single matched event returned by FilterLogEvents.
+// Unlike OutputLogEvent (used by GetLogEvents), it carries the originating log
+// stream name and a unique eventId, matching the AWS FilteredLogEvent shape.
+type FilteredLogEvent struct {
+	EventID       string `json:"eventId"`
+	LogStreamName string `json:"logStreamName"`
+	Message       string `json:"message"`
+	IngestionTime int64  `json:"ingestionTime"`
+	Timestamp     int64  `json:"timestamp"`
+}
+
+// SearchedLogStream indicates whether a log stream was searched completely by
+// FilterLogEvents. AWS deprecated populating this list (it returns empty) but the
+// field remains part of the response shape.
+type SearchedLogStream struct {
+	LogStreamName      string `json:"logStreamName"`
+	SearchedCompletely bool   `json:"searchedCompletely"`
 }
 
 // LogGroupField is a field name and estimated percentage of log events that contain the field.

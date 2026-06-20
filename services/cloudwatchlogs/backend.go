@@ -243,8 +243,8 @@ type StorageBackend interface {
 		startFromHead bool,
 	) (
 		[]OutputLogEvent, string, string, error)
-	FilterLogEvents(ctx context.Context, groupName string, streamNames []string, filterPattern string,
-		startTime, endTime *int64, limit int, nextToken string) ([]OutputLogEvent, string, error)
+	FilterLogEvents(ctx context.Context, p FilterLogEventsParams) (
+		[]FilteredLogEvent, string, []SearchedLogStream, error)
 	PutSubscriptionFilter(
 		ctx context.Context, groupName, filterName, filterPattern, destinationArn, roleArn, distribution string,
 	) error
@@ -1220,68 +1220,156 @@ func (b *InMemoryBackend) GetLogEvents(ctx context.Context, groupName, streamNam
 	return result, fwdToken, bwdToken, nil
 }
 
-// FilterLogEvents searches events across streams in a group with optional filter pattern.
+// FilterLogEventsParams holds the inputs for InMemoryBackend.FilterLogEvents.
+type FilterLogEventsParams struct {
+	StartTime           *int64
+	EndTime             *int64
+	GroupName           string
+	FilterPattern       string
+	NextToken           string
+	LogStreamNamePrefix string
+	StreamNames         []string
+	Limit               int
+}
+
+// taggedEvent pairs a stored event with the name of the stream it came from so
+// FilterLogEvents can populate the logStreamName field on each FilteredLogEvent.
+type taggedEvent struct {
+	ev     *OutputLogEvent
+	stream string
+}
+
+// FilterLogEvents searches events across streams in a group with an optional
+// filter pattern. Results are interleaved across streams and sorted by event
+// timestamp (ascending), matching AWS behaviour. The returned events carry the
+// originating logStreamName and a deterministic eventId.
 func (b *InMemoryBackend) FilterLogEvents(
 	ctx context.Context,
-	groupName string,
-	streamNames []string,
-	filterPattern string,
-	startTime, endTime *int64,
-	limit int,
-	nextToken string,
-) ([]OutputLogEvent, string, error) {
+	p FilterLogEventsParams,
+) ([]FilteredLogEvent, string, []SearchedLogStream, error) {
+	// AWS rejects requests that set both logStreamNames and logStreamNamePrefix.
+	if len(p.StreamNames) > 0 && p.LogStreamNamePrefix != "" {
+		return nil, "", nil, fmt.Errorf(
+			"%w: logStreamNames and logStreamNamePrefix are mutually exclusive", ErrValidation)
+	}
+
 	region := getRegion(ctx, b.region)
 
 	b.mu.RLock("FilterLogEvents")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.groupsStore(region)[groupName]; !exists {
-		return nil, "", fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, groupName)
+	if _, exists := b.groupsStore(region)[p.GroupName]; !exists {
+		return nil, "", nil, fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, p.GroupName)
 	}
 
 	// Compile the filter pattern once before iterating over events so that
 	// wildcard regexes are not recompiled for every event.
 	var compiled *compiledFilterPattern
-	if filterPattern != "" {
-		compiled = compileFilterPattern(filterPattern)
+	if p.FilterPattern != "" {
+		compiled = compileFilterPattern(p.FilterPattern)
 	}
 
-	streamOrder := b.filterStreamOrderLocked(region, groupName, streamNames)
+	streamOrder := b.filterStreamOrderLocked(region, p.GroupName, p.StreamNames)
+	if p.LogStreamNamePrefix != "" {
+		streamOrder = filterStreamsByPrefix(streamOrder, p.LogStreamNamePrefix)
+	}
 	groupEvents := b.eventsStore(region)
 
-	var all []*OutputLogEvent
+	var all []taggedEvent
 
 	for _, sName := range streamOrder {
-		for _, ev := range groupEvents[groupName][sName] {
+		for _, ev := range groupEvents[p.GroupName][sName] {
 			if compiled != nil && !compiled.matches(ev.Message) {
 				continue
 			}
-			all = append(all, ev)
+			all = append(all, taggedEvent{ev: ev, stream: sName})
 		}
 	}
 
-	filtered := filterByTime(all, startTime, endTime)
+	all = filterTaggedByTime(all, p.StartTime, p.EndTime)
+	// Interleave across streams: AWS returns matched events sorted by timestamp.
+	// A stable sort preserves per-stream ingestion order for equal timestamps.
+	sort.SliceStable(all, func(i, j int) bool {
+		return all[i].ev.Timestamp < all[j].ev.Timestamp
+	})
 
-	startIdx := parseNextToken(nextToken)
+	startIdx := parseNextToken(p.NextToken)
+	limit := p.Limit
 	if limit <= 0 {
 		limit = defaultEventLimit
 	}
 
 	end := startIdx + limit
 	var outToken string
-	if end < len(filtered) {
+	if end < len(all) {
 		outToken = strconv.Itoa(end)
 	} else {
-		end = len(filtered)
+		end = len(all)
+	}
+	if startIdx > len(all) {
+		startIdx = len(all)
 	}
 
-	page := filtered[startIdx:end]
-	result := make([]OutputLogEvent, len(page))
-	for i, e := range page {
-		result[i] = *e
+	page := all[startIdx:end]
+	result := make([]FilteredLogEvent, len(page))
+	for i, te := range page {
+		result[i] = FilteredLogEvent{
+			EventID:       filteredEventID(p.GroupName, te.stream, te.ev),
+			LogStreamName: te.stream,
+			Message:       te.ev.Message,
+			IngestionTime: te.ev.IngestionTime,
+			Timestamp:     te.ev.Timestamp,
+		}
 	}
 
-	return result, outToken, nil
+	// AWS deprecated searchedLogStreams (it returns an empty list). We mirror
+	// that contract rather than fabricating data clients should not rely on.
+	return result, outToken, []SearchedLogStream{}, nil
+}
+
+// filterStreamsByPrefix returns only the stream names that start with prefix,
+// preserving order.
+func filterStreamsByPrefix(streams []string, prefix string) []string {
+	out := make([]string, 0, len(streams))
+	for _, s := range streams {
+		if strings.HasPrefix(s, prefix) {
+			out = append(out, s)
+		}
+	}
+
+	return out
+}
+
+// filterTaggedByTime applies the start/end time window to tagged events.
+func filterTaggedByTime(events []taggedEvent, startTime, endTime *int64) []taggedEvent {
+	if startTime == nil && endTime == nil {
+		return events
+	}
+
+	out := make([]taggedEvent, 0, len(events))
+	for _, te := range events {
+		if startTime != nil && te.ev.Timestamp < *startTime {
+			continue
+		}
+		if endTime != nil && te.ev.Timestamp > *endTime {
+			continue
+		}
+		out = append(out, te)
+	}
+
+	return out
+}
+
+// filteredEventID derives a deterministic, opaque event ID for a filtered event.
+// AWS returns a 56-character numeric eventId; we reuse the event's stable byte
+// pointer so the same event always yields the same ID without storing extra state.
+func filteredEventID(groupName, streamName string, ev *OutputLogEvent) string {
+	if ev.Ptr != "" {
+		return ev.Ptr
+	}
+
+	return base64.StdEncoding.EncodeToString(
+		fmt.Appendf(nil, "%s/%s/%d/%d", groupName, streamName, ev.Timestamp, ev.IngestionTime))
 }
 
 // PutSubscriptionFilter creates or updates a subscription filter for a log group.
@@ -1636,9 +1724,22 @@ func encodeSubscriptionPayload(payload subscriptionPayload) ([]byte, error) {
 }
 
 // compiledFilterPattern holds a parsed and pre-compiled filter pattern for efficient
-// repeated matching across many log events (used by FilterLogEvents).
+// repeated matching across many log events (used by FilterLogEvents, subscription
+// filters and metric filters).
+//
+// AWS unstructured (plain-text) filter-pattern semantics (see
+// https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/FilterAndPatternSyntax.html):
+//
+//   - Plain / quoted terms ("required") are AND-ed: every one must be present.
+//   - "-term" (exclude) terms must NOT be present.
+//   - "?term" (optional) terms are OR-ed: a message matches if it contains ANY of
+//     them. AWS documents that when "?" terms are combined with required or exclude
+//     terms, the "?" terms are ignored entirely; we honour that rule, so optional
+//     terms only take effect when there are no required and no exclude terms.
 type compiledFilterPattern struct {
-	terms []compiledTerm
+	required []compiledTerm // AND: all must match
+	optional []compiledTerm // OR: any matches (only used when required+exclude empty)
+	exclude  []compiledTerm // NONE may match
 }
 
 // compiledTerm holds a single pre-compiled term from a filter pattern.
@@ -1647,71 +1748,100 @@ type compiledTerm struct {
 	// re is used for wildcard terms.
 	re      *regexp.Regexp
 	exact   string
-	negate  bool
 	isExact bool // true => use exact (strings.Contains); false => use re
+}
+
+// match reports whether the message satisfies this single term.
+func (ct compiledTerm) match(message string) bool {
+	if ct.isExact {
+		return strings.Contains(message, ct.exact)
+	}
+
+	return ct.re.MatchString(message)
+}
+
+// compileTerm compiles a single (prefix-stripped) raw term into a compiledTerm.
+// Quoted terms become exact substrings, terms containing "*" become wildcard
+// regexes, and everything else is a plain substring.
+func compileTerm(t string) compiledTerm {
+	var ct compiledTerm
+
+	switch {
+	case len(t) >= 2 && t[0] == '"' && t[len(t)-1] == '"':
+		ct.isExact = true
+		ct.exact = t[1 : len(t)-1]
+	case strings.ContainsRune(t, '*'):
+		parts := strings.Split(t, "*")
+		escaped := make([]string, len(parts))
+		for i, p := range parts {
+			escaped[i] = regexp.QuoteMeta(p)
+		}
+		re, err := regexp.Compile(strings.Join(escaped, ".*"))
+		if err != nil {
+			// The wildcard expansion produced an invalid regex (this should not
+			// happen in practice because QuoteMeta escapes all special chars).
+			// Fall back to treating the raw term as a plain substring so the
+			// caller still receives a deterministic (if approximate) result.
+			ct.isExact = true
+			ct.exact = t
+		} else {
+			ct.re = re
+		}
+	default:
+		ct.isExact = true
+		ct.exact = t
+	}
+
+	return ct
 }
 
 // compileFilterPattern parses pattern into a compiledFilterPattern for efficient reuse.
 // An empty pattern always matches all messages.
 func compileFilterPattern(pattern string) *compiledFilterPattern {
 	rawTerms := parseFilterPatternTerms(pattern)
-	terms := make([]compiledTerm, 0, len(rawTerms))
+	cp := &compiledFilterPattern{}
 
 	for _, raw := range rawTerms {
-		negate := strings.HasPrefix(raw, "?")
-		t := raw
-		if negate {
-			t = raw[1:]
-		}
-
-		var ct compiledTerm
-		ct.negate = negate
-
 		switch {
-		case len(t) >= 2 && t[0] == '"' && t[len(t)-1] == '"':
-			ct.isExact = true
-			ct.exact = t[1 : len(t)-1]
-		case strings.ContainsRune(t, '*'):
-			parts := strings.Split(t, "*")
-			escaped := make([]string, len(parts))
-			for i, p := range parts {
-				escaped[i] = regexp.QuoteMeta(p)
-			}
-			re, err := regexp.Compile(strings.Join(escaped, ".*"))
-			if err != nil {
-				// The wildcard expansion produced an invalid regex (this should not
-				// happen in practice because QuoteMeta escapes all special chars).
-				// Fall back to treating the raw term as a plain substring so the
-				// caller still receives a deterministic (if approximate) result.
-				ct.isExact = true
-				ct.exact = t
-			} else {
-				ct.re = re
-			}
+		case strings.HasPrefix(raw, "?") && len(raw) > 1:
+			cp.optional = append(cp.optional, compileTerm(raw[1:]))
+		case strings.HasPrefix(raw, "-") && len(raw) > 1:
+			cp.exclude = append(cp.exclude, compileTerm(raw[1:]))
 		default:
-			ct.isExact = true
-			ct.exact = t
+			cp.required = append(cp.required, compileTerm(raw))
 		}
-
-		terms = append(terms, ct)
 	}
 
-	return &compiledFilterPattern{terms: terms}
+	return cp
 }
 
-// matches reports whether the message satisfies all terms in the pattern.
+// matches reports whether the message satisfies the pattern, following AWS
+// unstructured filter-pattern semantics.
 func (p *compiledFilterPattern) matches(message string) bool {
-	for _, ct := range p.terms {
-		var hit bool
-		if ct.isExact {
-			hit = strings.Contains(message, ct.exact)
-		} else {
-			hit = ct.re.MatchString(message)
-		}
-
-		if ct.negate == hit {
+	// Exclude terms: the message must not contain any of them.
+	for _, ct := range p.exclude {
+		if ct.match(message) {
 			return false
 		}
+	}
+
+	// Required terms: all must be present (AND).
+	for _, ct := range p.required {
+		if !ct.match(message) {
+			return false
+		}
+	}
+
+	// Optional ("?") terms only take effect when there are no required and no
+	// exclude terms; AWS ignores "?" terms when combined with other terms.
+	if len(p.optional) > 0 && len(p.required) == 0 && len(p.exclude) == 0 {
+		for _, ct := range p.optional {
+			if ct.match(message) {
+				return true
+			}
+		}
+
+		return false
 	}
 
 	return true
@@ -1719,12 +1849,15 @@ func (p *compiledFilterPattern) matches(message string) bool {
 
 // filterPatternMatches returns true when the CloudWatch Logs filter pattern matches the message.
 //
-// Pattern syntax:
+// Pattern syntax (AWS unstructured / plain-text):
 //   - Empty pattern matches all messages.
-//   - Space-separated terms (AND logic): all terms must match.
-//   - Term prefixed with "?" means NOT (the term must NOT appear).
+//   - Space-separated plain or quoted terms are AND-ed: all must be present.
+//   - A term prefixed with "?" is optional (OR): the message matches if it
+//     contains any "?" term. "?" terms are ignored when combined with plain or
+//     "-" terms (matching AWS behaviour).
+//   - A term prefixed with "-" must NOT appear in the message.
 //   - Quoted terms ("...") require an exact substring match.
-//   - Terms without quotes use substring matching; "*" inside a term is a wildcard.
+//   - "*" inside a term is a wildcard.
 func filterPatternMatches(pattern, message string) bool {
 	return compileFilterPattern(pattern).matches(message)
 }
