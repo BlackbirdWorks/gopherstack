@@ -418,6 +418,12 @@
 		return pkAttr ? `${pk}\u0000${sk}` : JSON.stringify(item);
 	}
 
+	// approxItemSize gives a rough UTF-8 byte size for an item, surfaced in the
+	// Items tab to help gauge proximity to DynamoDB's 400 KB per-item limit.
+	function approxItemSize(item: Record<string, unknown>): string {
+		return formatBytes(new TextEncoder().encode(JSON.stringify(item)).length);
+	}
+
 	function toggleItemRow(item: Record<string, unknown>): void {
 		const key = itemStableKey(item);
 		const next = new Set(itemsSelectedKeys);
@@ -1454,6 +1460,7 @@
 									{#each getColumns(filteredItemsResults) as col}
 										<th class="px-4 py-3">{col}</th>
 									{/each}
+									<th class="px-4 py-3" title="Approximate UTF-8 size (max 400 KB)">~Size</th>
 									<th class="px-4 py-3">Actions</th>
 								</tr>
 							</thead>
@@ -1464,6 +1471,7 @@
 										{#each getColumns(filteredItemsResults) as col}
 											<td class="px-4 py-3 font-mono text-xs max-w-[200px] truncate" title={String(item[col] ?? '')}>{item[col] ?? ''}</td>
 										{/each}
+										<td class="px-4 py-3 text-xs text-slate-400 whitespace-nowrap">{approxItemSize(item)}</td>
 										<td class="px-4 py-3 whitespace-nowrap">
 											<button onclick={() => openEditItem(item)} class="text-xs text-blue-600 hover:text-blue-800 dark:text-blue-400 mr-2">Edit</button>
 											<button onclick={() => deleteItem(item)} class="text-xs text-red-600 hover:text-red-800 dark:text-red-400">Delete</button>
