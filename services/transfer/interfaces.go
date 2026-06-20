@@ -76,6 +76,9 @@ type StorageBackend interface {
 		webAppID string,
 		identityProviderDetails *WebAppIdentityProviderDetails,
 	) (*WebApp, error)
+	DeleteWebAppCustomization(webAppID string) error
+	DescribeWebAppCustomization(webAppID string) (*WebAppCustomization, error)
+	UpdateWebAppCustomization(webAppID, title, logoFile, faviconFile string) (*WebAppCustomization, error)
 	CreateWorkflow(
 		description string,
 		steps []WorkflowStep,

@@ -687,15 +687,24 @@ type Execution struct {
 }
 
 // InMemoryBackend is the in-memory store for Transfer resources.
+// WebAppCustomization holds per-web-app branding customization.
+type WebAppCustomization struct {
+	WebAppID    string
+	Title       string
+	LogoFile    string
+	FaviconFile string
+}
+
 type InMemoryBackend struct {
-	servers       map[string]*Server
-	users         map[string]map[string]*User      // serverID -> userName -> User
-	accesses      map[string]map[string]*Access    // serverID -> externalID -> Access
-	agreements    map[string]map[string]*Agreement // serverID -> agreementID -> Agreement
-	connectors    map[string]*Connector
-	profiles      map[string]*Profile
-	webApps       map[string]*WebApp
-	workflows     map[string]*Workflow
+	servers              map[string]*Server
+	users                map[string]map[string]*User      // serverID -> userName -> User
+	accesses             map[string]map[string]*Access    // serverID -> externalID -> Access
+	agreements           map[string]map[string]*Agreement // serverID -> agreementID -> Agreement
+	connectors           map[string]*Connector
+	profiles             map[string]*Profile
+	webApps              map[string]*WebApp
+	webAppCustomizations map[string]*WebAppCustomization // webAppID -> customization
+	workflows            map[string]*Workflow
 	certificates  map[string]*Certificate
 	hostKeys      map[string]map[string]*HostKey                 // serverID -> hostKeyID -> HostKey
 	sshPublicKeys map[string]map[string]map[string]*SSHPublicKey // serverID -> userName -> keyID -> SSHPublicKey
@@ -719,8 +728,9 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		agreements:      make(map[string]map[string]*Agreement),
 		connectors:      make(map[string]*Connector),
 		profiles:        make(map[string]*Profile),
-		webApps:         make(map[string]*WebApp),
-		workflows:       make(map[string]*Workflow),
+		webApps:              make(map[string]*WebApp),
+		webAppCustomizations: make(map[string]*WebAppCustomization),
+		workflows:            make(map[string]*Workflow),
 		certificates:    make(map[string]*Certificate),
 		hostKeys:        make(map[string]map[string]*HostKey),
 		sshPublicKeys:   make(map[string]map[string]map[string]*SSHPublicKey),
@@ -1466,6 +1476,7 @@ func (b *InMemoryBackend) Reset() {
 	b.connectors = make(map[string]*Connector)
 	b.profiles = make(map[string]*Profile)
 	b.webApps = make(map[string]*WebApp)
+	b.webAppCustomizations = make(map[string]*WebAppCustomization)
 	b.workflows = make(map[string]*Workflow)
 	b.certificates = make(map[string]*Certificate)
 	b.hostKeys = make(map[string]map[string]*HostKey)
@@ -2280,6 +2291,61 @@ func (b *InMemoryBackend) UpdateWebApp(
 	}
 
 	return cloneWebApp(w), nil
+}
+
+// DescribeWebAppCustomization returns the customization for a web app.
+// Returns empty customization (not an error) when none has been set.
+func (b *InMemoryBackend) DescribeWebAppCustomization(webAppID string) (*WebAppCustomization, error) {
+	b.mu.RLock("DescribeWebAppCustomization")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.webApps[webAppID]; !ok {
+		return nil, fmt.Errorf("%w: web app %s not found", ErrWebAppNotFound, webAppID)
+	}
+
+	if c, ok := b.webAppCustomizations[webAppID]; ok {
+		cp := *c
+
+		return &cp, nil
+	}
+
+	return &WebAppCustomization{WebAppID: webAppID}, nil
+}
+
+// UpdateWebAppCustomization sets or overwrites the customization for a web app.
+func (b *InMemoryBackend) UpdateWebAppCustomization(webAppID, title, logoFile, faviconFile string) (*WebAppCustomization, error) {
+	b.mu.Lock("UpdateWebAppCustomization")
+	defer b.mu.Unlock()
+
+	if _, ok := b.webApps[webAppID]; !ok {
+		return nil, fmt.Errorf("%w: web app %s not found", ErrWebAppNotFound, webAppID)
+	}
+
+	c := &WebAppCustomization{
+		WebAppID:    webAppID,
+		Title:       title,
+		LogoFile:    logoFile,
+		FaviconFile: faviconFile,
+	}
+	b.webAppCustomizations[webAppID] = c
+
+	cp := *c
+
+	return &cp, nil
+}
+
+// DeleteWebAppCustomization clears the customization for a web app.
+func (b *InMemoryBackend) DeleteWebAppCustomization(webAppID string) error {
+	b.mu.Lock("DeleteWebAppCustomization")
+	defer b.mu.Unlock()
+
+	if _, ok := b.webApps[webAppID]; !ok {
+		return fmt.Errorf("%w: web app %s not found", ErrWebAppNotFound, webAppID)
+	}
+
+	delete(b.webAppCustomizations, webAppID)
+
+	return nil
 }
 
 // DeleteWorkflow removes a workflow by ID.

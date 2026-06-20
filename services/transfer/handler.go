@@ -2273,26 +2273,69 @@ func (h *Handler) handleUpdateWebApp(
 	return &updateWebAppOutput{WebAppID: w.WebAppID}, nil
 }
 
-// --- WebApp Customization stubs ---
+// --- WebApp Customization ---
+
+type webAppCustomizationInput struct {
+	WebAppID    string `json:"WebAppId"`
+	Title       string `json:"Title"`
+	LogoFile    string `json:"LogoFile"`
+	FaviconFile string `json:"FaviconFile"`
+}
+
+type describeWebAppCustomizationOutput struct {
+	WebAppCustomization map[string]any `json:"WebAppCustomization"`
+}
 
 func (h *Handler) handleDeleteWebAppCustomization(
 	_ context.Context,
-	_ *struct{},
+	in *webAppCustomizationInput,
 ) (*struct{}, error) {
+	if in.WebAppID == "" {
+		return nil, fmt.Errorf("%w: WebAppId is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.DeleteWebAppCustomization(in.WebAppID); err != nil {
+		return nil, err
+	}
+
 	return &struct{}{}, nil
 }
 
 func (h *Handler) handleDescribeWebAppCustomization(
 	_ context.Context,
-	_ *struct{},
-) (*map[string]any, error) {
-	return &map[string]any{"WebAppCustomization": map[string]any{}}, nil
+	in *webAppCustomizationInput,
+) (*describeWebAppCustomizationOutput, error) {
+	if in.WebAppID == "" {
+		return nil, fmt.Errorf("%w: WebAppId is required", errInvalidRequest)
+	}
+
+	c, err := h.Backend.DescribeWebAppCustomization(in.WebAppID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeWebAppCustomizationOutput{
+		WebAppCustomization: map[string]any{
+			"WebAppId":    c.WebAppID,
+			"Title":       c.Title,
+			"LogoFile":    c.LogoFile,
+			"FaviconFile": c.FaviconFile,
+		},
+	}, nil
 }
 
 func (h *Handler) handleUpdateWebAppCustomization(
 	_ context.Context,
-	_ *struct{},
+	in *webAppCustomizationInput,
 ) (*struct{}, error) {
+	if in.WebAppID == "" {
+		return nil, fmt.Errorf("%w: WebAppId is required", errInvalidRequest)
+	}
+
+	if _, err := h.Backend.UpdateWebAppCustomization(in.WebAppID, in.Title, in.LogoFile, in.FaviconFile); err != nil {
+		return nil, err
+	}
+
 	return &struct{}{}, nil
 }
 
