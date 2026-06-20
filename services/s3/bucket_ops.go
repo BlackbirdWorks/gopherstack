@@ -848,7 +848,7 @@ func (h *S3Handler) listObjectVersions(
 	// that is positive and no greater than defaultMaxKeys.
 	n := defaultMaxKeys
 	if mk := q.Get("max-keys"); mk != "" {
-		if v, err := strconv.Atoi(mk); err == nil && v > 0 && v <= defaultMaxKeys {
+		if v, err := strconv.Atoi(mk); err == nil && v >= 0 && v <= defaultMaxKeys {
 			n = v
 		}
 	}

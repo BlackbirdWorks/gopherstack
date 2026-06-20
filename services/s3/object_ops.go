@@ -727,6 +727,28 @@ func (h *S3Handler) setGetObjectResponseHeaders(
 
 // serveObjectBody handles range requests and writes the object body.
 // Returns true if the response was fully handled (range served or error written).
+// ifRangeMatches reports whether a Range request should be served given the
+// If-Range header. With no If-Range the range always applies. An ETag-form
+// If-Range matches when it equals the current ETag; an HTTP-date form matches
+// when the object was not modified after that date. A non-match means the caller
+// should return the full object.
+func ifRangeMatches(r *http.Request, etag string, lastModified time.Time) bool {
+	ifRange := r.Header.Get("If-Range")
+	if ifRange == "" {
+		return true
+	}
+
+	if strings.HasPrefix(ifRange, "\"") || strings.HasPrefix(ifRange, "W/") {
+		return strings.Trim(ifRange, "\"") == strings.Trim(etag, "\"")
+	}
+
+	if t, err := http.ParseTime(ifRange); err == nil {
+		return !lastModified.After(t)
+	}
+
+	return false
+}
+
 func (h *S3Handler) serveObjectBody(
 	ctx context.Context,
 	w http.ResponseWriter,
@@ -735,6 +757,12 @@ func (h *S3Handler) serveObjectBody(
 ) bool {
 	rangeHeader := r.Header.Get("Range")
 	if rangeHeader == "" {
+		return false
+	}
+
+	// Honor If-Range: when it no longer matches the current ETag/Last-Modified,
+	// AWS ignores the Range and returns the full 200 representation.
+	if !ifRangeMatches(r, aws.ToString(ver.ETag), aws.ToTime(ver.LastModified)) {
 		return false
 	}
 
