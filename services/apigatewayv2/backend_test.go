@@ -1170,3 +1170,180 @@ func TestCreateAPIEndpointFallsBackToDefaultRegion(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, api.APIEndpoint, ".execute-api.us-east-1.amazonaws.com")
 }
+
+func TestInMemoryBackend_CreateRoute_HTTPRouteKeyValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		routeKey string
+		wantErr  bool
+	}{
+		{name: "valid_get", routeKey: "GET /items", wantErr: false},
+		{name: "valid_post", routeKey: "POST /orders", wantErr: false},
+		{name: "valid_put", routeKey: "PUT /items/123", wantErr: false},
+		{name: "valid_delete", routeKey: "DELETE /items/123", wantErr: false},
+		{name: "valid_patch", routeKey: "PATCH /items/123", wantErr: false},
+		{name: "valid_head", routeKey: "HEAD /items", wantErr: false},
+		{name: "valid_options", routeKey: "OPTIONS /items", wantErr: false},
+		{name: "valid_any", routeKey: "ANY /items", wantErr: false},
+		{name: "valid_default", routeKey: "$default", wantErr: false},
+		{name: "lowercase_method", routeKey: "get /items", wantErr: true},
+		{name: "invalid_method", routeKey: "CONNECT /items", wantErr: true},
+		{name: "missing_path", routeKey: "GET", wantErr: true},
+		{name: "path_no_slash", routeKey: "GET items", wantErr: true},
+		{name: "just_path", routeKey: "/items", wantErr: true},
+		{name: "empty_path", routeKey: "GET ", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := apigatewayv2.NewInMemoryBackend()
+
+			api, err := b.CreateAPI(context.Background(), apigatewayv2.CreateAPIInput{
+				Name:         "http-api",
+				ProtocolType: "HTTP",
+			})
+			require.NoError(t, err)
+
+			_, err = b.CreateRoute(api.APIID, apigatewayv2.CreateRouteInput{RouteKey: tt.routeKey})
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, apigatewayv2.ErrBadRequest)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestInMemoryBackend_WebSocketRouteKey_NoFormatValidation(t *testing.T) {
+	t.Parallel()
+
+	b := apigatewayv2.NewInMemoryBackend()
+
+	api, err := b.CreateAPI(context.Background(), apigatewayv2.CreateAPIInput{
+		Name:                     "ws-api",
+		ProtocolType:             "WEBSOCKET",
+		RouteSelectionExpression: "$request.body.action",
+	})
+	require.NoError(t, err)
+
+	tests := []struct {
+		name     string
+		routeKey string
+	}{
+		{name: "connect", routeKey: "$connect"},
+		{name: "disconnect", routeKey: "$disconnect"},
+		{name: "message", routeKey: "$message"},
+		{name: "default", routeKey: "$default"},
+		{name: "custom", routeKey: "chat"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := b.CreateRoute(api.APIID, apigatewayv2.CreateRouteInput{RouteKey: tt.routeKey})
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestInMemoryBackend_CreateIntegration_TimeoutValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		timeoutMs   int32
+		wantErr     bool
+		wantTimeout int32
+	}{
+		{name: "zero_defaults_to_29000", timeoutMs: 0, wantErr: false, wantTimeout: 29000},
+		{name: "min_boundary_50", timeoutMs: 50, wantErr: false, wantTimeout: 50},
+		{name: "max_boundary_29000", timeoutMs: 29000, wantErr: false, wantTimeout: 29000},
+		{name: "mid_range_5000", timeoutMs: 5000, wantErr: false, wantTimeout: 5000},
+		{name: "too_low_49", timeoutMs: 49, wantErr: true},
+		{name: "too_low_1", timeoutMs: 1, wantErr: true},
+		{name: "too_high_29001", timeoutMs: 29001, wantErr: true},
+		{name: "too_high_60000", timeoutMs: 60000, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := apigatewayv2.NewInMemoryBackend()
+
+			api, err := b.CreateAPI(context.Background(), apigatewayv2.CreateAPIInput{
+				Name:         "api",
+				ProtocolType: "HTTP",
+			})
+			require.NoError(t, err)
+
+			intg, err := b.CreateIntegration(api.APIID, apigatewayv2.CreateIntegrationInput{
+				IntegrationType: "HTTP_PROXY",
+				IntegrationURI:  "https://example.com",
+				TimeoutInMillis: tt.timeoutMs,
+			})
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, apigatewayv2.ErrBadRequest)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.wantTimeout, intg.TimeoutInMillis)
+			}
+		})
+	}
+}
+
+func TestInMemoryBackend_UpdateIntegration_TimeoutValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		timeoutMs int32
+		wantErr   bool
+	}{
+		{name: "valid_50", timeoutMs: 50, wantErr: false},
+		{name: "valid_29000", timeoutMs: 29000, wantErr: false},
+		{name: "valid_1000", timeoutMs: 1000, wantErr: false},
+		{name: "zero_skips_update", timeoutMs: 0, wantErr: false},
+		{name: "too_low_49", timeoutMs: 49, wantErr: true},
+		{name: "too_high_29001", timeoutMs: 29001, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := apigatewayv2.NewInMemoryBackend()
+
+			api, err := b.CreateAPI(context.Background(), apigatewayv2.CreateAPIInput{
+				Name:         "api",
+				ProtocolType: "HTTP",
+			})
+			require.NoError(t, err)
+
+			intg, err := b.CreateIntegration(api.APIID, apigatewayv2.CreateIntegrationInput{
+				IntegrationType: "HTTP_PROXY",
+				IntegrationURI:  "https://example.com",
+			})
+			require.NoError(t, err)
+
+			_, err = b.UpdateIntegration(api.APIID, intg.IntegrationID, apigatewayv2.UpdateIntegrationInput{
+				TimeoutInMillis: tt.timeoutMs,
+			})
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, apigatewayv2.ErrBadRequest)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
