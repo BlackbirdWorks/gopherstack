@@ -124,8 +124,10 @@ func TestParity_DetectSyntax_OffsetCorrectness(t *testing.T) {
 			for i, want := range tt.tokens {
 				tok := raw[i].(map[string]any)
 				assert.Equal(t, want.text, tok["Text"], "token[%d] Text", i)
-				assert.Equal(t, float64(want.begin), tok["BeginOffset"], "token[%d] BeginOffset for %q", i, want.text)
-				assert.Equal(t, float64(want.end), tok["EndOffset"], "token[%d] EndOffset for %q", i, want.text)
+				gotBegin := int(tok["BeginOffset"].(float64))
+				gotEnd := int(tok["EndOffset"].(float64))
+				assert.Equal(t, want.begin, gotBegin, "token[%d] BeginOffset for %q", i, want.text)
+				assert.Equal(t, want.end, gotEnd, "token[%d] EndOffset for %q", i, want.text)
 			}
 		})
 	}
@@ -138,10 +140,10 @@ func TestParity_ContainsPiiEntities_LabelTypes(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		text       string
-		wantTypes  []string
-		wantEmpty  bool
+		name      string
+		text      string
+		wantTypes []string
+		wantEmpty bool
 	}{
 		{
 			name:      "email_only",
@@ -159,8 +161,8 @@ func TestParity_ContainsPiiEntities_LabelTypes(t *testing.T) {
 			wantTypes: []string{"EMAIL", "SSN"},
 		},
 		{
-			name:     "no_pii",
-			text:     "The weather is sunny today.",
+			name:      "no_pii",
+			text:      "The weather is sunny today.",
 			wantEmpty: true,
 		},
 	}
