@@ -51,11 +51,48 @@ const maxShadowNameLength = 64
 // maxShadowVersion is the maximum shadow version before it resets to 1.
 const maxShadowVersion = 1<<31 - 1
 
+// maxThingNameLength is the maximum allowed IoT thing name length per AWS rules.
+const maxThingNameLength = 128
+
+// maxClientTokenLength is the maximum allowed clientToken length per AWS rules.
+const maxClientTokenLength = 64
+
 // keyTimestamp is the JSON key for shadow response timestamp fields.
 const keyTimestamp = "timestamp"
 
 // shadowNameRe validates shadow names per AWS IoT rules: alphanumeric, colon, underscore, hyphen.
 var shadowNameRe = regexp.MustCompile(`^[a-zA-Z0-9:_-]+$`)
+
+// thingNameRe validates IoT thing names: alphanumeric, colon, underscore, hyphen, dot.
+var thingNameRe = regexp.MustCompile(`^[a-zA-Z0-9:_.\\-]+$`)
+
+// validateThingName checks that a thing name meets AWS IoT naming rules.
+func validateThingName(name string) error {
+	if name == "" {
+		return fmt.Errorf("%w: thing name must not be empty", ErrValidation)
+	}
+
+	if len(name) > maxThingNameLength {
+		return fmt.Errorf("%w: thing name exceeds %d characters", ErrValidation, maxThingNameLength)
+	}
+
+	if !thingNameRe.MatchString(name) {
+		return fmt.Errorf("%w: thing name must match [a-zA-Z0-9:_.\\-]+", ErrValidation)
+	}
+
+	return nil
+}
+
+// validateClientToken checks that a clientToken meets AWS IoT rules.
+// An empty token is always valid (token is optional).
+// Maximum length is 64 characters per AWS documentation.
+func validateClientToken(token string) error {
+	if len(token) > maxClientTokenLength {
+		return fmt.Errorf("%w: clientToken exceeds %d characters", ErrValidation, maxClientTokenLength)
+	}
+
+	return nil
+}
 
 // isShadowReservedName reports whether name is a reserved shadow operation keyword.
 // These are forbidden by AWS IoT rules to prevent routing ambiguity.
@@ -284,23 +321,19 @@ func buildMetaTimestamps(meta map[string]int64) map[string]map[string]int64 {
 
 // buildShadowResponse assembles the full AWS shadow response JSON from an entry.
 // clientToken is echoed when non-empty (comes from the UpdateThingShadow request).
+// AWS omits empty desired/reported sections from the state object.
 func buildShadowResponse(entry *shadowEntry, clientToken string) ([]byte, error) {
-	desired := entry.desired
-	if desired == nil {
-		desired = map[string]json.RawMessage{}
+	state := map[string]any{}
+
+	if len(entry.desired) > 0 {
+		state["desired"] = entry.desired
 	}
 
-	reported := entry.reported
-	if reported == nil {
-		reported = map[string]json.RawMessage{}
+	if len(entry.reported) > 0 {
+		state["reported"] = entry.reported
 	}
 
-	state := map[string]any{
-		"desired":  desired,
-		"reported": reported,
-	}
-
-	delta := computeDelta(desired, reported)
+	delta := computeDelta(entry.desired, entry.reported)
 	if delta != nil {
 		state["delta"] = delta
 	}
@@ -371,6 +404,10 @@ func sortedKeys[V any](m map[string]V) []string {
 
 // GetThingShadow returns the shadow document for the named shadow of a thing.
 func (b *InMemoryBackend) GetThingShadow(thingName, shadowName string) ([]byte, error) {
+	if err := validateThingName(thingName); err != nil {
+		return nil, err
+	}
+
 	b.mu.RLock("GetThingShadow")
 	defer b.mu.RUnlock()
 
@@ -388,25 +425,56 @@ func (b *InMemoryBackend) GetThingShadow(thingName, shadowName string) ([]byte, 
 }
 
 // UpdateThingShadow merges the desired/reported state from document into the stored shadow.
-// AWS merge semantics: null values delete keys; missing sections are left unchanged.
+// AWS merge semantics: null values on individual keys delete them; a null section wipes the
+// entire section; missing sections are left unchanged. The state key is required.
 // The version is incremented on every successful update.
 // Returns the updated shadow response including delta, metadata, and echoed clientToken.
 func (b *InMemoryBackend) UpdateThingShadow(thingName, shadowName string, document []byte) ([]byte, error) {
+	if err := validateThingName(thingName); err != nil {
+		return nil, err
+	}
+
 	if err := validateShadowDocument(document); err != nil {
 		return nil, err
 	}
 
-	// Parse incoming document: extract state.desired, state.reported, version, clientToken.
-	var incoming struct {
-		State struct {
-			Desired  map[string]json.RawMessage `json:"desired"`
-			Reported map[string]json.RawMessage `json:"reported"`
-		} `json:"state"`
-		Version     *int   `json:"version,omitempty"`
-		ClientToken string `json:"clientToken,omitempty"`
+	// Parse the outer document using json.RawMessage for the state section so we can
+	// distinguish "section absent" (nil RawMessage) from "section explicitly null".
+	var rawDoc struct {
+		State       json.RawMessage `json:"state"`
+		Version     *int            `json:"version,omitempty"`
+		ClientToken string          `json:"clientToken,omitempty"`
 	}
 
-	_ = json.Unmarshal(document, &incoming)
+	if err := json.Unmarshal(document, &rawDoc); err != nil {
+		return nil, fmt.Errorf("%w: invalid JSON document", ErrValidation)
+	}
+
+	// The "state" key is required per AWS IoT Shadow spec.
+	if len(rawDoc.State) == 0 {
+		return nil, fmt.Errorf("%w: missing required field: state", ErrValidation)
+	}
+
+	// state: null is not a valid document.
+	if isJSONNull(rawDoc.State) {
+		return nil, fmt.Errorf("%w: state must be a JSON object, not null", ErrValidation)
+	}
+
+	// Validate clientToken length.
+	if err := validateClientToken(rawDoc.ClientToken); err != nil {
+		return nil, err
+	}
+
+	// Parse the state section — desired and reported use RawMessage to distinguish
+	// "absent" (nil) from "explicit null" (wipe entire section) from "object" (merge).
+	var stateDoc struct {
+		Desired  json.RawMessage `json:"desired"`
+		Reported json.RawMessage `json:"reported"`
+	}
+
+	if err := json.Unmarshal(rawDoc.State, &stateDoc); err != nil {
+		return nil, fmt.Errorf("%w: state must be a valid JSON object", ErrValidation)
+	}
 
 	b.mu.Lock("UpdateThingShadow")
 	defer b.mu.Unlock()
@@ -424,15 +492,15 @@ func (b *InMemoryBackend) UpdateThingShadow(thingName, shadowName string, docume
 	}
 
 	// Optimistic-locking version check.
-	if incoming.Version != nil {
+	if rawDoc.Version != nil {
 		currentVersion := 0
 		if current != nil {
 			currentVersion = current.version
 		}
 
-		if *incoming.Version != currentVersion {
+		if *rawDoc.Version != currentVersion {
 			return nil, fmt.Errorf("%w: expected %d, got %d",
-				ErrVersionConflict, currentVersion, *incoming.Version)
+				ErrVersionConflict, currentVersion, *rawDoc.Version)
 		}
 	}
 
@@ -448,7 +516,7 @@ func (b *InMemoryBackend) UpdateThingShadow(thingName, shadowName string, docume
 	now := time.Now()
 	ts := now.Unix()
 
-	// Deep merge desired and reported with existing state; update per-field metadata.
+	// Carry forward existing state and metadata.
 	var existingDesired, existingReported map[string]json.RawMessage
 	var existingMetaDesired, existingMetaReported map[string]int64
 
@@ -462,17 +530,39 @@ func (b *InMemoryBackend) UpdateThingShadow(thingName, shadowName string, docume
 	newDesired := existingDesired
 	newMetaDesired := existingMetaDesired
 
-	if incoming.State.Desired != nil {
-		newDesired = mergeStateFields(existingDesired, incoming.State.Desired)
-		newMetaDesired = updateMetaFields(existingMetaDesired, incoming.State.Desired, ts)
+	if len(stateDoc.Desired) > 0 {
+		if isJSONNull(stateDoc.Desired) {
+			// Explicit null wipes the entire desired section.
+			newDesired = nil
+			newMetaDesired = nil
+		} else {
+			var desiredPatch map[string]json.RawMessage
+			if err := json.Unmarshal(stateDoc.Desired, &desiredPatch); err != nil {
+				return nil, fmt.Errorf("%w: state.desired must be a JSON object", ErrValidation)
+			}
+
+			newDesired = mergeStateFields(existingDesired, desiredPatch)
+			newMetaDesired = updateMetaFields(existingMetaDesired, desiredPatch, ts)
+		}
 	}
 
 	newReported := existingReported
 	newMetaReported := existingMetaReported
 
-	if incoming.State.Reported != nil {
-		newReported = mergeStateFields(existingReported, incoming.State.Reported)
-		newMetaReported = updateMetaFields(existingMetaReported, incoming.State.Reported, ts)
+	if len(stateDoc.Reported) > 0 {
+		if isJSONNull(stateDoc.Reported) {
+			// Explicit null wipes the entire reported section.
+			newReported = nil
+			newMetaReported = nil
+		} else {
+			var reportedPatch map[string]json.RawMessage
+			if err := json.Unmarshal(stateDoc.Reported, &reportedPatch); err != nil {
+				return nil, fmt.Errorf("%w: state.reported must be a JSON object", ErrValidation)
+			}
+
+			newReported = mergeStateFields(existingReported, reportedPatch)
+			newMetaReported = updateMetaFields(existingMetaReported, reportedPatch, ts)
+		}
 	}
 
 	newEntry := &shadowEntry{
@@ -485,7 +575,7 @@ func (b *InMemoryBackend) UpdateThingShadow(thingName, shadowName string, docume
 	}
 
 	// Build the response before writing state so a marshal error cannot leave a partial update.
-	resp, err := buildShadowResponse(newEntry, incoming.ClientToken)
+	resp, err := buildShadowResponse(newEntry, rawDoc.ClientToken)
 	if err != nil {
 		return nil, err
 	}
