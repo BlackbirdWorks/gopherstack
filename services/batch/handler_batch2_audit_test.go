@@ -312,3 +312,86 @@ func TestBatch2Audit_DescribeJobs_EmptyList(t *testing.T) {
 	require.True(t, ok, "jobs key must be present")
 	assert.Equal(t, "[]", string(raw), "jobs must be [] not null when no matching jobs found")
 }
+
+// TestBatch2Audit_ListJobs_SummaryIncludesJobArn verifies that ListJobs returns
+// jobArn in each jobSummary. AWS always populates jobArn on job summaries.
+func TestBatch2Audit_ListJobs_SummaryIncludesJobArn(t *testing.T) {
+	t.Parallel()
+
+	h := newAuditHandlerWithQueue(t, "audit-q-arn")
+
+	rec := post(t, h, "/v1/submitjob", map[string]any{
+		"jobName":       "job-for-arn-check",
+		"jobQueue":      "audit-q-arn",
+		"jobDefinition": "audit-jd",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = post(t, h, "/v1/listjobs", map[string]any{"jobQueue": "audit-q-arn"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	summaries, _ := out["jobSummaryList"].([]any)
+	require.Len(t, summaries, 1)
+
+	s := summaries[0].(map[string]any)
+	arn, hasARN := s["jobArn"].(string)
+	assert.True(t, hasARN && arn != "", "jobArn must be present and non-empty in ListJobs summary")
+	assert.Contains(t, arn, "arn:aws:batch:", "jobArn must be a valid ARN")
+}
+
+// TestBatch2Audit_ListJobs_SummaryIncludesTimestamps verifies that ListJobs
+// returns startedAt and stoppedAt in jobSummary entries when the job has
+// transitioned through those states. AWS populates these fields.
+func TestBatch2Audit_ListJobs_SummaryIncludesTimestamps(t *testing.T) {
+	t.Parallel()
+
+	h := newAuditHandlerWithQueue(t, "audit-q-ts")
+
+	rec := post(t, h, "/v1/submitjob", map[string]any{
+		"jobName":       "job-for-ts-check",
+		"jobQueue":      "audit-q-ts",
+		"jobDefinition": "audit-jd",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	var submitOut map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &submitOut))
+	jobID := submitOut["jobId"]
+
+	rec = post(t, h, "/v1/terminatejob", map[string]any{
+		"jobId":  jobID,
+		"reason": "test termination",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = post(t, h, "/v1/listjobs", map[string]any{
+		"jobQueue":  "audit-q-ts",
+		"jobStatus": "FAILED",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	summaries, _ := out["jobSummaryList"].([]any)
+	require.Len(t, summaries, 1)
+
+	s := summaries[0].(map[string]any)
+	stoppedAt, hasStoppedAt := s["stoppedAt"].(float64)
+	assert.True(t, hasStoppedAt && stoppedAt > 0, "stoppedAt must be present and positive after termination")
+}
+
+// TestBatch2Audit_ListJobs_InvalidJobStatus verifies that ListJobs returns
+// HTTP 400 when an unrecognised jobStatus is provided.
+// AWS Batch returns ClientException for invalid status values.
+func TestBatch2Audit_ListJobs_InvalidJobStatus(t *testing.T) {
+	t.Parallel()
+
+	h := newAuditHandlerWithQueue(t, "audit-q-badstatus")
+
+	rec := post(t, h, "/v1/listjobs", map[string]any{
+		"jobQueue":  "audit-q-badstatus",
+		"jobStatus": "INVALID_STATUS",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code, "invalid jobStatus must return 400")
+}
