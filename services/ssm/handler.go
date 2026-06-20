@@ -541,6 +541,8 @@ func classifySSMError(reqErr error) (string, int) {
 	statusCode := http.StatusBadRequest
 
 	switch {
+	case errors.Is(reqErr, ErrParameterVersionNotFound):
+		return "ParameterVersionNotFound", statusCode
 	case errors.Is(reqErr, ErrParameterNotFound):
 		return "ParameterNotFound", statusCode
 	case errors.Is(reqErr, ErrParameterAlreadyExists):

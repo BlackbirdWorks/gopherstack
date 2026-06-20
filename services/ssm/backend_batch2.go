@@ -449,14 +449,44 @@ func (b *InMemoryBackend) LabelParameterVersion(
 		parameterLabels[input.Name] = make(map[int64][]string)
 	}
 
+	// In AWS a label points at exactly one version. Re-applying a label that
+	// currently lives on a different version moves it to the target version
+	// rather than duplicating it.
+	for v, labels := range parameterLabels[input.Name] {
+		if v == version {
+			continue
+		}
+		parameterLabels[input.Name][v] = removeLabels(labels, input.Labels)
+	}
+
 	parameterLabels[input.Name][version] = appendUniqueLabels(
 		parameterLabels[input.Name][version], input.Labels,
 	)
 
 	return &LabelParameterVersionOutputFull{
-		InvalidLabels: []string{},
-		AddedLabels:   input.Labels,
+		InvalidLabels:    []string{},
+		AddedLabels:      input.Labels,
+		ParameterVersion: version,
 	}, nil
+}
+
+// removeLabels returns existing with any entry present in toRemove filtered out.
+func removeLabels(existing, toRemove []string) []string {
+	if len(existing) == 0 {
+		return existing
+	}
+	remove := make(map[string]bool, len(toRemove))
+	for _, l := range toRemove {
+		remove[l] = true
+	}
+	kept := make([]string, 0, len(existing))
+	for _, l := range existing {
+		if !remove[l] {
+			kept = append(kept, l)
+		}
+	}
+
+	return kept
 }
 
 // UnlabelParameterVersion removes labels from a specific parameter version.

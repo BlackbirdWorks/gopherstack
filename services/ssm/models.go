@@ -15,18 +15,25 @@ type ParameterInlinePolicy struct {
 
 // Parameter represents a single SSM Parameter.
 type Parameter struct {
-	Name             string     `json:"Name"`
-	Type             string     `json:"Type"`
-	Value            string     `json:"Value"`
-	Tags             *tags.Tags `json:"Tags,omitempty"`
-	Description      string     `json:"Description,omitempty"`
-	KeyID            string     `json:"KeyId,omitempty"`
-	Tier             string     `json:"Tier,omitempty"`
-	AllowedPattern   string     `json:"AllowedPattern,omitempty"`
-	DataType         string     `json:"DataType,omitempty"`
-	Policies         string     `json:"Policies,omitempty"`
-	LastModifiedDate float64    `json:"LastModifiedDate"`
-	Version          int64      `json:"Version"`
+	Name           string     `json:"Name"`
+	Type           string     `json:"Type"`
+	Value          string     `json:"Value"`
+	Tags           *tags.Tags `json:"Tags,omitempty"`
+	Description    string     `json:"Description,omitempty"`
+	KeyID          string     `json:"KeyId,omitempty"`
+	Tier           string     `json:"Tier,omitempty"`
+	AllowedPattern string     `json:"AllowedPattern,omitempty"`
+	DataType       string     `json:"DataType,omitempty"`
+	Policies       string     `json:"Policies,omitempty"`
+	// ARN is the Amazon Resource Name of the parameter. Real AWS SSM returns this
+	// field on GetParameter, GetParameters, and GetParametersByPath responses.
+	ARN string `json:"ARN,omitempty"`
+	// Selector is the version or label selector used to retrieve this parameter,
+	// e.g. ":3" or ":prod". Empty when the latest version is returned without a
+	// selector. AWS echoes the selector back in the GetParameter response.
+	Selector         string  `json:"Selector,omitempty"`
+	LastModifiedDate float64 `json:"LastModifiedDate"`
+	Version          int64   `json:"Version"`
 }
 
 // PutParameterInput represents the request payload for PutParameter.
