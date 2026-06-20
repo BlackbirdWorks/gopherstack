@@ -2152,7 +2152,7 @@ func (b *InMemoryBackend) GetAuthPolicy(resourceID string) (*AuthPolicy, error) 
 
 	policy, ok := b.authPolicies[resourceID]
 	if !ok {
-		return &AuthPolicy{Policy: "", State: "Active"}, nil
+		return nil, ErrNotFound
 	}
 
 	return &AuthPolicy{Policy: policy, State: authPolicyStateActive}, nil
