@@ -2362,7 +2362,8 @@ func deliverHTTPWithMeta(parent context.Context, d httpDelivery, client *http.Cl
 			SignatureVersion: "2",
 			Signature:        signature,
 			SigningCertURL:   certURL,
-			UnsubscribeURL:   "https://sns.us-east-1.amazonaws.com/?Action=Unsubscribe&SubscriptionArn=" + d.subscriptionARN,
+			UnsubscribeURL: "https://sns." + topicRegion +
+				".amazonaws.com/?Action=Unsubscribe&SubscriptionArn=" + d.subscriptionARN,
 		}
 		if d.subject != "" {
 			env.Subject = d.subject

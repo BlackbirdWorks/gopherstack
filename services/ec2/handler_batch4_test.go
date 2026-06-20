@@ -176,6 +176,35 @@ func TestBatch4_ClientVpnEndpoint(t *testing.T) { //nolint:paralleltest // exist
 	})
 }
 
+// TestBatch4_ClientVpnEndpointDNSNameRegion verifies the Client VPN endpoint
+// DNS name reflects the backend's region rather than a hardcoded us-east-1
+// (parity §C).
+func TestBatch4_ClientVpnEndpointDNSNameRegion(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name   string
+		region string
+	}{
+		{name: "us-west-2", region: "us-west-2"},
+		{name: "eu-central-1", region: "eu-central-1"},
+		{name: "ap-southeast-1", region: "ap-southeast-1"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := ec2.NewInMemoryBackend("000000000000", tc.region)
+			ep, err := b.CreateClientVpnEndpoint("10.0.0.0/22", "region vpn", nil)
+			require.NoError(t, err)
+			assert.Contains(t, ep.DNSName, ".clientvpn."+tc.region+".amazonaws.com",
+				"DNS name must reflect the request region")
+			assert.NotContains(t, ep.DNSName, "us-east-1")
+		})
+	}
+}
+
 // ---- TransitGatewayPeeringAttachment ----.
 func TestBatch4_TGWPeeringAttachment(t *testing.T) { //nolint:paralleltest // existing issue.
 	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")

@@ -1,11 +1,14 @@
 package apigatewayv2_test
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 )
@@ -153,6 +156,76 @@ func TestEvalRouteSelectionExpression(t *testing.T) {
 
 			got := apigatewayv2.EvalRouteSelectionExpression(tt.expr, req)
 			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestEvalRouteSelectionExpression_BodyExtraction(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		expr string
+		body string
+		want string
+	}{
+		{
+			name: "top_level_string_field",
+			expr: "${request.body.action}",
+			body: `{"action":"subscribe"}`,
+			want: "subscribe",
+		},
+		{
+			name: "nested_field",
+			expr: "${request.body.detail.type}",
+			body: `{"detail":{"type":"ping"}}`,
+			want: "ping",
+		},
+		{
+			name: "number_field_stringified",
+			expr: "${request.body.count}",
+			body: `{"count":42}`,
+			want: "42",
+		},
+		{
+			name: "bool_field_stringified",
+			expr: "${request.body.active}",
+			body: `{"active":true}`,
+			want: "true",
+		},
+		{
+			name: "missing_field_empty",
+			expr: "${request.body.action}",
+			body: `{"other":"x"}`,
+			want: "",
+		},
+		{
+			name: "non_json_body_empty",
+			expr: "${request.body.action}",
+			body: `not json`,
+			want: "",
+		},
+		{
+			name: "combined_with_method",
+			expr: "${request.method}#${request.body.action}",
+			body: `{"action":"sendmessage"}`,
+			want: "POST#sendmessage",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(tt.body))
+
+			got := apigatewayv2.EvalRouteSelectionExpression(tt.expr, req)
+			assert.Equal(t, tt.want, got)
+
+			// Body must remain readable after evaluation.
+			rest, err := io.ReadAll(req.Body)
+			require.NoError(t, err)
+			assert.Equal(t, tt.body, string(rest))
 		})
 	}
 }

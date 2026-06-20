@@ -327,9 +327,42 @@ func (b *InMemoryBackend) DescribeComplianceByConfigRule(names []string) []Compl
 	return out
 }
 
-// GetComplianceSummaryByConfigRule returns a stub compliance summary.
+// GetComplianceSummaryByConfigRule returns a compliance summary aggregated from
+// the recorded rule evaluations. AWS returns counts of compliant and
+// non-compliant config rules; here we derive those counts from the stored
+// per-rule compliance types populated via PutEvaluation(s)/PutExternalEvaluation.
+// When no evaluations have been recorded the result is an empty slice.
 func (b *InMemoryBackend) GetComplianceSummaryByConfigRule() []ComplianceSummary {
-	return []ComplianceSummary{}
+	b.mu.RLock("GetComplianceSummaryByConfigRule")
+	defer b.mu.RUnlock()
+
+	if len(b.ruleEvaluations) == 0 {
+		return []ComplianceSummary{}
+	}
+
+	var compliant, nonCompliant int32
+
+	for _, ct := range b.ruleEvaluations {
+		switch ct {
+		case "COMPLIANT":
+			compliant++
+		case "NON_COMPLIANT":
+			nonCompliant++
+		}
+	}
+
+	complianceType := "COMPLIANT"
+	if nonCompliant > 0 {
+		complianceType = "NON_COMPLIANT"
+	}
+
+	return []ComplianceSummary{{
+		ComplianceType: complianceType,
+		ComplianceSummaryByConfigRule: ComplianceSummaryByConfigRule{
+			CompliantResourceCount:    compliant,
+			NonCompliantResourceCount: nonCompliant,
+		},
+	}}
 }
 
 // PutEvaluations stores evaluation results from an AWS Lambda function for a config rule.

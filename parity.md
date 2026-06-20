@@ -608,3 +608,8 @@ Verify bounded growth / delete-path cleanup in: **dynamodbstreams, resourcegroup
 
 ### G. Integration coverage — strength, not a gap
 `test/integration/` has ~230 per-service `<service>_test.go` files; integration coverage is broad. Per-service work should extend existing files, not assume absence.
+
+## Parity audit remediation — single accumulating PR
+
+This tracks the per-service remediation from the 2026-06-19 154-service audit (see sections above).
+Work accumulates on branch `parity-audit-mega`; each service lands as a verified commit.
