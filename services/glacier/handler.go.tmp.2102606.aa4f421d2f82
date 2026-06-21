@@ -1084,8 +1084,8 @@ func (h *Handler) handleListJobs(c *echo.Context, vaultName string) error {
 	})
 }
 
-// paginateJobList applies marker+limit pagination to a slice of job responses. //nolint:dupl
-func paginateJobList(
+// paginateJobList applies marker+limit pagination to a slice of job responses.
+func paginateJobList( //nolint:dupl
 	c *echo.Context,
 	items []describeJobResponse,
 ) ([]describeJobResponse, *string, error) {

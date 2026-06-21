@@ -32,6 +32,7 @@ func newDeepenHandler() *glacier.Handler {
 	h := glacier.NewHandler(bk)
 	h.AccountID = deepenAccountID
 	h.DefaultRegion = deepenRegion
+
 	return h
 }
 
@@ -57,6 +58,7 @@ func doRequestFull(
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 	require.NoError(t, h.Handler()(c))
+
 	return rec
 }
 
@@ -81,6 +83,7 @@ func deepenUploadArchive(t *testing.T, h *glacier.Handler, vaultName string, dat
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	id := resp["archiveId"]
 	require.NotEmpty(t, id)
+
 	return id
 }
 
@@ -93,6 +96,7 @@ func deepenInitiateJob(t *testing.T, h *glacier.Handler, vaultName, body string)
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	id := resp["jobId"]
 	require.NotEmpty(t, id)
+
 	return id
 }
 
@@ -252,10 +256,8 @@ func TestDeepen_InventoryRetrieval_JSONLifecycle(t *testing.T) {
 
 			h := newDeepenHandler()
 			deepenCreateVault(t, h, "inv-json-"+tt.name)
-			archiveIDs := make([]string, 0, tt.archiveCount)
 			for i := range tt.archiveCount {
-				id := deepenUploadArchive(t, h, "inv-json-"+tt.name, []byte(fmt.Sprintf("archive-%d", i)))
-				archiveIDs = append(archiveIDs, id)
+				deepenUploadArchive(t, h, "inv-json-"+tt.name, fmt.Appendf(nil, "archive-%d", i))
 			}
 
 			jobID := deepenInitiateJob(t, h, "inv-json-"+tt.name, `{"Type":"inventory-retrieval"}`)
@@ -294,7 +296,7 @@ func TestDeepen_InventoryRetrieval_CSVLifecycle(t *testing.T) {
 			h := newDeepenHandler()
 			deepenCreateVault(t, h, "inv-csv-"+tt.name)
 			for i := range tt.archiveCount {
-				deepenUploadArchive(t, h, "inv-csv-"+tt.name, []byte(fmt.Sprintf("data-%d", i)))
+				deepenUploadArchive(t, h, "inv-csv-"+tt.name, fmt.Appendf(nil, "data-%d", i))
 			}
 
 			jobID := deepenInitiateJob(t, h, "inv-csv-"+tt.name,
@@ -332,7 +334,7 @@ func TestDeepen_InventoryRetrieval_InventorySizeInBytes(t *testing.T) {
 			h := newDeepenHandler()
 			deepenCreateVault(t, h, "invsize-vault")
 			for i := range tt.archiveCount {
-				deepenUploadArchive(t, h, "invsize-vault", []byte(fmt.Sprintf("data-%d", i)))
+				deepenUploadArchive(t, h, "invsize-vault", fmt.Appendf(nil, "data-%d", i))
 			}
 
 			jobID := deepenInitiateJob(t, h, "invsize-vault", `{"Type":"inventory-retrieval"}`)
@@ -342,7 +344,7 @@ func TestDeepen_InventoryRetrieval_InventorySizeInBytes(t *testing.T) {
 				"/"+deepenAccountID+"/vaults/invsize-vault/jobs/"+jobID+"/output", "", nil)
 			require.Equal(t, http.StatusOK, rec.Code)
 			payloadSize := rec.Body.Len()
-			require.Greater(t, payloadSize, 0)
+			require.Positive(t, payloadSize)
 
 			// After GetJobOutput: DescribeJob should have InventorySizeInBytes set.
 			rec2 := doRequestFull(t, h, http.MethodGet,
@@ -480,7 +482,7 @@ func TestDeepen_Vault_CrossAccountIsolation(t *testing.T) {
 			require.Len(t, vl, 1, tt.name)
 			v := vl[0].(map[string]any)
 			// account-b vault has 0 archives (not account-a's archive).
-			assert.Equal(t, float64(0), v["NumberOfArchives"])
+			assert.EqualValues(t, 0, v["NumberOfArchives"])
 		})
 	}
 }
@@ -624,18 +626,19 @@ func TestDeepen_VaultStats_UploadAndDelete(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 				var v map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &v))
+
 				return v
 			}
 
 			v0 := descVault()
-			assert.Equal(t, float64(0), v0["NumberOfArchives"])
-			assert.Equal(t, float64(0), v0["SizeInBytes"])
+			assert.EqualValues(t, 0, v0["NumberOfArchives"])
+			assert.EqualValues(t, 0, v0["SizeInBytes"])
 
 			// Upload.
 			archiveID := deepenUploadArchive(t, h, "stats-vault", tt.content)
 			v1 := descVault()
-			assert.Equal(t, float64(1), v1["NumberOfArchives"])
-			assert.Equal(t, float64(len(tt.content)), v1["SizeInBytes"])
+			assert.EqualValues(t, 1, v1["NumberOfArchives"])
+			assert.EqualValues(t, len(tt.content), v1["SizeInBytes"])
 
 			// Delete.
 			rec := doRequestFull(t, h, http.MethodDelete,
@@ -643,8 +646,8 @@ func TestDeepen_VaultStats_UploadAndDelete(t *testing.T) {
 			require.Equal(t, http.StatusNoContent, rec.Code)
 
 			v2 := descVault()
-			assert.Equal(t, float64(0), v2["NumberOfArchives"])
-			assert.Equal(t, float64(0), v2["SizeInBytes"])
+			assert.EqualValues(t, 0, v2["NumberOfArchives"])
+			assert.EqualValues(t, 0, v2["SizeInBytes"])
 		})
 	}
 }
@@ -656,12 +659,12 @@ func TestDeepen_VaultStats_UploadAndDelete(t *testing.T) {
 func TestDeepen_Pagination_MarkerNotFound_EmptyList(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name       string
-		method     string
-		path       string
-		jsonKey    string
-		setupFn    func(h *glacier.Handler)
+	tests := []struct { //nolint:govet // fieldalignment: readability over minimal padding
+		name    string
+		method  string
+		path    string
+		jsonKey string
+		setupFn func(h *glacier.Handler)
 	}{
 		{
 			name:    "list_vaults_unknown_marker",
@@ -1133,7 +1136,7 @@ func TestDeepen_VaultLock_DoubleInitiateConflict(t *testing.T) {
 func TestDeepen_DataRetrievalPolicy_BytesPerHour(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
+	tests := []struct { //nolint:govet // fieldalignment: readability over minimal padding
 		name         string
 		bytesPerHour int64
 		wantOK       bool
@@ -1165,8 +1168,8 @@ func TestDeepen_DataRetrievalPolicy_GetDefault(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name             string
-		wantStrategyKey  string
+		name            string
+		wantStrategyKey string
 	}{
 		{name: "default_policy_is_free_tier", wantStrategyKey: "FreeTier"},
 	}
@@ -1322,10 +1325,10 @@ func TestDeepen_ProvisionedCapacity_DatesPresent(t *testing.T) {
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
 			list := listResp["ProvisionedCapacityList"].([]any)
 			require.Len(t, list, 1)
-			cap := list[0].(map[string]any)
-			assert.NotEmpty(t, cap["StartDate"], tt.name)
-			assert.NotEmpty(t, cap["ExpirationDate"])
-			assert.Equal(t, capID, cap["CapacityId"])
+			capItem := list[0].(map[string]any)
+			assert.NotEmpty(t, capItem["StartDate"], tt.name)
+			assert.NotEmpty(t, capItem["ExpirationDate"])
+			assert.Equal(t, capID, capItem["CapacityId"])
 		})
 	}
 }
@@ -1397,7 +1400,7 @@ func TestDeepen_MultipartUpload_FullLifecycle(t *testing.T) {
 			rec3 := doRequestFull(t, h, http.MethodPost,
 				"/"+deepenAccountID+"/vaults/mp-lifecycle-"+tt.name+"/multipart-uploads/"+uploadID,
 				"", map[string]string{
-					"X-Amz-Archive-Size":    "1048576",
+					"X-Amz-Archive-Size":     "1048576",
 					"X-Amz-Sha256-Tree-Hash": checksum,
 				})
 			require.Equal(t, http.StatusCreated, rec3.Code)
@@ -1422,7 +1425,7 @@ func TestDeepen_MultipartUpload_FullLifecycle(t *testing.T) {
 			require.Equal(t, http.StatusOK, descVault.Code)
 			var vaultDesc map[string]any
 			require.NoError(t, json.Unmarshal(descVault.Body.Bytes(), &vaultDesc))
-			assert.Equal(t, float64(1), vaultDesc["NumberOfArchives"])
+			assert.EqualValues(t, 1, vaultDesc["NumberOfArchives"])
 		})
 	}
 }
@@ -1554,9 +1557,9 @@ func TestDeepen_GetJobOutput_RangeOnInventory(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name          string
-		rangeHeader   string
-		wantStatus    int
+		name        string
+		rangeHeader string
+		wantStatus  int
 	}{
 		{
 			name:        "first_10_bytes",
@@ -1748,10 +1751,10 @@ func TestDeepen_DescribeJob_Fidelity(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		jobBody     string
-		wantAction  string
-		wantTier    string
+		name       string
+		jobBody    string
+		wantAction string
+		wantTier   string
 	}{
 		{
 			name:       "inventory_retrieval_fields",
@@ -1820,7 +1823,7 @@ func TestDeepen_DescribeJob_ArchiveSizePopulated(t *testing.T) {
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 			archiveSize, ok := resp["ArchiveSizeInBytes"].(float64)
 			assert.True(t, ok, "ArchiveSizeInBytes must be present for archive-retrieval job")
-			assert.Equal(t, float64(len(tt.content)), archiveSize)
+			assert.InDelta(t, float64(len(tt.content)), archiveSize, 0)
 		})
 	}
 }
@@ -1832,7 +1835,7 @@ func TestDeepen_DescribeJob_ArchiveSizePopulated(t *testing.T) {
 func TestDeepen_ListVaults_LimitAndMarkerCombined(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
+	tests := []struct { //nolint:govet // fieldalignment: readability over minimal padding
 		name       string
 		vaultNames []string
 		limit      int
@@ -2112,9 +2115,9 @@ func TestDeepen_ListParts_MarkerPagination(t *testing.T) {
 			assert.True(t, hasMarker, "Marker must be set when there are more parts")
 
 			// Second page using marker (URL-encode because RangeInBytes may contain spaces).
-			rec = doRequestFull(t, h, http.MethodGet,
-				"/"+deepenAccountID+"/vaults/listparts-pag-vault/multipart-uploads/"+uploadID+"?limit=1&marker="+url.QueryEscape(markerVal),
-				"", nil)
+			secondPage := "/" + deepenAccountID + "/vaults/listparts-pag-vault/multipart-uploads/" +
+				uploadID + "?limit=1&marker=" + url.QueryEscape(markerVal)
+			rec = doRequestFull(t, h, http.MethodGet, secondPage, "", nil)
 			require.Equal(t, http.StatusOK, rec.Code)
 			var page2 map[string]any
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page2))

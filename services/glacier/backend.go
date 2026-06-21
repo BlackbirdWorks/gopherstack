@@ -1411,7 +1411,7 @@ func (b *InMemoryBackend) SetJobInventorySize(accountID, region, vaultName, jobI
 	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
 
 	if jobs, ok := b.jobs[key]; ok {
-		if j, ok := jobs[jobID]; ok {
+		if j, jOK := jobs[jobID]; jOK {
 			j.InventorySizeInBytes = size
 		}
 	}
