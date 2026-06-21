@@ -17,20 +17,25 @@ import (
 )
 
 const (
-	keyMessageField = "message"
-)
-
-const (
 	appConfigDataMatchPriority   = 86
 	configurationsessionsPath    = "/configurationsessions"
 	configurationPath            = "/configuration"
 	configurationTokenQueryParam = "configuration_token"
 	defaultPollIntervalInSeconds = 30
-	nextPollTokenHeader          = "Next-Poll-Configuration-Token" //nolint:gosec // G101: header name, not credentials
-	nextPollIntervalHeader       = "Next-Poll-Interval-In-Seconds"
-	etagHeader                   = "ETag"
-	versionLabelHeader           = "X-Amzn-AppConfig-Version-Label"
-	retryAfterHeader             = "Retry-After"
+	// configurationTokenParam is the parameter name used in structured error Details.
+	configurationTokenParam = "ConfigurationToken"
+
+	// Response headers defined by the AWS AppConfigData REST-JSON protocol.
+	nextPollTokenHeader    = "Next-Poll-Configuration-Token" //nolint:gosec // G101: header name, not a credential
+	nextPollIntervalHeader = "Next-Poll-Interval-In-Seconds"
+	etagHeader             = "ETag"
+	// versionLabelHeader is the AWS-defined response header for the AppConfig version label.
+	// The AWS SDK v2 deserializer reads this exact header name; the older X-Amzn-AppConfig-*
+	// prefix used in early docs was never the actual protocol header.
+	versionLabelHeader = "Version-Label"
+	retryAfterHeader   = "Retry-After"
+	// errorTypeHeader is read by the AWS SDK to identify the exception type before parsing the body.
+	errorTypeHeader = "X-Amzn-ErrorType"
 )
 
 // Handler is the Echo HTTP handler for AppConfigData operations.
@@ -125,7 +130,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		default:
 			log.Warn("appconfigdata: unmatched request", "path", path, "method", c.Request().Method)
 
-			return c.JSON(http.StatusNotFound, map[string]string{keyMessageField: "not found"})
+			return writeAWSError(c, http.StatusNotFound, exceptionResourceNotFound, "not found")
 		}
 	}
 }
@@ -137,10 +142,7 @@ func (h *Handler) handleStartConfigurationSession(c *echo.Context) error {
 	if err := json.NewDecoder(c.Request().Body).Decode(&req); err != nil {
 		log.Error("appconfigdata: failed to decode StartConfigurationSession request", "error", err)
 
-		return c.JSON(
-			http.StatusBadRequest,
-			map[string]string{keyMessageField: "invalid request body"},
-		)
+		return writeAWSError(c, http.StatusBadRequest, exceptionBadRequest, "invalid request body")
 	}
 
 	req.ApplicationIdentifier = strings.TrimSpace(req.ApplicationIdentifier)
@@ -149,19 +151,42 @@ func (h *Handler) handleStartConfigurationSession(c *echo.Context) error {
 
 	if req.ApplicationIdentifier == "" || req.EnvironmentIdentifier == "" ||
 		req.ConfigurationProfileIdentifier == "" {
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			keyMessageField: "ApplicationIdentifier, EnvironmentIdentifier, and ConfigurationProfileIdentifier are required",
-		})
+		return writeBadRequestWithInvalidParams(c,
+			"ApplicationIdentifier, EnvironmentIdentifier, and ConfigurationProfileIdentifier are required",
+			buildMissingIdentifierParams(req),
+		)
+	}
+
+	if err := validateIdentifierLength("ApplicationIdentifier", req.ApplicationIdentifier); err != nil {
+		return writeBadRequestWithInvalidParams(c, err.Error(),
+			map[string]invalidParamProblem{"ApplicationIdentifier": {Problem: invalidParamProblemCorrupted}},
+		)
+	}
+
+	if err := validateIdentifierLength("EnvironmentIdentifier", req.EnvironmentIdentifier); err != nil {
+		return writeBadRequestWithInvalidParams(c, err.Error(),
+			map[string]invalidParamProblem{"EnvironmentIdentifier": {Problem: invalidParamProblemCorrupted}},
+		)
+	}
+
+	if err := validateIdentifierLength("ConfigurationProfileIdentifier", req.ConfigurationProfileIdentifier); err != nil {
+		return writeBadRequestWithInvalidParams(c, err.Error(),
+			map[string]invalidParamProblem{"ConfigurationProfileIdentifier": {Problem: invalidParamProblemCorrupted}},
+		)
 	}
 
 	if req.RequiredMinimumPollIntervalInSeconds != 0 &&
-		req.RequiredMinimumPollIntervalInSeconds < minPollIntervalSeconds {
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			keyMessageField: fmt.Sprintf(
-				"RequiredMinimumPollIntervalInSeconds must be 0 or >= %d",
-				minPollIntervalSeconds,
+		(req.RequiredMinimumPollIntervalInSeconds < minPollIntervalSeconds ||
+			req.RequiredMinimumPollIntervalInSeconds > maxPollIntervalSeconds) {
+		return writeBadRequestWithInvalidParams(c,
+			fmt.Sprintf(
+				"RequiredMinimumPollIntervalInSeconds must be 0 or between %d and %d",
+				minPollIntervalSeconds, maxPollIntervalSeconds,
 			),
-		})
+			map[string]invalidParamProblem{
+				"RequiredMinimumPollIntervalInSeconds": {Problem: invalidParamProblemCorrupted},
+			},
+		)
 	}
 
 	token, err := h.Backend.StartSession(
@@ -175,14 +200,23 @@ func (h *Handler) handleStartConfigurationSession(c *echo.Context) error {
 
 		switch {
 		case errors.Is(err, ErrInvalidPollInterval):
-			return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: err.Error()})
-		case errors.Is(err, ErrNoActiveDeployment):
-			return c.JSON(http.StatusNotFound, map[string]string{keyMessageField: err.Error()})
-		default:
-			return c.JSON(
-				http.StatusInternalServerError,
-				map[string]string{keyMessageField: err.Error()},
+			return writeBadRequestWithInvalidParams(c, err.Error(),
+				map[string]invalidParamProblem{
+					"RequiredMinimumPollIntervalInSeconds": {Problem: invalidParamProblemCorrupted},
+				},
 			)
+		case errors.Is(err, ErrNoActiveDeployment):
+			return writeResourceNotFound(c,
+				"No deployment exists for the given application, environment, and configuration profile.",
+				resourceTypeDeployment,
+				map[string]string{
+					"ApplicationIdentifier":          req.ApplicationIdentifier,
+					"EnvironmentIdentifier":          req.EnvironmentIdentifier,
+					"ConfigurationProfileIdentifier": req.ConfigurationProfileIdentifier,
+				},
+			)
+		default:
+			return writeAWSError(c, http.StatusInternalServerError, exceptionInternalServer, err.Error())
 		}
 	}
 
@@ -193,9 +227,11 @@ func (h *Handler) handleGetLatestConfiguration(c *echo.Context, token string) er
 	log := logger.Load(c.Request().Context())
 
 	if token == "" {
-		return c.JSON(
-			http.StatusBadRequest,
-			map[string]string{keyMessageField: "configuration token is required"},
+		return writeBadRequestWithInvalidParams(c,
+			"ConfigurationToken is required",
+			map[string]invalidParamProblem{
+				configurationTokenParam: {Problem: invalidParamProblemCorrupted},
+			},
 		)
 	}
 
@@ -206,31 +242,73 @@ func (h *Handler) handleGetLatestConfiguration(c *echo.Context, token string) er
 		if len(token) > redactLen {
 			redacted = token[:redactLen] + "..."
 		}
-		log.Error(
-			"appconfigdata: GetLatestConfiguration failed",
-			"token_prefix",
-			redacted,
-			"error",
-			err,
-		)
 
-		switch {
-		case errors.Is(err, ErrTokenExpired):
-			return c.JSON(http.StatusUnauthorized, map[string]string{keyMessageField: err.Error()})
-		case errors.Is(err, ErrSessionNotFound):
-			return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: err.Error()})
-		case errors.Is(err, ErrPollTooFrequent):
-			return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: err.Error()})
-		case errors.Is(err, ErrResourceRemoved):
-			return c.JSON(http.StatusNotFound, map[string]string{keyMessageField: err.Error()})
-		default:
-			return c.JSON(
-				http.StatusInternalServerError,
-				map[string]string{keyMessageField: err.Error()},
-			)
-		}
+		log.Error("appconfigdata: GetLatestConfiguration failed",
+			"token_prefix", redacted, "error", err)
+
+		return h.handleGetLatestConfigurationError(c, token, err)
 	}
 
+	return h.writeGetLatestConfigurationResponse(c, nextToken, hash, versionLabel, contentType, content)
+}
+
+// handleGetLatestConfigurationError maps backend errors to AWS-shaped HTTP responses.
+func (h *Handler) handleGetLatestConfigurationError(c *echo.Context, token string, err error) error {
+	switch {
+	case errors.Is(err, ErrTokenExpired):
+		// AWS returns BadRequestException (400) for expired tokens, not 401.
+		return writeBadRequestWithInvalidParams(c,
+			"The configuration token is expired. Please close the current session and open a new one.",
+			map[string]invalidParamProblem{
+				configurationTokenParam: {Problem: invalidParamProblemExpired},
+			},
+		)
+	case errors.Is(err, ErrTokenCorrupted):
+		return writeBadRequestWithInvalidParams(c,
+			"The configuration token is corrupted.",
+			map[string]invalidParamProblem{
+				configurationTokenParam: {Problem: invalidParamProblemCorrupted},
+			},
+		)
+	case errors.Is(err, ErrSessionNotFound):
+		return writeBadRequestWithInvalidParams(c,
+			"The configuration token is invalid or has already been used.",
+			map[string]invalidParamProblem{
+				configurationTokenParam: {Problem: invalidParamProblemCorrupted},
+			},
+		)
+	case errors.Is(err, ErrPollTooFrequent):
+		// Set Retry-After to the session's required interval so the client knows when to retry.
+		if sess := h.Backend.LookupSession(token); sess != nil && sess.PollIntervalInSeconds > 0 {
+			c.Response().Header().Set(retryAfterHeader, strconv.Itoa(sess.PollIntervalInSeconds))
+		} else {
+			c.Response().Header().Set(retryAfterHeader, strconv.Itoa(defaultPollIntervalInSeconds))
+		}
+
+		return writeBadRequestWithInvalidParams(c,
+			"Request was made before the required polling interval has elapsed. "+
+				"Check the Next-Poll-Interval-In-Seconds response header from your previous call.",
+			map[string]invalidParamProblem{
+				configurationTokenParam: {Problem: invalidParamProblemPollIntervalNotSatisfied},
+			},
+		)
+	case errors.Is(err, ErrResourceRemoved):
+		return writeResourceNotFound(c,
+			"The application, environment, or configuration profile referenced by this session no longer exists.",
+			resourceTypeDeployment,
+			nil,
+		)
+	default:
+		return writeAWSError(c, http.StatusInternalServerError, exceptionInternalServer, err.Error())
+	}
+}
+
+// writeGetLatestConfigurationResponse sends a 200 or 204 response for a successful poll.
+func (h *Handler) writeGetLatestConfigurationResponse(
+	c *echo.Context,
+	nextToken, hash, versionLabel, contentType string,
+	content []byte,
+) error {
 	// Honor the client's requested minimum poll interval; use the larger of the two.
 	pollInterval := defaultPollIntervalInSeconds
 	if sess := h.Backend.LookupSession(nextToken); sess != nil &&
@@ -260,4 +338,81 @@ func (h *Handler) handleGetLatestConfiguration(c *echo.Context, token string) er
 	c.Response().Header().Set("Content-Length", strconv.Itoa(len(content)))
 
 	return c.Blob(http.StatusOK, contentType, content)
+}
+
+// writeAWSError writes a standard AWS REST-JSON error response with the X-Amzn-ErrorType header.
+func writeAWSError(c *echo.Context, status int, exceptionType, message string) error {
+	c.Response().Header().Set(errorTypeHeader, exceptionType)
+
+	return c.JSON(status, awsErrorBody{
+		Type:    exceptionType,
+		Message: message,
+	})
+}
+
+// writeBadRequestWithInvalidParams writes a BadRequestException with structured parameter details.
+// AWS clients use the Reason and Details fields to identify which parameter failed and why.
+func writeBadRequestWithInvalidParams(
+	c *echo.Context,
+	message string,
+	params map[string]invalidParamProblem,
+) error {
+	c.Response().Header().Set(errorTypeHeader, exceptionBadRequest)
+
+	body := awsBadRequestBody{
+		Type:    exceptionBadRequest,
+		Message: message,
+	}
+
+	if len(params) > 0 {
+		body.Reason = badRequestReasonInvalidParameters
+		body.Details = &invalidParamsDetail{InvalidParameters: params}
+	}
+
+	return c.JSON(http.StatusBadRequest, body)
+}
+
+// writeResourceNotFound writes a ResourceNotFoundException with type and referencing identifiers.
+func writeResourceNotFound(
+	c *echo.Context,
+	message string,
+	resourceType string,
+	referencedBy map[string]string,
+) error {
+	c.Response().Header().Set(errorTypeHeader, exceptionResourceNotFound)
+
+	return c.JSON(http.StatusNotFound, awsResourceNotFoundBody{
+		Type:         exceptionResourceNotFound,
+		Message:      message,
+		ResourceType: resourceType,
+		ReferencedBy: referencedBy,
+	})
+}
+
+// validateIdentifierLength returns ErrIdentifierTooLong when an identifier exceeds maxIdentifierLength.
+func validateIdentifierLength(_, value string) error {
+	if len(value) > maxIdentifierLength {
+		return ErrIdentifierTooLong
+	}
+
+	return nil
+}
+
+// buildMissingIdentifierParams constructs an InvalidParameters detail map for missing required identifiers.
+func buildMissingIdentifierParams(req startSessionRequest) map[string]invalidParamProblem {
+	params := make(map[string]invalidParamProblem)
+
+	if req.ApplicationIdentifier == "" {
+		params["ApplicationIdentifier"] = invalidParamProblem{Problem: invalidParamProblemCorrupted}
+	}
+
+	if req.EnvironmentIdentifier == "" {
+		params["EnvironmentIdentifier"] = invalidParamProblem{Problem: invalidParamProblemCorrupted}
+	}
+
+	if req.ConfigurationProfileIdentifier == "" {
+		params["ConfigurationProfileIdentifier"] = invalidParamProblem{Problem: invalidParamProblemCorrupted}
+	}
+
+	return params
 }
