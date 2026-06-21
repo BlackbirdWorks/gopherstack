@@ -2650,7 +2650,18 @@ func (h *Handler) handleListRecoveryPointsByBackupVault(c *echo.Context, vaultNa
 		)
 	}
 
-	pts, err := h.Backend.ListRecoveryPointsByBackupVault(vaultName)
+	q := c.Request().URL.Query()
+	f := ListRPFilter{
+		ResourceArn:            q.Get("byResourceArn"),
+		ResourceType:           q.Get("byResourceType"),
+		ParentRecoveryPointArn: q.Get("byParentRecoveryPointArn"),
+		CreatedAfter:           parseTimeFilter(q.Get("byCreatedAfter")),
+		CreatedBefore:          parseTimeFilter(q.Get("byCreatedBefore")),
+		NextToken:              q.Get("nextToken"),
+		MaxResults:             parseInt(q.Get("maxResults")),
+	}
+
+	pts, nextToken, err := h.Backend.ListRecoveryPointsFiltered(vaultName, f)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -2664,21 +2675,31 @@ func (h *Handler) handleListRecoveryPointsByBackupVault(c *echo.Context, vaultNa
 			keyStatus:           rp.Status,
 			keyCreationDate:     epochSeconds(rp.CreationDate),
 		}
-		if rp.ResourceArn != "" {
-			item["ResourceArn"] = rp.ResourceArn
-		}
-		if rp.ResourceType != "" {
-			item["ResourceType"] = rp.ResourceType
-		}
+		setOptionalStr(item, "ResourceArn", rp.ResourceArn)
+		setOptionalStr(item, "ResourceType", rp.ResourceType)
+		setOptionalStr(item, "IamRoleArn", rp.IAMRoleArn)
+		setOptionalStr(item, "StorageClass", rp.StorageClass)
+		setOptionalStr(item, "ParentRecoveryPointArn", rp.ParentRecoveryPointArn)
 		if rp.BackupSizeInBytes > 0 {
 			item["BackupSizeInBytes"] = rp.BackupSizeInBytes
+		}
+		if rp.IsEncrypted {
+			item["IsEncrypted"] = rp.IsEncrypted
+		}
+		if rp.CompletionDate != nil {
+			item["CompletionDate"] = epochSeconds(*rp.CompletionDate)
+		}
+		if rp.Lifecycle != nil {
+			item["Lifecycle"] = lifecycleToJSON(rp.Lifecycle)
 		}
 		items = append(items, item)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		keyRecoveryPoints: items,
-	})
+	resp := map[string]any{keyRecoveryPoints: items}
+	if nextToken != "" {
+		resp["NextToken"] = nextToken
+	}
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleDescribeRecoveryPoint(c *echo.Context, resource string) error {
