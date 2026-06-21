@@ -1,7 +1,6 @@
 package dynamodb_test
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -34,6 +33,6 @@ func TestImportTable_UsesAwsmetaIdentity(t *testing.T) {
 	require.NoError(t, err)
 
 	arn := aws.ToString(out.ImportTableDescription.TableArn)
-	assert.True(t, strings.Contains(arn, "eu-central-1"), "ARN should use awsmeta region: %s", arn)
-	assert.True(t, strings.Contains(arn, "111122223333"), "ARN should use awsmeta account: %s", arn)
+	assert.Contains(t, arn, "eu-central-1", "ARN should use awsmeta region: %s", arn)
+	assert.Contains(t, arn, "111122223333", "ARN should use awsmeta account: %s", arn)
 }

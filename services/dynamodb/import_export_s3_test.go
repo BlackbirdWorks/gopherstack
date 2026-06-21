@@ -125,7 +125,9 @@ func TestImportTable_FromS3_DynamoDBJSON(t *testing.T) {
 
 	got, err := db.GetItem(t.Context(), &sdk.GetItemInput{
 		TableName: aws.String("ImportedJSON"),
-		Key:       map[string]ddbtypes.AttributeValue{"pk": &ddbtypes.AttributeValueMemberS{Value: "a"}},
+		Key: map[string]ddbtypes.AttributeValue{
+			"pk": &ddbtypes.AttributeValueMemberS{Value: "a"},
+		},
 	})
 	require.NoError(t, err)
 	require.NotEmpty(t, got.Item)
@@ -155,7 +157,9 @@ func TestImportTable_FromS3_CSV(t *testing.T) {
 
 	got, err := db.GetItem(t.Context(), &sdk.GetItemInput{
 		TableName: aws.String("ImportedCSV"),
-		Key:       map[string]ddbtypes.AttributeValue{"pk": &ddbtypes.AttributeValueMemberS{Value: "b"}},
+		Key: map[string]ddbtypes.AttributeValue{
+			"pk": &ddbtypes.AttributeValueMemberS{Value: "b"},
+		},
 	})
 	require.NoError(t, err)
 	require.NotEmpty(t, got.Item)
@@ -172,7 +176,10 @@ func TestImportTable_ION_Unsupported(t *testing.T) {
 	s3.put("src", "ion/data.ion", []byte("{pk: \"a\"}"))
 
 	out, err := db.ImportTable(t.Context(), &sdk.ImportTableInput{
-		S3BucketSource:          &ddbtypes.S3BucketSource{S3Bucket: aws.String("src"), S3KeyPrefix: aws.String("ion/")},
+		S3BucketSource: &ddbtypes.S3BucketSource{
+			S3Bucket:    aws.String("src"),
+			S3KeyPrefix: aws.String("ion/"),
+		},
 		InputFormat:             ddbtypes.InputFormatIon,
 		TableCreationParameters: importCreationParams("ImportedION"),
 	})
@@ -194,7 +201,9 @@ func TestExportImport_RoundTrip(t *testing.T) {
 	for _, id := range []string{"x", "y", "z"} {
 		_, err := db.PutItem(t.Context(), &sdk.PutItemInput{
 			TableName: aws.String("SourceTbl"),
-			Item:      map[string]ddbtypes.AttributeValue{"pk": &ddbtypes.AttributeValueMemberS{Value: id}},
+			Item: map[string]ddbtypes.AttributeValue{
+				"pk": &ddbtypes.AttributeValueMemberS{Value: id},
+			},
 		})
 		require.NoError(t, err)
 	}
@@ -221,7 +230,10 @@ func TestExportImport_RoundTrip(t *testing.T) {
 	require.NotEmpty(t, dataPrefix, "export must write a data object")
 
 	out, err := db.ImportTable(t.Context(), &sdk.ImportTableInput{
-		S3BucketSource:          &ddbtypes.S3BucketSource{S3Bucket: aws.String("exb"), S3KeyPrefix: aws.String(dataPrefix)},
+		S3BucketSource: &ddbtypes.S3BucketSource{
+			S3Bucket:    aws.String("exb"),
+			S3KeyPrefix: aws.String(dataPrefix),
+		},
 		InputFormat:             ddbtypes.InputFormatDynamodbJson,
 		InputCompressionType:    ddbtypes.InputCompressionTypeGzip,
 		TableCreationParameters: importCreationParams("RoundTripTbl"),

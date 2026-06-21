@@ -15,19 +15,19 @@ const statusRunning = "Running"
 
 // ModelInvocationJob represents a batch model invocation job.
 type ModelInvocationJob struct {
-	CreationTime     time.Time              `json:"creationTime"`
-	LastModifiedTime time.Time              `json:"lastModifiedTime"`
-	EndTime          *time.Time             `json:"endTime,omitempty"`
-	JobArn           string                 `json:"jobArn"`
-	JobName          string                 `json:"jobName"`
-	RoleArn          string                 `json:"roleArn,omitempty"`
-	ModelID          string                 `json:"modelId,omitempty"`
-	Status           string                 `json:"status"`
-	InputDataConfig  map[string]any         `json:"inputDataConfig,omitempty"`
-	OutputDataConfig map[string]any         `json:"outputDataConfig,omitempty"`
-	Tags             []Tag                  `json:"tags,omitempty"`
-	FailureMessage   string                 `json:"failureMessage,omitempty"`
-	ClientToken      string                 `json:"clientRequestToken,omitempty"`
+	LastModifiedTime time.Time      `json:"lastModifiedTime"`
+	CreationTime     time.Time      `json:"creationTime"`
+	InputDataConfig  map[string]any `json:"inputDataConfig,omitempty"`
+	EndTime          *time.Time     `json:"endTime,omitempty"`
+	OutputDataConfig map[string]any `json:"outputDataConfig,omitempty"`
+	JobArn           string         `json:"jobArn"`
+	ModelID          string         `json:"modelId,omitempty"`
+	Status           string         `json:"status"`
+	RoleArn          string         `json:"roleArn,omitempty"`
+	JobName          string         `json:"jobName"`
+	FailureMessage   string         `json:"failureMessage,omitempty"`
+	ClientToken      string         `json:"clientRequestToken,omitempty"`
+	Tags             []Tag          `json:"tags,omitempty"`
 }
 
 // CreateModelInvocationJobInput holds the full set of fields for CreateModelInvocationJob.
@@ -579,13 +579,13 @@ func (b *InMemoryBackend) GetModelInvocationJob(jobARN string) (*ModelInvocation
 
 // ListModelInvocationJobsInput holds filter/pagination params for ListModelInvocationJobs.
 type ListModelInvocationJobsInput struct {
-	StatusEquals      string
-	NameContains      string
-	SubmitTimeAfter   *time.Time
-	SubmitTimeBefore  *time.Time
-	SortBy            string // CreationTime (default)
-	SortOrder         string // Ascending (default) | Descending
-	NextToken         string
+	StatusEquals     string
+	NameContains     string
+	SubmitTimeAfter  *time.Time
+	SubmitTimeBefore *time.Time
+	SortBy           string // CreationTime (default)
+	SortOrder        string // Ascending (default) | Descending
+	NextToken        string
 }
 
 // ListModelInvocationJobs returns invocation jobs with optional filters and pagination.
@@ -597,19 +597,8 @@ func (b *InMemoryBackend) ListModelInvocationJobs(
 
 	jobs := make([]*ModelInvocationJob, 0, len(b.modelInvocationJobs))
 	for _, j := range b.modelInvocationJobs {
-		if in != nil {
-			if in.StatusEquals != "" && j.Status != in.StatusEquals {
-				continue
-			}
-			if in.NameContains != "" && !containsIgnoreCase(j.JobName, in.NameContains) {
-				continue
-			}
-			if in.SubmitTimeAfter != nil && !j.CreationTime.After(*in.SubmitTimeAfter) {
-				continue
-			}
-			if in.SubmitTimeBefore != nil && !j.CreationTime.Before(*in.SubmitTimeBefore) {
-				continue
-			}
+		if !matchesInvocationJobFilter(j, in) {
+			continue
 		}
 		cp := *j
 		cp.Tags = copyTags(j.Tags)
@@ -621,6 +610,7 @@ func (b *InMemoryBackend) ListModelInvocationJobs(
 		if descending {
 			return jobs[i].CreationTime.After(jobs[k].CreationTime)
 		}
+
 		return jobs[i].CreationTime.Before(jobs[k].CreationTime)
 	})
 
@@ -632,6 +622,27 @@ func (b *InMemoryBackend) ListModelInvocationJobs(
 	return jobs, nextToken
 }
 
+// matchesInvocationJobFilter reports whether a job satisfies the list filters.
+func matchesInvocationJobFilter(j *ModelInvocationJob, in *ListModelInvocationJobsInput) bool {
+	if in == nil {
+		return true
+	}
+	if in.StatusEquals != "" && j.Status != in.StatusEquals {
+		return false
+	}
+	if in.NameContains != "" && !containsIgnoreCase(j.JobName, in.NameContains) {
+		return false
+	}
+	if in.SubmitTimeAfter != nil && !j.CreationTime.After(*in.SubmitTimeAfter) {
+		return false
+	}
+	if in.SubmitTimeBefore != nil && !j.CreationTime.Before(*in.SubmitTimeBefore) {
+		return false
+	}
+
+	return true
+}
+
 // containsIgnoreCase is a case-insensitive substring check.
 func containsIgnoreCase(s, sub string) bool {
 	if sub == "" {
@@ -639,6 +650,7 @@ func containsIgnoreCase(s, sub string) bool {
 	}
 	sLower := toLower(s)
 	subLower := toLower(sub)
+
 	return contains(sLower, subLower)
 }
 
@@ -652,6 +664,7 @@ func toLower(s string) string {
 		}
 		b[i] = c
 	}
+
 	return string(b)
 }
 
@@ -668,6 +681,7 @@ func contains(s, sub string) bool {
 			return true
 		}
 	}
+
 	return false
 }
 

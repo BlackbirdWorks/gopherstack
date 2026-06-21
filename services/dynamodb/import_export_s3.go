@@ -24,6 +24,10 @@ import (
 // bounding memory use and guarding against decompression bombs.
 const maxImportObjectBytes = 256 * 1024 * 1024
 
+// importScannerBufferBytes is the initial bufio.Scanner buffer size for parsing
+// newline-delimited import records.
+const importScannerBufferBytes = 64 * 1024
+
 // errUnsupportedImportFormat is returned when an InputFormat we cannot parse
 // (currently ION) is requested.
 var errUnsupportedImportFormat = errors.New("unsupported import format")
@@ -33,7 +37,10 @@ var errUnsupportedImportFormat = errors.New("unsupported import format")
 // the in-process S3 backend, wired in cli.go alongside the Firehose→S3 wiring.
 type S3Accessor interface {
 	GetObject(ctx context.Context, in *s3sdk.GetObjectInput) (*s3sdk.GetObjectOutput, error)
-	ListObjectsV2(ctx context.Context, in *s3sdk.ListObjectsV2Input) (*s3sdk.ListObjectsV2Output, error)
+	ListObjectsV2(
+		ctx context.Context,
+		in *s3sdk.ListObjectsV2Input,
+	) (*s3sdk.ListObjectsV2Output, error)
 	PutObject(ctx context.Context, in *s3sdk.PutObjectInput) (*s3sdk.PutObjectOutput, error)
 }
 
@@ -208,7 +215,7 @@ func parseDynamoDBJSONLines(data []byte) ([]map[string]any, error) {
 	var items []map[string]any
 
 	scanner := bufio.NewScanner(bytes.NewReader(data))
-	scanner.Buffer(make([]byte, 0, 64*1024), maxImportObjectBytes)
+	scanner.Buffer(make([]byte, 0, importScannerBufferBytes), maxImportObjectBytes)
 
 	for scanner.Scan() {
 		line := bytes.TrimSpace(scanner.Bytes())
@@ -371,7 +378,11 @@ func (db *InMemoryDB) snapshotItemsByTableARN(tableARN string) []map[string]any 
 
 // putImportedItem writes a single wire item into the target table via PutItem so
 // that indexes, streams, and validation are all applied consistently.
-func (db *InMemoryDB) putImportedItem(ctx context.Context, tableName string, item map[string]any) error {
+func (db *InMemoryDB) putImportedItem(
+	ctx context.Context,
+	tableName string,
+	item map[string]any,
+) error {
 	sdkItem, err := models.ToSDKItem(item)
 	if err != nil {
 		return err

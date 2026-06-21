@@ -13,13 +13,13 @@ func TestPagination_GetDatabases(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name          string
-		dbNames       []string
-		maxResults    any
-		nextToken     string
-		wantCount     int
-		wantHasNext   bool
-		wantStatus    int
+		maxResults  any
+		name        string
+		nextToken   string
+		dbNames     []string
+		wantCount   int
+		wantStatus  int
+		wantHasNext bool
 	}{
 		{
 			name:        "all results when no MaxResults",
@@ -87,8 +87,8 @@ func TestPagination_GetDatabases(t *testing.T) {
 			}
 
 			var out struct {
-				DatabaseList []any  `json:"DatabaseList"`
 				NextToken    string `json:"NextToken"`
+				DatabaseList []any  `json:"DatabaseList"`
 			}
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 			assert.Len(t, out.DatabaseList, tc.wantCount)
@@ -105,13 +105,13 @@ func TestPagination_GetTables(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		tableNames  []string
 		maxResults  any
+		name        string
 		nextToken   string
+		tableNames  []string
 		wantCount   int
-		wantHasNext bool
 		wantStatus  int
+		wantHasNext bool
 	}{
 		{
 			name:        "all results when no MaxResults",
@@ -185,8 +185,8 @@ func TestPagination_GetTables(t *testing.T) {
 			}
 
 			var out struct {
-				TableList []any  `json:"TableList"`
 				NextToken string `json:"NextToken"`
+				TableList []any  `json:"TableList"`
 			}
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 			assert.Len(t, out.TableList, tc.wantCount)
@@ -203,13 +203,13 @@ func TestPagination_GetPartitions(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		partitions  []string
 		maxResults  any
+		name        string
 		nextToken   string
+		partitions  []string
 		wantCount   int
-		wantHasNext bool
 		wantStatus  int
+		wantHasNext bool
 	}{
 		{
 			name:        "all results when no MaxResults",
@@ -278,8 +278,8 @@ func TestPagination_GetPartitions(t *testing.T) {
 			}
 
 			var out struct {
-				Partitions []any  `json:"Partitions"`
 				NextToken  string `json:"NextToken"`
+				Partitions []any  `json:"Partitions"`
 			}
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 			assert.Len(t, out.Partitions, tc.wantCount)

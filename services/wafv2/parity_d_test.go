@@ -80,8 +80,8 @@ func TestParity_DescribeManagedRuleGroupRules(t *testing.T) {
 
 			var out struct {
 				Rules []struct {
-					Name   string         `json:"Name"`
 					Action map[string]any `json:"Action"`
+					Name   string         `json:"Name"`
 				} `json:"Rules"`
 				AvailableLabels []struct {
 					Name string `json:"Name"`

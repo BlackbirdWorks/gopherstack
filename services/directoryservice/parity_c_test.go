@@ -28,6 +28,7 @@ func mustCreateSimpleAD(t *testing.T, h *directoryservice.Handler, name string) 
 	id, ok := resp["DirectoryId"].(string)
 	require.True(t, ok)
 	require.NotEmpty(t, id)
+
 	return id
 }
 
@@ -44,6 +45,7 @@ func mustCreateMicrosoftAD(t *testing.T, h *directoryservice.Handler, name strin
 	id, ok := resp["DirectoryId"].(string)
 	require.True(t, ok)
 	require.NotEmpty(t, id)
+
 	return id
 }
 
@@ -51,6 +53,7 @@ func respBody(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
 	t.Helper()
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
 	return out
 }
 
@@ -60,10 +63,10 @@ func TestCreateDirectory_Validation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
 		body     map[string]any
-		wantCode int
+		name     string
 		wantType string
+		wantCode int
 	}{
 		{
 			name:     "missing Name returns 400 ClientException",
@@ -78,25 +81,41 @@ func TestCreateDirectory_Validation(t *testing.T) {
 			wantType: "ClientException",
 		},
 		{
-			name:     "invalid Size returns 400 ClientException",
-			body:     map[string]any{"Name": "corp.example.com", "Password": "Admin1234!", "Size": "Huge"},
+			name: "invalid Size returns 400 ClientException",
+			body: map[string]any{
+				"Name":     "corp.example.com",
+				"Password": "Admin1234!",
+				"Size":     "Huge",
+			},
 			wantCode: http.StatusBadRequest,
 			wantType: "ClientException",
 		},
 		{
-			name:     "empty Size returns 400 ClientException",
-			body:     map[string]any{"Name": "corp.example.com", "Password": "Admin1234!", "Size": ""},
+			name: "empty Size returns 400 ClientException",
+			body: map[string]any{
+				"Name":     "corp.example.com",
+				"Password": "Admin1234!",
+				"Size":     "",
+			},
 			wantCode: http.StatusBadRequest,
 			wantType: "ClientException",
 		},
 		{
-			name:     "Size Small succeeds",
-			body:     map[string]any{"Name": "corp.example.com", "Password": "Admin1234!", "Size": "Small"},
+			name: "Size Small succeeds",
+			body: map[string]any{
+				"Name":     "corp.example.com",
+				"Password": "Admin1234!",
+				"Size":     "Small",
+			},
 			wantCode: http.StatusOK,
 		},
 		{
-			name:     "Size Large succeeds",
-			body:     map[string]any{"Name": "corp.example.com", "Password": "Admin1234!", "Size": "Large"},
+			name: "Size Large succeeds",
+			body: map[string]any{
+				"Name":     "corp.example.com",
+				"Password": "Admin1234!",
+				"Size":     "Large",
+			},
 			wantCode: http.StatusOK,
 		},
 	}
@@ -121,10 +140,10 @@ func TestCreateMicrosoftAD_Validation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
 		body     map[string]any
-		wantCode int
+		name     string
 		wantType string
+		wantCode int
 	}{
 		{
 			name:     "missing Name returns 400",
@@ -139,19 +158,31 @@ func TestCreateMicrosoftAD_Validation(t *testing.T) {
 			wantType: "ClientException",
 		},
 		{
-			name:     "invalid Edition returns 400",
-			body:     map[string]any{"Name": "corp.example.com", "Password": "Admin1234!", "Edition": "Ultra"},
+			name: "invalid Edition returns 400",
+			body: map[string]any{
+				"Name":     "corp.example.com",
+				"Password": "Admin1234!",
+				"Edition":  "Ultra",
+			},
 			wantCode: http.StatusBadRequest,
 			wantType: "ClientException",
 		},
 		{
-			name:     "Edition Enterprise succeeds",
-			body:     map[string]any{"Name": "corp.example.com", "Password": "Admin1234!", "Edition": "Enterprise"},
+			name: "Edition Enterprise succeeds",
+			body: map[string]any{
+				"Name":     "corp.example.com",
+				"Password": "Admin1234!",
+				"Edition":  "Enterprise",
+			},
 			wantCode: http.StatusOK,
 		},
 		{
-			name:     "Edition Standard succeeds",
-			body:     map[string]any{"Name": "corp.example.com", "Password": "Admin1234!", "Edition": "Standard"},
+			name: "Edition Standard succeeds",
+			body: map[string]any{
+				"Name":     "corp.example.com",
+				"Password": "Admin1234!",
+				"Edition":  "Standard",
+			},
 			wantCode: http.StatusOK,
 		},
 		{
@@ -181,10 +212,10 @@ func TestConnectDirectory_Validation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
 		body     map[string]any
-		wantCode int
+		name     string
 		wantType string
+		wantCode int
 	}{
 		{
 			name:     "missing Name returns 400",
@@ -199,14 +230,22 @@ func TestConnectDirectory_Validation(t *testing.T) {
 			wantType: "ClientException",
 		},
 		{
-			name:     "invalid Size returns 400",
-			body:     map[string]any{"Name": "corp.example.com", "Password": "Admin1234!", "Size": "Giant"},
+			name: "invalid Size returns 400",
+			body: map[string]any{
+				"Name":     "corp.example.com",
+				"Password": "Admin1234!",
+				"Size":     "Giant",
+			},
 			wantCode: http.StatusBadRequest,
 			wantType: "ClientException",
 		},
 		{
-			name:     "valid Small succeeds",
-			body:     map[string]any{"Name": "corp.example.com", "Password": "Admin1234!", "Size": "Small"},
+			name: "valid Small succeeds",
+			body: map[string]any{
+				"Name":     "corp.example.com",
+				"Password": "Admin1234!",
+				"Size":     "Small",
+			},
 			wantCode: http.StatusOK,
 		},
 	}
@@ -230,55 +269,61 @@ func TestConnectDirectory_Validation(t *testing.T) {
 func TestCreateDirectory_LimitEnforcement(t *testing.T) {
 	t.Parallel()
 
-	t.Run("10 SimpleAD is allowed, 11th returns DirectoryLimitExceededException", func(t *testing.T) {
-		t.Parallel()
-		h := newTestHandler(t)
+	t.Run(
+		"10 SimpleAD is allowed, 11th returns DirectoryLimitExceededException",
+		func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler(t)
 
-		for i := range 10 {
+			for i := range 10 {
+				rec := doRequest(t, h, "CreateDirectory", map[string]any{
+					"Name":     fmt.Sprintf("corp%d.example.com", i),
+					"Password": "Admin1234!",
+					"Size":     "Small",
+				})
+				require.Equal(t, http.StatusOK, rec.Code, "directory %d should succeed", i)
+			}
+
 			rec := doRequest(t, h, "CreateDirectory", map[string]any{
-				"Name":     fmt.Sprintf("corp%d.example.com", i),
+				"Name":     "overflow.example.com",
 				"Password": "Admin1234!",
 				"Size":     "Small",
 			})
-			require.Equal(t, http.StatusOK, rec.Code, "directory %d should succeed", i)
-		}
-
-		rec := doRequest(t, h, "CreateDirectory", map[string]any{
-			"Name":     "overflow.example.com",
-			"Password": "Admin1234!",
-			"Size":     "Small",
-		})
-		assert.Equal(t, http.StatusBadRequest, rec.Code)
-		body := respBody(t, rec)
-		assert.Equal(t, "DirectoryLimitExceededException", body["__type"])
-	})
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+			body := respBody(t, rec)
+			assert.Equal(t, "DirectoryLimitExceededException", body["__type"])
+		},
+	)
 }
 
 func TestCreateMicrosoftAD_LimitEnforcement(t *testing.T) {
 	t.Parallel()
 
-	t.Run("20 MicrosoftAD is allowed, 21st returns DirectoryLimitExceededException", func(t *testing.T) {
-		t.Parallel()
-		h := newTestHandler(t)
+	t.Run(
+		"20 MicrosoftAD is allowed, 21st returns DirectoryLimitExceededException",
+		func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler(t)
 
-		for i := range 20 {
+			for i := range 20 {
+				rec := doRequest(t, h, "CreateMicrosoftAD", map[string]any{
+					"Name":     fmt.Sprintf("corp%d.example.com", i),
+					"Password": "Admin1234!",
+					"Edition":  "Enterprise",
+				})
+				require.Equal(t, http.StatusOK, rec.Code, "directory %d should succeed", i)
+			}
+
 			rec := doRequest(t, h, "CreateMicrosoftAD", map[string]any{
-				"Name":     fmt.Sprintf("corp%d.example.com", i),
+				"Name":     "overflow.example.com",
 				"Password": "Admin1234!",
 				"Edition":  "Enterprise",
 			})
-			require.Equal(t, http.StatusOK, rec.Code, "directory %d should succeed", i)
-		}
-
-		rec := doRequest(t, h, "CreateMicrosoftAD", map[string]any{
-			"Name":     "overflow.example.com",
-			"Password": "Admin1234!",
-			"Edition":  "Enterprise",
-		})
-		assert.Equal(t, http.StatusBadRequest, rec.Code)
-		body := respBody(t, rec)
-		assert.Equal(t, "DirectoryLimitExceededException", body["__type"])
-	})
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+			body := respBody(t, rec)
+			assert.Equal(t, "DirectoryLimitExceededException", body["__type"])
+		},
+	)
 }
 
 // --- Snapshot limit enforcement ---
@@ -288,8 +333,8 @@ func TestCreateSnapshot_LimitEnforcement(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		wantCode int
 		wantType string
+		wantCode int
 	}{
 		{name: "5 snapshots succeeds", wantCode: http.StatusOK},
 	}
@@ -339,11 +384,21 @@ func TestCreateSnapshot_LimitEnforcement(t *testing.T) {
 		dir2 := mustCreateSimpleAD(t, h, "corp2.example.com")
 
 		for i := range 5 {
-			rec := doRequest(t, h, "CreateSnapshot", map[string]any{"DirectoryId": dir1, "Name": fmt.Sprintf("s%d", i)})
+			rec := doRequest(
+				t,
+				h,
+				"CreateSnapshot",
+				map[string]any{"DirectoryId": dir1, "Name": fmt.Sprintf("s%d", i)},
+			)
 			require.Equal(t, http.StatusOK, rec.Code)
 		}
 		// dir2 is unaffected by dir1's snapshots
-		rec := doRequest(t, h, "CreateSnapshot", map[string]any{"DirectoryId": dir2, "Name": "first"})
+		rec := doRequest(
+			t,
+			h,
+			"CreateSnapshot",
+			map[string]any{"DirectoryId": dir2, "Name": "first"},
+		)
 		assert.Equal(t, http.StatusOK, rec.Code)
 	})
 
@@ -352,9 +407,14 @@ func TestCreateSnapshot_LimitEnforcement(t *testing.T) {
 		h := newTestHandler(t)
 		dirID := mustCreateSimpleAD(t, h, "corp.example.com")
 
-		var snapIDs []string
+		snapIDs := make([]string, 0, 5)
 		for i := range 5 {
-			rec := doRequest(t, h, "CreateSnapshot", map[string]any{"DirectoryId": dirID, "Name": fmt.Sprintf("s%d", i)})
+			rec := doRequest(
+				t,
+				h,
+				"CreateSnapshot",
+				map[string]any{"DirectoryId": dirID, "Name": fmt.Sprintf("s%d", i)},
+			)
 			require.Equal(t, http.StatusOK, rec.Code)
 			body := respBody(t, rec)
 			snapIDs = append(snapIDs, body["SnapshotId"].(string))
@@ -365,7 +425,12 @@ func TestCreateSnapshot_LimitEnforcement(t *testing.T) {
 		require.Equal(t, http.StatusOK, delRec.Code)
 
 		// Now a new one should succeed
-		rec := doRequest(t, h, "CreateSnapshot", map[string]any{"DirectoryId": dirID, "Name": "new-snap"})
+		rec := doRequest(
+			t,
+			h,
+			"CreateSnapshot",
+			map[string]any{"DirectoryId": dirID, "Name": "new-snap"},
+		)
 		assert.Equal(t, http.StatusOK, rec.Code)
 	})
 }
@@ -431,7 +496,12 @@ func TestDeleteDirectory_CascadesResources(t *testing.T) {
 		doRequest(t, h, "DeleteDirectory", map[string]any{"DirectoryId": dirID})
 
 		newDirID := mustCreateSimpleAD(t, h, "corp.example.com")
-		rec := doRequest(t, h, "DescribeConditionalForwarders", map[string]any{"DirectoryId": newDirID})
+		rec := doRequest(
+			t,
+			h,
+			"DescribeConditionalForwarders",
+			map[string]any{"DirectoryId": newDirID},
+		)
 		assert.Equal(t, http.StatusOK, rec.Code)
 		body := respBody(t, rec)
 		fwds, _ := body["ConditionalForwarders"].([]any)
@@ -512,10 +582,10 @@ func TestErrorCodeShapes(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
 		setup    func(h *directoryservice.Handler) (string, any)
-		wantCode int
+		name     string
 		wantType string
+		wantCode int
 	}{
 		{
 			name: "DeleteDirectory unknown returns EntityDoesNotExistException",
@@ -529,8 +599,14 @@ func TestErrorCodeShapes(t *testing.T) {
 			name: "CreateAlias duplicate returns EntityAlreadyExistsException",
 			setup: func(h *directoryservice.Handler) (string, any) {
 				dirID := mustCreateSimpleAD(t, h, "corp.example.com")
-				doRequest(t, h, "CreateAlias", map[string]any{"DirectoryId": dirID, "Alias": "myalias"})
+				doRequest(
+					t,
+					h,
+					"CreateAlias",
+					map[string]any{"DirectoryId": dirID, "Alias": "myalias"},
+				)
 				dir2 := mustCreateSimpleAD(t, h, "other.example.com")
+
 				return "CreateAlias", map[string]any{"DirectoryId": dir2, "Alias": "myalias"}
 			},
 			wantCode: http.StatusBadRequest,
@@ -539,7 +615,9 @@ func TestErrorCodeShapes(t *testing.T) {
 		{
 			name: "DescribeDirectories unknown ID returns EntityDoesNotExistException",
 			setup: func(_ *directoryservice.Handler) (string, any) {
-				return "DescribeDirectories", map[string]any{"DirectoryIds": []string{"d-0000000000"}}
+				return "DescribeDirectories", map[string]any{
+					"DirectoryIds": []string{"d-0000000000"},
+				}
 			},
 			wantCode: http.StatusBadRequest,
 			wantType: "EntityDoesNotExistException",
@@ -600,10 +678,18 @@ func TestErrorCodeShapes(t *testing.T) {
 			setup: func(h *directoryservice.Handler) (string, any) {
 				for i := range 10 {
 					doRequest(t, h, "CreateDirectory", map[string]any{
-						"Name": fmt.Sprintf("corp%d.example.com", i), "Password": "Admin1234!", "Size": "Small",
+						"Name": fmt.Sprintf(
+							"corp%d.example.com",
+							i,
+						), "Password": "Admin1234!", "Size": "Small",
 					})
 				}
-				return "CreateDirectory", map[string]any{"Name": "overflow.example.com", "Password": "Admin1234!", "Size": "Small"}
+
+				return "CreateDirectory", map[string]any{
+					"Name":     "overflow.example.com",
+					"Password": "Admin1234!",
+					"Size":     "Small",
+				}
 			},
 			wantCode: http.StatusBadRequest,
 			wantType: "DirectoryLimitExceededException",
@@ -613,8 +699,14 @@ func TestErrorCodeShapes(t *testing.T) {
 			setup: func(h *directoryservice.Handler) (string, any) {
 				dirID := mustCreateSimpleAD(t, h, "corp.example.com")
 				for i := range 5 {
-					doRequest(t, h, "CreateSnapshot", map[string]any{"DirectoryId": dirID, "Name": fmt.Sprintf("s%d", i)})
+					doRequest(
+						t,
+						h,
+						"CreateSnapshot",
+						map[string]any{"DirectoryId": dirID, "Name": fmt.Sprintf("s%d", i)},
+					)
 				}
+
 				return "CreateSnapshot", map[string]any{"DirectoryId": dirID, "Name": "overflow"}
 			},
 			wantCode: http.StatusBadRequest,
@@ -650,12 +742,20 @@ func TestListTagsForResource_Pagination(t *testing.T) {
 		// Add 5 tags
 		tags := make([]map[string]any, 5)
 		for i := range 5 {
-			tags[i] = map[string]any{"Key": fmt.Sprintf("tag%02d", i), "Value": fmt.Sprintf("val%d", i)}
+			tags[i] = map[string]any{
+				"Key":   fmt.Sprintf("tag%02d", i),
+				"Value": fmt.Sprintf("val%d", i),
+			}
 		}
 		doRequest(t, h, "AddTagsToResource", map[string]any{"ResourceId": dirID, "Tags": tags})
 
 		// First page: limit 2
-		rec := doRequest(t, h, "ListTagsForResource", map[string]any{"ResourceId": dirID, "Limit": 2})
+		rec := doRequest(
+			t,
+			h,
+			"ListTagsForResource",
+			map[string]any{"ResourceId": dirID, "Limit": 2},
+		)
 		assert.Equal(t, http.StatusOK, rec.Code)
 		body := respBody(t, rec)
 		firstPage, _ := body["Tags"].([]any)
@@ -728,7 +828,12 @@ func TestDescribeDirectories_Pagination(t *testing.T) {
 		assert.NotEmpty(t, nextToken)
 
 		// Page 2
-		rec2 := doRequest(t, h, "DescribeDirectories", map[string]any{"Limit": 2, "NextToken": nextToken})
+		rec2 := doRequest(
+			t,
+			h,
+			"DescribeDirectories",
+			map[string]any{"Limit": 2, "NextToken": nextToken},
+		)
 		assert.Equal(t, http.StatusOK, rec2.Code)
 		body2 := respBody(t, rec2)
 		page2, _ := body2["DirectoryDescriptions"].([]any)
@@ -736,7 +841,12 @@ func TestDescribeDirectories_Pagination(t *testing.T) {
 
 		// Page 3 (last)
 		nextToken2, _ := body2["NextToken"].(string)
-		rec3 := doRequest(t, h, "DescribeDirectories", map[string]any{"Limit": 2, "NextToken": nextToken2})
+		rec3 := doRequest(
+			t,
+			h,
+			"DescribeDirectories",
+			map[string]any{"Limit": 2, "NextToken": nextToken2},
+		)
 		assert.Equal(t, http.StatusOK, rec3.Code)
 		body3 := respBody(t, rec3)
 		page3, _ := body3["DirectoryDescriptions"].([]any)
@@ -766,16 +876,23 @@ func TestDescribeSnapshots_Pagination(t *testing.T) {
 		h := newTestHandler(t)
 		dirID := mustCreateSimpleAD(t, h, "corp.example.com")
 
-		var snapIDs []string
 		for i := range 4 {
-			rec := doRequest(t, h, "CreateSnapshot", map[string]any{"DirectoryId": dirID, "Name": fmt.Sprintf("s%d", i)})
+			rec := doRequest(
+				t,
+				h,
+				"CreateSnapshot",
+				map[string]any{"DirectoryId": dirID, "Name": fmt.Sprintf("s%d", i)},
+			)
 			require.Equal(t, http.StatusOK, rec.Code)
-			body := respBody(t, rec)
-			snapIDs = append(snapIDs, body["SnapshotId"].(string))
 		}
 
 		// Page 1: limit 2
-		rec := doRequest(t, h, "DescribeSnapshots", map[string]any{"DirectoryId": dirID, "Limit": 2})
+		rec := doRequest(
+			t,
+			h,
+			"DescribeSnapshots",
+			map[string]any{"DirectoryId": dirID, "Limit": 2},
+		)
 		assert.Equal(t, http.StatusOK, rec.Code)
 		body := respBody(t, rec)
 		page1, _ := body["Snapshots"].([]any)
@@ -784,7 +901,12 @@ func TestDescribeSnapshots_Pagination(t *testing.T) {
 		assert.NotEmpty(t, nextToken)
 
 		// Page 2
-		rec2 := doRequest(t, h, "DescribeSnapshots", map[string]any{"DirectoryId": dirID, "Limit": 2, "NextToken": nextToken})
+		rec2 := doRequest(
+			t,
+			h,
+			"DescribeSnapshots",
+			map[string]any{"DirectoryId": dirID, "Limit": 2, "NextToken": nextToken},
+		)
 		assert.Equal(t, http.StatusOK, rec2.Code)
 		body2 := respBody(t, rec2)
 		page2, _ := body2["Snapshots"].([]any)
@@ -820,7 +942,12 @@ func TestListCertificates_Pagination(t *testing.T) {
 			})
 		}
 
-		rec := doRequest(t, h, "ListCertificates", map[string]any{"DirectoryId": dirID, "PageSize": 2})
+		rec := doRequest(
+			t,
+			h,
+			"ListCertificates",
+			map[string]any{"DirectoryId": dirID, "PageSize": 2},
+		)
 		assert.Equal(t, http.StatusOK, rec.Code)
 		body := respBody(t, rec)
 		page1, _ := body["CertificatesInfo"].([]any)
@@ -905,7 +1032,12 @@ func TestDescribeDirectories_ResponseFields(t *testing.T) {
 		h := newTestHandler(t)
 		dirID := mustCreateSimpleAD(t, h, "corp.example.com")
 
-		rec := doRequest(t, h, "DescribeDirectories", map[string]any{"DirectoryIds": []string{dirID}})
+		rec := doRequest(
+			t,
+			h,
+			"DescribeDirectories",
+			map[string]any{"DirectoryIds": []string{dirID}},
+		)
 		require.Equal(t, http.StatusOK, rec.Code)
 		body := respBody(t, rec)
 		dirs := body["DirectoryDescriptions"].([]any)
@@ -927,7 +1059,12 @@ func TestDescribeDirectories_ResponseFields(t *testing.T) {
 		h := newTestHandler(t)
 		dirID := mustCreateMicrosoftAD(t, h, "corp.example.com")
 
-		rec := doRequest(t, h, "DescribeDirectories", map[string]any{"DirectoryIds": []string{dirID}})
+		rec := doRequest(
+			t,
+			h,
+			"DescribeDirectories",
+			map[string]any{"DirectoryIds": []string{dirID}},
+		)
 		require.Equal(t, http.StatusOK, rec.Code)
 		body := respBody(t, rec)
 		dirs := body["DirectoryDescriptions"].([]any)
@@ -943,7 +1080,12 @@ func TestDescribeDirectories_ResponseFields(t *testing.T) {
 		dirID := mustCreateSimpleAD(t, h, "corp.example.com")
 
 		// Initially SSO disabled
-		rec := doRequest(t, h, "DescribeDirectories", map[string]any{"DirectoryIds": []string{dirID}})
+		rec := doRequest(
+			t,
+			h,
+			"DescribeDirectories",
+			map[string]any{"DirectoryIds": []string{dirID}},
+		)
 		body := respBody(t, rec)
 		dirs := body["DirectoryDescriptions"].([]any)
 		d := dirs[0].(map[string]any)
@@ -952,7 +1094,12 @@ func TestDescribeDirectories_ResponseFields(t *testing.T) {
 		// Enable SSO
 		doRequest(t, h, "EnableSso", map[string]any{"DirectoryId": dirID})
 
-		rec2 := doRequest(t, h, "DescribeDirectories", map[string]any{"DirectoryIds": []string{dirID}})
+		rec2 := doRequest(
+			t,
+			h,
+			"DescribeDirectories",
+			map[string]any{"DirectoryIds": []string{dirID}},
+		)
 		body2 := respBody(t, rec2)
 		dirs2 := body2["DirectoryDescriptions"].([]any)
 		d2 := dirs2[0].(map[string]any)
@@ -976,7 +1123,12 @@ func TestDescribeDirectories_ResponseFields(t *testing.T) {
 		body := respBody(t, rec)
 		dirID := body["DirectoryId"].(string)
 
-		rec2 := doRequest(t, h, "DescribeDirectories", map[string]any{"DirectoryIds": []string{dirID}})
+		rec2 := doRequest(
+			t,
+			h,
+			"DescribeDirectories",
+			map[string]any{"DirectoryIds": []string{dirID}},
+		)
 		body2 := respBody(t, rec2)
 		dirs := body2["DirectoryDescriptions"].([]any)
 		d := dirs[0].(map[string]any)
@@ -1020,12 +1172,22 @@ func TestCreateAlias_Idempotency(t *testing.T) {
 		h := newTestHandler(t)
 		dirID := mustCreateSimpleAD(t, h, "corp.example.com")
 
-		rec1 := doRequest(t, h, "CreateAlias", map[string]any{"DirectoryId": dirID, "Alias": "myalias"})
+		rec1 := doRequest(
+			t,
+			h,
+			"CreateAlias",
+			map[string]any{"DirectoryId": dirID, "Alias": "myalias"},
+		)
 		assert.Equal(t, http.StatusOK, rec1.Code)
 
 		// Second call with same alias on same directory - alias already taken
 		dir2 := mustCreateSimpleAD(t, h, "other.example.com")
-		rec2 := doRequest(t, h, "CreateAlias", map[string]any{"DirectoryId": dir2, "Alias": "myalias"})
+		rec2 := doRequest(
+			t,
+			h,
+			"CreateAlias",
+			map[string]any{"DirectoryId": dir2, "Alias": "myalias"},
+		)
 		assert.Equal(t, http.StatusBadRequest, rec2.Code)
 		body := respBody(t, rec2)
 		assert.Equal(t, "EntityAlreadyExistsException", body["__type"])
@@ -1038,7 +1200,12 @@ func TestCreateAlias_Idempotency(t *testing.T) {
 
 		doRequest(t, h, "CreateAlias", map[string]any{"DirectoryId": dirID, "Alias": "myalias"})
 
-		rec := doRequest(t, h, "DescribeDirectories", map[string]any{"DirectoryIds": []string{dirID}})
+		rec := doRequest(
+			t,
+			h,
+			"DescribeDirectories",
+			map[string]any{"DirectoryIds": []string{dirID}},
+		)
 		body := respBody(t, rec)
 		dirs := body["DirectoryDescriptions"].([]any)
 		d := dirs[0].(map[string]any)
@@ -1278,8 +1445,18 @@ func TestDescribeEventTopics_Filtering(t *testing.T) {
 		h := newTestHandler(t)
 		dirID := mustCreateSimpleAD(t, h, "corp.example.com")
 
-		doRequest(t, h, "RegisterEventTopic", map[string]any{"DirectoryId": dirID, "TopicName": "topic-a"})
-		doRequest(t, h, "RegisterEventTopic", map[string]any{"DirectoryId": dirID, "TopicName": "topic-b"})
+		doRequest(
+			t,
+			h,
+			"RegisterEventTopic",
+			map[string]any{"DirectoryId": dirID, "TopicName": "topic-a"},
+		)
+		doRequest(
+			t,
+			h,
+			"RegisterEventTopic",
+			map[string]any{"DirectoryId": dirID, "TopicName": "topic-b"},
+		)
 
 		rec := doRequest(t, h, "DescribeEventTopics", map[string]any{
 			"DirectoryId": dirID,
@@ -1297,8 +1474,18 @@ func TestDescribeEventTopics_Filtering(t *testing.T) {
 		h := newTestHandler(t)
 		dirID := mustCreateSimpleAD(t, h, "corp.example.com")
 
-		doRequest(t, h, "RegisterEventTopic", map[string]any{"DirectoryId": dirID, "TopicName": "my-topic"})
-		rec := doRequest(t, h, "RegisterEventTopic", map[string]any{"DirectoryId": dirID, "TopicName": "my-topic"})
+		doRequest(
+			t,
+			h,
+			"RegisterEventTopic",
+			map[string]any{"DirectoryId": dirID, "TopicName": "my-topic"},
+		)
+		rec := doRequest(
+			t,
+			h,
+			"RegisterEventTopic",
+			map[string]any{"DirectoryId": dirID, "TopicName": "my-topic"},
+		)
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
 		body := respBody(t, rec)
 		assert.Equal(t, "EntityAlreadyExistsException", body["__type"])
@@ -1332,7 +1519,12 @@ func TestDomainControllers_Lifecycle(t *testing.T) {
 			})
 			require.Equal(t, http.StatusOK, rec.Code)
 
-			listRec := doRequest(t, h, "DescribeDomainControllers", map[string]any{"DirectoryId": dirID})
+			listRec := doRequest(
+				t,
+				h,
+				"DescribeDomainControllers",
+				map[string]any{"DirectoryId": dirID},
+			)
 			require.Equal(t, http.StatusOK, listRec.Code)
 			body := respBody(t, listRec)
 			controllers, _ := body["DomainControllers"].([]any)
@@ -1354,17 +1546,29 @@ func TestCreateDirectory_ResponseShape(t *testing.T) {
 		{
 			name: "CreateDirectory response contains DirectoryId",
 			op:   "CreateDirectory",
-			body: map[string]any{"Name": "corp.example.com", "Password": "Admin1234!", "Size": "Small"},
+			body: map[string]any{
+				"Name":     "corp.example.com",
+				"Password": "Admin1234!",
+				"Size":     "Small",
+			},
 		},
 		{
 			name: "CreateMicrosoftAD response contains DirectoryId",
 			op:   "CreateMicrosoftAD",
-			body: map[string]any{"Name": "corp.example.com", "Password": "Admin1234!", "Edition": "Enterprise"},
+			body: map[string]any{
+				"Name":     "corp.example.com",
+				"Password": "Admin1234!",
+				"Edition":  "Enterprise",
+			},
 		},
 		{
 			name: "ConnectDirectory response contains DirectoryId",
 			op:   "ConnectDirectory",
-			body: map[string]any{"Name": "corp.example.com", "Password": "Admin1234!", "Size": "Small"},
+			body: map[string]any{
+				"Name":     "corp.example.com",
+				"Password": "Admin1234!",
+				"Size":     "Small",
+			},
 		},
 	}
 

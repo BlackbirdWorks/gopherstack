@@ -78,6 +78,8 @@ var neptunIdentifierRE = regexp.MustCompile(`^[a-zA-Z](?:[a-zA-Z0-9-]*[a-zA-Z0-9
 // validateNeptuneIdentifier returns an error when id does not conform to Neptune naming rules.
 func validateNeptuneIdentifier(id, fieldName string) error {
 	const maxIdentifierLen = 63
+	const invalidIdentifierMsg = "%w: %s %q is not a valid identifier; must start with a letter, " +
+		"contain only letters/digits/hyphens, and not end with a hyphen"
 	if id == "" {
 		return fmt.Errorf("%w: %s is required", ErrInvalidParameter, fieldName)
 	}
@@ -88,10 +90,7 @@ func validateNeptuneIdentifier(id, fieldName string) error {
 		)
 	}
 	if !neptunIdentifierRE.MatchString(id) {
-		return fmt.Errorf(
-			"%w: %s %q is not a valid identifier; must start with a letter, contain only letters/digits/hyphens, and not end with a hyphen",
-			ErrInvalidParameter, fieldName, id,
-		)
+		return fmt.Errorf(invalidIdentifierMsg, ErrInvalidParameter, fieldName, id)
 	}
 	if strings.Contains(id, "--") {
 		return fmt.Errorf(
@@ -99,6 +98,7 @@ func validateNeptuneIdentifier(id, fieldName string) error {
 			ErrInvalidParameter, fieldName, id,
 		)
 	}
+
 	return nil
 }
 
@@ -129,6 +129,7 @@ const (
 	maxNeptunePort               = 65535
 	snapshotStatusAvailable      = "available"
 	snapshotStatusCreating       = "creating"
+	percentProgressComplete      = 100
 )
 
 // ServerlessV2ScalingConfiguration holds Neptune Serverless v2 capacity settings.
@@ -146,16 +147,16 @@ type MasterUserManagedSecret struct {
 // DBClusterCreateOptions holds optional fields for CreateDBCluster.
 type DBClusterCreateOptions struct {
 	ServerlessV2ScalingConfig       *ServerlessV2ScalingConfiguration
-	VpcSecurityGroupIds             []string
-	AvailabilityZones               []string
+	DBSubnetGroupName               string
+	StorageType                     string
 	EngineVersion                   string
 	EngineMode                      string
 	KmsKeyID                        string
 	PreferredBackupWindow           string
-	PreferredMaintenanceWindow      string
-	DBSubnetGroupName               string
 	MasterUsername                  string
-	StorageType                     string
+	PreferredMaintenanceWindow      string
+	AvailabilityZones               []string
+	VpcSecurityGroupIDs             []string
 	BackupRetentionPeriod           int
 	EnableIAMDatabaseAuthentication bool
 	ManageMasterUserPassword        bool
@@ -167,10 +168,10 @@ type DBClusterCreateOptions struct {
 // DBClusterModifyOptions holds optional fields for ModifyDBCluster.
 type DBClusterModifyOptions struct {
 	ServerlessV2ScalingConfig       *ServerlessV2ScalingConfiguration
-	VpcSecurityGroupIds             []string
 	EngineVersion                   string
 	PreferredBackupWindow           string
 	PreferredMaintenanceWindow      string
+	VpcSecurityGroupIDs             []string
 	BackupRetentionPeriod           int
 	EnableIAMDatabaseAuthentication bool
 	IamAuthSet                      bool
@@ -198,11 +199,11 @@ type DBClusterMember struct {
 type DBCluster struct {
 	ServerlessV2ScalingConfig       *ServerlessV2ScalingConfiguration `json:"ServerlessV2ScalingConfiguration,omitempty"`
 	MasterUserManagedSecret         *MasterUserManagedSecret          `json:"MasterUserManagedSecret,omitempty"`
-	DBClusterIdentifier             string                            `json:"DBClusterIdentifier"`
-	DBClusterArn                    string                            `json:"DBClusterArn"`
+	KmsKeyID                        string                            `json:"KmsKeyID"`
+	HostedZoneID                    string                            `json:"HostedZoneId"`
 	Engine                          string                            `json:"Engine"`
 	EngineVersion                   string                            `json:"EngineVersion"`
-	EngineMode                      string                            `json:"EngineMode"`
+	DBClusterIdentifier             string                            `json:"DBClusterIdentifier"`
 	Status                          string                            `json:"Status"`
 	DBClusterParameterGroupName     string                            `json:"DBClusterParameterGroupName"`
 	DBSubnetGroupName               string                            `json:"DBSubnetGroupName"`
@@ -210,14 +211,14 @@ type DBCluster struct {
 	ReaderEndpoint                  string                            `json:"ReaderEndpoint"`
 	PreferredBackupWindow           string                            `json:"PreferredBackupWindow"`
 	PreferredMaintenanceWindow      string                            `json:"PreferredMaintenanceWindow"`
-	KmsKeyID                        string                            `json:"KmsKeyID"`
-	DBClusterMembers                []DBClusterMember                 `json:"DBClusterMembers"`
-	AssociatedRoles                 []string                          `json:"AssociatedRoles"`
-	VpcSecurityGroupIds             []string                          `json:"VpcSecurityGroupIds"`
-	AvailabilityZones               []string                          `json:"AvailabilityZones"`
-	MasterUsername                  string                            `json:"MasterUsername"`
+	DBClusterArn                    string                            `json:"DBClusterArn"`
 	StorageType                     string                            `json:"StorageType"`
-	HostedZoneId                    string                            `json:"HostedZoneId"`
+	EngineMode                      string                            `json:"EngineMode"`
+	MasterUsername                  string                            `json:"MasterUsername"`
+	AvailabilityZones               []string                          `json:"AvailabilityZones"`
+	VpcSecurityGroupIDs             []string                          `json:"VpcSecurityGroupIds"`
+	AssociatedRoles                 []string                          `json:"AssociatedRoles"`
+	DBClusterMembers                []DBClusterMember                 `json:"DBClusterMembers"`
 	Port                            int                               `json:"Port"`
 	BackupRetentionPeriod           int                               `json:"BackupRetentionPeriod"`
 	AllocatedStorage                int                               `json:"AllocatedStorage"`
@@ -308,20 +309,20 @@ type DBClusterParameterGroup struct {
 
 // DBClusterSnapshot represents a Neptune DB cluster snapshot.
 type DBClusterSnapshot struct {
-	DBClusterSnapshotIdentifier     string `json:"DBClusterSnapshotIdentifier"`
-	DBClusterSnapshotArn            string `json:"DBClusterSnapshotArn"`
-	DBClusterIdentifier             string `json:"DBClusterIdentifier"`
-	Engine                          string `json:"Engine"`
-	EngineVersion                   string `json:"EngineVersion"`
-	Status                          string `json:"Status"`
-	SnapshotType                    string `json:"SnapshotType"`
-	KmsKeyId                        string `json:"KmsKeyId"`
-	VpcId                           string `json:"VpcId"`
-	StorageEncrypted                bool   `json:"StorageEncrypted"`
-	IAMDatabaseAuthenticationEnabled bool  `json:"IAMDatabaseAuthenticationEnabled"`
-	Port                            int    `json:"Port"`
-	PercentProgress                 int    `json:"PercentProgress"`
-	AllocatedStorage                int    `json:"AllocatedStorage"`
+	DBClusterSnapshotIdentifier      string `json:"DBClusterSnapshotIdentifier"`
+	DBClusterSnapshotArn             string `json:"DBClusterSnapshotArn"`
+	DBClusterIdentifier              string `json:"DBClusterIdentifier"`
+	Engine                           string `json:"Engine"`
+	EngineVersion                    string `json:"EngineVersion"`
+	Status                           string `json:"Status"`
+	SnapshotType                     string `json:"SnapshotType"`
+	KmsKeyID                         string `json:"KmsKeyId"`
+	VpcID                            string `json:"VpcId"`
+	StorageEncrypted                 bool   `json:"StorageEncrypted"`
+	IAMDatabaseAuthenticationEnabled bool   `json:"IAMDatabaseAuthenticationEnabled"`
+	Port                             int    `json:"Port"`
+	PercentProgress                  int    `json:"PercentProgress"`
+	AllocatedStorage                 int    `json:"AllocatedStorage"`
 }
 
 // DBParameterGroup represents a Neptune DB parameter group.
@@ -343,13 +344,13 @@ type DBClusterEndpoint struct {
 
 // EventSubscription represents a Neptune event subscription.
 type EventSubscription struct {
-	CustSubscriptionID string   `json:"CustSubscriptionID"`
-	SnsTopicARN        string   `json:"SnsTopicARN"`
-	EventSubscriptionArn string `json:"EventSubscriptionArn"`
-	Status             string   `json:"Status"`
-	SourceType         string   `json:"SourceType"`
-	SourceIDs          []string `json:"SourceIDs"`
-	Enabled            bool     `json:"Enabled"`
+	CustSubscriptionID   string   `json:"CustSubscriptionID"`
+	SnsTopicARN          string   `json:"SnsTopicARN"`
+	EventSubscriptionArn string   `json:"EventSubscriptionArn"`
+	Status               string   `json:"Status"`
+	SourceType           string   `json:"SourceType"`
+	SourceIDs            []string `json:"SourceIDs"`
+	Enabled              bool     `json:"Enabled"`
 }
 
 // GlobalCluster represents a Neptune global cluster.
@@ -437,7 +438,9 @@ func (b *InMemoryBackend) subnetGroupsStore(region string) map[string]*DBSubnetG
 	return b.subnetGroups[region]
 }
 
-func (b *InMemoryBackend) clusterParameterGroupsStore(region string) map[string]*DBClusterParameterGroup {
+func (b *InMemoryBackend) clusterParameterGroupsStore(
+	region string,
+) map[string]*DBClusterParameterGroup {
 	if b.clusterParameterGroups[region] == nil {
 		b.clusterParameterGroups[region] = make(map[string]*DBClusterParameterGroup)
 	}
@@ -500,8 +503,8 @@ func cloneCluster(c *DBCluster) DBCluster {
 	copy(cp.DBClusterMembers, c.DBClusterMembers)
 	cp.AssociatedRoles = make([]string, len(c.AssociatedRoles))
 	copy(cp.AssociatedRoles, c.AssociatedRoles)
-	cp.VpcSecurityGroupIds = make([]string, len(c.VpcSecurityGroupIds))
-	copy(cp.VpcSecurityGroupIds, c.VpcSecurityGroupIds)
+	cp.VpcSecurityGroupIDs = make([]string, len(c.VpcSecurityGroupIDs))
+	copy(cp.VpcSecurityGroupIDs, c.VpcSecurityGroupIDs)
 	cp.AvailabilityZones = make([]string, len(c.AvailabilityZones))
 	copy(cp.AvailabilityZones, c.AvailabilityZones)
 	if c.ServerlessV2ScalingConfig != nil {
@@ -615,11 +618,34 @@ func (b *InMemoryBackend) CreateDBCluster(
 	port int,
 	opts DBClusterCreateOptions,
 ) (*DBCluster, error) {
-	if err := validateNeptuneIdentifier(id, "DBClusterIdentifier"); err != nil {
+	backupRetention, err := validateCreateClusterParams(id, port, opts)
+	if err != nil {
 		return nil, err
 	}
+	region := getRegion(ctx, b.region)
+	b.mu.Lock("CreateDBCluster")
+	defer b.mu.Unlock()
+	clusters := b.clustersStore(region)
+	if _, exists := clusters[id]; exists {
+		return nil, fmt.Errorf("%w: cluster %s already exists", ErrClusterAlreadyExists, id)
+	}
+	cluster := b.buildNewCluster(region, id, paramGroupName, port, backupRetention, opts)
+	clusters[id] = cluster
+	cp := cloneCluster(cluster)
+
+	return &cp, nil
+}
+
+// validateCreateClusterParams validates CreateDBCluster inputs and returns the
+// effective backup retention period to use.
+func validateCreateClusterParams(
+	id string, port int, opts DBClusterCreateOptions,
+) (int, error) {
+	if err := validateNeptuneIdentifier(id, "DBClusterIdentifier"); err != nil {
+		return 0, err
+	}
 	if port != 0 && (port < minNeptunePort || port > maxNeptunePort) {
-		return nil, fmt.Errorf(
+		return 0, fmt.Errorf(
 			"%w: Port %d is not a valid Neptune port; must be between %d and %d",
 			ErrInvalidParameter, port, minNeptunePort, maxNeptunePort,
 		)
@@ -629,18 +655,24 @@ func (b *InMemoryBackend) CreateDBCluster(
 		backupRetention = opts.BackupRetentionPeriod
 	}
 	if backupRetention < minBackupRetentionPeriod || backupRetention > maxBackupRetentionPeriod {
-		return nil, fmt.Errorf(
+		return 0, fmt.Errorf(
 			"%w: BackupRetentionPeriod %d is not valid; must be between %d and %d",
-			ErrInvalidParameter, backupRetention, minBackupRetentionPeriod, maxBackupRetentionPeriod,
+			ErrInvalidParameter,
+			backupRetention,
+			minBackupRetentionPeriod,
+			maxBackupRetentionPeriod,
 		)
 	}
-	region := getRegion(ctx, b.region)
-	b.mu.Lock("CreateDBCluster")
-	defer b.mu.Unlock()
-	clusters := b.clustersStore(region)
-	if _, exists := clusters[id]; exists {
-		return nil, fmt.Errorf("%w: cluster %s already exists", ErrClusterAlreadyExists, id)
-	}
+
+	return backupRetention, nil
+}
+
+// buildNewCluster constructs a DBCluster from the create options, applying defaults.
+func (b *InMemoryBackend) buildNewCluster(
+	region, id, paramGroupName string,
+	port, backupRetention int,
+	opts DBClusterCreateOptions,
+) *DBCluster {
 	if paramGroupName == "" {
 		paramGroupName = pgFamilyDefaultNeptune13
 	}
@@ -659,11 +691,15 @@ func (b *InMemoryBackend) CreateDBCluster(
 	if opts.StorageType != "" {
 		storageType = opts.StorageType
 	}
-	endpoint := fmt.Sprintf("%s.cluster-%s.%s.neptune.amazonaws.com", id, b.accountID, region)
-	readerEndpoint := fmt.Sprintf("%s.cluster-ro-%s.%s.neptune.amazonaws.com", id, b.accountID, region)
+	endpoint := fmt.Sprintf("%s.cluster.%s.neptune.amazonaws.com", id, region)
+	readerEndpoint := fmt.Sprintf(
+		"%s.cluster-ro.%s.neptune.amazonaws.com",
+		id,
+		region,
+	)
 	hostedZoneID := fmt.Sprintf("Z%s", strings.ToUpper(region))
-	vpcSGs := make([]string, len(opts.VpcSecurityGroupIds))
-	copy(vpcSGs, opts.VpcSecurityGroupIds)
+	vpcSGs := make([]string, len(opts.VpcSecurityGroupIDs))
+	copy(vpcSGs, opts.VpcSecurityGroupIDs)
 	azs := make([]string, len(opts.AvailabilityZones))
 	copy(azs, opts.AvailabilityZones)
 	cluster := &DBCluster{
@@ -680,7 +716,7 @@ func (b *InMemoryBackend) CreateDBCluster(
 		Port:                            port,
 		DBClusterMembers:                []DBClusterMember{},
 		AssociatedRoles:                 []string{},
-		VpcSecurityGroupIds:             vpcSGs,
+		VpcSecurityGroupIDs:             vpcSGs,
 		AvailabilityZones:               azs,
 		BackupRetentionPeriod:           backupRetention,
 		AllocatedStorage:                defaultAllocatedStorage,
@@ -694,18 +730,21 @@ func (b *InMemoryBackend) CreateDBCluster(
 		ServerlessV2ScalingConfig:       opts.ServerlessV2ScalingConfig,
 		MasterUsername:                  opts.MasterUsername,
 		StorageType:                     storageType,
-		HostedZoneId:                    hostedZoneID,
+		HostedZoneID:                    hostedZoneID,
 	}
 	if opts.ManageMasterUserPassword {
 		cluster.MasterUserManagedSecret = &MasterUserManagedSecret{
-			SecretARN:    fmt.Sprintf("arn:aws:secretsmanager:%s:%s:secret:rds!cluster-%s", region, b.accountID, id),
-			SecretStatus: "active",
+			SecretARN: fmt.Sprintf(
+				"arn:aws:secretsmanager:%s:%s:secret:rds!cluster-%s",
+				region,
+				b.accountID,
+				id,
+			),
+			SecretStatus: subscriptionStatusActive,
 		}
 	}
-	clusters[id] = cluster
-	cp := cloneCluster(cluster)
 
-	return &cp, nil
+	return cluster
 }
 
 // DBClusterFilters holds filter values for DescribeDBClusters.
@@ -717,7 +756,11 @@ type DBClusterFilters struct {
 
 // DescribeDBClusters returns all Neptune DB clusters or a specific one.
 // Filters (when set) restrict results to matching clusters.
-func (b *InMemoryBackend) DescribeDBClusters(ctx context.Context, id string, filters DBClusterFilters) ([]DBCluster, error) {
+func (b *InMemoryBackend) DescribeDBClusters(
+	ctx context.Context,
+	id string,
+	filters DBClusterFilters,
+) ([]DBCluster, error) {
 	region := getRegion(ctx, b.region)
 	b.mu.RLock("DescribeDBClusters")
 	defer b.mu.RUnlock()
@@ -748,17 +791,19 @@ func (b *InMemoryBackend) DescribeDBClusters(ctx context.Context, id string, fil
 }
 
 // DeleteDBCluster deletes a Neptune DB cluster and all associated DB instances.
-func (b *InMemoryBackend) DeleteDBCluster(ctx context.Context, id string, opts DBClusterDeleteOptions) (*DBCluster, error) {
+func (b *InMemoryBackend) DeleteDBCluster(
+	ctx context.Context,
+	id string,
+	opts DBClusterDeleteOptions,
+) (*DBCluster, error) {
 	region := getRegion(ctx, b.region)
-	// Validate FinalDBSnapshotIdentifier before acquiring the lock.
-	if !opts.SkipFinalSnapshot {
-		if opts.FinalDBSnapshotIdentifier == "" {
-			return nil, fmt.Errorf(
-				"%w: FinalDBSnapshotIdentifier is required when SkipFinalSnapshot is false",
-				ErrSnapshotRequired,
-			)
-		}
-		if err := validateNeptuneIdentifier(opts.FinalDBSnapshotIdentifier, "FinalDBSnapshotIdentifier"); err != nil {
+	// Validate FinalDBSnapshotIdentifier before acquiring the lock. When a final
+	// snapshot is requested (an identifier is supplied), it must be well-formed.
+	if !opts.SkipFinalSnapshot && opts.FinalDBSnapshotIdentifier != "" {
+		if err := validateNeptuneIdentifier(
+			opts.FinalDBSnapshotIdentifier,
+			"FinalDBSnapshotIdentifier",
+		); err != nil {
 			return nil, err
 		}
 	}
@@ -782,19 +827,22 @@ func (b *InMemoryBackend) DeleteDBCluster(ctx context.Context, id string, opts D
 		snapshots := b.clusterSnapshotsStore(region)
 		if _, already := snapshots[opts.FinalDBSnapshotIdentifier]; !already {
 			snapshots[opts.FinalDBSnapshotIdentifier] = &DBClusterSnapshot{
-				DBClusterSnapshotIdentifier:     opts.FinalDBSnapshotIdentifier,
-				DBClusterSnapshotArn:            b.clusterSnapshotARN(region, opts.FinalDBSnapshotIdentifier),
-				DBClusterIdentifier:             id,
-				Engine:                          neptuneEngine,
-				EngineVersion:                   c.EngineVersion,
-				Status:                          snapshotStatusAvailable,
-				StorageEncrypted:                c.StorageEncrypted,
-				KmsKeyId:                        c.KmsKeyID,
+				DBClusterSnapshotIdentifier: opts.FinalDBSnapshotIdentifier,
+				DBClusterSnapshotArn: b.clusterSnapshotARN(
+					region,
+					opts.FinalDBSnapshotIdentifier,
+				),
+				DBClusterIdentifier:              id,
+				Engine:                           neptuneEngine,
+				EngineVersion:                    c.EngineVersion,
+				Status:                           snapshotStatusAvailable,
+				StorageEncrypted:                 c.StorageEncrypted,
+				KmsKeyID:                         c.KmsKeyID,
 				IAMDatabaseAuthenticationEnabled: c.EnableIAMDatabaseAuthentication,
-				Port:                            c.Port,
-				PercentProgress:                 100,
-				AllocatedStorage:                c.AllocatedStorage,
-				SnapshotType:                    snapshotSourceManual,
+				Port:                             c.Port,
+				PercentProgress:                  percentProgressComplete,
+				AllocatedStorage:                 c.AllocatedStorage,
+				SnapshotType:                     snapshotSourceManual,
 			}
 		}
 	}
@@ -837,6 +885,19 @@ func (b *InMemoryBackend) ModifyDBCluster(
 	if paramGroupName != "" {
 		c.DBClusterParameterGroupName = paramGroupName
 	}
+	applyClusterScalarModifications(c, opts)
+	if err := applyClusterBackupRetention(c, opts); err != nil {
+		return nil, err
+	}
+	applyClusterSecurityGroups(c, opts)
+	b.applyClusterMasterSecret(c, region, id, opts)
+	cp := cloneCluster(c)
+
+	return &cp, nil
+}
+
+// applyClusterScalarModifications applies the optional scalar fields of opts onto c.
+func applyClusterScalarModifications(c *DBCluster, opts DBClusterModifyOptions) {
 	if opts.EngineVersion != "" {
 		c.EngineVersion = opts.EngineVersion
 	}
@@ -856,39 +917,57 @@ func (b *InMemoryBackend) ModifyDBCluster(
 		sv2 := *opts.ServerlessV2ScalingConfig
 		c.ServerlessV2ScalingConfig = &sv2
 	}
-	if opts.BackupRetentionPeriodSet {
-		if opts.BackupRetentionPeriod < minBackupRetentionPeriod || opts.BackupRetentionPeriod > maxBackupRetentionPeriod {
-			return nil, fmt.Errorf(
-				"%w: BackupRetentionPeriod %d is not valid; must be between %d and %d",
-				ErrInvalidParameter, opts.BackupRetentionPeriod, minBackupRetentionPeriod, maxBackupRetentionPeriod,
-			)
-		}
-		c.BackupRetentionPeriod = opts.BackupRetentionPeriod
-	}
 	if opts.CopyTagsToSnapshotSet {
 		c.CopyTagsToSnapshot = opts.CopyTagsToSnapshot
 	}
-	if len(opts.VpcSecurityGroupIds) > 0 {
-		vpcSGs := make([]string, len(opts.VpcSecurityGroupIds))
-		copy(vpcSGs, opts.VpcSecurityGroupIds)
-		c.VpcSecurityGroupIds = vpcSGs
-	}
-	if opts.ManageMasterUserPassword {
-		if c.MasterUserManagedSecret == nil {
-			c.MasterUserManagedSecret = &MasterUserManagedSecret{
-				SecretARN: fmt.Sprintf(
-					"arn:aws:secretsmanager:%s:%s:secret:rds!cluster-%s",
-					region,
-					b.accountID,
-					id,
-				),
-				SecretStatus: "active",
-			}
-		}
-	}
-	cp := cloneCluster(c)
+}
 
-	return &cp, nil
+// applyClusterBackupRetention validates and applies the backup retention period.
+func applyClusterBackupRetention(c *DBCluster, opts DBClusterModifyOptions) error {
+	if !opts.BackupRetentionPeriodSet {
+		return nil
+	}
+	if opts.BackupRetentionPeriod < minBackupRetentionPeriod ||
+		opts.BackupRetentionPeriod > maxBackupRetentionPeriod {
+		return fmt.Errorf(
+			"%w: BackupRetentionPeriod %d is not valid; must be between %d and %d",
+			ErrInvalidParameter,
+			opts.BackupRetentionPeriod,
+			minBackupRetentionPeriod,
+			maxBackupRetentionPeriod,
+		)
+	}
+	c.BackupRetentionPeriod = opts.BackupRetentionPeriod
+
+	return nil
+}
+
+// applyClusterSecurityGroups replaces the cluster VPC security groups when provided.
+func applyClusterSecurityGroups(c *DBCluster, opts DBClusterModifyOptions) {
+	if len(opts.VpcSecurityGroupIDs) == 0 {
+		return
+	}
+	vpcSGs := make([]string, len(opts.VpcSecurityGroupIDs))
+	copy(vpcSGs, opts.VpcSecurityGroupIDs)
+	c.VpcSecurityGroupIDs = vpcSGs
+}
+
+// applyClusterMasterSecret provisions a managed master-user secret when requested.
+func (b *InMemoryBackend) applyClusterMasterSecret(
+	c *DBCluster, region, id string, opts DBClusterModifyOptions,
+) {
+	if !opts.ManageMasterUserPassword || c.MasterUserManagedSecret != nil {
+		return
+	}
+	c.MasterUserManagedSecret = &MasterUserManagedSecret{
+		SecretARN: fmt.Sprintf(
+			"arn:aws:secretsmanager:%s:%s:secret:rds!cluster-%s",
+			region,
+			b.accountID,
+			id,
+		),
+		SecretStatus: subscriptionStatusActive,
+	}
 }
 
 // StopDBCluster stops a Neptune DB cluster.
@@ -901,7 +980,11 @@ func (b *InMemoryBackend) StopDBCluster(ctx context.Context, id string) (*DBClus
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 	}
 	if c.Status == clusterStatusStopped {
-		return nil, fmt.Errorf("%w: cluster %s is already stopped", ErrInvalidDBClusterStateFault, id)
+		return nil, fmt.Errorf(
+			"%w: cluster %s is already stopped",
+			ErrInvalidDBClusterStateFault,
+			id,
+		)
 	}
 	c.Status = clusterStatusStopped
 	cp := cloneCluster(c)
@@ -919,7 +1002,11 @@ func (b *InMemoryBackend) StartDBCluster(ctx context.Context, id string) (*DBClu
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 	}
 	if c.Status != clusterStatusStopped {
-		return nil, fmt.Errorf("%w: cluster %s is not in stopped state", ErrInvalidDBClusterStateFault, id)
+		return nil, fmt.Errorf(
+			"%w: cluster %s is not in stopped state",
+			ErrInvalidDBClusterStateFault,
+			id,
+		)
 	}
 	c.Status = clusterStatusAvailable
 	cp := cloneCluster(c)
@@ -976,7 +1063,7 @@ func (b *InMemoryBackend) CreateDBInstance(
 	if opts.PreferredMaintenanceWindow != "" {
 		maintenanceWindow = opts.PreferredMaintenanceWindow
 	}
-	endpoint := fmt.Sprintf("%s.%s.neptune.amazonaws.com", id, region)
+	endpoint := fmt.Sprintf("%s.neptune.%s.amazonaws.com", id, region)
 	engineVersion := defaultEngineVersion
 	dbSubnetGroupName := ""
 	if clusterID != "" {
@@ -1026,7 +1113,10 @@ func (b *InMemoryBackend) CreateDBInstance(
 
 // DescribeDBInstances returns all Neptune DB instances or a specific one by ID.
 // The clusterFilter (when non-empty) restricts results to instances of that cluster.
-func (b *InMemoryBackend) DescribeDBInstances(ctx context.Context, id, clusterFilter string) ([]DBInstance, error) {
+func (b *InMemoryBackend) DescribeDBInstances(
+	ctx context.Context,
+	id, clusterFilter string,
+) ([]DBInstance, error) {
 	region := getRegion(ctx, b.region)
 	b.mu.RLock("DescribeDBInstances")
 	defer b.mu.RUnlock()
@@ -1149,7 +1239,11 @@ func (b *InMemoryBackend) CreateDBSubnetGroup(
 	defer b.mu.Unlock()
 	subnetGroups := b.subnetGroupsStore(region)
 	if _, exists := subnetGroups[name]; exists {
-		return nil, fmt.Errorf("%w: subnet group %s already exists", ErrSubnetGroupAlreadyExists, name)
+		return nil, fmt.Errorf(
+			"%w: subnet group %s already exists",
+			ErrSubnetGroupAlreadyExists,
+			name,
+		)
 	}
 	ids := make([]string, len(subnetIDs))
 	copy(ids, subnetIDs)
@@ -1170,7 +1264,10 @@ func (b *InMemoryBackend) CreateDBSubnetGroup(
 }
 
 // DescribeDBSubnetGroups returns all Neptune DB subnet groups or a specific one.
-func (b *InMemoryBackend) DescribeDBSubnetGroups(ctx context.Context, name string) ([]DBSubnetGroup, error) {
+func (b *InMemoryBackend) DescribeDBSubnetGroups(
+	ctx context.Context,
+	name string,
+) ([]DBSubnetGroup, error) {
 	region := getRegion(ctx, b.region)
 	b.mu.RLock("DescribeDBSubnetGroups")
 	defer b.mu.RUnlock()
@@ -1260,7 +1357,11 @@ func (b *InMemoryBackend) DescribeDBClusterParameterGroups(
 	if name != "" {
 		pg, exists := groups[name]
 		if !exists {
-			return nil, fmt.Errorf("%w: cluster parameter group %s not found", ErrClusterParameterGroupNotFound, name)
+			return nil, fmt.Errorf(
+				"%w: cluster parameter group %s not found",
+				ErrClusterParameterGroupNotFound,
+				name,
+			)
 		}
 		cp := *pg
 
@@ -1281,7 +1382,11 @@ func (b *InMemoryBackend) DeleteDBClusterParameterGroup(ctx context.Context, nam
 	defer b.mu.Unlock()
 	groups := b.clusterParameterGroupsStore(region)
 	if _, exists := groups[name]; !exists {
-		return fmt.Errorf("%w: cluster parameter group %s not found", ErrClusterParameterGroupNotFound, name)
+		return fmt.Errorf(
+			"%w: cluster parameter group %s not found",
+			ErrClusterParameterGroupNotFound,
+			name,
+		)
 	}
 	delete(groups, name)
 	delete(b.tagsStore(region), b.clusterParameterGroupARN(region, name))
@@ -1298,7 +1403,11 @@ func (b *InMemoryBackend) ModifyDBClusterParameterGroup(
 	defer b.mu.Unlock()
 	pg, exists := b.clusterParameterGroupsStore(region)[name]
 	if !exists {
-		return nil, fmt.Errorf("%w: cluster parameter group %s not found", ErrClusterParameterGroupNotFound, name)
+		return nil, fmt.Errorf(
+			"%w: cluster parameter group %s not found",
+			ErrClusterParameterGroupNotFound,
+			name,
+		)
 	}
 	cp := *pg
 
@@ -1320,7 +1429,11 @@ func (b *InMemoryBackend) CreateDBClusterSnapshot(
 	defer b.mu.Unlock()
 	snapshots := b.clusterSnapshotsStore(region)
 	if _, exists := snapshots[snapshotID]; exists {
-		return nil, fmt.Errorf("%w: cluster snapshot %s already exists", ErrClusterSnapshotAlreadyExists, snapshotID)
+		return nil, fmt.Errorf(
+			"%w: cluster snapshot %s already exists",
+			ErrClusterSnapshotAlreadyExists,
+			snapshotID,
+		)
 	}
 	cl, exists := b.clustersStore(region)[clusterID]
 	if !exists {
@@ -1334,10 +1447,10 @@ func (b *InMemoryBackend) CreateDBClusterSnapshot(
 		EngineVersion:                    cl.EngineVersion,
 		Status:                           snapshotStatusAvailable,
 		StorageEncrypted:                 cl.StorageEncrypted,
-		KmsKeyId:                         cl.KmsKeyID,
+		KmsKeyID:                         cl.KmsKeyID,
 		IAMDatabaseAuthenticationEnabled: cl.EnableIAMDatabaseAuthentication,
 		Port:                             cl.Port,
-		PercentProgress:                  100,
+		PercentProgress:                  percentProgressComplete,
 		AllocatedStorage:                 cl.AllocatedStorage,
 		SnapshotType:                     snapshotSourceManual,
 	}
@@ -1359,7 +1472,11 @@ func (b *InMemoryBackend) DescribeDBClusterSnapshots(
 	if snapshotID != "" {
 		snap, exists := snapshots[snapshotID]
 		if !exists {
-			return nil, fmt.Errorf("%w: cluster snapshot %s not found", ErrClusterSnapshotNotFound, snapshotID)
+			return nil, fmt.Errorf(
+				"%w: cluster snapshot %s not found",
+				ErrClusterSnapshotNotFound,
+				snapshotID,
+			)
 		}
 		cp := *snap
 
@@ -1380,14 +1497,21 @@ func (b *InMemoryBackend) DescribeDBClusterSnapshots(
 }
 
 // DeleteDBClusterSnapshot deletes a Neptune DB cluster snapshot.
-func (b *InMemoryBackend) DeleteDBClusterSnapshot(ctx context.Context, snapshotID string) (*DBClusterSnapshot, error) {
+func (b *InMemoryBackend) DeleteDBClusterSnapshot(
+	ctx context.Context,
+	snapshotID string,
+) (*DBClusterSnapshot, error) {
 	region := getRegion(ctx, b.region)
 	b.mu.Lock("DeleteDBClusterSnapshot")
 	defer b.mu.Unlock()
 	snapshots := b.clusterSnapshotsStore(region)
 	snap, exists := snapshots[snapshotID]
 	if !exists {
-		return nil, fmt.Errorf("%w: cluster snapshot %s not found", ErrClusterSnapshotNotFound, snapshotID)
+		return nil, fmt.Errorf(
+			"%w: cluster snapshot %s not found",
+			ErrClusterSnapshotNotFound,
+			snapshotID,
+		)
 	}
 	cp := *snap
 	delete(snapshots, snapshotID)
@@ -1416,7 +1540,11 @@ func (b *InMemoryBackend) validateResourceARN(region, arnStr string) error {
 		}
 	case "cluster-snapshot":
 		if _, ok := b.clusterSnapshotsStore(region)[resID]; !ok {
-			return fmt.Errorf("%w: cluster snapshot %s not found", ErrClusterSnapshotNotFound, resID)
+			return fmt.Errorf(
+				"%w: cluster snapshot %s not found",
+				ErrClusterSnapshotNotFound,
+				resID,
+			)
 		}
 	case "subgrp":
 		if _, ok := b.subnetGroupsStore(region)[resID]; !ok {
@@ -1424,7 +1552,11 @@ func (b *InMemoryBackend) validateResourceARN(region, arnStr string) error {
 		}
 	case "cluster-pg":
 		if _, ok := b.clusterParameterGroupsStore(region)[resID]; !ok {
-			return fmt.Errorf("%w: cluster parameter group %s not found", ErrClusterParameterGroupNotFound, resID)
+			return fmt.Errorf(
+				"%w: cluster parameter group %s not found",
+				ErrClusterParameterGroupNotFound,
+				resID,
+			)
 		}
 	default:
 		return fmt.Errorf("%w: unsupported resource type in ARN: %s", ErrInvalidParameter, arnStr)
@@ -1444,10 +1576,18 @@ func (b *InMemoryBackend) AddTagsToResource(ctx context.Context, arnStr string, 
 	}
 	for _, t := range tags {
 		if len(t.Key) == 0 || len(t.Key) > maxTagKeyLen {
-			return fmt.Errorf("%w: tag key must be 1-%d characters", ErrInvalidParameter, maxTagKeyLen)
+			return fmt.Errorf(
+				"%w: tag key must be 1-%d characters",
+				ErrInvalidParameter,
+				maxTagKeyLen,
+			)
 		}
 		if len(t.Value) > maxTagValueLen {
-			return fmt.Errorf("%w: tag value must be 0-%d characters", ErrInvalidParameter, maxTagValueLen)
+			return fmt.Errorf(
+				"%w: tag value must be 0-%d characters",
+				ErrInvalidParameter,
+				maxTagValueLen,
+			)
 		}
 	}
 	tagStore := b.tagsStore(region)
@@ -1463,7 +1603,11 @@ func (b *InMemoryBackend) AddTagsToResource(ctx context.Context, arnStr string, 
 		}
 	}
 	if newCount > maxTagsPerResource {
-		return fmt.Errorf("%w: resource cannot have more than %d tags", ErrInvalidParameter, maxTagsPerResource)
+		return fmt.Errorf(
+			"%w: resource cannot have more than %d tags",
+			ErrInvalidParameter,
+			maxTagsPerResource,
+		)
 	}
 	for _, t := range tags {
 		if i, ok := idx[t.Key]; ok {
@@ -1479,7 +1623,11 @@ func (b *InMemoryBackend) AddTagsToResource(ctx context.Context, arnStr string, 
 }
 
 // RemoveTagsFromResource removes tags from a Neptune resource.
-func (b *InMemoryBackend) RemoveTagsFromResource(ctx context.Context, arnStr string, keys []string) error {
+func (b *InMemoryBackend) RemoveTagsFromResource(
+	ctx context.Context,
+	arnStr string,
+	keys []string,
+) error {
 	region := regionFromARN(arnStr, getRegion(ctx, b.region))
 	b.mu.Lock("RemoveTagsFromResource")
 	defer b.mu.Unlock()
@@ -1619,10 +1767,16 @@ func (b *InMemoryBackend) CopyDBClusterSnapshot(
 	ctx context.Context, sourceSnapshotID, targetSnapshotID string,
 ) (*DBClusterSnapshot, error) {
 	if sourceSnapshotID == "" {
-		return nil, fmt.Errorf("%w: SourceDBClusterSnapshotIdentifier is required", ErrInvalidParameter)
+		return nil, fmt.Errorf(
+			"%w: SourceDBClusterSnapshotIdentifier is required",
+			ErrInvalidParameter,
+		)
 	}
 	if targetSnapshotID == "" {
-		return nil, fmt.Errorf("%w: TargetDBClusterSnapshotIdentifier is required", ErrInvalidParameter)
+		return nil, fmt.Errorf(
+			"%w: TargetDBClusterSnapshotIdentifier is required",
+			ErrInvalidParameter,
+		)
 	}
 	region := getRegion(ctx, b.region)
 	b.mu.Lock("CopyDBClusterSnapshot")
@@ -1630,7 +1784,11 @@ func (b *InMemoryBackend) CopyDBClusterSnapshot(
 	snapshots := b.clusterSnapshotsStore(region)
 	src, exists := snapshots[sourceSnapshotID]
 	if !exists {
-		return nil, fmt.Errorf("%w: cluster snapshot %s not found", ErrClusterSnapshotNotFound, sourceSnapshotID)
+		return nil, fmt.Errorf(
+			"%w: cluster snapshot %s not found",
+			ErrClusterSnapshotNotFound,
+			sourceSnapshotID,
+		)
 	}
 	_, targetExists := snapshots[targetSnapshotID]
 	if targetExists {
@@ -1701,7 +1859,11 @@ func (b *InMemoryBackend) CreateDBClusterEndpoint(
 	defer b.mu.Unlock()
 	endpoints := b.clusterEndpointsStore(region)
 	if _, exists := endpoints[endpointID]; exists {
-		return nil, fmt.Errorf("%w: cluster endpoint %s already exists", ErrClusterEndpointAlreadyExists, endpointID)
+		return nil, fmt.Errorf(
+			"%w: cluster endpoint %s already exists",
+			ErrClusterEndpointAlreadyExists,
+			endpointID,
+		)
 	}
 	if _, exists := b.clustersStore(region)[clusterID]; !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
@@ -1712,14 +1874,21 @@ func (b *InMemoryBackend) CreateDBClusterEndpoint(
 	switch endpointType {
 	case endpointTypeReader, endpointTypeWriter, endpointTypeCustom, endpointTypeAny:
 	default:
-		return nil, fmt.Errorf("%w: EndpointType must be one of READER, WRITER, CUSTOM, ANY", ErrInvalidParameter)
+		return nil, fmt.Errorf(
+			"%w: EndpointType must be one of READER, WRITER, CUSTOM, ANY",
+			ErrInvalidParameter,
+		)
 	}
 	ep := &DBClusterEndpoint{
 		DBClusterEndpointIdentifier: endpointID,
 		DBClusterIdentifier:         clusterID,
 		EndpointType:                endpointType,
 		Status:                      clusterStatusAvailable,
-		Endpoint:                    fmt.Sprintf("%s.cluster-custom.neptune.%s.amazonaws.com", endpointID, region),
+		Endpoint: fmt.Sprintf(
+			"%s.cluster-custom.neptune.%s.amazonaws.com",
+			endpointID,
+			region,
+		),
 	}
 	endpoints[endpointID] = ep
 	cp := *ep
@@ -1746,7 +1915,11 @@ func (b *InMemoryBackend) CreateDBParameterGroup(
 	defer b.mu.Unlock()
 	pgs := b.parameterGroupsStore(region)
 	if _, exists := pgs[name]; exists {
-		return nil, fmt.Errorf("%w: parameter group %s already exists", ErrParameterGroupAlreadyExists, name)
+		return nil, fmt.Errorf(
+			"%w: parameter group %s already exists",
+			ErrParameterGroupAlreadyExists,
+			name,
+		)
 	}
 	pg := &DBParameterGroup{
 		DBParameterGroupName:   name,
@@ -1778,7 +1951,11 @@ func (b *InMemoryBackend) CreateEventSubscription(
 	defer b.mu.Unlock()
 	subs := b.eventSubscriptionsStore(region)
 	if _, exists := subs[name]; exists {
-		return nil, fmt.Errorf("%w: subscription %s already exists", ErrSubscriptionAlreadyExists, name)
+		return nil, fmt.Errorf(
+			"%w: subscription %s already exists",
+			ErrSubscriptionAlreadyExists,
+			name,
+		)
 	}
 	ids := make([]string, len(sourceIDs))
 	copy(ids, sourceIDs)
@@ -1810,7 +1987,11 @@ func (b *InMemoryBackend) CreateGlobalCluster(
 	b.mu.Lock("CreateGlobalCluster")
 	defer b.mu.Unlock()
 	if _, exists := b.globalClusters[globalClusterID]; exists {
-		return nil, fmt.Errorf("%w: global cluster %s already exists", ErrGlobalClusterAlreadyExists, globalClusterID)
+		return nil, fmt.Errorf(
+			"%w: global cluster %s already exists",
+			ErrGlobalClusterAlreadyExists,
+			globalClusterID,
+		)
 	}
 	gc := &GlobalCluster{
 		GlobalClusterIdentifier: globalClusterID,
@@ -1857,7 +2038,11 @@ func (b *InMemoryBackend) DeleteDBClusterEndpoint(ctx context.Context, endpointI
 	defer b.mu.Unlock()
 	endpoints := b.clusterEndpointsStore(region)
 	if _, exists := endpoints[endpointID]; !exists {
-		return fmt.Errorf("%w: cluster endpoint %s not found", ErrClusterEndpointNotFound, endpointID)
+		return fmt.Errorf(
+			"%w: cluster endpoint %s not found",
+			ErrClusterEndpointNotFound,
+			endpointID,
+		)
 	}
 	delete(endpoints, endpointID)
 
@@ -1875,7 +2060,11 @@ func (b *InMemoryBackend) DescribeDBClusterEndpoints(
 	if endpointID != "" {
 		ep, exists := clusterEndpoints[endpointID]
 		if !exists {
-			return nil, fmt.Errorf("%w: cluster endpoint %s not found", ErrClusterEndpointNotFound, endpointID)
+			return nil, fmt.Errorf(
+				"%w: cluster endpoint %s not found",
+				ErrClusterEndpointNotFound,
+				endpointID,
+			)
 		}
 		cp := *ep
 
@@ -1901,7 +2090,11 @@ func (b *InMemoryBackend) ModifyDBClusterEndpoint(
 	defer b.mu.Unlock()
 	ep, exists := b.clusterEndpointsStore(region)[endpointID]
 	if !exists {
-		return nil, fmt.Errorf("%w: cluster endpoint %s not found", ErrClusterEndpointNotFound, endpointID)
+		return nil, fmt.Errorf(
+			"%w: cluster endpoint %s not found",
+			ErrClusterEndpointNotFound,
+			endpointID,
+		)
 	}
 	if endpointType != "" {
 		ep.EndpointType = endpointType
@@ -1926,7 +2119,10 @@ func (b *InMemoryBackend) DeleteDBParameterGroup(ctx context.Context, name strin
 }
 
 // DescribeDBParameterGroups returns all Neptune DB parameter groups or a specific one.
-func (b *InMemoryBackend) DescribeDBParameterGroups(ctx context.Context, name string) ([]DBParameterGroup, error) {
+func (b *InMemoryBackend) DescribeDBParameterGroups(
+	ctx context.Context,
+	name string,
+) ([]DBParameterGroup, error) {
 	region := getRegion(ctx, b.region)
 	b.mu.RLock("DescribeDBParameterGroups")
 	defer b.mu.RUnlock()
@@ -1934,7 +2130,11 @@ func (b *InMemoryBackend) DescribeDBParameterGroups(ctx context.Context, name st
 	if name != "" {
 		pg, exists := groups[name]
 		if !exists {
-			return nil, fmt.Errorf("%w: parameter group %s not found", ErrParameterGroupNotFound, name)
+			return nil, fmt.Errorf(
+				"%w: parameter group %s not found",
+				ErrParameterGroupNotFound,
+				name,
+			)
 		}
 		cp := *pg
 
@@ -1949,7 +2149,10 @@ func (b *InMemoryBackend) DescribeDBParameterGroups(ctx context.Context, name st
 }
 
 // ModifyDBParameterGroup modifies a Neptune DB parameter group.
-func (b *InMemoryBackend) ModifyDBParameterGroup(ctx context.Context, name string) (*DBParameterGroup, error) {
+func (b *InMemoryBackend) ModifyDBParameterGroup(
+	ctx context.Context,
+	name string,
+) (*DBParameterGroup, error) {
 	region := getRegion(ctx, b.region)
 	b.mu.Lock("ModifyDBParameterGroup")
 	defer b.mu.Unlock()
@@ -1963,7 +2166,10 @@ func (b *InMemoryBackend) ModifyDBParameterGroup(ctx context.Context, name strin
 }
 
 // ResetDBParameterGroup resets a Neptune DB parameter group to its default values.
-func (b *InMemoryBackend) ResetDBParameterGroup(ctx context.Context, name string) (*DBParameterGroup, error) {
+func (b *InMemoryBackend) ResetDBParameterGroup(
+	ctx context.Context,
+	name string,
+) (*DBParameterGroup, error) {
 	region := getRegion(ctx, b.region)
 	b.mu.Lock("ResetDBParameterGroup")
 	defer b.mu.Unlock()
@@ -1985,7 +2191,11 @@ func (b *InMemoryBackend) ResetDBClusterParameterGroup(
 	defer b.mu.Unlock()
 	pg, exists := b.clusterParameterGroupsStore(region)[name]
 	if !exists {
-		return nil, fmt.Errorf("%w: cluster parameter group %s not found", ErrClusterParameterGroupNotFound, name)
+		return nil, fmt.Errorf(
+			"%w: cluster parameter group %s not found",
+			ErrClusterParameterGroupNotFound,
+			name,
+		)
 	}
 	cp := *pg
 
@@ -1993,7 +2203,10 @@ func (b *InMemoryBackend) ResetDBClusterParameterGroup(
 }
 
 // DeleteEventSubscription deletes a Neptune event subscription.
-func (b *InMemoryBackend) DeleteEventSubscription(ctx context.Context, name string) (*EventSubscription, error) {
+func (b *InMemoryBackend) DeleteEventSubscription(
+	ctx context.Context,
+	name string,
+) (*EventSubscription, error) {
 	region := getRegion(ctx, b.region)
 	b.mu.Lock("DeleteEventSubscription")
 	defer b.mu.Unlock()
@@ -2011,7 +2224,10 @@ func (b *InMemoryBackend) DeleteEventSubscription(ctx context.Context, name stri
 }
 
 // DescribeEventSubscriptions returns all event subscriptions or a specific one.
-func (b *InMemoryBackend) DescribeEventSubscriptions(ctx context.Context, name string) ([]EventSubscription, error) {
+func (b *InMemoryBackend) DescribeEventSubscriptions(
+	ctx context.Context,
+	name string,
+) ([]EventSubscription, error) {
 	region := getRegion(ctx, b.region)
 	b.mu.RLock("DescribeEventSubscriptions")
 	defer b.mu.RUnlock()
@@ -2085,12 +2301,19 @@ func (b *InMemoryBackend) RemoveSourceIdentifierFromSubscription(
 }
 
 // DeleteGlobalCluster deletes a Neptune global cluster (partition-scoped).
-func (b *InMemoryBackend) DeleteGlobalCluster(_ context.Context, globalClusterID string) (*GlobalCluster, error) {
+func (b *InMemoryBackend) DeleteGlobalCluster(
+	_ context.Context,
+	globalClusterID string,
+) (*GlobalCluster, error) {
 	b.mu.Lock("DeleteGlobalCluster")
 	defer b.mu.Unlock()
 	gc, exists := b.globalClusters[globalClusterID]
 	if !exists {
-		return nil, fmt.Errorf("%w: global cluster %s not found", ErrGlobalClusterNotFound, globalClusterID)
+		return nil, fmt.Errorf(
+			"%w: global cluster %s not found",
+			ErrGlobalClusterNotFound,
+			globalClusterID,
+		)
 	}
 	cp := *gc
 	cp.GlobalClusterMembers = make([]GlobalClusterMember, len(gc.GlobalClusterMembers))
@@ -2109,7 +2332,11 @@ func (b *InMemoryBackend) FailoverGlobalCluster(
 	defer b.mu.Unlock()
 	gc, exists := b.globalClusters[globalClusterID]
 	if !exists {
-		return nil, fmt.Errorf("%w: global cluster %s not found", ErrGlobalClusterNotFound, globalClusterID)
+		return nil, fmt.Errorf(
+			"%w: global cluster %s not found",
+			ErrGlobalClusterNotFound,
+			globalClusterID,
+		)
 	}
 	cp := *gc
 	cp.GlobalClusterMembers = make([]GlobalClusterMember, len(gc.GlobalClusterMembers))
@@ -2119,12 +2346,19 @@ func (b *InMemoryBackend) FailoverGlobalCluster(
 }
 
 // ModifyGlobalCluster modifies a Neptune global cluster (partition-scoped).
-func (b *InMemoryBackend) ModifyGlobalCluster(_ context.Context, globalClusterID string) (*GlobalCluster, error) {
+func (b *InMemoryBackend) ModifyGlobalCluster(
+	_ context.Context,
+	globalClusterID string,
+) (*GlobalCluster, error) {
 	b.mu.Lock("ModifyGlobalCluster")
 	defer b.mu.Unlock()
 	gc, exists := b.globalClusters[globalClusterID]
 	if !exists {
-		return nil, fmt.Errorf("%w: global cluster %s not found", ErrGlobalClusterNotFound, globalClusterID)
+		return nil, fmt.Errorf(
+			"%w: global cluster %s not found",
+			ErrGlobalClusterNotFound,
+			globalClusterID,
+		)
 	}
 	cp := *gc
 	cp.GlobalClusterMembers = make([]GlobalClusterMember, len(gc.GlobalClusterMembers))
@@ -2141,7 +2375,11 @@ func (b *InMemoryBackend) RemoveFromGlobalCluster(
 	defer b.mu.Unlock()
 	gc, exists := b.globalClusters[globalClusterID]
 	if !exists {
-		return nil, fmt.Errorf("%w: global cluster %s not found", ErrGlobalClusterNotFound, globalClusterID)
+		return nil, fmt.Errorf(
+			"%w: global cluster %s not found",
+			ErrGlobalClusterNotFound,
+			globalClusterID,
+		)
 	}
 	kept := make([]GlobalClusterMember, 0, len(gc.GlobalClusterMembers))
 	for _, m := range gc.GlobalClusterMembers {
@@ -2166,7 +2404,11 @@ func (b *InMemoryBackend) SwitchoverGlobalCluster(
 	defer b.mu.Unlock()
 	gc, exists := b.globalClusters[globalClusterID]
 	if !exists {
-		return nil, fmt.Errorf("%w: global cluster %s not found", ErrGlobalClusterNotFound, globalClusterID)
+		return nil, fmt.Errorf(
+			"%w: global cluster %s not found",
+			ErrGlobalClusterNotFound,
+			globalClusterID,
+		)
 	}
 	cp := *gc
 	cp.GlobalClusterMembers = make([]GlobalClusterMember, len(gc.GlobalClusterMembers))
@@ -2176,7 +2418,10 @@ func (b *InMemoryBackend) SwitchoverGlobalCluster(
 }
 
 // RemoveRoleFromDBCluster removes an IAM role association from a Neptune DB cluster.
-func (b *InMemoryBackend) RemoveRoleFromDBCluster(ctx context.Context, clusterID, roleARN string) error {
+func (b *InMemoryBackend) RemoveRoleFromDBCluster(
+	ctx context.Context,
+	clusterID, roleARN string,
+) error {
 	if clusterID == "" {
 		return fmt.Errorf("%w: DBClusterIdentifier is required", ErrInvalidParameter)
 	}
@@ -2218,7 +2463,11 @@ func (b *InMemoryBackend) RestoreDBClusterFromSnapshot(
 	clusters := b.clustersStore(region)
 	snap, snapExists := b.clusterSnapshotsStore(region)[snapshotID]
 	if !snapExists {
-		return nil, fmt.Errorf("%w: cluster snapshot %s not found", ErrClusterSnapshotNotFound, snapshotID)
+		return nil, fmt.Errorf(
+			"%w: cluster snapshot %s not found",
+			ErrClusterSnapshotNotFound,
+			snapshotID,
+		)
 	}
 	if _, clExists := clusters[clusterID]; clExists {
 		return nil, fmt.Errorf("%w: cluster %s already exists", ErrClusterAlreadyExists, clusterID)
@@ -2270,7 +2519,11 @@ func (b *InMemoryBackend) RestoreDBClusterToPointInTime(
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, srcClusterID)
 	}
 	if _, tgtExists := clusters[targetClusterID]; tgtExists {
-		return nil, fmt.Errorf("%w: cluster %s already exists", ErrClusterAlreadyExists, targetClusterID)
+		return nil, fmt.Errorf(
+			"%w: cluster %s already exists",
+			ErrClusterAlreadyExists,
+			targetClusterID,
+		)
 	}
 	endpoint := fmt.Sprintf("%s.cluster.%s.neptune.amazonaws.com", targetClusterID, region)
 	readerEndpoint := fmt.Sprintf("%s.cluster-ro.%s.neptune.amazonaws.com", targetClusterID, region)
@@ -2298,7 +2551,10 @@ func (b *InMemoryBackend) RestoreDBClusterToPointInTime(
 }
 
 // ModifyDBSubnetGroup modifies a Neptune DB subnet group.
-func (b *InMemoryBackend) ModifyDBSubnetGroup(ctx context.Context, name, description string) (*DBSubnetGroup, error) {
+func (b *InMemoryBackend) ModifyDBSubnetGroup(
+	ctx context.Context,
+	name, description string,
+) (*DBSubnetGroup, error) {
 	region := getRegion(ctx, b.region)
 	b.mu.Lock("ModifyDBSubnetGroup")
 	defer b.mu.Unlock()
@@ -2381,7 +2637,9 @@ func (b *InMemoryBackend) AddSnapshotInternal(snapshotID, clusterID string) *DBC
 }
 
 // AddClusterParameterGroupInternal creates a cluster parameter group directly. Used for seeding tests.
-func (b *InMemoryBackend) AddClusterParameterGroupInternal(name, family string) *DBClusterParameterGroup {
+func (b *InMemoryBackend) AddClusterParameterGroupInternal(
+	name, family string,
+) *DBClusterParameterGroup {
 	b.mu.Lock("AddClusterParameterGroupInternal")
 	defer b.mu.Unlock()
 	pg := &DBClusterParameterGroup{
@@ -2411,7 +2669,9 @@ func (b *InMemoryBackend) AddParameterGroupInternal(name, family string) *DBPara
 }
 
 // AddEventSubscriptionInternal creates an event subscription directly. Used for seeding tests.
-func (b *InMemoryBackend) AddEventSubscriptionInternal(name, snsTopicARN string) *EventSubscription {
+func (b *InMemoryBackend) AddEventSubscriptionInternal(
+	name, snsTopicARN string,
+) *EventSubscription {
 	b.mu.Lock("AddEventSubscriptionInternal")
 	defer b.mu.Unlock()
 	sub := &EventSubscription{

@@ -312,7 +312,16 @@ func (b *InMemoryBackend) CreateDirectory(
 		return nil, ErrDirectoryLimitExceeded
 	}
 
-	d := b.newStoredDirectory(name, shortName, description, DirectoryTypeSimpleAD, size, "", vpcSettings, tags)
+	d := b.newStoredDirectory(
+		name,
+		shortName,
+		description,
+		DirectoryTypeSimpleAD,
+		size,
+		"",
+		vpcSettings,
+		tags,
+	)
 	st.directories[d.DirectoryID] = d
 	st.aliases[d.Alias] = d.DirectoryID
 
@@ -335,7 +344,8 @@ func (b *InMemoryBackend) CreateMicrosoftAD(
 	if name == "" {
 		return nil, ErrInvalidParameter
 	}
-	if edition != DirectoryEditionEnterprise && edition != DirectoryEditionStandard && edition != "" {
+	if edition != DirectoryEditionEnterprise && edition != DirectoryEditionStandard &&
+		edition != "" {
 		return nil, ErrInvalidParameter
 	}
 
@@ -351,7 +361,16 @@ func (b *InMemoryBackend) CreateMicrosoftAD(
 		return nil, ErrDirectoryLimitExceeded
 	}
 
-	d := b.newStoredDirectory(name, shortName, description, DirectoryTypeMicrosoftAD, "", edition, vpcSettings, tags)
+	d := b.newStoredDirectory(
+		name,
+		shortName,
+		description,
+		DirectoryTypeMicrosoftAD,
+		"",
+		edition,
+		vpcSettings,
+		tags,
+	)
 	st.directories[d.DirectoryID] = d
 	st.aliases[d.Alias] = d.DirectoryID
 
@@ -397,19 +416,67 @@ func cascadeDeleteDirectory(st *regionState, directoryID string) {
 	delete(st.dirSettings, directoryID)
 	delete(st.updateInfoEntries, directoryID)
 
-	deleteMappedByDir(st.regions, directoryID, func(r *storedRegion) string { return r.DirectoryID })
-	deleteMappedByDir(st.schemaExtensions, directoryID, func(e *storedSchemaExtension) string { return e.DirectoryID })
-	deleteMappedByDir(st.conditionalForwarders, directoryID, func(f *storedConditionalForwarder) string { return f.DirectoryID })
-	deleteMappedByDir(st.logSubscriptions, directoryID, func(s *storedLogSubscription) string { return s.DirectoryID })
-	deleteMappedByDir(st.eventTopics, directoryID, func(t *storedEventTopic) string { return t.DirectoryID })
-	deleteMappedByDir(st.domainControllers, directoryID, func(d *storedDomainController) string { return d.DirectoryID })
+	deleteMappedByDir(
+		st.regions,
+		directoryID,
+		func(r *storedRegion) string { return r.DirectoryID },
+	)
+	deleteMappedByDir(
+		st.schemaExtensions,
+		directoryID,
+		func(e *storedSchemaExtension) string { return e.DirectoryID },
+	)
+	deleteMappedByDir(
+		st.conditionalForwarders,
+		directoryID,
+		func(f *storedConditionalForwarder) string { return f.DirectoryID },
+	)
+	deleteMappedByDir(
+		st.logSubscriptions,
+		directoryID,
+		func(s *storedLogSubscription) string { return s.DirectoryID },
+	)
+	deleteMappedByDir(
+		st.eventTopics,
+		directoryID,
+		func(t *storedEventTopic) string { return t.DirectoryID },
+	)
+	deleteMappedByDir(
+		st.domainControllers,
+		directoryID,
+		func(d *storedDomainController) string { return d.DirectoryID },
+	)
 	deleteMappedByDir(st.trusts, directoryID, func(t *storedTrust) string { return t.DirectoryID })
-	deleteMappedByDir(st.sharedDirectories, directoryID, func(s *storedSharedDirectory) string { return s.OwnerDirectoryID })
-	deleteMappedByDir(st.certificates, directoryID, func(c *storedCertificate) string { return c.DirectoryID })
-	deleteMappedByDir(st.ldapsSettings, directoryID, func(l *storedLDAPSSetting) string { return l.DirectoryID })
-	deleteMappedByDir(st.clientAuthSettings, directoryID, func(a *storedClientAuthSetting) string { return a.DirectoryID })
-	deleteMappedByDir(st.adAssessments, directoryID, func(a *storedADAssessment) string { return a.DirectoryID })
-	deleteMappedByDir(st.hybridADUpdates, directoryID, func(h *storedHybridADUpdate) string { return h.DirectoryID })
+	deleteMappedByDir(
+		st.sharedDirectories,
+		directoryID,
+		func(s *storedSharedDirectory) string { return s.OwnerDirectoryID },
+	)
+	deleteMappedByDir(
+		st.certificates,
+		directoryID,
+		func(c *storedCertificate) string { return c.DirectoryID },
+	)
+	deleteMappedByDir(
+		st.ldapsSettings,
+		directoryID,
+		func(l *storedLDAPSSetting) string { return l.DirectoryID },
+	)
+	deleteMappedByDir(
+		st.clientAuthSettings,
+		directoryID,
+		func(a *storedClientAuthSetting) string { return a.DirectoryID },
+	)
+	deleteMappedByDir(
+		st.adAssessments,
+		directoryID,
+		func(a *storedADAssessment) string { return a.DirectoryID },
+	)
+	deleteMappedByDir(
+		st.hybridADUpdates,
+		directoryID,
+		func(h *storedHybridADUpdate) string { return h.DirectoryID },
+	)
 }
 
 // deleteMappedByDir deletes all entries from m where getDir(v) == directoryID.
@@ -580,7 +647,10 @@ func (b *InMemoryBackend) GetDirectoryLimits(ctx context.Context) *DirectoryLimi
 }
 
 // CreateSnapshot creates a manual snapshot for a directory.
-func (b *InMemoryBackend) CreateSnapshot(ctx context.Context, directoryID, name string) (*Snapshot, error) {
+func (b *InMemoryBackend) CreateSnapshot(
+	ctx context.Context,
+	directoryID, name string,
+) (*Snapshot, error) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("CreateSnapshot")
@@ -705,7 +775,10 @@ func (b *InMemoryBackend) DescribeSnapshots(
 }
 
 // GetSnapshotLimits returns snapshot limits for a directory.
-func (b *InMemoryBackend) GetSnapshotLimits(ctx context.Context, directoryID string) (*SnapshotLimits, error) {
+func (b *InMemoryBackend) GetSnapshotLimits(
+	ctx context.Context,
+	directoryID string,
+) (*SnapshotLimits, error) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.RLock("GetSnapshotLimits")
@@ -754,7 +827,11 @@ func (b *InMemoryBackend) RestoreFromSnapshot(ctx context.Context, snapshotID st
 }
 
 // AddTagsToResource adds or updates tags on a directory.
-func (b *InMemoryBackend) AddTagsToResource(ctx context.Context, resourceID string, tags []Tag) error {
+func (b *InMemoryBackend) AddTagsToResource(
+	ctx context.Context,
+	resourceID string,
+	tags []Tag,
+) error {
 	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("AddTagsToResource")
@@ -777,7 +854,11 @@ func (b *InMemoryBackend) AddTagsToResource(ctx context.Context, resourceID stri
 }
 
 // RemoveTagsFromResource removes tags from a directory.
-func (b *InMemoryBackend) RemoveTagsFromResource(ctx context.Context, resourceID string, tagKeys []string) error {
+func (b *InMemoryBackend) RemoveTagsFromResource(
+	ctx context.Context,
+	resourceID string,
+	tagKeys []string,
+) error {
 	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("RemoveTagsFromResource")

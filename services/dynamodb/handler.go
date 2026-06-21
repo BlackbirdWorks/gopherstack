@@ -157,7 +157,10 @@ func NewHandler(backend StorageBackend) *DynamoDBHandler {
 // WithJanitor attaches a background janitor to the handler.
 // The optional janitorTimeout parameter bounds each individual janitor task;
 // zero (or omitted) disables per-task timeouts.
-func (h *DynamoDBHandler) WithJanitor(settings Settings, janitorTimeout ...time.Duration) *DynamoDBHandler {
+func (h *DynamoDBHandler) WithJanitor(
+	settings Settings,
+	janitorTimeout ...time.Duration,
+) *DynamoDBHandler {
 	h.DefaultRegion = settings.DefaultRegion
 	if h.DefaultRegion == "" {
 		h.DefaultRegion = config.DefaultRegion
@@ -572,7 +575,11 @@ func (h *DynamoDBHandler) dispatch(ctx context.Context, action string, body []by
 	}
 }
 
-func (h *DynamoDBHandler) dispatchBackupOps(ctx context.Context, action string, body []byte) (any, error) {
+func (h *DynamoDBHandler) dispatchBackupOps(
+	ctx context.Context,
+	action string,
+	body []byte,
+) (any, error) {
 	switch action {
 	case opDescribeContinuousBackups:
 		return h.describeContinuousBackups(ctx, body)
@@ -680,7 +687,11 @@ func handleOp[WireIn any, SDKIn any, SDKOut any, WireOut any](
 	return wireOutput, nil
 }
 
-func (h *DynamoDBHandler) dispatchTableOps(ctx context.Context, action string, body []byte) (any, error) {
+func (h *DynamoDBHandler) dispatchTableOps(
+	ctx context.Context,
+	action string,
+	body []byte,
+) (any, error) {
 	// Validate table name from wire payload before dispatching.
 	// Tests call InMemoryDB methods directly (short names acceptable there);
 	// wire-level requests must satisfy the 3-255 char constraint.
@@ -701,8 +712,12 @@ func (h *DynamoDBHandler) dispatchTableOps(ctx context.Context, action string, b
 		)
 	case opDescribeTable:
 		return handleOp(
-			ctx, action, body,
-			models.ToSDKDescribeTableInput, h.Backend.DescribeTable, models.FromSDKDescribeTableOutput,
+			ctx,
+			action,
+			body,
+			models.ToSDKDescribeTableInput,
+			h.Backend.DescribeTable,
+			models.FromSDKDescribeTableOutput,
 		)
 	case opListTables:
 		return handleOp(
@@ -721,13 +736,21 @@ func (h *DynamoDBHandler) dispatchTableOps(ctx context.Context, action string, b
 		)
 	case opUntagResource:
 		return handleOpErr(
-			ctx, action, body,
-			models.ToSDKUntagResourceInput, h.Backend.UntagResource, models.FromSDKUntagResourceOutput,
+			ctx,
+			action,
+			body,
+			models.ToSDKUntagResourceInput,
+			h.Backend.UntagResource,
+			models.FromSDKUntagResourceOutput,
 		)
 	case opListTagsOfResource:
 		return handleOpErr(
-			ctx, action, body,
-			models.ToSDKListTagsOfResourceInput, h.Backend.ListTagsOfResource, models.FromSDKListTagsOfResourceOutput,
+			ctx,
+			action,
+			body,
+			models.ToSDKListTagsOfResourceInput,
+			h.Backend.ListTagsOfResource,
+			models.FromSDKListTagsOfResourceOutput,
 		)
 	case opUpdateTimeToLive:
 		return handleOp(
@@ -752,7 +775,11 @@ func (h *DynamoDBHandler) dispatchTableOps(ctx context.Context, action string, b
 	}
 }
 
-func (h *DynamoDBHandler) dispatchItemOps(ctx context.Context, action string, body []byte) (any, error) {
+func (h *DynamoDBHandler) dispatchItemOps(
+	ctx context.Context,
+	action string,
+	body []byte,
+) (any, error) {
 	switch action {
 	case opPutItem:
 		return handleOpErr(
@@ -832,7 +859,11 @@ func (h *DynamoDBHandler) dispatchTransactOps(
 	}
 }
 
-func (h *DynamoDBHandler) dispatchStreamsOps(ctx context.Context, action string, body []byte) (any, error) {
+func (h *DynamoDBHandler) dispatchStreamsOps(
+	ctx context.Context,
+	action string,
+	body []byte,
+) (any, error) {
 	if h.Streams == nil {
 		return nil, fmt.Errorf("%w:%s", ErrUnknownOperation, action)
 	}
@@ -1102,8 +1133,10 @@ func (h *DynamoDBHandler) updateContinuousBackups(ctx context.Context, body []by
 
 	return &describeContinuousBackupsOutput{
 		ContinuousBackupsDescription: continuousBackupsDescriptionFields{
-			ContinuousBackupsStatus:        continuousBackupsStatusEnabled,
-			PointInTimeRecoveryDescription: pointInTimeRecoveryDescription{PointInTimeRecoveryStatus: pitrStatus},
+			ContinuousBackupsStatus: continuousBackupsStatusEnabled,
+			PointInTimeRecoveryDescription: pointInTimeRecoveryDescription{
+				PointInTimeRecoveryStatus: pitrStatus,
+			},
 		},
 	}, nil
 }
@@ -1200,21 +1233,38 @@ func (h *DynamoDBHandler) exportTableToPointInTime(ctx context.Context, body []b
 	if b, ok := h.Backend.(*InMemoryDB); ok {
 		b.storeExport(desc)
 
-		if req.S3Bucket != "" {
-			base := strings.TrimSuffix(req.S3Prefix, "/")
-			if base != "" {
-				base += "/"
-			}
-			objBase := fmt.Sprintf("%sAWSDynamoDB/%s", base, generateExportID())
-			dataKey := objBase + "/data/00000.json.gz"
-			manifestKey := objBase + "/manifest-summary.json"
-			if _, err := b.exportTableToS3(ctx, req.TableArn, req.S3Bucket, dataKey, manifestKey); err != nil {
-				return nil, err
-			}
+		if err := writeExportToS3(ctx, b, &req); err != nil {
+			return nil, err
 		}
 	}
 
 	return &exportTableToPointInTimeOutput{ExportDescription: desc}, nil
+}
+
+// writeExportToS3 persists exported table data to S3 when a bucket is configured.
+func writeExportToS3(
+	ctx context.Context,
+	b *InMemoryDB,
+	req *exportTableToPointInTimeInput,
+) error {
+	if req.S3Bucket == "" {
+		return nil
+	}
+
+	base := strings.TrimSuffix(req.S3Prefix, "/")
+	if base != "" {
+		base += "/"
+	}
+
+	objBase := fmt.Sprintf("%sAWSDynamoDB/%s", base, generateExportID())
+	dataKey := objBase + "/data/00000.json.gz"
+	manifestKey := objBase + "/manifest-summary.json"
+
+	if _, err := b.exportTableToS3(ctx, req.TableArn, req.S3Bucket, dataKey, manifestKey); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 type describeExportInput struct {
@@ -1261,7 +1311,10 @@ type describeTableReplicaAutoScalingOutput struct {
 	TableAutoScalingDescription tableAutoScalingDescription `json:"TableAutoScalingDescription"`
 }
 
-func (h *DynamoDBHandler) describeTableReplicaAutoScaling(ctx context.Context, body []byte) (any, error) {
+func (h *DynamoDBHandler) describeTableReplicaAutoScaling(
+	ctx context.Context,
+	body []byte,
+) (any, error) {
 	var req describeTableReplicaAutoScalingInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
@@ -1796,7 +1849,10 @@ func (h *DynamoDBHandler) handleDescribeContributorInsights(
 	return wire, nil
 }
 
-func (h *DynamoDBHandler) handleDeleteResourcePolicy(ctx context.Context, body []byte) (any, error) {
+func (h *DynamoDBHandler) handleDeleteResourcePolicy(
+	ctx context.Context,
+	body []byte,
+) (any, error) {
 	var req deleteResourcePolicyInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
@@ -2060,7 +2116,10 @@ type updateGlobalTableSettingsOutput struct {
 	ReplicaSettings []replicaSettingsDescWire `json:"ReplicaSettings,omitempty"`
 }
 
-func (h *DynamoDBHandler) handleUpdateGlobalTableSettings(ctx context.Context, body []byte) (any, error) {
+func (h *DynamoDBHandler) handleUpdateGlobalTableSettings(
+	ctx context.Context,
+	body []byte,
+) (any, error) {
 	var req updateGlobalTableSettingsInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
@@ -2073,7 +2132,10 @@ func (h *DynamoDBHandler) handleUpdateGlobalTableSettings(ctx context.Context, b
 	}
 
 	if len(req.ReplicaSettingsUpdate) > 0 {
-		sdkInput.ReplicaSettingsUpdate = make([]types.ReplicaSettingsUpdate, len(req.ReplicaSettingsUpdate))
+		sdkInput.ReplicaSettingsUpdate = make(
+			[]types.ReplicaSettingsUpdate,
+			len(req.ReplicaSettingsUpdate),
+		)
 		for i, ru := range req.ReplicaSettingsUpdate {
 			region := ru.RegionName
 			sdkInput.ReplicaSettingsUpdate[i] = types.ReplicaSettingsUpdate{
@@ -2140,7 +2202,10 @@ type updateKinesisStreamingDestinationOutput struct {
 	DestinationStatus string `json:"DestinationStatus"`
 }
 
-func (h *DynamoDBHandler) handleUpdateKinesisStreamingDestination(ctx context.Context, body []byte) (any, error) {
+func (h *DynamoDBHandler) handleUpdateKinesisStreamingDestination(
+	ctx context.Context,
+	body []byte,
+) (any, error) {
 	var req updateKinesisStreamingDestinationInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
@@ -2185,7 +2250,10 @@ type listContributorInsightsOutput struct {
 	ContributorInsightsSummaries []contributorInsightsSummaryWire `json:"ContributorInsightsSummaries"`
 }
 
-func (h *DynamoDBHandler) handleListContributorInsights(ctx context.Context, _ []byte) (any, error) {
+func (h *DynamoDBHandler) handleListContributorInsights(
+	ctx context.Context,
+	_ []byte,
+) (any, error) {
 	out, err := h.Backend.ListContributorInsights(ctx, &sdkDDB.ListContributorInsightsInput{})
 	if err != nil {
 		return nil, err
@@ -2217,7 +2285,10 @@ type updateContributorInsightsOutput struct {
 	ContributorInsightsStatus string `json:"ContributorInsightsStatus,omitempty"`
 }
 
-func (h *DynamoDBHandler) handleUpdateContributorInsights(ctx context.Context, body []byte) (any, error) {
+func (h *DynamoDBHandler) handleUpdateContributorInsights(
+	ctx context.Context,
+	body []byte,
+) (any, error) {
 	var req updateContributorInsightsInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
@@ -2265,15 +2336,21 @@ type updateTableReplicaAutoScalingOutput struct {
 	TableAutoScalingDescription tableAutoScalingDescWire `json:"TableAutoScalingDescription"`
 }
 
-func (h *DynamoDBHandler) handleUpdateTableReplicaAutoScaling(ctx context.Context, body []byte) (any, error) {
+func (h *DynamoDBHandler) handleUpdateTableReplicaAutoScaling(
+	ctx context.Context,
+	body []byte,
+) (any, error) {
 	var req updateTableReplicaAutoScalingInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
 	}
 
-	out, err := h.Backend.UpdateTableReplicaAutoScaling(ctx, &sdkDDB.UpdateTableReplicaAutoScalingInput{
-		TableName: &req.TableName,
-	})
+	out, err := h.Backend.UpdateTableReplicaAutoScaling(
+		ctx,
+		&sdkDDB.UpdateTableReplicaAutoScalingInput{
+			TableName: &req.TableName,
+		},
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -2383,11 +2460,11 @@ type importTableInputFormatOptionsWire struct {
 }
 
 type importTableInput struct {
-	S3BucketSource          importTableS3BucketSourceWire      `json:"S3BucketSource"`
-	TableCreationParameters models.CreateTableInput            `json:"TableCreationParameters"`
 	InputFormatOptions      *importTableInputFormatOptionsWire `json:"InputFormatOptions,omitempty"`
+	S3BucketSource          importTableS3BucketSourceWire      `json:"S3BucketSource"`
 	InputFormat             string                             `json:"InputFormat,omitempty"`
 	InputCompressionType    string                             `json:"InputCompressionType,omitempty"`
+	TableCreationParameters models.CreateTableInput            `json:"TableCreationParameters"`
 }
 
 type importTableOutput struct {

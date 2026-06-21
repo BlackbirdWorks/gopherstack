@@ -59,8 +59,11 @@ func TestConditionCheckFailure_ReturnsItem(t *testing.T) {
 			name:   "PutItem",
 			target: "PutItem",
 			body: mustMarshal(t, models.PutItemInput{
-				TableName:                           table,
-				Item:                                map[string]any{"pk": map[string]any{"S": "a"}, "v": map[string]any{"S": "2"}},
+				TableName: table,
+				Item: map[string]any{
+					"pk": map[string]any{"S": "a"},
+					"v":  map[string]any{"S": "2"},
+				},
 				ConditionExpression:                 "attribute_not_exists(pk)",
 				ReturnValuesOnConditionCheckFailure: "ALL_OLD",
 			}),
@@ -84,10 +87,12 @@ func TestConditionCheckFailure_ReturnsItem(t *testing.T) {
 			name:   "DeleteItem",
 			target: "DeleteItem",
 			body: mustMarshal(t, models.DeleteItemInput{
-				TableName:                           table,
-				Key:                                 map[string]any{"pk": map[string]any{"S": "a"}},
-				ConditionExpression:                 "v = :expected",
-				ExpressionAttributeValues:           map[string]any{":expected": map[string]any{"S": "wrong"}},
+				TableName:           table,
+				Key:                 map[string]any{"pk": map[string]any{"S": "a"}},
+				ConditionExpression: "v = :expected",
+				ExpressionAttributeValues: map[string]any{
+					":expected": map[string]any{"S": "wrong"},
+				},
 				ReturnValuesOnConditionCheckFailure: "ALL_OLD",
 			}),
 		},
@@ -103,7 +108,10 @@ func TestConditionCheckFailure_ReturnsItem(t *testing.T) {
 
 			put := models.PutItemInput{
 				TableName: table,
-				Item:      map[string]any{"pk": map[string]any{"S": "a"}, "v": map[string]any{"S": "1"}},
+				Item: map[string]any{
+					"pk": map[string]any{"S": "a"},
+					"v":  map[string]any{"S": "1"},
+				},
 			}
 			sdkPut, _ := models.ToSDKPutItemInput(&put)
 			_, err := backend.PutItem(t.Context(), sdkPut)
@@ -180,8 +188,11 @@ func TestTransactWrite_CancellationReasonItemWireFormat(t *testing.T) {
 		TransactItems: []models.TransactWriteItem{
 			{
 				Put: &models.PutItemInput{
-					TableName:                           table,
-					Item:                                map[string]any{"pk": map[string]any{"S": "a"}, "v": map[string]any{"S": "2"}},
+					TableName: table,
+					Item: map[string]any{
+						"pk": map[string]any{"S": "a"},
+						"v":  map[string]any{"S": "2"},
+					},
 					ConditionExpression:                 "attribute_not_exists(pk)",
 					ReturnValuesOnConditionCheckFailure: "ALL_OLD",
 				},
