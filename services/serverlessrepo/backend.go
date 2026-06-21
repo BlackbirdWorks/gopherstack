@@ -18,11 +18,22 @@ import (
 // validNameRe matches AWS SAR-valid application names: alphanumeric and hyphens only.
 var validNameRe = regexp.MustCompile(`^[a-zA-Z0-9\-]+$`)
 
+// validSemanticVersionRe matches a basic semver prefix (major.minor.patch).
+var validSemanticVersionRe = regexp.MustCompile(`^\d+\.\d+\.\d+`)
+
 const (
 	// templateStatusActive is the status of an active CloudFormation template.
 	templateStatusActive = "ACTIVE"
 	// templateExpirationHours is the number of hours before a template expires.
 	templateExpirationHours = 1
+
+	// AWS SAR field length limits.
+	maxNameLength            = 140
+	maxAuthorLength          = 127
+	maxDescriptionLength     = 256
+	maxLabelLength           = 127
+	maxLabelCount            = 10
+	maxSemanticVersionLength = 255
 )
 
 var (
@@ -332,6 +343,33 @@ func (b *InMemoryBackend) AddVersionInternal(appName, semanticVersion string) *A
 	return cloneVersion(v)
 }
 
+// isValidSemanticVersion returns true if v looks like a semver string (major.minor.patch prefix)
+// and does not exceed the AWS SAR maximum length.
+func isValidSemanticVersion(v string) bool {
+	return len(v) <= maxSemanticVersionLength && validSemanticVersionRe.MatchString(v)
+}
+
+// validateLabels checks that the label slice satisfies AWS SAR constraints.
+func validateLabels(labels []string) error {
+	if len(labels) > maxLabelCount {
+		return fmt.Errorf("%w: at most %d labels are allowed", ErrValidation, maxLabelCount)
+	}
+
+	for i, l := range labels {
+		if l == "" {
+			return fmt.Errorf("%w: label %d must not be empty", ErrValidation, i)
+		}
+
+		if len(l) > maxLabelLength {
+			return fmt.Errorf(
+				"%w: label %d must be at most %d characters", ErrValidation, i, maxLabelLength,
+			)
+		}
+	}
+
+	return nil
+}
+
 // CreateApplication creates a new application.
 func (b *InMemoryBackend) CreateApplication(
 	name string,
@@ -355,12 +393,32 @@ func (b *InMemoryBackend) CreateApplication(
 		return nil, fmt.Errorf("%w: name must contain only alphanumeric characters and hyphens", ErrValidation)
 	}
 
+	if len(name) > maxNameLength {
+		return nil, fmt.Errorf("%w: name must be at most %d characters", ErrValidation, maxNameLength)
+	}
+
 	if author == "" {
 		return nil, fmt.Errorf("%w: author is required", ErrValidation)
 	}
 
+	if len(author) > maxAuthorLength {
+		return nil, fmt.Errorf("%w: author must be at most %d characters", ErrValidation, maxAuthorLength)
+	}
+
 	if description == "" {
 		return nil, fmt.Errorf("%w: description is required", ErrValidation)
+	}
+
+	if len(description) > maxDescriptionLength {
+		return nil, fmt.Errorf("%w: description must be at most %d characters", ErrValidation, maxDescriptionLength)
+	}
+
+	if semanticVersion != "" && !isValidSemanticVersion(semanticVersion) {
+		return nil, fmt.Errorf("%w: semanticVersion must be a valid semantic version (e.g. 1.0.0)", ErrValidation)
+	}
+
+	if err := validateLabels(labels); err != nil {
+		return nil, err
 	}
 
 	if _, ok := b.applications[name]; ok {
@@ -446,10 +504,18 @@ func (b *InMemoryBackend) UpdateApplication(
 	}
 
 	if description != "" {
+		if len(description) > maxDescriptionLength {
+			return nil, fmt.Errorf("%w: description must be at most %d characters", ErrValidation, maxDescriptionLength)
+		}
+
 		a.Description = description
 	}
 
 	if author != "" {
+		if len(author) > maxAuthorLength {
+			return nil, fmt.Errorf("%w: author must be at most %d characters", ErrValidation, maxAuthorLength)
+		}
+
 		a.Author = author
 	}
 
@@ -472,6 +538,10 @@ func (b *InMemoryBackend) UpdateApplicationLabels(name string, labels []string) 
 	a, ok := b.applications[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: could not find application %q", ErrApplicationNotFound, name)
+	}
+
+	if err := validateLabels(labels); err != nil {
+		return nil, err
 	}
 
 	a.Labels = nonNilStringSlice(cloneStringSlice(labels))
@@ -525,6 +595,14 @@ func (b *InMemoryBackend) CreateApplicationVersionWithOptions(
 		return nil, fmt.Errorf("%w: could not find application %q", ErrApplicationNotFound, appName)
 	}
 
+	if semanticVersion == "" {
+		return nil, fmt.Errorf("%w: semanticVersion is required", ErrValidation)
+	}
+
+	if !isValidSemanticVersion(semanticVersion) {
+		return nil, fmt.Errorf("%w: semanticVersion must be a valid semantic version (e.g. 1.0.0)", ErrValidation)
+	}
+
 	if opts.SourceCodeURL == "" && opts.SourceCodeArchiveURL == "" && opts.TemplateURL == "" {
 		return nil, fmt.Errorf(
 			"%w: at least one of sourceCodeUrl, sourceCodeArchiveUrl or templateUrl is required",
@@ -567,6 +645,10 @@ func (b *InMemoryBackend) CreateApplicationVersionWithOptions(
 		ResourcesSupported:   true,
 	}
 	b.appVersions[appName][semanticVersion] = v
+
+	// Track the latest created version on the application itself so GetApplication
+	// returns the most recently created version by default.
+	app.SemanticVersion = semanticVersion
 
 	return cloneVersion(v), nil
 }
@@ -854,6 +936,14 @@ func (b *InMemoryBackend) ListApplicationDependencies(
 
 	deps := make([]*ApplicationDependency, 0)
 	b.collectDependencies(appName, semanticVersion, make(map[string]struct{}), &deps)
+
+	sort.Slice(deps, func(i, j int) bool {
+		if deps[i].ApplicationID != deps[j].ApplicationID {
+			return deps[i].ApplicationID < deps[j].ApplicationID
+		}
+
+		return deps[i].SemanticVersion < deps[j].SemanticVersion
+	})
 
 	return deps, nil
 }
