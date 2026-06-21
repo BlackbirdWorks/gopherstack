@@ -1560,9 +1560,8 @@ func (h *Handler) handleDescribeBackupVault(c *echo.Context, name string) error 
 		"NumberOfRecoveryPoints": v.NumberOfRecoveryPoints,
 		keyVaultState:            "AVAILABLE",
 	}
-	if v.EncryptionKeyArn != "" {
-		resp["EncryptionKeyArn"] = v.EncryptionKeyArn
-	}
+	setOptionalStr(resp, "EncryptionKeyArn", v.EncryptionKeyArn)
+	setOptionalStr(resp, "CreatorRequestId", v.CreatorRequestID)
 	if v.Tags != nil {
 		if t := v.Tags.Clone(); len(t) > 0 {
 			resp["Tags"] = t
@@ -1619,11 +1618,12 @@ func (h *Handler) handleListBackupVaults(c *echo.Context) error {
 	if nextToken != "" {
 		resp["NextToken"] = nextToken
 	}
+
 	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleDeleteBackupVault(c *echo.Context, name string) error {
-	if err := h.Backend.DeleteBackupVault(name); err != nil {
+	if err := h.Backend.DeleteBackupVaultChecked(name); err != nil {
 		return h.handleError(c, err)
 	}
 
@@ -1840,7 +1840,7 @@ func (h *Handler) handleCreateBackupPlan(c *echo.Context, body []byte) error {
 		)
 	}
 
-	p, err := h.Backend.CreateBackupPlan(
+	p, err := h.Backend.CreateBackupPlanValidated(
 		in.BackupPlan.BackupPlanName,
 		rulesFromJSON(in.BackupPlan.Rules),
 		advancedSettingsFromJSON(in.BackupPlan.AdvancedBackupSettings),
@@ -1920,6 +1920,7 @@ func (h *Handler) handleListBackupPlans(c *echo.Context) error {
 	if nextToken != "" {
 		resp["NextToken"] = nextToken
 	}
+
 	return c.JSON(http.StatusOK, resp)
 }
 
@@ -1933,7 +1934,7 @@ func (h *Handler) handleUpdateBackupPlan(c *echo.Context, id string, body []byte
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
 	}
 
-	p, err := h.Backend.UpdateBackupPlan(
+	p, err := h.Backend.UpdateBackupPlanValidated(
 		id,
 		rulesFromJSON(in.BackupPlan.Rules),
 		advancedSettingsFromJSON(in.BackupPlan.AdvancedBackupSettings),
@@ -1955,13 +1956,9 @@ func (h *Handler) handleUpdateBackupPlan(c *echo.Context, id string, body []byte
 }
 
 func (h *Handler) handleDeleteBackupPlan(c *echo.Context, id string) error {
-	p, err := h.Backend.GetBackupPlan(id)
+	p, err := h.Backend.DeleteBackupPlanChecked(id)
 	if err != nil {
 		return h.handleError(c, err)
-	}
-
-	if delErr := h.Backend.DeleteBackupPlan(id); delErr != nil {
-		return h.handleError(c, delErr)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
@@ -2037,6 +2034,7 @@ func (h *Handler) handleDescribeBackupJob(c *echo.Context, jobID string) error {
 	setOptionalStr(resp, "ResourceArn", j.ResourceArn)
 	setOptionalStr(resp, "ResourceType", j.ResourceType)
 	setOptionalStr(resp, "IamRoleArn", j.IAMRoleArn)
+	setOptionalStr(resp, "AccountId", j.AccountID)
 	setOptionalStr(resp, "RecoveryPointArn", j.RecoveryPointArn)
 	setOptionalStr(resp, "PercentDone", j.PercentDone)
 	setOptionalStr(resp, "MessageCategory", j.MessageCategory)
@@ -2073,15 +2071,15 @@ func (h *Handler) handleDescribeBackupJob(c *echo.Context, jobID string) error {
 func (h *Handler) handleListBackupJobs(c *echo.Context) error {
 	q := c.Request().URL.Query()
 	f := ListBackupJobsFilter{
-		VaultName:    q.Get("backupVaultName"),
-		State:        q.Get("byState"),
-		ResourceArn:  q.Get("byResourceArn"),
-		ResourceType: q.Get("byResourceType"),
-		AccountID:    q.Get("byAccountId"),
-		ParentJobID:  q.Get("byParentJobId"),
-		CreatedAfter: parseTimeFilter(q.Get("byCreatedAfter")),
-		CreatedBefore: parseTimeFilter(q.Get("byCreatedBefore")),
-		NextToken:    q.Get("nextToken"),
+		VaultName:     q.Get("backupVaultName"),
+		State:         q.Get("byState"),
+		ResourceArn:   q.Get("byResourceArn"),
+		ResourceType:  q.Get("byResourceType"),
+		AccountID:     q.Get("byAccountId"),
+		ParentJobID:   q.Get("byParentJobId"),
+		CreatedAfter:  ParseTimeFilter(q.Get("byCreatedAfter")),
+		CreatedBefore: ParseTimeFilter(q.Get("byCreatedBefore")),
+		NextToken:     q.Get("nextToken"),
 	}
 	if mr := parseInt(q.Get("maxResults")); mr > 0 {
 		f.MaxResults = mr
@@ -2124,6 +2122,7 @@ func (h *Handler) handleListBackupJobs(c *echo.Context) error {
 	if nextToken != "" {
 		resp["NextToken"] = nextToken
 	}
+
 	return c.JSON(http.StatusOK, resp)
 }
 
@@ -2655,8 +2654,8 @@ func (h *Handler) handleListRecoveryPointsByBackupVault(c *echo.Context, vaultNa
 		ResourceArn:            q.Get("byResourceArn"),
 		ResourceType:           q.Get("byResourceType"),
 		ParentRecoveryPointArn: q.Get("byParentRecoveryPointArn"),
-		CreatedAfter:           parseTimeFilter(q.Get("byCreatedAfter")),
-		CreatedBefore:          parseTimeFilter(q.Get("byCreatedBefore")),
+		CreatedAfter:           ParseTimeFilter(q.Get("byCreatedAfter")),
+		CreatedBefore:          ParseTimeFilter(q.Get("byCreatedBefore")),
 		NextToken:              q.Get("nextToken"),
 		MaxResults:             parseInt(q.Get("maxResults")),
 	}
@@ -2699,6 +2698,7 @@ func (h *Handler) handleListRecoveryPointsByBackupVault(c *echo.Context, vaultNa
 	if nextToken != "" {
 		resp["NextToken"] = nextToken
 	}
+
 	return c.JSON(http.StatusOK, resp)
 }
 
@@ -3148,7 +3148,21 @@ func (h *Handler) handleDeleteBackupSelection(c *echo.Context, resource string) 
 // --- Copy job handlers ---
 
 func (h *Handler) handleListCopyJobs(c *echo.Context) error {
-	jobs := h.Backend.ListCopyJobs()
+	q := c.Request().URL.Query()
+	f := ListCopyJobsFilter{
+		State:                     q.Get("byState"),
+		ResourceArn:               q.Get("byResourceArn"),
+		ResourceType:              q.Get("byResourceType"),
+		SourceBackupVaultArn:      q.Get("bySourceBackupVaultArn"),
+		DestinationBackupVaultArn: q.Get("byDestinationVaultArn"),
+		AccountID:                 q.Get("byAccountId"),
+		CreatedAfter:              ParseTimeFilter(q.Get("byCreatedAfter")),
+		CreatedBefore:             ParseTimeFilter(q.Get("byCreatedBefore")),
+		NextToken:                 q.Get("nextToken"),
+		MaxResults:                parseInt(q.Get("maxResults")),
+	}
+
+	jobs, nextToken := h.Backend.ListCopyJobsFiltered(f)
 	items := make([]map[string]any, 0, len(jobs))
 
 	for _, j := range jobs {
@@ -3157,21 +3171,24 @@ func (h *Handler) handleListCopyJobs(c *echo.Context) error {
 			keyState:        j.State,
 			keyCreationDate: epochSeconds(j.CreationDate),
 		}
-		if j.ResourceArn != "" {
-			item["ResourceArn"] = j.ResourceArn
-		}
-		if j.SourceBackupVaultArn != "" {
-			item["SourceBackupVaultArn"] = j.SourceBackupVaultArn
-		}
-		if j.DestinationBackupVaultArn != "" {
-			item["DestinationBackupVaultArn"] = j.DestinationBackupVaultArn
+		setOptionalStr(item, "ResourceArn", j.ResourceArn)
+		setOptionalStr(item, "ResourceType", j.ResourceType)
+		setOptionalStr(item, "SourceBackupVaultArn", j.SourceBackupVaultArn)
+		setOptionalStr(item, "DestinationBackupVaultArn", j.DestinationBackupVaultArn)
+		setOptionalStr(item, "IamRoleArn", j.IAMRoleArn)
+		setOptionalStr(item, "AccountId", j.AccountID)
+		if j.CompletionDate != nil {
+			item["CompletionDate"] = epochSeconds(*j.CompletionDate)
 		}
 		items = append(items, item)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"CopyJobs": items,
-	})
+	resp := map[string]any{"CopyJobs": items}
+	if nextToken != "" {
+		resp["NextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleDescribeCopyJob(c *echo.Context, copyJobID string) error {

@@ -10,6 +10,9 @@ import (
 const (
 	defaultMaxResults = 1000
 	maxAllowedResults = 1000
+
+	// completedJobBytes is the simulated transfer / backup size for completed jobs.
+	completedJobBytes = 1024
 )
 
 // ---- Rule validation ----
@@ -43,6 +46,7 @@ func validateRules(rules []Rule) error {
 			}
 		}
 	}
+
 	return nil
 }
 
@@ -50,16 +54,46 @@ func validateRules(rules []Rule) error {
 
 // ListBackupJobsFilter contains optional filter parameters for listing backup jobs.
 type ListBackupJobsFilter struct {
+	CreatedAfter  *time.Time
+	CreatedBefore *time.Time
 	VaultName     string
 	State         string
 	ResourceArn   string
 	ResourceType  string
 	AccountID     string
 	ParentJobID   string
-	CreatedAfter  *time.Time
-	CreatedBefore *time.Time
-	MaxResults    int
 	NextToken     string
+	MaxResults    int
+}
+
+// jobMatchesFilter reports whether j satisfies all active fields in f.
+func jobMatchesFilter(j *Job, f ListBackupJobsFilter) bool {
+	if f.VaultName != "" && j.BackupVaultName != f.VaultName {
+		return false
+	}
+	if f.State != "" && j.State != f.State {
+		return false
+	}
+	if f.ResourceArn != "" && j.ResourceArn != f.ResourceArn {
+		return false
+	}
+	if f.ResourceType != "" && j.ResourceType != f.ResourceType {
+		return false
+	}
+	if f.AccountID != "" && j.AccountID != f.AccountID {
+		return false
+	}
+	if f.ParentJobID != "" && j.ParentJobID != f.ParentJobID {
+		return false
+	}
+	if f.CreatedAfter != nil && !j.CreationTime.After(*f.CreatedAfter) {
+		return false
+	}
+	if f.CreatedBefore != nil && !j.CreationTime.Before(*f.CreatedBefore) {
+		return false
+	}
+
+	return true
 }
 
 // ListBackupJobsFiltered returns backup jobs matching the filter, with pagination.
@@ -70,28 +104,7 @@ func (b *InMemoryBackend) ListBackupJobsFiltered(f ListBackupJobsFilter) ([]*Job
 
 	list := make([]*Job, 0, len(b.jobs))
 	for _, j := range b.jobs {
-		if f.VaultName != "" && j.BackupVaultName != f.VaultName {
-			continue
-		}
-		if f.State != "" && j.State != f.State {
-			continue
-		}
-		if f.ResourceArn != "" && j.ResourceArn != f.ResourceArn {
-			continue
-		}
-		if f.ResourceType != "" && j.ResourceType != f.ResourceType {
-			continue
-		}
-		if f.AccountID != "" && j.AccountID != f.AccountID {
-			continue
-		}
-		if f.ParentJobID != "" && j.ParentJobID != f.ParentJobID {
-			continue
-		}
-		if f.CreatedAfter != nil && !j.CreationTime.After(*f.CreatedAfter) {
-			continue
-		}
-		if f.CreatedBefore != nil && !j.CreationTime.Before(*f.CreatedBefore) {
+		if !jobMatchesFilter(j, f) {
 			continue
 		}
 		cp := *j
@@ -99,12 +112,10 @@ func (b *InMemoryBackend) ListBackupJobsFiltered(f ListBackupJobsFilter) ([]*Job
 	}
 
 	slices.SortFunc(list, func(a, b *Job) int {
-		if a.CreationTime.After(b.CreationTime) {
-			return -1
+		if d := b.CreationTime.Compare(a.CreationTime); d != 0 {
+			return d
 		}
-		if a.CreationTime.Before(b.CreationTime) {
-			return 1
-		}
+
 		return strings.Compare(a.BackupJobID, b.BackupJobID)
 	})
 
@@ -120,13 +131,34 @@ func (b *InMemoryBackend) ListBackupJobsFiltered(f ListBackupJobsFilter) ([]*Job
 
 // ListRPFilter contains optional filter parameters for listing recovery points.
 type ListRPFilter struct {
+	CreatedAfter           *time.Time
+	CreatedBefore          *time.Time
 	ResourceArn            string
 	ResourceType           string
 	ParentRecoveryPointArn string
-	CreatedAfter           *time.Time
-	CreatedBefore          *time.Time
-	MaxResults             int
 	NextToken              string
+	MaxResults             int
+}
+
+// rpMatchesFilter reports whether rp satisfies all active fields in f.
+func rpMatchesFilter(rp *RecoveryPoint, f ListRPFilter) bool {
+	if f.ResourceArn != "" && rp.ResourceArn != f.ResourceArn {
+		return false
+	}
+	if f.ResourceType != "" && rp.ResourceType != f.ResourceType {
+		return false
+	}
+	if f.ParentRecoveryPointArn != "" && rp.ParentRecoveryPointArn != f.ParentRecoveryPointArn {
+		return false
+	}
+	if f.CreatedAfter != nil && !rp.CreationDate.After(*f.CreatedAfter) {
+		return false
+	}
+	if f.CreatedBefore != nil && !rp.CreationDate.Before(*f.CreatedBefore) {
+		return false
+	}
+
+	return true
 }
 
 // ListRecoveryPointsFiltered returns recovery points for a vault with optional filters and pagination.
@@ -144,19 +176,7 @@ func (b *InMemoryBackend) ListRecoveryPointsFiltered(
 	pts := b.recoveryPoints[vaultName]
 	list := make([]*RecoveryPoint, 0, len(pts))
 	for _, rp := range pts {
-		if f.ResourceArn != "" && rp.ResourceArn != f.ResourceArn {
-			continue
-		}
-		if f.ResourceType != "" && rp.ResourceType != f.ResourceType {
-			continue
-		}
-		if f.ParentRecoveryPointArn != "" && rp.ParentRecoveryPointArn != f.ParentRecoveryPointArn {
-			continue
-		}
-		if f.CreatedAfter != nil && !rp.CreationDate.After(*f.CreatedAfter) {
-			continue
-		}
-		if f.CreatedBefore != nil && !rp.CreationDate.Before(*f.CreatedBefore) {
+		if !rpMatchesFilter(rp, f) {
 			continue
 		}
 		cp := *rp
@@ -164,12 +184,10 @@ func (b *InMemoryBackend) ListRecoveryPointsFiltered(
 	}
 
 	slices.SortFunc(list, func(a, b *RecoveryPoint) int {
-		if a.CreationDate.After(b.CreationDate) {
-			return -1
+		if d := b.CreationDate.Compare(a.CreationDate); d != 0 {
+			return d
 		}
-		if a.CreationDate.Before(b.CreationDate) {
-			return 1
-		}
+
 		return strings.Compare(a.RecoveryPointArn, b.RecoveryPointArn)
 	})
 
@@ -187,16 +205,46 @@ func (b *InMemoryBackend) ListRecoveryPointsFiltered(
 
 // ListCopyJobsFilter contains optional filter parameters for listing copy jobs.
 type ListCopyJobsFilter struct {
+	CreatedAfter              *time.Time
+	CreatedBefore             *time.Time
 	State                     string
 	ResourceArn               string
 	ResourceType              string
 	SourceBackupVaultArn      string
 	DestinationBackupVaultArn string
 	AccountID                 string
-	CreatedAfter              *time.Time
-	CreatedBefore             *time.Time
-	MaxResults                int
 	NextToken                 string
+	MaxResults                int
+}
+
+// copyJobMatchesFilter reports whether j satisfies all active fields in f.
+func copyJobMatchesFilter(j *CopyJob, f ListCopyJobsFilter) bool {
+	if f.State != "" && j.State != f.State {
+		return false
+	}
+	if f.ResourceArn != "" && j.ResourceArn != f.ResourceArn {
+		return false
+	}
+	if f.ResourceType != "" && j.ResourceType != f.ResourceType {
+		return false
+	}
+	if f.SourceBackupVaultArn != "" && j.SourceBackupVaultArn != f.SourceBackupVaultArn {
+		return false
+	}
+	if f.DestinationBackupVaultArn != "" && j.DestinationBackupVaultArn != f.DestinationBackupVaultArn {
+		return false
+	}
+	if f.AccountID != "" && j.AccountID != f.AccountID {
+		return false
+	}
+	if f.CreatedAfter != nil && !j.CreationDate.After(*f.CreatedAfter) {
+		return false
+	}
+	if f.CreatedBefore != nil && !j.CreationDate.Before(*f.CreatedBefore) {
+		return false
+	}
+
+	return true
 }
 
 // ListCopyJobsFiltered returns copy jobs matching the filter, with pagination.
@@ -206,29 +254,7 @@ func (b *InMemoryBackend) ListCopyJobsFiltered(f ListCopyJobsFilter) ([]*CopyJob
 
 	list := make([]*CopyJob, 0, len(b.copyJobs))
 	for _, j := range b.copyJobs {
-		if f.State != "" && j.State != f.State {
-			continue
-		}
-		if f.ResourceArn != "" && j.ResourceArn != f.ResourceArn {
-			continue
-		}
-		if f.ResourceType != "" && j.ResourceType != f.ResourceType {
-			continue
-		}
-		if f.SourceBackupVaultArn != "" && j.SourceBackupVaultArn != f.SourceBackupVaultArn {
-			continue
-		}
-		if f.DestinationBackupVaultArn != "" &&
-			j.DestinationBackupVaultArn != f.DestinationBackupVaultArn {
-			continue
-		}
-		if f.AccountID != "" && j.AccountID != f.AccountID {
-			continue
-		}
-		if f.CreatedAfter != nil && !j.CreationDate.After(*f.CreatedAfter) {
-			continue
-		}
-		if f.CreatedBefore != nil && !j.CreationDate.Before(*f.CreatedBefore) {
+		if !copyJobMatchesFilter(j, f) {
 			continue
 		}
 		cp := *j
@@ -236,12 +262,10 @@ func (b *InMemoryBackend) ListCopyJobsFiltered(f ListCopyJobsFilter) ([]*CopyJob
 	}
 
 	slices.SortFunc(list, func(a, b *CopyJob) int {
-		if a.CreationDate.After(b.CreationDate) {
-			return -1
+		if d := b.CreationDate.Compare(a.CreationDate); d != 0 {
+			return d
 		}
-		if a.CreationDate.Before(b.CreationDate) {
-			return 1
-		}
+
 		return strings.Compare(a.CopyJobID, b.CopyJobID)
 	})
 
@@ -257,9 +281,9 @@ func (b *InMemoryBackend) ListCopyJobsFiltered(f ListCopyJobsFilter) ([]*CopyJob
 
 // ListVaultsFilter contains optional filter parameters for listing backup vaults.
 type ListVaultsFilter struct {
-	VaultType  string // BACKUP_VAULT, LOGICALLY_AIR_GAPPED_BACKUP_VAULT
-	MaxResults int
+	VaultType  string
 	NextToken  string
+	MaxResults int
 }
 
 // ListBackupVaultsFiltered returns vaults with optional type filter and pagination.
@@ -296,8 +320,8 @@ func (b *InMemoryBackend) ListBackupVaultsFiltered(f ListVaultsFilter) ([]*Vault
 
 // ListPlansFilter contains pagination parameters for listing backup plans.
 type ListPlansFilter struct {
-	MaxResults int
 	NextToken  string
+	MaxResults int
 }
 
 // ListBackupPlansPaged returns backup plans with pagination.
@@ -374,6 +398,7 @@ func (b *InMemoryBackend) IsVaultLocked(vaultName string) bool {
 	if !ok {
 		return false
 	}
+
 	return cfg.LockDate != nil && time.Now().UTC().After(*cfg.LockDate)
 }
 
@@ -414,7 +439,7 @@ func (b *InMemoryBackend) DeleteBackupVaultChecked(name string) error {
 	return nil
 }
 
-// ---- StartBackupJob with recovery point creation ----
+// ---- CompleteBackupJob ----
 
 // CompleteBackupJob transitions a job from CREATED to COMPLETED and creates a recovery point.
 // This models AWS's asynchronous job completion in a synchronous way for the emulator.
@@ -435,8 +460,8 @@ func (b *InMemoryBackend) CompleteBackupJob(jobID string) error {
 	job.CompletionTime = &now
 	job.PercentDone = "100.0"
 	job.MessageCategory = "SUCCESS"
-	job.BytesTransferred = 1024
-	job.BackupSizeInBytes = 1024
+	job.BytesTransferred = completedJobBytes
+	job.BackupSizeInBytes = completedJobBytes
 
 	// Build a recovery point ARN.
 	rpID := job.BackupJobID
@@ -462,13 +487,10 @@ func (b *InMemoryBackend) CompleteBackupJob(jobID string) error {
 		Status:            statusCompleted,
 		CreationDate:      now,
 		CompletionDate:    &now,
-		BackupSizeInBytes: 1024,
+		BackupSizeInBytes: completedJobBytes,
 		StorageClass:      "WARM",
 		IsEncrypted:       vault.EncryptionKeyArn != "",
 		EncryptionKeyArn:  vault.EncryptionKeyArn,
-	}
-	if rp.IsEncrypted {
-		rp.EncryptionKeyArn = vault.EncryptionKeyArn
 	}
 	b.recoveryPoints[job.BackupVaultName][rpArn] = rp
 	vault.NumberOfRecoveryPoints++
@@ -484,7 +506,7 @@ func (b *InMemoryBackend) CompleteBackupJob(jobID string) error {
 	return nil
 }
 
-// ---- CreateBackupPlan with rule validation ----
+// ---- CreateBackupPlan / UpdateBackupPlan with rule validation ----
 
 // CreateBackupPlanValidated creates a backup plan after validating its rules.
 func (b *InMemoryBackend) CreateBackupPlanValidated(
@@ -499,6 +521,7 @@ func (b *InMemoryBackend) CreateBackupPlanValidated(
 	if err := validateRules(rules); err != nil {
 		return nil, err
 	}
+
 	return b.CreateBackupPlan(planName, rules, advancedSettings, kv)
 }
 
@@ -511,6 +534,7 @@ func (b *InMemoryBackend) UpdateBackupPlanValidated(
 	if err := validateRules(rules); err != nil {
 		return nil, err
 	}
+
 	return b.UpdateBackupPlan(idOrName, rules, advancedSettings)
 }
 
@@ -524,7 +548,7 @@ func paginateByID[T any](list []T, keyFn func(T) string, maxResults int, nextTok
 		maxResults = defaultMaxResults
 	}
 
-	// Advance past the cursor item.
+	// Advance to the cursor item.
 	start := 0
 	if nextToken != "" {
 		found := false
@@ -532,6 +556,7 @@ func paginateByID[T any](list []T, keyFn func(T) string, maxResults int, nextTok
 			if keyFn(item) == nextToken {
 				start = i
 				found = true
+
 				break
 			}
 		}
@@ -549,9 +574,9 @@ func paginateByID[T any](list []T, keyFn func(T) string, maxResults int, nextTok
 	return list[:maxResults], keyFn(list[maxResults])
 }
 
-// parseTimeFilter parses an RFC3339 timestamp string into a *time.Time.
+// ParseTimeFilter parses an RFC3339 timestamp string into a *time.Time.
 // Returns nil if the string is empty or invalid.
-func parseTimeFilter(s string) *time.Time {
+func ParseTimeFilter(s string) *time.Time {
 	if s == "" {
 		return nil
 	}
@@ -559,16 +584,6 @@ func parseTimeFilter(s string) *time.Time {
 	if err != nil {
 		return nil
 	}
-	return &t
-}
 
-// clampMaxResults returns a valid maxResults value from a raw int.
-func clampMaxResults(n int) int {
-	if n <= 0 {
-		return defaultMaxResults
-	}
-	if n > maxAllowedResults {
-		return maxAllowedResults
-	}
-	return n
+	return &t
 }
