@@ -15,12 +15,28 @@ const statusRunning = "Running"
 
 // ModelInvocationJob represents a batch model invocation job.
 type ModelInvocationJob struct {
-	CreationTime     time.Time `json:"creationTime"`
-	LastModifiedTime time.Time `json:"lastModifiedTime"`
-	JobArn           string    `json:"jobArn"`
-	JobName          string    `json:"jobName"`
-	Status           string    `json:"status"`
-	Tags             []Tag     `json:"tags,omitempty"`
+	CreationTime     time.Time              `json:"creationTime"`
+	LastModifiedTime time.Time              `json:"lastModifiedTime"`
+	EndTime          *time.Time             `json:"endTime,omitempty"`
+	JobArn           string                 `json:"jobArn"`
+	JobName          string                 `json:"jobName"`
+	RoleArn          string                 `json:"roleArn,omitempty"`
+	ModelID          string                 `json:"modelId,omitempty"`
+	Status           string                 `json:"status"`
+	InputDataConfig  map[string]any         `json:"inputDataConfig,omitempty"`
+	OutputDataConfig map[string]any         `json:"outputDataConfig,omitempty"`
+	Tags             []Tag                  `json:"tags,omitempty"`
+	FailureMessage   string                 `json:"failureMessage,omitempty"`
+	ClientToken      string                 `json:"clientRequestToken,omitempty"`
+}
+
+// CreateModelInvocationJobInput holds the full set of fields for CreateModelInvocationJob.
+type CreateModelInvocationJobInput struct {
+	RoleArn          string         `json:"roleArn"`
+	ModelID          string         `json:"modelId"`
+	InputDataConfig  map[string]any `json:"inputDataConfig,omitempty"`
+	OutputDataConfig map[string]any `json:"outputDataConfig,omitempty"`
+	ClientToken      string         `json:"clientRequestToken,omitempty"`
 }
 
 // PromptRouter represents a prompt router resource.
@@ -497,7 +513,12 @@ func (b *InMemoryBackend) ListAutomatedReasoningPolicyTestResults(policyARN stri
 // --- ModelInvocationJob ---
 
 // CreateModelInvocationJob creates a new batch model invocation job.
-func (b *InMemoryBackend) CreateModelInvocationJob(name string, tags []Tag) (*ModelInvocationJob, error) {
+// AWS initial status is "Submitted" (not InProgress).
+func (b *InMemoryBackend) CreateModelInvocationJob(
+	name string,
+	tags []Tag,
+	opts ...*CreateModelInvocationJobInput,
+) (*ModelInvocationJob, error) {
 	b.mu.Lock("CreateModelInvocationJob")
 	defer b.mu.Unlock()
 
@@ -518,11 +539,21 @@ func (b *InMemoryBackend) CreateModelInvocationJob(name string, tags []Tag) (*Mo
 	job := &ModelInvocationJob{
 		JobArn:           jobARN,
 		JobName:          name,
-		Status:           statusInProgress,
+		Status:           "Submitted",
 		CreationTime:     now,
 		LastModifiedTime: now,
 		Tags:             copyTags(tags),
 	}
+
+	if len(opts) > 0 && opts[0] != nil {
+		opt := opts[0]
+		job.RoleArn = opt.RoleArn
+		job.ModelID = opt.ModelID
+		job.InputDataConfig = opt.InputDataConfig
+		job.OutputDataConfig = opt.OutputDataConfig
+		job.ClientToken = opt.ClientToken
+	}
+
 	b.modelInvocationJobs[jobARN] = job
 	cp := *job
 	cp.Tags = copyTags(job.Tags)
@@ -546,23 +577,98 @@ func (b *InMemoryBackend) GetModelInvocationJob(jobARN string) (*ModelInvocation
 	return &cp, nil
 }
 
-// ListModelInvocationJobs returns all invocation jobs.
-func (b *InMemoryBackend) ListModelInvocationJobs() []*ModelInvocationJob {
+// ListModelInvocationJobsInput holds filter/pagination params for ListModelInvocationJobs.
+type ListModelInvocationJobsInput struct {
+	StatusEquals      string
+	NameContains      string
+	SubmitTimeAfter   *time.Time
+	SubmitTimeBefore  *time.Time
+	SortBy            string // CreationTime (default)
+	SortOrder         string // Ascending (default) | Descending
+	NextToken         string
+}
+
+// ListModelInvocationJobs returns invocation jobs with optional filters and pagination.
+func (b *InMemoryBackend) ListModelInvocationJobs(
+	in *ListModelInvocationJobsInput,
+) ([]*ModelInvocationJob, string) {
 	b.mu.RLock("ListModelInvocationJobs")
 	defer b.mu.RUnlock()
 
 	jobs := make([]*ModelInvocationJob, 0, len(b.modelInvocationJobs))
 	for _, j := range b.modelInvocationJobs {
+		if in != nil {
+			if in.StatusEquals != "" && j.Status != in.StatusEquals {
+				continue
+			}
+			if in.NameContains != "" && !containsIgnoreCase(j.JobName, in.NameContains) {
+				continue
+			}
+			if in.SubmitTimeAfter != nil && !j.CreationTime.After(*in.SubmitTimeAfter) {
+				continue
+			}
+			if in.SubmitTimeBefore != nil && !j.CreationTime.Before(*in.SubmitTimeBefore) {
+				continue
+			}
+		}
 		cp := *j
 		cp.Tags = copyTags(j.Tags)
 		jobs = append(jobs, &cp)
 	}
 
+	descending := in != nil && in.SortOrder == "Descending"
 	sort.Slice(jobs, func(i, k int) bool {
+		if descending {
+			return jobs[i].CreationTime.After(jobs[k].CreationTime)
+		}
 		return jobs[i].CreationTime.Before(jobs[k].CreationTime)
 	})
 
-	return jobs
+	nextToken := ""
+	if in != nil {
+		jobs, nextToken = paginateBedrockSlice(jobs, in.NextToken)
+	}
+
+	return jobs, nextToken
+}
+
+// containsIgnoreCase is a case-insensitive substring check.
+func containsIgnoreCase(s, sub string) bool {
+	if sub == "" {
+		return true
+	}
+	sLower := toLower(s)
+	subLower := toLower(sub)
+	return contains(sLower, subLower)
+}
+
+// toLower lowercases ASCII characters only (avoids unicode import).
+func toLower(s string) string {
+	b := make([]byte, len(s))
+	for i := range s {
+		c := s[i]
+		if c >= 'A' && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+		b[i] = c
+	}
+	return string(b)
+}
+
+// contains reports whether sub is a substring of s.
+func contains(s, sub string) bool {
+	if len(sub) == 0 {
+		return true
+	}
+	if len(sub) > len(s) {
+		return false
+	}
+	for i := 0; i <= len(s)-len(sub); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
 }
 
 // StopModelInvocationJob marks an invocation job as stopped.
@@ -575,7 +681,7 @@ func (b *InMemoryBackend) StopModelInvocationJob(jobARN string) error {
 		return fmt.Errorf("%w: model invocation job %s not found", ErrNotFound, jobARN)
 	}
 
-	if job.Status != statusInProgress {
+	if job.Status != statusInProgress && job.Status != "Submitted" {
 		return fmt.Errorf(
 			"%w: model invocation job %s cannot be stopped in status %s",
 			ErrValidation,
