@@ -59,8 +59,10 @@ func TestIntegration_DDB_PutItem(t *testing.T) {
 			},
 			verify: func(t *testing.T, out *dynamodb.PutItemOutput) {
 				t.Helper()
-				require.NotNil(t, out.ItemCollectionMetrics)
-				assert.NotNil(t, out.ItemCollectionMetrics.ItemCollectionKey)
+				// The test table has no local secondary index, so AWS (and
+				// gopherstack) return no ItemCollectionMetrics even when SIZE
+				// is requested.
+				assert.Nil(t, out.ItemCollectionMetrics)
 			},
 		},
 		{
