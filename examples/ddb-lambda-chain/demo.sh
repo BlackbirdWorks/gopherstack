@@ -15,7 +15,7 @@
 # https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/example_serverless_DynamoDB_Lambda_section.html
 set -eu
 
-AWS="aws --endpoint-url ${ENDPOINT:-http://localhost:8000} --no-cli-pager --output json"
+AWS="aws --endpoint-url ${ENDPOINT:-http://localhost:8000} --region us-east-1 --no-cli-pager --output json"
 FUNC=chain-fn
 ROLE_ARN="arn:aws:iam::000000000000:role/chain-fn-role"
 TABLES="chain-1 chain-2 chain-3"
@@ -29,8 +29,12 @@ cleanup() {
 trap cleanup EXIT
 
 echo "=== Building Go zip Lambda (bootstrap, provided.al2) ==="
-# Lambda source is mounted read-only at /lambda; build into the writable workdir.
-cp -r /lambda/* "$WORK"/
+# Lambda source is mounted read-only at /lambda in Docker, but fallback to local directory.
+LAMBDA_SRC="${LAMBDA_SRC:-/lambda}"
+if [ ! -d "$LAMBDA_SRC" ]; then
+  LAMBDA_SRC="$(cd "$(dirname "$0")" && pwd)/lambda"
+fi
+cp -r "$LAMBDA_SRC"/* "$WORK"/
 ( cd "$WORK" && go mod download && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -tags lambda.norpc -o bootstrap . )
 ( cd "$WORK" && zip -q function.zip bootstrap )
 echo "built $WORK/function.zip"

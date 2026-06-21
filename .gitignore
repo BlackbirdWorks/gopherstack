@@ -52,3 +52,4 @@ node_modules/
 *.tfstate
 *.tfstate.backup
 lambda.zip
+.terraform.lock.hcl
