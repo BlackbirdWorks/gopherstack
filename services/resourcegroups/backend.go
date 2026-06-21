@@ -84,23 +84,11 @@ const (
 
 const configParamAllowedResourceTypes = "allowed-resource-types"
 
-// listGroupsDefaultMax is the default and maximum page size for ListGroups.
-const listGroupsDefaultMax = 50
-
-// listGroupResourcesDefaultMax is the default and maximum page size for ListGroupResources.
-const listGroupResourcesDefaultMax = 10
-
-// listGroupingStatusesDefaultMax is the default and maximum page size for ListGroupingStatuses.
-const listGroupingStatusesDefaultMax = 100
-
-// searchResourcesDefaultMax is the default and maximum page size for SearchResources.
-const searchResourcesDefaultMax = 50
-
-// listTagSyncTasksDefaultMax is the default and maximum page size for ListTagSyncTasks.
-const listTagSyncTasksDefaultMax = 100
-
 // listGroupsFilterNamePrefix is the filter name for filtering groups by name prefix.
 const listGroupsFilterNamePrefix = "name-prefix"
+
+// arnSplitParts is the number of colon-separated segments in a well-formed AWS ARN.
+const arnSplitParts = 6
 
 // groupNameRe matches valid Resource Groups group names (AWS rule).
 var groupNameRe = regexp.MustCompile(`^[a-zA-Z0-9_.−\-]+$`)
@@ -379,12 +367,15 @@ type tagFilter struct {
 func paginate[T any](list []T, keyFn func(T) string, nextToken string, maxResults int) ([]T, string) {
 	if nextToken != "" {
 		start := 0
+
 		for i, item := range list {
 			if keyFn(item) == nextToken {
 				start = i + 1
+
 				break
 			}
 		}
+
 		list = list[start:]
 	}
 
@@ -400,8 +391,8 @@ func paginate[T any](list []T, keyFn func(T) string, nextToken string, maxResult
 // resourceTypeFromARN derives an AWS CloudFormation resource type string from an ARN.
 // Returns an empty string for ARNs whose service/type combination is not in the mapping.
 func resourceTypeFromARN(arnStr string) string {
-	parts := strings.SplitN(arnStr, ":", 6)
-	if len(parts) < 6 {
+	parts := strings.SplitN(arnStr, ":", arnSplitParts)
+	if len(parts) < arnSplitParts {
 		return ""
 	}
 
@@ -434,77 +425,77 @@ func resourceTypeFromARN(arnStr string) string {
 }
 
 // arnServiceTypeMap maps "service:resource-type" to AWS CloudFormation type strings.
-var arnServiceTypeMap = map[string]string{ //nolint:gochecknoglobals // static lookup table
-	"ec2:instance":                       "AWS::EC2::Instance",
-	"ec2:volume":                         "AWS::EC2::Volume",
-	"ec2:vpc":                            "AWS::EC2::VPC",
-	"ec2:subnet":                         "AWS::EC2::Subnet",
-	"ec2:security-group":                 "AWS::EC2::SecurityGroup",
-	"ec2:key-pair":                       "AWS::EC2::KeyPair",
-	"ec2:image":                          "AWS::EC2::Image",
-	"ec2:network-interface":              "AWS::EC2::NetworkInterface",
-	"ec2:route-table":                    "AWS::EC2::RouteTable",
-	"ec2:internet-gateway":               "AWS::EC2::InternetGateway",
-	"ec2:natgateway":                     "AWS::EC2::NatGateway",
-	"ec2:elastic-ip":                     "AWS::EC2::EIP",
-	"ec2:snapshot":                       "AWS::EC2::Snapshot",
-	"ec2:dhcp-options":                   "AWS::EC2::DHCPOptions",
-	"ec2:network-acl":                    "AWS::EC2::NetworkAcl",
-	"lambda:function":                    "AWS::Lambda::Function",
-	"rds:db":                             "AWS::RDS::DBInstance",
-	"rds:cluster":                        "AWS::RDS::DBCluster",
-	"rds:snapshot":                       "AWS::RDS::DBSnapshot",
-	"rds:cluster-snapshot":               "AWS::RDS::DBClusterSnapshot",
-	"iam:role":                           "AWS::IAM::Role",
-	"iam:user":                           "AWS::IAM::User",
-	"iam:group":                          "AWS::IAM::Group",
-	"iam:policy":                         "AWS::IAM::ManagedPolicy",
-	"iam:instance-profile":               "AWS::IAM::InstanceProfile",
-	"dynamodb:table":                     "AWS::DynamoDB::Table",
-	"kinesis:stream":                     "AWS::Kinesis::Stream",
-	"cloudformation:stack":               "AWS::CloudFormation::Stack",
-	"elasticloadbalancing:loadbalancer":  "AWS::ElasticLoadBalancingV2::LoadBalancer",
-	"ecs:cluster":                        "AWS::ECS::Cluster",
-	"ecs:service":                        "AWS::ECS::Service",
-	"ecs:task-definition":                "AWS::ECS::TaskDefinition",
-	"eks:cluster":                        "AWS::EKS::Cluster",
-	"secretsmanager:secret":              "AWS::SecretsManager::Secret",
-	"kms:key":                            "AWS::KMS::Key",
-	"cloudwatch:alarm":                   "AWS::CloudWatch::Alarm",
-	"logs:log-group":                     "AWS::Logs::LogGroup",
-	"apigateway:restapis":                "AWS::ApiGateway::RestApi",
-	"glue:database":                      "AWS::Glue::Database",
-	"glue:table":                         "AWS::Glue::Table",
-	"glue:job":                           "AWS::Glue::Job",
-	"elasticache:cluster":                "AWS::ElastiCache::CacheCluster",
-	"elasticache:replicationgroup":       "AWS::ElastiCache::ReplicationGroup",
-	"redshift:cluster":                   "AWS::Redshift::Cluster",
-	"es:domain":                          "AWS::Elasticsearch::Domain",
-	"opensearchservice:domain":           "AWS::OpenSearchService::Domain",
-	"firehose:deliverystream":            "AWS::KinesisFirehose::DeliveryStream",
-	"codecommit:repository":              "AWS::CodeCommit::Repository",
-	"codebuild:project":                  "AWS::CodeBuild::Project",
-	"codepipeline:pipeline":              "AWS::CodePipeline::Pipeline",
-	"ecr:repository":                     "AWS::ECR::Repository",
-	"route53:hostedzone":                 "AWS::Route53::HostedZone",
-	"ssm:parameter":                      "AWS::SSM::Parameter",
-	"wafv2:webacl":                       "AWS::WAFv2::WebACL",
-	"wafv2:rulegroup":                    "AWS::WAFv2::RuleGroup",
-	"acm:certificate":                    "AWS::CertificateManager::Certificate",
-	"backup:backup-vault":                "AWS::Backup::BackupVault",
-	"backup:backup-plan":                 "AWS::Backup::BackupPlan",
-	"kafka:cluster":                      "AWS::MSK::Cluster",
-	"mq:broker":                          "AWS::AmazonMQ::Broker",
-	"stepfunctions:stateMachine":         "AWS::StepFunctions::StateMachine",
-	"appsync:graphqlapi":                 "AWS::AppSync::GraphQLApi",
-	"servicecatalog:portfolio":           "AWS::ServiceCatalog::Portfolio",
-	"servicecatalog:product":             "AWS::ServiceCatalog::CloudFormationProduct",
-	"sagemaker:endpoint":                 "AWS::SageMaker::Endpoint",
-	"sagemaker:model":                    "AWS::SageMaker::Model",
-	"sagemaker:notebook-instance":        "AWS::SageMaker::NotebookInstance",
-	"dax:cluster":                        "AWS::DAX::Cluster",
-	"networkfirewall:firewall":           "AWS::NetworkFirewall::Firewall",
-	"networkfirewall:firewall-policy":    "AWS::NetworkFirewall::FirewallPolicy",
+var arnServiceTypeMap = map[string]string{ //nolint:gochecknoglobals,gosec // static lookup table; no credentials
+	"ec2:instance":                      "AWS::EC2::Instance",
+	"ec2:volume":                        "AWS::EC2::Volume",
+	"ec2:vpc":                           "AWS::EC2::VPC",
+	"ec2:subnet":                        "AWS::EC2::Subnet",
+	"ec2:security-group":                "AWS::EC2::SecurityGroup",
+	"ec2:key-pair":                      "AWS::EC2::KeyPair",
+	"ec2:image":                         "AWS::EC2::Image",
+	"ec2:network-interface":             "AWS::EC2::NetworkInterface",
+	"ec2:route-table":                   "AWS::EC2::RouteTable",
+	"ec2:internet-gateway":              "AWS::EC2::InternetGateway",
+	"ec2:natgateway":                    "AWS::EC2::NatGateway",
+	"ec2:elastic-ip":                    "AWS::EC2::EIP",
+	"ec2:snapshot":                      "AWS::EC2::Snapshot",
+	"ec2:dhcp-options":                  "AWS::EC2::DHCPOptions",
+	"ec2:network-acl":                   "AWS::EC2::NetworkAcl",
+	"lambda:function":                   "AWS::Lambda::Function",
+	"rds:db":                            "AWS::RDS::DBInstance",
+	"rds:cluster":                       "AWS::RDS::DBCluster",
+	"rds:snapshot":                      "AWS::RDS::DBSnapshot",
+	"rds:cluster-snapshot":              "AWS::RDS::DBClusterSnapshot",
+	"iam:role":                          "AWS::IAM::Role",
+	"iam:user":                          "AWS::IAM::User",
+	"iam:group":                         "AWS::IAM::Group",
+	"iam:policy":                        "AWS::IAM::ManagedPolicy",
+	"iam:instance-profile":              "AWS::IAM::InstanceProfile",
+	"dynamodb:table":                    "AWS::DynamoDB::Table",
+	"kinesis:stream":                    "AWS::Kinesis::Stream",
+	"cloudformation:stack":              "AWS::CloudFormation::Stack",
+	"elasticloadbalancing:loadbalancer": "AWS::ElasticLoadBalancingV2::LoadBalancer",
+	"ecs:cluster":                       "AWS::ECS::Cluster",
+	"ecs:service":                       "AWS::ECS::Service",
+	"ecs:task-definition":               "AWS::ECS::TaskDefinition",
+	"eks:cluster":                       "AWS::EKS::Cluster",
+	"secretsmanager:secret":             "AWS::SecretsManager::Secret",
+	"kms:key":                           "AWS::KMS::Key",
+	"cloudwatch:alarm":                  "AWS::CloudWatch::Alarm",
+	"logs:log-group":                    "AWS::Logs::LogGroup",
+	"apigateway:restapis":               "AWS::ApiGateway::RestApi",
+	"glue:database":                     "AWS::Glue::Database",
+	"glue:table":                        "AWS::Glue::Table",
+	"glue:job":                          "AWS::Glue::Job",
+	"elasticache:cluster":               "AWS::ElastiCache::CacheCluster",
+	"elasticache:replicationgroup":      "AWS::ElastiCache::ReplicationGroup",
+	"redshift:cluster":                  "AWS::Redshift::Cluster",
+	"es:domain":                         "AWS::Elasticsearch::Domain",
+	"opensearchservice:domain":          "AWS::OpenSearchService::Domain",
+	"firehose:deliverystream":           "AWS::KinesisFirehose::DeliveryStream",
+	"codecommit:repository":             "AWS::CodeCommit::Repository",
+	"codebuild:project":                 "AWS::CodeBuild::Project",
+	"codepipeline:pipeline":             "AWS::CodePipeline::Pipeline",
+	"ecr:repository":                    "AWS::ECR::Repository",
+	"route53:hostedzone":                "AWS::Route53::HostedZone",
+	"ssm:parameter":                     "AWS::SSM::Parameter",
+	"wafv2:webacl":                      "AWS::WAFv2::WebACL",
+	"wafv2:rulegroup":                   "AWS::WAFv2::RuleGroup",
+	"acm:certificate":                   "AWS::CertificateManager::Certificate",
+	"backup:backup-vault":               "AWS::Backup::BackupVault",
+	"backup:backup-plan":                "AWS::Backup::BackupPlan",
+	"kafka:cluster":                     "AWS::MSK::Cluster",
+	"mq:broker":                         "AWS::AmazonMQ::Broker",
+	"stepfunctions:stateMachine":        "AWS::StepFunctions::StateMachine",
+	"appsync:graphqlapi":                "AWS::AppSync::GraphQLApi",
+	"servicecatalog:portfolio":          "AWS::ServiceCatalog::Portfolio",
+	"servicecatalog:product":            "AWS::ServiceCatalog::CloudFormationProduct",
+	"sagemaker:endpoint":                "AWS::SageMaker::Endpoint",
+	"sagemaker:model":                   "AWS::SageMaker::Model",
+	"sagemaker:notebook-instance":       "AWS::SageMaker::NotebookInstance",
+	"dax:cluster":                       "AWS::DAX::Cluster",
+	"networkfirewall:firewall":          "AWS::NetworkFirewall::Firewall",
+	"networkfirewall:firewall-policy":   "AWS::NetworkFirewall::FirewallPolicy",
 }
 
 // InMemoryBackend is the in-memory store for Resource Groups.
@@ -905,14 +896,7 @@ func (b *InMemoryBackend) groupMatchesFilters(region, name string, filters []Lis
 				return false
 			}
 		case listGroupsFilterNamePrefix:
-			matched := false
-			for _, prefix := range f.Values {
-				if strings.HasPrefix(name, prefix) {
-					matched = true
-					break
-				}
-			}
-			if !matched {
+			if !nameMatchesPrefixFilter(name, f.Values) {
 				return false
 			}
 		}
@@ -925,6 +909,17 @@ func (b *InMemoryBackend) groupMatchesFilters(region, name string, filters []Lis
 func configMatchesTypeFilter(configs []GroupConfigurationItem, values []string) bool {
 	for _, item := range configs {
 		if slices.Contains(values, item.Type) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// nameMatchesPrefixFilter returns true if name starts with any of the given prefix values.
+func nameMatchesPrefixFilter(name string, values []string) bool {
+	for _, prefix := range values {
+		if strings.HasPrefix(name, prefix) {
 			return true
 		}
 	}
@@ -1349,9 +1344,38 @@ func (b *InMemoryBackend) ListGroupingStatuses(
 	out := make([]GroupingStatusItem, len(statuses))
 	copy(out, statuses)
 
-	page, token := paginate(out, func(s GroupingStatusItem) string { return s.ResourceArn + "|" + s.Action + "|" + s.UpdatedAt.Format(time.RFC3339Nano) }, nextToken, maxResults)
+	page, token := paginate(out, func(s GroupingStatusItem) string {
+		return s.ResourceArn + "|" + s.Action + "|" + s.UpdatedAt.Format(time.RFC3339Nano)
+	}, nextToken, maxResults)
 
 	return page, token, nil
+}
+
+// parseResourceTypeFilters parses the JSON query of a TAG_FILTERS_1_0 ResourceQuery and
+// returns the set of desired resource types (nil when the query is "match all" or malformed).
+// The special value "AWS::AllSupported" means match all types and returns nil.
+func parseResourceTypeFilters(queryJSON string) map[string]bool {
+	var tfq tagFilterQuery
+	if err := json.Unmarshal([]byte(queryJSON), &tfq); err != nil {
+		return nil
+	}
+
+	if len(tfq.ResourceTypeFilters) == 0 {
+		return nil
+	}
+
+	// "AWS::AllSupported" is a special pass-through value meaning "no type restriction".
+	if slices.Contains(tfq.ResourceTypeFilters, "AWS::AllSupported") {
+		return nil
+	}
+
+	types := make(map[string]bool, len(tfq.ResourceTypeFilters))
+
+	for _, rt := range tfq.ResourceTypeFilters {
+		types[rt] = true
+	}
+
+	return types
 }
 
 // SearchResources returns resource identifiers that have been grouped into any group
@@ -1370,23 +1394,7 @@ func (b *InMemoryBackend) SearchResources(
 	var wantTypes map[string]bool
 
 	if q != nil && q.Type == "TAG_FILTERS_1_0" && q.Query != "" {
-		var tfq tagFilterQuery
-		if err := json.Unmarshal([]byte(q.Query), &tfq); err == nil && len(tfq.ResourceTypeFilters) > 0 {
-			// "AWS::AllSupported" is a special value meaning "match any type" — treat as no-filter.
-			hasAllSupported := false
-			for _, rt := range tfq.ResourceTypeFilters {
-				if rt == "AWS::AllSupported" {
-					hasAllSupported = true
-					break
-				}
-			}
-			if !hasAllSupported {
-				wantTypes = make(map[string]bool, len(tfq.ResourceTypeFilters))
-				for _, rt := range tfq.ResourceTypeFilters {
-					wantTypes[rt] = true
-				}
-			}
-		}
+		wantTypes = parseResourceTypeFilters(q.Query)
 	}
 
 	b.mu.RLock("SearchResources")

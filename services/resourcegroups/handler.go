@@ -406,7 +406,7 @@ func (h *Handler) handleDeleteGroup(ctx context.Context, in *groupNameInput) (*d
 	return &deleteGroupOutput{}, nil
 }
 
-type listGroupsInput struct {
+type listGroupsInput struct { //nolint:govet // fieldalignment: readability over micro-optimization
 	Filters    []ListGroupsFilter `json:"Filters"`
 	NextToken  string             `json:"NextToken"`
 	MaxResults int                `json:"MaxResults"`
@@ -427,7 +427,7 @@ type listGroupsGroupOutput struct {
 	Criticality int    `json:"Criticality,omitempty"`
 }
 
-type listGroupsOutput struct {
+type listGroupsOutput struct { //nolint:govet // fieldalignment: readability over micro-optimization
 	Groups           []listGroupsGroupOutput     `json:"Groups"`
 	GroupIdentifiers []listGroupIdentifierOutput `json:"GroupIdentifiers"`
 	NextToken        string                      `json:"NextToken,omitempty"`
@@ -827,7 +827,7 @@ func (h *Handler) handleGroupResources(ctx context.Context, in *groupResourcesIn
 }
 
 // handleListGroupResources lists the resources associated with a group.
-type listGroupResourcesInput struct {
+type listGroupResourcesInput struct { //nolint:govet // fieldalignment: readability over micro-optimization
 	Filters    []ListGroupResourcesFilter `json:"Filters"`
 	Group      string                     `json:"Group"`
 	GroupName  string                     `json:"GroupName"`
@@ -847,7 +847,7 @@ type listGroupResourcesItem struct {
 	Identifier ResourceIdentifier `json:"Identifier"`
 }
 
-type listGroupResourcesOutput struct {
+type listGroupResourcesOutput struct { //nolint:govet // fieldalignment: readability over micro-optimization
 	Resources []listGroupResourcesItem `json:"Resources"`
 	NextToken string                   `json:"NextToken,omitempty"`
 }
@@ -879,7 +879,7 @@ type listGroupingStatusesInput struct {
 	MaxResults int    `json:"MaxResults"`
 }
 
-type listGroupingStatusesOutput struct {
+type listGroupingStatusesOutput struct { //nolint:govet // fieldalignment: readability over micro-optimization
 	Group            string               `json:"Group"`
 	GroupingStatuses []GroupingStatusItem `json:"GroupingStatuses"`
 	NextToken        string               `json:"NextToken,omitempty"`
@@ -912,7 +912,7 @@ type searchResourcesInput struct {
 	MaxResults    int            `json:"MaxResults"`
 }
 
-type searchResourcesOutput struct {
+type searchResourcesOutput struct { //nolint:govet // fieldalignment: readability over micro-optimization
 	ResourceIdentifiers []ResourceIdentifier `json:"ResourceIdentifiers"`
 	NextToken           string               `json:"NextToken,omitempty"`
 }
@@ -1040,13 +1040,13 @@ func (h *Handler) handleGetTagSyncTask(ctx context.Context, in *getTagSyncTaskIn
 }
 
 // handleListTagSyncTasks lists tag-sync tasks.
-type listTagSyncTasksInput struct {
+type listTagSyncTasksInput struct { //nolint:govet // fieldalignment: readability over micro-optimization
 	Filters    []ListTagSyncTasksFilter `json:"Filters,omitempty"`
 	NextToken  string                   `json:"NextToken"`
 	MaxResults int                      `json:"MaxResults"`
 }
 
-type listTagSyncTasksOutput struct {
+type listTagSyncTasksOutput struct { //nolint:govet // fieldalignment: readability over micro-optimization
 	TagSyncTasks []TagSyncTask `json:"TagSyncTasks"`
 	NextToken    string        `json:"NextToken,omitempty"`
 }
