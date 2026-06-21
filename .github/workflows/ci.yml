@@ -25,7 +25,7 @@ jobs:
   ui-lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           token: ${{ env.GH_CI_TOKEN }}
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
@@ -52,7 +52,7 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           token: ${{ env.GH_CI_TOKEN }}
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
@@ -70,7 +70,7 @@ jobs:
   govulncheck:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           token: ${{ env.GH_CI_TOKEN }}
           persist-credentials: false
@@ -104,7 +104,7 @@ jobs:
         language: [ 'go' ]
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           token: ${{ env.GH_CI_TOKEN }}
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
@@ -123,7 +123,7 @@ jobs:
   unit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           token: ${{ env.GH_CI_TOKEN }}
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
@@ -153,7 +153,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           token: ${{ env.GH_CI_TOKEN }}
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
@@ -187,7 +187,7 @@ jobs:
       matrix:
         chunk: [0, 1, 2, 3]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           token: ${{ env.GH_CI_TOKEN }}
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
@@ -246,7 +246,7 @@ jobs:
       matrix:
         chunk: [0, 1, 2, 3, 4, 5, 6, 7]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           token: ${{ env.GH_CI_TOKEN }}
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
@@ -305,7 +305,7 @@ jobs:
   e2e:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           token: ${{ env.GH_CI_TOKEN }}
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
@@ -352,7 +352,7 @@ jobs:
   ui-test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           token: ${{ env.GH_CI_TOKEN }}
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
@@ -380,7 +380,7 @@ jobs:
       checks: write
       pull-requests: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           token: ${{ env.GH_CI_TOKEN }}
           fetch-depth: 0
