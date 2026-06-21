@@ -68,6 +68,7 @@ func paginateStrings(items []string, nextToken string, maxResults int) ([]string
 	if end < len(items) {
 		token = strconv.Itoa(end)
 	}
+
 	return page, token
 }
 
@@ -523,6 +524,7 @@ func (h *Handler) handleListRepositories(body []byte) (any, error) {
 			if strings.EqualFold(in.Order, "DESCENDING") {
 				return repos[i].LastModifiedDate.After(repos[j].LastModifiedDate)
 			}
+
 			return repos[i].LastModifiedDate.Before(repos[j].LastModifiedDate)
 		})
 	default:
@@ -684,7 +686,7 @@ type createCommitInput struct {
 	AuthorName     string                        `json:"authorName"`
 	Email          string                        `json:"email"`
 	CommitMessage  string                        `json:"commitMessage"`
-	ParentCommitId string                        `json:"parentCommitId"`
+	ParentCommitID string                        `json:"parentCommitId"`
 	PutFiles       []createCommitPutFileEntry    `json:"putFiles"`
 	DeleteFiles    []createCommitDeleteFileEntry `json:"deleteFiles"`
 }
@@ -1058,7 +1060,7 @@ func (h *Handler) handleCreateCommit(body []byte) (any, error) {
 	commit, err := h.Backend.CreateCommit(
 		in.RepositoryName, in.BranchName,
 		in.AuthorName, in.Email, in.CommitMessage,
-		in.ParentCommitId, putFiles, deleteFiles,
+		in.ParentCommitID, putFiles, deleteFiles,
 	)
 	if err != nil {
 		return nil, err

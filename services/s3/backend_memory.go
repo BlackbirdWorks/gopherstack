@@ -110,22 +110,23 @@ func getRegionFromS3Context(ctx context.Context, defaultRegion string) string {
 }
 
 type InMemoryBackend struct {
-	buckets             map[string]map[string]*StoredBucket
-	bucketIndex         map[string]string // name → region for O(1) cross-region lookup
-	tags                map[string][]types.Tag
-	uploads             map[string]map[string]*StoredMultipartUpload // bucket → uploadID → upload
-	mu                  *lockmetrics.RWMutex
-	compressor          Compressor
-	defaultRegion       string
-	compressionMinBytes int
+	buckets     map[string]map[string]*StoredBucket
+	bucketIndex map[string]string // name → region for O(1) cross-region lookup
+	tags        map[string][]types.Tag
+	uploads     map[string]map[string]*StoredMultipartUpload // bucket → uploadID → upload
+	mu          *lockmetrics.RWMutex
+	compressor  Compressor
 	// serviceCtx is the long-lived service context (set via SetServiceContext from
 	// the handler's StartWorker). Background work — replication — is parented to it
 	// so it is cancelled on shutdown rather than orphaned on context.Background().
-	serviceCtx   context.Context
+	serviceCtx    context.Context
+	defaultRegion string
+	// serviceCtxMu guards serviceCtx.
 	serviceCtxMu sync.RWMutex
 	// replicationWg tracks all in-flight replication goroutines.
 	// DrainReplicationGoroutines blocks until they all finish.
-	replicationWg sync.WaitGroup
+	replicationWg       sync.WaitGroup
+	compressionMinBytes int
 	// skipMultipartSizeCheck disables the 5 MiB minimum part size check during
 	// CompleteMultipartUpload. This is intended for use in unit tests only.
 	skipMultipartSizeCheck bool
@@ -664,6 +665,44 @@ func (b *InMemoryBackend) GetObject(
 	obj.mu.RLock("GetObject")
 	defer obj.mu.RUnlock()
 
+	ver, err := resolveObjectVersion(obj, versionID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Copy data + metadata under the lock; decryption + decompression
+	// happen outside.
+	dataToDecompress := ver.Data
+	isCompressed := ver.IsCompressed
+	size := ver.Size
+	metadata := maps.Clone(ver.Metadata)
+	versionIDStr := ver.VersionID
+
+	decrypted, skipDecompress, decErr := decryptVersionForGet(ctx, ver, dataToDecompress)
+	if decErr != nil {
+		return nil, decErr
+	}
+
+	if skipDecompress {
+		return buildGetObjectOutput(decrypted, size, ver, metadata, versionIDStr), nil
+	}
+	dataToDecompress = decrypted
+
+	data, err := b.decompressObjectData(dataToDecompress, isCompressed)
+	if err != nil {
+		return nil, err
+	}
+
+	return buildGetObjectOutput(data, size, ver, metadata, versionIDStr), nil
+}
+
+// resolveObjectVersion selects the requested (or latest) live version of an
+// object, translating delete markers and missing versions into the proper
+// S3 errors. The caller must hold obj's read lock.
+func resolveObjectVersion(
+	obj *StoredObject,
+	versionID *string,
+) (*StoredObjectVersion, error) {
 	var ver *StoredObjectVersion
 	if versionID != nil && *versionID != "" {
 		v, ok := obj.Versions[*versionID]
@@ -690,50 +729,46 @@ func (b *InMemoryBackend) GetObject(
 		return nil, ErrLatestDeleteMarker
 	}
 
-	// Copy data + metadata under the lock; decryption + decompression
-	// happen outside.
-	dataToDecompress := ver.Data
-	isCompressed := ver.IsCompressed
-	size := ver.Size
-	metadata := maps.Clone(ver.Metadata)
-	versionIDStr := ver.VersionID
+	return ver, nil
+}
+
+// decryptVersionForGet reverses SSE envelope encryption for a GET. It returns
+// the (possibly decrypted) data and a skipDecompress flag indicating the blob
+// must be returned as-is (SSE-C version with no key supplied — the handler will
+// reject the request before the body is read).
+func decryptVersionForGet(
+	ctx context.Context,
+	ver *StoredObjectVersion,
+	data []byte,
+) ([]byte, bool, error) {
 	sseAlg := ver.SSEAlgorithm
 	sseCAlg := ver.SSECAlgorithm
-	dek := ver.EncryptionDEK
-	nonce := ver.EncryptionNonce
+	if sseAlg == "" && sseCAlg == "" {
+		return data, false, nil
+	}
 
-	// Reverse envelope encryption when the version was stored under SSE. For
-	// SSE-C the customer must re-supply the key on GET via the request — read
-	// it from context (set by getObject handler) before decrypting. If no key
-	// is supplied for an SSE-C version, skip decrypt and let the handler's
+	// For SSE-C the customer must re-supply the key on GET via the request —
+	// read it from context (set by getObject handler) before decrypting. If no
+	// key is supplied for an SSE-C version, skip decrypt and let the handler's
 	// validateSSECOnRead surface the proper 400 ErrSSECRequired.
-	if sseAlg != "" || sseCAlg != "" {
-		sseFromCtx, _ := ctx.Value(sseKey).(sseInfo)
-		if sseCAlg != "" && sseFromCtx.SSECKeyB64 == "" {
-			// Fall through with the (still-encrypted) blob; the handler will
-			// reject the request before reading the body.
-			return buildGetObjectOutput(dataToDecompress, size, ver, metadata, versionIDStr), nil
-		}
-		decrypted, decErr := decryptWithSSE(
-			dataToDecompress,
-			sseAlg,
-			sseCAlg,
-			dek,
-			nonce,
-			sseFromCtx.SSECKeyB64,
-		)
-		if decErr != nil {
-			return nil, decErr
-		}
-		dataToDecompress = decrypted
+	sseFromCtx, _ := ctx.Value(sseKey).(sseInfo)
+	if sseCAlg != "" && sseFromCtx.SSECKeyB64 == "" {
+		return data, true, nil
 	}
 
-	data, err := b.decompressObjectData(dataToDecompress, isCompressed)
-	if err != nil {
-		return nil, err
+	decrypted, decErr := decryptWithSSE(
+		data,
+		sseAlg,
+		sseCAlg,
+		ver.EncryptionDEK,
+		ver.EncryptionNonce,
+		sseFromCtx.SSECKeyB64,
+	)
+	if decErr != nil {
+		return nil, false, decErr
 	}
 
-	return buildGetObjectOutput(data, size, ver, metadata, versionIDStr), nil
+	return decrypted, false, nil
 }
 
 // decompressObjectData decompresses storedData when isCompressed is true.

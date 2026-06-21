@@ -741,7 +741,7 @@ func (h *S3Handler) ServeWebsite(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusNotFound, map[string]string{
-		"Code":    "NoSuchKey",
+		"Code":    errNoSuchKey,
 		"Message": "The specified key does not exist",
 	})
 }

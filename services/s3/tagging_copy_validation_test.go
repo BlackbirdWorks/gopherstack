@@ -20,7 +20,7 @@ func TestParity_ObjectTagging_Limits(t *testing.T) {
 	mustCreateBucket(t, backend, "tag-bucket")
 
 	// 11 tags via PutObject header → BadRequest.
-	var pairs []string
+	pairs := make([]string, 0, 11)
 	for i := range 11 {
 		pairs = append(pairs, "k"+string(rune('a'+i))+"=v")
 	}

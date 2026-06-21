@@ -29,6 +29,9 @@ const (
 
 	// maxBatchGetRepositories is the AWS limit for BatchGetRepositories.
 	maxBatchGetRepositories = 25
+
+	// maxBranchNameLength is the maximum allowed CodeCommit branch name length.
+	maxBranchNameLength = 256
 )
 
 var (
@@ -63,10 +66,10 @@ var (
 	ErrBranchNameRequired = awserr.New("BranchNameRequiredException", awserr.ErrInvalidParameter)
 	// ErrInvalidBranchName is returned when a branch name contains invalid characters.
 	ErrInvalidBranchName = awserr.New("InvalidBranchNameException", awserr.ErrInvalidParameter)
-	// ErrParentCommitIdRequired is returned when parentCommitId is missing for a branch with commits.
-	ErrParentCommitIdRequired = awserr.New("ParentCommitIdRequiredException", awserr.ErrInvalidParameter)
-	// ErrParentCommitIdOutdated is returned when parentCommitId doesn't match branch tip.
-	ErrParentCommitIdOutdated = awserr.New("ParentCommitIdOutdatedException", awserr.ErrConflict)
+	// ErrParentCommitIDRequired is returned when parentCommitId is missing for a branch with commits.
+	ErrParentCommitIDRequired = awserr.New("ParentCommitIdRequiredException", awserr.ErrInvalidParameter)
+	// ErrParentCommitIDOutdated is returned when parentCommitId doesn't match branch tip.
+	ErrParentCommitIDOutdated = awserr.New("ParentCommitIdOutdatedException", awserr.ErrConflict)
 	// ErrSameFileContent is returned when putFiles has no actual changes.
 	ErrSameFileContent = awserr.New("SameFileContentException", awserr.ErrConflict)
 	// ErrFilePathConflicts is returned when a file path conflicts with an existing path.
@@ -86,7 +89,7 @@ func validateBranchName(name string) error {
 	if name == "" {
 		return fmt.Errorf("%w: branch name is required", ErrBranchNameRequired)
 	}
-	if len(name) > 256 {
+	if len(name) > maxBranchNameLength {
 		return fmt.Errorf("%w: branch name must be 256 characters or fewer", ErrInvalidBranchName)
 	}
 	if !branchNameRe.MatchString(name) {
@@ -99,6 +102,7 @@ func validateBranchName(name string) error {
 	if strings.Contains(name, "//") {
 		return fmt.Errorf("%w: branch name may not contain consecutive slashes", ErrInvalidBranchName)
 	}
+
 	return nil
 }
 
@@ -155,8 +159,8 @@ type Commit struct {
 // PutFileEntry describes a file to add or overwrite in a CreateCommit call.
 type PutFileEntry struct {
 	FilePath    string `json:"filePath"`
-	FileContent []byte `json:"fileContent"`
 	FileMode    string `json:"fileMode"`
+	FileContent []byte `json:"fileContent"`
 }
 
 // PullRequestTarget represents a target for a pull request.
@@ -382,6 +386,7 @@ func (b *InMemoryBackend) DeleteRepository(name string) (*Repository, error) {
 				delete(b.prOverrides, prID)
 				delete(b.prOverriders, prID)
 				delete(b.prEvents, prID)
+
 				break
 			}
 		}
@@ -752,7 +757,7 @@ func (b *InMemoryBackend) CreateCommit(
 	if parentCommitID != "" && currentTip != "" && parentCommitID != currentTip {
 		return nil, fmt.Errorf(
 			"%w: parentCommitId %s does not match current branch tip %s",
-			ErrParentCommitIdOutdated, parentCommitID, currentTip,
+			ErrParentCommitIDOutdated, parentCommitID, currentTip,
 		)
 	}
 

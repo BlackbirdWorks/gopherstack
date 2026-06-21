@@ -93,7 +93,7 @@ func coreErrorTableBucket() []s3ErrorEntry {
 		},
 		{
 			ErrNoSuchKey,
-			s3ErrorInfo{"NoSuchKey", "The specified key does not exist.", http.StatusNotFound},
+			s3ErrorInfo{errNoSuchKey, "The specified key does not exist.", http.StatusNotFound},
 		},
 		{ErrBucketAlreadyOwnedByYou, s3ErrorInfo{
 			"BucketAlreadyOwnedByYou",
@@ -131,7 +131,7 @@ func coreErrorTableBucket() []s3ErrorEntry {
 			http.StatusBadRequest,
 		}},
 		{ErrEmptyParts, s3ErrorInfo{
-			"InvalidRequest",
+			errInvalidRequest,
 			"You must specify at least one part",
 			http.StatusBadRequest,
 		}},
@@ -171,7 +171,7 @@ func coreErrorTableObject() []s3ErrorEntry {
 			http.StatusMethodNotAllowed,
 		}},
 		{ErrLatestDeleteMarker, s3ErrorInfo{
-			"NoSuchKey",
+			errNoSuchKey,
 			"The specified key does not exist.",
 			http.StatusNotFound,
 		}},
@@ -186,7 +186,7 @@ func coreErrorTableObject() []s3ErrorEntry {
 			http.StatusBadRequest,
 		}},
 		{ErrCopySelfNoChange, s3ErrorInfo{
-			"InvalidRequest",
+			errInvalidRequest,
 			"This copy request is illegal because it is trying to copy an object to " +
 				"itself without changing the object's metadata, storage class, website " +
 				"redirect location or encryption attributes.",
@@ -213,7 +213,7 @@ func coreErrorTableObject() []s3ErrorEntry {
 			http.StatusBadRequest,
 		}},
 		{ErrSSECRequired, s3ErrorInfo{
-			"InvalidRequest",
+			errInvalidRequest,
 			"The object was stored using a form of Server Side Encryption. " +
 				"The correct parameters must be provided to retrieve the object.",
 			http.StatusBadRequest,

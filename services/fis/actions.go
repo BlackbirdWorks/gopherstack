@@ -32,11 +32,18 @@ const (
 
 	actionIDWait = "aws:fis:wait"
 
-	keyService      = "service"
-	keyOperations   = "operations"
-	keyPercentage   = "percentage"
-	descPercentage  = "Percentage of requests to fault (0-100)"
-	descISO8601     = "ISO 8601 duration (e.g. PT5M)"
+	keyService     = "service"
+	keyOperations  = "operations"
+	keyPercentage  = "percentage"
+	descPercentage = "Percentage of requests to fault (0-100)"
+	descISO8601    = "ISO 8601 duration (e.g. PT5M)"
+)
+
+const (
+	targetKeyRoles     = "Roles"
+	targetKeyInstances = "Instances"
+	targetKeyClusters  = "Clusters"
+	targetKeyFunctions = "Functions"
 )
 
 const (
@@ -58,6 +65,10 @@ const (
 
 	// hoursPerDay is the number of hours in a day.
 	hoursPerDay = 24
+
+	// minTargetTypeSegments is the number of colon-separated segments in a
+	// fully-qualified FIS target type (aws:service:resource).
+	minTargetTypeSegments = 3
 )
 
 // ----------------------------------------
@@ -81,74 +92,101 @@ func builtinFaultActions() []service.FISActionDefinition {
 			ActionID:    "aws:fis:inject-api-internal-error",
 			Description: "Return HTTP 500 InternalServerError for matching API calls",
 			TargetType:  targetTypeIAMRole,
-			TargetKey:   "Roles",
+			TargetKey:   targetKeyRoles,
 			Parameters:  injectAPIParams(),
 		},
 		{
 			ActionID:    "aws:fis:inject-api-throttle-error",
 			Description: "Return HTTP 400 ThrottlingException for matching API calls",
 			TargetType:  targetTypeIAMRole,
-			TargetKey:   "Roles",
+			TargetKey:   targetKeyRoles,
 			Parameters:  injectAPIParams(),
 		},
 		{
 			ActionID:    "aws:fis:inject-api-unavailable-error",
 			Description: "Return HTTP 503 ServiceUnavailable for matching API calls",
 			TargetType:  targetTypeIAMRole,
-			TargetKey:   "Roles",
+			TargetKey:   targetKeyRoles,
 			Parameters:  injectAPIParams(),
 		},
 		{
 			ActionID:    "aws:fis:inject-api-not-found-error",
 			Description: "Return HTTP 404 ResourceNotFoundException for matching API calls",
 			TargetType:  targetTypeIAMRole,
-			TargetKey:   "Roles",
+			TargetKey:   targetKeyRoles,
 			Parameters:  injectAPIParams(),
 		},
 		{
 			ActionID:    actionIDWait,
 			Description: "Pause for a specified duration",
-			Parameters:  []service.FISParamDef{{Name: keyDuration, Description: descISO8601, Required: true}},
+			Parameters: []service.FISParamDef{
+				{Name: keyDuration, Description: descISO8601, Required: true},
+			},
 		},
 	}
 }
 
 // builtinServiceActions returns the AWS service built-in action definitions.
 func builtinServiceActions() []service.FISActionDefinition {
+	groups := [][]service.FISActionDefinition{
+		ec2ServiceActions(),
+		rdsServiceActions(),
+		ecsServiceActions(),
+		eksServiceActions(),
+		dynamoDBServiceActions(),
+		lambdaServiceActions(),
+		ssmServiceActions(),
+		networkServiceActions(),
+		cloudWatchServiceActions(),
+		kinesisServiceActions(),
+	}
+
+	var total int
+	for _, g := range groups {
+		total += len(g)
+	}
+
+	all := make([]service.FISActionDefinition, 0, total)
+	for _, g := range groups {
+		all = append(all, g...)
+	}
+
+	return all
+}
+
+// ec2ServiceActions returns the EC2 built-in action definitions.
+func ec2ServiceActions() []service.FISActionDefinition {
 	const descRestartAfter = "ISO 8601 duration after which instances are restarted"
-	const descForceFailover = "Force failover during reboot (true|false)"
-	const descTermPct = "Percentage of instances to terminate (1-100)"
-	const descDocArn = "ARN of the SSM document"
-	const descDocParams = "JSON-encoded document parameters"
-	const descAutomationDocArn = "ARN of the SSM Automation runbook"
-	const descAutomationParams = "JSON-encoded automation parameters"
-	const descAlarmState = "State to assert: ALARM or OK"
-	const descConnectDuration = "ISO 8601 duration for connectivity disruption"
 
 	return []service.FISActionDefinition{
-		// EC2 actions
 		{
 			ActionID:    "aws:ec2:reboot-instances",
 			Description: "Reboot EC2 instances",
 			TargetType:  targetTypeEC2Inst,
-			TargetKey:   "Instances",
-			Parameters:  []service.FISParamDef{{Name: keyDuration, Description: descISO8601, Required: false}},
+			TargetKey:   targetKeyInstances,
+			Parameters: []service.FISParamDef{
+				{Name: keyDuration, Description: descISO8601, Required: false},
+			},
 		},
 		{
 			ActionID:    "aws:ec2:stop-instances",
 			Description: "Stop EC2 instances",
 			TargetType:  targetTypeEC2Inst,
-			TargetKey:   "Instances",
+			TargetKey:   targetKeyInstances,
 			Parameters: []service.FISParamDef{
 				{Name: keyDuration, Description: descISO8601, Required: false},
-				{Name: "startInstancesAfterDuration", Description: descRestartAfter, Required: false},
+				{
+					Name:        "startInstancesAfterDuration",
+					Description: descRestartAfter,
+					Required:    false,
+				},
 			},
 		},
 		{
 			ActionID:    "aws:ec2:terminate-instances",
 			Description: "Terminate EC2 instances",
 			TargetType:  targetTypeEC2Inst,
-			TargetKey:   "Instances",
+			TargetKey:   targetKeyInstances,
 			Parameters:  []service.FISParamDef{},
 		},
 		{
@@ -157,11 +195,21 @@ func builtinServiceActions() []service.FISActionDefinition {
 			TargetType:  targetTypeSpotInst,
 			TargetKey:   "SpotInstances",
 			Parameters: []service.FISParamDef{
-				{Name: "durationBeforeInterruption", Description: "ISO 8601 duration before interruption (PT2M maximum)", Required: true},
+				{
+					Name:        "durationBeforeInterruption",
+					Description: "ISO 8601 duration before interruption (PT2M maximum)",
+					Required:    true,
+				},
 			},
 		},
+	}
+}
 
-		// RDS actions
+// rdsServiceActions returns the RDS built-in action definitions.
+func rdsServiceActions() []service.FISActionDefinition {
+	const descForceFailover = "Force failover during reboot (true|false)"
+
+	return []service.FISActionDefinition{
 		{
 			ActionID:    "aws:rds:reboot-db-instances",
 			Description: "Reboot RDS DB instances",
@@ -175,39 +223,55 @@ func builtinServiceActions() []service.FISActionDefinition {
 			ActionID:    "aws:rds:failover-db-cluster",
 			Description: "Failover an Aurora DB cluster",
 			TargetType:  targetTypeRDSClust,
-			TargetKey:   "Clusters",
+			TargetKey:   targetKeyClusters,
 			Parameters:  []service.FISParamDef{},
 		},
 		{
 			ActionID:    "aws:rds:reboot-db-cluster",
 			Description: "Reboot an Aurora DB cluster",
 			TargetType:  targetTypeRDSClust,
-			TargetKey:   "Clusters",
+			TargetKey:   targetKeyClusters,
 			Parameters: []service.FISParamDef{
 				{Name: "forceFailover", Description: descForceFailover, Required: false},
 			},
 		},
+	}
+}
 
-		// ECS actions
+// ecsServiceActions returns the ECS built-in action definitions.
+func ecsServiceActions() []service.FISActionDefinition {
+	return []service.FISActionDefinition{
 		{
 			ActionID:    "aws:ecs:stop-task",
 			Description: "Stop an ECS task",
 			TargetType:  targetTypeECSTask,
 			TargetKey:   "Tasks",
-			Parameters:  []service.FISParamDef{{Name: keyDuration, Description: descISO8601, Required: false}},
+			Parameters: []service.FISParamDef{
+				{Name: keyDuration, Description: descISO8601, Required: false},
+			},
 		},
 		{
 			ActionID:    "aws:ecs:drain-container-instances",
 			Description: "Drain ECS container instances",
 			TargetType:  "aws:ecs:cluster",
-			TargetKey:   "Clusters",
+			TargetKey:   targetKeyClusters,
 			Parameters: []service.FISParamDef{
 				{Name: keyDuration, Description: descISO8601, Required: true},
-				{Name: "drainagePercentage", Description: "Percentage of container instances to drain (1-100)", Required: true},
+				{
+					Name:        "drainagePercentage",
+					Description: "Percentage of container instances to drain (1-100)",
+					Required:    true,
+				},
 			},
 		},
+	}
+}
 
-		// EKS actions
+// eksServiceActions returns the EKS built-in action definitions.
+func eksServiceActions() []service.FISActionDefinition {
+	const descTermPct = "Percentage of instances to terminate (1-100)"
+
+	return []service.FISActionDefinition{
 		{
 			ActionID:    "aws:eks:terminate-nodegroup-instances",
 			Description: "Terminate instances in an EKS managed node group",
@@ -221,66 +285,120 @@ func builtinServiceActions() []service.FISActionDefinition {
 			ActionID:    "aws:eks:inject-kubernetes-custom-resource",
 			Description: "Inject a Kubernetes custom resource into an EKS cluster",
 			TargetType:  "aws:eks:cluster",
-			TargetKey:   "Clusters",
+			TargetKey:   targetKeyClusters,
 			Parameters: []service.FISParamDef{
-				{Name: "customResource", Description: "JSON-encoded Kubernetes custom resource manifest", Required: true},
+				{
+					Name:        "customResource",
+					Description: "JSON-encoded Kubernetes custom resource manifest",
+					Required:    true,
+				},
 				{Name: keyDuration, Description: descISO8601, Required: true},
-				{Name: "kubernetesApiVersion", Description: "Kubernetes API group and version (e.g. chaos.aws/v1alpha1)", Required: true},
+				{
+					Name:        "kubernetesApiVersion",
+					Description: "Kubernetes API group and version (e.g. chaos.aws/v1alpha1)",
+					Required:    true,
+				},
 				{Name: "kubernetesKind", Description: "Kubernetes resource kind", Required: true},
 				{Name: "kubernetesNamespace", Description: "Kubernetes namespace", Required: false},
-				{Name: "kubernetesServiceAccount", Description: "Kubernetes service account for the action", Required: false},
+				{
+					Name:        "kubernetesServiceAccount",
+					Description: "Kubernetes service account for the action",
+					Required:    false,
+				},
 			},
 		},
+	}
+}
 
-		// DynamoDB actions
+// dynamoDBServiceActions returns the DynamoDB built-in action definitions.
+func dynamoDBServiceActions() []service.FISActionDefinition {
+	return []service.FISActionDefinition{
 		{
 			ActionID:    "aws:dynamodb:global-table-pause-replication",
 			Description: "Pause replication for a DynamoDB global table",
 			TargetType:  targetTypeDDBTable,
 			TargetKey:   "Tables",
-			Parameters:  []service.FISParamDef{{Name: keyDuration, Description: descISO8601, Required: true}},
+			Parameters: []service.FISParamDef{
+				{Name: keyDuration, Description: descISO8601, Required: true},
+			},
 		},
+	}
+}
 
-		// Lambda actions
+// lambdaServiceActions returns the Lambda built-in action definitions.
+func lambdaServiceActions() []service.FISActionDefinition {
+	return []service.FISActionDefinition{
 		{
 			ActionID:    "aws:lambda:invocation-error",
 			Description: "Force Lambda invocations to return errors for the specified duration",
 			TargetType:  targetTypeLambdaFunc,
-			TargetKey:   "Functions",
+			TargetKey:   targetKeyFunctions,
 			Parameters: []service.FISParamDef{
 				{Name: keyDuration, Description: descISO8601, Required: true},
-				{Name: "percentage", Description: "Percentage of invocations to fault (0-100)", Required: false, Default: "100"},
+				{
+					Name:        keyPercentage,
+					Description: "Percentage of invocations to fault (0-100)",
+					Required:    false,
+					Default:     "100",
+				},
 			},
 		},
 		{
 			ActionID:    "aws:lambda:invocation-add-delay",
 			Description: "Add latency to Lambda invocations for the specified duration",
 			TargetType:  targetTypeLambdaFunc,
-			TargetKey:   "Functions",
+			TargetKey:   targetKeyFunctions,
 			Parameters: []service.FISParamDef{
 				{Name: keyDuration, Description: descISO8601, Required: true},
-				{Name: "invocationDelayMilliseconds", Description: "Milliseconds of delay to add per invocation", Required: true},
-				{Name: "percentage", Description: "Percentage of invocations to delay (0-100)", Required: false, Default: "100"},
+				{
+					Name:        "invocationDelayMilliseconds",
+					Description: "Milliseconds of delay to add per invocation",
+					Required:    true,
+				},
+				{
+					Name:        keyPercentage,
+					Description: "Percentage of invocations to delay (0-100)",
+					Required:    false,
+					Default:     "100",
+				},
 			},
 		},
 		{
 			ActionID:    "aws:lambda:invocation-http-integration-response",
 			Description: "Modify HTTP integration responses in Lambda functions",
 			TargetType:  targetTypeLambdaFunc,
-			TargetKey:   "Functions",
+			TargetKey:   targetKeyFunctions,
 			Parameters: []service.FISParamDef{
 				{Name: keyDuration, Description: descISO8601, Required: true},
-				{Name: "statusCode", Description: "HTTP status code to return (e.g. 503)", Required: true},
-				{Name: "percentage", Description: "Percentage of responses to modify (0-100)", Required: false, Default: "100"},
+				{
+					Name:        "statusCode",
+					Description: "HTTP status code to return (e.g. 503)",
+					Required:    true,
+				},
+				{
+					Name:        keyPercentage,
+					Description: "Percentage of responses to modify (0-100)",
+					Required:    false,
+					Default:     "100",
+				},
 			},
 		},
+	}
+}
 
-		// SSM actions
+// ssmServiceActions returns the SSM built-in action definitions.
+func ssmServiceActions() []service.FISActionDefinition {
+	const descDocArn = "ARN of the SSM document"
+	const descDocParams = "JSON-encoded document parameters"
+	const descAutomationDocArn = "ARN of the SSM Automation runbook"
+	const descAutomationParams = "JSON-encoded automation parameters"
+
+	return []service.FISActionDefinition{
 		{
 			ActionID:    "aws:ssm:send-command",
 			Description: "Run an SSM document on managed instances",
 			TargetType:  targetTypeEC2Inst,
-			TargetKey:   "Instances",
+			TargetKey:   targetKeyInstances,
 			Parameters: []service.FISParamDef{
 				{Name: "documentArn", Description: descDocArn, Required: true},
 				{Name: "documentParameters", Description: descDocParams, Required: false},
@@ -297,15 +415,25 @@ func builtinServiceActions() []service.FISActionDefinition {
 				{Name: "maxDuration", Description: descISO8601, Required: false},
 			},
 		},
+	}
+}
 
-		// Network actions
+// networkServiceActions returns the network built-in action definitions.
+func networkServiceActions() []service.FISActionDefinition {
+	const descConnectDuration = "ISO 8601 duration for connectivity disruption"
+
+	return []service.FISActionDefinition{
 		{
 			ActionID:    "aws:network:disrupt-connectivity",
 			Description: "Disrupt network connectivity for EC2 instances in a subnet",
 			TargetType:  targetTypeSubnet,
 			TargetKey:   "Subnets",
 			Parameters: []service.FISParamDef{
-				{Name: "scope", Description: "Connectivity scope: availability-zone or vpc", Required: true},
+				{
+					Name:        "scope",
+					Description: "Connectivity scope: availability-zone or vpc",
+					Required:    true,
+				},
 				{Name: keyDuration, Description: descConnectDuration, Required: true},
 			},
 		},
@@ -327,8 +455,14 @@ func builtinServiceActions() []service.FISActionDefinition {
 				{Name: keyDuration, Description: descISO8601, Required: true},
 			},
 		},
+	}
+}
 
-		// CloudWatch actions
+// cloudWatchServiceActions returns the CloudWatch built-in action definitions.
+func cloudWatchServiceActions() []service.FISActionDefinition {
+	const descAlarmState = "State to assert: ALARM or OK"
+
+	return []service.FISActionDefinition{
 		{
 			ActionID:    "aws:cloudwatch:assert-alarm-state",
 			Description: "Assert that a CloudWatch alarm is in the specified state",
@@ -338,8 +472,12 @@ func builtinServiceActions() []service.FISActionDefinition {
 				{Name: "alarmState", Description: descAlarmState, Required: true},
 			},
 		},
+	}
+}
 
-		// Kinesis actions
+// kinesisServiceActions returns the Kinesis built-in action definitions.
+func kinesisServiceActions() []service.FISActionDefinition {
+	return []service.FISActionDefinition{
 		{
 			ActionID:    "aws:kinesis:disrupt-shard",
 			Description: "Disrupt a Kinesis data stream shard",
@@ -384,7 +522,7 @@ func defaultTargetKey(def service.FISActionDefinition) string {
 
 	// Derive from TargetType resource name (last segment after ":").
 	parts := strings.Split(def.TargetType, ":")
-	if len(parts) >= 3 {
+	if len(parts) >= minTargetTypeSegments {
 		last := parts[len(parts)-1]
 
 		// Capitalize and pluralise.

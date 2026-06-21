@@ -173,7 +173,7 @@ func (b *InMemoryBackend) UpdateDefaultBranch(repoName, branchName string) error
 	}
 	// Validate the branch exists.
 	if repoBranches := b.branches[repoName]; repoBranches != nil {
-		if _, ok := repoBranches[branchName]; !ok {
+		if _, found := repoBranches[branchName]; !found {
 			return fmt.Errorf("%w: branch %s not found in repository %s", ErrBranchNotFound, branchName, repoName)
 		}
 	} else if branchName != "" {
@@ -1217,7 +1217,7 @@ func (b *InMemoryBackend) GetMergeConflicts(
 
 // GetDifferences returns file differences between beforeCommitSpecifier and afterCommitSpecifier.
 // When beforeCommitSpecifier is empty, returns all files in afterCommitSpecifier as ADDed.
-func (b *InMemoryBackend) GetDifferences(repoName, afterCommitSpecifier, beforeCommitSpecifier string) ([]FileDifference, error) {
+func (b *InMemoryBackend) GetDifferences(repoName, afterCommitSpecifier, _ string) ([]FileDifference, error) {
 	b.mu.RLock("GetDifferences")
 	defer b.mu.RUnlock()
 

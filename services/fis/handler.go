@@ -643,7 +643,10 @@ func (h *Handler) handleListTargetResourceTypes(c *echo.Context) error {
 		dtos[i] = toTargetResourceTypeDTO(&page[i])
 	}
 
-	return c.JSON(http.StatusOK, listTargetResourceTypesResponseDTO{TargetResourceTypes: dtos, NextToken: nextTok})
+	return c.JSON(
+		http.StatusOK,
+		listTargetResourceTypesResponseDTO{TargetResourceTypes: dtos, NextToken: nextTok},
+	)
 }
 
 // ----------------------------------------
@@ -894,7 +897,11 @@ func (h *Handler) writeError(c *echo.Context, status int, message, resourceID st
 	return h.writeTypedError(c, status, "", message, resourceID)
 }
 
-func (h *Handler) writeTypedError(c *echo.Context, status int, errType, message, resourceID string) error {
+func (h *Handler) writeTypedError(
+	c *echo.Context,
+	status int,
+	errType, message, resourceID string,
+) error {
 	resp := errorResponseDTO{Type: errType, Message: message, ResourceID: resourceID}
 
 	return c.JSON(status, resp)
@@ -1219,7 +1226,7 @@ func toTemplateDTO(tpl *ExperimentTemplate) experimentTemplateDTO {
 		}
 
 		if tpl.LogConfiguration.CloudWatchLogsConfiguration != nil {
-			lc.CloudWatchLogsConfiguration = &experimentTemplateCloudWatchLogsConfigurationDTO{
+			lc.CloudWatchLogsConfiguration = &cwLogsConfigurationDTO{
 				LogGroupArn: tpl.LogConfiguration.CloudWatchLogsConfiguration.LogGroupArn,
 			}
 		}
@@ -1409,35 +1416,6 @@ const defaultMaxResults = 20
 
 // absoluteMaxResults is the maximum allowed page size.
 const absoluteMaxResults = 100
-
-// paginateSlice parses maxResults and nextToken from query params for cursor-based pagination.
-// The slice is assumed to be pre-sorted by the ID field (first string in each element).
-// Returns (pageSize, startOffset). The caller slices [startOffset : startOffset+pageSize].
-//
-// nextToken encodes the ID of the last item returned in the previous page.
-// The next page begins at the item immediately after that ID in the sorted slice.
-// getID extracts the comparable ID string from each item; the caller supplies this
-// via the slice-specific lookup mechanism.
-//
-// For list operations that pre-sort their slice, the caller resolves the nextToken offset
-// by scanning for the token in its own slice after this call.
-func paginateSlice(_ int, q url.Values) (int, int) {
-	mr := defaultMaxResults
-
-	if v := q.Get("maxResults"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			mr = n
-		}
-	}
-
-	mr = min(mr, absoluteMaxResults)
-
-	// nextToken is the last-seen item ID; start = 0 by default.
-	// Callers that need cursor resolution call paginateWithToken instead.
-	_ = q.Get("nextToken")
-
-	return mr, 0
-}
 
 // paginateWithToken resolves the cursor-based nextToken to a start offset within ids.
 // ids must be sorted in the same order as the slice being paginated.

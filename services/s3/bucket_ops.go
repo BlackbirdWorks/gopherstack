@@ -889,7 +889,18 @@ func (h *S3Handler) listObjectVersions(
 		EncodingType:        encodingType,
 	}
 
-	// Map SDK types to XML
+	mapListVersionsOutput(&resp, out, encodingType)
+
+	httputils.WriteXML(ctx, w, http.StatusOK, resp)
+}
+
+// mapListVersionsOutput maps the backend ListObjectVersions output (SDK types)
+// into the XML response, applying the requested encoding type to keys/prefixes.
+func mapListVersionsOutput(
+	resp *ListVersionsResult,
+	out *s3.ListObjectVersionsOutput,
+	encodingType string,
+) {
 	for _, v := range out.Versions {
 		size := int64(0)
 		if v.Size != nil {
@@ -933,8 +944,6 @@ func (h *S3Handler) listObjectVersions(
 			CommonPrefixXML{Prefix: encodeListKey(encodingType, aws.ToString(cp.Prefix))},
 		)
 	}
-
-	httputils.WriteXML(ctx, w, http.StatusOK, resp)
 }
 
 // validCannedACLs is the complete set of canned ACL strings that AWS S3 accepts

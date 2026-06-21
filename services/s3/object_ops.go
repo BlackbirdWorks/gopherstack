@@ -544,21 +544,7 @@ func (h *S3Handler) copyObject(
 		Metadata:    userMeta,
 		ContentType: contentType,
 	}
-
-	if taggingReplace {
-		putInput.Tagging = aws.String(tagging)
-	} else {
-		// COPY directive (default): preserve source tags on destination.
-		srcBucket, srcKey, _, ok := parseCopySource(r.Header.Get("X-Amz-Copy-Source"))
-		if ok {
-			if tagOut, tagErr := h.Backend.GetObjectTagging(ctx, &s3.GetObjectTaggingInput{
-				Bucket: aws.String(srcBucket),
-				Key:    aws.String(srcKey),
-			}); tagErr == nil && len(tagOut.TagSet) > 0 {
-				putInput.Tagging = aws.String(tagSetToQueryString(tagOut.TagSet))
-			}
-		}
-	}
+	h.resolveCopyTagging(ctx, r, putInput, tagging, taggingReplace)
 
 	destVer, err := h.Backend.PutObject(ctx, putInput)
 	if err != nil {
@@ -567,6 +553,48 @@ func (h *S3Handler) copyObject(
 		return
 	}
 
+	h.writeCopyResponse(ctx, w, destBucket, destKey, srcVer, destVer)
+}
+
+// resolveCopyTagging sets the destination tagging on putInput. When the request
+// uses the REPLACE directive the supplied tagging is applied; otherwise (COPY
+// directive, the default) the source object's tags are preserved.
+func (h *S3Handler) resolveCopyTagging(
+	ctx context.Context,
+	r *http.Request,
+	putInput *s3.PutObjectInput,
+	tagging string,
+	taggingReplace bool,
+) {
+	if taggingReplace {
+		putInput.Tagging = aws.String(tagging)
+
+		return
+	}
+
+	srcBucket, srcKey, _, ok := parseCopySource(r.Header.Get("X-Amz-Copy-Source"))
+	if !ok {
+		return
+	}
+
+	tagOut, tagErr := h.Backend.GetObjectTagging(ctx, &s3.GetObjectTaggingInput{
+		Bucket: aws.String(srcBucket),
+		Key:    aws.String(srcKey),
+	})
+	if tagErr == nil && len(tagOut.TagSet) > 0 {
+		putInput.Tagging = aws.String(tagSetToQueryString(tagOut.TagSet))
+	}
+}
+
+// writeCopyResponse emits version headers, dispatches the copy notification, and
+// renders the CopyObjectResult body for a successful CopyObject.
+func (h *S3Handler) writeCopyResponse(
+	ctx context.Context,
+	w http.ResponseWriter,
+	destBucket, destKey string,
+	srcVer *s3.GetObjectOutput,
+	destVer *s3.PutObjectOutput,
+) {
 	if destVer.VersionId != nil && *destVer.VersionId != NullVersion {
 		w.Header().Set("X-Amz-Version-Id", *destVer.VersionId)
 	}

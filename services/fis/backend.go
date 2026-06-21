@@ -469,56 +469,88 @@ func validateTargets(targets map[string]experimentTemplateTargetDTO) error {
 }
 
 // validateActions validates the action map.
-func validateActions(actions map[string]experimentTemplateActionDTO, targets map[string]experimentTemplateTargetDTO) error {
+func validateActions(
+	actions map[string]experimentTemplateActionDTO,
+	targets map[string]experimentTemplateTargetDTO,
+) error {
 	for name, action := range actions {
-		if strings.TrimSpace(action.ActionID) == "" {
-			return fmt.Errorf("%w: action %q: actionId is required", ErrValidation, name)
-		}
-
-		// Validate that startAfter references valid action names.
-		for _, depName := range action.StartAfter {
-			if _, ok := actions[depName]; !ok {
-				return fmt.Errorf(
-					"%w: action %q: startAfter references undefined action %q",
-					ErrValidation, name, depName,
-				)
-			}
-		}
-
-		// Validate target references.
-		for _, tgtName := range action.Targets {
-			if _, ok := targets[tgtName]; !ok {
-				return fmt.Errorf(
-					"%w: action %q references undefined target %q",
-					ErrValidation, name, tgtName,
-				)
-			}
-		}
-
-		// aws:fis:wait requires duration.
-		if action.ActionID == actionIDWait {
-			if strings.TrimSpace(action.Parameters["duration"]) == "" {
-				return fmt.Errorf(
-					"%w: action %q: %s requires the duration parameter",
-					ErrValidation, name, actionIDWait,
-				)
-			}
-		}
-
-		// Validate duration parameter format when present.
-		if dur, ok := action.Parameters["duration"]; ok && dur != "" {
-			if !isValidISODuration(dur) {
-				return fmt.Errorf(
-					"%w: action %q: duration parameter %q is not a valid ISO 8601 duration",
-					ErrValidation, name, dur,
-				)
-			}
+		if err := validateAction(name, action, actions, targets); err != nil {
+			return err
 		}
 	}
 
 	// Detect cycles in startAfter dependencies.
 	if err := detectActionCycles(actions); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+// validateAction validates a single action's identifier, references, and parameters.
+func validateAction(
+	name string,
+	action experimentTemplateActionDTO,
+	actions map[string]experimentTemplateActionDTO,
+	targets map[string]experimentTemplateTargetDTO,
+) error {
+	if strings.TrimSpace(action.ActionID) == "" {
+		return fmt.Errorf("%w: action %q: actionId is required", ErrValidation, name)
+	}
+
+	if err := validateActionReferences(name, action, actions, targets); err != nil {
+		return err
+	}
+
+	return validateActionDuration(name, action)
+}
+
+// validateActionReferences validates an action's startAfter and target references.
+func validateActionReferences(
+	name string,
+	action experimentTemplateActionDTO,
+	actions map[string]experimentTemplateActionDTO,
+	targets map[string]experimentTemplateTargetDTO,
+) error {
+	for _, depName := range action.StartAfter {
+		if _, ok := actions[depName]; !ok {
+			return fmt.Errorf(
+				"%w: action %q: startAfter references undefined action %q",
+				ErrValidation, name, depName,
+			)
+		}
+	}
+
+	for _, tgtName := range action.Targets {
+		if _, ok := targets[tgtName]; !ok {
+			return fmt.Errorf(
+				"%w: action %q references undefined target %q",
+				ErrValidation, name, tgtName,
+			)
+		}
+	}
+
+	return nil
+}
+
+// validateActionDuration validates the duration parameter requirements for an action.
+func validateActionDuration(name string, action experimentTemplateActionDTO) error {
+	// aws:fis:wait requires duration.
+	if action.ActionID == actionIDWait && strings.TrimSpace(action.Parameters["duration"]) == "" {
+		return fmt.Errorf(
+			"%w: action %q: %s requires the duration parameter",
+			ErrValidation, name, actionIDWait,
+		)
+	}
+
+	// Validate duration parameter format when present.
+	if dur, ok := action.Parameters["duration"]; ok && dur != "" {
+		if !isValidISODuration(dur) {
+			return fmt.Errorf(
+				"%w: action %q: duration parameter %q is not a valid ISO 8601 duration",
+				ErrValidation, name, dur,
+			)
+		}
 	}
 
 	return nil

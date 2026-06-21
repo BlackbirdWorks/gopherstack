@@ -19,4 +19,6 @@ const (
 	aclPrivate                = "private"
 	errCodeInternalError      = "InternalError"
 	csvFileHeaderInfoUse      = "USE"
+	errNoSuchKey              = "NoSuchKey"
+	errInvalidRequest         = "InvalidRequest"
 )

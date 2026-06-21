@@ -825,7 +825,7 @@ func (h *Handler) handleGetFile(body []byte) (any, error) {
 		keyBlobID:     f.BlobID,
 		"commitId":    f.CommitSpecifier,
 		keyFilePath:   f.FilePath,
-		keyFileMode:  f.FileMode,
+		keyFileMode:   f.FileMode,
 		"fileContent": base64.StdEncoding.EncodeToString(f.FileContent),
 		"fileSize":    len(f.FileContent),
 	}, nil
@@ -859,7 +859,7 @@ func (h *Handler) handleGetFolder(body []byte) (any, error) {
 			"absolutePath": f.FilePath,
 			"relativePath": f.FilePath,
 			"blobId":       f.BlobID,
-			keyFileMode:   fileMode,
+			keyFileMode:    fileMode,
 		})
 	}
 
