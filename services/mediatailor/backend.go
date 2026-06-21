@@ -2,7 +2,6 @@ package mediatailor
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"maps"
 	"sort"
@@ -11,6 +10,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 const (
@@ -262,15 +262,13 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Region:                 b.region,
 	}
 
-	data, _ := json.Marshal(s)
-
-	return data
+	return persistence.MarshalSnapshot(ctx, "mediatailor", s)
 }
 
 // Restore deserializes state from JSON.
 func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var s snapshot
-	if err := json.Unmarshal(data, &s); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "mediatailor", data, &s); err != nil {
 		return err
 	}
 

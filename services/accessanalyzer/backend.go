@@ -2,7 +2,6 @@ package accessanalyzer
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"maps"
 	"sort"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 var (
@@ -551,14 +551,12 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Tags         map[string]map[string]string       `json:"tags"`
 	}
 
-	data, _ := json.Marshal(snap{
+	return persistence.MarshalSnapshot(ctx, "accessanalyzer", snap{
 		Analyzers:    b.analyzers,
 		ArchiveRules: b.archiveRules,
 		Findings:     b.findings,
 		Tags:         b.tags,
 	})
-
-	return data
 }
 
 // Restore deserializes backend state from JSON.
@@ -574,7 +572,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	}
 
 	var s snap
-	if err := json.Unmarshal(data, &s); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "accessanalyzer", data, &s); err != nil {
 		return err
 	}
 

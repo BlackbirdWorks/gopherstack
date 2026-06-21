@@ -27,7 +27,7 @@ type mockPersistable struct {
 	mu         sync.Mutex
 }
 
-func (m *mockPersistable) Snapshot(ctx context.Context) []byte {
+func (m *mockPersistable) Snapshot(_ context.Context) []byte {
 	m.snapshots.Add(1)
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -35,7 +35,7 @@ func (m *mockPersistable) Snapshot(ctx context.Context) []byte {
 	return m.data
 }
 
-func (m *mockPersistable) Restore(ctx context.Context, data []byte) error {
+func (m *mockPersistable) Restore(_ context.Context, data []byte) error {
 	m.restores.Add(1)
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -809,14 +809,14 @@ type statefulPersistable struct {
 	mu    sync.Mutex
 }
 
-func (s *statefulPersistable) Snapshot(ctx context.Context) []byte {
+func (s *statefulPersistable) Snapshot(_ context.Context) []byte {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	return []byte(`{"state":"` + s.state + `"}`)
 }
 
-func (s *statefulPersistable) Restore(ctx context.Context, data []byte) error {
+func (s *statefulPersistable) Restore(_ context.Context, data []byte) error {
 	var v struct {
 		State string `json:"state"`
 	}

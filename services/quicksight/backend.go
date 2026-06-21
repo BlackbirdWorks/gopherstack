@@ -2,7 +2,6 @@ package quicksight
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 const (
@@ -377,15 +377,13 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Tags:           b.tags,
 	}
 
-	data, _ := json.Marshal(s)
-
-	return data
+	return persistence.MarshalSnapshot(ctx, "quicksight", s)
 }
 
 // Restore deserializes backend state from JSON.
 func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var s state
-	if err := json.Unmarshal(data, &s); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "quicksight", data, &s); err != nil {
 		return fmt.Errorf("quicksight: restore: %w", err)
 	}
 

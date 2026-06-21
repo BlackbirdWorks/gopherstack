@@ -2,7 +2,6 @@ package mediapackage
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"maps"
 	"sort"
@@ -14,6 +13,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 const (
@@ -246,15 +246,13 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Tags:                    b.tags,
 	}
 
-	data, _ := json.Marshal(snap)
-
-	return data
+	return persistence.MarshalSnapshot(ctx, "mediapackage", snap)
 }
 
 // Restore loads backend state from a JSON snapshot.
 func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap snapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "mediapackage", data, &snap); err != nil {
 		return err
 	}
 

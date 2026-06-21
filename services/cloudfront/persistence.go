@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 type backendSnapshot struct {
@@ -210,7 +211,7 @@ func rebuildByNameIndexes(snap *backendSnapshot) map[string]map[string]string {
 func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "cloudfront", data, &snap); err != nil {
 		return err
 	}
 

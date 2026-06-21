@@ -6,6 +6,7 @@ import (
 	"maps"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 // Snapshottable is an optional interface that a StorageBackend may implement to
@@ -250,8 +251,7 @@ func (b *InMemoryBackend) snapshotMapsLocked(snap *backendSnapshot) {
 func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
-	//nolint:musttag // nested types lack tags
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "iotwireless", data, &snap); err != nil {
 		return err
 	}
 

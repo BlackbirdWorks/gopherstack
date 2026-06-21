@@ -2,9 +2,9 @@ package sqs
 
 import (
 	"context"
-	"encoding/json"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -106,12 +106,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Region:    b.region,
 	}
 
-	data, err := json.Marshal(snap)
-	if err != nil {
-		return nil
-	}
-
-	return data
+	return persistence.MarshalSnapshot(ctx, "sqs", snap)
 }
 
 // Restore loads backend state from a JSON snapshot.
@@ -121,7 +116,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "sqs", data, &snap); err != nil {
 		return err
 	}
 

@@ -2,8 +2,9 @@ package codepipeline
 
 import (
 	"context"
-	"encoding/json"
 	"maps"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 // customActionTypeEntry is the JSON-serialisable representation of a custom action type entry.
@@ -155,9 +156,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	}
 
 	// Marshal can only fail for unsupported types (e.g. channels/functions) which are not present here.
-	data, _ := json.Marshal(&snap)
-
-	return data
+	return persistence.MarshalSnapshot(ctx, "codepipeline", &snap)
 }
 
 // Restore loads backend state from a JSON snapshot produced by Snapshot.
@@ -165,7 +164,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "codepipeline", data, &snap); err != nil {
 		return err
 	}
 

@@ -8,6 +8,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 type dbSnapshot struct {
@@ -54,7 +55,7 @@ func (db *InMemoryDB) Snapshot(ctx context.Context) []byte {
 func (db *InMemoryDB) Restore(ctx context.Context, data []byte) error {
 	var snap dbSnapshot
 
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "dynamodb", data, &snap); err != nil {
 		return err
 	}
 

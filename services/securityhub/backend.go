@@ -2,7 +2,6 @@ package securityhub
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -10,6 +9,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 const (
@@ -470,14 +470,12 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		RecommendedPoliciesV2: b.recommendedPoliciesV2,
 	}
 
-	data, _ := json.Marshal(snap)
-
-	return data
+	return persistence.MarshalSnapshot(ctx, "securityhub", snap)
 }
 
 func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error { //nolint:funlen // existing issue.
 	var snap snapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "securityhub", data, &snap); err != nil {
 		return err
 	}
 

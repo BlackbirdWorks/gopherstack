@@ -33,7 +33,7 @@ type entry struct {
 type Manager struct {
 	store   Store
 	entries map[string]*entry
-	baseCtx context.Context //nolint:containedctx // lifecycle ctx for the async (debounce) save path, which has no request ctx.
+	baseCtx context.Context //nolint:containedctx // lifecycle ctx for the async (debounce) save path; no request ctx.
 	mu      sync.RWMutex
 }
 

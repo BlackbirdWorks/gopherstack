@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 // clusterExtra holds the unexported cluster fields that are persisted separately.
@@ -178,7 +179,7 @@ func extractClusterExtra(c *Cluster) *clusterExtra {
 // Restore loads backend state from a JSON snapshot produced by Snapshot.
 func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "emr", data, &snap); err != nil {
 		return err
 	}
 

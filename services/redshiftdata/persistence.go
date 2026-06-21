@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 // regionSnapshot holds the serialized state for a single region.
@@ -63,7 +64,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "redshiftdata", data, &snap); err != nil {
 		return err
 	}
 

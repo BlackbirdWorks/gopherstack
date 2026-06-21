@@ -2,9 +2,9 @@ package elasticache
 
 import (
 	"context"
-	"encoding/json"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -96,12 +96,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Region:                    b.region,
 	}
 
-	data, err := json.Marshal(snap)
-	if err != nil {
-		return nil
-	}
-
-	return data
+	return persistence.MarshalSnapshot(ctx, "elasticache", snap)
 }
 
 // restoreClusters converts the snapshot's clusterSnapshot nested map into Cluster objects.
@@ -189,7 +184,7 @@ func (b *InMemoryBackend) restoreNewOpMaps(snap *backendSnapshot) {
 func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "elasticache", data, &snap); err != nil {
 		return err
 	}
 

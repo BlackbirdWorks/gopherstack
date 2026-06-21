@@ -2,7 +2,8 @@ package ecs
 
 import (
 	"context"
-	"encoding/json"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 // Snapshottable is an optional interface that a Backend may implement to
@@ -187,14 +188,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		TaskProtections:        snapshotTaskProtections(b.taskProtections),
 	}
 
-	data, err := json.Marshal(snap)
-	if err != nil {
-		// Marshalling a pure in-memory struct should never fail.
-		// Return nil so callers can detect and skip persistence.
-		return nil
-	}
-
-	return data
+	return persistence.MarshalSnapshot(ctx, "ecs", snap)
 }
 
 // initSnapshotDefaults ensures all maps in the snapshot are non-nil so callers
@@ -252,7 +246,7 @@ func initSnapshotDefaults(snap *backendSnapshot) {
 // Restore loads backend state from a JSON snapshot.
 func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "ecs", data, &snap); err != nil {
 		return err
 	}
 

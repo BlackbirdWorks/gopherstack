@@ -2,7 +2,6 @@ package rolesanywhere
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"maps"
 	"sort"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 // regionContextKey is the context key under which the per-request AWS region is stored.
@@ -1152,7 +1152,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		NotificationSettings map[string]map[string][]NotificationSetting `json:"notificationSettings"`
 	}
 
-	data, _ := json.Marshal(snap{
+	return persistence.MarshalSnapshot(ctx, "rolesanywhere", snap{
 		TrustAnchors:         b.trustAnchors,
 		Profiles:             b.profiles,
 		Tags:                 b.tags,
@@ -1161,8 +1161,6 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		AttributeMappings:    b.attributeMappings,
 		NotificationSettings: b.notificationSettings,
 	})
-
-	return data
 }
 
 // Restore deserializes backend state from JSON.
@@ -1181,7 +1179,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	}
 
 	var s snap
-	if err := json.Unmarshal(data, &s); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "rolesanywhere", data, &s); err != nil {
 		return err
 	}
 

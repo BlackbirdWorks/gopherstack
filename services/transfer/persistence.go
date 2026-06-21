@@ -6,6 +6,7 @@ import (
 	"maps"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 // backendSnapshot is the serialisable representation of InMemoryBackend state.
@@ -197,7 +198,7 @@ func snapshotTagsStore(src map[string]map[string]string) map[string]map[string]s
 func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "transfer", data, &snap); err != nil {
 		return err
 	}
 

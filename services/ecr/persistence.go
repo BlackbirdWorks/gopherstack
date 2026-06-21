@@ -2,8 +2,9 @@ package ecr
 
 import (
 	"context"
-	"encoding/json"
 	"maps"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 type backendSnapshot struct {
@@ -50,19 +51,14 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		SigningConfig:               copySigningSettings(b.signingConfig),
 	}
 
-	data, err := json.Marshal(snap)
-	if err != nil {
-		return nil
-	}
-
-	return data
+	return persistence.MarshalSnapshot(ctx, "ecr", snap)
 }
 
 // Restore loads backend state from a JSON snapshot.
 // It implements persistence.Persistable.
 func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "ecr", data, &snap); err != nil {
 		return err
 	}
 

@@ -6,6 +6,7 @@ import (
 	"maps"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 type backendSnapshot struct {
@@ -118,7 +119,7 @@ func cloneExecution(e *WorkflowExecution) *WorkflowExecution {
 func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "swf", data, &snap); err != nil {
 		return err
 	}
 

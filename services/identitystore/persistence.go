@@ -2,7 +2,8 @@ package identitystore
 
 import (
 	"context"
-	"encoding/json"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 type backendSnapshot struct {
@@ -42,16 +43,14 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Counter:     b.counter,
 	}
 
-	data, _ := json.Marshal(snap)
-
-	return data
+	return persistence.MarshalSnapshot(ctx, "identitystore", snap)
 }
 
 // Restore loads backend state from a JSON snapshot.
 func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "identitystore", data, &snap); err != nil {
 		return err
 	}
 

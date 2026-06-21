@@ -6,6 +6,7 @@ import (
 	"maps"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 // backendSnapshot persists the backend state. All resource maps are nested by
@@ -182,7 +183,7 @@ func snapshotReserved(src map[string]map[string]*ReservedInstance) map[string]ma
 func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "elasticsearch", data, &snap); err != nil {
 		return err
 	}
 

@@ -4,10 +4,11 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/x509"
-	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 var (
@@ -84,7 +85,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		cas[region] = regionMap
 	}
 
-	data, err := json.Marshal(backendSnapshot{
+	return persistence.MarshalSnapshot(ctx, "acmpca", backendSnapshot{
 		CAs:          cas,
 		Certs:        b.certs,
 		Permissions:  b.permissions,
@@ -93,18 +94,13 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		AccountID:    b.accountID,
 		Region:       b.region,
 	})
-	if err != nil {
-		return nil
-	}
-
-	return data
 }
 
 // Restore loads backend state from a JSON snapshot.
 func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "acmpca", data, &snap); err != nil {
 		return err
 	}
 

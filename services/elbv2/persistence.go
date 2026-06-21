@@ -2,9 +2,10 @@ package elbv2
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 // errBackendNotInMemory is returned when the Handler's backend cannot be cast to *InMemoryBackend.
@@ -40,12 +41,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Region:        b.region,
 	}
 
-	data, err := json.Marshal(snap)
-	if err != nil {
-		return nil
-	}
-
-	return data
+	return persistence.MarshalSnapshot(ctx, "elbv2", snap)
 }
 
 // Restore loads backend state from a JSON snapshot.
@@ -53,7 +49,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "elbv2", data, &snap); err != nil {
 		return err
 	}
 

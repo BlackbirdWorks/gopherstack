@@ -1882,7 +1882,7 @@ func run(ctx context.Context, cli CLI) error {
 					"panic", fmt.Sprintf("%v", r))
 			}
 		}()
-		startPurgeWorker(janitorCtx, log, cli.globalConfig, services)
+		startPurgeWorker(janitorCtx, cli.globalConfig, services)
 	}()
 
 	inMemMux.Handle("/", e)
@@ -2969,13 +2969,12 @@ func getMostRecentServiceProviders() []service.Provider {
 // It dynamically reads the TTL from the global configuration, allowing runtime updates.
 func startPurgeWorker(
 	ctx context.Context,
-	log *slog.Logger,
 	gcfg *config.GlobalConfig,
 	svcs []service.Registerable,
 ) {
 	// Tag this background routine so its records are attributable (worker=purge-worker).
 	ctx = logger.WithWorker(ctx, "purge", "worker")
-	log = logger.Load(ctx)
+	log := logger.Load(ctx)
 
 	const (
 		purgeTimeout  = 30 * time.Second

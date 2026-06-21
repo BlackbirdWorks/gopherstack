@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"maps"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 // backendSnapshot is the serialisable form of InMemoryBackend state.
@@ -119,7 +121,7 @@ func (b *InMemoryBackend) Snapshot() ([]byte, error) {
 // Restore deserialises a snapshot produced by Snapshot back into the backend.
 func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "lakeformation", data, &snap); err != nil {
 		return err
 	}
 

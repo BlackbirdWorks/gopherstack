@@ -2,7 +2,6 @@ package detective
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"maps"
 	"sort"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 const (
@@ -1186,7 +1186,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	data, _ := json.Marshal(snapshot{
+	return persistence.MarshalSnapshot(ctx, "detective", snapshot{
 		Graphs:         b.graphs,
 		Members:        b.members,
 		Tags:           b.tags,
@@ -1195,8 +1195,6 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		OrgAdmins:      b.orgAdmins,
 		OrgConfigs:     b.orgConfigs,
 	})
-
-	return data
 }
 
 // Restore deserializes backend state from a snapshot.
@@ -1205,7 +1203,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	defer b.mu.Unlock()
 
 	var snap snapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "detective", data, &snap); err != nil {
 		return err
 	}
 

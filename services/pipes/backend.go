@@ -3,7 +3,6 @@ package pipes
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"maps"
 	"regexp"
@@ -14,6 +13,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 const (
@@ -1606,12 +1606,8 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Region:              b.region,
 		EnrichmentCallCount: b.enrichmentCallCount,
 	}
-	data, err := json.Marshal(s)
-	if err != nil {
-		return nil
-	}
 
-	return data
+	return persistence.MarshalSnapshot(ctx, "pipes", s)
 }
 
 func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
@@ -1622,7 +1618,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		Region              string                      `json:"region"`
 	}
 	var s snap
-	if err := json.Unmarshal(data, &s); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "pipes", data, &s); err != nil {
 		return err
 	}
 	b.mu.Lock("Restore")

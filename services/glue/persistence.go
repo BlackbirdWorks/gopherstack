@@ -2,8 +2,9 @@ package glue
 
 import (
 	"context"
-	"encoding/json"
 	"maps"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 type backendSnapshot struct {
@@ -106,14 +107,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	}
 	addExtendedSnapshotState(&snap, b)
 
-	data, err := json.Marshal(snap)
-	if err != nil {
-		// Marshal failure is unexpected for a pure in-memory struct.
-		// Return nil to indicate no snapshot is available.
-		return nil
-	}
-
-	return data
+	return persistence.MarshalSnapshot(ctx, "glue", snap)
 }
 
 func addExtendedSnapshotState(snap *backendSnapshot, b *InMemoryBackend) {
@@ -149,7 +143,7 @@ func addExtendedSnapshotState(snap *backendSnapshot, b *InMemoryBackend) {
 // Restore loads backend state from a JSON snapshot.
 func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "glue", data, &snap); err != nil {
 		return err
 	}
 

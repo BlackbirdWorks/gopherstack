@@ -13,6 +13,8 @@ import (
 
 // snapshotHandler snapshots h's backend and returns a fresh handler plus the snapshot bytes.
 func snapshotHandler(t *testing.T, h *opensearch.Handler) (*opensearch.Handler, []byte) {
+	t.Helper()
+
 	snap := h.Backend.Snapshot(t.Context())
 	fresh := opensearch.NewInMemoryBackend("123456789012", "us-east-1")
 	h2 := opensearch.NewHandler(fresh)

@@ -2,7 +2,8 @@ package cloudtrail
 
 import (
 	"context"
-	"encoding/json"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 type backendSnapshot struct {
@@ -47,12 +48,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		ImportCounter:    b.importCounter,
 	}
 
-	data, err := json.Marshal(snap)
-	if err != nil {
-		return nil
-	}
-
-	return data
+	return persistence.MarshalSnapshot(ctx, "cloudtrail", snap)
 }
 
 // Restore loads backend state from a JSON snapshot.
@@ -60,7 +56,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "cloudtrail", data, &snap); err != nil {
 		return err
 	}
 

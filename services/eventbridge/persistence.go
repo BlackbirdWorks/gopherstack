@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -64,7 +65,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "eventbridge", data, &snap); err != nil {
 		return err
 	}
 
@@ -195,12 +196,7 @@ func (h *Handler) Snapshot(ctx context.Context) []byte {
 		Tags:    tagMap,
 	}
 
-	data, err := json.Marshal(snap)
-	if err != nil {
-		return nil
-	}
-
-	return data
+	return persistence.MarshalSnapshot(ctx, "eventbridge", snap)
 }
 
 // Restore implements persistence.Persistable by restoring both the backend
@@ -208,7 +204,7 @@ func (h *Handler) Snapshot(ctx context.Context) []byte {
 func (h *Handler) Restore(ctx context.Context, data []byte) error {
 	// Attempt to decode as the combined handlerSnapshot format first.
 	var snap handlerSnapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "eventbridge", data, &snap); err != nil {
 		return err
 	}
 

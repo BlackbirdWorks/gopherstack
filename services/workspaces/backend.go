@@ -3,7 +3,6 @@ package workspaces
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"maps"
 	"sort"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 const (
@@ -825,12 +825,10 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	data, _ := json.Marshal(backendSnapshot{
+	return persistence.MarshalSnapshot(ctx, "workspaces", backendSnapshot{
 		Workspaces: b.workspaces,
 		Tags:       b.tags,
 	})
-
-	return data
 }
 
 // Restore deserializes backend state from a snapshot.
@@ -839,7 +837,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	defer b.mu.Unlock()
 
 	var snap backendSnapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "workspaces", data, &snap); err != nil {
 		return err
 	}
 

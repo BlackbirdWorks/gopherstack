@@ -2,7 +2,6 @@ package waf
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"maps"
 	"sort"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 const (
@@ -1864,7 +1864,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	data, _ := json.Marshal(backendSnapshot{
+	return persistence.MarshalSnapshot(ctx, "waf", backendSnapshot{
 		ChangeTokens:          b.changeTokens,
 		WebACLs:               b.webACLs,
 		Rules:                 b.rules,
@@ -1883,8 +1883,6 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		PermissionPolicies:    b.permissionPolicies,
 		Tags:                  b.tags,
 	})
-
-	return data
 }
 
 // Restore deserializes backend state from JSON.
@@ -1893,7 +1891,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	defer b.mu.Unlock()
 
 	var s backendSnapshot
-	if err := json.Unmarshal(data, &s); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "waf", data, &s); err != nil {
 		return err
 	}
 

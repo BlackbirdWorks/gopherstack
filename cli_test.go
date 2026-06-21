@@ -900,7 +900,7 @@ type testPersistable struct {
 	mu         sync.Mutex
 }
 
-func (p *testPersistable) Snapshot(ctx context.Context) []byte {
+func (p *testPersistable) Snapshot(_ context.Context) []byte {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -910,7 +910,7 @@ func (p *testPersistable) Snapshot(ctx context.Context) []byte {
 	return cp
 }
 
-func (p *testPersistable) Restore(ctx context.Context, data []byte) error {
+func (p *testPersistable) Restore(_ context.Context, data []byte) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -943,6 +943,8 @@ func (p *testPersistable) Data() []byte {
 
 // newTestManager creates a persistence.Manager with a NullStore (no disk I/O).
 func newTestManager(t *testing.T, services map[string]*testPersistable) *persistence.Manager {
+	t.Helper()
+
 	mgr := persistence.NewManager(t.Context(), persistence.NullStore{})
 	for name, svc := range services {
 		mgr.Register(name, svc)

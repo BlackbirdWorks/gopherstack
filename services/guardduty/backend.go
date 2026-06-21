@@ -2,7 +2,6 @@ package guardduty
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"maps"
 	"sort"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 const (
@@ -1057,7 +1057,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		MemberSeq              int64                                        `json:"memberSeq"`
 	}
 
-	data, _ := json.Marshal(snap{
+	return persistence.MarshalSnapshot(ctx, "guardduty", snap{
 		Detectors:              b.detectors,
 		Filters:                b.filters,
 		Findings:               b.findings,
@@ -1077,8 +1077,6 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		TrustedEntitySets:      b.trustedEntitySets,
 		MemberSeq:              b.memberSeq,
 	})
-
-	return data
 }
 
 // Restore deserializes backend state from JSON.
@@ -1108,7 +1106,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	}
 
 	var s snap
-	if err := json.Unmarshal(data, &s); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "guardduty", data, &s); err != nil {
 		return err
 	}
 

@@ -2,7 +2,6 @@ package apprunner
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"maps"
 	"sort"
@@ -15,6 +14,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 const (
@@ -811,7 +811,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	data, _ := json.Marshal(snapshot{
+	return persistence.MarshalSnapshot(ctx, "apprunner", snapshot{
 		Services:                  b.services,
 		AutoScalingConfigurations: b.autoScalingConfigs,
 		Connections:               b.connections,
@@ -821,8 +821,6 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		CustomDomains:             b.customDomains,
 		Tags:                      b.tags,
 	})
-
-	return data
 }
 
 // Restore deserializes backend state from a snapshot.
@@ -831,7 +829,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error { //no
 	defer b.mu.Unlock()
 
 	var snap snapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "apprunner", data, &snap); err != nil {
 		return err
 	}
 

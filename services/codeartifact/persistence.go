@@ -2,7 +2,8 @@ package codeartifact
 
 import (
 	"context"
-	"encoding/json"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 // backendSnapshot mirrors the region-nested backend maps (outer key = region).
@@ -38,12 +39,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Region:              b.region,
 	}
 
-	data, err := json.Marshal(snap)
-	if err != nil {
-		return nil
-	}
-
-	return data
+	return persistence.MarshalSnapshot(ctx, "codeartifact", snap)
 }
 
 // Restore loads backend state from a JSON snapshot.
@@ -51,7 +47,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "codeartifact", data, &snap); err != nil {
 		return err
 	}
 

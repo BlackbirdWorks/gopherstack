@@ -2,7 +2,6 @@ package rekognition
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 const (
@@ -852,7 +852,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		tagsCopy[arn] = tc
 	}
 
-	data, _ := json.Marshal(&snapshot{
+	return persistence.MarshalSnapshot(ctx, "rekognition", &snapshot{
 		Collections:      colls,
 		Faces:            faces,
 		StreamProcessors: procs,
@@ -860,15 +860,13 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		AccountID:        b.accountID,
 		Region:           b.region,
 	})
-
-	return data
 }
 
 // Restore deserializes backend state from JSON.
 func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var s snapshot
 
-	if err := json.Unmarshal(data, &s); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "rekognition", data, &s); err != nil {
 		return err
 	}
 

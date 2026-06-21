@@ -2,13 +2,13 @@ package appstream
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"maps"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 const (
@@ -666,7 +666,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	data, _ := json.Marshal(backendSnapshot{ //nolint:musttag // existing issue.
+	return persistence.MarshalSnapshot(ctx, "appstream", backendSnapshot{
 		Stacks:               b.stacks,
 		Fleets:               b.fleets,
 		Associations:         b.associations,
@@ -692,20 +692,18 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		UsageReport:          b.usageReport,
 		Themes:               b.themes,
 	})
-
-	return data
 }
 
 // Restore deserializes backend state from a snapshot.
-func (b *InMemoryBackend) Restore(
+func (b *InMemoryBackend) Restore( //nolint:gocognit,cyclop,funlen // existing issue.
 	ctx context.Context,
 	data []byte,
-) error { //nolint:gocognit,cyclop,funlen // existing issue.
+) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
 	var snap backendSnapshot
-	if err := json.Unmarshal(data, &snap); err != nil { //nolint:musttag // existing issue.
+	if err := persistence.UnmarshalSnapshot(ctx, "appstream", data, &snap); err != nil {
 		return err
 	}
 

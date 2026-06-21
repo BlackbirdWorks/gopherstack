@@ -2,7 +2,6 @@ package inspector2
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"maps"
 	"sort"
@@ -13,6 +12,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 const (
@@ -848,9 +848,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Region:    b.region,
 	}
 
-	data, _ := json.Marshal(snap)
-
-	return data
+	return persistence.MarshalSnapshot(ctx, "inspector2", snap)
 }
 
 // Restore deserializes the backend state.
@@ -859,7 +857,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	defer b.mu.Unlock()
 
 	var snap backendSnapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "inspector2", data, &snap); err != nil {
 		return fmt.Errorf("inspector2: restore: %w", err)
 	}
 

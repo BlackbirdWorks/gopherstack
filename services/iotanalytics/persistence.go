@@ -6,6 +6,7 @@ import (
 	"errors"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 // ErrNoSnapshot is returned when a backend does not support snapshot/restore.
@@ -60,7 +61,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "iotanalytics", data, &snap); err != nil {
 		return err
 	}
 

@@ -3,6 +3,7 @@ package dataplane
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"io"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
@@ -167,7 +168,9 @@ type AttrListServer struct {
 
 // NewAttrListServerForTest builds a server wrapper whose attribute-list id
 // allocations can be inspected by tests.
-func NewAttrListServerForTest() *AttrListServer { return &AttrListServer{s: NewServer(nil, nil)} }
+func NewAttrListServerForTest() *AttrListServer {
+	return &AttrListServer{s: NewServer(context.TODO(), nil)}
+}
 
 // WriteAttributeProjection emits an attribute-projection payload via the wrapped
 // server, so the test can then resolve ordinals through Names.

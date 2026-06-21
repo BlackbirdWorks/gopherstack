@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"maps"
 	"sort"
@@ -17,6 +16,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 // regionContextKey is the context key under which the per-request AWS region is stored.
@@ -164,9 +164,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	data, _ := json.Marshal(b.regions)
-
-	return data
+	return persistence.MarshalSnapshot(ctx, "omics", b.regions)
 }
 
 // Restore deserializes backend state from JSON.
@@ -174,7 +172,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	return json.Unmarshal(data, &b.regions)
+	return persistence.UnmarshalSnapshot(ctx, "omics", data, &b.regions)
 }
 
 // region returns the regionState for the given region, creating it if needed.

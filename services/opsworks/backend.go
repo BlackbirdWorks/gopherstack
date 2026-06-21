@@ -2,7 +2,6 @@ package opsworks
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"maps"
 	"strings"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 const (
@@ -265,7 +265,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	data, _ := json.Marshal(snapshot{
+	return persistence.MarshalSnapshot(ctx, "opsworks", snapshot{
 		Stacks:      b.stacks,
 		Layers:      b.layers,
 		Instances:   b.instances,
@@ -274,14 +274,12 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Commands:    b.commands,
 		Tags:        b.tags,
 	})
-
-	return data
 }
 
 // Restore deserializes backend state from a snapshot.
 func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var s snapshot
-	if err := json.Unmarshal(data, &s); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "opsworks", data, &s); err != nil {
 		return err
 	}
 

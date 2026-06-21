@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -52,14 +52,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Region:        b.region,
 	}
 
-	data, err := json.Marshal(snap)
-	if err != nil {
-		logger.Load(b.svcCtx).Warn("persistence: snapshot marshal failed", "service", "stepfunctions", "error", err)
-
-		return nil
-	}
-
-	return data
+	return persistence.MarshalSnapshot(ctx, "stepfunctions", snap)
 }
 
 // Restore loads backend state from a JSON snapshot.
@@ -68,7 +61,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "stepfunctions", data, &snap); err != nil {
 		return err
 	}
 
@@ -176,7 +169,7 @@ func (h *Handler) Snapshot(ctx context.Context) []byte {
 // It restores both the backend state and the handler's tag map.
 func (h *Handler) Restore(ctx context.Context, data []byte) error {
 	var snap handlerSnapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "stepfunctions", data, &snap); err != nil {
 		return err
 	}
 

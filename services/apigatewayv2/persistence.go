@@ -2,7 +2,8 @@ package apigatewayv2
 
 import (
 	"context"
-	"encoding/json"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 // ensureMap returns m if non-nil, otherwise a new empty map of the same type.
@@ -66,12 +67,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		}
 	}
 
-	data, err := json.Marshal(snap)
-	if err != nil {
-		return nil
-	}
-
-	return data
+	return persistence.MarshalSnapshot(ctx, "apigatewayv2", snap)
 }
 
 // restoreAPIData converts a snapshot API entry into a live apiData, initialising any nil maps.
@@ -126,7 +122,7 @@ func restoreAPIData(d *apiDataSnapshot) *apiData {
 func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "apigatewayv2", data, &snap); err != nil {
 		return err
 	}
 

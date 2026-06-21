@@ -2,7 +2,6 @@ package macie2
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"maps"
 	"regexp"
@@ -14,6 +13,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 const (
@@ -953,7 +953,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	data, _ := json.Marshal(snapshot{
+	return persistence.MarshalSnapshot(ctx, "macie2", snapshot{
 		Session:               b.session,
 		AllowLists:            b.allowLists,
 		CustomDataIDs:         b.customDataIDs,
@@ -977,14 +977,12 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		RevealConfig:          b.revealConfig,
 		SensitivityTemplates:  b.sensitivityTemplates,
 	})
-
-	return data
 }
 
 // Restore deserializes backend state from JSON.
 func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap snapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "macie2", data, &snap); err != nil {
 		return err
 	}
 

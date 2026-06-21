@@ -2,8 +2,8 @@ package codedeploy
 
 import (
 	"context"
-	"encoding/json"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -118,16 +118,14 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		snap.GitHubTokens = append(snap.GitHubTokens, name)
 	}
 
-	data, _ := json.Marshal(snap)
-
-	return data
+	return persistence.MarshalSnapshot(ctx, "codedeploy", snap)
 }
 
 // Restore loads backend state from a JSON snapshot produced by Snapshot.
 func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "codedeploy", data, &snap); err != nil {
 		return err
 	}
 
