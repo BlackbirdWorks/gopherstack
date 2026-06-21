@@ -120,7 +120,7 @@ func TestIntegration_ErrorCodes_IAM(t *testing.T) {
 				polName := "conflict-pol-" + uuid.NewString()[:8]
 				polOut, err := client.CreatePolicy(ctx, &iamsdk.CreatePolicyInput{
 					PolicyName:     aws.String(polName),
-					PolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[]}`),
+					PolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`),
 				})
 				require.NoError(t, err)
 
