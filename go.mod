@@ -159,7 +159,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/verifiedpermissions v1.31.4
 	github.com/aws/aws-sdk-go-v2/service/wafv2 v1.71.2
 	github.com/aws/aws-sdk-go-v2/service/xray v1.36.20
-	github.com/github/copilot-sdk/go v1.0.2
 	github.com/moby/moby/api v1.54.2
 	github.com/moby/moby/client v0.4.1
 )
@@ -219,7 +218,6 @@ require (
 
 require (
 	github.com/cedar-policy/cedar-go v1.8.0
-	github.com/google/jsonschema-go v0.4.3 // indirect
 	golang.org/x/exp v0.0.0-20260611194520-c48552f49976 // indirect
 )
 
