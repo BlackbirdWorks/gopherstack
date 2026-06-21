@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"log/slog"
 	"net"
 	"sync"
 	"time"
@@ -83,8 +82,11 @@ type Backend interface {
 // performs the protocol handshake, and serves item operations by delegating to
 // a DynamoDB Backend.
 type Server struct {
-	backend  Backend
-	logger   *slog.Logger
+	backend Backend
+	// baseCtx is the data-plane lifecycle context, tagged worker=dax-dataplane.
+	// The data plane is a raw TCP server with no per-request context, so its
+	// goroutines log via logger.Load(baseCtx) rather than an embedded *slog.Logger.
+	baseCtx  context.Context //nolint:containedctx // lifecycle ctx for the data-plane accept/serve goroutines.
 	ln       net.Listener
 	conns    map[net.Conn]struct{}
 	schemas  map[string]keySchema // table -> key schema cache
@@ -98,15 +100,16 @@ type Server struct {
 }
 
 // NewServer creates a DAX data-plane server backed by the given DynamoDB
-// backend.
-func NewServer(backend Backend, log *slog.Logger) *Server {
-	if log == nil {
-		log = logger.Load(context.Background())
+// backend. ctx is the process lifecycle context; the server tags it
+// worker=dax-dataplane so all data-plane records are attributable.
+func NewServer(ctx context.Context, backend Backend) *Server {
+	if ctx == nil {
+		ctx = context.Background()
 	}
 
 	return &Server{
 		backend:  backend,
-		logger:   log,
+		baseCtx:  logger.WithWorker(ctx, "dax", "dataplane"),
 		conns:    make(map[net.Conn]struct{}),
 		schemas:  make(map[string]keySchema),
 		attrToID: make(map[string]int64),
@@ -166,7 +169,7 @@ func (s *Server) acceptLoop(ln net.Listener) {
 				return
 			}
 
-			s.logger.Debug("dax dataplane accept error", "error", err)
+			logger.Load(s.baseCtx).DebugContext(s.baseCtx, "dax dataplane accept error", "error", err)
 
 			return
 		}
@@ -231,7 +234,7 @@ func (s *Server) serveConn(conn net.Conn) {
 
 	if err := s.readHandshake(r); err != nil {
 		if !errors.Is(err, io.EOF) {
-			s.logger.Debug("dax dataplane handshake failed", "error", err)
+			logger.Load(s.baseCtx).DebugContext(s.baseCtx, "dax dataplane handshake failed", "error", err)
 		}
 
 		return
@@ -240,7 +243,7 @@ func (s *Server) serveConn(conn net.Conn) {
 	for {
 		if err := s.serveRequest(r, w); err != nil {
 			if !errors.Is(err, io.EOF) {
-				s.logger.Debug("dax dataplane request error", "error", err)
+				logger.Load(s.baseCtx).DebugContext(s.baseCtx, "dax dataplane request error", "error", err)
 			}
 
 			return
