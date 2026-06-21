@@ -16,6 +16,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"golang.org/x/sync/semaphore"
 )
 
 // ErrExecutionFailed is returned when a Fail state is reached.
@@ -260,7 +262,7 @@ type Executor struct {
 	lambda        LambdaInvoker
 	activity      ActivityInvoker
 	mapItemValue  any
-	execSem       chan struct{}
+	execSem       *semaphore.Weighted
 	jsonPathCache *jsonPathCache
 	sm            *StateMachine
 	execMeta      executionMeta
@@ -302,7 +304,7 @@ func NewExecutor(sm *StateMachine, lambda LambdaInvoker, history HistoryRecorder
 		sm:            sm,
 		lambda:        lambda,
 		history:       history,
-		execSem:       make(chan struct{}, maxConcurrentSubExecutors),
+		execSem:       semaphore.NewWeighted(maxConcurrentSubExecutors),
 		jsonPathCache: newJSONPathCache(maxJSONPathCacheEntries),
 	}
 }
@@ -1436,12 +1438,10 @@ func (e *Executor) runParallelBranch(
 	errs []error,
 	idx int,
 ) {
-	select {
-	case e.execSem <- struct{}{}:
-	case <-ctx.Done():
+	if err := e.execSem.Acquire(ctx, 1); err != nil {
 		return
 	}
-	defer func() { <-e.execSem }()
+	defer e.execSem.Release(1)
 
 	branchSM := &StateMachine{StartAt: branch.StartAt, States: branch.States}
 	exec := e.newBranchExecutor(branchSM, fmt.Sprintf("Branch-%d", idx))
@@ -1785,7 +1785,7 @@ func (e *Executor) runMapTasks(
 	errs []error,
 	concurrency int,
 ) {
-	sem := make(chan struct{}, concurrency)
+	sem := semaphore.NewWeighted(int64(concurrency))
 	var wg sync.WaitGroup
 
 	for i, item := range items {
@@ -1807,16 +1807,14 @@ func (e *Executor) spawnMapTask(
 	item any,
 	results []any,
 	errs []error,
-	sem chan struct{},
+	sem *semaphore.Weighted,
 	wg *sync.WaitGroup,
 ) {
 	wg.Go(func() {
-		select {
-		case sem <- struct{}{}:
-		case <-ctx.Done():
+		if err := sem.Acquire(ctx, 1); err != nil {
 			return
 		}
-		defer func() { <-sem }()
+		defer sem.Release(1)
 
 		e.runMapItem(ctx, executionARN, iterator, idx, item, results, errs)
 	})
