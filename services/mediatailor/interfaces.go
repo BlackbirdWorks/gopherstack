@@ -14,7 +14,7 @@ type StorageBackend interface {
 	ListPlaybackConfigurations(maxResults int, nextToken string) ([]*PlaybackConfigurationSummary, string, error)
 
 	// Channel
-	CreateChannel(name, playbackMode, tier string, outputs []OutputItem, tags map[string]string) (*Channel, error)
+	CreateChannel(name, playbackMode string, outputs []OutputItem, tags map[string]string) (*Channel, error)
 	DescribeChannel(name string) (*Channel, error)
 	UpdateChannel(name string, outputs []OutputItem) (*Channel, error)
 	DeleteChannel(name string) error
@@ -58,11 +58,7 @@ type StorageBackend interface {
 	ListLiveSources(sourceLocationName string, maxResults int, nextToken string) ([]*LiveSourceSummary, string, error)
 
 	// PrefetchSchedule
-	CreatePrefetchSchedule(
-		playbackConfigName, name, streamID string,
-		retrieval *PrefetchRetrieval,
-		consumption *PrefetchConsumption,
-	) (*PrefetchSchedule, error)
+	CreatePrefetchSchedule(playbackConfigName, name string) (*PrefetchSchedule, error)
 	GetPrefetchSchedule(playbackConfigName, name string) (*PrefetchSchedule, error)
 	DeletePrefetchSchedule(playbackConfigName, name string) error
 	ListPrefetchSchedules(
@@ -159,9 +155,9 @@ type ChannelSummary struct {
 // Pointer fields first: reduces GC pointer scan.
 type OutputItem struct {
 	HlsPlaylistSettings  *HlsPlaylistSettings  `json:"hlsPlaylistSettings,omitempty"`
-	DashPlaylistSettings *DashPlaylistSettings  `json:"dashPlaylistSettings,omitempty"`
-	ManifestName         string                 `json:"manifestName"`
-	SourceGroup          string                 `json:"sourceGroup"`
+	DashPlaylistSettings *DashPlaylistSettings `json:"dashPlaylistSettings,omitempty"`
+	ManifestName         string                `json:"manifestName"`
+	SourceGroup          string                `json:"sourceGroup"`
 }
 
 // HlsPlaylistSettings holds HLS playlist configuration.
@@ -171,9 +167,9 @@ type HlsPlaylistSettings struct {
 
 // DashPlaylistSettings holds DASH playlist configuration.
 type DashPlaylistSettings struct {
-	ManifestWindowSeconds  int `json:"manifestWindowSeconds"`
-	MinBufferTimeSeconds   int `json:"minBufferTimeSeconds"`
-	MinUpdatePeriodSeconds int `json:"minUpdatePeriodSeconds"`
+	ManifestWindowSeconds             int `json:"manifestWindowSeconds"`
+	MinBufferTimeSeconds              int `json:"minBufferTimeSeconds"`
+	MinUpdatePeriodSeconds            int `json:"minUpdatePeriodSeconds"`
 	SuggestedPresentationDelaySeconds int `json:"suggestedPresentationDelaySeconds"`
 }
 

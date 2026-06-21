@@ -1008,7 +1008,7 @@ func (rc *ResourceCreator) deleteNeptuneCluster(arn string) error {
 
 	id := resourceNameFromARN(arn)
 
-	_, err := rc.backends.Neptune.Backend.DeleteDBCluster(context.Background(), id)
+	_, err := rc.backends.Neptune.Backend.DeleteDBCluster(context.Background(), id, neptune.DBClusterDeleteOptions{SkipFinalSnapshot: true})
 
 	return err
 }

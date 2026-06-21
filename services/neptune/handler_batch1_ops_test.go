@@ -1239,7 +1239,7 @@ func TestBatch1Ops_Roles_ClearedOnClusterDelete(t *testing.T) {
 	err = b.AddRoleToDBCluster(context.Background(), "role-del-cluster", "arn:aws:iam::000000000000:role/r2")
 	require.NoError(t, err)
 
-	_, err = b.DeleteDBCluster(context.Background(), "role-del-cluster")
+	_, err = b.DeleteDBCluster(context.Background(), "role-del-cluster", neptune.DBClusterDeleteOptions{SkipFinalSnapshot: true})
 	require.NoError(t, err)
 
 	// Verify roles gone
@@ -1830,7 +1830,7 @@ func TestBatch1Ops_DeleteCluster_CascadesSnapshots(t *testing.T) {
 	require.Equal(t, 1, neptune.ClusterSnapshotCount(b))
 
 	// Delete cluster — snapshots should remain (AWS behavior: snapshots not auto-deleted)
-	_, err = b.DeleteDBCluster(context.Background(), "cascade-del-cluster")
+	_, err = b.DeleteDBCluster(context.Background(), "cascade-del-cluster", neptune.DBClusterDeleteOptions{SkipFinalSnapshot: true})
 	require.NoError(t, err)
 
 	require.Equal(t, 0, neptune.ClusterCount(b))
@@ -1863,7 +1863,7 @@ func TestBatch1Ops_DeleteCluster_CascadesInstances(t *testing.T) {
 
 	require.Equal(t, 2, neptune.InstanceCount(b))
 
-	_, err = b.DeleteDBCluster(context.Background(), "cascade-inst-cluster")
+	_, err = b.DeleteDBCluster(context.Background(), "cascade-inst-cluster", neptune.DBClusterDeleteOptions{SkipFinalSnapshot: true})
 	require.NoError(t, err)
 
 	require.Equal(t, 0, neptune.InstanceCount(b))
