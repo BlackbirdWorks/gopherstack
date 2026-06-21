@@ -2458,3 +2458,693 @@ No service route implements checkbox selection for bulk delete, bulk tag, or bul
 **10. IdentityStore hard-coded store ID**  
 `ui/src/routes/identitystore/+page.svelte` line 22 defaults to `d-0000000000` as the Identity Store ID. Users must manually type their actual store ID into an input field on every visit. The Identity Store ID is not discovered from `ListInstances` (SSO Admin) or persisted to localStorage.
 
+
+---
+
+## Region isolation audit
+
+**Requirement:** AWS resources are region-scoped — a resource created in one region must
+not be visible/listable/gettable/deletable from another, and every operation must derive
+its region from the request context (`awsmeta.Region(ctx)` / the ctxbag), never a hardcoded
+literal or a single construction-time `b.region`/`b.defaultRegion`. (Genuinely global
+services — IAM, Organizations, Route53, CloudFront, Shield — correctly share one scope.)
+
+**Classification:** `ISOLATED` (correct per-region partitioning) · `PARTIAL` (region stored
+but not filtered on read, or ARNs/URLs use a fixed region) · `LEAKS` (flat store keyed by
+name/ARN/id — resources are visible across all regions) · `GLOBAL` (correctly global).
+
+**Systemic finding:** the dominant pattern across the codebase is a **flat in-memory map
+keyed by name or ARN with no region dimension**, plus ARNs/URLs built from a
+construction-time default region. The fix pattern: (1) key state by `region` (e.g.
+`map[region]map[id]*T` or embed `Region` in the struct and filter on every read/list/delete),
+(2) populate it from `awsmeta.Region(ctx)` in Create/Put, (3) filter List/Describe/Get/Delete
+by the request region, (4) build ARNs/URLs from the request region, and (5) preserve the
+region dimension through persistence snapshots and janitor sweeps.
+
+> Coverage note: this section is being filled in per service group. Groups landed so far:
+> DynamoDB/Streams/DAX, and groups 2, 3, 6, 8, 9, 11. Remaining groups are queued and will
+> be appended in a follow-up commit (account session-usage limit hit mid-run).
+
+# Region Isolation Audit — Group 01
+
+Services: dynamodb, dynamodbstreams, dax
+
+---
+
+### dynamodb — PARTIAL
+
+**1. State partitioned by region? YES (correctly)**
+- `InMemoryDB.Tables` is `map[string]map[string]*Table` (outer key = region).
+  File: `services/dynamodb/store.go:126`
+- `Backups` is a flat `map[string]*Backup` keyed by backup ARN (no region dimension).
+  File: `services/dynamodb/store.go:129`
+- `GlobalTables` is a flat `map[string]*StoredGlobalTable` (global by design, acceptable).
+  File: `services/dynamodb/store.go:130`
+- `exports` and `imports` are flat maps keyed by ARN — no region partitioning.
+  File: `services/dynamodb/store.go:131-132`
+- `streamARNIndex` is a flat `map[string]*Table` — region isolation happens by ARN string content (parsed on ListStreams), not by map structure.
+  File: `services/dynamodb/store.go:134`
+
+**2. Create ops store request region? YES for tables; PARTIAL/NO for backups/stream ARNs**
+- `CreateTable` derives region via `getRegionFromContext(ctx, db)` at line 121, stores it in `db.Tables[region][tableName]` and in the ARN (`arn.Build("dynamodb", region, ...)` at line 134).
+  File: `services/dynamodb/table_ops.go:121,134`
+- `CreateBackup` calls `getRegionFromContext(ctx, db)` at line 40 and embeds it in the backup ARN (`backupARN(region, ...)` line 82). Correct.
+  File: `services/dynamodb/backup_interface.go:40,82`
+- `buildStreamARN` (called from `CreateTable` and `applyStreamSpec`) uses `db.defaultRegion` instead of the request region:
+  ```go
+  func (db *InMemoryDB) buildStreamARN(tableName string) string {
+      return db.buildStreamARNInRegion(tableName, db.defaultRegion)  // BUG
+  }
+  ```
+  File: `services/dynamodb/streams_ops.go:666-668`
+  Called from: `services/dynamodb/table_ops.go:139` (CreateTable) and `services/dynamodb/table_ops.go:1223` (applyStreamSpec/UpdateTable).
+  `EnableStream` correctly calls `buildStreamARNInRegion(tableName, region)` at line 95, but CreateTable and UpdateTable do not.
+  File: `services/dynamodb/streams_ops.go:95`
+- `CreateGlobalTable` builds the global-table ARN with `db.defaultRegion` instead of any request-derived region:
+  ```go
+  globalTableARN := arn.Build("dynamodb", db.defaultRegion, db.accountID, "global-table/"+name)
+  ```
+  File: `services/dynamodb/extra_ops.go:78`
+
+**3. List/Describe/Get/Delete filter by request region? MOSTLY YES; exceptions below**
+- `ListTables`, `DescribeTable`, `DeleteTable`, `GetItem`, `PutItem`, `Scan`, `Query`, `UpdateItem` all call `getRegionFromContext` and scope to `db.Tables[region]`.
+  File: `services/dynamodb/table_ops.go:121,372,394,543`; `services/dynamodb/item_ops.go:113-125`
+- `getTable` → `getTableRLock` calls `getRegionFromContext` to scope the lookup correctly.
+  File: `services/dynamodb/item_ops.go:113-125`
+- `ListBackups` (`collectBackupSummaries`) iterates ALL backups in `db.Backups` with NO region filter — backups from any region are returned to any region's caller.
+  File: `services/dynamodb/backup_ops.go:118,152-177`
+  The `listBackups` handler receives `_ context.Context` (discards ctx), and `collectBackupSummaries` has no region argument.
+  File: `services/dynamodb/backup_ops.go:118`
+- `DescribeBackup` / `DeleteBackup` look up by ARN only (no region check), so a backup ARN from region A is accessible from region B.
+  File: `services/dynamodb/backup_interface.go:120-180`
+- `listExportsWire` / `listImports` / `describeExport` / `describeImport` have no region filter — exports and imports from any region leak across regions.
+  File: `services/dynamodb/store.go:846-871,899-915`; `services/dynamodb/handler.go:1274-1292`
+- `ListContributorInsights` iterates `db.Tables` across ALL regions without filtering by request region.
+  File: `services/dynamodb/extra_ops.go:944-973`
+- `getTableByARN` (used by DeleteResourcePolicy, GetResourcePolicy, PutResourcePolicy) searches all regions:
+  ```go
+  for _, regionTables := range db.Tables { ... }
+  ```
+  This means resource policies can be fetched/deleted from any region.
+  File: `services/dynamodb/extra_ops.go:900-913`
+- `RestoreTableFromBackup` and `RestoreTableToPointInTime` correctly use `h.regionFromHandlerContext(ctx)` to place restored tables in the request region.
+  File: `services/dynamodb/backup_ops.go:241,389`
+- `GetRecords` resolves iterator by table name and calls `getTable(ctx, tableName)` which is region-scoped. However it passes `db.defaultRegion` (not request region) into stream record metadata.
+  File: `services/dynamodb/streams_ops.go:472` — `collectStreamRecords(..., db.defaultRegion)` — records carry wrong `AwsRegion` when serving a non-default region.
+
+**4. ARNs built with request region? PARTIAL**
+- Table ARNs in `CreateTable`: correct — uses `getRegionFromContext(ctx, db)`.
+  File: `services/dynamodb/table_ops.go:134`
+- Backup ARNs: correct — uses request region.
+  File: `services/dynamodb/backup_interface.go:82`
+- Stream ARNs in `CreateTable` and `UpdateTable` (`applyStreamSpec`): WRONG — uses `db.defaultRegion`.
+  File: `services/dynamodb/streams_ops.go:666-668`, called at `table_ops.go:139,1223`
+- Global table ARN in `CreateGlobalTable`: WRONG — uses `db.defaultRegion`.
+  File: `services/dynamodb/extra_ops.go:78`
+- Restored table ARNs (`RestoreTableFromBackup`, `RestoreTableToPointInTime`): correct — uses `regionFromHandlerContext(ctx)`.
+  File: `services/dynamodb/backup_ops.go:274,414`
+
+**5. Persistence/janitor preserve region partitioning? YES**
+- `dbSnapshot.Tables` serializes the full `map[string]map[string]*Table` including the region key, so region partitioning is preserved across restarts.
+  File: `services/dynamodb/persistence.go:12-17,28-48`
+- Restore correctly reassembles the nested map.
+  File: `services/dynamodb/persistence.go:52-103`
+- Janitor (`purgeActiveTables`) iterates `db.Tables` nested by region — correct, no cross-region contamination.
+  File: `services/dynamodb/store.go:657-675`
+
+**Summary of dynamodb bugs:**
+- Stream ARNs on `CreateTable`/`UpdateTable` always embed `db.defaultRegion` regardless of request region.
+- `GetRecords` emits stream records with `AwsRegion = db.defaultRegion` (wrong for non-default-region tables).
+- `ListBackups`, `DescribeBackup`, `DeleteBackup` are not region-scoped — cross-region backup visibility/deletion.
+- `ListExports`, `DescribeExport`, `ListImports`, `DescribeImport` are not region-scoped.
+- `ListContributorInsights` returns all tables across all regions.
+- `getTableByARN` (resource policy ops) is not region-scoped.
+- `CreateGlobalTable` ARN uses `db.defaultRegion`.
+
+---
+
+### dynamodbstreams — PARTIAL
+
+**1. State partitioned by region?**
+- DynamoDB Streams has no independent store; it delegates all operations to `ddbbackend.StreamsBackend` which is the shared `InMemoryDB` backend from the `dynamodb` service. Region partitioning inherits from that backend's `db.Tables` structure.
+  File: `services/dynamodbstreams/handler.go:32-33`; `services/dynamodbstreams/provider.go:17-19`
+
+**2. Create ops store request region?**
+- `EnableStream` (called internally) does correctly call `buildStreamARNInRegion(tableName, region)` where region comes from `getRegionFromContext(ctx, db)`.
+  File: `services/dynamodb/streams_ops.go:90,95`
+- `CreateTable` / `UpdateTable` (which is how streams are typically enabled via the DynamoDB API) call `buildStreamARN(tableName)` which uses `db.defaultRegion`. See dynamodb section.
+
+**3. List/Describe/Get filter by request region?**
+- `ListStreams`: correctly filters by region using `streamARNRegion(e.arn)` compared to `getRegionFromContext(ctx, db)`.
+  File: `services/dynamodb/streams_ops.go:541-593`; specifically `services/dynamodb/streams_ops.go:646`
+- `DescribeStream`, `GetShardIterator`, `GetRecords`: look up by stream ARN via `db.streamARNIndex` — not region-filtered, but an attacker would need the exact ARN; the ARN itself encodes the region so cross-region ARN leakage is prevented if stream ARNs are correct. However, since `CreateTable` mints ARNs with `db.defaultRegion`, a table in region B may get an ARN with region A embedded, causing confusion.
+
+**4. ARNs built with request region?**
+- `buildStreamARNInRegion` (used by `EnableStream` directly) is correct.
+  File: `services/dynamodb/streams_ops.go:670-673`
+- `buildStreamARN` (used by `CreateTable`, `UpdateTable`) is WRONG — uses `db.defaultRegion`.
+  File: `services/dynamodb/streams_ops.go:666-668`
+
+**5. Region injected into HTTP handler?**
+- The DynamoDB Streams HTTP handler (`services/dynamodbstreams/handler.go`) injects region via `ddbbackend.WithRegion(ctx, region)` at line 118, so `ListStreams` (which calls `getRegionFromContext`) correctly receives the request region.
+  File: `services/dynamodbstreams/handler.go:117-118`
+- `GetRecords` passes `db.defaultRegion` into record metadata (AwsRegion field), not the request-derived region.
+  File: `services/dynamodb/streams_ops.go:472`
+
+**Summary of dynamodbstreams bugs:**
+- Inherits the stream ARN minting bug from dynamodb (`CreateTable`/`UpdateTable` use `db.defaultRegion`).
+- `GetRecords` emits records with wrong `AwsRegion` for non-default regions.
+- All other isolation logic (ListStreams region filter, DescribeStream/GetShardIterator ARN-scoped lookups) is correct provided ARNs were minted correctly.
+
+---
+
+### dax — LEAKS
+
+**1. State partitioned by region? NO — FLAT maps**
+- `InMemoryBackend` has three flat maps:
+  ```go
+  clusters     map[string]*Cluster        // keyed by cluster name only
+  paramGroups  map[string]*ParameterGroup // keyed by param group name only
+  subnetGroups map[string]*SubnetGroup    // keyed by subnet group name only
+  tags         map[string]map[string]string // keyed by ARN
+  ```
+  File: `services/dax/backend.go:121-130`
+- No `map[region]map[name]` structure exists. All clusters from all regions (if the backend were ever shared, which it is not currently — one backend per process) would be in the same flat map.
+
+**2. Create ops store request region? NO — uses construction-time `b.Region`**
+- `CreateCluster` never reads `ctx` for region; it uses `b.Region` (set at construction time from `config.GetRegion()`).
+  File: `services/dax/backend.go:371-461`
+- `clusterARN` uses `b.Region`:
+  ```go
+  func (b *InMemoryBackend) clusterARN(name string) string {
+      return fmt.Sprintf("arn:aws:dax:%s:%s:cache/%s", b.Region, b.AccountID, name)
+  }
+  ```
+  File: `services/dax/backend.go:170-172`
+- No `ctx` parameter is present on any backend method (`CreateCluster`, `DescribeClusters`, `DeleteCluster`, etc.) — the region cannot be derived from the request.
+  File: `services/dax/backend.go:371,533,621` (signatures have no `ctx`)
+
+**3. List/Describe/Get/Delete filter by request region? NO**
+- `DescribeClusters` accepts no context, reads no region from request, returns ALL clusters in the flat map.
+  File: `services/dax/backend.go:533-557`
+- `DeleteCluster`, `UpdateCluster`, `RebootNode`, `TagResource`, `UntagResource`, `ListTags` all look up by cluster name only — no region check.
+  File: `services/dax/backend.go:560-967`
+- HTTP handler's `dispatch` discards context: `_ = ctx`.
+  File: `services/dax/handler.go:148`
+- `DescribeParameterGroups`, `DescribeSubnetGroups`, `DescribeEvents` return all items with no region filter.
+  File: `services/dax/backend.go:1004-1065,1314-1373,1451-1501`
+
+**4. ARNs built with request region? NO — uses `b.Region` (construction-time default)**
+- All ARN construction uses `b.Region`:
+  File: `services/dax/backend.go:170-172` (cluster), lines 1536,1543,1550,1563 (arnExists, clusterByARN)
+- `arnExists` and `clusterByARN` embed `b.Region` in prefix strings for lookup — if a client in a different region sends an ARN with its region embedded, the prefix won't match and the lookup will fail silently.
+  File: `services/dax/backend.go:1535-1568`
+
+**5. Persistence preserves region? PRESERVES b.Region value; does not add region partitioning**
+- `backendSnapshot` serializes `b.Region` as a single scalar — the flat map structure is preserved (not partitioned).
+  File: `services/dax/persistence.go:14-22,94-118`
+- Restore sets `b.Region = snap.Region` — still a single region per backend instance.
+  File: `services/dax/persistence.go:144`
+
+**Summary of dax bugs:**
+- No per-request region awareness: `ctx` is discarded in `dispatch`, no `awsmeta.Region(ctx)` calls anywhere in the DAX package.
+- Flat maps with no region dimension — all clusters/parameter-groups/subnet-groups visible regardless of which region the request comes from.
+- ARNs always built with `b.Region` (process-level default), never the request region.
+- `DescribeClusters` (and all other list ops) return all resources with no region filter.
+- `arnExists`/`clusterByARN` use hardcoded `b.Region` prefix — cross-region ARN lookups will silently fail to find resources.
+
+### accessanalyzer — LEAKS
+
+- **State map is FLAT (no region partition):** `InMemoryBackend` declares `analyzers map[string]*Analyzer`, `archiveRules map[string]map[string]*ArchiveRule`, `findings map[string]map[string]*Finding` — all single-level maps with no outer region key. (`backend.go:104–115`)
+- **Backend is instantiated with a fixed `b.region` from construction time** (provider passes `config.DefaultRegion` at init; no per-request region is ever consulted). (`provider.go:28–36`)
+- **Create stores using `b.region`:** `analyzerARN` builds `arn:aws:access-analyzer:%s:%s:analyzer/%s` from `b.region` (a fixed construction-time constant, not the request region). (`backend.go:135–136`, `backend.go:158`)
+- **List/Get/Delete do NOT filter by region:** `ListAnalyzers`, `GetAnalyzer`, `DeleteAnalyzer` operate on the same global `b.analyzers` map — all analyzers are visible regardless of caller's region. (`backend.go:187–221`)
+- **Handler never extracts or passes a region from the request context** — no `awsmeta.Region(ctx)` call anywhere in `handler.go`.
+- **Persistence snapshot contains no region key** — `Snapshot`/`Restore` serialize the flat maps without region envelope, so restore cannot distinguish regions. (`backend.go:542–602`)
+
+---
+
+### account — GLOBAL
+
+- **Service is intentionally global (account-level API):** AWS Account Management API is not region-scoped; `ListRegions`, `GetAlternateContact`, `PutAlternateContact`, `GetContactInformation`, `DescribeAccount` all operate on account-level state. This matches real AWS behaviour.
+- **Backend has a `region` field but never uses it for data partitioning** — it is only held at construction time and never consulted in any operation. (`backend.go:94–101`)
+- **No ARNs are built for user resources** (the `DescribeAccount` ARN uses a static org format, not region-scoped). (`backend.go:143–151`)
+- Classified GLOBAL intentionally — AWS Account service has no region-scoped data.
+
+---
+
+### acm — ISOLATED
+
+- **State maps are region-nested:** `certs map[string]map[string]*Certificate`, `timers`, `idempotencyMap`, `accountIdempotency`, `accountConfig` all use `map[region]map[...]*T` as outer key. (`backend.go:186–201`)
+- **`getRegion` reads from request context via `ctx.Value(regionContextKey{})`, falling back to `b.region`** — per-request region is used, not construction-time default alone. (`backend.go:29–36`)
+- **Create uses request region:** `RequestCertificate` calls `getRegion(ctx, b.region)` then `arn.Build("acm", region, …)`. (`backend.go:288`, `backend.go:304`)
+- **List/Describe/Delete filter by request region:** `ListCertificates`, `DescribeCertificate`, `DeleteCertificate`, `ExportCertificate`, `GetCertificate` all call `getRegion(ctx, b.region)` then access `b.certsStore(region)`. (`backend.go:949–955`, `backend.go:851–857`, `backend.go:1060–1065`)
+- **ARNs built with request region:** `arn.Build("acm", region, b.accountID, "certificate/"+id)` where `region` comes from the request context. (`backend.go:304`, `backend.go:668`)
+- **Persistence preserves region:** `backendSnapshot` serialises `b.certs` (outer key = region) and restores it intact; `Region` field also persisted. (`persistence.go:11–17`, `persistence.go:76–80`)
+
+---
+
+### acmpca — ISOLATED
+
+- **State maps are region-nested:** `cas map[string]map[string]*CertificateAuthority`, `certs`, `certsByCASerial`, `permissions`, `auditReports`, `policies` — all `map[region]map[...]T`. (`backend.go:165–178`)
+- **`getRegion` reads from request context** via `ctx.Value(regionContextKey{})`, falling back to `b.region`. (`backend.go:29–36`)
+- **Create uses request region:** `CreateCertificateAuthority` calls `getRegion(ctx, b.region)` then `arn.Build("acm-pca", region, …)`. (`backend.go:263`, `backend.go:273`)
+- **List/Describe/Delete filter by request region:** `DescribeCertificateAuthority`, `ListCertificateAuthorities`, `DeleteCertificateAuthority`, `IssueCertificate`, `GetCertificate`, `RevokeCertificate`, `ListCertificates`, `CreatePermission`, `DeletePermission`, `ListPermissions`, `PutPolicy`, `GetPolicy`, `DeletePolicy` all call `getRegion(ctx, b.region)` and use `b.casStore(region)` / `b.certsStore(region)`. (`backend.go:366`, `backend.go:385`, `backend.go:415`, `backend.go:563`, `backend.go:617`, `backend.go:649`, `backend.go:685`, `backend.go:817`, `backend.go:852`, `backend.go:879`, `backend.go:917`, `backend.go:937`, `backend.go:960`)
+- **ARNs built with request region:** `arn.Build("acm-pca", region, b.accountID, caResourceIDPrefix+id)` and `arn.Build("acm-pca", region, b.accountID, …)` for certs. (`backend.go:273`, `backend.go:591`)
+- **Persistence preserves region:** `backendSnapshot` comment says "region-nested backend maps (outer key = region)"; `Region` field serialised. (`persistence.go:55–165`)
+
+---
+
+### amplify — LEAKS
+
+- **State map is FLAT (no region partition):** `apps map[string]*App`, `branches map[string]map[string]*Branch`, `jobs`, `domains`, `webhooks`, `backendEnvironments`, `artifacts` — all flat with no region outer key. (`backend.go:121–133`)
+- **Backend is instantiated with a fixed `b.region`** from construction time via `provider.go`. (`provider.go:18–29`)
+- **Create uses `b.region` (construction-time constant):** `CreateApp` uses `arn.Build("amplify", b.region, …)`. (`backend.go:161`) `CreateBranch` uses `b.region`. (`backend.go:263–268`) `CreateWebhook` uses `b.region`. (`backend.go:930–935`) `CreateBackendEnvironment` uses `b.region`. (`backend.go:1080–1082`)
+- **List/Get/Delete do NOT filter by region:** `ListApps`, `GetApp`, `DeleteApp`, etc. access the same global `b.apps` map. No per-request region extraction occurs anywhere.
+- **Handler never extracts region from request context** — `handler.go` only stores `DefaultRegion` at init time.
+- **No persistence file** — no `Snapshot`/`Restore` methods (no persistence.go in amplify package).
+
+---
+
+### apigateway — LEAKS
+
+- **State map is FLAT (no region partition):** `apis map[string]*apiData`, `apiKeys`, `basePathMappings`, `domainNames`, `usagePlans`, etc. — all flat maps with no region outer key. (`backend.go:344–358`)
+- **`NewInMemoryBackend()` takes NO accountID or region parameters** — provider passes no region at init. (`backend.go:361–383`, `provider.go:16–21`)
+- **Create does NOT embed region in any stored resource** — `CreateRestAPI` stores no region; `CreateDomainName` hardcodes `us-east-1` in `regionalDomain`. (`backend.go:1631`: `regionalDomain := input.DomainName + ".execute-api.us-east-1.amazonaws.com"`)
+- **List/Get/Delete do NOT filter by region** — `GetRestAPIs`, `GetRestAPI`, `DeleteRestAPI` operate on the global `b.apis` map.
+- **`dispatch` discards context:** `func (h *Handler) dispatch(_ context.Context, …)` — context (which would carry the region) is explicitly dropped. (`handler.go:2728`)
+- **Persistence snapshot is flat** — `backendSnapshot` serialises all maps without region envelope. (`persistence.go:19–31`)
+
+---
+
+### apigatewaymanagementapi — GLOBAL
+
+- **Service is connection-scoped (WebSocket management), not region-scoped in AWS:** this is an in-process signalling bus for WebSocket connections, not a multi-region data plane.
+- **State map is flat:** `connections map[string]*connState` — single flat map. (`backend.go:30–34`)
+- **`NewInMemoryBackend()` takes NO region or accountID** — provider passes no region. (`backend.go:37–42`, `provider.go:16–21`)
+- **No ARNs are built for resources** — connection IDs are not ARNs.
+- **No region filtering exists** in any CRUD operation.
+- **Persistence is flat** — `backendSnapshot` has `Connections map[string]persistedConn` with no region envelope. (`persistence.go:11–14`)
+- Classified GLOBAL — AWS Management API is connection-scoped, not region-partitioned at the data level.
+
+---
+
+### apigatewayv2 — PARTIAL
+
+- **State map is FLAT (no region partition):** `apis map[string]*apiData`, `domainNames`, `apiMappings`, `portals`, `portalProducts`, `vpcLinks`, `routingRules` — all flat maps with no region outer key. (`backend.go:389–403`)
+- **`NewInMemoryBackend()` takes NO region or accountID** — provider passes no region. (`backend.go:404–418`, `provider.go:16–21`)
+- **`regionFromCtx` correctly reads `awsmeta.Region(ctx)` for ARN/endpoint construction** — uses `awsmeta.Region(ctx)` with fallback to const `defaultRegion = "us-east-1"`. (`backend.go:25–31`)
+- **Create embeds request region in ARN/endpoint:** `CreateAPI` sets `APIEndpoint: "https://"+id+".execute-api."+regionFromCtx(ctx)+".amazonaws.com"`. (`backend.go:497`) `CreateDomainName` uses `regionFromCtx(ctx)` for `APIGatewayDomainName`. (`backend.go:1501`) `CreateRoutingRule` uses `regionFromCtx(ctx)` for `RoutingRuleARN`. (`backend.go:1931`)
+- **BUT List/Get/Delete do NOT filter by region** — `GetAPIs`, `GetAPI`, `GetStages`, etc. return data from the global flat `b.apis` map regardless of request region — cross-region data leaks.
+- **Persistence snapshot is flat** — `backendSnapshot` serialises all maps without region envelope. (`persistence.go:28–36`)
+- PARTIAL: ARN construction uses request region correctly, but the backing store is a single flat map shared across all regions.
+
+# Region Isolation Audit — Group 03
+
+Services: appconfig, appconfigdata, applicationautoscaling, appmesh, apprunner, appstream, appsync, athena
+
+---
+
+### appconfig — LEAKS
+
+- **State partitioning**: FLAT maps — `applications map[string]*Application`, `deploymentStrategies map[string]*DeploymentStrategy`, `extensions map[string]*Extension`, etc. at `services/appconfig/backend.go:41-65`. No region dimension in any key. One backend instance holds all state.
+- **Construction-time region only**: `b.region` set at construction in `NewInMemoryBackend(accountID, region string)` at `services/appconfig/backend.go:68`; provider reads it once from config at `services/appconfig/provider.go:17-33`. No `awsmeta.Region(ctx)` call anywhere in the package.
+- **Create ops**: `CreateApplication` (`backend.go:103`) takes no region param; ARN built via `b.appconfigARN` at `backend.go:98-100` using the fixed `b.region`. `CreateExtension` builds ARN at `backend.go:1139` with `b.appconfigARN("extension/"+id)` — same fixed region.
+- **List/Get/Delete**: `ListApplications` (`backend.go:146`) returns all applications with no region filter. `ListDeploymentStrategies`, `ListExtensions`, `ListExtensionAssociations` likewise return all resources regardless of request region.
+- **ARNs**: `appconfigARN` at `backend.go:98-100` uses `b.region` (construction-time), never the request context.
+- **Persistence**: No persistence file found for appconfig.
+
+---
+
+### appconfigdata — LEAKS
+
+- **State partitioning**: FLAT maps — `profiles map[string]*ConfigurationProfile`, `sessions map[string]*Session`, `graceTokens map[string]*graceEntry` at `services/appconfigdata/backend.go:34-45`. No region dimension.
+- **Construction-time region**: `NewInMemoryBackend()` at `backend.go:48` takes no region at all — the backend has no `region` field. Provider at `services/appconfigdata/provider.go:16` calls `NewInMemoryBackend()` with no args.
+- **Create ops**: `SetConfiguration` (`backend.go:152`) stores by profile key `app|env|profile` with no region. `StartSession` (`backend.go:224`) creates sessions with no region tracking.
+- **List/Get**: `ListProfiles` (`backend.go:388`) returns all profiles; `ListSessions` (`backend.go:417`) returns all sessions — no region filtering.
+- **ARNs**: No ARNs built in this service.
+- **Handler routing**: `ChaosRegions` at `services/appconfigdata/handler.go:74` returns `[]string{config.DefaultRegion}` — hardcoded single region.
+
+---
+
+### applicationautoscaling — LEAKS
+
+- **State partitioning**: FLAT maps — `scalableTargets map[string]*ScalableTarget`, `scalingPolicies map[string]*ScalingPolicy`, `scheduledActions map[string]*ScheduledAction`, `scalingActivities []*ScalingActivity` at `services/applicationautoscaling/backend.go:109-120`. No region dimension in keys.
+- **Construction-time region only**: `NewInMemoryBackend(accountID, region string)` at `backend.go:138`; provider reads from config once at `services/applicationautoscaling/provider.go:17-31`. No `awsmeta.Region(ctx)` anywhere in the package.
+- **Create ops**: `RegisterScalableTarget` at `backend.go:171` builds ARN using `b.region` at `backend.go:223-227`. `PutScalingPolicy` builds ARN using `b.region` at `backend.go:595-597`. `PutScheduledAction` builds ARN using `b.region` at `backend.go:792-794`. All use the fixed construction-time region.
+- **List/Describe**: `DescribeScalableTargets` (`backend.go:493`) iterates all `b.scalableTargets` — no region filter. `DescribeScalingPolicies` (`backend.go:716`) and `DescribeScheduledActions` (`backend.go:870`) similarly return resources across all regions.
+- **ARNs**: Built with `b.region` (construction-time) at `backend.go:223-227`, `backend.go:595-597`, `backend.go:792-794`.
+- **Persistence**: `Snapshot`/`Restore` at `services/applicationautoscaling/persistence.go:17-60` serializes/restores region as part of `backendSnapshot`. Region is preserved in persistence but still tied to the single construction-time value.
+
+---
+
+### appmesh — LEAKS
+
+- **State partitioning**: FLAT maps — `meshes map[string]*Mesh`, `virtualNodes map[string]map[string]*VirtualNode`, `virtualRouters map[string]map[string]*VirtualRouter`, `routes map[routeKey]*Route`, `virtualSvcs map[string]map[string]*VirtualService`, `virtualGWs map[string]map[string]*VirtualGateway`, `gatewayRoutes map[gatewayRouteKey]*GatewayRoute` at `services/appmesh/backend.go:70-82`. No region dimension in any map key.
+- **Construction-time region only**: `NewInMemoryBackend(accountID, region string)` at `backend.go:85`; provider reads from config once at `services/appmesh/provider.go:22-39`. No `awsmeta.Region(ctx)` call anywhere in the package.
+- **Create ops**: `CreateMesh` (`backend.go:181`) builds ARN via `b.meshARN(name)` at `backend.go:116-118` using `b.region`. All other resource ARN builders (`virtualNodeARN`, `virtualRouterARN`, `routeARN`, `virtualServiceARN`, `virtualGatewayARN`, `gatewayRouteARN`) at `backend.go:120-148` use `b.region`.
+- **List ops**: `ListMeshes` (`backend.go:244`) returns all meshes; `ListVirtualNodes` (`backend.go:347`) scoped to meshName only, no region. Same pattern for all other List* methods.
+- **ARNs**: All ARN helpers at `backend.go:116-148` use `b.region` (fixed construction-time).
+- **Persistence**: No persistence file found for appmesh.
+
+---
+
+### apprunner — LEAKS
+
+- **State partitioning**: FLAT maps — `services map[string]*storedService`, `autoScalingConfigs map[string]*storedAutoScalingConfiguration`, `connections map[string]*storedConnection`, `observabilityConfigs map[string]*storedObservabilityConfiguration`, `vpcConnectors map[string]*storedVpcConnector`, `vpcIngressConnections map[string]*storedVpcIngressConnection` at `services/apprunner/backend.go:350-367`. No region dimension in any key.
+- **Construction-time region only**: `NewInMemoryBackend(accountID, region string)` at `backend.go:370`; provider reads from config once at `services/apprunner/provider.go:22-39`. No `awsmeta.Region(ctx)` anywhere in the package.
+- **Create ops**: `CreateService` at `backend.go:459` builds ARN via `b.serviceARN(id)` at `backend.go:391-393` using `b.region`. Service URL built with `buildServiceURL(id, b.region)` at `backend.go:489` using `b.region`. `CreateAutoScalingConfiguration` builds ARN at `backend.go:931` via `b.asgARN` using `b.region`. `CreateConnection` at `backend.go:1122` via `b.connectionARN` using `b.region`. All use construction-time region.
+- **List ops**: `ListServices` (`backend.go:588`) iterates all `b.services` with no region filter. Similarly for `ListAutoScalingConfigurations`, `ListConnections`, `ListVpcConnectors`, `ListVpcIngressConnections`.
+- **ARNs**: All ARN builders at `backend.go:391-422` use `b.region` (fixed construction-time).
+- **Persistence**: `Snapshot`/`Restore` at `backend.go:809-915` serializes/restores all resources with no region partitioning.
+
+---
+
+### appstream — LEAKS
+
+- **State partitioning**: FLAT maps — `stacks map[string]*storedStack`, `fleets map[string]*storedFleet`, `applications map[string]*storedApplication`, `appBlocks map[string]*storedAppBlock`, etc. at `services/appstream/backend.go:124-152`. No region dimension in any key.
+- **Construction-time region only**: `NewInMemoryBackend(accountID, region string)` at `backend.go:155`; provider reads from config once at `services/appstream/provider.go:22-39`. No `awsmeta.Region(ctx)` anywhere in the package.
+- **Create ops**: `CreateStack` at `backend.go:199` builds ARN via `b.stackARN(name)` at `backend.go:190-192` using `b.region`. `fleetARN` at `backend.go:194-196` uses `b.region`. All ARNs use construction-time region.
+- **List/Describe**: `DescribeStacks` (`backend.go:226`) returns all stacks with no region filter.
+- **ARNs**: `stackARN` at `backend.go:190-192` and `fleetARN` at `backend.go:194-196` use `b.region` (fixed).
+- **Persistence**: `backendSnapshot` struct at `backend.go:96-121` serializes all resources without region partitioning.
+
+---
+
+### appsync — LEAKS
+
+- **State partitioning**: FLAT maps — `apis map[string]*GraphqlAPI`, `schemas map[string]*Schema`, `datasources map[string]map[string]*DataSource`, `resolvers map[string]map[string]*Resolver`, `domainNames map[string]*DomainName`, `eventAPIs map[string]*API` etc. at `services/appsync/backend.go:312-331`. No region dimension in any key.
+- **Construction-time region only**: `NewInMemoryBackend(accountID, region, endpoint string)` at `backend.go:335`; provider reads from config once and sets `handler.DefaultRegion = region` at `services/appsync/provider.go:17-39`. No `awsmeta.Region(ctx)` call anywhere in the package.
+- **Create ops**: `CreateGraphqlAPI` uses `b.region` and `b.accountID` (construction-time) for ARN building throughout the backend (not visible in the truncated view, but consistent with field usage). `handler.DefaultRegion` at `services/appsync/handler.go:76` is a single fixed string.
+- **List ops**: `ListGraphqlAPIs`, `ListAPIs`, `ListDomainNames` — all iterate their respective maps with no region filtering.
+- **ARNs**: Built with `b.region` (construction-time) via `arn.Build("appsync", b.region, b.accountID, ...)`.
+- **Persistence**: No persistence file found for appsync.
+
+---
+
+### athena — LEAKS
+
+- **State partitioning**: FLAT maps — `workGroups map[string]*WorkGroup`, `namedQueries map[string]*NamedQuery`, `dataCatalogs map[string]*DataCatalog`, `queryExecutions map[string]*QueryExecution`, `capacityReservations map[string]*CapacityReservation`, `notebooks map[string]*Notebook`, `sessions map[string]*Session` at `services/athena/backend.go:388-409`. No region dimension in any key.
+- **Construction-time region only**: `NewInMemoryBackend(region, accountID string)` at `backend.go:412`; provider reads from config once at `services/athena/provider.go:23-43`. No `awsmeta.Region(ctx)` anywhere in the package.
+- **Create ops**: `workGroupARN` at `backend.go:497-499` uses `b.region` (construction-time). All resource operations use `b.region` for ARN generation. `handler.ChaosRegions()` returns `[]string{config.DefaultRegion}` at `services/athena/handler.go:118` — hardcoded.
+- **List ops**: `ListWorkGroups`, `ListNamedQueries`, `ListDataCatalogs`, `ListQueryExecutions` — all iterate flat maps with no region filter.
+- **ARNs**: `workGroupARN` at `backend.go:497-499` uses `b.region` (fixed construction-time).
+- **Persistence**: No persistence file found for athena (janitor exists at `janitor.go` but manages TTL, not persistence).
+
+---
+
+## Summary
+
+| Service | Classification |
+|---------|----------------|
+| appconfig | LEAKS |
+| appconfigdata | LEAKS |
+| applicationautoscaling | LEAKS |
+| appmesh | LEAKS |
+| apprunner | LEAKS |
+| appstream | LEAKS |
+| appsync | LEAKS |
+| athena | LEAKS |
+
+**Root cause common to all 8 services**: Each service instantiates a single `InMemoryBackend` with one construction-time `region` (from `config.DefaultRegion` or the global config). All resource maps are flat with no region dimension in keys. No service uses `awsmeta.Region(ctx)` to derive region per-request. Consequently, all resources are visible regardless of which region the caller addresses, and ARNs embed only the single construction-time region.
+
+### codebuild — LEAKS
+
+- State is a FLAT map (no region dimension): `projects map[string]*Project`, `builds map[string]*Build`, `fleets map[string]*Fleet`, etc. declared at `backend.go:367-388`.
+- `NewInMemoryBackend(accountID, region)` stores region at construction time as `b.region` (`backend.go:393-419`); all ops operate on the single shared flat maps regardless of which region the request came from.
+- `CreateProject` stores projects into `b.projects` flat map without any region key (`backend.go:502-560`); `ListProjects` returns all names from the same flat map (`backend.go:722-734`).
+- ARNs built with `b.region` (construction-time fixed value), not the request region: `buildProjectARN` uses `b.region` (`backend.go:451-453`); same for `buildBuildARN` (`backend.go:455-457`), `buildFleetARN` (`backend.go:1088-1090`), `buildReportGroupARN` (`backend.go:1092-1094`), `buildWebhookURL` (`backend.go:1096-1098`), `ImportSourceCredentials` inline ARN (`backend.go:1512`), `StartSandbox` inline ARN (`backend.go:1482`).
+- Handler never extracts a per-request region and never passes it to backend calls; no `getRegion(ctx, ...)` pattern anywhere in `handler.go` or `backend.go`.
+- `provider.go` reads region from config once at Init time and passes it to `NewInMemoryBackend` (`provider.go:35-49`).
+- Persistence snapshot includes `Region` field but the flat maps have no region partitioning (`persistence.go:27`).
+- Cross-region leak: a project created by a request targeting `us-east-1` is visible to a request targeting `eu-west-1`.
+
+### codecommit — LEAKS
+
+- State is a FLAT map (no region dimension): `repositories map[string]*Repository`, `branches`, `commits`, `pullRequests`, `approvalRuleTemplates` all at `backend.go:211-244`.
+- `NewInMemoryBackend(accountID, region)` stores `b.region` at construction time (`backend.go:248-270`); no per-request region resolution.
+- `CreateRepository` stores into `b.repositories` flat map with `b.region` baked into the ARN and clone URLs (`backend.go:316-341`).
+- `ListRepositories` returns ALL repos across all regions (no filter) (`backend.go:399-416`).
+- ARNs built with `b.region` (construction-time): `arn.Build("codecommit", b.region, ...)` at `backend.go:316`; `CreateApprovalRuleTemplate` at `backend.go:504`.
+- Handler has no region extraction; `provider.go` reads region once at Init (`provider.go:29-40`).
+- Repository struct carries a `Region` field but it is only populated at create time with `b.region` and is never used to filter reads (`backend.go:329`).
+
+### codeconnections — ISOLATED
+
+- State is NESTED by region: all six maps are `map[string]map[string]*T` (outer key = region) at `backend.go:78-87`.
+- `NewInMemoryBackend` stores `defaultRegion` (not used as data key) and all maps start empty (`backend.go:90-102`).
+- Per-request region is extracted by handler via `httputils.ExtractRegionFromRequest` and injected into `context.WithValue(ctx, regionContextKey{}, region)` at `handler.go:182-189`.
+- Every backend operation calls `getRegion(ctx, b.defaultRegion)` to obtain the request region and uses it as the outer map key (e.g., `CreateConnection` at `backend.go:185`, `GetConnection` at `backend.go:226`, `ListConnections` at `backend.go:248`, `DeleteConnection` at `backend.go:275`, `CreateHost` at `backend.go:413`, etc.).
+- ARNs include the request region: `arn.Build("codeconnections", region, ...)` at `backend.go:195`, `backend.go:423`, `backend.go:519` — all use the runtime `region` variable, not `b.defaultRegion`.
+- Persistence not checked (no `persistence.go` in glob output for this service).
+
+### codedeploy — LEAKS
+
+- State is a FLAT map (no region dimension): `applications map[string]*Application`, `deploymentGroups`, `deployments`, `onPremisesInstances`, `deploymentConfigs` at `backend.go:297-307`.
+- `NewInMemoryBackend(accountID, region)` stores `b.region` at construction time (`backend.go:310-326`).
+- `CreateApplication` stores into `b.applications` flat map using `b.accountID` and `b.region` (`backend.go:492-528`).
+- `ListApplications` returns ALL application names from the flat map without region filter (`backend.go:546-558`).
+- `ListDeployments` and all Batch* ops enumerate the flat maps without any region check (`backend.go:922-961`).
+- ARNs built with `b.region` (construction-time): `ApplicationARN` uses `b.region` (`backend.go:1116-1118`); `DeploymentGroupARN` uses `b.region` (`backend.go:1121-1123`); `DeploymentConfigARN` uses `b.region` (`backend.go:1126-1128`).
+- Handler `handler.go` has no region extraction; `provider.go` reads region once at Init.
+- `Application` and `DeploymentGroup` store `Region: b.region` as a field but it is never consulted for filtering (`backend.go:519`, `backend.go:652`).
+- Persistence snapshot includes `Region` field but data maps are flat (`persistence.go:28-37`).
+
+### codepipeline — ISOLATED
+
+- State is NESTED by region: all maps are `map[string]map[string]*T` (outer key = region) at `backend.go:365-378`, e.g. `pipelines map[string]map[string]*Pipeline`, `webhooks map[string]map[string]*Webhook`, etc.
+- `NewInMemoryBackend(accountID, region)` stores `b.region` as default; all data maps start empty (`backend.go:381-396`).
+- Per-request region extracted by handler via `httputils.ExtractRegionFromRequest` and passed via `context.WithValue(ctx, regionContextKey{}, region)` at `handler.go:229/236`.
+- Every backend op calls `getRegion(ctx, b.region)` and uses it as the outer store key (e.g., `CreatePipeline` at `backend.go:509`; `GetPipeline` at `backend.go:553`; `UpdatePipeline` at `backend.go:567`; `DeletePipeline` at `backend.go:590`).
+- ARNs include runtime request region: `buildPipelineARN(region, name)` at `backend.go:492-494` uses the `region` local variable; `buildWebhookARN(region, name)` at `backend.go:496-498`.
+- Persistence not checked (separate file not in flat-map concern).
+
+### codestarconnections — ISOLATED
+
+- State is NESTED by region: all ten maps are `map[string]map[string]*T` (outer key = region) at `backend.go:224-237`, e.g. `connections map[string]map[string]*Connection`, `syncBlockers map[string]map[string]*SyncBlocker`, etc.
+- `NewInMemoryBackend(accountID, region)` stores `defaultRegion`; all outer maps start empty (`backend.go:241-257`).
+- Per-request region extracted by handler via `httputils.ExtractRegionFromRequest` and injected into context at `handler.go:181/188`.
+- Every backend op resolves `getRegion(ctx, b.defaultRegion)` and operates only on the per-region inner map (e.g., `CreateConnection` uses `connectionsStore(region)` at approximately `backend.go:262-268`; same pattern for all other ops including GetConnection, ListConnections, CreateHost, GetHost, etc.).
+- ARNs include runtime request region: ARN construction passes `region` local variable (derived from ctx) not `b.defaultRegion`.
+- `regionFromARN` helper parses region from an existing ARN for tag ops (`backend.go:34-42`).
+
+### cognitoidentity — ISOLATED
+
+- State is NESTED by region: all seven maps are `map[string]map[string]*T` (outer key = region) at `backend.go:153-163`, e.g. `pools map[string]map[string]*IdentityPool`, `identities map[string]map[string]*Identity`.
+- `NewInMemoryBackend(accountID, region)` stores `b.region` as default; all outer maps start empty (`backend.go:166-180`).
+- Per-request region extracted by handler via `httputils.ExtractRegionFromRequest` and injected via `context.WithValue(ctx, regionContextKey{}, region)` at `handler.go:138/145`.
+- Every backend op resolves `getRegion(ctx, b.region)` and routes to the per-region store (e.g., `CreateIdentityPool` at `backend.go:255`; `DeleteIdentityPool` at `backend.go:307`; `DescribeIdentityPool` at `backend.go:352`; all identity, role, tag, and principal-tag ops follow the same pattern).
+- ARNs include runtime request region: `CreateIdentityPool` builds ARN with the `region` local variable, not `b.region` (`backend.go:272-278`).
+- Pool ID also encodes the request region: `poolID := region + ":" + uuid.New().String()` (`backend.go:272`).
+- Tag ops resolve region from the resource ARN via `regionFromARN` (`backend.go:1062`, `backend.go:1422`, `backend.go:1455`).
+
+### cognitoidp — LEAKS (GLOBAL)
+
+- State is a FLAT map (no region dimension): `pools map[string]*UserPool`, `poolsByName`, `clients`, `users`, `groups`, `domains`, `resourceTags`, etc. at `backend.go:133-187` — no outer region key anywhere.
+- `NewInMemoryBackend(accountID, region, endpoint)` stores `b.region` at construction time (`backend.go:232-265`); no per-request region resolution in any backend method.
+- `CreateUserPool` stores into `b.pools` flat map and bakes `b.region` into the pool ID and ARN: `poolID := b.region + "_" + ...` and `ARN: fmt.Sprintf("arn:aws:cognito-idp:%s:...", b.region, ...)` at `backend.go:276-288`.
+- `DescribeUserPool`, `DeleteUserPool`, `ListUserPools` and all other ops read/write the flat `b.pools` map without any region scope.
+- Handler (`handler.go`) never calls `httputils.ExtractRegionFromRequest` and never injects a region into context; dispatch passes ctx through directly (`handler.go:301-308`).
+- `provider.go` reads region from config once at Init and passes it to `NewInMemoryBackend` (`provider.go:27-45`); handler stores `region` as a field only for `ChaosRegions()` reporting, not for routing (`handler.go:50-55`).
+- A user pool created for a request targeting `us-east-1` is visible and operable from a request targeting `eu-west-1` because all requests hit the same flat `b.pools` map.
+- Persistence snapshot not specifically checked but given flat maps there is no region partitioning.
+
+### ec2 — LEAKS
+
+- **State map declaration**: `InMemoryBackend` holds a flat `map[string]*Instance`, `map[string]*VPC`, `map[string]*Subnet`, etc. — no region key in any map (`backend.go:193-327`). The struct has a single `Region string` field set at construction (`backend.go:318`).
+- **Create ops region**: `NewInMemoryBackend(accountID, region string)` stores the construction-time region in `b.Region` (`backend.go:449-458`). No op ever calls `awsmeta.Region(ctx)` — the backend methods do not accept a `context.Context` at all (e.g. `RunInstances` at `backend.go:539`, `CreateVpc` at `backend.go:1003`).
+- **List/Describe filter**: `DescribeInstances`, `DescribeVpcs`, `DescribeSubnets`, `DescribeSecurityGroups` return everything in the single flat map with no region filter (`backend.go:766-1146`).
+- **ARNs**: Built using `b.Region` (construction-time fixed value): `"arn:aws:ec2:" + b.Region + ...` (`backend_batch3.go:194`, `backend_batch4.go:159`, `backend_batch5.go:609`, `backend_batch5.go:721`, `backend_advanced_networking.go:451,549`). The handler also uses `h.Region` for AZ/spot-price/region responses (`handler_ext.go:621,720,2206`).
+- **Persistence**: `b.Region` is saved and restored in the snapshot (`persistence.go:193,670`); still single-region.
+- **Conclusion**: One backend instance per process serves a single construction-time region; all resources created in that instance are visible regardless of which region the incoming request targets.
+
+---
+
+### ecr — LEAKS
+
+- **State map declaration**: Flat `map[string]*Repository` (no region key), plus `map[string]map[string]*Image` keyed only by repo name (`backend.go:379-403`).
+- **Create ops region**: Handler puts region into a local `regionContextKey{}` context key (`handler.go:258-260`). Backend's `regionFor(ctx)` reads via `awsmeta.Region(ctx)` which reads from `awsmeta.Key` — a **different** key type (`backend.go:469-475`). Result: `awsmeta.Region(ctx)` always returns `""` inside ECR ops, so `regionFor` always falls back to `b.region` (the construction-time default). `CreateRepository` calls `region := b.regionFor(ctx)` at `backend.go:503` but since the context key mismatch means it always gets `b.region`, the ARN is always `arn:aws:ecr:<b.region>:...` regardless of request region.
+- **List/Describe filter**: `DescribeRepositories` iterates `b.repos` with no region filter (`backend.go:529-561`). Repos created from any region request are visible to all.
+- **ARNs**: Built with `b.regionFor(ctx)` which resolves to `b.region` due to context key mismatch (`backend.go:515`).
+- **Persistence**: Region field saved/restored but repos map is not region-partitioned.
+
+---
+
+### ecs — LEAKS
+
+- **State map declaration**: Flat `map[string]*Cluster`, `map[string][]*TaskDefinition`, `map[string]map[string]*Service`, `map[string]map[string]*Task` — no region key in any map (`backend.go:290-315`). Single `region string` field set at construction.
+- **Create ops region**: `CreateCluster` never receives a context and uses `b.region` directly for all ARNs (`backend.go:451`). `RegisterTaskDefinition` uses `b.region` (`backend.go:635-636`). `CreateService` uses `b.region` (`backend.go:894-895`). `RunTask` uses `b.region` (`backend.go:1277-1278`). No `awsmeta.Region(ctx)` call anywhere in ECS backend.
+- **List/Describe filter**: `ListClusters`/`DescribeClusters` return all clusters with no region filter (`backend.go:466-508`). Handler `ChaosRegions` hardcodes `config.DefaultRegion` (`handler.go:147`).
+- **ARNs**: All ARNs built with `b.region` (construction-time default) across all files (`backend.go:451`, `backend_ext.go:108-109,377-378,401,628`, `backend_refinement1.go:169,175`, `backend_new_ops.go:205,457`).
+- **Persistence**: No region field in `backendSnapshot` (`persistence.go:14-27`); region is not persisted or restored.
+
+---
+
+### efs — ISOLATED
+
+- **State map declaration**: All resource maps are nested by region as outer key: `fileSystems map[string]map[string]*FileSystem`, `mountTargets map[string]map[string]*MountTarget`, `accessPoints map[string]map[string]*AccessPoint`, plus all index maps similarly (`backend.go:282-298`). Per-region lazy store helpers (`fsStore`, `mtStore`, etc.) create inner maps on demand (`backend.go:338-344`).
+- **Create ops region**: Handler calls `contextWithRegion(c)` which runs `httputils.ExtractRegionFromRequest(r, h.Backend.Region())` and stores it under `regionContextKey{}` (`handler.go:444-448`). Backend's `getRegion(ctx, b.region)` reads this key (`backend.go:25-31`). `CreateFileSystem` calls `region := getRegion(ctx, b.region)` then writes into `b.fsStore(region)` (`backend.go:573,578`). ARN built with request region via `arn.Build("elasticfilesystem", region, ...)` (`backend.go:609`).
+- **List/Describe filter**: `DescribeFileSystems` calls `region := getRegion(ctx, b.region)` and reads from `b.fsStore(region)` only (`backend.go:652,657`). Same pattern for mount targets, access points, lifecycle policies, etc.
+- **ARNs**: Built with the per-request region in every Create op.
+- **Persistence**: `b.region` (default) is saved/restored, but since all data is region-keyed in the maps, region partitioning is preserved across restarts.
+- **Minor note**: `managedKMSKeyARN` constant has a hardcoded `us-east-1` (`backend.go:61`) but this is a stub KMS key placeholder, not an operational resource.
+
+---
+
+### eks — LEAKS
+
+- **State map declaration**: Flat `map[string]*Cluster`, `map[string]map[string]*Nodegroup`, etc. — no region dimension in any map (`backend.go:195-211`). Single `region string` field at construction.
+- **Create ops region**: `CreateCluster` uses `b.region` for all ARNs and fields: `arn.Build("eks", b.region, ...)` (`backend.go:361`), `Endpoint: fmt.Sprintf("...%s.eks.amazonaws.com", ..., b.region)` (`backend.go:418`), `OIDCIssuer` with `b.region` (`backend.go:419`), `Region: b.region` (`backend.go:422`). Handler's `handleCreateCluster` never passes a region-carrying context to the backend (`handler.go:1259-1268`).
+- **List/Describe filter**: `handleListClusters` calls `h.Backend.ListClusters()` which returns all clusters with no region filter (`handler.go:1326-1332`). No region parameter is consulted.
+- **ARNs**: All built with `b.region` across `backend.go:361`, `backend_new_ops.go:152,407,474,526,576`, `backend_remaining_ops.go:1345,1357,1360`.
+- **Persistence**: `b.region` stored/restored (`persistence.go:44,239`) but the cluster maps are not region-keyed.
+
+---
+
+### elasticache — ISOLATED
+
+- **State map declaration**: All regional resource maps nested by region: `clusters map[string]map[string]*Cluster`, `replicationGroups map[string]map[string]*ReplicationGroup`, `parameterGroups map[string]map[string]*CacheParameterGroup`, etc. (`backend.go:551-572`). `globalReplicationGroups map[string]*GlobalReplicationGroup` is explicitly global (not region-nested), matching AWS semantics (`backend.go:556`).
+- **Create ops region**: Handler calls `h.regionFromRequest(c)` then stores result under `regionContextKey{}` before every dispatch (`handler.go:360-363`). Backend's `getRegion(ctx, defaultRegion)` reads this key (`backend.go:27-33`). Every Create/Describe op calls `getRegion(ctx, b.region)` and operates on the per-region inner map.
+- **List/Describe filter**: All Describe operations call `getRegion` and slice into the region-keyed outer map, returning only resources for that region.
+- **ARNs**: Built using the per-request region resolved via `getRegion` in each Create op, via `arn.Build(...)`.
+- **Persistence**: The region-nested maps are serialized as-is; partitioning is preserved.
+
+---
+
+### elasticbeanstalk — ISOLATED
+
+- **State map declaration**: All maps nested by region as outer key: `applications map[string]map[string]*Application`, `environments map[string]map[string]*Environment`, `appVersions map[string]map[string]*ApplicationVersion`, etc. (`backend.go:175-190`). Per-region lazy store helpers (`applicationsStore`, `environmentsStore`, etc.) (`backend.go:275-297`).
+- **Create ops region**: Handler calls `httputils.ExtractRegionFromRequest(r, h.Backend.Region())` and stores under `regionContextKey{}` before every dispatch (`handler.go:293-294`). Backend's `getRegion(ctx, defaultRegion)` reads this key (`backend.go:22-28`). Every Create op calls `getRegion` and writes into the region-specific inner map.
+- **List/Describe filter**: All Describe/List ops call `getRegion` and read from the per-region store, isolating results by region.
+- **ARNs**: Built via `arn.Build(...)` with the per-request region in each Create op.
+- **Persistence**: Region-nested maps are serialized with region partitioning intact.
+
+---
+
+### elasticsearch — ISOLATED
+
+- **State map declaration**: All resource maps nested by region: `domains map[string]map[string]*Domain`, `arnIndex map[string]map[string]string`, `packages map[string]map[string]*Package`, `inboundConnections`, `outboundConnections`, `vpcEndpoints`, `vpcAccess`, `reservedInstances` — all `map[string]map[string]...` (`backend.go:215-231`). Lazy per-region store helpers for each (`backend.go:258-336`).
+- **Create ops region**: Handler's `reqContext(r)` extracts region from SigV4 scope via `httputils.ExtractRegionFromRequest` and stores under `regionContextKey{}` (`handler.go:124-128`). Backend's `getRegion(ctx, b.region)` reads this key (`backend.go:21-27`). `CreateDomain` calls `region := getRegion(ctx, b.region)` then operates on `b.domainsStore(region)` and builds ARN with request region (`backend.go:364,368,379`).
+- **List/Describe filter**: `DeleteDomain`, `DescribeDomain`, and all list ops call `getRegion` and read from the per-region store (`backend.go:414,437`).
+- **ARNs**: Built with per-request region: `arn.Build("es", region, b.accountID, "domain/"+name)` (`backend.go:379`).
+- **Persistence**: Region-nested maps serialized with region partitioning preserved.
+
+### elb — ISOLATED
+- State nested by region: `lbs map[string]map[string]*LoadBalancer` (backend.go:373), `policies map[string]map[string]*LoadBalancerPolicy` (backend.go:376)
+- Private `regionContextKey{}` + `getRegion(ctx, b.region)` used consistently on all ops
+- `CreateLoadBalancer` at line 621: `region := getRegion(ctx, b.region)`; ARN at line 649 uses request `region`
+- `DescribeLoadBalancers` at line 727: `b.lbsStore(getRegion(ctx, b.region))` — filtered to request region
+- All List/Describe/Get/Delete ops scope to request region via `lbsStore(region)`
+
+### elbv2 — LEAKS
+- Flat maps: `loadBalancers map[string]*LoadBalancer` (backend.go:426), `targetGroups map[string]*TargetGroup` (backend.go:427), `listeners map[string]*Listener` (backend.go:428), `rules map[string]*Rule` (backend.go:429), `trustStores map[string]*TrustStore` (backend.go:430)
+- `StorageBackend` interface methods have no `context.Context` parameter (lines 282–328); region isolation is structurally impossible at the interface level
+- All ARN helpers use construction-time `b.region`: `lbARN()` (line 732), `tgARN()` (line 736), `listenerARN()` (line 742), `ruleARN()` (line 760), `trustStoreARN()` (line 764)
+- `CreateLoadBalancer` uses `b.region` for DNS name (line 863), availability zones (line 858), canonical hosted zone (line 864)
+- `DescribeLoadBalancers` scans all load balancers with no region filter (lines 972–1010)
+
+### emr — ISOLATED
+- State nested by region: `clusters map[string]map[string]*Cluster` (backend.go:679), `arnIndex map[string]map[string]string` (backend.go:680), `securityConfigs map[string]map[string]*SecurityConfiguration` (backend.go:681), `studios map[string]map[string]*Studio` (backend.go:682)
+- Private `regionContextKey{}` + `getRegion(ctx, b.region)` used on all ops
+- `RunJobFlow` at line 958: `region := getRegion(ctx, b.region)`; ARN at line 964 uses `region`; stored at line 1014: `b.clustersStore(region)[id] = cluster`
+- `DescribeCluster` at lines 1023–1028 uses request region; `ListClusters` at line 1089 uses request region
+- `AddTags` uses `regionFromARN(resourceID, getRegion(ctx, b.region))` for ARN-based lookup
+
+### emrserverless — LEAKS
+- Flat maps: `applications map[string]*Application` (backend.go:111), `applicationARNs map[string]string` (backend.go:112), `jobRunARNs map[string][2]string` (backend.go:113), `jobRuns map[string]map[string]*JobRun` keyed by appID not region (backend.go:117)
+- No `context.Context` on `CreateApplication`, `GetApplication`, `ListApplications`, `UpdateApplication`, `DeleteApplication`, `StartApplication`, `StopApplication`, `StartJobRun`, `GetJobRun`, `ListJobRuns`, `CancelJobRun`
+- All ARN helpers use construction-time `b.region`: `applicationARN()` (line 173), `jobRunARN()` (line 177), `sessionARN()` (line 182)
+
+### eventbridge — PARTIAL
+- Core maps ARE region-partitioned: `buses map[string]map[string]*EventBus` (line 195), `rules map[string]map[string]map[string]*Rule` (line 187), `targets map[string]map[string]map[string]*Target` (line 188), `eventSources map[string]map[string]*EventSource` (line 190), `replays map[string]map[string]*Replay` (line 191), `apiDestinations map[string]map[string]*APIDestination` (line 192), `archives map[string]map[string]*Archive` (line 196), `connections map[string]map[string]*Connection` (line 186), `endpoints map[string]map[string]*Endpoint` (line 197), `partnerSources map[string]map[string]*PartnerEventSource` (line 198), `busePolicies map[string]map[string]*EventBusPolicy` (line 199)
+- FLAT (no region nesting): `pipes map[string]*Pipe` (line 200), `registries map[string]*SchemaRegistry` (line 201), `schemas map[string]map[string]*Schema` keyed by registryName not region (line 202), `schemaVersions map[string][]*SchemaVersion` (line 203), `codeBindings map[string]*CodeBinding` (line 204)
+- Bus/rule ARN helpers correctly take a `region` parameter: `busARN(region, name)` (line 344), `ruleARN(region, busName, ruleName)` (line 348)
+- Several ARN helpers use construction-time `b.region`: `apiDestinationARN()` (line 353), `archiveARN()` (line 357), `connectionARN()` (line 361), `endpointARN()` (line 365), `partnerSourceARN()` (line 369), `replayARN()` (line 373)
+- Core ops use `getRegionFromContext(ctx, b.region)` correctly; `Reset` at line 1352 re-creates default bus only in `b.region`
+
+### firehose — ISOLATED
+- State nested by region: `streams map[string]map[string]*DeliveryStream` (backend.go:332), `pollerCancel map[string]map[string]context.CancelFunc` (backend.go:334)
+- Private `regionContextKey{}` + `getRegionFromContext(ctx, b)` used consistently on all ops
+- `regionStore(region)` lazily creates per-region map (line 384)
+- `CreateDeliveryStream` at line 439: `region := getRegionFromContext(ctx, b)`; stream stored in `b.regionStore(region)`; ARN at line 458: `arn.Build("firehose", region, b.accountID, ...)` uses request region
+- All ops (DeleteDeliveryStream, DescribeDeliveryStream, ListDeliveryStreams, PutRecord, PutRecordBatch, UpdateDestination, tag ops) consistently use `getRegionFromContext(ctx, b)`
+- Tags include region: `tags.New("firehose." + region + "." + input.Name + ".tags")` (line 467)
+
+### fis — LEAKS
+- Flat maps: `templates map[string]*ExperimentTemplate` (backend.go:223), `experiments map[string]*Experiment` (backend.go:224), `templateARNIndex map[string]string` (backend.go:225), `experimentARNIndex map[string]string` (backend.go:226)
+- `CreateExperimentTemplate` receives `accountID, region string` as explicit params (line 611) but stores in global flat `b.templates` (line 660) — region used for ARN construction only
+- `StartExperiment` receives `accountID, region string` (line 782) but stores in global `b.experiments` (line 835)
+- `ListExperimentTemplates` (lines 763–775) returns all templates globally with no region filter
+- `ListExperiments` (lines 988–1000) returns all experiments globally with no region filter
+- `GetExperimentTemplate`, `UpdateExperimentTemplate`, `DeleteExperimentTemplate`, `GetExperiment`, `StopExperiment` all operate on flat maps with no region scope
+
+### forecast — LEAKS
+- Flat maps: `resources map[resourceKind]map[string]*Resource` (backend.go:123), `evaluations map[string][]MonitorEvaluation` (backend.go:124), `tags map[string]map[string]string` (backend.go:125)
+- No `context.Context` on any method
+- `defaultRegion = "us-east-1"` hardcoded constant (backend.go:26)
+- `create()` at line 204: `arn.Build("forecast", b.region, b.accountID, ...)` — uses construction-time `b.region`
+- `describe()`, `list()`, `delete()`, `update()` have no region filtering
+- `nameFromARN()` at line 329 uses `b.region` to reverse-engineer name from ARN
+- `UpdateResourceStatus()` (lines 388–404) and `DeleteResourceTree()` (lines 406–423) scan ALL resources globally
+
+### iotanalytics — LEAKS
+- Flat maps with no region dimension: `channels map[string]*Channel`, `datastores map[string]*Datastore`, `datasets map[string]*Dataset`, `pipelines map[string]*Pipeline` at backend.go:252-258
+- `StorageBackend` interface methods for List/Describe/Delete take no `ctx`, so region filtering is structurally impossible (backend.go:38-116)
+- `CreateChannel` stores resource in flat `b.channels[name]` (backend.go:618); ARN uses request region but resource is globally visible
+- `ListChannels` returns ALL channels with no region filter (backend.go:718)
+- `DescribeChannel(name string)`, `DeleteChannel(name string)`: no region parameter, no region check
+
+### iotdataplane — LEAKS
+- `InMemoryBackend` struct has no region field or dimension: `shadows map[string]map[string]*shadowEntry`, `connections map[string]*connectionEntry`, `retainedMessages map[string]*RetainedMessage` (backend.go:129-135)
+- No `awsmeta` import; no region parameter in any method signature; completely region-agnostic
+- `GetThingShadow`, `UpdateThingShadow`, `ListThingsWithShadows`, `ListRetainedMessages` all operate without any region context
+
+### iotwireless — PARTIAL
+- Primary resource maps use composite `resourceKey{AccountID string; Region string; ID string}` (backend.go:177-181): `devices map[resourceKey]*WirelessDevice`, `gateways map[resourceKey]*WirelessGateway`, `serviceProfiles map[resourceKey]*ServiceProfile`, `destinations map[resourceKey]*Destination`, `deviceProfiles map[resourceKey]*DeviceProfile`, etc. (backend.go:184-210)
+- `CreateWirelessDevice` stores with `resourceKey{AccountID: accountID, Region: region, ID: id}` (backend.go:378); `GetWirelessDevice` enforces isolation via same key (backend.go:407); `ListWirelessDevices` filters `k.AccountID == accountID && k.Region == region` (backend.go:423)
+- ARN builders take region param (e.g., `wirelessDeviceARN` at backend.go:244)
+- LEAKING secondary/association maps (all flat, no region): `partnerAccounts map[string]string`, `fuotaTaskMulticast map[string]string`, `fuotaTaskDevices map[string]string`, `multicastGroupDevices map[string]string`, `multicastGroupSessions map[string]bool`, `wirelessDeviceThings map[string]string`, `wirelessGatewayCerts map[string]string`, `wirelessGatewayThings map[string]string`, `gatewayTasks map[string]*GatewayTask`, `gatewayTaskDefs map[string]*GatewayTaskDefinition`, `positions map[string]map[string]any`, `queuedMessages map[string][]QueuedMessage`, `importTasks`, `singleImportTasks`
+
+### kafka — ISOLATED
+- All maps nested by region: `clusters map[string]map[string]*Cluster`, `configurations map[string]map[string]*Configuration`, `scramSecrets map[string]map[string][]string`, `replicators map[string]map[string]*Replicator`, `topics map[string]map[string]*Topic`, `vpcConnections map[string]map[string]*VpcConnection`, `clusterPolicies map[string]map[string]string`, `clusterOperations map[string]map[string]*ClusterOperation` (backend.go:380-388)
+- `getRegion(ctx, defaultRegion)` reads from private `regionContextKey{}` (backend.go:26); `regionFromARN` extracts region from ARN (backend.go:36)
+- Per-region store accessors lazily initialize region buckets: `clustersStore`, `configurationsStore`, etc. (backend.go:419-488)
+- `CreateCluster`: `region := getRegion(ctx, b.region)` then `b.clustersStore(region)` (backend.go:563)
+- `ListClusters`: `region := getRegion(ctx, b.region)` then `b.clustersStore(region)` (backend.go:677)
+- `DeleteCluster`: `region := regionFromARN(clusterArn, getRegion(ctx, b.region))` (backend.go:704)
+- ARN builders take region param (e.g., `clusterARN` at backend.go:506)
+
+### kinesis — ISOLATED
+- All maps nested by region: `streams map[string]map[string]*Stream`, `fisThroughputFaults map[string]map[string]*kinesisThrottleFault`, `resourcePolicies map[string]map[string]string` (backend.go:181-190)
+- `getRegion(ctx, defaultRegion)` reads from private `regionContextKey{}` (backend.go:93); `regionFromARNOrCtx` prefers ARN-embedded region (backend.go:104)
+- Per-region accessors: `streamsStore`, `streamsView`, `faultsStore`, `policiesStore`
+- `CreateStream`: `region := getRegion(ctx, b.region)` then `b.streamsStore(region)` (backend.go:328); ARN built with request region (backend.go:413)
+- `ListStreams`: `region := getRegion(ctx, b.region)` then `b.streamsView(region)` (backend.go:516)
+- `DeleteStream`: `region := getRegion(ctx, b.region)` then `b.streamsStore(region)` (backend.go:433)
+- `GetRecords`: uses region from iterator token, not ctx — correct (backend.go:829)
+
+### kinesisanalytics — ISOLATED
+- All maps nested by region: `apps map[string]map[string]*Application`, `appsByARN map[string]map[string]*Application`, `cancelFuncs map[string]context.CancelFunc` keyed as "region:name" (backend.go:146-153)
+- `getRegion` reads from private `regionContextKey{}` (backend.go:24)
+- Per-region accessors: `appsStore(region)`, `appsByARNStore(region)`
+- `CreateApplication`: `region := getRegion(ctx, b.defaultRegion)` then `b.appsStore(region)` (backend.go:480); ARN uses request region (backend.go:210)
+- `ListApplications`: `region := getRegion(ctx, b.defaultRegion)` then `b.apps[region]` (backend.go:648)
+- `DescribeApplication`: `region := getRegion(ctx, b.defaultRegion)` then filters to `b.apps[region]` (backend.go:628)
+
+### kinesisanalyticsv2 — ISOLATED
+- All maps nested by region: `applications map[string]map[string]*Application`, `applicationARNs map[string]map[string]string`, `snapshots map[string]map[string][]*Snapshot`, `operations map[string]map[string][]*ApplicationOperation`, `versions map[string]map[string][]*Application` (backend.go:215-225)
+- `getRegion` reads from private `regionContextKey{}` (backend.go:20); `regionFromARN` extracts from ARN (backend.go:30)
+- Per-region accessors: `applicationsStore`, `arnIndexStore`, `snapshotsStore`, `versionsStore`
+- `CreateApplication`: `region := getRegion(ctx, b.defaultRegion)` then `b.applicationsStore(region)` (backend.go:291); ARN uses request region (backend.go:286)
+- `ListApplications`: `region := getRegion(ctx, b.defaultRegion)` then `b.applications[region]` (backend.go:348)
+- `TagResource`: `region := regionFromARN(resourceARN, b.defaultRegion)` — resolves from ARN (backend.go:582)
+
+### kms — ISOLATED
+- All 9 maps nested by region: `keys map[string]map[string]*Key`, `aliases map[string]map[string]*Alias`, `grants map[string]map[string]*Grant`, `grantsByToken map[string]map[string]*Grant`, `grantsByKey map[string]map[string]map[string]*Grant`, `policies map[string]map[string]string`, `keyMaterials map[string]map[string]*keyMaterial`, `keyMaterialHistory map[string]map[string][]*keyMaterial`, `customKeyStores map[string]map[string]*CustomKeyStore` (backend.go:261-278)
+- `getRegion` reads from private `regionContextKey{}` (backend.go:28)
+- Per-region store accessors for all 9 maps lazily initialize region buckets
+- `CreateKey`: `region := getRegion(ctx, b.defaultRegion)` (or `input.Region` override) then `b.keysStore(region)[keyID] = key` (backend.go:614); ARN uses request region (backend.go:665)
+- `ListKeys`: `region := getRegion(ctx, b.defaultRegion)` then `b.keysStore(region)` (backend.go:722)
+- `Encrypt`, `Decrypt`, `Sign`, etc.: all use `getRegion(ctx, b.defaultRegion)` for key material lookup (backend.go:781, 891, 1163)
+- `resolveKeyID`: uses `ctxRegion := getRegion(ctx, b.defaultRegion)` for alias lookups (backend.go:419)
+
