@@ -1401,24 +1401,10 @@ func decodeErrorBody(t *testing.T, body string) (string, string) {
 	var m map[string]any
 	require.NoError(t, json.Unmarshal([]byte(body), &m), "error body must be valid JSON")
 
-<<<<<<< Updated upstream
 	errType, _ := m["__type"].(string)
 	errMsg, _ := m["message"].(string)
 
 	return errType, errMsg
-=======
-	var errType, msg string
-
-	if v, ok := m["__type"].(string); ok {
-		errType = v
-	}
-
-	if v, ok := m["message"].(string); ok {
-		msg = v
-	}
-
-	return errType, msg
->>>>>>> Stashed changes
 }
 
 // TestHandler_ErrorBodyFormat verifies that all error responses carry __type + message fields
