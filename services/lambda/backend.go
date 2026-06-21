@@ -2726,7 +2726,13 @@ func (b *InMemoryBackend) startZipContainer(
 		Mounts: mounts,
 	}
 
-	if fn.Handler != "" {
+	// Custom runtimes (provided.*) ship the executable as the zip's "bootstrap"
+	// file at /var/task. The provided.al2 base image's default entrypoint runs
+	// /var/runtime/bootstrap, so run the function's bootstrap directly instead
+	// (matching real AWS, which execs /var/task/bootstrap for custom runtimes).
+	if strings.HasPrefix(fn.Runtime, "provided") {
+		spec.Entrypoint = []string{"/var/task/bootstrap"}
+	} else if fn.Handler != "" {
 		spec.Cmd = []string{fn.Handler}
 	}
 

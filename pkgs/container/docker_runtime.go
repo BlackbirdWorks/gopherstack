@@ -200,8 +200,21 @@ func (r *DockerRuntime) CreateAndStart(ctx context.Context, spec Spec) (string, 
 		cfg.Cmd = spec.Cmd
 	}
 
+	if len(spec.Entrypoint) > 0 {
+		cfg.Entrypoint = spec.Entrypoint
+	}
+
 	hostCfg := &dockercontainer.HostConfig{
 		Binds: spec.Mounts,
+	}
+
+	// Ensure the image is present before creating the container. Real AWS (and
+	// LocalStack) pull the runtime/base image on demand; without this a clean
+	// host fails container creation with "No such image".
+	if has, herr := r.HasImage(ctx, spec.Image); herr == nil && !has {
+		if perr := r.PullImage(ctx, spec.Image); perr != nil {
+			return "", fmt.Errorf("ensure image %q: %w", spec.Image, perr)
+		}
 	}
 
 	resp, err := r.docker.ContainerCreate(ctx, cfg, hostCfg, nil, nil, spec.Name)

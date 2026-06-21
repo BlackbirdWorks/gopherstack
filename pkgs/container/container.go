@@ -55,6 +55,8 @@ type Spec struct {
 	Mounts []string
 	// Cmd overrides the image's default CMD.
 	Cmd []string
+	// Entrypoint overrides the image's default ENTRYPOINT.
+	Entrypoint []string
 }
 
 // PooledContainer tracks a container managed by the warm pool.
