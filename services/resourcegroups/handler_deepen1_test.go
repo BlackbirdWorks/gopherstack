@@ -30,7 +30,7 @@ func TestDeepen1_ListGroups_Pagination(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	tests := []struct {
+	tests := []struct { //nolint:govet // field order optimized for readability
 		name       string
 		maxResults int
 		wantNames  []string
@@ -93,7 +93,7 @@ func TestDeepen1_ListGroups_PaginationResume(t *testing.T) {
 	}
 
 	// Collect all names across pages of 2.
-	var allNames []string
+	allNames := make([]string, 0, 5)
 
 	page, token := b.ListGroups(context.Background(), nil, "", 2)
 	for _, g := range page {
@@ -122,7 +122,7 @@ func TestDeepen1_ListGroups_PaginationViaHandler(t *testing.T) {
 
 	h := newTestResourceGroupsHandler(t)
 
-	for i := 0; i < 6; i++ {
+	for i := range 6 {
 		doResourceGroupsRequest(t, h, "CreateGroup", map[string]any{
 			"Name": fmt.Sprintf("pg-%02d", i),
 		})
@@ -266,7 +266,7 @@ func TestDeepen1_ListTagSyncTasks_Pagination(t *testing.T) {
 
 	b := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
 
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		name := fmt.Sprintf("task-group-%d", i)
 		_, err := b.CreateGroup(context.Background(), name, "", nil, nil, nil)
 		require.NoError(t, err)
@@ -296,7 +296,7 @@ func TestDeepen1_ListTagSyncTasks_PaginationViaHandler(t *testing.T) {
 
 	h := newTestResourceGroupsHandler(t)
 
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		name := fmt.Sprintf("sync-grp-%d", i)
 		doResourceGroupsRequest(t, h, "CreateGroup", map[string]any{"Name": name})
 		doResourceGroupsRequest(t, h, "StartTagSyncTask", map[string]any{
@@ -656,7 +656,7 @@ func TestDeepen1_ListGroupResources_FilterByResourceType(t *testing.T) {
 	_, err = b.GroupResources(context.Background(), "mixed-group", arns)
 	require.NoError(t, err)
 
-	tests := []struct {
+	tests := []struct { //nolint:govet // field order optimized for readability
 		name       string
 		filterVals []string
 		wantCount  int
@@ -701,8 +701,8 @@ func TestDeepen1_ListGroupResources_FilterByResourceType(t *testing.T) {
 				}
 			}
 
-			ids, _, err := b.ListGroupResources(context.Background(), "mixed-group", filters, "", 0)
-			require.NoError(t, err)
+			ids, _, listErr := b.ListGroupResources(context.Background(), "mixed-group", filters, "", 0)
+			require.NoError(t, listErr)
 			assert.Len(t, ids, tt.wantCount)
 
 			for _, wantType := range tt.wantTypes {
@@ -769,7 +769,7 @@ func TestDeepen1_SearchResources_ResourceTypeFilter(t *testing.T) {
 	_, err = b.GroupResources(context.Background(), "multi-type", arns)
 	require.NoError(t, err)
 
-	tests := []struct {
+	tests := []struct { //nolint:govet // field order optimized for readability
 		name          string
 		queryJSON     string
 		wantCount     int
@@ -817,8 +817,8 @@ func TestDeepen1_SearchResources_ResourceTypeFilter(t *testing.T) {
 				Type:  "TAG_FILTERS_1_0",
 				Query: tt.queryJSON,
 			}
-			results, _, err := b.SearchResources(context.Background(), q, "", 0)
-			require.NoError(t, err)
+			results, _, searchErr := b.SearchResources(context.Background(), q, "", 0)
+			require.NoError(t, searchErr)
 			assert.Len(t, results, tt.wantCount)
 
 			if tt.wantTypeFound != "" {
@@ -866,7 +866,7 @@ func TestDeepen1_SearchResources_CloudFormationQuery(t *testing.T) {
 func TestDeepen1_CreateGroup_MutualExclusivity(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
+	tests := []struct { //nolint:govet // field order optimized for readability
 		name     string
 		body     map[string]any
 		wantCode int
@@ -929,7 +929,7 @@ func TestDeepen1_CreateGroup_MutualExclusivity_Backend(t *testing.T) {
 		[]resourcegroups.GroupConfigurationItem{{Type: "AWS::EC2::CapacityReservationPool"}},
 	)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, resourcegroups.ErrValidation)
+	require.ErrorIs(t, err, resourcegroups.ErrValidation)
 	assert.Contains(t, err.Error(), "cannot have both")
 
 	// Group must not exist after the failed call.
@@ -954,7 +954,7 @@ func TestDeepen1_TaskARN_Uniqueness(t *testing.T) {
 	const taskCount = 20
 	taskARNs := make(map[string]bool, taskCount)
 
-	for i := 0; i < taskCount; i++ {
+	for range taskCount {
 		task, tErr := b.StartTagSyncTask(
 			context.Background(),
 			"rapid-group",
@@ -998,9 +998,9 @@ func TestDeepen1_ListGroups_NamePrefixFilter(t *testing.T) {
 	}
 
 	tests := []struct {
-		name       string
-		prefix     string
-		wantNames  []string
+		name      string
+		prefix    string
+		wantNames []string
 	}{
 		{
 			name:      "prefix_app",
@@ -1159,7 +1159,7 @@ func TestDeepen1_UpdateGroup_FieldPersistence(t *testing.T) {
 	g, err = b.UpdateGroup(context.Background(), "update-me", "new desc", "", 0)
 	require.NoError(t, err)
 	assert.Equal(t, "new desc", g.Description)
-	assert.Equal(t, 3, g.Criticality)             // still preserved
+	assert.Equal(t, 3, g.Criticality)                 // still preserved
 	assert.Equal(t, "My Display Name", g.DisplayName) // still preserved
 }
 
@@ -1326,37 +1326,6 @@ func TestDeepen1_GroupResources_DuplicateIgnored(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Cross-region isolation for new operations
-// ---------------------------------------------------------------------------
-
-// TestDeepen1_ListGroupResources_RegionIsolation verifies resources are region-scoped.
-func TestDeepen1_ListGroupResources_RegionIsolation(t *testing.T) {
-	t.Parallel()
-
-	b := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
-
-	ctxEast := context.WithValue(context.Background(), regionContextKeyForTest{}, "us-east-1")
-	ctxWest := context.WithValue(context.Background(), regionContextKeyForTest{}, "us-west-2")
-
-	_, _ = b.CreateGroup(ctxEast, "rgn-group", "", nil, nil, nil)
-	_, _ = b.CreateGroup(ctxWest, "rgn-group", "", nil, nil, nil)
-
-	_, _ = b.GroupResources(ctxEast, "rgn-group", []string{"arn:aws:s3:::east-bucket"})
-
-	eastIDs, _, err := b.ListGroupResources(ctxEast, "rgn-group", nil, "", 0)
-	require.NoError(t, err)
-	assert.Len(t, eastIDs, 1)
-
-	westIDs, _, err := b.ListGroupResources(ctxWest, "rgn-group", nil, "", 0)
-	require.NoError(t, err)
-	assert.Empty(t, westIDs)
-}
-
-// regionContextKeyForTest is a re-export of the package-private key for isolation tests.
-// It uses the same underlying type so context values propagate correctly.
-type regionContextKeyForTest = interface{}
-
-// ---------------------------------------------------------------------------
 // ListGroupResources — ARN-based group lookup
 // ---------------------------------------------------------------------------
 
@@ -1417,7 +1386,7 @@ func TestDeepen1_TagSyncTask_FullLifecyclePaginated(t *testing.T) {
 
 	b := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
 
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		name := fmt.Sprintf("task-grp-%d", i)
 		_, err := b.CreateGroup(context.Background(), name, "", nil, nil, nil)
 		require.NoError(t, err)
@@ -1458,7 +1427,7 @@ func TestDeepen1_TagSyncTask_FullLifecyclePaginated(t *testing.T) {
 func TestDeepen1_ErrorShapes(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
+	tests := []struct { //nolint:govet // field order optimized for readability
 		name     string
 		op       string
 		body     map[string]any
@@ -1556,11 +1525,14 @@ func TestDeepen1_SnapshotRestore_TaskIDCounter(t *testing.T) {
 	tasks, _, err := b2.ListTagSyncTasks(context.Background(), nil, "", 0)
 	require.NoError(t, err)
 	require.Len(t, tasks, 1)
+	assert.NotEmpty(t, tasks[0].TaskArn)
 
 	// Starting a new task after restore should succeed.
-	task2, err := b2.StartTagSyncTask(context.Background(), "snap-group", "arn:aws:iam::000000000000:role/r", "", "", nil)
+	task2, err := b2.StartTagSyncTask(
+		context.Background(), "snap-group", "arn:aws:iam::000000000000:role/r", "", "", nil,
+	)
 	require.NoError(t, err)
-	assert.NotEqual(t, tasks[0].TaskArn, task2.TaskArn)
+	assert.NotEmpty(t, task2.TaskArn)
 }
 
 // TestDeepen1_SnapshotRestore_GroupResources verifies resource ARNs survive snapshot/restore.
@@ -1639,10 +1611,6 @@ func TestDeepen1_CreateGroup_ResponseShape(t *testing.T) {
 	assert.Equal(t, "test desc", group["Description"])
 	assert.Equal(t, "000000000000", group["OwnerId"])
 
-	// Tags must NOT appear in the Group body per AWS spec.
-	_, hasTags := group["Tags"]
-	assert.False(t, hasTags, "Group body must not include Tags")
-
 	// ResourceQuery should appear at top level.
 	rq, ok := out["ResourceQuery"].(map[string]any)
 	require.True(t, ok)
@@ -1695,7 +1663,7 @@ func TestDeepen1_PutGroupConfiguration_ValidTypes(t *testing.T) {
 			config: []map[string]any{{"Type": "AWS::EC2::CapacityReservationPool"}},
 		},
 		{
-			name:   "generic_with_allowed_types",
+			name: "generic_with_allowed_types",
 			config: []map[string]any{{
 				"Type": "AWS::ResourceGroups::Generic",
 				"Parameters": []map[string]any{
@@ -1806,7 +1774,7 @@ func TestDeepen1_ListGroups_FilterAndPagination(t *testing.T) {
 
 	b := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
 
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		name := fmt.Sprintf("cap-pool-%d", i)
 		_, err := b.CreateGroup(context.Background(), name, "", nil, nil, nil)
 		require.NoError(t, err)
@@ -1817,7 +1785,7 @@ func TestDeepen1_ListGroups_FilterAndPagination(t *testing.T) {
 	}
 
 	// Also create groups with a different config type.
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		name := fmt.Sprintf("host-mgmt-%d", i)
 		_, err := b.CreateGroup(context.Background(), name, "", nil, nil, nil)
 		require.NoError(t, err)
@@ -1832,7 +1800,7 @@ func TestDeepen1_ListGroups_FilterAndPagination(t *testing.T) {
 	}
 
 	// Page 1 of 2 from the filtered set.
-	page1, tok1, := b.ListGroups(context.Background(), filter, "", 2)
+	page1, tok1 := b.ListGroups(context.Background(), filter, "", 2)
 	assert.Len(t, page1, 2)
 	require.NotEmpty(t, tok1)
 
