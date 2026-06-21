@@ -52,6 +52,12 @@ var (
 	ErrAliasAlreadyExists = awserr.New(errEntityAlreadyExistsException, awserr.ErrAlreadyExists)
 	// ErrInvalidParameter is returned on invalid input.
 	ErrInvalidParameter = awserr.New(errClientException, awserr.ErrInvalidParameter)
+	// ErrDirectoryLimitExceeded is returned when the directory limit for the region is reached.
+	ErrDirectoryLimitExceeded = awserr.New("DirectoryLimitExceededException", awserr.ErrConflict)
+	// ErrSnapshotLimitExceeded is returned when the manual snapshot limit for a directory is reached.
+	ErrSnapshotLimitExceeded = awserr.New("SnapshotLimitExceededException", awserr.ErrConflict)
+	// ErrUnsupportedOperation is returned when an operation is not supported by the directory type.
+	ErrUnsupportedOperation = awserr.New("UnsupportedOperationException", awserr.ErrConflict)
 )
 
 // storedVpcSettings holds VPC settings for serialization.
@@ -290,9 +296,32 @@ func (b *InMemoryBackend) CreateDirectory(
 	if name == "" {
 		return nil, ErrInvalidParameter
 	}
+	if size != DirectorySizeSmall && size != DirectorySizeLarge && size != "" {
+		return nil, ErrInvalidParameter
+	}
 
 	st := b.state(region)
-	d := b.newStoredDirectory(name, shortName, description, DirectoryTypeSimpleAD, size, "", vpcSettings, tags)
+
+	var count int32
+	for _, d := range st.directories {
+		if DirectoryType(d.DirType) == DirectoryTypeSimpleAD {
+			count++
+		}
+	}
+	if count >= defaultSimpleADLimit {
+		return nil, ErrDirectoryLimitExceeded
+	}
+
+	d := b.newStoredDirectory(
+		name,
+		shortName,
+		description,
+		DirectoryTypeSimpleAD,
+		size,
+		"",
+		vpcSettings,
+		tags,
+	)
 	st.directories[d.DirectoryID] = d
 	st.aliases[d.Alias] = d.DirectoryID
 
@@ -315,9 +344,33 @@ func (b *InMemoryBackend) CreateMicrosoftAD(
 	if name == "" {
 		return nil, ErrInvalidParameter
 	}
+	if edition != DirectoryEditionEnterprise && edition != DirectoryEditionStandard &&
+		edition != "" {
+		return nil, ErrInvalidParameter
+	}
 
 	st := b.state(region)
-	d := b.newStoredDirectory(name, shortName, description, DirectoryTypeMicrosoftAD, "", edition, vpcSettings, tags)
+
+	var count int32
+	for _, d := range st.directories {
+		if DirectoryType(d.DirType) == DirectoryTypeMicrosoftAD {
+			count++
+		}
+	}
+	if count >= defaultMicrosoftADLimit {
+		return nil, ErrDirectoryLimitExceeded
+	}
+
+	d := b.newStoredDirectory(
+		name,
+		shortName,
+		description,
+		DirectoryTypeMicrosoftAD,
+		"",
+		edition,
+		vpcSettings,
+		tags,
+	)
 	st.directories[d.DirectoryID] = d
 	st.aliases[d.Alias] = d.DirectoryID
 
@@ -326,7 +379,7 @@ func (b *InMemoryBackend) CreateMicrosoftAD(
 	return &cp, nil
 }
 
-// DeleteDirectory deletes a directory.
+// DeleteDirectory deletes a directory and all associated resources.
 func (b *InMemoryBackend) DeleteDirectory(ctx context.Context, directoryID string) error {
 	region := getRegion(ctx, b.region)
 
@@ -342,15 +395,97 @@ func (b *InMemoryBackend) DeleteDirectory(ctx context.Context, directoryID strin
 
 	delete(st.aliases, d.Alias)
 	delete(st.directories, directoryID)
+	cascadeDeleteDirectory(st, directoryID)
 
-	// Delete associated snapshots.
+	return nil
+}
+
+// cascadeDeleteDirectory removes all resources that belong to directoryID from st.
+// Must be called with the backend lock held.
+func cascadeDeleteDirectory(st *regionState, directoryID string) {
 	for id, snap := range st.snapshots {
 		if snap.DirectoryID == directoryID {
 			delete(st.snapshots, id)
 		}
 	}
 
-	return nil
+	delete(st.ipRoutes, directoryID)
+	delete(st.radiusSettings, directoryID)
+	delete(st.dirDataAccess, directoryID)
+	delete(st.caEnrollment, directoryID)
+	delete(st.dirSettings, directoryID)
+	delete(st.updateInfoEntries, directoryID)
+
+	deleteMappedByDir(
+		st.regions,
+		directoryID,
+		func(r *storedRegion) string { return r.DirectoryID },
+	)
+	deleteMappedByDir(
+		st.schemaExtensions,
+		directoryID,
+		func(e *storedSchemaExtension) string { return e.DirectoryID },
+	)
+	deleteMappedByDir(
+		st.conditionalForwarders,
+		directoryID,
+		func(f *storedConditionalForwarder) string { return f.DirectoryID },
+	)
+	deleteMappedByDir(
+		st.logSubscriptions,
+		directoryID,
+		func(s *storedLogSubscription) string { return s.DirectoryID },
+	)
+	deleteMappedByDir(
+		st.eventTopics,
+		directoryID,
+		func(t *storedEventTopic) string { return t.DirectoryID },
+	)
+	deleteMappedByDir(
+		st.domainControllers,
+		directoryID,
+		func(d *storedDomainController) string { return d.DirectoryID },
+	)
+	deleteMappedByDir(st.trusts, directoryID, func(t *storedTrust) string { return t.DirectoryID })
+	deleteMappedByDir(
+		st.sharedDirectories,
+		directoryID,
+		func(s *storedSharedDirectory) string { return s.OwnerDirectoryID },
+	)
+	deleteMappedByDir(
+		st.certificates,
+		directoryID,
+		func(c *storedCertificate) string { return c.DirectoryID },
+	)
+	deleteMappedByDir(
+		st.ldapsSettings,
+		directoryID,
+		func(l *storedLDAPSSetting) string { return l.DirectoryID },
+	)
+	deleteMappedByDir(
+		st.clientAuthSettings,
+		directoryID,
+		func(a *storedClientAuthSetting) string { return a.DirectoryID },
+	)
+	deleteMappedByDir(
+		st.adAssessments,
+		directoryID,
+		func(a *storedADAssessment) string { return a.DirectoryID },
+	)
+	deleteMappedByDir(
+		st.hybridADUpdates,
+		directoryID,
+		func(h *storedHybridADUpdate) string { return h.DirectoryID },
+	)
+}
+
+// deleteMappedByDir deletes all entries from m where getDir(v) == directoryID.
+func deleteMappedByDir[V any](m map[string]*V, directoryID string, getDir func(*V) string) {
+	for key, v := range m {
+		if getDir(v) == directoryID {
+			delete(m, key)
+		}
+	}
 }
 
 // DescribeDirectories returns directories, optionally filtered by IDs.
@@ -512,7 +647,10 @@ func (b *InMemoryBackend) GetDirectoryLimits(ctx context.Context) *DirectoryLimi
 }
 
 // CreateSnapshot creates a manual snapshot for a directory.
-func (b *InMemoryBackend) CreateSnapshot(ctx context.Context, directoryID, name string) (*Snapshot, error) {
+func (b *InMemoryBackend) CreateSnapshot(
+	ctx context.Context,
+	directoryID, name string,
+) (*Snapshot, error) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("CreateSnapshot")
@@ -522,6 +660,16 @@ func (b *InMemoryBackend) CreateSnapshot(ctx context.Context, directoryID, name 
 
 	if _, ok := st.directories[directoryID]; !ok {
 		return nil, ErrDirectoryNotFound
+	}
+
+	var count int32
+	for _, s := range st.snapshots {
+		if s.DirectoryID == directoryID && s.SnapType == string(SnapshotTypeManual) {
+			count++
+		}
+	}
+	if count >= defaultSnapshotLimit {
+		return nil, ErrSnapshotLimitExceeded
 	}
 
 	id := b.newSnapshotID()
@@ -627,7 +775,10 @@ func (b *InMemoryBackend) DescribeSnapshots(
 }
 
 // GetSnapshotLimits returns snapshot limits for a directory.
-func (b *InMemoryBackend) GetSnapshotLimits(ctx context.Context, directoryID string) (*SnapshotLimits, error) {
+func (b *InMemoryBackend) GetSnapshotLimits(
+	ctx context.Context,
+	directoryID string,
+) (*SnapshotLimits, error) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.RLock("GetSnapshotLimits")
@@ -676,7 +827,11 @@ func (b *InMemoryBackend) RestoreFromSnapshot(ctx context.Context, snapshotID st
 }
 
 // AddTagsToResource adds or updates tags on a directory.
-func (b *InMemoryBackend) AddTagsToResource(ctx context.Context, resourceID string, tags []Tag) error {
+func (b *InMemoryBackend) AddTagsToResource(
+	ctx context.Context,
+	resourceID string,
+	tags []Tag,
+) error {
 	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("AddTagsToResource")
@@ -699,7 +854,11 @@ func (b *InMemoryBackend) AddTagsToResource(ctx context.Context, resourceID stri
 }
 
 // RemoveTagsFromResource removes tags from a directory.
-func (b *InMemoryBackend) RemoveTagsFromResource(ctx context.Context, resourceID string, tagKeys []string) error {
+func (b *InMemoryBackend) RemoveTagsFromResource(
+	ctx context.Context,
+	resourceID string,
+	tagKeys []string,
+) error {
 	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("RemoveTagsFromResource")
@@ -717,12 +876,12 @@ func (b *InMemoryBackend) RemoveTagsFromResource(ctx context.Context, resourceID
 	return nil
 }
 
-// ListTagsForResource returns tags for a directory.
+// ListTagsForResource returns tags for a directory with pagination.
 func (b *InMemoryBackend) ListTagsForResource(
 	ctx context.Context,
 	resourceID string,
-	_ int32,
-	_ string,
+	limit int32,
+	nextToken string,
 ) ([]Tag, string, error) {
 	region := getRegion(ctx, b.region)
 
@@ -734,13 +893,37 @@ func (b *InMemoryBackend) ListTagsForResource(
 		return nil, "", ErrDirectoryNotFound
 	}
 
-	tags := make([]Tag, 0, len(d.Tags))
+	all := make([]Tag, 0, len(d.Tags))
 	for k, v := range d.Tags {
-		tags = append(tags, Tag{Key: k, Value: v})
+		all = append(all, Tag{Key: k, Value: v})
 	}
-	sort.Slice(tags, func(i, j int) bool { return tags[i].Key < tags[j].Key })
+	sort.Slice(all, func(i, j int) bool { return all[i].Key < all[j].Key })
 
-	return tags, "", nil
+	start := 0
+	if nextToken != "" {
+		for i, t := range all {
+			if t.Key == nextToken {
+				start = i
+
+				break
+			}
+		}
+	}
+
+	pageSize := int(limit)
+	if pageSize <= 0 || pageSize > 1000 {
+		pageSize = 1000
+	}
+
+	end := min(start+pageSize, len(all))
+	result := all[start:end]
+
+	var outToken string
+	if end < len(all) {
+		outToken = all[end].Key
+	}
+
+	return result, outToken, nil
 }
 
 // AccountID returns the account ID.

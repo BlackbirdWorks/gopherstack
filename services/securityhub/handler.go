@@ -1033,6 +1033,18 @@ func (h *Handler) handleCreateInsight(c *echo.Context, body map[string]any) erro
 	groupByAttribute, _ := body["GroupByAttribute"].(string)
 	filters, _ := body["Filters"].(map[string]any)
 
+	if name == "" {
+		return c.JSON(http.StatusBadRequest, map[string]any{
+			keyMessage: "Name is required",
+		})
+	}
+
+	if groupByAttribute == "" {
+		return c.JSON(http.StatusBadRequest, map[string]any{
+			keyMessage: "GroupByAttribute is required",
+		})
+	}
+
 	arn, err := h.Backend.CreateInsight(name, groupByAttribute, filters)
 	if err != nil {
 		if errors.Is(err, ErrHubNotEnabled) {

@@ -340,42 +340,42 @@ func TestHandler_ExtractResource(t *testing.T) {
 func TestHandler_ExportAndDescribeExport(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		body           string
-		name           string
-		action         string
-		wantStatusCode int
-	}{
-		{
-			name:           "ExportTableToPointInTime returns stub",
-			action:         "ExportTableToPointInTime",
-			body:           `{"TableArn":"arn:aws:dynamodb:us-east-1:123456789012:table/T","S3Bucket":"bucket"}`,
-			wantStatusCode: http.StatusOK,
-		},
-		{
-			name:           "DescribeExport returns stub",
-			action:         "DescribeExport",
-			body:           `{"ExportArn":"arn:aws:dynamodb:us-east-1:123456789012:table/T/export/01"}`,
-			wantStatusCode: http.StatusOK,
-		},
+	doExport := func(t *testing.T, h *dynamodb.DynamoDBHandler, action, body string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(body))
+		req.Header.Set("X-Amz-Target", "DynamoDB_20120810."+action)
+		w := httptest.NewRecorder()
+		_ = serveEchoHandler(h.Handler(), w, req)
+
+		return w
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+	db := dynamodb.NewInMemoryDB()
+	h := dynamodb.NewHandler(db)
 
-			db := dynamodb.NewInMemoryDB()
-			h := dynamodb.NewHandler(db)
+	// ExportTableToPointInTime records the export and returns its ARN.
+	w := doExport(t, h, "ExportTableToPointInTime",
+		`{"TableArn":"arn:aws:dynamodb:us-east-1:123456789012:table/T","S3Bucket":"bucket"}`)
+	require.Equal(t, http.StatusOK, w.Code)
 
-			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(tt.body))
-			req.Header.Set("X-Amz-Target", "DynamoDB_20120810."+tt.action)
-			w := httptest.NewRecorder()
-			echoHandler := h.Handler()
-			_ = serveEchoHandler(echoHandler, w, req)
-
-			assert.Equal(t, tt.wantStatusCode, w.Code)
-		})
+	var exp struct {
+		ExportDescription struct {
+			ExportArn string `json:"ExportArn"`
+		} `json:"ExportDescription"`
 	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &exp))
+	require.NotEmpty(t, exp.ExportDescription.ExportArn)
+
+	// DescribeExport on the returned ARN succeeds.
+	w = doExport(t, h, "DescribeExport",
+		`{"ExportArn":"`+exp.ExportDescription.ExportArn+`"}`)
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	// DescribeExport on an unknown ARN returns ExportNotFoundException (AWS parity).
+	w = doExport(t, h, "DescribeExport",
+		`{"ExportArn":"arn:aws:dynamodb:us-east-1:123456789012:table/T/export/does-not-exist"}`)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "ExportNotFoundException")
 }
 
 // TestHandler_GetRecords_InvalidIterator verifies the error path in handleStreamsGetRecords.

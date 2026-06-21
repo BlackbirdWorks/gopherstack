@@ -3,11 +3,17 @@ package redshift
 import (
 	"errors"
 	"fmt"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
+
+// clusterIDRegex matches valid Redshift ClusterIdentifier values:
+// begins with a letter, only lowercase letters/digits/hyphens, 1-63 chars.
+var clusterIDRegex = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
 
 const (
 	errClusterSnapshotNotFound = "ClusterSnapshotNotFound"
@@ -494,6 +500,15 @@ func cloneCluster(c *Cluster) Cluster {
 func (b *InMemoryBackend) CreateCluster(id, nodeType, dbName, masterUser string) (*Cluster, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: ClusterIdentifier is required", ErrInvalidParameter)
+	}
+
+	if !clusterIDRegex.MatchString(id) || strings.HasSuffix(id, "-") || strings.Contains(id, "--") {
+		return nil, fmt.Errorf(
+			"%w: ClusterIdentifier %q is invalid (must start with a letter, "+
+				"contain only lowercase letters/digits/hyphens, not end with a hyphen, "+
+				"not contain consecutive hyphens, max 63 chars)",
+			ErrInvalidParameter, id,
+		)
 	}
 
 	b.mu.Lock("CreateCluster")

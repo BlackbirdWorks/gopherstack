@@ -203,6 +203,9 @@ func TestCSCRepositoryLinkRegionIsolation(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, westLink.RepositoryLinkID, westCfg.RepositoryLinkID)
 
+	// Must delete sync config before deleting the link (AWS ResourceInUse semantics).
+	require.NoError(t, backend.DeleteSyncConfiguration(ctxEast, "east-stack", "CFN_STACK_SYNC"))
+
 	// Deleting the east link leaves the west link intact.
 	require.NoError(t, backend.DeleteRepositoryLink(ctxEast, eastLink.RepositoryLinkID))
 

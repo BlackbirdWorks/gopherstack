@@ -13,6 +13,18 @@ func ValidateTopic(topic string) error { return validateTopic(topic) }
 // ValidateShadowName exposes validateShadowName for white-box testing.
 func ValidateShadowName(name string) error { return validateShadowName(name) }
 
+// ValidateThingName exposes validateThingName for white-box testing.
+func ValidateThingName(name string) error { return validateThingName(name) }
+
+// ValidateClientToken exposes validateClientToken for white-box testing.
+func ValidateClientToken(token string) error { return validateClientToken(token) }
+
+// MaxThingNameLength exposes the thing name length cap for testing.
+const MaxThingNameLength = maxThingNameLength
+
+// MaxClientTokenLength exposes the clientToken length cap for testing.
+const MaxClientTokenLength = maxClientTokenLength
+
 // ShadowCount returns the total number of shadow entries across all things (for white-box testing).
 func ShadowCount(b *InMemoryBackend) int {
 	b.mu.RLock("ShadowCount")

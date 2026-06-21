@@ -2454,6 +2454,12 @@ func (h *Handler) handleConnectDirectory(c *echo.Context) error {
 	if req.Name == "" {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "Name is required"))
 	}
+	if req.Password == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ClientException", "Password is required"))
+	}
+	if req.Size != string(DirectorySizeSmall) && req.Size != string(DirectorySizeLarge) {
+		return c.JSON(http.StatusBadRequest, errResp("ClientException", "Size must be Small or Large"))
+	}
 
 	tags := reqTagsToTags(req.Tags)
 	d, createErr := h.Backend.ConnectDirectory(

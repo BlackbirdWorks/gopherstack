@@ -6579,3 +6579,202 @@ func TestNLBAttributeDefaults(t *testing.T) {
 	assert.NotContains(t, attrMap, "waf.fail_open.enabled")
 	assert.NotContains(t, attrMap, "routing.http.response.server.enabled")
 }
+
+// TestDescribeLoadBalancersByNameNotFound verifies that querying a non-existent LB by name returns 404,
+// matching real AWS which raises LoadBalancerNotFoundException for any unknown name.
+func TestDescribeLoadBalancersByNameNotFound(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		vals   url.Values
+		name   string
+		expect int
+	}{
+		{
+			name: "single_missing_name",
+			vals: url.Values{
+				"Action":         {"DescribeLoadBalancers"},
+				"Version":        {"2015-12-01"},
+				"Names.member.1": {"does-not-exist"},
+			},
+			expect: http.StatusNotFound,
+		},
+		{
+			name: "one_valid_one_missing_name",
+			vals: url.Values{
+				"Action":         {"DescribeLoadBalancers"},
+				"Version":        {"2015-12-01"},
+				"Names.member.1": {"desc-lb-name-exists"},
+				"Names.member.2": {"does-not-exist"},
+			},
+			expect: http.StatusNotFound,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			if tc.name == "one_valid_one_missing_name" {
+				mustCreateLB(t, h, "desc-lb-name-exists")
+			}
+
+			rec := doELBv2(t, h, tc.vals)
+			assert.Equal(t, tc.expect, rec.Code)
+		})
+	}
+}
+
+// TestDescribeTargetGroupsByNameNotFound verifies that querying non-existent TG names returns 404,
+// matching real AWS which raises TargetGroupNotFoundException for any unknown name.
+func TestDescribeTargetGroupsByNameNotFound(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		vals   url.Values
+		name   string
+		expect int
+	}{
+		{
+			name: "single_missing_name",
+			vals: url.Values{
+				"Action":         {"DescribeTargetGroups"},
+				"Version":        {"2015-12-01"},
+				"Names.member.1": {"does-not-exist"},
+			},
+			expect: http.StatusNotFound,
+		},
+		{
+			name: "one_valid_one_missing_name",
+			vals: url.Values{
+				"Action":         {"DescribeTargetGroups"},
+				"Version":        {"2015-12-01"},
+				"Names.member.1": {"desc-tg-name-exists"},
+				"Names.member.2": {"does-not-exist"},
+			},
+			expect: http.StatusNotFound,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			if tc.name == "one_valid_one_missing_name" {
+				mustCreateTG(t, h, "desc-tg-name-exists")
+			}
+
+			rec := doELBv2(t, h, tc.vals)
+			assert.Equal(t, tc.expect, rec.Code)
+		})
+	}
+}
+
+// TestDescribeTargetHealthUnregisteredTargets verifies that querying health for specific targets that are
+// not registered returns state "unused" with reason "Target.NotRegistered", matching real AWS behaviour.
+func TestDescribeTargetHealthUnregisteredTargets(t *testing.T) {
+	t.Parallel()
+
+	type targetHealthResult struct {
+		State  string `xml:"State"`
+		Reason string `xml:"Reason"`
+	}
+	type memberResult struct {
+		TargetHealth targetHealthResult `xml:"TargetHealth"`
+		Target       struct {
+			ID   string `xml:"Id"`
+			Port int32  `xml:"Port"`
+		} `xml:"Target"`
+	}
+	type respType struct {
+		Result struct {
+			TargetHealthDescriptions struct {
+				Members []memberResult `xml:"member"`
+			} `xml:"TargetHealthDescriptions"`
+		} `xml:"DescribeTargetHealthResult"`
+	}
+
+	tests := []struct {
+		requestTargets   url.Values
+		name             string
+		wantUnregistered []string // IDs expected with state=unused, reason=Target.NotRegistered
+		wantRegistered   []string // IDs expected with a non-unused state
+		wantLen          int
+	}{
+		{
+			name: "single_unregistered_target",
+			requestTargets: url.Values{
+				"Targets.member.1.Id":   {"i-unregistered"},
+				"Targets.member.1.Port": {"80"},
+			},
+			wantLen:          1,
+			wantUnregistered: []string{"i-unregistered"},
+		},
+		{
+			name: "mixed_registered_and_unregistered",
+			requestTargets: url.Values{
+				"Targets.member.1.Id":   {"i-registered"},
+				"Targets.member.1.Port": {"80"},
+				"Targets.member.2.Id":   {"i-ghost"},
+				"Targets.member.2.Port": {"80"},
+			},
+			wantLen:          2,
+			wantRegistered:   []string{"i-registered"},
+			wantUnregistered: []string{"i-ghost"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			tgArn := mustCreateTG(t, h, "unreg-tg")
+
+			// Register only "i-registered" for the mixed test case.
+			if len(tc.wantRegistered) > 0 {
+				doELBv2(t, h, url.Values{
+					"Action":                {"RegisterTargets"},
+					"Version":               {"2015-12-01"},
+					"TargetGroupArn":        {tgArn},
+					"Targets.member.1.Id":   {"i-registered"},
+					"Targets.member.1.Port": {"80"},
+				})
+			}
+
+			vals := url.Values{
+				"Action":         {"DescribeTargetHealth"},
+				"Version":        {"2015-12-01"},
+				"TargetGroupArn": {tgArn},
+			}
+			maps.Copy(vals, tc.requestTargets)
+
+			rec := doELBv2(t, h, vals)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp respType
+			require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+			require.Len(t, resp.Result.TargetHealthDescriptions.Members, tc.wantLen)
+
+			byID := make(map[string]memberResult, len(resp.Result.TargetHealthDescriptions.Members))
+			for _, m := range resp.Result.TargetHealthDescriptions.Members {
+				byID[m.Target.ID] = m
+			}
+
+			for _, id := range tc.wantUnregistered {
+				m, ok := byID[id]
+				require.True(t, ok, "expected %q in response", id)
+				assert.Equal(t, "unused", m.TargetHealth.State, "target %q should be unused", id)
+				assert.Equal(t, "Target.NotRegistered", m.TargetHealth.Reason, "target %q reason mismatch", id)
+			}
+
+			for _, id := range tc.wantRegistered {
+				m, ok := byID[id]
+				require.True(t, ok, "expected %q in response", id)
+				assert.NotEqual(t, "unused", m.TargetHealth.State, "registered target %q should not be unused", id)
+			}
+		})
+	}
+}

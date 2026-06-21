@@ -526,6 +526,21 @@ func (b *InMemoryBackend) PutTableBucketEncryption(bucketARN string, config map[
 	return nil
 }
 
+// DeleteTableBucketEncryption clears encryption config for a bucket.
+func (b *InMemoryBackend) DeleteTableBucketEncryption(bucketARN string) error {
+	b.muBuckets.Lock("DeleteTableBucketEncryption")
+	defer b.muBuckets.Unlock()
+
+	tb, ok := b.tableBuckets[bucketARN]
+	if !ok {
+		return fmt.Errorf("%w: table bucket %q not found", ErrTableBucketNotFound, bucketARN)
+	}
+
+	tb.Encryption = nil
+
+	return nil
+}
+
 // PutTableBucketMetricsConfiguration enables metrics for a bucket.
 func (b *InMemoryBackend) PutTableBucketMetricsConfiguration(bucketARN string) error {
 	b.muBuckets.Lock("PutTableBucketMetricsConfiguration")

@@ -1105,13 +1105,16 @@ func (b *InMemoryBackend) UpdateClusterConfig(clusterName string, upd ClusterCon
 		c.StorageConfig = upd.StorageConfig
 	}
 
-	return &Update{
+	u := &Update{
 		ID:          stableID(clusterName + "/config-update/" + time.Now().String()),
 		ClusterName: clusterName,
 		Status:      statusInProgress,
 		Type:        "ConfigUpdate",
 		CreatedAt:   time.Now().UTC(),
-	}, nil
+	}
+	b.storeUpdateLocked(u)
+
+	return u, nil
 }
 
 // VpcEndpointUpdate carries optional VPC endpoint access changes for UpdateClusterVpcEndpoint.
@@ -1158,14 +1161,17 @@ func (b *InMemoryBackend) UpdateClusterVpcEndpoint(clusterName string, upd VpcEn
 		params = append(params, UpdateParam{Type: "PublicAccessCidrs", Value: fmt.Sprintf("%v", upd.PublicAccessCIDRs)})
 	}
 
-	return &Update{
+	u := &Update{
 		ID:          stableID(clusterName + "/vpc-update/" + time.Now().String()),
 		ClusterName: clusterName,
 		Status:      statusSuccessful,
 		Type:        "EndpointAccessUpdate",
 		Params:      params,
 		CreatedAt:   time.Now().UTC(),
-	}, nil
+	}
+	b.storeUpdateLocked(u)
+
+	return u, nil
 }
 
 // mergeClusterLogEntries applies logEntries on top of existing, enabling or disabling
@@ -1219,14 +1225,17 @@ func (b *InMemoryBackend) UpdateClusterVersion(clusterName, version string) (*Up
 		c.Version = version
 	}
 
-	return &Update{
+	u := &Update{
 		ID:          stableID(clusterName + "/version-update/" + time.Now().String()),
 		ClusterName: clusterName,
 		Status:      statusSuccessful,
 		Type:        typeVersionUpdate,
 		Params:      []UpdateParam{{Type: "Version", Value: version}},
 		CreatedAt:   time.Now().UTC(),
-	}, nil
+	}
+	b.storeUpdateLocked(u)
+
+	return u, nil
 }
 
 // UpdateNodegroupVersion updates the node group Kubernetes version.
@@ -1249,17 +1258,37 @@ func (b *InMemoryBackend) UpdateNodegroupVersion(
 		ng.Version = version
 	}
 
-	return &Update{
+	u := &Update{
 		ID:          stableID(clusterName + "/" + nodegroupName + "/version-update/" + time.Now().String()),
 		ClusterName: clusterName,
 		Status:      statusInProgress,
 		Type:        typeVersionUpdate,
 		Params:      []UpdateParam{{Type: "Version", Value: version}},
 		CreatedAt:   time.Now().UTC(),
-	}, nil
+	}
+	b.storeUpdateLocked(u)
+
+	return u, nil
 }
 
-// DescribeUpdate returns an update record.
+// storeUpdateLocked stores an update record. Must be called with b.mu held.
+func (b *InMemoryBackend) storeUpdateLocked(u *Update) {
+	if b.updates[u.ClusterName] == nil {
+		b.updates[u.ClusterName] = make(map[string]*Update)
+	}
+
+	b.updates[u.ClusterName][u.ID] = u
+}
+
+// StoreUpdate stores an update record created outside the backend (e.g. by a handler).
+func (b *InMemoryBackend) StoreUpdate(u *Update) {
+	b.mu.Lock("StoreUpdate")
+	defer b.mu.Unlock()
+
+	b.storeUpdateLocked(u)
+}
+
+// DescribeUpdate returns an update record by cluster and update ID.
 func (b *InMemoryBackend) DescribeUpdate(clusterName, updateID string) (*Update, error) {
 	b.mu.RLock("DescribeUpdate")
 	defer b.mu.RUnlock()
@@ -1268,16 +1297,17 @@ func (b *InMemoryBackend) DescribeUpdate(clusterName, updateID string) (*Update,
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
 
-	return &Update{
-		ID:          updateID,
-		ClusterName: clusterName,
-		Status:      statusSuccessful,
-		Type:        typeVersionUpdate,
-		CreatedAt:   time.Now().UTC(),
-	}, nil
+	u, ok := b.updates[clusterName][updateID]
+	if !ok {
+		return nil, fmt.Errorf("%w: update %s not found in cluster %s", ErrNotFound, updateID, clusterName)
+	}
+
+	cp := *u
+
+	return &cp, nil
 }
 
-// ListUpdates returns update IDs for a cluster.
+// ListUpdates returns all update IDs for a cluster sorted alphabetically.
 func (b *InMemoryBackend) ListUpdates(clusterName string) ([]string, error) {
 	b.mu.RLock("ListUpdates")
 	defer b.mu.RUnlock()
@@ -1286,7 +1316,16 @@ func (b *InMemoryBackend) ListUpdates(clusterName string) ([]string, error) {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
 
-	return []string{}, nil
+	clusterUpdates := b.updates[clusterName]
+	ids := make([]string, 0, len(clusterUpdates))
+
+	for id := range clusterUpdates {
+		ids = append(ids, id)
+	}
+
+	sort.Strings(ids)
+
+	return ids, nil
 }
 
 // --- Register / Deregister Cluster ---

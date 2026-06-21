@@ -825,7 +825,7 @@ func (h *Handler) handleGetFile(body []byte) (any, error) {
 		keyBlobID:     f.BlobID,
 		"commitId":    f.CommitSpecifier,
 		keyFilePath:   f.FilePath,
-		"fileMode":    f.FileMode,
+		keyFileMode:   f.FileMode,
 		"fileContent": base64.StdEncoding.EncodeToString(f.FileContent),
 		"fileSize":    len(f.FileContent),
 	}, nil
@@ -844,14 +844,23 @@ func (h *Handler) handleGetFolder(body []byte) (any, error) {
 		return nil, fmt.Errorf("%w: repositoryName is required", errInvalidRequest)
 	}
 
-	paths, err := h.Backend.GetFolder(req.RepositoryName, req.CommitSpecifier, req.FolderPath)
+	fileObjs, err := h.Backend.GetFolderFiles(req.RepositoryName, req.CommitSpecifier, req.FolderPath)
 	if err != nil {
 		return nil, err
 	}
 
-	files := make([]map[string]any, 0, len(paths))
-	for _, p := range paths {
-		files = append(files, map[string]any{"absolutePath": p})
+	files := make([]map[string]any, 0, len(fileObjs))
+	for _, f := range fileObjs {
+		fileMode := f.FileMode
+		if fileMode == "" {
+			fileMode = fileModeNormal
+		}
+		files = append(files, map[string]any{
+			"absolutePath": f.FilePath,
+			"relativePath": f.FilePath,
+			"blobId":       f.BlobID,
+			keyFileMode:    fileMode,
+		})
 	}
 
 	return map[string]any{
@@ -1230,6 +1239,8 @@ func (h *Handler) handleGetDifferences(body []byte) (any, error) {
 		RepositoryName        string `json:"repositoryName"`
 		AfterCommitSpecifier  string `json:"afterCommitSpecifier"`
 		BeforeCommitSpecifier string `json:"beforeCommitSpecifier"`
+		NextToken             string `json:"nextToken"`
+		MaxResults            int    `json:"maxResults"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
@@ -1238,7 +1249,7 @@ func (h *Handler) handleGetDifferences(body []byte) (any, error) {
 		return nil, fmt.Errorf("%w: repositoryName is required", errInvalidRequest)
 	}
 
-	diffs, err := h.Backend.GetDifferences(req.RepositoryName, req.AfterCommitSpecifier)
+	diffs, err := h.Backend.GetDifferences(req.RepositoryName, req.AfterCommitSpecifier, req.BeforeCommitSpecifier)
 	if err != nil {
 		return nil, err
 	}

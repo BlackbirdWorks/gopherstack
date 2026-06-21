@@ -18,6 +18,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -29,6 +30,7 @@ const (
 
 var (
 	ErrParameterNotFound                  = errors.New("ParameterNotFound")
+	ErrParameterVersionNotFound           = errors.New("ParameterVersionNotFound")
 	ErrParameterAlreadyExists             = errors.New("ParameterAlreadyExists")
 	ErrInvalidKeyID                       = errors.New("InvalidKeyId")
 	ErrCiphertextTooShort                 = errors.New("ciphertext too short")
@@ -48,6 +50,8 @@ var (
 )
 
 const (
+	StringType        = "String"
+	StringListType    = "StringList"
 	SecureStringType  = "SecureString"
 	mockKMSKeyStr     = "gopherstack-mock-kms-key-32byte!"
 	maxHistoryResults = 50
@@ -488,6 +492,18 @@ const (
 	maxAdvancedValueBytes = 8192
 )
 
+// isValidParameterType returns true when t is one of the three supported SSM
+// parameter types. Real AWS rejects missing or unrecognised types with
+// ValidationException.
+func isValidParameterType(t string) bool {
+	switch t {
+	case StringType, StringListType, SecureStringType:
+		return true
+	}
+
+	return false
+}
+
 // isValidDataType returns true when dt is a supported SSM DataType value.
 func isValidDataType(dt string) bool {
 	switch dt {
@@ -548,12 +564,138 @@ func resolveTier(tier, value string) (string, error) {
 	return tier, nil
 }
 
-func (b *InMemoryBackend) PutParameter(
-	ctx context.Context,
-	input *PutParameterInput,
-) (*PutParameterOutput, error) {
+// parameterARN builds the ARN for a parameter. AWS omits the leading slash
+// between "parameter" and the name (so /a/b → parameter/a/b, and a relative
+// name "foo" → parameter/foo).
+func parameterARN(region, account, name string) string {
+	trimmed := strings.TrimPrefix(name, "/")
+
+	return fmt.Sprintf("arn:aws:ssm:%s:%s:parameter/%s", region, account, trimmed)
+}
+
+// splitParameterSelector splits a parameter name into its base name and the
+// selector suffix (version or label). A selector is introduced by the last ":"
+// in the name. AWS parameter names may legitimately contain "/" but never ":",
+// so any ":" delimits a selector. Returns (baseName, selector) where selector
+// is the part after the colon ("" when no selector is present).
+func splitParameterSelector(name string) (string, string) {
+	idx := strings.LastIndex(name, ":")
+	if idx < 0 {
+		return name, ""
+	}
+
+	return name[:idx], name[idx+1:]
+}
+
+// resolveParameterSelector returns the Parameter for the given base name and
+// selector. The selector may be empty (latest version), a numeric version, or a
+// label. It mirrors AWS error semantics:
+//   - unknown parameter             → ParameterNotFound
+//   - numeric selector, no version  → ParameterVersionNotFound
+//   - label selector, no match      → ParameterNotFound
+//
+// Caller must hold at least the read lock.
+func (b *InMemoryBackend) resolveParameterSelector(
+	region, baseName, selector string,
+) (Parameter, error) {
+	current, exists := b.parametersStore(region)[baseName]
+	if !exists {
+		return Parameter{}, ErrParameterNotFound
+	}
+
+	if selector == "" {
+		return current, nil
+	}
+
+	history := b.historyStore(region)[baseName]
+
+	// Numeric selector → specific version.
+	if version, err := strconv.ParseInt(selector, 10, 64); err == nil {
+		return b.parameterAtVersion(current, history, version)
+	}
+
+	// Label selector → resolve label to a version via the labels store.
+	version, ok := b.versionForLabel(region, baseName, selector)
+	if !ok {
+		return Parameter{}, ErrParameterNotFound
+	}
+
+	param, err := b.parameterAtVersion(current, history, version)
+	if err != nil {
+		// A label pointing at a missing version behaves like a missing parameter.
+		return Parameter{}, ErrParameterNotFound
+	}
+
+	return param, nil
+}
+
+// parameterAtVersion materializes a Parameter for a specific version from the
+// history list, falling back to the current record when the requested version
+// is the current one. Returns ParameterVersionNotFound when no such version
+// exists.
+func (b *InMemoryBackend) parameterAtVersion(
+	current Parameter, history []ParameterHistory, version int64,
+) (Parameter, error) {
+	if version == current.Version {
+		return current, nil
+	}
+
+	for _, h := range history {
+		if h.Version != version {
+			continue
+		}
+
+		return Parameter{
+			Name:             h.Name,
+			Type:             h.Type,
+			Value:            h.Value,
+			Description:      h.Description,
+			KeyID:            h.KeyID,
+			Tier:             h.Tier,
+			AllowedPattern:   h.AllowedPattern,
+			DataType:         h.DataType,
+			Version:          h.Version,
+			LastModifiedDate: h.LastModifiedDate,
+		}, nil
+	}
+
+	return Parameter{}, ErrParameterVersionNotFound
+}
+
+// versionForLabel returns the version a label currently points at. Caller must
+// hold at least the read lock.
+func (b *InMemoryBackend) versionForLabel(region, name, label string) (int64, bool) {
+	versionLabels, ok := b.parameterLabelsStore(region)[name]
+	if !ok {
+		return 0, false
+	}
+
+	for version, labels := range versionLabels {
+		if slices.Contains(labels, label) {
+			return version, true
+		}
+	}
+
+	return 0, false
+}
+
+type putParameterValidated struct {
+	dataType string
+	tier     string
+}
+
+// validatePutParameterInput validates the pre-lock fields of a PutParameter
+// request and returns the resolved dataType and tier.
+func validatePutParameterInput(input *PutParameterInput) (putParameterValidated, error) {
 	if err := validateParameterName(input.Name); err != nil {
-		return nil, err
+		return putParameterValidated{}, err
+	}
+
+	if !isValidParameterType(input.Type) {
+		return putParameterValidated{}, fmt.Errorf(
+			"%w: invalid Type %q, must be String, StringList, or SecureString",
+			ErrValidationException, input.Type,
+		)
 	}
 
 	dataType := input.DataType
@@ -562,18 +704,34 @@ func (b *InMemoryBackend) PutParameter(
 	}
 
 	if !isValidDataType(dataType) {
-		return nil, fmt.Errorf("%w: invalid DataType %q", ErrValidationException, dataType)
+		return putParameterValidated{}, fmt.Errorf(
+			"%w: invalid DataType %q", ErrValidationException, dataType,
+		)
 	}
 
 	if err := validateAllowedPattern(input.AllowedPattern, input.Value); err != nil {
-		return nil, err
+		return putParameterValidated{}, err
 	}
 
 	tier, err := resolveTier(input.Tier, input.Value)
 	if err != nil {
+		return putParameterValidated{}, err
+	}
+
+	return putParameterValidated{dataType: dataType, tier: tier}, nil
+}
+
+func (b *InMemoryBackend) PutParameter(
+	ctx context.Context,
+	input *PutParameterInput,
+) (*PutParameterOutput, error) {
+	validated, err := validatePutParameterInput(input)
+	if err != nil {
 		return nil, err
 	}
 
+	dataType := validated.dataType
+	tier := validated.tier
 	region := getRegion(ctx)
 
 	b.mu.Lock("PutParameter")
@@ -650,29 +808,40 @@ func (b *InMemoryBackend) PutParameter(
 	return &PutParameterOutput{Version: version, Tier: tier}, nil
 }
 
-// GetParameter retrieves a single parameter.
+// GetParameter retrieves a single parameter. The name may carry a version or
+// label selector suffix (e.g. "/a/b:3" or "/a/b:prod"), in which case the
+// matching version is returned and echoed back via Parameter.Selector. The
+// response always includes the parameter ARN.
 func (b *InMemoryBackend) GetParameter(
 	ctx context.Context,
 	input *GetParameterInput,
 ) (*GetParameterOutput, error) {
 	region := getRegion(ctx)
+	account := awsmeta.Account(ctx)
+
+	baseName, selector := splitParameterSelector(input.Name)
 
 	b.mu.RLock("GetParameter")
 	defer b.mu.RUnlock()
 
-	param, exists := b.parametersStore(region)[input.Name]
-	if !exists {
-		return nil, ErrParameterNotFound
+	param, err := b.resolveParameterSelector(region, baseName, selector)
+	if err != nil {
+		return nil, err
 	}
 
 	// Decrypt SecureString if WithDecryption is true; propagate errors.
 	if input.WithDecryption && param.Type == SecureStringType {
-		decrypted, err := b.decryptSSMValue(param.KeyID, param.Value)
-		if err != nil {
-			return nil, fmt.Errorf("%w: %w", ErrValidationException, err)
+		decrypted, derr := b.decryptSSMValue(param.KeyID, param.Value)
+		if derr != nil {
+			return nil, fmt.Errorf("%w: %w", ErrValidationException, derr)
 		}
 
 		param.Value = decrypted
+	}
+
+	param.ARN = parameterARN(region, account, baseName)
+	if selector != "" {
+		param.Selector = ":" + selector
 	}
 
 	return &GetParameterOutput{Parameter: param}, nil
@@ -684,11 +853,10 @@ func (b *InMemoryBackend) GetParameters(
 	input *GetParametersInput,
 ) (*GetParametersOutput, error) {
 	region := getRegion(ctx)
+	account := awsmeta.Account(ctx)
 
 	b.mu.RLock("GetParameters")
 	defer b.mu.RUnlock()
-
-	params := b.parametersStore(region)
 
 	output := &GetParametersOutput{
 		Parameters:        make([]Parameter, 0, len(input.Names)),
@@ -696,22 +864,34 @@ func (b *InMemoryBackend) GetParameters(
 	}
 
 	for _, name := range input.Names {
-		if param, exists := params[name]; exists {
-			// Decrypt SecureString if WithDecryption is true
-			if input.WithDecryption && param.Type == SecureStringType {
-				decrypted, err := b.decryptSSMValue(param.KeyID, param.Value)
-				if err != nil {
-					// If decryption fails, add to invalid parameters
-					output.InvalidParameters = append(output.InvalidParameters, name)
+		baseName, selector := splitParameterSelector(name)
 
-					continue
-				}
-				param.Value = decrypted
-			}
-			output.Parameters = append(output.Parameters, param)
-		} else {
+		param, err := b.resolveParameterSelector(region, baseName, selector)
+		if err != nil {
+			// Unknown name, missing version, or unresolvable label all become
+			// invalid parameters in GetParameters (AWS does not fail the call).
 			output.InvalidParameters = append(output.InvalidParameters, name)
+
+			continue
 		}
+
+		// Decrypt SecureString if WithDecryption is true
+		if input.WithDecryption && param.Type == SecureStringType {
+			decrypted, derr := b.decryptSSMValue(param.KeyID, param.Value)
+			if derr != nil {
+				// If decryption fails, add to invalid parameters
+				output.InvalidParameters = append(output.InvalidParameters, name)
+
+				continue
+			}
+			param.Value = decrypted
+		}
+
+		param.ARN = parameterARN(region, account, baseName)
+		if selector != "" {
+			param.Selector = ":" + selector
+		}
+		output.Parameters = append(output.Parameters, param)
 	}
 
 	return output, nil
@@ -961,8 +1141,11 @@ func (b *InMemoryBackend) collectPathParamsSorted(
 	return matched
 }
 
-// decryptParamsSlice returns a copy of params with SecureString values decrypted when requested.
-func (b *InMemoryBackend) decryptParamsSlice(params []Parameter, withDecryption bool) []Parameter {
+// decryptParamsSlice returns a copy of params with SecureString values decrypted
+// when requested, and the ARN populated on each parameter.
+func (b *InMemoryBackend) decryptParamsSlice(
+	params []Parameter, withDecryption bool, region, account string,
+) []Parameter {
 	// No capacity hint — user-derived values in the capacity slot trigger CodeQL.
 	// nolint:prealloc,nolintlint // satisfies CodeQL by removing tainted capacity hint
 	result := make([]Parameter, 0)
@@ -972,6 +1155,7 @@ func (b *InMemoryBackend) decryptParamsSlice(params []Parameter, withDecryption 
 				p.Value = decrypted
 			}
 		}
+		p.ARN = parameterARN(region, account, p.Name)
 		result = append(result, p)
 	}
 
@@ -984,6 +1168,7 @@ func (b *InMemoryBackend) GetParametersByPath(
 	input *GetParametersByPathInput,
 ) (*GetParametersByPathOutput, error) {
 	region := getRegion(ctx)
+	account := awsmeta.Account(ctx)
 
 	b.mu.RLock("GetParametersByPath")
 	defer b.mu.RUnlock()
@@ -1031,7 +1216,7 @@ func (b *InMemoryBackend) GetParametersByPath(
 	}
 
 	return &GetParametersByPathOutput{
-		Parameters: b.decryptParamsSlice(matched[startIdx:end], input.WithDecryption),
+		Parameters: b.decryptParamsSlice(matched[startIdx:end], input.WithDecryption, region, account),
 		NextToken:  nextToken,
 	}, nil
 }

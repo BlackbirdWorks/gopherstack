@@ -3,6 +3,8 @@
 // to match any service error against a shared sentinel.
 package awserr
 
+import "fmt"
+
 // sentinelError is an unexported type used for constant sentinel errors.
 // Using a distinct type prevents reassignment and enables reliable [errors.Is] matching.
 type sentinelError string
@@ -26,6 +28,11 @@ const ErrConflict sentinelError = "conflict"
 // to match the shared sentinel.
 func New(msg string, sentinel error) error {
 	return &wrappedError{msg: msg, cause: sentinel}
+}
+
+// Newf creates an error with a formatted message that wraps the given sentinel.
+func Newf(msg string, sentinel error, args ...any) error {
+	return &wrappedError{msg: fmt.Sprintf(msg, args...), cause: sentinel}
 }
 
 type wrappedError struct {

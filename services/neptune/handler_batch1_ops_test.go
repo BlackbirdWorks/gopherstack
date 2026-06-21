@@ -1232,14 +1232,32 @@ func TestBatch1Ops_Roles_ClearedOnClusterDelete(t *testing.T) {
 	t.Parallel()
 
 	b := neptune.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.CreateDBCluster(context.Background(), "role-del-cluster", "", 0, neptune.DBClusterCreateOptions{})
+	_, err := b.CreateDBCluster(
+		context.Background(),
+		"role-del-cluster",
+		"",
+		0,
+		neptune.DBClusterCreateOptions{},
+	)
 	require.NoError(t, err)
-	err = b.AddRoleToDBCluster(context.Background(), "role-del-cluster", "arn:aws:iam::000000000000:role/r1")
+	err = b.AddRoleToDBCluster(
+		context.Background(),
+		"role-del-cluster",
+		"arn:aws:iam::000000000000:role/r1",
+	)
 	require.NoError(t, err)
-	err = b.AddRoleToDBCluster(context.Background(), "role-del-cluster", "arn:aws:iam::000000000000:role/r2")
+	err = b.AddRoleToDBCluster(
+		context.Background(),
+		"role-del-cluster",
+		"arn:aws:iam::000000000000:role/r2",
+	)
 	require.NoError(t, err)
 
-	_, err = b.DeleteDBCluster(context.Background(), "role-del-cluster")
+	_, err = b.DeleteDBCluster(
+		context.Background(),
+		"role-del-cluster",
+		neptune.DBClusterDeleteOptions{SkipFinalSnapshot: true},
+	)
 	require.NoError(t, err)
 
 	// Verify roles gone
@@ -1648,7 +1666,13 @@ func TestBatch1Ops_Backend_CreateDBInstance_AllOptions(t *testing.T) {
 	t.Parallel()
 
 	b := neptune.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.CreateDBCluster(context.Background(), "inst-opts-cluster", "", 0, neptune.DBClusterCreateOptions{})
+	_, err := b.CreateDBCluster(
+		context.Background(),
+		"inst-opts-cluster",
+		"",
+		0,
+		neptune.DBClusterCreateOptions{},
+	)
 	require.NoError(t, err)
 
 	opts := neptune.DBInstanceCreateOptions{
@@ -1661,7 +1685,13 @@ func TestBatch1Ops_Backend_CreateDBInstance_AllOptions(t *testing.T) {
 		PromotionTier:                   5,
 		StorageEncrypted:                true,
 	}
-	inst, err := b.CreateDBInstance(context.Background(), "inst-opts", "inst-opts-cluster", "db.r5.xlarge", opts)
+	inst, err := b.CreateDBInstance(
+		context.Background(),
+		"inst-opts",
+		"inst-opts-cluster",
+		"db.r5.xlarge",
+		opts,
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "custom-pg", inst.DBParameterGroupName)
 	assert.Equal(t, "wed:04:00-wed:05:00", inst.PreferredMaintenanceWindow)
@@ -1677,7 +1707,13 @@ func TestBatch1Ops_Backend_ModifyDBInstance_AllOptions(t *testing.T) {
 	t.Parallel()
 
 	b := neptune.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.CreateDBCluster(context.Background(), "mod-opts-cluster", "", 0, neptune.DBClusterCreateOptions{})
+	_, err := b.CreateDBCluster(
+		context.Background(),
+		"mod-opts-cluster",
+		"",
+		0,
+		neptune.DBClusterCreateOptions{},
+	)
 	require.NoError(t, err)
 	_, err = b.CreateDBInstance(
 		context.Background(),
@@ -1717,7 +1753,13 @@ func TestBatch1Ops_Backend_ModifyDBInstance_IamNotSet_NoChange(t *testing.T) {
 	t.Parallel()
 
 	b := neptune.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.CreateDBCluster(context.Background(), "iam-noset-cluster", "", 0, neptune.DBClusterCreateOptions{})
+	_, err := b.CreateDBCluster(
+		context.Background(),
+		"iam-noset-cluster",
+		"",
+		0,
+		neptune.DBClusterCreateOptions{},
+	)
 	require.NoError(t, err)
 	_, err = b.CreateDBInstance(
 		context.Background(),
@@ -1731,10 +1773,15 @@ func TestBatch1Ops_Backend_ModifyDBInstance_IamNotSet_NoChange(t *testing.T) {
 	require.NoError(t, err)
 
 	// Modify without IamAuthSet — should not change
-	inst, err := b.ModifyDBInstance(context.Background(), "iam-noset-inst", "", neptune.DBInstanceModifyOptions{
-		EnableIAMDatabaseAuthentication: false,
-		IamAuthSet:                      false,
-	})
+	inst, err := b.ModifyDBInstance(
+		context.Background(),
+		"iam-noset-inst",
+		"",
+		neptune.DBInstanceModifyOptions{
+			EnableIAMDatabaseAuthentication: false,
+			IamAuthSet:                      false,
+		},
+	)
 	require.NoError(t, err)
 	assert.True(t, inst.EnableIAMDatabaseAuthentication)
 }
@@ -1822,7 +1869,13 @@ func TestBatch1Ops_DeleteCluster_CascadesSnapshots(t *testing.T) {
 	t.Parallel()
 
 	b := neptune.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.CreateDBCluster(context.Background(), "cascade-del-cluster", "", 0, neptune.DBClusterCreateOptions{})
+	_, err := b.CreateDBCluster(
+		context.Background(),
+		"cascade-del-cluster",
+		"",
+		0,
+		neptune.DBClusterCreateOptions{},
+	)
 	require.NoError(t, err)
 	_, err = b.CreateDBClusterSnapshot(context.Background(), "cascade-snap", "cascade-del-cluster")
 	require.NoError(t, err)
@@ -1830,7 +1883,11 @@ func TestBatch1Ops_DeleteCluster_CascadesSnapshots(t *testing.T) {
 	require.Equal(t, 1, neptune.ClusterSnapshotCount(b))
 
 	// Delete cluster — snapshots should remain (AWS behavior: snapshots not auto-deleted)
-	_, err = b.DeleteDBCluster(context.Background(), "cascade-del-cluster")
+	_, err = b.DeleteDBCluster(
+		context.Background(),
+		"cascade-del-cluster",
+		neptune.DBClusterDeleteOptions{SkipFinalSnapshot: true},
+	)
 	require.NoError(t, err)
 
 	require.Equal(t, 0, neptune.ClusterCount(b))
@@ -1842,7 +1899,13 @@ func TestBatch1Ops_DeleteCluster_CascadesInstances(t *testing.T) {
 	t.Parallel()
 
 	b := neptune.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.CreateDBCluster(context.Background(), "cascade-inst-cluster", "", 0, neptune.DBClusterCreateOptions{})
+	_, err := b.CreateDBCluster(
+		context.Background(),
+		"cascade-inst-cluster",
+		"",
+		0,
+		neptune.DBClusterCreateOptions{},
+	)
 	require.NoError(t, err)
 	_, err = b.CreateDBInstance(
 		context.Background(),
@@ -1863,7 +1926,11 @@ func TestBatch1Ops_DeleteCluster_CascadesInstances(t *testing.T) {
 
 	require.Equal(t, 2, neptune.InstanceCount(b))
 
-	_, err = b.DeleteDBCluster(context.Background(), "cascade-inst-cluster")
+	_, err = b.DeleteDBCluster(
+		context.Background(),
+		"cascade-inst-cluster",
+		neptune.DBClusterDeleteOptions{SkipFinalSnapshot: true},
+	)
 	require.NoError(t, err)
 
 	require.Equal(t, 0, neptune.InstanceCount(b))

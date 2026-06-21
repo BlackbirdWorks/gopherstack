@@ -760,12 +760,19 @@ func (h *Handler) detectSyntax(input map[string]any) (map[string]any, error) {
 		return nil, err
 	}
 	tokens := make([]map[string]any, 0)
+	searchFrom := 0
 	for index, token := range strings.Fields(text) {
+		idx := strings.Index(text[searchFrom:], token)
+		if idx < 0 {
+			continue
+		}
+		begin := searchFrom + idx
+		end := begin + len(token)
 		tokens = append(tokens, map[string]any{
-			"TokenId": index + 1, fieldText: token, fieldBeginOffset: strings.Index(text, token),
-			fieldEndOffset: strings.Index(text, token) + len(token),
+			"TokenId": index + 1, fieldText: token, fieldBeginOffset: begin, fieldEndOffset: end,
 			"PartOfSpeech": map[string]any{"Tag": "NOUN", fieldScore: defaultScore},
 		})
+		searchFrom = end
 	}
 
 	return map[string]any{"SyntaxTokens": tokens}, nil
@@ -942,22 +949,20 @@ func (h *Handler) containsPIIEntities(input map[string]any) (map[string]any, err
 	if err != nil {
 		return nil, err
 	}
-	hasPii := false
-	patterns := []*regexp.Regexp{
-		regexp.MustCompile(`[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}`), // EMAIL
-		regexp.MustCompile(`\b\d{3}-\d{2}-\d{4}\b`),          // SSN
+	patterns := []struct {
+		expression *regexp.Regexp
+		kind       string
+	}{
+		{regexp.MustCompile(`[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}`), "EMAIL"},
+		{regexp.MustCompile(`\b\d{3}-\d{2}-\d{4}\b`), "SSN"},
 	}
-	for _, pattern := range patterns {
-		if pattern.MatchString(text) {
-			hasPii = true
-
-			break
-		}
-	}
-
+	seen := make(map[string]bool)
 	labels := []map[string]any{}
-	if hasPii {
-		labels = append(labels, map[string]any{fieldName: "PII", fieldScore: defaultScore})
+	for _, pattern := range patterns {
+		if pattern.expression.MatchString(text) && !seen[pattern.kind] {
+			seen[pattern.kind] = true
+			labels = append(labels, map[string]any{fieldName: pattern.kind, fieldScore: defaultScore})
+		}
 	}
 
 	return map[string]any{

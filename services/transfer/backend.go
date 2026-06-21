@@ -23,6 +23,7 @@ import (
 
 const (
 	protocolSFTP = "SFTP"
+	protocolFTPS = "FTPS"
 )
 
 var (
@@ -109,6 +110,9 @@ const (
 	agreementStatusInactive = "INACTIVE"
 	defaultHostKeyType      = "ssh-rsa"
 	sshKeyTypeEd25519       = "ssh-ed25519"
+	sshKeyTypeECDSAP256     = "ecdsa-sha2-nistp256"
+	sshKeyTypeECDSAP384     = "ecdsa-sha2-nistp384"
+	sshKeyTypeECDSAP521     = "ecdsa-sha2-nistp521"
 )
 
 // Workflow step state status constants (SendWorkflowStepState).
@@ -682,19 +686,28 @@ type Execution struct {
 	Status              string            `json:"status"` // "IN_PROGRESS", "COMPLETED", "EXCEPTION", "HANDLING_EXCEPTION"
 }
 
+// WebAppCustomization holds per-web-app branding customization.
+type WebAppCustomization struct {
+	WebAppID    string
+	Title       string
+	LogoFile    string
+	FaviconFile string
+}
+
 // InMemoryBackend is the in-memory store for Transfer resources.
 type InMemoryBackend struct {
-	servers       map[string]*Server
-	users         map[string]map[string]*User      // serverID -> userName -> User
-	accesses      map[string]map[string]*Access    // serverID -> externalID -> Access
-	agreements    map[string]map[string]*Agreement // serverID -> agreementID -> Agreement
-	connectors    map[string]*Connector
-	profiles      map[string]*Profile
-	webApps       map[string]*WebApp
-	workflows     map[string]*Workflow
-	certificates  map[string]*Certificate
-	hostKeys      map[string]map[string]*HostKey                 // serverID -> hostKeyID -> HostKey
-	sshPublicKeys map[string]map[string]map[string]*SSHPublicKey // serverID -> userName -> keyID -> SSHPublicKey
+	servers              map[string]*Server
+	users                map[string]map[string]*User      // serverID -> userName -> User
+	accesses             map[string]map[string]*Access    // serverID -> externalID -> Access
+	agreements           map[string]map[string]*Agreement // serverID -> agreementID -> Agreement
+	connectors           map[string]*Connector
+	profiles             map[string]*Profile
+	webApps              map[string]*WebApp
+	webAppCustomizations map[string]*WebAppCustomization // webAppID -> customization
+	workflows            map[string]*Workflow
+	certificates         map[string]*Certificate
+	hostKeys             map[string]map[string]*HostKey                 // serverID -> hostKeyID -> HostKey
+	sshPublicKeys        map[string]map[string]map[string]*SSHPublicKey // serverID -> userName -> keyID -> SSHPublicKey
 	// sshKeyBodies indexes normalized SSH key bodies for O(1) duplicate detection.
 	sshKeyBodies    map[string]map[string]map[string]struct{} // serverID -> userName -> normalizedBody -> {}
 	executions      map[string]map[string]*Execution          // workflowID -> executionID -> Execution
@@ -709,25 +722,26 @@ type InMemoryBackend struct {
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		servers:         make(map[string]*Server),
-		users:           make(map[string]map[string]*User),
-		accesses:        make(map[string]map[string]*Access),
-		agreements:      make(map[string]map[string]*Agreement),
-		connectors:      make(map[string]*Connector),
-		profiles:        make(map[string]*Profile),
-		webApps:         make(map[string]*WebApp),
-		workflows:       make(map[string]*Workflow),
-		certificates:    make(map[string]*Certificate),
-		hostKeys:        make(map[string]map[string]*HostKey),
-		sshPublicKeys:   make(map[string]map[string]map[string]*SSHPublicKey),
-		sshKeyBodies:    make(map[string]map[string]map[string]struct{}),
-		executions:      make(map[string]map[string]*Execution),
-		tagsStore:       make(map[string]map[string]string),
-		transferRecords: make(map[string]*FileTransferResult),
-		asyncOperations: make(map[string]*AsyncOperationRecord),
-		accountID:       accountID,
-		region:          region,
-		mu:              lockmetrics.New("transfer"),
+		servers:              make(map[string]*Server),
+		users:                make(map[string]map[string]*User),
+		accesses:             make(map[string]map[string]*Access),
+		agreements:           make(map[string]map[string]*Agreement),
+		connectors:           make(map[string]*Connector),
+		profiles:             make(map[string]*Profile),
+		webApps:              make(map[string]*WebApp),
+		webAppCustomizations: make(map[string]*WebAppCustomization),
+		workflows:            make(map[string]*Workflow),
+		certificates:         make(map[string]*Certificate),
+		hostKeys:             make(map[string]map[string]*HostKey),
+		sshPublicKeys:        make(map[string]map[string]map[string]*SSHPublicKey),
+		sshKeyBodies:         make(map[string]map[string]map[string]struct{}),
+		executions:           make(map[string]map[string]*Execution),
+		tagsStore:            make(map[string]map[string]string),
+		transferRecords:      make(map[string]*FileTransferResult),
+		asyncOperations:      make(map[string]*AsyncOperationRecord),
+		accountID:            accountID,
+		region:               region,
+		mu:                   lockmetrics.New("transfer"),
 	}
 }
 
@@ -1462,6 +1476,7 @@ func (b *InMemoryBackend) Reset() {
 	b.connectors = make(map[string]*Connector)
 	b.profiles = make(map[string]*Profile)
 	b.webApps = make(map[string]*WebApp)
+	b.webAppCustomizations = make(map[string]*WebAppCustomization)
 	b.workflows = make(map[string]*Workflow)
 	b.certificates = make(map[string]*Certificate)
 	b.hostKeys = make(map[string]map[string]*HostKey)
@@ -2276,6 +2291,63 @@ func (b *InMemoryBackend) UpdateWebApp(
 	}
 
 	return cloneWebApp(w), nil
+}
+
+// DescribeWebAppCustomization returns the customization for a web app.
+// Returns empty customization (not an error) when none has been set.
+func (b *InMemoryBackend) DescribeWebAppCustomization(webAppID string) (*WebAppCustomization, error) {
+	b.mu.RLock("DescribeWebAppCustomization")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.webApps[webAppID]; !ok {
+		return nil, fmt.Errorf("%w: web app %s not found", ErrWebAppNotFound, webAppID)
+	}
+
+	if c, ok := b.webAppCustomizations[webAppID]; ok {
+		cp := *c
+
+		return &cp, nil
+	}
+
+	return &WebAppCustomization{WebAppID: webAppID}, nil
+}
+
+// UpdateWebAppCustomization sets or overwrites the customization for a web app.
+func (b *InMemoryBackend) UpdateWebAppCustomization(
+	webAppID, title, logoFile, faviconFile string,
+) (*WebAppCustomization, error) {
+	b.mu.Lock("UpdateWebAppCustomization")
+	defer b.mu.Unlock()
+
+	if _, ok := b.webApps[webAppID]; !ok {
+		return nil, fmt.Errorf("%w: web app %s not found", ErrWebAppNotFound, webAppID)
+	}
+
+	c := &WebAppCustomization{
+		WebAppID:    webAppID,
+		Title:       title,
+		LogoFile:    logoFile,
+		FaviconFile: faviconFile,
+	}
+	b.webAppCustomizations[webAppID] = c
+
+	cp := *c
+
+	return &cp, nil
+}
+
+// DeleteWebAppCustomization clears the customization for a web app.
+func (b *InMemoryBackend) DeleteWebAppCustomization(webAppID string) error {
+	b.mu.Lock("DeleteWebAppCustomization")
+	defer b.mu.Unlock()
+
+	if _, ok := b.webApps[webAppID]; !ok {
+		return fmt.Errorf("%w: web app %s not found", ErrWebAppNotFound, webAppID)
+	}
+
+	delete(b.webAppCustomizations, webAppID)
+
+	return nil
 }
 
 // DeleteWorkflow removes a workflow by ID.
@@ -3100,7 +3172,7 @@ func computeSSHKeyFingerprintAndType(keyBody string) (string, string) {
 
 	// Detect type from prefix.
 	switch parts[0] {
-	case defaultHostKeyType, "ecdsa-sha2-nistp256", "ecdsa-sha2-nistp384", "ecdsa-sha2-nistp521", sshKeyTypeEd25519:
+	case defaultHostKeyType, sshKeyTypeECDSAP256, sshKeyTypeECDSAP384, sshKeyTypeECDSAP521, sshKeyTypeEd25519:
 		return fp, parts[0]
 	default:
 		return fp, ""
@@ -3117,7 +3189,7 @@ func detectHostKeyType(hostKeyBody string) string {
 	switch prefix[0] {
 	case defaultHostKeyType:
 		return defaultHostKeyType
-	case "ecdsa-sha2-nistp256", "ecdsa-sha2-nistp384", "ecdsa-sha2-nistp521":
+	case sshKeyTypeECDSAP256, sshKeyTypeECDSAP384, sshKeyTypeECDSAP521:
 		return prefix[0]
 	case sshKeyTypeEd25519:
 		return sshKeyTypeEd25519

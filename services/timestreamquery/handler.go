@@ -427,15 +427,24 @@ func (h *Handler) handleCreateScheduledQuery(ctx context.Context, body []byte) (
 		return nil, fmt.Errorf("%w: ScheduleConfiguration.ScheduleExpression is required", ErrValidation)
 	}
 
-	notificationTopicArn := ""
-	if req.NotificationConfiguration.SnsConfiguration != nil {
-		notificationTopicArn = req.NotificationConfiguration.SnsConfiguration.TopicArn
+	if req.NotificationConfiguration.SnsConfiguration == nil ||
+		req.NotificationConfiguration.SnsConfiguration.TopicArn == "" {
+		return nil, fmt.Errorf(
+			"%w: NotificationConfiguration.SnsConfiguration.TopicArn is required",
+			ErrValidation,
+		)
 	}
 
-	errorReportBucket := ""
-	if req.ErrorReportConfiguration.S3Configuration != nil {
-		errorReportBucket = req.ErrorReportConfiguration.S3Configuration.BucketName
+	if req.ErrorReportConfiguration.S3Configuration == nil ||
+		req.ErrorReportConfiguration.S3Configuration.BucketName == "" {
+		return nil, fmt.Errorf(
+			"%w: ErrorReportConfiguration.S3Configuration.BucketName is required",
+			ErrValidation,
+		)
 	}
+
+	notificationTopicArn := req.NotificationConfiguration.SnsConfiguration.TopicArn
+	errorReportBucket := req.ErrorReportConfiguration.S3Configuration.BucketName
 
 	targetDB := ""
 	targetTable := ""

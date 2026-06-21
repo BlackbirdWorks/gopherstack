@@ -235,6 +235,7 @@ type UserSummary struct {
 	Email       string
 	DisplayName string
 	State       string
+	Role        string
 }
 
 // Group represents a WorkMail group.

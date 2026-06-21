@@ -204,6 +204,7 @@ type InMemoryBackend struct {
 	podIdentityAssociations map[string]map[string]*PodIdentityAssociation
 	capabilities            map[string]*Capability
 	subscriptions           map[string]*AnywhereSubscription
+	updates                 map[string]map[string]*Update // clusterName -> updateID -> update
 	mu                      *lockmetrics.RWMutex
 	accountID               string
 	region                  string
@@ -223,6 +224,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		podIdentityAssociations: make(map[string]map[string]*PodIdentityAssociation),
 		capabilities:            make(map[string]*Capability),
 		subscriptions:           make(map[string]*AnywhereSubscription),
+		updates:                 make(map[string]map[string]*Update),
 		accountID:               accountID,
 		region:                  region,
 		mu:                      lockmetrics.New("eks"),
@@ -330,6 +332,7 @@ func (b *InMemoryBackend) Reset() {
 	b.podIdentityAssociations = make(map[string]map[string]*PodIdentityAssociation)
 	b.capabilities = make(map[string]*Capability)
 	b.subscriptions = make(map[string]*AnywhereSubscription)
+	b.updates = make(map[string]map[string]*Update)
 }
 
 // ClusterOptionalConfig groups optional cluster configuration for CreateCluster.

@@ -271,7 +271,7 @@ func (b *InMemoryBackend) AddAttachmentsToSetWithAttachments(
 
 func validateAttachments(attachments []Attachment) error {
 	for _, attachment := range attachments {
-		if attachment.FileName == "" || len(attachment.Data) > maxAttachmentSize {
+		if attachment.FileName == "" || len(attachment.Data) == 0 || len(attachment.Data) > maxAttachmentSize {
 			return fmt.Errorf("%w: invalid attachment", ErrValidation)
 		}
 	}

@@ -716,6 +716,7 @@ func (h *Handler) handleSendTemplatedEmail(vals url.Values, reqID string) (any, 
 		Bcc:                  parseSESMemberList(vals, "Destination.BccAddresses"),
 		ReplyTo:              parseSESMemberList(vals, "ReplyToAddresses"),
 		TemplateName:         vals.Get("Template"),
+		TemplateData:         vals.Get("TemplateData"),
 		ConfigurationSetName: vals.Get("ConfigurationSetName"),
 		Tags:                 parseSESTags(vals, "Tags"),
 		ReturnPath:           vals.Get("ReturnPath"),
@@ -2281,6 +2282,7 @@ func (h *Handler) handleSendBounce(vals url.Values, reqID string) (any, error) {
 func (h *Handler) handleSendBulkTemplatedEmail(vals url.Values, reqID string) (any, error) {
 	source := vals.Get("Source")
 	template := vals.Get("Template")
+	defaultTemplateData := vals.Get("DefaultTemplateData")
 
 	// Collect per-destination data.
 	var destinations []BulkEmailDestination
@@ -2310,7 +2312,7 @@ func (h *Handler) handleSendBulkTemplatedEmail(vals url.Values, reqID string) (a
 			ErrInvalidParameter, len(destinations), maxBulkDestinations)
 	}
 
-	msgIDs, err := h.Backend.SendBulkTemplatedEmail(source, template, destinations)
+	msgIDs, err := h.Backend.SendBulkTemplatedEmail(source, template, defaultTemplateData, destinations)
 	if err != nil {
 		return nil, err
 	}

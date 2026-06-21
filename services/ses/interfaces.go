@@ -79,7 +79,10 @@ type StorageBackend interface {
 	GetAccountSendingEnabled() bool
 	// Send ops
 	SendBounce(originalMsgID string) (string, error)
-	SendBulkTemplatedEmail(source, templateName string, destinations []BulkEmailDestination) ([]string, error)
+	SendBulkTemplatedEmail(
+		source, templateName, defaultTemplateData string,
+		destinations []BulkEmailDestination,
+	) ([]string, error)
 	SendCustomVerificationEmail(email, templateName string) (string, error)
 	TestRenderTemplate(templateName, templateData string) (string, error)
 	Region() string

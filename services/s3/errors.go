@@ -51,6 +51,10 @@ var (
 	ErrNoSuchTagSet               = errors.New("NoSuchTagSet")
 	ErrBadChecksum                = errors.New("BadDigest")
 	ErrDeleteMarker               = errors.New("DeleteMarker")
+	ErrLatestDeleteMarker         = errors.New("LatestDeleteMarker")
+	ErrTooManyTags                = errors.New("BadRequest")
+	ErrInvalidTag                 = errors.New("InvalidTag")
+	ErrCopySelfNoChange           = errors.New("CopySelfNoChange")
 	ErrEntityTooSmall             = errors.New("EntityTooSmall")
 	ErrAccessDenied               = errors.New(errAccessDenied)
 	ErrKeyTooLongError            = errors.New("KeyTooLongError")
@@ -89,7 +93,7 @@ func coreErrorTableBucket() []s3ErrorEntry {
 		},
 		{
 			ErrNoSuchKey,
-			s3ErrorInfo{"NoSuchKey", "The specified key does not exist.", http.StatusNotFound},
+			s3ErrorInfo{errNoSuchKey, "The specified key does not exist.", http.StatusNotFound},
 		},
 		{ErrBucketAlreadyOwnedByYou, s3ErrorInfo{
 			"BucketAlreadyOwnedByYou",
@@ -127,7 +131,7 @@ func coreErrorTableBucket() []s3ErrorEntry {
 			http.StatusBadRequest,
 		}},
 		{ErrEmptyParts, s3ErrorInfo{
-			"InvalidRequest",
+			errInvalidRequest,
 			"You must specify at least one part",
 			http.StatusBadRequest,
 		}},
@@ -166,6 +170,28 @@ func coreErrorTableObject() []s3ErrorEntry {
 			"The specified method is not allowed against this resource.",
 			http.StatusMethodNotAllowed,
 		}},
+		{ErrLatestDeleteMarker, s3ErrorInfo{
+			errNoSuchKey,
+			"The specified key does not exist.",
+			http.StatusNotFound,
+		}},
+		{ErrTooManyTags, s3ErrorInfo{
+			"BadRequest",
+			"Object tags cannot be greater than 10",
+			http.StatusBadRequest,
+		}},
+		{ErrInvalidTag, s3ErrorInfo{
+			"InvalidTag",
+			"The TagKey or TagValue you have provided is invalid or too long.",
+			http.StatusBadRequest,
+		}},
+		{ErrCopySelfNoChange, s3ErrorInfo{
+			errInvalidRequest,
+			"This copy request is illegal because it is trying to copy an object to " +
+				"itself without changing the object's metadata, storage class, website " +
+				"redirect location or encryption attributes.",
+			http.StatusBadRequest,
+		}},
 		{ErrEntityTooSmall, s3ErrorInfo{
 			"EntityTooSmall",
 			"Your proposed upload is smaller than the minimum allowed size.",
@@ -187,7 +213,7 @@ func coreErrorTableObject() []s3ErrorEntry {
 			http.StatusBadRequest,
 		}},
 		{ErrSSECRequired, s3ErrorInfo{
-			"InvalidRequest",
+			errInvalidRequest,
 			"The object was stored using a form of Server Side Encryption. " +
 				"The correct parameters must be provided to retrieve the object.",
 			http.StatusBadRequest,

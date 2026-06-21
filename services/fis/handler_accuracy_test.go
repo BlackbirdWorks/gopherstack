@@ -679,7 +679,8 @@ func TestAccuracy_ListActions_BuiltinCatalog(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	rec := doRequest(t, h, http.MethodGet, "/actions", nil)
+	// Use maxResults=100 to retrieve all built-in actions in a single page.
+	rec := doRequest(t, h, http.MethodGet, "/actions?maxResults=100", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp struct {

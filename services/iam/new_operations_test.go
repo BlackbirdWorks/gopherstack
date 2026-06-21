@@ -470,7 +470,11 @@ func TestGetAccountSummary(t *testing.T) {
 				_, _ = b.CreateUser("bob", "/", "")
 				_, _ = b.CreateGroup("admins", "/")
 				_, _ = b.CreateRole("ec2-role", "/", "{}", "")
-				_, _ = b.CreatePolicy("ReadOnly", "/", "{}")
+				_, _ = b.CreatePolicy(
+					"ReadOnly",
+					"/",
+					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+				)
 				_, _ = b.CreateSAMLProvider("MySAML", "<doc/>")
 			},
 			wantUsers:         2,
@@ -784,7 +788,12 @@ func TestInstanceProfile_FullRoleDetailsInXML(t *testing.T) {
 			name: "role_arn_present_in_response",
 			setup: func(t *testing.T, b *iam.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateRole("ec2-role", "/", `{"Version":"2012-10-17"}`, "")
+				_, err := b.CreateRole(
+					"ec2-role",
+					"/",
+					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+					"",
+				)
 				require.NoError(t, err)
 				_, err = b.CreateInstanceProfile("web-profile", "/")
 				require.NoError(t, err)

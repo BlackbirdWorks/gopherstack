@@ -2984,18 +2984,7 @@ func (h *Handler) handleInstanceTypeLimitsRoutes(w http.ResponseWriter, r *http.
 	// Path: /2021-01-01/opensearch/instanceTypeLimits/{EngineVersion}/{InstanceType}
 	rest := strings.TrimPrefix(r.URL.Path, openSearchInstanceTypeLimitsPath)
 	rest = strings.TrimPrefix(rest, "/")
-	parts := strings.SplitN(rest, "/", 2) //nolint:mnd // split into 2: engineVersion, instanceType
-
-	engineVersion := ""
-	instanceType := ""
-
-	if len(parts) >= 1 {
-		engineVersion = parts[0]
-	}
-
-	if len(parts) >= 2 { //nolint:mnd // 2 path segments: engineVersion and instanceType
-		instanceType = parts[1]
-	}
+	engineVersion, instanceType, _ := strings.Cut(rest, "/")
 
 	limits, err := h.Backend.DescribeInstanceTypeLimits(instanceType, engineVersion)
 	if err != nil {
@@ -3528,13 +3517,13 @@ func (h *Handler) dispatchDomainGetResourceByID(
 ) bool {
 	switch {
 	case strings.Contains(trimmed, "/dataSource/"):
-		parts := strings.SplitN(trimmed, "/dataSource/", 2) //nolint:mnd // path split count
-		if len(parts) != 2 || parts[1] == "" {
+		domainName, dsName, ok := strings.Cut(trimmed, "/dataSource/")
+		if !ok || dsName == "" {
 			h.writeJSON(r, w, map[string]any{jsonKeyDataSource: map[string]any{}})
 
 			return true
 		}
-		ds, err := h.Backend.GetDataSource(parts[0], parts[1])
+		ds, err := h.Backend.GetDataSource(domainName, dsName)
 		if err != nil {
 			h.writeJSON(r, w, map[string]any{jsonKeyDataSource: map[string]any{}})
 
@@ -3542,13 +3531,13 @@ func (h *Handler) dispatchDomainGetResourceByID(
 		}
 		h.writeJSON(r, w, map[string]any{jsonKeyDataSource: ds})
 	case strings.Contains(trimmed, "/maintenance/"):
-		parts := strings.SplitN(trimmed, "/maintenance/", 2) //nolint:mnd // path split count
-		if len(parts) != 2 || parts[1] == "" {
+		domainName, maintenanceID, ok := strings.Cut(trimmed, "/maintenance/")
+		if !ok || maintenanceID == "" {
 			h.writeJSON(r, w, map[string]any{jsonKeyStatus: softwareUpdateCompleted})
 
 			return true
 		}
-		m, err := h.Backend.GetDomainMaintenanceStatus(parts[0], parts[1])
+		m, err := h.Backend.GetDomainMaintenanceStatus(domainName, maintenanceID)
 		if err != nil {
 			h.writeJSON(r, w, map[string]any{jsonKeyStatus: softwareUpdateCompleted})
 
@@ -3556,8 +3545,8 @@ func (h *Handler) dispatchDomainGetResourceByID(
 		}
 		h.writeJSON(r, w, m)
 	case strings.Contains(trimmed, "/index/"):
-		parts := strings.SplitN(trimmed, "/index/", 2) //nolint:mnd // path split count
-		if len(parts) != 2 || parts[1] == "" {
+		domainName, indexName, ok := strings.Cut(trimmed, "/index/")
+		if !ok || indexName == "" {
 			h.writeError(
 				r,
 				w,
@@ -3568,7 +3557,7 @@ func (h *Handler) dispatchDomainGetResourceByID(
 
 			return true
 		}
-		idx, err := h.Backend.GetIndex(parts[0], parts[1])
+		idx, err := h.Backend.GetIndex(domainName, indexName)
 		if err != nil {
 			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
 
@@ -3672,8 +3661,8 @@ func (h *Handler) handleCreateIndexRoute(
 	r *http.Request,
 	trimmed string,
 ) bool {
-	parts := strings.SplitN(trimmed, "/index/", 2) //nolint:mnd // path split count
-	if len(parts) != 2 {                           //nolint:mnd // path split count
+	domainName, indexName, ok := strings.Cut(trimmed, "/index/")
+	if !ok {
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "invalid index path")
 
 		return true
@@ -3687,7 +3676,7 @@ func (h *Handler) handleCreateIndexRoute(
 	if len(body) > 0 {
 		_ = json.Unmarshal(body, &req)
 	}
-	idx, err := h.Backend.CreateIndex(parts[0], parts[1], req.Mappings, req.Settings, req.Aliases)
+	idx, err := h.Backend.CreateIndex(domainName, indexName, req.Mappings, req.Settings, req.Aliases)
 	if err != nil {
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
 
@@ -3707,9 +3696,9 @@ func (h *Handler) dispatchDomainDeleteRoutesExtended(
 ) bool {
 	if strings.Contains(trimmed, "/dataSource/") {
 		// DeleteDataSource: {domainName}/dataSource/{name}
-		parts := strings.SplitN(trimmed, "/dataSource/", 2) //nolint:mnd // path split count
-		if len(parts) == 2 {                                //nolint:mnd // path split count
-			_ = h.Backend.DeleteDataSource(parts[0], parts[1])
+		domainName, dsName, ok := strings.Cut(trimmed, "/dataSource/")
+		if ok {
+			_ = h.Backend.DeleteDataSource(domainName, dsName)
 		}
 		h.writeJSON(r, w, map[string]any{"Message": "DataSource deleted"})
 
@@ -3718,9 +3707,9 @@ func (h *Handler) dispatchDomainDeleteRoutesExtended(
 
 	if strings.Contains(trimmed, "/index/") {
 		// DeleteIndex: {domainName}/index/{indexName}
-		parts := strings.SplitN(trimmed, "/index/", 2) //nolint:mnd // path split count
-		if len(parts) == 2 {                           //nolint:mnd // path split count
-			idx, err := h.Backend.DeleteIndex(parts[0], parts[1])
+		domainName, indexName, ok := strings.Cut(trimmed, "/index/")
+		if ok {
+			idx, err := h.Backend.DeleteIndex(domainName, indexName)
 			if err != nil {
 				h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
 

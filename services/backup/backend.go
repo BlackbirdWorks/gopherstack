@@ -697,7 +697,7 @@ func (b *InMemoryBackend) StartBackupJob(
 		ResourceArn:     resourceArn,
 		IAMRoleArn:      iamRoleArn,
 		ResourceType:    resourceType,
-		State:           "CREATED",
+		State:           statusCreated,
 		AccountID:       b.accountID,
 		Region:          b.region,
 		CreationTime:    time.Now().UTC(),
@@ -1084,7 +1084,7 @@ func (b *InMemoryBackend) CreateRestoreAccessBackupVault(
 		RestoreAccessBackupVaultName: vaultName,
 		RestoreAccessBackupVaultArn:  vaultARN,
 		SourceBackupVaultArn:         sourceVaultArn,
-		VaultState:                   "CREATING",
+		VaultState:                   statusCreating,
 		CreationDate:                 time.Now().UTC(),
 	}
 	b.restoreAccessVaults[vaultName] = rav

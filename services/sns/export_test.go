@@ -42,6 +42,24 @@ func MatchesFilterPolicyMessageBodyForTest(policy string, message string) (bool,
 	return matchesFilterPolicyMessageBody(parsed, message), nil
 }
 
+// MatchesFilterPolicyAttributesForTest parses a FilterPolicy string and evaluates
+// it against a set of message attributes (MessageAttributes scope). The attrs map
+// is keyed by attribute name with values of [DataType, StringValue] so callers can
+// exercise String/Number/String.Array matching without importing internal types.
+func MatchesFilterPolicyAttributesForTest(policy string, attrs map[string][2]string) (bool, error) {
+	parsed, err := parseFilterPolicy(policy)
+	if err != nil {
+		return false, err
+	}
+
+	ma := make(map[string]MessageAttribute, len(attrs))
+	for name, dv := range attrs {
+		ma[name] = MessageAttribute{DataType: dv[0], StringValue: dv[1]}
+	}
+
+	return matchesParsedFilterPolicy(parsed, ma), nil
+}
+
 // WaitDeliveriesForTest blocks until all in-flight HTTP delivery goroutines complete.
 // Use this in tests after Publish to synchronize before asserting DLQ or delivery state.
 func WaitDeliveriesForTest(b *InMemoryBackend) {

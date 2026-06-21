@@ -58,12 +58,22 @@ type storedExport struct {
 
 // storedImport holds the fields needed to satisfy DescribeImport and ListImports.
 type storedImport struct {
-	CreatedAt    time.Time
-	ImportArn    string
-	ImportStatus string
-	TableArn     string
-	S3Bucket     string
-	InputFormat  string
+	CreatedAt          time.Time
+	StartTime          time.Time
+	EndTime            time.Time
+	ImportArn          string
+	ImportStatus       string
+	TableArn           string
+	S3Bucket           string
+	S3Prefix           string
+	InputFormat        string
+	InputCompression   string
+	FailureCode        string
+	FailureMessage     string
+	ImportedItemCount  int64
+	ProcessedItemCount int64
+	ProcessedSizeBytes int64
+	ErrorCount         int64
 }
 
 // autoScalingSettings records the last UpdateTableReplicaAutoScaling input
@@ -129,8 +139,11 @@ type InMemoryDB struct {
 	mu                   *lockmetrics.RWMutex
 	// kinesisEmitter forwards stream records to Kinesis destinations when configured.
 	kinesisEmitter KinesisEmitter
-	defaultRegion  string
-	accountID      string
+	// s3 is the cross-service S3 backend used by ImportTable (reads source objects)
+	// and ExportTableToPointInTime (writes export data). nil when not wired.
+	s3            S3Accessor
+	defaultRegion string
+	accountID     string
 	// createDelay is the time to wait before transitioning a new table to ACTIVE.
 	// Zero means immediate ACTIVE (no lifecycle simulation).
 	createDelay time.Duration

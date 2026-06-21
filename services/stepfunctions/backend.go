@@ -937,7 +937,7 @@ func validateRoleARN(roleArn string) error {
 	const arnParts = 6
 
 	if roleArn == "" {
-		return nil
+		return fmt.Errorf("%w: roleArn is required", ErrValidation)
 	}
 
 	if !strings.HasPrefix(roleArn, "arn:") {

@@ -94,6 +94,23 @@ func EventCount(b *InMemoryBackend) int {
 	return b.events.n
 }
 
+// AddClusterInRGInternal seeds a cluster that belongs to a replication group (uses default region).
+func AddClusterInRGInternal(b *InMemoryBackend, clusterID, replicationGroupID string) {
+	b.mu.Lock("AddClusterInRGInternal")
+	defer b.mu.Unlock()
+
+	b.clustersStore(b.region)[clusterID] = &Cluster{
+		ClusterID:          clusterID,
+		ReplicationGroupID: replicationGroupID,
+		Engine:             engineRedis,
+		EngineVersion:      versionRedis710,
+		Status:             statusAvailable,
+		NodeType:           nodeTypeT3Micro,
+		Region:             b.region,
+		ARN:                b.clusterARN(b.region, clusterID),
+	}
+}
+
 // AddSnapshotInternal seeds an automated snapshot for a given replication group (uses default region).
 func AddSnapshotInternal(b *InMemoryBackend, snapshotName, replicationGroupID, snapshotSource string) {
 	b.mu.Lock("AddSnapshotInternal")

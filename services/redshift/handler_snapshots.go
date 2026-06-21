@@ -65,8 +65,9 @@ type describeClusterSnapshotsResponse struct {
 func (h *Handler) handleDescribeClusterSnapshots(vals url.Values) (any, error) {
 	snapshotID := vals.Get("SnapshotIdentifier")
 	clusterID := vals.Get("ClusterIdentifier")
+	snapshotType := vals.Get("SnapshotType")
 
-	snaps, err := h.Backend.DescribeClusterSnapshots(snapshotID, clusterID)
+	snaps, err := h.Backend.DescribeClusterSnapshots(snapshotID, clusterID, snapshotType)
 	if err != nil {
 		return nil, err
 	}

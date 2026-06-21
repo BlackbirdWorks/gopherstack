@@ -537,9 +537,9 @@ func TestEKS_NodegroupVersionUpdate(t *testing.T) {
 	rec = doREST(t, h, http.MethodGet, "/clusters/ng-upd-cluster/updates/"+updateID, nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	// Describe update (synthetic - always succeeds for valid cluster)
+	// DescribeUpdate returns 404 for an unknown update ID.
 	rec = doREST(t, h, http.MethodGet, "/clusters/ng-upd-cluster/updates/nonexistent", nil)
-	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 // ---- Register/Deregister cluster tests ----

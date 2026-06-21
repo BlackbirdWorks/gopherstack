@@ -1425,7 +1425,7 @@ func TestCodeBuild_PersistenceSnapshotRestore(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	build, err := b.StartBuild("snap-proj")
+	build, err := b.StartBuild("snap-proj", nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, build.ID)
 

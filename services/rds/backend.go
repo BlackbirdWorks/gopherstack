@@ -328,6 +328,7 @@ type DBCluster struct {
 	DBClusterMembers                []DBClusterMember                 `json:"dbClusterMembers,omitempty"`
 	BacktrackWindow                 int64                             `json:"backtrackWindow,omitempty"`
 	Port                            int                               `json:"port"`
+	BackupRetentionPeriod           int                               `json:"backupRetentionPeriod"`
 	MonitoringInterval              int                               `json:"monitoringInterval,omitempty"`
 	ServerlessCapacity              int                               `json:"serverlessCapacity"`
 	MultiAZ                         bool                              `json:"multiAZ,omitempty"`
@@ -686,6 +687,7 @@ type DBClusterOptions struct {
 	EnabledCloudwatchLogsExports []string
 	AvailabilityZones            []string
 	BacktrackWindow              int64
+	BackupRetentionPeriod        int
 	MonitoringInterval           int
 	MultiAZ                      bool
 	StorageEncrypted             bool
@@ -2136,6 +2138,7 @@ func (b *InMemoryBackend) CreateDBCluster(
 		EnabledCloudwatchLogsExports: opts.EnabledCloudwatchLogsExports,
 		AvailabilityZones:            opts.AvailabilityZones,
 		BacktrackWindow:              opts.BacktrackWindow,
+		BackupRetentionPeriod:        opts.BackupRetentionPeriod,
 		MonitoringInterval:           opts.MonitoringInterval,
 		MultiAZ:                      opts.MultiAZ,
 		StorageEncrypted:             opts.StorageEncrypted,

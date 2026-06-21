@@ -124,6 +124,9 @@ type Backend interface {
 	// SetVolumeEncryption marks a volume as encrypted and optionally sets its KMS key ID.
 	SetVolumeEncryption(volumeID string, encrypted bool, kmsKeyID string) error
 
+	// SetVolumePerformance sets the IOPS and throughput (MB/s) on a volume.
+	SetVolumePerformance(volumeID string, iops, throughput int) error
+
 	// DescribeVolumes returns volumes, optionally filtered by IDs.
 	DescribeVolumes(ids []string) []*Volume
 

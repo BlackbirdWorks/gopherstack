@@ -701,34 +701,105 @@ func taskExtension(format string) string {
 	return format
 }
 
-func speechMarks(options SynthesisOptions) []byte {
-	lines := make([]string, 0, len(options.SpeechMarkTypes))
-	offset := 0
-	for word := range strings.FieldsSeq(options.Text) {
-		start := strings.Index(options.Text[offset:], word) + offset
-		end := start + len(word)
-		timeMs := offset * msPerCharacter // ~80ms per character as rough timing
-		for _, mark := range options.SpeechMarkTypes {
-			switch mark {
-			case "word":
-				lines = append(lines, fmt.Sprintf(`{"time":%d,"type":"word","start":%d,"end":%d,"value":%q}`,
-					timeMs, start, end, word))
-			case "sentence":
-				lines = append(lines, fmt.Sprintf(`{"time":0,"type":"sentence","start":0,"end":%d,"value":%q}`,
-					len(options.Text), options.Text))
-			case textTypeSSML:
-				lines = append(lines, fmt.Sprintf(`{"time":0,"type":"ssml","start":0,"end":%d,"value":"<speak>"}`,
-					len(options.Text)))
-			case "viseme":
-				lines = append(lines, fmt.Sprintf(`{"time":%d,"type":"viseme","value":"p"}`, timeMs))
-			}
-		}
-		offset = end
+// speechMarkItem is a timed speech mark entry used when building speech mark output.
+type speechMarkItem struct {
+	line string
+	time int
+}
+
+// buildSentenceMarks returns one speechMarkItem per sentence in text, splitting
+// on '.', '!' and '?' delimiters. Text with no sentence-ending punctuation is
+// treated as a single sentence, matching AWS Polly behaviour.
+func buildSentenceMarks(text string) []speechMarkItem {
+	if text == "" {
+		return nil
 	}
+	var out []speechMarkItem
+	start := 0
+	for i := range len(text) {
+		ch := text[i]
+		if ch != '.' && ch != '!' && ch != '?' {
+			continue
+		}
+		end := i + 1
+		if sentence := strings.TrimSpace(text[start:end]); sentence != "" {
+			t := start * msPerCharacter
+			out = append(out, speechMarkItem{
+				time: t,
+				line: fmt.Sprintf(`{"time":%d,"type":"sentence","start":%d,"end":%d,"value":%q}`,
+					t, start, end, sentence),
+			})
+		}
+		start = end
+		for start < len(text) && (text[start] == ' ' || text[start] == '\n' ||
+			text[start] == '\r' || text[start] == '\t') {
+			start++
+		}
+	}
+	if sentence := strings.TrimSpace(text[start:]); sentence != "" {
+		t := start * msPerCharacter
+		out = append(out, speechMarkItem{
+			time: t,
+			line: fmt.Sprintf(`{"time":%d,"type":"sentence","start":%d,"end":%d,"value":%q}`,
+				t, start, len(text), sentence),
+		})
+	}
+
+	return out
+}
+
+func speechMarks(options SynthesisOptions) []byte {
+	var marks []speechMarkItem
+
+	for _, typ := range options.SpeechMarkTypes {
+		switch typ {
+		case "sentence":
+			marks = append(marks, buildSentenceMarks(options.Text)...)
+		case textTypeSSML:
+			marks = append(marks, speechMarkItem{
+				time: 0,
+				line: fmt.Sprintf(`{"time":0,"type":"ssml","start":0,"end":%d,"value":"<speak>"}`, len(options.Text)),
+			})
+		}
+	}
+
+	needWord := slices.Contains(options.SpeechMarkTypes, "word")
+	needViseme := slices.Contains(options.SpeechMarkTypes, "viseme")
+	if needWord || needViseme {
+		offset := 0
+		for word := range strings.FieldsSeq(options.Text) {
+			start := strings.Index(options.Text[offset:], word) + offset
+			end := start + len(word)
+			timeMs := start * msPerCharacter
+			if needWord {
+				marks = append(marks, speechMarkItem{
+					time: timeMs,
+					line: fmt.Sprintf(`{"time":%d,"type":"word","start":%d,"end":%d,"value":%q}`,
+						timeMs, start, end, word),
+				})
+			}
+			if needViseme {
+				marks = append(marks, speechMarkItem{
+					time: timeMs,
+					line: fmt.Sprintf(`{"time":%d,"type":"viseme","value":"p"}`, timeMs),
+				})
+			}
+			offset = end
+		}
+	}
+
+	// Stable sort by time so sentence marks precede word marks at equal time positions.
+	sort.SliceStable(marks, func(i, j int) bool { return marks[i].time < marks[j].time })
+
+	lines := make([]string, 0, len(marks))
+	for _, m := range marks {
+		lines = append(lines, m.line)
+	}
+
 	if len(lines) == 0 {
-		for _, mark := range options.SpeechMarkTypes {
+		for _, typ := range options.SpeechMarkTypes {
 			lines = append(lines, fmt.Sprintf(`{"time":0,"type":"%s","start":0,"end":%d,"value":%q}`,
-				mark, len(options.Text), options.Text))
+				typ, len(options.Text), options.Text))
 		}
 	}
 

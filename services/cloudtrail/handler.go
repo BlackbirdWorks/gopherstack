@@ -267,6 +267,8 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		return c.JSON(http.StatusNotFound, errResp("InactiveQueryException", err.Error()))
 	case errors.Is(err, ErrTerminationProtected):
 		return c.JSON(http.StatusConflict, errResp("EventDataStoreTerminationProtectedException", err.Error()))
+	case errors.Is(err, ErrInsightNotEnabled):
+		return c.JSON(http.StatusBadRequest, errResp("InsightNotEnabledException", err.Error()))
 	case errors.Is(err, ErrAlreadyExists):
 		return c.JSON(http.StatusConflict, errResp("TrailAlreadyExistsException", err.Error()))
 	case errors.Is(err, ErrValidation):
@@ -1514,10 +1516,6 @@ func (h *Handler) handleGetInsightSelectors(c *echo.Context, body []byte) error 
 	trailARN, selectors, err := h.Backend.GetInsightSelectors(in.TrailName)
 	if err != nil {
 		return h.handleError(c, err)
-	}
-
-	if selectors == nil {
-		selectors = []InsightSelector{}
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{

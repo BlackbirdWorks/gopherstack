@@ -834,11 +834,16 @@ func (h *Handler) handleBatchGetImage(
 	return &batchGetImageOutput{Images: imgs, Failures: failures}, nil
 }
 
+type describeImagesFilter struct {
+	TagStatus string `json:"tagStatus,omitempty"`
+}
+
 type describeImagesInput struct {
-	RepositoryName string            `json:"repositoryName"`
-	NextToken      string            `json:"nextToken,omitempty"`
-	ImageIDs       []ImageIdentifier `json:"imageIds,omitempty"`
-	MaxResults     int               `json:"maxResults,omitempty"`
+	Filter         *describeImagesFilter `json:"filter,omitempty"`
+	RepositoryName string                `json:"repositoryName"`
+	NextToken      string                `json:"nextToken,omitempty"`
+	ImageIDs       []ImageIdentifier     `json:"imageIds,omitempty"`
+	MaxResults     int                   `json:"maxResults,omitempty"`
 }
 
 type imageDetailView struct {
@@ -891,6 +896,19 @@ func (h *Handler) handleDescribeImages(
 	imgs, err := h.Backend.DescribeImages(ctx, in.RepositoryName, in.ImageIDs)
 	if err != nil {
 		return nil, err
+	}
+
+	// Apply filter.tagStatus when listing all images (not by specific imageIds).
+	// AWS DescribeImages supports filter: { tagStatus: "TAGGED" | "UNTAGGED" | "ANY" }.
+	if in.Filter != nil && in.Filter.TagStatus != "" && len(in.ImageIDs) == 0 {
+		filtered := imgs[:0]
+		for _, img := range imgs {
+			isTagged := len(img.Tags) > 0
+			if passesTagFilter(isTagged, in.Filter.TagStatus) {
+				filtered = append(filtered, img)
+			}
+		}
+		imgs = filtered
 	}
 
 	// Apply nextToken cursor when paginating without specific imageIds.

@@ -464,7 +464,7 @@ func (h *Handler) createCacheCluster(ctx context.Context, c *echo.Context, form 
 
 func (h *Handler) deleteCacheCluster(ctx context.Context, c *echo.Context, form url.Values) error {
 	id := form.Get("CacheClusterId")
-	clusters, descErr := h.Backend.DescribeClusters(ctx, id, "", 0)
+	clusters, descErr := h.Backend.DescribeClusters(ctx, id, "", 0, false)
 	if descErr != nil {
 		if errors.Is(descErr, ErrClusterNotFound) {
 			return xmlError(c, http.StatusBadRequest, "CacheClusterNotFound", "Cache cluster not found")
@@ -496,8 +496,9 @@ func (h *Handler) deleteCacheCluster(ctx context.Context, c *echo.Context, form 
 func (h *Handler) describeCacheClusters(ctx context.Context, c *echo.Context, form url.Values) error {
 	id := form.Get("CacheClusterId")
 	marker, maxRecords := parsePagination(form)
+	notInRG := strings.EqualFold(form.Get("ShowCacheClustersNotInReplicationGroups"), "true")
 
-	p, err := h.Backend.DescribeClusters(ctx, id, marker, maxRecords)
+	p, err := h.Backend.DescribeClusters(ctx, id, marker, maxRecords, notInRG)
 	if err != nil {
 		if errors.Is(err, ErrClusterNotFound) {
 			return xmlError(c, http.StatusBadRequest, "CacheClusterNotFound", "Cache cluster not found")
@@ -1646,9 +1647,12 @@ func (h *Handler) describeSnapshots(ctx context.Context, c *echo.Context, form u
 	snapshotName := form.Get("SnapshotName")
 	clusterID := form.Get("CacheClusterId")
 	replicationGroupID := form.Get("ReplicationGroupId")
+	snapshotSource := form.Get("SnapshotSource")
 	marker, maxRecords := parsePagination(form)
 
-	p, err := h.Backend.DescribeSnapshots(ctx, snapshotName, clusterID, replicationGroupID, marker, maxRecords)
+	p, err := h.Backend.DescribeSnapshots(
+		ctx, snapshotName, clusterID, replicationGroupID, snapshotSource, marker, maxRecords,
+	)
 	if err != nil {
 		if errors.Is(err, ErrSnapshotNotFound) {
 			return xmlError(c, http.StatusBadRequest, "SnapshotNotFoundFault", "Snapshot not found")

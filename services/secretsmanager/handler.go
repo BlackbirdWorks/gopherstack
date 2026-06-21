@@ -506,6 +506,12 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 		log.WarnContext(ctx, "SecretsManager request error", "error", reqErr, "action", action)
 	}
 
+	// Real AWS Secrets Manager (awsJson1_1 protocol) returns the error shape in
+	// the body AND echoes the error code in the X-Amzn-Errortype response header.
+	// AWS SDKs and the CLI read this header to construct the typed exception, so
+	// emitting it is required for faithful client-side error handling.
+	c.Response().Header().Set("X-Amzn-Errortype", errorType)
+
 	payload, _ := json.Marshal(ErrorResponse{
 		Type:    errorType,
 		Message: reqErr.Error(),

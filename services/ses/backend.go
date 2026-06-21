@@ -74,6 +74,7 @@ type SendTemplatedEmailInput struct {
 	Tags                 []Tag
 	From                 string
 	TemplateName         string
+	TemplateData         string
 	ConfigurationSetName string
 	ReturnPath           string
 	SourceArn            string
@@ -82,6 +83,11 @@ type SendTemplatedEmailInput struct {
 	Bcc                  []string
 	ReplyTo              []string
 }
+
+// maxRecipientsPerMessage is the AWS SES limit on the combined number of
+// To, Cc and Bcc recipients in a single SendEmail/SendTemplatedEmail call.
+// Exceeding it yields a MessageRejected error in real SES.
+const maxRecipientsPerMessage = 50
 
 // Errors returned by the SES backend.
 var (
@@ -452,10 +458,24 @@ func (b *InMemoryBackend) SendEmail(in SendEmailInput) (string, error) {
 		return "", fmt.Errorf("%w: Source is required", ErrInvalidParameter)
 	}
 
+	if len(in.To)+len(in.Cc)+len(in.Bcc) == 0 {
+		return "", fmt.Errorf(
+			"%w: Destination must contain at least one ToAddress, CcAddress, or BccAddress",
+			ErrInvalidParameter,
+		)
+	}
+
 	// AWS SES caps a single message at 10 MiB total (subject + body + headers).
 	const maxMessageBytes = 10 * 1024 * 1024
 	if len(in.Subject)+len(in.BodyHTML)+len(in.BodyText) > maxMessageBytes {
 		return "", fmt.Errorf("%w: message exceeds 10 MB", ErrMessageRejected)
+	}
+
+	if total := len(in.To) + len(in.Cc) + len(in.Bcc); total > maxRecipientsPerMessage {
+		return "", fmt.Errorf(
+			"%w: Recipient count exceeds %d (got %d)",
+			ErrMessageRejected, maxRecipientsPerMessage, total,
+		)
 	}
 
 	b.mu.Lock("SendEmail")
@@ -498,6 +518,20 @@ func (b *InMemoryBackend) SendTemplatedEmail(in SendTemplatedEmailInput) (string
 		return "", fmt.Errorf("%w: Source is required", ErrInvalidParameter)
 	}
 
+	// Validate template data up front so malformed JSON is rejected with
+	// InvalidParameterValue regardless of verification state, matching SES.
+	vars, err := parseTemplateData(in.TemplateData)
+	if err != nil {
+		return "", err
+	}
+
+	if total := len(in.To) + len(in.Cc) + len(in.Bcc); total > maxRecipientsPerMessage {
+		return "", fmt.Errorf(
+			"%w: Recipient count exceeds %d (got %d)",
+			ErrMessageRejected, maxRecipientsPerMessage, total,
+		)
+	}
+
 	b.mu.Lock("SendTemplatedEmail")
 	defer b.mu.Unlock()
 
@@ -522,9 +556,9 @@ func (b *InMemoryBackend) SendTemplatedEmail(in SendTemplatedEmailInput) (string
 		Cc:                   in.Cc,
 		Bcc:                  in.Bcc,
 		ReplyTo:              in.ReplyTo,
-		Subject:              tmpl.SubjectPart,
-		BodyHTML:             tmpl.HTMLPart,
-		BodyText:             tmpl.TextPart,
+		Subject:              renderTemplateVars(tmpl.SubjectPart, vars),
+		BodyHTML:             renderTemplateVars(tmpl.HTMLPart, vars),
+		BodyText:             renderTemplateVars(tmpl.TextPart, vars),
 		ConfigurationSetName: in.ConfigurationSetName,
 		Tags:                 in.Tags,
 		ReturnPath:           in.ReturnPath,

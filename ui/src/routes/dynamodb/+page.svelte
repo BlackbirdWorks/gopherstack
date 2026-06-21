@@ -22,6 +22,10 @@
 		DescribeContinuousBackupsCommand,
 		UpdateContinuousBackupsCommand,
 		DescribeTableReplicaAutoScalingCommand,
+		ListTagsOfResourceCommand,
+		TagResourceCommand,
+		UntagResourceCommand,
+		type Tag,
 		type TableDescription,
 		type KeySchemaElement,
 		type ScalarAttributeType,
@@ -86,6 +90,12 @@
 	// Backups State
 	let backups = $state<BackupSummary[]>([]);
 	let backupsLoading = $state(false);
+
+	// Tags State
+	let tags = $state<Tag[]>([]);
+	let tagsLoading = $state(false);
+	let newTagKey = $state('');
+	let newTagValue = $state('');
 	let newBackupName = $state('');
 
 	// PITR State
@@ -408,6 +418,12 @@
 		return pkAttr ? `${pk}\u0000${sk}` : JSON.stringify(item);
 	}
 
+	// approxItemSize gives a rough UTF-8 byte size for an item, surfaced in the
+	// Items tab to help gauge proximity to DynamoDB's 400 KB per-item limit.
+	function approxItemSize(item: Record<string, unknown>): string {
+		return formatBytes(new TextEncoder().encode(JSON.stringify(item)).length);
+	}
+
 	function toggleItemRow(item: Record<string, unknown>): void {
 		const key = itemStableKey(item);
 		const next = new Set(itemsSelectedKeys);
@@ -473,6 +489,46 @@
 			toast.error(`Failed to load backups: ${(err as Error).message}`);
 		} finally {
 			backupsLoading = false;
+		}
+	}
+
+	async function loadTags(): Promise<void> {
+		const arn = selectedTableDesc?.TableArn;
+		if (!arn) return;
+		tagsLoading = true;
+		try {
+			const res = await ddb.send(new ListTagsOfResourceCommand({ ResourceArn: arn }));
+			tags = res.Tags ?? [];
+		} catch (err: unknown) {
+			toast.error(`Failed to load tags: ${(err as Error).message}`);
+		} finally {
+			tagsLoading = false;
+		}
+	}
+
+	async function addTag(): Promise<void> {
+		const arn = selectedTableDesc?.TableArn;
+		if (!arn || !newTagKey) return;
+		try {
+			await ddb.send(new TagResourceCommand({ ResourceArn: arn, Tags: [{ Key: newTagKey, Value: newTagValue }] }));
+			newTagKey = '';
+			newTagValue = '';
+			toast.success('Tag added');
+			await loadTags();
+		} catch (err: unknown) {
+			toast.error(`Failed to add tag: ${(err as Error).message}`);
+		}
+	}
+
+	async function removeTag(key: string): Promise<void> {
+		const arn = selectedTableDesc?.TableArn;
+		if (!arn) return;
+		try {
+			await ddb.send(new UntagResourceCommand({ ResourceArn: arn, TagKeys: [key] }));
+			toast.success('Tag removed');
+			await loadTags();
+		} catch (err: unknown) {
+			toast.error(`Failed to remove tag: ${(err as Error).message}`);
 		}
 	}
 
@@ -810,6 +866,12 @@
 		}
 	});
 
+	$effect(() => {
+		if (activeTab === 'tags' && selectedTable) {
+			void loadTags();
+		}
+	});
+
 	function copyToClipboard(text: string): void {
 		navigator.clipboard.writeText(text).then(() => toast.success('Copied to clipboard')).catch(() => toast.error('Failed to copy'));
 	}
@@ -985,7 +1047,7 @@
 
 		<div class="mb-4 border-b border-slate-200 dark:border-slate-700">
 			<ul class="flex flex-wrap -mb-px text-sm font-medium text-center">
-				{#each [['overview', 'Overview'], ['query', 'Query'], ['scan', 'Scan'], ['items', 'Items'], ['indexes', 'Indexes'], ['streams', 'Stream Events'], ['partiql', 'PartiQL'], ['metrics', 'Metrics'], ['backups', 'Backups'], ['pitr', 'PITR'], ['replicas', 'Replicas']] as [id, label]}
+				{#each [['overview', 'Overview'], ['query', 'Query'], ['scan', 'Scan'], ['items', 'Items'], ['indexes', 'Indexes'], ['streams', 'Stream Events'], ['partiql', 'PartiQL'], ['metrics', 'Metrics'], ['backups', 'Backups'], ['pitr', 'PITR'], ['replicas', 'Replicas'], ['tags', 'Tags']] as [id, label]}
 					<li class="me-2">
 						<button onclick={() => { activeTab = id; }}
 							class="inline-block p-4 border-b-2 rounded-t-lg {activeTab === id ? 'text-blue-600 border-blue-600 dark:text-blue-500 dark:border-blue-500' : 'border-transparent hover:text-slate-600 hover:border-slate-300 dark:hover:text-slate-300'}">
@@ -1398,6 +1460,7 @@
 									{#each getColumns(filteredItemsResults) as col}
 										<th class="px-4 py-3">{col}</th>
 									{/each}
+									<th class="px-4 py-3" title="Approximate UTF-8 size (max 400 KB)">~Size</th>
 									<th class="px-4 py-3">Actions</th>
 								</tr>
 							</thead>
@@ -1408,6 +1471,7 @@
 										{#each getColumns(filteredItemsResults) as col}
 											<td class="px-4 py-3 font-mono text-xs max-w-[200px] truncate" title={String(item[col] ?? '')}>{item[col] ?? ''}</td>
 										{/each}
+										<td class="px-4 py-3 text-xs text-slate-400 whitespace-nowrap">{approxItemSize(item)}</td>
 										<td class="px-4 py-3 whitespace-nowrap">
 											<button onclick={() => openEditItem(item)} class="text-xs text-blue-600 hover:text-blue-800 dark:text-blue-400 mr-2">Edit</button>
 											<button onclick={() => deleteItem(item)} class="text-xs text-red-600 hover:text-red-800 dark:text-red-400">Delete</button>
@@ -1893,6 +1957,54 @@
 								<button onclick={addReplica} class="text-white bg-blue-600 hover:bg-blue-700 font-medium rounded-lg text-sm px-4 py-2.5">Add Replica</button>
 							</div>
 						</div>
+					</div>
+				{/if}
+			</div>
+		{:else if activeTab === 'tags'}
+			<div class="p-4 rounded-lg bg-slate-50 dark:bg-slate-800 space-y-6">
+				<div class="flex items-center justify-between">
+					<h3 class="text-lg font-semibold text-slate-900 dark:text-white">Tags</h3>
+					<button type="button" onclick={() => loadTags()} disabled={tagsLoading} class="py-1.5 px-3 text-xs font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600 dark:hover:bg-slate-700">
+						{tagsLoading ? 'Loading...' : 'Refresh'}
+					</button>
+				</div>
+				<form onsubmit={(e) => { e.preventDefault(); addTag(); }} class="flex gap-3 items-end">
+					<div class="flex-1 max-w-xs">
+						<label for="tag-key" class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Key</label>
+						<input type="text" id="tag-key" bind:value={newTagKey} placeholder="Environment" required class="bg-white border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-slate-700 dark:border-slate-600 dark:text-white" />
+					</div>
+					<div class="flex-1 max-w-xs">
+						<label for="tag-value" class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Value</label>
+						<input type="text" id="tag-value" bind:value={newTagValue} placeholder="production" class="bg-white border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-slate-700 dark:border-slate-600 dark:text-white" />
+					</div>
+					<button type="submit" class="text-white bg-blue-700 hover:bg-blue-800 font-medium rounded-lg text-sm px-4 py-2.5 dark:bg-blue-600 dark:hover:bg-blue-700">Add Tag</button>
+				</form>
+				{#if tagsLoading}
+					<p class="text-sm text-slate-500 dark:text-slate-400 py-4">Loading...</p>
+				{:else if tags.length === 0}
+					<p class="text-sm text-slate-500 dark:text-slate-400 py-4">No tags on this table.</p>
+				{:else}
+					<div class="overflow-x-auto">
+						<table class="w-full text-sm text-left text-slate-500 dark:text-slate-400">
+							<thead class="text-xs text-slate-700 uppercase bg-slate-100 dark:bg-slate-700 dark:text-slate-400">
+								<tr>
+									<th class="px-6 py-3">Key</th>
+									<th class="px-6 py-3">Value</th>
+									<th class="px-6 py-3">Actions</th>
+								</tr>
+							</thead>
+							<tbody>
+								{#each tags as tag}
+									<tr class="border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+										<td class="px-6 py-4 font-medium text-slate-900 dark:text-white">{tag.Key ?? '-'}</td>
+										<td class="px-6 py-4">{tag.Value ?? '-'}</td>
+										<td class="px-6 py-4">
+											<button onclick={() => tag.Key && removeTag(tag.Key)} class="text-xs text-red-600 hover:text-red-800 dark:text-red-400">Remove</button>
+										</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
 					</div>
 				{/if}
 			</div>

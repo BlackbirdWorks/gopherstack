@@ -2,8 +2,63 @@ package s3
 
 import (
 	"net"
+	"net/url"
 	"strings"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
+
+// S3 object-tagging limits (AWS): at most 10 tags per object; tag keys up to 128
+// characters and values up to 256 characters.
+const (
+	maxObjectTags   = 10
+	maxTagKeyLength = 128
+	maxTagValueLen  = 256
+)
+
+// validateObjectTags enforces AWS's per-object tag-set limits. It returns
+// ErrTooManyTags when more than 10 tags are present and ErrInvalidTag when a key
+// or value exceeds its length limit (or a key is empty).
+func validateObjectTags(tags []types.Tag) error {
+	if len(tags) > maxObjectTags {
+		return ErrTooManyTags
+	}
+
+	for _, t := range tags {
+		key := aws.ToString(t.Key)
+		if key == "" || len(key) > maxTagKeyLength || len(aws.ToString(t.Value)) > maxTagValueLen {
+			return ErrInvalidTag
+		}
+	}
+
+	return nil
+}
+
+// validateTaggingHeader parses and validates an X-Amz-Tagging header value
+// ("k1=v1&k2=v2"). An empty header is valid (no tags). A malformed query or a
+// tag set that violates the limits returns an error.
+func validateTaggingHeader(header string) error {
+	if header == "" {
+		return nil
+	}
+
+	values, err := url.ParseQuery(header)
+	if err != nil {
+		return ErrInvalidTag
+	}
+
+	tags := make([]types.Tag, 0, len(values))
+	for k, v := range values {
+		val := ""
+		if len(v) > 0 {
+			val = v[0]
+		}
+		tags = append(tags, types.Tag{Key: aws.String(k), Value: aws.String(val)})
+	}
+
+	return validateObjectTags(tags)
+}
 
 // IsValidBucketName validates an S3 bucket name based on AWS rules.
 // Rules summary:

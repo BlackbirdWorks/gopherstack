@@ -342,7 +342,9 @@ func (db *InMemoryDB) GetShardIterator(
 		return nil, seqErr
 	}
 
-	token, err := db.iteratorStore.Put(found.Name, startSeq)
+	// Carry the shard's ending sequence (0 for an open shard) so GetRecords can
+	// return a nil NextShardIterator once a closed shard is fully drained.
+	token, err := db.iteratorStore.PutWithEnd(found.Name, startSeq, shardEndSeq)
 	if err != nil {
 		return nil, fmt.Errorf("create shard iterator: %w", err)
 	}
@@ -438,7 +440,7 @@ func (db *InMemoryDB) GetRecords(
 
 	// Resolve the opaque token. Falls back to legacy "tableName:seq:ts" format
 	// for backward compatibility with tests that construct iterators directly.
-	tableName, startSeq, err := db.resolveIterator(token)
+	tableName, startSeq, endSeq, err := db.resolveIterator(token)
 	if err != nil {
 		return nil, err
 	}
@@ -471,8 +473,19 @@ func (db *InMemoryDB) GetRecords(
 
 	telemetry.RecordStreamEvents("dynamodb", len(records))
 
-	// Generate the next opaque iterator for continued reading.
-	nextToken, tokenErr := db.iteratorStore.Put(tableName, nextSeq)
+	// A closed (split) shard that has been fully drained returns a nil
+	// NextShardIterator so consumers know to advance to the child shard. AWS
+	// signals end-of-shard this way; KCL-style consumers depend on it.
+	if endSeq > 0 && nextSeq > endSeq {
+		return &dynamodbstreams.GetRecordsOutput{
+			Records:           records,
+			NextShardIterator: nil,
+		}, nil
+	}
+
+	// Generate the next opaque iterator for continued reading, preserving the
+	// owning shard's end sequence so the terminal state above is reachable.
+	nextToken, tokenErr := db.iteratorStore.PutWithEnd(tableName, nextSeq, endSeq)
 	if tokenErr != nil {
 		return nil, fmt.Errorf("create next shard iterator: %w", tokenErr)
 	}
@@ -483,45 +496,46 @@ func (db *InMemoryDB) GetRecords(
 	}, nil
 }
 
-// resolveIterator resolves a shard iterator token to (tableName, startSeq).
-// It tries the opaque store first, then falls back to the legacy plain-text format
-// "tableName:startSeq:timestamp" so existing tests continue to work.
-func (db *InMemoryDB) resolveIterator(token string) (string, int64, error) {
+// resolveIterator resolves a shard iterator token to (tableName, startSeq, endSeq).
+// endSeq is the owning shard's EndingSequenceNumber (0 for an open shard / legacy
+// tokens). It tries the opaque store first, then falls back to the legacy plain-text
+// format "tableName:startSeq:timestamp" so existing tests continue to work.
+func (db *InMemoryDB) resolveIterator(token string) (string, int64, int64, error) {
 	// Try the opaque store.
 	entry := db.iteratorStore.Get(token)
 	if entry != nil {
 		if time.Now().After(entry.ExpiresAt) {
 			db.iteratorStore.Delete(token)
 
-			return "", 0, NewExpiredIteratorException("Shard iterator has expired")
+			return "", 0, 0, NewExpiredIteratorException("Shard iterator has expired")
 		}
 
-		return entry.TableName, entry.StartSeq, nil
+		return entry.TableName, entry.StartSeq, entry.EndSeq, nil
 	}
 
 	// Fall back to legacy plain-text "tableName:startSeq:timestamp" format.
 	parts := strings.Split(token, ":")
 	if len(parts) != iteratorPartCount {
-		return "", 0, NewValidationException("Invalid shard iterator")
+		return "", 0, 0, NewValidationException("Invalid shard iterator")
 	}
 
 	startSeq, err := strconv.ParseInt(parts[1], 10, 64)
 	if err != nil {
-		return "", 0, NewValidationException("Invalid shard iterator: invalid sequence number")
+		return "", 0, 0, NewValidationException("Invalid shard iterator: invalid sequence number")
 	}
 
 	ts, err := strconv.ParseInt(parts[2], 10, 64)
 	if err != nil {
-		return "", 0, NewValidationException("Invalid shard iterator: invalid timestamp")
+		return "", 0, 0, NewValidationException("Invalid shard iterator: invalid timestamp")
 	}
 
 	iterTime := time.Unix(ts, 0)
 	now := time.Now()
 	if iterTime.After(now) || now.Sub(iterTime) > shardIteratorTTL {
-		return "", 0, NewExpiredIteratorException("Shard iterator has expired")
+		return "", 0, 0, NewExpiredIteratorException("Shard iterator has expired")
 	}
 
-	return parts[0], startSeq, nil
+	return parts[0], startSeq, 0, nil
 }
 
 // ListStreams returns a list of all enabled streams, optionally filtered by table name.

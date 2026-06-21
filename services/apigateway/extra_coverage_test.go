@@ -492,6 +492,14 @@ func (n *noopBackend) GetExport(_ string, _ string, _ string) (map[string]any, e
 	return nil, errNoopNotImplemented
 }
 
+func (n *noopBackend) ImportRestAPI(_ apigateway.ImportRestAPIInput) (*apigateway.RestAPI, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) PutRestAPI(_ apigateway.PutRestAPIInput) (*apigateway.RestAPI, error) {
+	return nil, errNoopNotImplemented
+}
+
 // restRequest sends a REST-style request (no X-Amz-Target header) to the handler.
 func restRequest(t *testing.T, handler *apigateway.Handler, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()

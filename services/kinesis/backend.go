@@ -484,31 +484,7 @@ func (b *InMemoryBackend) DescribeStream(
 
 	shards := make([]ShardDescription, len(stream.Shards))
 	for i, s := range stream.Shards {
-		seqStart := "0"
-		if s.Records.len() > 0 {
-			seqStart = s.Records.at(0).SequenceNumber
-		}
-
-		var seqEnd string
-		if s.Closed {
-			seqEnd = "0"
-			if s.Records.len() > 0 {
-				seqEnd = s.Records.last().SequenceNumber
-			}
-		} else if s.Records.len() > 0 {
-			seqEnd = s.Records.last().SequenceNumber
-		}
-
-		shards[i] = ShardDescription{
-			ShardID:                  s.ID,
-			HashKeyRangeStart:        s.HashKeyRangeStart,
-			HashKeyRangeEnd:          s.HashKeyRangeEnd,
-			SequenceNumberRangeStart: seqStart,
-			SequenceNumberRangeEnd:   seqEnd,
-			ParentShardID:            s.ParentShardID,
-			AdjacentParentShardID:    s.AdjacentParentShardID,
-			Closed:                   s.Closed,
-		}
+		shards[i] = shardDescription(s)
 	}
 
 	encType := stream.EncryptionType
@@ -957,12 +933,16 @@ func shardDescription(s *Shard) ShardDescription {
 		seqStart = s.Records.at(0).SequenceNumber
 	}
 
+	// EndingSequenceNumber is reported only for CLOSED shards. AWS leaves it
+	// absent on open shards regardless of whether they currently hold records —
+	// KCL-style consumers treat its presence as the signal that a shard is
+	// closed and they should advance to the child shards. Reporting it on an
+	// open shard with records would make a consumer prematurely abandon the shard.
 	var seqEnd string
-	if s.Closed || s.Records.len() > 0 {
+	if s.Closed {
+		seqEnd = "0"
 		if s.Records.len() > 0 {
 			seqEnd = s.Records.last().SequenceNumber
-		} else {
-			seqEnd = "0"
 		}
 	}
 

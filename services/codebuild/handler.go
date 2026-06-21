@@ -487,7 +487,8 @@ func (h *Handler) handleListProjects(
 // --- Build operations ---
 
 type startBuildInput struct {
-	ProjectName string `json:"projectName"`
+	ProjectName                  string                `json:"projectName"`
+	EnvironmentVariablesOverride []EnvironmentVariable `json:"environmentVariablesOverride"`
 }
 
 type startBuildOutput struct {
@@ -502,7 +503,7 @@ func (h *Handler) handleStartBuild(
 		return nil, fmt.Errorf("%w: projectName is required", errInvalidRequest)
 	}
 
-	build, err := h.Backend.StartBuild(in.ProjectName)
+	build, err := h.Backend.StartBuild(in.ProjectName, in.EnvironmentVariablesOverride)
 	if err != nil {
 		return nil, err
 	}

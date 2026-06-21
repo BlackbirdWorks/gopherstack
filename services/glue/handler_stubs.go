@@ -2214,14 +2214,20 @@ func (h *Handler) handleGetPartitionIndexes(
 	return &getPartitionIndexesOutput{PartitionIndexDescriptorList: indexes}, nil
 }
 
+// maxGetPartitionsResults is the AWS-enforced upper bound for GetPartitions MaxResults.
+const maxGetPartitionsResults = 1000
+
 // getPartitionsInput holds input for GetPartitions.
 type getPartitionsInput struct {
 	DatabaseName string `json:"DatabaseName"`
 	TableName    string `json:"TableName"`
+	MaxResults   *int32 `json:"MaxResults,omitempty"`
+	NextToken    string `json:"NextToken,omitempty"`
 }
 
 // getPartitionsOutput holds the result for GetPartitions.
 type getPartitionsOutput struct {
+	NextToken  string       `json:"NextToken,omitempty"`
 	Partitions []*Partition `json:"Partitions"`
 }
 
@@ -2229,12 +2235,23 @@ func (h *Handler) handleGetPartitions(
 	_ context.Context,
 	in *getPartitionsInput,
 ) (*getPartitionsOutput, error) {
+	if in.MaxResults != nil && (*in.MaxResults < 1 || *in.MaxResults > maxGetPartitionsResults) {
+		return nil, fmt.Errorf("%w: MaxResults must be between 1 and %d", ErrValidation, maxGetPartitionsResults)
+	}
+
 	partitions, err := h.Backend.GetPartitions(in.DatabaseName, in.TableName)
 	if err != nil {
 		return nil, err
 	}
 
-	return &getPartitionsOutput{Partitions: partitions}, nil
+	limit := maxGetPartitionsResults
+	if in.MaxResults != nil {
+		limit = int(*in.MaxResults)
+	}
+
+	page, next := paginateSlice(partitions, in.NextToken, limit)
+
+	return &getPartitionsOutput{Partitions: page, NextToken: next}, nil
 }
 
 // getPlanCatalogEntry holds a catalog source/sink reference.

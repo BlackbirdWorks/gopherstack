@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 )
@@ -478,9 +479,14 @@ func buildBackupDescriptionFromSDK(bd *sdktypes.BackupDescription) models.Backup
 	}
 }
 
-// regionFromHandlerContext extracts the region from context using the regionContextKey.
+// regionFromHandlerContext extracts the region from context using the
+// regionContextKey, falling back to the central awsmeta identity and then the
+// handler default.
 func (h *DynamoDBHandler) regionFromHandlerContext(ctx context.Context) string {
 	if region, ok := ctx.Value(regionContextKey{}).(string); ok && region != "" {
+		return region
+	}
+	if region := awsmeta.Region(ctx); region != "" {
 		return region
 	}
 

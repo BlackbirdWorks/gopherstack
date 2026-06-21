@@ -1015,6 +1015,10 @@ func (h *Handler) opListTagsForResource(body []byte) (any, error) {
 
 func (h *Handler) opGetSampledRequests(body []byte) (any, error) {
 	var in struct {
+		TimeWindow struct {
+			StartTime string `json:"StartTime"`
+			EndTime   string `json:"EndTime"`
+		} `json:"TimeWindow"`
 		WebAclId string `json:"WebAclId"` //nolint:revive,staticcheck // AWS SDK field name
 		RuleId   string `json:"RuleId"`   //nolint:revive,staticcheck // AWS SDK field name
 		MaxItems int64  `json:"MaxItems"`
@@ -1029,6 +1033,10 @@ func (h *Handler) opGetSampledRequests(body []byte) (any, error) {
 	return map[string]any{
 		"SampledRequests": samples,
 		"PopulationSize":  int64(len(samples)),
+		"TimeWindow": map[string]any{
+			"StartTime": in.TimeWindow.StartTime,
+			"EndTime":   in.TimeWindow.EndTime,
+		},
 	}, nil
 }
 

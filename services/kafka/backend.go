@@ -572,6 +572,10 @@ func (b *InMemoryBackend) CreateCluster(
 		return nil, fmt.Errorf("clusterName is required: %w", ErrValidation)
 	}
 
+	if numBrokers < 1 {
+		return nil, fmt.Errorf("numberOfBrokerNodes must be at least 1: %w", ErrValidation)
+	}
+
 	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("CreateCluster")

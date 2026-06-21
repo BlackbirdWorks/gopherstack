@@ -89,7 +89,12 @@ func TestTagRole_StoresOnModel(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	_, err := b.CreateRole("MyRole", "/", `{"Version":"2012-10-17","Statement":[]}`, "")
+	_, err := b.CreateRole(
+		"MyRole",
+		"/",
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+		"",
+	)
 	require.NoError(t, err)
 
 	require.NoError(t, b.TagRole("MyRole", map[string]string{"dept": "eng"}))
@@ -112,7 +117,12 @@ func TestUntagRole_RemovesKeys(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	_, err := b.CreateRole("R2", "/", `{"Version":"2012-10-17","Statement":[]}`, "")
+	_, err := b.CreateRole(
+		"R2",
+		"/",
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+		"",
+	)
 	require.NoError(t, err)
 	require.NoError(t, b.TagRole("R2", map[string]string{"x": "1", "y": "2"}))
 	require.NoError(t, b.UntagRole("R2", []string{"x"}))
@@ -127,7 +137,11 @@ func TestTagPolicy_StoresOnModel(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	pol, err := b.CreatePolicy("MyPol", "/", `{"Version":"2012-10-17","Statement":[]}`)
+	pol, err := b.CreatePolicy(
+		"MyPol",
+		"/",
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+	)
 	require.NoError(t, err)
 
 	require.NoError(t, b.TagPolicy(pol.Arn, map[string]string{"owner": "infra"}))
@@ -150,7 +164,11 @@ func TestUntagPolicy_RemovesKeys(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	pol, _ := b.CreatePolicy("P1", "/", `{"Version":"2012-10-17","Statement":[]}`)
+	pol, _ := b.CreatePolicy(
+		"P1",
+		"/",
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+	)
 	require.NoError(t, b.TagPolicy(pol.Arn, map[string]string{"a": "1", "b": "2"}))
 	require.NoError(t, b.UntagPolicy(pol.Arn, []string{"a"}))
 

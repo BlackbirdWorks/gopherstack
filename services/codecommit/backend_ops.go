@@ -162,6 +162,7 @@ func (b *InMemoryBackend) UpdateRepositoryEncryptionKey(name, kmsKeyID string) e
 }
 
 // UpdateDefaultBranch sets the default branch for a repository.
+// AWS requires the branch to exist in the repository.
 func (b *InMemoryBackend) UpdateDefaultBranch(repoName, branchName string) error {
 	b.mu.Lock("UpdateDefaultBranch")
 	defer b.mu.Unlock()
@@ -169,6 +170,17 @@ func (b *InMemoryBackend) UpdateDefaultBranch(repoName, branchName string) error
 	r, ok := b.repositories[repoName]
 	if !ok {
 		return fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
+	}
+	// Validate the branch exists.
+	if repoBranches := b.branches[repoName]; repoBranches != nil {
+		if _, found := repoBranches[branchName]; !found {
+			return fmt.Errorf("%w: branch %s not found in repository %s", ErrBranchNotFound, branchName, repoName)
+		}
+	} else if branchName != "" {
+		return fmt.Errorf(
+			"%w: branch %s not found in repository %s (no branches exist)",
+			ErrBranchNotFound, branchName, repoName,
+		)
 	}
 	r.DefaultBranch = branchName
 	r.LastModifiedDate = time.Now().UTC()
@@ -383,12 +395,17 @@ func (b *InMemoryBackend) OverridePullRequestApprovalRules(prID, overrideStatus,
 }
 
 // UpdatePullRequestApprovalState sets the approval state for a user on a pull request.
+// AWS rejects this operation on closed or merged pull requests.
 func (b *InMemoryBackend) UpdatePullRequestApprovalState(prID, userARN, approvalState string) error {
 	b.mu.Lock("UpdatePullRequestApprovalState")
 	defer b.mu.Unlock()
 
-	if _, ok := b.pullRequests[prID]; !ok {
+	pr, ok := b.pullRequests[prID]
+	if !ok {
 		return fmt.Errorf("%w: pull request %s not found", ErrPullRequestNotFound, prID)
+	}
+	if pr.PullRequestStatus == prStatusMerged || pr.PullRequestStatus == prStatusClosed {
+		return fmt.Errorf("%w: pull request %s is already closed", ErrPullRequestAlreadyMerged, prID)
 	}
 
 	if b.prApprovals[prID] == nil {
@@ -400,6 +417,7 @@ func (b *InMemoryBackend) UpdatePullRequestApprovalState(prID, userARN, approval
 }
 
 // UpdatePullRequestDescription updates the description of a pull request.
+// AWS rejects this operation on closed or merged pull requests.
 func (b *InMemoryBackend) UpdatePullRequestDescription(prID, desc string) error {
 	b.mu.Lock("UpdatePullRequestDescription")
 	defer b.mu.Unlock()
@@ -407,6 +425,9 @@ func (b *InMemoryBackend) UpdatePullRequestDescription(prID, desc string) error 
 	pr, ok := b.pullRequests[prID]
 	if !ok {
 		return fmt.Errorf("%w: pull request %s not found", ErrPullRequestNotFound, prID)
+	}
+	if pr.PullRequestStatus == prStatusMerged || pr.PullRequestStatus == prStatusClosed {
+		return fmt.Errorf("%w: pull request %s is already closed", ErrPullRequestAlreadyMerged, prID)
 	}
 	pr.Description = desc
 	pr.LastActivityDate = time.Now().UTC()
@@ -430,6 +451,7 @@ func (b *InMemoryBackend) UpdatePullRequestStatus(prID, status string) error {
 }
 
 // UpdatePullRequestTitle updates the title of a pull request.
+// AWS rejects this operation on closed or merged pull requests.
 func (b *InMemoryBackend) UpdatePullRequestTitle(prID, title string) error {
 	b.mu.Lock("UpdatePullRequestTitle")
 	defer b.mu.Unlock()
@@ -437,6 +459,9 @@ func (b *InMemoryBackend) UpdatePullRequestTitle(prID, title string) error {
 	pr, ok := b.pullRequests[prID]
 	if !ok {
 		return fmt.Errorf("%w: pull request %s not found", ErrPullRequestNotFound, prID)
+	}
+	if pr.PullRequestStatus == prStatusMerged || pr.PullRequestStatus == prStatusClosed {
+		return fmt.Errorf("%w: pull request %s is already closed", ErrPullRequestAlreadyMerged, prID)
 	}
 	pr.Title = title
 	pr.LastActivityDate = time.Now().UTC()
@@ -752,17 +777,19 @@ func (b *InMemoryBackend) PutFile(repoName, branchName, filePath string, content
 		FilePath:        filePath,
 		CommitSpecifier: branchName,
 		BlobID:          blobID,
-		FileMode:        "NORMAL",
+		FileMode:        fileModeDefault,
 		FileContent:     content,
 	}
 
 	commitID := uuid.NewString()
 	treeID := uuid.NewString()
+	now := time.Now().UTC()
 	commit := &Commit{
 		CommitID:       commitID,
 		TreeID:         treeID,
 		Message:        "Add " + filePath,
 		RepositoryName: repoName,
+		CreatedAt:      now,
 	}
 	if b.commits[repoName] == nil {
 		b.commits[repoName] = make(map[string]*Commit)
@@ -834,6 +861,35 @@ func (b *InMemoryBackend) GetFolder(repoName, _ /* commitSpecifier */, folderPat
 	return paths, nil
 }
 
+// GetFolderFiles returns file metadata (path, blobId, fileMode) for files under a folder path.
+// This provides richer info than GetFolder for handler responses matching the AWS API shape.
+func (b *InMemoryBackend) GetFolderFiles(repoName, _ /* commitSpecifier */, folderPath string) ([]*File, error) {
+	b.mu.RLock("GetFolderFiles")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.repositories[repoName]; !ok {
+		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
+	}
+
+	repoFiles := b.files[repoName]
+	var files []*File
+	prefix := folderPath
+	if prefix != "" && prefix[len(prefix)-1] != '/' {
+		prefix += "/"
+	}
+	for fp, f := range repoFiles {
+		if prefix == "" || fp == folderPath || len(fp) > len(prefix) && fp[:len(prefix)] == prefix {
+			cp := *f
+			files = append(files, &cp)
+		}
+	}
+	sort.Slice(files, func(i, j int) bool {
+		return files[i].FilePath < files[j].FilePath
+	})
+
+	return files, nil
+}
+
 // DeleteFile removes a file and creates a delete commit.
 func (b *InMemoryBackend) DeleteFile(repoName, branchName, filePath, _ /* parentCommitID */ string) (*Commit, error) {
 	b.mu.Lock("DeleteFile")
@@ -849,11 +905,13 @@ func (b *InMemoryBackend) DeleteFile(repoName, branchName, filePath, _ /* parent
 
 	commitID := uuid.NewString()
 	treeID := uuid.NewString()
+	now := time.Now().UTC()
 	commit := &Commit{
 		CommitID:       commitID,
 		TreeID:         treeID,
 		Message:        "Delete " + filePath,
 		RepositoryName: repoName,
+		CreatedAt:      now,
 	}
 	if b.commits[repoName] == nil {
 		b.commits[repoName] = make(map[string]*Commit)
@@ -1004,11 +1062,13 @@ func (b *InMemoryBackend) MergeBranchesByFastForward(repoName, sourceRef, destin
 
 	commitID := uuid.NewString()
 	treeID := uuid.NewString()
+	now := time.Now().UTC()
 	commit := &Commit{
 		CommitID:       commitID,
 		TreeID:         treeID,
 		Message:        fmt.Sprintf("Merge %s into %s", sourceRef, destinationRef),
 		RepositoryName: repoName,
+		CreatedAt:      now,
 	}
 	if b.commits[repoName] == nil {
 		b.commits[repoName] = make(map[string]*Commit)
@@ -1100,12 +1160,14 @@ func (b *InMemoryBackend) CreateUnreferencedMergeCommit(
 
 	commitID := uuid.NewString()
 	treeID := uuid.NewString()
+	now := time.Now().UTC()
 	commit := &Commit{
 		CommitID:       commitID,
 		TreeID:         treeID,
 		Message:        "Unreferenced merge commit",
 		RepositoryName: repoName,
 		Parents:        []string{sourceCommitID, destinationCommitID},
+		CreatedAt:      now,
 	}
 	if b.commits[repoName] == nil {
 		b.commits[repoName] = make(map[string]*Commit)
@@ -1153,8 +1215,9 @@ func (b *InMemoryBackend) GetMergeConflicts(
 	return false, nil
 }
 
-// GetDifferences returns file differences (always empty).
-func (b *InMemoryBackend) GetDifferences(repoName, _ /* afterCommitSpecifier */ string) ([]FileDifference, error) {
+// GetDifferences returns file differences between beforeCommitSpecifier and afterCommitSpecifier.
+// When beforeCommitSpecifier is empty, returns all files in afterCommitSpecifier as ADDed.
+func (b *InMemoryBackend) GetDifferences(repoName, afterCommitSpecifier, _ string) ([]FileDifference, error) {
 	b.mu.RLock("GetDifferences")
 	defer b.mu.RUnlock()
 
@@ -1162,5 +1225,27 @@ func (b *InMemoryBackend) GetDifferences(repoName, _ /* afterCommitSpecifier */ 
 		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
 	}
 
-	return []FileDifference{}, nil
+	repoFiles := b.files[repoName]
+	if len(repoFiles) == 0 {
+		return []FileDifference{}, nil
+	}
+
+	// Simplified diff: collect files associated with afterCommitSpecifier.
+	// When before is empty, treat all files as ADDed.
+	var diffs []FileDifference
+	for _, f := range repoFiles {
+		if afterCommitSpecifier == "" || f.CommitSpecifier == afterCommitSpecifier || afterCommitSpecifier == f.BlobID {
+			diffs = append(diffs, FileDifference{
+				AfterBlob:  f.BlobID,
+				BeforeBlob: "",
+				ChangeType: "A",
+			})
+		}
+	}
+
+	sort.Slice(diffs, func(i, j int) bool {
+		return diffs[i].AfterBlob < diffs[j].AfterBlob
+	})
+
+	return diffs, nil
 }

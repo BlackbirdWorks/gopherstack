@@ -127,6 +127,8 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		code, status = "LimitExceededException", http.StatusBadRequest
 	case errors.Is(err, ErrMailDomainState):
 		code, status = "MailDomainStateException", http.StatusBadRequest
+	case errors.Is(err, ErrEntityState):
+		code, status = "EntityStateException", http.StatusBadRequest
 	case isUnknownOp(err):
 		code, status = "InvalidParameterException", http.StatusBadRequest
 	}
@@ -424,7 +426,7 @@ type createUserResp struct {
 func (h *Handler) handleCreateUser(_ context.Context, req *createUserReq) (*createUserResp, error) {
 	role := req.Role
 	if role == "" {
-		role = "USER"
+		role = roleUser
 	}
 	u, err := h.Backend.CreateUser(req.OrganizationID, req.Name, req.DisplayName, req.Password, role)
 	if err != nil {
@@ -523,6 +525,7 @@ type userSummaryResp struct {
 	Email       string `json:"Email,omitempty"`
 	DisplayName string `json:"DisplayName,omitempty"`
 	State       string `json:"State"`
+	UserRole    string `json:"UserRole,omitempty"`
 }
 
 type listUsersResp struct {
@@ -544,6 +547,7 @@ func (h *Handler) handleListUsers(_ context.Context, req *listUsersReq) (*listUs
 			Email:       u.Email,
 			DisplayName: u.DisplayName,
 			State:       u.State,
+			UserRole:    u.Role,
 		})
 	}
 
@@ -668,12 +672,13 @@ type describeGroupReq struct {
 }
 
 type describeGroupResp struct {
-	GroupID      string `json:"GroupId"`
-	Name         string `json:"Name"`
-	Email        string `json:"Email,omitempty"`
-	State        string `json:"State"`
-	EnabledDate  int64  `json:"EnabledDate,omitempty"`
-	DisabledDate int64  `json:"DisabledDate,omitempty"`
+	GroupID                     string `json:"GroupId"`
+	Name                        string `json:"Name"`
+	Email                       string `json:"Email,omitempty"`
+	State                       string `json:"State"`
+	EnabledDate                 int64  `json:"EnabledDate,omitempty"`
+	DisabledDate                int64  `json:"DisabledDate,omitempty"`
+	HiddenFromGlobalAddressList bool   `json:"HiddenFromGlobalAddressList"`
 }
 
 func (h *Handler) handleDescribeGroup(_ context.Context, req *describeGroupReq) (*describeGroupResp, error) {
@@ -683,10 +688,11 @@ func (h *Handler) handleDescribeGroup(_ context.Context, req *describeGroupReq) 
 	}
 
 	resp := &describeGroupResp{
-		GroupID: g.GroupID,
-		Name:    g.Name,
-		Email:   g.Email,
-		State:   g.State,
+		GroupID:                     g.GroupID,
+		Name:                        g.Name,
+		Email:                       g.Email,
+		State:                       g.State,
+		HiddenFromGlobalAddressList: g.Hidden,
 	}
 	if !g.EnabledDate.IsZero() {
 		resp.EnabledDate = g.EnabledDate.Unix()
@@ -1338,15 +1344,17 @@ type listACRReq struct {
 }
 
 type acrResp struct {
-	Name        string   `json:"Name"`
-	Effect      string   `json:"Effect"`
-	Description string   `json:"Description,omitempty"`
-	IPRanges    []string `json:"IPRanges,omitempty"`
-	NotIPRanges []string `json:"NotIPRanges,omitempty"`
-	Actions     []string `json:"Actions,omitempty"`
-	NotActions  []string `json:"NotActions,omitempty"`
-	UserIDs     []string `json:"UserIds,omitempty"`
-	NotUserIDs  []string `json:"NotUserIds,omitempty"`
+	Name         string   `json:"Name"`
+	Effect       string   `json:"Effect"`
+	Description  string   `json:"Description,omitempty"`
+	IPRanges     []string `json:"IPRanges,omitempty"`
+	NotIPRanges  []string `json:"NotIPRanges,omitempty"`
+	Actions      []string `json:"Actions,omitempty"`
+	NotActions   []string `json:"NotActions,omitempty"`
+	UserIDs      []string `json:"UserIds,omitempty"`
+	NotUserIDs   []string `json:"NotUserIds,omitempty"`
+	DateCreated  int64    `json:"DateCreated,omitempty"`
+	DateModified int64    `json:"DateModified,omitempty"`
 }
 
 type listACRResp struct {
@@ -1361,7 +1369,7 @@ func (h *Handler) handleListAccessControlRules(_ context.Context, req *listACRRe
 
 	rresps := make([]acrResp, 0, len(rules))
 	for _, r := range rules {
-		rresps = append(rresps, acrResp{
+		ar := acrResp{
 			Name:        r.Name,
 			Effect:      r.Effect,
 			Description: r.Description,
@@ -1371,7 +1379,14 @@ func (h *Handler) handleListAccessControlRules(_ context.Context, req *listACRRe
 			NotActions:  r.NotActions,
 			UserIDs:     r.UserIDs,
 			NotUserIDs:  r.NotUserIDs,
-		})
+		}
+		if !r.DateCreated.IsZero() {
+			ar.DateCreated = r.DateCreated.Unix()
+		}
+		if !r.DateModified.IsZero() {
+			ar.DateModified = r.DateModified.Unix()
+		}
+		rresps = append(rresps, ar)
 	}
 
 	return &listACRResp{Rules: rresps}, nil

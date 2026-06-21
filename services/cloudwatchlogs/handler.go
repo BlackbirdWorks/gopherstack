@@ -77,13 +77,14 @@ type getLogEventsInput struct {
 }
 
 type filterLogEventsInput struct {
-	StartTime      *int64   `json:"startTime"`
-	EndTime        *int64   `json:"endTime"`
-	LogGroupName   string   `json:"logGroupName"`
-	FilterPattern  string   `json:"filterPattern"`
-	NextToken      string   `json:"nextToken"`
-	LogStreamNames []string `json:"logStreamNames"`
-	Limit          int      `json:"limit"`
+	StartTime           *int64   `json:"startTime"`
+	EndTime             *int64   `json:"endTime"`
+	LogGroupName        string   `json:"logGroupName"`
+	FilterPattern       string   `json:"filterPattern"`
+	NextToken           string   `json:"nextToken"`
+	LogStreamNamePrefix string   `json:"logStreamNamePrefix"`
+	LogStreamNames      []string `json:"logStreamNames"`
+	Limit               int      `json:"limit"`
 }
 
 type listTagsLogGroupInput struct {
@@ -597,8 +598,9 @@ type getLogEventsOutput struct {
 }
 
 type filterLogEventsOutput struct {
-	NextToken string           `json:"nextToken,omitempty"`
-	Events    []OutputLogEvent `json:"events"`
+	NextToken          string              `json:"nextToken,omitempty"`
+	Events             []FilteredLogEvent  `json:"events"`
+	SearchedLogStreams []SearchedLogStream `json:"searchedLogStreams"`
 }
 
 type listTagsLogGroupOutput struct {
@@ -1077,14 +1079,25 @@ func (h *Handler) logEventActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			evts, next, err := h.Backend.FilterLogEvents(ctx,
-				input.LogGroupName, input.LogStreamNames, input.FilterPattern,
-				input.StartTime, input.EndTime, input.Limit, input.NextToken)
+			evts, next, searched, err := h.Backend.FilterLogEvents(ctx, FilterLogEventsParams{
+				GroupName:           input.LogGroupName,
+				StreamNames:         input.LogStreamNames,
+				LogStreamNamePrefix: input.LogStreamNamePrefix,
+				FilterPattern:       input.FilterPattern,
+				StartTime:           input.StartTime,
+				EndTime:             input.EndTime,
+				Limit:               input.Limit,
+				NextToken:           input.NextToken,
+			})
 			if err != nil {
 				return nil, err
 			}
 
-			return &filterLogEventsOutput{Events: evts, NextToken: next}, nil
+			return &filterLogEventsOutput{
+				Events:             evts,
+				SearchedLogStreams: searched,
+				NextToken:          next,
+			}, nil
 		},
 	}
 }

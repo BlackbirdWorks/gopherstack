@@ -406,8 +406,10 @@ func (h *Handler) handleDeleteGroup(ctx context.Context, in *groupNameInput) (*d
 	return &deleteGroupOutput{}, nil
 }
 
-type listGroupsInput struct {
-	Filters []ListGroupsFilter `json:"Filters"`
+type listGroupsInput struct { //nolint:govet // fieldalignment: readability over micro-optimization
+	Filters    []ListGroupsFilter `json:"Filters"`
+	NextToken  string             `json:"NextToken"`
+	MaxResults int                `json:"MaxResults"`
 }
 
 type listGroupIdentifierOutput struct {
@@ -425,13 +427,14 @@ type listGroupsGroupOutput struct {
 	Criticality int    `json:"Criticality,omitempty"`
 }
 
-type listGroupsOutput struct {
+type listGroupsOutput struct { //nolint:govet // fieldalignment: readability over micro-optimization
 	Groups           []listGroupsGroupOutput     `json:"Groups"`
 	GroupIdentifiers []listGroupIdentifierOutput `json:"GroupIdentifiers"`
+	NextToken        string                      `json:"NextToken,omitempty"`
 }
 
 func (h *Handler) handleListGroups(ctx context.Context, in *listGroupsInput) (*listGroupsOutput, error) {
-	groups := h.Backend.ListGroups(ctx, in.Filters)
+	groups, nextToken := h.Backend.ListGroups(ctx, in.Filters, in.NextToken, in.MaxResults)
 	identifiers := make([]listGroupIdentifierOutput, 0, len(groups))
 	groupsList := make([]listGroupsGroupOutput, 0, len(groups))
 
@@ -451,7 +454,7 @@ func (h *Handler) handleListGroups(ctx context.Context, in *listGroupsInput) (*l
 		})
 	}
 
-	return &listGroupsOutput{Groups: groupsList, GroupIdentifiers: identifiers}, nil
+	return &listGroupsOutput{Groups: groupsList, GroupIdentifiers: identifiers, NextToken: nextToken}, nil
 }
 
 type getGroupBody struct {
@@ -824,9 +827,12 @@ func (h *Handler) handleGroupResources(ctx context.Context, in *groupResourcesIn
 }
 
 // handleListGroupResources lists the resources associated with a group.
-type listGroupResourcesInput struct {
-	Group     string `json:"Group"`
-	GroupName string `json:"GroupName"`
+type listGroupResourcesInput struct { //nolint:govet // fieldalignment: readability over micro-optimization
+	Filters    []ListGroupResourcesFilter `json:"Filters"`
+	Group      string                     `json:"Group"`
+	GroupName  string                     `json:"GroupName"`
+	NextToken  string                     `json:"NextToken"`
+	MaxResults int                        `json:"MaxResults"`
 }
 
 func (g *listGroupResourcesInput) resolvedName() string {
@@ -841,15 +847,18 @@ type listGroupResourcesItem struct {
 	Identifier ResourceIdentifier `json:"Identifier"`
 }
 
-type listGroupResourcesOutput struct {
+type listGroupResourcesOutput struct { //nolint:govet // fieldalignment: readability over micro-optimization
 	Resources []listGroupResourcesItem `json:"Resources"`
+	NextToken string                   `json:"NextToken,omitempty"`
 }
 
 func (h *Handler) handleListGroupResources(
 	ctx context.Context,
 	in *listGroupResourcesInput,
 ) (*listGroupResourcesOutput, error) {
-	identifiers, err := h.Backend.ListGroupResources(ctx, in.resolvedName())
+	identifiers, nextToken, err := h.Backend.ListGroupResources(
+		ctx, in.resolvedName(), in.Filters, in.NextToken, in.MaxResults,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -860,17 +869,20 @@ func (h *Handler) handleListGroupResources(
 		items = append(items, listGroupResourcesItem{Identifier: id})
 	}
 
-	return &listGroupResourcesOutput{Resources: items}, nil
+	return &listGroupResourcesOutput{Resources: items, NextToken: nextToken}, nil
 }
 
 // handleListGroupingStatuses lists the grouping/ungrouping statuses for a group.
 type listGroupingStatusesInput struct {
-	Group string `json:"Group"`
+	Group      string `json:"Group"`
+	NextToken  string `json:"NextToken"`
+	MaxResults int    `json:"MaxResults"`
 }
 
-type listGroupingStatusesOutput struct {
+type listGroupingStatusesOutput struct { //nolint:govet // fieldalignment: readability over micro-optimization
 	Group            string               `json:"Group"`
 	GroupingStatuses []GroupingStatusItem `json:"GroupingStatuses"`
+	NextToken        string               `json:"NextToken,omitempty"`
 }
 
 func (h *Handler) handleListGroupingStatuses(
@@ -881,7 +893,7 @@ func (h *Handler) handleListGroupingStatuses(
 		return nil, fmt.Errorf("%w: Group is required", ErrValidation)
 	}
 
-	statuses, err := h.Backend.ListGroupingStatuses(ctx, in.Group)
+	statuses, nextToken, err := h.Backend.ListGroupingStatuses(ctx, in.Group, in.NextToken, in.MaxResults)
 	if err != nil {
 		return nil, err
 	}
@@ -889,25 +901,29 @@ func (h *Handler) handleListGroupingStatuses(
 	return &listGroupingStatusesOutput{
 		Group:            in.Group,
 		GroupingStatuses: statuses,
+		NextToken:        nextToken,
 	}, nil
 }
 
 // handleSearchResources searches for resources matching a query.
 type searchResourcesInput struct {
 	ResourceQuery *ResourceQuery `json:"ResourceQuery"`
+	NextToken     string         `json:"NextToken"`
+	MaxResults    int            `json:"MaxResults"`
 }
 
-type searchResourcesOutput struct {
+type searchResourcesOutput struct { //nolint:govet // fieldalignment: readability over micro-optimization
 	ResourceIdentifiers []ResourceIdentifier `json:"ResourceIdentifiers"`
+	NextToken           string               `json:"NextToken,omitempty"`
 }
 
 func (h *Handler) handleSearchResources(ctx context.Context, in *searchResourcesInput) (*searchResourcesOutput, error) {
-	identifiers, err := h.Backend.SearchResources(ctx, in.ResourceQuery)
+	identifiers, nextToken, err := h.Backend.SearchResources(ctx, in.ResourceQuery, in.NextToken, in.MaxResults)
 	if err != nil {
 		return nil, err
 	}
 
-	return &searchResourcesOutput{ResourceIdentifiers: identifiers}, nil
+	return &searchResourcesOutput{ResourceIdentifiers: identifiers, NextToken: nextToken}, nil
 }
 
 // handleStartTagSyncTask creates a new tag-sync task.
@@ -1024,24 +1040,27 @@ func (h *Handler) handleGetTagSyncTask(ctx context.Context, in *getTagSyncTaskIn
 }
 
 // handleListTagSyncTasks lists tag-sync tasks.
-type listTagSyncTasksInput struct {
-	Filters []ListTagSyncTasksFilter `json:"Filters,omitempty"`
+type listTagSyncTasksInput struct { //nolint:govet // fieldalignment: readability over micro-optimization
+	Filters    []ListTagSyncTasksFilter `json:"Filters,omitempty"`
+	NextToken  string                   `json:"NextToken"`
+	MaxResults int                      `json:"MaxResults"`
 }
 
-type listTagSyncTasksOutput struct {
+type listTagSyncTasksOutput struct { //nolint:govet // fieldalignment: readability over micro-optimization
 	TagSyncTasks []TagSyncTask `json:"TagSyncTasks"`
+	NextToken    string        `json:"NextToken,omitempty"`
 }
 
 func (h *Handler) handleListTagSyncTasks(
 	ctx context.Context,
 	in *listTagSyncTasksInput,
 ) (*listTagSyncTasksOutput, error) {
-	tasks, err := h.Backend.ListTagSyncTasks(ctx, in.Filters)
+	tasks, nextToken, err := h.Backend.ListTagSyncTasks(ctx, in.Filters, in.NextToken, in.MaxResults)
 	if err != nil {
 		return nil, err
 	}
 
-	return &listTagSyncTasksOutput{TagSyncTasks: tasks}, nil
+	return &listTagSyncTasksOutput{TagSyncTasks: tasks, NextToken: nextToken}, nil
 }
 
 // handleUngroupResources removes resources from a group.

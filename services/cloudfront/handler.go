@@ -2349,6 +2349,8 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	}
 
 	switch {
+	case errors.Is(err, ErrDistributionNotDisabled):
+		return xmlResp(c, http.StatusConflict, cfErrorXML("DistributionNotDisabled", err.Error()))
 	case errors.Is(err, ErrAlreadyExists):
 		return xmlResp(c, http.StatusConflict, cfErrorXML("DistributionAlreadyExists", err.Error()))
 	case errors.Is(err, ErrInvalidTagging):

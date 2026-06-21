@@ -346,6 +346,10 @@ func (b *InMemoryBackend) DeleteDetector(detectorID string) error {
 	delete(b.findings, detectorID)
 	delete(b.ipSets, detectorID)
 	delete(b.threatIntelSets, detectorID)
+	delete(b.members, detectorID)
+	delete(b.publishingDestinations, detectorID)
+	delete(b.threatEntitySets, detectorID)
+	delete(b.trustedEntitySets, detectorID)
 	delete(b.tags, b.detectorARN(detectorID))
 
 	return nil

@@ -273,6 +273,32 @@ func buildCopyTagging(r *http.Request) (string, bool) {
 	return "", false
 }
 
+// copyChangesAttributes reports whether a CopyObject request changes any object
+// attribute. AWS only permits a self-copy (identical source and destination) when
+// at least one attribute changes; otherwise it returns InvalidRequest.
+func copyChangesAttributes(r *http.Request) bool {
+	if strings.EqualFold(r.Header.Get("X-Amz-Metadata-Directive"), "REPLACE") {
+		return true
+	}
+	if strings.EqualFold(r.Header.Get("X-Amz-Tagging-Directive"), "REPLACE") {
+		return true
+	}
+
+	for _, hdr := range []string{
+		"X-Amz-Server-Side-Encryption",
+		"X-Amz-Server-Side-Encryption-Aws-Kms-Key-Id",
+		"X-Amz-Server-Side-Encryption-Customer-Algorithm",
+		"X-Amz-Storage-Class",
+		"X-Amz-Website-Redirect-Location",
+	} {
+		if r.Header.Get(hdr) != "" {
+			return true
+		}
+	}
+
+	return false
+}
+
 // ─── x-amz-expected-bucket-owner ─────────────────────────────────────────────
 
 // validateExpectedBucketOwner checks the x-amz-expected-bucket-owner header.

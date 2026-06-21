@@ -124,7 +124,8 @@ func TestRefinement2_ShadowDocumentValidation(t *testing.T) {
 		wantCode int
 	}{
 		{name: "valid_object", body: []byte(`{"state":{"desired":{}}}`), wantCode: http.StatusOK},
-		{name: "empty_object", body: []byte(`{}`), wantCode: http.StatusOK},
+		// AWS requires "state" key; {} without it returns 400 InvalidRequestException.
+		{name: "empty_object", body: []byte(`{}`), wantCode: http.StatusBadRequest},
 		{name: "array", body: []byte(`["a"]`), wantCode: http.StatusBadRequest},
 		{name: "number", body: []byte(`42`), wantCode: http.StatusBadRequest},
 		{name: "string", body: []byte(`"hello"`), wantCode: http.StatusBadRequest},

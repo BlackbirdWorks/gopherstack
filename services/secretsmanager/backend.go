@@ -394,6 +394,10 @@ func seedInitialVersion(secret *Secret, input *CreateSecretInput) string {
 func (b *InMemoryBackend) GetSecretValue(
 	ctx context.Context, input *GetSecretValueInput,
 ) (*GetSecretValueOutput, error) {
+	if input.SecretID == "" {
+		return nil, fmt.Errorf("%w: SecretId is required", ErrInvalidParameter)
+	}
+
 	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("GetSecretValue")
@@ -469,6 +473,10 @@ func (b *InMemoryBackend) findVersion(secret *Secret, versionID, versionStage st
 func (b *InMemoryBackend) PutSecretValue(
 	ctx context.Context, input *PutSecretValueInput,
 ) (*PutSecretValueOutput, error) {
+	if input.SecretID == "" {
+		return nil, fmt.Errorf("%w: SecretId is required", ErrInvalidParameter)
+	}
+
 	if input.SecretString == "" && len(input.SecretBinary) == 0 {
 		return nil, fmt.Errorf(
 			"%w: you must provide either SecretString or SecretBinary",
@@ -645,6 +653,16 @@ func (b *InMemoryBackend) DeleteSecret(ctx context.Context, input *DeleteSecretI
 	}
 
 	now := UnixTimeFloat(b.now())
+
+	// AWS rejects combining ForceDeleteWithoutRecovery with RecoveryWindowInDays:
+	// the two parameters are mutually exclusive. Real AWS returns
+	// InvalidParameterException for this combination.
+	if input.ForceDeleteWithoutRecovery && input.RecoveryWindowInDays != nil {
+		return nil, fmt.Errorf(
+			"%w: you can't use ForceDeleteWithoutRecovery in conjunction with RecoveryWindowInDays",
+			ErrInvalidParameter,
+		)
+	}
 
 	if input.ForceDeleteWithoutRecovery {
 		if secret.Tags != nil {

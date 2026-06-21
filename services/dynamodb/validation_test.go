@@ -252,7 +252,46 @@ func TestPutItem_ItemTooLarge(t *testing.T) {
 	sdkPut, _ := models.ToSDKPutItemInput(&putInput)
 	_, err = db.PutItem(t.Context(), sdkPut)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "exceeds limit")
+	assert.Contains(t, err.Error(), "Item size has exceeded the maximum allowed size")
+}
+
+// TestKeySizeLimit_AWSWording verifies the partition- and sort-key overflow
+// messages match AWS DynamoDB's ValidationException wording.
+func TestKeySizeLimit_AWSWording(t *testing.T) {
+	t.Parallel()
+
+	db := dynamodb.NewInMemoryDB()
+	createTableHelper(t, db, "KeySizeTbl", "pk", "sk")
+
+	t.Run("partition key too large", func(t *testing.T) {
+		t.Parallel()
+		put := models.PutItemInput{
+			TableName: "KeySizeTbl",
+			Item: map[string]any{
+				"pk": map[string]any{"S": strings.Repeat("p", 2100)},
+				"sk": map[string]any{"S": "x"},
+			},
+		}
+		sdkPut, _ := models.ToSDKPutItemInput(&put)
+		_, err := db.PutItem(t.Context(), sdkPut)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "Size of hashkey has exceeded the maximum size limit")
+	})
+
+	t.Run("sort key too large", func(t *testing.T) {
+		t.Parallel()
+		put := models.PutItemInput{
+			TableName: "KeySizeTbl",
+			Item: map[string]any{
+				"pk": map[string]any{"S": "x"},
+				"sk": map[string]any{"S": strings.Repeat("s", 1100)},
+			},
+		}
+		sdkPut, _ := models.ToSDKPutItemInput(&put)
+		_, err := db.PutItem(t.Context(), sdkPut)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "Aggregated size of all range keys has exceeded the size limit")
+	})
 }
 
 func TestCapacityUnits(t *testing.T) {

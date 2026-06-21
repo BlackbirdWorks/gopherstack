@@ -153,7 +153,7 @@ func TestCreateClusterWithOptions_AtomicNoLeak(t *testing.T) {
 			)
 			require.ErrorIs(t, err, tt.wantErr)
 
-			_, descErr := backend.DescribeClusters(context.Background(), "my-cache", "", 0)
+			_, descErr := backend.DescribeClusters(context.Background(), "my-cache", "", 0, false)
 			require.ErrorIs(t, descErr, elasticache.ErrClusterNotFound)
 		})
 	}
@@ -244,7 +244,7 @@ func TestListTagsForResource_NilTagsSafe(t *testing.T) {
 			_, err := backend2.CreateCluster(context.Background(), "nil-tags-cluster", "redis", "cache.t3.micro", 0)
 			require.NoError(t, err)
 
-			p, err := backend2.DescribeClusters(context.Background(), "nil-tags-cluster", "", 0)
+			p, err := backend2.DescribeClusters(context.Background(), "nil-tags-cluster", "", 0, false)
 			require.NoError(t, err)
 
 			clusterARN := p.Data[0].ARN
@@ -485,7 +485,7 @@ func TestBackend_Reset(t *testing.T) {
 
 			backend.Reset()
 
-			_, err = backend.DescribeClusters(context.Background(), "reset-cluster", "", 0)
+			_, err = backend.DescribeClusters(context.Background(), "reset-cluster", "", 0, false)
 			require.ErrorIs(t, err, elasticache.ErrClusterNotFound)
 
 			_, err = backend.DescribeReplicationGroups(context.Background(), "reset-rg", "", 0)

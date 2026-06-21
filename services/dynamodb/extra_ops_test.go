@@ -450,12 +450,13 @@ func TestDynamoDB_DescribeImport(t *testing.T) {
 		wantStatus       int
 	}{
 		{
-			name: "success",
+			// AWS returns ImportNotFoundException for an unknown ARN (not a fake COMPLETED).
+			name: "unknown_arn_not_found",
 			body: map[string]any{
 				"ImportArn": "arn:aws:dynamodb:us-east-1:123456789012:table/MyTable/import/01000000-0000-0000-0000-000000000001",
 			},
-			wantStatus:       http.StatusOK,
-			wantBodyContains: "COMPLETED",
+			wantStatus:       http.StatusBadRequest,
+			wantBodyContains: "ImportNotFoundException",
 		},
 		{
 			name:             "empty_import_arn",

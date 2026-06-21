@@ -1248,9 +1248,9 @@ func TestCreateSubnetGroup(t *testing.T) {
 func TestCreateSubnetGroup_Duplicate(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateSubnetGroup("sg", "", nil)
+	_, err := b.CreateSubnetGroup("sg", "", []string{"subnet-1"})
 	require.NoError(t, err)
-	_, err = b.CreateSubnetGroup("sg", "", nil)
+	_, err = b.CreateSubnetGroup("sg", "", []string{"subnet-1"})
 	require.Error(t, err)
 }
 
@@ -1330,7 +1330,7 @@ func TestDeleteSubnetGroup(t *testing.T) {
 		{
 			name: "success",
 			setup: func(b *dax.InMemoryBackend) {
-				_, _ = b.CreateSubnetGroup("sg-del", "", nil)
+				_, _ = b.CreateSubnetGroup("sg-del", "", []string{"subnet-1"})
 			},
 			sgName: "sg-del",
 		},
@@ -1385,7 +1385,7 @@ func TestDescribeSubnetGroups(t *testing.T) {
 		{
 			name: "with custom group",
 			setup: func(b *dax.InMemoryBackend) {
-				_, _ = b.CreateSubnetGroup("custom", "", nil)
+				_, _ = b.CreateSubnetGroup("custom", "", []string{"subnet-1"})
 			},
 			wantCount: 2,
 		},

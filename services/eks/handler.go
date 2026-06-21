@@ -1650,12 +1650,22 @@ func (h *Handler) handleUpdateNodegroupConfig(
 		return h.handleError(c, err)
 	}
 
+	now := time.Now().UTC()
+	u := &Update{
+		ID:          uuid.NewString()[:8],
+		ClusterName: clusterName,
+		Status:      statusInProgress,
+		Type:        "ConfigUpdate",
+		CreatedAt:   now,
+	}
+	h.Backend.StoreUpdate(u)
+
 	return c.JSON(http.StatusOK, map[string]any{
 		keyUpdate: map[string]any{
-			"id":            uuid.NewString()[:8],
-			keyStatusField:  statusInProgress,
-			keyType:         "ConfigUpdate",
-			keyCreatedAt:    float64(time.Now().Unix()),
+			"id":            u.ID,
+			keyStatusField:  u.Status,
+			keyType:         u.Type,
+			keyCreatedAt:    float64(now.Unix()),
 			keyClusterName:  clusterName,
 			"nodegroupName": ng.NodegroupName,
 		},

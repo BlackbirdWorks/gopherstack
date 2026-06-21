@@ -477,6 +477,139 @@ func TestAccuracy_SpotFleetHistory_Capped(t *testing.T) {
 
 // ---- helpers ----
 
+// ---- Gap: EBS IOPS and throughput ----
+
+func TestAccuracy_CreateVolume_IOPS_Throughput(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		body           string
+		wantErrContain string
+		wantIops       string
+		wantThroughput string
+		wantErr        bool
+	}{
+		{
+			name:           "gp3_defaults",
+			body:           "Action=CreateVolume&Version=2016-11-15&AvailabilityZone=us-east-1a&Size=20&VolumeType=gp3",
+			wantIops:       "3000",
+			wantThroughput: "125",
+		},
+		{
+			name: "gp3_custom_iops_throughput",
+			body: "Action=CreateVolume&Version=2016-11-15" +
+				"&AvailabilityZone=us-east-1a&Size=20&VolumeType=gp3&Iops=6000&Throughput=500",
+			wantIops:       "6000",
+			wantThroughput: "500",
+		},
+		{
+			name:     "gp2_iops_derived_from_size",
+			body:     "Action=CreateVolume&Version=2016-11-15&AvailabilityZone=us-east-1a&Size=100&VolumeType=gp2",
+			wantIops: "300",
+		},
+		{
+			name:     "gp2_iops_minimum_100",
+			body:     "Action=CreateVolume&Version=2016-11-15&AvailabilityZone=us-east-1a&Size=8&VolumeType=gp2",
+			wantIops: "100",
+		},
+		{
+			name:           "io1_requires_iops",
+			body:           "Action=CreateVolume&Version=2016-11-15&AvailabilityZone=us-east-1a&Size=100&VolumeType=io1",
+			wantErr:        true,
+			wantErrContain: "InvalidParameterValue",
+		},
+		{
+			name:     "io1_with_iops",
+			body:     "Action=CreateVolume&Version=2016-11-15&AvailabilityZone=us-east-1a&Size=100&VolumeType=io1&Iops=5000",
+			wantIops: "5000",
+		},
+		{
+			name:           "io2_requires_iops",
+			body:           "Action=CreateVolume&Version=2016-11-15&AvailabilityZone=us-east-1a&Size=100&VolumeType=io2",
+			wantErr:        true,
+			wantErrContain: "InvalidParameterValue",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			vals, err := url.ParseQuery(tt.body)
+			require.NoError(t, err)
+
+			resp, dispatchErr := dispatchHandler(h, vals)
+			if tt.wantErr {
+				require.Error(t, dispatchErr)
+				if tt.wantErrContain != "" {
+					assert.Contains(t, dispatchErr.Error(), tt.wantErrContain)
+				}
+
+				return
+			}
+
+			require.NoError(t, dispatchErr)
+
+			if tt.wantIops != "" {
+				assert.Contains(t, resp, "<iops>"+tt.wantIops+"</iops>",
+					"CreateVolume response should include iops")
+			}
+
+			if tt.wantThroughput != "" {
+				assert.Contains(t, resp, "<throughput>"+tt.wantThroughput+"</throughput>",
+					"CreateVolume response should include throughput")
+			}
+		})
+	}
+}
+
+func TestAccuracy_DescribeVolumes_IOPS_Throughput(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	// Create a gp3 volume and verify DescribeVolumes includes IOPS/throughput.
+	createVals, err := url.ParseQuery(
+		"Action=CreateVolume&Version=2016-11-15&AvailabilityZone=us-east-1a&Size=20&VolumeType=gp3&Iops=4000&Throughput=200",
+	)
+	require.NoError(t, err)
+
+	createResp, err := dispatchHandler(h, createVals)
+	require.NoError(t, err)
+
+	volID := accuracyExtractXMLValue(createResp, "volumeId")
+	require.NotEmpty(t, volID)
+
+	descVals, err := url.ParseQuery(
+		"Action=DescribeVolumes&Version=2016-11-15&VolumeId.1=" + volID,
+	)
+	require.NoError(t, err)
+
+	descResp, err := dispatchHandler(h, descVals)
+	require.NoError(t, err)
+	assert.Contains(t, descResp, "<iops>4000</iops>", "DescribeVolumes should return iops")
+	assert.Contains(t, descResp, "<throughput>200</throughput>", "DescribeVolumes should return throughput")
+}
+
+func TestAccuracy_SetVolumePerformance(t *testing.T) {
+	t.Parallel()
+
+	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
+
+	vol, err := b.CreateVolume("us-east-1a", "gp3", 20)
+	require.NoError(t, err)
+
+	err = b.SetVolumePerformance(vol.ID, 5000, 300)
+	require.NoError(t, err)
+
+	vols := b.DescribeVolumes([]string{vol.ID})
+	require.Len(t, vols, 1)
+	assert.Equal(t, 5000, vols[0].Iops)
+	assert.Equal(t, 300, vols[0].Throughput)
+}
+
 // newTestHandler creates a fresh Handler with an InMemoryBackend.
 func newTestHandler() *ec2.Handler {
 	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")

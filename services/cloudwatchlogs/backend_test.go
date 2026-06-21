@@ -3,6 +3,7 @@ package cloudwatchlogs_test
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -633,15 +634,17 @@ func TestCloudWatchLogsBackend_FilterLogEvents(t *testing.T) {
 				tt.setup(t, b)
 			}
 
-			evts, _, err := b.FilterLogEvents(
+			evts, _, _, err := b.FilterLogEvents(
 				context.Background(),
-				tt.group,
-				tt.streams,
-				tt.pattern,
-				tt.startTime,
-				tt.endTime,
-				tt.limit,
-				tt.nextToken,
+				cloudwatchlogs.FilterLogEventsParams{
+					GroupName:     tt.group,
+					StreamNames:   tt.streams,
+					FilterPattern: tt.pattern,
+					StartTime:     tt.startTime,
+					EndTime:       tt.endTime,
+					Limit:         tt.limit,
+					NextToken:     tt.nextToken,
+				},
 			)
 
 			if tt.wantErr != nil {
@@ -674,14 +677,88 @@ func TestCloudWatchLogsBackend_FilterLogEvents_Pagination(t *testing.T) {
 		})
 	}
 
-	evts, token, err := b.FilterLogEvents(context.Background(), "grp", nil, "", nil, nil, 2, "")
+	evts, token, _, err := b.FilterLogEvents(
+		context.Background(), cloudwatchlogs.FilterLogEventsParams{GroupName: "grp", Limit: 2})
 	require.NoError(t, err)
 	assert.Len(t, evts, 2)
 	assert.NotEmpty(t, token)
 
-	evts2, _, err := b.FilterLogEvents(context.Background(), "grp", nil, "", nil, nil, 10, token)
+	evts2, _, _, err := b.FilterLogEvents(
+		context.Background(), cloudwatchlogs.FilterLogEventsParams{GroupName: "grp", Limit: 10, NextToken: token})
 	require.NoError(t, err)
 	assert.Len(t, evts2, 3)
+}
+
+func TestCloudWatchLogsBackend_FilterLogEvents_EventShape(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatchlogs.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+	_, _ = b.CreateLogGroup(context.Background(), "grp", "", "")
+	_, _ = b.CreateLogStream(context.Background(), "grp", "s1")
+	_, _ = b.CreateLogStream(context.Background(), "grp", "s2")
+	_, _ = b.PutLogEvents(context.Background(), "grp", "s1", "", []cloudwatchlogs.InputLogEvent{
+		{Message: "from s1", Timestamp: 2000},
+	})
+	_, _ = b.PutLogEvents(context.Background(), "grp", "s2", "", []cloudwatchlogs.InputLogEvent{
+		{Message: "from s2", Timestamp: 1000},
+	})
+
+	evts, _, searched, err := b.FilterLogEvents(
+		context.Background(), cloudwatchlogs.FilterLogEventsParams{GroupName: "grp"})
+	require.NoError(t, err)
+	require.Len(t, evts, 2)
+
+	// Interleaved across streams and sorted ascending by timestamp.
+	assert.Equal(t, "from s2", evts[0].Message)
+	assert.Equal(t, "s2", evts[0].LogStreamName)
+	assert.Equal(t, "from s1", evts[1].Message)
+	assert.Equal(t, "s1", evts[1].LogStreamName)
+
+	// Each event carries a non-empty, unique eventId.
+	assert.NotEmpty(t, evts[0].EventID)
+	assert.NotEmpty(t, evts[1].EventID)
+	assert.NotEqual(t, evts[0].EventID, evts[1].EventID)
+
+	// searchedLogStreams is present (AWS returns an empty list).
+	assert.NotNil(t, searched)
+	assert.Empty(t, searched)
+}
+
+func TestCloudWatchLogsBackend_FilterLogEvents_StreamNamePrefix(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatchlogs.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+	_, _ = b.CreateLogGroup(context.Background(), "grp", "", "")
+	for _, s := range []string{"app-1", "app-2", "sys-1"} {
+		_, _ = b.CreateLogStream(context.Background(), "grp", s)
+		_, _ = b.PutLogEvents(context.Background(), "grp", s, "", []cloudwatchlogs.InputLogEvent{
+			{Message: "msg from " + s, Timestamp: 1000},
+		})
+	}
+
+	evts, _, _, err := b.FilterLogEvents(context.Background(), cloudwatchlogs.FilterLogEventsParams{
+		GroupName:           "grp",
+		LogStreamNamePrefix: "app-",
+	})
+	require.NoError(t, err)
+	require.Len(t, evts, 2)
+	for _, e := range evts {
+		assert.True(t, strings.HasPrefix(e.LogStreamName, "app-"))
+	}
+}
+
+func TestCloudWatchLogsBackend_FilterLogEvents_PrefixAndNamesMutuallyExclusive(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatchlogs.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+	_, _ = b.CreateLogGroup(context.Background(), "grp", "", "")
+
+	_, _, _, err := b.FilterLogEvents(context.Background(), cloudwatchlogs.FilterLogEventsParams{
+		GroupName:           "grp",
+		StreamNames:         []string{"s1"},
+		LogStreamNamePrefix: "s",
+	})
+	require.ErrorIs(t, err, cloudwatchlogs.ErrValidation)
 }
 
 func TestCloudWatchLogsBackend_PutLogEvents_UpdatesTimestamps(t *testing.T) {
@@ -1922,16 +1999,54 @@ func TestCloudWatchLogsBackend_FilterPatternMatches(t *testing.T) {
 			want:    false,
 		},
 		{
-			name:    "negation_term_present",
+			// AWS: "?" optional terms are ignored when combined with required
+			// terms, so this reduces to requiring "ERROR".
+			name:    "optional_ignored_when_combined_with_required",
 			pattern: "?DEBUG ERROR",
 			message: "ERROR but not debug",
 			want:    true,
 		},
 		{
-			name:    "negation_term_excluded",
+			// Same pattern, message lacks the required "ERROR" term => no match.
+			name:    "optional_ignored_required_absent",
+			pattern: "?DEBUG ERROR",
+			message: "DEBUG only",
+			want:    false,
+		},
+		{
+			// A standalone "?" optional term is OR semantics: contains DEBUG => match.
+			name:    "optional_single_present",
 			pattern: "?DEBUG",
 			message: "DEBUG: verbose log",
+			want:    true,
+		},
+		{
+			// Multiple "?" optional terms are OR-ed: ARGUMENTS present => match.
+			name:    "optional_or_one_present",
+			pattern: "?ERROR ?ARGUMENTS",
+			message: "[420] INVALID ARGUMENTS",
+			want:    true,
+		},
+		{
+			// None of the optional terms present => no match.
+			name:    "optional_or_none_present",
+			pattern: "?ERROR ?ARGUMENTS",
+			message: "[200] OK REQUEST",
 			want:    false,
+		},
+		{
+			// "-" exclude term: ARGUMENTS present => excluded.
+			name:    "exclude_term_present",
+			pattern: "ERROR -ARGUMENTS",
+			message: "[419] MISSING ARGUMENTS that are ERROR",
+			want:    false,
+		},
+		{
+			// "-" exclude term absent, required ERROR present => match.
+			name:    "exclude_term_absent",
+			pattern: "ERROR -ARGUMENTS",
+			message: "[401] UNAUTHORIZED REQUEST ERROR",
+			want:    true,
 		},
 		{
 			name:    "quoted_exact_match",

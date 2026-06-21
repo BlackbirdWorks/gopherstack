@@ -1562,7 +1562,7 @@ func (b *InMemoryBackend) TagResource(resourceID string, tags []Tag) error {
 	}
 
 	if !b.resourceExistsLocked(resourceID) {
-		return ErrInvalidInput
+		return ErrTargetNotFound
 	}
 
 	b.setTagsLocked(resourceID, tags)
@@ -1580,7 +1580,7 @@ func (b *InMemoryBackend) UntagResource(resourceID string, tagKeys []string) err
 	}
 
 	if !b.resourceExistsLocked(resourceID) {
-		return ErrInvalidInput
+		return ErrTargetNotFound
 	}
 
 	t := b.tags[resourceID]
@@ -1605,7 +1605,7 @@ func (b *InMemoryBackend) ListTagsForResource(resourceID string) ([]Tag, error) 
 	}
 
 	if !b.resourceExistsLocked(resourceID) {
-		return nil, ErrInvalidInput
+		return nil, ErrTargetNotFound
 	}
 
 	t := b.tags[resourceID]

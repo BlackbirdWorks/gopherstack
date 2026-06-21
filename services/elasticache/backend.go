@@ -44,6 +44,7 @@ const (
 
 const (
 	snapshotSourceManual        = "manual"
+	snapshotSourceAutomated     = "automated"
 	dataTypeString              = "string"
 	dataTypeInteger             = "integer"
 	allowedValuesYesNo          = "yes,no"
@@ -255,7 +256,7 @@ type StorageBackend interface {
 		numCacheNodes, port int,
 	) (*Cluster, error)
 	DeleteCluster(ctx context.Context, id string) error
-	DescribeClusters(ctx context.Context, id, marker string, maxRecords int) (page.Page[Cluster], error)
+	DescribeClusters(ctx context.Context, id, marker string, maxRecords int, notInRG bool) (page.Page[Cluster], error)
 	ModifyCluster(
 		ctx context.Context,
 		id, nodeType, paramGroupName, engineVersion, maintenanceWindow, snapshotWindow string,
@@ -309,7 +310,7 @@ type StorageBackend interface {
 	DeleteSnapshot(ctx context.Context, snapshotName string) (*CacheSnapshot, error)
 	DescribeSnapshots(
 		ctx context.Context,
-		snapshotName, clusterID, replicationGroupID, marker string,
+		snapshotName, clusterID, replicationGroupID, snapshotSource, marker string,
 		maxRecords int,
 	) (page.Page[CacheSnapshot], error)
 	CopySnapshot(ctx context.Context, sourceSnapshotName, targetSnapshotName string) (*CacheSnapshot, error)
@@ -957,17 +958,24 @@ func (b *InMemoryBackend) DeleteCluster(ctx context.Context, id string) error {
 const elasticacheDefaultMaxRecords = 100
 
 // DescribeClusters returns one cluster by id, or a paginated list of all clusters when id is empty.
+// When notInRG is true, only clusters with no ReplicationGroupID are returned (standalone clusters).
 func (b *InMemoryBackend) DescribeClusters(
 	ctx context.Context,
 	id, marker string,
 	maxRecords int,
+	notInRG bool,
 ) (page.Page[Cluster], error) {
 	b.mu.RLock("DescribeClusters")
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
 
-	return describePaged(b.clustersStore(region), id, ErrClusterNotFound, nil,
+	var filter func(Cluster) bool
+	if notInRG {
+		filter = func(c Cluster) bool { return c.ReplicationGroupID == "" }
+	}
+
+	return describePaged(b.clustersStore(region), id, ErrClusterNotFound, filter,
 		func(c Cluster) string { return c.ClusterID }, marker, maxRecords)
 }
 
@@ -1722,10 +1730,12 @@ func (b *InMemoryBackend) DeleteSnapshot(ctx context.Context, snapshotName strin
 	return &cp, nil
 }
 
-// DescribeSnapshots returns one snapshot by name, or a paginated list filtered by cluster/rg.
+// DescribeSnapshots returns one snapshot by name, or a paginated list filtered by cluster/rg/source.
+// snapshotSource mirrors the real AWS filter values: "system" matches automated snapshots,
+// "user" matches manual snapshots, and "" returns all.
 func (b *InMemoryBackend) DescribeSnapshots(
 	ctx context.Context,
-	snapshotName, clusterID, replicationGroupID, marker string,
+	snapshotName, clusterID, replicationGroupID, snapshotSource, marker string,
 	maxRecords int,
 ) (page.Page[CacheSnapshot], error) {
 	b.mu.RLock("DescribeSnapshots")
@@ -1733,9 +1743,19 @@ func (b *InMemoryBackend) DescribeSnapshots(
 
 	region := getRegion(ctx, b.region)
 
+	// Map AWS filter values ("system"/"user") to stored values ("automated"/"manual").
+	wantSource := ""
+	switch snapshotSource {
+	case "system":
+		wantSource = snapshotSourceAutomated
+	case "user":
+		wantSource = snapshotSourceManual
+	}
+
 	return describePaged(b.snapshotsStore(region), snapshotName, ErrSnapshotNotFound, func(s CacheSnapshot) bool {
 		return (clusterID == "" || s.CacheClusterID == clusterID) &&
-			(replicationGroupID == "" || s.ReplicationGroupID == replicationGroupID)
+			(replicationGroupID == "" || s.ReplicationGroupID == replicationGroupID) &&
+			(wantSource == "" || s.SnapshotSource == wantSource)
 	},
 		func(s CacheSnapshot) string { return s.SnapshotName }, marker, maxRecords)
 }

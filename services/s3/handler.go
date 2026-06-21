@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -25,31 +26,17 @@ import (
 // regionContextKey is used to store the AWS region in request context.
 type regionContextKey struct{}
 
-// AWS SigV4 credential format has at least 3 parts: AKID/date/region.
-const minSigV4CredentialParts = 3
-
-// extractRegionFromRequest extracts the AWS region from an S3 request.
-// Tries to extract from Authorization header's credential scope, Host header, or falls back to default.
-func extractRegionFromRequest(r *http.Request, defaultRegion string) string {
-	// Try to extract from Authorization header (AWS SigV4)
-	authHeader := r.Header.Get("Authorization")
-	if authHeader != "" && strings.Contains(authHeader, "Credential=") {
-		// Extract from "Credential=AKID/date/region/s3/aws4_request"
-		parts := strings.Split(authHeader, "Credential=")
-		if len(parts) > 1 {
-			credParts := strings.Split(parts[1], "/")
-			if len(credParts) >= minSigV4CredentialParts {
-				return credParts[2]
-			}
-		}
-	}
-
-	// Check for X-Amz-Region header
-	if region := r.Header.Get("X-Amz-Region"); region != "" {
+// regionFromRequest resolves the request region from the central awsmeta context
+// (populated by the global awsMetaMiddleware using the SigV4 scope / X-Amz-Region),
+// keeping S3 consistent with the rest of the stack. When awsmeta is not populated
+// (e.g. the handler is invoked directly in tests without the middleware) it falls
+// back to the shared request extractor.
+func regionFromRequest(r *http.Request, defaultRegion string) string {
+	if region := awsmeta.Region(r.Context()); region != "" {
 		return region
 	}
 
-	return defaultRegion
+	return httputils.ExtractRegionFromRequest(r, defaultRegion)
 }
 
 const (
@@ -131,6 +118,12 @@ func (h *S3Handler) StartWorker(ctx context.Context) error {
 	h.notificationMu.Lock()
 	h.notificationCtx = ctx
 	h.notificationMu.Unlock()
+
+	// Wire the service context into the backend so background replication is
+	// parented to it (cancelled on shutdown) rather than to request contexts.
+	if b, ok := h.Backend.(*InMemoryBackend); ok {
+		b.SetServiceContext(ctx)
+	}
 
 	if h.janitor != nil {
 		go h.janitor.Run(ctx)
@@ -340,8 +333,9 @@ func (h *S3Handler) Handler() echo.HandlerFunc {
 		metrics := &s3Metrics{operation: "Unknown"}
 		ctx = context.WithValue(ctx, s3Key, metrics)
 
-		// Extract region from request and add to context
-		region := extractRegionFromRequest(c.Request(), h.DefaultRegion)
+		// Resolve region from the central awsmeta context and thread it onto the
+		// internal regionContextKey the backend reads.
+		region := regionFromRequest(c.Request(), h.DefaultRegion)
 		ctx = context.WithValue(ctx, regionContextKey{}, region)
 
 		requestWithCtx := c.Request().WithContext(ctx)
@@ -747,7 +741,7 @@ func (h *S3Handler) ServeWebsite(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusNotFound, map[string]string{
-		"Code":    "NoSuchKey",
+		"Code":    errNoSuchKey,
 		"Message": "The specified key does not exist",
 	})
 }

@@ -1531,7 +1531,45 @@ func TestBatch1_DescribeUpdate_Status_Successful(t *testing.T) {
 	b := newB1Backend(t)
 	mustCreateClusterNoVpc(t, b, "desc-upd-cluster")
 
-	upd, err := b.DescribeUpdate("desc-upd-cluster", "fake-update-id")
+	created, err := b.UpdateClusterVersion("desc-upd-cluster", "1.30")
+	require.NoError(t, err)
+
+	upd, err := b.DescribeUpdate("desc-upd-cluster", created.ID)
 	require.NoError(t, err)
 	assert.Equal(t, "Successful", upd.Status)
+}
+
+func TestBatch1_DescribeUpdate_NotFound(t *testing.T) {
+	t.Parallel()
+
+	b := newB1Backend(t)
+	mustCreateClusterNoVpc(t, b, "desc-upd-404")
+
+	_, err := b.DescribeUpdate("desc-upd-404", "nonexistent-update-id")
+	require.Error(t, err)
+	require.ErrorIs(t, err, eks.ErrNotFound)
+}
+
+func TestBatch1_ListUpdates_ReturnsStoredIDs(t *testing.T) {
+	t.Parallel()
+
+	b := newB1Backend(t)
+	mustCreateClusterNoVpc(t, b, "list-upd-cluster")
+	mustCreateNodegroup(t, b, "list-upd-cluster")
+
+	ids, err := b.ListUpdates("list-upd-cluster")
+	require.NoError(t, err)
+	assert.Empty(t, ids, "no updates yet")
+
+	u1, err := b.UpdateClusterVersion("list-upd-cluster", "1.30")
+	require.NoError(t, err)
+
+	u2, err := b.UpdateNodegroupVersion("list-upd-cluster", "ng1", "1.30")
+	require.NoError(t, err)
+
+	ids, err = b.ListUpdates("list-upd-cluster")
+	require.NoError(t, err)
+	assert.Len(t, ids, 2)
+	assert.Contains(t, ids, u1.ID)
+	assert.Contains(t, ids, u2.ID)
 }

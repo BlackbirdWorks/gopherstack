@@ -1193,6 +1193,161 @@ func TestAccuracy_NotebookExecution_ListFilter(t *testing.T) {
 	assert.Len(t, out.NotebookExecutions, 3)
 }
 
+// --- ListBootstrapActions: round-trip ---
+
+func TestAccuracy_ListBootstrapActions_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		bootstrapActions []map[string]any
+		wantActions      []struct {
+			Name       string
+			ScriptPath string
+			Args       []string
+		}
+	}{
+		{
+			name:             "no bootstrap actions returns empty list",
+			bootstrapActions: nil,
+		},
+		{
+			name: "single bootstrap action without args",
+			bootstrapActions: []map[string]any{
+				{
+					"Name": "install-spark",
+					"ScriptBootstrapAction": map[string]any{
+						"Path": "s3://mybucket/bootstrap/install-spark.sh",
+					},
+				},
+			},
+			wantActions: []struct {
+				Name       string
+				ScriptPath string
+				Args       []string
+			}{
+				{Name: "install-spark", ScriptPath: "s3://mybucket/bootstrap/install-spark.sh"},
+			},
+		},
+		{
+			name: "multiple bootstrap actions with args",
+			bootstrapActions: []map[string]any{
+				{
+					"Name": "configure-hadoop",
+					"ScriptBootstrapAction": map[string]any{
+						"Path": "s3://mybucket/bootstrap/configure.sh",
+						"Args": []string{"--heap-size", "4g"},
+					},
+				},
+				{
+					"Name": "install-python-libs",
+					"ScriptBootstrapAction": map[string]any{
+						"Path": "s3://mybucket/bootstrap/pip-install.sh",
+						"Args": []string{"pandas", "numpy", "scikit-learn"},
+					},
+				},
+			},
+			wantActions: []struct {
+				Name       string
+				ScriptPath string
+				Args       []string
+			}{
+				{
+					Name:       "configure-hadoop",
+					ScriptPath: "s3://mybucket/bootstrap/configure.sh",
+					Args:       []string{"--heap-size", "4g"},
+				},
+				{
+					Name:       "install-python-libs",
+					ScriptPath: "s3://mybucket/bootstrap/pip-install.sh",
+					Args:       []string{"pandas", "numpy", "scikit-learn"},
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			body := map[string]any{"Name": "bootstrap-cluster"}
+			if tt.bootstrapActions != nil {
+				body["BootstrapActions"] = tt.bootstrapActions
+			}
+
+			createRec := doEMRRequest(t, h, "RunJobFlow", body)
+			require.Equal(t, http.StatusOK, createRec.Code)
+
+			var createOut struct {
+				JobFlowID string `json:"JobFlowId"`
+			}
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+
+			listRec := doEMRRequest(t, h, "ListBootstrapActions", map[string]any{
+				"ClusterId": createOut.JobFlowID,
+			})
+			require.Equal(t, http.StatusOK, listRec.Code)
+
+			var listOut struct {
+				BootstrapActions []struct {
+					Name       string   `json:"Name"`
+					ScriptPath string   `json:"ScriptPath"`
+					Args       []string `json:"Args"`
+				} `json:"BootstrapActions"`
+			}
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
+
+			if tt.wantActions == nil {
+				assert.Empty(t, listOut.BootstrapActions)
+
+				return
+			}
+
+			require.Len(t, listOut.BootstrapActions, len(tt.wantActions))
+			for i, want := range tt.wantActions {
+				got := listOut.BootstrapActions[i]
+				assert.Equal(t, want.Name, got.Name, "action[%d].Name", i)
+				assert.Equal(t, want.ScriptPath, got.ScriptPath, "action[%d].ScriptPath", i)
+				assert.Equal(t, want.Args, got.Args, "action[%d].Args", i)
+			}
+		})
+	}
+}
+
+func TestAccuracy_ListBootstrapActions_Persistence(t *testing.T) {
+	t.Parallel()
+
+	src := emr.NewInMemoryBackend(testAccountID, testRegion)
+	cluster, err := src.RunJobFlow(context.Background(), emr.RunJobFlowParams{
+		Name: "ba-persist-cluster",
+		BootstrapActions: []emr.BootstrapActionConfig{
+			{
+				Name: "install-lib",
+				ScriptBootstrapAction: emr.BootstrapActionScript{
+					Path: "s3://bucket/install.sh",
+					Args: []string{"--flag"},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	snap := src.Snapshot()
+	require.NotNil(t, snap)
+
+	dst := emr.NewInMemoryBackend("", "")
+	require.NoError(t, dst.Restore(snap))
+
+	cmds, _, err := dst.ListBootstrapActions(context.Background(), cluster.ID, "")
+	require.NoError(t, err)
+	require.Len(t, cmds, 1)
+	assert.Equal(t, "install-lib", cmds[0].Name)
+	assert.Equal(t, "s3://bucket/install.sh", cmds[0].ScriptPath)
+	assert.Equal(t, []string{"--flag"}, cmds[0].Args)
+}
+
 // --- Persistence: notebookExecutions round-trip ---
 
 func TestAccuracy_NotebookExecution_Persistence(t *testing.T) {

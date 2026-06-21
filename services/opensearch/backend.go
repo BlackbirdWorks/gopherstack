@@ -77,6 +77,8 @@ const (
 // Default engine version applied when CreateDomain receives an empty EngineVersion.
 const defaultEngineVersion = "OpenSearch_2.11"
 
+const defaultShardsPerNode = 5
+
 // InboundConnection represents an OpenSearch inbound cross-cluster connection.
 type InboundConnection struct {
 	ConnectionID string `json:"connectionId"`
@@ -2385,7 +2387,7 @@ func (b *InMemoryBackend) GetDomainHealth(domainName string) (map[string]any, er
 		instanceCount = 1
 	}
 
-	totalShards := instanceCount * 5 //nolint:mnd // 5 shards per node is a common default
+	totalShards := instanceCount * defaultShardsPerNode
 
 	warmNodes := 0
 	if d.ClusterConfig.WarmEnabled {

@@ -24,7 +24,7 @@ func TestResourceGroups_PersistenceSnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *resourcegroups.InMemoryBackend) {
 				t.Helper()
 
-				groups := b.ListGroups(context.Background(), nil)
+				groups, _ := b.ListGroups(context.Background(), nil, "", 0)
 				assert.Empty(t, groups)
 			},
 		},
@@ -45,7 +45,7 @@ func TestResourceGroups_PersistenceSnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *resourcegroups.InMemoryBackend) {
 				t.Helper()
 
-				groups := b.ListGroups(context.Background(), nil)
+				groups, _ := b.ListGroups(context.Background(), nil, "", 0)
 				require.Len(t, groups, 1)
 				assert.Equal(t, "my-group", groups[0].Name)
 				assert.Equal(t, "test description", groups[0].Description)
@@ -67,7 +67,7 @@ func TestResourceGroups_PersistenceSnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *resourcegroups.InMemoryBackend) {
 				t.Helper()
 
-				groups := b.ListGroups(context.Background(), nil)
+				groups, _ := b.ListGroups(context.Background(), nil, "", 0)
 				require.Len(t, groups, 1)
 
 				// ARN-based tag lookup validates ARN index was rebuilt.
@@ -90,7 +90,7 @@ func TestResourceGroups_PersistenceSnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *resourcegroups.InMemoryBackend) {
 				t.Helper()
 
-				groups := b.ListGroups(context.Background(), nil)
+				groups, _ := b.ListGroups(context.Background(), nil, "", 0)
 				require.Len(t, groups, 1)
 
 				tagMap, err := b.GetTagsByARN(context.Background(), groups[0].ARN)

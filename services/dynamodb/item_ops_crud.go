@@ -128,6 +128,23 @@ func (db *InMemoryDB) findMatchForPut(table *Table, item map[string]any) (map[st
 	return nil, -1
 }
 
+// conditionalCheckFailed builds a ConditionalCheckFailedException, attaching the
+// existing item when the caller requested ReturnValuesOnConditionCheckFailure=ALL_OLD.
+// This mirrors AWS, which returns the current item in the error body so clients doing
+// optimistic locking can inspect it without issuing a follow-up read.
+func conditionalCheckFailed(
+	rv types.ReturnValuesOnConditionCheckFailure,
+	oldItem map[string]any,
+) *Error {
+	if rv == types.ReturnValuesOnConditionCheckFailureAllOld && oldItem != nil {
+		// oldItem is already in DynamoDB wire form (e.g. {"pk":{"S":"a"}}), which is
+		// exactly the shape AWS returns in the ConditionalCheckFailedException body.
+		return NewConditionalCheckFailedExceptionWithItem("The conditional request failed", oldItem)
+	}
+
+	return NewConditionalCheckFailedException("The conditional request failed")
+}
+
 func (db *InMemoryDB) checkPutCondition(
 	ctx context.Context,
 	input *dynamodb.PutItemInput,
@@ -157,7 +174,7 @@ func (db *InMemoryDB) checkPutCondition(
 		return err
 	}
 	if !match {
-		return NewConditionalCheckFailedException("The conditional request failed")
+		return conditionalCheckFailed(input.ReturnValuesOnConditionCheckFailure, oldItem)
 	}
 
 	return nil
@@ -201,10 +218,10 @@ func (db *InMemoryDB) checkLSICollectionSize(table *Table, newItem map[string]an
 	return size, nil
 }
 
-// computeLSICollectionSize returns the projected total byte size of all items sharing
-// pkVal as their partition key, as if newItem replaces the item at oldMatchIndex (or
-// is appended when oldMatchIndex == -1). Must be called under table.mu held.
-func computeLSICollectionSize(table *Table, pkVal string, newItem map[string]any, oldMatchIndex int) int64 {
+// currentLSICollectionBytes returns the total byte size of all items currently
+// stored under pkVal as their partition key (the item collection). Must be called
+// under table.mu.
+func currentLSICollectionBytes(table *Table, pkVal string) int64 {
 	var total int64
 
 	if skMap, ok := table.pkskIndex[pkVal]; ok {
@@ -217,6 +234,15 @@ func computeLSICollectionSize(table *Table, pkVal string, newItem map[string]any
 		total += int64(sz)
 	}
 
+	return total
+}
+
+// computeLSICollectionSize returns the projected total byte size of all items sharing
+// pkVal as their partition key, as if newItem replaces the item at oldMatchIndex (or
+// is appended when oldMatchIndex == -1). Must be called under table.mu held.
+func computeLSICollectionSize(table *Table, pkVal string, newItem map[string]any, oldMatchIndex int) int64 {
+	total := currentLSICollectionBytes(table, pkVal)
+
 	// Subtract old item (it will be replaced).
 	if oldMatchIndex != -1 {
 		sz, _ := CalculateItemSize(table.Items[oldMatchIndex])
@@ -228,6 +254,38 @@ func computeLSICollectionSize(table *Table, pkVal string, newItem map[string]any
 	total += int64(sz)
 
 	return total
+}
+
+// buildItemCollectionMetrics builds the ItemCollectionMetrics for a write, or nil.
+// AWS only returns metrics for tables with at least one local secondary index; the
+// ItemCollectionKey is the partition-key attribute only, and SizeEstimateRangeGB
+// brackets the projected collection size. Must be called under table.mu.
+func buildItemCollectionMetrics(
+	table *Table,
+	rim types.ReturnItemCollectionMetrics,
+	pkKey map[string]types.AttributeValue,
+	collectionBytes int64,
+) *types.ItemCollectionMetrics {
+	if rim == "" || rim == types.ReturnItemCollectionMetricsNone {
+		return nil
+	}
+	if len(table.LocalSecondaryIndexes) == 0 {
+		return nil
+	}
+
+	sizeGB := collectionBytesToGB(collectionBytes)
+
+	return &types.ItemCollectionMetrics{
+		ItemCollectionKey:   pkKey,
+		SizeEstimateRangeGB: []float64{sizeGB, sizeGB},
+	}
+}
+
+// pkOnlyKey extracts the partition-key attribute (only) from a full SDK key/item.
+func pkOnlyKey(table *Table, src map[string]types.AttributeValue) map[string]types.AttributeValue {
+	pkDef, _ := getPKAndSK(table.KeySchema)
+
+	return map[string]types.AttributeValue{pkDef.AttributeName: src[pkDef.AttributeName]}
 }
 
 // collectionBytesToGB converts a byte count to GB, returning 0 for negative values.
@@ -286,20 +344,14 @@ func (db *InMemoryDB) populatePutItemOutput(
 		}
 	}
 
-	// ItemCollectionMetrics: only for tables with LSI and when requested.
+	// ItemCollectionMetrics: only for tables with an LSI and when requested.
 	// ItemCollectionKey contains only the partition key attribute (not the full item).
-	if input.ReturnItemCollectionMetrics != "" &&
-		input.ReturnItemCollectionMetrics != types.ReturnItemCollectionMetricsNone {
-		pkDef, _ := getPKAndSK(table.KeySchema)
-		pkKey := map[string]types.AttributeValue{
-			pkDef.AttributeName: input.Item[pkDef.AttributeName],
-		}
-		sizeGB := collectionBytesToGB(lsiCollectionBytes)
-		out.ItemCollectionMetrics = &types.ItemCollectionMetrics{
-			ItemCollectionKey:   pkKey,
-			SizeEstimateRangeGB: []float64{sizeGB, sizeGB},
-		}
-	}
+	out.ItemCollectionMetrics = buildItemCollectionMetrics(
+		table,
+		input.ReturnItemCollectionMetrics,
+		pkOnlyKey(table, input.Item),
+		lsiCollectionBytes,
+	)
 
 	return out
 }
@@ -498,7 +550,7 @@ func (db *InMemoryDB) checkDeleteCondition(
 	}
 
 	if !match {
-		return NewConditionalCheckFailedException("The conditional request failed")
+		return conditionalCheckFailed(input.ReturnValuesOnConditionCheckFailure, oldItem)
 	}
 
 	return nil
@@ -531,13 +583,15 @@ func (db *InMemoryDB) buildDeleteItemOutput(
 		}
 	}
 
-	if input.ReturnItemCollectionMetrics != "" &&
-		input.ReturnItemCollectionMetrics != types.ReturnItemCollectionMetricsNone {
-		out.ItemCollectionMetrics = &types.ItemCollectionMetrics{
-			ItemCollectionKey:   input.Key,
-			SizeEstimateRangeGB: []float64{0.0, 1.0},
-		}
-	}
+	// ItemCollectionMetrics reflect the collection remaining after the delete.
+	pkDef, _ := getPKAndSK(table.KeySchema)
+	pkVal := BuildKeyString(models.FromSDKItem(input.Key), pkDef.AttributeName)
+	out.ItemCollectionMetrics = buildItemCollectionMetrics(
+		table,
+		input.ReturnItemCollectionMetrics,
+		pkOnlyKey(table, input.Key),
+		currentLSICollectionBytes(table, pkVal),
+	)
 
 	return out
 }
@@ -661,7 +715,7 @@ func (db *InMemoryDB) checkUpdateCondition(
 		return err
 	}
 	if !match {
-		return NewConditionalCheckFailedException("The conditional request failed")
+		return conditionalCheckFailed(input.ReturnValuesOnConditionCheckFailure, item)
 	}
 
 	return nil
@@ -819,14 +873,15 @@ func (db *InMemoryDB) populateUpdateOutput(
 		}
 	}
 
-	// Handle ItemCollectionMetrics
-	if input.ReturnItemCollectionMetrics != "" &&
-		input.ReturnItemCollectionMetrics != types.ReturnItemCollectionMetricsNone {
-		out.ItemCollectionMetrics = &types.ItemCollectionMetrics{
-			ItemCollectionKey:   input.Key,
-			SizeEstimateRangeGB: []float64{0.0, 1.0},
-		}
-	}
+	// ItemCollectionMetrics reflect the collection after the update is applied.
+	pkDef, _ := getPKAndSK(table.KeySchema)
+	pkVal := BuildKeyString(models.FromSDKItem(input.Key), pkDef.AttributeName)
+	out.ItemCollectionMetrics = buildItemCollectionMetrics(
+		table,
+		input.ReturnItemCollectionMetrics,
+		pkOnlyKey(table, input.Key),
+		currentLSICollectionBytes(table, pkVal),
+	)
 
 	return out, nil
 }

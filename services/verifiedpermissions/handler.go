@@ -1012,9 +1012,18 @@ type batchGetPolicyRequest struct {
 	} `json:"requests"`
 }
 
+type batchGetPolicyItemOut struct {
+	Definition      policyDefinitionOut `json:"definition"`
+	PolicyStoreID   string              `json:"policyStoreId"`
+	PolicyID        string              `json:"policyId"`
+	PolicyType      string              `json:"policyType"`
+	CreatedDate     string              `json:"createdDate"`
+	LastUpdatedDate string              `json:"lastUpdatedDate"`
+}
+
 type batchGetPolicyHandlerOutput struct {
-	Results []batchGetPolicyOutputItem `json:"results"`
-	Errors  []batchGetPolicyErrorItem  `json:"errors"`
+	Results []batchGetPolicyItemOut   `json:"results"`
+	Errors  []batchGetPolicyErrorItem `json:"errors"`
 }
 
 func (h *Handler) handleBatchGetPolicy(
@@ -1036,8 +1045,22 @@ func (h *Handler) handleBatchGetPolicy(
 
 	result := h.Backend.BatchGetPolicy(items)
 
+	out := make([]batchGetPolicyItemOut, 0, len(result.Results))
+
+	for i := range result.Results {
+		v := policyToView(&result.Results[i])
+		out = append(out, batchGetPolicyItemOut{
+			Definition:      v.Definition,
+			PolicyStoreID:   v.PolicyStoreID,
+			PolicyID:        v.PolicyID,
+			PolicyType:      v.PolicyType,
+			CreatedDate:     v.CreatedDate,
+			LastUpdatedDate: v.LastUpdatedDate,
+		})
+	}
+
 	return &batchGetPolicyHandlerOutput{
-		Results: result.Results,
+		Results: out,
 		Errors:  result.Errors,
 	}, nil
 }

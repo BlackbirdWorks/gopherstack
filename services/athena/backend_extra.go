@@ -27,7 +27,7 @@ const (
 	calcStateFailed    = "FAILED"
 	calcStateCanceled  = "CANCELED"
 
-	notebookEndpointBase = "https://athena.us-east-1.amazonaws.com/sessions/"
+	notebookEndpointBase = "https://athena.%s.amazonaws.com/sessions/"
 
 	defaultDPU = 1
 )
@@ -319,7 +319,7 @@ func (b *InMemoryBackend) GetSessionEndpoint(id string) (string, error) {
 		return "", fmt.Errorf("%w: session %q not found", ErrNotFound, id)
 	}
 
-	return notebookEndpointBase + id, nil
+	return fmt.Sprintf(notebookEndpointBase, b.region) + id, nil
 }
 
 // TerminateSession terminates an existing session.

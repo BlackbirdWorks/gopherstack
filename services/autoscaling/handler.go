@@ -1234,6 +1234,11 @@ func toXMLGroup(g *AutoScalingGroup) xmlAutoScalingGroup {
 		terminationPolicies = append(terminationPolicies, xmlStringValue{Value: tp})
 	}
 
+	enabledMetrics := make([]xmlEnabledMetric, 0, len(g.EnabledMetrics))
+	for _, m := range g.EnabledMetrics {
+		enabledMetrics = append(enabledMetrics, xmlEnabledMetric{Metric: m, Granularity: granularity1Minute})
+	}
+
 	var xmlLT *xmlLaunchTemplateSpecification
 	if g.LaunchTemplate != nil {
 		xmlLT = &xmlLaunchTemplateSpecification{
@@ -1272,6 +1277,7 @@ func toXMLGroup(g *AutoScalingGroup) xmlAutoScalingGroup {
 		Instances:                        xmlInstanceList{Members: instances},
 		SuspendedProcesses:               xmlSuspendedProcessList{Members: suspendedProcesses},
 		TerminationPolicies:              xmlTerminationPoliciesList{Members: terminationPolicies},
+		EnabledMetrics:                   xmlEnabledMetricList{Members: enabledMetrics},
 	}
 }
 
@@ -1427,6 +1433,15 @@ type xmlSuspendedProcessList struct {
 	Members []xmlSuspendedProcess `xml:"member"`
 }
 
+type xmlEnabledMetric struct {
+	Metric      string `xml:"Metric"`
+	Granularity string `xml:"Granularity"`
+}
+
+type xmlEnabledMetricList struct {
+	Members []xmlEnabledMetric `xml:"member"`
+}
+
 type xmlLaunchTemplateSpecification struct {
 	LaunchTemplateID   string `xml:"LaunchTemplateId,omitempty"`
 	LaunchTemplateName string `xml:"LaunchTemplateName,omitempty"`
@@ -1466,6 +1481,7 @@ type xmlAutoScalingGroup struct {
 	TrafficSources                   xmlTrafficSourceList            `xml:"TrafficSources"`
 	SuspendedProcesses               xmlSuspendedProcessList         `xml:"SuspendedProcesses"`
 	TerminationPolicies              xmlTerminationPoliciesList      `xml:"TerminationPolicies"`
+	EnabledMetrics                   xmlEnabledMetricList            `xml:"EnabledMetrics"`
 	MinSize                          int32                           `xml:"MinSize"`
 	MaxSize                          int32                           `xml:"MaxSize"`
 	DesiredCapacity                  int32                           `xml:"DesiredCapacity"`

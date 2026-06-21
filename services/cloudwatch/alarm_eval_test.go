@@ -153,6 +153,63 @@ func TestAlarmEvaluator_StateTransitions(t *testing.T) {
 			points:       nil,
 		},
 		{
+			// TreatMissingData=ignore with no data must MAINTAIN the current
+			// state (AWS: "the current alarm state is maintained"), not flip to
+			// OK or INSUFFICIENT_DATA. Here the alarm is already in ALARM.
+			name:         "no_data_treat_missing_ignore_maintains_alarm",
+			operator:     "GreaterThanThreshold",
+			statistic:    "Average",
+			period:       60,
+			evalPeriods:  2,
+			treatMissing: "ignore",
+			initialState: "ALARM",
+			wantState:    "ALARM",
+			points:       nil,
+		},
+		{
+			// Same as above but the maintained state is OK.
+			name:         "no_data_treat_missing_ignore_maintains_ok",
+			operator:     "GreaterThanThreshold",
+			statistic:    "Average",
+			period:       60,
+			evalPeriods:  2,
+			treatMissing: "ignore",
+			initialState: "OK",
+			wantState:    "OK",
+			points:       nil,
+		},
+		{
+			// With ignore, present datapoints still drive transitions: a
+			// breaching datapoint must move an OK alarm to ALARM.
+			name:              "ignore_breaching_datapoint_transitions_to_alarm",
+			operator:          "GreaterThanThreshold",
+			statistic:         "Average",
+			period:            60,
+			evalPeriods:       2,
+			datapointsToAlarm: 1,
+			treatMissing:      "ignore",
+			initialState:      "OK",
+			wantState:         "ALARM",
+			points: []cloudwatch.MetricDatum{
+				{Timestamp: now.Add(-30 * time.Second), Value: 200.0},
+			},
+		},
+		{
+			// With ignore, a single non-breaching present datapoint while the
+			// alarm is in ALARM clears it to OK (missing periods are ignored).
+			name:         "ignore_non_breaching_datapoint_clears_to_ok",
+			operator:     "GreaterThanThreshold",
+			statistic:    "Average",
+			period:       60,
+			evalPeriods:  2,
+			treatMissing: "ignore",
+			initialState: "ALARM",
+			wantState:    "OK",
+			points: []cloudwatch.MetricDatum{
+				{Timestamp: now.Add(-30 * time.Second), Value: 10.0},
+			},
+		},
+		{
 			name:         "less_than_operator_breaches_when_below_threshold",
 			operator:     "LessThanThreshold",
 			statistic:    "Average",

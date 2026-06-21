@@ -59,8 +59,9 @@ func (b *InMemoryBackend) DeleteClusterSnapshot(snapshotID string) (*Snapshot, e
 	return cp, nil
 }
 
-// DescribeClusterSnapshots returns snapshots, optionally filtered by snapshotID or clusterID.
-func (b *InMemoryBackend) DescribeClusterSnapshots(snapshotID, clusterID string) ([]Snapshot, error) {
+// DescribeClusterSnapshots returns snapshots, optionally filtered by snapshotID, clusterID, or
+// snapshotType ("manual" or "automated"). An empty snapshotType matches all types.
+func (b *InMemoryBackend) DescribeClusterSnapshots(snapshotID, clusterID, snapshotType string) ([]Snapshot, error) {
 	b.mu.RLock("DescribeClusterSnapshots")
 	defer b.mu.RUnlock()
 
@@ -76,9 +77,13 @@ func (b *InMemoryBackend) DescribeClusterSnapshots(snapshotID, clusterID string)
 	result := make([]Snapshot, 0, len(b.snapshots))
 
 	for _, snap := range b.snapshots {
-		if clusterID == "" || snap.ClusterIdentifier == clusterID {
-			result = append(result, *cloneSnapshot(snap))
+		if clusterID != "" && snap.ClusterIdentifier != clusterID {
+			continue
 		}
+		if snapshotType != "" && snap.SnapshotType != snapshotType {
+			continue
+		}
+		result = append(result, *cloneSnapshot(snap))
 	}
 
 	return result, nil

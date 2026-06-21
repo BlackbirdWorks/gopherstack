@@ -167,6 +167,7 @@ func TestRegisterTaskDefinition_RequiresCompatibilities(t *testing.T) {
 	td, err := b.RegisterTaskDefinition(RegisterTaskDefinitionInput{
 		Family:                  "myapp",
 		RequiresCompatibilities: []string{"FARGATE"},
+		NetworkMode:             networkModeAwsvpc,
 		CPU:                     "256",
 		Memory:                  "512",
 		ContainerDefinitions: []ContainerDefinition{
@@ -188,6 +189,7 @@ func TestRegisterTaskDefinition_FargateValidation_InvalidCPU(t *testing.T) {
 	_, err := b.RegisterTaskDefinition(RegisterTaskDefinitionInput{
 		Family:                  "myapp",
 		RequiresCompatibilities: []string{"FARGATE"},
+		NetworkMode:             networkModeAwsvpc,
 		CPU:                     "128",
 		Memory:                  "512",
 		ContainerDefinitions:    []ContainerDefinition{{Name: "app", Image: "nginx"}},
@@ -207,6 +209,7 @@ func TestRegisterTaskDefinition_FargateValidation_InvalidMemory(t *testing.T) {
 	_, err := b.RegisterTaskDefinition(RegisterTaskDefinitionInput{
 		Family:                  "myapp",
 		RequiresCompatibilities: []string{"FARGATE"},
+		NetworkMode:             networkModeAwsvpc,
 		CPU:                     "256",
 		Memory:                  "9999",
 		ContainerDefinitions:    []ContainerDefinition{{Name: "app", Image: "nginx"}},

@@ -46,6 +46,10 @@ var (
 	ErrTaskNotFound = awserr.New("TaskNotFoundException", awserr.ErrNotFound)
 	// ErrInvalidParameter is returned when a required parameter is missing or invalid.
 	ErrInvalidParameter = awserr.New("InvalidParameterException", awserr.ErrInvalidParameter)
+	// ErrClient is returned when a request is structurally invalid in a way that
+	// AWS ECS reports as a ClientException (for example, malformed container
+	// definitions or an unsupported network mode / launch-type combination).
+	ErrClient = awserr.New("ClientException", awserr.ErrInvalidParameter)
 )
 
 // Cluster represents an ECS cluster.
@@ -591,6 +595,10 @@ func (b *InMemoryBackend) DeleteCluster(clusterName string) (*Cluster, error) {
 func (b *InMemoryBackend) RegisterTaskDefinition(input RegisterTaskDefinitionInput) (*TaskDefinition, error) {
 	if input.Family == "" {
 		return nil, fmt.Errorf("%w: family is required", ErrInvalidParameter)
+	}
+
+	if err := validateRegisterTaskDefinition(input); err != nil {
+		return nil, err
 	}
 
 	isFargate := false

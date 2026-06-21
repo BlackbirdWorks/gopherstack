@@ -230,8 +230,8 @@ func TestDistributionCRUD(t *testing.T) {
 			body:   nil,
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
-				d, err := h.Backend.CreateDistribution("ref-006", "del-dist", true,
-					minimalDistConfig("ref-006", "del-dist", true))
+				d, err := h.Backend.CreateDistribution("ref-006", "del-dist", false,
+					minimalDistConfig("ref-006", "del-dist", false))
 				require.NoError(t, err)
 
 				return "/2020-05-31/distribution/" + d.ID
@@ -289,8 +289,8 @@ func TestDistributionCRUD(t *testing.T) {
 			body:   nil,
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
-				d, err := h.Backend.CreateDistribution("ref-008", "del-dist-2", true,
-					minimalDistConfig("ref-008", "del-dist-2", true))
+				d, err := h.Backend.CreateDistribution("ref-008", "del-dist-2", false,
+					minimalDistConfig("ref-008", "del-dist-2", false))
 				require.NoError(t, err)
 
 				return "/2020-05-31/distribution/" + d.ID
@@ -299,6 +299,33 @@ func TestDistributionCRUD(t *testing.T) {
 			check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
 				t.Helper()
 				assert.Contains(t, rec.Body.String(), "PreconditionFailed")
+			},
+		},
+		{
+			name:   "delete_distribution_not_disabled",
+			method: http.MethodDelete,
+			path:   "", // set in setup
+			body:   nil,
+			setup: func(t *testing.T, h *cloudfront.Handler) string {
+				t.Helper()
+				d, err := h.Backend.CreateDistribution("ref-009", "enabled-dist", true,
+					minimalDistConfig("ref-009", "enabled-dist", true))
+				require.NoError(t, err)
+
+				return "/2020-05-31/distribution/" + d.ID
+			},
+			headers: func(t *testing.T, h *cloudfront.Handler, path string) map[string]string {
+				t.Helper()
+				id := strings.TrimPrefix(path, "/2020-05-31/distribution/")
+				d, err := h.Backend.GetDistribution(id)
+				require.NoError(t, err)
+
+				return map[string]string{"If-Match": d.ETag}
+			},
+			wantStatus: http.StatusConflict,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
+				t.Helper()
+				assert.Contains(t, rec.Body.String(), "DistributionNotDisabled")
 			},
 		},
 	}
@@ -2356,7 +2383,7 @@ func TestRefinement1_DeleteDistributionCleansUp(t *testing.T) {
 
 	b := cloudfront.NewInMemoryBackend("123456789012", config.DefaultRegion)
 
-	d, err := b.CreateDistribution("ref-del-cleanup", "del-dist", true, nil)
+	d, err := b.CreateDistribution("ref-del-cleanup", "del-dist", false, nil)
 	require.NoError(t, err)
 
 	err = b.AssociateAlias(d.ID, "cleanup.example.com")

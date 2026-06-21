@@ -846,6 +846,36 @@ func describeListResponse[T any](
 }
 
 func (h *Handler) handleDescribeMountTargets(c *echo.Context, mountTargetID string) error {
+	// AccessPointId is a mutually exclusive filter: resolve it to the file system
+	// the access point belongs to, then list mount targets for that file system.
+	if apID := c.Request().URL.Query().Get("AccessPointId"); apID != "" {
+		ctx := h.contextWithRegion(c)
+		aps, _, err := h.Backend.DescribeAccessPoints(ctx, "", apID, "", 1)
+		if err != nil {
+			return h.handleError(c, err)
+		}
+		if len(aps) == 0 {
+			return h.handleError(c, ErrAccessPointNotFound)
+		}
+		fsID := aps[0].FileSystemID
+		marker := c.Request().URL.Query().Get("Marker")
+		maxItems := queryInt(c, "MaxItems", defaultMaxItems)
+		results, nextMarker, err := h.Backend.DescribeMountTargets(ctx, fsID, "", marker, maxItems)
+		if err != nil {
+			return h.handleError(c, err)
+		}
+		items := make([]map[string]any, 0, len(results))
+		for _, mt := range results {
+			items = append(items, mtToResponse(mt))
+		}
+		resp := map[string]any{"MountTargets": items}
+		if nextMarker != "" {
+			resp["NextMarker"] = nextMarker
+		}
+
+		return c.JSON(http.StatusOK, resp)
+	}
+
 	return describeListResponse(
 		c, h,
 		h.Backend.DescribeMountTargets, mtToResponse,
@@ -864,6 +894,7 @@ func (h *Handler) handleDeleteMountTarget(c *echo.Context, mountTargetID string)
 func mtToResponse(mt *MountTarget) map[string]any {
 	resp := map[string]any{
 		"MountTargetId":        mt.MountTargetID,
+		"MountTargetArn":       mt.MountTargetArn,
 		keyFileSystemID:        mt.FileSystemID,
 		"SubnetId":             mt.SubnetID,
 		keyLifeCycleState:      mt.LifeCycleState,

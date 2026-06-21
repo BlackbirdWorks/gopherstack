@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -296,7 +297,7 @@ func TestRefinement1_StartReportCreationSetsS3Location(t *testing.T) {
 	assert.Equal(t, "s3://report-bucket/AwsTagPolicies/report.csv", resourcegroupstaggingapi.ReportS3Location(b))
 }
 
-func TestRefinement1_StartReportCreationSetsSucceededStatus(t *testing.T) {
+func TestRefinement1_StartReportCreationSetsRunningStatus(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
@@ -306,7 +307,8 @@ func TestRefinement1_StartReportCreationSetsSucceededStatus(t *testing.T) {
 	)
 
 	require.NoError(t, err)
-	assert.Equal(t, "SUCCEEDED", resourcegroupstaggingapi.ReportStatus(b))
+	// AWS sets RUNNING immediately; SUCCEEDED only after the job completes.
+	assert.Equal(t, "RUNNING", resourcegroupstaggingapi.ReportStatus(b))
 }
 
 func TestRefinement1_StartReportCreationTimestampFromNowFunc(t *testing.T) {
@@ -337,6 +339,11 @@ func TestRefinement1_StartReportCreationOverwritesPrevious(t *testing.T) {
 		&resourcegroupstaggingapi.StartReportCreationInput{S3Bucket: "first"},
 	)
 	require.NoError(t, err)
+	require.Equal(t, "RUNNING", resourcegroupstaggingapi.ReportStatus(b))
+
+	// Advance clock past running duration so the first report completes before starting second.
+	done := time.Now().Add(resourcegroupstaggingapi.ReportRunningDuration() + time.Second)
+	resourcegroupstaggingapi.SetClockFunc(b, func() time.Time { return done })
 
 	_, err = b.StartReportCreation(
 		context.Background(),
@@ -366,11 +373,18 @@ func TestRefinement1_DescribeReportCreationAfterStart(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
+
+	// Start a report — it begins in RUNNING state.
 	_, err := b.StartReportCreation(
 		context.Background(),
 		&resourcegroupstaggingapi.StartReportCreationInput{S3Bucket: "my-bucket"},
 	)
 	require.NoError(t, err)
+	require.Equal(t, "RUNNING", resourcegroupstaggingapi.ReportStatus(b))
+
+	// Advance clock past the running duration so DescribeReportCreation transitions to SUCCEEDED.
+	done := time.Now().Add(resourcegroupstaggingapi.ReportRunningDuration() + time.Second)
+	resourcegroupstaggingapi.SetClockFunc(b, func() time.Time { return done })
 
 	out := b.DescribeReportCreation(context.Background())
 

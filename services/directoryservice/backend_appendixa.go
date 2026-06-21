@@ -2453,8 +2453,22 @@ func (b *InMemoryBackend) ConnectDirectory(
 	if name == "" {
 		return nil, ErrInvalidParameter
 	}
+	if size != DirectorySizeSmall && size != DirectorySizeLarge && size != "" {
+		return nil, ErrInvalidParameter
+	}
 
 	st := b.state(region)
+
+	var count int32
+	for _, d := range st.directories {
+		if DirectoryType(d.DirType) == DirectoryTypeADConnector {
+			count++
+		}
+	}
+	if count >= 10 { //nolint:mnd // AWS connected directory limit
+		return nil, ErrDirectoryLimitExceeded
+	}
+
 	d := b.newStoredDirectory(name, shortName, description, DirectoryTypeADConnector, size, "", nil, tags)
 	st.directories[d.DirectoryID] = d
 	st.aliases[d.Alias] = d.DirectoryID

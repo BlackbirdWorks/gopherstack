@@ -212,6 +212,12 @@ func (h *Handler) handleCreateDirectory(c *echo.Context) error {
 	if req.Name == "" {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "Name is required"))
 	}
+	if req.Password == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ClientException", "Password is required"))
+	}
+	if req.Size != string(DirectorySizeSmall) && req.Size != string(DirectorySizeLarge) {
+		return c.JSON(http.StatusBadRequest, errResp("ClientException", "Size must be Small or Large"))
+	}
 
 	tags := reqTagsToTags(req.Tags)
 
@@ -271,10 +277,16 @@ func (h *Handler) handleCreateMicrosoftAD(c *echo.Context) error {
 	if req.Name == "" {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "Name is required"))
 	}
+	if req.Password == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ClientException", "Password is required"))
+	}
 
 	edition := DirectoryEdition(req.Edition)
 	if edition == "" {
 		edition = DirectoryEditionEnterprise
+	}
+	if edition != DirectoryEditionEnterprise && edition != DirectoryEditionStandard {
+		return c.JSON(http.StatusBadRequest, errResp("ClientException", "Edition must be Enterprise or Standard"))
 	}
 
 	tags := reqTagsToTags(req.Tags)
@@ -741,11 +753,19 @@ func (h *Handler) mapError(c *echo.Context, err error) error {
 	logger.Load(c.Request().Context()).Error("directoryservice error", "error", err)
 
 	switch {
+	case errors.Is(err, ErrDirectoryLimitExceeded):
+		return c.JSON(http.StatusBadRequest, errResp("DirectoryLimitExceededException", err.Error()))
+	case errors.Is(err, ErrSnapshotLimitExceeded):
+		return c.JSON(http.StatusBadRequest, errResp("SnapshotLimitExceededException", err.Error()))
+	case errors.Is(err, ErrUnsupportedOperation):
+		return c.JSON(http.StatusBadRequest, errResp("UnsupportedOperationException", err.Error()))
 	case errors.Is(err, awserr.ErrNotFound):
 		return c.JSON(http.StatusBadRequest, errResp("EntityDoesNotExistException", err.Error()))
 	case errors.Is(err, awserr.ErrAlreadyExists):
 		return c.JSON(http.StatusBadRequest, errResp("EntityAlreadyExistsException", err.Error()))
 	case errors.Is(err, awserr.ErrInvalidParameter):
+		return c.JSON(http.StatusBadRequest, errResp("ClientException", err.Error()))
+	case errors.Is(err, awserr.ErrConflict):
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", err.Error()))
 	default:
 		return c.JSON(http.StatusInternalServerError, errResp("ServiceException", err.Error()))

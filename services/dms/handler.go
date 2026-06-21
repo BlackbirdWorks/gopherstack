@@ -140,6 +140,12 @@ const (
 	dmsTargetPrefix    = "AmazonDMSv20160101."
 	contentType        = "application/x-amz-json-1.1"
 	dmsDefaultPageSize = 100
+
+	// JSON map keys used in assessment-run responses.
+	keyAssessmentRunArn  = "ReplicationTaskAssessmentRunArn"
+	keyAssessmentTaskArn = "ReplicationTaskArn"
+	keyAssessmentRunName = "AssessmentRunName"
+	keyStatus            = "Status"
 )
 
 // errUnknownAction is returned when an unsupported DMS action is requested.
@@ -1101,6 +1107,14 @@ func (h *Handler) handleCreateReplicationTask(
 		return nil, fmt.Errorf("%w: MigrationType is required", ErrValidation)
 	}
 
+	if !isValidStartMigrationType(migrationType) {
+		return nil, fmt.Errorf(
+			"%w: invalid MigrationType %q; valid: full-load, cdc, full-load-and-cdc",
+			ErrValidation,
+			migrationType,
+		)
+	}
+
 	kv := tagsToMap(in.Tags)
 	rt, err := h.Backend.CreateReplicationTask(
 		ctx,
@@ -1166,6 +1180,10 @@ type startReplicationTaskOutput struct {
 
 func isValidStartReplicationTaskType(s string) bool {
 	return s == "start-replication" || s == "resume-processing" || s == "reload-target"
+}
+
+func isValidStartMigrationType(s string) bool {
+	return s == "full-load" || s == "cdc" || s == "full-load-and-cdc"
 }
 
 func (h *Handler) handleStartReplicationTask(
@@ -1632,8 +1650,8 @@ func (h *Handler) handleCancelReplicationTaskAssessmentRun(
 
 	return &cancelReplicationTaskAssessmentRunOutput{
 		ReplicationTaskAssessmentRun: map[string]any{
-			"ReplicationTaskAssessmentRunArn": ptrStr(in.ReplicationTaskAssessmentRunArn),
-			"Status":                          "cancelling",
+			keyAssessmentRunArn: ptrStr(in.ReplicationTaskAssessmentRunArn),
+			keyStatus:           "cancelling",
 		},
 	}, nil
 }
@@ -2147,13 +2165,22 @@ type deleteConnectionInput struct {
 }
 
 type deleteConnectionOutput struct {
-	Connection map[string]any `json:"Connection"`
+	Connection connectionJSON `json:"Connection"`
 }
 
 func (h *Handler) handleDeleteConnection(
-	_ context.Context, _ *deleteConnectionInput,
+	ctx context.Context, in *deleteConnectionInput,
 ) (*deleteConnectionOutput, error) {
-	return nil, fmt.Errorf("%w: connection not found", ErrNotFound)
+	conn, err := h.Backend.DeleteConnection(
+		ctx,
+		ptrStr(in.ReplicationInstanceArn),
+		ptrStr(in.EndpointArn),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &deleteConnectionOutput{Connection: connToJSON(conn)}, nil
 }
 
 // --- DeleteDataMigration handler ---
@@ -2392,13 +2419,21 @@ type deleteReplicationTaskAssessmentRunOutput struct {
 }
 
 func (h *Handler) handleDeleteReplicationTaskAssessmentRun(
-	_ context.Context, in *deleteReplicationTaskAssessmentRunInput,
+	ctx context.Context, in *deleteReplicationTaskAssessmentRunInput,
 ) (*deleteReplicationTaskAssessmentRunOutput, error) {
-	return nil, fmt.Errorf(
-		"%w: assessment run %s not found",
-		ErrNotFound,
-		ptrStr(in.ReplicationTaskAssessmentRunArn),
-	)
+	run, err := h.Backend.DeleteAssessmentRun(ctx, ptrStr(in.ReplicationTaskAssessmentRunArn))
+	if err != nil {
+		return nil, err
+	}
+
+	return &deleteReplicationTaskAssessmentRunOutput{
+		ReplicationTaskAssessmentRun: map[string]any{
+			keyAssessmentRunArn:  run.ReplicationTaskAssessmentRunArn,
+			keyAssessmentTaskArn: run.ReplicationTaskArn,
+			keyAssessmentRunName: run.AssessmentRunName,
+			keyStatus:            run.Status,
+		},
+	}, nil
 }
 
 // --- DescribeAccountAttributes handler ---
@@ -3661,10 +3696,27 @@ type describeReplicationTaskAssessmentRunsOutput struct {
 }
 
 func (h *Handler) handleDescribeReplicationTaskAssessmentRuns(
-	_ context.Context, _ *describeReplicationTaskAssessmentRunsInput,
+	ctx context.Context, in *describeReplicationTaskAssessmentRunsInput,
 ) (*describeReplicationTaskAssessmentRunsOutput, error) {
+	taskArn := extractFilterValue(in.Filters, "replication-task-arn")
+
+	runs, err := h.Backend.DescribeAssessmentRuns(ctx, taskArn)
+	if err != nil {
+		return nil, err
+	}
+
+	list := make([]map[string]any, 0, len(runs))
+	for _, run := range runs {
+		list = append(list, map[string]any{
+			keyAssessmentRunArn:  run.ReplicationTaskAssessmentRunArn,
+			keyAssessmentTaskArn: run.ReplicationTaskArn,
+			keyAssessmentRunName: run.AssessmentRunName,
+			keyStatus:            run.Status,
+		})
+	}
+
 	return &describeReplicationTaskAssessmentRunsOutput{
-		ReplicationTaskAssessmentRuns: []map[string]any{},
+		ReplicationTaskAssessmentRuns: list,
 	}, nil
 }
 
@@ -4017,16 +4069,16 @@ type modifyMigrationProjectOutput struct {
 func (h *Handler) handleModifyMigrationProject(
 	ctx context.Context, in *modifyMigrationProjectInput,
 ) (*modifyMigrationProjectOutput, error) {
-	nameOrArn := ptrStr(in.MigrationProjectArn)
-
-	projects, _ := h.Backend.DescribeMigrationProjects(ctx)
-	for _, mp := range projects {
-		if mp.MigrationProjectArn == nameOrArn || mp.MigrationProjectName == nameOrArn {
-			return &modifyMigrationProjectOutput{MigrationProject: mpToJSON(mp)}, nil
-		}
+	mp, err := h.Backend.ModifyMigrationProject(
+		ctx,
+		ptrStr(in.MigrationProjectArn),
+		ptrStr(in.Description),
+	)
+	if err != nil {
+		return nil, err
 	}
 
-	return nil, fmt.Errorf("%w: migration project %s not found", ErrNotFound, nameOrArn)
+	return &modifyMigrationProjectOutput{MigrationProject: mpToJSON(mp)}, nil
 }
 
 // --- ModifyReplicationConfig handler ---
@@ -4043,17 +4095,16 @@ type modifyReplicationConfigOutput struct {
 func (h *Handler) handleModifyReplicationConfig(
 	ctx context.Context, in *modifyReplicationConfigInput,
 ) (*modifyReplicationConfigOutput, error) {
-	identifierOrArn := ptrStr(in.ReplicationConfigArn)
-
-	configs, _ := h.Backend.DescribeReplicationConfigs(ctx)
-	for _, rc := range configs {
-		if rc.ReplicationConfigArn == identifierOrArn ||
-			rc.ReplicationConfigIdentifier == identifierOrArn {
-			return &modifyReplicationConfigOutput{ReplicationConfig: rcToJSON(rc)}, nil
-		}
+	rc, err := h.Backend.ModifyReplicationConfig(
+		ctx,
+		ptrStr(in.ReplicationConfigArn),
+		ptrStr(in.ReplicationType),
+	)
+	if err != nil {
+		return nil, err
 	}
 
-	return nil, fmt.Errorf("%w: replication config %s not found", ErrNotFound, identifierOrArn)
+	return &modifyReplicationConfigOutput{ReplicationConfig: rcToJSON(rc)}, nil
 }
 
 // --- ModifyReplicationInstance handler ---
@@ -4475,16 +4526,20 @@ type startReplicationTaskAssessmentOutput struct {
 }
 
 func (h *Handler) handleStartReplicationTaskAssessment(
-	_ context.Context, in *startReplicationTaskAssessmentInput,
+	ctx context.Context, in *startReplicationTaskAssessmentInput,
 ) (*startReplicationTaskAssessmentOutput, error) {
 	taskArn := ptrStr(in.ReplicationTaskArn)
 
-	return &startReplicationTaskAssessmentOutput{
-		ReplicationTask: replicationTaskJSON{
-			ReplicationTaskArn: taskArn,
-			Status:             "test-failed",
-		},
-	}, nil
+	tasks, err := h.Backend.DescribeReplicationTasks(ctx, taskArn)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(tasks) == 0 {
+		return nil, fmt.Errorf("%w: replication task %s not found", ErrNotFound, taskArn)
+	}
+
+	return &startReplicationTaskAssessmentOutput{ReplicationTask: rtToJSON(tasks[0])}, nil
 }
 
 // --- StartReplicationTaskAssessmentRun handler ---
@@ -4503,12 +4558,25 @@ type startReplicationTaskAssessmentRunOutput struct {
 }
 
 func (h *Handler) handleStartReplicationTaskAssessmentRun(
-	_ context.Context, _ *startReplicationTaskAssessmentRunInput,
+	ctx context.Context, in *startReplicationTaskAssessmentRunInput,
 ) (*startReplicationTaskAssessmentRunOutput, error) {
+	run, err := h.Backend.StartAssessmentRun(
+		ctx,
+		ptrStr(in.ReplicationTaskArn),
+		ptrStr(in.ServiceAccessRoleArn),
+		ptrStr(in.ResultLocationBucket),
+		ptrStr(in.AssessmentRunName),
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	return &startReplicationTaskAssessmentRunOutput{
 		ReplicationTaskAssessmentRun: map[string]any{
-			"ReplicationTaskAssessmentRunArn": uuid.NewString(),
-			"Status":                          statusRunning,
+			keyAssessmentRunArn:  run.ReplicationTaskAssessmentRunArn,
+			keyAssessmentTaskArn: run.ReplicationTaskArn,
+			keyAssessmentRunName: run.AssessmentRunName,
+			keyStatus:            run.Status,
 		},
 	}, nil
 }

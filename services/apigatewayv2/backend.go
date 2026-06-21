@@ -70,7 +70,51 @@ const (
 	authorizationTypeNone = "NONE"
 	protocolTypeHTTP      = "HTTP"
 	integrationTypeHTTP   = "HTTP"
+
+	integrationTimeoutMin = int32(50)
+	integrationTimeoutMax = int32(29000)
 )
+
+// isValidHTTPRouteKeyMethod reports whether method is accepted in an HTTP API route key.
+func isValidHTTPRouteKeyMethod(method string) bool {
+	switch method {
+	case "GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS", "ANY":
+		return true
+	default:
+		return false
+	}
+}
+
+// validateHTTPRouteKey returns ErrBadRequest if key is invalid for an HTTP API.
+// Valid forms: "$default" or "METHOD /path" (e.g. "GET /items").
+func validateHTTPRouteKey(key string) error {
+	if key == "$default" {
+		return nil
+	}
+
+	const maxParts = 2
+	parts := strings.SplitN(key, " ", maxParts)
+	if len(parts) != maxParts || !isValidHTTPRouteKeyMethod(parts[0]) || !strings.HasPrefix(parts[1], "/") {
+		return fmt.Errorf(
+			"%w: routeKey must be $default or start with a valid HTTP method and a forward slash, e.g. GET /items",
+			ErrBadRequest,
+		)
+	}
+
+	return nil
+}
+
+// validateTimeoutInMillis returns ErrBadRequest if ms is outside [50, 29000].
+func validateTimeoutInMillis(ms int32) error {
+	if ms < integrationTimeoutMin || ms > integrationTimeoutMax {
+		return fmt.Errorf(
+			"%w: timeoutInMillis must be between %d and %d",
+			ErrBadRequest, integrationTimeoutMin, integrationTimeoutMax,
+		)
+	}
+
+	return nil
+}
 
 var (
 	// ErrAPINotFound is returned when a requested API does not exist.
@@ -755,6 +799,12 @@ func (b *InMemoryBackend) CreateRoute(apiID string, input CreateRouteInput) (*Ro
 		return nil, fmt.Errorf("%w: routeKey is required", ErrBadRequest)
 	}
 
+	if d.api.ProtocolType == protocolTypeHTTP {
+		if err := validateHTTPRouteKey(input.RouteKey); err != nil {
+			return nil, err
+		}
+	}
+
 	for _, existing := range d.routes {
 		if existing.RouteKey == input.RouteKey {
 			return nil, fmt.Errorf("%w: route key %q already exists", ErrAlreadyExists, input.RouteKey)
@@ -853,6 +903,26 @@ func (b *InMemoryBackend) DeleteRoute(apiID, routeID string) error {
 	return nil
 }
 
+// setRouteKey validates newKey for protocolType and ensures it is not a duplicate
+// among routes (excluding the route being updated), then sets r.RouteKey.
+func setRouteKey(r *Route, routes map[string]*Route, routeID, newKey, protocolType string) error {
+	if protocolType == protocolTypeHTTP {
+		if err := validateHTTPRouteKey(newKey); err != nil {
+			return err
+		}
+	}
+
+	for id, existing := range routes {
+		if id != routeID && existing.RouteKey == newKey {
+			return fmt.Errorf("%w: route key %q already exists", ErrAlreadyExists, newKey)
+		}
+	}
+
+	r.RouteKey = newKey
+
+	return nil
+}
+
 // UpdateRoute updates fields on an existing route.
 func (b *InMemoryBackend) UpdateRoute(apiID, routeID string, input UpdateRouteInput) (*Route, error) {
 	b.mu.Lock("UpdateRoute")
@@ -869,13 +939,9 @@ func (b *InMemoryBackend) UpdateRoute(apiID, routeID string, input UpdateRouteIn
 	}
 
 	if input.RouteKey != "" {
-		// Check for duplicate route key (excluding the current route).
-		for id, existing := range d.routes {
-			if id != routeID && existing.RouteKey == input.RouteKey {
-				return nil, fmt.Errorf("%w: route key %q already exists", ErrAlreadyExists, input.RouteKey)
-			}
+		if err := setRouteKey(r, d.routes, routeID, input.RouteKey, d.api.ProtocolType); err != nil {
+			return nil, err
 		}
-		r.RouteKey = input.RouteKey
 	}
 
 	if input.Target != "" {
@@ -953,7 +1019,9 @@ func (b *InMemoryBackend) CreateIntegration(apiID string, input CreateIntegratio
 
 	timeoutMs := input.TimeoutInMillis
 	if timeoutMs == 0 {
-		timeoutMs = 29000
+		timeoutMs = integrationTimeoutMax
+	} else if err := validateTimeoutInMillis(timeoutMs); err != nil {
+		return nil, err
 	}
 
 	id := randomID()
@@ -1116,6 +1184,12 @@ func (b *InMemoryBackend) UpdateIntegration(
 	i, ok := d.integrations[integrationID]
 	if !ok {
 		return nil, ErrIntegrationNotFound
+	}
+
+	if input.TimeoutInMillis != 0 {
+		if err := validateTimeoutInMillis(input.TimeoutInMillis); err != nil {
+			return nil, err
+		}
 	}
 
 	applyIntegrationUpdate(i, input)

@@ -18,6 +18,13 @@ permissions:
   security-events: write
   packages: write
 
+# Only the latest commit per PR (or ref) needs CI. A new push cancels any
+# still-running CI for the same PR so rapid commit bursts don't pile up runs;
+# CI settles on the last commit, which is all that matters.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.workflow_run.head_branch || github.ref }}
+  cancel-in-progress: true
+
 env:
   GH_CI_TOKEN: ${{ secrets.GH_TOKEN != '' && secrets.GH_TOKEN || github.token }}
 

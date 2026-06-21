@@ -110,17 +110,23 @@ func getRegionFromS3Context(ctx context.Context, defaultRegion string) string {
 }
 
 type InMemoryBackend struct {
-	buckets             map[string]map[string]*StoredBucket
-	bucketIndex         map[string]string // name → region for O(1) cross-region lookup
-	tags                map[string][]types.Tag
-	uploads             map[string]map[string]*StoredMultipartUpload // bucket → uploadID → upload
-	mu                  *lockmetrics.RWMutex
-	compressor          Compressor
-	defaultRegion       string
-	compressionMinBytes int
+	buckets     map[string]map[string]*StoredBucket
+	bucketIndex map[string]string // name → region for O(1) cross-region lookup
+	tags        map[string][]types.Tag
+	uploads     map[string]map[string]*StoredMultipartUpload // bucket → uploadID → upload
+	mu          *lockmetrics.RWMutex
+	compressor  Compressor
+	// serviceCtx is the long-lived service context (set via SetServiceContext from
+	// the handler's StartWorker). Background work — replication — is parented to it
+	// so it is cancelled on shutdown rather than orphaned on context.Background().
+	serviceCtx    context.Context
+	defaultRegion string
+	// serviceCtxMu guards serviceCtx.
+	serviceCtxMu sync.RWMutex
 	// replicationWg tracks all in-flight replication goroutines.
 	// DrainReplicationGoroutines blocks until they all finish.
-	replicationWg sync.WaitGroup
+	replicationWg       sync.WaitGroup
+	compressionMinBytes int
 	// skipMultipartSizeCheck disables the 5 MiB minimum part size check during
 	// CompleteMultipartUpload. This is intended for use in unit tests only.
 	skipMultipartSizeCheck bool
@@ -139,6 +145,32 @@ func (b *InMemoryBackend) WithSkipMultipartSizeCheck() *InMemoryBackend {
 // operations that spawn replication goroutines and subsequent state assertions.
 func (b *InMemoryBackend) DrainReplicationGoroutines() {
 	b.replicationWg.Wait()
+}
+
+// SetServiceContext wires the long-lived service context used to parent background
+// work (replication). Called from the handler's StartWorker. When set, in-flight
+// replication is cancelled on service shutdown rather than left orphaned.
+func (b *InMemoryBackend) SetServiceContext(ctx context.Context) {
+	b.serviceCtxMu.Lock()
+	b.serviceCtx = ctx
+	b.serviceCtxMu.Unlock()
+}
+
+// replicationContext builds the context for a replication goroutine: parented to
+// the service context (so shutdown cancels it) and carrying the request's logger,
+// but never the request's cancellation or its SSE key. When no service context is
+// wired (e.g. unit tests), it detaches from the request via context.WithoutCancel
+// rather than falling back to context.Background().
+func (b *InMemoryBackend) replicationContext(reqCtx context.Context) context.Context {
+	b.serviceCtxMu.RLock()
+	base := b.serviceCtx
+	b.serviceCtxMu.RUnlock()
+
+	if base == nil {
+		base = context.WithoutCancel(reqCtx)
+	}
+
+	return logger.Save(base, logger.Load(reqCtx))
 }
 
 func NewInMemoryBackend(compressor Compressor) *InMemoryBackend {
@@ -484,9 +516,11 @@ func (b *InMemoryBackend) PutObject(
 		"contentType", aws.ToString(input.ContentType),
 		"versionId", newVersionID)
 
-	// Async replication to configured destination buckets.
+	// Async replication to configured destination buckets, parented to the
+	// service context (cancellable on shutdown) rather than the request context.
+	repCtx := b.replicationContext(ctx)
 	b.replicationWg.Go(func() {
-		b.triggerReplication(ctx, bucketName, key, finalQuotedETag)
+		b.triggerReplication(repCtx, bucketName, key, finalQuotedETag)
 	})
 
 	return &s3.PutObjectOutput{
@@ -631,6 +665,44 @@ func (b *InMemoryBackend) GetObject(
 	obj.mu.RLock("GetObject")
 	defer obj.mu.RUnlock()
 
+	ver, err := resolveObjectVersion(obj, versionID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Copy data + metadata under the lock; decryption + decompression
+	// happen outside.
+	dataToDecompress := ver.Data
+	isCompressed := ver.IsCompressed
+	size := ver.Size
+	metadata := maps.Clone(ver.Metadata)
+	versionIDStr := ver.VersionID
+
+	decrypted, skipDecompress, decErr := decryptVersionForGet(ctx, ver, dataToDecompress)
+	if decErr != nil {
+		return nil, decErr
+	}
+
+	if skipDecompress {
+		return buildGetObjectOutput(decrypted, size, ver, metadata, versionIDStr), nil
+	}
+	dataToDecompress = decrypted
+
+	data, err := b.decompressObjectData(dataToDecompress, isCompressed)
+	if err != nil {
+		return nil, err
+	}
+
+	return buildGetObjectOutput(data, size, ver, metadata, versionIDStr), nil
+}
+
+// resolveObjectVersion selects the requested (or latest) live version of an
+// object, translating delete markers and missing versions into the proper
+// S3 errors. The caller must hold obj's read lock.
+func resolveObjectVersion(
+	obj *StoredObject,
+	versionID *string,
+) (*StoredObjectVersion, error) {
 	var ver *StoredObjectVersion
 	if versionID != nil && *versionID != "" {
 		v, ok := obj.Versions[*versionID]
@@ -642,54 +714,61 @@ func (b *InMemoryBackend) GetObject(
 		ver = findLatestVersion(obj.Versions)
 	}
 
-	if ver == nil || ver.Deleted {
+	if ver == nil {
 		return nil, ErrNoSuchKey
 	}
 
-	// Copy data + metadata under the lock; decryption + decompression
-	// happen outside.
-	dataToDecompress := ver.Data
-	isCompressed := ver.IsCompressed
-	size := ver.Size
-	metadata := maps.Clone(ver.Metadata)
-	versionIDStr := ver.VersionID
+	if ver.Deleted {
+		// GET of a delete marker: AWS returns 405 for a versioned request (with
+		// x-amz-delete-marker + Allow: DELETE) and 404 for the latest version
+		// (with x-amz-delete-marker). The handler sets the headers.
+		if versionID != nil && *versionID != "" {
+			return nil, ErrDeleteMarker
+		}
+
+		return nil, ErrLatestDeleteMarker
+	}
+
+	return ver, nil
+}
+
+// decryptVersionForGet reverses SSE envelope encryption for a GET. It returns
+// the (possibly decrypted) data and a skipDecompress flag indicating the blob
+// must be returned as-is (SSE-C version with no key supplied — the handler will
+// reject the request before the body is read).
+func decryptVersionForGet(
+	ctx context.Context,
+	ver *StoredObjectVersion,
+	data []byte,
+) ([]byte, bool, error) {
 	sseAlg := ver.SSEAlgorithm
 	sseCAlg := ver.SSECAlgorithm
-	dek := ver.EncryptionDEK
-	nonce := ver.EncryptionNonce
+	if sseAlg == "" && sseCAlg == "" {
+		return data, false, nil
+	}
 
-	// Reverse envelope encryption when the version was stored under SSE. For
-	// SSE-C the customer must re-supply the key on GET via the request — read
-	// it from context (set by getObject handler) before decrypting. If no key
-	// is supplied for an SSE-C version, skip decrypt and let the handler's
+	// For SSE-C the customer must re-supply the key on GET via the request —
+	// read it from context (set by getObject handler) before decrypting. If no
+	// key is supplied for an SSE-C version, skip decrypt and let the handler's
 	// validateSSECOnRead surface the proper 400 ErrSSECRequired.
-	if sseAlg != "" || sseCAlg != "" {
-		sseFromCtx, _ := ctx.Value(sseKey).(sseInfo)
-		if sseCAlg != "" && sseFromCtx.SSECKeyB64 == "" {
-			// Fall through with the (still-encrypted) blob; the handler will
-			// reject the request before reading the body.
-			return buildGetObjectOutput(dataToDecompress, size, ver, metadata, versionIDStr), nil
-		}
-		decrypted, decErr := decryptWithSSE(
-			dataToDecompress,
-			sseAlg,
-			sseCAlg,
-			dek,
-			nonce,
-			sseFromCtx.SSECKeyB64,
-		)
-		if decErr != nil {
-			return nil, decErr
-		}
-		dataToDecompress = decrypted
+	sseFromCtx, _ := ctx.Value(sseKey).(sseInfo)
+	if sseCAlg != "" && sseFromCtx.SSECKeyB64 == "" {
+		return data, true, nil
 	}
 
-	data, err := b.decompressObjectData(dataToDecompress, isCompressed)
-	if err != nil {
-		return nil, err
+	decrypted, decErr := decryptWithSSE(
+		data,
+		sseAlg,
+		sseCAlg,
+		ver.EncryptionDEK,
+		ver.EncryptionNonce,
+		sseFromCtx.SSECKeyB64,
+	)
+	if decErr != nil {
+		return nil, false, decErr
 	}
 
-	return buildGetObjectOutput(data, size, ver, metadata, versionIDStr), nil
+	return decrypted, false, nil
 }
 
 // decompressObjectData decompresses storedData when isCompressed is true.
@@ -795,9 +874,10 @@ func (b *InMemoryBackend) HeadObject(
 		return nil, ErrDeleteMarker
 	}
 
-	// If no version specified and latest is a delete marker, return 404.
+	// If no version specified and latest is a delete marker, return 404 with the
+	// x-amz-delete-marker header (set by the handler).
 	if ver.Deleted {
-		return nil, ErrNoSuchKey
+		return nil, ErrLatestDeleteMarker
 	}
 
 	logger.Load(ctx).DebugContext(ctx, "S3 Backend HeadObject",
@@ -868,10 +948,13 @@ func (b *InMemoryBackend) DeleteObject(
 		b.mu.Unlock()
 	}
 
-	// Async delete-marker replication when versioning created a delete marker.
+	// Async delete-marker replication when versioning created a delete marker,
+	// parented to the service context rather than the request context.
 	if out.DeleteMarker != nil && aws.ToBool(out.DeleteMarker) {
+		repCtx := b.replicationContext(ctx)
+		key := *input.Key
 		b.replicationWg.Go(func() {
-			b.triggerDeleteMarkerReplication(ctx, bucketName, *input.Key)
+			b.triggerDeleteMarkerReplication(repCtx, bucketName, key)
 		})
 	}
 

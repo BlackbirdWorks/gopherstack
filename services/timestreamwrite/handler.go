@@ -231,6 +231,13 @@ func validateSchemaPartitionKeys(sc *schemaInput) error {
 // validateRecord validates an individual WriteRecords record against AWS constraints.
 // Validation runs on the merged record (after CommonAttributes is applied).
 func validateRecord(r recordInput, idx int) error {
+	if r.MeasureName == "" {
+		return fmt.Errorf(
+			"%w: record[%d] is missing required field MeasureName",
+			errInvalidRequest, idx,
+		)
+	}
+
 	if r.MeasureValueType != "" && !isValidMeasureValueType(r.MeasureValueType) {
 		return fmt.Errorf(
 			"%w: record[%d] has invalid MeasureValueType %q; valid: DOUBLE, BIGINT, BOOLEAN, VARCHAR, TIMESTAMP, MULTI",

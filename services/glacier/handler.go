@@ -763,7 +763,7 @@ func (h *Handler) handleListVaults(c *echo.Context, accountID string) error {
 		if start < len(items) {
 			items = items[start+1:]
 		} else {
-			items = nil
+			items = items[:0]
 		}
 	}
 
@@ -1085,7 +1085,7 @@ func (h *Handler) handleListJobs(c *echo.Context, vaultName string) error {
 }
 
 // paginateJobList applies marker+limit pagination to a slice of job responses.
-func paginateJobList(
+func paginateJobList( //nolint:dupl // three typed paginate funcs share identical structure
 	c *echo.Context,
 	items []describeJobResponse,
 ) ([]describeJobResponse, *string, error) {
@@ -1099,7 +1099,7 @@ func paginateJobList(
 		if start < len(items) {
 			items = items[start+1:]
 		} else {
-			items = nil
+			items = items[:0]
 		}
 	}
 
@@ -1159,10 +1159,10 @@ func (h *Handler) handleInventoryJobOutput(c *echo.Context, j *Job, vaultName st
 	}
 
 	if j.InventoryFormat != "" && j.InventoryFormat != defaultInventoryFormat {
-		return h.writeInventoryCSV(c, j, archives)
+		return h.writeInventoryCSV(c, j, vaultName, archives)
 	}
 
-	return h.writeInventoryJSON(c, j, archives)
+	return h.writeInventoryJSON(c, j, vaultName, archives)
 }
 
 type inventoryArchiveItem struct {
@@ -1173,7 +1173,7 @@ type inventoryArchiveItem struct {
 	Size               int64  `json:"Size"`
 }
 
-func (h *Handler) writeInventoryJSON(c *echo.Context, j *Job, archives []*Archive) error {
+func (h *Handler) writeInventoryJSON(c *echo.Context, j *Job, vaultName string, archives []*Archive) error {
 	items := make([]inventoryArchiveItem, 0, len(archives))
 
 	for _, a := range archives {
@@ -1200,6 +1200,11 @@ func (h *Handler) writeInventoryJSON(c *echo.Context, j *Job, archives []*Archiv
 		)
 	}
 
+	// Populate InventorySizeInBytes on the job so DescribeJob returns it.
+	if j.InventorySizeInBytes == 0 {
+		h.Backend.SetJobInventorySize(h.AccountID, h.DefaultRegion, vaultName, j.JobID, int64(len(payload)))
+	}
+
 	c.Response().Header().Set("Content-Type", "application/json")
 	c.Response().
 		Header().
@@ -1208,7 +1213,7 @@ func (h *Handler) writeInventoryJSON(c *echo.Context, j *Job, archives []*Archiv
 	return h.serveWithRange(c, payload)
 }
 
-func (h *Handler) writeInventoryCSV(c *echo.Context, j *Job, archives []*Archive) error {
+func (h *Handler) writeInventoryCSV(c *echo.Context, j *Job, vaultName string, archives []*Archive) error {
 	var buf bytes.Buffer
 
 	buf.WriteString("ArchiveId,ArchiveDescription,CreationDate,Size,SHA256TreeHash\n")
@@ -1217,9 +1222,7 @@ func (h *Handler) writeInventoryCSV(c *echo.Context, j *Job, archives []*Archive
 		fmt.Fprintf(
 			&buf,
 			"%s,%s,%s,%d,%s\n",
-			csvField(
-				a.ArchiveID,
-			),
+			csvField(a.ArchiveID),
 			csvField(a.Description),
 			csvField(a.CreationDate),
 			a.Size,
@@ -1229,17 +1232,21 @@ func (h *Handler) writeInventoryCSV(c *echo.Context, j *Job, archives []*Archive
 
 	payload := buf.Bytes()
 
+	// Populate InventorySizeInBytes on the job so DescribeJob returns it.
+	if j.InventorySizeInBytes == 0 {
+		h.Backend.SetJobInventorySize(h.AccountID, h.DefaultRegion, vaultName, j.JobID, int64(len(payload)))
+	}
+
 	c.Response().Header().Set("Content-Type", "text/csv")
 	c.Response().
 		Header().
 		Set("Content-Range", fmt.Sprintf("bytes 0-%d/%d", len(payload)-1, len(payload)))
 
-	_ = j // suppress unused warning
-
 	return h.serveWithRange(c, payload)
 }
 
 // handleArchiveJobOutput streams stored archive bytes with Range support.
+// If the job was initiated with a RetrievalByteRange, only that byte slice is served.
 func (h *Handler) handleArchiveJobOutput(c *echo.Context, j *Job) error {
 	c.Response().Header().Set("Content-Type", "application/octet-stream")
 
@@ -1259,9 +1266,42 @@ func (h *Handler) handleArchiveJobOutput(c *echo.Context, j *Job) error {
 		return c.NoContent(http.StatusOK)
 	}
 
+	// Honour RetrievalByteRange set at job initiation time (e.g. "0-1048575").
+	if j.RetrievalByteRange != "" {
+		data = sliceRetrievalRange(data, j.RetrievalByteRange)
+	}
+
 	c.Response().Header().Set("Content-Range", fmt.Sprintf("bytes 0-%d/%d", len(data)-1, len(data)))
 
 	return h.serveWithRange(c, data)
+}
+
+// sliceRetrievalRange slices data to the byte range specified in rangeStr ("START-END").
+// Returns data unchanged if rangeStr is malformed or out of bounds.
+func sliceRetrievalRange(data []byte, rangeStr string) []byte {
+	dash := strings.IndexByte(rangeStr, '-')
+	if dash <= 0 || dash == len(rangeStr)-1 {
+		return data
+	}
+
+	start, err1 := strconv.ParseInt(rangeStr[:dash], 10, 64)
+	end, err2 := strconv.ParseInt(rangeStr[dash+1:], 10, 64)
+
+	if err1 != nil || err2 != nil || start < 0 || end < start {
+		return data
+	}
+
+	total := int64(len(data))
+
+	if start >= total {
+		return data[:0]
+	}
+
+	if end >= total {
+		end = total - 1
+	}
+
+	return data[start : end+1]
 }
 
 // serveWithRange serves payload with optional HTTP Range support.
@@ -1830,7 +1870,7 @@ func (h *Handler) handleListMultipartUploads(c *echo.Context, vaultName string) 
 }
 
 // paginateUploadList applies marker+limit pagination to a multipart-upload slice.
-func paginateUploadList(
+func paginateUploadList( //nolint:dupl // three typed paginate funcs share identical structure
 	c *echo.Context,
 	items []MultipartUpload,
 ) ([]MultipartUpload, *string, error) {
@@ -1844,7 +1884,7 @@ func paginateUploadList(
 		if start < len(items) {
 			items = items[start+1:]
 		} else {
-			items = nil
+			items = items[:0]
 		}
 	}
 
@@ -1897,7 +1937,9 @@ func (h *Handler) handleListParts(c *echo.Context, vaultName, uploadID string) e
 
 // paginatePartList applies marker+limit pagination to a parts slice.
 // Marker is compared to RangeInBytes of each part.
-func paginatePartList(c *echo.Context, parts []MultipartPart) ([]MultipartPart, *string, error) {
+func paginatePartList( //nolint:dupl // three typed paginate funcs share identical structure
+	c *echo.Context, parts []MultipartPart,
+) ([]MultipartPart, *string, error) {
 	if marker := c.QueryParam("marker"); marker != "" {
 		start := 0
 
@@ -1908,7 +1950,7 @@ func paginatePartList(c *echo.Context, parts []MultipartPart) ([]MultipartPart, 
 		if start < len(parts) {
 			parts = parts[start+1:]
 		} else {
-			parts = nil
+			parts = parts[:0]
 		}
 	}
 

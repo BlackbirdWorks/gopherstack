@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 
@@ -30,8 +31,24 @@ func getRegionFromContext(ctx context.Context, db *InMemoryDB) string {
 	if region, ok := ctx.Value(regionContextKey{}).(string); ok && region != "" {
 		return region
 	}
+	// Fall back to the central awsmeta identity before the backend default so the
+	// region stays consistent with the rest of the stack.
+	if region := awsmeta.Region(ctx); region != "" {
+		return region
+	}
 
 	return db.defaultRegion
+}
+
+// accountFromContext returns the request's AWS account, preferring a per-request
+// override carried on awsmeta (e.g. X-Amz-Account-Id) over the backend default.
+// Falls back to db.accountID when awsmeta carries only the placeholder account.
+func accountFromContext(ctx context.Context, db *InMemoryDB) string {
+	if a := awsmeta.Account(ctx); a != "" && a != awsmeta.DefaultAccount {
+		return a
+	}
+
+	return db.accountID
 }
 
 // throttleKey returns the throttler key for the given region and table.

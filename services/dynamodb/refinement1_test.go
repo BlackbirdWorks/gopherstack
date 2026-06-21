@@ -502,12 +502,27 @@ func TestImportTable_ReturnsCompleted(t *testing.T) {
 		},
 		TableCreationParameters: &types.TableCreationParameters{
 			TableName: aws.String("ImportedTable"),
+			KeySchema: []types.KeySchemaElement{
+				{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},
+			},
+			AttributeDefinitions: []types.AttributeDefinition{
+				{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
+			},
+			BillingMode: types.BillingModePayPerRequest,
 		},
 	})
 	require.NoError(t, err)
 	require.NotNil(t, out.ImportTableDescription)
+	// With no S3 backend wired the import completes against the freshly created table.
 	assert.Equal(t, types.ImportStatusCompleted, out.ImportTableDescription.ImportStatus)
 	assert.NotEmpty(t, aws.ToString(out.ImportTableDescription.ImportArn))
+
+	// The target table must actually exist after ImportTable.
+	desc, err := db.DescribeTable(t.Context(), &sdk.DescribeTableInput{
+		TableName: aws.String("ImportedTable"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "ImportedTable", aws.ToString(desc.Table.TableName))
 }
 
 // ---------------------------------------------------------------------------

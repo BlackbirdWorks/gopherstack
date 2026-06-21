@@ -916,6 +916,14 @@ func (h *Handler) handleSendEmail(c *echo.Context) (any, error) {
 	from := in.FromEmailAddress
 	to := in.Destination.ToAddresses
 
+	dest := in.Destination
+	if len(dest.ToAddresses) == 0 && len(dest.CcAddresses) == 0 && len(dest.BccAddresses) == 0 {
+		return nil, fmt.Errorf(
+			"%w: Destination must contain at least one ToAddress, CcAddress, or BccAddress",
+			ErrInvalidParameter,
+		)
+	}
+
 	var subject, bodyHTML, bodyText string
 
 	if in.Content.Simple != nil {

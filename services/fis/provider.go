@@ -24,7 +24,7 @@ func (p *Provider) Name() string { return "FIS" }
 
 // Init initializes the FIS service backend and handler.
 //
-//nolint:ireturn,nolintlint // architecturally required to return interface
+//nolint:ireturn // architecturally required to return interface
 func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	if ctx == nil {
 		return nil, ErrNilAppContext

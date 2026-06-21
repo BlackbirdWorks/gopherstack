@@ -94,9 +94,19 @@ func (rc *ResourceCreator) createEKSNodegroup(
 	}
 
 	ng, err := rc.backends.EKS.Backend.CreateNodegroup(
-		clusterName, nodegroupName, nodeRole,
-		"AL2_x86_64", "ON_DEMAND", "", "",
-		instanceTypes, eksNodegroupDefaultDesiredSize, 1, eksNodegroupDefaultMaxSize, eksbackend.NodegroupInput{}, nil,
+		clusterName,
+		nodegroupName,
+		nodeRole,
+		"AL2_x86_64",
+		"ON_DEMAND",
+		"",
+		"",
+		instanceTypes,
+		eksNodegroupDefaultDesiredSize,
+		1,
+		eksNodegroupDefaultMaxSize,
+		eksbackend.NodegroupInput{},
+		nil,
 	)
 	if err != nil {
 		return "", fmt.Errorf("create EKS nodegroup %s: %w", nodegroupName, err)
@@ -146,12 +156,15 @@ func (rc *ResourceCreator) createEFSFileSystem(
 
 	token := logicalID + "-token"
 
-	fs, err := rc.backends.EFS.Backend.CreateFileSystem(context.Background(), efsbackend.CreateFileSystemRequest{
-		CreationToken:   token,
-		PerformanceMode: performanceMode,
-		ThroughputMode:  throughputMode,
-		Encrypted:       encrypted,
-	})
+	fs, err := rc.backends.EFS.Backend.CreateFileSystem(
+		context.Background(),
+		efsbackend.CreateFileSystemRequest{
+			CreationToken:   token,
+			PerformanceMode: performanceMode,
+			ThroughputMode:  throughputMode,
+			Encrypted:       encrypted,
+		},
+	)
 	if err != nil {
 		return "", fmt.Errorf("create EFS file system: %w", err)
 	}
@@ -179,10 +192,13 @@ func (rc *ResourceCreator) createEFSMountTarget(
 	fileSystemID := strProp(props, "FileSystemId", params, physicalIDs)
 	subnetID := strProp(props, "SubnetId", params, physicalIDs)
 
-	mt, err := rc.backends.EFS.Backend.CreateMountTarget(context.Background(), efsbackend.CreateMountTargetRequest{
-		FileSystemID: fileSystemID,
-		SubnetID:     subnetID,
-	})
+	mt, err := rc.backends.EFS.Backend.CreateMountTarget(
+		context.Background(),
+		efsbackend.CreateMountTargetRequest{
+			FileSystemID: fileSystemID,
+			SubnetID:     subnetID,
+		},
+	)
 	if err != nil {
 		return "", fmt.Errorf("create EFS mount target: %w", err)
 	}
@@ -415,6 +431,16 @@ func (rc *ResourceCreator) deleteCloudFrontDistribution(arn string) error {
 
 	id := resourceNameFromARN(arn)
 
+	// CloudFront requires a distribution to be disabled before deletion
+	// (matching real AWS). Disable it first, preserving its existing config.
+	if dist, err := rc.backends.CloudFront.Backend.GetDistribution(id); err == nil {
+		if _, uerr := rc.backends.CloudFront.Backend.UpdateDistribution(
+			id, dist.Comment, false, dist.RawConfig,
+		); uerr != nil {
+			return uerr
+		}
+	}
+
 	return rc.backends.CloudFront.Backend.DeleteDistribution(id)
 }
 
@@ -422,7 +448,10 @@ func (rc *ResourceCreator) deleteCloudFrontDistribution(arn string) error {
 
 // parseASGSizes reads MinSize, MaxSize, and DesiredCapacity from CloudFormation
 // template properties, returning clamped int32 values safe for allocation.
-func parseASGSizes(props map[string]any, params, physicalIDs map[string]string) (int32, int32, int32) {
+func parseASGSizes(
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (int32, int32, int32) {
 	var minSize, maxSize, desired int32 = 1, 1, 1
 
 	if v, ok := props["MinSize"].(float64); ok {
@@ -470,13 +499,15 @@ func (rc *ResourceCreator) createAutoScalingGroup(
 	lcName := strProp(props, "LaunchConfigurationName", params, physicalIDs)
 	minSize, maxSize, desired := parseASGSizes(props, params, physicalIDs)
 
-	_, err := rc.backends.Autoscaling.Backend.CreateAutoScalingGroup(autoscalingbackend.CreateAutoScalingGroupInput{
-		AutoScalingGroupName:    name,
-		LaunchConfigurationName: lcName,
-		MinSize:                 minSize,
-		MaxSize:                 maxSize,
-		DesiredCapacity:         desired,
-	})
+	_, err := rc.backends.Autoscaling.Backend.CreateAutoScalingGroup(
+		autoscalingbackend.CreateAutoScalingGroupInput{
+			AutoScalingGroupName:    name,
+			LaunchConfigurationName: lcName,
+			MinSize:                 minSize,
+			MaxSize:                 maxSize,
+			DesiredCapacity:         desired,
+		},
+	)
 	if err != nil {
 		return "", fmt.Errorf("create AutoScaling group %s: %w", name, err)
 	}
@@ -553,11 +584,14 @@ func (rc *ResourceCreator) createAPIGatewayV2API(
 		protocolType = "HTTP"
 	}
 
-	api, err := rc.backends.APIGatewayV2.Backend.CreateAPI(context.Background(), apigatewayv2backend.CreateAPIInput{
-		Name:         name,
-		ProtocolType: protocolType,
-		Description:  strProp(props, "Description", params, physicalIDs),
-	})
+	api, err := rc.backends.APIGatewayV2.Backend.CreateAPI(
+		context.Background(),
+		apigatewayv2backend.CreateAPIInput{
+			Name:         name,
+			ProtocolType: protocolType,
+			Description:  strProp(props, "Description", params, physicalIDs),
+		},
+	)
 	if err != nil {
 		return "", fmt.Errorf("create API Gateway V2 API %s: %w", name, err)
 	}
@@ -590,10 +624,13 @@ func (rc *ResourceCreator) createAPIGatewayV2Stage(
 
 	autoDeploy, _ := props["AutoDeploy"].(bool)
 
-	_, err := rc.backends.APIGatewayV2.Backend.CreateStage(apiID, apigatewayv2backend.CreateStageInput{
-		StageName:  stageName,
-		AutoDeploy: autoDeploy,
-	})
+	_, err := rc.backends.APIGatewayV2.Backend.CreateStage(
+		apiID,
+		apigatewayv2backend.CreateStageInput{
+			StageName:  stageName,
+			AutoDeploy: autoDeploy,
+		},
+	)
 	if err != nil {
 		return "", fmt.Errorf("create API Gateway V2 stage %s: %w", stageName, err)
 	}
@@ -677,10 +714,13 @@ func (rc *ResourceCreator) createAPIGatewayV2Route(
 	routeKey := strProp(props, "RouteKey", params, physicalIDs)
 	target := strProp(props, "Target", params, physicalIDs)
 
-	route, err := rc.backends.APIGatewayV2.Backend.CreateRoute(apiID, apigatewayv2backend.CreateRouteInput{
-		RouteKey: routeKey,
-		Target:   target,
-	})
+	route, err := rc.backends.APIGatewayV2.Backend.CreateRoute(
+		apiID,
+		apigatewayv2backend.CreateRouteInput{
+			RouteKey: routeKey,
+			Target:   target,
+		},
+	)
 	if err != nil {
 		return "", fmt.Errorf("create API Gateway V2 route: %w", err)
 	}
@@ -1008,7 +1048,11 @@ func (rc *ResourceCreator) deleteNeptuneCluster(arn string) error {
 
 	id := resourceNameFromARN(arn)
 
-	_, err := rc.backends.Neptune.Backend.DeleteDBCluster(context.Background(), id)
+	_, err := rc.backends.Neptune.Backend.DeleteDBCluster(
+		context.Background(),
+		id,
+		neptune.DBClusterDeleteOptions{SkipFinalSnapshot: true},
+	)
 
 	return err
 }
@@ -1231,7 +1275,11 @@ func (rc *ResourceCreator) createCodePipelinePipeline(
 		decl.Name = name
 	}
 
-	pipeline, err := rc.backends.CodePipeline.Backend.CreatePipeline(context.Background(), decl, nil)
+	pipeline, err := rc.backends.CodePipeline.Backend.CreatePipeline(
+		context.Background(),
+		decl,
+		nil,
+	)
 	if err != nil {
 		return "", fmt.Errorf("create CodePipeline pipeline %s: %w", name, err)
 	}
@@ -1455,7 +1503,9 @@ func (rc *ResourceCreator) deleteCloudWatchDashboard(name string) error {
 
 // helpers for delete lookups in phase-3 resources
 
-func (rc *ResourceCreator) deletePhase3ComputeResource(physicalID, resourceType string) (bool, error) {
+func (rc *ResourceCreator) deletePhase3ComputeResource(
+	physicalID, resourceType string,
+) (bool, error) {
 	if handled, err := rc.deletePhase3ContainerResource(physicalID, resourceType); handled {
 		return true, err
 	}
@@ -1464,7 +1514,9 @@ func (rc *ResourceCreator) deletePhase3ComputeResource(physicalID, resourceType 
 }
 
 // deletePhase3ContainerResource handles EKS, EFS, and Batch deletions.
-func (rc *ResourceCreator) deletePhase3ContainerResource(physicalID, resourceType string) (bool, error) {
+func (rc *ResourceCreator) deletePhase3ContainerResource(
+	physicalID, resourceType string,
+) (bool, error) {
 	switch resourceType {
 	case "AWS::EKS::Cluster":
 		return true, rc.deleteEKSCluster(physicalID)

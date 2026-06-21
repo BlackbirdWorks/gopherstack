@@ -68,6 +68,8 @@ var (
 	ErrInvalidPassword = errors.New("InvalidInput")
 	// ErrLimitExceeded is returned when an inline policy or other entity exceeds an AWS quota.
 	ErrLimitExceeded = errors.New("LimitExceeded")
+	// ErrValidationError is returned when a parameter fails AWS constraint validation (e.g. MaxSessionDuration bounds).
+	ErrValidationError = errors.New("ValidationError")
 )
 
 // AWS IAM inline policy size limits (UTF-8 bytes, including whitespace) per
@@ -761,8 +763,8 @@ func (b *InMemoryBackend) CreatePolicy(policyName, path, policyDocument string) 
 		return nil, fmt.Errorf("%w: policy %q already exists", ErrPolicyAlreadyExists, policyName)
 	}
 
-	if policyDocument != "" && !json.Valid([]byte(policyDocument)) {
-		return nil, fmt.Errorf("%w: invalid JSON in PolicyDocument", ErrMalformedPolicyDocument)
+	if err := validateIdentityPolicyDocument(policyDocument); err != nil {
+		return nil, err
 	}
 
 	if len(policyDocument) > maxManagedPolicySize {
@@ -1612,8 +1614,8 @@ func (b *InMemoryBackend) PutUserPolicy(userName, policyName, policyDocument str
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
-	if policyDocument != "" && !json.Valid([]byte(policyDocument)) {
-		return fmt.Errorf("%w: invalid JSON in PolicyDocument", ErrMalformedPolicyDocument)
+	if err := validateIdentityPolicyDocument(policyDocument); err != nil {
+		return err
 	}
 
 	if len(policyDocument) > maxUserPolicySize {
@@ -1698,8 +1700,8 @@ func (b *InMemoryBackend) PutRolePolicy(roleName, policyName, policyDocument str
 		return fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
 	}
 
-	if policyDocument != "" && !json.Valid([]byte(policyDocument)) {
-		return fmt.Errorf("%w: invalid JSON in PolicyDocument", ErrMalformedPolicyDocument)
+	if err := validateIdentityPolicyDocument(policyDocument); err != nil {
+		return err
 	}
 
 	if len(policyDocument) > maxRolePolicySize {
@@ -1784,8 +1786,8 @@ func (b *InMemoryBackend) PutGroupPolicy(groupName, policyName, policyDocument s
 		return fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupName)
 	}
 
-	if policyDocument != "" && !json.Valid([]byte(policyDocument)) {
-		return fmt.Errorf("%w: invalid JSON in PolicyDocument", ErrMalformedPolicyDocument)
+	if err := validateIdentityPolicyDocument(policyDocument); err != nil {
+		return err
 	}
 
 	if len(policyDocument) > maxGroupPolicySize {

@@ -108,7 +108,11 @@ func TestPolicyNameFromARN_Coverage(t *testing.T) {
 			b := iam.NewInMemoryBackend()
 
 			// Create a policy then look it up by ARN to trigger policyNameFromARN
-			_, err := b.CreatePolicy(tt.wantName, "/", "{}")
+			_, err := b.CreatePolicy(
+				tt.wantName,
+				"/",
+				`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+			)
 			require.NoError(t, err)
 
 			pol, err := b.GetPolicy(tt.policyArn)
@@ -437,7 +441,11 @@ func TestIAMHandler_PolicyDispatch(t *testing.T) {
 			name:   "GetPolicy_success",
 			action: "GetPolicy",
 			setup: func(b *iam.InMemoryBackend) {
-				_, _ = b.CreatePolicy("ReadOnlyPolicy", "/", "{}")
+				_, _ = b.CreatePolicy(
+					"ReadOnlyPolicy",
+					"/",
+					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+				)
 			},
 			params:      map[string]string{"PolicyArn": "arn:aws:iam::000000000000:policy/ReadOnlyPolicy"},
 			wantCode:    http.StatusOK,
@@ -453,7 +461,11 @@ func TestIAMHandler_PolicyDispatch(t *testing.T) {
 			name:   "GetPolicyVersion_success",
 			action: "GetPolicyVersion",
 			setup: func(b *iam.InMemoryBackend) {
-				_, _ = b.CreatePolicy("VersionedPolicy", "/", "{}")
+				_, _ = b.CreatePolicy(
+					"VersionedPolicy",
+					"/",
+					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+				)
 			},
 			params: map[string]string{
 				"PolicyArn": "arn:aws:iam::000000000000:policy/VersionedPolicy",
@@ -466,7 +478,11 @@ func TestIAMHandler_PolicyDispatch(t *testing.T) {
 			name:   "ListPolicyVersions_success",
 			action: "ListPolicyVersions",
 			setup: func(b *iam.InMemoryBackend) {
-				_, _ = b.CreatePolicy("AnyPolicy", "/", "{}")
+				_, _ = b.CreatePolicy(
+					"AnyPolicy",
+					"/",
+					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+				)
 			},
 			params:      map[string]string{"PolicyArn": "arn:aws:iam::000000000000:policy/AnyPolicy"},
 			wantCode:    http.StatusOK,
@@ -524,7 +540,12 @@ func TestIAMHandler_PolicyDispatch(t *testing.T) {
 			name:   "ListInstanceProfilesForRole_success",
 			action: "ListInstanceProfilesForRole",
 			setup: func(b *iam.InMemoryBackend) {
-				_, _ = b.CreateRole("any-role", "/", `{"Version":"2012-10-17","Statement":[]}`, "")
+				_, _ = b.CreateRole(
+					"any-role",
+					"/",
+					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+					"",
+				)
 			},
 			params:      map[string]string{"RoleName": "any-role"},
 			wantCode:    http.StatusOK,
@@ -699,8 +720,16 @@ func TestIAMHandler_ListPolicies(t *testing.T) {
 	h, b := newTestHandler(t)
 	e := echo.New()
 
-	_, _ = b.CreatePolicy("APolicy", "/", "{}")
-	_, _ = b.CreatePolicy("BPolicy", "/", "{}")
+	_, _ = b.CreatePolicy(
+		"APolicy",
+		"/",
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+	)
+	_, _ = b.CreatePolicy(
+		"BPolicy",
+		"/",
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+	)
 
 	req := iamRequest("ListPolicies", nil)
 	rec := httptest.NewRecorder()

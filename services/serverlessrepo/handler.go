@@ -826,6 +826,12 @@ func (h *Handler) handleUpdateApplication(ctx context.Context, req *http.Request
 
 	resp := toApplicationResponse(a)
 
+	if a.SemanticVersion != "" {
+		if v, vErr := h.Backend.GetApplicationVersion(name, a.SemanticVersion); vErr == nil {
+			resp.Version = toEmbeddedVersionResponse(v)
+		}
+	}
+
 	return json.Marshal(resp)
 }
 
@@ -940,10 +946,11 @@ func (h *Handler) handleListApplicationVersions(req *http.Request) ([]byte, erro
 
 	for _, v := range page {
 		summaries = append(summaries, map[string]any{
-			keyApplicationID:   v.ApplicationID,
-			keySemanticVersion: v.SemanticVersion,
-			"sourceCodeUrl":    v.SourceCodeURL,
-			keyCreationTime:    isoTimestamp(v.CreationTime),
+			keyApplicationID:     v.ApplicationID,
+			keySemanticVersion:   v.SemanticVersion,
+			"sourceCodeUrl":      v.SourceCodeURL,
+			keyCreationTime:      isoTimestamp(v.CreationTime),
+			"resourcesSupported": v.ResourcesSupported,
 		})
 	}
 
@@ -1205,15 +1212,40 @@ func (h *Handler) handleListApplicationDependencies(req *http.Request) ([]byte, 
 		return nil, backendErr
 	}
 
-	depList := make([]map[string]any, 0, len(deps))
-	for _, d := range deps {
+	nextToken := req.URL.Query().Get("nextToken")
+	maxItems := parseMaxItems(req.URL.Query().Get("maxItems"), maxItemsDefault)
+
+	start := 0
+
+	if nextToken != "" {
+		for i, d := range deps {
+			if d.ApplicationID == nextToken {
+				start = i + 1
+
+				break
+			}
+		}
+	}
+
+	end := min(start+maxItems, len(deps))
+	page := deps[start:end]
+
+	depList := make([]map[string]any, 0, len(page))
+
+	for _, d := range page {
 		depList = append(depList, map[string]any{
 			keyApplicationID:   d.ApplicationID,
 			keySemanticVersion: d.SemanticVersion,
 		})
 	}
 
-	return json.Marshal(map[string]any{"dependencies": depList})
+	resp := map[string]any{"dependencies": depList}
+
+	if end < len(deps) {
+		resp["nextToken"] = deps[end-1].ApplicationID
+	}
+
+	return json.Marshal(resp)
 }
 
 // unshareApplicationRequest is the request body for UnshareApplication.

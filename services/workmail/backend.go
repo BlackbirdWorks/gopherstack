@@ -3,8 +3,10 @@ package workmail
 import (
 	"errors"
 	"fmt"
+	"net"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -25,6 +27,8 @@ var (
 	ErrLimitExceeded = errors.New("LimitExceededException")
 	// ErrMailDomainState is returned for domain state issues.
 	ErrMailDomainState = errors.New("MailDomainStateException")
+	// ErrEntityState is returned when an operation violates entity state constraints.
+	ErrEntityState = errors.New("EntityStateException")
 )
 
 const (
@@ -35,6 +39,10 @@ const (
 
 	memberTypeUser  = "USER"
 	memberTypeGroup = "GROUP"
+
+	roleUser       = "USER"
+	roleResource   = "RESOURCE"
+	roleSystemUser = "SYSTEM_USER"
 
 	defaultMailboxQuota = int32(50000)
 
@@ -198,7 +206,10 @@ func (b *InMemoryBackend) ensureOrgMaps(orgID string) {
 // --- Organizations ---
 
 // CreateOrganization creates a new WorkMail organization.
-func (b *InMemoryBackend) CreateOrganization(alias string, domains []string) (*Organization, error) {
+func (b *InMemoryBackend) CreateOrganization(
+	alias string,
+	domains []string,
+) (*Organization, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -296,7 +307,10 @@ func (b *InMemoryBackend) DeleteOrganization(orgID string, _ bool) error {
 }
 
 // ListOrganizations returns a paginated list of organizations.
-func (b *InMemoryBackend) ListOrganizations(maxResults int32, nextToken string) ([]*OrgSummary, string, error) {
+func (b *InMemoryBackend) ListOrganizations(
+	maxResults int32,
+	nextToken string,
+) ([]*OrgSummary, string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -320,7 +334,9 @@ func (b *InMemoryBackend) ListOrganizations(maxResults int32, nextToken string) 
 // --- Users ---
 
 // CreateUser creates a new WorkMail user.
-func (b *InMemoryBackend) CreateUser(orgID, name, displayName, password, role string) (*User, error) {
+func (b *InMemoryBackend) CreateUser(
+	orgID, name, displayName, password, role string,
+) (*User, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -329,6 +345,18 @@ func (b *InMemoryBackend) CreateUser(orgID, name, displayName, password, role st
 		return nil, fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
 	}
 	_ = org
+
+	if name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
+	}
+	validRoles := map[string]bool{roleUser: true, roleResource: true, roleSystemUser: true}
+	if role != "" && !validRoles[role] {
+		return nil, fmt.Errorf(
+			"%w: invalid Role %q, must be USER, RESOURCE, or SYSTEM_USER",
+			ErrValidation,
+			role,
+		)
+	}
 
 	b.ensureOrgMaps(orgID)
 	for _, u := range b.users[orgID] {
@@ -394,7 +422,9 @@ func (b *InMemoryBackend) findUser(orgID, entityID string) *User {
 }
 
 // UpdateUser updates display name and name fields.
-func (b *InMemoryBackend) UpdateUser(orgID, entityID, displayName, firstName, lastName string) error {
+func (b *InMemoryBackend) UpdateUser(
+	orgID, entityID, displayName, firstName, lastName string,
+) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -432,6 +462,14 @@ func (b *InMemoryBackend) DeleteUser(orgID, entityID string) error {
 		return fmt.Errorf("%w: user %q not found", ErrNotFound, entityID)
 	}
 
+	if u.State == stateEnabled {
+		return fmt.Errorf(
+			"%w: user %q is in ENABLED state and cannot be deleted; call DeregisterFromWorkMail first",
+			ErrEntityState,
+			entityID,
+		)
+	}
+
 	actualID := u.UserID
 	if u.Email != "" {
 		delete(b.usersByEmail[orgID], u.Email)
@@ -442,7 +480,11 @@ func (b *InMemoryBackend) DeleteUser(orgID, entityID string) error {
 }
 
 // ListUsers returns a paginated list of users.
-func (b *InMemoryBackend) ListUsers(orgID string, maxResults int32, nextToken string) ([]*UserSummary, string, error) {
+func (b *InMemoryBackend) ListUsers(
+	orgID string,
+	maxResults int32,
+	nextToken string,
+) ([]*UserSummary, string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -458,6 +500,7 @@ func (b *InMemoryBackend) ListUsers(orgID string, maxResults int32, nextToken st
 			Email:       u.Email,
 			DisplayName: u.DisplayName,
 			State:       u.State,
+			Role:        u.Role,
 		})
 	}
 	sort.Slice(users, func(i, j int) bool { return users[i].Name < users[j].Name })
@@ -653,6 +696,30 @@ func (b *InMemoryBackend) UpdatePrimaryEmailAddress(orgID, entityID, email strin
 		return nil
 	}
 
+	if g := b.findGroup(orgID, entityID); g != nil {
+		if g.Email != "" {
+			delete(b.groupsByEmail[orgID], g.Email)
+			delete(b.globalAliases, g.Email)
+		}
+		g.Email = email
+		b.groupsByEmail[orgID][email] = g.GroupID
+		b.globalAliases[email] = &trackedAlias{orgID: orgID, entityID: g.GroupID}
+
+		return nil
+	}
+
+	if r := b.findResource(orgID, entityID); r != nil {
+		if r.Email != "" {
+			delete(b.resourcesByEmail[orgID], r.Email)
+			delete(b.globalAliases, r.Email)
+		}
+		r.Email = email
+		b.resourcesByEmail[orgID][email] = r.ResourceID
+		b.globalAliases[email] = &trackedAlias{orgID: orgID, entityID: r.ResourceID}
+
+		return nil
+	}
+
 	return fmt.Errorf("%w: entity %q not found", ErrNotFound, entityID)
 }
 
@@ -681,6 +748,11 @@ func (b *InMemoryBackend) CreateGroup(orgID, name string, hidden bool) (*Group, 
 	if _, ok := b.organizations[orgID]; !ok {
 		return nil, fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
 	}
+
+	if name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
+	}
+
 	b.ensureOrgMaps(orgID)
 	for _, g := range b.groups[orgID] {
 		if g.Name == name {
@@ -752,6 +824,14 @@ func (b *InMemoryBackend) DeleteGroup(orgID, entityID string) error {
 		return fmt.Errorf("%w: group %q not found", ErrNotFound, entityID)
 	}
 
+	if g.State == stateEnabled {
+		return fmt.Errorf(
+			"%w: group %q is in ENABLED state and cannot be deleted; call DeregisterFromWorkMail first",
+			ErrEntityState,
+			entityID,
+		)
+	}
+
 	if g.Email != "" {
 		delete(b.groupsByEmail[orgID], g.Email)
 		delete(b.globalAliases, g.Email)
@@ -777,7 +857,10 @@ func (b *InMemoryBackend) ListGroups(
 
 	gs := make([]*GroupSummary, 0, len(b.groups[orgID]))
 	for _, g := range b.groups[orgID] {
-		gs = append(gs, &GroupSummary{GroupID: g.GroupID, Name: g.Name, Email: g.Email, State: g.State})
+		gs = append(
+			gs,
+			&GroupSummary{GroupID: g.GroupID, Name: g.Name, Email: g.Email, State: g.State},
+		)
 	}
 	sort.Slice(gs, func(i, j int) bool { return gs[i].Name < gs[j].Name })
 
@@ -886,7 +969,10 @@ func (b *InMemoryBackend) ListGroupsForEntity(
 	gs := make([]*GroupSummary, 0)
 	for _, g := range b.groups[orgID] {
 		if b.groupMembers[orgID][g.GroupID][entityID] {
-			gs = append(gs, &GroupSummary{GroupID: g.GroupID, Name: g.Name, Email: g.Email, State: g.State})
+			gs = append(
+				gs,
+				&GroupSummary{GroupID: g.GroupID, Name: g.Name, Email: g.Email, State: g.State},
+			)
 		}
 	}
 	sort.Slice(gs, func(i, j int) bool { return gs[i].Name < gs[j].Name })
@@ -914,13 +1000,28 @@ func (b *InMemoryBackend) findResource(orgID, entityID string) *Resource {
 }
 
 // CreateResource creates a new WorkMail resource.
-func (b *InMemoryBackend) CreateResource(orgID, name, resourceType, description string) (*Resource, error) {
+func (b *InMemoryBackend) CreateResource(
+	orgID, name, resourceType, description string,
+) (*Resource, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	if _, ok := b.organizations[orgID]; !ok {
 		return nil, fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
 	}
+
+	if name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
+	}
+	validTypes := map[string]bool{"ROOM": true, "EQUIPMENT": true}
+	if resourceType != "" && !validTypes[resourceType] {
+		return nil, fmt.Errorf(
+			"%w: invalid Type %q, must be ROOM or EQUIPMENT",
+			ErrValidation,
+			resourceType,
+		)
+	}
+
 	b.ensureOrgMaps(orgID)
 	for _, r := range b.resources[orgID] {
 		if r.Name == name {
@@ -999,6 +1100,14 @@ func (b *InMemoryBackend) DeleteResource(orgID, entityID string) error {
 		return fmt.Errorf("%w: resource %q not found", ErrNotFound, entityID)
 	}
 
+	if r.State == stateEnabled {
+		return fmt.Errorf(
+			"%w: resource %q is in ENABLED state and cannot be deleted; call DeregisterFromWorkMail first",
+			ErrEntityState,
+			entityID,
+		)
+	}
+
 	if r.Email != "" {
 		delete(b.resourcesByEmail[orgID], r.Email)
 		delete(b.globalAliases, r.Email)
@@ -1062,7 +1171,9 @@ func (b *InMemoryBackend) AssociateDelegateToResource(orgID, resourceID, entityI
 }
 
 // DisassociateDelegateFromResource removes a delegate from a resource.
-func (b *InMemoryBackend) DisassociateDelegateFromResource(orgID, resourceID, entityID string) error {
+func (b *InMemoryBackend) DisassociateDelegateFromResource(
+	orgID, resourceID, entityID string,
+) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -1108,7 +1219,10 @@ func (b *InMemoryBackend) ListResourceDelegates(
 		}
 		delegates = append(delegates, &Delegate{DelegateID: entityID, DelegateType: dt})
 	}
-	sort.Slice(delegates, func(i, j int) bool { return delegates[i].DelegateID < delegates[j].DelegateID })
+	sort.Slice(
+		delegates,
+		func(i, j int) bool { return delegates[i].DelegateID < delegates[j].DelegateID },
+	)
 
 	items, next := paginate(delegates, maxResults, nextToken)
 
@@ -1231,7 +1345,10 @@ func (b *InMemoryBackend) ListAliases(
 // --- Mailbox Permissions ---
 
 // PutMailboxPermissions creates or updates mailbox permissions.
-func (b *InMemoryBackend) PutMailboxPermissions(orgID, entityID, granteeID string, perms []string) error {
+func (b *InMemoryBackend) PutMailboxPermissions(
+	orgID, entityID, granteeID string,
+	perms []string,
+) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -1412,7 +1529,10 @@ func (b *InMemoryBackend) ListMailDomains(
 			IsTestDomain: d.IsTestDomain,
 		})
 	}
-	sort.Slice(domains, func(i, j int) bool { return domains[i].DomainName < domains[j].DomainName })
+	sort.Slice(
+		domains,
+		func(i, j int) bool { return domains[i].DomainName < domains[j].DomainName },
+	)
 
 	items, next := paginate(domains, maxResults, nextToken)
 
@@ -1502,7 +1622,9 @@ func (b *InMemoryBackend) DeleteAccessControlRule(orgID, name string) error {
 }
 
 // GetAccessControlEffect evaluates access control rules.
-func (b *InMemoryBackend) GetAccessControlEffect(orgID, _, _, _ string) (string, []string, error) {
+func (b *InMemoryBackend) GetAccessControlEffect(
+	orgID, ipAddr, action, userID string,
+) (string, []string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -1510,8 +1632,69 @@ func (b *InMemoryBackend) GetAccessControlEffect(orgID, _, _, _ string) (string,
 		return "", nil, fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
 	}
 
-	// default effect when no rules match
+	rules := make([]*AccessControlRule, 0, len(b.accessRules[orgID]))
+	for _, r := range b.accessRules[orgID] {
+		rules = append(rules, r)
+	}
+	// AWS evaluates rules in creation order; sort by DateCreated for determinism
+	sort.Slice(rules, func(i, j int) bool {
+		return rules[i].DateCreated.Before(rules[j].DateCreated)
+	})
+
+	for _, rule := range rules {
+		if !ruleMatchesRequest(rule, ipAddr, action, userID) {
+			continue
+		}
+
+		return rule.Effect, []string{rule.Name}, nil
+	}
+
 	return effectAllow, []string{}, nil
+}
+
+// ruleMatchesRequest returns true when ALL non-empty condition lists match.
+func ruleMatchesRequest(rule *AccessControlRule, ipAddr, action, userID string) bool {
+	if len(rule.IPRanges) > 0 && !matchesCIDRList(ipAddr, rule.IPRanges) {
+		return false
+	}
+	if len(rule.NotIPRanges) > 0 && matchesCIDRList(ipAddr, rule.NotIPRanges) {
+		return false
+	}
+	if len(rule.Actions) > 0 && !slices.Contains(rule.Actions, action) {
+		return false
+	}
+	if len(rule.NotActions) > 0 && slices.Contains(rule.NotActions, action) {
+		return false
+	}
+	if len(rule.UserIDs) > 0 && !slices.Contains(rule.UserIDs, userID) {
+		return false
+	}
+	if len(rule.NotUserIDs) > 0 && slices.Contains(rule.NotUserIDs, userID) {
+		return false
+	}
+
+	return true
+}
+
+func matchesCIDRList(ipAddr string, cidrs []string) bool {
+	ip := net.ParseIP(ipAddr)
+	if ip == nil {
+		return false
+	}
+	for _, cidr := range cidrs {
+		if !strings.Contains(cidr, "/") {
+			cidr += "/32"
+		}
+		_, network, err := net.ParseCIDR(cidr)
+		if err != nil {
+			continue
+		}
+		if network.Contains(ip) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // ListAccessControlRules returns all access control rules.
@@ -1732,13 +1915,28 @@ func (b *InMemoryBackend) DescribeEntity(orgID, entityID string) (*EntityDescrip
 	}
 
 	if u := b.findUser(orgID, entityID); u != nil {
-		return &EntityDescription{EntityID: u.UserID, Name: u.Name, Type: "USER", State: u.State}, nil
+		return &EntityDescription{
+			EntityID: u.UserID,
+			Name:     u.Name,
+			Type:     "USER",
+			State:    u.State,
+		}, nil
 	}
 	if g := b.findGroup(orgID, entityID); g != nil {
-		return &EntityDescription{EntityID: g.GroupID, Name: g.Name, Type: "GROUP", State: g.State}, nil
+		return &EntityDescription{
+			EntityID: g.GroupID,
+			Name:     g.Name,
+			Type:     "GROUP",
+			State:    g.State,
+		}, nil
 	}
 	if r := b.findResource(orgID, entityID); r != nil {
-		return &EntityDescription{EntityID: r.ResourceID, Name: r.Name, Type: "RESOURCE", State: r.State}, nil
+		return &EntityDescription{
+			EntityID: r.ResourceID,
+			Name:     r.Name,
+			Type:     "RESOURCE",
+			State:    r.State,
+		}, nil
 	}
 
 	return nil, fmt.Errorf("%w: entity %q not found", ErrNotFound, entityID)
@@ -1758,7 +1956,11 @@ func (b *InMemoryBackend) CreateAvailabilityConfiguration(
 	}
 	b.ensureOrgMaps(orgID)
 	if _, ok := b.availabilityConfigs[orgID][domainName]; ok {
-		return nil, fmt.Errorf("%w: availability configuration for %q already exists", ErrConflict, domainName)
+		return nil, fmt.Errorf(
+			"%w: availability configuration for %q already exists",
+			ErrConflict,
+			domainName,
+		)
 	}
 	now := time.Now()
 	cfg := &AvailabilityConfiguration{
@@ -1789,7 +1991,11 @@ func (b *InMemoryBackend) DeleteAvailabilityConfiguration(orgID, domainName stri
 	}
 	b.ensureOrgMaps(orgID)
 	if _, ok := b.availabilityConfigs[orgID][domainName]; !ok {
-		return fmt.Errorf("%w: availability configuration for %q not found", ErrNotFound, domainName)
+		return fmt.Errorf(
+			"%w: availability configuration for %q not found",
+			ErrNotFound,
+			domainName,
+		)
 	}
 	delete(b.availabilityConfigs[orgID], domainName)
 
@@ -1809,7 +2015,11 @@ func (b *InMemoryBackend) UpdateAvailabilityConfiguration(
 	b.ensureOrgMaps(orgID)
 	cfg, ok := b.availabilityConfigs[orgID][domainName]
 	if !ok {
-		return fmt.Errorf("%w: availability configuration for %q not found", ErrNotFound, domainName)
+		return fmt.Errorf(
+			"%w: availability configuration for %q not found",
+			ErrNotFound,
+			domainName,
+		)
 	}
 	cfg.DateModified = time.Now()
 	if ewsProvider != nil {
@@ -1848,7 +2058,9 @@ func (b *InMemoryBackend) ListAvailabilityConfigurations(
 }
 
 // TestAvailabilityConfiguration simulates testing a configuration.
-func (b *InMemoryBackend) TestAvailabilityConfiguration(orgID, domainName string) (bool, string, error) {
+func (b *InMemoryBackend) TestAvailabilityConfiguration(
+	orgID, domainName string,
+) (bool, string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -1857,7 +2069,11 @@ func (b *InMemoryBackend) TestAvailabilityConfiguration(orgID, domainName string
 	}
 	if domainName != "" {
 		if _, ok := b.availabilityConfigs[orgID][domainName]; !ok {
-			return false, "", fmt.Errorf("%w: availability configuration for %q not found", ErrNotFound, domainName)
+			return false, "", fmt.Errorf(
+				"%w: availability configuration for %q not found",
+				ErrNotFound,
+				domainName,
+			)
 		}
 	}
 
@@ -1952,7 +2168,9 @@ func (b *InMemoryBackend) UpdateMobileDeviceAccessRule(
 }
 
 // ListMobileDeviceAccessRules lists all mobile device access rules for an org.
-func (b *InMemoryBackend) ListMobileDeviceAccessRules(orgID string) ([]*MobileDeviceAccessRule, error) {
+func (b *InMemoryBackend) ListMobileDeviceAccessRules(
+	orgID string,
+) ([]*MobileDeviceAccessRule, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -2134,14 +2352,19 @@ func (b *InMemoryBackend) ListMobileDeviceAccessOverrides(
 // --- Email Monitoring Configuration ---
 
 // PutEmailMonitoringConfiguration sets email monitoring config for an org.
-func (b *InMemoryBackend) PutEmailMonitoringConfiguration(orgID, roleARN, logGroupARN string) error {
+func (b *InMemoryBackend) PutEmailMonitoringConfiguration(
+	orgID, roleARN, logGroupARN string,
+) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	if _, ok := b.organizations[orgID]; !ok {
 		return fmt.Errorf("%w: organization %q not found", ErrNotFound, orgID)
 	}
-	b.emailMonitoring[orgID] = &EmailMonitoringConfiguration{RoleARN: roleARN, LogGroupARN: logGroupARN}
+	b.emailMonitoring[orgID] = &EmailMonitoringConfiguration{
+		RoleARN:     roleARN,
+		LogGroupARN: logGroupARN,
+	}
 
 	return nil
 }
@@ -2160,7 +2383,9 @@ func (b *InMemoryBackend) DeleteEmailMonitoringConfiguration(orgID string) error
 }
 
 // DescribeEmailMonitoringConfiguration returns email monitoring config for an org.
-func (b *InMemoryBackend) DescribeEmailMonitoringConfiguration(orgID string) (*EmailMonitoringConfiguration, error) {
+func (b *InMemoryBackend) DescribeEmailMonitoringConfiguration(
+	orgID string,
+) (*EmailMonitoringConfiguration, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -2366,7 +2591,11 @@ func (b *InMemoryBackend) DeleteIdentityCenterApplication(applicationARN string)
 	defer b.mu.Unlock()
 
 	if _, ok := b.identityCenterApps[applicationARN]; !ok {
-		return fmt.Errorf("%w: identity center application %q not found", ErrNotFound, applicationARN)
+		return fmt.Errorf(
+			"%w: identity center application %q not found",
+			ErrNotFound,
+			applicationARN,
+		)
 	}
 	delete(b.identityCenterApps, applicationARN)
 
@@ -2377,7 +2606,8 @@ func (b *InMemoryBackend) DeleteIdentityCenterApplication(applicationARN string)
 
 // PutIdentityProviderConfiguration creates or updates IdP configuration.
 func (b *InMemoryBackend) PutIdentityProviderConfiguration(
-	orgID, authMode, identityCenterAppARN, identityCenterInstanceARN, patStatus string, patLifetimeDays int32,
+	orgID, authMode, identityCenterAppARN, identityCenterInstanceARN, patStatus string,
+	patLifetimeDays int32,
 ) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -2413,7 +2643,9 @@ func (b *InMemoryBackend) DeleteIdentityProviderConfiguration(orgID string) erro
 }
 
 // DescribeIdentityProviderConfiguration returns IdP configuration for an org.
-func (b *InMemoryBackend) DescribeIdentityProviderConfiguration(orgID string) (*IdentityProviderConfiguration, error) {
+func (b *InMemoryBackend) DescribeIdentityProviderConfiguration(
+	orgID string,
+) (*IdentityProviderConfiguration, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -2448,7 +2680,9 @@ func (b *InMemoryBackend) DeletePersonalAccessToken(orgID, tokenID string) error
 }
 
 // GetPersonalAccessTokenMetadata returns metadata for a personal access token.
-func (b *InMemoryBackend) GetPersonalAccessTokenMetadata(orgID, tokenID string) (*PersonalAccessToken, error) {
+func (b *InMemoryBackend) GetPersonalAccessTokenMetadata(
+	orgID, tokenID string,
+) (*PersonalAccessToken, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -2573,13 +2807,8 @@ func paginate[T any](items []T, maxResults int32, nextToken string) ([]T, string
 
 	start := 0
 	if nextToken != "" {
-		for i, item := range items {
-			// Use fmt.Sprintf for stable comparison via token = ID field of first skipped item.
-			if fmt.Sprintf("%v", item) == nextToken {
-				start = i
-
-				break
-			}
+		if idx, err := strconv.Atoi(nextToken); err == nil && idx > 0 && idx < len(items) {
+			start = idx
 		}
 	}
 
@@ -2592,7 +2821,5 @@ func paginate[T any](items []T, maxResults int32, nextToken string) ([]T, string
 		return items[start:], ""
 	}
 
-	next := fmt.Sprintf("%v", items[end])
-
-	return items[start:end], next
+	return items[start:end], strconv.Itoa(end)
 }

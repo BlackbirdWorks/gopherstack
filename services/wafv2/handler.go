@@ -2266,9 +2266,9 @@ func (h *Handler) handleDescribeManagedRuleGroup(body []byte) ([]byte, error) {
 		if mrg.VendorName == req.VendorName && mrg.Name == req.Name {
 			return json.Marshal(map[string]any{
 				keyCapacity:       mrg.Capacity,
-				keyRules:          []any{},
+				keyRules:          buildRuleList(mrg.Rules),
 				"SnsTopicArn":     "",
-				"AvailableLabels": []any{},
+				"AvailableLabels": buildLabelList(mrg.Rules),
 				"ConsumedLabels":  []any{},
 				"Description":     mrg.Description,
 			})
@@ -2279,6 +2279,59 @@ func (h *Handler) handleDescribeManagedRuleGroup(body []byte) ([]byte, error) {
 		"%w: managed rule group %q/%q not found",
 		ErrManagedRuleGroupNotFound, req.VendorName, req.Name,
 	)
+}
+
+// buildRuleList converts catalog rule entries to the AWS DescribeManagedRuleGroup Rules format.
+func buildRuleList(rules []managedRuleInfo) []any {
+	if len(rules) == 0 {
+		return []any{}
+	}
+
+	out := make([]any, len(rules))
+	for i, r := range rules {
+		out[i] = map[string]any{
+			keyName:  r.Name,
+			"Action": map[string]any{capitalizeAction(r.DefaultAction): map[string]any{}},
+		}
+	}
+
+	return out
+}
+
+// capitalizeAction maps lowercase action names to the title-case form AWS uses in responses.
+func capitalizeAction(action string) string {
+	switch action {
+	case actionBlock:
+		return "Block"
+	case actionCount:
+		return "Count"
+	case "allow":
+		return "Allow"
+	default:
+		return action
+	}
+}
+
+// buildLabelList collects all unique labels from a rule set into AWS DescribeManagedRuleGroup
+// AvailableLabels format: [{Name: "label"}].
+func buildLabelList(rules []managedRuleInfo) []any {
+	seen := make(map[string]bool)
+	var out []any
+
+	for _, r := range rules {
+		for _, lbl := range r.Labels {
+			if !seen[lbl] {
+				seen[lbl] = true
+				out = append(out, map[string]any{"Name": lbl})
+			}
+		}
+	}
+
+	if out == nil {
+		return []any{}
+	}
+
+	return out
 }
 
 // generateMobileSdkReleaseUrlRequest is the request body for GenerateMobileSdkReleaseUrl.

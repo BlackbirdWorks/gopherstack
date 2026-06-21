@@ -550,7 +550,7 @@ func (h *Handler) handleGetModelInvocationJob(c *echo.Context, jobARN string) er
 }
 
 func (h *Handler) handleListModelInvocationJobs(c *echo.Context) error {
-	jobs := h.Backend.ListModelInvocationJobs()
+	jobs, _ := h.Backend.ListModelInvocationJobs(nil)
 	summaries := make([]map[string]any, 0, len(jobs))
 
 	for _, j := range jobs {

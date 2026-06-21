@@ -134,12 +134,12 @@ func TestBackend_DescribeClusters_Pagination(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	p1, err := b.DescribeClusters(context.Background(), "", "", 3)
+	p1, err := b.DescribeClusters(context.Background(), "", "", 3, false)
 	require.NoError(t, err)
 	assert.Len(t, p1.Data, 3)
 	assert.NotEmpty(t, p1.Next)
 
-	p2, err := b.DescribeClusters(context.Background(), "", p1.Next, 3)
+	p2, err := b.DescribeClusters(context.Background(), "", p1.Next, 3, false)
 	require.NoError(t, err)
 	assert.Len(t, p2.Data, 2)
 	assert.Empty(t, p2.Next)
@@ -402,7 +402,7 @@ func TestBackend_DescribeSnapshots_FilterByName(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	p, err := b.DescribeSnapshots(context.Background(), "snap-a", "", "", "", 0)
+	p, err := b.DescribeSnapshots(context.Background(), "snap-a", "", "", "", "", 0)
 	require.NoError(t, err)
 	require.Len(t, p.Data, 1)
 	assert.Equal(t, "snap-a", p.Data[0].SnapshotName)
@@ -434,7 +434,7 @@ func TestBackend_DeleteSnapshot(t *testing.T) {
 	assert.Equal(t, "to-delete-snap", deleted.SnapshotName)
 
 	// Should be gone now.
-	_, err = b.DescribeSnapshots(context.Background(), "to-delete-snap", "", "", "", 0)
+	_, err = b.DescribeSnapshots(context.Background(), "to-delete-snap", "", "", "", "", 0)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, elasticache.ErrSnapshotNotFound)
 }
@@ -465,7 +465,7 @@ func TestBackend_CopySnapshot(t *testing.T) {
 	assert.Equal(t, "copy-dst-snap", copied.SnapshotName)
 
 	// Both exist.
-	p, err := b.DescribeSnapshots(context.Background(), "", "", "", "", 0)
+	p, err := b.DescribeSnapshots(context.Background(), "", "", "", "", "", 0)
 	require.NoError(t, err)
 	assert.Len(t, p.Data, 2)
 }
@@ -1313,7 +1313,7 @@ func TestBackend_Reset_ClearsAll(t *testing.T) {
 	b.Reset()
 
 	// All resources should be gone.
-	p1, err := b.DescribeClusters(context.Background(), "", "", 0)
+	p1, err := b.DescribeClusters(context.Background(), "", "", 0, false)
 	require.NoError(t, err)
 	assert.Empty(t, p1.Data)
 

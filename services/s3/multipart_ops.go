@@ -27,6 +27,11 @@ func (h *S3Handler) createMultipartUpload(
 	h.setOperation(ctx, "CreateMultipartUpload")
 
 	tagging := r.Header.Get("X-Amz-Tagging")
+	if err := validateTaggingHeader(tagging); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
 
 	// Capture SSE config at session-init time and pin it on the upload via
 	// ctx. CompleteMultipartUpload reads it back to apply envelope encryption
@@ -149,8 +154,8 @@ func (h *S3Handler) uploadPartCopy(
 			return
 		}
 
-		start, end, ok := parseRange(srcRange, int64(len(data)))
-		if !ok {
+		start, end, result := parseRange(srcRange, int64(len(data)))
+		if result != rangeOK {
 			WriteError(ctx, w, r, ErrInvalidArgument)
 
 			return
@@ -331,19 +336,23 @@ func (h *S3Handler) listMultipartUploads(
 		return
 	}
 
+	encodingType := q.Get("encoding-type")
 	result := ListMultipartUploadsResult{
 		Xmlns:              xmlNamespaceS3,
 		Bucket:             bucketName,
-		Delimiter:          q.Get("delimiter"),
+		Prefix:             encodeListKey(encodingType, q.Get("prefix")),
+		Delimiter:          encodeListKey(encodingType, q.Get("delimiter")),
+		KeyMarker:          encodeListKey(encodingType, q.Get("key-marker")),
 		MaxUploads:         int(aws.ToInt32(out.MaxUploads)),
 		IsTruncated:        aws.ToBool(out.IsTruncated),
-		NextKeyMarker:      aws.ToString(out.NextKeyMarker),
+		NextKeyMarker:      encodeListKey(encodingType, aws.ToString(out.NextKeyMarker)),
 		NextUploadIDMarker: aws.ToString(out.NextUploadIdMarker),
+		EncodingType:       encodingType,
 	}
 
 	for _, u := range out.Uploads {
 		result.Uploads = append(result.Uploads, MultipartUpload{
-			Key:       aws.ToString(u.Key),
+			Key:       encodeListKey(encodingType, aws.ToString(u.Key)),
 			UploadID:  aws.ToString(u.UploadId),
 			Initiated: aws.ToTime(u.Initiated),
 		})
@@ -351,7 +360,7 @@ func (h *S3Handler) listMultipartUploads(
 
 	for _, cp := range out.CommonPrefixes {
 		result.CommonPrefixes = append(result.CommonPrefixes, CommonPrefixXML{
-			Prefix: aws.ToString(cp.Prefix),
+			Prefix: encodeListKey(encodingType, aws.ToString(cp.Prefix)),
 		})
 	}
 
