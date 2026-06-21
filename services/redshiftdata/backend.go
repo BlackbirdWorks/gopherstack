@@ -42,6 +42,19 @@ const (
 	demoResultSize = int64(64)
 	// statusAll matches all statement statuses in ListStatements.
 	statusAll = "ALL"
+
+	// maxListDatabasesResults is the maximum page size for ListDatabases.
+	maxListDatabasesResults = 60
+	// defaultListDatabasesResults is the default page size for ListDatabases.
+	defaultListDatabasesResults = 60
+	// maxListSchemasResults is the maximum page size for ListSchemas.
+	maxListSchemasResults = 1000
+	// defaultListSchemasResults is the default page size for ListSchemas.
+	defaultListSchemasResults = 1000
+	// maxListTablesResults is the maximum page size for ListTables.
+	maxListTablesResults = 1000
+	// defaultListTablesResults is the default page size for ListTables.
+	defaultListTablesResults = 1000
 )
 
 var (
@@ -54,6 +67,47 @@ var (
 	// ErrNoResultSet is returned when fetching results for a statement with no result set.
 	ErrNoResultSet = awserr.New("ValidationException", awserr.ErrInvalidParameter)
 )
+
+// ValidateListStatementsStatus returns ErrValidation if status is not a known value.
+// An empty string is also accepted (matches FINISHED per AWS default).
+func ValidateListStatementsStatus(status string) error {
+	if status == "" {
+		return nil
+	}
+
+	switch status {
+	case statusAll, statusAborted, statusFailed, statusFinished, "PICKED", "STARTED", "SUBMITTED":
+		return nil
+	default:
+		return fmt.Errorf(
+			"%w: Status %q is invalid; valid values are ALL, ABORTED, FAILED, FINISHED, PICKED, STARTED, SUBMITTED",
+			ErrValidation, status,
+		)
+	}
+}
+
+// ValidateConnectionTarget verifies that exactly one of clusterIdentifier or
+// workgroupName is provided, matching the AWS constraint.
+func ValidateConnectionTarget(clusterIdentifier, workgroupName string) error {
+	hasBoth := clusterIdentifier != "" && workgroupName != ""
+	hasNeither := clusterIdentifier == "" && workgroupName == ""
+
+	if hasBoth {
+		return fmt.Errorf(
+			"%w: specify either ClusterIdentifier or WorkgroupName, not both",
+			ErrValidation,
+		)
+	}
+
+	if hasNeither {
+		return fmt.Errorf(
+			"%w: either ClusterIdentifier or WorkgroupName is required",
+			ErrValidation,
+		)
+	}
+
+	return nil
+}
 
 // regionContextKey is the context key under which the per-request AWS region is stored.
 type regionContextKey struct{}
@@ -283,6 +337,12 @@ func (b *InMemoryBackend) BatchExecuteStatement(
 ) (*Statement, error) {
 	if len(sqls) == 0 {
 		return nil, fmt.Errorf("%w: Sqls is required", ErrValidation)
+	}
+
+	for i, sql := range sqls {
+		if sql == "" {
+			return nil, fmt.Errorf("%w: Sqls[%d] must not be empty", ErrValidation, i)
+		}
 	}
 
 	if database == "" {
