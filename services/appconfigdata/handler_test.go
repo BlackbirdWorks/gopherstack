@@ -1401,10 +1401,24 @@ func decodeErrorBody(t *testing.T, body string) (string, string) {
 	var m map[string]any
 	require.NoError(t, json.Unmarshal([]byte(body), &m), "error body must be valid JSON")
 
+<<<<<<< Updated upstream
 	errType, _ := m["__type"].(string)
 	errMsg, _ := m["message"].(string)
 
 	return errType, errMsg
+=======
+	var errType, msg string
+
+	if v, ok := m["__type"].(string); ok {
+		errType = v
+	}
+
+	if v, ok := m["message"].(string); ok {
+		msg = v
+	}
+
+	return errType, msg
+>>>>>>> Stashed changes
 }
 
 // TestHandler_ErrorBodyFormat verifies that all error responses carry __type + message fields
@@ -1563,9 +1577,9 @@ func TestHandler_BadRequestException_Details(t *testing.T) {
 		tok := sessionResp["InitialConfigurationToken"]
 
 		// First poll succeeds.
-		rec1 := doRequest(t, h2, http.MethodGet, "/configuration?configuration_token="+tok, nil)
-		require.Equal(t, http.StatusOK, rec1.Code)
-		nextTok := rec1.Header().Get("Next-Poll-Configuration-Token")
+		firstPoll := doRequest(t, h2, http.MethodGet, "/configuration?configuration_token="+tok, nil)
+		require.Equal(t, http.StatusOK, firstPoll.Code)
+		nextTok := firstPoll.Header().Get("Next-Poll-Configuration-Token")
 		require.NotEmpty(t, nextTok)
 
 		// Immediately poll again with next token — should be too frequent.
