@@ -265,7 +265,7 @@ func TestRefinement1_ListGroups_Sorted(t *testing.T) {
 		doResourceGroupsRequest(t, h, "CreateGroup", map[string]any{"Name": name})
 	}
 
-	groups := b.ListGroups(context.Background(), nil)
+	groups, _ := b.ListGroups(context.Background(), nil, "", 0)
 	require.Len(t, groups, 3)
 	assert.Equal(t, "a-group", groups[0].Name)
 	assert.Equal(t, "m-group", groups[1].Name)
@@ -484,7 +484,7 @@ func TestRefinement1_ListTagSyncTasks_Sorted(t *testing.T) {
 	require.NoError(t, err1)
 	require.NoError(t, err2)
 
-	tasks, err := b.ListTagSyncTasks(context.Background(), nil)
+	tasks, _, err := b.ListTagSyncTasks(context.Background(), nil, "", 0)
 	require.NoError(t, err)
 	require.Len(t, tasks, 2)
 
@@ -503,7 +503,7 @@ func TestRefinement1_SearchResources_DeduplicatesAcrossGroups(t *testing.T) {
 	_, _ = b.GroupResources(context.Background(), "g1", []string{"arn:aws:s3:::shared"})
 	_, _ = b.GroupResources(context.Background(), "g2", []string{"arn:aws:s3:::shared"})
 
-	results, err := b.SearchResources(context.Background(), nil)
+	results, _, err := b.SearchResources(context.Background(), nil, "", 0)
 	require.NoError(t, err)
 	assert.Len(t, results, 1)
 }
@@ -651,9 +651,9 @@ func TestRefinement1_ListTagSyncTasks_FilteredByGroupName(t *testing.T) {
 	_, _ = b.StartTagSyncTask(context.Background(), "g1", "arn:aws:iam::000000000000:role/r", "", "", nil)
 	_, _ = b.StartTagSyncTask(context.Background(), "g2", "arn:aws:iam::000000000000:role/r", "", "", nil)
 
-	tasks, err := b.ListTagSyncTasks(context.Background(), []resourcegroups.ListTagSyncTasksFilter{
+	tasks, _, err := b.ListTagSyncTasks(context.Background(), []resourcegroups.ListTagSyncTasksFilter{
 		{GroupName: "g1"},
-	})
+	}, "", 0)
 	require.NoError(t, err)
 	require.Len(t, tasks, 1)
 	assert.Equal(t, "g1", tasks[0].GroupName)

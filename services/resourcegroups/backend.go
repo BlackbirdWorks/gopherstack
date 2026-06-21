@@ -84,6 +84,24 @@ const (
 
 const configParamAllowedResourceTypes = "allowed-resource-types"
 
+// listGroupsDefaultMax is the default and maximum page size for ListGroups.
+const listGroupsDefaultMax = 50
+
+// listGroupResourcesDefaultMax is the default and maximum page size for ListGroupResources.
+const listGroupResourcesDefaultMax = 10
+
+// listGroupingStatusesDefaultMax is the default and maximum page size for ListGroupingStatuses.
+const listGroupingStatusesDefaultMax = 100
+
+// searchResourcesDefaultMax is the default and maximum page size for SearchResources.
+const searchResourcesDefaultMax = 50
+
+// listTagSyncTasksDefaultMax is the default and maximum page size for ListTagSyncTasks.
+const listTagSyncTasksDefaultMax = 100
+
+// listGroupsFilterNamePrefix is the filter name for filtering groups by name prefix.
+const listGroupsFilterNamePrefix = "name-prefix"
+
 // groupNameRe matches valid Resource Groups group names (AWS rule).
 var groupNameRe = regexp.MustCompile(`^[a-zA-Z0-9_.−\-]+$`)
 
@@ -104,6 +122,9 @@ const (
 	listGroupsFilterConfigurationType = "configuration-type"
 	listGroupsFilterResourceType      = "resource-type"
 )
+
+// listGroupResourcesFilterResourceType is the filter name for filtering ListGroupResources by resource type.
+const listGroupResourcesFilterResourceType = "resource-type"
 
 // validConfigTypes maps each recognized configuration Type to its allowed
 // parameter names.  An empty slice means the type takes no parameters.
@@ -333,6 +354,159 @@ type ListTagSyncTasksFilter struct {
 	GroupName string `json:"GroupName,omitempty"`
 }
 
+// ListGroupResourcesFilter holds a single filter criterion for ListGroupResources.
+// Supported Name: "resource-type" (filter by AWS CloudFormation resource type string).
+type ListGroupResourcesFilter struct {
+	Name   string   `json:"Name"`
+	Values []string `json:"Values"`
+}
+
+// tagFilterQuery is the parsed form of a TAG_FILTERS_1_0 ResourceQuery string.
+type tagFilterQuery struct {
+	ResourceTypeFilters []string    `json:"ResourceTypeFilters"`
+	TagFilters          []tagFilter `json:"TagFilters"`
+}
+
+// tagFilter holds a tag key and allowed values for SearchResources filtering.
+type tagFilter struct {
+	Key    string   `json:"Key"`
+	Values []string `json:"Values"`
+}
+
+// paginate returns a page of items starting after nextToken, limited to maxResults.
+// keyFn extracts a unique, stable sort key from each item (used as the continuation token).
+// If maxResults is 0, all items are returned. If nextToken is empty, results start from the beginning.
+func paginate[T any](list []T, keyFn func(T) string, nextToken string, maxResults int) ([]T, string) {
+	if nextToken != "" {
+		start := 0
+		for i, item := range list {
+			if keyFn(item) == nextToken {
+				start = i + 1
+				break
+			}
+		}
+		list = list[start:]
+	}
+
+	if maxResults <= 0 || maxResults >= len(list) {
+		return list, ""
+	}
+
+	page := list[:maxResults]
+
+	return page, keyFn(page[len(page)-1])
+}
+
+// resourceTypeFromARN derives an AWS CloudFormation resource type string from an ARN.
+// Returns an empty string for ARNs whose service/type combination is not in the mapping.
+func resourceTypeFromARN(arnStr string) string {
+	parts := strings.SplitN(arnStr, ":", 6)
+	if len(parts) < 6 {
+		return ""
+	}
+
+	service := parts[2]
+	resource := parts[5]
+
+	// SNS topic ARNs: arn:aws:sns:region:account:TopicName (no type prefix)
+	// SQS queue ARNs: arn:aws:sqs:region:account:QueueName (no type prefix)
+	switch service {
+	case "s3":
+		return "AWS::S3::Bucket"
+	case "sns":
+		return "AWS::SNS::Topic"
+	case "sqs":
+		return "AWS::SQS::Queue"
+	}
+
+	// Extract resource type before the first "/" or ":"
+	resType := resource
+	if idx := strings.IndexAny(resource, "/:"); idx >= 0 {
+		resType = resource[:idx]
+	}
+
+	key := service + ":" + strings.ToLower(resType)
+	if t, ok := arnServiceTypeMap[key]; ok {
+		return t
+	}
+
+	return ""
+}
+
+// arnServiceTypeMap maps "service:resource-type" to AWS CloudFormation type strings.
+var arnServiceTypeMap = map[string]string{ //nolint:gochecknoglobals // static lookup table
+	"ec2:instance":                       "AWS::EC2::Instance",
+	"ec2:volume":                         "AWS::EC2::Volume",
+	"ec2:vpc":                            "AWS::EC2::VPC",
+	"ec2:subnet":                         "AWS::EC2::Subnet",
+	"ec2:security-group":                 "AWS::EC2::SecurityGroup",
+	"ec2:key-pair":                       "AWS::EC2::KeyPair",
+	"ec2:image":                          "AWS::EC2::Image",
+	"ec2:network-interface":              "AWS::EC2::NetworkInterface",
+	"ec2:route-table":                    "AWS::EC2::RouteTable",
+	"ec2:internet-gateway":               "AWS::EC2::InternetGateway",
+	"ec2:natgateway":                     "AWS::EC2::NatGateway",
+	"ec2:elastic-ip":                     "AWS::EC2::EIP",
+	"ec2:snapshot":                       "AWS::EC2::Snapshot",
+	"ec2:dhcp-options":                   "AWS::EC2::DHCPOptions",
+	"ec2:network-acl":                    "AWS::EC2::NetworkAcl",
+	"lambda:function":                    "AWS::Lambda::Function",
+	"rds:db":                             "AWS::RDS::DBInstance",
+	"rds:cluster":                        "AWS::RDS::DBCluster",
+	"rds:snapshot":                       "AWS::RDS::DBSnapshot",
+	"rds:cluster-snapshot":               "AWS::RDS::DBClusterSnapshot",
+	"iam:role":                           "AWS::IAM::Role",
+	"iam:user":                           "AWS::IAM::User",
+	"iam:group":                          "AWS::IAM::Group",
+	"iam:policy":                         "AWS::IAM::ManagedPolicy",
+	"iam:instance-profile":               "AWS::IAM::InstanceProfile",
+	"dynamodb:table":                     "AWS::DynamoDB::Table",
+	"kinesis:stream":                     "AWS::Kinesis::Stream",
+	"cloudformation:stack":               "AWS::CloudFormation::Stack",
+	"elasticloadbalancing:loadbalancer":  "AWS::ElasticLoadBalancingV2::LoadBalancer",
+	"ecs:cluster":                        "AWS::ECS::Cluster",
+	"ecs:service":                        "AWS::ECS::Service",
+	"ecs:task-definition":                "AWS::ECS::TaskDefinition",
+	"eks:cluster":                        "AWS::EKS::Cluster",
+	"secretsmanager:secret":              "AWS::SecretsManager::Secret",
+	"kms:key":                            "AWS::KMS::Key",
+	"cloudwatch:alarm":                   "AWS::CloudWatch::Alarm",
+	"logs:log-group":                     "AWS::Logs::LogGroup",
+	"apigateway:restapis":                "AWS::ApiGateway::RestApi",
+	"glue:database":                      "AWS::Glue::Database",
+	"glue:table":                         "AWS::Glue::Table",
+	"glue:job":                           "AWS::Glue::Job",
+	"elasticache:cluster":                "AWS::ElastiCache::CacheCluster",
+	"elasticache:replicationgroup":       "AWS::ElastiCache::ReplicationGroup",
+	"redshift:cluster":                   "AWS::Redshift::Cluster",
+	"es:domain":                          "AWS::Elasticsearch::Domain",
+	"opensearchservice:domain":           "AWS::OpenSearchService::Domain",
+	"firehose:deliverystream":            "AWS::KinesisFirehose::DeliveryStream",
+	"codecommit:repository":              "AWS::CodeCommit::Repository",
+	"codebuild:project":                  "AWS::CodeBuild::Project",
+	"codepipeline:pipeline":              "AWS::CodePipeline::Pipeline",
+	"ecr:repository":                     "AWS::ECR::Repository",
+	"route53:hostedzone":                 "AWS::Route53::HostedZone",
+	"ssm:parameter":                      "AWS::SSM::Parameter",
+	"wafv2:webacl":                       "AWS::WAFv2::WebACL",
+	"wafv2:rulegroup":                    "AWS::WAFv2::RuleGroup",
+	"acm:certificate":                    "AWS::CertificateManager::Certificate",
+	"backup:backup-vault":                "AWS::Backup::BackupVault",
+	"backup:backup-plan":                 "AWS::Backup::BackupPlan",
+	"kafka:cluster":                      "AWS::MSK::Cluster",
+	"mq:broker":                          "AWS::AmazonMQ::Broker",
+	"stepfunctions:stateMachine":         "AWS::StepFunctions::StateMachine",
+	"appsync:graphqlapi":                 "AWS::AppSync::GraphQLApi",
+	"servicecatalog:portfolio":           "AWS::ServiceCatalog::Portfolio",
+	"servicecatalog:product":             "AWS::ServiceCatalog::CloudFormationProduct",
+	"sagemaker:endpoint":                 "AWS::SageMaker::Endpoint",
+	"sagemaker:model":                    "AWS::SageMaker::Model",
+	"sagemaker:notebook-instance":        "AWS::SageMaker::NotebookInstance",
+	"dax:cluster":                        "AWS::DAX::Cluster",
+	"networkfirewall:firewall":           "AWS::NetworkFirewall::Firewall",
+	"networkfirewall:firewall-policy":    "AWS::NetworkFirewall::FirewallPolicy",
+}
+
 // InMemoryBackend is the in-memory store for Resource Groups.
 //
 // All resource maps are nested by region (outer key = region) so that
@@ -350,6 +524,7 @@ type InMemoryBackend struct {
 	accountSettings     AccountSettings
 	accountID           string
 	region              string
+	taskIDCounter       int64 // monotonically incremented for unique task ARNs
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -482,6 +657,15 @@ func (b *InMemoryBackend) CreateGroup(
 	if len(configuration) > 0 {
 		if err := validateConfiguration(configuration); err != nil {
 			return nil, err
+		}
+
+		// AWS rejects groups that specify both a ResourceQuery and a Configuration.
+		if resourceQuery != nil {
+			return nil, fmt.Errorf(
+				"%w: a group cannot have both a ResourceQuery and a Configuration; "+
+					"use one or the other",
+				ErrValidation,
+			)
 		}
 	}
 
@@ -664,11 +848,16 @@ func (b *InMemoryBackend) DeleteGroup(ctx context.Context, nameOrARN string) err
 	return nil
 }
 
-// ListGroups returns all resource groups sorted by name, optionally filtered.
-// Supported filter names: "configuration-type" (match by GroupConfigurationItem.Type)
-// and "resource-type" (match by allowed-resource-types parameter value).
-// An empty filters slice returns all groups.
-func (b *InMemoryBackend) ListGroups(ctx context.Context, filters []ListGroupsFilter) []Group {
+// ListGroups returns resource groups sorted by name, optionally filtered and paginated.
+// Supported filter names: "configuration-type", "resource-type", "name-prefix".
+// An empty filters slice returns all groups (up to maxResults).
+// Returns the page of groups and a continuation token (empty when no more results).
+func (b *InMemoryBackend) ListGroups(
+	ctx context.Context,
+	filters []ListGroupsFilter,
+	nextToken string,
+	maxResults int,
+) ([]Group, string) {
 	b.mu.RLock("ListGroups")
 	defer b.mu.RUnlock()
 
@@ -688,7 +877,9 @@ func (b *InMemoryBackend) ListGroups(ctx context.Context, filters []ListGroupsFi
 
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 
-	return out
+	page, token := paginate(out, func(g Group) string { return g.Name }, nextToken, maxResults)
+
+	return page, token
 }
 
 // groupMatchesFilters returns true when a group satisfies all provided filter criteria.
@@ -711,6 +902,17 @@ func (b *InMemoryBackend) groupMatchesFilters(region, name string, filters []Lis
 			}
 		case listGroupsFilterResourceType:
 			if !configMatchesResourceTypeFilter(configs, f.Values) {
+				return false
+			}
+		case listGroupsFilterNamePrefix:
+			matched := false
+			for _, prefix := range f.Values {
+				if strings.HasPrefix(name, prefix) {
+					matched = true
+					break
+				}
+			}
+			if !matched {
 				return false
 			}
 		}
@@ -1066,8 +1268,16 @@ func (b *InMemoryBackend) UngroupResources(
 	return result, nil
 }
 
-// ListGroupResources returns all resource ARNs associated with a group.
-func (b *InMemoryBackend) ListGroupResources(ctx context.Context, nameOrARN string) ([]ResourceIdentifier, error) {
+// ListGroupResources returns resource identifiers associated with a group, optionally
+// filtered and paginated. Supported filter Name: "resource-type" (filter by AWS resource type).
+// Returns identifiers, a continuation token (empty when no more results), and any error.
+func (b *InMemoryBackend) ListGroupResources(
+	ctx context.Context,
+	nameOrARN string,
+	filters []ListGroupResourcesFilter,
+	nextToken string,
+	maxResults int,
+) ([]ResourceIdentifier, string, error) {
 	b.mu.RLock("ListGroupResources")
 	defer b.mu.RUnlock()
 
@@ -1075,7 +1285,7 @@ func (b *InMemoryBackend) ListGroupResources(ctx context.Context, nameOrARN stri
 	name := resolveGroupName(nameOrARN)
 
 	if b.groups[region][name] == nil {
-		return nil, fmt.Errorf("%w: group %s not found", ErrNotFound, name)
+		return nil, "", fmt.Errorf("%w: group %s not found", ErrNotFound, name)
 	}
 
 	var arns []string
@@ -1083,17 +1293,44 @@ func (b *InMemoryBackend) ListGroupResources(ctx context.Context, nameOrARN stri
 		arns = b.groupResources[region][name]
 	}
 
+	// Build the desired resource type set from filters (if any).
+	wantTypes := make(map[string]bool)
+	for _, f := range filters {
+		if f.Name == listGroupResourcesFilterResourceType {
+			for _, v := range f.Values {
+				wantTypes[v] = true
+			}
+		}
+	}
+
 	out := make([]ResourceIdentifier, 0, len(arns))
 
 	for _, a := range arns {
-		out = append(out, ResourceIdentifier{ResourceArn: a})
+		resType := resourceTypeFromARN(a)
+
+		if len(wantTypes) > 0 && !wantTypes[resType] {
+			continue
+		}
+
+		out = append(out, ResourceIdentifier{ResourceArn: a, ResourceType: resType})
 	}
 
-	return out, nil
+	// Stable sort by ARN for deterministic pagination.
+	sort.Slice(out, func(i, j int) bool { return out[i].ResourceArn < out[j].ResourceArn })
+
+	page, token := paginate(out, func(id ResourceIdentifier) string { return id.ResourceArn }, nextToken, maxResults)
+
+	return page, token, nil
 }
 
-// ListGroupingStatuses returns the grouping/ungrouping status history for a group.
-func (b *InMemoryBackend) ListGroupingStatuses(ctx context.Context, nameOrARN string) ([]GroupingStatusItem, error) {
+// ListGroupingStatuses returns the grouping/ungrouping status history for a group,
+// paginated. Returns statuses, a continuation token (empty when no more results), and any error.
+func (b *InMemoryBackend) ListGroupingStatuses(
+	ctx context.Context,
+	nameOrARN string,
+	nextToken string,
+	maxResults int,
+) ([]GroupingStatusItem, string, error) {
 	b.mu.RLock("ListGroupingStatuses")
 	defer b.mu.RUnlock()
 
@@ -1101,7 +1338,7 @@ func (b *InMemoryBackend) ListGroupingStatuses(ctx context.Context, nameOrARN st
 	name := resolveGroupName(nameOrARN)
 
 	if b.groups[region][name] == nil {
-		return nil, fmt.Errorf("%w: group %s not found", ErrNotFound, name)
+		return nil, "", fmt.Errorf("%w: group %s not found", ErrNotFound, name)
 	}
 
 	var statuses []GroupingStatusItem
@@ -1112,13 +1349,46 @@ func (b *InMemoryBackend) ListGroupingStatuses(ctx context.Context, nameOrARN st
 	out := make([]GroupingStatusItem, len(statuses))
 	copy(out, statuses)
 
-	return out, nil
+	page, token := paginate(out, func(s GroupingStatusItem) string { return s.ResourceArn + "|" + s.Action + "|" + s.UpdatedAt.Format(time.RFC3339Nano) }, nextToken, maxResults)
+
+	return page, token, nil
 }
 
 // SearchResources returns resource identifiers that have been grouped into any group
-// within the request's region. The in-memory implementation returns all known grouped
-// resource ARNs for the region, de-duplicated.
-func (b *InMemoryBackend) SearchResources(ctx context.Context, _ *ResourceQuery) ([]ResourceIdentifier, error) {
+// within the request's region, filtered by the ResourceQuery.
+// For TAG_FILTERS_1_0 queries, ResourceTypeFilters are applied when non-empty.
+// A nil query matches all grouped resources (match-all).
+// Results are de-duplicated and paginated.
+// Returns identifiers, a continuation token (empty when no more results), and any error.
+func (b *InMemoryBackend) SearchResources(
+	ctx context.Context,
+	q *ResourceQuery,
+	nextToken string,
+	maxResults int,
+) ([]ResourceIdentifier, string, error) {
+	// Parse the query to extract any resource type filters.
+	var wantTypes map[string]bool
+
+	if q != nil && q.Type == "TAG_FILTERS_1_0" && q.Query != "" {
+		var tfq tagFilterQuery
+		if err := json.Unmarshal([]byte(q.Query), &tfq); err == nil && len(tfq.ResourceTypeFilters) > 0 {
+			// "AWS::AllSupported" is a special value meaning "match any type" — treat as no-filter.
+			hasAllSupported := false
+			for _, rt := range tfq.ResourceTypeFilters {
+				if rt == "AWS::AllSupported" {
+					hasAllSupported = true
+					break
+				}
+			}
+			if !hasAllSupported {
+				wantTypes = make(map[string]bool, len(tfq.ResourceTypeFilters))
+				for _, rt := range tfq.ResourceTypeFilters {
+					wantTypes[rt] = true
+				}
+			}
+		}
+	}
+
 	b.mu.RLock("SearchResources")
 	defer b.mu.RUnlock()
 
@@ -1126,18 +1396,31 @@ func (b *InMemoryBackend) SearchResources(ctx context.Context, _ *ResourceQuery)
 	regionRes := b.groupResources[region]
 
 	seen := make(map[string]struct{})
-	out := make([]ResourceIdentifier, 0, len(regionRes))
+	out := make([]ResourceIdentifier, 0)
 
 	for _, arns := range regionRes {
 		for _, a := range arns {
-			if _, ok := seen[a]; !ok {
-				seen[a] = struct{}{}
-				out = append(out, ResourceIdentifier{ResourceArn: a})
+			if _, ok := seen[a]; ok {
+				continue
 			}
+
+			seen[a] = struct{}{}
+			resType := resourceTypeFromARN(a)
+
+			if len(wantTypes) > 0 && !wantTypes[resType] {
+				continue
+			}
+
+			out = append(out, ResourceIdentifier{ResourceArn: a, ResourceType: resType})
 		}
 	}
 
-	return out, nil
+	// Stable sort by ARN for deterministic pagination.
+	sort.Slice(out, func(i, j int) bool { return out[i].ResourceArn < out[j].ResourceArn })
+
+	page, token := paginate(out, func(id ResourceIdentifier) string { return id.ResourceArn }, nextToken, maxResults)
+
+	return page, token, nil
 }
 
 // StartTagSyncTask creates a new tag-sync task for an application group.
@@ -1157,11 +1440,12 @@ func (b *InMemoryBackend) StartTagSyncTask(
 		return nil, fmt.Errorf("%w: group %s not found", ErrNotFound, name)
 	}
 
+	b.taskIDCounter++
 	taskARN := arn.Build(
 		"resource-groups",
 		region,
 		b.accountID,
-		"tag-sync-task/"+name+"-"+time.Now().Format("20060102150405"),
+		fmt.Sprintf("tag-sync-task/%s-%s-%d", name, time.Now().Format("20060102150405"), b.taskIDCounter),
 	)
 
 	task := &TagSyncTask{
@@ -1224,13 +1508,16 @@ func (b *InMemoryBackend) GetTagSyncTask(ctx context.Context, taskARN string) (*
 	return &cp, nil
 }
 
-// ListTagSyncTasks returns all tag-sync tasks, optionally filtered by group ARN or name.
-// Inactive tasks older than tagSyncTaskTTL are evicted before the result is assembled.
+// ListTagSyncTasks returns all tag-sync tasks, optionally filtered by group ARN or name,
+// paginated. Inactive tasks older than tagSyncTaskTTL are evicted before results are assembled.
 // Results are sorted by TaskArn for deterministic ordering.
+// Returns tasks, a continuation token (empty when no more results), and any error.
 func (b *InMemoryBackend) ListTagSyncTasks(
 	ctx context.Context,
 	filters []ListTagSyncTasksFilter,
-) ([]TagSyncTask, error) {
+	nextToken string,
+	maxResults int,
+) ([]TagSyncTask, string, error) {
 	b.mu.Lock("ListTagSyncTasks")
 	defer b.mu.Unlock()
 
@@ -1257,7 +1544,9 @@ func (b *InMemoryBackend) ListTagSyncTasks(
 
 	sort.Slice(out, func(i, j int) bool { return out[i].TaskArn < out[j].TaskArn })
 
-	return out, nil
+	page, token := paginate(out, func(t TagSyncTask) string { return t.TaskArn }, nextToken, maxResults)
+
+	return page, token, nil
 }
 
 // taskMatchesFilters returns true when task satisfies all provided filter criteria.

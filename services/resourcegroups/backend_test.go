@@ -97,7 +97,7 @@ func TestResourceGroupsDeleteGroup(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			groups := b.ListGroups(context.Background(), nil)
+			groups, _ := b.ListGroups(context.Background(), nil, "", 0)
 			assert.Empty(t, groups)
 		})
 	}
@@ -173,7 +173,7 @@ func TestResourceGroupsListGroups(t *testing.T) {
 	_, _ = b.CreateGroup(context.Background(), "group-a", "", nil, nil, nil)
 	_, _ = b.CreateGroup(context.Background(), "group-b", "", nil, nil, nil)
 
-	groups := b.ListGroups(context.Background(), nil)
+	groups, _ := b.ListGroups(context.Background(), nil, "", 0)
 	assert.Len(t, groups, 2)
 }
 
