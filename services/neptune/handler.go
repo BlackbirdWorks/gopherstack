@@ -471,7 +471,12 @@ func (h *Handler) handleCreateDBCluster(ctx context.Context, vals url.Values) (a
 
 func (h *Handler) handleDescribeDBClusters(ctx context.Context, vals url.Values) (any, error) {
 	id := vals.Get("DBClusterIdentifier")
-	clusters, err := h.Backend.DescribeDBClusters(ctx, id)
+	filters := DBClusterFilters{
+		Engine:        parseNeptuneFilterValue(vals, "engine"),
+		EngineVersion: parseNeptuneFilterValue(vals, "engine-version"),
+		Status:        parseNeptuneFilterValue(vals, "status"),
+	}
+	clusters, err := h.Backend.DescribeDBClusters(ctx, id, filters)
 	if err != nil {
 		return nil, err
 	}
@@ -494,7 +499,12 @@ func (h *Handler) handleDescribeDBClusters(ctx context.Context, vals url.Values)
 
 func (h *Handler) handleDeleteDBCluster(ctx context.Context, vals url.Values) (any, error) {
 	id := vals.Get("DBClusterIdentifier")
-	cluster, err := h.Backend.DeleteDBCluster(ctx, id)
+	skipFinal := vals.Get("SkipFinalSnapshot") == "true"
+	finalID := vals.Get("FinalDBSnapshotIdentifier")
+	cluster, err := h.Backend.DeleteDBCluster(ctx, id, DBClusterDeleteOptions{
+		SkipFinalSnapshot:       skipFinal,
+		FinalDBSnapshotIdentifier: finalID,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -621,7 +631,8 @@ func (h *Handler) handleCreateDBInstance(ctx context.Context, vals url.Values) (
 
 func (h *Handler) handleDescribeDBInstances(ctx context.Context, vals url.Values) (any, error) {
 	id := vals.Get("DBInstanceIdentifier")
-	instances, err := h.Backend.DescribeDBInstances(ctx, id)
+	clusterFilter := parseNeptuneFilterValue(vals, "db-cluster-id")
+	instances, err := h.Backend.DescribeDBInstances(ctx, id, clusterFilter)
 	if err != nil {
 		return nil, err
 	}
@@ -830,7 +841,8 @@ func (h *Handler) handleCreateDBClusterSnapshot(ctx context.Context, vals url.Va
 func (h *Handler) handleDescribeDBClusterSnapshots(ctx context.Context, vals url.Values) (any, error) {
 	snapshotID := vals.Get("DBClusterSnapshotIdentifier")
 	clusterID := vals.Get("DBClusterIdentifier")
-	snaps, err := h.Backend.DescribeDBClusterSnapshots(ctx, snapshotID, clusterID)
+	snapshotType := vals.Get("SnapshotType")
+	snaps, err := h.Backend.DescribeDBClusterSnapshots(ctx, snapshotID, clusterID, snapshotType)
 	if err != nil {
 		return nil, err
 	}
@@ -1113,8 +1125,10 @@ func (h *Handler) handleCreateDBParameterGroup(ctx context.Context, vals url.Val
 func (h *Handler) handleCreateEventSubscription(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("SubscriptionName")
 	snsTopicARN := vals.Get("SnsTopicArn")
+	sourceType := vals.Get("SourceType")
+	enabled := vals.Get("Enabled") != "false"
 	sourceIDs := parseSourceIDMembers(vals)
-	sub, err := h.Backend.CreateEventSubscription(ctx, name, snsTopicARN, sourceIDs)
+	sub, err := h.Backend.CreateEventSubscription(ctx, name, snsTopicARN, sourceType, sourceIDs, enabled)
 	if err != nil {
 		return nil, err
 	}
@@ -1279,7 +1293,7 @@ func (h *Handler) handleDescribeDBClusterParameters(ctx context.Context, vals ur
 func (h *Handler) handleDescribeDBClusterSnapshotAttributes(ctx context.Context, vals url.Values) (any, error) {
 	snapshotID := vals.Get("DBClusterSnapshotIdentifier")
 	if snapshotID != "" {
-		if _, err := h.Backend.DescribeDBClusterSnapshots(ctx, snapshotID, ""); err != nil {
+		if _, err := h.Backend.DescribeDBClusterSnapshots(ctx, snapshotID, "", ""); err != nil {
 			return nil, err
 		}
 	}
@@ -1297,7 +1311,7 @@ func (h *Handler) handleDescribeDBClusterSnapshotAttributes(ctx context.Context,
 func (h *Handler) handleModifyDBClusterSnapshotAttribute(ctx context.Context, vals url.Values) (any, error) {
 	snapshotID := vals.Get("DBClusterSnapshotIdentifier")
 	if snapshotID != "" {
-		if _, err := h.Backend.DescribeDBClusterSnapshots(ctx, snapshotID, ""); err != nil {
+		if _, err := h.Backend.DescribeDBClusterSnapshots(ctx, snapshotID, "", ""); err != nil {
 			return nil, err
 		}
 	}
@@ -1561,7 +1575,7 @@ func (h *Handler) handleDescribeValidDBInstanceModifications(_ context.Context, 
 
 func (h *Handler) handlePromoteReadReplicaDBCluster(ctx context.Context, vals url.Values) (any, error) {
 	id := vals.Get("DBClusterIdentifier")
-	clusters, err := h.Backend.DescribeDBClusters(ctx, id)
+	clusters, err := h.Backend.DescribeDBClusters(ctx, id, DBClusterFilters{})
 	if err != nil {
 		return nil, err
 	}
@@ -1778,6 +1792,14 @@ func toXMLCluster(c *DBCluster) xmlDBCluster {
 	for _, m := range c.DBClusterMembers {
 		memberItems = append(memberItems, xmlDBClusterMember(m))
 	}
+	vpcSGs := make([]xmlVpcSecurityGroupMembership, 0, len(c.VpcSecurityGroupIds))
+	for _, sgID := range c.VpcSecurityGroupIds {
+		vpcSGs = append(vpcSGs, xmlVpcSecurityGroupMembership{VpcSecurityGroupId: sgID, Status: "active"})
+	}
+	roles := make([]xmlDBRole, 0, len(c.AssociatedRoles))
+	for _, roleARN := range c.AssociatedRoles {
+		roles = append(roles, xmlDBRole{RoleArn: roleARN, Status: "ACTIVE"})
+	}
 	x := xmlDBCluster{
 		DBClusterIdentifier:             c.DBClusterIdentifier,
 		DBClusterArn:                    c.DBClusterArn,
@@ -1789,16 +1811,23 @@ func toXMLCluster(c *DBCluster) xmlDBCluster {
 		DBSubnetGroupName:               c.DBSubnetGroupName,
 		Endpoint:                        c.Endpoint,
 		ReaderEndpoint:                  c.ReaderEndpoint,
+		MasterUsername:                  c.MasterUsername,
+		StorageType:                     c.StorageType,
+		HostedZoneId:                    c.HostedZoneId,
 		Port:                            c.Port,
 		StorageEncrypted:                c.StorageEncrypted,
 		MultiAZ:                         c.MultiAZ,
 		BackupRetentionPeriod:           c.BackupRetentionPeriod,
+		AllocatedStorage:                c.AllocatedStorage,
 		EnableIAMDatabaseAuthentication: c.EnableIAMDatabaseAuthentication,
 		DeletionProtection:              c.DeletionProtection,
+		CopyTagsToSnapshot:              c.CopyTagsToSnapshot,
 		PreferredBackupWindow:           c.PreferredBackupWindow,
 		PreferredMaintenanceWindow:      c.PreferredMaintenanceWindow,
 		KmsKeyID:                        c.KmsKeyID,
 		DBClusterMembers:                xmlDBClusterMemberList{Members: memberItems},
+		VpcSecurityGroups:               xmlVpcSecurityGroupMembershipList{Members: vpcSGs},
+		AssociatedRoles:                 xmlDBRoleList{Members: roles},
 	}
 	if c.ServerlessV2ScalingConfig != nil {
 		x.ServerlessV2ScalingConfiguration = &xmlServerlessV2ScalingConfiguration{
@@ -1826,9 +1855,12 @@ func toXMLInstance(inst *DBInstance) xmlDBInstance {
 		EngineVersion:                   inst.EngineVersion,
 		DBInstanceStatus:                inst.DBInstanceStatus,
 		Endpoint:                        inst.Endpoint,
+		DBSubnetGroupName:               inst.DBSubnetGroupName,
 		Port:                            inst.Port,
 		StorageEncrypted:                inst.StorageEncrypted,
 		AutoMinorVersionUpgrade:         inst.AutoMinorVersionUpgrade,
+		MultiAZ:                         inst.MultiAZ,
+		PubliclyAccessible:              inst.PubliclyAccessible,
 		PreferredMaintenanceWindow:      inst.PreferredMaintenanceWindow,
 		PreferredBackupWindow:           inst.PreferredBackupWindow,
 		AvailabilityZone:                inst.AvailabilityZone,
@@ -1847,6 +1879,7 @@ func toXMLSubnetGroup(sg *DBSubnetGroup) xmlDBSubnetGroup {
 
 	return xmlDBSubnetGroup{
 		DBSubnetGroupName:        sg.DBSubnetGroupName,
+		DBSubnetGroupArn:         sg.DBSubnetGroupArn,
 		DBSubnetGroupDescription: sg.DBSubnetGroupDescription,
 		VpcID:                    sg.VpcID,
 		SubnetGroupStatus:        sg.Status,
@@ -1857,6 +1890,7 @@ func toXMLSubnetGroup(sg *DBSubnetGroup) xmlDBSubnetGroup {
 func toXMLParameterGroup(pg *DBClusterParameterGroup) xmlDBClusterParameterGroup {
 	return xmlDBClusterParameterGroup{
 		DBClusterParameterGroupName: pg.DBClusterParameterGroupName,
+		DBClusterParameterGroupArn:  pg.DBClusterParameterGroupArn,
 		DBParameterGroupFamily:      pg.DBParameterGroupFamily,
 		Description:                 pg.Description,
 	}
@@ -1864,20 +1898,27 @@ func toXMLParameterGroup(pg *DBClusterParameterGroup) xmlDBClusterParameterGroup
 
 func toXMLClusterSnapshot(snap *DBClusterSnapshot) xmlDBClusterSnapshot {
 	return xmlDBClusterSnapshot{
-		DBClusterSnapshotIdentifier: snap.DBClusterSnapshotIdentifier,
-		DBClusterSnapshotArn:        snap.DBClusterSnapshotArn,
-		DBClusterIdentifier:         snap.DBClusterIdentifier,
-		Engine:                      snap.Engine,
-		EngineVersion:               snap.EngineVersion,
-		Status:                      snap.Status,
-		StorageEncrypted:            snap.StorageEncrypted,
-		SnapshotType:                snap.SnapshotType,
+		DBClusterSnapshotIdentifier:      snap.DBClusterSnapshotIdentifier,
+		DBClusterSnapshotArn:             snap.DBClusterSnapshotArn,
+		DBClusterIdentifier:              snap.DBClusterIdentifier,
+		Engine:                           snap.Engine,
+		EngineVersion:                    snap.EngineVersion,
+		Status:                           snap.Status,
+		StorageEncrypted:                 snap.StorageEncrypted,
+		SnapshotType:                     snap.SnapshotType,
+		KmsKeyId:                         snap.KmsKeyId,
+		VpcId:                            snap.VpcId,
+		IAMDatabaseAuthenticationEnabled: snap.IAMDatabaseAuthenticationEnabled,
+		Port:                             snap.Port,
+		PercentProgress:                  snap.PercentProgress,
+		AllocatedStorage:                 snap.AllocatedStorage,
 	}
 }
 
 func toXMLDBParameterGroup(pg *DBParameterGroup) xmlDBParameterGroup {
 	return xmlDBParameterGroup{
 		DBParameterGroupName:   pg.DBParameterGroupName,
+		DBParameterGroupArn:    pg.DBParameterGroupArn,
 		DBParameterGroupFamily: pg.DBParameterGroupFamily,
 		Description:            pg.Description,
 	}
@@ -1900,10 +1941,13 @@ func toXMLEventSubscription(sub *EventSubscription) xmlEventSubscription {
 	}
 
 	return xmlEventSubscription{
-		CustSubscriptionID: sub.CustSubscriptionID,
-		SnsTopicARN:        sub.SnsTopicARN,
-		Status:             sub.Status,
-		SourceIDs:          xmlSourceIDList{Members: ids},
+		CustSubscriptionID:   sub.CustSubscriptionID,
+		EventSubscriptionArn: sub.EventSubscriptionArn,
+		SnsTopicARN:          sub.SnsTopicARN,
+		Status:               sub.Status,
+		SourceType:           sub.SourceType,
+		SourceIDs:            xmlSourceIDList{Members: ids},
+		Enabled:              sub.Enabled,
 	}
 }
 
@@ -1917,6 +1961,33 @@ func toXMLGlobalCluster(gc *GlobalCluster) xmlGlobalCluster {
 		GlobalClusterIdentifier: gc.GlobalClusterIdentifier,
 		Status:                  gc.Status,
 		GlobalClusterMembers:    xmlGlobalClusterMemberList{Members: members},
+	}
+}
+
+// parseNeptuneFilterValue scans AWS form-encoded Filters.member.N.Name/Values.member.1
+// and returns the first value for the named filter, or "".
+func parseNeptuneFilterValue(vals url.Values, filterName string) string {
+	for i := 1; ; i++ {
+		name := vals.Get(fmt.Sprintf("Filters.member.%d.Name", i))
+		if name == "" {
+			return ""
+		}
+		if name == filterName {
+			return vals.Get(fmt.Sprintf("Filters.member.%d.Values.member.1", i))
+		}
+	}
+}
+
+// parseListMembers parses AWS form-encoded list members with the given prefix.
+// E.g. prefix "VpcSecurityGroupIds.member" yields VpcSecurityGroupIds.member.1, .2, ...
+func parseListMembers(vals url.Values, prefix string) []string {
+	var out []string
+	for i := 1; ; i++ {
+		v := vals.Get(fmt.Sprintf("%s.%d", prefix, i))
+		if v == "" {
+			return out
+		}
+		out = append(out, v)
 	}
 }
 
@@ -1965,29 +2036,63 @@ type xmlMasterUserManagedSecret struct {
 // xmlSV2Ref is a type alias to keep xmlDBCluster field definitions within line-length limits.
 type xmlSV2Ref = xmlServerlessV2ScalingConfiguration
 
+type xmlVpcSecurityGroupMembership struct {
+	VpcSecurityGroupId string `xml:"VpcSecurityGroupId"`
+	Status             string `xml:"Status,omitempty"`
+}
+
+type xmlVpcSecurityGroupMembershipList struct {
+	Members []xmlVpcSecurityGroupMembership `xml:"VpcSecurityGroupMembership"`
+}
+
+type xmlDBRole struct {
+	RoleArn  string `xml:"RoleArn"`
+	Status   string `xml:"Status,omitempty"`
+	FeatureName string `xml:"FeatureName,omitempty"`
+}
+
+type xmlDBRoleList struct {
+	Members []xmlDBRole `xml:"DBClusterRole"`
+}
+
+type xmlAvailabilityZone struct {
+	Name string `xml:"Name"`
+}
+
+type xmlAvailabilityZoneList struct {
+	Members []xmlAvailabilityZone `xml:"AvailabilityZone"`
+}
+
 type xmlDBCluster struct {
-	ServerlessV2ScalingConfiguration *xmlSV2Ref                  `xml:"ServerlessV2ScalingConfiguration,omitempty"`
-	MasterUserManagedSecret          *xmlMasterUserManagedSecret `xml:"MasterUserManagedSecret,omitempty"`
-	DBClusterIdentifier              string                      `xml:"DBClusterIdentifier"`
-	DBClusterArn                     string                      `xml:"DBClusterArn,omitempty"`
-	Engine                           string                      `xml:"Engine"`
-	EngineVersion                    string                      `xml:"EngineVersion,omitempty"`
-	EngineMode                       string                      `xml:"EngineMode,omitempty"`
-	Status                           string                      `xml:"Status"`
-	DBClusterParameterGroupName      string                      `xml:"DBClusterParameterGroup,omitempty"`
-	DBSubnetGroupName                string                      `xml:"DBSubnetGroup>DBSubnetGroupName,omitempty"`
-	Endpoint                         string                      `xml:"Endpoint,omitempty"`
-	ReaderEndpoint                   string                      `xml:"ReaderEndpoint,omitempty"`
-	PreferredBackupWindow            string                      `xml:"PreferredBackupWindow,omitempty"`
-	PreferredMaintenanceWindow       string                      `xml:"PreferredMaintenanceWindow,omitempty"`
-	KmsKeyID                         string                      `xml:"KmsKeyId,omitempty"`
-	DBClusterMembers                 xmlDBClusterMemberList      `xml:"DBClusterMembers"`
-	Port                             int                         `xml:"Port"`
-	BackupRetentionPeriod            int                         `xml:"BackupRetentionPeriod"`
-	EnableIAMDatabaseAuthentication  bool                        `xml:"IAMDatabaseAuthenticationEnabled"`
-	StorageEncrypted                 bool                        `xml:"StorageEncrypted"`
-	MultiAZ                          bool                        `xml:"MultiAZ"`
-	DeletionProtection               bool                        `xml:"DeletionProtection"`
+	ServerlessV2ScalingConfiguration *xmlSV2Ref                       `xml:"ServerlessV2ScalingConfiguration,omitempty"`
+	MasterUserManagedSecret          *xmlMasterUserManagedSecret      `xml:"MasterUserManagedSecret,omitempty"`
+	VpcSecurityGroups                xmlVpcSecurityGroupMembershipList `xml:"VpcSecurityGroups,omitempty"`
+	AssociatedRoles                  xmlDBRoleList                    `xml:"AssociatedRoles,omitempty"`
+	DBClusterIdentifier              string                           `xml:"DBClusterIdentifier"`
+	DBClusterArn                     string                           `xml:"DBClusterArn,omitempty"`
+	Engine                           string                           `xml:"Engine"`
+	EngineVersion                    string                           `xml:"EngineVersion,omitempty"`
+	EngineMode                       string                           `xml:"EngineMode,omitempty"`
+	Status                           string                           `xml:"Status"`
+	DBClusterParameterGroupName      string                           `xml:"DBClusterParameterGroup,omitempty"`
+	DBSubnetGroupName                string                           `xml:"DBSubnetGroup>DBSubnetGroupName,omitempty"`
+	Endpoint                         string                           `xml:"Endpoint,omitempty"`
+	ReaderEndpoint                   string                           `xml:"ReaderEndpoint,omitempty"`
+	MasterUsername                   string                           `xml:"MasterUsername,omitempty"`
+	StorageType                      string                           `xml:"StorageType,omitempty"`
+	HostedZoneId                     string                           `xml:"HostedZoneId,omitempty"`
+	PreferredBackupWindow            string                           `xml:"PreferredBackupWindow,omitempty"`
+	PreferredMaintenanceWindow       string                           `xml:"PreferredMaintenanceWindow,omitempty"`
+	KmsKeyID                         string                           `xml:"KmsKeyId,omitempty"`
+	DBClusterMembers                 xmlDBClusterMemberList           `xml:"DBClusterMembers"`
+	Port                             int                              `xml:"Port"`
+	BackupRetentionPeriod            int                              `xml:"BackupRetentionPeriod"`
+	AllocatedStorage                 int                              `xml:"AllocatedStorage,omitempty"`
+	EnableIAMDatabaseAuthentication  bool                             `xml:"IAMDatabaseAuthenticationEnabled"`
+	StorageEncrypted                 bool                             `xml:"StorageEncrypted"`
+	MultiAZ                          bool                             `xml:"MultiAZ"`
+	DeletionProtection               bool                             `xml:"DeletionProtection"`
+	CopyTagsToSnapshot               bool                             `xml:"CopyTagsToSnapshot"`
 }
 
 type xmlDBClusterList struct {
@@ -2050,6 +2155,7 @@ type xmlDBInstance struct {
 	EngineVersion                   string `xml:"EngineVersion,omitempty"`
 	DBInstanceStatus                string `xml:"DBInstanceStatus"`
 	Endpoint                        string `xml:"Endpoint>Address,omitempty"`
+	DBSubnetGroupName               string `xml:"DBSubnetGroup>DBSubnetGroupName,omitempty"`
 	DBParameterGroupName            string `xml:"DBParameterGroups>DBParameterGroup>DBParameterGroupName,omitempty"`
 	PreferredMaintenanceWindow      string `xml:"PreferredMaintenanceWindow,omitempty"`
 	PreferredBackupWindow           string `xml:"PreferredBackupWindow,omitempty"`
@@ -2060,6 +2166,8 @@ type xmlDBInstance struct {
 	AutoMinorVersionUpgrade         bool   `xml:"AutoMinorVersionUpgrade"`
 	CopyTagsToSnapshot              bool   `xml:"CopyTagsToSnapshot"`
 	EnableIAMDatabaseAuthentication bool   `xml:"IAMDatabaseAuthenticationEnabled"`
+	MultiAZ                         bool   `xml:"MultiAZ"`
+	PubliclyAccessible              bool   `xml:"PubliclyAccessible"`
 }
 
 type xmlDBInstanceList struct {
@@ -2111,6 +2219,7 @@ type xmlSubnetList struct {
 
 type xmlDBSubnetGroup struct {
 	DBSubnetGroupName        string        `xml:"DBSubnetGroupName"`
+	DBSubnetGroupArn         string        `xml:"DBSubnetGroupArn,omitempty"`
 	DBSubnetGroupDescription string        `xml:"DBSubnetGroupDescription"`
 	VpcID                    string        `xml:"VpcId,omitempty"`
 	SubnetGroupStatus        string        `xml:"SubnetGroupStatus"`
@@ -2145,6 +2254,7 @@ type deleteDBSubnetGroupResponse struct {
 
 type xmlDBClusterParameterGroup struct {
 	DBClusterParameterGroupName string `xml:"DBClusterParameterGroupName"`
+	DBClusterParameterGroupArn  string `xml:"DBClusterParameterGroupArn,omitempty"`
 	DBParameterGroupFamily      string `xml:"DBParameterGroupFamily"`
 	Description                 string `xml:"Description"`
 }
@@ -2181,14 +2291,20 @@ type modifyDBClusterParameterGroupResponse struct {
 }
 
 type xmlDBClusterSnapshot struct {
-	DBClusterSnapshotIdentifier string `xml:"DBClusterSnapshotIdentifier"`
-	DBClusterSnapshotArn        string `xml:"DBClusterSnapshotArn,omitempty"`
-	DBClusterIdentifier         string `xml:"DBClusterIdentifier"`
-	Engine                      string `xml:"Engine"`
-	EngineVersion               string `xml:"EngineVersion,omitempty"`
-	Status                      string `xml:"Status"`
-	SnapshotType                string `xml:"SnapshotType,omitempty"`
-	StorageEncrypted            bool   `xml:"StorageEncrypted"`
+	DBClusterSnapshotIdentifier      string `xml:"DBClusterSnapshotIdentifier"`
+	DBClusterSnapshotArn             string `xml:"DBClusterSnapshotArn,omitempty"`
+	DBClusterIdentifier              string `xml:"DBClusterIdentifier"`
+	Engine                           string `xml:"Engine"`
+	EngineVersion                    string `xml:"EngineVersion,omitempty"`
+	Status                           string `xml:"Status"`
+	SnapshotType                     string `xml:"SnapshotType,omitempty"`
+	KmsKeyId                         string `xml:"KmsKeyId,omitempty"`
+	VpcId                            string `xml:"VpcId,omitempty"`
+	StorageEncrypted                 bool   `xml:"StorageEncrypted"`
+	IAMDatabaseAuthenticationEnabled bool   `xml:"IAMDatabaseAuthenticationEnabled"`
+	Port                             int    `xml:"Port,omitempty"`
+	PercentProgress                  int    `xml:"PercentProgress,omitempty"`
+	AllocatedStorage                 int    `xml:"AllocatedStorage,omitempty"`
 }
 
 type xmlDBClusterSnapshotList struct {
@@ -2297,6 +2413,7 @@ type applyPendingMaintenanceActionResponse struct {
 
 type xmlDBParameterGroup struct {
 	DBParameterGroupName   string `xml:"DBParameterGroupName"`
+	DBParameterGroupArn    string `xml:"DBParameterGroupArn,omitempty"`
 	DBParameterGroupFamily string `xml:"DBParameterGroupFamily"`
 	Description            string `xml:"Description"`
 }
@@ -2348,10 +2465,13 @@ type xmlSourceIDList struct {
 }
 
 type xmlEventSubscription struct {
-	CustSubscriptionID string          `xml:"CustSubscriptionId"`
-	SnsTopicARN        string          `xml:"SnsTopicArn"`
-	Status             string          `xml:"Status"`
-	SourceIDs          xmlSourceIDList `xml:"SourceIdsList"`
+	CustSubscriptionID   string          `xml:"CustSubscriptionId"`
+	EventSubscriptionArn string          `xml:"EventSubscriptionArn,omitempty"`
+	SnsTopicARN          string          `xml:"SnsTopicArn"`
+	Status               string          `xml:"Status"`
+	SourceType           string          `xml:"SourceType,omitempty"`
+	SourceIDs            xmlSourceIDList `xml:"SourceIdsList"`
+	Enabled              bool            `xml:"Enabled"`
 }
 
 type addSourceIdentifierToSubscriptionResponse struct {
