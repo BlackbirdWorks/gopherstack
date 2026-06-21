@@ -214,8 +214,8 @@ type invalidParamProblem struct {
 // ResourceType identifies which resource kind was absent; ReferencedBy carries
 // the identifiers the caller supplied.
 type awsResourceNotFoundBody struct {
+	ReferencedBy map[string]string `json:"ReferencedBy,omitempty"`
 	Type         string            `json:"__type"`
 	Message      string            `json:"message"`
 	ResourceType string            `json:"ResourceType,omitempty"`
-	ReferencedBy map[string]string `json:"ReferencedBy,omitempty"`
 }

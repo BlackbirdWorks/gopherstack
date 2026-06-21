@@ -21,6 +21,15 @@ import (
 
 func nowUTC() time.Time { return time.Now().UTC() }
 
+func mustMarshalJSON(v any) []byte {
+	b, err := json.Marshal(v)
+	if err != nil {
+		panic(err)
+	}
+
+	return b
+}
+
 // --- helpers ---
 
 func newTestHandler(t *testing.T) *appconfigdata.Handler {
@@ -1386,21 +1395,16 @@ func TestBackend_SessionExpiresAtPopulated(t *testing.T) {
 // --- AWS error response format ---
 
 // decodeErrorBody parses a JSON error response body and returns __type and message.
-func decodeErrorBody(t *testing.T, body string) (errorType, message string) {
+func decodeErrorBody(t *testing.T, body string) (string, string) {
 	t.Helper()
 
 	var m map[string]any
 	require.NoError(t, json.Unmarshal([]byte(body), &m), "error body must be valid JSON")
 
-	if v, ok := m["__type"].(string); ok {
-		errorType = v
-	}
+	errType, _ := m["__type"].(string)
+	errMsg, _ := m["message"].(string)
 
-	if v, ok := m["message"].(string); ok {
-		message = v
-	}
-
-	return errorType, message
+	return errType, errMsg
 }
 
 // TestHandler_ErrorBodyFormat verifies that all error responses carry __type + message fields
@@ -1409,14 +1413,14 @@ func TestHandler_ErrorBodyFormat(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name             string
 		setup            func(h *appconfigdata.Handler)
+		name             string
 		method           string
 		path             string
-		body             []byte
-		wantStatus       int
 		wantErrorType    string
 		wantErrorTypeHdr string
+		body             []byte
+		wantStatus       int
 	}{
 		{
 			name:             "start_session_missing_fields",
@@ -1431,9 +1435,12 @@ func TestHandler_ErrorBodyFormat(t *testing.T) {
 			name:   "start_session_invalid_poll_interval",
 			method: http.MethodPost,
 			path:   "/configurationsessions",
-			body: []byte(
-				`{"ApplicationIdentifier":"app","EnvironmentIdentifier":"env","ConfigurationProfileIdentifier":"p","RequiredMinimumPollIntervalInSeconds":5}`,
-			),
+			body: mustMarshalJSON(map[string]any{
+				"ApplicationIdentifier":                "app",
+				"EnvironmentIdentifier":                "env",
+				"ConfigurationProfileIdentifier":       "p",
+				"RequiredMinimumPollIntervalInSeconds": 5,
+			}),
 			wantStatus:       http.StatusBadRequest,
 			wantErrorType:    "BadRequestException",
 			wantErrorTypeHdr: "BadRequestException",
@@ -1445,9 +1452,11 @@ func TestHandler_ErrorBodyFormat(t *testing.T) {
 			name:   "start_session_no_deployment",
 			method: http.MethodPost,
 			path:   "/configurationsessions",
-			body: []byte(
-				`{"ApplicationIdentifier":"app","EnvironmentIdentifier":"env","ConfigurationProfileIdentifier":"p"}`,
-			),
+			body: mustMarshalJSON(map[string]string{
+				"ApplicationIdentifier":          "app",
+				"EnvironmentIdentifier":          "env",
+				"ConfigurationProfileIdentifier": "p",
+			}),
 			wantStatus:       http.StatusNotFound,
 			wantErrorType:    "ResourceNotFoundException",
 			wantErrorTypeHdr: "ResourceNotFoundException",
@@ -1504,8 +1513,8 @@ func TestHandler_BadRequestException_Details(t *testing.T) {
 	token := startSession(t, h, "app", "env", "p")
 
 	// First poll — rotates token.
-	rec1 := doRequest(t, h, http.MethodGet, "/configuration?configuration_token="+token, nil)
-	require.Equal(t, http.StatusOK, rec1.Code)
+	firstRec := doRequest(t, h, http.MethodGet, "/configuration?configuration_token="+token, nil)
+	require.Equal(t, http.StatusOK, firstRec.Code)
 
 	t.Run("corrupted_token_has_problem_Corrupted", func(t *testing.T) {
 		t.Parallel()
@@ -1657,7 +1666,7 @@ func TestHandler_TokenExpired_Returns400(t *testing.T) {
 
 	_, _, _, _, _, backendErr := b.GetLatestConfiguration(token)
 	// After sweep, session is gone → ErrSessionNotFound (not ErrTokenExpired).
-	assert.ErrorIs(t, backendErr, appconfigdata.ErrSessionNotFound)
+	require.ErrorIs(t, backendErr, appconfigdata.ErrSessionNotFound)
 
 	// Verify ErrTokenExpired is NOT mapped to 401 by checking via HTTP handler error dispatch.
 	// We exercise the 400 path by using an unknown token (same status as expired → corrupted mapping).
@@ -1781,8 +1790,8 @@ func TestHandler_RetryAfterHeader(t *testing.T) {
 
 	tests := []struct {
 		name           string
-		pollInterval   int
 		wantRetryAfter string
+		pollInterval   int
 	}{
 		{name: "custom_interval_30s", pollInterval: 30, wantRetryAfter: "30"},
 		{name: "custom_interval_60s", pollInterval: 60, wantRetryAfter: "60"},

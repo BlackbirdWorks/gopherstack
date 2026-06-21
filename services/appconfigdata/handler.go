@@ -169,9 +169,14 @@ func (h *Handler) handleStartConfigurationSession(c *echo.Context) error {
 		)
 	}
 
-	if err := validateIdentifierLength("ConfigurationProfileIdentifier", req.ConfigurationProfileIdentifier); err != nil {
+	if err := validateIdentifierLength(
+		"ConfigurationProfileIdentifier",
+		req.ConfigurationProfileIdentifier,
+	); err != nil {
 		return writeBadRequestWithInvalidParams(c, err.Error(),
-			map[string]invalidParamProblem{"ConfigurationProfileIdentifier": {Problem: invalidParamProblemCorrupted}},
+			map[string]invalidParamProblem{
+				"ConfigurationProfileIdentifier": {Problem: invalidParamProblemCorrupted},
+			},
 		)
 	}
 
