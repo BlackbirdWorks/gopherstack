@@ -1984,6 +1984,7 @@ func (h *DashboardHandler) apiGatewayManagementAPICreateConnection(c *echo.Conte
 		connectionID,
 		sourceIP,
 		userAgent,
+		nil,
 	); err != nil {
 		return c.String(http.StatusInternalServerError, err.Error())
 	}

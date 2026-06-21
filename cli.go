@@ -2614,7 +2614,10 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	wireSSMKMS(byName["SSM"], byName["KMS"])
 
 	// Wire API Gateway → Lambda proxy integration.
-	wireAPIGatewayLambda(byName["APIGateway"], byName["Lambda"])
+	wireAPIGatewayLambda(byName["APIGateway"], byName["APIGatewayV2"], byName["Lambda"])
+
+	// Wire API Gateway V2 -> API Gateway Management API for WebSocket connections.
+	wireAPIGatewayManagementAPI(byName["APIGatewayV2"], byName["APIGatewayManagementAPI"])
 
 	// Wire Kinesis → Lambda event source mapping poller.
 	wireKinesisLambda(byName["Kinesis"], byName["Lambda"])
@@ -3342,15 +3345,27 @@ func (a *ssmKMSAdapter) DecryptSSM(ciphertext []byte) ([]byte, error) {
 
 // wireAPIGatewayLambda connects the API Gateway handler to the Lambda backend
 // for AWS_PROXY integrations.
-func wireAPIGatewayLambda(apigwReg, lambdaReg service.Registerable) {
-	apigwH, ok := apigwReg.(*apigwbackend.Handler)
-	if !ok {
-		return
-	}
-
+func wireAPIGatewayLambda(apigwReg, apigwv2Reg, lambdaReg service.Registerable) {
 	if lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler); lambdaOk {
 		if lambdaBk, bkOk := lambdaH.Backend.(*lambdabackend.InMemoryBackend); bkOk {
-			apigwH.SetLambdaInvoker(lambdaBk)
+			if apigwH, ok := apigwReg.(*apigwbackend.Handler); ok {
+				apigwH.SetLambdaInvoker(lambdaBk)
+			}
+			if apigwv2H, ok := apigwv2Reg.(*apigwv2backend.Handler); ok {
+				apigwv2H.SetLambdaInvoker(lambdaBk)
+			}
+		}
+	}
+}
+
+// wireAPIGatewayManagementAPI connects the API Gateway V2 handler to the API Gateway Management API backend
+// for WebSocket connection management.
+func wireAPIGatewayManagementAPI(apigwv2Reg, mngtReg service.Registerable) {
+	if apigwv2H, ok := apigwv2Reg.(*apigwv2backend.Handler); ok {
+		if mngtH, mngtOk := mngtReg.(*apigwmgmtbackend.Handler); mngtOk {
+			if mngtBk, bkOk := mngtH.Backend.(*apigwmgmtbackend.InMemoryBackend); bkOk {
+				apigwv2H.SetManagementAPIBackend(mngtBk)
+			}
 		}
 	}
 }

@@ -11,8 +11,8 @@ type StorageBackend interface {
 	GetConnection(connectionID string) (*Connection, error)
 	// DeleteConnection deletes the specified WebSocket connection.
 	DeleteConnection(connectionID string) error
-	// CreateConnection creates a new simulated WebSocket connection for testing.
-	CreateConnection(connectionID, sourceIP, userAgent string) (*Connection, error)
+	// CreateConnection creates a new simulated WebSocket connection.
+	CreateConnection(connectionID, sourceIP, userAgent string, downstream chan []byte) (*Connection, error)
 	// ListConnections returns all active WebSocket connections.
 	ListConnections() []Connection
 	// FilterConnections returns connections whose ID, IP, or user-agent contain query.

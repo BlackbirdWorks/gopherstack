@@ -24,6 +24,9 @@ type Settings struct {
 	// When the limit is exceeded, the least-recently-used runtime is stopped and evicted.
 	// Defaults to defaultMaxRuntimes. Set to 0 to use the default.
 	MaxRuntimes int `json:"max_runtimes" name:"max-runtimes" env:"LAMBDA_MAX_RUNTIMES" default:"50" help:"Maximum number of simultaneous per-function Lambda runtimes."` //nolint:lll // config struct tags are intentionally verbose
+	// KeepContainers determines if Lambda containers should be kept alive after execution.
+	// If true, the containers will not be stopped and removed. Useful for debugging.
+	KeepContainers bool `json:"keep_containers" name:"lambda-keep-containers" env:"LAMBDA_KEEP_CONTAINERS" default:"false" help:"If true, keep Lambda containers alive for debugging."` //nolint:lll // config struct tags are intentionally verbose
 }
 
 const (
@@ -70,11 +73,19 @@ func DefaultSettings() Settings {
 		}
 	}
 
+	keepContainers := false
+	if k := os.Getenv("LAMBDA_KEEP_CONTAINERS"); k != "" {
+		if val, err := strconv.ParseBool(k); err == nil {
+			keepContainers = val
+		}
+	}
+
 	return Settings{
 		DockerHost:       dockerHost,
 		ContainerRuntime: containerRuntime,
 		PoolSize:         poolSize,
 		IdleTimeout:      idleTimeout,
 		MaxRuntimes:      maxRuntimes,
+		KeepContainers:   keepContainers,
 	}
 }

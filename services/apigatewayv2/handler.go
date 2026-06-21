@@ -1,6 +1,7 @@
 package apigatewayv2
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -16,6 +17,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/services/apigatewaymanagementapi"
 )
 
 const (
@@ -77,14 +79,31 @@ const (
 	opUnknown = "Unknown"
 )
 
+// LambdaInvoker is the interface for invoking Lambda functions.
+type LambdaInvoker interface {
+	InvokeFunction(ctx context.Context, name, invocationType string, payload []byte) ([]byte, int, error)
+}
+
 // Handler is the Echo HTTP handler for API Gateway v2 (HTTP API) operations.
 type Handler struct {
-	Backend StorageBackend
+	Backend       StorageBackend
+	lambdaInvoker LambdaInvoker
+	managementAPI apigatewaymanagementapi.StorageBackend
 }
 
 // NewHandler creates a new API Gateway v2 Handler.
 func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{Backend: backend}
+}
+
+// SetLambdaInvoker configures the Lambda invoker for AWS_PROXY integrations.
+func (h *Handler) SetLambdaInvoker(lambda LambdaInvoker) {
+	h.lambdaInvoker = lambda
+}
+
+// SetManagementAPIBackend configures the Management API backend for WebSocket connections.
+func (h *Handler) SetManagementAPIBackend(managementAPI apigatewaymanagementapi.StorageBackend) {
+	h.managementAPI = managementAPI
 }
 
 // Name returns the service name.
@@ -145,8 +164,19 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			path == portalsPrefix || strings.HasPrefix(path, portalsPrefix+"/") ||
 			path == portalProductsPrefix || strings.HasPrefix(path, portalProductsPrefix+"/") ||
 			path == vpcLinksPrefix || strings.HasPrefix(path, vpcLinksPrefix+"/") ||
-			strings.HasPrefix(path, tagsPrefix+"/")
+			strings.HasPrefix(path, tagsPrefix+"/") ||
+			strings.HasPrefix(path, "/v2proxy/") ||
+			isUserRequestPath(path)
 	}
+}
+
+// isUserRequestPath reports whether the path follows the data-plane format:
+// /restapis/{apiId}/{stageName}/_user_request_/{resourcePath...}.
+func isUserRequestPath(path string) bool {
+	segs := strings.Split(strings.TrimPrefix(path, "/"), "/")
+	const minSegs = 4 // restapis, apiId, stageName, _user_request_
+
+	return len(segs) >= minSegs && segs[0] == "restapis" && segs[3] == "_user_request_"
 }
 
 // MatchPriority returns the routing priority.
@@ -564,6 +594,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		method := c.Request().Method
 
 		switch {
+		case strings.HasPrefix(path, "/v2proxy/"):
+			return h.handleStageProxyEcho(c)
+		case isUserRequestPath(path):
+			return h.handleUserRequestEcho(c)
 		case path == domainNamesPrefix || strings.HasPrefix(path, domainNamesPrefix+"/"):
 			return h.handleDomainNamesPath(c, method, path)
 		case path == portalsPrefix || strings.HasPrefix(path, portalsPrefix+"/"):

@@ -4,11 +4,9 @@ services:
     ports:
       - "8000:8000"
       - "10000-10100:10000-10100"
-    # Lambda runs on real Docker inside gopherstack, so it needs the host
-    # Docker socket to launch the function container.
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - /tmp:/tmp
+      - /tmp/gopherstack-lambda:/tmp/gopherstack-lambda
     healthcheck:
       test: ["CMD", "./gopherstack", "health"]
       interval: 5s
@@ -17,6 +15,7 @@ services:
       start_period: 3s
     environment:
       - LAMBDA_DOCKER_HOST=host.docker.internal
+      - TMPDIR=/tmp/gopherstack-lambda
 
   demo:
     image: golang:1.23
@@ -28,12 +27,20 @@ services:
       - AWS_SECRET_ACCESS_KEY=test
       - AWS_DEFAULT_REGION=us-east-1
       - ENDPOINT=http://gopherstack:8000
+      # For lambda configuring AWS_ENDPOINT_URL inside Terraform environment
       - LAMBDA_ENDPOINT=http://host.docker.internal:8000
-    # golang image lacks aws-cli/zip; install them, then run the demo.
     entrypoint:
       - /bin/sh
       - -c
-      - "apt-get update -qq && apt-get install -y -qq awscli zip >/dev/null && exec /bin/sh /demo.sh"
+      - |
+        apt-get update -qq
+        apt-get install -y -qq awscli zip wget unzip >/dev/null
+        # Install OpenTofu
+        wget -qO- https://github.com/opentofu/opentofu/releases/download/v1.9.0/tofu_1.9.0_linux_amd64.tar.gz | tar xz -C /usr/local/bin tofu
+        exec /bin/sh /demo.sh
     volumes:
+      # Mount the current directory so Terraform states and plans are kept, and files are available.
+      - .:/workspace
       - ./demo.sh:/demo.sh:ro
       - ./lambda:/lambda:ro
+    working_dir: /workspace

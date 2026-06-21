@@ -1020,6 +1020,7 @@ func (b *InMemoryBackend) GetFunction(name string) (*FunctionConfiguration, erro
 	b.mu.RLock("GetFunction")
 	defer b.mu.RUnlock()
 
+	name = extractFunctionName(name)
 	fn, ok := b.functions[name]
 	if !ok {
 		return nil, ErrFunctionNotFound
@@ -1457,10 +1458,24 @@ func (b *InMemoryBackend) DeleteAlias(name, aliasName string) error {
 	return nil
 }
 
+// extractFunctionName parses an ARN and returns the function name.
+func extractFunctionName(name string) string {
+	if strings.Contains(name, ":function:") {
+		parts := strings.Split(name, ":")
+		for i, p := range parts {
+			if p == "function" && i+1 < len(parts) {
+				return parts[i+1]
+			}
+		}
+	}
+	return name
+}
+
 // resolveQualifier resolves a function name with an optional qualifier to a FunctionConfiguration.
 // Qualifier may be a version number, alias name, or "$LATEST" (default when empty).
 // Returns the resolved function config.
 func (b *InMemoryBackend) resolveQualifier(name, qualifier string) (*FunctionConfiguration, error) {
+	name = extractFunctionName(name)
 	if qualifier == "" || qualifier == versionLatest {
 		return b.GetFunction(name)
 	}
@@ -2248,9 +2263,19 @@ func (b *InMemoryBackend) cleanupRuntime(ctx context.Context, rt *functionRuntim
 	shutdownCtx, cancel := context.WithTimeout(ctx, containerShutdownTimeout)
 	defer cancel()
 
-	if containerID != "" && b.docker != nil {
-		_ = b.docker.StopAndRemove(shutdownCtx, containerID) // #nosec G703
-	}
+	defer func() {
+		// Stop and remove the container
+		if containerID != "" && b.docker != nil {
+			if !b.settings.KeepContainers {
+				err := b.docker.StopAndRemove(ctx, containerID)
+				if err != nil {
+					// log error silently
+				}
+			} else {
+				// log debug silently
+			}
+		}
+	}()
 
 	if srv != nil {
 		srv.stop(shutdownCtx)
@@ -2425,8 +2450,12 @@ func (b *InMemoryBackend) handleContainerStartFailure(
 	_ = b.portAlloc.Release(port)
 
 	// Stop any container that was created before the error occurred.
-	if containerID != "" {
-		_ = b.docker.StopAndRemove(shutdownCtx, containerID) // #nosec G703
+	if containerID != "" && b.docker != nil {
+		if !b.settings.KeepContainers {
+			_ = b.docker.StopAndRemove(context.Background(), containerID)
+		} else {
+			// log debug silently
+		}
 	}
 
 	for _, d := range layerDirs {
@@ -3727,9 +3756,10 @@ func (b *InMemoryBackend) AddPermission(functionName string, input *AddPermissio
 
 	b.permissions[functionName][input.StatementID] = perm
 
+	resourceArn := fmt.Sprintf("arn:aws:lambda:%s:%s:function:%s", b.region, b.accountID, functionName)
 	stmtJSON := fmt.Sprintf(
-		`{"Sid":%q,"Effect":"Allow","Principal":{"Service":%q},"Action":%q}`,
-		input.StatementID, input.Principal, input.Action,
+		`{"Sid":%q,"Effect":"Allow","Principal":{"Service":%q},"Action":%q,"Resource":%q}`,
+		input.StatementID, input.Principal, input.Action, resourceArn,
 	)
 
 	return &AddPermissionOutput{Statement: &stmtJSON}, nil
@@ -3784,10 +3814,11 @@ func (b *InMemoryBackend) GetPolicy(functionName string) (*GetPolicyOutput, erro
 
 	stmts := make([]string, 0, len(perms))
 
+	resourceArn := fmt.Sprintf("arn:aws:lambda:%s:%s:function:%s", b.region, b.accountID, functionName)
 	for _, p := range perms {
 		stmts = append(stmts, fmt.Sprintf(
-			`{"Sid":%q,"Effect":"Allow","Principal":{"Service":%q},"Action":%q}`,
-			p.StatementID, p.Principal, p.Action,
+			`{"Sid":%q,"Effect":"Allow","Principal":{"Service":%q},"Action":%q,"Resource":%q}`,
+			p.StatementID, p.Principal, p.Action, resourceArn,
 		))
 	}
 

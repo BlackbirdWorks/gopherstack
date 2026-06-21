@@ -48,3 +48,7 @@ e2e.test
 .beads-credential-key
 *.py
 node_modules/
+.terraform
+*.tfstate
+*.tfstate.backup
+lambda.zip

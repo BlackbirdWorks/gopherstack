@@ -367,8 +367,11 @@ func (d *inMemoryNotificationDispatcher) dispatch(
 		return
 	}
 
+	fmt.Printf("S3 Dispatching notification event=%s xml=%s\n", eventName, notifXML)
+
 	var cfg notificationConfiguration
 	if err := xml.Unmarshal([]byte(notifXML), &cfg); err != nil {
+		fmt.Printf("S3 Unmarshal failed error=%v\n", err)
 		return
 	}
 
@@ -435,22 +438,32 @@ func (d *inMemoryNotificationDispatcher) dispatchToLambda(
 	eventName, bucket, key, etag string,
 	size int64,
 ) {
+	fmt.Printf("S3 dispatchToLambda evaluating lc=%+v eventName=%s\n", lc, eventName)
+
 	if !matchesAnyEvent(lc.Events, eventName) || !keyMatchesFilter(key, lc.Filter) {
+		fmt.Printf("S3 dispatchToLambda skipped (no match)\n")
 		return
 	}
 
 	payload, err := buildS3EventPayload(eventName, lc.LambdaID, d.region, bucket, key, etag, size)
 	if err != nil {
+		fmt.Printf("S3 dispatchToLambda payload err err=%v\n", err)
 		return
 	}
 
 	if d.targets != nil && d.targets.LambdaInvoker != nil {
-		_, _, _ = d.targets.LambdaInvoker.InvokeFunction(
+		fmt.Printf("S3 dispatchToLambda invoking cloudFunc=%s\n", lc.CloudFunc)
+		_, _, err := d.targets.LambdaInvoker.InvokeFunction(
 			ctx,
 			lc.CloudFunc,
 			"Event",
 			[]byte(payload),
 		)
+		if err != nil {
+			fmt.Printf("S3 dispatchToLambda InvokeFunction error=%v\n", err)
+		}
+	} else {
+		fmt.Printf("S3 dispatchToLambda no target\n")
 	}
 }
 
