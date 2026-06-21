@@ -219,15 +219,14 @@ func TestDeleteBackupVaultChecked(t *testing.T) {
 		// Pass a LockDate in the past directly — PutBackupVaultLockConfiguration stores it as-is
 		// when ChangeableForDays == 0, so the vault is immediately in locked state.
 		past := time.Now().Add(-1 * time.Hour)
-		err := b.PutBackupVaultLockConfiguration("locked", &backup.VaultLockConfig{
+		if lockErr := b.PutBackupVaultLockConfiguration("locked", &backup.VaultLockConfig{
 			MinRetentionDays: 1,
 			MaxRetentionDays: 365,
 			LockDate:         &past,
-		})
-		if err != nil {
-			t.Fatalf("PutBackupVaultLockConfiguration: %v", err)
+		}); lockErr != nil {
+			t.Fatalf("PutBackupVaultLockConfiguration: %v", lockErr)
 		}
-		if err := b.DeleteBackupVaultChecked("locked"); err == nil {
+		if delErr := b.DeleteBackupVaultChecked("locked"); delErr == nil {
 			t.Error("expected error deleting locked vault")
 		}
 	})
@@ -289,7 +288,7 @@ func TestCompleteBackupJob(t *testing.T) {
 
 	t.Run("complete nonexistent job returns error", func(t *testing.T) {
 		t.Parallel()
-		if err := b.CompleteBackupJob("no-such-job"); err == nil {
+		if completeErr := b.CompleteBackupJob("no-such-job"); completeErr == nil {
 			t.Error("expected error, got nil")
 		}
 	})
@@ -313,8 +312,8 @@ func TestListBackupJobsFiltered(t *testing.T) {
 	cases := []struct {
 		name      string
 		filter    backup.ListBackupJobsFilter
-		wantCount int
 		wantIDs   []string
+		wantCount int
 	}{
 		{
 			name:      "no filter returns all",
@@ -500,8 +499,8 @@ func TestListRecoveryPointsFiltered(t *testing.T) {
 		name      string
 		vaultName string
 		filter    backup.ListRPFilter
-		wantCount int
 		wantArns  []string
+		wantCount int
 		wantErr   bool
 	}{
 		{
@@ -665,8 +664,8 @@ func TestListCopyJobsFiltered(t *testing.T) {
 	cases := []struct {
 		name      string
 		filter    backup.ListCopyJobsFilter
-		wantCount int
 		wantIDs   []string
+		wantCount int
 	}{
 		{
 			name:      "no filter returns all",

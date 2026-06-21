@@ -66,34 +66,37 @@ type ListBackupJobsFilter struct {
 	MaxResults    int
 }
 
-// jobMatchesFilter reports whether j satisfies all active fields in f.
-func jobMatchesFilter(j *Job, f ListBackupJobsFilter) bool {
-	if f.VaultName != "" && j.BackupVaultName != f.VaultName {
+// inTimeRange returns false if t is outside the [after, before) window.
+// Either bound may be nil (meaning "no bound").
+func inTimeRange(t time.Time, after, before *time.Time) bool {
+	if after != nil && !t.After(*after) {
 		return false
 	}
-	if f.State != "" && j.State != f.State {
-		return false
-	}
-	if f.ResourceArn != "" && j.ResourceArn != f.ResourceArn {
-		return false
-	}
-	if f.ResourceType != "" && j.ResourceType != f.ResourceType {
-		return false
-	}
-	if f.AccountID != "" && j.AccountID != f.AccountID {
-		return false
-	}
-	if f.ParentJobID != "" && j.ParentJobID != f.ParentJobID {
-		return false
-	}
-	if f.CreatedAfter != nil && !j.CreationTime.After(*f.CreatedAfter) {
-		return false
-	}
-	if f.CreatedBefore != nil && !j.CreationTime.Before(*f.CreatedBefore) {
+	if before != nil && !t.Before(*before) {
 		return false
 	}
 
 	return true
+}
+
+// jobMatchesFilter reports whether j satisfies all active fields in f.
+func jobMatchesFilter(j *Job, f ListBackupJobsFilter) bool {
+	switch {
+	case f.VaultName != "" && j.BackupVaultName != f.VaultName:
+		return false
+	case f.State != "" && j.State != f.State:
+		return false
+	case f.ResourceArn != "" && j.ResourceArn != f.ResourceArn:
+		return false
+	case f.ResourceType != "" && j.ResourceType != f.ResourceType:
+		return false
+	case f.AccountID != "" && j.AccountID != f.AccountID:
+		return false
+	case f.ParentJobID != "" && j.ParentJobID != f.ParentJobID:
+		return false
+	}
+
+	return inTimeRange(j.CreationTime, f.CreatedAfter, f.CreatedBefore)
 }
 
 // ListBackupJobsFiltered returns backup jobs matching the filter, with pagination.
@@ -219,6 +222,13 @@ type ListCopyJobsFilter struct {
 
 // copyJobMatchesFilter reports whether j satisfies all active fields in f.
 func copyJobMatchesFilter(j *CopyJob, f ListCopyJobsFilter) bool {
+	// Vault-specific filters checked before the common time-range check.
+	if f.SourceBackupVaultArn != "" && j.SourceBackupVaultArn != f.SourceBackupVaultArn {
+		return false
+	}
+	if f.DestinationBackupVaultArn != "" && j.DestinationBackupVaultArn != f.DestinationBackupVaultArn {
+		return false
+	}
 	if f.State != "" && j.State != f.State {
 		return false
 	}
@@ -228,23 +238,11 @@ func copyJobMatchesFilter(j *CopyJob, f ListCopyJobsFilter) bool {
 	if f.ResourceType != "" && j.ResourceType != f.ResourceType {
 		return false
 	}
-	if f.SourceBackupVaultArn != "" && j.SourceBackupVaultArn != f.SourceBackupVaultArn {
-		return false
-	}
-	if f.DestinationBackupVaultArn != "" && j.DestinationBackupVaultArn != f.DestinationBackupVaultArn {
-		return false
-	}
 	if f.AccountID != "" && j.AccountID != f.AccountID {
 		return false
 	}
-	if f.CreatedAfter != nil && !j.CreationDate.After(*f.CreatedAfter) {
-		return false
-	}
-	if f.CreatedBefore != nil && !j.CreationDate.Before(*f.CreatedBefore) {
-		return false
-	}
 
-	return true
+	return inTimeRange(j.CreationDate, f.CreatedAfter, f.CreatedBefore)
 }
 
 // ListCopyJobsFiltered returns copy jobs matching the filter, with pagination.
@@ -451,7 +449,7 @@ func (b *InMemoryBackend) CompleteBackupJob(jobID string) error {
 	if !ok {
 		return fmt.Errorf("%w: backup job %s not found", ErrNotFound, jobID)
 	}
-	if job.State != "CREATED" {
+	if job.State != statusCreated {
 		return nil // already done
 	}
 

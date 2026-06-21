@@ -214,6 +214,8 @@ const (
 
 	// Status value constants.
 	statusCompleted = "COMPLETED"
+	statusCreated   = "CREATED"
+	statusCreating  = "CREATING"
 	statusActive    = "ACTIVE"
 )
 
@@ -1501,6 +1503,7 @@ func parseInt(s string) int {
 	if err != nil {
 		return 0
 	}
+
 	return n
 }
 
@@ -1609,7 +1612,7 @@ func (h *Handler) handleListBackupVaults(c *echo.Context) error {
 		if v.MinRetentionDays > 0 {
 			item["MinRetentionDays"] = v.MinRetentionDays
 			item["MaxRetentionDays"] = v.MaxRetentionDays
-			item[keyVaultState] = "CREATING"
+			item[keyVaultState] = statusCreating
 		}
 		items = append(items, item)
 	}
@@ -2424,7 +2427,7 @@ func (h *Handler) handleCreateLogicallyAirGappedBackupVault(
 		keyBackupVaultArn:  v.BackupVaultArn,
 		keyBackupVaultName: v.BackupVaultName,
 		keyCreationDate:    epochSeconds(v.CreationTime),
-		keyVaultState:      "CREATING",
+		keyVaultState:      statusCreating,
 	})
 }
 
