@@ -1136,7 +1136,7 @@ func TestDeepen_VaultLock_DoubleInitiateConflict(t *testing.T) {
 func TestDeepen_DataRetrievalPolicy_BytesPerHour(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // fieldalignment: readability over minimal padding
+	tests := []struct {
 		name         string
 		bytesPerHour int64
 		wantOK       bool
@@ -1483,7 +1483,7 @@ func TestDeepen_MultipartUpload_AbortLifecycle(t *testing.T) {
 func TestDeepen_ErrorResponse_FormatFields(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
+	tests := []struct { //nolint:govet // fieldalignment: readability over minimal padding
 		name        string
 		method      string
 		path        string

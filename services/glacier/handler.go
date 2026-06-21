@@ -1084,8 +1084,8 @@ func (h *Handler) handleListJobs(c *echo.Context, vaultName string) error {
 	})
 }
 
-// paginateJobList applies marker+limit pagination to a slice of job responses. //nolint:dupl
-func paginateJobList(
+// paginateJobList applies marker+limit pagination to a slice of job responses.
+func paginateJobList( //nolint:dupl // three typed paginate funcs share identical structure
 	c *echo.Context,
 	items []describeJobResponse,
 ) ([]describeJobResponse, *string, error) {
@@ -1869,8 +1869,8 @@ func (h *Handler) handleListMultipartUploads(c *echo.Context, vaultName string) 
 	})
 }
 
-// paginateUploadList applies marker+limit pagination to a multipart-upload slice. //nolint:dupl
-func paginateUploadList(
+// paginateUploadList applies marker+limit pagination to a multipart-upload slice.
+func paginateUploadList( //nolint:dupl // three typed paginate funcs share identical structure
 	c *echo.Context,
 	items []MultipartUpload,
 ) ([]MultipartUpload, *string, error) {
@@ -1935,9 +1935,11 @@ func (h *Handler) handleListParts(c *echo.Context, vaultName, uploadID string) e
 	return c.JSON(http.StatusOK, resp)
 }
 
-// paginatePartList applies marker+limit pagination to a parts slice. //nolint:dupl
+// paginatePartList applies marker+limit pagination to a parts slice.
 // Marker is compared to RangeInBytes of each part.
-func paginatePartList(c *echo.Context, parts []MultipartPart) ([]MultipartPart, *string, error) {
+func paginatePartList( //nolint:dupl // three typed paginate funcs share identical structure
+	c *echo.Context, parts []MultipartPart,
+) ([]MultipartPart, *string, error) {
 	if marker := c.QueryParam("marker"); marker != "" {
 		start := 0
 
