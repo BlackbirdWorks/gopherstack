@@ -156,11 +156,11 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	seedEnv(t, b, "persist-env")
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	err := b2.Restore(snap)
+	err := b2.Restore(t.Context(), snap)
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, mwaa.EnvironmentCount(b2))

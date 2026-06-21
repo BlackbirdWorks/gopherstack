@@ -958,7 +958,7 @@ func TestAccuracy_SnapshotRestorePreservesSchema(t *testing.T) {
 	require.NoError(t, err)
 
 	b2 := timestreamwrite.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(data))
+	require.NoError(t, b2.Restore(t.Context(), data))
 
 	tbl, err := b2.DescribeTable("snap-schema-db", "snap-schema-tbl")
 	require.NoError(t, err)
@@ -991,7 +991,7 @@ func TestAccuracy_SnapshotRestorePreservesMSRDL(t *testing.T) {
 	require.NoError(t, err)
 
 	b2 := timestreamwrite.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(data))
+	require.NoError(t, b2.Restore(t.Context(), data))
 
 	tbl, err := b2.DescribeTable("snap-msrdl-db", "snap-msrdl-tbl")
 	require.NoError(t, err)
@@ -1024,7 +1024,7 @@ func TestAccuracy_SnapshotRestorePreservesRecordIndex(t *testing.T) {
 	require.NoError(t, err)
 
 	b2 := timestreamwrite.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(data))
+	require.NoError(t, b2.Restore(t.Context(), data))
 
 	// After restore, writing with lower version should be rejected.
 	rec.Version = 2

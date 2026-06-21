@@ -435,7 +435,7 @@ func TestECR_Handler_SnapshotNilForNonSnapshottable(t *testing.T) {
 	t.Parallel()
 
 	h := ecr.NewHandler(newStubBackend(), nil)
-	assert.Nil(t, h.Snapshot())
+	assert.Nil(t, h.Snapshot(t.Context()))
 }
 
 // TestECR_Handler_RestoreNoopForNonSnapshottable verifies that Restore is a
@@ -444,7 +444,7 @@ func TestECR_Handler_RestoreNoopForNonSnapshottable(t *testing.T) {
 	t.Parallel()
 
 	h := ecr.NewHandler(newStubBackend(), nil)
-	require.NoError(t, h.Restore([]byte(`{"repos":{}}`)))
+	require.NoError(t, h.Restore(t.Context(), []byte(`{"repos":{}}`)))
 }
 
 // TestECR_InMemoryBackend_ProxyEndpoint verifies the ProxyEndpoint accessor.

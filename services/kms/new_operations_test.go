@@ -398,11 +398,11 @@ func TestKMSKeyRotationSnapshotRestorePreservesHistory(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	snap := orig.Snapshot()
+	snap := orig.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	fresh := kms.NewInMemoryBackendWithConfig(kms.MockAccountID, kms.MockRegion)
-	require.NoError(t, fresh.Restore(snap))
+	require.NoError(t, fresh.Restore(t.Context(), snap))
 
 	// Both ciphertexts must decrypt on the restored backend.
 	decBefore, err := fresh.Decrypt(context.Background(), &kms.DecryptInput{CiphertextBlob: encBefore.CiphertextBlob})
@@ -745,11 +745,11 @@ func TestKMSImportKeyMaterialSnapshotRestore(t *testing.T) {
 		KeyMaterial: mat,
 	}))
 
-	snap := orig.Snapshot()
+	snap := orig.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	fresh := kms.NewInMemoryBackendWithConfig(kms.MockAccountID, kms.MockRegion)
-	require.NoError(t, fresh.Restore(snap))
+	require.NoError(t, fresh.Restore(t.Context(), snap))
 
 	desc, err := fresh.DescribeKey(context.Background(), &kms.DescribeKeyInput{KeyID: key.KeyMetadata.KeyID})
 	require.NoError(t, err)

@@ -63,6 +63,27 @@ func WithService(ctx context.Context, name string) context.Context {
 	return AddAttrs(ctx, slog.String("service", name))
 }
 
+// WithWorker returns a child context whose logger carries service=<service>
+// and worker=<service>-<job>, so records emitted by a background routine are
+// attributable to the specific job that produced them.
+//
+// Safety rules (the logger is a *slog.Logger pointer carried in ctx):
+//   - Call this ONCE at the entry of the worker goroutine, never inside a loop.
+//     Each call layers attributes onto a new logger; repeating it on a long-lived
+//     context would grow the attribute chain (and memory) without bound.
+//   - Derive ctx from the process/lifecycle context (e.g. the janitor context),
+//     never from a per-request context, so worker logs don't inherit request_id
+//     and don't pin a finished request alive.
+//
+// Enrichment is copy-on-write: slog.Logger.With does not mutate the parent, so
+// concurrent workers and requests never corrupt each other's logger.
+func WithWorker(ctx context.Context, service, job string) context.Context {
+	return AddAttrs(ctx,
+		slog.String("service", service),
+		slog.String("worker", service+"-"+job),
+	)
+}
+
 // handlerOptions returns the canonical handler options used by every logger
 // constructed in this package. Keeping this in one place guarantees the same
 // format everywhere: text output to stderr, fixed level, no AddSource.

@@ -900,13 +900,13 @@ func TestAudit2_Snapshot_SchemaVersion(t *testing.T) {
 	h := elb.NewHandler(b)
 	mustCreateLB(t, h, "snap-lb")
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 	assert.Contains(t, string(snap), `"version"`)
 
 	// Restore into a fresh backend.
 	b2 := elb.NewInMemoryBackend("123456789012", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	lbs, err := b2.DescribeLoadBalancers(context.Background(), []string{"snap-lb"})
 	require.NoError(t, err)
@@ -920,12 +920,12 @@ func TestAudit2_Restore_PreservesRegion(t *testing.T) {
 
 	// Create snapshot from us-east-1 backend.
 	b1 := elb.NewInMemoryBackend("123456789012", "us-east-1")
-	snap := b1.Snapshot()
+	snap := b1.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	// Restore into us-west-2 backend — region must stay us-west-2.
 	b2 := elb.NewInMemoryBackend("123456789012", "us-west-2")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	// The backend's region is not directly exported, but we can verify via the
 	// DNS name of a newly-created LB (which incorporates the region).

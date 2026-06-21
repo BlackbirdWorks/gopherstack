@@ -1,6 +1,7 @@
 package apprunner
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -806,7 +807,7 @@ func (b *InMemoryBackend) Reset() {
 }
 
 // Snapshot serializes the backend state to JSON.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
@@ -825,7 +826,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 }
 
 // Restore deserializes backend state from a snapshot.
-func (b *InMemoryBackend) Restore(data []byte) error { //nolint:gocognit // existing issue.
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error { //nolint:gocognit // existing issue.
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 

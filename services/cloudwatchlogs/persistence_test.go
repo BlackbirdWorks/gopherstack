@@ -84,11 +84,11 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			original := cloudwatchlogs.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
 			id := tt.setup(original)
 
-			snap := original.Snapshot()
+			snap := original.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			fresh := cloudwatchlogs.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
-			require.NoError(t, fresh.Restore(snap))
+			require.NoError(t, fresh.Restore(t.Context(), snap))
 
 			tt.verify(t, fresh, id)
 		})
@@ -99,7 +99,7 @@ func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	t.Parallel()
 
 	b := cloudwatchlogs.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
-	err := b.Restore([]byte("not-valid-json"))
+	err := b.Restore(t.Context(), []byte("not-valid-json"))
 	require.Error(t, err)
 }
 
@@ -115,13 +115,13 @@ func TestHandler_SnapshotRestore_PreservesTags(t *testing.T) {
 	// Set tags on the log group via the handler so the tag-serialization path is exercised.
 	h.SetTagsForTest("tagged-group", map[string]string{"env": "prod", "team": "ops"})
 
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	// Restore into a fresh handler.
 	b2 := cloudwatchlogs.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
 	h2 := cloudwatchlogs.NewHandler(b2)
-	require.NoError(t, h2.Restore(snap))
+	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	// Log group should be present in the restored backend.
 	groups, _, gErr := b2.DescribeLogGroups(context.Background(), "", "", 100)
@@ -151,11 +151,11 @@ func TestHandler_SnapshotRestore_StaleTagsCleared(t *testing.T) {
 	_, err = b2.CreateLogGroup(context.Background(), "g", "", "")
 	require.NoError(t, err)
 	h2 := cloudwatchlogs.NewHandler(b2)
-	snap := h2.Snapshot()
+	snap := h2.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	// Restore the snapshot into h — stale tags should be cleared.
-	require.NoError(t, h.Restore(snap))
+	require.NoError(t, h.Restore(t.Context(), snap))
 	restoredTags := h.GetTagsForTest("g")
 	assert.Empty(t, restoredTags)
 }
@@ -165,7 +165,7 @@ func TestHandler_SnapshotRestore_InvalidData(t *testing.T) {
 
 	b := cloudwatchlogs.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
 	h := cloudwatchlogs.NewHandler(b)
-	err := h.Restore([]byte("not-valid-json"))
+	err := h.Restore(t.Context(), []byte("not-valid-json"))
 	require.Error(t, err)
 }
 
@@ -181,11 +181,11 @@ func TestInMemoryBackend_SnapshotRestore_PreservesRetention(t *testing.T) {
 		return &v
 	}()))
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := cloudwatchlogs.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	groups, _, err := b2.DescribeLogGroups(context.Background(), "", "", 100)
 	require.NoError(t, err)
@@ -380,12 +380,12 @@ func TestInMemoryBackend_SnapshotRestore_CompletenessMapsSurvive(t *testing.T) {
 
 			tt.setup(t, original)
 
-			snap := original.Snapshot()
+			snap := original.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			fresh := cloudwatchlogs.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
 			t.Cleanup(func() { fresh.Close() })
-			require.NoError(t, fresh.Restore(snap))
+			require.NoError(t, fresh.Restore(t.Context(), snap))
 
 			tt.verify(t, fresh)
 		})

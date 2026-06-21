@@ -1020,7 +1020,7 @@ func TestRefinement4_Persistence_IncludesQueriesAndOptimizers(t *testing.T) {
 
 	// Restore to fresh backend
 	b2 := lakeformation.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	// Verify queries survived restore (GetQueryState should work)
 	var qOut map[string]any

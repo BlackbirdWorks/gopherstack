@@ -339,11 +339,11 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	require.NoError(t, b1.AssociateCertificate("arn:aws:acm:us-east-1:123:cert/abc"))
 	b1.PutPolicy("ALLOWED", "ALLOWED", "DISALLOWED")
 
-	snap := b1.Snapshot()
+	snap := b1.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	b2 := mediaconvert.NewInMemoryBackend("", "")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	assert.Equal(t, testAccountID, b2.AccountID())
 	assert.Equal(t, testRegion, b2.Region())
@@ -610,7 +610,7 @@ func TestRefinement1_PersistenceRestoreEmptySnapshot(t *testing.T) {
 	t.Parallel()
 
 	b := mediaconvert.NewInMemoryBackend(testAccountID, testRegion)
-	err := b.Restore([]byte(`{}`))
+	err := b.Restore(t.Context(), []byte(`{}`))
 	require.NoError(t, err)
 	assert.Equal(t, 0, mediaconvert.QueueCount(b))
 }
@@ -620,7 +620,7 @@ func TestRefinement1_PersistenceInvalidJSON(t *testing.T) {
 	t.Parallel()
 
 	b := mediaconvert.NewInMemoryBackend(testAccountID, testRegion)
-	err := b.Restore([]byte(`not-json`))
+	err := b.Restore(t.Context(), []byte(`not-json`))
 	require.Error(t, err)
 }
 

@@ -365,14 +365,14 @@ func TestRefinement2_SnapshotDeepCopy(t *testing.T) {
 	_, err := b.CreateQueue("snap-q", "", "", "", map[string]string{"k": "v"})
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	err = b.DeleteQueue("snap-q")
 	require.NoError(t, err)
 
 	b2 := r2Backend()
-	err = b2.Restore(snap)
+	err = b2.Restore(t.Context(), snap)
 	require.NoError(t, err)
 
 	q, err := b2.GetQueue("snap-q")

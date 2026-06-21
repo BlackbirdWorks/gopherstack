@@ -284,6 +284,6 @@ type Backend interface {
 // support state serialisation and restoration (e.g. for --persist mode).
 // Backends that do not implement it are silently skipped during snapshot/restore.
 type Snapshottable interface {
-	Snapshot() []byte
-	Restore(data []byte) error
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 }

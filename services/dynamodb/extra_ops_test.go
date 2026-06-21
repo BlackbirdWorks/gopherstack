@@ -762,11 +762,11 @@ func TestDynamoDB_GlobalTable_PersistenceRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, code)
 
 	// Snapshot and restore
-	snap := original.Snapshot()
+	snap := original.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	fresh := dynamodb.NewInMemoryDB()
-	require.NoError(t, fresh.Restore(snap))
+	require.NoError(t, fresh.Restore(t.Context(), snap))
 
 	// Verify global table persisted
 	freshHandler := dynamodb.NewHandler(fresh)

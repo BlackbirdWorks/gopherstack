@@ -1,9 +1,10 @@
 package eks
 
 import (
+	"context"
 	"encoding/json"
-	"log/slog"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -24,7 +25,7 @@ type backendSnapshot struct {
 }
 
 // Snapshot serialises the backend state to JSON.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
@@ -46,7 +47,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 
 	data, err := json.Marshal(snap)
 	if err != nil {
-		slog.Default().Warn("eks: Snapshot marshal failed", "error", err)
+		logger.Load(ctx).WarnContext(ctx, "eks: Snapshot marshal failed", "error", err)
 
 		return nil
 	}
@@ -207,7 +208,7 @@ func restoreNewOpsTagsLocked(snap *backendSnapshot) {
 }
 
 // Restore loads backend state from a JSON snapshot.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
 	if err := json.Unmarshal(data, &snap); err != nil {
@@ -242,7 +243,9 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.
-func (h *Handler) Snapshot() []byte { return h.Backend.Snapshot() }
+func (h *Handler) Snapshot(ctx context.Context) []byte { return h.Backend.Snapshot(ctx) }
 
 // Restore implements persistence.Persistable by delegating to the backend.
-func (h *Handler) Restore(data []byte) error { return h.Backend.Restore(data) }
+func (h *Handler) Restore(ctx context.Context, data []byte) error {
+	return h.Backend.Restore(ctx, data)
+}

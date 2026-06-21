@@ -1,6 +1,9 @@
 package workspaces
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // WorkspaceCreationSpec holds all fields for creating a workspace.
 type WorkspaceCreationSpec struct {
@@ -168,8 +171,8 @@ type StorageBackend interface {
 	AccountID() string
 	Region() string
 	Reset()
-	Snapshot() []byte
-	Restore(data []byte) error
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 }
 
 // Workspace holds full WorkSpace details.

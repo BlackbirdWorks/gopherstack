@@ -779,11 +779,11 @@ func TestCustomKeyStorePersistence(t *testing.T) {
 		CustomKeyStoreID: out.CustomKeyStoreID,
 	}))
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	b2 := kms.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	desc, err := b2.DescribeCustomKeyStores(context.Background(), &kms.DescribeCustomKeyStoresInput{
 		CustomKeyStoreID: out.CustomKeyStoreID,

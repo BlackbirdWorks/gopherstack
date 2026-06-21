@@ -1,10 +1,12 @@
 package kms
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 // errFlatSnapshotFormat is returned by tryRestoreNested when the snapshot uses the legacy flat format.
@@ -37,6 +39,7 @@ type backendSnapshotFlat struct {
 
 // snapshotRegionKeyMaterials serializes b.keyMaterials into region-nested form.
 func snapshotRegionKeyMaterials(
+	ctx context.Context,
 	km map[string]map[string]*keyMaterial,
 ) map[string]map[string]serializedKeyMaterial {
 	out := make(map[string]map[string]serializedKeyMaterial, len(km))
@@ -47,7 +50,7 @@ func snapshotRegionKeyMaterials(
 		for keyID, m := range regionKMs {
 			s, err := marshalKeyMaterial(m)
 			if err != nil {
-				slog.Default().Warn("KMS snapshot: skipping key material",
+				logger.Load(ctx).WarnContext(ctx, "KMS snapshot: skipping key material",
 					"region", region, "keyID", keyID, "error", err)
 
 				continue
@@ -66,6 +69,7 @@ func snapshotRegionKeyMaterials(
 
 // snapshotRegionKeyMaterialHistory serializes b.keyMaterialHistory into region-nested form.
 func snapshotRegionKeyMaterialHistory(
+	ctx context.Context,
 	hist map[string]map[string][]*keyMaterial,
 ) map[string]map[string][]serializedKeyMaterial {
 	out := make(map[string]map[string][]serializedKeyMaterial, len(hist))
@@ -74,7 +78,7 @@ func snapshotRegionKeyMaterialHistory(
 		regionOut := make(map[string][]serializedKeyMaterial, len(regionHist))
 
 		for keyID, history := range regionHist {
-			entries := snapshotKeyMaterialHistory(region, keyID, history)
+			entries := snapshotKeyMaterialHistory(ctx, region, keyID, history)
 			if len(entries) > 0 {
 				regionOut[keyID] = entries
 			}
@@ -89,13 +93,17 @@ func snapshotRegionKeyMaterialHistory(
 }
 
 // snapshotKeyMaterialHistory serializes a single key's material history slice.
-func snapshotKeyMaterialHistory(region, keyID string, history []*keyMaterial) []serializedKeyMaterial {
+func snapshotKeyMaterialHistory(
+	ctx context.Context,
+	region, keyID string,
+	history []*keyMaterial,
+) []serializedKeyMaterial {
 	entries := make([]serializedKeyMaterial, 0, len(history))
 
 	for _, m := range history {
 		s, err := marshalKeyMaterial(m)
 		if err != nil {
-			slog.Default().Warn("KMS snapshot: skipping historical key material",
+			logger.Load(ctx).WarnContext(ctx, "KMS snapshot: skipping historical key material",
 				"region", region, "keyID", keyID, "error", err)
 
 			continue
@@ -110,7 +118,7 @@ func snapshotKeyMaterialHistory(region, keyID string, history []*keyMaterial) []
 // Snapshot serialises the backend state to JSON.
 // It implements persistence.Persistable.
 // Key materials that cannot be serialized are omitted from the snapshot with a warning log.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
@@ -119,8 +127,8 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Aliases:            b.aliases,
 		Grants:             b.grants,
 		Policies:           b.policies,
-		KeyMaterials:       snapshotRegionKeyMaterials(b.keyMaterials),
-		KeyMaterialHistory: snapshotRegionKeyMaterialHistory(b.keyMaterialHistory),
+		KeyMaterials:       snapshotRegionKeyMaterials(ctx, b.keyMaterials),
+		KeyMaterialHistory: snapshotRegionKeyMaterialHistory(ctx, b.keyMaterialHistory),
 		CustomKeyStores:    b.customKeyStores,
 		AccountID:          b.accountID,
 		Region:             b.defaultRegion,
@@ -139,15 +147,15 @@ func (b *InMemoryBackend) Snapshot() []byte {
 // Supports both region-nested (current) and flat (legacy) snapshot formats.
 // If a key in the snapshot does not have corresponding key material (e.g. from an older snapshot
 // format), a warning is logged. Callers of Encrypt/Sign/etc. will receive ErrKeyMaterialUnavailable.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	// Two-pass restore: try nested format first, fall back to flat legacy format.
 	snap, err := tryRestoreNested(data)
 	if err != nil {
 		// Fall back to flat format: migrate everything under defaultRegion.
-		return b.restoreFlat(data)
+		return b.restoreFlat(ctx, data)
 	}
 
-	return b.applySnapshot(snap)
+	return b.applySnapshot(ctx, snap)
 }
 
 // tryRestoreNested attempts to unmarshal data as the region-nested snapshot format.
@@ -269,6 +277,7 @@ func restoreKeyMaterialHistory(region, keyID string, entries []serializedKeyMate
 
 // warnMissingKeyMaterials logs a warning for any key that lacks key material after restore.
 func warnMissingKeyMaterials(
+	ctx context.Context,
 	keys map[string]map[string]*Key,
 	materials map[string]map[string]*keyMaterial,
 ) {
@@ -281,14 +290,16 @@ func warnMissingKeyMaterials(
 			}
 
 			if regionMaterials == nil {
-				slog.Default().Warn("KMS restore: key has no material in snapshot; crypto operations will fail",
+				logger.Load(ctx).WarnContext(ctx,
+					"KMS restore: key has no material in snapshot; crypto operations will fail",
 					"region", region, "keyID", keyID)
 
 				continue
 			}
 
 			if _, hasMaterial := regionMaterials[keyID]; !hasMaterial {
-				slog.Default().Warn("KMS restore: key has no material in snapshot; crypto operations will fail",
+				logger.Load(ctx).WarnContext(ctx,
+					"KMS restore: key has no material in snapshot; crypto operations will fail",
 					"region", region, "keyID", keyID)
 			}
 		}
@@ -320,7 +331,7 @@ func ensureSnapDefaults(snap *backendSnapshot) {
 
 // applySnapshot applies a nested backendSnapshot to the backend.
 // Must be called without any lock held (acquires write lock internally).
-func (b *InMemoryBackend) applySnapshot(snap *backendSnapshot) error {
+func (b *InMemoryBackend) applySnapshot(ctx context.Context, snap *backendSnapshot) error {
 	ensureSnapDefaults(snap)
 
 	restored, err := restoreRegionKeyMaterials(snap.KeyMaterials)
@@ -333,7 +344,7 @@ func (b *InMemoryBackend) applySnapshot(snap *backendSnapshot) error {
 		return err
 	}
 
-	warnMissingKeyMaterials(snap.Keys, restored)
+	warnMissingKeyMaterials(ctx, snap.Keys, restored)
 
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
@@ -368,7 +379,7 @@ func (b *InMemoryBackend) rebuildGrantIndexesLocked() {
 }
 
 // restoreFlat handles the legacy flat snapshot format by migrating all data under defaultRegion.
-func (b *InMemoryBackend) restoreFlat(data []byte) error {
+func (b *InMemoryBackend) restoreFlat(ctx context.Context, data []byte) error {
 	var flat backendSnapshotFlat
 
 	if err := json.Unmarshal(data, &flat); err != nil {
@@ -415,24 +426,28 @@ func (b *InMemoryBackend) restoreFlat(data []byte) error {
 		snap.CustomKeyStores = map[string]map[string]*CustomKeyStore{region: flat.CustomKeyStores}
 	}
 
-	return b.applySnapshot(snap)
+	return b.applySnapshot(ctx, snap)
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.
-func (h *Handler) Snapshot() []byte {
-	type snapshotter interface{ Snapshot() []byte }
+func (h *Handler) Snapshot(ctx context.Context) []byte {
+	type snapshotter interface {
+		Snapshot(ctx context.Context) []byte
+	}
 	if s, ok := h.Backend.(snapshotter); ok {
-		return s.Snapshot()
+		return s.Snapshot(ctx)
 	}
 
 	return nil
 }
 
 // Restore implements persistence.Persistable by delegating to the backend.
-func (h *Handler) Restore(data []byte) error {
-	type restorer interface{ Restore([]byte) error }
+func (h *Handler) Restore(ctx context.Context, data []byte) error {
+	type restorer interface {
+		Restore(context.Context, []byte) error
+	}
 	if r, ok := h.Backend.(restorer); ok {
-		return r.Restore(data)
+		return r.Restore(ctx, data)
 	}
 
 	return nil

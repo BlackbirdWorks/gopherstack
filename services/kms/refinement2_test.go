@@ -1295,11 +1295,11 @@ func TestSnapshotRestoreRoundTrip(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 
 	// Create a new backend and restore into it.
 	b2 := kms.NewInMemoryBackend()
-	err = b2.Restore(snap)
+	err = b2.Restore(t.Context(), snap)
 	require.NoError(t, err)
 
 	// Decryption must succeed on the restored backend.

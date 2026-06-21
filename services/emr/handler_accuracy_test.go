@@ -750,11 +750,11 @@ func TestAccuracy_Persistence_InstanceGroups(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	snap := src.Snapshot()
+	snap := src.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	dst := emr.NewInMemoryBackend(testAccountID, testRegion)
-	require.NoError(t, dst.Restore(snap))
+	require.NoError(t, dst.Restore(t.Context(), snap))
 
 	clusters, _ := dst.ListClusters(context.Background(), emr.ListClustersParams{})
 	require.Len(t, clusters, 1)
@@ -1334,11 +1334,11 @@ func TestAccuracy_ListBootstrapActions_Persistence(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	snap := src.Snapshot()
+	snap := src.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	dst := emr.NewInMemoryBackend("", "")
-	require.NoError(t, dst.Restore(snap))
+	require.NoError(t, dst.Restore(t.Context(), snap))
 
 	cmds, _, err := dst.ListBootstrapActions(context.Background(), cluster.ID, "")
 	require.NoError(t, err)
@@ -1357,11 +1357,11 @@ func TestAccuracy_NotebookExecution_Persistence(t *testing.T) {
 	ne, err := src.StartNotebookExecution(context.Background(), "e-ED1", "persist-run", "{}", "j-1", nil)
 	require.NoError(t, err)
 
-	snap := src.Snapshot()
+	snap := src.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	dst := emr.NewInMemoryBackend("", "")
-	require.NoError(t, dst.Restore(snap))
+	require.NoError(t, dst.Restore(t.Context(), snap))
 
 	restored, err := dst.DescribeNotebookExecution(context.Background(), ne.NotebookExecutionID)
 	require.NoError(t, err)

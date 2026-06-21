@@ -769,11 +769,11 @@ func TestHandler_NewOps_PersistenceRoundTrip(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			// Snapshot and restore
-			snap := h.Snapshot()
+			snap := h.Snapshot(t.Context())
 			require.NotEmpty(t, snap)
 
 			h2 := newTestHandler()
-			require.NoError(t, h2.Restore(snap))
+			require.NoError(t, h2.Restore(t.Context(), snap))
 
 			// Verify multipart uploads are restored
 			rec = doRequest(t, h2, http.MethodGet, "/-/vaults/persist-vault/multipart-uploads", "")

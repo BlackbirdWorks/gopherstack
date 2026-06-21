@@ -2633,6 +2633,7 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 
 	// Wire CloudWatch Logs subscription filter delivery to Lambda, Kinesis, and Firehose.
 	wireCWLogsSubscriptionFilters(
+		appCtx.JanitorCtx,
 		byName["CloudWatchLogs"],
 		byName["Lambda"],
 		byName["Kinesis"],
@@ -3853,6 +3854,7 @@ func (a *cwLogsAdapter) PutLogLines(groupName, streamName string, messages []str
 // wireCWLogsSubscriptionFilters wires the CloudWatch Logs subscription filter delivery
 // to Lambda, Kinesis, and Firehose backends.
 func wireCWLogsSubscriptionFilters(
+	ctx context.Context,
 	cwlogsReg, lambdaReg, kinesisReg, firehoseReg service.Registerable,
 ) {
 	cwlogsH, ok := cwlogsReg.(*cwlogsbackend.Handler)
@@ -3883,8 +3885,8 @@ func wireCWLogsSubscriptionFilters(
 		if fhBk, fhBkOk := firehoseH.Backend.(*firehosebackend.InMemoryBackend); fhBkOk {
 			d.firehose = fhBk
 		} else {
-			slog.Default().
-				Warn("cwlogs: firehose backend is not *InMemoryBackend; subscription delivery to firehose disabled")
+			logger.Load(ctx).
+				WarnContext(ctx, "cwlogs: firehose backend is not *InMemoryBackend; subscription delivery to firehose disabled")
 		}
 	}
 
@@ -5128,8 +5130,8 @@ func setupPersistence(
 	restore bool,
 ) {
 	type persistable interface {
-		Snapshot() []byte
-		Restore([]byte) error
+		Snapshot(ctx context.Context) []byte
+		Restore(context.Context, []byte) error
 	}
 
 	for _, svc := range services {
@@ -5159,7 +5161,7 @@ func initPersistenceManager(ctx context.Context, cli *CLI) (*persistence.Manager
 		log.InfoContext(ctx, "Persistence enabled", "data_dir", cli.resolvedDataDir())
 	}
 
-	return persistence.NewManager(store), nil
+	return persistence.NewManager(ctx, store), nil
 }
 
 // loadDemoData loads demo data into the services.

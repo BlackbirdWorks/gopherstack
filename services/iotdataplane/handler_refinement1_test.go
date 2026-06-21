@@ -345,11 +345,11 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	b.AddConnectionInternal("client-1")
 	require.NoError(t, b.StoreRetainedMessage("sensor/temp", []byte("42"), 1))
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := iotdataplane.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 1, iotdataplane.ShadowCount(b2))
 	assert.Equal(t, 1, iotdataplane.ConnectionCount(b2))
@@ -366,11 +366,11 @@ func TestRefinement1_PersistenceEmpty(t *testing.T) {
 	t.Parallel()
 
 	b := iotdataplane.NewInMemoryBackend()
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := iotdataplane.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 0, iotdataplane.ShadowCount(b2))
 	assert.Equal(t, 0, iotdataplane.ConnectionCount(b2))
@@ -384,11 +384,11 @@ func TestRefinement1_HandlerSnapshotRestore(t *testing.T) {
 	b.AddShadowInternal("thing1", "", []byte(`{"k":"v"}`))
 	h := iotdataplane.NewHandler(b)
 
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	h2 := iotdataplane.NewHandler(iotdataplane.NewInMemoryBackend())
-	require.NoError(t, h2.Restore(snap))
+	require.NoError(t, h2.Restore(t.Context(), snap))
 	assert.Equal(t, 1, iotdataplane.ShadowCount(b))
 }
 

@@ -1,8 +1,10 @@
 package shield
 
 import (
+	"context"
 	"encoding/json"
-	"log/slog"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 type backendSnapshot struct {
@@ -34,7 +36,7 @@ func ensureNonNilMaps(s *backendSnapshot) {
 
 // Snapshot serialises the backend state to JSON.
 // All mutable maps are deep-copied so the snapshot is isolated from subsequent mutations.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
@@ -84,7 +86,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 
 	data, err := json.Marshal(snap)
 	if err != nil {
-		slog.Default().Warn("shield: failed to marshal snapshot", "error", err)
+		logger.Load(ctx).WarnContext(ctx, "shield: failed to marshal snapshot", "error", err)
 
 		return nil
 	}
@@ -93,7 +95,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 }
 
 // Restore loads backend state from a JSON snapshot and rebuilds indexes.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
 	if err := json.Unmarshal(data, &snap); err != nil {
@@ -134,7 +136,9 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.
-func (h *Handler) Snapshot() []byte { return h.Backend.Snapshot() }
+func (h *Handler) Snapshot(ctx context.Context) []byte { return h.Backend.Snapshot(ctx) }
 
 // Restore implements persistence.Persistable by delegating to the backend.
-func (h *Handler) Restore(data []byte) error { return h.Backend.Restore(data) }
+func (h *Handler) Restore(ctx context.Context, data []byte) error {
+	return h.Backend.Restore(ctx, data)
+}

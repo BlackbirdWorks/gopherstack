@@ -358,13 +358,13 @@ func TestRefinement2_Persistence_Handler(t *testing.T) {
 	backend.AddClusterInternal("persist-cluster")
 
 	// Snapshot via handler
-	data := h.Snapshot()
+	data := h.Snapshot(t.Context())
 	require.NotEmpty(t, data)
 
 	// Restore into fresh handler
 	backend2 := neptune.NewInMemoryBackend("000000000000", "us-east-1")
 	h2 := neptune.NewHandler(backend2)
-	require.NoError(t, h2.Restore(data))
+	require.NoError(t, h2.Restore(t.Context(), data))
 	assert.Equal(t, 1, neptune.ClusterCount(backend2))
 }
 

@@ -805,7 +805,7 @@ func TestRefinement3_PersistenceRetentionPropertiesRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	b2 := timestreamwrite.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(data))
+	require.NoError(t, b2.Restore(t.Context(), data))
 
 	tbl, err := b2.DescribeTable("snap-rp-db", "snap-rp-tbl")
 	require.NoError(t, err)
@@ -841,7 +841,7 @@ func TestRefinement3_PersistenceDataSourceConfigRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	b2 := timestreamwrite.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(data))
+	require.NoError(t, b2.Restore(t.Context(), data))
 
 	tasks := b2.ListBatchLoadTasks("")
 	require.Len(t, tasks, 1)

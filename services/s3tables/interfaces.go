@@ -1,5 +1,7 @@
 package s3tables
 
+import "context"
+
 // StorageBackend defines the interface for S3 Tables backend implementations.
 // All mutating methods must be safe for concurrent use.
 type StorageBackend interface {
@@ -67,8 +69,8 @@ type StorageBackend interface {
 
 	// Lifecycle
 	Reset()
-	Snapshot() []byte
-	Restore(data []byte) error
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 }
 
 // compile-time assertion that InMemoryBackend satisfies StorageBackend.

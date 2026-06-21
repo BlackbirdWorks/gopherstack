@@ -414,12 +414,12 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	b.AddDatasetInternal("saved_set")
 	b.AddPipelineInternal("saved_pipe")
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 	require.NotEmpty(t, snap)
 
 	b2 := iotanalytics.NewInMemoryBackend()
-	err := b2.Restore(snap)
+	err := b2.Restore(t.Context(), snap)
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, iotanalytics.ChannelCount(b2))

@@ -1,8 +1,10 @@
 package redshiftdata
 
 import (
+	"context"
 	"encoding/json"
-	"log/slog"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 // regionSnapshot holds the serialized state for a single region.
@@ -18,7 +20,7 @@ type backendSnapshot struct {
 }
 
 // Snapshot serializes the backend state to JSON.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
@@ -49,7 +51,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 
 	data, err := json.Marshal(snap)
 	if err != nil {
-		slog.Default().Warn("redshiftdata: failed to marshal snapshot", "error", err)
+		logger.Load(ctx).WarnContext(ctx, "redshiftdata: failed to marshal snapshot", "error", err)
 
 		return nil
 	}
@@ -58,7 +60,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 }
 
 // Restore loads backend state from a JSON snapshot.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
 	if err := json.Unmarshal(data, &snap); err != nil {

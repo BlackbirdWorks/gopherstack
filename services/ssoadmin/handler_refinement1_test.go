@@ -365,14 +365,14 @@ func TestRefinement1_SnapshotRestore(t *testing.T) {
 	createPermissionSet(t, h1, instanceArn, "snap-ps")
 
 	// Snapshot.
-	snap := b1.Snapshot()
+	snap := b1.Snapshot(t.Context())
 	require.NotNil(t, snap)
 	require.NotEmpty(t, snap)
 
 	// Restore into fresh backend.
 	b2 := ssoadmin.NewInMemoryBackend("000000000000", "us-east-1")
 	h2 := ssoadmin.NewHandler(b2)
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	// Verify instance is present.
 	rec := doRequest(t, h2, "DescribeInstance", map[string]any{"InstanceArn": instanceArn})

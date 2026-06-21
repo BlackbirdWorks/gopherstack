@@ -566,12 +566,12 @@ func TestCPBackend_PersistenceString(t *testing.T) {
 	_, err := b.CreatePipeline(context.Background(), samplePipeline("snap-pipe"), nil)
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 	assert.NotEmpty(t, snap)
 
 	b2 := codepipeline.NewInMemoryBackend("000000000000", "us-east-1")
-	err = b2.Restore(snap)
+	err = b2.Restore(t.Context(), snap)
 	require.NoError(t, err)
 	assert.Equal(t, 1, b2.PipelineCount())
 }

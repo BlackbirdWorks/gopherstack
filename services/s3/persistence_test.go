@@ -92,11 +92,11 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			original := s3.NewInMemoryBackend(nil)
 			id := tt.setup(original)
 
-			snap := original.Snapshot()
+			snap := original.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			fresh := s3.NewInMemoryBackend(nil)
-			require.NoError(t, fresh.Restore(snap))
+			require.NoError(t, fresh.Restore(t.Context(), snap))
 
 			tt.verify(t, fresh, id)
 		})
@@ -138,7 +138,7 @@ func TestInMemoryBackend_RestoreActivePrecedesOverPending(t *testing.T) {
 	}`)
 
 	b := s3.NewInMemoryBackend(nil)
-	require.NoError(t, b.Restore(snap))
+	require.NoError(t, b.Restore(t.Context(), snap))
 
 	// getBucket must resolve to the active (us-west-2) entry.
 	_, err := b.HeadBucket(t.Context(), &sdk_s3.HeadBucketInput{Bucket: aws.String("shared")})
@@ -155,7 +155,7 @@ func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	t.Parallel()
 
 	b := s3.NewInMemoryBackend(nil)
-	err := b.Restore([]byte("not-valid-json"))
+	err := b.Restore(t.Context(), []byte("not-valid-json"))
 	require.Error(t, err)
 }
 
@@ -190,7 +190,7 @@ func TestInMemoryBackend_RestoreLegacyFlatUploads(t *testing.T) {
 	}`)
 
 	b := s3.NewInMemoryBackend(nil)
-	require.NoError(t, b.Restore(snap))
+	require.NoError(t, b.Restore(t.Context(), snap))
 
 	out, err := b.ListMultipartUploads(t.Context(), &sdk_s3.ListMultipartUploadsInput{
 		Bucket: aws.String("my-bucket"),

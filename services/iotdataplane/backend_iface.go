@@ -1,5 +1,7 @@
 package iotdataplane
 
+import "context"
+
 // MQTTPublisher publishes a message to an MQTT topic.
 type MQTTPublisher interface {
 	Publish(topic string, payload []byte, retain bool, qos byte) error
@@ -26,8 +28,8 @@ type StorageBackend interface {
 // Snapshottable is an optional interface a StorageBackend may implement to
 // support snapshot/restore for persistence or test isolation.
 type Snapshottable interface {
-	Snapshot() []byte
-	Restore([]byte) error
+	Snapshot(ctx context.Context) []byte
+	Restore(context.Context, []byte) error
 }
 
 // Resettable is an optional interface a StorageBackend may implement to

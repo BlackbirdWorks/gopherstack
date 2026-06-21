@@ -332,11 +332,11 @@ func TestBatch4_ExtendedStateSnapshotRestore(t *testing.T) {
 
 			original := glue.NewInMemoryBackend("123456789012", "us-east-1")
 			tt.seed(t, original)
-			snapshot := original.Snapshot()
+			snapshot := original.Snapshot(t.Context())
 			require.NotNil(t, snapshot)
 
 			restored := glue.NewInMemoryBackend("123456789012", "us-east-1")
-			require.NoError(t, restored.Restore(snapshot))
+			require.NoError(t, restored.Restore(t.Context(), snapshot))
 			tt.check(t, restored)
 		})
 	}

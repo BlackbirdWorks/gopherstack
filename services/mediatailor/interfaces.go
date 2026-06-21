@@ -1,6 +1,9 @@
 package mediatailor
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // StorageBackend is the interface for MediaTailor storage operations.
 type StorageBackend interface {
@@ -125,8 +128,8 @@ type StorageBackend interface {
 	AccountID() string
 	Region() string
 	Reset()
-	Snapshot() []byte
-	Restore(data []byte) error
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 }
 
 // PlaybackConfiguration represents a MediaTailor playback configuration.

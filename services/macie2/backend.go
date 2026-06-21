@@ -1,6 +1,7 @@
 package macie2
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -948,7 +949,7 @@ type snapshot struct {
 }
 
 // Snapshot serializes backend state to JSON.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
@@ -981,7 +982,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 }
 
 // Restore deserializes backend state from JSON.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap snapshot
 	if err := json.Unmarshal(data, &snap); err != nil {
 		return err

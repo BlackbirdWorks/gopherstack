@@ -679,11 +679,11 @@ func TestRefinement1_SnapshotRestore(t *testing.T) {
 				b1.AddClusterInternal(context.Background(), "cluster-"+strconv.Itoa(i))
 			}
 
-			snap := b1.Snapshot()
+			snap := b1.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			b2 := sagemaker.NewInMemoryBackend("000000000000", "us-east-1")
-			require.NoError(t, b2.Restore(snap))
+			require.NoError(t, b2.Restore(t.Context(), snap))
 
 			assert.Equal(t, tt.wantModelsCnt, sagemaker.ModelCount(b2))
 			assert.Equal(t, tt.wantClustCnt, sagemaker.ClusterCount(b2))

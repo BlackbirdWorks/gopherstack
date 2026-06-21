@@ -1,11 +1,12 @@
 package timestreamwrite
 
 import (
+	"context"
 	"encoding/json"
-	"log/slog"
 	"maps"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 // backendSnapshot is the serialisable representation of the backend state.
@@ -74,19 +75,16 @@ func (b *InMemoryBackend) Snapshot() ([]byte, error) {
 		snap.BatchLoadTasks[id] = &cp
 	}
 
-	data, err := json.Marshal(snap)
-	if err != nil {
-		slog.Default().Warn("timestreamwrite: snapshot marshal failed", "error", err)
-	}
-
-	return data, err
+	// Marshal failure is returned to the caller (the Persistable wrapper logs it
+	// via the context-aware logger); do not log through slog.Default() here.
+	return json.Marshal(snap)
 }
 
 // Restore replaces the backend state with the data from a previous Snapshot call.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 	if err := json.Unmarshal(data, &snap); err != nil {
-		slog.Default().Warn("timestreamwrite: restore unmarshal failed", "error", err)
+		logger.Load(ctx).WarnContext(ctx, "timestreamwrite: restore unmarshal failed", "error", err)
 
 		return err
 	}

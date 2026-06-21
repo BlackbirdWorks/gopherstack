@@ -216,11 +216,11 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, map[string]string{"env": "test"})
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	b2 := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 1, b2.ClusterCount())
 

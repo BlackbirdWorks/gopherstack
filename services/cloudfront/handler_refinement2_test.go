@@ -2074,12 +2074,12 @@ func TestNewBackendNewResourcesPersistence(t *testing.T) {
 	require.NoError(t, err)
 
 	h := cloudfront.NewHandler(b)
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	b2 := cloudfront.NewInMemoryBackend("000000000000", "us-east-1")
 	h2 := cloudfront.NewHandler(b2)
-	require.NoError(t, h2.Restore(snap))
+	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	_, err = b2.GetFieldLevelEncryption(fle.ID)
 	require.NoError(t, err)
@@ -2113,12 +2113,12 @@ func TestNewBackendPersistenceWithStrings(t *testing.T) {
 	require.NoError(t, err)
 
 	h := cloudfront.NewHandler(b)
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	b2 := cloudfront.NewInMemoryBackend("000000000000", "us-east-1")
 	h2 := cloudfront.NewHandler(b2)
-	require.NoError(t, h2.Restore(snap))
+	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	restored, err := b2.GetPublicKey(pk.ID)
 	require.NoError(t, err)

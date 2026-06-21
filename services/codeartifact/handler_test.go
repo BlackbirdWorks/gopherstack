@@ -627,11 +627,11 @@ func TestHandler_Persistence(t *testing.T) {
 	doRequest(t, h, http.MethodPost, "/v1/repository?domain=persist-domain&repository=persist-repo", nil)
 
 	// Snapshot and restore.
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	h2 := newTestHandler(t)
-	require.NoError(t, h2.Restore(snap))
+	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	descRec := doRequest(t, h2, http.MethodGet, "/v1/domain?domain=persist-domain", nil)
 	assert.Equal(t, http.StatusOK, descRec.Code)
@@ -1596,11 +1596,11 @@ func TestHandler_NewOperations_Persistence(t *testing.T) {
 	)
 
 	// Snapshot and restore.
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	h2 := newTestHandler(t)
-	require.NoError(t, h2.Restore(snap))
+	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	// Verify package group survived.
 	pgRec := doRequest(t, h2, http.MethodGet, "/v1/package-group?domain=persist2-domain&packageGroup=/npm/*", nil)

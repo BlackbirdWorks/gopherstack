@@ -1516,11 +1516,11 @@ func TestDeepen1_SnapshotRestore_TaskIDCounter(t *testing.T) {
 	_, err = b1.StartTagSyncTask(context.Background(), "snap-group", "arn:aws:iam::000000000000:role/r", "", "", nil)
 	require.NoError(t, err)
 
-	snap := b1.Snapshot()
+	snap := b1.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	tasks, _, err := b2.ListTagSyncTasks(context.Background(), nil, "", 0)
 	require.NoError(t, err)
@@ -1548,9 +1548,9 @@ func TestDeepen1_SnapshotRestore_GroupResources(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	snap := b1.Snapshot()
+	snap := b1.Snapshot(t.Context())
 	b2 := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	ids, _, err := b2.ListGroupResources(context.Background(), "res-group", nil, "", 0)
 	require.NoError(t, err)

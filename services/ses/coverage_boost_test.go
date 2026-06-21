@@ -1557,10 +1557,10 @@ func TestPersistence_EnsureNonNilMaps(t *testing.T) {
 			b := ses.NewInMemoryBackend()
 			require.NoError(t, b.VerifyEmailIdentity("snap@example.com"))
 
-			snap := b.Snapshot()
+			snap := b.Snapshot(t.Context())
 
 			b2 := ses.NewInMemoryBackend()
-			require.NoError(t, b2.Restore(snap))
+			require.NoError(t, b2.Restore(t.Context(), snap))
 
 			// After restore all maps should be non-nil and usable.
 			require.NoError(t, b2.VerifyEmailIdentity("post-restore@example.com"))

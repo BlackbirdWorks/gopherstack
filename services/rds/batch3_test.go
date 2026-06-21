@@ -750,11 +750,11 @@ func TestBatch3_Persistence_ClusterNewFields(t *testing.T) {
 		})
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := rds.NewInMemoryBackend("123456789012", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	clusters, err := b2.DescribeDBClusters("cls-snap")
 	require.NoError(t, err)
@@ -781,11 +781,11 @@ func TestBatch3_Persistence_InstanceNewFields(t *testing.T) {
 		})
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := rds.NewInMemoryBackend("123456789012", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	instances, err := b2.DescribeDBInstances("inst-snap")
 	require.NoError(t, err)
@@ -805,11 +805,11 @@ func TestBatch3_Persistence_BlueGreenTarget(t *testing.T) {
 	_, err := b.CreateBlueGreenDeployment("bgd-snap", "arn:aws:rds:us-east-1:123:cluster:src")
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := rds.NewInMemoryBackend("123456789012", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	deployments, err := b2.DescribeBlueGreenDeployments("")
 	require.NoError(t, err)
@@ -827,11 +827,11 @@ func TestBatch3_Persistence_ShardGroupEndpoint(t *testing.T) {
 	_, err := b.CreateDBShardGroup("sg-snap", "cl-snap", 64, 1, 1, false)
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := rds.NewInMemoryBackend("123456789012", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	groups, err := b2.DescribeDBShardGroups("")
 	require.NoError(t, err)
@@ -848,11 +848,11 @@ func TestBatch3_Persistence_IntegrationDataFilter(t *testing.T) {
 	_, err := b.CreateIntegration("intg-snap", "src", "tgt", "", "include(orders)", "my description")
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := rds.NewInMemoryBackend("123456789012", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	integrations, err := b2.DescribeIntegrations("")
 	require.NoError(t, err)

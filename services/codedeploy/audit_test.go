@@ -973,11 +973,11 @@ func TestAudit_Persistence_TagsRoundTrip(t *testing.T) {
 		map[string]string{"tier": "blue"})
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := codedeploy.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	appARN := b2.ApplicationARN("tagged-app")
 	appTags, err := b2.ListTagsForResource(appARN)
@@ -998,10 +998,10 @@ func TestAudit_Persistence_GitHubTokensRoundTrip(t *testing.T) {
 	b.AddGitHubAccountTokenInternal("token-alpha")
 	b.AddGitHubAccountTokenInternal("token-beta")
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 
 	b2 := codedeploy.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	tokens := b2.ListGitHubAccountTokenNames()
 	assert.Contains(t, tokens, "token-alpha")

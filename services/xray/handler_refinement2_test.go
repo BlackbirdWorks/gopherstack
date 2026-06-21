@@ -478,11 +478,11 @@ func TestRefinement2_Persistence_RetrievedTracesPersistedInSnapshot(t *testing.T
 
 	token := b.StartTraceRetrieval([]string{"1-persist-ret"})
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := xray.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	status, traces := b2.ListRetrievedTraces(token)
 	assert.Equal(t, "COMPLETE", status)

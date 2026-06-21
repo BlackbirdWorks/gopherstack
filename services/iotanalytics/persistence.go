@@ -1,9 +1,11 @@
 package iotanalytics
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
-	"log/slog"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 // ErrNoSnapshot is returned when a backend does not support snapshot/restore.
@@ -12,8 +14,8 @@ var ErrNoSnapshot = errors.New("backend does not support restore")
 // Snapshottable is an optional interface that a StorageBackend may implement to
 // support snapshot/restore for persistence or test isolation.
 type Snapshottable interface {
-	Snapshot() []byte
-	Restore([]byte) error
+	Snapshot(ctx context.Context) []byte
+	Restore(context.Context, []byte) error
 }
 
 // backendSnapshot holds a serializable snapshot of InMemoryBackend state.
@@ -29,7 +31,7 @@ type backendSnapshot struct {
 }
 
 // Snapshot serializes backend state to JSON.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -46,7 +48,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 
 	data, err := json.Marshal(snap)
 	if err != nil {
-		slog.Default().Warn("iotanalytics: failed to marshal snapshot", "error", err)
+		logger.Load(ctx).WarnContext(ctx, "iotanalytics: failed to marshal snapshot", "error", err)
 
 		return nil
 	}
@@ -55,7 +57,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 }
 
 // Restore deserializes backend state from a JSON snapshot.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
 	if err := json.Unmarshal(data, &snap); err != nil {
@@ -106,21 +108,21 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 }
 
 // Snapshot implements persistence by delegating to the backend if it supports it.
-func (h *Handler) Snapshot() []byte {
+func (h *Handler) Snapshot(ctx context.Context) []byte {
 	s, ok := h.Backend.(Snapshottable)
 	if !ok {
 		return nil
 	}
 
-	return s.Snapshot()
+	return s.Snapshot(ctx)
 }
 
 // Restore implements persistence by delegating to the backend if it supports it.
-func (h *Handler) Restore(data []byte) error {
+func (h *Handler) Restore(ctx context.Context, data []byte) error {
 	s, ok := h.Backend.(Snapshottable)
 	if !ok {
 		return ErrNoSnapshot
 	}
 
-	return s.Restore(data)
+	return s.Restore(ctx, data)
 }

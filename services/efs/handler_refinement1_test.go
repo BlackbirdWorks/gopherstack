@@ -994,11 +994,11 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 			_, err = b.CreateAccessPoint(context.Background(), apReq(fs.FileSystemID))
 			require.NoError(t, err)
 
-			snap := b.Snapshot()
+			snap := b.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			b2 := newRefinementBackend()
-			err = b2.Restore(snap)
+			err = b2.Restore(t.Context(), snap)
 			require.NoError(t, err)
 
 			assert.Equal(t, tt.wantFS, efs.FileSystemCount(b2))

@@ -132,7 +132,7 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	backend.AddParameterGroupInternal("persist-dpg", "neptune1.3")
 	backend.AddEventSubscriptionInternal("persist-sub", "arn:aws:sns:us-east-1:000000000000:test")
 
-	data := backend.Snapshot()
+	data := backend.Snapshot(t.Context())
 	require.NotEmpty(t, data)
 
 	// Verify it's valid JSON
@@ -140,7 +140,7 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	require.NoError(t, json.Unmarshal(data, &raw))
 
 	restored := neptune.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, restored.Restore(data))
+	require.NoError(t, restored.Restore(t.Context(), data))
 
 	assert.Equal(t, 1, neptune.ClusterCount(restored))
 	assert.Equal(t, 1, neptune.ClusterSnapshotCount(restored))
@@ -676,11 +676,11 @@ func TestRefinement1_Persistence_EmptyRestore(t *testing.T) {
 	t.Parallel()
 
 	backend := neptune.NewInMemoryBackend("000000000000", "us-east-1")
-	data := backend.Snapshot()
+	data := backend.Snapshot(t.Context())
 	require.NotEmpty(t, data)
 
 	fresh := neptune.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, fresh.Restore(data))
+	require.NoError(t, fresh.Restore(t.Context(), data))
 	assert.Equal(t, 0, neptune.ClusterCount(fresh))
 }
 
@@ -689,7 +689,7 @@ func TestRefinement1_Persistence_InvalidJSON(t *testing.T) {
 	t.Parallel()
 
 	backend := neptune.NewInMemoryBackend("000000000000", "us-east-1")
-	err := backend.Restore([]byte(`not-json`))
+	err := backend.Restore(t.Context(), []byte(`not-json`))
 	require.Error(t, err)
 }
 

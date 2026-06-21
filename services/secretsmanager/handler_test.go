@@ -2171,11 +2171,11 @@ func TestSecretsManagerPersistence_RotationEnabled(t *testing.T) {
 	_, err = b.RotateSecret(context.Background(), &secretsmanager.RotateSecretInput{SecretID: "persist-rot"})
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	b2 := secretsmanager.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	desc, err := b2.DescribeSecret(context.Background(), &secretsmanager.DescribeSecretInput{SecretID: "persist-rot"})
 	require.NoError(t, err)

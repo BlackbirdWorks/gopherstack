@@ -1,8 +1,10 @@
 package ec2
 
 import (
+	"context"
 	"encoding/json"
-	"log/slog"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 // snapTGWMcastAssoc is a type alias used in backendSnapshot to keep line lengths manageable.
@@ -139,7 +141,7 @@ type backendSnapshot struct {
 // It implements persistence.Persistable.
 //
 //nolint:funlen // large state snapshot
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
@@ -263,7 +265,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 
 	data, err := json.Marshal(snap)
 	if err != nil {
-		slog.Default().Warn("ec2: Snapshot marshal failure", "error", err)
+		logger.Load(ctx).WarnContext(ctx, "ec2: Snapshot marshal failure", "error", err)
 
 		return nil
 	}
@@ -275,7 +277,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 // It implements persistence.Persistable.
 //
 //nolint:gocognit,gocyclo,cyclop,funlen // large state restore
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
 	if err := json.Unmarshal(data, &snap); err != nil {
@@ -821,10 +823,12 @@ func (s *backendSnapshot) initAppendixMaps() {
 // Snapshot implements persistence.Persistable by delegating to the backend.
 // It type-asserts the backend to check for Snapshot support so that alternative
 // backend implementations that do not persist state still compile.
-func (h *Handler) Snapshot() []byte {
-	type snapshotter interface{ Snapshot() []byte }
+func (h *Handler) Snapshot(ctx context.Context) []byte {
+	type snapshotter interface {
+		Snapshot(ctx context.Context) []byte
+	}
 	if s, ok := h.Backend.(snapshotter); ok {
-		return s.Snapshot()
+		return s.Snapshot(ctx)
 	}
 
 	return nil
@@ -833,10 +837,12 @@ func (h *Handler) Snapshot() []byte {
 // Restore implements persistence.Persistable by delegating to the backend.
 // It type-asserts the backend to check for Restore support so that alternative
 // backend implementations that do not persist state still compile.
-func (h *Handler) Restore(data []byte) error {
-	type restorer interface{ Restore([]byte) error }
+func (h *Handler) Restore(ctx context.Context, data []byte) error {
+	type restorer interface {
+		Restore(context.Context, []byte) error
+	}
 	if r, ok := h.Backend.(restorer); ok {
-		return r.Restore(data)
+		return r.Restore(ctx, data)
 	}
 
 	return nil

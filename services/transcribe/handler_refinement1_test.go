@@ -379,11 +379,11 @@ func TestRefinement1_SnapshotRestoreAllMaps(t *testing.T) {
 	b.AddMedicalScribeJobInternal(&transcribe.MedicalScribeJob{MedicalScribeJobName: "msj1"})
 	b.AddMedicalTranscriptionJobInternal(&transcribe.MedicalTranscriptionJob{MedicalTranscriptionJobName: "mtj1"})
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := transcribe.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 1, transcribe.JobCount(b2))
 	assert.Equal(t, 1, transcribe.CallAnalyticsCategoryCount(b2))

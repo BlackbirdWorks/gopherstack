@@ -1,6 +1,7 @@
 package codepipeline
 
 import (
+	"context"
 	"encoding/json"
 	"maps"
 )
@@ -101,7 +102,7 @@ func (k customActionTypeKey) String() string {
 }
 
 // Snapshot serialises the backend state to JSON. Returns nil on marshal failure.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
@@ -161,7 +162,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 
 // Restore loads backend state from a JSON snapshot produced by Snapshot.
 // It calls Reset first to clear any in-flight goroutines and prior state.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
 	if err := json.Unmarshal(data, &snap); err != nil {

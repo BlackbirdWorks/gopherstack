@@ -578,11 +578,11 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	ft, err := b.CreateFuotaTask(testAccountID, testRegion, "ft-persist", "desc", "s3://bucket/fw.bin", "arn:role", nil)
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := iotwireless.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	gotDP, err := b2.GetDeviceProfile(testAccountID, testRegion, dp.ID)
 	require.NoError(t, err)

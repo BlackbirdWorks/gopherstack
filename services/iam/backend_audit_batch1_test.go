@@ -891,9 +891,9 @@ func TestCreatePolicyVersion_MonotonicAfterRestore(t *testing.T) {
 	assert.Equal(t, "v2", v2.VersionID)
 
 	// Snapshot and restore.
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	b2 := iam.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	// Next version must be v3, not v2.
 	v3, err := b2.CreatePolicyVersion(p.Arn, doc, false)

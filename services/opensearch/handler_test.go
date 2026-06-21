@@ -1563,11 +1563,11 @@ func TestOpenSearchHandler_Persistence_NewOps(t *testing.T) {
 	_, err = b.CreateApplication("my-app", nil, nil)
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	fresh := opensearch.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, fresh.Restore(snap))
+	require.NoError(t, fresh.Restore(t.Context(), snap))
 
 	// Verify domain persists
 	domain, err := fresh.DescribeDomain("snap-domain")

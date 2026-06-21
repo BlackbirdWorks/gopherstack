@@ -1,5 +1,7 @@
 package organizations
 
+import "context"
+
 // StorageBackend defines the interface for the Organizations in-memory backend.
 // All mutating methods must be safe for concurrent use.
 type StorageBackend interface {
@@ -103,8 +105,8 @@ type StorageBackend interface {
 	Reset()
 	AccountID() string
 	Region() string
-	Snapshot() []byte
-	Restore(data []byte) error
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 }
 
 // compile-time assertion that InMemoryBackend satisfies StorageBackend.

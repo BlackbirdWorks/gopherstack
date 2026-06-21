@@ -361,11 +361,11 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 		Description:          "persist test",
 	})
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := fis.NewTestBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 1, b2.TemplateCount())
 	assert.Equal(t, 1, b2.TargetAccountConfigCount())
@@ -379,11 +379,11 @@ func TestRefinement1_PersistenceEmpty(t *testing.T) {
 	t.Parallel()
 
 	b := fis.NewTestBackend()
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := fis.NewTestBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 0, b2.TemplateCount())
 	assert.Equal(t, 0, b2.ExperimentCount())
@@ -399,7 +399,7 @@ func TestRefinement1_PersistenceRestoreNilSafetyLever(t *testing.T) {
 		"safetyLever":null,"accountID":"000000000000","region":"us-east-1"}`)
 
 	b := fis.NewTestBackend()
-	require.NoError(t, b.Restore(raw))
+	require.NoError(t, b.Restore(t.Context(), raw))
 
 	// GetSafetyLever should succeed (lever was auto-rebuilt).
 	lever, err := b.GetSafetyLever("000000000000")
@@ -676,11 +676,11 @@ func TestRefinement1_SafetyLever_PreservedAcrossPersistence(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	b := h.Backend.(*fis.ExportedInMemoryBackend)
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := fis.NewTestBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	lever, err := b2.GetSafetyLever("000000000000")
 	require.NoError(t, err)

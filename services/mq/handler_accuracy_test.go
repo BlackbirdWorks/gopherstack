@@ -1699,11 +1699,11 @@ func TestAccuracy_Snapshot_RestorePreservesEndpoints(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, br.BrokerInstances)
 
-	snap := b1.Snapshot()
+	snap := b1.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := mq.NewInMemoryBackend("123456789012", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	restored, err := b2.DescribeBroker(br.BrokerID)
 	require.NoError(t, err)
@@ -1724,9 +1724,9 @@ func TestAccuracy_Snapshot_RestorePreservesDeploymentMode(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, mq.DeploymentModeActiveStandby, br.DeploymentMode)
 
-	snap := b1.Snapshot()
+	snap := b1.Snapshot(t.Context())
 	b2 := mq.NewInMemoryBackend("123456789012", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	restored, err := b2.DescribeBroker(br.BrokerID)
 	require.NoError(t, err)

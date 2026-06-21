@@ -1,5 +1,7 @@
 package s3control
 
+import "context"
+
 // StorageBackend defines the interface for S3 Control backend implementations.
 // All mutating methods must be safe for concurrent use.
 type StorageBackend interface {
@@ -39,8 +41,8 @@ type StorageBackend interface {
 	AccountID() string
 	Region() string
 
-	Snapshot() []byte
-	Restore(data []byte) error
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 
 	// ---- batch1 ----
 

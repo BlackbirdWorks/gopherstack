@@ -1016,12 +1016,12 @@ func TestHandler_Persistence_SnapshotRestore(t *testing.T) {
 			})
 
 			// Snapshot the state
-			snapData := h.Snapshot()
+			snapData := h.Snapshot(t.Context())
 			require.NotNil(t, snapData)
 
 			// Create new handler and restore
 			h2 := newTestHandler(t)
-			err := h2.Restore(snapData)
+			err := h2.Restore(t.Context(), snapData)
 			require.NoError(t, err)
 
 			// Verify cluster is present
@@ -1049,7 +1049,7 @@ func TestHandler_Persistence_RestoreInvalidData(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			err := h.Restore(tt.data)
+			err := h.Restore(t.Context(), tt.data)
 
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -1986,7 +1986,7 @@ func TestHandler_Persistence_SnapshotRestoreWithNilTags(t *testing.T) {
 			}`
 
 			h := newTestHandler(t)
-			err := h.Restore([]byte(snapJSON))
+			err := h.Restore(t.Context(), []byte(snapJSON))
 			require.NoError(t, err)
 		})
 	}

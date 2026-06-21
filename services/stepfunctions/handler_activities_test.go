@@ -632,12 +632,12 @@ func TestHandler_Persistence_WithActivitiesAndTags(t *testing.T) {
 			origH.SetTagsForTest(sm.StateMachineArn, map[string]string{tt.tagKey: tt.tagValue})
 
 			// Snapshot and restore.
-			snap := origH.Snapshot()
+			snap := origH.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			freshBk := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 			freshH := stepfunctions.NewHandler(freshBk)
-			require.NoError(t, freshH.Restore(snap))
+			require.NoError(t, freshH.Restore(t.Context(), snap))
 
 			// Activity should be restored.
 			acts, _, err := freshBk.ListActivities(context.Background(), "", 0)
@@ -674,14 +674,14 @@ func TestHandler_Restore_LegacyFormat(t *testing.T) {
 			require.NoError(t, err)
 
 			// Take a backend-only snapshot (bypasses handler wrapper).
-			legacySnap := origBk.Snapshot()
+			legacySnap := origBk.Snapshot(t.Context())
 			require.NotNil(t, legacySnap)
 
 			freshBk := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 			freshH := stepfunctions.NewHandler(freshBk)
 
 			// Restore with raw backend snapshot — no handlerSnapshot wrapper.
-			require.NoError(t, freshH.Restore(legacySnap))
+			require.NoError(t, freshH.Restore(t.Context(), legacySnap))
 
 			sms, _, err := freshBk.ListStateMachines(context.Background(), "", 0)
 			require.NoError(t, err)

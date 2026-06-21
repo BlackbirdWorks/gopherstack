@@ -97,11 +97,11 @@ func TestElasticsearch_PersistenceSnapshotRestore(t *testing.T) {
 			b := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
 			tt.setup(t, b)
 
-			snap := b.Snapshot()
+			snap := b.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			b2 := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
-			err := b2.Restore(snap)
+			err := b2.Restore(t.Context(), snap)
 			require.NoError(t, err)
 
 			tt.verify(t, b2)

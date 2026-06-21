@@ -31,8 +31,8 @@ type StorageBackend interface {
 	ListTagsForResource(ctx context.Context, resourceARN string) (map[string]string, error)
 	Region() string
 	Reset()
-	Restore(data []byte) error
-	Snapshot() []byte
+	Restore(ctx context.Context, data []byte) error
+	Snapshot(ctx context.Context) []byte
 	StartDocumentAnalysis(ctx context.Context, documentURI string) (*DocumentJob, error)
 	StartDocumentTextDetection(ctx context.Context, documentURI string) (*DocumentJob, error)
 	StartExpenseAnalysis(ctx context.Context, documentURI string) (*ExpenseJob, error)

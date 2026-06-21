@@ -1,14 +1,15 @@
 package ecs
 
 import (
+	"context"
 	"encoding/json"
 )
 
 // Snapshottable is an optional interface that a Backend may implement to
 // support snapshot/restore for persistence or test isolation.
 type Snapshottable interface {
-	Snapshot() []byte
-	Restore([]byte) error
+	Snapshot(ctx context.Context) []byte
+	Restore(context.Context, []byte) error
 }
 
 type backendSnapshot struct {
@@ -155,7 +156,7 @@ func snapshotExpressGatewayServices(src map[string]*ExpressGatewayService) map[s
 }
 
 // Snapshot serialises the backend state to JSON.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
@@ -249,7 +250,7 @@ func initSnapshotDefaults(snap *backendSnapshot) {
 }
 
 // Restore loads backend state from a JSON snapshot.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 	if err := json.Unmarshal(data, &snap); err != nil {
 		return err
@@ -286,9 +287,9 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 
 // Snapshot implements Snapshottable by delegating to the backend when it
 // supports snapshotting. Returns nil for non-snapshottable backends.
-func (h *Handler) Snapshot() []byte {
+func (h *Handler) Snapshot(ctx context.Context) []byte {
 	if s, ok := h.Backend.(Snapshottable); ok {
-		return s.Snapshot()
+		return s.Snapshot(ctx)
 	}
 
 	return nil
@@ -296,9 +297,9 @@ func (h *Handler) Snapshot() []byte {
 
 // Restore implements Snapshottable by delegating to the backend when it
 // supports snapshotting. Non-snapshottable backends are skipped.
-func (h *Handler) Restore(data []byte) error {
+func (h *Handler) Restore(ctx context.Context, data []byte) error {
 	if s, ok := h.Backend.(Snapshottable); ok {
-		return s.Restore(data)
+		return s.Restore(ctx, data)
 	}
 
 	return nil

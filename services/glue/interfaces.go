@@ -1,5 +1,7 @@
 package glue
 
+import "context"
+
 // StorageBackend defines the interface for all Glue backend operations.
 // InMemoryBackend implements this interface; alternative backends (e.g. test
 // doubles) can implement it too, keeping the Handler backend-agnostic.
@@ -405,8 +407,8 @@ type StorageBackend interface {
 // Snapshottable is an optional interface that a StorageBackend may implement
 // to support persistence via Snapshot/Restore.
 type Snapshottable interface {
-	Snapshot() []byte
-	Restore(data []byte) error
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 }
 
 // compile-time assertion that InMemoryBackend implements StorageBackend.

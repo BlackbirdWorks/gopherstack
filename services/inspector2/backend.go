@@ -1,6 +1,7 @@
 package inspector2
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -832,7 +833,7 @@ type backendSnapshot struct {
 }
 
 // Snapshot serializes the backend state.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
@@ -853,7 +854,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 }
 
 // Restore deserializes the backend state.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 

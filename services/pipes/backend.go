@@ -1591,7 +1591,7 @@ func validateTags(tags map[string]string) error {
 	return nil
 }
 
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 	type snap struct {
@@ -1614,7 +1614,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	return data
 }
 
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	type snap struct {
 		Pipes               map[string]map[string]*Pipe `json:"pipes"`
 		EnrichmentCallCount map[string]map[string]int64 `json:"enrichmentCallCount,omitempty"`

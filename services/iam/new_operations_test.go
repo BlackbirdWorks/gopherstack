@@ -652,11 +652,11 @@ func TestPersistence_GroupMembers_RoundTrip(t *testing.T) {
 	_, _ = b.CreateUser("carol", "/", "")
 	_ = b.AddUserToGroup("devs", "carol")
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := iam.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	// carol is still in devs; removing should succeed without error
 	require.NoError(t, b2.RemoveUserFromGroup("devs", "carol"))
@@ -742,11 +742,11 @@ func TestDeleteGroup_CleansGroupMembers(t *testing.T) {
 	require.NoError(t, b.DeleteGroup("temp-group"))
 
 	// Snapshot must not contain the stale members entry.
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := iam.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	// Re-create the group — it should be empty.
 	_, groupErr := b2.CreateGroup("temp-group", "/")

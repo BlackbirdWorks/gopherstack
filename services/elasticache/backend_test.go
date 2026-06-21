@@ -235,11 +235,11 @@ func TestListTagsForResource_NilTagsSafe(t *testing.T) {
 
 			backend := elasticache.NewInMemoryBackend(elasticache.EngineStub, "123456789012", "us-east-1")
 
-			snap := backend.Snapshot()
+			snap := backend.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			backend2 := elasticache.NewInMemoryBackend(elasticache.EngineStub, "123456789012", "us-east-1")
-			require.NoError(t, backend2.Restore(snap))
+			require.NoError(t, backend2.Restore(t.Context(), snap))
 
 			_, err := backend2.CreateCluster(context.Background(), "nil-tags-cluster", "redis", "cache.t3.micro", 0)
 			require.NoError(t, err)

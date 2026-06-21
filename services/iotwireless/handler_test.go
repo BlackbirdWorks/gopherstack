@@ -567,7 +567,7 @@ func TestHandler_PersistenceSnapshotRestore(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	// Snapshot via the handler.
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotNil(t, snap, "Snapshot must return non-nil data")
 
 	// Fresh handler with the same backend type.
@@ -577,7 +577,7 @@ func TestHandler_PersistenceSnapshotRestore(t *testing.T) {
 	h2.DefaultRegion = testRegion
 
 	// Restore into h2.
-	require.NoError(t, h2.Restore(snap))
+	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	// The device must be visible through h2.
 	devices := bk2.ListWirelessDevices(testAccountID, testRegion)

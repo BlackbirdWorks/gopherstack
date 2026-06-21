@@ -1,11 +1,13 @@
 package dynamodb
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"strconv"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 type dbSnapshot struct {
@@ -21,7 +23,7 @@ type dbSnapshot struct {
 // Per-table stream sequence counters (streamSeq) are unexported and therefore
 // not serialised directly; they are reconstructed during Restore from the
 // highest SequenceNumber found in each table's StreamRecords ring buffer.
-func (db *InMemoryDB) Snapshot() []byte {
+func (db *InMemoryDB) Snapshot(ctx context.Context) []byte {
 	db.mu.RLock("Snapshot")
 	defer db.mu.RUnlock()
 
@@ -36,7 +38,7 @@ func (db *InMemoryDB) Snapshot() []byte {
 	data, err := json.Marshal(snap)
 	if err != nil {
 		// Log the marshal failure so operators can detect data-loss scenarios.
-		slog.Default().Warn(
+		logger.Load(ctx).WarnContext(ctx,
 			"DynamoDB: failed to serialise snapshot; state will not be persisted",
 			slog.String("error", err.Error()),
 		)
@@ -49,7 +51,7 @@ func (db *InMemoryDB) Snapshot() []byte {
 
 // Restore loads backend state from a JSON snapshot.
 // It implements persistence.Persistable.
-func (db *InMemoryDB) Restore(data []byte) error {
+func (db *InMemoryDB) Restore(ctx context.Context, data []byte) error {
 	var snap dbSnapshot
 
 	if err := json.Unmarshal(data, &snap); err != nil {
@@ -122,20 +124,24 @@ func restoreStreamSeq(t *Table) {
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.
-func (h *DynamoDBHandler) Snapshot() []byte {
-	type snapshotter interface{ Snapshot() []byte }
+func (h *DynamoDBHandler) Snapshot(ctx context.Context) []byte {
+	type snapshotter interface {
+		Snapshot(ctx context.Context) []byte
+	}
 	if s, ok := h.Backend.(snapshotter); ok {
-		return s.Snapshot()
+		return s.Snapshot(ctx)
 	}
 
 	return nil
 }
 
 // Restore implements persistence.Persistable by delegating to the backend.
-func (h *DynamoDBHandler) Restore(data []byte) error {
-	type restorer interface{ Restore([]byte) error }
+func (h *DynamoDBHandler) Restore(ctx context.Context, data []byte) error {
+	type restorer interface {
+		Restore(context.Context, []byte) error
+	}
 	if r, ok := h.Backend.(restorer); ok {
-		return r.Restore(data)
+		return r.Restore(ctx, data)
 	}
 
 	return nil

@@ -385,7 +385,7 @@ func TestRefinement2_PersistenceSnapshotRestore(t *testing.T) {
 	require.NotEmpty(t, data)
 
 	b2 := timestreamwrite.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(data))
+	require.NoError(t, b2.Restore(t.Context(), data))
 
 	assert.Equal(t, 1, timestreamwrite.DatabaseCount(b2))
 	assert.Equal(t, 1, timestreamwrite.TableCount(b2))

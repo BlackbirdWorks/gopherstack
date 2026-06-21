@@ -1,6 +1,7 @@
 package mediapackage
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -231,7 +232,7 @@ func (b *InMemoryBackend) Reset() {
 }
 
 // Snapshot returns a JSON-encoded snapshot of the backend state.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
@@ -251,7 +252,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 }
 
 // Restore loads backend state from a JSON snapshot.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap snapshot
 	if err := json.Unmarshal(data, &snap); err != nil {
 		return err

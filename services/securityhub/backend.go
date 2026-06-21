@@ -1,6 +1,7 @@
 package securityhub
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -421,7 +422,7 @@ type snapshot struct {
 	HubV2Enabled          bool                            `json:"hubV2Enabled"`
 }
 
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
@@ -474,7 +475,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	return data
 }
 
-func (b *InMemoryBackend) Restore(data []byte) error { //nolint:funlen // existing issue.
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error { //nolint:funlen // existing issue.
 	var snap snapshot
 	if err := json.Unmarshal(data, &snap); err != nil {
 		return err

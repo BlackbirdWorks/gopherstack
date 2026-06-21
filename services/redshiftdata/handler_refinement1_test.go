@@ -79,11 +79,11 @@ func TestRefinement1_Snapshot_Restore(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := redshiftdata.NewInMemoryBackend(testAccountID, testRegion)
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	got, err := b2.DescribeStatement(context.Background(), stmt.ID)
 	require.NoError(t, err)
@@ -98,11 +98,11 @@ func TestRefinement1_Snapshot_Empty(t *testing.T) {
 	t.Parallel()
 
 	b := redshiftdata.NewInMemoryBackend(testAccountID, testRegion)
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := redshiftdata.NewInMemoryBackend(testAccountID, testRegion)
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 	assert.Equal(t, 0, b2.StatementCount())
 }
 
@@ -387,11 +387,11 @@ func TestRefinement1_Snapshot_PreservesStatementKeys(t *testing.T) {
 	stmt2, err := b.ExecuteStatement(context.Background(), "SELECT 2", "cluster", "", "mydb", "", "", "", false, "")
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := redshiftdata.NewInMemoryBackend(testAccountID, testRegion)
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	// Both statements should still be accessible.
 	_, err = b2.DescribeStatement(context.Background(), stmt1.ID)

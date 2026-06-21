@@ -12,8 +12,8 @@ import (
 )
 
 // snapshotHandler snapshots h's backend and returns a fresh handler plus the snapshot bytes.
-func snapshotHandler(h *opensearch.Handler) (*opensearch.Handler, []byte) {
-	snap := h.Backend.Snapshot()
+func snapshotHandler(t *testing.T, h *opensearch.Handler) (*opensearch.Handler, []byte) {
+	snap := h.Backend.Snapshot(t.Context())
 	fresh := opensearch.NewInMemoryBackend("123456789012", "us-east-1")
 	h2 := opensearch.NewHandler(fresh)
 	h2.Backend = fresh
@@ -941,10 +941,10 @@ func TestServerless_Persistence_CollectionsRoundTrip(t *testing.T) {
 	origID := createOut["createCollectionDetail"].(map[string]any)["id"].(string)
 
 	// Snapshot the backend.
-	h2, snap := snapshotHandler(h)
+	h2, snap := snapshotHandler(t, h)
 
 	// Restore into a new handler.
-	require.NoError(t, h2.Backend.Restore(snap))
+	require.NoError(t, h2.Backend.Restore(t.Context(), snap))
 
 	// List collections — should still be there.
 	listResp := doRequest(t, h2, http.MethodGet, "/2021-11-01/opensearch/serverless/collections", nil)
@@ -966,8 +966,8 @@ func TestServerless_Persistence_AccessPoliciesRoundTrip(t *testing.T) {
 		map[string]any{"name": "persist-ap", "type": "data", "policy": `[{"test":true}]`})
 	r.Body.Close()
 
-	h2, snap := snapshotHandler(h)
-	require.NoError(t, h2.Backend.Restore(snap))
+	h2, snap := snapshotHandler(t, h)
+	require.NoError(t, h2.Backend.Restore(t.Context(), snap))
 
 	listResp := doRequest(t, h2, http.MethodGet,
 		"/2021-11-01/opensearch/serverless/accesspolicies?type=data", nil)

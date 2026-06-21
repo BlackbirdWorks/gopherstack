@@ -108,11 +108,11 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			original := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
 			id := tt.setup(original)
 
-			snap := original.Snapshot()
+			snap := original.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			fresh := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
-			require.NoError(t, fresh.Restore(snap))
+			require.NoError(t, fresh.Restore(t.Context(), snap))
 
 			tt.verify(t, fresh, id)
 		})
@@ -123,7 +123,7 @@ func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	t.Parallel()
 
 	b := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
-	err := b.Restore([]byte("not-valid-json"))
+	err := b.Restore(t.Context(), []byte("not-valid-json"))
 	require.Error(t, err)
 }
 
@@ -149,12 +149,12 @@ func TestSchedulerHandler_Persistence(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	fresh := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
 	freshH := scheduler.NewHandler(fresh)
-	require.NoError(t, freshH.Restore(snap))
+	require.NoError(t, freshH.Restore(t.Context(), snap))
 
 	schedules, _ := fresh.ListSchedules(context.Background(), "", "", "", "", 0)
 	assert.Len(t, schedules, 1)

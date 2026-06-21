@@ -1,6 +1,9 @@
 package rekognition
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // StorageBackend is the interface for Rekognition storage operations.
 type StorageBackend interface {
@@ -80,8 +83,8 @@ type StorageBackend interface {
 	AccountID() string
 	Region() string
 	Reset()
-	Snapshot() []byte
-	Restore(data []byte) error
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 }
 
 // Collection represents an Amazon Rekognition face collection.

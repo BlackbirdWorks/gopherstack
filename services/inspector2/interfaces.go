@@ -1,5 +1,7 @@
 package inspector2
 
+import "context"
+
 // StorageBackend is the interface for Inspector2 storage operations.
 type StorageBackend interface {
 	Enable(resourceTypes []string) error
@@ -146,8 +148,8 @@ type StorageBackend interface {
 	AccountID() string
 	Region() string
 	Reset()
-	Snapshot() []byte
-	Restore(data []byte) error
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)

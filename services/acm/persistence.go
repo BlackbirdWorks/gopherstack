@@ -1,6 +1,7 @@
 package acm
 
 import (
+	"context"
 	"encoding/json"
 	"time"
 
@@ -24,7 +25,7 @@ type handlerSnapshot struct {
 
 // Snapshot serialises the backend state to JSON.
 // It implements persistence.Persistable.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
@@ -47,7 +48,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 
 // Restore loads backend state from a JSON snapshot.
 // It implements persistence.Persistable.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
 	if err := json.Unmarshal(data, &snap); err != nil {
@@ -105,7 +106,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 
 // Snapshot implements persistence.Persistable by delegating to the backend
 // and also capturing the handler's tag state.
-func (h *Handler) Snapshot() []byte {
+func (h *Handler) Snapshot(ctx context.Context) []byte {
 	h.tagsMu.RLock("Snapshot")
 	tagsMap := make(map[string]map[string]string, len(h.tags))
 	for k, t := range h.tags {
@@ -116,7 +117,7 @@ func (h *Handler) Snapshot() []byte {
 	snap := handlerSnapshot{
 		Tags: tagsMap,
 	}
-	if err := json.Unmarshal(h.Backend.Snapshot(), &snap.Backend); err != nil {
+	if err := json.Unmarshal(h.Backend.Snapshot(ctx), &snap.Backend); err != nil {
 		return nil
 	}
 
@@ -130,12 +131,12 @@ func (h *Handler) Snapshot() []byte {
 
 // Restore implements persistence.Persistable by delegating to the backend
 // and restoring the handler's tag state.
-func (h *Handler) Restore(data []byte) error {
+func (h *Handler) Restore(ctx context.Context, data []byte) error {
 	var snap handlerSnapshot
 
 	if err := json.Unmarshal(data, &snap); err != nil {
 		// Fall back to backend-only snapshot for backward compatibility.
-		return h.Backend.Restore(data)
+		return h.Backend.Restore(ctx, data)
 	}
 
 	backendData, err := json.Marshal(snap.Backend)
@@ -143,7 +144,7 @@ func (h *Handler) Restore(data []byte) error {
 		return err
 	}
 
-	if restoreErr := h.Backend.Restore(backendData); restoreErr != nil {
+	if restoreErr := h.Backend.Restore(ctx, backendData); restoreErr != nil {
 		return restoreErr
 	}
 

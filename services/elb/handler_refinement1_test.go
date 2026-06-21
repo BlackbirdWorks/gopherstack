@@ -457,11 +457,11 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 		"CookieName":       {"SID"},
 	})
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := newBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 1, b2.LoadBalancerCount())
 	assert.Equal(t, 1, b2.PolicyCount())
@@ -483,7 +483,7 @@ func TestRefinement1_Persistence_EmptySnapshot(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 	require.True(t, json.Valid(snap))
 }

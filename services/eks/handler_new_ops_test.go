@@ -721,12 +721,12 @@ func TestEKS_NewOps_PersistenceRoundTrip(t *testing.T) {
 
 	// Snapshot and restore into a fresh backend.
 	h := eks.NewHandler(b)
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	b2 := eks.NewInMemoryBackend("123456789012", "us-east-1")
 	h2 := eks.NewHandler(b2)
-	require.NoError(t, h2.Restore(snap))
+	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	// Verify cluster is present.
 	c, err := b2.DescribeCluster("c1")

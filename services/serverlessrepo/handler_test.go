@@ -965,13 +965,13 @@ func TestServerlessRepoPersistenceNewOps(t *testing.T) {
 
 	// Snapshot
 	h := serverlessrepo.NewHandler(b)
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	// Restore into a fresh backend
 	b2 := serverlessrepo.NewInMemoryBackend("000000000000", "us-east-1")
 	h2 := serverlessrepo.NewHandler(b2)
-	require.NoError(t, h2.Restore(snap))
+	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 1, serverlessrepo.ApplicationCount(b2))
 	assert.Equal(t, 1, serverlessrepo.VersionCount(b2, "app1"))
@@ -999,13 +999,13 @@ func TestServerlessRepoPersistence(t *testing.T) {
 
 	// Snapshot
 	h := serverlessrepo.NewHandler(b)
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	// Restore into a fresh backend
 	b2 := serverlessrepo.NewInMemoryBackend("000000000000", "us-east-1")
 	h2 := serverlessrepo.NewHandler(b2)
-	require.NoError(t, h2.Restore(snap))
+	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	apps := b2.ListApplications()
 	require.Len(t, apps, 2)

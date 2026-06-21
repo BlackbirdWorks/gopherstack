@@ -743,11 +743,11 @@ func TestRefinement2_PersistenceRoundTrip_DataRetrievalPolicy(t *testing.T) {
 			)
 			require.Equal(t, http.StatusNoContent, rec.Code)
 
-			snap := h.Snapshot()
+			snap := h.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			h2 := newTestHandler()
-			require.NoError(t, h2.Restore(snap))
+			require.NoError(t, h2.Restore(t.Context(), snap))
 
 			rec = doRequest(t, h2, http.MethodGet, "/"+testAccountID+"/policies/data-retrieval", "")
 			require.Equal(t, http.StatusOK, rec.Code)

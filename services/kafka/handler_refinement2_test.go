@@ -1422,11 +1422,11 @@ func TestRefinement2_Persistence_ServerlessCluster(t *testing.T) {
 	cl, err := b.CreateServerlessCluster(context.Background(), "srv-persist", srv, map[string]string{"env": "test"})
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := kafka.NewInMemoryBackend("other", "eu-west-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	described, err := b2.DescribeCluster(context.Background(), cl.ClusterArn)
 	require.NoError(t, err)
@@ -1454,9 +1454,9 @@ func TestRefinement2_Persistence_EncryptionInfo(t *testing.T) {
 		},
 	}
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	b2 := kafka.NewInMemoryBackend("other", "eu-west-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	described, err := b2.DescribeCluster(context.Background(), cl.ClusterArn)
 	require.NoError(t, err)
@@ -1478,9 +1478,9 @@ func TestRefinement2_Persistence_ConfigurationInfo(t *testing.T) {
 		3)
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	b2 := kafka.NewInMemoryBackend("other", "eu-west-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	described, err := b2.DescribeCluster(context.Background(), cl.ClusterArn)
 	require.NoError(t, err)

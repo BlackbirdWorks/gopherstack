@@ -542,11 +542,11 @@ func TestRefinement1_PersistenceIncludesNewState(t *testing.T) {
 	})
 	_, _ = b.StartTagSyncTask(context.Background(), "g1", "arn:aws:iam::000000000000:role/r", "k", "v", nil)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 1, resourcegroups.GroupCount(b2))
 	assert.Equal(t, 1, resourcegroups.GroupResourceCount(b2))
@@ -563,11 +563,11 @@ func TestRefinement1_PersistenceTagsRenamedAfterRestore(t *testing.T) {
 	g, _ := b.CreateGroup(context.Background(), "tagged", "", nil, nil, nil)
 	_, _ = b.AddTagsByARN(context.Background(), g.ARN, map[string]string{"owner": "alice"})
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	tags, err := b2.GetTagsByARN(context.Background(), g.ARN)
 	require.NoError(t, err)

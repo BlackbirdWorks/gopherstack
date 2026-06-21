@@ -669,12 +669,12 @@ func TestEKS_PersistenceSnapshotRestore(t *testing.T) {
 	require.NoError(t, err)
 
 	h := eks.NewHandler(b)
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	b2 := eks.NewInMemoryBackend("000000000000", "us-east-1")
 	h2 := eks.NewHandler(b2)
-	require.NoError(t, h2.Restore(snap))
+	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	c, err := b2.DescribeCluster("cluster1")
 	require.NoError(t, err)

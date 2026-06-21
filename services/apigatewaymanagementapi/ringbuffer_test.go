@@ -137,7 +137,7 @@ func TestBackend_SnapshotPreservesEverything(t *testing.T) {
 	require.NoError(t, b.PostToConnection("snap", []byte("hello")))
 	require.NoError(t, b.PingConnection("snap"))
 
-	data := b.Snapshot()
+	data := b.Snapshot(t.Context())
 	require.NotNil(t, data)
 
 	// Verify well-formed JSON
@@ -145,7 +145,7 @@ func TestBackend_SnapshotPreservesEverything(t *testing.T) {
 	require.NoError(t, json.Unmarshal(data, &raw))
 
 	fresh := apigatewaymanagementapi.NewInMemoryBackend()
-	require.NoError(t, fresh.Restore(data))
+	require.NoError(t, fresh.Restore(t.Context(), data))
 
 	conn, err := fresh.GetConnection("snap")
 	require.NoError(t, err)

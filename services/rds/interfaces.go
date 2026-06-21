@@ -1,6 +1,9 @@
 package rds
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // StorageBackend defines the interface for RDS backend implementations.
 // All mutating methods must be safe for concurrent use.
@@ -9,8 +12,8 @@ type StorageBackend interface {
 	Region() string
 	AccountID() string
 	Reset()
-	Snapshot() []byte
-	Restore(data []byte) error
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 
 	// DB instance operations
 	CreateDBInstance(

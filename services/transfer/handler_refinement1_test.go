@@ -417,11 +417,11 @@ func TestRefinement1_SnapshotRestore(t *testing.T) {
 	_, err = b.CreateProfile("LOCAL", "as2id", nil)
 	require.NoError(t, err)
 
-	data := b.Snapshot()
+	data := b.Snapshot(t.Context())
 	require.NotNil(t, data)
 
 	b2 := transfer.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, b2.Restore(data))
+	require.NoError(t, b2.Restore(t.Context(), data))
 
 	assert.Equal(t, 1, transfer.ServerCount(b2))
 	assert.Equal(t, 1, transfer.UserCount(b2))
@@ -438,11 +438,11 @@ func TestRefinement1_SnapshotRestoreEmpty(t *testing.T) {
 	t.Parallel()
 
 	b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
-	data := b.Snapshot()
+	data := b.Snapshot(t.Context())
 	require.NotNil(t, data)
 
 	b2 := transfer.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, b2.Restore(data))
+	require.NoError(t, b2.Restore(t.Context(), data))
 
 	assert.Equal(t, 0, transfer.ServerCount(b2))
 }
@@ -452,7 +452,7 @@ func TestRefinement1_SnapshotRestoreInvalidJSON(t *testing.T) {
 	t.Parallel()
 
 	b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
-	err := b.Restore([]byte("not-json"))
+	err := b.Restore(t.Context(), []byte("not-json"))
 
 	require.Error(t, err)
 }
@@ -467,11 +467,11 @@ func TestRefinement1_HandlerSnapshotRestore(t *testing.T) {
 	rec := doTransferRequest(t, h, "CreateServer", map[string]any{})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	data := h.Snapshot()
+	data := h.Snapshot(t.Context())
 	require.NotNil(t, data)
 
 	h2 := transfer.NewHandler(transfer.NewInMemoryBackend("000000000000", "us-east-1"))
-	require.NoError(t, h2.Restore(data))
+	require.NoError(t, h2.Restore(t.Context(), data))
 
 	b2 := h2.Backend.(*transfer.InMemoryBackend)
 	assert.Equal(t, 1, transfer.ServerCount(b2))
@@ -648,11 +648,11 @@ func TestRefinement1_SnapshotPreservesAgreementStatus(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "ACTIVE", ag.Status)
 
-	data := b.Snapshot()
+	data := b.Snapshot(t.Context())
 	require.NotNil(t, data)
 
 	b2 := transfer.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, b2.Restore(data))
+	require.NoError(t, b2.Restore(t.Context(), data))
 	assert.Equal(t, 1, transfer.AgreementCount(b2))
 }
 
@@ -664,6 +664,6 @@ func TestRefinement1_HandlerSnapshotNilBackend(t *testing.T) {
 	// We use a standard backend – just confirm Snapshot doesn't panic.
 	b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
 	h := transfer.NewHandler(b)
-	data := h.Snapshot()
+	data := h.Snapshot(t.Context())
 	assert.NotNil(t, data)
 }

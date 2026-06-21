@@ -754,11 +754,11 @@ func TestBatch3_Persistence_AccessPointPABs(t *testing.T) {
 		s3control.PublicAccessBlock{BlockPublicAcls: true, BlockPublicPolicy: true},
 	)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := s3control.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	pab, err := b2.GetAccessPointPublicAccessBlock("000000000000", "my-ap")
 	require.NoError(t, err)
@@ -773,11 +773,11 @@ func TestBatch3_Persistence_AccessPointVpcConfig(t *testing.T) {
 	b.CreateAccessPoint("000000000000", "vpc-ap", "my-bucket")
 	_ = b.SetAccessPointVpcConfig("000000000000", "vpc-ap", "vpc-abc123", "111122223333")
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := s3control.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	ap, err := b2.GetAccessPoint("000000000000", "vpc-ap")
 	require.NoError(t, err)
@@ -793,11 +793,11 @@ func TestBatch3_Persistence_JobDetails(t *testing.T) {
 	require.NoError(t, err)
 	_ = b.UpdateJobDetails("000000000000", job.JobID, "my job", "<manifest/>", "<op/>", "<report/>", true)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := s3control.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	got, err := b2.GetJob("000000000000", job.JobID)
 	require.NoError(t, err)

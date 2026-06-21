@@ -529,11 +529,11 @@ func TestRefinement1_SnapshotRestoreAllMaps(t *testing.T) {
 	b.AddOutpostResolverInternal("op1", "arn:aws:outposts:us-east-1:000000000000:outpost/op-abc")
 	b.AddQueryLogConfigInternal("cfg1", "arn:aws:s3:::logs-bucket")
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	b2 := route53resolver.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 1, route53resolver.EndpointCount(b2))
 	assert.Equal(t, 1, route53resolver.RuleCount(b2))

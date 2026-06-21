@@ -477,12 +477,12 @@ func TestRefinement1_Persistence_SnapshotRestore(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Snapshot.
-	snap := backend.Snapshot()
+	snap := backend.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	// Create fresh backend and restore.
 	backend2 := timestreamquery.NewInMemoryBackend("123456789012", "us-east-1")
-	require.NoError(t, backend2.Restore(snap))
+	require.NoError(t, backend2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 1, timestreamquery.ScheduledQueryCount(backend2))
 
@@ -730,13 +730,13 @@ func TestRefinement1_HandlerSnapshotRestore(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			// Snapshot via handler.
-			snap := h.Snapshot()
+			snap := h.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			// Create new handler and restore.
 			backend2 := timestreamquery.NewInMemoryBackend("123456789012", "us-east-1")
 			h2 := timestreamquery.NewHandler(backend2)
-			require.NoError(t, h2.Restore(snap))
+			require.NoError(t, h2.Restore(t.Context(), snap))
 
 			assert.Equal(t, 1, timestreamquery.ScheduledQueryCount(backend2))
 		})
@@ -750,7 +750,7 @@ func TestRefinement1_HandlerSnapshotWithInMemoryBackend(t *testing.T) {
 
 	h := timestreamquery.NewHandler(timestreamquery.NewInMemoryBackend("123", "us-east-1"))
 
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	assert.NotNil(t, snap, "InMemoryBackend always produces a valid snapshot")
 }
 
@@ -772,7 +772,7 @@ func TestRefinement1_PersistenceRestoreInvalidJSON(t *testing.T) {
 			t.Parallel()
 
 			b := timestreamquery.NewInMemoryBackend("000000000000", "us-east-1")
-			err := b.Restore(tt.data)
+			err := b.Restore(t.Context(), tt.data)
 
 			if tt.wantErr {
 				require.Error(t, err)

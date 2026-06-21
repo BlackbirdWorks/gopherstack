@@ -1739,11 +1739,11 @@ func TestBatch2_Persistence_CustomEngineVersions(t *testing.T) {
 	_, err = b.CreateCustomDBEngineVersion("custom-oracle-ee", "21.0.0.0", "Oracle 21c")
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := rds.NewInMemoryBackend("000000000000", "us-east-1")
-	err = b2.Restore(snap)
+	err = b2.Restore(t.Context(), snap)
 	require.NoError(t, err)
 
 	// Verify: creating the same engine again should fail (already exists)
@@ -1775,11 +1775,11 @@ func TestBatch2_Persistence_ShardGroupsAndIntegrations(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := rds.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	shards, err := b2.DescribeDBShardGroups("")
 	require.NoError(t, err)
@@ -1804,11 +1804,11 @@ func TestBatch2_Persistence_TenantAndAutomatedBackups(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := rds.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	tenants, err := b2.DescribeTenantDatabases("inst-1", "")
 	require.NoError(t, err)
@@ -1841,11 +1841,11 @@ func TestBatch2_Persistence_ClusterAutomatedBackups(t *testing.T) {
 	require.NoError(t, err)
 	b.CreateDBClusterAutomatedBackup("backup-cluster")
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := rds.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	backups := b2.DescribeDBClusterAutomatedBackups("backup-cluster")
 	assert.NotEmpty(t, backups)
@@ -1860,11 +1860,11 @@ func TestBatch2_Persistence_SnapshotTenantDatabases(t *testing.T) {
 	b.AddDBSnapshotTenantDatabase("snap-1", "inst-1", "tenantA", "postgres")
 	b.AddDBSnapshotTenantDatabase("snap-1", "inst-1", "tenantB", "postgres")
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := rds.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	tenants := b2.DescribeDBSnapshotTenantDatabases("snap-1", "")
 	assert.Len(t, tenants, 2)
@@ -1879,7 +1879,7 @@ func TestBatch2_Persistence_JSONContainsBatch1Keys(t *testing.T) {
 	_, _ = b.CreateDBShardGroup("sg-x", "cl-x", 16, 2, 0, false)
 	_, _ = b.CreateIntegration("intg-x", "arn:src", "arn:dst", "", "", "")
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	var raw map[string]json.RawMessage

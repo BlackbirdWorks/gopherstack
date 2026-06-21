@@ -664,11 +664,11 @@ func TestHandler_NewOps_PersistenceRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, healthRec.Code)
 
 	// Snapshot and restore.
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	h2 := newTestHandler(t)
-	require.NoError(t, h2.Restore(snap))
+	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	// Verify service attributes restored.
 	getRec := doSDRequest(t, h2, "GetServiceAttributes", map[string]any{"ServiceId": svcID})

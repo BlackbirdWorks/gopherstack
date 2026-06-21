@@ -263,11 +263,11 @@ func TestNewOps_PersistenceRoundTrip(t *testing.T) {
 	})
 	backend.AddUserInternal(&elasticache.User{UserID: "u1", ARN: "arn:u1", Status: "active"})
 
-	snap := backend.Snapshot()
+	snap := backend.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
-	err := b2.Restore(snap)
+	err := b2.Restore(t.Context(), snap)
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, elasticache.CacheSecurityGroupCount(b2))
@@ -505,13 +505,13 @@ func TestHandler_Persistence_Snapshot_Restore(t *testing.T) {
 	backend.AddCacheSecurityGroupInternal(&elasticache.CacheSecurityGroup{Name: "sg1", ARN: "arn:sg1"})
 
 	// Snapshot via handler.
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	// New backend + handler, restore.
 	b2 := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 	h2 := elasticache.NewHandler(b2)
-	err := h2.Restore(snap)
+	err := h2.Restore(t.Context(), snap)
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, elasticache.CacheSecurityGroupCount(b2))

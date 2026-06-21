@@ -245,11 +245,11 @@ func TestBatch3_Snapshot_PersistsEnrichmentCallCount(t *testing.T) {
 				b.RecordEnrichmentCall(context.Background(), tt.pipeName)
 			}
 
-			snap := b.Snapshot()
+			snap := b.Snapshot(t.Context())
 			require.NotNil(t, snap, "Snapshot should not return nil")
 
 			b2 := b3Backend()
-			require.NoError(t, b2.Restore(snap))
+			require.NoError(t, b2.Restore(t.Context(), snap))
 
 			got := b2.GetEnrichmentCallCount(context.Background(), tt.pipeName)
 			assert.Equal(t, int64(tt.callCount), got, "enrichment call count should survive snapshot/restore")
@@ -265,7 +265,7 @@ func TestBatch3_Restore_MissingEnrichmentCallCount(t *testing.T) {
 	legacySnap := []byte(`{"pipes":{},"accountID":"111122223333","region":"eu-west-1"}`)
 
 	b := b3Backend()
-	require.NoError(t, b.Restore(legacySnap))
+	require.NoError(t, b.Restore(t.Context(), legacySnap))
 
 	// Must not panic; count for unknown pipe is zero.
 	assert.Equal(t, int64(0), b.GetEnrichmentCallCount(context.Background(), "any-pipe"))

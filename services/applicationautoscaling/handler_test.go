@@ -823,11 +823,11 @@ func TestPersistence_SnapshotRestore(t *testing.T) {
 		"MaxCapacity":       int32(10),
 	})
 
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	h2 := newTestHandler(t)
-	require.NoError(t, h2.Restore(snap))
+	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	rec := doRequest(t, h2, "DescribeScalableTargets", map[string]any{"ServiceNamespace": "ecs"})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -1465,11 +1465,11 @@ func TestHandler_PersistenceRebuildsSecondaryIndexes(t *testing.T) {
 		"Schedule":            "rate(1 hour)",
 	})
 
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	h2 := newTestHandler(t)
-	require.NoError(t, h2.Restore(snap))
+	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	// Delete should work via secondary index (O(1) lookup)
 	rec := doRequest(t, h2, "DeleteScalingPolicy", map[string]any{

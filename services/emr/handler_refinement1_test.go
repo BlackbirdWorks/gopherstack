@@ -453,11 +453,11 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	err = src.CreateStudioSessionMapping(context.Background(), studio.StudioID, "USER", "uid-1", "", "arn:policy")
 	require.NoError(t, err)
 
-	snap := src.Snapshot()
+	snap := src.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	dst := emr.NewInMemoryBackend("", "")
-	require.NoError(t, dst.Restore(snap))
+	require.NoError(t, dst.Restore(t.Context(), snap))
 
 	assert.Equal(t, 1, dst.ClusterCount())
 	assert.Equal(t, 1, dst.SecurityConfigCount())
@@ -479,11 +479,11 @@ func TestRefinement1_PersistenceEmpty(t *testing.T) {
 	t.Parallel()
 
 	b := emr.NewInMemoryBackend(testAccountID, testRegion)
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := emr.NewInMemoryBackend("", "")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 	assert.Equal(t, 0, b2.ClusterCount())
 }
 
@@ -666,7 +666,7 @@ func TestRefinement1_Restore_InvalidJSON(t *testing.T) {
 	t.Parallel()
 
 	b := emr.NewInMemoryBackend(testAccountID, testRegion)
-	err := b.Restore([]byte("not-json"))
+	err := b.Restore(t.Context(), []byte("not-json"))
 	require.Error(t, err)
 }
 
@@ -676,6 +676,6 @@ func TestRefinement1_Snapshot_NonNilAfterReset(t *testing.T) {
 
 	b := emr.NewInMemoryBackend(testAccountID, testRegion)
 	b.Reset()
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	assert.NotNil(t, snap)
 }

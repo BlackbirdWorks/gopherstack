@@ -1,6 +1,9 @@
 package codeconnections
 
-import "encoding/json"
+import (
+	"context"
+	"encoding/json"
+)
 
 type backendSnapshot struct {
 	Connections        map[string]map[string]*Connection        `json:"connections"`
@@ -41,7 +44,7 @@ func (s *backendSnapshot) ensureNonNil() {
 
 // Snapshot serialises the backend state to JSON.
 // It implements persistence.Persistable.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
@@ -66,7 +69,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 
 // Restore loads backend state from a JSON snapshot.
 // It implements persistence.Persistable.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
 	if err := json.Unmarshal(data, &snap); err != nil {

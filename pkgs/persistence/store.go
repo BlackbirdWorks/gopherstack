@@ -3,7 +3,10 @@
 // serialisation. The Store interface abstracts the underlying storage medium.
 package persistence
 
-import "errors"
+import (
+	"context"
+	"errors"
+)
 
 // ErrKeyNotFound is returned by Load when the requested key does not exist.
 var ErrKeyNotFound = errors.New("key not found")
@@ -32,7 +35,11 @@ type Store interface {
 //
 // Snapshot returns an opaque JSON blob representing current backend state.
 // Restore initialises backend state from a previously-captured blob.
+//
+// Both methods receive a context so they log through the context-aware logger
+// (logger.Load(ctx)) — the persistence Manager threads a context tagged
+// worker=<service>-persistence — instead of the global slog.Default().
 type Persistable interface {
-	Snapshot() []byte
-	Restore([]byte) error
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 }

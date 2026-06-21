@@ -1,5 +1,7 @@
 package mediapackage
 
+import "context"
+
 // StorageBackend is the interface for MediaPackage storage operations.
 type StorageBackend interface {
 	CreateChannel(id, description string, tags map[string]string) (*Channel, error)
@@ -56,8 +58,8 @@ type StorageBackend interface {
 	AccountID() string
 	Region() string
 	Reset()
-	Snapshot() []byte
-	Restore(data []byte) error
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 }
 
 // IngestEndpoint holds ingest URL and credentials for a channel.

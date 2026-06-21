@@ -634,11 +634,11 @@ func TestRefinement1_Snapshot_Restore(t *testing.T) {
 		},
 	})
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := s3tables.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 1, s3tables.BucketCount(b2))
 	assert.Equal(t, 1, s3tables.NamespaceCount(b2))
@@ -965,11 +965,11 @@ func TestRefinement1_SnapshotRestoreNewFields(t *testing.T) {
 	expCfg := &s3tables.TableRecordExpiryConfig{Status: "ENABLED"}
 	require.NoError(t, b.PutTableRecordExpirationConfiguration(table.ARN, expCfg))
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := s3tables.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 1, s3tables.TableReplicationCount(b2))
 	assert.Equal(t, 1, s3tables.TableRecordExpiryCount(b2))
@@ -979,7 +979,7 @@ func TestRefinement1_InvalidSnapshotRestore(t *testing.T) {
 	t.Parallel()
 
 	b := s3tables.NewInMemoryBackend("000000000000", "us-east-1")
-	err := b.Restore([]byte("not-valid-json"))
+	err := b.Restore(t.Context(), []byte("not-valid-json"))
 	require.Error(t, err)
 }
 
@@ -1145,7 +1145,7 @@ func TestRefinement1_RestoreMinimalSnapshot(t *testing.T) {
 
 	b := s3tables.NewInMemoryBackend("000000000000", "us-east-1")
 	// Restore a minimal snapshot with nil maps to exercise ensureNonNilMaps
-	require.NoError(t, b.Restore([]byte(`{"accountID":"123456789012","region":"us-west-2"}`)))
+	require.NoError(t, b.Restore(t.Context(), []byte(`{"accountID":"123456789012","region":"us-west-2"}`)))
 	assert.Equal(t, 0, s3tables.BucketCount(b))
 	assert.Equal(t, "123456789012", b.AccountID())
 	assert.Equal(t, "us-west-2", b.Region())

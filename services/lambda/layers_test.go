@@ -730,11 +730,11 @@ func TestPersistenceLayers(t *testing.T) {
 	require.NoError(t, err)
 
 	// Snapshot → Restore.
-	snap := bk.Snapshot()
+	snap := bk.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	bk2 := newLayerBackend()
-	require.NoError(t, bk2.Restore(snap))
+	require.NoError(t, bk2.Restore(t.Context(), snap))
 
 	// Verify layers are present.
 	layers := bk2.ListLayers("", 0)

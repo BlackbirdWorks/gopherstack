@@ -1008,11 +1008,11 @@ func TestParity_SnapshotRestore_IncludesCommitmentAnalyses(t *testing.T) {
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&startOut))
 
 	// Snapshot + restore
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	fresh := ce.NewHandler(ce.NewInMemoryBackend("000000000000", "us-east-1"))
-	require.NoError(t, fresh.Restore(snap))
+	require.NoError(t, fresh.Restore(t.Context(), snap))
 
 	// The restored handler should have the analysis
 	getRec := doRequest(t, fresh, "GetCommitmentPurchaseAnalysis", map[string]any{

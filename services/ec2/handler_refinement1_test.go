@@ -358,11 +358,11 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	_, err := b.AllocateHosts("us-east-1a", "t3.micro", 1)
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := ec2.NewInMemoryBackend("123456789012", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 1, b2.AddressTransferCount())
 	assert.Equal(t, 1, b2.CapacityReservationCount())

@@ -589,11 +589,11 @@ func TestEKS_Persistence_SubscriptionAndFargate(t *testing.T) {
 	require.NoError(t, err)
 
 	// Snapshot and restore
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := eks.NewInMemoryBackend("123456789012", "us-east-1")
-	err = b2.Restore(snap)
+	err = b2.Restore(t.Context(), snap)
 	require.NoError(t, err)
 
 	subs := b2.ListEksAnywhereSubscriptions()

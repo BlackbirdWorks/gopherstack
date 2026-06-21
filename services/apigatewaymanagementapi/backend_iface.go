@@ -1,6 +1,9 @@
 package apigatewaymanagementapi
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // StorageBackend defines the operations supported by the API Gateway
 // Management API in-memory backend.
@@ -32,9 +35,9 @@ type StorageBackend interface {
 	// Stats returns cumulative counters and active state.
 	Stats() Stats
 	// Snapshot serialises backend state to JSON for persistence.
-	Snapshot() []byte
+	Snapshot(ctx context.Context) []byte
 	// Restore loads backend state from a JSON snapshot.
-	Restore(data []byte) error
+	Restore(ctx context.Context, data []byte) error
 	// Reset clears all in-memory state for test isolation.
 	Reset()
 }

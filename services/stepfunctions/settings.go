@@ -11,7 +11,7 @@ type Settings struct {
 	JanitorInterval time.Duration `json:"janitor_interval"    name:"janitor-interval"    env:"SFN_JANITOR_INTERVAL"    default:"1m"  help:"How often the background janitor runs."` //nolint:lll,golines // tags
 	// TaskTokenTTL is the maximum time a task token may remain in tasksByToken without
 	// a worker response before the janitor evicts it. Defaults to 1 hour.
-	TaskTokenTTL time.Duration `json:"task_token_ttl" name:"task-token-ttl" env:"SFN_TASK_TOKEN_TTL" default:"1h" help:"Max lifetime of an unreceived task token before eviction."` //nolint:lll // tags
+	TaskTokenTTL time.Duration `json:"task_token_ttl"      name:"task-token-ttl"      env:"SFN_TASK_TOKEN_TTL"      default:"1h"  help:"Max lifetime of an unreceived task token before eviction."` //nolint:lll // tags
 }
 
 const (

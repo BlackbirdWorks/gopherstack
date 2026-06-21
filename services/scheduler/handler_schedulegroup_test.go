@@ -473,11 +473,11 @@ func TestSchedulerBackend_SnapshotRestore_ScheduleGroups(t *testing.T) {
 	_, err := b.CreateScheduleGroup(context.Background(), "production", "", map[string]string{"env": "prod"})
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	fresh := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, fresh.Restore(snap))
+	require.NoError(t, fresh.Restore(t.Context(), snap))
 
 	g, err := fresh.GetScheduleGroup(context.Background(), "production")
 	require.NoError(t, err)

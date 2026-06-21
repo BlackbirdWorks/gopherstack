@@ -466,7 +466,7 @@ func TestRefinement1_Snapshot_DeepCopiesPolicies(t *testing.T) {
 	require.NoError(t, err)
 
 	// Snapshot, then mutate original, restore should have original
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 
 	// Overwrite policy
 	_, err = b.PutApplicationPolicy("my-app", []*serverlessrepo.ApplicationPolicyStatement{
@@ -476,7 +476,7 @@ func TestRefinement1_Snapshot_DeepCopiesPolicies(t *testing.T) {
 
 	// Restore into a new backend
 	b2 := serverlessrepo.NewInMemoryBackend(testAccountID, "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	stmts, err := b2.GetApplicationPolicy("my-app")
 	require.NoError(t, err)

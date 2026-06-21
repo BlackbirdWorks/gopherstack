@@ -673,11 +673,11 @@ func TestBatch1_Persistence_ServerlessV2(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := neptune.NewInMemoryBackend("000000000000", "us-east-1")
-	err = b2.Restore(snap)
+	err = b2.Restore(t.Context(), snap)
 	require.NoError(t, err)
 
 	clusters, err := b2.DescribeDBClusters(context.Background(), "sv2-persist", neptune.DBClusterFilters{})

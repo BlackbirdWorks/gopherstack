@@ -713,11 +713,11 @@ func TestSESNewOps_SnapshotRestore(t *testing.T) {
 		FailureRedirectionURL: "https://example.com/failure",
 	}))
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := ses.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 1, b2.ReceiptRuleSetCount())
 	assert.Equal(t, 1, b2.ReceiptFilterCount())

@@ -1140,11 +1140,11 @@ func TestInMemoryBackend_Restore_DefensiveCopy(t *testing.T) {
 				_, err := b.CreatePipeline(context.Background(), samplePipeline("snap-pl"), nil)
 				require.NoError(t, err)
 
-				snap := b.Snapshot()
+				snap := b.Snapshot(t.Context())
 				require.NotNil(t, snap)
 
 				b2 := codepipeline.NewInMemoryBackend("000000000000", "us-east-1")
-				require.NoError(t, b2.Restore(snap))
+				require.NoError(t, b2.Restore(t.Context(), snap))
 
 				// Snap is now parsed and owned by b2; zero it out to detect aliasing.
 				for i := range snap {
@@ -1168,10 +1168,10 @@ func TestInMemoryBackend_Restore_DefensiveCopy(t *testing.T) {
 
 				// Take snapshot of empty state.
 				b2 := codepipeline.NewInMemoryBackend("000000000000", "us-east-1")
-				emptySnap := b2.Snapshot()
+				emptySnap := b2.Snapshot(t.Context())
 
 				// Restore empty snapshot onto b which has "old-pl".
-				require.NoError(t, b.Restore(emptySnap))
+				require.NoError(t, b.Restore(t.Context(), emptySnap))
 
 				assert.Equal(t, 0, b.PipelineCount())
 			},
@@ -1188,10 +1188,10 @@ func TestInMemoryBackend_Restore_DefensiveCopy(t *testing.T) {
 				exec, err := b.StartPipelineExecution(context.Background(), "exec-snap")
 				require.NoError(t, err)
 
-				snap := b.Snapshot()
+				snap := b.Snapshot(t.Context())
 
 				b2 := codepipeline.NewInMemoryBackend("000000000000", "us-east-1")
-				require.NoError(t, b2.Restore(snap))
+				require.NoError(t, b2.Restore(t.Context(), snap))
 
 				execs, err := b2.ListPipelineExecutions(context.Background(), "exec-snap")
 				require.NoError(t, err)

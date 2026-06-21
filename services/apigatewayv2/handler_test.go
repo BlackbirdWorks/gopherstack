@@ -1679,13 +1679,13 @@ func TestHandler_Persistence(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test Snapshot
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	// Restore into a new backend/handler
 	b2 := apigatewayv2.NewInMemoryBackend()
 	h2 := apigatewayv2.NewHandler(b2)
-	require.NoError(t, h2.Restore(snap))
+	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	got, err := b2.GetAPI(api.APIID)
 	require.NoError(t, err)

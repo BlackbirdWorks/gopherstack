@@ -1842,11 +1842,11 @@ func TestHandler_DeliveryTags_DeepCopy(t *testing.T) {
 	mutatingTags["key"] = "mutated"
 
 	// Verify the stored delivery is unaffected by snapshotting and restoring.
-	snap := backend.Snapshot()
+	snap := backend.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	fresh := cloudwatchlogs.NewInMemoryBackend()
-	require.NoError(t, fresh.Restore(snap))
+	require.NoError(t, fresh.Restore(t.Context(), snap))
 }
 
 func TestBackend_Reset_ClearsNewMaps(t *testing.T) {
@@ -1881,11 +1881,11 @@ func TestBackend_Reset_ClearsNewMaps(t *testing.T) {
 	// Reset and verify the backend returns empty state.
 	b.Reset()
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	fresh := cloudwatchlogs.NewInMemoryBackend()
-	require.NoError(t, fresh.Restore(snap))
+	require.NoError(t, fresh.Restore(t.Context(), snap))
 
 	// Verify log groups are empty (representative check).
 	groups, _, err := fresh.DescribeLogGroups(context.Background(), "", "", 100)
@@ -1931,11 +1931,11 @@ func TestInMemoryBackend_SnapshotRestore_NewMaps(t *testing.T) {
 	require.NoError(t, err)
 
 	// Snapshot and restore.
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := cloudwatchlogs.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	// Verify export task survived.
 	err = b2.CancelExportTask(taskID)

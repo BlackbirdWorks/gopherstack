@@ -1202,7 +1202,9 @@ func daxError(code, message string) map[string]any {
 // Snapshot and Restore are delegated to the backend.
 
 // Snapshot returns the backend state as JSON bytes.
-func (h *Handler) Snapshot() []byte { return h.Backend.Snapshot() }
+func (h *Handler) Snapshot(ctx context.Context) []byte { return h.Backend.Snapshot(ctx) }
 
 // Restore restores backend state from JSON bytes.
-func (h *Handler) Restore(data []byte) error { return h.Backend.Restore(data) }
+func (h *Handler) Restore(ctx context.Context, data []byte) error {
+	return h.Backend.Restore(ctx, data)
+}
