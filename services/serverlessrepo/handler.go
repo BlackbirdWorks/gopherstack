@@ -946,10 +946,10 @@ func (h *Handler) handleListApplicationVersions(req *http.Request) ([]byte, erro
 
 	for _, v := range page {
 		summaries = append(summaries, map[string]any{
-			keyApplicationID:    v.ApplicationID,
-			keySemanticVersion:  v.SemanticVersion,
-			"sourceCodeUrl":     v.SourceCodeURL,
-			keyCreationTime:     isoTimestamp(v.CreationTime),
+			keyApplicationID:     v.ApplicationID,
+			keySemanticVersion:   v.SemanticVersion,
+			"sourceCodeUrl":      v.SourceCodeURL,
+			keyCreationTime:      isoTimestamp(v.CreationTime),
 			"resourcesSupported": v.ResourcesSupported,
 		})
 	}

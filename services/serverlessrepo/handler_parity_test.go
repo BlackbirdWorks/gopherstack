@@ -260,8 +260,8 @@ func TestParity_UpdateApplication_LabelsValidation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		labels   []string
 		name     string
+		labels   []string
 		wantCode int
 	}{
 		{
@@ -454,7 +454,11 @@ func TestParity_ListApplicationDependencies_Pagination(t *testing.T) {
 	h := serverlessrepo.NewHandler(b)
 
 	// First page: maxItems=2
-	rec := doServerlessRepoRequest(t, h, http.MethodGet, "/applications/dep-app/dependencies?semanticVersion=1.0.0&maxItems=2", nil)
+	rec := doServerlessRepoRequest(
+		t, h, http.MethodGet,
+		"/applications/dep-app/dependencies?semanticVersion=1.0.0&maxItems=2",
+		nil,
+	)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp1 map[string]any
@@ -799,7 +803,9 @@ func TestParity_GetApplication_ExplicitSemanticVersion_FullData(t *testing.T) {
 	_, err := h.Backend.CreateApplication("ev-app", "desc", "author", "", "", nil, "", "", "")
 	require.NoError(t, err)
 
-	_, err = h.Backend.CreateApplicationVersion("ev-app", "5.0.0", "https://github.com/example", "s3://bucket/tmpl.yaml")
+	_, err = h.Backend.CreateApplicationVersion(
+		"ev-app", "5.0.0", "https://github.com/example", "s3://bucket/tmpl.yaml",
+	)
 	require.NoError(t, err)
 
 	_, err = h.Backend.CreateApplicationVersion("ev-app", "6.0.0", "https://github.com/example/v2", "")
@@ -983,7 +989,11 @@ func TestParity_ListApplicationVersions_PaginationNextToken(t *testing.T) {
 	require.True(t, ok)
 
 	// Page 2
-	rec2 := doServerlessRepoRequest(t, h, http.MethodGet, "/applications/pag-app/versions?maxItems=2&nextToken="+nt, nil)
+	rec2 := doServerlessRepoRequest(
+		t, h, http.MethodGet,
+		"/applications/pag-app/versions?maxItems=2&nextToken="+nt,
+		nil,
+	)
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var r2 map[string]any
