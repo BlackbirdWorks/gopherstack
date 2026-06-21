@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
@@ -351,6 +352,11 @@ func TestHandler_DescribeReportCreation(t *testing.T) {
 			name: "after_start_report_creation",
 			setupFn: func(h *resourcegroupstaggingapi.Handler) {
 				doTaggingRequest(t, h, "StartReportCreation", map[string]any{"S3Bucket": "my-bucket"})
+				// Advance the backend clock so DescribeReportCreation transitions RUNNING→SUCCEEDED.
+				if b, ok := h.Backend.(*resourcegroupstaggingapi.InMemoryBackend); ok {
+					done := time.Now().Add(resourcegroupstaggingapi.ReportRunningDuration() + time.Second)
+					resourcegroupstaggingapi.SetClockFunc(b, func() time.Time { return done })
+				}
 			},
 			wantCode:     http.StatusOK,
 			wantContains: "SUCCEEDED",

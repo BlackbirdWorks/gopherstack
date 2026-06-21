@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net/http"
 	"regexp"
 	"slices"
 	"sort"
@@ -36,6 +37,10 @@ var ErrMissingS3Bucket = errors.New("S3Bucket is required")
 
 // ErrValidation is returned when a request fails parameter validation.
 var ErrValidation = errors.New("ValidationException")
+
+// ErrConcurrentModification is returned when StartReportCreation is called while a report
+// is still running. AWS requires waiting for the current report to finish.
+var ErrConcurrentModification = errors.New("ConcurrentModificationException")
 
 const (
 	// maxARNsPerTagRequest is the maximum number of ARNs in a single TagResources or
@@ -156,6 +161,7 @@ type InMemoryBackend struct {
 	reportStates      map[string]*reportCreationState // region → report state
 	caches            map[string]*resourceCache       // region → resource cache
 	nowFunc           func() string
+	clockFunc         func() time.Time
 	accountID         string
 	defaultRegion     string
 	providers         []ResourceProvider
@@ -175,6 +181,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	}
 
 	b.nowFunc = b.defaultNow
+	b.clockFunc = time.Now
 
 	return b
 }
@@ -896,6 +903,10 @@ func validateTagEntries(tags map[string]string) error {
 			return fmt.Errorf("%w: tag key must not be empty", ErrValidation)
 		}
 
+		if strings.HasPrefix(k, "aws:") {
+			return fmt.Errorf("%w: tag key %q starts with reserved prefix \"aws:\"", ErrValidation, k)
+		}
+
 		if len(k) > maxTagKeyLength {
 			return fmt.Errorf("%w: tag key exceeds maximum length of %d", ErrValidation, maxTagKeyLength)
 		}
@@ -943,7 +954,7 @@ func (b *InMemoryBackend) TagResources(ctx context.Context, input *TagResourcesI
 					failed[arn] = FailureInfo{
 						ErrorCode:    "InternalServiceException",
 						ErrorMessage: err.Error(),
-						StatusCode:   500, //nolint:mnd // HTTP 500
+						StatusCode:   http.StatusInternalServerError,
 					}
 				}
 
@@ -955,7 +966,7 @@ func (b *InMemoryBackend) TagResources(ctx context.Context, input *TagResourcesI
 			failed[arn] = FailureInfo{
 				ErrorCode:    "InvalidParameterException",
 				ErrorMessage: "no registered tagger handles ARN: " + arn,
-				StatusCode:   400, //nolint:mnd // HTTP 400
+				StatusCode:   http.StatusBadRequest,
 			}
 		}
 	}
@@ -1025,7 +1036,7 @@ func (b *InMemoryBackend) UntagResources(
 					failed[arn] = FailureInfo{
 						ErrorCode:    "InternalServiceException",
 						ErrorMessage: err.Error(),
-						StatusCode:   500, //nolint:mnd // HTTP 500
+						StatusCode:   http.StatusInternalServerError,
 					}
 				}
 
@@ -1037,7 +1048,7 @@ func (b *InMemoryBackend) UntagResources(
 			failed[arn] = FailureInfo{
 				ErrorCode:    "InvalidParameterException",
 				ErrorMessage: "no registered untagger handles ARN: " + arn,
-				StatusCode:   400, //nolint:mnd // HTTP 400
+				StatusCode:   http.StatusBadRequest,
 			}
 		}
 	}
@@ -1050,6 +1061,9 @@ func (b *InMemoryBackend) UntagResources(
 	return out, nil
 }
 
+// reportStatusRunning is the status for a report job that is currently running.
+const reportStatusRunning = "RUNNING"
+
 // reportStatusSucceeded is the status for a successfully created report.
 const reportStatusSucceeded = "SUCCEEDED"
 
@@ -1059,8 +1073,14 @@ const reportStatusNoReport = "NO REPORT"
 // reportS3PathTemplate is the S3 path template for generated reports.
 const reportS3PathTemplate = "AwsTagPolicies/report.csv"
 
+// reportRunningDuration is the simulated time a report stays in RUNNING state before
+// automatically transitioning to SUCCEEDED. AWS reports typically complete in 5-15 minutes;
+// the in-memory backend uses a 30-second window to keep tests fast.
+const reportRunningDuration = 30 * time.Second
+
 // reportCreationState holds the state of a StartReportCreation job.
 type reportCreationState struct {
+	startedAt  time.Time
 	S3Location string `json:"s3Location"`
 	StartDate  string `json:"startDate"`
 	Status     string `json:"status"`
@@ -1068,6 +1088,9 @@ type reportCreationState struct {
 
 // StartReportCreationInput is the request payload for StartReportCreation.
 type StartReportCreationInput struct {
+	// S3BucketRegion is the AWS region where the S3 bucket is located.
+	// When omitted, the current request region is assumed.
+	S3BucketRegion *string `json:"S3BucketRegion,omitempty"`
 	// S3Bucket is the Amazon S3 bucket to store the report in.
 	S3Bucket string `json:"S3Bucket"`
 }
@@ -1076,7 +1099,9 @@ type StartReportCreationInput struct {
 type StartReportCreationOutput struct{}
 
 // StartReportCreation records a new report creation request.
-// In the in-memory backend, the report is immediately set to SUCCEEDED.
+// The report begins in RUNNING state and transitions to SUCCEEDED after reportRunningDuration
+// as observed through DescribeReportCreation. AWS rejects a new request when a report is
+// currently RUNNING (ConcurrentModificationException).
 func (b *InMemoryBackend) StartReportCreation(
 	ctx context.Context,
 	input *StartReportCreationInput,
@@ -1089,10 +1114,20 @@ func (b *InMemoryBackend) StartReportCreation(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
+	now := b.clockFunc()
+
+	// Reject concurrent report creation while a previous report is still running.
+	if state := b.reportStates[region]; state != nil &&
+		state.Status == reportStatusRunning &&
+		now.Before(state.startedAt.Add(reportRunningDuration)) {
+		return nil, ErrConcurrentModification
+	}
+
 	b.reportStates[region] = &reportCreationState{
 		S3Location: "s3://" + input.S3Bucket + "/" + reportS3PathTemplate,
 		StartDate:  b.now(),
-		Status:     reportStatusSucceeded,
+		Status:     reportStatusRunning,
+		startedAt:  now,
 	}
 
 	return &StartReportCreationOutput{}, nil
@@ -1114,9 +1149,10 @@ type DescribeReportCreationOutput struct {
 }
 
 // DescribeReportCreation returns the status of the most recent StartReportCreation operation.
+// A RUNNING report transitions to SUCCEEDED once reportRunningDuration has elapsed.
 func (b *InMemoryBackend) DescribeReportCreation(ctx context.Context) *DescribeReportCreationOutput {
-	b.mu.RLock("DescribeReportCreation")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribeReportCreation")
+	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
 	state := b.reportStates[region]
@@ -1125,6 +1161,11 @@ func (b *InMemoryBackend) DescribeReportCreation(ctx context.Context) *DescribeR
 		s := reportStatusNoReport
 
 		return &DescribeReportCreationOutput{Status: &s}
+	}
+
+	// Transition RUNNING → SUCCEEDED once the simulated run duration has elapsed.
+	if state.Status == reportStatusRunning && !b.clockFunc().Before(state.startedAt.Add(reportRunningDuration)) {
+		state.Status = reportStatusSucceeded
 	}
 
 	s3Loc := state.S3Location
@@ -1185,13 +1226,8 @@ func (b *InMemoryBackend) GetComplianceSummary(
 	b.mu.Lock("GetComplianceSummary")
 	defer b.mu.Unlock()
 
-	// Validate GroupBy values; silently ignore unknowns to match lenient AWS behaviour.
-	for _, g := range input.GroupBy {
-		if !isValidGroupByValue(g) {
-			// unknown GroupBy value — ignore rather than error
-			_ = g
-		}
-	}
+	// GroupBy validation is handled by the HTTP handler before reaching the backend.
+	// The handler enforces valid values (REGION, RESOURCE_TYPE, TARGET_ID).
 
 	// Resolve MaxResults.
 	maxResults := int32(defaultComplianceSummaryMaxResults)
