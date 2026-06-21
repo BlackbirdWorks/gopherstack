@@ -61,9 +61,15 @@ func TestIntegration_ErrorCodes_IAM(t *testing.T) {
 			operation: func(t *testing.T) error {
 				t.Helper()
 				userName := "dup-user-" + uuid.NewString()[:8]
-				_, err := client.CreateUser(ctx, &iamsdk.CreateUserInput{UserName: aws.String(userName)})
+				_, err := client.CreateUser(
+					ctx,
+					&iamsdk.CreateUserInput{UserName: aws.String(userName)},
+				)
 				require.NoError(t, err)
-				_, err = client.CreateUser(ctx, &iamsdk.CreateUserInput{UserName: aws.String(userName)})
+				_, err = client.CreateUser(
+					ctx,
+					&iamsdk.CreateUserInput{UserName: aws.String(userName)},
+				)
 
 				return err
 			},
@@ -114,13 +120,18 @@ func TestIntegration_ErrorCodes_IAM(t *testing.T) {
 			operation: func(t *testing.T) error {
 				t.Helper()
 				userName := "conflict-user-" + uuid.NewString()[:8]
-				_, err := client.CreateUser(ctx, &iamsdk.CreateUserInput{UserName: aws.String(userName)})
+				_, err := client.CreateUser(
+					ctx,
+					&iamsdk.CreateUserInput{UserName: aws.String(userName)},
+				)
 				require.NoError(t, err)
 
 				polName := "conflict-pol-" + uuid.NewString()[:8]
 				polOut, err := client.CreatePolicy(ctx, &iamsdk.CreatePolicyInput{
-					PolicyName:     aws.String(polName),
-					PolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`),
+					PolicyName: aws.String(polName),
+					PolicyDocument: aws.String(
+						`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+					),
 				})
 				require.NoError(t, err)
 
@@ -129,8 +140,14 @@ func TestIntegration_ErrorCodes_IAM(t *testing.T) {
 						UserName:  aws.String(userName),
 						PolicyArn: polOut.Policy.Arn,
 					})
-					_, _ = client.DeleteUser(ctx, &iamsdk.DeleteUserInput{UserName: aws.String(userName)})
-					_, _ = client.DeletePolicy(ctx, &iamsdk.DeletePolicyInput{PolicyArn: polOut.Policy.Arn})
+					_, _ = client.DeleteUser(
+						ctx,
+						&iamsdk.DeleteUserInput{UserName: aws.String(userName)},
+					)
+					_, _ = client.DeletePolicy(
+						ctx,
+						&iamsdk.DeletePolicyInput{PolicyArn: polOut.Policy.Arn},
+					)
 				})
 
 				_, err = client.AttachUserPolicy(ctx, &iamsdk.AttachUserPolicyInput{
@@ -139,7 +156,10 @@ func TestIntegration_ErrorCodes_IAM(t *testing.T) {
 				})
 				require.NoError(t, err)
 
-				_, err = client.DeleteUser(ctx, &iamsdk.DeleteUserInput{UserName: aws.String(userName)})
+				_, err = client.DeleteUser(
+					ctx,
+					&iamsdk.DeleteUserInput{UserName: aws.String(userName)},
+				)
 
 				return err
 			},
@@ -197,7 +217,9 @@ func TestIntegration_ErrorCodes_SNS(t *testing.T) {
 			operation: func(t *testing.T) error {
 				t.Helper()
 				_, err := client.GetTopicAttributes(ctx, &snssdk.GetTopicAttributesInput{
-					TopicArn: aws.String("arn:aws:sns:us-east-1:000000000000:nonexistent-" + uuid.NewString()[:8]),
+					TopicArn: aws.String(
+						"arn:aws:sns:us-east-1:000000000000:nonexistent-" + uuid.NewString()[:8],
+					),
 				})
 
 				return err
@@ -278,7 +300,10 @@ func TestIntegration_ErrorCodes_KMS(t *testing.T) {
 				require.NoError(t, createErr)
 				keyID := *createOut.KeyMetadata.KeyId
 
-				_, disableErr := client.DisableKey(ctx, &kms.DisableKeyInput{KeyId: aws.String(keyID)})
+				_, disableErr := client.DisableKey(
+					ctx,
+					&kms.DisableKeyInput{KeyId: aws.String(keyID)},
+				)
 				require.NoError(t, disableErr)
 
 				_, err := client.Encrypt(ctx, &kms.EncryptInput{
@@ -620,9 +645,14 @@ func TestIntegration_ErrorCodes_Route53Resolver(t *testing.T) {
 			name: "ResourceNotFoundException_GetResolverEndpoint",
 			operation: func(t *testing.T) error {
 				t.Helper()
-				_, err := client.GetResolverEndpoint(ctx, &route53resolversdk.GetResolverEndpointInput{
-					ResolverEndpointId: aws.String("nonexistent-endpoint-" + uuid.NewString()[:8]),
-				})
+				_, err := client.GetResolverEndpoint(
+					ctx,
+					&route53resolversdk.GetResolverEndpointInput{
+						ResolverEndpointId: aws.String(
+							"nonexistent-endpoint-" + uuid.NewString()[:8],
+						),
+					},
+				)
 
 				return err
 			},
