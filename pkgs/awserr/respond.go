@@ -152,9 +152,9 @@ func requestID(c *echo.Context) string {
 	if c == nil || c.Request() == nil {
 		return ""
 	}
-	if id := c.Request().Header.Get("x-amzn-RequestId"); id != "" {
+	if id := c.Request().Header.Get("X-Amzn-Requestid"); id != "" {
 		return id
 	}
 
-	return c.Response().Header().Get("x-amzn-RequestId")
+	return c.Response().Header().Get("X-Amzn-Requestid")
 }
