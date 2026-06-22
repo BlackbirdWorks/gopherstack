@@ -151,3 +151,39 @@ func (b *InMemoryBackend) AgeTaskTokensForTest(d time.Duration) {
 		entry.createdAt = entry.createdAt.Add(-d)
 	}
 }
+
+// MapRunCountForTest returns the number of stored MapRun records for an execution.
+func (b *InMemoryBackend) MapRunCountForTest(execARN string) int {
+	b.mu.RLock("MapRunCountForTest")
+	defer b.mu.RUnlock()
+
+	return len(b.execMapRuns[execARN])
+}
+
+// SMExecsByStatusCountForTest returns the number of executions in a given status bucket.
+func (b *InMemoryBackend) SMExecsByStatusCountForTest(smARN, status string) int {
+	b.mu.RLock("SMExecsByStatusCountForTest")
+	defer b.mu.RUnlock()
+
+	if b.smExecsByStatus[smARN] == nil {
+		return 0
+	}
+
+	return len(b.smExecsByStatus[smARN][status])
+}
+
+// DeletedExecsCountForTest returns the number of tombstoned execution ARNs.
+func (b *InMemoryBackend) DeletedExecsCountForTest() int {
+	b.mu.RLock("DeletedExecsCountForTest")
+	defer b.mu.RUnlock()
+
+	return len(b.deletedExecs)
+}
+
+// PruneExecutionsForTest calls pruneExecutionsLocked with the given cutoff.
+func (b *InMemoryBackend) PruneExecutionsForTest(cutoff float64) int {
+	b.mu.Lock("PruneExecutionsForTest")
+	defer b.mu.Unlock()
+
+	return b.pruneExecutionsLocked(cutoff)
+}

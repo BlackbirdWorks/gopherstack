@@ -163,6 +163,13 @@ type HistoryRecorder interface {
 	RecordTaskFailed(executionARN, stateName, errCode, cause string)
 }
 
+// MapRunNotifier receives callbacks when Map state runs start and end.
+// Implement this to track Map state execution in a backend.
+type MapRunNotifier interface {
+	OnMapRunStart(executionARN, stateName string, maxConcurrency, itemCount int) string
+	OnMapRunEnd(mapRunARN, status string, succeeded, failed, total int)
+}
+
 // ExecutionResult holds the final output and status of a state machine execution.
 type ExecutionResult struct {
 	Output any
@@ -250,25 +257,26 @@ func (c *jsonPathCache) store(path string, parts []string) {
 
 // Executor runs an ASL state machine.
 type Executor struct {
-	s3            S3Reader
-	callback      TaskTokenCallbackInvoker
-	sqs           SQSIntegration
-	sns           SNSIntegration
-	dynamodb      DynamoDBIntegration
-	ecs           ECSIntegration
-	glue          GlueIntegration
-	eventbridge   EventBridgeIntegration
-	history       HistoryRecorder
-	lambda        LambdaInvoker
-	activity      ActivityInvoker
-	mapItemValue  any
-	execSem       *semaphore.Weighted
-	jsonPathCache *jsonPathCache
-	sm            *StateMachine
-	execMeta      executionMeta
-	branchName    string
-	mapItemIdx    int
-	inMapItem     bool
+	s3             S3Reader
+	callback       TaskTokenCallbackInvoker
+	sqs            SQSIntegration
+	sns            SNSIntegration
+	dynamodb       DynamoDBIntegration
+	ecs            ECSIntegration
+	glue           GlueIntegration
+	eventbridge    EventBridgeIntegration
+	history        HistoryRecorder
+	mapRunNotifier MapRunNotifier
+	lambda         LambdaInvoker
+	activity       ActivityInvoker
+	mapItemValue   any
+	execSem        *semaphore.Weighted
+	jsonPathCache  *jsonPathCache
+	sm             *StateMachine
+	execMeta       executionMeta
+	branchName     string
+	mapItemIdx     int
+	inMapItem      bool
 }
 
 // executionMeta is the subset of context object data that ASL exposes via `$$`.
@@ -312,25 +320,26 @@ func NewExecutor(sm *StateMachine, lambda LambdaInvoker, history HistoryRecorder
 // newSubExecutor creates a sub-executor sharing this executor's semaphore and integrations.
 func (e *Executor) newSubExecutor(sm *StateMachine) *Executor {
 	return &Executor{
-		sm:            sm,
-		lambda:        e.lambda,
-		sqs:           e.sqs,
-		sns:           e.sns,
-		dynamodb:      e.dynamodb,
-		ecs:           e.ecs,
-		glue:          e.glue,
-		eventbridge:   e.eventbridge,
-		history:       e.history,
-		activity:      e.activity,
-		callback:      e.callback,
-		s3:            e.s3,
-		execSem:       e.execSem,
-		jsonPathCache: e.jsonPathCache,
-		execMeta:      e.execMeta,
-		branchName:    e.branchName,
-		inMapItem:     e.inMapItem,
-		mapItemIdx:    e.mapItemIdx,
-		mapItemValue:  e.mapItemValue,
+		sm:             sm,
+		lambda:         e.lambda,
+		sqs:            e.sqs,
+		sns:            e.sns,
+		dynamodb:       e.dynamodb,
+		ecs:            e.ecs,
+		glue:           e.glue,
+		eventbridge:    e.eventbridge,
+		history:        e.history,
+		activity:       e.activity,
+		callback:       e.callback,
+		s3:             e.s3,
+		execSem:        e.execSem,
+		jsonPathCache:  e.jsonPathCache,
+		execMeta:       e.execMeta,
+		branchName:     e.branchName,
+		mapRunNotifier: e.mapRunNotifier,
+		inMapItem:      e.inMapItem,
+		mapItemIdx:     e.mapItemIdx,
+		mapItemValue:   e.mapItemValue,
 	}
 }
 
@@ -432,6 +441,11 @@ func (e *Executor) SetGlueIntegration(glue GlueIntegration) { e.glue = glue }
 
 // SetEventBridgeIntegration configures the EventBridge integration for Task states.
 func (e *Executor) SetEventBridgeIntegration(eb EventBridgeIntegration) { e.eventbridge = eb }
+
+// SetMapRunNotifier configures the MapRun notifier for Map states.
+func (e *Executor) SetMapRunNotifier(n MapRunNotifier) {
+	e.mapRunNotifier = n
+}
 
 // Execute runs the state machine with the given input JSON and returns the result.
 func (e *Executor) Execute(
@@ -581,7 +595,7 @@ func (e *Executor) executeState(
 	case "Parallel":
 		return e.executeParallel(ctx, executionARN, state, input)
 	case "Map":
-		return e.executeMap(ctx, executionARN, state, input)
+		return e.executeMap(ctx, executionARN, stateName, state, input)
 	default:
 		return "", nil, fmt.Errorf(
 			"%w: %q in state %q",
@@ -1467,6 +1481,7 @@ const maxMapConcurrencyLimit = 40
 func (e *Executor) executeMap(
 	ctx context.Context,
 	executionARN string,
+	stateName string,
 	state *State,
 	input any,
 ) (string, any, error) {
@@ -1493,18 +1508,68 @@ func (e *Executor) executeMap(
 		batchResults := make([]any, len(batched))
 		batchErrs := make([]error, len(batched))
 		concurrency := resolveMapConcurrency(state.MaxConcurrency, len(batched))
+
+		var batchMapRunARN string
+		if e.mapRunNotifier != nil {
+			batchMapRunARN = e.mapRunNotifier.OnMapRunStart(
+				executionARN,
+				stateName,
+				state.MaxConcurrency,
+				len(batched),
+			)
+		}
+
 		e.runMapTasks(ctx, executionARN, iterator, batched, batchResults, batchErrs, concurrency)
 
-		return e.finalizeMap(ctx, batchResults, batchErrs, state.Next)
+		batchNext, batchOut, batchErr := e.finalizeMap(ctx, batchResults, batchErrs, state.Next)
+
+		if e.mapRunNotifier != nil && batchMapRunARN != "" {
+			batchSucceeded, batchFailed := countMapResults(batchErrs)
+			batchStatus := "SUCCEEDED"
+			if batchErr != nil {
+				batchStatus = "FAILED"
+			}
+			e.mapRunNotifier.OnMapRunEnd(
+				batchMapRunARN,
+				batchStatus,
+				batchSucceeded,
+				batchFailed,
+				len(batched),
+			)
+		}
+
+		return batchNext, batchOut, batchErr
 	}
 
 	results := make([]any, len(items))
 	errs := make([]error, len(items))
 
 	concurrency := resolveMapConcurrency(state.MaxConcurrency, len(items))
+
+	var mapRunARN string
+	if e.mapRunNotifier != nil {
+		mapRunARN = e.mapRunNotifier.OnMapRunStart(
+			executionARN,
+			stateName,
+			state.MaxConcurrency,
+			len(items),
+		)
+	}
+
 	e.runMapTasks(ctx, executionARN, iterator, items, results, errs, concurrency)
 
-	return e.finalizeMap(ctx, results, errs, state.Next)
+	next, out, finalErr := e.finalizeMap(ctx, results, errs, state.Next)
+
+	if e.mapRunNotifier != nil && mapRunARN != "" {
+		succeeded, failed := countMapResults(errs)
+		status := "SUCCEEDED"
+		if finalErr != nil {
+			status = "FAILED"
+		}
+		e.mapRunNotifier.OnMapRunEnd(mapRunARN, status, succeeded, failed, len(items))
+	}
+
+	return next, out, finalErr
 }
 
 // batchItems groups items into batches according to ItemBatcher configuration.
@@ -2671,6 +2736,20 @@ func resolveItems(itemsPath string, input any) ([]any, error) {
 	}
 
 	return arr, nil
+}
+
+// countMapResults counts succeeded and failed items from the error slice.
+func countMapResults(errs []error) (int, int) {
+	succeeded, failed := 0, 0
+	for _, err := range errs {
+		if err != nil {
+			failed++
+		} else {
+			succeeded++
+		}
+	}
+
+	return succeeded, failed
 }
 
 // marshalInput marshals a value to JSON string for sub-execution input.
