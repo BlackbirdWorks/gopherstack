@@ -469,7 +469,8 @@ func (db *InMemoryDB) GetRecords(
 		)
 	}
 
-	records, nextSeq := collectStreamRecords(tail, head, startSeq, limit, currentSeq, db.defaultRegion)
+	region := getRegionFromContext(ctx, db)
+	records, nextSeq := collectStreamRecords(tail, head, startSeq, limit, currentSeq, region)
 
 	telemetry.RecordStreamEvents("dynamodb", len(records))
 
@@ -662,14 +663,14 @@ func (db *InMemoryDB) collectEnabledStreams(requestRegion, filterTable string) [
 	return collected
 }
 
-// buildStreamARN generates a stream ARN for the given table using the backend's default region.
-func (db *InMemoryDB) buildStreamARN(tableName string) string {
-	return db.buildStreamARNInRegion(tableName, db.defaultRegion)
-}
-
 // buildStreamARNInRegion generates a stream ARN for the given table in a specific region.
 func (db *InMemoryDB) buildStreamARNInRegion(tableName, region string) string {
-	return arn.Build("dynamodb", region, db.accountID, "table/"+tableName+"/stream/2024-01-01T00:00:00.000")
+	return arn.Build(
+		"dynamodb",
+		region,
+		db.accountID,
+		"table/"+tableName+"/stream/2024-01-01T00:00:00.000",
+	)
 }
 
 // streamARNRegion extracts the region from a DynamoDB stream ARN
@@ -744,7 +745,9 @@ func buildSDKStreamItem(item map[string]any) (map[string]streamstypes.AttributeV
 
 // toStreamAttributeValue converts a wire-format attribute value (single-key type map)
 // to a dynamodbstreams AttributeValue.
-func toStreamAttributeValue(v any) (streamstypes.AttributeValue, error) { //nolint:ireturn // SDK interface
+func toStreamAttributeValue(
+	v any,
+) (streamstypes.AttributeValue, error) { //nolint:ireturn // SDK interface
 	m, ok := v.(map[string]any)
 	if !ok {
 		return nil, ErrInvalidAttributeValue
@@ -761,7 +764,10 @@ func toStreamAttributeValue(v any) (streamstypes.AttributeValue, error) { //noli
 	return nil, ErrUnknownAttributeType
 }
 
-func dispatchStreamType(typKey string, val any) (streamstypes.AttributeValue, error) { //nolint:ireturn // SDK interface
+func dispatchStreamType(
+	typKey string,
+	val any,
+) (streamstypes.AttributeValue, error) { //nolint:ireturn // SDK interface
 	switch typKey {
 	case "S":
 		s, ok := val.(string)
@@ -804,7 +810,9 @@ func dispatchStreamType(typKey string, val any) (streamstypes.AttributeValue, er
 }
 
 // dispatchStreamTypeBinary converts a wire "B" value ([]byte or base64 string) to a streams AttributeValue.
-func dispatchStreamTypeBinary(val any) (streamstypes.AttributeValue, error) { //nolint:ireturn // SDK interface
+func dispatchStreamTypeBinary(
+	val any,
+) (streamstypes.AttributeValue, error) { //nolint:ireturn // SDK interface
 	switch b := val.(type) {
 	case []byte:
 		return &streamstypes.AttributeValueMemberB{Value: b}, nil
@@ -822,7 +830,9 @@ func dispatchStreamTypeBinary(val any) (streamstypes.AttributeValue, error) { //
 
 // dispatchStreamTypeBinarySet converts a wire "BS" value to a streams AttributeValue.
 // Accepts [][]byte, []string (base64), or []any containing the above.
-func dispatchStreamTypeBinarySet(val any) (streamstypes.AttributeValue, error) { //nolint:ireturn // SDK interface
+func dispatchStreamTypeBinarySet(
+	val any,
+) (streamstypes.AttributeValue, error) { //nolint:ireturn // SDK interface
 	bs, err := toByteSliceSliceFrom(val)
 	if err != nil {
 		return nil, err
@@ -831,7 +841,9 @@ func dispatchStreamTypeBinarySet(val any) (streamstypes.AttributeValue, error) {
 	return &streamstypes.AttributeValueMemberBS{Value: bs}, nil
 }
 
-func handleMapAttribute(val any) (streamstypes.AttributeValue, error) { //nolint:ireturn // SDK interface
+func handleMapAttribute(
+	val any,
+) (streamstypes.AttributeValue, error) { //nolint:ireturn // SDK interface
 	mVal, ok := val.(map[string]any)
 	if !ok {
 		return nil, ErrTypeMismatchM
@@ -845,7 +857,9 @@ func handleMapAttribute(val any) (streamstypes.AttributeValue, error) { //nolint
 	return &streamstypes.AttributeValueMemberM{Value: inner}, nil
 }
 
-func handleListAttribute(val any) (streamstypes.AttributeValue, error) { //nolint:ireturn // SDK interface
+func handleListAttribute(
+	val any,
+) (streamstypes.AttributeValue, error) { //nolint:ireturn // SDK interface
 	lVal, ok := val.([]any)
 	if !ok {
 		return nil, ErrTypeMismatchL

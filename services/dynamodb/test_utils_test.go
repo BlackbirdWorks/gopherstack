@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 
+	sdktypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 
 	"github.com/blackbirdworks/gopherstack/services/dynamodb"
@@ -46,12 +48,19 @@ func createTableHelper(
 		)
 	}
 
+	rcDefault := int64(5)
+	wcDefault := int64(5)
 	createInput := models.CreateTableInput{
 		TableName:            name,
 		KeySchema:            keySchema,
 		AttributeDefinitions: attributeDefinitions,
 	}
 	sdkInput := models.ToSDKCreateTableInput(&createInput)
+	// DynamoDB requires ProvisionedThroughput when BillingMode is PROVISIONED (the default).
+	sdkInput.ProvisionedThroughput = &sdktypes.ProvisionedThroughput{
+		ReadCapacityUnits:  &rcDefault,
+		WriteCapacityUnits: &wcDefault,
+	}
 	_, err := db.CreateTable(t.Context(), sdkInput)
 	require.NoError(t, err)
 }

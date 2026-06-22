@@ -684,7 +684,11 @@ func TestPartiQL_Batch(t *testing.T) {
 }
 
 // doRequest fires a POST to the DynamoDB handler with the given X-Amz-Target.
-func doRequest(t *testing.T, handler *dynamodb.DynamoDBHandler, target, body string) *httptest.ResponseRecorder {
+func doRequest(
+	t *testing.T,
+	handler *dynamodb.DynamoDBHandler,
+	target, body string,
+) *httptest.ResponseRecorder {
 	t.Helper()
 
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(body))

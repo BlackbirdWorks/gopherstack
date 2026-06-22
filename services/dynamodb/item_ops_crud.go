@@ -200,7 +200,11 @@ const lsiMaxCollectionBytes = 10 * bytesPerGB
 // checkLSICollectionSize enforces the 10 GB per-collection limit for tables with LSIs.
 // Returns (collectionBytes, nil) when the limit is not exceeded, (-1, nil) for non-LSI
 // tables, and (-1, error) when the limit would be exceeded. Must be called under table.mu.
-func (db *InMemoryDB) checkLSICollectionSize(table *Table, newItem map[string]any, oldMatchIndex int) (int64, error) {
+func (db *InMemoryDB) checkLSICollectionSize(
+	table *Table,
+	newItem map[string]any,
+	oldMatchIndex int,
+) (int64, error) {
 	if len(table.LocalSecondaryIndexes) == 0 {
 		return -1, nil
 	}
@@ -240,7 +244,12 @@ func currentLSICollectionBytes(table *Table, pkVal string) int64 {
 // computeLSICollectionSize returns the projected total byte size of all items sharing
 // pkVal as their partition key, as if newItem replaces the item at oldMatchIndex (or
 // is appended when oldMatchIndex == -1). Must be called under table.mu held.
-func computeLSICollectionSize(table *Table, pkVal string, newItem map[string]any, oldMatchIndex int) int64 {
+func computeLSICollectionSize(
+	table *Table,
+	pkVal string,
+	newItem map[string]any,
+	oldMatchIndex int,
+) int64 {
 	total := currentLSICollectionBytes(table, pkVal)
 
 	// Subtract old item (it will be replaced).
@@ -515,7 +524,13 @@ func (db *InMemoryDB) DeleteItem(
 
 	// Propagate deletion to global table replicas after releasing the primary lock.
 	if globalTableName != "" && oldItem != nil {
-		db.replicateItemMutation(tableName, globalTableName, region, deepCopyItem(wireKey), "DELETE")
+		db.replicateItemMutation(
+			tableName,
+			globalTableName,
+			region,
+			deepCopyItem(wireKey),
+			"DELETE",
+		)
 	}
 
 	return out, nil

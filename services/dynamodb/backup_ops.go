@@ -24,7 +24,12 @@ import (
 // Format: arn:aws:dynamodb:{region}:{account}:table/{table}/backup/{timestamp}-{unique}.
 // The unique suffix prevents ARN collisions when multiple backups are created in the same millisecond.
 func backupARN(region, accountID, tableName string, ts time.Time) string {
-	resource := fmt.Sprintf("table/%s/backup/%016d-%s", tableName, ts.UnixMilli(), uuid.New().String()[:16])
+	resource := fmt.Sprintf(
+		"table/%s/backup/%016d-%s",
+		tableName,
+		ts.UnixMilli(),
+		uuid.New().String()[:16],
+	)
 
 	return arn.Build("dynamodb", region, accountID, resource)
 }
@@ -47,12 +52,14 @@ func (h *DynamoDBHandler) createBackup(ctx context.Context, body []byte) (any, e
 
 	return &models.CreateBackupOutput{
 		BackupDetails: models.BackupDetails{
-			BackupArn:              aws.ToString(bd.BackupArn),
-			BackupName:             aws.ToString(bd.BackupName),
-			BackupStatus:           string(bd.BackupStatus),
-			BackupType:             string(bd.BackupType),
-			BackupCreationDateTime: aws.ToTime(bd.BackupCreationDateTime).UTC().Format(time.RFC3339),
-			BackupSizeBytes:        aws.ToInt64(bd.BackupSizeBytes),
+			BackupArn:    aws.ToString(bd.BackupArn),
+			BackupName:   aws.ToString(bd.BackupName),
+			BackupStatus: string(bd.BackupStatus),
+			BackupType:   string(bd.BackupType),
+			BackupCreationDateTime: aws.ToTime(bd.BackupCreationDateTime).
+				UTC().
+				Format(time.RFC3339),
+			BackupSizeBytes: aws.ToInt64(bd.BackupSizeBytes),
 		},
 	}, nil
 }
@@ -99,12 +106,14 @@ func (h *DynamoDBHandler) deleteBackup(ctx context.Context, body []byte) (any, e
 	return &models.DeleteBackupOutput{
 		BackupDescription: models.BackupDescription{
 			BackupDetails: models.BackupDetails{
-				BackupArn:              aws.ToString(bd.BackupDetails.BackupArn),
-				BackupName:             aws.ToString(bd.BackupDetails.BackupName),
-				BackupStatus:           string(bd.BackupDetails.BackupStatus),
-				BackupType:             string(bd.BackupDetails.BackupType),
-				BackupCreationDateTime: aws.ToTime(bd.BackupDetails.BackupCreationDateTime).UTC().Format(time.RFC3339),
-				BackupSizeBytes:        aws.ToInt64(bd.BackupDetails.BackupSizeBytes),
+				BackupArn:    aws.ToString(bd.BackupDetails.BackupArn),
+				BackupName:   aws.ToString(bd.BackupDetails.BackupName),
+				BackupStatus: string(bd.BackupDetails.BackupStatus),
+				BackupType:   string(bd.BackupDetails.BackupType),
+				BackupCreationDateTime: aws.ToTime(bd.BackupDetails.BackupCreationDateTime).
+					UTC().
+					Format(time.RFC3339),
+				BackupSizeBytes: aws.ToInt64(bd.BackupDetails.BackupSizeBytes),
 			},
 			SourceTableDetails: models.SourceTableDetails{
 				TableName: aws.ToString(bd.SourceTableDetails.TableName),
@@ -115,7 +124,7 @@ func (h *DynamoDBHandler) deleteBackup(ctx context.Context, body []byte) (any, e
 	}, nil
 }
 
-func (h *DynamoDBHandler) listBackups(_ context.Context, body []byte) (any, error) {
+func (h *DynamoDBHandler) listBackups(ctx context.Context, body []byte) (any, error) {
 	var req models.ListBackupsInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
@@ -126,8 +135,17 @@ func (h *DynamoDBHandler) listBackups(_ context.Context, body []byte) (any, erro
 		return nil, NewInternalServerError("backup operations require in-memory backend")
 	}
 
+	region := h.regionFromHandlerContext(ctx)
+
 	db.mu.RLock("ListBackups")
-	summaries := collectBackupSummaries(db, req.TableName, req.BackupType)
+	summaries := collectBackupSummaries(
+		db,
+		region,
+		req.TableName,
+		req.BackupType,
+		req.TimeRangeLowerBound,
+		req.TimeRangeUpperBound,
+	)
 	db.mu.RUnlock()
 
 	// Sort by creation time (then ARN) for deterministic ordering.
@@ -139,7 +157,11 @@ func (h *DynamoDBHandler) listBackups(_ context.Context, body []byte) (any, erro
 		return summaries[i].BackupArn < summaries[j].BackupArn
 	})
 
-	page, lastEvaluatedArn := paginateBackupSummaries(summaries, req.ExclusiveStartBackupArn, req.Limit)
+	page, lastEvaluatedArn := paginateBackupSummaries(
+		summaries,
+		req.ExclusiveStartBackupArn,
+		req.Limit,
+	)
 
 	return &models.ListBackupsOutput{
 		BackupSummaries:        page,
@@ -149,15 +171,36 @@ func (h *DynamoDBHandler) listBackups(_ context.Context, body []byte) (any, erro
 
 // collectBackupSummaries gathers matching backup summaries from the in-memory store.
 // Must be called while holding db.mu (read or write lock).
-func collectBackupSummaries(db *InMemoryDB, tableName, backupType string) []models.BackupSummary {
+// Only backups whose ARN encodes requestRegion are returned.
+// timeRangeLower/Upper are Unix epoch seconds (float64); nil means no bound.
+func collectBackupSummaries(
+	db *InMemoryDB,
+	requestRegion string,
+	tableName, backupType string,
+	timeRangeLower, timeRangeUpper *float64,
+) []models.BackupSummary {
 	summaries := make([]models.BackupSummary, 0, len(db.Backups))
 
-	for _, b := range db.Backups {
+	for bkpARN, b := range db.Backups {
+		if db.regionFromARN(bkpARN) != requestRegion {
+			continue
+		}
+
 		if tableName != "" && b.TableName != tableName {
 			continue
 		}
 
 		if backupType != "" && b.BackupType != backupType {
+			continue
+		}
+
+		createdAt := b.CreationDateTime.UTC()
+
+		if timeRangeLower != nil && !createdAt.After(time.Unix(int64(*timeRangeLower), 0).UTC()) {
+			continue
+		}
+
+		if timeRangeUpper != nil && !createdAt.Before(time.Unix(int64(*timeRangeUpper), 0).UTC()) {
 			continue
 		}
 
@@ -211,6 +254,70 @@ func paginateBackupSummaries(
 	return summaries[start:end], lastEvaluatedArn
 }
 
+// restoredTableParams holds the schema and data for a table restore operation.
+type restoredTableParams struct {
+	BillingMode            string
+	SSEType                string
+	SSEKMSMasterKeyArn     string
+	StreamViewType         string
+	Items                  []map[string]any
+	KeySchema              []models.KeySchemaElement
+	AttributeDefinitions   []models.AttributeDefinition
+	GlobalSecondaryIndexes []models.GlobalSecondaryIndex
+	LocalSecondaryIndexes  []models.LocalSecondaryIndex
+	ProvisionedThroughput  models.ProvisionedThroughputDescription
+	SSEEnabled             bool
+	StreamsEnabled         bool
+}
+
+// installRestoredTable creates the target table from p under db.mu.
+// Returns the new Table + its ID, or ResourceInUseException if it already exists.
+func (db *InMemoryDB) installRestoredTable(
+	region, tableName string,
+	p restoredTableParams,
+) (*Table, string, error) {
+	db.mu.Lock("RestoreTable")
+
+	if _, rExists := db.Tables[region]; !rExists {
+		db.Tables[region] = make(map[string]*Table)
+	}
+
+	if _, tExists := db.Tables[region][tableName]; tExists {
+		db.mu.Unlock()
+
+		return nil, "", NewResourceInUseException("table already exists: " + tableName)
+	}
+
+	newTableID := uuid.New().String()
+	newTable := &Table{
+		Name:                   tableName,
+		TableID:                newTableID,
+		KeySchema:              p.KeySchema,
+		AttributeDefinitions:   p.AttributeDefinitions,
+		GlobalSecondaryIndexes: p.GlobalSecondaryIndexes,
+		LocalSecondaryIndexes:  p.LocalSecondaryIndexes,
+		Items:                  p.Items,
+		Status:                 models.TableStatusActive,
+		CreationDateTime:       time.Now(),
+		BillingMode:            p.BillingMode,
+		SSEEnabled:             p.SSEEnabled,
+		SSEType:                p.SSEType,
+		SSEKMSMasterKeyArn:     p.SSEKMSMasterKeyArn,
+		StreamsEnabled:         p.StreamsEnabled,
+		StreamViewType:         p.StreamViewType,
+		TableArn:               arn.Build("dynamodb", region, db.accountID, "table/"+tableName),
+		mu:                     lockmetrics.New("ddb.table." + tableName),
+		ProvisionedThroughput:  p.ProvisionedThroughput,
+	}
+	newTable.initializeIndexes()
+	newTable.rebuildIndexes()
+
+	db.Tables[region][tableName] = newTable
+	db.mu.Unlock()
+
+	return newTable, newTableID, nil
+}
+
 func (h *DynamoDBHandler) restoreTableFromBackup(ctx context.Context, body []byte) (any, error) {
 	var req models.RestoreTableFromBackupInput
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -240,61 +347,42 @@ func (h *DynamoDBHandler) restoreTableFromBackup(ctx context.Context, body []byt
 
 	region := h.regionFromHandlerContext(ctx)
 
-	db.mu.Lock("RestoreTableFromBackup")
-	if _, rExists := db.Tables[region]; !rExists {
-		db.Tables[region] = make(map[string]*Table)
-	}
+	billingMode, provThroughput := resolveBillingAndThroughput(
+		backup.BillingMode, req.BillingModeOverride,
+		backup.ProvisionedThroughput, req.ProvisionedThroughputOverride,
+	)
 
-	if _, tExists := db.Tables[region][req.TargetTableName]; tExists {
-		db.mu.Unlock()
-
-		return nil, NewResourceInUseException(
-			"table already exists: " + req.TargetTableName,
-		)
-	}
-
-	// Deep copy items from the backup.
-	itemsCopy := deepCopyItems(backup.Items)
-
+	gsis := make([]models.GlobalSecondaryIndex, len(backup.GlobalSecondaryIndexes))
+	copy(gsis, backup.GlobalSecondaryIndexes)
+	lsis := make([]models.LocalSecondaryIndex, len(backup.LocalSecondaryIndexes))
+	copy(lsis, backup.LocalSecondaryIndexes)
 	keySchema := make([]models.KeySchemaElement, len(backup.KeySchema))
 	copy(keySchema, backup.KeySchema)
 	attrDefs := make([]models.AttributeDefinition, len(backup.AttributeDefinitions))
 	copy(attrDefs, backup.AttributeDefinitions)
 
-	now := time.Now()
-	newTableID := uuid.New().String()
-	newTable := &Table{
-		Name:                 req.TargetTableName,
-		TableID:              newTableID,
-		KeySchema:            keySchema,
-		AttributeDefinitions: attrDefs,
-		Items:                itemsCopy,
-		Status:               models.TableStatusActive,
-		CreationDateTime:     now,
-		TableArn:             arn.Build("dynamodb", region, db.accountID, "table/"+req.TargetTableName),
-		mu:                   lockmetrics.New("ddb.table." + req.TargetTableName),
-		ProvisionedThroughput: models.ProvisionedThroughputDescription{
-			ReadCapacityUnits:  models.DefaultReadCapacity,
-			WriteCapacityUnits: models.DefaultWriteCapacity,
-		},
+	p := restoredTableParams{
+		Items: deepCopyItems(backup.Items), KeySchema: keySchema, AttributeDefinitions: attrDefs,
+		GlobalSecondaryIndexes: gsis, LocalSecondaryIndexes: lsis,
+		ProvisionedThroughput: provThroughput, BillingMode: billingMode,
+		SSEEnabled: backup.SSEEnabled, SSEType: backup.SSEType, SSEKMSMasterKeyArn: backup.SSEKMSMasterKeyArn,
+		StreamsEnabled: backup.StreamsEnabled, StreamViewType: backup.StreamViewType,
 	}
-	newTable.initializeIndexes()
-	newTable.rebuildIndexes()
 
-	db.Tables[region][req.TargetTableName] = newTable
-	db.mu.Unlock()
-
-	itemCount := int64(len(itemsCopy))
+	newTable, newTableID, err := db.installRestoredTable(region, req.TargetTableName, p)
+	if err != nil {
+		return nil, err
+	}
 
 	return &models.RestoreTableFromBackupOutput{
 		TableDescription: models.TableDescription{
-			TableName:            req.TargetTableName,
-			TableStatus:          models.TableStatusActive,
-			TableArn:             newTable.TableArn,
-			TableID:              newTableID,
-			KeySchema:            keySchema,
-			AttributeDefinitions: attrDefs,
-			ItemCount:            int(itemCount),
+			TableName: req.TargetTableName, TableStatus: models.TableStatusActive,
+			TableArn: newTable.TableArn, TableID: newTableID,
+			KeySchema: keySchema, AttributeDefinitions: attrDefs,
+			GlobalSecondaryIndexes: buildGSIDescriptions(gsis, int64(len(p.Items))),
+			LocalSecondaryIndexes:  buildLSIDescriptions(lsis),
+			BillingModeSummary:     billingModeSummary(billingMode),
+			ItemCount:              len(p.Items),
 		},
 	}, nil
 }
@@ -308,7 +396,10 @@ func (h *DynamoDBHandler) restoreTableFromBackup(ctx context.Context, body []byt
 //   - No matching snapshot (e.g. requested time is before the table was created
 //     or the snapshot window has rotated past it) → nil, signalling the caller
 //     to return a validation error.
-func selectPITRItems(sourceTable *Table, req models.RestoreTableToPointInTimeInput) []map[string]any {
+func selectPITRItems(
+	sourceTable *Table,
+	req models.RestoreTableToPointInTimeInput,
+) []map[string]any {
 	if req.UseLatestRestorableTime || req.RestoreDateTime == "" {
 		return deepCopyItems(sourceTable.Items)
 	}
@@ -355,23 +446,12 @@ func (h *DynamoDBHandler) restoreTableToPointInTime(ctx context.Context, body []
 		return nil, NewInternalServerError("backup operations require in-memory backend")
 	}
 
-	// For PITR, look up the source table and verify PITR is enabled.
 	sourceTable, err := db.getTable(ctx, req.SourceTableName)
 	if err != nil {
 		return nil, err
 	}
 
-	sourceTable.mu.RLock("RestoreTableToPointInTime")
-	pitrEnabled := sourceTable.PITREnabled
-	// Pick the items snapshot to restore: when the caller asked for a specific
-	// point in time, find the latest janitor snapshot at-or-before it; else
-	// (UseLatestRestorableTime or no time supplied) use current items.
-	itemsCopy := selectPITRItems(sourceTable, req)
-	keySchema := make([]models.KeySchemaElement, len(sourceTable.KeySchema))
-	copy(keySchema, sourceTable.KeySchema)
-	attrDefs := make([]models.AttributeDefinition, len(sourceTable.AttributeDefinitions))
-	copy(attrDefs, sourceTable.AttributeDefinitions)
-	sourceTable.mu.RUnlock()
+	p, pitrEnabled, itemsCopy := snapshotSourceForPITR(sourceTable, req)
 
 	if !pitrEnabled {
 		return nil, NewValidationException(
@@ -386,55 +466,79 @@ func (h *DynamoDBHandler) restoreTableToPointInTime(ctx context.Context, body []
 		)
 	}
 
+	billingMode, provThroughput := resolveBillingAndThroughput(
+		p.BillingMode,
+		req.BillingModeOverride,
+		p.ProvisionedThroughput,
+		req.ProvisionedThroughputOverride,
+	)
+	p.Items = itemsCopy
+	p.BillingMode = billingMode
+	p.ProvisionedThroughput = provThroughput
+
 	region := h.regionFromHandlerContext(ctx)
-
-	db.mu.Lock("RestoreTableToPointInTime")
-	if _, rExists := db.Tables[region]; !rExists {
-		db.Tables[region] = make(map[string]*Table)
+	newTable, newTableID, installErr := db.installRestoredTable(region, req.TargetTableName, p)
+	if installErr != nil {
+		return nil, installErr
 	}
-
-	if _, tExists := db.Tables[region][req.TargetTableName]; tExists {
-		db.mu.Unlock()
-
-		return nil, NewResourceInUseException(
-			"table already exists: " + req.TargetTableName,
-		)
-	}
-
-	now := time.Now()
-	newTableID := uuid.New().String()
-	newTable := &Table{
-		Name:                 req.TargetTableName,
-		TableID:              newTableID,
-		KeySchema:            keySchema,
-		AttributeDefinitions: attrDefs,
-		Items:                itemsCopy,
-		Status:               models.TableStatusActive,
-		CreationDateTime:     now,
-		TableArn:             arn.Build("dynamodb", region, db.accountID, "table/"+req.TargetTableName),
-		mu:                   lockmetrics.New("ddb.table." + req.TargetTableName),
-		ProvisionedThroughput: models.ProvisionedThroughputDescription{
-			ReadCapacityUnits:  models.DefaultReadCapacity,
-			WriteCapacityUnits: models.DefaultWriteCapacity,
-		},
-	}
-	newTable.initializeIndexes()
-	newTable.rebuildIndexes()
-
-	db.Tables[region][req.TargetTableName] = newTable
-	db.mu.Unlock()
 
 	return &models.RestoreTableToPointInTimeOutput{
 		TableDescription: models.TableDescription{
-			TableName:            req.TargetTableName,
-			TableStatus:          models.TableStatusActive,
-			TableArn:             newTable.TableArn,
-			TableID:              newTableID,
-			KeySchema:            keySchema,
-			AttributeDefinitions: attrDefs,
-			ItemCount:            len(itemsCopy),
+			TableName: req.TargetTableName, TableStatus: models.TableStatusActive,
+			TableArn: newTable.TableArn, TableID: newTableID,
+			KeySchema: p.KeySchema, AttributeDefinitions: p.AttributeDefinitions,
+			GlobalSecondaryIndexes: buildGSIDescriptions(
+				p.GlobalSecondaryIndexes,
+				int64(len(itemsCopy)),
+			),
+			LocalSecondaryIndexes: buildLSIDescriptions(p.LocalSecondaryIndexes),
+			BillingModeSummary:    billingModeSummary(billingMode),
+			ItemCount:             len(itemsCopy),
 		},
 	}, nil
+}
+
+// snapshotSourceForPITR captures schema + metadata from sourceTable under RLock.
+// Returns (params, pitrEnabled, items). Items is nil when no snapshot matched the
+// requested RestoreDateTime.
+func snapshotSourceForPITR(
+	sourceTable *Table,
+	req models.RestoreTableToPointInTimeInput,
+) (restoredTableParams, bool, []map[string]any) {
+	sourceTable.mu.RLock("RestoreTableToPointInTime")
+	defer sourceTable.mu.RUnlock()
+
+	pitrEnabled := sourceTable.PITREnabled
+	itemsCopy := selectPITRItems(sourceTable, req)
+
+	p := restoredTableParams{
+		ProvisionedThroughput: sourceTable.ProvisionedThroughput,
+		BillingMode:           sourceTable.BillingMode,
+		SSEEnabled:            sourceTable.SSEEnabled,
+		SSEType:               sourceTable.SSEType,
+		SSEKMSMasterKeyArn:    sourceTable.SSEKMSMasterKeyArn,
+		StreamsEnabled:        sourceTable.StreamsEnabled,
+		StreamViewType:        sourceTable.StreamViewType,
+	}
+	p.KeySchema = make([]models.KeySchemaElement, len(sourceTable.KeySchema))
+	copy(p.KeySchema, sourceTable.KeySchema)
+	p.AttributeDefinitions = make(
+		[]models.AttributeDefinition,
+		len(sourceTable.AttributeDefinitions),
+	)
+	copy(p.AttributeDefinitions, sourceTable.AttributeDefinitions)
+	p.GlobalSecondaryIndexes = make(
+		[]models.GlobalSecondaryIndex,
+		len(sourceTable.GlobalSecondaryIndexes),
+	)
+	copy(p.GlobalSecondaryIndexes, sourceTable.GlobalSecondaryIndexes)
+	p.LocalSecondaryIndexes = make(
+		[]models.LocalSecondaryIndex,
+		len(sourceTable.LocalSecondaryIndexes),
+	)
+	copy(p.LocalSecondaryIndexes, sourceTable.LocalSecondaryIndexes)
+
+	return p, pitrEnabled, itemsCopy
 }
 
 // buildBackupDescriptionFromSDK converts an SDK BackupDescription (as returned by the
@@ -447,12 +551,14 @@ func buildBackupDescriptionFromSDK(bd *sdktypes.BackupDescription) models.Backup
 	var details models.BackupDetails
 	if bd.BackupDetails != nil {
 		details = models.BackupDetails{
-			BackupArn:              aws.ToString(bd.BackupDetails.BackupArn),
-			BackupName:             aws.ToString(bd.BackupDetails.BackupName),
-			BackupStatus:           string(bd.BackupDetails.BackupStatus),
-			BackupType:             string(bd.BackupDetails.BackupType),
-			BackupCreationDateTime: aws.ToTime(bd.BackupDetails.BackupCreationDateTime).UTC().Format(time.RFC3339),
-			BackupSizeBytes:        aws.ToInt64(bd.BackupDetails.BackupSizeBytes),
+			BackupArn:    aws.ToString(bd.BackupDetails.BackupArn),
+			BackupName:   aws.ToString(bd.BackupDetails.BackupName),
+			BackupStatus: string(bd.BackupDetails.BackupStatus),
+			BackupType:   string(bd.BackupDetails.BackupType),
+			BackupCreationDateTime: aws.ToTime(bd.BackupDetails.BackupCreationDateTime).
+				UTC().
+				Format(time.RFC3339),
+			BackupSizeBytes: aws.ToInt64(bd.BackupDetails.BackupSizeBytes),
 		}
 	}
 
@@ -507,4 +613,48 @@ func deepCopyItems(items []map[string]any) []map[string]any {
 	}
 
 	return copied
+}
+
+// resolveBillingAndThroughput applies caller-supplied overrides to the sourced
+// billing mode and provisioned throughput, returning the final values to use.
+func resolveBillingAndThroughput(
+	srcBilling string,
+	billingOverride string,
+	srcThroughput models.ProvisionedThroughputDescription,
+	throughputOverride *models.ProvisionedThroughput,
+) (string, models.ProvisionedThroughputDescription) {
+	billing := srcBilling
+	if billingOverride != "" {
+		billing = billingOverride
+	}
+
+	pt := srcThroughput
+	if throughputOverride != nil {
+		var rc, wc int
+		if throughputOverride.ReadCapacityUnits != nil {
+			rc = int(*throughputOverride.ReadCapacityUnits)
+		}
+		if throughputOverride.WriteCapacityUnits != nil {
+			wc = int(*throughputOverride.WriteCapacityUnits)
+		}
+		pt = models.ProvisionedThroughputDescription{
+			ReadCapacityUnits:  rc,
+			WriteCapacityUnits: wc,
+		}
+	} else if pt.ReadCapacityUnits == 0 {
+		pt.ReadCapacityUnits = models.DefaultReadCapacity
+		pt.WriteCapacityUnits = models.DefaultWriteCapacity
+	}
+
+	return billing, pt
+}
+
+// billingModeSummary returns a BillingModeSummaryDescription pointer when
+// billingMode is non-empty, or nil otherwise.
+func billingModeSummary(billingMode string) *models.BillingModeSummaryDescription {
+	if billingMode == "" {
+		return nil
+	}
+
+	return &models.BillingModeSummaryDescription{BillingMode: billingMode}
 }

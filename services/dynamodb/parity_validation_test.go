@@ -120,8 +120,10 @@ func TestUpdateTable_GSI_Ceiling(t *testing.T) {
 	}
 
 	_, err := db.CreateTable(ctx, &dynamodb.CreateTableInput{
-		TableName:              aws.String("gsi-ceiling-table"),
-		KeySchema:              []types.KeySchemaElement{{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash}},
+		TableName: aws.String("gsi-ceiling-table"),
+		KeySchema: []types.KeySchemaElement{
+			{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},
+		},
 		AttributeDefinitions:   attrDefs,
 		GlobalSecondaryIndexes: gsis,
 		BillingMode:            types.BillingModeProvisioned,

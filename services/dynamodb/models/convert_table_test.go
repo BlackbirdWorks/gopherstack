@@ -60,7 +60,11 @@ func TestToSDKCreateTableInput(t *testing.T) {
 			assert.Len(t, output.KeySchema, tt.wantKeySchemaLen)
 			assert.Len(t, output.AttributeDefinitions, tt.wantAttrDefsLen)
 			require.NotNil(t, output.DeletionProtectionEnabled)
-			assert.Equal(t, tt.wantDeletionProtectionEnabled, aws.ToBool(output.DeletionProtectionEnabled))
+			assert.Equal(
+				t,
+				tt.wantDeletionProtectionEnabled,
+				aws.ToBool(output.DeletionProtectionEnabled),
+			)
 			if tt.wantProvThroughput {
 				assert.NotNil(t, output.ProvisionedThroughput)
 			}
@@ -89,7 +93,10 @@ func TestFromSDKCreateTableOutput(t *testing.T) {
 						{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},
 					},
 					AttributeDefinitions: []types.AttributeDefinition{
-						{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
+						{
+							AttributeName: aws.String("pk"),
+							AttributeType: types.ScalarAttributeTypeS,
+						},
 					},
 				},
 			},
@@ -246,7 +253,11 @@ func TestFromSDKDescribeTableOutput(t *testing.T) {
 			assert.Equal(t, tt.wantTableName, result.Table.TableName)
 			assert.Equal(t, tt.wantTableStatus, result.Table.TableStatus)
 			assert.Equal(t, tt.wantItemCount, result.Table.ItemCount)
-			assert.Equal(t, tt.wantDeletionProtectionEnabled, result.Table.DeletionProtectionEnabled)
+			assert.Equal(
+				t,
+				tt.wantDeletionProtectionEnabled,
+				result.Table.DeletionProtectionEnabled,
+			)
 			require.NotNil(t, result.Table.SSEDescription)
 			assert.Equal(t, tt.wantSSEStatus, result.Table.SSEDescription.Status)
 			assert.Equal(t, tt.wantSSEType, result.Table.SSEDescription.SSEType)
@@ -274,8 +285,11 @@ func TestToSDKListTablesInput(t *testing.T) {
 			wantLimit: int32(2147483647),
 		},
 		{
-			name:                    "exclusive_start_table_name_set",
-			input:                   &models.ListTablesInput{Limit: 5, ExclusiveStartTableName: "my-table"},
+			name: "exclusive_start_table_name_set",
+			input: &models.ListTablesInput{
+				Limit:                   5,
+				ExclusiveStartTableName: "my-table",
+			},
 			wantLimit:               int32(5),
 			wantExclusiveStartTable: "my-table",
 		},
@@ -310,8 +324,10 @@ func TestFromSDKListTablesOutput(t *testing.T) {
 		wantTableNames         []string
 	}{
 		{
-			name:           "multiple_tables",
-			input:          &dynamodb_sdk.ListTablesOutput{TableNames: []string{"table1", "table2", "table3"}},
+			name: "multiple_tables",
+			input: &dynamodb_sdk.ListTablesOutput{
+				TableNames: []string{"table1", "table2", "table3"},
+			},
 			wantTableNames: []string{"table1", "table2", "table3"},
 		},
 		{

@@ -16,6 +16,60 @@ import (
 // BatchExecuteStatement call, matching the AWS service limit.
 const maxBatchExecuteStatements = 25
 
+// tableBackupSnapshot holds the fields captured from a Table under RLock for backup creation.
+type tableBackupSnapshot struct {
+	SSEType                string
+	TableID                string
+	Status                 string
+	StreamViewType         string
+	BillingMode            string
+	TableArn               string
+	SSEKMSMasterKeyArn     string
+	KeySchema              []models.KeySchemaElement
+	Items                  []map[string]any
+	LocalSecondaryIndexes  []models.LocalSecondaryIndex
+	GlobalSecondaryIndexes []models.GlobalSecondaryIndex
+	AttributeDefinitions   []models.AttributeDefinition
+	ProvisionedThroughput  models.ProvisionedThroughputDescription
+	SSEEnabled             bool
+	StreamsEnabled         bool
+}
+
+func snapshotTableForBackup(table *Table) tableBackupSnapshot {
+	table.mu.RLock("CreateBackup")
+	defer table.mu.RUnlock()
+
+	snap := tableBackupSnapshot{
+		Items:                 deepCopyItems(table.Items),
+		TableArn:              table.TableArn,
+		TableID:               table.TableID,
+		ProvisionedThroughput: table.ProvisionedThroughput,
+		BillingMode:           table.BillingMode,
+		SSEEnabled:            table.SSEEnabled,
+		SSEType:               table.SSEType,
+		SSEKMSMasterKeyArn:    table.SSEKMSMasterKeyArn,
+		StreamsEnabled:        table.StreamsEnabled,
+		StreamViewType:        table.StreamViewType,
+		Status:                table.Status,
+	}
+	snap.KeySchema = make([]models.KeySchemaElement, len(table.KeySchema))
+	copy(snap.KeySchema, table.KeySchema)
+	snap.AttributeDefinitions = make([]models.AttributeDefinition, len(table.AttributeDefinitions))
+	copy(snap.AttributeDefinitions, table.AttributeDefinitions)
+	snap.GlobalSecondaryIndexes = make(
+		[]models.GlobalSecondaryIndex,
+		len(table.GlobalSecondaryIndexes),
+	)
+	copy(snap.GlobalSecondaryIndexes, table.GlobalSecondaryIndexes)
+	snap.LocalSecondaryIndexes = make(
+		[]models.LocalSecondaryIndex,
+		len(table.LocalSecondaryIndexes),
+	)
+	copy(snap.LocalSecondaryIndexes, table.LocalSecondaryIndexes)
+
+	return snap
+}
+
 // CreateBackup creates a point-in-time backup of the named DynamoDB table.
 // It satisfies the StorageBackend interface using official AWS SDK v2 types.
 func (db *InMemoryDB) CreateBackup(
@@ -44,23 +98,14 @@ func (db *InMemoryDB) CreateBackup(
 		return nil, err
 	}
 
-	table.mu.RLock("CreateBackup")
-	tableStatus := table.Status
-	itemsCopy := deepCopyItems(table.Items)
-	keySchema := make([]models.KeySchemaElement, len(table.KeySchema))
-	copy(keySchema, table.KeySchema)
-	attrDefs := make([]models.AttributeDefinition, len(table.AttributeDefinitions))
-	copy(attrDefs, table.AttributeDefinitions)
-	tableArn := table.TableArn
-	tableID := table.TableID
-	provThroughput := table.ProvisionedThroughput
-	table.mu.RUnlock()
+	snap := snapshotTableForBackup(table)
 
-	// AWS only allows creating backups on ACTIVE tables.
-	if tableStatus != models.TableStatusActive {
+	if snap.Status != models.TableStatusActive {
 		return nil, NewValidationException(
-			fmt.Sprintf("table %q is not ACTIVE (status=%s); backups can only be created on ACTIVE tables",
-				tableName, tableStatus),
+			fmt.Sprintf(
+				"table %q is not ACTIVE (status=%s); backups can only be created on ACTIVE tables",
+				tableName, snap.Status,
+			),
 		)
 	}
 
@@ -72,7 +117,11 @@ func (db *InMemoryDB) CreateBackup(
 			db.mu.RUnlock()
 
 			return nil, NewBackupInUseException(
-				fmt.Sprintf("backup with name %q already exists for table %q", backupName, tableName),
+				fmt.Sprintf(
+					"backup with name %q already exists for table %q",
+					backupName,
+					tableName,
+				),
 			)
 		}
 	}
@@ -80,37 +129,37 @@ func (db *InMemoryDB) CreateBackup(
 
 	now := time.Now()
 	bkpARN := backupARN(region, db.accountID, tableName, now)
-	sizeBytes := estimateTableSizeBytes(itemsCopy)
+	sizeBytes := estimateTableSizeBytes(snap.Items)
 
 	backup := &Backup{
-		BackupArn:             bkpARN,
-		BackupName:            backupName,
-		BackupStatus:          models.BackupStatusAvailable,
-		BackupType:            models.BackupTypeUser,
-		TableName:             tableName,
-		TableArn:              tableArn,
-		TableID:               tableID,
-		CreationDateTime:      now,
-		Items:                 itemsCopy,
-		KeySchema:             keySchema,
-		AttributeDefinitions:  attrDefs,
-		ProvisionedThroughput: provThroughput,
-		SizeBytes:             sizeBytes,
+		BackupArn: bkpARN, BackupName: backupName,
+		BackupStatus: models.BackupStatusAvailable, BackupType: models.BackupTypeUser,
+		TableName: tableName, TableArn: snap.TableArn, TableID: snap.TableID,
+		CreationDateTime: now, Items: snap.Items,
+		KeySchema: snap.KeySchema, AttributeDefinitions: snap.AttributeDefinitions,
+		GlobalSecondaryIndexes: snap.GlobalSecondaryIndexes,
+		LocalSecondaryIndexes:  snap.LocalSecondaryIndexes,
+		ProvisionedThroughput:  snap.ProvisionedThroughput, BillingMode: snap.BillingMode,
+		SSEEnabled: snap.SSEEnabled, SSEType: snap.SSEType,
+		SSEKMSMasterKeyArn: snap.SSEKMSMasterKeyArn,
+		StreamsEnabled:     snap.StreamsEnabled, StreamViewType: snap.StreamViewType,
+		SizeBytes: sizeBytes,
 	}
 
 	db.mu.Lock("CreateBackup")
 	db.Backups[bkpARN] = backup
-	evictOldest(db.Backups, maxBackupsRetained, func(b *Backup) time.Time { return b.CreationDateTime })
+	evictOldest(
+		db.Backups,
+		maxBackupsRetained,
+		func(b *Backup) time.Time { return b.CreationDateTime },
+	)
 	db.mu.Unlock()
 
 	return &sdkdynamodb.CreateBackupOutput{
 		BackupDetails: &sdktypes.BackupDetails{
-			BackupArn:              aws.String(bkpARN),
-			BackupName:             aws.String(backupName),
-			BackupStatus:           sdktypes.BackupStatusAvailable,
-			BackupType:             sdktypes.BackupTypeUser,
-			BackupCreationDateTime: aws.Time(now.UTC()),
-			BackupSizeBytes:        aws.Int64(sizeBytes),
+			BackupArn: aws.String(bkpARN), BackupName: aws.String(backupName),
+			BackupStatus: sdktypes.BackupStatusAvailable, BackupType: sdktypes.BackupTypeUser,
+			BackupCreationDateTime: aws.Time(now.UTC()), BackupSizeBytes: aws.Int64(sizeBytes),
 		},
 	}, nil
 }
@@ -118,7 +167,7 @@ func (db *InMemoryDB) CreateBackup(
 // DescribeBackup returns the full description of a backup by ARN.
 // It satisfies the StorageBackend interface using official AWS SDK v2 types.
 func (db *InMemoryDB) DescribeBackup(
-	_ context.Context,
+	ctx context.Context,
 	input *sdkdynamodb.DescribeBackupInput,
 ) (*sdkdynamodb.DescribeBackupOutput, error) {
 	if input == nil {
@@ -128,6 +177,11 @@ func (db *InMemoryDB) DescribeBackup(
 	backupArn := aws.ToString(input.BackupArn)
 	if backupArn == "" {
 		return nil, NewValidationException("BackupArn is required")
+	}
+
+	requestRegion := getRegionFromContext(ctx, db)
+	if db.regionFromARN(backupArn) != requestRegion {
+		return nil, NewResourceNotFoundException("backup not found: " + backupArn)
 	}
 
 	db.mu.RLock("DescribeBackup")
@@ -150,7 +204,7 @@ func (db *InMemoryDB) DescribeBackup(
 // DeleteBackup removes an existing backup by ARN and returns its description.
 // It satisfies the StorageBackend interface using official AWS SDK v2 types.
 func (db *InMemoryDB) DeleteBackup(
-	_ context.Context,
+	ctx context.Context,
 	input *sdkdynamodb.DeleteBackupInput,
 ) (*sdkdynamodb.DeleteBackupOutput, error) {
 	if input == nil {
@@ -160,6 +214,11 @@ func (db *InMemoryDB) DeleteBackup(
 	backupArn := aws.ToString(input.BackupArn)
 	if backupArn == "" {
 		return nil, NewValidationException("BackupArn is required")
+	}
+
+	requestRegion := getRegionFromContext(ctx, db)
+	if db.regionFromARN(backupArn) != requestRegion {
+		return nil, NewResourceNotFoundException("backup not found: " + backupArn)
 	}
 
 	db.mu.Lock("DeleteBackup")

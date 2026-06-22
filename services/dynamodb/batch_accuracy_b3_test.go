@@ -58,7 +58,10 @@ func TestBatchGetItem_ZeroHitTable_IncludedInResponses(t *testing.T) {
 
 			tableItems, ok := out.Responses[b2TableName]
 			if !ok {
-				t.Fatalf("table %q missing from Responses; AWS always includes all requested tables", b2TableName)
+				t.Fatalf(
+					"table %q missing from Responses; AWS always includes all requested tables",
+					b2TableName,
+				)
 			}
 			if len(tableItems) != 0 {
 				t.Fatalf("expected empty list for all-miss batch, got %d items", len(tableItems))

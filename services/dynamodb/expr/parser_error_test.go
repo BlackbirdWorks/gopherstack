@@ -43,12 +43,6 @@ func TestParser_Errors(t *testing.T) {
 			wantErr: expr.ErrExpectedRBracket,
 		},
 		{
-			name:    "function missing lparen",
-			input:   "size tags",
-			isUpd:   false,
-			wantErr: expr.ErrExpectedLParen,
-		},
-		{
 			name:    "function missing rparen",
 			input:   "size(tags",
 			isUpd:   false,

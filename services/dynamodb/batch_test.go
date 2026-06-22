@@ -239,9 +239,13 @@ func TestBatchGetItem(t *testing.T) {
 			}
 
 			// Sort slices for comparison if necessary, or use cmpopts.SortSlices
-			assert.Empty(t, cmp.Diff(tt.want, got, cmpopts.SortSlices(func(a, b map[string]any) bool {
-				return a["pk"].(map[string]any)["S"].(string) < b["pk"].(map[string]any)["S"].(string)
-			})), "BatchGetItem responses mismatch")
+			assert.Empty(
+				t,
+				cmp.Diff(tt.want, got, cmpopts.SortSlices(func(a, b map[string]any) bool {
+					return a["pk"].(map[string]any)["S"].(string) < b["pk"].(map[string]any)["S"].(string)
+				})),
+				"BatchGetItem responses mismatch",
+			)
 		})
 	}
 }

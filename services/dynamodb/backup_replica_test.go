@@ -21,7 +21,12 @@ import (
 )
 
 // doBackupRequest is a helper that sends a DynamoDB API request via the handler and decodes the response.
-func doBackupRequest(t *testing.T, h *dynamodb.DynamoDBHandler, target string, body any) (int, map[string]any) {
+func doBackupRequest(
+	t *testing.T,
+	h *dynamodb.DynamoDBHandler,
+	target string,
+	body any,
+) (int, map[string]any) {
 	t.Helper()
 
 	raw, err := json.Marshal(body)
@@ -58,10 +63,15 @@ func TestBackupOperations(t *testing.T) {
 			},
 			validate: func(t *testing.T, h *dynamodb.DynamoDBHandler) {
 				t.Helper()
-				code, resp := doBackupRequest(t, h, "DynamoDB_20120810.CreateBackup", models.CreateBackupInput{
-					TableName:  "BackupSource",
-					BackupName: "my-backup",
-				})
+				code, resp := doBackupRequest(
+					t,
+					h,
+					"DynamoDB_20120810.CreateBackup",
+					models.CreateBackupInput{
+						TableName:  "BackupSource",
+						BackupName: "my-backup",
+					},
+				)
 				require.Equal(t, http.StatusOK, code)
 				details, ok := resp["BackupDetails"].(map[string]any)
 				require.True(t, ok)
@@ -74,10 +84,15 @@ func TestBackupOperations(t *testing.T) {
 			name: "CreateBackup_TableNotFound",
 			validate: func(t *testing.T, h *dynamodb.DynamoDBHandler) {
 				t.Helper()
-				code, resp := doBackupRequest(t, h, "DynamoDB_20120810.CreateBackup", models.CreateBackupInput{
-					TableName:  "NonExistent",
-					BackupName: "bad-backup",
-				})
+				code, resp := doBackupRequest(
+					t,
+					h,
+					"DynamoDB_20120810.CreateBackup",
+					models.CreateBackupInput{
+						TableName:  "NonExistent",
+						BackupName: "bad-backup",
+					},
+				)
 				require.Equal(t, http.StatusBadRequest, code)
 				assert.Contains(t, resp["__type"], "ResourceNotFoundException")
 			},
@@ -105,9 +120,14 @@ func TestBackupOperations(t *testing.T) {
 				backupArn := createResp["BackupDetails"].(map[string]any)["BackupArn"].(string)
 
 				// Now describe it
-				code, resp := doBackupRequest(t, h, "DynamoDB_20120810.DescribeBackup", models.DescribeBackupInput{
-					BackupArn: backupArn,
-				})
+				code, resp := doBackupRequest(
+					t,
+					h,
+					"DynamoDB_20120810.DescribeBackup",
+					models.DescribeBackupInput{
+						BackupArn: backupArn,
+					},
+				)
 				require.Equal(t, http.StatusOK, code)
 				bd := resp["BackupDescription"].(map[string]any)
 				details := bd["BackupDetails"].(map[string]any)
@@ -119,9 +139,14 @@ func TestBackupOperations(t *testing.T) {
 			name: "DescribeBackup_NotFound",
 			validate: func(t *testing.T, h *dynamodb.DynamoDBHandler) {
 				t.Helper()
-				code, resp := doBackupRequest(t, h, "DynamoDB_20120810.DescribeBackup", models.DescribeBackupInput{
-					BackupArn: "arn:aws:dynamodb:us-east-1:123456789012:table/T/backup/000",
-				})
+				code, resp := doBackupRequest(
+					t,
+					h,
+					"DynamoDB_20120810.DescribeBackup",
+					models.DescribeBackupInput{
+						BackupArn: "arn:aws:dynamodb:us-east-1:123456789012:table/T/backup/000",
+					},
+				)
 				require.Equal(t, http.StatusBadRequest, code)
 				assert.Contains(t, resp["__type"], "ResourceNotFoundException")
 			},
@@ -185,9 +210,14 @@ func TestBackupOperations(t *testing.T) {
 				require.Equal(t, http.StatusOK, createCode)
 				backupArn := createResp["BackupDetails"].(map[string]any)["BackupArn"].(string)
 
-				delCode, delResp := doBackupRequest(t, h, "DynamoDB_20120810.DeleteBackup", models.DeleteBackupInput{
-					BackupArn: backupArn,
-				})
+				delCode, delResp := doBackupRequest(
+					t,
+					h,
+					"DynamoDB_20120810.DeleteBackup",
+					models.DeleteBackupInput{
+						BackupArn: backupArn,
+					},
+				)
 				require.Equal(t, http.StatusOK, delCode)
 				bd := delResp["BackupDescription"].(map[string]any)
 				details := bd["BackupDetails"].(map[string]any)
@@ -449,9 +479,14 @@ func TestContinuousBackupsPerTable(t *testing.T) {
 			},
 			validate: func(t *testing.T, h *dynamodb.DynamoDBHandler) {
 				t.Helper()
-				code, resp := doBackupRequest(t, h, "DynamoDB_20120810.DescribeContinuousBackups", map[string]any{
-					"TableName": "PITRTable",
-				})
+				code, resp := doBackupRequest(
+					t,
+					h,
+					"DynamoDB_20120810.DescribeContinuousBackups",
+					map[string]any{
+						"TableName": "PITRTable",
+					},
+				)
 				require.Equal(t, http.StatusOK, code)
 				cbd := resp["ContinuousBackupsDescription"].(map[string]any)
 				pitr := cbd["PointInTimeRecoveryDescription"].(map[string]any)
@@ -467,18 +502,28 @@ func TestContinuousBackupsPerTable(t *testing.T) {
 			validate: func(t *testing.T, h *dynamodb.DynamoDBHandler) {
 				t.Helper()
 				// Enable PITR
-				updateCode, _ := doBackupRequest(t, h, "DynamoDB_20120810.UpdateContinuousBackups", map[string]any{
-					"TableName": "PITRPersistTable",
-					"PointInTimeRecoverySpecification": map[string]any{
-						"PointInTimeRecoveryEnabled": true,
+				updateCode, _ := doBackupRequest(
+					t,
+					h,
+					"DynamoDB_20120810.UpdateContinuousBackups",
+					map[string]any{
+						"TableName": "PITRPersistTable",
+						"PointInTimeRecoverySpecification": map[string]any{
+							"PointInTimeRecoveryEnabled": true,
+						},
 					},
-				})
+				)
 				require.Equal(t, http.StatusOK, updateCode)
 
 				// Verify it persisted
-				code, resp := doBackupRequest(t, h, "DynamoDB_20120810.DescribeContinuousBackups", map[string]any{
-					"TableName": "PITRPersistTable",
-				})
+				code, resp := doBackupRequest(
+					t,
+					h,
+					"DynamoDB_20120810.DescribeContinuousBackups",
+					map[string]any{
+						"TableName": "PITRPersistTable",
+					},
+				)
 				require.Equal(t, http.StatusOK, code)
 				cbd := resp["ContinuousBackupsDescription"].(map[string]any)
 				pitr := cbd["PointInTimeRecoveryDescription"].(map[string]any)
@@ -494,17 +539,26 @@ func TestContinuousBackupsPerTable(t *testing.T) {
 			validate: func(t *testing.T, h *dynamodb.DynamoDBHandler) {
 				t.Helper()
 				doBackupRequest(t, h, "DynamoDB_20120810.UpdateContinuousBackups", map[string]any{
-					"TableName":                        "PITRToggleTable",
-					"PointInTimeRecoverySpecification": map[string]any{"PointInTimeRecoveryEnabled": true},
+					"TableName": "PITRToggleTable",
+					"PointInTimeRecoverySpecification": map[string]any{
+						"PointInTimeRecoveryEnabled": true,
+					},
 				})
 				doBackupRequest(t, h, "DynamoDB_20120810.UpdateContinuousBackups", map[string]any{
-					"TableName":                        "PITRToggleTable",
-					"PointInTimeRecoverySpecification": map[string]any{"PointInTimeRecoveryEnabled": false},
+					"TableName": "PITRToggleTable",
+					"PointInTimeRecoverySpecification": map[string]any{
+						"PointInTimeRecoveryEnabled": false,
+					},
 				})
 
-				code, resp := doBackupRequest(t, h, "DynamoDB_20120810.DescribeContinuousBackups", map[string]any{
-					"TableName": "PITRToggleTable",
-				})
+				code, resp := doBackupRequest(
+					t,
+					h,
+					"DynamoDB_20120810.DescribeContinuousBackups",
+					map[string]any{
+						"TableName": "PITRToggleTable",
+					},
+				)
 				require.Equal(t, http.StatusOK, code)
 				cbd := resp["ContinuousBackupsDescription"].(map[string]any)
 				pitr := cbd["PointInTimeRecoveryDescription"].(map[string]any)
@@ -549,7 +603,11 @@ func TestGlobalTablesV2_ReplicaManagement(t *testing.T) {
 				input := models.UpdateTableInput{
 					TableName: "GlobalTable",
 					ReplicaUpdates: []models.ReplicaUpdate{
-						{Create: &models.CreateReplicationGroupMemberAction{RegionName: "eu-west-1"}},
+						{
+							Create: &models.CreateReplicationGroupMemberAction{
+								RegionName: "eu-west-1",
+							},
+						},
 					},
 				}
 				sdkInput, err := models.ToSDKUpdateTableInput(&input)
@@ -566,7 +624,11 @@ func TestGlobalTablesV2_ReplicaManagement(t *testing.T) {
 				require.NotNil(t, out.TableDescription)
 				require.Len(t, out.TableDescription.Replicas, 1)
 				assert.Equal(t, "eu-west-1", *out.TableDescription.Replicas[0].RegionName)
-				assert.Equal(t, types.ReplicaStatusActive, out.TableDescription.Replicas[0].ReplicaStatus)
+				assert.Equal(
+					t,
+					types.ReplicaStatusActive,
+					out.TableDescription.Replicas[0].ReplicaStatus,
+				)
 			},
 		},
 		{
@@ -579,7 +641,11 @@ func TestGlobalTablesV2_ReplicaManagement(t *testing.T) {
 				input := models.UpdateTableInput{
 					TableName: "IdempotentTable",
 					ReplicaUpdates: []models.ReplicaUpdate{
-						{Create: &models.CreateReplicationGroupMemberAction{RegionName: "us-west-2"}},
+						{
+							Create: &models.CreateReplicationGroupMemberAction{
+								RegionName: "us-west-2",
+							},
+						},
 					},
 				}
 				sdkInput, _ := models.ToSDKUpdateTableInput(&input)
@@ -604,7 +670,11 @@ func TestGlobalTablesV2_ReplicaManagement(t *testing.T) {
 				input := models.UpdateTableInput{
 					TableName: "DeleteReplicaTable",
 					ReplicaUpdates: []models.ReplicaUpdate{
-						{Create: &models.CreateReplicationGroupMemberAction{RegionName: "ap-southeast-1"}},
+						{
+							Create: &models.CreateReplicationGroupMemberAction{
+								RegionName: "ap-southeast-1",
+							},
+						},
 					},
 				}
 				sdkInput, _ := models.ToSDKUpdateTableInput(&input)
@@ -614,7 +684,11 @@ func TestGlobalTablesV2_ReplicaManagement(t *testing.T) {
 				input := models.UpdateTableInput{
 					TableName: "DeleteReplicaTable",
 					ReplicaUpdates: []models.ReplicaUpdate{
-						{Delete: &models.DeleteReplicationGroupMemberAction{RegionName: "ap-southeast-1"}},
+						{
+							Delete: &models.DeleteReplicationGroupMemberAction{
+								RegionName: "ap-southeast-1",
+							},
+						},
 					},
 				}
 				sdkInput, _ := models.ToSDKUpdateTableInput(&input)
@@ -636,7 +710,11 @@ func TestGlobalTablesV2_ReplicaManagement(t *testing.T) {
 				input := models.UpdateTableInput{
 					TableName: "DescribeReplicaTable",
 					ReplicaUpdates: []models.ReplicaUpdate{
-						{Create: &models.CreateReplicationGroupMemberAction{RegionName: "us-west-2"}},
+						{
+							Create: &models.CreateReplicationGroupMemberAction{
+								RegionName: "us-west-2",
+							},
+						},
 					},
 				}
 				sdkInput, _ := models.ToSDKUpdateTableInput(&input)
@@ -690,9 +768,14 @@ func TestDescribeTableReplicaAutoScaling(t *testing.T) {
 			},
 			validate: func(t *testing.T, h *dynamodb.DynamoDBHandler) {
 				t.Helper()
-				code, resp := doBackupRequest(t, h, "DynamoDB_20120810.DescribeTableReplicaAutoScaling", map[string]any{
-					"TableName": "AutoScaleTable",
-				})
+				code, resp := doBackupRequest(
+					t,
+					h,
+					"DynamoDB_20120810.DescribeTableReplicaAutoScaling",
+					map[string]any{
+						"TableName": "AutoScaleTable",
+					},
+				)
 				require.Equal(t, http.StatusOK, code)
 				desc := resp["TableAutoScalingDescription"].(map[string]any)
 				assert.Equal(t, "AutoScaleTable", desc["TableName"])
@@ -710,7 +793,11 @@ func TestDescribeTableReplicaAutoScaling(t *testing.T) {
 				input := models.UpdateTableInput{
 					TableName: "AutoScaleWithReplica",
 					ReplicaUpdates: []models.ReplicaUpdate{
-						{Create: &models.CreateReplicationGroupMemberAction{RegionName: "eu-central-1"}},
+						{
+							Create: &models.CreateReplicationGroupMemberAction{
+								RegionName: "eu-central-1",
+							},
+						},
 					},
 				}
 				sdkInput, _ := models.ToSDKUpdateTableInput(&input)
@@ -718,9 +805,14 @@ func TestDescribeTableReplicaAutoScaling(t *testing.T) {
 			},
 			validate: func(t *testing.T, h *dynamodb.DynamoDBHandler) {
 				t.Helper()
-				code, resp := doBackupRequest(t, h, "DynamoDB_20120810.DescribeTableReplicaAutoScaling", map[string]any{
-					"TableName": "AutoScaleWithReplica",
-				})
+				code, resp := doBackupRequest(
+					t,
+					h,
+					"DynamoDB_20120810.DescribeTableReplicaAutoScaling",
+					map[string]any{
+						"TableName": "AutoScaleWithReplica",
+					},
+				)
 				require.Equal(t, http.StatusOK, code)
 				desc := resp["TableAutoScalingDescription"].(map[string]any)
 				replicas := desc["Replicas"].([]any)
@@ -732,9 +824,14 @@ func TestDescribeTableReplicaAutoScaling(t *testing.T) {
 			name: "DescribeTableReplicaAutoScaling_TableNotFound",
 			validate: func(t *testing.T, h *dynamodb.DynamoDBHandler) {
 				t.Helper()
-				code, _ := doBackupRequest(t, h, "DynamoDB_20120810.DescribeTableReplicaAutoScaling", map[string]any{
-					"TableName": "NoSuchTable",
-				})
+				code, _ := doBackupRequest(
+					t,
+					h,
+					"DynamoDB_20120810.DescribeTableReplicaAutoScaling",
+					map[string]any{
+						"TableName": "NoSuchTable",
+					},
+				)
 				assert.Equal(t, http.StatusBadRequest, code)
 			},
 		},

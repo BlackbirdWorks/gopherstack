@@ -2,6 +2,7 @@ package dynamodb
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,6 +21,10 @@ import (
 
 // ErrInvalidStatement is returned when a PartiQL statement cannot be parsed.
 var ErrInvalidStatement = errors.New("invalid PartiQL statement")
+
+// partiqlValidationExceptionCode is the error code used in BatchExecuteStatement
+// error responses for parameter-conversion and statement-parse failures.
+const partiqlValidationExceptionCode = "ValidationException"
 
 // errScanFallback is an internal sentinel returned by tryQueryOptimization to
 // signal that the caller should fall back to a full Scan instead of Query.
@@ -51,7 +56,9 @@ var (
 // Clause extraction regexes.
 var (
 	// partiqlWhereRe extracts the WHERE clause body (stops before ORDER BY / LIMIT).
-	partiqlWhereRe = regexp.MustCompile(`(?i)\bWHERE\b\s+(.+?)(?:\s+ORDER\s+BY\b|\s+LIMIT\s+\d|\s*$)`)
+	partiqlWhereRe = regexp.MustCompile(
+		`(?i)\bWHERE\b\s+(.+?)(?:\s+ORDER\s+BY\b|\s+LIMIT\s+\d|\s*$)`,
+	)
 	// partiqlLimitRe extracts the LIMIT integer value.
 	partiqlLimitRe = regexp.MustCompile(`(?i)\bLIMIT\s+(\d+)`)
 	// partiqlSetRe extracts the SET clause body in an UPDATE statement.
@@ -64,6 +71,8 @@ var (
 	partiqlStringLiteralRe = regexp.MustCompile(`'((?:''|[^'])*)'`)
 	// partiqlANDSplitRe splits on AND (case-insensitive) with surrounding whitespace.
 	partiqlANDSplitRe = regexp.MustCompile(`(?i)\s+AND\s+`)
+	// partiqlOrderByRe captures the optional ASC/DESC direction from an ORDER BY clause.
+	partiqlOrderByRe = regexp.MustCompile(`(?i)\bORDER\s+BY\s+\S+(?:\s+(ASC|DESC))?`)
 )
 
 // minRegexMatch is the minimum number of submatches expected from a regex with one capture group.
@@ -81,6 +90,7 @@ type executeStatementRequest struct {
 // Items uses the DynamoDB wire format (map[string]any with {"S":…}, {"N":…} etc.)
 // so that the AWS SDK can deserialise it correctly.
 type executeStatementResponse struct {
+	TableName string           `json:"-"` // internal: table name for ConsumedCapacity tracking
 	NextToken string           `json:"NextToken,omitempty"`
 	Items     []map[string]any `json:"Items"`
 }
@@ -123,7 +133,10 @@ type partiQLRunner struct {
 // When the backend is an *InMemoryDB the lookup is served from the expression
 // cache (TTL: 10 minutes), avoiding repeated global-lock acquisitions on hot
 // SELECT/UPDATE/DELETE paths. For other backends it falls back to DescribeTable.
-func (r *partiQLRunner) lookupKeySchema(ctx context.Context, tableName string) ([]models.KeySchemaElement, error) {
+func (r *partiQLRunner) lookupKeySchema(
+	ctx context.Context,
+	tableName string,
+) ([]models.KeySchemaElement, error) {
 	if db, ok := r.backend.(*InMemoryDB); ok {
 		return db.getKeySchemaForPartiQL(ctx, tableName)
 	}
@@ -167,13 +180,25 @@ func (h *DynamoDBHandler) handleExecuteStatement(ctx context.Context, body []byt
 	}
 
 	runner := &partiQLRunner{backend: h.Backend}
+	out, err := runner.executeStatement(ctx, req)
+	if err != nil {
+		// ErrInvalidStatement maps to AWS ValidationException, not 500.
+		if errors.Is(err, ErrInvalidStatement) {
+			return nil, NewValidationException(err.Error())
+		}
 
-	return runner.executeStatement(ctx, req)
+		return nil, err
+	}
+
+	return out, nil
 }
 
 // handleBatchExecuteStatement delegates to the StorageBackend.BatchExecuteStatement interface
 // method, translating between wire format and SDK v2 types.
-func (h *DynamoDBHandler) handleBatchExecuteStatement(ctx context.Context, body []byte) (any, error) {
+func (h *DynamoDBHandler) handleBatchExecuteStatement(
+	ctx context.Context,
+	body []byte,
+) (any, error) {
 	var req batchExecuteStatementRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
@@ -205,7 +230,7 @@ func (h *DynamoDBHandler) handleBatchExecuteStatement(ctx context.Context, body 
 		if convFailed {
 			responses[i] = batchStatementResponse{
 				Error: &batchStatementError{
-					Code:    "ValidationError",
+					Code:    partiqlValidationExceptionCode,
 					Message: "failed to convert one or more statement parameters",
 				},
 			}
@@ -253,6 +278,17 @@ func (h *DynamoDBHandler) handleBatchExecuteStatement(ctx context.Context, body 
 	return &batchExecuteStatementResponse{Responses: responses}, nil
 }
 
+// partiqlExtractScanIndexForward returns false when an ORDER BY … DESC clause is
+// present in the statement, and true otherwise (ascending is the DynamoDB default).
+func partiqlExtractScanIndexForward(stmt string) bool {
+	m := partiqlOrderByRe.FindStringSubmatch(stmt)
+	if len(m) < minRegexMatch {
+		return true
+	}
+
+	return !strings.EqualFold(strings.TrimSpace(m[1]), "DESC")
+}
+
 // executePartiQLSelect handles SELECT statements, supporting WHERE, LIMIT and column projection.
 func (r *partiQLRunner) executePartiQLSelect(
 	ctx context.Context,
@@ -273,9 +309,20 @@ func (r *partiQLRunner) executePartiQLSelect(
 	filterExpr, eav := partiqlSubstituteLiterals(whereClause, eav)
 	limit := partiqlExtractLimit(substituted)
 	colList := partiqlExtractColumns(substituted)
+	scanIndexForward := partiqlExtractScanIndexForward(substituted)
 
 	// Try to use Query if the partition key is present in the WHERE clause.
-	out, queryErr := r.tryQueryOptimization(ctx, req, tableName, whereClause, filterExpr, eav, colList, limit)
+	out, queryErr := r.tryQueryOptimization(
+		ctx,
+		req,
+		tableName,
+		whereClause,
+		filterExpr,
+		eav,
+		colList,
+		limit,
+		scanIndexForward,
+	)
 	if queryErr != nil && !errors.Is(queryErr, errScanFallback) {
 		return nil, queryErr
 	}
@@ -306,6 +353,7 @@ func (r *partiQLRunner) tryQueryOptimization(
 	eav map[string]any,
 	colList string,
 	limit int,
+	scanIndexForward bool,
 ) (*executeStatementResponse, error) {
 	var keySchema []models.KeySchemaElement
 
@@ -350,10 +398,22 @@ func (r *partiQLRunner) tryQueryOptimization(
 	}
 
 	queryInput, err := r.buildQueryInput(
-		req, tableName, whereClause, filterExpr, eav, pkName.AttributeName, colList, limit,
+		req,
+		tableName,
+		whereClause,
+		filterExpr,
+		eav,
+		pkName.AttributeName,
+		colList,
+		limit,
+		scanIndexForward,
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	if startKey := decodePartiQLNextToken(req.NextToken); startKey != nil {
+		queryInput.ExclusiveStartKey = startKey
 	}
 
 	out, queryErr := r.backend.Query(ctx, queryInput)
@@ -361,7 +421,10 @@ func (r *partiQLRunner) tryQueryOptimization(
 		return nil, queryErr
 	}
 
-	return &executeStatementResponse{Items: itemsToWire(out.Items)}, nil
+	return &executeStatementResponse{
+		Items:     itemsToWire(out.Items),
+		NextToken: encodePartiQLNextToken(out.LastEvaluatedKey),
+	}, nil
 }
 
 // buildQueryInput constructs a QueryInput from the parsed PartiQL components.
@@ -372,6 +435,7 @@ func (r *partiQLRunner) buildQueryInput(
 	eav map[string]any,
 	pkAttr, colList string,
 	limit int,
+	scanIndexForward bool,
 ) (*dynamodb.QueryInput, error) {
 	sdkEAV, err := partiqlBuildSDKEAV(eav)
 	if err != nil {
@@ -400,11 +464,16 @@ func (r *partiQLRunner) buildQueryInput(
 		queryInput.ProjectionExpression = aws.String(colList)
 	}
 
+	// ORDER BY DESC maps to ScanIndexForward=false; ASC (default) keeps true.
+	if !scanIndexForward {
+		queryInput.ScanIndexForward = aws.Bool(false)
+	}
+
 	return queryInput, nil
 }
 
 // executeScanSelect runs a full Scan for a PartiQL SELECT that couldn't be optimized.
-// ConsistentRead from the original statement request is forwarded.
+// ConsistentRead and NextToken from the original statement request are forwarded.
 func (r *partiQLRunner) executeScanSelect(
 	ctx context.Context,
 	req executeStatementRequest,
@@ -441,12 +510,61 @@ func (r *partiQLRunner) executeScanSelect(
 		scanInput.ProjectionExpression = aws.String(colList)
 	}
 
+	if startKey := decodePartiQLNextToken(req.NextToken); startKey != nil {
+		scanInput.ExclusiveStartKey = startKey
+	}
+
 	out, err := r.backend.Scan(ctx, scanInput)
 	if err != nil {
 		return nil, err
 	}
 
-	return &executeStatementResponse{Items: itemsToWire(out.Items)}, nil
+	return &executeStatementResponse{
+		Items:     itemsToWire(out.Items),
+		NextToken: encodePartiQLNextToken(out.LastEvaluatedKey),
+	}, nil
+}
+
+// encodePartiQLNextToken encodes a LastEvaluatedKey map as a base64-JSON NextToken.
+// Returns "" when lastKey is empty (no more pages).
+func encodePartiQLNextToken(lastKey map[string]types.AttributeValue) string {
+	if len(lastKey) == 0 {
+		return ""
+	}
+
+	wire := models.FromSDKItem(lastKey)
+
+	b, err := json.Marshal(wire)
+	if err != nil {
+		return ""
+	}
+
+	return base64.StdEncoding.EncodeToString(b)
+}
+
+// decodePartiQLNextToken decodes a NextToken into an ExclusiveStartKey.
+// Returns nil when token is empty or malformed (treat as first page).
+func decodePartiQLNextToken(token string) map[string]types.AttributeValue {
+	if token == "" {
+		return nil
+	}
+
+	b, err := base64.StdEncoding.DecodeString(token)
+	if err != nil {
+		return nil
+	}
+
+	var wire map[string]any
+	if unmarshalErr := json.Unmarshal(b, &wire); unmarshalErr != nil {
+		return nil
+	}
+
+	sdkItem, err := models.ToSDKItem(wire)
+	if err != nil {
+		return nil
+	}
+
+	return sdkItem
 }
 
 func itemsToWire(items []map[string]types.AttributeValue) []map[string]any {
@@ -498,10 +616,39 @@ func (r *partiQLRunner) executePartiQLInsert(
 		return nil, err
 	}
 
-	if _, putErr := r.backend.PutItem(ctx, &dynamodb.PutItemInput{
-		TableName: aws.String(tableName),
-		Item:      sdkItem,
-	}); putErr != nil {
+	// Build a ConditionExpression that rejects duplicate primary keys.
+	// AWS DynamoDB PartiQL INSERT raises DuplicateItemException when an item
+	// with the same key already exists; PutItem silently overwrites.
+	keySchema, ksErr := r.lookupKeySchema(ctx, tableName)
+	if ksErr != nil || len(keySchema) == 0 {
+		if _, putErr := r.backend.PutItem(ctx, &dynamodb.PutItemInput{
+			TableName: aws.String(tableName),
+			Item:      sdkItem,
+		}); putErr != nil {
+			return nil, putErr
+		}
+
+		return &executeStatementResponse{Items: []map[string]any{}}, nil
+	}
+
+	pkDef, _ := getPKAndSK(keySchema)
+	condExpr := "attribute_not_exists(#__pk)"
+	sdkEANs := map[string]string{"#__pk": pkDef.AttributeName}
+	_, putErr := r.backend.PutItem(ctx, &dynamodb.PutItemInput{
+		TableName:                aws.String(tableName),
+		Item:                     sdkItem,
+		ConditionExpression:      aws.String(condExpr),
+		ExpressionAttributeNames: sdkEANs,
+	})
+	if putErr != nil {
+		var ddbErr *Error
+		if errors.As(putErr, &ddbErr) &&
+			strings.Contains(ddbErr.Type, "ConditionalCheckFailedException") {
+			return nil, NewDuplicateItemException(
+				"The conditional request failed: item with this key already exists",
+			)
+		}
+
 		return nil, putErr
 	}
 
@@ -649,6 +796,22 @@ func extractTableNameFromStatement(statement string) (string, error) {
 	}
 
 	return matches[1], nil
+}
+
+// extractPartiQLTableName returns the table name from any PartiQL DML statement.
+// Returns empty string when the statement type or table name cannot be determined.
+func extractPartiQLTableName(stmt string) string {
+	if m := fromClauseRegex.FindStringSubmatch(stmt); len(m) >= minRegexMatch {
+		return m[1]
+	}
+	if m := partiqlInsertTableRe.FindStringSubmatch(stmt); len(m) >= minRegexMatch {
+		return m[1]
+	}
+	if m := partiqlUpdateTableRe.FindStringSubmatch(stmt); len(m) >= minRegexMatch {
+		return m[1]
+	}
+
+	return ""
 }
 
 // advancePastStringLiteral advances index i (which must point to an opening single-quote)
@@ -841,12 +1004,20 @@ func partiqlExtractKeyFromWhere(
 
 		val, ok := eav[placeholder]
 		if !ok {
-			return nil, fmt.Errorf("%w: placeholder %q not found in parameters", ErrInvalidStatement, placeholder)
+			return nil, fmt.Errorf(
+				"%w: placeholder %q not found in parameters",
+				ErrInvalidStatement,
+				placeholder,
+			)
 		}
 
 		wireVal, ok := val.(map[string]any)
 		if !ok {
-			return nil, fmt.Errorf("%w: unexpected value type for placeholder %q", ErrInvalidStatement, placeholder)
+			return nil, fmt.Errorf(
+				"%w: unexpected value type for placeholder %q",
+				ErrInvalidStatement,
+				placeholder,
+			)
 		}
 
 		key[attrName] = wireVal
@@ -887,7 +1058,11 @@ func partiqlParseValueClause(
 
 		rawKey, rawVal, found := strings.Cut(pair, ":")
 		if !found {
-			return nil, fmt.Errorf("%w: invalid key:value pair in VALUE clause: %q", ErrInvalidStatement, pair)
+			return nil, fmt.Errorf(
+				"%w: invalid key:value pair in VALUE clause: %q",
+				ErrInvalidStatement,
+				pair,
+			)
 		}
 
 		// Strip optional quotes from attribute name.
@@ -907,7 +1082,11 @@ func partiqlParseValueClause(
 
 // partiqlParseScalar converts a single PartiQL scalar token to DynamoDB wire format.
 // Supported forms: ? (parameter), 'string' (with ” escape), bare integer/decimal, TRUE/FALSE, NULL.
-func partiqlParseScalar(token string, params []map[string]any, paramIdx *int) (map[string]any, error) {
+func partiqlParseScalar(
+	token string,
+	params []map[string]any,
+	paramIdx *int,
+) (map[string]any, error) {
 	token = strings.TrimSpace(token)
 
 	// ? — positional parameter
@@ -952,7 +1131,11 @@ func partiqlParseScalar(token string, params []map[string]any, paramIdx *int) (m
 		return map[string]any{"N": token}, nil
 	}
 
-	return nil, fmt.Errorf("%w: unsupported value token %q in VALUE clause", ErrInvalidStatement, token)
+	return nil, fmt.Errorf(
+		"%w: unsupported value token %q in VALUE clause",
+		ErrInvalidStatement,
+		token,
+	)
 }
 
 // filterEAVByExpression returns a subset of eav containing only the keys that

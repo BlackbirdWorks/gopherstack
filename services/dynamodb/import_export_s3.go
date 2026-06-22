@@ -376,6 +376,31 @@ func (db *InMemoryDB) snapshotItemsByTableARN(tableARN string) []map[string]any 
 	return nil
 }
 
+// avgExportItemBytes is a rough average item size used to estimate BilledSizeBytes
+// when exact byte measurements aren't available (matches AWS's minimum ~100B billing unit).
+const avgExportItemBytes = 100
+
+// countTableItems returns the number of items in the table identified by tableARN.
+func (db *InMemoryDB) countTableItems(_ context.Context, tableARN string) (int, error) {
+	db.mu.RLock("countTableItems")
+	defer db.mu.RUnlock()
+
+	for _, regionTables := range db.Tables {
+		for _, t := range regionTables {
+			if t.TableArn != tableARN {
+				continue
+			}
+			t.mu.RLock("countTableItems")
+			n := len(t.Items)
+			t.mu.RUnlock()
+
+			return n, nil
+		}
+	}
+
+	return 0, nil
+}
+
 // putImportedItem writes a single wire item into the target table via PutItem so
 // that indexes, streams, and validation are all applied consistently.
 func (db *InMemoryDB) putImportedItem(

@@ -431,8 +431,18 @@ func TestScan_ScannedCount(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	assert.Equal(t, int32(5), out.ScannedCount, "ScannedCount must equal Limit (items examined before filter)")
-	assert.Less(t, out.Count, out.ScannedCount, "Count must be less than ScannedCount when filter excludes some items")
+	assert.Equal(
+		t,
+		int32(5),
+		out.ScannedCount,
+		"ScannedCount must equal Limit (items examined before filter)",
+	)
+	assert.Less(
+		t,
+		out.Count,
+		out.ScannedCount,
+		"Count must be less than ScannedCount when filter excludes some items",
+	)
 }
 
 func TestScan_ConsumedCapacity(t *testing.T) {

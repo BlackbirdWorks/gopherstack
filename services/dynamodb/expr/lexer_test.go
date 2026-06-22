@@ -67,9 +67,9 @@ func TestLexer_NextToken(t *testing.T) {
 		{expectedType: expr.TokenIN, expectedLiteral: "IN"},
 		{expectedType: expr.TokenADD, expectedLiteral: "ADD"},
 		{expectedType: expr.TokenDELETE, expectedLiteral: "DELETE"},
-		{expectedType: expr.TokenAttributeExists, expectedLiteral: "attribute_exists"},
-		{expectedType: expr.TokenAttributeNotExists, expectedLiteral: "attribute_not_exists"},
-		{expectedType: expr.TokenAttributeType, expectedLiteral: "attribute_type"},
+		{expectedType: expr.TokenIdentifier, expectedLiteral: "attribute_exists"},
+		{expectedType: expr.TokenIdentifier, expectedLiteral: "attribute_not_exists"},
+		{expectedType: expr.TokenIdentifier, expectedLiteral: "attribute_type"},
 		{expectedType: expr.TokenEOF, expectedLiteral: ""},
 	}
 

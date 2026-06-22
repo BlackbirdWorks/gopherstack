@@ -61,7 +61,10 @@ func (db *InMemoryDB) TransactWriteItems(
 	}
 
 	out = &dynamodb.TransactWriteItemsOutput{
-		ConsumedCapacity: transactWriteConsumedCapacity(input.ReturnConsumedCapacity, input.TransactItems),
+		ConsumedCapacity: transactWriteConsumedCapacity(
+			input.ReturnConsumedCapacity,
+			input.TransactItems,
+		),
 	}
 
 	return out, nil
@@ -255,9 +258,10 @@ func (db *InMemoryDB) applyTransactItems(
 	snapshots := db.snapshotTables(tables)
 	for i, ti := range items {
 		if err := db.applyTransactWrite(ctx, tables, ti); err != nil {
-			logger.Load(ctx).ErrorContext(ctx, "Transaction failed during apply phase, rolling back",
-				"error", err,
-				"itemIndex", i)
+			logger.Load(ctx).
+				ErrorContext(ctx, "Transaction failed during apply phase, rolling back",
+					"error", err,
+					"itemIndex", i)
 			db.rollbackTables(tables, snapshots)
 
 			return err
@@ -352,8 +356,11 @@ func (db *InMemoryDB) TransactGetItems(
 	}
 
 	out := &dynamodb.TransactGetItemsOutput{
-		Responses:        responses,
-		ConsumedCapacity: transactReadConsumedCapacity(input.ReturnConsumedCapacity, input.TransactItems),
+		Responses: responses,
+		ConsumedCapacity: transactReadConsumedCapacity(
+			input.ReturnConsumedCapacity,
+			input.TransactItems,
+		),
 	}
 
 	return out, nil
@@ -443,7 +450,10 @@ func (db *InMemoryDB) transactTableNames(items []types.TransactWriteItem) []stri
 	return names
 }
 
-func (db *InMemoryDB) lockTablesWrite(ctx context.Context, tableNames []string) (map[string]*Table, error) {
+func (db *InMemoryDB) lockTablesWrite(
+	ctx context.Context,
+	tableNames []string,
+) (map[string]*Table, error) {
 	region := getRegionFromContext(ctx, db)
 	tables := make(map[string]*Table, len(tableNames))
 
@@ -473,7 +483,10 @@ func (db *InMemoryDB) lockTablesWrite(ctx context.Context, tableNames []string) 
 	return tables, nil
 }
 
-func (db *InMemoryDB) lockTablesRead(ctx context.Context, tableNames []string) (map[string]*Table, error) {
+func (db *InMemoryDB) lockTablesRead(
+	ctx context.Context,
+	tableNames []string,
+) (map[string]*Table, error) {
 	region := getRegionFromContext(ctx, db)
 	tables := make(map[string]*Table, len(tableNames))
 
@@ -710,7 +723,11 @@ func (db *InMemoryDB) applyTransactWrite(
 		}
 		// Capture stream event for the committed transactional update.
 		if matchIndex != -1 {
-			table.appendStreamRecord(streamEventModify, deepCopyItem(oldItem), deepCopyItem(updated))
+			table.appendStreamRecord(
+				streamEventModify,
+				deepCopyItem(oldItem),
+				deepCopyItem(updated),
+			)
 		} else {
 			table.appendStreamRecord(streamEventInsert, nil, deepCopyItem(updated))
 		}
@@ -749,7 +766,10 @@ func (db *InMemoryDB) snapshotTables(tables map[string]*Table) map[string]tableS
 	return snapshots
 }
 
-func (db *InMemoryDB) rollbackTables(tables map[string]*Table, snapshots map[string]tableStateSnapshot) {
+func (db *InMemoryDB) rollbackTables(
+	tables map[string]*Table,
+	snapshots map[string]tableStateSnapshot,
+) {
 	for name, t := range tables {
 		if s, ok := snapshots[name]; ok {
 			t.Items = s.items

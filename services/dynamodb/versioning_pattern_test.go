@@ -32,8 +32,10 @@ func TestUpdateItem_VersioningPattern(t *testing.T) {
 			steps: []updateStep{
 				{
 					input: models.UpdateItemInput{
-						TableName:                "TestTable",
-						Key:                      map[string]any{"pk": map[string]any{"S": "item1"}},
+						TableName: "TestTable",
+						Key: map[string]any{
+							"pk": map[string]any{"S": "item1"},
+						},
 						UpdateExpression:         "SET version = :v, #data = :data",
 						ExpressionAttributeNames: map[string]string{"#data": "data"},
 						ExpressionAttributeValues: map[string]any{
@@ -49,8 +51,10 @@ func TestUpdateItem_VersioningPattern(t *testing.T) {
 				},
 				{
 					input: models.UpdateItemInput{
-						TableName:                "TestTable",
-						Key:                      map[string]any{"pk": map[string]any{"S": "item1"}},
+						TableName: "TestTable",
+						Key: map[string]any{
+							"pk": map[string]any{"S": "item1"},
+						},
 						UpdateExpression:         "SET version = :v, #data = :data",
 						ExpressionAttributeNames: map[string]string{"#data": "data"},
 						ExpressionAttributeValues: map[string]any{
@@ -145,7 +149,12 @@ func TestUpdateItem_VersioningPattern(t *testing.T) {
 
 				res, updateErr := db.UpdateItem(ctx, sdkInput)
 				require.NoError(t, updateErr, "step %d: UpdateItem failed", i)
-				require.NotNil(t, res.Attributes, "step %d: UPDATED_NEW should return attributes", i)
+				require.NotNil(
+					t,
+					res.Attributes,
+					"step %d: UPDATED_NEW should return attributes",
+					i,
+				)
 
 				attrs := models.FromSDKItem(res.Attributes)
 
@@ -153,10 +162,24 @@ func TestUpdateItem_VersioningPattern(t *testing.T) {
 					assert.Contains(t, attrs, key, "step %d: expected key %q in attributes", i, key)
 				}
 				for _, key := range step.wantNotContain {
-					assert.NotContains(t, attrs, key, "step %d: unexpected key %q in attributes", i, key)
+					assert.NotContains(
+						t,
+						attrs,
+						key,
+						"step %d: unexpected key %q in attributes",
+						i,
+						key,
+					)
 				}
 				for key, wantVal := range step.wantEqualN {
-					require.Contains(t, attrs, key, "step %d: key %q missing for N assertion", i, key)
+					require.Contains(
+						t,
+						attrs,
+						key,
+						"step %d: key %q missing for N assertion",
+						i,
+						key,
+					)
 					assert.Equal(
 						t,
 						wantVal,
@@ -167,7 +190,14 @@ func TestUpdateItem_VersioningPattern(t *testing.T) {
 					)
 				}
 				for key, wantVal := range step.wantEqualS {
-					require.Contains(t, attrs, key, "step %d: key %q missing for S assertion", i, key)
+					require.Contains(
+						t,
+						attrs,
+						key,
+						"step %d: key %q missing for S assertion",
+						i,
+						key,
+					)
 					assert.Equal(
 						t,
 						wantVal,

@@ -23,7 +23,10 @@ func (h *DynamoDBHandler) FISActions() []service.FISActionDefinition {
 }
 
 // ExecuteFISAction executes a FIS action against resolved DynamoDB targets.
-func (h *DynamoDBHandler) ExecuteFISAction(ctx context.Context, action service.FISActionExecution) error {
+func (h *DynamoDBHandler) ExecuteFISAction(
+	ctx context.Context,
+	action service.FISActionExecution,
+) error {
 	if action.ActionID != "aws:dynamodb:global-table-pause-replication" {
 		return nil
 	}
@@ -39,7 +42,11 @@ func (h *DynamoDBHandler) ExecuteFISAction(ctx context.Context, action service.F
 // activateReplicationPause marks the given table ARNs as replication-paused.
 // It always registers a goroutine that clears the pause when ctx is cancelled
 // (experiment stopped), and also schedules time-based expiry when dur > 0.
-func (db *InMemoryDB) activateReplicationPause(ctx context.Context, tableARNs []string, dur time.Duration) error {
+func (db *InMemoryDB) activateReplicationPause(
+	ctx context.Context,
+	tableARNs []string,
+	dur time.Duration,
+) error {
 	var expiry time.Time
 	if dur > 0 {
 		expiry = time.Now().Add(dur)
@@ -81,7 +88,11 @@ func (db *InMemoryDB) activateReplicationPause(ctx context.Context, tableARNs []
 // given duration or when ctx is cancelled (whichever comes first).
 // On ctx cancellation, entries are removed unconditionally so that StopExperiment
 // always clears active pauses regardless of remaining time.
-func (db *InMemoryDB) scheduleReplicationPauseCleanup(ctx context.Context, tableARNs []string, dur time.Duration) {
+func (db *InMemoryDB) scheduleReplicationPauseCleanup(
+	ctx context.Context,
+	tableARNs []string,
+	dur time.Duration,
+) {
 	ctxCancelled := false
 
 	timer := time.NewTimer(dur)

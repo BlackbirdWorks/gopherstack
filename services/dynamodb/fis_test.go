@@ -159,7 +159,11 @@ func TestDynamoDB_IsReplicationPaused_LazyEviction(t *testing.T) {
 	assert.False(t, db.IsReplicationPaused(tableARN), "expired pause should not be reported active")
 
 	// After lazy eviction the map should no longer contain the key.
-	assert.False(t, db.IsReplicationPaused(tableARN), "second call should also return false (entry evicted)")
+	assert.False(
+		t,
+		db.IsReplicationPaused(tableARN),
+		"second call should also return false (entry evicted)",
+	)
 }
 
 func TestDynamoDB_IsReplicationPaused_ByNameSuffix(t *testing.T) {
@@ -197,7 +201,11 @@ func TestDynamoDB_IsReplicationPaused_NotFound(t *testing.T) {
 
 	db := dynamodb.NewInMemoryDB()
 
-	assert.False(t, db.IsReplicationPaused("nonexistent-table"), "unknown table should not be paused")
+	assert.False(
+		t,
+		db.IsReplicationPaused("nonexistent-table"),
+		"unknown table should not be paused",
+	)
 }
 
 func TestDynamoDB_ExecuteFISAction_NonInMemoryBackend(t *testing.T) {

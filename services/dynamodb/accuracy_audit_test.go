@@ -68,7 +68,12 @@ func auditCreateOnDemandTable(t *testing.T, db *ddb.InMemoryDB, tableName string
 	}
 }
 
-func auditPutItem(t *testing.T, db *ddb.InMemoryDB, tableName string, item map[string]types.AttributeValue) {
+func auditPutItem(
+	t *testing.T,
+	db *ddb.InMemoryDB,
+	tableName string,
+	item map[string]types.AttributeValue,
+) {
 	t.Helper()
 	_, err := db.PutItem(context.Background(), &dynamodb.PutItemInput{
 		TableName: aws.String(tableName),
@@ -263,8 +268,14 @@ func TestConsistentRead_Query_OnGSI_Rejected(t *testing.T) {
 				AttributeDefinitions: []types.AttributeDefinition{
 					{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
 					{AttributeName: aws.String("sk"), AttributeType: types.ScalarAttributeTypeS},
-					{AttributeName: aws.String("gsi_pk"), AttributeType: types.ScalarAttributeTypeS},
-					{AttributeName: aws.String("lsi_sk"), AttributeType: types.ScalarAttributeTypeS},
+					{
+						AttributeName: aws.String("gsi_pk"),
+						AttributeType: types.ScalarAttributeTypeS,
+					},
+					{
+						AttributeName: aws.String("lsi_sk"),
+						AttributeType: types.ScalarAttributeTypeS,
+					},
 				},
 				GlobalSecondaryIndexes: []types.GlobalSecondaryIndex{
 					{
@@ -550,8 +561,14 @@ func TestLSILimit_CreateTable_Exceeds5_Rejected(t *testing.T) {
 	attrDefs := make([]types.AttributeDefinition, 0, 2+len(lsis))
 	attrDefs = append(
 		attrDefs,
-		types.AttributeDefinition{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
-		types.AttributeDefinition{AttributeName: aws.String("sk"), AttributeType: types.ScalarAttributeTypeS},
+		types.AttributeDefinition{
+			AttributeName: aws.String("pk"),
+			AttributeType: types.ScalarAttributeTypeS,
+		},
+		types.AttributeDefinition{
+			AttributeName: aws.String("sk"),
+			AttributeType: types.ScalarAttributeTypeS,
+		},
 	)
 
 	for i := range lsis {
@@ -614,14 +631,24 @@ func TestTransactWrite_UniqueKeys_Accepted(t *testing.T) {
 
 	_, err := db.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{
 		TransactItems: []types.TransactWriteItem{
-			{Put: &types.Put{TableName: aws.String("UniqueTable"), Item: map[string]types.AttributeValue{
-				"pk": &types.AttributeValueMemberS{Value: "pk1"},
-				"sk": &types.AttributeValueMemberS{Value: "sk1"},
-			}}},
-			{Put: &types.Put{TableName: aws.String("UniqueTable"), Item: map[string]types.AttributeValue{
-				"pk": &types.AttributeValueMemberS{Value: "pk2"},
-				"sk": &types.AttributeValueMemberS{Value: "sk2"},
-			}}},
+			{
+				Put: &types.Put{
+					TableName: aws.String("UniqueTable"),
+					Item: map[string]types.AttributeValue{
+						"pk": &types.AttributeValueMemberS{Value: "pk1"},
+						"sk": &types.AttributeValueMemberS{Value: "sk1"},
+					},
+				},
+			},
+			{
+				Put: &types.Put{
+					TableName: aws.String("UniqueTable"),
+					Item: map[string]types.AttributeValue{
+						"pk": &types.AttributeValueMemberS{Value: "pk2"},
+						"sk": &types.AttributeValueMemberS{Value: "sk2"},
+					},
+				},
+			},
 		},
 	})
 	if err != nil {
@@ -1345,8 +1372,10 @@ func TestGSILimit_UpdateTable_Add21st_Rejected(t *testing.T) {
 	}
 
 	_, err := db.CreateTable(ctx, &dynamodb.CreateTableInput{
-		TableName:              aws.String("MaxGSITable"),
-		KeySchema:              []types.KeySchemaElement{{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash}},
+		TableName: aws.String("MaxGSITable"),
+		KeySchema: []types.KeySchemaElement{
+			{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},
+		},
 		AttributeDefinitions:   attrDefs,
 		GlobalSecondaryIndexes: gsis,
 		BillingMode:            types.BillingModeProvisioned,
@@ -2332,23 +2361,44 @@ func TestProvisionedThroughput_ZeroWrite_Rejected(t *testing.T) {
 	auditAssertErrorCode(t, err, "ValidationException")
 }
 
-func TestProvisionedThroughput_PayPerRequest_NoCheck(t *testing.T) {
+func TestProvisionedThroughput_PayPerRequest_ZeroAllowed(t *testing.T) {
 	t.Parallel()
 
-	// PAY_PER_REQUEST: ProvisionedThroughput constraints don't apply.
+	// PAY_PER_REQUEST: zero-value throughput (not positive) is allowed.
 	zero := int64(0)
 	pt := &types.ProvisionedThroughput{ReadCapacityUnits: &zero, WriteCapacityUnits: &zero}
 	if err := ddb.ValidateProvisionedThroughput(pt, types.BillingModePayPerRequest); err != nil {
-		t.Fatalf("PAY_PER_REQUEST should skip throughput validation: %v", err)
+		t.Fatalf("PAY_PER_REQUEST with zero throughput should be accepted: %v", err)
 	}
 }
 
-func TestProvisionedThroughput_NilPT_Accepted(t *testing.T) {
+func TestProvisionedThroughput_PayPerRequest_PositiveRejected(t *testing.T) {
 	t.Parallel()
 
-	// nil ProvisionedThroughput uses server-side defaults.
-	if err := ddb.ValidateProvisionedThroughput(nil, types.BillingModeProvisioned); err != nil {
-		t.Fatalf("nil PT should be accepted (default applies): %v", err)
+	// PAY_PER_REQUEST: positive throughput must be rejected.
+	rcu := int64(5)
+	wcu := int64(5)
+	pt := &types.ProvisionedThroughput{ReadCapacityUnits: &rcu, WriteCapacityUnits: &wcu}
+	if err := ddb.ValidateProvisionedThroughput(pt, types.BillingModePayPerRequest); err == nil {
+		t.Fatal("PAY_PER_REQUEST with positive throughput must be rejected")
+	}
+}
+
+func TestProvisionedThroughput_NilPT_ExplicitProvisioned_Rejected(t *testing.T) {
+	t.Parallel()
+
+	// Explicit PROVISIONED billing mode without throughput must be rejected.
+	if err := ddb.ValidateProvisionedThroughput(nil, types.BillingModeProvisioned); err == nil {
+		t.Fatal("explicit PROVISIONED with nil throughput must be rejected")
+	}
+}
+
+func TestProvisionedThroughput_NilPT_DefaultBilling_Accepted(t *testing.T) {
+	t.Parallel()
+
+	// Default (unset) billing mode without throughput is allowed (uses defaults).
+	if err := ddb.ValidateProvisionedThroughput(nil, ""); err != nil {
+		t.Fatalf("default billing mode with nil throughput should use defaults: %v", err)
 	}
 }
 

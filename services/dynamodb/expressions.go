@@ -145,3 +145,53 @@ func evaluateExpression(
 ) (bool, error) {
 	return EvaluateExpression(expression, item, attrValues, attrNames)
 }
+
+// ParsedCondition is a pre-parsed condition or filter expression AST.
+// Pre-parsing once and reusing across many items avoids per-item lexing overhead.
+type ParsedCondition struct {
+	node expr.Node
+}
+
+// ParseConditionStr parses a DynamoDB condition expression string once.
+// Returns a zero ParsedCondition when expression is empty (always matches).
+func ParseConditionStr(expression string) (*ParsedCondition, error) {
+	if expression == "" {
+		return &ParsedCondition{}, nil
+	}
+
+	l := expr.NewLexer(expression)
+	p := expr.NewParser(l)
+	node, err := p.ParseCondition()
+	if err != nil {
+		return nil, err
+	}
+
+	return &ParsedCondition{node: node}, nil
+}
+
+// Evaluate runs the pre-parsed condition against item.
+// A zero ParsedCondition (nil node) always returns true (matches everything).
+func (c *ParsedCondition) Evaluate(
+	item map[string]any,
+	attrValues map[string]any,
+	attrNames map[string]string,
+) bool {
+	if c == nil || c.node == nil {
+		return true
+	}
+
+	eval := &expr.Evaluator{
+		Item:       item,
+		AttrNames:  attrNames,
+		AttrValues: attrValues,
+	}
+
+	result, err := eval.Evaluate(c.node)
+	if err != nil {
+		return false
+	}
+
+	b, ok := result.(bool)
+
+	return ok && b
+}

@@ -61,8 +61,17 @@ func TestHandler_Realism(t *testing.T) {
 		require.NoError(t, err)
 
 		assert.Less(t, len(output.Items), 20, "Scan should have truncated results")
-		assert.NotEmpty(t, output.LastEvaluatedKey, "Scan should return LastEvaluatedKey when truncated by size")
-		assert.Equal(t, len(output.Items), output.ScannedCount, "ScannedCount should match Items len when no filter")
+		assert.NotEmpty(
+			t,
+			output.LastEvaluatedKey,
+			"Scan should return LastEvaluatedKey when truncated by size",
+		)
+		assert.Equal(
+			t,
+			len(output.Items),
+			output.ScannedCount,
+			"ScannedCount should match Items len when no filter",
+		)
 	})
 
 	t.Run("Query hits 1MB limit", func(t *testing.T) {
@@ -112,7 +121,11 @@ func TestHandler_Realism(t *testing.T) {
 		require.NoError(t, err)
 
 		assert.Less(t, len(output.Items), 20, "Query should have truncated results")
-		assert.NotEmpty(t, output.LastEvaluatedKey, "Query should return LastEvaluatedKey when truncated by size")
+		assert.NotEmpty(
+			t,
+			output.LastEvaluatedKey,
+			"Query should return LastEvaluatedKey when truncated by size",
+		)
 	})
 
 	t.Run("BatchGetItem hits 16MB limit", func(t *testing.T) {
@@ -177,9 +190,18 @@ func TestHandler_Realism(t *testing.T) {
 
 		totalReturned := len(output.Responses[tableName])
 		assert.Less(t, totalReturned, 90, "BatchGetItem should have truncated results")
-		assert.NotEmpty(t, output.UnprocessedKeys, "BatchGetItem should return UnprocessedKeys when size limit hit")
+		assert.NotEmpty(
+			t,
+			output.UnprocessedKeys,
+			"BatchGetItem should return UnprocessedKeys when size limit hit",
+		)
 
 		unprocessed := output.UnprocessedKeys[tableName].(map[string]any)["Keys"].([]any)
-		assert.Equal(t, 90, totalReturned+len(unprocessed), "Total items requested should match returned + unprocessed")
+		assert.Equal(
+			t,
+			90,
+			totalReturned+len(unprocessed),
+			"Total items requested should match returned + unprocessed",
+		)
 	})
 }

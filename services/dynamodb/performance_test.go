@@ -64,7 +64,9 @@ func TestBatchDeletePerformance(t *testing.T) {
 								"id": &types.AttributeValueMemberS{
 									Value: fmt.Sprintf("item-%d", b*tt.itemsPerBatch+j),
 								},
-								"data": &types.AttributeValueMemberS{Value: "some-bloated-data-to-make-it-real"},
+								"data": &types.AttributeValueMemberS{
+									Value: "some-bloated-data-to-make-it-real",
+								},
 							},
 						},
 					}
@@ -85,7 +87,9 @@ func TestBatchDeletePerformance(t *testing.T) {
 					requests[j] = types.WriteRequest{
 						DeleteRequest: &types.DeleteRequest{
 							Key: map[string]types.AttributeValue{
-								"id": &types.AttributeValueMemberS{Value: fmt.Sprintf("item-%d", i*tt.itemsPerBatch+j)},
+								"id": &types.AttributeValueMemberS{
+									Value: fmt.Sprintf("item-%d", i*tt.itemsPerBatch+j),
+								},
 							},
 						},
 					}
@@ -99,7 +103,12 @@ func TestBatchDeletePerformance(t *testing.T) {
 			}
 			duration := time.Since(start)
 
-			t.Logf("Deleted %d items from %d in %v", tt.deleteBatches*tt.itemsPerBatch, tt.numItems, duration)
+			t.Logf(
+				"Deleted %d items from %d in %v",
+				tt.deleteBatches*tt.itemsPerBatch,
+				tt.numItems,
+				duration,
+			)
 			assert.LessOrEqual(t, duration, tt.maxDuration, "Batch delete is too slow!")
 		})
 	}

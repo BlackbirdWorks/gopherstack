@@ -290,7 +290,11 @@ func TestKeySizeLimit_AWSWording(t *testing.T) {
 		sdkPut, _ := models.ToSDKPutItemInput(&put)
 		_, err := db.PutItem(t.Context(), sdkPut)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "Aggregated size of all range keys has exceeded the size limit")
+		assert.Contains(
+			t,
+			err.Error(),
+			"Aggregated size of all range keys has exceeded the size limit",
+		)
 	})
 }
 
