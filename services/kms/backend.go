@@ -1186,91 +1186,14 @@ func (b *InMemoryBackend) ReEncrypt(
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	// Extract source key ID from blob to look up key metadata and material.
-	if len(input.CiphertextBlob) < keyIDPrefixLen {
-		return nil, ErrCiphertextTooShort
-	}
-
-	sourceKeyID := strings.TrimRight(string(input.CiphertextBlob[:keyIDPrefixLen]), "\x00")
-
-	// If the caller supplied a SourceKeyId hint, AWS KMS uses only that key and
-	// rejects the request with IncorrectKeyException when it is not the key that
-	// encrypted the source ciphertext.
-	if err := b.verifyKeyIDHint(ctx, input.SourceKeyID, sourceKeyID, "SourceKeyId"); err != nil {
-		return nil, err
-	}
-
-	// Validate source key state and usage before decrypting.
-	sourceKey, sourceErr := b.lookupKey(ctx, sourceKeyID)
-	if sourceErr != nil {
-		return nil, sourceErr
-	}
-
-	if sourceKey.KeyState != KeyStateEnabled {
-		return nil, keyStateError(sourceKey)
-	}
-
-	if sourceKey.KeyUsage != KeyUsageEncryptDecrypt {
-		return nil, fmt.Errorf(
-			"%w: source key %q is not usable for decryption",
-			ErrInvalidKeyUsage,
-			sourceKey.KeyID,
-		)
-	}
-
-	sourceKM, err := b.requireKeyMaterial(region, sourceKeyID)
+	plaintext, sourceKey, err := b.reEncryptDecrypt(ctx, region, input)
 	if err != nil {
 		return nil, err
 	}
 
-	plaintext, _, decErr := decryptData(
-		input.CiphertextBlob,
-		input.SourceEncryptionContext,
-		sourceKM,
-	)
-	if decErr != nil {
-		// Try previous key material versions produced by rotation.
-		plaintext, decErr = b.decryptWithHistory(
-			region,
-			input.CiphertextBlob,
-			input.SourceEncryptionContext,
-			sourceKey.KeyID,
-		)
-		if decErr != nil {
-			return nil, decErr
-		}
-	}
-
-	destKey, lookupErr := b.lookupKey(ctx, input.DestinationKeyID)
-	if lookupErr != nil {
-		return nil, lookupErr
-	}
-
-	if destKey.KeyState != KeyStateEnabled {
-		return nil, keyStateError(destKey)
-	}
-
-	if destKey.KeyUsage != KeyUsageEncryptDecrypt {
-		return nil, fmt.Errorf(
-			"%w: destination key %q is not usable for encryption",
-			ErrInvalidKeyUsage,
-			destKey.KeyID,
-		)
-	}
-
-	destKM, err := b.requireKeyMaterial(region, destKey.KeyID)
+	blob, destKey, err := b.reEncryptEncrypt(ctx, region, plaintext, input)
 	if err != nil {
 		return nil, err
-	}
-
-	blob, encErr := encryptData(
-		plaintext,
-		destKey.KeyID,
-		input.DestinationEncryptionContext,
-		destKM,
-	)
-	if encErr != nil {
-		return nil, encErr
 	}
 
 	b.recordLastUsage(region, sourceKey.KeyID, "ReEncrypt")
@@ -1283,6 +1206,104 @@ func (b *InMemoryBackend) ReEncrypt(
 		SourceEncryptionAlgorithm:      encryptionAlgorithmForSpec(sourceKey.KeySpec),
 		DestinationEncryptionAlgorithm: encryptionAlgorithmForSpec(destKey.KeySpec),
 	}, nil
+}
+
+func (b *InMemoryBackend) reEncryptDecrypt(
+	ctx context.Context,
+	region string,
+	input *ReEncryptInput,
+) ([]byte, *Key, error) {
+	if len(input.CiphertextBlob) < keyIDPrefixLen {
+		return nil, nil, ErrCiphertextTooShort
+	}
+
+	sourceKeyID := strings.TrimRight(string(input.CiphertextBlob[:keyIDPrefixLen]), "\x00")
+
+	if err := b.verifyKeyIDHint(ctx, input.SourceKeyID, sourceKeyID, "SourceKeyId"); err != nil {
+		return nil, nil, err
+	}
+
+	sourceKey, err := b.lookupKey(ctx, sourceKeyID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if sourceKey.KeyState != KeyStateEnabled {
+		return nil, nil, keyStateError(sourceKey)
+	}
+
+	if sourceKey.KeyUsage != KeyUsageEncryptDecrypt {
+		return nil, nil, fmt.Errorf(
+			"%w: source key %q is not usable for decryption",
+			ErrInvalidKeyUsage,
+			sourceKey.KeyID,
+		)
+	}
+
+	sourceKM, err := b.requireKeyMaterial(region, sourceKeyID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	plaintext, _, decErr := decryptData(
+		input.CiphertextBlob,
+		input.SourceEncryptionContext,
+		sourceKM,
+	)
+	if decErr != nil {
+		plaintext, decErr = b.decryptWithHistory(
+			region,
+			input.CiphertextBlob,
+			input.SourceEncryptionContext,
+			sourceKey.KeyID,
+		)
+		if decErr != nil {
+			return nil, nil, decErr
+		}
+	}
+
+	return plaintext, sourceKey, nil
+}
+
+func (b *InMemoryBackend) reEncryptEncrypt(
+	ctx context.Context,
+	region string,
+	plaintext []byte,
+	input *ReEncryptInput,
+) ([]byte, *Key, error) {
+	destKey, err := b.lookupKey(ctx, input.DestinationKeyID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if destKey.KeyState != KeyStateEnabled {
+		return nil, nil, keyStateError(destKey)
+	}
+
+	if destKey.KeyUsage != KeyUsageEncryptDecrypt {
+		return nil, nil, fmt.Errorf(
+			"%w: destination key %q is not usable for encryption",
+			ErrInvalidKeyUsage,
+			destKey.KeyID,
+		)
+	}
+
+	destKM, err := b.requireKeyMaterial(region, destKey.KeyID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	blob, err := encryptData(
+		plaintext,
+		destKey.KeyID,
+		input.DestinationEncryptionContext,
+		destKM,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return blob, destKey, nil
 }
 
 // Sign creates a digital signature for the specified message using an asymmetric KMS key.
