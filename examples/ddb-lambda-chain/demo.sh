@@ -15,7 +15,7 @@
 # https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/example_serverless_DynamoDB_Lambda_section.html
 set -eu
 
-AWS="aws --endpoint-url ${ENDPOINT:-http://localhost:8000} --no-cli-pager --output json"
+AWS="aws --endpoint-url ${ENDPOINT:-http://localhost:8000} --region us-east-1 --no-cli-pager --output json"
 FUNC=chain-fn
 ROLE_ARN="arn:aws:iam::000000000000:role/chain-fn-role"
 TABLES="chain-1 chain-2 chain-3"
@@ -29,8 +29,12 @@ cleanup() {
 trap cleanup EXIT
 
 echo "=== Building Go zip Lambda (bootstrap, provided.al2) ==="
-# Lambda source is mounted read-only at /lambda; build into the writable workdir.
-cp -r /lambda/* "$WORK"/
+# Lambda source is mounted read-only at /lambda in Docker, but fallback to local directory.
+LAMBDA_SRC="${LAMBDA_SRC:-/lambda}"
+if [ ! -d "$LAMBDA_SRC" ]; then
+  LAMBDA_SRC="$(cd "$(dirname "$0")" && pwd)/lambda"
+fi
+cp -r "$LAMBDA_SRC"/* "$WORK"/
 ( cd "$WORK" && go mod download && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -tags lambda.norpc -o bootstrap . )
 ( cd "$WORK" && zip -q function.zip bootstrap )
 echo "built $WORK/function.zip"
@@ -58,7 +62,7 @@ $AWS lambda create-function \
   --role "$ROLE_ARN" \
   --handler bootstrap \
   --zip-file "fileb://$WORK/function.zip" \
-  --environment "Variables={AWS_ENDPOINT_URL=${ENDPOINT:-http://localhost:8000},AWS_ACCESS_KEY_ID=test,AWS_SECRET_ACCESS_KEY=test,AWS_DEFAULT_REGION=us-east-1}" \
+  --environment "Variables={AWS_ENDPOINT_URL=${LAMBDA_ENDPOINT:-http://host.docker.internal:8000},AWS_ACCESS_KEY_ID=test,AWS_SECRET_ACCESS_KEY=test,AWS_DEFAULT_REGION=us-east-1}" \
   >/dev/null
 echo "  created function $FUNC"
 
@@ -98,6 +102,9 @@ for t in $TABLES; do
 done
 
 FINAL=$($AWS dynamodb scan --table-name chain-3 --query 'Count' --output text)
+echo ""
+echo "=== Lambda Logs ==="
+$AWS logs filter-log-events --log-group-name /aws/lambda/$FUNC --query 'events[*].message' --output text || true
 echo ""
 if [ "$FINAL" = "1" ]; then
   echo "SUCCESS: event chained chain-1 -> chain-2 -> chain-3 (3 DynamoDB events)."

@@ -24,7 +24,7 @@ import (
 func newTestStack(t *testing.T) *elasticachesdk.Client {
 	t.Helper()
 
-	backend := elasticache.NewInMemoryBackend(elasticache.EngineEmbedded, "000000000000", "us-east-1")
+	backend := elasticache.NewInMemoryBackend(elasticache.EngineEmbedded, "000000000000", "us-east-1", nil)
 	handler := elasticache.NewHandler(backend)
 
 	e := echo.New()
@@ -53,7 +53,7 @@ func newTestStack(t *testing.T) *elasticachesdk.Client {
 // newTestHandler creates a raw handler for internal tests.
 func newTestHandler(t *testing.T) *elasticache.Handler {
 	t.Helper()
-	backend := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
+	backend := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 
 	return elasticache.NewHandler(backend)
 }
@@ -600,7 +600,7 @@ func TestBackend(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backend := elasticache.NewInMemoryBackend(tt.engineMode, "000000000000", "us-east-1")
+			backend := elasticache.NewInMemoryBackend(tt.engineMode, "000000000000", "us-east-1", nil)
 
 			var firstCluster *elasticache.Cluster
 			for _, id := range tt.clusterIDs {
@@ -1910,7 +1910,7 @@ func TestCreateCacheCluster_CustomerAZUsesRegion(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backend := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", tt.region)
+			backend := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", tt.region, nil)
 			handler := elasticache.NewHandler(backend)
 			handler.Region = tt.region
 

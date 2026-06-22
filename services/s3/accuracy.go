@@ -13,6 +13,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"hash"
+	"hash/crc64"
 	"maps"
 	"net/http"
 	"strings"
@@ -319,83 +320,17 @@ func validateExpectedBucketOwner(r *http.Request) error {
 
 // ─── CRC64NVME checksum ───────────────────────────────────────────────────────
 
-// crc64NVMEPoly is the CRC-64/NVME polynomial (Rocksoft^tm model).
-// ECMA-182 / Jones notation reflected.
-const (
-	crc64NVMEPoly    = uint64(0xad93d23594c93659)
-	crc64NVMEInitXOR = uint64(0xffffffffffffffff)
-	crc64NVMEHashLen = 8
-	crc64ShiftBits   = 8 // bits per byte, used in the CRC update loop
-)
+// crc64NVMEPoly is the CRC-64/NVME polynomial (Rocksoft^tm model) reflected
+// (reversed) for use with standard little-endian (right-shifting) algorithms.
+const crc64NVMEPoly = uint64(0x9a6c9329ac4bc9b5)
 
 // crc64NVMETable is the lookup table for the CRC64/NVME polynomial.
-var crc64NVMETable = makeCRC64NVMETable() //nolint:gochecknoglobals // pre-computed lookup table
-
-func makeCRC64NVMETable() [256]uint64 {
-	const (
-		bitsPerByte = 8
-		tableLen    = 256
-	)
-
-	var table [tableLen]uint64
-	for i := range tableLen {
-		crc := uint64(i)
-		for range bitsPerByte {
-			if crc&1 != 0 {
-				crc = (crc >> 1) ^ crc64NVMEPoly
-			} else {
-				crc >>= 1
-			}
-		}
-		table[i] = crc
-	}
-
-	return table
-}
-
-// CRC64NVMEHash implements hash.Hash for CRC64/NVME.
-type CRC64NVMEHash struct {
-	crc uint64
-}
+var crc64NVMETable = crc64.MakeTable(crc64NVMEPoly) //nolint:gochecknoglobals // pre-computed lookup table
 
 // NewCRC64NVME returns a new CRC64/NVME hash.
 func NewCRC64NVME() hash.Hash {
-	return &CRC64NVMEHash{crc: crc64NVMEInitXOR}
+	return crc64.New(crc64NVMETable)
 }
-
-// Write implements io.Writer.
-func (h *CRC64NVMEHash) Write(p []byte) (int, error) {
-	for _, b := range p {
-		lsb := byte(h.crc) //nolint:gosec // lower-byte truncation is intentional for CRC table index
-		h.crc = crc64NVMETable[lsb^b] ^ (h.crc >> crc64ShiftBits)
-	}
-
-	return len(p), nil
-}
-
-// Sum appends the big-endian representation of the hash to b and returns it.
-func (h *CRC64NVMEHash) Sum(b []byte) []byte {
-	var buf [crc64NVMEHashLen]byte
-	binary.BigEndian.PutUint64(buf[:], h.Sum64())
-
-	return append(b, buf[:]...)
-}
-
-// Sum64 returns the current CRC-64 value (finalized).
-func (h *CRC64NVMEHash) Sum64() uint64 {
-	return h.crc ^ crc64NVMEInitXOR
-}
-
-// Reset resets the hash to its initial state.
-func (h *CRC64NVMEHash) Reset() {
-	h.crc = crc64NVMEInitXOR
-}
-
-// Size returns the number of bytes Sum will return.
-func (h *CRC64NVMEHash) Size() int { return crc64NVMEHashLen }
-
-// BlockSize returns the hash's block size.
-func (h *CRC64NVMEHash) BlockSize() int { return 1 }
 
 // CalculateCRC64NVME computes the base64-encoded CRC64/NVME checksum of data.
 func CalculateCRC64NVME(data []byte) string {

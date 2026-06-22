@@ -1,0 +1,47 @@
+{
+  "Comment": "A simple order workflow",
+  "StartAt": "ValidateOrder",
+  "States": {
+    "ValidateOrder": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:us-east-1:000000000000:function:validate-order",
+      "Next": "ProcessPayment",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 2,
+          "BackoffRate": 2.0
+        }
+      ]
+    },
+    "ProcessPayment": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:us-east-1:000000000000:function:process-payment",
+      "Next": "PaymentChoice"
+    },
+    "PaymentChoice": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.paymentStatus",
+          "StringEquals": "SUCCESS",
+          "Next": "FulfillOrder"
+        }
+      ],
+      "Default": "CancelOrder"
+    },
+    "FulfillOrder": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:us-east-1:000000000000:function:fulfill-order",
+      "End": true
+    },
+    "CancelOrder": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:us-east-1:000000000000:function:cancel-order",
+      "End": true
+    }
+  }
+}
