@@ -13,6 +13,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
+	"github.com/blackbirdworks/gopherstack/pkgs/worker"
 )
 
 const (
@@ -206,6 +207,7 @@ type InMemoryBackend struct {
 	subscriptions           map[string]*AnywhereSubscription
 	updates                 map[string]map[string]*Update // clusterName -> updateID -> update
 	mu                      *lockmetrics.RWMutex
+	work                    *worker.Group
 	accountID               string
 	region                  string
 }
@@ -228,11 +230,16 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		accountID:               accountID,
 		region:                  region,
 		mu:                      lockmetrics.New("eks"),
+		work:                    worker.NewGroup("eks"),
 	}
 }
 
 // Region returns the AWS region this backend is configured for.
 func (b *InMemoryBackend) Region() string { return b.region }
+
+// Close stops all scheduled state-transition timers so none outlives the
+// backend. It is safe to call multiple times.
+func (b *InMemoryBackend) Close() { b.work.Stop() }
 
 // Reset clears all state, returning the backend to a fresh empty state.
 // closeClusterTagsLocked closes tag objects for clusters and nodegroups.
@@ -440,7 +447,7 @@ func (b *InMemoryBackend) CreateCluster( //nolint:funlen // existing issue.
 	b.podIdentityAssociations[name] = make(map[string]*PodIdentityAssociation)
 
 	// Schedule async transition CREATING -> ACTIVE.
-	time.AfterFunc(clusterTransitionDelay, func() {
+	b.work.After("ClusterTransition", clusterTransitionDelay, func() {
 		b.mu.Lock("CreateCluster-async")
 		defer b.mu.Unlock()
 
@@ -679,7 +686,7 @@ func (b *InMemoryBackend) CreateNodegroup( //nolint:funlen // existing issue.
 	b.nodegroups[clusterName][nodegroupName] = ng
 
 	// Schedule async transition CREATING -> ACTIVE.
-	time.AfterFunc(nodegroupTransitionDelay, func() {
+	b.work.After("NodegroupTransition", nodegroupTransitionDelay, func() {
 		b.mu.Lock("CreateNodegroup-async")
 		defer b.mu.Unlock()
 

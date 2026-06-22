@@ -1,6 +1,7 @@
 package eks
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -152,6 +153,11 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 
 // Reset clears all backend state.
 func (h *Handler) Reset() { h.Backend.Reset() }
+
+// Shutdown stops the backend's scheduled state-transition timers so no timer
+// goroutine outlives the service. Invoked on server shutdown via
+// service.Shutdowner.
+func (h *Handler) Shutdown(_ context.Context) { h.Backend.Close() }
 
 // Name returns the service name.
 func (h *Handler) Name() string { return "EKS" }

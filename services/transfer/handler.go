@@ -70,6 +70,15 @@ func (h *Handler) Reset() {
 	h.ops = h.buildOps()
 }
 
+// Shutdown stops the backend's scheduled server state-transition timers so no
+// timer goroutine outlives the service. Invoked on server shutdown via
+// service.Shutdowner.
+func (h *Handler) Shutdown(_ context.Context) {
+	if c, ok := h.Backend.(interface{ Close() }); ok {
+		c.Close()
+	}
+}
+
 // Name returns the service name.
 func (h *Handler) Name() string { return "Transfer" }
 

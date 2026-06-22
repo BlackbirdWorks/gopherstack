@@ -298,6 +298,18 @@ func NewInMemoryBackend() *InMemoryBackend {
 	}
 }
 
+// Close stops any in-flight lifecycle-hook expiry timers so their goroutines do
+// not outlive the backend. It is safe to call multiple times.
+func (b *InMemoryBackend) Close() {
+	b.mu.Lock("Close")
+	defer b.mu.Unlock()
+
+	for token, action := range b.pendingHookTokens {
+		action.timer.Stop()
+		delete(b.pendingHookTokens, token)
+	}
+}
+
 // makeInstances creates the desired number of healthy InService instances for an ASG.
 // The fake service immediately puts instances in InService/Healthy state so that
 // Terraform provider capacity checks do not time out.
