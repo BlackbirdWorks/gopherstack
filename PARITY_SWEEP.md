@@ -23,7 +23,7 @@ Polecats (sonnet) branch off `parity-sweep`, ≤3 concurrent; mayor aggregates e
 | 14 | docdb | P1 | 598-616, 3193-3202 | ☐ |
 | 15 | dynamodb | P1 | 77-112, 2493-2584 | ☐ |
 | 16 | dynamodbstreams | P1 | 113-134, 2585-2619 | ☐ |
-| 17 | ec2 | P1 | 617-631, 3203-3213 | ☐ |
+| 17 | ec2 | P1 | 617-631, 3203-3213 | ✅ |
 | 18 | ecr | P1 | 632-647, 3214-3223 | ☐ |
 | 19 | elasticbeanstalk | P1 | 700-714, 3265-3274 | ☐ |
 | 20 | elbv2 | P1 | 746-765, 3290-3296 | ☐ |
@@ -144,7 +144,7 @@ Polecats (sonnet) branch off `parity-sweep`, ≤3 concurrent; mayor aggregates e
 | 135 | resourcegroupstaggingapi | P2 | 1731-1743, 3859-3869 | ☐ |
 | 136 | rolesanywhere | P2 | 1744-1756, 3870-3880 | ☐ |
 | 137 | route53resolver | P2 | 1771-1782, 3892-3902 | ☐ |
-| 138 | s3 | P2 | 1783-1794, 3903-3914 | ☐ |
+| 138 | s3 | P2 | 1783-1794, 3903-3914 | ✅ |
 | 139 | s3control | P2 | 1795-1807, 3915-3924 | ☐ |
 | 140 | s3tables | P2 | 1808-1819, 3925-3933 | ☐ |
 | 141 | sagemaker | P2 | 1820-1829, 3934-3940 | ☐ |
