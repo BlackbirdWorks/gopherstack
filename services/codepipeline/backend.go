@@ -13,6 +13,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -617,12 +618,7 @@ func (b *InMemoryBackend) ListPipelines(ctx context.Context) []PipelineSummary {
 
 	store := b.pipelinesStore(getRegion(ctx, b.region))
 
-	names := make([]string, 0, len(store))
-	for name := range store {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
+	names := collections.SortedKeys(store)
 
 	summaries := make([]PipelineSummary, 0, len(store))
 	for _, name := range names {
@@ -748,12 +744,7 @@ func copyPipeline(p *Pipeline) *Pipeline {
 
 // tagsToSortedSlice converts a tag map to a deterministically-sorted slice of Tag.
 func tagsToSortedSlice(kv map[string]string) []Tag {
-	keys := make([]string, 0, len(kv))
-	for k := range kv {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(kv)
 
 	tags := make([]Tag, 0, len(kv))
 	for _, k := range keys {

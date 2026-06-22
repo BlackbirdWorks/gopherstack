@@ -4,13 +4,13 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"sort"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
@@ -361,12 +361,7 @@ func (b *InMemoryBackend) ListDetectors() []string {
 	b.mu.RLock("ListDetectors")
 	defer b.mu.RUnlock()
 
-	ids := make([]string, 0, len(b.detectors))
-	for id := range b.detectors {
-		ids = append(ids, id)
-	}
-
-	sort.Strings(ids)
+	ids := collections.SortedKeys(b.detectors)
 
 	return ids
 }
@@ -495,12 +490,7 @@ func (b *InMemoryBackend) ListFilters(detectorID string) ([]string, error) {
 		return nil, ErrDetectorNotFound
 	}
 
-	names := make([]string, 0, len(b.filters[detectorID]))
-	for name := range b.filters[detectorID] {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
+	names := collections.SortedKeys(b.filters[detectorID])
 
 	return names, nil
 }
@@ -537,12 +527,7 @@ func (b *InMemoryBackend) ListFindings(detectorID string) ([]string, error) {
 		return nil, ErrDetectorNotFound
 	}
 
-	ids := make([]string, 0, len(b.findings[detectorID]))
-	for id := range b.findings[detectorID] {
-		ids = append(ids, id)
-	}
-
-	sort.Strings(ids)
+	ids := collections.SortedKeys(b.findings[detectorID])
 
 	return ids, nil
 }
@@ -808,12 +793,7 @@ func (b *InMemoryBackend) ListIPSets(detectorID string) ([]string, error) {
 		return nil, ErrDetectorNotFound
 	}
 
-	ids := make([]string, 0, len(b.ipSets[detectorID]))
-	for id := range b.ipSets[detectorID] {
-		ids = append(ids, id)
-	}
-
-	sort.Strings(ids)
+	ids := collections.SortedKeys(b.ipSets[detectorID])
 
 	return ids, nil
 }
@@ -947,12 +927,7 @@ func (b *InMemoryBackend) ListThreatIntelSets(detectorID string) ([]string, erro
 		return nil, ErrDetectorNotFound
 	}
 
-	ids := make([]string, 0, len(b.threatIntelSets[detectorID]))
-	for id := range b.threatIntelSets[detectorID] {
-		ids = append(ids, id)
-	}
-
-	sort.Strings(ids)
+	ids := collections.SortedKeys(b.threatIntelSets[detectorID])
 
 	return ids, nil
 }

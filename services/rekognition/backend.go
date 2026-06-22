@@ -5,12 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"sort"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
@@ -317,12 +317,7 @@ func paginateStringMap[V any, R any](
 	nextToken string,
 	convert func(V) R,
 ) ([]R, string) {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(m)
 
 	start := 0
 	if nextToken != "" {

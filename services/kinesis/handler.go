@@ -12,12 +12,12 @@ import (
 	"math"
 	"net/http"
 	"slices"
-	"sort"
 	"strings"
 	"time"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -1186,11 +1186,7 @@ func (h *Handler) handleListTagsForStream(
 
 	tagsMap := h.getTags(getRegion(ctx, h.defaultRegion()), req.StreamName)
 
-	keys := make([]string, 0, len(tagsMap))
-	for k := range tagsMap {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
+	keys := collections.SortedKeys(tagsMap)
 
 	startIdx := 0
 	if req.ExclusiveStartTagKey != "" {

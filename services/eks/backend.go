@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"hash/fnv"
 	"maps"
-	"sort"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -488,12 +488,7 @@ func (b *InMemoryBackend) ListClusters() []string {
 	b.mu.RLock("ListClusters")
 	defer b.mu.RUnlock()
 
-	names := make([]string, 0, len(b.clusters))
-	for name := range b.clusters {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
+	names := collections.SortedKeys(b.clusters)
 
 	return names
 }
@@ -726,12 +721,7 @@ func (b *InMemoryBackend) ListNodegroups(clusterName string) ([]string, error) {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
 
-	names := make([]string, 0, len(b.nodegroups[clusterName]))
-	for name := range b.nodegroups[clusterName] {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
+	names := collections.SortedKeys(b.nodegroups[clusterName])
 
 	return names, nil
 }

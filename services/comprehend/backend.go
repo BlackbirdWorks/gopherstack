@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
 
 var (
@@ -473,11 +474,7 @@ func (b *InMemoryBackend) ListTags(resourceArn string) ([]Tag, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: resource %q", ErrNotFound, resourceArn)
 	}
-	keys := make([]string, 0, len(current))
-	for key := range current {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
+	keys := collections.SortedKeys(current)
 	out := make([]Tag, 0, len(keys))
 	for _, key := range keys {
 		out = append(out, Tag{Key: key, Value: current[key]})

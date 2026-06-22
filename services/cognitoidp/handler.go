@@ -7,12 +7,12 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
-	"sort"
 	"strings"
 	"time"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -1104,12 +1104,7 @@ func sortedAttributeList(m map[string]string) []attributeType {
 		return []attributeType{}
 	}
 
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(m)
 
 	out := make([]attributeType, 0, len(m))
 	for _, k := range keys {

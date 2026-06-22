@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
 
 // Registry represents a Glue Schema Registry.
@@ -140,12 +141,7 @@ func (b *InMemoryBackend) ListRegistries() []*Registry {
 	b.mu.RLock("ListRegistries")
 	defer b.mu.RUnlock()
 
-	keys := make([]string, 0, len(b.registries))
-	for k := range b.registries {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(b.registries)
 
 	out := make([]*Registry, 0, len(keys))
 	for _, k := range keys {

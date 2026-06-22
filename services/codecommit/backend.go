@@ -14,6 +14,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -400,11 +401,7 @@ func (b *InMemoryBackend) ListRepositories() []*Repository {
 	b.mu.RLock("ListRepositories")
 	defer b.mu.RUnlock()
 
-	names := make([]string, 0, len(b.repositories))
-	for n := range b.repositories {
-		names = append(names, n)
-	}
-	sort.Strings(names)
+	names := collections.SortedKeys(b.repositories)
 
 	list := make([]*Repository, 0, len(names))
 	for _, n := range names {
@@ -1051,12 +1048,7 @@ func (b *InMemoryBackend) ListBranches(repositoryName string) ([]string, error) 
 	}
 
 	branches := b.branches[repositoryName]
-	names := make([]string, 0, len(branches))
-	for name := range branches {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
+	names := collections.SortedKeys(branches)
 
 	return names, nil
 }

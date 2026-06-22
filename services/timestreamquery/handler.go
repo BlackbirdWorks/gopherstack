@@ -6,12 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"sort"
 	"strings"
 	"time"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -817,12 +817,7 @@ func scheduledQueryToView(sq *ScheduledQuery) map[string]any {
 	}
 
 	if len(sq.Tags) > 0 {
-		tagKeys := make([]string, 0, len(sq.Tags))
-		for k := range sq.Tags {
-			tagKeys = append(tagKeys, k)
-		}
-
-		sort.Strings(tagKeys)
+		tagKeys := collections.SortedKeys(sq.Tags)
 
 		tagList := make([]map[string]string, 0, len(tagKeys))
 		for _, k := range tagKeys {

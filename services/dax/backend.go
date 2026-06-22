@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -930,12 +931,7 @@ func (b *InMemoryBackend) ListTags(
 
 	allTags := b.tags[resourceArn]
 
-	keys := make([]string, 0, len(allTags))
-	for k := range allTags {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(allTags)
 
 	startIdx := 0
 

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
@@ -207,11 +208,7 @@ func presignCanonicalQuery(u *url.URL) string {
 	values := u.Query()
 	values.Del("X-Amz-Signature")
 
-	keys := make([]string, 0, len(values))
-	for k := range values {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
+	keys := collections.SortedKeys(values)
 
 	parts := make([]string, 0, len(keys))
 	for _, k := range keys {

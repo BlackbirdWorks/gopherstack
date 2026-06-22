@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -381,12 +382,7 @@ func (b *InMemoryBackend) ListIdentities(nextToken string, maxItems int) page.Pa
 	b.mu.RLock("ListIdentities")
 	defer b.mu.RUnlock()
 
-	out := make([]string, 0, len(b.identities))
-	for id := range b.identities {
-		out = append(out, id)
-	}
-
-	sort.Strings(out)
+	out := collections.SortedKeys(b.identities)
 
 	return page.New(out, nextToken, maxItems, sesDefaultMaxItems)
 }
@@ -678,12 +674,7 @@ func (b *InMemoryBackend) ListTemplates(nextToken string, maxItems int) page.Pag
 	b.mu.RLock("ListTemplates")
 	defer b.mu.RUnlock()
 
-	names := make([]string, 0, len(b.templates))
-	for name := range b.templates {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
+	names := collections.SortedKeys(b.templates)
 
 	return page.New(names, nextToken, maxItems, sesDefaultMaxItems)
 }
@@ -730,12 +721,7 @@ func (b *InMemoryBackend) ListConfigurationSets(nextToken string, maxItems int) 
 	b.mu.RLock("ListConfigurationSets")
 	defer b.mu.RUnlock()
 
-	names := make([]string, 0, len(b.configSets))
-	for name := range b.configSets {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
+	names := collections.SortedKeys(b.configSets)
 
 	return page.New(names, nextToken, maxItems, sesDefaultMaxItems)
 }

@@ -13,6 +13,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -547,12 +548,7 @@ func (b *InMemoryBackend) ListApplications() []string {
 	b.mu.RLock("ListApplications")
 	defer b.mu.RUnlock()
 
-	names := make([]string, 0, len(b.applications))
-	for name := range b.applications {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
+	names := collections.SortedKeys(b.applications)
 
 	return names
 }
@@ -777,12 +773,7 @@ func (b *InMemoryBackend) ListDeploymentGroups(appName string) ([]string, error)
 		return []string{}, nil
 	}
 
-	names := make([]string, 0, len(dgs))
-	for name := range dgs {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
+	names := collections.SortedKeys(dgs)
 
 	return names, nil
 }
@@ -1527,12 +1518,7 @@ func (b *InMemoryBackend) ListDeploymentConfigs() []string {
 	b.mu.RLock("ListDeploymentConfigs")
 	defer b.mu.RUnlock()
 
-	names := make([]string, 0, len(b.deploymentConfigs))
-	for name := range b.deploymentConfigs {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
+	names := collections.SortedKeys(b.deploymentConfigs)
 
 	return names
 }
@@ -1723,12 +1709,7 @@ func (b *InMemoryBackend) ListGitHubAccountTokenNames() []string {
 	b.mu.RLock("ListGitHubAccountTokenNames")
 	defer b.mu.RUnlock()
 
-	names := make([]string, 0, len(b.githubTokens))
-	for name := range b.githubTokens {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
+	names := collections.SortedKeys(b.githubTokens)
 
 	return names
 }

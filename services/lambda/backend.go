@@ -24,6 +24,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 
@@ -3005,12 +3006,7 @@ func (b *InMemoryBackend) ListLayers(marker string, maxItems int) page.Page[*Lay
 
 	result := make([]*Layer, 0, len(b.layers))
 
-	names := make([]string, 0, len(b.layers))
-	for name := range b.layers {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
+	names := collections.SortedKeys(b.layers)
 
 	for _, name := range names {
 		versions := b.layers[name]
@@ -3224,12 +3220,7 @@ func buildLayerPolicy(stmts map[string]*LayerVersionStatement) (string, error) {
 
 	statements := make([]map[string]string, 0, len(stmts))
 
-	stmtIDs := make([]string, 0, len(stmts))
-	for sid := range stmts {
-		stmtIDs = append(stmtIDs, sid)
-	}
-
-	sort.Strings(stmtIDs)
+	stmtIDs := collections.SortedKeys(stmts)
 
 	for _, sid := range stmtIDs {
 		s := stmts[sid]

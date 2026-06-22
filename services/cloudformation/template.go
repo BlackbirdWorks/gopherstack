@@ -10,13 +10,13 @@ import (
 	"net"
 	"regexp"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
 
 // ErrEmptyTemplate is returned when a template body is empty.
@@ -186,11 +186,7 @@ func ResolveParameters(tmpl *Template, overrides []Parameter) map[string]string 
 // ValidateParameters checks parameter values against AllowedValues constraints.
 // Returns an error if any parameter value is not in its AllowedValues list.
 func ValidateParameters(tmpl *Template, resolved map[string]string) error {
-	names := make([]string, 0, len(tmpl.Parameters))
-	for name := range tmpl.Parameters {
-		names = append(names, name)
-	}
-	sort.Strings(names)
+	names := collections.SortedKeys(tmpl.Parameters)
 
 	for _, name := range names {
 		param := tmpl.Parameters[name]
@@ -242,11 +238,7 @@ func evaluateConditions(raw map[string]any, params, physicalIDs map[string]strin
 	result := make(map[string]bool, len(raw))
 
 	// Build a sorted key list for deterministic iteration order.
-	names := make([]string, 0, len(raw))
-	for name := range raw {
-		names = append(names, name)
-	}
-	sort.Strings(names)
+	names := collections.SortedKeys(raw)
 
 	// Iterate until stable. Each pass reads from a snapshot of the previous
 	// state so that results don't depend on the evaluation order within a pass.

@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
 
 var (
@@ -214,11 +215,7 @@ func (b *InMemoryBackend) DescribeProjects(
 	defer b.mu.RUnlock()
 
 	// Collect and sort all project ARN keys.
-	keys := make([]string, 0, len(b.projects))
-	for k := range b.projects {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
+	keys := collections.SortedKeys(b.projects)
 
 	// Build a filter set if requested.
 	filter := make(map[string]bool, len(projectARNs))
@@ -447,11 +444,7 @@ func (b *InMemoryBackend) ListProjectPolicies(
 
 	policyMap := b.projectPolicies[projectARN]
 
-	keys := make([]string, 0, len(policyMap))
-	for k := range policyMap {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
+	keys := collections.SortedKeys(policyMap)
 
 	start := 0
 	if nextToken != "" {
@@ -744,11 +737,7 @@ func (b *InMemoryBackend) ListUsers(
 
 	userMap := b.users[collectionID]
 
-	keys := make([]string, 0, len(userMap))
-	for k := range userMap {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
+	keys := collections.SortedKeys(userMap)
 
 	start := 0
 	if nextToken != "" {
@@ -1066,11 +1055,7 @@ func (b *InMemoryBackend) ListMediaAnalysisJobs(
 	b.mu.RLock("ListMediaAnalysisJobs")
 	defer b.mu.RUnlock()
 
-	keys := make([]string, 0, len(b.mediaAnalysisJobs))
-	for k := range b.mediaAnalysisJobs {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
+	keys := collections.SortedKeys(b.mediaAnalysisJobs)
 
 	start := 0
 	if nextToken != "" {

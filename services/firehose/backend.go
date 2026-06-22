@@ -13,7 +13,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -25,6 +24,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -559,12 +559,7 @@ func (b *InMemoryBackend) ListDeliveryStreams(ctx context.Context) []string {
 	region := getRegionFromContext(ctx, b)
 	streams := b.regionStore(region)
 
-	names := make([]string, 0, len(streams))
-	for name := range streams {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
+	names := collections.SortedKeys(streams)
 
 	return names
 }

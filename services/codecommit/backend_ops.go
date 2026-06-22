@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
 
 // --- New models ---
@@ -222,11 +224,7 @@ func (b *InMemoryBackend) ListApprovalRuleTemplates() []*ApprovalRuleTemplate {
 	b.mu.RLock("ListApprovalRuleTemplates")
 	defer b.mu.RUnlock()
 
-	names := make([]string, 0, len(b.approvalRuleTemplates))
-	for n := range b.approvalRuleTemplates {
-		names = append(names, n)
-	}
-	sort.Strings(names)
+	names := collections.SortedKeys(b.approvalRuleTemplates)
 
 	list := make([]*ApprovalRuleTemplate, 0, len(names))
 	for _, n := range names {
@@ -307,11 +305,7 @@ func (b *InMemoryBackend) ListAssociatedApprovalRuleTemplatesForRepository(repoN
 	}
 
 	assoc := b.repoTemplateAssoc[repoName]
-	names := make([]string, 0, len(assoc))
-	for n := range assoc {
-		names = append(names, n)
-	}
-	sort.Strings(names)
+	names := collections.SortedKeys(assoc)
 
 	return names, nil
 }

@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
 
 // ---------------------------------------------------------------------------
@@ -333,11 +335,7 @@ func (b *InMemoryBackend) ListIoTPackageVersions(packageName string) []*IoTPacka
 	if m == nil {
 		return []*IoTPackageVersion{}
 	}
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
+	keys := collections.SortedKeys(m)
 	out := make([]*IoTPackageVersion, 0, len(keys))
 	for _, k := range keys {
 		out = append(out, cloneIoTPackageVersion(m[k]))

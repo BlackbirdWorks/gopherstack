@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -396,13 +397,7 @@ func extractSchemaNamespaces(schemaJSON string) []string {
 		return []string{}
 	}
 
-	ns := make([]string, 0, len(top))
-
-	for k := range top {
-		ns = append(ns, k)
-	}
-
-	sort.Strings(ns)
+	ns := collections.SortedKeys(top)
 
 	return ns
 }

@@ -6,11 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"sort"
 	"strings"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -1230,13 +1230,7 @@ func tagsToMap(tags []tagEntry) map[string]string {
 
 // mapToTagEntries converts a tag map to a sorted slice of tag entries.
 func mapToTagEntries(tags map[string]string) []tagEntry {
-	keys := make([]string, 0, len(tags))
-
-	for k := range tags {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(tags)
 
 	entries := make([]tagEntry, 0, len(keys))
 
@@ -1406,12 +1400,7 @@ func (h *Handler) handleGetInstancesHealthStatus(_ context.Context, body []byte)
 	}
 
 	// Build sorted list of instance IDs for stable pagination.
-	ids := make([]string, 0, len(statuses))
-	for id := range statuses {
-		ids = append(ids, id)
-	}
-
-	sort.Strings(ids)
+	ids := collections.SortedKeys(statuses)
 
 	maxResults := maxResultsDefault
 	if req.MaxResults != nil && *req.MaxResults > 0 {

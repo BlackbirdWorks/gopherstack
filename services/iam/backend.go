@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
@@ -1681,12 +1682,7 @@ func (b *InMemoryBackend) ListUserPolicies(userName string) ([]string, error) {
 		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
-	names := make([]string, 0, len(b.userInlinePolicies[userName]))
-	for name := range b.userInlinePolicies[userName] {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
+	names := collections.SortedKeys(b.userInlinePolicies[userName])
 
 	return names, nil
 }
@@ -1767,12 +1763,7 @@ func (b *InMemoryBackend) ListRolePolicies(roleName string) ([]string, error) {
 		return nil, fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
 	}
 
-	names := make([]string, 0, len(b.roleInlinePolicies[roleName]))
-	for name := range b.roleInlinePolicies[roleName] {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
+	names := collections.SortedKeys(b.roleInlinePolicies[roleName])
 
 	return names, nil
 }
@@ -1853,12 +1844,7 @@ func (b *InMemoryBackend) ListGroupPolicies(groupName string) ([]string, error) 
 		return nil, fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupName)
 	}
 
-	names := make([]string, 0, len(b.groupInlinePolicies[groupName]))
-	for name := range b.groupInlinePolicies[groupName] {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
+	names := collections.SortedKeys(b.groupInlinePolicies[groupName])
 
 	return names, nil
 }

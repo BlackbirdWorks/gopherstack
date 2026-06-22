@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
@@ -306,11 +307,7 @@ func (b *InMemoryBackend) ListGraphs(maxResults int32, nextToken string) ([]*Gra
 	b.mu.RLock("ListGraphs")
 	defer b.mu.RUnlock()
 
-	arns := make([]string, 0, len(b.graphs))
-	for arn := range b.graphs {
-		arns = append(arns, arn)
-	}
-	sort.Strings(arns)
+	arns := collections.SortedKeys(b.graphs)
 
 	start := 0
 	if nextToken != "" {
@@ -491,11 +488,7 @@ func (b *InMemoryBackend) ListMembers(
 	}
 
 	memberMap := b.members[graphARN]
-	ids := make([]string, 0, len(memberMap))
-	for id := range memberMap {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
+	ids := collections.SortedKeys(memberMap)
 
 	start := 0
 	if nextToken != "" {
@@ -804,11 +797,7 @@ func (b *InMemoryBackend) ListInvestigations(
 	}
 
 	invMap := b.investigations[graphARN]
-	ids := make([]string, 0, len(invMap))
-	for id := range invMap {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
+	ids := collections.SortedKeys(invMap)
 
 	start := 0
 	if nextToken != "" {
@@ -901,11 +890,7 @@ func (b *InMemoryBackend) ListDatasourcePackages(
 	}
 
 	pkgMap := b.datasources[graphARN]
-	keys := make([]string, 0, len(pkgMap))
-	for k := range pkgMap {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
+	keys := collections.SortedKeys(pkgMap)
 
 	start := 0
 	if nextToken != "" {

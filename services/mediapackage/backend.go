@@ -11,6 +11,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
@@ -387,12 +388,7 @@ func (b *InMemoryBackend) ListChannels(maxResults int, nextToken string) ([]*Cha
 	b.mu.RLock("ListChannels")
 	defer b.mu.RUnlock()
 
-	ids := make([]string, 0, len(b.channels))
-	for id := range b.channels {
-		ids = append(ids, id)
-	}
-
-	sort.Strings(ids)
+	ids := collections.SortedKeys(b.channels)
 
 	all := make([]*storedChannel, 0, len(ids))
 	for _, id := range ids {

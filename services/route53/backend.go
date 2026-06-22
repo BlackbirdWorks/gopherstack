@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
@@ -1972,12 +1973,7 @@ func (b *InMemoryBackend) ListCidrLocations(collectionID string) ([]string, erro
 		)
 	}
 
-	locations := make([]string, 0, len(col.Locations))
-	for name := range col.Locations {
-		locations = append(locations, name)
-	}
-
-	sort.Strings(locations)
+	locations := collections.SortedKeys(col.Locations)
 
 	return locations, nil
 }

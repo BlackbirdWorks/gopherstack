@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -721,12 +722,7 @@ func (b *InMemoryBackend) rollbackCreateResources(
 // If a cycle is detected the function falls back to plain alphabetical order.
 func topoSortResources(resources map[string]TemplateResource) []string {
 	// Collect all known IDs in alphabetical order for determinism.
-	all := make([]string, 0, len(resources))
-	for id := range resources {
-		all = append(all, id)
-	}
-
-	sort.Strings(all)
+	all := collections.SortedKeys(resources)
 
 	// Build forward-dependency map (id → ids it depends on) and
 	// reverse-dependency map (id → ids that depend on it) simultaneously.

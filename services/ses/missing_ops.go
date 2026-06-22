@@ -8,6 +8,8 @@ import (
 	"maps"
 	"sort"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
 
 const (
@@ -103,12 +105,7 @@ func (b *InMemoryBackend) ListIdentityPolicies(identity string) ([]string, error
 		return []string{}, nil
 	}
 
-	names := make([]string, 0, len(m))
-	for name := range m {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
+	names := collections.SortedKeys(m)
 
 	return names, nil
 }

@@ -11,6 +11,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -50,11 +51,7 @@ func NewHandler(backend StorageBackend) *Handler {
 	h := &Handler{Backend: backend}
 	h.ops = h.buildOps()
 	// Pre-compute the sorted ops slice once.
-	keys := make([]string, 0, len(h.ops))
-	for k := range h.ops {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
+	keys := collections.SortedKeys(h.ops)
 	h.supportedOpsCache = keys
 
 	return h

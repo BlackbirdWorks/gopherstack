@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"sort"
 	"strings"
 	"time"
 
@@ -12,6 +11,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
@@ -590,11 +590,7 @@ func (b *InMemoryBackend) ListServices(maxResults int32, nextToken string) ([]*S
 	b.mu.RLock("ListServices")
 	defer b.mu.RUnlock()
 
-	arns := make([]string, 0, len(b.services))
-	for a := range b.services {
-		arns = append(arns, a)
-	}
-	sort.Strings(arns)
+	arns := collections.SortedKeys(b.services)
 
 	all := make([]*ServiceSummary, 0, len(arns))
 	for _, a := range arns {
@@ -1027,11 +1023,7 @@ func (b *InMemoryBackend) ListAutoScalingConfigurations( //nolint:dupl // existi
 	b.mu.RLock("ListAutoScalingConfigurations")
 	defer b.mu.RUnlock()
 
-	arns := make([]string, 0, len(b.autoScalingConfigs))
-	for a := range b.autoScalingConfigs {
-		arns = append(arns, a)
-	}
-	sort.Strings(arns)
+	arns := collections.SortedKeys(b.autoScalingConfigs)
 
 	all := make([]*AutoScalingConfigurationSummary, 0, len(arns))
 	seen := make(map[string]struct{})
@@ -1171,11 +1163,7 @@ func (b *InMemoryBackend) ListConnections(
 	b.mu.RLock("ListConnections")
 	defer b.mu.RUnlock()
 
-	arns := make([]string, 0, len(b.connections))
-	for a := range b.connections {
-		arns = append(arns, a)
-	}
-	sort.Strings(arns)
+	arns := collections.SortedKeys(b.connections)
 
 	all := make([]*ConnectionSummary, 0, len(arns))
 	for _, a := range arns {
@@ -1296,11 +1284,7 @@ func (b *InMemoryBackend) ListObservabilityConfigurations( //nolint:dupl // exis
 	b.mu.RLock("ListObservabilityConfigurations")
 	defer b.mu.RUnlock()
 
-	arns := make([]string, 0, len(b.observabilityConfigs))
-	for a := range b.observabilityConfigs {
-		arns = append(arns, a)
-	}
-	sort.Strings(arns)
+	arns := collections.SortedKeys(b.observabilityConfigs)
 
 	all := make([]*ObservabilityConfigurationSummary, 0, len(arns))
 	seen := make(map[string]struct{})
@@ -1425,11 +1409,7 @@ func (b *InMemoryBackend) ListVpcConnectors(maxResults int32, nextToken string) 
 	b.mu.RLock("ListVpcConnectors")
 	defer b.mu.RUnlock()
 
-	arns := make([]string, 0, len(b.vpcConnectors))
-	for a := range b.vpcConnectors {
-		arns = append(arns, a)
-	}
-	sort.Strings(arns)
+	arns := collections.SortedKeys(b.vpcConnectors)
 
 	all := make([]*VpcConnector, 0, len(arns))
 	for _, a := range arns {
@@ -1533,11 +1513,7 @@ func (b *InMemoryBackend) ListVpcIngressConnections(
 	b.mu.RLock("ListVpcIngressConnections")
 	defer b.mu.RUnlock()
 
-	arns := make([]string, 0, len(b.vpcIngressConnections))
-	for a := range b.vpcIngressConnections {
-		arns = append(arns, a)
-	}
-	sort.Strings(arns)
+	arns := collections.SortedKeys(b.vpcIngressConnections)
 
 	all := make([]*VpcIngressConnectionSummary, 0, len(arns))
 	for _, a := range arns {

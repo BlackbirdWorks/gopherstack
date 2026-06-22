@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"sort"
 	"strings"
 	"time"
 
@@ -12,6 +11,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
@@ -459,11 +459,7 @@ func (b *InMemoryBackend) ListAgents(maxResults int32, nextToken string) ([]*Age
 	b.mu.RLock("ListAgents")
 	defer b.mu.RUnlock()
 
-	arns := make([]string, 0, len(b.agents))
-	for a := range b.agents {
-		arns = append(arns, a)
-	}
-	sort.Strings(arns)
+	arns := collections.SortedKeys(b.agents)
 
 	all := make([]*AgentListEntry, 0, len(arns))
 	for _, a := range arns {
@@ -566,11 +562,7 @@ func (b *InMemoryBackend) ListLocations(maxResults int32, nextToken string) ([]*
 	b.mu.RLock("ListLocations")
 	defer b.mu.RUnlock()
 
-	arns := make([]string, 0, len(b.locations))
-	for a := range b.locations {
-		arns = append(arns, a)
-	}
-	sort.Strings(arns)
+	arns := collections.SortedKeys(b.locations)
 
 	all := make([]*LocationListEntry, 0, len(arns))
 	for _, a := range arns {
@@ -688,11 +680,7 @@ func (b *InMemoryBackend) ListTasks(maxResults int32, nextToken string) ([]*Task
 	b.mu.RLock("ListTasks")
 	defer b.mu.RUnlock()
 
-	arns := make([]string, 0, len(b.tasks))
-	for a := range b.tasks {
-		arns = append(arns, a)
-	}
-	sort.Strings(arns)
+	arns := collections.SortedKeys(b.tasks)
 
 	all := make([]*TaskListEntry, 0, len(arns))
 	for _, a := range arns {
@@ -805,11 +793,7 @@ func (b *InMemoryBackend) ListTaskExecutions(
 	defer b.mu.RUnlock()
 
 	execMap := b.executions[taskArn]
-	execArns := make([]string, 0, len(execMap))
-	for a := range execMap {
-		execArns = append(execArns, a)
-	}
-	sort.Strings(execArns)
+	execArns := collections.SortedKeys(execMap)
 
 	all := make([]*TaskExecutionListEntry, 0, len(execArns))
 	for _, a := range execArns {
@@ -874,11 +858,7 @@ func (b *InMemoryBackend) ListTagsForResource(
 
 	// Build sorted key list for stable pagination.
 	tagMap := b.tags[resourceArn]
-	keys := make([]string, 0, len(tagMap))
-	for k := range tagMap {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
+	keys := collections.SortedKeys(tagMap)
 
 	type tagEntry struct {
 		key   string

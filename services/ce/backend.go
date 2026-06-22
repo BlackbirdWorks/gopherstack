@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -1326,11 +1327,7 @@ func aggregateByGroup(entries []CostEntry, groupBy []GroupBySpec, metrics []stri
 		}
 	}
 
-	gkeys := make([]string, 0, len(groupMap))
-	for gk := range groupMap {
-		gkeys = append(gkeys, gk)
-	}
-	sort.Strings(gkeys)
+	gkeys := collections.SortedKeys(groupMap)
 
 	groups := make([]CostGroup, 0, len(gkeys))
 	for _, gk := range gkeys {
@@ -1431,12 +1428,7 @@ func (b *InMemoryBackend) GetDimensionValues(dimension string) []string {
 		}
 	}
 
-	vals := make([]string, 0, len(seen))
-	for v := range seen {
-		vals = append(vals, v)
-	}
-
-	sort.Strings(vals)
+	vals := collections.SortedKeys(seen)
 
 	return vals
 }
@@ -1454,12 +1446,7 @@ func (b *InMemoryBackend) GetTagKeys() []string {
 		}
 	}
 
-	keys := make([]string, 0, len(seen))
-	for k := range seen {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(seen)
 
 	return keys
 }
@@ -1477,12 +1464,7 @@ func (b *InMemoryBackend) GetTagValues(tagKey string) []string {
 		}
 	}
 
-	vals := make([]string, 0, len(seen))
-	for v := range seen {
-		vals = append(vals, v)
-	}
-
-	sort.Strings(vals)
+	vals := collections.SortedKeys(seen)
 
 	return vals
 }

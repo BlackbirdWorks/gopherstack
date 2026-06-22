@@ -9,6 +9,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
 
 // --- sentinel errors ---
@@ -345,12 +346,7 @@ func (b *InMemoryBackend) ListMembers(onlyAssociated bool) ([]*Member, error) {
 	b.mu.RLock("ListMembers")
 	defer b.mu.RUnlock()
 
-	ids := make([]string, 0, len(b.ax.Members))
-	for id := range b.ax.Members {
-		ids = append(ids, id)
-	}
-
-	sort.Strings(ids)
+	ids := collections.SortedKeys(b.ax.Members)
 
 	result := make([]*Member, 0, len(ids))
 
@@ -423,12 +419,7 @@ func (b *InMemoryBackend) ListDelegatedAdminAccounts() ([]*DelegatedAdminAccount
 	b.mu.RLock("ListDelegatedAdminAccounts")
 	defer b.mu.RUnlock()
 
-	ids := make([]string, 0, len(b.ax.DelegatedAdmins))
-	for id := range b.ax.DelegatedAdmins {
-		ids = append(ids, id)
-	}
-
-	sort.Strings(ids)
+	ids := collections.SortedKeys(b.ax.DelegatedAdmins)
 
 	result := make([]*DelegatedAdminAccount, 0, len(ids))
 
@@ -783,12 +774,7 @@ func (b *InMemoryBackend) ListCisScanConfigurations() ([]*CisScanConfiguration, 
 	b.mu.RLock("ListCisScanConfigurations")
 	defer b.mu.RUnlock()
 
-	arns := make([]string, 0, len(b.ax.CisScanConfigs))
-	for a := range b.ax.CisScanConfigs {
-		arns = append(arns, a)
-	}
-
-	sort.Strings(arns)
+	arns := collections.SortedKeys(b.ax.CisScanConfigs)
 
 	result := make([]*CisScanConfiguration, 0, len(arns))
 
@@ -929,12 +915,7 @@ func (b *InMemoryBackend) ListCisScans() ([]map[string]any, error) {
 	b.mu.RLock("ListCisScans")
 	defer b.mu.RUnlock()
 
-	arns := make([]string, 0, len(b.ax.CisScans))
-	for a := range b.ax.CisScans {
-		arns = append(arns, a)
-	}
-
-	sort.Strings(arns)
+	arns := collections.SortedKeys(b.ax.CisScans)
 
 	result := make([]map[string]any, 0, len(arns))
 
@@ -1176,12 +1157,7 @@ func (b *InMemoryBackend) ListCodeSecurityIntegrations() ([]*CodeSecurityIntegra
 	b.mu.RLock("ListCodeSecurityIntegrations")
 	defer b.mu.RUnlock()
 
-	arns := make([]string, 0, len(b.ax.CodeSecurityIntegrations))
-	for a := range b.ax.CodeSecurityIntegrations {
-		arns = append(arns, a)
-	}
-
-	sort.Strings(arns)
+	arns := collections.SortedKeys(b.ax.CodeSecurityIntegrations)
 
 	result := make([]*CodeSecurityIntegration, 0, len(arns))
 
@@ -1295,12 +1271,7 @@ func (b *InMemoryBackend) ListCodeSecurityScanConfigurations() ([]*CodeSecurityS
 	b.mu.RLock("ListCodeSecurityScanConfigurations")
 	defer b.mu.RUnlock()
 
-	arns := make([]string, 0, len(b.ax.CodeSecurityScanConfigs))
-	for a := range b.ax.CodeSecurityScanConfigs {
-		arns = append(arns, a)
-	}
-
-	sort.Strings(arns)
+	arns := collections.SortedKeys(b.ax.CodeSecurityScanConfigs)
 
 	result := make([]*CodeSecurityScanConfiguration, 0, len(arns))
 

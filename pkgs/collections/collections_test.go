@@ -48,5 +48,9 @@ func TestSortedKeys(t *testing.T) {
 
 	m := map[string]int{"c": 1, "a": 2, "b": 3}
 	assert.Equal(t, []string{"a", "b", "c"}, collections.SortedKeys(m))
-	assert.Nil(t, collections.SortedKeys[string, int](nil))
+	// A nil map yields a non-nil empty slice, matching the idiom it replaces
+	// (so marshalled output is [] rather than null).
+	got := collections.SortedKeys[string, int](nil)
+	assert.NotNil(t, got)
+	assert.Empty(t, got)
 }

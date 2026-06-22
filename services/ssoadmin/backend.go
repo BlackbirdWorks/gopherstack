@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -2668,11 +2669,7 @@ func (b *InMemoryBackend) ListPermissionSetsProvisionedToAccount(instanceArn, ac
 			}
 		}
 	}
-	result := make([]string, 0, len(seen))
-	for psArn := range seen {
-		result = append(result, psArn)
-	}
-	sort.Strings(result)
+	result := collections.SortedKeys(seen)
 
 	return result
 }
@@ -2745,11 +2742,7 @@ func (b *InMemoryBackend) ListAccountsForProvisionedPermissionSet(
 		seen[a.AccountID] = struct{}{}
 	}
 
-	result := make([]string, 0, len(seen))
-	for accountID := range seen {
-		result = append(result, accountID)
-	}
-	sort.Strings(result)
+	result := collections.SortedKeys(seen)
 
 	return result, nil
 }

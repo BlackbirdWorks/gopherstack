@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
@@ -689,13 +690,7 @@ func (b *InMemoryBackend) ListFindings(_ map[string]any, _ int, _ string) ([]str
 	b.mu.RLock("ListFindings")
 	defer b.mu.RUnlock()
 
-	ids := make([]string, 0, len(b.findings))
-
-	for id := range b.findings {
-		ids = append(ids, id)
-	}
-
-	sort.Strings(ids)
+	ids := collections.SortedKeys(b.findings)
 
 	return ids, "", nil
 }

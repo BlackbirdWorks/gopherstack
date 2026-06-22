@@ -3,11 +3,11 @@ package sesv2
 import (
 	"fmt"
 	"maps"
-	"sort"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -148,12 +148,7 @@ func (b *InMemoryBackend) ListSuppressedDestinations(
 	b.mu.RLock("ListSuppressedDestinations")
 	defer b.mu.RUnlock()
 
-	keys := make([]string, 0, len(b.suppressedDestinations))
-	for k := range b.suppressedDestinations {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(b.suppressedDestinations)
 
 	items := make([]*SuppressedDestination, 0, len(keys))
 	for _, k := range keys {
@@ -217,12 +212,7 @@ func (b *InMemoryBackend) ListContactLists(nextToken string, pageSize int) page.
 	b.mu.RLock("ListContactLists")
 	defer b.mu.RUnlock()
 
-	keys := make([]string, 0, len(b.contactLists))
-	for k := range b.contactLists {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(b.contactLists)
 
 	items := make([]*ContactList, 0, len(keys))
 	for _, k := range keys {
@@ -330,12 +320,7 @@ func (b *InMemoryBackend) ListContacts(
 		)
 	}
 
-	keys := make([]string, 0, len(listContacts))
-	for k := range listContacts {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(listContacts)
 
 	items := make([]*Contact, 0, len(keys))
 	for _, k := range keys {
@@ -408,12 +393,7 @@ func (b *InMemoryBackend) ListCustomVerificationEmailTemplates(
 	b.mu.RLock("ListCustomVerificationEmailTemplates")
 	defer b.mu.RUnlock()
 
-	keys := make([]string, 0, len(b.customVerificationTemplates))
-	for k := range b.customVerificationTemplates {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(b.customVerificationTemplates)
 
 	items := make([]*CustomVerificationEmailTemplate, 0, len(keys))
 	for _, k := range keys {
@@ -460,12 +440,7 @@ func (b *InMemoryBackend) ListDedicatedIPPools(nextToken string, pageSize int) p
 	b.mu.RLock("ListDedicatedIPPools")
 	defer b.mu.RUnlock()
 
-	keys := make([]string, 0, len(b.dedicatedIPPools))
-	for k := range b.dedicatedIPPools {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(b.dedicatedIPPools)
 
 	return page.New(keys, nextToken, pageSize, sesv2DefaultMaxItems)
 }
@@ -545,12 +520,7 @@ func (b *InMemoryBackend) ListDeliverabilityTestReports(
 	b.mu.RLock("ListDeliverabilityTestReports")
 	defer b.mu.RUnlock()
 
-	keys := make([]string, 0, len(b.deliverabilityTestReports))
-	for k := range b.deliverabilityTestReports {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(b.deliverabilityTestReports)
 
 	items := make([]*DeliverabilityTestReport, 0, len(keys))
 	for _, k := range keys {
@@ -650,12 +620,7 @@ func (b *InMemoryBackend) ListEmailTemplates(
 	b.mu.RLock("ListEmailTemplates")
 	defer b.mu.RUnlock()
 
-	keys := make([]string, 0, len(b.emailTemplates))
-	for k := range b.emailTemplates {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(b.emailTemplates)
 
 	items := make([]*EmailTemplate, 0, len(keys))
 	for _, k := range keys {
@@ -732,12 +697,7 @@ func (b *InMemoryBackend) ListExportJobs(nextToken string, pageSize int) page.Pa
 	b.mu.RLock("ListExportJobs")
 	defer b.mu.RUnlock()
 
-	keys := make([]string, 0, len(b.exportJobs))
-	for k := range b.exportJobs {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(b.exportJobs)
 
 	items := make([]*ExportJob, 0, len(keys))
 	for _, k := range keys {
@@ -789,12 +749,7 @@ func (b *InMemoryBackend) ListImportJobs(nextToken string, pageSize int) page.Pa
 	b.mu.RLock("ListImportJobs")
 	defer b.mu.RUnlock()
 
-	keys := make([]string, 0, len(b.importJobs))
-	for k := range b.importJobs {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(b.importJobs)
 
 	items := make([]*ImportJob, 0, len(keys))
 	for _, k := range keys {

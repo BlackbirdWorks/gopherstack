@@ -7,13 +7,13 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -800,13 +800,7 @@ type tagObject struct {
 
 // toTagObjects converts a map of tags to a slice of tag objects sorted by key.
 func toTagObjects(tags map[string]string) []tagObject {
-	keys := make([]string, 0, len(tags))
-
-	for k := range tags {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(tags)
 	result := make([]tagObject, 0, len(keys))
 
 	for _, k := range keys {

@@ -11,6 +11,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
@@ -362,12 +363,7 @@ func (b *InMemoryBackend) ListFilters(arns []string, action string) ([]*Filter, 
 		arnSet[a] = true
 	}
 
-	sortedARNs := make([]string, 0, len(b.filters))
-	for a := range b.filters {
-		sortedARNs = append(sortedARNs, a)
-	}
-
-	sort.Strings(sortedARNs)
+	sortedARNs := collections.SortedKeys(b.filters)
 
 	var result []*Filter
 

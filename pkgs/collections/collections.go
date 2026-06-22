@@ -77,12 +77,10 @@ func Values[K comparable, V any](m map[K]V) []V {
 
 // SortedKeys returns the keys of m sorted in ascending order. It replaces the
 // common `for k := range m { keys = append(keys, k) }; sort.Strings(keys)`
-// idiom with a single type-safe call.
+// idiom with a single type-safe call. Like that idiom it always returns a
+// non-nil slice (empty for a nil or empty map), so callers that marshal the
+// result get a JSON array rather than null.
 func SortedKeys[K cmp.Ordered, V any](m map[K]V) []K {
-	if m == nil {
-		return nil
-	}
-
 	keys := make([]K, 0, len(m))
 	for k := range m {
 		keys = append(keys, k)

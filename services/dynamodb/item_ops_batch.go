@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -27,11 +28,7 @@ const wcuBytesPerUnit = 1024
 // Keys only ever contain scalar key attributes (S, N, or B), so we serialize the
 // sorted attribute names together with their typed scalar value.
 func canonicalKey(key map[string]types.AttributeValue) string {
-	names := make([]string, 0, len(key))
-	for name := range key {
-		names = append(names, name)
-	}
-	sort.Strings(names)
+	names := collections.SortedKeys(key)
 
 	var sb strings.Builder
 	for _, name := range names {
@@ -123,11 +120,7 @@ func (db *InMemoryDB) BatchGetItem(
 	}
 
 	// Sort table names for deterministic processing (AWS also tends toward this).
-	tableNames := make([]string, 0, len(input.RequestItems))
-	for name := range input.RequestItems {
-		tableNames = append(tableNames, name)
-	}
-	sort.Strings(tableNames)
+	tableNames := collections.SortedKeys(input.RequestItems)
 
 	return db.batchGetResponses(input, tableNames, tableRefs)
 }
@@ -382,11 +375,7 @@ func (db *InMemoryDB) BatchWriteItem(
 	}
 
 	// Process tables in sorted order (deadlock prevention)
-	tableNames := make([]string, 0, len(tables))
-	for name := range tables {
-		tableNames = append(tableNames, name)
-	}
-	sort.Strings(tableNames)
+	tableNames := collections.SortedKeys(tables)
 
 	// Sequential processing for simplicity and deadlock prevention
 	for _, tableName := range tableNames {

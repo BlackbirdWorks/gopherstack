@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"sort"
 	"sync"
 	"time"
 
@@ -13,6 +12,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -386,11 +386,7 @@ func (b *InMemoryBackend) Reset() {
 }
 
 func sortedKeys[V any](m map[string]V) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
+	keys := collections.SortedKeys(m)
 
 	return keys
 }

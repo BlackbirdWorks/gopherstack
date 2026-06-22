@@ -11,6 +11,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -723,12 +724,7 @@ func (b *InMemoryBackend) ListProjects() []string {
 	b.mu.RLock("ListProjects")
 	defer b.mu.RUnlock()
 
-	names := make([]string, 0, len(b.projects))
-	for name := range b.projects {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
+	names := collections.SortedKeys(b.projects)
 
 	return names
 }
@@ -847,12 +843,7 @@ func (b *InMemoryBackend) ListBuilds() []string {
 	b.mu.RLock("ListBuilds")
 	defer b.mu.RUnlock()
 
-	ids := make([]string, 0, len(b.builds))
-	for id := range b.builds {
-		ids = append(ids, id)
-	}
-
-	sort.Strings(ids)
+	ids := collections.SortedKeys(b.builds)
 
 	return ids
 }
@@ -933,13 +924,7 @@ func (b *InMemoryBackend) ListBuildsForProject(projectName string) ([]string, er
 	}
 
 	buildSet := b.buildsByProject[projectName]
-	ids := make([]string, 0, len(buildSet))
-
-	for id := range buildSet {
-		ids = append(ids, id)
-	}
-
-	sort.Strings(ids)
+	ids := collections.SortedKeys(buildSet)
 
 	return ids, nil
 }
@@ -1354,12 +1339,7 @@ func (b *InMemoryBackend) ListBuildBatches() []string {
 	b.mu.RLock("ListBuildBatches")
 	defer b.mu.RUnlock()
 
-	ids := make([]string, 0, len(b.buildBatches))
-	for id := range b.buildBatches {
-		ids = append(ids, id)
-	}
-
-	sort.Strings(ids)
+	ids := collections.SortedKeys(b.buildBatches)
 
 	return ids
 }
@@ -1399,12 +1379,7 @@ func (b *InMemoryBackend) ListSandboxes() []string {
 	b.mu.RLock("ListSandboxes")
 	defer b.mu.RUnlock()
 
-	ids := make([]string, 0, len(b.sandboxes))
-	for id := range b.sandboxes {
-		ids = append(ids, id)
-	}
-
-	sort.Strings(ids)
+	ids := collections.SortedKeys(b.sandboxes)
 
 	return ids
 }
@@ -1609,12 +1584,7 @@ func (b *InMemoryBackend) ListReports() []string {
 	b.mu.RLock("ListReports")
 	defer b.mu.RUnlock()
 
-	arns := make([]string, 0, len(b.reports))
-	for a := range b.reports {
-		arns = append(arns, a)
-	}
-
-	sort.Strings(arns)
+	arns := collections.SortedKeys(b.reports)
 
 	return arns
 }
@@ -1625,12 +1595,7 @@ func (b *InMemoryBackend) ListReportsForReportGroup(reportGroupArn string) []str
 	defer b.mu.RUnlock()
 
 	set := b.reportsByGroup[reportGroupArn]
-	arns := make([]string, 0, len(set))
-	for a := range set {
-		arns = append(arns, a)
-	}
-
-	sort.Strings(arns)
+	arns := collections.SortedKeys(set)
 
 	return arns
 }
@@ -1830,12 +1795,7 @@ func (b *InMemoryBackend) ListBuildBatchesForProject(projectName string) ([]stri
 	}
 
 	set := b.batchesByProject[projectName]
-	ids := make([]string, 0, len(set))
-	for id := range set {
-		ids = append(ids, id)
-	}
-
-	sort.Strings(ids)
+	ids := collections.SortedKeys(set)
 
 	return ids, nil
 }
@@ -1869,12 +1829,7 @@ func (b *InMemoryBackend) ListSandboxesForProject(projectName string) ([]string,
 	}
 
 	set := b.sandboxesByProject[projectName]
-	ids := make([]string, 0, len(set))
-	for id := range set {
-		ids = append(ids, id)
-	}
-
-	sort.Strings(ids)
+	ids := collections.SortedKeys(set)
 
 	return ids, nil
 }
@@ -1891,12 +1846,7 @@ func (b *InMemoryBackend) ListCommandExecutionsForSandbox(sandboxID string) ([]s
 	}
 
 	set := b.commandsBySandbox[sandboxID]
-	ids := make([]string, 0, len(set))
-	for id := range set {
-		ids = append(ids, id)
-	}
-
-	sort.Strings(ids)
+	ids := collections.SortedKeys(set)
 
 	return ids, nil
 }

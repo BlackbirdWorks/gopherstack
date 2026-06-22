@@ -17,6 +17,7 @@ import (
 
 	awsarn "github.com/aws/aws-sdk-go-v2/aws/arn"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 )
@@ -720,13 +721,7 @@ func buildTagMappings(page []TaggedResource, includeCompliance bool) []ResourceT
 			ResourceARN: r.ResourceARN,
 			Tags:        make([]Tag, 0, len(r.Tags)),
 		}
-		keys := make([]string, 0, len(r.Tags))
-
-		for k := range r.Tags {
-			keys = append(keys, k)
-		}
-
-		sort.Strings(keys)
+		keys := collections.SortedKeys(r.Tags)
 
 		for _, k := range keys {
 			m.Tags = append(m.Tags, Tag{Key: k, Value: r.Tags[k]})
@@ -784,12 +779,7 @@ func (b *InMemoryBackend) GetTagKeys(ctx context.Context, input *GetTagKeysInput
 		}
 	}
 
-	keys := make([]string, 0, len(keySet))
-	for k := range keySet {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(keySet)
 
 	page, nextToken := paginateStrings(keys, ptrconv.String(input.PaginationToken), defaultResourcesPerPage)
 
@@ -830,12 +820,7 @@ func (b *InMemoryBackend) GetTagValues(ctx context.Context, input *GetTagValuesI
 		}
 	}
 
-	values := make([]string, 0, len(valSet))
-	for v := range valSet {
-		values = append(values, v)
-	}
-
-	sort.Strings(values)
+	values := collections.SortedKeys(valSet)
 
 	page, nextToken := paginateStrings(values, ptrconv.String(input.PaginationToken), defaultResourcesPerPage)
 

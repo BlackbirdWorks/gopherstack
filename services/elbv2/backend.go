@@ -15,6 +15,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -1546,12 +1547,7 @@ func sortTargetGroupsByName(result []TargetGroup) {
 
 // sortedLBArns flattens a set of load balancer ARNs into a sorted slice.
 func sortedLBArns(set map[string]bool) []string {
-	out := make([]string, 0, len(set))
-	for lb := range set {
-		out = append(out, lb)
-	}
-
-	sort.Strings(out)
+	out := collections.SortedKeys(set)
 
 	return out
 }

@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
 
 const (
@@ -250,12 +252,7 @@ func (b *InMemoryBackend) GetTemplateSummary(templateBody, stackName string) (*T
 		typesSet[res.Type] = struct{}{}
 	}
 
-	resourceTypes := make([]string, 0, len(typesSet))
-	for t := range typesSet {
-		resourceTypes = append(resourceTypes, t)
-	}
-
-	sort.Strings(resourceTypes)
+	resourceTypes := collections.SortedKeys(typesSet)
 
 	return &TemplateSummary{
 		Description:   tmpl.Description,

@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"maps"
 	"regexp"
-	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
 
 // regionContextKey is the context key under which the per-request AWS region is stored.
@@ -321,13 +321,7 @@ func (b *InMemoryBackend) ListMonitors(
 
 	rm := b.monitors[region]
 
-	names := make([]string, 0, len(rm))
-
-	for n := range rm {
-		names = append(names, n)
-	}
-
-	sort.Strings(names)
+	names := collections.SortedKeys(rm)
 
 	startIdx := 0
 

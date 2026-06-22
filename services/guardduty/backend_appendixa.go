@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
 
 // --- error sentinels ---
@@ -1236,12 +1237,7 @@ func (b *InMemoryBackend) ListThreatEntitySets(detectorID string) ([]string, err
 		return nil, ErrDetectorNotFound
 	}
 
-	ids := make([]string, 0, len(b.threatEntitySets[detectorID]))
-	for id := range b.threatEntitySets[detectorID] {
-		ids = append(ids, id)
-	}
-
-	sort.Strings(ids)
+	ids := collections.SortedKeys(b.threatEntitySets[detectorID])
 
 	return ids, nil
 }
@@ -1376,12 +1372,7 @@ func (b *InMemoryBackend) ListTrustedEntitySets(detectorID string) ([]string, er
 		return nil, ErrDetectorNotFound
 	}
 
-	ids := make([]string, 0, len(b.trustedEntitySets[detectorID]))
-	for id := range b.trustedEntitySets[detectorID] {
-		ids = append(ids, id)
-	}
-
-	sort.Strings(ids)
+	ids := collections.SortedKeys(b.trustedEntitySets[detectorID])
 
 	return ids, nil
 }

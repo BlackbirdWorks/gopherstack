@@ -16,6 +16,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
@@ -532,13 +533,7 @@ func (b *InMemoryBackend) ListReferenceImportJobs(
 	}
 
 	jobs := st.referenceImportJobs[referenceStoreID]
-	ids := make([]string, 0, len(jobs))
-
-	for id := range jobs {
-		ids = append(ids, id)
-	}
-
-	sort.Strings(ids)
+	ids := collections.SortedKeys(jobs)
 	page, outToken := paginateStrings(ids, nextToken, maxResults)
 
 	result := make([]*ReferenceImportJob, 0, len(page))
@@ -1925,13 +1920,7 @@ func (b *InMemoryBackend) ListWorkflowVersions(
 	}
 
 	versions := st.workflowVersions[workflowID]
-	names := make([]string, 0, len(versions))
-
-	for name := range versions {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
+	names := collections.SortedKeys(versions)
 	page, outToken := paginateStrings(names, nextToken, maxResults)
 
 	result := make([]*WorkflowVersion, 0, len(page))
@@ -3139,12 +3128,7 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 // ────────────────────────────────────────────────────────────────────────────
 
 func sortedKeys2[V any](m map[string]V) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(m)
 
 	return keys
 }

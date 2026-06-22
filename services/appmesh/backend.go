@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
 
 var (
@@ -1020,11 +1021,7 @@ func (b *InMemoryBackend) ListTagsForResource(
 		return nil, "", ErrResourceNotFound
 	}
 	tagMap := b.tags[arn]
-	keys := make([]string, 0, len(tagMap))
-	for k := range tagMap {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
+	keys := collections.SortedKeys(tagMap)
 	items, next := paginateStrings(keys, nextToken, maxResults)
 	refs := make([]TagRef, 0, len(items))
 	for _, k := range items {
@@ -1135,11 +1132,7 @@ func cloneTags(src map[string]string) map[string]string {
 
 // sortedKeys returns a sorted slice of keys from any map[string]V.
 func sortedKeys[V any](m map[string]V) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
+	keys := collections.SortedKeys(m)
 
 	return keys
 }

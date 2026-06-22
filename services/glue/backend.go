@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"maps"
 	mrand "math/rand/v2"
-	"sort"
 	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -747,12 +747,7 @@ func tableVersionKey(dbName, tableName, versionID string) string {
 
 // sortedKeys returns the keys of a map in sorted order.
 func sortedKeys[V any](m map[string]V) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(m)
 
 	return keys
 }
