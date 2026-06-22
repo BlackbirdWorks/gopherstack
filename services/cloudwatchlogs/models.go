@@ -74,8 +74,10 @@ type Anomaly struct {
 	AnomalyDetectorArn string `json:"anomalyDetectorArn"`
 	AnomalyID          string `json:"anomalyId"`
 	Description        string `json:"description"`
+	SuppressedState    string `json:"suppressedState,omitempty"`
 	FirstSeen          int64  `json:"firstSeen"`
 	LastSeen           int64  `json:"lastSeen"`
+	SuppressedDate     int64  `json:"suppressedDate,omitempty"`
 	Active             bool   `json:"active"`
 }
 
