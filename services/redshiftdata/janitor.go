@@ -52,14 +52,11 @@ func NewJanitor(backend *InMemoryBackend, interval, statementTTL time.Duration) 
 // Run runs the janitor loop until ctx is cancelled.
 // It should be started in a goroutine: go janitor.Run(ctx).
 func (j *Janitor) Run(ctx context.Context) {
-	worker.RunTicker(
-		ctx,
-		redshiftDataWorkerService,
-		statementSweeperComponent,
-		j.Interval,
-		j.TaskTimeout,
-		j.SweepOnce,
-	)
+	g := worker.NewGroup(ctx, redshiftDataWorkerService)
+	g.Ticker(statementSweeperComponent, j.Interval, j.TaskTimeout, j.SweepOnce)
+
+	<-ctx.Done()
+	g.Stop()
 }
 
 // SweepOnce runs a single sweep pass. Exposed for testing.

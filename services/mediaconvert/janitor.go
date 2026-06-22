@@ -16,7 +16,10 @@ const (
 // StartJanitor launches the background goroutine that advances job phases and
 // sweeps expired tokens. It runs until ctx is cancelled.
 func StartJanitor(ctx context.Context, b *InMemoryBackend) {
-	go worker.RunTicker(ctx, "mediaconvert", "JobPhaseAdvancer", janitorInterval, 0,
+	// Group.Ticker spawns the sweep goroutine itself; it exits when ctx is
+	// cancelled, matching the previous fire-and-forget behaviour.
+	g := worker.NewGroup(ctx, "mediaconvert")
+	g.Ticker("JobPhaseAdvancer", janitorInterval, 0,
 		func(ctx context.Context) { janitorTick(ctx, b) })
 }
 

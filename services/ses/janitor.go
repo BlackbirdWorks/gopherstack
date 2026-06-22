@@ -38,7 +38,11 @@ func NewJanitor(backend *InMemoryBackend, interval time.Duration) *Janitor {
 
 // Run runs the janitor loop until ctx is cancelled.
 func (j *Janitor) Run(ctx context.Context) {
-	worker.RunTicker(ctx, sesJanitorServiceName, sesEmailSweeperComp, j.Interval, j.TaskTimeout, j.sweepExpiredEmails)
+	g := worker.NewGroup(ctx, sesJanitorServiceName)
+	g.Ticker(sesEmailSweeperComp, j.Interval, j.TaskTimeout, j.sweepExpiredEmails)
+
+	<-ctx.Done()
+	g.Stop()
 }
 
 // SweepOnce executes a single TTL sweep. Exposed for testing.

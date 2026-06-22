@@ -13,8 +13,10 @@ import (
 )
 
 // newPhase6ServiceBackends creates a ServiceBackends with all phase-6 backends populated.
-func newPhase6ServiceBackends() *cloudformation.ServiceBackends {
-	b := newPhase5ServiceBackends()
+func newPhase6ServiceBackends(t *testing.T) *cloudformation.ServiceBackends {
+	t.Helper()
+
+	b := newPhase5ServiceBackends(t)
 	b.CognitoIdentity = cognitoidentitybackend.NewHandler(
 		cognitoidentitybackend.NewInMemoryBackend("000000000000", "us-east-1"),
 		"us-east-1",
@@ -240,7 +242,7 @@ func TestResourceCreator_Phase6Types_RealBackends(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backends := newPhase6ServiceBackends()
+			backends := newPhase6ServiceBackends(t)
 			rc := cloudformation.NewResourceCreator(backends)
 
 			physID, err := rc.Create(t.Context(), tt.logicalID, tt.resourceType, tt.props, nil, nil)
@@ -257,7 +259,7 @@ func TestResourceCreator_Phase6Types_RealBackends(t *testing.T) {
 func TestResourceCreator_Phase6_EC2NetworkAcl(t *testing.T) {
 	t.Parallel()
 
-	backends := newPhase6ServiceBackends()
+	backends := newPhase6ServiceBackends(t)
 	ec2b, ok := backends.EC2.Backend.(*ec2backend.InMemoryBackend)
 	require.True(t, ok)
 
@@ -292,7 +294,7 @@ func TestResourceCreator_Phase6_EC2NetworkAcl(t *testing.T) {
 func TestResourceCreator_Phase6_KMSReplicaKey(t *testing.T) {
 	t.Parallel()
 
-	backends := newPhase6ServiceBackends()
+	backends := newPhase6ServiceBackends(t)
 	kmsb, ok := backends.KMS.Backend.(*kmsbackend.InMemoryBackend)
 	require.True(t, ok)
 

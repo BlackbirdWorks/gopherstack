@@ -36,7 +36,11 @@ func NewJanitor(backend *InMemoryBackend, interval time.Duration) *Janitor {
 
 // Run runs the janitor loop until ctx is cancelled.
 func (j *Janitor) Run(ctx context.Context) {
-	worker.RunTicker(ctx, sqsJanitorService, sqsJanitorComponent, j.Interval, 0, j.sweepExpiredMessages)
+	g := worker.NewGroup(ctx, sqsJanitorService)
+	g.Ticker(sqsJanitorComponent, j.Interval, 0, j.sweepExpiredMessages)
+
+	<-ctx.Done()
+	g.Stop()
 }
 
 // sweepExpiredMessages removes messages that have exceeded the queue's MessageRetentionPeriod

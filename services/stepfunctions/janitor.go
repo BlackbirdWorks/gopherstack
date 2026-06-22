@@ -36,7 +36,11 @@ func NewJanitor(backend *InMemoryBackend, settings Settings) *Janitor {
 
 // Run runs the janitor loop until ctx is cancelled.
 func (j *Janitor) Run(ctx context.Context) {
-	worker.RunTicker(ctx, sfnWorkerService, prunerName, j.Interval, j.TaskTimeout, j.sweepExecutions)
+	g := worker.NewGroup(ctx, sfnWorkerService)
+	g.Ticker(prunerName, j.Interval, j.TaskTimeout, j.sweepExecutions)
+
+	<-ctx.Done()
+	g.Stop()
 }
 
 func (j *Janitor) sweepExecutions(ctx context.Context) {

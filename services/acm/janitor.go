@@ -16,7 +16,11 @@ const (
 
 // RunJanitor periodically cleans up expired idempotency tokens.
 func (b *InMemoryBackend) RunJanitor(ctx context.Context, interval time.Duration) {
-	worker.RunTicker(ctx, "acm", "AcmJanitor", interval, 0, b.sweepIdempotencyMaps)
+	g := worker.NewGroup(ctx, "acm")
+	g.Ticker("AcmJanitor", interval, 0, b.sweepIdempotencyMaps)
+
+	<-ctx.Done()
+	g.Stop()
 }
 
 func (b *InMemoryBackend) sweepIdempotencyMaps(ctx context.Context) {

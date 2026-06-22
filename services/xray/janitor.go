@@ -49,14 +49,16 @@ func NewJanitor(backend *InMemoryBackend, interval, traceTTL time.Duration) *Jan
 
 // Run runs the janitor loop until ctx is cancelled.
 func (j *Janitor) Run(ctx context.Context) {
-	worker.RunTicker(
-		ctx,
-		xrayWorkerServiceName,
+	g := worker.NewGroup(ctx, xrayWorkerServiceName)
+	g.Ticker(
 		traceSweeperComponent,
 		j.Interval,
 		j.TaskTimeout,
 		j.sweepExpiredTraces,
 	)
+
+	<-ctx.Done()
+	g.Stop()
 }
 
 // SweepOnce runs a single sweep pass. Exposed for testing.

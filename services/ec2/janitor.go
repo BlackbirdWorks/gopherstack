@@ -59,7 +59,11 @@ func NewJanitor(
 
 // Run runs the janitor loop until ctx is cancelled.
 func (j *Janitor) Run(ctx context.Context) {
-	worker.RunTicker(ctx, janitorWorkerServiceName, instanceSweeperComponent, j.Interval, j.TaskTimeout, j.SweepOnce)
+	g := worker.NewGroup(ctx, janitorWorkerServiceName)
+	g.Ticker(instanceSweeperComponent, j.Interval, j.TaskTimeout, j.SweepOnce)
+
+	<-ctx.Done()
+	g.Stop()
 }
 
 // SweepOnce runs a single sweep pass. Exposed for testing.

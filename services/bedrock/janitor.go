@@ -19,7 +19,11 @@ const (
 
 // RunJanitor periodically advances time-based state machines for provisioned resources.
 func (b *InMemoryBackend) RunJanitor(ctx context.Context, interval time.Duration) {
-	worker.RunTicker(ctx, "bedrock", "Janitor", interval, 0, b.runJanitorTick)
+	g := worker.NewGroup(ctx, "bedrock")
+	g.Ticker("Janitor", interval, 0, b.runJanitorTick)
+
+	<-ctx.Done()
+	g.Stop()
 }
 
 func (b *InMemoryBackend) runJanitorTick(ctx context.Context) {

@@ -30,7 +30,11 @@ func NewJanitor(backend *InMemoryBackend) *Janitor {
 
 // Run runs the janitor loop until ctx is cancelled.
 func (j *Janitor) Run(ctx context.Context) {
-	worker.RunTicker(ctx, "appconfigdata", "SessionSweeper", j.Interval, 0, j.sweep)
+	g := worker.NewGroup(ctx, "appconfigdata")
+	g.Ticker("SessionSweeper", j.Interval, 0, j.sweep)
+
+	<-ctx.Done()
+	g.Stop()
 }
 
 // sweep prunes expired retrieval sessions.

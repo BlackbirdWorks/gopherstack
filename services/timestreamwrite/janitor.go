@@ -27,5 +27,9 @@ func NewJanitor(backend *InMemoryBackend) *Janitor {
 
 // Run runs the janitor loop until ctx is cancelled.
 func (j *Janitor) Run(ctx context.Context) {
-	worker.RunTicker(ctx, "timestreamwrite", "RetentionSweeper", j.Interval, 0, j.Backend.SweepRetention)
+	g := worker.NewGroup(ctx, "timestreamwrite")
+	g.Ticker("RetentionSweeper", j.Interval, 0, j.Backend.SweepRetention)
+
+	<-ctx.Done()
+	g.Stop()
 }

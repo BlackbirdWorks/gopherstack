@@ -33,7 +33,11 @@ func NewArchiveJanitor(backend *InMemoryBackend, interval time.Duration) *Archiv
 
 // Run executes the janitor loop until ctx is cancelled.
 func (j *ArchiveJanitor) Run(ctx context.Context) {
-	worker.RunTicker(ctx, "eventbridge", "ArchiveJanitor", j.Interval, 0, j.SweepOnce)
+	g := worker.NewGroup(ctx, "eventbridge")
+	g.Ticker("ArchiveJanitor", j.Interval, 0, j.SweepOnce)
+
+	<-ctx.Done()
+	g.Stop()
 }
 
 // SweepOnce executes one archive cleanup pass.

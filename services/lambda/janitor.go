@@ -34,7 +34,11 @@ func NewJanitor(backend *InMemoryBackend, _ Settings) *Janitor {
 
 // Run runs the janitor loop until ctx is cancelled.
 func (j *Janitor) Run(ctx context.Context) {
-	worker.RunTicker(ctx, lambdaWorkerService, runtimeJanitorName, j.Interval, j.TaskTimeout, j.sweep)
+	g := worker.NewGroup(ctx, lambdaWorkerService)
+	g.Ticker(runtimeJanitorName, j.Interval, j.TaskTimeout, j.sweep)
+
+	<-ctx.Done()
+	g.Stop()
 }
 
 // sweep runs one full janitor pass: evict idle runtimes and health-check ESMs.

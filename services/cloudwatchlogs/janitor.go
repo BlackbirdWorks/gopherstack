@@ -39,14 +39,11 @@ func NewJanitor(backend *InMemoryBackend, interval time.Duration) *Janitor {
 
 // Run runs the janitor loop until ctx is cancelled.
 func (j *Janitor) Run(ctx context.Context) {
-	worker.RunTicker(
-		ctx,
-		cwlWorkerService,
-		retentionSweeperName,
-		j.Interval,
-		j.TaskTimeout,
-		j.sweepRetention,
-	)
+	g := worker.NewGroup(ctx, cwlWorkerService)
+	g.Ticker(retentionSweeperName, j.Interval, j.TaskTimeout, j.sweepRetention)
+
+	<-ctx.Done()
+	g.Stop()
 }
 
 // SweepOnce runs a single retention sweep. Primarily intended for tests.

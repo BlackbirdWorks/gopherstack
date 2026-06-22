@@ -57,14 +57,16 @@ func NewJanitor(backend *InMemoryBackend, interval, inactiveJobDefTTL, completed
 
 // Run runs the janitor loop until ctx is cancelled.
 func (j *Janitor) Run(ctx context.Context) {
-	worker.RunTicker(
-		ctx,
-		batchWorkerServiceName,
+	g := worker.NewGroup(ctx, batchWorkerServiceName)
+	g.Ticker(
 		inactiveJobDefSweeperComponent,
 		j.Interval,
 		j.TaskTimeout,
 		j.SweepOnce,
 	)
+
+	<-ctx.Done()
+	g.Stop()
 }
 
 // SweepOnce runs a single sweep pass. Exposed for testing.

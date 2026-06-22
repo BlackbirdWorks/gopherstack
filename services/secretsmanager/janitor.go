@@ -39,14 +39,16 @@ func NewJanitor(backend *InMemoryBackend, interval time.Duration) *Janitor {
 
 // Run runs the janitor loop until ctx is cancelled.
 func (j *Janitor) Run(ctx context.Context) {
-	worker.RunTicker(
-		ctx,
-		secretsManagerJanitorService,
+	g := worker.NewGroup(ctx, secretsManagerJanitorService)
+	g.Ticker(
 		secretsManagerJanitorComponent,
 		j.Interval,
 		j.TaskTimeout,
 		j.sweepExpiredSecrets,
 	)
+
+	<-ctx.Done()
+	g.Stop()
 }
 
 // SweepOnce executes a single deletion sweep. Exposed for testing.

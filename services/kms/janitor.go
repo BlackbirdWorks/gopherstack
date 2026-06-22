@@ -95,7 +95,11 @@ func NewJanitor(backend *InMemoryBackend, interval time.Duration) *Janitor {
 
 // Run runs the janitor loop until ctx is cancelled.
 func (j *Janitor) Run(ctx context.Context) {
-	worker.RunTicker(ctx, kmsJanitorServiceName, kmsJanitorComponent, j.Interval, j.TaskTimeout, j.sweepExpiredKeys)
+	g := worker.NewGroup(ctx, kmsJanitorServiceName)
+	g.Ticker(kmsJanitorComponent, j.Interval, j.TaskTimeout, j.sweepExpiredKeys)
+
+	<-ctx.Done()
+	g.Stop()
 }
 
 // SweepOnce executes a single deletion sweep. Exposed for testing.

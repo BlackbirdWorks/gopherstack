@@ -14,8 +14,10 @@ import (
 
 // newPhase4ServiceBackends creates a ServiceBackends with all phase-4 backends populated.
 // IAM and EC2 backends are already set by newPhase3ServiceBackends (via newExtendedServiceBackends).
-func newPhase4ServiceBackends() *cloudformation.ServiceBackends {
-	b := newPhase3ServiceBackends()
+func newPhase4ServiceBackends(t *testing.T) *cloudformation.ServiceBackends {
+	t.Helper()
+
+	b := newPhase3ServiceBackends(t)
 	b.ELBv2 = elbv2backend.NewHandler(elbv2backend.NewInMemoryBackend("000000000000", "us-east-1"))
 	b.WAFv2 = wafv2backend.NewHandler(wafv2backend.NewInMemoryBackend("000000000000", "us-east-1"))
 	b.Backup = backupbackend.NewHandler(backupbackend.NewInMemoryBackend("000000000000", "us-east-1"))
@@ -167,7 +169,7 @@ func TestResourceCreator_Phase4Types_NilBackends(t *testing.T) {
 func TestResourceCreator_Phase4Types_RealBackends(t *testing.T) {
 	t.Parallel()
 
-	backends := newPhase4ServiceBackends()
+	backends := newPhase4ServiceBackends(t)
 
 	tests := []struct {
 		props        map[string]any
@@ -310,7 +312,7 @@ func TestResourceCreator_Phase4Types_RealBackends(t *testing.T) {
 func TestResourceCreator_EC2Instance_CreateDelete(t *testing.T) {
 	t.Parallel()
 
-	backends := newPhase4ServiceBackends()
+	backends := newPhase4ServiceBackends(t)
 	rc := cloudformation.NewResourceCreator(backends)
 
 	props := map[string]any{

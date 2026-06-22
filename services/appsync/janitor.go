@@ -26,7 +26,11 @@ func NewJanitor(backend *InMemoryBackend) *Janitor {
 
 // Run executes the janitor loop.
 func (j *Janitor) Run(ctx context.Context) {
-	worker.RunTicker(ctx, "appsync", "APIKeySweeper", j.Interval, 0, j.sweep)
+	g := worker.NewGroup(ctx, "appsync")
+	g.Ticker("APIKeySweeper", j.Interval, 0, j.sweep)
+
+	<-ctx.Done()
+	g.Stop()
 }
 
 // sweep prunes expired API keys and records telemetry for the pass.

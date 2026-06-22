@@ -44,7 +44,11 @@ func (j *Janitor) SetTaskTTL(d time.Duration) { j.taskTTL = d }
 
 // Run runs the janitor loop until ctx is cancelled.
 func (j *Janitor) Run(ctx context.Context) {
-	worker.RunTicker(ctx, ecsWorkerService, stoppedTaskSweeperName, j.Interval, j.TaskTimeout, j.sweepStoppedTasks)
+	g := worker.NewGroup(ctx, ecsWorkerService)
+	g.Ticker(stoppedTaskSweeperName, j.Interval, j.TaskTimeout, j.sweepStoppedTasks)
+
+	<-ctx.Done()
+	g.Stop()
 }
 
 // SweepOnce runs a single sweep pass. Exposed for testing.

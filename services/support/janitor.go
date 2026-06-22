@@ -12,7 +12,11 @@ import (
 // RunJanitor periodically cleans up expired attachment sets and their associated attachments.
 // It blocks until the context is cancelled.
 func (b *InMemoryBackend) RunJanitor(ctx context.Context, interval time.Duration) {
-	worker.RunTicker(ctx, "support", "AttachmentCleaner", interval, 0, b.sweepExpiredResources)
+	g := worker.NewGroup(ctx, "support")
+	g.Ticker("AttachmentCleaner", interval, 0, b.sweepExpiredResources)
+
+	<-ctx.Done()
+	g.Stop()
 }
 
 // sweepExpiredResources identifies and removes expired attachment sets and any orphaned attachments.

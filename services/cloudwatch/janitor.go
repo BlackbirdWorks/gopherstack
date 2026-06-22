@@ -43,10 +43,12 @@ func (j *Janitor) Run(ctx context.Context) {
 		evalInterval = alarmEvalInterval
 	}
 
-	worker.RunTickerN(ctx, cwWorkerService,
-		worker.Sweep{Component: metricSweeper, Interval: j.Interval, Fn: j.sweepMetrics},
-		worker.Sweep{Component: alarmEvaluator, Interval: evalInterval, Fn: j.evaluateAlarms},
-	)
+	g := worker.NewGroup(ctx, cwWorkerService)
+	g.Ticker(metricSweeper, j.Interval, 0, j.sweepMetrics)
+	g.Ticker(alarmEvaluator, evalInterval, 0, j.evaluateAlarms)
+
+	<-ctx.Done()
+	g.Stop()
 }
 
 // sweepMetrics evicts expired metrics.

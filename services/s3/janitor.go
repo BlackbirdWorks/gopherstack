@@ -175,7 +175,11 @@ func NewJanitor(backend *InMemoryBackend, settings Settings) *Janitor {
 //
 // The worker primitive recovers panics from each sweep automatically.
 func (j *Janitor) Run(ctx context.Context) {
-	worker.RunTicker(ctx, "s3", "BucketCleaner", j.Interval, 0, j.sweep)
+	g := worker.NewGroup(ctx, "s3")
+	g.Ticker("BucketCleaner", j.Interval, 0, j.sweep)
+
+	<-ctx.Done()
+	g.Stop()
 }
 
 // sweep performs one janitor tick. sweepAndDrain spawns long-lived drain

@@ -78,20 +78,12 @@ func NewJanitor(backend *InMemoryDB, settings Settings) *Janitor {
 // Each sweep is panic-recovered and bounded by TaskTimeout (if non-zero) by the
 // worker primitive.
 func (j *Janitor) Run(ctx context.Context) {
-	worker.RunTickerN(ctx, "dynamodb",
-		worker.Sweep{
-			Component: "TableCleaner",
-			Interval:  j.Interval,
-			Timeout:   j.TaskTimeout,
-			Fn:        j.sweepMain,
-		},
-		worker.Sweep{
-			Component: "TTLSweeper",
-			Interval:  defaultDDBTTLSweepInterval,
-			Timeout:   j.TaskTimeout,
-			Fn:        j.sweepTTLAndStreams,
-		},
-	)
+	g := worker.NewGroup(ctx, "dynamodb")
+	g.Ticker("TableCleaner", j.Interval, j.TaskTimeout, j.sweepMain)
+	g.Ticker("TTLSweeper", defaultDDBTTLSweepInterval, j.TaskTimeout, j.sweepTTLAndStreams)
+
+	<-ctx.Done()
+	g.Stop()
 }
 
 // sweepMain runs the housekeeping pass: txn-token/pending sweeps, cache

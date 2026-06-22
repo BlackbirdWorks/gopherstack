@@ -20,7 +20,11 @@ const (
 
 // RunJanitor periodically cleans up old async invocations and advances InProgress ones.
 func (b *InMemoryBackend) RunJanitor(ctx context.Context, interval time.Duration) {
-	worker.RunTicker(ctx, "bedrockruntime", "AsyncInvokeAdvancer", interval, 0, b.sweepAsyncInvokes)
+	g := worker.NewGroup(ctx, "bedrockruntime")
+	g.Ticker("AsyncInvokeAdvancer", interval, 0, b.sweepAsyncInvokes)
+
+	<-ctx.Done()
+	g.Stop()
 }
 
 // sweepAsyncInvokes runs one janitor pass: advance InProgress invocations and
