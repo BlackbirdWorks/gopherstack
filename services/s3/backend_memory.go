@@ -117,12 +117,13 @@ type InMemoryBackend struct {
 	uploads     map[string]map[string]*StoredMultipartUpload // bucket → uploadID → upload
 	mu          *lockmetrics.RWMutex
 	compressor  Compressor
-	// serviceCtx is the long-lived service context (set via SetServiceContext from
-	// the handler's StartWorker). Background work — replication — is parented to it
-	// so it is cancelled on shutdown rather than orphaned on context.Background().
+	// serviceCtx is the long-lived context for background work (replication).
+	// Initialised in NewInMemoryBackend so it is always non-nil; overridden by
+	// SetServiceContext when the handler wires in the real service context.
 	serviceCtx    context.Context
+	serviceCancel context.CancelFunc
 	defaultRegion string
-	// serviceCtxMu guards serviceCtx.
+	// serviceCtxMu guards serviceCtx and serviceCancel.
 	serviceCtxMu sync.RWMutex
 	// replicationWg tracks all in-flight replication goroutines.
 	// DrainReplicationGoroutines blocks until they all finish.
@@ -149,39 +150,57 @@ func (b *InMemoryBackend) DrainReplicationGoroutines() {
 }
 
 // SetServiceContext wires the long-lived service context used to parent background
-// work (replication). Called from the handler's StartWorker. When set, in-flight
-// replication is cancelled on service shutdown rather than left orphaned.
+// work (replication). Called from the handler's StartWorker. Cancels the previous
+// default background context before switching to the service-provided one.
 func (b *InMemoryBackend) SetServiceContext(ctx context.Context) {
+	newCtx, newCancel := context.WithCancel(ctx)
+
 	b.serviceCtxMu.Lock()
-	b.serviceCtx = ctx
+	if b.serviceCancel != nil {
+		b.serviceCancel()
+	}
+
+	b.serviceCtx = newCtx
+	b.serviceCancel = newCancel
 	b.serviceCtxMu.Unlock()
 }
 
 // replicationContext builds the context for a replication goroutine: parented to
 // the service context (so shutdown cancels it) and carrying the request's logger,
-// but never the request's cancellation or its SSE key. When no service context is
-// wired (e.g. unit tests), it detaches from the request via context.WithoutCancel
-// rather than falling back to context.Background().
+// but never the request's cancellation or its SSE key. serviceCtx is always
+// non-nil (initialised in NewInMemoryBackend).
 func (b *InMemoryBackend) replicationContext(reqCtx context.Context) context.Context {
 	b.serviceCtxMu.RLock()
 	base := b.serviceCtx
 	b.serviceCtxMu.RUnlock()
 
-	if base == nil {
-		base = context.WithoutCancel(reqCtx)
-	}
-
 	return logger.Save(base, logger.Load(reqCtx))
 }
 
 func NewInMemoryBackend(compressor Compressor) *InMemoryBackend {
+	ctx, cancel := context.WithCancel(context.Background())
+
 	return &InMemoryBackend{
 		buckets:       make(map[string]map[string]*StoredBucket),
 		bucketIndex:   make(map[string]string),
 		compressor:    compressor,
 		defaultRegion: defaultRegionName,
 		mu:            lockmetrics.New("s3"),
+		serviceCtx:    ctx,
+		serviceCancel: cancel,
 	}
+}
+
+// Shutdown cancels the backend's service context and waits for all in-flight
+// replication goroutines to complete. Safe to call more than once.
+func (b *InMemoryBackend) Shutdown() {
+	b.serviceCtxMu.Lock()
+	if b.serviceCancel != nil {
+		b.serviceCancel()
+	}
+	b.serviceCtxMu.Unlock()
+
+	b.replicationWg.Wait()
 }
 
 // WithCompressionMinBytes sets the minimum object size (in bytes) below which
@@ -275,6 +294,10 @@ func (b *InMemoryBackend) CreateBucket(
 		IntelligentTieringConfigs: make(map[string]string),
 		InventoryConfigs:          make(map[string]string),
 		MetricsConfigs:            make(map[string]string),
+		// S3 Express directory buckets use the naming convention {name}--{az-id}--x-s3.
+		// Detect this at creation time so ListBuckets and ListDirectoryBuckets can
+		// correctly partition general-purpose vs. directory buckets.
+		IsDirectoryBucket: strings.HasSuffix(bucketName, "--x-s3"),
 	}
 	b.bucketIndex[bucketName] = region
 
@@ -338,7 +361,7 @@ func (b *InMemoryBackend) ListBuckets(
 	buckets := make([]types.Bucket, 0, len(b.buckets))
 	for _, regionBuckets := range b.buckets {
 		for _, bucket := range regionBuckets {
-			if bucket.DeletePending {
+			if bucket.DeletePending || bucket.IsDirectoryBucket {
 				continue
 			}
 			buckets = append(buckets, types.Bucket{
@@ -361,6 +384,35 @@ func (b *InMemoryBackend) ListBuckets(
 			ID:          aws.String("placeholder-id"),
 		},
 	}, nil
+}
+
+// ListDirectoryBuckets returns all S3 Express directory buckets (name suffix
+// --x-s3) owned by the account, excluding general-purpose buckets. Matches
+// AWS behaviour where ListBuckets and ListDirectoryBuckets partition the two
+// bucket types into separate lists.
+func (b *InMemoryBackend) ListDirectoryBuckets(_ context.Context) ([]types.Bucket, error) {
+	b.mu.RLock("ListDirectoryBuckets")
+	buckets := make([]types.Bucket, 0)
+
+	for _, regionBuckets := range b.buckets {
+		for _, bucket := range regionBuckets {
+			if bucket.DeletePending || !bucket.IsDirectoryBucket {
+				continue
+			}
+
+			buckets = append(buckets, types.Bucket{
+				Name:         aws.String(bucket.Name),
+				CreationDate: aws.Time(bucket.CreationDate),
+			})
+		}
+	}
+	b.mu.RUnlock()
+
+	sort.Slice(buckets, func(i, j int) bool {
+		return *buckets[i].Name < *buckets[j].Name
+	})
+
+	return buckets, nil
 }
 
 // Regions returns all distinct regions that contain at least one active bucket.
@@ -3954,6 +4006,86 @@ func (b *InMemoryBackend) DeleteBucketMetadataTableConfiguration(
 	defer bucket.mu.Unlock()
 
 	bucket.MetadataTableConfig = ""
+
+	return nil
+}
+
+// PutBucketAbac stores the ABAC configuration XML for an S3 Tables bucket.
+func (b *InMemoryBackend) PutBucketAbac(_ context.Context, bucketName, configXML string) error {
+	b.mu.RLock("PutBucketAbac")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return err
+	}
+
+	bucket.mu.Lock("PutBucketAbac")
+	defer bucket.mu.Unlock()
+
+	bucket.AbacConfig = configXML
+
+	return nil
+}
+
+// GetBucketAbac returns the stored ABAC configuration XML for a bucket.
+// Returns an empty string (not an error) when no config has been set, matching
+// the AWS behaviour of returning an empty AbacConfiguration element.
+func (b *InMemoryBackend) GetBucketAbac(_ context.Context, bucketName string) (string, error) {
+	b.mu.RLock("GetBucketAbac")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return "", err
+	}
+
+	bucket.mu.RLock("GetBucketAbac")
+	defer bucket.mu.RUnlock()
+
+	return bucket.AbacConfig, nil
+}
+
+// UpdateBucketMetadataInventoryTableConfig stores the metadata inventory table
+// configuration XML for an S3 Tables bucket.
+func (b *InMemoryBackend) UpdateBucketMetadataInventoryTableConfig(
+	_ context.Context,
+	bucketName, configXML string,
+) error {
+	b.mu.RLock("UpdateBucketMetadataInventoryTableConfig")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return err
+	}
+
+	bucket.mu.Lock("UpdateBucketMetadataInventoryTableConfig")
+	defer bucket.mu.Unlock()
+
+	bucket.MetadataInventoryTableConfig = configXML
+
+	return nil
+}
+
+// UpdateBucketMetadataJournalTableConfig stores the metadata journal table
+// configuration XML for an S3 Tables bucket.
+func (b *InMemoryBackend) UpdateBucketMetadataJournalTableConfig(
+	_ context.Context,
+	bucketName, configXML string,
+) error {
+	b.mu.RLock("UpdateBucketMetadataJournalTableConfig")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return err
+	}
+
+	bucket.mu.Lock("UpdateBucketMetadataJournalTableConfig")
+	defer bucket.mu.Unlock()
+
+	bucket.MetadataJournalTableConfig = configXML
 
 	return nil
 }

@@ -223,6 +223,17 @@ type StorageBackend interface {
 	PutBucketRequestPayment(ctx context.Context, bucket, payer string) error
 	GetBucketRequestPayment(ctx context.Context, bucket string) (string, error)
 
+	// ABAC Configuration (S3 Tables / Express)
+	PutBucketAbac(ctx context.Context, bucket, configXML string) error
+	GetBucketAbac(ctx context.Context, bucket string) (string, error)
+
+	// S3 Express directory buckets
+	ListDirectoryBuckets(ctx context.Context) ([]types.Bucket, error)
+
+	// Metadata Inventory / Journal Table Configurations (S3 Tables)
+	UpdateBucketMetadataInventoryTableConfig(ctx context.Context, bucket, configXML string) error
+	UpdateBucketMetadataJournalTableConfig(ctx context.Context, bucket, configXML string) error
+
 	// GetObjectAttributes / RestoreObject / RenameObject
 	GetObjectAttributes(
 		ctx context.Context,
