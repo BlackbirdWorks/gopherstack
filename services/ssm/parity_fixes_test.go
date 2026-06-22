@@ -304,3 +304,143 @@ func TestSendCommand_NoWritePathExpiry(t *testing.T) {
 		})
 	}
 }
+
+// TestGetMaintenanceWindowExecution_FullOutput verifies that the three MW
+// execution Get operations return timing and status fields populated from
+// the stored window and task data (not just a bare Status field).
+func TestGetMaintenanceWindowExecution_FullOutput(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		duration int32
+	}{
+		{name: "1-hour window", duration: 1},
+		{name: "4-hour window", duration: 4},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := context.Background()
+			b := ssm.NewInMemoryBackend()
+
+			win, err := b.CreateMaintenanceWindow(ctx, &ssm.CreateMaintenanceWindowInput{
+				Name:     "test-win",
+				Schedule: "rate(7 days)",
+				Duration: tc.duration,
+			})
+			require.NoError(t, err)
+
+			execID := "mwexec-" + win.WindowID
+
+			out, err := b.GetMaintenanceWindowExecution(
+				ctx,
+				&ssm.GetMaintenanceWindowExecutionInput{
+					WindowID:          win.WindowID,
+					WindowExecutionID: execID,
+				},
+			)
+			require.NoError(t, err)
+			assert.Equal(t, win.WindowID, out.WindowID)
+			assert.Equal(t, execID, out.WindowExecutionID)
+			assert.Equal(t, "Success", out.Status)
+			assert.NotEmpty(t, out.StatusDetails)
+			assert.False(t, out.StartTime.IsZero(), "StartTime must be populated")
+			assert.NotNil(t, out.EndTime, "EndTime must be populated")
+
+			taskOut, err := b.GetMaintenanceWindowExecutionTask(
+				ctx,
+				&ssm.GetMaintenanceWindowExecutionTaskInput{
+					WindowExecutionID: execID,
+					TaskExecutionID:   "taskexec-some-task",
+				},
+			)
+			require.NoError(t, err)
+			assert.Equal(t, "Success", taskOut.Status)
+			assert.NotEmpty(t, taskOut.StatusDetails)
+			assert.False(t, taskOut.StartTime.IsZero())
+
+			invOut, err := b.GetMaintenanceWindowExecutionTaskInvocation(
+				ctx,
+				&ssm.GetMaintenanceWindowExecutionTaskInvocationInput{
+					WindowExecutionID: execID,
+					TaskExecutionID:   "taskexec-some-task",
+					InvocationID:      "inv-001",
+				},
+			)
+			require.NoError(t, err)
+			assert.Equal(t, "Success", invOut.Status)
+			assert.False(t, invOut.StartTime.IsZero())
+		})
+	}
+}
+
+// TestOtherMapsRegionCleanup verifies that delete operations on resources
+// other than parameters also clean up their per-region inner maps.
+func TestOtherMapsRegionCleanup(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		resource string // which resource type to create and delete
+	}{
+		{name: "activation cleanup", resource: "activation"},
+		{name: "patch baseline cleanup", resource: "patchbaseline"},
+		{name: "maintenance window cleanup", resource: "maintenancewindow"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := context.Background()
+			b := ssm.NewInMemoryBackend()
+
+			switch tc.resource {
+			case "activation":
+				act, err := b.CreateActivation(ctx, &ssm.CreateActivationInput{
+					IamRole:           "arn:aws:iam::000000000000:role/SSMRole",
+					RegistrationLimit: 1,
+				})
+				require.NoError(t, err)
+				_, err = b.DeleteActivation(
+					ctx,
+					&ssm.DeleteActivationInput{ActivationID: act.ActivationID},
+				)
+				require.NoError(t, err)
+				assert.Zero(t, b.ActivationCount(), "activation map must be cleaned up")
+
+			case "patchbaseline":
+				pb, err := b.CreatePatchBaseline(
+					ctx,
+					&ssm.CreatePatchBaselineInput{Name: "test-baseline"},
+				)
+				require.NoError(t, err)
+				_, err = b.DeletePatchBaseline(
+					ctx,
+					&ssm.DeletePatchBaselineInput{BaselineID: pb.BaselineID},
+				)
+				require.NoError(t, err)
+				assert.Zero(t, b.PatchBaselineCount(), "patch baseline map must be cleaned up")
+
+			case "maintenancewindow":
+				win, err := b.CreateMaintenanceWindow(ctx, &ssm.CreateMaintenanceWindowInput{
+					Name: "test-win", Schedule: "rate(7 days)", Duration: 1,
+				})
+				require.NoError(t, err)
+				_, err = b.DeleteMaintenanceWindow(
+					ctx,
+					&ssm.DeleteMaintenanceWindowInput{WindowID: win.WindowID},
+				)
+				require.NoError(t, err)
+				assert.Zero(
+					t,
+					b.MaintenanceWindowCount(),
+					"maintenance window map must be cleaned up",
+				)
+			}
+		})
+	}
+}

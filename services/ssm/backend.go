@@ -1103,20 +1103,22 @@ func collectPathParams(
 	return matched
 }
 
+// cleanupEmptyInnerMap removes the region key from a two-level map when the
+// inner map is empty. Prevents empty maps from accumulating indefinitely.
+// Caller must hold the write lock.
+func cleanupEmptyInnerMap[V any](outer map[string]map[string]V, region string) {
+	if len(outer[region]) == 0 {
+		delete(outer, region)
+	}
+}
+
 // cleanupEmptyParamRegion removes the per-region inner maps for parameters,
-// history, and tags when the last parameter in a region is deleted. This
-// prevents empty maps from accumulating indefinitely.
+// history, and tags when the last parameter in a region is deleted.
 // Caller must hold the write lock.
 func (b *InMemoryBackend) cleanupEmptyParamRegion(region string) {
-	if len(b.parameters[region]) == 0 {
-		delete(b.parameters, region)
-	}
-	if len(b.history[region]) == 0 {
-		delete(b.history, region)
-	}
-	if len(b.tags[region]) == 0 {
-		delete(b.tags, region)
-	}
+	cleanupEmptyInnerMap(b.parameters, region)
+	cleanupEmptyInnerMap(b.history, region)
+	cleanupEmptyInnerMap(b.tags, region)
 }
 
 // decryptParamsSlice returns a copy of params with SecureString values decrypted
@@ -1833,6 +1835,10 @@ func (b *InMemoryBackend) DeleteDocument(
 	delete(b.documentsStore(region), input.Name)
 	delete(b.documentVersionsStore(region), input.Name)
 	delete(b.documentPermissionsStore(region), input.Name)
+
+	cleanupEmptyInnerMap(b.documents, region)
+	cleanupEmptyInnerMap(b.documentVersions, region)
+	cleanupEmptyInnerMap(b.documentPermissions, region)
 
 	return &DeleteDocumentOutput{}, nil
 }

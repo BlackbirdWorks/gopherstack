@@ -404,6 +404,8 @@ func (b *InMemoryBackend) DeleteInventory(
 		}
 	}
 
+	cleanupEmptyInnerMap(b.inventory, region)
+
 	return &DeleteInventoryOutput{}, nil
 }
 
@@ -821,6 +823,8 @@ func (b *InMemoryBackend) DeletePatchBaseline(
 
 	delete(store, input.BaselineID)
 
+	cleanupEmptyInnerMap(b.patchBaselines, region)
+
 	return &DeletePatchBaselineOutput{BaselineID: input.BaselineID}, nil
 }
 
@@ -1017,6 +1021,8 @@ func (b *InMemoryBackend) DeleteMaintenanceWindow(
 	}
 
 	delete(store, input.WindowID)
+
+	cleanupEmptyInnerMap(b.maintenanceWindows, region)
 
 	return &DeleteMaintenanceWindowOutput{WindowID: input.WindowID}, nil
 }
@@ -1278,6 +1284,9 @@ func (b *InMemoryBackend) DeleteOpsItem(
 	delete(opsItems, input.OpsItemID)
 	delete(b.opsItemRelatedItemsStore(region), input.OpsItemID)
 
+	cleanupEmptyInnerMap(b.opsItems, region)
+	cleanupEmptyInnerMap(b.opsItemRelatedItems, region)
+
 	return &DeleteOpsItemOutput{}, nil
 }
 
@@ -1451,6 +1460,9 @@ func (b *InMemoryBackend) DeleteOpsMetadata(
 
 	delete(b.resourceIDToOpsMetadataArnStore(region), meta.ResourceID)
 	delete(opsMetadata, input.OpsMetadataArn)
+
+	cleanupEmptyInnerMap(b.opsMetadata, region)
+	cleanupEmptyInnerMap(b.resourceIDToOpsMetadataArn, region)
 
 	return &DeleteOpsMetadataOutput{}, nil
 }

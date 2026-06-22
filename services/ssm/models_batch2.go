@@ -403,19 +403,42 @@ type UpdateAssociationStatusOutputFull struct {
 	AssociationDescription Association `json:"AssociationDescription"`
 }
 
-// GetMaintenanceWindowExecutionOutputFull extends the empty stub.
+// GetMaintenanceWindowExecutionOutputFull is the response for GetMaintenanceWindowExecution.
 type GetMaintenanceWindowExecutionOutputFull struct {
-	WindowID          string `json:"WindowId"`
-	WindowExecutionID string `json:"WindowExecutionId"`
-	Status            string `json:"Status"`
+	StartTime         time.Time  `json:"StartTime"`
+	EndTime           *time.Time `json:"EndTime,omitempty"`
+	WindowID          string     `json:"WindowId"`
+	WindowExecutionID string     `json:"WindowExecutionId"`
+	Status            string     `json:"Status"`
+	StatusDetails     string     `json:"StatusDetails,omitempty"`
 }
 
-// GetMaintenanceWindowExecutionTaskOutputFull extends the empty stub.
+// GetMaintenanceWindowExecutionTaskOutputFull is the response for GetMaintenanceWindowExecutionTask.
 type GetMaintenanceWindowExecutionTaskOutputFull struct {
-	Status string `json:"Status"`
+	StartTime         time.Time  `json:"StartTime"`
+	EndTime           *time.Time `json:"EndTime,omitempty"`
+	WindowExecutionID string     `json:"WindowExecutionId,omitempty"`
+	TaskExecutionID   string     `json:"TaskExecutionId,omitempty"`
+	TaskARN           string     `json:"TaskArn,omitempty"`
+	TaskType          string     `json:"TaskType,omitempty"`
+	Status            string     `json:"Status"`
+	StatusDetails     string     `json:"StatusDetails,omitempty"`
+	MaxConcurrency    string     `json:"MaxConcurrency,omitempty"`
+	MaxErrors         string     `json:"MaxErrors,omitempty"`
+	Priority          int32      `json:"Priority,omitempty"`
 }
 
-// GetMaintenanceWindowExecutionTaskInvocationOutputFull extends the empty stub.
+// GetMaintenanceWindowExecutionTaskInvocationOutputFull is the response for
+// GetMaintenanceWindowExecutionTaskInvocation.
 type GetMaintenanceWindowExecutionTaskInvocationOutputFull struct {
-	Status string `json:"Status"`
+	StartTime         time.Time  `json:"StartTime"`
+	EndTime           *time.Time `json:"EndTime,omitempty"`
+	WindowExecutionID string     `json:"WindowExecutionId,omitempty"`
+	TaskExecutionID   string     `json:"TaskExecutionId,omitempty"`
+	InvocationID      string     `json:"InvocationId,omitempty"`
+	ExecutionID       string     `json:"ExecutionId,omitempty"`
+	TaskType          string     `json:"TaskType,omitempty"`
+	Status            string     `json:"Status"`
+	StatusDetails     string     `json:"StatusDetails,omitempty"`
+	WindowTargetID    string     `json:"WindowTargetId,omitempty"`
 }

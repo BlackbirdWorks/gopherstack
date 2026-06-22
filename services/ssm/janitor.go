@@ -71,9 +71,16 @@ func (j *Janitor) sweepExpiredCommands(ctx context.Context) {
 		}
 	}
 
+	regions := make(map[string]struct{}, len(expired))
 	for _, e := range expired {
 		delete(b.commands[e.region], e.id)
 		delete(b.commandInvocations[e.region], e.id)
+		regions[e.region] = struct{}{}
+	}
+
+	for region := range regions {
+		cleanupEmptyInnerMap(b.commands, region)
+		cleanupEmptyInnerMap(b.commandInvocations, region)
 	}
 
 	b.mu.Unlock()
