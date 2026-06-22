@@ -107,7 +107,10 @@ func (g *Group) Ticker(
 }
 
 // sweepOnce invokes sweep (optionally under a per-sweep timeout), recovering
-// panics and recording the task status to Metrics. ctx is already worker-tagged.
+// panics so a wedged or panicking sweep never kills the ticker goroutine. A
+// recovered panic is logged and recorded as a "panic" task via Metrics; the
+// success/items/depth telemetry stays the sweep's own responsibility (sweeps
+// often report at a finer granularity than the ticker). ctx is worker-tagged.
 func (g *Group) sweepOnce(
 	ctx context.Context,
 	component string,
@@ -122,24 +125,18 @@ func (g *Group) sweepOnce(
 		defer cancel()
 	}
 
-	status := "success"
+	defer func() {
+		if r := recover(); r != nil {
+			g.logPanic(sctx, component, r)
+			g.metrics.RecordTask(g.service, component, "panic")
 
-	func() {
-		defer func() {
-			if r := recover(); r != nil {
-				status = "panic"
-				g.logPanic(sctx, component, r)
-
-				if onPanic != nil {
-					onPanic(r)
-				}
+			if onPanic != nil {
+				onPanic(r)
 			}
-		}()
-
-		sweep(sctx)
+		}
 	}()
 
-	g.metrics.RecordTask(g.service, component, status)
+	sweep(sctx)
 }
 
 // After schedules fn to run once after d. It is the resilient, stoppable

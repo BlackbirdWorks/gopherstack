@@ -26,26 +26,12 @@ func (f *fakeMetrics) RecordTask(_, _, status string) {
 	}
 	f.tasks[status]++
 }
-func (f *fakeMetrics) RecordItems(_, _ string, _ int)      {}
-func (f *fakeMetrics) RecordQueueDepth(_, _ string, _ int) {}
 
 func (f *fakeMetrics) task(status string) int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
 	return f.tasks[status]
-}
-
-func TestGroupTickerRecordsSuccessTask(t *testing.T) {
-	t.Parallel()
-
-	fm := &fakeMetrics{}
-	g := worker.NewGroup(t.Context(), "svc", worker.WithMetrics(fm))
-	g.Ticker("comp", time.Hour, 0, func(context.Context) {}, worker.WithImmediate())
-
-	require.Eventually(t, func() bool { return fm.task("success") >= 1 }, time.Second, time.Millisecond)
-	g.Stop()
-	assert.Zero(t, fm.task("panic"))
 }
 
 func TestGroupTickerRecordsPanicTask(t *testing.T) {
