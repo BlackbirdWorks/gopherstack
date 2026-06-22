@@ -44,9 +44,13 @@ const fifoDedupTTL = 5 * time.Minute
 const fifoDedupMaxEntries = 100_000
 
 // fifoDeduplication tracks message deduplication IDs with a TTL for FIFO topics.
+// insertOrder records keys in insertion order; since all entries share the same TTL,
+// the oldest entry is always at insertOrder[insertHead], enabling O(1) amortized eviction.
 type fifoDeduplication struct {
-	entries map[string]time.Time // dedupKey → expiry
-	mu      sync.Mutex
+	entries     map[string]time.Time // dedupKey → expiry
+	insertOrder []string             // keys in insertion order
+	insertHead  int                  // index of the first live entry in insertOrder
+	mu          sync.Mutex
 }
 
 // fifoDedupSweepInterval is the cadence at which the background goroutine
@@ -56,7 +60,10 @@ type fifoDeduplication struct {
 const fifoDedupSweepInterval = time.Minute
 
 func newFifoDeduplication() *fifoDeduplication {
-	return &fifoDeduplication{entries: make(map[string]time.Time)}
+	return &fifoDeduplication{
+		entries:     make(map[string]time.Time),
+		insertOrder: make([]string, 0, fifoDedupMaxEntries),
+	}
 }
 
 // startPeriodicSweep launches a background goroutine that evicts expired
@@ -83,15 +90,15 @@ func (d *fifoDeduplication) startPeriodicSweep(ctx context.Context) {
 // and records it otherwise.
 // isDuplicate returns true if dedupID was already seen within the TTL window.
 // It does NOT record the ID — call record() after a successful publish.
+// Expired entries are intentionally not swept here; the background goroutine
+// and the capacity-triggered sweep in record() maintain memory bounds.
+// The correctness check now.Before(exp) already returns false for expired entries,
+// so an O(n) sweep on every publish would be pure overhead.
 func (d *fifoDeduplication) isDuplicate(topicArn, dedupID string) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
 	now := time.Now()
-
-	// Evict expired entries opportunistically.
-	d.sweepExpiredLocked(now)
-
 	key := topicArn + "/" + dedupID
 	exp, found := d.entries[key]
 
@@ -119,7 +126,11 @@ func (d *fifoDeduplication) record(topicArn, dedupID string) {
 		}
 	}
 
-	d.entries[topicArn+"/"+dedupID] = now.Add(fifoDedupTTL)
+	key := topicArn + "/" + dedupID
+	if _, exists := d.entries[key]; !exists {
+		d.insertOrder = append(d.insertOrder, key)
+	}
+	d.entries[key] = now.Add(fifoDedupTTL)
 }
 
 // sweepExpiredLocked removes all expired entries. Caller must hold d.mu.
@@ -131,26 +142,30 @@ func (d *fifoDeduplication) sweepExpiredLocked(now time.Time) {
 	}
 }
 
-// evictEarliestLocked drops the single entry with the earliest expiration
-// from the map. Caller must hold d.mu.
+// evictEarliestLocked drops the single entry with the earliest expiration from the map.
+// Because all entries share the same fifoDedupTTL, insertOrder is effectively sorted
+// by expiry time. Scanning from insertHead is therefore O(1) amortised: each key is
+// appended once and consumed at most once. Caller must hold d.mu.
 func (d *fifoDeduplication) evictEarliestLocked() {
-	var (
-		oldestKey string
-		oldestExp time.Time
-		first     = true
-	)
+	for d.insertHead < len(d.insertOrder) {
+		key := d.insertOrder[d.insertHead]
+		d.insertOrder[d.insertHead] = "" // release the string for GC
+		d.insertHead++
+		if _, exists := d.entries[key]; exists {
+			delete(d.entries, key)
+			// Compact the slice once the dead prefix exceeds the capacity to
+			// prevent unbounded growth of the backing array.
+			if d.insertHead > fifoDedupMaxEntries {
+				d.insertOrder = append(d.insertOrder[:0], d.insertOrder[d.insertHead:]...)
+				d.insertHead = 0
+			}
 
-	for k, exp := range d.entries {
-		if first || exp.Before(oldestExp) {
-			oldestKey = k
-			oldestExp = exp
-			first = false
+			return
 		}
 	}
-
-	if !first {
-		delete(d.entries, oldestKey)
-	}
+	// insertOrder exhausted (all entries were swept); reset to reclaim memory.
+	d.insertOrder = d.insertOrder[:0]
+	d.insertHead = 0
 }
 
 type Handler struct {
@@ -495,6 +510,10 @@ func (h *Handler) handleDeleteTopic(c *echo.Context) error {
 		return h.handleBackendError(c, err)
 	}
 
+	// Remove the FIFO sequence-number counter so the sync.Map does not leak
+	// entries for high-churn topic workloads.
+	h.fifoSeqNums.Delete(topicArn)
+
 	return h.writeXML(c, DeleteTopicResponse{
 		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
 	})
@@ -502,8 +521,9 @@ func (h *Handler) handleDeleteTopic(c *echo.Context) error {
 
 func (h *Handler) handleListTopics(c *echo.Context) error {
 	nextToken := c.Request().FormValue("NextToken")
+	region := httputils.ExtractRegionFromRequest(c.Request(), h.DefaultRegion)
 
-	topics, token, err := h.Backend.ListTopics(nextToken)
+	topics, token, err := h.Backend.ListTopicsInRegion(region, nextToken)
 	if err != nil {
 		return h.handleBackendError(c, err)
 	}
@@ -544,7 +564,12 @@ func (h *Handler) handleSetTopicAttributes(c *echo.Context) error {
 	attrValue := c.Request().FormValue("AttributeValue")
 
 	if topicArn == "" || attrName == "" {
-		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "TopicArn and AttributeName are required")
+		return h.writeError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameter",
+			"TopicArn and AttributeName are required",
+		)
 	}
 
 	if err := h.Backend.SetTopicAttributes(topicArn, attrName, attrValue); err != nil {
@@ -562,7 +587,12 @@ func (h *Handler) handleSubscribe(c *echo.Context) error {
 	endpoint := c.Request().FormValue("Endpoint")
 
 	if topicArn == "" || protocol == "" {
-		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "TopicArn and Protocol are required")
+		return h.writeError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameter",
+			"TopicArn and Protocol are required",
+		)
 	}
 
 	validProtocols := map[string]bool{
@@ -622,7 +652,12 @@ func (h *Handler) handleSubscribe(c *echo.Context) error {
 func (h *Handler) handleUnsubscribe(c *echo.Context) error {
 	subscriptionArn := c.Request().FormValue("SubscriptionArn")
 	if subscriptionArn == "" {
-		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "SubscriptionArn is required")
+		return h.writeError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameter",
+			"SubscriptionArn is required",
+		)
 	}
 
 	if err := h.Backend.Unsubscribe(subscriptionArn); err != nil {
@@ -775,7 +810,10 @@ func (h *Handler) publishFIFOTopic(
 		// Duplicate within the 5-minute window: AWS still returns success with a
 		// synthesized message ID and does not actually re-publish the message.
 		return h.writeXML(c, PublishResponse{
-			PublishResult:    PublishResult{MessageID: uuid.New().String(), SequenceNumber: h.nextFIFOSeqNum(topicArn)},
+			PublishResult: PublishResult{
+				MessageID:      uuid.New().String(),
+				SequenceNumber: h.nextFIFOSeqNum(topicArn),
+			},
 			ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
 		})
 	}
@@ -790,7 +828,10 @@ func (h *Handler) publishFIFOTopic(
 	}
 
 	return h.writeXML(c, PublishResponse{
-		PublishResult:    PublishResult{MessageID: messageID, SequenceNumber: h.nextFIFOSeqNum(topicArn)},
+		PublishResult: PublishResult{
+			MessageID:      messageID,
+			SequenceNumber: h.nextFIFOSeqNum(topicArn),
+		},
 		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
 	})
 }
@@ -843,7 +884,12 @@ func (h *Handler) handlePublishBatch(c *echo.Context) error {
 	entries := extractBatchEntries(c.Request().Form)
 
 	if len(entries) == 0 {
-		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "PublishBatchRequestEntries is required")
+		return h.writeError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameter",
+			"PublishBatchRequestEntries is required",
+		)
 	}
 
 	if len(entries) > maxPublishBatchEntries {
@@ -954,7 +1000,13 @@ func (h *Handler) processBatchEntry(
 		effectiveDedupID = id
 	}
 
-	msgID, err := h.Backend.Publish(topicArn, entry.message, entry.subject, entry.messageStructure, entry.attrs)
+	msgID, err := h.Backend.Publish(
+		topicArn,
+		entry.message,
+		entry.subject,
+		entry.messageStructure,
+		entry.attrs,
+	)
 	if err != nil {
 		return nil, &XMLPublishBatchFailEntry{
 			ID:          entry.id,
@@ -1009,7 +1061,12 @@ func (h *Handler) batchEntryFIFODedup(
 func (h *Handler) handleGetSubscriptionAttributes(c *echo.Context) error {
 	subscriptionArn := c.Request().FormValue("SubscriptionArn")
 	if subscriptionArn == "" {
-		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "SubscriptionArn is required")
+		return h.writeError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameter",
+			"SubscriptionArn is required",
+		)
 	}
 
 	attrs, err := h.Backend.GetSubscriptionAttributes(subscriptionArn)
@@ -1094,7 +1151,10 @@ func (h *Handler) handleTagResource(c *echo.Context) error {
 	return h.writeXML(
 		c,
 		snsEmptyResponse{
-			XMLName: xml.Name{Space: "https://sns.amazonaws.com/doc/2010-03-31/", Local: "TagResourceResponse"},
+			XMLName: xml.Name{
+				Space: "https://sns.amazonaws.com/doc/2010-03-31/",
+				Local: "TagResourceResponse",
+			},
 		},
 	)
 }
@@ -1107,7 +1167,10 @@ func (h *Handler) handleUntagResource(c *echo.Context) error {
 	return h.writeXML(
 		c,
 		snsEmptyResponse{
-			XMLName: xml.Name{Space: "https://sns.amazonaws.com/doc/2010-03-31/", Local: "UntagResourceResponse"},
+			XMLName: xml.Name{
+				Space: "https://sns.amazonaws.com/doc/2010-03-31/",
+				Local: "UntagResourceResponse",
+			},
 		},
 	)
 }
@@ -1117,12 +1180,18 @@ func (h *Handler) handleCreatePlatformApplication(c *echo.Context) error {
 	platform := c.Request().FormValue("Platform")
 
 	if name == "" || platform == "" {
-		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "Name and Platform are required")
+		return h.writeError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameter",
+			"Name and Platform are required",
+		)
 	}
 
 	attrs := extractFormAttributes(c)
+	region := httputils.ExtractRegionFromRequest(c.Request(), h.DefaultRegion)
 
-	app, err := h.Backend.CreatePlatformApplication(name, platform, attrs)
+	app, err := h.Backend.CreatePlatformApplicationInRegion(name, platform, region, attrs)
 	if err != nil {
 		return h.handleBackendError(c, err)
 	}
@@ -1138,7 +1207,12 @@ func (h *Handler) handleCreatePlatformApplication(c *echo.Context) error {
 func (h *Handler) handleGetPlatformApplicationAttributes(c *echo.Context) error {
 	platformApplicationArn := c.Request().FormValue("PlatformApplicationArn")
 	if platformApplicationArn == "" {
-		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "PlatformApplicationArn is required")
+		return h.writeError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameter",
+			"PlatformApplicationArn is required",
+		)
 	}
 
 	attrs, err := h.Backend.GetPlatformApplicationAttributes(platformApplicationArn)
@@ -1157,7 +1231,12 @@ func (h *Handler) handleGetPlatformApplicationAttributes(c *echo.Context) error 
 func (h *Handler) handleSetPlatformApplicationAttributes(c *echo.Context) error {
 	platformApplicationArn := c.Request().FormValue("PlatformApplicationArn")
 	if platformApplicationArn == "" {
-		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "PlatformApplicationArn is required")
+		return h.writeError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameter",
+			"PlatformApplicationArn is required",
+		)
 	}
 
 	attrs := extractFormAttributes(c)
@@ -1199,7 +1278,12 @@ func (h *Handler) handleListPlatformApplications(c *echo.Context) error {
 func (h *Handler) handleDeletePlatformApplication(c *echo.Context) error {
 	platformApplicationArn := c.Request().FormValue("PlatformApplicationArn")
 	if platformApplicationArn == "" {
-		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "PlatformApplicationArn is required")
+		return h.writeError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameter",
+			"PlatformApplicationArn is required",
+		)
 	}
 
 	if err := h.Backend.DeletePlatformApplication(platformApplicationArn); err != nil {
@@ -1279,12 +1363,20 @@ func (h *Handler) handleSetEndpointAttributes(c *echo.Context) error {
 func (h *Handler) handleListEndpointsByPlatformApplication(c *echo.Context) error {
 	platformApplicationArn := c.Request().FormValue("PlatformApplicationArn")
 	if platformApplicationArn == "" {
-		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "PlatformApplicationArn is required")
+		return h.writeError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameter",
+			"PlatformApplicationArn is required",
+		)
 	}
 
 	nextToken := c.Request().FormValue("NextToken")
 
-	eps, token, err := h.Backend.ListEndpointsByPlatformApplication(platformApplicationArn, nextToken)
+	eps, token, err := h.Backend.ListEndpointsByPlatformApplication(
+		platformApplicationArn,
+		nextToken,
+	)
 	if err != nil {
 		return h.handleBackendError(c, err)
 	}
@@ -1340,7 +1432,12 @@ func (h *Handler) handleAddPermission(c *echo.Context) error {
 	label := c.Request().FormValue("Label")
 
 	if topicArn == "" || label == "" {
-		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "TopicArn and Label are required")
+		return h.writeError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameter",
+			"TopicArn and Label are required",
+		)
 	}
 
 	accounts := parseMemberList(c, "AWSAccountId")
@@ -1367,8 +1464,10 @@ func (h *Handler) handleCheckIfPhoneNumberIsOptedOut(c *echo.Context) error {
 	}
 
 	return h.writeXML(c, CheckIfPhoneNumberIsOptedOutResponse{
-		CheckIfPhoneNumberIsOptedOutResult: CheckIfPhoneNumberIsOptedOutResult{IsOptedOut: optedOut},
-		ResponseMetadata:                   ResponseMetadata{RequestID: uuid.New().String()},
+		CheckIfPhoneNumberIsOptedOutResult: CheckIfPhoneNumberIsOptedOutResult{
+			IsOptedOut: optedOut,
+		},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
 	})
 }
 
@@ -1546,7 +1645,12 @@ func (h *Handler) handleRemovePermission(c *echo.Context) error {
 	label := c.Request().FormValue("Label")
 
 	if topicArn == "" || label == "" {
-		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "TopicArn and Label are required")
+		return h.writeError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameter",
+			"TopicArn and Label are required",
+		)
 	}
 
 	if err := h.Backend.RemovePermission(topicArn, label); err != nil {
@@ -1765,7 +1869,10 @@ func extractMessageAttributes(form url.Values) map[string]MessageAttribute {
 
 // extractMessageAttributesWithPrefix reads MessageAttributes from form values using the
 // given prefix (e.g. "MessageAttributes." or "PublishBatchRequestEntries.member.1.").
-func extractMessageAttributesWithPrefix(form url.Values, prefix string) map[string]MessageAttribute {
+func extractMessageAttributesWithPrefix(
+	form url.Values,
+	prefix string,
+) map[string]MessageAttribute {
 	attrs := make(map[string]MessageAttribute)
 
 	for i := 1; ; i++ {
@@ -1826,13 +1933,23 @@ func extractBatchEntries(form url.Values) []batchEntry {
 		attrs := extractMessageAttributesWithPrefix(form, prefix)
 
 		entries = append(entries, batchEntry{
-			id:               id,
-			message:          form.Get(fmt.Sprintf("PublishBatchRequestEntries.member.%d.Message", i)),
-			subject:          form.Get(fmt.Sprintf("PublishBatchRequestEntries.member.%d.Subject", i)),
-			attrs:            attrs,
-			messageGroupID:   form.Get(fmt.Sprintf("PublishBatchRequestEntries.member.%d.MessageGroupId", i)),
-			messageStructure: form.Get(fmt.Sprintf("PublishBatchRequestEntries.member.%d.MessageStructure", i)),
-			dedupID:          form.Get(fmt.Sprintf("PublishBatchRequestEntries.member.%d.MessageDeduplicationId", i)),
+			id: id,
+			message: form.Get(
+				fmt.Sprintf("PublishBatchRequestEntries.member.%d.Message", i),
+			),
+			subject: form.Get(
+				fmt.Sprintf("PublishBatchRequestEntries.member.%d.Subject", i),
+			),
+			attrs: attrs,
+			messageGroupID: form.Get(
+				fmt.Sprintf("PublishBatchRequestEntries.member.%d.MessageGroupId", i),
+			),
+			messageStructure: form.Get(
+				fmt.Sprintf("PublishBatchRequestEntries.member.%d.MessageStructure", i),
+			),
+			dedupID: form.Get(
+				fmt.Sprintf("PublishBatchRequestEntries.member.%d.MessageDeduplicationId", i),
+			),
 		})
 	}
 }

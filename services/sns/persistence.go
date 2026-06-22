@@ -16,6 +16,7 @@ type backendSnapshot struct {
 	SMSSandbox           map[string]*SandboxPhoneNumber  `json:"smsSandbox,omitempty"`
 	OptedOutPhoneNumbers map[string]bool                 `json:"optedOutPhoneNumbers,omitempty"`
 	SMSAttributes        map[string]string               `json:"smsAttributes,omitempty"`
+	SMSSandboxEnabled    *bool                           `json:"smsSandboxEnabled,omitempty"`
 	AccountID            string                          `json:"accountID"`
 	Region               string                          `json:"region"`
 }
@@ -26,6 +27,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
+	sandboxEnabled := b.smsSandboxEnabled
 	snap := backendSnapshot{
 		Topics:               b.topics,
 		Subscriptions:        b.subscriptions,
@@ -37,6 +39,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		SMSAttributes:        b.smsAttributes,
 		AccountID:            b.accountID,
 		Region:               b.region,
+		SMSSandboxEnabled:    &sandboxEnabled,
 	}
 
 	return persistence.MarshalSnapshot(ctx, "sns", snap)
@@ -97,6 +100,11 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.smsAttributes = snap.SMSAttributes
 	b.accountID = snap.AccountID
 	b.region = snap.Region
+	if snap.SMSSandboxEnabled != nil {
+		b.smsSandboxEnabled = *snap.SMSSandboxEnabled
+	} else {
+		b.smsSandboxEnabled = true // default for old snapshots that lack this field
+	}
 
 	// Rebuild the per-topic subscription index and restore the parsed filter-policy
 	// cache for each subscription (both are transient and not persisted).

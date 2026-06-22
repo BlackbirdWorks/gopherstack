@@ -1,5 +1,7 @@
 package sns
 
+import "time"
+
 // Exported for testing.
 
 const (
@@ -27,7 +29,9 @@ func IsValidTopicNameForTest(name string) bool { return isValidTopicName(name) }
 
 // CanonicalNotificationStringForTest exposes the canonical string builder for tests
 // that verify RSA signature correctness.
-func CanonicalNotificationStringForTest(msgID, topicARN, subject, message, timestamp string) string {
+func CanonicalNotificationStringForTest(
+	msgID, topicARN, subject, message, timestamp string,
+) string {
 	return canonicalNotificationString(msgID, topicARN, subject, message, timestamp)
 }
 
@@ -70,4 +74,34 @@ func WaitDeliveriesForTest(b *InMemoryBackend) {
 // reflects the correct region rather than a hardcoded us-east-1.
 func SigningCertURLForTest(b *InMemoryBackend) string {
 	return b.signer.certURL
+}
+
+// NewFifoDedupForTest creates a fifoDeduplication for white-box unit tests.
+func NewFifoDedupForTest() *fifoDeduplication { return newFifoDeduplication() }
+
+// FifoDedupInsertWithExpiryForTest inserts a dedup entry with an explicit expiry timestamp,
+// bypassing the record() method so tests can simulate already-expired entries without sleeping.
+func FifoDedupInsertWithExpiryForTest(
+	d *fifoDeduplication,
+	topicArn, dedupID string,
+	expiry time.Time,
+) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	key := topicArn + "/" + dedupID
+	d.entries[key] = expiry
+	d.insertOrder = append(d.insertOrder, key)
+}
+
+// FifoDedupIsDuplicateForTest calls the internal isDuplicate method.
+func FifoDedupIsDuplicateForTest(d *fifoDeduplication, topicArn, dedupID string) bool {
+	return d.isDuplicate(topicArn, dedupID)
+}
+
+// FifoDedupEntryCountForTest returns the current number of entries in the dedup map.
+func FifoDedupEntryCountForTest(d *fifoDeduplication) int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	return len(d.entries)
 }
