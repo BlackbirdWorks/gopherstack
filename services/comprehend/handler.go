@@ -20,6 +20,12 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
+// PII detection patterns, compiled once at package init rather than per request.
+var (
+	piiEmailRe = regexp.MustCompile(`[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}`)
+	piiSSNRe   = regexp.MustCompile(`\b\d{3}-\d{2}-\d{4}\b`)
+)
+
 const (
 	comprehendTargetPrefix     = "Comprehend_20171127."
 	comprehendContentType      = "application/x-amz-json-1.1"
@@ -741,8 +747,8 @@ func (h *Handler) detectPIIEntities(input map[string]any) (map[string]any, error
 		expression *regexp.Regexp
 		kind       string
 	}{
-		{regexp.MustCompile(`[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}`), "EMAIL"},
-		{regexp.MustCompile(`\b\d{3}-\d{2}-\d{4}\b`), "SSN"},
+		{piiEmailRe, "EMAIL"},
+		{piiSSNRe, "SSN"},
 	}
 	entities := make([]map[string]any, 0)
 	for _, pattern := range patterns {
@@ -953,8 +959,8 @@ func (h *Handler) containsPIIEntities(input map[string]any) (map[string]any, err
 		expression *regexp.Regexp
 		kind       string
 	}{
-		{regexp.MustCompile(`[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}`), "EMAIL"},
-		{regexp.MustCompile(`\b\d{3}-\d{2}-\d{4}\b`), "SSN"},
+		{piiEmailRe, "EMAIL"},
+		{piiSSNRe, "SSN"},
 	}
 	seen := make(map[string]bool)
 	labels := []map[string]any{}

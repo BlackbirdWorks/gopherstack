@@ -248,6 +248,8 @@ func buildQueryInsightsResponse(rows []Row, cols []ColumnInfo) QueryInsightsResp
 var (
 	rateExpr  = regexp.MustCompile(`^rate\(\d+\s+(minute|minutes|hour|hours|day|days)\)$`)
 	cronParts = regexp.MustCompile(`^cron\((.+)\)$`)
+	// rateCapture captures the count and unit of a rate() schedule expression.
+	rateCapture = regexp.MustCompile(`^rate\((\d+)\s+(minute|minutes|hour|hours|day|days)\)$`)
 )
 
 // validateScheduleExpression checks that expr is a valid rate(...) or cron(...) expression.
@@ -285,8 +287,7 @@ func validateScheduleExpression(expr string) error {
 // For rate expressions it adds the rate interval; for cron expressions it approximates
 // to the nearest future minute boundary (simplified simulation).
 func nextInvocationTime(expr string, from time.Time) time.Time {
-	if m := regexp.MustCompile(`^rate\((\d+)\s+(minute|minutes|hour|hours|day|days)\)$`).
-		FindStringSubmatch(expr); m != nil {
+	if m := rateCapture.FindStringSubmatch(expr); m != nil {
 		n, _ := strconv.Atoi(m[1])
 		unit := m[2]
 		var dur time.Duration
@@ -307,8 +308,7 @@ func nextInvocationTime(expr string, from time.Time) time.Time {
 
 // previousInvocationTime returns the most recent invocation before `from`.
 func previousInvocationTime(expr string, from time.Time) time.Time {
-	if m := regexp.MustCompile(`^rate\((\d+)\s+(minute|minutes|hour|hours|day|days)\)$`).
-		FindStringSubmatch(expr); m != nil {
+	if m := rateCapture.FindStringSubmatch(expr); m != nil {
 		n, _ := strconv.Atoi(m[1])
 		unit := m[2]
 		var dur time.Duration
