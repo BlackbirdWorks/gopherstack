@@ -103,7 +103,7 @@ func (h *Handler) adminSimulateConnection(c *echo.Context) error {
 		req.UserAgent = "Gopherstack UI"
 	}
 
-	conn, err := h.Backend.CreateConnection(req.ConnectionID, req.SourceIP, req.UserAgent)
+	conn, err := h.Backend.CreateConnection(req.ConnectionID, req.SourceIP, req.UserAgent, nil)
 	if err != nil {
 		log.Warn("apigwmgmt admin: simulate failed", "error", err)
 

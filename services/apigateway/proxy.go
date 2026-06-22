@@ -22,12 +22,15 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 // defaultAuthorizerTTL is the default authorizer result cache TTL (AWS default: 300 s).
 const defaultAuthorizerTTL = 300 * time.Second
 
 const defaultAuthorizerCacheMaxEntries = 1024
+
+const defaultIdentitySource = "method.request.header.Authorization"
 
 // maxProxyRequestBodyBytes caps API Gateway proxy request bodies. AWS limits the
 // Lambda synchronous invoke payload to 6 MiB; bodies larger than that cannot be
@@ -58,12 +61,17 @@ type LambdaProxyEvent struct {
 
 // LambdaProxyContext provides context for the Lambda proxy event.
 type LambdaProxyContext struct {
-	ResourcePath string `json:"resourcePath"`
-	HTTPMethod   string `json:"httpMethod"`
-	Stage        string `json:"stage"`
-	APIId        string `json:"apiId"`
-	RequestID    string `json:"requestId,omitempty"`
+	Authorizer   map[string]any `json:"authorizer,omitempty"`
+	ResourcePath string         `json:"resourcePath"`
+	HTTPMethod   string         `json:"httpMethod"`
+	Stage        string         `json:"stage"`
+	APIId        string         `json:"apiId"`
+	RequestID    string         `json:"requestId,omitempty"`
 }
+
+type ctxKey int
+
+const ctxKeyClaims ctxKey = 1
 
 // LambdaProxyResponse is the response format from a Lambda proxy function.
 type LambdaProxyResponse struct {
@@ -117,6 +125,13 @@ func BuildProxyEvent(
 		mqsp[k] = vs
 	}
 
+	var authorizer map[string]any
+	if claims, ok := r.Context().Value(ctxKeyClaims).(jwt.MapClaims); ok {
+		authorizer = map[string]any{
+			"claims": claims,
+		}
+	}
+
 	return &LambdaProxyEvent{
 		HTTPMethod:            r.Method,
 		Path:                  path,
@@ -133,6 +148,7 @@ func BuildProxyEvent(
 			HTTPMethod:   r.Method,
 			Stage:        stageName,
 			APIId:        apiID,
+			Authorizer:   authorizer,
 		},
 	}, nil
 }
@@ -498,6 +514,10 @@ func (h *Handler) runAuthorizer(
 		}
 	}
 
+	if auth.Type == "COGNITO_USER_POOLS" {
+		return h.runCognitoAuthorizer(ctx, w, r, auth, cacheKey, ttl)
+	}
+
 	// Build the authorizer event based on type.
 	event := h.buildAuthorizerEvent(ctx, r, auth, apiID, stageName)
 
@@ -530,6 +550,58 @@ func (h *Handler) runAuthorizer(
 		http.Error(w, "Forbidden", http.StatusForbidden)
 
 		return true
+	}
+
+	return false
+}
+
+// runCognitoAuthorizer verifies a JWT token for COGNITO_USER_POOLS authorizer type.
+func (h *Handler) runCognitoAuthorizer(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	auth *Authorizer,
+	cacheKey string,
+	ttl time.Duration,
+) bool {
+	tokenSource := auth.IdentitySource
+	if tokenSource == "" {
+		tokenSource = defaultIdentitySource
+	}
+
+	var tokenStr string
+
+	if headerName, found := strings.CutPrefix(tokenSource, "method.request.header."); found {
+		tokenStr = r.Header.Get(headerName)
+	} else {
+		tokenStr = r.Header.Get("Authorization")
+	}
+
+	if tokenStr == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+
+		return true
+	}
+
+	token, _, parseErr := new(jwt.Parser).ParseUnverified(tokenStr, jwt.MapClaims{})
+	if parseErr != nil {
+		logger.Load(ctx).WarnContext(ctx, "APIGateway proxy: cognito authorizer invalid token", "error", parseErr)
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+
+		return true
+	}
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+
+		return true
+	}
+
+	*r = *r.WithContext(context.WithValue(r.Context(), ctxKeyClaims, claims))
+
+	if ttl > 0 {
+		h.authCache.set(cacheKey, true, ttl)
 	}
 
 	return false

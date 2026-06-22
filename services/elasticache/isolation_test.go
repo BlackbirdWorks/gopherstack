@@ -6,7 +6,7 @@ import (
 )
 
 func TestRegionIsolation_Clusters(t *testing.T) {
-	b := NewInMemoryBackend("us-east-1", "123456789012", "standard")
+	b := NewInMemoryBackend("us-east-1", "123456789012", "standard", nil)
 
 	ctxEast := context.WithValue(context.Background(), regionContextKey{}, "us-east-1")
 	ctxWest := context.WithValue(context.Background(), regionContextKey{}, "us-west-2")
@@ -34,7 +34,7 @@ func TestRegionIsolation_Clusters(t *testing.T) {
 }
 
 func TestRegionIsolation_ReplicationGroups(t *testing.T) {
-	b := NewInMemoryBackend("us-east-1", "123456789012", "standard")
+	b := NewInMemoryBackend("us-east-1", "123456789012", "standard", nil)
 
 	ctxEast := context.WithValue(context.Background(), regionContextKey{}, "us-east-1")
 	ctxWest := context.WithValue(context.Background(), regionContextKey{}, "us-west-2")

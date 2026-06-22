@@ -21,9 +21,10 @@ const (
 // events are stored in a separate ring so the message and timeline caps don't
 // fight each other.
 type connState struct {
-	conn   *Connection
-	msgs   *messageRing
-	events []LifecycleEvent
+	conn       *Connection
+	msgs       *messageRing
+	downstream chan []byte
+	events     []LifecycleEvent
 }
 
 // InMemoryBackend implements the StorageBackend for API Gateway Management API.
@@ -50,7 +51,10 @@ func (b *InMemoryBackend) appendEvent(s *connState, ev LifecycleEvent) {
 }
 
 // CreateConnection creates a new simulated WebSocket connection.
-func (b *InMemoryBackend) CreateConnection(connectionID, sourceIP, userAgent string) (*Connection, error) {
+func (b *InMemoryBackend) CreateConnection(
+	connectionID, sourceIP, userAgent string,
+	downstream chan []byte,
+) (*Connection, error) {
 	if connectionID == "" {
 		return nil, fmt.Errorf("%w: connectionID required", awserr.ErrInvalidParameter)
 	}
@@ -70,7 +74,7 @@ func (b *InMemoryBackend) CreateConnection(connectionID, sourceIP, userAgent str
 		ConnectedAt:  now,
 		LastActiveAt: now,
 	}
-	state := &connState{conn: conn, msgs: newMessageRing(maxMessagesPerConnection)}
+	state := &connState{conn: conn, msgs: newMessageRing(maxMessagesPerConnection), downstream: downstream}
 	b.appendEvent(state, LifecycleEvent{At: now, Type: EventConnected, Detail: sourceIP})
 	b.connections[connectionID] = state
 	b.stats.TotalConnections++
@@ -117,6 +121,15 @@ func (b *InMemoryBackend) PostToConnection(connectionID string, data []byte) err
 	b.appendEvent(state, LifecycleEvent{At: now, Type: EventMessage, Bytes: len(data)})
 	b.stats.TotalMessages++
 	b.stats.TotalBytesSent += int64(len(data))
+
+	// Write to real websocket if connected
+	if state.downstream != nil {
+		select {
+		case state.downstream <- stored:
+		default:
+			// Warning: WebSocket downstream channel full
+		}
+	}
 
 	return nil
 }

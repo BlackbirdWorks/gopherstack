@@ -20,10 +20,10 @@ func TestAdmin_ListConnections(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	_, err := h.Backend.CreateConnection("alpha", "10.0.0.1", "ua-a")
+	_, err := h.Backend.CreateConnection("alpha", "10.0.0.1", "ua-a", nil)
 	require.NoError(t, err)
 
-	_, err = h.Backend.CreateConnection("beta", "10.0.0.2", "ua-b")
+	_, err = h.Backend.CreateConnection("beta", "10.0.0.2", "ua-b", nil)
 	require.NoError(t, err)
 
 	rec := doRequest(t, h, http.MethodGet, "/_gopherstack/apigwmgmt/connections", nil)
@@ -42,10 +42,10 @@ func TestAdmin_ListConnections_QueryFilter(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	_, err := h.Backend.CreateConnection("alpha-1", "10.0.0.1", "Chromium")
+	_, err := h.Backend.CreateConnection("alpha-1", "10.0.0.1", "Chromium", nil)
 	require.NoError(t, err)
 
-	_, err = h.Backend.CreateConnection("beta-2", "192.168.1.5", "Firefox")
+	_, err = h.Backend.CreateConnection("beta-2", "192.168.1.5", "Firefox", nil)
 	require.NoError(t, err)
 
 	rec := doRequest(t, h, http.MethodGet, "/_gopherstack/apigwmgmt/connections?q=192", nil)
@@ -84,7 +84,7 @@ func TestAdmin_SimulateDuplicate(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	_, err := h.Backend.CreateConnection("dupe", "1.1.1.1", "ua")
+	_, err := h.Backend.CreateConnection("dupe", "1.1.1.1", "ua", nil)
 	require.NoError(t, err)
 
 	body, _ := json.Marshal(map[string]string{"connectionId": "dupe"})
@@ -107,7 +107,7 @@ func TestAdmin_GetMessages(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	_, err := h.Backend.CreateConnection("conn-msgs", "1.1.1.1", "ua")
+	_, err := h.Backend.CreateConnection("conn-msgs", "1.1.1.1", "ua", nil)
 	require.NoError(t, err)
 	require.NoError(t, h.Backend.PostToConnection("conn-msgs", []byte("hello")))
 	require.NoError(t, h.Backend.PostToConnection("conn-msgs", []byte("world")))
@@ -143,7 +143,7 @@ func TestAdmin_ClearMessages(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	_, err := h.Backend.CreateConnection("clr", "1.1.1.1", "ua")
+	_, err := h.Backend.CreateConnection("clr", "1.1.1.1", "ua", nil)
 	require.NoError(t, err)
 	require.NoError(t, h.Backend.PostToConnection("clr", []byte("data")))
 
@@ -157,7 +157,7 @@ func TestAdmin_GetTimeline(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	_, err := h.Backend.CreateConnection("tl", "1.1.1.1", "ua")
+	_, err := h.Backend.CreateConnection("tl", "1.1.1.1", "ua", nil)
 	require.NoError(t, err)
 	require.NoError(t, h.Backend.PostToConnection("tl", []byte("data")))
 	require.NoError(t, h.Backend.PingConnection("tl"))
@@ -181,7 +181,7 @@ func TestAdmin_PingConnection(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	conn, err := h.Backend.CreateConnection("ping-conn", "1.1.1.1", "ua")
+	conn, err := h.Backend.CreateConnection("ping-conn", "1.1.1.1", "ua", nil)
 	require.NoError(t, err)
 
 	originalActive := conn.LastActiveAt
@@ -201,7 +201,7 @@ func TestAdmin_Broadcast(t *testing.T) {
 	h := newTestHandler(t)
 
 	for _, id := range []string{"a", "b", "c"} {
-		_, err := h.Backend.CreateConnection(id, "1.1.1.1", "ua")
+		_, err := h.Backend.CreateConnection(id, "1.1.1.1", "ua", nil)
 		require.NoError(t, err)
 	}
 
@@ -229,7 +229,7 @@ func TestAdmin_BroadcastTooLarge(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	_, err := h.Backend.CreateConnection("c", "1.1.1.1", "ua")
+	_, err := h.Backend.CreateConnection("c", "1.1.1.1", "ua", nil)
 	require.NoError(t, err)
 
 	big := bytes.Repeat([]byte("x"), 130*1024)
@@ -244,7 +244,7 @@ func TestAdmin_Stats(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	_, err := h.Backend.CreateConnection("s1", "1.1.1.1", "ua")
+	_, err := h.Backend.CreateConnection("s1", "1.1.1.1", "ua", nil)
 	require.NoError(t, err)
 	require.NoError(t, h.Backend.PostToConnection("s1", []byte("hi")))
 
@@ -265,13 +265,13 @@ func TestAdmin_Prune(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	_, err := h.Backend.CreateConnection("old", "1.1.1.1", "ua")
+	_, err := h.Backend.CreateConnection("old", "1.1.1.1", "ua", nil)
 	require.NoError(t, err)
 
 	// Gap must exceed the prune threshold with enough margin for slow CI runners.
 	time.Sleep(500 * time.Millisecond)
 
-	_, err = h.Backend.CreateConnection("new", "2.2.2.2", "ua")
+	_, err = h.Backend.CreateConnection("new", "2.2.2.2", "ua", nil)
 	require.NoError(t, err)
 
 	rec := doRequest(t, h, http.MethodPost, "/_gopherstack/apigwmgmt/prune", []byte(`{"idleSeconds": 0}`))

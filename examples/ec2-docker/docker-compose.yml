@@ -28,9 +28,6 @@ services:
       - "8000:8000"
       # Embedded DNS so the host can dig synthetic hostnames.
       - "10053:10053/udp"
-      # SSH port range — must match EC2_DOCKER_SSH_PORT_{MIN,MAX} above so
-      # mapped sshd ports are reachable from the host.
-      - "22000-22019:22000-22019"
     volumes:
       # The docker provider needs the host docker daemon to spawn and tear
       # down the containers that back EC2 instances.

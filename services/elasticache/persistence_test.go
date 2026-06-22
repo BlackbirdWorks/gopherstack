@@ -54,13 +54,13 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			original := elasticache.NewInMemoryBackend("redis", "000000000000", "us-east-1")
+			original := elasticache.NewInMemoryBackend("redis", "000000000000", "us-east-1", nil)
 			id := tt.setup(original)
 
 			snap := original.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
-			fresh := elasticache.NewInMemoryBackend("redis", "000000000000", "us-east-1")
+			fresh := elasticache.NewInMemoryBackend("redis", "000000000000", "us-east-1", nil)
 			require.NoError(t, fresh.Restore(t.Context(), snap))
 
 			tt.verify(t, fresh, id)
@@ -71,7 +71,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	t.Parallel()
 
-	b := elasticache.NewInMemoryBackend("redis", "000000000000", "us-east-1")
+	b := elasticache.NewInMemoryBackend("redis", "000000000000", "us-east-1", nil)
 	err := b.Restore(t.Context(), []byte("not-valid-json"))
 	require.Error(t, err)
 }

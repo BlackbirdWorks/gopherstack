@@ -23,7 +23,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 		{
 			name: "round_trip_preserves_connection",
 			setup: func(b *apigatewaymanagementapi.InMemoryBackend) string {
-				conn, err := b.CreateConnection("conn-abc", "1.2.3.4", "test-agent")
+				conn, err := b.CreateConnection("conn-abc", "1.2.3.4", "test-agent", nil)
 				if err != nil {
 					return ""
 				}
@@ -43,7 +43,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 		{
 			name: "round_trip_preserves_messages",
 			setup: func(b *apigatewaymanagementapi.InMemoryBackend) string {
-				_, err := b.CreateConnection("conn-msg", "5.6.7.8", "msg-agent")
+				_, err := b.CreateConnection("conn-msg", "5.6.7.8", "msg-agent", nil)
 				if err != nil {
 					return ""
 				}
@@ -104,7 +104,7 @@ func TestInMemoryBackend_Reset(t *testing.T) {
 
 	b := apigatewaymanagementapi.NewInMemoryBackend()
 
-	_, err := b.CreateConnection("conn-reset", "1.1.1.1", "reset-agent")
+	_, err := b.CreateConnection("conn-reset", "1.1.1.1", "reset-agent", nil)
 	require.NoError(t, err)
 
 	require.NoError(t, b.PostToConnection("conn-reset", []byte("data")))
@@ -121,7 +121,7 @@ func TestAPIGatewayMgmtAPIHandler_Persistence(t *testing.T) {
 	backend := apigatewaymanagementapi.NewInMemoryBackend()
 	h := apigatewaymanagementapi.NewHandler(backend)
 
-	_, err := backend.CreateConnection("snap-conn", "10.0.0.1", "snap-agent")
+	_, err := backend.CreateConnection("snap-conn", "10.0.0.1", "snap-agent", nil)
 	require.NoError(t, err)
 
 	snap := h.Snapshot(t.Context())

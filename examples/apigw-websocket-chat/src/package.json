@@ -1,0 +1,9 @@
+{
+  "name": "chat-handler",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "dependencies": {
+    "@aws-sdk/client-apigatewaymanagementapi": "^3.0.0"
+  }
+}

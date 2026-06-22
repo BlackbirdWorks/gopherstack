@@ -157,6 +157,11 @@ var (
 	ErrRoutingRuleNotFound = errors.New("NotFoundException")
 )
 
+const (
+	// IntegrationTypeAWSProxy is the AWS_PROXY integration type.
+	IntegrationTypeAWSProxy = "AWS_PROXY"
+)
+
 // StorageBackend is the interface for the API Gateway v2 in-memory store.
 type StorageBackend interface {
 	// APIs
@@ -993,11 +998,11 @@ func (b *InMemoryBackend) CreateIntegration(apiID string, input CreateIntegratio
 	}
 
 	validTypes := map[string]bool{
-		"AWS":               true,
-		integrationTypeHTTP: true,
-		"MOCK":              true,
-		"AWS_PROXY":         true,
-		"HTTP_PROXY":        true,
+		"AWS":                   true,
+		integrationTypeHTTP:     true,
+		"MOCK":                  true,
+		IntegrationTypeAWSProxy: true,
+		"HTTP_PROXY":            true,
 	}
 	if !validTypes[input.IntegrationType] {
 		return nil, fmt.Errorf(
@@ -1008,7 +1013,7 @@ func (b *InMemoryBackend) CreateIntegration(apiID string, input CreateIntegratio
 
 	// Apply AWS-realistic defaults.
 	payloadFmtVer := input.PayloadFormatVersion
-	if payloadFmtVer == "" && input.IntegrationType == "AWS_PROXY" {
+	if payloadFmtVer == "" && input.IntegrationType == IntegrationTypeAWSProxy {
 		payloadFmtVer = "1.0"
 	}
 
