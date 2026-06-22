@@ -3,6 +3,7 @@ package sqs
 import (
 	"encoding/xml"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -167,7 +168,11 @@ type Queue struct {
 	// Approximate: may overcount until next mutation reconciles it.
 	delayedCount    int
 	MaxReceiveCount int
-	IsFIFO          bool
+	// hasActivity is set atomically when a message is enqueued, letting the
+	// janitor skip queues that have never had (or no longer have) pending work.
+	// Cleared by pruneState after confirming the queue is fully idle.
+	hasActivity atomic.Bool
+	IsFIFO      bool
 }
 
 // fifoPerGroupTPS is the AWS-documented per-message-group send rate when
