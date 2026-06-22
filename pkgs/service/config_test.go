@@ -30,6 +30,27 @@ func TestAccountRegionWithoutProviderReturnsEmpty(t *testing.T) {
 	assert.Empty(t, region)
 }
 
+func TestAccountRegionOrDefaultFromProvider(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.NewGlobalConfig("123456789012", "eu-west-1", 0, 0, false, 0)
+	ctx := &service.AppContext{Config: providerStub{cfg: cfg}}
+
+	account, region := service.AccountRegionOrDefault(ctx)
+	assert.Equal(t, "123456789012", account)
+	assert.Equal(t, "eu-west-1", region)
+}
+
+func TestAccountRegionOrDefaultWithoutProviderReturnsDefaults(t *testing.T) {
+	t.Parallel()
+
+	ctx := &service.AppContext{Config: nil}
+
+	account, region := service.AccountRegionOrDefault(ctx)
+	assert.Equal(t, config.DefaultAccountID, account)
+	assert.Equal(t, config.DefaultRegion, region)
+}
+
 type providerStub struct{ cfg *config.GlobalConfig }
 
 func (p providerStub) GetGlobalConfig() *config.GlobalConfig { return p.cfg }

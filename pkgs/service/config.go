@@ -24,3 +24,24 @@ func AccountRegion(ctx *AppContext) (string, string) {
 
 	return "", ""
 }
+
+// AccountRegionOrDefault is like AccountRegion but falls back to
+// config.DefaultAccountID and config.DefaultRegion when no config.Provider is
+// present. It collapses the most common provider idiom:
+//
+//	accountID := config.DefaultAccountID
+//	region := config.DefaultRegion
+//	if cp, ok := ctx.Config.(config.Provider); ok {
+//		cfg := cp.GetGlobalConfig()
+//		accountID = cfg.GetAccountID()
+//		region = cfg.GetRegion()
+//	}
+func AccountRegionOrDefault(ctx *AppContext) (string, string) {
+	if cp, ok := ctx.Config.(config.Provider); ok {
+		cfg := cp.GetGlobalConfig()
+
+		return cfg.GetAccountID(), cfg.GetRegion()
+	}
+
+	return config.DefaultAccountID, config.DefaultRegion
+}
