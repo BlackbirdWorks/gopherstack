@@ -138,7 +138,6 @@ func (j *Janitor) sweepExpiredKeys(ctx context.Context) {
 		expired += e2
 	}
 
-	j.Backend.clearResolutionCache()
 	j.Backend.mu.Unlock()
 
 	j.logSweepResults(ctx, purged, expired)
@@ -163,7 +162,8 @@ func (j *Janitor) sweepFromHeap(now float64) (int, int) {
 
 		switch e.expKind {
 		case expiryKindDeletion:
-			if key.KeyState == KeyStatePendingDeletion && key.DeletionDate != 0 && now >= key.DeletionDate {
+			if key.KeyState == KeyStatePendingDeletion && key.DeletionDate != 0 &&
+				now >= key.DeletionDate {
 				j.purgeKey(e.region, e.keyID)
 				purged++
 			}
@@ -212,6 +212,7 @@ func (j *Janitor) purgeKey(region, keyID string) {
 
 	for aliasName, alias := range j.Backend.aliasesStore(region) {
 		if alias.TargetKeyID == keyID {
+			j.Backend.keyIDResolutionCache.Delete(aliasName)
 			delete(j.Backend.aliasesStore(region), aliasName)
 		}
 	}
@@ -225,6 +226,7 @@ func (j *Janitor) purgeKey(region, keyID string) {
 
 	delete(j.Backend.keysStore(region), keyID)
 	delete(j.Backend.policiesStore(region), keyID)
+	j.Backend.lastUsage.Delete(region + ":" + keyID)
 }
 
 // shouldExpireMaterial reports whether the key's imported material should be expired.
@@ -256,7 +258,8 @@ func (j *Janitor) logSweepResults(ctx context.Context, purged, expired int) {
 
 	if expired > 0 {
 		telemetry.RecordWorkerItems(kmsJanitorServiceName, kmsJanitorComponent, expired)
-		logger.Load(ctx).InfoContext(ctx, "KMS janitor: imported key material expired", "count", expired)
+		logger.Load(ctx).
+			InfoContext(ctx, "KMS janitor: imported key material expired", "count", expired)
 	}
 
 	telemetry.RecordWorkerTask(kmsJanitorServiceName, kmsJanitorComponent, "success")

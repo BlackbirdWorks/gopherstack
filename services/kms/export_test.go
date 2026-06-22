@@ -195,6 +195,32 @@ func GrantIndexesConsistent(b *InMemoryBackend) (bool, string) {
 	return true, ""
 }
 
+// ResolutionCacheLen returns the number of entries in the alias/ARN resolution cache.
+func ResolutionCacheLen(b *InMemoryBackend) int {
+	n := 0
+	b.keyIDResolutionCache.Range(func(_, _ any) bool {
+		n++
+
+		return true
+	})
+
+	return n
+}
+
+// ResolutionCacheHas reports whether key is present in the resolution cache.
+func ResolutionCacheHas(b *InMemoryBackend, key string) bool {
+	_, ok := b.keyIDResolutionCache.Load(key)
+
+	return ok
+}
+
+// LastUsageExists reports whether a lastUsage entry exists for region:keyID.
+func LastUsageExists(b *InMemoryBackend, region, keyID string) bool {
+	_, ok := b.lastUsage.Load(region + ":" + keyID)
+
+	return ok
+}
+
 // ErrForceRotateKeyNotFound is returned by ForceRotateForTest when keyID is absent.
 var ErrForceRotateKeyNotFound = errors.New("key not found")
 
