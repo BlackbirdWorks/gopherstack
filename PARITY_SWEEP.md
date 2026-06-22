@@ -110,7 +110,7 @@ Polecats (sonnet) branch off `parity-sweep`, ≤3 concurrent; mayor aggregates e
 | 101 | cloudformation | P2 | 349-354, 2956-2968 | ✅ |
 | 102 | cloudfront | P2 | 355-360, 2969-2980 | ☐ |
 | 103 | cloudtrail | P2 | 361-366, 2981-2992 | ☐ |
-| 104 | cloudwatch | P2 | 367-372, 2993-3003 | ☐ |
+| 104 | cloudwatch | P2 | 367-372, 2993-3003 | ✅ |
 | 105 | cloudwatchlogs | P2 | 373-378, 3004-3015 | ☐ |
 | 106 | codeartifact | P2 | 379-384, 3016-3025 | ☐ |
 | 107 | codeconnections | P2 | 416-429, 3047-3055 | ☐ |
