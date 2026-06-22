@@ -46,7 +46,7 @@ func TestRefinement1_StorageBackendInterface(t *testing.T) {
 func TestRefinement1_HandlerOpsLen(t *testing.T) {
 	t.Parallel()
 
-	b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
+	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	h := transfer.NewHandler(b)
 	assert.Len(t, h.GetSupportedOperations(), 71)
 }
@@ -55,7 +55,7 @@ func TestRefinement1_HandlerOpsLen(t *testing.T) {
 func TestRefinement1_SDKOpsSorted(t *testing.T) {
 	t.Parallel()
 
-	b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
+	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	h := transfer.NewHandler(b)
 	ops := h.GetSupportedOperations()
 
@@ -71,7 +71,7 @@ func TestRefinement1_SDKOpsSorted(t *testing.T) {
 func TestRefinement1_HandlerOpsLenExport(t *testing.T) {
 	t.Parallel()
 
-	b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
+	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	h := transfer.NewHandler(b)
 	assert.Equal(t, 71, transfer.HandlerOpsLen(h))
 }
@@ -80,7 +80,7 @@ func TestRefinement1_HandlerOpsLenExport(t *testing.T) {
 func TestRefinement1_AccountIDRegion(t *testing.T) {
 	t.Parallel()
 
-	b := transfer.NewInMemoryBackend("111122223333", "eu-west-1")
+	b := transfer.NewInMemoryBackend(t.Context(), "111122223333", "eu-west-1")
 	assert.Equal(t, "111122223333", b.AccountID())
 	assert.Equal(t, "eu-west-1", b.Region())
 }
@@ -89,7 +89,7 @@ func TestRefinement1_AccountIDRegion(t *testing.T) {
 func TestRefinement1_BackendReset(t *testing.T) {
 	t.Parallel()
 
-	b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
+	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 
 	_, err := b.CreateServer(nil, nil)
 	require.NoError(t, err)
@@ -105,7 +105,7 @@ func TestRefinement1_BackendReset(t *testing.T) {
 func TestRefinement1_HandlerReset(t *testing.T) {
 	t.Parallel()
 
-	b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
+	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	h := transfer.NewHandler(b)
 
 	rec := doTransferRequest(t, h, "CreateServer", map[string]any{})
@@ -124,7 +124,7 @@ func TestRefinement1_HandlerReset(t *testing.T) {
 func TestRefinement1_ServerCountExport(t *testing.T) {
 	t.Parallel()
 
-	b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
+	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	assert.Equal(t, 0, transfer.ServerCount(b))
 
 	_, err := b.CreateServer(nil, nil)
@@ -137,7 +137,7 @@ func TestRefinement1_ServerCountExport(t *testing.T) {
 func TestRefinement1_UserCountExport(t *testing.T) {
 	t.Parallel()
 
-	b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
+	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	s, err := b.CreateServer(nil, nil)
 	require.NoError(t, err)
 
@@ -153,7 +153,7 @@ func TestRefinement1_UserCountExport(t *testing.T) {
 func TestRefinement1_AccessCountExport(t *testing.T) {
 	t.Parallel()
 
-	b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
+	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	s, err := b.CreateServer(nil, nil)
 	require.NoError(t, err)
 
@@ -169,7 +169,7 @@ func TestRefinement1_AccessCountExport(t *testing.T) {
 func TestRefinement1_AgreementCountExport(t *testing.T) {
 	t.Parallel()
 
-	b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
+	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	s, err := b.CreateServer(nil, nil)
 	require.NoError(t, err)
 
@@ -185,7 +185,7 @@ func TestRefinement1_AgreementCountExport(t *testing.T) {
 func TestRefinement1_ConnectorCountExport(t *testing.T) {
 	t.Parallel()
 
-	b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
+	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	assert.Equal(t, 0, transfer.ConnectorCount(b))
 
 	_, err := b.CreateConnector("https://example.com", "", nil, nil, nil)
@@ -198,7 +198,7 @@ func TestRefinement1_ConnectorCountExport(t *testing.T) {
 func TestRefinement1_ProfileCountExport(t *testing.T) {
 	t.Parallel()
 
-	b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
+	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	assert.Equal(t, 0, transfer.ProfileCount(b))
 
 	_, err := b.CreateProfile("LOCAL", "as2id", nil)
@@ -211,7 +211,7 @@ func TestRefinement1_ProfileCountExport(t *testing.T) {
 func TestRefinement1_WebAppCountExport(t *testing.T) {
 	t.Parallel()
 
-	b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
+	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	assert.Equal(t, 0, transfer.WebAppCount(b))
 
 	_, err := b.CreateWebApp(nil)
@@ -224,7 +224,7 @@ func TestRefinement1_WebAppCountExport(t *testing.T) {
 func TestRefinement1_WorkflowCountExport(t *testing.T) {
 	t.Parallel()
 
-	b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
+	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	assert.Equal(t, 0, transfer.WorkflowCount(b))
 
 	_, err := b.CreateWorkflow("desc", nil, nil, nil)
@@ -237,7 +237,7 @@ func TestRefinement1_WorkflowCountExport(t *testing.T) {
 func TestRefinement1_CertificateCountExport(t *testing.T) {
 	t.Parallel()
 
-	b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
+	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	assert.Equal(t, 0, transfer.CertificateCount(b))
 
 	b.AddCertificateInternal("cert-test")
@@ -265,7 +265,7 @@ func TestRefinement1_ProfileTypeValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
+			b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 			_, err := b.CreateProfile(tt.profileType, "as2id", nil)
 
 			if tt.wantErr {
@@ -337,7 +337,7 @@ func TestRefinement1_ConnectorURLValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
+			b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 			_, err := b.CreateConnector(tt.url, "", nil, nil, nil)
 
 			if tt.wantErr {
@@ -363,7 +363,7 @@ func TestRefinement1_ConnectorURLValidationHTTP(t *testing.T) {
 func TestRefinement1_DeleteServerCascade(t *testing.T) {
 	t.Parallel()
 
-	b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
+	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 
 	s, err := b.CreateServer(nil, nil)
 	require.NoError(t, err)
@@ -403,7 +403,7 @@ func TestRefinement1_DeleteServerCascade(t *testing.T) {
 func TestRefinement1_SnapshotRestore(t *testing.T) {
 	t.Parallel()
 
-	b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
+	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 
 	s, err := b.CreateServer(nil, nil)
 	require.NoError(t, err)
@@ -420,7 +420,7 @@ func TestRefinement1_SnapshotRestore(t *testing.T) {
 	data := b.Snapshot(t.Context())
 	require.NotNil(t, data)
 
-	b2 := transfer.NewInMemoryBackend("000000000000", "us-east-1")
+	b2 := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	require.NoError(t, b2.Restore(t.Context(), data))
 
 	assert.Equal(t, 1, transfer.ServerCount(b2))
@@ -437,11 +437,11 @@ func TestRefinement1_SnapshotRestore(t *testing.T) {
 func TestRefinement1_SnapshotRestoreEmpty(t *testing.T) {
 	t.Parallel()
 
-	b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
+	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	data := b.Snapshot(t.Context())
 	require.NotNil(t, data)
 
-	b2 := transfer.NewInMemoryBackend("000000000000", "us-east-1")
+	b2 := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	require.NoError(t, b2.Restore(t.Context(), data))
 
 	assert.Equal(t, 0, transfer.ServerCount(b2))
@@ -451,7 +451,7 @@ func TestRefinement1_SnapshotRestoreEmpty(t *testing.T) {
 func TestRefinement1_SnapshotRestoreInvalidJSON(t *testing.T) {
 	t.Parallel()
 
-	b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
+	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	err := b.Restore(t.Context(), []byte("not-json"))
 
 	require.Error(t, err)
@@ -461,7 +461,7 @@ func TestRefinement1_SnapshotRestoreInvalidJSON(t *testing.T) {
 func TestRefinement1_HandlerSnapshotRestore(t *testing.T) {
 	t.Parallel()
 
-	b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
+	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	h := transfer.NewHandler(b)
 
 	rec := doTransferRequest(t, h, "CreateServer", map[string]any{})
@@ -470,7 +470,7 @@ func TestRefinement1_HandlerSnapshotRestore(t *testing.T) {
 	data := h.Snapshot(t.Context())
 	require.NotNil(t, data)
 
-	h2 := transfer.NewHandler(transfer.NewInMemoryBackend("000000000000", "us-east-1"))
+	h2 := transfer.NewHandler(transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1"))
 	require.NoError(t, h2.Restore(t.Context(), data))
 
 	b2 := h2.Backend.(*transfer.InMemoryBackend)
@@ -481,7 +481,7 @@ func TestRefinement1_HandlerSnapshotRestore(t *testing.T) {
 func TestRefinement1_AddServerInternal(t *testing.T) {
 	t.Parallel()
 
-	b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
+	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	b.AddServerInternal("s-test123")
 
 	assert.Equal(t, 1, transfer.ServerCount(b))
@@ -495,7 +495,7 @@ func TestRefinement1_AddServerInternal(t *testing.T) {
 func TestRefinement1_AddConnectorInternal(t *testing.T) {
 	t.Parallel()
 
-	b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
+	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	b.AddConnectorInternal("c-test123", "https://example.com")
 
 	assert.Equal(t, 1, transfer.ConnectorCount(b))
@@ -508,7 +508,7 @@ func TestRefinement1_AddConnectorInternal(t *testing.T) {
 func TestRefinement1_AddProfileInternal(t *testing.T) {
 	t.Parallel()
 
-	b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
+	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	b.AddProfileInternal("p-test123", "LOCAL")
 
 	assert.Equal(t, 1, transfer.ProfileCount(b))
@@ -518,7 +518,7 @@ func TestRefinement1_AddProfileInternal(t *testing.T) {
 func TestRefinement1_AddWebAppInternal(t *testing.T) {
 	t.Parallel()
 
-	b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
+	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	b.AddWebAppInternal("webapp-test123")
 
 	assert.Equal(t, 1, transfer.WebAppCount(b))
@@ -528,7 +528,7 @@ func TestRefinement1_AddWebAppInternal(t *testing.T) {
 func TestRefinement1_AddWorkflowInternal(t *testing.T) {
 	t.Parallel()
 
-	b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
+	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	b.AddWorkflowInternal("w-test123")
 
 	assert.Equal(t, 1, transfer.WorkflowCount(b))
@@ -589,7 +589,7 @@ func TestRefinement1_CreateWorkflowReturnsWorkflowID(t *testing.T) {
 func TestRefinement1_DeleteServerCascadeHTTP(t *testing.T) {
 	t.Parallel()
 
-	b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
+	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	h := transfer.NewHandler(b)
 
 	createRec := doTransferRequest(t, h, "CreateServer", map[string]any{})
@@ -640,7 +640,7 @@ func TestRefinement1_DeleteServerCascadeHTTP(t *testing.T) {
 func TestRefinement1_SnapshotPreservesAgreementStatus(t *testing.T) {
 	t.Parallel()
 
-	b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
+	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	s, err := b.CreateServer(nil, nil)
 	require.NoError(t, err)
 
@@ -651,7 +651,7 @@ func TestRefinement1_SnapshotPreservesAgreementStatus(t *testing.T) {
 	data := b.Snapshot(t.Context())
 	require.NotNil(t, data)
 
-	b2 := transfer.NewInMemoryBackend("000000000000", "us-east-1")
+	b2 := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	require.NoError(t, b2.Restore(t.Context(), data))
 	assert.Equal(t, 1, transfer.AgreementCount(b2))
 }
@@ -662,7 +662,7 @@ func TestRefinement1_HandlerSnapshotNilBackend(t *testing.T) {
 
 	// Use a handler with a custom non-InMemoryBackend to exercise the nil path.
 	// We use a standard backend – just confirm Snapshot doesn't panic.
-	b := transfer.NewInMemoryBackend("000000000000", "us-east-1")
+	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	h := transfer.NewHandler(b)
 	data := h.Snapshot(t.Context())
 	assert.NotNil(t, data)

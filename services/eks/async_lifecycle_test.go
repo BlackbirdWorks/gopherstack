@@ -31,7 +31,7 @@ func TestAsyncLifecycle_Cluster(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := NewInMemoryBackend("123456789012", "us-east-1")
+			b := NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
 			defer b.Reset()
 
 			created, err := b.CreateCluster("clstr", "", "arn:aws:iam::123456789012:role/eks", nil, nil, nil)
@@ -85,7 +85,7 @@ func TestAsyncLifecycle_Nodegroup(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := NewInMemoryBackend("123456789012", "us-east-1")
+			b := NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
 			defer b.Reset()
 
 			// Wait for the cluster to become ACTIVE so nodegroup creation is valid

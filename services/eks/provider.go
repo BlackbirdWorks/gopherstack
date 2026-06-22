@@ -26,7 +26,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 
 	accountID, region := service.AccountRegionOrDefault(ctx)
 
-	backend := NewInMemoryBackend(accountID, region)
+	backend := NewInMemoryBackend(ctx.JanitorCtx, accountID, region)
 	handler := NewHandler(backend)
 
 	return handler, nil

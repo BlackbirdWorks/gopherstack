@@ -1,6 +1,7 @@
 package transfer
 
 import (
+	"context"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
@@ -722,7 +723,7 @@ type InMemoryBackend struct {
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
-func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
+func NewInMemoryBackend(ctx context.Context, accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
 		servers:              make(map[string]*Server),
 		users:                make(map[string]map[string]*User),
@@ -744,7 +745,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		accountID:            accountID,
 		region:               region,
 		mu:                   lockmetrics.New("transfer"),
-		work:                 worker.NewGroup("transfer"),
+		work:                 worker.NewGroup(ctx, "transfer"),
 	}
 }
 

@@ -1,7 +1,8 @@
 package worker
 
-// Option customises a ticker worker. Options are additive and idiomatic so the
-// primitive can absorb every janitor variant without a parameter explosion.
+// Option customises an individual ticker sweep (used by both RunTicker and
+// Group.Ticker). Options are additive so the primitive can absorb every janitor
+// variant without a parameter explosion.
 type Option func(*config)
 
 type config struct {
@@ -25,8 +26,21 @@ func WithImmediate() Option {
 }
 
 // WithOnPanic registers a hook invoked after a recovered sweep panic has been
-// logged. The default behaviour (log and continue) always applies; the hook is
-// for callers that additionally need to record a metric or flip a flag.
+// logged. The default behaviour (log, record a panic task, continue) always
+// applies; the hook is for callers that additionally need to flip a flag.
 func WithOnPanic(fn func(any)) Option {
 	return func(c *config) { c.onPanic = fn }
+}
+
+// GroupOption configures a Group at construction.
+type GroupOption func(*groupConfig)
+
+type groupConfig struct {
+	metrics Metrics
+}
+
+// WithMetrics sets the telemetry sink. Defaults to a pkgs/telemetry-backed
+// implementation; override it to capture worker telemetry in tests.
+func WithMetrics(m Metrics) GroupOption {
+	return func(c *groupConfig) { c.metrics = m }
 }

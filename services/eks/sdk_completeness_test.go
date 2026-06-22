@@ -16,7 +16,7 @@ import (
 func TestSDKCompleteness(t *testing.T) {
 	t.Parallel()
 
-	backend := eks.NewInMemoryBackend("000000000000", "us-east-1")
+	backend := eks.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	h := eks.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &ekssdk.Client{}, h.GetSupportedOperations(), []string{})
 }

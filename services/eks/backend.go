@@ -1,6 +1,7 @@
 package eks
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
@@ -213,7 +214,7 @@ type InMemoryBackend struct {
 }
 
 // NewInMemoryBackend creates a new in-memory EKS backend.
-func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
+func NewInMemoryBackend(ctx context.Context, accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
 		clusters:                make(map[string]*Cluster),
 		nodegroups:              make(map[string]map[string]*Nodegroup),
@@ -230,7 +231,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		accountID:               accountID,
 		region:                  region,
 		mu:                      lockmetrics.New("eks"),
-		work:                    worker.NewGroup("eks"),
+		work:                    worker.NewGroup(ctx, "eks"),
 	}
 }
 

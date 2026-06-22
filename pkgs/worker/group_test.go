@@ -2,6 +2,7 @@ package worker_test
 
 import (
 	"context"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -12,10 +13,56 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/worker"
 )
 
+type fakeMetrics struct {
+	tasks map[string]int // status -> count
+	mu    sync.Mutex
+}
+
+func (f *fakeMetrics) RecordTask(_, _, status string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.tasks == nil {
+		f.tasks = map[string]int{}
+	}
+	f.tasks[status]++
+}
+func (f *fakeMetrics) RecordItems(_, _ string, _ int)      {}
+func (f *fakeMetrics) RecordQueueDepth(_, _ string, _ int) {}
+
+func (f *fakeMetrics) task(status string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.tasks[status]
+}
+
+func TestGroupTickerRecordsSuccessTask(t *testing.T) {
+	t.Parallel()
+
+	fm := &fakeMetrics{}
+	g := worker.NewGroup(t.Context(), "svc", worker.WithMetrics(fm))
+	g.Ticker("comp", time.Hour, 0, func(context.Context) {}, worker.WithImmediate())
+
+	require.Eventually(t, func() bool { return fm.task("success") >= 1 }, time.Second, time.Millisecond)
+	g.Stop()
+	assert.Zero(t, fm.task("panic"))
+}
+
+func TestGroupTickerRecordsPanicTask(t *testing.T) {
+	t.Parallel()
+
+	fm := &fakeMetrics{}
+	g := worker.NewGroup(t.Context(), "svc", worker.WithMetrics(fm))
+	g.Ticker("comp", time.Hour, 0, func(context.Context) { panic("boom") }, worker.WithImmediate())
+
+	require.Eventually(t, func() bool { return fm.task("panic") >= 1 }, time.Second, time.Millisecond)
+	g.Stop()
+}
+
 func TestGroupGoIsJoinedByStop(t *testing.T) {
 	t.Parallel()
 
-	g := worker.NewGroup("svc")
+	g := worker.NewGroup(t.Context(), "svc")
 
 	var stopped atomic.Bool
 	g.Go("comp", func(ctx context.Context) {
@@ -30,7 +77,7 @@ func TestGroupGoIsJoinedByStop(t *testing.T) {
 func TestGroupTickerSweepsThenStops(t *testing.T) {
 	t.Parallel()
 
-	g := worker.NewGroup("svc")
+	g := worker.NewGroup(t.Context(), "svc")
 
 	var count atomic.Int64
 	g.Ticker("comp", time.Millisecond, 0, func(context.Context) { count.Add(1) })
@@ -46,7 +93,7 @@ func TestGroupTickerSweepsThenStops(t *testing.T) {
 func TestGroupAfterFiresAndIsCancellableByStop(t *testing.T) {
 	t.Parallel()
 
-	g := worker.NewGroup("svc")
+	g := worker.NewGroup(t.Context(), "svc")
 
 	fired := make(chan struct{}, 1)
 	g.After("comp", time.Millisecond, func() { fired <- struct{}{} })
@@ -58,7 +105,7 @@ func TestGroupAfterFiresAndIsCancellableByStop(t *testing.T) {
 	}
 
 	// A long-delay timer must be cancelled by Stop, never firing.
-	g2 := worker.NewGroup("svc")
+	g2 := worker.NewGroup(t.Context(), "svc")
 	var late atomic.Bool
 	g2.After("comp", time.Hour, func() { late.Store(true) })
 	g2.Stop()
@@ -69,7 +116,7 @@ func TestGroupAfterFiresAndIsCancellableByStop(t *testing.T) {
 func TestGroupAfterIsNoOpAfterStop(t *testing.T) {
 	t.Parallel()
 
-	g := worker.NewGroup("svc")
+	g := worker.NewGroup(t.Context(), "svc")
 	g.Stop()
 
 	var ran atomic.Bool
@@ -81,7 +128,7 @@ func TestGroupAfterIsNoOpAfterStop(t *testing.T) {
 func TestGroupRecoversFromCallbackPanics(t *testing.T) {
 	t.Parallel()
 
-	g := worker.NewGroup("svc")
+	g := worker.NewGroup(t.Context(), "svc")
 
 	// A panicking Go goroutine and a panicking After callback must both be
 	// recovered so Stop still completes cleanly.
@@ -96,7 +143,7 @@ func TestGroupRecoversFromCallbackPanics(t *testing.T) {
 func TestGroupStopIsIdempotent(t *testing.T) {
 	t.Parallel()
 
-	g := worker.NewGroup("svc")
+	g := worker.NewGroup(t.Context(), "svc")
 	g.Ticker("comp", time.Millisecond, 0, func(context.Context) {})
 
 	g.Stop()

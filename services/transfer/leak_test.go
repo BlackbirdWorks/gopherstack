@@ -33,7 +33,7 @@ func TestImportSSHPublicKey_BodyIndexBounded(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := transfer.NewInMemoryBackend("123456789012", "us-east-1")
+			b := transfer.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
 
 			srv, err := b.CreateServer([]string{"SFTP"}, nil)
 			require.NoError(t, err)
@@ -70,7 +70,7 @@ func TestImportSSHPublicKey_DuplicateRejectedByIndex(t *testing.T) {
 
 	const keyBody = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBqzG1vdEIp+OOmEzJMFEXOvqOAvj0c9IITqKMqL5ooH test-dup"
 
-	b := transfer.NewInMemoryBackend("123456789012", "us-east-1")
+	b := transfer.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
 
 	srv, err := b.CreateServer([]string{"SFTP"}, nil)
 	require.NoError(t, err)

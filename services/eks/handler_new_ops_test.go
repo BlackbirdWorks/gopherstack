@@ -65,7 +65,7 @@ func TestEKS_CreateAccessEntry(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestEKSHandler()
+			h := newTestEKSHandler(t)
 			if tt.setup != nil {
 				tt.setup(t, h)
 			}
@@ -126,7 +126,7 @@ func TestEKS_DeleteAccessEntry(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestEKSHandler()
+			h := newTestEKSHandler(t)
 			if tt.setup != nil {
 				tt.setup(t, h)
 			}
@@ -193,7 +193,7 @@ func TestEKS_AssociateAccessPolicy(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestEKSHandler()
+			h := newTestEKSHandler(t)
 			if tt.setup != nil {
 				tt.setup(t, h)
 			}
@@ -250,7 +250,7 @@ func TestEKS_AssociateEncryptionConfig(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestEKSHandler()
+			h := newTestEKSHandler(t)
 			if tt.setup != nil {
 				tt.setup(t, h)
 			}
@@ -342,7 +342,7 @@ func TestEKS_AssociateIdentityProviderConfig(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestEKSHandler()
+			h := newTestEKSHandler(t)
 			if tt.setup != nil {
 				tt.setup(t, h)
 			}
@@ -406,7 +406,7 @@ func TestEKS_CreateAddon(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestEKSHandler()
+			h := newTestEKSHandler(t)
 			if tt.setup != nil {
 				tt.setup(t, h)
 			}
@@ -453,7 +453,7 @@ func TestEKS_CreateCapability(t *testing.T) {
 		},
 	}
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	// Pre-create duplicate for the last test.
 	doREST(t, h, http.MethodPost, "/capabilities", map[string]any{"name": "dup-cap"})
 
@@ -465,7 +465,7 @@ func TestEKS_CreateCapability(t *testing.T) {
 			if tt.name == "create_capability_duplicate" {
 				handler = h
 			} else {
-				handler = newTestEKSHandler()
+				handler = newTestEKSHandler(t)
 			}
 
 			rec := doREST(t, handler, http.MethodPost, "/capabilities", tt.body)
@@ -511,7 +511,7 @@ func TestEKS_CreateEksAnywhereSubscription(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestEKSHandler()
+			h := newTestEKSHandler(t)
 			rec := doREST(t, h, http.MethodPost, "/subscriptions", tt.body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
@@ -585,7 +585,7 @@ func TestEKS_CreateFargateProfile(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestEKSHandler()
+			h := newTestEKSHandler(t)
 			if tt.setup != nil {
 				tt.setup(t, h)
 			}
@@ -658,7 +658,7 @@ func TestEKS_CreatePodIdentityAssociation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestEKSHandler()
+			h := newTestEKSHandler(t)
 			if tt.setup != nil {
 				tt.setup(t, h)
 			}
@@ -684,7 +684,7 @@ func TestEKS_CreatePodIdentityAssociation(t *testing.T) {
 func TestEKS_NewOps_PersistenceRoundTrip(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend("123456789012", "us-east-1")
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
 
 	// Create cluster and access entry.
 	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
@@ -724,7 +724,7 @@ func TestEKS_NewOps_PersistenceRoundTrip(t *testing.T) {
 	snap := h.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
-	b2 := eks.NewInMemoryBackend("123456789012", "us-east-1")
+	b2 := eks.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
 	h2 := eks.NewHandler(b2)
 	require.NoError(t, h2.Restore(t.Context(), snap))
 
@@ -738,7 +738,7 @@ func TestEKS_NewOps_PersistenceRoundTrip(t *testing.T) {
 func TestEKS_NewOps_GetSupportedOperations(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	ops := h.GetSupportedOperations()
 
 	expected := []string{
@@ -763,7 +763,7 @@ func TestEKS_NewOps_GetSupportedOperations(t *testing.T) {
 func TestEKS_RouteMatcher_NewPaths(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	matcher := h.RouteMatcher()
 
 	tests := []struct {

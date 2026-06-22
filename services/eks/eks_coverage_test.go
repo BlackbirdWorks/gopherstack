@@ -15,7 +15,7 @@ import (
 func TestEKS_Subscription_Lifecycle(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 
 	// Create subscription
 	rec := doREST(t, h, http.MethodPost, "/subscriptions", map[string]any{
@@ -69,7 +69,7 @@ func TestEKS_Subscription_Lifecycle(t *testing.T) {
 func TestEKS_FargateProfile_Lifecycle(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "fg-cluster"})
 
@@ -90,7 +90,7 @@ func TestEKS_FargateProfile_Lifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 
 	// Create fargate profile via backend, then test describe/delete via handler
-	b := eks.NewInMemoryBackend("123456789012", "us-east-1")
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
 	_, err := b.CreateCluster("fg-cluster2", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 
@@ -128,7 +128,7 @@ func TestEKS_FargateProfile_Lifecycle(t *testing.T) {
 func TestEKS_FargateProfile_Handler(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 
 	// Create cluster first
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "fg-h-cluster"})
@@ -162,7 +162,7 @@ func TestEKS_FargateProfile_Handler(t *testing.T) {
 func TestEKS_PodIdentityAssociation_Lifecycle(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "pid-cluster"})
 
@@ -253,7 +253,7 @@ func TestEKS_PodIdentityAssociation_Lifecycle(t *testing.T) {
 func TestEKS_AccessEntry_DescribeListUpdate(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "ac-cluster"})
 
@@ -336,7 +336,7 @@ func TestEKS_AccessEntry_DescribeListUpdate(t *testing.T) {
 func TestEKS_IdentityProviderConfig_Lifecycle(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "idp-cluster"})
 
@@ -409,7 +409,7 @@ func TestEKS_IdentityProviderConfig_Lifecycle(t *testing.T) {
 func TestEKS_Insights_Lifecycle(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend("123456789012", "us-east-1")
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
 	_, err := b.CreateCluster("insight-cluster", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 
@@ -423,7 +423,7 @@ func TestEKS_Insights_Lifecycle(t *testing.T) {
 	require.Error(t, err)
 
 	// Describe insight (use handler path)
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "ih-cluster"})
 
 	// List via handler
@@ -462,7 +462,7 @@ func TestEKS_Insights_Lifecycle(t *testing.T) {
 func TestEKS_ClusterUpdates(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "update-cluster"})
 
@@ -508,7 +508,7 @@ func TestEKS_ClusterUpdates(t *testing.T) {
 func TestEKS_NodegroupVersionUpdate(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "ng-upd-cluster"})
 	doREST(t, h, http.MethodPost, "/clusters/ng-upd-cluster/node-groups", map[string]any{
@@ -547,7 +547,7 @@ func TestEKS_NodegroupVersionUpdate(t *testing.T) {
 func TestEKS_RegisterDeregisterCluster(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 
 	// Register cluster
 	rec := doREST(t, h, http.MethodPost, "/clusters/my-ext-cluster/register", map[string]any{
@@ -575,7 +575,7 @@ func TestEKS_RegisterDeregisterCluster(t *testing.T) {
 func TestEKS_Persistence_SubscriptionAndFargate(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend("123456789012", "us-east-1")
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
 	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 
@@ -592,7 +592,7 @@ func TestEKS_Persistence_SubscriptionAndFargate(t *testing.T) {
 	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
-	b2 := eks.NewInMemoryBackend("123456789012", "us-east-1")
+	b2 := eks.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
 	err = b2.Restore(t.Context(), snap)
 	require.NoError(t, err)
 
