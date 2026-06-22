@@ -16,10 +16,12 @@ import (
 
 const testEndpoint = "localhost:4566"
 
-func newBackend() *sqs.InMemoryBackend {
+func newBackend(t *testing.T) *sqs.InMemoryBackend {
+	t.Helper()
+
 	b := sqs.NewInMemoryBackend()
-	// The janitor goroutine runs in the background; not stopped in unit tests
-	// since the test process exits promptly and the goroutine will be cleaned up.
+	t.Cleanup(b.Close)
+
 	return b
 }
 
@@ -55,7 +57,7 @@ func TestCreateQueue(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newBackend()
+			b := newBackend(t)
 			out, err := b.CreateQueue(&sqs.CreateQueueInput{
 				QueueName: tc.queueName,
 				Endpoint:  testEndpoint,
@@ -74,7 +76,7 @@ func TestCreateQueue(t *testing.T) {
 func TestCreateQueueDuplicate(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	createTestQueue(t, b, "my-queue")
 
 	tests := []struct {
@@ -118,7 +120,7 @@ func TestCreateQueueDuplicate(t *testing.T) {
 func TestCreateQueueNameValidation(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 
 	tests := []struct {
 		name    string
@@ -151,7 +153,7 @@ func TestCreateQueueNameValidation(t *testing.T) {
 func TestDeleteQueue(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	qURL := createTestQueue(t, b, "my-queue")
 
 	err := b.DeleteQueue(&sqs.DeleteQueueInput{QueueURL: qURL})
@@ -163,7 +165,7 @@ func TestDeleteQueue(t *testing.T) {
 func TestDeleteQueueNotFound(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	err := b.DeleteQueue(&sqs.DeleteQueueInput{QueueURL: queueURL("nonexistent")})
 	require.ErrorIs(t, err, sqs.ErrQueueNotFound)
 }
@@ -171,7 +173,7 @@ func TestDeleteQueueNotFound(t *testing.T) {
 func TestListQueues(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	createTestQueue(t, b, "alpha-queue")
 	createTestQueue(t, b, "beta-queue")
 	createTestQueue(t, b, "alpha-other")
@@ -238,7 +240,7 @@ func TestListQueues(t *testing.T) {
 func TestGetQueueURL(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	createTestQueue(t, b, "my-queue")
 
 	out, err := b.GetQueueURL(&sqs.GetQueueURLInput{QueueName: "my-queue"})
@@ -249,7 +251,7 @@ func TestGetQueueURL(t *testing.T) {
 func TestGetQueueURLNotFound(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	_, err := b.GetQueueURL(&sqs.GetQueueURLInput{QueueName: "nonexistent"})
 	require.ErrorIs(t, err, sqs.ErrQueueNotFound)
 }
@@ -257,7 +259,7 @@ func TestGetQueueURLNotFound(t *testing.T) {
 func TestGetQueueAttributes(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	qURL := createTestQueue(t, b, "my-queue")
 
 	out, err := b.GetQueueAttributes(&sqs.GetQueueAttributesInput{
@@ -273,7 +275,7 @@ func TestGetQueueAttributes(t *testing.T) {
 func TestSetQueueAttributes(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	qURL := createTestQueue(t, b, "my-queue")
 
 	err := b.SetQueueAttributes(&sqs.SetQueueAttributesInput{
@@ -293,7 +295,7 @@ func TestSetQueueAttributes(t *testing.T) {
 func TestSendAndReceiveMessage(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	qURL := createTestQueue(t, b, "my-queue")
 
 	sendOut, err := b.SendMessage(&sqs.SendMessageInput{
@@ -320,7 +322,7 @@ func TestSendAndReceiveMessage(t *testing.T) {
 func TestDeleteMessage(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	qURL := createTestQueue(t, b, "my-queue")
 
 	_, err := b.SendMessage(&sqs.SendMessageInput{QueueURL: qURL, MessageBody: "hello"})
@@ -342,7 +344,7 @@ func TestDeleteMessage(t *testing.T) {
 func TestDeleteMessageInvalidHandle(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	qURL := createTestQueue(t, b, "my-queue")
 
 	err := b.DeleteMessage(&sqs.DeleteMessageInput{
@@ -355,7 +357,7 @@ func TestDeleteMessageInvalidHandle(t *testing.T) {
 func TestChangeMessageVisibility(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	qURL := createTestQueue(t, b, "my-queue")
 
 	_, err := b.SendMessage(&sqs.SendMessageInput{QueueURL: qURL, MessageBody: "hello"})
@@ -378,7 +380,7 @@ func TestChangeMessageVisibility(t *testing.T) {
 func TestVisibilityTimeoutExpiry(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	qURL := createTestQueue(t, b, "my-queue")
 
 	_, err := b.SendMessage(&sqs.SendMessageInput{QueueURL: qURL, MessageBody: "hello"})
@@ -402,7 +404,7 @@ func TestVisibilityTimeoutExpiry(t *testing.T) {
 func TestSendMessageBatch(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	qURL := createTestQueue(t, b, "my-queue")
 
 	out, err := b.SendMessageBatch(&sqs.SendMessageBatchInput{
@@ -420,7 +422,7 @@ func TestSendMessageBatch(t *testing.T) {
 func TestDeleteMessageBatch(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	qURL := createTestQueue(t, b, "my-queue")
 
 	_, err := b.SendMessageBatch(&sqs.SendMessageBatchInput{
@@ -458,7 +460,7 @@ func TestDeleteMessageBatch(t *testing.T) {
 func TestPurgeQueue(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	qURL := createTestQueue(t, b, "my-queue")
 
 	for i := range 5 {
@@ -482,7 +484,7 @@ func TestPurgeQueue(t *testing.T) {
 func TestFIFODeduplication(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	qURL := createTestQueue(t, b, "my-queue.fifo")
 
 	out1, err := b.SendMessage(&sqs.SendMessageInput{
@@ -513,7 +515,7 @@ func TestFIFODeduplication(t *testing.T) {
 func TestSendMessageBatchEmptyError(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	qURL := createTestQueue(t, b, "my-queue")
 
 	_, err := b.SendMessageBatch(&sqs.SendMessageBatchInput{
@@ -526,7 +528,7 @@ func TestSendMessageBatchEmptyError(t *testing.T) {
 func TestSendMessageBatchTooManyEntries(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	qURL := createTestQueue(t, b, "my-queue")
 
 	entries := make([]sqs.SendMessageBatchEntry, 11)
@@ -547,7 +549,7 @@ func TestSendMessageBatchTooManyEntries(t *testing.T) {
 func TestReceiveMessageQueueNotFound(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	_, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{
 		QueueURL:        queueURL("nonexistent"),
 		WaitTimeSeconds: 0,
@@ -558,7 +560,7 @@ func TestReceiveMessageQueueNotFound(t *testing.T) {
 func TestLongPolling(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	qURL := createTestQueue(t, b, "my-queue")
 
 	// Send message before calling receive — should return quickly.
@@ -581,7 +583,7 @@ func TestLongPolling(t *testing.T) {
 func TestLongPollingWakesOnMessageArrival(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	qURL := createTestQueue(t, b, "wake-queue")
 
 	// Send a message after a short delay while ReceiveMessage is blocking.
@@ -613,7 +615,7 @@ func TestLongPollingWakesOnMessageArrival(t *testing.T) {
 func TestLongPollingTimesOutWithNoMessages(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	qURL := createTestQueue(t, b, "timeout-queue")
 
 	start := time.Now()
@@ -640,7 +642,7 @@ func TestLongPollingTimesOutWithNoMessages(t *testing.T) {
 func TestLongPollingConcurrentReceivers(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	qURL := createTestQueue(t, b, "concurrent-recv-queue")
 
 	const numReceivers = 3
@@ -699,7 +701,7 @@ func TestLongPollingConcurrentReceivers(t *testing.T) {
 func TestReceiveMessageDefaultVisibility(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	qURL := createTestQueue(t, b, "my-queue")
 
 	_, err := b.SendMessage(&sqs.SendMessageInput{QueueURL: qURL, MessageBody: "hello"})
@@ -719,7 +721,7 @@ func TestReceiveMessageDefaultVisibility(t *testing.T) {
 func TestListAll(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	createTestQueue(t, b, "q1")
 	createTestQueue(t, b, "q2")
 
@@ -730,7 +732,7 @@ func TestListAll(t *testing.T) {
 func TestQueueNameAttribute(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	qURL := createTestQueue(t, b, "test-queue")
 
 	out, err := b.GetQueueAttributes(&sqs.GetQueueAttributesInput{
@@ -746,7 +748,7 @@ func TestQueueNameAttribute(t *testing.T) {
 func TestSendMessageFIFOContentBasedDedup(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 
 	// Create a FIFO queue with content-based deduplication enabled.
 	_, err := b.CreateQueue(&sqs.CreateQueueInput{
@@ -781,7 +783,7 @@ func TestSendMessageFIFOContentBasedDedup(t *testing.T) {
 func TestSendMessageFIFOExplicitDedup(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	qURL := createTestQueue(t, b, "explicitdedup.fifo")
 
 	// First send with explicit deduplication ID.
@@ -807,7 +809,7 @@ func TestSendMessageFIFOExplicitDedup(t *testing.T) {
 func TestSendMessageFIFOExpiredDedup(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	qURL := createTestQueue(t, b, "expireddedup.fifo")
 
 	// We must set the dedup window in the past by directly manipulating the backend
@@ -834,7 +836,7 @@ func TestSendMessageFIFOExpiredDedup(t *testing.T) {
 func TestResolveVisibilityTimeoutInvalidAttr(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	qURL := createTestQueue(t, b, "vis-invalid-queue")
 
 	// SetQueueAttributes now validates attribute ranges; a non-integer VisibilityTimeout
@@ -849,7 +851,7 @@ func TestResolveVisibilityTimeoutInvalidAttr(t *testing.T) {
 func TestReQueueExpiredMixed(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	qURL := createTestQueue(t, b, "requeue-mixed-queue")
 
 	// Send 2 messages.
@@ -883,7 +885,7 @@ func TestReQueueExpiredMixed(t *testing.T) {
 func TestSendMessageBatchTooManyEntries2(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	qURL := createTestQueue(t, b, "batch-too-many-queue")
 
 	entries := make([]sqs.SendMessageBatchEntry, 11)
@@ -904,7 +906,7 @@ func TestSendMessageBatchTooManyEntries2(t *testing.T) {
 func TestDeleteMessageBatchEmpty(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	qURL := createTestQueue(t, b, "del-batch-empty-queue")
 
 	_, err := b.DeleteMessageBatch(&sqs.DeleteMessageBatchInput{
@@ -917,7 +919,7 @@ func TestDeleteMessageBatchEmpty(t *testing.T) {
 func TestQueueNameFromInputEmpty(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 
 	// Passing an empty URL to SendMessage triggers queueNameFromInput("") -> ""
 	// which means the queue won't be found.
@@ -931,7 +933,7 @@ func TestQueueNameFromInputEmpty(t *testing.T) {
 func TestApproximateFirstReceiveTimestamp_SetOnFirstReceive(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	qURL := createTestQueue(t, b, "first-receive-ts-queue")
 
 	_, err := b.SendMessage(&sqs.SendMessageInput{QueueURL: qURL, MessageBody: "hello"})
@@ -968,7 +970,7 @@ func TestApproximateFirstReceiveTimestamp_SetOnFirstReceive(t *testing.T) {
 func TestMaxNumberOfMessages_ClampsAt10(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	qURL := createTestQueue(t, b, "clamp-queue")
 
 	// Send 15 messages.
@@ -988,7 +990,7 @@ func TestMaxNumberOfMessages_ClampsAt10(t *testing.T) {
 func TestMaxNumberOfMessages_AtBoundary(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	qURL := createTestQueue(t, b, "boundary-queue")
 
 	for i := range 15 {
@@ -1008,7 +1010,7 @@ func TestMaxNumberOfMessages_AtBoundary(t *testing.T) {
 func TestSentTimestamp_PresentInAttributes(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	qURL := createTestQueue(t, b, "sent-ts-queue")
 
 	beforeSend := time.Now().UnixMilli()
@@ -1033,7 +1035,7 @@ func TestSentTimestamp_PresentInAttributes(t *testing.T) {
 func TestSendMessage_MD5OfMessageAttributes(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	qURL := createTestQueue(t, b, "md5-attrs-queue")
 
 	out, err := b.SendMessage(&sqs.SendMessageInput{

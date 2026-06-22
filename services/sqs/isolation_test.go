@@ -28,6 +28,7 @@ func TestSQSRegionIsolation(t *testing.T) {
 
 	b := sqs.NewInMemoryBackendWithConfig("000000000000", east)
 	t.Cleanup(b.Close)
+	t.Cleanup(b.Close)
 
 	// 1. Create a queue named "shared-name" in us-east-1.
 	_, err := b.CreateQueue(&sqs.CreateQueueInput{

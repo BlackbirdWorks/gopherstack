@@ -146,12 +146,14 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			t.Parallel()
 
 			original := sqs.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+			t.Cleanup(original.Close)
 			id := tt.setup(original)
 
 			snap := original.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			fresh := sqs.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+			t.Cleanup(fresh.Close)
 			require.NoError(t, fresh.Restore(t.Context(), snap))
 
 			tt.verify(t, fresh, id)
@@ -163,6 +165,7 @@ func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	t.Parallel()
 
 	b := sqs.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+	t.Cleanup(b.Close)
 	err := b.Restore(t.Context(), []byte("not-valid-json"))
 	require.Error(t, err)
 }

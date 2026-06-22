@@ -49,6 +49,7 @@ func TestRedrivePolicy_DLQMovement(t *testing.T) {
 			t.Parallel()
 
 			b := sqs.NewInMemoryBackend()
+			t.Cleanup(b.Close)
 
 			dlqName := "dlq-" + tt.name
 			mainName := "main-" + tt.name
@@ -140,6 +141,7 @@ func TestRedrivePolicy_NoMovementWithoutDLQ(t *testing.T) {
 			t.Parallel()
 
 			b := sqs.NewInMemoryBackend()
+			t.Cleanup(b.Close)
 
 			_, err := b.CreateQueue(&sqs.CreateQueueInput{QueueName: tt.queueName, Endpoint: "localhost"})
 			require.NoError(t, err)
@@ -191,6 +193,7 @@ func TestRedrivePolicy_InvalidJSONIgnored(t *testing.T) {
 			t.Parallel()
 
 			b := sqs.NewInMemoryBackend()
+			t.Cleanup(b.Close)
 
 			queueName := "bad-policy-" + tt.name
 
@@ -331,6 +334,7 @@ func TestListDeadLetterSourceQueues(t *testing.T) {
 			t.Parallel()
 
 			b := sqs.NewInMemoryBackend()
+			t.Cleanup(b.Close)
 			dlqURL := tt.setup(t, b)
 
 			out, err := b.ListDeadLetterSourceQueues(&sqs.ListDeadLetterSourceQueuesInput{
@@ -354,6 +358,7 @@ func TestListDeadLetterSourceQueues_Pagination(t *testing.T) {
 	t.Parallel()
 
 	b := sqs.NewInMemoryBackend()
+	t.Cleanup(b.Close)
 
 	_, err := b.CreateQueue(&sqs.CreateQueueInput{QueueName: "p-dlq", Endpoint: "localhost"})
 	require.NoError(t, err)

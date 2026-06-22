@@ -173,6 +173,25 @@ func (b *InMemoryBackend) startJanitor() {
 // no-ops.  The backend must not be used after Close returns.
 func (b *InMemoryBackend) Close() {
 	b.stopInternalJanitor()
+	b.cancelAllMoveTasks()
+}
+
+// cancelAllMoveTasks cancels every in-flight StartMessageMoveTask goroutine so
+// none outlives the backend. Safe to call multiple times; cancelling an
+// already-finished task is a no-op.
+func (b *InMemoryBackend) cancelAllMoveTasks() {
+	b.mu.Lock("cancelAllMoveTasks")
+	tasks := make([]*moveTaskState, 0, len(b.moveTasks))
+	for _, task := range b.moveTasks {
+		tasks = append(tasks, task)
+	}
+	b.mu.Unlock()
+
+	for _, task := range tasks {
+		if task.cancel != nil {
+			task.cancel()
+		}
+	}
 }
 
 // stopInternalJanitor stops the internal janitor goroutine started by

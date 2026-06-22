@@ -24,6 +24,7 @@ func newHandlerWithBackend(t *testing.T) (*sqs.Handler, *sqs.InMemoryBackend) {
 	t.Helper()
 
 	b := sqs.NewInMemoryBackend()
+	t.Cleanup(b.Close)
 	h := sqs.NewHandler(b)
 
 	return h, b
@@ -65,7 +66,7 @@ func createQueueForTest(t *testing.T, b *sqs.InMemoryBackend, name string) strin
 func TestIssue1_KMSAttrsConfigurable(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 
 	// CreateQueue with KMS attrs should succeed.
 	_, err := b.CreateQueue(&sqs.CreateQueueInput{
@@ -104,7 +105,7 @@ func TestIssue1_KMSAttrsConfigurable(t *testing.T) {
 func TestIssue1_KMSDataKeyReuseValidation(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 
 	// Out-of-range values are rejected.
 	_, err := b.CreateQueue(&sqs.CreateQueueInput{
@@ -129,7 +130,7 @@ func TestIssue1_KMSDataKeyReuseValidation(t *testing.T) {
 func TestIssue1_RedriveAllowPolicy(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 
 	dlqURL := createQueueForTest(t, b, "dlq")
 	dlqAttrs, err := b.GetQueueAttributes(&sqs.GetQueueAttributesInput{
@@ -157,7 +158,7 @@ func TestIssue1_RedriveAllowPolicy(t *testing.T) {
 func TestIssue1_DeduplicationScopeConfigurable(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 
 	_, err := b.CreateQueue(&sqs.CreateQueueInput{
 		QueueName: "q.fifo",
@@ -175,7 +176,7 @@ func TestIssue1_DeduplicationScopeConfigurable(t *testing.T) {
 func TestIssue4_DeduplicationScopeMessageGroup(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 
 	out, err := b.CreateQueue(&sqs.CreateQueueInput{
 		QueueName: "dedup-scope.fifo",
@@ -215,7 +216,7 @@ func TestIssue4_DeduplicationScopeMessageGroup(t *testing.T) {
 func TestIssue4_DeduplicationScopeQueue(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 
 	out, err := b.CreateQueue(&sqs.CreateQueueInput{
 		QueueName: "dedup-queue.fifo",
@@ -259,7 +260,7 @@ func TestIssue4_DeduplicationScopeQueue(t *testing.T) {
 func TestIssue5_ReceiveRequestAttemptIDReturnsSameMessages(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 
 	out, err := b.CreateQueue(&sqs.CreateQueueInput{
 		QueueName: "attempt.fifo",
@@ -302,7 +303,7 @@ func TestIssue5_ReceiveRequestAttemptIDReturnsSameMessages(t *testing.T) {
 func TestIssue5_ReceiveRequestAttemptIDDifferentIds(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 
 	out, err := b.CreateQueue(&sqs.CreateQueueInput{
 		QueueName: "attempt2.fifo",
@@ -350,7 +351,7 @@ func TestIssue5_ReceiveRequestAttemptIDDifferentIds(t *testing.T) {
 func TestIssue6_FIFORejectsMsgDelaySeconds(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 
 	out, err := b.CreateQueue(&sqs.CreateQueueInput{
 		QueueName: "delay-fifo.fifo",
@@ -373,7 +374,7 @@ func TestIssue6_FIFORejectsMsgDelaySeconds(t *testing.T) {
 func TestIssue6_FIFOBatchEntryRejectsMsgDelaySeconds(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 
 	out, err := b.CreateQueue(&sqs.CreateQueueInput{
 		QueueName: "delay-batch.fifo",
@@ -405,7 +406,7 @@ func TestIssue6_FIFOBatchEntryRejectsMsgDelaySeconds(t *testing.T) {
 func TestIssue7_ValidStringAttribute(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	qURL := createQueueForTest(t, b, "attr-valid")
 
 	_, err := b.SendMessage(&sqs.SendMessageInput{
@@ -421,7 +422,7 @@ func TestIssue7_ValidStringAttribute(t *testing.T) {
 func TestIssue7_ValidNumberAttribute(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	qURL := createQueueForTest(t, b, "attr-num")
 
 	_, err := b.SendMessage(&sqs.SendMessageInput{
@@ -437,7 +438,7 @@ func TestIssue7_ValidNumberAttribute(t *testing.T) {
 func TestIssue7_ValidBinaryAttribute(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	qURL := createQueueForTest(t, b, "attr-bin")
 
 	_, err := b.SendMessage(&sqs.SendMessageInput{
@@ -453,7 +454,7 @@ func TestIssue7_ValidBinaryAttribute(t *testing.T) {
 func TestIssue7_InvalidDataTypeRejected(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	qURL := createQueueForTest(t, b, "attr-bad-type")
 
 	_, err := b.SendMessage(&sqs.SendMessageInput{
@@ -469,7 +470,7 @@ func TestIssue7_InvalidDataTypeRejected(t *testing.T) {
 func TestIssue7_StringWithNoStringValueRejected(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	qURL := createQueueForTest(t, b, "attr-bad-val")
 
 	_, err := b.SendMessage(&sqs.SendMessageInput{
@@ -485,7 +486,7 @@ func TestIssue7_StringWithNoStringValueRejected(t *testing.T) {
 func TestIssue7_BinaryWithNoBinaryValueRejected(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	qURL := createQueueForTest(t, b, "attr-bad-bin")
 
 	_, err := b.SendMessage(&sqs.SendMessageInput{
@@ -501,7 +502,7 @@ func TestIssue7_BinaryWithNoBinaryValueRejected(t *testing.T) {
 func TestIssue7_CustomSubtypeValid(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	qURL := createQueueForTest(t, b, "attr-custom")
 
 	_, err := b.SendMessage(&sqs.SendMessageInput{
@@ -793,7 +794,7 @@ func TestIssue8_QueryAddRemovePermission(t *testing.T) {
 func TestIssue9_ReceiptHandleContainsMessageID(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	qURL := createQueueForTest(t, b, "gen-handle")
 
 	out, err := b.SendMessage(&sqs.SendMessageInput{
@@ -819,7 +820,7 @@ func TestIssue9_ReceiptHandleContainsMessageID(t *testing.T) {
 func TestIssue9_StaleReceiptHandleRejected(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 
 	out, err := b.CreateQueue(&sqs.CreateQueueInput{
 		QueueName: "stale-handle",
@@ -868,7 +869,7 @@ func TestIssue9_StaleReceiptHandleRejected(t *testing.T) {
 func TestIssue10_MoveTaskRateLimitingCompletesSuccessfully(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 
 	srcOut, err := b.CreateQueue(&sqs.CreateQueueInput{
 		QueueName: "dlq-src",
@@ -938,7 +939,7 @@ func TestIssue10_MoveTaskRateLimitingCompletesSuccessfully(t *testing.T) {
 func TestIssue11_EmptyBatchRejected(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	qURL := createQueueForTest(t, b, "batch-empty")
 
 	_, err := b.SendMessageBatch(&sqs.SendMessageBatchInput{
@@ -963,7 +964,7 @@ func TestIssue11_EmptyBatchRejected(t *testing.T) {
 func TestIssue11_TooManyEntriesRejected(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	qURL := createQueueForTest(t, b, "batch-too-many")
 
 	entries := make([]sqs.SendMessageBatchEntry, 11)
@@ -984,7 +985,7 @@ func TestIssue11_TooManyEntriesRejected(t *testing.T) {
 func TestIssue11_DuplicateIDsRejected(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	qURL := createQueueForTest(t, b, "batch-dup-ids")
 
 	_, err := b.SendMessageBatch(&sqs.SendMessageBatchInput{
@@ -1000,7 +1001,7 @@ func TestIssue11_DuplicateIDsRejected(t *testing.T) {
 func TestIssue11_InvalidIDFormatRejected(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	qURL := createQueueForTest(t, b, "batch-bad-id")
 
 	// IDs with invalid characters should be rejected.
@@ -1016,7 +1017,7 @@ func TestIssue11_InvalidIDFormatRejected(t *testing.T) {
 func TestIssue11_ChangeVisibilityBatchValidation(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	qURL := createQueueForTest(t, b, "batch-chgvis")
 
 	// Duplicate IDs in ChangeMessageVisibilityBatch.
@@ -1035,7 +1036,7 @@ func TestIssue11_ChangeVisibilityBatchValidation(t *testing.T) {
 func TestIssue12_FilterPolicyExactMatch(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	_ = b
 
 	// matchesFilterPolicy is package-internal; test via JSON marshaling round-trip.
@@ -1074,7 +1075,7 @@ func TestIssue12_FilterPolicyOperators(t *testing.T) {
 func TestIssue13_SetQueueAttributesFifoQueueRejected(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	qURL := createQueueForTest(t, b, "fifo-immutable")
 
 	err := b.SetQueueAttributes(&sqs.SetQueueAttributesInput{
@@ -1114,7 +1115,7 @@ func TestIssue13_SetQueueAttributesFifoQueueRejectedViaHandler(t *testing.T) {
 func TestIssue13_CreateQueueFifoIdempotency(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 
 	// Create FIFO queue.
 	out1, err := b.CreateQueue(&sqs.CreateQueueInput{
@@ -1150,7 +1151,7 @@ func TestIssue13_CreateQueueFifoIdempotency(t *testing.T) {
 func TestAccuracy_FullSendReceiveDeleteCycle(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	qURL := createQueueForTest(t, b, "full-cycle")
 
 	// Send with valid custom DataType.

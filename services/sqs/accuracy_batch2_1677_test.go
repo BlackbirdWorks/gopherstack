@@ -31,8 +31,13 @@ import (
 // helpers
 // ---------------------------------------------------------------------------
 
-func b2newBackend() *sqs.InMemoryBackend {
-	return sqs.NewInMemoryBackend()
+func b2newBackend(t *testing.T) *sqs.InMemoryBackend {
+	t.Helper()
+
+	b := sqs.NewInMemoryBackend()
+	t.Cleanup(b.Close)
+
+	return b
 }
 
 func b2createQueue(t *testing.T, b *sqs.InMemoryBackend, name string) string {
@@ -124,7 +129,7 @@ func sha256hex(s string) string {
 
 func TestBatch2_StandardQueue_CreateDeleteCycle(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	// Create standard queue
 	out, err := b.CreateQueue(&sqs.CreateQueueInput{QueueName: "std-queue", Endpoint: "localhost"})
@@ -154,7 +159,7 @@ func TestBatch2_StandardQueue_CreateDeleteCycle(t *testing.T) {
 
 func TestBatch2_FIFOQueue_CreateDeleteCycle(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createFIFOQueue(t, b, "my-fifo.fifo", nil)
 	assert.Contains(t, qURL, ".fifo")
@@ -168,7 +173,7 @@ func TestBatch2_FIFOQueue_CreateDeleteCycle(t *testing.T) {
 
 func TestBatch2_QueueName_Validation(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	cases := []struct {
 		name    string
@@ -199,7 +204,7 @@ func TestBatch2_QueueName_Validation(t *testing.T) {
 
 func TestBatch2_FIFOQueueName_MustEndWithFifo(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	// Non-.fifo name creates standard queue (IsFIFO=false)
 	qURL := b2createQueue(t, b, "not-fifo")
@@ -215,7 +220,7 @@ func TestBatch2_FIFOQueueName_MustEndWithFifo(t *testing.T) {
 
 func TestBatch2_ListQueues_Prefix(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	b2createQueue(t, b, "prefix-alpha")
 	b2createQueue(t, b, "prefix-beta")
@@ -231,7 +236,7 @@ func TestBatch2_ListQueues_Prefix(t *testing.T) {
 
 func TestBatch2_ListQueues_All(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	b2createQueue(t, b, "list-a")
 	b2createQueue(t, b, "list-b")
@@ -244,7 +249,7 @@ func TestBatch2_ListQueues_All(t *testing.T) {
 
 func TestBatch2_ListQueues_Pagination(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	for i := range 5 {
 		b2createQueue(t, b, fmt.Sprintf("page-queue-%02d", i))
@@ -274,7 +279,7 @@ func TestBatch2_ListQueues_Pagination(t *testing.T) {
 
 func TestBatch2_GetQueueURL(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "url-lookup")
 	out, err := b.GetQueueURL(&sqs.GetQueueURLInput{QueueName: "url-lookup"})
@@ -287,7 +292,7 @@ func TestBatch2_GetQueueURL(t *testing.T) {
 
 func TestBatch2_DefaultAttributes_Standard(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "default-attrs")
 	attrs := b2getAttrs(t, b, qURL, "All")
@@ -310,7 +315,7 @@ func TestBatch2_DefaultAttributes_Standard(t *testing.T) {
 
 func TestBatch2_SendReceiveDelete_RoundTrip(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "rtrip")
 	sendOut := b2send(t, b, qURL, "hello world")
@@ -332,7 +337,7 @@ func TestBatch2_SendReceiveDelete_RoundTrip(t *testing.T) {
 
 func TestBatch2_ReceiveMessage_PopulatesSystemAttributes(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "sysattrs")
 	b2send(t, b, qURL, "test body")
@@ -350,7 +355,7 @@ func TestBatch2_ReceiveMessage_PopulatesSystemAttributes(t *testing.T) {
 
 func TestBatch2_ReceiveMessage_IncrementsReceiveCount(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL, err := b.CreateQueue(&sqs.CreateQueueInput{
 		QueueName:  "recv-count",
@@ -376,7 +381,7 @@ func TestBatch2_ReceiveMessage_IncrementsReceiveCount(t *testing.T) {
 
 func TestBatch2_ReceiveMessage_MaxNumberOfMessages_Max10(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "max10")
 	for i := range 12 {
@@ -402,7 +407,7 @@ func TestBatch2_ReceiveMessage_MaxNumberOfMessages_Max10(t *testing.T) {
 
 func TestBatch2_ReceiveMessage_AttributesAllReturnsAll(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "filter-attrs")
 	b2send(t, b, qURL, "body")
@@ -427,7 +432,7 @@ func TestBatch2_ReceiveMessage_AttributesAllReturnsAll(t *testing.T) {
 
 func TestBatch2_EmptyQueue_ReceiveReturnsEmpty(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "empty-recv")
 	msgs := b2receive(t, b, qURL, 1)
@@ -436,7 +441,7 @@ func TestBatch2_EmptyQueue_ReceiveReturnsEmpty(t *testing.T) {
 
 func TestBatch2_DeleteMessage_InvalidReceiptHandle(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "del-invalid")
 	b2send(t, b, qURL, "msg")
@@ -450,7 +455,7 @@ func TestBatch2_DeleteMessage_InvalidReceiptHandle(t *testing.T) {
 
 func TestBatch2_SendMessage_EmptyBody_Rejected(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "empty-body")
 	_, err := b.SendMessage(&sqs.SendMessageInput{QueueURL: qURL, MessageBody: ""})
@@ -459,7 +464,7 @@ func TestBatch2_SendMessage_EmptyBody_Rejected(t *testing.T) {
 
 func TestBatch2_SendMessage_ExceedsMaxSize_Rejected(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL, err := b.CreateQueue(&sqs.CreateQueueInput{
 		QueueName:  "small-size",
@@ -481,7 +486,7 @@ func TestBatch2_SendMessage_ExceedsMaxSize_Rejected(t *testing.T) {
 
 func TestBatch2_SendMessageBatch_Success(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "batch-send")
 	entries := make([]sqs.SendMessageBatchEntry, 10)
@@ -503,7 +508,7 @@ func TestBatch2_SendMessageBatch_Success(t *testing.T) {
 
 func TestBatch2_SendMessageBatch_EmptyEntries_Rejected(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "batch-empty")
 	_, err := b.SendMessageBatch(&sqs.SendMessageBatchInput{
@@ -515,7 +520,7 @@ func TestBatch2_SendMessageBatch_EmptyEntries_Rejected(t *testing.T) {
 
 func TestBatch2_SendMessageBatch_TooManyEntries_Rejected(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "batch-too-many")
 	entries := make([]sqs.SendMessageBatchEntry, 11)
@@ -529,7 +534,7 @@ func TestBatch2_SendMessageBatch_TooManyEntries_Rejected(t *testing.T) {
 
 func TestBatch2_SendMessageBatch_DuplicateIDs_Rejected(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "batch-dup-ids")
 	_, err := b.SendMessageBatch(&sqs.SendMessageBatchInput{
@@ -544,7 +549,7 @@ func TestBatch2_SendMessageBatch_DuplicateIDs_Rejected(t *testing.T) {
 
 func TestBatch2_DeleteMessageBatch_Success(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "batch-del")
 	for i := range 5 {
@@ -573,7 +578,7 @@ func TestBatch2_DeleteMessageBatch_Success(t *testing.T) {
 
 func TestBatch2_SendMessageBatch_PartialFailure(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	// FIFO queue — send batch with valid and invalid entries (zero group ID → failure)
 	qURL := b2createFIFOQueue(t, b, "batch-fifo-partial.fifo", nil)
@@ -596,7 +601,7 @@ func TestBatch2_SendMessageBatch_PartialFailure(t *testing.T) {
 
 func TestBatch2_VisibilityTimeout_HidesMessage(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL, err := b.CreateQueue(&sqs.CreateQueueInput{
 		QueueName:  "vt-hide",
@@ -621,7 +626,7 @@ func TestBatch2_VisibilityTimeout_HidesMessage(t *testing.T) {
 
 func TestBatch2_ChangeMessageVisibility_ExtendsTimeout(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "cvm-extend")
 	b2send(t, b, qURL, "msg")
@@ -647,7 +652,7 @@ func TestBatch2_ChangeMessageVisibility_ExtendsTimeout(t *testing.T) {
 
 func TestBatch2_ChangeMessageVisibility_ZeroMakesVisible(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL, err := b.CreateQueue(&sqs.CreateQueueInput{
 		QueueName:  "cvm-zero",
@@ -675,7 +680,7 @@ func TestBatch2_ChangeMessageVisibility_ZeroMakesVisible(t *testing.T) {
 
 func TestBatch2_ChangeMessageVisibility_InvalidTimeout(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "cvm-invalid")
 	b2send(t, b, qURL, "msg")
@@ -695,7 +700,7 @@ func TestBatch2_ChangeMessageVisibility_InvalidTimeout(t *testing.T) {
 
 func TestBatch2_ChangeMessageVisibility_NotInflight_Error(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "cvm-notinflight")
 
@@ -709,7 +714,7 @@ func TestBatch2_ChangeMessageVisibility_NotInflight_Error(t *testing.T) {
 
 func TestBatch2_ChangeMessageVisibilityBatch_Mixed(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "cvb-mixed")
 	b2send(t, b, qURL, "a")
@@ -741,7 +746,7 @@ func TestBatch2_ChangeMessageVisibilityBatch_Mixed(t *testing.T) {
 
 func TestBatch2_ApproxCounts_EmptyQueue(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "approx-empty")
 	attrs := b2getAttrs(
@@ -759,7 +764,7 @@ func TestBatch2_ApproxCounts_EmptyQueue(t *testing.T) {
 
 func TestBatch2_ApproxCounts_VisibleMessages(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "approx-visible")
 	b2send(t, b, qURL, "a")
@@ -772,7 +777,7 @@ func TestBatch2_ApproxCounts_VisibleMessages(t *testing.T) {
 
 func TestBatch2_ApproxCounts_InFlight(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL, err := b.CreateQueue(&sqs.CreateQueueInput{
 		QueueName:  "approx-inflight",
@@ -797,7 +802,7 @@ func TestBatch2_ApproxCounts_InFlight(t *testing.T) {
 
 func TestBatch2_ApproxCounts_DelayedMessages(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "approx-delayed")
 
@@ -820,7 +825,7 @@ func TestBatch2_ApproxCounts_DelayedMessages(t *testing.T) {
 
 func TestBatch2_FIFO_OrderPreservedWithinGroup(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createFIFOQueue(t, b, "fifo-order.fifo", nil)
 
@@ -846,7 +851,7 @@ func TestBatch2_FIFO_OrderPreservedWithinGroup(t *testing.T) {
 
 func TestBatch2_FIFO_MultipleGroups_ParallelDelivery(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createFIFOQueue(t, b, "fifo-multi-group.fifo", nil)
 
@@ -865,7 +870,7 @@ func TestBatch2_FIFO_MultipleGroups_ParallelDelivery(t *testing.T) {
 
 func TestBatch2_FIFO_GroupBlocked_WhileInflight(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL, err := b.CreateQueue(&sqs.CreateQueueInput{
 		QueueName:  "fifo-block.fifo",
@@ -897,7 +902,7 @@ func TestBatch2_FIFO_GroupBlocked_WhileInflight(t *testing.T) {
 
 func TestBatch2_FIFO_MissingGroupID_Rejected(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createFIFOQueue(t, b, "fifo-no-group.fifo", nil)
 	_, err := b.SendMessage(&sqs.SendMessageInput{
@@ -911,7 +916,7 @@ func TestBatch2_FIFO_MissingGroupID_Rejected(t *testing.T) {
 
 func TestBatch2_FIFO_MissingDeduplicationID_Rejected(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createFIFOQueue(t, b, "fifo-no-dedup.fifo", nil)
 	_, err := b.SendMessage(&sqs.SendMessageInput{
@@ -925,7 +930,7 @@ func TestBatch2_FIFO_MissingDeduplicationID_Rejected(t *testing.T) {
 
 func TestBatch2_FIFO_DeduplicationID_DeduplicatesWithinWindow(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createFIFOQueue(t, b, "fifo-dedup.fifo", nil)
 
@@ -954,7 +959,7 @@ func TestBatch2_FIFO_DeduplicationID_DeduplicatesWithinWindow(t *testing.T) {
 
 func TestBatch2_FIFO_SequenceNumber_Populated(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createFIFOQueue(t, b, "fifo-seq.fifo", nil)
 	out := b2sendFIFO(t, b, qURL, "body", "g", "d1")
@@ -968,7 +973,7 @@ func TestBatch2_FIFO_SequenceNumber_Populated(t *testing.T) {
 
 func TestBatch2_FIFO_MessageGroupAndDeduplicationIDAttributes(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createFIFOQueue(t, b, "fifo-attrs.fifo", nil)
 	b2sendFIFO(t, b, qURL, "body", "my-group", "my-dedup")
@@ -983,7 +988,7 @@ func TestBatch2_FIFO_MessageGroupAndDeduplicationIDAttributes(t *testing.T) {
 
 func TestBatch2_FIFO_DelaySeconds_Rejected(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createFIFOQueue(t, b, "fifo-delay.fifo", nil)
 	_, err := b.SendMessage(&sqs.SendMessageInput{
@@ -1002,7 +1007,7 @@ func TestBatch2_FIFO_DelaySeconds_Rejected(t *testing.T) {
 
 func TestBatch2_ContentBasedDeduplication_UseSHA256(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	// Enable ContentBasedDeduplication
 	qURL := b2createFIFOQueue(t, b, "cbd-sha256.fifo", map[string]string{
@@ -1068,7 +1073,7 @@ func TestBatch2_ContentBasedDeduplication_SHA256KeyFormat(t *testing.T) {
 
 func TestBatch2_ContentBasedDeduplication_ExplicitIDOverridesContent(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createFIFOQueue(t, b, "cbd-override.fifo", map[string]string{
 		"ContentBasedDeduplication": "true",
@@ -1096,7 +1101,7 @@ func TestBatch2_ContentBasedDeduplication_ExplicitIDOverridesContent(t *testing.
 
 func TestBatch2_ContentBasedDeduplication_DifferentGroups_NotDeduplicated(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createFIFOQueue(t, b, "cbd-groups.fifo", map[string]string{
 		"ContentBasedDeduplication": "true",
@@ -1123,7 +1128,7 @@ func TestBatch2_ContentBasedDeduplication_DifferentGroups_NotDeduplicated(t *tes
 
 func TestBatch2_DeduplicationScope_Queue_DedupAcrossGroups(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createFIFOQueue(t, b, "cbd-scope-queue.fifo", map[string]string{
 		"ContentBasedDeduplication": "true",
@@ -1156,7 +1161,7 @@ func TestBatch2_DeduplicationScope_Queue_DedupAcrossGroups(t *testing.T) {
 
 func TestBatch2_RedrivePolicy_MovesToDLQAfterMaxReceiveCount(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	dlqURL, err := b.CreateQueue(&sqs.CreateQueueInput{QueueName: "dlq-target", Endpoint: "localhost"})
 	require.NoError(t, err)
@@ -1206,7 +1211,7 @@ func TestBatch2_RedrivePolicy_MovesToDLQAfterMaxReceiveCount(t *testing.T) {
 
 func TestBatch2_RedrivePolicy_SetViaSetQueueAttributes(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	dlqURL := b2createQueue(t, b, "dlq-setattr")
 	dlqAttrs := b2getAttrs(t, b, dlqURL, "QueueArn")
@@ -1236,7 +1241,7 @@ func TestBatch2_RedrivePolicy_SetViaSetQueueAttributes(t *testing.T) {
 
 func TestBatch2_ListDeadLetterSourceQueues(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	dlqURL := b2createQueue(t, b, "ldlsq-dlq")
 	dlqAttrs := b2getAttrs(t, b, dlqURL, "QueueArn")
@@ -1279,7 +1284,7 @@ func TestBatch2_ListDeadLetterSourceQueues(t *testing.T) {
 
 func TestBatch2_ListDeadLetterSourceQueues_QueueNotFound(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	_, err := b.ListDeadLetterSourceQueues(&sqs.ListDeadLetterSourceQueuesInput{
 		QueueURL: "http://localhost/000000000000/nonexistent",
@@ -1293,7 +1298,7 @@ func TestBatch2_ListDeadLetterSourceQueues_QueueNotFound(t *testing.T) {
 
 func TestBatch2_RedriveAllowPolicy_AllowAll(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	policy, _ := json.Marshal(map[string]any{"redrivePermission": "allowAll"})
 
@@ -1309,7 +1314,7 @@ func TestBatch2_RedriveAllowPolicy_AllowAll(t *testing.T) {
 
 func TestBatch2_RedriveAllowPolicy_DenyAll(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	policy, _ := json.Marshal(map[string]any{"redrivePermission": "denyAll"})
 
@@ -1325,7 +1330,7 @@ func TestBatch2_RedriveAllowPolicy_DenyAll(t *testing.T) {
 
 func TestBatch2_RedriveAllowPolicy_ByQueue(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	policy, _ := json.Marshal(map[string]any{
 		"redrivePermission": "byQueue",
@@ -1344,7 +1349,7 @@ func TestBatch2_RedriveAllowPolicy_ByQueue(t *testing.T) {
 
 func TestBatch2_RedriveAllowPolicy_AllowAllWithArns_Rejected(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	policy, _ := json.Marshal(map[string]any{
 		"redrivePermission": "allowAll",
@@ -1363,7 +1368,7 @@ func TestBatch2_RedriveAllowPolicy_AllowAllWithArns_Rejected(t *testing.T) {
 
 func TestBatch2_RedriveAllowPolicy_ByQueueTooManyArns_Rejected(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	arns := make([]string, 11)
 	for i := range arns {
@@ -1386,7 +1391,7 @@ func TestBatch2_RedriveAllowPolicy_ByQueueTooManyArns_Rejected(t *testing.T) {
 
 func TestBatch2_RedriveAllowPolicy_RoundTrip(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	policy, _ := json.Marshal(map[string]any{"redrivePermission": "denyAll"})
 	qURL := b2createQueue(t, b, "rap-roundtrip")
@@ -1406,7 +1411,7 @@ func TestBatch2_RedriveAllowPolicy_RoundTrip(t *testing.T) {
 
 func TestBatch2_MessageRetentionPeriod_Validation(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	cases := []struct {
 		seconds string
@@ -1440,7 +1445,7 @@ func TestBatch2_MessageRetentionPeriod_Validation(t *testing.T) {
 
 func TestBatch2_MessageRetentionPeriod_ExpiredMessagesNotDelivered(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "mrp-expire")
 
@@ -1458,7 +1463,7 @@ func TestBatch2_MessageRetentionPeriod_ExpiredMessagesNotDelivered(t *testing.T)
 
 func TestBatch2_MessageRetentionPeriod_SetViaAttributes(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "mrp-set")
 	require.NoError(t, b.SetQueueAttributes(&sqs.SetQueueAttributesInput{
@@ -1476,7 +1481,7 @@ func TestBatch2_MessageRetentionPeriod_SetViaAttributes(t *testing.T) {
 
 func TestBatch2_SSE_SqsManagedSseEnabled_Default(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "sse-default")
 	attrs := b2getAttrs(t, b, qURL, "SqsManagedSseEnabled")
@@ -1485,7 +1490,7 @@ func TestBatch2_SSE_SqsManagedSseEnabled_Default(t *testing.T) {
 
 func TestBatch2_SSE_SqsManagedSseEnabled_SetFalse(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL, err := b.CreateQueue(&sqs.CreateQueueInput{
 		QueueName: "sse-false",
@@ -1502,7 +1507,7 @@ func TestBatch2_SSE_SqsManagedSseEnabled_SetFalse(t *testing.T) {
 
 func TestBatch2_SSE_KmsMasterKeyId_Configurable(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL, err := b.CreateQueue(&sqs.CreateQueueInput{
 		QueueName: "kms-key",
@@ -1521,7 +1526,7 @@ func TestBatch2_SSE_KmsMasterKeyId_Configurable(t *testing.T) {
 
 func TestBatch2_SSE_KmsDataKeyReuseRange_Validated(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	cases := []struct {
 		secs  string
@@ -1555,7 +1560,7 @@ func TestBatch2_SSE_KmsDataKeyReuseRange_Validated(t *testing.T) {
 
 func TestBatch2_SSE_KMS_SetViaSetQueueAttributes(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "kms-setattr")
 
@@ -1574,7 +1579,7 @@ func TestBatch2_SSE_KMS_SetViaSetQueueAttributes(t *testing.T) {
 
 func TestBatch2_SSE_Idempotency_SameKMSKey(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	attrs := map[string]string{"KmsMasterKeyId": "alias/aws/sqs"}
 
@@ -1601,7 +1606,7 @@ func TestBatch2_SSE_Idempotency_SameKMSKey(t *testing.T) {
 
 func TestBatch2_Tags_CreateWithTags(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	out, err := b.CreateQueue(&sqs.CreateQueueInput{
 		QueueName: "tagged-queue",
@@ -1618,7 +1623,7 @@ func TestBatch2_Tags_CreateWithTags(t *testing.T) {
 
 func TestBatch2_Tags_TagAndUntag(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "tag-untag")
 
@@ -1645,7 +1650,7 @@ func TestBatch2_Tags_TagAndUntag(t *testing.T) {
 
 func TestBatch2_Tags_ListQueueTags_Empty(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "no-tags")
 	out, err := b.ListQueueTags(&sqs.ListQueueTagsInput{QueueURL: qURL})
@@ -1655,7 +1660,7 @@ func TestBatch2_Tags_ListQueueTags_Empty(t *testing.T) {
 
 func TestBatch2_Tags_TagQueue_NotFound(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	err := b.TagQueue(&sqs.TagQueueInput{
 		QueueURL: "http://localhost/000000000000/ghost",
@@ -1666,7 +1671,7 @@ func TestBatch2_Tags_TagQueue_NotFound(t *testing.T) {
 
 func TestBatch2_Tags_UntagQueue_NotFound(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	err := b.UntagQueue(&sqs.UntagQueueInput{
 		QueueURL: "http://localhost/000000000000/ghost",
@@ -1677,7 +1682,7 @@ func TestBatch2_Tags_UntagQueue_NotFound(t *testing.T) {
 
 func TestBatch2_Tags_OverwriteExisting(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "tag-overwrite")
 
@@ -1701,7 +1706,7 @@ func TestBatch2_Tags_OverwriteExisting(t *testing.T) {
 
 func TestBatch2_AddPermission_UpdatesPolicyAttribute(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "perm-policy")
 
@@ -1731,7 +1736,7 @@ func TestBatch2_AddPermission_UpdatesPolicyAttribute(t *testing.T) {
 
 func TestBatch2_AddPermission_WildcardAction(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "perm-wildcard")
 
@@ -1753,7 +1758,7 @@ func TestBatch2_AddPermission_WildcardAction(t *testing.T) {
 
 func TestBatch2_RemovePermission_ClearsPolicyAttribute(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "perm-remove")
 
@@ -1776,7 +1781,7 @@ func TestBatch2_RemovePermission_ClearsPolicyAttribute(t *testing.T) {
 
 func TestBatch2_AddPermission_MultipleStatements(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "perm-multi")
 
@@ -1802,7 +1807,7 @@ func TestBatch2_AddPermission_MultipleStatements(t *testing.T) {
 
 func TestBatch2_RemovePermission_PartialRemoval(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "perm-partial")
 
@@ -1831,7 +1836,7 @@ func TestBatch2_RemovePermission_PartialRemoval(t *testing.T) {
 
 func TestBatch2_AddPermission_EmptyLabel_Rejected(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "perm-empty-label")
 	err := b.AddPermission(&sqs.AddPermissionInput{
@@ -1845,7 +1850,7 @@ func TestBatch2_AddPermission_EmptyLabel_Rejected(t *testing.T) {
 
 func TestBatch2_AddPermission_EmptyActions_Rejected(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "perm-empty-actions")
 	err := b.AddPermission(&sqs.AddPermissionInput{
@@ -1859,7 +1864,7 @@ func TestBatch2_AddPermission_EmptyActions_Rejected(t *testing.T) {
 
 func TestBatch2_AddPermission_EmptyAccountIDs_Rejected(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "perm-empty-accounts")
 	err := b.AddPermission(&sqs.AddPermissionInput{
@@ -1873,7 +1878,7 @@ func TestBatch2_AddPermission_EmptyAccountIDs_Rejected(t *testing.T) {
 
 func TestBatch2_AddPermission_QueueNotFound(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	err := b.AddPermission(&sqs.AddPermissionInput{
 		QueueURL:      "http://localhost/000000000000/ghost",
@@ -1886,7 +1891,7 @@ func TestBatch2_AddPermission_QueueNotFound(t *testing.T) {
 
 func TestBatch2_RemovePermission_Idempotent(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "perm-idempotent")
 
@@ -1903,7 +1908,7 @@ func TestBatch2_RemovePermission_Idempotent(t *testing.T) {
 
 func TestBatch2_PurgeQueue_RemovesAllMessages(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "purge-all")
 	for i := range 5 {
@@ -1918,7 +1923,7 @@ func TestBatch2_PurgeQueue_RemovesAllMessages(t *testing.T) {
 
 func TestBatch2_PurgeQueue_60SecondCooldown(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "purge-cooldown")
 	b2send(t, b, qURL, "msg")
@@ -1932,7 +1937,7 @@ func TestBatch2_PurgeQueue_60SecondCooldown(t *testing.T) {
 
 func TestBatch2_PurgeQueue_NotFound(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	err := b.PurgeQueue(&sqs.PurgeQueueInput{
 		QueueURL: "http://localhost/000000000000/nonexistent",
@@ -1942,7 +1947,7 @@ func TestBatch2_PurgeQueue_NotFound(t *testing.T) {
 
 func TestBatch2_PurgeQueue_FIFO_ResetsDeduplication(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createFIFOQueue(t, b, "purge-fifo.fifo", nil)
 	b2sendFIFO(t, b, qURL, "body", "g", "dedup-1")
@@ -1966,7 +1971,7 @@ func TestBatch2_PurgeQueue_FIFO_ResetsDeduplication(t *testing.T) {
 
 func TestBatch2_SetGetAttributes_VisibilityTimeout(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "sqa-vt")
 	require.NoError(t, b.SetQueueAttributes(&sqs.SetQueueAttributesInput{
@@ -1980,7 +1985,7 @@ func TestBatch2_SetGetAttributes_VisibilityTimeout(t *testing.T) {
 
 func TestBatch2_SetGetAttributes_UpdatesLastModified(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "sqa-lm")
 	before := b2getAttrs(t, b, qURL, "LastModifiedTimestamp")["LastModifiedTimestamp"]
@@ -1998,7 +2003,7 @@ func TestBatch2_SetGetAttributes_UpdatesLastModified(t *testing.T) {
 
 func TestBatch2_SetQueueAttributes_FifoQueue_Immutable(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createFIFOQueue(t, b, "sqa-fifo-imm.fifo", nil)
 	err := b.SetQueueAttributes(&sqs.SetQueueAttributesInput{
@@ -2010,7 +2015,7 @@ func TestBatch2_SetQueueAttributes_FifoQueue_Immutable(t *testing.T) {
 
 func TestBatch2_SetQueueAttributes_InvalidRange(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "sqa-range")
 
@@ -2023,7 +2028,7 @@ func TestBatch2_SetQueueAttributes_InvalidRange(t *testing.T) {
 
 func TestBatch2_GetQueueAttributes_AllReturnsAll(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "sqa-all")
 	attrs := b2getAttrs(t, b, qURL, "All")
@@ -2047,7 +2052,7 @@ func TestBatch2_GetQueueAttributes_AllReturnsAll(t *testing.T) {
 
 func TestBatch2_GetQueueAttributes_NotFound(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	_, err := b.GetQueueAttributes(&sqs.GetQueueAttributesInput{
 		QueueURL:       "http://localhost/000000000000/nonexistent",
@@ -2062,7 +2067,7 @@ func TestBatch2_GetQueueAttributes_NotFound(t *testing.T) {
 
 func TestBatch2_MessageAttributes_MaxTen(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "msgattr-max")
 
@@ -2099,7 +2104,7 @@ func TestBatch2_MessageAttributes_MaxTen(t *testing.T) {
 
 func TestBatch2_MessageAttributes_ReservedNames_Rejected(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "msgattr-reserved")
 
@@ -2133,7 +2138,7 @@ func TestBatch2_MessageAttributes_ReservedNames_Rejected(t *testing.T) {
 
 func TestBatch2_MessageAttributes_ValidCustomNames(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "msgattr-valid")
 
@@ -2155,7 +2160,7 @@ func TestBatch2_MessageAttributes_ValidCustomNames(t *testing.T) {
 
 func TestBatch2_MessageAttributes_StringType(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "msgattr-string")
 	b2send(t, b, qURL, "noop") // put something for flush
@@ -2172,7 +2177,7 @@ func TestBatch2_MessageAttributes_StringType(t *testing.T) {
 
 func TestBatch2_MessageAttributes_NumberType(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "msgattr-number")
 	_, err := b.SendMessage(&sqs.SendMessageInput{
@@ -2187,7 +2192,7 @@ func TestBatch2_MessageAttributes_NumberType(t *testing.T) {
 
 func TestBatch2_MessageAttributes_BinaryType(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "msgattr-binary")
 	_, err := b.SendMessage(&sqs.SendMessageInput{
@@ -2202,7 +2207,7 @@ func TestBatch2_MessageAttributes_BinaryType(t *testing.T) {
 
 func TestBatch2_MessageAttributes_InvalidDataType_Rejected(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "msgattr-badtype")
 	_, err := b.SendMessage(&sqs.SendMessageInput{
@@ -2217,7 +2222,7 @@ func TestBatch2_MessageAttributes_InvalidDataType_Rejected(t *testing.T) {
 
 func TestBatch2_MessageAttributes_StringMissingValue_Rejected(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "msgattr-nostrval")
 	_, err := b.SendMessage(&sqs.SendMessageInput{
@@ -2232,7 +2237,7 @@ func TestBatch2_MessageAttributes_StringMissingValue_Rejected(t *testing.T) {
 
 func TestBatch2_MessageAttributes_BinaryMissingValue_Rejected(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "msgattr-nobinval")
 	_, err := b.SendMessage(&sqs.SendMessageInput{
@@ -2247,7 +2252,7 @@ func TestBatch2_MessageAttributes_BinaryMissingValue_Rejected(t *testing.T) {
 
 func TestBatch2_MessageAttributes_CustomSubtype_Valid(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "msgattr-subtype")
 	_, err := b.SendMessage(&sqs.SendMessageInput{
@@ -2266,7 +2271,7 @@ func TestBatch2_MessageAttributes_CustomSubtype_Valid(t *testing.T) {
 
 func TestBatch2_QueueAttr_VisibilityTimeout_Range(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	cases := []struct {
 		v  string
@@ -2297,7 +2302,7 @@ func TestBatch2_QueueAttr_VisibilityTimeout_Range(t *testing.T) {
 
 func TestBatch2_QueueAttr_DelaySeconds_Range(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	cases := []struct {
 		v  string
@@ -2327,7 +2332,7 @@ func TestBatch2_QueueAttr_DelaySeconds_Range(t *testing.T) {
 
 func TestBatch2_QueueAttr_ReceiveWaitSeconds_Range(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	cases := []struct {
 		v  string
@@ -2357,7 +2362,7 @@ func TestBatch2_QueueAttr_ReceiveWaitSeconds_Range(t *testing.T) {
 
 func TestBatch2_QueueAttr_MaxMessageSize_Range(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	cases := []struct {
 		v  string
@@ -2392,7 +2397,9 @@ func TestBatch2_QueueAttr_MaxMessageSize_Range(t *testing.T) {
 
 func TestBatch2_Handler_CreateQueueQuery(t *testing.T) {
 	t.Parallel()
-	h := sqs.NewHandler(sqs.NewInMemoryBackend())
+	bk := sqs.NewInMemoryBackend()
+	t.Cleanup(bk.Close)
+	h := sqs.NewHandler(bk)
 
 	rec := doQueryRequest(t, h, newQueryVals("CreateQueue", map[string]string{
 		"QueueName": "query-create",
@@ -2403,7 +2410,9 @@ func TestBatch2_Handler_CreateQueueQuery(t *testing.T) {
 
 func TestBatch2_Handler_SendReceiveDeleteQuery(t *testing.T) {
 	t.Parallel()
-	h := sqs.NewHandler(sqs.NewInMemoryBackend())
+	bk := sqs.NewInMemoryBackend()
+	t.Cleanup(bk.Close)
+	h := sqs.NewHandler(bk)
 
 	// CreateQueue
 	recCreate := doQueryRequest(t, h, newQueryVals("CreateQueue", map[string]string{"QueueName": "qrd"}))
@@ -2436,7 +2445,9 @@ func TestBatch2_Handler_SendReceiveDeleteQuery(t *testing.T) {
 
 func TestBatch2_Handler_UnknownAction_Returns400(t *testing.T) {
 	t.Parallel()
-	h := sqs.NewHandler(sqs.NewInMemoryBackend())
+	bk := sqs.NewInMemoryBackend()
+	t.Cleanup(bk.Close)
+	h := sqs.NewHandler(bk)
 
 	rec := doQueryRequest(t, h, newQueryVals("BogusAction", map[string]string{}))
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
@@ -2445,7 +2456,9 @@ func TestBatch2_Handler_UnknownAction_Returns400(t *testing.T) {
 
 func TestBatch2_Handler_PurgeQueueQuery(t *testing.T) {
 	t.Parallel()
-	h := sqs.NewHandler(sqs.NewInMemoryBackend())
+	bk := sqs.NewInMemoryBackend()
+	t.Cleanup(bk.Close)
+	h := sqs.NewHandler(bk)
 
 	recCreate := doQueryRequest(t, h, newQueryVals("CreateQueue", map[string]string{"QueueName": "purge-q"}))
 	require.Equal(t, http.StatusOK, recCreate.Code)
@@ -2463,7 +2476,7 @@ func TestBatch2_Handler_PurgeQueueQuery(t *testing.T) {
 
 func TestBatch2_QueueDelay_HidesMessageUntilExpiry(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL, err := b.CreateQueue(&sqs.CreateQueueInput{
 		QueueName:  "delay-q",
@@ -2483,7 +2496,7 @@ func TestBatch2_QueueDelay_HidesMessageUntilExpiry(t *testing.T) {
 
 func TestBatch2_MessageDelay_OverridesQueueDelay(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL, err := b.CreateQueue(&sqs.CreateQueueInput{
 		QueueName:  "msg-delay-override",
@@ -2512,7 +2525,7 @@ func TestBatch2_InFlight_StandardLimit(t *testing.T) {
 	// returns ErrOverLimit when 120,000 standard messages are in-flight.
 	// We use a small number to keep the test fast.
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL, err := b.CreateQueue(&sqs.CreateQueueInput{
 		QueueName:  "inflight-std",
@@ -2539,7 +2552,7 @@ func TestBatch2_InFlight_StandardLimit(t *testing.T) {
 
 func TestBatch2_QueueARN_Format(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "arn-test")
 	attrs := b2getAttrs(t, b, qURL, "QueueArn")
@@ -2552,7 +2565,7 @@ func TestBatch2_QueueARN_Format(t *testing.T) {
 
 func TestBatch2_FIFO_QueueARN_ContainsFifoSuffix(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createFIFOQueue(t, b, "arn-fifo.fifo", nil)
 	attrs := b2getAttrs(t, b, qURL, "QueueArn")
@@ -2567,7 +2580,7 @@ func TestBatch2_FIFO_QueueARN_ContainsFifoSuffix(t *testing.T) {
 
 func TestBatch2_MD5OfBody_MatchesExpected(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "md5-body")
 	out, err := b.SendMessage(&sqs.SendMessageInput{
@@ -2585,7 +2598,7 @@ func TestBatch2_MD5OfBody_MatchesExpected(t *testing.T) {
 
 func TestBatch2_MD5OfMessageAttributes_PopulatedWhenPresent(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "md5-attrs")
 	out, err := b.SendMessage(&sqs.SendMessageInput{
@@ -2601,7 +2614,7 @@ func TestBatch2_MD5OfMessageAttributes_PopulatedWhenPresent(t *testing.T) {
 
 func TestBatch2_MD5OfMessageAttributes_EmptyWhenNoAttrs(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend()
+	b := b2newBackend(t)
 
 	qURL := b2createQueue(t, b, "md5-noattrs")
 	out, err := b.SendMessage(&sqs.SendMessageInput{

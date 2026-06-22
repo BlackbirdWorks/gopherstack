@@ -17,6 +17,7 @@ func TestSDKCompleteness(t *testing.T) {
 	t.Parallel()
 
 	backend := sqs.NewInMemoryBackend()
+	t.Cleanup(backend.Close)
 	h := sqs.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &sqssdk.Client{}, h.GetSupportedOperations(), []string{})
 }

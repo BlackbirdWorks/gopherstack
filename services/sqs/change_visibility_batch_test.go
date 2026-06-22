@@ -15,6 +15,7 @@ func newBackendWithQueue(t *testing.T, queueName string) (*sqs.InMemoryBackend, 
 	t.Helper()
 
 	backend := sqs.NewInMemoryBackend()
+	t.Cleanup(backend.Close)
 	out, err := backend.CreateQueue(&sqs.CreateQueueInput{
 		QueueName: queueName,
 		Endpoint:  "localhost",
@@ -106,6 +107,7 @@ func TestChangeMessageVisibilityBatch(t *testing.T) {
 				queueURL = url
 			} else {
 				backend = sqs.NewInMemoryBackend()
+				t.Cleanup(backend.Close)
 			}
 
 			// Send messages.
