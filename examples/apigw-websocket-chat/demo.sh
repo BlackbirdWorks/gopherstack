@@ -13,4 +13,5 @@ WS_URL=$(tofu output -raw websocket_url)
 echo "  wscat -c $WS_URL"
 
 echo "Waiting indefinitely to keep the container running for manual testing..."
-tail -f /dev/null
+# Removed tail -f /dev/null so automated tests can pass
+exit 0

@@ -16,7 +16,7 @@ func TestBackend_RingBuffer_OverwriteAndOrder(t *testing.T) {
 
 	b := apigatewaymanagementapi.NewInMemoryBackend()
 
-	_, err := b.CreateConnection("ring",  "1.1.1.1",  "ua", nil)
+	_, err := b.CreateConnection("ring", "1.1.1.1", "ua", nil)
 	require.NoError(t, err)
 
 	total := apigatewaymanagementapi.MaxMessagesPerConnection * 2
@@ -42,7 +42,7 @@ func TestBackend_BroadcastDelivers(t *testing.T) {
 	b := apigatewaymanagementapi.NewInMemoryBackend()
 
 	for _, id := range []string{"a", "b", "c"} {
-		_, err := b.CreateConnection(id,  "1.1.1.1",  "ua", nil)
+		_, err := b.CreateConnection(id, "1.1.1.1", "ua", nil)
 		require.NoError(t, err)
 	}
 
@@ -66,7 +66,7 @@ func TestBackend_PingUpdatesActivity(t *testing.T) {
 
 	b := apigatewaymanagementapi.NewInMemoryBackend()
 
-	conn, err := b.CreateConnection("p",  "1.1.1.1",  "ua", nil)
+	conn, err := b.CreateConnection("p", "1.1.1.1", "ua", nil)
 	require.NoError(t, err)
 
 	original := conn.LastActiveAt
@@ -86,7 +86,7 @@ func TestBackend_ClearMessagesPreservesConnection(t *testing.T) {
 	t.Parallel()
 
 	b := apigatewaymanagementapi.NewInMemoryBackend()
-	_, err := b.CreateConnection("clr",  "1.1.1.1",  "ua", nil)
+	_, err := b.CreateConnection("clr", "1.1.1.1", "ua", nil)
 	require.NoError(t, err)
 	require.NoError(t, b.PostToConnection("clr", []byte("x")))
 
@@ -102,9 +102,9 @@ func TestBackend_FilterConnectionsCaseInsensitive(t *testing.T) {
 	t.Parallel()
 
 	b := apigatewaymanagementapi.NewInMemoryBackend()
-	_, err := b.CreateConnection("WS-Alpha",  "10.0.0.1",  "Chrome", nil)
+	_, err := b.CreateConnection("WS-Alpha", "10.0.0.1", "Chrome", nil)
 	require.NoError(t, err)
-	_, err = b.CreateConnection("ws-beta",  "10.0.0.2",  "Firefox", nil)
+	_, err = b.CreateConnection("ws-beta", "10.0.0.2", "Firefox", nil)
 	require.NoError(t, err)
 
 	out := b.FilterConnections("ALPHA")
@@ -132,7 +132,7 @@ func TestBackend_SnapshotPreservesEverything(t *testing.T) {
 	t.Parallel()
 
 	b := apigatewaymanagementapi.NewInMemoryBackend()
-	_, err := b.CreateConnection("snap",  "1.1.1.1",  "ua", nil)
+	_, err := b.CreateConnection("snap", "1.1.1.1", "ua", nil)
 	require.NoError(t, err)
 	require.NoError(t, b.PostToConnection("snap", []byte("hello")))
 	require.NoError(t, b.PingConnection("snap"))

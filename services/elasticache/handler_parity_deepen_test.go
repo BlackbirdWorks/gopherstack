@@ -146,7 +146,7 @@ func TestHandler_DescribeSnapshots_SnapshotSource_Filter(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
+			b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 			client := newTestStackSeeded(t, b)
 
 			if tt.setup != nil {
@@ -196,7 +196,7 @@ func TestBackend_DescribeSnapshots_SnapshotSource_Filter(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
+			b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 			elasticache.AddSnapshotInternal(b, "snap-manual", "rg-x", "manual")
 			elasticache.AddSnapshotInternal(b, "snap-auto", "rg-x", "automated")
 
@@ -277,7 +277,7 @@ func TestHandler_DescribeCacheClusters_ShowCacheClustersNotInReplicationGroups(t
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
+			b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 			client := newTestStackSeeded(t, b)
 
 			if tt.setup != nil {
@@ -324,7 +324,7 @@ func TestBackend_DescribeClusters_NotInRG_Filter(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
+			b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 
 			// One standalone cluster.
 			_, err := b.CreateCluster(context.Background(), "standalone", "redis", "cache.t3.micro", 0)

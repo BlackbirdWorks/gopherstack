@@ -3346,15 +3346,20 @@ func (a *ssmKMSAdapter) DecryptSSM(ciphertext []byte) ([]byte, error) {
 // wireAPIGatewayLambda connects the API Gateway handler to the Lambda backend
 // for AWS_PROXY integrations.
 func wireAPIGatewayLambda(apigwReg, apigwv2Reg, lambdaReg service.Registerable) {
-	if lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler); lambdaOk {
-		if lambdaBk, bkOk := lambdaH.Backend.(*lambdabackend.InMemoryBackend); bkOk {
-			if apigwH, ok := apigwReg.(*apigwbackend.Handler); ok {
-				apigwH.SetLambdaInvoker(lambdaBk)
-			}
-			if apigwv2H, ok := apigwv2Reg.(*apigwv2backend.Handler); ok {
-				apigwv2H.SetLambdaInvoker(lambdaBk)
-			}
-		}
+	lambdaH, ok := lambdaReg.(*lambdabackend.Handler)
+	if !ok {
+		return
+	}
+	lambdaBk, ok := lambdaH.Backend.(*lambdabackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	if apigwH, ok2 := apigwReg.(*apigwbackend.Handler); ok2 {
+		apigwH.SetLambdaInvoker(lambdaBk)
+	}
+	if apigwv2H, ok3 := apigwv2Reg.(*apigwv2backend.Handler); ok3 {
+		apigwv2H.SetLambdaInvoker(lambdaBk)
 	}
 }
 

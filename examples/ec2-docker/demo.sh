@@ -106,11 +106,18 @@ echo "${PUBLIC_DNS} -> ${RESOLVED}"
 echo
 echo "=== Waiting for sshd on ${RESOLVED}:${SSH_PORT} ==="
 for i in $(seq 1 30); do
-  if (echo > "/dev/tcp/${RESOLVED}/${SSH_PORT}") >/dev/null 2>&1; then
+  if ssh -i "${KEY_FILE}" \
+    -o StrictHostKeyChecking=no \
+    -o UserKnownHostsFile=/dev/null \
+    -o LogLevel=ERROR \
+    -o ConnectTimeout=2 \
+    -p "${SSH_PORT}" \
+    "ec2-user@${RESOLVED}" \
+    'echo ok' >/dev/null 2>&1; then
     echo "sshd is up after ${i}s"
     break
   fi
-  sleep 1
+  sleep 2
 done
 
 echo

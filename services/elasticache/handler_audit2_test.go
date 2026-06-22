@@ -312,7 +312,7 @@ func TestHandler_ModifyReplicationGroup_RemoveUserGroupIds(t *testing.T) {
 func TestBackend_UserGroupIds_AddRemove(t *testing.T) {
 	t.Parallel()
 
-	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
+	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 
 	_, err := b.CreateUser(context.Background(), "u1", "user1", "on ~* +@all", "redis", false)
 	require.NoError(t, err)
@@ -758,7 +758,7 @@ func TestHandler_DescribeSnapshots_FilterByClusterID(t *testing.T) {
 func TestBackend_Persistence_UserGroupIds(t *testing.T) {
 	t.Parallel()
 
-	b1 := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
+	b1 := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 
 	_, err := b1.CreateUser(context.Background(), "persist-user", "persist-user", "on ~* +@all", "redis", false)
 	require.NoError(t, err)
@@ -776,7 +776,7 @@ func TestBackend_Persistence_UserGroupIds(t *testing.T) {
 	snap := b1.Snapshot()
 	require.NotNil(t, snap)
 
-	b2 := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
+	b2 := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 	err = b2.Restore(snap)
 	require.NoError(t, err)
 
@@ -922,7 +922,7 @@ func TestHandler_ServerlessCache_FullLifecycle(t *testing.T) {
 func TestBackend_TriggerAutoSnapshot_Engine(t *testing.T) {
 	t.Parallel()
 
-	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
+	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 
 	_, err := b.CreateReplicationGroupFull(context.Background(), elasticache.ReplicationGroupCreateOpts{
 		ID:          "engine-snap-rg",

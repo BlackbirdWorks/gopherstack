@@ -62,7 +62,7 @@ $AWS lambda create-function \
   --role "$ROLE_ARN" \
   --handler bootstrap \
   --zip-file "fileb://$WORK/function.zip" \
-  --environment "Variables={AWS_ENDPOINT_URL=${LAMBDA_ENDPOINT:-${ENDPOINT:-http://localhost:8000}},AWS_ACCESS_KEY_ID=test,AWS_SECRET_ACCESS_KEY=test,AWS_DEFAULT_REGION=us-east-1}" \
+  --environment "Variables={AWS_ENDPOINT_URL=${LAMBDA_ENDPOINT:-http://host.docker.internal:8000},AWS_ACCESS_KEY_ID=test,AWS_SECRET_ACCESS_KEY=test,AWS_DEFAULT_REGION=us-east-1}" \
   >/dev/null
 echo "  created function $FUNC"
 

@@ -729,7 +729,7 @@ func newHandlers() handlers {
 		kinesis: kinesisbackend.NewHandler(kinesisbackend.NewInMemoryBackend()),
 		elasticache: elasticachebackend.NewHandler(
 			elasticachebackend.NewInMemoryBackend(
-				elasticachebackend.EngineStub, config.DefaultAccountID, config.DefaultRegion,
+				elasticachebackend.EngineStub, config.DefaultAccountID, config.DefaultRegion, nil,
 			),
 		),
 		route53: route53backend.NewHandler(route53backend.NewInMemoryBackend()),

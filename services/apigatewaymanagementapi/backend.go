@@ -23,8 +23,8 @@ const (
 type connState struct {
 	conn       *Connection
 	msgs       *messageRing
+	downstream chan []byte
 	events     []LifecycleEvent
-	downstream chan []byte // Channel to send data to the real WebSocket connection (if any)
 }
 
 // InMemoryBackend implements the StorageBackend for API Gateway Management API.
@@ -51,7 +51,10 @@ func (b *InMemoryBackend) appendEvent(s *connState, ev LifecycleEvent) {
 }
 
 // CreateConnection creates a new simulated WebSocket connection.
-func (b *InMemoryBackend) CreateConnection(connectionID, sourceIP, userAgent string, downstream chan []byte) (*Connection, error) {
+func (b *InMemoryBackend) CreateConnection(
+	connectionID, sourceIP, userAgent string,
+	downstream chan []byte,
+) (*Connection, error) {
 	if connectionID == "" {
 		return nil, fmt.Errorf("%w: connectionID required", awserr.ErrInvalidParameter)
 	}
@@ -124,8 +127,7 @@ func (b *InMemoryBackend) PostToConnection(connectionID string, data []byte) err
 		select {
 		case state.downstream <- stored:
 		default:
-			// If channel is full, we log but don't block
-			fmt.Printf("Warning: WebSocket downstream channel full for connection %s\n", connectionID)
+			// Warning: WebSocket downstream channel full
 		}
 	}
 

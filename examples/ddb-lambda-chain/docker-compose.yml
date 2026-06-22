@@ -18,22 +18,3 @@ services:
     environment:
       - LAMBDA_DOCKER_HOST=host.docker.internal
 
-  demo:
-    image: golang:1.23
-    depends_on:
-      gopherstack:
-        condition: service_healthy
-    environment:
-      - AWS_ACCESS_KEY_ID=test
-      - AWS_SECRET_ACCESS_KEY=test
-      - AWS_DEFAULT_REGION=us-east-1
-      - ENDPOINT=http://gopherstack:8000
-      - LAMBDA_ENDPOINT=http://host.docker.internal:8000
-    # golang image lacks aws-cli/zip; install them, then run the demo.
-    entrypoint:
-      - /bin/sh
-      - -c
-      - "apt-get update -qq && apt-get install -y -qq awscli zip >/dev/null && exec /bin/sh /demo.sh"
-    volumes:
-      - ./demo.sh:/demo.sh:ro
-      - ./lambda:/lambda:ro

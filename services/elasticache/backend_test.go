@@ -66,7 +66,7 @@ func TestCreateCluster(t *testing.T) {
 			t.Parallel()
 
 			var dns *mockDNSRegistrar
-			backend := elasticache.NewInMemoryBackend(elasticache.EngineStub, "123456789012", "us-east-1")
+			backend := elasticache.NewInMemoryBackend(elasticache.EngineStub, "123456789012", "us-east-1", nil)
 
 			if tt.withDNS {
 				dns = newMockDNS()
@@ -104,7 +104,7 @@ func TestDeleteCluster_DNSDeregistration(t *testing.T) {
 			t.Parallel()
 
 			dns := newMockDNS()
-			backend := elasticache.NewInMemoryBackend(elasticache.EngineStub, "123456789012", "us-east-1")
+			backend := elasticache.NewInMemoryBackend(elasticache.EngineStub, "123456789012", "us-east-1", nil)
 			backend.SetDNSRegistrar(dns)
 
 			cluster, err := backend.CreateCluster(context.Background(), "my-cache", "redis", "cache.t3.micro", 0)
@@ -139,7 +139,7 @@ func TestCreateClusterWithOptions_AtomicNoLeak(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backend := elasticache.NewInMemoryBackend(elasticache.EngineEmbedded, "123456789012", "us-east-1")
+			backend := elasticache.NewInMemoryBackend(elasticache.EngineEmbedded, "123456789012", "us-east-1", nil)
 
 			_, err := backend.CreateClusterWithOptions(context.Background(),
 				"my-cache",
@@ -198,7 +198,7 @@ func TestCreateClusterWithOptions_FamilyValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backend := elasticache.NewInMemoryBackend(elasticache.EngineStub, "123456789012", "us-east-1")
+			backend := elasticache.NewInMemoryBackend(elasticache.EngineStub, "123456789012", "us-east-1", nil)
 
 			_, err := backend.CreateClusterWithOptions(context.Background(),
 				"my-cache",
@@ -233,12 +233,12 @@ func TestListTagsForResource_NilTagsSafe(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backend := elasticache.NewInMemoryBackend(elasticache.EngineStub, "123456789012", "us-east-1")
+			backend := elasticache.NewInMemoryBackend(elasticache.EngineStub, "123456789012", "us-east-1", nil)
 
 			snap := backend.Snapshot()
 			require.NotNil(t, snap)
 
-			backend2 := elasticache.NewInMemoryBackend(elasticache.EngineStub, "123456789012", "us-east-1")
+			backend2 := elasticache.NewInMemoryBackend(elasticache.EngineStub, "123456789012", "us-east-1", nil)
 			require.NoError(t, backend2.Restore(snap))
 
 			_, err := backend2.CreateCluster(context.Background(), "nil-tags-cluster", "redis", "cache.t3.micro", 0)
@@ -278,7 +278,7 @@ func TestDescribeEvents_RecordsOperations(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backend := elasticache.NewInMemoryBackend(elasticache.EngineStub, "123456789012", "us-east-1")
+			backend := elasticache.NewInMemoryBackend(elasticache.EngineStub, "123456789012", "us-east-1", nil)
 
 			_, err := backend.CreateCluster(context.Background(), tt.clusterID, "redis", "cache.t3.micro", 0)
 			require.NoError(t, err)
@@ -323,7 +323,7 @@ func TestFailoverReplicationGroup(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backend := elasticache.NewInMemoryBackend(elasticache.EngineStub, "123456789012", "us-east-1")
+			backend := elasticache.NewInMemoryBackend(elasticache.EngineStub, "123456789012", "us-east-1", nil)
 
 			if tt.wantErr == nil {
 				_, err := backend.CreateReplicationGroup(context.Background(), tt.rgID, "test rg")
@@ -387,7 +387,7 @@ func TestAddRemoveTagsForResource(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backend := elasticache.NewInMemoryBackend(elasticache.EngineStub, "123456789012", "us-east-1")
+			backend := elasticache.NewInMemoryBackend(elasticache.EngineStub, "123456789012", "us-east-1", nil)
 
 			c, err := backend.CreateCluster(context.Background(), "tag-cluster", "redis", "cache.t3.micro", 0)
 			require.NoError(t, err)
@@ -439,7 +439,7 @@ func TestModifyCluster_ScalesAndEngineVersion(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backend := elasticache.NewInMemoryBackend(elasticache.EngineStub, "123456789012", "us-east-1")
+			backend := elasticache.NewInMemoryBackend(elasticache.EngineStub, "123456789012", "us-east-1", nil)
 
 			_, err := backend.CreateCluster(context.Background(), "mod-cluster", "redis", "cache.t3.micro", 0)
 			require.NoError(t, err)
@@ -475,7 +475,7 @@ func TestBackend_Reset(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backend := elasticache.NewInMemoryBackend(elasticache.EngineStub, "123456789012", "us-east-1")
+			backend := elasticache.NewInMemoryBackend(elasticache.EngineStub, "123456789012", "us-east-1", nil)
 
 			_, err := backend.CreateCluster(context.Background(), "reset-cluster", "redis", "cache.t3.micro", 0)
 			require.NoError(t, err)

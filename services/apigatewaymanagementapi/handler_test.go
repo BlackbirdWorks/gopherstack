@@ -177,7 +177,7 @@ func TestHandler_PostToConnection(t *testing.T) {
 			h := newTestHandler(t)
 
 			if tt.preCreate {
-				_, err := h.Backend.CreateConnection(tt.connectionID,  "127.0.0.1",  "test-agent", nil)
+				_, err := h.Backend.CreateConnection(tt.connectionID, "127.0.0.1", "test-agent", nil)
 				require.NoError(t, err)
 			}
 
@@ -217,7 +217,7 @@ func TestHandler_GetConnection(t *testing.T) {
 			h := newTestHandler(t)
 
 			if tt.preCreate {
-				_, err := h.Backend.CreateConnection(tt.connectionID,  "10.0.0.1",  "test-agent/1.0", nil)
+				_, err := h.Backend.CreateConnection(tt.connectionID, "10.0.0.1", "test-agent/1.0", nil)
 				require.NoError(t, err)
 			}
 
@@ -263,7 +263,7 @@ func TestHandler_DeleteConnection(t *testing.T) {
 			h := newTestHandler(t)
 
 			if tt.preCreate {
-				_, err := h.Backend.CreateConnection(tt.connectionID,  "10.0.0.2",  "test-agent/2.0", nil)
+				_, err := h.Backend.CreateConnection(tt.connectionID, "10.0.0.2", "test-agent/2.0", nil)
 				require.NoError(t, err)
 			}
 
@@ -278,7 +278,7 @@ func TestHandler_MethodNotAllowed(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	_, err := h.Backend.CreateConnection("conn-1",  "127.0.0.1",  "test", nil)
+	_, err := h.Backend.CreateConnection("conn-1", "127.0.0.1", "test", nil)
 	require.NoError(t, err)
 
 	rec := doRequest(t, h, http.MethodPut, "/@connections/conn-1", nil)
@@ -312,10 +312,10 @@ func TestBackend_ListConnections(t *testing.T) {
 	conns := b.ListConnections()
 	assert.Empty(t, conns)
 
-	_, err := b.CreateConnection("list-conn-1",  "1.2.3.4",  "ua1", nil)
+	_, err := b.CreateConnection("list-conn-1", "1.2.3.4", "ua1", nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateConnection("list-conn-2",  "5.6.7.8",  "ua2", nil)
+	_, err = b.CreateConnection("list-conn-2", "5.6.7.8", "ua2", nil)
 	require.NoError(t, err)
 
 	conns = b.ListConnections()
@@ -354,7 +354,7 @@ func TestBackend_PostToConnection_AfterDelete(t *testing.T) {
 
 	b := apigatewaymanagementapi.NewInMemoryBackend()
 
-	_, err := b.CreateConnection("c1",  "1.2.3.4",  "ua", nil)
+	_, err := b.CreateConnection("c1", "1.2.3.4", "ua", nil)
 	require.NoError(t, err)
 
 	require.NoError(t, b.DeleteConnection("c1"))
@@ -368,7 +368,7 @@ func TestBackend_GetMessages(t *testing.T) {
 
 	b := apigatewaymanagementapi.NewInMemoryBackend()
 
-	_, err := b.CreateConnection("conn-msg",  "1.2.3.4",  "ua", nil)
+	_, err := b.CreateConnection("conn-msg", "1.2.3.4", "ua", nil)
 	require.NoError(t, err)
 
 	require.NoError(t, b.PostToConnection("conn-msg", []byte("first")))
@@ -385,7 +385,7 @@ func TestBackend_PostToConnection_MessageCap(t *testing.T) {
 
 	b := apigatewaymanagementapi.NewInMemoryBackend()
 
-	_, err := b.CreateConnection("capped",  "1.2.3.4",  "ua", nil)
+	_, err := b.CreateConnection("capped", "1.2.3.4", "ua", nil)
 	require.NoError(t, err)
 
 	total := apigatewaymanagementapi.MaxMessagesPerConnection + 10

@@ -92,7 +92,7 @@ func TestNewOps_SeedHelpers(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
+			b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 			tt.run(t, b)
 		})
 	}
@@ -101,7 +101,7 @@ func TestNewOps_SeedHelpers(t *testing.T) {
 func TestNewOps_ExportCountHelpers(t *testing.T) {
 	t.Parallel()
 
-	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
+	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 
 	assert.Equal(t, 0, elasticache.CacheSecurityGroupCount(b))
 	assert.Equal(t, 0, elasticache.GlobalReplicationGroupCount(b))
@@ -113,7 +113,7 @@ func TestNewOps_ExportCountHelpers(t *testing.T) {
 func TestNewOps_Reset_ClearsNewMaps(t *testing.T) {
 	t.Parallel()
 
-	backend := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
+	backend := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 
 	backend.AddCacheSecurityGroupInternal(&elasticache.CacheSecurityGroup{Name: "sg1", ARN: "arn:sg1"})
 	backend.AddGlobalReplicationGroupInternal(
@@ -142,7 +142,7 @@ func TestNewOps_Reset_ClearsNewMaps(t *testing.T) {
 func TestNewOps_GetSupportedOperations(t *testing.T) {
 	t.Parallel()
 
-	backend := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
+	backend := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 	h := elasticache.NewHandler(backend)
 	ops := h.GetSupportedOperations()
 
@@ -246,7 +246,7 @@ func TestNewOps_BatchStopUpdateAction_WithCluster(t *testing.T) {
 func TestNewOps_PersistenceRoundTrip(t *testing.T) {
 	t.Parallel()
 
-	backend := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
+	backend := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 
 	// Seed data.
 	backend.AddCacheSecurityGroupInternal(&elasticache.CacheSecurityGroup{Name: "sg1", ARN: "arn:sg1"})
@@ -266,7 +266,7 @@ func TestNewOps_PersistenceRoundTrip(t *testing.T) {
 	snap := backend.Snapshot()
 	require.NotNil(t, snap)
 
-	b2 := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
+	b2 := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 	err := b2.Restore(snap)
 	require.NoError(t, err)
 
@@ -498,7 +498,7 @@ func TestHandler_TestFailoverReplicationGroup(t *testing.T) {
 func TestHandler_Persistence_Snapshot_Restore(t *testing.T) {
 	t.Parallel()
 
-	backend := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
+	backend := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 	h := elasticache.NewHandler(backend)
 
 	// Seed some data.
@@ -509,7 +509,7 @@ func TestHandler_Persistence_Snapshot_Restore(t *testing.T) {
 	require.NotNil(t, snap)
 
 	// New backend + handler, restore.
-	b2 := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
+	b2 := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 	h2 := elasticache.NewHandler(b2)
 	err := h2.Restore(snap)
 	require.NoError(t, err)

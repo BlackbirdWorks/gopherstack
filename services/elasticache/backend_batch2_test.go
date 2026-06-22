@@ -62,7 +62,7 @@ func TestBackend_CreateServerlessCacheFull_AllFields(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
+			b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 
 			sc, err := b.CreateServerlessCacheFull(context.Background(), tt.opts)
 			require.NoError(t, err)
@@ -92,7 +92,7 @@ func TestBackend_CreateServerlessCacheFull_AllFields(t *testing.T) {
 func TestBackend_CreateServerlessCacheFull_AlreadyExists(t *testing.T) {
 	t.Parallel()
 
-	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
+	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 
 	opts := elasticache.ServerlessCreateOpts{Name: "dup-sc", Engine: "redis"}
 	_, err := b.CreateServerlessCacheFull(context.Background(), opts)
@@ -150,7 +150,7 @@ func TestBackend_ModifyServerlessCacheFull(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
+			b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 			_, err := b.CreateServerlessCache(context.Background(), "mod-sc", "original", "redis")
 			require.NoError(t, err)
 
@@ -187,7 +187,7 @@ func TestBackend_ModifyServerlessCacheFull(t *testing.T) {
 func TestBackend_CreateSubnetGroupFull_WithVpcId(t *testing.T) {
 	t.Parallel()
 
-	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
+	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 
 	sg, err := b.CreateSubnetGroupFull(
 		context.Background(),
@@ -206,7 +206,7 @@ func TestBackend_CreateSubnetGroupFull_WithVpcId(t *testing.T) {
 func TestBackend_CreateSubnetGroupFull_AlreadyExists(t *testing.T) {
 	t.Parallel()
 
-	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
+	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 
 	_, err := b.CreateSubnetGroupFull(context.Background(), "dup-sng", "dup", "vpc-111", nil)
 	require.NoError(t, err)
@@ -223,7 +223,7 @@ func TestBackend_CreateSubnetGroupFull_AlreadyExists(t *testing.T) {
 func TestBackend_CopySnapshotFull_WithKmsKey(t *testing.T) {
 	t.Parallel()
 
-	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
+	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 
 	_, err := b.CreateReplicationGroupFull(context.Background(), elasticache.ReplicationGroupCreateOpts{
 		ID: "kms-rg", Description: "for copy",
@@ -248,7 +248,7 @@ func TestBackend_CopySnapshotFull_WithKmsKey(t *testing.T) {
 func TestBackend_CopySnapshotFull_SourceNotFound(t *testing.T) {
 	t.Parallel()
 
-	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
+	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 
 	_, err := b.CopySnapshotFull(context.Background(), "no-such-snap", "target", "")
 	require.Error(t, err)
@@ -258,7 +258,7 @@ func TestBackend_CopySnapshotFull_SourceNotFound(t *testing.T) {
 func TestBackend_CopySnapshotFull_TargetAlreadyExists(t *testing.T) {
 	t.Parallel()
 
-	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
+	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 
 	_, err := b.CreateReplicationGroupFull(context.Background(), elasticache.ReplicationGroupCreateOpts{
 		ID: "dup-copy-rg", Description: "dup",
@@ -283,7 +283,7 @@ func TestBackend_CopySnapshotFull_TargetAlreadyExists(t *testing.T) {
 func TestBackend_CreateUserGroupValidated_UsersExist(t *testing.T) {
 	t.Parallel()
 
-	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
+	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 
 	_, err := b.CreateUser(context.Background(), "u-valid-1", "u-valid-1", "on ~* +@all", "redis", true)
 	require.NoError(t, err)
@@ -305,7 +305,7 @@ func TestBackend_CreateUserGroupValidated_UsersExist(t *testing.T) {
 func TestBackend_CreateUserGroupValidated_UserNotFound(t *testing.T) {
 	t.Parallel()
 
-	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
+	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 
 	_, err := b.CreateUserGroupValidated(context.Background(), "fail-ug", "fail", "redis", []string{"nonexistent-user"})
 	require.Error(t, err)
@@ -319,7 +319,7 @@ func TestBackend_CreateUserGroupValidated_UserNotFound(t *testing.T) {
 func TestBackend_DeleteUserSafe_NotInGroup(t *testing.T) {
 	t.Parallel()
 
-	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
+	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 
 	_, err := b.CreateUser(context.Background(), "safe-del", "safe-del", "on ~* +@all", "redis", true)
 	require.NoError(t, err)
@@ -332,7 +332,7 @@ func TestBackend_DeleteUserSafe_NotInGroup(t *testing.T) {
 func TestBackend_DeleteUserSafe_InGroup_Fails(t *testing.T) {
 	t.Parallel()
 
-	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
+	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 
 	_, err := b.CreateUser(context.Background(), "grp-member", "grp-member", "on ~* +@all", "redis", true)
 	require.NoError(t, err)
@@ -347,7 +347,7 @@ func TestBackend_DeleteUserSafe_InGroup_Fails(t *testing.T) {
 func TestBackend_DeleteUserSafe_NotFound(t *testing.T) {
 	t.Parallel()
 
-	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
+	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 
 	_, err := b.DeleteUserSafe(context.Background(), "no-such-user")
 	require.Error(t, err)
@@ -361,7 +361,7 @@ func TestBackend_DeleteUserSafe_NotFound(t *testing.T) {
 func TestBackend_BatchApplyUpdateAction_TracksUpdateActions(t *testing.T) {
 	t.Parallel()
 
-	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
+	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 
 	_, err := b.CreateReplicationGroupFull(context.Background(), elasticache.ReplicationGroupCreateOpts{
 		ID: "track-rg", Description: "tracking",
@@ -384,7 +384,7 @@ func TestBackend_BatchApplyUpdateAction_TracksUpdateActions(t *testing.T) {
 func TestBackend_BatchApplyUpdateAction_MultipleTargets(t *testing.T) {
 	t.Parallel()
 
-	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
+	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 
 	for _, id := range []string{"multi-rg-1", "multi-rg-2"} {
 		_, err := b.CreateReplicationGroupFull(context.Background(), elasticache.ReplicationGroupCreateOpts{
@@ -424,7 +424,7 @@ func TestBackend_BatchApplyUpdateAction_MultipleTargets(t *testing.T) {
 func TestBackend_DescribeServiceUpdatesFull_SeededData(t *testing.T) {
 	t.Parallel()
 
-	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
+	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 
 	data, _, err := b.DescribeServiceUpdatesFull("", nil, "", 0)
 	require.NoError(t, err)
@@ -434,7 +434,7 @@ func TestBackend_DescribeServiceUpdatesFull_SeededData(t *testing.T) {
 func TestBackend_DescribeServiceUpdatesFull_FilterByName(t *testing.T) {
 	t.Parallel()
 
-	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
+	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 
 	data, _, err := b.DescribeServiceUpdatesFull("20240101-001-security-patch", nil, "", 0)
 	require.NoError(t, err)
@@ -445,7 +445,7 @@ func TestBackend_DescribeServiceUpdatesFull_FilterByName(t *testing.T) {
 func TestBackend_DescribeServiceUpdatesFull_FilterByStatus(t *testing.T) {
 	t.Parallel()
 
-	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
+	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 
 	data, _, err := b.DescribeServiceUpdatesFull("", []string{"available"}, "", 0)
 	require.NoError(t, err)
@@ -461,7 +461,7 @@ func TestBackend_DescribeServiceUpdatesFull_FilterByStatus(t *testing.T) {
 func TestBackend_DescribeUpdateActionsFull_FilterByUpdateName(t *testing.T) {
 	t.Parallel()
 
-	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
+	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 
 	_, err := b.CreateReplicationGroupFull(context.Background(), elasticache.ReplicationGroupCreateOpts{
 		ID: "ua-filter-rg", Description: "filter",
@@ -487,7 +487,7 @@ func TestBackend_DescribeUpdateActionsFull_FilterByUpdateName(t *testing.T) {
 func TestBackend_IncreaseNodeGroupsInGRG_UpdatesCount(t *testing.T) {
 	t.Parallel()
 
-	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
+	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 
 	grg, err := b.CreateGlobalReplicationGroup(context.Background(), "mygrg", "desc", "")
 	require.NoError(t, err)
@@ -502,7 +502,7 @@ func TestBackend_IncreaseNodeGroupsInGRG_UpdatesCount(t *testing.T) {
 func TestBackend_DecreaseNodeGroupsInGRG_UpdatesCount(t *testing.T) {
 	t.Parallel()
 
-	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
+	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 
 	grg, err := b.CreateGlobalReplicationGroup(context.Background(), "dec-grg", "desc", "")
 	require.NoError(t, err)
@@ -522,7 +522,7 @@ func TestBackend_DecreaseNodeGroupsInGRG_UpdatesCount(t *testing.T) {
 func TestBackend_DescribeEngineDefaultParameters_Redis(t *testing.T) {
 	t.Parallel()
 
-	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
+	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 
 	p, err := b.DescribeEngineDefaultParameters(context.Background(), "redis7", "", 0)
 	require.NoError(t, err)
@@ -540,7 +540,7 @@ func TestBackend_DescribeEngineDefaultParameters_Redis(t *testing.T) {
 func TestBackend_DescribeEngineDefaultParameters_Memcached(t *testing.T) {
 	t.Parallel()
 
-	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
+	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 
 	p, err := b.DescribeEngineDefaultParameters(context.Background(), "memcached1.6", "", 0)
 	require.NoError(t, err)
@@ -557,7 +557,7 @@ func TestBackend_DescribeEngineDefaultParameters_Memcached(t *testing.T) {
 func TestBackend_DescribeEngineDefaultParameters_Valkey(t *testing.T) {
 	t.Parallel()
 
-	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
+	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 
 	p, err := b.DescribeEngineDefaultParameters(context.Background(), "valkey8", "", 0)
 	require.NoError(t, err)
@@ -571,7 +571,7 @@ func TestBackend_DescribeEngineDefaultParameters_Valkey(t *testing.T) {
 func TestBackend_PurchaseReservedCacheNode_HasARN(t *testing.T) {
 	t.Parallel()
 
-	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
+	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 
 	rcn, err := b.PurchaseReservedCacheNodesOffering(
 		context.Background(),
@@ -588,7 +588,7 @@ func TestBackend_PurchaseReservedCacheNode_HasARN(t *testing.T) {
 func TestBackend_PurchaseReservedCacheNode_AutoIDUnique(t *testing.T) {
 	t.Parallel()
 
-	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
+	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 
 	rcn1, err := b.PurchaseReservedCacheNodesOffering(
 		context.Background(),
@@ -616,7 +616,7 @@ func TestBackend_PurchaseReservedCacheNode_AutoIDUnique(t *testing.T) {
 func TestBackend_AppendUpdateActions(t *testing.T) {
 	t.Parallel()
 
-	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
+	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 
 	actions := []*elasticache.UpdateAction{
 		{ReplicationGroupID: "rg-1", ServiceUpdateName: "upd-1", UpdateActionStatus: "scheduling"},

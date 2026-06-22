@@ -17,6 +17,7 @@ import (
 	gopherDNS "github.com/blackbirdworks/gopherstack/pkgs/dns"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -550,29 +551,30 @@ func builtinParameterGroupFamilies() []struct{ family, name string } {
 // are global/partition-scoped (like AWS) and therefore are NOT region-nested.
 type InMemoryBackend struct {
 	dnsRegistrar              DNSRegistrar
-	serverlessCaches          map[string]map[string]*ServerlessCache
+	users                     map[string]map[string]*User
 	serverlessCacheSnapshots  map[string]map[string]*ServerlessCacheSnapshot
 	parameterGroups           map[string]map[string]*CacheParameterGroup
-	globalReplicationGroups   map[string]*GlobalReplicationGroup // global/partition-scoped, not region-nested
+	globalReplicationGroups   map[string]*GlobalReplicationGroup
 	snapshots                 map[string]map[string]*CacheSnapshot
 	cacheSecurityGroups       map[string]map[string]*CacheSecurityGroup
 	cacheSecurityGroupIngress map[string]map[string][]EC2SecurityGroupMembership
 	clusters                  map[string]map[string]*Cluster
-	users                     map[string]map[string]*User
 	replicationGroups         map[string]map[string]*ReplicationGroup
+	serverlessCaches          map[string]map[string]*ServerlessCache
 	subnetGroups              map[string]map[string]*CacheSubnetGroup
 	userGroups                map[string]map[string]*UserGroup
 	reservedCacheNodes        map[string]map[string]*ReservedCacheNode
 	events                    *eventRing
 	mu                        *lockmetrics.RWMutex
-	accountID                 string
+	allocator                 *portalloc.Allocator
 	region                    string
 	engineMode                string
+	accountID                 string
 	updateActions             []*UpdateAction
 }
 
 // NewInMemoryBackend creates a new backend with the given engine mode.
-func NewInMemoryBackend(engineMode, accountID, region string) *InMemoryBackend {
+func NewInMemoryBackend(engineMode, accountID, region string, allocator *portalloc.Allocator) *InMemoryBackend {
 	if engineMode == "" {
 		engineMode = EngineEmbedded
 	}
@@ -596,6 +598,7 @@ func NewInMemoryBackend(engineMode, accountID, region string) *InMemoryBackend {
 		engineMode:                engineMode,
 		accountID:                 accountID,
 		region:                    region,
+		allocator:                 allocator,
 		mu:                        lockmetrics.New("elasticache"),
 	}
 
@@ -853,9 +856,19 @@ func (b *InMemoryBackend) createClusterLocked(
 
 	switch b.engineMode {
 	case EngineEmbedded:
-		mr, err := miniredis.Run()
-		if err != nil {
-			return nil, fmt.Errorf("start miniredis: %w", err)
+		mr := miniredis.NewMiniRedis()
+		if b.allocator != nil {
+			allocatedPort, err := b.allocator.Acquire("elasticache")
+			if err != nil {
+				return nil, fmt.Errorf("allocate miniredis port: %w", err)
+			}
+			if startErr := mr.StartAddr(fmt.Sprintf("0.0.0.0:%d", allocatedPort)); startErr != nil {
+				return nil, fmt.Errorf("start miniredis on port %d: %w", allocatedPort, startErr)
+			}
+		} else {
+			if err := mr.Start(); err != nil {
+				return nil, fmt.Errorf("start miniredis: %w", err)
+			}
 		}
 		c.mini = mr
 		c.Port = mr.Server().Addr().Port

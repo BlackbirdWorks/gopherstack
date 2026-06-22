@@ -25,7 +25,7 @@ func init() {
 	// For S3, we must use path-style addressing when hitting a local mock like Gopherstack
 	s3Client = s3.NewFromConfig(cfg, func(o *s3.Options) {
 		o.UsePathStyle = true
-		
+
 		// If running in docker, we might have passed LAMBDA_ENDPOINT. If so, override.
 		// AWS_ENDPOINT_URL is standard but older SDKs might need explicit EndpointResolver.
 		if ep := os.Getenv("AWS_ENDPOINT_URL"); ep != "" {
@@ -49,7 +49,7 @@ func handler(ctx context.Context, s3Event events.S3Event) (string, error) {
 			log.Printf("Error getting object %s/%s: %v", s3Entity.Bucket.Name, s3Entity.Object.Key, err)
 			return "", err
 		}
-		
+
 		body, err := io.ReadAll(obj.Body)
 		_ = obj.Body.Close()
 		if err != nil {

@@ -2,8 +2,18 @@
 set -eu
 
 # We use the ENDPOINT provided by docker-compose, or localhost.
-AWS="aws --endpoint-url ${ENDPOINT:-http://localhost:8000} --no-cli-pager --output json"
+ENDPOINT="${ENDPOINT:-http://localhost:8000}"
+export AWS_ACCESS_KEY_ID=test
+export AWS_SECRET_ACCESS_KEY=test
+export AWS_DEFAULT_REGION=us-east-1
+AWS="aws --endpoint-url $ENDPOINT --no-cli-pager --output json"
 WORK="$(mktemp -d)"
+
+LAMBDA_SRC="${LAMBDA_SRC:-/lambda}"
+if [ ! -d "$LAMBDA_SRC" ]; then
+  LAMBDA_SRC="$(cd "$(dirname "$0")" && pwd)/lambda"
+fi
+
 
 cleanup() {
   rm -rf "$WORK"
@@ -11,7 +21,7 @@ cleanup() {
 trap cleanup EXIT
 
 echo "=== Building Go zip Lambda ==="
-cp -r /lambda/* "$WORK"/
+cp -r "$LAMBDA_SRC"/* "$WORK"/
 ( cd "$WORK" && go mod tidy && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -tags lambda.norpc -o bootstrap . )
 ( cd "$WORK" && zip -q function.zip bootstrap )
 # Copy the compiled binary back to our workspace so Terraform can zip it
@@ -31,7 +41,7 @@ else
 fi
 
 $TF init
-$TF apply -auto-approve -var="provider_endpoint=${ENDPOINT:-http://localhost:8000}" -var="lambda_endpoint=${LAMBDA_ENDPOINT:-http://localhost:8000}"
+$TF apply -auto-approve -var="provider_endpoint=$ENDPOINT" -var="lambda_endpoint=${LAMBDA_ENDPOINT:-http://host.docker.internal:8000}"
 
 echo ""
 echo "=== Uploading object to S3 ==="

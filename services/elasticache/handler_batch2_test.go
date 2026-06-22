@@ -22,7 +22,7 @@ import (
 func newTestStackWithBackend(t *testing.T) (*elasticache.InMemoryBackend, *elasticachesdk.Client) {
 	t.Helper()
 
-	backend := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
+	backend := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 	handler := elasticache.NewHandler(backend)
 
 	e := echo.New()
@@ -310,7 +310,7 @@ func TestHandler_CopySnapshot_WithKmsKeyId(t *testing.T) {
 func TestHandler_DescribeServerlessCache_UserGroupId(t *testing.T) {
 	t.Parallel()
 
-	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
+	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 
 	opts := elasticache.ServerlessCreateOpts{
 		Name:        "sc-ug",

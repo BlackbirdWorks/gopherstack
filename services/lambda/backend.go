@@ -1468,6 +1468,7 @@ func extractFunctionName(name string) string {
 			}
 		}
 	}
+
 	return name
 }
 
@@ -2267,12 +2268,7 @@ func (b *InMemoryBackend) cleanupRuntime(ctx context.Context, rt *functionRuntim
 		// Stop and remove the container
 		if containerID != "" && b.docker != nil {
 			if !b.settings.KeepContainers {
-				err := b.docker.StopAndRemove(ctx, containerID)
-				if err != nil {
-					// log error silently
-				}
-			} else {
-				// log debug silently
+				_ = b.docker.StopAndRemove(ctx, containerID)
 			}
 		}
 	}()
@@ -2453,8 +2449,6 @@ func (b *InMemoryBackend) handleContainerStartFailure(
 	if containerID != "" && b.docker != nil {
 		if !b.settings.KeepContainers {
 			_ = b.docker.StopAndRemove(context.Background(), containerID)
-		} else {
-			// log debug silently
 		}
 	}
 

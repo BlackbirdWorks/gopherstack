@@ -2,6 +2,7 @@ package apigatewayv2
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -13,17 +14,23 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
-var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool {
-		return true // Allow all origins for the local emulator
-	},
-}
+var (
+	ErrUnsupportedType  = errors.New("unsupported integration type")
+	ErrInvalidLambdaArn = errors.New("invalid lambda arn")
+)
+
+const (
+	protocolTypeWebSocket = "WEBSOCKET"
+	routeKeyDefault       = "$default"
+)
 
 // handleStageProxyEcho routes /v2proxy/{apiId}/{stageName}/{path} requests to the proxy handler.
 func (h *Handler) handleStageProxyEcho(c *echo.Context) error {
 	rest := strings.TrimPrefix(c.Request().URL.Path, "/v2proxy/")
 	const minProxyPathParts = 2
-	parts := strings.SplitN(rest, "/", 3)
+	const splitCount = 3
+
+	parts := strings.SplitN(rest, "/", splitCount)
 	if len(parts) < minProxyPathParts {
 		return c.String(http.StatusNotFound, "invalid proxy path")
 	}
@@ -32,7 +39,7 @@ func (h *Handler) handleStageProxyEcho(c *echo.Context) error {
 	stageName := parts[1]
 
 	resourcePath := "/"
-	if len(parts) == 3 && parts[2] != "" {
+	if len(parts) == splitCount && parts[2] != "" {
 		resourcePath = "/" + parts[2]
 	}
 
@@ -61,7 +68,7 @@ func (h *Handler) handleUserRequestEcho(c *echo.Context) error {
 }
 
 // handleProxy performs the actual WebSocket or HTTP API routing.
-func (h *Handler) handleProxy(c *echo.Context, apiID, stageName, resourcePath string) error {
+func (h *Handler) handleProxy(c *echo.Context, apiID, _, _ string) error {
 	// 1. Get the API
 	api, err := h.Backend.GetAPI(apiID)
 	if err != nil {
@@ -70,20 +77,21 @@ func (h *Handler) handleProxy(c *echo.Context, apiID, stageName, resourcePath st
 
 	// 2. Determine protocol
 	protocol := api.ProtocolType
-	if protocol == "WEBSOCKET" {
-		return h.handleWebSocketProxy(c, apiID, stageName, resourcePath)
-	} else if protocol == "HTTP" {
-		return h.handleHTTPProxy(c, apiID, stageName, resourcePath)
+	switch protocol {
+	case protocolTypeWebSocket:
+		return h.handleWebSocketProxy(c, apiID)
+	case protocolTypeHTTP:
+		return h.handleHTTPProxy(c)
 	}
 
-	return c.String(http.StatusNotImplemented, "unsupported protocol type: "+string(protocol))
+	return c.String(http.StatusNotImplemented, "unsupported protocol type: "+protocol)
 }
 
-func (h *Handler) handleHTTPProxy(c *echo.Context, apiID, stageName, resourcePath string) error {
+func (h *Handler) handleHTTPProxy(c *echo.Context) error {
 	return c.String(http.StatusNotImplemented, "HTTP API proxy not fully implemented yet")
 }
 
-func (h *Handler) handleWebSocketProxy(c *echo.Context, apiID, stageName, resourcePath string) error {
+func (h *Handler) handleWebSocketProxy(c *echo.Context, apiID string) error {
 	log := logger.Load(c.Request().Context())
 
 	// A WebSocket proxy requires a lambda invoker to handle $connect, $disconnect, etc.
@@ -102,60 +110,50 @@ func (h *Handler) handleWebSocketProxy(c *echo.Context, apiID, stageName, resour
 	err := h.invokeWSRoute(c, apiID, "$connect", connectionID, []byte{})
 	if err != nil {
 		log.Error("apigatewayv2: $connect route failed", "error", err)
+
 		return c.String(http.StatusForbidden, "Forbidden")
 	}
 
-	// Upgrade the connection
-	conn, err := upgrader.Upgrade(c.Response(), c.Request(), nil)
-	if err != nil {
-		log.Error("apigatewayv2: websocket upgrade failed", "error", err)
-		return err
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(_ *http.Request) bool {
+			return true // Allow all origins for the local emulator
+		},
 	}
 
-	downstream := make(chan []byte, 10)
+	// Upgrade the connection
+	conn, upgradeErr := upgrader.Upgrade(c.Response(), c.Request(), nil)
+	if upgradeErr != nil {
+		log.Error("apigatewayv2: websocket upgrade failed", "error", upgradeErr)
+
+		return upgradeErr
+	}
+
+	const downstreamChanSize = 10
+	downstream := make(chan []byte, downstreamChanSize)
+
 	if h.managementAPI != nil {
-		_, err = h.managementAPI.CreateConnection(connectionID, c.RealIP(), c.Request().UserAgent(), downstream)
-		if err != nil {
-			log.Error("apigatewayv2: failed to register connection", "error", err)
-			conn.Close()
-			return err
+		_, regErr := h.managementAPI.CreateConnection(connectionID, c.RealIP(), c.Request().UserAgent(), downstream)
+		if regErr != nil {
+			log.Error("apigatewayv2: failed to register connection", "error", regErr)
+			_ = conn.Close()
+
+			return regErr
 		}
 	}
 
 	go func() {
 		for msg := range downstream {
-			err := conn.WriteMessage(websocket.TextMessage, msg)
-			if err != nil {
-				log.Info("apigatewayv2: websocket write error", "error", err)
+			writeErr := conn.WriteMessage(websocket.TextMessage, msg)
+			if writeErr != nil {
+				log.Info("apigatewayv2: websocket write error", "error", writeErr)
+
 				break
 			}
 		}
-		conn.Close()
+		_ = conn.Close()
 	}()
 
-	// Read loop
-	for {
-		msgType, msgBody, err := conn.ReadMessage()
-		if err != nil {
-			log.Info("apigatewayv2: websocket closed", "error", err)
-			break
-		}
-
-		if msgType == websocket.TextMessage || msgType == websocket.BinaryMessage {
-			// Find route based on RouteSelectionExpression.
-			routeKey := "$default"
-
-			var payload map[string]any
-			if json.Unmarshal(msgBody, &payload) == nil {
-				if action, ok := payload["action"].(string); ok && action != "" {
-					routeKey = action
-				}
-			}
-
-			// Invoke Lambda
-			_ = h.invokeWSRoute(c, apiID, routeKey, connectionID, msgBody)
-		}
-	}
+	h.wsReadLoop(c, conn, apiID, connectionID)
 
 	if h.managementAPI != nil {
 		_ = h.managementAPI.DeleteConnection(connectionID)
@@ -168,74 +166,90 @@ func (h *Handler) handleWebSocketProxy(c *echo.Context, apiID, stageName, resour
 }
 
 // invokeWSRoute invokes the backend integration for a specific route.
+func (h *Handler) wsReadLoop(c *echo.Context, conn *websocket.Conn, apiID, connectionID string) {
+	log := logger.Load(c.Request().Context())
+
+	for {
+		msgType, msgBody, readErr := conn.ReadMessage()
+		if readErr != nil {
+			log.Info("apigatewayv2: websocket closed", "error", readErr)
+
+			break
+		}
+
+		if msgType == websocket.TextMessage || msgType == websocket.BinaryMessage {
+			routeKey := routeKeyDefault
+
+			var payload map[string]any
+			if json.Unmarshal(msgBody, &payload) == nil {
+				if action, ok := payload["action"].(string); ok && action != "" {
+					routeKey = action
+				}
+			}
+
+			_ = h.invokeWSRoute(c, apiID, routeKey, connectionID, msgBody)
+		}
+	}
+}
+
 func (h *Handler) invokeWSRoute(c *echo.Context, apiID, routeKey, connectionID string, body []byte) error {
-	// 1. Find the Route
+	_, err := h.Backend.GetAPI(apiID)
+	if err != nil {
+		return err
+	}
+
 	routes, err := h.Backend.GetRoutes(apiID)
 	if err != nil {
 		return err
 	}
 
-	var targetRoute *Route
-	var defaultRoute *Route
-
-	for i, r := range routes {
+	var matchedRoute *Route
+	for _, r := range routes {
 		if r.RouteKey == routeKey {
-			targetRoute = &routes[i]
+			matchedRoute = &r
+
+			break
 		}
-		if r.RouteKey == "$default" {
-			defaultRoute = &routes[i]
+	}
+
+	if matchedRoute == nil {
+		if routeKey == routeKeyDefault || routeKey == "$connect" || routeKey == "$disconnect" {
+			return nil
 		}
+
+		return fmt.Errorf("%w: %s", ErrRouteNotFound, routeKey)
 	}
 
-	if targetRoute == nil {
-		targetRoute = defaultRoute
-	}
-
-	if targetRoute == nil {
-		return fmt.Errorf("route %s not found and no $default route", routeKey)
-	}
-
-	if targetRoute.Target == "" {
-		// No integration target
-		return nil
-	}
-
-	// 2. Find the Integration
-	// Target format is "integrations/{integrationId}"
-	integrationID := strings.TrimPrefix(targetRoute.Target, "integrations/")
+	integrationID := strings.TrimPrefix(matchedRoute.Target, "integrations/")
 	integration, err := h.Backend.GetIntegration(apiID, integrationID)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %s", ErrIntegrationNotFound, integrationID)
 	}
 
-	// 3. Extract Lambda ARN
-	uri := integration.IntegrationURI
-	if uri == "" || !strings.Contains(uri, "arn:aws:lambda") {
-		return fmt.Errorf("integration URI is not a valid Lambda ARN: %s", uri)
+	if integration.IntegrationType != IntegrationTypeAWSProxy {
+		return fmt.Errorf("%w: %s", ErrUnsupportedType, integration.IntegrationType)
 	}
 
-	// Parse out function name
-	// arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:000000000000:function:my-func/invocations
-	parts := strings.Split(uri, "function:")
-	if len(parts) < 2 {
-		return fmt.Errorf("invalid lambda integration URI")
+	const expectedArnParts = 2
+	parts := strings.Split(integration.IntegrationURI, "function:")
+	if len(parts) < expectedArnParts {
+		return fmt.Errorf("%w: %s", ErrInvalidLambdaArn, integration.IntegrationURI)
 	}
-	funcNamePart := strings.Split(parts[1], "/")
-	funcName := funcNamePart[0]
+	lambdaArn := strings.TrimSuffix(parts[1], "/invocations")
 
-	// 4. Build API Gateway Proxy Event
-	// TODO: Pass proper WebSocket request context
-	payload := []byte(fmt.Sprintf(`{
+	// AWS API Gateway WebSocket AWS_PROXY payload format
+	payload := fmt.Sprintf(`{
 		"requestContext": {
-			"routeKey": "%s",
-			"connectionId": "%s",
-			"eventType": "MESSAGE"
+			"routeKey": %q,
+			"eventType": "MESSAGE",
+			"connectionId": %q,
+			"apiId": %q
 		},
 		"body": %q
-	}`, routeKey, connectionID, string(body)))
+	}`, routeKey, connectionID, apiID, string(body))
 
 	// 5. Invoke Lambda
-	_, _, err = h.lambdaInvoker.InvokeFunction(c.Request().Context(), funcName, "RequestResponse", payload)
+	_, _, err = h.lambdaInvoker.InvokeFunction(c.Request().Context(), lambdaArn, "RequestResponse", []byte(payload))
 	if err != nil {
 		return fmt.Errorf("lambda invocation failed: %w", err)
 	}

@@ -842,7 +842,7 @@ func newExtendedServiceBackends() *cloudformation.ServiceBackends {
 	)
 	b.Route53 = route53backend.NewHandler(route53backend.NewInMemoryBackend())
 	b.ElastiCache = elasticachebackend.NewHandler(
-		elasticachebackend.NewInMemoryBackend("", "000000000000", "us-east-1"),
+		elasticachebackend.NewInMemoryBackend("", "000000000000", "us-east-1", nil),
 	)
 	b.Scheduler = schedulerbackend.NewHandler(
 		schedulerbackend.NewInMemoryBackend("000000000000", "us-east-1"),
