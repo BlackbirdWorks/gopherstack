@@ -13,6 +13,7 @@ package worker
 
 import (
 	"context"
+	"runtime/debug"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -36,31 +37,61 @@ func RunTicker(
 	service, component string,
 	interval, timeout time.Duration,
 	sweep func(context.Context),
+	opts ...Option,
 ) {
+	cfg := newConfig(opts)
 	ctx = logger.WithWorker(ctx, service, component)
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+
+	if cfg.immediate {
+		runSweep(ctx, timeout, sweep, cfg.onPanic)
+	}
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			runSweep(ctx, timeout, sweep)
+			runSweep(ctx, timeout, sweep, cfg.onPanic)
 		}
 	}
 }
 
-// runSweep invokes sweep, optionally under a per-sweep timeout context.
-func runSweep(ctx context.Context, timeout time.Duration, sweep func(context.Context)) {
+// runSweep invokes sweep, optionally under a per-sweep timeout context, always
+// recovering from a panic so a single failed sweep can never tear down the
+// worker goroutine.
+func runSweep(ctx context.Context, timeout time.Duration, sweep func(context.Context), onPanic func(any)) {
 	if timeout <= 0 {
-		sweep(ctx)
+		safely(ctx, sweep, onPanic)
 
 		return
 	}
 
 	sweepCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	sweep(sweepCtx)
+	safely(sweepCtx, sweep, onPanic)
+}
+
+// safely invokes fn, recovering and logging any panic (with stack) via the
+// worker-tagged logger so background work is resilient: a panic is logged and
+// swallowed instead of crashing the process or killing the goroutine. An
+// optional onPanic hook runs after logging for callers that need it.
+func safely(ctx context.Context, fn func(context.Context), onPanic func(any)) {
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Load(ctx).ErrorContext(ctx,
+				"worker: recovered from panic in background task",
+				"panic", r,
+				"stack", string(debug.Stack()),
+			)
+
+			if onPanic != nil {
+				onPanic(r)
+			}
+		}
+	}()
+
+	fn(ctx)
 }
