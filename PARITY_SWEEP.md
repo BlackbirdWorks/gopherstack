@@ -21,7 +21,7 @@ Polecats (sonnet) branch off `parity-sweep`, ≤3 concurrent; mayor aggregates e
 | 12 | dlm | P1 | 571-582, 3168-3180 | ☐ |
 | 13 | dms | P1 | 583-597, 3181-3192 | ☐ |
 | 14 | docdb | P1 | 598-616, 3193-3202 | ☐ |
-| 15 | dynamodb | P1 | 77-112, 2493-2584 | ☐ |
+| 15 | dynamodb | P1 | 77-112, 2493-2584 | ✅ |
 | 16 | dynamodbstreams | P1 | 113-134, 2585-2619 | ☐ |
 | 17 | ec2 | P1 | 617-631, 3203-3213 | ✅ |
 | 18 | ecr | P1 | 632-647, 3214-3223 | ☐ |
@@ -48,7 +48,7 @@ Polecats (sonnet) branch off `parity-sweep`, ≤3 concurrent; mayor aggregates e
 | 39 | kinesisanalyticsv2 | P1 | 1144-1160, 3485-3492 | ☐ |
 | 40 | kms | P1 | 1161-1175, 3493-3507 | ☐ |
 | 41 | lakeformation | P1 | 1176-1203, 3508-3520 | ☐ |
-| 42 | lambda | P1 | 1204-1227, 3521-3533 | ☐ |
+| 42 | lambda | P1 | 1204-1227, 3521-3533 | ✅ |
 | 43 | macie2 | P1 | 1228-1256, 3534-3546 | ☐ |
 | 44 | managedblockchain | P1 | 1257-1276, 3547-3558 | ☐ |
 | 45 | mediaconvert | P1 | 1277-1299, 3559-3569 | ☐ |
