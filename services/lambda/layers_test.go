@@ -20,8 +20,10 @@ import (
 )
 
 // newLayerBackend returns a fresh backend suitable for layer tests.
-func newLayerBackend() *lambda.InMemoryBackend {
-	return lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "123456789012", "us-east-1")
+func newLayerBackend(t *testing.T) *lambda.InMemoryBackend {
+	t.Helper()
+
+	return closeBackend(t, lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "123456789012", "us-east-1"))
 }
 
 // publishLayerInput builds a minimal PublishLayerVersionInput.
@@ -66,7 +68,7 @@ func TestInMemoryBackend_PublishLayerVersion(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			bk := newLayerBackend()
+			bk := newLayerBackend(t)
 
 			out, err := bk.PublishLayerVersion(tt.input)
 
@@ -87,7 +89,7 @@ func TestInMemoryBackend_PublishLayerVersion(t *testing.T) {
 func TestInMemoryBackend_PublishLayerVersion_Increments(t *testing.T) {
 	t.Parallel()
 
-	bk := newLayerBackend()
+	bk := newLayerBackend(t)
 
 	out1, err := bk.PublishLayerVersion(publishLayerInput("layer-a", "", []byte("z1"), nil))
 	require.NoError(t, err)
@@ -147,7 +149,7 @@ func TestInMemoryBackend_GetLayerVersion(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			bk := newLayerBackend()
+			bk := newLayerBackend(t)
 			if tt.setup != nil {
 				tt.setup(bk)
 			}
@@ -204,7 +206,7 @@ func TestInMemoryBackend_ListLayers(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			bk := newLayerBackend()
+			bk := newLayerBackend(t)
 			if tt.setup != nil {
 				tt.setup(bk)
 			}
@@ -226,7 +228,7 @@ func TestInMemoryBackend_ListLayers(t *testing.T) {
 func TestInMemoryBackend_ListLayers_Pagination(t *testing.T) {
 	t.Parallel()
 
-	bk := newLayerBackend()
+	bk := newLayerBackend(t)
 	for _, name := range []string{"l-a", "l-b", "l-c", "l-d", "l-e"} {
 		_, err := bk.PublishLayerVersion(publishLayerInput(name, "", []byte("z"), nil))
 		require.NoError(t, err)
@@ -283,7 +285,7 @@ func TestInMemoryBackend_ListLayerVersions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			bk := newLayerBackend()
+			bk := newLayerBackend(t)
 			if tt.setup != nil {
 				tt.setup(bk)
 			}
@@ -347,7 +349,7 @@ func TestInMemoryBackend_DeleteLayerVersion(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			bk := newLayerBackend()
+			bk := newLayerBackend(t)
 			if tt.setup != nil {
 				tt.setup(bk)
 			}
@@ -422,7 +424,7 @@ func TestInMemoryBackend_LayerVersionPolicy(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			bk := newLayerBackend()
+			bk := newLayerBackend(t)
 			if tt.setup != nil {
 				tt.setup(bk)
 			}
@@ -465,7 +467,7 @@ func TestLayerHTTPHandler(t *testing.T) {
 	t.Parallel()
 
 	newHandlerAndBackend := func() (*lambda.Handler, *lambda.InMemoryBackend) {
-		bk := newLayerBackend()
+		bk := newLayerBackend(t)
 		h := lambda.NewHandler(bk)
 		h.DefaultRegion = "us-east-1"
 		h.AccountID = "123456789012"
@@ -667,7 +669,7 @@ func TestCreateFunctionWithLayers(t *testing.T) {
 			t.Parallel()
 
 			e := echo.New()
-			bk := newLayerBackend()
+			bk := newLayerBackend(t)
 			h := lambda.NewHandler(bk)
 			h.DefaultRegion = "us-east-1"
 			h.AccountID = "123456789012"
@@ -709,7 +711,7 @@ func TestCreateFunctionWithLayers(t *testing.T) {
 func TestPersistenceLayers(t *testing.T) {
 	t.Parallel()
 
-	bk := newLayerBackend()
+	bk := newLayerBackend(t)
 
 	// Publish two layers with multiple versions each.
 	_, err := bk.PublishLayerVersion(publishLayerInput("layer-a", "v1", []byte("zip-a1"), []string{"python3.9"}))
@@ -733,7 +735,7 @@ func TestPersistenceLayers(t *testing.T) {
 	snap := bk.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
-	bk2 := newLayerBackend()
+	bk2 := newLayerBackend(t)
 	require.NoError(t, bk2.Restore(t.Context(), snap))
 
 	// Verify layers are present.
@@ -894,7 +896,7 @@ func TestPrepareLayerMount(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			bk := newLayerBackend()
+			bk := newLayerBackend(t)
 			if tt.setup != nil {
 				tt.setup(bk)
 			}

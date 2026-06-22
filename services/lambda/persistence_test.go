@@ -9,8 +9,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
-func newLambdaBackend() *lambda.InMemoryBackend {
-	return lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1")
+func newLambdaBackend(t *testing.T) *lambda.InMemoryBackend {
+	t.Helper()
+
+	return closeBackend(t, lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1"))
 }
 
 func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
@@ -62,13 +64,13 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			original := newLambdaBackend()
+			original := newLambdaBackend(t)
 			id := tt.setup(original)
 
 			snap := original.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
-			fresh := newLambdaBackend()
+			fresh := newLambdaBackend(t)
 			require.NoError(t, fresh.Restore(t.Context(), snap))
 
 			tt.verify(t, fresh, id)
@@ -79,7 +81,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	t.Parallel()
 
-	b := newLambdaBackend()
+	b := newLambdaBackend(t)
 	err := b.Restore(t.Context(), []byte("not-valid-json"))
 	require.Error(t, err)
 }

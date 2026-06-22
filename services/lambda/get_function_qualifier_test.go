@@ -43,6 +43,7 @@ func seedVersionedFunction(t *testing.T, name string) (*lambda.Handler, *lambda.
 	backend := lambda.NewInMemoryBackend(
 		nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1",
 	)
+	closeBackend(t, backend)
 	handler := lambda.NewHandler(backend)
 
 	require.NoError(t, backend.CreateFunction(&lambda.FunctionConfiguration{
@@ -203,6 +204,7 @@ func TestLambda_CreateFunction_RuntimeValidation(t *testing.T) {
 			backend := lambda.NewInMemoryBackend(
 				nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1",
 			)
+			closeBackend(t, backend)
 			h := lambda.NewHandler(backend)
 
 			body := map[string]any{

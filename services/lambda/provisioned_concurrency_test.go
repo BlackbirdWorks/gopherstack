@@ -113,6 +113,7 @@ func TestPutProvisionedConcurrencyConfig(t *testing.T) {
 			t.Parallel()
 
 			bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1")
+			closeBackend(t, bk)
 			h := lambda.NewHandler(bk)
 			h.DefaultRegion = "us-east-1"
 			h.AccountID = "000000000000"
@@ -205,6 +206,7 @@ func TestGetProvisionedConcurrencyConfig(t *testing.T) {
 			t.Parallel()
 
 			bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1")
+			closeBackend(t, bk)
 			h := lambda.NewHandler(bk)
 			h.DefaultRegion = "us-east-1"
 			h.AccountID = "000000000000"
@@ -296,6 +298,7 @@ func TestDeleteProvisionedConcurrencyConfig(t *testing.T) {
 			t.Parallel()
 
 			bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1")
+			closeBackend(t, bk)
 			h := lambda.NewHandler(bk)
 			h.DefaultRegion = "us-east-1"
 			h.AccountID = "000000000000"
@@ -377,6 +380,7 @@ func TestListProvisionedConcurrencyConfigs(t *testing.T) {
 			t.Parallel()
 
 			bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1")
+			closeBackend(t, bk)
 			h := lambda.NewHandler(bk)
 			h.DefaultRegion = "us-east-1"
 			h.AccountID = "000000000000"

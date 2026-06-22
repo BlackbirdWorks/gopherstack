@@ -240,13 +240,21 @@ type InMemoryBackend struct {
 	functionScalingConfigs   map[string]*FunctionScalingConfig
 	durableExecs             *durableExecutionStore
 	asyncEnqueueWaiters      chan struct{}
-	mu                       *lockmetrics.RWMutex
-	portAlloc                *portalloc.Allocator
-	runtimes                 map[string]*functionRuntime
-	region                   string
-	accountID                string
-	settings                 Settings
-	cscIDCounter             int
+	// shutdown is closed once by Close to unblock async invocation goroutines that
+	// are waiting on a container response, so they exit promptly on teardown.
+	shutdown     chan struct{}
+	mu           *lockmetrics.RWMutex
+	portAlloc    *portalloc.Allocator
+	runtimes     map[string]*functionRuntime
+	region       string
+	accountID    string
+	settings     Settings
+	cscIDCounter int
+	// asyncWG tracks in-flight async (Event) invocation goroutines so Close can
+	// wait for them to drain instead of leaking them past the backend's lifetime.
+	asyncWG sync.WaitGroup
+	// shutdownOnce guards closing shutdown so Close stays idempotent.
+	shutdownOnce sync.Once
 }
 
 // NewInMemoryBackend creates a new Lambda in-memory backend.
@@ -286,6 +294,7 @@ func NewInMemoryBackend(
 		functionScalingConfigs:   make(map[string]*FunctionScalingConfig),
 		durableExecs:             newDurableExecutionStore(),
 		asyncEnqueueWaiters:      make(chan struct{}, maxAsyncEnqueueWaiters),
+		shutdown:                 make(chan struct{}),
 		docker:                   dockerClient,
 		portAlloc:                portAlloc,
 		settings:                 settings,
@@ -298,6 +307,13 @@ func NewInMemoryBackend(
 // Close shuts down all active function URL servers and runtime API servers.
 // It is safe to call concurrently and should be called when the backend is no longer needed.
 func (b *InMemoryBackend) Close(ctx context.Context) {
+	// Signal in-flight async (Event) invocation goroutines to stop waiting on a
+	// container response so they exit instead of lingering until their per-event
+	// timeout. shutdownOnce keeps Close idempotent and safe to call concurrently.
+	b.shutdownOnce.Do(func() {
+		close(b.shutdown)
+	})
+
 	b.mu.Lock("Close")
 
 	urlServers := make([]*functionURLServer, 0, len(b.functionURLServers))
@@ -339,6 +355,10 @@ func (b *InMemoryBackend) Close(ctx context.Context) {
 	}
 
 	wg.Wait()
+
+	// Wait for async invocation goroutines (unblocked by closing b.shutdown above)
+	// to finish so no background work outlives the backend.
+	b.asyncWG.Wait()
 }
 
 // SetDNSRegistrar sets the optional DNS registrar used to register function URL hostnames.
@@ -1837,7 +1857,9 @@ func (b *InMemoryBackend) enqueueAsyncInvocation(
 		case srv.queue <- inv:
 			// Invocation queued; spawn a minimal goroutine only to clean up srv.pending
 			// if the container picks up the invocation but never responds.
-			go b.waitAndCleanPending(log, srv, inv, timeout, false, functionName)
+			b.asyncWG.Go(func() {
+				b.waitAndCleanPending(log, srv, inv, timeout, false, functionName)
+			})
 
 			return
 		default:
@@ -1858,7 +1880,7 @@ func (b *InMemoryBackend) enqueueAsyncInvocation(
 		return
 	}
 
-	go func() {
+	b.asyncWG.Go(func() {
 		defer func() {
 			<-b.asyncEnqueueWaiters
 		}()
@@ -1877,8 +1899,14 @@ func (b *InMemoryBackend) enqueueAsyncInvocation(
 			if trackConcurrency {
 				b.releaseConcurrencySlot(functionName)
 			}
+
+		case <-b.shutdown:
+			// Backend is shutting down; drop the still-queueing invocation.
+			if trackConcurrency {
+				b.releaseConcurrencySlot(functionName)
+			}
 		}
-	}()
+	})
 }
 
 // defaultAsyncMaxRetryAttempts is the number of automatic retries AWS Lambda performs
@@ -1917,7 +1945,7 @@ func (b *InMemoryBackend) runAsyncInvocationRetryLoop(
 	currentInv := inv
 
 	for attempt := range maxRetries + 1 {
-		result, ok, containerTimedOut := waitForAsyncResult(srv, currentInv, timeout)
+		result, ok, containerTimedOut := b.waitForAsyncResult(srv, currentInv, timeout)
 		if !ok {
 			// A container timeout means the process is hung; evict it so the next
 			// invocation gets a fresh container, matching the synchronous timeout path.
@@ -1984,7 +2012,7 @@ func (b *InMemoryBackend) readAsyncRetryConfig(
 // Returns:
 //   - (result, true, false)  — container responded in time
 //   - (zero, false, true)    — container timed out; the caller should clean up the runtime
-func waitForAsyncResult(
+func (b *InMemoryBackend) waitForAsyncResult(
 	srv *runtimeServer,
 	inv *pendingInvocation,
 	timeout time.Duration,
@@ -2007,6 +2035,13 @@ func waitForAsyncResult(
 		srv.pending.LoadAndDelete(inv.requestID)
 
 		return invocationResult{}, false, true
+	case <-b.shutdown:
+		// Backend is shutting down; abandon the wait and remove the stale pending
+		// entry. Treated like a timeout (not a container timeout) so the caller
+		// stops retrying without evicting a runtime.
+		srv.pending.LoadAndDelete(inv.requestID)
+
+		return invocationResult{}, false, false
 	}
 }
 

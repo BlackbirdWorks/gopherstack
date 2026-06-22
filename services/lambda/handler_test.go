@@ -1046,6 +1046,7 @@ func TestBackend_CRUD(t *testing.T) {
 			t.Parallel()
 
 			bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1")
+			closeBackend(t, bk)
 
 			fn := &lambda.FunctionConfiguration{
 				FunctionName: "test-func",
@@ -1141,6 +1142,7 @@ func TestBackend_InvokeFunction(t *testing.T) {
 			}
 
 			bk := lambda.NewInMemoryBackend(nil, pa, lambda.DefaultSettings(), "000000000000", "us-east-1")
+			closeBackend(t, bk)
 
 			if tt.createFunc {
 				fn := &lambda.FunctionConfiguration{
@@ -1638,6 +1640,7 @@ func TestBackend_InvokeFunction_MockDocker(t *testing.T) {
 				"000000000000",
 				"us-east-1",
 			)
+			closeBackend(t, bk)
 
 			fn := &lambda.FunctionConfiguration{
 				FunctionName: tt.funcName,
@@ -1694,6 +1697,7 @@ func TestBackend_DeleteFunction_WithRuntime(t *testing.T) {
 				"000000000000",
 				"us-east-1",
 			)
+			closeBackend(t, bk)
 
 			fn := &lambda.FunctionConfiguration{
 				FunctionName: tt.funcName,
@@ -1742,6 +1746,7 @@ func TestBackend_InvokeFunction_RequestResponse_WithMockDocker(t *testing.T) {
 				"000000000000",
 				"us-east-1",
 			)
+			closeBackend(t, bk)
 
 			fn := &lambda.FunctionConfiguration{
 				FunctionName: tt.funcName,
@@ -1905,6 +1910,7 @@ func newInMemHandlerWithPortAlloc(t *testing.T) *lambda.Handler {
 	require.NoError(t, err)
 
 	bk := lambda.NewInMemoryBackend(nil, pa, lambda.DefaultSettings(), "000000000000", "us-east-1")
+	closeBackend(t, bk)
 	h := lambda.NewHandler(bk)
 	h.DefaultRegion = "us-east-1"
 	h.AccountID = "000000000000"
@@ -2057,6 +2063,7 @@ func TestFunctionUrl_HTTP_ForwardsToLambda(t *testing.T) {
 				"000000000000",
 				"us-east-1",
 			)
+			closeBackend(t, bk)
 
 			fn := &lambda.FunctionConfiguration{
 				FunctionName: tt.funcName,
