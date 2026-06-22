@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
+	"github.com/blackbirdworks/gopherstack/pkgs/worker"
 )
 
 const (
@@ -33,29 +34,29 @@ func NewJanitor(backend *InMemoryBackend) *Janitor {
 	}
 }
 
-// Run runs the janitor loop until ctx is cancelled.
+// Run runs the janitor loop until ctx is cancelled. It runs two independent
+// tickers: one that sweeps expired metrics at Interval, and one that evaluates
+// metric alarm states at AlarmEvalInterval.
 func (j *Janitor) Run(ctx context.Context) {
-	metricTicker := time.NewTicker(j.Interval)
-	defer metricTicker.Stop()
-
 	evalInterval := j.AlarmEvalInterval
 	if evalInterval <= 0 {
 		evalInterval = alarmEvalInterval
 	}
 
-	alarmTicker := time.NewTicker(evalInterval)
-	defer alarmTicker.Stop()
+	worker.RunTickerN(ctx, cwWorkerService,
+		worker.Sweep{Component: metricSweeper, Interval: j.Interval, Fn: j.sweepMetrics},
+		worker.Sweep{Component: alarmEvaluator, Interval: evalInterval, Fn: j.evaluateAlarms},
+	)
+}
 
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-metricTicker.C:
-			j.Backend.SweepExpiredMetrics()
-			telemetry.RecordWorkerTask(cwWorkerService, metricSweeper, "success")
-		case now := <-alarmTicker.C:
-			j.Backend.EvaluateAlarms(ctx, now)
-			telemetry.RecordWorkerTask(cwWorkerService, alarmEvaluator, "success")
-		}
-	}
+// sweepMetrics evicts expired metrics.
+func (j *Janitor) sweepMetrics(_ context.Context) {
+	j.Backend.SweepExpiredMetrics()
+	telemetry.RecordWorkerTask(cwWorkerService, metricSweeper, "success")
+}
+
+// evaluateAlarms re-evaluates metric alarm states as of now.
+func (j *Janitor) evaluateAlarms(ctx context.Context) {
+	j.Backend.EvaluateAlarms(ctx, time.Now())
+	telemetry.RecordWorkerTask(cwWorkerService, alarmEvaluator, "success")
 }

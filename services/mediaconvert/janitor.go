@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/worker"
 )
 
 const (
@@ -15,22 +16,8 @@ const (
 // StartJanitor launches the background goroutine that advances job phases and
 // sweeps expired tokens. It runs until ctx is cancelled.
 func StartJanitor(ctx context.Context, b *InMemoryBackend) {
-	go runJanitor(ctx, b)
-}
-
-// runJanitor is the goroutine body for the janitor loop.
-func runJanitor(ctx context.Context, b *InMemoryBackend) {
-	ticker := time.NewTicker(janitorInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			janitorTick(ctx, b)
-		}
-	}
+	go worker.RunTicker(ctx, "mediaconvert", "JobPhaseAdvancer", janitorInterval, 0,
+		func(ctx context.Context) { janitorTick(ctx, b) })
 }
 
 // janitorTick performs one cycle: advance job phases and sweep tokens.

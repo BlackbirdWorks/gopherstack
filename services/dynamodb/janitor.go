@@ -2,12 +2,12 @@ package dynamodb
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/dynamoattr"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
+	"github.com/blackbirdworks/gopherstack/pkgs/worker"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 )
 
@@ -68,57 +68,47 @@ func NewJanitor(backend *InMemoryDB, settings Settings) *Janitor {
 }
 
 // Run runs the janitor loop until ctx is cancelled.
-// Two tickers are used:
-//   - mainTicker (Interval, default 500ms): housekeeping tasks (table cleanup,
-//     txn-token sweeps, expression-cache evictions).
-//   - ttlTicker (defaultDDBTTLSweepInterval, 5s): per-table TTL and stream-record
-//     sweeps, which are O(tables × items) and too expensive to run every 500ms.
+// Two independent tickers are used:
+//   - the main ticker (Interval, default 500ms): housekeeping tasks (table
+//     cleanup, txn-token sweeps, expression-cache evictions).
+//   - the TTL ticker (defaultDDBTTLSweepInterval, 5s): per-table TTL and
+//     stream-record sweeps, which are O(tables × items) and too expensive to run
+//     every 500ms.
 //
-// A deferred recover() protects the loop from panics caused by concurrent state
-// transitions; on recovery the error is logged and the loop continues.
+// Each sweep is panic-recovered and bounded by TaskTimeout (if non-zero) by the
+// worker primitive.
 func (j *Janitor) Run(ctx context.Context) {
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Load(ctx).ErrorContext(ctx, "DynamoDB janitor: panic recovered, loop exiting",
-				"panic", fmt.Sprintf("%v", r))
-		}
-	}()
-
-	mainTicker := time.NewTicker(j.Interval)
-	defer mainTicker.Stop()
-
-	ttlTicker := time.NewTicker(defaultDDBTTLSweepInterval)
-	defer ttlTicker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ttlTicker.C:
-			taskCtx, cancel := j.taskContext(ctx)
-			j.sweepTTL(taskCtx)
-			j.sweepStreamRecords(taskCtx)
-			cancel()
-		case <-mainTicker.C:
-			taskCtx, cancel := j.taskContext(ctx)
-			j.sweepTxnTokens(taskCtx)
-			j.sweepTxnPending(taskCtx)
-			j.Backend.exprCache.Sweep()
-			j.Backend.iteratorStore.Sweep()
-			j.runTableCleaner(taskCtx)
-			cancel()
-		}
-	}
+	worker.RunTickerN(ctx, "dynamodb",
+		worker.Sweep{
+			Component: "TableCleaner",
+			Interval:  j.Interval,
+			Timeout:   j.TaskTimeout,
+			Fn:        j.sweepMain,
+		},
+		worker.Sweep{
+			Component: "TTLSweeper",
+			Interval:  defaultDDBTTLSweepInterval,
+			Timeout:   j.TaskTimeout,
+			Fn:        j.sweepTTLAndStreams,
+		},
+	)
 }
 
-// taskContext returns a child context bounded by TaskTimeout (if non-zero).
-// The caller is responsible for calling the returned cancel function.
-func (j *Janitor) taskContext(parent context.Context) (context.Context, context.CancelFunc) {
-	if j.TaskTimeout > 0 {
-		return context.WithTimeout(parent, j.TaskTimeout)
-	}
+// sweepMain runs the housekeeping pass: txn-token/pending sweeps, cache
+// evictions, and finalising tables queued for deletion.
+func (j *Janitor) sweepMain(ctx context.Context) {
+	j.sweepTxnTokens(ctx)
+	j.sweepTxnPending(ctx)
+	j.Backend.exprCache.Sweep()
+	j.Backend.iteratorStore.Sweep()
+	j.runTableCleaner(ctx)
+}
 
-	return context.WithCancel(parent)
+// sweepTTLAndStreams runs the per-table TTL eviction and stream-record
+// compaction pass.
+func (j *Janitor) sweepTTLAndStreams(ctx context.Context) {
+	j.sweepTTL(ctx)
+	j.sweepStreamRecords(ctx)
 }
 
 // runOnce orchestrates all janitor tasks in a single synchronous pass.

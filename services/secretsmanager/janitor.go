@@ -6,6 +6,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
+	"github.com/blackbirdworks/gopherstack/pkgs/worker"
 )
 
 const (
@@ -38,28 +39,14 @@ func NewJanitor(backend *InMemoryBackend, interval time.Duration) *Janitor {
 
 // Run runs the janitor loop until ctx is cancelled.
 func (j *Janitor) Run(ctx context.Context) {
-	ticker := time.NewTicker(j.Interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			taskCtx, cancel := j.taskContext(ctx)
-			j.sweepExpiredSecrets(taskCtx)
-			cancel()
-		}
-	}
-}
-
-// taskContext returns a child context bounded by TaskTimeout (if non-zero).
-func (j *Janitor) taskContext(parent context.Context) (context.Context, context.CancelFunc) {
-	if j.TaskTimeout > 0 {
-		return context.WithTimeout(parent, j.TaskTimeout)
-	}
-
-	return context.WithCancel(parent)
+	worker.RunTicker(
+		ctx,
+		secretsManagerJanitorService,
+		secretsManagerJanitorComponent,
+		j.Interval,
+		j.TaskTimeout,
+		j.sweepExpiredSecrets,
+	)
 }
 
 // SweepOnce executes a single deletion sweep. Exposed for testing.
@@ -95,8 +82,17 @@ func (j *Janitor) sweepExpiredSecrets(ctx context.Context) {
 	j.Backend.mu.Unlock()
 
 	if purged > 0 {
-		telemetry.RecordWorkerItems(secretsManagerJanitorService, secretsManagerJanitorComponent, purged)
-		logger.Load(ctx).InfoContext(ctx, "Secrets Manager janitor: expired secrets purged", "count", purged)
+		telemetry.RecordWorkerItems(
+			secretsManagerJanitorService,
+			secretsManagerJanitorComponent,
+			purged,
+		)
+		logger.Load(ctx).
+			InfoContext(ctx, "Secrets Manager janitor: expired secrets purged", "count", purged)
 	}
-	telemetry.RecordWorkerTask(secretsManagerJanitorService, secretsManagerJanitorComponent, "success")
+	telemetry.RecordWorkerTask(
+		secretsManagerJanitorService,
+		secretsManagerJanitorComponent,
+		"success",
+	)
 }
