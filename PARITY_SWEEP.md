@@ -70,7 +70,7 @@ Polecats (sonnet) branch off `parity-sweep`, ≤3 concurrent; mayor aggregates e
 | 61 | sesv2 | P1 | 1902-1926, 3996-4014 | ☐ |
 | 62 | shield | P1 | 1927-1949, 4015-4029 | ☐ |
 | 63 | sns | P1 | 1950-1969, 4030-4049 | ✅ |
-| 64 | sqs | P1 | 1970-1987, 4050-4067 | ☐ |
+| 64 | sqs | P1 | 1970-1987, 4050-4067 | ✅ |
 | 65 | ssm | P1 | 1988-2007, 4068-4087 | ✅ |
 | 66 | ssoadmin | P1 | 2008-2027, 4088-4106 | ☐ |
 | 67 | stepfunctions | P1 | 2028-2047, 4107-4126 | ✅ |
@@ -111,7 +111,7 @@ Polecats (sonnet) branch off `parity-sweep`, ≤3 concurrent; mayor aggregates e
 | 102 | cloudfront | P2 | 355-360, 2969-2980 | ☐ |
 | 103 | cloudtrail | P2 | 361-366, 2981-2992 | ☐ |
 | 104 | cloudwatch | P2 | 367-372, 2993-3003 | ✅ |
-| 105 | cloudwatchlogs | P2 | 373-378, 3004-3015 | ☐ |
+| 105 | cloudwatchlogs | P2 | 373-378, 3004-3015 | ✅ |
 | 106 | codeartifact | P2 | 379-384, 3016-3025 | ☐ |
 | 107 | codeconnections | P2 | 416-429, 3047-3055 | ☐ |
 | 108 | codedeploy | P2 | 430-441, 3056-3067 | ☐ |
