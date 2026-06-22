@@ -1,7 +1,6 @@
 package backup
 
 import (
-	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -21,14 +20,7 @@ func (p *Provider) Name() string { return "Backup" }
 //
 //nolint:ireturn,nolintlint // architecturally required to return interface
 func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
-	accountID := config.DefaultAccountID
-	region := config.DefaultRegion
-
-	if cp, ok := ctx.Config.(config.Provider); ok {
-		cfg := cp.GetGlobalConfig()
-		accountID = cfg.GetAccountID()
-		region = cfg.GetRegion()
-	}
+	accountID, region := service.AccountRegionOrDefault(ctx)
 
 	var settings Settings
 

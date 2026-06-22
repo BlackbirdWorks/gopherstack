@@ -3,7 +3,6 @@ package opensearch
 import (
 	"errors"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -35,15 +34,8 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		return nil, ErrNilAppContext
 	}
 
-	accountID := config.DefaultAccountID
-	region := config.DefaultRegion
+	accountID, region := service.AccountRegionOrDefault(ctx)
 	engineMode := EngineStub
-
-	if cp, ok := ctx.Config.(config.Provider); ok {
-		cfg := cp.GetGlobalConfig()
-		accountID = cfg.GetAccountID()
-		region = cfg.GetRegion()
-	}
 
 	if ec, ok := ctx.Config.(EngineConfig); ok {
 		if mode := ec.GetOpenSearchEngine(); mode != "" {

@@ -3,7 +3,6 @@ package mwaa
 import (
 	"errors"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -23,14 +22,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	if ctx == nil {
 		return nil, ErrNilAppContext
 	}
-	accountID := config.DefaultAccountID
-	region := config.DefaultRegion
-
-	if cp, ok := ctx.Config.(config.Provider); ok {
-		cfg := cp.GetGlobalConfig()
-		accountID = cfg.GetAccountID()
-		region = cfg.GetRegion()
-	}
+	accountID, region := service.AccountRegionOrDefault(ctx)
 
 	backend := NewInMemoryBackend(region, accountID)
 	handler := NewHandler(backend)
