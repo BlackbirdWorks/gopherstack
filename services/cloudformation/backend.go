@@ -119,35 +119,37 @@ type StorageBackend interface {
 	UpdateStackSet(name, description, templateBody string) (*StackSet, error)
 	DeleteStackSet(name string) error
 	DescribeStackSet(name string) (*StackSet, error)
-	ListStackSets(nextToken string) ([]StackSetSummary, error)
+	ListStackSets(nextToken string) (page.Page[StackSetSummary], error)
 	CreateStackInstances(stackSetName string, accounts, regions []string) (string, error)
 	DeleteStackInstances(stackSetName string, accounts, regions []string) (string, error)
 	UpdateStackInstances(stackSetName string, accounts, regions []string) (string, error)
-	ListStackInstances(stackSetName, nextToken string) ([]StackInstance, error)
+	ListStackInstances(stackSetName, nextToken string) (page.Page[StackInstance], error)
 	DescribeStackInstance(stackSetName, account, region string) (*StackInstance, error)
 	DetectStackSetDrift(stackSetName string) (string, error)
-	ListStackSetOperations(stackSetName, nextToken string) ([]string, error)
+	ListStackSetOperations(
+		stackSetName, nextToken string,
+	) (page.Page[StackSetOperationSummary], error)
 	DescribeStackSetOperation(stackSetName, operationID string) (*StackSetOperation, error)
 	StopStackSetOperation(stackSetName, operationID string) error
 	ListStackSetOperationResults(
 		stackSetName, operationID, nextToken string,
 	) ([]StackSetOperationResult, error)
-	ListStackSetAutoDeploymentTargets(stackSetName string) ([]string, error)
+	ListStackSetAutoDeploymentTargets(stackSetName string) ([]AutoDeploymentTarget, error)
 	ImportStacksToStackSet(stackSetName string, stackIDs []string) error
 	ListStackInstanceResourceDrifts(
 		stackSetName, operationID, account, region string,
-	) ([]string, error)
+	) ([]StackResourceDrift, error)
 	// Generated templates
 	CreateGeneratedTemplate(name string, resources []string) (*GeneratedTemplate, error)
 	UpdateGeneratedTemplate(id, name string) error
 	DeleteGeneratedTemplate(id string) error
 	DescribeGeneratedTemplate(id string) (*GeneratedTemplate, error)
 	GetGeneratedTemplate(id string) (string, error)
-	ListGeneratedTemplates(nextToken string) ([]GeneratedTemplate, error)
+	ListGeneratedTemplates(nextToken string) (page.Page[GeneratedTemplate], error)
 	// Resource scans
 	StartResourceScan() (string, error)
 	DescribeResourceScan(scanID string) (*ResourceScan, error)
-	ListResourceScans(nextToken string) ([]ResourceScan, error)
+	ListResourceScans(nextToken string) (page.Page[ResourceScan], error)
 	ListResourceScanResources(scanID, nextToken string) ([]ScannedResource, error)
 	ListResourceScanRelatedResources(scanID string, resources []string) ([]string, error)
 	// Type management
@@ -158,7 +160,9 @@ type StorageBackend interface {
 	PublishType(typeName string) error
 	SetTypeDefaultVersion(arn, version string) error
 	SetTypeConfiguration(typeName, configuration string) error
-	BatchDescribeTypeConfigurations(typeConfigIdentifiers []string) ([]string, error)
+	BatchDescribeTypeConfigurations(
+		typeConfigIdentifiers []string,
+	) ([]TypeConfigurationDetail, error)
 	ListTypes(nextToken string) ([]TypeSummary, error)
 	ListTypeVersions(typeName, nextToken string) ([]string, error)
 	ListTypeRegistrations(typeName, nextToken string) ([]string, error)
@@ -171,8 +175,8 @@ type StorageBackend interface {
 	CreateStackRefactor(description string, stackDefinitions []string) (string, error)
 	DescribeStackRefactor(stackRefactorID string) (string, error)
 	ExecuteStackRefactor(stackRefactorID string) error
-	ListStackRefactors(nextToken string) ([]string, error)
-	ListStackRefactorActions(stackRefactorID string) ([]string, error)
+	ListStackRefactors(nextToken string) ([]StackRefactorSummary, error)
+	ListStackRefactorActions(stackRefactorID string) ([]StackRefactorAction, error)
 	// Org access
 	ActivateOrganizationsAccess() error
 	DeactivateOrganizationsAccess() error
@@ -182,9 +186,9 @@ type StorageBackend interface {
 	RollbackStack(ctx context.Context, stackName string) error
 	RecordHandlerProgress(bearerToken, operationStatus string) error
 	GetHookResult(hookResultToken string) (string, error)
-	ListHookResults(hookResultToken, nextToken string) ([]string, error)
-	DescribeChangeSetHooks(stackName, changeSetName string) ([]string, error)
-	DescribeEvents(nextToken string) ([]StackEvent, error)
+	ListHookResults(hookResultToken, nextToken string) ([]HookResult, error)
+	DescribeChangeSetHooks(stackName, changeSetName string) ([]ChangeSetHook, error)
+	DescribeEvents(stackName, nextToken string) (page.Page[StackEvent], error)
 	UpdateTerminationProtection(stackName string, enable bool) error
 	ValidateTemplate(templateBody string) (*TemplateSummary, error)
 }
@@ -216,6 +220,7 @@ type InMemoryBackend struct {
 	typeVersions        map[string][]*RegisteredTypeVersion             // typeArn → versions
 	resourceScanItems   map[string][]ScannedResource                    // scanID → scanned resources
 	resourceDriftStatus map[string]map[string]string                    // stackID → logicalID → drift status
+	driftByStackID      map[string][]string                             // stackID → detectionIDs (reverse index)
 	creator             *ResourceCreator
 	resolver            DynamicRefResolver
 	mu                  *lockmetrics.RWMutex
@@ -285,6 +290,7 @@ func NewInMemoryBackendWithConfig(
 		typeVersions:        make(map[string][]*RegisteredTypeVersion),
 		resourceScanItems:   make(map[string][]ScannedResource),
 		resourceDriftStatus: make(map[string]map[string]string),
+		driftByStackID:      make(map[string][]string),
 		creator:             creator,
 		resolver:            resolver,
 		accountID:           accountID,
@@ -373,8 +379,39 @@ func (b *InMemoryBackend) deleteStackLocked(ctx context.Context, nameOrID string
 	delete(b.resources, stack.StackID)
 	delete(b.changeSets, stack.StackName)
 	b.pruneDriftDetections(stack.StackID)
+	b.evictDeletedStacks()
 
 	return nil
+}
+
+// evictDeletedStacks caps the number of DELETE_COMPLETE stacks at maxDeletedStacks.
+// Caller must hold b.mu.Lock.
+func (b *InMemoryBackend) evictDeletedStacks() {
+	const maxDeletedStacks = 1000
+	deleted := make([]*Stack, 0)
+	for _, s := range b.stacks {
+		if s.StackStatus == statusDeleteComplete {
+			deleted = append(deleted, s)
+		}
+	}
+	if len(deleted) <= maxDeletedStacks {
+		return
+	}
+	sort.Slice(deleted, func(i, j int) bool {
+		if deleted[i].DeletionTime == nil {
+			return true
+		}
+
+		if deleted[j].DeletionTime == nil {
+			return false
+		}
+
+		return deleted[i].DeletionTime.Before(*deleted[j].DeletionTime)
+	})
+	for _, s := range deleted[:len(deleted)-maxDeletedStacks] {
+		delete(b.stacks, s.StackName)
+		delete(b.stackIDIndex, s.StackID)
+	}
 }
 
 func (b *InMemoryBackend) buildStackARN(stackName, stackID string) string {
@@ -970,7 +1007,14 @@ func (b *InMemoryBackend) updateResources(
 	for logicalID, res := range tmpl.Resources {
 		existing, exists := b.resources[stack.StackID][logicalID]
 		if !exists {
-			physicalID, cerr := b.createUpdateResource(ctx, stack, logicalID, res, resolvedParams, physicalIDs)
+			physicalID, cerr := b.createUpdateResource(
+				ctx,
+				stack,
+				logicalID,
+				res,
+				resolvedParams,
+				physicalIDs,
+			)
 			if cerr != nil {
 				b.rollbackUpdateResources(ctx, stack, prevResources, created)
 				stack.StackStatusReason = fmt.Sprintf("resource %s: %v", logicalID, cerr)
@@ -1006,9 +1050,24 @@ func (b *InMemoryBackend) createUpdateResource(
 	resolvedParams, physicalIDs map[string]string,
 ) (string, error) {
 	b.addEvent(stack.StackID, stack.StackName, logicalID, "", res.Type, statusCreateInProgress, "")
-	physicalID, cerr := b.creator.Create(ctx, logicalID, res.Type, res.Properties, resolvedParams, physicalIDs)
+	physicalID, cerr := b.creator.Create(
+		ctx,
+		logicalID,
+		res.Type,
+		res.Properties,
+		resolvedParams,
+		physicalIDs,
+	)
 	if cerr != nil {
-		b.addEvent(stack.StackID, stack.StackName, logicalID, "", res.Type, statusCreateFailed, cerr.Error())
+		b.addEvent(
+			stack.StackID,
+			stack.StackName,
+			logicalID,
+			"",
+			res.Type,
+			statusCreateFailed,
+			cerr.Error(),
+		)
 
 		return "", cerr
 	}
@@ -1023,7 +1082,15 @@ func (b *InMemoryBackend) createUpdateResource(
 		StackID:    stack.StackID,
 		StackName:  stack.StackName,
 	}
-	b.addEvent(stack.StackID, stack.StackName, logicalID, physicalID, res.Type, statusCreateComplete, "")
+	b.addEvent(
+		stack.StackID,
+		stack.StackName,
+		logicalID,
+		physicalID,
+		res.Type,
+		statusCreateComplete,
+		"",
+	)
 
 	return physicalID, nil
 }
@@ -1038,8 +1105,23 @@ func (b *InMemoryBackend) updateExistingResource(
 	existing *StackResource,
 ) error {
 	if isCFNExtensibilityType(res.Type) {
-		b.addEvent(stack.StackID, stack.StackName, logicalID, existing.PhysicalID, res.Type, statusUpdateInProgress, "")
-		uerr := b.creator.Update(ctx, logicalID, res.Type, existing.PhysicalID, res.Properties, existing.Properties)
+		b.addEvent(
+			stack.StackID,
+			stack.StackName,
+			logicalID,
+			existing.PhysicalID,
+			res.Type,
+			statusUpdateInProgress,
+			"",
+		)
+		uerr := b.creator.Update(
+			ctx,
+			logicalID,
+			res.Type,
+			existing.PhysicalID,
+			res.Properties,
+			existing.Properties,
+		)
 		if uerr != nil {
 			b.addEvent(
 				stack.StackID, stack.StackName, logicalID,
@@ -1054,7 +1136,15 @@ func (b *InMemoryBackend) updateExistingResource(
 
 	existing.Status = statusUpdateComplete
 	existing.Timestamp = time.Now()
-	b.addEvent(stack.StackID, stack.StackName, logicalID, existing.PhysicalID, res.Type, statusUpdateComplete, "")
+	b.addEvent(
+		stack.StackID,
+		stack.StackName,
+		logicalID,
+		existing.PhysicalID,
+		res.Type,
+		statusUpdateComplete,
+		"",
+	)
 
 	return nil
 }
@@ -1072,9 +1162,25 @@ func (b *InMemoryBackend) deleteStaleResources(ctx context.Context, stack *Stack
 
 	for _, logicalID := range stale {
 		res := b.resources[stack.StackID][logicalID]
-		b.addEvent(stack.StackID, stack.StackName, logicalID, res.PhysicalID, res.Type, statusDeleteInProgress, "")
+		b.addEvent(
+			stack.StackID,
+			stack.StackName,
+			logicalID,
+			res.PhysicalID,
+			res.Type,
+			statusDeleteInProgress,
+			"",
+		)
 		_ = b.creator.Delete(ctx, res.Type, res.PhysicalID, res.Properties)
-		b.addEvent(stack.StackID, stack.StackName, logicalID, res.PhysicalID, res.Type, statusDeleteComplete, "")
+		b.addEvent(
+			stack.StackID,
+			stack.StackName,
+			logicalID,
+			res.PhysicalID,
+			res.Type,
+			statusDeleteComplete,
+			"",
+		)
 		delete(b.resources[stack.StackID], logicalID)
 	}
 }
@@ -1145,13 +1251,13 @@ func (b *InMemoryBackend) DeleteStack(ctx context.Context, nameOrID string) erro
 	return b.deleteStackLocked(ctx, nameOrID)
 }
 
-// pruneDriftDetections removes all drift detection entries associated with a stack.
+// pruneDriftDetections removes all drift detection entries associated with a stack
+// using the reverse index for O(1) lookup instead of O(n) scan.
 func (b *InMemoryBackend) pruneDriftDetections(stackID string) {
-	for detectionID, status := range b.driftDetections {
-		if status.StackID == stackID {
-			delete(b.driftDetections, detectionID)
-		}
+	for _, detectionID := range b.driftByStackID[stackID] {
+		delete(b.driftDetections, detectionID)
 	}
+	delete(b.driftByStackID, stackID)
 }
 
 // DescribeStack returns details for a single stack.

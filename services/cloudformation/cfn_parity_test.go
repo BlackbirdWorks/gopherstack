@@ -584,9 +584,9 @@ func TestStackInstance_StackIDAssigned(t *testing.T) {
 
 			instances, err := b.ListStackInstances("inst-test-ss", "")
 			require.NoError(t, err)
-			assert.Len(t, instances, tc.wantLen)
+			assert.Len(t, instances.Data, tc.wantLen)
 
-			for _, inst := range instances {
+			for _, inst := range instances.Data {
 				assert.NotEmpty(t, inst.StackID, "expected StackID to be assigned for %s/%s",
 					inst.Account, inst.Region)
 				assert.True(t, strings.HasPrefix(inst.StackID, "arn:aws:cloudformation:"),
@@ -615,7 +615,7 @@ func TestStackInstance_NoDuplicates(t *testing.T) {
 
 	instances, err := b.ListStackInstances("dedup-ss", "")
 	require.NoError(t, err)
-	assert.Len(t, instances, 1, "expected no duplicate instances")
+	assert.Len(t, instances.Data, 1, "expected no duplicate instances")
 }
 
 // ---- StackSet operation results (table-driven) -----------------------------------
@@ -657,11 +657,15 @@ func TestStackSetOperationResults(t *testing.T) {
 			require.NoError(t, err)
 
 			// Get the operation ID from ListStackSetOperations.
-			opIDs, err := b.ListStackSetOperations("op-results-ss", "")
+			opsPage, err := b.ListStackSetOperations("op-results-ss", "")
 			require.NoError(t, err)
-			require.NotEmpty(t, opIDs)
+			require.NotEmpty(t, opsPage.Data)
 
-			results, err := b.ListStackSetOperationResults("op-results-ss", opIDs[0], "")
+			results, err := b.ListStackSetOperationResults(
+				"op-results-ss",
+				opsPage.Data[0].OperationID,
+				"",
+			)
 			require.NoError(t, err)
 			assert.Len(t, results, tc.wantResultN)
 
@@ -852,9 +856,13 @@ func TestGeneratedTemplate_Body(t *testing.T) {
 			wantContains: []string{"AWSTemplateFormatVersion", "Resources"},
 		},
 		{
-			name:         "with Type/LogicalID resource IDs",
-			resourceIDs:  []string{"AWS::SQS::Queue/MyQueue", "AWS::SNS::Topic/MyTopic"},
-			wantContains: []string{"AWS::SQS::Queue", "AWS::SNS::Topic", "AWSTemplateFormatVersion"},
+			name:        "with Type/LogicalID resource IDs",
+			resourceIDs: []string{"AWS::SQS::Queue/MyQueue", "AWS::SNS::Topic/MyTopic"},
+			wantContains: []string{
+				"AWS::SQS::Queue",
+				"AWS::SNS::Topic",
+				"AWSTemplateFormatVersion",
+			},
 		},
 		{
 			name:         "no resource IDs and no stacks yields empty resources",
@@ -1081,9 +1089,9 @@ func TestListStackSetOperations_SortedByCreationTime(t *testing.T) {
 	_, err = b.UpdateStackSet("sort-ops-ss", "", simpleTemplate)
 	require.NoError(t, err)
 
-	opIDs, err := b.ListStackSetOperations("sort-ops-ss", "")
+	opsPage2, err := b.ListStackSetOperations("sort-ops-ss", "")
 	require.NoError(t, err)
-	assert.GreaterOrEqual(t, len(opIDs), 3, "expected at least 3 operations")
+	assert.GreaterOrEqual(t, len(opsPage2.Data), 3, "expected at least 3 operations")
 }
 
 // ---- Handler: DescribeType for registered type ------------------------------------
@@ -1275,7 +1283,7 @@ func TestDeleteStackInstances_Selective(t *testing.T) {
 
 			remaining, err := b.ListStackInstances("del-sel-ss", "")
 			require.NoError(t, err)
-			assert.Len(t, remaining, tc.wantRemaining)
+			assert.Len(t, remaining.Data, tc.wantRemaining)
 		})
 	}
 }

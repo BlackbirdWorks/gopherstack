@@ -371,3 +371,43 @@ type ChangeSetHook struct {
 	TypeVersionID     string `xml:"TypeVersionId,omitempty"`
 	TypeConfigVersion string `xml:"TypeConfigVersionId,omitempty"`
 }
+
+// StackSetOperationSummary is a brief summary of a StackSet operation.
+type StackSetOperationSummary struct {
+	CreationTime time.Time `xml:"CreationTime,omitempty"`
+	OperationID  string    `xml:"OperationId"`
+	Action       string    `xml:"Action"`
+	Status       string    `xml:"Status"`
+}
+
+// AutoDeploymentTarget represents a deployment target for a SERVICE_MANAGED StackSet.
+type AutoDeploymentTarget struct {
+	OrganizationalUnitID string   `xml:"OrganizationalUnitId,omitempty"`
+	Regions              []string `xml:"Regions>member,omitempty"`
+}
+
+// StackRefactorSummary is a brief summary of a stack refactor operation.
+type StackRefactorSummary struct {
+	StackRefactorID string `xml:"StackRefactorId"`
+	Status          string `xml:"Status,omitempty"`
+	Description     string `xml:"Description,omitempty"`
+}
+
+// StackRefactorAction is a single action performed during a stack refactor.
+type StackRefactorAction struct {
+	Action             string `xml:"Action,omitempty"`
+	Description        string `xml:"Description,omitempty"`
+	StackName          string `xml:"StackName,omitempty"`
+	LogicalResourceID  string `xml:"LogicalResourceId,omitempty"`
+	PhysicalResourceID string `xml:"PhysicalResourceId,omitempty"`
+	ResourceType       string `xml:"ResourceType,omitempty"`
+}
+
+// TypeConfigurationDetail holds configuration detail for a CloudFormation type.
+type TypeConfigurationDetail struct {
+	TypeArn                string `xml:"TypeArn,omitempty"`
+	TypeName               string `xml:"TypeName,omitempty"`
+	Alias                  string `xml:"Alias,omitempty"`
+	Configuration          string `xml:"Configuration,omitempty"`
+	IsDefaultConfiguration bool   `xml:"IsDefaultConfiguration,omitempty"`
+}

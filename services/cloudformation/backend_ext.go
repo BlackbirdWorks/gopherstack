@@ -52,6 +52,7 @@ func (b *InMemoryBackend) DetectStackDrift(nameOrID string) (string, error) {
 		DriftedStackResourceCount: driftedCount,
 		Timestamp:                 time.Now(),
 	}
+	b.driftByStackID[stack.StackID] = append(b.driftByStackID[stack.StackID], detectionID)
 
 	return detectionID, nil
 }
@@ -98,6 +99,7 @@ func (b *InMemoryBackend) DetectStackResourceDrift(nameOrID, logicalID string) (
 		DriftedStackResourceCount: driftedCount,
 		Timestamp:                 time.Now(),
 	}
+	b.driftByStackID[stack.StackID] = append(b.driftByStackID[stack.StackID], detectionID)
 
 	return detectionID, nil
 }
