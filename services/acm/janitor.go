@@ -6,6 +6,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
+	"github.com/blackbirdworks/gopherstack/pkgs/worker"
 )
 
 const (
@@ -15,17 +16,7 @@ const (
 
 // RunJanitor periodically cleans up expired idempotency tokens.
 func (b *InMemoryBackend) RunJanitor(ctx context.Context, interval time.Duration) {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			b.sweepIdempotencyMaps(ctx)
-		}
-	}
+	worker.RunTicker(ctx, "acm", "AcmJanitor", interval, 0, b.sweepIdempotencyMaps)
 }
 
 func (b *InMemoryBackend) sweepIdempotencyMaps(ctx context.Context) {
