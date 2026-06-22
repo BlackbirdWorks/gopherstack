@@ -69,7 +69,7 @@ Polecats (sonnet) branch off `parity-sweep`, ≤3 concurrent; mayor aggregates e
 | 60 | ses | P1 | 1888-1901, 3983-3995 | ☐ |
 | 61 | sesv2 | P1 | 1902-1926, 3996-4014 | ☐ |
 | 62 | shield | P1 | 1927-1949, 4015-4029 | ☐ |
-| 63 | sns | P1 | 1950-1969, 4030-4049 | ☐ |
+| 63 | sns | P1 | 1950-1969, 4030-4049 | ✅ |
 | 64 | sqs | P1 | 1970-1987, 4050-4067 | ☐ |
 | 65 | ssm | P1 | 1988-2007, 4068-4087 | ☐ |
 | 66 | ssoadmin | P1 | 2008-2027, 4088-4106 | ☐ |
@@ -107,7 +107,7 @@ Polecats (sonnet) branch off `parity-sweep`, ≤3 concurrent; mayor aggregates e
 | 98 | ce | P2 | 331-336, 2923-2929 | ☐ |
 | 99 | cleanrooms | P2 | 337-342, 2930-2942 | ☐ |
 | 100 | cloudcontrol | P2 | 343-348, 2943-2955 | ☐ |
-| 101 | cloudformation | P2 | 349-354, 2956-2968 | ☐ |
+| 101 | cloudformation | P2 | 349-354, 2956-2968 | ✅ |
 | 102 | cloudfront | P2 | 355-360, 2969-2980 | ☐ |
 | 103 | cloudtrail | P2 | 361-366, 2981-2992 | ☐ |
 | 104 | cloudwatch | P2 | 367-372, 2993-3003 | ☐ |
