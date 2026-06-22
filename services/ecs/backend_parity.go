@@ -189,7 +189,8 @@ func validateFargateCPUMemory(cpu, memory string) error {
 	if !ok {
 		return fmt.Errorf(
 			"%w: invalid Fargate CPU value %q; valid values: 256, 512, 1024, 2048, 4096, 8192, 16384",
-			ErrInvalidParameter, cpu,
+			ErrInvalidParameter,
+			cpu,
 		)
 	}
 
@@ -243,7 +244,8 @@ func validatePlatformVersion(pv string) error {
 
 	return fmt.Errorf(
 		"%w: unknown Fargate platform version %q; valid values: LATEST, 1.4.0, 1.3.0, 1.2.0, 1.1.0, 1.0.0",
-		ErrInvalidParameter, pv,
+		ErrInvalidParameter,
+		pv,
 	)
 }
 

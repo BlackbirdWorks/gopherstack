@@ -200,7 +200,11 @@ func (h *Handler) handlePutClusterCapacityProviders(
 		strategy = append(strategy, CapacityProviderStrategyItem(item))
 	}
 
-	cluster, err := h.Backend.PutClusterCapacityProviders(in.Cluster, in.CapacityProviders, strategy)
+	cluster, err := h.Backend.PutClusterCapacityProviders(
+		in.Cluster,
+		in.CapacityProviders,
+		strategy,
+	)
 	if err != nil {
 		return nil, err
 	}

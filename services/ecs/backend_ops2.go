@@ -59,7 +59,9 @@ func (b *InMemoryBackend) ListAccountSettings(name, principalArn string) ([]Acco
 // ---- PutAccountSetting operation ----
 
 // PutAccountSetting creates or updates an account setting for a specific principal.
-func (b *InMemoryBackend) PutAccountSetting(name, value, principalArn string) (*AccountSetting, error) {
+func (b *InMemoryBackend) PutAccountSetting(
+	name, value, principalArn string,
+) (*AccountSetting, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: name is required", ErrInvalidParameter)
 	}
@@ -97,7 +99,9 @@ func (b *InMemoryBackend) PutAccountSettingDefault(name, value string) (*Account
 
 // ListAttributes returns attributes for resources in a cluster, optionally filtered by
 // attribute name, target type, and target ID.
-func (b *InMemoryBackend) ListAttributes(cluster, targetType, attributeName, targetID string) ([]Attribute, error) {
+func (b *InMemoryBackend) ListAttributes(
+	cluster, targetType, attributeName, targetID string,
+) ([]Attribute, error) {
 	clusterName := clusterKey(b.resolveCluster(cluster))
 
 	b.mu.RLock("ListAttributes")
@@ -180,7 +184,10 @@ func (b *InMemoryBackend) PutClusterCapacityProviders(
 // ---- UpdateClusterSettings operation ----
 
 // UpdateClusterSettings updates the settings for an ECS cluster.
-func (b *InMemoryBackend) UpdateClusterSettings(cluster string, settings []ClusterSetting) (*Cluster, error) {
+func (b *InMemoryBackend) UpdateClusterSettings(
+	cluster string,
+	settings []ClusterSetting,
+) (*Cluster, error) {
 	clusterName := clusterKey(b.resolveCluster(cluster))
 
 	b.mu.Lock("UpdateClusterSettings")
@@ -201,7 +208,9 @@ func (b *InMemoryBackend) UpdateClusterSettings(cluster string, settings []Clust
 // ---- UpdateContainerAgent operation ----
 
 // UpdateContainerAgent initiates an update of the container agent on the given instance.
-func (b *InMemoryBackend) UpdateContainerAgent(cluster, containerInstance string) (*ContainerInstance, error) {
+func (b *InMemoryBackend) UpdateContainerAgent(
+	cluster, containerInstance string,
+) (*ContainerInstance, error) {
 	clusterName := clusterKey(b.resolveCluster(cluster))
 
 	b.mu.Lock("UpdateContainerAgent")

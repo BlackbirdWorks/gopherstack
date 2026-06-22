@@ -42,7 +42,12 @@ func TestRefinement3_PaginationCoverage(t *testing.T) {
 		require.NoError(t, json.Unmarshal(first.Body.Bytes(), &b1))
 		next := b1["nextToken"].(string)
 
-		second := doECSRequest(t, h, "DescribeCapacityProviders", map[string]any{"maxResults": 2, "nextToken": next})
+		second := doECSRequest(
+			t,
+			h,
+			"DescribeCapacityProviders",
+			map[string]any{"maxResults": 2, "nextToken": next},
+		)
 		require.Equal(t, http.StatusOK, second.Code)
 		var b2 map[string]any
 		require.NoError(t, json.Unmarshal(second.Body.Bytes(), &b2))
@@ -60,7 +65,9 @@ func TestRefinement3_PaginationCoverage(t *testing.T) {
 				h,
 				"CreateCapacityProvider",
 				map[string]any{
-					"name": "cp-" + time.Now().Add(time.Duration(i)*time.Nanosecond).Format("150405.000000000"),
+					"name": "cp-" + time.Now().
+						Add(time.Duration(i)*time.Nanosecond).
+						Format("150405.000000000"),
 				},
 			)
 		}
@@ -112,33 +119,46 @@ func TestRefinement3_PaginationCoverage(t *testing.T) {
 		var b1 map[string]any
 		require.NoError(t, json.Unmarshal(first.Body.Bytes(), &b1))
 		next := b1["nextToken"].(string)
-		second := doECSRequest(t, h, "ListTaskDefinitionFamilies", map[string]any{"maxResults": 2, "nextToken": next})
+		second := doECSRequest(
+			t,
+			h,
+			"ListTaskDefinitionFamilies",
+			map[string]any{"maxResults": 2, "nextToken": next},
+		)
 		var b2 map[string]any
 		require.NoError(t, json.Unmarshal(second.Body.Bytes(), &b2))
 		assert.Len(t, b2["families"].([]any), 1)
 		assert.Empty(t, b2["nextToken"])
 	})
 
-	t.Run("list task definition families honors family filter before pagination", func(t *testing.T) {
-		t.Parallel()
-		h := newTestHandler(t)
-		for _, family := range []string{"web-a", "web-b", "jobs-a"} {
-			doECSRequest(
+	t.Run(
+		"list task definition families honors family filter before pagination",
+		func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler(t)
+			for _, family := range []string{"web-a", "web-b", "jobs-a"} {
+				doECSRequest(
+					t,
+					h,
+					"RegisterTaskDefinition",
+					map[string]any{
+						"family":               family,
+						"containerDefinitions": []map[string]any{{"name": "c", "image": "nginx"}},
+					},
+				)
+			}
+			rec := doECSRequest(
 				t,
 				h,
-				"RegisterTaskDefinition",
-				map[string]any{
-					"family":               family,
-					"containerDefinitions": []map[string]any{{"name": "c", "image": "nginx"}},
-				},
+				"ListTaskDefinitionFamilies",
+				map[string]any{"familyPrefix": "web", "maxResults": 1},
 			)
-		}
-		rec := doECSRequest(t, h, "ListTaskDefinitionFamilies", map[string]any{"familyPrefix": "web", "maxResults": 1})
-		var body map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
-		assert.Len(t, body["families"].([]any), 1)
-		assert.NotEmpty(t, body["nextToken"])
-	})
+			var body map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			assert.Len(t, body["families"].([]any), 1)
+			assert.NotEmpty(t, body["nextToken"])
+		},
+	)
 
 	t.Run("list services by namespace page one", func(t *testing.T) {
 		t.Parallel()
@@ -158,7 +178,11 @@ func TestRefinement3_PaginationCoverage(t *testing.T) {
 				t,
 				h,
 				"CreateService",
-				map[string]any{"cluster": "ns-cluster", "serviceName": service, "taskDefinition": "nsfam"},
+				map[string]any{
+					"cluster":        "ns-cluster",
+					"serviceName":    service,
+					"taskDefinition": "nsfam",
+				},
 			)
 		}
 		rec := doECSRequest(
@@ -191,7 +215,11 @@ func TestRefinement3_PaginationCoverage(t *testing.T) {
 				t,
 				h,
 				"CreateService",
-				map[string]any{"cluster": "ns-cluster", "serviceName": service, "taskDefinition": "nsfam"},
+				map[string]any{
+					"cluster":        "ns-cluster",
+					"serviceName":    service,
+					"taskDefinition": "nsfam",
+				},
 			)
 		}
 		first := doECSRequest(
@@ -355,7 +383,12 @@ func TestRefinement3_PaginationCoverage(t *testing.T) {
 			)
 		}
 		h := ecs.NewHandler(b)
-		rec := doECSRequest(t, h, "ListServiceDeployments", map[string]any{"cluster": "default", "service": "svc"})
+		rec := doECSRequest(
+			t,
+			h,
+			"ListServiceDeployments",
+			map[string]any{"cluster": "default", "service": "svc"},
+		)
 		var body map[string]any
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 		assert.Len(t, body["serviceDeploymentArns"].([]any), 100)
@@ -366,7 +399,12 @@ func TestRefinement3_PaginationCoverage(t *testing.T) {
 		t.Parallel()
 		h := newTestHandler(t)
 		for _, name := range []string{"a", "b", "c"} {
-			doECSRequest(t, h, "PutAccountSetting", map[string]any{"name": name, "value": "enabled"})
+			doECSRequest(
+				t,
+				h,
+				"PutAccountSetting",
+				map[string]any{"name": name, "value": "enabled"},
+			)
 		}
 		rec := doECSRequest(t, h, "ListAccountSettings", map[string]any{"maxResults": 2})
 		var body map[string]any
@@ -379,7 +417,12 @@ func TestRefinement3_PaginationCoverage(t *testing.T) {
 		t.Parallel()
 		h := newTestHandler(t)
 		for _, name := range []string{"a", "b", "c"} {
-			doECSRequest(t, h, "PutAccountSetting", map[string]any{"name": name, "value": "enabled"})
+			doECSRequest(
+				t,
+				h,
+				"PutAccountSetting",
+				map[string]any{"name": name, "value": "enabled"},
+			)
 		}
 		first := doECSRequest(t, h, "ListAccountSettings", map[string]any{"maxResults": 2})
 		var b1 map[string]any
@@ -404,10 +447,19 @@ func TestRefinement3_PaginationCoverage(t *testing.T) {
 				t,
 				h,
 				"PutAccountSetting",
-				map[string]any{"name": "containerInsights", "value": "enabled", "principalArn": principal},
+				map[string]any{
+					"name":         "containerInsights",
+					"value":        "enabled",
+					"principalArn": principal,
+				},
 			)
 		}
-		rec := doECSRequest(t, h, "ListAccountSettings", map[string]any{"name": "containerInsights", "maxResults": 2})
+		rec := doECSRequest(
+			t,
+			h,
+			"ListAccountSettings",
+			map[string]any{"name": "containerInsights", "maxResults": 2},
+		)
 		var body map[string]any
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 		assert.Len(t, body["settings"].([]any), 2)
@@ -423,7 +475,9 @@ func TestRefinement3_PaginationCoverage(t *testing.T) {
 				h,
 				"PutAccountSetting",
 				map[string]any{
-					"name":  "setting-" + time.Now().Add(time.Duration(i)*time.Nanosecond).Format("150405.000000000"),
+					"name": "setting-" + time.Now().
+						Add(time.Duration(i)*time.Nanosecond).
+						Format("150405.000000000"),
 					"value": "enabled",
 				},
 			)
@@ -445,7 +499,12 @@ func TestRefinement3_PaginationCoverage(t *testing.T) {
 				"PutAttributes",
 				map[string]any{
 					"attributes": []map[string]any{
-						{"name": name, "targetId": "i-1", "targetType": "container-instance", "value": "v"},
+						{
+							"name":       name,
+							"targetId":   "i-1",
+							"targetType": "container-instance",
+							"value":      "v",
+						},
 					},
 				},
 			)
@@ -467,7 +526,12 @@ func TestRefinement3_PaginationCoverage(t *testing.T) {
 				"PutAttributes",
 				map[string]any{
 					"attributes": []map[string]any{
-						{"name": name, "targetId": "i-1", "targetType": "container-instance", "value": "v"},
+						{
+							"name":       name,
+							"targetId":   "i-1",
+							"targetType": "container-instance",
+							"value":      "v",
+						},
 					},
 				},
 			)
@@ -507,7 +571,12 @@ func TestRefinement3_PaginationCoverage(t *testing.T) {
 				},
 			)
 		}
-		rec := doECSRequest(t, h, "ListAttributes", map[string]any{"targetType": "container-instance", "maxResults": 1})
+		rec := doECSRequest(
+			t,
+			h,
+			"ListAttributes",
+			map[string]any{"targetType": "container-instance", "maxResults": 1},
+		)
 		var body map[string]any
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 		assert.Len(t, body["attributes"].([]any), 1)
@@ -525,7 +594,9 @@ func TestRefinement3_PaginationCoverage(t *testing.T) {
 				map[string]any{
 					"attributes": []map[string]any{
 						{
-							"name":       time.Now().Add(time.Duration(i) * time.Nanosecond).Format("150405.000000000"),
+							"name": time.Now().
+								Add(time.Duration(i) * time.Nanosecond).
+								Format("150405.000000000"),
 							"targetId":   "i-1",
 							"targetType": "container-instance",
 							"value":      "v",
