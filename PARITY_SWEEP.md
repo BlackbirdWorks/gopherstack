@@ -46,7 +46,7 @@ Polecats (sonnet) branch off `parity-sweep`, ≤3 concurrent; mayor aggregates e
 | 37 | kinesis | P1 | 1110-1125, 3468-3476 | ☐ |
 | 38 | kinesisanalytics | P1 | 1126-1143, 3477-3484 | ☐ |
 | 39 | kinesisanalyticsv2 | P1 | 1144-1160, 3485-3492 | ☐ |
-| 40 | kms | P1 | 1161-1175, 3493-3507 | ☐ |
+| 40 | kms | P1 | 1161-1175, 3493-3507 | ✅ |
 | 41 | lakeformation | P1 | 1176-1203, 3508-3520 | ☐ |
 | 42 | lambda | P1 | 1204-1227, 3521-3533 | ✅ |
 | 43 | macie2 | P1 | 1228-1256, 3534-3546 | ☐ |
@@ -118,7 +118,7 @@ Polecats (sonnet) branch off `parity-sweep`, ≤3 concurrent; mayor aggregates e
 | 109 | codepipeline | P2 | 442-456, 3068-3076 | ☐ |
 | 110 | codestarconnections | P2 | 457-467, 3077-3085 | ☐ |
 | 111 | cognitoidentity | P2 | 468-478, 3086-3095 | ☐ |
-| 112 | ecs | P2 | 648-661, 3224-3233 | ☐ |
+| 112 | ecs | P2 | 648-661, 3224-3233 | ✅ |
 | 113 | efs | P2 | 662-674, 3234-3244 | ☐ |
 | 114 | eks | P2 | 675-687, 3245-3254 | ☐ |
 | 115 | elasticache | P2 | 688-699, 3255-3264 | ☐ |
