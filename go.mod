@@ -209,6 +209,8 @@ require github.com/aws/aws-sdk-go-v2/service/omics v1.45.0
 
 require github.com/aws/aws-sdk-go-v2/service/cleanrooms v1.45.6
 
+require go.uber.org/goleak v1.3.0
+
 require (
 	github.com/antlr/antlr4 v0.0.0-20181218183524-be58ebffde8e // indirect
 	github.com/aws/aws-dax-go v1.2.15

@@ -61,6 +61,15 @@ var (
 // emptyAttributeListID is the reserved attribute-list id for an empty list.
 const emptyAttributeListID = 1
 
+// attrListMaxCap bounds the attribute-list dictionary (attrToID/idToAttr) so a
+// buggy or adversarial client cannot grow it without limit. Legitimate
+// workloads register only a handful of distinct attribute-name sets (one per
+// table projection), so this ceiling is never reached in practice. Eviction is
+// not safe here because a client may reference any previously-assigned id, so
+// once the cap is hit the server stops allocating new ids and degrades to the
+// empty-list id rather than corrupting live mappings.
+const attrListMaxCap = 65536
+
 // Backend is the subset of the DynamoDB storage backend that the DAX data plane
 // delegates to. The gopherstack *dynamodb.InMemoryDB satisfies this interface,
 // so DAX item operations pass through to the real DynamoDB emulation.

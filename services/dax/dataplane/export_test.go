@@ -181,6 +181,19 @@ func (a *AttrListServer) WriteAttributeProjection(w *TestWriter, attrs map[strin
 // Names returns the attribute names registered for an id.
 func (a *AttrListServer) Names(id int64) []string { return a.s.attrListNames(id) }
 
+// AllocID registers an attribute-name list and returns its id, exposing the
+// internal allocator so tests can exercise the dictionary capacity bound.
+func (a *AttrListServer) AllocID(names []string) int64 { return a.s.attrListID(names) }
+
+// DictLen reports the number of entries in the attribute-list dictionary.
+func (a *AttrListServer) DictLen() int { return len(a.s.attrToID) }
+
+// EmptyAttributeListIDForTest exposes the reserved empty-list id.
+func EmptyAttributeListIDForTest() int64 { return emptyAttributeListID }
+
+// AttrListMaxCapForTest exposes the dictionary capacity bound.
+func AttrListMaxCapForTest() int { return attrListMaxCap }
+
 // ProjectedItemForTest decodes a ProjectionExpression blob, then projects the
 // given item against it and returns the ordinal/value entries that a Query/Scan
 // projected response would emit, along with the reconstructed projection-
