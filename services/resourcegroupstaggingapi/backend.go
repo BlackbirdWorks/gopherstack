@@ -18,6 +18,7 @@ import (
 	awsarn "github.com/aws/aws-sdk-go-v2/aws/arn"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 )
 
 // regionContextKey is the context key under which the per-request AWS region is stored.
@@ -693,15 +694,6 @@ func paginateStrings(all []string, token string, pageSize int) ([]string, *strin
 	return page, &tok
 }
 
-// ptrStringValue dereferences a *string and returns "" for nil.
-func ptrStringValue(s *string) string {
-	if s == nil {
-		return ""
-	}
-
-	return *s
-}
-
 // findTokenStart returns the index after the resource whose ARN equals token,
 // or 0 if the token is empty or not found.
 func findTokenStart(all []TaggedResource, token string) int {
@@ -799,7 +791,7 @@ func (b *InMemoryBackend) GetTagKeys(ctx context.Context, input *GetTagKeysInput
 
 	sort.Strings(keys)
 
-	page, nextToken := paginateStrings(keys, ptrStringValue(input.PaginationToken), defaultResourcesPerPage)
+	page, nextToken := paginateStrings(keys, ptrconv.String(input.PaginationToken), defaultResourcesPerPage)
 
 	return &GetTagKeysOutput{TagKeys: page, PaginationToken: nextToken}
 }
@@ -845,7 +837,7 @@ func (b *InMemoryBackend) GetTagValues(ctx context.Context, input *GetTagValuesI
 
 	sort.Strings(values)
 
-	page, nextToken := paginateStrings(values, ptrStringValue(input.PaginationToken), defaultResourcesPerPage)
+	page, nextToken := paginateStrings(values, ptrconv.String(input.PaginationToken), defaultResourcesPerPage)
 
 	return &GetTagValuesOutput{TagValues: page, PaginationToken: nextToken}
 }
