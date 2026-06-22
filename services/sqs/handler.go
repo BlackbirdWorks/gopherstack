@@ -310,7 +310,12 @@ func (h *Handler) sqsDispatchTable() map[string]sqsDispatchFn {
 }
 
 // sqsRoute dispatches an SQS action to the appropriate handler method.
-func (h *Handler) sqsRoute(ctx context.Context, r *http.Request, action string, body []byte) ([]byte, error) {
+func (h *Handler) sqsRoute(
+	ctx context.Context,
+	r *http.Request,
+	action string,
+	body []byte,
+) ([]byte, error) {
 	fn, ok := h.sqsDispatchTable()[action]
 	if !ok {
 		return nil, ErrUnknownAction
@@ -782,11 +787,25 @@ func (h *Handler) handleReceiveMessage(
 		// send-time digest computed over the full attribute set).
 		returnedAttrs := filterMsgAttrs(msg.MessageAttributes, req.MessageAttributeNames)
 
+		// When the full attribute set is returned (filterMsgAttrs returns all
+		// attrs), reuse the MD5 that was computed at send time to avoid the
+		// O(k log k) sort on every receive for attribute-heavy messages.
+		// If the returned count is smaller, the subset must be re-hashed.
+		var md5Attrs string
+		switch {
+		case len(returnedAttrs) == 0:
+			// no attributes requested or message has none
+		case len(returnedAttrs) == len(msg.MessageAttributes):
+			md5Attrs = msg.MD5OfMessageAttributes
+		default:
+			md5Attrs = computeMD5OfMessageAttributes(returnedAttrs)
+		}
+
 		msgs = append(msgs, jsonReceivedMessage{
 			MessageID:              msg.MessageID,
 			ReceiptHandle:          msg.ReceiptHandle,
 			MD5OfBody:              msg.MD5OfBody,
-			MD5OfMessageAttributes: computeMD5OfMessageAttributes(returnedAttrs),
+			MD5OfMessageAttributes: md5Attrs,
 			Body:                   msg.Body,
 			Attributes:             filterSystemAttrs(attrs, effectiveAttrNames),
 			MessageAttributes:      toJSONMsgAttrs(returnedAttrs),
@@ -1153,11 +1172,19 @@ func sqsCoreErrorDetails(err error) (errorEntry, bool) {
 	rows := [...]errRow{
 		{
 			ErrQueueNotFound,
-			errorEntry{"com.amazonaws.sqs#QueueDoesNotExist", "The specified queue does not exist.", badReq},
+			errorEntry{
+				"com.amazonaws.sqs#QueueDoesNotExist",
+				"The specified queue does not exist.",
+				badReq,
+			},
 		},
 		{
 			ErrQueueAlreadyExists,
-			errorEntry{"com.amazonaws.sqs#QueueNameExists", "A queue with this name already exists.", badReq},
+			errorEntry{
+				"com.amazonaws.sqs#QueueNameExists",
+				"A queue with this name already exists.",
+				badReq,
+			},
 		},
 		{
 			ErrReceiptHandleInvalid,
@@ -1190,11 +1217,19 @@ func sqsCoreErrorDetails(err error) (errorEntry, bool) {
 		},
 		{
 			ErrInvalidBatchEntry,
-			errorEntry{"com.amazonaws.sqs#EmptyBatchRequest", "The batch request is empty.", badReq},
+			errorEntry{
+				"com.amazonaws.sqs#EmptyBatchRequest",
+				"The batch request is empty.",
+				badReq,
+			},
 		},
 		{
 			ErrInvalidAttribute,
-			errorEntry{"com.amazonaws.sqs#InvalidAttributeValue", "Invalid attribute value.", badReq},
+			errorEntry{
+				"com.amazonaws.sqs#InvalidAttributeValue",
+				"Invalid attribute value.",
+				badReq,
+			},
 		},
 		{
 			ErrMessageTooLarge,
