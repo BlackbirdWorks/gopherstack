@@ -2,6 +2,7 @@ package ec2
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -216,6 +217,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DescribeByoipCidrs",
 		"DescribeHosts",
 		"DescribeVpcPeeringConnections",
+		"CreateFleet",
 	}, extOps...)
 }
 
@@ -602,7 +604,15 @@ func (h *Handler) handleDescribeInstances(vals url.Values, reqID string) (any, e
 
 	offset := 0
 	if tok := vals.Get("NextToken"); tok != "" {
-		_, _ = fmt.Sscan(tok, &offset)
+		decoded, decErr := base64.StdEncoding.DecodeString(tok)
+		if decErr != nil {
+			return nil, fmt.Errorf("%w: NextToken is not valid", ErrInvalidParameter)
+		}
+		n, parseErr := strconv.Atoi(string(decoded))
+		if parseErr != nil || n < 0 {
+			return nil, fmt.Errorf("%w: NextToken is not valid", ErrInvalidParameter)
+		}
+		offset = n
 	}
 
 	var nextToken string
@@ -615,7 +625,9 @@ func (h *Handler) handleDescribeInstances(vals url.Values, reqID string) (any, e
 		instances = instances[offset:]
 
 		if len(instances) > maxResults {
-			nextToken = strconv.Itoa(offset + maxResults)
+			nextToken = base64.StdEncoding.EncodeToString(
+				[]byte(strconv.Itoa(offset + maxResults)),
+			)
 			instances = instances[:maxResults]
 		}
 	}

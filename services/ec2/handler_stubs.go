@@ -56,7 +56,7 @@ func registerStubOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["CreateCustomerGateway"] = h.handleStubCreateCustomerGateway
 	ops["CreateDelegateMacVolumeOwnershipTask"] = h.handleStubCreateDelegateMacVolumeOwnershipTask
 	// CreateEgressOnlyInternetGateway — moved to handler_ec2core.go
-	ops["CreateFleet"] = h.handleStubCreateFleet
+	// CreateFleet — real implementation in handler_batch5.go
 	ops["CreateFpgaImage"] = h.handleStubCreateFpgaImage
 	ops["CreateImageUsageReport"] = h.handleStubCreateImageUsageReport
 	ops["CreateInstanceExportTask"] = h.handleStubCreateInstanceExportTask
@@ -523,7 +523,7 @@ func stubSupportedOperations() []string {
 		// "CreateCustomerGateway", — moved to advancedNetworkingSupportedOperations
 		"CreateDelegateMacVolumeOwnershipTask",
 		// CreateEgressOnlyInternetGateway — moved to ec2CoreSupportedOperations
-		"CreateFleet",
+		// "CreateFleet", — real implementation in handler_batch5.go
 		"CreateFpgaImage",
 		"CreateImageUsageReport",
 		"CreateInstanceExportTask",
@@ -1231,14 +1231,6 @@ func (h *Handler) handleStubCreateDelegateMacVolumeOwnershipTask(
 ) (any, error) {
 	return &stubResponse{
 		XMLName:   xml.Name{Local: "CreateDelegateMacVolumeOwnershipTaskResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
-}
-
-func (h *Handler) handleStubCreateFleet(_ url.Values, reqID string) (any, error) {
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CreateFleetResponse"},
 		RequestID: reqID,
 		Return:    true,
 	}, nil

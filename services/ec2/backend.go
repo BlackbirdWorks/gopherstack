@@ -1,6 +1,7 @@
 package ec2
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"maps"
@@ -311,6 +312,9 @@ type InMemoryBackend struct {
 	eniIDByAttachment                  map[string]string
 	eniIDsByInstance                   map[string]map[string]struct{}
 	instanceIDsByVPC                   map[string]map[string]struct{}
+	subnetIDsByVPC                     map[string]map[string]struct{}
+	routeTableIDsByVPC                 map[string]map[string]struct{}
+	sgIDsByVPC                         map[string]map[string]struct{}
 	snapshotBlockPublicAccess          string
 	ebsDefaultKmsKeyID                 string
 	imageBlockPublicAccess             string
@@ -419,11 +423,9 @@ func newInMemoryBackendMaps() *InMemoryBackend {
 		fastLaunchImages:               make(map[string]bool),
 		fastSnapshotRestores:           make(map[string]bool),
 		vpnConnectionRoutes:            make(map[string]*VpnConnectionRoute),
-		instanceIDsByVPC:               make(map[string]map[string]struct{}),
-		eniIDsByInstance:               make(map[string]map[string]struct{}),
-		eniIDByAttachment:              make(map[string]string),
 	}
 	initBatch5Maps(b)
+	initSecondaryIndexMaps(b)
 
 	return b
 }
@@ -464,7 +466,10 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 // deliberately do NOT start the background ticker (which would otherwise race
 // with their direct ticks and state assertions). Idempotent — safe to call
 // multiple times; only the first call starts the goroutine.
-func (b *InMemoryBackend) StartLifecycleReconciler() {
+//
+// The goroutine exits when ctx is cancelled OR when StopLifecycleReconciler is
+// called, whichever comes first.
+func (b *InMemoryBackend) StartLifecycleReconciler(ctx context.Context) {
 	b.lifecycleOnce.Do(func() {
 		go func() {
 			ticker := time.NewTicker(lifecycleReconcileInterval)
@@ -472,6 +477,8 @@ func (b *InMemoryBackend) StartLifecycleReconciler() {
 
 			for {
 				select {
+				case <-ctx.Done():
+					return
 				case <-b.lifecycleStop:
 					return
 				case <-ticker.C:
@@ -492,7 +499,28 @@ func (b *InMemoryBackend) StopLifecycleReconciler() {
 
 // reconcileInstanceLifecycle advances all instances in transitional states to their
 // next stable state. It is also called directly by tests via TickLifecycleForTest.
+// Performance: takes a cheap read-lock pass first to bail early when nothing is
+// transitional, avoiding a write-lock acquisition on every 50ms tick.
 func (b *InMemoryBackend) reconcileInstanceLifecycle() {
+	// Fast path: read-lock to detect any transitional instance.
+	b.mu.RLock("reconcileInstanceLifecycle-check")
+	hasTransitional := false
+	for _, inst := range b.instances {
+		switch inst.State {
+		case StatePending, StateStopping, StateShuttingDown:
+			hasTransitional = true
+		}
+		if hasTransitional {
+			break
+		}
+	}
+	b.mu.RUnlock()
+
+	if !hasTransitional {
+		return
+	}
+
+	// Slow path: write-lock to advance transitional instances.
 	b.mu.Lock("reconcileInstanceLifecycle")
 	defer b.mu.Unlock()
 
@@ -525,6 +553,7 @@ func (b *InMemoryBackend) initDefaults() {
 		AvailabilityZone: b.Region + "a",
 		IsDefault:        true,
 	}
+	b.indexSubnetLocked(defaultSubnetID, defaultVPCID)
 
 	defaultSGID := "sg-default"
 	b.securityGroups[defaultSGID] = &SecurityGroup{
@@ -533,6 +562,7 @@ func (b *InMemoryBackend) initDefaults() {
 		Description: "default VPC security group",
 		VPCID:       defaultVPCID,
 	}
+	b.indexSGLocked(defaultSGID, defaultVPCID)
 }
 
 // RunInstances creates one or more EC2 instance stubs.
@@ -947,6 +977,7 @@ func (b *InMemoryBackend) CreateSecurityGroup(
 		},
 	}
 	b.securityGroups[id] = sg
+	b.indexSGLocked(id, vpcID)
 
 	return sg, nil
 }
@@ -956,10 +987,12 @@ func (b *InMemoryBackend) DeleteSecurityGroup(id string) error {
 	b.mu.Lock("DeleteSecurityGroup")
 	defer b.mu.Unlock()
 
-	if _, ok := b.securityGroups[id]; !ok {
+	sg, ok := b.securityGroups[id]
+	if !ok {
 		return fmt.Errorf("%w: %s", ErrSecurityGroupNotFound, id)
 	}
 
+	b.deindexSGLocked(id, sg.VPCID)
 	delete(b.securityGroups, id)
 	delete(b.tags, id)
 
@@ -1043,6 +1076,8 @@ func (b *InMemoryBackend) cascadeDeleteVpcIGWsLocked(vpcID string) {
 // DeleteVpc removes a VPC by ID, cascade-deleting all dependent resources
 // (instances, internet gateways, NAT gateways, route tables, security groups,
 // network interfaces, and subnets) along with their tags.
+// Uses secondary indexes for instances, subnets, route tables, and security groups
+// to avoid O(n_all) scans for each resource type.
 func (b *InMemoryBackend) DeleteVpc(id string) error {
 	b.mu.Lock("DeleteVpc")
 	defer b.mu.Unlock()
@@ -1051,43 +1086,46 @@ func (b *InMemoryBackend) DeleteVpc(id string) error {
 		return fmt.Errorf("%w: %s", ErrVPCNotFound, id)
 	}
 
-	// Cascade: terminate instances belonging to this VPC.
-	for instID, inst := range b.instances {
-		if inst.VPCID == id {
+	// Cascade: terminate instances belonging to this VPC via secondary index.
+	for instID := range b.instanceIDsByVPC[id] {
+		if inst, ok := b.instances[instID]; ok {
 			inst.State = StateTerminated
 			inst.TerminatedAt = time.Now()
 			delete(b.tags, instID)
 			b.detachVolumesAndEIPsLocked(instID)
 		}
 	}
+	delete(b.instanceIDsByVPC, id)
 
 	// Cascade: detach and delete internet gateways attached to this VPC.
 	b.cascadeDeleteVpcIGWsLocked(id)
 
+	// Build subnet set for this VPC using the secondary index so the NAT
+	// gateway scan does a cheap set-membership check instead of a sub-lookup.
+	subnetSet := b.subnetIDsByVPC[id]
+
 	// Cascade: delete NAT gateways in subnets belonging to this VPC.
 	for ngwID, ngw := range b.natGateways {
-		if sub, ok := b.subnets[ngw.SubnetID]; ok && sub.VPCID == id {
+		if _, inVPC := subnetSet[ngw.SubnetID]; inVPC {
 			b.recycleIPLocked(ngw.PrivateIP)
 			delete(b.natGateways, ngwID)
 			delete(b.tags, ngwID)
 		}
 	}
 
-	// Cascade: remove route tables belonging to this VPC.
-	for rtID, rt := range b.routeTables {
-		if rt.VPCID == id {
-			delete(b.routeTables, rtID)
-			delete(b.tags, rtID)
-		}
+	// Cascade: remove route tables belonging to this VPC via secondary index.
+	for rtID := range b.routeTableIDsByVPC[id] {
+		delete(b.routeTables, rtID)
+		delete(b.tags, rtID)
 	}
+	delete(b.routeTableIDsByVPC, id)
 
-	// Cascade: remove security groups belonging to this VPC.
-	for sgID, sg := range b.securityGroups {
-		if sg.VPCID == id {
-			delete(b.securityGroups, sgID)
-			delete(b.tags, sgID)
-		}
+	// Cascade: remove security groups belonging to this VPC via secondary index.
+	for sgID := range b.sgIDsByVPC[id] {
+		delete(b.securityGroups, sgID)
+		delete(b.tags, sgID)
 	}
+	delete(b.sgIDsByVPC, id)
 
 	// Cascade: remove network interfaces belonging to this VPC.
 	for eniID, eni := range b.networkInterfaces {
@@ -1098,13 +1136,12 @@ func (b *InMemoryBackend) DeleteVpc(id string) error {
 		}
 	}
 
-	// Cascade: remove subnets belonging to this VPC.
-	for subnetID, subnet := range b.subnets {
-		if subnet.VPCID == id {
-			delete(b.subnets, subnetID)
-			delete(b.tags, subnetID)
-		}
+	// Cascade: remove subnets belonging to this VPC via secondary index.
+	for subnetID := range subnetSet {
+		delete(b.subnets, subnetID)
+		delete(b.tags, subnetID)
 	}
+	delete(b.subnetIDsByVPC, id)
 
 	delete(b.vpcs, id)
 	delete(b.tags, id)
@@ -1187,6 +1224,7 @@ func (b *InMemoryBackend) CreateSubnet(vpcID, cidr, az string) (*Subnet, error) 
 		AvailabilityZone: az,
 	}
 	b.subnets[id] = s
+	b.indexSubnetLocked(id, vpcID)
 
 	return s, nil
 }
@@ -1229,6 +1267,8 @@ func (b *InMemoryBackend) DeleteSubnet(id string) error {
 		}
 	}
 
+	subnet := b.subnets[id]
+	b.deindexSubnetLocked(id, subnet.VPCID)
 	delete(b.subnets, id)
 	delete(b.tags, id)
 
@@ -1443,15 +1483,20 @@ func (b *InMemoryBackend) DescribeTags(resourceIDs []string) []TagEntry {
 	b.mu.RLock("DescribeTags")
 	defer b.mu.RUnlock()
 
-	filterSet := make(map[string]bool, len(resourceIDs))
-	for _, id := range resourceIDs {
-		filterSet[id] = true
+	// Only build the filter set when callers actually supply IDs; avoids an
+	// unnecessary allocation on the common unfiltered path.
+	var filterSet map[string]bool
+	if len(resourceIDs) > 0 {
+		filterSet = make(map[string]bool, len(resourceIDs))
+		for _, id := range resourceIDs {
+			filterSet[id] = true
+		}
 	}
 
 	var entries []TagEntry
 
 	for resourceID, tagMap := range b.tags {
-		if len(filterSet) > 0 && !filterSet[resourceID] {
+		if filterSet != nil && !filterSet[resourceID] {
 			continue
 		}
 

@@ -1,6 +1,7 @@
 package ec2
 
 import (
+	"encoding/base64"
 	"encoding/xml"
 	"fmt"
 	"net/url"
@@ -94,6 +95,7 @@ type describeImagesResponse struct {
 	XMLName   xml.Name   `xml:"DescribeImagesResponse"`
 	Xmlns     string     `xml:"xmlns,attr"`
 	RequestID string     `xml:"requestId"`
+	NextToken string     `xml:"nextToken,omitempty"`
 	ImagesSet amiItemSet `xml:"imagesSet"`
 }
 
@@ -652,6 +654,43 @@ func instanceHealthForState(stateName string) instanceStatusDetails {
 	}
 }
 
+const (
+	describeImagesMaxResults     = 1000
+	describeImagesMinResults     = 1
+	describeImagesDefaultResults = 1000
+)
+
+// parseImagesPagination parses MaxResults and NextToken from query values,
+// returning (maxResults, offset, error).
+func parseImagesPagination(vals url.Values) (int, int, error) {
+	maxResults := describeImagesDefaultResults
+	if v := vals.Get("MaxResults"); v != "" {
+		n, parseErr := strconv.Atoi(v)
+		if parseErr != nil || n < describeImagesMinResults || n > describeImagesMaxResults {
+			return 0, 0, fmt.Errorf(
+				"%w: MaxResults must be between %d and %d",
+				ErrInvalidParameter, describeImagesMinResults, describeImagesMaxResults,
+			)
+		}
+		maxResults = n
+	}
+
+	offset := 0
+	if tok := vals.Get("NextToken"); tok != "" {
+		decoded, decErr := base64.StdEncoding.DecodeString(tok)
+		if decErr != nil {
+			return 0, 0, fmt.Errorf("%w: NextToken is not valid", ErrInvalidParameter)
+		}
+		n, parseErr := strconv.Atoi(string(decoded))
+		if parseErr != nil || n < 0 {
+			return 0, 0, fmt.Errorf("%w: NextToken is not valid", ErrInvalidParameter)
+		}
+		offset = n
+	}
+
+	return maxResults, offset, nil
+}
+
 func (h *Handler) handleDescribeImages(vals url.Values, reqID string) (any, error) {
 	amis := h.Backend.DescribeImages()
 
@@ -667,7 +706,7 @@ func (h *Handler) handleDescribeImages(vals url.Values, reqID string) (any, erro
 		requested[id] = struct{}{}
 	}
 
-	items := make([]amiItem, 0, len(amis))
+	filtered := make([]amiItem, 0, len(amis))
 	for _, a := range amis {
 		if len(requested) > 0 {
 			if _, ok := requested[a.ImageID]; !ok {
@@ -675,7 +714,7 @@ func (h *Handler) handleDescribeImages(vals url.Values, reqID string) (any, erro
 			}
 		}
 
-		items = append(items, amiItem{
+		filtered = append(filtered, amiItem{
 			ImageID:        a.ImageID,
 			Name:           a.Name,
 			Description:    a.Description,
@@ -686,10 +725,29 @@ func (h *Handler) handleDescribeImages(vals url.Values, reqID string) (any, erro
 		})
 	}
 
+	maxResults, offset, err := parseImagesPagination(vals)
+	if err != nil {
+		return nil, err
+	}
+
+	if offset > len(filtered) {
+		offset = len(filtered)
+	}
+	filtered = filtered[offset:]
+
+	var nextToken string
+	if len(filtered) > maxResults {
+		nextToken = base64.StdEncoding.EncodeToString(
+			[]byte(strconv.Itoa(offset + maxResults)),
+		)
+		filtered = filtered[:maxResults]
+	}
+
 	return &describeImagesResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
-		ImagesSet: amiItemSet{Items: items},
+		NextToken: nextToken,
+		ImagesSet: amiItemSet{Items: filtered},
 	}, nil
 }
 
@@ -897,7 +955,12 @@ func (h *Handler) handleCreateVolume(vals url.Values, reqID string) (any, error)
 		_, _ = fmt.Sscan(sizeStr, &size)
 	}
 
-	iops, throughput, err := parseVolumePerf(vals.Get("Iops"), vals.Get("Throughput"), volType, size)
+	iops, throughput, err := parseVolumePerf(
+		vals.Get("Iops"),
+		vals.Get("Throughput"),
+		volType,
+		size,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1060,7 +1123,10 @@ func (h *Handler) handleAssociateAddress(vals url.Values, reqID string) (any, er
 	}
 
 	if targetID == "" {
-		return nil, fmt.Errorf("%w: InstanceId or NetworkInterfaceId is required", ErrInvalidParameter)
+		return nil, fmt.Errorf(
+			"%w: InstanceId or NetworkInterfaceId is required",
+			ErrInvalidParameter,
+		)
 	}
 
 	assocID, err := h.Backend.AssociateAddress(allocationID, targetID)
