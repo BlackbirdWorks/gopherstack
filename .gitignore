@@ -54,3 +54,4 @@ node_modules/
 lambda.zip
 .terraform.lock.hcl
 .terraform.lock.hcl
+/releaser
