@@ -79,6 +79,8 @@ const (
 	cwDefaultDescribeAlarmContributorsLimit = 100
 	cwDefaultListMetricStreamsLimit         = 500
 	cwDefaultDescribeMetricFiltersLimit     = 50
+	cwDefaultListAlarmMuteRulesLimit        = 100
+	cwDefaultListManagedInsightRulesLimit   = 100
 	cwMaxMetricDataPoints                   = 1000 // maximum data points retained per metric
 	cwMaxMetricNamesPerNamespace            = 500  // maximum unique metric names per namespace
 	cwMaxAlarmHistory                       = 100  // maximum alarm history entries per alarm
@@ -93,6 +95,8 @@ const (
 	alarmStateAlarm            = "ALARM"
 	alarmStateOK               = "OK"
 	alarmStateInsufficientData = "INSUFFICIENT_DATA"
+
+	insightRuleStateEnabled = "ENABLED"
 
 	historyTypeStateUpdate         = "StateUpdate"
 	historyTypeConfigurationUpdate = "ConfigurationUpdate"
@@ -194,6 +198,11 @@ type StorageBackend interface {
 	DeleteMetricFilter(filterName, logGroupName string) error
 	StartMetricStreams(names []string) error
 	StopMetricStreams(names []string) error
+	ListAlarmMuteRules(nextToken string, maxResults int) (page.Page[AlarmMuteRule], error)
+	ListManagedInsightRules(
+		resourceARN, nextToken string,
+		maxResults int,
+	) (page.Page[InsightRule], error)
 }
 
 // metricRecord holds time-series data for a single (MetricName, Dimensions) combination.
@@ -339,6 +348,66 @@ func (b *InMemoryBackend) SetLambdaInvoker(inv LambdaInvoker) {
 	b.lambdaInvoker = inv
 }
 
+// storeDatum validates and stores a single MetricDatum into the namespace map.
+// Returns a non-nil *UnprocessedMetricDatum when the datum cannot be stored.
+// Caller must hold b.mu (write lock).
+func (b *InMemoryBackend) storeDatum(namespace string, d MetricDatum) *UnprocessedMetricDatum {
+	if err := validateMetricDatum(d); err != nil {
+		return &UnprocessedMetricDatum{
+			MetricName:   d.MetricName,
+			ErrorCode:    "InvalidParameterCombination",
+			ErrorMessage: err.Error(),
+		}
+	}
+
+	if err := validateStorageResolution(d.StorageResolution); err != nil {
+		return &UnprocessedMetricDatum{
+			MetricName:   d.MetricName,
+			ErrorCode:    "InvalidParameterValue",
+			ErrorMessage: err.Error(),
+		}
+	}
+
+	key := metricStorageKey(d.MetricName, d.Dimensions)
+	rec, exists := b.metrics[namespace][key]
+
+	if !exists {
+		if len(b.metrics[namespace]) >= cwMaxMetricNamesPerNamespace {
+			return &UnprocessedMetricDatum{
+				MetricName:   d.MetricName,
+				ErrorCode:    "LimitExceeded",
+				ErrorMessage: "namespace metric series limit reached",
+			}
+		}
+
+		if b.countTotalMetrics() >= cwMaxTotalMetricRecords {
+			return &UnprocessedMetricDatum{
+				MetricName:   d.MetricName,
+				ErrorCode:    "LimitExceeded",
+				ErrorMessage: "global metric series limit reached",
+			}
+		}
+
+		dims := make([]Dimension, len(d.Dimensions))
+		copy(dims, d.Dimensions)
+		rec = &metricRecord{MetricName: d.MetricName, Dimensions: dims}
+		b.metrics[namespace][key] = rec
+		b.totalMetrics++ // #60: maintain running total
+	}
+
+	rec.Points = append(rec.Points, d)
+
+	// Cap data points: copy the tail into a fresh slice so the old backing
+	// array (which may be 2× or larger after repeated appends) can be GC'd.
+	if len(rec.Points) > cwMaxMetricDataPoints {
+		fresh := make([]MetricDatum, cwMaxMetricDataPoints)
+		copy(fresh, rec.Points[len(rec.Points)-cwMaxMetricDataPoints:])
+		rec.Points = fresh
+	}
+
+	return nil
+}
+
 // PutMetricData stores metric data points for the given namespace.
 // Returns a slice of UnprocessedMetricDatum for any entries that could not be stored.
 func (b *InMemoryBackend) PutMetricData(
@@ -354,7 +423,6 @@ func (b *InMemoryBackend) PutMetricData(
 	}
 
 	b.mu.Lock("PutMetricData")
-	defer b.mu.Unlock()
 
 	if b.metrics[namespace] == nil {
 		b.metrics[namespace] = make(map[string]*metricRecord)
@@ -364,73 +432,29 @@ func (b *InMemoryBackend) PutMetricData(
 
 	for _, d := range data {
 		d.Namespace = namespace
-
-		// Reject entries that set both Value and StatisticSet.
-		if err := validateMetricDatum(d); err != nil {
-			unprocessed = append(unprocessed, UnprocessedMetricDatum{
-				MetricName:   d.MetricName,
-				ErrorCode:    "InvalidParameterCombination",
-				ErrorMessage: err.Error(),
-			})
-
-			continue
-		}
-
-		// Validate StorageResolution is 1 or 60 (or 0 = default).
-		if err := validateStorageResolution(d.StorageResolution); err != nil {
-			unprocessed = append(unprocessed, UnprocessedMetricDatum{
-				MetricName:   d.MetricName,
-				ErrorCode:    "InvalidParameterValue",
-				ErrorMessage: err.Error(),
-			})
-
-			continue
-		}
-
-		key := metricStorageKey(d.MetricName, d.Dimensions)
-		rec, exists := b.metrics[namespace][key]
-
-		if !exists {
-			// Enforce namespace-level unique metric series limit.
-			if len(b.metrics[namespace]) >= cwMaxMetricNamesPerNamespace {
-				unprocessed = append(unprocessed, UnprocessedMetricDatum{
-					MetricName:   d.MetricName,
-					ErrorCode:    "LimitExceeded",
-					ErrorMessage: "namespace metric series limit reached",
-				})
-
-				continue
-			}
-			// Enforce global metric series cap.
-			if b.countTotalMetrics() >= cwMaxTotalMetricRecords {
-				unprocessed = append(unprocessed, UnprocessedMetricDatum{
-					MetricName:   d.MetricName,
-					ErrorCode:    "LimitExceeded",
-					ErrorMessage: "global metric series limit reached",
-				})
-
-				continue
-			}
-			dims := make([]Dimension, len(d.Dimensions))
-			copy(dims, d.Dimensions)
-			rec = &metricRecord{MetricName: d.MetricName, Dimensions: dims}
-			b.metrics[namespace][key] = rec
-			b.totalMetrics++ // #60: maintain running total
-		}
-
-		rec.Points = append(rec.Points, d)
-
-		// Cap data points: copy the tail into a fresh slice so the old backing
-		// array (which may be 2× or larger after repeated appends) can be GC'd.
-		if len(rec.Points) > cwMaxMetricDataPoints {
-			fresh := make([]MetricDatum, cwMaxMetricDataPoints)
-			copy(fresh, rec.Points[len(rec.Points)-cwMaxMetricDataPoints:])
-			rec.Points = fresh
+		if u := b.storeDatum(namespace, d); u != nil {
+			unprocessed = append(unprocessed, *u)
 		}
 	}
 
-	// Record delivery to any running metric streams.
-	b.recordStreamDelivery(namespace, data)
+	// Collect matching running stream names while holding the write lock; the
+	// actual timestamp update happens in a second, shorter lock acquisition so
+	// the main metrics write lock is not held during filter iteration.
+	matchingStreams := b.matchingRunningStreamNames(namespace, data)
+
+	b.mu.Unlock()
+
+	// Update LastUpdateDate for matched streams outside the metrics write lock.
+	if len(matchingStreams) > 0 {
+		now := time.Now().UTC()
+		b.mu.Lock("PutMetricData.streamDelivery")
+		for _, name := range matchingStreams {
+			if s, ok := b.metricStreams[name]; ok && s.State == metricStreamStateRunning {
+				s.LastUpdateDate = now
+			}
+		}
+		b.mu.Unlock()
+	}
 
 	return unprocessed, nil
 }
@@ -488,53 +512,130 @@ func streamAllowsMetric(s *MetricStream, namespace, metricName string) bool {
 	return true
 }
 
-// recordStreamDelivery notes that data was delivered to running metric streams.
-// This is a best-effort in-memory record; no actual Firehose call is made.
-// Caller must hold b.mu (write lock).
-func (b *InMemoryBackend) recordStreamDelivery(namespace string, data []MetricDatum) {
-	for _, s := range b.metricStreams {
+// matchingRunningStreamNames returns the names of running metric streams that
+// allow at least one datum in data. Caller must hold b.mu (any lock).
+// The caller updates LastUpdateDate in a separate, shorter lock acquisition to
+// avoid holding the metrics write lock during the full stream-filter scan.
+func (b *InMemoryBackend) matchingRunningStreamNames(
+	namespace string,
+	data []MetricDatum,
+) []string {
+	var names []string
+
+	for name, s := range b.metricStreams {
 		if s.State != metricStreamStateRunning {
 			continue
 		}
+
 		for _, d := range data {
 			if streamAllowsMetric(s, namespace, d.MetricName) {
-				s.LastUpdateDate = time.Now().UTC()
+				names = append(names, name)
 
 				break
 			}
+		}
+	}
+
+	return names
+}
+
+// sweepCandidate is a snapshot of a metric series that contains at least one
+// expired data point, captured under a read lock for out-of-lock filtering.
+type sweepCandidate struct {
+	ns, key string
+	points  []MetricDatum
+}
+
+// sweepResult holds the alive-filtered point set for a single candidate series.
+type sweepResult struct {
+	ns, key string
+	alive   []MetricDatum
+}
+
+// sweepScanCandidates snapshots metric series that contain at least one expired
+// data point. Acquires and releases the read lock internally.
+func (b *InMemoryBackend) sweepScanCandidates(cutoff time.Time) []sweepCandidate {
+	b.mu.RLock("SweepExpiredMetrics.scan")
+	defer b.mu.RUnlock()
+
+	var candidates []sweepCandidate
+
+	for ns, nsMap := range b.metrics {
+		for key, rec := range nsMap {
+			if hasExpiredPoint(rec.Points, cutoff) {
+				pts := make([]MetricDatum, len(rec.Points))
+				copy(pts, rec.Points)
+				candidates = append(candidates, sweepCandidate{ns, key, pts})
+			}
+		}
+	}
+
+	return candidates
+}
+
+// hasExpiredPoint reports whether any point in pts is older than cutoff.
+func hasExpiredPoint(pts []MetricDatum, cutoff time.Time) bool {
+	for _, pt := range pts {
+		if pt.Timestamp.Before(cutoff) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// sweepApplyResults applies pre-computed alive sets under the write lock.
+// Each series is re-filtered to account for points that may have arrived
+// between the read-lock snapshot and the write-lock apply phase.
+func (b *InMemoryBackend) sweepApplyResults(cutoff time.Time, results []sweepResult) {
+	b.mu.Lock("SweepExpiredMetrics.apply")
+	defer b.mu.Unlock()
+
+	for _, r := range results {
+		nsMap, ok := b.metrics[r.ns]
+		if !ok {
+			continue
+		}
+
+		rec, ok := nsMap[r.key]
+		if !ok {
+			continue
+		}
+
+		alive := filterAlivePoints(rec.Points, cutoff)
+		if len(alive) == 0 {
+			delete(nsMap, r.key)
+			b.totalMetrics-- // #60: maintain running total
+		} else {
+			rec.Points = alive
+		}
+
+		if len(nsMap) == 0 {
+			delete(b.metrics, r.ns)
 		}
 	}
 }
 
 // SweepExpiredMetrics removes metric data points older than cwMetricRetentionDays.
 // It is intended to be called periodically (e.g., by a janitor goroutine).
+//
+// Uses a two-phase approach: snapshot candidate series under a read lock, then
+// apply deletions under a write lock. This avoids holding the write lock during
+// the full O(series × points) filter scan.
 func (b *InMemoryBackend) SweepExpiredMetrics() {
-	b.mu.Lock("SweepExpiredMetrics")
-	defer b.mu.Unlock()
-
 	cutoff := time.Now().UTC().AddDate(0, 0, -cwMetricRetentionDays)
 
-	for ns, nsMap := range b.metrics {
-		before := len(nsMap)
-		sweepMetricNamespace(nsMap, cutoff)
-		b.totalMetrics -= before - len(nsMap) // #60: maintain running total
-		if len(nsMap) == 0 {
-			delete(b.metrics, ns)
-		}
+	candidates := b.sweepScanCandidates(cutoff)
+	if len(candidates) == 0 {
+		return
 	}
-}
 
-// sweepMetricNamespace removes expired data points from every metric record in nsMap.
-// It deletes records whose entire point set has expired.
-func sweepMetricNamespace(nsMap map[string]*metricRecord, cutoff time.Time) {
-	for key, rec := range nsMap {
-		alive := filterAlivePoints(rec.Points, cutoff)
-		if len(alive) == 0 {
-			delete(nsMap, key)
-		} else {
-			rec.Points = alive
-		}
+	results := make([]sweepResult, 0, len(candidates))
+	for _, c := range candidates {
+		results = append(results, sweepResult{c.ns, c.key, filterAlivePoints(c.points, cutoff)})
 	}
+
+	b.sweepApplyResults(cutoff, results)
 }
 
 // filterAlivePoints returns the subset of pts whose Timestamp is not before cutoff.
@@ -1648,7 +1749,15 @@ func (b *InMemoryBackend) executeActions(
 						"function_arn", action, "error", err)
 				}
 			}
-			// EC2 and Auto Scaling actions are stubbed (no-op).
+		case strings.HasPrefix(action, "arn:aws:automate:"):
+			log.WarnContext(ctx, "cloudwatch: EC2 automate alarm action not executed in emulator",
+				"action", action)
+		case strings.HasPrefix(action, "arn:aws:autoscaling:"):
+			log.WarnContext(ctx, "cloudwatch: AutoScaling alarm action not executed in emulator",
+				"action", action)
+		default:
+			log.WarnContext(ctx, "cloudwatch: unrecognised alarm action skipped",
+				"action", action)
 		}
 	}
 }
@@ -1956,6 +2065,48 @@ func (b *InMemoryBackend) GetAlarmMuteRule(muteName string) (*AlarmMuteRule, err
 	return &cp, nil
 }
 
+// ListAlarmMuteRules returns a paginated list of all alarm mute rules.
+func (b *InMemoryBackend) ListAlarmMuteRules(
+	nextToken string,
+	maxResults int,
+) (page.Page[AlarmMuteRule], error) {
+	b.mu.RLock("ListAlarmMuteRules")
+	defer b.mu.RUnlock()
+
+	result := make([]AlarmMuteRule, 0, len(b.alarmMuteRules))
+	for _, rule := range b.alarmMuteRules {
+		result = append(result, *rule)
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].MuteName < result[j].MuteName })
+
+	return page.New(result, nextToken, maxResults, cwDefaultListAlarmMuteRulesLimit), nil
+}
+
+// ListManagedInsightRules returns a paginated list of managed (service-linked) insight rules.
+// If resourceARN is non-empty only rules whose Arn matches are included; in the emulator the
+// ManagedRule flag is used as the primary discriminator.
+func (b *InMemoryBackend) ListManagedInsightRules(
+	resourceARN, nextToken string,
+	maxResults int,
+) (page.Page[InsightRule], error) {
+	b.mu.RLock("ListManagedInsightRules")
+	defer b.mu.RUnlock()
+
+	result := make([]InsightRule, 0)
+	for _, rule := range b.insightRules {
+		if !rule.ManagedRule {
+			continue
+		}
+		if resourceARN != "" && rule.Arn != resourceARN {
+			continue
+		}
+		result = append(result, *rule)
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
+
+	return page.New(result, nextToken, maxResults, cwDefaultListManagedInsightRulesLimit), nil
+}
+
 // PutAlarmMuteRuleInternal creates or updates an alarm mute rule (used for test seeding).
 func (b *InMemoryBackend) PutAlarmMuteRuleInternal(rule *AlarmMuteRule) {
 	b.mu.Lock("PutAlarmMuteRuleInternal")
@@ -2098,7 +2249,7 @@ func (b *InMemoryBackend) PutInsightRuleInternal(rule *InsightRule) {
 
 	cp := *rule
 	if cp.State == "" {
-		cp.State = "ENABLED"
+		cp.State = insightRuleStateEnabled
 	}
 
 	if cp.CreatedAt.IsZero() {
@@ -2177,7 +2328,7 @@ func (b *InMemoryBackend) EnableInsightRules(ruleNames []string) ([]InsightRuleF
 			continue
 		}
 
-		rule.State = "ENABLED"
+		rule.State = insightRuleStateEnabled
 	}
 
 	return failures, nil
