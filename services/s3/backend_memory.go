@@ -26,6 +26,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -804,8 +805,8 @@ func buildGetObjectOutput(
 		Body:                 io.NopCloser(bytes.NewReader(data)),
 		ContentLength:        aws.Int64(size),
 		ContentType:          aws.String(ver.ContentType),
-		ContentEncoding:      nilStringIfEmpty(ver.ContentEncoding),
-		ContentDisposition:   nilStringIfEmpty(ver.ContentDisposition),
+		ContentEncoding:      ptrconv.NilIfEmpty(ver.ContentEncoding),
+		ContentDisposition:   ptrconv.NilIfEmpty(ver.ContentDisposition),
 		ETag:                 aws.String(ver.ETag),
 		LastModified:         aws.Time(ver.LastModified),
 		Metadata:             metadata,
@@ -816,9 +817,9 @@ func buildGetObjectOutput(
 		ChecksumSHA256:       ver.ChecksumSHA256,
 		ChecksumCRC64NVME:    ver.ChecksumCRC64NVME,
 		ServerSideEncryption: types.ServerSideEncryption(ver.SSEAlgorithm),
-		SSEKMSKeyId:          nilStringIfEmpty(ver.SSEKMSKeyID),
-		SSECustomerAlgorithm: nilStringIfEmpty(ver.SSECAlgorithm),
-		SSECustomerKeyMD5:    nilStringIfEmpty(ver.SSECKeyMD5),
+		SSEKMSKeyId:          ptrconv.NilIfEmpty(ver.SSEKMSKeyID),
+		SSECustomerAlgorithm: ptrconv.NilIfEmpty(ver.SSECAlgorithm),
+		SSECustomerKeyMD5:    ptrconv.NilIfEmpty(ver.SSECKeyMD5),
 	}
 }
 
@@ -893,8 +894,8 @@ func (b *InMemoryBackend) HeadObject(
 	return &s3.HeadObjectOutput{
 		ContentLength:        aws.Int64(ver.Size),
 		ContentType:          aws.String(ver.ContentType),
-		ContentEncoding:      nilStringIfEmpty(ver.ContentEncoding),
-		ContentDisposition:   nilStringIfEmpty(ver.ContentDisposition),
+		ContentEncoding:      ptrconv.NilIfEmpty(ver.ContentEncoding),
+		ContentDisposition:   ptrconv.NilIfEmpty(ver.ContentDisposition),
 		ETag:                 aws.String(ver.ETag),
 		LastModified:         aws.Time(ver.LastModified),
 		Metadata:             maps.Clone(ver.Metadata),
@@ -906,9 +907,9 @@ func (b *InMemoryBackend) HeadObject(
 		ChecksumCRC64NVME:    ver.ChecksumCRC64NVME,
 		StorageClass:         types.StorageClass(sc),
 		ServerSideEncryption: types.ServerSideEncryption(ver.SSEAlgorithm),
-		SSEKMSKeyId:          nilStringIfEmpty(ver.SSEKMSKeyID),
-		SSECustomerAlgorithm: nilStringIfEmpty(ver.SSECAlgorithm),
-		SSECustomerKeyMD5:    nilStringIfEmpty(ver.SSECKeyMD5),
+		SSEKMSKeyId:          ptrconv.NilIfEmpty(ver.SSEKMSKeyID),
+		SSECustomerAlgorithm: ptrconv.NilIfEmpty(ver.SSECAlgorithm),
+		SSECustomerKeyMD5:    ptrconv.NilIfEmpty(ver.SSECKeyMD5),
 	}, nil
 }
 
@@ -2619,15 +2620,6 @@ func (b *InMemoryBackend) GetBucketACL(_ context.Context, bucketName string) (st
 	}
 
 	return acl, nil
-}
-
-// nilStringIfEmpty returns nil if s is empty, otherwise returns aws.String(s).
-func nilStringIfEmpty(s string) *string {
-	if s == "" {
-		return nil
-	}
-
-	return aws.String(s)
 }
 
 // PutBucketPolicy stores the bucket policy document.
