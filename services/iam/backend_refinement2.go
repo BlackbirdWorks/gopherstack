@@ -3,10 +3,83 @@ package iam
 import (
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
+
+// insertSorted inserts v into a sorted []string slice in lexicographic order.
+// Uses binary search for O(log n) position, O(n) element shift.
+func insertSorted(s []string, v string) []string {
+	i, _ := slices.BinarySearch(s, v)
+
+	return slices.Insert(s, i, v)
+}
+
+// deleteSorted removes the first occurrence of v from a sorted []string slice.
+// Uses binary search; no-op if v is not present.
+func deleteSorted(s []string, v string) []string {
+	i, found := slices.BinarySearch(s, v)
+	if !found {
+		return s
+	}
+
+	return slices.Delete(s, i, i+1)
+}
+
+// rebuildSortedNames rebuilds a sorted name slice from the keys of a generic map.
+func rebuildSortedNames[T any](m map[string]T) []string {
+	names := make([]string, 0, len(m))
+	for k := range m {
+		names = append(names, k)
+	}
+
+	slices.Sort(names)
+
+	return names
+}
+
+// pageFromSortedNames paginates over a pre-sorted name slice, building the value page
+// by looking up each name in the provided map. Marker is a base64-encoded integer index
+// (opaque to callers) enabling O(1) position resolution without scanning all names.
+func pageFromSortedNames[T any](
+	names []string,
+	lookup map[string]T,
+	marker string,
+	limit, defaultLimit int,
+) page.Page[T] {
+	if limit <= 0 {
+		limit = defaultLimit
+	}
+
+	start := page.DecodeToken(marker)
+	if start >= len(names) {
+		return page.Page[T]{Data: []T{}}
+	}
+
+	end := start + limit
+	var next string
+
+	if end < len(names) {
+		next = page.EncodeToken(end)
+	} else {
+		end = len(names)
+	}
+
+	window := names[start:end]
+	data := make([]T, 0, len(window))
+
+	for _, name := range window {
+		if v, ok := lookup[name]; ok {
+			data = append(data, v)
+		}
+	}
+
+	return page.Page[T]{Data: data, Next: next}
+}
 
 // credentialReportHeader is the CSV header for the IAM credential report.
 const credentialReportHeader = "user,arn,user_creation_time,password_enabled,password_last_used," +
@@ -17,56 +90,10 @@ const credentialReportHeader = "user,arn,user_creation_time,password_enabled,pas
 	"access_key_2_last_used_region,access_key_2_last_used_service," +
 	"cert_1_active,cert_1_last_rotated,cert_2_active,cert_2_last_rotated"
 
-// sortedRoles returns all roles as a slice sorted by RoleName.
-func sortedRoles(m map[string]Role) []Role {
-	roles := make([]Role, 0, len(m))
-	for _, r := range m {
-		roles = append(roles, r)
-	}
-
-	sort.Slice(roles, func(i, j int) bool { return roles[i].RoleName < roles[j].RoleName })
-
-	return roles
-}
-
-// sortedGroups returns all groups as a slice sorted by GroupName.
-func sortedGroups(m map[string]Group) []Group {
-	groups := make([]Group, 0, len(m))
-	for _, g := range m {
-		groups = append(groups, g)
-	}
-
-	sort.Slice(groups, func(i, j int) bool { return groups[i].GroupName < groups[j].GroupName })
-
-	return groups
-}
-
-// sortedPolicies returns all policies as a slice sorted by PolicyName.
-func sortedPolicies(m map[string]Policy) []Policy {
-	policies := make([]Policy, 0, len(m))
-	for _, p := range m {
-		policies = append(policies, p)
-	}
-
-	sort.Slice(policies, func(i, j int) bool { return policies[i].PolicyName < policies[j].PolicyName })
-
-	return policies
-}
-
-// sortedInstanceProfiles returns all instance profiles sorted by name.
-func sortedInstanceProfiles(m map[string]InstanceProfile) []InstanceProfile {
-	ips := make([]InstanceProfile, 0, len(m))
-	for _, ip := range m {
-		ips = append(ips, ip)
-	}
-
-	sort.Slice(ips, func(i, j int) bool { return ips[i].InstanceProfileName < ips[j].InstanceProfileName })
-
-	return ips
-}
-
 // UpdateServiceSpecificCredential updates the status of a service-specific credential.
-func (b *InMemoryBackend) UpdateServiceSpecificCredential(userName, credentialID, status string) error {
+func (b *InMemoryBackend) UpdateServiceSpecificCredential(
+	userName, credentialID, status string,
+) error {
 	b.mu.Lock("UpdateServiceSpecificCredential")
 	defer b.mu.Unlock()
 
@@ -76,11 +103,20 @@ func (b *InMemoryBackend) UpdateServiceSpecificCredential(userName, credentialID
 
 	cred, exists := b.serviceSpecificCreds[credentialID]
 	if !exists {
-		return fmt.Errorf("%w: service-specific credential %q not found", ErrPolicyNotFound, credentialID)
+		return fmt.Errorf(
+			"%w: service-specific credential %q not found",
+			ErrPolicyNotFound,
+			credentialID,
+		)
 	}
 
 	if cred.UserName != userName {
-		return fmt.Errorf("%w: credential %q does not belong to user %q", ErrPolicyNotFound, credentialID, userName)
+		return fmt.Errorf(
+			"%w: credential %q does not belong to user %q",
+			ErrPolicyNotFound,
+			credentialID,
+			userName,
+		)
 	}
 
 	cred.Status = status
@@ -180,7 +216,11 @@ func credKeyFields(ak *AccessKey) []string {
 }
 
 // credUserMFAActive returns "true" if the user has at least one active MFA device.
-func credUserMFAActive(userName string, links map[string]string, devices map[string]VirtualMFADevice) string {
+func credUserMFAActive(
+	userName string,
+	links map[string]string,
+	devices map[string]VirtualMFADevice,
+) string {
 	for serial, owner := range links {
 		if owner != userName {
 			continue
