@@ -52,7 +52,9 @@ func TestRefinement1_HandlerOpsLen(t *testing.T) {
 
 	b := sts.NewInMemoryBackend()
 	h := sts.NewHandler(b)
-	assert.Equal(t, 11, h.HandlerOpsLen())
+	// GetWebIdentityToken is an internal gopherstack extension, not a real AWS STS action,
+	// so it is excluded from GetSupportedOperations (10 real AWS operations remain).
+	assert.Equal(t, 10, h.HandlerOpsLen())
 }
 
 // TestRefinement1_SDKOpsSorted verifies GetSupportedOperations is sorted.
@@ -213,7 +215,7 @@ func TestRefinement1_AssumeRoleWithSAMLNameQualifier(t *testing.T) {
 	input := &sts.AssumeRoleWithSAMLInput{
 		RoleArn:       "arn:aws:iam::000000000000:role/test-role",
 		PrincipalArn:  "arn:aws:iam::000000000000:saml-provider/MyIdP",
-		SAMLAssertion: "dGVzdC1hc3NlcnRpb24=",
+		SAMLAssertion: "PHNhbWxwOkFzc2VydGlvbj4=",
 	}
 
 	resp, err := b.AssumeRoleWithSAML(input)
@@ -229,7 +231,7 @@ func TestRefinement1_AssumeRoleWithSAMLSessionName(t *testing.T) {
 	input := &sts.AssumeRoleWithSAMLInput{
 		RoleArn:         "arn:aws:iam::000000000000:role/test-role",
 		PrincipalArn:    "arn:aws:iam::000000000000:saml-provider/MyIdP",
-		SAMLAssertion:   "dGVzdC1hc3NlcnRpb24=",
+		SAMLAssertion:   "PHNhbWxwOkFzc2VydGlvbj4=",
 		RoleSessionName: "my-saml-session",
 	}
 
@@ -366,7 +368,7 @@ func TestRefinement1_AssumeRoleWithSAMLSourceIdentity(t *testing.T) {
 	resp, err := b.AssumeRoleWithSAML(&sts.AssumeRoleWithSAMLInput{
 		RoleArn:        "arn:aws:iam::000000000000:role/test-role",
 		PrincipalArn:   "arn:aws:iam::000000000000:saml-provider/MyIdP",
-		SAMLAssertion:  "dGVzdA==",
+		SAMLAssertion:  "PHNhbWxwOkFzc2VydGlvbj4=",
 		SourceIdentity: "my-saml-identity",
 	})
 	require.NoError(t, err)

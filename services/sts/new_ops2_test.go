@@ -80,7 +80,7 @@ func TestAssumeRoleWithSAML_ValidationErrors(t *testing.T) {
 			name: "missing_role_arn",
 			input: &sts.AssumeRoleWithSAMLInput{
 				PrincipalArn:  "arn:aws:iam::123456789012:saml-provider/MySAMLIdP",
-				SAMLAssertion: "assertion",
+				SAMLAssertion: "PHNhbWxwOkFzc2VydGlvbj4=",
 			},
 			wantErr: sts.ErrMissingRoleArn,
 		},
@@ -88,7 +88,7 @@ func TestAssumeRoleWithSAML_ValidationErrors(t *testing.T) {
 			name: "missing_principal_arn",
 			input: &sts.AssumeRoleWithSAMLInput{
 				RoleArn:       "arn:aws:iam::123456789012:role/SAMLRole",
-				SAMLAssertion: "assertion",
+				SAMLAssertion: "PHNhbWxwOkFzc2VydGlvbj4=",
 			},
 			wantErr: sts.ErrMissingPrincipalArn,
 		},
@@ -105,7 +105,7 @@ func TestAssumeRoleWithSAML_ValidationErrors(t *testing.T) {
 			input: &sts.AssumeRoleWithSAMLInput{
 				RoleArn:         "arn:aws:iam::123456789012:role/SAMLRole",
 				PrincipalArn:    "arn:aws:iam::123456789012:saml-provider/MySAMLIdP",
-				SAMLAssertion:   "assertion",
+				SAMLAssertion:   "PHNhbWxwOkFzc2VydGlvbj4=",
 				DurationSeconds: 100,
 			},
 			wantErr: sts.ErrInvalidDuration,
@@ -115,7 +115,7 @@ func TestAssumeRoleWithSAML_ValidationErrors(t *testing.T) {
 			input: &sts.AssumeRoleWithSAMLInput{
 				RoleArn:         "arn:aws:iam::123456789012:role/SAMLRole",
 				PrincipalArn:    "arn:aws:iam::123456789012:saml-provider/MySAMLIdP",
-				SAMLAssertion:   "assertion",
+				SAMLAssertion:   "PHNhbWxwOkFzc2VydGlvbj4=",
 				DurationSeconds: sts.MaxDurationSeconds + 1,
 			},
 			wantErr: sts.ErrInvalidDuration,
@@ -140,7 +140,7 @@ func TestAssumeRoleWithSAML_SessionTrackedForCallerIdentity(t *testing.T) {
 	resp, err := b.AssumeRoleWithSAML(&sts.AssumeRoleWithSAMLInput{
 		RoleArn:       "arn:aws:iam::123456789012:role/SAMLRole",
 		PrincipalArn:  "arn:aws:iam::123456789012:saml-provider/MySAMLIdP",
-		SAMLAssertion: "assertion",
+		SAMLAssertion: "PHNhbWxwOkFzc2VydGlvbj4=",
 	})
 	require.NoError(t, err)
 

@@ -127,7 +127,7 @@ func TestBatch2_AssumeRoleWithSAML_ResultBeforeMetadata(t *testing.T) {
 		"Version":       {"2011-06-15"},
 		"RoleArn":       {"arn:aws:iam::123456789012:role/R"},
 		"PrincipalArn":  {"arn:aws:iam::123456789012:saml-provider/MyIdP"},
-		"SAMLAssertion": {"assertion"},
+		"SAMLAssertion": {"PHNhbWxwOkFzc2VydGlvbj4="},
 	}
 	rec := accuracyPost(t, h, e, form)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -276,7 +276,7 @@ func TestBatch2_AssumeRoleWithSAML_RespectsRoleMaxSessionDuration(t *testing.T) 
 		resp, err := b.AssumeRoleWithSAML(&sts.AssumeRoleWithSAMLInput{
 			RoleArn:       "arn:aws:iam::123456789012:role/SmallMaxRole",
 			PrincipalArn:  "arn:aws:iam::123456789012:saml-provider/MyIdP",
-			SAMLAssertion: "assertion",
+			SAMLAssertion: "PHNhbWxwOkFzc2VydGlvbj4=",
 		})
 		require.NoError(t, err)
 		assert.NotEmpty(t, resp.AssumeRoleWithSAMLResult.Credentials.AccessKeyID)
@@ -291,7 +291,7 @@ func TestBatch2_AssumeRoleWithSAML_RespectsRoleMaxSessionDuration(t *testing.T) 
 		_, err := b.AssumeRoleWithSAML(&sts.AssumeRoleWithSAMLInput{
 			RoleArn:         "arn:aws:iam::123456789012:role/SmallMaxRole",
 			PrincipalArn:    "arn:aws:iam::123456789012:saml-provider/MyIdP",
-			SAMLAssertion:   "assertion",
+			SAMLAssertion:   "PHNhbWxwOkFzc2VydGlvbj4=",
 			DurationSeconds: 1800,
 		})
 		require.ErrorIs(t, err, sts.ErrInvalidDuration)
@@ -304,7 +304,7 @@ func TestBatch2_AssumeRoleWithSAML_RespectsRoleMaxSessionDuration(t *testing.T) 
 		resp, err := b.AssumeRoleWithSAML(&sts.AssumeRoleWithSAMLInput{
 			RoleArn:         "arn:aws:iam::123456789012:role/R",
 			PrincipalArn:    "arn:aws:iam::123456789012:saml-provider/MyIdP",
-			SAMLAssertion:   "assertion",
+			SAMLAssertion:   "PHNhbWxwOkFzc2VydGlvbj4=",
 			DurationSeconds: sts.MaxDurationSeconds,
 		})
 		require.NoError(t, err)

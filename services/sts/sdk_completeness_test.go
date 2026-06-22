@@ -18,5 +18,7 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := sts.NewInMemoryBackend()
 	h := sts.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &stssdk.Client{}, h.GetSupportedOperations(), []string{})
+	// GetWebIdentityToken is an internal gopherstack extension, not a real AWS STS API action.
+	notImplemented := []string{"GetWebIdentityToken"}
+	sdkcheck.CheckCompleteness(t, &stssdk.Client{}, h.GetSupportedOperations(), notImplemented)
 }
