@@ -73,7 +73,7 @@ Polecats (sonnet) branch off `parity-sweep`, ≤3 concurrent; mayor aggregates e
 | 64 | sqs | P1 | 1970-1987, 4050-4067 | ☐ |
 | 65 | ssm | P1 | 1988-2007, 4068-4087 | ☐ |
 | 66 | ssoadmin | P1 | 2008-2027, 4088-4106 | ☐ |
-| 67 | stepfunctions | P1 | 2028-2047, 4107-4126 | ☐ |
+| 67 | stepfunctions | P1 | 2028-2047, 4107-4126 | ✅ |
 | 68 | sts | P1 | 2048-2066, 4127-4155 | ☐ |
 | 69 | support | P1 | 2067-2079, 4156-4167 | ☐ |
 | 70 | verifiedpermissions | P1 | 2143-2162, 4254-4261 | ☐ |
