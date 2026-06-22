@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -284,7 +285,7 @@ func (b *InMemoryBackend) CreateUserPool(name string) (*UserPool, error) {
 	pool := &UserPool{
 		ID:        poolID,
 		Name:      name,
-		ARN:       fmt.Sprintf("arn:aws:cognito-idp:%s:%s:userpool/%s", b.region, b.accountID, poolID),
+		ARN:       arn.Build("cognito-idp", b.region, b.accountID, fmt.Sprintf("userpool/%s", poolID)),
 		CreatedAt: time.Now(),
 		issuer:    issuer,
 	}

@@ -6,6 +6,7 @@ import (
 	"maps"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
@@ -189,11 +190,11 @@ func (b *InMemoryBackend) AccountID() string { return b.accountID }
 func (b *InMemoryBackend) Region() string { return b.region }
 
 func (b *InMemoryBackend) stackARN(name string) string {
-	return fmt.Sprintf("arn:aws:appstream:%s:%s:stack/%s", b.region, b.accountID, name)
+	return arn.Build("appstream", b.region, b.accountID, fmt.Sprintf("stack/%s", name))
 }
 
 func (b *InMemoryBackend) fleetARN(name string) string {
-	return fmt.Sprintf("arn:aws:appstream:%s:%s:fleet/%s", b.region, b.accountID, name)
+	return arn.Build("appstream", b.region, b.accountID, fmt.Sprintf("fleet/%s", name))
 }
 
 // CreateStack creates a new stack.

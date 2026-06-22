@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
@@ -436,23 +437,23 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 }
 
 func (b *InMemoryBackend) webACLARN(id string) string {
-	return fmt.Sprintf("arn:aws:waf::%s:webacl/%s", b.accountID, id)
+	return arn.Build("waf", "", b.accountID, fmt.Sprintf("webacl/%s", id))
 }
 
 func (b *InMemoryBackend) ruleARN(id string) string {
-	return fmt.Sprintf("arn:aws:waf::%s:rule/%s", b.accountID, id)
+	return arn.Build("waf", "", b.accountID, fmt.Sprintf("rule/%s", id))
 }
 
 func (b *InMemoryBackend) ipSetARN(id string) string {
-	return fmt.Sprintf("arn:aws:waf::%s:ipset/%s", b.accountID, id)
+	return arn.Build("waf", "", b.accountID, fmt.Sprintf("ipset/%s", id))
 }
 
 func (b *InMemoryBackend) rateBasedRuleARN(id string) string {
-	return fmt.Sprintf("arn:aws:waf::%s:ratebasedrule/%s", b.accountID, id)
+	return arn.Build("waf", "", b.accountID, fmt.Sprintf("ratebasedrule/%s", id))
 }
 
 func (b *InMemoryBackend) ruleGroupARN(id string) string {
-	return fmt.Sprintf("arn:aws:waf::%s:rulegroup/%s", b.accountID, id)
+	return arn.Build("waf", "", b.accountID, fmt.Sprintf("rulegroup/%s", id))
 }
 
 // GetChangeToken returns a new change token in PROVISIONED state.

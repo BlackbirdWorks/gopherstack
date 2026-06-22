@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 )
@@ -303,7 +304,7 @@ func arnIdentity(ctx context.Context) (string, string) {
 func resourceARN(ctx context.Context, resourceType, name string) string {
 	region, account := arnIdentity(ctx)
 
-	return fmt.Sprintf("arn:aws:iotanalytics:%s:%s:%s/%s", region, account, resourceType, name)
+	return arn.Build("iotanalytics", region, account, fmt.Sprintf("%s/%s", resourceType, name))
 }
 
 // sortedKeys returns the keys of map m in sorted order.

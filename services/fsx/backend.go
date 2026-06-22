@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -871,11 +872,11 @@ func validateTags(tags []Tag) error {
 }
 
 func (b *InMemoryBackend) fsARN(id string) string {
-	return fmt.Sprintf("arn:aws:fsx:%s:%s:file-system/%s", b.region, b.accountID, id)
+	return arn.Build("fsx", b.region, b.accountID, fmt.Sprintf("file-system/%s", id))
 }
 
 func (b *InMemoryBackend) backupARN(id string) string {
-	return fmt.Sprintf("arn:aws:fsx:%s:%s:backup/%s", b.region, b.accountID, id)
+	return arn.Build("fsx", b.region, b.accountID, fmt.Sprintf("backup/%s", id))
 }
 
 func tagsSliceToMap(tags []Tag) map[string]string {

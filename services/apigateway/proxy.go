@@ -19,10 +19,12 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/golang-jwt/jwt/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
-	"github.com/golang-jwt/jwt/v5"
 )
 
 // defaultAuthorizerTTL is the default authorizer result cache TTL (AWS default: 300 s).
@@ -728,8 +730,8 @@ func (h *Handler) buildAuthorizerEvent(
 		region = config.DefaultRegion
 	}
 
-	methodArn := fmt.Sprintf("arn:aws:execute-api:%s:%s:%s/%s/%s%s",
-		region, awsmeta.Account(ctx), apiID, stageName, r.Method, resourcePath)
+	methodArn := arn.Build("execute-api", region, awsmeta.Account(ctx),
+		fmt.Sprintf("%s/%s/%s%s", apiID, stageName, r.Method, resourcePath))
 
 	event := AuthorizerEvent{
 		Type:                  auth.Type,

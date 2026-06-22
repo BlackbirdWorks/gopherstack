@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
@@ -495,11 +496,11 @@ func randomID() string {
 }
 
 func (b *InMemoryBackend) workGroupARN(name string) string {
-	return fmt.Sprintf("arn:aws:athena:%s:%s:workgroup/%s", b.region, b.accountID, name)
+	return arn.Build("athena", b.region, b.accountID, fmt.Sprintf("workgroup/%s", name))
 }
 
 func (b *InMemoryBackend) dataCatalogARN(name string) string {
-	return fmt.Sprintf("arn:aws:athena:%s:%s:datacatalog/%s", b.region, b.accountID, name)
+	return arn.Build("athena", b.region, b.accountID, fmt.Sprintf("datacatalog/%s", name))
 }
 
 // --- WorkGroups ---
@@ -1401,7 +1402,7 @@ func (b *InMemoryBackend) CreateNotebook(workGroup, name string, tags map[string
 	b.notebookNames[nameKey] = struct{}{}
 
 	if len(tags) > 0 {
-		notebookARN := fmt.Sprintf("arn:aws:athena:%s:%s:notebook/%s", b.region, b.accountID, id)
+		notebookARN := arn.Build("athena", b.region, b.accountID, fmt.Sprintf("notebook/%s", id))
 		b.resourceTags[notebookARN] = copyTags(tags)
 	}
 

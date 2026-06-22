@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -322,7 +323,7 @@ func (b *InMemoryBackend) ensureNonNilMapsLocked() {
 }
 
 func databaseARN(name string) string {
-	return fmt.Sprintf("arn:aws:timestream:%s:%s:database/%s", config.DefaultRegion, config.DefaultAccountID, name)
+	return arn.Build("timestream", config.DefaultRegion, config.DefaultAccountID, fmt.Sprintf("database/%s", name))
 }
 
 func tableARN(dbName, tblName string) string {

@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // Sentinel errors for Glacier backend operations.
@@ -261,7 +263,7 @@ func generateID(length int) string {
 
 // vaultARN returns the ARN for a Glacier vault.
 func vaultARN(accountID, region, vaultName string) string {
-	return fmt.Sprintf("arn:aws:glacier:%s:%s:vaults/%s", region, accountID, vaultName)
+	return arn.Build("glacier", region, accountID, fmt.Sprintf("vaults/%s", vaultName))
 }
 
 // vaultLocation returns the location path for a vault creation response.

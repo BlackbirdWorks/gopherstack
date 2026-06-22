@@ -16,6 +16,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
@@ -734,31 +735,32 @@ func (b *InMemoryBackend) Region() string { return b.region }
 // distributionARN builds an ARN for a CloudFront distribution.
 // CloudFront ARNs have no region component.
 func (b *InMemoryBackend) distributionARN(id string) string {
-	return fmt.Sprintf("arn:aws:cloudfront::%s:distribution/%s", b.accountID, id)
+	return arn.Build("cloudfront", "", b.accountID, fmt.Sprintf("distribution/%s", id))
 }
 
 // oaiARN builds an ARN for an Origin Access Identity.
 func (b *InMemoryBackend) oaiARN(id string) string {
-	return fmt.Sprintf(
-		"arn:aws:cloudfront::%s:origin-access-identity/cloudfront/%s",
+	return arn.Build(
+		"cloudfront",
+		"",
 		b.accountID,
-		id,
+		fmt.Sprintf("origin-access-identity/cloudfront/%s", id),
 	)
 }
 
 // anycastIPListARN builds an ARN for an Anycast IP list.
 func (b *InMemoryBackend) anycastIPListARN(id string) string {
-	return fmt.Sprintf("arn:aws:cloudfront::%s:anycast-ip-list/%s", b.accountID, id)
+	return arn.Build("cloudfront", "", b.accountID, fmt.Sprintf("anycast-ip-list/%s", id))
 }
 
 // connectionGroupARN builds an ARN for a connection group.
 func (b *InMemoryBackend) connectionGroupARN(id string) string {
-	return fmt.Sprintf("arn:aws:cloudfront::%s:connection-group/%s", b.accountID, id)
+	return arn.Build("cloudfront", "", b.accountID, fmt.Sprintf("connection-group/%s", id))
 }
 
 // functionARN builds an ARN for a CloudFront Function.
 func (b *InMemoryBackend) functionARN(name string) string {
-	return fmt.Sprintf("arn:aws:cloudfront::%s:function/%s", b.accountID, name)
+	return arn.Build("cloudfront", "", b.accountID, fmt.Sprintf("function/%s", name))
 }
 
 // CreateDistribution creates a new CloudFront distribution.
@@ -1334,10 +1336,10 @@ func (b *InMemoryBackend) CreateConnectionFunction(
 	}
 
 	id := generateID()
-	arn := fmt.Sprintf("arn:aws:cloudfront::%s:connection-function/%s", b.accountID, id)
+	fnARN := arn.Build("cloudfront", "", b.accountID, fmt.Sprintf("connection-function/%s", id))
 	fn := &ConnectionFunction{
 		ID:      id,
-		ARN:     arn,
+		ARN:     fnARN,
 		Name:    name,
 		Comment: comment,
 	}
@@ -2657,7 +2659,7 @@ func (b *InMemoryBackend) copyKeyGroup(kg *KeyGroup) *KeyGroup {
 
 // realtimeLogConfigARN builds an ARN for a Realtime Log Config.
 func (b *InMemoryBackend) realtimeLogConfigARN(name string) string {
-	return fmt.Sprintf("arn:aws:cloudfront::%s:realtime-log-config/%s", b.accountID, name)
+	return arn.Build("cloudfront", "", b.accountID, fmt.Sprintf("realtime-log-config/%s", name))
 }
 
 // CreateRealtimeLogConfig creates a new Realtime Log Config.
@@ -2802,7 +2804,7 @@ func (b *InMemoryBackend) copyRealtimeLogConfig(cfg *RealtimeLogConfig) *Realtim
 
 // keyValueStoreARN builds an ARN for a Key Value Store.
 func (b *InMemoryBackend) keyValueStoreARN(id string) string {
-	return fmt.Sprintf("arn:aws:cloudfront::%s:key-value-store/%s", b.accountID, id)
+	return arn.Build("cloudfront", "", b.accountID, fmt.Sprintf("key-value-store/%s", id))
 }
 
 // CreateKeyValueStore creates a new CloudFront Key Value Store.
@@ -3028,7 +3030,7 @@ func (b *InMemoryBackend) UpdateKVSValues(kvsID, ifMatch string, puts []*KVSItem
 
 // vpcOriginARN builds an ARN for a VPC Origin.
 func (b *InMemoryBackend) vpcOriginARN(id string) string {
-	return fmt.Sprintf("arn:aws:cloudfront::%s:vpc-origin/%s", b.accountID, id)
+	return arn.Build("cloudfront", "", b.accountID, fmt.Sprintf("vpc-origin/%s", id))
 }
 
 // CreateVpcOrigin creates a new CloudFront VPC Origin.

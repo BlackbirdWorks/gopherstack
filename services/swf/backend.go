@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -389,7 +390,7 @@ func (b *InMemoryBackend) AccountID() string { return defaultAccountID }
 
 // domainARN constructs the SWF ARN for a domain.
 func domainARN(region, account, name string) string {
-	return fmt.Sprintf("arn:aws:swf:%s:%s:/domain/%s", region, account, name)
+	return arn.Build("swf", region, account, fmt.Sprintf("/domain/%s", name))
 }
 
 // validateChildPolicy returns an error if policy is not a valid SWF child policy.

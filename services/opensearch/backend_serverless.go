@@ -3,6 +3,8 @@ package opensearch
 import (
 	"fmt"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 const defaultSamlSessionTimeoutB64 = "MTY4MDAwMDAwMDAwMA=="
@@ -123,7 +125,7 @@ func (b *InMemoryBackend) CreateServerlessCollection(
 	now := float64(time.Now().Unix())
 	region := b.region
 	accountID := b.accountID
-	collARN := fmt.Sprintf("arn:aws:aoss:%s:%s:collection/%s", region, accountID, id)
+	collARN := arn.Build("aoss", region, accountID, fmt.Sprintf("collection/%s", id))
 	collEndpoint := fmt.Sprintf("https://%s.%s.aoss.amazonaws.com", id, region)
 	dashEndpoint := fmt.Sprintf("https://%s.%s.aoss.amazonaws.com/_dashboards", id, region)
 

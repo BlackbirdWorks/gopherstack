@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
@@ -134,7 +135,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 
 // analyzerARN returns the ARN for an analyzer by name.
 func (b *InMemoryBackend) analyzerARN(name string) string {
-	return fmt.Sprintf("arn:aws:access-analyzer:%s:%s:analyzer/%s", b.region, b.accountID, name)
+	return arn.Build("access-analyzer", b.region, b.accountID, fmt.Sprintf("analyzer/%s", name))
 }
 
 // CreateAnalyzer creates a new analyzer.

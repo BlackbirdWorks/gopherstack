@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
@@ -257,15 +258,15 @@ func listRegionItems[T any](
 // ---- ARN builders ----
 
 func (b *InMemoryBackend) trustAnchorARN(region, id string) string {
-	return fmt.Sprintf("arn:aws:rolesanywhere:%s:%s:trust-anchor/%s", region, b.accountID, id)
+	return arn.Build("rolesanywhere", region, b.accountID, fmt.Sprintf("trust-anchor/%s", id))
 }
 
 func (b *InMemoryBackend) profileARN(region, id string) string {
-	return fmt.Sprintf("arn:aws:rolesanywhere:%s:%s:profile/%s", region, b.accountID, id)
+	return arn.Build("rolesanywhere", region, b.accountID, fmt.Sprintf("profile/%s", id))
 }
 
 func (b *InMemoryBackend) crlARN(region, id string) string {
-	return fmt.Sprintf("arn:aws:rolesanywhere:%s:%s:crl/%s", region, b.accountID, id)
+	return arn.Build("rolesanywhere", region, b.accountID, fmt.Sprintf("crl/%s", id))
 }
 
 // ---- Trust Anchor operations ----

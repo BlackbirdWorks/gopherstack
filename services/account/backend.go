@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"sync"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 var (
@@ -141,7 +143,7 @@ func (b *InMemoryBackend) DescribeAccount() (*Details, error) {
 	defer b.mu.RUnlock()
 
 	return &Details{
-		Arn:          fmt.Sprintf("arn:aws:organizations::%s:account/o-fake/%s", b.accountID, b.accountID),
+		Arn:          arn.Build("organizations", "", b.accountID, fmt.Sprintf("account/o-fake/%s", b.accountID)),
 		Email:        "admin@example.com",
 		ID:           b.accountID,
 		Name:         "Test Account",

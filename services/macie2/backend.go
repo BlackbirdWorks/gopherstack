@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -133,15 +134,15 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 }
 
 func (b *InMemoryBackend) allowListARN(id string) string {
-	return fmt.Sprintf("arn:aws:macie2:%s:%s:allow-list/%s", b.region, b.accountID, id)
+	return arn.Build("macie2", b.region, b.accountID, fmt.Sprintf("allow-list/%s", id))
 }
 
 func (b *InMemoryBackend) customDataIDARN(id string) string {
-	return fmt.Sprintf("arn:aws:macie2:%s:%s:custom-data-identifier/%s", b.region, b.accountID, id)
+	return arn.Build("macie2", b.region, b.accountID, fmt.Sprintf("custom-data-identifier/%s", id))
 }
 
 func (b *InMemoryBackend) findingsFilterARN(id string) string {
-	return fmt.Sprintf("arn:aws:macie2:%s:%s:findings-filter/%s", b.region, b.accountID, id)
+	return arn.Build("macie2", b.region, b.accountID, fmt.Sprintf("findings-filter/%s", id))
 }
 
 // GetSession returns the current Macie session (may be nil if not enabled).
@@ -834,13 +835,13 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 }
 
 // isKnownARN reports whether arn refers to a live resource owned by this backend.
-func (b *InMemoryBackend) isKnownARN(arn string) bool {
-	prefix := fmt.Sprintf("arn:aws:macie2:%s:%s:", b.region, b.accountID)
-	if !strings.HasPrefix(arn, prefix) {
+func (b *InMemoryBackend) isKnownARN(arnStr string) bool {
+	prefix := arn.Build("macie2", b.region, b.accountID, "")
+	if !strings.HasPrefix(arnStr, prefix) {
 		return false
 	}
 
-	rest := strings.TrimPrefix(arn, prefix)
+	rest := strings.TrimPrefix(arnStr, prefix)
 
 	resourceType, id, found := strings.Cut(rest, "/")
 	if !found {

@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -243,7 +244,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 }
 
 func (b *InMemoryBackend) graphARN(id string) string {
-	return fmt.Sprintf("arn:aws:detective:%s:%s:graph:%s", b.region, b.accountID, id)
+	return arn.Build("detective", b.region, b.accountID, fmt.Sprintf("graph:%s", id))
 }
 
 // CreateGraph creates a new behavior graph. Returns existing one if already created (idempotent).

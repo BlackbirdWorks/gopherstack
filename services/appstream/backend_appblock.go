@@ -5,6 +5,7 @@ import (
 	"maps"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
@@ -69,11 +70,11 @@ func (b *storedAppBlockBuilder) toAppBlockBuilder() *AppBlockBuilder {
 }
 
 func (b *InMemoryBackend) appBlockARN(name string) string {
-	return fmt.Sprintf("arn:aws:appstream:%s:%s:app-block/%s", b.region, b.accountID, name)
+	return arn.Build("appstream", b.region, b.accountID, fmt.Sprintf("app-block/%s", name))
 }
 
 func (b *InMemoryBackend) appBlockBuilderARN(name string) string {
-	return fmt.Sprintf("arn:aws:appstream:%s:%s:app-block-builder/%s", b.region, b.accountID, name)
+	return arn.Build("appstream", b.region, b.accountID, fmt.Sprintf("app-block-builder/%s", name))
 }
 
 // CreateAppBlock creates an app block.

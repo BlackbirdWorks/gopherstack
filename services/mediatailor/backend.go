@@ -1262,12 +1262,12 @@ func (b *InMemoryBackend) PutFunction(
 	b.mu.Lock("PutFunction")
 	defer b.mu.Unlock()
 
-	arn := fmt.Sprintf("arn:aws:mediatailor:%s:%s:function/%s", b.region, b.accountID, functionID)
+	arnStr := arn.Build("mediatailor", b.region, b.accountID, fmt.Sprintf("function/%s", functionID))
 	fn := &Function{
 		Tags:         copyTags(tags),
 		FunctionID:   functionID,
 		FunctionType: functionType,
-		ARN:          arn,
+		ARN:          arnStr,
 		Description:  description,
 	}
 	b.functions[functionID] = fn

@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -976,7 +977,7 @@ func (b *InMemoryBackend) maybeRegisterAutomatedBackup(
 		DbiResourceID:         id,
 		Engine:                engine,
 		EngineVersion:         opts.EngineVersion,
-		DBInstanceArn:         fmt.Sprintf("arn:aws:rds:%s:%s:db:%s", b.region, b.accountID, id),
+		DBInstanceArn:         arn.Build("rds", b.region, b.accountID, fmt.Sprintf("db:%s", id)),
 		Region:                b.region,
 		Status:                instanceStatusAvailable,
 		AllocatedStorage:      allocatedStorage,
@@ -1091,7 +1092,7 @@ func (b *InMemoryBackend) CreateDBInstance(
 // rdsARN constructs the ARN for an RDS resource.
 // The format is: arn:aws:rds:{region}:{accountID}:{resourceType}:{id}.
 func (b *InMemoryBackend) rdsARN(resourceType, id string) string {
-	return fmt.Sprintf("arn:aws:rds:%s:%s:%s:%s", b.region, b.accountID, resourceType, id)
+	return arn.Build("rds", b.region, b.accountID, fmt.Sprintf("%s:%s", resourceType, id))
 }
 
 // DeleteDBInstance removes the DB instance with the given identifier.

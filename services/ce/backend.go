@@ -15,6 +15,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -532,15 +533,20 @@ func (b *InMemoryBackend) Reset() {
 }
 
 func (b *InMemoryBackend) buildCostCategoryARN(name string) string {
-	return fmt.Sprintf("arn:aws:ce::%s:costcategory/%s", b.accountID, name)
+	return arn.Build("ce", "", b.accountID, fmt.Sprintf("costcategory/%s", name))
 }
 
 func (b *InMemoryBackend) buildAnomalyMonitorARN() string {
-	return fmt.Sprintf("arn:aws:ce::%s:anomalymonitor/%s", b.accountID, uuid.NewString())
+	return arn.Build("ce", "", b.accountID, fmt.Sprintf("anomalymonitor/%s", uuid.NewString()))
 }
 
 func (b *InMemoryBackend) buildAnomalySubscriptionARN() string {
-	return fmt.Sprintf("arn:aws:ce::%s:anomalysubscription/%s", b.accountID, uuid.NewString())
+	return arn.Build(
+		"ce",
+		"",
+		b.accountID,
+		fmt.Sprintf("anomalysubscription/%s", uuid.NewString()),
+	)
 }
 
 func effectiveStart() string {
@@ -1525,9 +1531,11 @@ func (b *InMemoryBackend) GetSavingsPlansUtilizationDetails(
 
 	return []SavingsPlansUtilizationDetail{
 		{
-			SavingsPlanARN: fmt.Sprintf(
-				"arn:aws:savingsplans::%s:savingsplan/synthetic-sp-1",
+			SavingsPlanARN: arn.Build(
+				"savingsplans",
+				"",
 				b.accountID,
+				"savingsplan/synthetic-sp-1",
 			),
 			Utilization: SavingsPlansUtilizationAgg{
 				TotalCommitment:       fmt.Sprintf("%.4f", commitment),
@@ -1769,7 +1777,7 @@ func (b *InMemoryBackend) GetRightsizingRecommendations(
 	}
 
 	instanceID := fmt.Sprintf("i-synthetic%s", b.accountID[:8])
-	resourceARN := fmt.Sprintf("arn:aws:ec2:%s:%s:instance/%s", b.region, b.accountID, instanceID)
+	resourceARN := arn.Build("ec2", b.region, b.accountID, fmt.Sprintf("instance/%s", instanceID))
 
 	return []RightsizingRecommendation{
 		{

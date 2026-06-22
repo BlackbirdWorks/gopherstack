@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
@@ -1874,12 +1875,12 @@ func validateAdapterFeatureTypes(featureTypes []string) error {
 
 // buildAdapterARN constructs an ARN for a Textract adapter.
 func buildAdapterARN(region, accountID, adapterID string) string {
-	return fmt.Sprintf("arn:aws:textract:%s:%s:adapter/%s", region, accountID, adapterID)
+	return arn.Build("textract", region, accountID, fmt.Sprintf("adapter/%s", adapterID))
 }
 
 // buildAdapterVersionARN constructs an ARN for a Textract adapter version.
 func buildAdapterVersionARN(region, accountID, adapterID, version string) string {
-	return fmt.Sprintf("arn:aws:textract:%s:%s:adapter/%s/version/%s", region, accountID, adapterID, version)
+	return arn.Build("textract", region, accountID, fmt.Sprintf("adapter/%s/version/%s", adapterID, version))
 }
 
 // arnAdapterID extracts the adapter ID from a Textract adapter ARN.

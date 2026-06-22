@@ -3776,7 +3776,7 @@ func (b *InMemoryBackend) AddPermission(functionName string, input *AddPermissio
 
 	b.permissions[functionName][input.StatementID] = perm
 
-	resourceArn := fmt.Sprintf("arn:aws:lambda:%s:%s:function:%s", b.region, b.accountID, functionName)
+	resourceArn := arn.Build("lambda", b.region, b.accountID, fmt.Sprintf("function:%s", functionName))
 	stmtJSON := fmt.Sprintf(
 		`{"Sid":%q,"Effect":"Allow","Principal":{"Service":%q},"Action":%q,"Resource":%q}`,
 		input.StatementID, input.Principal, input.Action, resourceArn,
@@ -3834,7 +3834,7 @@ func (b *InMemoryBackend) GetPolicy(functionName string) (*GetPolicyOutput, erro
 
 	stmts := make([]string, 0, len(perms))
 
-	resourceArn := fmt.Sprintf("arn:aws:lambda:%s:%s:function:%s", b.region, b.accountID, functionName)
+	resourceArn := arn.Build("lambda", b.region, b.accountID, fmt.Sprintf("function:%s", functionName))
 	for _, p := range perms {
 		stmts = append(stmts, fmt.Sprintf(
 			`{"Sid":%q,"Effect":"Allow","Principal":{"Service":%q},"Action":%q,"Resource":%q}`,

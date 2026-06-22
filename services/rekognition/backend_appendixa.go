@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
@@ -157,7 +158,7 @@ func (j *storedMediaAnalysisJob) toMediaAnalysisJob() *MediaAnalysisJob {
 }
 
 func (b *InMemoryBackend) projectARN(name string) string {
-	return fmt.Sprintf("arn:aws:rekognition:%s:%s:project/%s", b.region, b.accountID, name)
+	return arn.Build("rekognition", b.region, b.accountID, fmt.Sprintf("project/%s", name))
 }
 
 func (b *InMemoryBackend) projectVersionARN(projectARN, versionName string) string {

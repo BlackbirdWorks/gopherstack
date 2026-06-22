@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
@@ -115,36 +116,36 @@ func (b *InMemoryBackend) Reset() {
 }
 
 func (b *InMemoryBackend) meshARN(meshName string) string {
-	return fmt.Sprintf("arn:aws:appmesh:%s:%s:mesh/%s", b.region, b.accountID, meshName)
+	return arn.Build("appmesh", b.region, b.accountID, fmt.Sprintf("mesh/%s", meshName))
 }
 
 func (b *InMemoryBackend) virtualNodeARN(meshName, name string) string {
-	return fmt.Sprintf("arn:aws:appmesh:%s:%s:mesh/%s/virtualNode/%s", b.region, b.accountID, meshName, name)
+	return arn.Build("appmesh", b.region, b.accountID, fmt.Sprintf("mesh/%s/virtualNode/%s", meshName, name))
 }
 
 func (b *InMemoryBackend) virtualRouterARN(meshName, name string) string {
-	return fmt.Sprintf("arn:aws:appmesh:%s:%s:mesh/%s/virtualRouter/%s", b.region, b.accountID, meshName, name)
+	return arn.Build("appmesh", b.region, b.accountID, fmt.Sprintf("mesh/%s/virtualRouter/%s", meshName, name))
 }
 
 func (b *InMemoryBackend) routeARN(meshName, vrName, routeName string) string {
-	return fmt.Sprintf(
-		"arn:aws:appmesh:%s:%s:mesh/%s/virtualRouter/%s/route/%s",
-		b.region, b.accountID, meshName, vrName, routeName,
+	return arn.Build(
+		"appmesh", b.region, b.accountID,
+		fmt.Sprintf("mesh/%s/virtualRouter/%s/route/%s", meshName, vrName, routeName),
 	)
 }
 
 func (b *InMemoryBackend) virtualServiceARN(meshName, name string) string {
-	return fmt.Sprintf("arn:aws:appmesh:%s:%s:mesh/%s/virtualService/%s", b.region, b.accountID, meshName, name)
+	return arn.Build("appmesh", b.region, b.accountID, fmt.Sprintf("mesh/%s/virtualService/%s", meshName, name))
 }
 
 func (b *InMemoryBackend) virtualGatewayARN(meshName, name string) string {
-	return fmt.Sprintf("arn:aws:appmesh:%s:%s:mesh/%s/virtualGateway/%s", b.region, b.accountID, meshName, name)
+	return arn.Build("appmesh", b.region, b.accountID, fmt.Sprintf("mesh/%s/virtualGateway/%s", meshName, name))
 }
 
 func (b *InMemoryBackend) gatewayRouteARN(meshName, vgName, routeName string) string {
-	return fmt.Sprintf(
-		"arn:aws:appmesh:%s:%s:mesh/%s/virtualGateway/%s/gatewayRoute/%s",
-		b.region, b.accountID, meshName, vgName, routeName,
+	return arn.Build(
+		"appmesh", b.region, b.accountID,
+		fmt.Sprintf("mesh/%s/virtualGateway/%s/gatewayRoute/%s", meshName, vgName, routeName),
 	)
 }
 

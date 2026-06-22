@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
@@ -96,7 +97,7 @@ func (b *InMemoryBackend) PaginationSecret() string { return b.paginationSecret 
 
 // appconfigARN builds an AppConfig resource ARN for tag lookup/cleanup.
 func (b *InMemoryBackend) appconfigARN(resourcePath string) string {
-	return fmt.Sprintf("arn:aws:appconfig:%s:%s:%s", b.region, b.accountID, resourcePath)
+	return arn.Build("appconfig", b.region, b.accountID, resourcePath)
 }
 
 // CreateApplication creates a new AppConfig application.

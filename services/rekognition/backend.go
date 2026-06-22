@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -234,11 +235,11 @@ func (b *InMemoryBackend) AccountID() string { return b.accountID }
 func (b *InMemoryBackend) Region() string { return b.region }
 
 func (b *InMemoryBackend) collectionARN(collectionID string) string {
-	return fmt.Sprintf("arn:aws:rekognition:%s:%s:collection/%s", b.region, b.accountID, collectionID)
+	return arn.Build("rekognition", b.region, b.accountID, fmt.Sprintf("collection/%s", collectionID))
 }
 
 func (b *InMemoryBackend) streamProcessorARN(name string) string {
-	return fmt.Sprintf("arn:aws:rekognition:%s:%s:streamprocessor/%s", b.region, b.accountID, name)
+	return arn.Build("rekognition", b.region, b.accountID, fmt.Sprintf("streamprocessor/%s", name))
 }
 
 // CreateCollection creates a new face collection.

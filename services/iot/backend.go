@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
 
@@ -380,7 +381,7 @@ func (b *InMemoryBackend) CreateThing(input *CreateThingInput) (*CreateThingOutp
 		maps.Copy(attrs, input.AttributePayload.Attributes)
 	}
 
-	arn := fmt.Sprintf("arn:aws:iot:%s:%s:thing/%s", b.region, b.accountID, input.ThingName)
+	arn := arn.Build("iot", b.region, b.accountID, fmt.Sprintf("thing/%s", input.ThingName))
 	id := uuid.NewString()
 
 	b.things[input.ThingName] = &Thing{
@@ -466,7 +467,7 @@ func (b *InMemoryBackend) CreateTopicRule(input *CreateTopicRuleInput) error {
 		actions = []RuleAction{}
 	}
 
-	arn := fmt.Sprintf("arn:aws:iot:%s:%s:rule/%s", b.region, b.accountID, input.RuleName)
+	arn := arn.Build("iot", b.region, b.accountID, fmt.Sprintf("rule/%s", input.RuleName))
 
 	sqlVersion := payload.AWSIoTSQLVersion
 	if sqlVersion == "" {
@@ -542,7 +543,7 @@ func (b *InMemoryBackend) CreatePolicy(input *CreatePolicyInput) (*CreatePolicyO
 		return nil, fmt.Errorf("%w: policy %q already exists", ErrAlreadyExists, input.PolicyName)
 	}
 
-	arn := fmt.Sprintf("arn:aws:iot:%s:%s:policy/%s", b.region, b.accountID, input.PolicyName)
+	arn := arn.Build("iot", b.region, b.accountID, fmt.Sprintf("policy/%s", input.PolicyName))
 	now := time.Now()
 
 	b.policies[input.PolicyName] = &Policy{
@@ -664,7 +665,7 @@ func (b *InMemoryBackend) AssociateTargetsWithJob(
 
 	b.jobTargets[input.JobID] = append(b.jobTargets[input.JobID], input.Targets...)
 
-	arn := fmt.Sprintf("arn:aws:iot:%s:%s:job/%s", b.region, b.accountID, input.JobID)
+	arn := arn.Build("iot", b.region, b.accountID, fmt.Sprintf("job/%s", input.JobID))
 
 	return &AssociateTargetsWithJobOutput{
 		JobID:  input.JobID,
@@ -922,7 +923,7 @@ func (b *InMemoryBackend) AddThingInternal(t Thing) {
 	}
 
 	if t.ARN == "" {
-		t.ARN = fmt.Sprintf("arn:aws:iot:%s:%s:thing/%s", b.region, b.accountID, t.ThingName)
+		t.ARN = arn.Build("iot", b.region, b.accountID, fmt.Sprintf("thing/%s", t.ThingName))
 	}
 
 	if t.Attributes == nil {
@@ -942,7 +943,7 @@ func (b *InMemoryBackend) AddPolicyInternal(p Policy) {
 	defer b.mu.Unlock()
 
 	if p.ARN == "" {
-		p.ARN = fmt.Sprintf("arn:aws:iot:%s:%s:policy/%s", b.region, b.accountID, p.PolicyName)
+		p.ARN = arn.Build("iot", b.region, b.accountID, fmt.Sprintf("policy/%s", p.PolicyName))
 	}
 
 	b.policies[p.PolicyName] = &p
@@ -954,7 +955,7 @@ func (b *InMemoryBackend) AddRuleInternal(r TopicRule) {
 	defer b.mu.Unlock()
 
 	if r.ARN == "" {
-		r.ARN = fmt.Sprintf("arn:aws:iot:%s:%s:rule/%s", b.region, b.accountID, r.RuleName)
+		r.ARN = arn.Build("iot", b.region, b.accountID, fmt.Sprintf("rule/%s", r.RuleName))
 	}
 
 	if r.Actions == nil {
@@ -1026,7 +1027,7 @@ func (b *InMemoryBackend) CreateThingType(input *CreateThingTypeInput) (*ThingTy
 		return nil, fmt.Errorf("%w: thing type %q already exists", ErrAlreadyExists, input.ThingTypeName)
 	}
 
-	arn := fmt.Sprintf("arn:aws:iot:%s:%s:thingtype/%s", b.region, b.accountID, input.ThingTypeName)
+	arn := arn.Build("iot", b.region, b.accountID, fmt.Sprintf("thingtype/%s", input.ThingTypeName))
 	tt := &ThingType{
 		ThingTypeName:        input.ThingTypeName,
 		ThingTypeID:          uuid.NewString(),
@@ -1129,7 +1130,7 @@ func (b *InMemoryBackend) CreateThingGroup(input *CreateThingGroupInput) (*Thing
 		return nil, fmt.Errorf("%w: thing group %q already exists", ErrAlreadyExists, input.ThingGroupName)
 	}
 
-	arn := fmt.Sprintf("arn:aws:iot:%s:%s:thinggroup/%s", b.region, b.accountID, input.ThingGroupName)
+	arn := arn.Build("iot", b.region, b.accountID, fmt.Sprintf("thinggroup/%s", input.ThingGroupName))
 	id := uuid.NewString()
 
 	attrs := make(map[string]string)
@@ -1297,7 +1298,7 @@ func (b *InMemoryBackend) ListThingsInThingGroup(input *ListThingsInThingGroupIn
 // newCertificate creates a new Certificate with a random 64-hex-char ID.
 func (b *InMemoryBackend) newCertificate(pem, status string) *Certificate {
 	certID := randomHex(certIDHexLen)
-	arn := fmt.Sprintf("arn:aws:iot:%s:%s:cert/%s", b.region, b.accountID, certID)
+	arn := arn.Build("iot", b.region, b.accountID, fmt.Sprintf("cert/%s", certID))
 	now := time.Now()
 
 	return &Certificate{
@@ -1613,8 +1614,8 @@ func (b *InMemoryBackend) CreateTopicRuleDestination(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	arn := fmt.Sprintf("arn:aws:iot:%s:%s:ruledestination/http/%s",
-		b.region, b.accountID, uuid.NewString())
+	arn := arn.Build("iot", b.region, b.accountID,
+		fmt.Sprintf("ruledestination/http/%s", uuid.NewString()))
 
 	dest := &TopicRuleDestination{
 		ARN:    arn,
@@ -1712,8 +1713,8 @@ func (b *InMemoryBackend) CreateCertificateProvider(
 			ErrAlreadyExists, input.CertificateProviderName)
 	}
 
-	arn := fmt.Sprintf("arn:aws:iot:%s:%s:certificateprovider/%s",
-		b.region, b.accountID, input.CertificateProviderName)
+	arn := arn.Build("iot", b.region, b.accountID,
+		fmt.Sprintf("certificateprovider/%s", input.CertificateProviderName))
 
 	ops := make([]string, len(input.AccountDefaultForOperations))
 	copy(ops, input.AccountDefaultForOperations)

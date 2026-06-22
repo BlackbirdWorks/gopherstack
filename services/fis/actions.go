@@ -7,6 +7,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -536,7 +537,7 @@ func defaultTargetKey(def service.FISActionDefinition) string {
 
 // actionDefToSummary converts a FISActionDefinition to an ActionSummary.
 func actionDefToSummary(def service.FISActionDefinition, accountID, region string) ActionSummary {
-	arnStr := fmt.Sprintf("arn:aws:fis:%s:%s:action/%s", region, accountID, def.ActionID)
+	arnStr := arn.Build("fis", region, accountID, fmt.Sprintf("action/%s", def.ActionID))
 
 	params := make(map[string]ActionParameter, len(def.Parameters))
 	for _, p := range def.Parameters {

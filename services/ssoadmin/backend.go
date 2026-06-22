@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -586,7 +587,7 @@ func (b *InMemoryBackend) CreatePermissionSet(
 
 	instanceID := instanceARNToID(instanceArn)
 	id := uuid.NewString()[:uuidShortLen]
-	psArn := fmt.Sprintf("arn:aws:sso:::permissionSet/%s/%s", instanceID, id)
+	psArn := arn.Build("sso", "", "", fmt.Sprintf("permissionSet/%s/%s", instanceID, id))
 
 	if sessionDuration == "" {
 		sessionDuration = defaultSessionDuration
@@ -1552,7 +1553,7 @@ func (b *InMemoryBackend) AddPermissionSetInternal(instanceArn, name string) *Pe
 
 	instanceID := instanceARNToID(instanceArn)
 	id := uuid.NewString()[:uuidShortLen]
-	psArn := fmt.Sprintf("arn:aws:sso:::permissionSet/%s/%s", instanceID, id)
+	psArn := arn.Build("sso", "", "", fmt.Sprintf("permissionSet/%s/%s", instanceID, id))
 	ps := &PermissionSet{
 		PermissionSetArn: psArn,
 		InstanceArn:      instanceArn,
@@ -1573,7 +1574,7 @@ func (b *InMemoryBackend) AddApplicationInternal(instanceArn, name string) *Appl
 
 	id := uuid.NewString()[:uuidShortLen]
 	instanceID := instanceARNToID(instanceArn)
-	appArn := fmt.Sprintf("arn:aws:sso::%s:application/%s/apl-%s", b.accountID, instanceID, id)
+	appArn := arn.Build("sso", "", b.accountID, fmt.Sprintf("application/%s/apl-%s", instanceID, id))
 	app := &Application{
 		ApplicationArn:         appArn,
 		ApplicationProviderArn: appProviderCustom,
@@ -1683,7 +1684,7 @@ func (b *InMemoryBackend) CreateApplication(
 
 	id := uuid.NewString()[:uuidShortLen]
 	instanceID := instanceARNToID(instanceArn)
-	appArn := fmt.Sprintf("arn:aws:sso::%s:application/%s/apl-%s", b.accountID, instanceID, id)
+	appArn := arn.Build("sso", "", b.accountID, fmt.Sprintf("application/%s/apl-%s", instanceID, id))
 	app := &Application{
 		ApplicationArn:         appArn,
 		ApplicationProviderArn: applicationProviderArn,
@@ -2376,9 +2377,9 @@ func (b *InMemoryBackend) CreateTrustedTokenIssuer(
 
 	id := uuid.NewString()[:uuidShortLen]
 	instanceID := instanceARNToID(instanceArn)
-	arn := fmt.Sprintf("arn:aws:sso::%s:trustedTokenIssuer/%s/tti-%s", b.accountID, instanceID, id)
+	arnStr := arn.Build("sso", "", b.accountID, fmt.Sprintf("trustedTokenIssuer/%s/tti-%s", instanceID, id))
 	ti := &TrustedTokenIssuer{
-		TrustedTokenIssuerArn:           arn,
+		TrustedTokenIssuerArn:           arnStr,
 		InstanceArn:                     instanceArn,
 		Name:                            name,
 		TrustedTokenIssuerType:          issuerType,
@@ -2388,7 +2389,7 @@ func (b *InMemoryBackend) CreateTrustedTokenIssuer(
 	if tags != nil {
 		maps.Copy(ti.Tags, tags)
 	}
-	b.trustedTokenIssuers[arn] = ti
+	b.trustedTokenIssuers[arnStr] = ti
 
 	return copyTrustedTokenIssuer(ti), nil
 }

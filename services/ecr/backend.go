@@ -10,6 +10,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
@@ -513,7 +514,7 @@ func (b *InMemoryBackend) CreateRepository(
 		EncryptionType:     encryptionType,
 		KMSKey:             kmsKey,
 		RegistryID:         b.accountID,
-		RepositoryARN:      fmt.Sprintf("arn:aws:ecr:%s:%s:repository/%s", region, b.accountID, name),
+		RepositoryARN:      arn.Build("ecr", region, b.accountID, fmt.Sprintf("repository/%s", name)),
 		RepositoryName:     name,
 		RepositoryURI:      fmt.Sprintf("%s/%s", endpoint, name),
 		ImageTagMutability: imageTagMutability,

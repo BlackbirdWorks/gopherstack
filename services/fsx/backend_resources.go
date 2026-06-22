@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // ---------------------------------------------------------------------------
@@ -1325,31 +1327,31 @@ func (b *InMemoryBackend) StartMisconfiguredStateRecovery(fileSystemID string) e
 // ---------------------------------------------------------------------------
 
 func (b *InMemoryBackend) draARN(id string) string {
-	return fmt.Sprintf("arn:aws:fsx:%s:%s:association/%s", b.region, b.accountID, id)
+	return arn.Build("fsx", b.region, b.accountID, fmt.Sprintf("association/%s", id))
 }
 
 func (b *InMemoryBackend) drtARN(id string) string {
-	return fmt.Sprintf("arn:aws:fsx:%s:%s:task/%s", b.region, b.accountID, id)
+	return arn.Build("fsx", b.region, b.accountID, fmt.Sprintf("task/%s", id))
 }
 
 func (b *InMemoryBackend) fcARN(id string) string {
-	return fmt.Sprintf("arn:aws:fsx:%s:%s:file-cache/%s", b.region, b.accountID, id)
+	return arn.Build("fsx", b.region, b.accountID, fmt.Sprintf("file-cache/%s", id))
 }
 
 func (b *InMemoryBackend) snapshotARN(id string) string {
-	return fmt.Sprintf("arn:aws:fsx:%s:%s:snapshot/%s", b.region, b.accountID, id)
+	return arn.Build("fsx", b.region, b.accountID, fmt.Sprintf("snapshot/%s", id))
 }
 
 func (b *InMemoryBackend) svmARN(id string) string {
-	return fmt.Sprintf("arn:aws:fsx:%s:%s:storage-virtual-machine/%s", b.region, b.accountID, id)
+	return arn.Build("fsx", b.region, b.accountID, fmt.Sprintf("storage-virtual-machine/%s", id))
 }
 
 func (b *InMemoryBackend) volumeARN(id string) string {
-	return fmt.Sprintf("arn:aws:fsx:%s:%s:volume/%s", b.region, b.accountID, id)
+	return arn.Build("fsx", b.region, b.accountID, fmt.Sprintf("volume/%s", id))
 }
 
 func (b *InMemoryBackend) s3AccessPointARN(name string) string {
-	return fmt.Sprintf("arn:aws:fsx:%s:%s:s3-access-point/%s", b.region, b.accountID, name)
+	return arn.Build("fsx", b.region, b.accountID, fmt.Sprintf("s3-access-point/%s", name))
 }
 
 // ---------------------------------------------------------------------------

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
@@ -108,7 +109,7 @@ func (b *InMemoryBackend) CreateLifecyclePolicy(
 
 	b.counter++
 	policyID := fmt.Sprintf("%s%016x", policyIDPrefix, b.counter)
-	policyARN := fmt.Sprintf("arn:aws:dlm:%s:%s:policy/%s", b.region, b.accountID, policyID)
+	policyARN := arn.Build("dlm", b.region, b.accountID, fmt.Sprintf("policy/%s", policyID))
 
 	now := time.Now().UTC()
 	resolvedState := state

@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
@@ -1049,14 +1050,14 @@ func (b *InMemoryBackend) CreateMalwareProtectionPlan(
 	defer b.mu.Unlock()
 
 	planID := strings.ReplaceAll(uuid.New().String(), "-", "")
-	arn := fmt.Sprintf(
-		"arn:aws:guardduty:%s:%s:malware-protection-plan/%s",
-		b.region, b.accountID, planID,
+	planARN := arn.Build(
+		"guardduty", b.region, b.accountID,
+		fmt.Sprintf("malware-protection-plan/%s", planID),
 	)
 
 	plan := &MalwareProtectionPlan{
 		MalwareProtectionPlanID: planID,
-		Arn:                     arn,
+		Arn:                     planARN,
 		Role:                    role,
 		Status:                  "ACTIVE",
 		CreatedAt:               time.Now().UTC(),
@@ -1068,7 +1069,7 @@ func (b *InMemoryBackend) CreateMalwareProtectionPlan(
 	b.malwareProtectionPlans[planID] = plan
 
 	if tags != nil {
-		b.tags[arn] = maps.Clone(tags)
+		b.tags[planARN] = maps.Clone(tags)
 	}
 
 	return plan, nil

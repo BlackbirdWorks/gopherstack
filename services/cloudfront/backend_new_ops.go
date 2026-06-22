@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
@@ -35,7 +36,7 @@ type TrustStore struct {
 }
 
 func (b *InMemoryBackend) trustStoreARN(id string) string {
-	return fmt.Sprintf("arn:aws:cloudfront::%s:trust-store/%s", b.accountID, id)
+	return arn.Build("cloudfront", "", b.accountID, fmt.Sprintf("trust-store/%s", id))
 }
 
 func (b *InMemoryBackend) CreateTrustStore(name, comment string) (*TrustStore, error) {
@@ -130,7 +131,12 @@ type StreamingDistribution struct {
 }
 
 func (b *InMemoryBackend) streamingDistributionARN(id string) string {
-	return fmt.Sprintf("arn:aws:cloudfront::%s:streaming-distribution/%s", b.accountID, id)
+	return arn.Build(
+		"cloudfront",
+		"",
+		b.accountID,
+		fmt.Sprintf("streaming-distribution/%s", id),
+	)
 }
 
 func (b *InMemoryBackend) CreateStreamingDistribution(rawConfig []byte) (*StreamingDistribution, error) {

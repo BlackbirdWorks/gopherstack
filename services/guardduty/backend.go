@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -203,29 +204,26 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 }
 
 func (b *InMemoryBackend) detectorARN(id string) string {
-	return fmt.Sprintf("arn:aws:guardduty:%s:%s:detector/%s", b.region, b.accountID, id)
+	return arn.Build("guardduty", b.region, b.accountID, fmt.Sprintf("detector/%s", id))
 }
 
 func (b *InMemoryBackend) filterARN(detectorID, filterName string) string {
-	return fmt.Sprintf("arn:aws:guardduty:%s:%s:detector/%s/filter/%s", b.region, b.accountID, detectorID, filterName)
+	return arn.Build("guardduty", b.region, b.accountID, fmt.Sprintf("detector/%s/filter/%s", detectorID, filterName))
 }
 
 func (b *InMemoryBackend) ipSetARN(detectorID, ipSetID string) string {
-	return fmt.Sprintf("arn:aws:guardduty:%s:%s:detector/%s/ipset/%s", b.region, b.accountID, detectorID, ipSetID)
+	return arn.Build("guardduty", b.region, b.accountID, fmt.Sprintf("detector/%s/ipset/%s", detectorID, ipSetID))
 }
 
 func (b *InMemoryBackend) threatIntelSetARN(detectorID, setID string) string {
-	return fmt.Sprintf(
-		"arn:aws:guardduty:%s:%s:detector/%s/threatintelset/%s",
-		b.region,
-		b.accountID,
-		detectorID,
-		setID,
+	return arn.Build(
+		"guardduty", b.region, b.accountID,
+		fmt.Sprintf("detector/%s/threatintelset/%s", detectorID, setID),
 	)
 }
 
 func (b *InMemoryBackend) findingARN(detectorID, findingID string) string {
-	return fmt.Sprintf("arn:aws:guardduty:%s:%s:detector/%s/finding/%s", b.region, b.accountID, detectorID, findingID)
+	return arn.Build("guardduty", b.region, b.accountID, fmt.Sprintf("detector/%s/finding/%s", detectorID, findingID))
 }
 
 // CreateDetector creates a new GuardDuty detector for this account+region.
