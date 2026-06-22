@@ -20,8 +20,9 @@ import (
 type Group struct {
 	ctx     context.Context
 	cancel  context.CancelFunc
-	timers  map[*time.Timer]struct{}
+	timers  map[uint64]*time.Timer
 	service string
+	nextID  uint64
 	wg      sync.WaitGroup
 	mu      sync.Mutex
 	stopped bool
@@ -34,7 +35,7 @@ func NewGroup(service string) *Group {
 	return &Group{
 		ctx:     ctx,
 		cancel:  cancel,
-		timers:  make(map[*time.Timer]struct{}),
+		timers:  make(map[uint64]*time.Timer),
 		service: service,
 	}
 }
@@ -77,19 +78,19 @@ func (g *Group) After(component string, d time.Duration, fn func()) {
 		return
 	}
 
-	var t *time.Timer
-	t = time.AfterFunc(d, func() {
-		g.removeTimer(t)
+	id := g.nextID
+	g.nextID++
+	g.timers[id] = time.AfterFunc(d, func() {
+		g.removeTimer(id)
 		safely(logger.WithWorker(g.ctx, g.service, component), func(context.Context) { fn() }, nil)
 	})
-	g.timers[t] = struct{}{}
 }
 
-func (g *Group) removeTimer(t *time.Timer) {
+func (g *Group) removeTimer(id uint64) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	delete(g.timers, t)
+	delete(g.timers, id)
 }
 
 // Stop cancels the group context, stops every pending one-shot timer, and waits
@@ -104,7 +105,7 @@ func (g *Group) Stop() {
 	g.stopped = true
 
 	timers := make([]*time.Timer, 0, len(g.timers))
-	for t := range g.timers {
+	for _, t := range g.timers {
 		timers = append(timers, t)
 	}
 	g.timers = nil
