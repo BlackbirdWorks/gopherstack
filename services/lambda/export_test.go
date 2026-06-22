@@ -5,6 +5,7 @@ package lambda
 
 import (
 	"context"
+	"maps"
 	"net/http"
 	"time"
 
@@ -106,20 +107,31 @@ func SetDynamoDBStreamsReaderOnPoller(p *EventSourcePoller, r DynamoDBStreamsRea
 // fn returns the raw response body (may be nil) and any error, mirroring
 // InvokeFunction. Tests that need to simulate ReportBatchItemFailures can
 // return a JSON body containing a batchItemFailures list.
-func SetSQSInvoker(p *EventSourcePoller, fn func(ctx context.Context, fnName string) ([]byte, error)) {
+func SetSQSInvoker(
+	p *EventSourcePoller,
+	fn func(ctx context.Context, fnName string) ([]byte, error),
+) {
 	p.sqsInvoker = fn
 }
 
 // SetDDBInvoker sets a test-only override for the Lambda invocation step in the
 // DynamoDB Streams ESM poller. When fn is non-nil it is called instead of InvokeFunction.
-func SetDDBInvoker(p *EventSourcePoller, fn func(ctx context.Context, fnName string, payload []byte) error) {
+func SetDDBInvoker(
+	p *EventSourcePoller,
+	fn func(ctx context.Context, fnName string, payload []byte) error,
+) {
 	p.ddbInvoker = fn
 }
 
 // InjectRuntimeEntry inserts a synthetic functionRuntime into the backend's runtimes map
 // so that Close() tests can verify runtime cleanup without a real container.
 // zipDir and layerDirs will be cleaned up by Close().
-func InjectRuntimeEntry(b *InMemoryBackend, functionName, zipDir string, layerDirs []string, port int) {
+func InjectRuntimeEntry(
+	b *InMemoryBackend,
+	functionName, zipDir string,
+	layerDirs []string,
+	port int,
+) {
 	b.mu.Lock("InjectRuntimeEntry")
 	defer b.mu.Unlock()
 
@@ -157,7 +169,11 @@ func InjectRuntimeEntryWithContainer(
 
 // InjectRuntimeEntryWithSrv inserts a synthetic functionRuntime with an already-started
 // runtime server so that tests can trigger real invocation timeouts via InvokeFunction.
-func InjectRuntimeEntryWithSrv(b *InMemoryBackend, functionName string, srv *ExportedRuntimeServer) {
+func InjectRuntimeEntryWithSrv(
+	b *InMemoryBackend,
+	functionName string,
+	srv *ExportedRuntimeServer,
+) {
 	b.mu.Lock("InjectRuntimeEntryWithSrv")
 	defer b.mu.Unlock()
 
@@ -394,7 +410,12 @@ func CleanupSemLen(b *InMemoryBackend) int { return len(b.cleanupSem) }
 func PollerNotifyC(p *EventSourcePoller) chan struct{} { return p.notifyC }
 
 // PushInvocationLog exports pushInvocationLog for testing.
-func PushInvocationLog(ctx context.Context, b *InMemoryBackend, functionName string, payload, result []byte) {
+func PushInvocationLog(
+	ctx context.Context,
+	b *InMemoryBackend,
+	functionName string,
+	payload, result []byte,
+) {
 	b.pushInvocationLog(ctx, functionName, payload, result)
 }
 
@@ -414,4 +435,51 @@ func NewPollerWithCancelSignal(doneCh chan struct{}) *EventSourcePoller {
 	}
 
 	return p
+}
+
+// ActiveConcurrenciesSnapshot returns a copy of the activeConcurrencies map for testing.
+func ActiveConcurrenciesSnapshot(b *InMemoryBackend) map[string]int {
+	b.mu.RLock("ActiveConcurrenciesSnapshot")
+	defer b.mu.RUnlock()
+
+	result := make(map[string]int, len(b.activeConcurrencies))
+	maps.Copy(result, b.activeConcurrencies)
+
+	return result
+}
+
+// CleanupSemCap returns the capacity of the cleanupSem channel.
+// Used to verify Reset() replaces it with a fresh channel of the correct capacity.
+func CleanupSemCap(b *InMemoryBackend) int { return cap(b.cleanupSem) }
+
+// LogSemCap returns the capacity of the logSem channel.
+func LogSemCap(b *InMemoryBackend) int { return cap(b.logSem) }
+
+// SweepESMsForTest calls sweepESMs on the janitor for white-box testing.
+func SweepESMsForTest(ctx context.Context, j *Janitor) { j.sweepESMs(ctx) }
+
+// InvocationChainContainsForTest reports whether functionName is in the context's invocation chain.
+func InvocationChainContainsForTest(ctx context.Context, functionName string) bool {
+	return invocationChainContains(ctx, functionName)
+}
+
+// InvocationChainLenForTest returns the length of the invocation chain stored in ctx.
+func InvocationChainLenForTest(ctx context.Context) int {
+	chain, _ := ctx.Value(invocationChainKeyType{}).([]string)
+
+	return len(chain)
+}
+
+// WithInvocationChainBatchForTest builds an invocation chain by appending all names in one
+// context value, avoiding a context-in-loop pattern. Intended for table-driven tests only.
+func WithInvocationChainBatchForTest(ctx context.Context, names []string) context.Context {
+	if len(names) == 0 {
+		return ctx
+	}
+	existing, _ := ctx.Value(invocationChainKeyType{}).([]string)
+	next := make([]string, len(existing)+len(names))
+	copy(next, existing)
+	copy(next[len(existing):], names)
+
+	return context.WithValue(ctx, invocationChainKeyType{}, next)
 }

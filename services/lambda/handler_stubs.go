@@ -6,8 +6,12 @@ package lambda
 // completeness test passes.
 
 import (
+	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
+	"hash/crc32"
+	"math"
 	"net/http"
 	"net/url"
 	"strings"
@@ -19,6 +23,9 @@ import (
 
 // contentTypeEventStream is the MIME type for Lambda streaming responses.
 const contentTypeEventStream = "application/vnd.amazon.eventstream"
+
+// lambdaStatusKey is the JSON key used in single-field Lambda status responses.
+const lambdaStatusKey = "Status"
 
 // --- Durable Execution stubs ---
 
@@ -58,14 +65,24 @@ func durableExecFromBackend(h *Handler) *durableExecutionStore {
 func (h *Handler) handleGetDurableExecution(c *echo.Context) error {
 	store := durableExecFromBackend(h)
 	if store == nil {
-		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+		return h.writeError(
+			c,
+			http.StatusInternalServerError,
+			"ServiceException",
+			"backend not available",
+		)
 	}
 
 	arn := extractDurableExecARN(c.Request().URL.Path)
 	ex := store.get(arn)
 
 	if ex == nil {
-		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "durable execution not found: "+arn)
+		return h.writeError(
+			c,
+			http.StatusNotFound,
+			"ResourceNotFoundException",
+			"durable execution not found: "+arn,
+		)
 	}
 
 	return c.JSON(http.StatusOK, ex)
@@ -75,7 +92,12 @@ func (h *Handler) handleGetDurableExecution(c *echo.Context) error {
 func (h *Handler) handleGetDurableExecutionHistory(c *echo.Context) error {
 	store := durableExecFromBackend(h)
 	if store == nil {
-		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+		return h.writeError(
+			c,
+			http.StatusInternalServerError,
+			"ServiceException",
+			"backend not available",
+		)
 	}
 
 	arn := extractDurableExecARN(c.Request().URL.Path)
@@ -97,14 +119,24 @@ func (h *Handler) handleGetDurableExecutionHistory(c *echo.Context) error {
 func (h *Handler) handleGetDurableExecutionState(c *echo.Context) error {
 	store := durableExecFromBackend(h)
 	if store == nil {
-		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+		return h.writeError(
+			c,
+			http.StatusInternalServerError,
+			"ServiceException",
+			"backend not available",
+		)
 	}
 
 	arn := extractDurableExecARN(c.Request().URL.Path)
 	ex := store.get(arn)
 
 	if ex == nil {
-		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "durable execution not found: "+arn)
+		return h.writeError(
+			c,
+			http.StatusNotFound,
+			"ResourceNotFoundException",
+			"durable execution not found: "+arn,
+		)
 	}
 
 	return c.JSON(http.StatusOK, &DurableExecutionState{
@@ -118,7 +150,12 @@ func (h *Handler) handleGetDurableExecutionState(c *echo.Context) error {
 func (h *Handler) handleListDurableExecutionsByFunction(c *echo.Context) error {
 	store := durableExecFromBackend(h)
 	if store == nil {
-		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+		return h.writeError(
+			c,
+			http.StatusInternalServerError,
+			"ServiceException",
+			"backend not available",
+		)
 	}
 
 	functionARN := extractDurableExecFunctionARN(c)
@@ -180,14 +217,20 @@ func (h *Handler) handleSendDurableExecutionCallbackSuccess(c *echo.Context) err
 func (h *Handler) handleStopDurableExecution(c *echo.Context) error {
 	store := durableExecFromBackend(h)
 	if store == nil {
-		return c.JSON(http.StatusOK, map[string]any{"Status": string(DurableExecutionStatusStopped)})
+		return c.JSON(
+			http.StatusOK,
+			map[string]any{lambdaStatusKey: string(DurableExecutionStatusStopped)},
+		)
 	}
 
 	arn := extractDurableExecARN(c.Request().URL.Path)
 	ex, err := store.stop(arn)
 	if err != nil {
 		// If not found, stop is a no-op — return a synthetic stopped response.
-		return c.JSON(http.StatusOK, map[string]any{"Status": string(DurableExecutionStatusStopped)})
+		return c.JSON(
+			http.StatusOK,
+			map[string]any{lambdaStatusKey: string(DurableExecutionStatusStopped)},
+		)
 	}
 
 	return c.JSON(http.StatusOK, ex)
@@ -222,18 +265,54 @@ func (h *Handler) handleListFunctionVersionsByCapacityProvider(
 // without duplicating routing logic.
 
 // handleInvokeAsync handles POST /2014-11-13/functions/{name}/invoke-async/.
+// The legacy InvokeAsync API validates that the function exists, then returns 202
+// immediately. The actual invocation runs in the background — the caller never waits
+// for the result. AWS InvokeAsync always returns {"Status": 202} on success.
 func (h *Handler) handleInvokeAsync(c *echo.Context, name string) error {
-	if _, ok := h.Backend.(*InMemoryBackend); !ok {
-		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+	bk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return h.writeError(
+			c,
+			http.StatusInternalServerError,
+			"ServiceException",
+			"backend not available",
+		)
 	}
 
-	// Validate the function exists by delegating to the standard invoke path.
-	return h.handleInvoke(c, name)
+	body, readErr := readBodyOrEmpty(c)
+	if readErr != nil {
+		return h.writeError(
+			c,
+			http.StatusInternalServerError,
+			"ServiceException",
+			"failed to read request",
+		)
+	}
+
+	// Validate function exists synchronously before accepting.
+	if _, err := bk.GetFunction(name); err != nil {
+		if errors.Is(err, ErrFunctionNotFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				"Function not found: "+name)
+		}
+
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
+	}
+
+	// Fire-and-forget: launch the invocation asynchronously and return 202 immediately.
+	// Use context.WithoutCancel so HTTP request cancellation does not abort background work.
+	invokeCtx := context.WithoutCancel(c.Request().Context())
+	bk.asyncWG.Go(func() {
+		_, _, _ = bk.InvokeFunction(invokeCtx, name, InvocationTypeEvent, body)
+	})
+
+	return c.JSON(http.StatusAccepted, map[string]int{lambdaStatusKey: http.StatusAccepted})
 }
 
 // handleInvokeWithResponseStream handles POST /2021-11-15/functions/{name}/response-streaming-invocations.
-// It delegates to the standard synchronous invocation path and streams the result as an
-// application/vnd.amazon.eventstream response with 4-byte big-endian length-prefixed frames.
+// It invokes the function synchronously and writes the result using the AWS event stream binary
+// protocol (application/vnd.amazon.eventstream), matching the encoding used by real Lambda.
+// Each chunk is a PayloadChunk event; the stream is terminated by an InvokeComplete event.
 func (h *Handler) handleInvokeWithResponseStream(c *echo.Context, name string) error {
 	ctx := c.Request().Context()
 
@@ -241,7 +320,12 @@ func (h *Handler) handleInvokeWithResponseStream(c *echo.Context, name string) e
 
 	body, readErr := readBodyOrEmpty(c)
 	if readErr != nil {
-		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "failed to read request")
+		return h.writeError(
+			c,
+			http.StatusInternalServerError,
+			"ServiceException",
+			"failed to read request",
+		)
 	}
 
 	var result []byte
@@ -263,14 +347,29 @@ func (h *Handler) handleInvokeWithResponseStream(c *echo.Context, name string) e
 		}
 
 		if errors.Is(invokeErr, ErrTooManyRequests) {
-			return h.writeError(c, http.StatusTooManyRequests, "TooManyRequestsException", invokeErr.Error())
+			return h.writeError(
+				c,
+				http.StatusTooManyRequests,
+				"TooManyRequestsException",
+				invokeErr.Error(),
+			)
 		}
 
-		return h.writeError(c, http.StatusInternalServerError, "ServiceException", invokeErr.Error())
+		return h.writeError(
+			c,
+			http.StatusInternalServerError,
+			"ServiceException",
+			invokeErr.Error(),
+		)
 	}
 
 	if statusCode == http.StatusNotFound {
-		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "Function not found: "+name)
+		return h.writeError(
+			c,
+			http.StatusNotFound,
+			"ResourceNotFoundException",
+			"Function not found: "+name,
+		)
 	}
 
 	if len(result) == 0 {
@@ -280,22 +379,100 @@ func (h *Handler) handleInvokeWithResponseStream(c *echo.Context, name string) e
 	c.Response().Header().Set("Content-Type", contentTypeEventStream)
 	c.Response().WriteHeader(http.StatusOK)
 
-	writeEventStreamFrame(c.Response(), result)
-	writeEventStreamFrame(c.Response(), nil) // end-of-stream
+	// PayloadChunk event carries the function's response body.
+	chunkFrame := buildLambdaStreamFrame([][2]string{
+		{":message-type", "event"},
+		{":event-type", "PayloadChunk"},
+		{":content-type", "application/octet-stream"},
+	}, result)
+	_, _ = c.Response().Write(chunkFrame)
+
+	// InvokeComplete event signals end-of-stream to the SDK.
+	doneFrame := buildLambdaStreamFrame([][2]string{
+		{":message-type", "event"},
+		{":event-type", "InvokeComplete"},
+	}, nil)
+	_, _ = c.Response().Write(doneFrame)
 
 	return nil
 }
 
-// writeEventStreamFrame writes a single eventstream frame: 4-byte big-endian length + payload.
-// A nil/empty payload writes a zero-length end-of-stream marker.
-func writeEventStreamFrame(w interface{ Write([]byte) (int, error) }, payload []byte) {
-	var lenBuf [4]byte
-	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(payload))) //nolint:gosec // bounded by invocation payload
-	_, _ = w.Write(lenBuf[:])
+// esHeaderValueTypeString is the AWS event stream type byte for UTF-8 string header values.
+const esHeaderValueTypeString = 7
 
-	if len(payload) > 0 {
-		_, _ = w.Write(payload)
+// buildLambdaStreamHeaders encodes header name/value pairs in the AWS event stream binary format.
+// Each header: name_len(1) | name | type(1)=7 | value_len(2 BE) | value.
+// Loop counters avoid int→byte/uint16 narrowing conversions flagged by gosec G115.
+func buildLambdaStreamHeaders(hdrs [][2]string) []byte {
+	var buf bytes.Buffer
+	for _, kv := range hdrs {
+		name, value := kv[0], kv[1]
+		if len(name) > math.MaxUint8 {
+			continue
+		}
+		var nameLen uint8
+		for range []byte(name) {
+			nameLen++
+		}
+		var valLen uint16
+		for range []byte(value) {
+			valLen++
+		}
+		vlen := [2]byte{}
+		binary.BigEndian.PutUint16(vlen[:], valLen)
+		buf.WriteByte(nameLen)
+		buf.WriteString(name)
+		buf.WriteByte(esHeaderValueTypeString)
+		buf.Write(vlen[:])
+		buf.WriteString(value)
 	}
+
+	return buf.Bytes()
+}
+
+// buildLambdaStreamFrame encodes one AWS event stream binary message.
+// Frame layout: totalLen(4) | headerLen(4) | preludeCRC(4) | headers | payload | msgCRC(4).
+// CRCs use CRC32/IEEE as required by the AWS event stream specification.
+// Loop counters produce uint32 lengths without int→uint32 narrowing (gosec G115).
+func buildLambdaStreamFrame(hdrs [][2]string, payload []byte) []byte {
+	const preludeLen = 12
+	const msgCRCLen = 4
+
+	hdrBytes := buildLambdaStreamHeaders(hdrs)
+
+	// Count bytes via loop to get uint32 without int→uint32 narrowing conversion.
+	var headerLen uint32
+	for range hdrBytes {
+		headerLen++
+	}
+	var payloadLen uint32
+	for range payload {
+		payloadLen++
+	}
+
+	total := uint64(preludeLen) + uint64(headerLen) + uint64(payloadLen) + uint64(msgCRCLen)
+	if total > math.MaxUint32 {
+		return nil
+	}
+	totalLen := uint32(total)
+
+	// int(uint32) is a widening conversion on all supported platforms.
+	buf := make([]byte, int(totalLen))
+	binary.BigEndian.PutUint32(buf[0:4], totalLen)
+	binary.BigEndian.PutUint32(buf[4:8], headerLen)
+
+	preludeCRC := crc32.ChecksumIEEE(buf[0:8])
+	binary.BigEndian.PutUint32(buf[8:preludeLen], preludeCRC)
+
+	hEnd := preludeLen + int(headerLen)
+	pEnd := hEnd + int(payloadLen)
+	copy(buf[preludeLen:hEnd], hdrBytes)
+	copy(buf[hEnd:pEnd], payload)
+
+	msgCRC := crc32.ChecksumIEEE(buf[0:pEnd])
+	binary.BigEndian.PutUint32(buf[pEnd:], msgCRC)
+
+	return buf
 }
 
 // readBodyOrEmpty reads the HTTP request body, returning an empty JSON object if nil.
