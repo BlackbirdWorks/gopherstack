@@ -2398,11 +2398,11 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	h.Backend.AddReplicationInstanceInternal("persist-inst", "dms.t3.medium")
 	h.Backend.AddEndpointInternal("persist-ep", "source", "mysql")
 
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	h2 := newTestDMSHandler()
-	require.NoError(t, h2.Restore(snap))
+	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 1, h2.Backend.ReplicationInstanceCount())
 	assert.Equal(t, 1, h2.Backend.EndpointCount())

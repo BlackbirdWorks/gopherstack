@@ -223,7 +223,7 @@ func TestHandler_HandleError_InternalError(t *testing.T) {
 	// an error that is not ErrNotFound, ErrAlreadyExists, ErrValidation, or ErrInvalidState.
 	// We can do this via Restore with invalid JSON — which returns an unmarshal error.
 	h := newTestHandler(t)
-	err := h.Restore([]byte("invalid-json"))
+	err := h.Restore(t.Context(), []byte("invalid-json"))
 	require.Error(t, err)
 
 	// Now also test via the backend directly — UpdateApplication with a custom error
@@ -728,9 +728,9 @@ func TestBackend_FindTagsByARN_AfterReset(t *testing.T) {
 	assert.NotNil(t, tags)
 
 	// Snapshot and restore preserves ARN index.
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	b2 := emrserverless.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	tags2, err := b2.ListTagsForResource(jr.Arn)
 	require.NoError(t, err)
@@ -751,9 +751,9 @@ func TestPersistence_EnsureMaps_NilJobRunSubMap(t *testing.T) {
 	require.NoError(t, err)
 
 	// Snapshot and restore — ensureMaps will run and handle any nil sub-maps.
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	b2 := emrserverless.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 	assert.Equal(t, 1, emrserverless.ApplicationCount(b2))
 	assert.Equal(t, 1, emrserverless.JobRunCount(b2))
 }
@@ -764,7 +764,7 @@ func TestPersistence_Restore_InvalidJSON(t *testing.T) {
 	t.Parallel()
 
 	b := emrserverless.NewInMemoryBackend("000000000000", "us-east-1")
-	err := b.Restore([]byte("not-valid-json"))
+	err := b.Restore(t.Context(), []byte("not-valid-json"))
 	require.Error(t, err)
 }
 

@@ -12,6 +12,28 @@ golangci-lint run ./services/<pkg>/...
 ```
 
 
+**Logging — context-aware only (no exceptions):**
+- NEVER call `slog.Default()` or construct an ad-hoc `slog.New(...)` in service/production
+  code, and NEVER embed or store a `*slog.Logger` on a struct/global. The single allowed
+  `slog.Default()` is the fallback inside `pkgs/logger.Load`; the single allowed `slog.New`
+  is `pkgs/logger.NewLogger`.
+- Always fetch the logger from context: `logger.Load(ctx)`, and prefer the `*Context`
+  methods (`InfoContext`/`WarnContext`/...) so the request/worker fields propagate.
+- The root logger is created once at startup and injected into `ctx`. Enrich it, never
+  replace it: `logger.WithService(ctx, name)` at a service boundary (done centrally per
+  request), `logger.AddAttrs(ctx, ...)` for extra fields, and
+  `logger.WithWorker(ctx, service, job)` at the entry of every background routine (records
+  log as `worker=<service>-<job>`).
+- Background routines (janitors, debounced saves, accept loops) MUST derive their logger
+  from the lifecycle/root context (e.g. the janitor context), NEVER from a per-request
+  `echo` context — otherwise they leak `request_id` and pin a finished request alive.
+- The logger is a pointer carried in `ctx`; enrichment is copy-on-write (`slog.Logger.With`
+  returns a new logger). Do NOT mutate it, do NOT call `slog.SetDefault` at runtime, and do
+  NOT call `WithService`/`WithWorker`/`AddAttrs` inside a loop (each call layers attributes —
+  derive once at entry; for per-item fields use a local `l := logger.Load(ctx).With(...)`).
+- Do NOT introduce `context.Background()`/`context.TODO()` in service code or tests to
+  satisfy a signature — thread the real request/root context (in tests use `t.Context()`).
+
 **Checkpoint commits for long tasks:** For tasks taking >1 hour, commit and push every ~30 minutes:
 ```bash
 git add -A && git commit -m "WIP: checkpoint" && git push origin HEAD

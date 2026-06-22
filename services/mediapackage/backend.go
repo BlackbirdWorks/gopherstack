@@ -1,7 +1,7 @@
 package mediapackage
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
 	"maps"
 	"sort"
@@ -11,8 +11,10 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 const (
@@ -231,7 +233,7 @@ func (b *InMemoryBackend) Reset() {
 }
 
 // Snapshot returns a JSON-encoded snapshot of the backend state.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
@@ -245,15 +247,13 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Tags:                    b.tags,
 	}
 
-	data, _ := json.Marshal(snap)
-
-	return data
+	return persistence.MarshalSnapshot(ctx, "mediapackage", snap)
 }
 
 // Restore loads backend state from a JSON snapshot.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap snapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "mediapackage", data, &snap); err != nil {
 		return err
 	}
 
@@ -388,12 +388,7 @@ func (b *InMemoryBackend) ListChannels(maxResults int, nextToken string) ([]*Cha
 	b.mu.RLock("ListChannels")
 	defer b.mu.RUnlock()
 
-	ids := make([]string, 0, len(b.channels))
-	for id := range b.channels {
-		ids = append(ids, id)
-	}
-
-	sort.Strings(ids)
+	ids := collections.SortedKeys(b.channels)
 
 	all := make([]*storedChannel, 0, len(ids))
 	for _, id := range ids {

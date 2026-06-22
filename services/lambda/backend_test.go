@@ -66,14 +66,16 @@ func (m *mockCWLogsBackend) PutLogLines(_, _ string, messages []string) error {
 	return nil
 }
 
-func newSimpleBackend() *lambda.InMemoryBackend {
-	return lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "123456789012", "us-east-1")
+func newSimpleBackend(t *testing.T) *lambda.InMemoryBackend {
+	t.Helper()
+
+	return closeBackend(t, lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "123456789012", "us-east-1"))
 }
 
 func TestInMemoryBackend_SetS3CodeFetcher(t *testing.T) {
 	t.Parallel()
 
-	backend := newSimpleBackend()
+	backend := newSimpleBackend(t)
 	fetcher := &mockS3Fetcher{data: []byte("zip-data")}
 	// SetS3CodeFetcher should not panic
 	backend.SetS3CodeFetcher(fetcher)
@@ -138,7 +140,7 @@ func TestInMemoryBackend_InvokeFunction(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backend := newSimpleBackend()
+			backend := newSimpleBackend(t)
 			if tt.fn != nil {
 				require.NoError(t, backend.CreateFunction(tt.fn))
 			}
@@ -165,7 +167,7 @@ func TestInMemoryBackend_InvokeFunction(t *testing.T) {
 func TestInMemoryBackend_CreateAndGet(t *testing.T) {
 	t.Parallel()
 
-	backend := newSimpleBackend()
+	backend := newSimpleBackend(t)
 
 	fn := &lambda.FunctionConfiguration{
 		FunctionName: "test-create-get",
@@ -183,7 +185,7 @@ func TestInMemoryBackend_CreateAndGet(t *testing.T) {
 func TestInMemoryBackend_CreateDuplicate(t *testing.T) {
 	t.Parallel()
 
-	backend := newSimpleBackend()
+	backend := newSimpleBackend(t)
 
 	fn := &lambda.FunctionConfiguration{FunctionName: "dup-fn"}
 	require.NoError(t, backend.CreateFunction(fn))
@@ -195,7 +197,7 @@ func TestInMemoryBackend_CreateDuplicate(t *testing.T) {
 func TestInMemoryBackend_ListFunctions(t *testing.T) {
 	t.Parallel()
 
-	backend := newSimpleBackend()
+	backend := newSimpleBackend(t)
 
 	for _, name := range []string{"fn-b", "fn-a", "fn-c"} {
 		require.NoError(t, backend.CreateFunction(&lambda.FunctionConfiguration{FunctionName: name}))
@@ -212,7 +214,7 @@ func TestInMemoryBackend_ListFunctions(t *testing.T) {
 func TestInMemoryBackend_UpdateFunctionNotFound(t *testing.T) {
 	t.Parallel()
 
-	backend := newSimpleBackend()
+	backend := newSimpleBackend(t)
 
 	err := backend.UpdateFunction(&lambda.FunctionConfiguration{FunctionName: "nonexistent"})
 	require.ErrorIs(t, err, lambda.ErrFunctionNotFound)
@@ -221,7 +223,7 @@ func TestInMemoryBackend_UpdateFunctionNotFound(t *testing.T) {
 func TestInMemoryBackend_DeleteFunctionNotFound(t *testing.T) {
 	t.Parallel()
 
-	backend := newSimpleBackend()
+	backend := newSimpleBackend(t)
 
 	err := backend.DeleteFunction("nonexistent")
 	require.ErrorIs(t, err, lambda.ErrFunctionNotFound)
@@ -230,7 +232,7 @@ func TestInMemoryBackend_DeleteFunctionNotFound(t *testing.T) {
 func TestInMemoryBackend_DeleteFunctionWithRuntime(t *testing.T) {
 	t.Parallel()
 
-	backend := newSimpleBackend()
+	backend := newSimpleBackend(t)
 
 	fn := &lambda.FunctionConfiguration{
 		FunctionName: "delete-with-rt",
@@ -310,6 +312,7 @@ func TestInMemoryBackend_ZipInvoke(t *testing.T) {
 				"000000000000",
 				"us-east-1",
 			)
+			closeBackend(t, backend)
 
 			zipBytes := makeTestZip(t, `def handler(e, c): return "hello"`)
 
@@ -354,6 +357,7 @@ func TestInMemoryBackend_DeleteZipFunction(t *testing.T) {
 
 	dc := newMockDockerClient()
 	backend := lambda.NewInMemoryBackend(dc, pa, lambda.DefaultSettings(), "000000000000", "us-east-1")
+	closeBackend(t, backend)
 
 	zipBytes := makeTestZip(t, `def handler(e, c): return "hello"`)
 	fn := &lambda.FunctionConfiguration{
@@ -381,6 +385,7 @@ func TestInMemoryBackend_SetDNSRegistrar(t *testing.T) {
 	backend := lambda.NewInMemoryBackend(
 		nil, pa, lambda.DefaultSettings(), "000000000000", "us-east-1",
 	)
+	closeBackend(t, backend)
 
 	dns := &mockDNSRegistrar{}
 	lambda.SetDNSRegistrarExported(backend, dns)
@@ -415,6 +420,7 @@ func TestInMemoryBackend_SetCWLogsBackend(t *testing.T) {
 	backend := lambda.NewInMemoryBackend(
 		nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1",
 	)
+	closeBackend(t, backend)
 
 	mock := &mockCWLogsBackend{}
 	backend.SetCWLogsBackend(mock) // should not panic
@@ -429,6 +435,7 @@ func TestInMemoryBackend_GetVersion(t *testing.T) {
 	backend := lambda.NewInMemoryBackend(
 		nil, pa, lambda.DefaultSettings(), "000000000000", "us-east-1",
 	)
+	closeBackend(t, backend)
 
 	fn := &lambda.FunctionConfiguration{
 		FunctionName: "get-ver-fn",
@@ -470,6 +477,7 @@ func TestInMemoryBackend_ResolveQualifier(t *testing.T) {
 	backend := lambda.NewInMemoryBackend(
 		nil, pa, lambda.DefaultSettings(), "000000000000", "us-east-1",
 	)
+	closeBackend(t, backend)
 
 	fn := &lambda.FunctionConfiguration{
 		FunctionName: "resolve-fn",
@@ -560,6 +568,7 @@ func TestBuildURLEventPayload(t *testing.T) {
 			backend := lambda.NewInMemoryBackend(
 				nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1",
 			)
+			closeBackend(t, backend)
 
 			var bodyReader io.Reader
 			if tt.body != "" {
@@ -670,6 +679,7 @@ func TestFunctionURLConfig_HTTPEndpoint(t *testing.T) {
 	backend := lambda.NewInMemoryBackend(
 		nil, pa, lambda.DefaultSettings(), "000000000000", "us-east-1",
 	)
+	closeBackend(t, backend)
 
 	fn := &lambda.FunctionConfiguration{
 		FunctionName: "http-test-fn",
@@ -702,7 +712,7 @@ func TestFunctionURLConfig_HTTPEndpoint(t *testing.T) {
 func TestInMemoryBackend_PublishVersion_WithEnvironment(t *testing.T) {
 	t.Parallel()
 
-	backend := newSimpleBackend()
+	backend := newSimpleBackend(t)
 
 	fn := &lambda.FunctionConfiguration{
 		FunctionName: "env-version-fn",
@@ -729,7 +739,7 @@ func TestInMemoryBackend_PublishVersion_WithEnvironment(t *testing.T) {
 func TestInMemoryBackend_PublishVersion_WithLayers(t *testing.T) {
 	t.Parallel()
 
-	backend := newSimpleBackend()
+	backend := newSimpleBackend(t)
 
 	fn := &lambda.FunctionConfiguration{
 		FunctionName: "layers-version-fn",
@@ -761,6 +771,7 @@ func TestInMemoryBackend_Close_StopsFunctionURLServers(t *testing.T) {
 	backend := lambda.NewInMemoryBackend(
 		nil, pa, lambda.DefaultSettings(), "000000000000", "us-east-1",
 	)
+	closeBackend(t, backend)
 
 	fn := &lambda.FunctionConfiguration{
 		FunctionName: "close-url-fn",
@@ -799,7 +810,7 @@ func TestInMemoryBackend_Close_StopsFunctionURLServers(t *testing.T) {
 func TestInMemoryBackend_Close_NoServers(t *testing.T) {
 	t.Parallel()
 
-	backend := newSimpleBackend()
+	backend := newSimpleBackend(t)
 
 	// Should not panic or deadlock.
 	closeCtx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
@@ -819,6 +830,7 @@ func TestInMemoryBackend_Close_MultipleURLServers(t *testing.T) {
 	backend := lambda.NewInMemoryBackend(
 		nil, pa, lambda.DefaultSettings(), "000000000000", "us-east-1",
 	)
+	closeBackend(t, backend)
 
 	fnNames := []string{"close-multi-fn-1", "close-multi-fn-2", "close-multi-fn-3"}
 
@@ -876,6 +888,7 @@ func TestInMemoryBackend_Close_RuntimeCleanup(t *testing.T) {
 	backend := lambda.NewInMemoryBackend(
 		nil, pa, lambda.DefaultSettings(), "000000000000", "us-east-1",
 	)
+	closeBackend(t, backend)
 
 	// Create real temp directories that Close() should remove.
 	zipDir := t.TempDir()

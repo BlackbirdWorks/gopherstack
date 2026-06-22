@@ -443,11 +443,11 @@ func TestRefinement2_SnapshotRestore_PreservesReportState(t *testing.T) {
 	b := newBackend(t)
 	resourcegroupstaggingapi.AddReportStateInternal(b, "SUCCEEDED", "s3://bucket/key.csv", "2025-06-01T00:00:00Z")
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	b2 := newBackend(t)
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 	assert.True(t, resourcegroupstaggingapi.HasReportState(b2))
 	assert.Equal(t, "SUCCEEDED", resourcegroupstaggingapi.ReportStatus(b2))
 	assert.Equal(t, "s3://bucket/key.csv", resourcegroupstaggingapi.ReportS3Location(b2))
@@ -457,11 +457,11 @@ func TestRefinement2_SnapshotRestore_EmptyBackend(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	b2 := newBackend(t)
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 	assert.False(t, resourcegroupstaggingapi.HasReportState(b2))
 }
 
@@ -471,13 +471,13 @@ func TestRefinement2_SnapshotRestore_ClearsProviders(t *testing.T) {
 	b := newBackend(t)
 	b.RegisterProvider(func(_ context.Context) []resourcegroupstaggingapi.TaggedResource { return nil })
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 
 	b2 := newBackend(t)
 	b2.RegisterProvider(func(_ context.Context) []resourcegroupstaggingapi.TaggedResource { return nil })
 	require.Equal(t, 1, resourcegroupstaggingapi.ProviderCount(b2))
 
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 	// Restore clears providers (they are runtime callbacks, cannot be serialized).
 	assert.Equal(t, 0, resourcegroupstaggingapi.ProviderCount(b2))
 }
@@ -487,7 +487,7 @@ func TestRefinement2_Restore_BadJSON(t *testing.T) {
 
 	b := newBackend(t)
 
-	err := b.Restore([]byte("not-json"))
+	err := b.Restore(t.Context(), []byte("not-json"))
 	require.Error(t, err)
 }
 

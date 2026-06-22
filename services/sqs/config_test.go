@@ -40,6 +40,7 @@ func TestNewInMemoryBackendWithConfig_ARNUsesInjectedAccountAndRegion(t *testing
 			t.Parallel()
 
 			b := sqs.NewInMemoryBackendWithConfig(tc.accountID, tc.region)
+			t.Cleanup(b.Close)
 			out, err := b.CreateQueue(&sqs.CreateQueueInput{
 				QueueName: tc.queue,
 				Endpoint:  "localhost:4566",

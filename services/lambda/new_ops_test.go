@@ -27,6 +27,7 @@ func newInMemoryHandler(t *testing.T) (*lambda.Handler, *lambda.InMemoryBackend)
 		"000000000000",
 		"us-east-1",
 	)
+	closeBackend(t, bk)
 	h := lambda.NewHandler(bk)
 	h.DefaultRegion = "us-east-1"
 	h.AccountID = "000000000000"

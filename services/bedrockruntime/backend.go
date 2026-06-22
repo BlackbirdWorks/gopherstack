@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -257,8 +258,8 @@ func (b *InMemoryBackend) StartAsyncInvoke(
 
 	b.asyncInvokeCounter++
 	id := strconv.Itoa(b.asyncInvokeCounter)
-	arn := fmt.Sprintf("arn:aws:bedrock:%s:%s:async-invoke/%s", b.region, b.accountID, id)
-	modelArn := fmt.Sprintf("arn:aws:bedrock:%s::foundation-model/%s", b.region, modelID)
+	arnStr := arn.Build("bedrock", b.region, b.accountID, fmt.Sprintf("async-invoke/%s", id))
+	modelArn := arn.Build("bedrock", b.region, "", fmt.Sprintf("foundation-model/%s", modelID))
 	now := time.Now().UTC()
 
 	var token *string
@@ -268,7 +269,7 @@ func (b *InMemoryBackend) StartAsyncInvoke(
 	}
 
 	inv := &AsyncInvoke{
-		InvocationArn:      arn,
+		InvocationArn:      arnStr,
 		ModelArn:           modelArn,
 		OutputS3URI:        s3URI,
 		Status:             AsyncInvokeStatusInProgress,
@@ -278,10 +279,10 @@ func (b *InMemoryBackend) StartAsyncInvoke(
 		Tags:               copyTags(tags),
 	}
 
-	b.asyncInvokes[arn] = inv
+	b.asyncInvokes[arnStr] = inv
 
 	if clientToken != "" {
-		b.tokenIndex[clientToken] = arn
+		b.tokenIndex[clientToken] = arnStr
 	}
 
 	cp := *inv

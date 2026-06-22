@@ -11,7 +11,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -168,7 +170,7 @@ func (b *InMemoryBackend) seedDefaults() {
 
 // clusterARN builds a DAX cluster ARN.
 func (b *InMemoryBackend) clusterARN(name string) string {
-	return fmt.Sprintf("arn:aws:dax:%s:%s:cache/%s", b.Region, b.AccountID, name)
+	return arn.Build("dax", b.Region, b.AccountID, fmt.Sprintf("cache/%s", name))
 }
 
 // daxURL builds a dax:// URL from a host address and port number.
@@ -930,12 +932,7 @@ func (b *InMemoryBackend) ListTags(
 
 	allTags := b.tags[resourceArn]
 
-	keys := make([]string, 0, len(allTags))
-	for k := range allTags {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(allTags)
 
 	startIdx := 0
 
@@ -1532,23 +1529,23 @@ func (b *InMemoryBackend) emitEventLocked(sourceName, sourceType, message string
 
 // arnExists returns true if the ARN corresponds to an existing DAX resource.
 // Must be called with b.mu held.
-func (b *InMemoryBackend) arnExists(arn string) bool {
-	clusterPrefix := fmt.Sprintf("arn:aws:dax:%s:%s:cache/", b.Region, b.AccountID)
-	if name, ok := strings.CutPrefix(arn, clusterPrefix); ok {
+func (b *InMemoryBackend) arnExists(arnStr string) bool {
+	clusterPrefix := arn.Build("dax", b.Region, b.AccountID, "cache/")
+	if name, ok := strings.CutPrefix(arnStr, clusterPrefix); ok {
 		_, exists := b.clusters[name]
 
 		return exists
 	}
 
-	paramPrefix := fmt.Sprintf("arn:aws:dax:%s:%s:parametergroup/", b.Region, b.AccountID)
-	if name, ok := strings.CutPrefix(arn, paramPrefix); ok {
+	paramPrefix := arn.Build("dax", b.Region, b.AccountID, "parametergroup/")
+	if name, ok := strings.CutPrefix(arnStr, paramPrefix); ok {
 		_, exists := b.paramGroups[name]
 
 		return exists
 	}
 
-	subnetPrefix := fmt.Sprintf("arn:aws:dax:%s:%s:subnetgroup/", b.Region, b.AccountID)
-	if name, ok := strings.CutPrefix(arn, subnetPrefix); ok {
+	subnetPrefix := arn.Build("dax", b.Region, b.AccountID, "subnetgroup/")
+	if name, ok := strings.CutPrefix(arnStr, subnetPrefix); ok {
 		_, exists := b.subnetGroups[name]
 
 		return exists
@@ -1559,9 +1556,9 @@ func (b *InMemoryBackend) arnExists(arn string) bool {
 
 // clusterByARN returns the cluster matching the given ARN, or nil.
 // Must be called with b.mu held.
-func (b *InMemoryBackend) clusterByARN(arn string) *Cluster {
-	prefix := fmt.Sprintf("arn:aws:dax:%s:%s:cache/", b.Region, b.AccountID)
-	if name, ok := strings.CutPrefix(arn, prefix); ok {
+func (b *InMemoryBackend) clusterByARN(arnStr string) *Cluster {
+	prefix := arn.Build("dax", b.Region, b.AccountID, "cache/")
+	if name, ok := strings.CutPrefix(arnStr, prefix); ok {
 		return b.clusters[name]
 	}
 

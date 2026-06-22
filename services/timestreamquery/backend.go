@@ -5,10 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"sort"
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -283,12 +283,7 @@ func (b *InMemoryBackend) ListScheduledQueries(ctx context.Context) []ScheduledQ
 	defer b.mu.RUnlock()
 
 	sqs := b.scheduledQueries[region]
-	names := make([]string, 0, len(sqs))
-	for name := range sqs {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
+	names := collections.SortedKeys(sqs)
 
 	out := make([]ScheduledQuerySummary, 0, len(names))
 
@@ -591,12 +586,7 @@ func (b *InMemoryBackend) ListTagsForResource(ctx context.Context, arnStr string
 		return nil, err
 	}
 
-	keys := make([]string, 0, len(sq.Tags))
-	for k := range sq.Tags {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(sq.Tags)
 
 	out := make([]map[string]string, 0, len(keys))
 
@@ -632,12 +622,7 @@ func (b *InMemoryBackend) ListScheduledQueriesFull(ctx context.Context) []*Sched
 	defer b.mu.RUnlock()
 
 	sqs := b.scheduledQueries[region]
-	names := make([]string, 0, len(sqs))
-	for name := range sqs {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
+	names := collections.SortedKeys(sqs)
 
 	out := make([]*ScheduledQuery, 0, len(names))
 

@@ -1415,12 +1415,12 @@ func TestBackend_SnapshotRestore(t *testing.T) {
 			_, err = b.CreateProfile(context.Background(), tt.profileName, nil, nil, nil, nil, "", false)
 			require.NoError(t, err)
 
-			snap := b.Snapshot()
+			snap := b.Snapshot(t.Context())
 			assert.NotEmpty(t, snap)
 
 			// Restore into a fresh backend.
 			b2 := rolesanywhere.NewInMemoryBackend("000000000000", "us-east-1")
-			require.NoError(t, b2.Restore(snap))
+			require.NoError(t, b2.Restore(t.Context(), snap))
 
 			anchors, _, err := b2.ListTrustAnchors(context.Background(), "", 0)
 			require.NoError(t, err)
@@ -1450,7 +1450,7 @@ func TestBackend_Restore_InvalidJSON(t *testing.T) {
 			t.Parallel()
 
 			b := rolesanywhere.NewInMemoryBackend("000000000000", "us-east-1")
-			err := b.Restore(tt.data)
+			err := b.Restore(t.Context(), tt.data)
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {

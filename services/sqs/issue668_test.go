@@ -35,7 +35,7 @@ func TestFIFODedupPrunedByJanitor(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newBackend()
+			b := newBackend(t)
 			const qName = "prune-send.fifo"
 			qURL := createFIFOQueueWithDedup(t, b, qName)
 
@@ -80,7 +80,7 @@ func TestDeleteQueueClosesNotifyChannel(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newBackend()
+			b := newBackend(t)
 			qURL := createTestQueue(t, b, "close-notify-queue")
 
 			errCh := make(chan error, 1)
@@ -148,7 +148,7 @@ func TestReceiveMessageWaitTimeSecondsValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newBackend()
+			b := newBackend(t)
 			qURL := createTestQueue(t, b, "wait-validation-queue")
 
 			// Send a message so a non-zero wait doesn't block forever.
@@ -209,7 +209,7 @@ func TestSendMessageSizeValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newBackend()
+			b := newBackend(t)
 
 			attrs := map[string]string{}
 			if tt.maxMsgSize != "" {
@@ -243,7 +243,7 @@ func TestSendMessageSizeValidation(t *testing.T) {
 func TestSendMessageSizeIncludesAttributes(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	out, err := b.CreateQueue(&sqs.CreateQueueInput{
 		QueueName:  "attr-size-queue",
 		Endpoint:   testEndpoint,
@@ -301,7 +301,7 @@ func TestSendMessageBatchSizeValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newBackend()
+			b := newBackend(t)
 			qURL := createTestQueue(t, b, "batch-size-validation-queue")
 
 			result, err := b.SendMessageBatch(&sqs.SendMessageBatchInput{
@@ -354,7 +354,7 @@ func TestSendMessageBatchOrdering(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newBackend()
+			b := newBackend(t)
 			qURL := createTestQueue(t, b, "batch-order-queue")
 
 			result, err := b.SendMessageBatch(&sqs.SendMessageBatchInput{
@@ -411,7 +411,7 @@ func TestLongPollBroadcastWakeup(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newBackend()
+			b := newBackend(t)
 			qURL := createTestQueue(t, b, "broadcast-wake-queue")
 
 			ready := make(chan struct{})
@@ -505,7 +505,7 @@ func TestChangeMessageVisibilityBoundsValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newBackend()
+			b := newBackend(t)
 			qURL := createTestQueue(t, b, "vis-bounds-queue")
 
 			_, sendErr := b.SendMessage(&sqs.SendMessageInput{QueueURL: qURL, MessageBody: "msg"})
@@ -559,7 +559,7 @@ func TestFIFOMessageGroupIDRequired(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newBackend()
+			b := newBackend(t)
 			qURL := createTestQueue(t, b, "fifo-groupid-queue.fifo")
 
 			_, err := b.SendMessage(&sqs.SendMessageInput{
@@ -609,7 +609,7 @@ func TestFIFODeduplicationIDRequired(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newBackend()
+			b := newBackend(t)
 			attrs := map[string]string{}
 			if tt.contentBasedDeduplication != "" {
 				attrs["ContentBasedDeduplication"] = tt.contentBasedDeduplication
@@ -659,7 +659,7 @@ func TestMessageRetentionPeriodExpiry(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newBackend()
+			b := newBackend(t)
 			// Create with a valid retention period, then immediately lower it via
 			// SetQueueAttributes so the test can use a sub-60-second window without
 			// triggering the CreateQueue attribute-range validation.
@@ -698,7 +698,7 @@ func TestMessageRetentionPeriodExpiry(t *testing.T) {
 func TestSendMessageBatchTotalSize(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend()
+	b := newBackend(t)
 	qURL := createTestQueue(t, b, "batch-total-size-queue")
 
 	// 3 entries × 100 KiB = 300 KiB > 256 KiB; each entry alone is valid.

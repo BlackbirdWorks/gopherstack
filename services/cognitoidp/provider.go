@@ -3,7 +3,6 @@ package cognitoidp
 import (
 	"errors"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -24,15 +23,8 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		return nil, ErrNilAppContext
 	}
 
-	accountID := "000000000000"
-	region := "us-east-1"
+	accountID, region := service.AccountRegionOrDefault(ctx)
 	endpoint := "http://localhost:8000"
-
-	if cp, ok := ctx.Config.(config.Provider); ok {
-		cfg := cp.GetGlobalConfig()
-		accountID = cfg.GetAccountID()
-		region = cfg.GetRegion()
-	}
 
 	if ep, ok := ctx.Config.(endpointProvider); ok {
 		endpoint = ep.GetEndpoint()

@@ -2156,11 +2156,11 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 			b1 := docdb.NewInMemoryBackend("000000000000", "us-east-1")
 			tt.setupFn(b1)
 
-			data := b1.Snapshot()
+			data := b1.Snapshot(t.Context())
 			require.NotEmpty(t, data)
 
 			b2 := docdb.NewInMemoryBackend("000000000000", "us-east-1")
-			err := b2.Restore(data)
+			err := b2.Restore(t.Context(), data)
 			require.NoError(t, err)
 
 			clusters, err := b2.DescribeDBClusters(context.Background(), tt.wantCluster)

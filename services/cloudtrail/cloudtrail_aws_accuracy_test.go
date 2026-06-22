@@ -1108,11 +1108,11 @@ func TestPersistenceWithNewFields(t *testing.T) {
 		"FederationRoleArn": "arn:aws:iam::123456789012:role/FedRole",
 	})
 
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	h2 := newTestCloudTrailHandler()
-	require.NoError(t, h2.Restore(snap))
+	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	// Verify trail with advanced event selectors is restored.
 	getRec := doCloudTrailOp(t, h2, "GetEventSelectors", map[string]any{

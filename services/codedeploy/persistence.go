@@ -1,8 +1,9 @@
 package codedeploy
 
 import (
-	"encoding/json"
+	"context"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -60,7 +61,7 @@ func (s *backendSnapshot) ensureNonNil() {
 }
 
 // Snapshot serialises the backend state to JSON. Returns nil on marshal failure.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
@@ -117,16 +118,14 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		snap.GitHubTokens = append(snap.GitHubTokens, name)
 	}
 
-	data, _ := json.Marshal(snap)
-
-	return data
+	return persistence.MarshalSnapshot(ctx, "codedeploy", snap)
 }
 
 // Restore loads backend state from a JSON snapshot produced by Snapshot.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "codedeploy", data, &snap); err != nil {
 		return err
 	}
 
@@ -190,7 +189,9 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.
-func (h *Handler) Snapshot() []byte { return h.Backend.Snapshot() }
+func (h *Handler) Snapshot(ctx context.Context) []byte { return h.Backend.Snapshot(ctx) }
 
 // Restore implements persistence.Persistable by delegating to the backend.
-func (h *Handler) Restore(data []byte) error { return h.Backend.Restore(data) }
+func (h *Handler) Restore(ctx context.Context, data []byte) error {
+	return h.Backend.Restore(ctx, data)
+}

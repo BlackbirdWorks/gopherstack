@@ -1,6 +1,10 @@
 package route53
 
-import "github.com/blackbirdworks/gopherstack/pkgs/page"
+import (
+	"context"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
+)
 
 // StorageBackend defines the interface for Route 53 backend implementations.
 // All mutating methods must be safe for concurrent use.
@@ -93,8 +97,8 @@ type StorageBackend interface {
 	Reset()
 	Region() string
 	AccountID() string
-	Snapshot() []byte
-	Restore(data []byte) error
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 }
 
 // compile-time assertion that InMemoryBackend satisfies StorageBackend.

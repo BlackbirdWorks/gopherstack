@@ -1114,11 +1114,11 @@ func TestVPHandler_Snapshot_Restore(t *testing.T) {
 				)
 			}
 
-			snap := h.Snapshot()
+			snap := h.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			h2 := newTestVPHandler(t)
-			require.NoError(t, h2.Restore(snap))
+			require.NoError(t, h2.Restore(t.Context(), snap))
 
 			rec := doVPRequest(t, h2, "ListPolicyStores", map[string]any{})
 			require.Equal(t, http.StatusOK, rec.Code)
@@ -2088,12 +2088,12 @@ func TestVPHandler_Snapshot_Restore_WithNewResources(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Snapshot
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	// Restore to new handler
 	h2 := newTestVPHandler(t)
-	require.NoError(t, h2.Restore(snap))
+	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	// Verify identity source persisted
 	rec = doVPRequest(t, h2, "GetIdentitySource", map[string]any{

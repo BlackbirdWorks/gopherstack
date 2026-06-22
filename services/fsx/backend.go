@@ -1,7 +1,7 @@
 package fsx
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
 	"sort"
 	"strings"
@@ -10,8 +10,11 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 const (
@@ -235,11 +238,11 @@ func (b *InMemoryBackend) Reset() {
 }
 
 // Snapshot serializes backend state to JSON.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	data, _ := json.Marshal(snapshot{
+	return persistence.MarshalSnapshot(ctx, "fsx", snapshot{
 		FileSystems:            b.fileSystems,
 		Backups:                b.backups,
 		Tags:                   b.tags,
@@ -253,14 +256,12 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		S3AccessPoints:         b.s3AccessPoints,
 		SharedVpcEnabled:       b.sharedVpcEnabled,
 	})
-
-	return data
 }
 
 // Restore deserializes backend state from JSON.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var s snapshot
-	if err := json.Unmarshal(data, &s); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "fsx", data, &s); err != nil {
 		return err
 	}
 
@@ -871,11 +872,11 @@ func validateTags(tags []Tag) error {
 }
 
 func (b *InMemoryBackend) fsARN(id string) string {
-	return fmt.Sprintf("arn:aws:fsx:%s:%s:file-system/%s", b.region, b.accountID, id)
+	return arn.Build("fsx", b.region, b.accountID, fmt.Sprintf("file-system/%s", id))
 }
 
 func (b *InMemoryBackend) backupARN(id string) string {
-	return fmt.Sprintf("arn:aws:fsx:%s:%s:backup/%s", b.region, b.accountID, id)
+	return arn.Build("fsx", b.region, b.accountID, fmt.Sprintf("backup/%s", id))
 }
 
 func tagsSliceToMap(tags []Tag) map[string]string {
@@ -892,12 +893,7 @@ func tagsMapToSlice(m map[string]string) []Tag {
 		return nil
 	}
 
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(m)
 
 	tags := make([]Tag, len(keys))
 	for i, k := range keys {

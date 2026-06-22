@@ -787,11 +787,11 @@ func TestSESPersistence_TemplatesAndConfigSetsRoundTrip(t *testing.T) {
 			original := ses.NewInMemoryBackend()
 			tt.setup(original)
 
-			snap := original.Snapshot()
+			snap := original.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			fresh := ses.NewInMemoryBackend()
-			require.NoError(t, fresh.Restore(snap))
+			require.NoError(t, fresh.Restore(t.Context(), snap))
 
 			tt.verify(t, fresh)
 		})
@@ -850,7 +850,7 @@ func TestSESPersistence_RestorePrunesExpiredEmails(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	snap := original.Snapshot()
+	snap := original.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	// Restore into a backend with a very short TTL so the snapshot email is
@@ -860,7 +860,7 @@ func TestSESPersistence_RestorePrunesExpiredEmails(t *testing.T) {
 
 	time.Sleep(time.Millisecond) // ensure TTL has passed
 
-	require.NoError(t, fresh.Restore(snap))
+	require.NoError(t, fresh.Restore(t.Context(), snap))
 
 	// The expired email must have been pruned.
 	assert.Equal(t, 0, fresh.EmailCount())
@@ -884,11 +884,11 @@ func TestSESPersistence_RestoreCapsToBound(t *testing.T) {
 	// The original should already be capped by SendEmail eviction.
 	assert.Equal(t, ses.MaxRetainedEmails, original.EmailCount())
 
-	snap := original.Snapshot()
+	snap := original.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	fresh := ses.NewInMemoryBackend()
-	require.NoError(t, fresh.Restore(snap))
+	require.NoError(t, fresh.Restore(t.Context(), snap))
 
 	assert.Equal(t, ses.MaxRetainedEmails, fresh.EmailCount())
 	assert.Equal(t, fresh.EmailCount(), fresh.EmailsByIDCount())

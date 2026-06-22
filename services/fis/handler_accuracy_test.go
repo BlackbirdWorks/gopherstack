@@ -1006,12 +1006,12 @@ func TestAccuracy_Restore_MarksRunningExperimentsFailed(t *testing.T) {
 	mem, ok := h.Backend.(*fis.ExportedInMemoryBackend)
 	require.True(t, ok)
 
-	snap := mem.Snapshot()
+	snap := mem.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	// Restore into a fresh backend.
 	fresh := fis.NewTestBackend()
-	err := fresh.Restore(snap)
+	err := fresh.Restore(t.Context(), snap)
 	require.NoError(t, err)
 
 	exp, err := fresh.GetExperiment(expID)

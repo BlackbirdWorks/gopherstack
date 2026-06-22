@@ -644,12 +644,12 @@ func TestInMemoryBackend_PersistenceSnapshotRestore(t *testing.T) {
 	require.NoError(t, err)
 
 	// Snapshot.
-	snap := bk.Snapshot()
+	snap := bk.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	// Restore into a fresh backend.
 	bk2 := iotwireless.NewInMemoryBackend()
-	require.NoError(t, bk2.Restore(snap))
+	require.NoError(t, bk2.Restore(t.Context(), snap))
 
 	// Verify all resources are present with correct fields.
 	gotDev, err := bk2.GetWirelessDevice(testAccountID, testRegion, dev.ID)

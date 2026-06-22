@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // Sentinel errors for new backend operations.
@@ -451,7 +453,7 @@ func (b *InMemoryBackend) DeleteWirelessGatewayTaskDefinition(id string) error {
 
 // wirelessGatewayTaskDefARN generates an ARN for a wireless gateway task definition.
 func wirelessGatewayTaskDefARN(accountID, region, id string) string {
-	return fmt.Sprintf("arn:aws:iotwireless:%s:%s:WirelessGatewayTaskDefinition/%s", region, accountID, id)
+	return arn.Build("iotwireless", region, accountID, fmt.Sprintf("WirelessGatewayTaskDefinition/%s", id))
 }
 
 // --- Position operations ---
@@ -519,12 +521,12 @@ type QueuedMessage struct {
 
 // wirelessDeviceImportTaskARN generates an ARN for a wireless device import task.
 func wirelessDeviceImportTaskARN(region, accountID, id string) string {
-	return fmt.Sprintf("arn:aws:iotwireless:%s:%s:ImportTask/%s", region, accountID, id)
+	return arn.Build("iotwireless", region, accountID, fmt.Sprintf("ImportTask/%s", id))
 }
 
 // singleWirelessDeviceImportTaskARN generates an ARN for a single wireless device import task.
 func singleWirelessDeviceImportTaskARN(region, accountID, id string) string {
-	return fmt.Sprintf("arn:aws:iotwireless:%s:%s:ImportTask/%s", region, accountID, id)
+	return arn.Build("iotwireless", region, accountID, fmt.Sprintf("ImportTask/%s", id))
 }
 
 // copyImportTask returns a shallow copy of a WirelessDeviceImportTask.

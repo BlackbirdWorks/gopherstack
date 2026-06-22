@@ -1,7 +1,7 @@
 package detective
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
 	"maps"
 	"sort"
@@ -10,8 +10,11 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 const (
@@ -241,7 +244,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 }
 
 func (b *InMemoryBackend) graphARN(id string) string {
-	return fmt.Sprintf("arn:aws:detective:%s:%s:graph:%s", b.region, b.accountID, id)
+	return arn.Build("detective", b.region, b.accountID, fmt.Sprintf("graph:%s", id))
 }
 
 // CreateGraph creates a new behavior graph. Returns existing one if already created (idempotent).
@@ -305,11 +308,7 @@ func (b *InMemoryBackend) ListGraphs(maxResults int32, nextToken string) ([]*Gra
 	b.mu.RLock("ListGraphs")
 	defer b.mu.RUnlock()
 
-	arns := make([]string, 0, len(b.graphs))
-	for arn := range b.graphs {
-		arns = append(arns, arn)
-	}
-	sort.Strings(arns)
+	arns := collections.SortedKeys(b.graphs)
 
 	start := 0
 	if nextToken != "" {
@@ -490,11 +489,7 @@ func (b *InMemoryBackend) ListMembers(
 	}
 
 	memberMap := b.members[graphARN]
-	ids := make([]string, 0, len(memberMap))
-	for id := range memberMap {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
+	ids := collections.SortedKeys(memberMap)
 
 	start := 0
 	if nextToken != "" {
@@ -803,11 +798,7 @@ func (b *InMemoryBackend) ListInvestigations(
 	}
 
 	invMap := b.investigations[graphARN]
-	ids := make([]string, 0, len(invMap))
-	for id := range invMap {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
+	ids := collections.SortedKeys(invMap)
 
 	start := 0
 	if nextToken != "" {
@@ -900,11 +891,7 @@ func (b *InMemoryBackend) ListDatasourcePackages(
 	}
 
 	pkgMap := b.datasources[graphARN]
-	keys := make([]string, 0, len(pkgMap))
-	for k := range pkgMap {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
+	keys := collections.SortedKeys(pkgMap)
 
 	start := 0
 	if nextToken != "" {
@@ -1181,11 +1168,11 @@ func (b *InMemoryBackend) Reset() {
 }
 
 // Snapshot serializes the backend state to JSON.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	data, _ := json.Marshal(snapshot{
+	return persistence.MarshalSnapshot(ctx, "detective", snapshot{
 		Graphs:         b.graphs,
 		Members:        b.members,
 		Tags:           b.tags,
@@ -1194,17 +1181,15 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		OrgAdmins:      b.orgAdmins,
 		OrgConfigs:     b.orgConfigs,
 	})
-
-	return data
 }
 
 // Restore deserializes backend state from a snapshot.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
 	var snap snapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "detective", data, &snap); err != nil {
 		return err
 	}
 

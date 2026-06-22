@@ -647,12 +647,12 @@ func TestBackend_PersistenceSnapshotRestore(t *testing.T) {
 				b.RecordAsyncInvocation("ep", "persisted-id", "input")
 			}
 
-			snap := b.Snapshot()
+			snap := b.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			// Restore into a fresh backend.
 			b2 := sagemakerruntime.NewInMemoryBackend("123456789012", "us-east-1")
-			require.NoError(t, b2.Restore(snap))
+			require.NoError(t, b2.Restore(t.Context(), snap))
 
 			restored := b2.ListInvocations()
 			assert.Len(t, restored, tt.setupInvCount)
@@ -661,7 +661,7 @@ func TestBackend_PersistenceSnapshotRestore(t *testing.T) {
 
 			// Snapshot isolation: adding more invocations to b2 should not affect snap.
 			b2.RecordInvocation("InvokeEndpoint", "ep", `{"seq":99}`, `{}`)
-			snap2 := b2.Snapshot()
+			snap2 := b2.Snapshot(t.Context())
 			require.NotNil(t, snap2)
 			assert.NotEqual(t, snap, snap2)
 		})

@@ -1,5 +1,7 @@
 package verifiedpermissions
 
+import "context"
+
 // StorageBackend is the interface for Verified Permissions storage operations.
 type StorageBackend interface {
 	AccountID() string
@@ -46,8 +48,8 @@ type StorageBackend interface {
 	) (*IdentitySource, error)
 	PutSchema(policyStoreID, schema string) ([]string, error)
 	GetSchema(policyStoreID string) (*PolicyStoreSchema, error)
-	Snapshot() []byte
-	Restore(data []byte) error
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)

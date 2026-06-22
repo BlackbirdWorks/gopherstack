@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
 
 // --- New model types ---
@@ -141,12 +143,7 @@ func (b *InMemoryBackend) ListBlueprints() []string {
 	b.mu.RLock("ListBlueprints")
 	defer b.mu.RUnlock()
 
-	names := make([]string, 0, len(b.blueprints))
-	for name := range b.blueprints {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
+	names := collections.SortedKeys(b.blueprints)
 
 	return names
 }

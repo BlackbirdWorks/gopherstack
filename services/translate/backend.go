@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
 
 var (
@@ -252,12 +253,7 @@ func (b *InMemoryBackend) ListTerminologies(maxResults int, nextToken string) ([
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	names := make([]string, 0, len(b.terminologies))
-	for name := range b.terminologies {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
+	names := collections.SortedKeys(b.terminologies)
 
 	return paginate(names, func(n string) *Terminology { return b.terminologies[n] }, maxResults, nextToken)
 }
@@ -362,12 +358,7 @@ func (b *InMemoryBackend) ListParallelData(maxResults int, nextToken string) ([]
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	names := make([]string, 0, len(b.parallelData))
-	for name := range b.parallelData {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
+	names := collections.SortedKeys(b.parallelData)
 
 	return paginate(names, func(n string) *ParallelData { return b.parallelData[n] }, maxResults, nextToken)
 }

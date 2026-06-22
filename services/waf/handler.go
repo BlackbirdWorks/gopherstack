@@ -77,10 +77,12 @@ func (h *Handler) GetSupportedOperations() []string {
 }
 
 // Snapshot returns a serialized snapshot of the backend state.
-func (h *Handler) Snapshot() []byte { return h.Backend.Snapshot() }
+func (h *Handler) Snapshot(ctx context.Context) []byte { return h.Backend.Snapshot(ctx) }
 
 // Restore restores the backend state from a snapshot.
-func (h *Handler) Restore(data []byte) error { return h.Backend.Restore(data) }
+func (h *Handler) Restore(ctx context.Context, data []byte) error {
+	return h.Backend.Restore(ctx, data)
+}
 
 // Handler returns the Echo handler function.
 func (h *Handler) Handler() echo.HandlerFunc {

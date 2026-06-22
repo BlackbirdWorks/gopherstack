@@ -6,6 +6,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
+	"github.com/blackbirdworks/gopherstack/pkgs/worker"
 )
 
 const (
@@ -18,17 +19,11 @@ const (
 
 // RunJanitor periodically advances time-based state machines for provisioned resources.
 func (b *InMemoryBackend) RunJanitor(ctx context.Context, interval time.Duration) {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
+	g := worker.NewGroup(ctx, "bedrock")
+	g.Ticker("Janitor", interval, 0, b.runJanitorTick)
 
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			b.runJanitorTick(ctx)
-		}
-	}
+	<-ctx.Done()
+	g.Stop()
 }
 
 func (b *InMemoryBackend) runJanitorTick(ctx context.Context) {

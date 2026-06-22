@@ -1,7 +1,6 @@
 package account_test
 
 import (
-	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/internal/awstest"
 	"github.com/blackbirdworks/gopherstack/services/account"
 )
 
@@ -23,21 +23,12 @@ func newTestHandler(t *testing.T) *account.Handler {
 func doRequest(t *testing.T, h *account.Handler, method, path string, body any) *httptest.ResponseRecorder {
 	t.Helper()
 
-	var bodyBytes []byte
-	if body != nil {
-		var err error
-		bodyBytes, err = json.Marshal(body)
-		require.NoError(t, err)
-	}
-
-	e := echo.New()
-	req := httptest.NewRequest(method, path, bytes.NewReader(bodyBytes))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential=key/20230101/us-east-1/account/aws4_request")
-	rec := httptest.NewRecorder()
-	c := e.NewContext(req, rec)
-	err := h.Handler()(c)
-	require.NoError(t, err)
+	c, rec := awstest.NewJSONContext(t, method, path, body)
+	c.Request().Header.Set(
+		"Authorization",
+		"AWS4-HMAC-SHA256 Credential=key/20230101/us-east-1/account/aws4_request",
+	)
+	require.NoError(t, h.Handler()(c))
 
 	return rec
 }

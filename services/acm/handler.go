@@ -293,7 +293,8 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	return nil
 }
 
-// Shutdown stops the background janitor.
+// Shutdown stops the background janitor and all in-flight certificate
+// auto-validation timers so no goroutine outlives the service.
 func (h *Handler) Shutdown(ctx context.Context) {
 	if h.janitorCancel != nil {
 		h.janitorCancel()
@@ -305,6 +306,8 @@ func (h *Handler) Shutdown(ctx context.Context) {
 		case <-ctx.Done():
 		}
 	}
+
+	h.Backend.Close()
 }
 
 var (

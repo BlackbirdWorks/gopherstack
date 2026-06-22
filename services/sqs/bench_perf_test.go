@@ -9,9 +9,15 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/sqs"
 )
 
-// newBenchBackend creates a backend for benchmarks (no test cleanup needed).
-func newBenchBackend() *sqs.InMemoryBackend {
-	return sqs.NewInMemoryBackend()
+// newBenchBackend creates a backend for benchmarks and stops it when the
+// benchmark completes.
+func newBenchBackend(b *testing.B) *sqs.InMemoryBackend {
+	b.Helper()
+
+	bk := sqs.NewInMemoryBackend()
+	b.Cleanup(bk.Close)
+
+	return bk
 }
 
 func benchCreateQueue(b *testing.B, backend *sqs.InMemoryBackend, name string) string {
@@ -49,7 +55,7 @@ func BenchmarkReceiveMessage_SinglePass(b *testing.B) {
 
 	for _, depth := range depths {
 		b.Run(fmt.Sprintf("depth=%d", depth), func(b *testing.B) {
-			backend := newBenchBackend()
+			backend := newBenchBackend(b)
 			qURL := benchCreateQueue(b, backend, "bench-receive-q")
 			benchSendN(b, backend, qURL, depth)
 
@@ -72,7 +78,7 @@ func BenchmarkSendReceiveDelete_PerQueueLock(b *testing.B) {
 
 	for _, workers := range concurrencies {
 		b.Run(fmt.Sprintf("workers=%d", workers), func(b *testing.B) {
-			backend := newBenchBackend()
+			backend := newBenchBackend(b)
 			qURL := benchCreateQueue(b, backend, "bench-concurrent-q")
 
 			b.ResetTimer()
@@ -115,7 +121,7 @@ func BenchmarkDeleteMessage_O1(b *testing.B) {
 
 	for _, depth := range depths {
 		b.Run(fmt.Sprintf("inflight=%d", depth), func(b *testing.B) {
-			backend := newBenchBackend()
+			backend := newBenchBackend(b)
 			qURL := benchCreateQueue(b, backend, "bench-delete-q")
 
 			b.ResetTimer()
@@ -163,7 +169,7 @@ func BenchmarkSendMessageBatch_SingleLock(b *testing.B) {
 
 	for _, batchSize := range sizes {
 		b.Run(fmt.Sprintf("batch=%d", batchSize), func(b *testing.B) {
-			backend := newBenchBackend()
+			backend := newBenchBackend(b)
 			qURL := benchCreateQueue(b, backend, "bench-batch-q")
 
 			entries := make([]sqs.SendMessageBatchEntry, batchSize)
@@ -193,7 +199,7 @@ func BenchmarkGetQueueAttributes_DelayedCounter(b *testing.B) {
 
 	for _, depth := range depths {
 		b.Run(fmt.Sprintf("depth=%d", depth), func(b *testing.B) {
-			backend := newBenchBackend()
+			backend := newBenchBackend(b)
 			qURL := benchCreateQueue(b, backend, "bench-attrs-q")
 			benchSendN(b, backend, qURL, depth)
 
@@ -216,7 +222,7 @@ func BenchmarkConcurrentQueues(b *testing.B) {
 
 	for _, nq := range numQueues {
 		b.Run(fmt.Sprintf("queues=%d", nq), func(b *testing.B) {
-			backend := newBenchBackend()
+			backend := newBenchBackend(b)
 			urls := make([]string, nq)
 
 			for i := range nq {

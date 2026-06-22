@@ -1,9 +1,12 @@
 package sts
 
 import (
+	"context"
 	"encoding/json"
-	"log/slog"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 type backendSnapshot struct {
@@ -18,7 +21,7 @@ type backendSnapshot struct {
 
 // Snapshot serialises the backend state to JSON.
 // It implements persistence.Persistable.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -42,7 +45,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 
 	data, err := json.Marshal(snap)
 	if err != nil {
-		slog.Default().Warn("sts: failed to snapshot backend state", "error", err)
+		logger.Load(ctx).WarnContext(ctx, "sts: failed to snapshot backend state", "error", err)
 
 		return nil
 	}
@@ -60,14 +63,14 @@ func (b *InMemoryBackend) ensureNonNilMaps() {
 // Restore loads backend state from a JSON snapshot.
 // Expired sessions are discarded on load.
 // It implements persistence.Persistable.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	if len(data) == 0 {
 		return nil
 	}
 
 	var snap backendSnapshot
 
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "sts", data, &snap); err != nil {
 		return err
 	}
 
@@ -104,20 +107,24 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.
-func (h *Handler) Snapshot() []byte {
-	type snapshotter interface{ Snapshot() []byte }
+func (h *Handler) Snapshot(ctx context.Context) []byte {
+	type snapshotter interface {
+		Snapshot(ctx context.Context) []byte
+	}
 	if s, ok := h.Backend.(snapshotter); ok {
-		return s.Snapshot()
+		return s.Snapshot(ctx)
 	}
 
 	return nil
 }
 
 // Restore implements persistence.Persistable by delegating to the backend.
-func (h *Handler) Restore(data []byte) error {
-	type restorer interface{ Restore([]byte) error }
+func (h *Handler) Restore(ctx context.Context, data []byte) error {
+	type restorer interface {
+		Restore(context.Context, []byte) error
+	}
 	if r, ok := h.Backend.(restorer); ok {
-		return r.Restore(data)
+		return r.Restore(ctx, data)
 	}
 
 	return nil

@@ -226,7 +226,7 @@ func TestRefinement1_SnapshotRestoreDeepCopy(t *testing.T) {
 	b := s3control.NewInMemoryBackend()
 	b.PutPublicAccessBlock(s3control.PublicAccessBlock{AccountID: "acc1", BlockPublicAcls: true})
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	// Mutate original after snapshot
@@ -235,7 +235,7 @@ func TestRefinement1_SnapshotRestoreDeepCopy(t *testing.T) {
 
 	// Restore from snapshot
 	b2 := s3control.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 	assert.Equal(t, 1, s3control.AccessBlockCount(b2))
 }
 

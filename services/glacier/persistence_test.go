@@ -55,11 +55,11 @@ func TestGlacier_PersistenceSnapshotRestore(t *testing.T) {
 			b := glacier.NewInMemoryBackend()
 			tt.setup(b)
 
-			snap := b.Snapshot()
+			snap := b.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			b2 := glacier.NewInMemoryBackend()
-			err := b2.Restore(snap)
+			err := b2.Restore(t.Context(), snap)
 			require.NoError(t, err)
 
 			tt.verify(t, b2)

@@ -1,14 +1,17 @@
 package ssoadmin
 
-import "encoding/json"
+import (
+	"context"
+	"encoding/json"
+)
 
 // StorageBackend is the interface for SSO Admin storage operations.
 type StorageBackend interface {
 	AccountID() string
 	Region() string
 	Reset()
-	Snapshot() []byte
-	Restore(data []byte) error
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 	CreateInstance(name, ownerAccountID, identityStoreID string) (*Instance, error)
 	ListInstances() []*Instance
 	DescribeInstance(instanceArn string) (*Instance, error)

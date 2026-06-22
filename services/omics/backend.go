@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"maps"
 	"sort"
@@ -17,6 +16,8 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 // regionContextKey is the context key under which the per-request AWS region is stored.
@@ -160,21 +161,19 @@ func (b *InMemoryBackend) Reset() {
 }
 
 // Snapshot serializes backend state to JSON.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	data, _ := json.Marshal(b.regions)
-
-	return data
+	return persistence.MarshalSnapshot(ctx, "omics", b.regions)
 }
 
 // Restore deserializes backend state from JSON.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	return json.Unmarshal(data, &b.regions)
+	return persistence.UnmarshalSnapshot(ctx, "omics", data, &b.regions)
 }
 
 // region returns the regionState for the given region, creating it if needed.
@@ -534,13 +533,7 @@ func (b *InMemoryBackend) ListReferenceImportJobs(
 	}
 
 	jobs := st.referenceImportJobs[referenceStoreID]
-	ids := make([]string, 0, len(jobs))
-
-	for id := range jobs {
-		ids = append(ids, id)
-	}
-
-	sort.Strings(ids)
+	ids := collections.SortedKeys(jobs)
 	page, outToken := paginateStrings(ids, nextToken, maxResults)
 
 	result := make([]*ReferenceImportJob, 0, len(page))
@@ -1927,13 +1920,7 @@ func (b *InMemoryBackend) ListWorkflowVersions(
 	}
 
 	versions := st.workflowVersions[workflowID]
-	names := make([]string, 0, len(versions))
-
-	for name := range versions {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
+	names := collections.SortedKeys(versions)
 	page, outToken := paginateStrings(names, nextToken, maxResults)
 
 	result := make([]*WorkflowVersion, 0, len(page))
@@ -3141,12 +3128,7 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 // ────────────────────────────────────────────────────────────────────────────
 
 func sortedKeys2[V any](m map[string]V) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(m)
 
 	return keys
 }

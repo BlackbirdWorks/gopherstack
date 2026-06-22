@@ -985,12 +985,12 @@ func TestPersistence_NewFieldsSurviveSnapshot(t *testing.T) {
 	require.NoError(t, b.GlobalSignOut(result.Tokens.AccessToken))
 
 	// Take snapshot.
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	// Restore into fresh backend.
 	b2 := newTestBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	// Verify resource server survived.
 	rs, err := b2.DescribeResourceServer(pool.ID, "https://persist.example.com")
@@ -1150,11 +1150,11 @@ func TestPersistence_RefreshTokensSurviveSnapshot(t *testing.T) {
 	require.NotNil(t, result.Tokens)
 
 	// Snapshot with active refresh token.
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := newTestBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	// Refresh token count must survive.
 	assert.Equal(t, b.RefreshTokenCount(), b2.RefreshTokenCount())

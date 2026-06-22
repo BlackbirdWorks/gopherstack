@@ -1,8 +1,10 @@
 package ecr
 
 import (
-	"encoding/json"
+	"context"
 	"maps"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 type backendSnapshot struct {
@@ -26,7 +28,7 @@ type backendSnapshot struct {
 
 // Snapshot serialises the backend state to JSON.
 // It implements persistence.Persistable.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
@@ -49,19 +51,14 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		SigningConfig:               copySigningSettings(b.signingConfig),
 	}
 
-	data, err := json.Marshal(snap)
-	if err != nil {
-		return nil
-	}
-
-	return data
+	return persistence.MarshalSnapshot(ctx, "ecr", snap)
 }
 
 // Restore loads backend state from a JSON snapshot.
 // It implements persistence.Persistable.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "ecr", data, &snap); err != nil {
 		return err
 	}
 
@@ -159,9 +156,9 @@ func copyImageScanFindingsMap(
 
 // Snapshot implements persistence.Persistable by delegating to the backend
 // when it implements Snapshottable. Returns nil for non-snapshottable backends.
-func (h *Handler) Snapshot() []byte {
+func (h *Handler) Snapshot(ctx context.Context) []byte {
 	if s, ok := h.Backend.(Snapshottable); ok {
-		return s.Snapshot()
+		return s.Snapshot(ctx)
 	}
 
 	return nil
@@ -169,9 +166,9 @@ func (h *Handler) Snapshot() []byte {
 
 // Restore implements persistence.Persistable by delegating to the backend
 // when it implements Snapshottable. Non-snapshottable backends are skipped.
-func (h *Handler) Restore(data []byte) error {
+func (h *Handler) Restore(ctx context.Context, data []byte) error {
 	if s, ok := h.Backend.(Snapshottable); ok {
-		return s.Restore(data)
+		return s.Restore(ctx, data)
 	}
 
 	return nil

@@ -777,11 +777,11 @@ func TestParity_Snapshot_RestoreAllResourceTypes(t *testing.T) {
 		SemanticVersion: "2.0.0",
 	}))
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	b2 := serverlessrepo.NewInMemoryBackend(testAccountID, "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 1, serverlessrepo.ApplicationCount(b2))
 	assert.Equal(t, 1, serverlessrepo.VersionCount(b2, "snap-app"))

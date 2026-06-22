@@ -1,6 +1,7 @@
 package teststack
 
 import (
+	"context"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -573,6 +574,7 @@ func registerLatestServices(registry *service.Registry, h handlers) {
 
 // handlers bundles all service handlers created for a test stack.
 type handlers struct {
+	ctx                 context.Context
 	s3                  *s3backend.S3Handler
 	ddb                 *ddbbackend.DynamoDBHandler
 	ssm                 *ssmbackend.Handler
@@ -697,7 +699,7 @@ type handlers struct {
 }
 
 // newHandlers creates in-memory backends and handlers for all services.
-func newHandlers() handlers {
+func newHandlers(ctx context.Context) handlers {
 	s3Bk := s3backend.NewInMemoryBackend(nil)
 	iamBk := iambackend.NewInMemoryBackend()
 	ddb := ddbbackend.NewHandler(ddbbackend.NewInMemoryDB())
@@ -708,6 +710,7 @@ func newHandlers() handlers {
 	sm := smbackend.NewHandler(smbackend.NewInMemoryBackend())
 
 	h := handlers{
+		ctx:     ctx,
 		s3Bk:    s3Bk,
 		iamBk:   iamBk,
 		s3:      s3backend.NewHandler(s3Bk),
@@ -901,7 +904,7 @@ func populateNewestHandlers(h *handlers) {
 	}
 
 	h.eks = eksbackend.NewHandler(
-		eksbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+		eksbackend.NewInMemoryBackend(h.ctx, config.DefaultAccountID, config.DefaultRegion),
 	)
 
 	h.elb = elbbackend.NewHandler(
@@ -1047,7 +1050,7 @@ func populateLatestMLHandlers(h *handlers) {
 // Extracted from populateLatestHandlers to satisfy the funlen limit.
 func populateTransferHandlers(h *handlers) {
 	h.transfer = transferbackend.NewHandler(
-		transferbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+		transferbackend.NewInMemoryBackend(h.ctx, config.DefaultAccountID, config.DefaultRegion),
 	)
 	h.verifiedpermissions = verifiedpermissionsbackend.NewHandler(
 		verifiedpermissionsbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
@@ -1144,7 +1147,7 @@ func New(t *testing.T) *Stack {
 	t.Helper()
 
 	testLogger := logger.NewTestLogger()
-	h := newHandlers()
+	h := newHandlers(t.Context())
 
 	// Set up Echo with service registry and router.
 	e := echo.New()

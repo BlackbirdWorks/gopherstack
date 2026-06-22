@@ -7,6 +7,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 
@@ -437,11 +438,7 @@ func (db *InMemoryDB) transactTableNames(items []types.TransactWriteItem) []stri
 		}
 	}
 
-	names := make([]string, 0, len(seen))
-	for name := range seen {
-		names = append(names, name)
-	}
-	sort.Strings(names)
+	names := collections.SortedKeys(seen)
 
 	return names
 }

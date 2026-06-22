@@ -1184,7 +1184,7 @@ func TestBackend_Persistence_SnapshotRestore(t *testing.T) {
 	require.NoError(t, err)
 
 	// Snapshot.
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	// Destroy some state.
@@ -1195,7 +1195,7 @@ func TestBackend_Persistence_SnapshotRestore(t *testing.T) {
 	require.Error(t, err)
 
 	// Restore.
-	restErr := b.Restore(snap)
+	restErr := b.Restore(t.Context(), snap)
 	require.NoError(t, restErr)
 
 	// Verify restored.

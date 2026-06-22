@@ -67,11 +67,11 @@ func TestInMemoryDB_SnapshotRestore(t *testing.T) {
 			original := dynamodb.NewInMemoryDB()
 			id := tt.setup(original)
 
-			snap := original.Snapshot()
+			snap := original.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			fresh := dynamodb.NewInMemoryDB()
-			require.NoError(t, fresh.Restore(snap))
+			require.NoError(t, fresh.Restore(t.Context(), snap))
 
 			tt.verify(t, fresh, id)
 		})
@@ -82,7 +82,7 @@ func TestInMemoryDB_RestoreInvalidData(t *testing.T) {
 	t.Parallel()
 
 	db := dynamodb.NewInMemoryDB()
-	err := db.Restore([]byte("not-valid-json"))
+	err := db.Restore(t.Context(), []byte("not-valid-json"))
 	require.Error(t, err)
 }
 
@@ -105,12 +105,12 @@ func TestDynamoDBHandler_Persistence(t *testing.T) {
 	_, err := db.CreateTable(t.Context(), input)
 	require.NoError(t, err)
 
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	freshDB := dynamodb.NewInMemoryDB()
 	freshH := dynamodb.NewHandler(freshDB)
-	require.NoError(t, freshH.Restore(snap))
+	require.NoError(t, freshH.Restore(t.Context(), snap))
 
 	tables := freshDB.ListAllTables()
 	require.Len(t, tables, 1)

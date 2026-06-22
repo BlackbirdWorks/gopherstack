@@ -1197,11 +1197,11 @@ func TestSnapshotRestore_RoundTrip(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	snap := b1.Snapshot()
+	snap := b1.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	b2 := wafv2.NewInMemoryBackend("123456789012", "eu-west-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 1, wafv2.WebACLCount(b2))
 	assert.Equal(t, 1, wafv2.IPSetCount(b2))
@@ -1219,7 +1219,7 @@ func TestSnapshotRestore_NilMaps(t *testing.T) {
 
 	b := wafv2.NewInMemoryBackend("000000000000", "us-east-1")
 	snap := []byte(`{"webACLs":null,"ipSets":null,"accountID":"123","region":"us-east-1"}`)
-	require.NoError(t, b.Restore(snap))
+	require.NoError(t, b.Restore(t.Context(), snap))
 
 	// After restore with nil maps, counts should be 0 (not panic).
 	assert.Equal(t, 0, wafv2.WebACLCount(b))

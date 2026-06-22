@@ -56,11 +56,11 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			original := ec2.NewInMemoryBackend("000000000000", "us-east-1")
 			id := tt.setup(original)
 
-			snap := original.Snapshot()
+			snap := original.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			fresh := ec2.NewInMemoryBackend("000000000000", "us-east-1")
-			require.NoError(t, fresh.Restore(snap))
+			require.NoError(t, fresh.Restore(t.Context(), snap))
 
 			tt.verify(t, fresh, id)
 		})
@@ -71,7 +71,7 @@ func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	t.Parallel()
 
 	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
-	err := b.Restore([]byte("not-valid-json"))
+	err := b.Restore(t.Context(), []byte("not-valid-json"))
 	require.Error(t, err)
 }
 
@@ -90,11 +90,11 @@ func TestPersistenceNewTypes(t *testing.T) {
 	eni, err := b.CreateNetworkInterface("subnet-default", "persist-eni")
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	b2 := newTestBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	// Verify spot requests persisted
 	reqs := b2.DescribeSpotInstanceRequests([]string{req.ID})
@@ -234,11 +234,11 @@ func TestPersistenceExtended(t *testing.T) {
 			original := ec2.NewInMemoryBackend("000000000000", "us-east-1")
 			tt.setup(original)
 
-			snap := original.Snapshot()
+			snap := original.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			fresh := ec2.NewInMemoryBackend("000000000000", "us-east-1")
-			require.NoError(t, fresh.Restore(snap))
+			require.NoError(t, fresh.Restore(t.Context(), snap))
 
 			tt.verify(t, fresh)
 		})

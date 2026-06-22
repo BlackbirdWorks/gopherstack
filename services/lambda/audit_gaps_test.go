@@ -578,6 +578,7 @@ func TestAudit_RecursiveLoop_Deny_BlocksSelfInvoke(t *testing.T) {
 	t.Parallel()
 
 	bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "123456789012", "us-east-1")
+	closeBackend(t, bk)
 
 	require.NoError(t, bk.CreateFunction(&lambda.FunctionConfiguration{
 		FunctionName: "recursive-fn",
@@ -614,6 +615,7 @@ func TestAudit_RecursiveLoop_Terminate_AllowsSelfInvoke(t *testing.T) {
 	t.Parallel()
 
 	bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "123456789012", "us-east-1")
+	closeBackend(t, bk)
 
 	require.NoError(t, bk.CreateFunction(&lambda.FunctionConfiguration{
 		FunctionName: "recursive-terminate-fn",
@@ -722,6 +724,7 @@ func TestAudit_Close_CancelsPoller(t *testing.T) {
 	t.Parallel()
 
 	bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "123456789012", "us-east-1")
+	closeBackend(t, bk)
 
 	pollDone := make(chan struct{})
 	poller := lambda.NewPollerWithCancelSignal(pollDone)
@@ -796,6 +799,7 @@ func TestAudit_PublishVersion_CarriesNewFields(t *testing.T) {
 	t.Parallel()
 
 	bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "123456789012", "us-east-1")
+	closeBackend(t, bk)
 
 	require.NoError(t, bk.CreateFunction(&lambda.FunctionConfiguration{
 		FunctionName:     "pubver-fn",

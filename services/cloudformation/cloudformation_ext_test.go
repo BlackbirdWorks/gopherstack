@@ -1055,11 +1055,11 @@ func TestPersistence_SnapshotRestoreWithExtState(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, detectionID)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	fresh := cloudformation.NewInMemoryBackend()
-	require.NoError(t, fresh.Restore(snap))
+	require.NoError(t, fresh.Restore(t.Context(), snap))
 
 	gotPolicy, err := fresh.GetStackPolicy("my-stack")
 	require.NoError(t, err)
@@ -1080,11 +1080,11 @@ func TestHandler_Snapshot_Restore_Delegation(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	h2 := newHandler()
-	err = h2.Restore(snap)
+	err = h2.Restore(t.Context(), snap)
 	require.NoError(t, err)
 
 	stack, err := h2.Backend.(*cloudformation.InMemoryBackend).DescribeStack("snap-stack")

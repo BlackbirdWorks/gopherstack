@@ -189,11 +189,11 @@ func TestManagedBlockchain_PersistenceSnapshotRestore(t *testing.T) {
 			b := managedblockchain.NewInMemoryBackend()
 			tt.setup(t, b)
 
-			snap := b.Snapshot()
+			snap := b.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			b2 := managedblockchain.NewInMemoryBackend()
-			err := b2.Restore(snap)
+			err := b2.Restore(t.Context(), snap)
 			require.NoError(t, err)
 
 			tt.verify(t, b2)

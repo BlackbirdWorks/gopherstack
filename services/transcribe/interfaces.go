@@ -1,5 +1,7 @@
 package transcribe
 
+import "context"
+
 // StorageBackend defines the interface for Transcribe backend implementations.
 // All mutating methods must be safe for concurrent use.
 type StorageBackend interface {
@@ -73,8 +75,8 @@ type StorageBackend interface {
 	ListTagsForResource(resourceArn string) (map[string]string, error)
 
 	// Lifecycle
-	Snapshot() []byte
-	Restore(data []byte) error
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 }
 
 // Compile-time assertion: InMemoryBackend must implement StorageBackend.

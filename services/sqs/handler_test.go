@@ -32,6 +32,7 @@ func newTestHandler(t *testing.T) *sqs.Handler {
 	t.Helper()
 
 	backend := sqs.NewInMemoryBackend()
+	t.Cleanup(backend.Close)
 
 	return sqs.NewHandler(backend)
 }

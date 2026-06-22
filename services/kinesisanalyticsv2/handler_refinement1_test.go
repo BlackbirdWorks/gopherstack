@@ -418,12 +418,12 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	h := newRefinementHandler(b)
-	data := h.Snapshot()
+	data := h.Snapshot(t.Context())
 	require.NotNil(t, data)
 
 	b2 := newRefinementBackend()
 	h2 := newRefinementHandler(b2)
-	require.NoError(t, h2.Restore(data))
+	require.NoError(t, h2.Restore(t.Context(), data))
 
 	assert.Equal(t, 1, kinesisanalyticsv2.ApplicationCount(b2))
 	assert.Equal(t, 1, kinesisanalyticsv2.SnapshotCount(b2))
@@ -440,12 +440,12 @@ func TestRefinement1_PersistenceEmpty(t *testing.T) {
 	b := newRefinementBackend()
 	h := newRefinementHandler(b)
 
-	data := h.Snapshot()
+	data := h.Snapshot(t.Context())
 	require.NotNil(t, data)
 
 	b2 := newRefinementBackend()
 	h2 := newRefinementHandler(b2)
-	require.NoError(t, h2.Restore(data))
+	require.NoError(t, h2.Restore(t.Context(), data))
 
 	assert.Zero(t, kinesisanalyticsv2.ApplicationCount(b2))
 	assert.Zero(t, kinesisanalyticsv2.SnapshotCount(b2))
@@ -467,12 +467,12 @@ func TestRefinement1_Persistence_NextIDPreserved(t *testing.T) {
 	require.NoError(t, err)
 
 	h := newRefinementHandler(b)
-	data := h.Snapshot()
+	data := h.Snapshot(t.Context())
 	require.NotNil(t, data)
 
 	b2 := newRefinementBackend()
 	h2 := newRefinementHandler(b2)
-	require.NoError(t, h2.Restore(data))
+	require.NoError(t, h2.Restore(t.Context(), data))
 
 	// Adding another CWL option on b2 should generate a new distinct ID
 	err = b2.AddApplicationCloudWatchLoggingOption(ctx, "id-app", 0,

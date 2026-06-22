@@ -32,11 +32,11 @@ func TestRefinement1_SnapshotRestore(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	data := b.Snapshot()
+	data := b.Snapshot(t.Context())
 	require.NotNil(t, data)
 
 	b2 := pinpoint.NewInMemoryBackend("us-east-1", "123456789012")
-	require.NoError(t, b2.Restore(data))
+	require.NoError(t, b2.Restore(t.Context(), data))
 
 	assert.Equal(t, 1, pinpoint.AppCount(b2))
 	assert.Equal(t, 1, pinpoint.CampaignCount(b2))
@@ -49,11 +49,11 @@ func TestRefinement1_SnapshotRestoreEmpty(t *testing.T) {
 	t.Parallel()
 
 	b := pinpoint.NewInMemoryBackend("us-east-1", "123456789012")
-	data := b.Snapshot()
+	data := b.Snapshot(t.Context())
 	require.NotNil(t, data)
 
 	b2 := pinpoint.NewInMemoryBackend("us-east-1", "123456789012")
-	require.NoError(t, b2.Restore(data))
+	require.NoError(t, b2.Restore(t.Context(), data))
 
 	assert.Equal(t, 0, pinpoint.AppCount(b2))
 }
@@ -62,7 +62,7 @@ func TestRefinement1_RestoreInvalidJSON(t *testing.T) {
 	t.Parallel()
 
 	b := pinpoint.NewInMemoryBackend("us-east-1", "123456789012")
-	err := b.Restore([]byte("not-json"))
+	err := b.Restore(t.Context(), []byte("not-json"))
 	require.Error(t, err)
 }
 
@@ -771,11 +771,11 @@ func TestRefinement1_SnapshotRestoreARNIndexIntegrity(t *testing.T) {
 	require.NoError(t, err)
 
 	originalARNSize := pinpoint.ARNIndexSize(b)
-	data := b.Snapshot()
+	data := b.Snapshot(t.Context())
 	require.NotNil(t, data)
 
 	b2 := pinpoint.NewInMemoryBackend("us-east-1", "123456789012")
-	require.NoError(t, b2.Restore(data))
+	require.NoError(t, b2.Restore(t.Context(), data))
 
 	// ARN index should be fully rebuilt.
 	assert.Equal(t, originalARNSize, pinpoint.ARNIndexSize(b2))

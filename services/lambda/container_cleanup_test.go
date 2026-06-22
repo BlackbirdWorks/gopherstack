@@ -149,6 +149,7 @@ func TestCleanupTimedOutRuntime_RemovesFromMap(t *testing.T) {
 
 			// Create a backend with no docker client (the injected runtime bypasses docker).
 			b := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1")
+			closeBackend(t, b)
 
 			fn := &lambda.FunctionConfiguration{
 				FunctionName: "timeout-fn",
@@ -222,6 +223,7 @@ func TestCleanupTimedOutRuntime_StopsContainer(t *testing.T) {
 			dc := newTrackingDockerClient(api)
 
 			b := lambda.NewInMemoryBackend(dc, nil, lambda.DefaultSettings(), "000000000000", "us-east-1")
+			closeBackend(t, b)
 
 			fn := &lambda.FunctionConfiguration{
 				FunctionName: "stop-fn",
@@ -327,6 +329,7 @@ func TestLRUEviction(t *testing.T) {
 			settings.MaxRuntimes = tt.maxRuntimes
 
 			b := lambda.NewInMemoryBackend(dc, pa, settings, "000000000000", "us-east-1")
+			closeBackend(t, b)
 
 			// Inject existing runtimes with current timestamps.
 			for i := range tt.injectCount {
@@ -392,6 +395,7 @@ func TestDeleteFunction_StopsContainer(t *testing.T) {
 			dc := newTrackingDockerClient(api)
 
 			b := lambda.NewInMemoryBackend(dc, nil, lambda.DefaultSettings(), "000000000000", "us-east-1")
+			closeBackend(t, b)
 
 			fn := &lambda.FunctionConfiguration{
 				FunctionName: "delete-fn",
@@ -436,6 +440,7 @@ func TestClose_StopsContainer(t *testing.T) {
 			dc := newTrackingDockerClient(api)
 
 			b := lambda.NewInMemoryBackend(dc, nil, lambda.DefaultSettings(), "000000000000", "us-east-1")
+			closeBackend(t, b)
 
 			for i, cid := range tt.containerIDs {
 				fnName := fmt.Sprintf("fn-%d", i)
@@ -470,6 +475,7 @@ func TestLRUEviction_ZeroMaxRuntimes(t *testing.T) {
 	settings.MaxRuntimes = 0 // will fall back to defaultMaxRuntimes (50)
 
 	b := lambda.NewInMemoryBackend(dc, pa, settings, "000000000000", "us-east-1")
+	closeBackend(t, b)
 
 	// Inject 3 runtimes — well under the default limit of 50.
 	for i := range 3 {
@@ -511,6 +517,7 @@ func TestCleanupTimedOutRuntime_NonExistentFunction(t *testing.T) {
 			port := 20660
 
 			b := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1")
+			closeBackend(t, b)
 
 			fn := &lambda.FunctionConfiguration{
 				FunctionName: "ghost-fn",
@@ -576,6 +583,7 @@ func TestReset_StopsContainers(t *testing.T) {
 			dc := newTrackingDockerClient(api)
 
 			b := lambda.NewInMemoryBackend(dc, nil, lambda.DefaultSettings(), "000000000000", "us-east-1")
+			closeBackend(t, b)
 
 			for i, cid := range tt.containerIDs {
 				fnName := fmt.Sprintf("reset-fn-%d", i)
@@ -630,6 +638,7 @@ func TestUpdateFunction_EvictsRuntime(t *testing.T) {
 			dc := newTrackingDockerClient(api)
 
 			b := lambda.NewInMemoryBackend(dc, nil, lambda.DefaultSettings(), "000000000000", "us-east-1")
+			closeBackend(t, b)
 
 			fn := &lambda.FunctionConfiguration{
 				FunctionName: "update-fn",
@@ -687,6 +696,7 @@ func TestAsyncInvocation_TimeoutCleansUpRuntime(t *testing.T) {
 			t.Parallel()
 
 			b := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1")
+			closeBackend(t, b)
 
 			fn := &lambda.FunctionConfiguration{
 				FunctionName: "async-timeout-fn",
@@ -752,6 +762,7 @@ func TestStartupFailure_ClearsRuntimeEntry(t *testing.T) {
 			require.NoError(t, err)
 
 			b := lambda.NewInMemoryBackend(dc, pa, lambda.DefaultSettings(), "000000000000", "us-east-1")
+			closeBackend(t, b)
 
 			fn := &lambda.FunctionConfiguration{
 				FunctionName: "fail-start-fn",

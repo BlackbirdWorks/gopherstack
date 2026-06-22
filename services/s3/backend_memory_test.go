@@ -1830,10 +1830,10 @@ func TestInMemoryBackend_Persistence_NewConfigMaps(t *testing.T) {
 	require.NoError(t, b.PutBucketMetricsConfiguration(ctx, "bkt", "m1",
 		"<MetricsConfiguration><Id>m1</Id></MetricsConfiguration>"))
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 
 	b2 := newTestBackend(t)
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	got, err := b2.GetBucketAnalyticsConfiguration(ctx, "bkt", "a1")
 	require.NoError(t, err)

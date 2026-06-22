@@ -37,12 +37,6 @@ ui-build: ui-install
 	PATH="/opt/homebrew/bin:$(PATH)" NODE_OPTIONS="--max-old-space-size=4096" npm --prefix ui run build
 	touch dashboard/static/spa/.keep
 
-build-releaser:
-	go build \
-		-trimpath \
-		-ldflags "-w -s -X $(VERSION_PKG).Build=$(BUILD_VERSION)" \
-		-o bin/releaser ./pkgs/releaser/cmd/releaser
-
 build-linux:
 	CGO_ENABLED=0 GOOS=linux go build \
 		-trimpath \

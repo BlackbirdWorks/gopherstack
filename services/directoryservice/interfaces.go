@@ -200,7 +200,7 @@ type StorageBackend interface {
 	Region() string
 	Reset()
 	BackendSnapshot() []byte
-	Restore(data []byte) error
+	Restore(ctx context.Context, data []byte) error
 }
 
 // DirectorySize matches the AWS DirectorySize enum.

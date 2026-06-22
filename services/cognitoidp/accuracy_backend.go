@@ -16,6 +16,8 @@ import (
 
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // Challenge name constants for auth challenge flows.
@@ -196,7 +198,7 @@ func (b *InMemoryBackend) CreateUserPoolWithOpts(name string, opts UserPoolOptio
 	pool := &UserPool{
 		ID:                     poolID,
 		Name:                   name,
-		ARN:                    fmt.Sprintf("arn:aws:cognito-idp:%s:%s:userpool/%s", b.region, b.accountID, poolID),
+		ARN:                    arn.Build("cognito-idp", b.region, b.accountID, fmt.Sprintf("userpool/%s", poolID)),
 		CreatedAt:              time.Now(),
 		issuer:                 issuer,
 		AutoVerifiedAttributes: autoVerified,

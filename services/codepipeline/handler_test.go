@@ -1789,11 +1789,11 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	b.AddJobInternal(&codepipeline.Job{ID: "persist-job", Nonce: "nonce-42", Status: "Created"})
 	b.AddWebhookInternal(&codepipeline.Webhook{Name: "persist-wh", TargetPipeline: "persist-pl"})
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	b2 := codepipeline.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	// Verify pipeline.
 	p, err := b2.GetPipeline(context.Background(), "persist-pl")
@@ -1824,11 +1824,11 @@ func TestRefinement1_PersistenceWithStageTransitions(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, b.StageTransitionCount())
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	b2 := codepipeline.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	// Verify stage transition was restored.
 	assert.Equal(t, 1, b2.StageTransitionCount())

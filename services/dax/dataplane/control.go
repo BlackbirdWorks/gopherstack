@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 // DAX error-response constants.
@@ -257,6 +259,17 @@ func (s *Server) attrListID(names []string) int64 {
 
 	if id, ok := s.attrToID[key]; ok {
 		return id
+	}
+
+	// Bound the dictionary: eviction is unsafe (a client may reference any
+	// previously-assigned id), so on overflow we stop allocating and fall back
+	// to the empty-list id rather than risk unbounded memory growth.
+	if len(s.attrToID) >= attrListMaxCap {
+		logger.Load(s.baseCtx).WarnContext(s.baseCtx,
+			"dax: attribute-list dictionary at capacity, refusing new id",
+			"cap", attrListMaxCap)
+
+		return emptyAttributeListID
 	}
 
 	id := s.nextID

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"slices"
-	"sort"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -13,7 +12,9 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 )
 
@@ -536,8 +537,8 @@ func (db *InMemoryDB) ListGlobalTables(
 	db.mu.RLock("ListGlobalTables")
 	defer db.mu.RUnlock()
 
-	regionFilter := derefOrEmpty(input.RegionName)
-	startName := derefOrEmpty(input.ExclusiveStartGlobalTableName)
+	regionFilter := ptrconv.String(input.RegionName)
+	startName := ptrconv.String(input.ExclusiveStartGlobalTableName)
 
 	names := sortedGlobalTableNames(db.GlobalTables, startName)
 	filtered := filterGlobalTables(db.GlobalTables, names, regionFilter)
@@ -630,9 +631,9 @@ func (db *InMemoryDB) applyGlobalTableReplicaUpdate(
 ) error {
 	switch {
 	case update.Create != nil:
-		return db.applyGlobalTableReplicaCreate(name, gt, derefOrEmpty(update.Create.RegionName), source)
+		return db.applyGlobalTableReplicaCreate(name, gt, ptrconv.String(update.Create.RegionName), source)
 	case update.Delete != nil:
-		return db.applyGlobalTableReplicaDelete(name, gt, derefOrEmpty(update.Delete.RegionName))
+		return db.applyGlobalTableReplicaDelete(name, gt, ptrconv.String(update.Delete.RegionName))
 	}
 
 	return nil
@@ -735,12 +736,7 @@ func (db *InMemoryDB) buildReplicaTableLocked(name, region string, source *Table
 
 // sortedGlobalTableNames returns sorted global table names starting after startName.
 func sortedGlobalTableNames(tables map[string]*StoredGlobalTable, startName string) []string {
-	names := make([]string, 0, len(tables))
-	for name := range tables {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
+	names := collections.SortedKeys(tables)
 
 	if startName == "" {
 		return names
@@ -799,15 +795,6 @@ func applyGlobalTableLimit(list []types.GlobalTable, limit *int32) ([]types.Glob
 	last := *list[n-1].GlobalTableName
 
 	return list[:n], &last
-}
-
-// derefOrEmpty safely dereferences a *string, returning "" if nil.
-func derefOrEmpty(s *string) string {
-	if s == nil {
-		return ""
-	}
-
-	return *s
 }
 
 // --- GetResourcePolicy ---

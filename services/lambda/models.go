@@ -3,6 +3,8 @@ package lambda
 import (
 	"fmt"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // PackageTypeImage is the Image-based Lambda package type (Docker image).
@@ -669,12 +671,12 @@ type AccountSettingsOutput struct {
 
 // buildCodeSigningConfigARN constructs a Lambda code signing config ARN.
 func buildCodeSigningConfigARN(region, accountID, cscID string) string {
-	return fmt.Sprintf("arn:aws:lambda:%s:%s:code-signing-config:%s", region, accountID, cscID)
+	return arn.Build("lambda", region, accountID, fmt.Sprintf("code-signing-config:%s", cscID))
 }
 
 // buildCapacityProviderARN constructs a Lambda capacity provider ARN.
 func buildCapacityProviderARN(region, accountID, name string) string {
-	return fmt.Sprintf("arn:aws:lambda:%s:%s:capacity-provider:%s", region, accountID, name)
+	return arn.Build("lambda", region, accountID, fmt.Sprintf("capacity-provider:%s", name))
 }
 
 // CheckpointDurableExecutionInput is the request body for CheckpointDurableExecution.

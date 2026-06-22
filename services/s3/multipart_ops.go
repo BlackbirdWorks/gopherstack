@@ -16,6 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 )
 
 func (h *S3Handler) createMultipartUpload(
@@ -50,10 +51,10 @@ func (h *S3Handler) createMultipartUpload(
 		Key:                  aws.String(key),
 		Tagging:              aws.String(tagging),
 		ServerSideEncryption: types.ServerSideEncryption(sse.Algorithm),
-		SSEKMSKeyId:          nilStringIfEmpty(sse.KMSKeyID),
-		SSECustomerAlgorithm: nilStringIfEmpty(sse.SSECAlgorithm),
-		SSECustomerKeyMD5:    nilStringIfEmpty(sse.SSECKeyMD5),
-		SSECustomerKey:       nilStringIfEmpty(sse.SSECKeyB64),
+		SSEKMSKeyId:          ptrconv.NilIfEmpty(sse.KMSKeyID),
+		SSECustomerAlgorithm: ptrconv.NilIfEmpty(sse.SSECAlgorithm),
+		SSECustomerKeyMD5:    ptrconv.NilIfEmpty(sse.SSECKeyMD5),
+		SSECustomerKey:       ptrconv.NilIfEmpty(sse.SSECKeyB64),
 	})
 	if err != nil {
 		WriteError(ctx, w, r, err)

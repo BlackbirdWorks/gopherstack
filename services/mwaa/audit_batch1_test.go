@@ -2250,11 +2250,11 @@ func TestAudit_Snapshot_WithLoggingConfig(t *testing.T) {
 	_, err := b.CreateEnvironment(context.Background(), "snap-log-env", req)
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	b2.GetEnvironment(context.Background(), "snap-log-env")
 	env, err := b2.GetEnvironment(context.Background(), "snap-log-env")
@@ -2277,9 +2277,9 @@ func TestAudit_Snapshot_WithNetworkConfig(t *testing.T) {
 	_, err := b.CreateEnvironment(context.Background(), "snap-nc-env", req)
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	b2 := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	b2.GetEnvironment(context.Background(), "snap-nc-env")
 	env, err := b2.GetEnvironment(context.Background(), "snap-nc-env")

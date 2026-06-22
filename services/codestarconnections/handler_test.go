@@ -2033,11 +2033,11 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := codestarconnections.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 1, b2.ConnectionCount())
 	assert.Equal(t, 1, b2.HostCount())

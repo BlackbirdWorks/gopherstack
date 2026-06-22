@@ -84,11 +84,11 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			original := shield.NewInMemoryBackend(testAccountID, testRegion)
 			id := tt.setup(original)
 
-			snap := original.Snapshot()
+			snap := original.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			fresh := shield.NewInMemoryBackend(testAccountID, testRegion)
-			require.NoError(t, fresh.Restore(snap))
+			require.NoError(t, fresh.Restore(t.Context(), snap))
 
 			tt.verify(t, fresh, id)
 		})
@@ -99,7 +99,7 @@ func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	t.Parallel()
 
 	b := shield.NewInMemoryBackend(testAccountID, testRegion)
-	err := b.Restore([]byte("not-valid-json"))
+	err := b.Restore(t.Context(), []byte("not-valid-json"))
 	require.Error(t, err)
 }
 
@@ -150,12 +150,12 @@ func TestShieldHandler_Persistence(t *testing.T) {
 	_, err := backend.CreateProtection("test", testARN, nil)
 	require.NoError(t, err)
 
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	fresh := shield.NewInMemoryBackend(testAccountID, testRegion)
 	freshH := shield.NewHandler(fresh)
-	require.NoError(t, freshH.Restore(snap))
+	require.NoError(t, freshH.Restore(t.Context(), snap))
 
 	assert.Len(t, fresh.ListProtections(), 1)
 }

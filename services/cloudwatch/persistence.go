@@ -1,8 +1,10 @@
 package cloudwatch
 
 import (
+	"context"
 	"encoding/json"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -24,7 +26,7 @@ type backendSnapshot struct {
 
 // Snapshot serialises the backend state to JSON.
 // It implements persistence.Persistable.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
@@ -44,20 +46,15 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		TotalMetrics:     b.totalMetrics,
 	}
 
-	data, err := json.Marshal(snap)
-	if err != nil {
-		return nil
-	}
-
-	return data
+	return persistence.MarshalSnapshot(ctx, "cloudwatch", snap)
 }
 
 // Restore loads backend state from a JSON snapshot.
 // It implements persistence.Persistable.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "cloudwatch", data, &snap); err != nil {
 		return err
 	}
 
@@ -137,12 +134,14 @@ type handlerSnapshot struct {
 
 // Snapshot implements persistence.Persistable by delegating to the backend and
 // also persisting the handler-level resource tags.
-func (h *Handler) Snapshot() []byte {
-	type snapshotter interface{ Snapshot() []byte }
+func (h *Handler) Snapshot(ctx context.Context) []byte {
+	type snapshotter interface {
+		Snapshot(ctx context.Context) []byte
+	}
 
 	var backendData []byte
 	if s, ok := h.Backend.(snapshotter); ok {
-		backendData = s.Snapshot()
+		backendData = s.Snapshot(ctx)
 	}
 
 	h.tagsMu.RLock("Snapshot")
@@ -164,13 +163,15 @@ func (h *Handler) Snapshot() []byte {
 
 // Restore implements persistence.Persistable by delegating to the backend and
 // restoring the handler-level resource tags.
-func (h *Handler) Restore(data []byte) error {
+func (h *Handler) Restore(ctx context.Context, data []byte) error {
 	// Attempt to unmarshal as a handlerSnapshot first.
 	var hs handlerSnapshot
 	if unmarshalErr := json.Unmarshal(data, &hs); unmarshalErr == nil && hs.Backend != nil {
-		type restorer interface{ Restore([]byte) error }
+		type restorer interface {
+			Restore(context.Context, []byte) error
+		}
 		if r, ok := h.Backend.(restorer); ok {
-			if err := r.Restore(hs.Backend); err != nil {
+			if err := r.Restore(ctx, hs.Backend); err != nil {
 				return err
 			}
 		}
@@ -186,9 +187,11 @@ func (h *Handler) Restore(data []byte) error {
 	}
 
 	// Fall back: treat data as a bare backend snapshot (backward compatibility).
-	type restorer interface{ Restore([]byte) error }
+	type restorer interface {
+		Restore(context.Context, []byte) error
+	}
 	if r, ok := h.Backend.(restorer); ok {
-		return r.Restore(data)
+		return r.Restore(ctx, data)
 	}
 
 	return nil

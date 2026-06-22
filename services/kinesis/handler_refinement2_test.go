@@ -908,11 +908,11 @@ func TestRefinement2_NextSeq_Serialized(t *testing.T) {
 			require.NoError(t, err)
 			firstSeq := out.SequenceNumber
 
-			snapshot := b.Snapshot()
+			snapshot := b.Snapshot(t.Context())
 			require.NotNil(t, snapshot)
 
 			b2 := kinesis.NewInMemoryBackend()
-			require.NoError(t, b2.Restore(snapshot))
+			require.NoError(t, b2.Restore(t.Context(), snapshot))
 
 			out2, err := b2.PutRecord(context.Background(), &kinesis.PutRecordInput{
 				StreamName:   tt.streamName,

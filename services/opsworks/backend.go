@@ -1,7 +1,7 @@
 package opsworks
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
 	"maps"
 	"strings"
@@ -9,8 +9,10 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 const (
@@ -260,11 +262,11 @@ func (b *InMemoryBackend) Reset() {
 }
 
 // Snapshot serializes the backend state.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	data, _ := json.Marshal(snapshot{
+	return persistence.MarshalSnapshot(ctx, "opsworks", snapshot{
 		Stacks:      b.stacks,
 		Layers:      b.layers,
 		Instances:   b.instances,
@@ -273,14 +275,12 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Commands:    b.commands,
 		Tags:        b.tags,
 	})
-
-	return data
 }
 
 // Restore deserializes backend state from a snapshot.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var s snapshot
-	if err := json.Unmarshal(data, &s); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "opsworks", data, &s); err != nil {
 		return err
 	}
 
@@ -299,19 +299,19 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 }
 
 func (b *InMemoryBackend) stackARN(stackID string) string {
-	return fmt.Sprintf("arn:aws:opsworks:%s:%s:stack/%s", b.region, b.accountID, stackID)
+	return arn.Build("opsworks", b.region, b.accountID, fmt.Sprintf("stack/%s", stackID))
 }
 
 func (b *InMemoryBackend) layerARN(layerID string) string {
-	return fmt.Sprintf("arn:aws:opsworks:%s:%s:layer/%s", b.region, b.accountID, layerID)
+	return arn.Build("opsworks", b.region, b.accountID, fmt.Sprintf("layer/%s", layerID))
 }
 
 func (b *InMemoryBackend) instanceARN(instanceID string) string {
-	return fmt.Sprintf("arn:aws:opsworks:%s:%s:instance/%s", b.region, b.accountID, instanceID)
+	return arn.Build("opsworks", b.region, b.accountID, fmt.Sprintf("instance/%s", instanceID))
 }
 
 func (b *InMemoryBackend) appARN(appID string) string {
-	return fmt.Sprintf("arn:aws:opsworks:%s:%s:app/%s", b.region, b.accountID, appID)
+	return arn.Build("opsworks", b.region, b.accountID, fmt.Sprintf("app/%s", appID))
 }
 
 // CreateStack creates a new OpsWorks stack.

@@ -3,6 +3,8 @@ package timestreamwrite
 import (
 	"context"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/worker"
 )
 
 const (
@@ -25,15 +27,9 @@ func NewJanitor(backend *InMemoryBackend) *Janitor {
 
 // Run runs the janitor loop until ctx is cancelled.
 func (j *Janitor) Run(ctx context.Context) {
-	ticker := time.NewTicker(j.Interval)
-	defer ticker.Stop()
+	g := worker.NewGroup(ctx, "timestreamwrite")
+	g.Ticker("RetentionSweeper", j.Interval, 0, j.Backend.SweepRetention)
 
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			j.Backend.SweepRetention(ctx)
-		}
-	}
+	<-ctx.Done()
+	g.Stop()
 }

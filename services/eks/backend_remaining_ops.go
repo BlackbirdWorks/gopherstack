@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -149,13 +150,7 @@ func (b *InMemoryBackend) ListAddons(clusterName string) ([]string, error) {
 	}
 
 	addons := b.addons[clusterName]
-	names := make([]string, 0, len(addons))
-
-	for name := range addons {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
+	names := collections.SortedKeys(addons)
 
 	return names, nil
 }
@@ -337,12 +332,7 @@ func (b *InMemoryBackend) ListCapabilities() []string {
 	b.mu.RLock("ListCapabilities")
 	defer b.mu.RUnlock()
 
-	names := make([]string, 0, len(b.capabilities))
-	for name := range b.capabilities {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
+	names := collections.SortedKeys(b.capabilities)
 
 	return names
 }
@@ -665,13 +655,7 @@ func (b *InMemoryBackend) ListFargateProfiles(clusterName string) ([]string, err
 	}
 
 	profiles := b.fargateProfiles[clusterName]
-	names := make([]string, 0, len(profiles))
-
-	for name := range profiles {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
+	names := collections.SortedKeys(profiles)
 
 	return names, nil
 }
@@ -722,13 +706,7 @@ func (b *InMemoryBackend) ListAccessEntries(clusterName string) ([]string, error
 	}
 
 	entries := b.accessEntries[clusterName]
-	arns := make([]string, 0, len(entries))
-
-	for principalARN := range entries {
-		arns = append(arns, principalARN)
-	}
-
-	sort.Strings(arns)
+	arns := collections.SortedKeys(entries)
 
 	return arns, nil
 }
@@ -1201,12 +1179,7 @@ func mergeClusterLogEntries(existing []ClusterLogEntry, updates []ClusterLogEntr
 		return nil
 	}
 
-	enabled := make([]string, 0, len(merged))
-	for t := range merged {
-		enabled = append(enabled, t)
-	}
-
-	sort.Strings(enabled)
+	enabled := collections.SortedKeys(merged)
 
 	return []ClusterLogEntry{{Types: enabled, Enabled: true}}
 }
@@ -1317,13 +1290,7 @@ func (b *InMemoryBackend) ListUpdates(clusterName string) ([]string, error) {
 	}
 
 	clusterUpdates := b.updates[clusterName]
-	ids := make([]string, 0, len(clusterUpdates))
-
-	for id := range clusterUpdates {
-		ids = append(ids, id)
-	}
-
-	sort.Strings(ids)
+	ids := collections.SortedKeys(clusterUpdates)
 
 	return ids, nil
 }

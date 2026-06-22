@@ -95,7 +95,7 @@ func TestSNS_SQS_Envelope_NonRaw_MessageAttributes(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			snsBk, sqsBk := newWiredPair()
+			snsBk, sqsBk := newWiredPair(t)
 
 			_, err := sqsBk.CreateQueue(&sqs.CreateQueueInput{
 				QueueName: "env-attr-queue",
@@ -160,7 +160,7 @@ func TestSNS_SQS_Envelope_NonRaw_Signature(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			snsBk, sqsBk := newWiredPair()
+			snsBk, sqsBk := newWiredPair(t)
 
 			_, err := sqsBk.CreateQueue(&sqs.CreateQueueInput{
 				QueueName: "sig-check-queue",
@@ -202,7 +202,7 @@ func TestSNS_SQS_Envelope_NonRaw_Signature(t *testing.T) {
 func TestSNS_SQS_Envelope_NonRaw_SignatureCertParseable(t *testing.T) {
 	t.Parallel()
 
-	snsBk, sqsBk := newWiredPair()
+	snsBk, sqsBk := newWiredPair(t)
 
 	_, err := sqsBk.CreateQueue(&sqs.CreateQueueInput{
 		QueueName: "cert-parse-queue",
@@ -240,7 +240,7 @@ func TestSNS_SQS_Envelope_NonRaw_SignatureCertParseable(t *testing.T) {
 func TestSNS_SQS_Envelope_NonRaw_UnsubscribeURL(t *testing.T) {
 	t.Parallel()
 
-	snsBk, sqsBk := newWiredPair()
+	snsBk, sqsBk := newWiredPair(t)
 
 	_, err := sqsBk.CreateQueue(&sqs.CreateQueueInput{
 		QueueName: "unsub-queue",

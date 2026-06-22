@@ -120,11 +120,11 @@ func TestFIS_PersistenceSnapshotRestore(t *testing.T) {
 			b := fis.NewTestBackend()
 			tt.setup(b)
 
-			snap := b.Snapshot()
+			snap := b.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			b2 := fis.NewTestBackend()
-			err := b2.Restore(snap)
+			err := b2.Restore(t.Context(), snap)
 			require.NoError(t, err)
 
 			tt.verify(t, b2)

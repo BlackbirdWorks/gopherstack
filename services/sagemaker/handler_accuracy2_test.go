@@ -549,11 +549,11 @@ func TestHandler_Persistence_TransformJob(t *testing.T) {
 		"TransformResources": map[string]any{"InstanceType": "ml.m5.large", "InstanceCount": 1},
 	})
 
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	h2 := sagemaker.NewHandler(sagemaker.NewInMemoryBackend("000000000000", "us-east-1"))
-	require.NoError(t, h2.Restore(snap))
+	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	rec := doSageMakerRequest(t, h2, "DescribeTransformJob", map[string]any{
 		"TransformJobName": "snap-transform",

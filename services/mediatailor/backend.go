@@ -1,7 +1,7 @@
 package mediatailor
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
 	"maps"
 	"sort"
@@ -10,6 +10,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 const (
@@ -247,7 +248,7 @@ func (b *InMemoryBackend) Reset() {
 }
 
 // Snapshot serializes current state to JSON.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
@@ -261,15 +262,13 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Region:                 b.region,
 	}
 
-	data, _ := json.Marshal(s)
-
-	return data
+	return persistence.MarshalSnapshot(ctx, "mediatailor", s)
 }
 
 // Restore deserializes state from JSON.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var s snapshot
-	if err := json.Unmarshal(data, &s); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "mediatailor", data, &s); err != nil {
 		return err
 	}
 
@@ -1263,12 +1262,12 @@ func (b *InMemoryBackend) PutFunction(
 	b.mu.Lock("PutFunction")
 	defer b.mu.Unlock()
 
-	arn := fmt.Sprintf("arn:aws:mediatailor:%s:%s:function/%s", b.region, b.accountID, functionID)
+	arnStr := arn.Build("mediatailor", b.region, b.accountID, fmt.Sprintf("function/%s", functionID))
 	fn := &Function{
 		Tags:         copyTags(tags),
 		FunctionID:   functionID,
 		FunctionType: functionType,
-		ARN:          arn,
+		ARN:          arnStr,
 		Description:  description,
 	}
 	b.functions[functionID] = fn

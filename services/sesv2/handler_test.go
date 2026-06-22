@@ -740,12 +740,12 @@ func TestSESv2Handler_Persistence(t *testing.T) {
 	)
 
 	// Snapshot.
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	assert.NotEmpty(t, snap)
 
 	// Restore to a fresh backend.
 	h2 := newHandler()
-	require.NoError(t, h2.Restore(snap))
+	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	// Verify state was restored.
 	rec := doRequest(t, h2, http.MethodGet, "/v2/email/identities/persist@example.com", nil)

@@ -2159,11 +2159,11 @@ func TestRefinement1_PersistenceRoundTripWithPrincipalTags(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, setRec.Code)
 
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	h2 := newTestHandler(t)
-	require.NoError(t, h2.Restore(snap))
+	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 1, h2.Backend.PoolCount())
 	assert.Equal(t, 1, h2.Backend.PrincipalTagCount())

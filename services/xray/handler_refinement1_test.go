@@ -423,11 +423,11 @@ func TestRefinement1_SnapshotRestoreWithEncryptionConfig(t *testing.T) {
 	_, err := b.PutEncryptionConfig("KMS", "arn:aws:kms:us-east-1:123:key/abc")
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := xray.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	cfg := b2.GetEncryptionConfig()
 	assert.Equal(t, "KMS", cfg.Type)
@@ -441,11 +441,11 @@ func TestRefinement1_SnapshotRestoreWithIndexingRules(t *testing.T) {
 	b := xray.NewInMemoryBackend()
 
 	// Default backend has at least one indexing rule.
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := xray.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	rules := b2.GetIndexingRules()
 	assert.NotEmpty(t, rules)
@@ -531,11 +531,11 @@ func TestRefinement1_SnapshotRestorePreservesGroups(t *testing.T) {
 	_, err := b.CreateGroup("snap-group", `service("svc")`)
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := xray.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	g, err := b2.GetGroup("snap-group")
 	require.NoError(t, err)

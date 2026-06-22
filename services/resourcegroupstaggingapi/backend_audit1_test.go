@@ -1461,10 +1461,10 @@ func TestAudit1_SnapshotRestore_ProvidersClearedTaggersCleared(t *testing.T) {
 	require.Equal(t, 1, resourcegroupstaggingapi.TaggerCount(b))
 	require.Equal(t, 1, resourcegroupstaggingapi.UntaggerCount(b))
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 
 	b2 := newBackend(t)
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	// Providers, taggers, and untaggers are runtime callbacks; they cannot be serialized.
 	assert.Equal(t, 0, resourcegroupstaggingapi.ProviderCount(b2))

@@ -62,7 +62,7 @@ func TestBatch2_ComputeConfig_RoundTrip(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestEKSHandler()
+			h := newTestEKSHandler(t)
 			rec := doREST(t, h, http.MethodPost, "/clusters", tt.body)
 			require.Equal(t, http.StatusOK, rec.Code)
 
@@ -80,7 +80,7 @@ func TestBatch2_ComputeConfig_RoundTrip(t *testing.T) {
 func TestBatch2_ComputeConfig_NodeRoleArn_And_NodePools(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	rec := doREST(t, h, http.MethodPost, "/clusters", map[string]any{
 		"name": "auto-full",
 		"computeConfig": map[string]any{
@@ -140,7 +140,7 @@ func TestBatch2_StorageConfig_RoundTrip(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestEKSHandler()
+			h := newTestEKSHandler(t)
 			rec := doREST(t, h, http.MethodPost, "/clusters", tt.body)
 			require.Equal(t, http.StatusOK, rec.Code)
 
@@ -158,7 +158,7 @@ func TestBatch2_StorageConfig_RoundTrip(t *testing.T) {
 func TestBatch2_NetworkingConfig_RoundTrip(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	rec := doREST(t, h, http.MethodPost, "/clusters", map[string]any{
 		"name": "net-cluster",
 		"networkingConfig": map[string]any{
@@ -219,7 +219,7 @@ func TestBatch2_AccessConfig_RoundTrip(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestEKSHandler()
+			h := newTestEKSHandler(t)
 			rec := doREST(t, h, http.MethodPost, "/clusters", tt.body)
 			require.Equal(t, http.StatusOK, rec.Code)
 
@@ -237,7 +237,7 @@ func TestBatch2_AccessConfig_RoundTrip(t *testing.T) {
 func TestBatch2_AccessConfig_Absent_When_Not_Provided(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "no-ac"})
 
 	desc := doREST(t, h, http.MethodGet, "/clusters/no-ac", nil)
@@ -253,7 +253,7 @@ func TestBatch2_AccessConfig_Absent_When_Not_Provided(t *testing.T) {
 func TestBatch2_UpdateClusterConfig_AccessConfig(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 	_, err := b.CreateCluster("upd-ac", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 
@@ -271,7 +271,7 @@ func TestBatch2_UpdateClusterConfig_AccessConfig(t *testing.T) {
 func TestBatch2_UpdateClusterConfig_SubnetIDs(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 	_, err := b.CreateCluster("upd-subnets", "1.32", "", &eks.VpcConfig{
 		SubnetIDs: []string{"subnet-old"},
 	}, nil, nil)
@@ -291,7 +291,7 @@ func TestBatch2_UpdateClusterConfig_SubnetIDs(t *testing.T) {
 func TestBatch2_UpdateClusterConfig_SubnetIDs_Via_Handler(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{
 		"name": "upd-sub-cluster",
 		"resourcesVpcConfig": map[string]any{
@@ -317,7 +317,7 @@ func TestBatch2_UpdateClusterConfig_SubnetIDs_Via_Handler(t *testing.T) {
 func TestBatch2_UpdateClusterConfig_ComputeConfig(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 	_, err := b.CreateCluster("upd-compute", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 
@@ -353,7 +353,7 @@ func TestBatch2_AccessEntry_KubernetesGroups_Create(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestEKSHandler()
+			h := newTestEKSHandler(t)
 			doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "ae-cluster-" + tt.name})
 
 			body := map[string]any{
@@ -383,7 +383,7 @@ func TestBatch2_AccessEntry_KubernetesGroups_Create(t *testing.T) {
 func TestBatch2_AccessEntry_KubernetesGroups_Update(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "ae-upd-cluster"})
 	doREST(t, h, http.MethodPost, "/clusters/ae-upd-cluster/access-entries", map[string]any{
 		"principalArn": "arn:aws:iam::123456789012:role/my-role",
@@ -407,7 +407,7 @@ func TestBatch2_AccessEntry_KubernetesGroups_Update(t *testing.T) {
 func TestBatch2_AccessEntry_KubernetesGroups_Backend_DirectCreate(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 
@@ -425,7 +425,7 @@ func TestBatch2_AccessEntry_KubernetesGroups_Backend_DirectCreate(t *testing.T) 
 func TestBatch2_AccessEntry_KubernetesGroups_Backend_Update(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 
@@ -446,7 +446,7 @@ func TestBatch2_AccessEntry_KubernetesGroups_Backend_Update(t *testing.T) {
 func TestBatch2_Nodegroup_UpdateConfig_Create(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "ng-uc-cluster"})
 
 	maxUnavail := int32(2)
@@ -494,7 +494,7 @@ func TestBatch2_Nodegroup_UpdateConfig_Via_UpdateNodegroupConfig(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestEKSHandler()
+			h := newTestEKSHandler(t)
 			doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "ng-uc-upd-" + tt.name})
 			doREST(t, h, http.MethodPost, "/clusters/ng-uc-upd-"+tt.name+"/node-groups", map[string]any{
 				"nodegroupName": "ng1",
@@ -574,7 +574,7 @@ func TestBatch2_UpdateNodegroupConfig_Labels(t *testing.T) {
 			t.Parallel()
 
 			clusterName := "ng-lbl-" + tt.name
-			h := newTestEKSHandler()
+			h := newTestEKSHandler(t)
 			doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": clusterName})
 			doREST(t, h, http.MethodPost, "/clusters/"+clusterName+"/node-groups", tt.setup)
 
@@ -648,7 +648,7 @@ func TestBatch2_UpdateNodegroupConfig_Taints(t *testing.T) {
 			t.Parallel()
 
 			clusterName := "ng-tnt-" + tt.name
-			h := newTestEKSHandler()
+			h := newTestEKSHandler(t)
 			doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": clusterName})
 			doREST(t, h, http.MethodPost, "/clusters/"+clusterName+"/node-groups", tt.setup)
 
@@ -666,7 +666,7 @@ func TestBatch2_UpdateNodegroupConfig_Taints(t *testing.T) {
 func TestBatch2_UpdateNodegroupConfig_Backend_Taints(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 
@@ -724,7 +724,7 @@ func TestBatch2_FargateProfile_Subnets_RoundTrip(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestEKSHandler()
+			h := newTestEKSHandler(t)
 			doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "fp-sub-" + tt.name})
 
 			body := map[string]any{
@@ -755,7 +755,7 @@ func TestBatch2_FargateProfile_Subnets_RoundTrip(t *testing.T) {
 func TestBatch2_FargateProfile_Subnets_Describe(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 
@@ -772,7 +772,7 @@ func TestBatch2_FargateProfile_Subnets_Describe(t *testing.T) {
 func TestBatch2_FargateProfile_Subnets_DeepCopy(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 
@@ -794,7 +794,7 @@ func TestBatch2_FargateProfile_Subnets_DeepCopy(t *testing.T) {
 func TestBatch2_PodIdentity_AssocID_IsUUID(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "pi-uuid-cluster"})
 
 	rec := doREST(t, h, http.MethodPost, "/clusters/pi-uuid-cluster/pod-identity-associations", map[string]any{
@@ -813,7 +813,7 @@ func TestBatch2_PodIdentity_AssocID_IsUUID(t *testing.T) {
 func TestBatch2_PodIdentity_DifferentAssocIDs_SameNamespaceSA(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 
@@ -834,7 +834,7 @@ func TestBatch2_PodIdentity_DifferentAssocIDs_SameNamespaceSA(t *testing.T) {
 func TestBatch2_Insights_InsightStatus_Object(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "ins-cluster"})
 
 	rec := doREST(t, h, http.MethodGet, "/clusters/ins-cluster/insights", nil)
@@ -856,7 +856,7 @@ func TestBatch2_Insights_InsightStatus_Object(t *testing.T) {
 func TestBatch2_DescribeInsight_InsightStatus_Object(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "di-cluster"})
 
 	rec := doREST(t, h, http.MethodGet, "/clusters/di-cluster/insights/some-insight-id", nil)
@@ -901,7 +901,7 @@ func TestBatch2_RegisterCluster_ConnectorConfig_Nested(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestEKSHandler()
+			h := newTestEKSHandler(t)
 			// RegisterCluster path is POST /clusters/{placeholder}/register
 			// The cluster name comes from the request body, not the path.
 			rec := doREST(t, h, http.MethodPost, "/clusters/placeholder/register", tt.body)
@@ -920,7 +920,7 @@ func TestBatch2_RegisterCluster_ConnectorConfig_Nested(t *testing.T) {
 func TestBatch2_FargateProfile_Subnets_Preserved_On_Delete(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 
@@ -941,7 +941,7 @@ func TestBatch2_FargateProfile_Subnets_Preserved_On_Delete(t *testing.T) {
 func TestBatch2_AccessEntry_KubernetesGroups_AlwaysPresent(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "ae-always-cluster"})
 	doREST(t, h, http.MethodPost, "/clusters/ae-always-cluster/access-entries", map[string]any{
 		"principalArn": "arn:aws:iam::123456789012:role/r1",
@@ -963,7 +963,7 @@ func TestBatch2_AccessEntry_KubernetesGroups_AlwaysPresent(t *testing.T) {
 func TestBatch2_Nodegroup_UpdateConfig_AbsentWhenNotSet(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "ng-no-uc-cluster"})
 	doREST(t, h, http.MethodPost, "/clusters/ng-no-uc-cluster/node-groups", map[string]any{
 		"nodegroupName": "ng1",
@@ -984,7 +984,7 @@ func TestBatch2_Nodegroup_UpdateConfig_AbsentWhenNotSet(t *testing.T) {
 func TestBatch2_UpdateClusterConfig_Handler_AccessConfig(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "upd-ac-handler"})
 
 	rec := doREST(t, h, http.MethodPut, "/clusters/upd-ac-handler", map[string]any{
@@ -1004,7 +1004,7 @@ func TestBatch2_UpdateClusterConfig_Handler_AccessConfig(t *testing.T) {
 func TestBatch2_UpdateClusterConfig_Handler_ComputeConfig(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "upd-cc-handler"})
 
 	rec := doREST(t, h, http.MethodPut, "/clusters/upd-cc-handler", map[string]any{

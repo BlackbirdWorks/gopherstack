@@ -658,12 +658,12 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	b.AddPartnerSourceInternal(&eventbridge.PartnerEventSource{Name: "ps1"})
 
 	// Snapshot
-	data := b.Snapshot()
+	data := b.Snapshot(t.Context())
 	require.NotNil(t, data)
 
 	// Restore into a new backend
 	b2 := eventbridge.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(data))
+	require.NoError(t, b2.Restore(t.Context(), data))
 
 	assert.Equal(t, b.APIDestinationCount(), b2.APIDestinationCount())
 	assert.Equal(t, b.ArchiveCount(), b2.ArchiveCount())

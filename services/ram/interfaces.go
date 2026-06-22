@@ -1,5 +1,7 @@
 package ram
 
+import "context"
+
 // StorageBackend defines the interface for the AWS RAM in-memory backend.
 // All mutating methods must be safe for concurrent use.
 type StorageBackend interface {
@@ -56,8 +58,8 @@ type StorageBackend interface {
 	GetResourcePolicies(resourceARNs []string) []string
 
 	// Persistence
-	Snapshot() []byte
-	Restore(data []byte) error
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 
 	// Lifecycle
 	Reset()

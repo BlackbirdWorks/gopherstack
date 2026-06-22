@@ -588,11 +588,11 @@ func TestInMemoryBackend_PersistenceSnapshotRestore(t *testing.T) {
 			b := newBackend()
 			tt.setup(b)
 
-			snap := b.Snapshot()
+			snap := b.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			b2 := newBackend()
-			require.NoError(t, b2.Restore(snap))
+			require.NoError(t, b2.Restore(t.Context(), snap))
 
 			apps, _, err := b2.ListApplications(context.Background(), "", 0)
 			require.NoError(t, err)
@@ -615,7 +615,7 @@ func TestInMemoryBackend_PersistenceSnapshotRestore(t *testing.T) {
 			// Snapshot isolation: mutating b2 should not affect original snapshot bytes.
 			if tt.wantLen > 0 {
 				_, _ = kinesisanalytics.CreateApp(b2, testRegion, testAccountID, "extra-app", "", "", nil)
-				snap2 := b2.Snapshot()
+				snap2 := b2.Snapshot(t.Context())
 				assert.NotEqual(t, snap, snap2)
 			}
 		})

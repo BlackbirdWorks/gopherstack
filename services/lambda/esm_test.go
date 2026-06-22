@@ -25,6 +25,7 @@ func newRealHandler(t *testing.T) (*lambda.Handler, *lambda.InMemoryBackend) {
 		nil, nil, lambda.DefaultSettings(),
 		"000000000000", "us-east-1",
 	)
+	closeBackend(t, backend)
 	handler := lambda.NewHandler(backend)
 
 	return handler, backend

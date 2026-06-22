@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -1283,11 +1284,7 @@ func (h *Handler) handleListTagsForResource(
 	if err != nil {
 		return nil, err
 	}
-	keys := make([]string, 0, len(tagMap))
-	for k := range tagMap {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
+	keys := collections.SortedKeys(tagMap)
 	tags := make([]resourceTag, 0, len(keys))
 	for _, k := range keys {
 		tags = append(tags, resourceTag{Key: k, Value: tagMap[k]})

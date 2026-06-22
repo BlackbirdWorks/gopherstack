@@ -831,11 +831,11 @@ func TestNewOps_PersistenceRoundTrip(t *testing.T) {
 	require.NoError(t, b.AcceptDelegationRequest(req.DelegationID))
 
 	// Snapshot and restore.
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := iam.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	// Creating another version should work as there's already 1 extra version.
 	pv, err := b2.CreatePolicyVersion(

@@ -13,6 +13,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -1066,12 +1067,7 @@ func (b *InMemoryBackend) ListEnvironmentsPage(
 	defer b.mu.RUnlock()
 
 	environments := b.environmentsStore(region)
-	all := make([]string, 0, len(environments))
-	for name := range environments {
-		all = append(all, name)
-	}
-
-	sort.Strings(all)
+	all := collections.SortedKeys(environments)
 
 	startIdx := 0
 	if nextToken != "" {

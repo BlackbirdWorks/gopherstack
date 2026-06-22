@@ -548,13 +548,13 @@ func TestHandlerPersistence_NoopBackend(t *testing.T) {
 			h := apigateway.NewHandler(&noopBackend{})
 
 			if tt.wantNilSnap {
-				snap := h.Snapshot()
+				snap := h.Snapshot(t.Context())
 				assert.Nil(t, snap)
 
 				return
 			}
 
-			err := h.Restore([]byte(`{"apis":{}}`))
+			err := h.Restore(t.Context(), []byte(`{"apis":{}}`))
 			require.NoError(t, err)
 		})
 	}
@@ -585,7 +585,7 @@ func TestInMemoryBackend_RestoreWithNilMaps(t *testing.T) {
 			t.Parallel()
 
 			b := apigateway.NewInMemoryBackend()
-			err := b.Restore([]byte(tt.snapshot))
+			err := b.Restore(t.Context(), []byte(tt.snapshot))
 			require.NoError(t, err)
 
 			// The Restore should have initialised the empty maps – calling GetResources

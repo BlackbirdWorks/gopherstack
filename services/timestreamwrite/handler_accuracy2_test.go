@@ -1760,7 +1760,7 @@ func TestAccuracy2_SnapshotRestorePreservesKmsKeyId(t *testing.T) {
 	require.NoError(t, err)
 
 	b2 := timestreamwrite.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(data))
+	require.NoError(t, b2.Restore(t.Context(), data))
 
 	db, err := b2.DescribeDatabase("snap-kms-db")
 	require.NoError(t, err)
@@ -1797,7 +1797,7 @@ func TestAccuracy2_SnapshotRestorePreservesBatchLoadTaskProgressReport(t *testin
 	require.NoError(t, err)
 
 	b2 := timestreamwrite.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(data))
+	require.NoError(t, b2.Restore(t.Context(), data))
 
 	task, err := b2.DescribeBatchLoadTask("snap-pr-task")
 	require.NoError(t, err)

@@ -9,7 +9,9 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
 
 // --- error sentinels ---
@@ -1048,14 +1050,14 @@ func (b *InMemoryBackend) CreateMalwareProtectionPlan(
 	defer b.mu.Unlock()
 
 	planID := strings.ReplaceAll(uuid.New().String(), "-", "")
-	arn := fmt.Sprintf(
-		"arn:aws:guardduty:%s:%s:malware-protection-plan/%s",
-		b.region, b.accountID, planID,
+	planARN := arn.Build(
+		"guardduty", b.region, b.accountID,
+		fmt.Sprintf("malware-protection-plan/%s", planID),
 	)
 
 	plan := &MalwareProtectionPlan{
 		MalwareProtectionPlanID: planID,
-		Arn:                     arn,
+		Arn:                     planARN,
 		Role:                    role,
 		Status:                  "ACTIVE",
 		CreatedAt:               time.Now().UTC(),
@@ -1067,7 +1069,7 @@ func (b *InMemoryBackend) CreateMalwareProtectionPlan(
 	b.malwareProtectionPlans[planID] = plan
 
 	if tags != nil {
-		b.tags[arn] = maps.Clone(tags)
+		b.tags[planARN] = maps.Clone(tags)
 	}
 
 	return plan, nil
@@ -1236,12 +1238,7 @@ func (b *InMemoryBackend) ListThreatEntitySets(detectorID string) ([]string, err
 		return nil, ErrDetectorNotFound
 	}
 
-	ids := make([]string, 0, len(b.threatEntitySets[detectorID]))
-	for id := range b.threatEntitySets[detectorID] {
-		ids = append(ids, id)
-	}
-
-	sort.Strings(ids)
+	ids := collections.SortedKeys(b.threatEntitySets[detectorID])
 
 	return ids, nil
 }
@@ -1376,12 +1373,7 @@ func (b *InMemoryBackend) ListTrustedEntitySets(detectorID string) ([]string, er
 		return nil, ErrDetectorNotFound
 	}
 
-	ids := make([]string, 0, len(b.trustedEntitySets[detectorID]))
-	for id := range b.trustedEntitySets[detectorID] {
-		ids = append(ids, id)
-	}
-
-	sort.Strings(ids)
+	ids := collections.SortedKeys(b.trustedEntitySets[detectorID])
 
 	return ids, nil
 }

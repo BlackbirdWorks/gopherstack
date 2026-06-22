@@ -19,6 +19,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 )
 
 type objectCommonDetails struct {
@@ -419,8 +420,8 @@ func buildPutObjectInput(
 		Body:               body,
 		Metadata:           userMeta,
 		ContentType:        aws.String(r.Header.Get("Content-Type")),
-		ContentEncoding:    nilStringIfEmpty(r.Header.Get("Content-Encoding")),
-		ContentDisposition: nilStringIfEmpty(r.Header.Get("Content-Disposition")),
+		ContentEncoding:    ptrconv.NilIfEmpty(r.Header.Get("Content-Encoding")),
+		ContentDisposition: ptrconv.NilIfEmpty(r.Header.Get("Content-Disposition")),
 		ChecksumAlgorithm:  types.ChecksumAlgorithm(algo),
 		ChecksumCRC32:      crc32p,
 		ChecksumCRC32C:     crc32cp,

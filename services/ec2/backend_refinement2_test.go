@@ -126,11 +126,11 @@ func TestRefinement2_SnapshotPersistence(t *testing.T) {
 	_, err = b.CreateSnapshot(vol.ID, "persisted")
 	require.NoError(t, err)
 
-	data := b.Snapshot()
+	data := b.Snapshot(t.Context())
 	require.NotNil(t, data)
 
 	b2 := ec2.NewInMemoryBackend("123456789012", "us-east-1")
-	require.NoError(t, b2.Restore(data))
+	require.NoError(t, b2.Restore(t.Context(), data))
 
 	snaps := b2.DescribeSnapshots(nil)
 	assert.Len(t, snaps, 1)
@@ -340,11 +340,11 @@ func TestRefinement2_NetworkAclPersistence(t *testing.T) {
 		b.CreateNetworkACLEntry(acl.ID, 100, "6", "allow", "0.0.0.0/0", false, 80, 80),
 	)
 
-	data := b.Snapshot()
+	data := b.Snapshot(t.Context())
 	require.NotNil(t, data)
 
 	b2 := ec2.NewInMemoryBackend("123456789012", "us-east-1")
-	require.NoError(t, b2.Restore(data))
+	require.NoError(t, b2.Restore(t.Context(), data))
 
 	stored := b2.DescribeStoredNetworkAcls(nil)
 	require.Len(t, stored, 1)

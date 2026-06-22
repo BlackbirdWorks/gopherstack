@@ -628,11 +628,11 @@ func TestHandler_AllocateHosts_PersistenceRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Snapshot and restore.
-	snap := bk.Snapshot()
+	snap := bk.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	bk2 := ec2.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, bk2.Restore(snap))
+	require.NoError(t, bk2.Restore(t.Context(), snap))
 
 	// Allocate again in restored backend - should work fine.
 	h2 := ec2.NewHandler(bk2)

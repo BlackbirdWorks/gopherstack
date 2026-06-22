@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
@@ -241,11 +242,11 @@ func (b *InMemoryBackend) Region() string { return b.region }
 func (b *InMemoryBackend) AccountID() string { return b.accountID }
 
 func (b *InMemoryBackend) namespaceARN(id string) string {
-	return fmt.Sprintf("arn:aws:servicediscovery:%s:%s:namespace/%s", b.region, b.accountID, id)
+	return arn.Build("servicediscovery", b.region, b.accountID, fmt.Sprintf("namespace/%s", id))
 }
 
 func (b *InMemoryBackend) serviceARN(id string) string {
-	return fmt.Sprintf("arn:aws:servicediscovery:%s:%s:service/%s", b.region, b.accountID, id)
+	return arn.Build("servicediscovery", b.region, b.accountID, fmt.Sprintf("service/%s", id))
 }
 
 const (

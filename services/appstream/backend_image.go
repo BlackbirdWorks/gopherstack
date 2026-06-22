@@ -5,6 +5,7 @@ import (
 	"maps"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
@@ -101,11 +102,11 @@ func (t *storedExportImageTask) toExportImageTask() *ExportImageTask {
 }
 
 func (b *InMemoryBackend) imageARN(name string) string {
-	return fmt.Sprintf("arn:aws:appstream:%s:%s:image/%s", b.region, b.accountID, name)
+	return arn.Build("appstream", b.region, b.accountID, fmt.Sprintf("image/%s", name))
 }
 
 func (b *InMemoryBackend) imageBuilderARN(name string) string {
-	return fmt.Sprintf("arn:aws:appstream:%s:%s:image-builder/%s", b.region, b.accountID, name)
+	return arn.Build("appstream", b.region, b.accountID, fmt.Sprintf("image-builder/%s", name))
 }
 
 // CopyImage duplicates an image with a new name.

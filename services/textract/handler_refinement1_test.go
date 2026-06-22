@@ -582,11 +582,11 @@ func TestRefinement1_PersistenceWithExpenseAndLendingJobs(t *testing.T) {
 	lendJob, err := b.StartLendingAnalysis(context.Background(), "s3://bucket/loan.pdf")
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := textract.NewInMemoryBackend("123456789012", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 1, textract.ExpenseJobCount(b2))
 	assert.Equal(t, 1, textract.LendingJobCount(b2))
@@ -622,11 +622,11 @@ func TestRefinement1_PersistenceWithAdapters(t *testing.T) {
 	av, err := b.CreateAdapterVersion(context.Background(), adapter.AdapterID, nil)
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := textract.NewInMemoryBackend("123456789012", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 1, textract.AdapterCount(b2))
 	assert.Equal(t, 1, textract.AdapterVersionCount(b2))

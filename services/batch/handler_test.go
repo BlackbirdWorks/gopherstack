@@ -1428,12 +1428,12 @@ func TestBatch_PersistenceSnapshotRestore(t *testing.T) {
 
 	// Snapshot and restore.
 	h := batch.NewHandler(b)
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	b2 := batch.NewInMemoryBackend("000000000000", "us-east-1")
 	h2 := batch.NewHandler(b2)
-	require.NoError(t, h2.Restore(snap))
+	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	// Compute environment is restored.
 	ces, _ := b2.DescribeComputeEnvironments(context.Background(), []string{"test-ce"}, 0, "")
@@ -2418,11 +2418,11 @@ func TestBatch_PersistenceWithNewResourceTypes(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Snapshot and restore.
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	h2 := batch.NewHandler(batch.NewInMemoryBackend("000000000000", "us-east-1"))
-	require.NoError(t, h2.Restore(snap))
+	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	// Verify consumable resource is restored.
 	rec2 := post(t, h2, "/v1/describeconsumableresource", map[string]any{

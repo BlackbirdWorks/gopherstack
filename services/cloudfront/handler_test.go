@@ -1022,12 +1022,12 @@ func TestCloudFront_PersistenceSnapshotRestore(t *testing.T) {
 	require.NoError(t, err)
 
 	h := cloudfront.NewHandler(b)
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	b2 := cloudfront.NewInMemoryBackend("000000000000", "us-east-1")
 	h2 := cloudfront.NewHandler(b2)
-	require.NoError(t, h2.Restore(snap))
+	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	// Distribution is restored.
 	d2, err := b2.GetDistribution(d.ID)
@@ -1801,12 +1801,12 @@ func TestNewOperations_PersistenceRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	h := cloudfront.NewHandler(b)
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	b2 := cloudfront.NewInMemoryBackend("000000000000", "us-east-1")
 	h2 := cloudfront.NewHandler(b2)
-	require.NoError(t, h2.Restore(snap))
+	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	// Distribution is restored.
 	d2, err := b2.GetDistribution(d.ID)
@@ -2666,12 +2666,12 @@ func TestRefinement1_PersistenceWithIndexes(t *testing.T) {
 	require.NoError(t, err)
 
 	h := cloudfront.NewHandler(b)
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	b2 := cloudfront.NewInMemoryBackend("123456789012", config.DefaultRegion)
 	h2 := cloudfront.NewHandler(b2)
-	require.NoError(t, h2.Restore(snap))
+	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	// CallerReference idempotency should work after restore.
 	d2, err := b2.CreateDistribution("persist-ref-001", "persist-dist", true, nil)

@@ -1882,7 +1882,7 @@ func run(ctx context.Context, cli CLI) error {
 					"panic", fmt.Sprintf("%v", r))
 			}
 		}()
-		startPurgeWorker(janitorCtx, log, cli.globalConfig, services)
+		startPurgeWorker(janitorCtx, cli.globalConfig, services)
 	}()
 
 	inMemMux.Handle("/", e)
@@ -2636,6 +2636,7 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 
 	// Wire CloudWatch Logs subscription filter delivery to Lambda, Kinesis, and Firehose.
 	wireCWLogsSubscriptionFilters(
+		appCtx.JanitorCtx,
 		byName["CloudWatchLogs"],
 		byName["Lambda"],
 		byName["Kinesis"],
@@ -2971,10 +2972,13 @@ func getMostRecentServiceProviders() []service.Provider {
 // It dynamically reads the TTL from the global configuration, allowing runtime updates.
 func startPurgeWorker(
 	ctx context.Context,
-	log *slog.Logger,
 	gcfg *config.GlobalConfig,
 	svcs []service.Registerable,
 ) {
+	// Tag this background routine so its records are attributable (worker=purge-worker).
+	ctx = logger.WithWorker(ctx, "purge", "worker")
+	log := logger.Load(ctx)
+
 	const (
 		purgeTimeout  = 30 * time.Second
 		checkInterval = 10 * time.Second
@@ -3059,8 +3063,12 @@ func startBackgroundWorkers(ctx context.Context, services []service.Registerable
 
 	for _, svc := range services {
 		if worker, ok := svc.(service.BackgroundWorker); ok {
-			if workerErr := worker.StartWorker(ctx); workerErr != nil {
-				log.ErrorContext(ctx, "failed to start background worker", "error", workerErr)
+			// Tag the worker's context so every record it emits is attributable
+			// (service=<name> worker=<name>-worker). Workers that run finer-grained
+			// jobs may further refine this with logger.WithWorker at their entry.
+			wctx := logger.WithWorker(ctx, svc.Name(), "worker")
+			if workerErr := worker.StartWorker(wctx); workerErr != nil {
+				log.ErrorContext(wctx, "failed to start background worker", "error", workerErr)
 			}
 		}
 	}
@@ -3873,6 +3881,7 @@ func (a *cwLogsAdapter) PutLogLines(groupName, streamName string, messages []str
 // wireCWLogsSubscriptionFilters wires the CloudWatch Logs subscription filter delivery
 // to Lambda, Kinesis, and Firehose backends.
 func wireCWLogsSubscriptionFilters(
+	ctx context.Context,
 	cwlogsReg, lambdaReg, kinesisReg, firehoseReg service.Registerable,
 ) {
 	cwlogsH, ok := cwlogsReg.(*cwlogsbackend.Handler)
@@ -3903,8 +3912,8 @@ func wireCWLogsSubscriptionFilters(
 		if fhBk, fhBkOk := firehoseH.Backend.(*firehosebackend.InMemoryBackend); fhBkOk {
 			d.firehose = fhBk
 		} else {
-			slog.Default().
-				Warn("cwlogs: firehose backend is not *InMemoryBackend; subscription delivery to firehose disabled")
+			logger.Load(ctx).
+				WarnContext(ctx, "cwlogs: firehose backend is not *InMemoryBackend; subscription delivery to firehose disabled")
 		}
 	}
 
@@ -5148,8 +5157,8 @@ func setupPersistence(
 	restore bool,
 ) {
 	type persistable interface {
-		Snapshot() []byte
-		Restore([]byte) error
+		Snapshot(ctx context.Context) []byte
+		Restore(context.Context, []byte) error
 	}
 
 	for _, svc := range services {
@@ -5179,7 +5188,7 @@ func initPersistenceManager(ctx context.Context, cli *CLI) (*persistence.Manager
 		log.InfoContext(ctx, "Persistence enabled", "data_dir", cli.resolvedDataDir())
 	}
 
-	return persistence.NewManager(store), nil
+	return persistence.NewManager(ctx, store), nil
 }
 
 // loadDemoData loads demo data into the services.

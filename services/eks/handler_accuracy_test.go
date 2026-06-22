@@ -17,7 +17,7 @@ import (
 func TestAccuracy_ClusterVpcConfig_RoundTrip(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	rec := doREST(t, h, http.MethodPost, "/clusters", map[string]any{
 		"name":    "vpc-cluster",
 		"version": "1.32",
@@ -60,7 +60,7 @@ func TestAccuracy_ClusterVpcConfig_RoundTrip(t *testing.T) {
 func TestAccuracy_ClusterVpcConfig_Absent_When_Not_Provided(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "no-vpc"})
 
 	rec := doREST(t, h, http.MethodGet, "/clusters/no-vpc", nil)
@@ -74,7 +74,7 @@ func TestAccuracy_ClusterVpcConfig_Absent_When_Not_Provided(t *testing.T) {
 func TestAccuracy_ClusterVpcConfig_Backend_DeepCopy(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 	vpcCfg := &eks.VpcConfig{
 		SubnetIDs:            []string{"subnet-orig"},
 		EndpointPublicAccess: true,
@@ -96,7 +96,7 @@ func TestAccuracy_ClusterVpcConfig_Backend_DeepCopy(t *testing.T) {
 func TestAccuracy_KubernetesNetworkConfig_RoundTrip(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{
 		"name": "net-cluster",
 		"kubernetesNetworkConfig": map[string]any{
@@ -119,7 +119,7 @@ func TestAccuracy_KubernetesNetworkConfig_RoundTrip(t *testing.T) {
 func TestAccuracy_KubernetesNetworkConfig_IPv6(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 	netCfg := &eks.KubernetesNetworkConfig{
 		IPFamily:        "ipv6",
 		ServiceIPv6CIDR: "fd00::/112",
@@ -134,7 +134,7 @@ func TestAccuracy_KubernetesNetworkConfig_IPv6(t *testing.T) {
 func TestAccuracy_KubernetesNetworkConfig_Absent_When_Not_Provided(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "plain"})
 
 	rec := doREST(t, h, http.MethodGet, "/clusters/plain", nil)
@@ -150,7 +150,7 @@ func TestAccuracy_KubernetesNetworkConfig_Absent_When_Not_Provided(t *testing.T)
 func TestAccuracy_EncryptionConfig_ValidKMSArn(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "enc-cluster"})
 
 	rec := doREST(t, h, http.MethodPost, "/clusters/enc-cluster/encryption-config/associate",
@@ -168,7 +168,7 @@ func TestAccuracy_EncryptionConfig_ValidKMSArn(t *testing.T) {
 func TestAccuracy_EncryptionConfig_InvalidKMSArn_Rejected(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "bad-enc"})
 
 	rec := doREST(t, h, http.MethodPost, "/clusters/bad-enc/encryption-config/associate",
@@ -186,7 +186,7 @@ func TestAccuracy_EncryptionConfig_InvalidKMSArn_Rejected(t *testing.T) {
 func TestAccuracy_EncryptionConfig_Replace_Not_Append(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 
@@ -212,7 +212,7 @@ func TestAccuracy_EncryptionConfig_Replace_Not_Append(t *testing.T) {
 func TestAccuracy_NodegroupSubnets_RoundTrip(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "c1"})
 
 	rec := doREST(t, h, http.MethodPost, "/clusters/c1/node-groups", map[string]any{
@@ -236,7 +236,7 @@ func TestAccuracy_NodegroupSubnets_RoundTrip(t *testing.T) {
 func TestAccuracy_NodegroupSubnets_Backend_DeepCopy(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 
@@ -257,7 +257,7 @@ func TestAccuracy_NodegroupSubnets_Backend_DeepCopy(t *testing.T) {
 func TestAccuracy_NodegroupLabels_RoundTrip(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "c1"})
 
 	rec := doREST(t, h, http.MethodPost, "/clusters/c1/node-groups", map[string]any{
@@ -279,7 +279,7 @@ func TestAccuracy_NodegroupLabels_RoundTrip(t *testing.T) {
 func TestAccuracy_NodegroupTaints_RoundTrip(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "c1"})
 
 	rec := doREST(t, h, http.MethodPost, "/clusters/c1/node-groups", map[string]any{
@@ -306,7 +306,7 @@ func TestAccuracy_NodegroupTaints_RoundTrip(t *testing.T) {
 func TestAccuracy_NodegroupTaints_Backend_DeepCopy(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 
@@ -328,7 +328,7 @@ func TestAccuracy_NodegroupTaints_Backend_DeepCopy(t *testing.T) {
 func TestAccuracy_NodegroupRemoteAccess_RoundTrip(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "c1"})
 
 	rec := doREST(t, h, http.MethodPost, "/clusters/c1/node-groups", map[string]any{
@@ -356,7 +356,7 @@ func TestAccuracy_NodegroupRemoteAccess_RoundTrip(t *testing.T) {
 func TestAccuracy_NodegroupRemoteAccess_Backend_DeepCopy(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 
@@ -378,7 +378,7 @@ func TestAccuracy_NodegroupRemoteAccess_Backend_DeepCopy(t *testing.T) {
 func TestAccuracy_NodegroupLaunchTemplate_RoundTrip(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "c1"})
 
 	rec := doREST(t, h, http.MethodPost, "/clusters/c1/node-groups", map[string]any{
@@ -405,7 +405,7 @@ func TestAccuracy_NodegroupLaunchTemplate_RoundTrip(t *testing.T) {
 func TestAccuracy_NodegroupLaunchTemplate_AbsentWhenNotSet(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "c1"})
 	doREST(t, h, http.MethodPost, "/clusters/c1/node-groups", map[string]any{
 		"nodegroupName": "ng-nolt",
@@ -425,7 +425,7 @@ func TestAccuracy_NodegroupLaunchTemplate_AbsentWhenNotSet(t *testing.T) {
 func TestAccuracy_NodegroupDiskSize_RoundTrip(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "c1"})
 
 	rec := doREST(t, h, http.MethodPost, "/clusters/c1/node-groups", map[string]any{
@@ -446,7 +446,7 @@ func TestAccuracy_NodegroupDiskSize_RoundTrip(t *testing.T) {
 func TestAccuracy_NodegroupDiskSize_TooSmall_Rejected(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 
@@ -458,7 +458,7 @@ func TestAccuracy_NodegroupDiskSize_TooSmall_Rejected(t *testing.T) {
 func TestAccuracy_NodegroupDiskSize_TooLarge_Rejected(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 
@@ -470,7 +470,7 @@ func TestAccuracy_NodegroupDiskSize_TooLarge_Rejected(t *testing.T) {
 func TestAccuracy_NodegroupDiskSize_Boundary_Min_OK(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 
@@ -483,7 +483,7 @@ func TestAccuracy_NodegroupDiskSize_Boundary_Min_OK(t *testing.T) {
 func TestAccuracy_NodegroupDiskSize_Boundary_Max_OK(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 
@@ -496,7 +496,7 @@ func TestAccuracy_NodegroupDiskSize_Boundary_Max_OK(t *testing.T) {
 func TestAccuracy_NodegroupDiskSize_Zero_Omitted(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "c1"})
 	doREST(t, h, http.MethodPost, "/clusters/c1/node-groups", map[string]any{
 		"nodegroupName": "ng-nodisk",
@@ -516,7 +516,7 @@ func TestAccuracy_NodegroupDiskSize_Zero_Omitted(t *testing.T) {
 func TestAccuracy_Addon_ConfigurationValues_RoundTrip(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "c1"})
 
 	rec := doREST(t, h, http.MethodPost, "/clusters/c1/addons", map[string]any{
@@ -535,7 +535,7 @@ func TestAccuracy_Addon_ConfigurationValues_RoundTrip(t *testing.T) {
 func TestAccuracy_Addon_ResolveConflicts_InvalidValue_Rejected(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 
@@ -546,7 +546,7 @@ func TestAccuracy_Addon_ResolveConflicts_InvalidValue_Rejected(t *testing.T) {
 func TestAccuracy_Addon_ResolveConflicts_ValidValues_Accepted(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 
@@ -560,7 +560,7 @@ func TestAccuracy_Addon_ResolveConflicts_ValidValues_Accepted(t *testing.T) {
 func TestAccuracy_Addon_EmptyResolveConflicts_Accepted(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 
@@ -571,7 +571,7 @@ func TestAccuracy_Addon_EmptyResolveConflicts_Accepted(t *testing.T) {
 func TestAccuracy_Addon_UpdateAddon_Configuration_And_ResolveConflicts(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "c1"})
 	doREST(t, h, http.MethodPost, "/clusters/c1/addons", map[string]any{"addonName": "coredns"})
 
@@ -590,7 +590,7 @@ func TestAccuracy_Addon_UpdateAddon_Configuration_And_ResolveConflicts(t *testin
 func TestAccuracy_Addon_UpdateAddon_InvalidResolveConflicts_Rejected(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 	_, err = b.CreateAddon("c1", "vpc-cni", "", "", "", "", nil)
@@ -605,7 +605,7 @@ func TestAccuracy_Addon_UpdateAddon_InvalidResolveConflicts_Rejected(t *testing.
 func TestAccuracy_Logging_EnableAndDisable_PerType(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 
@@ -636,7 +636,7 @@ func TestAccuracy_Logging_EnableAndDisable_PerType(t *testing.T) {
 func TestAccuracy_Logging_DisableAll_ClearsLogging(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 
@@ -658,7 +658,7 @@ func TestAccuracy_Logging_DisableAll_ClearsLogging(t *testing.T) {
 func TestAccuracy_Logging_NilEntries_NoChange(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 
@@ -679,7 +679,7 @@ func TestAccuracy_Logging_NilEntries_NoChange(t *testing.T) {
 func TestAccuracy_Logging_HTTP_StructuredResponse(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "c1"})
 	doREST(t, h, http.MethodPut, "/clusters/c1", map[string]any{
 		"logging": map[string]any{
@@ -704,7 +704,7 @@ func TestAccuracy_Logging_HTTP_StructuredResponse(t *testing.T) {
 func TestAccuracy_NodegroupASG_PresentOnDescribe(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "c1"})
 	doREST(t, h, http.MethodPost, "/clusters/c1/node-groups", map[string]any{
 		"nodegroupName": "ng-asg",
@@ -726,7 +726,7 @@ func TestAccuracy_NodegroupASG_PresentOnDescribe(t *testing.T) {
 func TestAccuracy_NodegroupASG_Name_StableAcrossDescribes(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 	ng, err := b.CreateNodegroup("c1", "ng1", "", "", "", "", "", nil, 1, 1, 2, eks.NodegroupInput{}, nil)
@@ -743,7 +743,7 @@ func TestAccuracy_NodegroupASG_Name_StableAcrossDescribes(t *testing.T) {
 func TestAccuracy_NodegroupASG_Name_DifferentPerNodegroup(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 
@@ -761,7 +761,7 @@ func TestAccuracy_NodegroupASG_Name_DifferentPerNodegroup(t *testing.T) {
 func TestAccuracy_AssociateAccessPolicy_Dedup(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 	_, err = b.CreateAccessEntry("c1", "arn:aws:iam::123456789012:role/r1", "", "", nil, nil)
@@ -791,7 +791,7 @@ func TestAccuracy_AssociateAccessPolicy_Dedup(t *testing.T) {
 func TestAccuracy_EncryptionConfig_NoKeyArn_Accepted(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 
@@ -806,7 +806,7 @@ func TestAccuracy_EncryptionConfig_NoKeyArn_Accepted(t *testing.T) {
 func TestAccuracy_DeleteCluster_ClearsNodegroups(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 	_, err = b.CreateNodegroup("c1", "ng1", "", "", "", "", "", nil, 1, 1, 2, eks.NodegroupInput{}, nil)
@@ -825,7 +825,7 @@ func TestAccuracy_DeleteCluster_ClearsNodegroups(t *testing.T) {
 func TestAccuracy_Cluster_CreateAndDescribe_AllNewFields(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	rec := doREST(t, h, http.MethodPost, "/clusters", map[string]any{
 		"name":    "full-cluster",
 		"version": "1.32",
@@ -856,7 +856,7 @@ func TestAccuracy_Cluster_CreateAndDescribe_AllNewFields(t *testing.T) {
 func TestAccuracy_Nodegroup_AllOptionalFields_RoundTrip(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "c1"})
 
 	rec := doREST(t, h, http.MethodPost, "/clusters/c1/node-groups", map[string]any{
@@ -893,7 +893,7 @@ func TestAccuracy_Nodegroup_AllOptionalFields_RoundTrip(t *testing.T) {
 func TestAccuracy_Addon_ConfigurationValues_AbsentWhenEmpty(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "c1"})
 	doREST(t, h, http.MethodPost, "/clusters/c1/addons", map[string]any{"addonName": "coredns"})
 
@@ -906,7 +906,7 @@ func TestAccuracy_Addon_ConfigurationValues_AbsentWhenEmpty(t *testing.T) {
 func TestAccuracy_Logging_HTTP_Disabled_Types_Preserved(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "c1"})
 
 	doREST(t, h, http.MethodPut, "/clusters/c1", map[string]any{
@@ -942,7 +942,7 @@ func TestAccuracy_Logging_HTTP_Disabled_Types_Preserved(t *testing.T) {
 func TestAccuracy_NodegroupASG_Resources_DeepCopy(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 	ng, err := b.CreateNodegroup("c1", "ng1", "", "", "", "", "", nil, 1, 1, 2, eks.NodegroupInput{}, nil)
@@ -958,7 +958,7 @@ func TestAccuracy_NodegroupASG_Resources_DeepCopy(t *testing.T) {
 func TestAccuracy_VpcConfig_HandlerJSON_Fields(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{
 		"name": "c1",
 		"resourcesVpcConfig": map[string]any{

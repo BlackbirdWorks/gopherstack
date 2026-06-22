@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
@@ -388,27 +389,27 @@ func (b *InMemoryBackend) removeAccountChild(accountID string) {
 
 // orgARN builds an ARN for the organization.
 func (b *InMemoryBackend) orgARN(orgID string) string {
-	return fmt.Sprintf("arn:aws:organizations::%s:organization/%s", b.accountID, orgID)
+	return arn.Build("organizations", "", b.accountID, fmt.Sprintf("organization/%s", orgID))
 }
 
 // masterAccountARN builds an ARN for the management account.
 func (b *InMemoryBackend) masterAccountARN(orgID, accountID string) string {
-	return fmt.Sprintf("arn:aws:organizations::%s:account/%s/%s", b.accountID, orgID, accountID)
+	return arn.Build("organizations", "", b.accountID, fmt.Sprintf("account/%s/%s", orgID, accountID))
 }
 
 // accountARN builds an ARN for an account.
 func (b *InMemoryBackend) accountARN(orgID, accountID string) string {
-	return fmt.Sprintf("arn:aws:organizations::%s:account/%s/%s", b.accountID, orgID, accountID)
+	return arn.Build("organizations", "", b.accountID, fmt.Sprintf("account/%s/%s", orgID, accountID))
 }
 
 // rootARN builds an ARN for the root.
 func (b *InMemoryBackend) rootARN(orgID, rootID string) string {
-	return fmt.Sprintf("arn:aws:organizations::%s:root/%s/%s", b.accountID, orgID, rootID)
+	return arn.Build("organizations", "", b.accountID, fmt.Sprintf("root/%s/%s", orgID, rootID))
 }
 
 // ouARN builds an ARN for an OU.
 func (b *InMemoryBackend) ouARN(orgID, ouID string) string {
-	return fmt.Sprintf("arn:aws:organizations::%s:ou/%s/%s", b.accountID, orgID, ouID)
+	return arn.Build("organizations", "", b.accountID, fmt.Sprintf("ou/%s/%s", orgID, ouID))
 }
 
 // policyARN builds an ARN for a policy.

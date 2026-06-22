@@ -241,7 +241,7 @@ func TestHandler_SessionFilteringAndPersistence(t *testing.T) {
 	assert.Equal(t, emrserverless.SessionStateTerminated, filtered.Sessions[0]["state"])
 
 	restored := newTestHandler(t)
-	require.NoError(t, restored.Restore(h.Snapshot()))
+	require.NoError(t, restored.Restore(t.Context(), h.Snapshot(t.Context())))
 	rec = doRequest(t, restored, http.MethodGet, "/applications/"+appID+"/sessions/"+sessionID, nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), emrserverless.SessionStateTerminated)

@@ -89,11 +89,11 @@ func TestRefinement1_SnapshotRestore(t *testing.T) {
 	b.AddProtectionInternal("prot-1", "arn:aws:ec2:us-east-1::eip-allocation/eipalloc-111")
 	require.NoError(t, b.CreateSubscription())
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	b2 := shield.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 1, shield.ProtectionCount(b2))
 
@@ -1298,7 +1298,7 @@ func TestRefinement1_SnapshotDeepCopy(t *testing.T) {
 	b := newR1Backend()
 	p := b.AddProtectionInternal("prot-1", "arn:aws:ec2:us-east-1::eip-allocation/eipalloc-1")
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	// Mutate backend after snapshot.
@@ -1307,7 +1307,7 @@ func TestRefinement1_SnapshotDeepCopy(t *testing.T) {
 
 	// Restore should see the pre-mutation state.
 	b2 := shield.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 	assert.Equal(t, 1, shield.ProtectionCount(b2))
 }
 
@@ -1322,11 +1322,11 @@ func TestRefinement1_ProactiveEngagementStatusPersistedInSnapshot(t *testing.T) 
 	}))
 	require.NoError(t, b.EnableProactiveEngagement())
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	b2 := shield.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 	assert.Equal(t, shield.ProactiveEngagementEnabled, shield.GetProactiveEngagementStatus(b2))
 }
 

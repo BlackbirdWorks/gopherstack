@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"maps"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // HubV2 represents the Security Hub V2 configuration.
@@ -67,23 +69,23 @@ type RecommendedPolicyV2 struct {
 // --- HubV2 ARN helpers ---
 
 func (b *InMemoryBackend) hubV2ARN() string {
-	return fmt.Sprintf("arn:aws:securityhub:%s:%s:hub-v2/default", b.region, b.accountID)
+	return arn.Build("securityhub", b.region, b.accountID, "hub-v2/default")
 }
 
 func (b *InMemoryBackend) aggregatorV2ARN(seq int) string {
-	return fmt.Sprintf("arn:aws:securityhub:%s:%s:aggregator-v2/%d", b.region, b.accountID, seq)
+	return arn.Build("securityhub", b.region, b.accountID, fmt.Sprintf("aggregator-v2/%d", seq))
 }
 
 func (b *InMemoryBackend) automationRuleV2ARN(id string) string {
-	return fmt.Sprintf("arn:aws:securityhub:%s:%s:automation-rule-v2/%s", b.region, b.accountID, id)
+	return arn.Build("securityhub", b.region, b.accountID, fmt.Sprintf("automation-rule-v2/%s", id))
 }
 
 func (b *InMemoryBackend) connectorV2ARN(id string) string {
-	return fmt.Sprintf("arn:aws:securityhub:%s:%s:connector-v2/%s", b.region, b.accountID, id)
+	return arn.Build("securityhub", b.region, b.accountID, fmt.Sprintf("connector-v2/%s", id))
 }
 
 func (b *InMemoryBackend) ticketV2ARN(seq int) string {
-	return fmt.Sprintf("arn:aws:securityhub:%s:%s:ticket-v2/%d", b.region, b.accountID, seq)
+	return arn.Build("securityhub", b.region, b.accountID, fmt.Sprintf("ticket-v2/%d", seq))
 }
 
 // --- HubV2 backend methods ---

@@ -1545,11 +1545,11 @@ func TestSnapshotRestore(t *testing.T) {
 			b := newTestBackend()
 			tt.setup(b)
 
-			data := b.Snapshot()
+			data := b.Snapshot(t.Context())
 			require.NotEmpty(t, data)
 
 			b2 := newTestBackend()
-			err := b2.Restore(data)
+			err := b2.Restore(t.Context(), data)
 			require.NoError(t, err)
 
 			tt.check(t, b2)
@@ -1560,7 +1560,7 @@ func TestSnapshotRestore(t *testing.T) {
 func TestRestore_InvalidJSON(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	err := b.Restore([]byte("not-json"))
+	err := b.Restore(t.Context(), []byte("not-json"))
 	require.Error(t, err)
 }
 
@@ -1577,6 +1577,6 @@ func TestRestore_ReferentialIntegrityFailure(t *testing.T) {
 		`"tags":{}}`
 
 	b := newTestBackend()
-	err := b.Restore([]byte(badSnap))
+	err := b.Restore(t.Context(), []byte(badSnap))
 	require.Error(t, err)
 }

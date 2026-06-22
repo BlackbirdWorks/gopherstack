@@ -27,9 +27,11 @@ import (
 )
 
 // newPhase3ServiceBackends creates a ServiceBackends with all phase-3 backends populated.
-func newPhase3ServiceBackends() *cloudformation.ServiceBackends {
+func newPhase3ServiceBackends(t *testing.T) *cloudformation.ServiceBackends {
+	t.Helper()
+
 	b := newPhase2ServiceBackends()
-	b.EKS = eksbackend.NewHandler(eksbackend.NewInMemoryBackend("000000000000", "us-east-1"))
+	b.EKS = eksbackend.NewHandler(eksbackend.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1"))
 	b.EFS = efsbackend.NewHandler(efsbackend.NewInMemoryBackend("000000000000", "us-east-1"))
 	b.Batch = batchbackend.NewHandler(batchbackend.NewInMemoryBackend("000000000000", "us-east-1"))
 	b.CloudFront = cloudfrontbackend.NewHandler(
@@ -47,7 +49,7 @@ func newPhase3ServiceBackends() *cloudformation.ServiceBackends {
 	)
 	b.Kafka = kafkabackend.NewHandler(kafkabackend.NewInMemoryBackend("000000000000", "us-east-1"))
 	b.Transfer = transferbackend.NewHandler(
-		transferbackend.NewInMemoryBackend("000000000000", "us-east-1"),
+		transferbackend.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1"),
 	)
 	b.CloudTrail = cloudtrailbackend.NewHandler(
 		cloudtrailbackend.NewInMemoryBackend("000000000000", "us-east-1"),
@@ -389,7 +391,7 @@ func TestResourceCreator_Phase3Types_RealBackends(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backends := newPhase3ServiceBackends()
+			backends := newPhase3ServiceBackends(t)
 			rc := cloudformation.NewResourceCreator(backends)
 			ctx := t.Context()
 
@@ -416,7 +418,7 @@ func TestResourceCreator_Phase3Types_RealBackends(t *testing.T) {
 func TestResourceCreator_Phase3_EFSMountTargetAfterFileSystem(t *testing.T) {
 	t.Parallel()
 
-	backends := newPhase3ServiceBackends()
+	backends := newPhase3ServiceBackends(t)
 	rc := cloudformation.NewResourceCreator(backends)
 	ctx := t.Context()
 
@@ -451,7 +453,7 @@ func TestResourceCreator_Phase3_EFSMountTargetAfterFileSystem(t *testing.T) {
 func TestResourceCreator_Phase3_BatchJobQueueWithCE(t *testing.T) {
 	t.Parallel()
 
-	backends := newPhase3ServiceBackends()
+	backends := newPhase3ServiceBackends(t)
 	rc := cloudformation.NewResourceCreator(backends)
 	ctx := t.Context()
 
@@ -494,7 +496,7 @@ func TestResourceCreator_Phase3_BatchJobQueueWithCE(t *testing.T) {
 func TestResourceCreator_Phase3_EKSNodegroupAfterCluster(t *testing.T) {
 	t.Parallel()
 
-	backends := newPhase3ServiceBackends()
+	backends := newPhase3ServiceBackends(t)
 	rc := cloudformation.NewResourceCreator(backends)
 	ctx := t.Context()
 
@@ -530,7 +532,7 @@ func TestResourceCreator_Phase3_EKSNodegroupAfterCluster(t *testing.T) {
 func TestResourceCreator_Phase3_APIGatewayV2StageAfterAPI(t *testing.T) {
 	t.Parallel()
 
-	backends := newPhase3ServiceBackends()
+	backends := newPhase3ServiceBackends(t)
 	rc := cloudformation.NewResourceCreator(backends)
 	ctx := t.Context()
 
@@ -564,7 +566,7 @@ func TestResourceCreator_Phase3_APIGatewayV2StageAfterAPI(t *testing.T) {
 func TestResourceCreator_Phase3_DocDBInstanceAfterCluster(t *testing.T) {
 	t.Parallel()
 
-	backends := newPhase3ServiceBackends()
+	backends := newPhase3ServiceBackends(t)
 	rc := cloudformation.NewResourceCreator(backends)
 	ctx := t.Context()
 
@@ -596,7 +598,7 @@ func TestResourceCreator_Phase3_DocDBInstanceAfterCluster(t *testing.T) {
 func TestResourceCreator_Phase3_NeptuneInstanceAfterCluster(t *testing.T) {
 	t.Parallel()
 
-	backends := newPhase3ServiceBackends()
+	backends := newPhase3ServiceBackends(t)
 	rc := cloudformation.NewResourceCreator(backends)
 	ctx := t.Context()
 
@@ -628,7 +630,7 @@ func TestResourceCreator_Phase3_NeptuneInstanceAfterCluster(t *testing.T) {
 func TestResourceCreator_Phase3_AutoScalingGroup_StringSizes(t *testing.T) {
 	t.Parallel()
 
-	backends := newPhase3ServiceBackends()
+	backends := newPhase3ServiceBackends(t)
 	rc := cloudformation.NewResourceCreator(backends)
 	ctx := t.Context()
 

@@ -460,11 +460,11 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	b.AddProposalInternal(testRegion, testAccountID, n.ID, m.ID, "test proposal")
 	b.AddInvitationInternal(testRegion, testAccountID, n.ID, "persist-net")
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := managedblockchain.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 1, managedblockchain.NetworkCount(b2))
 	assert.Equal(t, 1, managedblockchain.MemberCount(b2))

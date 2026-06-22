@@ -879,11 +879,11 @@ func TestSnapshotRestoreBatch2(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		// Snapshot
-		snap := h.Snapshot()
+		snap := h.Snapshot(t.Context())
 
 		// Restore into new handler
 		h2 := newWAFHandler(t)
-		require.NoError(t, h2.Restore(snap))
+		require.NoError(t, h2.Restore(t.Context(), snap))
 
 		b2 := h2.Backend.(*waf.InMemoryBackend)
 		assert.Equal(t, 1, waf.RateBasedRuleCount(b2))

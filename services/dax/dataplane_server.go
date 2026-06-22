@@ -2,7 +2,6 @@ package dax
 
 import (
 	"context"
-	"log/slog"
 	"net"
 
 	"github.com/blackbirdworks/gopherstack/services/dax/dataplane"
@@ -25,7 +24,8 @@ type dataPlane struct {
 }
 
 // newDataPlane constructs a DAX data-plane bound to its own DynamoDB backend.
-func newDataPlane(logger *slog.Logger, addr string) *dataPlane {
+// ctx is the process lifecycle context used for the data-plane's logging.
+func newDataPlane(ctx context.Context, addr string) *dataPlane {
 	if addr == "" {
 		addr = defaultDataPlaneAddr
 	}
@@ -33,7 +33,7 @@ func newDataPlane(logger *slog.Logger, addr string) *dataPlane {
 	backend := dynamodb.NewInMemoryDB()
 
 	return &dataPlane{
-		server:  dataplane.NewServer(backend, logger),
+		server:  dataplane.NewServer(ctx, backend),
 		backend: backend,
 		addr:    addr,
 	}
@@ -58,12 +58,12 @@ func (d *dataPlane) Stop() {
 
 // EnableDataPlane attaches a DAX data-plane listener to the handler. It is
 // idempotent. The returned data plane exposes the bound address for tests.
-func (h *Handler) EnableDataPlane(logger *slog.Logger, addr string) *dataPlane {
+func (h *Handler) EnableDataPlane(ctx context.Context, addr string) *dataPlane {
 	if h.dataPlane != nil {
 		return h.dataPlane
 	}
 
-	h.dataPlane = newDataPlane(logger, addr)
+	h.dataPlane = newDataPlane(ctx, addr)
 
 	return h.dataPlane
 }

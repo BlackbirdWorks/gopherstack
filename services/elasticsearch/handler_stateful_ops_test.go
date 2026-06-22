@@ -211,7 +211,7 @@ func testStatefulSnapshot(t *testing.T) {
 	require.NoError(t, err)
 
 	restored := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
-	require.NoError(t, restored.Restore(backend.Snapshot()))
+	require.NoError(t, restored.Restore(t.Context(), backend.Snapshot(t.Context())))
 
 	accounts, err := restored.ListVpcEndpointAccess(context.Background(), "saved-domain")
 	require.NoError(t, err)

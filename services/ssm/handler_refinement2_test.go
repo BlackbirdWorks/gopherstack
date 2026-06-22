@@ -670,11 +670,11 @@ func TestRefinement2_PersistenceWithNewFields(t *testing.T) {
 			})
 			require.Error(t, err)
 
-			snap := b1.Snapshot()
+			snap := b1.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			b2 := ssm.NewInMemoryBackend()
-			require.NoError(t, b2.Restore(snap))
+			require.NoError(t, b2.Restore(t.Context(), snap))
 
 			// After restore, duplicate should still fail
 			_, err = b2.CreateOpsMetadata(context.TODO(), &ssm.CreateOpsMetadataInput{

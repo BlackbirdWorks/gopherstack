@@ -4,9 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"sync"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 const (
@@ -32,15 +33,31 @@ type entry struct {
 type Manager struct {
 	store   Store
 	entries map[string]*entry
+	baseCtx context.Context //nolint:containedctx // lifecycle ctx for the async (debounce) save path; no request ctx.
 	mu      sync.RWMutex
 }
 
-// NewManager creates a Manager backed by the given Store.
-func NewManager(store Store) *Manager {
+// NewManager creates a Manager backed by the given Store. The supplied context
+// is the process lifecycle context; it carries the root logger and is used for
+// the debounced async save path (Notify -> AfterFunc), which has no per-request
+// or per-call context of its own. A nil ctx falls back to context.Background().
+func NewManager(ctx context.Context, store Store) *Manager {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	return &Manager{
 		store:   store,
 		entries: make(map[string]*entry),
+		baseCtx: ctx,
 	}
+}
+
+// entryCtx derives a context whose logger is tagged worker=<service>-persistence
+// from the supplied parent. Used so every persistence record is attributable to
+// the service whose state is being snapshotted/restored.
+func entryCtx(parent context.Context, name string) context.Context {
+	return logger.WithWorker(parent, name, "persistence")
 }
 
 // Register associates a named Persistable with the manager.
@@ -59,21 +76,24 @@ func (m *Manager) RestoreAll(ctx context.Context) {
 	defer m.mu.RUnlock()
 
 	for name, e := range m.entries {
+		ectx := entryCtx(ctx, name)
+		log := logger.Load(ectx)
+
 		data, err := m.store.Load(name, snapshotKey)
 		if err != nil {
 			if errors.Is(err, ErrKeyNotFound) {
-				slog.Default().DebugContext(ctx, "persistence: no snapshot found", "service", name)
+				log.DebugContext(ectx, "persistence: no snapshot found", "service", name)
 			} else {
-				slog.Default().WarnContext(ctx, "persistence: load failed", "service", name, "error", err)
+				log.WarnContext(ectx, "persistence: load failed", "service", name, "error", err)
 			}
 
 			continue
 		}
 
-		if restoreErr := e.persistable.Restore(data); restoreErr != nil {
-			slog.Default().WarnContext(ctx, "persistence: restore failed", "service", name, "error", restoreErr)
+		if restoreErr := e.persistable.Restore(ectx, data); restoreErr != nil {
+			log.WarnContext(ectx, "persistence: restore failed", "service", name, "error", restoreErr)
 		} else {
-			slog.Default().InfoContext(ctx, "persistence: restored", "service", name)
+			log.InfoContext(ectx, "persistence: restored", "service", name)
 		}
 	}
 }
@@ -136,8 +156,10 @@ func (m *Manager) SaveAll(ctx context.Context) {
 		}
 		e.mu.Unlock()
 
-		if saveErr := m.save(e); saveErr != nil {
-			slog.Default().WarnContext(ctx, "persistence: save failed on shutdown", "service", e.name, "error", saveErr)
+		ectx := entryCtx(ctx, e.name)
+		if saveErr := m.save(ectx, e); saveErr != nil {
+			logger.Load(ectx).
+				WarnContext(ectx, "persistence: save failed on shutdown", "service", e.name, "error", saveErr)
 		}
 	}
 }
@@ -159,14 +181,17 @@ func (m *Manager) saveIfCurrent(e *entry, gen uint64) {
 	e.timer = nil
 	e.mu.Unlock()
 
-	if err := m.save(e); err != nil {
-		slog.Default().Warn("persistence: save failed", "service", e.name, "error", err)
+	// The debounced save fires off-request; use the manager lifecycle context.
+	ectx := entryCtx(m.baseCtx, e.name)
+	if err := m.save(ectx, e); err != nil {
+		logger.Load(ectx).WarnContext(ectx, "persistence: save failed", "service", e.name, "error", err)
 	}
 }
 
-// save snapshots and stores a single entry.
-func (m *Manager) save(e *entry) error {
-	data := e.persistable.Snapshot()
+// save snapshots and stores a single entry. ctx must already be tagged for the
+// entry (see entryCtx) so the backend's Snapshot logs under worker=<svc>-persistence.
+func (m *Manager) save(ctx context.Context, e *entry) error {
+	data := e.persistable.Snapshot(ctx)
 	if len(data) == 0 {
 		return nil
 	}
@@ -185,7 +210,7 @@ func (m *Manager) ExportAll() map[string][]byte {
 	result := make(map[string][]byte, len(m.entries))
 
 	for name, e := range m.entries {
-		data := e.persistable.Snapshot()
+		data := e.persistable.Snapshot(entryCtx(m.baseCtx, name))
 		if len(data) > 0 {
 			result[name] = data
 		}
@@ -206,18 +231,21 @@ func (m *Manager) ImportAll(ctx context.Context, snapshots map[string][]byte) er
 	var errs []error
 
 	for name, data := range snapshots {
+		ectx := entryCtx(ctx, name)
+		log := logger.Load(ectx)
+
 		e, ok := m.entries[name]
 		if !ok {
-			slog.Default().WarnContext(ctx, "persistence: unknown service in snapshot, skipping", "service", name)
+			log.WarnContext(ectx, "persistence: unknown service in snapshot, skipping", "service", name)
 
 			continue
 		}
 
-		if err := e.persistable.Restore(data); err != nil {
-			slog.Default().WarnContext(ctx, "persistence: import restore failed", "service", name, "error", err)
+		if err := e.persistable.Restore(ectx, data); err != nil {
+			log.WarnContext(ectx, "persistence: import restore failed", "service", name, "error", err)
 			errs = append(errs, fmt.Errorf("%s: %w", name, err))
 		} else {
-			slog.Default().InfoContext(ctx, "persistence: imported", "service", name)
+			log.InfoContext(ectx, "persistence: imported", "service", name)
 		}
 	}
 

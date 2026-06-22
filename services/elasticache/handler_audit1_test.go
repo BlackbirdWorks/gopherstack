@@ -951,11 +951,11 @@ func TestBackend_Persistence_NewFieldsRoundTrip(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	snap := b1.Snapshot()
+	snap := b1.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
-	err = b2.Restore(snap)
+	err = b2.Restore(t.Context(), snap)
 	require.NoError(t, err)
 
 	page, err := b2.DescribeReplicationGroups(context.Background(), "persist-rg", "", 0)

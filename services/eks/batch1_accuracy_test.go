@@ -30,7 +30,7 @@ import (
 func newB1Backend(t *testing.T) *eks.InMemoryBackend {
 	t.Helper()
 
-	return eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	return eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 }
 
 func newB1Handler(t *testing.T) (*eks.Handler, *eks.InMemoryBackend) {

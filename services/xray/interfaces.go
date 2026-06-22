@@ -1,6 +1,9 @@
 package xray
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // StorageBackend defines the interface for X-Ray backend implementations.
 // All mutating methods must be safe for concurrent use.
@@ -27,8 +30,8 @@ type StorageBackend interface {
 	Reset()
 	GetEncryptionConfig() *EncryptionConfig
 	PutEncryptionConfig(encType, keyID string) (*EncryptionConfig, error)
-	Snapshot() []byte
-	Restore(data []byte) error
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 	// Insight operations
 	GetInsight(insightID string) (*Insight, error)
 	GetInsightEvents(insightID string) ([]*InsightEvent, error)

@@ -58,11 +58,11 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			original := awsconfig.NewInMemoryBackend()
 			id := tt.setup(original)
 
-			snap := original.Snapshot()
+			snap := original.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			fresh := awsconfig.NewInMemoryBackend()
-			require.NoError(t, fresh.Restore(snap))
+			require.NoError(t, fresh.Restore(t.Context(), snap))
 
 			tt.verify(t, fresh, id)
 		})
@@ -73,7 +73,7 @@ func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	t.Parallel()
 
 	b := awsconfig.NewInMemoryBackend()
-	err := b.Restore([]byte("not-valid-json"))
+	err := b.Restore(t.Context(), []byte("not-valid-json"))
 	require.Error(t, err)
 }
 
@@ -86,12 +86,12 @@ func TestAWSConfigHandler_Persistence(t *testing.T) {
 	err := backend.PutConfigurationRecorder("snap-recorder", "arn:aws:iam::000000000000:role/test")
 	require.NoError(t, err)
 
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	fresh := awsconfig.NewInMemoryBackend()
 	freshH := awsconfig.NewHandler(fresh)
-	require.NoError(t, freshH.Restore(snap))
+	require.NoError(t, freshH.Restore(t.Context(), snap))
 
 	recorders := fresh.DescribeConfigurationRecorders(nil)
 	assert.Len(t, recorders, 1)
@@ -203,11 +203,11 @@ func TestInMemoryBackend_Snapshot_AllMaps(t *testing.T) {
 	require.NoError(t, b.PutOrganizationConfigRule("org-rule-1"))
 	require.NoError(t, b.PutOrganizationConformancePack("org-pack-1"))
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	fresh := awsconfig.NewInMemoryBackend()
-	require.NoError(t, fresh.Restore(snap))
+	require.NoError(t, fresh.Restore(t.Context(), snap))
 
 	// Verify all maps were restored
 	recorders := fresh.DescribeConfigurationRecorders(nil)

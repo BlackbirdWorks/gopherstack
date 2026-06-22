@@ -1,18 +1,20 @@
 package eks
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
 	"hash/fnv"
 	"maps"
-	"sort"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
+	"github.com/blackbirdworks/gopherstack/pkgs/worker"
 )
 
 const (
@@ -206,12 +208,13 @@ type InMemoryBackend struct {
 	subscriptions           map[string]*AnywhereSubscription
 	updates                 map[string]map[string]*Update // clusterName -> updateID -> update
 	mu                      *lockmetrics.RWMutex
+	work                    *worker.Group
 	accountID               string
 	region                  string
 }
 
 // NewInMemoryBackend creates a new in-memory EKS backend.
-func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
+func NewInMemoryBackend(ctx context.Context, accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
 		clusters:                make(map[string]*Cluster),
 		nodegroups:              make(map[string]map[string]*Nodegroup),
@@ -228,11 +231,16 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		accountID:               accountID,
 		region:                  region,
 		mu:                      lockmetrics.New("eks"),
+		work:                    worker.NewGroup(ctx, "eks"),
 	}
 }
 
 // Region returns the AWS region this backend is configured for.
 func (b *InMemoryBackend) Region() string { return b.region }
+
+// Close stops all scheduled state-transition timers so none outlives the
+// backend. It is safe to call multiple times.
+func (b *InMemoryBackend) Close() { b.work.Stop() }
 
 // Reset clears all state, returning the backend to a fresh empty state.
 // closeClusterTagsLocked closes tag objects for clusters and nodegroups.
@@ -440,7 +448,7 @@ func (b *InMemoryBackend) CreateCluster( //nolint:funlen // existing issue.
 	b.podIdentityAssociations[name] = make(map[string]*PodIdentityAssociation)
 
 	// Schedule async transition CREATING -> ACTIVE.
-	time.AfterFunc(clusterTransitionDelay, func() {
+	b.work.After("ClusterTransition", clusterTransitionDelay, func() {
 		b.mu.Lock("CreateCluster-async")
 		defer b.mu.Unlock()
 
@@ -488,12 +496,7 @@ func (b *InMemoryBackend) ListClusters() []string {
 	b.mu.RLock("ListClusters")
 	defer b.mu.RUnlock()
 
-	names := make([]string, 0, len(b.clusters))
-	for name := range b.clusters {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
+	names := collections.SortedKeys(b.clusters)
 
 	return names
 }
@@ -684,7 +687,7 @@ func (b *InMemoryBackend) CreateNodegroup( //nolint:funlen // existing issue.
 	b.nodegroups[clusterName][nodegroupName] = ng
 
 	// Schedule async transition CREATING -> ACTIVE.
-	time.AfterFunc(nodegroupTransitionDelay, func() {
+	b.work.After("NodegroupTransition", nodegroupTransitionDelay, func() {
 		b.mu.Lock("CreateNodegroup-async")
 		defer b.mu.Unlock()
 
@@ -726,12 +729,7 @@ func (b *InMemoryBackend) ListNodegroups(clusterName string) ([]string, error) {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
 
-	names := make([]string, 0, len(b.nodegroups[clusterName]))
-	for name := range b.nodegroups[clusterName] {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
+	names := collections.SortedKeys(b.nodegroups[clusterName])
 
 	return names, nil
 }

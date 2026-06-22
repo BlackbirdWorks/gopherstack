@@ -1,6 +1,9 @@
 package appstream
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // StorageBackend is the interface for AppStream 2.0 storage operations.
 type StorageBackend interface {
@@ -153,8 +156,8 @@ type StorageBackend interface {
 	AccountID() string
 	Region() string
 	Reset()
-	Snapshot() []byte
-	Restore(data []byte) error
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 }
 
 // Stack holds AppStream 2.0 stack details.

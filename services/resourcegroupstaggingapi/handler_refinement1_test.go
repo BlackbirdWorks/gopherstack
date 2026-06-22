@@ -113,11 +113,11 @@ func TestRefinement1_SnapshotRestoreRoundtrip(t *testing.T) {
 	b := newBackend(t)
 	resourcegroupstaggingapi.AddReportStateInternal(b, "SUCCEEDED", "s3://my-bucket/report.csv", "2025-06-01T00:00:00Z")
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := resourcegroupstaggingapi.NewInMemoryBackend("111111111111", "ap-southeast-1")
-	err := b2.Restore(snap)
+	err := b2.Restore(t.Context(), snap)
 	require.NoError(t, err)
 
 	assert.Equal(t, testAccountID, b2.AccountID())
@@ -131,7 +131,7 @@ func TestRefinement1_SnapshotEmpty(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 
 	require.NotNil(t, snap)
 	assert.False(t, resourcegroupstaggingapi.HasReportState(b))
@@ -141,7 +141,7 @@ func TestRefinement1_RestoreInvalidJSON(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	err := b.Restore([]byte("not-json"))
+	err := b.Restore(t.Context(), []byte("not-json"))
 
 	require.Error(t, err)
 }
@@ -155,10 +155,10 @@ func TestRefinement1_SnapshotClearsProvidersOnRestore(t *testing.T) {
 	})
 	require.Equal(t, 1, resourcegroupstaggingapi.ProviderCount(b))
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 
 	b2 := newBackend(t)
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	// Providers are runtime callbacks and cannot be serialized.
 	assert.Equal(t, 0, resourcegroupstaggingapi.ProviderCount(b2))

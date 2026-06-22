@@ -252,11 +252,11 @@ func TestRefinement4_SnapshotRestore_PreservesCounters(t *testing.T) {
 	require.NoError(t, err)
 
 	// Snapshot and restore.
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := sts.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	h2 := sts.NewHandler(b2)
 

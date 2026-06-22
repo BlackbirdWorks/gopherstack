@@ -33,7 +33,7 @@ func newDataPlaneFixture(t *testing.T) string {
 	t.Helper()
 
 	handler := dax.NewHandler(dax.NewInMemoryBackend("000000000000", "us-east-1"))
-	dp := handler.EnableDataPlane(nil, "127.0.0.1:0")
+	dp := handler.EnableDataPlane(context.TODO(), "127.0.0.1:0")
 
 	if err := handler.StartWorker(context.Background()); err != nil {
 		t.Fatalf("start data plane: %v", err)
@@ -209,7 +209,7 @@ func newRangeFixture(t *testing.T) string {
 	t.Helper()
 
 	handler := dax.NewHandler(dax.NewInMemoryBackend("000000000000", "us-east-1"))
-	dp := handler.EnableDataPlane(nil, "127.0.0.1:0")
+	dp := handler.EnableDataPlane(context.TODO(), "127.0.0.1:0")
 
 	if err := handler.StartWorker(context.Background()); err != nil {
 		t.Fatalf("start data plane: %v", err)

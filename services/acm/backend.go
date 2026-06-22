@@ -1386,6 +1386,21 @@ func (b *InMemoryBackend) Reset() {
 	b.accountConfig = make(map[string]AccountConfig)
 }
 
+// Close stops all in-flight certificate auto-validation timers so their
+// goroutines do not outlive the backend, without otherwise clearing state. It is
+// safe to call multiple times.
+func (b *InMemoryBackend) Close() {
+	b.mu.Lock("Close")
+	defer b.mu.Unlock()
+
+	for _, regionTimers := range b.timers {
+		for _, t := range regionTimers {
+			t.Stop()
+		}
+	}
+	b.timers = make(map[string]map[string]*time.Timer)
+}
+
 // GetAccountConfiguration returns the account-level ACM configuration for the request region.
 func (b *InMemoryBackend) GetAccountConfiguration(ctx context.Context) AccountConfig {
 	region := getRegion(ctx, b.region)

@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
@@ -973,7 +974,7 @@ func (b *InMemoryBackend) RegisterEventTopic(ctx context.Context, directoryID, t
 	st.eventTopics[key] = &storedEventTopic{
 		DirectoryID:     directoryID,
 		TopicName:       topicName,
-		TopicARN:        fmt.Sprintf("arn:aws:sns:%s:%s:%s", region, b.accountID, topicName),
+		TopicARN:        arn.Build("sns", region, b.accountID, topicName),
 		Status:          "Registered",
 		CreatedDateTime: time.Now().UTC(),
 	}

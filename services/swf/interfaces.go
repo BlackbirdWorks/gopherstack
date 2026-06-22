@@ -1,5 +1,7 @@
 package swf
 
+import "context"
+
 // StorageBackend defines the interface for SWF backend implementations.
 // All mutating methods must be safe for concurrent use.
 type StorageBackend interface {
@@ -63,8 +65,8 @@ type StorageBackend interface {
 
 	// Backend lifecycle
 	Reset()
-	Snapshot() []byte
-	Restore(data []byte) error
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 }
 
 // Compile-time assertion: InMemoryBackend must implement StorageBackend.

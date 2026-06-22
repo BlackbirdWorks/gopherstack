@@ -630,11 +630,11 @@ func TestBackupPersistence(t *testing.T) {
 				h := newTestBackupHandler()
 				doREST(t, h, http.MethodPut, "/backup-vaults/snap-vault", nil)
 
-				snap := h.Snapshot()
+				snap := h.Snapshot(t.Context())
 				require.NotNil(t, snap)
 
 				h2 := newTestBackupHandler()
-				require.NoError(t, h2.Restore(snap))
+				require.NoError(t, h2.Restore(t.Context(), snap))
 
 				rec := doREST(t, h2, http.MethodGet, "/backup-vaults/snap-vault", nil)
 				assert.Equal(t, http.StatusOK, rec.Code)
@@ -648,11 +648,11 @@ func TestBackupPersistence(t *testing.T) {
 				vault, err := b.CreateBackupVault("my-vault", "", "", nil)
 				require.NoError(t, err)
 
-				snap := b.Snapshot()
+				snap := b.Snapshot(t.Context())
 				require.NotNil(t, snap)
 
 				fresh := backup.NewInMemoryBackend("000000000000", "us-east-1")
-				require.NoError(t, fresh.Restore(snap))
+				require.NoError(t, fresh.Restore(t.Context(), snap))
 
 				// Tag by ARN must succeed using the rebuilt index.
 				err = fresh.TagResource(vault.BackupVaultArn, map[string]string{"env": "prod"})
@@ -671,11 +671,11 @@ func TestBackupPersistence(t *testing.T) {
 				plan, err := b.CreateBackupPlan("my-plan", nil, nil, nil)
 				require.NoError(t, err)
 
-				snap := b.Snapshot()
+				snap := b.Snapshot(t.Context())
 				require.NotNil(t, snap)
 
 				fresh := backup.NewInMemoryBackend("000000000000", "us-east-1")
-				require.NoError(t, fresh.Restore(snap))
+				require.NoError(t, fresh.Restore(t.Context(), snap))
 
 				// Tag by ARN must succeed using the rebuilt index.
 				err = fresh.TagResource(plan.BackupPlanArn, map[string]string{"team": "ops"})
@@ -694,11 +694,11 @@ func TestBackupPersistence(t *testing.T) {
 				plan, err := b.CreateBackupPlan("id-plan", nil, nil, nil)
 				require.NoError(t, err)
 
-				snap := b.Snapshot()
+				snap := b.Snapshot(t.Context())
 				require.NotNil(t, snap)
 
 				fresh := backup.NewInMemoryBackend("000000000000", "us-east-1")
-				require.NoError(t, fresh.Restore(snap))
+				require.NoError(t, fresh.Restore(t.Context(), snap))
 
 				// GetBackupPlan by plan ID must succeed using the rebuilt planIDIndex.
 				got, err := fresh.GetBackupPlan(plan.BackupPlanID)
@@ -711,7 +711,7 @@ func TestBackupPersistence(t *testing.T) {
 			run: func(t *testing.T) {
 				t.Helper()
 				h := newTestBackupHandler()
-				err := h.Restore([]byte("not-json"))
+				err := h.Restore(t.Context(), []byte("not-json"))
 				require.Error(t, err)
 			},
 		},
@@ -1779,12 +1779,12 @@ func TestPersistenceRoundTrip(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	snap := original.Snapshot()
+	snap := original.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	// Restore into a fresh backend.
 	restored := backup.NewInMemoryBackend("", "")
-	require.NoError(t, restored.Restore(snap))
+	require.NoError(t, restored.Restore(t.Context(), snap))
 
 	// Verify vaults.
 	vault, err := restored.DescribeBackupVault("persist-vault")

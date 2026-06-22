@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 const (
@@ -126,8 +128,8 @@ func (b *InMemoryBackend) CreateStackInstances(stackSetName string, accounts, re
 			if alreadyExists {
 				continue
 			}
-			instanceStackID := fmt.Sprintf("arn:aws:cloudformation:%s:%s:stack/%s/%s",
-				region, acct, stackSetName, uuid.New().String())
+			stackResource := fmt.Sprintf("stack/%s/%s", stackSetName, uuid.New().String())
+			instanceStackID := arn.Build("cloudformation", region, acct, stackResource)
 			b.stackInstances[stackSetName] = append(b.stackInstances[stackSetName], StackInstance{
 				StackSetID:      ss.StackSetID,
 				StackSetName:    stackSetName,

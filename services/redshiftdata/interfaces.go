@@ -37,8 +37,8 @@ type StorageBackend interface {
 	Reset()
 	Region() string
 	AccountID() string
-	Snapshot() []byte
-	Restore(data []byte) error
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 }
 
 // Ensure InMemoryBackend satisfies StorageBackend at compile time.

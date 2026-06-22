@@ -113,6 +113,7 @@ func TestSQS_DLQRedrive(t *testing.T) {
 			t.Parallel()
 
 			b := sqs.NewInMemoryBackend()
+			t.Cleanup(b.Close)
 			srcARN, destARN, srcURL := tt.setup(t, b)
 
 			// Seed messages into the source queue if needed.
@@ -149,6 +150,7 @@ func TestSQS_DLQRedrive_MovesMessages(t *testing.T) {
 	t.Parallel()
 
 	b := sqs.NewInMemoryBackend()
+	t.Cleanup(b.Close)
 
 	dlqName := "dlq-moves"
 	destName := "dest-moves"
@@ -223,6 +225,7 @@ func TestSQS_DLQRedrive_DefaultDestination(t *testing.T) {
 	t.Parallel()
 
 	b := sqs.NewInMemoryBackend()
+	t.Cleanup(b.Close)
 
 	dlqName := "dlq-default-dest"
 	srcName := "src-default-dest"
@@ -353,6 +356,7 @@ func TestSQS_CancelMessageMoveTask(t *testing.T) {
 			t.Parallel()
 
 			b := sqs.NewInMemoryBackend()
+			t.Cleanup(b.Close)
 			handle := tt.setup(t, b)
 
 			cancelOut, err := b.CancelMessageMoveTask(&sqs.CancelMessageMoveTaskInput{
@@ -476,6 +480,7 @@ func TestSQS_ListMessageMoveTasks(t *testing.T) {
 			t.Parallel()
 
 			b := sqs.NewInMemoryBackend()
+			t.Cleanup(b.Close)
 			srcARN, _ := tt.setup(t, b)
 
 			var out *sqs.ListMessageMoveTasksOutput
@@ -667,6 +672,7 @@ func TestSQS_ListMessageMoveTasks_TaskHandleOnlyForRunning(t *testing.T) {
 	t.Parallel()
 
 	b := sqs.NewInMemoryBackend()
+	t.Cleanup(b.Close)
 
 	dlqName := "dlq-taskhandle-check"
 	destName := "dest-taskhandle-check"
@@ -752,6 +758,7 @@ func TestSQS_ListMessageMoveTasks_MaxResults(t *testing.T) {
 			t.Parallel()
 
 			b := sqs.NewInMemoryBackend()
+			t.Cleanup(b.Close)
 
 			// Create taskCount source queues and start a task on each.
 			for i := range tt.taskCount {
@@ -809,6 +816,7 @@ func TestSQS_ListMessageMoveTasks_NewestFirst(t *testing.T) {
 	t.Parallel()
 
 	b := sqs.NewInMemoryBackend()
+	t.Cleanup(b.Close)
 
 	const numQueues = 3
 
@@ -888,6 +896,7 @@ func TestSQS_StartMessageMoveTask_Validation(t *testing.T) {
 			t.Parallel()
 
 			b := sqs.NewInMemoryBackend()
+			t.Cleanup(b.Close)
 
 			_, err := b.StartMessageMoveTask(&tt.input)
 			require.Error(t, err)
@@ -902,6 +911,7 @@ func TestSQS_CancelMessageMoveTask_NotRunning(t *testing.T) {
 	t.Parallel()
 
 	b := sqs.NewInMemoryBackend()
+	t.Cleanup(b.Close)
 
 	dlqName := "dlq-cancel-complete"
 	destName := "dest-cancel-complete"
@@ -1000,6 +1010,7 @@ func TestSQS_MoveTaskJanitorPruning(t *testing.T) {
 			t.Parallel()
 
 			b := sqs.NewInMemoryBackend()
+			t.Cleanup(b.Close)
 			for _, task := range tt.tasks {
 				b.InjectMoveTaskForTest(task.handle, task.status, task.startedAt)
 			}
@@ -1056,6 +1067,7 @@ func TestSQS_AddPermission_Validation(t *testing.T) {
 			t.Parallel()
 
 			b := sqs.NewInMemoryBackend()
+			t.Cleanup(b.Close)
 
 			_, err := b.CreateQueue(&sqs.CreateQueueInput{QueueName: "q", Endpoint: "localhost"})
 			require.NoError(t, err)
@@ -1073,6 +1085,7 @@ func TestSQS_DeleteQueue_CancelsMoveTasks(t *testing.T) {
 	t.Parallel()
 
 	b := sqs.NewInMemoryBackend()
+	t.Cleanup(b.Close)
 
 	dlqName := "dlq-delete-cancel"
 	destName := "dest-delete-cancel"

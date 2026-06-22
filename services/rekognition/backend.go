@@ -1,17 +1,19 @@
 package rekognition
 
 import (
-	"encoding/json"
+	"context"
 	"errors"
 	"fmt"
 	"maps"
-	"sort"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 const (
@@ -233,11 +235,11 @@ func (b *InMemoryBackend) AccountID() string { return b.accountID }
 func (b *InMemoryBackend) Region() string { return b.region }
 
 func (b *InMemoryBackend) collectionARN(collectionID string) string {
-	return fmt.Sprintf("arn:aws:rekognition:%s:%s:collection/%s", b.region, b.accountID, collectionID)
+	return arn.Build("rekognition", b.region, b.accountID, fmt.Sprintf("collection/%s", collectionID))
 }
 
 func (b *InMemoryBackend) streamProcessorARN(name string) string {
-	return fmt.Sprintf("arn:aws:rekognition:%s:%s:streamprocessor/%s", b.region, b.accountID, name)
+	return arn.Build("rekognition", b.region, b.accountID, fmt.Sprintf("streamprocessor/%s", name))
 }
 
 // CreateCollection creates a new face collection.
@@ -316,12 +318,7 @@ func paginateStringMap[V any, R any](
 	nextToken string,
 	convert func(V) R,
 ) ([]R, string) {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(m)
 
 	start := 0
 	if nextToken != "" {
@@ -825,7 +822,7 @@ func (b *InMemoryBackend) Reset() {
 }
 
 // Snapshot serializes the backend state to JSON.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
@@ -851,7 +848,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		tagsCopy[arn] = tc
 	}
 
-	data, _ := json.Marshal(&snapshot{
+	return persistence.MarshalSnapshot(ctx, "rekognition", &snapshot{
 		Collections:      colls,
 		Faces:            faces,
 		StreamProcessors: procs,
@@ -859,15 +856,13 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		AccountID:        b.accountID,
 		Region:           b.region,
 	})
-
-	return data
 }
 
 // Restore deserializes backend state from JSON.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var s snapshot
 
-	if err := json.Unmarshal(data, &s); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "rekognition", data, &s); err != nil {
 		return err
 	}
 

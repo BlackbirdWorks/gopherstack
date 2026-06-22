@@ -13,6 +13,8 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 )
 
 // handlePostObject implements browser-style POST form-data uploads to S3.
@@ -120,9 +122,9 @@ func buildPostPutInput(
 		Key:                aws.String(key),
 		Body:               bytes.NewReader(fileBody),
 		ContentType:        aws.String(objContentType),
-		ContentDisposition: nilStringIfEmpty(fields["Content-Disposition"]),
-		ContentEncoding:    nilStringIfEmpty(fields["Content-Encoding"]),
-		CacheControl:       nilStringIfEmpty(fields["Cache-Control"]),
+		ContentDisposition: ptrconv.NilIfEmpty(fields["Content-Disposition"]),
+		ContentEncoding:    ptrconv.NilIfEmpty(fields["Content-Encoding"]),
+		CacheControl:       ptrconv.NilIfEmpty(fields["Cache-Control"]),
 		Metadata:           userMeta,
 	}
 

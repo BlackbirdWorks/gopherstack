@@ -6,22 +6,17 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
+	"github.com/blackbirdworks/gopherstack/pkgs/worker"
 )
 
 // RunJanitor periodically cleans up expired attachment sets and their associated attachments.
 // It blocks until the context is cancelled.
 func (b *InMemoryBackend) RunJanitor(ctx context.Context, interval time.Duration) {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
+	g := worker.NewGroup(ctx, "support")
+	g.Ticker("AttachmentCleaner", interval, 0, b.sweepExpiredResources)
 
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			b.sweepExpiredResources(ctx)
-		}
-	}
+	<-ctx.Done()
+	g.Stop()
 }
 
 // sweepExpiredResources identifies and removes expired attachment sets and any orphaned attachments.

@@ -601,11 +601,11 @@ func TestRefinement2_Persistence_NewFields(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	s, err := b2.GetSchedule(context.Background(), "persist-sched", "default")
 	require.NoError(t, err)

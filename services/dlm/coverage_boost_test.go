@@ -128,11 +128,11 @@ func TestBackend_SnapshotAndRestore(t *testing.T) {
 			)
 			require.NoError(t, err)
 
-			snap := b.Snapshot()
+			snap := b.Snapshot(t.Context())
 			require.NotEmpty(t, snap)
 
 			if tc.badJSON {
-				err = b.Restore([]byte("not json"))
+				err = b.Restore(t.Context(), []byte("not json"))
 				require.Error(t, err)
 
 				return
@@ -140,7 +140,7 @@ func TestBackend_SnapshotAndRestore(t *testing.T) {
 
 			// Restore into fresh backend.
 			b2 := dlm.NewInMemoryBackend("000000000000", "us-east-1")
-			require.NoError(t, b2.Restore(snap))
+			require.NoError(t, b2.Restore(t.Context(), snap))
 
 			got, err := b2.GetLifecyclePolicy(p.PolicyID)
 			require.NoError(t, err)
@@ -168,7 +168,7 @@ func TestBackend_SnapshotNullFields(t *testing.T) {
 			t.Parallel()
 
 			b := dlm.NewInMemoryBackend("000000000000", "us-east-1")
-			require.NoError(t, b.Restore(tc.payload))
+			require.NoError(t, b.Restore(t.Context(), tc.payload))
 
 			policies, err := b.GetLifecyclePolicies(nil, "")
 			require.NoError(t, err)

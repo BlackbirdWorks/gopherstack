@@ -153,11 +153,11 @@ func TestKMSGrantsByKeyIndexAfterRestore(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	snap := orig.Snapshot()
+	snap := orig.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	fresh := kms.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
-	require.NoError(t, fresh.Restore(snap))
+	require.NoError(t, fresh.Restore(t.Context(), snap))
 
 	// grantsByKey must be rebuilt.
 	ok, msg := kms.GrantIndexesConsistent(fresh)

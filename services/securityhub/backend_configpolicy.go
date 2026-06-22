@@ -3,6 +3,8 @@ package securityhub
 import (
 	"fmt"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // ConfigurationPolicy represents a Security Hub central configuration policy.
@@ -29,7 +31,7 @@ type ConfigurationPolicyAssociation struct {
 }
 
 func (b *InMemoryBackend) configPolicyARN(id string) string {
-	return fmt.Sprintf("arn:aws:securityhub:%s:%s:configuration-policy/%s", b.region, b.accountID, id)
+	return arn.Build("securityhub", b.region, b.accountID, fmt.Sprintf("configuration-policy/%s", id))
 }
 
 func (b *InMemoryBackend) CreateConfigurationPolicy(

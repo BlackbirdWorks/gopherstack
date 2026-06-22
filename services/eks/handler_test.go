@@ -17,8 +17,9 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/eks"
 )
 
-func newTestEKSHandler() *eks.Handler {
-	backend := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
+func newTestEKSHandler(t *testing.T) *eks.Handler {
+	t.Helper()
+	backend := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 
 	return eks.NewHandler(backend)
 }
@@ -157,7 +158,7 @@ func TestEKSClusterCRUD(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			tt.ops(t, newTestEKSHandler())
+			tt.ops(t, newTestEKSHandler(t))
 		})
 	}
 }
@@ -268,7 +269,7 @@ func TestEKSNodegroupCRUD(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			tt.ops(t, newTestEKSHandler())
+			tt.ops(t, newTestEKSHandler(t))
 		})
 	}
 }
@@ -317,7 +318,7 @@ func TestEKSTagging(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			tt.ops(t, newTestEKSHandler())
+			tt.ops(t, newTestEKSHandler(t))
 		})
 	}
 }
@@ -336,7 +337,7 @@ func TestEKSHandlerMetadata(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			h := newTestEKSHandler()
+			h := newTestEKSHandler(t)
 			assert.Equal(t, tt.want, h.Name())
 		})
 	}
@@ -347,7 +348,7 @@ func TestEKSHandlerMetadata(t *testing.T) {
 func TestEKSHandlerChaosAndMetrics(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 
 	t.Run("chaos_service_name", func(t *testing.T) {
 		t.Parallel()
@@ -412,7 +413,7 @@ func TestEKSHandlerChaosAndMetrics(t *testing.T) {
 func TestEKSBackendRegion(t *testing.T) {
 	t.Parallel()
 
-	backend := eks.NewInMemoryBackend("123456789012", "us-east-1")
+	backend := eks.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
 	assert.Equal(t, "us-east-1", backend.Region())
 }
 
@@ -420,7 +421,7 @@ func TestEKSBackendRegion(t *testing.T) {
 func TestEKSBackendListAllClusters(t *testing.T) {
 	t.Parallel()
 
-	backend := eks.NewInMemoryBackend("123456789012", "us-east-1")
+	backend := eks.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
 	_, _ = backend.CreateCluster("a", "1.32", "", nil, nil, nil)
 	_, _ = backend.CreateCluster("b", "1.32", "", nil, nil, nil)
 
@@ -432,7 +433,7 @@ func TestEKSBackendListAllClusters(t *testing.T) {
 func TestEKSUntagResource(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	rec := doREST(t, h, http.MethodPost, "/clusters", map[string]any{
 		"name": "tag-cluster",
 		"tags": map[string]string{"Env": "test", "Project": "demo"},
@@ -463,7 +464,7 @@ func TestEKSUntagResource(t *testing.T) {
 func TestEKSTagNodegroup(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "my-cluster"})
 	ngRec := doREST(t, h, http.MethodPost, "/clusters/my-cluster/node-groups", map[string]any{
 		"nodegroupName": "my-ng",
@@ -585,7 +586,7 @@ func TestEKSErrorPaths(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			tt.ops(t, newTestEKSHandler())
+			tt.ops(t, newTestEKSHandler(t))
 		})
 	}
 }
@@ -597,7 +598,7 @@ func TestEKSProvider(t *testing.T) {
 	p := &eks.Provider{}
 	assert.Equal(t, "EKS", p.Name())
 
-	appCtx := &service.AppContext{}
+	appCtx := &service.AppContext{JanitorCtx: t.Context()}
 	h, err := p.Init(appCtx)
 	require.NoError(t, err)
 	assert.NotNil(t, h)
@@ -607,7 +608,7 @@ func TestEKSProvider(t *testing.T) {
 func TestEKSRouteMatcher(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	matcher := h.RouteMatcher()
 
 	tests := []struct {
@@ -650,7 +651,7 @@ func TestEKSRouteMatcher(t *testing.T) {
 func TestEKS_PersistenceSnapshotRestore(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend("000000000000", "us-east-1")
+	b := eks.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 
 	_, err := b.CreateCluster(
 		"cluster1",
@@ -669,12 +670,12 @@ func TestEKS_PersistenceSnapshotRestore(t *testing.T) {
 	require.NoError(t, err)
 
 	h := eks.NewHandler(b)
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
-	b2 := eks.NewInMemoryBackend("000000000000", "us-east-1")
+	b2 := eks.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	h2 := eks.NewHandler(b2)
-	require.NoError(t, h2.Restore(snap))
+	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	c, err := b2.DescribeCluster("cluster1")
 	require.NoError(t, err)

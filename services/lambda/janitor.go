@@ -6,6 +6,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
+	"github.com/blackbirdworks/gopherstack/pkgs/worker"
 )
 
 const (
@@ -33,28 +34,17 @@ func NewJanitor(backend *InMemoryBackend, _ Settings) *Janitor {
 
 // Run runs the janitor loop until ctx is cancelled.
 func (j *Janitor) Run(ctx context.Context) {
-	ticker := time.NewTicker(j.Interval)
-	defer ticker.Stop()
+	g := worker.NewGroup(ctx, lambdaWorkerService)
+	g.Ticker(runtimeJanitorName, j.Interval, j.TaskTimeout, j.sweep)
 
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			taskCtx, cancel := j.taskContext(ctx)
-			j.sweepIdleRuntimes(taskCtx)
-			j.sweepESMs(taskCtx)
-			cancel()
-		}
-	}
+	<-ctx.Done()
+	g.Stop()
 }
 
-func (j *Janitor) taskContext(parent context.Context) (context.Context, context.CancelFunc) {
-	if j.TaskTimeout > 0 {
-		return context.WithTimeout(parent, j.TaskTimeout)
-	}
-
-	return context.WithCancel(parent)
+// sweep runs one full janitor pass: evict idle runtimes and health-check ESMs.
+func (j *Janitor) sweep(ctx context.Context) {
+	j.sweepIdleRuntimes(ctx)
+	j.sweepESMs(ctx)
 }
 
 // sweepIdleRuntimes identifies runtimes that have been idle for longer than

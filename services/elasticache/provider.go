@@ -3,7 +3,6 @@ package elasticache
 import (
 	"errors"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -29,14 +28,8 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		return nil, ErrNilContext
 	}
 	engineMode := EngineEmbedded
-	accountID := config.DefaultAccountID
-	region := config.DefaultRegion
+	accountID, region := service.AccountRegionOrDefault(ctx)
 
-	if cp, ok := ctx.Config.(config.Provider); ok {
-		cfg := cp.GetGlobalConfig()
-		accountID = cfg.GetAccountID()
-		region = cfg.GetRegion()
-	}
 	if ec, ok := ctx.Config.(EngineConfig); ok {
 		engineMode = ec.GetElastiCacheEngine()
 	}

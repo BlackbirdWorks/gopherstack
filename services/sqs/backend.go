@@ -18,6 +18,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 
@@ -173,6 +174,25 @@ func (b *InMemoryBackend) startJanitor() {
 // no-ops.  The backend must not be used after Close returns.
 func (b *InMemoryBackend) Close() {
 	b.stopInternalJanitor()
+	b.cancelAllMoveTasks()
+}
+
+// cancelAllMoveTasks cancels every in-flight StartMessageMoveTask goroutine so
+// none outlives the backend. Safe to call multiple times; cancelling an
+// already-finished task is a no-op.
+func (b *InMemoryBackend) cancelAllMoveTasks() {
+	b.mu.Lock("cancelAllMoveTasks")
+	tasks := make([]*moveTaskState, 0, len(b.moveTasks))
+	for _, task := range b.moveTasks {
+		tasks = append(tasks, task)
+	}
+	b.mu.Unlock()
+
+	for _, task := range tasks {
+		if task.cancel != nil {
+			task.cancel()
+		}
+	}
 }
 
 // stopInternalJanitor stops the internal janitor goroutine started by
@@ -397,11 +417,7 @@ func computeMD5OfMessageAttributes(attrs map[string]MessageAttributeValue) strin
 		return ""
 	}
 
-	names := make([]string, 0, len(attrs))
-	for name := range attrs {
-		names = append(names, name)
-	}
-	sort.Strings(names)
+	names := collections.SortedKeys(attrs)
 
 	var buf []byte
 	for _, name := range names {
@@ -2539,11 +2555,7 @@ func buildQueueIAMPolicy(q *Queue) {
 	queueARN := q.Attributes[attrQueueArn]
 
 	// Iterate in sorted label order so the output is deterministic.
-	labels := make([]string, 0, len(q.Permissions))
-	for label := range q.Permissions {
-		labels = append(labels, label)
-	}
-	sort.Strings(labels)
+	labels := collections.SortedKeys(q.Permissions)
 
 	stmts := make([]iamPolicyStatement, 0, len(labels))
 	for _, label := range labels {

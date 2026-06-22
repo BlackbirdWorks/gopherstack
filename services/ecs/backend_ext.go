@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
@@ -398,7 +399,7 @@ func (b *InMemoryBackend) CreateTaskSet(input CreateTaskSetInput) (*TaskSet, err
 		TaskSetArn:           taskSetArn,
 		ID:                   "ecs-svc-" + id,
 		ServiceArn:           svc.ServiceArn,
-		ClusterArn:           fmt.Sprintf("arn:aws:ecs:%s:%s:cluster/%s", b.region, b.accountID, clusterName),
+		ClusterArn:           arn.Build("ecs", b.region, b.accountID, fmt.Sprintf("cluster/%s", clusterName)),
 		TaskDefinition:       td.TaskDefinitionArn,
 		Status:               statusActive,
 		ExternalID:           input.ExternalID,
@@ -625,7 +626,7 @@ func (b *InMemoryBackend) ExecuteCommand(
 
 	return &ExecuteCommandOutput{
 		ClusterArn:    clusterObj.ClusterArn,
-		ContainerArn:  fmt.Sprintf("arn:aws:ecs:%s:%s:container/%s", b.region, b.accountID, uuid.NewString()),
+		ContainerArn:  arn.Build("ecs", b.region, b.accountID, fmt.Sprintf("container/%s", uuid.NewString())),
 		ContainerName: container,
 		TaskArn:       t.TaskArn,
 		Interactive:   interactive,

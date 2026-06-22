@@ -157,6 +157,19 @@ linters:
 
   # All settings can be found here https://github.com/golangci/golangci-lint/blob/HEAD/.golangci.reference.yml
   settings:
+    forbidigo:
+      # Forbid ad-hoc/global logging so every record goes through the
+      # context-aware logger (pkgs/logger). The only legitimate slog.Default /
+      # slog.New live in pkgs/logger itself (excluded below).
+      forbid:
+        # Preserve forbidigo's upstream default (no stray fmt.Print debugging).
+        - pattern: '^(fmt\.Print(|f|ln)|print|println)$'
+        - pattern: 'slog\.Default\('
+          msg: 'use logger.Load(ctx) instead of slog.Default() (context-aware logging)'
+        - pattern: 'slog\.New\('
+          msg: 'use logger.NewLogger instead of ad-hoc slog.New()'
+      analyze-types: true
+
     cyclop:
       # The maximal code complexity to report.
       # Default: 10
@@ -460,6 +473,10 @@ linters:
     rules:
       - source: 'TODO'
         linters: [ godot ]
+      # pkgs/logger is the canonical logging factory: it is the only place allowed
+      # to reference slog.Default() (the Load fallback) and slog.New (NewLogger).
+      - path: 'pkgs/logger/'
+        linters: [ forbidigo ]
       - path: 'dynamodb/expr/parser.go'
         linters: [ ireturn ]
       - path: 'pkgs/lockmetrics/lockmetrics.go'

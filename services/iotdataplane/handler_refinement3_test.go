@@ -961,11 +961,11 @@ func TestRefinement3_Persistence_ShadowWithMetadata(t *testing.T) {
 		"state": {"desired": {"temp": 68}, "reported": {"current": 65}}
 	}`))
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := iotdataplane.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	h2 := iotdataplane.NewHandler(b2)
 

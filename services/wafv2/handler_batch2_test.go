@@ -1712,11 +1712,11 @@ func TestBatch2_Snapshot_IncludesManagedRuleSets(t *testing.T) {
 	require.NoError(t, err)
 
 	// Snapshot and restore.
-	snap := b1.Snapshot()
+	snap := b1.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := newTestHandler(t).Backend
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	// Verify managed rule set was restored.
 	ms, err := b2.GetManagedRuleSet(context.Background(), "snap-ms-001")

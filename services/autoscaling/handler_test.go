@@ -592,11 +592,11 @@ func TestAutoscalingHandler_Persistence(t *testing.T) {
 				postAutoscalingForm(t, h, "Action=CreateAutoScalingGroup&Version=2011-01-01"+
 					"&AutoScalingGroupName=snap-asg&MinSize=1&MaxSize=3")
 
-				data := h.Snapshot()
+				data := h.Snapshot(t.Context())
 				require.NotNil(t, data)
 
 				h2 := newAutoscalingHandler()
-				err := h2.Restore(data)
+				err := h2.Restore(t.Context(), data)
 				require.NoError(t, err)
 
 				rec := postAutoscalingForm(t, h2, "Action=DescribeAutoScalingGroups&Version=2011-01-01")

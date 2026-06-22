@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
@@ -448,7 +449,7 @@ func (b *InMemoryBackend) CreateCluster(input CreateClusterInput) (*Cluster, err
 
 	cluster := &Cluster{
 		CreatedAt:   time.Now(),
-		ClusterArn:  fmt.Sprintf("arn:aws:ecs:%s:%s:cluster/%s", b.region, b.accountID, name),
+		ClusterArn:  arn.Build("ecs", b.region, b.accountID, fmt.Sprintf("cluster/%s", name)),
 		ClusterName: name,
 		Status:      statusActive,
 		Settings:    input.Settings,
@@ -833,7 +834,7 @@ func (b *InMemoryBackend) ensureClusterLocked(clusterName string) {
 	if _, ok := b.clusters[clusterName]; !ok && clusterName == defaultCluster {
 		b.clusters[clusterName] = &Cluster{
 			CreatedAt:   time.Now(),
-			ClusterArn:  fmt.Sprintf("arn:aws:ecs:%s:%s:cluster/%s", b.region, b.accountID, clusterName),
+			ClusterArn:  arn.Build("ecs", b.region, b.accountID, fmt.Sprintf("cluster/%s", clusterName)),
 			ClusterName: clusterName,
 			Status:      statusActive,
 		}
@@ -898,7 +899,7 @@ func (b *InMemoryBackend) CreateService(input CreateServiceInput) (*Service, err
 			input.ServiceName,
 		),
 		ServiceName:                 input.ServiceName,
-		ClusterArn:                  fmt.Sprintf("arn:aws:ecs:%s:%s:cluster/%s", b.region, b.accountID, clusterName),
+		ClusterArn:                  arn.Build("ecs", b.region, b.accountID, fmt.Sprintf("cluster/%s", clusterName)),
 		TaskDefinition:              td.TaskDefinitionArn,
 		Status:                      statusActive,
 		LaunchType:                  launchType,
@@ -1173,7 +1174,7 @@ func (b *InMemoryBackend) RunTask(input RunTaskInput) ([]Task, error) {
 		return nil, err
 	}
 
-	clusterArn := fmt.Sprintf("arn:aws:ecs:%s:%s:cluster/%s", b.region, b.accountID, clusterName)
+	clusterArn := arn.Build("ecs", b.region, b.accountID, fmt.Sprintf("cluster/%s", clusterName))
 
 	launchType := input.LaunchType
 	if launchType == "" {

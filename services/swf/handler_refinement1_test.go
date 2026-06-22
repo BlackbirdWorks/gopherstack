@@ -499,11 +499,11 @@ func TestRefinement1_SnapshotRestoreActivities(t *testing.T) {
 	require.NoError(t, b.RegisterDomain("dom", "", "NONE"))
 	require.NoError(t, b.RegisterActivityType("dom", "act", "1.0", "persisted", swf.ActivityTypeDefaults{}))
 
-	data := b.Snapshot()
+	data := b.Snapshot(t.Context())
 	require.NotNil(t, data)
 
 	b2 := swf.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(data))
+	require.NoError(t, b2.Restore(t.Context(), data))
 
 	at, err := b2.DescribeActivityType("dom", "act", "1.0")
 	require.NoError(t, err)
@@ -519,11 +519,11 @@ func TestRefinement1_SnapshotRestoreWorkflowTypes(t *testing.T) {
 	require.NoError(t, b.RegisterWorkflowType("dom", "wf", "2.0", "wf desc", swf.WorkflowTypeDefaults{}))
 	require.NoError(t, b.DeprecateWorkflowType("dom", "wf", "2.0"))
 
-	data := b.Snapshot()
+	data := b.Snapshot(t.Context())
 	require.NotNil(t, data)
 
 	b2 := swf.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(data))
+	require.NoError(t, b2.Restore(t.Context(), data))
 
 	wt, err := b2.DescribeWorkflowType("dom", "wf", "2.0")
 	require.NoError(t, err)

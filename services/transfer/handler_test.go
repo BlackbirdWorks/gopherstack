@@ -19,7 +19,7 @@ import (
 func newTestHandler(t *testing.T) *transfer.Handler {
 	t.Helper()
 
-	return transfer.NewHandler(transfer.NewInMemoryBackend(testAccountID, testRegion))
+	return transfer.NewHandler(transfer.NewInMemoryBackend(t.Context(), testAccountID, testRegion))
 }
 
 func doTransferRequest(

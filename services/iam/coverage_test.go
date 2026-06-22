@@ -617,12 +617,12 @@ func TestHandler_SnapshotRestore_Delegation(t *testing.T) {
 			h := iam.NewHandler(b)
 			tt.setup(b)
 
-			snap := h.Snapshot()
+			snap := h.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			freshB := iam.NewInMemoryBackend()
 			freshH := iam.NewHandler(freshB)
-			require.NoError(t, freshH.Restore(snap))
+			require.NoError(t, freshH.Restore(t.Context(), snap))
 
 			if tt.name == "snapshot_and_restore_via_handler" {
 				u, err := freshB.GetUser("snap-user")

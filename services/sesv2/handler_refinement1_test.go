@@ -98,11 +98,11 @@ func TestRefinement1_SnapshotRestore(t *testing.T) {
 	_, err := backend.CreateContactList("my-list", "desc")
 	require.NoError(t, err)
 
-	snap := backend.Snapshot()
+	snap := backend.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	backend2 := sesv2.NewInMemoryBackend()
-	require.NoError(t, backend2.Restore(snap))
+	require.NoError(t, backend2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 1, sesv2.ContactListCount(backend2))
 }
@@ -801,11 +801,11 @@ func TestRefinement1_SnapshotRestoreRoundTrip(t *testing.T) {
 
 	backend.AddExportJobInternal("snap-job", "CREATED")
 
-	snap := backend.Snapshot()
+	snap := backend.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	backend2 := sesv2.NewInMemoryBackend()
-	require.NoError(t, backend2.Restore(snap))
+	require.NoError(t, backend2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 1, sesv2.IdentityCount(backend2))
 	assert.Equal(t, 1, sesv2.ContactListCount(backend2))

@@ -10,9 +10,10 @@ package apigateway
 import (
 	"encoding/json"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
 
 const (
@@ -278,11 +279,7 @@ func importModels(data *apiData, doc *openAPIDoc) {
 // importPaths walks the document paths, creating the resource tree and methods.
 func importPaths(data *apiData, doc *openAPIDoc) {
 	// Sort paths for deterministic resource creation order.
-	pathKeys := make([]string, 0, len(doc.Paths))
-	for p := range doc.Paths {
-		pathKeys = append(pathKeys, p)
-	}
-	sort.Strings(pathKeys)
+	pathKeys := collections.SortedKeys(doc.Paths)
 
 	for _, path := range pathKeys {
 		res := ensureResourcePath(data, path)

@@ -1052,11 +1052,11 @@ func TestS3Control_NewOps_SnapshotRestore(t *testing.T) {
 			original := s3control.NewInMemoryBackend()
 			tt.setup(original)
 
-			snap := original.Snapshot()
+			snap := original.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			fresh := s3control.NewInMemoryBackend()
-			require.NoError(t, fresh.Restore(snap))
+			require.NoError(t, fresh.Restore(t.Context(), snap))
 
 			tt.verify(t, fresh)
 		})

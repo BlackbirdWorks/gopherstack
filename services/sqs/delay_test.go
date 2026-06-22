@@ -40,6 +40,7 @@ func TestDelayQueue_MessageLevelDelay(t *testing.T) {
 			t.Parallel()
 
 			b := sqs.NewInMemoryBackend()
+			t.Cleanup(b.Close)
 			qURL := createTestQueue(t, b, "delay-msg-"+tt.name)
 
 			_, err := b.SendMessage(&sqs.SendMessageInput{
@@ -114,6 +115,7 @@ func TestDelayQueue_QueueLevelDelay(t *testing.T) {
 			t.Parallel()
 
 			b := sqs.NewInMemoryBackend()
+			t.Cleanup(b.Close)
 
 			out, err := b.CreateQueue(&sqs.CreateQueueInput{
 				QueueName: "delay-q-" + tt.name,
@@ -176,6 +178,7 @@ func TestDelayQueue_ApproximateNumberOfMessagesDelayed(t *testing.T) {
 			t.Parallel()
 
 			b := sqs.NewInMemoryBackend()
+			t.Cleanup(b.Close)
 			qURL := createTestQueue(t, b, "delayed-attr-"+tt.name)
 
 			_, err := b.SendMessage(&sqs.SendMessageInput{

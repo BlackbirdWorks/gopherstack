@@ -2,13 +2,13 @@ package dynamodb
 
 import (
 	"context"
-	"sort"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -103,12 +103,7 @@ func (db *InMemoryDB) ListTagsOfResource(
 
 	table.mu.RUnlock()
 
-	keys := make([]string, 0, len(tagMap))
-	for k := range tagMap {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(tagMap)
 
 	sdkTags := make([]types.Tag, 0, len(tagMap))
 	for _, k := range keys {

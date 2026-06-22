@@ -250,10 +250,10 @@ func TestCisScans_SnapshotRestoreRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, scansBefore, 1)
 
-	data := src.Snapshot()
+	data := src.Snapshot(t.Context())
 
 	dst := inspector2.NewInMemoryBackend("000000000000", "us-east-2")
-	require.NoError(t, dst.Restore(data))
+	require.NoError(t, dst.Restore(t.Context(), data))
 
 	scansAfter, err := dst.ListCisScans()
 	require.NoError(t, err)

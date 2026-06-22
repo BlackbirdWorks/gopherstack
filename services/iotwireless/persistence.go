@@ -1,17 +1,20 @@
 package iotwireless
 
 import (
+	"context"
 	"encoding/json"
-	"log/slog"
 	"maps"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 // Snapshottable is an optional interface that a StorageBackend may implement to
 // support state serialisation and restoration (e.g. for --persist mode).
 // Backends that do not implement it are silently skipped during snapshot/restore.
 type Snapshottable interface {
-	Snapshot() []byte
-	Restore(data []byte) error
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 }
 
 // Resettable is an optional interface that a StorageBackend may implement to
@@ -22,9 +25,9 @@ type Resettable interface {
 
 // Snapshot implements persistence.Persistable by delegating to the backend
 // when it implements Snapshottable. Returns nil for non-snapshottable backends.
-func (h *Handler) Snapshot() []byte {
+func (h *Handler) Snapshot(ctx context.Context) []byte {
 	if s, ok := h.Backend.(Snapshottable); ok {
-		return s.Snapshot()
+		return s.Snapshot(ctx)
 	}
 
 	return nil
@@ -32,9 +35,9 @@ func (h *Handler) Snapshot() []byte {
 
 // Restore implements persistence.Persistable by delegating to the backend
 // when it implements Snapshottable. Non-snapshottable backends are skipped.
-func (h *Handler) Restore(data []byte) error {
+func (h *Handler) Restore(ctx context.Context, data []byte) error {
 	if s, ok := h.Backend.(Snapshottable); ok {
-		return s.Restore(data)
+		return s.Restore(ctx, data)
 	}
 
 	return nil
@@ -127,7 +130,7 @@ type backendSnapshot struct {
 
 // Snapshot serialises the backend state to JSON.
 // It implements persistence.Persistable.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -135,7 +138,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 
 	data, err := json.Marshal(snap) //nolint:musttag // nested types lack tags
 	if err != nil {
-		slog.Default().Warn("iotwireless: failed to marshal snapshot", "error", err)
+		logger.Load(ctx).WarnContext(ctx, "iotwireless: failed to marshal snapshot", "error", err)
 
 		return nil
 	}
@@ -245,11 +248,10 @@ func (b *InMemoryBackend) snapshotMapsLocked(snap *backendSnapshot) {
 
 // Restore loads backend state from a JSON snapshot.
 // It implements persistence.Persistable.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
-	//nolint:musttag // nested types lack tags
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "iotwireless", data, &snap); err != nil {
 		return err
 	}
 

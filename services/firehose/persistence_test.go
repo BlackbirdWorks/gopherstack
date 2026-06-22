@@ -58,11 +58,11 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			original := firehose.NewInMemoryBackend("000000000000", "us-east-1")
 			id := tt.setup(original)
 
-			snap := original.Snapshot()
+			snap := original.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			fresh := firehose.NewInMemoryBackend("000000000000", "us-east-1")
-			require.NoError(t, fresh.Restore(snap))
+			require.NoError(t, fresh.Restore(t.Context(), snap))
 
 			tt.verify(t, fresh, id)
 		})
@@ -73,7 +73,7 @@ func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	t.Parallel()
 
 	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
-	err := b.Restore([]byte("not-valid-json"))
+	err := b.Restore(t.Context(), []byte("not-valid-json"))
 	require.Error(t, err)
 }
 
@@ -92,11 +92,11 @@ func TestRestore_ClosesExistingTagsBeforeReplace(t *testing.T) {
 	newBackend := firehose.NewInMemoryBackend("000000000000", "us-east-1")
 	_, err = newBackend.CreateDeliveryStream(context.TODO(), firehose.CreateDeliveryStreamInput{Name: "new-stream"})
 	require.NoError(t, err)
-	snap := newBackend.Snapshot()
+	snap := newBackend.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	// Restore onto the populated backend — must not panic and must close old Tags.
-	require.NoError(t, b.Restore(snap))
+	require.NoError(t, b.Restore(t.Context(), snap))
 
 	// Only the new stream should be visible now.
 	names := b.ListDeliveryStreams(context.TODO())
@@ -131,12 +131,12 @@ func TestRestore_RecalculatesBufferSizeBytes(t *testing.T) {
 	assert.Empty(t, s3mock.calls)
 
 	// Snapshot and restore onto a fresh backend.
-	snap := original.Snapshot()
+	snap := original.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	restored := firehose.NewInMemoryBackend("000000000000", "us-east-1")
 	restored.SetS3Backend(s3mock)
-	require.NoError(t, restored.Restore(snap))
+	require.NoError(t, restored.Restore(t.Context(), snap))
 
 	// Adding another 200 KB should now push over the 1 MB threshold and flush.
 	require.NoError(t, restored.PutRecord(context.TODO(), "restore-size-stream", make([]byte, 200*1024)))

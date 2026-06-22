@@ -95,11 +95,11 @@ func TestRefinement1_Snapshot_Restore(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := rdsdata.NewInMemoryBackend("", "")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 1, rdsdata.TransactionCount(b2))
 	assert.Equal(t, 1, rdsdata.ExecutedStatementCount(b2))
@@ -114,7 +114,7 @@ func TestRefinement1_Restore_InvalidJSON(t *testing.T) {
 	t.Parallel()
 
 	b := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
-	err := b.Restore([]byte("not-json"))
+	err := b.Restore(t.Context(), []byte("not-json"))
 	require.Error(t, err)
 }
 
@@ -123,11 +123,11 @@ func TestRefinement1_Snapshot_Empty(t *testing.T) {
 	t.Parallel()
 
 	b := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := rdsdata.NewInMemoryBackend("", "")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 0, rdsdata.TransactionCount(b2))
 	assert.Equal(t, 0, rdsdata.ExecutedStatementCount(b2))
@@ -458,11 +458,11 @@ func TestRefinement1_Snapshot_PreservesCounter(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := rdsdata.NewInMemoryBackend("", "")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	// After restore, the next transaction ID should continue from 4.
 	txID, err := b2.BeginTransaction(context.Background(), "arn")
@@ -650,11 +650,11 @@ func TestRefinement1_SnapshotRegionAccountID(t *testing.T) {
 	t.Parallel()
 
 	b := rdsdata.NewInMemoryBackend("111111111111", "ap-southeast-1")
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := rdsdata.NewInMemoryBackend("", "")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	assert.Equal(t, "111111111111", b2.AccountID())
 	assert.Equal(t, "ap-southeast-1", b2.Region())

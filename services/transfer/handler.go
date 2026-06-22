@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"sort"
 	"strings"
 	"time"
 
@@ -14,6 +13,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -68,6 +68,15 @@ func NewHandler(backend StorageBackend) *Handler {
 func (h *Handler) Reset() {
 	h.Backend.Reset()
 	h.ops = h.buildOps()
+}
+
+// Shutdown stops the backend's scheduled server state-transition timers so no
+// timer goroutine outlives the service. Invoked on server shutdown via
+// service.Shutdowner.
+func (h *Handler) Shutdown(_ context.Context) {
+	if c, ok := h.Backend.(interface{ Close() }); ok {
+		c.Close()
+	}
 }
 
 // Name returns the service name.
@@ -3369,12 +3378,7 @@ func (h *Handler) handleTestIdentityProvider(
 
 // tagsToList converts a map of tags to the AWS list format sorted by key.
 func tagsToList(tags map[string]string) []map[string]string {
-	keys := make([]string, 0, len(tags))
-	for k := range tags {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(tags)
 
 	list := make([]map[string]string, 0, len(tags))
 	for _, k := range keys {

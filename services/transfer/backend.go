@@ -1,6 +1,7 @@
 package transfer
 
 import (
+	"context"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
@@ -19,6 +20,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/worker"
 )
 
 const (
@@ -715,12 +717,13 @@ type InMemoryBackend struct {
 	transferRecords map[string]*FileTransferResult            // transferID -> FileTransferResult
 	asyncOperations map[string]*AsyncOperationRecord          // operationID -> AsyncOperationRecord
 	mu              *lockmetrics.RWMutex
+	work            *worker.Group
 	accountID       string
 	region          string
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
-func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
+func NewInMemoryBackend(ctx context.Context, accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
 		servers:              make(map[string]*Server),
 		users:                make(map[string]map[string]*User),
@@ -742,8 +745,13 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		accountID:            accountID,
 		region:               region,
 		mu:                   lockmetrics.New("transfer"),
+		work:                 worker.NewGroup(ctx, "transfer"),
 	}
 }
+
+// Close stops all scheduled server state-transition timers so none outlives the
+// backend. It is safe to call multiple times.
+func (b *InMemoryBackend) Close() { b.work.Stop() }
 
 // CreateServerInput holds all optional fields for CreateServer.
 type CreateServerInput struct {
@@ -1024,7 +1032,7 @@ func (b *InMemoryBackend) StartServer(serverID string) error {
 	// Set to STARTING, then transition to ONLINE asynchronously.
 	s.State = serverStatusStarting
 
-	time.AfterFunc(startServerTransitionDelay, func() {
+	b.work.After("StartServerTransition", startServerTransitionDelay, func() {
 		b.mu.Lock("StartServer-async")
 		defer b.mu.Unlock()
 
@@ -1055,7 +1063,7 @@ func (b *InMemoryBackend) StopServer(serverID string) error {
 	// Set to STOPPING, then transition to OFFLINE asynchronously.
 	s.State = serverStatusStopping
 
-	time.AfterFunc(startServerTransitionDelay, func() {
+	b.work.After("StopServerTransition", startServerTransitionDelay, func() {
 		b.mu.Lock("StopServer-async")
 		defer b.mu.Unlock()
 

@@ -1357,11 +1357,11 @@ func TestRefinement3_PersistenceRoundTrip(t *testing.T) {
 
 	userID := parseResponse(t, rec)["UserId"].(string)
 
-	snapshot := h1.Snapshot()
+	snapshot := h1.Snapshot(t.Context())
 
 	backend2 := identitystore.NewInMemoryBackend("000000000000", "us-east-1")
 	h2 := identitystore.NewHandler(backend2)
-	require.NoError(t, h2.Restore(snapshot))
+	require.NoError(t, h2.Restore(t.Context(), snapshot))
 
 	desc := doRequest(t, h2, "DescribeUser", map[string]any{
 		"IdentityStoreId": testStoreID,
@@ -1981,11 +1981,11 @@ func TestRefinement3_UserStatusDefaultsAfterRestore(t *testing.T) {
 		},
 	})
 
-	snapshot := h1.Snapshot()
+	snapshot := h1.Snapshot(t.Context())
 
 	backend2 := identitystore.NewInMemoryBackend("000000000000", "us-east-1")
 	h2 := identitystore.NewHandler(backend2)
-	require.NoError(t, h2.Restore(snapshot))
+	require.NoError(t, h2.Restore(t.Context(), snapshot))
 
 	desc := doRequest(t, h2, "DescribeUser", map[string]any{
 		"IdentityStoreId": testStoreID,

@@ -321,11 +321,11 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	b.AddTopicInternal(cl.ClusterArn, "t1")
 	b.AddClusterOperationInternal(cl.ClusterArn, "UPDATE")
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := kafka.NewInMemoryBackend("other", "eu-west-1")
-	err := b2.Restore(snap)
+	err := b2.Restore(t.Context(), snap)
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, kafka.ClusterCount(b2))
@@ -341,11 +341,11 @@ func TestRefinement1_PersistenceEmpty(t *testing.T) {
 	t.Parallel()
 
 	b := kafka.NewInMemoryBackend(testAccountID, testRegion)
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := kafka.NewInMemoryBackend("other", "eu-west-1")
-	err := b2.Restore(snap)
+	err := b2.Restore(t.Context(), snap)
 	require.NoError(t, err)
 
 	assert.Equal(t, 0, kafka.ClusterCount(b2))
@@ -456,11 +456,11 @@ func TestRefinement1_HandlerSnapshot(t *testing.T) {
 	h, backend := newTestHandlerWithBackend(t)
 	backend.AddClusterInternal("c1", "2.8.0")
 
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	h2, backend2 := newTestHandlerWithBackend(t)
-	err := h2.Restore(snap)
+	err := h2.Restore(t.Context(), snap)
 	require.NoError(t, err)
 	assert.Equal(t, 1, kafka.ClusterCount(backend2))
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 )
 
@@ -371,11 +372,7 @@ func (b *InMemoryBackend) ListSpeechSynthesisTasks(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	keys := make([]string, 0, len(b.tasks))
-	for key := range b.tasks {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
+	keys := collections.SortedKeys(b.tasks)
 
 	offset, err := parseToken(token, len(keys))
 	if err != nil {
@@ -449,11 +446,7 @@ func (b *InMemoryBackend) ListTagsForResource(resourceArn string) ([]Tag, error)
 		return nil, fmt.Errorf("%w: resource %q not found", ErrResourceNotFound, resourceArn)
 	}
 
-	keys := make([]string, 0, len(current))
-	for key := range current {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
+	keys := collections.SortedKeys(current)
 
 	out := make([]Tag, 0, len(keys))
 	for _, key := range keys {

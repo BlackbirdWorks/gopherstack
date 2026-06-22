@@ -26,8 +26,13 @@ import (
 // helpers
 // ---------------------------------------------------------------------------
 
-func b3newBackend() *sqs.InMemoryBackend {
-	return sqs.NewInMemoryBackend()
+func b3newBackend(t *testing.T) *sqs.InMemoryBackend {
+	t.Helper()
+
+	b := sqs.NewInMemoryBackend()
+	t.Cleanup(b.Close)
+
+	return b
 }
 
 func b3createQueue(t *testing.T, b *sqs.InMemoryBackend, name string) string {
@@ -108,7 +113,7 @@ func TestB3_SendMessageBatch_QueueNotFound_TopLevelError(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			b := b3newBackend()
+			b := b3newBackend(t)
 
 			out, err := b.SendMessageBatch(&sqs.SendMessageBatchInput{
 				QueueURL: tc.queueURL,
@@ -144,7 +149,7 @@ func TestB3_DeleteMessageBatch_QueueNotFound_TopLevelError(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			b := b3newBackend()
+			b := b3newBackend(t)
 
 			out, err := b.DeleteMessageBatch(&sqs.DeleteMessageBatchInput{
 				QueueURL: tc.queueURL,
@@ -161,7 +166,7 @@ func TestB3_DeleteMessageBatch_QueueNotFound_TopLevelError(t *testing.T) {
 // queue-existence pre-check does not break normal sends.
 func TestB3_SendMessageBatch_ExistingQueue_StillWorksAfterFix(t *testing.T) {
 	t.Parallel()
-	b := b3newBackend()
+	b := b3newBackend(t)
 	qURL := b3createQueue(t, b, "live-batch")
 
 	out, err := b.SendMessageBatch(&sqs.SendMessageBatchInput{
@@ -181,7 +186,7 @@ func TestB3_SendMessageBatch_ExistingQueue_StillWorksAfterFix(t *testing.T) {
 // queue-existence pre-check does not break normal deletes.
 func TestB3_DeleteMessageBatch_ExistingQueue_StillWorksAfterFix(t *testing.T) {
 	t.Parallel()
-	b := b3newBackend()
+	b := b3newBackend(t)
 	qURL := b3createQueue(t, b, "live-del-batch")
 
 	b3send(t, b, qURL, "msg")
@@ -235,7 +240,7 @@ func TestB3_ChangeMessageVisibilityBatch_VTOutOfRange_PerEntryFailure(t *testing
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			b := b3newBackend()
+			b := b3newBackend(t)
 			qURL := b3createQueue(t, b, "vt-range-"+tc.name)
 
 			// Send two messages and receive them both.
@@ -268,7 +273,7 @@ func TestB3_ChangeMessageVisibilityBatch_VTOutOfRange_PerEntryFailure(t *testing
 // a negative VisibilityTimeout is a per-entry failure with Code="InvalidParameterValue".
 func TestB3_ChangeMessageVisibilityBatch_NegativeVT_PerEntryFailure(t *testing.T) {
 	t.Parallel()
-	b := b3newBackend()
+	b := b3newBackend(t)
 	qURL := b3createQueue(t, b, "neg-vt-batch")
 
 	b3send(t, b, qURL, "msg")
@@ -294,7 +299,7 @@ func TestB3_ChangeMessageVisibilityBatch_NegativeVT_PerEntryFailure(t *testing.T
 // VisibilityTimeout of exactly 43200 (the AWS maximum) is accepted.
 func TestB3_ChangeMessageVisibilityBatch_MaxValidVT_Accepted(t *testing.T) {
 	t.Parallel()
-	b := b3newBackend()
+	b := b3newBackend(t)
 	qURL := b3createQueue(t, b, "maxItems-vt-batch")
 
 	b3send(t, b, qURL, "msg")
@@ -317,7 +322,7 @@ func TestB3_ChangeMessageVisibilityBatch_MaxValidVT_Accepted(t *testing.T) {
 // when every entry has an out-of-range VT, all end up in Failed and none in Successful.
 func TestB3_ChangeMessageVisibilityBatch_AllEntriesOutOfRange(t *testing.T) {
 	t.Parallel()
-	b := b3newBackend()
+	b := b3newBackend(t)
 	qURL := b3createQueue(t, b, "all-bad-vt-batch")
 
 	b3send(t, b, qURL, "m1")
@@ -347,7 +352,7 @@ func TestB3_ChangeMessageVisibilityBatch_AllEntriesOutOfRange(t *testing.T) {
 // sequence numbers are unique and monotonically increasing across the batch.
 func TestB3_SendMessageBatch_FIFO_SequenceNumbersInResults(t *testing.T) {
 	t.Parallel()
-	b := b3newBackend()
+	b := b3newBackend(t)
 	qURL := b3createFIFOQueue(t, b, "seq-batch.fifo")
 
 	out, err := b.SendMessageBatch(&sqs.SendMessageBatchInput{
@@ -382,7 +387,7 @@ func TestB3_SendMessageBatch_FIFO_SequenceNumbersInResults(t *testing.T) {
 // (non-FIFO) queue batch results do NOT include SequenceNumber.
 func TestB3_SendMessageBatch_Standard_NoSequenceNumber(t *testing.T) {
 	t.Parallel()
-	b := b3newBackend()
+	b := b3newBackend(t)
 	qURL := b3createQueue(t, b, "std-no-seq")
 
 	out, err := b.SendMessageBatch(&sqs.SendMessageBatchInput{
@@ -406,7 +411,7 @@ func TestB3_SendMessageBatch_Standard_NoSequenceNumber(t *testing.T) {
 // MessageID, matching AWS ContentBasedDeduplication semantics).
 func TestB3_SendMessageBatch_FIFO_Dedup_AcrossBatch(t *testing.T) {
 	t.Parallel()
-	b := b3newBackend()
+	b := b3newBackend(t)
 	qURL := b3createFIFOQueue(t, b, "dedup-batch.fifo")
 
 	out, err := b.SendMessageBatch(&sqs.SendMessageBatchInput{
@@ -440,7 +445,7 @@ func TestB3_SendMessageBatch_FIFO_Dedup_AcrossBatch(t *testing.T) {
 // the AWS default.
 func TestB3_ListMessageMoveTasks_DefaultMaxResults_ReturnsOne(t *testing.T) {
 	t.Parallel()
-	b := b3newBackend()
+	b := b3newBackend(t)
 
 	now := time.Now().UnixMilli()
 	b.InjectMoveTaskForTest("handle-a", sqs.MoveTaskStatusCompleted, now-2000)
@@ -458,7 +463,7 @@ func TestB3_ListMessageMoveTasks_DefaultMaxResults_ReturnsOne(t *testing.T) {
 // silently clamped to 10.
 func TestB3_ListMessageMoveTasks_MaxResultsClamped(t *testing.T) {
 	t.Parallel()
-	b := b3newBackend()
+	b := b3newBackend(t)
 
 	now := time.Now().UnixMilli()
 	for i := range 12 {
@@ -478,7 +483,7 @@ func TestB3_ListMessageMoveTasks_MaxResultsClamped(t *testing.T) {
 // returned with the most recently started task first.
 func TestB3_ListMessageMoveTasks_OrderedNewestFirst(t *testing.T) {
 	t.Parallel()
-	b := b3newBackend()
+	b := b3newBackend(t)
 
 	base := time.Now().UnixMilli()
 	b.InjectMoveTaskForTest("old-task", sqs.MoveTaskStatusCompleted, base-3000)
@@ -518,7 +523,7 @@ func TestB3_ListMessageMoveTasks_TaskHandleOnlyForRunning(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(string(tc.status), func(t *testing.T) {
 			t.Parallel()
-			b := b3newBackend()
+			b := b3newBackend(t)
 
 			handle := "task-" + string(tc.status)
 			b.InjectMoveTaskForTest(handle, tc.status, time.Now().UnixMilli())
@@ -540,7 +545,7 @@ func TestB3_ListMessageMoveTasks_TaskHandleOnlyForRunning(t *testing.T) {
 // with an empty slice when no tasks exist.
 func TestB3_ListMessageMoveTasks_EmptyResult(t *testing.T) {
 	t.Parallel()
-	b := b3newBackend()
+	b := b3newBackend(t)
 
 	out, err := b.ListMessageMoveTasks(&sqs.ListMessageMoveTasksInput{MaxResults: 5})
 	require.NoError(t, err)

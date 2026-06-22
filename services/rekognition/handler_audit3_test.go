@@ -385,12 +385,12 @@ func TestAudit3_SnapshotRestore_PreservesAllState(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Snapshot.
-	snap := backend.Snapshot()
+	snap := backend.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	// Restore into a fresh backend.
 	backend2 := rekognition.NewInMemoryBackend("", "")
-	require.NoError(t, backend2.Restore(snap))
+	require.NoError(t, backend2.Restore(t.Context(), snap))
 	h2 := rekognition.NewHandler(backend2)
 
 	// Verify collection exists.
@@ -437,10 +437,10 @@ func TestAudit3_SnapshotRestore_TagsSurvive(t *testing.T) {
 		"Tags":        map[string]string{"key1": "val1", "key2": "val2"},
 	})
 
-	snap := backend.Snapshot()
+	snap := backend.Snapshot(t.Context())
 
 	backend2 := rekognition.NewInMemoryBackend("", "")
-	require.NoError(t, backend2.Restore(snap))
+	require.NoError(t, backend2.Restore(t.Context(), snap))
 	h2 := rekognition.NewHandler(backend2)
 
 	rec = doRequest(t, h2, "ListTagsForResource", map[string]any{"ResourceArn": arn})

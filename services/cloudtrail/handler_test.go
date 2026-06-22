@@ -742,11 +742,11 @@ func TestCloudTrailPersistence(t *testing.T) {
 		"S3BucketName": "bucket-persist",
 	})
 
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	h2 := newTestCloudTrailHandler()
-	require.NoError(t, h2.Restore(snap))
+	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	rec := doCloudTrailOp(t, h2, "GetTrail", map[string]any{
 		"Name": "trail-persist",
@@ -1812,11 +1812,11 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	q, err := h.Backend.StartQuery("SELECT eventName FROM events LIMIT 1", "", "")
 	require.NoError(t, err)
 
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	h2 := newTestCloudTrailHandler()
-	require.NoError(t, h2.Restore(snap))
+	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	// Verify trail restored
 	rec := doCloudTrailOp(t, h2, "GetTrail", map[string]any{"Name": "persist-trail"})

@@ -1,14 +1,16 @@
 package securityhub
 
 import (
-	"encoding/json"
+	"context"
 	"errors"
 	"fmt"
 	"maps"
 	"strconv"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 const (
@@ -303,30 +305,30 @@ func (b *InMemoryBackend) AccountID() string { return b.accountID }
 func (b *InMemoryBackend) Region() string    { return b.region }
 
 func (b *InMemoryBackend) hubARN() string {
-	return fmt.Sprintf("arn:aws:securityhub:%s:%s:hub/default", b.region, b.accountID)
+	return arn.Build("securityhub", b.region, b.accountID, "hub/default")
 }
 
 func (b *InMemoryBackend) subscriptionARN(seq int) string {
-	return fmt.Sprintf("arn:aws:securityhub:%s:%s:subscription/%d", b.region, b.accountID, seq)
+	return arn.Build("securityhub", b.region, b.accountID, fmt.Sprintf("subscription/%d", seq))
 }
 
 // unused: keep compiler happy
 var _ = (*InMemoryBackend).subscriptionARN
 
 func (b *InMemoryBackend) insightARN(seq int) string {
-	return fmt.Sprintf("arn:aws:securityhub:%s:%s:insight/%s/%d", b.region, b.accountID, b.accountID, seq)
+	return arn.Build("securityhub", b.region, b.accountID, fmt.Sprintf("insight/%s/%d", b.accountID, seq))
 }
 
 func (b *InMemoryBackend) actionTargetARN(id string) string {
-	return fmt.Sprintf("arn:aws:securityhub:%s:%s:action/custom/%s", b.region, b.accountID, id)
+	return arn.Build("securityhub", b.region, b.accountID, fmt.Sprintf("action/custom/%s", id))
 }
 
 func (b *InMemoryBackend) automationRuleARN(seq int) string {
-	return fmt.Sprintf("arn:aws:securityhub:%s:%s:automation-rule/%d", b.region, b.accountID, seq)
+	return arn.Build("securityhub", b.region, b.accountID, fmt.Sprintf("automation-rule/%d", seq))
 }
 
 func (b *InMemoryBackend) securityControlARN(id string) string {
-	return fmt.Sprintf("arn:aws:securityhub:%s::security-control/%s", b.region, id)
+	return arn.Build("securityhub", b.region, "", fmt.Sprintf("security-control/%s", id))
 }
 
 func (b *InMemoryBackend) Reset() {
@@ -421,7 +423,7 @@ type snapshot struct {
 	HubV2Enabled          bool                            `json:"hubV2Enabled"`
 }
 
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
@@ -469,14 +471,12 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		RecommendedPoliciesV2: b.recommendedPoliciesV2,
 	}
 
-	data, _ := json.Marshal(snap)
-
-	return data
+	return persistence.MarshalSnapshot(ctx, "securityhub", snap)
 }
 
-func (b *InMemoryBackend) Restore(data []byte) error { //nolint:funlen // existing issue.
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error { //nolint:funlen // existing issue.
 	var snap snapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "securityhub", data, &snap); err != nil {
 		return err
 	}
 
@@ -1087,7 +1087,7 @@ func (b *InMemoryBackend) BatchEnableStandards(requests []map[string]any) ([]*St
 		}
 
 		b.standardsSeq++
-		subArn := fmt.Sprintf("arn:aws:securityhub:%s:%s:subscription/%d", b.region, b.accountID, b.standardsSeq)
+		subArn := arn.Build("securityhub", b.region, b.accountID, fmt.Sprintf("subscription/%d", b.standardsSeq))
 
 		sub := &StandardsSubscription{
 			StandardsSubscriptionArn: subArn,
@@ -1549,7 +1549,7 @@ func (b *InMemoryBackend) EnableImportFindingsForProduct(productArn string) (str
 		}
 	}
 
-	subArn := fmt.Sprintf("arn:aws:securityhub:%s:%s:product-subscription/%s", b.region, b.accountID, productArn)
+	subArn := arn.Build("securityhub", b.region, b.accountID, fmt.Sprintf("product-subscription/%s", productArn))
 	b.productSubscriptions[subArn] = productArn
 
 	return subArn, nil

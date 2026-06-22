@@ -1301,11 +1301,11 @@ func TestWAF_SnapshotRestore(t *testing.T) {
 	wafCreateRule(t, h, "snap-rule")
 	wafCreateIPSet(t, h, "snap-ipset")
 
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	h2 := newWAFHandler(t)
-	require.NoError(t, h2.Restore(snap))
+	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 1, waf.WebACLCount(h2.Backend.(*waf.InMemoryBackend)))
 	assert.Equal(t, 1, waf.RuleCount(h2.Backend.(*waf.InMemoryBackend)))

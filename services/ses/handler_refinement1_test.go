@@ -779,11 +779,11 @@ func TestBackend_Persistence_ActiveRuleSet(t *testing.T) {
 	b.AddReceiptRuleSetInternal(ses.ReceiptRuleSet{Name: "rs1", CreatedAt: time.Now()})
 	require.NoError(t, b.SetActiveReceiptRuleSet("rs1"))
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := ses.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 	assert.Equal(t, "rs1", b2.ActiveRuleSet())
 }
 

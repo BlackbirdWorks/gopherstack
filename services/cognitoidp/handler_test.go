@@ -1111,12 +1111,12 @@ func TestCognitoIDP_PersistenceSnapshotRestore(t *testing.T) {
 	_ = client
 
 	h := cognitoidp.NewHandler(b, "us-east-1")
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	b2 := cognitoidp.NewInMemoryBackend("000000000000", "us-east-1", "http://localhost:8000")
 	h2 := cognitoidp.NewHandler(b2, "us-east-1")
-	require.NoError(t, h2.Restore(snap))
+	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	pools := b2.ListUserPools()
 	require.Len(t, pools, 1)
@@ -3140,11 +3140,11 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 		"Username":   "persist-user",
 	})
 
-	snap := h.Backend.Snapshot()
+	snap := h.Backend.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
 	h2 := newTestHandler(t)
-	require.NoError(t, h2.Restore(snap))
+	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 1, h2.Backend.UserPoolCount())
 	assert.Equal(t, 1, h2.Backend.UserCount())

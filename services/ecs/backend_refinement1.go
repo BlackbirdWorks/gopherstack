@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
@@ -166,13 +167,13 @@ func (b *InMemoryBackend) StartTask(input StartTaskInput) ([]Task, error) {
 		return nil, err
 	}
 
-	clusterArn := fmt.Sprintf("arn:aws:ecs:%s:%s:cluster/%s", b.region, b.accountID, clusterName)
+	clusterArn := arn.Build("ecs", b.region, b.accountID, fmt.Sprintf("cluster/%s", clusterName))
 
 	tasks := make([]Task, 0, len(input.ContainerInstances))
 
 	for _, ciArn := range input.ContainerInstances {
 		taskID := uuid.New().String()
-		taskArn := fmt.Sprintf("arn:aws:ecs:%s:%s:task/%s/%s", b.region, b.accountID, clusterName, taskID)
+		taskArn := arn.Build("ecs", b.region, b.accountID, fmt.Sprintf("task/%s/%s", clusterName, taskID))
 		now := time.Now()
 
 		t := &Task{

@@ -11,7 +11,9 @@ import (
 	cedar "github.com/cedar-policy/cedar-go"
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -234,7 +236,7 @@ const (
 
 // arnNoRegion builds an ARN with empty region (verifiedpermissions uses global ARNs).
 func arnNoRegion(accountID, resourceType, resourceID string) string {
-	return fmt.Sprintf("arn:aws:verifiedpermissions::%s:%s/%s", accountID, resourceType, resourceID)
+	return arn.Build("verifiedpermissions", "", accountID, fmt.Sprintf("%s/%s", resourceType, resourceID))
 }
 
 // policyStoreARN builds the ARN for a policy store.
@@ -244,17 +246,21 @@ func policyStoreARN(accountID, _, policyStoreID string) string {
 
 // policyARN builds the ARN for a policy.
 func policyARN(accountID, policyStoreID, policyID string) string {
-	return fmt.Sprintf("arn:aws:verifiedpermissions::%s:policy/%s/%s", accountID, policyStoreID, policyID)
+	return arn.Build("verifiedpermissions", "", accountID, fmt.Sprintf("policy/%s/%s", policyStoreID, policyID))
 }
 
 // policyTemplateARN builds the ARN for a policy template.
 func policyTemplateARN(accountID, policyStoreID, templateID string) string {
-	return fmt.Sprintf("arn:aws:verifiedpermissions::%s:policy-template/%s/%s", accountID, policyStoreID, templateID)
+	resource := fmt.Sprintf("policy-template/%s/%s", policyStoreID, templateID)
+
+	return arn.Build("verifiedpermissions", "", accountID, resource)
 }
 
 // identitySourceARN builds the ARN for an identity source.
 func identitySourceARN(accountID, policyStoreID, sourceID string) string {
-	return fmt.Sprintf("arn:aws:verifiedpermissions::%s:identity-source/%s/%s", accountID, policyStoreID, sourceID)
+	resource := fmt.Sprintf("identity-source/%s/%s", policyStoreID, sourceID)
+
+	return arn.Build("verifiedpermissions", "", accountID, resource)
 }
 
 // clonePolicyStore returns a deep copy of a PolicyStore.
@@ -396,13 +402,7 @@ func extractSchemaNamespaces(schemaJSON string) []string {
 		return []string{}
 	}
 
-	ns := make([]string, 0, len(top))
-
-	for k := range top {
-		ns = append(ns, k)
-	}
-
-	sort.Strings(ns)
+	ns := collections.SortedKeys(top)
 
 	return ns
 }

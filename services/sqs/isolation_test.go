@@ -3,9 +3,10 @@ package sqs_test
 import (
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/sqs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/sqs"
 )
 
 // TestSQSRegionIsolation proves that a same-named queue created in two different
@@ -26,6 +27,7 @@ func TestSQSRegionIsolation(t *testing.T) {
 	)
 
 	b := sqs.NewInMemoryBackendWithConfig("000000000000", east)
+	t.Cleanup(b.Close)
 	t.Cleanup(b.Close)
 
 	// 1. Create a queue named "shared-name" in us-east-1.

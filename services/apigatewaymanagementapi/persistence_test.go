@@ -80,11 +80,11 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			original := apigatewaymanagementapi.NewInMemoryBackend()
 			id := tt.setup(original)
 
-			snap := original.Snapshot()
+			snap := original.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			fresh := apigatewaymanagementapi.NewInMemoryBackend()
-			require.NoError(t, fresh.Restore(snap))
+			require.NoError(t, fresh.Restore(t.Context(), snap))
 
 			tt.verify(t, fresh, id)
 		})
@@ -95,7 +95,7 @@ func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	t.Parallel()
 
 	b := apigatewaymanagementapi.NewInMemoryBackend()
-	err := b.Restore([]byte("not-valid-json"))
+	err := b.Restore(t.Context(), []byte("not-valid-json"))
 	require.Error(t, err)
 }
 
@@ -124,12 +124,12 @@ func TestAPIGatewayMgmtAPIHandler_Persistence(t *testing.T) {
 	_, err := backend.CreateConnection("snap-conn", "10.0.0.1", "snap-agent", nil)
 	require.NoError(t, err)
 
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	fresh := apigatewaymanagementapi.NewInMemoryBackend()
 	freshH := apigatewaymanagementapi.NewHandler(fresh)
-	require.NoError(t, freshH.Restore(snap))
+	require.NoError(t, freshH.Restore(t.Context(), snap))
 
 	conns := fresh.ListConnections()
 	assert.Len(t, conns, 1)

@@ -10,8 +10,10 @@ import (
 	"sort"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -512,7 +514,7 @@ func (b *InMemoryBackend) CreateRepository(
 		EncryptionType:     encryptionType,
 		KMSKey:             kmsKey,
 		RegistryID:         b.accountID,
-		RepositoryARN:      fmt.Sprintf("arn:aws:ecr:%s:%s:repository/%s", region, b.accountID, name),
+		RepositoryARN:      arn.Build("ecr", region, b.accountID, fmt.Sprintf("repository/%s", name)),
 		RepositoryName:     name,
 		RepositoryURI:      fmt.Sprintf("%s/%s", endpoint, name),
 		ImageTagMutability: imageTagMutability,
@@ -2232,12 +2234,7 @@ func (b *InMemoryBackend) findResourceTagsLocked(resourceArn string) map[string]
 
 // sortedTagKeys returns the keys of the given map sorted alphabetically.
 func sortedTagKeys(tags map[string]string) []string {
-	keys := make([]string, 0, len(tags))
-	for k := range tags {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
+	keys := collections.SortedKeys(tags)
 
 	return keys
 }

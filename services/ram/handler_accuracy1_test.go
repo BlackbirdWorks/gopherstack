@@ -988,11 +988,11 @@ func TestRAM_Accuracy_Snapshot_PreservesBuiltInFields(t *testing.T) {
 
 	b := ram.NewInMemoryBackend("000000000000", "us-east-1")
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := ram.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	// Check a built-in permission is still accessible and has correct fields.
 	permARN := "arn:aws:ram::aws:permission/AWSRAMDefaultPermissionEC2Subnet"

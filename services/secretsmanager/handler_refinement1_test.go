@@ -641,11 +641,11 @@ func TestRefinement1_Snapshot_Restore(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := secretsmanager.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	desc, err := b2.DescribeSecret(context.Background(), &secretsmanager.DescribeSecretInput{SecretID: "snap-test"})
 	require.NoError(t, err)
@@ -703,7 +703,7 @@ func TestRefinement1_RestoreEnsuresNonNilMaps(t *testing.T) {
 
 	b := secretsmanager.NewInMemoryBackend()
 	// Restore with minimal valid JSON that has no map keys.
-	err := b.Restore([]byte(`{"accountID":"acct","region":"us-east-1"}`))
+	err := b.Restore(t.Context(), []byte(`{"accountID":"acct","region":"us-east-1"}`))
 	require.NoError(t, err)
 	// Should be able to create secrets without panics.
 	_, err = b.CreateSecret(

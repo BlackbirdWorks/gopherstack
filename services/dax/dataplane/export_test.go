@@ -3,6 +3,7 @@ package dataplane
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"io"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
@@ -167,7 +168,9 @@ type AttrListServer struct {
 
 // NewAttrListServerForTest builds a server wrapper whose attribute-list id
 // allocations can be inspected by tests.
-func NewAttrListServerForTest() *AttrListServer { return &AttrListServer{s: NewServer(nil, nil)} }
+func NewAttrListServerForTest() *AttrListServer {
+	return &AttrListServer{s: NewServer(context.TODO(), nil)}
+}
 
 // WriteAttributeProjection emits an attribute-projection payload via the wrapped
 // server, so the test can then resolve ordinals through Names.
@@ -177,6 +180,19 @@ func (a *AttrListServer) WriteAttributeProjection(w *TestWriter, attrs map[strin
 
 // Names returns the attribute names registered for an id.
 func (a *AttrListServer) Names(id int64) []string { return a.s.attrListNames(id) }
+
+// AllocID registers an attribute-name list and returns its id, exposing the
+// internal allocator so tests can exercise the dictionary capacity bound.
+func (a *AttrListServer) AllocID(names []string) int64 { return a.s.attrListID(names) }
+
+// DictLen reports the number of entries in the attribute-list dictionary.
+func (a *AttrListServer) DictLen() int { return len(a.s.attrToID) }
+
+// EmptyAttributeListIDForTest exposes the reserved empty-list id.
+func EmptyAttributeListIDForTest() int64 { return emptyAttributeListID }
+
+// AttrListMaxCapForTest exposes the dictionary capacity bound.
+func AttrListMaxCapForTest() int { return attrListMaxCap }
 
 // ProjectedItemForTest decodes a ProjectionExpression blob, then projects the
 // given item against it and returns the ordinal/value entries that a Query/Scan

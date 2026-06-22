@@ -159,7 +159,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/verifiedpermissions v1.31.4
 	github.com/aws/aws-sdk-go-v2/service/wafv2 v1.71.2
 	github.com/aws/aws-sdk-go-v2/service/xray v1.36.20
-	github.com/github/copilot-sdk/go v1.0.2
 	github.com/moby/moby/api v1.54.2
 	github.com/moby/moby/client v0.4.1
 )
@@ -210,6 +209,8 @@ require github.com/aws/aws-sdk-go-v2/service/omics v1.45.0
 
 require github.com/aws/aws-sdk-go-v2/service/cleanrooms v1.45.6
 
+require go.uber.org/goleak v1.3.0
+
 require (
 	github.com/antlr/antlr4 v0.0.0-20181218183524-be58ebffde8e // indirect
 	github.com/aws/aws-dax-go v1.2.15
@@ -219,7 +220,6 @@ require (
 
 require (
 	github.com/cedar-policy/cedar-go v1.8.0
-	github.com/google/jsonschema-go v0.4.3 // indirect
 	golang.org/x/exp v0.0.0-20260611194520-c48552f49976 // indirect
 )
 
@@ -334,7 +334,7 @@ require (
 	go.uber.org/atomic v1.11.0 // indirect
 	golang.org/x/mod v0.37.0 // indirect
 	golang.org/x/net v0.56.0 // indirect
-	golang.org/x/sync v0.21.0 // indirect
+	golang.org/x/sync v0.21.0
 	golang.org/x/sys v0.46.0 // indirect
 	golang.org/x/telemetry v0.0.0-20260610154732-fb80ec83bdd9 // indirect
 	golang.org/x/term v0.44.0 // indirect

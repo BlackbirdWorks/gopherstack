@@ -53,6 +53,7 @@ func TestLambda_VersionIndex_ResolveQualifier(t *testing.T) {
 		nil, nil, lambda.DefaultSettings(),
 		"000000000000", "us-east-1",
 	)
+	closeBackend(t, backend)
 
 	fnName := "version-index-fn"
 	require.NoError(t, backend.CreateFunction(&lambda.FunctionConfiguration{FunctionName: fnName}))
@@ -123,6 +124,7 @@ func TestLambda_GetVersion_UsesIndex(t *testing.T) {
 		nil, nil, lambda.DefaultSettings(),
 		"000000000000", "us-east-1",
 	)
+	closeBackend(t, backend)
 
 	fnName := "get-version-fn"
 	require.NoError(t, backend.CreateFunction(&lambda.FunctionConfiguration{FunctionName: fnName}))

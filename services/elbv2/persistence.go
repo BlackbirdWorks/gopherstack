@@ -1,9 +1,11 @@
 package elbv2
 
 import (
-	"encoding/json"
+	"context"
 	"errors"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 // errBackendNotInMemory is returned when the Handler's backend cannot be cast to *InMemoryBackend.
@@ -23,7 +25,7 @@ type backendSnapshot struct {
 
 // Snapshot serialises the backend state to JSON.
 // It implements persistence.Persistable.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
@@ -39,20 +41,15 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Region:        b.region,
 	}
 
-	data, err := json.Marshal(snap)
-	if err != nil {
-		return nil
-	}
-
-	return data
+	return persistence.MarshalSnapshot(ctx, "elbv2", snap)
 }
 
 // Restore loads backend state from a JSON snapshot.
 // It implements persistence.Persistable.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "elbv2", data, &snap); err != nil {
 		return err
 	}
 
@@ -93,21 +90,21 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.
-func (h *Handler) Snapshot() []byte {
+func (h *Handler) Snapshot(ctx context.Context) []byte {
 	b, ok := h.Backend.(*InMemoryBackend)
 	if !ok {
 		return nil
 	}
 
-	return b.Snapshot()
+	return b.Snapshot(ctx)
 }
 
 // Restore implements persistence.Persistable by delegating to the backend.
-func (h *Handler) Restore(data []byte) error {
+func (h *Handler) Restore(ctx context.Context, data []byte) error {
 	b, ok := h.Backend.(*InMemoryBackend)
 	if !ok {
 		return errBackendNotInMemory
 	}
 
-	return b.Restore(data)
+	return b.Restore(ctx, data)
 }

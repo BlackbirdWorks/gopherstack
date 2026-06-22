@@ -317,11 +317,11 @@ func TestPersistence_RoundTrip(t *testing.T) {
 	)
 	b1.AddActiveResizeInternal("p-cluster", &redshift.ResizeProgress{Status: "IN_PROGRESS", AllowCancelResize: true})
 
-	data := b1.Snapshot()
+	data := b1.Snapshot(t.Context())
 	require.NotNil(t, data)
 
 	b2 := redshift.NewInMemoryBackend("", "")
-	err = b2.Restore(data)
+	err = b2.Restore(t.Context(), data)
 	require.NoError(t, err)
 
 	assert.Equal(t, "123456789012", b2.AccountID())

@@ -1,11 +1,13 @@
 package fis
 
 import (
+	"context"
 	"encoding/json"
-	"log/slog"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 type backendSnapshot struct {
@@ -18,7 +20,7 @@ type backendSnapshot struct {
 }
 
 // Snapshot serialises the backend state to JSON.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
@@ -33,7 +35,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 
 	data, err := json.Marshal(snap)
 	if err != nil {
-		slog.Default().Warn("fis: Snapshot marshal failure", "error", err)
+		logger.Load(ctx).WarnContext(ctx, "fis: Snapshot marshal failure", "error", err)
 
 		return nil
 	}
@@ -44,10 +46,10 @@ func (b *InMemoryBackend) Snapshot() []byte {
 // Restore loads backend state from a JSON snapshot.
 // It cancels any in-flight experiment goroutines before replacing state
 // to prevent goroutine leaks when restored experiments have no cancel func.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "fis", data, &snap); err != nil {
 		return err
 	}
 
@@ -136,18 +138,18 @@ func isActiveStatus(s string) bool {
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.
-func (h *Handler) Snapshot() []byte {
+func (h *Handler) Snapshot(ctx context.Context) []byte {
 	if mem, ok := h.Backend.(*InMemoryBackend); ok {
-		return mem.Snapshot()
+		return mem.Snapshot(ctx)
 	}
 
 	return nil
 }
 
 // Restore implements persistence.Persistable by delegating to the backend.
-func (h *Handler) Restore(data []byte) error {
+func (h *Handler) Restore(ctx context.Context, data []byte) error {
 	if mem, ok := h.Backend.(*InMemoryBackend); ok {
-		return mem.Restore(data)
+		return mem.Restore(ctx, data)
 	}
 
 	return nil

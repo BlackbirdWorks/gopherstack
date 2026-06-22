@@ -1,7 +1,7 @@
 package inspector2
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
 	"maps"
 	"sort"
@@ -11,7 +11,9 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 const (
@@ -361,12 +363,7 @@ func (b *InMemoryBackend) ListFilters(arns []string, action string) ([]*Filter, 
 		arnSet[a] = true
 	}
 
-	sortedARNs := make([]string, 0, len(b.filters))
-	for a := range b.filters {
-		sortedARNs = append(sortedARNs, a)
-	}
-
-	sort.Strings(sortedARNs)
+	sortedARNs := collections.SortedKeys(b.filters)
 
 	var result []*Filter
 
@@ -832,7 +829,7 @@ type backendSnapshot struct {
 }
 
 // Snapshot serializes the backend state.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
@@ -847,18 +844,16 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Region:    b.region,
 	}
 
-	data, _ := json.Marshal(snap)
-
-	return data
+	return persistence.MarshalSnapshot(ctx, "inspector2", snap)
 }
 
 // Restore deserializes the backend state.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
 	var snap backendSnapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "inspector2", data, &snap); err != nil {
 		return fmt.Errorf("inspector2: restore: %w", err)
 	}
 

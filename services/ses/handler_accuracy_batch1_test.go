@@ -2112,11 +2112,11 @@ func TestBatch1_Snapshot_IncludesPolicies(t *testing.T) {
 	require.NoError(t, b.PutIdentityPolicy("snap@example.com", "pol1", `{"v":1}`))
 	require.NoError(t, b.PutIdentityPolicy("snap@example.com", "pol2", `{"v":2}`))
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	fresh := ses.NewInMemoryBackend()
-	require.NoError(t, fresh.Restore(snap))
+	require.NoError(t, fresh.Restore(t.Context(), snap))
 
 	names, err := fresh.ListIdentityPolicies("snap@example.com")
 	require.NoError(t, err)
@@ -2134,11 +2134,11 @@ func TestBatch1_Snapshot_IncludesAccountSending(t *testing.T) {
 	b := ses.NewInMemoryBackend()
 	b.UpdateAccountSendingEnabled(false)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	fresh := ses.NewInMemoryBackend()
-	require.NoError(t, fresh.Restore(snap))
+	require.NoError(t, fresh.Restore(t.Context(), snap))
 	assert.False(t, fresh.GetAccountSendingEnabled())
 }
 
@@ -2155,11 +2155,11 @@ func TestBatch1_Snapshot_FullRoundtrip(t *testing.T) {
 	require.NoError(t, b.CreateReceiptFilter(ses.ReceiptFilter{Name: "f1", Policy: "Allow", CIDR: "10.0.0.0/8"}))
 	b.UpdateAccountSendingEnabled(false)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	fresh := ses.NewInMemoryBackend()
-	require.NoError(t, fresh.Restore(snap))
+	require.NoError(t, fresh.Restore(t.Context(), snap))
 
 	assert.Equal(t, 2, fresh.IdentityCount())
 	assert.Equal(t, 1, fresh.PolicyCount())

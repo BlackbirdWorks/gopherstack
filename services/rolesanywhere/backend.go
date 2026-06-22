@@ -2,7 +2,6 @@ package rolesanywhere
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"maps"
 	"sort"
@@ -11,8 +10,10 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 // regionContextKey is the context key under which the per-request AWS region is stored.
@@ -257,15 +258,15 @@ func listRegionItems[T any](
 // ---- ARN builders ----
 
 func (b *InMemoryBackend) trustAnchorARN(region, id string) string {
-	return fmt.Sprintf("arn:aws:rolesanywhere:%s:%s:trust-anchor/%s", region, b.accountID, id)
+	return arn.Build("rolesanywhere", region, b.accountID, fmt.Sprintf("trust-anchor/%s", id))
 }
 
 func (b *InMemoryBackend) profileARN(region, id string) string {
-	return fmt.Sprintf("arn:aws:rolesanywhere:%s:%s:profile/%s", region, b.accountID, id)
+	return arn.Build("rolesanywhere", region, b.accountID, fmt.Sprintf("profile/%s", id))
 }
 
 func (b *InMemoryBackend) crlARN(region, id string) string {
-	return fmt.Sprintf("arn:aws:rolesanywhere:%s:%s:crl/%s", region, b.accountID, id)
+	return arn.Build("rolesanywhere", region, b.accountID, fmt.Sprintf("crl/%s", id))
 }
 
 // ---- Trust Anchor operations ----
@@ -1138,7 +1139,7 @@ func (b *InMemoryBackend) Region() string { return b.defaultRegion }
 func (b *InMemoryBackend) AccountID() string { return b.accountID }
 
 // Snapshot serializes backend state to JSON.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
@@ -1152,7 +1153,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		NotificationSettings map[string]map[string][]NotificationSetting `json:"notificationSettings"`
 	}
 
-	data, _ := json.Marshal(snap{
+	return persistence.MarshalSnapshot(ctx, "rolesanywhere", snap{
 		TrustAnchors:         b.trustAnchors,
 		Profiles:             b.profiles,
 		Tags:                 b.tags,
@@ -1161,12 +1162,10 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		AttributeMappings:    b.attributeMappings,
 		NotificationSettings: b.notificationSettings,
 	})
-
-	return data
 }
 
 // Restore deserializes backend state from JSON.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
@@ -1181,7 +1180,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	}
 
 	var s snap
-	if err := json.Unmarshal(data, &s); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "rolesanywhere", data, &s); err != nil {
 		return err
 	}
 

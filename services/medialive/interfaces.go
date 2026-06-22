@@ -1,5 +1,7 @@
 package medialive
 
+import "context"
+
 // StorageBackend is the interface for MediaLive storage operations.
 type StorageBackend interface {
 	// Channels
@@ -296,8 +298,8 @@ type StorageBackend interface {
 	AccountID() string
 	Region() string
 	Reset()
-	Snapshot() []byte
-	Restore(data []byte) error
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 }
 
 // IPPool is a CIDR pool for a Network.

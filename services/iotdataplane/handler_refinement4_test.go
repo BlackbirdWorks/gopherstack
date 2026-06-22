@@ -1378,11 +1378,11 @@ func TestRefinement4_Persistence_NullWipeSurvivesRoundTrip(t *testing.T) {
 	_, err = b1.UpdateThingShadow("dev", "", []byte(`{"state":{"desired":null}}`))
 	require.NoError(t, err)
 
-	snap := b1.Snapshot()
+	snap := b1.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := iotdataplane.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	resp, err := b2.GetThingShadow("dev", "")
 	require.NoError(t, err)

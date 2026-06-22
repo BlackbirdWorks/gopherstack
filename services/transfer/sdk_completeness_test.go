@@ -16,7 +16,7 @@ import (
 func TestSDKCompleteness(t *testing.T) {
 	t.Parallel()
 
-	backend := transfer.NewInMemoryBackend("000000000000", "us-east-1")
+	backend := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	h := transfer.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &transfersdk.Client{}, h.GetSupportedOperations(), []string{})
 }

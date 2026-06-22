@@ -25,6 +25,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 )
@@ -1553,12 +1554,12 @@ func importDescriptionWireFromSDK(d *types.ImportTableDescription) importTableDe
 	if d == nil {
 		return w
 	}
-	w.ImportArn = derefStr(d.ImportArn)
+	w.ImportArn = ptrconv.String(d.ImportArn)
 	w.ImportStatus = string(d.ImportStatus)
-	w.TableArn = derefStr(d.TableArn)
+	w.TableArn = ptrconv.String(d.TableArn)
 	w.InputFormat = string(d.InputFormat)
-	w.FailureCode = derefStr(d.FailureCode)
-	w.FailureMessage = derefStr(d.FailureMessage)
+	w.FailureCode = ptrconv.String(d.FailureCode)
+	w.FailureMessage = ptrconv.String(d.FailureMessage)
 	w.ImportedItemCount = d.ImportedItemCount
 	w.ProcessedItemCount = d.ProcessedItemCount
 	w.ErrorCount = d.ErrorCount
@@ -1689,7 +1690,7 @@ func (h *DynamoDBHandler) handleDescribeGlobalTableSettings(
 	replicaSettings := make([]replicaSettingsWire, 0, len(out.ReplicaSettings))
 	for _, rs := range out.ReplicaSettings {
 		w := replicaSettingsWire{
-			RegionName:    derefStr(rs.RegionName),
+			RegionName:    ptrconv.String(rs.RegionName),
 			ReplicaStatus: string(rs.ReplicaStatus),
 		}
 		if rs.ReplicaProvisionedReadCapacityUnits != nil {
@@ -1704,7 +1705,7 @@ func (h *DynamoDBHandler) handleDescribeGlobalTableSettings(
 	}
 
 	return &describeGlobalTableSettingsOutput{
-		GlobalTableName: derefStr(out.GlobalTableName),
+		GlobalTableName: ptrconv.String(out.GlobalTableName),
 		ReplicaSettings: replicaSettings,
 	}, nil
 }
@@ -1729,14 +1730,14 @@ func (h *DynamoDBHandler) handleDescribeKinesisStreamingDestination(
 	destinations := make([]kinesisDestinationWire, 0, len(out.KinesisDataStreamDestinations))
 	for _, d := range out.KinesisDataStreamDestinations {
 		destinations = append(destinations, kinesisDestinationWire{
-			StreamArn:                            derefStr(d.StreamArn),
+			StreamArn:                            ptrconv.String(d.StreamArn),
 			DestinationStatus:                    string(d.DestinationStatus),
 			ApproximateCreationDateTimePrecision: string(d.ApproximateCreationDateTimePrecision),
 		})
 	}
 
 	return &describeKinesisOutput{
-		TableName:                     derefStr(out.TableName),
+		TableName:                     ptrconv.String(out.TableName),
 		KinesisDataStreamDestinations: destinations,
 	}, nil
 }
@@ -1762,8 +1763,8 @@ func (h *DynamoDBHandler) handleDisableKinesisStreamingDestination(
 	}
 
 	return &disableKinesisOutput{
-		TableName:         derefStr(out.TableName),
-		StreamArn:         derefStr(out.StreamArn),
+		TableName:         ptrconv.String(out.TableName),
+		StreamArn:         ptrconv.String(out.StreamArn),
 		DestinationStatus: string(out.DestinationStatus),
 	}, nil
 }
@@ -1809,7 +1810,7 @@ func (h *DynamoDBHandler) handleDescribeEndpoints(ctx context.Context) (any, err
 	endpoints := make([]endpointWire, 0, len(out.Endpoints))
 	for _, e := range out.Endpoints {
 		endpoints = append(endpoints, endpointWire{
-			Address:              derefStr(e.Address),
+			Address:              ptrconv.String(e.Address),
 			CachePeriodInMinutes: e.CachePeriodInMinutes,
 		})
 	}
@@ -1837,7 +1838,7 @@ func (h *DynamoDBHandler) handleDescribeContributorInsights(
 	}
 
 	wire := &describeContributorInsightsOutput{
-		TableName:                   derefStr(out.TableName),
+		TableName:                   ptrconv.String(out.TableName),
 		ContributorInsightsStatus:   string(out.ContributorInsightsStatus),
 		ContributorInsightsRuleList: out.ContributorInsightsRuleList,
 	}
@@ -1916,11 +1917,11 @@ func (h *DynamoDBHandler) handleListGlobalTables(ctx context.Context, body []byt
 	for _, gt := range out.GlobalTables {
 		replicas := make([]globalTableReplicaWire, 0, len(gt.ReplicationGroup))
 		for _, r := range gt.ReplicationGroup {
-			replicas = append(replicas, globalTableReplicaWire{RegionName: derefStr(r.RegionName)})
+			replicas = append(replicas, globalTableReplicaWire{RegionName: ptrconv.String(r.RegionName)})
 		}
 
 		tables = append(tables, globalTableWire{
-			GlobalTableName:  derefStr(gt.GlobalTableName),
+			GlobalTableName:  ptrconv.String(gt.GlobalTableName),
 			ReplicationGroup: replicas,
 		})
 	}
@@ -1996,8 +1997,8 @@ func (h *DynamoDBHandler) handleEnableKinesisStreamingDestination(
 	}
 
 	return &enableKinesisOutput{
-		TableName:         derefStr(out.TableName),
-		StreamArn:         derefStr(out.StreamArn),
+		TableName:         ptrconv.String(out.TableName),
+		StreamArn:         ptrconv.String(out.StreamArn),
 		DestinationStatus: string(out.DestinationStatus),
 	}, nil
 }
@@ -2054,12 +2055,12 @@ func buildGlobalTableDescriptionWire(d *types.GlobalTableDescription) globalTabl
 
 	replicas := make([]globalTableReplicaWire, 0, len(d.ReplicationGroup))
 	for _, r := range d.ReplicationGroup {
-		replicas = append(replicas, globalTableReplicaWire{RegionName: derefStr(r.RegionName)})
+		replicas = append(replicas, globalTableReplicaWire{RegionName: ptrconv.String(r.RegionName)})
 	}
 
 	wire := globalTableDescriptionWire{
-		GlobalTableName:   derefStr(d.GlobalTableName),
-		GlobalTableArn:    derefStr(d.GlobalTableArn),
+		GlobalTableName:   ptrconv.String(d.GlobalTableName),
+		GlobalTableArn:    ptrconv.String(d.GlobalTableArn),
 		GlobalTableStatus: string(d.GlobalTableStatus),
 		ReplicationGroup:  replicas,
 	}
@@ -2069,15 +2070,6 @@ func buildGlobalTableDescriptionWire(d *types.GlobalTableDescription) globalTabl
 	}
 
 	return wire
-}
-
-// derefStr safely dereferences a *string, returning "" if nil.
-func derefStr(s *string) string {
-	if s == nil {
-		return ""
-	}
-
-	return *s
 }
 
 // --- UpdateGlobalTableSettings handler ---
@@ -2154,7 +2146,7 @@ func (h *DynamoDBHandler) handleUpdateGlobalTableSettings(
 	wire := make([]replicaSettingsDescWire, 0, len(out.ReplicaSettings))
 	for _, rs := range out.ReplicaSettings {
 		w := replicaSettingsDescWire{
-			RegionName:    derefStr(rs.RegionName),
+			RegionName:    ptrconv.String(rs.RegionName),
 			ReplicaStatus: string(rs.ReplicaStatus),
 		}
 
@@ -2179,7 +2171,7 @@ func (h *DynamoDBHandler) handleUpdateGlobalTableSettings(
 	}
 
 	return &updateGlobalTableSettingsOutput{
-		GlobalTableName: derefStr(out.GlobalTableName),
+		GlobalTableName: ptrconv.String(out.GlobalTableName),
 		ReplicaSettings: wire,
 	}, nil
 }
@@ -2231,8 +2223,8 @@ func (h *DynamoDBHandler) handleUpdateKinesisStreamingDestination(
 	}
 
 	return &updateKinesisStreamingDestinationOutput{
-		TableName:         derefStr(out.TableName),
-		StreamArn:         derefStr(out.StreamArn),
+		TableName:         ptrconv.String(out.TableName),
+		StreamArn:         ptrconv.String(out.StreamArn),
 		DestinationStatus: string(out.DestinationStatus),
 	}, nil
 }
@@ -2262,8 +2254,8 @@ func (h *DynamoDBHandler) handleListContributorInsights(
 	summaries := make([]contributorInsightsSummaryWire, 0, len(out.ContributorInsightsSummaries))
 	for _, s := range out.ContributorInsightsSummaries {
 		summaries = append(summaries, contributorInsightsSummaryWire{
-			TableName:                 derefStr(s.TableName),
-			IndexName:                 derefStr(s.IndexName),
+			TableName:                 ptrconv.String(s.TableName),
+			IndexName:                 ptrconv.String(s.IndexName),
 			ContributorInsightsStatus: string(s.ContributorInsightsStatus),
 		})
 	}
@@ -2309,8 +2301,8 @@ func (h *DynamoDBHandler) handleUpdateContributorInsights(
 	}
 
 	return &updateContributorInsightsOutput{
-		TableName:                 derefStr(out.TableName),
-		IndexName:                 derefStr(out.IndexName),
+		TableName:                 ptrconv.String(out.TableName),
+		IndexName:                 ptrconv.String(out.IndexName),
 		ContributorInsightsStatus: string(out.ContributorInsightsStatus),
 	}, nil
 }
@@ -2358,13 +2350,13 @@ func (h *DynamoDBHandler) handleUpdateTableReplicaAutoScaling(
 	desc := tableAutoScalingDescWire{}
 	if out.TableAutoScalingDescription != nil {
 		d := out.TableAutoScalingDescription
-		desc.TableName = derefStr(d.TableName)
+		desc.TableName = ptrconv.String(d.TableName)
 		desc.TableStatus = string(d.TableStatus)
 		desc.Replicas = make([]replicaAutoScalingDescWire, 0, len(d.Replicas))
 
 		for _, r := range d.Replicas {
 			desc.Replicas = append(desc.Replicas, replicaAutoScalingDescWire{
-				RegionName:    derefStr(r.RegionName),
+				RegionName:    ptrconv.String(r.RegionName),
 				ReplicaStatus: string(r.ReplicaStatus),
 			})
 		}
@@ -2535,9 +2527,9 @@ func (h *DynamoDBHandler) handleListImports(ctx context.Context, _ []byte) (any,
 
 	for _, s := range out.ImportSummaryList {
 		summaries = append(summaries, importTableDescriptionWire{
-			ImportArn:    derefStr(s.ImportArn),
+			ImportArn:    ptrconv.String(s.ImportArn),
 			ImportStatus: string(s.ImportStatus),
-			TableArn:     derefStr(s.TableArn),
+			TableArn:     ptrconv.String(s.TableArn),
 		})
 	}
 

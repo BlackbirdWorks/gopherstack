@@ -295,11 +295,11 @@ func TestRefinement1_PersistenceCoversAllMaps(t *testing.T) {
 		ConnectionID: "conn-snap", ConnectionStatus: "PENDING_ACCEPTANCE",
 	})
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 1, b2.PackageCount())
 	assert.Equal(t, 1, b2.VpcEndpointCount())
@@ -445,7 +445,7 @@ func TestRefinement1_SnapshotWarnOnEmptyState(t *testing.T) {
 	t.Parallel()
 
 	b := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	var v map[string]any
@@ -463,11 +463,11 @@ func TestRefinement1_PersistenceNextIDPreserved(t *testing.T) {
 	_, err = b.CreateVpcEndpoint(context.Background(), "arn:aws:es:us-east-1:123456789012:domain/test", nil)
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	// After restore, a new endpoint should get id 3, not 1.
 	ep, err := b2.CreateVpcEndpoint(context.Background(), "arn:aws:es:us-east-1:123456789012:domain/test", nil)

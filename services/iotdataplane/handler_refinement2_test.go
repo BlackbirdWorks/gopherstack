@@ -359,11 +359,11 @@ func TestRefinement2_Persistence_ConnectionsPreserved(t *testing.T) {
 	b.AddConnectionInternal("client-1")
 	b.AddConnectionInternal("client-2")
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := iotdataplane.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 2, iotdataplane.ConnectionCount(b2))
 

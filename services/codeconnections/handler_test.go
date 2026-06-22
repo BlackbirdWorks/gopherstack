@@ -2307,11 +2307,11 @@ func TestRefinement1_SnapshotRestore(t *testing.T) {
 			connArn := createConn(t, h, "conn-snap2", "GitLab")
 			linkID := createRepositoryLink(t, h, connArn, "my-org", "my-repo")
 
-			snap := h.Backend.Snapshot()
+			snap := h.Backend.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			newBackend := codeconnections.NewInMemoryBackend("123456789012", "us-east-1")
-			require.NoError(t, newBackend.Restore(snap))
+			require.NoError(t, newBackend.Restore(t.Context(), snap))
 
 			conns := newBackend.ListConnections(context.Background(), "", "")
 			assert.Len(t, conns, 2)

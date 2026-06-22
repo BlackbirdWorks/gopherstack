@@ -495,11 +495,11 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 		Policy:      `{"Version":"2012-10-17"}`,
 	}))
 
-	snap := b1.Snapshot()
+	snap := b1.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := kinesis.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 1, b2.StreamCount())
 	assert.Equal(t, 1, b2.ResourcePolicyCount())

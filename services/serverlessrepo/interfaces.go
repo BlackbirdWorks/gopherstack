@@ -1,5 +1,7 @@
 package serverlessrepo
 
+import "context"
+
 // StorageBackend is the interface for the Serverless Application Repository in-memory backend.
 type StorageBackend interface {
 	// Application CRUD
@@ -54,8 +56,8 @@ type StorageBackend interface {
 	Reset()
 	Region() string
 	AccountID() string
-	Snapshot() []byte
-	Restore(data []byte) error
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)

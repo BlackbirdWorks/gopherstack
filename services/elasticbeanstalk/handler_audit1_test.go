@@ -323,11 +323,11 @@ func TestAudit1_PersistenceRoundTrip_Events(t *testing.T) {
 	h := newTestHandler()
 	postEBForm(t, h, "Version=2010-12-01&Action=CreateEnvironment&ApplicationName=app&EnvironmentName=env1")
 
-	snap := h.Backend.Snapshot()
+	snap := h.Backend.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	h2 := newTestHandler()
-	require.NoError(t, h2.Backend.Restore(snap))
+	require.NoError(t, h2.Backend.Restore(t.Context(), snap))
 
 	rec := postEBForm(t, h2, "Version=2010-12-01&Action=DescribeEvents")
 	require.Equal(t, http.StatusOK, rec.Code)

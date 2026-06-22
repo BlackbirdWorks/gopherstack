@@ -701,11 +701,11 @@ func TestECR_Persistence(t *testing.T) { //nolint:paralleltest // existing issue
 	rec := doECRRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "persist-me"})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	snapshot := h.Snapshot()
+	snapshot := h.Snapshot(t.Context())
 	require.NotEmpty(t, snapshot)
 
 	h2 := newTestHandler(t)
-	require.NoError(t, h2.Restore(snapshot))
+	require.NoError(t, h2.Restore(t.Context(), snapshot))
 
 	rec2 := doECRRequest(t, h2, "DescribeRepositories", map[string]any{})
 	require.Equal(t, http.StatusOK, rec2.Code)
@@ -1571,9 +1571,9 @@ func TestECR_RestoreClearsInFlightLayerUploads(t *testing.T) { //nolint:parallel
 
 	var upload map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &upload))
-	snapshot := h.Snapshot()
+	snapshot := h.Snapshot(t.Context())
 	require.NotEmpty(t, snapshot)
-	require.NoError(t, h.Restore(snapshot))
+	require.NoError(t, h.Restore(t.Context(), snapshot))
 
 	rec = doECRRequest(t, h, "UploadLayerPart", map[string]any{
 		"repositoryName": "restore-repo",
@@ -1667,12 +1667,12 @@ func TestECR_NewOps_PersistenceRoundTrip(t *testing.T) { //nolint:paralleltest /
 	backend.SetRegistryPolicyInternal(`{"Version":"2012-10-17"}`)
 
 	// Snapshot and restore
-	snapshot := h.Snapshot()
+	snapshot := h.Snapshot(t.Context())
 	require.NotEmpty(t, snapshot)
 
 	backend2 := ecr.NewInMemoryBackend(testAccountID, testRegion, testEndpoint)
 	h2 := ecr.NewHandler(backend2, nil)
-	require.NoError(t, h2.Restore(snapshot))
+	require.NoError(t, h2.Restore(t.Context(), snapshot))
 
 	// Verify layer availability is restored
 	rec = doECRRequest(t, h2, "BatchCheckLayerAvailability", map[string]any{

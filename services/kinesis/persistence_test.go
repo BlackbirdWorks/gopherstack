@@ -59,11 +59,11 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			original := kinesis.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
 			id := tt.setup(original)
 
-			snap := original.Snapshot()
+			snap := original.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			fresh := kinesis.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
-			require.NoError(t, fresh.Restore(snap))
+			require.NoError(t, fresh.Restore(t.Context(), snap))
 
 			tt.verify(t, fresh, id)
 		})
@@ -74,7 +74,7 @@ func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	t.Parallel()
 
 	b := kinesis.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
-	err := b.Restore([]byte("not-valid-json"))
+	err := b.Restore(t.Context(), []byte("not-valid-json"))
 	require.Error(t, err)
 }
 
@@ -89,7 +89,7 @@ func TestSnapshot_EmptyShardRecords_NoNull(t *testing.T) {
 		bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{StreamName: "empty-shard-stream"}),
 	)
 
-	snap := bk.Snapshot()
+	snap := bk.Snapshot(t.Context())
 	require.NotNil(t, snap)
 	// The JSON must not contain a null records field.
 	assert.NotContains(t, string(snap), `"records":null`)
@@ -115,11 +115,11 @@ func TestSnapshot_RestoreClearsOldPointers(t *testing.T) {
 	}
 
 	// Take a snapshot of the populated state.
-	snap := bk.Snapshot()
+	snap := bk.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	// Now restore into the same backend (simulating an in-place restore).
-	require.NoError(t, bk.Restore(snap))
+	require.NoError(t, bk.Restore(t.Context(), snap))
 
 	desc, err := bk.DescribeStream(context.Background(), &kinesis.DescribeStreamInput{StreamName: "ptr-stream"})
 	require.NoError(t, err)

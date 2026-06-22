@@ -2,6 +2,8 @@ package securityhub
 
 import (
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // FindingAggregator represents a Security Hub finding aggregator for cross-region aggregation.
@@ -13,7 +15,7 @@ type FindingAggregator struct {
 }
 
 func (b *InMemoryBackend) findingAggregatorARN(seq int) string {
-	return fmt.Sprintf("arn:aws:securityhub:%s:%s:finding-aggregator/default-%d", b.region, b.accountID, seq)
+	return arn.Build("securityhub", b.region, b.accountID, fmt.Sprintf("finding-aggregator/default-%d", seq))
 }
 
 func (b *InMemoryBackend) CreateFindingAggregator(

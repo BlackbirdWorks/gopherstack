@@ -1,7 +1,7 @@
 package macie2
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
 	"maps"
 	"regexp"
@@ -11,8 +11,11 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 const (
@@ -131,15 +134,15 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 }
 
 func (b *InMemoryBackend) allowListARN(id string) string {
-	return fmt.Sprintf("arn:aws:macie2:%s:%s:allow-list/%s", b.region, b.accountID, id)
+	return arn.Build("macie2", b.region, b.accountID, fmt.Sprintf("allow-list/%s", id))
 }
 
 func (b *InMemoryBackend) customDataIDARN(id string) string {
-	return fmt.Sprintf("arn:aws:macie2:%s:%s:custom-data-identifier/%s", b.region, b.accountID, id)
+	return arn.Build("macie2", b.region, b.accountID, fmt.Sprintf("custom-data-identifier/%s", id))
 }
 
 func (b *InMemoryBackend) findingsFilterARN(id string) string {
-	return fmt.Sprintf("arn:aws:macie2:%s:%s:findings-filter/%s", b.region, b.accountID, id)
+	return arn.Build("macie2", b.region, b.accountID, fmt.Sprintf("findings-filter/%s", id))
 }
 
 // GetSession returns the current Macie session (may be nil if not enabled).
@@ -688,13 +691,7 @@ func (b *InMemoryBackend) ListFindings(_ map[string]any, _ int, _ string) ([]str
 	b.mu.RLock("ListFindings")
 	defer b.mu.RUnlock()
 
-	ids := make([]string, 0, len(b.findings))
-
-	for id := range b.findings {
-		ids = append(ids, id)
-	}
-
-	sort.Strings(ids)
+	ids := collections.SortedKeys(b.findings)
 
 	return ids, "", nil
 }
@@ -838,13 +835,13 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 }
 
 // isKnownARN reports whether arn refers to a live resource owned by this backend.
-func (b *InMemoryBackend) isKnownARN(arn string) bool {
-	prefix := fmt.Sprintf("arn:aws:macie2:%s:%s:", b.region, b.accountID)
-	if !strings.HasPrefix(arn, prefix) {
+func (b *InMemoryBackend) isKnownARN(arnStr string) bool {
+	prefix := arn.Build("macie2", b.region, b.accountID, "")
+	if !strings.HasPrefix(arnStr, prefix) {
 		return false
 	}
 
-	rest := strings.TrimPrefix(arn, prefix)
+	rest := strings.TrimPrefix(arnStr, prefix)
 
 	resourceType, id, found := strings.Cut(rest, "/")
 	if !found {
@@ -948,11 +945,11 @@ type snapshot struct {
 }
 
 // Snapshot serializes backend state to JSON.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	data, _ := json.Marshal(snapshot{
+	return persistence.MarshalSnapshot(ctx, "macie2", snapshot{
 		Session:               b.session,
 		AllowLists:            b.allowLists,
 		CustomDataIDs:         b.customDataIDs,
@@ -976,14 +973,12 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		RevealConfig:          b.revealConfig,
 		SensitivityTemplates:  b.sensitivityTemplates,
 	})
-
-	return data
 }
 
 // Restore deserializes backend state from JSON.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap snapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "macie2", data, &snap); err != nil {
 		return err
 	}
 

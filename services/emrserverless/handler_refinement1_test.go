@@ -456,11 +456,11 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	_, err = b.StartJobRun(app.ApplicationID, "arn:aws:iam::000000000000:role/r", "persist-run", nil)
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := emrserverless.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 1, emrserverless.ApplicationCount(b2))
 	assert.Equal(t, 1, emrserverless.JobRunCount(b2))
@@ -475,11 +475,11 @@ func TestRefinement1_PersistenceEmpty(t *testing.T) {
 	t.Parallel()
 
 	b := emrserverless.NewInMemoryBackend("000000000000", "us-east-1")
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := emrserverless.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 0, emrserverless.ApplicationCount(b2))
 	assert.Equal(t, 0, emrserverless.JobRunCount(b2))
@@ -622,11 +622,11 @@ func TestRefinement1_HandlerSnapshotRestore(t *testing.T) {
 	h := newTestHandler(t)
 	createApp(t, h, "snap-app")
 
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	h2 := emrserverless.NewHandler(emrserverless.NewInMemoryBackend("000000000000", "us-east-1"))
-	require.NoError(t, h2.Restore(snap))
+	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	rec := doRequest(t, h2, http.MethodGet, "/applications", nil)
 	require.Equal(t, http.StatusOK, rec.Code)

@@ -156,11 +156,11 @@ func TestBatch1_EncryptionOptions_Snapshot_Restore(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := mq.NewInMemoryBackend("123456789012", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	restored, err := b2.DescribeBroker(br.BrokerID)
 	require.NoError(t, err)
@@ -295,9 +295,9 @@ func TestBatch1_Logs_Snapshot_Restore(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	b2 := mq.NewInMemoryBackend("123456789012", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	restored, err := b2.DescribeBroker(br.BrokerID)
 	require.NoError(t, err)
@@ -488,7 +488,7 @@ func TestBatch1_LDAP_Backend_ServiceAccountPassword_Not_In_JSON(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	assert.NotContains(t, string(snap), "topsecret",
 		"serviceAccountPassword must not appear in JSON snapshot")
 	assert.NotContains(t, string(snap), "serviceAccountPassword")
@@ -659,9 +659,9 @@ func TestBatch1_MaintenanceWindow_Snapshot_Restore(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	b2 := mq.NewInMemoryBackend("123456789012", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	restored, err := b2.DescribeBroker(br.BrokerID)
 	require.NoError(t, err)
@@ -757,9 +757,9 @@ func TestBatch1_DataReplicationMode_Snapshot_Restore(t *testing.T) {
 		&mq.UpdateBrokerOptions{DataReplicationMode: "CRDR"})
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	b2 := mq.NewInMemoryBackend("123456789012", "us-east-1")
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	restored, err := b2.DescribeBroker(br.BrokerID)
 	require.NoError(t, err)

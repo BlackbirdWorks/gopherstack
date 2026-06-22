@@ -1585,11 +1585,11 @@ func TestValidationErrors(t *testing.T) {
 					"DisplayName":     "Persist Group",
 				})
 
-				snap := h.Snapshot()
+				snap := h.Snapshot(t.Context())
 				require.NotEmpty(t, snap)
 
 				h2 := newTestHandler()
-				require.NoError(t, h2.Restore(snap))
+				require.NoError(t, h2.Restore(t.Context(), snap))
 
 				listRec := doRequest(t, h2, "ListUsers", map[string]any{
 					"IdentityStoreId": testStoreID,

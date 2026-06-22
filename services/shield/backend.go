@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
@@ -111,12 +112,12 @@ func newShieldID() string {
 // protectionARN builds a Shield protection ARN.
 // Shield ARNs are global (no region component).
 func protectionARN(accountID, protectionID string) string {
-	return fmt.Sprintf("arn:aws:shield::%s:protection/%s", accountID, protectionID)
+	return arn.Build("shield", "", accountID, fmt.Sprintf("protection/%s", protectionID))
 }
 
 // protectionGroupARN builds a Shield protection group ARN.
 func protectionGroupARN(accountID, groupID string) string {
-	return fmt.Sprintf("arn:aws:shield::%s:protection-group/%s", accountID, groupID)
+	return arn.Build("shield", "", accountID, fmt.Sprintf("protection-group/%s", groupID))
 }
 
 // Protection represents an AWS Shield Advanced protection.

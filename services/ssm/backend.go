@@ -18,6 +18,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -570,7 +571,7 @@ func resolveTier(tier, value string) (string, error) {
 func parameterARN(region, account, name string) string {
 	trimmed := strings.TrimPrefix(name, "/")
 
-	return fmt.Sprintf("arn:aws:ssm:%s:%s:parameter/%s", region, account, trimmed)
+	return arn.Build("ssm", region, account, fmt.Sprintf("parameter/%s", trimmed))
 }
 
 // splitParameterSelector splits a parameter name into its base name and the
@@ -2566,7 +2567,7 @@ func (b *InMemoryBackend) CreateOpsItem(
 	defer b.mu.Unlock()
 
 	opsItemID := opsItemIDPrefix + uuid.NewString()
-	opsItemArn := fmt.Sprintf("arn:aws:ssm:%s:%s:opsitem/%s", region, defaultAccountID, opsItemID)
+	opsItemArn := arn.Build("ssm", region, defaultAccountID, fmt.Sprintf("opsitem/%s", opsItemID))
 	now := UnixTimeFloat(time.Now())
 
 	item := OpsItem{

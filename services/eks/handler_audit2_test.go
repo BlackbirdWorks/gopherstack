@@ -22,7 +22,7 @@ import (
 func TestAudit2_TagResource_KeyTooLong_Rejected(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "c1"})
 
 	longKey := strings.Repeat("k", 129)
@@ -34,7 +34,7 @@ func TestAudit2_TagResource_KeyTooLong_Rejected(t *testing.T) {
 func TestAudit2_TagResource_KeyEmpty_Rejected(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "c1"})
 
 	rec := doREST(t, h, http.MethodPost, "/tags/arn:aws:eks:us-east-1:123456789012:cluster/c1",
@@ -45,7 +45,7 @@ func TestAudit2_TagResource_KeyEmpty_Rejected(t *testing.T) {
 func TestAudit2_TagResource_ValueTooLong_Rejected(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "c1"})
 
 	longVal := strings.Repeat("v", 257)
@@ -71,7 +71,7 @@ func TestAudit2_TagResource_ValidBoundary_Accepted(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestEKSHandler()
+			h := newTestEKSHandler(t)
 			doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "c1"})
 
 			rec := doREST(t, h, http.MethodPost, "/tags/arn:aws:eks:us-east-1:123456789012:cluster/c1",
@@ -88,7 +88,7 @@ func TestAudit2_TagResource_ValidBoundary_Accepted(t *testing.T) {
 func TestAudit2_TagResource_MaxTags_Enforced(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "c1"})
 
 	clusterARN := "arn:aws:eks:us-east-1:123456789012:cluster/c1"
@@ -117,7 +117,7 @@ func TestAudit2_TagResource_MaxTags_Enforced(t *testing.T) {
 func TestAudit2_CreateCluster_InitialTagKeyTooLong_Rejected(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	longKey := strings.Repeat("k", 129)
 	rec := doREST(t, h, http.MethodPost, "/clusters", map[string]any{
 		"name": "bad-tag-cluster",
@@ -129,7 +129,7 @@ func TestAudit2_CreateCluster_InitialTagKeyTooLong_Rejected(t *testing.T) {
 func TestAudit2_CreateCluster_InitialTagValueTooLong_Rejected(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	longVal := strings.Repeat("v", 257)
 	rec := doREST(t, h, http.MethodPost, "/clusters", map[string]any{
 		"name": "bad-tag-cluster",
@@ -141,7 +141,7 @@ func TestAudit2_CreateCluster_InitialTagValueTooLong_Rejected(t *testing.T) {
 func TestAudit2_CreateCluster_ValidTags_Accepted(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	rec := doREST(t, h, http.MethodPost, "/clusters", map[string]any{
 		"name": "ok-tag-cluster",
 		"tags": map[string]string{"Env": "prod", "Team": "platform"},
@@ -156,7 +156,7 @@ func TestAudit2_CreateCluster_ValidTags_Accepted(t *testing.T) {
 func TestAudit2_CreateNodegroup_SubnetsRequired(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "c1"})
 
 	rec := doREST(t, h, http.MethodPost, "/clusters/c1/node-groups", map[string]any{
@@ -169,7 +169,7 @@ func TestAudit2_CreateNodegroup_SubnetsRequired(t *testing.T) {
 func TestAudit2_CreateNodegroup_SubnetsRequired_EmptySlice_Rejected(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "c1"})
 
 	rec := doREST(t, h, http.MethodPost, "/clusters/c1/node-groups", map[string]any{
@@ -183,7 +183,7 @@ func TestAudit2_CreateNodegroup_SubnetsRequired_EmptySlice_Rejected(t *testing.T
 func TestAudit2_CreateNodegroup_SubnetsNotRequired_WithLaunchTemplate(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "c1"})
 
 	// subnets omitted but launchTemplate present — must succeed.
@@ -205,7 +205,7 @@ func TestAudit2_CreateNodegroup_SubnetsNotRequired_WithLaunchTemplate(t *testing
 func TestAudit2_CreateNodegroup_NodeRoleRequired(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "c1"})
 
 	rec := doREST(t, h, http.MethodPost, "/clusters/c1/node-groups", map[string]any{
@@ -222,7 +222,7 @@ func TestAudit2_CreateNodegroup_NodeRoleRequired(t *testing.T) {
 func TestAudit2_CreateNodegroup_InitialTagKeyTooLong_Rejected(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "c1"})
 
 	longKey := strings.Repeat("k", 129)
@@ -238,7 +238,7 @@ func TestAudit2_CreateNodegroup_InitialTagKeyTooLong_Rejected(t *testing.T) {
 func TestAudit2_CreateNodegroup_ValidTags_Accepted(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "c1"})
 
 	rec := doREST(t, h, http.MethodPost, "/clusters/c1/node-groups", map[string]any{

@@ -491,11 +491,11 @@ func TestInMemoryBackend_Persistence(t *testing.T) {
 	_, err = b.CreateStage(api.APIID, apigatewayv2.CreateStageInput{StageName: "prod"})
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := apigatewayv2.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	got, err := b2.GetAPI(api.APIID)
 	require.NoError(t, err)

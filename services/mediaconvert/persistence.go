@@ -1,8 +1,11 @@
 package mediaconvert
 
 import (
+	"context"
 	"encoding/json"
-	"log/slog"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 type backendSnapshot struct {
@@ -21,7 +24,7 @@ type backendSnapshot struct {
 
 // Snapshot serialises the backend state to JSON.
 // Deep copies are taken before serialisation to avoid races with concurrent writes.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
@@ -90,7 +93,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 
 	data, err := json.Marshal(snap)
 	if err != nil {
-		slog.Default().Warn("mediaconvert: failed to marshal snapshot", "error", err)
+		logger.Load(ctx).WarnContext(ctx, "mediaconvert: failed to marshal snapshot", "error", err)
 
 		return nil
 	}
@@ -99,10 +102,10 @@ func (b *InMemoryBackend) Snapshot() []byte {
 }
 
 // Restore loads backend state from a JSON snapshot.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "mediaconvert", data, &snap); err != nil {
 		return err
 	}
 

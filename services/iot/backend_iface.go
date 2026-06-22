@@ -1,5 +1,7 @@
 package iot
 
+import "context"
+
 // StorageBackend defines the interface for the IoT control-plane backend.
 type StorageBackend interface {
 	CreateThing(input *CreateThingInput) (*CreateThingOutput, error)
@@ -340,8 +342,8 @@ type StorageBackend interface {
 // Snapshottable is an optional interface that a StorageBackend may implement
 // to support snapshot-based persistence.
 type Snapshottable interface {
-	Snapshot() []byte
-	Restore(data []byte) error
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 }
 
 // Resettable is an optional interface that a StorageBackend may implement

@@ -14,6 +14,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
+	"github.com/blackbirdworks/gopherstack/pkgs/worker"
 )
 
 // lifecycleConfiguration mirrors the AWS S3 XML lifecycle configuration schema
@@ -172,32 +173,27 @@ func NewJanitor(backend *InMemoryBackend, settings Settings) *Janitor {
 // Each tick, sweepAndDrain spawns one goroutine per pending bucket so that
 // thousands of large buckets are drained in parallel rather than serially.
 //
-// A deferred recover() protects the loop from panics in sweep functions.
+// The worker primitive recovers panics from each sweep automatically.
 func (j *Janitor) Run(ctx context.Context) {
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Load(ctx).ErrorContext(ctx, "S3 janitor: panic recovered, loop exiting",
-				"panic", fmt.Sprintf("%v", r))
-		}
-	}()
+	g := worker.NewGroup(ctx, "s3")
+	g.Ticker("BucketCleaner", j.Interval, 0, j.sweep)
 
-	ticker := time.NewTicker(j.Interval)
-	defer ticker.Stop()
+	<-ctx.Done()
+	g.Stop()
+}
 
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			// sweepAndDrain spawns long-lived drain goroutines that must outlive
-			// the per-tick task context, so the parent ctx is passed directly.
-			j.sweepAndDrain(ctx)
-			taskCtx, cancel := j.taskContext(ctx)
-			j.sweepLifecycle(taskCtx)
-			j.cleanupDefaultMultipart(taskCtx)
-			cancel()
-		}
-	}
+// sweep performs one janitor tick. sweepAndDrain spawns long-lived drain
+// goroutines that must outlive any per-tick task context, so it receives ctx
+// directly; the lifecycle and multipart passes run under a TaskTimeout-bounded
+// child context.
+func (j *Janitor) sweep(ctx context.Context) {
+	j.sweepAndDrain(ctx)
+
+	taskCtx, cancel := j.taskContext(ctx)
+	defer cancel()
+
+	j.sweepLifecycle(taskCtx)
+	j.cleanupDefaultMultipart(taskCtx)
 }
 
 // taskContext returns a child context bounded by TaskTimeout (if non-zero).

@@ -333,11 +333,11 @@ func TestRefinement1_Snapshot_IncludesCommunications(t *testing.T) {
 	require.NoError(t, b.AddCommunicationToCase(c.CaseID, "Hello", ""))
 	assert.Equal(t, 1, support.CommunicationCount(b))
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := support.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 1, support.CommunicationCount(b2))
 }
@@ -355,11 +355,11 @@ func TestRefinement1_Snapshot_IncludesAttachments(t *testing.T) {
 
 	assert.Equal(t, 1, support.AttachmentCount(b))
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := support.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 1, support.AttachmentCount(b2))
 
@@ -380,11 +380,11 @@ func TestRefinement1_Snapshot_IncludesCheckRefreshStatuses(t *testing.T) {
 
 	assert.Equal(t, 1, support.CheckRefreshStatusCount(b))
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := support.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 1, support.CheckRefreshStatusCount(b2))
 

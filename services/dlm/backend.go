@@ -1,14 +1,16 @@
 package dlm
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
 	"maps"
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 const (
@@ -107,7 +109,7 @@ func (b *InMemoryBackend) CreateLifecyclePolicy(
 
 	b.counter++
 	policyID := fmt.Sprintf("%s%016x", policyIDPrefix, b.counter)
-	policyARN := fmt.Sprintf("arn:aws:dlm:%s:%s:policy/%s", b.region, b.accountID, policyID)
+	policyARN := arn.Build("dlm", b.region, b.accountID, fmt.Sprintf("policy/%s", policyID))
 
 	now := time.Now().UTC()
 	resolvedState := state
@@ -299,25 +301,23 @@ func (b *InMemoryBackend) Reset() {
 }
 
 // Snapshot serializes the backend state to JSON.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	data, _ := json.Marshal(backendSnapshot{
+	return persistence.MarshalSnapshot(ctx, "dlm", backendSnapshot{
 		Policies: b.policies,
 		Tags:     b.tags,
 	})
-
-	return data
 }
 
 // Restore deserializes backend state from a snapshot.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
 	var snap backendSnapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "dlm", data, &snap); err != nil {
 		return err
 	}
 

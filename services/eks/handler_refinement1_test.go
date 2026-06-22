@@ -17,7 +17,7 @@ import (
 func TestRefinement1_Reset(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 
 	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
@@ -39,7 +39,7 @@ func TestRefinement1_Reset(t *testing.T) {
 func TestRefinement1_MultipleResetCycle(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 
 	for range 3 {
 		_, err := b.CreateCluster("cluster", "1.32", "", nil, nil, nil)
@@ -55,7 +55,7 @@ func TestRefinement1_MultipleResetCycle(t *testing.T) {
 func TestRefinement1_HandlerReset(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "c1"})
 
@@ -81,7 +81,7 @@ func TestRefinement1_ProviderInit_OK(t *testing.T) {
 	t.Parallel()
 
 	p := &eks.Provider{}
-	ctx := &service.AppContext{}
+	ctx := &service.AppContext{JanitorCtx: t.Context()}
 	reg, err := p.Init(ctx)
 
 	require.NoError(t, err)
@@ -101,7 +101,7 @@ func TestRefinement1_ErrValidation(t *testing.T) {
 func TestRefinement1_ErrValidationMapping(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 
 	// CreateCapability with no name → ErrValidation → 400
 	rec := doREST(t, h, http.MethodPost, "/capabilities", map[string]any{})
@@ -112,7 +112,7 @@ func TestRefinement1_ErrValidationMapping(t *testing.T) {
 func TestRefinement1_SortedListClusters(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 
 	for _, name := range []string{"zzz", "aaa", "mmm", "bbb"} {
 		doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": name})
@@ -135,7 +135,7 @@ func TestRefinement1_SortedListClusters(t *testing.T) {
 func TestRefinement1_SortedListNodegroups(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "c1"})
 
@@ -165,7 +165,7 @@ func TestRefinement1_SortedListNodegroups(t *testing.T) {
 func TestRefinement1_CreateClusterInitsAllMaps(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 
 	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
@@ -182,7 +182,7 @@ func TestRefinement1_CreateClusterInitsAllMaps(t *testing.T) {
 func TestRefinement1_SeedHelpers(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 
 	b.AddClusterInternal(&eks.Cluster{Name: "seeded", Version: "1.30", Status: "ACTIVE"})
 	assert.Equal(t, 1, b.ClusterCount())
@@ -195,7 +195,7 @@ func TestRefinement1_SeedHelpers(t *testing.T) {
 func TestRefinement1_ExportCountHelpers(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 
 	assert.Equal(t, 0, b.ClusterCount())
 	assert.Equal(t, 0, b.NodegroupCount())
@@ -211,16 +211,16 @@ func TestRefinement1_ExportCountHelpers(t *testing.T) {
 func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 
 	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, map[string]string{"env": "test"})
 	require.NoError(t, err)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
-	b2 := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
-	require.NoError(t, b2.Restore(snap))
+	b2 := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 1, b2.ClusterCount())
 
@@ -233,7 +233,7 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 func TestRefinement1_DeleteClusterCascade(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 
 	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
@@ -259,7 +259,7 @@ func TestRefinement1_DeleteClusterCascade(t *testing.T) {
 func TestRefinement1_TagResource(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 
 	rec := doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "c1"})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -286,7 +286,7 @@ func TestRefinement1_TagResource(t *testing.T) {
 func TestRefinement1_TagResourceNotFound(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 
 	rec := doREST(t, h, http.MethodPost, "/tags/arn:aws:eks:us-east-1:123:cluster/nonexistent",
 		map[string]any{"tags": map[string]any{"k": "v"}})
@@ -297,7 +297,7 @@ func TestRefinement1_TagResourceNotFound(t *testing.T) {
 func TestRefinement1_AccessEntryAddAddon(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 
 	b.AddClusterInternal(&eks.Cluster{Name: "c1", Status: "ACTIVE"})
 
@@ -317,7 +317,7 @@ func TestRefinement1_AccessEntryAddAddon(t *testing.T) {
 func TestRefinement1_AddFargateProfile(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 
 	b.AddFargateProfileInternal(&eks.FargateProfile{
 		ClusterName:        "c1",
@@ -332,7 +332,7 @@ func TestRefinement1_AddFargateProfile(t *testing.T) {
 func TestRefinement1_AddCapabilityAndSubscription(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 
 	b.AddCapabilityInternal(&eks.Capability{Name: "cap1", Status: "ACTIVE"})
 	b.AddSubscriptionInternal(&eks.AnywhereSubscription{ID: "sub1", Name: "s1", Status: "ACTIVE"})
@@ -353,7 +353,7 @@ func TestRefinement1_ErrNilAppContext(t *testing.T) {
 func TestRefinement1_ResetAfterNewOps(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "c1"})
 	doREST(t, h, http.MethodPost, "/clusters/c1/addons", map[string]any{"addonName": "addon1"})
@@ -377,7 +377,7 @@ func TestRefinement1_ResetAfterNewOps(t *testing.T) {
 func TestRefinement1_AnywhereSubscriptionTypeNotStutter(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 
 	sub := &eks.AnywhereSubscription{
 		ID:     "sub1",
@@ -393,7 +393,7 @@ func TestRefinement1_AnywhereSubscriptionTypeNotStutter(t *testing.T) {
 func TestRefinement1_TagResourceOnAddon(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 
 	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
@@ -413,7 +413,7 @@ func TestRefinement1_TagResourceOnAddon(t *testing.T) {
 func TestRefinement1_TagResourceOnFargateProfile(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 
 	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
@@ -433,7 +433,7 @@ func TestRefinement1_TagResourceOnFargateProfile(t *testing.T) {
 func TestRefinement1_TagResourceOnPodIdentity(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 
 	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
@@ -453,7 +453,7 @@ func TestRefinement1_TagResourceOnPodIdentity(t *testing.T) {
 func TestRefinement1_ParseAddonAndFargatePaths(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "c1"})
 
@@ -474,7 +474,7 @@ func TestRefinement1_ParseAddonAndFargatePaths(t *testing.T) {
 func TestRefinement1_ParseAssocPaths(t *testing.T) {
 	t.Parallel()
 
-	h := newTestEKSHandler()
+	h := newTestEKSHandler(t)
 
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "c1"})
 
@@ -499,7 +499,7 @@ func TestRefinement1_ParseAssocPaths(t *testing.T) {
 func TestRefinement1_ResetWithTaggedResources(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 
 	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, map[string]string{"a": "1"})
 	require.NoError(t, err)

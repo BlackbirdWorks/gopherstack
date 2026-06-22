@@ -13,6 +13,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -504,7 +505,7 @@ func (h *Handler) handleDescribeSubscription() ([]byte, error) {
 	}
 
 	// Gap 22: correct SubscriptionArn format — no trailing path segment.
-	subscriptionArn := fmt.Sprintf("arn:aws:shield::%s:subscription", h.Backend.AccountID())
+	subscriptionArn := arn.Build("shield", "", h.Backend.AccountID(), "subscription")
 
 	return json.Marshal(map[string]any{
 		"Subscription": map[string]any{

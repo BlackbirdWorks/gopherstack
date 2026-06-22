@@ -95,11 +95,11 @@ func TestRefinement3_PersistenceRoundTrip(t *testing.T) {
 			}
 
 			// Snapshot and restore into a new backend.
-			snap := backend.Snapshot()
+			snap := backend.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			restored := elb.NewInMemoryBackend("", "")
-			require.NoError(t, restored.Restore(snap))
+			require.NoError(t, restored.Restore(t.Context(), snap))
 
 			// Verify the LB can be described on the restored backend.
 			lbs, err := restored.DescribeLoadBalancers(context.Background(), []string{tt.lbName})

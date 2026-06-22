@@ -129,7 +129,7 @@ func TestRefinement1_SnapshotDeepCopy(t *testing.T) {
 		Expiration:     time.Now().Add(time.Hour),
 	})
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	// Mutate the live session.
@@ -137,7 +137,7 @@ func TestRefinement1_SnapshotDeepCopy(t *testing.T) {
 
 	// Restore from snapshot - should reflect original data (not mutated).
 	b2 := sts.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 	assert.Equal(t, 1, b2.SessionCount())
 }
 
@@ -146,7 +146,7 @@ func TestRefinement1_EnsureNonNilMapsAfterRestore(t *testing.T) {
 	t.Parallel()
 
 	b := sts.NewInMemoryBackend()
-	require.NoError(t, b.Restore(nil))
+	require.NoError(t, b.Restore(t.Context(), nil))
 	// sessions map should still be usable (non-nil); verify by adding a session.
 	b.AddSessionInternal(&sts.SessionInfo{
 		AccessKeyID:    "ASIATEST000000000003",
@@ -273,9 +273,9 @@ func TestRefinement1_AssumeRootDerivedAccount(t *testing.T) {
 
 			// The account in the session should be derived from TargetPrincipal.
 			accessKeyID := resp.AssumeRootResult.Credentials.AccessKeyID
-			snap := b.Snapshot()
+			snap := b.Snapshot(t.Context())
 			b2 := sts.NewInMemoryBackend()
-			require.NoError(t, b2.Restore(snap))
+			require.NoError(t, b2.Restore(t.Context(), snap))
 
 			ci, err := b2.GetCallerIdentity(accessKeyID, "")
 			require.NoError(t, err)
@@ -347,9 +347,9 @@ func TestRefinement1_AssumeRoleWithWebIdentityTagsStored(t *testing.T) {
 
 	accessKeyID := resp.AssumeRoleWithWebIdentityResult.Credentials.AccessKeyID
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	b2 := sts.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 1, b2.SessionCount())
 
@@ -427,11 +427,11 @@ func TestRefinement1_SnapshotRestoreRoundtrip(t *testing.T) {
 	b := sts.NewInMemoryBackend()
 	b.AddSessionInternal(original)
 
-	snap := b.Snapshot()
+	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	b2 := sts.NewInMemoryBackend()
-	require.NoError(t, b2.Restore(snap))
+	require.NoError(t, b2.Restore(t.Context(), snap))
 	assert.Equal(t, 1, b2.SessionCount())
 
 	ci, err := b2.GetCallerIdentity("ASIATEST000000000099", "")

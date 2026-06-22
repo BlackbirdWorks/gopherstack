@@ -555,12 +555,12 @@ func TestSFNHandler_SnapshotRestore_Delegation(t *testing.T) {
 			// Create a handler wrapping origBackend
 			origH := stepfunctions.NewHandler(origBackend)
 
-			snap := origH.Snapshot()
+			snap := origH.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
 			freshBackend := stepfunctions.NewInMemoryBackend()
 			freshH := stepfunctions.NewHandler(freshBackend)
-			require.NoError(t, freshH.Restore(snap))
+			require.NoError(t, freshH.Restore(t.Context(), snap))
 
 			tt.check(t, freshBackend)
 

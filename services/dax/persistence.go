@@ -1,11 +1,14 @@
 package dax
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"maps"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 // errSnapshotIntegrity is the sentinel error for snapshot referential integrity failures.
@@ -91,7 +94,7 @@ func rebuildTagIndex(s *backendSnapshot) {
 }
 
 // Snapshot serializes the backend state to JSON.
-func (b *InMemoryBackend) Snapshot() []byte {
+func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 
 	snap := backendSnapshot{
@@ -109,7 +112,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	b.mu.RUnlock()
 
 	if err != nil {
-		slog.Default().Error("dax: failed to marshal snapshot", "error", err)
+		logger.Load(ctx).ErrorContext(ctx, "dax: failed to marshal snapshot", "error", err)
 
 		return nil
 	}
@@ -118,9 +121,9 @@ func (b *InMemoryBackend) Snapshot() []byte {
 }
 
 // Restore deserializes backend state from JSON.
-func (b *InMemoryBackend) Restore(data []byte) error {
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "dax", data, &snap); err != nil {
 		return err
 	}
 

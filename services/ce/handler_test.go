@@ -2171,11 +2171,11 @@ func TestHandler_SnapshotRestoreWithAnomalies(t *testing.T) {
 		FeedbackType: "YES",
 	})
 
-	snap := h.Snapshot()
+	snap := h.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
 	fresh := ce.NewHandler(ce.NewInMemoryBackend("000000000000", "us-east-1"))
-	require.NoError(t, fresh.Restore(snap))
+	require.NoError(t, fresh.Restore(t.Context(), snap))
 
 	rec := doRequest(t, fresh, "GetAnomalies", map[string]any{})
 	require.Equal(t, http.StatusOK, rec.Code)

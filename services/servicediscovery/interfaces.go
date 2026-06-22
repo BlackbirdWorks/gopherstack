@@ -1,5 +1,7 @@
 package servicediscovery
 
+import "context"
+
 // StorageBackend defines the operations required from the Cloud Map storage layer.
 // All methods must be safe for concurrent use.
 type StorageBackend interface {
@@ -56,8 +58,8 @@ type StorageBackend interface {
 	Reset()
 	Region() string
 	AccountID() string
-	Snapshot() []byte
-	Restore(data []byte) error
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 }
 
 // Ensure InMemoryBackend implements StorageBackend at compile time.
