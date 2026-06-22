@@ -145,7 +145,9 @@ func snapshotTaskProtections(src map[string]*TaskProtection) map[string]*TaskPro
 	return dst
 }
 
-func snapshotExpressGatewayServices(src map[string]*ExpressGatewayService) map[string]*ExpressGatewayService {
+func snapshotExpressGatewayServices(
+	src map[string]*ExpressGatewayService,
+) map[string]*ExpressGatewayService {
 	dst := make(map[string]*ExpressGatewayService, len(src))
 	for k, v := range src {
 		cp := *v

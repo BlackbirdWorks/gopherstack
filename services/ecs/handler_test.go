@@ -31,7 +31,12 @@ func newTestHandler(t *testing.T) *ecs.Handler {
 	return ecs.NewHandler(backend)
 }
 
-func doECSRequest(t *testing.T, h *ecs.Handler, action string, body any) *httptest.ResponseRecorder {
+func doECSRequest(
+	t *testing.T,
+	h *ecs.Handler,
+	action string,
+	body any,
+) *httptest.ResponseRecorder {
 	t.Helper()
 
 	bodyBytes, err := json.Marshal(body)
@@ -515,7 +520,12 @@ func TestECS_DescribeTaskDefinition(t *testing.T) {
 	assert.Equal(t, "web", td["family"])
 
 	// Not found.
-	rec3 := doECSRequest(t, h, "DescribeTaskDefinition", map[string]any{"taskDefinition": "nonexistent"})
+	rec3 := doECSRequest(
+		t,
+		h,
+		"DescribeTaskDefinition",
+		map[string]any{"taskDefinition": "nonexistent"},
+	)
 	assert.Equal(t, http.StatusBadRequest, rec3.Code)
 }
 
@@ -1526,7 +1536,9 @@ func TestECS_Backend_DeregisterTaskDefinition_NotFoundByARN(t *testing.T) {
 
 	backend := ecs.NewInMemoryBackend(testAccountID, testRegion, ecs.NewNoopRunner())
 
-	_, err := backend.DeregisterTaskDefinition("arn:aws:ecs:us-east-1:000000000000:task-definition/nonexistent:1")
+	_, err := backend.DeregisterTaskDefinition(
+		"arn:aws:ecs:us-east-1:000000000000:task-definition/nonexistent:1",
+	)
 	require.Error(t, err)
 }
 
@@ -1639,8 +1651,13 @@ var errContainerStart = errors.New("container start failed")
 // the task to remain at PROVISIONING rather than transitioning to RUNNING.
 type failingRunner struct{}
 
-func (r *failingRunner) RunTask(_ *ecs.Task, _ *ecs.TaskDefinition) error { return errContainerStart }
-func (r *failingRunner) StopTask(_ *ecs.Task) error                       { return nil }
+func (r *failingRunner) RunTask(
+	_ *ecs.Task,
+	_ *ecs.TaskDefinition,
+) error {
+	return errContainerStart
+}
+func (r *failingRunner) StopTask(_ *ecs.Task) error { return nil }
 
 // TestECS_Backend_RunTask_ProvisioningStaysOnRunnerError verifies that when the
 // TaskRunner returns an error, the task transitions to STOPPED (not stuck in PROVISIONING).
@@ -1780,7 +1797,12 @@ func TestECS_ListTaskDefinitions_TokenChaining(t *testing.T) {
 	assert.NotEmpty(t, nextToken)
 
 	// Second page using the token.
-	rec2 := doECSRequest(t, h, "ListTaskDefinitions", map[string]any{"maxResults": 2, "nextToken": nextToken})
+	rec2 := doECSRequest(
+		t,
+		h,
+		"ListTaskDefinitions",
+		map[string]any{"maxResults": 2, "nextToken": nextToken},
+	)
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var page2 map[string]any
@@ -1917,7 +1939,12 @@ func TestECS_TaskDefinitionRevisionCap(t *testing.T) {
 	}
 
 	// The latest revision should be 105.
-	rec := doECSRequest(t, h, "DescribeTaskDefinition", map[string]any{"taskDefinition": "capped-family"})
+	rec := doECSRequest(
+		t,
+		h,
+		"DescribeTaskDefinition",
+		map[string]any{"taskDefinition": "capped-family"},
+	)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
@@ -1928,7 +1955,12 @@ func TestECS_TaskDefinitionRevisionCap(t *testing.T) {
 	assert.Equal(t, 105, latestRev, "latest revision should be 105")
 
 	// Listing all revisions should not exceed the cap.
-	listRec := doECSRequest(t, h, "ListTaskDefinitions", map[string]any{"familyPrefix": "capped-family"})
+	listRec := doECSRequest(
+		t,
+		h,
+		"ListTaskDefinitions",
+		map[string]any{"familyPrefix": "capped-family"},
+	)
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any

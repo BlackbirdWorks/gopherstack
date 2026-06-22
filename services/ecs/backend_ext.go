@@ -12,7 +12,10 @@ import (
 
 var (
 	// ErrContainerInstanceNotFound is returned when a container instance does not exist.
-	ErrContainerInstanceNotFound = awserr.New("ContainerInstanceNotFoundException", awserr.ErrNotFound)
+	ErrContainerInstanceNotFound = awserr.New(
+		"ContainerInstanceNotFoundException",
+		awserr.ErrNotFound,
+	)
 	// ErrTaskSetNotFound is returned when a task set does not exist.
 	ErrTaskSetNotFound = awserr.New("TaskSetNotFoundException", awserr.ErrNotFound)
 )
@@ -92,7 +95,9 @@ type CreateTaskSetInput struct {
 }
 
 // RegisterContainerInstance registers a container instance to a cluster.
-func (b *InMemoryBackend) RegisterContainerInstance(cluster, ec2InstanceID string) (*ContainerInstance, error) {
+func (b *InMemoryBackend) RegisterContainerInstance(
+	cluster, ec2InstanceID string,
+) (*ContainerInstance, error) {
 	clusterName := clusterKey(b.resolveCluster(cluster))
 
 	b.mu.Lock("RegisterContainerInstance")
@@ -214,7 +219,10 @@ func (b *InMemoryBackend) DescribeContainerInstances(
 // enrichContainerInstance fills in running/pending task counts.
 // Uses the tasksByInstance reverse index for O(k) lookup instead of O(n).
 // Must be called with at least an RLock held.
-func (b *InMemoryBackend) enrichContainerInstance(ci *ContainerInstance, clusterName string) ContainerInstance {
+func (b *InMemoryBackend) enrichContainerInstance(
+	ci *ContainerInstance,
+	clusterName string,
+) ContainerInstance {
 	cp := *ci
 
 	running := 0
@@ -310,7 +318,11 @@ func (b *InMemoryBackend) UpdateContainerInstancesState(
 	switch status {
 	case "ACTIVE", "DRAINING":
 	default:
-		return nil, fmt.Errorf("%w: status must be ACTIVE or DRAINING, got %q", ErrInvalidParameter, status)
+		return nil, fmt.Errorf(
+			"%w: status must be ACTIVE or DRAINING, got %q",
+			ErrInvalidParameter,
+			status,
+		)
 	}
 
 	clusterName := clusterKey(b.resolveCluster(cluster))
@@ -396,10 +408,15 @@ func (b *InMemoryBackend) CreateTaskSet(input CreateTaskSetInput) (*TaskSet, err
 
 	now := time.Now()
 	ts := &TaskSet{
-		TaskSetArn:           taskSetArn,
-		ID:                   "ecs-svc-" + id,
-		ServiceArn:           svc.ServiceArn,
-		ClusterArn:           arn.Build("ecs", b.region, b.accountID, fmt.Sprintf("cluster/%s", clusterName)),
+		TaskSetArn: taskSetArn,
+		ID:         "ecs-svc-" + id,
+		ServiceArn: svc.ServiceArn,
+		ClusterArn: arn.Build(
+			"ecs",
+			b.region,
+			b.accountID,
+			fmt.Sprintf("cluster/%s", clusterName),
+		),
 		TaskDefinition:       td.TaskDefinitionArn,
 		Status:               statusActive,
 		ExternalID:           input.ExternalID,
@@ -464,7 +481,10 @@ func (b *InMemoryBackend) DeleteTaskSet(cluster, service, taskSet string) (*Task
 }
 
 // DescribeTaskSets returns task sets for a service.
-func (b *InMemoryBackend) DescribeTaskSets(cluster, service string, taskSets []string) ([]TaskSet, error) {
+func (b *InMemoryBackend) DescribeTaskSets(
+	cluster, service string,
+	taskSets []string,
+) ([]TaskSet, error) {
 	clusterName := clusterKey(b.resolveCluster(cluster))
 
 	b.mu.RLock("DescribeTaskSets")
@@ -508,9 +528,16 @@ func (b *InMemoryBackend) DescribeTaskSets(cluster, service string, taskSets []s
 }
 
 // UpdateTaskSet updates the scale of a task set.
-func (b *InMemoryBackend) UpdateTaskSet(cluster, service, taskSet string, scale TaskSetScale) (*TaskSet, error) {
+func (b *InMemoryBackend) UpdateTaskSet(
+	cluster, service, taskSet string,
+	scale TaskSetScale,
+) (*TaskSet, error) {
 	if scale.Unit != "PERCENT" {
-		return nil, fmt.Errorf("%w: scale unit must be PERCENT, got %q", ErrInvalidParameter, scale.Unit)
+		return nil, fmt.Errorf(
+			"%w: scale unit must be PERCENT, got %q",
+			ErrInvalidParameter,
+			scale.Unit,
+		)
 	}
 
 	clusterName := clusterKey(b.resolveCluster(cluster))
@@ -549,7 +576,9 @@ func (b *InMemoryBackend) UpdateTaskSet(cluster, service, taskSet string, scale 
 }
 
 // UpdateServicePrimaryTaskSet sets the primary task set for a service.
-func (b *InMemoryBackend) UpdateServicePrimaryTaskSet(cluster, service, primaryTaskSet string) (*TaskSet, error) {
+func (b *InMemoryBackend) UpdateServicePrimaryTaskSet(
+	cluster, service, primaryTaskSet string,
+) (*TaskSet, error) {
 	clusterName := clusterKey(b.resolveCluster(cluster))
 
 	b.mu.Lock("UpdateServicePrimaryTaskSet")
@@ -625,21 +654,32 @@ func (b *InMemoryBackend) ExecuteCommand(
 	sessionID := uuid.NewString()
 
 	return &ExecuteCommandOutput{
-		ClusterArn:    clusterObj.ClusterArn,
-		ContainerArn:  arn.Build("ecs", b.region, b.accountID, fmt.Sprintf("container/%s", uuid.NewString())),
+		ClusterArn: clusterObj.ClusterArn,
+		ContainerArn: arn.Build(
+			"ecs",
+			b.region,
+			b.accountID,
+			fmt.Sprintf("container/%s", uuid.NewString()),
+		),
 		ContainerName: container,
 		TaskArn:       t.TaskArn,
 		Interactive:   interactive,
 		Session: Session{
-			SessionID:  sessionID,
-			StreamURL:  fmt.Sprintf("wss://ssmmessages.%s.amazonaws.com/v1/data-channel/%s", b.region, sessionID),
+			SessionID: sessionID,
+			StreamURL: fmt.Sprintf(
+				"wss://ssmmessages.%s.amazonaws.com/v1/data-channel/%s",
+				b.region,
+				sessionID,
+			),
 			TokenValue: uuid.NewString(),
 		},
 	}, nil
 }
 
 // ListServices returns service ARNs for a cluster, optionally filtered by launch type and scheduling strategy.
-func (b *InMemoryBackend) ListServices(cluster, launchType, schedulingStrategy string) ([]string, error) {
+func (b *InMemoryBackend) ListServices(
+	cluster, launchType, schedulingStrategy string,
+) ([]string, error) {
 	clusterName := clusterKey(b.resolveCluster(cluster))
 
 	b.mu.RLock("ListServices")
