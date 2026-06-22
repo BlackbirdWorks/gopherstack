@@ -87,6 +87,8 @@ func (b *InMemoryBackend) DeleteResourceDataSync(
 
 	delete(syncs, input.SyncName)
 
+	cleanupEmptyInnerMap(b.resourceDataSyncs, region)
+
 	return &DeleteResourceDataSyncOutput{}, nil
 }
 
@@ -407,7 +409,13 @@ func (b *InMemoryBackend) DeleteResourcePolicy(
 		}
 	}
 
-	policies[input.ResourceARN] = updated
+	if len(updated) == 0 {
+		delete(policies, input.ResourceARN)
+	} else {
+		policies[input.ResourceARN] = updated
+	}
+
+	cleanupEmptyInnerMap(b.resourcePolicies, region)
 
 	return &DeleteResourcePolicyOutput{}, nil
 }
@@ -500,7 +508,10 @@ func (b *InMemoryBackend) UnlabelParameterVersion(
 	defer b.mu.Unlock()
 
 	if input.Name == "" {
-		return &UnlabelParameterVersionOutputFull{InvalidLabels: []string{}, RemovedLabels: input.Labels}, nil
+		return &UnlabelParameterVersionOutputFull{
+			InvalidLabels: []string{},
+			RemovedLabels: input.Labels,
+		}, nil
 	}
 
 	version := input.ParameterVersion
@@ -599,7 +610,11 @@ func (b *InMemoryBackend) GetAutomationExecution(
 
 	exec, exists := b.automationExecutionsStore(region)[input.AutomationExecutionID]
 	if !exists {
-		return nil, fmt.Errorf("%w: %q", ErrAutomationExecutionNotFound, input.AutomationExecutionID)
+		return nil, fmt.Errorf(
+			"%w: %q",
+			ErrAutomationExecutionNotFound,
+			input.AutomationExecutionID,
+		)
 	}
 
 	cp := *exec
@@ -685,7 +700,9 @@ func (b *InMemoryBackend) DescribeAutomationStepExecutions(
 
 	exec, exists := b.automationExecutionsStore(region)[input.AutomationExecutionID]
 	if !exists {
-		return &DescribeAutomationStepExecutionsOutputFull{StepExecutions: []AutomationStepExec{}}, nil
+		return &DescribeAutomationStepExecutionsOutputFull{
+			StepExecutions: []AutomationStepExec{},
+		}, nil
 	}
 
 	return &DescribeAutomationStepExecutionsOutputFull{StepExecutions: exec.Steps}, nil
@@ -751,7 +768,10 @@ func (b *InMemoryBackend) GetExecutionPreview(
 
 	preview, exists := b.executionPreviewsStore(region)[input.ExecutionPreviewID]
 	if !exists {
-		return &GetExecutionPreviewOutputFull{ExecutionPreviewID: input.ExecutionPreviewID, Status: "Running"}, nil
+		return &GetExecutionPreviewOutputFull{
+			ExecutionPreviewID: input.ExecutionPreviewID,
+			Status:             "Running",
+		}, nil
 	}
 
 	cp := *preview
@@ -789,7 +809,11 @@ func (b *InMemoryBackend) GetCalendarState(
 		}
 
 		if doc.DocumentType != "ChangeCalendar" {
-			return nil, fmt.Errorf("%w: document %q is not a ChangeCalendar document", ErrValidationException, name)
+			return nil, fmt.Errorf(
+				"%w: document %q is not a ChangeCalendar document",
+				ErrValidationException,
+				name,
+			)
 		}
 	}
 
@@ -799,7 +823,10 @@ func (b *InMemoryBackend) GetCalendarState(
 // --- OpsItem summary / OpsMetadata list ---
 
 // GetOpsSummary returns a summary count of ops items.
-func (b *InMemoryBackend) GetOpsSummary(ctx context.Context, _ *GetOpsSummaryInput) (*GetOpsSummaryOutputFull, error) {
+func (b *InMemoryBackend) GetOpsSummary(
+	ctx context.Context,
+	_ *GetOpsSummaryInput,
+) (*GetOpsSummaryOutputFull, error) {
 	region := getRegion(ctx)
 	b.mu.RLock("GetOpsSummary")
 	defer b.mu.RUnlock()
@@ -863,7 +890,12 @@ func (b *InMemoryBackend) UpdateAssociationStatus(
 		}
 	}
 
-	return nil, fmt.Errorf("%w: instance %q / name %q", ErrAssociationNotFound, input.InstanceID, input.Name)
+	return nil, fmt.Errorf(
+		"%w: instance %q / name %q",
+		ErrAssociationNotFound,
+		input.InstanceID,
+		input.Name,
+	)
 }
 
 // StartAssociationsOnce triggers a one-time run of the given associations.
@@ -918,7 +950,9 @@ func (b *InMemoryBackend) DescribeAssociationExecutions(
 
 	assoc, exists := b.associationsStore(region)[input.AssociationID]
 	if !exists {
-		return &DescribeAssociationExecutionsOutputFull{AssociationExecutions: []AssociationExecution{}}, nil
+		return &DescribeAssociationExecutionsOutputFull{
+			AssociationExecutions: []AssociationExecution{},
+		}, nil
 	}
 
 	status := commandStatusSuccess
@@ -1157,63 +1191,159 @@ func (b *InMemoryBackend) DescribeMaintenanceWindowSchedule(
 	return &DescribeMaintenanceWindowScheduleOutputFull{
 		ScheduledWindowExecutions: []ScheduledWindowExecution{
 			{
-				WindowID:      win.WindowID,
-				Name:          win.Name,
-				ExecutionTime: time.Now().UTC().Add(mwExecutionScheduleHours * time.Hour).Format(time.RFC3339),
+				WindowID: win.WindowID,
+				Name:     win.Name,
+				ExecutionTime: time.Now().
+					UTC().
+					Add(mwExecutionScheduleHours * time.Hour).
+					Format(time.RFC3339),
 			},
 		},
 	}, nil
 }
 
 // GetMaintenanceWindowExecution returns a specific window execution.
+// Derives timing and status from the window record identified by the execution ID.
 func (b *InMemoryBackend) GetMaintenanceWindowExecution(
-	_ context.Context,
+	ctx context.Context,
 	input *GetMaintenanceWindowExecutionInput,
 ) (*GetMaintenanceWindowExecutionOutputFull, error) {
+	region := getRegion(ctx)
 	b.mu.RLock("GetMaintenanceWindowExecution")
 	defer b.mu.RUnlock()
 
+	windowID := input.WindowID
+	if windowID == "" {
+		if id, ok := mwWindowIDFromExec(input.WindowExecutionID); ok {
+			windowID = id
+		}
+	}
+
+	startTime := time.Now().UTC()
+	endTime := startTime.Add(time.Hour)
+
+	if windowID != "" {
+		win, exists := b.maintenanceWindowsStore(region)[windowID]
+		if !exists {
+			return nil, ErrMaintenanceWindowNotFound
+		}
+
+		if win.CreatedDate > 0 {
+			startTime = time.Unix(int64(win.CreatedDate), 0).UTC()
+		}
+
+		endTime = startTime.Add(time.Duration(win.Duration) * time.Hour)
+	}
+
+	execID := input.WindowExecutionID
+	if execID == "" {
+		execID = mwExecID(windowID)
+	}
+
 	return &GetMaintenanceWindowExecutionOutputFull{
-		WindowID:          input.WindowID,
-		WindowExecutionID: input.WindowExecutionID,
+		WindowID:          windowID,
+		WindowExecutionID: execID,
 		Status:            commandStatusSuccess,
+		StatusDetails:     "WindowExecution Succeeded",
+		StartTime:         startTime,
+		EndTime:           &endTime,
 	}, nil
 }
 
 // GetMaintenanceWindowExecutionTask returns a specific task within a window execution.
+// Looks up the stored task record and returns its full attributes.
 func (b *InMemoryBackend) GetMaintenanceWindowExecutionTask(
-	_ context.Context,
+	ctx context.Context,
 	input *GetMaintenanceWindowExecutionTaskInput,
 ) (*GetMaintenanceWindowExecutionTaskOutputFull, error) {
+	region := getRegion(ctx)
 	b.mu.RLock("GetMaintenanceWindowExecutionTask")
 	defer b.mu.RUnlock()
 
-	_ = input
+	taskExecID := input.TaskExecutionID
+	windowTaskID := ""
+	if len(taskExecID) > len("taskexec-") && taskExecID[:len("taskexec-")] == "taskexec-" {
+		windowTaskID = taskExecID[len("taskexec-"):]
+	}
+
+	startTime := time.Now().UTC()
+
+	if windowTaskID != "" {
+		if task, ok := b.maintenanceWindowTasksStore(region)[windowTaskID]; ok {
+			endTime := startTime.Add(time.Minute)
+
+			return &GetMaintenanceWindowExecutionTaskOutputFull{
+				WindowExecutionID: input.WindowExecutionID,
+				TaskExecutionID:   taskExecID,
+				TaskARN:           task.TaskArn,
+				TaskType:          task.TaskType,
+				Status:            commandStatusSuccess,
+				StatusDetails:     "Task Succeeded",
+				Priority:          task.Priority,
+				MaxConcurrency:    task.MaxConcurrency,
+				MaxErrors:         task.MaxErrors,
+				StartTime:         startTime,
+				EndTime:           &endTime,
+			}, nil
+		}
+	}
+
+	endTime := startTime.Add(time.Minute)
 
 	return &GetMaintenanceWindowExecutionTaskOutputFull{
-		Status: commandStatusSuccess,
+		WindowExecutionID: input.WindowExecutionID,
+		TaskExecutionID:   taskExecID,
+		Status:            commandStatusSuccess,
+		StatusDetails:     "Task Succeeded",
+		StartTime:         startTime,
+		EndTime:           &endTime,
 	}, nil
 }
 
 // GetMaintenanceWindowExecutionTaskInvocation returns a specific task invocation.
+// Derives target information from the stored window target records.
 func (b *InMemoryBackend) GetMaintenanceWindowExecutionTaskInvocation(
-	_ context.Context,
+	ctx context.Context,
 	input *GetMaintenanceWindowExecutionTaskInvocationInput,
 ) (*GetMaintenanceWindowExecutionTaskInvocationOutputFull, error) {
+	region := getRegion(ctx)
 	b.mu.RLock("GetMaintenanceWindowExecutionTaskInvocation")
 	defer b.mu.RUnlock()
 
-	_ = input
+	startTime := time.Now().UTC()
+	endTime := startTime.Add(time.Minute)
+
+	windowTargetID := ""
+	for _, target := range b.maintenanceWindowTargetsStore(region) {
+		windowID, ok := mwWindowIDFromExec(input.WindowExecutionID)
+		if ok && target.WindowID == windowID {
+			windowTargetID = target.WindowTargetID
+
+			break
+		}
+	}
 
 	return &GetMaintenanceWindowExecutionTaskInvocationOutputFull{
-		Status: commandStatusSuccess,
+		WindowExecutionID: input.WindowExecutionID,
+		TaskExecutionID:   input.TaskExecutionID,
+		InvocationID:      input.InvocationID,
+		ExecutionID:       input.InvocationID,
+		TaskType:          "RUN_COMMAND",
+		Status:            commandStatusSuccess,
+		StatusDetails:     "InvocationSucceeded",
+		WindowTargetID:    windowTargetID,
+		StartTime:         startTime,
+		EndTime:           &endTime,
 	}, nil
 }
 
 // --- Nodes ---
 
 // ListNodes returns managed nodes derived from the activations store.
-func (b *InMemoryBackend) ListNodes(ctx context.Context, _ *ListNodesInput) (*ListNodesOutputFull, error) {
+func (b *InMemoryBackend) ListNodes(
+	ctx context.Context,
+	_ *ListNodesInput,
+) (*ListNodesOutputFull, error) {
 	region := getRegion(ctx)
 	b.mu.RLock("ListNodes")
 	defer b.mu.RUnlock()
@@ -1314,7 +1444,9 @@ func (b *InMemoryBackend) DescribeInstanceAssociationsStatus(
 		result = []InstanceAssociationStatusInfo{}
 	}
 
-	return &DescribeInstanceAssociationsStatusOutputFull{InstanceAssociationStatusInfos: result}, nil
+	return &DescribeInstanceAssociationsStatusOutputFull{
+		InstanceAssociationStatusInfos: result,
+	}, nil
 }
 
 // DescribeInstanceInformation returns information about managed instances from activations.

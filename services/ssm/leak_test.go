@@ -9,11 +9,11 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/ssm"
 )
 
-// TestSendCommand_PrunesExpiredCommands verifies that sending a command
-// opportunistically prunes commands (and their invocations) that have aged out,
-// so the commands/commandInvocations maps stay bounded even when the background
-// janitor never runs.
-func TestSendCommand_PrunesExpiredCommands(t *testing.T) {
+// TestJanitor_PrunesExpiredCommands verifies that the janitor sweep removes
+// commands (and their invocations) whose ExpiresAfter timestamp has passed.
+// Expired-command cleanup is the janitor's job; SendCommand no longer does an
+// O(n) on-write sweep.
+func TestJanitor_PrunesExpiredCommands(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -31,8 +31,6 @@ func TestSendCommand_PrunesExpiredCommands(t *testing.T) {
 			b := ssm.NewInMemoryBackend()
 			ctx := context.Background()
 
-			// Send all commands first (AWS-RunShellScript is a built-in document),
-			// recording their IDs so they can be expired together afterward.
 			ids := make([]string, 0, tc.preExpire)
 			for range tc.preExpire {
 				out, err := b.SendCommand(ctx, &ssm.SendCommandInput{
@@ -46,23 +44,30 @@ func TestSendCommand_PrunesExpiredCommands(t *testing.T) {
 			require.Equal(t, tc.preExpire, b.CommandCount())
 			require.Equal(t, tc.preExpire, b.CommandInvocationCount())
 
-			// Now force every command into the past.
+			// Force every command into the past.
 			for _, id := range ids {
 				b.SetCommandExpiresAfter(id, 1)
 			}
 
-			// A fresh send should evict every expired command/invocation and add
-			// exactly one live command.
+			// SendCommand must NOT prune on the write path; expired commands
+			// still present after a fresh send.
 			_, err := b.SendCommand(ctx, &ssm.SendCommandInput{
 				DocumentName: "AWS-RunShellScript",
 				InstanceIDs:  []string{"i-2222"},
 			})
 			require.NoError(t, err)
 
+			require.Equal(t, tc.preExpire+1, b.CommandCount(),
+				"SendCommand must not prune expired commands — that is the janitor's job")
+
+			// The janitor sweep removes expired entries and leaves only the live one.
+			j := ssm.NewJanitor(b, 0)
+			j.SweepOnce(ctx)
+
 			require.Equal(t, 1, b.CommandCount(),
-				"expired commands must be pruned on SendCommand")
+				"janitor must prune all expired commands")
 			require.Equal(t, 1, b.CommandInvocationCount(),
-				"expired command invocations must be pruned on SendCommand")
+				"janitor must prune expired command invocations")
 		})
 	}
 }
