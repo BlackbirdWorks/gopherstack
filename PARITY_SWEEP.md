@@ -49,7 +49,7 @@ Polecats (sonnet) branch off `parity-sweep`, ≤3 concurrent; mayor aggregates e
 | 40 | kms | P1 | 1161-1175, 3493-3507 | ✅ |
 | 41 | lakeformation | P1 | 1176-1203, 3508-3520 | ✅ |
 | 42 | lambda | P1 | 1204-1227, 3521-3533 | ✅ |
-| 43 | macie2 | P1 | 1228-1256, 3534-3546 | ☐ |
+| 43 | macie2 | P1 | 1228-1256, 3534-3546 | ✅ |
 | 44 | managedblockchain | P1 | 1257-1276, 3547-3558 | ☐ |
 | 45 | mediaconvert | P1 | 1277-1299, 3559-3569 | ☐ |
 | 46 | medialive | P1 | 1300-1320, 3570-3581 | ☐ |
