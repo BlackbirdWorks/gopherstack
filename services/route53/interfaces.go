@@ -14,6 +14,8 @@ type StorageBackend interface {
 	DeleteHostedZone(zoneID string) error
 	GetHostedZone(zoneID string) (*HostedZone, error)
 	ListHostedZones(marker string, maxItems int) (page.Page[HostedZone], error)
+	ListHostedZonesByName(dnsName, zoneID string, maxItems int) ([]HostedZone, string, string, error)
+	GetHostedZoneCount() int
 	UpdateHostedZoneComment(zoneID, comment string) (*HostedZone, error)
 
 	// Record set operations
@@ -25,6 +27,7 @@ type StorageBackend interface {
 	CreateHealthCheck(callerRef string, cfg HealthCheckConfig) (*HealthCheck, error)
 	GetHealthCheck(id string) (*HealthCheck, error)
 	ListHealthChecks(marker string, maxItems int) (page.Page[HealthCheck], error)
+	GetHealthCheckCount() int
 	DeleteHealthCheck(id string) error
 	UpdateHealthCheck(id string, cfg HealthCheckConfig) (*HealthCheck, error)
 	GetHealthCheckStatus(id string) (string, error)
@@ -92,6 +95,11 @@ type StorageBackend interface {
 	ListTrafficPolicyInstances() ([]*TrafficPolicyInstance, error)
 	ListTrafficPolicyInstancesByHostedZone(hostedZoneID string) ([]*TrafficPolicyInstance, error)
 	ListTrafficPolicyInstancesByPolicy(tpID string, tpVersion int32) ([]*TrafficPolicyInstance, error)
+
+	// Tags operations
+	ListTagsForResource(resourceID string) map[string]string
+	ListTagsForResources(resourceIDs []string) map[string]map[string]string
+	ChangeTagsForResource(resourceID string, addTags map[string]string, removeKeys []string) error
 
 	// Lifecycle
 	Reset()
