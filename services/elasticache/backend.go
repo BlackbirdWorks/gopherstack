@@ -1873,3 +1873,45 @@ func (b *InMemoryBackend) Reset() {
 	b.events.reset()
 	b.initDefaultParameterGroups()
 }
+
+func (b *InMemoryBackend) getGlobalReplicationGroup(id string) (*GlobalReplicationGroup, bool) {
+	grg, ok := b.globalReplicationGroups[id]
+
+	return grg, ok
+}
+
+func (b *InMemoryBackend) listGlobalReplicationGroups() []*GlobalReplicationGroup {
+	out := make([]*GlobalReplicationGroup, 0, len(b.globalReplicationGroups))
+	for _, grg := range b.globalReplicationGroups {
+		out = append(out, grg)
+	}
+
+	return out
+}
+
+func (b *InMemoryBackend) putGlobalReplicationGroup(id string, grg *GlobalReplicationGroup) {
+	b.globalReplicationGroups[id] = grg
+}
+
+func (b *InMemoryBackend) deleteGlobalReplicationGroup(id string) {
+	delete(b.globalReplicationGroups, id)
+}
+
+func (b *InMemoryBackend) cloneGlobalReplicationGroups() map[string]*GlobalReplicationGroup {
+	out := make(map[string]*GlobalReplicationGroup, len(b.globalReplicationGroups))
+	maps.Copy(out, b.globalReplicationGroups)
+
+	return out
+}
+
+func (b *InMemoryBackend) setGlobalReplicationGroups(grgs map[string]*GlobalReplicationGroup) {
+	b.globalReplicationGroups = grgs
+}
+
+func (b *InMemoryBackend) appendUpdateActionsLocked(actions ...*UpdateAction) {
+	b.updateActions = append(b.updateActions, actions...)
+	const maxUpdateActions = 1000
+	if len(b.updateActions) > maxUpdateActions {
+		b.updateActions = b.updateActions[len(b.updateActions)-maxUpdateActions:]
+	}
+}

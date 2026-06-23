@@ -93,6 +93,7 @@ func TestNewOps_SeedHelpers(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
+			b.Reset()
 			tt.run(t, b)
 		})
 	}
@@ -102,6 +103,7 @@ func TestNewOps_ExportCountHelpers(t *testing.T) {
 	t.Parallel()
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
+	b.Reset()
 
 	assert.Equal(t, 0, elasticache.CacheSecurityGroupCount(b))
 	assert.Equal(t, 0, elasticache.GlobalReplicationGroupCount(b))
@@ -114,6 +116,7 @@ func TestNewOps_Reset_ClearsNewMaps(t *testing.T) {
 	t.Parallel()
 
 	backend := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
+	backend.Reset()
 
 	backend.AddCacheSecurityGroupInternal(&elasticache.CacheSecurityGroup{Name: "sg1", ARN: "arn:sg1"})
 	backend.AddGlobalReplicationGroupInternal(
