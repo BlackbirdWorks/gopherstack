@@ -136,7 +136,7 @@ Polecats (sonnet) branch off `parity-sweep`, ≤3 concurrent; mayor aggregates e
 | 127 | omics | P2 | 1437-1451, 3665-3673 | ☐ |
 | 128 | qldb | P2 | 1600-1617, 3756-3761 | ☐ |
 | 129 | qldbsession | P2 | 1618-1623, 3762-3768 | ☐ |
-| 130 | rds | P2 | 1655-1667, 3791-3801 | ☐ |
+| 130 | rds | P2 | 1655-1667, 3791-3801 | ✅ |
 | 131 | rdsdata | P2 | 1668-1679, 3802-3811 | ☐ |
 | 132 | redshift | P2 | 1680-1691, 3812-3822 | ☐ |
 | 133 | redshiftdata | P2 | 1692-1703, 3823-3832 | ☐ |
