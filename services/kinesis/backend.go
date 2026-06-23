@@ -457,6 +457,10 @@ func (b *InMemoryBackend) DeleteStream(ctx context.Context, input *DeleteStreamI
 	delete(b.faultsStore(region), input.StreamName)
 	b.faultsMu.Unlock()
 
+	if b.OnStreamPurged != nil {
+		b.OnStreamPurged(input.StreamName)
+	}
+
 	// Release lockmetrics resources for the deleted stream to prevent memory leaks.
 	stream.mu.Close()
 
