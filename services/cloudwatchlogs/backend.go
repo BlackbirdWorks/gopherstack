@@ -2324,7 +2324,7 @@ func (b *InMemoryBackend) StartQuery(
 	info := QueryInfo{
 		QueryID:      queryID,
 		QueryString:  queryString,
-		Status:       QueryStatusComplete,
+		Status:       QueryStatusRunning,
 		CreateTime:   time.Now().UnixMilli(),
 		LogGroupName: logGroupName,
 	}
@@ -2366,9 +2366,9 @@ func (b *InMemoryBackend) GetQueryResults(
 	queryID string,
 ) ([][]ResultField, QueryStatistics, QueryStatus, error) {
 	b.mu.RLock("GetQueryResults")
-	defer b.mu.RUnlock()
-
 	sq, ok := b.queries[queryID]
+	b.mu.RUnlock()
+
 	if !ok {
 		return nil, QueryStatistics{}, "", fmt.Errorf(
 			"%w: query %s not found",
@@ -2377,7 +2377,14 @@ func (b *InMemoryBackend) GetQueryResults(
 		)
 	}
 
-	return sq.results, sq.stats, sq.info.Status, nil
+	b.mu.Lock("GetQueryResultsTransition")
+	if sq.info.Status == QueryStatusRunning {
+		sq.info.Status = QueryStatusComplete
+	}
+	status := sq.info.Status
+	b.mu.Unlock()
+
+	return sq.results, sq.stats, status, nil
 }
 
 // StopQuery cancels a query that is currently running or scheduled.

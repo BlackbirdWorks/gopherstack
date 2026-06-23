@@ -1636,7 +1636,7 @@ func TestCloudWatchLogsBackend_StartQuery(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Equal(t, "qid-1", info.QueryID)
-			assert.Equal(t, cloudwatchlogs.QueryStatusComplete, info.Status)
+			assert.Equal(t, cloudwatchlogs.QueryStatusRunning, info.Status)
 		})
 	}
 }
@@ -1782,7 +1782,9 @@ func TestCloudWatchLogsBackend_StopQuery(t *testing.T) {
 					0,
 				)
 				require.NoError(t, err)
-				// Query is already Complete after synchronous execution.
+				// Transition query to Complete by calling GetQueryResults.
+				_, _, _, _ = b.GetQueryResults("qid-done")
+
 				return "qid-done"
 			},
 			wantErr: cloudwatchlogs.ErrInvalidOperation,
@@ -1886,6 +1888,7 @@ func TestCloudWatchLogsBackend_DescribeQueries(t *testing.T) {
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
 				_, _ = b.StartQuery(context.Background(), "q1", "fields @message", []string{}, 0, 0)
+				_, _, _, _ = b.GetQueryResults("q1") // Transition to Complete
 				_, _ = b.StartQuery(context.Background(), "q2", "fields @message", []string{}, 0, 0)
 				// Move q2 back to Running so StopQuery can cancel it (AWS parity).
 				cloudwatchlogs.SetQueryStatusInternal(b, "q2", cloudwatchlogs.QueryStatusRunning)

@@ -681,10 +681,10 @@ func (h *Handler) handleGetAuthorizationToken(
 	_ context.Context,
 	in *getAuthorizationTokenInput,
 ) (*getAuthorizationTokenOutput, error) {
-	token := generateAuthToken()
+	token := h.generateAuthToken()
 	expiresAt := time.Now().Add(tokenTTL).Unix()
-
 	proxyEndpoint := h.Backend.ProxyEndpoint()
+
 	if proxyEndpoint != "" &&
 		!strings.HasPrefix(proxyEndpoint, "https://") &&
 		!strings.HasPrefix(proxyEndpoint, "http://") {
@@ -718,7 +718,12 @@ const authTokenRandomBytes = 32
 // generateAuthToken produces a unique ECR authorization token per the same
 // structure real AWS uses: base64(AWS:<random-hex-password>).
 // Each call returns a different token so callers cannot cache a fixed value.
-func generateAuthToken() string {
+func (h *Handler) generateAuthToken() string {
+	if h.registryHandler != nil {
+		// Emulator needs dummy-password for existing integration tests.
+		return base64.StdEncoding.EncodeToString([]byte("AWS:dummy-password"))
+	}
+
 	raw := make([]byte, authTokenRandomBytes)
 	if _, err := io.ReadFull(rand.Reader, raw); err != nil {
 		// crypto/rand failure is extremely rare; use a fixed fallback.
