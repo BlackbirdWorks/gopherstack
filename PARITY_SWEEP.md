@@ -100,7 +100,7 @@ Polecats (sonnet) branch off `parity-sweep`, ≤3 concurrent; mayor aggregates e
 | 91 | autoscaling | P2 | 289-294, 2870-2877 | ☐ |
 | 92 | awsconfig | P2 | 295-300, 2878-2884 | ☐ |
 | 93 | backup | P2 | 301-306, 2885-2892 | ☐ |
-| 94 | batch | P2 | 307-312, 2893-2899 | ☐ |
+| 94 | batch | P2 | 307-312, 2893-2899 | ✅ |
 | 95 | bedrock | P2 | 313-318, 2900-2906 | ☐ |
 | 96 | bedrockagent | P2 | 319-324, 2907-2914 | ☐ |
 | 97 | bedrockruntime | P2 | 325-330, 2915-2922 | ☐ |
