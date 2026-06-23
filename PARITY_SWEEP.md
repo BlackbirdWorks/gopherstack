@@ -57,7 +57,7 @@ Polecats (sonnet) branch off `parity-sweep`, ≤3 concurrent; mayor aggregates e
 | 48 | mediastore | P1 | 1342-1358, 3595-3605 | ☐ |
 | 49 | opensearch | P1 | 1452-1473, 3674-3685 | ☐ |
 | 50 | opsworks | P1 | 1474-1494, 3686-3697 | ☐ |
-| 51 | organizations | P1 | 1495-1515, 3698-3708 | ☐ |
+| 51 | organizations | P1 | 1495-1515, 3698-3708 | ✅ |
 | 52 | personalize | P1 | 1516-1538, 3709-3719 | ☐ |
 | 53 | pinpoint | P1 | 1539-1558, 3720-3731 | ☐ |
 | 54 | pipes | P1 | 1559-1578, 3732-3744 | ☐ |
