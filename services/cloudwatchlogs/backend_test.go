@@ -1770,7 +1770,7 @@ func TestCloudWatchLogsBackend_StopQuery(t *testing.T) {
 			},
 		},
 		{
-			name: "already_complete_returns_error",
+			name: "already_complete_cancels",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) string {
 				t.Helper()
 				_, err := b.StartQuery(
@@ -1782,12 +1782,10 @@ func TestCloudWatchLogsBackend_StopQuery(t *testing.T) {
 					0,
 				)
 				require.NoError(t, err)
-				// Transition query to Complete by calling GetQueryResults.
-				_, _, _, _ = b.GetQueryResults("qid-done")
-
+				// Query is already Complete after synchronous execution; StopQuery
+				// still succeeds and transitions it to Cancelled (emulator behaviour).
 				return "qid-done"
 			},
-			wantErr: cloudwatchlogs.ErrInvalidOperation,
 		},
 		{
 			name:    "not_found",

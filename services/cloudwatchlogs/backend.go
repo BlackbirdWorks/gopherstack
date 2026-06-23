@@ -2398,14 +2398,13 @@ func (b *InMemoryBackend) StopQuery(queryID string) error {
 		return fmt.Errorf("%w: query %s not found", ErrQueryNotFound, queryID)
 	}
 
-	if sq.info.Status != QueryStatusRunning && sq.info.Status != QueryStatusScheduled {
-		return fmt.Errorf(
-			"%w: query %s is not in a running state (status: %s)",
-			ErrInvalidOperation, queryID, sq.info.Status,
-		)
+	// gopherstack completes Insights queries synchronously, so a query is almost
+	// always already Complete by the time a client calls StopQuery. Treat StopQuery
+	// as a transition to Cancelled for any non-cancelled query (idempotent otherwise),
+	// keeping the operation usable rather than erroring on the instant-complete result.
+	if sq.info.Status != QueryStatusCancelled {
+		sq.info.Status = QueryStatusCancelled
 	}
-
-	sq.info.Status = QueryStatusCancelled
 
 	return nil
 }
