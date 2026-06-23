@@ -24,7 +24,7 @@ Polecats (sonnet) branch off `parity-sweep`, ≤3 concurrent; mayor aggregates e
 | 15 | dynamodb | P1 | 77-112, 2493-2584 | ✅ |
 | 16 | dynamodbstreams | P1 | 113-134, 2585-2619 | ☐ |
 | 17 | ec2 | P1 | 617-631, 3203-3213 | ✅ |
-| 18 | ecr | P1 | 632-647, 3214-3223 | ☐ |
+| 18 | ecr | P1 | 632-647, 3214-3223 | ✅ |
 | 19 | elasticbeanstalk | P1 | 700-714, 3265-3274 | ☐ |
 | 20 | elbv2 | P1 | 746-765, 3290-3296 | ☐ |
 | 21 | emr | P1 | 766-784, 3297-3303 | ☐ |
