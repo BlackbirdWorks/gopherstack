@@ -1,10 +1,12 @@
 package lakeformation
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"maps"
 	"slices"
 	"sort"
@@ -13,7 +15,10 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 const (
@@ -33,10 +38,11 @@ const (
 
 // transactionInfo holds transaction metadata.
 type transactionInfo struct {
-	Status    string `json:"Status"`
-	Type      string `json:"Type,omitempty"`
-	StartTime string `json:"StartTime,omitempty"`
-	EndTime   string `json:"EndTime,omitempty"`
+	Status       string `json:"Status"`
+	Type         string `json:"Type,omitempty"`
+	StartTime    string `json:"StartTime,omitempty"`
+	EndTime      string `json:"EndTime,omitempty"`
+	LastExtended string `json:"LastExtended,omitempty"`
 }
 
 // randomHex returns a random hex string of n bytes (2n hex chars).
@@ -131,7 +137,7 @@ type StorageBackend interface {
 		nextToken string,
 	) ([]*LFOptIn, string)
 
-	GetDataLakePrincipal() *DataLakePrincipal
+	GetDataLakePrincipal(ctx context.Context) *DataLakePrincipal
 
 	ExtendTransaction(transactionID string) error
 	DeleteObjectsOnCancel(transactionID string) error
@@ -146,14 +152,18 @@ type StorageBackend interface {
 
 	GetTemporaryCredentials(durationSeconds *int32) *TemporaryCredentials
 
-	GetTableObjects(maxResults int, nextToken string) ([]PartitionedTableObjectsList, string)
-	UpdateTableObjects(transactionID string) error
+	GetTableObjects(
+		catalogID, databaseName, tableName, transactionID string,
+		maxResults int,
+		nextToken string,
+	) ([]PartitionedTableObjectsList, string)
+	UpdateTableObjects(catalogID, databaseName, tableName, transactionID string, writes []WriteOperation) error
 
 	StartQueryPlanning(queryString string) string
 	GetQueryState(queryID string) (string, error)
 	GetQueryStatistics(queryID string) (*ExecutionStatistics, *PlanningStatistics, error)
 	GetWorkUnits(queryID string) ([]WorkUnitRange, string, error)
-	GetWorkUnitResults(queryID, workUnitToken string) error
+	GetWorkUnitResults(queryID, workUnitToken string) (string, error)
 
 	ListTableStorageOptimizers(catalogID, databaseName, tableName, storageOptimizerType string) []StorageOptimizer
 	UpdateTableStorageOptimizer(catalogID, databaseName, tableName string, config map[string]map[string]string) string
@@ -188,19 +198,21 @@ type lfTagExpressionKey struct {
 
 // InMemoryBackend is the in-memory backend for Lake Formation.
 type InMemoryBackend struct {
-	identityCenterConfigs  map[string]*IdentityCenterConfiguration
-	resources              map[string]*ResourceInfo
+	dataLakeSettings       *DataLakeSettings
+	resourceLFTags         map[string][]LFTagPair
 	lfTags                 map[lfTagKey]*LFTag
 	transactions           map[string]*transactionInfo
 	dataCellsFilters       map[dataCellsFilterKey]*DataCellsFilter
 	lfTagExpressions       map[lfTagExpressionKey]*LFTagExpression
-	dataLakeSettings       *DataLakeSettings
-	resourceLFTags         map[string][]LFTagPair
-	mu                     *lockmetrics.RWMutex
+	resources              map[string]*ResourceInfo
 	queries                map[string]string
+	identityCenterConfigs  map[string]*IdentityCenterConfiguration
+	permissionsMap         map[string]*PermissionEntry
+	mu                     *lockmetrics.RWMutex
 	tableStorageOptimizers map[string][]StorageOptimizer
+	tableObjects           map[string][]PartitionedTableObjectsList
+	permissionsList        []*PermissionEntry
 	lakeFormationOptIns    []*LFOptIn
-	permissions            []*PermissionEntry
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)
@@ -210,7 +222,8 @@ func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
 		dataLakeSettings:       &DataLakeSettings{},
 		resources:              make(map[string]*ResourceInfo),
-		permissions:            make([]*PermissionEntry, 0),
+		permissionsMap:         make(map[string]*PermissionEntry),
+		permissionsList:        make([]*PermissionEntry, 0),
 		lfTags:                 make(map[lfTagKey]*LFTag),
 		transactions:           make(map[string]*transactionInfo),
 		dataCellsFilters:       make(map[dataCellsFilterKey]*DataCellsFilter),
@@ -220,6 +233,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		resourceLFTags:         make(map[string][]LFTagPair),
 		queries:                make(map[string]string),
 		tableStorageOptimizers: make(map[string][]StorageOptimizer),
+		tableObjects:           make(map[string][]PartitionedTableObjectsList),
 		mu:                     lockmetrics.New("lakeformation"),
 	}
 }
@@ -231,7 +245,8 @@ func (b *InMemoryBackend) Reset() {
 
 	b.dataLakeSettings = &DataLakeSettings{}
 	b.resources = make(map[string]*ResourceInfo)
-	b.permissions = make([]*PermissionEntry, 0)
+	b.permissionsMap = make(map[string]*PermissionEntry)
+	b.permissionsList = make([]*PermissionEntry, 0)
 	b.lfTags = make(map[lfTagKey]*LFTag)
 	b.transactions = make(map[string]*transactionInfo)
 	b.dataCellsFilters = make(map[dataCellsFilterKey]*DataCellsFilter)
@@ -276,7 +291,7 @@ func (b *InMemoryBackend) AddPermissionInternal(entry *PermissionEntry) {
 	b.mu.Lock("AddPermissionInternal")
 	defer b.mu.Unlock()
 
-	b.permissions = append(b.permissions, entry)
+	_ = b.grantPermissionsLocked(entry)
 }
 
 // AddDataCellsFilterInternal seeds a DataCellsFilter directly for testing.
@@ -377,13 +392,15 @@ func (b *InMemoryBackend) DeregisterResource(resourceArn string) error {
 	delete(b.resources, resourceArn)
 
 	// Clean up all permissions associated with this resource.
-	updated := make([]*PermissionEntry, 0, len(b.permissions))
-	for _, p := range b.permissions {
+	newList := make([]*PermissionEntry, 0, len(b.permissionsList))
+	for _, p := range b.permissionsList {
 		if !permissionMatchesARN(p, resourceArn) {
-			updated = append(updated, p)
+			newList = append(newList, p)
+		} else {
+			delete(b.permissionsMap, permissionKey(p))
 		}
 	}
-	b.permissions = updated
+	b.permissionsList = newList
 
 	return nil
 }
@@ -427,25 +444,22 @@ func (b *InMemoryBackend) ListResources(maxResults int, nextToken string) ([]*Re
 	return paginate(all, maxResults, nextToken, defaultMaxResults)
 }
 
-// GrantPermissions adds a permission entry.
-func (b *InMemoryBackend) GrantPermissions(entry *PermissionEntry) error {
+// permissionKey returns a unique string for a principal and resource.
+func permissionKey(entry *PermissionEntry) string {
 	if entry == nil {
-		return fmt.Errorf("entry is required: %w", ErrValidation)
+		return ""
 	}
 
-	if entry.Principal == nil {
-		return fmt.Errorf("principal is required: %w", ErrValidation)
-	}
+	return principalID(entry.Principal) + "|" + resourceToKey(entry.Resource)
+}
 
-	if entry.Resource == nil {
-		return fmt.Errorf("resource is required: %w", ErrValidation)
+func (b *InMemoryBackend) grantPermissionsLocked(entry *PermissionEntry) error {
+	if entry == nil || entry.Principal == nil || entry.Resource == nil {
+		return fmt.Errorf("invalid entry: %w", ErrValidation)
 	}
-
 	if err := validatePermissions(entry.Permissions); err != nil {
 		return err
 	}
-
-	// Normalize TableWithColumns to Table for storage.
 	if entry.Resource.TableWithColumns != nil && entry.Resource.Table == nil {
 		twc := entry.Resource.TableWithColumns
 		entry.Resource.Table = &TableResource{
@@ -454,58 +468,73 @@ func (b *InMemoryBackend) GrantPermissions(entry *PermissionEntry) error {
 			CatalogID:    twc.CatalogID,
 		}
 	}
-
-	b.mu.Lock("GrantPermissions")
-	defer b.mu.Unlock()
-
-	// Merge into existing entry if same principal+resource.
-	if existing := b.findPermissionEntry(entry); existing != nil {
+	key := permissionKey(entry)
+	if existing, ok := b.permissionsMap[key]; ok {
 		mergeStringSlice(&existing.Permissions, entry.Permissions)
 		mergeStringSlice(&existing.PermissionsWithGrantOption, entry.PermissionsWithGrantOption)
 
 		return nil
 	}
+	b.permissionsMap[key] = entry
+	b.permissionsList = append(b.permissionsList, entry)
+	sort.Slice(b.permissionsList, func(i, j int) bool {
+		pi := principalID(b.permissionsList[i].Principal)
+		pj := principalID(b.permissionsList[j].Principal)
+		if pi != pj {
+			return pi < pj
+		}
 
-	b.permissions = append(b.permissions, entry)
+		return resourceToKey(b.permissionsList[i].Resource) < resourceToKey(b.permissionsList[j].Resource)
+	})
 
 	return nil
+}
+
+// GrantPermissions adds a permission entry.
+func (b *InMemoryBackend) GrantPermissions(entry *PermissionEntry) error {
+	b.mu.Lock("GrantPermissions")
+	defer b.mu.Unlock()
+
+	return b.grantPermissionsLocked(entry)
 }
 
 // RevokePermissions removes specific permissions from a matching entry.
 // If all permissions are revoked, the entry is deleted.
 func (b *InMemoryBackend) RevokePermissions(entry *PermissionEntry) error {
-	if entry == nil {
-		return fmt.Errorf("entry is required: %w", ErrValidation)
-	}
-
 	b.mu.Lock("RevokePermissions")
 	defer b.mu.Unlock()
 
-	updated := make([]*PermissionEntry, 0, len(b.permissions))
+	return b.revokePermissionsLocked(entry)
+}
 
-	for _, p := range b.permissions {
-		if !principalEqual(p.Principal, entry.Principal) || !resourceEqual(p.Resource, entry.Resource) {
-			updated = append(updated, p)
-
-			continue
-		}
-
-		// Subtract the revoked permissions.
-		remaining := make([]string, 0, len(p.Permissions))
-		for _, perm := range p.Permissions {
-			if !slices.Contains(entry.Permissions, perm) {
-				remaining = append(remaining, perm)
-			}
-		}
-
-		if len(remaining) > 0 {
-			p.Permissions = remaining
-			updated = append(updated, p)
-		}
-		// If no permissions remain, entry is deleted (not added to updated).
+func (b *InMemoryBackend) revokePermissionsLocked(entry *PermissionEntry) error {
+	if entry == nil || entry.Principal == nil || entry.Resource == nil {
+		return fmt.Errorf("invalid entry: %w", ErrValidation)
 	}
+	key := permissionKey(entry)
+	p, ok := b.permissionsMap[key]
+	if !ok {
+		return nil
+	}
+	remaining := make([]string, 0, len(p.Permissions))
+	for _, perm := range p.Permissions {
+		if !slices.Contains(entry.Permissions, perm) {
+			remaining = append(remaining, perm)
+		}
+	}
+	if len(remaining) > 0 {
+		p.Permissions = remaining
 
-	b.permissions = updated
+		return nil
+	}
+	delete(b.permissionsMap, key)
+	newList := make([]*PermissionEntry, 0, len(b.permissionsList)-1)
+	for _, lp := range b.permissionsList {
+		if permissionKey(lp) != key {
+			newList = append(newList, lp)
+		}
+	}
+	b.permissionsList = newList
 
 	return nil
 }
@@ -522,9 +551,9 @@ func (b *InMemoryBackend) ListPermissions(
 	b.mu.RLock("ListPermissions")
 	defer b.mu.RUnlock()
 
-	filtered := make([]*PermissionEntry, 0, len(b.permissions))
+	filtered := make([]*PermissionEntry, 0, len(b.permissionsList))
 
-	for _, p := range b.permissions {
+	for _, p := range b.permissionsList {
 		if resourceArn != "" && !permissionMatchesARN(p, resourceArn) {
 			continue
 		}
@@ -539,20 +568,8 @@ func (b *InMemoryBackend) ListPermissions(
 			continue
 		}
 
-		cp := deepCopyPermissionEntry(p)
-		filtered = append(filtered, cp)
+		filtered = append(filtered, deepCopyPermissionEntry(p))
 	}
-
-	// Sort deterministically by principal identifier then by resource key.
-	sort.Slice(filtered, func(i, j int) bool {
-		pi := principalID(filtered[i].Principal)
-		pj := principalID(filtered[j].Principal)
-		if pi != pj {
-			return pi < pj
-		}
-
-		return resourceToKey(filtered[i].Resource) < resourceToKey(filtered[j].Resource)
-	})
 
 	return paginate(filtered, maxResults, nextToken, defaultMaxResults)
 }
@@ -702,8 +719,11 @@ func (b *InMemoryBackend) ListLFTags(catalogID string, maxResults int, nextToken
 func (b *InMemoryBackend) BatchGrantPermissions(entries []*PermissionEntry) []*BatchFailureEntry {
 	var failures []*BatchFailureEntry
 
+	b.mu.Lock("BatchGrantPermissions")
+	defer b.mu.Unlock()
+
 	for _, e := range entries {
-		if err := b.GrantPermissions(e); err != nil {
+		if err := b.grantPermissionsLocked(e); err != nil {
 			errCode := "InternalServiceException"
 			if errors.Is(err, ErrValidation) {
 				errCode = errCodeInvalidInput
@@ -726,8 +746,11 @@ func (b *InMemoryBackend) BatchGrantPermissions(entries []*PermissionEntry) []*B
 func (b *InMemoryBackend) BatchRevokePermissions(entries []*PermissionEntry) []*BatchFailureEntry {
 	var failures []*BatchFailureEntry
 
+	b.mu.Lock("BatchRevokePermissions")
+	defer b.mu.Unlock()
+
 	for _, e := range entries {
-		if err := b.RevokePermissions(e); err != nil {
+		if err := b.revokePermissionsLocked(e); err != nil {
 			errCode := "InternalServiceException"
 			if errors.Is(err, ErrValidation) {
 				errCode = errCodeInvalidInput
@@ -744,18 +767,6 @@ func (b *InMemoryBackend) BatchRevokePermissions(entries []*PermissionEntry) []*
 	}
 
 	return failures
-}
-
-// permissionMatches returns true if two permission entries have the same principal, resource,
-// findPermissionEntry returns the existing entry matching the same principal+resource, or nil.
-func (b *InMemoryBackend) findPermissionEntry(entry *PermissionEntry) *PermissionEntry {
-	for _, p := range b.permissions {
-		if principalEqual(p.Principal, entry.Principal) && resourceEqual(p.Resource, entry.Resource) {
-			return p
-		}
-	}
-
-	return nil
 }
 
 // mergeStringSlice appends values from src to dst if not already present.
@@ -865,41 +876,11 @@ func permissionMatchesResourceType(p *PermissionEntry, resourceType string) bool
 	}
 }
 
-// paginate is a simple index-based paginator for slices.
-// nextToken is used as a decimal start index.
+// paginate is a simple opaque paginator for slices.
 func paginate[T any](items []T, maxResults int, nextToken string, defaultMax int) ([]T, string) {
-	start := 0
+	pg := page.New(items, nextToken, maxResults, defaultMax)
 
-	if nextToken != "" {
-		if _, err := fmt.Sscanf(nextToken, "%d", &start); err != nil {
-			start = 0
-		}
-
-		if start < 0 {
-			start = 0
-		}
-	}
-
-	if start >= len(items) {
-		return items[:0], ""
-	}
-
-	limit := defaultMax
-	if maxResults > 0 {
-		limit = maxResults
-	}
-
-	end := min(start+limit, len(items))
-
-	page := items[start:end]
-
-	var outToken string
-
-	if end < len(items) {
-		outToken = strconv.Itoa(end)
-	}
-
-	return page, outToken
+	return pg.Data, pg.Next
 }
 
 // copyDataLakeSettings returns a deep copy of the DataLakeSettings.
@@ -1496,6 +1477,51 @@ func (b *InMemoryBackend) StartTransaction(transactionType string) string {
 	return id
 }
 
+// StartJanitor starts a background goroutine to clean up stale transactions.
+const janitorInterval = 5 * time.Minute
+const janitorTimeout = time.Hour
+
+// StartJanitor starts a background goroutine to clean up stale transactions.
+func (b *InMemoryBackend) StartJanitor(ctx context.Context) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	go func() {
+		l := logger.Load(ctx).With("worker", "lakeformation-janitor")
+		ticker := time.NewTicker(janitorInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				b.cleanupStaleTransactions(ctx, l)
+			}
+		}
+	}()
+}
+
+func (b *InMemoryBackend) cleanupStaleTransactions(ctx context.Context, l *slog.Logger) {
+	b.mu.Lock("JanitorCleanup")
+	now := time.Now()
+	staleCount := 0
+	for id, info := range b.transactions {
+		refTimeStr := info.LastExtended
+		if refTimeStr == "" {
+			refTimeStr = info.StartTime
+		}
+		t, err := time.Parse(time.RFC3339, refTimeStr)
+		if err == nil && now.Sub(t) > janitorTimeout {
+			delete(b.transactions, id)
+			staleCount++
+		}
+	}
+	b.mu.Unlock()
+	if staleCount > 0 {
+		l.InfoContext(ctx, "cleaned up stale lakeformation transactions", "count", staleCount)
+	}
+}
+
 // DescribeTransaction returns the status of a specific transaction.
 func (b *InMemoryBackend) DescribeTransaction(transactionID string) (*Transaction, error) {
 	if strings.TrimSpace(transactionID) == "" {
@@ -1629,9 +1655,14 @@ func (b *InMemoryBackend) GetResourceLFTags(_ string, resource *Resource) ([]LFT
 
 // GetDataLakePrincipal returns a synthetic caller-identity principal.
 // In a real deployment, this returns the ARN of the calling IAM entity.
-func (b *InMemoryBackend) GetDataLakePrincipal() *DataLakePrincipal {
+func (b *InMemoryBackend) GetDataLakePrincipal(ctx context.Context) *DataLakePrincipal {
+	account := awsmeta.Account(ctx)
+	if account == "" {
+		account = awsmeta.DefaultAccount
+	}
+
 	return &DataLakePrincipal{
-		DataLakePrincipalIdentifier: "arn:aws:iam::000000000000:user/gopherstack-user",
+		DataLakePrincipalIdentifier: "arn:aws:iam::" + account + ":user/gopherstack-user",
 	}
 }
 
@@ -1855,13 +1886,13 @@ func (b *InMemoryBackend) UpdateLakeFormationIdentityCenterConfiguration(
 	return nil
 }
 
-// ExtendTransaction validates that a transaction is active (no-op extension in-memory).
+// ExtendTransaction validates that a transaction is active and records the extension.
 func (b *InMemoryBackend) ExtendTransaction(transactionID string) error {
 	if strings.TrimSpace(transactionID) == "" {
 		return fmt.Errorf("TransactionId is required: %w", ErrValidation)
 	}
-	b.mu.RLock("ExtendTransaction")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ExtendTransaction")
+	defer b.mu.Unlock()
 	info, ok := b.transactions[transactionID]
 	if !ok {
 		return awserr.New("transaction not found: "+transactionID, awserr.ErrNotFound)
@@ -1869,6 +1900,8 @@ func (b *InMemoryBackend) ExtendTransaction(transactionID string) error {
 	if info.Status != transactionStatusActive {
 		return awserr.New(fmt.Sprintf("transaction %s is not active", transactionID), awserr.ErrConflict)
 	}
+	info.LastExtended = time.Now().UTC().Format(time.RFC3339)
+	b.transactions[transactionID] = info
 
 	return nil
 }
@@ -2012,24 +2045,57 @@ func (b *InMemoryBackend) GetTemporaryCredentials(_ *int32) *TemporaryCredential
 	}
 }
 
-// GetTableObjects returns an empty list of governed table objects.
-func (b *InMemoryBackend) GetTableObjects(_ int, _ string) ([]PartitionedTableObjectsList, string) {
-	return []PartitionedTableObjectsList{}, ""
+// tableKey generates a unique key for a table.
+func tableKey(catalogID, db, table string) string {
+	return catalogID + "|" + db + "|" + table
+}
+
+// GetTableObjects returns a paginated list of governed table objects.
+func (b *InMemoryBackend) GetTableObjects(
+	catalogID, databaseName, tableName, _ string,
+	maxResults int, nextToken string,
+) ([]PartitionedTableObjectsList, string) {
+	b.mu.RLock("GetTableObjects")
+	defer b.mu.RUnlock()
+	key := tableKey(catalogID, databaseName, tableName)
+	objects := b.tableObjects[key]
+
+	return paginate(objects, maxResults, nextToken, defaultMaxResults)
 }
 
 // UpdateTableObjects validates the transaction and records the write operations.
-func (b *InMemoryBackend) UpdateTableObjects(transactionID string) error {
+func (b *InMemoryBackend) UpdateTableObjects(
+	catalogID, databaseName, tableName, transactionID string,
+	writes []WriteOperation,
+) error {
 	if strings.TrimSpace(transactionID) == "" {
 		return nil
 	}
-	b.mu.RLock("UpdateTableObjects")
-	defer b.mu.RUnlock()
+	b.mu.Lock("UpdateTableObjects")
+	defer b.mu.Unlock()
 	info, ok := b.transactions[transactionID]
 	if !ok {
 		return awserr.New("transaction not found: "+transactionID, awserr.ErrNotFound)
 	}
 	if info.Type == transactionTypeReadOnly {
 		return fmt.Errorf("cannot write to READ_ONLY transaction: %w", ErrValidation)
+	}
+
+	key := tableKey(catalogID, databaseName, tableName)
+
+	// Create a new partitioned list to hold the added objects
+	list := PartitionedTableObjectsList{
+		Objects: make([]TableObject, 0),
+	}
+
+	for _, w := range writes {
+		if w.AddObject != nil {
+			list.Objects = append(list.Objects, *w.AddObject)
+		}
+	}
+
+	if len(list.Objects) > 0 {
+		b.tableObjects[key] = append(b.tableObjects[key], list)
 	}
 
 	return nil
@@ -2071,9 +2137,9 @@ func (b *InMemoryBackend) GetQueryStatistics(queryID string) (*ExecutionStatisti
 	if _, ok := b.queries[queryID]; !ok {
 		return nil, nil, awserr.New("query not found: "+queryID, awserr.ErrNotFound)
 	}
-	zero := int64(0)
-	exec := &ExecutionStatistics{WorkUnitsExecutedCount: &zero}
-	plan := &PlanningStatistics{WorkUnitsGeneratedCount: &zero}
+	one := int64(1)
+	exec := &ExecutionStatistics{WorkUnitsExecutedCount: &one}
+	plan := &PlanningStatistics{WorkUnitsGeneratedCount: &one}
 
 	return exec, plan, nil
 }
@@ -2092,18 +2158,19 @@ func (b *InMemoryBackend) GetWorkUnits(queryID string) ([]WorkUnitRange, string,
 	return []WorkUnitRange{{WorkUnitIDMax: 0, WorkUnitIDMin: 0, WorkUnitToken: queryID}}, "", nil
 }
 
-// GetWorkUnitResults validates that the query exists and returns successfully.
-func (b *InMemoryBackend) GetWorkUnitResults(queryID, _ string) error {
+// GetWorkUnitResults validates that the query exists and returns its content.
+func (b *InMemoryBackend) GetWorkUnitResults(queryID, _ string) (string, error) {
 	if strings.TrimSpace(queryID) == "" {
-		return fmt.Errorf("QueryId is required: %w", ErrValidation)
+		return "", fmt.Errorf("QueryId is required: %w", ErrValidation)
 	}
 	b.mu.RLock("GetWorkUnitResults")
 	defer b.mu.RUnlock()
-	if _, ok := b.queries[queryID]; !ok {
-		return awserr.New("query not found: "+queryID, awserr.ErrNotFound)
+	query, ok := b.queries[queryID]
+	if !ok {
+		return "", awserr.New("query not found: "+queryID, awserr.ErrNotFound)
 	}
 
-	return nil
+	return query, nil
 }
 
 // tableStorageKey returns a composite key for table storage optimizer lookups.

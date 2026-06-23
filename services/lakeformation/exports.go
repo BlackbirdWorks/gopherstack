@@ -24,7 +24,7 @@ func (b *InMemoryBackend) PermissionCount() int {
 	b.mu.RLock("PermissionCount")
 	defer b.mu.RUnlock()
 
-	return len(b.permissions)
+	return len(b.permissionsList)
 }
 
 // DataCellsFilterCount returns the number of data cells filters in the backend (test helper).
