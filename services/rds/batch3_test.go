@@ -533,57 +533,47 @@ func TestPerformanceInsights_ReturnsDataPoints(t *testing.T) {
 
 	b := newBatch3Backend()
 	now := time.Now().UTC()
+	b.SetPerformanceInsightsData(
+		"db-instance-1",
+		"db.load.avg",
+		[]rds.PIDataPoint{{Timestamp: now.Format(time.RFC3339), Value: 1.0}},
+	)
+	b.CreateDBInstance(
+		"db-instance-1",
+		"db.t3.micro",
+		"mysql",
+		"admin",
+		"password",
+		"subnet-1",
+		20,
+		rds.DBInstanceOptions{PerformanceInsightsEnabled: true},
+	)
 	start := now.Add(-time.Hour)
 
-	points := b.GetPerformanceInsightsData("db-instance-1", "db.load.avg", start, now, 60)
+	points, _ := b.GetPerformanceInsightsData("db-instance-1", "db.load.avg", start, now, 60)
 
-	assert.NotEmpty(t, points, "should return data points for a 1-hour window at 60s intervals")
-	assert.Greater(t, len(points), 50, "should have at least 50 data points for a 1-hour window")
-}
-
-func TestPerformanceInsights_Deterministic(t *testing.T) {
-	t.Parallel()
-
-	b := newBatch3Backend()
-	start := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
-	end := time.Date(2025, 1, 15, 11, 0, 0, 0, time.UTC)
-
-	points1 := b.GetPerformanceInsightsData("db-1", "db.load.avg", start, end, 60)
-	points2 := b.GetPerformanceInsightsData("db-1", "db.load.avg", start, end, 60)
-
-	require.Len(t, points2, len(points1))
-	for i := range points1 {
-		assert.Equal(t, points1[i].Timestamp, points2[i].Timestamp)
-		assert.InDelta(t, points1[i].Value, points2[i].Value, 0)
-	}
-}
-
-func TestPerformanceInsights_DifferentResourcesDifferentData(t *testing.T) {
-	t.Parallel()
-
-	b := newBatch3Backend()
-	start := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
-	end := time.Date(2025, 1, 15, 10, 10, 0, 0, time.UTC)
-
-	points1 := b.GetPerformanceInsightsData("db-resource-A", "db.load.avg", start, end, 60)
-	points2 := b.GetPerformanceInsightsData("db-resource-B", "db.load.avg", start, end, 60)
-
-	require.Len(t, points2, len(points1), "same time window should yield same number of points")
-
-	differentCount := 0
-	for i := range points1 {
-		if points1[i].Value != points2[i].Value {
-			differentCount++
-		}
-	}
-
-	assert.Positive(t, differentCount, "different resources should produce different values")
+	assert.NotEmpty(t, points, "should return data points")
 }
 
 func TestPerformanceInsights_ViaHandler(t *testing.T) {
 	t.Parallel()
 
 	h := newBatch3Handler()
+	h.Backend.SetPerformanceInsightsData(
+		"my-db-instance",
+		"db.load.avg",
+		[]rds.PIDataPoint{{Timestamp: time.Now().Format(time.RFC3339), Value: 1.0}},
+	)
+	h.Backend.CreateDBInstance(
+		"my-db-instance",
+		"db.t3.micro",
+		"mysql",
+		"admin",
+		"password",
+		"subnet-1",
+		20,
+		rds.DBInstanceOptions{PerformanceInsightsEnabled: true},
+	)
 	start := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
 	end := time.Date(2025, 1, 15, 10, 10, 0, 0, time.UTC)
 
@@ -980,20 +970,6 @@ func TestDescribeCustomDBEngineVersions_Pagination(t *testing.T) {
 }
 
 // ---- Performance Insights with custom period ----
-
-func TestPerformanceInsights_CustomPeriod(t *testing.T) {
-	t.Parallel()
-
-	b := newBatch3Backend()
-	start := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
-	end := time.Date(2025, 1, 15, 10, 10, 0, 0, time.UTC)
-
-	points300s := b.GetPerformanceInsightsData("res", "db.load.avg", start, end, 300)
-	points60s := b.GetPerformanceInsightsData("res", "db.load.avg", start, end, 60)
-
-	assert.Greater(t, len(points60s), len(points300s),
-		"shorter period should produce more data points")
-}
 
 // ---- Recommendation seeding and all status lifecycle ----
 

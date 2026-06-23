@@ -8,10 +8,10 @@ package rds
 
 import (
 	"fmt"
-	"hash/fnv"
 	"slices"
-	"strconv"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
 const (
@@ -23,9 +23,6 @@ const (
 	storageTypeIO1               = "io1"
 	storageTypeGP2               = "gp2"
 	storageTypeGP3               = "gp3"
-
-	piValueRange = 1000
-	piValueScale = 100.0
 )
 
 // DescribeCustomDBEngineVersions returns all custom engine versions, filtered by engine
@@ -81,39 +78,47 @@ func (b *InMemoryBackend) AddDBRecommendation(rec DBRecommendation) {
 // tests get repeatable results without external state.
 func (b *InMemoryBackend) GetPerformanceInsightsData(
 	resourceID, metric string,
-	startTime, endTime time.Time,
-	periodInSeconds int,
-) []PIDataPoint {
+	_ time.Time, _ time.Time,
+	_ int,
+) ([]PIDataPoint, error) {
 	b.mu.RLock("GetPerformanceInsightsData")
 	defer b.mu.RUnlock()
 
-	if periodInSeconds <= 0 {
-		periodInSeconds = 60
-	}
+	// Validate that the instance exists and has Performance Insights enabled.
+	var found *DBInstance
+	for _, inst := range b.instances {
+		if inst.DbiResourceID == resourceID || inst.DBInstanceIdentifier == resourceID {
+			found = inst
 
-	if startTime.IsZero() {
-		startTime = endTime.Add(-time.Hour)
+			break
+		}
 	}
-
-	if endTime.IsZero() {
-		endTime = time.Now().UTC()
+	if found == nil || !found.PerformanceInsightsEnabled {
+		return nil, awserr.New("InvalidParameterValue", awserr.ErrInvalidParameter)
 	}
-
-	bucketDur := time.Duration(periodInSeconds) * time.Second
-	seed := piSeed(resourceID, metric)
 
 	var points []PIDataPoint
-
-	for t := startTime; !t.After(endTime); t = t.Add(bucketDur) {
-		bucket := t.Unix() / int64(periodInSeconds)
-		value := piValue(seed, bucket)
-		points = append(points, PIDataPoint{
-			Timestamp: t.UTC().Format(time.RFC3339),
-			Value:     value,
-		})
+	if b.piMetrics != nil {
+		if resMetrics, ok := b.piMetrics[resourceID]; ok {
+			points = append(points, resMetrics[metric]...)
+		}
 	}
 
-	return points
+	return points, nil
+}
+
+// SetPerformanceInsightsData stores PI metrics for testing.
+func (b *InMemoryBackend) SetPerformanceInsightsData(resourceID, metric string, points []PIDataPoint) {
+	b.mu.Lock("SetPerformanceInsightsData")
+	defer b.mu.Unlock()
+
+	if b.piMetrics == nil {
+		b.piMetrics = make(map[string]map[string][]PIDataPoint)
+	}
+	if _, ok := b.piMetrics[resourceID]; !ok {
+		b.piMetrics[resourceID] = make(map[string][]PIDataPoint)
+	}
+	b.piMetrics[resourceID][metric] = append(b.piMetrics[resourceID][metric], points...)
 }
 
 // PIDataPoint is a single Performance Insights metric data point.
@@ -123,25 +128,9 @@ type PIDataPoint struct {
 }
 
 // piSeed hashes resourceID and metric into a 64-bit seed.
-func piSeed(resourceID, metric string) uint64 {
-	h := fnv.New64a()
-	_, _ = h.Write([]byte(resourceID))
-	_, _ = h.Write([]byte("|"))
-	_, _ = h.Write([]byte(metric))
-
-	return h.Sum64()
-}
 
 // piValue returns a pseudo-random float in [0.0, 10.0) for the given seed and bucket.
 // bucket and seed are both encoded as decimal strings to avoid any int/uint conversions.
-func piValue(seed uint64, bucket int64) float64 {
-	h := fnv.New64a()
-	_, _ = h.Write([]byte(strconv.FormatUint(seed, 10)))
-	_, _ = h.Write([]byte(":"))
-	_, _ = h.Write([]byte(strconv.FormatInt(bucket, 10)))
-
-	return float64(h.Sum64()%piValueRange) / piValueScale
-}
 
 // ValidateEngineLifecycleSupport returns an error if the value is not a recognized
 // EngineLifecycleSupport option.

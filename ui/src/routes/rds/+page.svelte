@@ -5,6 +5,14 @@ import { getRDSClient } from '$lib/aws-client';
 import {
 	DescribeDBInstancesCommand,
 	DeleteDBInstanceCommand,
+	DescribeBlueGreenDeploymentsCommand,
+	DescribeDBShardGroupsCommand,
+	DescribeIntegrationsCommand,
+	DescribeTenantDatabasesCommand,
+	type BlueGreenDeployment,
+	type DBShardGroup,
+	type Integration,
+	type TenantDatabase,
 	DescribeDBSnapshotsCommand,
 	DescribeDBClustersCommand,
 	DescribeDBParameterGroupsCommand,
@@ -23,7 +31,12 @@ import { toast } from 'svelte-sonner';
 import {
 	Database,
 	Plus,
+	BarChart2,
 	RefreshCw,
+	GitMerge,
+	Box,
+	Link,
+	Users,
 	Search,
 	Trash2,
 	CheckCircle,
@@ -51,7 +64,12 @@ let snapshotSearch = $state('');
 let engineFilter = $state('all');
 let showCreateModal = $state(false);
 let expandedInstance = $state<string | null>(null);
-let activeTab = $state<'instances' | 'snapshots' | 'clusters' | 'paramgroups' | 'subnetgroups'>('instances');
+let activeTab = $state<'instances' | 'snapshots' | 'clusters' | 'paramgroups' | 'subnetgroups' | 'pi' | 'bluegreen' | 'shardgroups' | 'integrations' | 'tenantdbs'>('instances');
+let blueGreenDeployments = $state<BlueGreenDeployment[]>([]);
+let shardGroups = $state<DBShardGroup[]>([]);
+let integrations = $state<Integration[]>([]);
+let tenantDatabases = $state<TenantDatabase[]>([]);
+let piInstances = $derived(instances.filter(i => i.PerformanceInsightsEnabled));
 let paramGroups = $state<DBParameterGroup[]>([]);
 let subnetGroups = $state<DBSubnetGroup[]>([]);
 // Parameter-group editor state
@@ -136,6 +154,55 @@ async function restoreSnapshot() {
 		toast.error(e instanceof Error ? e.message : 'Failed to restore snapshot');
 	} finally {
 		restoring = false;
+	}
+}
+
+
+async function loadBlueGreenDeployments() {
+	try {
+		loading = true;
+		const data = await rds.send(new DescribeBlueGreenDeploymentsCommand({}));
+		blueGreenDeployments = data.BlueGreenDeployments || [];
+	} catch (e) {
+		toast.error(e instanceof Error ? e.message : 'Failed to load blue/green deployments');
+	} finally {
+		loading = false;
+	}
+}
+
+async function loadShardGroups() {
+	try {
+		loading = true;
+		const data = await rds.send(new DescribeDBShardGroupsCommand({}));
+		shardGroups = data.DBShardGroups || [];
+	} catch (e) {
+		toast.error(e instanceof Error ? e.message : 'Failed to load DB shard groups');
+	} finally {
+		loading = false;
+	}
+}
+
+async function loadIntegrations() {
+	try {
+		loading = true;
+		const data = await rds.send(new DescribeIntegrationsCommand({}));
+		integrations = data.Integrations || [];
+	} catch (e) {
+		toast.error(e instanceof Error ? e.message : 'Failed to load integrations');
+	} finally {
+		loading = false;
+	}
+}
+
+async function loadTenantDatabases() {
+	try {
+		loading = true;
+		const data = await rds.send(new DescribeTenantDatabasesCommand({}));
+		tenantDatabases = data.TenantDatabases || [];
+	} catch (e) {
+		toast.error(e instanceof Error ? e.message : 'Failed to load tenant databases');
+	} finally {
+		loading = false;
 	}
 }
 
@@ -770,3 +837,191 @@ let manualSnapshotCount = $derived(snapshots.filter(s => s.SnapshotType === 'man
 		</div>
 	</div>
 {/if}
+
+
+	<!-- Performance Insights Tab -->
+	{#if activeTab === 'pi'}
+		{#if loading}
+			<div class="text-center py-12"><div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div></div>
+		{:else if piInstances.length === 0}
+			<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-12 text-center">
+				<BarChart2 class="w-16 h-16 mx-auto text-slate-300 mb-4 opacity-50" />
+				<p class="text-slate-500 dark:text-slate-400">No instances with Performance Insights enabled</p>
+			</div>
+		{:else}
+			<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+				<table class="w-full text-sm">
+					<thead class="bg-slate-50 dark:bg-slate-700">
+						<tr>
+							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Instance ID</th>
+							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Engine</th>
+							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Retention Period</th>
+							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">KMS Key</th>
+						</tr>
+					</thead>
+					<tbody class="divide-y divide-slate-100 dark:divide-slate-700">
+						{#each piInstances as instance}
+							<tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
+								<td class="px-4 py-3 font-medium text-slate-900 dark:text-white">{instance.DBInstanceIdentifier}</td>
+								<td class="px-4 py-3 text-slate-500 dark:text-slate-400">{instance.Engine}</td>
+								<td class="px-4 py-3 text-slate-500 dark:text-slate-400">{instance.PerformanceInsightsRetentionPeriod ?? 7} days</td>
+								<td class="px-4 py-3 text-slate-500 dark:text-slate-400 font-mono text-xs max-w-xs truncate">{instance.PerformanceInsightsKMSKeyId || 'default'}</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		{/if}
+	{/if}
+
+	<!-- Blue/Green Deployments Tab -->
+	{#if activeTab === 'bluegreen'}
+		{#if loading}
+			<div class="text-center py-12"><div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div></div>
+		{:else if blueGreenDeployments.length === 0}
+			<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-12 text-center">
+				<GitMerge class="w-16 h-16 mx-auto text-slate-300 mb-4 opacity-50" />
+				<p class="text-slate-500 dark:text-slate-400">No blue/green deployments found</p>
+			</div>
+		{:else}
+			<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+				<table class="w-full text-sm">
+					<thead class="bg-slate-50 dark:bg-slate-700">
+						<tr>
+							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Deployment Name</th>
+							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Status</th>
+							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Source</th>
+							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Target</th>
+						</tr>
+					</thead>
+					<tbody class="divide-y divide-slate-100 dark:divide-slate-700">
+						{#each blueGreenDeployments as bgd}
+							<tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
+								<td class="px-4 py-3 font-medium text-slate-900 dark:text-white">{bgd.BlueGreenDeploymentName}</td>
+								<td class="px-4 py-3">
+									<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-400">
+										{bgd.Status}
+									</span>
+								</td>
+								<td class="px-4 py-3 text-slate-500 dark:text-slate-400">{bgd.Source || '—'}</td>
+								<td class="px-4 py-3 text-slate-500 dark:text-slate-400">{bgd.Target || '—'}</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		{/if}
+	{/if}
+
+	<!-- Shard Groups Tab -->
+	{#if activeTab === 'shardgroups'}
+		{#if loading}
+			<div class="text-center py-12"><div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div></div>
+		{:else if shardGroups.length === 0}
+			<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-12 text-center">
+				<Box class="w-16 h-16 mx-auto text-slate-300 mb-4 opacity-50" />
+				<p class="text-slate-500 dark:text-slate-400">No DB shard groups found</p>
+			</div>
+		{:else}
+			<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+				<table class="w-full text-sm">
+					<thead class="bg-slate-50 dark:bg-slate-700">
+						<tr>
+							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Shard Group ID</th>
+							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Status</th>
+							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Max ACU</th>
+						</tr>
+					</thead>
+					<tbody class="divide-y divide-slate-100 dark:divide-slate-700">
+						{#each shardGroups as sg}
+							<tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
+								<td class="px-4 py-3 font-medium text-slate-900 dark:text-white">{sg.DBShardGroupIdentifier}</td>
+								<td class="px-4 py-3">
+									<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+										{sg.Status || '—'}
+									</span>
+								</td>
+								<td class="px-4 py-3 text-slate-500 dark:text-slate-400">{sg.MaxACU || '—'} ACU</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		{/if}
+	{/if}
+
+	<!-- Integrations Tab -->
+	{#if activeTab === 'integrations'}
+		{#if loading}
+			<div class="text-center py-12"><div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div></div>
+		{:else if integrations.length === 0}
+			<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-12 text-center">
+				<Link class="w-16 h-16 mx-auto text-slate-300 mb-4 opacity-50" />
+				<p class="text-slate-500 dark:text-slate-400">No zero-ETL integrations found</p>
+			</div>
+		{:else}
+			<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+				<table class="w-full text-sm">
+					<thead class="bg-slate-50 dark:bg-slate-700">
+						<tr>
+							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Integration Name</th>
+							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Status</th>
+							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Source</th>
+							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Target</th>
+						</tr>
+					</thead>
+					<tbody class="divide-y divide-slate-100 dark:divide-slate-700">
+						{#each integrations as intg}
+							<tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
+								<td class="px-4 py-3 font-medium text-slate-900 dark:text-white">{intg.IntegrationName}</td>
+								<td class="px-4 py-3">
+									<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+										{intg.Status}
+									</span>
+								</td>
+								<td class="px-4 py-3 text-slate-500 dark:text-slate-400 max-w-xs truncate font-mono text-xs">{intg.SourceArn || '—'}</td>
+								<td class="px-4 py-3 text-slate-500 dark:text-slate-400 max-w-xs truncate font-mono text-xs">{intg.TargetArn || '—'}</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		{/if}
+	{/if}
+
+	<!-- Tenant Databases Tab -->
+	{#if activeTab === 'tenantdbs'}
+		{#if loading}
+			<div class="text-center py-12"><div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div></div>
+		{:else if tenantDatabases.length === 0}
+			<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-12 text-center">
+				<Users class="w-16 h-16 mx-auto text-slate-300 mb-4 opacity-50" />
+				<p class="text-slate-500 dark:text-slate-400">No tenant databases found</p>
+			</div>
+		{:else}
+			<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+				<table class="w-full text-sm">
+					<thead class="bg-slate-50 dark:bg-slate-700">
+						<tr>
+							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Tenant DB Name</th>
+							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Instance</th>
+							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Status</th>
+						</tr>
+					</thead>
+					<tbody class="divide-y divide-slate-100 dark:divide-slate-700">
+						{#each tenantDatabases as tdb}
+							<tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
+								<td class="px-4 py-3 font-medium text-slate-900 dark:text-white">{tdb.TenantDBName}</td>
+								<td class="px-4 py-3 text-slate-500 dark:text-slate-400 font-mono text-xs">{tdb.DBInstanceIdentifier || '—'}</td>
+								<td class="px-4 py-3">
+									<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+										{tdb.Status || '—'}
+									</span>
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		{/if}
+	{/if}

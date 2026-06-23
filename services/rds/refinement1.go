@@ -310,16 +310,10 @@ func (b *InMemoryBackend) RebootDBCluster(clusterID string) (*DBCluster, error) 
 		return nil, fmt.Errorf("%w: cluster %s is not in available state", ErrInvalidDBClusterStateFault, clusterID)
 	}
 	cluster.Status = "rebooting"
+	b.clusterReadyAt[clusterID] = time.Now().Add(instanceTransitionDelay)
+	b.scheduleReconcilerLocked()
 	cp := *cluster
 	b.mu.Unlock()
-
-	b.runDelayed(instanceTransitionDelay, func() {
-		b.mu.Lock("RebootDBCluster-complete")
-		if c, ok := b.clusters[clusterID]; ok && c.Status == "rebooting" {
-			c.Status = instanceStatusAvailable
-		}
-		b.mu.Unlock()
-	})
 
 	return &cp, nil
 }

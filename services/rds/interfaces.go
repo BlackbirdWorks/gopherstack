@@ -320,7 +320,7 @@ type StorageBackend interface {
 		resourceID, metric string,
 		startTime, endTime time.Time,
 		periodInSeconds int,
-	) []PIDataPoint
+	) ([]PIDataPoint, error)
 }
 
 // Ensure InMemoryBackend satisfies the StorageBackend interface at compile time.

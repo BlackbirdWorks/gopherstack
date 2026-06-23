@@ -432,6 +432,7 @@ func (b *InMemoryBackend) RestoreDBInstanceFromS3(id, engine, dbInstanceClass, s
 	}
 	b.instances[id] = inst
 	b.instanceReadyAt[id] = time.Now().Add(instanceReadyDelaySeconds * time.Second)
+	b.scheduleReconcilerLocked()
 	cp := *inst
 
 	return &cp, nil

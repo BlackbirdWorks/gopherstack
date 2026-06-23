@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/labstack/echo/v5"
@@ -44,17 +45,59 @@ const (
 
 // Handler is the Echo HTTP handler for RDS operations.
 type Handler struct {
-	Backend *InMemoryBackend
+	Backend       *InMemoryBackend
+	backends      map[string]*InMemoryBackend
+	handlers      map[string]*Handler
+	accountID     string
+	defaultRegion string
+	mu            sync.Mutex
 }
 
 // NewHandler creates a new RDS handler.
 func NewHandler(backend *InMemoryBackend) *Handler {
-	return &Handler{Backend: backend}
+	h := &Handler{
+		Backend:       backend,
+		backends:      make(map[string]*InMemoryBackend),
+		handlers:      make(map[string]*Handler),
+		accountID:     backend.AccountID(),
+		defaultRegion: backend.Region(),
+	}
+	h.backends[backend.Region()] = backend
+	h.handlers[backend.Region()] = &Handler{Backend: backend}
+
+	return h
+}
+
+func (h *Handler) getHandlerForRegion(region string) *Handler {
+	if h.defaultRegion == "" {
+		// Not the main router handler.
+
+		return h
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if handler, ok := h.handlers[region]; ok {
+		return handler
+	}
+	backend := NewInMemoryBackend(h.accountID, region)
+	h.backends[region] = backend
+	handler := &Handler{Backend: backend}
+	h.handlers[region] = handler
+
+	return handler
 }
 
 // Reset clears all backend state. Useful for test isolation.
 func (h *Handler) Reset() {
-	h.Backend.Reset()
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if len(h.backends) > 0 {
+		for _, b := range h.backends {
+			b.Reset()
+		}
+	} else if h.Backend != nil {
+		h.Backend.Reset()
+	}
 }
 
 // Name returns the service name.
@@ -333,14 +376,17 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.writeError(c, http.StatusBadRequest, "MissingAction", "missing Action parameter")
 		}
 
-		resp, opErr := h.dispatch(action, vals)
+		region := httputils.ExtractRegionFromRequest(r, h.defaultRegion)
+		handler := h.getHandlerForRegion(region)
+
+		resp, opErr := handler.dispatch(action, vals)
 		if opErr != nil {
-			return h.handleOpError(c, action, opErr)
+			return handler.handleOpError(c, action, opErr)
 		}
 
 		xmlBytes, err := marshalXML(resp)
 		if err != nil {
-			return h.writeError(c, http.StatusInternalServerError, "InternalFailure", "internal server error")
+			return handler.writeError(c, http.StatusInternalServerError, "InternalFailure", "internal server error")
 		}
 
 		return c.Blob(http.StatusOK, "text/xml", xmlBytes)
@@ -351,32 +397,46 @@ func (h *Handler) Handler() echo.HandlerFunc {
 func (h *Handler) dispatch(action string, vals url.Values) (any, error) {
 	switch action {
 	case "CreateDBInstance":
+
 		return h.handleCreateDBInstance(vals)
 	case "DeleteDBInstance":
+
 		return h.handleDeleteDBInstance(vals)
 	case "DescribeDBInstances":
+
 		return h.handleDescribeDBInstances(vals)
 	case "ModifyDBInstance":
+
 		return h.handleModifyDBInstance(vals)
 	case "CreateDBSnapshot":
+
 		return h.handleCreateDBSnapshot(vals)
 	case "DescribeDBSnapshots":
+
 		return h.handleDescribeDBSnapshots(vals)
 	case "DeleteDBSnapshot":
+
 		return h.handleDeleteDBSnapshot(vals)
 	case "CreateDBSubnetGroup":
+
 		return h.handleCreateDBSubnetGroup(vals)
 	case "DescribeDBSubnetGroups":
+
 		return h.handleDescribeDBSubnetGroups(vals)
 	case "DeleteDBSubnetGroup":
+
 		return h.handleDeleteDBSubnetGroup(vals)
 	case "ListTagsForResource":
+
 		return h.handleListTagsForResource(vals)
 	case "AddTagsToResource":
+
 		return h.handleAddTagsToResource(vals)
 	case "RemoveTagsFromResource":
+
 		return h.handleRemoveTagsFromResource(vals)
 	default:
+
 		return h.dispatchExtended(action, vals)
 	}
 }
@@ -386,32 +446,46 @@ func (h *Handler) dispatch(action string, vals url.Values) (any, error) {
 func (h *Handler) dispatchExtended(action string, vals url.Values) (any, error) {
 	switch action {
 	case "CreateDBParameterGroup":
+
 		return h.handleCreateDBParameterGroup(vals)
 	case "DescribeDBParameterGroups":
+
 		return h.handleDescribeDBParameterGroups(vals)
 	case "DeleteDBParameterGroup":
+
 		return h.handleDeleteDBParameterGroup(vals)
 	case "ModifyDBParameterGroup":
+
 		return h.handleModifyDBParameterGroup(vals)
 	case "DescribeDBParameters":
+
 		return h.handleDescribeDBParameters(vals)
 	case "ResetDBParameterGroup":
+
 		return h.handleResetDBParameterGroup(vals)
 	case "CreateOptionGroup":
+
 		return h.handleCreateOptionGroup(vals)
 	case "DescribeOptionGroups":
+
 		return h.handleDescribeOptionGroups(vals)
 	case "DeleteOptionGroup":
+
 		return h.handleDeleteOptionGroup(vals)
 	case "ModifyOptionGroup":
+
 		return h.handleModifyOptionGroup(vals)
 	case "DescribeOptionGroupOptions":
+
 		return h.handleDescribeOptionGroupOptions(vals)
 	case "CreateDBCluster":
+
 		return h.handleCreateDBCluster(vals)
 	case "DescribeDBClusters":
+
 		return h.handleDescribeDBClusters(vals)
 	default:
+
 		return h.dispatchExtended2(action, vals)
 	}
 }
@@ -422,32 +496,46 @@ func (h *Handler) dispatchExtended(action string, vals url.Values) (any, error) 
 func (h *Handler) dispatchExtended2(action string, vals url.Values) (any, error) {
 	switch action {
 	case "DeleteDBCluster":
+
 		return h.handleDeleteDBCluster(vals)
 	case "ModifyDBCluster":
+
 		return h.handleModifyDBCluster(vals)
 	case "CreateDBClusterParameterGroup":
+
 		return h.handleCreateDBClusterParameterGroup(vals)
 	case "DescribeDBClusterParameterGroups":
+
 		return h.handleDescribeDBClusterParameterGroups(vals)
 	case "CreateDBClusterSnapshot":
+
 		return h.handleCreateDBClusterSnapshot(vals)
 	case "DescribeDBClusterSnapshots":
+
 		return h.handleDescribeDBClusterSnapshots(vals)
 	case "CreateDBInstanceReadReplica":
+
 		return h.handleCreateDBInstanceReadReplica(vals)
 	case "PromoteReadReplica":
+
 		return h.handlePromoteReadReplica(vals)
 	case "RebootDBInstance":
+
 		return h.handleRebootDBInstance(vals)
 	case "DescribeDBEngineVersions":
+
 		return h.handleDescribeDBEngineVersions(vals)
 	case "DescribeOrderableDBInstanceOptions":
+
 		return h.handleDescribeOrderableDBInstanceOptions(vals)
 	case "DescribeDBLogFiles":
+
 		return h.handleDescribeDBLogFiles(vals)
 	case "DownloadDBLogFilePortion":
+
 		return h.handleDownloadDBLogFilePortion(vals)
 	default:
+
 		return h.dispatchExtended3(action, vals)
 	}
 }
@@ -458,20 +546,28 @@ func (h *Handler) dispatchExtended2(action string, vals url.Values) (any, error)
 func (h *Handler) dispatchExtended3(action string, vals url.Values) (any, error) {
 	switch action {
 	case opDescribeGlobalClusters:
+
 		return h.handleDescribeGlobalClusters(vals)
 	case "StartDBCluster":
+
 		return h.handleStartDBCluster(vals)
 	case "StopDBCluster":
+
 		return h.handleStopDBCluster(vals)
 	case "DeleteDBClusterSnapshot":
+
 		return h.handleDeleteDBClusterSnapshot(vals)
 	case "RestoreDBClusterFromSnapshot":
+
 		return h.handleRestoreDBClusterFromSnapshot(vals)
 	case "RestoreDBClusterToPointInTime":
+
 		return h.handleRestoreDBClusterToPointInTime(vals)
 	case "CopyDBClusterSnapshot":
+
 		return h.handleCopyDBClusterSnapshot(vals)
 	default:
+
 		return h.dispatchExtended4(action, vals)
 	}
 }
@@ -482,20 +578,28 @@ func (h *Handler) dispatchExtended3(action string, vals url.Values) (any, error)
 func (h *Handler) dispatchExtended4(action string, vals url.Values) (any, error) {
 	switch action {
 	case "CreateDBClusterEndpoint":
+
 		return h.handleCreateDBClusterEndpoint(vals)
 	case "DescribeDBClusterEndpoints":
+
 		return h.handleDescribeDBClusterEndpoints(vals)
 	case "DeleteDBClusterEndpoint":
+
 		return h.handleDeleteDBClusterEndpoint(vals)
 	case "DescribeValidDBInstanceModifications":
+
 		return h.handleDescribeValidDBInstanceModifications(vals)
 	case "StartExportTask":
+
 		return h.handleStartExportTask(vals)
 	case "DescribeExportTasks":
+
 		return h.handleDescribeExportTasks(vals)
 	case "CancelExportTask":
+
 		return h.handleCancelExportTask(vals)
 	default:
+
 		return h.dispatchExtended5(action, vals)
 	}
 }
@@ -505,24 +609,34 @@ func (h *Handler) dispatchExtended4(action string, vals url.Values) (any, error)
 func (h *Handler) dispatchExtended5(action string, vals url.Values) (any, error) {
 	switch action {
 	case "RestoreDBInstanceFromDBSnapshot":
+
 		return h.handleRestoreDBInstanceFromDBSnapshot(vals)
 	case "RestoreDBInstanceToPointInTime":
+
 		return h.handleRestoreDBInstanceToPointInTime(vals)
 	case "CopyDBSnapshot":
+
 		return h.handleCopyDBSnapshot(vals)
 	case "StartDBInstance":
+
 		return h.handleStartDBInstance(vals)
 	case "StopDBInstance":
+
 		return h.handleStopDBInstance(vals)
 	case "CreateGlobalCluster":
+
 		return h.handleCreateGlobalCluster(vals)
 	case opDescribeGlobalClusters:
+
 		return h.handleDescribeGlobalClusters(vals)
 	case "DeleteGlobalCluster":
+
 		return h.handleDeleteGlobalCluster(vals)
 	case "ModifyGlobalCluster":
+
 		return h.handleModifyGlobalCluster(vals)
 	default:
+
 		return h.dispatchExtended6(action, vals)
 	}
 }
@@ -532,32 +646,46 @@ func (h *Handler) dispatchExtended5(action string, vals url.Values) (any, error)
 func (h *Handler) dispatchExtended6(action string, vals url.Values) (any, error) {
 	switch action {
 	case "AddRoleToDBCluster":
+
 		return h.handleAddRoleToDBCluster(vals)
 	case "AddRoleToDBInstance":
+
 		return h.handleAddRoleToDBInstance(vals)
 	case "AddSourceIdentifierToSubscription":
+
 		return h.handleAddSourceIdentifierToSubscription(vals)
 	case "ApplyPendingMaintenanceAction":
+
 		return h.handleApplyPendingMaintenanceAction(vals)
 	case "AuthorizeDBSecurityGroupIngress":
+
 		return h.handleAuthorizeDBSecurityGroupIngress(vals)
 	case "BacktrackDBCluster":
+
 		return h.handleBacktrackDBCluster(vals)
 	case "CopyDBClusterParameterGroup":
+
 		return h.handleCopyDBClusterParameterGroup(vals)
 	case "CopyDBParameterGroup":
+
 		return h.handleCopyDBParameterGroup(vals)
 	case "CopyOptionGroup":
+
 		return h.handleCopyOptionGroup(vals)
 	case "CreateBlueGreenDeployment":
+
 		return h.handleCreateBlueGreenDeployment(vals)
 	case "RemoveRoleFromDBCluster":
+
 		return h.handleRemoveRoleFromDBCluster(vals)
 	case "RemoveRoleFromDBInstance":
+
 		return h.handleRemoveRoleFromDBInstance(vals)
 	case "RemoveSourceIdentifierFromSubscription":
+
 		return h.handleRemoveSourceIdentifierFromSubscription(vals)
 	default:
+
 		return h.dispatchExtended7(action, vals)
 	}
 }

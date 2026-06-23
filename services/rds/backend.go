@@ -8,10 +8,10 @@ import (
 	"maps"
 	"regexp"
 	"slices"
-	"sync"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -21,94 +21,94 @@ var dbInstanceIDRegex = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9-]{0,62}$`)
 
 var (
 	// ErrInstanceNotFound is returned when an RDS instance does not exist.
-	ErrInstanceNotFound = errors.New("DBInstanceNotFound")
+	ErrInstanceNotFound = awserr.New("DBInstanceNotFound", awserr.ErrNotFound)
 	// ErrInstanceAlreadyExists is returned when an RDS instance already exists.
-	ErrInstanceAlreadyExists = errors.New("DBInstanceAlreadyExists")
+	ErrInstanceAlreadyExists = awserr.New("DBInstanceAlreadyExists", awserr.ErrAlreadyExists)
 	// ErrSnapshotNotFound is returned when a snapshot does not exist.
-	ErrSnapshotNotFound = errors.New("DBSnapshotNotFound")
+	ErrSnapshotNotFound = awserr.New("DBSnapshotNotFound", awserr.ErrNotFound)
 	// ErrSnapshotAlreadyExists is returned when a snapshot already exists.
-	ErrSnapshotAlreadyExists = errors.New("DBSnapshotAlreadyExists")
+	ErrSnapshotAlreadyExists = awserr.New("DBSnapshotAlreadyExists", awserr.ErrAlreadyExists)
 	// ErrSubnetGroupNotFound is returned when a subnet group does not exist.
-	ErrSubnetGroupNotFound = errors.New("DBSubnetGroupNotFound")
+	ErrSubnetGroupNotFound = awserr.New("DBSubnetGroupNotFound", awserr.ErrNotFound)
 	// ErrSubnetGroupAlreadyExists is returned when a subnet group already exists.
-	ErrSubnetGroupAlreadyExists = errors.New("DBSubnetGroupAlreadyExists")
+	ErrSubnetGroupAlreadyExists = awserr.New("DBSubnetGroupAlreadyExists", awserr.ErrAlreadyExists)
 	// ErrInvalidParameter is returned for invalid input.
-	ErrInvalidParameter = errors.New("InvalidParameterValue")
+	ErrInvalidParameter = awserr.New("InvalidParameterValue", awserr.ErrInvalidParameter)
 	// ErrInvalidParameterCombination is returned when a set of otherwise-valid
 	// parameters cannot be used together (e.g. MonitoringInterval>0 without a
 	// MonitoringRoleArn). AWS returns the InvalidParameterCombination error code.
-	ErrInvalidParameterCombination = errors.New("InvalidParameterCombination")
+	ErrInvalidParameterCombination = awserr.New("InvalidParameterCombination", awserr.ErrInvalidParameter)
 	// ErrUnknownAction is returned for unrecognized RDS actions.
-	ErrUnknownAction = errors.New("InvalidAction")
+	ErrUnknownAction = awserr.New("InvalidAction", awserr.ErrInvalidParameter)
 	// ErrInvalidDBInstanceState is returned when an instance operation is invalid given its current state.
-	ErrInvalidDBInstanceState = errors.New("InvalidDBInstanceState")
+	ErrInvalidDBInstanceState = awserr.New("InvalidDBInstanceState", awserr.ErrConflict)
 
 	// ErrParameterGroupNotFound is returned when a DB parameter group does not exist.
-	ErrParameterGroupNotFound = errors.New("DBParameterGroupNotFound")
+	ErrParameterGroupNotFound = awserr.New("DBParameterGroupNotFound", awserr.ErrNotFound)
 	// ErrParameterGroupAlreadyExists is returned when a DB parameter group already exists.
-	ErrParameterGroupAlreadyExists = errors.New("DBParameterGroupAlreadyExists")
+	ErrParameterGroupAlreadyExists = awserr.New("DBParameterGroupAlreadyExists", awserr.ErrAlreadyExists)
 	// ErrOptionGroupNotFound is returned when an option group does not exist.
-	ErrOptionGroupNotFound = errors.New("OptionGroupNotFound")
+	ErrOptionGroupNotFound = awserr.New("OptionGroupNotFound", awserr.ErrNotFound)
 	// ErrOptionGroupAlreadyExists is returned when an option group already exists.
-	ErrOptionGroupAlreadyExists = errors.New("OptionGroupAlreadyExists")
+	ErrOptionGroupAlreadyExists = awserr.New("OptionGroupAlreadyExists", awserr.ErrAlreadyExists)
 	// ErrClusterNotFound is returned when a DB cluster does not exist.
-	ErrClusterNotFound = errors.New("DBClusterNotFound")
+	ErrClusterNotFound = awserr.New("DBClusterNotFound", awserr.ErrNotFound)
 	// ErrClusterAlreadyExists is returned when a DB cluster already exists.
-	ErrClusterAlreadyExists = errors.New("DBClusterAlreadyExists")
+	ErrClusterAlreadyExists = awserr.New("DBClusterAlreadyExists", awserr.ErrAlreadyExists)
 	// ErrClusterSnapshotNotFound is returned when a DB cluster snapshot does not exist.
-	ErrClusterSnapshotNotFound = errors.New("DBClusterSnapshotNotFound")
+	ErrClusterSnapshotNotFound = awserr.New("DBClusterSnapshotNotFound", awserr.ErrNotFound)
 	// ErrClusterSnapshotAlreadyExists is returned when a DB cluster snapshot already exists.
-	ErrClusterSnapshotAlreadyExists = errors.New("DBClusterSnapshotAlreadyExists")
+	ErrClusterSnapshotAlreadyExists = awserr.New("DBClusterSnapshotAlreadyExists", awserr.ErrAlreadyExists)
 	// ErrClusterEndpointNotFound is returned when a DB cluster endpoint does not exist.
-	ErrClusterEndpointNotFound = errors.New("DBClusterEndpointNotFound")
+	ErrClusterEndpointNotFound = awserr.New("DBClusterEndpointNotFound", awserr.ErrNotFound)
 	// ErrClusterEndpointAlreadyExists is returned when a DB cluster endpoint already exists.
-	ErrClusterEndpointAlreadyExists = errors.New("DBClusterEndpointAlreadyExists")
+	ErrClusterEndpointAlreadyExists = awserr.New("DBClusterEndpointAlreadyExists", awserr.ErrAlreadyExists)
 	// ErrExportTaskNotFound is returned when an export task does not exist.
-	ErrExportTaskNotFound = errors.New("ExportTaskNotFound")
+	ErrExportTaskNotFound = awserr.New("ExportTaskNotFound", awserr.ErrNotFound)
 	// ErrExportTaskAlreadyExists is returned when an export task already exists.
-	ErrExportTaskAlreadyExists = errors.New("ExportTaskAlreadyExists")
+	ErrExportTaskAlreadyExists = awserr.New("ExportTaskAlreadyExists", awserr.ErrAlreadyExists)
 	// ErrGlobalClusterNotFound is returned when a global cluster does not exist.
-	ErrGlobalClusterNotFound = errors.New("GlobalClusterNotFound")
+	ErrGlobalClusterNotFound = awserr.New("GlobalClusterNotFound", awserr.ErrNotFound)
 	// ErrGlobalClusterAlreadyExists is returned when a global cluster already exists.
-	ErrGlobalClusterAlreadyExists = errors.New("GlobalClusterAlreadyExists")
+	ErrGlobalClusterAlreadyExists = awserr.New("GlobalClusterAlreadyExists", awserr.ErrAlreadyExists)
 	// ErrInvalidDBClusterStateFault is returned when a cluster operation is invalid given its current state.
-	ErrInvalidDBClusterStateFault = errors.New("InvalidDBClusterStateFault")
+	ErrInvalidDBClusterStateFault = awserr.New("InvalidDBClusterStateFault", awserr.ErrConflict)
 	// ErrInvalidGlobalClusterState is returned when a global cluster operation is invalid given its current state.
-	ErrInvalidGlobalClusterState = errors.New("InvalidGlobalClusterStateFault")
+	ErrInvalidGlobalClusterState = awserr.New("InvalidGlobalClusterStateFault", awserr.ErrConflict)
 	// ErrEventSubscriptionNotFound is returned when an event subscription does not exist.
-	ErrEventSubscriptionNotFound = errors.New("SubscriptionNotFound")
+	ErrEventSubscriptionNotFound = awserr.New("SubscriptionNotFound", awserr.ErrNotFound)
 	// ErrEventSubscriptionAlreadyExists is returned when an event subscription already exists.
-	ErrEventSubscriptionAlreadyExists = errors.New("SubscriptionAlreadyExist")
+	ErrEventSubscriptionAlreadyExists = awserr.New("SubscriptionAlreadyExist", awserr.ErrAlreadyExists)
 	// ErrDBSecurityGroupNotFound is returned when a DB security group does not exist.
-	ErrDBSecurityGroupNotFound = errors.New("DBSecurityGroupNotFound")
+	ErrDBSecurityGroupNotFound = awserr.New("DBSecurityGroupNotFound", awserr.ErrNotFound)
 	// ErrDBSecurityGroupAlreadyExists is returned when a DB security group already exists.
-	ErrDBSecurityGroupAlreadyExists = errors.New("DBSecurityGroupAlreadyExists")
+	ErrDBSecurityGroupAlreadyExists = awserr.New("DBSecurityGroupAlreadyExists", awserr.ErrAlreadyExists)
 	// ErrBlueGreenDeploymentNotFound is returned when a Blue/Green Deployment does not exist.
-	ErrBlueGreenDeploymentNotFound = errors.New("BlueGreenDeploymentNotFound")
+	ErrBlueGreenDeploymentNotFound = awserr.New("BlueGreenDeploymentNotFound", awserr.ErrNotFound)
 	// ErrBlueGreenDeploymentAlreadyExists is returned when a Blue/Green Deployment already exists.
-	ErrBlueGreenDeploymentAlreadyExists = errors.New("BlueGreenDeploymentAlreadyExists")
+	ErrBlueGreenDeploymentAlreadyExists = awserr.New("BlueGreenDeploymentAlreadyExists", awserr.ErrAlreadyExists)
 	// ErrNoServerlessV2Config is a sentinel indicating no ServerlessV2ScalingConfiguration was provided.
 	ErrNoServerlessV2Config = errors.New("noServerlessV2Config")
 
 	// ErrDBShardGroupNotFound is returned when a DB shard group does not exist.
-	ErrDBShardGroupNotFound = errors.New("DBShardGroupNotFound")
+	ErrDBShardGroupNotFound = awserr.New("DBShardGroupNotFound", awserr.ErrNotFound)
 	// ErrDBShardGroupAlreadyExists is returned when a DB shard group already exists.
-	ErrDBShardGroupAlreadyExists = errors.New("DBShardGroupAlreadyExists")
+	ErrDBShardGroupAlreadyExists = awserr.New("DBShardGroupAlreadyExists", awserr.ErrAlreadyExists)
 
 	// ErrIntegrationNotFound is returned when an integration does not exist.
-	ErrIntegrationNotFound = errors.New("IntegrationNotFound")
+	ErrIntegrationNotFound = awserr.New("IntegrationNotFound", awserr.ErrNotFound)
 	// ErrIntegrationAlreadyExists is returned when an integration already exists.
-	ErrIntegrationAlreadyExists = errors.New("IntegrationAlreadyExists")
+	ErrIntegrationAlreadyExists = awserr.New("IntegrationAlreadyExists", awserr.ErrAlreadyExists)
 
 	// ErrTenantDatabaseNotFound is returned when a tenant database does not exist.
-	ErrTenantDatabaseNotFound = errors.New("TenantDatabaseNotFound")
+	ErrTenantDatabaseNotFound = awserr.New("TenantDatabaseNotFound", awserr.ErrNotFound)
 	// ErrTenantDatabaseAlreadyExists is returned when a tenant database already exists.
-	ErrTenantDatabaseAlreadyExists = errors.New("TenantDatabaseAlreadyExists")
+	ErrTenantDatabaseAlreadyExists = awserr.New("TenantDatabaseAlreadyExists", awserr.ErrAlreadyExists)
 
 	// ErrDBClusterAutomatedBackupNotFound is returned when a cluster automated backup does not exist.
-	ErrDBClusterAutomatedBackupNotFound = errors.New("DBClusterAutomatedBackupNotFound")
+	ErrDBClusterAutomatedBackupNotFound = awserr.New("DBClusterAutomatedBackupNotFound", awserr.ErrNotFound)
 	// ErrDBInstanceAutomatedBackupNotFound is returned when an instance automated backup does not exist.
-	ErrDBInstanceAutomatedBackupNotFound = errors.New("DBInstanceAutomatedBackupNotFound")
+	ErrDBInstanceAutomatedBackupNotFound = awserr.New("DBInstanceAutomatedBackupNotFound", awserr.ErrNotFound)
 )
 
 const (
@@ -737,12 +737,12 @@ type InMemoryBackend struct {
 	tenantDatabases           map[string]*TenantDatabase
 	clusterAutomatedBackups   map[string]*DBClusterAutomatedBackup
 	snapshotTenantDatabases   map[string][]*DBSnapshotTenantDatabase
-	stopCh                    chan struct{}
+	clusterReadyAt            map[string]time.Time
+	piMetrics                 map[string]map[string][]PIDataPoint
 	accountID                 string
 	region                    string
 	events                    []Event
-	wg                        sync.WaitGroup
-	stopOnce                  sync.Once
+	reconcilerRunning         bool
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with a background reconciler.
@@ -783,13 +783,12 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		tenantDatabases:           make(map[string]*TenantDatabase),
 		clusterAutomatedBackups:   make(map[string]*DBClusterAutomatedBackup),
 		snapshotTenantDatabases:   make(map[string][]*DBSnapshotTenantDatabase),
-		stopCh:                    make(chan struct{}),
+		clusterReadyAt:            make(map[string]time.Time),
+		piMetrics:                 make(map[string]map[string][]PIDataPoint),
 		accountID:                 accountID,
 		region:                    region,
 		mu:                        lockmetrics.New("rds"),
 	}
-
-	go b.runReconciler()
 
 	return b
 }
@@ -797,28 +796,34 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 // Close stops the background reconciler goroutine and waits for any in-flight
 // delayed lifecycle transitions to finish. Close is safe to call more than once.
 func (b *InMemoryBackend) Close() {
-	b.stopOnce.Do(func() {
-		close(b.stopCh)
-	})
-	b.wg.Wait()
+	// Reconciler is now ephemeral and stops on its own.
 }
 
-// runDelayed schedules fn to run after delay, unless the backend is closed
-// first. It is tracked by b.wg so Close can wait for it to finish, and it
-// respects b.stopCh so it never mutates state after shutdown.
-func (b *InMemoryBackend) runDelayed(delay time.Duration, fn func()) {
-	b.wg.Go(func() {
-		timer := time.NewTimer(delay)
-		defer timer.Stop()
+func (b *InMemoryBackend) scheduleReconcilerLocked() {
+	if b.reconcilerRunning {
+		return
+	}
+	b.reconcilerRunning = true
+	go func() {
+		defer func() {
+			b.mu.Lock("reconcilerExit")
+			b.reconcilerRunning = false
+			b.mu.Unlock()
+		}()
+		ticker := time.NewTicker(instanceTransitionDelay / reconcilerDivisor)
+		defer ticker.Stop()
+		for {
+			<-ticker.C
+			b.mu.Lock("runReconciler")
+			b.reconcileInstancesLocked()
+			if len(b.instanceReadyAt) == 0 && len(b.clusterReadyAt) == 0 {
+				b.mu.Unlock()
 
-		select {
-		case <-b.stopCh:
-			return
-		case <-timer.C:
+				return
+			}
+			b.mu.Unlock()
 		}
-
-		fn()
-	})
+	}()
 }
 
 // Region returns the AWS region this backend is configured for.
@@ -889,30 +894,23 @@ func enginePort(engine string) int {
 func (b *InMemoryBackend) reconcileInstancesLocked() {
 	now := time.Now()
 
-	for id, inst := range b.instances {
-		readyAt, hasReadyAt := b.instanceReadyAt[id]
-		if hasReadyAt && !readyAt.IsZero() && now.After(readyAt) {
-			inst.DBInstanceStatus = instanceStatusAvailable
+	for id, readyAt := range b.instanceReadyAt {
+		if !readyAt.IsZero() && now.After(readyAt) {
+			if inst, ok := b.instances[id]; ok {
+				inst.DBInstanceStatus = instanceStatusAvailable
+				b.publishInstanceEventLocked(id, "DB instance is now available")
+			}
 			delete(b.instanceReadyAt, id)
-			b.publishInstanceEventLocked(id, "DB instance is now available")
 		}
 	}
-}
 
-// runReconciler periodically transitions DB instances that have passed their
-// ready-at timestamp. It runs as a long-lived background goroutine until Close() is called.
-func (b *InMemoryBackend) runReconciler() {
-	ticker := time.NewTicker(instanceTransitionDelay / reconcilerDivisor)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-b.stopCh:
-			return
-		case <-ticker.C:
-			b.mu.Lock("runReconciler")
-			b.reconcileInstancesLocked()
-			b.mu.Unlock()
+	for id, readyAt := range b.clusterReadyAt {
+		if !readyAt.IsZero() && now.After(readyAt) {
+			if c, ok := b.clusters[id]; ok && c.Status == "rebooting" {
+				c.Status = instanceStatusAvailable
+				b.publishClusterEventLocked(id, "DB cluster is now available")
+			}
+			delete(b.clusterReadyAt, id)
 		}
 	}
 }
@@ -1078,6 +1076,7 @@ func (b *InMemoryBackend) CreateDBInstance(
 	}
 	b.maybeRegisterAutomatedBackup(id, engine, port, allocatedStorage, opts)
 	b.instanceReadyAt[id] = time.Now().Add(instanceTransitionDelay)
+	b.scheduleReconcilerLocked()
 	cp := *inst
 
 	b.mu.Unlock()
@@ -1348,6 +1347,7 @@ func (b *InMemoryBackend) ModifyDBInstance(
 	}
 	inst.DBInstanceStatus = instanceStatusModifying
 	b.instanceReadyAt[id] = time.Now().Add(instanceTransitionDelay)
+	b.scheduleReconcilerLocked()
 	b.publishInstanceEventLocked(id, "DB instance modification started")
 	cp := *inst
 
@@ -2535,6 +2535,7 @@ func (b *InMemoryBackend) RebootDBInstance(id string) (*DBInstance, error) {
 	}
 	inst.DBInstanceStatus = instanceStatusRebooting
 	b.instanceReadyAt[id] = time.Now().Add(instanceTransitionDelay)
+	b.scheduleReconcilerLocked()
 	b.publishInstanceEventLocked(id, "DB instance reboot initiated")
 	cp := *inst
 
