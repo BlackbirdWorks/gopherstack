@@ -14,7 +14,6 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
-	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -66,55 +65,37 @@ const (
 	route53TPInstancePrefix      = "/2013-04-01/trafficpolicyinstance/"
 )
 
+type r53Tag struct {
+	Key   string `xml:"Key"`
+	Value string `xml:"Value"`
+}
+
 // Handler is the HTTP service handler for Route 53 operations.
 type Handler struct {
 	Backend StorageBackend
-	tags    map[string]*svcTags.Tags
-	tagsMu  *lockmetrics.RWMutex
 }
 
 // NewHandler creates a new Route 53 Handler.
 func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{
 		Backend: backend,
-		tags:    make(map[string]*svcTags.Tags),
-		tagsMu:  lockmetrics.New("route53.tags"),
 	}
 }
 
-func (h *Handler) deleteTagsForResource(resourceID string) {
-	h.tagsMu.Lock("deleteTagsForResource")
-	defer h.tagsMu.Unlock()
-	delete(h.tags, resourceID)
+func (h *Handler) deleteTagsForResource(_ string) {
+	// Let backend handle deletion on resource deletion
 }
 
 func (h *Handler) setTags(resourceID string, kv map[string]string) {
-	h.tagsMu.Lock("setTags")
-	defer h.tagsMu.Unlock()
-	if h.tags[resourceID] == nil {
-		h.tags[resourceID] = svcTags.New("route53." + resourceID + ".tags")
-	}
-	h.tags[resourceID].Merge(kv)
+	_ = h.Backend.ChangeTagsForResource(resourceID, kv, nil)
 }
 
 func (h *Handler) removeTags(resourceID string, keys []string) {
-	h.tagsMu.RLock("removeTags")
-	t := h.tags[resourceID]
-	h.tagsMu.RUnlock()
-	if t != nil {
-		t.DeleteKeys(keys)
-	}
+	_ = h.Backend.ChangeTagsForResource(resourceID, nil, keys)
 }
 
 func (h *Handler) getTags(resourceID string) map[string]string {
-	h.tagsMu.RLock("getTags")
-	t := h.tags[resourceID]
-	h.tagsMu.RUnlock()
-	if t == nil {
-		return map[string]string{}
-	}
-
-	return t.Clone()
+	return h.Backend.ListTagsForResource(resourceID)
 }
 
 // Name returns the service name.
@@ -1437,10 +1418,6 @@ func (h *Handler) listTagsForResource(c *echo.Context, path string) error {
 	}
 
 	tags := h.getTags(resourceID)
-	type r53Tag struct {
-		Key   string `xml:"Key"`
-		Value string `xml:"Value"`
-	}
 	tagList := make([]r53Tag, 0, len(tags))
 	for k, v := range tags {
 		tagList = append(tagList, r53Tag{Key: k, Value: v})
@@ -2098,9 +2075,6 @@ func (h *Handler) getHealthCheckStatus(c *echo.Context, path string) error {
 // POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
 func (h *Handler) Reset() {
 	h.Backend.Reset()
-	h.tagsMu.Lock("Reset")
-	h.tags = make(map[string]*svcTags.Tags)
-	h.tagsMu.Unlock()
 }
 
 // ---- New operations: XML types ----

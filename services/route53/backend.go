@@ -15,6 +15,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
+	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 const (
@@ -148,13 +149,22 @@ type HealthCheckConfig struct {
 	Inverted                     bool             `json:"inverted,omitempty"`
 }
 
+// HealthCheckObservation represents a single observation of a health check.
+type HealthCheckObservation struct {
+	CheckedTime time.Time `json:"checkedTime"`
+	Region      string    `json:"region"`
+	IPAddress   string    `json:"ipAddress"`
+	Status      string    `json:"status"`
+}
+
 // HealthCheck represents a Route 53 health check.
 type HealthCheck struct {
-	CreatedAt       time.Time         `json:"createdAt"`
-	ID              string            `json:"id"`
-	CallerReference string            `json:"callerReference"`
-	Status          string            `json:"status"`
-	Config          HealthCheckConfig `json:"config"`
+	CreatedAt       time.Time                `json:"createdAt"`
+	ID              string                   `json:"id"`
+	CallerReference string                   `json:"callerReference"`
+	Status          string                   `json:"status"`
+	Observations    []HealthCheckObservation `json:"observations"`
+	Config          HealthCheckConfig        `json:"config"`
 }
 
 // FailoverPolicy is the failover role for a record set.
@@ -372,6 +382,7 @@ type InMemoryBackend struct {
 	vpcAssociations        map[string][]vpcAssociation              // key: zone ID
 	vpcAssocAuthorizations map[string][]VPCAssociationAuthorization // key: zone ID
 	changes                map[string]*ChangeInfo                   // key: change ID
+	tags                   map[string]*svcTags.Tags
 	mu                     *lockmetrics.RWMutex
 }
 
@@ -389,6 +400,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		vpcAssociations:        make(map[string][]vpcAssociation),
 		vpcAssocAuthorizations: make(map[string][]VPCAssociationAuthorization),
 		changes:                make(map[string]*ChangeInfo),
+		tags:                   make(map[string]*svcTags.Tags),
 		mu:                     lockmetrics.New("route53"),
 	}
 }
@@ -540,6 +552,7 @@ func (b *InMemoryBackend) DeleteHostedZone(zoneID string) error {
 	}
 
 	delete(b.zones, zoneID)
+	delete(b.tags, zoneID)
 
 	return nil
 }
@@ -580,6 +593,57 @@ func (b *InMemoryBackend) ListHostedZones(
 	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
 
 	return page.New(result, marker, maxItems, route53DefaultMaxItems), nil
+}
+
+// ListHostedZonesByName returns hosted zones sorted by name, paginating by DNSName and zoneID.
+func (b *InMemoryBackend) ListHostedZonesByName(
+	dnsName, zoneID string,
+	maxItems int,
+) ([]HostedZone, string, string, error) {
+	b.mu.RLock("ListHostedZonesByName")
+	defer b.mu.RUnlock()
+
+	result := make([]HostedZone, 0, len(b.zones))
+	for _, zd := range b.zones {
+		cp := zd.zone
+		cp.ResourceRecordSetCount = len(zd.records)
+		result = append(result, cp)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Name == result[j].Name {
+			return result[i].ID < result[j].ID
+		}
+
+		return result[i].Name < result[j].Name
+	})
+
+	var startIndex int
+	if dnsName != "" {
+		startIndex = len(result)
+		for i, z := range result {
+			if z.Name > dnsName || (z.Name == dnsName && strings.TrimPrefix(z.ID, "/hostedzone/") >= zoneID) {
+				startIndex = i
+
+				break
+			}
+		}
+	}
+
+	if startIndex >= len(result) {
+		return []HostedZone{}, "", "", nil
+	}
+
+	endIndex := startIndex + maxItems
+	var nextDNSName, nextZoneID string
+	if endIndex < len(result) {
+		nextDNSName = result[endIndex].Name
+		nextZoneID = strings.TrimPrefix(result[endIndex].ID, "/hostedzone/")
+	} else {
+		endIndex = len(result)
+	}
+
+	return result[startIndex:endIndex], nextDNSName, nextZoneID, nil
 }
 
 // ChangeAction is the action type for ChangeResourceRecordSets.
@@ -1334,6 +1398,7 @@ func (b *InMemoryBackend) DeleteHealthCheck(id string) error {
 	}
 
 	delete(b.healthChecks, id)
+	delete(b.tags, id)
 
 	return nil
 }
@@ -1383,6 +1448,21 @@ func (b *InMemoryBackend) SetHealthCheckStatus(id, status string) error {
 	}
 
 	hc.Status = status
+	if hc.Observations == nil {
+		hc.Observations = []HealthCheckObservation{}
+	}
+	// Emulate an observation from a checker
+	hc.Observations = append(hc.Observations, HealthCheckObservation{
+		Region:      "us-east-1",
+		IPAddress:   "192.0.2.1",
+		Status:      status,
+		CheckedTime: time.Now().UTC(),
+	})
+	// keep last 50
+	const maxObservations = 50
+	if len(hc.Observations) > maxObservations {
+		hc.Observations = hc.Observations[len(hc.Observations)-maxObservations:]
+	}
 
 	return nil
 }
@@ -1404,6 +1484,7 @@ func (b *InMemoryBackend) Reset() {
 	b.vpcAssociations = make(map[string][]vpcAssociation)
 	b.vpcAssocAuthorizations = make(map[string][]VPCAssociationAuthorization)
 	b.changes = make(map[string]*ChangeInfo)
+	b.tags = make(map[string]*svcTags.Tags)
 }
 
 // kskKey builds the map key for a key signing key.
@@ -2757,4 +2838,81 @@ func (b *InMemoryBackend) TestDNSAnswer(zoneID, recordName, recordType string) (
 
 	// Default: return first candidate (deterministic by SetIdentifier sort).
 	return rrsValues(candidates[0]), nil
+}
+
+// GetHostedZoneCount returns the total number of hosted zones.
+func (b *InMemoryBackend) GetHostedZoneCount() int {
+	b.mu.RLock("GetHostedZoneCount")
+	defer b.mu.RUnlock()
+
+	return len(b.zones)
+}
+
+// GetHealthCheckCount returns the total number of health checks.
+func (b *InMemoryBackend) GetHealthCheckCount() int {
+	b.mu.RLock("GetHealthCheckCount")
+	defer b.mu.RUnlock()
+
+	return len(b.healthChecks)
+}
+
+func (b *InMemoryBackend) ListTagsForResource(resourceID string) map[string]string {
+	b.mu.RLock("ListTagsForResource")
+	defer b.mu.RUnlock()
+	if t, exists := b.tags[resourceID]; exists {
+		return t.Clone()
+	}
+
+	return make(map[string]string)
+}
+
+func (b *InMemoryBackend) ListTagsForResources(resourceIDs []string) map[string]map[string]string {
+	b.mu.RLock("ListTagsForResources")
+	defer b.mu.RUnlock()
+
+	result := make(map[string]map[string]string)
+	for _, id := range resourceIDs {
+		if t, ok := b.tags[id]; ok {
+			result[id] = t.Clone()
+		} else {
+			result[id] = make(map[string]string)
+		}
+	}
+
+	return result
+}
+
+func (b *InMemoryBackend) ChangeTagsForResource(
+	resourceID string,
+	addTags map[string]string,
+	removeKeys []string,
+) error {
+	b.mu.Lock("ChangeTagsForResource")
+	defer b.mu.Unlock()
+
+	// check if the resource exists
+	// route53 allows tagging hostedzones and healthchecks
+	var exists bool
+	if _, okZone := b.zones[resourceID]; okZone {
+		exists = okZone
+	} else if _, okHC := b.healthChecks[resourceID]; okHC {
+		exists = okHC
+	}
+
+	if !exists {
+		return fmt.Errorf("%w: %s", ErrHostedZoneNotFound, resourceID)
+	}
+
+	if b.tags[resourceID] == nil {
+		b.tags[resourceID] = svcTags.New("route53." + resourceID + ".tags")
+	}
+
+	if len(addTags) > 0 {
+		b.tags[resourceID].Merge(addTags)
+	}
+	if len(removeKeys) > 0 {
+		b.tags[resourceID].DeleteKeys(removeKeys)
+	}
+
+	return nil
 }
