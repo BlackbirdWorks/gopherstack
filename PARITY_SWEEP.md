@@ -43,7 +43,7 @@ Polecats (sonnet) branch off `parity-sweep`, ≤3 concurrent; mayor aggregates e
 | 34 | iotanalytics | P1 | 1032-1053, 3441-3447 | ☐ |
 | 35 | iotwireless | P1 | 1073-1092, 3453-3458 | ☐ |
 | 36 | kafka | P1 | 1093-1109, 3459-3467 | ☐ |
-| 37 | kinesis | P1 | 1110-1125, 3468-3476 | ☐ |
+| 37 | kinesis | P1 | 1110-1125, 3468-3476 | ✅ |
 | 38 | kinesisanalytics | P1 | 1126-1143, 3477-3484 | ☐ |
 | 39 | kinesisanalyticsv2 | P1 | 1144-1160, 3485-3492 | ☐ |
 | 40 | kms | P1 | 1161-1175, 3493-3507 | ✅ |
