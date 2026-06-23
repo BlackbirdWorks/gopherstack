@@ -238,6 +238,11 @@ type describeAccountResponse struct {
 	Account accountObject `json:"Account"`
 }
 
+type listAccountsRequest struct {
+	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults int    `json:"MaxResults,omitempty"`
+}
+
 type listAccountsResponse struct {
 	NextToken string          `json:"NextToken,omitempty"`
 	Accounts  []accountObject `json:"Accounts"`
@@ -254,8 +259,9 @@ type moveAccountRequest struct {
 }
 
 type listAccountsForParentRequest struct {
-	ParentID  string `json:"ParentId"`
-	NextToken string `json:"NextToken,omitempty"`
+	ParentID   string `json:"ParentId"`
+	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults int    `json:"MaxResults,omitempty"`
 }
 
 type listAccountsForParentResponse struct {
@@ -322,8 +328,9 @@ type updateOrganizationalUnitResponse struct {
 }
 
 type listOrganizationalUnitsForParentRequest struct {
-	ParentID  string `json:"ParentId"`
-	NextToken string `json:"NextToken,omitempty"`
+	ParentID   string `json:"ParentId"`
+	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults int    `json:"MaxResults,omitempty"`
 }
 
 type listOrganizationalUnitsForParentResponse struct {
@@ -346,9 +353,10 @@ type listParentsResponse struct {
 }
 
 type listChildrenRequest struct {
-	ParentID  string `json:"ParentId"`
-	ChildType string `json:"ChildType"`
-	NextToken string `json:"NextToken,omitempty"`
+	ParentID   string `json:"ParentId"`
+	ChildType  string `json:"ChildType"`
+	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults int    `json:"MaxResults,omitempty"`
 }
 
 type ChildSummary struct {
@@ -413,8 +421,9 @@ type deletePolicyRequest struct {
 }
 
 type listPoliciesRequest struct {
-	Filter    string `json:"Filter"`
-	NextToken string `json:"NextToken,omitempty"`
+	Filter     string `json:"Filter"`
+	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults int    `json:"MaxResults,omitempty"`
 }
 
 type listPoliciesResponse struct {
@@ -684,8 +693,9 @@ type handshakeFilter struct {
 }
 
 type listHandshakesFilterRequest struct {
-	Filter    handshakeFilter `json:"Filter"`
-	NextToken string          `json:"NextToken,omitempty"`
+	Filter     handshakeFilter `json:"Filter"`
+	NextToken  string          `json:"NextToken,omitempty"`
+	MaxResults int             `json:"MaxResults,omitempty"`
 }
 
 // -- InviteAccountToOrganization --
