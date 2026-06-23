@@ -276,7 +276,7 @@ func (b *InMemoryBackend) AcceptInvitation(administratorAccountID, invitationID 
 		AccountID:          administratorAccountID,
 		InvitationID:       invitationID,
 		InvitedAt:          time.Now().UTC(),
-		RelationshipStatus: "ENABLED",
+		RelationshipStatus: statusEnabled,
 	}
 
 	return nil
@@ -617,7 +617,7 @@ func bucketToMap(bkt *S3BucketMetadata) map[string]any {
 			"effectivePermission": bkt.PublicAccess,
 		},
 		"serverSideEncryption": map[string]any{
-			"type": bkt.EncryptionType,
+			keyType: bkt.EncryptionType,
 		},
 		"sharedAccess": bkt.SharedAccess,
 		"tags":         bkt.Tags,
@@ -960,23 +960,48 @@ func (b *InMemoryBackend) GetSensitiveDataOccurrences(findingID string) (map[str
 	b.mu.RLock("GetSensitiveDataOccurrences")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.findings[findingID]; !ok {
+	finding, ok := b.findings[findingID]
+	if !ok {
 		return nil, ErrFindingNotFound
 	}
 
-	return map[string]any{"sensitiveDataOccurrences": map[string]any{}}, nil
+	if finding.Category != categorySensitiveData {
+		return nil, awserr.New("UnprocessableEntityException", awserr.ErrInvalidParameter)
+	}
+
+	if b.session == nil || !b.session.Enabled || b.revealConfig == nil || b.revealConfig.Status != statusEnabled {
+		return nil, awserr.New("AccessDeniedException", awserr.ErrInvalidParameter)
+	}
+
+	return map[string]any{
+		"sensitiveDataOccurrences": map[string]any{
+			"EMAIL_ADDRESS": []map[string]any{
+				{"value": "test@example.com"},
+			},
+		},
+		"status": "SUCCESS",
+	}, nil
 }
 
 // GetSensitiveDataOccurrencesAvailability reports reveal availability for a finding.
-func (b *InMemoryBackend) GetSensitiveDataOccurrencesAvailability(findingID string) (string, error) {
+func (b *InMemoryBackend) GetSensitiveDataOccurrencesAvailability(findingID string) (string, []string, error) {
 	b.mu.RLock("GetSensitiveDataOccurrencesAvailability")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.findings[findingID]; !ok {
-		return "", ErrFindingNotFound
+	finding, ok := b.findings[findingID]
+	if !ok {
+		return "", nil, ErrFindingNotFound
 	}
 
-	return "AVAILABLE", nil
+	if finding.Category != categorySensitiveData {
+		return "UNAVAILABLE", []string{"INVALID_CLASSIFICATION_RESULT"}, nil
+	}
+
+	if b.session == nil || !b.session.Enabled || b.revealConfig == nil || b.revealConfig.Status != statusEnabled {
+		return "UNAVAILABLE", nil, nil
+	}
+
+	return "AVAILABLE", nil, nil
 }
 
 // --- sensitivity inspection templates ---
