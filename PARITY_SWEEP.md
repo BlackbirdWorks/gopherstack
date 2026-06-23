@@ -33,7 +33,7 @@ Polecats (sonnet) branch off `parity-sweep`, ≤3 concurrent; mayor aggregates e
 | 24 | fis | P1 | 839-856, 3324-3331 | ☐ |
 | 25 | forecast | P1 | 857-872, 3332-3340 | ☐ |
 | 26 | fsx | P1 | 873-894, 3341-3353 | ☐ |
-| 27 | glacier | P1 | 895-915, 3354-3365 | ☐ |
+| 27 | glacier | P1 | 895-915, 3354-3365 | ✅ |
 | 28 | glue | P1 | 916-940, 3366-3378 | ✅ |
 | 29 | guardduty | P1 | 941-960, 3379-3391 | ☐ |
 | 30 | iam | P1 | 961-978, 3392-3402 | ✅ |
@@ -65,7 +65,7 @@ Polecats (sonnet) branch off `parity-sweep`, ≤3 concurrent; mayor aggregates e
 | 56 | quicksight | P1 | 1624-1639, 3769-3779 | ☐ |
 | 57 | ram | P1 | 1640-1654, 3780-3790 | ☐ |
 | 58 | rekognition | P1 | 1704-1717, 3833-3847 | ☐ |
-| 59 | route53 | P1 | 1757-1770, 3881-3891 | ☐ |
+| 59 | route53 | P1 | 1757-1770, 3881-3891 | ✅ |
 | 60 | ses | P1 | 1888-1901, 3983-3995 | ☐ |
 | 61 | sesv2 | P1 | 1902-1926, 3996-4014 | ☐ |
 | 62 | shield | P1 | 1927-1949, 4015-4029 | ☐ |
