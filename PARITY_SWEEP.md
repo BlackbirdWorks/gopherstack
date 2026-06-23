@@ -121,7 +121,7 @@ Polecats (sonnet) branch off `parity-sweep`, ≤3 concurrent; mayor aggregates e
 | 112 | ecs | P2 | 648-661, 3224-3233 | ✅ |
 | 113 | efs | P2 | 662-674, 3234-3244 | ☐ |
 | 114 | eks | P2 | 675-687, 3245-3254 | ☐ |
-| 115 | elasticache | P2 | 688-699, 3255-3264 | ☐ |
+| 115 | elasticache | P2 | 688-699, 3255-3264 | ✅ |
 | 116 | elasticsearch | P2 | 715-728, 3275-3282 | ☐ |
 | 117 | elb | P2 | 729-745, 3283-3289 | ☐ |
 | 118 | emrserverless | P2 | 785-802, 3304-3308 | ☐ |
