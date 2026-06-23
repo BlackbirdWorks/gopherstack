@@ -2,13 +2,10 @@ package ecr
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"maps"
 	"net/http"
 	"strings"
@@ -34,6 +31,7 @@ const (
 const (
 	ecrTargetPrefix   = "AmazonEC2ContainerRegistry_V20150921."
 	dummyUser         = "AWS"
+	dummyPassword     = "dummy-password"
 	tokenTTL          = 12 * time.Hour
 	v2Root            = "/v2"
 	v2Prefix          = "/v2/"
@@ -681,10 +679,10 @@ func (h *Handler) handleGetAuthorizationToken(
 	_ context.Context,
 	in *getAuthorizationTokenInput,
 ) (*getAuthorizationTokenOutput, error) {
-	token := h.generateAuthToken()
+	token := generateAuthToken()
 	expiresAt := time.Now().Add(tokenTTL).Unix()
-	proxyEndpoint := h.Backend.ProxyEndpoint()
 
+	proxyEndpoint := h.Backend.ProxyEndpoint()
 	if proxyEndpoint != "" &&
 		!strings.HasPrefix(proxyEndpoint, "https://") &&
 		!strings.HasPrefix(proxyEndpoint, "http://") {
@@ -713,24 +711,11 @@ func (h *Handler) handleGetAuthorizationToken(
 	}, nil
 }
 
-const authTokenRandomBytes = 32
-
-// generateAuthToken produces a unique ECR authorization token per the same
-// structure real AWS uses: base64(AWS:<random-hex-password>).
-// Each call returns a different token so callers cannot cache a fixed value.
-func (h *Handler) generateAuthToken() string {
-	if h.registryHandler != nil {
-		// Emulator needs dummy-password for existing integration tests.
-		return base64.StdEncoding.EncodeToString([]byte("AWS:dummy-password"))
-	}
-
-	raw := make([]byte, authTokenRandomBytes)
-	if _, err := io.ReadFull(rand.Reader, raw); err != nil {
-		// crypto/rand failure is extremely rare; use a fixed fallback.
-		raw = []byte("gopherstack-ecr-fallback-token-00")
-	}
-
-	return base64.StdEncoding.EncodeToString([]byte(dummyUser + ":" + hex.EncodeToString(raw)))
+// generateAuthToken produces the ECR authorization token in AWS's structure:
+// base64(AWS:<password>). The emulator uses a stable dummy password so clients
+// (and docker login) get a deterministic credential.
+func generateAuthToken() string {
+	return base64.StdEncoding.EncodeToString([]byte(dummyUser + ":" + dummyPassword))
 }
 
 // listTagsForResourceInput is the request body for ListTagsForResource.

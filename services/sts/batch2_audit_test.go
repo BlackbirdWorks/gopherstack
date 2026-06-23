@@ -15,6 +15,42 @@ import (
 
 // ── Batch-2 Issue #1: DecodeAuthorizationMessage invalid base64 → HTTP 400 ───
 
+func TestBatch2_DecodeAuthorizationMessage_InvalidBase64_Returns400(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		encoded string
+	}{
+		{
+			name:    "garbage_string",
+			encoded: "this-is-not-base64!!!",
+		},
+		{
+			name:    "truncated_base64",
+			encoded: "SGVsbG8=truncated",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, _, e := accuracyHandler(t)
+			form := url.Values{
+				"Action":         {"DecodeAuthorizationMessage"},
+				"Version":        {"2011-06-15"},
+				"EncodedMessage": {tt.encoded},
+			}
+			rec := accuracyPost(t, h, e, form)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+			errResp := decodeError(t, rec.Body.Bytes())
+			assert.Equal(t, "InvalidAuthorizationMessageException", errResp.Error.Code)
+		})
+	}
+}
+
 // ── Batch-2 Issue #2: XML response field ordering — result before metadata ────
 
 // xmlElementOrder parses raw XML and returns the top-level child element names in order.

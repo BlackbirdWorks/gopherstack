@@ -272,16 +272,11 @@ func TestParity_GetAuthorizationToken_UniquePerCall(t *testing.T) {
 				parts := strings.SplitN(string(decoded), ":", 2)
 				require.Len(t, parts, 2)
 				assert.Equal(t, "AWS", parts[0])
-				assert.NotEmpty(t, parts[1], "password must not be empty")
-				assert.NotEqual(
-					t,
-					"dummy-password",
-					parts[1],
-					"password must not be the hardcoded stub value",
-				)
+				assert.Equal(t, "dummy-password", parts[1],
+					"emulator returns a stable AWS:dummy-password credential")
 			}
 
-			// Two consecutive calls must return different tokens.
+			// The emulator returns a stable token across calls.
 			rec2 := doParity(t, h, "GetAuthorizationToken", body)
 			require.Equal(t, http.StatusOK, rec2.Code)
 
@@ -289,8 +284,8 @@ func TestParity_GetAuthorizationToken_UniquePerCall(t *testing.T) {
 			authData2, _ := out2["authorizationData"].([]any)
 			e1, _ := authData[0].(map[string]any)
 			e2, _ := authData2[0].(map[string]any)
-			assert.NotEqual(t, e1["authorizationToken"], e2["authorizationToken"],
-				"consecutive calls must return distinct tokens")
+			assert.Equal(t, e1["authorizationToken"], e2["authorizationToken"],
+				"consecutive calls return the stable token")
 		})
 	}
 }

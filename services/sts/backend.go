@@ -1,7 +1,6 @@
 package sts
 
 import (
-	"bytes"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha1" //nolint:gosec // SHA1 is used only for NameQualifier per AWS spec, not for security
@@ -9,7 +8,6 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
-	"encoding/xml"
 	"errors"
 	"fmt"
 	"regexp"
@@ -1071,28 +1069,16 @@ func (b *InMemoryBackend) buildWebIdentityResponse(
 // RawToken is used so that namespace-prefixed elements without explicit xmlns
 // declarations (common in real SAML assertions) are accepted without error.
 func validateSAMLAssertion(assertion string) error {
-	var raw []byte
-	var err error
-
-	raw, err = base64.StdEncoding.DecodeString(assertion)
-	if err != nil {
-		raw, err = base64.URLEncoding.DecodeString(assertion)
-		if err != nil {
+	// AWS requires a base64-encoded SAML assertion. As an emulator we validate the
+	// base64 encoding but do not require the decoded payload to be well-formed SAML
+	// XML, so callers can pass simple test assertions.
+	if _, err := base64.StdEncoding.DecodeString(assertion); err != nil {
+		if _, err = base64.URLEncoding.DecodeString(assertion); err != nil {
 			return fmt.Errorf("%w: not valid base64", ErrInvalidSAMLAssertion)
 		}
 	}
 
-	dec := xml.NewDecoder(bytes.NewReader(raw))
-	for {
-		tok, _ := dec.RawToken()
-		if tok == nil {
-			// Fallback for emulator: allow non-XML payloads to pass validation.
-			return nil
-		}
-		if _, ok := tok.(xml.StartElement); ok {
-			return nil
-		}
-	}
+	return nil
 }
 
 // validateSAMLInput checks the common parameter constraints for AssumeRoleWithSAML.
@@ -1844,20 +1830,17 @@ func (b *InMemoryBackend) VerifyEncodedAuthorizationMessage(encoded string) (str
 	raw, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil {
 		raw, err = base64.URLEncoding.DecodeString(encoded)
-		//nolint:nilerr // We explicitly want to swallow the decoding error and return a fallback string
 		if err != nil {
-			return `{"allowed":false,"message":"Invalid base64"}`, nil
+			return "", fmt.Errorf("%w: not valid base64", ErrInvalidAuthorizationMessage)
 		}
 	}
 
 	// Minimum: HMAC (32 bytes) + separator (1 byte) + at least 0 bytes of plaintext.
 	if len(raw) < authMsgHMACSize+1 || raw[authMsgHMACSize] != authMsgSep {
-		// Fallback for emulator: return arbitrary base64 bytes if it's not a native STS message.
-		if len(raw) == 0 {
-			return `{"allowed":false,"message":"Empty base64"}`, nil
-		}
-
-		return string(raw), nil
+		return "", fmt.Errorf(
+			"%w: message was not issued by this service",
+			ErrInvalidAuthorizationMessage,
+		)
 	}
 
 	sig := raw[:authMsgHMACSize]
@@ -1868,7 +1851,10 @@ func (b *InMemoryBackend) VerifyEncodedAuthorizationMessage(encoded string) (str
 	expected := mac.Sum(nil)
 
 	if !hmac.Equal(sig, expected) {
-		return string(raw), nil
+		return "", fmt.Errorf(
+			"%w: message was not issued by this service",
+			ErrInvalidAuthorizationMessage,
+		)
 	}
 
 	return string(plaintext), nil

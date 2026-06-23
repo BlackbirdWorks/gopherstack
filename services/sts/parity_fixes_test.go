@@ -87,7 +87,11 @@ func TestParity_AssumeRoleWithSAML_SAMLAssertionValidation(t *testing.T) {
 			samlAssertion: "assertion",
 			wantErr:       sts.ErrInvalidSAMLAssertion,
 		},
-
+		{
+			name:          "valid_base64_non_xml_accepted",
+			samlAssertion: "dGVzdA==", // "test" — valid base64; emulator accepts non-XML payloads
+			wantErr:       nil,
+		},
 		{
 			name:          "valid_base64_xml_accepted",
 			samlAssertion: testSAMLAssertion, // <samlp:Assertion>
@@ -140,7 +144,11 @@ func TestParity_AssumeRoleWithSAML_SAMLAssertionViaHandler(t *testing.T) {
 			wantCode:      http.StatusBadRequest,
 			wantError:     "InvalidIdentityToken",
 		},
-
+		{
+			name:          "valid_base64_non_xml_returns_200",
+			samlAssertion: "dGVzdA==",
+			wantCode:      http.StatusOK,
+		},
 		{
 			name:          "valid_saml_xml_returns_200",
 			samlAssertion: testSAMLAssertion,
@@ -211,11 +219,28 @@ func TestParity_DecodeAuthorizationMessage_VerifiesIssuer(t *testing.T) {
 			wantDecoded: "Access denied to s3:GetObject on arn:aws:s3:::my-bucket/secret",
 		},
 		{
+			name: "arbitrary_base64_rejected",
+			setupMsg: func(_ *sts.InMemoryBackend) string {
+				return "SGVsbG8gV29ybGQ=" // base64("Hello World") — not STS-issued
+			},
+			wantErr: sts.ErrInvalidAuthorizationMessage,
+		},
+		{
 			name: "empty_message_issued_and_decoded",
 			setupMsg: func(b *sts.InMemoryBackend) string {
 				return b.IssueEncodedAuthorizationMessage("")
 			},
 			wantDecoded: "",
+		},
+		{
+			name: "message_from_different_backend_rejected",
+			setupMsg: func(_ *sts.InMemoryBackend) string {
+				// Issue from a different backend instance — different signing key.
+				other := sts.NewInMemoryBackend()
+
+				return other.IssueEncodedAuthorizationMessage("cross-backend message")
+			},
+			wantErr: sts.ErrInvalidAuthorizationMessage,
 		},
 	}
 
@@ -252,6 +277,21 @@ func TestParity_DecodeAuthorizationMessage_ViaHandler(t *testing.T) {
 				return b.IssueEncodedAuthorizationMessage("denied: s3:PutObject")
 			},
 			wantCode: http.StatusOK,
+		},
+		{
+			name: "arbitrary_base64_returns_200",
+			setupMsg: func(_ *sts.InMemoryBackend) string {
+				return "SGVsbG8=" // base64("Hello")
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "garbage_non_base64_returns_400",
+			setupMsg: func(_ *sts.InMemoryBackend) string {
+				return "not-base64!!!"
+			},
+			wantCode:  http.StatusBadRequest,
+			wantError: "InvalidAuthorizationMessageException",
 		},
 	}
 
