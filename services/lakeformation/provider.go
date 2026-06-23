@@ -26,6 +26,8 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	accountID, region := service.AccountRegionOrDefault(ctx)
 
 	backend := NewInMemoryBackend()
+	backend.StartJanitor(ctx.JanitorCtx)
+
 	handler := NewHandler(backend)
 	handler.AccountID = accountID
 	handler.DefaultRegion = region

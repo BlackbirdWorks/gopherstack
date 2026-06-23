@@ -820,7 +820,6 @@ type getWorkUnitResultsInput struct {
 	QueryID       string `json:"QueryId"`
 	WorkUnitToken string `json:"WorkUnitToken"`
 }
-type getWorkUnitResultsOutput struct{}
 
 type getWorkUnitsInput struct {
 	NextToken string `json:"NextToken,omitempty"`
@@ -848,6 +847,7 @@ type listTableStorageOptimizersOutput struct {
 type searchDatabasesByLFTagsInput struct {
 	CatalogID  string  `json:"CatalogId,omitempty"`
 	NextToken  string  `json:"NextToken,omitempty"`
+	MaxResults *int    `json:"MaxResults,omitempty"`
 	Expression []LFTag `json:"Expression"`
 }
 type searchDatabasesByLFTagsOutput struct {
@@ -858,6 +858,7 @@ type searchDatabasesByLFTagsOutput struct {
 type searchTablesByLFTagsInput struct {
 	CatalogID  string  `json:"CatalogId,omitempty"`
 	NextToken  string  `json:"NextToken,omitempty"`
+	MaxResults *int    `json:"MaxResults,omitempty"`
 	Expression []LFTag `json:"Expression"`
 }
 type searchTablesByLFTagsOutput struct {
