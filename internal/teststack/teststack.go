@@ -1058,7 +1058,9 @@ func populateTransferHandlers(h *handlers) {
 	h.vpclattice = vpclatticebackend.NewHandler(
 		vpclatticebackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
-	h.xray = xraybackend.NewHandler(xraybackend.NewInMemoryBackend())
+	h.xray = xraybackend.NewHandler(
+		xraybackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
 	h.s3tables = s3tablesbackend.NewHandler(
 		s3tablesbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)

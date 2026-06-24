@@ -15,7 +15,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
-	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -254,6 +253,14 @@ const (
 	defaultFixedRate = 0.05
 	// defaultSamplingPriority is the priority of the built-in Default sampling rule.
 	defaultSamplingPriority = int32(10000)
+	// insightFaultThreshold is the fault rate that triggers an insight (5%).
+	insightFaultThreshold = 0.05
+	// insightMinRequests is the minimum number of requests before an insight fires.
+	insightMinRequests = int64(10)
+	// insightWindowDuration is the rolling window for fault rate tracking.
+	insightWindowDuration = 60 * time.Second
+	// pctMultiplier converts a 0-1 fraction to a percentage for display.
+	pctMultiplier = 100.0
 )
 
 // validKMSKeyID checks whether a KMS KeyId is in an acceptable format:
@@ -264,41 +271,50 @@ var validKMSKeyID = regexp.MustCompile(
 	`^(alias/[a-zA-Z0-9/_-]+|arn:aws:kms:[a-z0-9-]+:\d+:key/[a-zA-Z0-9/_-]+|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$`,
 )
 
+// serviceInsightWindow tracks fault/error rates per service for insight detection.
+type serviceInsightWindow struct {
+	WindowStart time.Time
+	InsightID   string
+	Total       int64
+	FaultCount  int64
+}
+
 // InMemoryBackend is the in-memory store for X-Ray resources.
 type InMemoryBackend struct {
-	groups        map[string]*Group
-	samplingRules map[string]*SamplingRule
-	traces        map[string]*Trace
-	// parsedSegments indexes segments by traceID+":"+segID
-	parsedSegments map[string]*Segment
-	// traceSegments maps traceID → list of segments (pointers into parsedSegments)
+	lastRuleModification time.Time
+	groupsByARN          map[string]*Group
+	retrievedTraces      map[string][]*Trace
+	parsedSegments       map[string]*Segment
 	traceSegments        map[string][]*Segment
 	insights             map[string]*Insight
 	insightEvents        map[string][]*InsightEvent
 	resourcePolicies     map[string]*ResourcePolicy
-	traceRetrievals      map[string]*TraceRetrieval
-	retrievedTraces      map[string][]*Trace
+	retrievalTimes       map[string]time.Time
+	groups               map[string]*Group
 	resourceTags         map[string]map[string]string
+	traces               map[string]*Trace
+	samplingStats        map[string]*SamplingStatisticSummary
+	traceRetrievals      map[string]*TraceRetrieval
+	serviceWindows       map[string]*serviceInsightWindow
 	encryptionConfig     *EncryptionConfig
 	mu                   *lockmetrics.RWMutex
+	samplingRules        map[string]*SamplingRule
 	traceSegmentDest     string
+	region               string
+	accountID            string
+	telemetry            []*TelemetryRecord
 	indexingRules        []*IndexingRule
-	lastRuleModification time.Time
-	// samplingStats accumulates per-rule statistics from PutSamplingTargets docs.
-	samplingStats map[string]*SamplingStatisticSummary
-	// telemetry is a ring buffer of the last telemetryRingSize records.
-	telemetry    []*TelemetryRecord
-	telemetryIdx int
+	telemetryIdx         int
 }
 
 // defaultSamplingRules returns the built-in X-Ray sampling rules that are always present.
 // The "Default" rule matches all requests and has the lowest priority (10000).
-func defaultSamplingRules() map[string]*SamplingRule {
+func (b *InMemoryBackend) defaultSamplingRules() map[string]*SamplingRule {
 	now := time.Now()
 	rules := make(map[string]*SamplingRule, 1)
 	rules[defaultSamplingRuleName] = &SamplingRule{
 		RuleName:      defaultSamplingRuleName,
-		RuleARN:       samplingRuleARN(defaultSamplingRuleName),
+		RuleARN:       b.samplingRuleARN(defaultSamplingRuleName),
 		ResourceARN:   "*",
 		ServiceName:   "*",
 		ServiceType:   "*",
@@ -315,11 +331,10 @@ func defaultSamplingRules() map[string]*SamplingRule {
 	return rules
 }
 
-// NewInMemoryBackend creates a new InMemoryBackend.
-func NewInMemoryBackend() *InMemoryBackend {
-	return &InMemoryBackend{
+// NewInMemoryBackend creates a new InMemoryBackend with the given accountID and region.
+func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
+	b := &InMemoryBackend{
 		groups:           make(map[string]*Group),
-		samplingRules:    defaultSamplingRules(),
 		traces:           make(map[string]*Trace),
 		parsedSegments:   make(map[string]*Segment),
 		traceSegments:    make(map[string][]*Segment),
@@ -337,7 +352,15 @@ func NewInMemoryBackend() *InMemoryBackend {
 			Type:   "NONE",
 			Status: statusActive,
 		},
+		region:         region,
+		accountID:      accountID,
+		groupsByARN:    make(map[string]*Group),
+		retrievalTimes: make(map[string]time.Time),
+		serviceWindows: make(map[string]*serviceInsightWindow),
 	}
+	b.samplingRules = b.defaultSamplingRules()
+
+	return b
 }
 
 // defaultIndexingRules returns the built-in X-Ray indexing rules.
@@ -349,12 +372,12 @@ func defaultIndexingRules() []*IndexingRule {
 	}
 }
 
-func groupARN(name string) string {
-	return "arn:aws:xray:" + config.DefaultRegion + ":" + config.DefaultAccountID + ":group/default/" + name
+func (b *InMemoryBackend) groupARN(name string) string {
+	return "arn:aws:xray:" + b.region + ":" + b.accountID + ":group/default/" + name
 }
 
-func samplingRuleARN(name string) string {
-	return "arn:aws:xray:" + config.DefaultRegion + ":" + config.DefaultAccountID + ":sampling-rule/" + name
+func (b *InMemoryBackend) samplingRuleARN(name string) string {
+	return "arn:aws:xray:" + b.region + ":" + b.accountID + ":sampling-rule/" + name
 }
 
 func cloneGroup(g *Group) *Group {
@@ -384,12 +407,13 @@ func (b *InMemoryBackend) CreateGroup(name, filterExpr string) (*Group, error) {
 	}
 
 	g := &Group{
-		GroupARN:         groupARN(name),
+		GroupARN:         b.groupARN(name),
 		GroupName:        name,
 		FilterExpression: filterExpr,
 		CreatedAt:        time.Now(),
 	}
 	b.groups[name] = g
+	b.groupsByARN[g.GroupARN] = g
 
 	return cloneGroup(g), nil
 }
@@ -404,13 +428,14 @@ func (b *InMemoryBackend) CreateGroupWithInsights(name, filterExpr string, ic In
 	}
 
 	g := &Group{
-		GroupARN:              groupARN(name),
+		GroupARN:              b.groupARN(name),
 		GroupName:             name,
 		FilterExpression:      filterExpr,
 		InsightsConfiguration: ic,
 		CreatedAt:             time.Now(),
 	}
 	b.groups[name] = g
+	b.groupsByARN[g.GroupARN] = g
 
 	return cloneGroup(g), nil
 }
@@ -433,10 +458,8 @@ func (b *InMemoryBackend) GetGroupByARN(arn string) (*Group, error) {
 	b.mu.RLock("GetGroupByARN")
 	defer b.mu.RUnlock()
 
-	for _, g := range b.groups {
-		if g.GroupARN == arn {
-			return cloneGroup(g), nil
-		}
+	if g, ok := b.groupsByARN[arn]; ok {
+		return cloneGroup(g), nil
 	}
 
 	return nil, fmt.Errorf("%w: group with ARN %s not found", ErrGroupNotFound, arn)
@@ -482,13 +505,7 @@ func (b *InMemoryBackend) UpdateGroupByARN(name, arn, filterExpr string) (*Group
 	var g *Group
 
 	if arn != "" {
-		for _, grp := range b.groups {
-			if grp.GroupARN == arn {
-				g = grp
-
-				break
-			}
-		}
+		g = b.groupsByARN[arn]
 	} else {
 		g = b.groups[name]
 	}
@@ -512,10 +529,12 @@ func (b *InMemoryBackend) DeleteGroup(name string) error {
 	b.mu.Lock("DeleteGroup")
 	defer b.mu.Unlock()
 
-	if _, ok := b.groups[name]; !ok {
+	g, ok := b.groups[name]
+	if !ok {
 		return fmt.Errorf("%w: group %s not found", ErrGroupNotFound, name)
 	}
 
+	delete(b.groupsByARN, g.GroupARN)
 	delete(b.groups, name)
 
 	return nil
@@ -527,21 +546,23 @@ func (b *InMemoryBackend) DeleteGroupByARN(name, arn string) error {
 	defer b.mu.Unlock()
 
 	if arn != "" {
-		for n, g := range b.groups {
-			if g.GroupARN == arn {
-				delete(b.groups, n)
-
-				return nil
-			}
+		g, ok := b.groupsByARN[arn]
+		if !ok {
+			return fmt.Errorf("%w: group with ARN %s not found", ErrGroupNotFound, arn)
 		}
 
-		return fmt.Errorf("%w: group with ARN %s not found", ErrGroupNotFound, arn)
+		delete(b.groupsByARN, arn)
+		delete(b.groups, g.GroupName)
+
+		return nil
 	}
 
-	if _, ok := b.groups[name]; !ok {
+	g, ok := b.groups[name]
+	if !ok {
 		return fmt.Errorf("%w: group %s not found", ErrGroupNotFound, name)
 	}
 
+	delete(b.groupsByARN, g.GroupARN)
 	delete(b.groups, name)
 
 	return nil
@@ -581,7 +602,7 @@ func (b *InMemoryBackend) CreateSamplingRule(rule SamplingRule) (*SamplingRule, 
 		return nil, fmt.Errorf("%w: sampling rule %s already exists", ErrSamplingRuleAlreadyExists, rule.RuleName)
 	}
 
-	rule.RuleARN = samplingRuleARN(rule.RuleName)
+	rule.RuleARN = b.samplingRuleARN(rule.RuleName)
 	now := time.Now()
 	rule.CreatedAt = now
 	rule.ModifiedAt = now
@@ -751,6 +772,7 @@ func (b *InMemoryBackend) PutTraceSegments(segments []string) []string {
 	defer b.mu.Unlock()
 
 	unprocessed := make([]string, 0, len(segments))
+	newlyParsed := make([]*Segment, 0, len(segments))
 
 	for _, seg := range segments {
 		var hdr segmentHeader
@@ -787,6 +809,7 @@ func (b *InMemoryBackend) PutTraceSegments(segments []string) []string {
 			segKey := hdr.TraceID + ":" + parsed.ID
 			b.parsedSegments[segKey] = &parsed
 			b.traceSegments[hdr.TraceID] = append(b.traceSegments[hdr.TraceID], &parsed)
+			newlyParsed = append(newlyParsed, &parsed)
 
 			// Update trace StartTime from the earliest segment start_time.
 			if parsed.StartTime > 0 {
@@ -801,7 +824,98 @@ func (b *InMemoryBackend) PutTraceSegments(segments []string) []string {
 		}
 	}
 
+	b.detectInsights(newlyParsed)
+
 	return unprocessed
+}
+
+// maybeResetInsightWindow resets the window when it has expired, closing any
+// active insight whose rate has normalised. Must be called with mu held.
+func (b *InMemoryBackend) maybeResetInsightWindow(w *serviceInsightWindow, now time.Time) {
+	if now.Sub(w.WindowStart) <= insightWindowDuration {
+		return
+	}
+
+	if w.InsightID != "" && w.Total > 0 {
+		rate := float64(w.FaultCount) / float64(w.Total)
+		if rate < insightFaultThreshold {
+			if ins, exists := b.insights[w.InsightID]; exists {
+				ins.State = "CLOSED"
+				ins.EndTime = now
+			}
+
+			w.InsightID = ""
+		}
+	}
+
+	w.Total = 0
+	w.FaultCount = 0
+	w.WindowStart = now
+}
+
+// maybeOpenInsight creates a new ACTIVE insight when the window has enough
+// data and the fault rate exceeds the threshold. Must be called with mu held.
+func (b *InMemoryBackend) maybeOpenInsight(w *serviceInsightWindow, svcName string, now time.Time) {
+	if w.Total < insightMinRequests || w.InsightID != "" {
+		return
+	}
+
+	rate := float64(w.FaultCount) / float64(w.Total)
+	if rate < insightFaultThreshold {
+		return
+	}
+
+	insightID := uuid.NewString()
+	b.insights[insightID] = &Insight{
+		InsightID: insightID,
+		GroupARN:  b.groupARN("default"),
+		GroupName: "default",
+		State:     statusActive,
+		StartTime: now,
+		Summary: fmt.Sprintf(
+			"Elevated fault rate detected for service %q (%.0f%%)",
+			svcName, rate*pctMultiplier,
+		),
+	}
+	b.insightEvents[insightID] = []*InsightEvent{{
+		InsightID: insightID,
+		EventTime: now,
+		Summary: fmt.Sprintf(
+			"Fault rate %.0f%% exceeded threshold for %q",
+			rate*pctMultiplier, svcName,
+		),
+	}}
+	w.InsightID = insightID
+}
+
+// detectInsights checks per-service fault rates and creates/closes insights as needed.
+// Must be called while the backend mutex is held.
+func (b *InMemoryBackend) detectInsights(newSegs []*Segment) {
+	now := time.Now()
+
+	byService := map[string][]*Segment{}
+	for _, seg := range newSegs {
+		byService[seg.Name] = append(byService[seg.Name], seg)
+	}
+
+	for svcName, segs := range byService {
+		w, ok := b.serviceWindows[svcName]
+		if !ok {
+			w = &serviceInsightWindow{WindowStart: now}
+			b.serviceWindows[svcName] = w
+		}
+
+		b.maybeResetInsightWindow(w, now)
+
+		for _, seg := range segs {
+			w.Total++
+			if seg.Fault || seg.Error {
+				w.FaultCount++
+			}
+		}
+
+		b.maybeOpenInsight(w, svcName, now)
+	}
 }
 
 // GetTraceSummaries returns all trace summaries sorted by start time (newest first).
@@ -874,7 +988,8 @@ func (b *InMemoryBackend) Reset() {
 	defer b.mu.Unlock()
 
 	b.groups = make(map[string]*Group)
-	b.samplingRules = defaultSamplingRules()
+	b.groupsByARN = make(map[string]*Group)
+	b.samplingRules = b.defaultSamplingRules()
 	b.traces = make(map[string]*Trace)
 	b.parsedSegments = make(map[string]*Segment)
 	b.traceSegments = make(map[string][]*Segment)
@@ -882,6 +997,9 @@ func (b *InMemoryBackend) Reset() {
 	b.insightEvents = make(map[string][]*InsightEvent)
 	b.resourcePolicies = make(map[string]*ResourcePolicy)
 	b.traceRetrievals = make(map[string]*TraceRetrieval)
+	b.retrievedTraces = make(map[string][]*Trace)
+	b.retrievalTimes = make(map[string]time.Time)
+	b.serviceWindows = make(map[string]*serviceInsightWindow)
 	b.samplingStats = make(map[string]*SamplingStatisticSummary)
 	b.telemetry = make([]*TelemetryRecord, telemetryRingSize)
 	b.telemetryIdx = 0
@@ -1718,11 +1836,12 @@ func (b *InMemoryBackend) StartTraceRetrieval(traceIDs []string) string {
 	b.mu.Lock("StartTraceRetrieval")
 	defer b.mu.Unlock()
 
-	token := "retrieval-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	now := time.Now()
+	token := "retrieval-" + strconv.FormatInt(now.UnixNano(), 10)
 
 	retrieval := &TraceRetrieval{
 		RetrievalToken: token,
-		StartTime:      time.Now(),
+		StartTime:      now,
 		Status:         traceRetrievalStatusComplete,
 	}
 
@@ -1731,6 +1850,7 @@ func (b *InMemoryBackend) StartTraceRetrieval(traceIDs []string) string {
 	}
 
 	b.traceRetrievals[token] = retrieval
+	b.retrievalTimes[token] = now
 
 	// Pre-populate results using stored traces that match the requested IDs.
 	if b.retrievedTraces == nil {

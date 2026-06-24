@@ -18,13 +18,13 @@ import (
 func newTestHandler(t *testing.T) *xray.Handler {
 	t.Helper()
 
-	return xray.NewHandler(xray.NewInMemoryBackend())
+	return xray.NewHandler(xray.NewInMemoryBackend("000000000000", "us-east-1"))
 }
 
 func newTestHandlerWithBackend(t *testing.T) (*xray.Handler, *xray.InMemoryBackend) {
 	t.Helper()
 
-	b := xray.NewInMemoryBackend()
+	b := xray.NewInMemoryBackend("000000000000", "us-east-1")
 
 	return xray.NewHandler(b), b
 }

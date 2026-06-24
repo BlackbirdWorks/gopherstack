@@ -16,7 +16,7 @@ import (
 func TestSDKCompleteness(t *testing.T) {
 	t.Parallel()
 
-	backend := xray.NewInMemoryBackend()
+	backend := xray.NewInMemoryBackend("000000000000", "us-east-1")
 	h := xray.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &xraysdk.Client{}, h.GetSupportedOperations(), []string{})
 }

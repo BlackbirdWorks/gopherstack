@@ -50,7 +50,7 @@ func TestXRayJanitor_TaskTimeout_WithJanitor(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := xray.NewHandler(xray.NewInMemoryBackend())
+			h := xray.NewHandler(xray.NewInMemoryBackend("000000000000", "us-east-1"))
 			h.WithJanitor(time.Minute, tt.traceTTL, tt.taskTimeout)
 
 			assert.Equal(t, tt.wantTTL, h.GetJanitorTraceTTL())
@@ -88,7 +88,7 @@ func TestXRayJanitor_SweepOnce_EvictsExpiredTraces(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := xray.NewInMemoryBackend()
+			b := xray.NewInMemoryBackend("000000000000", "us-east-1")
 
 			startTime := time.Now().Add(-tt.traceAge)
 			traceID := b.PutTraceForTest(startTime)
@@ -111,7 +111,7 @@ func TestXRayJanitor_SweepOnce_EvictsExpiredTraces(t *testing.T) {
 func TestXRayJanitor_Run_ExitsOnCancel(t *testing.T) {
 	t.Parallel()
 
-	b := xray.NewInMemoryBackend()
+	b := xray.NewInMemoryBackend("000000000000", "us-east-1")
 	j := xray.NewJanitor(b, 10*time.Millisecond, 0)
 	j.TaskTimeout = 30 * time.Second
 
@@ -159,7 +159,7 @@ func TestXRayJanitor_DefaultInterval(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := xray.NewHandler(xray.NewInMemoryBackend())
+			h := xray.NewHandler(xray.NewInMemoryBackend("000000000000", "us-east-1"))
 			h.WithJanitor(tt.interval, 0)
 
 			assert.Equal(t, tt.want, h.GetJanitorInterval())
