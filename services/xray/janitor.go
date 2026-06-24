@@ -91,6 +91,15 @@ func (j *Janitor) sweepExpiredTraces(ctx context.Context) {
 		}
 	}
 
+	// Sweep expired retrieval tokens.
+	for token, created := range j.Backend.retrievalTimes {
+		if created.Before(cutoff) {
+			delete(j.Backend.traceRetrievals, token)
+			delete(j.Backend.retrievedTraces, token)
+			delete(j.Backend.retrievalTimes, token)
+		}
+	}
+
 	j.Backend.mu.Unlock()
 
 	count := len(swept)

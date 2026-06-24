@@ -115,7 +115,7 @@ func (b *InMemoryBackend) AddSamplingRuleInternal(rule SamplingRule) {
 	defer b.mu.Unlock()
 
 	now := time.Now()
-	rule.RuleARN = samplingRuleARN(rule.RuleName)
+	rule.RuleARN = b.samplingRuleARN(rule.RuleName)
 
 	if rule.CreatedAt.IsZero() {
 		rule.CreatedAt = now
@@ -133,3 +133,12 @@ const MaxSegmentsPerTrace = maxSegmentsPerTrace
 
 // SegmentCompactionHighWater exposes the compaction trigger for tests.
 const SegmentCompactionHighWater = segmentCompactionHighWater
+
+// SetRetrievalTimeForTest overrides the recorded creation time for a retrieval token.
+// Used in tests to simulate aged retrieval tokens for janitor sweep testing.
+func (b *InMemoryBackend) SetRetrievalTimeForTest(token string, t time.Time) {
+	b.mu.Lock("SetRetrievalTimeForTest")
+	defer b.mu.Unlock()
+
+	b.retrievalTimes[token] = t
+}

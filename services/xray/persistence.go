@@ -71,7 +71,7 @@ func ensureNonNilMaps(snap *backendSnapshot) {
 	}
 
 	if snap.SamplingRules == nil {
-		snap.SamplingRules = defaultSamplingRules()
+		snap.SamplingRules = make(map[string]*SamplingRule)
 	}
 
 	if snap.Traces == nil {
@@ -117,6 +117,11 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	defer b.mu.Unlock()
 
 	b.groups = snap.Groups
+	// Rebuild the ARN index from the restored groups.
+	b.groupsByARN = make(map[string]*Group, len(snap.Groups))
+	for _, g := range snap.Groups {
+		b.groupsByARN[g.GroupARN] = g
+	}
 	b.samplingRules = snap.SamplingRules
 	b.traces = snap.Traces
 	b.insights = snap.Insights
@@ -137,12 +142,14 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	// Ensure the built-in Default sampling rule is always present after restore.
 	if _, ok := b.samplingRules[defaultSamplingRuleName]; !ok {
-		maps.Copy(b.samplingRules, defaultSamplingRules())
+		maps.Copy(b.samplingRules, b.defaultSamplingRules())
 	}
 
 	// Rebuild parsed segment indexes from stored traces.
 	b.parsedSegments = make(map[string]*Segment)
 	b.traceSegments = make(map[string][]*Segment)
+	b.retrievalTimes = make(map[string]time.Time)
+	b.serviceWindows = make(map[string]*serviceInsightWindow)
 
 	for traceID, t := range b.traces {
 		for _, rawSeg := range t.Segments {
