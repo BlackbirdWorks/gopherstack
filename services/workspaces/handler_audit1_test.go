@@ -21,7 +21,12 @@ func newTestHandler(t *testing.T) *workspaces.Handler {
 	return workspaces.NewHandler(backend)
 }
 
-func doTargetRequest(t *testing.T, h *workspaces.Handler, target string, body any) *httptest.ResponseRecorder {
+func doTargetRequest(
+	t *testing.T,
+	h *workspaces.Handler,
+	target string,
+	body any,
+) *httptest.ResponseRecorder {
 	t.Helper()
 
 	var bodyBytes []byte
@@ -48,6 +53,11 @@ func doTargetRequest(t *testing.T, h *workspaces.Handler, target string, body an
 
 func createWorkspace(t *testing.T, h *workspaces.Handler) string {
 	t.Helper()
+
+	// Ensure the test directory is registered; a 200 or 400 (already exists) are both fine.
+	doTargetRequest(t, h, "RegisterWorkspaceDirectory", map[string]any{
+		"DirectoryId": "d-1234567890",
+	})
 
 	rec := doTargetRequest(t, h, "CreateWorkspaces", map[string]any{
 		"Workspaces": []map[string]any{
@@ -90,6 +100,16 @@ func TestWorkSpaces_Operations(t *testing.T) {
 		{
 			name:   "CreateWorkspaces returns pending requests",
 			target: "CreateWorkspaces",
+			setup: func(h *workspaces.Handler) string {
+				doTargetRequest(
+					t,
+					h,
+					"RegisterWorkspaceDirectory",
+					map[string]any{"DirectoryId": "d-1234567890"},
+				)
+
+				return ""
+			},
 			body: func(_ string) any {
 				return map[string]any{
 					"Workspaces": []map[string]any{

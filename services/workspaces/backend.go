@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
@@ -29,6 +30,10 @@ const (
 
 	// describeWorkspacesMaxResults is the AWS maximum results per page.
 	describeWorkspacesMaxResults = 25
+	// bundlesPageSize is the AWS default page size for DescribeWorkspaceBundles.
+	bundlesPageSize = 25
+	// directoriesPageSize is the AWS default page size for DescribeWorkspaceDirectories.
+	directoriesPageSize = 50
 	// maxTagsPerResource is the AWS limit for tags per resource.
 	maxTagsPerResource = 50
 	// maxWorkspacesPerCreate is the AWS limit per CreateWorkspaces call.
@@ -89,6 +94,7 @@ type storedWorkspace struct {
 	VolumeEncryptionKey         string               `json:"volumeEncryptionKey,omitempty"`
 	ErrorCode                   string               `json:"errorCode"`
 	ErrorMessage                string               `json:"errorMessage"`
+	Region                      string               `json:"region"`
 	UserVolumeEncryptionEnabled bool                 `json:"userVolumeEncryptionEnabled"`
 	RootVolumeEncryptionEnabled bool                 `json:"rootVolumeEncryptionEnabled"`
 }
@@ -179,10 +185,30 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	}
 }
 
+// regionFor returns the region from ctx when present, falling back to b.region.
+func (b *InMemoryBackend) regionFor(ctx context.Context) string {
+	if r := awsmeta.Region(ctx); r != "" {
+		return r
+	}
+
+	return b.region
+}
+
 // CreateWorkspace creates a new WorkSpace and returns it.
-func (b *InMemoryBackend) CreateWorkspace(spec *WorkspaceCreationSpec) (*Workspace, error) {
+// Returns InvalidParameterValuesException when spec.DirectoryID is not registered.
+func (b *InMemoryBackend) CreateWorkspace(
+	ctx context.Context,
+	spec *WorkspaceCreationSpec,
+) (*Workspace, error) {
+	region := b.regionFor(ctx)
+
 	b.mu.Lock("CreateWorkspace")
 	defer b.mu.Unlock()
+
+	if _, ok := b.dirSettings[spec.DirectoryID]; !ok {
+		return nil, awserr.Newf(errInvalidParameterValues, awserr.ErrInvalidParameter,
+			"directory %q is not registered", spec.DirectoryID)
+	}
 
 	b.counter++
 	workspaceID := fmt.Sprintf("%s%0*x", workspaceIDPrefix, workspaceIDHexLen, b.counter)
@@ -208,6 +234,7 @@ func (b *InMemoryBackend) CreateWorkspace(spec *WorkspaceCreationSpec) (*Workspa
 		State:                       stateAvailable,
 		Tags:                        storedTags,
 		Properties:                  props,
+		Region:                      region,
 	}
 
 	b.workspaces[workspaceID] = w
@@ -219,13 +246,14 @@ func (b *InMemoryBackend) CreateWorkspace(spec *WorkspaceCreationSpec) (*Workspa
 // DescribeWorkspaces returns workspaces matching the given filters.
 // Results are sorted by WorkspaceId and paginated (max 25 per page, matching AWS).
 func (b *InMemoryBackend) DescribeWorkspaces(
+	ctx context.Context,
 	workspaceIDs, directoryIDs, userIDs, bundleIDs []string,
 	limit int32, nextToken string,
 ) ([]*Workspace, string, error) {
 	b.mu.RLock("DescribeWorkspaces")
 	defer b.mu.RUnlock()
 
-	matched := b.filterWorkspaces(workspaceIDs, directoryIDs, userIDs, bundleIDs)
+	matched := b.filterWorkspaces(b.regionFor(ctx), workspaceIDs, directoryIDs, userIDs, bundleIDs)
 
 	sort.Slice(matched, func(i, j int) bool {
 		return matched[i].WorkspaceID < matched[j].WorkspaceID
@@ -253,6 +281,7 @@ func (b *InMemoryBackend) DescribeWorkspaces(
 // filterWorkspaces returns all stored workspaces that match all provided filters.
 // Must be called with a read lock held.
 func (b *InMemoryBackend) filterWorkspaces(
+	region string,
 	workspaceIDs, directoryIDs, userIDs, bundleIDs []string,
 ) []*storedWorkspace {
 	idFilter := buildFilter(workspaceIDs)
@@ -263,6 +292,10 @@ func (b *InMemoryBackend) filterWorkspaces(
 	var matched []*storedWorkspace
 
 	for _, w := range b.workspaces {
+		if region != "" && w.Region != "" && w.Region != region {
+			continue
+		}
+
 		if matchesFilter(idFilter, w.WorkspaceID) &&
 			matchesFilter(dirFilter, w.DirectoryID) &&
 			matchesFilter(userFilter, w.UserName) &&
@@ -355,7 +388,9 @@ func matchesFilter(filter map[string]struct{}, value string) bool {
 // If no IDs are provided, returns status for all workspaces. AVAILABLE workspaces
 // report DISCONNECTED (not yet connected in this emulator); STOPPED workspaces
 // report NOT_CONNECTED, matching real AWS behaviour for offline workspaces.
-func (b *InMemoryBackend) GetWorkspacesConnectionStatus(workspaceIDs []string) ([]*WorkspaceConnectionStatus, error) {
+func (b *InMemoryBackend) GetWorkspacesConnectionStatus(
+	workspaceIDs []string,
+) ([]*WorkspaceConnectionStatus, error) {
 	b.mu.RLock("GetWorkspacesConnectionStatus")
 	defer b.mu.RUnlock()
 
@@ -402,7 +437,10 @@ func (b *InMemoryBackend) GetWorkspacesConnectionStatus(workspaceIDs []string) (
 
 // ModifyWorkspaceProperties updates and persists mutable properties of a WorkSpace.
 // Returns InvalidParameterValuesException for unknown compute type names or running modes.
-func (b *InMemoryBackend) ModifyWorkspaceProperties(workspaceID string, props WorkspaceProperties) error {
+func (b *InMemoryBackend) ModifyWorkspaceProperties(
+	workspaceID string,
+	props WorkspaceProperties,
+) error {
 	if props.ComputeTypeName != "" && !isValidComputeTypeName(props.ComputeTypeName) {
 		return awserr.Newf(errInvalidParameterValues, awserr.ErrInvalidParameter,
 			"invalid ComputeTypeName: %q", props.ComputeTypeName)
@@ -417,8 +455,12 @@ func (b *InMemoryBackend) ModifyWorkspaceProperties(workspaceID string, props Wo
 		// AWS requires the timeout to be a multiple of 60 and between 60 and 600.
 		t := props.RunningModeAutoStopTimeoutInMinutes
 		if t < 60 || t > 600 || t%60 != 0 {
-			return awserr.Newf(errInvalidParameterValues, awserr.ErrInvalidParameter,
-				"RunningModeAutoStopTimeoutInMinutes must be a multiple of 60 between 60 and 600, got %d", t)
+			return awserr.Newf(
+				errInvalidParameterValues,
+				awserr.ErrInvalidParameter,
+				"RunningModeAutoStopTimeoutInMinutes must be a multiple of 60 between 60 and 600, got %d",
+				t,
+			)
 		}
 	}
 
@@ -552,7 +594,10 @@ func (b *InMemoryBackend) TerminateWorkspaces(workspaceIDs []string) ([]FailedRe
 
 // collectFailures returns FailedRequests for any workspace IDs not found.
 // Must be called with a lock held.
-func (b *InMemoryBackend) collectFailures(workspaceIDs []string, errCode, errMsg string) []FailedRequest {
+func (b *InMemoryBackend) collectFailures(
+	workspaceIDs []string,
+	errCode, errMsg string,
+) []FailedRequest {
 	var failures []FailedRequest
 
 	for _, id := range workspaceIDs {
@@ -641,12 +686,65 @@ func (b *InMemoryBackend) DescribeTags(resourceID string) (map[string]string, er
 	return result, nil
 }
 
+// amazonBundleList returns the predefined Amazon-owned bundles sorted by BundleID.
+func amazonBundleList() []*WorkspaceBundle {
+	return []*WorkspaceBundle{
+		{
+			BundleID:    "wsb-1b5w9hkng",
+			Name:        "PowerPro",
+			Owner:       ownerAmazon,
+			Description: "PowerPro with Windows 10 and Office 2019",
+			ComputeType: BundleComputeType{Name: "POWERPRO"},
+			UserStorage: BundleStorage{Capacity: bundlePowerProUserGiB},
+			RootStorage: BundleStorage{Capacity: bundlePowerRootGiB},
+		},
+		{
+			BundleID:    "wsb-b0s22j3d7",
+			Name:        "Performance",
+			Owner:       ownerAmazon,
+			Description: "Performance with Windows 10 and Office 2019",
+			ComputeType: BundleComputeType{Name: "PERFORMANCE"},
+			UserStorage: BundleStorage{Capacity: bundlePerformanceUserGiB},
+			RootStorage: BundleStorage{Capacity: bundleStdRootGiB},
+		},
+		{
+			BundleID:    "wsb-bh8rsxt14",
+			Name:        "Value",
+			Owner:       ownerAmazon,
+			Description: "Value with Windows 10 and Office 2019",
+			ComputeType: BundleComputeType{Name: "VALUE"},
+			UserStorage: BundleStorage{Capacity: bundleValueUserGiB},
+			RootStorage: BundleStorage{Capacity: bundleStdRootGiB},
+		},
+		{
+			BundleID:    "wsb-clj85qzj1",
+			Name:        "Power",
+			Owner:       ownerAmazon,
+			Description: "Power with Windows 10 and Office 2019",
+			ComputeType: BundleComputeType{Name: "POWER"},
+			UserStorage: BundleStorage{Capacity: bundlePowerUserGiB},
+			RootStorage: BundleStorage{Capacity: bundlePowerRootGiB},
+		},
+		{
+			BundleID:    "wsb-gm4d5tx2v",
+			Name:        "Standard",
+			Owner:       ownerAmazon,
+			Description: "Standard with Windows 10 and Office 2019",
+			ComputeType: BundleComputeType{Name: "STANDARD"},
+			UserStorage: BundleStorage{Capacity: bundleStandardUserGiB},
+			RootStorage: BundleStorage{Capacity: bundleStdRootGiB},
+		},
+	}
+}
+
 // DescribeWorkspaceBundles returns workspace bundles, optionally filtered by IDs or owner.
 // When no owner is specified, returns both Amazon-owned and account-owned custom bundles.
 // When owner is "Amazon", returns only Amazon-owned bundles.
 // When owner is an account ID, returns custom bundles for that account.
+// Results are sorted by BundleID and paginated (max 25 per page, matching AWS).
 func (b *InMemoryBackend) DescribeWorkspaceBundles(
-	bundleIDs []string, owner string, _ string,
+	_ context.Context,
+	bundleIDs []string, owner string, nextToken string,
 ) ([]*WorkspaceBundle, string, error) {
 	b.mu.RLock("DescribeWorkspaceBundles")
 	defer b.mu.RUnlock()
@@ -655,7 +753,7 @@ func (b *InMemoryBackend) DescribeWorkspaceBundles(
 
 	// Include Amazon bundles unless the caller explicitly requests a specific account.
 	if owner == "" || owner == ownerAmazon {
-		bundles = append(bundles, hardcodedBundles()...)
+		bundles = append(bundles, amazonBundleList()...)
 	}
 
 	// Include custom bundles when the caller wants all bundles or account-specific bundles.
@@ -672,6 +770,10 @@ func (b *InMemoryBackend) DescribeWorkspaceBundles(
 		}
 	}
 
+	sort.Slice(bundles, func(i, j int) bool {
+		return bundles[i].BundleID < bundles[j].BundleID
+	})
+
 	if len(bundleIDs) > 0 {
 		idFilter := buildFilter(bundleIDs)
 		filtered := bundles[:0]
@@ -685,64 +787,46 @@ func (b *InMemoryBackend) DescribeWorkspaceBundles(
 		return filtered, "", nil
 	}
 
-	return bundles, "", nil
+	bundles = advanceBundleCursor(bundles, nextToken)
+
+	var newToken string
+
+	if len(bundles) > bundlesPageSize {
+		newToken = base64.StdEncoding.EncodeToString([]byte(bundles[bundlesPageSize].BundleID))
+		bundles = bundles[:bundlesPageSize]
+	}
+
+	return bundles, newToken, nil
 }
 
-// hardcodedBundles returns the predefined Amazon-owned bundles with full AWS-accurate fields.
-func hardcodedBundles() []*WorkspaceBundle {
-	return []*WorkspaceBundle{
-		{
-			BundleID:    "wsb-bh8rsxt14",
-			Name:        "Value",
-			Owner:       ownerAmazon,
-			Description: "Value with Windows 10 and Office 2019",
-			ComputeType: BundleComputeType{Name: "VALUE"},
-			UserStorage: BundleStorage{Capacity: bundleValueUserGiB},
-			RootStorage: BundleStorage{Capacity: bundleStdRootGiB},
-		},
-		{
-			BundleID:    "wsb-gm4d5tx2v",
-			Name:        "Standard",
-			Owner:       ownerAmazon,
-			Description: "Standard with Windows 10 and Office 2019",
-			ComputeType: BundleComputeType{Name: "STANDARD"},
-			UserStorage: BundleStorage{Capacity: bundleStandardUserGiB},
-			RootStorage: BundleStorage{Capacity: bundleStdRootGiB},
-		},
-		{
-			BundleID:    "wsb-b0s22j3d7",
-			Name:        "Performance",
-			Owner:       ownerAmazon,
-			Description: "Performance with Windows 10 and Office 2019",
-			ComputeType: BundleComputeType{Name: "PERFORMANCE"},
-			UserStorage: BundleStorage{Capacity: bundlePerformanceUserGiB},
-			RootStorage: BundleStorage{Capacity: bundleStdRootGiB},
-		},
-		{
-			BundleID:    "wsb-clj85qzj1",
-			Name:        "Power",
-			Owner:       ownerAmazon,
-			Description: "Power with Windows 10 and Office 2019",
-			ComputeType: BundleComputeType{Name: "POWER"},
-			UserStorage: BundleStorage{Capacity: bundlePowerUserGiB},
-			RootStorage: BundleStorage{Capacity: bundlePowerRootGiB},
-		},
-		{
-			BundleID:    "wsb-1b5w9hkng",
-			Name:        "PowerPro",
-			Owner:       ownerAmazon,
-			Description: "PowerPro with Windows 10 and Office 2019",
-			ComputeType: BundleComputeType{Name: "POWERPRO"},
-			UserStorage: BundleStorage{Capacity: bundlePowerProUserGiB},
-			RootStorage: BundleStorage{Capacity: bundlePowerRootGiB},
-		},
+// advanceBundleCursor removes all bundles that sort before the decoded nextToken cursor.
+func advanceBundleCursor(bundles []*WorkspaceBundle, nextToken string) []*WorkspaceBundle {
+	if nextToken == "" {
+		return bundles
 	}
+
+	cursorBytes, err := base64.StdEncoding.DecodeString(nextToken)
+	if err != nil {
+		return bundles
+	}
+
+	cursor := string(cursorBytes)
+
+	for i, bun := range bundles {
+		if bun.BundleID >= cursor {
+			return bundles[i:]
+		}
+	}
+
+	return nil
 }
 
 // DescribeWorkspaceDirectories returns workspace directories matching the given filters.
 // Only directories that have been registered via RegisterWorkspaceDirectory are returned.
+// Results are sorted by DirectoryID and paginated (max 50 per page, matching AWS).
 func (b *InMemoryBackend) DescribeWorkspaceDirectories(
-	directoryIDs []string, _ string,
+	_ context.Context,
+	directoryIDs []string, nextToken string,
 ) ([]*WorkspaceDirectory, string, error) {
 	b.mu.RLock("DescribeWorkspaceDirectories")
 	defer b.mu.RUnlock()
@@ -785,7 +869,40 @@ func (b *InMemoryBackend) DescribeWorkspaceDirectories(
 		result = []*WorkspaceDirectory{}
 	}
 
-	return result, "", nil
+	result = advanceDirCursor(result, nextToken)
+
+	var newToken string
+
+	if len(result) > directoriesPageSize {
+		newToken = base64.StdEncoding.EncodeToString(
+			[]byte(result[directoriesPageSize].DirectoryID),
+		)
+		result = result[:directoriesPageSize]
+	}
+
+	return result, newToken, nil
+}
+
+// advanceDirCursor removes all directories that sort before the decoded nextToken cursor.
+func advanceDirCursor(dirs []*WorkspaceDirectory, nextToken string) []*WorkspaceDirectory {
+	if nextToken == "" {
+		return dirs
+	}
+
+	cursorBytes, err := base64.StdEncoding.DecodeString(nextToken)
+	if err != nil {
+		return dirs
+	}
+
+	cursor := string(cursorBytes)
+
+	for i, d := range dirs {
+		if d.DirectoryID >= cursor {
+			return dirs[i:]
+		}
+	}
+
+	return nil
 }
 
 // AccountID returns the account ID.

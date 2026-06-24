@@ -212,7 +212,9 @@ func (b *InMemoryBackend) DescribeIpGroups( //nolint:revive,staticcheck // exist
 }
 
 // DeleteIpGroup removes an IP group by ID.
-func (b *InMemoryBackend) DeleteIpGroup(groupID string) error { //nolint:revive,staticcheck // existing issue.
+func (b *InMemoryBackend) DeleteIpGroup(
+	groupID string,
+) error { //nolint:revive,staticcheck // existing issue.
 	b.mu.Lock("DeleteIpGroup")
 	defer b.mu.Unlock()
 
@@ -601,7 +603,9 @@ func (b *InMemoryBackend) ImportWorkspaceImage(
 }
 
 // ImportCustomWorkspaceImage imports a custom workspace image.
-func (b *InMemoryBackend) ImportCustomWorkspaceImage(name, description string) (*storedImage, error) {
+func (b *InMemoryBackend) ImportCustomWorkspaceImage(
+	name, description string,
+) (*storedImage, error) {
 	b.mu.Lock("ImportCustomWorkspaceImage")
 	defer b.mu.Unlock()
 
@@ -925,7 +929,9 @@ func (b *InMemoryBackend) DescribeAccount() storedAccountConfig {
 }
 
 // ModifyAccount updates account configuration.
-func (b *InMemoryBackend) ModifyAccount(dedicatedTenancyCidr, dedicatedTenancySupport string) error {
+func (b *InMemoryBackend) ModifyAccount(
+	dedicatedTenancyCidr, dedicatedTenancySupport string,
+) error {
 	b.mu.Lock("ModifyAccount")
 	defer b.mu.Unlock()
 
@@ -1021,7 +1027,9 @@ func (b *InMemoryBackend) DescribeConnectClientAddIns(
 }
 
 // UpdateConnectClientAddIn updates a Connect client add-in.
-func (b *InMemoryBackend) UpdateConnectClientAddIn(addInID, _ /*resourceId*/, name, url string) error {
+func (b *InMemoryBackend) UpdateConnectClientAddIn(
+	addInID, _ /*resourceId*/, name, url string,
+) error {
 	b.mu.Lock("UpdateConnectClientAddIn")
 	defer b.mu.Unlock()
 
@@ -1104,7 +1112,9 @@ func (b *InMemoryBackend) DeleteClientBranding(resourceID string, platforms []st
 // ---------------------------------------------------------------------------
 
 // DescribeClientProperties returns client properties for resource IDs.
-func (b *InMemoryBackend) DescribeClientProperties(resourceIDs []string) (map[string]storedClientProps, error) {
+func (b *InMemoryBackend) DescribeClientProperties(
+	resourceIDs []string,
+) (map[string]storedClientProps, error) {
 	b.mu.RLock("DescribeClientProperties")
 	defer b.mu.RUnlock()
 
@@ -1131,7 +1141,10 @@ func (b *InMemoryBackend) ModifyClientProperties(resourceID, reconnectEnabled st
 // ---------------------------------------------------------------------------
 
 // ModifyCertificateBasedAuthProperties stores certificate auth properties for a directory.
-func (b *InMemoryBackend) ModifyCertificateBasedAuthProperties(directoryID string, props map[string]string) error {
+func (b *InMemoryBackend) ModifyCertificateBasedAuthProperties(
+	directoryID string,
+	props map[string]string,
+) error {
 	b.mu.Lock("ModifyCertificateBasedAuthProperties")
 	defer b.mu.Unlock()
 
@@ -1157,7 +1170,10 @@ func (b *InMemoryBackend) ModifySamlProperties(directoryID string, props map[str
 }
 
 // ModifySelfservicePermissions stores self-service permissions for a directory.
-func (b *InMemoryBackend) ModifySelfservicePermissions(directoryID string, props map[string]string) error {
+func (b *InMemoryBackend) ModifySelfservicePermissions(
+	directoryID string,
+	props map[string]string,
+) error {
 	b.mu.Lock("ModifySelfservicePermissions")
 	defer b.mu.Unlock()
 
@@ -1170,7 +1186,10 @@ func (b *InMemoryBackend) ModifySelfservicePermissions(directoryID string, props
 }
 
 // ModifyStreamingProperties stores streaming properties for a directory.
-func (b *InMemoryBackend) ModifyStreamingProperties(directoryID string, props map[string]string) error {
+func (b *InMemoryBackend) ModifyStreamingProperties(
+	directoryID string,
+	props map[string]string,
+) error {
 	b.mu.Lock("ModifyStreamingProperties")
 	defer b.mu.Unlock()
 
@@ -1183,7 +1202,10 @@ func (b *InMemoryBackend) ModifyStreamingProperties(directoryID string, props ma
 }
 
 // ModifyWorkspaceAccessProperties stores workspace access properties for a directory.
-func (b *InMemoryBackend) ModifyWorkspaceAccessProperties(directoryID string, props map[string]string) error {
+func (b *InMemoryBackend) ModifyWorkspaceAccessProperties(
+	directoryID string,
+	props map[string]string,
+) error {
 	b.mu.Lock("ModifyWorkspaceAccessProperties")
 	defer b.mu.Unlock()
 
@@ -1196,7 +1218,10 @@ func (b *InMemoryBackend) ModifyWorkspaceAccessProperties(directoryID string, pr
 }
 
 // ModifyWorkspaceCreationProperties stores workspace creation properties for a directory.
-func (b *InMemoryBackend) ModifyWorkspaceCreationProperties(directoryID string, props map[string]string) error {
+func (b *InMemoryBackend) ModifyWorkspaceCreationProperties(
+	directoryID string,
+	props map[string]string,
+) error {
 	b.mu.Lock("ModifyWorkspaceCreationProperties")
 	defer b.mu.Unlock()
 
@@ -1213,7 +1238,9 @@ func (b *InMemoryBackend) ModifyWorkspaceCreationProperties(directoryID string, 
 // ---------------------------------------------------------------------------
 
 // CreateAccountLinkInvitation creates an account link invitation.
-func (b *InMemoryBackend) CreateAccountLinkInvitation(targetAccountID string) (*storedAccountLink, error) {
+func (b *InMemoryBackend) CreateAccountLinkInvitation(
+	targetAccountID string,
+) (*storedAccountLink, error) {
 	b.mu.Lock("CreateAccountLinkInvitation")
 	defer b.mu.Unlock()
 
@@ -1341,7 +1368,9 @@ func (b *InMemoryBackend) AssociateWorkspaceApplication(workspaceID, application
 }
 
 // DisassociateWorkspaceApplication removes an application association from a workspace.
-func (b *InMemoryBackend) DisassociateWorkspaceApplication(workspaceID, applicationID string) error {
+func (b *InMemoryBackend) DisassociateWorkspaceApplication(
+	workspaceID, applicationID string,
+) error {
 	b.mu.Lock("DisassociateWorkspaceApplication")
 	defer b.mu.Unlock()
 
@@ -1362,7 +1391,10 @@ func (b *InMemoryBackend) DeployWorkspaceApplications(
 }
 
 // DescribeWorkspaceAssociations returns application associations for a workspace.
-func (b *InMemoryBackend) DescribeWorkspaceAssociations(workspaceID string, _ []string) ([]map[string]string, error) {
+func (b *InMemoryBackend) DescribeWorkspaceAssociations(
+	workspaceID string,
+	_ []string,
+) ([]map[string]string, error) {
 	b.mu.RLock("DescribeWorkspaceAssociations")
 	defer b.mu.RUnlock()
 
