@@ -14,7 +14,7 @@ import (
 func newTestBackend(t *testing.T) *xray.InMemoryBackend {
 	t.Helper()
 
-	return xray.NewInMemoryBackend()
+	return xray.NewInMemoryBackend("000000000000", "us-east-1")
 }
 
 func TestInMemoryBackend_CreateGroup(t *testing.T) {

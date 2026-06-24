@@ -18,7 +18,7 @@ import (
 func TestRefinement2_DefaultSamplingRulePresent(t *testing.T) {
 	t.Parallel()
 
-	b := xray.NewInMemoryBackend()
+	b := xray.NewInMemoryBackend("000000000000", "us-east-1")
 	rules := b.GetSamplingRules()
 
 	var found bool
@@ -50,7 +50,7 @@ func TestRefinement2_DefaultSamplingRuleUndeletable(t *testing.T) {
 func TestRefinement2_DefaultSamplingRuleUndeletableBackend(t *testing.T) {
 	t.Parallel()
 
-	b := xray.NewInMemoryBackend()
+	b := xray.NewInMemoryBackend("000000000000", "us-east-1")
 	_, err := b.DeleteSamplingRule("Default")
 	require.Error(t, err, "DeleteSamplingRule(Default) must return an error")
 	assert.ErrorIs(t, err, xray.ErrDefaultRuleUndeletable)
@@ -60,7 +60,7 @@ func TestRefinement2_DefaultSamplingRuleUndeletableBackend(t *testing.T) {
 func TestRefinement2_DefaultSamplingRuleSortedLast(t *testing.T) {
 	t.Parallel()
 
-	b := xray.NewInMemoryBackend()
+	b := xray.NewInMemoryBackend("000000000000", "us-east-1")
 	_, err := b.CreateSamplingRule(xray.SamplingRule{RuleName: "my-rule", Priority: 100, FixedRate: 0.1})
 	require.NoError(t, err)
 
@@ -383,7 +383,7 @@ func TestRefinement2_GetSamplingTargets_EmptyClientID(t *testing.T) {
 func TestRefinement2_Janitor_CleansUpSegmentIndexes(t *testing.T) {
 	t.Parallel()
 
-	b := xray.NewInMemoryBackend()
+	b := xray.NewInMemoryBackend("000000000000", "us-east-1")
 
 	// Seed a trace with a parsed segment.
 	now := float64(time.Now().Unix())
@@ -438,7 +438,7 @@ func TestRefinement2_GetServiceGraph_MissingTimeReturnsError(t *testing.T) {
 func TestRefinement2_SamplingRules_SortedByPriority(t *testing.T) {
 	t.Parallel()
 
-	b := xray.NewInMemoryBackend()
+	b := xray.NewInMemoryBackend("000000000000", "us-east-1")
 
 	// Create rules with various priorities.
 	rules := []xray.SamplingRule{
@@ -469,7 +469,7 @@ func TestRefinement2_SamplingRules_SortedByPriority(t *testing.T) {
 func TestRefinement2_Persistence_RetrievedTracesPersistedInSnapshot(t *testing.T) {
 	t.Parallel()
 
-	b := xray.NewInMemoryBackend()
+	b := xray.NewInMemoryBackend("000000000000", "us-east-1")
 
 	// Seed a trace, then start retrieval.
 	now := float64(time.Now().Unix())
@@ -481,7 +481,7 @@ func TestRefinement2_Persistence_RetrievedTracesPersistedInSnapshot(t *testing.T
 	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
-	b2 := xray.NewInMemoryBackend()
+	b2 := xray.NewInMemoryBackend("000000000000", "us-east-1")
 	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	status, traces := b2.ListRetrievedTraces(token)

@@ -19,6 +19,13 @@ const (
 	defaultTagsPageSize         = 50
 )
 
+// segmentDoc is used to extract timing and ID from a raw segment JSON for the retrieval response.
+type segmentDoc struct {
+	ID        string  `json:"id"`
+	StartTime float64 `json:"start_time"`
+	EndTime   float64 `json:"end_time"`
+}
+
 // --- GetServiceGraph ---
 
 type getServiceGraphInput struct {
@@ -152,6 +159,42 @@ type listRetrievedTracesInput struct {
 	MaxResults     int    `json:"MaxResults"`
 }
 
+// buildTraceView converts a raw Trace into the map shape returned by ListRetrievedTraces.
+func buildTraceView(t *Trace) map[string]any {
+	segs := make([]any, 0, len(t.Segments))
+
+	var minStart, maxEnd float64
+
+	for _, rawSeg := range t.Segments {
+		var doc segmentDoc
+		if err := json.Unmarshal([]byte(rawSeg), &doc); err == nil {
+			segs = append(segs, map[string]any{
+				"Document": rawSeg,
+				"Id":       doc.ID,
+			})
+
+			if doc.StartTime > 0 && (minStart == 0 || doc.StartTime < minStart) {
+				minStart = doc.StartTime
+			}
+
+			if doc.EndTime > maxEnd {
+				maxEnd = doc.EndTime
+			}
+		}
+	}
+
+	duration := 0.0
+	if maxEnd > minStart && minStart > 0 {
+		duration = maxEnd - minStart
+	}
+
+	return map[string]any{
+		"Id":       t.TraceID,
+		"Duration": duration,
+		"Segments": segs,
+	}
+}
+
 func (h *Handler) handleListRetrievedTraces(_ context.Context, body []byte) ([]byte, error) {
 	var in listRetrievedTracesInput
 	if len(body) > 0 {
@@ -168,11 +211,7 @@ func (h *Handler) handleListRetrievedTraces(_ context.Context, body []byte) ([]b
 
 	traceViews := make([]map[string]any, 0, len(traces))
 	for _, t := range traces {
-		traceViews = append(traceViews, map[string]any{
-			"Id":       t.TraceID,
-			"Duration": 0,
-			"Segments": []any{},
-		})
+		traceViews = append(traceViews, buildTraceView(t))
 	}
 
 	pg := page.New(traceViews, in.NextToken, in.MaxResults, defaultTracesPageSize)

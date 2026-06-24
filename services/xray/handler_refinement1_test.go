@@ -45,7 +45,7 @@ func TestRefinement1_StorageBackendInterface(t *testing.T) {
 func TestRefinement1_HandlerOpsLen(t *testing.T) {
 	t.Parallel()
 
-	b := xray.NewInMemoryBackend()
+	b := xray.NewInMemoryBackend("000000000000", "us-east-1")
 	h := xray.NewHandler(b)
 	assert.Len(t, h.GetSupportedOperations(), 38)
 }
@@ -54,7 +54,7 @@ func TestRefinement1_HandlerOpsLen(t *testing.T) {
 func TestRefinement1_SDKOpsSorted(t *testing.T) {
 	t.Parallel()
 
-	b := xray.NewInMemoryBackend()
+	b := xray.NewInMemoryBackend("000000000000", "us-east-1")
 	h := xray.NewHandler(b)
 	ops := h.GetSupportedOperations()
 
@@ -77,7 +77,7 @@ func TestRefinement1_ErrValidation(t *testing.T) {
 func TestRefinement1_HandlerBackendIsInterface(t *testing.T) {
 	t.Parallel()
 
-	b := xray.NewInMemoryBackend()
+	b := xray.NewInMemoryBackend("000000000000", "us-east-1")
 	h := xray.NewHandler(b)
 
 	// Handler.Backend must be assignable to the interface.
@@ -88,7 +88,7 @@ func TestRefinement1_HandlerBackendIsInterface(t *testing.T) {
 func TestRefinement1_CountHelpers(t *testing.T) {
 	t.Parallel()
 
-	b := xray.NewInMemoryBackend()
+	b := xray.NewInMemoryBackend("000000000000", "us-east-1")
 
 	assert.Equal(t, 0, b.GroupCount())
 	// A fresh backend always has the Default sampling rule pre-seeded.
@@ -129,7 +129,7 @@ func TestRefinement1_PutEncryptionConfigValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := xray.NewInMemoryBackend()
+			b := xray.NewInMemoryBackend("000000000000", "us-east-1")
 			_, err := b.PutEncryptionConfig(tt.encType, tt.keyID)
 
 			if tt.wantErr {
@@ -175,7 +175,7 @@ func TestRefinement1_PutEncryptionConfigHandler(t *testing.T) {
 func TestRefinement1_ModifiedAtTracking(t *testing.T) {
 	t.Parallel()
 
-	b := xray.NewInMemoryBackend()
+	b := xray.NewInMemoryBackend("000000000000", "us-east-1")
 
 	r, err := b.CreateSamplingRule(xray.SamplingRule{RuleName: "track-rule", FixedRate: 0.1, Priority: 1})
 	require.NoError(t, err)
@@ -418,7 +418,7 @@ func TestRefinement1_PutResourcePolicyValidation(t *testing.T) {
 func TestRefinement1_SnapshotRestoreWithEncryptionConfig(t *testing.T) {
 	t.Parallel()
 
-	b := xray.NewInMemoryBackend()
+	b := xray.NewInMemoryBackend("000000000000", "us-east-1")
 
 	_, err := b.PutEncryptionConfig("KMS", "arn:aws:kms:us-east-1:123:key/abc")
 	require.NoError(t, err)
@@ -426,7 +426,7 @@ func TestRefinement1_SnapshotRestoreWithEncryptionConfig(t *testing.T) {
 	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
-	b2 := xray.NewInMemoryBackend()
+	b2 := xray.NewInMemoryBackend("000000000000", "us-east-1")
 	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	cfg := b2.GetEncryptionConfig()
@@ -438,13 +438,13 @@ func TestRefinement1_SnapshotRestoreWithEncryptionConfig(t *testing.T) {
 func TestRefinement1_SnapshotRestoreWithIndexingRules(t *testing.T) {
 	t.Parallel()
 
-	b := xray.NewInMemoryBackend()
+	b := xray.NewInMemoryBackend("000000000000", "us-east-1")
 
 	// Default backend has at least one indexing rule.
 	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
-	b2 := xray.NewInMemoryBackend()
+	b2 := xray.NewInMemoryBackend("000000000000", "us-east-1")
 	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	rules := b2.GetIndexingRules()
@@ -455,7 +455,7 @@ func TestRefinement1_SnapshotRestoreWithIndexingRules(t *testing.T) {
 func TestRefinement1_AddInsightEventInternal(t *testing.T) {
 	t.Parallel()
 
-	b := xray.NewInMemoryBackend()
+	b := xray.NewInMemoryBackend("000000000000", "us-east-1")
 	b.AddInsightInternal(xray.Insight{InsightID: "ins-1", State: "ACTIVE", StartTime: time.Now()})
 	b.AddInsightEventInternal(xray.InsightEvent{InsightID: "ins-1", Summary: "event-1", EventTime: time.Now()})
 
@@ -469,7 +469,7 @@ func TestRefinement1_AddInsightEventInternal(t *testing.T) {
 func TestRefinement1_AddTraceRetrievalInternal(t *testing.T) {
 	t.Parallel()
 
-	b := xray.NewInMemoryBackend()
+	b := xray.NewInMemoryBackend("000000000000", "us-east-1")
 	b.AddTraceRetrievalInternal(xray.TraceRetrieval{
 		RetrievalToken: "tok-1",
 		Status:         "RUNNING",
@@ -518,7 +518,7 @@ func TestRefinement1_GroupInsightsConfigurationRoundtrip(t *testing.T) {
 func TestRefinement1_HandlerOpsLenHelper(t *testing.T) {
 	t.Parallel()
 
-	b := xray.NewInMemoryBackend()
+	b := xray.NewInMemoryBackend("000000000000", "us-east-1")
 	h := xray.NewHandler(b)
 	assert.Equal(t, 38, h.HandlerOpsLen())
 }
@@ -527,14 +527,14 @@ func TestRefinement1_HandlerOpsLenHelper(t *testing.T) {
 func TestRefinement1_SnapshotRestorePreservesGroups(t *testing.T) {
 	t.Parallel()
 
-	b := xray.NewInMemoryBackend()
+	b := xray.NewInMemoryBackend("000000000000", "us-east-1")
 	_, err := b.CreateGroup("snap-group", `service("svc")`)
 	require.NoError(t, err)
 
 	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
-	b2 := xray.NewInMemoryBackend()
+	b2 := xray.NewInMemoryBackend("000000000000", "us-east-1")
 	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	g, err := b2.GetGroup("snap-group")
@@ -546,7 +546,7 @@ func TestRefinement1_SnapshotRestorePreservesGroups(t *testing.T) {
 func TestRefinement1_AddSamplingRuleInternal(t *testing.T) {
 	t.Parallel()
 
-	b := xray.NewInMemoryBackend()
+	b := xray.NewInMemoryBackend("000000000000", "us-east-1")
 	b.AddSamplingRuleInternal(xray.SamplingRule{RuleName: "seed-rule", FixedRate: 0.5, Priority: 5})
 
 	// Default rule + seed-rule = 2.
@@ -580,7 +580,7 @@ func TestRefinement1_GetInsightImpactGraphNotFound(t *testing.T) {
 func TestRefinement1_SamplingRuleModifiedAtInRecord(t *testing.T) {
 	t.Parallel()
 
-	b := xray.NewInMemoryBackend()
+	b := xray.NewInMemoryBackend("000000000000", "us-east-1")
 	_, err := b.CreateSamplingRule(xray.SamplingRule{RuleName: "time-rule", FixedRate: 0.1, Priority: 1})
 	require.NoError(t, err)
 
@@ -622,7 +622,7 @@ func TestRefinement1_SamplingRuleModifiedAtInRecord(t *testing.T) {
 func TestRefinement1_ResetClearsAllState(t *testing.T) {
 	t.Parallel()
 
-	b := xray.NewInMemoryBackend()
+	b := xray.NewInMemoryBackend("000000000000", "us-east-1")
 	_, err := b.CreateGroup("g1", "")
 	require.NoError(t, err)
 

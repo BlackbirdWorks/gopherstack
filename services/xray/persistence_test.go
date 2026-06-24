@@ -56,13 +56,13 @@ func TestXRay_PersistenceSnapshotRestore(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := xray.NewInMemoryBackend()
+			b := xray.NewInMemoryBackend("000000000000", "us-east-1")
 			tt.setup(b)
 
 			snap := b.Snapshot(t.Context())
 			require.NotNil(t, snap)
 
-			b2 := xray.NewInMemoryBackend()
+			b2 := xray.NewInMemoryBackend("000000000000", "us-east-1")
 			err := b2.Restore(t.Context(), snap)
 			require.NoError(t, err)
 
