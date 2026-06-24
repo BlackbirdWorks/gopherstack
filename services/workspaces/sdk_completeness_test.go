@@ -21,5 +21,10 @@ func TestSDKCompleteness(t *testing.T) {
 	// All 91 WorkSpaces operations are now implemented.
 	notImplemented := []string{}
 
-	sdkcheck.CheckCompleteness(t, &workspacessdk.Client{}, h.GetSupportedOperations(), notImplemented)
+	sdkcheck.CheckCompleteness(
+		t,
+		&workspacessdk.Client{},
+		h.GetSupportedOperations(),
+		notImplemented,
+	)
 }

@@ -48,7 +48,14 @@ func TestBatch2Accuracy_WorkspaceIDFormat(t *testing.T) {
 	assert.True(t, strings.HasPrefix(wsID, "ws-"), "WorkspaceId must start with ws-, got %q", wsID)
 
 	hexPart := strings.TrimPrefix(wsID, "ws-")
-	assert.Len(t, hexPart, 8, "WorkspaceId hex suffix must be 8 chars, got %d in %q", len(hexPart), wsID)
+	assert.Len(
+		t,
+		hexPart,
+		8,
+		"WorkspaceId hex suffix must be 8 chars, got %d in %q",
+		len(hexPart),
+		wsID,
+	)
 
 	for _, ch := range hexPart {
 		assert.True(t, (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f'),
@@ -69,7 +76,12 @@ func TestBatch2Accuracy_StopWorkspaces_TransitionsToStopped(t *testing.T) {
 	h := workspaces.NewHandler(backend)
 	wsID := createWorkspace(t, h)
 
-	assert.Equal(t, "AVAILABLE", workspaces.WorkspaceState(backend, wsID), "initial state must be AVAILABLE")
+	assert.Equal(
+		t,
+		"AVAILABLE",
+		workspaces.WorkspaceState(backend, wsID),
+		"initial state must be AVAILABLE",
+	)
 
 	rec := doTargetRequest(t, h, "StopWorkspaces", map[string]any{
 		"StopWorkspaceRequests": []map[string]any{{"WorkspaceId": wsID}},
@@ -337,7 +349,10 @@ func TestBatch2Accuracy_CreateTags_VisibleInDescribeWorkspaces(t *testing.T) {
 
 	doTargetRequest(t, h, "CreateTags", map[string]any{
 		"ResourceId": wsID,
-		"Tags":       []map[string]any{{"Key": "env", "Value": "prod"}, {"Key": "team", "Value": "platform"}},
+		"Tags": []map[string]any{
+			{"Key": "env", "Value": "prod"},
+			{"Key": "team", "Value": "platform"},
+		},
 	})
 
 	rec := doTargetRequest(t, h, "DescribeWorkspaces", map[string]any{
@@ -370,7 +385,10 @@ func TestBatch2Accuracy_DeleteTags_RemovedFromDescribeWorkspaces(t *testing.T) {
 
 	doTargetRequest(t, h, "CreateTags", map[string]any{
 		"ResourceId": wsID,
-		"Tags":       []map[string]any{{"Key": "env", "Value": "prod"}, {"Key": "keep", "Value": "yes"}},
+		"Tags": []map[string]any{
+			{"Key": "env", "Value": "prod"},
+			{"Key": "keep", "Value": "yes"},
+		},
 	})
 
 	doTargetRequest(t, h, "DeleteTags", map[string]any{
@@ -432,6 +450,7 @@ func TestBatch2Accuracy_CreateWorkspaces_Tags_VisibleInDescribeTags(t *testing.T
 	t.Parallel()
 
 	h := newTestHandler(t)
+	doTargetRequest(t, h, "RegisterWorkspaceDirectory", map[string]any{"DirectoryId": "d-abc123"})
 
 	rec := doTargetRequest(t, h, "CreateWorkspaces", map[string]any{
 		"Workspaces": []map[string]any{

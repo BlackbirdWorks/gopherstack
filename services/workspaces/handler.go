@@ -102,27 +102,32 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	case errors.Is(err, awserr.ErrInvalidParameter):
 		return c.JSON(http.StatusBadRequest, errBody(errInvalidParameterValues, err.Error()))
 	default:
-		return c.JSON(http.StatusInternalServerError, errBody("InternalServerException", err.Error()))
+		return c.JSON(
+			http.StatusInternalServerError,
+			errBody("InternalServerException", err.Error()),
+		)
 	}
 }
 
 func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 	base := map[string]service.JSONOpFunc{
-		"CreateWorkspaces":                   service.WrapOp(h.handleCreateWorkspaces),
-		"DescribeWorkspaces":                 service.WrapOp(h.handleDescribeWorkspaces),
-		"DescribeWorkspacesConnectionStatus": service.WrapOp(h.handleDescribeWorkspacesConnectionStatus),
-		"ModifyWorkspaceProperties":          service.WrapOp(h.handleModifyWorkspaceProperties),
-		"ModifyWorkspaceState":               service.WrapOp(h.handleModifyWorkspaceState),
-		"RebootWorkspaces":                   service.WrapOp(h.handleRebootWorkspaces),
-		"RebuildWorkspaces":                  service.WrapOp(h.handleRebuildWorkspaces),
-		"StartWorkspaces":                    service.WrapOp(h.handleStartWorkspaces),
-		"StopWorkspaces":                     service.WrapOp(h.handleStopWorkspaces),
-		"TerminateWorkspaces":                service.WrapOp(h.handleTerminateWorkspaces),
-		"CreateTags":                         service.WrapOp(h.handleCreateTags),
-		"DeleteTags":                         service.WrapOp(h.handleDeleteTags),
-		"DescribeTags":                       service.WrapOp(h.handleDescribeTags),
-		"DescribeWorkspaceBundles":           service.WrapOp(h.handleDescribeWorkspaceBundles),
-		"DescribeWorkspaceDirectories":       service.WrapOp(h.handleDescribeWorkspaceDirectories),
+		"CreateWorkspaces":   service.WrapOp(h.handleCreateWorkspaces),
+		"DescribeWorkspaces": service.WrapOp(h.handleDescribeWorkspaces),
+		"DescribeWorkspacesConnectionStatus": service.WrapOp(
+			h.handleDescribeWorkspacesConnectionStatus,
+		),
+		"ModifyWorkspaceProperties":    service.WrapOp(h.handleModifyWorkspaceProperties),
+		"ModifyWorkspaceState":         service.WrapOp(h.handleModifyWorkspaceState),
+		"RebootWorkspaces":             service.WrapOp(h.handleRebootWorkspaces),
+		"RebuildWorkspaces":            service.WrapOp(h.handleRebuildWorkspaces),
+		"StartWorkspaces":              service.WrapOp(h.handleStartWorkspaces),
+		"StopWorkspaces":               service.WrapOp(h.handleStopWorkspaces),
+		"TerminateWorkspaces":          service.WrapOp(h.handleTerminateWorkspaces),
+		"CreateTags":                   service.WrapOp(h.handleCreateTags),
+		"DeleteTags":                   service.WrapOp(h.handleDeleteTags),
+		"DescribeTags":                 service.WrapOp(h.handleDescribeTags),
+		"DescribeWorkspaceBundles":     service.WrapOp(h.handleDescribeWorkspaceBundles),
+		"DescribeWorkspaceDirectories": service.WrapOp(h.handleDescribeWorkspaceDirectories),
 	}
 
 	maps.Copy(base, h.buildAppendixAOps())
@@ -189,101 +194,116 @@ type pendingWorkspace struct {
 	RootVolumeEncryptionEnabled bool                     `json:"RootVolumeEncryptionEnabled,omitempty"`
 }
 
-func (h *Handler) handleCreateWorkspaces(
-	_ context.Context,
-	req *createWorkspacesInput,
-) (*createWorkspacesOutput, error) {
+func validateCreateWorkspacesInput(req *createWorkspacesInput) error {
 	if len(req.Workspaces) == 0 {
-		return nil, awserr.Newf(errInvalidParameterValues, awserr.ErrInvalidParameter,
+		return awserr.Newf(errInvalidParameterValues, awserr.ErrInvalidParameter,
 			"Workspaces list must not be empty")
 	}
 
 	if len(req.Workspaces) > maxWorkspacesPerCreate {
-		return nil, awserr.Newf(errInvalidParameterValues, awserr.ErrInvalidParameter,
+		return awserr.Newf(errInvalidParameterValues, awserr.ErrInvalidParameter,
 			"too many workspaces: maximum is %d per request", maxWorkspacesPerCreate)
 	}
 
-	// Validate required fields for all workspace specs upfront.
 	for i, spec := range req.Workspaces {
-		if spec.UserName == "" {
-			return nil, awserr.Newf(errInvalidParameterValues, awserr.ErrInvalidParameter,
+		switch {
+		case spec.UserName == "":
+			return awserr.Newf(errInvalidParameterValues, awserr.ErrInvalidParameter,
 				"workspace[%d]: UserName is required", i)
-		}
-
-		if spec.DirectoryID == "" {
-			return nil, awserr.Newf(errInvalidParameterValues, awserr.ErrInvalidParameter,
+		case spec.DirectoryID == "":
+			return awserr.Newf(errInvalidParameterValues, awserr.ErrInvalidParameter,
 				"workspace[%d]: DirectoryId is required", i)
-		}
-
-		if spec.BundleID == "" {
-			return nil, awserr.Newf(errInvalidParameterValues, awserr.ErrInvalidParameter,
+		case spec.BundleID == "":
+			return awserr.Newf(errInvalidParameterValues, awserr.ErrInvalidParameter,
 				"workspace[%d]: BundleId is required", i)
+		case len(spec.Tags) > maxTagsPerResource:
+			return awserr.Newf(
+				errInvalidParameterValues,
+				awserr.ErrInvalidParameter,
+				"workspace[%d]: too many tags (%d); maximum is %d",
+				i,
+				len(spec.Tags),
+				maxTagsPerResource,
+			)
 		}
+	}
 
-		if len(spec.Tags) > maxTagsPerResource {
-			return nil, awserr.Newf(errInvalidParameterValues, awserr.ErrInvalidParameter,
-				"workspace[%d]: too many tags (%d); maximum is %d", i, len(spec.Tags), maxTagsPerResource)
+	return nil
+}
+
+func specToCreationSpec(spec createWorkspaceSpec) *WorkspaceCreationSpec {
+	tags := make(map[string]string, len(spec.Tags))
+	for _, t := range spec.Tags {
+		tags[t.Key] = t.Value
+	}
+
+	var props *WorkspaceProperties
+	if spec.WorkspaceProperties != nil {
+		props = &WorkspaceProperties{
+			ComputeTypeName:                     spec.WorkspaceProperties.ComputeTypeName,
+			RunningMode:                         spec.WorkspaceProperties.RunningMode,
+			RootVolumeSizeGib:                   spec.WorkspaceProperties.RootVolumeSizeGib,
+			RunningModeAutoStopTimeoutInMinutes: spec.WorkspaceProperties.RunningModeAutoStopTimeoutInMinutes,
+			UserVolumeSizeGib:                   spec.WorkspaceProperties.UserVolumeSizeGib,
 		}
+	}
+
+	return &WorkspaceCreationSpec{
+		UserName:                    spec.UserName,
+		DirectoryID:                 spec.DirectoryID,
+		BundleID:                    spec.BundleID,
+		SubnetID:                    spec.SubnetID,
+		VolumeEncryptionKey:         spec.VolumeEncryptionKey,
+		UserVolumeEncryptionEnabled: spec.UserVolumeEncryptionEnabled,
+		RootVolumeEncryptionEnabled: spec.RootVolumeEncryptionEnabled,
+		Tags:                        tags,
+		Properties:                  props,
+	}
+}
+
+func wsToPending(ws *Workspace) pendingWorkspace {
+	pw := pendingWorkspace{
+		WorkspaceID:                 ws.WorkspaceID,
+		DirectoryID:                 ws.DirectoryID,
+		UserName:                    ws.UserName,
+		BundleID:                    ws.BundleID,
+		SubnetID:                    ws.SubnetID,
+		VolumeEncryptionKey:         ws.VolumeEncryptionKey,
+		UserVolumeEncryptionEnabled: ws.UserVolumeEncryptionEnabled,
+		RootVolumeEncryptionEnabled: ws.RootVolumeEncryptionEnabled,
+		State:                       ws.State,
+	}
+
+	if ws.Properties != nil {
+		pw.WorkspaceProperties = &workspacePropertiesResp{
+			ComputeTypeName:                     ws.Properties.ComputeTypeName,
+			RunningMode:                         ws.Properties.RunningMode,
+			RootVolumeSizeGib:                   ws.Properties.RootVolumeSizeGib,
+			RunningModeAutoStopTimeoutInMinutes: ws.Properties.RunningModeAutoStopTimeoutInMinutes,
+			UserVolumeSizeGib:                   ws.Properties.UserVolumeSizeGib,
+		}
+	}
+
+	return pw
+}
+
+func (h *Handler) handleCreateWorkspaces(
+	ctx context.Context,
+	req *createWorkspacesInput,
+) (*createWorkspacesOutput, error) {
+	if err := validateCreateWorkspacesInput(req); err != nil {
+		return nil, err
 	}
 
 	pending := make([]pendingWorkspace, 0, len(req.Workspaces))
 
 	for _, spec := range req.Workspaces {
-		tags := make(map[string]string, len(spec.Tags))
-		for _, t := range spec.Tags {
-			tags[t.Key] = t.Value
-		}
-
-		var props *WorkspaceProperties
-
-		if spec.WorkspaceProperties != nil {
-			props = &WorkspaceProperties{
-				ComputeTypeName:                     spec.WorkspaceProperties.ComputeTypeName,
-				RunningMode:                         spec.WorkspaceProperties.RunningMode,
-				RootVolumeSizeGib:                   spec.WorkspaceProperties.RootVolumeSizeGib,
-				RunningModeAutoStopTimeoutInMinutes: spec.WorkspaceProperties.RunningModeAutoStopTimeoutInMinutes,
-				UserVolumeSizeGib:                   spec.WorkspaceProperties.UserVolumeSizeGib,
-			}
-		}
-
-		ws, err := h.Backend.CreateWorkspace(&WorkspaceCreationSpec{
-			UserName:                    spec.UserName,
-			DirectoryID:                 spec.DirectoryID,
-			BundleID:                    spec.BundleID,
-			SubnetID:                    spec.SubnetID,
-			VolumeEncryptionKey:         spec.VolumeEncryptionKey,
-			UserVolumeEncryptionEnabled: spec.UserVolumeEncryptionEnabled,
-			RootVolumeEncryptionEnabled: spec.RootVolumeEncryptionEnabled,
-			Tags:                        tags,
-			Properties:                  props,
-		})
+		ws, err := h.Backend.CreateWorkspace(ctx, specToCreationSpec(spec))
 		if err != nil {
 			return nil, err
 		}
 
-		pw := pendingWorkspace{
-			WorkspaceID:                 ws.WorkspaceID,
-			DirectoryID:                 ws.DirectoryID,
-			UserName:                    ws.UserName,
-			BundleID:                    ws.BundleID,
-			SubnetID:                    ws.SubnetID,
-			VolumeEncryptionKey:         ws.VolumeEncryptionKey,
-			UserVolumeEncryptionEnabled: ws.UserVolumeEncryptionEnabled,
-			RootVolumeEncryptionEnabled: ws.RootVolumeEncryptionEnabled,
-			State:                       ws.State,
-		}
-
-		if ws.Properties != nil {
-			pw.WorkspaceProperties = &workspacePropertiesResp{
-				ComputeTypeName:                     ws.Properties.ComputeTypeName,
-				RunningMode:                         ws.Properties.RunningMode,
-				RootVolumeSizeGib:                   ws.Properties.RootVolumeSizeGib,
-				RunningModeAutoStopTimeoutInMinutes: ws.Properties.RunningModeAutoStopTimeoutInMinutes,
-				UserVolumeSizeGib:                   ws.Properties.UserVolumeSizeGib,
-			}
-		}
-
-		pending = append(pending, pw)
+		pending = append(pending, wsToPending(ws))
 	}
 
 	return &createWorkspacesOutput{
@@ -326,7 +346,7 @@ type workspaceResp struct {
 }
 
 func (h *Handler) handleDescribeWorkspaces(
-	_ context.Context,
+	ctx context.Context,
 	req *describeWorkspacesInput,
 ) (*describeWorkspacesOutput, error) {
 	var directoryIDs, userIDs, bundleIDs []string
@@ -343,7 +363,7 @@ func (h *Handler) handleDescribeWorkspaces(
 	}
 
 	wsList, nextToken, err := h.Backend.DescribeWorkspaces(
-		req.WorkspaceIDs, directoryIDs, userIDs, bundleIDs, req.Limit, req.NextToken,
+		ctx, req.WorkspaceIDs, directoryIDs, userIDs, bundleIDs, req.Limit, req.NextToken,
 	)
 	if err != nil {
 		return nil, err
@@ -412,7 +432,10 @@ func (h *Handler) handleDescribeWorkspacesConnectionStatus(
 
 	items := make([]connStatusResp, 0, len(statuses))
 	for _, s := range statuses {
-		items = append(items, connStatusResp{WorkspaceID: s.WorkspaceID, ConnectionState: s.ConnectionState})
+		items = append(
+			items,
+			connStatusResp{WorkspaceID: s.WorkspaceID, ConnectionState: s.ConnectionState},
+		)
 	}
 
 	return &describeConnectionStatusOutput{WorkspacesConnectionStatus: items}, nil
@@ -433,7 +456,10 @@ type modifyPropertiesInput struct {
 
 type emptyOutput struct{}
 
-func (h *Handler) handleModifyWorkspaceProperties(_ context.Context, req *modifyPropertiesInput) (*emptyOutput, error) {
+func (h *Handler) handleModifyWorkspaceProperties(
+	_ context.Context,
+	req *modifyPropertiesInput,
+) (*emptyOutput, error) {
 	props := WorkspaceProperties{
 		ComputeTypeName:                     req.WorkspaceProperties.ComputeTypeName,
 		RunningMode:                         req.WorkspaceProperties.RunningMode,
@@ -452,7 +478,10 @@ type modifyStateInput struct {
 	WorkspaceState string `json:"WorkspaceState"`
 }
 
-func (h *Handler) handleModifyWorkspaceState(_ context.Context, req *modifyStateInput) (*emptyOutput, error) {
+func (h *Handler) handleModifyWorkspaceState(
+	_ context.Context,
+	req *modifyStateInput,
+) (*emptyOutput, error) {
 	return &emptyOutput{}, h.Backend.ModifyWorkspaceState(req.WorkspaceID, req.WorkspaceState)
 }
 
@@ -483,7 +512,10 @@ type rebuildInput struct {
 	RebuildWorkspaceRequests []workspaceIDItem `json:"RebuildWorkspaceRequests"`
 }
 
-func (h *Handler) handleRebuildWorkspaces(_ context.Context, req *rebuildInput) (*bulkOutput, error) {
+func (h *Handler) handleRebuildWorkspaces(
+	_ context.Context,
+	req *rebuildInput,
+) (*bulkOutput, error) {
 	failures, err := h.Backend.RebuildWorkspaces(extractIDs(req.RebuildWorkspaceRequests))
 	if err != nil {
 		return nil, err
@@ -522,7 +554,10 @@ type terminateInput struct {
 	TerminateWorkspaceRequests []workspaceIDItem `json:"TerminateWorkspaceRequests"`
 }
 
-func (h *Handler) handleTerminateWorkspaces(_ context.Context, req *terminateInput) (*bulkOutput, error) {
+func (h *Handler) handleTerminateWorkspaces(
+	_ context.Context,
+	req *terminateInput,
+) (*bulkOutput, error) {
 	failures, err := h.Backend.TerminateWorkspaces(extractIDs(req.TerminateWorkspaceRequests))
 	if err != nil {
 		return nil, err
@@ -569,7 +604,10 @@ type describeTagsOutput struct {
 	TagList []tagItem `json:"TagList"`
 }
 
-func (h *Handler) handleDescribeTags(_ context.Context, req *describeTagsInput) (*describeTagsOutput, error) {
+func (h *Handler) handleDescribeTags(
+	_ context.Context,
+	req *describeTagsInput,
+) (*describeTagsOutput, error) {
 	tags, err := h.Backend.DescribeTags(req.ResourceID)
 	if err != nil {
 		return nil, err
@@ -616,10 +654,15 @@ type bundleResp struct {
 }
 
 func (h *Handler) handleDescribeWorkspaceBundles(
-	_ context.Context,
+	ctx context.Context,
 	req *describeBundlesInput,
 ) (*describeBundlesOutput, error) {
-	bundles, nextToken, err := h.Backend.DescribeWorkspaceBundles(req.BundleIDs, req.Owner, req.NextToken)
+	bundles, nextToken, err := h.Backend.DescribeWorkspaceBundles(
+		ctx,
+		req.BundleIDs,
+		req.Owner,
+		req.NextToken,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -663,9 +706,13 @@ type dirResp struct {
 }
 
 func (h *Handler) handleDescribeWorkspaceDirectories(
-	_ context.Context, req *describeDirectoriesInput,
+	ctx context.Context, req *describeDirectoriesInput,
 ) (*describeDirectoriesOutput, error) {
-	dirs, nextToken, err := h.Backend.DescribeWorkspaceDirectories(req.DirectoryIDs, req.NextToken)
+	dirs, nextToken, err := h.Backend.DescribeWorkspaceDirectories(
+		ctx,
+		req.DirectoryIDs,
+		req.NextToken,
+	)
 	if err != nil {
 		return nil, err
 	}
