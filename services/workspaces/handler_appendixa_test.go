@@ -432,7 +432,9 @@ func TestWorkspaceImageCRUD(t *testing.T) { //nolint:paralleltest // existing is
 
 func TestWorkspaceImageDescribeAndPermissions(
 	t *testing.T,
-) { //nolint:paralleltest // existing issue.
+) {
+	t.Parallel()
+
 	h, _ := newTestHandlerWithBackend(t)
 
 	// Create an image

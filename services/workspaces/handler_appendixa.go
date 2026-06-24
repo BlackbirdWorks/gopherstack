@@ -206,7 +206,7 @@ func (h *Handler) handleDeleteIpGroup( //nolint:revive,staticcheck // existing i
 	_ context.Context,
 	req *deleteIpGroupInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, h.Backend.DeleteIpGroup(req.GroupId)
+	return &emptyOutput{}, h.Backend.DeleteIPGroup(req.GroupId)
 }
 
 type authorizeIpRulesInput struct { //nolint:revive,staticcheck // existing issue.
