@@ -20,8 +20,9 @@ type WorkspaceCreationSpec struct {
 
 // StorageBackend is the interface for WorkSpaces storage operations.
 type StorageBackend interface {
-	CreateWorkspace(spec *WorkspaceCreationSpec) (*Workspace, error)
+	CreateWorkspace(ctx context.Context, spec *WorkspaceCreationSpec) (*Workspace, error)
 	DescribeWorkspaces(
+		ctx context.Context,
 		workspaceIDs, directoryID, userID, bundleID []string,
 		limit int32, nextToken string,
 	) ([]*Workspace, string, error)
@@ -38,13 +39,30 @@ type StorageBackend interface {
 	DeleteTags(resourceID string, tagKeys []string) error
 	DescribeTags(resourceID string) (map[string]string, error)
 
-	DescribeWorkspaceBundles(bundleIDs []string, owner string, nextToken string) ([]*WorkspaceBundle, string, error)
-	DescribeWorkspaceDirectories(directoryIDs []string, nextToken string) ([]*WorkspaceDirectory, string, error)
+	DescribeWorkspaceBundles(
+		ctx context.Context,
+		bundleIDs []string,
+		owner string,
+		nextToken string,
+	) ([]*WorkspaceBundle, string, error)
+	DescribeWorkspaceDirectories(
+		ctx context.Context,
+		directoryIDs []string,
+		nextToken string,
+	) ([]*WorkspaceDirectory, string, error)
 
 	// IP Groups
-	CreateIpGroup(groupName, groupDesc string, userRules []ipRuleItem, tags map[string]string) (string, error)
-	DescribeIpGroups(groupIDs []string, maxResults int32, nextToken string) ([]*storedIpGroup, string, error)
-	DeleteIpGroup(groupID string) error
+	CreateIpGroup(
+		groupName, groupDesc string,
+		userRules []ipRuleItem,
+		tags map[string]string,
+	) (string, error)
+	DescribeIpGroups(
+		groupIDs []string,
+		maxResults int32,
+		nextToken string,
+	) ([]*storedIpGroup, string, error)
+	DeleteIPGroup(groupID string) error
 	AuthorizeIpRules(groupID string, rules []ipRuleItem) error
 	RevokeIpRules(groupID string, ipRules []string) error
 	UpdateRulesOfIpGroup(groupID string, rules []ipRuleItem) error
@@ -73,12 +91,24 @@ type StorageBackend interface {
 	UpdateWorkspaceBundle(bundleID, imageID string) error
 
 	// Images
-	CopyWorkspaceImage(name, sourceImageID, sourceRegion, description string, tags map[string]string) (string, error)
-	CreateWorkspaceImage(name, description, workspaceID string, tags map[string]string) (*storedImage, error)
+	CopyWorkspaceImage(
+		name, sourceImageID, sourceRegion, description string,
+		tags map[string]string,
+	) (string, error)
+	CreateWorkspaceImage(
+		name, description, workspaceID string,
+		tags map[string]string,
+	) (*storedImage, error)
 	DeleteWorkspaceImage(imageID string) error
-	ImportWorkspaceImage(ec2ImageID, name, description string, tags map[string]string) (string, error)
+	ImportWorkspaceImage(
+		ec2ImageID, name, description string,
+		tags map[string]string,
+	) (string, error)
 	ImportCustomWorkspaceImage(name, description string) (*storedImage, error)
-	CreateUpdatedWorkspaceImage(sourceImageID, name, description string, tags map[string]string) (string, error)
+	CreateUpdatedWorkspaceImage(
+		sourceImageID, name, description string,
+		tags map[string]string,
+	) (string, error)
 	DescribeWorkspaceImages(
 		imageIDs []string,
 		imageType string,
@@ -94,7 +124,11 @@ type StorageBackend interface {
 		poolName, bundleID, directoryID, description string,
 		tags map[string]string,
 	) (*storedPool, error)
-	DescribeWorkspacesPools(poolIDs []string, limit int32, nextToken string) ([]*storedPool, string, error)
+	DescribeWorkspacesPools(
+		poolIDs []string,
+		limit int32,
+		nextToken string,
+	) ([]*storedPool, string, error)
 	StartWorkspacesPool(poolID string) error
 	StopWorkspacesPool(poolID string) error
 	TerminateWorkspacesPool(poolID string) error
@@ -148,17 +182,28 @@ type StorageBackend interface {
 	RejectAccountLinkInvitation(linkID string) (*storedAccountLink, error)
 	DeleteAccountLinkInvitation(linkID string) (*storedAccountLink, error)
 	GetAccountLink(linkID string) (*storedAccountLink, error)
-	ListAccountLinks(statusFilter string, maxResults int32, nextToken string) ([]*storedAccountLink, string, error)
+	ListAccountLinks(
+		statusFilter string,
+		maxResults int32,
+		nextToken string,
+	) ([]*storedAccountLink, string, error)
 
 	// Applications
 	AssociateWorkspaceApplication(workspaceID, applicationID string) error
 	DisassociateWorkspaceApplication(workspaceID, applicationID string) error
 	DeployWorkspaceApplications(workspaceID string, force bool) ([]map[string]string, error)
-	DescribeWorkspaceAssociations(workspaceID string, associatedResourceTypes []string) ([]map[string]string, error)
+	DescribeWorkspaceAssociations(
+		workspaceID string,
+		associatedResourceTypes []string,
+	) ([]map[string]string, error)
 	DescribeApplicationAssociations(
 		applicationID string, associatedResourceTypes []string, maxResults int32, nextToken string,
 	) ([]map[string]string, string, error)
-	DescribeApplications(appIDs []string, maxResults int32, nextToken string) ([]*storedApplication, string, error)
+	DescribeApplications(
+		appIDs []string,
+		maxResults int32,
+		nextToken string,
+	) ([]*storedApplication, string, error)
 
 	// Workspace-level ops
 	MigrateWorkspace(sourceWorkspaceID, bundleID string) (sourceID, targetID string, err error)

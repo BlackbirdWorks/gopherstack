@@ -50,6 +50,11 @@ import (
 func createWorkspaceWithSpec(t *testing.T, h *workspaces.Handler, userID, dirID string) string {
 	t.Helper()
 
+	// Ensure the directory is registered; ignore duplicate-registration errors.
+	doTargetRequest(t, h, "RegisterWorkspaceDirectory", map[string]any{
+		"DirectoryId": dirID,
+	})
+
 	rec := doTargetRequest(t, h, "CreateWorkspaces", map[string]any{
 		"Workspaces": []map[string]any{
 			{
@@ -300,13 +305,20 @@ func TestParity3_CreateWorkspaces_TooMany_Returns400(t *testing.T) {
 	rec := doTargetRequest(t, h, "CreateWorkspaces", map[string]any{
 		"Workspaces": specs,
 	})
-	assert.Equal(t, http.StatusBadRequest, rec.Code, "more than 25 workspaces per call must return 400")
+	assert.Equal(
+		t,
+		http.StatusBadRequest,
+		rec.Code,
+		"more than 25 workspaces per call must return 400",
+	)
 }
 
 func TestParity3_CreateWorkspaces_MaxAllowed_Returns200(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
+
+	doTargetRequest(t, h, "RegisterWorkspaceDirectory", map[string]any{"DirectoryId": "d-abc"})
 
 	specs := make([]map[string]any, 25)
 	for i := range specs {
@@ -320,7 +332,12 @@ func TestParity3_CreateWorkspaces_MaxAllowed_Returns200(t *testing.T) {
 	rec := doTargetRequest(t, h, "CreateWorkspaces", map[string]any{
 		"Workspaces": specs,
 	})
-	assert.Equal(t, http.StatusOK, rec.Code, "exactly 25 workspaces per call is the max and must succeed")
+	assert.Equal(
+		t,
+		http.StatusOK,
+		rec.Code,
+		"exactly 25 workspaces per call is the max and must succeed",
+	)
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
@@ -419,6 +436,8 @@ func TestParity3_CreateWorkspaces_WithProperties_Stored(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
+	doTargetRequest(t, h, "RegisterWorkspaceDirectory", map[string]any{"DirectoryId": "d-abc"})
+
 	rec := doTargetRequest(t, h, "CreateWorkspaces", map[string]any{
 		"Workspaces": []map[string]any{
 			{
@@ -445,7 +464,11 @@ func TestParity3_CreateWorkspaces_WithProperties_Stored(t *testing.T) {
 	wsID := ws["WorkspaceId"].(string)
 
 	propsRaw, hasProps := ws["WorkspaceProperties"]
-	assert.True(t, hasProps, "PendingRequests must include WorkspaceProperties when set at creation")
+	assert.True(
+		t,
+		hasProps,
+		"PendingRequests must include WorkspaceProperties when set at creation",
+	)
 	require.NotNil(t, propsRaw)
 
 	props := propsRaw.(map[string]any)
@@ -465,7 +488,11 @@ func TestParity3_CreateWorkspaces_WithProperties_Stored(t *testing.T) {
 
 	descWs := wsList[0].(map[string]any)
 	descPropsRaw, hasDescProps := descWs["WorkspaceProperties"]
-	assert.True(t, hasDescProps, "DescribeWorkspaces must reflect creation-time WorkspaceProperties")
+	assert.True(
+		t,
+		hasDescProps,
+		"DescribeWorkspaces must reflect creation-time WorkspaceProperties",
+	)
 
 	descProps := descPropsRaw.(map[string]any)
 	assert.Equal(t, "AUTO_STOP", descProps["RunningMode"])
@@ -479,6 +506,8 @@ func TestParity3_CreateWorkspaces_SubnetId_Propagated(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
+	doTargetRequest(t, h, "RegisterWorkspaceDirectory", map[string]any{"DirectoryId": "d-abc"})
+
 	rec := doTargetRequest(t, h, "CreateWorkspaces", map[string]any{
 		"Workspaces": []map[string]any{
 			{
@@ -663,7 +692,13 @@ func TestParity3_DescribeWorkspaceBundles_ComputeTypeAndStorage(t *testing.T) {
 		if hasUserStorage {
 			us := usRaw.(map[string]any)
 			capacity, _ := us["Capacity"].(float64)
-			assert.Greater(t, capacity, float64(0), "bundle %s UserStorage.Capacity must be > 0", bundleID)
+			assert.Greater(
+				t,
+				capacity,
+				float64(0),
+				"bundle %s UserStorage.Capacity must be > 0",
+				bundleID,
+			)
 		}
 
 		rsRaw, hasRootStorage := bun["RootStorage"]
@@ -672,7 +707,13 @@ func TestParity3_DescribeWorkspaceBundles_ComputeTypeAndStorage(t *testing.T) {
 		if hasRootStorage {
 			rs := rsRaw.(map[string]any)
 			capacity, _ := rs["Capacity"].(float64)
-			assert.Greater(t, capacity, float64(0), "bundle %s RootStorage.Capacity must be > 0", bundleID)
+			assert.Greater(
+				t,
+				capacity,
+				float64(0),
+				"bundle %s RootStorage.Capacity must be > 0",
+				bundleID,
+			)
 		}
 	}
 }
@@ -1091,6 +1132,8 @@ func TestParity3_CreateWorkspaces_VolumeEncryption_Propagated(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
+	doTargetRequest(t, h, "RegisterWorkspaceDirectory", map[string]any{"DirectoryId": "d-abc"})
+
 	rec := doTargetRequest(t, h, "CreateWorkspaces", map[string]any{
 		"Workspaces": []map[string]any{
 			{

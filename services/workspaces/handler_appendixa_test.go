@@ -429,7 +429,12 @@ func TestWorkspaceImageCRUD(t *testing.T) { //nolint:paralleltest // existing is
 		})
 	}
 }
-func TestWorkspaceImageDescribeAndPermissions(t *testing.T) { //nolint:paralleltest // existing issue.
+
+func TestWorkspaceImageDescribeAndPermissions(
+	t *testing.T,
+) {
+	t.Parallel()
+
 	h, _ := newTestHandlerWithBackend(t)
 
 	// Create an image
@@ -720,7 +725,12 @@ func TestConnectClientAddInCRUD(t *testing.T) { //nolint:paralleltest // existin
 		resourceID string
 		url        string
 	}{
-		{name: "basic addon", addInName: "MyAddIn", resourceID: "d-123", url: "https://example.com"},
+		{
+			name:       "basic addon",
+			addInName:  "MyAddIn",
+			resourceID: "d-123",
+			url:        "https://example.com",
+		},
 		{name: "second addon", addInName: "AddIn2", resourceID: "d-456", url: "https://other.com"},
 	}
 
@@ -1119,6 +1129,8 @@ func TestAccountLinkLifecycle(t *testing.T) { //nolint:paralleltest // existing 
 func TestApplicationAssociations(t *testing.T) { //nolint:paralleltest // existing issue.
 	h, _ := newTestHandlerWithBackend(t)
 
+	doTargetRequest(t, h, "RegisterWorkspaceDirectory", map[string]any{"DirectoryId": "d-test"})
+
 	// Create a workspace first
 	rec := doTargetRequest(t, h, "CreateWorkspaces", map[string]any{
 		"Workspaces": []map[string]any{
@@ -1253,6 +1265,8 @@ func TestApplicationAssociations(t *testing.T) { //nolint:paralleltest // existi
 func TestWorkspaceLevelOps(t *testing.T) { //nolint:paralleltest // existing issue.
 	h, _ := newTestHandlerWithBackend(t)
 
+	doTargetRequest(t, h, "RegisterWorkspaceDirectory", map[string]any{"DirectoryId": "d-test"})
+
 	// Create a workspace
 	rec := doTargetRequest(t, h, "CreateWorkspaces", map[string]any{
 		"Workspaces": []map[string]any{
@@ -1303,6 +1317,8 @@ func TestWorkspaceLevelOps(t *testing.T) { //nolint:paralleltest // existing iss
 }
 func TestMigrateWorkspace(t *testing.T) { //nolint:paralleltest // existing issue.
 	h, _ := newTestHandlerWithBackend(t)
+
+	doTargetRequest(t, h, "RegisterWorkspaceDirectory", map[string]any{"DirectoryId": "d-test"})
 
 	// Create workspace
 	rec := doTargetRequest(t, h, "CreateWorkspaces", map[string]any{
