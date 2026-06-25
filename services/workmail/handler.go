@@ -310,8 +310,8 @@ type createOrgResp struct {
 	OrganizationID string `json:"OrganizationId"`
 }
 
-func (h *Handler) handleCreateOrganization(_ context.Context, req *createOrgReq) (*createOrgResp, error) {
-	org, err := h.Backend.CreateOrganization(req.Alias, req.Domains)
+func (h *Handler) handleCreateOrganization(ctx context.Context, req *createOrgReq) (*createOrgResp, error) {
+	org, err := h.Backend.CreateOrganization(ctx, req.Alias, req.Domains)
 	if err != nil {
 		return nil, err
 	}
@@ -389,8 +389,8 @@ type listOrgsResp struct {
 	OrganizationSummaries []orgSummaryResp `json:"OrganizationSummaries"`
 }
 
-func (h *Handler) handleListOrganizations(_ context.Context, req *listOrgsReq) (*listOrgsResp, error) {
-	orgs, next, err := h.Backend.ListOrganizations(req.MaxResults, req.NextToken)
+func (h *Handler) handleListOrganizations(ctx context.Context, req *listOrgsReq) (*listOrgsResp, error) {
+	orgs, next, err := h.Backend.ListOrganizations(ctx, req.MaxResults, req.NextToken)
 	if err != nil {
 		return nil, err
 	}
@@ -1796,7 +1796,7 @@ func (h *Handler) handleListAvailabilityConfigurations(
 			DateCreated:  c.DateCreated.Unix(),
 			DateModified: c.DateModified.Unix(),
 		}
-		if c.ProviderType == "EWS" { //nolint:goconst // existing issue.
+		if c.ProviderType == providerEWS {
 			raw, _ := json.Marshal(map[string]string{
 				"EwsEndpoint": c.EwsEndpoint,
 				"EwsUsername": c.EwsUsername,
